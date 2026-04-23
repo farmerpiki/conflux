@@ -691,7 +691,6 @@ TEST_CASE(
 	"[json][nullable]") {
 	auto doc = parse("42");
 	REQUIRE(doc.has_value());
-	Nullable<int64_t> const n;
 	auto res = decode<Nullable<int64_t>>(doc->root());
 	REQUIRE(res.has_value());
 	CHECK(res->has_value());

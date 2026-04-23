@@ -60,32 +60,46 @@ RingConfig load_ring_config(
 	if (path.empty()) {
 		return rc;
 	}
-	ifstream f{path};
+	ifstream const f{path};
 	if (!f) {
 		throw runtime_error{format("cannot open config {}", path)};
 	}
 	stringstream ss;
 	ss << f.rdbuf();
-	auto parsed = json::parse(ss.str());
+	auto parsed = conflux::json::parse(ss.str());
 	if (!parsed) {
 		throw runtime_error{format("json parse failed: {}", path)};
 	}
 	auto const &root = parsed->root();
 	rc.label = filesystem::path{path}.stem().string();
-	rc.entries = static_cast<unsigned>(root.get_or<int64_t>("ring_entries", 256));
-
-	auto const flags_obj = root["io_uring_flags"];
-	auto set = [&](string_view key, uint32_t bit) {
-		if (flags_obj.get_or<bool>(key, false)) {
-			rc.flags |= bit;
+	if (auto obj = root.as_object(); obj) {
+		if (auto entries_node = obj->find_member("ring_entries")) {
+			if (auto num = entries_node->as_number(); num) {
+				if (auto v = num->to_i64(); v) {
+					rc.entries = static_cast<unsigned>(*v);
+				}
+			}
 		}
-	};
-	set("single_issuer", IORING_SETUP_SINGLE_ISSUER);
-	set("defer_taskrun", IORING_SETUP_DEFER_TASKRUN);
-	set("sqpoll", IORING_SETUP_SQPOLL);
-	set("coop_taskrun", IORING_SETUP_COOP_TASKRUN);
-	set("taskrun_flag", IORING_SETUP_TASKRUN_FLAG);
-	set("submit_all", IORING_SETUP_SUBMIT_ALL);
+		auto maybe_flags = obj->find_member("io_uring_flags");
+		auto set = [&](string_view key, uint32_t bit) {
+			if (!maybe_flags) {
+				return;
+			}
+			if (auto fobj = maybe_flags->as_object(); fobj) {
+				if (auto flag_node = fobj->find_member(key)) {
+					if (auto b = flag_node->as_bool(); b && *b) {
+						rc.flags |= bit;
+					}
+				}
+			}
+		};
+		set("single_issuer", IORING_SETUP_SINGLE_ISSUER);
+		set("defer_taskrun", IORING_SETUP_DEFER_TASKRUN);
+		set("sqpoll", IORING_SETUP_SQPOLL);
+		set("coop_taskrun", IORING_SETUP_COOP_TASKRUN);
+		set("taskrun_flag", IORING_SETUP_TASKRUN_FLAG);
+		set("submit_all", IORING_SETUP_SUBMIT_ALL);
+	}
 	return rc;
 }
 
@@ -126,14 +140,14 @@ Config parse_args(
 	span<char *> args) {
 	Config cfg;
 	for (size_t i = 1; i < args.size(); ++i) {
-		string_view a = args[i];
+		string_view const a = args[i];
 		if (a == "--iterations" && i + 1 < args.size()) {
 			cfg.iterations = stoull(args[++i]);
 		} else if (a == "--warmup" && i + 1 < args.size()) {
 			cfg.warmup = stoull(args[++i]);
 		} else if (a == "--parallel" && i + 1 < args.size()) {
 			cfg.parallelism.clear();
-			string_view list = args[++i];
+			string_view const list = args[++i];
 			size_t pos = 0;
 			while (pos < list.size()) {
 				size_t const comma = list.find(',', pos);
