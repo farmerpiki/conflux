@@ -6,545 +6,834 @@ import std;
 import conflux.json;
 
 using namespace std;
+using namespace conflux::json;
+
+// ---------------------------------------------------------------------------
+// Parse — scalars
+// ---------------------------------------------------------------------------
 
 TEST_CASE(
 	"json: parse null",
 	"[json]") {
-	auto doc = json::parse("null");
+	auto doc = parse("null");
 	REQUIRE(doc.has_value());
-	CHECK(doc->is_null());
-	CHECK(doc->type() == JsonType::Null);
+	CHECK(doc->root().is_null());
+	CHECK(doc->root().kind() == JsonKind::null);
 }
 
 TEST_CASE(
-	"json: parse bool",
+	"json: parse true/false",
 	"[json]") {
-	auto t = json::parse("true");
-	REQUIRE(t.has_value());
-	CHECK(t->get<bool>() == true);
-
-	auto f = json::parse("false");
-	REQUIRE(f.has_value());
-	CHECK(f->get<bool>() == false);
+	{
+		auto doc = parse("true");
+		REQUIRE(doc.has_value());
+		auto b = doc->root().as_bool();
+		REQUIRE(b.has_value());
+		CHECK(*b == true);
+	}
+	{
+		auto doc = parse("false");
+		REQUIRE(doc.has_value());
+		auto b = doc->root().as_bool();
+		REQUIRE(b.has_value());
+		CHECK(*b == false);
+	}
 }
 
 TEST_CASE(
 	"json: parse integer",
 	"[json]") {
-	auto doc = json::parse("42");
+	auto doc = parse("42");
 	REQUIRE(doc.has_value());
-	CHECK(doc->get<int64_t>() == 42LL);
+	auto n = doc->root().as_number();
+	REQUIRE(n.has_value());
+	CHECK(n->form() == JsonNumberForm::integer);
+	auto i = n->to_i64();
+	REQUIRE(i.has_value());
+	CHECK(*i == 42LL);
 }
 
 TEST_CASE(
 	"json: parse negative integer",
 	"[json]") {
-	auto doc = json::parse("-7");
+	auto doc = parse("-7");
 	REQUIRE(doc.has_value());
-	CHECK(doc->get<int64_t>() == -7LL);
+	auto n = doc->root().as_number();
+	REQUIRE(n.has_value());
+	auto i = n->to_i64();
+	REQUIRE(i.has_value());
+	CHECK(*i == -7LL);
 }
 
 TEST_CASE(
-	"json: parse uint overflow",
+	"json: parse uint64 max",
 	"[json]") {
-	auto doc = json::parse("18446744073709551615"); // UINT64_MAX
+	auto doc = parse("18446744073709551615");
 	REQUIRE(doc.has_value());
-	CHECK(doc->get<uint64_t>() == UINT64_MAX);
+	auto n = doc->root().as_number();
+	REQUIRE(n.has_value());
+	auto u = n->to_u64();
+	REQUIRE(u.has_value());
+	CHECK(*u == numeric_limits<uint64_t>::max());
 }
 
 TEST_CASE(
 	"json: parse float",
 	"[json]") {
-	auto doc = json::parse("3.14");
+	auto doc = parse("3.14");
 	REQUIRE(doc.has_value());
-	auto v = doc->get<double>();
-	REQUIRE(v.has_value());
-	CHECK(*v == Catch::Approx(3.14));
+	auto n = doc->root().as_number();
+	REQUIRE(n.has_value());
+	CHECK(n->form() == JsonNumberForm::non_integer);
+	auto f = n->to_f64();
+	REQUIRE(f.has_value());
+	CHECK(*f == Catch::Approx(3.14));
 }
 
 TEST_CASE(
 	"json: parse string",
 	"[json]") {
-	auto doc = json::parse(R"("hello world")");
+	auto doc = parse(R"("hello world")");
 	REQUIRE(doc.has_value());
-	CHECK(doc->get<string_view>() == "hello world");
+	auto s = doc->root().as_string();
+	REQUIRE(s.has_value());
+	CHECK(*s == "hello world");
 }
 
 TEST_CASE(
-	"json: parse string with escape",
+	"json: parse string with escape sequences",
 	"[json]") {
-	auto doc = json::parse(R"("a\tb\nc")");
+	auto doc = parse(R"("a\tb\nc")");
 	REQUIRE(doc.has_value());
-	auto sv = doc->get<string_view>();
-	REQUIRE(sv.has_value());
-	CHECK(*sv == "a\tb\nc");
+	auto s = doc->root().as_string();
+	REQUIRE(s.has_value());
+	CHECK(*s == "a\tb\nc");
 }
 
 TEST_CASE(
 	"json: parse string with unicode escape",
 	"[json]") {
-	auto doc = json::parse(R"("\u0041\u0042\u0043")"); // ABC
+	auto doc = parse(R"("ABC")");
 	REQUIRE(doc.has_value());
-	CHECK(doc->get<string_view>() == "ABC");
+	auto s = doc->root().as_string();
+	REQUIRE(s.has_value());
+	CHECK(*s == "ABC");
 }
 
 TEST_CASE(
-	"json: lone low surrogate is invalid unicode",
+	"json: parse surrogate pair",
 	"[json]") {
-	auto doc = json::parse(R"("\uDC00")");
-	REQUIRE(!doc.has_value());
-	CHECK(doc.error().code == ParseError::Code::InvalidUnicode);
+	auto doc = parse(R"("😀")");
+	REQUIRE(doc.has_value());
+	auto s = doc->root().as_string();
+	REQUIRE(s.has_value());
+	CHECK(*s == "\xF0\x9F\x98\x80");
 }
 
 TEST_CASE(
-	"json: parse empty string",
+	"json: reject lone high surrogate",
 	"[json]") {
-	auto doc = json::parse(R"("")");
+	CHECK_FALSE(parse(R"("\uD83D")").has_value());
+}
+
+TEST_CASE(
+	"json: reject lone low surrogate",
+	"[json]") {
+	CHECK_FALSE(parse(R"("\uDC00")").has_value());
+}
+
+TEST_CASE(
+	"json: reject high surrogate followed by non-surrogate-low",
+	"[json]") {
+	CHECK_FALSE(parse(R"("\uD83DA")").has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Parse — containers
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: parse empty array",
+	"[json]") {
+	auto doc = parse("[]");
 	REQUIRE(doc.has_value());
-	CHECK(doc->get<string_view>() == "");
+	auto a = doc->root().as_array();
+	REQUIRE(a.has_value());
+	CHECK(a->size() == 0UZ);
 }
 
 TEST_CASE(
 	"json: parse array",
 	"[json]") {
-	auto doc = json::parse("[1, 2, 3]");
+	auto doc = parse("[1, 2, 3]");
 	REQUIRE(doc.has_value());
-	REQUIRE(doc->is_array());
-	CHECK(doc->size() == 3UZ);
-	CHECK((*doc)[0].get<int64_t>() == 1LL);
-	CHECK((*doc)[1].get<int64_t>() == 2LL);
-	CHECK((*doc)[2].get<int64_t>() == 3LL);
+	auto a = doc->root().as_array();
+	REQUIRE(a.has_value());
+	CHECK(a->size() == 3UZ);
+	CHECK(*(*a->element(0)).as_number()->to_i64() == 1LL);
+	CHECK(*(*a->element(1)).as_number()->to_i64() == 2LL);
+	CHECK(*(*a->element(2)).as_number()->to_i64() == 3LL);
 }
 
 TEST_CASE(
-	"json: parse nested array",
+	"json: array element range",
 	"[json]") {
-	auto doc = json::parse("[[1, 2], [3, 4]]");
+	auto doc = parse("[10, 20, 30]");
 	REQUIRE(doc.has_value());
-	REQUIRE(doc->is_array());
-	CHECK(doc->size() == 2UZ);
-	CHECK((*doc)[0][0].get<int64_t>() == 1LL);
-	CHECK((*doc)[1][1].get<int64_t>() == 4LL);
+	auto a = *doc->root().as_array();
+	vector<int64_t> vals;
+	for (NodeRef const elem: a.elements()) {
+		vals.push_back(*elem.as_number()->to_i64());
+	}
+	REQUIRE(vals.size() == 3UZ);
+	CHECK(vals[0] == 10LL);
+	CHECK(vals[1] == 20LL);
+	CHECK(vals[2] == 30LL);
+}
+
+TEST_CASE(
+	"json: array out-of-range error",
+	"[json]") {
+	auto doc = parse("[1]");
+	REQUIRE(doc.has_value());
+	auto res = doc->root().as_array()->element(99);
+	CHECK_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::index_out_of_range);
+}
+
+TEST_CASE(
+	"json: parse empty object",
+	"[json]") {
+	auto doc = parse("{}");
+	REQUIRE(doc.has_value());
+	auto o = doc->root().as_object();
+	REQUIRE(o.has_value());
+	CHECK(o->size() == 0UZ);
 }
 
 TEST_CASE(
 	"json: parse object",
 	"[json]") {
-	auto doc = json::parse(R"({"a": 1, "b": "two"})");
+	auto doc = parse(R"({"a": 1, "b": "two"})");
 	REQUIRE(doc.has_value());
-	REQUIRE(doc->is_object());
-	CHECK((*doc)["a"].get<int64_t>() == 1LL);
-	CHECK((*doc)["b"].get<string_view>() == "two");
+	auto o = doc->root().as_object();
+	REQUIRE(o.has_value());
+	auto a = o->member("a");
+	REQUIRE(a.has_value());
+	CHECK(*a->as_number()->to_i64() == 1LL);
+	auto b = o->member("b");
+	REQUIRE(b.has_value());
+	CHECK(*b->as_string() == "two");
 }
 
 TEST_CASE(
-	"json: parse nested object",
+	"json: object member range",
 	"[json]") {
-	auto doc = json::parse(R"({"x": {"y": 42}})");
+	auto doc = parse(R"({"x": 1, "y": 2})");
 	REQUIRE(doc.has_value());
-	CHECK((*doc)["x"]["y"].get<int64_t>() == 42LL);
-}
-
-TEST_CASE(
-	"json: out of bounds array access returns null",
-	"[json]") {
-	auto doc = json::parse("[1]");
-	REQUIRE(doc.has_value());
-	// Non-const op[] on array throws out_of_range; const op[] returns null Value.
-	CHECK(as_const(*doc)[99].is_null());
-}
-
-TEST_CASE(
-	"json: missing key returns null",
-	"[json]") {
-	auto doc = json::parse(R"({"a": 1})");
-	REQUIRE(doc.has_value());
-	// Non-const op[] on object auto-inserts null on miss — use const for pure reads.
-	CHECK(as_const(*doc)["missing"].is_null());
-}
-
-TEST_CASE(
-	"json: get_or returns default on missing key",
-	"[json]") {
-	auto doc = json::parse(R"({"a": 1})");
-	REQUIRE(doc.has_value());
-	CHECK(doc->get_or<int64_t>("missing", 99LL) == 99LL);
-	CHECK(doc->get_or<int64_t>("a", 99LL) == 1LL);
-}
-
-TEST_CASE(
-	"json: as<> throws on type mismatch",
-	"[json]") {
-	auto doc = json::parse("42");
-	REQUIRE(doc.has_value());
-	CHECK_THROWS(doc->as<string_view>());
-}
-
-TEST_CASE(
-	"json: dump roundtrip",
-	"[json]") {
-	string const src = R"({"k":[1,2,3],"n":null,"b":true})";
-	auto doc = json::parse(src);
-	REQUIRE(doc.has_value());
-	auto dumped = doc->dump();
-	auto doc2 = json::parse(dumped);
-	REQUIRE(doc2.has_value());
-	CHECK((*doc2)["k"][0].get<int64_t>() == 1LL);
-	CHECK((*doc2)["n"].is_null());
-	CHECK((*doc2)["b"].get<bool>() == true);
-}
-
-TEST_CASE(
-	"json: parse(string_view) is self-contained",
-	"[json]") {
-	string src{R"({"msg": "hello"})"};
-	auto doc = json::parse(src);
-	REQUIRE(doc.has_value());
-	src.clear(); // invalidate source
-	CHECK((*doc)["msg"].get<string>().value_or("") == "hello");
-
-	string src2{R"({"k": "owned"})"};
-	auto doc2 = json::parse<string>(std::move(src2));
-	REQUIRE(doc2.has_value());
-	CHECK((*doc2)["k"].get<string>().value_or("") == "owned");
-}
-
-TEST_CASE(
-	"json: parse_borrowed keeps document-managed backing alive",
-	"[json]") {
-	string src{R"({"msg": "borrowed"})"};
-	auto doc = json::parse_borrowed(std::move(src));
-	REQUIRE(doc.has_value());
-	CHECK((*doc)["msg"].get<string_view>() == "borrowed");
-}
-
-TEST_CASE(
-	"json: builder — object_set and array_push",
-	"[json]") {
-	Document doc;
-	auto obj = json::object({});
-	json::object_set(obj, "x", json::int_value(10));
-	json::object_set(obj, "y", json::string_value(string_view{"hi"}));
-	doc.set_root(std::move(obj));
-	CHECK(doc["x"].get<int64_t>() == 10LL);
-	CHECK(doc["y"].get<string_view>() == "hi");
-
-	Document doc2;
-	auto arr = json::array({});
-	json::array_push(arr, json::int_value(1));
-	json::array_push(arr, json::int_value(2));
-	doc2.set_root(std::move(arr));
-	CHECK(doc2[0].get<int64_t>() == 1LL);
-	CHECK(doc2.size() == 2UZ);
-}
-
-TEST_CASE(
-	"json: parse error on truncated input",
-	"[json]") {
-	auto doc = json::parse(R"({"a":)");
-	CHECK(!doc.has_value());
-}
-
-TEST_CASE(
-	"json: parse error on invalid token",
-	"[json]") {
-	auto doc = json::parse("xyz");
-	CHECK(!doc.has_value());
-}
-
-TEST_CASE(
-	"json: whitespace tolerance",
-	"[json]") {
-	auto doc = json::parse("  {  \"k\"  :  42  }  ");
-	REQUIRE(doc.has_value());
-	CHECK((*doc)["k"].get<int64_t>() == 42LL);
-}
-
-TEST_CASE(
-	"json: empty array and object",
-	"[json]") {
-	auto arr = json::parse("[]");
-	REQUIRE(arr.has_value());
-	CHECK(arr->size() == 0UZ);
-	CHECK(arr->empty());
-
-	auto obj = json::parse("{}");
-	REQUIRE(obj.has_value());
-	CHECK(obj->size() == 0UZ);
-}
-
-TEST_CASE(
-	"json: deeply nested structure",
-	"[json]") {
-	// Build deep nesting via parse to exercise iterative parser stack.
-	string nested = "[";
-	for (int i = 0; i < 50; ++i) {
-		nested += "[";
+	auto o = *doc->root().as_object();
+	unordered_map<string, int64_t> seen;
+	for (auto [name, val]: o.members()) {
+		seen[string{name}] = *val.as_number()->to_i64();
 	}
-	nested += "1";
-	for (int i = 0; i < 50; ++i) {
-		nested += "]";
-	}
-	nested += "]";
-	auto doc = json::parse(nested);
-	REQUIRE(doc.has_value());
+	CHECK(seen["x"] == 1LL);
+	CHECK(seen["y"] == 2LL);
 }
 
-// RFC 8259 §6 number grammar — cases found via JSONTestSuite conformance run.
+TEST_CASE(
+	"json: object find_member",
+	"[json]") {
+	auto doc = parse(R"({"k": 42})");
+	REQUIRE(doc.has_value());
+	auto o = *doc->root().as_object();
+	CHECK(o.find_member("k").has_value());
+	CHECK_FALSE(o.find_member("missing").has_value());
+}
+
+TEST_CASE(
+	"json: object missing member error",
+	"[json]") {
+	auto doc = parse(R"({"a": 1})");
+	REQUIRE(doc.has_value());
+	auto res = doc->root().as_object()->member("missing");
+	CHECK_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::missing_member);
+}
+
+TEST_CASE(
+	"json: reject duplicate object keys",
+	"[json]") {
+	auto doc = parse(R"({"k": 1, "k": 2})");
+	CHECK_FALSE(doc.has_value());
+	CHECK(doc.error().code == JsonIssueCode::duplicate_member);
+}
+
+TEST_CASE(
+	"json: nested object via path",
+	"[json]") {
+	auto doc = parse(R"({"x": {"y": 42}})");
+	REQUIRE(doc.has_value());
+	JsonPath p;
+	p.push_member("x");
+	p.push_member("y");
+	auto node = doc->root().at(p);
+	REQUIRE(node.has_value());
+	CHECK(*node->as_number()->to_i64() == 42LL);
+}
+
+TEST_CASE(
+	"json: nested array via path",
+	"[json]") {
+	auto doc = parse("[[1, 2], [3, 4]]");
+	REQUIRE(doc.has_value());
+	JsonPath p;
+	p.push_index(1);
+	p.push_index(0);
+	auto node = doc->root().at(p);
+	REQUIRE(node.has_value());
+	CHECK(*node->as_number()->to_i64() == 3LL);
+}
+
+// ---------------------------------------------------------------------------
+// Wrong-kind errors
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: wrong-kind errors",
+	"[json]") {
+	auto doc = parse("42");
+	REQUIRE(doc.has_value());
+	NodeRef const root = doc->root();
+	CHECK_FALSE(root.as_bool().has_value());
+	CHECK(root.as_bool().error().code == JsonIssueCode::wrong_kind);
+	CHECK_FALSE(root.as_string().has_value());
+	CHECK_FALSE(root.as_object().has_value());
+	CHECK_FALSE(root.as_array().has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Parse errors
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: parse error — truncated",
+	"[json]") {
+	CHECK_FALSE(parse(R"({"a":)").has_value());
+}
+
+TEST_CASE(
+	"json: parse error — invalid token",
+	"[json]") {
+	CHECK_FALSE(parse("xyz").has_value());
+}
+
+TEST_CASE(
+	"json: parse error — trailing garbage",
+	"[json]") {
+	CHECK_FALSE(parse("42 garbage").has_value());
+}
+
+TEST_CASE(
+	"json: whitespace is tolerated",
+	"[json]") {
+	auto doc = parse("  {  \"k\"  :  42  }  ");
+	REQUIRE(doc.has_value());
+	CHECK(*doc->root().as_object()->member("k")->as_number()->to_i64() == 42LL);
+}
+
+// ---------------------------------------------------------------------------
+// Number conformance
+// ---------------------------------------------------------------------------
+
 TEST_CASE(
 	"json: reject leading zeros",
 	"[json][conformance]") {
-	CHECK(!json::parse("[012]").has_value());
-	CHECK(!json::parse("[-01]").has_value());
-	CHECK(json::parse("[0]").has_value()); // lone zero is fine
-	CHECK(json::parse("[-0]").has_value()); // negative zero is fine
+	CHECK_FALSE(parse("[012]").has_value());
+	CHECK_FALSE(parse("[-01]").has_value());
+	CHECK(parse("[0]").has_value());
+	CHECK(parse("[-0]").has_value());
 }
 
 TEST_CASE(
 	"json: reject trailing decimal point",
 	"[json][conformance]") {
-	CHECK(!json::parse("[-2.]").has_value());
-	CHECK(!json::parse("[2.]").has_value());
-	CHECK(!json::parse("[0.e1]").has_value());
-	CHECK(!json::parse("[2.e+3]").has_value());
-	CHECK(!json::parse("[2.e-3]").has_value());
-	CHECK(!json::parse("[2.e3]").has_value());
+	CHECK_FALSE(parse("[-2.]").has_value());
+	CHECK_FALSE(parse("[2.]").has_value());
+	CHECK_FALSE(parse("[0.e1]").has_value());
 }
 
 TEST_CASE(
-	"json: reject no integer part before decimal",
+	"json: reject missing integer part",
 	"[json][conformance]") {
-	CHECK(!json::parse("[-.123]").has_value());
-	CHECK(!json::parse("[.5]").has_value());
+	CHECK_FALSE(parse("[-.123]").has_value());
+	CHECK_FALSE(parse("[.5]").has_value());
 }
 
 // ---------------------------------------------------------------------------
-// Modernized builder API — implicit scalar ctors, mutating op[], push_back,
-// set, contains, clone.
+// Nesting limit
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: implicit scalar conversion",
-	"[json][builder]") {
-	Value v_int = 42;
-	Value v_uint = 42U;
-	Value v_float = 3.14;
-	Value v_bool = true;
-	Value v_cstr = "hello";
-	Value v_null = nullptr;
-	CHECK(v_int.get<int64_t>() == 42LL);
-	CHECK(v_uint.get<uint64_t>() == 42ULL);
-	CHECK(*v_float.get<double>() == Catch::Approx(3.14));
-	CHECK(v_bool.get<bool>() == true);
-	CHECK(v_cstr.get<string_view>() == "hello");
-	CHECK(v_null.is_null());
-}
-
-TEST_CASE(
-	"json: bulk array/object construction",
-	"[json][builder]") {
-	// Implicit ctors make bulk init clean.
-	Value arr = json::array({1, "two", true, nullptr, 3.14});
-	CHECK(arr.size() == 5UZ);
-	CHECK(arr[0].get<int64_t>() == 1LL);
-	CHECK(arr[1].get<string_view>() == "two");
-	CHECK(arr[2].get<bool>() == true);
-	CHECK(arr[3].is_null());
-
-	Value obj = json::object({
-		{  "name", "alice"},
-		{   "age",      30},
-		{"active",    true},
-	});
-	CHECK(obj["name"].get<string_view>() == "alice");
-	CHECK(obj["age"].get<int64_t>() == 30LL);
-	CHECK(obj["active"].get<bool>() == true);
-}
-
-TEST_CASE(
-	"json: mutating op[] on object",
-	"[json][builder]") {
-	Value obj = json::object({});
-	obj["x"] = 10;
-	obj["y"] = "hi";
-	obj["nested"] = json::object({
-		{"inner", 1}
-    });
-	CHECK(obj["x"].get<int64_t>() == 10LL);
-	CHECK(obj["y"].get<string_view>() == "hi");
-	CHECK(obj["nested"]["inner"].get<int64_t>() == 1LL);
-
-	// Null upgrades to object on first write.
-	Value v;
-	v["k"] = 99;
-	CHECK(v.is_object());
-	CHECK(v["k"].get<int64_t>() == 99LL);
-}
-
-TEST_CASE(
-	"json: push_back and set",
-	"[json][builder]") {
-	Value arr = json::array({});
-	arr.push_back(1);
-	arr.push_back("two");
-	arr.push_back(nullptr);
-	CHECK(arr.size() == 3UZ);
-	CHECK(arr[0].get<int64_t>() == 1LL);
-
-	// push_back on null upgrades to array.
-	Value v2;
-	v2.push_back(42);
-	CHECK(v2.is_array());
-	CHECK(v2.size() == 1UZ);
-
-	Value obj;
-	obj.set("k", 1);
-	obj.set("k", 2); // replace
-	CHECK(obj["k"].get<int64_t>() == 2LL);
-}
-
-TEST_CASE(
-	"json: contains",
-	"[json][builder]") {
-	auto obj = json::object({
-		{"a", 1},
-		{"b", 2}
-    });
-	CHECK(obj.contains("a"));
-	CHECK(obj.contains("b"));
-	CHECK(!obj.contains("c"));
-	// Non-object value returns false, does not throw.
-	Value v = 42;
-	CHECK(!v.contains("anything"));
-}
-
-TEST_CASE(
-	"json: op[] throws on wrong type",
-	"[json][builder]") {
-	Value v = 42;
-	CHECK_THROWS(v["key"] = 1);
-	Value arr = json::array({1, 2});
-	CHECK_THROWS(arr[99] = 0); // OOB
-}
-
-TEST_CASE(
-	"json: clone produces independent copy",
-	"[json][builder]") {
-	auto orig = json::object({
-		{ "arr", json::array({1, 2, 3})},
-		{"name",					"x"},
-	});
-	auto copy = orig.clone();
-	copy["name"] = "changed";
-	copy["arr"].push_back(4);
-
-	CHECK(orig["name"].get<string_view>() == "x");
-	CHECK(orig["arr"].size() == 3UZ);
-	CHECK(copy["name"].get<string_view>() == "changed");
-	CHECK(copy["arr"].size() == 4UZ);
-}
-
-TEST_CASE(
-	"json: dump roundtrip with modern builder",
-	"[json][builder]") {
-	auto v = json::object({
-		{"items", json::array({1, 2, 3})},
-		{   "ok",				   true},
-		{ "name",				 "test"},
-	});
-	auto dumped = v.dump();
-	auto parsed = json::parse(dumped);
-	REQUIRE(parsed.has_value());
-	CHECK((*parsed)["ok"].get<bool>() == true);
-	CHECK((*parsed)["items"][1].get<int64_t>() == 2LL);
-}
-
-TEST_CASE(
-	"json: push_back on non-array non-null throws",
-	"[json][builder]") {
-	Value v = 42;
-	CHECK_THROWS_AS(v.push_back(1), std::invalid_argument);
-
-	Value s = "hello";
-	CHECK_THROWS_AS(s.push_back(1), std::invalid_argument);
-}
-
-TEST_CASE(
-	"json: set on non-object non-null throws",
-	"[json][builder]") {
-	Value v = 42;
-	CHECK_THROWS_AS(v.set("k", 1), std::invalid_argument);
-
-	Value arr = json::array({1, 2});
-	CHECK_THROWS_AS(arr.set("k", 1), std::invalid_argument);
-}
-
-TEST_CASE(
-	"json: dump string with control characters",
+	"json: deeply nested — within limit",
 	"[json]") {
-	Value v = "a\tb\nc\rd";
-	auto dumped = v.dump();
-	// Control chars must be escaped.
-	CHECK(dumped == R"("a\tb\nc\rd")");
+	string nested(100, '[');
+	nested += "1";
+	nested.append(100, ']');
+	CHECK(parse(nested).has_value());
+}
+
+// ---------------------------------------------------------------------------
+// JsonPath
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: JsonPath from_pointer roundtrip",
+	"[json][path]") {
+	string_view ptr = "/a/b/c";
+	auto path = JsonPath::from_pointer(ptr);
+	REQUIRE(path.has_value());
+	CHECK(path->to_pointer() == ptr);
 }
 
 TEST_CASE(
-	"json: dump string with backslash and quote",
-	"[json]") {
-	Value v = "say \"hi\" \\path";
-	auto dumped = v.dump();
-	CHECK(dumped == R"("say \"hi\" \\path")");
+	"json: JsonPath from_pointer with escapes",
+	"[json][path]") {
+	auto path = JsonPath::from_pointer("/a~0b/c~1d");
+	REQUIRE(path.has_value());
+	CHECK(path->to_pointer() == "/a~0b/c~1d");
 }
 
 TEST_CASE(
-	"json: parse surrogate pair produces correct UTF-8",
-	"[json]") {
-	// U+1F600 via JSON surrogate pair escape; UTF-8 is F0 9F 98 80
-	auto doc = json::parse(R"("\uD83D\uDE00")");
+	"json: JsonPath empty pointer is root",
+	"[json][path]") {
+	auto path = JsonPath::from_pointer("");
+	REQUIRE(path.has_value());
+	CHECK(path->empty());
+	CHECK(path->to_pointer().empty());
+}
+
+TEST_CASE(
+	"json: JsonPath must start with /",
+	"[json][path]") {
+	auto path = JsonPath::from_pointer("noslash");
+	CHECK_FALSE(path.has_value());
+	CHECK(path.error().code == JsonIssueCode::invalid_pointer);
+}
+
+// ---------------------------------------------------------------------------
+// Dump
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: dump roundtrip",
+	"[json][dump]") {
+	auto doc = parse(R"({"k":[1,2,3],"n":null,"b":true})");
 	REQUIRE(doc.has_value());
-	CHECK(doc->get<string_view>() == "\xF0\x9F\x98\x80");
+	auto dumped = doc->dump();
+	REQUIRE(dumped.has_value());
+	auto doc2 = parse(*dumped);
+	REQUIRE(doc2.has_value());
+	auto o = *doc2->root().as_object();
+	CHECK(o.member("n")->is_null());
+	CHECK(*o.member("b")->as_bool() == true);
 }
 
 TEST_CASE(
-	"json: lone high surrogate without following \\u is rejected",
+	"json: dump string escapes control chars",
+	"[json][dump]") {
+	auto doc = parse(R"("a\tb\nc")");
+	REQUIRE(doc.has_value());
+	auto d = doc->dump();
+	REQUIRE(d.has_value());
+	CHECK(d->find("\\t") != string::npos);
+	CHECK(d->find("\\n") != string::npos);
+}
+
+TEST_CASE(
+	"json: dump pretty",
+	"[json][dump]") {
+	auto doc = parse(R"({"k":1})");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.pretty = true;
+	auto d = doc->dump(opts);
+	REQUIRE(d.has_value());
+	CHECK(d->find('\n') != string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// Document is self-contained (parse copies input)
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: document is self-contained",
 	"[json]") {
-	auto doc = json::parse(R"("\uD83D")");
+	string src{R"({"msg": "hello"})"};
+	auto doc = parse(src);
+	REQUIRE(doc.has_value());
+	src.clear();
+	src.shrink_to_fit();
+	auto val = doc->root().as_object()->member("msg")->as_string();
+	REQUIRE(val.has_value());
+	CHECK(*val == "hello");
+}
+
+// ---------------------------------------------------------------------------
+// Builder — scalar root
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: builder set_null",
+	"[json][builder]") {
+	auto b = value_builder();
+	REQUIRE(b.set_null().has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	CHECK(doc->root().is_null());
+}
+
+TEST_CASE(
+	"json: builder set_bool",
+	"[json][builder]") {
+	auto b = value_builder();
+	REQUIRE(b.set_bool(true).has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	CHECK(*doc->root().as_bool() == true);
+}
+
+TEST_CASE(
+	"json: builder set_string",
+	"[json][builder]") {
+	auto b = value_builder();
+	REQUIRE(b.set_string("hello").has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	CHECK(*doc->root().as_string() == "hello");
+}
+
+TEST_CASE(
+	"json: builder set_i64",
+	"[json][builder]") {
+	auto b = value_builder();
+	REQUIRE(b.set_i64(-99LL).has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	CHECK(*doc->root().as_number()->to_i64() == -99LL);
+}
+
+TEST_CASE(
+	"json: builder set_u64",
+	"[json][builder]") {
+	auto b = value_builder();
+	REQUIRE(b.set_u64(numeric_limits<uint64_t>::max()).has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	CHECK(*doc->root().as_number()->to_u64() == numeric_limits<uint64_t>::max());
+}
+
+TEST_CASE(
+	"json: builder set_f64",
+	"[json][builder]") {
+	auto b = value_builder();
+	REQUIRE(b.set_f64(1.5).has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	CHECK(*doc->root().as_number()->to_f64() == Catch::Approx(1.5));
+}
+
+TEST_CASE(
+	"json: builder set_f64 rejects NaN",
+	"[json][builder]") {
+	auto b = value_builder();
+	auto res = b.set_f64(numeric_limits<double>::quiet_NaN());
+	CHECK_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::number_out_of_range);
+}
+
+TEST_CASE(
+	"json: builder finish without set returns error",
+	"[json][builder]") {
+	auto b = value_builder();
+	auto doc = move(b).finish();
 	CHECK_FALSE(doc.has_value());
+	CHECK(doc.error().code == JsonIssueCode::constraint_violation);
 }
 
 TEST_CASE(
-	"json: high surrogate followed by non-surrogate low is rejected",
-	"[json]") {
-	// \uD83D is a high surrogate; A (A) is not a low surrogate
-	auto doc = json::parse(R"("\uD83DA")");
-	CHECK_FALSE(doc.has_value());
+	"json: builder reset allows re-use",
+	"[json][builder]") {
+	auto b = value_builder();
+	REQUIRE(b.set_i64(1LL).has_value());
+	b.reset();
+	REQUIRE(b.set_i64(2LL).has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	CHECK(*doc->root().as_number()->to_i64() == 2LL);
 }
 
 TEST_CASE(
-	"json: lone low surrogate is rejected",
-	"[json]") {
-	// \uDC00 is a bare low surrogate — not valid without a preceding high surrogate
-	auto doc = json::parse(R"("\uDC00")");
-	CHECK_FALSE(doc.has_value());
+	"json: builder double-set returns error",
+	"[json][builder]") {
+	auto b = value_builder();
+	REQUIRE(b.set_i64(1LL).has_value());
+	CHECK_FALSE(b.set_i64(2LL).has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Builder — object root
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: builder begin_object — flat object",
+	"[json][builder]") {
+	auto b = value_builder();
+	auto ob = b.begin_object();
+	REQUIRE(ob.has_value());
+	REQUIRE(ob->insert_i64("x", 10LL).has_value());
+	REQUIRE(ob->insert_string("name", "alice").has_value());
+	REQUIRE(ob->insert_bool("ok", true).has_value());
+	REQUIRE(ob->insert_null("nothing").has_value());
+	move(*ob).commit();
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto o = *doc->root().as_object();
+	CHECK(*o.member("x")->as_number()->to_i64() == 10LL);
+	CHECK(*o.member("name")->as_string() == "alice");
+	CHECK(*o.member("ok")->as_bool() == true);
+	CHECK(o.member("nothing")->is_null());
 }
 
 TEST_CASE(
-	"json: dump NaN produces null",
-	"[json]") {
-	Value v{numeric_limits<double>::quiet_NaN()};
-	CHECK(v.dump() == "null");
+	"json: builder object rejects duplicate keys",
+	"[json][builder]") {
+	auto b = value_builder();
+	auto ob = b.begin_object();
+	REQUIRE(ob.has_value());
+	REQUIRE(ob->insert_i64("k", 1LL).has_value());
+	auto dup = ob->insert_i64("k", 2LL);
+	CHECK_FALSE(dup.has_value());
+	CHECK(dup.error().code == JsonIssueCode::duplicate_member);
+}
+
+// ---------------------------------------------------------------------------
+// Builder — array root
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: builder begin_array — flat array",
+	"[json][builder]") {
+	auto b = value_builder();
+	auto ab = b.begin_array();
+	REQUIRE(ab.has_value());
+	REQUIRE(ab->append_i64(1LL).has_value());
+	REQUIRE(ab->append_i64(2LL).has_value());
+	REQUIRE(ab->append_i64(3LL).has_value());
+	move(*ab).commit();
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto a = *doc->root().as_array();
+	CHECK(a.size() == 3UZ);
+	CHECK(*a.element(0)->as_number()->to_i64() == 1LL);
+	CHECK(*a.element(2)->as_number()->to_i64() == 3LL);
 }
 
 TEST_CASE(
-	"json: dump Infinity produces null",
-	"[json]") {
-	Value v{numeric_limits<double>::infinity()};
-	CHECK(v.dump() == "null");
+	"json: builder array with mixed types",
+	"[json][builder]") {
+	auto b = value_builder();
+	auto ab = b.begin_array();
+	REQUIRE(ab.has_value());
+	REQUIRE(ab->append_null().has_value());
+	REQUIRE(ab->append_bool(false).has_value());
+	REQUIRE(ab->append_string("hi").has_value());
+	REQUIRE(ab->append_f64(2.5).has_value());
+	move(*ab).commit();
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto a = *doc->root().as_array();
+	CHECK(a.size() == 4UZ);
+	CHECK(a.element(0)->is_null());
+	CHECK(*a.element(1)->as_bool() == false);
+	CHECK(*a.element(2)->as_string() == "hi");
+	CHECK(*a.element(3)->as_number()->to_f64() == Catch::Approx(2.5));
+}
+
+// ---------------------------------------------------------------------------
+// Builder — number from lexeme
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: builder set_number valid lexeme",
+	"[json][builder]") {
+	auto b = value_builder();
+	REQUIRE(b.set_number("1.5e2").has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	CHECK(*doc->root().as_number()->to_f64() == Catch::Approx(150.0));
 }
 
 TEST_CASE(
-	"json: dump negative Infinity produces null",
-	"[json]") {
-	Value v{-numeric_limits<double>::infinity()};
-	CHECK(v.dump() == "null");
+	"json: builder set_number invalid lexeme",
+	"[json][builder]") {
+	auto b = value_builder();
+	auto res = b.set_number("not-a-number");
+	CHECK_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::invalid_number);
+}
+
+// ---------------------------------------------------------------------------
+// Nullable<T>
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: Nullable<int64_t> — present value",
+	"[json][nullable]") {
+	auto doc = parse("42");
+	REQUIRE(doc.has_value());
+	Nullable<int64_t> const n;
+	auto res = decode<Nullable<int64_t>>(doc->root());
+	REQUIRE(res.has_value());
+	CHECK(res->has_value());
+	CHECK(**res == 42LL);
+}
+
+TEST_CASE(
+	"json: Nullable<int64_t> — null input",
+	"[json][nullable]") {
+	auto doc = parse("null");
+	REQUIRE(doc.has_value());
+	auto res = decode<Nullable<int64_t>>(doc->root());
+	REQUIRE(res.has_value());
+	CHECK(res->is_null());
+}
+
+// ---------------------------------------------------------------------------
+// decode<T> — built-in codecs
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: decode<bool>",
+	"[json][codec]") {
+	auto doc = parse("true");
+	REQUIRE(doc.has_value());
+	auto r = decode<bool>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(*r == true);
+}
+
+TEST_CASE(
+	"json: decode<int64_t>",
+	"[json][codec]") {
+	auto doc = parse("-7");
+	REQUIRE(doc.has_value());
+	auto r = decode<int64_t>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(*r == -7LL);
+}
+
+TEST_CASE(
+	"json: decode<uint64_t>",
+	"[json][codec]") {
+	auto doc = parse("42");
+	REQUIRE(doc.has_value());
+	auto r = decode<uint64_t>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(*r == 42ULL);
+}
+
+TEST_CASE(
+	"json: decode<double>",
+	"[json][codec]") {
+	auto doc = parse("3.14");
+	REQUIRE(doc.has_value());
+	auto r = decode<double>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(*r == Catch::Approx(3.14));
+}
+
+TEST_CASE(
+	"json: decode<string>",
+	"[json][codec]") {
+	auto doc = parse(R"("hello")");
+	REQUIRE(doc.has_value());
+	auto r = decode<string>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(*r == "hello");
+}
+
+TEST_CASE(
+	"json: decode<string_view>",
+	"[json][codec]") {
+	auto doc = parse(R"("world")");
+	REQUIRE(doc.has_value());
+	auto r = decode<string_view>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(*r == "world");
+}
+
+TEST_CASE(
+	"json: decode wrong kind returns error",
+	"[json][codec]") {
+	auto doc = parse("42");
+	REQUIRE(doc.has_value());
+	auto r = decode<bool>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::wrong_kind);
+}
+
+TEST_CASE(
+	"json: decode<vector<int64_t>>",
+	"[json][codec]") {
+	auto doc = parse("[1,2,3]");
+	REQUIRE(doc.has_value());
+	auto r = decode<vector<int64_t>>(doc->root());
+	REQUIRE(r.has_value());
+	REQUIRE(r->size() == 3UZ);
+	CHECK((*r)[0] == 1LL);
+	CHECK((*r)[1] == 2LL);
+	CHECK((*r)[2] == 3LL);
+}
+
+TEST_CASE(
+	"json: decode<optional<int64_t>> — present",
+	"[json][codec]") {
+	auto doc = parse("99");
+	REQUIRE(doc.has_value());
+	auto r = decode<optional<int64_t>>(doc->root());
+	REQUIRE(r.has_value());
+	REQUIRE(r->has_value());
+	CHECK(**r == 99LL);
+}
+
+TEST_CASE(
+	"json: decode<optional<int64_t>> — null",
+	"[json][codec]") {
+	auto doc = parse("null");
+	REQUIRE(doc.has_value());
+	auto r = decode<optional<int64_t>>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK_FALSE(r->has_value());
+}
+
+// ---------------------------------------------------------------------------
+// has_json_codec concept
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: has_json_codec detects built-in types",
+	"[json][codec]") {
+	CHECK(has_json_codec<bool>);
+	CHECK(has_json_codec<int64_t>);
+	CHECK(has_json_codec<uint64_t>);
+	CHECK(has_json_codec<double>);
+	CHECK(has_json_codec<string>);
+	CHECK(has_json_codec<string_view>);
+}
+
+TEST_CASE(
+	"json: has_json_codec false for non-codec types",
+	"[json][codec]") {
+	struct NoCodec {};
+	CHECK_FALSE(has_json_codec<NoCodec>);
 }

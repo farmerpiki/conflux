@@ -276,7 +276,7 @@ add_library(conflux STATIC)
 set(CONFLUX_MODULE_SOURCES
     src/json.cxx
     src/file_watch.cxx
-    src/template.cxx
+    # src/template.cxx  # disabled: json rewrite in progress
     src/process.cxx
     src/utils.cxx
     src/crypto.cxx
