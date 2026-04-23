@@ -1,0 +1,38 @@
+# conflux
+
+`conflux` is a Linux-only C++26 networking and runtime project built around
+`io_uring`. A working `io_uring` runtime is a hard requirement: the HTTP server,
+file I/O layer, work-ring integration, tests, and benchmarks assume that the
+host kernel allows `io_uring_queue_init*`.
+
+## Requirements
+
+- Linux with `io_uring` enabled and available to the current user/container.
+- `liburing` development headers and library discoverable through `pkg-config`.
+- CMake 4.2 or newer and Ninja.
+- A C++26-capable compiler matching one of the provided CMake presets.
+
+Optional protocol and storage features are enabled when their libraries are
+available, including OpenSSL, nghttp2, ngtcp2/nghttp3, libpq, and compression
+backends. These are feature-gated; `io_uring` and `liburing` are not.
+
+## Runtime Preflight
+
+Before running the server or the core test binaries on a new host, confirm that
+the environment permits `io_uring`:
+
+```sh
+./build/debug-gcc-stdcxx/tests/conflux_work_tests
+```
+
+If `io_uring_queue_init` or `io_uring_queue_init_params` fails, the host does
+not satisfy conflux runtime requirements. Common causes are an old kernel,
+container seccomp restrictions, disabled `io_uring`, or limits that prevent ring
+setup.
+
+## Build
+
+```sh
+cmake --preset debug-gcc-stdcxx
+cmake --build --preset debug-gcc-stdcxx
+```

@@ -1,0 +1,14 @@
+{
+    "port": 8000,
+    "rings": 0,
+    "workers": 1,
+    "ring_entries": 1024,
+    "io_uring_flags": {
+        "single_issuer": true,
+        "defer_taskrun": true,
+        "sqpoll": false,
+        "coop_taskrun": true,
+        "taskrun_flag": true,
+        "submit_all": false
+    }
+}

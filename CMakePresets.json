@@ -1,0 +1,138 @@
+{
+  "version": 6,
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+      }
+    },
+
+    {
+      "name": "clang-libcxx",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_C_COMPILER":   "clang",
+        "CMAKE_CXX_FLAGS":           "-stdlib=libc++ -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0",
+        "CMAKE_EXE_LINKER_FLAGS":    "-stdlib=libc++",
+        "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++"
+      }
+    },
+    {
+      "name": "gcc-stdcxx",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_C_COMPILER":   "gcc"
+      }
+    },
+
+    {
+      "name": "debug-clang-libcxx",
+      "displayName": "Debug · clang++ · libc++",
+      "inherits": "clang-libcxx",
+      "binaryDir": "${sourceDir}/build/debug-clang-libcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE":      "Debug",
+        "CONFLUX_ENABLE_ASAN":   "ON",
+        "CONFLUX_ENABLE_UBSAN":  "ON",
+        "CONFLUX_BUILD_TESTS":   "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
+      "name": "debug-gcc-stdcxx",
+      "displayName": "Debug · g++ · libstdc++",
+      "inherits": "gcc-stdcxx",
+      "binaryDir": "${sourceDir}/build/debug-gcc-stdcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE":     "Debug",
+        "CONFLUX_ENABLE_ASAN":  "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
+        "CONFLUX_BUILD_TESTS":   "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
+      }
+    },
+
+    {
+      "name": "release-clang-libcxx",
+      "displayName": "Release · clang++ · libc++",
+      "inherits": "clang-libcxx",
+      "binaryDir": "${sourceDir}/build/release-clang-libcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE":    "Release",
+        "CONFLUX_ENABLE_LTO":  "ON",
+        "CONFLUX_BUILD_TESTS": "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
+      "name": "release-gcc-stdcxx",
+      "displayName": "Release · g++ · libstdc++ · no LTO",
+      "inherits": "gcc-stdcxx",
+      "binaryDir": "${sourceDir}/build/release-gcc-stdcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE":   "Release",
+        "CONFLUX_ENABLE_LTO": "OFF",
+        "CONFLUX_BUILD_TESTS": "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
+      }
+    },
+
+    {
+      "name": "tsan-clang-libcxx",
+      "displayName": "TSan · clang++ · libc++",
+      "inherits": "clang-libcxx",
+      "binaryDir": "${sourceDir}/build/tsan-clang-libcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE":    "RelWithDebInfo",
+        "CONFLUX_ENABLE_TSAN": "ON",
+        "CONFLUX_BUILD_TESTS": "ON"
+      }
+    },
+
+    {
+      "name": "fuzz-clang-stdcxx",
+      "displayName": "Fuzz · clang++ · libstdc++ · libFuzzer+ASan+UBSan",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/fuzz-clang-stdcxx",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER":   "clang++",
+        "CMAKE_C_COMPILER":     "clang",
+        "CMAKE_CXX_FLAGS":      "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0",
+        "CMAKE_BUILD_TYPE":    "RelWithDebInfo",
+        "CONFLUX_ENABLE_ASAN":  "ON",
+        "CONFLUX_ENABLE_UBSAN": "ON",
+        "CONFLUX_BUILD_FUZZ":   "ON",
+        "CONFLUX_BUILD_TESTS":  "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF"
+      }
+    },
+    {
+      "name": "tsan-gcc-stdcxx",
+      "displayName": "TSan · g++ · libstdc++",
+      "inherits": "gcc-stdcxx",
+      "binaryDir": "${sourceDir}/build/tsan-gcc-stdcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE":    "RelWithDebInfo",
+        "CONFLUX_ENABLE_TSAN": "ON",
+        "CONFLUX_BUILD_TESTS": "ON"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "debug-clang-libcxx",   "configurePreset": "debug-clang-libcxx"   },
+    { "name": "debug-gcc-stdcxx",     "configurePreset": "debug-gcc-stdcxx"     },
+    { "name": "release-clang-libcxx", "configurePreset": "release-clang-libcxx" },
+    { "name": "release-gcc-stdcxx",   "configurePreset": "release-gcc-stdcxx"   },
+    { "name": "tsan-clang-libcxx",    "configurePreset": "tsan-clang-libcxx"    },
+    { "name": "tsan-gcc-stdcxx",      "configurePreset": "tsan-gcc-stdcxx"      },
+    { "name": "fuzz-clang-stdcxx",    "configurePreset": "fuzz-clang-stdcxx"    }
+  ]
+}

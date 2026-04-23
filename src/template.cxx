@@ -1,0 +1,1872 @@
+export module conflux.templates;
+import conflux.types;
+import std.compat;
+import conflux.json;
+import conflux.file_watch;
+export namespace tmpl {
+
+struct Node;
+using NodePtr = std::shared_ptr<Node>;
+using NodeList = std::vector<NodePtr>;
+struct TextNode {
+	std::string text;
+};
+struct ExprNode {
+	std::string expr;
+};
+struct BlockNode {
+	std::string name;
+	NodeList body;
+};
+struct ExtendsNode {
+	std::string parent;
+};
+struct IncludeNode {
+	std::string name;
+};
+struct SetNode {
+	std::string var;
+	std::string expr;
+};
+struct ForNode {
+	std::vector<std::string> vars;
+	std::string iter_expr;
+	NodeList body;
+};
+struct IfNode {
+	struct Branch {
+		std::string condition;
+		NodeList body;
+	};
+	std::vector<Branch> branches;
+};
+struct MacroNode {
+	std::string name;
+	std::vector<std::string> params;
+	std::vector<std::string> defaults;
+	NodeList body;
+};
+struct FromImportNode {
+	std::string file;
+	std::string name;
+	std::string alias;
+};
+struct Node {
+	std::variant<
+		TextNode,
+		ExprNode,
+		BlockNode,
+		ExtendsNode,
+		IncludeNode,
+		SetNode,
+		ForNode,
+		IfNode,
+		MacroNode,
+		FromImportNode>
+		data;
+};
+struct Template {
+	std::string name;
+	NodeList nodes;
+	std::string extends_name;
+	std::unordered_map<std::string, NodeList> blocks;
+};
+struct EnvironmentOptions {
+	bool watch_enabled = false;
+	std::vector<std::string> extensions{".html", ".htm", ".txt"};
+};
+class Environment {
+public:
+	explicit Environment(std::string const &template_dir);
+	Environment(std::string const &template_dir, EnvironmentOptions options);
+	~Environment();
+	Environment(Environment &&) noexcept;
+	Environment &operator =(Environment &&) noexcept;
+	Environment(Environment const &) = delete;
+	Environment &operator =(Environment const &) = delete;
+
+	void load_all();
+	[[nodiscard]] std::string render(std::string const &name, std::string const &json_ctx) const;
+	[[nodiscard]] std::string render_string(std::string const &source, std::string const &json_ctx) const;
+
+private:
+	struct Impl;
+	std::unique_ptr<Impl> impl_;
+};
+
+} // namespace tmpl
+namespace tmpl {
+namespace fs = std::filesystem;
+// ---------------------------------------------------------------------------
+// String utilities
+// ---------------------------------------------------------------------------
+
+static std::string trim(
+	std::string_view s) {
+	while (!s.empty() && (std::isspace(static_cast<unsigned char>(s.front())) != 0)) {
+		s.remove_prefix(1);
+	}
+	while (!s.empty() && (std::isspace(static_cast<unsigned char>(s.back())) != 0)) {
+		s.remove_suffix(1);
+	}
+	return std::string(s);
+}
+
+static std::string str_replace_all(
+	std::string_view src,
+	std::string_view old_s,
+	std::string_view new_s) {
+	std::string out;
+	if (old_s.empty()) {
+		out.assign(src);
+		return out;
+	}
+	out.reserve(src.size());
+	std::size_t p = 0;
+	while (p < src.size()) {
+		auto f = src.find(old_s, p);
+		if (f == std::string_view::npos) {
+			out.append(src.substr(p));
+			break;
+		}
+		out.append(src.substr(p, f - p));
+		out.append(new_s);
+		p = f + old_s.size();
+	}
+	return out;
+}
+
+static std::string str_capitalize(
+	std::string s) {
+	if (!s.empty()) {
+		s[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(s[0])));
+	}
+	return s;
+}
+static std::vector<std::string> split_args(
+	std::string const &s) {
+	std::vector<std::string> args;
+	std::string current;
+	int depth = 0;
+	bool in_str = false;
+	char str_char = 0;
+	for (std::size_t i = 0; i < s.size(); ++i) {
+		char const c = s[i];
+		if (in_str) {
+			current += c;
+			if (c == str_char && (i == 0 || s[i - 1] != '\\')) {
+				in_str = false;
+			}
+			continue;
+		}
+		if (c == '"' || c == '\'') {
+			in_str = true;
+			str_char = c;
+			current += c;
+			continue;
+		}
+		if (c == '(' || c == '[' || c == '{') {
+			++depth;
+			current += c;
+			continue;
+		}
+		if (c == ')' || c == ']' || c == '}') {
+			--depth;
+			current += c;
+			continue;
+		}
+		if (c == ',' && depth == 0) {
+			args.push_back(trim(current));
+			current.clear();
+			continue;
+		}
+		current += c;
+	}
+	if (!current.empty()) {
+		args.push_back(trim(current));
+	}
+	return args;
+}
+
+// ---------------------------------------------------------------------------
+// Lexer
+// ---------------------------------------------------------------------------
+
+enum class TokenType {
+	Text,
+	Expr,
+	Tag,
+	Comment,
+};
+struct Token {
+	TokenType type;
+	std::string content;
+};
+static std::vector<Token> tokenize(
+	std::string const &source) {
+	std::vector<Token> tokens;
+	std::size_t pos = 0;
+
+	while (pos < source.size()) {
+		auto next_expr = source.find("{{", pos);
+		auto next_tag = source.find("{%", pos);
+		auto next_comment = source.find("{#", pos);
+
+		auto next = std::min({next_expr, next_tag, next_comment});
+		if (next == std::string::npos) {
+			tokens.push_back({TokenType::Text, source.substr(pos)});
+			break;
+		}
+
+		if (next > pos) {
+			tokens.push_back({TokenType::Text, source.substr(pos, next - pos)});
+		}
+
+		if (next == next_expr) {
+			auto end = source.find("}}", next + 2);
+			if (end == std::string::npos) {
+				tokens.push_back({TokenType::Text, source.substr(next)});
+				break;
+			}
+			tokens.push_back({TokenType::Expr, trim(source.substr(next + 2, end - next - 2))});
+			pos = end + 2;
+		} else if (next == next_tag) {
+			auto end = source.find("%}", next + 2);
+			if (end == std::string::npos) {
+				tokens.push_back({TokenType::Text, source.substr(next)});
+				break;
+			}
+			auto content = source.substr(next + 2, end - next - 2);
+			bool const trim_left = !content.empty() && content.front() == '-';
+			bool const trim_right = !content.empty() && content.back() == '-';
+			if (trim_left) {
+				content = content.substr(1);
+			}
+			if (trim_right) {
+				content = content.substr(0, content.size() - 1);
+			}
+			if (trim_left && !tokens.empty() && tokens.back().type == TokenType::Text) {
+				auto &t = tokens.back().content;
+				while (!t.empty() && (t.back() == ' ' || t.back() == '\t' || t.back() == '\n' || t.back() == '\r')) {
+					t.pop_back();
+				}
+			}
+			tokens.push_back({TokenType::Tag, trim(content)});
+			pos = end + 2;
+			if (trim_right) {
+				while (pos < source.size()
+					   && (source[pos] == ' ' || source[pos] == '\t' || source[pos] == '\n' || source[pos] == '\r')) {
+					++pos;
+				}
+			}
+		} else {
+			auto end = source.find("#}", next + 2);
+			if (end == std::string::npos) {
+				tokens.push_back({TokenType::Text, source.substr(next)});
+				break;
+			}
+			tokens.push_back({TokenType::Comment, source.substr(next + 2, end - next - 2)});
+			pos = end + 2;
+		}
+	}
+	return tokens;
+}
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+static bool starts_with(
+	std::string const &s,
+	char const *prefix) {
+	return s.compare(0, std::strlen(prefix), prefix) == 0;
+}
+static std::string extract_string_arg(
+	std::string const &tag) {
+	auto q1 = tag.find('"');
+	if (q1 != std::string::npos) {
+		auto q2 = tag.find('"', q1 + 1);
+		if (q2 != std::string::npos) {
+			return tag.substr(q1 + 1, q2 - q1 - 1);
+		}
+	}
+	q1 = tag.find('\'');
+	if (q1 != std::string::npos) {
+		auto q2 = tag.find('\'', q1 + 1);
+		if (q2 != std::string::npos) {
+			return tag.substr(q1 + 1, q2 - q1 - 1);
+		}
+	}
+	auto sp = tag.find(' ');
+	return sp != std::string::npos ? trim(tag.substr(sp + 1)) : "";
+}
+static Value const *obj_find(
+	Value const &obj,
+	std::string_view key) {
+	for (auto const &kv: obj.as_object()) {
+		if (kv.first == key) {
+			return &kv.second;
+		}
+	}
+	return nullptr;
+}
+static std::vector<std::pair<std::string, std::optional<Value>>> save_scope(
+	Value const &ctx,
+	std::span<std::string const> names) {
+	std::vector<std::pair<std::string, std::optional<Value>>> saved;
+	saved.reserve(names.size());
+	for (auto const &n: names) {
+		auto const *prev = obj_find(ctx, n);
+		saved.emplace_back(n, (prev != nullptr) ? std::optional<Value>{*prev} : std::nullopt);
+	}
+	return saved;
+}
+static void restore_scope(
+	Value &ctx,
+	std::vector<std::pair<std::string, std::optional<Value>>> const &saved) {
+	for (auto const &[k, v]: saved) {
+		if (v) {
+			ctx.set(k, *v);
+		} else {
+			ctx.erase(k);
+		}
+	}
+}
+// ---------------------------------------------------------------------------
+// Impl
+// ---------------------------------------------------------------------------
+
+struct Environment::Impl {
+	std::string template_dir;
+	EnvironmentOptions options;
+	std::unordered_map<std::string, Template> cache;
+	mutable std::shared_mutex cache_mtx;
+	mutable std::unique_ptr<FileWatcher> watcher;
+	mutable std::atomic<bool> watch_started{false};
+
+	Template parse(std::string const &name, std::string const &source) const;
+	Value eval_expr(std::string const &expr, Value const &context) const;
+	Value apply_filter(
+		std::string const &name,
+		Value const &val,
+		std::vector<std::string> const &args,
+		Value const &context) const;
+	static std::string value_to_string(Value const &v);
+	static bool is_truthy(Value const &v);
+	static constexpr int kMaxTemplateDepth = 256;
+	std::string render_nodes(
+		NodeList const &nodes,
+		Value context,
+		std::unordered_map<std::string, NodeList> const *blocks,
+		std::unordered_map<std::string, std::tuple<std::vector<std::string>, std::vector<std::string>, NodeList>>
+			*macros,
+		int depth = 0) const;
+	std::string render_template(
+		Template const &tmpl,
+		Value context,
+		std::unordered_map<std::string, NodeList> const *child_blocks = nullptr,
+		int depth = 0) const;
+	void reload_path(std::string const &path);
+	void remove_path(std::string const &path);
+	void maybe_start_watcher() const;
+	bool extension_allowed(std::filesystem::path const &path) const;
+};
+// ---------------------------------------------------------------------------
+// Parser
+// ---------------------------------------------------------------------------
+
+Template Environment::Impl::parse(
+	std::string const &name,
+	std::string const &source) const {
+	auto tokens = tokenize(source);
+	Template tmpl;
+	tmpl.name = name;
+	struct ParseState {
+		std::vector<Token> const &tokens;
+		std::size_t pos = 0;
+		[[nodiscard]] Token const &cur() const { return tokens[pos]; }
+		[[nodiscard]] bool done() const { return pos >= tokens.size(); }
+		void advance() { ++pos; }
+	};
+	ParseState state{tokens};
+
+	std::function<NodeList(std::vector<std::string> const &, int)> parse_nodes;
+	parse_nodes = [&](std::vector<std::string> const &end_tags, int depth) -> NodeList {
+		if (depth > kMaxTemplateDepth) {
+			throw std::runtime_error{"template parse recursion depth exceeded"};
+		}
+		NodeList nodes;
+		auto const fail_missing_end = [&] {
+			if (!end_tags.empty()) {
+				throw std::runtime_error{
+					std::format("template parse error: missing end tag (expected one of '{}')", end_tags.front())};
+			}
+		};
+		while (!state.done()) {
+			auto &tok = state.cur();
+
+			if (tok.type == TokenType::Text) {
+				nodes.push_back(std::make_shared<Node>(Node{TextNode{tok.content}}));
+				state.advance();
+				continue;
+			}
+			if (tok.type == TokenType::Comment) {
+				state.advance();
+				continue;
+			}
+			if (tok.type == TokenType::Expr) {
+				nodes.push_back(std::make_shared<Node>(Node{ExprNode{tok.content}}));
+				state.advance();
+				continue;
+			}
+
+			auto &tag = tok.content;
+
+			for (auto &et: end_tags) {
+				if (tag == et || starts_with(tag, (et + " ").c_str())) {
+					return nodes;
+				}
+			}
+
+			if (starts_with(tag, "extends ")) {
+				tmpl.extends_name = extract_string_arg(tag);
+				nodes.push_back(std::make_shared<Node>(Node{ExtendsNode{tmpl.extends_name}}));
+				state.advance();
+			} else if (starts_with(tag, "block ")) {
+				auto block_name = trim(tag.substr(6));
+				state.advance();
+				auto body = parse_nodes({"endblock"}, depth + 1);
+				state.advance();
+				tmpl.blocks[block_name] = body;
+				nodes.push_back(
+					std::make_shared<Node>(Node{
+						BlockNode{block_name, body}
+                }));
+			} else if (starts_with(tag, "for ")) {
+				auto in_pos = tag.find(" in ");
+				if (in_pos == std::string::npos) {
+					throw std::runtime_error{"template parse error: missing 'in' in for tag"};
+				}
+				auto var_part = trim(tag.substr(4, in_pos - 4));
+				auto iter_expr = trim(tag.substr(in_pos + 4));
+				std::vector<std::string> vars;
+				std::string_view vp{var_part};
+				while (!vp.empty()) {
+					auto cp = vp.find(',');
+					auto vtok = (cp == std::string_view::npos) ? vp : vp.substr(0, cp);
+					vars.push_back(trim(std::string{vtok}));
+					if (cp == std::string_view::npos) {
+						break;
+					}
+					vp.remove_prefix(cp + 1);
+				}
+				if (vars.empty()) {
+					vars.push_back(var_part);
+				}
+				state.advance();
+				auto body = parse_nodes({"endfor"}, depth + 1);
+				state.advance();
+				nodes.push_back(
+					std::make_shared<Node>(Node{
+						ForNode{vars, iter_expr, body}
+                }));
+			} else if (starts_with(tag, "if ")) {
+				IfNode if_node;
+				auto cond = trim(tag.substr(3));
+				state.advance();
+				auto body = parse_nodes({"elif", "else", "endif"}, depth + 1);
+				if_node.branches.push_back({cond, body});
+
+				while (!state.done()) {
+					auto &t = state.cur().content;
+					if (t == "endif") {
+						state.advance();
+						break;
+					}
+					if (starts_with(t, "elif ")) {
+						auto c = trim(t.substr(5));
+						state.advance();
+						auto b = parse_nodes({"elif", "else", "endif"}, depth + 1);
+						if_node.branches.push_back({c, b});
+					} else if (t == "else") {
+						state.advance();
+						auto b = parse_nodes({"endif"}, depth + 1);
+						if_node.branches.push_back({"", b});
+						state.advance();
+						break;
+					} else {
+						break;
+					}
+				}
+				nodes.push_back(std::make_shared<Node>(Node{if_node}));
+			} else if (starts_with(tag, "set ")) {
+				auto eq = tag.find('=');
+				if (eq == std::string::npos) {
+					throw std::runtime_error{std::format("template parse error: set tag missing '=': {}", tag)};
+				}
+				auto var = trim(tag.substr(4, eq - 4));
+				auto expr = trim(tag.substr(eq + 1));
+				nodes.push_back(
+					std::make_shared<Node>(Node{
+						SetNode{var, expr}
+                }));
+				state.advance();
+			} else if (starts_with(tag, "include ")) {
+				auto inc_name = extract_string_arg(tag);
+				nodes.push_back(std::make_shared<Node>(Node{IncludeNode{inc_name}}));
+				state.advance();
+			} else if (starts_with(tag, "macro ")) {
+				auto paren = tag.find('(');
+				std::string mname;
+				std::vector<std::string> params;
+				std::vector<std::string> defaults;
+				if (paren != std::string::npos) {
+					mname = trim(tag.substr(6, paren - 6));
+					auto close = tag.find(')', paren);
+					if (close != std::string::npos) {
+						auto raw = split_args(tag.substr(paren + 1, close - paren - 1));
+						for (auto &p: raw) {
+							auto eq = p.find('=');
+							if (eq != std::string::npos) {
+								params.push_back(trim(p.substr(0, eq)));
+								defaults.push_back(trim(p.substr(eq + 1)));
+							} else {
+								params.push_back(trim(p));
+								defaults.push_back("");
+							}
+						}
+					}
+				} else {
+					mname = trim(tag.substr(6));
+				}
+				state.advance();
+				auto body = parse_nodes({"endmacro"}, depth + 1);
+				state.advance();
+				nodes.push_back(
+					std::make_shared<Node>(Node{
+						MacroNode{mname, params, defaults, body}
+                }));
+			} else if (starts_with(tag, "from ")) {
+				auto rest = trim(tag.substr(5));
+				std::string file;
+				if (!rest.empty() && (rest.front() == '"' || rest.front() == '\'')) {
+					char const qc = rest.front();
+					auto end = rest.find(qc, 1);
+					if (end != std::string::npos) {
+						file = rest.substr(1, end - 1);
+						rest = trim(rest.substr(end + 1));
+					}
+				}
+				if (starts_with(rest, "import ")) {
+					rest = trim(rest.substr(7));
+				}
+				std::string nm, alias;
+				auto as_pos = rest.find(" as ");
+				if (as_pos != std::string::npos) {
+					nm = trim(rest.substr(0, as_pos));
+					alias = trim(rest.substr(as_pos + 4));
+				} else {
+					nm = trim(rest);
+					alias = nm;
+				}
+				nodes.push_back(
+					std::make_shared<Node>(Node{
+						FromImportNode{file, nm, alias}
+                }));
+				state.advance();
+			} else {
+				throw std::runtime_error{std::format("template parse error: unknown tag '{}'", tag)};
+			}
+		}
+		fail_missing_end();
+		return nodes;
+	};
+
+	tmpl.nodes = parse_nodes({}, 0);
+	return tmpl;
+}
+// ---------------------------------------------------------------------------
+// Expression evaluator
+// ---------------------------------------------------------------------------
+
+Value Environment::Impl::eval_expr(
+	std::string const &expr,
+	Value const &context) const {
+	auto e = trim(expr);
+	if (e.empty()) {
+		return json::null_value();
+	}
+
+	std::vector<std::string> pipe_parts;
+	{
+		std::string current;
+		int depth = 0;
+		bool in_str = false;
+		char sc = 0;
+		for (std::size_t i = 0; i < e.size(); ++i) {
+			char const c = e[i];
+			if (in_str) {
+				current += c;
+				if (c == sc && (i == 0 || e[i - 1] != '\\')) {
+					in_str = false;
+				}
+				continue;
+			}
+			if (c == '"' || c == '\'') {
+				in_str = true;
+				sc = c;
+				current += c;
+				continue;
+			}
+			if (c == '(' || c == '[' || c == '{') {
+				++depth;
+				current += c;
+				continue;
+			}
+			if (c == ')' || c == ']' || c == '}') {
+				--depth;
+				current += c;
+				continue;
+			}
+			if (c == '|' && depth == 0) {
+				pipe_parts.push_back(trim(current));
+				current.clear();
+				continue;
+			}
+			current += c;
+		}
+		pipe_parts.push_back(trim(current));
+	}
+
+	auto eval_base = [&](std::string const &base) -> Value {
+		auto b = trim(base);
+		if (b.empty()) {
+			return json::null_value();
+		}
+
+		if ((b.front() == '"' && b.back() == '"') || (b.front() == '\'' && b.back() == '\'')) {
+			return b.substr(1, b.size() - 2);
+		}
+
+		if (std::isdigit(static_cast<unsigned char>(b[0])) || (b[0] == '-' && b.size() > 1)) {
+			try {
+				if (b.find('.') != std::string::npos) {
+					return std::stod(b);
+				}
+				return static_cast<i64>(std::stoll(b));
+			} catch (std::exception const &ex) {
+				std::println(std::cerr, "template eval_literal: failed to parse number '{}': {}", b, ex.what());
+			}
+		}
+
+		if (b == "true" || b == "True") {
+			return true;
+		}
+		if (b == "false" || b == "False") {
+			return false;
+		}
+		if (b == "none" || b == "None") {
+			return json::null_value();
+		}
+
+		if (b.front() == '[' && b.back() == ']') {
+			auto inner = trim(b.substr(1, b.size() - 2));
+			if (inner.empty()) {
+				return json::array();
+			}
+			auto items = split_args(inner);
+			Value arr = json::array();
+			for (auto &item: items) {
+				arr.push_back(eval_expr(item, context));
+			}
+			return arr;
+		}
+
+		if (b.front() == '(' && b.back() == ')') {
+			auto inner = trim(b.substr(1, b.size() - 2));
+			if (inner.empty()) {
+				return json::array();
+			}
+			auto items = split_args(inner);
+			if (items.size() == 1) {
+				return eval_expr(items[0], context);
+			}
+			Value arr = json::array();
+			for (auto &item: items) {
+				arr.push_back(eval_expr(item, context));
+			}
+			return arr;
+		}
+
+		if (b.front() == '{' && b.back() == '}') {
+			auto inner = trim(b.substr(1, b.size() - 2));
+			if (inner.empty()) {
+				return json::object();
+			}
+			auto pairs = split_args(inner);
+			Value obj = json::object();
+			for (auto &p: pairs) {
+				auto colon = p.find(':');
+				if (colon != std::string::npos) {
+					auto key = trim(p.substr(0, colon));
+					auto val = trim(p.substr(colon + 1));
+					if ((key.front() == '"' && key.back() == '"') || (key.front() == '\'' && key.back() == '\'')) {
+						key = key.substr(1, key.size() - 2);
+					}
+					obj.set(key, eval_expr(val, context));
+				}
+			}
+			return obj;
+		}
+
+		{
+			int depth = 0;
+			bool in_s = false;
+			char sqc = 0;
+			for (std::size_t i = 0; i < b.size(); ++i) {
+				char const c = b[i];
+				if (in_s) {
+					if (c == sqc) {
+						in_s = false;
+					}
+					continue;
+				}
+				if (c == '"' || c == '\'') {
+					in_s = true;
+					sqc = c;
+					continue;
+				}
+				if (c == '(' || c == '[') {
+					++depth;
+					continue;
+				}
+				if (c == ')' || c == ']') {
+					--depth;
+					continue;
+				}
+				if (depth == 0 && i + 4 <= b.size() && b.substr(i, 4) == " or ") {
+					auto left = eval_expr(b.substr(0, i), context);
+					if (is_truthy(left)) {
+						return left;
+					}
+					return eval_expr(b.substr(i + 4), context);
+				}
+			}
+		}
+
+		{
+			int depth = 0;
+			bool in_s = false;
+			char sqc = 0;
+			for (std::size_t i = 0; i < b.size(); ++i) {
+				char const c = b[i];
+				if (in_s) {
+					if (c == sqc) {
+						in_s = false;
+					}
+					continue;
+				}
+				if (c == '"' || c == '\'') {
+					in_s = true;
+					sqc = c;
+					continue;
+				}
+				if (c == '(' || c == '[') {
+					++depth;
+					continue;
+				}
+				if (c == ')' || c == ']') {
+					--depth;
+					continue;
+				}
+				if (depth == 0 && i + 5 <= b.size() && b.substr(i, 5) == " and ") {
+					auto left = eval_expr(b.substr(0, i), context);
+					if (!is_truthy(left)) {
+						return left;
+					}
+					return eval_expr(b.substr(i + 5), context);
+				}
+			}
+		}
+
+		if (b.size() > 4 && b.substr(0, 4) == "not ") {
+			auto inner_val = eval_expr(b.substr(4), context);
+			return !is_truthy(inner_val);
+		}
+
+		{
+			static std::vector<std::pair<std::string, int>> const ops = {
+				{" == ", 0},
+				{" != ", 1},
+				{" <= ", 2},
+				{" >= ", 3},
+				{ " < ", 4},
+				{ " > ", 5},
+				{" in ", 6}
+            };
+			auto find_top_level = [&](std::string_view haystack, std::string_view needle) -> std::size_t {
+				int d = 0;
+				bool in_s3 = false;
+				char sq3 = 0;
+				for (std::size_t i = 0; i + needle.size() <= haystack.size(); ++i) {
+					char const c3 = haystack[i];
+					if (in_s3) {
+						if (c3 == sq3) {
+							in_s3 = false;
+						}
+						continue;
+					}
+					if (c3 == '"' || c3 == '\'') {
+						in_s3 = true;
+						sq3 = c3;
+						continue;
+					}
+					if (c3 == '(' || c3 == '[') {
+						++d;
+						continue;
+					}
+					if (c3 == ')' || c3 == ']') {
+						--d;
+						continue;
+					}
+					if (d == 0 && haystack.substr(i, needle.size()) == needle) {
+						return i;
+					}
+				}
+				return std::string_view::npos;
+			};
+			for (auto &[op, code]: ops) {
+				auto p = find_top_level(b, op);
+				if (p != std::string_view::npos) {
+					auto left = eval_expr(b.substr(0, p), context);
+					auto right = eval_expr(b.substr(p + op.size()), context);
+					switch (code) {
+					case 0: return left == right;
+					case 1: return left != right;
+					case 2:
+					case 3:
+					case 4:
+					case 5:
+						{
+							double const lv = left.is_int()   ? static_cast<double>(left.as<i64>()) :
+											  left.is_uint()  ? static_cast<double>(left.as<u64>()) :
+											  left.is_float() ? left.as<double>() :
+																0.0;
+							double const rv = right.is_int()   ? static_cast<double>(right.as<i64>()) :
+											  right.is_uint()  ? static_cast<double>(right.as<u64>()) :
+											  right.is_float() ? right.as<double>() :
+																 0.0;
+							if (code == 2) {
+								return lv <= rv;
+							}
+							if (code == 3) {
+								return lv >= rv;
+							}
+							if (code == 4) {
+								return lv < rv;
+							}
+							return lv > rv;
+						}
+					case 6:
+						{
+							if (right.is_array()) {
+								for (auto const &item: right.as_array()) {
+									if (item == left) {
+										return true;
+									}
+								}
+								return false;
+							}
+							if (right.is_string() && left.is_string()) {
+								return right.as<std::string_view>().find(left.as<std::string_view>())
+									!= std::string_view::npos;
+							}
+							return false;
+						}
+					}
+				}
+			}
+		}
+
+		{
+			int depth = 0;
+			bool in_s = false;
+			char sqc = 0;
+			for (std::size_t i = 0; i < b.size(); ++i) {
+				char const c = b[i];
+				if (in_s) {
+					if (c == sqc) {
+						in_s = false;
+					}
+					continue;
+				}
+				if (c == '"' || c == '\'') {
+					in_s = true;
+					sqc = c;
+					continue;
+				}
+				if (c == '(' || c == '[') {
+					++depth;
+					continue;
+				}
+				if (c == ')' || c == ']') {
+					--depth;
+					continue;
+				}
+				if (depth == 0 && c == '~') {
+					auto left = eval_expr(b.substr(0, i), context);
+					auto right = eval_expr(b.substr(i + 1), context);
+					return value_to_string(left) + value_to_string(right);
+				}
+			}
+		}
+
+		{
+			Value owned;
+			bool use_owned = false;
+			Value const *cur = &context;
+			auto set_owned = [&](Value v) {
+				owned = std::move(v);
+				cur = &owned;
+				use_owned = true;
+			};
+			std::string remaining = b;
+
+			while (!remaining.empty()) {
+				auto bracket = remaining.find('[');
+				auto dot = remaining.find('.');
+				auto paren = remaining.find('(');
+
+				auto next_sep = std::min({bracket, dot, paren, remaining.size()});
+
+				if (next_sep == 0 && bracket == 0) {
+					auto close = remaining.find(']', 1);
+					if (close == std::string::npos) {
+						return json::null_value();
+					}
+					auto idx_str = trim(remaining.substr(1, close - 1));
+					if (auto colon = idx_str.find(':'); colon != std::string::npos) {
+						if (cur->is_string()) {
+							auto s = std::string(cur->as<std::string_view>());
+							auto start_s = trim(idx_str.substr(0, colon));
+							auto end_s = trim(idx_str.substr(colon + 1));
+							i64 start = 0;
+							i64 end = static_cast<i64>(s.size());
+							if (!start_s.empty()) {
+								auto sv = eval_expr(start_s, context);
+								if (sv.is_int()) {
+									start = sv.as<i64>();
+									if (start < 0) {
+										start = std::max<i64>(0, static_cast<i64>(s.size()) + start);
+									}
+								}
+							}
+							if (!end_s.empty()) {
+								auto ev = eval_expr(end_s, context);
+								if (ev.is_int()) {
+									end = ev.as<i64>();
+									if (end < 0) {
+										end = std::max<i64>(0, static_cast<i64>(s.size()) + end);
+									}
+								}
+							}
+							start = std::clamp<i64>(start, 0, static_cast<i64>(s.size()));
+							end = std::clamp<i64>(end, 0, static_cast<i64>(s.size()));
+							set_owned(s.substr(
+								static_cast<std::size_t>(start),
+								static_cast<std::size_t>(std::max<i64>(0, end - start))));
+						} else {
+							return json::null_value();
+						}
+						remaining = remaining.substr(close + 1);
+						if (!remaining.empty() && remaining[0] == '.') {
+							remaining = remaining.substr(1);
+						}
+						continue;
+					}
+					auto idx_val = eval_expr(idx_str, context);
+					if (cur->is_array() && idx_val.is_int()) {
+						auto idx = idx_val.as<i64>();
+						auto arr = cur->as_array();
+						if (idx < 0) {
+							idx += static_cast<i64>(arr.size());
+						}
+						if (idx >= 0 && static_cast<std::size_t>(idx) < arr.size()) {
+							set_owned(arr[static_cast<std::size_t>(idx)]);
+						} else {
+							return json::null_value();
+						}
+					} else if (cur->is_object() && idx_val.is_string()) {
+						auto *found = obj_find(*cur, idx_val.as<std::string_view>());
+						if (found) {
+							set_owned(*found);
+						} else {
+							return json::null_value();
+						}
+					} else {
+						return json::null_value();
+					}
+					remaining = remaining.substr(close + 1);
+					if (!remaining.empty() && remaining[0] == '.') {
+						remaining = remaining.substr(1);
+					}
+					continue;
+				}
+
+				std::string const key = remaining.substr(0, next_sep);
+				remaining = next_sep < remaining.size() ? remaining.substr(next_sep) : "";
+
+				bool const is_method_call = !remaining.empty() && remaining[0] == '(';
+
+				if (!key.empty() && !is_method_call) {
+					if (cur->is_object()) {
+						auto *found = obj_find(*cur, key);
+						if (found) {
+							set_owned(*found);
+						} else {
+							return json::null_value();
+						}
+					} else if (cur->is_string() && key == "value") {
+						// no-op
+					} else {
+						return json::null_value();
+					}
+				}
+
+				if (is_method_call) {
+					// Find matching ')' respecting nesting and string literals.
+					std::size_t close = std::string::npos;
+					{
+						int d = 0;
+						bool in_s2 = false;
+						char sq2 = 0;
+						for (std::size_t ci = 0; ci < remaining.size(); ++ci) {
+							char const c2 = remaining[ci];
+							if (in_s2) {
+								if (c2 == sq2) {
+									in_s2 = false;
+								}
+								continue;
+							}
+							if (c2 == '"' || c2 == '\'') {
+								in_s2 = true;
+								sq2 = c2;
+								continue;
+							}
+							if (c2 == '(') {
+								++d;
+							} else if (c2 == ')') {
+								--d;
+								if (d == 0) {
+									close = ci;
+									break;
+								}
+							}
+						}
+					}
+					if (close == std::string::npos) {
+						return json::null_value();
+					}
+					auto args_str = remaining.substr(1, close - 1);
+					auto method_args = split_args(args_str);
+					remaining = remaining.substr(close + 1);
+					if (!remaining.empty() && remaining[0] == '.') {
+						remaining = remaining.substr(1);
+					}
+
+					if (key == "get" && cur->is_object()) {
+						if (method_args.empty()) {
+							return json::null_value();
+						}
+						auto k = eval_expr(method_args[0], context);
+						auto *found = obj_find(*cur, value_to_string(k));
+						if (found) {
+							set_owned(*found);
+						} else if (method_args.size() > 1) {
+							set_owned(eval_expr(method_args[1], context));
+						} else {
+							set_owned(json::null_value());
+						}
+					} else if (key == "replace" && method_args.size() >= 2) {
+						auto s = value_to_string(*cur);
+						auto old_s = value_to_string(eval_expr(method_args[0], context));
+						auto new_s = value_to_string(eval_expr(method_args[1], context));
+						set_owned(str_replace_all(s, old_s, new_s));
+					} else if (key == "title") {
+						auto s = value_to_string(*cur);
+						bool up = true;
+						for (auto &c: s) {
+							if (std::isspace(static_cast<unsigned char>(c)) || c == '_' || c == '-') {
+								up = true;
+								continue;
+							}
+							if (up) {
+								c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+								up = false;
+							} else {
+								c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+							}
+						}
+						set_owned(std::move(s));
+					} else if (key == "upper") {
+						auto s = value_to_string(*cur);
+						for (auto &c: s) {
+							c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+						}
+						set_owned(std::move(s));
+					} else if (key == "lower") {
+						auto s = value_to_string(*cur);
+						for (auto &c: s) {
+							c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+						}
+						set_owned(std::move(s));
+					} else if (key == "capitalize") {
+						set_owned(str_capitalize(value_to_string(*cur)));
+					} else if (key == "strftime") {
+						set_owned(value_to_string(*cur));
+					} else if (key == "strip") {
+						set_owned(trim(value_to_string(*cur)));
+					} else if (key == "startswith" && !method_args.empty()) {
+						auto s = value_to_string(*cur);
+						auto p = value_to_string(eval_expr(method_args[0], context));
+						set_owned(s.compare(0, p.size(), p) == 0);
+					} else if (key == "split") {
+						auto s = value_to_string(*cur);
+						auto sep = !method_args.empty() ? value_to_string(eval_expr(method_args[0], context)) : " ";
+						Value arr = json::array();
+						std::size_t p = 0;
+						while (p <= s.size()) {
+							auto f = sep.empty() ? std::string::npos : s.find(sep, p);
+							if (f == std::string::npos) {
+								arr.push_back(s.substr(p));
+								break;
+							}
+							arr.push_back(s.substr(p, f - p));
+							p = f + sep.size();
+						}
+						set_owned(std::move(arr));
+					} else if (key == "keys" && cur->is_object()) {
+						Value keys = json::array();
+						for (auto const &kv: cur->as_object()) {
+							keys.push_back(kv.first);
+						}
+						set_owned(std::move(keys));
+					} else if (key == "values" && cur->is_object()) {
+						Value vals = json::array();
+						for (auto const &kv: cur->as_object()) {
+							vals.push_back(kv.second);
+						}
+						set_owned(std::move(vals));
+					} else if (key == "items" && cur->is_object()) {
+						Value items = json::array();
+						for (auto const &kv: cur->as_object()) {
+							Value pair = json::array();
+							pair.push_back(kv.first);
+							pair.push_back(kv.second);
+							items.push_back(std::move(pair));
+						}
+						set_owned(std::move(items));
+					}
+					continue;
+				}
+
+				if (!remaining.empty() && remaining[0] == '.') {
+					remaining = remaining.substr(1);
+				}
+			}
+			if (use_owned) {
+				return owned;
+			}
+			return *cur;
+		}
+	};
+
+	Value result = eval_base(pipe_parts[0]);
+
+	for (std::size_t i = 1; i < pipe_parts.size(); ++i) {
+		auto filter = trim(pipe_parts[i]);
+		std::string filter_name;
+		std::vector<std::string> filter_args;
+
+		auto paren = filter.find('(');
+		if (paren != std::string::npos) {
+			filter_name = trim(filter.substr(0, paren));
+			auto close = filter.rfind(')');
+			if (close != std::string::npos) {
+				filter_args = split_args(filter.substr(paren + 1, close - paren - 1));
+			}
+		} else {
+			filter_name = filter;
+		}
+
+		result = apply_filter(filter_name, result, filter_args, context);
+	}
+
+	return result;
+}
+// ---------------------------------------------------------------------------
+// Filters
+// ---------------------------------------------------------------------------
+
+Value Environment::Impl::apply_filter(
+	std::string const &name,
+	Value const &val,
+	std::vector<std::string> const &args,
+	Value const &context) const {
+	if (name == "length" || name == "count") {
+		if (val.is_array()) {
+			return static_cast<i64>(val.as_array().size());
+		}
+		if (val.is_string()) {
+			return static_cast<i64>(val.as<std::string_view>().size());
+		}
+		if (val.is_object()) {
+			return static_cast<i64>(val.as_object().size());
+		}
+		return 0;
+	}
+	if (name == "string") {
+		return Value(value_to_string(val));
+	}
+	if (name == "int") {
+		if (val.is_int() || val.is_uint()) {
+			return val;
+		}
+		if (val.is_float()) {
+			return static_cast<i64>(val.as<double>());
+		}
+		if (val.is_string()) {
+			auto s = std::string(val.as<std::string_view>());
+			try {
+				return static_cast<i64>(std::stoll(s));
+			} catch (std::exception const &e) {
+				std::println(std::cerr, "template filter int: failed to parse '{}': {}", s, e.what());
+				return 0;
+			}
+		}
+		return 0;
+	}
+	if (name == "upper") {
+		auto s = value_to_string(val);
+		for (auto &c: s) {
+			c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+		}
+		return s;
+	}
+	if (name == "lower") {
+		auto s = value_to_string(val);
+		for (auto &c: s) {
+			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+		}
+		return s;
+	}
+	if (name == "capitalize") {
+		return str_capitalize(value_to_string(val));
+	}
+	if (name == "title") {
+		auto s = value_to_string(val);
+		bool next_upper = true;
+		for (auto &c: s) {
+			if (std::isspace(static_cast<unsigned char>(c)) != 0) {
+				next_upper = true;
+				continue;
+			}
+			if (next_upper) {
+				c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+				next_upper = false;
+			}
+		}
+		return s;
+	}
+	if (name == "replace") {
+		auto s = value_to_string(val);
+		if (args.size() >= 2) {
+			auto old_s = value_to_string(eval_expr(args[0], context));
+			auto new_s = value_to_string(eval_expr(args[1], context));
+			return str_replace_all(s, old_s, new_s);
+		}
+		return s;
+	}
+	if (name == "default" || name == "d") {
+		if (!is_truthy(val) && !args.empty()) {
+			return eval_expr(args[0], context);
+		}
+		return val;
+	}
+	if (name == "join") {
+		if (val.is_array()) {
+			auto sep = !args.empty() ? value_to_string(eval_expr(args[0], context)) : "";
+			auto arr = val.as_array();
+			std::string result;
+			result.reserve(arr.size() * (sep.size() + 16));
+			bool first = true;
+			for (auto const &item: arr) {
+				if (!first) {
+					result += sep;
+				}
+				first = false;
+				result += value_to_string(item);
+			}
+			return result;
+		}
+		return val;
+	}
+	if (name == "sort") {
+		if (val.is_array()) {
+			auto sp = val.as_array();
+			std::vector<Value> vec(sp.begin(), sp.end());
+			std::sort(vec.begin(), vec.end(), [](Value const &a, Value const &b) { return a.dump() < b.dump(); });
+			Value result = json::array();
+			for (auto &item: vec) {
+				result.push_back(std::move(item));
+			}
+			return result;
+		}
+		return val;
+	}
+	if (name == "reverse") {
+		if (val.is_array()) {
+			auto sp = val.as_array();
+			std::vector<Value> vec(sp.begin(), sp.end());
+			std::reverse(vec.begin(), vec.end());
+			Value result = json::array();
+			for (auto &item: vec) {
+				result.push_back(std::move(item));
+			}
+			return result;
+		}
+		return val;
+	}
+	if (name == "last") {
+		if (val.is_array() && !val.as_array().empty()) {
+			return val.as_array().back();
+		}
+		return json::null_value();
+	}
+	if (name == "min") {
+		if (val.is_array()) {
+			auto arr = val.as_array();
+			if (arr.empty()) {
+				return json::null_value();
+			}
+			Value const *m = arr.data();
+			for (std::size_t i = 1; i < arr.size(); ++i) {
+				if (arr[i].dump() < m->dump()) {
+					m = &arr[i];
+				}
+			}
+			return *m;
+		}
+		return val;
+	}
+	if (name == "list") {
+		if (val.is_array()) {
+			return val;
+		}
+		return json::array();
+	}
+	if (name == "selectattr") {
+		if (val.is_array() && args.size() >= 3) {
+			auto attr = value_to_string(eval_expr(args[0], context));
+			auto test = value_to_string(eval_expr(args[1], context));
+			auto test_val = eval_expr(args[2], context);
+			Value result = json::array();
+			for (auto const &item: val.as_array()) {
+				if (!item.is_object()) {
+					continue;
+				}
+				auto *v = obj_find(item, attr);
+				if (v == nullptr) {
+					continue;
+				}
+				if (test == "eq" || test == "equalto" || test == "==") {
+					if (*v == test_val) {
+						result.push_back(item);
+					}
+				} else if (test == "in") {
+					if (test_val.is_array()) {
+						for (auto const &tv: test_val.as_array()) {
+							if (*v == tv) {
+								result.push_back(item);
+								break;
+							}
+						}
+					}
+				}
+			}
+			return result;
+		}
+		return json::array();
+	}
+	if (name == "attr") {
+		if (val.is_object() && !args.empty()) {
+			auto attr_name = value_to_string(eval_expr(args[0], context));
+			auto *found = obj_find(val, attr_name);
+			return (found != nullptr) ? *found : json::null_value();
+		}
+		return json::null_value();
+	}
+	if (name == "e" || name == "escape") {
+		auto s = value_to_string(val);
+		std::string result;
+		result.reserve(s.size());
+		for (char const c: s) {
+			switch (c) {
+			case '&' : result += "&amp;"; break;
+			case '<' : result += "&lt;"; break;
+			case '>' : result += "&gt;"; break;
+			case '"' : result += "&quot;"; break;
+			case '\'': result += "&#39;"; break;
+			default  : result += c;
+			}
+		}
+		return result;
+	}
+	return val;
+}
+// ---------------------------------------------------------------------------
+// value_to_string / is_truthy
+// ---------------------------------------------------------------------------
+
+std::string Environment::Impl::value_to_string(
+	Value const &v) {
+	if (v.is_null()) {
+		return "";
+	}
+	if (v.is_string()) {
+		return std::string(v.as<std::string_view>());
+	}
+	if (v.is_int()) {
+		return std::to_string(v.as<i64>());
+	}
+	if (v.is_uint()) {
+		return std::to_string(v.as<u64>());
+	}
+	if (v.is_float()) {
+		auto s = std::to_string(v.as<double>());
+		auto dot = s.find('.');
+		if (dot != std::string::npos) {
+			auto last = s.find_last_not_of('0');
+			if (last != std::string::npos && last > dot) {
+				s.erase(last + 1);
+			}
+			if (s.back() == '.') {
+				s.pop_back();
+			}
+		}
+		return s;
+	}
+	if (v.is_bool()) {
+		return v.as<bool>() ? "True" : "False";
+	}
+	return v.dump();
+}
+bool Environment::Impl::is_truthy(
+	Value const &v) {
+	if (v.is_null()) {
+		return false;
+	}
+	if (v.is_bool()) {
+		return v.as<bool>();
+	}
+	if (v.is_int()) {
+		return v.as<i64>() != 0;
+	}
+	if (v.is_uint()) {
+		return v.as<u64>() != 0;
+	}
+	if (v.is_float()) {
+		return v.as<double>() != 0.0;
+	}
+	if (v.is_string()) {
+		return !v.as<std::string_view>().empty();
+	}
+	if (v.is_array()) {
+		return !v.as_array().empty();
+	}
+	if (v.is_object()) {
+		return !v.as_object().empty();
+	}
+	return false;
+}
+// ---------------------------------------------------------------------------
+// Renderer
+// ---------------------------------------------------------------------------
+
+std::string Environment::Impl::render_nodes(
+	NodeList const &nodes,
+	Value context,
+	std::unordered_map<std::string, NodeList> const *blocks,
+	std::unordered_map<std::string, std::tuple<std::vector<std::string>, std::vector<std::string>, NodeList>> *macros,
+	int depth) const {
+	if (depth > kMaxTemplateDepth) {
+		throw std::runtime_error{"template render recursion depth exceeded"};
+	}
+	// Detach the top-level JObject so mutations below are scope-local and do
+	// not race with other renders sharing the same context.
+	if (auto so = context.shared_object(); so) {
+		context = Value{std::make_shared<std::vector<std::pair<std::string, Value>>>(*so)};
+	}
+	std::string out;
+	std::unordered_map<std::string, std::tuple<std::vector<std::string>, std::vector<std::string>, NodeList>>
+		local_macros;
+	if (macros == nullptr) {
+		macros = &local_macros;
+	}
+
+	for (auto &node: nodes) {
+		std::visit(
+			[&](auto &n) {
+				using T = std::decay_t<decltype(n)>;
+
+				if constexpr (std::is_same_v<T, TextNode>) {
+					out += n.text;
+				} else if constexpr (std::is_same_v<T, ExprNode>) {
+					bool macro_handled = false;
+					{
+						auto &e = n.expr;
+						auto paren = e.find('(');
+						if (paren != std::string::npos && e.back() == ')') {
+							auto macro_name = trim(e.substr(0, paren));
+							bool const simple_ident =
+								!macro_name.empty() && std::all_of(macro_name.begin(), macro_name.end(), [](char c) {
+									return std::isalnum(static_cast<unsigned char>(c)) || c == '_';
+								});
+							if (simple_ident && macros) {
+								auto it = macros->find(macro_name);
+								if (it != macros->end()) {
+									auto args_str = e.substr(paren + 1, e.size() - paren - 2);
+									auto raw_args = split_args(args_str);
+									std::vector<std::string> pos_args;
+									std::unordered_map<std::string, std::string> kw_args;
+									for (auto &a: raw_args) {
+										std::size_t ei = 0;
+										while (ei < a.size()
+											   && (std::isalnum(static_cast<unsigned char>(a[ei])) || a[ei] == '_')) {
+											++ei;
+										}
+										if (ei > 0
+											&& ei < a.size()
+											&& a[ei] == '='
+											&& (ei + 1 >= a.size() || a[ei + 1] != '=')) {
+											kw_args[trim(a.substr(0, ei))] = trim(a.substr(ei + 1));
+										} else {
+											pos_args.push_back(a);
+										}
+									}
+									auto &[params, defaults, body] = it->second;
+									auto saved = save_scope(context, params);
+									for (std::size_t i = 0; i < params.size(); ++i) {
+										if (i < pos_args.size()) {
+											context.set(params[i], eval_expr(pos_args[i], context));
+										} else if (auto kit = kw_args.find(params[i]); kit != kw_args.end()) {
+											context.set(params[i], eval_expr(kit->second, context));
+										} else if (i < defaults.size() && !defaults[i].empty()) {
+											context.set(params[i], eval_expr(defaults[i], context));
+										} else {
+											context.set(params[i], json::null_value());
+										}
+									}
+									out += render_nodes(body, context, blocks, macros, depth + 1);
+									restore_scope(context, saved);
+									macro_handled = true;
+								}
+							}
+						}
+					}
+					if (!macro_handled) {
+						out += value_to_string(eval_expr(n.expr, context));
+					}
+				} else if constexpr (std::is_same_v<T, BlockNode>) {
+					if (blocks) {
+						auto it = blocks->find(n.name);
+						if (it != blocks->end()) {
+							out += render_nodes(it->second, context, blocks, macros, depth + 1);
+							return;
+						}
+					}
+					out += render_nodes(n.body, context, blocks, macros, depth + 1);
+				} else if constexpr (std::is_same_v<T, ExtendsNode>) {
+					// handled at template level
+				} else if constexpr (std::is_same_v<T, IncludeNode>) {
+					auto it = cache.find(n.name);
+					if (it == cache.end()) {
+						throw std::runtime_error{
+							std::format("template error: included template '{}' not found", n.name)};
+					}
+					out += render_template(it->second, context, blocks, depth + 1);
+				} else if constexpr (std::is_same_v<T, SetNode>) {
+					auto val = eval_expr(n.expr, context);
+					if (context.is_object()) {
+						context.set(n.var, std::move(val));
+					}
+				} else if constexpr (std::is_same_v<T, ForNode>) {
+					auto iter_val = eval_expr(n.iter_expr, context);
+					if (iter_val.is_array()) {
+						auto saved = save_scope(context, n.vars);
+						auto const *prev_loop = obj_find(context, "loop");
+						std::optional<Value> saved_loop = prev_loop ? std::optional<Value>{*prev_loop} : std::nullopt;
+						auto arr = iter_val.as_array();
+						for (std::size_t i = 0; i < arr.size(); ++i) {
+							if (n.vars.size() == 1) {
+								context.set(n.vars[0], arr[i]);
+							} else {
+								auto const &item = arr[i];
+								for (std::size_t j = 0; j < n.vars.size(); ++j) {
+									if (item.is_array() && j < item.as_array().size()) {
+										context.set(n.vars[j], item.as_array()[j]);
+									} else {
+										context.set(n.vars[j], json::null_value());
+									}
+								}
+							}
+							Value loop_obj = json::object();
+							loop_obj.set("index0", static_cast<i64>(i));
+							loop_obj.set("index", static_cast<i64>(i + 1));
+							loop_obj.set("first", i == 0);
+							loop_obj.set("last", i == arr.size() - 1);
+							loop_obj.set("length", static_cast<i64>(arr.size()));
+							context.set("loop", std::move(loop_obj));
+							out += render_nodes(n.body, context, blocks, macros, depth + 1);
+						}
+						restore_scope(context, saved);
+						if (saved_loop) {
+							context.set("loop", *saved_loop);
+						} else {
+							context.erase("loop");
+						}
+					}
+				} else if constexpr (std::is_same_v<T, IfNode>) {
+					for (auto &branch: n.branches) {
+						if (branch.condition.empty()) {
+							out += render_nodes(branch.body, context, blocks, macros, depth + 1);
+							break;
+						}
+						if (is_truthy(eval_expr(branch.condition, context))) {
+							out += render_nodes(branch.body, context, blocks, macros, depth + 1);
+							break;
+						}
+					}
+				} else if constexpr (std::is_same_v<T, MacroNode>) {
+					(*macros)[n.name] = {n.params, n.defaults, n.body};
+				} else if constexpr (std::is_same_v<T, FromImportNode>) {
+					auto it_tmpl = cache.find(n.file);
+					if (it_tmpl == cache.end()) {
+						throw std::runtime_error{std::format("template error: imported file '{}' not found", n.file)};
+					}
+					bool found = false;
+					for (auto &sub: it_tmpl->second.nodes) {
+						std::visit(
+							[&](auto &&sn) {
+								using ST = std::decay_t<decltype(sn)>;
+								if constexpr (std::is_same_v<ST, MacroNode>) {
+									if (sn.name == n.name) {
+										(*macros)[n.alias] = {sn.params, sn.defaults, sn.body};
+										found = true;
+									}
+								}
+							},
+							sub->data);
+					}
+					if (!found) {
+						throw std::runtime_error{
+							std::format("template error: macro '{}' not found in '{}'", n.name, n.file)};
+					}
+				}
+			},
+			node->data);
+	}
+	return out;
+}
+std::string Environment::Impl::render_template(
+	Template const &tmpl,
+	Value context,
+	std::unordered_map<std::string, NodeList> const *child_blocks,
+	int depth) const {
+	if (depth > kMaxTemplateDepth) {
+		throw std::runtime_error{"template render recursion depth exceeded"};
+	}
+	// Detach the top-level JObject so SetNode mutations below are scope-local.
+	if (auto so = context.shared_object(); so) {
+		context = Value{std::make_shared<std::vector<std::pair<std::string, Value>>>(*so)};
+	}
+	if (!tmpl.extends_name.empty()) {
+		auto it = cache.find(tmpl.extends_name);
+		if (it == cache.end()) {
+			throw std::runtime_error{"template not found: " + tmpl.extends_name};
+		}
+
+		for (auto &node: tmpl.nodes) {
+			std::visit(
+				[&](auto &n) {
+					using T = std::decay_t<decltype(n)>;
+					if constexpr (std::is_same_v<T, SetNode>) {
+						auto val = eval_expr(n.expr, context);
+						if (context.is_object()) {
+							context.set(n.var, std::move(val));
+						}
+					}
+				},
+				node->data);
+		}
+
+		auto merged = it->second.blocks;
+		for (auto &[name, body]: tmpl.blocks) {
+			merged[name] = body;
+		}
+		if (child_blocks != nullptr) {
+			for (auto &[name, body]: *child_blocks) {
+				merged[name] = body;
+			}
+		}
+
+		return render_template(it->second, context, &merged, depth + 1);
+	}
+
+	return render_nodes(tmpl.nodes, context, child_blocks, nullptr, depth);
+}
+// ---------------------------------------------------------------------------
+// Environment public interface
+// ---------------------------------------------------------------------------
+
+bool Environment::Impl::extension_allowed(
+	std::filesystem::path const &path) const {
+	auto ext = path.extension().string();
+	for (auto const &allowed: options.extensions) {
+		if (ext == allowed) {
+			return true;
+		}
+	}
+	return false;
+}
+
+void Environment::Impl::reload_path(
+	std::string const &path) {
+	std::filesystem::path const p{path};
+	if (!extension_allowed(p)) {
+		return;
+	}
+	std::ifstream f(p);
+	if (!f) {
+		return;
+	}
+	std::string const buf(std::istreambuf_iterator<char>(f), {});
+	auto name = p.filename().string();
+	auto parsed = parse(name, buf);
+	std::unique_lock const lk{cache_mtx};
+	cache[name] = std::move(parsed);
+}
+
+void Environment::Impl::remove_path(
+	std::string const &path) {
+	std::filesystem::path const p{path};
+	if (!extension_allowed(p)) {
+		return;
+	}
+	auto name = p.filename().string();
+	std::unique_lock const lk{cache_mtx};
+	cache.erase(name);
+}
+
+void Environment::Impl::maybe_start_watcher() const {
+	if (!options.watch_enabled || watch_started.load(std::memory_order_acquire)) {
+		return;
+	}
+	bool expected = false;
+	if (!watch_started.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+		return;
+	}
+	try {
+		auto fw = std::make_unique<FileWatcher>();
+		fw->watch_directory(template_dir);
+		auto *self = const_cast<Impl *>(this);
+		fw->on_events([self](std::vector<FileEvent> const &events) {
+			for (auto const &ev: events) {
+				switch (ev.kind) {
+				case FileEventKind::created:
+				case FileEventKind::modified:
+				case FileEventKind::moved_to  : self->reload_path(ev.path); break;
+				case FileEventKind::removed   :
+				case FileEventKind::moved_from: self->remove_path(ev.path); break;
+				case FileEventKind::overflow:
+					for (auto &entry: std::filesystem::directory_iterator(self->template_dir)) {
+						if (entry.is_regular_file()) {
+							self->reload_path(entry.path().string());
+						}
+					}
+					break;
+				}
+			}
+		});
+		fw->on_error([this](std::exception_ptr const &) { watch_started.store(false, std::memory_order_release); });
+		fw->start();
+		watcher = std::move(fw);
+	} catch (...) { watch_started.store(false, std::memory_order_release); }
+}
+
+Environment::Environment(
+	std::string const &template_dir)
+	: impl_(std::make_unique<Impl>()) {
+	impl_->template_dir = template_dir;
+}
+Environment::Environment(
+	std::string const &template_dir,
+	EnvironmentOptions options)
+	: impl_(std::make_unique<Impl>()) {
+	impl_->template_dir = template_dir;
+	impl_->options = std::move(options);
+}
+Environment::~Environment() = default;
+Environment::Environment(Environment &&) noexcept = default;
+Environment &Environment::operator =(Environment &&) noexcept = default;
+void Environment::load_all() {
+	if (!fs::exists(impl_->template_dir)) {
+		return;
+	}
+
+	std::unordered_map<std::string, Template> parsed;
+	for (auto &entry: fs::directory_iterator(impl_->template_dir)) {
+		if (!entry.is_regular_file()) {
+			continue;
+		}
+		if (!impl_->extension_allowed(entry.path())) {
+			continue;
+		}
+
+		std::ifstream f(entry.path());
+		if (!f) {
+			continue;
+		}
+		std::string const buf(std::istreambuf_iterator<char>(f), {});
+
+		auto name = entry.path().filename().string();
+		parsed[name] = impl_->parse(name, buf);
+	}
+
+	std::unique_lock const lk{impl_->cache_mtx};
+	impl_->cache = std::move(parsed);
+}
+std::string Environment::render(
+	std::string const &name,
+	std::string const &json_ctx) const {
+	impl_->maybe_start_watcher();
+	std::shared_lock const lk{impl_->cache_mtx};
+	auto it = impl_->cache.find(name);
+	if (it == impl_->cache.end()) {
+		throw std::runtime_error{"template not found: " + name};
+	}
+
+	auto parsed = json::parse(json_ctx);
+	Value const ctx = parsed ? parsed->root() : json::object();
+	return impl_->render_template(it->second, ctx);
+}
+std::string Environment::render_string(
+	std::string const &source,
+	std::string const &json_ctx) const {
+	auto tmpl = impl_->parse("<string>", source);
+	auto parsed = json::parse(json_ctx);
+	Value const ctx = parsed ? parsed->root() : json::object();
+	std::shared_lock const lk{impl_->cache_mtx};
+	return impl_->render_template(tmpl, ctx);
+}
+
+} // namespace tmpl
