@@ -836,3 +836,255 @@ TEST_CASE(
 	struct NoCodec {};
 	CHECK_FALSE(has_json_codec<NoCodec>);
 }
+
+// ---------------------------------------------------------------------------
+// Number model
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: number form — integer vs non_integer",
+	"[json][number]") {
+	auto check = [](string_view input, JsonNumberForm expected_form) {
+		auto doc = parse(input);
+		REQUIRE(doc.has_value());
+		auto n = doc->root().as_number();
+		REQUIRE(n.has_value());
+		CHECK(n->form() == expected_form);
+	};
+	check("42", JsonNumberForm::integer);
+	check("-1", JsonNumberForm::integer);
+	check("0", JsonNumberForm::integer);
+	check("1.0", JsonNumberForm::non_integer);
+	check("1e2", JsonNumberForm::non_integer);
+	check("1E0", JsonNumberForm::non_integer);
+	check("0.5", JsonNumberForm::non_integer);
+}
+
+TEST_CASE(
+	"json: to_i64 / to_u64 reject non_integer form",
+	"[json][number]") {
+	auto doc = parse("1.0");
+	REQUIRE(doc.has_value());
+	auto n = doc->root().as_number();
+	REQUIRE(n.has_value());
+	CHECK_FALSE(n->to_i64().has_value());
+	CHECK_FALSE(n->to_u64().has_value());
+	CHECK(n->to_i64().error().code == JsonIssueCode::invalid_number);
+}
+
+TEST_CASE(
+	"json: to_u64 sign_mismatch on negative integer",
+	"[json][number]") {
+	auto doc = parse("-42");
+	REQUIRE(doc.has_value());
+	auto n = doc->root().as_number();
+	REQUIRE(n.has_value());
+	auto res = n->to_u64();
+	REQUIRE_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::sign_mismatch);
+}
+
+TEST_CASE(
+	"json: to_u64 sign_mismatch on negative zero",
+	"[json][number]") {
+	auto doc = parse("-0");
+	REQUIRE(doc.has_value());
+	auto n = doc->root().as_number();
+	REQUIRE(n.has_value());
+	auto res = n->to_u64();
+	REQUIRE_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::sign_mismatch);
+}
+
+TEST_CASE(
+	"json: to_u64 number_out_of_range on overflow",
+	"[json][number]") {
+	auto doc = parse("18446744073709551616");
+	REQUIRE(doc.has_value());
+	auto n = doc->root().as_number();
+	REQUIRE(n.has_value());
+	auto res = n->to_u64();
+	REQUIRE_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::number_out_of_range);
+}
+
+TEST_CASE(
+	"json: to_f64 number_out_of_range on overflow to infinity",
+	"[json][number]") {
+	auto doc = parse("1e999");
+	REQUIRE(doc.has_value());
+	auto n = doc->root().as_number();
+	REQUIRE(n.has_value());
+	auto res = n->to_f64();
+	REQUIRE_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::number_out_of_range);
+}
+
+// ---------------------------------------------------------------------------
+// Parse limits
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: max_depth exceeded",
+	"[json][limits]") {
+	JsonParseOptions opts;
+	opts.max_depth = LimitOption::bound(3);
+	string nested(4, '[');
+	nested += "1";
+	nested.append(4, ']');
+	auto res = parse(nested, opts);
+	REQUIRE_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::nesting_too_deep);
+}
+
+TEST_CASE(
+	"json: max_depth not exceeded at boundary",
+	"[json][limits]") {
+	JsonParseOptions opts;
+	opts.max_depth = LimitOption::bound(3);
+	string nested(3, '[');
+	nested += "1";
+	nested.append(3, ']');
+	CHECK(parse(nested, opts).has_value());
+}
+
+TEST_CASE(
+	"json: max_input_size exceeded",
+	"[json][limits]") {
+	JsonParseOptions opts;
+	opts.max_input_size = LimitOption::bound(4);
+	auto res = parse("\"hello\"", opts);
+	REQUIRE_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::input_too_large);
+}
+
+TEST_CASE(
+	"json: max_string_size exceeded",
+	"[json][limits]") {
+	JsonParseOptions opts;
+	opts.max_string_size = LimitOption::bound(2);
+	auto res = parse("\"abc\"", opts);
+	REQUIRE_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::string_too_large);
+}
+
+TEST_CASE(
+	"json: max_depth zero rejects non-empty containers",
+	"[json][limits]") {
+	JsonParseOptions opts;
+	opts.max_depth = LimitOption::bound(0);
+	CHECK_FALSE(parse("[1]", opts).has_value());
+	CHECK_FALSE(parse(R"({"a":1})", opts).has_value());
+	CHECK(parse("[]", opts).has_value());
+	CHECK(parse("{}", opts).has_value());
+	CHECK(parse("null", opts).has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Input model — BOM and UTF-8
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: BOM at start is skipped",
+	"[json][input]") {
+	string_view bom_json = "\xEF\xBB\xBF\"hello\"";
+	auto res = parse(bom_json);
+	REQUIRE(res.has_value());
+	CHECK(*res->root().as_string() == "hello");
+}
+
+TEST_CASE(
+	"json: invalid UTF-8 is rejected",
+	"[json][input]") {
+	string_view bad = "\"\x80\"";
+	auto res = parse(bad);
+	REQUIRE_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::invalid_utf8);
+}
+
+// ---------------------------------------------------------------------------
+// NodeRef identity and value equality
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: is_same_node — same document, same node",
+	"[json][noderef]") {
+	auto doc = parse("[1,2]");
+	REQUIRE(doc.has_value());
+	NodeRef const r = doc->root();
+	CHECK(is_same_node(r, r));
+}
+
+TEST_CASE(
+	"json: is_same_node — different nodes in same document",
+	"[json][noderef]") {
+	auto doc = parse("[1,2]");
+	REQUIRE(doc.has_value());
+	auto a = doc->root().as_array();
+	REQUIRE(a.has_value());
+	auto n0 = a->element(0);
+	auto n1 = a->element(1);
+	REQUIRE(n0.has_value());
+	REQUIRE(n1.has_value());
+	CHECK_FALSE(is_same_node(*n0, *n1));
+}
+
+TEST_CASE(
+	"json: is_value_equal — identical scalars",
+	"[json][noderef]") {
+	auto da = parse("42");
+	auto db = parse("42");
+	REQUIRE(da.has_value());
+	REQUIRE(db.has_value());
+	CHECK(is_value_equal(da->root(), db->root()));
+}
+
+TEST_CASE(
+	"json: is_value_equal — 1 and 1.0 are equal (math value)",
+	"[json][noderef]") {
+	auto da = parse("1");
+	auto db = parse("1.0");
+	REQUIRE(da.has_value());
+	REQUIRE(db.has_value());
+	CHECK(is_value_equal(da->root(), db->root()));
+}
+
+TEST_CASE(
+	"json: is_value_equal — different kinds",
+	"[json][noderef]") {
+	auto da = parse("1");
+	auto db = parse("\"1\"");
+	REQUIRE(da.has_value());
+	REQUIRE(db.has_value());
+	CHECK_FALSE(is_value_equal(da->root(), db->root()));
+}
+
+TEST_CASE(
+	"json: is_value_equal — objects are order-insensitive",
+	"[json][noderef]") {
+	auto da = parse(R"({"a":1,"b":2})");
+	auto db = parse(R"({"b":2,"a":1})");
+	REQUIRE(da.has_value());
+	REQUIRE(db.has_value());
+	CHECK(is_value_equal(da->root(), db->root()));
+}
+
+TEST_CASE(
+	"json: is_value_equal_exact — 1 and 1.0 are not equal",
+	"[json][noderef]") {
+	auto da = parse("1");
+	auto db = parse("1.0");
+	REQUIRE(da.has_value());
+	REQUIRE(db.has_value());
+	CHECK_FALSE(is_value_equal_exact(da->root(), db->root()));
+}
+
+TEST_CASE(
+	"json: is_value_equal_exact — identical lexemes are equal",
+	"[json][noderef]") {
+	auto da = parse("1");
+	auto db = parse("1");
+	REQUIRE(da.has_value());
+	REQUIRE(db.has_value());
+	CHECK(is_value_equal_exact(da->root(), db->root()));
+}

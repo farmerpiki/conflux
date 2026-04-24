@@ -449,22 +449,29 @@ public:
 		double v{};
 		auto const *b = lexeme_.data();
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		if (auto [p, ec] = from_chars(b, b + lexeme_.size(), v, chars_format::general);
-			ec == errc{} && p == b + lexeme_.size()) {
-			if (!isfinite(v)) {
-				return unexpected(
-					JsonError{
-						.stage = JsonStage::lookup,
-						.code = JsonIssueCode::number_out_of_range,
-						.message = format("f64 conversion overflows: {}", lexeme_)});
-			}
-			return v;
+		auto const [p, ec] = from_chars(b, b + lexeme_.size(), v, chars_format::general);
+		if (ec == errc::result_out_of_range) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::number_out_of_range,
+					.message = format("f64 conversion overflows: {}", lexeme_)});
 		}
-		return unexpected(
-			JsonError{
-				.stage = JsonStage::lookup,
-				.code = JsonIssueCode::invalid_number,
-				.message = format("cannot convert to f64: {}", lexeme_)});
+		if (ec != errc{} || p != b + lexeme_.size()) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::invalid_number,
+					.message = format("cannot convert to f64: {}", lexeme_)});
+		}
+		if (!isfinite(v)) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::number_out_of_range,
+					.message = format("f64 conversion overflows: {}", lexeme_)});
+		}
+		return v;
 	}
 };
 
