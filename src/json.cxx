@@ -1758,24 +1758,44 @@ struct BuilderState {
 	DocumentStorage store;
 	bool root_set{false};
 	size_t root_node{};
-	bool child_active{false};
+	bool child_active{false}; // true when any descendant of ValueBuilder is open
+	size_t active_depth{}; // depth of the innermost currently-active builder
+						   // 1 = direct child of ValueBuilder, 2 = grandchild, etc.
+};
 
-	// Scratch hashtable for duplicate detection, per active ObjectBuilder session.
-	// Reused by clearing between sessions.
-	unordered_map<string, size_t> dup_check;
+// Describes where a committed child node gets placed in the parent.
+struct ParentSlot {
+	// NOLINTNEXTLINE(performance-enum-size)
+	enum class Kind : u8 {
+		set_root, // top-level: store in BuilderState::root_node
+		insert_member, // nested in ObjectBuilder: push to object_members
+		append_child, // nested in ArrayBuilder: push parent's local_children
+	};
+	Kind kind{Kind::set_root};
+	size_t name_off{}; // insert_member: name offset in string_arena
+	size_t name_len{}; // insert_member: name length
+	size_t arena_start{}; // rollback point for string_arena
+	bool saved_root_set{}; // set_root only: root_set value before child was opened
+	vector<size_t> *parent_local_children{}; // append_child only: parent's staging vector
+	vector<MemberEntry> *parent_local_members{}; // insert_member only: parent's staging vector
 };
 
 // Holds the active object/array being built:
 struct ChildFrame {
 	// NOLINTNEXTLINE(performance-enum-size)
-	enum class Kind {
+	enum class Kind : u8 {
 		object,
 		array,
 	};
 	Kind kind;
-	size_t mem_start; // start in object_members (object) or array_children (array)
+	size_t depth{}; // this builder's own depth level (1 = direct child of ValueBuilder)
 	BuilderState *state{};
-	bool committed{false};
+	bool committed{};
+	ParentSlot parent; // parent.arena_start is the rollback point for string_arena
+	vector<size_t> local_children; // staged array child node indices (array builders only)
+	vector<MemberEntry> local_members; // staged object members (object builders only)
+	// Per-session duplicate detection for ObjectBuilder (kind==object only).
+	unordered_map<string, size_t> dup_check;
 };
 
 export class ObjectBuilder {
@@ -1785,16 +1805,29 @@ export class ObjectBuilder {
 	friend class ArrayBuilder;
 	ObjectBuilder(
 		BuilderState *st,
-		size_t mem_start)
-		: frame_{.kind = ChildFrame::Kind::object, .mem_start = mem_start, .state = st} {}
+		ParentSlot parent = {})
+		: frame_{
+			  .kind = ChildFrame::Kind::object,
+			  .state = st,
+			  .parent = parent,
+			  .local_children = {},
+			  .local_members = {},
+			  .dup_check = {}} {}
 
-	[[nodiscard]] expected<void, JsonError> check_not_committed() const {
+	[[nodiscard]] expected<void, JsonError> check_can_insert() const {
 		if (frame_.committed) {
 			return unexpected(
 				JsonError{
 					.stage = JsonStage::build,
 					.code = JsonIssueCode::constraint_violation,
 					.message = "ObjectBuilder already committed"});
+		}
+		if (frame_.state != nullptr && frame_.state->active_depth != frame_.depth) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::build,
+					.code = JsonIssueCode::constraint_violation,
+					.message = "child builder already active"});
 		}
 		return {};
 	}
@@ -1804,14 +1837,14 @@ export class ObjectBuilder {
 public:
 	ObjectBuilder(
 		ObjectBuilder &&o) noexcept
-		: frame_{o.frame_} {
+		: frame_{move(o.frame_)} {
 		o.frame_.state = nullptr;
 	}
 	ObjectBuilder &operator =(
 		ObjectBuilder &&o) noexcept {
 		if (this != &o) {
 			abort_if_open();
-			frame_ = o.frame_;
+			frame_ = move(o.frame_);
 			o.frame_.state = nullptr;
 		}
 		return *this;
@@ -1823,8 +1856,14 @@ public:
 	void abort_if_open() noexcept {
 		if ((frame_.state != nullptr) && !frame_.committed) {
 			auto *st = frame_.state;
-			st->store.object_members.resize(frame_.mem_start); // shrink: no throw
-			st->child_active = false;
+			st->store.string_arena.resize(frame_.parent.arena_start);
+			frame_.local_members.clear();
+			frame_.dup_check.clear();
+			st->active_depth = frame_.depth - 1;
+			if (frame_.parent.kind == ParentSlot::Kind::set_root) {
+				st->root_set = frame_.parent.saved_root_set;
+				st->child_active = false;
+			}
 			frame_.state = nullptr;
 		}
 	}
@@ -1852,31 +1891,62 @@ public:
 			return;
 		}
 		auto *st = frame_.state;
-		size_t const cnt = st->store.object_members.size() - frame_.mem_start;
-		st->store.nodes.push_back({.kind = NodeKind::object, .a = frame_.mem_start, .b = cnt});
+		size_t const mem_start = st->store.object_members.size();
+		for (auto const &m: frame_.local_members) {
+			st->store.object_members.push_back(m);
+		}
+		size_t const cnt = frame_.local_members.size();
+		st->store.nodes.push_back({.kind = NodeKind::object, .a = mem_start, .b = cnt});
 		size_t const node_idx = st->store.nodes.size() - 1;
-		st->root_node = node_idx;
+		switch (frame_.parent.kind) {
+		case ParentSlot::Kind::set_root:
+			st->root_node = node_idx;
+			st->child_active = false;
+			break;
+		case ParentSlot::Kind::insert_member:
+			frame_.parent.parent_local_members->push_back({frame_.parent.name_off, frame_.parent.name_len, node_idx});
+			break;
+		case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
+		}
+		st->active_depth = frame_.depth - 1;
+		frame_.local_members.clear();
+		frame_.dup_check.clear();
 		frame_.committed = true;
-		st->child_active = false;
 	}
 };
 
 export class ArrayBuilder {
 	ChildFrame frame_;
 
+	[[nodiscard]] static bool arr_check_active(
+		ChildFrame const &f) noexcept {
+		return !f.committed && (f.state != nullptr) && (f.state->active_depth == f.depth);
+	}
+
 	friend class ValueBuilder;
 	friend class ObjectBuilder;
 	ArrayBuilder(
 		BuilderState *st,
-		size_t child_start)
-		: frame_{.kind = ChildFrame::Kind::array, .mem_start = child_start, .state = st} {}
+		ParentSlot parent = {})
+		: frame_{
+			  .kind = ChildFrame::Kind::array,
+			  .state = st,
+			  .parent = parent,
+			  .local_children = {},
+			  .local_members = {},
+			  .dup_check = {}} {}
 
 	// NOLINTNEXTLINE(bugprone-exception-escape)
 	void abort_if_open() noexcept {
 		if ((frame_.state != nullptr) && !frame_.committed) {
 			auto *st = frame_.state;
-			st->store.array_children.resize(frame_.mem_start); // shrink: no throw
-			st->child_active = false;
+			st->store.string_arena.resize(frame_.parent.arena_start);
+			frame_.local_children.clear();
+			st->active_depth = frame_.depth - 1;
+			if (frame_.parent.kind == ParentSlot::Kind::set_root) {
+				st->root_set = frame_.parent.saved_root_set;
+				st->child_active = false;
+			}
 			frame_.state = nullptr;
 		}
 	}
@@ -1884,14 +1954,14 @@ export class ArrayBuilder {
 public:
 	ArrayBuilder(
 		ArrayBuilder &&o) noexcept
-		: frame_{o.frame_} {
+		: frame_{move(o.frame_)} {
 		o.frame_.state = nullptr;
 	}
 	ArrayBuilder &operator =(
 		ArrayBuilder &&o) noexcept {
 		if (this != &o) {
 			abort_if_open();
-			frame_ = o.frame_;
+			frame_ = move(o.frame_);
 			o.frame_.state = nullptr;
 		}
 		return *this;
@@ -1922,11 +1992,26 @@ public:
 			return;
 		}
 		auto *st = frame_.state;
-		size_t const cnt = st->store.array_children.size() - frame_.mem_start;
-		st->store.nodes.push_back({.kind = NodeKind::array, .a = frame_.mem_start, .b = cnt});
-		st->root_node = st->store.nodes.size() - 1;
+		size_t const child_start = st->store.array_children.size();
+		for (size_t const idx: frame_.local_children) {
+			st->store.array_children.push_back(idx);
+		}
+		size_t const cnt = frame_.local_children.size();
+		st->store.nodes.push_back({.kind = NodeKind::array, .a = child_start, .b = cnt});
+		size_t const node_idx = st->store.nodes.size() - 1;
+		switch (frame_.parent.kind) {
+		case ParentSlot::Kind::set_root:
+			st->root_node = node_idx;
+			st->child_active = false;
+			break;
+		case ParentSlot::Kind::insert_member:
+			frame_.parent.parent_local_members->push_back({frame_.parent.name_off, frame_.parent.name_len, node_idx});
+			break;
+		case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
+		}
+		st->active_depth = frame_.depth - 1;
+		frame_.local_children.clear();
 		frame_.committed = true;
-		st->child_active = false;
 	}
 };
 
@@ -1938,6 +2023,9 @@ namespace detail {
 
 template<class T>
 expected<size_t, JsonError> encode_into(BuilderState *st, T const &value);
+
+template<class T>
+expected<void, JsonError> encode_dispatch(ValueBuilder &b, T const &value);
 
 } // namespace detail
 
@@ -2091,10 +2179,17 @@ public:
 		if (!ok) {
 			return unexpected(move(ok).error());
 		}
+		bool const prev_root_set = state_->root_set;
 		state_->child_active = true;
 		state_->root_set = true;
-		size_t const ms = state_->store.object_members.size();
-		return ObjectBuilder{state_, ms};
+		state_->active_depth = 1;
+		ParentSlot const parent{
+			.kind = ParentSlot::Kind::set_root,
+			.arena_start = state_->store.string_arena.size(),
+			.saved_root_set = prev_root_set};
+		ObjectBuilder child{state_, parent};
+		child.frame_.depth = 1;
+		return child;
 	}
 
 	[[nodiscard]] expected<ArrayBuilder, JsonError> begin_array() {
@@ -2102,10 +2197,17 @@ public:
 		if (!ok) {
 			return unexpected(move(ok).error());
 		}
+		bool const prev_root_set = state_->root_set;
 		state_->child_active = true;
 		state_->root_set = true;
-		size_t const cs = state_->store.array_children.size();
-		return ArrayBuilder{state_, cs};
+		state_->active_depth = 1;
+		ParentSlot const parent{
+			.kind = ParentSlot::Kind::set_root,
+			.arena_start = state_->store.string_arena.size(),
+			.saved_root_set = prev_root_set};
+		ArrayBuilder child{state_, parent};
+		child.frame_.depth = 1;
+		return child;
 	}
 
 	template<class T>
@@ -2115,7 +2217,9 @@ public:
 	void reset() noexcept {
 		state_->store = DocumentStorage{};
 		state_->root_set = false;
+		state_->root_node = 0;
 		state_->child_active = false;
+		state_->active_depth = 0;
 	}
 
 	void discard() && noexcept {
@@ -2134,6 +2238,8 @@ public:
 		}
 		auto storage = make_unique<DocumentStorage>(move(state_->store));
 		storage->root_node = state_->root_node;
+		owned_.reset();
+		state_ = nullptr;
 		return ::make_document(move(storage));
 	}
 };
@@ -2142,7 +2248,7 @@ export ValueBuilder value_builder() {
 	return {};
 }
 
-// Internal helper: encode a value of type T into a shared BuilderState,
+// Internal helpers: encode a value of type T into a shared BuilderState,
 // returning the resulting node index. Rolls back on failure.
 // Used by ArrayBuilder::append<T> and ObjectBuilder::insert<T>.
 namespace detail {
@@ -2157,11 +2263,13 @@ expected<size_t, JsonError> encode_into(
 	size_t const obj_saved = st->store.object_members.size();
 	bool const root_set_saved = st->root_set;
 	bool const child_active_saved = st->child_active;
+	size_t const active_depth_saved = st->active_depth;
 
 	st->root_set = false;
 	st->child_active = false;
+	st->active_depth = 0;
 	ValueBuilder vb{st};
-	auto ok = JsonCodec<T>::encode(vb, value);
+	auto ok = encode_dispatch<T>(vb, value);
 	if (!ok) {
 		st->store.nodes.resize(nodes_saved);
 		st->store.string_arena.resize(arena_saved);
@@ -2169,11 +2277,13 @@ expected<size_t, JsonError> encode_into(
 		st->store.object_members.resize(obj_saved);
 		st->root_set = root_set_saved;
 		st->child_active = child_active_saved;
+		st->active_depth = active_depth_saved;
 		return unexpected(move(ok).error());
 	}
 	size_t const node_idx = st->root_node;
 	st->root_set = root_set_saved;
 	st->child_active = child_active_saved;
+	st->active_depth = active_depth_saved;
 	return node_idx;
 }
 
@@ -2255,28 +2365,24 @@ expected<void, JsonError> ObjectBuilder::do_insert_node(
 	string_view name,
 	size_t node_idx) {
 	auto *st = frame_.state;
-	// Duplicate check
-	for (size_t i = frame_.mem_start; i < st->store.object_members.size(); ++i) {
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-		auto const &m = st->store.object_members[i];
-		if (st->store.str_at(m.name_off, m.name_len) == name) {
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::build,
-					.code = JsonIssueCode::duplicate_member,
-					.member_name = string{name},
-					.message = format("duplicate member: {}", name)});
-		}
+	auto [it, inserted] = frame_.dup_check.try_emplace(string{name}, node_idx);
+	if (!inserted) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::duplicate_member,
+				.member_name = string{name},
+				.message = format("duplicate member: {}", name)});
 	}
 	size_t const name_off = st->store.string_arena.size();
 	st->store.string_arena.append(name.data(), name.size());
-	st->store.object_members.push_back({name_off, name.size(), node_idx});
+	frame_.local_members.push_back({name_off, name.size(), node_idx});
 	return {};
 }
 
 expected<void, JsonError> ObjectBuilder::insert_null(
 	string_view name) {
-	if (auto ok = check_not_committed(); !ok) {
+	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
 	auto *st = frame_.state;
@@ -2286,7 +2392,7 @@ expected<void, JsonError> ObjectBuilder::insert_null(
 expected<void, JsonError> ObjectBuilder::insert_bool(
 	string_view name,
 	bool v) {
-	if (auto ok = check_not_committed(); !ok) {
+	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
 	auto *st = frame_.state;
@@ -2296,7 +2402,7 @@ expected<void, JsonError> ObjectBuilder::insert_bool(
 expected<void, JsonError> ObjectBuilder::insert_string(
 	string_view name,
 	string_view value) {
-	if (auto ok = check_not_committed(); !ok) {
+	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
 	auto *st = frame_.state;
@@ -2308,7 +2414,7 @@ expected<void, JsonError> ObjectBuilder::insert_string(
 expected<void, JsonError> ObjectBuilder::insert_number(
 	string_view name,
 	string_view lexeme) {
-	if (auto ok = check_not_committed(); !ok) {
+	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
 	if (!validate_number_lexeme(lexeme)) {
@@ -2328,7 +2434,7 @@ expected<void, JsonError> ObjectBuilder::insert_number(
 expected<void, JsonError> ObjectBuilder::insert_i64(
 	string_view name,
 	int64_t v) {
-	if (auto ok = check_not_committed(); !ok) {
+	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
 	auto *st = frame_.state;
@@ -2344,7 +2450,7 @@ expected<void, JsonError> ObjectBuilder::insert_i64(
 expected<void, JsonError> ObjectBuilder::insert_u64(
 	string_view name,
 	uint64_t v) {
-	if (auto ok = check_not_committed(); !ok) {
+	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
 	auto *st = frame_.state;
@@ -2360,7 +2466,7 @@ expected<void, JsonError> ObjectBuilder::insert_u64(
 expected<void, JsonError> ObjectBuilder::insert_f64(
 	string_view name,
 	double v) {
-	if (auto ok = check_not_committed(); !ok) {
+	if (auto ok = check_can_insert(); !ok) {
 		return ok;
 	}
 	if (!isfinite(v)) {
@@ -2385,122 +2491,66 @@ expected<void, JsonError> ObjectBuilder::insert_f64(
 
 expected<ObjectBuilder, JsonError> ObjectBuilder::insert_object(
 	string_view name) {
-	if (auto ok = check_not_committed(); !ok) {
+	if (auto ok = check_can_insert(); !ok) {
 		return unexpected(move(ok).error());
 	}
-	auto *st = frame_.state;
-	if (st->child_active) {
+	// Duplicate check before any work (O(1) amortized via hash).
+	if (frame_.dup_check.contains(string{name})) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
-				.code = JsonIssueCode::constraint_violation,
-				.message = "child builder already active"});
+				.code = JsonIssueCode::duplicate_member,
+				.member_name = string{name},
+				.message = format("duplicate member: {}", name)});
 	}
-	// Pre-check duplicate.
-	for (size_t i = frame_.mem_start; i < st->store.object_members.size(); ++i) {
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-		auto const &m = st->store.object_members[i];
-		if (st->store.str_at(m.name_off, m.name_len) == name) {
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::build,
-					.code = JsonIssueCode::duplicate_member,
-					.member_name = string{name},
-					.message = format("duplicate member: {}", name)});
-		}
-	}
-	// Reserve name slot — we need to store the name but the val_node comes after commit.
-	// Use a placeholder: push with val_node = numeric_limits<size_t>::max(), fix after child commits.
+	auto *st = frame_.state;
+	// Store name in arena; the member entry will be pushed when child commits.
 	size_t const name_off = st->store.string_arena.size();
 	st->store.string_arena.append(name.data(), name.size());
-	size_t const member_slot = st->store.object_members.size();
-	st->store.object_members.push_back({name_off, name.size(), numeric_limits<size_t>::max()});
-	st->child_active = true;
-	size_t const child_ms = st->store.object_members.size();
-
-	// When child commits, it pushes a node; we need to fix member_slot.val_node.
-	// We handle this by having a separate ObjectBuilder that does this on commit.
-	// Actually we need a mechanism. For now, use a wrapper that overrides commit.
-	// Simplest: sub-ObjectBuilder that on commit sets parent's member slot.
-	// We store member_slot in ChildFrame.mem_start (temporarily abused).
-	// Actually let me use a different field. Add a parent_member_slot concept.
-	// For Phase 0 simplicity: use a helper struct.
-
-	// Build sub-ObjectBuilder; on its commit it pushes object node.
-	// Then we update member_slot with the pushed node index.
-	// This requires the parent to be notified. Use a shared "last_committed_node" in BuilderState.
-	st->store.object_members[member_slot].val_node = st->store.nodes.size(); // will be set when child commits
-
-	ObjectBuilder child{st, child_ms};
-	child.frame_.mem_start = child_ms;
-	// Stash member_slot info so commit can fix the val_node.
-	// We'll use the builder state's pending mechanism.
-	// For now: commit will push node at `nodes.size()` — but we don't know that ahead of time.
-	// Better approach: track the member_slot differently.
-	// SIMPLE FIX: Don't pre-insert the member. On commit, insert atomically.
-	// Revert: remove the placeholder we just added.
-	st->store.object_members.pop_back();
-	st->store.string_arena.resize(name_off);
-	// Store name for post-commit insertion.
-	// We need to pass the name through. Add name_pending to ChildFrame.
-	// But ChildFrame doesn't have a name field...
-	// For Phase 0: just make ObjectBuilder store the parent name.
-	(void)member_slot;
-	st->child_active = false;
-
-	// Restart cleanly: nested object builder that will insert into this object when committed.
-	// Use a different mechanism: pass the parent member_start and name through BuilderState.
-	// For simplicity in Phase 0, implement this as a direct child with deferred name insertion.
-
-	// Real approach: build a sub-ObjectBuilder that on commit inserts the member.
-	// Requires a parent_insert callback. For Phase 0 prototype, keep it simple.
-	// Use a "pending member insert" in BuilderState.
-
-	// Store the name in string_arena and remember its offset+len:
-	size_t const name_off2 = st->store.string_arena.size();
-	st->store.string_arena.append(name.data(), name.size());
-	st->child_active = true;
-	size_t const child_ms2 = st->store.object_members.size();
-
-	ObjectBuilder const result{st, child_ms2};
-	// We can't easily fix val_node after child commits here without
-	// invasive changes. Use a simpler approach: after commit(), the last
-	// pushed node is the object node. We read it from nodes.back().
-	// Store enough in ChildFrame to do the member insert on commit.
-	// Add fields to ChildFrame: parent_mem_start_, parent_name_off_, parent_name_len_.
-	// Since ChildFrame is internal, we can do this.
-	// BUT ChildFrame is already defined. This is getting messy.
-	//
-	// SIMPLEST FIX FOR PHASE 0: don't support nested object/array builders from ObjectBuilder/ArrayBuilder.
-	// Only support ValueBuilder::begin_object/begin_array.
-	// This is not spec-compliant but is a valid Phase 0 prototype limitation.
-	// Mark as TODO and provide the flat builder only for now.
-	//
-	// Actually, let me just fix this properly by extending ChildFrame.
-
-	// Revert all the arena changes:
-	st->store.string_arena.resize(name_off);
-	st->child_active = false;
-
-	(void)name_off2;
-	(void)child_ms2;
-	(void)result;
-
-	// Return an error indicating nested builders not yet supported in Phase 0.
-	return unexpected(
-		JsonError{
-			.stage = JsonStage::build,
-			.code = JsonIssueCode::constraint_violation,
-			.message = "nested object/array builders: use ValueBuilder-level nesting (Phase 0 limitation)"});
+	frame_.dup_check.emplace(string{name}, 0);
+	size_t const child_depth = frame_.depth + 1;
+	st->active_depth = child_depth;
+	ParentSlot const parent{
+		.kind = ParentSlot::Kind::insert_member,
+		.name_off = name_off,
+		.name_len = name.size(),
+		.arena_start = name_off,
+		.parent_local_members = &frame_.local_members};
+	ObjectBuilder child{st, parent};
+	child.frame_.depth = child_depth;
+	return child;
 }
 
 expected<ArrayBuilder, JsonError> ObjectBuilder::insert_array(
-	string_view /*name*/) {
-	return unexpected(
-		JsonError{
-			.stage = JsonStage::build,
-			.code = JsonIssueCode::constraint_violation,
-			.message = "nested object/array builders not yet supported (Phase 0)"});
+	string_view name) {
+	if (auto ok = check_can_insert(); !ok) {
+		return unexpected(move(ok).error());
+	}
+	// Duplicate check before any work (O(1) amortized via hash).
+	if (frame_.dup_check.contains(string{name})) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::duplicate_member,
+				.member_name = string{name},
+				.message = format("duplicate member: {}", name)});
+	}
+	auto *st = frame_.state;
+	// Store name in arena; the member entry will be pushed when child commits.
+	size_t const name_off = st->store.string_arena.size();
+	st->store.string_arena.append(name.data(), name.size());
+	frame_.dup_check.emplace(string{name}, 0);
+	size_t const child_depth = frame_.depth + 1;
+	st->active_depth = child_depth;
+	ParentSlot const parent{
+		.kind = ParentSlot::Kind::insert_member,
+		.name_off = name_off,
+		.name_len = name.size(),
+		.arena_start = name_off,
+		.parent_local_members = &frame_.local_members};
+	ArrayBuilder child{st, parent};
+	child.frame_.depth = child_depth;
+	return child;
 }
 
 // ---------------------------------------------------------------------------
@@ -2508,56 +2558,56 @@ expected<ArrayBuilder, JsonError> ObjectBuilder::insert_array(
 // ---------------------------------------------------------------------------
 
 expected<void, JsonError> ArrayBuilder::append_null() {
-	if (frame_.committed || (frame_.state == nullptr)) {
+	if (!arr_check_active(frame_)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
-				.message = "ArrayBuilder already committed"});
+				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	auto *st = frame_.state;
 	st->store.nodes.push_back({.kind = NodeKind::null_});
-	st->store.array_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
 expected<void, JsonError> ArrayBuilder::append_bool(
 	bool v) {
-	if (frame_.committed || (frame_.state == nullptr)) {
+	if (!arr_check_active(frame_)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
-				.message = "ArrayBuilder already committed"});
+				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	auto *st = frame_.state;
 	st->store.nodes.push_back({.kind = NodeKind::boolean, .bool_val = v});
-	st->store.array_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
 expected<void, JsonError> ArrayBuilder::append_string(
 	string_view value) {
-	if (frame_.committed || (frame_.state == nullptr)) {
+	if (!arr_check_active(frame_)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
-				.message = "ArrayBuilder already committed"});
+				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	auto *st = frame_.state;
 	size_t const off = st->store.string_arena.size();
 	st->store.string_arena.append(value.data(), value.size());
 	st->store.nodes.push_back({.kind = NodeKind::string_, .a = off, .b = value.size()});
-	st->store.array_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
 expected<void, JsonError> ArrayBuilder::append_number(
 	string_view lexeme) {
-	if (frame_.committed || (frame_.state == nullptr)) {
+	if (!arr_check_active(frame_)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
-				.message = "ArrayBuilder already committed"});
+				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	if (!validate_number_lexeme(lexeme)) {
 		return unexpected(
@@ -2571,17 +2621,17 @@ expected<void, JsonError> ArrayBuilder::append_number(
 	st->store.string_arena.append(lexeme.data(), lexeme.size());
 	bool const is_int = lexeme.find_first_of(".eE") == string_view::npos;
 	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = lexeme.size(), .num_is_integer = is_int});
-	st->store.array_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
 expected<void, JsonError> ArrayBuilder::append_i64(
 	int64_t v) {
-	if (frame_.committed || (frame_.state == nullptr)) {
+	if (!arr_check_active(frame_)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
-				.message = "ArrayBuilder already committed"});
+				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	auto *st = frame_.state;
 	size_t const off = st->store.string_arena.size();
@@ -2591,17 +2641,17 @@ expected<void, JsonError> ArrayBuilder::append_i64(
 	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 	size_t const len = st->store.string_arena.size() - off;
 	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = true});
-	st->store.array_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
 expected<void, JsonError> ArrayBuilder::append_u64(
 	uint64_t v) {
-	if (frame_.committed || (frame_.state == nullptr)) {
+	if (!arr_check_active(frame_)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
-				.message = "ArrayBuilder already committed"});
+				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	auto *st = frame_.state;
 	size_t const off = st->store.string_arena.size();
@@ -2611,17 +2661,17 @@ expected<void, JsonError> ArrayBuilder::append_u64(
 	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 	size_t const len = st->store.string_arena.size() - off;
 	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = true});
-	st->store.array_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
 expected<void, JsonError> ArrayBuilder::append_f64(
 	double v) {
-	if (frame_.committed || (frame_.state == nullptr)) {
+	if (!arr_check_active(frame_)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
-				.message = "ArrayBuilder already committed"});
+				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	if (!isfinite(v)) {
 		return unexpected(
@@ -2640,27 +2690,49 @@ expected<void, JsonError> ArrayBuilder::append_f64(
 	string_view const lex = st->store.str_at(off, len);
 	bool const is_int = lex.find_first_of(".eE") == string_view::npos;
 	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = is_int});
-	st->store.array_children.push_back(st->store.nodes.size() - 1);
+	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
 
 expected<ObjectBuilder, JsonError> ArrayBuilder::append_object() {
-	return unexpected(
-		JsonError{
-			.stage = JsonStage::build,
-			.code = JsonIssueCode::constraint_violation,
-			.message = "nested object/array builders not yet supported (Phase 0)"});
-}
-expected<ArrayBuilder, JsonError> ArrayBuilder::append_array() {
-	return unexpected(
-		JsonError{
-			.stage = JsonStage::build,
-			.code = JsonIssueCode::constraint_violation,
-			.message = "nested object/array builders not yet supported (Phase 0)"});
+	if (!arr_check_active(frame_)) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::constraint_violation,
+				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
+	}
+	auto *st = frame_.state;
+	size_t const child_depth = frame_.depth + 1;
+	st->active_depth = child_depth;
+	ParentSlot const parent{
+		.kind = ParentSlot::Kind::append_child,
+		.arena_start = st->store.string_arena.size(),
+		.parent_local_children = &frame_.local_children};
+	ObjectBuilder child{st, parent};
+	child.frame_.depth = child_depth;
+	return child;
 }
 
-// ValueBuilder::finish needs to set root_node from state.
-// Fix: store root_node in BuilderState so finish can read it.
+expected<ArrayBuilder, JsonError> ArrayBuilder::append_array() {
+	if (!arr_check_active(frame_)) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::constraint_violation,
+				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
+	}
+	auto *st = frame_.state;
+	size_t const child_depth = frame_.depth + 1;
+	st->active_depth = child_depth;
+	ParentSlot const parent{
+		.kind = ParentSlot::Kind::append_child,
+		.arena_start = st->store.string_arena.size(),
+		.parent_local_children = &frame_.local_children};
+	ArrayBuilder child{st, parent};
+	child.frame_.depth = child_depth;
+	return child;
+}
 
 // ---------------------------------------------------------------------------
 // Nullable<T>
@@ -3364,19 +3436,19 @@ template<class T>
 	requires has_json_codec<T>
 expected<void, JsonError> ArrayBuilder::append(
 	T const &value) {
-	if (frame_.committed || (frame_.state == nullptr)) {
+	if (!arr_check_active(frame_)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
-				.message = "ArrayBuilder already committed"});
+				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	auto *st = frame_.state;
 	auto node_or = detail::encode_into<T>(st, value);
 	if (!node_or) {
 		return unexpected(move(node_or).error());
 	}
-	st->store.array_children.push_back(*node_or);
+	frame_.local_children.push_back(*node_or);
 	return {};
 }
 
@@ -3385,8 +3457,17 @@ template<class T>
 expected<void, JsonError> ObjectBuilder::insert(
 	string_view name,
 	T const &value) {
-	if (auto ok = check_not_committed(); !ok) {
+	if (auto ok = check_can_insert(); !ok) {
 		return ok;
+	}
+	// Spec: duplicate-name rejection happens before dispatching to JsonCodec<T>::encode.
+	if (frame_.dup_check.contains(string{name})) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::duplicate_member,
+				.member_name = string{name},
+				.message = format("duplicate member: {}", name)});
 	}
 	auto *st = frame_.state;
 	auto node_or = detail::encode_into<T>(st, value);
@@ -3396,6 +3477,52 @@ expected<void, JsonError> ObjectBuilder::insert(
 	return do_insert_node(name, *node_or);
 }
 
+namespace detail {
+
+// Encode dispatch: mirrors the decode<T> dispatch logic.
+template<class T>
+expected<void, JsonError> encode_dispatch(
+	ValueBuilder &b,
+	T const &value) {
+	if constexpr (has_codec_spec<T>::value) {
+		return JsonCodec<T>::encode(b, value);
+	} else if constexpr (has_members_spec<T>::value) {
+		auto obj_res = b.begin_object();
+		if (!obj_res) {
+			return unexpected(move(obj_res).error());
+		}
+		auto &obj = *obj_res;
+		auto const members = JsonMembers<T>::members();
+		bool ok = true;
+		JsonError first_err;
+		apply(
+			[&](auto const &...ms) {
+				(([&](auto const &m) {
+					 if (!ok) {
+						 return;
+					 }
+					 using M = remove_cvref_t<decltype(value.*m.pointer)>;
+					 auto res = obj.template insert<M>(m.name, value.*m.pointer);
+					 if (!res) {
+						 ok = false;
+						 first_err = move(res).error();
+					 }
+				 })(ms),
+				 ...);
+			},
+			members);
+		if (!ok) {
+			return unexpected(move(first_err));
+		}
+		move(obj).commit();
+		return {};
+	} else {
+		static_assert(false, "No JsonCodec<T> or JsonMembers<T> found for T");
+	}
+}
+
+} // namespace detail
+
 template<class T>
 	requires has_json_codec<T>
 expected<void, JsonError> ValueBuilder::set(
@@ -3403,5 +3530,5 @@ expected<void, JsonError> ValueBuilder::set(
 	if (auto ok = check_can_set(); !ok) {
 		return ok;
 	}
-	return JsonCodec<T>::encode(*this, value);
+	return detail::encode_dispatch<T>(*this, value);
 }
