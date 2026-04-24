@@ -257,6 +257,26 @@ implementation experiments.
 - `Outcome<T>` copy assignment now uses staged copy-then-move replacement
   instead of direct variant copy assignment so throwing payload-copy paths keep
   the destination unchanged per the V10 strong-guarantee contract.
+- latest post-consolidation benchmark rerun (`release-clang-libcxx`,
+  `conflux_work_benchmarks --filter root/ --iterations 500000`) reports:
+  - `root/task_join_success`: ~79.0 ns/iter
+  - `root/posted_join_success`: ~82.4 ns/iter
+  - `root/operation_join_success`: ~81.9 ns/iter
+  - `root/task_admission_enabled`: ~102.5 ns/iter
+  - `root/task_admission_disabled`: ~89.7 ns/iter
+  - `root/control_cancel_hook_enabled`: ~97.5 ns/iter
+  - `root/control_cancel_hook_disabled`: ~80.8 ns/iter
+  - `root/abandon_sink_cancelled`: ~96.9 ns/iter
+  - `root/callable_erasure_custom`: ~1.8 ns/iter
+- latest callable-erasure rerun (`release-clang-libcxx`,
+  `conflux_work_benchmarks --filter callable_erasure --iterations 2000000`)
+  reports:
+  - `root/callable_erasure_custom`: ~2.0 ns/iter
+  - `root/callable_erasure_custom_inline24`: ~1.9 ns/iter
+  - `root/callable_erasure_custom_inline32`: ~2.1 ns/iter
+  - `root/callable_erasure_std_function`: ~1.7 ns/iter
+  - `root/callable_erasure_custom_capture24`: ~1.7 ns/iter
+  - `root/callable_erasure_std_function_capture24`: ~1.7 ns/iter
 - next remaining implementation phase in this repository is complete for the
   currently available toolchains.
 - downstream migration audit status:
