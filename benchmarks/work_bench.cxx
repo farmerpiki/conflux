@@ -4,10 +4,15 @@ import std;
 import conflux.work;
 
 using namespace std;
+namespace root = conflux::work::root;
 
 namespace {
 
 inline atomic<size_t> sink{};
+
+struct OwnerCap : root::capability_id_from_address<OwnerCap> {};
+
+struct DriverCap : root::capability_id_from_address<DriverCap> {};
 
 struct Config {
 	bool list_only = false;
@@ -27,7 +32,7 @@ struct Stats {
 	double ns_per_iter{};
 };
 
-using BenchFn = function<size_t()>;
+using BenchFn = root::detail::MoveOnlyFunction<size_t()>;
 
 struct Case {
 	string_view name;
@@ -232,12 +237,465 @@ Case make_ring_lane_case() {
 		}};
 }
 
+Case make_root_task_join_case() {
+	return Case{
+		.name = "root/task_join_success",
+		.description = "make_task_source + commit_success + value(join)",
+		.default_iterations = 200'000,
+		.run = [] {
+			auto [task, src] = root::make_task_source<int>();
+			bool const committed = src.commit_success(root::Success<int>{9});
+			if (!committed) {
+				throw runtime_error{"commit_success failed"};
+			}
+			return static_cast<size_t>(root::value(move(task)));
+		}};
+}
+
+Case make_root_posted_join_case() {
+	return Case{
+		.name = "root/posted_join_success",
+		.description = "make_posted_source + commit_success + value(join)",
+		.default_iterations = 200'000,
+		.run = [] {
+			OwnerCap owner{};
+			auto [posted, src] = root::make_posted_source<int>(owner);
+			bool const committed = src.commit_success(root::Success<int>{7});
+			if (!committed) {
+				throw runtime_error{"commit_success failed"};
+			}
+			return static_cast<size_t>(root::value(owner, move(posted)));
+		}};
+}
+
+Case make_root_operation_join_case() {
+	return Case{
+		.name = "root/operation_join_success",
+		.description = "make_operation_source + commit_success + value(join)",
+		.default_iterations = 200'000,
+		.run = [] {
+			DriverCap driver{};
+			auto [op, src] = root::make_operation_source<int>(driver);
+			bool const committed = src.commit_success(root::Success<int>{5});
+			if (!committed) {
+				throw runtime_error{"commit_success failed"};
+			}
+			return static_cast<size_t>(root::value(driver, move(op)));
+		}};
+}
+
+Case make_root_task_admission_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/task_admission_enabled"sv : "root/task_admission_disabled"sv;
+	auto const description = enable_cancellation ? "make_task_source admission with cancellation enabled"
+												 : "make_task_source admission with cancellation disabled";
+	return Case{
+		.name = name,
+		.description = description,
+		.default_iterations = 200'000,
+		.run = [enable_cancellation] {
+			auto [task, src] = root::make_task_source<int>(root::SubmitOptions{.enable_cancellation = enable_cancellation});
+			root::abandon_to(move(task), root::drop_on_abandon{});
+			(void)src;
+			return size_t{1};
+		}};
+}
+
+Case make_root_posted_admission_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/posted_admission_enabled"sv : "root/posted_admission_disabled"sv;
+	auto const description = enable_cancellation ? "make_posted_source admission with cancellation enabled"
+												 : "make_posted_source admission with cancellation disabled";
+	return Case{
+		.name = name,
+		.description = description,
+		.default_iterations = 200'000,
+		.run = [enable_cancellation] {
+			OwnerCap owner{};
+			auto [posted, src] =
+				root::make_posted_source<int>(owner, root::PostOptions{.enable_cancellation = enable_cancellation});
+			root::abandon_to(move(posted), root::drop_on_abandon{});
+			(void)src;
+			return size_t{1};
+		}};
+}
+
+Case make_root_operation_admission_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/operation_admission_enabled"sv : "root/operation_admission_disabled"sv;
+	auto const description = enable_cancellation ? "make_operation_source admission with cancellation enabled"
+												 : "make_operation_source admission with cancellation disabled";
+	return Case{
+		.name = name,
+		.description = description,
+		.default_iterations = 200'000,
+		.run = [enable_cancellation] {
+			DriverCap driver{};
+			auto [op, src] =
+				root::make_operation_source<int>(driver, root::OperationOptions{.enable_cancellation = enable_cancellation});
+			root::abandon_to(move(op), root::drop_on_abandon{});
+			(void)src;
+			return size_t{1};
+		}};
+}
+
+Case make_root_task_control_admission_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/task_control_admission_enabled"sv
+										  : "root/task_control_admission_disabled"sv;
+	auto const description = enable_cancellation ? "make_task_control_source admission with cancellation enabled"
+												 : "make_task_control_source admission with cancellation disabled";
+	return Case{
+		.name = name,
+		.description = description,
+		.default_iterations = 200'000,
+		.run = [enable_cancellation] {
+			auto [control, src] =
+				root::make_task_control_source<int>(root::SubmitOptions{.enable_cancellation = enable_cancellation});
+			(void)control;
+			(void)src;
+			return size_t{1};
+		}};
+}
+
+Case make_root_posted_control_admission_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/posted_control_admission_enabled"sv
+										  : "root/posted_control_admission_disabled"sv;
+	auto const description = enable_cancellation ? "make_posted_control_source admission with cancellation enabled"
+												 : "make_posted_control_source admission with cancellation disabled";
+	return Case{
+		.name = name,
+		.description = description,
+		.default_iterations = 200'000,
+		.run = [enable_cancellation] {
+			auto [control, src] =
+				root::make_posted_control_source<int>(root::PostOptions{.enable_cancellation = enable_cancellation});
+			(void)control;
+			(void)src;
+			return size_t{1};
+		}};
+}
+
+Case make_root_operation_control_admission_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/operation_control_admission_enabled"sv
+										  : "root/operation_control_admission_disabled"sv;
+	auto const description = enable_cancellation
+								 ? "make_operation_control_source admission with cancellation enabled"
+								 : "make_operation_control_source admission with cancellation disabled";
+	return Case{
+		.name = name,
+		.description = description,
+		.default_iterations = 200'000,
+		.run = [enable_cancellation] {
+			auto [control, src] = root::make_operation_control_source<int>(
+				root::OperationOptions{.enable_cancellation = enable_cancellation});
+			(void)control;
+			(void)src;
+			return size_t{1};
+		}};
+}
+
+Case make_root_cancel_hook_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/cancel_hook_enabled"sv : "root/cancel_hook_disabled"sv;
+	auto const description = enable_cancellation ? "install_cancel_hook + request_cancel with stop-token enabled"sv :
+												   "install_cancel_hook + request_cancel with inert stop-token path"sv;
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					auto [task, src] =
+						root::make_task_source<int>(root::SubmitOptions{.enable_cancellation = enable_cancellation});
+					size_t seen = 0;
+					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
+						if (reason == root::CancelReason::requested) {
+							++seen;
+						}
+					});
+					if (!installed) {
+						throw runtime_error{"install_cancel_hook failed"};
+					}
+					auto control = task.control();
+					size_t score = control.request_cancel() ? 1U : 0U;
+					score += seen;
+					root::abandon_to(move(task), root::drop_on_abandon{});
+					return score;
+				}};
+}
+
+Case make_root_posted_cancel_hook_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/posted_cancel_hook_enabled"sv : "root/posted_cancel_hook_disabled"sv;
+	auto const description = enable_cancellation ? "posted install_cancel_hook + request_cancel (enabled)"
+												 : "posted install_cancel_hook + request_cancel (disabled)";
+	return Case{
+		.name = name,
+		.description = description,
+		.default_iterations = 200'000,
+		.run = [enable_cancellation] {
+			OwnerCap owner{};
+			auto [posted, src] = root::make_posted_source<int>(owner, root::PostOptions{.enable_cancellation = enable_cancellation});
+			size_t seen = 0;
+			bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
+				if (reason == root::CancelReason::requested) {
+					++seen;
+				}
+			});
+			if (!installed) {
+				throw runtime_error{"install_cancel_hook failed"};
+			}
+			auto control = posted.control();
+			size_t score = control.request_cancel() ? 1U : 0U;
+			score += seen;
+			root::abandon_to(move(posted), root::drop_on_abandon{});
+			return score;
+		}};
+}
+
+Case make_root_operation_cancel_hook_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/operation_cancel_hook_enabled"sv : "root/operation_cancel_hook_disabled"sv;
+	auto const description = enable_cancellation ? "operation install_cancel_hook + request_cancel (enabled)"
+												 : "operation install_cancel_hook + request_cancel (disabled)";
+	return Case{
+		.name = name,
+		.description = description,
+		.default_iterations = 200'000,
+		.run = [enable_cancellation] {
+			DriverCap driver{};
+			auto [op, src] =
+				root::make_operation_source<int>(driver, root::OperationOptions{.enable_cancellation = enable_cancellation});
+			size_t seen = 0;
+			bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
+				if (reason == root::CancelReason::requested) {
+					++seen;
+				}
+			});
+			if (!installed) {
+				throw runtime_error{"install_cancel_hook failed"};
+			}
+			auto control = op.control();
+			size_t score = control.request_cancel() ? 1U : 0U;
+			score += seen;
+			root::abandon_to(move(op), root::drop_on_abandon{});
+			return score;
+		}};
+}
+
+Case make_root_control_cancel_hook_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/control_cancel_hook_enabled"sv : "root/control_cancel_hook_disabled"sv;
+	auto const description = enable_cancellation ? "make_task_control_source + install_cancel_hook + request_cancel (enabled)"
+												 : "make_task_control_source + install_cancel_hook + request_cancel (disabled)";
+	return Case{
+		.name = name,
+		.description = description,
+		.default_iterations = 200'000,
+		.run = [enable_cancellation] {
+			auto [control, src] =
+				root::make_task_control_source<int>(root::SubmitOptions{.enable_cancellation = enable_cancellation});
+			size_t seen = 0;
+			bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
+				if (reason == root::CancelReason::requested) {
+					++seen;
+				}
+			});
+			if (!installed) {
+				throw runtime_error{"install_cancel_hook failed"};
+			}
+			size_t score = control.request_cancel() ? 1U : 0U;
+			score += seen;
+			return score;
+		}};
+}
+
+Case make_root_posted_control_cancel_hook_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/posted_control_cancel_hook_enabled"sv
+										  : "root/posted_control_cancel_hook_disabled"sv;
+	auto const description = enable_cancellation ? "make_posted_control_source + install_cancel_hook + request_cancel (enabled)"
+												 : "make_posted_control_source + install_cancel_hook + request_cancel (disabled)";
+	return Case{
+		.name = name,
+		.description = description,
+		.default_iterations = 200'000,
+		.run = [enable_cancellation] {
+			auto [control, src] =
+				root::make_posted_control_source<int>(root::PostOptions{.enable_cancellation = enable_cancellation});
+			size_t seen = 0;
+			bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
+				if (reason == root::CancelReason::requested) {
+					++seen;
+				}
+			});
+			if (!installed) {
+				throw runtime_error{"install_cancel_hook failed"};
+			}
+			size_t score = control.request_cancel() ? 1U : 0U;
+			score += seen;
+			return score;
+		}};
+}
+
+Case make_root_operation_control_cancel_hook_case(
+	bool enable_cancellation) {
+	auto const name = enable_cancellation ? "root/operation_control_cancel_hook_enabled"sv
+										  : "root/operation_control_cancel_hook_disabled"sv;
+	auto const description = enable_cancellation
+								 ? "make_operation_control_source + install_cancel_hook + request_cancel (enabled)"
+								 : "make_operation_control_source + install_cancel_hook + request_cancel (disabled)";
+	return Case{
+		.name = name,
+		.description = description,
+		.default_iterations = 200'000,
+		.run = [enable_cancellation] {
+			auto [control, src] = root::make_operation_control_source<int>(
+				root::OperationOptions{.enable_cancellation = enable_cancellation});
+			size_t seen = 0;
+			bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
+				if (reason == root::CancelReason::requested) {
+					++seen;
+				}
+			});
+			if (!installed) {
+				throw runtime_error{"install_cancel_hook failed"};
+			}
+			size_t score = control.request_cancel() ? 1U : 0U;
+			score += seen;
+			return score;
+		}};
+}
+
+Case make_root_abandon_sink_case() {
+	struct Sink {
+		size_t *seen{};
+		void operator ()(
+			root::Failure const &) const noexcept {}
+		void operator ()(
+			root::Cancelled const &) const noexcept {
+			*seen = 1;
+		}
+	};
+
+	return Case{
+		.name = "root/abandon_sink_cancelled",
+		.description = "abandon_to sink dispatch on cancelled terminal outcome",
+		.default_iterations = 200'000,
+		.run = [] {
+			auto [task, src] = root::make_task_source<int>();
+			size_t seen = 0;
+			root::abandon_to(move(task), Sink{.seen = &seen});
+			bool const committed = src.commit_cancelled(root::CancelReason::requested);
+			if (!committed) {
+				throw runtime_error{"commit_cancelled failed"};
+			}
+			return seen;
+		}};
+}
+
+template<typename Fn>
+Case make_callable_erasure_case(
+	string_view name,
+	string_view description) {
+	return Case{.name = name, .description = description, .default_iterations = 500'000, .run = [] {
+					size_t seen = 0;
+					Fn fn{[&seen](root::CancelReason reason) noexcept {
+						if (reason == root::CancelReason::requested) {
+							++seen;
+						}
+					}};
+					Fn moved{move(fn)};
+					moved(root::CancelReason::requested);
+					return seen;
+				}};
+}
+
+template<typename Fn, size_t CaptureWords>
+Case make_callable_erasure_capture_case(
+	string_view name,
+	string_view description) {
+	struct Payload {
+		array<uintptr_t, CaptureWords> words{};
+	};
+
+	return Case{.name = name, .description = description, .default_iterations = 500'000, .run = [] {
+					size_t seen = 0;
+					Payload payload{};
+					payload.words[0] = 0xC0FFEEU;
+					Fn fn{[&seen, payload](root::CancelReason reason) noexcept {
+						if (reason == root::CancelReason::requested) {
+							seen += static_cast<size_t>(payload.words[0] & 1U) + 1U;
+						}
+					}};
+					Fn moved{move(fn)};
+					moved(root::CancelReason::requested);
+					return seen;
+				}};
+}
+
 vector<Case> make_cases() {
 	vector<Case> cases;
 	cases.push_back(make_value_then_case());
 	cases.push_back(make_pool_roundtrip_case());
 	cases.push_back(make_pool_chain_case());
 	cases.push_back(make_join_all_case());
+	cases.push_back(make_root_task_join_case());
+	cases.push_back(make_root_posted_join_case());
+	cases.push_back(make_root_operation_join_case());
+	cases.push_back(make_root_task_admission_case(true));
+	cases.push_back(make_root_task_admission_case(false));
+	cases.push_back(make_root_posted_admission_case(true));
+	cases.push_back(make_root_posted_admission_case(false));
+	cases.push_back(make_root_operation_admission_case(true));
+	cases.push_back(make_root_operation_admission_case(false));
+	cases.push_back(make_root_task_control_admission_case(true));
+	cases.push_back(make_root_task_control_admission_case(false));
+	cases.push_back(make_root_posted_control_admission_case(true));
+	cases.push_back(make_root_posted_control_admission_case(false));
+	cases.push_back(make_root_operation_control_admission_case(true));
+	cases.push_back(make_root_operation_control_admission_case(false));
+	cases.push_back(make_root_cancel_hook_case(true));
+	cases.push_back(make_root_cancel_hook_case(false));
+	cases.push_back(make_root_posted_cancel_hook_case(true));
+	cases.push_back(make_root_posted_cancel_hook_case(false));
+	cases.push_back(make_root_operation_cancel_hook_case(true));
+	cases.push_back(make_root_operation_cancel_hook_case(false));
+	cases.push_back(make_root_control_cancel_hook_case(true));
+	cases.push_back(make_root_control_cancel_hook_case(false));
+	cases.push_back(make_root_posted_control_cancel_hook_case(true));
+	cases.push_back(make_root_posted_control_cancel_hook_case(false));
+	cases.push_back(make_root_operation_control_cancel_hook_case(true));
+	cases.push_back(make_root_operation_control_cancel_hook_case(false));
+	cases.push_back(make_root_abandon_sink_case());
+	cases.push_back(
+		make_callable_erasure_case<root::detail::MoveOnlyFunction<void(root::CancelReason)>>(
+			"root/callable_erasure_custom",
+			"construct + move + invoke root::detail::MoveOnlyFunction"));
+	cases.push_back(
+		make_callable_erasure_case<root::detail::MoveOnlyFunction<void(root::CancelReason), 24>>(
+			"root/callable_erasure_custom_inline24",
+			"construct + move + invoke root::detail::MoveOnlyFunction<...,24>"));
+	cases.push_back(
+		make_callable_erasure_case<root::detail::MoveOnlyFunction<void(root::CancelReason), 32>>(
+			"root/callable_erasure_custom_inline32",
+			"construct + move + invoke root::detail::MoveOnlyFunction<...,32>"));
+	cases.push_back(
+		make_callable_erasure_case<std::function<void(root::CancelReason)>>(
+			"root/callable_erasure_std_function",
+			"construct + move + invoke std::function baseline"));
+	cases.push_back(
+		make_callable_erasure_capture_case<root::detail::MoveOnlyFunction<void(root::CancelReason)>, 3>(
+			"root/callable_erasure_custom_capture24",
+			"capture24 + construct + move + invoke root::detail::MoveOnlyFunction"));
+	cases.push_back(
+		make_callable_erasure_capture_case<std::function<void(root::CancelReason)>, 3>(
+			"root/callable_erasure_std_function_capture24",
+			"capture24 + construct + move + invoke std::function baseline"));
+#if defined(__cpp_lib_move_only_function) && __cpp_lib_move_only_function >= 202110L
+	cases.push_back(
+		make_callable_erasure_case<std::move_only_function<void(root::CancelReason)>>(
+			"root/callable_erasure_std",
+			"construct + move + invoke std::move_only_function"));
+#endif
 	try {
 		cases.push_back(make_ring_lane_case());
 	} catch (exception const &) {}

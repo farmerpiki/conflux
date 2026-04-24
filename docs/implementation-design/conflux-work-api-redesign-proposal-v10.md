@@ -1,0 +1,1948 @@
+# `conflux.work` API Redesign (Proposal V10)
+
+Status: proposal from v9 plus final performance/ergonomics review synthesis
+
+This document replaces
+[`conflux-work-api-redesign-proposal-v9.md`](./conflux-work-api-redesign-proposal-v9.md)
+as the next design candidate.
+
+It is intentionally incompatible with the current `conflux.work` surface and
+targets C++26 directly. This proposal does not preserve source compatibility,
+ABI compatibility, or legacy pre-C++26 vocabulary.
+
+The locked pre-plan decisions remain in
+[`conflux-work-api-redesign-decisions.md`](./conflux-work-api-redesign-decisions.md).
+
+## Summary
+
+This redesign keeps the three root execution categories explicit because they
+already exist underneath conflux:
+
+- autonomous scheduled work
+- explicitly posted owner work
+- driver / CQE / state-machine operations
+
+V10 keeps the root model intentionally narrow, but closes the remaining
+precision-level gaps from V9:
+
+- the design is strictly C++26 and may use standard C++26 vocabulary directly
+- the root layer is a foundation layer, not the final ergonomic application API
+- every admitted root async value must eventually reach a terminal state
+- shutdown must drive outstanding admitted work to a terminal outcome before
+  the relevant progress capability becomes invalid
+- blocking joins use explicit progress-driving capabilities that must be
+  identity-checkable and non-reentrant
+- cooperative cancellation for user code uses `std::stop_token`
+- cooperative user code sees only the stop signal; terminal `CancelReason` is
+  decided on the commit path
+- terminal cancellation still carries a distinct `CancelReason`
+- `Outcome<T>` now has a defined public contract instead of a forward-declared
+  placeholder
+- `Outcome<T>` accessor preconditions and `visit(...)` visitor rules are now
+  explicit
+- `work_value<T>` now requires nothrow move so `Outcome<T>` can keep its
+  no-valueless guarantee
+- producer-side source destruction now has defined fallback completion semantics
+- control-block allocation, stop-state ownership, and borrowed PMR lifetime are
+  explicit
+- admission now states the concurrency expectations on borrowed PMR resources
+  and the transactional guarantee on rejection
+- progress capability identity is now defined through an explicit
+  `capability_id` customization contract
+- capability-id values now must be nothrow-copyable as well as `noexcept`
+  retrievable, so admission and `can_join(...)` keep their non-throwing
+  contract
+- shutdown obligations now include dependency-ordering and hook-quiescence
+  guidance for subsystem authors
+- the source-destruction fallback path now specifies explicit race-loser
+  behavior instead of leaving it to implementation convention
+- cancel-hook capture rules now spell out the allowed and forbidden state
+  boundaries more concretely
+- `scoped_abandon::release()` now has an explicit disarmed-state contract
+- `Outcome<T>` copy now states both the semantic strong guarantee and the
+  implementation-level requirement to stage construction safely
+- `Outcome<T>` copy-assignment support and its strong-guarantee contract are now
+  explicit instead of implied
+- `join(...)`, `value(...)`, `can_join(...)`, and source factories now apply
+  the progress-capability constraint directly where required
+- abandonment now has a defined nothrow sink contract, deterministic overload
+  selection, and a precise `scoped_abandon::release()` surface
+- root objects keep the hard `std::terminate` destructor rule, but the proposal
+  now defines a standard scope guard for unwinding-safe abandonment
+- the throwing surface now locks the exception hierarchy and the
+  `FailureError` rethrow path
+- the address-based capability helper now incorporates type identity so
+  first-subobject aliasing does not accidentally collapse distinct
+  capabilities
+- the address-based capability helper now uses a unique static data object
+  rather than an empty helper function, so linker identical-code folding cannot
+  collapse its per-type tag
+- stop-request reason visibility is now tied to an explicit acquire/release
+  observation rule for root-layer hooks and callback paths
+- producer-side sources now expose the same passive `std::stop_token` view as
+  control handles
+- the first successful `request_cancel()` now explicitly invokes an already
+  installed cancel hook synchronously on the requesting thread
+- late `abandon_to(...)` now defines caller-thread execution when terminal
+  completion had already happened before the abandon call
+- the PMR extension point now explicitly excludes any promise that the standard
+  library's internal `std::stop_source` shared state uses that same resource
+- `Failure.error` / `FailureError::cause()` are now pinned as non-null so
+  `rethrow_cause()` cannot degenerate into `std::rethrow_exception(nullptr)`
+- `abandon_sink` now requires full cancelled coverage instead of silently
+  dropping `Cancelled` for Failure-only sinks
+- `capability_id_from_address` now explicitly forbids ambiguous multiple-helper
+  inheritance for a single final capability type
+- control handles now spell out their actual method signatures instead of
+  listing names only
+- refcount memory-ordering guidance no longer over-specifies the increment hot
+  path
+- root result objects are not `std::execution` senders in this layer; any
+  sender/receiver interop belongs to an adapter or carrier layer
+
+## Target And Scope
+
+### C++26 Baseline
+
+This proposal assumes an exceptions-enabled C++26 build.
+
+It may rely directly on:
+
+- concepts
+- `std::expected`
+- `std::stop_token`
+- `std::move_only_function`
+- `std::pmr::memory_resource`
+
+The redesign is not required to offer fallback spellings for older standards.
+
+### Root Layer Only
+
+This document locks the root async model and the lifecycle model.
+
+It does not claim that `Task<T>`, `Posted<T>`, and `Operation<T>` are the
+complete application-facing async API. Real application code is expected to
+consume these root types through the later carrier/combinator layer or through
+subsystem-provided coroutine adapters.
+
+Direct use of `join(...)` / `value(...)` remains valid, but it is the low-level
+consumption surface, not the final ergonomic layer.
+
+### Contract-Violation Convention
+
+When this document says "contract violation", it means the caller has broken a
+documented precondition.
+
+The normative consequence is:
+
+- unchecked builds have undefined behavior
+- checked or audit builds are encouraged to surface the violation through C++26
+  contract instrumentation, assertions, or immediate `std::terminate()`
+
+The root spec does not require throwing `std::logic_error` for contract
+violations.
+
+Where a concrete header wants machine-checkable preconditions, the intended
+spelling is C++26 contract instrumentation such as `[[expects: ...]]` or an
+equivalent implementation-defined contract facility. The working signatures in
+this document keep that notation out of the way for readability.
+
+### What Is Not Locked Here
+
+This proposal does not lock:
+
+- the final coroutine / combinator carrier shape
+- the final sender/receiver adapter surface
+- the exact hop primitive names
+- timer / deadline APIs
+- structured-concurrency APIs
+- aggregate API names or continuation placement rules
+- a shared shutdown-registry base class or generic hook-quiescence interface
+
+Those remain intentionally subsystem-local. The root layer fixes the liveness
+obligation and the required shutdown properties, but it does not standardize a
+single registry, quiescence fence, or intrusive hook type across unrelated
+subsystems.
+
+## Root Categories
+
+### `Task<T>`
+
+`Task<T>` is autonomous scheduled work.
+
+Use it for:
+
+- `WorkPool` jobs
+- CPU work
+- blocking adapters running on worker threads
+- completions that do not require a specific owner or subsystem driver to pump
+
+### `Posted<T>`
+
+`Posted<T>` is explicitly posted owner work.
+
+Use it for:
+
+- `RingLane` queue-node work
+- owner-thread closures
+- other "run this on that owner" work where the owner drains the queue
+
+### `Operation<T>`
+
+`Operation<T>` is a driver / CQE / state-machine operation.
+
+Use it for:
+
+- `file_io`
+- `db`
+- future subsystems whose progress is driven by CQEs, polling phases, or
+  subsystem-owned state machines
+
+### Why Three Public Categories
+
+The split is public because conflux already has three different progress models
+underneath:
+
+- autonomous scheduler progress
+- posted owner progress
+- subsystem driver progress
+
+Those models differ in:
+
+- who makes forward progress
+- where completion is committed
+- what cancellation can do before start
+- what a blocking join must pump
+- what shutdown must cancel before releasing subsystem resources
+
+The previous two-way split still hid one real distinction too many.
+
+## Load-Bearing Invariants
+
+### Liveness Invariant
+
+Every admitted root async value must eventually reach exactly one terminal
+outcome:
+
+- `Success<T>`
+- `Failure`
+- `Cancelled`
+
+This is a subsystem/runtime responsibility, not a best-effort wish.
+
+In particular:
+
+- if admission succeeds, the caller must have a path to eventual terminal
+  observation
+- subsystem shutdown must drive every admitted-but-not-yet-terminal root value
+  to a terminal outcome before the relevant owner/driver capability becomes
+  invalid
+- if shutdown prevents normal completion, the subsystem must commit
+  `Cancelled{CancelReason::shutdown}` before releasing resources required by the
+  outstanding async values
+- every subsystem that admits root async values must keep enough shutdown-time
+  bookkeeping to enumerate outstanding control blocks and drive them to a
+  terminal outcome before the relevant capability is invalidated; the exact
+  registry/helper mechanism is subsystem-internal and not locked by the root
+  spec
+- an intrusive list, registry, or equivalent O(number-of-outstanding-values)
+  bookkeeping structure is the expected implementation shape for that shutdown
+  walk, even though the root layer does not standardize a required base class or
+  mixin
+- if subsystem A depends on subsystem B to publish terminal outcomes, then
+  shutdown must either drain A before B stops providing that publication path,
+  or keep B zombie-capable long enough for A's outstanding values to reach a
+  terminal outcome
+
+Without that invariant the linear lifetime contract would be unsound.
+
+### One Control Block Per Root Boundary
+
+Each accepted root async boundary owns one intrusive control block.
+
+That control block remains the single source of truth for:
+
+- terminal outcome storage
+- cancellation request state
+- producer notification state
+- category-specific progress / waiter state
+- lifetime management for roots, join handles, control handles, and sources
+
+### Explicit Progress Capability
+
+Owner-driven joins do not take ornamental context parameters. They take
+progress-driving capabilities.
+
+The implementation must make capability identity cheaply checkable. At minimum,
+the control block must retain enough identity to reject the wrong owner/driver
+without guessing.
+
+### Non-Reentrant Blocking Pump
+
+Root-layer blocking joins for `Posted<T>` and `Operation<T>` are non-reentrant
+with respect to the same progress-driving capability.
+
+If code already executing under owner/driver `X` attempts to call
+`join(X, ...)` or `value(X, ...)` on work that would require pumping `X`
+recursively, the call throws `JoinContextError`.
+
+This proposal does not require recursive owner/driver pumping support in the
+root layer. Nested same-owner waiting belongs in the deferred carrier/coroutine
+layer.
+
+## Outcome Model
+
+Admission failure is synchronous and no async value exists yet.
+
+Accepted work can terminate only as success, failure, or cancelled.
+
+```cpp
+namespace conflux::work {
+
+template<class T>
+concept work_value =
+    std::same_as<T, void> ||
+    (std::same_as<T, std::remove_cvref_t<T>> &&
+     std::movable<T> &&
+     std::is_object_v<T> &&
+     (!std::is_array_v<T>) &&
+     std::is_nothrow_move_constructible_v<T>);
+
+template<class T>
+struct Success {
+    T value;
+};
+
+template<>
+struct Success<void> {};
+
+struct Failure {
+    std::exception_ptr error;
+};
+
+enum class CancelReason {
+    requested,
+    abandoned,
+    shutdown,
+    external,
+};
+
+struct Cancelled {
+    CancelReason reason;
+};
+
+enum class OutcomeKind : uint8_t {
+    success,
+    failure,
+    cancelled,
+};
+
+template<class T>
+class Outcome {
+public:
+    Outcome() = delete;
+
+    OutcomeKind kind() const noexcept;
+
+    bool is_success() const noexcept;
+    bool is_failure() const noexcept;
+    bool is_cancelled() const noexcept;
+
+    Success<T>& success() & noexcept;
+    Success<T> const& success() const & noexcept;
+    Success<T>&& success() && noexcept;
+
+    Failure& failure() & noexcept;
+    Failure const& failure() const & noexcept;
+    Failure&& failure() && noexcept;
+
+    Cancelled& cancelled() & noexcept;
+    Cancelled const& cancelled() const & noexcept;
+    Cancelled&& cancelled() && noexcept;
+
+    template<class F>
+    auto visit(F&& f) & -> /* R */;
+
+    template<class F>
+    auto visit(F&& f) const & -> /* R */;
+
+    template<class F>
+    auto visit(F&& f) && -> /* R */;
+};
+
+enum class RejectReason {
+    stopped,
+    queue_full,
+    owner_violation,
+    resource_exhausted,
+    notify_failed,
+};
+
+} // namespace conflux::work
+```
+
+Notes:
+
+- `Success<T>` stays distinct, including for non-`void` payloads. The wrapper
+  prevents the success arm from collapsing into payload types that already use
+  `expected`, `variant`, or similar sum types.
+- `Success<T>` is a one-member aggregate. Its copy/move/noexcept properties
+  follow `T`, and `Success{42}` is valid CTAD for `Success<int>`.
+- `Outcome<T>` is a library vocabulary type, not merely a `using` alias to
+  `std::variant`. The public contract is "exactly one of the three states" with
+  no `valueless_by_exception` escape hatch.
+- `Outcome<void>` is valid through the `Success<void>` specialization.
+- `Failure.error` is never null in a formed `Failure` outcome. Passing a null
+  `std::exception_ptr` into producer-side failure formation is a contract
+  violation.
+- `Outcome<T>` construction and assignment support follow `T`'s corresponding
+  support. If `T` is move-only, `Outcome<T>` is move-only. If `T` is copyable,
+  `Outcome<T>` is copyable, including copy assignment.
+- because `work_value<T>` requires nothrow move for non-`void` payloads,
+  `Outcome<T>` move construction and move assignment are `noexcept`
+- if copy construction of a copyable `Outcome<T>` throws because copying `T`
+  throws, that exception propagates, the destination is not constructed, and
+  the source remains unchanged. No failed copy produces a valueless
+  `Outcome<T>`.
+- if copy assignment of a copyable `Outcome<T>` throws because copying `T`
+  throws, that exception propagates and the existing destination remains
+  unchanged
+- implementations must provide those copy guarantees with internal staging
+  equivalent to placement construction plus rollback on exception or
+  copy-then-swap-style replacement, not with naive member-wise mutation of an
+  already-observable destination object
+- `Outcome<T>` is not default-constructible. It is materialized only by
+  terminal outcome formation and by valid moves/copies of an already-formed
+  outcome.
+- `Outcome<T>::success()`, `failure()`, and `cancelled()` have the obvious arm
+  preconditions. Violating those preconditions is a contract violation under
+  the convention above. Use `kind()` / `is_*()` / `visit(...)` for total
+  inspection.
+- `Outcome<void>::success()` returns a reference to the empty
+  `Success<void>` specialization. That arm is useful for dispatch, not for
+  payload extraction.
+- `visit(F&&)` is total inspection. For the `&` overload, `F` must be
+  invocable with `Success<T>&`, `Failure&`, and `Cancelled&`, and those three
+  invocations must have exactly the same return type. The `const&` and `&&`
+  overloads propagate cv/ref qualifiers analogously.
+- for `Outcome<void>`, the success-arm visitor receives `Success<void>&`; there
+  is no payload extraction beyond that zero-sized wrapper
+- visitors written only in terms of non-void payload arms still need an
+  explicit `Success<void>` arm when visiting `Outcome<void>`
+- `visit(F&&)` propagates exceptions thrown by the visitor unchanged.
+- `visit(F&&)` is conditionally `noexcept` exactly when the corresponding
+  visitor invocations for all three arms are `noexcept`.
+- Implementations may realize `visit(...)` with `std::visit`-style machinery or
+  equivalent internal dispatch, but the public contract is the qualifier-aware
+  three-arm visitation rule above.
+- the strict same-return-type rule for `visit(...)` is intentional. Visitors
+  that would otherwise return different types from different arms must reconcile
+  those types explicitly instead of relying on implicit common-type unification.
+  In practice that usually means returning an explicit common wrapper/type from
+  every arm rather than relying on implicit unification.
+- `value(...)` is defined in terms of terminal outcome inspection:
+  - `Success<T>` returns `success().value`
+  - `Success<void>` returns `void`
+  - `Failure` throws `FailureError`
+  - `Cancelled` throws `CancelledError`
+- `T` must be a complete non-reference type at admission time. Non-`void`
+  payloads must be nothrow move-constructible so terminal outcome storage can
+  preserve the no-valueless contract.
+- `submit_result_t<Fn>`, `post_result_t<Fn>`, and subsystem equivalents decay
+  the selected callable result as `std::remove_cvref_t<...>`. Reference and
+  array result types are rejected.
+- If user code returns `std::expected<U, E>`, then
+  `Success<std::expected<U, E>>` is still success at the root layer. Throwing
+  still becomes `Failure`.
+- If user code throws, the runtime commits a `Failure` carrying a non-null
+  `std::exception_ptr` representing that failure. `std::current_exception()` is
+  the normal source, but if it would ever yield null the runtime must normalize
+  that into a non-null implementation-defined failure sentinel before commit.
+  The sentinel concrete type is diagnostic-only and not part of the portable
+  semantic contract; portable code must treat it as an opaque exception object.
+  The exception does not escape the executor or owner/driver pump.
+- V10 does not lock triviality propagation or trivial ABI for `Outcome<T>`, even
+  when `T` itself is trivially copyable. Trivial-layout/per-register transport
+  optimizations remain implementation detail rather than part of the semantic
+  root contract.
+
+### `RejectReason`
+
+`RejectReason` means admission failed and no async value was published.
+
+`notify_failed` is defined narrowly:
+
+- the runtime could not publish or notify the owner/driver
+- no async value exists
+- retry is safe and cannot duplicate already-published work
+
+`owner_violation` means a runtime precondition for owner/driver use was
+violated at a boundary that cannot be proven statically.
+
+It is admission-time only.
+
+It does not describe misuse of `join(...)` / `value(...)` after an async value
+already exists.
+
+## Admission APIs
+
+Admission is explicit and concept-constrained.
+
+### Callable Form Selection
+
+For `submit(...)`, `post(...)`, `submit_background(...)`, and
+`post_background(...)`, user callables may opt into cooperative cancellation in
+exactly one of two forms:
+
+```cpp
+template<class Fn>
+concept stop_token_invocable =
+    std::invocable<Fn, std::stop_token> &&
+    (!std::invocable<Fn>);
+
+template<class Fn>
+concept nullary_work_invocable =
+    std::invocable<Fn> &&
+    (!std::invocable<Fn, std::stop_token>);
+
+template<class Fn>
+concept admitted_work_fn =
+    stop_token_invocable<Fn> || nullary_work_invocable<Fn>;
+
+template<class Fn>
+using admitted_invoke_result_t =
+    std::remove_cvref_t<std::conditional_t<
+        stop_token_invocable<Fn>,
+        std::invoke_result_t<Fn, std::stop_token>,
+        std::invoke_result_t<Fn>>>;
+```
+
+Rules:
+
+- exactly one invocation form must be valid
+- a callable matching both forms is ill-formed
+- generic forwarding callables that match both forms must be wrapped
+  explicitly to disambiguate
+- move-only callables are supported
+- immovable callables are not required to be supported
+- the decayed admitted result type must satisfy `work_value`
+- admission templates should diagnose failure of `admitted_work_fn` with a
+  message equivalent to: "Callable must be invocable as exactly one accepted
+  form: `fn()` or `fn(std::stop_token)`. Forwarding callables that match both
+  forms must be wrapped to disambiguate; callables matching neither form are
+  not admitted."
+
+### Admission Options
+
+V10 keeps the explicit extension point for control-block allocation and future
+per-admission policy hooks.
+
+```cpp
+struct AdmissionOptions {
+    std::pmr::memory_resource* control_block_resource = nullptr;
+    // reserved for future budget / perf annotations
+};
+
+using SubmitOptions = AdmissionOptions;
+using PostOptions = AdmissionOptions;
+using OperationOptions = AdmissionOptions;
+```
+
+`control_block_resource == nullptr` means "use the subsystem default pool or
+memory resource."
+
+The memory resource pointer is borrowed, not owned. It must outlive the final
+holder of the control block, including:
+
+- root result objects
+- join handles
+- copyable control handles
+- producer-side sources
+
+For this lifetime rule, control-block retention also includes any in-flight
+cancel-hook invocation that still keeps hook storage alive, even when no
+user-visible holder remains.
+
+Destroying the referenced memory resource before those holders are gone is
+undefined behavior.
+
+If concurrent admissions may reach the same `memory_resource`, that resource
+must be safe for the relevant concurrent `allocate` / `deallocate` traffic, or
+the caller must provide external serialization. Violating that requirement is a
+contract violation.
+
+Implementations may offer optional debug diagnostics for this borrowed-lifetime
+rule, but V10 does not require shared ownership, wrapper indirection, or a
+standard "safe allocator" mode in the root API.
+
+Subsystem defaults are expected to be appropriate for the subsystem's normal
+admission concurrency. If a caller overrides that default with a single-threaded
+arena or similarly non-thread-safe resource, the caller owns the burden of
+external serialization for all admissions that may touch it.
+
+Admission is specified to catch `std::bad_alloc` arising from mandatory
+root-layer allocation and translate that failure into
+`std::unexpected(RejectReason::resource_exhausted)`.
+
+That includes failure allocating:
+
+- the control block itself
+- any mandatory stop-state storage required by the embedded `std::stop_source`
+- any mandatory capability-identity storage required by the chosen control-block
+  erasure strategy
+
+The caller-provided `control_block_resource` governs control-block storage only.
+V10 does not require the standard library implementation's internal
+`std::stop_source` shared state, if separately allocated, to come from that same
+PMR resource. Callers should not assume that supplying
+`control_block_resource` fully bounds every internal allocation performed by the
+standard-library stop-state implementation.
+
+Admission rejection is transactional at the root boundary:
+
+- no async value is published
+- no control-block reference survives the failed admission
+- transient allocation state used during the failed attempt is reclaimed before
+  returning to the caller
+
+That guarantee is about published async state and retained allocations. It does
+not require a custom `memory_resource` to preserve byte-for-byte internal pool
+state across a failed allocation attempt.
+
+In particular, a custom resource may still have advanced internal pool cursors
+or free-list state before reporting failure. Callers that need stronger pool
+invariants must provide their own scratch/serialization discipline above the
+root API.
+
+### Working Shapes
+
+```cpp
+template<class Exec, admitted_work_fn Fn>
+    requires work_value<admitted_invoke_result_t<Fn>>
+auto submit(Exec& exec, Fn&& fn, SubmitOptions opts = {})
+    -> std::expected<Task<admitted_invoke_result_t<Fn>>, RejectReason>;
+
+template<progress_capability Owner, admitted_work_fn Fn>
+    requires work_value<admitted_invoke_result_t<Fn>>
+auto post(Owner& owner, Fn&& fn, PostOptions opts = {})
+    -> std::expected<Posted<admitted_invoke_result_t<Fn>>, RejectReason>;
+
+template<class Exec, admitted_work_fn Fn>
+    requires work_value<admitted_invoke_result_t<Fn>>
+auto submit_background(Exec& exec, Fn&& fn, SubmitOptions opts = {})
+    -> std::expected<TaskJoinHandle<admitted_invoke_result_t<Fn>>, RejectReason>;
+
+template<progress_capability Owner, admitted_work_fn Fn>
+    requires work_value<admitted_invoke_result_t<Fn>>
+auto post_background(Owner& owner, Fn&& fn, PostOptions opts = {})
+    -> std::expected<PostedJoinHandle<admitted_invoke_result_t<Fn>>, RejectReason>;
+```
+
+`Exec&` used by `submit(...)` / `submit_background(...)` is not required to
+satisfy `progress_capability`. Autonomous task execution does not use
+capability-identity checks.
+
+Subsystem-owned operations follow the same admission boundary rule:
+
+- if the subsystem cannot arm, register, or publish the operation yet, that is
+  synchronous `RejectReason`
+- once the operation exists, later problems are `Failure` or `Cancelled`
+- subsystem APIs may publish either root result objects or background join
+  handles, but the verb is subsystem-specific by design
+
+Examples:
+
+- `file_io` SQE/resource exhaustion before publication is rejection
+- `db` refusal before a query operation is armed is rejection
+- a kernel, SQL, protocol, or remote error after admission is failure
+
+## Producer-Side Construction
+
+Each accepted root async value has a producer-side source object.
+
+Working shapes:
+
+```cpp
+template<class T>
+class TaskSource {
+public:
+    bool commit_success(Success<T> value);
+    bool commit_failure(std::exception_ptr error);
+    bool commit_cancelled(CancelReason reason);
+    bool install_cancel_hook(std::move_only_function<void(CancelReason)> fn);
+    std::stop_token stop_token() const noexcept;
+};
+
+template<class T>
+class PostedSource {
+public:
+    bool commit_success(Success<T> value);
+    bool commit_failure(std::exception_ptr error);
+    bool commit_cancelled(CancelReason reason);
+    bool install_cancel_hook(std::move_only_function<void(CancelReason)> fn);
+    std::stop_token stop_token() const noexcept;
+};
+
+template<class T>
+class OperationSource {
+public:
+    bool commit_success(Success<T> value);
+    bool commit_failure(std::exception_ptr error);
+    bool commit_cancelled(CancelReason reason);
+    bool install_cancel_hook(std::move_only_function<void(CancelReason)> fn);
+    std::stop_token stop_token() const noexcept;
+};
+
+template<work_value T>
+std::pair<Task<T>, TaskSource<T>> make_task_source(SubmitOptions opts = {});
+
+template<progress_capability Owner, work_value T>
+std::pair<Posted<T>, PostedSource<T>> make_posted_source(Owner& owner, PostOptions opts = {});
+
+template<progress_capability Driver, work_value T>
+std::pair<Operation<T>, OperationSource<T>> make_operation_source(Driver& driver, OperationOptions opts = {});
+```
+
+`make_task_source(...)` takes no capability reference because `Task<T>`
+requires none. Task execution does not use capability-identity checks.
+
+`make_operation_source(...)` is the user-facing factory for externally-produced
+operation completions. Subsystem-owned operations such as `file_io` and `db`
+may allocate the same kind of control block through subsystem-internal
+admission machinery instead of through this factory, but the root-layer
+`Operation<T>` contract is the same either way.
+
+`source.stop_token()` returns the same passive stop view that control handles
+expose. It exists so producer-side code created through `make_*_source(...)`
+can integrate with standard stop-token-aware helpers without inventing a second
+notification path on top of `install_cancel_hook(...)`.
+
+Producer-side rules:
+
+- first terminal commit wins
+- later terminal commits are ignored and return `false`
+- `request_cancel()` is not itself terminal completion
+- `TaskSource<T>`, `PostedSource<T>`, and `OperationSource<T>` are move-only
+- a moved-from source has no commit authority; all commit operations and
+  `install_cancel_hook(...)` return `false`
+- source objects are single-owner producer handles; concurrent unsynchronized
+  `commit_*`, `install_cancel_hook(...)`, or destruction on the same source
+  object is a contract violation
+- `make_posted_source(...)` and `make_operation_source(...)` bind the required
+  owner/driver identity at construction time and store only the copied
+  capability identity in the control block, not a borrowed owner/driver pointer
+- `commit_failure(std::exception_ptr error)` requires `error != nullptr`;
+  passing a null exception pointer is a contract violation
+- producer code may commit `Cancelled{requested}`, `Cancelled{shutdown}`, or
+  `Cancelled{external}` only through a real subsystem/runtime path that owns
+  that reason
+- implicit source-destruction fallback authors `Cancelled{abandoned}`
+- `CancelReason::abandoned` is reserved for that implicit producer-abandonment
+  fallback path
+- an explicit call to `commit_cancelled(CancelReason::abandoned)` is a contract
+  violation; only the source-destructor fallback may author that reason
+
+### Source Destruction Rule
+
+Destroying a live `TaskSource<T>`, `PostedSource<T>`, or `OperationSource<T>`
+without a terminal commit does not strand the paired root value.
+
+If the source still owns commit authority when its destructor runs, the
+destructor performs a non-throwing fallback terminal commit as
+`Cancelled{CancelReason::abandoned}`.
+
+Source destructors are `noexcept`.
+
+That rule preserves the liveness invariant without requiring producer-side
+destructors to call `std::terminate`.
+
+The fallback commit path is required to be allocation-free and wait-free against
+any concurrently-running cancel-hook invocation.
+
+The fallback terminal commit is best-effort only. If it loses the first-terminal
+commit race and therefore returns `false`, the destructor performs no retry,
+wait, or side effect beyond dropping its own commit authority. The liveness
+invariant is then satisfied by the terminal commit that won the race.
+
+If the source-destructor path can already observe subsystem/runtime shutdown
+intent for that control block without blocking, it must attempt
+`Cancelled{CancelReason::shutdown}` rather than
+`Cancelled{CancelReason::abandoned}`. The plain `abandoned` fallback remains
+the default only when no such shutdown intent is yet observable to the source
+path. First terminal commit still wins.
+
+For that observation rule, shutdown-intent publication is a release-side event
+owned by the subsystem/runtime, and the source-destructor path performs an
+acquire-side observation. A stale false caused by racing with publication is not
+itself a contract violation; it only means the destructor took the ordinary
+`abandoned` fallback path before shutdown intent became visible.
+
+### Cancel-Hook Contract
+
+Cancel hooks are advisory and category-specific, but the concurrency contract is
+now explicit:
+
+- at most one cancel hook may ever be installed for a given source
+- a second installation attempt always returns `false`
+- installing after terminal completion returns `false`
+- if cancellation was already requested and no terminal outcome has yet been
+  committed, `install_cancel_hook(...)` invokes the hook synchronously before
+  returning `true`
+- if a hook is already installed and the first successful `request_cancel()`
+  happens before terminal completion, that winning `request_cancel()` invokes
+  the hook synchronously on the requesting thread before returning
+- hook bodies are expected to be O(1), allocation-free, and non-blocking on
+  that invoking thread; heavier cleanup should be handed off asynchronously by
+  subsystem code
+- the hook is invoked at most once
+- the hook is never invoked concurrently with itself
+- the hook is never invoked while an internal control-block lock is held
+- the control block and hook storage remain alive until an in-flight hook
+  invocation returns
+- terminal commit may race with a running hook, but commit and hook execution
+  must operate on disjoint runtime state; commit does not wait for the hook
+- no hook invocation begins after terminal completion wins
+- cancel-hook invocation has no happens-before relationship with state written
+  by a racing terminal commit; hook authors must not depend on observing or not
+  observing commit-written state
+
+The hook object and its captures live with hook storage retained by the control
+block until any in-flight invocation returns.
+
+This hook path is the root-layer synchronous producer-notification mechanism for
+`request_cancel()`. It is intentionally distinct from standard
+`std::stop_callback` dispatch on the passive stop token.
+
+The "invoke exactly once" rule is realized by an internal one-shot hook-claim
+state in the control block. The exact representation of that claim state is
+implementation detail, but implementations must not diverge on the observable
+single-invocation contract.
+
+Concrete capture guidance:
+
+- hooks may capture stable subsystem-owned cancellation handles such as kernel
+  descriptors, remote-operation ids, or subsystem-kept-alive state whose
+  lifetime is independent of terminal-outcome storage
+- hooks must not capture pointers or references into the control block, outcome
+  storage, or any producer-owned memory that terminal commit may reclaim
+- hooks must not capture producer-owned mutable state unless that state is kept
+  alive independently through shared ownership, weak/checked access, or
+  subsystem-managed kept-alive storage
+- hooks that observe subsystem state should assume terminal commit may already
+  have made that state logically obsolete even when lifetime is still safe;
+  hook code should therefore be idempotent or prepared for a "too late" result
+
+A subsystem that installs cancel hooks and allows those hooks to touch
+subsystem-owned state must also keep enough teardown-time quiescence
+bookkeeping to wait for in-flight hook invocations before destroying that
+state. The root layer keeps hook storage alive, but it does not provide a
+generic "wait until all hooks for this subsystem are quiescent" API because the
+relevant teardown graph and quiescence scope are subsystem-topology concerns,
+not common root-layer ABI.
+
+## Lifetime Model
+
+### Root Result Objects
+
+`Task<T>`, `Posted<T>`, and `Operation<T>` are move-only consuming tokens.
+
+A live root result object must be exactly one of:
+
+- joined / awaited
+- moved elsewhere
+- converted into a typed background join handle
+- explicitly abandoned to a sink
+
+Destroying a live root result object calls `std::terminate`, exactly like
+destroying a joinable `std::thread`.
+
+This includes exception unwinding.
+
+Root result object destructors are `noexcept`.
+
+That behavior remains a hard contract in V10. The root layer does not
+auto-detach, auto-join, or silently abandon on destruction.
+
+A moved-from root result object has no associated async value. Destroying a
+moved-from root object is a no-op.
+
+### Typed Join Handles For Background Work
+
+Background join handles remain move-only, typed, and join-capable:
+
+```cpp
+template<class T>
+class TaskJoinHandle;
+
+template<class T>
+class PostedJoinHandle;
+
+template<class T>
+class OperationJoinHandle;
+```
+
+Those join handles:
+
+- are move-only
+- are typed by `T`
+- can be joined
+- can expose a copyable control handle
+- do not create progress by themselves
+
+Their destructor also calls `std::terminate` if still live.
+
+Join-handle destructors are `noexcept`.
+
+Root result objects may be converted into join handles explicitly:
+
+```cpp
+template<class T>
+TaskJoinHandle<T> into_join_handle(Task<T>&& task) noexcept;
+
+template<class T>
+PostedJoinHandle<T> into_join_handle(Posted<T>&& posted) noexcept;
+
+template<class T>
+OperationJoinHandle<T> into_join_handle(Operation<T>&& op) noexcept;
+```
+
+These conversions change lifetime ownership only. They do not allocate a second
+control block and are required to be `noexcept`.
+
+The V2/V3 `background(...)` conversion spelling is retired. V10 uses only
+`into_join_handle(...)` for this ownership conversion.
+
+Calling `into_join_handle(...)` on a moved-from root result object is a contract
+violation, just like any other attempt to reuse a consumed root token.
+
+That asymmetry with moved-from destruction is intentional: destruction must stay
+unwind-safe and therefore becomes a no-op for consumed tokens, while a second
+ownership transfer from the same consumed token is still misuse.
+
+### Explicit Abandon
+
+If a caller truly wants no later `T`, it must say so explicitly:
+
+```cpp
+struct drop_on_abandon {
+    void operator()(Failure const&) const noexcept {}
+    void operator()(Cancelled const&) const noexcept {}
+};
+
+template<class Sink, class T>
+concept abandon_sink =
+    std::is_nothrow_move_constructible_v<Sink> &&
+    (std::is_nothrow_invocable_v<Sink&, Outcome<T> const&> ||
+     (std::is_nothrow_invocable_v<Sink&, Failure const&> &&
+      std::is_nothrow_invocable_v<Sink&, Cancelled const&>));
+
+template<class T, class Sink>
+    requires abandon_sink<Sink, T>
+void abandon_to(Task<T>&&, Sink&& sink) noexcept;
+
+template<class T, class Sink>
+    requires abandon_sink<Sink, T>
+void abandon_to(Posted<T>&&, Sink&& sink) noexcept;
+
+template<class T, class Sink>
+    requires abandon_sink<Sink, T>
+void abandon_to(Operation<T>&&, Sink&& sink) noexcept;
+
+template<class T, class Sink>
+    requires abandon_sink<Sink, T>
+void abandon_to(TaskJoinHandle<T>&&, Sink&& sink) noexcept;
+
+template<class T, class Sink>
+    requires abandon_sink<Sink, T>
+void abandon_to(PostedJoinHandle<T>&&, Sink&& sink) noexcept;
+
+template<class T, class Sink>
+    requires abandon_sink<Sink, T>
+void abandon_to(OperationJoinHandle<T>&&, Sink&& sink) noexcept;
+```
+
+`abandon_to(...)` keeps running work alive and has these semantics:
+
+- `Sink` must be nothrow move-constructible
+- `Success<T>` is discarded and is never delivered to the sink
+- if `Sink` is nothrow-invocable as `Sink&(Outcome<T> const&)`, then failure
+  and cancelled outcomes are delivered through that full-outcome overload
+- otherwise the sink must be nothrow-invocable as both
+  `Sink&(Failure const&)` and `Sink&(Cancelled const&)`
+- the precedence rule above is an implementation dispatch rule, not a claim
+  about standard overload resolution. Implementations are required to realize it
+  with explicit `if constexpr` / tag dispatch or equivalent compile-time
+  branching
+- when the full-outcome sink is used, it is still invoked only for `Failure` or
+  `Cancelled`. It is never invoked for `Success`
+- a generic sink such as `[](auto const&) { ... }` satisfies the full-outcome
+  form and therefore follows that full-outcome dispatch path
+- `drop_on_abandon{}` is the canonical no-op error-path cleanup sink
+- if terminal completion has not happened yet when `abandon_to(...)` installs,
+  any sink invocation and discard-path destruction run on the context that later
+  commits the terminal outcome
+- if terminal completion had already happened before the `abandon_to(...)`
+  call, any sink invocation and discard-path destruction run on the thread
+  calling `abandon_to(...)`
+- `abandon_to(...)` does not create progress or marshalling
+- `abandon_to(...)` does not enter any owner/driver pump path and does not
+  participate in same-capability non-reentrancy checks
+- sinks must be fast, non-blocking, and `noexcept`
+- success-payload destruction on the discard path happens inline on the same
+  terminal-commit context when abandonment is attached before terminal
+  completion, or on the abandoning thread when the object was already terminal
+- the root layer does not offload or defer success-payload destruction to a
+  background worker
+- on the success-discard path the payload is destroyed inline and no sink is
+  invoked
+- for `Operation<T>`, both discard-path payload destruction and any sink
+  invocation run on the subsystem's published completion context when
+  abandonment is attached before terminal completion; a late abandonment of an
+  already-terminal operation instead runs on the abandoning thread, so user
+  sinks must be appropriate for both cases
+- subsystems with driver-affine completion contexts should document the latency
+  budget of those contexts. Sinks that block, allocate heavily, or take
+  contended locks can starve unrelated progress
+- `work_value<T>` does not encode destruction cost; subsystems with tighter
+  latency budgets may impose stricter local payload guidance, but the root
+  layer itself keeps destruction inline
+- in practice that means `abandon_to(...)` and `scoped_abandon` on
+  driver-affine operations are intended only for payloads whose destruction cost
+  is acceptable on the driver's completion path. Heavy destructor work must be
+  wrapped or offloaded outside the root layer
+- V10 intentionally does not add a root-level `heavy_work_value` trait or
+  automatic offload policy. If a subsystem wants stricter destruction-cost
+  rules, that policy is subsystem-local rather than part of the common root ABI
+
+That means payload types used with abandonment must have destruction cost that
+is acceptable on the category's commit context, or they must be wrapped in an
+indirection/offload strategy outside the root layer. In practice that usually
+means storing a cheap handle such as `std::unique_ptr<HeavyPayload>` or a
+subsystem-managed reference rather than an inline heavy object when the payload
+may be abandoned on a latency-sensitive path.
+
+If a sink violates the non-throwing contract, the implementation catches that
+violation and calls `std::terminate`.
+
+### Scope Guard For Unwinding
+
+The destructor-terminates rule is intentionally strict, so the root layer also
+defines a standard unwinding-safe abandonment guard:
+
+```cpp
+template<class R, class Sink = drop_on_abandon>
+class scoped_abandon {
+public:
+    scoped_abandon(scoped_abandon&&) noexcept = default;
+    scoped_abandon& operator=(scoped_abandon&&) = delete;
+
+    ~scoped_abandon() noexcept;
+
+    bool armed() const noexcept;
+    R release() && noexcept;
+};
+
+template<class R, class Sink = drop_on_abandon>
+auto guard_abandon(R&& result, Sink sink = {})
+    -> scoped_abandon<std::remove_cvref_t<R>, Sink>;
+```
+
+`scoped_abandon<...>` is move-only, nothrow-move-constructible, and
+`noexcept`-destructible.
+
+It participates in overload resolution only when `Sink` satisfies the
+corresponding `abandon_to(...)` sink contract for the wrapped result type.
+
+Move-assignment is deleted so that rebinding an armed guard cannot silently
+abandon its current payload. Code that needs to re-bind must call `release()`
+first to disarm, then construct a new guard.
+
+If still armed at destruction, it performs:
+
+- `abandon_to(std::move(result), std::move(sink))`
+
+The guard's `release() && noexcept` member transfers the wrapped root object or
+join handle back to the caller and disarms the destructor path. It returns the
+wrapped object by move even if that object is already terminal.
+
+Calling `release()` on a disarmed guard is a contract violation. A released or
+moved-from guard has no wrapped result object left to return.
+
+A moved-from or released guard is empty and its destructor is a no-op.
+
+Moving a guard transfers only ownership of the future abandon action. It does
+not change the rule that sink invocation, if it happens, runs on the terminal
+commit context of the wrapped async value.
+
+This is the standard RAII tool for exception-safe root-object cleanup on stack
+unwinding.
+
+Typical usage:
+
+```cpp
+auto submitted = submit(exec, fn);
+if (!submitted) {
+    return submitted.error();
+}
+
+auto guard = guard_abandon(std::move(*submitted));
+
+if (something_failed_early()) {
+    return Err{};
+}
+
+auto task = std::move(guard).release();
+auto out = join(std::move(task));
+```
+
+V10 intentionally does not define a destructor-joining scope guard in the root
+layer, because join may require an explicit progress-driving capability and may
+block indefinitely.
+
+## Copyable Control Handles
+
+Copyable control handles are observation/cancellation handles only.
+
+Working shapes:
+
+- `TaskControl`
+- `PostedControl`
+- `OperationControl`
+
+Representative surface:
+
+```cpp
+class TaskControl {
+public:
+    bool request_cancel() noexcept;
+    std::stop_token stop_token() const noexcept;
+    bool cancel_requested() const noexcept;
+    bool ready() const noexcept;
+    WorkState state() const noexcept;
+};
+```
+
+`PostedControl` and `OperationControl` expose the same control/cancellation
+surface, differing only in their category identity and in which `can_join(...)`
+probe they accept.
+
+`request_cancel()` returns `true` only for the first successful request-side
+recording of `CancelReason::requested` before terminal completion. Later calls
+return `false`.
+
+Those handles are intentionally type-erased with respect to `T`.
+
+Every root result object and every background join handle exposes
+`control() noexcept` to obtain the corresponding copyable control handle.
+`control()` is required to be allocation-free and to do no more than retain one
+additional control-block reference.
+
+They support:
+
+```cpp
+enum class WorkState : uint8_t {
+    pending,
+    cancel_requested,
+    ready_success,
+    ready_failure,
+    ready_cancelled,
+};
+```
+
+They do not surface the success value.
+
+`stop_token()` returns a passive `std::stop_token` view backed by the control
+block's embedded `std::stop_source`. That token is the root-layer interop point
+for standard stop-token-aware code; V10 does not add a separate
+`get_stop_token(root_object)` free function.
+
+`control.stop_token()` is suitable for registering `std::stop_callback`
+callbacks. Those callbacks must be `noexcept` under the standard stop-token
+rules. The shared stop-state may outlive the control block itself if retained by
+tokens or callbacks.
+
+### Thread-Safety Contract
+
+Copyable control handles are thread-safe.
+
+At minimum:
+
+- `request_cancel()` is idempotent and safe to call concurrently with itself
+  and with terminal commit
+- the first successful `request_cancel()` records exactly one request-side
+  reason, `CancelReason::requested`
+- later `request_cancel()` calls do not overwrite that recorded request-side
+  reason
+- `ready()`, `cancel_requested()`, and `state()` are acquire snapshots
+- a successful first `request_cancel()` publishes the stop request and the
+  recorded generic cancel reason with release semantics
+
+### `WorkState` Transitions
+
+The public transition graph is:
+
+```text
+pending
+  |
+  +--> cancel_requested
+  |       |
+  |       +--> ready_success
+  |       +--> ready_failure
+  |       +--> ready_cancelled
+  |
+  +--> ready_success
+  +--> ready_failure
+  +--> ready_cancelled
+```
+
+Rules:
+
+- `cancel_requested` is a non-terminal snapshot
+- `cancel_requested` may still resolve as success or failure because
+  cancellation is best-effort
+- once any `ready_*` state is observed, later observations return that same
+  `ready_*` state
+
+The public contract is acquire/release level synchronization, not blanket
+`seq_cst`.
+
+## Blocking And Joining
+
+The blocking forms consume the object passed to them.
+
+Working shapes:
+
+```cpp
+template<class T>
+Outcome<T> join(Task<T>&& task);
+
+template<class T>
+auto value(Task<T>&& task)
+    -> std::conditional_t<std::is_void_v<T>, void, T>;
+
+template<progress_capability Owner, class T>
+Outcome<T> join(Owner& owner, Posted<T>&& posted);
+
+template<progress_capability Driver, class T>
+Outcome<T> join(Driver& driver, Operation<T>&& op);
+
+template<progress_capability Owner, class T>
+auto value(Owner& owner, Posted<T>&& posted)
+    -> std::conditional_t<std::is_void_v<T>, void, T>;
+
+template<progress_capability Driver, class T>
+auto value(Driver& driver, Operation<T>&& op)
+    -> std::conditional_t<std::is_void_v<T>, void, T>;
+
+template<class T>
+Outcome<T> join(TaskJoinHandle<T>&& h);
+
+template<class T>
+auto value(TaskJoinHandle<T>&& h)
+    -> std::conditional_t<std::is_void_v<T>, void, T>;
+
+template<progress_capability Owner, class T>
+Outcome<T> join(Owner& owner, PostedJoinHandle<T>&& h);
+
+template<progress_capability Owner, class T>
+auto value(Owner& owner, PostedJoinHandle<T>&& h)
+    -> std::conditional_t<std::is_void_v<T>, void, T>;
+
+template<progress_capability Driver, class T>
+Outcome<T> join(Driver& driver, OperationJoinHandle<T>&& h);
+
+template<progress_capability Driver, class T>
+auto value(Driver& driver, OperationJoinHandle<T>&& h)
+    -> std::conditional_t<std::is_void_v<T>, void, T>;
+```
+
+Throwing forms use explicit work exceptions:
+
+- `WorkError`
+- `FailureError`
+- `CancelledError`
+- `JoinContextError`
+
+Working shape:
+
+```cpp
+class WorkError : public std::runtime_error;
+
+class FailureError : public WorkError {
+public:
+    std::exception_ptr cause() const noexcept;
+    [[noreturn]] void rethrow_cause() const;
+};
+
+class CancelledError : public WorkError {
+public:
+    CancelReason reason() const noexcept;
+};
+
+enum class JoinContextReason : uint8_t {
+    capability_mismatch,
+    thread_precondition,
+    reentrant_pump,
+};
+
+class JoinContextError : public std::logic_error {
+public:
+    JoinContextReason reason() const noexcept;
+};
+```
+
+All root-layer exception types are copyable and movable with the non-throwing
+copy/move behavior required of standard exception objects. Concrete headers
+should spell those special members explicitly as `noexcept` rather than relying
+on accidental implicit generation.
+
+`FailureError` and `CancelledError` represent terminal async outcomes.
+`JoinContextError` represents misuse of the join/value context and remains a
+logic error rather than an async outcome.
+
+Because a formed `Failure` outcome never carries a null exception pointer,
+`FailureError::cause()` likewise never returns null and `rethrow_cause()` never
+degenerates into `std::rethrow_exception(nullptr)`.
+
+That hierarchy split is intentional. Callers that want a catch-all across both
+terminal async outcomes and join-context misuse should catch
+`std::exception` or handle `WorkError` and `JoinContextError` separately.
+
+`value(...)` throws `FailureError` or `CancelledError` for both `void` and
+non-`void` payloads.
+
+`value(...)` on `Failure` throws `FailureError`; it does not transparently
+rethrow the original exception. Callers that need the original typed exception
+recover it via `cause()` / `rethrow_cause()`.
+
+This differs intentionally from `std::future::get()`, which transparently
+rethrows the stored exception.
+
+On the success path, `value(...)` moves the stored payload out of terminal
+storage. Because `work_value<T>` requires nothrow move for non-`void` payloads,
+that success-path move does not add any new throwing behavior beyond
+`JoinContextError` and the explicit terminal-outcome exceptions above.
+
+The textual `what()` strings of these exception types are diagnostic only and
+are not part of the semantic contract.
+
+These exception types are not a user extension surface at the root layer.
+Subsystem-specific failures should flow through `Failure{std::exception_ptr}`
+and be recovered through `FailureError::cause()` / `rethrow_cause()`.
+
+If the awaited value is already terminal at the time of the call, `join(...)`
+and `value(...)` return immediately without entering an unnecessary pump path.
+
+### `Owner&` And `Driver&`
+
+These parameters are progress-driving capabilities.
+
+Passing one means:
+
+- the caller is allowed to drive this owner/driver
+- `join(...)` / `value(...)` may pump it until the awaited value is terminal
+- there is no hidden helper thread doing that work elsewhere
+
+Working capability shape:
+
+```cpp
+struct capability_id_t {
+    template<class Cap>
+    auto operator()(Cap const& cap) const
+        noexcept(noexcept(tag_invoke(*this, cap)))
+        -> decltype(tag_invoke(*this, cap));
+};
+
+inline constexpr capability_id_t capability_id{};
+
+template<class Derived>
+struct capability_id_from_address {
+    inline static unsigned char type_tag_object = 0;
+
+    friend auto tag_invoke(capability_id_t, Derived const& self) noexcept
+        -> std::pair<void const*, void const*> {
+        return {&type_tag_object, std::addressof(self)};
+    }
+};
+
+template<class Cap>
+concept progress_capability =
+    requires(Cap const& cap) {
+        { capability_id(cap) } noexcept -> std::copyable;
+        requires std::equality_comparable<decltype(capability_id(cap))>;
+        requires std::is_nothrow_copy_constructible_v<
+            decltype(capability_id(cap))>;
+        requires requires (decltype(capability_id(cap)) const& a,
+                           decltype(capability_id(cap)) const& b) {
+            { a == b } noexcept -> std::convertible_to<bool>;
+            { a != b } noexcept -> std::convertible_to<bool>;
+        };
+    };
+```
+
+`capability_id` is a root-layer customization point object. Public
+customization is through that CPO, not through unrelated plain-ADL helper
+functions.
+
+Capability types must provide `tag_invoke(capability_id, cap)` directly or
+inherit a helper such as `capability_id_from_address<Derived>` when stable
+address identity is the intended capability identity. The helper incorporates a
+per-type tag as well as the object address so a capability type used as another
+capability's first non-virtual subobject does not accidentally compare equal to
+its enclosing object. The helper uses the address of a unique static data
+object rather than an empty helper function so linker identical-code folding
+cannot collapse the per-type tag.
+
+A final capability type must not acquire multiple competing
+`tag_invoke(capability_id_t, Derived const&)` candidates through helper
+inheritance. If multiple mixins would make the customization ambiguous, the type
+must provide one explicit `tag_invoke(capability_id, cap)` instead of relying on
+multiple helpers.
+
+The capability-id contract is:
+
+- repeated calls on the same capability object return equal values
+- capability wrappers that authorize the same progress domain may also return
+  equal values
+- progress capabilities that are not mutually substitutable for
+  `join(...)` / `can_join(...)` must not compare equal while their relevant
+  lifetimes overlap
+- the returned id type must be nothrow-copy-constructible so admission-time
+  storage and `can_join(...)` keep their non-throwing contract
+- equality comparison on the id type must also be non-throwing for the same
+  reason
+- small trivially copyable id values are strongly preferred on hot paths;
+  unusually large or non-trivial id objects are permitted by the semantic
+  contract but may force fatter control blocks or more expensive type erasure
+- when the id type is small and trivially copyable, inline control-block storage
+  is the expected fast path; exact SBO thresholds and erasure fallback strategy
+  remain implementation detail rather than root-layer ABI
+- the id type need not be hashable; implementations may use thread-local
+  stacks, linear scans, or equivalent bookkeeping for reentrancy tracking
+- identity retrieval is on the hot path for `join(...)`, `value(...)`, and
+  `can_join(...)`, so `capability_id(...)` is expected to be effectively
+  constant-time in addition to being `noexcept`
+
+The control block stores the copied capability identity chosen at admission or
+producer-source construction time. It does not need to retain the original
+owner/driver object pointer.
+
+Implementations therefore type-erase the stored capability identity together
+with equality logic appropriate for that identity type; capability checks are
+not specified as raw byte comparison alone.
+
+Any stronger lifetime requirement on the original owner/driver object belongs
+to the admitting subsystem's own publication/shutdown machinery, not to the
+root-layer identity check.
+
+The capability-id substitutability rule and the liveness invariant together
+eliminate address-reuse aliasing against still-outstanding control blocks: a
+destroyed capability cannot leave behind a live root value that still depends on
+its stored identity without violating the shutdown/terminal-completion rules
+above.
+
+The implementation must be able to check capability compatibility cheaply and
+deterministically. Wrong-capability use throws `JoinContextError`.
+
+For generic code that wants a non-throwing probe, the root layer also provides:
+
+```cpp
+template<progress_capability Owner>
+bool can_join(Owner& owner, PostedControl const&) noexcept;
+
+template<progress_capability Driver>
+bool can_join(Driver& driver, OperationControl const&) noexcept;
+```
+
+`Task<T>` requires no progress capability and therefore has no `can_join(...)`
+probe.
+
+`can_join(...)` is required to be:
+
+- `noexcept`
+- non-blocking
+- allocation-free
+
+It checks only:
+
+- capability identity
+- static thread/token preconditions required by that capability
+- current-thread same-capability reentrancy
+
+A `true` result from `can_join(...)` guarantees that an immediately-following
+`join(...)` / `value(...)` on that same thread will not throw
+`JoinContextError`, unless the caller invalidates those preconditions between
+the probe and the blocking call.
+
+That guarantee is per the probing thread only. Probing on one thread and then
+joining on another thread is outside the guarantee.
+
+`can_join(...)` is a non-throwing capability probe for diagnostics and fast
+path selection. It is not a synchronization primitive.
+
+### `Posted<T>`
+
+`join(owner, posted)` pumps the posted-work owner until `posted` reaches a
+terminal state.
+
+If the owner type is thread-bound, calling from the wrong thread or without the
+required owner token throws `JoinContextError`.
+
+### `Operation<T>`
+
+`join(driver, op)` pumps the operation's subsystem driver until `op` reaches a
+terminal state.
+
+The driver capability passed to `join(driver, op)` must cover all progress
+required to publish terminal completion for `op`.
+
+If raw driver progress and published completion affinity differ, the subsystem
+must still make `join(driver, op)` sufficient. It must not rely on an unrelated
+hidden runtime continuing to run elsewhere.
+
+The root layer does not define cross-capability work stealing or hidden
+"helping" by unrelated progress capabilities. `join(cap, ...)` pumps the domain
+authorized by `cap` only, and a thread driving capability `X` must not make
+progress on capability `Y` unless the subsystem models `Y` as the same
+capability identity or as an explicit sub-domain covered by `X`.
+
+### Reentrancy And Deadlock Boundaries
+
+Same-capability non-reentrancy is checked on a per-calling-thread basis.
+
+The observable rule is:
+
+- if a thread is already pumping capability `X`, then a nested
+  `join(X, ...)` / `value(X, ...)` on that same thread throws
+  `JoinContextError`
+
+The implementation may realize that rule with thread-local tracking or an
+equivalent mechanism. That tracking must be cleared on both normal return and
+exception unwind from the blocking call. Cross-owner and cross-driver deadlocks
+are not detected at the root layer.
+
+Any stronger deadlock-avoidance or scheduler-cooperation guarantee across
+multiple capabilities belongs to the deferred carrier/combinator layer rather
+than to root-layer blocking joins.
+
+Any thread-local bookkeeping used for that rule should be trivially
+destructible and must not require special cleanup at thread exit beyond normal
+scope unwinding of the blocking call itself.
+
+## Affinity
+
+Affinity is semantic, but V10 still keeps the root syntax narrower than the old
+replacement draft.
+
+### What Is Locked
+
+For the root categories:
+
+- `Task<T>` resumes on the context that commits terminal completion unless an
+  explicit later-layer hop changes that
+- `Posted<T>` resumes on its owner
+- `Operation<T>` resumes on its published completion context
+
+Affinity is therefore fixed by category in the root model.
+
+### What Is Deferred
+
+The carrier layer may add explicit hops or migratable policies later, but it
+must preserve two rules:
+
+- a hop that changes resume/completion context must be explicit in the public
+  API
+- it must not silently invalidate the progress-driving capability contract of
+  an already-admitted root async value
+
+Working placeholder names remain:
+
+- `hop_to(target, source)`
+- `resume_on(target)`
+
+Those names are illustrative only.
+
+## Cancellation
+
+Cancellation is explicit and best-effort.
+
+### Request Side
+
+`request_cancel()` means:
+
+1. atomically record the first generic cancel request as
+   `CancelReason::requested` if none was recorded already
+2. request stop on the control block's embedded `std::stop_source`
+3. arrange category-specific producer notification if supported, including
+   synchronous cancel-hook invocation when a root-layer cancel hook is already
+   installed
+4. do not by itself commit terminal `Cancelled`
+
+The first request wins on the request side.
+
+The recorded request-side reason is published with release semantics before, or
+atomically with, the `request_stop()` call that makes the stop request visible
+to stop-token observers. Hooks or callbacks that observe the request must treat
+that publication as the source of truth for request-side reason visibility.
+The implementation must establish the corresponding acquire step before invoking
+any root-layer cancel hook or any internal callback path that consults that
+recorded reason after stop has become visible.
+
+Every control block owns one embedded `std::stop_source`.
+
+That is true whether or not the admitted callable accepts `std::stop_token`.
+
+The shared stop-state used by `std::stop_source` / `std::stop_token` may remain
+alive after the control block itself is reclaimed if user-retained tokens or
+callbacks still reference it. That is standard stop-token lifetime and is not
+tied to control-block lifetime.
+
+### Cooperative Cancellation For Running User Code
+
+For running `Task<T>` and `Posted<T>` user code, the cooperative surface is
+`std::stop_token`.
+
+Admission and background-admission forms may pass that token to callables that
+opt in through the constrained callable rule.
+
+If a callable does not accept `std::stop_token`, cancellation is still
+meaningful before start, but the running body has no runtime-provided polling
+surface.
+
+V10 makes one narrowing explicit: cooperative code observes only the stop signal.
+It does not get a `CancelReason` query from the root layer. Terminal
+`CancelReason` remains a commit-path property, observable from the final
+`Outcome<T>` rather than from the running `std::stop_token`.
+
+Callbacks registered through standard `std::stop_callback` on such tokens follow
+normal C++ stop-token rules and therefore must be `noexcept`. The root layer
+does not guarantee that `request_cancel()` synchronously performs kernel,
+remote, or subsystem-specific cancellation just because a stop callback runs.
+Such callbacks may execute in the requesting thread or in the stop-token's
+normal callback-dispatch path; they must not assume owner/driver affinity or
+terminal-commit-thread affinity.
+
+That does not weaken the separate cancel-hook rule above: when a root-layer
+cancel hook is already installed, the first successful `request_cancel()`
+invokes that hook synchronously before returning.
+
+Recommended subsystem pattern:
+
+- if a subsystem wants a user `request_cancel()` to resolve as terminal
+  `Cancelled{CancelReason::requested}` when no success/failure wins first, it
+  should install a cancel hook that attempts `commit_cancelled(requested)` on
+  its source
+
+### Terminal Side
+
+Terminal outcome uses first terminal commit wins:
+
+- success may win after a cancel request if the work completes first
+- failure may win after a cancel request if the work fails first
+- cancelled wins only when some producer/owner/driver path commits cancelled
+  before any success/failure commit
+
+`Cancelled.reason` is the reason committed by the winning terminal cancel path.
+
+That means:
+
+- it is not merely "some request happened"
+- a user `request_cancel()` can only author `requested`
+- source-destruction fallback authors `abandoned`
+- subsystem shutdown authors `shutdown`
+- subsystem-originated external interruption authors `external`
+
+### Category Semantics
+
+For `Task<T>`:
+
+- before start, the executor may skip the task and commit cancelled
+- once running, cancellation is cooperative through `std::stop_token`
+
+For `Posted<T>`:
+
+- before start, the owner may discard cancelled posted work without running the
+  user closure
+- once running, cancellation is cooperative through `std::stop_token`
+- foreign-thread cancellation never performs queue surgery
+
+For `Operation<T>`:
+
+- cancellation may trigger subsystem-specific cancel hooks
+- those hooks may attempt kernel, remote, or state-machine cancellation
+- terminal cancellation can still require further driver progress
+
+### Explicitly Deferred Cancellation Sources
+
+This proposal intentionally does not define:
+
+- deadline-triggered cancellation
+- parent/scope-triggered cancellation
+
+Those reasons and their APIs should be added only when the actual primitives
+exist.
+
+## Relationship To `std::execution`
+
+This root layer is not itself a sender/receiver surface.
+
+`Task<T>`, `Posted<T>`, `Operation<T>`, and their join handles are not specified
+to satisfy the standard sender concepts in V10.
+
+That is intentional:
+
+- the root layer carries explicit progress-driving capability requirements that
+  the standard sender model does not encode directly
+- the root layer also keeps linear lifetime and explicit blocking join
+  semantics that are foundational for conflux's execution model
+
+Later layers may provide explicit adapters to `std::execution`, but V10 does not
+promise `connect`, `start`, or receiver customization on the root objects
+themselves.
+
+The intended bridge points for any later adapter are the existing root-layer
+surfaces: `join(...)` / `value(...)`, copyable `control()` handles, and
+`control.stop_token()`. V10 still does not promise sender queries or
+sender-specific customization directly on root result objects.
+
+## Aggregates And Combinators
+
+The root-layer claim remains narrow.
+
+### Locked Aggregate Semantics
+
+Only this point is locked now:
+
+- the eventual wait-all aggregate uses wait-all semantics by default
+
+That means:
+
+- no implicit fail-fast sibling cancellation in the default form
+- no generic assumption that `request_cancel()` promptly drains siblings
+
+### What Is Deferred
+
+This document does not finalize:
+
+- aggregate API names
+- aggregate continuation affinity
+- `race(...)`
+- loser ownership mechanics for early-exit aggregates
+- combinator callback placement rules beyond the root-category affinity model
+
+Those belong to the deferred carrier/combinator design, not the root async
+model.
+
+## Control Blocks And Allocation
+
+Each accepted root async boundary owns one intrusive control block.
+
+The control block has:
+
+- common header state
+- outcome storage
+- request-cancel and stop-state storage
+- intrusive refcount
+- category-specific progress / waiter state
+
+Refs may be held by:
+
+- the root result object or background join handle
+- copyable control handles
+- the producer-side source
+- deferred combinator/carrier state once that layer is designed
+
+Reclamation rule:
+
+- terminal outcome storage remains alive until the last holder drops its ref
+
+Allocation rule:
+
+- control-block storage comes either from the caller-provided
+  `control_block_resource` or from the subsystem default pool/resource
+- the root model does not require global `operator new` as the only allocation
+  path
+- subsystems are responsible for keeping enough live-control-block bookkeeping
+  to fulfill the shutdown liveness invariant above; V10 does not standardize a
+  shared registry helper or base class for that bookkeeping
+
+Future performance hints such as time budgets or heapless-expected annotations
+belong on the admission options surface, not in ad hoc overloads.
+
+### Memory Ordering Summary
+
+The root-layer atomic ordering contract is:
+
+- intrusive refcount increments do not need to synchronize payload state and may
+  use relaxed semantics
+- refcount decrements that may reclaim the control block perform the release /
+  acquire work needed before destruction and deallocation
+- first-request cancel publication uses release semantics on success
+- terminal outcome publication and the transition to `ready_*` use release
+  semantics
+- `ready()`, `cancel_requested()`, `state()`, and terminal join observation use
+  acquire semantics
+- cancel-hook invocation has no additional happens-before edge with a racing
+  terminal commit beyond the disjoint-state rule described earlier
+
+The public contract is this acquire/release behavior, not stronger global
+ordering.
+
+## Subsystem Mapping
+
+### `WorkPool`
+
+Accepted work becomes `Task<T>`.
+
+Rejection covers:
+
+- `stopped`
+- `queue_full`
+
+### `RingLane`
+
+Accepted posted work becomes `Posted<T>`.
+
+Rejection covers:
+
+- `stopped`
+- `queue_full`
+- `notify_failed`
+
+`notify_failed` still means no work was published.
+
+### `file_io`
+
+Accepted file operations become `Operation<T>`.
+
+The subsystem's driver object pumps CQE progress.
+
+If file I/O publishes owner-affine completion, the file-I/O layer is
+responsible for marshalling before terminal commit.
+
+Any published completion-affinity identity needed for `join(...)` /
+`can_join(...)` consistency is stored as subsystem-private state in the control
+block.
+
+### `db`
+
+Accepted DB query/poll operations become `Operation<T>`.
+
+The DB driver pumps libpq state transitions.
+
+If DB completion is defined as owner-affine, DB is responsible for marshalling
+before terminal commit.
+
+Any published completion-affinity identity needed for `join(...)` /
+`can_join(...)` consistency is stored as subsystem-private state in the control
+block.
+
+### `process`
+
+`process` remains autonomous scheduled work.
+
+Recommended shapes remain payload-oriented when that matches the subsystem best:
+
+- `Task<std::expected<Process, std::error_code>>`
+- `Task<std::expected<RunResult, std::error_code>>`
+
+General rule:
+
+- admission/runtime inability to start is rejection
+- post-admission domain results stay in the payload when the subsystem's
+  primary product is a domain result rather than "throw on domain failure"
+
+## Explicitly Deferred
+
+Deferred to the later carrier / subsystem design:
+
+- final coroutine return/combinator carrier
+- sender/receiver adapters
+- explicit hop primitive spelling
+- migratable-domain coroutine policy
+- timeout / deadline primitives
+- structured-concurrency scopes
+- aggregate placement rules
+- `race(...)` and fail-fast aggregate ownership mechanics
+- droppable / coalescing stream primitives
+- opt-in timing instrumentation and per-admission budgets
+
+## Post-Implementation Evaluation
+
+The following ideas came up repeatedly in review, but V10 does not adopt them
+into the root contract yet because each would materially reshape the common
+surface or needs real measurements first:
+
+- lazy/optional stop-state allocation or a no-cancellation admission flag:
+  deferred until profiling shows the mandatory embedded `std::stop_source`
+  meaningfully dominates real control-block cost
+- root-level heavy-payload destruction traits or automatic abandon-time offload:
+  rejected for the common root ABI for now; subsystems may still add stricter
+  local policy
+- debug-only alternatives to hard destructor-time `std::terminate()`:
+  deferred until post-implementation experience shows that the standard
+  `guard_abandon(...)` pattern is still insufficient in practice
+- ergonomic callable-disambiguation helpers beyond the exact-one-form rule:
+  deferred to helper/carrier layers unless implementation experience shows the
+  admission diagnostics are still too painful
+- generic `joinable` / `await(context, result)` abstraction helpers:
+  deferred to the carrier/combinator layer rather than added to the root layer
+- relaxing `Outcome<T>::visit(...)` to implicit common-type unification:
+  rejected for V10; any softer visitation helper belongs above the root layer
+
+## Why V10 Is Tighter
+
+V9 was already implementable, but it still left a few precision-level contract
+edges open for implementers reviewing corner cases.
+
+V10 keeps the same narrow scope and makes those last details explicit:
+
+- liveness and shutdown ordering are explicit
+- `Outcome<T>` now has an actual public contract
+- accessor preconditions and `visit(...)` semantics now have defined behavior
+- callable selection is concept-driven and tied to a concrete payload concept
+- payloads are constrained to nothrow move so terminal storage can keep its
+  no-valueless guarantee
+- `std::stop_token` is the cooperative cancellation surface
+- stop-state ownership and request/terminal reason separation are explicit
+- control-block allocation has an admission-time extension point
+- source destruction now resolves as terminal `Cancelled{abandoned}` instead of
+  leaving the root value stranded
+- the source-destruction fallback path now spells out race-loser behavior
+- source destruction now prefers `shutdown` over `abandoned` when that shutdown
+  intent is already observable to the source path
+- cancel-hook, PMR lifetime/concurrency, shutdown bookkeeping, and join-context
+  races are specified instead of implied
+- cancel-hook capture boundaries are concrete enough to keep producers away from
+  control-block and outcome-storage lifetime mistakes
+- the first successful `request_cancel()` now has explicit synchronous
+  cancel-hook timing semantics
+- null exception pointers are now explicitly forbidden on the failure path, so
+  `FailureError::rethrow_cause()` stays well-defined
+- `abandon_sink` now requires cancelled-path handling instead of allowing silent
+  `Cancelled` drops through a Failure-only sink
+- `scoped_abandon::release()` now has a defined disarmed-state contract
+- outcome-copy construction and copy-assignment now both include the required
+  strong exception-safety model
+- unwinding-safe abandonment has a standard RAII guard
+- progress capability identity and `can_join(...)` are now pinned as real
+  contracts instead of soft conventions
+- the address-based capability helper now avoids first-subobject aliasing by
+  including per-type identity without depending on function-address uniqueness
+- producer-side sources now expose the same stop-token interop surface as
+  control handles
+- late abandonment now defines which thread runs sinks and discard-path
+  destruction after terminal completion already exists
+- capability-id values now have an explicit nothrow-copy requirement so
+  admission and `can_join(...)` stay non-throwing
+- capability helper inheritance now calls out the multiple-helper ambiguity trap
+- control handles now show their actual method signatures instead of an informal
+  name list
+- refcount ordering guidance no longer over-specifies the increment hot path
+- request-side stop visibility now includes the required acquire observation rule
+- the throwing surface is now concrete enough for migration and implementation
+- shutdown dependency ordering and hook quiescence now have explicit subsystem
+  obligations
+- the relation to `std::execution` is stated instead of deferred by silence
+- larger performance/DX changes are now explicitly marked as deferred or
+  rejected pending post-implementation measurement

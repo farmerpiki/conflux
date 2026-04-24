@@ -84,6 +84,9 @@ catch_discover_tests(conflux_json_conformance_external)
 add_executable(conflux_work_tests work_test.cxx)
 target_link_libraries(conflux_work_tests PRIVATE conflux_work conflux_options Catch2::Catch2WithMain)
 
+add_executable(conflux_work_root_tests work_root_test.cxx)
+target_link_libraries(conflux_work_root_tests PRIVATE conflux_work conflux_options Catch2::Catch2WithMain)
+
 add_executable(conflux_file_io_tests file_io_test.cxx)
 target_link_libraries(conflux_file_io_tests
     PRIVATE
@@ -145,6 +148,7 @@ catch_discover_tests(conflux_template_tests)
 catch_discover_tests(conflux_json_tests)
 catch_discover_tests(conflux_process_tests)
 catch_discover_tests(conflux_work_tests)
+catch_discover_tests(conflux_work_root_tests)
 catch_discover_tests(conflux_file_io_tests)
 catch_discover_tests(conflux_file_io_http_e2e)
 if(CONFLUX_HAS_TLS STREQUAL "true")

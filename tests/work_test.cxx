@@ -146,12 +146,12 @@ TEST_CASE(
 	"[work]") {
 	WorkPool pool;
 	atomic<int> counter{0};
-	barrier<> bar{2};
-	spawn(run_on(pool, [&] {
+	auto gate = make_shared<barrier<>>(2);
+	spawn(run_on(pool, [gate, &counter] {
 		counter.fetch_add(1, memory_order_release);
-		bar.arrive_and_wait();
+		gate->arrive_and_wait();
 	}));
-	bar.arrive_and_wait();
+	gate->arrive_and_wait();
 	CHECK(counter.load(memory_order_acquire) == 1);
 }
 

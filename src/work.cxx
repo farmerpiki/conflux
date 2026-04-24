@@ -12,6 +12,7 @@ export module conflux.work;
 
 import std;
 import conflux.types;
+export import conflux.work.root;
 
 using namespace std;
 
@@ -33,6 +34,8 @@ export template<typename Target>
 struct MoveToStep;
 export template<typename Target>
 struct StartOnStep;
+export template<typename T>
+class Task;
 
 namespace work_detail {
 
