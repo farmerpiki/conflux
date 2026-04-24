@@ -2125,3 +2125,638 @@ TEST_CASE(
 	CHECK(obj->find_member("a").has_value());
 	CHECK(obj->find_member("b").has_value());
 }
+
+// ---------------------------------------------------------------------------
+// Phase 4: dump options
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: dump sort_object_keys produces stable key order",
+	"[json][dump][examples]") {
+	auto doc = parse(R"({"z":3,"a":1,"m":2})");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.sort_object_keys = true;
+	auto d = doc->dump(opts);
+	REQUIRE(d.has_value());
+	CHECK(*d == R"({"a":1,"m":2,"z":3})");
+}
+
+TEST_CASE(
+	"json: dump ascii_only escapes non-ASCII code points",
+	"[json][dump][examples]") {
+	auto doc = parse(R"("café")");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.ascii_only = true;
+	auto d = doc->dump(opts);
+	REQUIRE(d.has_value());
+	CHECK(d->find("\\u") != string::npos);
+	auto reparsed = parse(*d);
+	REQUIRE(reparsed.has_value());
+	CHECK(*reparsed->root().as_string() == "café");
+}
+
+TEST_CASE(
+	"json: dump ascii_only escapes surrogate-pair code point",
+	"[json][dump][examples]") {
+	auto doc = parse(R"("😀")");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.ascii_only = true;
+	auto d = doc->dump(opts);
+	REQUIRE(d.has_value());
+	CHECK(d->find("\\ud83d") != string::npos);
+	auto reparsed = parse(*d);
+	REQUIRE(reparsed.has_value());
+	CHECK(*reparsed->root().as_string() == "\xF0\x9F\x98\x80");
+}
+
+TEST_CASE(
+	"json: dump pretty with custom indent width",
+	"[json][dump][examples]") {
+	auto doc = parse(R"({"k":1})");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.pretty = true;
+	opts.indent = 4;
+	auto d = doc->dump(opts);
+	REQUIRE(d.has_value());
+	CHECK(d->find("    \"k\"") != string::npos);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 examples: generic vs typed view access
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: example — generic vs typed view access",
+	"[json][examples]") {
+	auto doc = parse(R"({"name":"alice","score":42,"active":true})");
+	REQUIRE(doc.has_value());
+
+	NodeRef root = doc->root();
+	CHECK(root.kind() == JsonKind::object);
+
+	auto obj = root.as_object();
+	REQUIRE(obj.has_value());
+	CHECK(obj->size() == 3UZ);
+
+	auto name_node = obj->member("name");
+	REQUIRE(name_node.has_value());
+	CHECK(name_node->kind() == JsonKind::string);
+	CHECK(*name_node->as_string() == "alice");
+
+	auto score_node = obj->member("score");
+	REQUIRE(score_node.has_value());
+	CHECK(score_node->kind() == JsonKind::number);
+	CHECK(*score_node->as_number()->to_i64() == 42LL);
+
+	auto active_node = obj->member("active");
+	REQUIRE(active_node.has_value());
+	CHECK(active_node->kind() == JsonKind::boolean);
+	CHECK(*active_node->as_bool() == true);
+
+	auto decoded = decode<map<string, int64_t>>(*score_node);
+	CHECK_FALSE(decoded.has_value());
+	CHECK(decoded.error().code == JsonIssueCode::wrong_kind);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 examples: strict parse failure on duplicates
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: example — strict parse failure on duplicates",
+	"[json][examples]") {
+	auto res = parse(R"({"key":1,"key":2})");
+	CHECK_FALSE(res.has_value());
+	CHECK(res.error().code == JsonIssueCode::duplicate_member);
+	CHECK(res.error().stage == JsonStage::parse);
+
+	auto ok = parse(R"({"key":1,"other":2})");
+	CHECK(ok.has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 examples: strict number handling including scientific-notation
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: example — strict number handling and scientific-notation rejection",
+	"[json][examples]") {
+	{
+		auto doc = parse("1e2");
+		REQUIRE(doc.has_value());
+		auto n = doc->root().as_number();
+		REQUIRE(n.has_value());
+		CHECK(n->form() == JsonNumberForm::non_integer);
+
+		auto as_i64 = n->to_i64();
+		CHECK_FALSE(as_i64.has_value());
+		CHECK(as_i64.error().code == JsonIssueCode::invalid_number);
+
+		auto as_u64 = n->to_u64();
+		CHECK_FALSE(as_u64.has_value());
+		CHECK(as_u64.error().code == JsonIssueCode::invalid_number);
+
+		auto as_f64 = n->to_f64();
+		REQUIRE(as_f64.has_value());
+		CHECK(*as_f64 == Catch::Approx(100.0));
+	}
+	{
+		auto doc = parse("1.0");
+		REQUIRE(doc.has_value());
+		auto n = doc->root().as_number();
+		REQUIRE(n.has_value());
+		CHECK(n->form() == JsonNumberForm::non_integer);
+		CHECK_FALSE(n->to_i64().has_value());
+	}
+	{
+		auto doc = parse("42");
+		REQUIRE(doc.has_value());
+		auto n = doc->root().as_number();
+		REQUIRE(n.has_value());
+		CHECK(n->form() == JsonNumberForm::integer);
+		REQUIRE(n->to_i64().has_value());
+		CHECK(*n->to_i64() == 42LL);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 examples: strict typed decode
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: example — strict typed decode",
+	"[json][examples]") {
+	{
+		auto doc = parse("\"hello\"");
+		REQUIRE(doc.has_value());
+		auto r = decode<int64_t>(doc->root());
+		CHECK_FALSE(r.has_value());
+		CHECK(r.error().code == JsonIssueCode::wrong_kind);
+	}
+	{
+		auto doc = parse("1.5");
+		REQUIRE(doc.has_value());
+		auto r = decode<int64_t>(doc->root());
+		CHECK_FALSE(r.has_value());
+		CHECK(r.error().code == JsonIssueCode::invalid_number);
+	}
+	{
+		auto doc = parse("-1");
+		REQUIRE(doc.has_value());
+		auto r = decode<uint64_t>(doc->root());
+		CHECK_FALSE(r.has_value());
+		CHECK(r.error().code == JsonIssueCode::sign_mismatch);
+	}
+	{
+		auto doc = parse("true");
+		REQUIRE(doc.has_value());
+		auto r = decode<bool>(doc->root());
+		REQUIRE(r.has_value());
+		CHECK(*r == true);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 examples: missing vs null vs optional field modeling
+// ---------------------------------------------------------------------------
+
+struct ThreeFieldModel {
+	int64_t required_val{};
+	optional<int64_t> optional_val{};
+	Nullable<int64_t> nullable_val{};
+	optional<Nullable<int64_t>> opt_nullable_val{};
+};
+
+template<>
+struct JsonMembers<ThreeFieldModel> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("required_val", &ThreeFieldModel::required_val),
+			json_member("optional_val", &ThreeFieldModel::optional_val),
+			json_member("nullable_val", &ThreeFieldModel::nullable_val),
+			json_member("opt_nullable_val", &ThreeFieldModel::opt_nullable_val),
+		};
+	}
+	static constexpr string_view type_name() { return "ThreeFieldModel"; }
+};
+
+TEST_CASE(
+	"json: example — missing vs null vs optional field modeling",
+	"[json][examples]") {
+	{
+		auto doc = parse(R"({
+			"required_val": 1,
+			"nullable_val": null,
+			"opt_nullable_val": 42
+		})");
+		REQUIRE(doc.has_value());
+		auto r = decode<ThreeFieldModel>(doc->root());
+		REQUIRE(r.has_value());
+		CHECK(r->required_val == 1LL);
+		CHECK_FALSE(r->optional_val.has_value());
+		CHECK(r->nullable_val.is_null());
+		REQUIRE(r->opt_nullable_val.has_value());
+		REQUIRE(r->opt_nullable_val->has_value());
+		CHECK(*(*r->opt_nullable_val) == 42LL);
+	}
+	{
+		auto doc = parse(R"({
+			"required_val": 5,
+			"nullable_val": 99
+		})");
+		REQUIRE(doc.has_value());
+		auto r = decode<ThreeFieldModel>(doc->root());
+		REQUIRE(r.has_value());
+		CHECK(r->required_val == 5LL);
+		CHECK_FALSE(r->optional_val.has_value());
+		REQUIRE(r->nullable_val.has_value());
+		CHECK(*r->nullable_val == 99LL);
+		CHECK_FALSE(r->opt_nullable_val.has_value());
+	}
+	{
+		auto doc = parse(R"({
+			"required_val": 7,
+			"nullable_val": null,
+			"opt_nullable_val": null
+		})");
+		REQUIRE(doc.has_value());
+		auto r = decode<ThreeFieldModel>(doc->root());
+		REQUIRE(r.has_value());
+		REQUIRE(r->opt_nullable_val.has_value());
+		CHECK(r->opt_nullable_val->is_null());
+	}
+	{
+		auto doc = parse(R"({"nullable_val": null})");
+		REQUIRE(doc.has_value());
+		auto r = decode<ThreeFieldModel>(doc->root());
+		CHECK_FALSE(r.has_value());
+		CHECK(r.error().code == JsonIssueCode::missing_member);
+		CHECK(r.error().member_name == "required_val");
+	}
+	{
+		auto doc = parse(R"({"required_val": 1, "optional_val": null, "nullable_val": null})");
+		REQUIRE(doc.has_value());
+		auto r = decode<ThreeFieldModel>(doc->root());
+		CHECK_FALSE(r.has_value());
+		CHECK(r.error().code == JsonIssueCode::wrong_kind);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 examples: builder construction of arbitrary JSON number lexemes
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: example — builder construction of arbitrary JSON number lexemes",
+	"[json][examples]") {
+	{
+		auto b = value_builder();
+		REQUIRE(b.set_number("1e100").has_value());
+		auto doc = move(b).finish();
+		REQUIRE(doc.has_value());
+		auto n = doc->root().as_number();
+		REQUIRE(n.has_value());
+		CHECK(n->lexeme() == "1e100");
+		CHECK(n->form() == JsonNumberForm::non_integer);
+		auto dumped = doc->dump();
+		REQUIRE(dumped.has_value());
+		CHECK(*dumped == "1e100");
+	}
+	{
+		auto b = value_builder();
+		REQUIRE(b.set_number("99999999999999999999999999999999").has_value());
+		auto doc = move(b).finish();
+		REQUIRE(doc.has_value());
+		auto n = doc->root().as_number();
+		REQUIRE(n.has_value());
+		CHECK(n->lexeme() == "99999999999999999999999999999999");
+	}
+	{
+		auto b = value_builder();
+		REQUIRE(b.set_number("1.0").has_value());
+		auto doc = move(b).finish();
+		REQUIRE(doc.has_value());
+		auto dumped = doc->dump();
+		REQUIRE(dumped.has_value());
+		CHECK(*dumped == "1.0");
+	}
+	{
+		auto b = value_builder();
+		CHECK_FALSE(b.set_number("+1").has_value());
+		CHECK_FALSE(b.set_number("01").has_value());
+		CHECK_FALSE(b.set_number("1.").has_value());
+		CHECK_FALSE(b.set_number("NaN").has_value());
+		CHECK_FALSE(b.set_number("Infinity").has_value());
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 examples: commit-on-success / abort-on-error child builder patterns
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: example — commit-on-success abort-on-error child builder patterns",
+	"[json][examples]") {
+	auto build_doc = [](bool inject_error) -> expected<Document, JsonError> {
+		auto vb = value_builder();
+		auto root_res = vb.begin_object();
+		if (!root_res) {
+			return unexpected(move(root_res).error());
+		}
+		auto &root = *root_res;
+
+		{
+			auto child_res = root.insert_object("user");
+			if (!child_res) {
+				return unexpected(move(child_res).error());
+			}
+			auto &child = *child_res;
+			auto id_res = child.insert_i64("id", inject_error ? -1LL : 1LL);
+			if (inject_error) {
+				auto dup_res = child.insert_i64("id", 99LL);
+				if (!dup_res) {
+					return unexpected(move(dup_res).error());
+				}
+			}
+			if (!id_res) {
+				return unexpected(move(id_res).error());
+			}
+			REQUIRE(child.insert_string("name", "bob").has_value());
+			move(child).commit();
+		}
+
+		move(root).commit();
+		return move(vb).finish();
+	};
+
+	{
+		auto doc = build_doc(false);
+		REQUIRE(doc.has_value());
+		auto obj = doc->root().as_object();
+		REQUIRE(obj.has_value());
+		auto user = obj->member("user");
+		REQUIRE(user.has_value());
+		auto user_obj = user->as_object();
+		REQUIRE(user_obj.has_value());
+		CHECK(*user_obj->member("name")->as_string() == "bob");
+	}
+
+	{
+		auto doc = build_doc(true);
+		CHECK_FALSE(doc.has_value());
+		CHECK(doc.error().code == JsonIssueCode::duplicate_member);
+	}
+}
+
+TEST_CASE(
+	"json: example — child abort leaves parent unchanged",
+	"[json][examples]") {
+	auto b = value_builder();
+	auto root_res = b.begin_object();
+	REQUIRE(root_res.has_value());
+	auto &root = *root_res;
+
+	{
+		auto child_res = root.insert_object("discarded");
+		REQUIRE(child_res.has_value());
+		auto &child = *child_res;
+		REQUIRE(child.insert_i64("x", 7LL).has_value());
+	}
+
+	REQUIRE(root.insert_string("kept", "yes").has_value());
+	move(root).commit();
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto obj = doc->root().as_object();
+	REQUIRE(obj.has_value());
+	CHECK_FALSE(obj->find_member("discarded").has_value());
+	REQUIRE(obj->find_member("kept").has_value());
+	CHECK(*obj->member("kept")->as_string() == "yes");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 examples: partial-build abandonment via reset()
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: example — partial-build abandonment via reset()",
+	"[json][examples]") {
+	auto b = value_builder();
+
+	REQUIRE(b.set_i64(100LL).has_value());
+
+	b.reset();
+
+	REQUIRE(b.set_string("after-reset").has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	CHECK(*doc->root().as_string() == "after-reset");
+}
+
+TEST_CASE(
+	"json: example — reset then build complex document",
+	"[json][examples]") {
+	auto b = value_builder();
+
+	REQUIRE(b.set_bool(false).has_value());
+	b.reset();
+
+	auto obj_res = b.begin_object();
+	REQUIRE(obj_res.has_value());
+	auto &obj = *obj_res;
+	REQUIRE(obj.insert_i64("v", 42LL).has_value());
+	move(obj).commit();
+
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto o = doc->root().as_object();
+	REQUIRE(o.has_value());
+	CHECK(*o->member("v")->as_number()->to_i64() == 42LL);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 examples: RFC 6901 round-trip via to_pointer / from_pointer
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: example — RFC 6901 round-trip via to_pointer / from_pointer",
+	"[json][examples]") {
+	{
+		JsonPath path;
+		path.push_member("users");
+		path.push_index(0);
+		path.push_member("name");
+
+		auto ptr = path.to_pointer();
+		CHECK(ptr == "/users/0/name");
+
+		auto reparsed = JsonPath::from_pointer(ptr);
+		REQUIRE(reparsed.has_value());
+		CHECK(reparsed->to_pointer() == ptr);
+	}
+
+	{
+		auto path = JsonPath::from_pointer("/a~0b/c~1d");
+		REQUIRE(path.has_value());
+		CHECK(path->size() == 2UZ);
+		CHECK(get<JsonPathMember>(path->segment(0)).name == "a~b");
+		CHECK(get<JsonPathMember>(path->segment(1)).name == "c/d");
+		CHECK(path->to_pointer() == "/a~0b/c~1d");
+	}
+
+	{
+		auto path = JsonPath::from_pointer("");
+		REQUIRE(path.has_value());
+		CHECK(path->empty());
+		CHECK(path->to_pointer().empty());
+	}
+
+	{
+		auto path = JsonPath::from_pointer("noslash");
+		CHECK_FALSE(path.has_value());
+		CHECK(path.error().code == JsonIssueCode::invalid_pointer);
+		CHECK(path.error().stage == JsonStage::parse);
+	}
+
+	{
+		auto doc = parse(R"({"a": {"b": [1, 2, 3]}})");
+		REQUIRE(doc.has_value());
+		auto path = JsonPath::from_pointer("/a/b");
+		REQUIRE(path.has_value());
+		auto node = doc->root().at(*path);
+		REQUIRE(node.has_value());
+		CHECK(node->kind() == JsonKind::array);
+	}
+
+	{
+		JsonPath idx_path;
+		idx_path.push_index(2);
+		auto ptr = idx_path.to_pointer();
+		CHECK(ptr == "/2");
+		auto reparsed = JsonPath::from_pointer(ptr);
+		REQUIRE(reparsed.has_value());
+		CHECK(reparsed->size() == 1UZ);
+		CHECK(holds_alternative<JsonPathMember>(reparsed->segment(0)));
+		CHECK(get<JsonPathMember>(reparsed->segment(0)).name == "2");
+
+		auto doc = parse("[10,20,30]");
+		REQUIRE(doc.has_value());
+		auto by_member = doc->root().at(*reparsed);
+		CHECK_FALSE(by_member.has_value());
+		CHECK(by_member.error().code == JsonIssueCode::wrong_kind);
+
+		auto by_index = doc->root().at(idx_path);
+		REQUIRE(by_index.has_value());
+		CHECK(*by_index->as_number()->to_i64() == 30LL);
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 examples: nested-codec error propagation via with_prefix
+// ---------------------------------------------------------------------------
+
+struct InnerData {
+	int64_t value{};
+};
+
+template<>
+struct JsonMembers<InnerData> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("value", &InnerData::value),
+		};
+	}
+	static constexpr string_view type_name() { return "InnerData"; }
+};
+
+struct OuterWithPrefix {
+	InnerData inner{};
+};
+
+template<>
+struct JsonCodec<OuterWithPrefix> {
+	static expected<OuterWithPrefix, JsonError> decode(
+		NodeRef n) {
+		auto obj = n.as_object();
+		if (!obj) {
+			return unexpected(move(obj).error());
+		}
+
+		JsonPath prefix;
+		prefix.push_member("inner");
+
+		auto inner_node = n.at(prefix);
+		if (!inner_node) {
+			return unexpected(move(inner_node).error().with_prefix(prefix));
+		}
+
+		auto inner = ::decode<InnerData>(*inner_node);
+		if (!inner) {
+			return unexpected(move(inner).error().with_prefix(prefix));
+		}
+
+		return OuterWithPrefix{.inner = move(*inner)};
+	}
+	static expected<void, JsonError> encode(
+		ValueBuilder &b,
+		OuterWithPrefix const &v) {
+		auto obj_res = b.begin_object();
+		if (!obj_res) {
+			return unexpected(move(obj_res).error());
+		}
+		auto &obj = *obj_res;
+		auto inner_res = obj.insert<InnerData>("inner", v.inner);
+		if (!inner_res) {
+			return unexpected(move(inner_res).error());
+		}
+		move(obj).commit();
+		return {};
+	}
+	static constexpr string_view type_name() { return "OuterWithPrefix"; }
+};
+
+TEST_CASE(
+	"json: example — nested-codec error propagation via with_prefix",
+	"[json][examples]") {
+	{
+		auto doc = parse(R"({"inner": {"value": 7}})");
+		REQUIRE(doc.has_value());
+		auto r = decode<OuterWithPrefix>(doc->root());
+		REQUIRE(r.has_value());
+		CHECK(r->inner.value == 7LL);
+	}
+
+	{
+		auto doc = parse(R"({"inner": {"value": "bad"}})");
+		REQUIRE(doc.has_value());
+		auto r = decode<OuterWithPrefix>(doc->root());
+		CHECK_FALSE(r.has_value());
+		CHECK(r.error().code == JsonIssueCode::wrong_kind);
+		REQUIRE(r.error().path.size() >= 2UZ);
+		CHECK(get<JsonPathMember>(r.error().path.segment(0)).name == "inner");
+		CHECK(get<JsonPathMember>(r.error().path.segment(1)).name == "value");
+	}
+
+	{
+		auto doc = parse(R"({"other": 1})");
+		REQUIRE(doc.has_value());
+		auto r = decode<OuterWithPrefix>(doc->root());
+		CHECK_FALSE(r.has_value());
+		CHECK(r.error().code == JsonIssueCode::missing_member);
+	}
+
+	{
+		auto b = value_builder();
+		OuterWithPrefix const v{.inner = InnerData{.value = 42LL}};
+		REQUIRE(b.set<OuterWithPrefix>(v).has_value());
+		auto doc = move(b).finish();
+		REQUIRE(doc.has_value());
+		auto r = decode<OuterWithPrefix>(doc->root());
+		REQUIRE(r.has_value());
+		CHECK(r->inner.value == 42LL);
+	}
+}

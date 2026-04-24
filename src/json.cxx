@@ -23,6 +23,8 @@ export class JsonPath;
 export class ObjectMemberRange;
 export class ArrayElementRange;
 export struct ObjectMember;
+export template<class T>
+class Nullable;
 
 // ---------------------------------------------------------------------------
 // JsonKind / stage / issue code
@@ -1741,6 +1743,12 @@ struct is_optional : false_type {};
 template<class T>
 struct is_optional<optional<T>> : true_type {};
 
+template<class T>
+struct is_nullable_type : false_type {};
+
+template<class T>
+struct is_nullable_type<Nullable<T>> : true_type {};
+
 } // namespace detail
 
 export template<class T>
@@ -2981,14 +2989,22 @@ struct JsonCodec<optional<T>> {
 	static expected<optional<T>, JsonError> decode(
 		NodeRef n) {
 		if (n.is_null()) {
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::wrong_kind,
-					.expected_kind = JsonKind::null,
-					.actual_kind = JsonKind::null,
-					.message =
-						"explicit JSON null is not accepted for optional<T>; use Nullable<T> for nullable fields"});
+			if constexpr (detail::is_nullable_type<T>::value) {
+				auto v = ::decode<T>(n);
+				if (!v) {
+					return unexpected(move(v).error());
+				}
+				return optional<T>{move(*v)};
+			} else {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::wrong_kind,
+						.expected_kind = JsonKind::null,
+						.actual_kind = JsonKind::null,
+						.message =
+							"explicit JSON null is not accepted for optional<T>; use Nullable<T> for nullable fields"});
+			}
 		}
 		auto v = ::decode<T>(n);
 		if (!v) {
