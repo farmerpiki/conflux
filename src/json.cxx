@@ -1719,6 +1719,37 @@ expected<Document, JsonError> parse(
 } // namespace conflux::json
 
 // ---------------------------------------------------------------------------
+// has_json_codec — forward-declared here so builders can use it in requires
+// ---------------------------------------------------------------------------
+
+export template<class T>
+struct JsonMembers;
+export template<class T>
+struct JsonCodec;
+
+namespace detail {
+
+template<class T, class = void>
+struct has_codec_spec : false_type {};
+
+template<class T, class = void>
+struct has_members_spec : false_type {};
+
+template<class T>
+struct is_optional : false_type {};
+
+template<class T>
+struct is_optional<optional<T>> : true_type {};
+
+} // namespace detail
+
+export template<class T>
+concept has_json_codec = detail::has_codec_spec<T>::value || detail::has_members_spec<T>::value;
+
+export template<class T>
+inline constexpr bool has_json_codec_v = has_json_codec<T>;
+
+// ---------------------------------------------------------------------------
 // Builder
 // ---------------------------------------------------------------------------
 
@@ -1812,7 +1843,7 @@ public:
 	expected<ArrayBuilder, JsonError> insert_array(string_view name);
 
 	template<class T>
-		requires /* has_json_codec<T> */ true
+		requires has_json_codec<T>
 	expected<void, JsonError> insert(string_view name, T const &value);
 
 	// NOLINTNEXTLINE(bugprone-exception-escape)
@@ -1882,7 +1913,7 @@ public:
 	expected<ArrayBuilder, JsonError> append_array();
 
 	template<class T>
-		requires /* has_json_codec<T> */ true
+		requires has_json_codec<T>
 	expected<void, JsonError> append(T const &value);
 
 	// NOLINTNEXTLINE(bugprone-exception-escape)
@@ -1903,13 +1934,34 @@ public:
 // ValueBuilder
 // ---------------------------------------------------------------------------
 
+namespace detail {
+
+template<class T>
+expected<size_t, JsonError> encode_into(BuilderState *st, T const &value);
+
+} // namespace detail
+
 export class ValueBuilder {
-	unique_ptr<BuilderState> state_;
+	unique_ptr<BuilderState> owned_;
+	BuilderState *state_{};
 
 	friend class ObjectBuilder;
 	friend class ArrayBuilder;
+	template<class T>
+	friend expected<size_t, JsonError> detail::encode_into(BuilderState *, T const &);
+
+	explicit ValueBuilder(
+		BuilderState *borrowed) noexcept
+		: state_{borrowed} {}
 
 	[[nodiscard]] expected<void, JsonError> check_can_set() const {
+		if (state_ == nullptr) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::build,
+					.code = JsonIssueCode::constraint_violation,
+					.message = "ValueBuilder has been discarded"});
+		}
 		if (state_->root_set) {
 			return unexpected(
 				JsonError{
@@ -1941,9 +1993,23 @@ export class ValueBuilder {
 
 public:
 	ValueBuilder()
-		: state_{make_unique<BuilderState>()} {}
-	ValueBuilder(ValueBuilder &&) noexcept = default;
-	ValueBuilder &operator =(ValueBuilder &&) noexcept = default;
+		: owned_{make_unique<BuilderState>()}
+		, state_{owned_.get()} {}
+	ValueBuilder(
+		ValueBuilder &&o) noexcept
+		: owned_{move(o.owned_)}
+		, state_{owned_ ? owned_.get() : o.state_} {
+		o.state_ = nullptr;
+	}
+	ValueBuilder &operator =(
+		ValueBuilder &&o) noexcept {
+		if (this != &o) {
+			owned_ = move(o.owned_);
+			state_ = owned_ ? owned_.get() : o.state_;
+			o.state_ = nullptr;
+		}
+		return *this;
+	}
 	ValueBuilder(ValueBuilder const &) = delete;
 	ValueBuilder &operator =(ValueBuilder const &) = delete;
 
@@ -2028,7 +2094,7 @@ public:
 		state_->child_active = true;
 		state_->root_set = true;
 		size_t const ms = state_->store.object_members.size();
-		return ObjectBuilder{state_.get(), ms};
+		return ObjectBuilder{state_, ms};
 	}
 
 	[[nodiscard]] expected<ArrayBuilder, JsonError> begin_array() {
@@ -2039,11 +2105,11 @@ public:
 		state_->child_active = true;
 		state_->root_set = true;
 		size_t const cs = state_->store.array_children.size();
-		return ArrayBuilder{state_.get(), cs};
+		return ArrayBuilder{state_, cs};
 	}
 
 	template<class T>
-		requires /* has_json_codec<T> */ true
+		requires has_json_codec<T>
 	expected<void, JsonError> set(T const &value);
 
 	void reset() noexcept {
@@ -2052,15 +2118,19 @@ public:
 		state_->child_active = false;
 	}
 
-	void discard() && noexcept { state_.reset(); }
+	void discard() && noexcept {
+		owned_.reset();
+		state_ = nullptr;
+	}
 
 	[[nodiscard]] expected<Document, JsonError> finish() && {
-		if (!state_->root_set || state_->child_active) {
+		if ((state_ == nullptr) || !state_->root_set || state_->child_active) {
 			return unexpected(
 				JsonError{
 					.stage = JsonStage::build,
 					.code = JsonIssueCode::constraint_violation,
-					.message = state_->child_active ? "child builder still active" : "root value was never set"});
+					.message = (state_ != nullptr) && state_->child_active ? "child builder still active" :
+																			 "root value was never set"});
 		}
 		auto storage = make_unique<DocumentStorage>(move(state_->store));
 		storage->root_node = state_->root_node;
@@ -2071,6 +2141,43 @@ public:
 export ValueBuilder value_builder() {
 	return {};
 }
+
+// Internal helper: encode a value of type T into a shared BuilderState,
+// returning the resulting node index. Rolls back on failure.
+// Used by ArrayBuilder::append<T> and ObjectBuilder::insert<T>.
+namespace detail {
+
+template<class T>
+expected<size_t, JsonError> encode_into(
+	BuilderState *st,
+	T const &value) {
+	size_t const nodes_saved = st->store.nodes.size();
+	size_t const arena_saved = st->store.string_arena.size();
+	size_t const arr_saved = st->store.array_children.size();
+	size_t const obj_saved = st->store.object_members.size();
+	bool const root_set_saved = st->root_set;
+	bool const child_active_saved = st->child_active;
+
+	st->root_set = false;
+	st->child_active = false;
+	ValueBuilder vb{st};
+	auto ok = JsonCodec<T>::encode(vb, value);
+	if (!ok) {
+		st->store.nodes.resize(nodes_saved);
+		st->store.string_arena.resize(arena_saved);
+		st->store.array_children.resize(arr_saved);
+		st->store.object_members.resize(obj_saved);
+		st->root_set = root_set_saved;
+		st->child_active = child_active_saved;
+		return unexpected(move(ok).error());
+	}
+	size_t const node_idx = st->root_node;
+	st->root_set = root_set_saved;
+	st->child_active = child_active_saved;
+	return node_idx;
+}
+
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // Builder number lexeme validation
@@ -2631,7 +2738,7 @@ struct std::hash<Nullable<T>> {
 };
 
 // ---------------------------------------------------------------------------
-// JsonCodec / JsonMembers / has_json_codec / decode
+// JsonCodec / JsonMembers / decode
 // ---------------------------------------------------------------------------
 
 export template<class T, class M>
@@ -2647,15 +2754,7 @@ constexpr JsonMember<T, M> json_member(
 	return {name, p};
 }
 
-export template<class T>
-struct JsonMembers;
-export template<class T>
-struct JsonCodec;
-
 namespace detail {
-
-template<class T, class = void>
-struct has_codec_spec : false_type {};
 
 template<class T>
 struct has_codec_spec<
@@ -2664,19 +2763,10 @@ struct has_codec_spec<
 		decltype(JsonCodec<T>::decode(declval<NodeRef>())),
 		decltype(JsonCodec<T>::encode(declval<ValueBuilder &>(), declval<T const &>()))>> : true_type {};
 
-template<class T, class = void>
-struct has_members_spec : false_type {};
-
 template<class T>
 struct has_members_spec<T, void_t<decltype(JsonMembers<T>::members())>> : bool_constant<default_initializable<T>> {};
 
 } // namespace detail
-
-export template<class T>
-concept has_json_codec = detail::has_codec_spec<T>::value || detail::has_members_spec<T>::value;
-
-export template<class T>
-inline constexpr bool has_json_codec_v = has_json_codec<T>;
 
 // Built-in specializations declared here, defined below.
 template<>
@@ -2697,6 +2787,16 @@ template<class T>
 struct JsonCodec<Nullable<T>>;
 template<class T>
 struct JsonCodec<vector<T>>;
+template<class T, size_t N>
+struct JsonCodec<array<T, N>>;
+template<class A, class B>
+struct JsonCodec<pair<A, B>>;
+template<class... Ts>
+struct JsonCodec<tuple<Ts...>>;
+template<class T>
+struct JsonCodec<map<string, T>>;
+template<class T>
+struct JsonCodec<unordered_map<string, T>>;
 
 export template<class T>
 expected<T, JsonError> decode(NodeRef root);
@@ -2809,18 +2909,14 @@ struct JsonCodec<optional<T>> {
 	static expected<optional<T>, JsonError> decode(
 		NodeRef n) {
 		if (n.is_null()) {
-			return optional<T>{}; // strict: null is not presence-only
-		}
-		// Actually per spec: optional<T> is presence-only. null -> error unless T is Nullable.
-		// But presence is determined by the caller (missing member returns nullopt before we're called).
-		// If we're called, the value is present. Null is not accepted unless T accepts null.
-		if (n.is_null()) {
 			return unexpected(
 				JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::wrong_kind,
+					.expected_kind = JsonKind::null,
 					.actual_kind = JsonKind::null,
-					.message = "explicit JSON null not accepted for optional<T> (use Nullable<T>)"});
+					.message =
+						"explicit JSON null is not accepted for optional<T>; use Nullable<T> for nullable fields"});
 		}
 		auto v = ::decode<T>(n);
 		if (!v) {
@@ -2834,7 +2930,7 @@ struct JsonCodec<optional<T>> {
 		if (!v) {
 			return b.set_null();
 		}
-		return ::decode<T>(*v); // encode
+		return JsonCodec<T>::encode(b, *v);
 	}
 	static constexpr string_view type_name() { return "optional"; }
 };
@@ -2858,16 +2954,35 @@ struct JsonCodec<Nullable<T>> {
 		if (v.is_null()) {
 			return b.set_null();
 		}
-		auto inner_b = value_builder();
-		if (auto ok = JsonCodec<T>::encode(inner_b, v.value()); !ok) {
-			return ok;
-		}
-		// merge into b — not straightforward without nested builder support
-		// For Phase 0: encode directly when T is a scalar.
 		return JsonCodec<T>::encode(b, v.value());
 	}
 	static constexpr string_view type_name() { return "Nullable"; }
 };
+
+namespace detail {
+
+template<class T>
+expected<vector<T>, JsonError> decode_array_elements(
+	ArrayView const &arr) {
+	vector<T> result;
+	result.reserve(arr.size());
+	for (size_t i = 0; i < arr.size(); ++i) {
+		auto elem = arr.element(i);
+		if (!elem) {
+			return unexpected(move(elem).error());
+		}
+		auto v = ::decode<T>(*elem);
+		if (!v) {
+			JsonPath prefix;
+			prefix.push_index(i);
+			return unexpected(move(v).error().with_prefix(prefix));
+		}
+		result.push_back(move(*v));
+	}
+	return result;
+}
+
+} // namespace detail
 
 template<class T>
 struct JsonCodec<vector<T>> {
@@ -2877,38 +2992,297 @@ struct JsonCodec<vector<T>> {
 		if (!arr) {
 			return unexpected(move(arr).error());
 		}
-		vector<T> result;
-		result.reserve(arr->size());
-		for (size_t i = 0; i < arr->size(); ++i) {
+		return detail::decode_array_elements<T>(*arr);
+	}
+	static expected<void, JsonError> encode(
+		ValueBuilder &b,
+		vector<T> const &v) {
+		auto arr_res = b.begin_array();
+		if (!arr_res) {
+			return unexpected(move(arr_res).error());
+		}
+		auto &arr = *arr_res;
+		for (auto const &elem: v) {
+			if (auto ok = arr.template append<T>(elem); !ok) {
+				return unexpected(move(ok).error());
+			}
+		}
+		move(arr).commit();
+		return {};
+	}
+	static constexpr string_view type_name() { return "vector"; }
+};
+
+template<class T, size_t N>
+struct JsonCodec<array<T, N>> {
+	static expected<array<T, N>, JsonError> decode(
+		NodeRef n) {
+		auto arr = n.as_array();
+		if (!arr) {
+			return unexpected(move(arr).error());
+		}
+		if (arr->size() != N) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.target_type = string{type_name()},
+					.container_size = N,
+					.message = format("expected array of length {}, got {}", N, arr->size())});
+		}
+		array<T, N> result{};
+		for (size_t i = 0; i < N; ++i) {
 			auto elem = arr->element(i);
 			if (!elem) {
 				return unexpected(move(elem).error());
 			}
 			auto v = ::decode<T>(*elem);
 			if (!v) {
-				auto err = move(v).error();
-				err.path.push_index(i);
-				return unexpected(move(err));
+				JsonPath prefix;
+				prefix.push_index(i);
+				return unexpected(move(v).error().with_prefix(prefix));
 			}
-			result.push_back(move(*v));
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+			result[i] = move(*v);
 		}
 		return result;
 	}
 	static expected<void, JsonError> encode(
 		ValueBuilder &b,
-		vector<T> const &v) {
-		auto arr = b.begin_array();
+		array<T, N> const &v) {
+		auto arr_res = b.begin_array();
+		if (!arr_res) {
+			return unexpected(move(arr_res).error());
+		}
+		auto &arr = *arr_res;
+		for (size_t i = 0; i < N; ++i) {
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+			if (auto ok = arr.template append<T>(v[i]); !ok) {
+				return unexpected(move(ok).error());
+			}
+		}
+		move(arr).commit();
+		return {};
+	}
+	static constexpr string_view type_name() { return "array"; }
+};
+
+template<class A, class B>
+struct JsonCodec<pair<A, B>> {
+	static expected<pair<A, B>, JsonError> decode(
+		NodeRef n) {
+		auto arr = n.as_array();
 		if (!arr) {
 			return unexpected(move(arr).error());
 		}
-		for (auto const &elem: v) {
-			// For Phase 0: only scalar appends supported via generic append
-			(void)elem;
+		if (arr->size() != 2) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.target_type = string{type_name()},
+					.container_size = 2UZ,
+					.message = format("expected array of length 2, got {}", arr->size())});
 		}
-		move(*arr).commit();
+		auto e0 = arr->element(0);
+		if (!e0) {
+			return unexpected(move(e0).error());
+		}
+		auto first = ::decode<A>(*e0);
+		if (!first) {
+			JsonPath prefix;
+			prefix.push_index(0);
+			return unexpected(move(first).error().with_prefix(prefix));
+		}
+		auto e1 = arr->element(1);
+		if (!e1) {
+			return unexpected(move(e1).error());
+		}
+		auto second = ::decode<B>(*e1);
+		if (!second) {
+			JsonPath prefix;
+			prefix.push_index(1);
+			return unexpected(move(second).error().with_prefix(prefix));
+		}
+		return pair<A, B>{move(*first), move(*second)};
+	}
+	static expected<void, JsonError> encode(
+		ValueBuilder &b,
+		pair<A, B> const &v) {
+		auto arr_res = b.begin_array();
+		if (!arr_res) {
+			return unexpected(move(arr_res).error());
+		}
+		auto &arr = *arr_res;
+		if (auto ok = arr.template append<A>(v.first); !ok) {
+			return unexpected(move(ok).error());
+		}
+		if (auto ok = arr.template append<B>(v.second); !ok) {
+			return unexpected(move(ok).error());
+		}
+		move(arr).commit();
 		return {};
 	}
-	static constexpr string_view type_name() { return "vector"; }
+	static constexpr string_view type_name() { return "pair"; }
+};
+
+template<class... Ts>
+struct JsonCodec<tuple<Ts...>> {
+	static expected<tuple<Ts...>, JsonError> decode(
+		NodeRef n) {
+		auto arr = n.as_array();
+		if (!arr) {
+			return unexpected(move(arr).error());
+		}
+		constexpr size_t N = sizeof...(Ts);
+		if (arr->size() != N) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.target_type = string{type_name()},
+					.container_size = N,
+					.message = format("expected array of length {}, got {}", N, arr->size())});
+		}
+		tuple<Ts...> result{};
+		bool ok = true;
+		JsonError first_err;
+		[&]<size_t... Is>(index_sequence<Is...>) {
+			(([&]<size_t I>() {
+				 if (!ok) {
+					 return;
+				 }
+				 auto elem = arr->element(I);
+				 if (!elem) {
+					 ok = false;
+					 first_err = move(elem).error();
+					 return;
+				 }
+				 auto v = ::decode<tuple_element_t<I, tuple<Ts...>>>(*elem);
+				 if (!v) {
+					 ok = false;
+					 JsonPath prefix;
+					 prefix.push_index(I);
+					 first_err = move(v).error().with_prefix(prefix);
+					 return;
+				 }
+				 get<I>(result) = move(*v);
+			 }.template operator ()<Is>()),
+			 ...);
+		}(make_index_sequence<N>{});
+		if (!ok) {
+			return unexpected(move(first_err));
+		}
+		return result;
+	}
+	static expected<void, JsonError> encode(
+		ValueBuilder &b,
+		tuple<Ts...> const &v) {
+		auto arr_res = b.begin_array();
+		if (!arr_res) {
+			return unexpected(move(arr_res).error());
+		}
+		auto &arr = *arr_res;
+		bool ok = true;
+		JsonError first_err;
+		[&]<size_t... Is>(index_sequence<Is...>) {
+			(([&]<size_t I>() {
+				 if (!ok) {
+					 return;
+				 }
+				 auto res = arr.template append<tuple_element_t<I, tuple<Ts...>>>(get<I>(v));
+				 if (!res) {
+					 ok = false;
+					 first_err = move(res).error();
+				 }
+			 }.template operator ()<Is>()),
+			 ...);
+		}(make_index_sequence<sizeof...(Ts)>{});
+		if (!ok) {
+			return unexpected(move(first_err));
+		}
+		move(arr).commit();
+		return {};
+	}
+	static constexpr string_view type_name() { return "tuple"; }
+};
+
+template<class T>
+struct JsonCodec<map<string, T>> {
+	static expected<map<string, T>, JsonError> decode(
+		NodeRef n) {
+		auto obj = n.as_object();
+		if (!obj) {
+			return unexpected(move(obj).error());
+		}
+		map<string, T> result;
+		for (auto const &[name, val]: obj->members()) {
+			auto v = ::decode<T>(val);
+			if (!v) {
+				JsonPath prefix;
+				prefix.push_member(name);
+				return unexpected(move(v).error().with_prefix(prefix));
+			}
+			result.emplace(string{name}, move(*v));
+		}
+		return result;
+	}
+	static expected<void, JsonError> encode(
+		ValueBuilder &b,
+		map<string, T> const &v) {
+		auto obj_res = b.begin_object();
+		if (!obj_res) {
+			return unexpected(move(obj_res).error());
+		}
+		auto &obj = *obj_res;
+		for (auto const &[key, val]: v) {
+			if (auto ok = obj.template insert<T>(key, val); !ok) {
+				return unexpected(move(ok).error());
+			}
+		}
+		move(obj).commit();
+		return {};
+	}
+	static constexpr string_view type_name() { return "map"; }
+};
+
+template<class T>
+struct JsonCodec<unordered_map<string, T>> {
+	static expected<unordered_map<string, T>, JsonError> decode(
+		NodeRef n) {
+		auto obj = n.as_object();
+		if (!obj) {
+			return unexpected(move(obj).error());
+		}
+		unordered_map<string, T> result;
+		for (auto const &[name, val]: obj->members()) {
+			auto v = ::decode<T>(val);
+			if (!v) {
+				JsonPath prefix;
+				prefix.push_member(name);
+				return unexpected(move(v).error().with_prefix(prefix));
+			}
+			result.emplace(string{name}, move(*v));
+		}
+		return result;
+	}
+	static expected<void, JsonError> encode(
+		ValueBuilder &b,
+		unordered_map<string, T> const &v) {
+		auto obj_res = b.begin_object();
+		if (!obj_res) {
+			return unexpected(move(obj_res).error());
+		}
+		auto &obj = *obj_res;
+		for (auto const &[key, val]: v) {
+			if (auto ok = obj.template insert<T>(key, val); !ok) {
+				return unexpected(move(ok).error());
+			}
+		}
+		move(obj).commit();
+		return {};
+	}
+	static constexpr string_view type_name() { return "unordered_map"; }
 };
 
 // decode<T> dispatch
@@ -2932,18 +3306,27 @@ expected<T, JsonError> decode(
 					 if (!ok) {
 						 return;
 					 }
-					 auto val = obj->member(m.name);
+					 using M = remove_reference_t<decltype(result.*m.pointer)>;
+					 auto val = obj->find_member(m.name);
 					 if (!val) {
-						 ok = false;
-						 first_err = move(val).error();
+						 if constexpr (detail::is_optional<M>::value) {
+							 result.*m.pointer = M{};
+						 } else {
+							 ok = false;
+							 first_err = JsonError{
+								 .stage = JsonStage::decode,
+								 .code = JsonIssueCode::missing_member,
+								 .member_name = string{m.name},
+								 .message = format("missing member: {}", m.name)};
+						 }
 						 return;
 					 }
-					 using M = remove_reference_t<decltype(result.*m.pointer)>;
 					 auto decoded = decode<M>(*val);
 					 if (!decoded) {
 						 ok = false;
-						 first_err = move(decoded).error();
-						 first_err.path.push_member(m.name);
+						 JsonPath prefix;
+						 prefix.push_member(m.name);
+						 first_err = move(decoded).error().with_prefix(prefix);
 						 return;
 					 }
 					 result.*m.pointer = move(*decoded);
@@ -2971,4 +3354,54 @@ expected<T, JsonError> decode(
 	} else {
 		static_assert(false, "No JsonCodec<T> or JsonMembers<T> found for T");
 	}
+}
+
+// ---------------------------------------------------------------------------
+// Generic builder methods — defined after codec specializations
+// ---------------------------------------------------------------------------
+
+template<class T>
+	requires has_json_codec<T>
+expected<void, JsonError> ArrayBuilder::append(
+	T const &value) {
+	if (frame_.committed || (frame_.state == nullptr)) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::constraint_violation,
+				.message = "ArrayBuilder already committed"});
+	}
+	auto *st = frame_.state;
+	auto node_or = detail::encode_into<T>(st, value);
+	if (!node_or) {
+		return unexpected(move(node_or).error());
+	}
+	st->store.array_children.push_back(*node_or);
+	return {};
+}
+
+template<class T>
+	requires has_json_codec<T>
+expected<void, JsonError> ObjectBuilder::insert(
+	string_view name,
+	T const &value) {
+	if (auto ok = check_not_committed(); !ok) {
+		return ok;
+	}
+	auto *st = frame_.state;
+	auto node_or = detail::encode_into<T>(st, value);
+	if (!node_or) {
+		return unexpected(move(node_or).error());
+	}
+	return do_insert_node(name, *node_or);
+}
+
+template<class T>
+	requires has_json_codec<T>
+expected<void, JsonError> ValueBuilder::set(
+	T const &value) {
+	if (auto ok = check_can_set(); !ok) {
+		return ok;
+	}
+	return JsonCodec<T>::encode(*this, value);
 }

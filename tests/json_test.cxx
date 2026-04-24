@@ -806,13 +806,13 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: decode<optional<int64_t>> — null",
+	"json: decode<optional<int64_t>> — null yields error",
 	"[json][codec]") {
 	auto doc = parse("null");
 	REQUIRE(doc.has_value());
 	auto r = decode<optional<int64_t>>(doc->root());
-	REQUIRE(r.has_value());
-	CHECK_FALSE(r->has_value());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::wrong_kind);
 }
 
 // ---------------------------------------------------------------------------
@@ -1087,4 +1087,533 @@ TEST_CASE(
 	REQUIRE(da.has_value());
 	REQUIRE(db.has_value());
 	CHECK(is_value_equal_exact(da->root(), db->root()));
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: JsonMembers<T> — plain struct decode
+// ---------------------------------------------------------------------------
+
+struct Point {
+	int64_t x{};
+	int64_t y{};
+};
+
+template<>
+struct JsonMembers<Point> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("x", &Point::x),
+			json_member("y", &Point::y),
+		};
+	}
+	static constexpr string_view type_name() { return "Point"; }
+};
+
+TEST_CASE(
+	"json: JsonMembers decode plain struct",
+	"[json][codec][members]") {
+	auto doc = parse(R"({"x":3,"y":7})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Point>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(r->x == 3LL);
+	CHECK(r->y == 7LL);
+}
+
+TEST_CASE(
+	"json: JsonMembers decode missing required member yields missing_member",
+	"[json][codec][members]") {
+	auto doc = parse(R"({"x":3})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Point>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::missing_member);
+	CHECK(r.error().member_name == "y");
+}
+
+TEST_CASE(
+	"json: JsonMembers decode unknown member yields invalid_value",
+	"[json][codec][members]") {
+	auto doc = parse(R"({"x":1,"y":2,"z":3})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Point>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::invalid_value);
+	CHECK(r.error().member_name == "z");
+}
+
+TEST_CASE(
+	"json: JsonMembers decode wrong kind for field propagates path",
+	"[json][codec][members]") {
+	auto doc = parse(R"({"x":"bad","y":2})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Point>(doc->root());
+	CHECK_FALSE(r.has_value());
+	auto &err = r.error();
+	CHECK(err.code == JsonIssueCode::wrong_kind);
+	REQUIRE(err.path.size() == 1UZ);
+	CHECK(get<JsonPathMember>(err.path.segment(0)).name == "x");
+}
+
+TEST_CASE(
+	"json: has_json_codec true for JsonMembers type",
+	"[json][codec][members]") {
+	CHECK(has_json_codec<Point>);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: JsonCodec<T> — custom enum codec
+// ---------------------------------------------------------------------------
+
+enum class Color {
+	red,
+	green,
+	blue,
+};
+
+template<>
+struct JsonCodec<Color> {
+	static expected<Color, JsonError> decode(
+		NodeRef n) {
+		auto s = n.as_string();
+		if (!s) {
+			return unexpected(move(s).error());
+		}
+		if (*s == "red") {
+			return Color::red;
+		}
+		if (*s == "green") {
+			return Color::green;
+		}
+		if (*s == "blue") {
+			return Color::blue;
+		}
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::invalid_value,
+				.target_type = string{type_name()},
+				.message = format("unknown Color spelling: {}", *s)});
+	}
+	static expected<void, JsonError> encode(
+		ValueBuilder &b,
+		Color c) {
+		switch (c) {
+		case Color::red  : return b.set_string("red");
+		case Color::green: return b.set_string("green");
+		case Color::blue : return b.set_string("blue");
+		}
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::invalid_value,
+				.target_type = string{type_name()},
+				.message = "Color enum value outside declared range"});
+	}
+	static constexpr string_view type_name() { return "Color"; }
+};
+
+TEST_CASE(
+	"json: JsonCodec custom enum decode",
+	"[json][codec]") {
+	auto doc = parse(R"("green")");
+	REQUIRE(doc.has_value());
+	auto r = decode<Color>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(*r == Color::green);
+}
+
+TEST_CASE(
+	"json: JsonCodec custom enum decode invalid spelling",
+	"[json][codec]") {
+	auto doc = parse(R"("purple")");
+	REQUIRE(doc.has_value());
+	auto r = decode<Color>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::invalid_value);
+}
+
+TEST_CASE(
+	"json: has_json_codec true for JsonCodec type",
+	"[json][codec]") {
+	CHECK(has_json_codec<Color>);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: optional<T> member in JsonMembers struct
+// ---------------------------------------------------------------------------
+
+struct Config {
+	int64_t required_field{};
+	optional<int64_t> optional_field{};
+};
+
+template<>
+struct JsonMembers<Config> {
+	static constexpr auto members() {
+		return std::tuple{
+			json_member("required_field", &Config::required_field),
+			json_member("optional_field", &Config::optional_field),
+		};
+	}
+	static constexpr string_view type_name() { return "Config"; }
+};
+
+TEST_CASE(
+	"json: optional member present decodes value",
+	"[json][codec][optional]") {
+	auto doc = parse(R"({"required_field":1,"optional_field":42})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Config>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(r->required_field == 1LL);
+	REQUIRE(r->optional_field.has_value());
+	CHECK(*r->optional_field == 42LL);
+}
+
+TEST_CASE(
+	"json: optional member absent yields nullopt",
+	"[json][codec][optional]") {
+	auto doc = parse(R"({"required_field":1})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Config>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(r->required_field == 1LL);
+	CHECK_FALSE(r->optional_field.has_value());
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: built-in targets — std::array<T,N>
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: decode<array<int64_t,3>>",
+	"[json][codec][array]") {
+	auto doc = parse("[10,20,30]");
+	REQUIRE(doc.has_value());
+	auto r = decode<array<int64_t, 3>>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK((*r)[0] == 10LL);
+	CHECK((*r)[1] == 20LL);
+	CHECK((*r)[2] == 30LL);
+}
+
+TEST_CASE(
+	"json: decode<array<int64_t,3>> wrong length yields invalid_value",
+	"[json][codec][array]") {
+	auto doc = parse("[1,2]");
+	REQUIRE(doc.has_value());
+	auto r = decode<array<int64_t, 3>>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::invalid_value);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: built-in targets — std::pair<A,B>
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: decode<pair<string,int64_t>>",
+	"[json][codec][pair]") {
+	auto doc = parse(R"(["hello",42])");
+	REQUIRE(doc.has_value());
+	auto r = decode<pair<string, int64_t>>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(r->first == "hello");
+	CHECK(r->second == 42LL);
+}
+
+TEST_CASE(
+	"json: decode<pair<string,int64_t>> wrong length yields invalid_value",
+	"[json][codec][pair]") {
+	auto doc = parse("[1]");
+	REQUIRE(doc.has_value());
+	auto r = decode<pair<string, int64_t>>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::invalid_value);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: built-in targets — std::tuple<Ts...>
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: decode<tuple<bool,int64_t,string>>",
+	"[json][codec][tuple]") {
+	auto doc = parse(R"([true,99,"hi"])");
+	REQUIRE(doc.has_value());
+	auto r = decode<tuple<bool, int64_t, string>>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(get<0>(*r) == true);
+	CHECK(get<1>(*r) == 99LL);
+	CHECK(get<2>(*r) == "hi");
+}
+
+TEST_CASE(
+	"json: decode<tuple<int64_t,int64_t>> wrong length yields invalid_value",
+	"[json][codec][tuple]") {
+	auto doc = parse("[1,2,3]");
+	REQUIRE(doc.has_value());
+	auto r = decode<tuple<int64_t, int64_t>>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::invalid_value);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: built-in targets — std::map<string, T>
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: decode<map<string,int64_t>>",
+	"[json][codec][map]") {
+	auto doc = parse(R"({"a":1,"b":2,"c":3})");
+	REQUIRE(doc.has_value());
+	auto r = decode<map<string, int64_t>>(doc->root());
+	REQUIRE(r.has_value());
+	REQUIRE(r->size() == 3UZ);
+	CHECK((*r)["a"] == 1LL);
+	CHECK((*r)["b"] == 2LL);
+	CHECK((*r)["c"] == 3LL);
+}
+
+TEST_CASE(
+	"json: decode<map<string,int64_t>> wrong kind yields wrong_kind",
+	"[json][codec][map]") {
+	auto doc = parse("[1,2,3]");
+	REQUIRE(doc.has_value());
+	auto r = decode<map<string, int64_t>>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::wrong_kind);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: built-in targets — std::unordered_map<string, T>
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: decode<unordered_map<string,int64_t>>",
+	"[json][codec][map]") {
+	auto doc = parse(R"({"x":10,"y":20})");
+	REQUIRE(doc.has_value());
+	auto r = decode<unordered_map<string, int64_t>>(doc->root());
+	REQUIRE(r.has_value());
+	REQUIRE(r->size() == 2UZ);
+	CHECK((*r)["x"] == 10LL);
+	CHECK((*r)["y"] == 20LL);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: Nullable<T> full surface
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: Nullable<T> default-constructs to null",
+	"[json][nullable]") {
+	Nullable<int64_t> n;
+	CHECK(n.is_null());
+	CHECK_FALSE(n.has_value());
+	CHECK_FALSE(static_cast<bool>(n));
+}
+
+TEST_CASE(
+	"json: Nullable<T> value state",
+	"[json][nullable]") {
+	Nullable<int64_t> n{42LL};
+	CHECK_FALSE(n.is_null());
+	CHECK(n.has_value());
+	CHECK(static_cast<bool>(n));
+	CHECK(*n == 42LL);
+	CHECK(n.value() == 42LL);
+}
+
+TEST_CASE(
+	"json: Nullable<T> value_or",
+	"[json][nullable]") {
+	Nullable<int64_t> n_null;
+	Nullable<int64_t> n_val{7LL};
+	CHECK(n_null.value_or(99LL) == 99LL);
+	CHECK(n_val.value_or(99LL) == 7LL);
+}
+
+TEST_CASE(
+	"json: Nullable<T> equality",
+	"[json][nullable]") {
+	Nullable<int64_t> a{1LL};
+	Nullable<int64_t> b{1LL};
+	Nullable<int64_t> c{2LL};
+	Nullable<int64_t> n;
+	CHECK(a == b);
+	CHECK_FALSE(a == c);
+	CHECK_FALSE(a == n);
+}
+
+TEST_CASE(
+	"json: Nullable<T> operator->",
+	"[json][nullable]") {
+	Nullable<string> n{"hello"};
+	CHECK(n->size() == 5UZ);
+}
+
+TEST_CASE(
+	"json: decode<Nullable<string>> — non-null",
+	"[json][nullable][codec]") {
+	auto doc = parse(R"("world")");
+	REQUIRE(doc.has_value());
+	auto r = decode<Nullable<string>>(doc->root());
+	REQUIRE(r.has_value());
+	REQUIRE(r->has_value());
+	CHECK(**r == "world");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: JsonError::with_prefix
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: JsonError::with_prefix prepends path segments",
+	"[json][error]") {
+	JsonError err{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "test error"};
+	err.path.push_index(1);
+
+	JsonPath prefix;
+	prefix.push_member("items");
+
+	auto prefixed = err.with_prefix(prefix);
+	REQUIRE(prefixed.path.size() == 2UZ);
+	CHECK(get<JsonPathMember>(prefixed.path.segment(0)).name == "items");
+	CHECK(get<JsonPathIndex>(prefixed.path.segment(1)).index == 1UZ);
+}
+
+TEST_CASE(
+	"json: JsonError::with_prefix on empty path",
+	"[json][error]") {
+	JsonError err{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "test error"};
+
+	JsonPath prefix;
+	prefix.push_member("field");
+
+	auto prefixed = err.with_prefix(prefix);
+	REQUIRE(prefixed.path.size() == 1UZ);
+	CHECK(get<JsonPathMember>(prefixed.path.segment(0)).name == "field");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2: encode for new built-in targets via ValueBuilder::set<T>
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: ValueBuilder::set<T> encodes via codec",
+	"[json][builder][codec]") {
+	auto b = value_builder();
+	auto ok = b.set<int64_t>(42LL);
+	REQUIRE(ok.has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto r = decode<int64_t>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(*r == 42LL);
+}
+
+TEST_CASE(
+	"json: encode vector<int64_t> via set<T>",
+	"[json][builder][codec]") {
+	auto b = value_builder();
+	vector<int64_t> const v{1LL, 2LL, 3LL};
+	auto ok = b.set<vector<int64_t>>(v);
+	REQUIRE(ok.has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto r = decode<vector<int64_t>>(doc->root());
+	REQUIRE(r.has_value());
+	REQUIRE(r->size() == 3UZ);
+	CHECK((*r)[0] == 1LL);
+	CHECK((*r)[1] == 2LL);
+	CHECK((*r)[2] == 3LL);
+}
+
+TEST_CASE(
+	"json: encode pair<string,int64_t> via set<T>",
+	"[json][builder][codec]") {
+	auto b = value_builder();
+	auto ok = b.set<pair<string, int64_t>>({"hello", 7LL});
+	REQUIRE(ok.has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto r = decode<pair<string, int64_t>>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(r->first == "hello");
+	CHECK(r->second == 7LL);
+}
+
+TEST_CASE(
+	"json: encode tuple<bool,int64_t> via set<T>",
+	"[json][builder][codec]") {
+	auto b = value_builder();
+	auto ok = b.set<tuple<bool, int64_t>>(tuple{true, 99LL});
+	REQUIRE(ok.has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto r = decode<tuple<bool, int64_t>>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(get<0>(*r) == true);
+	CHECK(get<1>(*r) == 99LL);
+}
+
+TEST_CASE(
+	"json: encode map<string,int64_t> via set<T>",
+	"[json][builder][codec]") {
+	auto b = value_builder();
+	map<string, int64_t> const m{
+		{"a", 1LL},
+		{"b", 2LL}
+    };
+	auto ok = b.set<map<string, int64_t>>(m);
+	REQUIRE(ok.has_value());
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto r = decode<map<string, int64_t>>(doc->root());
+	REQUIRE(r.has_value());
+	REQUIRE(r->size() == 2UZ);
+	CHECK((*r)["a"] == 1LL);
+	CHECK((*r)["b"] == 2LL);
+}
+
+TEST_CASE(
+	"json: encode Color via ObjectBuilder::insert<T>",
+	"[json][builder][codec]") {
+	auto b = value_builder();
+	auto obj_res = b.begin_object();
+	REQUIRE(obj_res.has_value());
+	auto &obj = *obj_res;
+	auto ok = obj.insert<Color>("color", Color::blue);
+	REQUIRE(ok.has_value());
+	move(obj).commit();
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto r = doc->root().as_object();
+	REQUIRE(r.has_value());
+	auto m = r->member("color");
+	REQUIRE(m.has_value());
+	auto s = m->as_string();
+	REQUIRE(s.has_value());
+	CHECK(*s == "blue");
+}
+
+TEST_CASE(
+	"json: encode vector via ArrayBuilder::append<T>",
+	"[json][builder][codec]") {
+	auto b = value_builder();
+	auto arr_res = b.begin_array();
+	REQUIRE(arr_res.has_value());
+	auto &arr = *arr_res;
+	REQUIRE(arr.append<int64_t>(10LL).has_value());
+	REQUIRE(arr.append<int64_t>(20LL).has_value());
+	move(arr).commit();
+	auto doc = move(b).finish();
+	REQUIRE(doc.has_value());
+	auto r = decode<vector<int64_t>>(doc->root());
+	REQUIRE(r.has_value());
+	REQUIRE(r->size() == 2UZ);
+	CHECK((*r)[0] == 10LL);
+	CHECK((*r)[1] == 20LL);
 }
