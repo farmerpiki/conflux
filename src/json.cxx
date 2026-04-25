@@ -406,6 +406,17 @@ static_assert(is_nothrow_move_constructible_v<ObjHashTable>);
 constexpr u32 kHashThreshold = 8;
 constexpr u32 kProbeChainMax = 64;
 constexpr u32 kMaxHashTableCapacity = 1u << 30;
+// FI-7 — practical byte budget on the per-object hash index to bound
+// DoS payloads. 256 MiB / 8 B per slot = 32 Mi slots; well above any
+// realistic object size.
+constexpr size_t kMaxHashIndexBytes = 256ULL * 1024 * 1024;
+// FI-1 — sentinel value stashed into hash_idx_raw when a previous build
+// attempt failed (probe-cap reached or budget exceeded). Subsequent
+// find_member calls observe the sentinel and short-circuit straight to
+// the linear scan, avoiding repeated build attempts. The Document
+// destructor and published-table reads must treat this sentinel as
+// "no table" (i.e. neither dereference nor delete it).
+inline ObjHashTable *const kHashBuildFailedSentinel = reinterpret_cast<ObjHashTable *>(static_cast<uintptr_t>(1));
 
 // ---------------------------------------------------------------------------
 // Phase 0 (v11) — Node, 24 B, u32 offsets, union payload.
@@ -559,7 +570,7 @@ struct DocumentStorage {
 	DocumentStorage &operator =(DocumentStorage &&) noexcept = default;
 	~DocumentStorage() noexcept {
 		for (auto &n: nodes) {
-			if (n.kind == NodeKind::object) {
+			if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
 				delete n.hash_idx_raw;
 			}
 		}
@@ -955,12 +966,19 @@ namespace detail {
 	return static_cast<u32>(hash<string_view>{}(name));
 }
 
-// Smallest power-of-two >= 2*count, capped at kMaxHashTableCapacity.
+// Smallest power-of-two >= 2*count, capped at kMaxHashTableCapacity AND
+// at kMaxHashIndexBytes / sizeof(ObjHashSlot) (FI-7 — byte-budget cap).
+// Returns 0 on overflow so the caller can fall back to linear scan.
 [[nodiscard]] inline u32 clamped_capacity(
 	u32 count) noexcept {
+	constexpr u32 kSlotMax = static_cast<u32>(kMaxHashIndexBytes / sizeof(ObjHashSlot));
+	constexpr u32 kEffectiveMax = kMaxHashTableCapacity < kSlotMax ? kMaxHashTableCapacity : kSlotMax;
 	u32 cap = 1;
-	while (cap < 2 * count && cap < kMaxHashTableCapacity) {
+	while (cap < 2 * count && cap < kEffectiveMax) {
 		cap <<= 1;
+	}
+	if (cap < count) {
+		return 0; // Object too large to index — fall back to linear scan.
 	}
 	return cap;
 }
@@ -1085,22 +1103,45 @@ public:
 		auto &raw = const_cast<ObjHashTable *&>(storage_->nodes[node_idx_].hash_idx_raw);
 		auto ref = atomic_ref<ObjHashTable *>{raw};
 		auto *ht = ref.load(memory_order_acquire);
+		// FI-1: prior build failed and was cached. Skip the rebuild; go linear.
+		if (ht == kHashBuildFailedSentinel) {
+			return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
+		}
 		if (ht == nullptr) {
 			u32 const cap = detail::clamped_capacity(static_cast<u32>(mem_count_));
-			auto slots_up = unique_ptr<ObjHashSlot[]>{new (nothrow) ObjHashSlot[cap]};
-			auto *owned =
-				slots_up ? new (nothrow) ObjHashTable{cap, static_cast<u32>(mem_count_), move(slots_up)} : nullptr;
-			if (owned != nullptr) {
-				fill_n(owned->slots.get(), cap, ObjHashSlot{});
-				if (detail::build_table(*owned, storage_, mem_start_, mem_count_)) {
-					ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
-					if (ref.compare_exchange_strong(expected_null, owned, memory_order_release, memory_order_acquire)) {
-						ht = owned;
-						owned = nullptr; // CAS won — table published
-					} else {
-						ht = expected_null; // lost race
+			bool build_ok = false;
+			ObjHashTable *owned = nullptr;
+			if (cap > 0) {
+				auto slots_up = unique_ptr<ObjHashSlot[]>{new (nothrow) ObjHashSlot[cap]};
+				owned =
+					slots_up ? new (nothrow) ObjHashTable{cap, static_cast<u32>(mem_count_), move(slots_up)} : nullptr;
+				if (owned != nullptr) {
+					fill_n(owned->slots.get(), cap, ObjHashSlot{});
+					if (detail::build_table(*owned, storage_, mem_start_, mem_count_)) {
+						ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
+						if (ref.compare_exchange_strong(
+								expected_null,
+								owned,
+								memory_order_release,
+								memory_order_acquire)) {
+							ht = owned;
+							owned = nullptr; // CAS won — table published
+							build_ok = true;
+						} else {
+							ht = (expected_null == kHashBuildFailedSentinel) ? nullptr : expected_null;
+							build_ok = (ht != nullptr);
+						}
 					}
 				}
+			}
+			if (!build_ok) {
+				// FI-1: cache the failure so subsequent lookups don't retry.
+				ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
+				(void)ref.compare_exchange_strong(
+					expected_null,
+					kHashBuildFailedSentinel,
+					memory_order_release,
+					memory_order_acquire);
 			}
 			delete owned;
 		}
@@ -1561,17 +1602,43 @@ public:
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
 		auto &slot = storage_->nodes[ov.node_idx_].hash_idx_raw;
 		auto ref = atomic_ref<ObjHashTable *>{slot};
-		if (ref.load(memory_order_acquire) != nullptr) {
+		auto *prior = ref.load(memory_order_acquire);
+		if (prior != nullptr && prior != kHashBuildFailedSentinel) {
 			return {}; // already built
 		}
+		if (prior == kHashBuildFailedSentinel) {
+			// Cached prior failure — surface the same error.
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::resource_exhausted,
+					.message = "object hash index unavailable (cached failure)"});
+		}
 		ObjHashTable *owned = nullptr;
+		auto stash_failure_sentinel = [&] {
+			ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
+			(void)ref.compare_exchange_strong(
+				expected_null,
+				kHashBuildFailedSentinel,
+				memory_order_release,
+				memory_order_acquire);
+		};
 		try {
 			u32 const cap = detail::clamped_capacity(static_cast<u32>(ov.mem_count_));
+			if (cap == 0) {
+				stash_failure_sentinel();
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::lookup,
+						.code = JsonIssueCode::resource_exhausted,
+						.message = "object exceeds hash-index byte budget"});
+			}
 			auto slots_up = unique_ptr<ObjHashSlot[]>{new ObjHashSlot[cap]};
 			owned = new ObjHashTable{cap, static_cast<u32>(ov.mem_count_), move(slots_up)};
 			fill_n(owned->slots.get(), cap, ObjHashSlot{});
 			if (!detail::build_table(*owned, storage_.get(), ov.mem_start_, ov.mem_count_)) {
 				delete owned;
+				stash_failure_sentinel();
 				return unexpected(
 					JsonError{
 						.stage = JsonStage::lookup,
