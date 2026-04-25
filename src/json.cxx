@@ -1833,13 +1833,17 @@ bool is_cont(
 	return (c & 0xC0U) == 0x80U;
 }
 
-struct Parser {
+// Phase 3 — Tokenizer owns input bytes / source coordinates and emits string
+// + number lexemes; TreeBuilder consumes those + structural punctuation and
+// builds Nodes. Splitting them keeps the byte-level scan layer reusable
+// (SIMD prerequisite) without changing semantics.
+struct Tokenizer {
 	string_view src;
 	size_t pos{};
 	size_t line{1};
 	size_t col{1};
 	DocumentStorage &store;
-	JsonParseOptions const &opts;
+	u32 bom_prefix_bytes;
 
 	[[nodiscard]] JsonError mk_err(
 		JsonIssueCode code,
@@ -1850,7 +1854,7 @@ struct Parser {
 		return {
 			.stage = JsonStage::parse,
 			.code = code,
-			.source = JsonSourceLocation{.offset = pos + store.bom_prefix_bytes, .line = line, .column = col},
+			.source = JsonSourceLocation{.offset = pos + bom_prefix_bytes, .line = line, .column = col},
 			.message = move(msg)
         };
 	}
@@ -2072,175 +2076,11 @@ struct Parser {
 		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
 	}
 
-	// NOLINTNEXTLINE(misc-no-recursion)
-	[[nodiscard]] expected<size_t, JsonError> parse_value(
-		size_t depth) {
-		skip_ws();
-		if (pos >= src.size()) {
-			return unexpected(mk_err(JsonIssueCode::unexpected_eof, "unexpected end of input"));
-		}
-		if (opts.max_depth.exceeds(depth, kDefaultMaxDepth)) {
-			return unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
-		}
-
-		char const c = src[pos];
-		if (c == '"') {
-			adv();
-			return parse_str_node();
-		}
-		if (c == '[') {
-			return parse_array(depth);
-		}
-		if (c == '{') {
-			return parse_object(depth);
-		}
-		if (c == 't') {
-			if (src.substr(pos, 4) != "true") {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
-			}
-			adv(4);
-			store.nodes.push_back(detail::make_bool(true));
-			return store.nodes.size() - 1;
-		}
-		if (c == 'f') {
-			if (src.substr(pos, 5) != "false") {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
-			}
-			adv(5);
-			store.nodes.push_back(detail::make_bool(false));
-			return store.nodes.size() - 1;
-		}
-		if (c == 'n') {
-			if (src.substr(pos, 4) != "null") {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
-			}
-			adv(4);
-			store.nodes.push_back(detail::make_null());
-			return store.nodes.size() - 1;
-		}
-		if (c == '-' || (c >= '0' && c <= '9')) {
-			return parse_number();
-		}
-		return unexpected(mk_err(JsonIssueCode::syntax_error, format("unexpected character '{}'", c)));
-	}
-
-	[[nodiscard]] expected<size_t, JsonError> parse_str_node() {
-		auto parsed = parse_str_body();
-		if (!parsed) {
-			return unexpected(move(parsed).error());
-		}
-		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
-			return unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
-		}
-		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
-		return store.nodes.size() - 1;
-	}
-
-	// NOLINTNEXTLINE(misc-no-recursion)
-	[[nodiscard]] expected<size_t, JsonError> parse_array(
-		size_t depth) {
-		adv(); // '['
-		skip_ws();
-		if (pos < src.size() && src[pos] == ']') {
-			adv();
-			size_t const cs = store.array_children.size();
-			store.nodes.push_back(detail::make_array(static_cast<u32>(cs), static_cast<u32>(0)));
-			return store.nodes.size() - 1;
-		}
-		// Collect child node indices locally to keep arena contiguous.
-		vector<size_t> local_children;
-		while (true) {
-			auto child = parse_value(depth + 1);
-			if (!child) {
-				return unexpected(move(child).error());
-			}
-			local_children.push_back(*child);
-			skip_ws();
-			if (pos >= src.size()) {
-				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in array"));
-			}
-			if (src[pos] == ']') {
-				adv();
-				size_t const cs = store.array_children.size();
-				for (size_t const idx: local_children) {
-					store.array_children.push_back(static_cast<u32>(idx));
-				}
-				store.nodes.push_back(
-					detail::make_array(static_cast<u32>(cs), static_cast<u32>(local_children.size())));
-				return store.nodes.size() - 1;
-			}
-			if (src[pos] != ',') {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'"));
-			}
-			adv();
-		}
-	}
-
-	// NOLINTNEXTLINE(misc-no-recursion)
-	[[nodiscard]] expected<size_t, JsonError> parse_object(
-		size_t depth) {
-		adv(); // '{'
-		unordered_map<string_view, size_t> seen;
-		skip_ws();
-		if (pos < src.size() && src[pos] == '}') {
-			adv();
-			size_t const ms = store.object_members.size();
-			store.nodes.push_back(detail::make_object(static_cast<u32>(ms), static_cast<u32>(0)));
-			return store.nodes.size() - 1;
-		}
-		// Collect members locally to keep arena contiguous.
-		vector<MemberEntry> local_members;
-		while (true) {
-			skip_ws();
-			if (pos >= src.size() || src[pos] != '"') {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key"));
-			}
-			adv();
-			auto parsed_name = parse_str_body();
-			if (!parsed_name) {
-				return unexpected(move(parsed_name).error());
-			}
-			string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
-			if (seen.contains(name_sv)) {
-				return unexpected(mk_err(JsonIssueCode::duplicate_member, format("duplicate member: {}", name_sv)));
-			}
-			seen.emplace(name_sv, local_members.size());
-
-			skip_ws();
-			if (pos >= src.size() || src[pos] != ':') {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ':'"));
-			}
-			adv();
-
-			auto val = parse_value(depth + 1);
-			if (!val) {
-				return unexpected(move(val).error());
-			}
-			local_members.push_back({parsed_name->off, parsed_name->len, static_cast<u32>(*val), parsed_name->flags});
-
-			skip_ws();
-			if (pos >= src.size()) {
-				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
-			}
-			if (src[pos] == '}') {
-				adv();
-				size_t const ms = store.object_members.size();
-				for (auto const &m: local_members) {
-					store.object_members.push_back(m);
-				}
-				store.nodes.push_back(
-					detail::make_object(static_cast<u32>(ms), static_cast<u32>(local_members.size())));
-				return store.nodes.size() - 1;
-			}
-			if (src[pos] != ',') {
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or '}'"));
-			}
-			adv();
-		}
-	}
-
+	// Scans a number lexeme per RFC 8259 grammar and returns the slice of `src`
+	// covering it. Caller (TreeBuilder) classifies the value and stores the
+	// node; the lexeme references input_view directly (Phase 1: zero-copy).
 	// NOLINTNEXTLINE(readability-function-cognitive-complexity)
-	[[nodiscard]] expected<size_t, JsonError> parse_number() {
+	[[nodiscard]] expected<string_view, JsonError> parse_number_lexeme() {
 		size_t const start = pos;
 		bool const neg = src[pos] == '-';
 		if (neg) {
@@ -2278,7 +2118,195 @@ struct Parser {
 				adv();
 			}
 		}
-		string_view const lex = src.substr(start, pos - start);
+		return src.substr(start, pos - start);
+	}
+};
+
+struct TreeBuilder {
+	Tokenizer tok;
+	DocumentStorage &store;
+	JsonParseOptions const &opts;
+
+	[[nodiscard]] JsonError mk_err(
+		JsonIssueCode code,
+		string msg) const {
+		return tok.mk_err(code, move(msg));
+	}
+
+	// NOLINTNEXTLINE(misc-no-recursion)
+	[[nodiscard]] expected<size_t, JsonError> parse_value(
+		size_t depth) {
+		tok.skip_ws();
+		if (tok.pos >= tok.src.size()) {
+			return unexpected(mk_err(JsonIssueCode::unexpected_eof, "unexpected end of input"));
+		}
+		if (opts.max_depth.exceeds(depth, kDefaultMaxDepth)) {
+			return unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
+		}
+
+		char const c = tok.src[tok.pos];
+		if (c == '"') {
+			tok.adv();
+			return parse_str_node();
+		}
+		if (c == '[') {
+			return parse_array(depth);
+		}
+		if (c == '{') {
+			return parse_object(depth);
+		}
+		if (c == 't') {
+			if (tok.src.substr(tok.pos, 4) != "true") {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			tok.adv(4);
+			store.nodes.push_back(detail::make_bool(true));
+			return store.nodes.size() - 1;
+		}
+		if (c == 'f') {
+			if (tok.src.substr(tok.pos, 5) != "false") {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			tok.adv(5);
+			store.nodes.push_back(detail::make_bool(false));
+			return store.nodes.size() - 1;
+		}
+		if (c == 'n') {
+			if (tok.src.substr(tok.pos, 4) != "null") {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			tok.adv(4);
+			store.nodes.push_back(detail::make_null());
+			return store.nodes.size() - 1;
+		}
+		if (c == '-' || (c >= '0' && c <= '9')) {
+			return parse_number();
+		}
+		return unexpected(mk_err(JsonIssueCode::syntax_error, format("unexpected character '{}'", c)));
+	}
+
+	[[nodiscard]] expected<size_t, JsonError> parse_str_node() {
+		auto parsed = tok.parse_str_body();
+		if (!parsed) {
+			return unexpected(move(parsed).error());
+		}
+		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
+			return unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
+		}
+		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
+		return store.nodes.size() - 1;
+	}
+
+	// NOLINTNEXTLINE(misc-no-recursion)
+	[[nodiscard]] expected<size_t, JsonError> parse_array(
+		size_t depth) {
+		tok.adv(); // '['
+		tok.skip_ws();
+		if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
+			tok.adv();
+			size_t const cs = store.array_children.size();
+			store.nodes.push_back(detail::make_array(static_cast<u32>(cs), static_cast<u32>(0)));
+			return store.nodes.size() - 1;
+		}
+		// Collect child node indices locally to keep arena contiguous.
+		vector<size_t> local_children;
+		while (true) {
+			auto child = parse_value(depth + 1);
+			if (!child) {
+				return unexpected(move(child).error());
+			}
+			local_children.push_back(*child);
+			tok.skip_ws();
+			if (tok.pos >= tok.src.size()) {
+				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in array"));
+			}
+			if (tok.src[tok.pos] == ']') {
+				tok.adv();
+				size_t const cs = store.array_children.size();
+				for (size_t const idx: local_children) {
+					store.array_children.push_back(static_cast<u32>(idx));
+				}
+				store.nodes.push_back(
+					detail::make_array(static_cast<u32>(cs), static_cast<u32>(local_children.size())));
+				return store.nodes.size() - 1;
+			}
+			if (tok.src[tok.pos] != ',') {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'"));
+			}
+			tok.adv();
+		}
+	}
+
+	// NOLINTNEXTLINE(misc-no-recursion)
+	[[nodiscard]] expected<size_t, JsonError> parse_object(
+		size_t depth) {
+		tok.adv(); // '{'
+		unordered_map<string_view, size_t> seen;
+		tok.skip_ws();
+		if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
+			tok.adv();
+			size_t const ms = store.object_members.size();
+			store.nodes.push_back(detail::make_object(static_cast<u32>(ms), static_cast<u32>(0)));
+			return store.nodes.size() - 1;
+		}
+		// Collect members locally to keep arena contiguous.
+		vector<MemberEntry> local_members;
+		while (true) {
+			tok.skip_ws();
+			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != '"') {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key"));
+			}
+			tok.adv();
+			auto parsed_name = tok.parse_str_body();
+			if (!parsed_name) {
+				return unexpected(move(parsed_name).error());
+			}
+			string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
+			if (seen.contains(name_sv)) {
+				return unexpected(mk_err(JsonIssueCode::duplicate_member, format("duplicate member: {}", name_sv)));
+			}
+			seen.emplace(name_sv, local_members.size());
+
+			tok.skip_ws();
+			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != ':') {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ':'"));
+			}
+			tok.adv();
+
+			auto val = parse_value(depth + 1);
+			if (!val) {
+				return unexpected(move(val).error());
+			}
+			local_members.push_back({parsed_name->off, parsed_name->len, static_cast<u32>(*val), parsed_name->flags});
+
+			tok.skip_ws();
+			if (tok.pos >= tok.src.size()) {
+				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
+			}
+			if (tok.src[tok.pos] == '}') {
+				tok.adv();
+				size_t const ms = store.object_members.size();
+				for (auto const &m: local_members) {
+					store.object_members.push_back(m);
+				}
+				store.nodes.push_back(
+					detail::make_object(static_cast<u32>(ms), static_cast<u32>(local_members.size())));
+				return store.nodes.size() - 1;
+			}
+			if (tok.src[tok.pos] != ',') {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or '}'"));
+			}
+			tok.adv();
+		}
+	}
+
+	[[nodiscard]] expected<size_t, JsonError> parse_number() {
+		size_t const start = tok.pos;
+		auto lex_result = tok.parse_number_lexeme();
+		if (!lex_result) {
+			return unexpected(move(lex_result).error());
+		}
+		string_view const lex = *lex_result;
 		// Phase 1: number lexemes reference input_view directly — zero-copy.
 		auto node = detail::build_number_node_from_lexeme(
 			static_cast<u32>(start),
@@ -2327,27 +2355,38 @@ struct Parser {
 	JsonParseOptions const &opts) {
 	storage->nodes.reserve(64);
 
-	Parser p{.src = storage_ref.input_view, .store = storage_ref, .opts = opts};
-	p.skip_ws();
-	if (p.pos >= storage_ref.input_view.size()) {
+	TreeBuilder tb{
+		.tok =
+			Tokenizer{
+					  .src = storage_ref.input_view,
+					  .store = storage_ref,
+					  .bom_prefix_bytes = storage_ref.bom_prefix_bytes},
+		.store = storage_ref,
+		.opts = opts
+    };
+	tb.tok.skip_ws();
+	if (tb.tok.pos >= storage_ref.input_view.size()) {
 		return unexpected(
 			JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::unexpected_eof, .message = "empty input"});
 	}
 
-	auto root = p.parse_value(0);
+	auto root = tb.parse_value(0);
 	if (!root) {
 		return unexpected(move(root).error());
 	}
 	storage->root_node = static_cast<u32>(*root);
 
-	p.skip_ws();
-	if (p.pos < storage_ref.input_view.size()) {
+	tb.tok.skip_ws();
+	if (tb.tok.pos < storage_ref.input_view.size()) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::trailing_garbage,
 				.source =
-					JsonSourceLocation{.offset = p.pos + storage_ref.bom_prefix_bytes, .line = p.line, .column = p.col},
+					JsonSourceLocation{
+									   .offset = tb.tok.pos + storage_ref.bom_prefix_bytes,
+									   .line = tb.tok.line,
+									   .column = tb.tok.col},
 				.message = "trailing content after value"
         });
 	}
