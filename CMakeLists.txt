@@ -30,6 +30,8 @@ option(CONFLUX_ENABLE_METRICS "Build Prometheus-compatible metrics support"  ON)
 option(CONFLUX_ENABLE_HTTP2   "Build HTTP/2 support (requires nghttp2+TLS)"  ON)
 option(CONFLUX_ENABLE_HTTP3   "Build HTTP/3 support (requires ngtcp2+nghttp3+OpenSSL 3.5+TLS)" ON)
 option(CONFLUX_ENABLE_DB      "Build PostgreSQL client support (requires libpq)" ON)
+option(CONFLUX_WORK_CARRIER_MODEL_A "Enable experimental work carrier Model A prototype surface" ON)
+option(CONFLUX_WORK_CARRIER_MODEL_B "Enable experimental work carrier Model B prototype surface" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerOptions)
@@ -232,8 +234,15 @@ target_sources(conflux_work
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES
+        src/work/carrier_flags.cxx
+        src/work/carrier_model_a.cxx
+        src/work/carrier_model_b.cxx
         src/work/root.cxx
         src/work.cxx
+)
+target_compile_definitions(conflux_work
+    PUBLIC CONFLUX_WORK_CARRIER_MODEL_A=$<BOOL:${CONFLUX_WORK_CARRIER_MODEL_A}>
+    PUBLIC CONFLUX_WORK_CARRIER_MODEL_B=$<BOOL:${CONFLUX_WORK_CARRIER_MODEL_B}>
 )
 target_link_libraries(conflux_work
     PRIVATE conflux_options

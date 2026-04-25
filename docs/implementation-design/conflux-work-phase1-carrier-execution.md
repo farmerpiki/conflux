@@ -45,6 +45,8 @@ Hypothesis:
 - no implicit context hop
 - no hidden join-helper thread
 - capability mismatch must remain explicit failure path
+- cross-category bridges are ownership/affinity transfer only: they must not
+  add hidden progress paths or extra root control blocks
 
 ## Prototype Scope
 
@@ -55,6 +57,11 @@ Implement minimal but equivalent prototype slices for A and B:
 - cross-category bridge (`Task -> Posted`, `Posted -> Operation`)
 - one aggregate (`when_all` wait-all only)
 
+`when_all` in this phase must preserve the V10 locked default semantic:
+
+- wait-all behavior only
+- no implicit sibling fail-fast cancellation
+
 ## Benchmark Matrix
 
 All runs on `release-clang-libcxx` and `debug-clang-libcxx`:
@@ -64,6 +71,8 @@ All runs on `release-clang-libcxx` and `debug-clang-libcxx`:
 - cancellation request overhead in active chain
 - allocation count per admitted chain
 - binary/code size delta of carrier implementation
+- compile-time instantiation/build cost for a representative mixed 10-stage
+  chain benchmark TU
 
 ## Correctness Matrix
 
@@ -85,7 +94,8 @@ Select model only if all are true:
 
 1. Meets all correctness checks
 2. No root contract regression
-3. Owner-hot benchmark within agreed budget
+3. Owner-hot benchmark within agreed budget (initial gate target: <= +8%
+   latency delta and no additional dynamic allocations versus root baseline)
 4. Mixed-chain latency and cancellation overhead are acceptable
 
 If neither qualifies, iterate once with narrowed design adjustments, then
@@ -99,3 +109,13 @@ re-run gate.
 4. Extend benchmark binary with phase1 carrier cases.
 5. Add focused tests for continuation placement and cancellation behavior.
 6. Publish phase1 decision note.
+
+## Decision Note Template (Work Item 6)
+
+- Candidate compared: Model A vs Model B
+- Raw benchmark table: owner-hot, mixed-chain, cancellation, alloc count, code
+  size, compile-time cost
+- Correctness summary: pass/fail matrix and notable edge cases
+- API ergonomics notes: readability, discoverability, migration friction
+- Migration cost estimate: code churn and compatibility impact
+- Final decision and rationale: include why non-selected model was rejected

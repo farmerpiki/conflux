@@ -2,9 +2,21 @@
 
 import std;
 import conflux.work;
+#if CONFLUX_WORK_CARRIER_MODEL_A
+import conflux.work.carrier.model_a;
+#endif
+#if CONFLUX_WORK_CARRIER_MODEL_B
+import conflux.work.carrier.model_b;
+#endif
 
 using namespace std;
 namespace root = conflux::work::root;
+#if CONFLUX_WORK_CARRIER_MODEL_A
+namespace model_a = conflux::work::carrier::model_a;
+#endif
+#if CONFLUX_WORK_CARRIER_MODEL_B
+namespace model_b = conflux::work::carrier::model_b;
+#endif
 
 namespace {
 
@@ -632,6 +644,194 @@ Case make_callable_erasure_capture_case(
 				}};
 }
 
+#if CONFLUX_WORK_CARRIER_MODEL_A
+
+struct OwnerCapA : root::capability_id_from_address<OwnerCapA> {};
+struct DriverCapA : root::capability_id_from_address<DriverCapA> {};
+
+Case make_carrier_a_task_map1_case() {
+	return Case{
+		.name = "carrier_a/task_map1",
+		.description = "Model A: from_task + 1 map + extract",
+		.default_iterations = 500'000,
+		.run = [] {
+			auto [task, src] = root::make_task_source<int>();
+			(void)src.commit_success(root::Success<int>{42});
+			auto chain = model_a::from_task(move(task));
+			auto mapped = model_a::map(move(chain), [](int x) { return x + 1; });
+			auto out = move(mapped).release_outcome();
+			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+		}};
+}
+
+Case make_carrier_a_task_map3_case() {
+	return Case{
+		.name = "carrier_a/task_map3",
+		.description = "Model A: from_task + 3 maps + extract",
+		.default_iterations = 500'000,
+		.run = [] {
+			auto [task, src] = root::make_task_source<int>();
+			(void)src.commit_success(root::Success<int>{1});
+			auto c0 = model_a::from_task(move(task));
+			auto c1 = model_a::map(move(c0), [](int x) { return x + 1; });
+			auto c2 = model_a::map(move(c1), [](int x) { return x * 2; });
+			auto c3 = model_a::map(move(c2), [](int x) { return x - 1; });
+			auto out = move(c3).release_outcome();
+			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+		}};
+}
+
+Case make_carrier_a_cancel_passthru_case() {
+	return Case{
+		.name = "carrier_a/cancel_passthru",
+		.description = "Model A: from_task(cancelled) + map passthrough",
+		.default_iterations = 500'000,
+		.run = [] {
+			auto [task, src] = root::make_task_source<int>();
+			(void)src.commit_cancelled(root::CancelReason::requested);
+			auto chain = model_a::from_task(move(task));
+			auto mapped = model_a::map(move(chain), [](int x) { return x + 1; });
+			auto out = move(mapped).release_outcome();
+			return static_cast<size_t>(out.is_cancelled() ? 1 : 0);
+		}};
+}
+
+Case make_carrier_a_mixed_3stage_case() {
+	return Case{
+		.name = "carrier_a/mixed_3stage",
+		.description = "Model A: from_task + bridge_to_posted + bridge_to_operation + extract",
+		.default_iterations = 500'000,
+		.run = [] {
+			OwnerCapA owner{};
+			DriverCapA driver{};
+			auto [task, src] = root::make_task_source<int>();
+			(void)src.commit_success(root::Success<int>{7});
+			auto c0 = model_a::from_task(move(task));
+			auto c1 = model_a::bridge_to_posted(owner, move(c0));
+			auto c2 = model_a::bridge_to_operation(driver, move(c1));
+			auto out = move(c2).release_outcome();
+			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+		}};
+}
+
+Case make_carrier_a_when_all_case() {
+	return Case{
+		.name = "carrier_a/when_all",
+		.description = "Model A: when_all(2 task chains) + extract",
+		.default_iterations = 200'000,
+		.run = [] {
+			auto [ta, sa] = root::make_task_source<int>();
+			auto [tb, sb] = root::make_task_source<int>();
+			(void)sa.commit_success(root::Success<int>{10});
+			(void)sb.commit_success(root::Success<int>{20});
+			auto ca = model_a::from_task(move(ta));
+			auto cb = model_a::from_task(move(tb));
+			auto combined = model_a::when_all(move(ca), move(cb));
+			auto out = move(combined).release_outcome();
+			if (!out.is_success()) {
+				throw runtime_error{"when_all failed"};
+			}
+			auto [a, b] = move(out).success().value;
+			return static_cast<size_t>(a + b);
+		}};
+}
+
+#endif // CONFLUX_WORK_CARRIER_MODEL_A
+
+#if CONFLUX_WORK_CARRIER_MODEL_B
+
+struct OwnerCapB : root::capability_id_from_address<OwnerCapB> {};
+struct DriverCapB : root::capability_id_from_address<DriverCapB> {};
+
+Case make_carrier_b_task_map1_case() {
+	return Case{
+		.name = "carrier_b/task_map1",
+		.description = "Model B: from_task + 1 map + extract",
+		.default_iterations = 500'000,
+		.run = [] {
+			auto [task, src] = root::make_task_source<int>();
+			(void)src.commit_success(root::Success<int>{42});
+			auto chain = model_b::from_task(move(task));
+			auto mapped = model_b::map(move(chain), [](int x) { return x + 1; });
+			auto out = move(mapped).release_outcome();
+			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+		}};
+}
+
+Case make_carrier_b_task_map3_case() {
+	return Case{
+		.name = "carrier_b/task_map3",
+		.description = "Model B: from_task + 3 maps + extract",
+		.default_iterations = 500'000,
+		.run = [] {
+			auto [task, src] = root::make_task_source<int>();
+			(void)src.commit_success(root::Success<int>{1});
+			auto c0 = model_b::from_task(move(task));
+			auto c1 = model_b::map(move(c0), [](int x) { return x + 1; });
+			auto c2 = model_b::map(move(c1), [](int x) { return x * 2; });
+			auto c3 = model_b::map(move(c2), [](int x) { return x - 1; });
+			auto out = move(c3).release_outcome();
+			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+		}};
+}
+
+Case make_carrier_b_cancel_passthru_case() {
+	return Case{
+		.name = "carrier_b/cancel_passthru",
+		.description = "Model B: from_task(cancelled) + map passthrough",
+		.default_iterations = 500'000,
+		.run = [] {
+			auto [task, src] = root::make_task_source<int>();
+			(void)src.commit_cancelled(root::CancelReason::requested);
+			auto chain = model_b::from_task(move(task));
+			auto mapped = model_b::map(move(chain), [](int x) { return x + 1; });
+			auto out = move(mapped).release_outcome();
+			return static_cast<size_t>(out.is_cancelled() ? 1 : 0);
+		}};
+}
+
+Case make_carrier_b_mixed_3stage_case() {
+	return Case{
+		.name = "carrier_b/mixed_3stage",
+		.description = "Model B: from_task + bridge_to_posted + bridge_to_operation + extract",
+		.default_iterations = 500'000,
+		.run = [] {
+			OwnerCapB owner{};
+			DriverCapB driver{};
+			auto [task, src] = root::make_task_source<int>();
+			(void)src.commit_success(root::Success<int>{7});
+			auto c0 = model_b::from_task(move(task));
+			auto c1 = model_b::bridge_to_posted(owner, move(c0));
+			auto c2 = model_b::bridge_to_operation(driver, move(c1));
+			auto out = move(c2).release_outcome();
+			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+		}};
+}
+
+Case make_carrier_b_when_all_case() {
+	return Case{
+		.name = "carrier_b/when_all",
+		.description = "Model B: when_all(2 task chains) + extract",
+		.default_iterations = 200'000,
+		.run = [] {
+			auto [ta, sa] = root::make_task_source<int>();
+			auto [tb, sb] = root::make_task_source<int>();
+			(void)sa.commit_success(root::Success<int>{10});
+			(void)sb.commit_success(root::Success<int>{20});
+			auto ca = model_b::from_task(move(ta));
+			auto cb = model_b::from_task(move(tb));
+			auto combined = model_b::when_all(move(ca), move(cb));
+			auto out = move(combined).release_outcome();
+			if (!out.is_success()) {
+				throw runtime_error{"when_all failed"};
+			}
+			auto [a, b] = move(out).success().value;
+			return static_cast<size_t>(a + b);
+		}};
+}
+
+#endif // CONFLUX_WORK_CARRIER_MODEL_B
+
 vector<Case> make_cases() {
 	vector<Case> cases;
 	cases.push_back(make_value_then_case());
@@ -699,6 +899,20 @@ vector<Case> make_cases() {
 	try {
 		cases.push_back(make_ring_lane_case());
 	} catch (exception const &) {}
+#if CONFLUX_WORK_CARRIER_MODEL_A
+	cases.push_back(make_carrier_a_task_map1_case());
+	cases.push_back(make_carrier_a_task_map3_case());
+	cases.push_back(make_carrier_a_cancel_passthru_case());
+	cases.push_back(make_carrier_a_mixed_3stage_case());
+	cases.push_back(make_carrier_a_when_all_case());
+#endif
+#if CONFLUX_WORK_CARRIER_MODEL_B
+	cases.push_back(make_carrier_b_task_map1_case());
+	cases.push_back(make_carrier_b_task_map3_case());
+	cases.push_back(make_carrier_b_cancel_passthru_case());
+	cases.push_back(make_carrier_b_mixed_3stage_case());
+	cases.push_back(make_carrier_b_when_all_case());
+#endif
 	return cases;
 }
 
