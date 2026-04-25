@@ -1,4 +1,5 @@
 find_package(Catch2 3 REQUIRED)
+include(Catch)
 
 add_executable(conflux_tests)
 target_sources(conflux_tests
@@ -67,14 +68,18 @@ target_link_libraries(conflux_crypto_tests PRIVATE conflux conflux_options Catch
 add_executable(conflux_utils_tests utils_test.cxx)
 target_link_libraries(conflux_utils_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
-# add_executable(conflux_template_tests template_test.cxx)  # disabled: json rewrite in progress
-# target_link_libraries(conflux_template_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+add_executable(conflux_template_tests template_test.cxx)
+target_link_libraries(conflux_template_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
 add_executable(conflux_json_tests json_test.cxx)
 target_link_libraries(conflux_json_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
 add_executable(conflux_process_tests process_test.cxx)
 target_link_libraries(conflux_process_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+
+add_executable(conflux_json_conformance_external json_conformance_external.cxx)
+target_link_libraries(conflux_json_conformance_external PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+catch_discover_tests(conflux_json_conformance_external)
 
 add_executable(conflux_work_tests work_test.cxx)
 target_link_libraries(conflux_work_tests PRIVATE conflux_work conflux_options Catch2::Catch2WithMain)
@@ -136,7 +141,7 @@ if(CONFLUX_HAS_TLS STREQUAL "true")
 endif()
 catch_discover_tests(conflux_crypto_tests)
 catch_discover_tests(conflux_utils_tests)
-# catch_discover_tests(conflux_template_tests)  # disabled: json rewrite in progress
+catch_discover_tests(conflux_template_tests)
 catch_discover_tests(conflux_json_tests)
 catch_discover_tests(conflux_process_tests)
 catch_discover_tests(conflux_work_tests)

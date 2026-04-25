@@ -20,17 +20,22 @@ Stats measure(
 	F &&fn,
 	size_t warmup,
 	size_t iters,
+	size_t batch = 1, // calls per timed window — amortises clock overhead for fast ops
 	size_t bytes = 0) {
-	for (size_t i = 0; i < warmup; ++i) {
+	for (size_t i = 0; i < warmup * batch; ++i) {
 		fn();
 	}
 	vector<double> samples;
 	samples.reserve(iters);
 	for (size_t i = 0; i < iters; ++i) {
 		auto t0 = chrono::steady_clock::now();
-		fn();
+		for (size_t j = 0; j < batch; ++j) {
+			fn();
+		}
 		auto t1 = chrono::steady_clock::now();
-		samples.push_back(static_cast<double>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count()));
+		samples.push_back(
+			static_cast<double>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count()) /
+			static_cast<double>(batch));
 	}
 	sort(samples.begin(), samples.end());
 	double const med = samples[iters / 2];
@@ -144,13 +149,13 @@ string make_large_corpus() {
 
 void bench_parse_small(
 	string const &corpus) {
-	auto s = measure([&] { (void)parse(corpus); }, 50, 500, corpus.size());
+	auto s = measure([&] { (void)parse(corpus); }, 50, 500, 1, corpus.size());
 	print("parse/small (~4KB config)", s);
 }
 
 void bench_parse_large(
 	string const &corpus) {
-	auto s = measure([&] { (void)parse(corpus); }, 5, 20, corpus.size());
+	auto s = measure([&] { (void)parse(corpus); }, 5, 20, 1, corpus.size());
 	print("parse/large (~1MB nested)", s);
 }
 
@@ -184,6 +189,7 @@ void bench_decode(
 		},
 		10,
 		100,
+		1,
 		corpus.size());
 	print("decode/struct-like (sv fields)", s);
 }
@@ -191,14 +197,11 @@ void bench_decode(
 void bench_find_member(
 	string const &corpus) {
 	auto doc = parse(corpus);
-	if (!doc) {
-		return;
-	}
+	if (!doc) { return; }
+	(void)doc->warm_member_index(doc->root()); // pre-build hash index
 	auto obj = doc->root().as_object();
-	if (!obj) {
-		return;
-	}
-	// Look up 3 well-spread keys; median over all lookups
+	if (!obj) { return; }
+	// batch=1000: amortise clock overhead for sub-microsecond lookup
 	auto s = measure(
 		[&] {
 			(void)obj->find_member("member_0");
@@ -206,8 +209,8 @@ void bench_find_member(
 			(void)obj->find_member("member_1023");
 		},
 		200,
-		2000);
-	// Divide by 3 to get per-lookup median
+		500,
+		1000);
 	s.median_ns /= 3.0;
 	print("find_member/1024-member object (per lookup)", s);
 }
@@ -270,7 +273,7 @@ void bench_dump_plain(
 	if (!json_str) {
 		return;
 	}
-	auto s = measure([&] { (void)doc->dump(); }, 50, 500, json_str->size());
+	auto s = measure([&] { (void)doc->dump(); }, 50, 500, 1, json_str->size());
 	print("dump/plain (no sort, no ascii_only)", s);
 }
 
@@ -286,7 +289,7 @@ void bench_dump_sorted(
 	if (!json_str) {
 		return;
 	}
-	auto s = measure([&] { (void)doc->dump(opts); }, 20, 200, json_str->size());
+	auto s = measure([&] { (void)doc->dump(opts); }, 20, 200, 1, json_str->size());
 	print("dump/sort_object_keys", s);
 }
 

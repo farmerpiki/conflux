@@ -1,49 +1,47 @@
 # JSON Benchmark Baseline
 
-Measured on branch `json`, commit `5c1ea44`, release-clang-libcxx (LTO, no sanitizers).
+## Phase 6 baseline
+
+Measured on branch `json`, release-clang-libcxx (LTO, no sanitizers).
 CPU: x86-64 workstation (Gentoo, clang 21, libc++).
-Old impl measured at `d0b94fe` (initial commit), same preset and corpora.
 
-## Corpus sizes
+**Note on `find_member` methodology:** Phase 5 and earlier used `measure()` with
+`batch=1`, timing each call individually with `steady_clock::now()`. On this system,
+`CLOCK_MONOTONIC` goes through a syscall (not VDSO), adding ~5800 ns overhead per
+sample — completely swamping sub-microsecond lookup times. Phase 6 introduced
+`batch=1000` so the clock cost is amortised across 1000 calls. The Phase 5 "1956 ns"
+figure was entirely clock overhead; the true linear-scan time was ~360 ns/lookup
+(measured via tight-loop). All benchmarks with batch>1 in this table use the
+corrected methodology.
 
-| Corpus | Size |
-|---|---|
-| config (small) | 3531 B |
-| decode | 9048 B |
-| lookup (1024-member object) | 17237 B |
-| array (10000 numbers) | 48891 B |
-| large (~1 MB nested) | 200040 B |
-
-## Results vs initial impl
-
-| Benchmark | Old (d0b94fe) | New v7 | Delta | Spec threshold |
+| Benchmark | Phase 5 (linear) | Phase 6 (hash) | Delta | Spec threshold |
 |---|---|---|---|---|
-| parse/small (~4KB config) | 119.3 MB/s | 90.6 MB/s | −24% | ≥500 MB/s |
-| parse/large (~1MB nested) | 137.9 MB/s | 92.4 MB/s | −33% | ≥500 MB/s |
-| decode/struct-like (sv fields) | 128.7 MB/s | 117.0 MB/s | −9% | ≤2× parse cost ✓ |
-| find_member/1024-member (per lookup) | 2421 ns | 1956 ns | +19% | ≤1000 ns |
-| array/traverse 10k numbers | 5867 ns | 102527 ns | −17× | — |
-| builder/64-member object | — | 18158 ns | — | — |
-| dump/plain | 172.2 MB/s | 160.7 MB/s | −7% | ≥1000 MB/s |
-| dump/sort_object_keys | — | 145.2 MB/s | — | — |
+| parse/small (~4KB config) | 90.6 MB/s | 95.7 MB/s | +6% | ≥500 MB/s |
+| parse/large (~1MB nested) | 92.4 MB/s | 88.9 MB/s | −4% noise | ≥500 MB/s |
+| decode/struct-like (sv fields) | 117.0 MB/s | 118.8 MB/s | +2% | ≤2× parse cost ✓ |
+| find_member/1024-member (per lookup, batch=1000) | ~360 ns (tight-loop) | 10.5 ns | **−97%** | ≤1000 ns ✓ |
+| array/traverse 10k numbers | 102527 ns | 100851 ns | −2% noise | — |
+| builder/64-member object | 18158 ns | 18159 ns | unchanged | — |
+| dump/plain | 160.7 MB/s | 165.1 MB/s | +3% | ≥1000 MB/s |
+| dump/sort_object_keys | 145.2 MB/s | 148.8 MB/s | +3% | — |
 
-## Analysis
+## Spec status
 
-**v7 regressions vs old impl:**
-- Parse −24–33%: arena allocation + string copy into storage vs old zero-copy
-  `string_view` into a `shared_ptr<string>` backing buffer.
-- Array traversal −17×: old `as_array()` returns `span<Value const>` over a contiguous
-  `shared_ptr<vector<Value>>`; v7 `elements()` walks nodes through arena index
-  indirection. This is the sharpest regression and the clearest optimization target.
-- Dump −7%: marginal; likely cache effects from larger arena layout.
+| Threshold | Value | Status |
+|---|---|---|
+| parse ≥500 MB/s | ~95 MB/s | gap — requires SIMD tokenization |
+| find_member ≤1000 ns | **10.5 ns** | **✓ MET** (95× under threshold) |
+| dump ≥1000 MB/s | ~165 MB/s | gap — requires vectorized escape scan |
 
-**v7 improvements vs old impl:**
-- `find_member` +19%: flat arena node storage improves cache locality vs
-  pointer-chased `shared_ptr<vector<pair<string,Value>>>` tree.
-- Correctness, API safety, path propagation, typed decode, builder — not measurable
-  but structurally superior.
+## Phase 5 history (for reference)
 
-**Spec gaps (both impls):**
-- parse ≥500 MB/s: requires SIMD tokenization — not present in either impl
-- find_member ≤1000 ns: requires hash index — not present in either impl
-- dump ≥1000 MB/s: requires vectorized escape scan — not present in either impl
+Measured at commit `5c1ea44`. Old impl at `d0b94fe`.
+
+| Benchmark | Old impl | v7 / Phase 5 | Delta |
+|---|---|---|---|
+| parse/small | 119.3 MB/s | 90.6 MB/s | −24% |
+| parse/large | 137.9 MB/s | 92.4 MB/s | −33% |
+| decode/struct-like | 128.7 MB/s | 117.0 MB/s | −9% |
+| find_member/1024-member (batch=1 — clock dominated) | 2421 ns | 1956 ns | +19% |
+| array/traverse 10k numbers | 5867 ns | 102527 ns | −17× |
+| dump/plain | 172.2 MB/s | 160.7 MB/s | −7% |

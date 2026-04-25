@@ -1,3 +1,8 @@
+module;
+#include <cassert>
+#include <locale.h>
+#include <stdlib.h>
+
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 export module conflux.json;
 import std;
@@ -352,12 +357,36 @@ struct MemberEntry {
 	size_t val_node;
 };
 
+// ---------------------------------------------------------------------------
+// Phase 6 — ObjHashTable (v14 HHH–JJJ, v15 RRR–SSS)
+// ---------------------------------------------------------------------------
+
+constexpr u32 kEmptySlot = ~u32{};
+
+struct ObjHashSlot {
+	u32 member_index{kEmptySlot};
+	u32 name_hash{0};
+};
+static_assert(sizeof(ObjHashSlot) == 8);
+
+struct ObjHashTable {
+	u32 capacity{0};
+	u32 member_count{0};
+	unique_ptr<ObjHashSlot[]> slots;
+};
+static_assert(is_nothrow_move_constructible_v<ObjHashTable>);
+
+constexpr u32 kHashThreshold = 8;
+constexpr u32 kProbeChainMax = 64;
+constexpr u32 kMaxHashTableCapacity = 1u << 30;
+
 struct NodeRec {
 	NodeKind kind{NodeKind::null_};
 	bool bool_val{false};
 	size_t a{}; // str_offset | range_start
 	size_t b{}; // str_len    | range_count
 	bool num_is_integer{false};
+	mutable ObjHashTable *hash_idx_raw{nullptr};
 };
 
 struct DocumentStorage {
@@ -367,12 +396,116 @@ struct DocumentStorage {
 	vector<MemberEntry> object_members;
 	size_t root_node{0}; // index of the root NodeRec
 
+	~DocumentStorage() noexcept {
+		for (auto &n: nodes) {
+			delete n.hash_idx_raw;
+		}
+	}
+
 	[[nodiscard]] string_view str_at(
 		size_t off,
 		size_t len) const noexcept {
 		return {string_arena.data() + off, len};
 	}
+
+	[[nodiscard]] string_view member_name(
+		MemberEntry const &m) const noexcept {
+		return str_at(m.name_off, m.name_len);
+	}
 };
+
+// ---------------------------------------------------------------------------
+// Phase 0 — slow-path f64 classifier (v14 AAA–EEE, v15 QQQ)
+// ---------------------------------------------------------------------------
+
+constexpr size_t kSlowFloatLexemeCopyLimit = 4096;
+
+namespace detail {
+
+struct CLocaleHolder {
+	::locale_t loc;
+	bool ok;
+};
+
+[[nodiscard]] inline CLocaleHolder const &c_locale_holder() noexcept {
+	// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+	static CLocaleHolder const h = [] {
+		::locale_t l = ::newlocale(LC_ALL_MASK, "C", static_cast<::locale_t>(0)); // NOLINT(modernize-use-nullptr)
+		return CLocaleHolder{l, l != static_cast<::locale_t>(0)}; // NOLINT(modernize-use-nullptr)
+	}();
+	return h;
+}
+
+struct ClassifiedDouble {
+	enum class Kind : u8 {
+		underflow_finite,
+		overflow_infinite,
+	} kind;
+	double value;
+};
+
+[[nodiscard]] inline expected<ClassifiedDouble, JsonError> classify_range_error_slow(
+	char const *first,
+	char const *last) noexcept {
+	auto const &lh = c_locale_holder();
+	if (!lh.ok) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::parse,
+				.code = JsonIssueCode::resource_exhausted,
+				.message = "newlocale(C) failed at startup; strtod_l unavailable"});
+	}
+
+	auto const n = static_cast<size_t>(last - first);
+	if (n > kSlowFloatLexemeCopyLimit) {
+		return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
+	}
+
+	// NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays)
+	char stack_buf[128];
+	// NOLINTEND(cppcoreguidelines-avoid-c-arrays)
+	unique_ptr<char[]> heap_buf;
+	char *p = nullptr;
+
+	if (n + 1 <= sizeof(stack_buf)) {
+		p = stack_buf;
+	} else {
+		heap_buf = unique_ptr<char[]>{new (nothrow) char[n + 1]};
+		if (!heap_buf) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::parse,
+					.code = JsonIssueCode::resource_exhausted,
+					.message = "OOM in classify_range_error_slow"});
+		}
+		p = heap_buf.get();
+	}
+
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+	memcpy(p, first, n);
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+	p[n] = '\0';
+
+	char *end = nullptr; // NOLINT(misc-const-correctness) — strtod_l takes char**
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+	double const v = ::strtod_l(p, &end, lh.loc);
+
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+	if (end != p + n) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::parse,
+				.code = JsonIssueCode::invalid_number,
+				.message = "strtod_l rejected lexeme (stage-2 check)"});
+	}
+
+	if (isinf(v)) {
+		return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
+	}
+	return ClassifiedDouble{ClassifiedDouble::Kind::underflow_finite, v};
+}
+
+} // namespace detail
 
 // ---------------------------------------------------------------------------
 // JsonNumberForm / JsonNumberView
@@ -453,11 +586,19 @@ public:
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		auto const [p, ec] = from_chars(b, b + lexeme_.size(), v, chars_format::general);
 		if (ec == errc::result_out_of_range) {
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+			auto classified = detail::classify_range_error_slow(b, b + lexeme_.size());
+			if (!classified) {
+				return unexpected(move(classified).error());
+			}
+			if (classified->kind == detail::ClassifiedDouble::Kind::underflow_finite) {
+				return classified->value;
+			}
 			return unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
 					.code = JsonIssueCode::number_out_of_range,
-					.message = format("f64 conversion overflows: {}", lexeme_)});
+					.message = format("f64 value overflows binary64: {}", lexeme_)});
 		}
 		if (ec != errc{} || p != b + lexeme_.size()) {
 			return unexpected(
@@ -584,6 +725,102 @@ export struct ObjectMember {
 };
 
 // ---------------------------------------------------------------------------
+// Phase 6 helpers — hash table build + lookup
+// ---------------------------------------------------------------------------
+
+namespace detail {
+
+[[nodiscard]] inline u32 hash_name(
+	string_view name) noexcept {
+	return static_cast<u32>(hash<string_view>{}(name));
+}
+
+// Smallest power-of-two >= 2*count, capped at kMaxHashTableCapacity.
+[[nodiscard]] inline u32 clamped_capacity(
+	u32 count) noexcept {
+	u32 cap = 1;
+	while (cap < 2 * count && cap < kMaxHashTableCapacity) {
+		cap <<= 1;
+	}
+	return cap;
+}
+
+// Linear scan: returns val_node index or nullopt.
+[[nodiscard]] inline optional<size_t> lookup_linear(
+	DocumentStorage const *storage,
+	size_t mem_start,
+	size_t mem_count,
+	string_view name) noexcept {
+	for (size_t i = 0; i < mem_count; ++i) {
+		auto const &m =
+			storage->object_members[mem_start + i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+		if (storage->member_name(m) == name) {
+			return m.val_node;
+		}
+	}
+	return nullopt;
+}
+
+// Probe hash table; fall back to linear if probe chain exceeds kProbeChainMax.
+[[nodiscard]] inline optional<size_t> lookup_in(
+	ObjHashTable const &ht,
+	DocumentStorage const *storage,
+	size_t mem_start,
+	size_t mem_count,
+	string_view name) noexcept {
+	auto const h = hash_name(name);
+	u32 const mask = ht.capacity - 1;
+	u32 slot = h & mask;
+	for (u32 probe = 0; probe < kProbeChainMax; ++probe) {
+		auto const &s = ht.slots[slot]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		if (s.member_index == kEmptySlot) {
+			return nullopt;
+		}
+		if (s.name_hash == h) {
+			auto const &m =
+				storage->object_members
+					[mem_start + s.member_index]; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+			if (storage->member_name(m) == name) {
+				return m.val_node;
+			}
+		}
+		slot = (slot + 1) & mask;
+	}
+	return lookup_linear(storage, mem_start, mem_count, name);
+}
+
+// Returns true on success, false on probe-chain overflow (RRR).
+[[nodiscard]] inline bool build_table(
+	ObjHashTable &ht,
+	DocumentStorage const *storage,
+	size_t mem_start,
+	size_t mem_count) noexcept {
+	u32 const mask = ht.capacity - 1;
+	for (u32 i = 0; i < static_cast<u32>(mem_count); ++i) {
+		auto const &m =
+			storage->object_members[mem_start + i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+		auto const h = hash_name(storage->member_name(m));
+		u32 slot = h & mask;
+		bool inserted = false;
+		for (u32 probe = 0; probe < kProbeChainMax; ++probe) {
+			auto &s = ht.slots[slot]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+			if (s.member_index == kEmptySlot) {
+				s = ObjHashSlot{i, h};
+				inserted = true;
+				break;
+			}
+			slot = (slot + 1) & mask;
+		}
+		if (!inserted) {
+			return false;
+		}
+	}
+	return true;
+}
+
+} // namespace detail
+
+// ---------------------------------------------------------------------------
 // ObjectView / ArrayView
 // ---------------------------------------------------------------------------
 
@@ -591,48 +828,78 @@ export class ObjectView {
 	DocumentStorage const *storage_{};
 	size_t mem_start_{};
 	size_t mem_count_{};
+	size_t node_idx_{};
 
 	friend class NodeRef;
+	friend class Document;
 	friend bool is_value_equal(NodeRef, NodeRef);
 	friend bool is_value_equal_exact(NodeRef, NodeRef);
 	ObjectView(
 		DocumentStorage const *s,
 		size_t start,
-		size_t count) noexcept
+		size_t count,
+		size_t node_idx) noexcept
 		: storage_{s}
 		, mem_start_{start}
-		, mem_count_{count} {}
+		, mem_count_{count}
+		, node_idx_{node_idx} {}
 
 public:
 	[[nodiscard]] size_t size() const noexcept { return mem_count_; }
 
-	[[nodiscard]] expected<NodeRef, JsonError> member(
-		string_view name) const {
-		for (size_t i = 0; i < mem_count_; ++i) {
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-			auto const &m = storage_->object_members[mem_start_ + i];
-			if (storage_->str_at(m.name_off, m.name_len) == name) {
-				return NodeRef{storage_, m.val_node};
-			}
-		}
-		return unexpected(
-			JsonError{
-				.stage = JsonStage::lookup,
-				.code = JsonIssueCode::missing_member,
-				.member_name = string{name},
-				.message = format("missing member: {}", name)});
-	}
-
 	[[nodiscard]] optional<NodeRef> find_member(
 		string_view name) const noexcept {
-		for (size_t i = 0; i < mem_count_; ++i) {
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-			auto const &m = storage_->object_members[mem_start_ + i];
-			if (storage_->str_at(m.name_off, m.name_len) == name) {
-				return NodeRef{storage_, m.val_node};
+		auto to_ref = [&](optional<size_t> idx) -> optional<NodeRef> {
+			if (!idx) {
+				return nullopt;
 			}
+			return NodeRef{storage_, *idx};
+		};
+		if (mem_count_ < kHashThreshold) {
+			return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
 		}
-		return nullopt;
+		// Lazy hash table build via atomic CAS.
+		auto &raw =
+			storage_->nodes[node_idx_].hash_idx_raw; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+		auto ref = atomic_ref<ObjHashTable *>{raw};
+		auto *ht = ref.load(memory_order_acquire);
+		if (ht == nullptr) {
+			u32 const cap = detail::clamped_capacity(static_cast<u32>(mem_count_));
+			auto slots_up = unique_ptr<ObjHashSlot[]>{new (nothrow) ObjHashSlot[cap]};
+			auto *owned =
+				slots_up ? new (nothrow) ObjHashTable{cap, static_cast<u32>(mem_count_), move(slots_up)} : nullptr;
+			if (owned != nullptr) {
+				fill_n(owned->slots.get(), cap, ObjHashSlot{});
+				if (detail::build_table(*owned, storage_, mem_start_, mem_count_)) {
+					ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
+					if (ref.compare_exchange_strong(expected_null, owned, memory_order_release, memory_order_acquire)) {
+						ht = owned;
+						owned = nullptr; // CAS won — table published
+					} else {
+						ht = expected_null; // lost race
+					}
+				}
+			}
+			delete owned;
+		}
+		if (ht != nullptr) {
+			return to_ref(detail::lookup_in(*ht, storage_, mem_start_, mem_count_, name));
+		}
+		return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
+	}
+
+	[[nodiscard]] expected<NodeRef, JsonError> member(
+		string_view name) const {
+		auto found = find_member(name);
+		if (!found) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::missing_member,
+					.member_name = string{name},
+					.message = format("missing member: {}", name)});
+		}
+		return *found;
 	}
 
 	[[nodiscard]] ObjectMemberRange members() const noexcept;
@@ -689,7 +956,7 @@ expected<ObjectView, JsonError> NodeRef::as_object() const {
 				.actual_kind = kind(),
 				.message = "expected object"});
 	}
-	return ObjectView{storage_, rec().a, rec().b};
+	return ObjectView{storage_, rec().a, rec().b, idx_};
 }
 
 expected<ArrayView, JsonError> NodeRef::as_array() const {
@@ -947,8 +1214,8 @@ export bool is_value_equal(
 		}
 	case NodeKind::object:
 		{
-			ObjectView const ao{a.storage_, a.rec().a, a.rec().b};
-			ObjectView const bo{b.storage_, b.rec().a, b.rec().b};
+			ObjectView const ao{a.storage_, a.rec().a, a.rec().b, a.idx_};
+			ObjectView const bo{b.storage_, b.rec().a, b.rec().b, b.idx_};
 			if (ao.size() != bo.size()) {
 				return false;
 			}
@@ -992,8 +1259,8 @@ export bool is_value_equal_exact(
 		}
 	case NodeKind::object:
 		{
-			ObjectView const ao{a.storage_, a.rec().a, a.rec().b};
-			ObjectView const bo{b.storage_, b.rec().a, b.rec().b};
+			ObjectView const ao{a.storage_, a.rec().a, a.rec().b, a.idx_};
+			ObjectView const bo{b.storage_, b.rec().a, b.rec().b, b.idx_};
 			if (ao.size() != bo.size()) {
 				return false;
 			}
@@ -1053,6 +1320,74 @@ public:
 	[[nodiscard]] NodeRef root() const noexcept { return NodeRef{storage_.get(), storage_->root_node}; }
 
 	[[nodiscard]] expected<string, JsonError> dump(JsonDumpOptions const &opts = {}) const;
+
+	// Pre-build hash index for the given object node (idempotent, thread-safe).
+	[[nodiscard]] expected<void, JsonError> warm_member_index(
+		NodeRef node) const {
+		auto obj_or = node.as_object();
+		if (!obj_or) {
+			return unexpected(move(obj_or).error());
+		}
+		auto const &ov = *obj_or;
+		if (ov.mem_count_ < kHashThreshold) {
+			return {};
+		}
+		auto &slot =
+			storage_->nodes[ov.node_idx_].hash_idx_raw; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+		auto ref = atomic_ref<ObjHashTable *>{slot};
+		if (ref.load(memory_order_acquire) != nullptr) {
+			return {}; // already built
+		}
+		ObjHashTable *owned = nullptr;
+		try {
+			u32 const cap = detail::clamped_capacity(static_cast<u32>(ov.mem_count_));
+			auto slots_up = unique_ptr<ObjHashSlot[]>{new ObjHashSlot[cap]};
+			owned = new ObjHashTable{cap, static_cast<u32>(ov.mem_count_), move(slots_up)};
+			fill_n(owned->slots.get(), cap, ObjHashSlot{});
+			if (!detail::build_table(*owned, storage_.get(), ov.mem_start_, ov.mem_count_)) {
+				delete owned;
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::lookup,
+						.code = JsonIssueCode::resource_exhausted,
+						.message = "object hash build exceeded probe-chain cap"});
+			}
+			ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
+			if (!ref.compare_exchange_strong(expected_null, owned, memory_order_release, memory_order_acquire)) {
+				delete owned; // lost race — other thread published first
+			}
+			return {};
+		} catch (bad_alloc const &) {
+			delete owned;
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::resource_exhausted,
+					.message = "OOM building object hash index"});
+		} catch (...) {
+			delete owned;
+			assert(false && "warm_member_index: unexpected exception from no-user-code build path");
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::constraint_violation,
+					.message = "unexpected exception building object hash index"});
+		}
+	}
+
+	// Pre-build hash indices for every object node in the document.
+	[[nodiscard]] expected<void, JsonError> warm_member_indices() const {
+		for (size_t i = 0; i < storage_->nodes.size(); ++i) {
+			if (storage_->nodes[i].kind
+				== NodeKind::object) { // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+				auto res = warm_member_index(NodeRef{storage_.get(), i});
+				if (!res) {
+					return res;
+				}
+			}
+		}
+		return {};
+	}
 };
 
 // Module-private factory: parse and builder use this to construct Documents.
