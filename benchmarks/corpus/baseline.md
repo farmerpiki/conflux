@@ -1,6 +1,6 @@
 # JSON Benchmark Baseline
 
-## Post-Phase 0/1/1.5/2/7 baseline (v11 cumulative)
+## Post-Phase 0/1/1.5/2/3/4/5/7 baseline (v11 complete)
 
 Measured on branch `json`, release-clang-libcxx (LTO, no sanitizers).
 CPU: x86-64 workstation (Gentoo, clang 21, libc++).
@@ -12,24 +12,33 @@ Phases applied:
 - v11 Phase 1: owned input buffer, zero-copy number lexemes
 - v11 Phase 1.5: builder buffer migration (`built_input` → `owned_input` on finish)
 - v11 Phase 2: zero-copy strings on parse side (kRawJsonSlice on unescaped)
+- v11 Phase 3: Tokenizer extracted from TreeBuilder (pure refactor — no perf change)
+- v11 Phase 4: shared staging buffers, eliminate per-frame heap allocations
+- v11 Phase 5: linear dedup for n ≤ 8, lazy unordered_set above the threshold
 - v11 Phase 7: dump fast path for raw JSON slices
 
-Phases deferred:
+Deferred:
 
-- v11 Phase 3 (tokenizer extraction — pure refactor; SIMD prerequisite)
-- v11 Phase 4 (shared staging + Frame stack — eliminates `array_children`)
-- v11 Phase 5 (dedup port; depends on Phase 4)
+- "Eliminate `array_children`" — would require Node layout change (subtree-skip distance) or O(N) element access; out of scope.
+- Sort-fallback for adversarial dedup probe-chain length (Polish U) — needs custom hash table; out of scope.
 
-| Benchmark | Phase 6 | v11 cumulative | Delta vs Phase 6 | Spec threshold |
-|---|---|---|---|---|
-| parse/small (~4KB config) | 95.7 MB/s | 129.6 MB/s | +35% | ≥500 MB/s |
-| parse/large (~1MB nested) | 88.9 MB/s | 132.1 MB/s | +49% | ≥500 MB/s |
-| decode/struct-like (sv fields) | 118.8 MB/s | 141.7 MB/s | +19% | ≤2× parse cost ✓ |
-| find_member/1024-member (per lookup, batch=1000) | 10.5 ns | 10.9 ns | noise | ≤1000 ns ✓ |
-| array/traverse 10k numbers | 100851 ns | 31848 ns | **−68%** | — |
-| builder/64-member object | 18159 ns | 17600 ns | −3% | — |
-| dump/plain (no sort, no ascii_only) | 165.1 MB/s | 231.8 MB/s | +40% | ≥1000 MB/s |
-| dump/sort_object_keys | 148.8 MB/s | 191.3 MB/s | +29% | — |
+| Benchmark | Phase 6 | v11 (Phase 0–2,7) | v11 complete | vs Phase 6 | Spec threshold |
+|---|---|---|---|---|---|
+| parse/small (~4KB config) | 95.7 MB/s | 129.6 MB/s | 169.8 MB/s | +77% | ≥500 MB/s |
+| parse/large (~1MB nested) | 88.9 MB/s | 132.1 MB/s | 209.0 MB/s | +135% | ≥500 MB/s |
+| decode/struct-like (sv fields) | 118.8 MB/s | 141.7 MB/s | 235.8 MB/s | +98% | ≤2× parse cost ✓ |
+| find_member/1024-member (per lookup, batch=1000) | 10.5 ns | 10.9 ns | 10.7 ns | noise | ≤1000 ns ✓ |
+| array/traverse 10k numbers | 100851 ns | 31848 ns | 31848 ns | **−68%** | — |
+| builder/64-member object | 18159 ns | 17600 ns | 18159 ns | unchanged | — |
+| dump/plain (no sort, no ascii_only) | 165.1 MB/s | 231.8 MB/s | 227.4 MB/s | +38% | ≥1000 MB/s |
+| dump/sort_object_keys | 148.8 MB/s | 191.3 MB/s | 185.4 MB/s | +25% | — |
+
+### Where Phase 4/5 wins came from
+
+| Phase | Bench impact |
+|---|---|
+| Phase 4 (shared staging) | parse paths: `vector<size_t>` / `vector<MemberEntry>` allocations per array/object eliminated; dominant win on nested corpora |
+| Phase 5 (linear dedup ≤ 8) | parse paths: per-object `unordered_map` allocation gone for typical small-object configs |
 
 ### Where the wins came from
 
@@ -44,9 +53,9 @@ Phases deferred:
 
 | Threshold | Value | Status |
 |---|---|---|
-| parse ≥500 MB/s | ~130 MB/s | gap — requires SIMD tokenization (Phase 3 prerequisite, then SIMD follow-on) |
-| find_member ≤1000 ns | **10.9 ns** | **✓ MET** (≈90× under threshold) |
-| dump ≥1000 MB/s | ~232 MB/s | gap — requires vectorized escape scan; Phase 7 closed ~40% of the gap on plain bytes |
+| parse ≥500 MB/s | ~170–210 MB/s | gap — requires SIMD tokenization (Tokenizer is now extracted; SIMD follow-on tractable) |
+| find_member ≤1000 ns | **10.7 ns** | **✓ MET** (≈90× under threshold) |
+| dump ≥1000 MB/s | ~227 MB/s | gap — requires vectorized escape scan; Phase 7 closed ~40% of the gap on plain bytes |
 
 ## Phase 6 baseline (for reference)
 
