@@ -32,7 +32,7 @@ if (!doc) { /* doc.error() */ }
 
 ```cpp
 struct JsonParseOptions {
-    LimitOption max_depth;       // default 512
+    LimitOption max_depth;       // default 128
     LimitOption max_input_size;  // default 4 GiB
     LimitOption max_string_size; // default unlimited
 };

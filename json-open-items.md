@@ -12,28 +12,10 @@ leaving `hash_idx_raw = nullptr`. Prevents repeated re-attempts on adversarial
 repeat-lookup patterns. Cost: ~4 lines, 3 call sites.
 Gate: land only if benchmarks show adversarial repeat-lookup cost.
 
-**FI-3 — Locale singleton intentional-leak comment**
-Add comment at `CLocaleHolder` singleton explaining it is never `freelocale`'d
-intentionally (static-destruction-order hazard). Prevents future cleanup patches.
-
-**FI-4 — SSS catch-site message hygiene**
-`catch (...)` in `warm_member_index` maps to `constraint_violation` with no
-message. Pass a descriptive string to `JsonError` at that site to clarify it is
-an internal-error mapping, not a caller-input problem.
-
 **FI-6 — Number-lexeme length limit**
 4 KiB slow-path cap is a copy budget; adversary can still send megabyte-long
-number tokens that the tokenizer scans. Add `max_number_size` constant (e.g.,
-1 KiB default) that rejects at tokenize time before any copy.
-
-**FI-9 — VVV span precondition assert**
-Before `object_members.subspan(node.off, node.len)` in internal callers, assert
-`node.kind == NodeKind::object`. Cheap invariant guard.
-
-**FI-10 — Lower default max_nesting_depth**
-Consider dropping from 512 to 256 for fiber/coroutine runtimes with tiny stacks.
-Currently 512 frames × 24 bytes = 12 KiB, which is large for 64 KiB stacks.
-Policy decision; user can always opt up.
+number tokens that the tokenizer scans. Add internal constant (e.g. 1 KiB)
+that rejects oversized number lexemes at tokenize time before any copy.
 
 ---
 

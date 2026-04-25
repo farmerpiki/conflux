@@ -684,6 +684,9 @@ struct CLocaleHolder {
 		::locale_t l = ::newlocale(LC_ALL_MASK, "C", static_cast<::locale_t>(0)); // NOLINT(modernize-use-nullptr)
 		return CLocaleHolder{l, l != static_cast<::locale_t>(0)}; // NOLINT(modernize-use-nullptr)
 	}();
+	// Intentional: process-lifetime singleton, never freelocale'd.
+	// Static-destruction order would create use-after-free for any caller
+	// that touches the slow path during teardown.
 	return h;
 }
 
@@ -2081,7 +2084,7 @@ expected<string, JsonError> Document::dump(
 // Parser
 // ---------------------------------------------------------------------------
 
-constexpr size_t kDefaultMaxDepth = 512;
+constexpr size_t kDefaultMaxDepth = 128;
 constexpr size_t kDefaultMaxInput = 128ULL * 1024 * 1024;
 constexpr size_t kDefaultMaxString = 64ULL * 1024 * 1024;
 
