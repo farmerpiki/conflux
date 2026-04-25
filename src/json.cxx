@@ -2043,314 +2043,6 @@ namespace detail::simd {
 	return n;
 }
 
-[[nodiscard]] inline bool is_structural_byte(
-	unsigned char c) noexcept {
-	return c == '{' || c == '}' || c == '[' || c == ']' || c == ',' || c == ':';
-}
-
-[[nodiscard]] inline bool is_ws_byte(
-	unsigned char c) noexcept {
-	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
-}
-
-// R2 stage 1 — produce a vector of byte offsets for every "structural"
-// position outside JSON strings. A structural is `{}[],:`, the opening
-// `"` of a string, or the first byte of a primitive value
-// (number `0-9`/`-`, literal `t`/`f`/`n`). Whitespace and in-string bytes
-// are skipped. The walker dispatches on `src[off]` and advances past
-// non-structural value bytes via Tokenizer::parse_number_lexeme or a
-// literal match.
-inline void build_structural_index_scalar(
-	char const *p,
-	size_t n,
-	std::vector<u32> &out) {
-	bool in_string = false;
-	bool escaped = false;
-	bool in_value = false;
-	size_t i = 0;
-	while (i < n) {
-		auto const c = static_cast<unsigned char>(p[i]);
-		if (in_string) {
-			if (escaped) {
-				escaped = false;
-			} else if (c == '\\') {
-				escaped = true;
-			} else if (c == '"') {
-				in_string = false;
-			}
-			++i;
-			continue;
-		}
-		if (in_value) {
-			if (is_ws_byte(c) || is_structural_byte(c) || c == '"') {
-				in_value = false;
-				continue;
-			}
-			++i;
-			continue;
-		}
-		if (is_ws_byte(c)) {
-			++i;
-			continue;
-		}
-		if (c == '"') {
-			out.push_back(static_cast<u32>(i));
-			in_string = true;
-			++i;
-			continue;
-		}
-		if (is_structural_byte(c)) {
-			out.push_back(static_cast<u32>(i));
-			++i;
-			continue;
-		}
-		out.push_back(static_cast<u32>(i));
-		in_value = true;
-		++i;
-	}
-}
-
-#if defined(CONFLUX_JSON_HAS_SSE2)
-// SSE2 fast path. Per 16-byte chunk, builds masks for `"`, `\\`, struct
-// chars, whitespace; takes a slow scalar lane when the chunk has any
-// control/high-bit byte, any backslash, any in-progress string, or any
-// in-progress value carrying in; otherwise walks just the interesting
-// bits in lane order, emits structurals/openers/value-starts directly,
-// and fast-forwards past in-chunk strings and primitive lexemes.
-inline void build_structural_index_simd(
-	char const *p,
-	size_t n,
-	std::vector<u32> &out) {
-	__m128i const v_quote = _mm_set1_epi8('"');
-	__m128i const v_back = _mm_set1_epi8('\\');
-	__m128i const v_lcb = _mm_set1_epi8('{');
-	__m128i const v_rcb = _mm_set1_epi8('}');
-	__m128i const v_lsb = _mm_set1_epi8('[');
-	__m128i const v_rsb = _mm_set1_epi8(']');
-	__m128i const v_comma = _mm_set1_epi8(',');
-	__m128i const v_colon = _mm_set1_epi8(':');
-	__m128i const v_sp = _mm_set1_epi8(' ');
-	__m128i const v_tab = _mm_set1_epi8('\t');
-	__m128i const v_lf = _mm_set1_epi8('\n');
-	__m128i const v_cr = _mm_set1_epi8('\r');
-	__m128i const v_lim = _mm_set1_epi8(0x20);
-
-	bool in_string = false;
-	bool escaped_carry = false;
-	bool in_value = false;
-	size_t i = 0;
-	while (i + 16 <= n) {
-		__m128i const v = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
-		auto const m_quote = static_cast<unsigned>(_mm_movemask_epi8(_mm_cmpeq_epi8(v, v_quote)));
-		auto const m_back = static_cast<unsigned>(_mm_movemask_epi8(_mm_cmpeq_epi8(v, v_back)));
-		__m128i const eq_lcb = _mm_cmpeq_epi8(v, v_lcb);
-		__m128i const eq_rcb = _mm_cmpeq_epi8(v, v_rcb);
-		__m128i const eq_lsb = _mm_cmpeq_epi8(v, v_lsb);
-		__m128i const eq_rsb = _mm_cmpeq_epi8(v, v_rsb);
-		__m128i const eq_comma = _mm_cmpeq_epi8(v, v_comma);
-		__m128i const eq_colon = _mm_cmpeq_epi8(v, v_colon);
-		__m128i const eq_sp = _mm_cmpeq_epi8(v, v_sp);
-		__m128i const eq_tab = _mm_cmpeq_epi8(v, v_tab);
-		__m128i const eq_lf = _mm_cmpeq_epi8(v, v_lf);
-		__m128i const eq_cr = _mm_cmpeq_epi8(v, v_cr);
-		__m128i const struct_v = _mm_or_si128(
-			_mm_or_si128(_mm_or_si128(eq_lcb, eq_rcb), _mm_or_si128(eq_lsb, eq_rsb)),
-			_mm_or_si128(eq_comma, eq_colon));
-		__m128i const ws_v = _mm_or_si128(_mm_or_si128(eq_sp, eq_tab), _mm_or_si128(eq_lf, eq_cr));
-		auto const m_struct = static_cast<unsigned>(_mm_movemask_epi8(struct_v));
-		auto const m_ws = static_cast<unsigned>(_mm_movemask_epi8(ws_v));
-		auto const m_lt = static_cast<unsigned>(_mm_movemask_epi8(_mm_cmplt_epi8(v, v_lim)));
-
-		bool const has_specials = m_back != 0U;
-		bool const has_lt = (m_lt & ~m_ws) != 0U;
-		bool const chunk_clean = !has_specials && !has_lt && !escaped_carry;
-
-		// Pure-in-string SIMD shortcut: when we entered the chunk inside a
-		// string and the chunk has no backslashes or control bytes, the
-		// only event of interest is the closing `"`. Use the quote-mask
-		// directly to skip ahead.
-		if (in_string && chunk_clean) {
-			if (m_quote == 0U) {
-				i += 16;
-				continue;
-			}
-			auto const close_lane = static_cast<size_t>(__builtin_ctz(m_quote));
-			in_string = false;
-			i += close_lane + 1;
-			continue;
-		}
-
-		// Pure-in-value SIMD shortcut: when we entered the chunk in the
-		// middle of a primitive value lexeme and the chunk is clean, the
-		// next stopper is the first whitespace, structural, or quote.
-		if (in_value && chunk_clean) {
-			unsigned const m_stop = m_ws | m_struct | m_quote;
-			if (m_stop == 0U) {
-				i += 16;
-				continue;
-			}
-			auto const stop_lane = static_cast<size_t>(__builtin_ctz(m_stop));
-			in_value = false;
-			i += stop_lane;
-			continue;
-		}
-
-		if (has_specials || has_lt || in_string || escaped_carry || in_value) {
-			size_t const end = i + 16;
-			while (i < end) {
-				auto const c = static_cast<unsigned char>(p[i]);
-				if (in_string) {
-					if (escaped_carry) {
-						escaped_carry = false;
-					} else if (c == '\\') {
-						escaped_carry = true;
-					} else if (c == '"') {
-						in_string = false;
-					}
-					++i;
-					continue;
-				}
-				if (in_value) {
-					if (is_ws_byte(c) || is_structural_byte(c) || c == '"') {
-						in_value = false;
-						continue;
-					}
-					++i;
-					continue;
-				}
-				if (is_ws_byte(c)) {
-					++i;
-					continue;
-				}
-				if (c == '"') {
-					out.push_back(static_cast<u32>(i));
-					in_string = true;
-					++i;
-					continue;
-				}
-				if (is_structural_byte(c)) {
-					out.push_back(static_cast<u32>(i));
-					++i;
-					continue;
-				}
-				out.push_back(static_cast<u32>(i));
-				in_value = true;
-				++i;
-			}
-			continue;
-		}
-
-		unsigned remaining = m_quote | m_struct | (~(m_quote | m_struct | m_ws) & 0xFFFFU);
-		size_t cursor = i;
-		while (remaining != 0U) {
-			unsigned const bit = remaining & (~remaining + 1U);
-			auto const lane = static_cast<size_t>(__builtin_ctz(bit));
-			remaining ^= bit;
-			size_t const off = i + lane;
-			if (off < cursor) {
-				continue;
-			}
-			auto const c = static_cast<unsigned char>(p[off]);
-			if (c == '"') {
-				out.push_back(static_cast<u32>(off));
-				size_t k = off + 1;
-				size_t const end = i + 16;
-				bool closed = false;
-				while (k < end) {
-					auto const ck = static_cast<unsigned char>(p[k]);
-					if (ck == '\\' || ck < 0x20U || ck >= 0x80U) {
-						in_string = true;
-						break;
-					}
-					if (ck == '"') {
-						closed = true;
-						++k;
-						break;
-					}
-					++k;
-				}
-				if (!closed && !in_string) {
-					in_string = true;
-				}
-				cursor = k;
-				continue;
-			}
-			if (is_structural_byte(c)) {
-				out.push_back(static_cast<u32>(off));
-				cursor = off + 1;
-				continue;
-			}
-			out.push_back(static_cast<u32>(off));
-			size_t k = off + 1;
-			size_t const end = i + 16;
-			while (k < end) {
-				auto const ck = static_cast<unsigned char>(p[k]);
-				if (is_ws_byte(ck) || is_structural_byte(ck) || ck == '"') {
-					break;
-				}
-				++k;
-			}
-			if (k == end) {
-				in_value = true;
-			}
-			cursor = k;
-		}
-		i += 16;
-	}
-	while (i < n) {
-		auto const c = static_cast<unsigned char>(p[i]);
-		if (in_string) {
-			if (escaped_carry) {
-				escaped_carry = false;
-			} else if (c == '\\') {
-				escaped_carry = true;
-			} else if (c == '"') {
-				in_string = false;
-			}
-			++i;
-			continue;
-		}
-		if (in_value) {
-			if (is_ws_byte(c) || is_structural_byte(c) || c == '"') {
-				in_value = false;
-				continue;
-			}
-			++i;
-			continue;
-		}
-		if (is_ws_byte(c)) {
-			++i;
-			continue;
-		}
-		if (c == '"') {
-			out.push_back(static_cast<u32>(i));
-			in_string = true;
-			++i;
-			continue;
-		}
-		if (is_structural_byte(c)) {
-			out.push_back(static_cast<u32>(i));
-			++i;
-			continue;
-		}
-		out.push_back(static_cast<u32>(i));
-		in_value = true;
-		++i;
-	}
-}
-#endif
-
-inline void build_structural_index(
-	char const *p,
-	size_t n,
-	std::vector<u32> &out) {
-#if defined(CONFLUX_JSON_HAS_SSE2)
-	build_structural_index_simd(p, n, out);
-#else
-	build_structural_index_scalar(p, n, out);
-#endif
-}
-
 } // namespace detail::simd
 
 // Phase 3 — Tokenizer owns input bytes / source coordinates and emits string
@@ -2652,50 +2344,19 @@ struct Tokenizer {
 	}
 };
 
-// R2 — index-driven walker. parse_value/parse_array/parse_object recursion is
-// gone; the structural index pre-pass collapses whitespace + nested
-// containers into a single ordered list of byte offsets and the loop below
-// dispatches on src[off] for each entry.
 struct TreeBuilder {
 	Tokenizer tok;
 	DocumentStorage &store;
 	JsonParseOptions const &opts;
 
+	// Phase 4: shared staging buffers across nested array/object frames. Each
+	// frame's slice is [frame.children_start .. staging.size()) for arrays and
+	// [frame.members_start .. staging_members.size()) for objects; on close
+	// the slice is moved to store.array_children / store.object_members and
+	// the staging buffer truncated back. This eliminates per-frame heap
+	// allocation that the v7-style local vectors paid for each container.
 	vector<u32> staging;
 	vector<MemberEntry> staging_members;
-	vector<u32> structurals;
-
-	// FrameState tracks where we are inside a container. The walker keeps
-	// the current top-of-stack state in a single register-resident variable
-	// and pushes/restores it from Frame::state when nesting.
-	// NOLINTNEXTLINE(performance-enum-size)
-	enum class FrameState : u8 {
-		TopExpectValue, // top-level — expect a single root value
-		TopDone, // top-level — root parsed, no further input allowed
-		ArrExpectValueOrEnd, // just after `[` — value, or `]`
-		ArrAfterValue, // after a value — `,` or `]`
-		ArrAfterComma, // after `,` — must be a value
-		ObjExpectKeyOrEnd, // just after `{` — key string, or `}`
-		ObjAfterKey, // after key — `:`
-		ObjAfterColon, // after `:` — must be a value
-		ObjAfterValue, // after value — `,` or `}`
-		ObjAfterComma, // after `,` — must be a key
-	};
-
-	struct Frame {
-		bool is_object;
-		FrameState state;
-		bool has_pending_name;
-		u32 children_start;
-		u32 members_start;
-		u32 pending_name_off;
-		u32 pending_name_len;
-		u8 pending_name_flags;
-		unique_ptr<unordered_set<string_view>> seen_hash;
-	};
-	vector<Frame> frames;
-
-	static constexpr size_t kDedupLinearMax = 8;
 
 	[[nodiscard]] JsonError mk_err(
 		JsonIssueCode code,
@@ -2703,53 +2364,126 @@ struct TreeBuilder {
 		return tok.mk_err(code, move(msg));
 	}
 
-	[[nodiscard]] JsonError mk_err_at(
-		JsonIssueCode code,
-		size_t off,
-		string msg) const {
-		return JsonError{
-			.stage = JsonStage::parse,
-			.code = code,
-			.source = JsonSourceLocation{.offset = off + tok.bom_prefix_bytes, .line = 1, .column = 1},
-			.message = move(msg)
-        };
+	// NOLINTNEXTLINE(misc-no-recursion)
+	[[nodiscard]] expected<size_t, JsonError> parse_value(
+		size_t depth) {
+		tok.skip_ws();
+		if (tok.pos >= tok.src.size()) {
+			return unexpected(mk_err(JsonIssueCode::unexpected_eof, "unexpected end of input"));
+		}
+		if (opts.max_depth.exceeds(depth, kDefaultMaxDepth)) {
+			return unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
+		}
+
+		char const c = tok.src[tok.pos];
+		if (c == '"') {
+			tok.adv();
+			return parse_str_node();
+		}
+		if (c == '[') {
+			return parse_array(depth);
+		}
+		if (c == '{') {
+			return parse_object(depth);
+		}
+		if (c == 't') {
+			if (tok.src.substr(tok.pos, 4) != "true") {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			tok.adv(4);
+			store.nodes.push_back(detail::make_bool(true));
+			return store.nodes.size() - 1;
+		}
+		if (c == 'f') {
+			if (tok.src.substr(tok.pos, 5) != "false") {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			tok.adv(5);
+			store.nodes.push_back(detail::make_bool(false));
+			return store.nodes.size() - 1;
+		}
+		if (c == 'n') {
+			if (tok.src.substr(tok.pos, 4) != "null") {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			tok.adv(4);
+			store.nodes.push_back(detail::make_null());
+			return store.nodes.size() - 1;
+		}
+		if (c == '-' || (c >= '0' && c <= '9')) {
+			return parse_number();
+		}
+		return unexpected(mk_err(JsonIssueCode::syntax_error, format("unexpected character '{}'", c)));
 	}
 
-	[[nodiscard]] expected<u32, JsonError> finish_string(
-		Tokenizer::ParsedStr const &parsed) {
-		if (opts.max_string_size.exceeds(parsed.len, kDefaultMaxString)) {
+	[[nodiscard]] expected<size_t, JsonError> parse_str_node() {
+		auto parsed = tok.parse_str_body();
+		if (!parsed) {
+			return unexpected(move(parsed).error());
+		}
+		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
 			return unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
 		}
-		store.nodes.push_back(detail::make_string(parsed.off, parsed.len, parsed.flags));
-		return static_cast<u32>(store.nodes.size() - 1);
+		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
+		return store.nodes.size() - 1;
 	}
 
-	[[nodiscard]] expected<u32, JsonError> finish_number(
-		size_t start) {
-		tok.pos = start;
-		auto lex_result = tok.parse_number_lexeme();
-		if (!lex_result) {
-			return unexpected(move(lex_result).error());
+	// NOLINTNEXTLINE(misc-no-recursion)
+	[[nodiscard]] expected<size_t, JsonError> parse_array(
+		size_t depth) {
+		tok.adv(); // '['
+		tok.skip_ws();
+		if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
+			tok.adv();
+			size_t const cs = store.array_children.size();
+			store.nodes.push_back(detail::make_array(static_cast<u32>(cs), static_cast<u32>(0)));
+			return store.nodes.size() - 1;
 		}
-		string_view const lex = *lex_result;
-		auto node = detail::build_number_node_from_lexeme(
-			static_cast<u32>(start),
-			static_cast<u32>(lex.size()),
-			static_cast<u8>(kStorageInputView | kRawJsonSlice),
-			lex);
-		if (!node) {
-			return unexpected(move(node).error());
+		// Phase 4: append child indices to shared staging[children_start..],
+		// flush to array_children at close, then truncate staging.
+		size_t const children_start = staging.size();
+		while (true) {
+			auto child = parse_value(depth + 1);
+			if (!child) {
+				return unexpected(move(child).error());
+			}
+			staging.push_back(static_cast<u32>(*child));
+			tok.skip_ws();
+			if (tok.pos >= tok.src.size()) {
+				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in array"));
+			}
+			if (tok.src[tok.pos] == ']') {
+				tok.adv();
+				size_t const len = staging.size() - children_start;
+				size_t const cs = store.array_children.size();
+				store.array_children.insert(
+					store.array_children.end(),
+					staging.begin() + static_cast<ptrdiff_t>(children_start),
+					staging.end());
+				staging.resize(children_start);
+				store.nodes.push_back(detail::make_array(static_cast<u32>(cs), static_cast<u32>(len)));
+				return store.nodes.size() - 1;
+			}
+			if (tok.src[tok.pos] != ',') {
+				staging.resize(children_start);
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'"));
+			}
+			tok.adv();
 		}
-		store.nodes.push_back(*node);
-		return static_cast<u32>(store.nodes.size() - 1);
 	}
+
+	// Phase 5: linear dedup for n <= 8 (no allocation), lazy unordered_set
+	// promotion above the threshold. The set is constructed only when the
+	// object actually exceeds the linear-scan window — typical configs
+	// (small flat objects) pay zero hash-table cost.
+	static constexpr size_t kDedupLinearMax = 8;
 
 	[[nodiscard]] bool dedup_member_present(
 		size_t members_start,
 		string_view name,
-		Frame const &frame) const {
-		if (frame.seen_hash) {
-			return frame.seen_hash->contains(name);
+		optional<unordered_set<string_view>> const &seen_hash) const {
+		if (seen_hash.has_value()) {
+			return seen_hash->contains(name);
 		}
 		for (size_t i = members_start; i < staging_members.size(); ++i) {
 			auto const &m = staging_members[i];
@@ -2760,336 +2494,112 @@ struct TreeBuilder {
 		return false;
 	}
 
-	void close_array(
-		Frame const &frame,
-		u32 &emitted_node) {
-		size_t const len = staging.size() - frame.children_start;
-		size_t const cs = store.array_children.size();
-		store.array_children.insert(
-			store.array_children.end(),
-			staging.begin() + static_cast<ptrdiff_t>(frame.children_start),
-			staging.end());
-		staging.resize(frame.children_start);
-		store.nodes.push_back(detail::make_array(static_cast<u32>(cs), static_cast<u32>(len)));
-		emitted_node = static_cast<u32>(store.nodes.size() - 1);
+	// NOLINTNEXTLINE(misc-no-recursion,readability-function-cognitive-complexity)
+	[[nodiscard]] expected<size_t, JsonError> parse_object(
+		size_t depth) {
+		tok.adv(); // '{'
+		tok.skip_ws();
+		if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
+			tok.adv();
+			size_t const ms = store.object_members.size();
+			store.nodes.push_back(detail::make_object(static_cast<u32>(ms), static_cast<u32>(0)));
+			return store.nodes.size() - 1;
+		}
+		// Phase 4: members go to shared staging_members[members_start..],
+		// flushed to object_members at close.
+		size_t const members_start = staging_members.size();
+		// Phase 5: dedup is linear until size > kDedupLinearMax, then a
+		// hash set is built once and reused for the remainder of this object.
+		optional<unordered_set<string_view>> seen_hash;
+		while (true) {
+			tok.skip_ws();
+			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != '"') {
+				staging_members.resize(members_start);
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key"));
+			}
+			tok.adv();
+			auto parsed_name = tok.parse_str_body();
+			if (!parsed_name) {
+				staging_members.resize(members_start);
+				return unexpected(move(parsed_name).error());
+			}
+			string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
+			if (dedup_member_present(members_start, name_sv, seen_hash)) {
+				staging_members.resize(members_start);
+				return unexpected(mk_err(JsonIssueCode::duplicate_member, format("duplicate member: {}", name_sv)));
+			}
+			if (seen_hash.has_value()) {
+				seen_hash->insert(name_sv);
+			}
+
+			tok.skip_ws();
+			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != ':') {
+				staging_members.resize(members_start);
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ':'"));
+			}
+			tok.adv();
+
+			auto val = parse_value(depth + 1);
+			if (!val) {
+				staging_members.resize(members_start);
+				return unexpected(move(val).error());
+			}
+			staging_members.push_back({parsed_name->off, parsed_name->len, static_cast<u32>(*val), parsed_name->flags});
+
+			// Promote linear → hash once we cross the threshold.
+			size_t const cur_count = staging_members.size() - members_start;
+			if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
+				seen_hash.emplace();
+				seen_hash->reserve(cur_count * 2);
+				for (size_t i = members_start; i < staging_members.size(); ++i) {
+					auto const &m = staging_members[i];
+					seen_hash->insert(store.bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags)));
+				}
+			}
+
+			tok.skip_ws();
+			if (tok.pos >= tok.src.size()) {
+				staging_members.resize(members_start);
+				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
+			}
+			if (tok.src[tok.pos] == '}') {
+				tok.adv();
+				size_t const len = staging_members.size() - members_start;
+				size_t const ms = store.object_members.size();
+				store.object_members.insert(
+					store.object_members.end(),
+					staging_members.begin() + static_cast<ptrdiff_t>(members_start),
+					staging_members.end());
+				staging_members.resize(members_start);
+				store.nodes.push_back(detail::make_object(static_cast<u32>(ms), static_cast<u32>(len)));
+				return store.nodes.size() - 1;
+			}
+			if (tok.src[tok.pos] != ',') {
+				staging_members.resize(members_start);
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or '}'"));
+			}
+			tok.adv();
+		}
 	}
 
-	void close_object(
-		Frame const &frame,
-		u32 &emitted_node) {
-		size_t const len = staging_members.size() - frame.members_start;
-		size_t const ms = store.object_members.size();
-		store.object_members.insert(
-			store.object_members.end(),
-			staging_members.begin() + static_cast<ptrdiff_t>(frame.members_start),
-			staging_members.end());
-		staging_members.resize(frame.members_start);
-		store.nodes.push_back(detail::make_object(static_cast<u32>(ms), static_cast<u32>(len)));
-		emitted_node = static_cast<u32>(store.nodes.size() - 1);
-	}
-
-	// NOLINTNEXTLINE(readability-function-cognitive-complexity)
-	[[nodiscard]] expected<u32, JsonError> parse() {
-		structurals.clear();
-		// Empirical: most JSON corpora emit between 1:4 (compact) and 1:8
-		// (whitespace-heavy) entries per input byte. /3 covers both with
-		// minimal slack; the pre-pass falls back to vector geometric
-		// growth on the rare adversarial input that exceeds it.
-		size_t const reserve_n = max<size_t>(64, tok.src.size() / 3 + 16);
-		structurals.reserve(reserve_n);
-		detail::simd::build_structural_index(tok.src.data(), tok.src.size(), structurals);
-		if (structurals.empty()) {
-			return unexpected(mk_err(JsonIssueCode::unexpected_eof, "empty input"));
+	[[nodiscard]] expected<size_t, JsonError> parse_number() {
+		size_t const start = tok.pos;
+		auto lex_result = tok.parse_number_lexeme();
+		if (!lex_result) {
+			return unexpected(move(lex_result).error());
 		}
-
-		size_t idx = 0;
-		u32 root_node = ~u32{};
-		FrameState state = FrameState::TopExpectValue;
-		bool root_set = false;
-
-		auto place_value = [&](u32 node_idx) -> expected<void, JsonError> {
-			if (frames.empty()) {
-				if (root_set) {
-					return unexpected(mk_err(JsonIssueCode::trailing_garbage, "multiple root values"));
-				}
-				root_node = node_idx;
-				root_set = true;
-				state = FrameState::TopDone;
-				return {};
-			}
-			if (opts.max_depth.exceeds(frames.size(), kDefaultMaxDepth)) {
-				return unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
-			}
-			Frame &f = frames.back();
-			if (f.is_object) {
-				staging_members.push_back({f.pending_name_off, f.pending_name_len, node_idx, f.pending_name_flags});
-				f.has_pending_name = false;
-				size_t const cur_count = staging_members.size() - f.members_start;
-				if (!f.seen_hash && cur_count > kDedupLinearMax) {
-					f.seen_hash = make_unique<unordered_set<string_view>>();
-					f.seen_hash->reserve(cur_count * 2);
-					for (size_t i = f.members_start; i < staging_members.size(); ++i) {
-						auto const &m = staging_members[i];
-						f.seen_hash->insert(store.bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags)));
-					}
-				}
-				state = FrameState::ObjAfterValue;
-			} else {
-				staging.push_back(node_idx);
-				state = FrameState::ArrAfterValue;
-			}
-			return {};
-		};
-
-		auto is_value_state = [&] {
-			return state == FrameState::TopExpectValue
-				|| state == FrameState::ArrExpectValueOrEnd
-				|| state == FrameState::ArrAfterComma
-				|| state == FrameState::ObjAfterColon;
-		};
-
-		// Sentinel-frame trick: when frames is empty, `state` doubles as
-		// "top-level expect_value" (ArrExpectValueOrEnd) or "top-level done"
-		// (ArrAfterValue). The frame-back access then only happens for `,`,
-		// `:`, `}`, `]`, and key-context branches.
-		while (idx < structurals.size()) {
-			u32 const off = structurals[idx];
-			++idx;
-			char const c = tok.src[off];
-			switch (c) {
-			case '{':
-				{
-					if (!is_value_state()) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unexpected '{'"));
-					}
-					if (opts.max_depth.exceeds(frames.size(), kDefaultMaxDepth)) {
-						return unexpected(
-							mk_err_at(JsonIssueCode::nesting_too_deep, off, "nesting depth limit exceeded"));
-					}
-					Frame f{};
-					f.is_object = true;
-					f.state = state;
-					f.has_pending_name = false;
-					f.children_start = static_cast<u32>(staging.size());
-					f.members_start = static_cast<u32>(staging_members.size());
-					frames.push_back(move(f));
-					state = FrameState::ObjExpectKeyOrEnd;
-					tok.pos = off + 1;
-					break;
-				}
-			case '[':
-				{
-					if (!is_value_state()) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unexpected '['"));
-					}
-					if (opts.max_depth.exceeds(frames.size(), kDefaultMaxDepth)) {
-						return unexpected(
-							mk_err_at(JsonIssueCode::nesting_too_deep, off, "nesting depth limit exceeded"));
-					}
-					Frame f{};
-					f.is_object = false;
-					f.state = state;
-					f.has_pending_name = false;
-					f.children_start = static_cast<u32>(staging.size());
-					f.members_start = static_cast<u32>(staging_members.size());
-					frames.push_back(move(f));
-					state = FrameState::ArrExpectValueOrEnd;
-					tok.pos = off + 1;
-					break;
-				}
-			case '}':
-				{
-					if (frames.empty() || !frames.back().is_object) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unmatched '}'"));
-					}
-					if (state != FrameState::ObjExpectKeyOrEnd && state != FrameState::ObjAfterValue) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unexpected '}'"));
-					}
-					u32 emitted = 0;
-					close_object(frames.back(), emitted);
-					FrameState const restored = frames.back().state;
-					tok.pos = off + 1;
-					frames.pop_back();
-					state = restored;
-					if (auto r = place_value(emitted); !r) {
-						return unexpected(move(r).error());
-					}
-					break;
-				}
-			case ']':
-				{
-					if (frames.empty() || frames.back().is_object) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unmatched ']'"));
-					}
-					if (state != FrameState::ArrExpectValueOrEnd && state != FrameState::ArrAfterValue) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unexpected ']'"));
-					}
-					u32 emitted = 0;
-					close_array(frames.back(), emitted);
-					FrameState const restored = frames.back().state;
-					tok.pos = off + 1;
-					frames.pop_back();
-					state = restored;
-					if (auto r = place_value(emitted); !r) {
-						return unexpected(move(r).error());
-					}
-					break;
-				}
-			case ',':
-				{
-					if (state == FrameState::ArrAfterValue) {
-						state = FrameState::ArrAfterComma;
-					} else if (state == FrameState::ObjAfterValue) {
-						state = FrameState::ObjAfterComma;
-					} else {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unexpected ','"));
-					}
-					tok.pos = off + 1;
-					break;
-				}
-			case ':':
-				{
-					if (state != FrameState::ObjAfterKey) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unexpected ':'"));
-					}
-					state = FrameState::ObjAfterColon;
-					tok.pos = off + 1;
-					break;
-				}
-			case '"':
-				{
-					bool const want_key = state == FrameState::ObjExpectKeyOrEnd || state == FrameState::ObjAfterComma;
-					if (!want_key && !is_value_state()) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unexpected string"));
-					}
-					tok.pos = off + 1;
-					auto parsed = tok.parse_str_body();
-					if (!parsed) {
-						return unexpected(move(parsed).error());
-					}
-					if (want_key) {
-						Frame &f = frames.back();
-						string_view const name_sv = store.bytes_at(parsed->off, parsed->len, parsed->flags);
-						if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
-							return unexpected(
-								mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
-						}
-						if (dedup_member_present(f.members_start, name_sv, f)) {
-							staging_members.resize(f.members_start);
-							return unexpected(
-								mk_err(JsonIssueCode::duplicate_member, format("duplicate member: {}", name_sv)));
-						}
-						if (f.seen_hash) {
-							f.seen_hash->insert(name_sv);
-						}
-						f.pending_name_off = parsed->off;
-						f.pending_name_len = parsed->len;
-						f.pending_name_flags = parsed->flags;
-						f.has_pending_name = true;
-						state = FrameState::ObjAfterKey;
-						while (idx < structurals.size() && structurals[idx] < tok.pos) {
-							++idx;
-						}
-					} else {
-						auto nidx = finish_string(*parsed);
-						if (!nidx) {
-							return unexpected(move(nidx).error());
-						}
-						if (auto r = place_value(*nidx); !r) {
-							return unexpected(move(r).error());
-						}
-						while (idx < structurals.size() && structurals[idx] < tok.pos) {
-							++idx;
-						}
-					}
-					break;
-				}
-			case 't':
-				{
-					if (!is_value_state()) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unexpected token"));
-					}
-					if (off + 4 > tok.src.size() || tok.src.compare(off, 4, "true") != 0) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "invalid token"));
-					}
-					tok.pos = off + 4;
-					store.nodes.push_back(detail::make_bool(true));
-					if (auto r = place_value(static_cast<u32>(store.nodes.size() - 1)); !r) {
-						return unexpected(move(r).error());
-					}
-					break;
-				}
-			case 'f':
-				{
-					if (!is_value_state()) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unexpected token"));
-					}
-					if (off + 5 > tok.src.size() || tok.src.compare(off, 5, "false") != 0) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "invalid token"));
-					}
-					tok.pos = off + 5;
-					store.nodes.push_back(detail::make_bool(false));
-					if (auto r = place_value(static_cast<u32>(store.nodes.size() - 1)); !r) {
-						return unexpected(move(r).error());
-					}
-					break;
-				}
-			case 'n':
-				{
-					if (!is_value_state()) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unexpected token"));
-					}
-					if (off + 4 > tok.src.size() || tok.src.compare(off, 4, "null") != 0) {
-						return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "invalid token"));
-					}
-					tok.pos = off + 4;
-					store.nodes.push_back(detail::make_null());
-					if (auto r = place_value(static_cast<u32>(store.nodes.size() - 1)); !r) {
-						return unexpected(move(r).error());
-					}
-					break;
-				}
-			default:
-				{
-					if (c == '-' || (c >= '0' && c <= '9')) {
-						if (!is_value_state()) {
-							return unexpected(mk_err_at(JsonIssueCode::syntax_error, off, "unexpected number"));
-						}
-						auto nidx = finish_number(off);
-						if (!nidx) {
-							return unexpected(move(nidx).error());
-						}
-						if (tok.pos < tok.src.size()) {
-							auto const nc = static_cast<unsigned char>(tok.src[tok.pos]);
-							if (!detail::simd::is_ws_byte(nc) && !detail::simd::is_structural_byte(nc)) {
-								return unexpected(mk_err_at(
-									JsonIssueCode::invalid_number,
-									tok.pos,
-									"invalid trailing character in number"));
-							}
-						}
-						if (auto r = place_value(*nidx); !r) {
-							return unexpected(move(r).error());
-						}
-						while (idx < structurals.size() && structurals[idx] < tok.pos) {
-							++idx;
-						}
-					} else {
-						return unexpected(
-							mk_err_at(JsonIssueCode::syntax_error, off, format("unexpected character '{}'", c)));
-					}
-					break;
-				}
-			}
+		string_view const lex = *lex_result;
+		// Phase 1: number lexemes reference input_view directly — zero-copy.
+		auto node = detail::build_number_node_from_lexeme(
+			static_cast<u32>(start),
+			static_cast<u32>(lex.size()),
+			static_cast<u8>(kStorageInputView | kRawJsonSlice),
+			lex);
+		if (!node) {
+			return unexpected(move(node).error());
 		}
-
-		if (!frames.empty()) {
-			return unexpected(mk_err(JsonIssueCode::unexpected_eof, "unclosed container"));
-		}
-		if (!root_set) {
-			return unexpected(mk_err(JsonIssueCode::unexpected_eof, "empty input"));
-		}
-		return root_node;
+		store.nodes.push_back(*node);
+		return store.nodes.size() - 1;
 	}
 };
 
@@ -3146,16 +2656,19 @@ struct TreeBuilder {
 		.store = storage_ref,
 		.opts = opts,
 		.staging = {},
-		.staging_members = {},
-		.structurals = {},
-		.frames = {}
+		.staging_members = {}
     };
+	tb.tok.skip_ws();
+	if (tb.tok.pos >= storage_ref.input_view.size()) {
+		return unexpected(
+			JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::unexpected_eof, .message = "empty input"});
+	}
 
-	auto root = tb.parse();
+	auto root = tb.parse_value(0);
 	if (!root) {
 		return unexpected(move(root).error());
 	}
-	storage->root_node = *root;
+	storage->root_node = static_cast<u32>(*root);
 
 	tb.tok.skip_ws();
 	if (tb.tok.pos < storage_ref.input_view.size()) {
