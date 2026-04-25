@@ -4,7 +4,9 @@ module;
 #include <stdlib.h>
 #if defined(__x86_64__) || defined(_M_X64)
 	#include <immintrin.h>
-	#define CONFLUX_JSON_HAS_SSE2 1
+	#ifndef CONFLUX_JSON_DISABLE_SIMD
+		#define CONFLUX_JSON_HAS_SSE2 1
+	#endif
 #endif
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
