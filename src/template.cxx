@@ -97,6 +97,223 @@ private:
 } // namespace tmpl
 namespace tmpl {
 namespace fs = std::filesystem;
+
+// ---------------------------------------------------------------------------
+// Internal mutable value type for template context
+// ---------------------------------------------------------------------------
+
+struct TmplValue {
+	using Array = std::vector<TmplValue>;
+	using Object = std::vector<std::pair<std::string, TmplValue>>;
+
+	std::variant<std::monostate, bool, i64, u64, double, std::string, Array, Object> data;
+
+	TmplValue() = default;
+	explicit TmplValue(
+		bool b)
+		: data(b) {}
+	explicit TmplValue(
+		i64 v)
+		: data(v) {}
+	explicit TmplValue(
+		u64 v)
+		: data(v) {}
+	explicit TmplValue(
+		double v)
+		: data(v) {}
+	explicit TmplValue(
+		std::string s)
+		: data(std::move(s)) {}
+	explicit TmplValue(
+		std::string_view sv)
+		: data(std::string{sv}) {}
+	explicit TmplValue(
+		Array a)
+		: data(std::move(a)) {}
+	explicit TmplValue(
+		Object o)
+		: data(std::move(o)) {}
+
+	[[nodiscard]] bool is_null() const noexcept { return std::holds_alternative<std::monostate>(data); }
+	[[nodiscard]] bool is_bool() const noexcept { return std::holds_alternative<bool>(data); }
+	[[nodiscard]] bool is_int() const noexcept { return std::holds_alternative<i64>(data); }
+	[[nodiscard]] bool is_uint() const noexcept { return std::holds_alternative<u64>(data); }
+	[[nodiscard]] bool is_float() const noexcept { return std::holds_alternative<double>(data); }
+	[[nodiscard]] bool is_string() const noexcept { return std::holds_alternative<std::string>(data); }
+	[[nodiscard]] bool is_array() const noexcept { return std::holds_alternative<Array>(data); }
+	[[nodiscard]] bool is_object() const noexcept { return std::holds_alternative<Object>(data); }
+
+	template<class T>
+	[[nodiscard]] decltype(auto) as() const {
+		if constexpr (std::same_as<T, std::string_view>) {
+			return std::string_view{std::get<std::string>(data)};
+		} else {
+			return std::get<T>(data);
+		}
+	}
+
+	[[nodiscard]] Array &as_array() { return std::get<Array>(data); }
+	[[nodiscard]] Array const &as_array() const { return std::get<Array>(data); }
+	[[nodiscard]] Object &as_object() { return std::get<Object>(data); }
+	[[nodiscard]] Object const &as_object() const { return std::get<Object>(data); }
+
+	void set(
+		std::string_view key,
+		TmplValue val) {
+		auto &obj = std::get<Object>(data);
+		for (auto &[k, v]: obj) {
+			if (k == key) {
+				v = std::move(val);
+				return;
+			}
+		}
+		obj.emplace_back(std::string{key}, std::move(val));
+	}
+
+	void erase(
+		std::string_view key) {
+		auto &obj = std::get<Object>(data);
+		std::erase_if(obj, [key](auto const &p) { return p.first == key; });
+	}
+
+	void push_back(
+		TmplValue val) {
+		std::get<Array>(data).push_back(std::move(val));
+	}
+
+	[[nodiscard]] bool operator ==(TmplValue const &) const = default;
+
+	[[nodiscard]] std::string dump() const;
+};
+
+// NOLINTNEXTLINE(misc-no-recursion)
+std::string TmplValue::dump() const {
+	if (is_null()) {
+		return "null";
+	}
+	if (is_bool()) {
+		return std::get<bool>(data) ? "true" : "false";
+	}
+	if (is_int()) {
+		return std::to_string(std::get<i64>(data));
+	}
+	if (is_uint()) {
+		return std::to_string(std::get<u64>(data));
+	}
+	if (is_float()) {
+		auto s = std::to_string(std::get<double>(data));
+		auto dot = s.find('.');
+		if (dot != std::string::npos) {
+			auto last = s.find_last_not_of('0');
+			if (last != std::string::npos && last > dot) {
+				s.erase(last + 1);
+			}
+			if (s.back() == '.') {
+				s.pop_back();
+			}
+		}
+		return s;
+	}
+	if (is_string()) {
+		std::string out = "\"";
+		for (char const c: std::get<std::string>(data)) {
+			switch (c) {
+			case '"' : out += "\\\""; break;
+			case '\\': out += "\\\\"; break;
+			case '\n': out += "\\n"; break;
+			case '\r': out += "\\r"; break;
+			case '\t': out += "\\t"; break;
+			default  : out += c;
+			}
+		}
+		out += '"';
+		return out;
+	}
+	if (is_array()) {
+		std::string out = "[";
+		bool first = true;
+		for (auto const &v: std::get<Array>(data)) {
+			if (!first) {
+				out += ',';
+			}
+			first = false;
+			out += v.dump();
+		}
+		out += ']';
+		return out;
+	}
+	if (is_object()) {
+		std::string out = "{";
+		bool first = true;
+		for (auto const &[k, v]: std::get<Object>(data)) {
+			if (!first) {
+				out += ',';
+			}
+			first = false;
+			out += '"';
+			out += k;
+			out += "\":";
+			out += v.dump();
+		}
+		out += '}';
+		return out;
+	}
+	return "null";
+}
+
+// NOLINTNEXTLINE(misc-no-recursion)
+static TmplValue node_to_tmpl(
+	NodeRef node) {
+	switch (node.kind()) {
+	case JsonKind::null   : return {};
+	case JsonKind::boolean: return TmplValue{*node.as_bool()};
+	case JsonKind::number:
+		{
+			auto num = *node.as_number();
+			if (num.form() == JsonNumberForm::integer) {
+				if (!num.lexeme().empty() && num.lexeme()[0] == '-') {
+					if (auto v = num.to_i64(); v) {
+						return TmplValue{*v};
+					}
+				} else {
+					if (auto v = num.to_i64(); v) {
+						return TmplValue{*v};
+					}
+					if (auto v = num.to_u64(); v) {
+						return TmplValue{*v};
+					}
+				}
+			}
+			if (auto v = num.to_f64(); v) {
+				return TmplValue{*v};
+			}
+			return {};
+		}
+	case JsonKind::string: return TmplValue{std::string{*node.as_string()}};
+	case JsonKind::array:
+		{
+			auto arr = *node.as_array();
+			TmplValue::Array vec;
+			vec.reserve(arr.size());
+			for (auto elem: arr.elements()) {
+				vec.push_back(node_to_tmpl(elem));
+			}
+			return TmplValue{std::move(vec)};
+		}
+	case JsonKind::object:
+		{
+			auto obj = *node.as_object();
+			TmplValue::Object pairs;
+			pairs.reserve(obj.size());
+			for (auto [name, val]: obj.members()) {
+				pairs.emplace_back(std::string{name}, node_to_tmpl(val));
+			}
+			return TmplValue{std::move(pairs)};
+		}
+	default: return {};
+	}
+}
+
 // ---------------------------------------------------------------------------
 // String utilities
 // ---------------------------------------------------------------------------
@@ -299,8 +516,8 @@ static std::string extract_string_arg(
 	auto sp = tag.find(' ');
 	return sp != std::string::npos ? trim(tag.substr(sp + 1)) : "";
 }
-static Value const *obj_find(
-	Value const &obj,
+static TmplValue const *obj_find(
+	TmplValue const &obj,
 	std::string_view key) {
 	for (auto const &kv: obj.as_object()) {
 		if (kv.first == key) {
@@ -309,20 +526,20 @@ static Value const *obj_find(
 	}
 	return nullptr;
 }
-static std::vector<std::pair<std::string, std::optional<Value>>> save_scope(
-	Value const &ctx,
+static std::vector<std::pair<std::string, std::optional<TmplValue>>> save_scope(
+	TmplValue const &ctx,
 	std::span<std::string const> names) {
-	std::vector<std::pair<std::string, std::optional<Value>>> saved;
+	std::vector<std::pair<std::string, std::optional<TmplValue>>> saved;
 	saved.reserve(names.size());
 	for (auto const &n: names) {
 		auto const *prev = obj_find(ctx, n);
-		saved.emplace_back(n, (prev != nullptr) ? std::optional<Value>{*prev} : std::nullopt);
+		saved.emplace_back(n, (prev != nullptr) ? std::optional<TmplValue>{*prev} : std::nullopt);
 	}
 	return saved;
 }
 static void restore_scope(
-	Value &ctx,
-	std::vector<std::pair<std::string, std::optional<Value>>> const &saved) {
+	TmplValue &ctx,
+	std::vector<std::pair<std::string, std::optional<TmplValue>>> const &saved) {
 	for (auto const &[k, v]: saved) {
 		if (v) {
 			ctx.set(k, *v);
@@ -344,25 +561,25 @@ struct Environment::Impl {
 	mutable std::atomic<bool> watch_started{false};
 
 	Template parse(std::string const &name, std::string const &source) const;
-	Value eval_expr(std::string const &expr, Value const &context) const;
-	Value apply_filter(
+	TmplValue eval_expr(std::string const &expr, TmplValue const &context) const;
+	TmplValue apply_filter(
 		std::string const &name,
-		Value const &val,
+		TmplValue const &val,
 		std::vector<std::string> const &args,
-		Value const &context) const;
-	static std::string value_to_string(Value const &v);
-	static bool is_truthy(Value const &v);
+		TmplValue const &context) const;
+	static std::string value_to_string(TmplValue const &v);
+	static bool is_truthy(TmplValue const &v);
 	static constexpr int kMaxTemplateDepth = 256;
 	std::string render_nodes(
 		NodeList const &nodes,
-		Value context,
+		TmplValue context,
 		std::unordered_map<std::string, NodeList> const *blocks,
 		std::unordered_map<std::string, std::tuple<std::vector<std::string>, std::vector<std::string>, NodeList>>
 			*macros,
 		int depth = 0) const;
 	std::string render_template(
 		Template const &tmpl,
-		Value context,
+		TmplValue context,
 		std::unordered_map<std::string, NodeList> const *child_blocks = nullptr,
 		int depth = 0) const;
 	void reload_path(std::string const &path);
@@ -588,12 +805,13 @@ Template Environment::Impl::parse(
 // Expression evaluator
 // ---------------------------------------------------------------------------
 
-Value Environment::Impl::eval_expr(
+// NOLINTNEXTLINE(misc-no-recursion)
+TmplValue Environment::Impl::eval_expr(
 	std::string const &expr,
-	Value const &context) const {
+	TmplValue const &context) const {
 	auto e = trim(expr);
 	if (e.empty()) {
-		return json::null_value();
+		return {};
 	}
 
 	std::vector<std::string> pipe_parts;
@@ -637,44 +855,45 @@ Value Environment::Impl::eval_expr(
 		pipe_parts.push_back(trim(current));
 	}
 
-	auto eval_base = [&](std::string const &base) -> Value {
+	// NOLINTNEXTLINE(misc-no-recursion)
+	auto eval_base = [&](std::string const &base) -> TmplValue {
 		auto b = trim(base);
 		if (b.empty()) {
-			return json::null_value();
+			return {};
 		}
 
 		if ((b.front() == '"' && b.back() == '"') || (b.front() == '\'' && b.back() == '\'')) {
-			return b.substr(1, b.size() - 2);
+			return TmplValue{b.substr(1, b.size() - 2)};
 		}
 
 		if (std::isdigit(static_cast<unsigned char>(b[0])) || (b[0] == '-' && b.size() > 1)) {
 			try {
 				if (b.find('.') != std::string::npos) {
-					return std::stod(b);
+					return TmplValue{std::stod(b)};
 				}
-				return static_cast<i64>(std::stoll(b));
+				return TmplValue{static_cast<i64>(std::stoll(b))};
 			} catch (std::exception const &ex) {
 				std::println(std::cerr, "template eval_literal: failed to parse number '{}': {}", b, ex.what());
 			}
 		}
 
 		if (b == "true" || b == "True") {
-			return true;
+			return TmplValue{true};
 		}
 		if (b == "false" || b == "False") {
-			return false;
+			return TmplValue{false};
 		}
 		if (b == "none" || b == "None") {
-			return json::null_value();
+			return {};
 		}
 
 		if (b.front() == '[' && b.back() == ']') {
 			auto inner = trim(b.substr(1, b.size() - 2));
 			if (inner.empty()) {
-				return json::array();
+				return TmplValue{TmplValue::Array{}};
 			}
 			auto items = split_args(inner);
-			Value arr = json::array();
+			TmplValue arr{TmplValue::Array{}};
 			for (auto &item: items) {
 				arr.push_back(eval_expr(item, context));
 			}
@@ -684,13 +903,13 @@ Value Environment::Impl::eval_expr(
 		if (b.front() == '(' && b.back() == ')') {
 			auto inner = trim(b.substr(1, b.size() - 2));
 			if (inner.empty()) {
-				return json::array();
+				return TmplValue{TmplValue::Array{}};
 			}
 			auto items = split_args(inner);
 			if (items.size() == 1) {
 				return eval_expr(items[0], context);
 			}
-			Value arr = json::array();
+			TmplValue arr{TmplValue::Array{}};
 			for (auto &item: items) {
 				arr.push_back(eval_expr(item, context));
 			}
@@ -700,10 +919,10 @@ Value Environment::Impl::eval_expr(
 		if (b.front() == '{' && b.back() == '}') {
 			auto inner = trim(b.substr(1, b.size() - 2));
 			if (inner.empty()) {
-				return json::object();
+				return TmplValue{TmplValue::Object{}};
 			}
 			auto pairs = split_args(inner);
-			Value obj = json::object();
+			TmplValue obj{TmplValue::Object{}};
 			for (auto &p: pairs) {
 				auto colon = p.find(':');
 				if (colon != std::string::npos) {
@@ -790,7 +1009,7 @@ Value Environment::Impl::eval_expr(
 
 		if (b.size() > 4 && b.substr(0, 4) == "not ") {
 			auto inner_val = eval_expr(b.substr(4), context);
-			return !is_truthy(inner_val);
+			return TmplValue{!is_truthy(inner_val)};
 		}
 
 		{
@@ -840,8 +1059,8 @@ Value Environment::Impl::eval_expr(
 					auto left = eval_expr(b.substr(0, p), context);
 					auto right = eval_expr(b.substr(p + op.size()), context);
 					switch (code) {
-					case 0: return left == right;
-					case 1: return left != right;
+					case 0: return TmplValue{left == right};
+					case 1: return TmplValue{left != right};
 					case 2:
 					case 3:
 					case 4:
@@ -856,32 +1075,34 @@ Value Environment::Impl::eval_expr(
 											  right.is_float() ? right.as<double>() :
 																 0.0;
 							if (code == 2) {
-								return lv <= rv;
+								return TmplValue{lv <= rv};
 							}
 							if (code == 3) {
-								return lv >= rv;
+								return TmplValue{lv >= rv};
 							}
 							if (code == 4) {
-								return lv < rv;
+								return TmplValue{lv < rv};
 							}
-							return lv > rv;
+							return TmplValue{lv > rv};
 						}
 					case 6:
 						{
 							if (right.is_array()) {
 								for (auto const &item: right.as_array()) {
 									if (item == left) {
-										return true;
+										return TmplValue{true};
 									}
 								}
-								return false;
+								return TmplValue{false};
 							}
 							if (right.is_string() && left.is_string()) {
-								return right.as<std::string_view>().find(left.as<std::string_view>())
-									!= std::string_view::npos;
+								return TmplValue{
+									right.as<std::string_view>().find(left.as<std::string_view>())
+									!= std::string_view::npos};
 							}
-							return false;
+							return TmplValue{false};
 						}
+					default: break;
 					}
 				}
 			}
@@ -915,16 +1136,16 @@ Value Environment::Impl::eval_expr(
 				if (depth == 0 && c == '~') {
 					auto left = eval_expr(b.substr(0, i), context);
 					auto right = eval_expr(b.substr(i + 1), context);
-					return value_to_string(left) + value_to_string(right);
+					return TmplValue{value_to_string(left) + value_to_string(right)};
 				}
 			}
 		}
 
 		{
-			Value owned;
+			TmplValue owned;
 			bool use_owned = false;
-			Value const *cur = &context;
-			auto set_owned = [&](Value v) {
+			TmplValue const *cur = &context;
+			auto set_owned = [&](TmplValue v) {
 				owned = std::move(v);
 				cur = &owned;
 				use_owned = true;
@@ -941,7 +1162,7 @@ Value Environment::Impl::eval_expr(
 				if (next_sep == 0 && bracket == 0) {
 					auto close = remaining.find(']', 1);
 					if (close == std::string::npos) {
-						return json::null_value();
+						return {};
 					}
 					auto idx_str = trim(remaining.substr(1, close - 1));
 					if (auto colon = idx_str.find(':'); colon != std::string::npos) {
@@ -971,11 +1192,12 @@ Value Environment::Impl::eval_expr(
 							}
 							start = std::clamp<i64>(start, 0, static_cast<i64>(s.size()));
 							end = std::clamp<i64>(end, 0, static_cast<i64>(s.size()));
-							set_owned(s.substr(
-								static_cast<std::size_t>(start),
-								static_cast<std::size_t>(std::max<i64>(0, end - start))));
+							set_owned(
+								TmplValue{s.substr(
+									static_cast<std::size_t>(start),
+									static_cast<std::size_t>(std::max<i64>(0, end - start)))});
 						} else {
-							return json::null_value();
+							return {};
 						}
 						remaining = remaining.substr(close + 1);
 						if (!remaining.empty() && remaining[0] == '.') {
@@ -986,24 +1208,24 @@ Value Environment::Impl::eval_expr(
 					auto idx_val = eval_expr(idx_str, context);
 					if (cur->is_array() && idx_val.is_int()) {
 						auto idx = idx_val.as<i64>();
-						auto arr = cur->as_array();
+						auto const &arr = cur->as_array();
 						if (idx < 0) {
 							idx += static_cast<i64>(arr.size());
 						}
 						if (idx >= 0 && static_cast<std::size_t>(idx) < arr.size()) {
 							set_owned(arr[static_cast<std::size_t>(idx)]);
 						} else {
-							return json::null_value();
+							return {};
 						}
 					} else if (cur->is_object() && idx_val.is_string()) {
-						auto *found = obj_find(*cur, idx_val.as<std::string_view>());
+						auto const *found = obj_find(*cur, idx_val.as<std::string_view>());
 						if (found) {
 							set_owned(*found);
 						} else {
-							return json::null_value();
+							return {};
 						}
 					} else {
-						return json::null_value();
+						return {};
 					}
 					remaining = remaining.substr(close + 1);
 					if (!remaining.empty() && remaining[0] == '.') {
@@ -1019,16 +1241,16 @@ Value Environment::Impl::eval_expr(
 
 				if (!key.empty() && !is_method_call) {
 					if (cur->is_object()) {
-						auto *found = obj_find(*cur, key);
+						auto const *found = obj_find(*cur, key);
 						if (found) {
 							set_owned(*found);
 						} else {
-							return json::null_value();
+							return {};
 						}
 					} else if (cur->is_string() && key == "value") {
 						// no-op
 					} else {
-						return json::null_value();
+						return {};
 					}
 				}
 
@@ -1064,7 +1286,7 @@ Value Environment::Impl::eval_expr(
 						}
 					}
 					if (close == std::string::npos) {
-						return json::null_value();
+						return {};
 					}
 					auto args_str = remaining.substr(1, close - 1);
 					auto method_args = split_args(args_str);
@@ -1075,22 +1297,22 @@ Value Environment::Impl::eval_expr(
 
 					if (key == "get" && cur->is_object()) {
 						if (method_args.empty()) {
-							return json::null_value();
+							return {};
 						}
 						auto k = eval_expr(method_args[0], context);
-						auto *found = obj_find(*cur, value_to_string(k));
+						auto const *found = obj_find(*cur, value_to_string(k));
 						if (found) {
 							set_owned(*found);
 						} else if (method_args.size() > 1) {
 							set_owned(eval_expr(method_args[1], context));
 						} else {
-							set_owned(json::null_value());
+							set_owned(TmplValue{});
 						}
 					} else if (key == "replace" && method_args.size() >= 2) {
 						auto s = value_to_string(*cur);
 						auto old_s = value_to_string(eval_expr(method_args[0], context));
 						auto new_s = value_to_string(eval_expr(method_args[1], context));
-						set_owned(str_replace_all(s, old_s, new_s));
+						set_owned(TmplValue{str_replace_all(s, old_s, new_s)});
 					} else if (key == "title") {
 						auto s = value_to_string(*cur);
 						bool up = true;
@@ -1106,61 +1328,61 @@ Value Environment::Impl::eval_expr(
 								c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 							}
 						}
-						set_owned(std::move(s));
+						set_owned(TmplValue{std::move(s)});
 					} else if (key == "upper") {
 						auto s = value_to_string(*cur);
 						for (auto &c: s) {
 							c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 						}
-						set_owned(std::move(s));
+						set_owned(TmplValue{std::move(s)});
 					} else if (key == "lower") {
 						auto s = value_to_string(*cur);
 						for (auto &c: s) {
 							c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 						}
-						set_owned(std::move(s));
+						set_owned(TmplValue{std::move(s)});
 					} else if (key == "capitalize") {
-						set_owned(str_capitalize(value_to_string(*cur)));
+						set_owned(TmplValue{str_capitalize(value_to_string(*cur))});
 					} else if (key == "strftime") {
-						set_owned(value_to_string(*cur));
+						set_owned(TmplValue{value_to_string(*cur)});
 					} else if (key == "strip") {
-						set_owned(trim(value_to_string(*cur)));
+						set_owned(TmplValue{trim(value_to_string(*cur))});
 					} else if (key == "startswith" && !method_args.empty()) {
 						auto s = value_to_string(*cur);
 						auto p = value_to_string(eval_expr(method_args[0], context));
-						set_owned(s.compare(0, p.size(), p) == 0);
+						set_owned(TmplValue{s.compare(0, p.size(), p) == 0});
 					} else if (key == "split") {
 						auto s = value_to_string(*cur);
 						auto sep = !method_args.empty() ? value_to_string(eval_expr(method_args[0], context)) : " ";
-						Value arr = json::array();
+						TmplValue arr{TmplValue::Array{}};
 						std::size_t p = 0;
 						while (p <= s.size()) {
 							auto f = sep.empty() ? std::string::npos : s.find(sep, p);
 							if (f == std::string::npos) {
-								arr.push_back(s.substr(p));
+								arr.push_back(TmplValue{s.substr(p)});
 								break;
 							}
-							arr.push_back(s.substr(p, f - p));
+							arr.push_back(TmplValue{s.substr(p, f - p)});
 							p = f + sep.size();
 						}
 						set_owned(std::move(arr));
 					} else if (key == "keys" && cur->is_object()) {
-						Value keys = json::array();
+						TmplValue keys{TmplValue::Array{}};
 						for (auto const &kv: cur->as_object()) {
-							keys.push_back(kv.first);
+							keys.push_back(TmplValue{kv.first});
 						}
 						set_owned(std::move(keys));
 					} else if (key == "values" && cur->is_object()) {
-						Value vals = json::array();
+						TmplValue vals{TmplValue::Array{}};
 						for (auto const &kv: cur->as_object()) {
 							vals.push_back(kv.second);
 						}
 						set_owned(std::move(vals));
 					} else if (key == "items" && cur->is_object()) {
-						Value items = json::array();
+						TmplValue items{TmplValue::Array{}};
 						for (auto const &kv: cur->as_object()) {
-							Value pair = json::array();
-							pair.push_back(kv.first);
+							TmplValue pair{TmplValue::Array{}};
+							pair.push_back(TmplValue{kv.first});
 							pair.push_back(kv.second);
 							items.push_back(std::move(pair));
 						}
@@ -1180,7 +1402,7 @@ Value Environment::Impl::eval_expr(
 		}
 	};
 
-	Value result = eval_base(pipe_parts[0]);
+	TmplValue result = eval_base(pipe_parts[0]);
 
 	for (std::size_t i = 1; i < pipe_parts.size(); ++i) {
 		auto filter = trim(pipe_parts[i]);
@@ -1207,60 +1429,61 @@ Value Environment::Impl::eval_expr(
 // Filters
 // ---------------------------------------------------------------------------
 
-Value Environment::Impl::apply_filter(
+// NOLINTNEXTLINE(misc-no-recursion)
+TmplValue Environment::Impl::apply_filter(
 	std::string const &name,
-	Value const &val,
+	TmplValue const &val,
 	std::vector<std::string> const &args,
-	Value const &context) const {
+	TmplValue const &context) const {
 	if (name == "length" || name == "count") {
 		if (val.is_array()) {
-			return static_cast<i64>(val.as_array().size());
+			return TmplValue{static_cast<i64>(val.as_array().size())};
 		}
 		if (val.is_string()) {
-			return static_cast<i64>(val.as<std::string_view>().size());
+			return TmplValue{static_cast<i64>(val.as<std::string_view>().size())};
 		}
 		if (val.is_object()) {
-			return static_cast<i64>(val.as_object().size());
+			return TmplValue{static_cast<i64>(val.as_object().size())};
 		}
-		return 0;
+		return TmplValue{i64{0}};
 	}
 	if (name == "string") {
-		return Value(value_to_string(val));
+		return TmplValue{value_to_string(val)};
 	}
 	if (name == "int") {
 		if (val.is_int() || val.is_uint()) {
 			return val;
 		}
 		if (val.is_float()) {
-			return static_cast<i64>(val.as<double>());
+			return TmplValue{static_cast<i64>(val.as<double>())};
 		}
 		if (val.is_string()) {
 			auto s = std::string(val.as<std::string_view>());
 			try {
-				return static_cast<i64>(std::stoll(s));
+				return TmplValue{static_cast<i64>(std::stoll(s))};
 			} catch (std::exception const &e) {
 				std::println(std::cerr, "template filter int: failed to parse '{}': {}", s, e.what());
-				return 0;
+				return TmplValue{i64{0}};
 			}
 		}
-		return 0;
+		return TmplValue{i64{0}};
 	}
 	if (name == "upper") {
 		auto s = value_to_string(val);
 		for (auto &c: s) {
 			c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 		}
-		return s;
+		return TmplValue{std::move(s)};
 	}
 	if (name == "lower") {
 		auto s = value_to_string(val);
 		for (auto &c: s) {
 			c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 		}
-		return s;
+		return TmplValue{std::move(s)};
 	}
 	if (name == "capitalize") {
-		return str_capitalize(value_to_string(val));
+		return TmplValue{str_capitalize(value_to_string(val))};
 	}
 	if (name == "title") {
 		auto s = value_to_string(val);
@@ -1275,16 +1498,16 @@ Value Environment::Impl::apply_filter(
 				next_upper = false;
 			}
 		}
-		return s;
+		return TmplValue{std::move(s)};
 	}
 	if (name == "replace") {
 		auto s = value_to_string(val);
 		if (args.size() >= 2) {
 			auto old_s = value_to_string(eval_expr(args[0], context));
 			auto new_s = value_to_string(eval_expr(args[1], context));
-			return str_replace_all(s, old_s, new_s);
+			return TmplValue{str_replace_all(s, old_s, new_s)};
 		}
-		return s;
+		return TmplValue{std::move(s)};
 	}
 	if (name == "default" || name == "d") {
 		if (!is_truthy(val) && !args.empty()) {
@@ -1295,7 +1518,7 @@ Value Environment::Impl::apply_filter(
 	if (name == "join") {
 		if (val.is_array()) {
 			auto sep = !args.empty() ? value_to_string(eval_expr(args[0], context)) : "";
-			auto arr = val.as_array();
+			auto const &arr = val.as_array();
 			std::string result;
 			result.reserve(arr.size() * (sep.size() + 16));
 			bool first = true;
@@ -1306,32 +1529,24 @@ Value Environment::Impl::apply_filter(
 				first = false;
 				result += value_to_string(item);
 			}
-			return result;
+			return TmplValue{std::move(result)};
 		}
 		return val;
 	}
 	if (name == "sort") {
 		if (val.is_array()) {
-			auto sp = val.as_array();
-			std::vector<Value> vec(sp.begin(), sp.end());
-			std::sort(vec.begin(), vec.end(), [](Value const &a, Value const &b) { return a.dump() < b.dump(); });
-			Value result = json::array();
-			for (auto &item: vec) {
-				result.push_back(std::move(item));
-			}
+			TmplValue result{val.as_array()};
+			std::sort(result.as_array().begin(), result.as_array().end(), [](TmplValue const &a, TmplValue const &b) {
+				return a.dump() < b.dump();
+			});
 			return result;
 		}
 		return val;
 	}
 	if (name == "reverse") {
 		if (val.is_array()) {
-			auto sp = val.as_array();
-			std::vector<Value> vec(sp.begin(), sp.end());
-			std::reverse(vec.begin(), vec.end());
-			Value result = json::array();
-			for (auto &item: vec) {
-				result.push_back(std::move(item));
-			}
+			TmplValue result{val.as_array()};
+			std::reverse(result.as_array().begin(), result.as_array().end());
 			return result;
 		}
 		return val;
@@ -1340,15 +1555,15 @@ Value Environment::Impl::apply_filter(
 		if (val.is_array() && !val.as_array().empty()) {
 			return val.as_array().back();
 		}
-		return json::null_value();
+		return {};
 	}
 	if (name == "min") {
 		if (val.is_array()) {
-			auto arr = val.as_array();
+			auto const &arr = val.as_array();
 			if (arr.empty()) {
-				return json::null_value();
+				return {};
 			}
-			Value const *m = arr.data();
+			TmplValue const *m = arr.data();
 			for (std::size_t i = 1; i < arr.size(); ++i) {
 				if (arr[i].dump() < m->dump()) {
 					m = &arr[i];
@@ -1362,19 +1577,19 @@ Value Environment::Impl::apply_filter(
 		if (val.is_array()) {
 			return val;
 		}
-		return json::array();
+		return TmplValue{TmplValue::Array{}};
 	}
 	if (name == "selectattr") {
 		if (val.is_array() && args.size() >= 3) {
 			auto attr = value_to_string(eval_expr(args[0], context));
 			auto test = value_to_string(eval_expr(args[1], context));
 			auto test_val = eval_expr(args[2], context);
-			Value result = json::array();
+			TmplValue result{TmplValue::Array{}};
 			for (auto const &item: val.as_array()) {
 				if (!item.is_object()) {
 					continue;
 				}
-				auto *v = obj_find(item, attr);
+				auto const *v = obj_find(item, attr);
 				if (v == nullptr) {
 					continue;
 				}
@@ -1395,15 +1610,15 @@ Value Environment::Impl::apply_filter(
 			}
 			return result;
 		}
-		return json::array();
+		return TmplValue{TmplValue::Array{}};
 	}
 	if (name == "attr") {
 		if (val.is_object() && !args.empty()) {
 			auto attr_name = value_to_string(eval_expr(args[0], context));
-			auto *found = obj_find(val, attr_name);
-			return (found != nullptr) ? *found : json::null_value();
+			auto const *found = obj_find(val, attr_name);
+			return (found != nullptr) ? *found : TmplValue{};
 		}
-		return json::null_value();
+		return {};
 	}
 	if (name == "e" || name == "escape") {
 		auto s = value_to_string(val);
@@ -1419,7 +1634,7 @@ Value Environment::Impl::apply_filter(
 			default  : result += c;
 			}
 		}
-		return result;
+		return TmplValue{std::move(result)};
 	}
 	return val;
 }
@@ -1428,7 +1643,7 @@ Value Environment::Impl::apply_filter(
 // ---------------------------------------------------------------------------
 
 std::string Environment::Impl::value_to_string(
-	Value const &v) {
+	TmplValue const &v) {
 	if (v.is_null()) {
 		return "";
 	}
@@ -1461,7 +1676,7 @@ std::string Environment::Impl::value_to_string(
 	return v.dump();
 }
 bool Environment::Impl::is_truthy(
-	Value const &v) {
+	TmplValue const &v) {
 	if (v.is_null()) {
 		return false;
 	}
@@ -1492,19 +1707,15 @@ bool Environment::Impl::is_truthy(
 // Renderer
 // ---------------------------------------------------------------------------
 
+// NOLINTNEXTLINE(misc-no-recursion)
 std::string Environment::Impl::render_nodes(
 	NodeList const &nodes,
-	Value context,
+	TmplValue context,
 	std::unordered_map<std::string, NodeList> const *blocks,
 	std::unordered_map<std::string, std::tuple<std::vector<std::string>, std::vector<std::string>, NodeList>> *macros,
 	int depth) const {
 	if (depth > kMaxTemplateDepth) {
 		throw std::runtime_error{"template render recursion depth exceeded"};
-	}
-	// Detach the top-level JObject so mutations below are scope-local and do
-	// not race with other renders sharing the same context.
-	if (auto so = context.shared_object(); so) {
-		context = Value{std::make_shared<std::vector<std::pair<std::string, Value>>>(*so)};
 	}
 	std::string out;
 	std::unordered_map<std::string, std::tuple<std::vector<std::string>, std::vector<std::string>, NodeList>>
@@ -1563,7 +1774,7 @@ std::string Environment::Impl::render_nodes(
 										} else if (i < defaults.size() && !defaults[i].empty()) {
 											context.set(params[i], eval_expr(defaults[i], context));
 										} else {
-											context.set(params[i], json::null_value());
+											context.set(params[i], TmplValue{});
 										}
 									}
 									out += render_nodes(body, context, blocks, macros, depth + 1);
@@ -1604,8 +1815,9 @@ std::string Environment::Impl::render_nodes(
 					if (iter_val.is_array()) {
 						auto saved = save_scope(context, n.vars);
 						auto const *prev_loop = obj_find(context, "loop");
-						std::optional<Value> saved_loop = prev_loop ? std::optional<Value>{*prev_loop} : std::nullopt;
-						auto arr = iter_val.as_array();
+						std::optional<TmplValue> saved_loop =
+							prev_loop ? std::optional<TmplValue>{*prev_loop} : std::nullopt;
+						auto const &arr = iter_val.as_array();
 						for (std::size_t i = 0; i < arr.size(); ++i) {
 							if (n.vars.size() == 1) {
 								context.set(n.vars[0], arr[i]);
@@ -1615,16 +1827,16 @@ std::string Environment::Impl::render_nodes(
 									if (item.is_array() && j < item.as_array().size()) {
 										context.set(n.vars[j], item.as_array()[j]);
 									} else {
-										context.set(n.vars[j], json::null_value());
+										context.set(n.vars[j], TmplValue{});
 									}
 								}
 							}
-							Value loop_obj = json::object();
-							loop_obj.set("index0", static_cast<i64>(i));
-							loop_obj.set("index", static_cast<i64>(i + 1));
-							loop_obj.set("first", i == 0);
-							loop_obj.set("last", i == arr.size() - 1);
-							loop_obj.set("length", static_cast<i64>(arr.size()));
+							TmplValue loop_obj{TmplValue::Object{}};
+							loop_obj.set("index0", TmplValue{static_cast<i64>(i)});
+							loop_obj.set("index", TmplValue{static_cast<i64>(i + 1)});
+							loop_obj.set("first", TmplValue{i == 0});
+							loop_obj.set("last", TmplValue{i == arr.size() - 1});
+							loop_obj.set("length", TmplValue{static_cast<i64>(arr.size())});
 							context.set("loop", std::move(loop_obj));
 							out += render_nodes(n.body, context, blocks, macros, depth + 1);
 						}
@@ -1677,17 +1889,14 @@ std::string Environment::Impl::render_nodes(
 	}
 	return out;
 }
+// NOLINTNEXTLINE(misc-no-recursion)
 std::string Environment::Impl::render_template(
 	Template const &tmpl,
-	Value context,
+	TmplValue context,
 	std::unordered_map<std::string, NodeList> const *child_blocks,
 	int depth) const {
 	if (depth > kMaxTemplateDepth) {
 		throw std::runtime_error{"template render recursion depth exceeded"};
-	}
-	// Detach the top-level JObject so SetNode mutations below are scope-local.
-	if (auto so = context.shared_object(); so) {
-		context = Value{std::make_shared<std::vector<std::pair<std::string, Value>>>(*so)};
 	}
 	if (!tmpl.extends_name.empty()) {
 		auto it = cache.find(tmpl.extends_name);
@@ -1719,10 +1928,10 @@ std::string Environment::Impl::render_template(
 			}
 		}
 
-		return render_template(it->second, context, &merged, depth + 1);
+		return render_template(it->second, std::move(context), &merged, depth + 1);
 	}
 
-	return render_nodes(tmpl.nodes, context, child_blocks, nullptr, depth);
+	return render_nodes(tmpl.nodes, std::move(context), child_blocks, nullptr, depth);
 }
 // ---------------------------------------------------------------------------
 // Environment public interface
@@ -1855,18 +2064,18 @@ std::string Environment::render(
 		throw std::runtime_error{"template not found: " + name};
 	}
 
-	auto parsed = json::parse(json_ctx);
-	Value const ctx = parsed ? parsed->root() : json::object();
-	return impl_->render_template(it->second, ctx);
+	auto parsed_doc = conflux::json::parse(json_ctx);
+	TmplValue ctx = parsed_doc ? node_to_tmpl(parsed_doc->root()) : TmplValue{TmplValue::Object{}};
+	return impl_->render_template(it->second, std::move(ctx));
 }
 std::string Environment::render_string(
 	std::string const &source,
 	std::string const &json_ctx) const {
 	auto tmpl = impl_->parse("<string>", source);
-	auto parsed = json::parse(json_ctx);
-	Value const ctx = parsed ? parsed->root() : json::object();
+	auto parsed_doc = conflux::json::parse(json_ctx);
+	TmplValue ctx = parsed_doc ? node_to_tmpl(parsed_doc->root()) : TmplValue{TmplValue::Object{}};
 	std::shared_lock const lk{impl_->cache_mtx};
-	return impl_->render_template(tmpl, ctx);
+	return impl_->render_template(tmpl, std::move(ctx));
 }
 
 } // namespace tmpl

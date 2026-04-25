@@ -31,3 +31,6 @@ endif()
 
 add_executable(conflux_json_bench json_bench.cxx)
 target_link_libraries(conflux_json_bench PRIVATE conflux conflux_options)
+
+add_executable(conflux_template_bench template_bench.cxx)
+target_link_libraries(conflux_template_bench PRIVATE conflux conflux_options)
