@@ -881,6 +881,48 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
+// v11 Phase 7 — dump re-tuning. Fast path for kRawJsonSlice strings
+// (parse-side unescaped) memcpys the bytes; slow path covers escaped
+// strings, builder strings, and ascii_only output.
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"phase7: parse-side unescaped string dumps verbatim via fast path",
+	"[conformance][phase7][dump]") {
+	auto doc = json::parse(R"({"a": "plain text", "n": 42})");
+	REQUIRE(doc.has_value());
+	auto out = doc->dump();
+	REQUIRE(out.has_value());
+	CHECK(*out == R"({"a":"plain text","n":42})");
+}
+
+TEST_CASE(
+	"phase7: parse-side escaped string dumps with re-escaping (slow path)",
+	"[conformance][phase7][dump]") {
+	auto doc = json::parse(R"({"a": "line\nbreak"})");
+	REQUIRE(doc.has_value());
+	auto out = doc->dump();
+	REQUIRE(out.has_value());
+	CHECK(*out == R"({"a":"line\nbreak"})");
+}
+
+TEST_CASE(
+	"phase7: ascii_only forces slow path even on kRawJsonSlice bytes",
+	"[conformance][phase7][dump]") {
+	// UTF-8 multi-byte bytes in the input — parse-side unescaped, so the
+	// node has kRawJsonSlice. With ascii_only=true the dump must emit
+	// \uXXXX escapes rather than memcpy raw bytes.
+	auto doc = json::parse(R"({"k": "café"})");
+	REQUIRE(doc.has_value());
+	JsonDumpOptions opts;
+	opts.ascii_only = true;
+	auto out = doc->dump(opts);
+	REQUIRE(out.has_value());
+	CHECK(out->find("\\u00e9") != std::string::npos);
+	CHECK(out->find("é") == std::string::npos);
+}
+
+// ---------------------------------------------------------------------------
 // v11 Phase 1.5 — Builder buffer migration.
 // Builder-emitted strings/names/number lexemes live in built_input, which
 // becomes Document::owned_input on finish(). Round-trip dump must match.

@@ -1617,6 +1617,19 @@ Document make_document(
 // ---------------------------------------------------------------------------
 
 // NOLINTBEGIN(readability-magic-numbers)
+// Fast-path dump for bytes already known to be a raw JSON string body
+// (kRawJsonSlice set on parse-side unescaped strings/numbers): no scan,
+// just bracket the slice with quotes. Caller must guarantee `flags &
+// kRawJsonSlice` and !ascii_only (the latter would still need a
+// byte-by-byte non-ASCII rewrite).
+inline void dump_str_raw(
+	string_view sv,
+	string &out) {
+	out += '"';
+	out.append(sv.data(), sv.size());
+	out += '"';
+}
+
 void dump_str(
 	string_view sv,
 	string &out,
@@ -1712,8 +1725,17 @@ void dump_node(
 	switch (n.kind) {
 	case NodeKind::null_  : out += "null"; break;
 	case NodeKind::boolean: out += n.bool_val ? "true" : "false"; break;
-	case NodeKind::string_: dump_str(store.bytes_at(n.off, n.len, n.flags), out, opts.ascii_only); break;
-	case NodeKind::number : out += store.bytes_at(n.off, n.len, n.flags); break;
+	case NodeKind::string_:
+		{
+			auto const bytes = store.bytes_at(n.off, n.len, n.flags);
+			if ((n.flags & kRawJsonSlice) != 0 && !opts.ascii_only) {
+				dump_str_raw(bytes, out);
+			} else {
+				dump_str(bytes, out, opts.ascii_only);
+			}
+			break;
+		}
+	case NodeKind::number: out += store.bytes_at(n.off, n.len, n.flags); break;
 	case NodeKind::array:
 		{
 			out += '[';
@@ -1753,7 +1775,11 @@ void dump_node(
 					indent(depth + 1);
 					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
 					auto const &m = store.object_members[n.off + order[i]];
-					dump_str(store.member_name(m), out, opts.ascii_only);
+					if ((m.name_flags & kRawJsonSlice) != 0 && !opts.ascii_only) {
+						dump_str_raw(store.member_name(m), out);
+					} else {
+						dump_str(store.member_name(m), out, opts.ascii_only);
+					}
 					out += opts.pretty ? ": " : ":";
 					dump_node(store, m.val_node, opts, depth + 1, out);
 				}
