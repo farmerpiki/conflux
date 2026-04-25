@@ -12,11 +12,6 @@ leaving `hash_idx_raw = nullptr`. Prevents repeated re-attempts on adversarial
 repeat-lookup patterns. Cost: ~4 lines, 3 call sites.
 Gate: land only if benchmarks show adversarial repeat-lookup cost.
 
-**FI-6 — Number-lexeme length limit**
-4 KiB slow-path cap is a copy budget; adversary can still send megabyte-long
-number tokens that the tokenizer scans. Add internal constant (e.g. 1 KiB)
-that rejects oversized number lexemes at tokenize time before any copy.
-
 ---
 
 ## v2 design work

@@ -670,6 +670,7 @@ struct DocumentStorage {
 // pathological underflow tokens like "0." + 4000+ zeros + "1". DoS hardening
 // against megabyte-long number tokens.
 constexpr size_t kSlowFloatLexemeCopyLimit = 4096;
+constexpr size_t kMaxNumberLexemeLen       = 1024;
 
 namespace detail {
 
@@ -2453,6 +2454,9 @@ struct Tokenizer {
 			while (pos < src.size() && src[pos] >= '0' && src[pos] <= '9') {
 				adv();
 			}
+		}
+		if (pos - start > kMaxNumberLexemeLen) {
+			return unexpected(mk_err(JsonIssueCode::invalid_number, "number lexeme exceeds maximum length"));
 		}
 		return src.substr(start, pos - start);
 	}

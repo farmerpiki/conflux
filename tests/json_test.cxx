@@ -2926,6 +2926,25 @@ TEST_CASE(
 	}
 }
 
+TEST_CASE(
+	"json: limits — number lexeme length",
+	"[json][limits][pathological]") {
+	// 1024-char number lexeme: exactly at limit, must parse
+	{
+		string at_limit = "0.";
+		at_limit.append(1022, '1');
+		CHECK(parse(at_limit).has_value());
+	}
+	// 1025-char number lexeme: one over limit, must fail with invalid_number
+	{
+		string over_limit = "0.";
+		over_limit.append(1023, '1');
+		auto res = parse(over_limit);
+		REQUIRE_FALSE(res.has_value());
+		CHECK(res.error().code == JsonIssueCode::invalid_number);
+	}
+}
+
 // ---------------------------------------------------------------------------
 // v15 UUU — Escaped-key regression coverage (correctness fix FFF/GGG)
 // ---------------------------------------------------------------------------

@@ -475,6 +475,9 @@ struct NodeIdentityEqual { bool   operator()(NodeRef, NodeRef) const noexcept; }
 
 ## Known Deviations from RFC 8259
 
+- Number lexemes longer than 1024 bytes are rejected at parse time with
+  `invalid_number`. RFC 8259 imposes no length limit; this is a DoS-hardening
+  measure. Real-world numbers fit in well under 100 bytes.
 - Number lexemes longer than 4 KiB that hit the range-error slow path are
   conservatively classified as overflow. `to_f64()` returns `number_out_of_range`
   where RFC 8259 is silent on precision. Numbers ≤ 4 KiB are correctly handled
