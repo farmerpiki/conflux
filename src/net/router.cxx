@@ -3124,7 +3124,9 @@ public:
 					if (match_segments(route.pattern, path_sv, matched_params)) {
 						auto all_params = r.params;
 						for (auto const &[k, v]: matched_params) {
-							all_params.emplace_back(k, v);
+							if (!all_params.get(k)) {
+								all_params.emplace_back(k, v);
+							}
 						}
 						HttpRequestView const matched_view{
 							r.method,

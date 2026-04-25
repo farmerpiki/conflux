@@ -505,11 +505,9 @@ TEST_CASE(
 TEST_CASE(
 	"UUU: build_probe_cap_adversarial_hash -- 65 colliding-hash members",
 	"[conformance][escaped-key][phase6]") {
-	// Generate 65 keys whose std::hash<string_view>, truncated to 32 bits and
-	// masked to the low 8 bits (mask=cap-1 with cap=256 for member_count in
-	// [65,128]), all map to the same slot. build_table iterates kProbeChainMax
-	// (64) probes before giving up; the 65th insertion must hit the cap and
-	// abandon the table.
+	// Keys that formerly collided under std::hash<string_view> (low-8-bit bucket
+	// 0x37). With seeded xxHash3 (v16 Item B) the seed is random per document,
+	// so these keys no longer collide and warm_member_index succeeds.
 	constexpr std::uint32_t target_low = 0x37;
 	std::vector<std::string> keys;
 	keys.reserve(65);
@@ -539,12 +537,11 @@ TEST_CASE(
 	auto doc = json::parse(body);
 	REQUIRE(doc.has_value());
 
-	// warm hits build_table probe-cap (RRR).
+	// seeded xxHash3 defeats the old std::hash attack — warm must succeed.
 	auto warm = doc->warm_member_index(doc->root());
-	REQUIRE_FALSE(warm.has_value());
-	CHECK(warm.error().code == JsonIssueCode::resource_exhausted);
+	REQUIRE(warm.has_value());
 
-	// find_member must still return correct value via linear-scan fallback.
+	// hash path resolves correctly.
 	auto o = *doc->root().as_object();
 	CHECK(o.size() == keys.size());
 	auto first = o.find_member(keys.front());
