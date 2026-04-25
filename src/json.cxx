@@ -481,10 +481,11 @@ namespace detail {
 [[nodiscard]] inline Node make_number_int(
 	u32 off,
 	u32 len,
+	u8 storage_flags,
 	i64 v) noexcept {
 	return Node{
 		.kind = NodeKind::number,
-		.flags = kLexIntForm | kValKindInt,
+		.flags = static_cast<u8>(storage_flags | kLexIntForm | kValKindInt),
 		._pad0 = 0,
 		.off = off,
 		.len = len,
@@ -495,10 +496,11 @@ namespace detail {
 [[nodiscard]] inline Node make_number_uint(
 	u32 off,
 	u32 len,
+	u8 storage_flags,
 	u64 v) noexcept {
 	return Node{
 		.kind = NodeKind::number,
-		.flags = kLexIntForm | kValKindUint,
+		.flags = static_cast<u8>(storage_flags | kLexIntForm | kValKindUint),
 		._pad0 = 0,
 		.off = off,
 		.len = len,
@@ -509,17 +511,19 @@ namespace detail {
 [[nodiscard]] inline Node make_number_f64(
 	u32 off,
 	u32 len,
+	u8 storage_flags,
 	double v,
 	bool int_form) noexcept {
-	u8 const flags = static_cast<u8>((int_form ? kLexIntForm : 0) | kValKindF64);
+	u8 const flags = static_cast<u8>(storage_flags | (int_form ? kLexIntForm : 0) | kValKindF64);
 	return Node{.kind = NodeKind::number, .flags = flags, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, .dval = v};
 }
 
 [[nodiscard]] inline Node make_number_overflow(
 	u32 off,
 	u32 len,
+	u8 storage_flags,
 	bool int_form) noexcept {
-	u8 const flags = static_cast<u8>(int_form ? kLexIntForm : 0);
+	u8 const flags = static_cast<u8>(storage_flags | (int_form ? kLexIntForm : 0));
 	return Node{.kind = NodeKind::number, .flags = flags, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, ._raw = 0};
 }
 
@@ -530,9 +534,23 @@ struct DocumentStorage {
 	string string_arena;
 	vector<u32> array_children;
 	vector<MemberEntry> object_members;
+	// Phase 1 (v11): owned/borrowed input buffer. Numbers index into input_view
+	// when their flags include kStorageInputView; strings still live in
+	// string_arena until Phase 2 lands.
+	unique_ptr<string> owned_input; // non-null for copy/move modes; null in parse_borrowed
+	string_view input_view; // post-BOM bytes; pointer-stable across Document moves
 	u32 root_node{0}; // index of the root Node
 	u32 bom_prefix_bytes{0}; // 0 or 3 — added to source-offset reports (Correction Q)
 
+	DocumentStorage() = default;
+	DocumentStorage(DocumentStorage const &) = delete;
+	DocumentStorage &operator =(DocumentStorage const &) = delete;
+	// Explicit move ops re-instate what the user-declared destructor suppresses.
+	// owned_input transfers via unique_ptr (heap allocation stays put);
+	// input_view's data pointer remains valid because it points into the heap
+	// string body, not the moved-from string object.
+	DocumentStorage(DocumentStorage &&) noexcept = default;
+	DocumentStorage &operator =(DocumentStorage &&) noexcept = default;
 	~DocumentStorage() noexcept {
 		for (auto &n: nodes) {
 			if (n.kind == NodeKind::object) {
@@ -545,6 +563,17 @@ struct DocumentStorage {
 		u32 off,
 		u32 len) const noexcept {
 		return {string_arena.data() + off, len};
+	}
+
+	// Resolve a Node's lexeme bytes by storage-flag dispatch.
+	[[nodiscard]] string_view bytes_at(
+		u32 off,
+		u32 len,
+		u8 flags) const noexcept {
+		if ((flags & kStorageInputView) != 0) {
+			return input_view.substr(off, len);
+		}
+		return str_at(off, len);
 	}
 
 	[[nodiscard]] string_view member_name(
@@ -652,6 +681,7 @@ struct ClassifiedDouble {
 [[nodiscard]] inline expected<Node, JsonError> build_number_node_from_lexeme(
 	u32 off,
 	u32 len,
+	u8 storage_flags,
 	string_view lex) noexcept {
 	bool const int_form = lex.find_first_of(".eE") == string_view::npos;
 	bool const neg = !lex.empty() && lex.front() == '-';
@@ -662,12 +692,12 @@ struct ClassifiedDouble {
 	if (int_form) {
 		int64_t iv{};
 		if (auto [p, ec] = from_chars(b, e, iv); ec == errc{} && p == e) {
-			return make_number_int(off, len, iv);
+			return make_number_int(off, len, storage_flags, iv);
 		}
 		if (!neg) {
 			uint64_t uv{};
 			if (auto [p2, ec2] = from_chars(b, e, uv); ec2 == errc{} && p2 == e) {
-				return make_number_uint(off, len, uv);
+				return make_number_uint(off, len, storage_flags, uv);
 			}
 		}
 	}
@@ -676,9 +706,9 @@ struct ClassifiedDouble {
 	auto const [p, ec] = from_chars(b, e, dv, chars_format::general);
 	if (ec == errc{} && p == e) {
 		if (isfinite(dv)) {
-			return make_number_f64(off, len, dv, int_form);
+			return make_number_f64(off, len, storage_flags, dv, int_form);
 		}
-		return make_number_overflow(off, len, int_form);
+		return make_number_overflow(off, len, storage_flags, int_form);
 	}
 	if (ec == errc::result_out_of_range) {
 		auto classified = classify_range_error_slow(b, e);
@@ -686,9 +716,9 @@ struct ClassifiedDouble {
 			return unexpected(move(classified).error());
 		}
 		if (classified->kind == ClassifiedDouble::Kind::underflow_finite) {
-			return make_number_f64(off, len, classified->value, int_form);
+			return make_number_f64(off, len, storage_flags, classified->value, int_form);
 		}
-		return make_number_overflow(off, len, int_form);
+		return make_number_overflow(off, len, storage_flags, int_form);
 	}
 	return unexpected(
 		JsonError{
@@ -889,7 +919,7 @@ public:
 					.actual_kind = kind(),
 					.message = "expected number"});
 		}
-		return JsonNumberView{storage_->str_at(rec().off, rec().len), rec().flags, rec()._raw};
+		return JsonNumberView{storage_->bytes_at(rec().off, rec().len, rec().flags), rec().flags, rec()._raw};
 	}
 
 	[[nodiscard]] expected<NodeRef, JsonError> at(JsonPath const &path) const;
@@ -1370,8 +1400,8 @@ export bool is_value_equal(
 		return a.storage_->str_at(a.rec().off, a.rec().len) == b.storage_->str_at(b.rec().off, b.rec().len);
 	case NodeKind::number:
 		{
-			auto la = a.storage_->str_at(a.rec().off, a.rec().len);
-			auto lb = b.storage_->str_at(b.rec().off, b.rec().len);
+			auto la = a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags);
+			auto lb = b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
 			if (la == lb) {
 				return true;
 			}
@@ -1423,6 +1453,8 @@ export bool is_value_equal_exact(
 	case NodeKind::null_  : return true;
 	case NodeKind::boolean: return a.rec().bool_val == b.rec().bool_val;
 	case NodeKind::number:
+		return a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags)
+			== b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
 	case NodeKind::string_:
 		return a.storage_->str_at(a.rec().off, a.rec().len) == b.storage_->str_at(b.rec().off, b.rec().len);
 	case NodeKind::array:
@@ -1679,7 +1711,7 @@ void dump_node(
 	case NodeKind::null_  : out += "null"; break;
 	case NodeKind::boolean: out += n.bool_val ? "true" : "false"; break;
 	case NodeKind::string_: dump_str(store.str_at(n.off, n.len), out, opts.ascii_only); break;
-	case NodeKind::number : out += store.str_at(n.off, n.len); break;
+	case NodeKind::number : out += store.bytes_at(n.off, n.len, n.flags); break;
 	case NodeKind::array:
 		{
 			out += '[';
@@ -2178,9 +2210,12 @@ struct Parser {
 			}
 		}
 		string_view const lex = src.substr(start, pos - start);
-		size_t const off = store.string_arena.size();
-		store.string_arena.append(lex.data(), lex.size());
-		auto node = detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lex.size()), lex);
+		// Phase 1: number lexemes reference input_view directly — zero-copy.
+		auto node = detail::build_number_node_from_lexeme(
+			static_cast<u32>(start),
+			static_cast<u32>(lex.size()),
+			static_cast<u8>(kStorageInputView | kRawJsonSlice),
+			lex);
 		if (!node) {
 			return unexpected(move(node).error());
 		}
@@ -2193,44 +2228,39 @@ struct Parser {
 // parse()
 // ---------------------------------------------------------------------------
 
-export namespace conflux::json {
-
-expected<Document, JsonError> parse(
-	string_view input,
-	JsonParseOptions const &opts = {}) {
-	// 4 GiB hard ceiling — Fix F / Correction P. Unbypassable by max_input_size = no_limit
-	// because Node::off / Node::len / array_children entries are all u32.
+[[nodiscard]] inline expected<void, JsonError> check_input_limits(
+	size_t input_size,
+	JsonParseOptions const &opts) noexcept {
+	// 4 GiB hard ceiling — Fix F / Correction P. Unbypassable by
+	// max_input_size = no_limit because Node::off / Node::len /
+	// array_children entries are all u32.
 	constexpr size_t kU32Ceiling = (size_t{1} << 32) - 1;
-	if (input.size() >= kU32Ceiling) {
+	if (input_size >= kU32Ceiling) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::input_too_large,
 				.message = "input exceeds 4 GiB hard ceiling"});
 	}
-	if (opts.max_input_size.exceeds(input.size(), kDefaultMaxInput)) {
+	if (opts.max_input_size.exceeds(input_size, kDefaultMaxInput)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::input_too_large,
 				.message = "input exceeds max_input_size"});
 	}
+	return {};
+}
 
-	string_view src = input;
-	u32 bom_prefix_bytes = 0;
-	constexpr string_view kBOM = "\xEF\xBB\xBF";
-	if (src.starts_with(kBOM)) {
-		src.remove_prefix(kBOM.size());
-		bom_prefix_bytes = static_cast<u32>(kBOM.size());
-	}
-
-	auto storage = make_unique<DocumentStorage>();
-	storage->bom_prefix_bytes = bom_prefix_bytes;
+[[nodiscard]] inline expected<Document, JsonError> parse_with_storage(
+	DocumentStorage &storage_ref,
+	unique_ptr<DocumentStorage> storage,
+	JsonParseOptions const &opts) {
 	storage->nodes.reserve(64);
 
-	Parser p{.src = src, .store = *storage, .opts = opts};
+	Parser p{.src = storage_ref.input_view, .store = storage_ref, .opts = opts};
 	p.skip_ws();
-	if (p.pos >= src.size()) {
+	if (p.pos >= storage_ref.input_view.size()) {
 		return unexpected(
 			JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::unexpected_eof, .message = "empty input"});
 	}
@@ -2242,18 +2272,99 @@ expected<Document, JsonError> parse(
 	storage->root_node = static_cast<u32>(*root);
 
 	p.skip_ws();
-	if (p.pos < src.size()) {
+	if (p.pos < storage_ref.input_view.size()) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::trailing_garbage,
-				.source = JsonSourceLocation{.offset = p.pos + bom_prefix_bytes, .line = p.line, .column = p.col},
+				.source =
+					JsonSourceLocation{.offset = p.pos + storage_ref.bom_prefix_bytes, .line = p.line, .column = p.col},
 				.message = "trailing content after value"
         });
 	}
 
-	return ::make_document(move(storage));
+	return make_document(move(storage));
 }
+
+export namespace conflux::json {
+
+// Copies the input into the Document's owned buffer. Number lexemes index
+// directly into that buffer (zero-copy on read paths).
+expected<Document, JsonError> parse(
+	string_view input,
+	JsonParseOptions const &opts = {}) {
+	if (auto ok = check_input_limits(input.size(), opts); !ok) {
+		return unexpected(move(ok).error());
+	}
+
+	auto storage = make_unique<DocumentStorage>();
+	storage->owned_input = make_unique<string>(input);
+	string_view src = *storage->owned_input;
+	constexpr string_view kBOM = "\xEF\xBB\xBF";
+	if (src.starts_with(kBOM)) {
+		src.remove_prefix(kBOM.size());
+		storage->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+	}
+	storage->input_view = src;
+
+	auto &storage_ref = *storage;
+	return parse_with_storage(storage_ref, move(storage), opts);
+}
+
+// Move-in overload: avoids the input copy. Constrained to actual std::string
+// rvalues so that const char[N] literals select the (string_view) overload
+// without ambiguity.
+template<class S>
+	requires same_as<remove_cvref_t<S>, string> && (!is_lvalue_reference_v<S>)
+expected<Document, JsonError> parse(
+	S &&input,
+	JsonParseOptions const &opts = {}) {
+	if (auto ok = check_input_limits(input.size(), opts); !ok) {
+		return unexpected(move(ok).error());
+	}
+
+	auto storage = make_unique<DocumentStorage>();
+	storage->owned_input = make_unique<string>(move(input));
+	string_view src = *storage->owned_input;
+	constexpr string_view kBOM = "\xEF\xBB\xBF";
+	if (src.starts_with(kBOM)) {
+		src.remove_prefix(kBOM.size());
+		storage->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+	}
+	storage->input_view = src;
+
+	auto &storage_ref = *storage;
+	return parse_with_storage(storage_ref, move(storage), opts);
+}
+
+// Borrow-only overload: caller guarantees the bytes outlive the Document.
+// Rvalue overload is deleted to prevent obvious lifetime mistakes.
+expected<Document, JsonError> parse_borrowed(
+	string_view input,
+	JsonParseOptions const &opts = {}) {
+	if (auto ok = check_input_limits(input.size(), opts); !ok) {
+		return unexpected(move(ok).error());
+	}
+
+	auto storage = make_unique<DocumentStorage>();
+	string_view src = input;
+	constexpr string_view kBOM = "\xEF\xBB\xBF";
+	if (src.starts_with(kBOM)) {
+		src.remove_prefix(kBOM.size());
+		storage->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+	}
+	storage->input_view = src;
+
+	auto &storage_ref = *storage;
+	return parse_with_storage(storage_ref, move(storage), opts);
+}
+
+// Deleted rvalue overload (Correction T) — borrowing requires the caller to
+// own the bytes. Constrained the same way as the parse(string&&) overload
+// so const char[N] still selects parse_borrowed(string_view).
+template<class S>
+	requires same_as<remove_cvref_t<S>, string> && (!is_lvalue_reference_v<S>)
+expected<Document, JsonError> parse_borrowed(S &&, JsonParseOptions const & = {}) = delete;
 
 } // namespace conflux::json
 
@@ -2685,7 +2796,7 @@ public:
 		auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 		state_->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 		size_t const len = state_->store.string_arena.size() - off;
-		return set_node(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), v));
+		return set_node(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, v));
 	}
 
 	expected<void, JsonError> set_u64(
@@ -2702,9 +2813,9 @@ public:
 		size_t const len = state_->store.string_arena.size() - off;
 		if (v <= static_cast<uint64_t>(numeric_limits<int64_t>::max())) {
 			return set_node(
-				detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), static_cast<int64_t>(v)));
+				detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, static_cast<int64_t>(v)));
 		}
-		return set_node(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), v));
+		return set_node(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), 0, v));
 	}
 
 	expected<void, JsonError> set_f64(
@@ -2728,7 +2839,7 @@ public:
 		size_t const len = state_->store.string_arena.size() - off;
 		string_view const lex = state_->store.str_at(static_cast<u32>(off), static_cast<u32>(len));
 		bool const is_int = lex.find_first_of(".eE") == string_view::npos;
-		return set_node(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), v, is_int));
+		return set_node(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), 0, v, is_int));
 	}
 
 	[[nodiscard]] expected<ObjectBuilder, JsonError> begin_object() {
@@ -2910,7 +3021,8 @@ expected<void, JsonError> ValueBuilder::set_number(
 	}
 	size_t const off = state_->store.string_arena.size();
 	state_->store.string_arena.append(lexeme.data(), lexeme.size());
-	auto node = detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), lexeme);
+	auto node =
+		detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), 0, lexeme);
 	if (!node) {
 		return unexpected(move(node).error());
 	}
@@ -2988,7 +3100,8 @@ expected<void, JsonError> ObjectBuilder::insert_number(
 	auto *st = frame_.state;
 	size_t const off = st->store.string_arena.size();
 	st->store.string_arena.append(lexeme.data(), lexeme.size());
-	auto node = detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), lexeme);
+	auto node =
+		detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), 0, lexeme);
 	if (!node) {
 		return unexpected(move(node).error());
 	}
@@ -3008,7 +3121,7 @@ expected<void, JsonError> ObjectBuilder::insert_i64(
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 	size_t const len = st->store.string_arena.size() - off;
-	st->store.nodes.push_back(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), v));
+	st->store.nodes.push_back(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, v));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_u64(
@@ -3026,9 +3139,9 @@ expected<void, JsonError> ObjectBuilder::insert_u64(
 	size_t const len = st->store.string_arena.size() - off;
 	if (v <= static_cast<uint64_t>(numeric_limits<int64_t>::max())) {
 		st->store.nodes.push_back(
-			detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), static_cast<int64_t>(v)));
+			detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, static_cast<int64_t>(v)));
 	} else {
-		st->store.nodes.push_back(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), v));
+		st->store.nodes.push_back(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), 0, v));
 	}
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
@@ -3054,7 +3167,7 @@ expected<void, JsonError> ObjectBuilder::insert_f64(
 	size_t const len = st->store.string_arena.size() - off;
 	string_view const lex = st->store.str_at(static_cast<u32>(off), static_cast<u32>(len));
 	bool const is_int = lex.find_first_of(".eE") == string_view::npos;
-	st->store.nodes.push_back(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), v, is_int));
+	st->store.nodes.push_back(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), 0, v, is_int));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 
@@ -3188,7 +3301,8 @@ expected<void, JsonError> ArrayBuilder::append_number(
 	auto *st = frame_.state;
 	size_t const off = st->store.string_arena.size();
 	st->store.string_arena.append(lexeme.data(), lexeme.size());
-	auto node = detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), lexeme);
+	auto node =
+		detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), 0, lexeme);
 	if (!node) {
 		return unexpected(move(node).error());
 	}
@@ -3212,7 +3326,7 @@ expected<void, JsonError> ArrayBuilder::append_i64(
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 	size_t const len = st->store.string_arena.size() - off;
-	st->store.nodes.push_back(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), v));
+	st->store.nodes.push_back(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, v));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -3234,9 +3348,9 @@ expected<void, JsonError> ArrayBuilder::append_u64(
 	size_t const len = st->store.string_arena.size() - off;
 	if (v <= static_cast<uint64_t>(numeric_limits<int64_t>::max())) {
 		st->store.nodes.push_back(
-			detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), static_cast<int64_t>(v)));
+			detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, static_cast<int64_t>(v)));
 	} else {
-		st->store.nodes.push_back(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), v));
+		st->store.nodes.push_back(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), 0, v));
 	}
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
@@ -3266,7 +3380,7 @@ expected<void, JsonError> ArrayBuilder::append_f64(
 	size_t const len = st->store.string_arena.size() - off;
 	string_view const lex = st->store.str_at(static_cast<u32>(off), static_cast<u32>(len));
 	bool const is_int = lex.find_first_of(".eE") == string_view::npos;
-	st->store.nodes.push_back(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), v, is_int));
+	st->store.nodes.push_back(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), 0, v, is_int));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }

@@ -752,6 +752,79 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
+// v11 Phase 1 — owned input buffer + zero-copy number lexemes.
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"phase1: parse(string_view) copies input — original buffer can be freed",
+	"[conformance][phase1][input]") {
+	std::string transient = "[1, 2.5, 3]";
+	auto doc = json::parse(transient);
+	REQUIRE(doc.has_value());
+	transient.clear();
+	transient.shrink_to_fit();
+	auto arr = *doc->root().as_array();
+	CHECK(arr.size() == 3UZ);
+	CHECK(*arr.element(0)->as_number()->to_i64() == 1LL);
+	auto v1 = arr.element(1)->as_number()->to_f64();
+	REQUIRE(v1.has_value());
+	CHECK(std::abs(*v1 - 2.5) < 1e-12);
+	CHECK(*arr.element(2)->as_number()->to_i64() == 3LL);
+}
+
+TEST_CASE(
+	"phase1: parse(string&&) moves input",
+	"[conformance][phase1][input]") {
+	// Long string forces heap allocation, ensuring move actually transfers
+	// rather than relying on SSO.
+	std::string s(256, 'x');
+	for (auto &c: s) {
+		c = '1';
+	}
+	s = "[" + s + "]";
+	auto doc = json::parse(std::move(s));
+	REQUIRE(doc.has_value());
+	auto arr = *doc->root().as_array();
+	CHECK(arr.size() == 1UZ);
+}
+
+TEST_CASE(
+	"phase1: parse_borrowed references caller bytes — number lexeme is zero-copy",
+	"[conformance][phase1][input]") {
+	// Verify number lexeme bytes point into the caller's buffer (no copy
+	// into string_arena for numbers).
+	std::string buf = "12345";
+	auto doc = json::parse_borrowed(buf);
+	REQUIRE(doc.has_value());
+	auto num = *doc->root().as_number();
+	CHECK(num.lexeme().data() == buf.data());
+	CHECK(num.lexeme() == "12345");
+}
+
+TEST_CASE(
+	"phase1: parse_borrowed BOM is stripped from input_view but not from caller buffer",
+	"[conformance][phase1][input]") {
+	std::string buf =
+		"\xEF\xBB\xBF"
+		"42";
+	auto doc = json::parse_borrowed(buf);
+	REQUIRE(doc.has_value());
+	auto num = *doc->root().as_number();
+	// Lexeme starts after the BOM (3 bytes in).
+	CHECK(num.lexeme().data() == buf.data() + 3);
+	CHECK(num.lexeme() == "42");
+}
+
+// parse_borrowed must reject an std::string rvalue at compile time.
+template<class T, class = void>
+constexpr bool kCanCallParseBorrowedRvalue = false;
+template<class T>
+constexpr bool kCanCallParseBorrowedRvalue<T, std::void_t<decltype(json::parse_borrowed(std::declval<T>()))>> = true;
+static_assert(kCanCallParseBorrowedRvalue<std::string_view>);
+static_assert(kCanCallParseBorrowedRvalue<std::string &>);
+static_assert(!kCanCallParseBorrowedRvalue<std::string>);
+
+// ---------------------------------------------------------------------------
 // Builder-API conformance — exercise the ValueBuilder/ObjectBuilder/ArrayBuilder
 // API against real-world documents, verifying build/parse → dump round-trips.
 // ---------------------------------------------------------------------------
