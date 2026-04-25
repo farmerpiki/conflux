@@ -825,6 +825,49 @@ static_assert(kCanCallParseBorrowedRvalue<std::string &>);
 static_assert(!kCanCallParseBorrowedRvalue<std::string>);
 
 // ---------------------------------------------------------------------------
+// v11 Phase 1.5 — Builder buffer migration.
+// Builder-emitted strings/names/number lexemes live in built_input, which
+// becomes Document::owned_input on finish(). Round-trip dump must match.
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"phase1.5: builder produces Document with strings/numbers in owned_input",
+	"[conformance][phase15][builder]") {
+	auto b = value_builder();
+	auto obj = *std::move(b).begin_object();
+	REQUIRE(obj.insert_string("name", "alpha").has_value());
+	REQUIRE(obj.insert_i64("count", 42).has_value());
+	REQUIRE(obj.insert_f64("ratio", 3.5).has_value());
+	auto arr = *obj.insert_array("seq");
+	REQUIRE(arr.append_i64(1).has_value());
+	REQUIRE(arr.append_i64(2).has_value());
+	std::move(arr).commit();
+	std::move(obj).commit();
+	auto doc = *std::move(b).finish();
+
+	auto o = *doc.root().as_object();
+	CHECK(*o.member("name")->as_string() == "alpha");
+	CHECK(*o.member("count")->as_number()->to_i64() == 42LL);
+	CHECK(o.member("count")->as_number()->lexeme() == "42");
+	auto rv = o.member("ratio")->as_number()->to_f64();
+	REQUIRE(rv.has_value());
+	CHECK(std::abs(*rv - 3.5) < 1e-12);
+
+	auto seq = *o.member("seq")->as_array();
+	CHECK(seq.size() == 2UZ);
+	CHECK(*seq.element(0)->as_number()->to_i64() == 1LL);
+
+	// Dump round-trips into a parseable JSON document.
+	auto dumped = doc.dump();
+	REQUIRE(dumped.has_value());
+	auto reparsed = json::parse(*dumped);
+	REQUIRE(reparsed.has_value());
+	auto o2 = *reparsed->root().as_object();
+	CHECK(*o2.member("name")->as_string() == "alpha");
+	CHECK(*o2.member("count")->as_number()->to_i64() == 42LL);
+}
+
+// ---------------------------------------------------------------------------
 // Builder-API conformance — exercise the ValueBuilder/ObjectBuilder/ArrayBuilder
 // API against real-world documents, verifying build/parse → dump round-trips.
 // ---------------------------------------------------------------------------

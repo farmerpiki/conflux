@@ -578,7 +578,7 @@ struct DocumentStorage {
 
 	[[nodiscard]] string_view member_name(
 		MemberEntry const &m) const noexcept {
-		return str_at(m.name_off, m.name_len);
+		return bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags));
 	}
 };
 
@@ -906,7 +906,7 @@ public:
 					.actual_kind = kind(),
 					.message = "expected string"});
 		}
-		return storage_->str_at(rec().off, rec().len);
+		return storage_->bytes_at(rec().off, rec().len, rec().flags);
 	}
 
 	[[nodiscard]] expected<JsonNumberView, JsonError> as_number() const {
@@ -1277,7 +1277,7 @@ public:
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
 			auto const &m = storage_->object_members[start_ + idx_];
 			return {
-				storage_->str_at(m.name_off, m.name_len),
+				storage_->member_name(m),
 				NodeRef{storage_, m.val_node}
             };
 		}
@@ -1397,7 +1397,8 @@ export bool is_value_equal(
 	case NodeKind::null_  : return true;
 	case NodeKind::boolean: return a.rec().bool_val == b.rec().bool_val;
 	case NodeKind::string_:
-		return a.storage_->str_at(a.rec().off, a.rec().len) == b.storage_->str_at(b.rec().off, b.rec().len);
+		return a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags)
+			== b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
 	case NodeKind::number:
 		{
 			auto la = a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags);
@@ -1456,7 +1457,8 @@ export bool is_value_equal_exact(
 		return a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags)
 			== b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
 	case NodeKind::string_:
-		return a.storage_->str_at(a.rec().off, a.rec().len) == b.storage_->str_at(b.rec().off, b.rec().len);
+		return a.storage_->bytes_at(a.rec().off, a.rec().len, a.rec().flags)
+			== b.storage_->bytes_at(b.rec().off, b.rec().len, b.rec().flags);
 	case NodeKind::array:
 		{
 			ArrayView const av{a.storage_, a.rec().off, a.rec().len};
@@ -1710,7 +1712,7 @@ void dump_node(
 	switch (n.kind) {
 	case NodeKind::null_  : out += "null"; break;
 	case NodeKind::boolean: out += n.bool_val ? "true" : "false"; break;
-	case NodeKind::string_: dump_str(store.str_at(n.off, n.len), out, opts.ascii_only); break;
+	case NodeKind::string_: dump_str(store.bytes_at(n.off, n.len, n.flags), out, opts.ascii_only); break;
 	case NodeKind::number : out += store.bytes_at(n.off, n.len, n.flags); break;
 	case NodeKind::array:
 		{
@@ -1741,7 +1743,7 @@ void dump_node(
 						auto const &mx = store.object_members[n.off + x];
 						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
 						auto const &my = store.object_members[n.off + y];
-						return store.str_at(mx.name_off, mx.name_len) < store.str_at(my.name_off, my.name_len);
+						return store.member_name(mx) < store.member_name(my);
 					});
 				}
 				for (size_t i = 0; i < n.len; ++i) {
@@ -1751,7 +1753,7 @@ void dump_node(
 					indent(depth + 1);
 					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
 					auto const &m = store.object_members[n.off + order[i]];
-					dump_str(store.str_at(m.name_off, m.name_len), out, opts.ascii_only);
+					dump_str(store.member_name(m), out, opts.ascii_only);
 					out += opts.pretty ? ": " : ":";
 					dump_node(store, m.val_node, opts, depth + 1, out);
 				}
@@ -2412,6 +2414,11 @@ inline constexpr bool has_json_codec_v = has_json_codec<T>;
 // Builder state shared across ValueBuilder / child builders.
 struct BuilderState {
 	DocumentStorage store;
+	// Phase 1.5: builder-emitted strings, names, and number lexemes accumulate
+	// here. On finish() this becomes store.owned_input; node off/len index
+	// into it via kStorageInputView. Built_input is also the rollback target
+	// for child-builder partial state.
+	string built_input;
 	bool root_set{false};
 	size_t root_node{};
 	bool child_active{false}; // true when any descendant of ValueBuilder is open
@@ -2512,7 +2519,7 @@ public:
 	void abort_if_open() noexcept {
 		if ((frame_.state != nullptr) && !frame_.committed) {
 			auto *st = frame_.state;
-			st->store.string_arena.resize(frame_.parent.arena_start);
+			st->built_input.resize(frame_.parent.arena_start);
 			frame_.local_members.clear();
 			frame_.dup_check.clear();
 			st->active_depth = frame_.depth - 1;
@@ -2564,7 +2571,7 @@ public:
 				{static_cast<u32>(frame_.parent.name_off),
 				 static_cast<u32>(frame_.parent.name_len),
 				 static_cast<u32>(node_idx),
-				 0});
+				 kStorageInputView});
 			break;
 		case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
 		}
@@ -2600,7 +2607,7 @@ export class ArrayBuilder {
 	void abort_if_open() noexcept {
 		if ((frame_.state != nullptr) && !frame_.committed) {
 			auto *st = frame_.state;
-			st->store.string_arena.resize(frame_.parent.arena_start);
+			st->built_input.resize(frame_.parent.arena_start);
 			frame_.local_children.clear();
 			st->active_depth = frame_.depth - 1;
 			if (frame_.parent.kind == ParentSlot::Kind::set_root) {
@@ -2669,7 +2676,7 @@ public:
 				{static_cast<u32>(frame_.parent.name_off),
 				 static_cast<u32>(frame_.parent.name_len),
 				 static_cast<u32>(node_idx),
-				 0});
+				 kStorageInputView});
 			break;
 		case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
 		}
@@ -2777,9 +2784,9 @@ public:
 		if (!ok) {
 			return ok;
 		}
-		size_t const off = state_->store.string_arena.size();
-		state_->store.string_arena.append(sv.data(), sv.size());
-		return set_node(detail::make_string(static_cast<u32>(off), static_cast<u32>(sv.size()), 0));
+		size_t const off = state_->built_input.size();
+		state_->built_input.append(sv.data(), sv.size());
+		return set_node(detail::make_string(static_cast<u32>(off), static_cast<u32>(sv.size()), kStorageInputView));
 	}
 
 	expected<void, JsonError> set_number(string_view lexeme);
@@ -2790,13 +2797,18 @@ public:
 		if (!ok) {
 			return ok;
 		}
-		size_t const off = state_->store.string_arena.size();
+		size_t const off = state_->built_input.size();
 		array<char, 22> buf{};
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
-		state_->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
-		size_t const len = state_->store.string_arena.size() - off;
-		return set_node(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, v));
+		state_->built_input.append(buf.data(), static_cast<size_t>(p - buf.data()));
+		size_t const len = state_->built_input.size() - off;
+		return set_node(
+			detail::make_number_int(
+				static_cast<u32>(off),
+				static_cast<u32>(len),
+				kStorageInputView | kRawJsonSlice,
+				v));
 	}
 
 	expected<void, JsonError> set_u64(
@@ -2805,17 +2817,26 @@ public:
 		if (!ok) {
 			return ok;
 		}
-		size_t const off = state_->store.string_arena.size();
+		size_t const off = state_->built_input.size();
 		array<char, 22> buf{};
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
-		state_->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
-		size_t const len = state_->store.string_arena.size() - off;
+		state_->built_input.append(buf.data(), static_cast<size_t>(p - buf.data()));
+		size_t const len = state_->built_input.size() - off;
 		if (v <= static_cast<uint64_t>(numeric_limits<int64_t>::max())) {
 			return set_node(
-				detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, static_cast<int64_t>(v)));
+				detail::make_number_int(
+					static_cast<u32>(off),
+					static_cast<u32>(len),
+					kStorageInputView | kRawJsonSlice,
+					static_cast<int64_t>(v)));
 		}
-		return set_node(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), 0, v));
+		return set_node(
+			detail::make_number_uint(
+				static_cast<u32>(off),
+				static_cast<u32>(len),
+				kStorageInputView | kRawJsonSlice,
+				v));
 	}
 
 	expected<void, JsonError> set_f64(
@@ -2831,15 +2852,21 @@ public:
 		if (!ok) {
 			return ok;
 		}
-		size_t const off = state_->store.string_arena.size();
+		size_t const off = state_->built_input.size();
 		array<char, 32> buf{};
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
-		state_->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
-		size_t const len = state_->store.string_arena.size() - off;
-		string_view const lex = state_->store.str_at(static_cast<u32>(off), static_cast<u32>(len));
+		state_->built_input.append(buf.data(), static_cast<size_t>(p - buf.data()));
+		size_t const len = state_->built_input.size() - off;
+		string_view const lex = string_view{state_->built_input.data() + off, len};
 		bool const is_int = lex.find_first_of(".eE") == string_view::npos;
-		return set_node(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), 0, v, is_int));
+		return set_node(
+			detail::make_number_f64(
+				static_cast<u32>(off),
+				static_cast<u32>(len),
+				kStorageInputView | kRawJsonSlice,
+				v,
+				is_int));
 	}
 
 	[[nodiscard]] expected<ObjectBuilder, JsonError> begin_object() {
@@ -2853,7 +2880,7 @@ public:
 		state_->active_depth = 1;
 		ParentSlot const parent{
 			.kind = ParentSlot::Kind::set_root,
-			.arena_start = state_->store.string_arena.size(),
+			.arena_start = state_->built_input.size(),
 			.saved_root_set = prev_root_set};
 		ObjectBuilder child{state_, parent};
 		child.frame_.depth = 1;
@@ -2871,7 +2898,7 @@ public:
 		state_->active_depth = 1;
 		ParentSlot const parent{
 			.kind = ParentSlot::Kind::set_root,
-			.arena_start = state_->store.string_arena.size(),
+			.arena_start = state_->built_input.size(),
 			.saved_root_set = prev_root_set};
 		ArrayBuilder child{state_, parent};
 		child.frame_.depth = 1;
@@ -2884,6 +2911,7 @@ public:
 
 	void reset() noexcept {
 		state_->store = DocumentStorage{};
+		state_->built_input.clear();
 		state_->root_set = false;
 		state_->root_node = 0;
 		state_->child_active = false;
@@ -2904,8 +2932,22 @@ public:
 					.message = (state_ != nullptr) && state_->child_active ? "child builder still active" :
 																			 "root value was never set"});
 		}
+		// Phase 1.5: transfer built_input → owned_input; node off/len with
+		// kStorageInputView point into the heap-stable buffer body. The
+		// 4 GiB ceiling on built_input is enforced incrementally at each
+		// insert site (Correction S); this is the final guard.
+		constexpr size_t kU32Ceiling = (size_t{1} << 32) - 1;
+		if (state_->built_input.size() >= kU32Ceiling) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::build,
+					.code = JsonIssueCode::input_too_large,
+					.message = "Builder input buffer exceeds 4 GiB hard ceiling"});
+		}
 		auto storage = make_unique<DocumentStorage>(move(state_->store));
 		storage->root_node = static_cast<u32>(state_->root_node);
+		storage->owned_input = make_unique<string>(move(state_->built_input));
+		storage->input_view = *storage->owned_input;
 		owned_.reset();
 		state_ = nullptr;
 		return ::make_document(move(storage));
@@ -2926,7 +2968,7 @@ expected<size_t, JsonError> encode_into(
 	BuilderState *st,
 	T const &value) {
 	size_t const nodes_saved = st->store.nodes.size();
-	size_t const arena_saved = st->store.string_arena.size();
+	size_t const arena_saved = st->built_input.size();
 	size_t const arr_saved = st->store.array_children.size();
 	size_t const obj_saved = st->store.object_members.size();
 	bool const root_set_saved = st->root_set;
@@ -2940,7 +2982,7 @@ expected<size_t, JsonError> encode_into(
 	auto ok = encode_dispatch<T>(vb, value);
 	if (!ok) {
 		st->store.nodes.resize(nodes_saved);
-		st->store.string_arena.resize(arena_saved);
+		st->built_input.resize(arena_saved);
 		st->store.array_children.resize(arr_saved);
 		st->store.object_members.resize(obj_saved);
 		st->root_set = root_set_saved;
@@ -3019,10 +3061,13 @@ expected<void, JsonError> ValueBuilder::set_number(
 	if (!ok) {
 		return ok;
 	}
-	size_t const off = state_->store.string_arena.size();
-	state_->store.string_arena.append(lexeme.data(), lexeme.size());
-	auto node =
-		detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), 0, lexeme);
+	size_t const off = state_->built_input.size();
+	state_->built_input.append(lexeme.data(), lexeme.size());
+	auto node = detail::build_number_node_from_lexeme(
+		static_cast<u32>(off),
+		static_cast<u32>(lexeme.size()),
+		kStorageInputView | kRawJsonSlice,
+		lexeme);
 	if (!node) {
 		return unexpected(move(node).error());
 	}
@@ -3046,10 +3091,10 @@ expected<void, JsonError> ObjectBuilder::do_insert_node(
 				.member_name = string{name},
 				.message = format("duplicate member: {}", name)});
 	}
-	size_t const name_off = st->store.string_arena.size();
-	st->store.string_arena.append(name.data(), name.size());
+	size_t const name_off = st->built_input.size();
+	st->built_input.append(name.data(), name.size());
 	frame_.local_members.push_back(
-		{static_cast<u32>(name_off), static_cast<u32>(name.size()), static_cast<u32>(node_idx), 0});
+		{static_cast<u32>(name_off), static_cast<u32>(name.size()), static_cast<u32>(node_idx), kStorageInputView});
 	return {};
 }
 
@@ -3079,9 +3124,10 @@ expected<void, JsonError> ObjectBuilder::insert_string(
 		return ok;
 	}
 	auto *st = frame_.state;
-	size_t const off = st->store.string_arena.size();
-	st->store.string_arena.append(value.data(), value.size());
-	st->store.nodes.push_back(detail::make_string(static_cast<u32>(off), static_cast<u32>(value.size()), 0));
+	size_t const off = st->built_input.size();
+	st->built_input.append(value.data(), value.size());
+	st->store.nodes.push_back(
+		detail::make_string(static_cast<u32>(off), static_cast<u32>(value.size()), kStorageInputView));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_number(
@@ -3098,10 +3144,13 @@ expected<void, JsonError> ObjectBuilder::insert_number(
 				.message = format("invalid number lexeme: {}", lexeme)});
 	}
 	auto *st = frame_.state;
-	size_t const off = st->store.string_arena.size();
-	st->store.string_arena.append(lexeme.data(), lexeme.size());
-	auto node =
-		detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), 0, lexeme);
+	size_t const off = st->built_input.size();
+	st->built_input.append(lexeme.data(), lexeme.size());
+	auto node = detail::build_number_node_from_lexeme(
+		static_cast<u32>(off),
+		static_cast<u32>(lexeme.size()),
+		kStorageInputView | kRawJsonSlice,
+		lexeme);
 	if (!node) {
 		return unexpected(move(node).error());
 	}
@@ -3115,13 +3164,14 @@ expected<void, JsonError> ObjectBuilder::insert_i64(
 		return ok;
 	}
 	auto *st = frame_.state;
-	size_t const off = st->store.string_arena.size();
+	size_t const off = st->built_input.size();
 	array<char, 22> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
-	size_t const len = st->store.string_arena.size() - off;
-	st->store.nodes.push_back(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, v));
+	st->built_input.append(buf.data(), static_cast<size_t>(p - buf.data()));
+	size_t const len = st->built_input.size() - off;
+	st->store.nodes.push_back(
+		detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), kStorageInputView | kRawJsonSlice, v));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_u64(
@@ -3131,17 +3181,26 @@ expected<void, JsonError> ObjectBuilder::insert_u64(
 		return ok;
 	}
 	auto *st = frame_.state;
-	size_t const off = st->store.string_arena.size();
+	size_t const off = st->built_input.size();
 	array<char, 22> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
-	size_t const len = st->store.string_arena.size() - off;
+	st->built_input.append(buf.data(), static_cast<size_t>(p - buf.data()));
+	size_t const len = st->built_input.size() - off;
 	if (v <= static_cast<uint64_t>(numeric_limits<int64_t>::max())) {
 		st->store.nodes.push_back(
-			detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, static_cast<int64_t>(v)));
+			detail::make_number_int(
+				static_cast<u32>(off),
+				static_cast<u32>(len),
+				kStorageInputView | kRawJsonSlice,
+				static_cast<int64_t>(v)));
 	} else {
-		st->store.nodes.push_back(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), 0, v));
+		st->store.nodes.push_back(
+			detail::make_number_uint(
+				static_cast<u32>(off),
+				static_cast<u32>(len),
+				kStorageInputView | kRawJsonSlice,
+				v));
 	}
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
@@ -3159,15 +3218,21 @@ expected<void, JsonError> ObjectBuilder::insert_f64(
 				.message = "insert_f64 requires finite value"});
 	}
 	auto *st = frame_.state;
-	size_t const off = st->store.string_arena.size();
+	size_t const off = st->built_input.size();
 	array<char, 32> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
-	size_t const len = st->store.string_arena.size() - off;
-	string_view const lex = st->store.str_at(static_cast<u32>(off), static_cast<u32>(len));
+	st->built_input.append(buf.data(), static_cast<size_t>(p - buf.data()));
+	size_t const len = st->built_input.size() - off;
+	string_view const lex = string_view{st->built_input.data() + off, len};
 	bool const is_int = lex.find_first_of(".eE") == string_view::npos;
-	st->store.nodes.push_back(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), 0, v, is_int));
+	st->store.nodes.push_back(
+		detail::make_number_f64(
+			static_cast<u32>(off),
+			static_cast<u32>(len),
+			kStorageInputView | kRawJsonSlice,
+			v,
+			is_int));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 
@@ -3187,8 +3252,8 @@ expected<ObjectBuilder, JsonError> ObjectBuilder::insert_object(
 	}
 	auto *st = frame_.state;
 	// Store name in arena; the member entry will be pushed when child commits.
-	size_t const name_off = st->store.string_arena.size();
-	st->store.string_arena.append(name.data(), name.size());
+	size_t const name_off = st->built_input.size();
+	st->built_input.append(name.data(), name.size());
 	frame_.dup_check.emplace(string{name}, 0);
 	size_t const child_depth = frame_.depth + 1;
 	st->active_depth = child_depth;
@@ -3219,8 +3284,8 @@ expected<ArrayBuilder, JsonError> ObjectBuilder::insert_array(
 	}
 	auto *st = frame_.state;
 	// Store name in arena; the member entry will be pushed when child commits.
-	size_t const name_off = st->store.string_arena.size();
-	st->store.string_arena.append(name.data(), name.size());
+	size_t const name_off = st->built_input.size();
+	st->built_input.append(name.data(), name.size());
 	frame_.dup_check.emplace(string{name}, 0);
 	size_t const child_depth = frame_.depth + 1;
 	st->active_depth = child_depth;
@@ -3276,9 +3341,10 @@ expected<void, JsonError> ArrayBuilder::append_string(
 				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	auto *st = frame_.state;
-	size_t const off = st->store.string_arena.size();
-	st->store.string_arena.append(value.data(), value.size());
-	st->store.nodes.push_back(detail::make_string(static_cast<u32>(off), static_cast<u32>(value.size()), 0));
+	size_t const off = st->built_input.size();
+	st->built_input.append(value.data(), value.size());
+	st->store.nodes.push_back(
+		detail::make_string(static_cast<u32>(off), static_cast<u32>(value.size()), kStorageInputView));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -3299,10 +3365,13 @@ expected<void, JsonError> ArrayBuilder::append_number(
 				.message = format("invalid number lexeme: {}", lexeme)});
 	}
 	auto *st = frame_.state;
-	size_t const off = st->store.string_arena.size();
-	st->store.string_arena.append(lexeme.data(), lexeme.size());
-	auto node =
-		detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), 0, lexeme);
+	size_t const off = st->built_input.size();
+	st->built_input.append(lexeme.data(), lexeme.size());
+	auto node = detail::build_number_node_from_lexeme(
+		static_cast<u32>(off),
+		static_cast<u32>(lexeme.size()),
+		kStorageInputView | kRawJsonSlice,
+		lexeme);
 	if (!node) {
 		return unexpected(move(node).error());
 	}
@@ -3320,13 +3389,14 @@ expected<void, JsonError> ArrayBuilder::append_i64(
 				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	auto *st = frame_.state;
-	size_t const off = st->store.string_arena.size();
+	size_t const off = st->built_input.size();
 	array<char, 22> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
-	size_t const len = st->store.string_arena.size() - off;
-	st->store.nodes.push_back(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, v));
+	st->built_input.append(buf.data(), static_cast<size_t>(p - buf.data()));
+	size_t const len = st->built_input.size() - off;
+	st->store.nodes.push_back(
+		detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), kStorageInputView | kRawJsonSlice, v));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -3340,17 +3410,26 @@ expected<void, JsonError> ArrayBuilder::append_u64(
 				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	auto *st = frame_.state;
-	size_t const off = st->store.string_arena.size();
+	size_t const off = st->built_input.size();
 	array<char, 22> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
-	size_t const len = st->store.string_arena.size() - off;
+	st->built_input.append(buf.data(), static_cast<size_t>(p - buf.data()));
+	size_t const len = st->built_input.size() - off;
 	if (v <= static_cast<uint64_t>(numeric_limits<int64_t>::max())) {
 		st->store.nodes.push_back(
-			detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), 0, static_cast<int64_t>(v)));
+			detail::make_number_int(
+				static_cast<u32>(off),
+				static_cast<u32>(len),
+				kStorageInputView | kRawJsonSlice,
+				static_cast<int64_t>(v)));
 	} else {
-		st->store.nodes.push_back(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), 0, v));
+		st->store.nodes.push_back(
+			detail::make_number_uint(
+				static_cast<u32>(off),
+				static_cast<u32>(len),
+				kStorageInputView | kRawJsonSlice,
+				v));
 	}
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
@@ -3372,15 +3451,21 @@ expected<void, JsonError> ArrayBuilder::append_f64(
 				.message = "append_f64 requires finite value"});
 	}
 	auto *st = frame_.state;
-	size_t const off = st->store.string_arena.size();
+	size_t const off = st->built_input.size();
 	array<char, 32> buf{};
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
-	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
-	size_t const len = st->store.string_arena.size() - off;
-	string_view const lex = st->store.str_at(static_cast<u32>(off), static_cast<u32>(len));
+	st->built_input.append(buf.data(), static_cast<size_t>(p - buf.data()));
+	size_t const len = st->built_input.size() - off;
+	string_view const lex = string_view{st->built_input.data() + off, len};
 	bool const is_int = lex.find_first_of(".eE") == string_view::npos;
-	st->store.nodes.push_back(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), 0, v, is_int));
+	st->store.nodes.push_back(
+		detail::make_number_f64(
+			static_cast<u32>(off),
+			static_cast<u32>(len),
+			kStorageInputView | kRawJsonSlice,
+			v,
+			is_int));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -3398,7 +3483,7 @@ expected<ObjectBuilder, JsonError> ArrayBuilder::append_object() {
 	st->active_depth = child_depth;
 	ParentSlot const parent{
 		.kind = ParentSlot::Kind::append_child,
-		.arena_start = st->store.string_arena.size(),
+		.arena_start = st->built_input.size(),
 		.parent_local_children = &frame_.local_children};
 	ObjectBuilder child{st, parent};
 	child.frame_.depth = child_depth;
@@ -3418,7 +3503,7 @@ expected<ArrayBuilder, JsonError> ArrayBuilder::append_array() {
 	st->active_depth = child_depth;
 	ParentSlot const parent{
 		.kind = ParentSlot::Kind::append_child,
-		.arena_start = st->store.string_arena.size(),
+		.arena_start = st->built_input.size(),
 		.parent_local_children = &frame_.local_children};
 	ArrayBuilder child{st, parent};
 	child.frame_.depth = child_depth;
