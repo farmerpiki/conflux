@@ -825,6 +825,62 @@ static_assert(kCanCallParseBorrowedRvalue<std::string &>);
 static_assert(!kCanCallParseBorrowedRvalue<std::string>);
 
 // ---------------------------------------------------------------------------
+// v11 Phase 2 — zero-copy strings on parse side.
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"phase2: parse_borrowed unescaped string is zero-copy",
+	"[conformance][phase2][input]") {
+	std::string buf = R"("hello world")";
+	auto doc = json::parse_borrowed(buf);
+	REQUIRE(doc.has_value());
+	auto s = *doc->root().as_string();
+	CHECK(s == "hello world");
+	// The string body lives between the quotes — offset 1, length 11.
+	CHECK(s.data() == buf.data() + 1);
+}
+
+TEST_CASE(
+	"phase2: parse_borrowed escaped string decoded into escape_arena",
+	"[conformance][phase2][input]") {
+	std::string buf = R"("hel\nlo")";
+	auto doc = json::parse_borrowed(buf);
+	REQUIRE(doc.has_value());
+	auto s = *doc->root().as_string();
+	CHECK(s == "hel\nlo");
+	// Escaped: bytes were re-encoded in escape_arena, NOT a slice of the
+	// caller buffer.
+	CHECK(s.data() != buf.data() + 1);
+}
+
+TEST_CASE(
+	"phase2: parse_borrowed object key zero-copy when unescaped",
+	"[conformance][phase2][input]") {
+	std::string buf = R"({"name": 1})";
+	auto doc = json::parse_borrowed(buf);
+	REQUIRE(doc.has_value());
+	auto o = *doc->root().as_object();
+	for (auto const &m: o.members()) {
+		CHECK(m.name == "name");
+		// Key lies between the quotes — offset 2, length 4.
+		CHECK(m.name.data() == buf.data() + 2);
+	}
+}
+
+TEST_CASE(
+	"phase2: parse_borrowed escaped key decoded into escape_arena",
+	"[conformance][phase2][input]") {
+	std::string buf = R"({"a\nb": 1})";
+	auto doc = json::parse_borrowed(buf);
+	REQUIRE(doc.has_value());
+	auto o = *doc->root().as_object();
+	for (auto const &m: o.members()) {
+		CHECK(m.name == std::string{"a\nb"});
+		CHECK(m.name.data() != buf.data() + 2);
+	}
+}
+
+// ---------------------------------------------------------------------------
 // v11 Phase 1.5 — Builder buffer migration.
 // Builder-emitted strings/names/number lexemes live in built_input, which
 // becomes Document::owned_input on finish(). Round-trip dump must match.

@@ -1899,14 +1899,61 @@ struct Parser {
 		return true;
 	}
 
-	[[nodiscard]] expected<size_t, JsonError> parse_str_into_arena() {
+	struct ParsedStr {
+		u32 off;
+		u32 len;
+		u8 flags; // kStorageInputView | kRawJsonSlice for zero-copy, 0 for escaped
+	};
+
+	// Phase 2: fast path scans for `"` or `\` without copying. On `\`, copies
+	// the prefix to escape_arena and continues with the escape-decoding loop;
+	// the result then lives in escape_arena with flags = 0.
+	[[nodiscard]] expected<ParsedStr, JsonError> parse_str_body() {
 		constexpr unsigned char kCtrlEnd = 0x20U;
-		size_t const off = store.string_arena.size();
+		auto const start_pos = static_cast<u32>(pos);
+		while (pos < src.size()) {
+			auto const c = static_cast<unsigned char>(src[pos]);
+			if (c == '"') {
+				auto const len = static_cast<u32>(pos) - start_pos;
+				adv();
+				return ParsedStr{start_pos, len, static_cast<u8>(kStorageInputView | kRawJsonSlice)};
+			}
+			if (c < kCtrlEnd) {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
+			}
+			if (c == '\\') {
+				// Slow path: copy bytes seen so far to escape_arena, then keep decoding.
+				size_t const arena_off = store.string_arena.size();
+				store.string_arena.append(src.data() + start_pos, pos - start_pos);
+				return parse_str_decode_tail(arena_off);
+			}
+			size_t const seq = utf8_seq_len(c);
+			if (seq == 0) {
+				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
+			}
+			if (pos + seq > src.size()) {
+				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
+			}
+			for (size_t k = 1; k < seq; ++k) {
+				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) {
+					return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
+				}
+			}
+			pos += seq;
+			col += 1;
+		}
+		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
+	}
+
+	[[nodiscard]] expected<ParsedStr, JsonError> parse_str_decode_tail(
+		size_t arena_off) {
+		constexpr unsigned char kCtrlEnd = 0x20U;
 		while (pos < src.size()) {
 			auto const c = static_cast<unsigned char>(src[pos]);
 			if (c == '"') {
 				adv();
-				break;
+				size_t const len = store.string_arena.size() - arena_off;
+				return ParsedStr{static_cast<u32>(arena_off), static_cast<u32>(len), 0};
 			}
 			if (c < kCtrlEnd) {
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
@@ -1980,7 +2027,6 @@ struct Parser {
 				}
 				continue;
 			}
-			// Validate UTF-8.
 			size_t const seq = utf8_seq_len(c);
 			if (seq == 0) {
 				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
@@ -1997,7 +2043,7 @@ struct Parser {
 			pos += seq;
 			col += 1;
 		}
-		return off;
+		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
 	}
 
 	// NOLINTNEXTLINE(misc-no-recursion)
@@ -2053,16 +2099,14 @@ struct Parser {
 	}
 
 	[[nodiscard]] expected<size_t, JsonError> parse_str_node() {
-		size_t const arena_before = store.string_arena.size();
-		auto off = parse_str_into_arena();
-		if (!off) {
-			return unexpected(move(off).error());
+		auto parsed = parse_str_body();
+		if (!parsed) {
+			return unexpected(move(parsed).error());
 		}
-		size_t const len = store.string_arena.size() - arena_before;
-		if (opts.max_string_size.exceeds(len, kDefaultMaxString)) {
+		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
 			return unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
 		}
-		store.nodes.push_back(detail::make_string(static_cast<u32>(*off), static_cast<u32>(len), 0));
+		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
 		return store.nodes.size() - 1;
 	}
 
@@ -2126,13 +2170,11 @@ struct Parser {
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key"));
 			}
 			adv();
-			size_t const name_before = store.string_arena.size();
-			auto name_off = parse_str_into_arena();
-			if (!name_off) {
-				return unexpected(move(name_off).error());
+			auto parsed_name = parse_str_body();
+			if (!parsed_name) {
+				return unexpected(move(parsed_name).error());
 			}
-			size_t const name_len = store.string_arena.size() - name_before;
-			string_view const name_sv = store.str_at(static_cast<u32>(*name_off), static_cast<u32>(name_len));
+			string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
 			if (seen.contains(name_sv)) {
 				return unexpected(mk_err(JsonIssueCode::duplicate_member, format("duplicate member: {}", name_sv)));
 			}
@@ -2148,8 +2190,7 @@ struct Parser {
 			if (!val) {
 				return unexpected(move(val).error());
 			}
-			local_members.push_back(
-				{static_cast<u32>(*name_off), static_cast<u32>(name_len), static_cast<u32>(*val), 0});
+			local_members.push_back({parsed_name->off, parsed_name->len, static_cast<u32>(*val), parsed_name->flags});
 
 			skip_ws();
 			if (pos >= src.size()) {
