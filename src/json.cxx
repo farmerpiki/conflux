@@ -2,6 +2,10 @@ module;
 #include <cassert>
 #include <locale.h>
 #include <stdlib.h>
+#if defined(__x86_64__) || defined(_M_X64)
+	#include <immintrin.h>
+	#define CONFLUX_JSON_HAS_SSE2 1
+#endif
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
 export module conflux.json;
@@ -1837,6 +1841,50 @@ bool is_cont(
 	return (c & 0xC0U) == 0x80U;
 }
 
+// ---------------------------------------------------------------------------
+// Phase 8 — SIMD scans for the Tokenizer hot path (SSE2 baseline on x86-64).
+// ---------------------------------------------------------------------------
+namespace detail::simd {
+
+// Scan [p, end) for the first byte that is '"', '\\', or has high bit set
+// (>=0x80) or is a control byte (<0x20). Returns the offset to that byte
+// from p, or (end - p) if none found. The scalar caller is responsible for
+// classifying the byte at the returned offset (terminator / escape / error /
+// UTF-8 lead) — this routine only fast-forwards over bulk ASCII content.
+[[nodiscard]] inline size_t scan_str_until_special(
+	char const *p,
+	size_t n) noexcept {
+	size_t i = 0;
+#if defined(CONFLUX_JSON_HAS_SSE2)
+	__m128i const v_quote = _mm_set1_epi8('"');
+	__m128i const v_back = _mm_set1_epi8('\\');
+	// Signed cmplt against 0x20 simultaneously catches bytes <0x20 (positive
+	// small) and bytes >=0x80 (negative under signed interpretation).
+	__m128i const v_lim = _mm_set1_epi8(0x20);
+	while (i + 16 <= n) {
+		__m128i const v = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
+		__m128i const eq_q = _mm_cmpeq_epi8(v, v_quote);
+		__m128i const eq_b = _mm_cmpeq_epi8(v, v_back);
+		__m128i const lt_lim = _mm_cmplt_epi8(v, v_lim);
+		__m128i const mix = _mm_or_si128(_mm_or_si128(eq_q, eq_b), lt_lim);
+		auto const mask = static_cast<unsigned>(_mm_movemask_epi8(mix));
+		if (mask != 0U) {
+			return i + static_cast<size_t>(__builtin_ctz(mask));
+		}
+		i += 16;
+	}
+#endif
+	for (; i < n; ++i) {
+		auto const c = static_cast<unsigned char>(p[i]);
+		if (c == '"' || c == '\\' || c < 0x20U || c >= 0x80U) {
+			return i;
+		}
+	}
+	return n;
+}
+
+} // namespace detail::simd
+
 // Phase 3 — Tokenizer owns input bytes / source coordinates and emits string
 // + number lexemes; TreeBuilder consumes those + structural punctuation and
 // builds Nodes. Splitting them keeps the byte-level scan layer reusable
@@ -1942,10 +1990,20 @@ struct Tokenizer {
 	// Phase 2: fast path scans for `"` or `\` without copying. On `\`, copies
 	// the prefix to escape_arena and continues with the escape-decoding loop;
 	// the result then lives in escape_arena with flags = 0.
+	// Phase 8: SIMD-accelerated bulk-ASCII fast-forward via
+	// detail::simd::scan_str_until_special; scalar fallback handles the
+	// boundary byte (terminator / escape / control / UTF-8 lead).
 	[[nodiscard]] expected<ParsedStr, JsonError> parse_str_body() {
 		constexpr unsigned char kCtrlEnd = 0x20U;
 		auto const start_pos = static_cast<u32>(pos);
 		while (pos < src.size()) {
+			size_t const remaining = src.size() - pos;
+			size_t const skip = detail::simd::scan_str_until_special(src.data() + pos, remaining);
+			pos += skip;
+			col += skip;
+			if (pos >= src.size()) {
+				break;
+			}
 			auto const c = static_cast<unsigned char>(src[pos]);
 			if (c == '"') {
 				auto const len = static_cast<u32>(pos) - start_pos;
