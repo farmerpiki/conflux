@@ -2477,7 +2477,17 @@ struct TreeBuilder {
 	DocumentStorage &storage_ref,
 	unique_ptr<DocumentStorage> storage,
 	JsonParseOptions const &opts) {
-	storage->nodes.reserve(64);
+	// R1 / Polish AA — pre-size the three growth vectors. JSON has roughly
+	// one node per 8–16 bytes of input on typical payloads; reserving ahead
+	// of the parse skips the geometric realloc cycle on >100 KB inputs.
+	// Floor at 64 preserves the tiny-input baseline. A precise structural
+	// prescan was tried and rejected — the branchful in-string scan
+	// (~1 GB/s) cost more than the realloc copies it saved on the
+	// 4 KB / 200 KB corpora in this bench.
+	size_t const reserve_n = max<size_t>(64, storage_ref.input_view.size() / 16 + 16);
+	storage->nodes.reserve(reserve_n);
+	storage->array_children.reserve(reserve_n);
+	storage->object_members.reserve(reserve_n);
 
 	TreeBuilder tb{
 		.tok =
