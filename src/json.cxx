@@ -351,11 +351,32 @@ enum class NodeKind : u8 {
 	object,
 };
 
+// ---------------------------------------------------------------------------
+// Phase 0 (v11) — Node flag bits.
+//
+// Storage flags (where the bytes live; populated in Phase 1+ — for Phase 0,
+// numbers/strings still live in string_arena and these flags are clear).
+// ---------------------------------------------------------------------------
+
+constexpr u8 kStorageInputView = 0x01; // off,len index into input_view
+constexpr u8 kRawJsonSlice = 0x02; // bytes are raw JSON content (dump-safe memcpy)
+
+// Number value-kind flags (at most one of kValKind* set on a number node).
+constexpr u8 kLexIntForm = 0x08; // lexeme matches -?(0|[1-9][0-9]*)
+constexpr u8 kValKindInt = 0x10; // ival valid
+constexpr u8 kValKindUint = 0x20; // uval valid
+constexpr u8 kValKindF64 = 0x40; // dval valid
+
+// All three kValKind* clear on a number node = f64-overflow (lexeme preserved).
+
 struct MemberEntry {
-	size_t name_off;
-	size_t name_len;
-	size_t val_node;
+	u32 name_off;
+	u32 name_len;
+	u32 val_node;
+	u32 name_flags; // 0 in Phase 0; kStorageInputView in Phase 2+
 };
+static_assert(sizeof(MemberEntry) == 16);
+static_assert(std::is_trivially_copyable_v<MemberEntry>);
 
 // ---------------------------------------------------------------------------
 // Phase 6 — ObjHashTable (v14 HHH–JJJ, v15 RRR–SSS)
@@ -380,31 +401,149 @@ constexpr u32 kHashThreshold = 8;
 constexpr u32 kProbeChainMax = 64;
 constexpr u32 kMaxHashTableCapacity = 1u << 30;
 
-struct NodeRec {
-	NodeKind kind{NodeKind::null_};
-	bool bool_val{false};
-	size_t a{}; // str_offset | range_start
-	size_t b{}; // str_len    | range_count
-	bool num_is_integer{false};
-	mutable ObjHashTable *hash_idx_raw{nullptr};
+// ---------------------------------------------------------------------------
+// Phase 0 (v11) — Node, 24 B, u32 offsets, union payload.
+//
+// The 8-byte union's active member is determined by (kind, flags):
+//   kind == null_                          → none (zero-init via _raw)
+//   kind == boolean                        → bool_val
+//   kind == string_                        → none (bytes via off/len)
+//   kind == number, flags & kValKindInt    → ival
+//   kind == number, flags & kValKindUint   → uval
+//   kind == number, flags & kValKindF64    → dval
+//   kind == number, no kValKind* flag      → f64-overflow; lexeme only
+//   kind == array                          → none (children via off/len)
+//   kind == object                         → hash_idx_raw (lazy; nullable)
+// Construction goes exclusively through factory helpers below.
+// ---------------------------------------------------------------------------
+
+struct Node {
+	NodeKind kind;
+	u8 flags;
+	u16 _pad0;
+	u32 off;
+	u32 len;
+	u32 _pad1;
+	union {
+		bool bool_val;
+		i64 ival;
+		u64 uval;
+		double dval;
+		ObjHashTable *hash_idx_raw;
+		u64 _raw;
+	};
 };
+static_assert(sizeof(Node) == 24);
+static_assert(alignof(Node) >= 8);
+static_assert(std::is_trivially_copyable_v<Node>);
+static_assert(std::is_trivially_destructible_v<Node>);
+static_assert(std::atomic_ref<ObjHashTable *>::is_always_lock_free);
+static_assert(alignof(Node) >= std::atomic_ref<ObjHashTable *>::required_alignment);
+
+// Factory helpers (Correction NN/MMM): every kind transition routes through here.
+namespace detail {
+
+[[nodiscard]] inline Node make_null() noexcept {
+	return Node{.kind = NodeKind::null_, .flags = 0, ._pad0 = 0, .off = 0, .len = 0, ._pad1 = 0, ._raw = 0};
+}
+
+[[nodiscard]] inline Node make_bool(
+	bool v) noexcept {
+	return Node{.kind = NodeKind::boolean, .flags = 0, ._pad0 = 0, .off = 0, .len = 0, ._pad1 = 0, .bool_val = v};
+}
+
+[[nodiscard]] inline Node make_string(
+	u32 off,
+	u32 len,
+	u8 flags) noexcept {
+	return Node{.kind = NodeKind::string_, .flags = flags, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, ._raw = 0};
+}
+
+[[nodiscard]] inline Node make_array(
+	u32 off,
+	u32 len) noexcept {
+	return Node{.kind = NodeKind::array, .flags = 0, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, ._raw = 0};
+}
+
+[[nodiscard]] inline Node make_object(
+	u32 off,
+	u32 len) noexcept {
+	return Node{
+		.kind = NodeKind::object,
+		.flags = 0,
+		._pad0 = 0,
+		.off = off,
+		.len = len,
+		._pad1 = 0,
+		.hash_idx_raw = nullptr};
+}
+
+[[nodiscard]] inline Node make_number_int(
+	u32 off,
+	u32 len,
+	i64 v) noexcept {
+	return Node{
+		.kind = NodeKind::number,
+		.flags = kLexIntForm | kValKindInt,
+		._pad0 = 0,
+		.off = off,
+		.len = len,
+		._pad1 = 0,
+		.ival = v};
+}
+
+[[nodiscard]] inline Node make_number_uint(
+	u32 off,
+	u32 len,
+	u64 v) noexcept {
+	return Node{
+		.kind = NodeKind::number,
+		.flags = kLexIntForm | kValKindUint,
+		._pad0 = 0,
+		.off = off,
+		.len = len,
+		._pad1 = 0,
+		.uval = v};
+}
+
+[[nodiscard]] inline Node make_number_f64(
+	u32 off,
+	u32 len,
+	double v,
+	bool int_form) noexcept {
+	u8 const flags = static_cast<u8>((int_form ? kLexIntForm : 0) | kValKindF64);
+	return Node{.kind = NodeKind::number, .flags = flags, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, .dval = v};
+}
+
+[[nodiscard]] inline Node make_number_overflow(
+	u32 off,
+	u32 len,
+	bool int_form) noexcept {
+	u8 const flags = static_cast<u8>(int_form ? kLexIntForm : 0);
+	return Node{.kind = NodeKind::number, .flags = flags, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, ._raw = 0};
+}
+
+} // namespace detail
 
 struct DocumentStorage {
-	vector<NodeRec> nodes;
+	vector<Node> nodes;
 	string string_arena;
-	vector<size_t> array_children;
+	vector<u32> array_children;
 	vector<MemberEntry> object_members;
-	size_t root_node{0}; // index of the root NodeRec
+	u32 root_node{0}; // index of the root Node
+	u32 bom_prefix_bytes{0}; // 0 or 3 — added to source-offset reports (Correction Q)
 
 	~DocumentStorage() noexcept {
 		for (auto &n: nodes) {
-			delete n.hash_idx_raw;
+			if (n.kind == NodeKind::object) {
+				delete n.hash_idx_raw;
+			}
 		}
 	}
 
 	[[nodiscard]] string_view str_at(
-		size_t off,
-		size_t len) const noexcept {
+		u32 off,
+		u32 len) const noexcept {
 		return {string_arena.data() + off, len};
 	}
 
@@ -505,6 +644,59 @@ struct ClassifiedDouble {
 	return ClassifiedDouble{ClassifiedDouble::Kind::underflow_finite, v};
 }
 
+// Pre-parsed number factory: takes a syntactically valid JSON number lexeme
+// (caller validates) plus its arena offset/length, runs the two-stage parse
+// (i64 → u64 → f64 with strtod_l fallback for range-error f64), and returns
+// the appropriate Node. Locale-init / OOM in the slow path surface as
+// resource_exhausted via expected<>.
+[[nodiscard]] inline expected<Node, JsonError> build_number_node_from_lexeme(
+	u32 off,
+	u32 len,
+	string_view lex) noexcept {
+	bool const int_form = lex.find_first_of(".eE") == string_view::npos;
+	bool const neg = !lex.empty() && lex.front() == '-';
+	auto const *b = lex.data();
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+	auto const *e = lex.data() + lex.size();
+
+	if (int_form) {
+		int64_t iv{};
+		if (auto [p, ec] = from_chars(b, e, iv); ec == errc{} && p == e) {
+			return make_number_int(off, len, iv);
+		}
+		if (!neg) {
+			uint64_t uv{};
+			if (auto [p2, ec2] = from_chars(b, e, uv); ec2 == errc{} && p2 == e) {
+				return make_number_uint(off, len, uv);
+			}
+		}
+	}
+
+	double dv{};
+	auto const [p, ec] = from_chars(b, e, dv, chars_format::general);
+	if (ec == errc{} && p == e) {
+		if (isfinite(dv)) {
+			return make_number_f64(off, len, dv, int_form);
+		}
+		return make_number_overflow(off, len, int_form);
+	}
+	if (ec == errc::result_out_of_range) {
+		auto classified = classify_range_error_slow(b, e);
+		if (!classified) {
+			return unexpected(move(classified).error());
+		}
+		if (classified->kind == ClassifiedDouble::Kind::underflow_finite) {
+			return make_number_f64(off, len, classified->value, int_form);
+		}
+		return make_number_overflow(off, len, int_form);
+	}
+	return unexpected(
+		JsonError{
+			.stage = JsonStage::parse,
+			.code = JsonIssueCode::invalid_number,
+			.message = format("number rejected by from_chars: {}", lex)});
+}
+
 } // namespace detail
 
 // ---------------------------------------------------------------------------
@@ -519,32 +711,38 @@ export enum class JsonNumberForm {
 
 export class JsonNumberView {
 	string_view lexeme_;
-	JsonNumberForm form_;
+	u64 raw_payload_; // bit-cast<i64/u64/double> selected by flags_
+	u8 flags_; // kLexIntForm | kValKindInt|Uint|F64
 
-public:
+	friend class NodeRef;
+	friend bool is_value_equal(NodeRef, NodeRef);
 	JsonNumberView(
 		string_view lex,
-		JsonNumberForm f) noexcept
+		u8 flags,
+		u64 raw) noexcept
 		: lexeme_{lex}
-		, form_{f} {}
+		, raw_payload_{raw}
+		, flags_{flags} {}
 
+public:
 	[[nodiscard]] string_view lexeme() const noexcept { return lexeme_; }
-	[[nodiscard]] JsonNumberForm form() const noexcept { return form_; }
+	[[nodiscard]] JsonNumberForm form() const noexcept {
+		return (flags_ & kLexIntForm) != 0 ? JsonNumberForm::integer : JsonNumberForm::non_integer;
+	}
 
 	[[nodiscard]] expected<int64_t, JsonError> to_i64() const {
-		if (form_ != JsonNumberForm::integer) {
+		if ((flags_ & kLexIntForm) == 0) {
 			return unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
 					.code = JsonIssueCode::invalid_number,
 					.message = "to_i64 requires integer-form number"});
 		}
-		int64_t v{};
-		auto const *b = lexeme_.data();
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		if (auto [p, ec] = from_chars(b, b + lexeme_.size(), v); ec == errc{} && p == b + lexeme_.size()) {
-			return v;
+		if ((flags_ & kValKindInt) != 0) {
+			return std::bit_cast<int64_t>(raw_payload_);
 		}
+		// kValKindUint, kValKindF64, or no kValKind* (overflow): integer-form
+		// lexeme outside i64 range → number_out_of_range (Correction K).
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::lookup,
@@ -553,7 +751,7 @@ public:
 	}
 
 	[[nodiscard]] expected<uint64_t, JsonError> to_u64() const {
-		if (form_ != JsonNumberForm::integer) {
+		if ((flags_ & kLexIntForm) == 0) {
 			return unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
@@ -567,11 +765,14 @@ public:
 					.code = JsonIssueCode::sign_mismatch,
 					.message = format("negative integer passed to to_u64: {}", lexeme_)});
 		}
-		uint64_t v{};
-		auto const *b = lexeme_.data();
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		if (auto [p, ec] = from_chars(b, b + lexeme_.size(), v); ec == errc{} && p == b + lexeme_.size()) {
-			return v;
+		if ((flags_ & kValKindUint) != 0) {
+			return raw_payload_;
+		}
+		if ((flags_ & kValKindInt) != 0) {
+			auto const v = std::bit_cast<int64_t>(raw_payload_);
+			if (v >= 0) {
+				return static_cast<uint64_t>(v);
+			}
 		}
 		return unexpected(
 			JsonError{
@@ -581,40 +782,21 @@ public:
 	}
 
 	[[nodiscard]] expected<double, JsonError> to_f64() const {
-		double v{};
-		auto const *b = lexeme_.data();
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		auto const [p, ec] = from_chars(b, b + lexeme_.size(), v, chars_format::general);
-		if (ec == errc::result_out_of_range) {
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-			auto classified = detail::classify_range_error_slow(b, b + lexeme_.size());
-			if (!classified) {
-				return unexpected(move(classified).error());
-			}
-			if (classified->kind == detail::ClassifiedDouble::Kind::underflow_finite) {
-				return classified->value;
-			}
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::number_out_of_range,
-					.message = format("f64 value overflows binary64: {}", lexeme_)});
+		if ((flags_ & kValKindF64) != 0) {
+			return std::bit_cast<double>(raw_payload_);
 		}
-		if (ec != errc{} || p != b + lexeme_.size()) {
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::invalid_number,
-					.message = format("cannot convert to f64: {}", lexeme_)});
+		if ((flags_ & kValKindInt) != 0) {
+			return static_cast<double>(std::bit_cast<int64_t>(raw_payload_));
 		}
-		if (!isfinite(v)) {
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::number_out_of_range,
-					.message = format("f64 conversion overflows: {}", lexeme_)});
+		if ((flags_ & kValKindUint) != 0) {
+			return static_cast<double>(raw_payload_);
 		}
-		return v;
+		// No kValKind* set → f64-overflow (Correction K).
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::number_out_of_range,
+				.message = format("f64 conversion overflows: {}", lexeme_)});
 	}
 };
 
@@ -642,7 +824,7 @@ export class NodeRef {
 		: storage_{s}
 		, idx_{i} {}
 
-	[[nodiscard]] NodeRec const &rec() const noexcept {
+	[[nodiscard]] Node const &rec() const noexcept {
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
 		return storage_->nodes[idx_];
 	}
@@ -694,7 +876,7 @@ public:
 					.actual_kind = kind(),
 					.message = "expected string"});
 		}
-		return storage_->str_at(rec().a, rec().b);
+		return storage_->str_at(rec().off, rec().len);
 	}
 
 	[[nodiscard]] expected<JsonNumberView, JsonError> as_number() const {
@@ -707,9 +889,7 @@ public:
 					.actual_kind = kind(),
 					.message = "expected number"});
 		}
-		return JsonNumberView{
-			storage_->str_at(rec().a, rec().b),
-			rec().num_is_integer ? JsonNumberForm::integer : JsonNumberForm::non_integer};
+		return JsonNumberView{storage_->str_at(rec().off, rec().len), rec().flags, rec()._raw};
 	}
 
 	[[nodiscard]] expected<NodeRef, JsonError> at(JsonPath const &path) const;
@@ -858,9 +1038,11 @@ public:
 		if (mem_count_ < kHashThreshold) {
 			return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
 		}
-		// Lazy hash table build via atomic CAS.
-		auto &raw =
-			storage_->nodes[node_idx_].hash_idx_raw; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+		// Lazy hash table build via atomic CAS. The hash slot is the only
+		// mutable surface on a published Document — see post-publication
+		// freeze contract; const_cast is justified by that invariant.
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+		auto &raw = const_cast<ObjHashTable *&>(storage_->nodes[node_idx_].hash_idx_raw);
 		auto ref = atomic_ref<ObjHashTable *>{raw};
 		auto *ht = ref.load(memory_order_acquire);
 		if (ht == nullptr) {
@@ -956,7 +1138,7 @@ expected<ObjectView, JsonError> NodeRef::as_object() const {
 				.actual_kind = kind(),
 				.message = "expected object"});
 	}
-	return ObjectView{storage_, rec().a, rec().b, idx_};
+	return ObjectView{storage_, rec().off, rec().len, idx_};
 }
 
 expected<ArrayView, JsonError> NodeRef::as_array() const {
@@ -969,7 +1151,7 @@ expected<ArrayView, JsonError> NodeRef::as_array() const {
 				.actual_kind = kind(),
 				.message = "expected array"});
 	}
-	return ArrayView{storage_, rec().a, rec().b};
+	return ArrayView{storage_, rec().off, rec().len};
 }
 
 void push_seg(
@@ -1184,24 +1366,23 @@ export bool is_value_equal(
 	switch (a.rec().kind) {
 	case NodeKind::null_  : return true;
 	case NodeKind::boolean: return a.rec().bool_val == b.rec().bool_val;
-	case NodeKind::string_: return a.storage_->str_at(a.rec().a, a.rec().b) == b.storage_->str_at(b.rec().a, b.rec().b);
+	case NodeKind::string_:
+		return a.storage_->str_at(a.rec().off, a.rec().len) == b.storage_->str_at(b.rec().off, b.rec().len);
 	case NodeKind::number:
 		{
-			auto la = a.storage_->str_at(a.rec().a, a.rec().b);
-			auto lb = b.storage_->str_at(b.rec().a, b.rec().b);
+			auto la = a.storage_->str_at(a.rec().off, a.rec().len);
+			auto lb = b.storage_->str_at(b.rec().off, b.rec().len);
 			if (la == lb) {
 				return true;
 			}
-			auto fa = JsonNumberView{la, a.rec().num_is_integer ? JsonNumberForm::integer : JsonNumberForm::non_integer}
-						  .to_f64();
-			auto fb = JsonNumberView{lb, b.rec().num_is_integer ? JsonNumberForm::integer : JsonNumberForm::non_integer}
-						  .to_f64();
+			auto fa = JsonNumberView{la, a.rec().flags, a.rec()._raw}.to_f64();
+			auto fb = JsonNumberView{lb, b.rec().flags, b.rec()._raw}.to_f64();
 			return fa && fb && *fa == *fb;
 		}
 	case NodeKind::array:
 		{
-			ArrayView const av{a.storage_, a.rec().a, a.rec().b};
-			ArrayView const bv{b.storage_, b.rec().a, b.rec().b};
+			ArrayView const av{a.storage_, a.rec().off, a.rec().len};
+			ArrayView const bv{b.storage_, b.rec().off, b.rec().len};
 			if (av.size() != bv.size()) {
 				return false;
 			}
@@ -1214,8 +1395,8 @@ export bool is_value_equal(
 		}
 	case NodeKind::object:
 		{
-			ObjectView const ao{a.storage_, a.rec().a, a.rec().b, a.idx_};
-			ObjectView const bo{b.storage_, b.rec().a, b.rec().b, b.idx_};
+			ObjectView const ao{a.storage_, a.rec().off, a.rec().len, a.idx_};
+			ObjectView const bo{b.storage_, b.rec().off, b.rec().len, b.idx_};
 			if (ao.size() != bo.size()) {
 				return false;
 			}
@@ -1241,12 +1422,13 @@ export bool is_value_equal_exact(
 	switch (a.rec().kind) {
 	case NodeKind::null_  : return true;
 	case NodeKind::boolean: return a.rec().bool_val == b.rec().bool_val;
-	case NodeKind::number :
-	case NodeKind::string_: return a.storage_->str_at(a.rec().a, a.rec().b) == b.storage_->str_at(b.rec().a, b.rec().b);
+	case NodeKind::number:
+	case NodeKind::string_:
+		return a.storage_->str_at(a.rec().off, a.rec().len) == b.storage_->str_at(b.rec().off, b.rec().len);
 	case NodeKind::array:
 		{
-			ArrayView const av{a.storage_, a.rec().a, a.rec().b};
-			ArrayView const bv{b.storage_, b.rec().a, b.rec().b};
+			ArrayView const av{a.storage_, a.rec().off, a.rec().len};
+			ArrayView const bv{b.storage_, b.rec().off, b.rec().len};
 			if (av.size() != bv.size()) {
 				return false;
 			}
@@ -1259,8 +1441,8 @@ export bool is_value_equal_exact(
 		}
 	case NodeKind::object:
 		{
-			ObjectView const ao{a.storage_, a.rec().a, a.rec().b, a.idx_};
-			ObjectView const bo{b.storage_, b.rec().a, b.rec().b, b.idx_};
+			ObjectView const ao{a.storage_, a.rec().off, a.rec().len, a.idx_};
+			ObjectView const bo{b.storage_, b.rec().off, b.rec().len, b.idx_};
 			if (ao.size() != bo.size()) {
 				return false;
 			}
@@ -1332,8 +1514,8 @@ public:
 		if (ov.mem_count_ < kHashThreshold) {
 			return {};
 		}
-		auto &slot =
-			storage_->nodes[ov.node_idx_].hash_idx_raw; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+		auto &slot = storage_->nodes[ov.node_idx_].hash_idx_raw;
 		auto ref = atomic_ref<ObjHashTable *>{slot};
 		if (ref.load(memory_order_acquire) != nullptr) {
 			return {}; // already built
@@ -1496,19 +1678,19 @@ void dump_node(
 	switch (n.kind) {
 	case NodeKind::null_  : out += "null"; break;
 	case NodeKind::boolean: out += n.bool_val ? "true" : "false"; break;
-	case NodeKind::string_: dump_str(store.str_at(n.a, n.b), out, opts.ascii_only); break;
-	case NodeKind::number : out += store.str_at(n.a, n.b); break;
+	case NodeKind::string_: dump_str(store.str_at(n.off, n.len), out, opts.ascii_only); break;
+	case NodeKind::number : out += store.str_at(n.off, n.len); break;
 	case NodeKind::array:
 		{
 			out += '[';
-			if (n.b > 0) {
-				for (size_t i = 0; i < n.b; ++i) {
+			if (n.len > 0) {
+				for (size_t i = 0; i < n.len; ++i) {
 					if (i > 0) {
 						out += ',';
 					}
 					indent(depth + 1);
 					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-					dump_node(store, store.array_children[n.a + i], opts, depth + 1, out);
+					dump_node(store, store.array_children[n.off + i], opts, depth + 1, out);
 				}
 				indent(depth);
 			}
@@ -1518,25 +1700,25 @@ void dump_node(
 	case NodeKind::object:
 		{
 			out += '{';
-			if (n.b > 0) {
-				vector<size_t> order(n.b);
+			if (n.len > 0) {
+				vector<size_t> order(n.len);
 				iota(order.begin(), order.end(), 0);
 				if (opts.sort_object_keys) {
 					sort(order.begin(), order.end(), [&](size_t x, size_t y) {
 						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-						auto const &mx = store.object_members[n.a + x];
+						auto const &mx = store.object_members[n.off + x];
 						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-						auto const &my = store.object_members[n.a + y];
+						auto const &my = store.object_members[n.off + y];
 						return store.str_at(mx.name_off, mx.name_len) < store.str_at(my.name_off, my.name_len);
 					});
 				}
-				for (size_t i = 0; i < n.b; ++i) {
+				for (size_t i = 0; i < n.len; ++i) {
 					if (i > 0) {
 						out += ',';
 					}
 					indent(depth + 1);
 					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
-					auto const &m = store.object_members[n.a + order[i]];
+					auto const &m = store.object_members[n.off + order[i]];
 					dump_str(store.str_at(m.name_off, m.name_len), out, opts.ascii_only);
 					out += opts.pretty ? ": " : ":";
 					dump_node(store, m.val_node, opts, depth + 1, out);
@@ -1602,10 +1784,13 @@ struct Parser {
 	[[nodiscard]] JsonError mk_err(
 		JsonIssueCode code,
 		string msg) const {
+		// Source offsets are reported in raw input bytes including any
+		// stripped BOM (Correction Q): bom_prefix_bytes is added here so
+		// every error site sees v7-compatible coordinates.
 		return {
 			.stage = JsonStage::parse,
 			.code = code,
-			.source = JsonSourceLocation{.offset = pos, .line = line, .column = col},
+			.source = JsonSourceLocation{.offset = pos + store.bom_prefix_bytes, .line = line, .column = col},
 			.message = move(msg)
         };
 	}
@@ -1808,7 +1993,7 @@ struct Parser {
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 			}
 			adv(4);
-			store.nodes.push_back({.kind = NodeKind::boolean, .bool_val = true});
+			store.nodes.push_back(detail::make_bool(true));
 			return store.nodes.size() - 1;
 		}
 		if (c == 'f') {
@@ -1816,7 +2001,7 @@ struct Parser {
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 			}
 			adv(5);
-			store.nodes.push_back({.kind = NodeKind::boolean, .bool_val = false});
+			store.nodes.push_back(detail::make_bool(false));
 			return store.nodes.size() - 1;
 		}
 		if (c == 'n') {
@@ -1824,7 +2009,7 @@ struct Parser {
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
 			}
 			adv(4);
-			store.nodes.push_back({.kind = NodeKind::null_});
+			store.nodes.push_back(detail::make_null());
 			return store.nodes.size() - 1;
 		}
 		if (c == '-' || (c >= '0' && c <= '9')) {
@@ -1843,7 +2028,7 @@ struct Parser {
 		if (opts.max_string_size.exceeds(len, kDefaultMaxString)) {
 			return unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
 		}
-		store.nodes.push_back({.kind = NodeKind::string_, .a = *off, .b = len});
+		store.nodes.push_back(detail::make_string(static_cast<u32>(*off), static_cast<u32>(len), 0));
 		return store.nodes.size() - 1;
 	}
 
@@ -1855,7 +2040,7 @@ struct Parser {
 		if (pos < src.size() && src[pos] == ']') {
 			adv();
 			size_t const cs = store.array_children.size();
-			store.nodes.push_back({.kind = NodeKind::array, .a = cs, .b = 0});
+			store.nodes.push_back(detail::make_array(static_cast<u32>(cs), static_cast<u32>(0)));
 			return store.nodes.size() - 1;
 		}
 		// Collect child node indices locally to keep arena contiguous.
@@ -1874,9 +2059,10 @@ struct Parser {
 				adv();
 				size_t const cs = store.array_children.size();
 				for (size_t const idx: local_children) {
-					store.array_children.push_back(idx);
+					store.array_children.push_back(static_cast<u32>(idx));
 				}
-				store.nodes.push_back({.kind = NodeKind::array, .a = cs, .b = local_children.size()});
+				store.nodes.push_back(
+					detail::make_array(static_cast<u32>(cs), static_cast<u32>(local_children.size())));
 				return store.nodes.size() - 1;
 			}
 			if (src[pos] != ',') {
@@ -1895,7 +2081,7 @@ struct Parser {
 		if (pos < src.size() && src[pos] == '}') {
 			adv();
 			size_t const ms = store.object_members.size();
-			store.nodes.push_back({.kind = NodeKind::object, .a = ms, .b = 0});
+			store.nodes.push_back(detail::make_object(static_cast<u32>(ms), static_cast<u32>(0)));
 			return store.nodes.size() - 1;
 		}
 		// Collect members locally to keep arena contiguous.
@@ -1912,7 +2098,7 @@ struct Parser {
 				return unexpected(move(name_off).error());
 			}
 			size_t const name_len = store.string_arena.size() - name_before;
-			string_view const name_sv = store.str_at(*name_off, name_len);
+			string_view const name_sv = store.str_at(static_cast<u32>(*name_off), static_cast<u32>(name_len));
 			if (seen.contains(name_sv)) {
 				return unexpected(mk_err(JsonIssueCode::duplicate_member, format("duplicate member: {}", name_sv)));
 			}
@@ -1928,7 +2114,8 @@ struct Parser {
 			if (!val) {
 				return unexpected(move(val).error());
 			}
-			local_members.push_back({*name_off, name_len, *val});
+			local_members.push_back(
+				{static_cast<u32>(*name_off), static_cast<u32>(name_len), static_cast<u32>(*val), 0});
 
 			skip_ws();
 			if (pos >= src.size()) {
@@ -1940,7 +2127,8 @@ struct Parser {
 				for (auto const &m: local_members) {
 					store.object_members.push_back(m);
 				}
-				store.nodes.push_back({.kind = NodeKind::object, .a = ms, .b = local_members.size()});
+				store.nodes.push_back(
+					detail::make_object(static_cast<u32>(ms), static_cast<u32>(local_members.size())));
 				return store.nodes.size() - 1;
 			}
 			if (src[pos] != ',') {
@@ -1968,9 +2156,7 @@ struct Parser {
 		while (pos < src.size() && src[pos] >= '0' && src[pos] <= '9') {
 			adv();
 		}
-		bool non_int = false;
 		if (pos < src.size() && src[pos] == '.') {
-			non_int = true;
 			adv();
 			if (pos >= src.size() || src[pos] < '0' || src[pos] > '9') {
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after '.'"));
@@ -1980,7 +2166,6 @@ struct Parser {
 			}
 		}
 		if (pos < src.size() && (src[pos] == 'e' || src[pos] == 'E')) {
-			non_int = true;
 			adv();
 			if (pos < src.size() && (src[pos] == '+' || src[pos] == '-')) {
 				adv();
@@ -1995,7 +2180,11 @@ struct Parser {
 		string_view const lex = src.substr(start, pos - start);
 		size_t const off = store.string_arena.size();
 		store.string_arena.append(lex.data(), lex.size());
-		store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = lex.size(), .num_is_integer = !non_int});
+		auto node = detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lex.size()), lex);
+		if (!node) {
+			return unexpected(move(node).error());
+		}
+		store.nodes.push_back(*node);
 		return store.nodes.size() - 1;
 	}
 };
@@ -2009,6 +2198,16 @@ export namespace conflux::json {
 expected<Document, JsonError> parse(
 	string_view input,
 	JsonParseOptions const &opts = {}) {
+	// 4 GiB hard ceiling — Fix F / Correction P. Unbypassable by max_input_size = no_limit
+	// because Node::off / Node::len / array_children entries are all u32.
+	constexpr size_t kU32Ceiling = (size_t{1} << 32) - 1;
+	if (input.size() >= kU32Ceiling) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::parse,
+				.code = JsonIssueCode::input_too_large,
+				.message = "input exceeds 4 GiB hard ceiling"});
+	}
 	if (opts.max_input_size.exceeds(input.size(), kDefaultMaxInput)) {
 		return unexpected(
 			JsonError{
@@ -2018,12 +2217,15 @@ expected<Document, JsonError> parse(
 	}
 
 	string_view src = input;
+	u32 bom_prefix_bytes = 0;
 	constexpr string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
+		bom_prefix_bytes = static_cast<u32>(kBOM.size());
 	}
 
 	auto storage = make_unique<DocumentStorage>();
+	storage->bom_prefix_bytes = bom_prefix_bytes;
 	storage->nodes.reserve(64);
 
 	Parser p{.src = src, .store = *storage, .opts = opts};
@@ -2037,7 +2239,7 @@ expected<Document, JsonError> parse(
 	if (!root) {
 		return unexpected(move(root).error());
 	}
-	storage->root_node = *root;
+	storage->root_node = static_cast<u32>(*root);
 
 	p.skip_ws();
 	if (p.pos < src.size()) {
@@ -2045,7 +2247,7 @@ expected<Document, JsonError> parse(
 			JsonError{
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::trailing_garbage,
-				.source = JsonSourceLocation{.offset = p.pos, .line = p.line, .column = p.col},
+				.source = JsonSourceLocation{.offset = p.pos + bom_prefix_bytes, .line = p.line, .column = p.col},
 				.message = "trailing content after value"
         });
 	}
@@ -2239,7 +2441,7 @@ public:
 			st->store.object_members.push_back(m);
 		}
 		size_t const cnt = frame_.local_members.size();
-		st->store.nodes.push_back({.kind = NodeKind::object, .a = mem_start, .b = cnt});
+		st->store.nodes.push_back(detail::make_object(static_cast<u32>(mem_start), static_cast<u32>(cnt)));
 		size_t const node_idx = st->store.nodes.size() - 1;
 		switch (frame_.parent.kind) {
 		case ParentSlot::Kind::set_root:
@@ -2247,7 +2449,11 @@ public:
 			st->child_active = false;
 			break;
 		case ParentSlot::Kind::insert_member:
-			frame_.parent.parent_local_members->push_back({frame_.parent.name_off, frame_.parent.name_len, node_idx});
+			frame_.parent.parent_local_members->push_back(
+				{static_cast<u32>(frame_.parent.name_off),
+				 static_cast<u32>(frame_.parent.name_len),
+				 static_cast<u32>(node_idx),
+				 0});
 			break;
 		case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
 		}
@@ -2337,18 +2543,22 @@ public:
 		auto *st = frame_.state;
 		size_t const child_start = st->store.array_children.size();
 		for (size_t const idx: frame_.local_children) {
-			st->store.array_children.push_back(idx);
+			st->store.array_children.push_back(static_cast<u32>(idx));
 		}
 		size_t const cnt = frame_.local_children.size();
-		st->store.nodes.push_back({.kind = NodeKind::array, .a = child_start, .b = cnt});
+		st->store.nodes.push_back(detail::make_array(static_cast<u32>(child_start), static_cast<u32>(cnt)));
 		size_t const node_idx = st->store.nodes.size() - 1;
 		switch (frame_.parent.kind) {
 		case ParentSlot::Kind::set_root:
-			st->root_node = node_idx;
+			st->root_node = static_cast<u32>(node_idx);
 			st->child_active = false;
 			break;
 		case ParentSlot::Kind::insert_member:
-			frame_.parent.parent_local_members->push_back({frame_.parent.name_off, frame_.parent.name_len, node_idx});
+			frame_.parent.parent_local_members->push_back(
+				{static_cast<u32>(frame_.parent.name_off),
+				 static_cast<u32>(frame_.parent.name_len),
+				 static_cast<u32>(node_idx),
+				 0});
 			break;
 		case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
 		}
@@ -2411,7 +2621,7 @@ export class ValueBuilder {
 	}
 
 	expected<void, JsonError> set_node(
-		NodeRec n) {
+		Node n) {
 		auto ok = check_can_set();
 		if (!ok) {
 			return ok;
@@ -2444,10 +2654,10 @@ public:
 	ValueBuilder(ValueBuilder const &) = delete;
 	ValueBuilder &operator =(ValueBuilder const &) = delete;
 
-	expected<void, JsonError> set_null() { return set_node({.kind = NodeKind::null_}); }
+	expected<void, JsonError> set_null() { return set_node(detail::make_null()); }
 	expected<void, JsonError> set_bool(
 		bool v) {
-		return set_node({.kind = NodeKind::boolean, .bool_val = v});
+		return set_node(detail::make_bool(v));
 	}
 
 	expected<void, JsonError> set_string(
@@ -2458,7 +2668,7 @@ public:
 		}
 		size_t const off = state_->store.string_arena.size();
 		state_->store.string_arena.append(sv.data(), sv.size());
-		return set_node({.kind = NodeKind::string_, .a = off, .b = sv.size()});
+		return set_node(detail::make_string(static_cast<u32>(off), static_cast<u32>(sv.size()), 0));
 	}
 
 	expected<void, JsonError> set_number(string_view lexeme);
@@ -2475,7 +2685,7 @@ public:
 		auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 		state_->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 		size_t const len = state_->store.string_arena.size() - off;
-		return set_node({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = true});
+		return set_node(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), v));
 	}
 
 	expected<void, JsonError> set_u64(
@@ -2490,7 +2700,11 @@ public:
 		auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 		state_->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 		size_t const len = state_->store.string_arena.size() - off;
-		return set_node({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = true});
+		if (v <= static_cast<uint64_t>(numeric_limits<int64_t>::max())) {
+			return set_node(
+				detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), static_cast<int64_t>(v)));
+		}
+		return set_node(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), v));
 	}
 
 	expected<void, JsonError> set_f64(
@@ -2512,9 +2726,9 @@ public:
 		auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 		state_->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 		size_t const len = state_->store.string_arena.size() - off;
-		string_view const lex = state_->store.str_at(off, len);
+		string_view const lex = state_->store.str_at(static_cast<u32>(off), static_cast<u32>(len));
 		bool const is_int = lex.find_first_of(".eE") == string_view::npos;
-		return set_node({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = is_int});
+		return set_node(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), v, is_int));
 	}
 
 	[[nodiscard]] expected<ObjectBuilder, JsonError> begin_object() {
@@ -2580,7 +2794,7 @@ public:
 																			 "root value was never set"});
 		}
 		auto storage = make_unique<DocumentStorage>(move(state_->store));
-		storage->root_node = state_->root_node;
+		storage->root_node = static_cast<u32>(state_->root_node);
 		owned_.reset();
 		state_ = nullptr;
 		return ::make_document(move(storage));
@@ -2696,8 +2910,11 @@ expected<void, JsonError> ValueBuilder::set_number(
 	}
 	size_t const off = state_->store.string_arena.size();
 	state_->store.string_arena.append(lexeme.data(), lexeme.size());
-	bool const is_int = lexeme.find_first_of(".eE") == string_view::npos;
-	return set_node({.kind = NodeKind::number, .a = off, .b = lexeme.size(), .num_is_integer = is_int});
+	auto node = detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), lexeme);
+	if (!node) {
+		return unexpected(move(node).error());
+	}
+	return set_node(*node);
 }
 
 // ---------------------------------------------------------------------------
@@ -2719,7 +2936,8 @@ expected<void, JsonError> ObjectBuilder::do_insert_node(
 	}
 	size_t const name_off = st->store.string_arena.size();
 	st->store.string_arena.append(name.data(), name.size());
-	frame_.local_members.push_back({name_off, name.size(), node_idx});
+	frame_.local_members.push_back(
+		{static_cast<u32>(name_off), static_cast<u32>(name.size()), static_cast<u32>(node_idx), 0});
 	return {};
 }
 
@@ -2729,7 +2947,7 @@ expected<void, JsonError> ObjectBuilder::insert_null(
 		return ok;
 	}
 	auto *st = frame_.state;
-	st->store.nodes.push_back({.kind = NodeKind::null_});
+	st->store.nodes.push_back(detail::make_null());
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_bool(
@@ -2739,7 +2957,7 @@ expected<void, JsonError> ObjectBuilder::insert_bool(
 		return ok;
 	}
 	auto *st = frame_.state;
-	st->store.nodes.push_back({.kind = NodeKind::boolean, .bool_val = v});
+	st->store.nodes.push_back(detail::make_bool(v));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_string(
@@ -2751,7 +2969,7 @@ expected<void, JsonError> ObjectBuilder::insert_string(
 	auto *st = frame_.state;
 	size_t const off = st->store.string_arena.size();
 	st->store.string_arena.append(value.data(), value.size());
-	st->store.nodes.push_back({.kind = NodeKind::string_, .a = off, .b = value.size()});
+	st->store.nodes.push_back(detail::make_string(static_cast<u32>(off), static_cast<u32>(value.size()), 0));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_number(
@@ -2770,8 +2988,11 @@ expected<void, JsonError> ObjectBuilder::insert_number(
 	auto *st = frame_.state;
 	size_t const off = st->store.string_arena.size();
 	st->store.string_arena.append(lexeme.data(), lexeme.size());
-	bool const is_int = lexeme.find_first_of(".eE") == string_view::npos;
-	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = lexeme.size(), .num_is_integer = is_int});
+	auto node = detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), lexeme);
+	if (!node) {
+		return unexpected(move(node).error());
+	}
+	st->store.nodes.push_back(*node);
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_i64(
@@ -2787,7 +3008,7 @@ expected<void, JsonError> ObjectBuilder::insert_i64(
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 	size_t const len = st->store.string_arena.size() - off;
-	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = true});
+	st->store.nodes.push_back(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), v));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_u64(
@@ -2803,7 +3024,12 @@ expected<void, JsonError> ObjectBuilder::insert_u64(
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 	size_t const len = st->store.string_arena.size() - off;
-	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = true});
+	if (v <= static_cast<uint64_t>(numeric_limits<int64_t>::max())) {
+		st->store.nodes.push_back(
+			detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), static_cast<int64_t>(v)));
+	} else {
+		st->store.nodes.push_back(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), v));
+	}
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_f64(
@@ -2826,9 +3052,9 @@ expected<void, JsonError> ObjectBuilder::insert_f64(
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 	size_t const len = st->store.string_arena.size() - off;
-	string_view const lex = st->store.str_at(off, len);
+	string_view const lex = st->store.str_at(static_cast<u32>(off), static_cast<u32>(len));
 	bool const is_int = lex.find_first_of(".eE") == string_view::npos;
-	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = is_int});
+	st->store.nodes.push_back(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), v, is_int));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 
@@ -2909,7 +3135,7 @@ expected<void, JsonError> ArrayBuilder::append_null() {
 				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	auto *st = frame_.state;
-	st->store.nodes.push_back({.kind = NodeKind::null_});
+	st->store.nodes.push_back(detail::make_null());
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -2923,7 +3149,7 @@ expected<void, JsonError> ArrayBuilder::append_bool(
 				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
 	}
 	auto *st = frame_.state;
-	st->store.nodes.push_back({.kind = NodeKind::boolean, .bool_val = v});
+	st->store.nodes.push_back(detail::make_bool(v));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -2939,7 +3165,7 @@ expected<void, JsonError> ArrayBuilder::append_string(
 	auto *st = frame_.state;
 	size_t const off = st->store.string_arena.size();
 	st->store.string_arena.append(value.data(), value.size());
-	st->store.nodes.push_back({.kind = NodeKind::string_, .a = off, .b = value.size()});
+	st->store.nodes.push_back(detail::make_string(static_cast<u32>(off), static_cast<u32>(value.size()), 0));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -2962,8 +3188,11 @@ expected<void, JsonError> ArrayBuilder::append_number(
 	auto *st = frame_.state;
 	size_t const off = st->store.string_arena.size();
 	st->store.string_arena.append(lexeme.data(), lexeme.size());
-	bool const is_int = lexeme.find_first_of(".eE") == string_view::npos;
-	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = lexeme.size(), .num_is_integer = is_int});
+	auto node = detail::build_number_node_from_lexeme(static_cast<u32>(off), static_cast<u32>(lexeme.size()), lexeme);
+	if (!node) {
+		return unexpected(move(node).error());
+	}
+	st->store.nodes.push_back(*node);
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -2983,7 +3212,7 @@ expected<void, JsonError> ArrayBuilder::append_i64(
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 	size_t const len = st->store.string_arena.size() - off;
-	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = true});
+	st->store.nodes.push_back(detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), v));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -3003,7 +3232,12 @@ expected<void, JsonError> ArrayBuilder::append_u64(
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 	size_t const len = st->store.string_arena.size() - off;
-	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = true});
+	if (v <= static_cast<uint64_t>(numeric_limits<int64_t>::max())) {
+		st->store.nodes.push_back(
+			detail::make_number_int(static_cast<u32>(off), static_cast<u32>(len), static_cast<int64_t>(v)));
+	} else {
+		st->store.nodes.push_back(detail::make_number_uint(static_cast<u32>(off), static_cast<u32>(len), v));
+	}
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -3030,9 +3264,9 @@ expected<void, JsonError> ArrayBuilder::append_f64(
 	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
 	st->store.string_arena.append(buf.data(), static_cast<size_t>(p - buf.data()));
 	size_t const len = st->store.string_arena.size() - off;
-	string_view const lex = st->store.str_at(off, len);
+	string_view const lex = st->store.str_at(static_cast<u32>(off), static_cast<u32>(len));
 	bool const is_int = lex.find_first_of(".eE") == string_view::npos;
-	st->store.nodes.push_back({.kind = NodeKind::number, .a = off, .b = len, .num_is_integer = is_int});
+	st->store.nodes.push_back(detail::make_number_f64(static_cast<u32>(off), static_cast<u32>(len), v, is_int));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }

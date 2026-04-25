@@ -692,6 +692,66 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
+// v11 Phase 0 — layout invariants exercised end-to-end.
+// (Correction K: pre-parsed numbers, deferred f64-overflow.
+//  Correction Q: BOM offset reporting.)
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"phase0: huge integer lexeme parses, to_i64/u64/f64 follow Correction K",
+	"[conformance][phase0][numbers]") {
+	// 30-digit integer — outside i64 and u64; f64 conversion produces a
+	// finite (rounded) value.
+	auto doc = json::parse("123456789012345678901234567890");
+	REQUIRE(doc.has_value());
+	auto num = *doc->root().as_number();
+	CHECK(num.form() == JsonNumberForm::integer);
+	CHECK_FALSE(num.to_i64().has_value());
+	CHECK(num.to_i64().error().code == JsonIssueCode::number_out_of_range);
+	CHECK_FALSE(num.to_u64().has_value());
+	CHECK(num.to_u64().error().code == JsonIssueCode::number_out_of_range);
+	auto f = num.to_f64();
+	REQUIRE(f.has_value());
+	CHECK(*f > 1e29);
+	// dump preserves the lexeme bytes.
+	auto out = doc->dump();
+	REQUIRE(out.has_value());
+	CHECK(*out == "123456789012345678901234567890");
+}
+
+TEST_CASE(
+	"phase0: f64-overflow node — parse succeeds, to_f64 fails, dump preserves",
+	"[conformance][phase0][numbers]") {
+	auto doc = json::parse("1e10000");
+	REQUIRE(doc.has_value());
+	auto num = *doc->root().as_number();
+	CHECK(num.form() == JsonNumberForm::non_integer);
+	CHECK_FALSE(num.to_f64().has_value());
+	CHECK(num.to_f64().error().code == JsonIssueCode::number_out_of_range);
+	auto out = doc->dump();
+	REQUIRE(out.has_value());
+	CHECK(*out == "1e10000");
+}
+
+TEST_CASE(
+	"phase0: BOM offset reporting — error offset includes 3 BOM bytes",
+	"[conformance][phase0][bom]") {
+	// UTF-8 BOM (EF BB BF) followed by an ill-formed token at byte index 4
+	// (relative to raw input including BOM): the error source.offset must
+	// be reported in raw input coordinates.
+	std::string input;
+	input += '\xEF';
+	input += '\xBB';
+	input += '\xBF';
+	input += "[1,]"; // trailing comma at offset (3 + 3) = 6 raw bytes in
+	auto doc = json::parse(input);
+	REQUIRE_FALSE(doc.has_value());
+	// The offset reported should be raw-byte offset including BOM.
+	REQUIRE(doc.error().source.has_value());
+	CHECK(doc.error().source->offset >= 3);
+}
+
+// ---------------------------------------------------------------------------
 // Builder-API conformance — exercise the ValueBuilder/ObjectBuilder/ArrayBuilder
 // API against real-world documents, verifying build/parse → dump round-trips.
 // ---------------------------------------------------------------------------
