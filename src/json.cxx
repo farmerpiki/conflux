@@ -586,6 +586,10 @@ struct DocumentStorage {
 // Phase 0 — slow-path f64 classifier (v14 AAA–EEE, v15 QQQ)
 // ---------------------------------------------------------------------------
 
+// v15 TTT: lexemes longer than this are conservatively classified as
+// overflow_infinite → number_out_of_range. v7 would have returned 0.0 for
+// pathological underflow tokens like "0." + 4000+ zeros + "1". DoS hardening
+// against megabyte-long number tokens.
 constexpr size_t kSlowFloatLexemeCopyLimit = 4096;
 
 namespace detail {

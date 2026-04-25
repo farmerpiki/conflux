@@ -2925,3 +2925,131 @@ TEST_CASE(
 		CHECK(res.error().code == JsonIssueCode::input_too_large);
 	}
 }
+
+// ---------------------------------------------------------------------------
+// v15 UUU — Escaped-key regression coverage (correctness fix FFF/GGG)
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: find_member_escaped_key_literal_escape",
+	"[json][escape]") {
+	auto doc = parse(R"({"a\nb": 1})");
+	REQUIRE(doc.has_value());
+	auto obj = doc->root().as_object();
+	REQUIRE(obj.has_value());
+	auto m = obj->find_member("a\nb");
+	REQUIRE(m.has_value());
+	auto n = m->as_number();
+	REQUIRE(n.has_value());
+	CHECK(*n->to_i64() == 1LL);
+}
+
+TEST_CASE(
+	"json: find_member_escaped_key_null_byte",
+	"[json][escape]") {
+	auto doc = parse(R"({"a\u0000b": 1})");
+	REQUIRE(doc.has_value());
+	auto obj = doc->root().as_object();
+	REQUIRE(obj.has_value());
+	string_view const key{"a\0b", 3};
+	auto m = obj->find_member(key);
+	REQUIRE(m.has_value());
+	auto n = m->as_number();
+	REQUIRE(n.has_value());
+	CHECK(*n->to_i64() == 1LL);
+}
+
+TEST_CASE(
+	"json: find_member_unicode_escaped_ascii_key",
+	"[json][escape]") {
+	auto doc = parse(R"({"\u0061": 1})"); // \u0061 decodes to 'a'
+	REQUIRE(doc.has_value());
+	auto obj = doc->root().as_object();
+	REQUIRE(obj.has_value());
+	auto m = obj->find_member("a");
+	REQUIRE(m.has_value());
+	auto n = m->as_number();
+	REQUIRE(n.has_value());
+	CHECK(*n->to_i64() == 1LL);
+}
+
+TEST_CASE(
+	"json: duplicate_member_mixed_escape",
+	"[json][escape]") {
+	// "a" and "a" both decode to "a" — must be rejected.
+	auto doc = parse(R"({"a": 1, "\u0061": 2})");
+	REQUIRE_FALSE(doc.has_value());
+	CHECK(doc.error().code == JsonIssueCode::duplicate_member);
+}
+
+TEST_CASE(
+	"json: hash_fallback_linear_on_escaped",
+	"[json][escape][hash]") {
+	// Build an object > kHashThreshold (8) with one escaped-name member,
+	// warm the index, and confirm escaped lookup hits the hash path.
+	string js = "{";
+	for (int i = 0; i < 16; ++i) {
+		if (i > 0) {
+			js += ',';
+		}
+		js += format(R"("k{}": {})", i, i);
+	}
+	js += R"(, "\u0061_key": 999)"; // decodes to "a_key"
+	js += "}";
+	auto doc = parse(js);
+	REQUIRE(doc.has_value());
+	auto warm = doc->warm_member_index(doc->root());
+	REQUIRE(warm.has_value());
+	auto obj = doc->root().as_object();
+	REQUIRE(obj.has_value());
+	auto m = obj->find_member("a_key");
+	REQUIRE(m.has_value());
+	auto n = m->as_number();
+	REQUIRE(n.has_value());
+	CHECK(*n->to_i64() == 999LL);
+}
+
+TEST_CASE(
+	"json: build_probe_cap_adversarial_hash",
+	"[json][hash][adversarial]") {
+	// Synthesize >kProbeChainMax keys whose 32-bit-truncated std::hash<string_view>
+	// values share the same low-8-bit bucket. With cap = 256 (member_count = 80,
+	// next pow2 >= 2*80), they all hit bucket 0 and the probe chain saturates,
+	// so warm_member_index must return resource_exhausted while find_member
+	// still returns the correct value via linear scan.
+	constexpr size_t kTargetCount = 80;
+	vector<string> colliding_keys;
+	colliding_keys.reserve(kTargetCount);
+	for (size_t i = 0; colliding_keys.size() < kTargetCount && i < 1'000'000UZ; ++i) {
+		string s = format("k_{}", i);
+		auto const h = static_cast<uint32_t>(hash<string_view>{}(string_view{s}));
+		if ((h & 0xFFu) == 0u) {
+			colliding_keys.push_back(move(s));
+		}
+	}
+	if (colliding_keys.size() < kTargetCount) {
+		WARN("could not synthesize enough hash-colliding keys; skipping");
+		return;
+	}
+	string js = "{";
+	for (size_t i = 0; i < colliding_keys.size(); ++i) {
+		if (i > 0) {
+			js += ',';
+		}
+		js += format(R"("{}": {})", colliding_keys[i], i);
+	}
+	js += "}";
+	auto doc = parse(js);
+	REQUIRE(doc.has_value());
+	auto warm = doc->warm_member_index(doc->root());
+	REQUIRE_FALSE(warm.has_value());
+	CHECK(warm.error().code == JsonIssueCode::resource_exhausted);
+	auto obj = doc->root().as_object();
+	REQUIRE(obj.has_value());
+	// linear-scan path still resolves correctly
+	auto m = obj->find_member(colliding_keys[42]);
+	REQUIRE(m.has_value());
+	auto n = m->as_number();
+	REQUIRE(n.has_value());
+	CHECK(*n->to_i64() == 42LL);
+}
