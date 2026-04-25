@@ -8,6 +8,7 @@ import conflux.work.carrier.model_a;
 #if CONFLUX_WORK_CARRIER_MODEL_B
 import conflux.work.carrier.model_b;
 #endif
+import conflux.work.carrier.deadline;
 
 using namespace std;
 namespace root = conflux::work::root;
@@ -17,6 +18,7 @@ namespace model_a = conflux::work::carrier::model_a;
 #if CONFLUX_WORK_CARRIER_MODEL_B
 namespace model_b = conflux::work::carrier::model_b;
 #endif
+namespace carrier = conflux::work::carrier;
 
 namespace {
 
@@ -768,6 +770,40 @@ Case make_carrier_a_race_b_wins_case() {
 
 #endif // CONFLUX_WORK_CARRIER_MODEL_A
 
+Case make_deadline_scope_arm_disarm_case() {
+	return Case{
+		.name = "carrier/deadline_scope_arm_disarm",
+		.description = "DeadlineScope(60s) arm + immediate destroy (jthread start+stop)",
+		.default_iterations = 5'000,
+		.run = [] {
+			carrier::DeadlineScope scope{chrono::seconds{60}};
+			return size_t{1};
+		}};
+}
+
+#if CONFLUX_WORK_CARRIER_MODEL_A
+
+Case make_deadline_scope_fast_path_case() {
+	return Case{
+		.name = "carrier/deadline_scope_admit_fast",
+		.description = "DeadlineScope(60s) + admit(pre-resolved task) — deadline never fires",
+		.default_iterations = 5'000,
+		.run = [] {
+			auto [task, src] = root::make_task_source<int>();
+			(void)src.commit_success(root::Success<int>{42});
+			auto jh = root::into_join_handle(move(task));
+			carrier::DeadlineScope scope{chrono::seconds{60}};
+			auto chain = scope.admit(move(jh));
+			auto out = move(chain).release_outcome();
+			if (!out.is_success()) {
+				throw runtime_error{"deadline fast path failed"};
+			}
+			return static_cast<size_t>(out.success().value);
+		}};
+}
+
+#endif // CONFLUX_WORK_CARRIER_MODEL_A (deadline fast path)
+
 #if CONFLUX_WORK_CARRIER_MODEL_B
 
 struct OwnerCapB : root::capability_id_from_address<OwnerCapB> {};
@@ -938,6 +974,10 @@ vector<Case> make_cases() {
 	cases.push_back(make_carrier_a_when_all_fast_fail_case());
 	cases.push_back(make_carrier_a_race_a_wins_case());
 	cases.push_back(make_carrier_a_race_b_wins_case());
+#endif
+	cases.push_back(make_deadline_scope_arm_disarm_case());
+#if CONFLUX_WORK_CARRIER_MODEL_A
+	cases.push_back(make_deadline_scope_fast_path_case());
 #endif
 #if CONFLUX_WORK_CARRIER_MODEL_B
 	cases.push_back(make_carrier_b_task_map1_case());

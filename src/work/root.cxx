@@ -10,6 +10,7 @@ enum class CancelReason : std::uint8_t {
 	requested,
 	abandoned,
 	shutdown,
+	deadline,
 };
 
 enum class WorkState : std::uint8_t {
@@ -129,14 +130,14 @@ public:
 		Cancelled cancelled) noexcept
 		: storage_{std::in_place_type<Cancelled>, std::move(cancelled)} {}
 
-	Outcome(
-		Outcome const &) = default;
+	Outcome(Outcome const &) = default;
 
-	Outcome(
-		Outcome &&) noexcept = default;
+	Outcome(Outcome &&) noexcept = default;
 
 	Outcome &operator =(
-		Outcome const &other) requires std::copy_constructible<storage_t> {
+		Outcome const &other)
+		requires std::copy_constructible<storage_t>
+	{
 		if (this != std::addressof(other)) {
 			Outcome staged{other};
 			storage_ = std::move(staged.storage_);
@@ -144,8 +145,7 @@ public:
 		return *this;
 	}
 
-	Outcome &operator =(
-		Outcome &&) noexcept = default;
+	Outcome &operator =(Outcome &&) noexcept = default;
 
 	[[nodiscard]] static Outcome make_success(
 		success_t success)
@@ -286,11 +286,9 @@ public:
 		Cancelled cancelled) noexcept
 		: storage_{std::in_place_type<Cancelled>, std::move(cancelled)} {}
 
-	Outcome(
-		Outcome const &) = default;
+	Outcome(Outcome const &) = default;
 
-	Outcome(
-		Outcome &&) noexcept = default;
+	Outcome(Outcome &&) noexcept = default;
 
 	Outcome &operator =(
 		Outcome const &other) {
@@ -301,8 +299,7 @@ public:
 		return *this;
 	}
 
-	Outcome &operator =(
-		Outcome &&) noexcept = default;
+	Outcome &operator =(Outcome &&) noexcept = default;
 
 	[[nodiscard]] static Outcome make_success() noexcept { return Outcome{success_t{}}; }
 
@@ -460,7 +457,9 @@ struct CapabilityId {
 struct capability_id_t {
 	template<class Cap>
 	[[nodiscard]] auto operator ()(
-		Cap const &cap) const noexcept(noexcept(tag_invoke(*this, cap))) -> decltype(tag_invoke(*this, cap)) {
+		Cap const &cap) const
+		noexcept(
+			noexcept(tag_invoke(*this, cap))) -> decltype(tag_invoke(*this, cap)) {
 		return tag_invoke(*this, cap);
 	}
 };
