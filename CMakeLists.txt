@@ -237,6 +237,7 @@ target_sources(conflux_work
         src/work/carrier_flags.cxx
         src/work/carrier_model_a.cxx
         src/work/carrier_model_b.cxx
+        src/work/carrier_scope.cxx
         src/work/root.cxx
         src/work.cxx
 )

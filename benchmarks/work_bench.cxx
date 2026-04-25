@@ -299,114 +299,93 @@ Case make_root_operation_join_case() {
 Case make_root_task_admission_case(
 	bool enable_cancellation) {
 	auto const name = enable_cancellation ? "root/task_admission_enabled"sv : "root/task_admission_disabled"sv;
-	auto const description = enable_cancellation ? "make_task_source admission with cancellation enabled"
-												 : "make_task_source admission with cancellation disabled";
-	return Case{
-		.name = name,
-		.description = description,
-		.default_iterations = 200'000,
-		.run = [enable_cancellation] {
-			auto [task, src] = root::make_task_source<int>(root::SubmitOptions{.enable_cancellation = enable_cancellation});
-			root::abandon_to(move(task), root::drop_on_abandon{});
-			(void)src;
-			return size_t{1};
-		}};
+	auto const description = enable_cancellation ? "make_task_source admission with cancellation enabled" :
+												   "make_task_source admission with cancellation disabled";
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					auto [task, src] =
+						root::make_task_source<int>(root::SubmitOptions{.enable_cancellation = enable_cancellation});
+					root::abandon_to(move(task), root::drop_on_abandon{});
+					(void)src;
+					return size_t{1};
+				}};
 }
 
 Case make_root_posted_admission_case(
 	bool enable_cancellation) {
 	auto const name = enable_cancellation ? "root/posted_admission_enabled"sv : "root/posted_admission_disabled"sv;
-	auto const description = enable_cancellation ? "make_posted_source admission with cancellation enabled"
-												 : "make_posted_source admission with cancellation disabled";
-	return Case{
-		.name = name,
-		.description = description,
-		.default_iterations = 200'000,
-		.run = [enable_cancellation] {
-			OwnerCap owner{};
-			auto [posted, src] =
-				root::make_posted_source<int>(owner, root::PostOptions{.enable_cancellation = enable_cancellation});
-			root::abandon_to(move(posted), root::drop_on_abandon{});
-			(void)src;
-			return size_t{1};
-		}};
+	auto const description = enable_cancellation ? "make_posted_source admission with cancellation enabled" :
+												   "make_posted_source admission with cancellation disabled";
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					OwnerCap owner{};
+					auto [posted, src] = root::make_posted_source<int>(
+						owner,
+						root::PostOptions{.enable_cancellation = enable_cancellation});
+					root::abandon_to(move(posted), root::drop_on_abandon{});
+					(void)src;
+					return size_t{1};
+				}};
 }
 
 Case make_root_operation_admission_case(
 	bool enable_cancellation) {
-	auto const name = enable_cancellation ? "root/operation_admission_enabled"sv : "root/operation_admission_disabled"sv;
-	auto const description = enable_cancellation ? "make_operation_source admission with cancellation enabled"
-												 : "make_operation_source admission with cancellation disabled";
-	return Case{
-		.name = name,
-		.description = description,
-		.default_iterations = 200'000,
-		.run = [enable_cancellation] {
-			DriverCap driver{};
-			auto [op, src] =
-				root::make_operation_source<int>(driver, root::OperationOptions{.enable_cancellation = enable_cancellation});
-			root::abandon_to(move(op), root::drop_on_abandon{});
-			(void)src;
-			return size_t{1};
-		}};
+	auto const name =
+		enable_cancellation ? "root/operation_admission_enabled"sv : "root/operation_admission_disabled"sv;
+	auto const description = enable_cancellation ? "make_operation_source admission with cancellation enabled" :
+												   "make_operation_source admission with cancellation disabled";
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					DriverCap driver{};
+					auto [op, src] = root::make_operation_source<int>(
+						driver,
+						root::OperationOptions{.enable_cancellation = enable_cancellation});
+					root::abandon_to(move(op), root::drop_on_abandon{});
+					(void)src;
+					return size_t{1};
+				}};
 }
 
 Case make_root_task_control_admission_case(
 	bool enable_cancellation) {
-	auto const name = enable_cancellation ? "root/task_control_admission_enabled"sv
-										  : "root/task_control_admission_disabled"sv;
-	auto const description = enable_cancellation ? "make_task_control_source admission with cancellation enabled"
-												 : "make_task_control_source admission with cancellation disabled";
-	return Case{
-		.name = name,
-		.description = description,
-		.default_iterations = 200'000,
-		.run = [enable_cancellation] {
-			auto [control, src] =
-				root::make_task_control_source<int>(root::SubmitOptions{.enable_cancellation = enable_cancellation});
-			(void)control;
-			(void)src;
-			return size_t{1};
-		}};
+	auto const name =
+		enable_cancellation ? "root/task_control_admission_enabled"sv : "root/task_control_admission_disabled"sv;
+	auto const description = enable_cancellation ? "make_task_control_source admission with cancellation enabled" :
+												   "make_task_control_source admission with cancellation disabled";
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					auto [control, src] = root::make_task_control_source<int>(
+						root::SubmitOptions{.enable_cancellation = enable_cancellation});
+					(void)control;
+					(void)src;
+					return size_t{1};
+				}};
 }
 
 Case make_root_posted_control_admission_case(
 	bool enable_cancellation) {
-	auto const name = enable_cancellation ? "root/posted_control_admission_enabled"sv
-										  : "root/posted_control_admission_disabled"sv;
-	auto const description = enable_cancellation ? "make_posted_control_source admission with cancellation enabled"
-												 : "make_posted_control_source admission with cancellation disabled";
-	return Case{
-		.name = name,
-		.description = description,
-		.default_iterations = 200'000,
-		.run = [enable_cancellation] {
-			auto [control, src] =
-				root::make_posted_control_source<int>(root::PostOptions{.enable_cancellation = enable_cancellation});
-			(void)control;
-			(void)src;
-			return size_t{1};
-		}};
+	auto const name =
+		enable_cancellation ? "root/posted_control_admission_enabled"sv : "root/posted_control_admission_disabled"sv;
+	auto const description = enable_cancellation ? "make_posted_control_source admission with cancellation enabled" :
+												   "make_posted_control_source admission with cancellation disabled";
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					auto [control, src] = root::make_posted_control_source<int>(
+						root::PostOptions{.enable_cancellation = enable_cancellation});
+					(void)control;
+					(void)src;
+					return size_t{1};
+				}};
 }
 
 Case make_root_operation_control_admission_case(
 	bool enable_cancellation) {
-	auto const name = enable_cancellation ? "root/operation_control_admission_enabled"sv
-										  : "root/operation_control_admission_disabled"sv;
-	auto const description = enable_cancellation
-								 ? "make_operation_control_source admission with cancellation enabled"
-								 : "make_operation_control_source admission with cancellation disabled";
-	return Case{
-		.name = name,
-		.description = description,
-		.default_iterations = 200'000,
-		.run = [enable_cancellation] {
-			auto [control, src] = root::make_operation_control_source<int>(
-				root::OperationOptions{.enable_cancellation = enable_cancellation});
-			(void)control;
-			(void)src;
-			return size_t{1};
-		}};
+	auto const name = enable_cancellation ? "root/operation_control_admission_enabled"sv :
+											"root/operation_control_admission_disabled"sv;
+	auto const description = enable_cancellation ? "make_operation_control_source admission with cancellation enabled" :
+												   "make_operation_control_source admission with cancellation disabled";
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					auto [control, src] = root::make_operation_control_source<int>(
+						root::OperationOptions{.enable_cancellation = enable_cancellation});
+					(void)control;
+					(void)src;
+					return size_t{1};
+				}};
 }
 
 Case make_root_cancel_hook_case(
@@ -437,144 +416,131 @@ Case make_root_cancel_hook_case(
 Case make_root_posted_cancel_hook_case(
 	bool enable_cancellation) {
 	auto const name = enable_cancellation ? "root/posted_cancel_hook_enabled"sv : "root/posted_cancel_hook_disabled"sv;
-	auto const description = enable_cancellation ? "posted install_cancel_hook + request_cancel (enabled)"
-												 : "posted install_cancel_hook + request_cancel (disabled)";
-	return Case{
-		.name = name,
-		.description = description,
-		.default_iterations = 200'000,
-		.run = [enable_cancellation] {
-			OwnerCap owner{};
-			auto [posted, src] = root::make_posted_source<int>(owner, root::PostOptions{.enable_cancellation = enable_cancellation});
-			size_t seen = 0;
-			bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
-				if (reason == root::CancelReason::requested) {
-					++seen;
-				}
-			});
-			if (!installed) {
-				throw runtime_error{"install_cancel_hook failed"};
-			}
-			auto control = posted.control();
-			size_t score = control.request_cancel() ? 1U : 0U;
-			score += seen;
-			root::abandon_to(move(posted), root::drop_on_abandon{});
-			return score;
-		}};
+	auto const description = enable_cancellation ? "posted install_cancel_hook + request_cancel (enabled)" :
+												   "posted install_cancel_hook + request_cancel (disabled)";
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					OwnerCap owner{};
+					auto [posted, src] = root::make_posted_source<int>(
+						owner,
+						root::PostOptions{.enable_cancellation = enable_cancellation});
+					size_t seen = 0;
+					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
+						if (reason == root::CancelReason::requested) {
+							++seen;
+						}
+					});
+					if (!installed) {
+						throw runtime_error{"install_cancel_hook failed"};
+					}
+					auto control = posted.control();
+					size_t score = control.request_cancel() ? 1U : 0U;
+					score += seen;
+					root::abandon_to(move(posted), root::drop_on_abandon{});
+					return score;
+				}};
 }
 
 Case make_root_operation_cancel_hook_case(
 	bool enable_cancellation) {
-	auto const name = enable_cancellation ? "root/operation_cancel_hook_enabled"sv : "root/operation_cancel_hook_disabled"sv;
-	auto const description = enable_cancellation ? "operation install_cancel_hook + request_cancel (enabled)"
-												 : "operation install_cancel_hook + request_cancel (disabled)";
-	return Case{
-		.name = name,
-		.description = description,
-		.default_iterations = 200'000,
-		.run = [enable_cancellation] {
-			DriverCap driver{};
-			auto [op, src] =
-				root::make_operation_source<int>(driver, root::OperationOptions{.enable_cancellation = enable_cancellation});
-			size_t seen = 0;
-			bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
-				if (reason == root::CancelReason::requested) {
-					++seen;
-				}
-			});
-			if (!installed) {
-				throw runtime_error{"install_cancel_hook failed"};
-			}
-			auto control = op.control();
-			size_t score = control.request_cancel() ? 1U : 0U;
-			score += seen;
-			root::abandon_to(move(op), root::drop_on_abandon{});
-			return score;
-		}};
+	auto const name =
+		enable_cancellation ? "root/operation_cancel_hook_enabled"sv : "root/operation_cancel_hook_disabled"sv;
+	auto const description = enable_cancellation ? "operation install_cancel_hook + request_cancel (enabled)" :
+												   "operation install_cancel_hook + request_cancel (disabled)";
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					DriverCap driver{};
+					auto [op, src] = root::make_operation_source<int>(
+						driver,
+						root::OperationOptions{.enable_cancellation = enable_cancellation});
+					size_t seen = 0;
+					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
+						if (reason == root::CancelReason::requested) {
+							++seen;
+						}
+					});
+					if (!installed) {
+						throw runtime_error{"install_cancel_hook failed"};
+					}
+					auto control = op.control();
+					size_t score = control.request_cancel() ? 1U : 0U;
+					score += seen;
+					root::abandon_to(move(op), root::drop_on_abandon{});
+					return score;
+				}};
 }
 
 Case make_root_control_cancel_hook_case(
 	bool enable_cancellation) {
-	auto const name = enable_cancellation ? "root/control_cancel_hook_enabled"sv : "root/control_cancel_hook_disabled"sv;
-	auto const description = enable_cancellation ? "make_task_control_source + install_cancel_hook + request_cancel (enabled)"
-												 : "make_task_control_source + install_cancel_hook + request_cancel (disabled)";
-	return Case{
-		.name = name,
-		.description = description,
-		.default_iterations = 200'000,
-		.run = [enable_cancellation] {
-			auto [control, src] =
-				root::make_task_control_source<int>(root::SubmitOptions{.enable_cancellation = enable_cancellation});
-			size_t seen = 0;
-			bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
-				if (reason == root::CancelReason::requested) {
-					++seen;
-				}
-			});
-			if (!installed) {
-				throw runtime_error{"install_cancel_hook failed"};
-			}
-			size_t score = control.request_cancel() ? 1U : 0U;
-			score += seen;
-			return score;
-		}};
+	auto const name =
+		enable_cancellation ? "root/control_cancel_hook_enabled"sv : "root/control_cancel_hook_disabled"sv;
+	auto const description = enable_cancellation ?
+								 "make_task_control_source + install_cancel_hook + request_cancel (enabled)" :
+								 "make_task_control_source + install_cancel_hook + request_cancel (disabled)";
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					auto [control, src] = root::make_task_control_source<int>(
+						root::SubmitOptions{.enable_cancellation = enable_cancellation});
+					size_t seen = 0;
+					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
+						if (reason == root::CancelReason::requested) {
+							++seen;
+						}
+					});
+					if (!installed) {
+						throw runtime_error{"install_cancel_hook failed"};
+					}
+					size_t score = control.request_cancel() ? 1U : 0U;
+					score += seen;
+					return score;
+				}};
 }
 
 Case make_root_posted_control_cancel_hook_case(
 	bool enable_cancellation) {
-	auto const name = enable_cancellation ? "root/posted_control_cancel_hook_enabled"sv
-										  : "root/posted_control_cancel_hook_disabled"sv;
-	auto const description = enable_cancellation ? "make_posted_control_source + install_cancel_hook + request_cancel (enabled)"
-												 : "make_posted_control_source + install_cancel_hook + request_cancel (disabled)";
-	return Case{
-		.name = name,
-		.description = description,
-		.default_iterations = 200'000,
-		.run = [enable_cancellation] {
-			auto [control, src] =
-				root::make_posted_control_source<int>(root::PostOptions{.enable_cancellation = enable_cancellation});
-			size_t seen = 0;
-			bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
-				if (reason == root::CancelReason::requested) {
-					++seen;
-				}
-			});
-			if (!installed) {
-				throw runtime_error{"install_cancel_hook failed"};
-			}
-			size_t score = control.request_cancel() ? 1U : 0U;
-			score += seen;
-			return score;
-		}};
+	auto const name = enable_cancellation ? "root/posted_control_cancel_hook_enabled"sv :
+											"root/posted_control_cancel_hook_disabled"sv;
+	auto const description = enable_cancellation ?
+								 "make_posted_control_source + install_cancel_hook + request_cancel (enabled)" :
+								 "make_posted_control_source + install_cancel_hook + request_cancel (disabled)";
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					auto [control, src] = root::make_posted_control_source<int>(
+						root::PostOptions{.enable_cancellation = enable_cancellation});
+					size_t seen = 0;
+					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
+						if (reason == root::CancelReason::requested) {
+							++seen;
+						}
+					});
+					if (!installed) {
+						throw runtime_error{"install_cancel_hook failed"};
+					}
+					size_t score = control.request_cancel() ? 1U : 0U;
+					score += seen;
+					return score;
+				}};
 }
 
 Case make_root_operation_control_cancel_hook_case(
 	bool enable_cancellation) {
-	auto const name = enable_cancellation ? "root/operation_control_cancel_hook_enabled"sv
-										  : "root/operation_control_cancel_hook_disabled"sv;
-	auto const description = enable_cancellation
-								 ? "make_operation_control_source + install_cancel_hook + request_cancel (enabled)"
-								 : "make_operation_control_source + install_cancel_hook + request_cancel (disabled)";
-	return Case{
-		.name = name,
-		.description = description,
-		.default_iterations = 200'000,
-		.run = [enable_cancellation] {
-			auto [control, src] = root::make_operation_control_source<int>(
-				root::OperationOptions{.enable_cancellation = enable_cancellation});
-			size_t seen = 0;
-			bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
-				if (reason == root::CancelReason::requested) {
-					++seen;
-				}
-			});
-			if (!installed) {
-				throw runtime_error{"install_cancel_hook failed"};
-			}
-			size_t score = control.request_cancel() ? 1U : 0U;
-			score += seen;
-			return score;
-		}};
+	auto const name = enable_cancellation ? "root/operation_control_cancel_hook_enabled"sv :
+											"root/operation_control_cancel_hook_disabled"sv;
+	auto const description = enable_cancellation ?
+								 "make_operation_control_source + install_cancel_hook + request_cancel (enabled)" :
+								 "make_operation_control_source + install_cancel_hook + request_cancel (disabled)";
+	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
+					auto [control, src] = root::make_operation_control_source<int>(
+						root::OperationOptions{.enable_cancellation = enable_cancellation});
+					size_t seen = 0;
+					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
+						if (reason == root::CancelReason::requested) {
+							++seen;
+						}
+					});
+					if (!installed) {
+						throw runtime_error{"install_cancel_hook failed"};
+					}
+					size_t score = control.request_cancel() ? 1U : 0U;
+					score += seen;
+					return score;
+				}};
 }
 
 Case make_root_abandon_sink_case() {
@@ -733,6 +699,70 @@ Case make_carrier_a_when_all_case() {
 			}
 			auto [a, b] = move(out).success().value;
 			return static_cast<size_t>(a + b);
+		}};
+}
+
+Case make_carrier_a_when_all_fast_fail_case() {
+	return Case{
+		.name = "carrier_a/when_all_fast_fail",
+		.description = "Model A: when_all_fast_fail(2 task chains) + extract",
+		.default_iterations = 200'000,
+		.run = [] {
+			auto [ta, sa] = root::make_task_source<int>();
+			auto [tb, sb] = root::make_task_source<int>();
+			(void)sa.commit_success(root::Success<int>{10});
+			(void)sb.commit_success(root::Success<int>{20});
+			auto ca = model_a::from_task(move(ta));
+			auto cb = model_a::from_task(move(tb));
+			auto combined = model_a::when_all_fast_fail(move(ca), move(cb));
+			auto out = move(combined).release_outcome();
+			if (!out.is_success()) {
+				throw runtime_error{"when_all_fast_fail failed"};
+			}
+			auto [a, b] = move(out).success().value;
+			return static_cast<size_t>(a + b);
+		}};
+}
+
+Case make_carrier_a_race_a_wins_case() {
+	return Case{
+		.name = "carrier_a/race_a_wins",
+		.description = "Model A: race(success, success) — a wins",
+		.default_iterations = 200'000,
+		.run = [] {
+			auto [ta, sa] = root::make_task_source<int>();
+			auto [tb, sb] = root::make_task_source<int>();
+			(void)sa.commit_success(root::Success<int>{7});
+			(void)sb.commit_success(root::Success<int>{99});
+			auto ca = model_a::from_task(move(ta));
+			auto cb = model_a::from_task(move(tb));
+			auto winner = model_a::race(move(ca), move(cb));
+			auto out = move(winner).release_outcome();
+			if (!out.is_success()) {
+				throw runtime_error{"race failed"};
+			}
+			return static_cast<size_t>(out.success().value);
+		}};
+}
+
+Case make_carrier_a_race_b_wins_case() {
+	return Case{
+		.name = "carrier_a/race_b_wins",
+		.description = "Model A: race(failure, success) — b wins",
+		.default_iterations = 200'000,
+		.run = [] {
+			auto [ta, sa] = root::make_task_source<int>();
+			auto [tb, sb] = root::make_task_source<int>();
+			(void)sa.commit_failure(make_exception_ptr(runtime_error{"fail"}));
+			(void)sb.commit_success(root::Success<int>{5});
+			auto ca = model_a::from_task(move(ta));
+			auto cb = model_a::from_task(move(tb));
+			auto winner = model_a::race(move(ca), move(cb));
+			auto out = move(winner).release_outcome();
+			if (!out.is_success()) {
+				throw runtime_error{"race b-wins failed"};
+			}
+			return static_cast<size_t>(out.success().value);
 		}};
 }
 
@@ -905,6 +935,9 @@ vector<Case> make_cases() {
 	cases.push_back(make_carrier_a_cancel_passthru_case());
 	cases.push_back(make_carrier_a_mixed_3stage_case());
 	cases.push_back(make_carrier_a_when_all_case());
+	cases.push_back(make_carrier_a_when_all_fast_fail_case());
+	cases.push_back(make_carrier_a_race_a_wins_case());
+	cases.push_back(make_carrier_a_race_b_wins_case());
 #endif
 #if CONFLUX_WORK_CARRIER_MODEL_B
 	cases.push_back(make_carrier_b_task_map1_case());

@@ -150,4 +150,40 @@ template<root::work_value A, root::work_value B>
 		CarrierKind::task};
 }
 
+template<root::work_value A, root::work_value B>
+	requires(!std::same_as<A, void> && !std::same_as<B, void>)
+[[nodiscard]] auto when_all_fast_fail(
+	Chain<A> &&a,
+	Chain<B> &&b) noexcept -> Chain<std::tuple<A, B>> {
+	// In eager context both chains are already resolved; semantically identical
+	// to when_all. API contract: in async context failure triggers best-effort
+	// sibling cancellation before waiting for the loser to complete.
+	return when_all(std::move(a), std::move(b));
+}
+
+template<root::work_value T>
+	requires(!std::same_as<T, void>)
+[[nodiscard]] Chain<T> race(
+	Chain<T> &&a,
+	Chain<T> &&b) noexcept {
+	auto kind_a = a.kind();
+	auto kind_b = b.kind();
+	auto out_a = std::move(a).release_outcome();
+	auto out_b = std::move(b).release_outcome();
+
+	if (out_a.is_success()) {
+		return Chain<T>{std::move(out_a), kind_a};
+	}
+	if (out_b.is_success()) {
+		return Chain<T>{std::move(out_b), kind_b};
+	}
+	if (out_a.is_failure()) {
+		return Chain<T>{std::move(out_a), kind_a};
+	}
+	if (out_b.is_failure()) {
+		return Chain<T>{std::move(out_b), kind_b};
+	}
+	return Chain<T>{std::move(out_a), kind_a};
+}
+
 } // namespace conflux::work::carrier::model_a
