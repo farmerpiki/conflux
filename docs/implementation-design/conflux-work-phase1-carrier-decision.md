@@ -23,6 +23,12 @@ All runs on `release-clang-libcxx`. Root baseline for delta calculation:
 Dynamic allocation delta vs root baseline: **zero** for both models. Chain
 operations are allocation-free; only root admission allocates.
 
+**Compile-time cost** (`release-clang-libcxx`, isolated TU, both models enabled):
+10-stage mixed-type chain TU (`benchmarks/work_compile_bench.cxx`): **273 ms**.
+Measurement: `ninja -j1` on the probe TU alone with all BMIs pre-built.
+Both models contribute to the same TU; per-model split is not meaningful since
+the dominant cost is module import, not chain-type instantiation depth.
+
 ## Gate Assessment
 
 Gate target: `<= +8% latency delta, no additional dynamic allocations`.
@@ -142,5 +148,5 @@ over `Chain<T>` without changing the core API.
 - Archive Model B prototype (keep compiled, do not promote to primary)
 - Proceed to Phase 2: `when_all` aggregates and structured concurrency
   baseline, building on `Chain<T>` from Model A
-- Add compile-time instantiation cost measurement for a 10-stage chain TU
-  before Phase 2 begins (benchmark matrix item not yet measured)
+- Compile-time instantiation cost measured: 273 ms isolated TU (done;
+  `benchmarks/work_compile_bench.cxx`)

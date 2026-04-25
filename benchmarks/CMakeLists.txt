@@ -4,6 +4,9 @@ target_link_libraries(conflux_benchmarks PRIVATE conflux conflux_options)
 add_executable(conflux_work_benchmarks work_bench.cxx)
 target_link_libraries(conflux_work_benchmarks PRIVATE conflux_work conflux_options)
 
+add_executable(conflux_work_compile_bench work_compile_bench.cxx)
+target_link_libraries(conflux_work_compile_bench PRIVATE conflux_work conflux_options)
+
 add_executable(conflux_file_copy_coro_bench file_copy_coro_bench.cxx)
 target_link_libraries(conflux_file_copy_coro_bench
     PRIVATE conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
