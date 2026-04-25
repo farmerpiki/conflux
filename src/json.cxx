@@ -2127,6 +2127,15 @@ struct TreeBuilder {
 	DocumentStorage &store;
 	JsonParseOptions const &opts;
 
+	// Phase 4: shared staging buffers across nested array/object frames. Each
+	// frame's slice is [frame.children_start .. staging.size()) for arrays and
+	// [frame.members_start .. staging_members.size()) for objects; on close
+	// the slice is moved to store.array_children / store.object_members and
+	// the staging buffer truncated back. This eliminates per-frame heap
+	// allocation that the v7-style local vectors paid for each container.
+	vector<u32> staging;
+	vector<MemberEntry> staging_members;
+
 	[[nodiscard]] JsonError mk_err(
 		JsonIssueCode code,
 		string msg) const {
@@ -2208,29 +2217,33 @@ struct TreeBuilder {
 			store.nodes.push_back(detail::make_array(static_cast<u32>(cs), static_cast<u32>(0)));
 			return store.nodes.size() - 1;
 		}
-		// Collect child node indices locally to keep arena contiguous.
-		vector<size_t> local_children;
+		// Phase 4: append child indices to shared staging[children_start..],
+		// flush to array_children at close, then truncate staging.
+		size_t const children_start = staging.size();
 		while (true) {
 			auto child = parse_value(depth + 1);
 			if (!child) {
 				return unexpected(move(child).error());
 			}
-			local_children.push_back(*child);
+			staging.push_back(static_cast<u32>(*child));
 			tok.skip_ws();
 			if (tok.pos >= tok.src.size()) {
 				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in array"));
 			}
 			if (tok.src[tok.pos] == ']') {
 				tok.adv();
+				size_t const len = staging.size() - children_start;
 				size_t const cs = store.array_children.size();
-				for (size_t const idx: local_children) {
-					store.array_children.push_back(static_cast<u32>(idx));
-				}
-				store.nodes.push_back(
-					detail::make_array(static_cast<u32>(cs), static_cast<u32>(local_children.size())));
+				store.array_children.insert(
+					store.array_children.end(),
+					staging.begin() + static_cast<ptrdiff_t>(children_start),
+					staging.end());
+				staging.resize(children_start);
+				store.nodes.push_back(detail::make_array(static_cast<u32>(cs), static_cast<u32>(len)));
 				return store.nodes.size() - 1;
 			}
 			if (tok.src[tok.pos] != ',') {
+				staging.resize(children_start);
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'"));
 			}
 			tok.adv();
@@ -2249,8 +2262,10 @@ struct TreeBuilder {
 			store.nodes.push_back(detail::make_object(static_cast<u32>(ms), static_cast<u32>(0)));
 			return store.nodes.size() - 1;
 		}
-		// Collect members locally to keep arena contiguous.
-		vector<MemberEntry> local_members;
+		// Phase 4: members go to shared staging_members[members_start..],
+		// flushed to object_members at close. Phase 5 will replace `seen`
+		// with the staged dedup strategy.
+		size_t const members_start = staging_members.size();
 		while (true) {
 			tok.skip_ws();
 			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != '"') {
@@ -2263,37 +2278,44 @@ struct TreeBuilder {
 			}
 			string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
 			if (seen.contains(name_sv)) {
+				staging_members.resize(members_start);
 				return unexpected(mk_err(JsonIssueCode::duplicate_member, format("duplicate member: {}", name_sv)));
 			}
-			seen.emplace(name_sv, local_members.size());
+			seen.emplace(name_sv, staging_members.size() - members_start);
 
 			tok.skip_ws();
 			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != ':') {
+				staging_members.resize(members_start);
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ':'"));
 			}
 			tok.adv();
 
 			auto val = parse_value(depth + 1);
 			if (!val) {
+				staging_members.resize(members_start);
 				return unexpected(move(val).error());
 			}
-			local_members.push_back({parsed_name->off, parsed_name->len, static_cast<u32>(*val), parsed_name->flags});
+			staging_members.push_back({parsed_name->off, parsed_name->len, static_cast<u32>(*val), parsed_name->flags});
 
 			tok.skip_ws();
 			if (tok.pos >= tok.src.size()) {
+				staging_members.resize(members_start);
 				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
 			}
 			if (tok.src[tok.pos] == '}') {
 				tok.adv();
+				size_t const len = staging_members.size() - members_start;
 				size_t const ms = store.object_members.size();
-				for (auto const &m: local_members) {
-					store.object_members.push_back(m);
-				}
-				store.nodes.push_back(
-					detail::make_object(static_cast<u32>(ms), static_cast<u32>(local_members.size())));
+				store.object_members.insert(
+					store.object_members.end(),
+					staging_members.begin() + static_cast<ptrdiff_t>(members_start),
+					staging_members.end());
+				staging_members.resize(members_start);
+				store.nodes.push_back(detail::make_object(static_cast<u32>(ms), static_cast<u32>(len)));
 				return store.nodes.size() - 1;
 			}
 			if (tok.src[tok.pos] != ',') {
+				staging_members.resize(members_start);
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or '}'"));
 			}
 			tok.adv();
@@ -2362,7 +2384,9 @@ struct TreeBuilder {
 					  .store = storage_ref,
 					  .bom_prefix_bytes = storage_ref.bom_prefix_bytes},
 		.store = storage_ref,
-		.opts = opts
+		.opts = opts,
+		.staging = {},
+		.staging_members = {}
     };
 	tb.tok.skip_ws();
 	if (tb.tok.pos >= storage_ref.input_view.size()) {
