@@ -396,6 +396,168 @@ void bench_dump_sorted(
 	print_row("dump/sort_object_keys", s);
 }
 
+// Item C — 1024-member object where every key has a \u escape → arena storage.
+// Decoded names are identical to make_lookup_corpus() ("member_N"), so the
+// same lookup keys can be used for apples-to-apples comparison.
+string make_lookup_escaped_corpus() {
+	// Keys: "member_N" (JSON) → decoded "member_N".
+	// All MemberEntry flags = 0 (arena); kStorageInputView never set.
+	string out;
+	out.reserve(65536);
+	out += '{';
+	for (int i = 0; i < 1024; ++i) {
+		if (i > 0) {
+			out += ',';
+		}
+		out += format("\"\\u006Dember_{}\":{}", i, i);
+	}
+	out += '}';
+	return out;
+}
+
+// Item C — 1024-member object with alternating plain/escaped keys.
+// Even indices: plain ("member_N", kStorageInputView).
+// Odd indices:  "member_N" decoded to "member_N" (arena storage).
+// Half-half pattern is worst-case for branch prediction in member_name() dispatch.
+string make_lookup_mixed_corpus() {
+	string out;
+	out.reserve(65536);
+	out += '{';
+	for (int i = 0; i < 1024; ++i) {
+		if (i > 0) {
+			out += ',';
+		}
+		if (i % 2 == 0) {
+			out += format("\"member_{}\":{}", i, i);
+		} else {
+			out += format("\"\\u006Dember_{}\":{}", i, i);
+		}
+	}
+	out += '}';
+	return out;
+}
+
+// Item C — probe throughput on arena-storage names (baseline: bench_find_member
+// uses kStorageInputView names). Delta isolates member_name() dispatch overhead.
+void bench_find_member_escaped(
+	string const &corpus) {
+	auto doc = parse(corpus);
+	if (!doc) {
+		return;
+	}
+	(void)doc->warm_member_index(doc->root());
+	auto obj = doc->root().as_object();
+	if (!obj) {
+		return;
+	}
+	auto s = measure(
+		[&] {
+			(void)obj->find_member("member_0");
+			(void)obj->find_member("member_511");
+			(void)obj->find_member("member_1023");
+		},
+		200,
+		500,
+		1000);
+	s.median_ns /= 3.0;
+	print_row("find_member/1024-member escaped names (per lookup)", s);
+}
+
+// Item C — worst-case dispatch: alternating kStorageInputView/arena per probe.
+void bench_find_member_mixed(
+	string const &corpus) {
+	auto doc = parse(corpus);
+	if (!doc) {
+		return;
+	}
+	(void)doc->warm_member_index(doc->root());
+	auto obj = doc->root().as_object();
+	if (!obj) {
+		return;
+	}
+	auto s = measure(
+		[&] {
+			(void)obj->find_member("member_0"); // plain (even)
+			(void)obj->find_member("member_511"); // escaped (odd)
+			(void)obj->find_member("member_1023"); // escaped (odd)
+		},
+		200,
+		500,
+		1000);
+	s.median_ns /= 3.0;
+	print_row("find_member/1024-member mixed names (per lookup)", s);
+}
+
+// Item E — builder name-copy cost: same value ("v"), varying key length.
+// If per-insert ns scales with key length, arena copy is the hot path.
+// If flat, overhead is in tree structure — name-copy optimisation is not justified.
+void bench_builder_name_length() {
+	constexpr int kMembers = 256;
+	auto gen_keys = [](size_t n, size_t total_len) {
+		vector<string> keys;
+		keys.reserve(n);
+		for (size_t i = 0; i < n; ++i) {
+			string const suffix = to_string(i);
+			size_t const pad = total_len > suffix.size() ? total_len - suffix.size() : 0;
+			string k(pad, 'k');
+			k += suffix;
+			keys.push_back(move(k));
+		}
+		return keys;
+	};
+	vector<string> const k5 = gen_keys(static_cast<size_t>(kMembers), 5);
+	vector<string> const k32 = gen_keys(static_cast<size_t>(kMembers), 32);
+	vector<string> const k128 = gen_keys(static_cast<size_t>(kMembers), 128);
+
+	auto run = [&](vector<string> const &keys, string_view label) {
+		auto s = measure(
+			[&] {
+				auto b = value_builder();
+				auto obj = b.begin_object();
+				if (!obj) {
+					return;
+				}
+				for (int i = 0; i < kMembers; ++i) {
+					(void)obj->insert_string(keys[static_cast<size_t>(i)], "v");
+				}
+				move(*obj).commit();
+				(void)move(b).finish();
+			},
+			50,
+			500);
+		s.median_ns /= static_cast<double>(kMembers);
+		print_row(label, s);
+	};
+
+	run(k5, "builder/insert_string   5-char keys (per insert)");
+	run(k32, "builder/insert_string  32-char keys (per insert)");
+	run(k128, "builder/insert_string 128-char keys (per insert)");
+
+	auto run_view = [&](vector<string> const &keys, string_view label) {
+		auto s = measure(
+			[&] {
+				auto b = value_builder();
+				auto obj = b.begin_object();
+				if (!obj) {
+					return;
+				}
+				for (size_t i = 0; i < static_cast<size_t>(kMembers); ++i) {
+					(void)obj->insert_string_view(keys[i], "v");
+				}
+				move(*obj).commit();
+				(void)move(b).finish();
+			},
+			50,
+			500);
+		s.median_ns /= static_cast<double>(kMembers);
+		print_row(label, s);
+	};
+
+	run_view(k5, "builder/insert_string_view   5-char keys (per insert)");
+	run_view(k32, "builder/insert_string_view  32-char keys (per insert)");
+	run_view(k128, "builder/insert_string_view 128-char keys (per insert)");
+}
+
 // R0 — generic parse/dump drivers used for the new corpora.
 void bench_parse_named(
 	string_view name,
@@ -437,6 +599,8 @@ int main() { // NOLINT(bugprone-exception-escape)
 	string const escape_heavy_corpus = make_escape_heavy_corpus();
 	string const deep_nest_corpus = make_deep_nest_corpus();
 	string const mixed_numbers_corpus = make_mixed_numbers_corpus();
+	string const lookup_escaped_corpus = make_lookup_escaped_corpus();
+	string const lookup_mixed_corpus = make_lookup_mixed_corpus();
 
 	println(
 		"[json-bench] corpus sizes: config={}B decode={}B lookup={}B array={}B large={}B",
@@ -476,6 +640,13 @@ int main() { // NOLINT(bugprone-exception-escape)
 	bench_parse_named("parse/deep_nest (256 levels)", deep_nest_corpus, 50, 500);
 	bench_parse_named("parse/mixed_numbers (1MB)", mixed_numbers_corpus);
 	bench_dump_named("dump/mixed_numbers", mixed_numbers_corpus);
+
+	println("[json-bench]");
+	println("[json-bench] -- v16 Item C/E: member_name dispatch + builder name-copy --");
+	println("[json-bench]    Baseline (plain names, kStorageInputView) already shown above.");
+	bench_find_member_escaped(lookup_escaped_corpus);
+	bench_find_member_mixed(lookup_mixed_corpus);
+	bench_builder_name_length();
 
 	println("[json-bench]");
 	println("[json-bench] Acceptance thresholds:");

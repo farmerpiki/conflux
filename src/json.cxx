@@ -2,6 +2,8 @@ module;
 #include <cassert>
 #include <locale.h>
 #include <stdlib.h>
+#include <sys/random.h>
+#include <xxhash.h>
 #if defined(__x86_64__) || defined(_M_X64)
 	#include <immintrin.h>
 	#ifndef CONFLUX_JSON_DISABLE_SIMD
@@ -34,6 +36,7 @@ export class JsonPath;
 export class ObjectMemberRange;
 export class ArrayElementRange;
 export struct ObjectMember;
+export struct WarmIndexOptions;
 export template<class T>
 class Nullable;
 
@@ -372,16 +375,20 @@ constexpr u8 kLexIntForm = 0x08; // lexeme matches -?(0|[1-9][0-9]*)
 constexpr u8 kValKindInt = 0x10; // ival valid
 constexpr u8 kValKindUint = 0x20; // uval valid
 constexpr u8 kValKindF64 = 0x40; // dval valid
+constexpr u8 kValKindDeferred = 0x04; // range-error f64 ≤ 4 KiB; strtod_l deferred to to_f64()
 
 // All three kValKind* clear on a number node = f64-overflow (lexeme preserved).
+
+constexpr u32 kMemberExternalView = 0x04u; // insert_member_view: caller-owned pointer in name_ptr
 
 struct MemberEntry {
 	u32 name_off;
 	u32 name_len;
 	u32 val_node;
-	u32 name_flags; // 0 in Phase 0; kStorageInputView in Phase 2+
+	u32 name_flags; // 0=arena; kStorageInputView=0x01; kMemberExternalView=0x02
+	char const *name_ptr{nullptr}; // C: filled by build_table; E: caller-owned pointer
 };
-static_assert(sizeof(MemberEntry) == 16);
+static_assert(sizeof(MemberEntry) == 24);
 static_assert(std::is_trivially_copyable_v<MemberEntry>);
 
 // ---------------------------------------------------------------------------
@@ -397,11 +404,39 @@ struct ObjHashSlot {
 static_assert(sizeof(ObjHashSlot) == 8);
 
 struct ObjHashTable {
-	u32 capacity{0};
-	u32 member_count{0};
-	unique_ptr<ObjHashSlot[]> slots;
+	u32 capacity;
+	u32 member_count;
+
+	[[nodiscard]] ObjHashSlot *slots_data() noexcept {
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		return reinterpret_cast<ObjHashSlot *>(this + 1);
+	}
+	[[nodiscard]] ObjHashSlot const *slots_data() const noexcept {
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		return reinterpret_cast<ObjHashSlot const *>(this + 1);
+	}
+
+	static ObjHashTable *create(
+		u32 capacity,
+		u32 member_count) noexcept {
+		size_t const bytes = sizeof(ObjHashTable) + sizeof(ObjHashSlot) * capacity;
+		void *mem = ::operator new(bytes, std::nothrow); // NOLINT(misc-const-correctness)
+		if (mem == nullptr) {
+			return nullptr;
+		}
+		auto *t = ::new (mem) ObjHashTable{capacity, member_count};
+		std::fill_n(t->slots_data(), capacity, ObjHashSlot{});
+		return t;
+	}
+	static void destroy(
+		ObjHashTable *t) noexcept {
+		if (t == nullptr) {
+			return;
+		}
+		t->~ObjHashTable();
+		::operator delete(t);
+	}
 };
-static_assert(is_nothrow_move_constructible_v<ObjHashTable>);
 
 constexpr u32 kHashThreshold = 8;
 constexpr u32 kProbeChainMax = 64;
@@ -428,6 +463,7 @@ inline ObjHashTable *const kHashBuildFailedSentinel = reinterpret_cast<ObjHashTa
 //   kind == number, flags & kValKindInt    → ival
 //   kind == number, flags & kValKindUint   → uval
 //   kind == number, flags & kValKindF64    → dval
+//   kind == number, flags & kValKindDeferred → range-error f64 (≤4 KiB); strtod_l at to_f64()
 //   kind == number, no kValKind* flag      → f64-overflow; lexeme only
 //   kind == array                          → none (children via off/len)
 //   kind == object                         → hash_idx_raw (lazy; nullable)
@@ -544,6 +580,28 @@ namespace detail {
 	return Node{.kind = NodeKind::number, .flags = flags, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, ._raw = 0};
 }
 
+[[nodiscard]] inline Node make_number_deferred(
+	u32 off,
+	u32 len,
+	u8 storage_flags) noexcept {
+	return Node{
+		.kind = NodeKind::number,
+		.flags = static_cast<u8>(storage_flags | kValKindDeferred),
+		._pad0 = 0,
+		.off = off,
+		.len = len,
+		._pad1 = 0,
+		._raw = 0};
+}
+
+[[nodiscard]] inline u64 make_hash_seed() noexcept {
+	u64 seed{};
+	if (::getrandom(&seed, sizeof(seed), 0) != static_cast<ssize_t>(sizeof(seed))) {
+		seed = static_cast<u64>(reinterpret_cast<uintptr_t>(&seed)) ^ UINT64_C(0x517cc1b727220a95);
+	}
+	return seed;
+}
+
 } // namespace detail
 
 struct DocumentStorage {
@@ -558,6 +616,7 @@ struct DocumentStorage {
 	string_view input_view; // post-BOM bytes; pointer-stable across Document moves
 	u32 root_node{0}; // index of the root Node
 	u32 bom_prefix_bytes{0}; // 0 or 3 — added to source-offset reports (Correction Q)
+	u64 hash_seed_{detail::make_hash_seed()};
 
 	DocumentStorage() = default;
 	DocumentStorage(DocumentStorage const &) = delete;
@@ -571,7 +630,7 @@ struct DocumentStorage {
 	~DocumentStorage() noexcept {
 		for (auto &n: nodes) {
 			if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
-				delete n.hash_idx_raw;
+				ObjHashTable::destroy(n.hash_idx_raw);
 			}
 		}
 	}
@@ -595,6 +654,9 @@ struct DocumentStorage {
 
 	[[nodiscard]] string_view member_name(
 		MemberEntry const &m) const noexcept {
+		if ((m.name_flags & kMemberExternalView) != 0) {
+			return {m.name_ptr, m.name_len}; // Item E: caller-owned pointer
+		}
 		return bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags));
 	}
 };
@@ -732,14 +794,10 @@ struct ClassifiedDouble {
 		return make_number_overflow(off, len, storage_flags, int_form);
 	}
 	if (ec == errc::result_out_of_range) {
-		auto classified = classify_range_error_slow(b, e);
-		if (!classified) {
-			return unexpected(move(classified).error());
+		if (static_cast<size_t>(e - b) > kSlowFloatLexemeCopyLimit) {
+			return make_number_overflow(off, len, storage_flags, int_form);
 		}
-		if (classified->kind == ClassifiedDouble::Kind::underflow_finite) {
-			return make_number_f64(off, len, storage_flags, classified->value, int_form);
-		}
-		return make_number_overflow(off, len, storage_flags, int_form);
+		return make_number_deferred(off, len, storage_flags);
 	}
 	return unexpected(
 		JsonError{
@@ -841,6 +899,22 @@ public:
 		}
 		if ((flags_ & kValKindUint) != 0) {
 			return static_cast<double>(raw_payload_);
+		}
+		if ((flags_ & kValKindDeferred) != 0) {
+			auto res = detail::classify_range_error_slow(lexeme_.data(), lexeme_.data() + lexeme_.size());
+			if (!res) {
+				auto err = move(res).error();
+				err.stage = JsonStage::lookup;
+				return unexpected(move(err));
+			}
+			if (res->kind == detail::ClassifiedDouble::Kind::underflow_finite) {
+				return res->value;
+			}
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::number_out_of_range,
+					.message = format("f64 conversion overflows: {}", lexeme_)});
 		}
 		// No kValKind* set → f64-overflow (Correction K).
 		return unexpected(
@@ -962,8 +1036,9 @@ export struct ObjectMember {
 namespace detail {
 
 [[nodiscard]] inline u32 hash_name(
-	string_view name) noexcept {
-	return static_cast<u32>(hash<string_view>{}(name));
+	string_view name,
+	u64 seed) noexcept {
+	return static_cast<u32>(XXH3_64bits_withSeed(name.data(), name.size(), seed));
 }
 
 // Smallest power-of-two >= 2*count, capped at kMaxHashTableCapacity AND
@@ -1006,11 +1081,12 @@ namespace detail {
 	size_t mem_start,
 	size_t mem_count,
 	string_view name) noexcept {
-	auto const h = hash_name(name);
+	auto const h = hash_name(name, storage->hash_seed_);
 	u32 const mask = ht.capacity - 1;
 	u32 slot = h & mask;
+	auto const *slots = ht.slots_data();
 	for (u32 probe = 0; probe < kProbeChainMax; ++probe) {
-		auto const &s = ht.slots[slot]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		auto const &s = slots[slot]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		if (s.member_index == kEmptySlot) {
 			return nullopt;
 		}
@@ -1018,7 +1094,7 @@ namespace detail {
 			auto const &m =
 				storage->object_members
 					[mem_start + s.member_index]; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
-			if (storage->member_name(m) == name) {
+			if (string_view{m.name_ptr, m.name_len} == name) { // Item C: direct pointer, no dispatch
 				return m.val_node;
 			}
 		}
@@ -1034,14 +1110,17 @@ namespace detail {
 	size_t mem_start,
 	size_t mem_count) noexcept {
 	u32 const mask = ht.capacity - 1;
+	auto *slots = ht.slots_data();
 	for (u32 i = 0; i < static_cast<u32>(mem_count); ++i) {
 		auto const &m =
 			storage->object_members[mem_start + i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
-		auto const h = hash_name(storage->member_name(m));
+		auto const sv = storage->member_name(m);
+		const_cast<MemberEntry &>(m).name_ptr = sv.data(); // Item C: cache pointer (arena stable post-parse)
+		auto const h = hash_name(sv, storage->hash_seed_);
 		u32 slot = h & mask;
 		bool inserted = false;
 		for (u32 probe = 0; probe < kProbeChainMax; ++probe) {
-			auto &s = ht.slots[slot]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+			auto &s = slots[slot]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 			if (s.member_index == kEmptySlot) {
 				s = ObjHashSlot{i, h};
 				inserted = true;
@@ -1112,11 +1191,8 @@ public:
 			bool build_ok = false;
 			ObjHashTable *owned = nullptr;
 			if (cap > 0) {
-				auto slots_up = unique_ptr<ObjHashSlot[]>{new (nothrow) ObjHashSlot[cap]};
-				owned =
-					slots_up ? new (nothrow) ObjHashTable{cap, static_cast<u32>(mem_count_), move(slots_up)} : nullptr;
+				owned = ObjHashTable::create(cap, static_cast<u32>(mem_count_));
 				if (owned != nullptr) {
-					fill_n(owned->slots.get(), cap, ObjHashSlot{});
 					if (detail::build_table(*owned, storage_, mem_start_, mem_count_)) {
 						ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
 						if (ref.compare_exchange_strong(
@@ -1143,7 +1219,7 @@ public:
 					memory_order_release,
 					memory_order_acquire);
 			}
-			delete owned;
+			ObjHashTable::destroy(owned);
 		}
 		if (ht != nullptr) {
 			return to_ref(detail::lookup_in(*ht, storage_, mem_start_, mem_count_, name));
@@ -1568,6 +1644,11 @@ export struct JsonDumpOptions {
 	bool ascii_only{false};
 };
 
+export struct WarmIndexOptions {
+	size_t max_objects{SIZE_MAX};
+	size_t max_extra_bytes{SIZE_MAX};
+};
+
 export class Document {
 	unique_ptr<DocumentStorage> storage_;
 
@@ -1633,11 +1714,17 @@ public:
 						.code = JsonIssueCode::resource_exhausted,
 						.message = "object exceeds hash-index byte budget"});
 			}
-			auto slots_up = unique_ptr<ObjHashSlot[]>{new ObjHashSlot[cap]};
-			owned = new ObjHashTable{cap, static_cast<u32>(ov.mem_count_), move(slots_up)};
-			fill_n(owned->slots.get(), cap, ObjHashSlot{});
+			owned = ObjHashTable::create(cap, static_cast<u32>(ov.mem_count_));
+			if (owned == nullptr) {
+				stash_failure_sentinel();
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::lookup,
+						.code = JsonIssueCode::resource_exhausted,
+						.message = "OOM building object hash index"});
+			}
 			if (!detail::build_table(*owned, storage_.get(), ov.mem_start_, ov.mem_count_)) {
-				delete owned;
+				ObjHashTable::destroy(owned);
 				stash_failure_sentinel();
 				return unexpected(
 					JsonError{
@@ -1647,18 +1734,18 @@ public:
 			}
 			ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
 			if (!ref.compare_exchange_strong(expected_null, owned, memory_order_release, memory_order_acquire)) {
-				delete owned; // lost race — other thread published first
+				ObjHashTable::destroy(owned); // lost race — other thread published first
 			}
 			return {};
 		} catch (bad_alloc const &) {
-			delete owned;
+			ObjHashTable::destroy(owned);
 			return unexpected(
 				JsonError{
 					.stage = JsonStage::lookup,
 					.code = JsonIssueCode::resource_exhausted,
 					.message = "OOM building object hash index"});
 		} catch (...) {
-			delete owned;
+			ObjHashTable::destroy(owned);
 			assert(false && "warm_member_index: unexpected exception from no-user-code build path");
 			return unexpected(
 				JsonError{
@@ -1669,15 +1756,39 @@ public:
 	}
 
 	// Pre-build hash indices for every object node in the document.
-	[[nodiscard]] expected<void, JsonError> warm_member_indices() const {
+	[[nodiscard]] expected<void, JsonError> warm_member_indices(
+		WarmIndexOptions const &opts = {}) const {
+		size_t objects_warmed = 0;
+		size_t bytes_allocated = 0;
 		for (size_t i = 0; i < storage_->nodes.size(); ++i) {
-			if (storage_->nodes[i].kind
-				== NodeKind::object) { // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
-				auto res = warm_member_index(NodeRef{storage_.get(), i});
-				if (!res) {
-					return res;
-				}
+			auto &n = storage_->nodes[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+			if (n.kind != NodeKind::object) {
+				continue;
 			}
+			auto const mem_count = n.len;
+			if (mem_count < kHashThreshold) {
+				continue;
+			}
+			if (atomic_ref<ObjHashTable *>{n.hash_idx_raw}.load(memory_order_acquire) != nullptr) {
+				continue; // already indexed or failed
+			}
+			u32 const cap = detail::clamped_capacity(static_cast<u32>(mem_count));
+			size_t const est_bytes =
+				cap > 0 ? sizeof(ObjHashTable) + static_cast<size_t>(cap) * sizeof(ObjHashSlot) : 0;
+			if (objects_warmed >= opts.max_objects) {
+				break;
+			}
+			if (est_bytes > 0
+				&& opts.max_extra_bytes != SIZE_MAX
+				&& bytes_allocated + est_bytes > opts.max_extra_bytes) {
+				break;
+			}
+			auto res = warm_member_index(NodeRef{storage_.get(), i});
+			if (!res) {
+				return res;
+			}
+			++objects_warmed;
+			bytes_allocated += est_bytes;
 		}
 		return {};
 	}
@@ -2726,7 +2837,7 @@ expected<Document, JsonError> parse(
 	}
 
 	auto storage = make_unique<DocumentStorage>();
-	storage->owned_input = make_unique<string>(move(input));
+	storage->owned_input = make_unique<string>(std::forward<S>(input));
 	string_view src = *storage->owned_input;
 	constexpr string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -2896,6 +3007,7 @@ export class ObjectBuilder {
 	}
 
 	expected<void, JsonError> do_insert_node(string_view name, size_t node_idx);
+	expected<void, JsonError> do_insert_node_view(string_view name, size_t node_idx);
 
 public:
 	ObjectBuilder(
@@ -2936,6 +3048,7 @@ public:
 	expected<void, JsonError> insert_null(string_view name);
 	expected<void, JsonError> insert_bool(string_view name, bool v);
 	expected<void, JsonError> insert_string(string_view name, string_view value);
+	expected<void, JsonError> insert_string_view(string_view name, string_view value); // Item E: name not copied
 	expected<void, JsonError> insert_number(string_view name, string_view lexeme);
 	expected<void, JsonError> insert_i64(string_view name, int64_t v);
 	expected<void, JsonError> insert_u64(string_view name, uint64_t v);
@@ -3498,6 +3611,27 @@ expected<void, JsonError> ObjectBuilder::do_insert_node(
 	return {};
 }
 
+expected<void, JsonError> ObjectBuilder::do_insert_node_view(
+	string_view name,
+	size_t node_idx) {
+	auto [it, inserted] = frame_.dup_check.try_emplace(string{name}, node_idx);
+	if (!inserted) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::duplicate_member,
+				.member_name = string{name},
+				.message = format("duplicate member: {}", name)});
+	}
+	MemberEntry m{};
+	m.name_len = static_cast<u32>(name.size());
+	m.val_node = static_cast<u32>(node_idx);
+	m.name_flags = kMemberExternalView;
+	m.name_ptr = name.data();
+	frame_.local_members.push_back(m);
+	return {};
+}
+
 expected<void, JsonError> ObjectBuilder::insert_null(
 	string_view name) {
 	if (auto ok = check_can_insert(); !ok) {
@@ -3529,6 +3663,19 @@ expected<void, JsonError> ObjectBuilder::insert_string(
 	st->store.nodes.push_back(
 		detail::make_string(static_cast<u32>(off), static_cast<u32>(value.size()), kStorageInputView));
 	return do_insert_node(name, st->store.nodes.size() - 1);
+}
+expected<void, JsonError> ObjectBuilder::insert_string_view(
+	string_view name,
+	string_view value) {
+	if (auto ok = check_can_insert(); !ok) {
+		return ok;
+	}
+	auto *st = frame_.state;
+	size_t const off = st->built_input.size();
+	st->built_input.append(value.data(), value.size());
+	st->store.nodes.push_back(
+		detail::make_string(static_cast<u32>(off), static_cast<u32>(value.size()), kStorageInputView));
+	return do_insert_node_view(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_number(
 	string_view name,

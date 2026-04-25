@@ -3012,42 +3012,41 @@ TEST_CASE(
 TEST_CASE(
 	"json: build_probe_cap_adversarial_hash",
 	"[json][hash][adversarial]") {
-	// Synthesize >kProbeChainMax keys whose 32-bit-truncated std::hash<string_view>
-	// values share the same low-8-bit bucket. With cap = 256 (member_count = 80,
-	// next pow2 >= 2*80), they all hit bucket 0 and the probe chain saturates,
-	// so warm_member_index must return resource_exhausted while find_member
-	// still returns the correct value via linear scan.
+	// Synthesize keys whose 32-bit-truncated std::hash<string_view> all share
+	// the same low-8-bit bucket — formerly a probe-cap attack vector. With
+	// seeded xxHash3 (v16 Item B) the same keys are randomised per document, so
+	// warm_member_index now succeeds and find_member uses the hash path.
 	constexpr size_t kTargetCount = 80;
-	vector<string> colliding_keys;
-	colliding_keys.reserve(kTargetCount);
-	for (size_t i = 0; colliding_keys.size() < kTargetCount && i < 1'000'000UZ; ++i) {
+	vector<string> formerly_colliding_keys;
+	formerly_colliding_keys.reserve(kTargetCount);
+	for (size_t i = 0; formerly_colliding_keys.size() < kTargetCount && i < 1'000'000UZ; ++i) {
 		string s = format("k_{}", i);
 		auto const h = static_cast<uint32_t>(hash<string_view>{}(string_view{s}));
 		if ((h & 0xFFu) == 0u) {
-			colliding_keys.push_back(move(s));
+			formerly_colliding_keys.push_back(move(s));
 		}
 	}
-	if (colliding_keys.size() < kTargetCount) {
-		WARN("could not synthesize enough hash-colliding keys; skipping");
+	if (formerly_colliding_keys.size() < kTargetCount) {
+		WARN("could not synthesize enough formerly-colliding keys; skipping");
 		return;
 	}
 	string js = "{";
-	for (size_t i = 0; i < colliding_keys.size(); ++i) {
+	for (size_t i = 0; i < formerly_colliding_keys.size(); ++i) {
 		if (i > 0) {
 			js += ',';
 		}
-		js += format(R"("{}": {})", colliding_keys[i], i);
+		js += format(R"("{}": {})", formerly_colliding_keys[i], i);
 	}
 	js += "}";
 	auto doc = parse(js);
 	REQUIRE(doc.has_value());
+	// seeded xxHash3 defeats the old std::hash attack — warm must succeed now
 	auto warm = doc->warm_member_index(doc->root());
-	REQUIRE_FALSE(warm.has_value());
-	CHECK(warm.error().code == JsonIssueCode::resource_exhausted);
+	REQUIRE(warm.has_value());
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
-	// linear-scan path still resolves correctly
-	auto m = obj->find_member(colliding_keys[42]);
+	// hash path resolves correctly
+	auto m = obj->find_member(formerly_colliding_keys[42]);
 	REQUIRE(m.has_value());
 	auto n = m->as_number();
 	REQUIRE(n.has_value());

@@ -360,6 +360,7 @@ target_link_libraries(conflux
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
     PUBLIC  PkgConfig::LIBURING
+    PRIVATE xxhash
 )
 
 # TLS
