@@ -2250,11 +2250,32 @@ struct TreeBuilder {
 		}
 	}
 
-	// NOLINTNEXTLINE(misc-no-recursion)
+	// Phase 5: linear dedup for n <= 8 (no allocation), lazy unordered_set
+	// promotion above the threshold. The set is constructed only when the
+	// object actually exceeds the linear-scan window — typical configs
+	// (small flat objects) pay zero hash-table cost.
+	static constexpr size_t kDedupLinearMax = 8;
+
+	[[nodiscard]] bool dedup_member_present(
+		size_t members_start,
+		string_view name,
+		optional<unordered_set<string_view>> const &seen_hash) const {
+		if (seen_hash.has_value()) {
+			return seen_hash->contains(name);
+		}
+		for (size_t i = members_start; i < staging_members.size(); ++i) {
+			auto const &m = staging_members[i];
+			if (store.bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags)) == name) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	// NOLINTNEXTLINE(misc-no-recursion,readability-function-cognitive-complexity)
 	[[nodiscard]] expected<size_t, JsonError> parse_object(
 		size_t depth) {
 		tok.adv(); // '{'
-		unordered_map<string_view, size_t> seen;
 		tok.skip_ws();
 		if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
 			tok.adv();
@@ -2263,25 +2284,31 @@ struct TreeBuilder {
 			return store.nodes.size() - 1;
 		}
 		// Phase 4: members go to shared staging_members[members_start..],
-		// flushed to object_members at close. Phase 5 will replace `seen`
-		// with the staged dedup strategy.
+		// flushed to object_members at close.
 		size_t const members_start = staging_members.size();
+		// Phase 5: dedup is linear until size > kDedupLinearMax, then a
+		// hash set is built once and reused for the remainder of this object.
+		optional<unordered_set<string_view>> seen_hash;
 		while (true) {
 			tok.skip_ws();
 			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != '"') {
+				staging_members.resize(members_start);
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key"));
 			}
 			tok.adv();
 			auto parsed_name = tok.parse_str_body();
 			if (!parsed_name) {
+				staging_members.resize(members_start);
 				return unexpected(move(parsed_name).error());
 			}
 			string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
-			if (seen.contains(name_sv)) {
+			if (dedup_member_present(members_start, name_sv, seen_hash)) {
 				staging_members.resize(members_start);
 				return unexpected(mk_err(JsonIssueCode::duplicate_member, format("duplicate member: {}", name_sv)));
 			}
-			seen.emplace(name_sv, staging_members.size() - members_start);
+			if (seen_hash.has_value()) {
+				seen_hash->insert(name_sv);
+			}
 
 			tok.skip_ws();
 			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != ':') {
@@ -2296,6 +2323,17 @@ struct TreeBuilder {
 				return unexpected(move(val).error());
 			}
 			staging_members.push_back({parsed_name->off, parsed_name->len, static_cast<u32>(*val), parsed_name->flags});
+
+			// Promote linear → hash once we cross the threshold.
+			size_t const cur_count = staging_members.size() - members_start;
+			if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
+				seen_hash.emplace();
+				seen_hash->reserve(cur_count * 2);
+				for (size_t i = members_start; i < staging_members.size(); ++i) {
+					auto const &m = staging_members[i];
+					seen_hash->insert(store.bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags)));
+				}
+			}
 
 			tok.skip_ws();
 			if (tok.pos >= tok.src.size()) {
