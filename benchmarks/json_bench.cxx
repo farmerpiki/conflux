@@ -34,8 +34,8 @@ Stats measure(
 		}
 		auto t1 = chrono::steady_clock::now();
 		samples.push_back(
-			static_cast<double>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count()) /
-			static_cast<double>(batch));
+			static_cast<double>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count())
+			/ static_cast<double>(batch));
 	}
 	sort(samples.begin(), samples.end());
 	double const med = samples[iters / 2];
@@ -43,7 +43,7 @@ Stats measure(
 	return {med, mbs};
 }
 
-void print(
+void print_row(
 	string_view name,
 	Stats const &s) {
 	if (s.throughput_mbs > 0.0) {
@@ -143,6 +143,105 @@ string make_large_corpus() {
 	return out;
 }
 
+// R0 — long-string-heavy corpus: 32 elements of 32 KiB ASCII payload, no
+// escapes. Exercises memcpy-free zero-copy string slice + the SIMD scan_str
+// fast path on long unescaped runs.
+string make_long_strings_corpus() {
+	string out;
+	out.reserve(1024UZ * 1024UZ + 4096);
+	out += '[';
+	constexpr int kElems = 32;
+	constexpr int kLen = 32 * 1024;
+	for (int i = 0; i < kElems; ++i) {
+		if (i > 0) {
+			out += ',';
+		}
+		out += '"';
+		for (int k = 0; k < kLen; ++k) {
+			out += static_cast<char>('a' + (k % 26));
+		}
+		out += '"';
+	}
+	out += ']';
+	return out;
+}
+
+// R0 — pretty-printed corpus: ~1 MB flat object, 2-space indent + newlines.
+// Exposes skip_ws cost; today's compact corpora hide it.
+string make_pretty_ws_corpus() {
+	string out;
+	out.reserve(1024UZ * 1024UZ + 4096);
+	out += "{\n";
+	constexpr int kMembers = 16000;
+	for (int i = 0; i < kMembers; ++i) {
+		out += "  \"key_";
+		out += to_string(i);
+		out += "\" : ";
+		out += to_string(i * 17);
+		if (i + 1 < kMembers) {
+			out += ',';
+		}
+		out += '\n';
+	}
+	out += "}\n";
+	return out;
+}
+
+// R0 — escape-heavy corpus: a single 256 KiB string with backslash escapes
+// at high density. Stresses the parse-side slow path (parse_str_decode_tail)
+// and the dump-side escape scan.
+string make_escape_heavy_corpus() {
+	string out;
+	constexpr size_t kTarget = 256UZ * 1024UZ;
+	out.reserve(kTarget + 16);
+	out += '"';
+	while (out.size() + 8 < kTarget) {
+		out += R"(\n\t\")"; // 6 source bytes → 3 JSON escapes per cycle
+	}
+	out += '"';
+	return out;
+}
+
+// R0 — deeply-nested array: 256 levels of [[…]] with a single 0 at center.
+// Tests recursion / iterative parse depth handling without tripping the
+// 512-frame default max_depth.
+string make_deep_nest_corpus() {
+	string out;
+	constexpr int kDepth = 256;
+	out.reserve(kDepth * 2 + 4);
+	out.append(kDepth, '[');
+	out += '0';
+	out.append(kDepth, ']');
+	return out;
+}
+
+// R0 — mixed-number corpus: ~1 MB array of integers, scientific,
+// long fractions, signed values. Stresses number-lexeme parse paths.
+string make_mixed_numbers_corpus() {
+	string out;
+	out.reserve(1024UZ * 1024UZ + 4096);
+	out += '[';
+	bool first = true;
+	int i = 0;
+	constexpr size_t kTarget = 1024UZ * 1024UZ - 16;
+	while (out.size() < kTarget) {
+		if (!first) {
+			out += ',';
+		}
+		first = false;
+		switch (i % 4) {
+		case 0 : out += to_string(i); break;
+		case 1 : out += format("{}.{}e{}", i, i * 3, (i % 7) - 3); break;
+		case 2 : out += format("0.{}", i); break;
+		case 3 : out += format("-{}.{}", i, i * 9); break;
+		default: break;
+		}
+		++i;
+	}
+	out += ']';
+	return out;
+}
+
 // ---------------------------------------------------------------------------
 // Benchmark drivers
 // ---------------------------------------------------------------------------
@@ -150,13 +249,13 @@ string make_large_corpus() {
 void bench_parse_small(
 	string const &corpus) {
 	auto s = measure([&] { (void)parse(corpus); }, 50, 500, 1, corpus.size());
-	print("parse/small (~4KB config)", s);
+	print_row("parse/small (~4KB config)", s);
 }
 
 void bench_parse_large(
 	string const &corpus) {
 	auto s = measure([&] { (void)parse(corpus); }, 5, 20, 1, corpus.size());
-	print("parse/large (~1MB nested)", s);
+	print_row("parse/large (~1MB nested)", s);
 }
 
 void bench_decode(
@@ -191,16 +290,20 @@ void bench_decode(
 		100,
 		1,
 		corpus.size());
-	print("decode/struct-like (sv fields)", s);
+	print_row("decode/struct-like (sv fields)", s);
 }
 
 void bench_find_member(
 	string const &corpus) {
 	auto doc = parse(corpus);
-	if (!doc) { return; }
+	if (!doc) {
+		return;
+	}
 	(void)doc->warm_member_index(doc->root()); // pre-build hash index
 	auto obj = doc->root().as_object();
-	if (!obj) { return; }
+	if (!obj) {
+		return;
+	}
 	// batch=1000: amortise clock overhead for sub-microsecond lookup
 	auto s = measure(
 		[&] {
@@ -212,7 +315,7 @@ void bench_find_member(
 		500,
 		1000);
 	s.median_ns /= 3.0;
-	print("find_member/1024-member object (per lookup)", s);
+	print_row("find_member/1024-member object (per lookup)", s);
 }
 
 void bench_array_traversal(
@@ -241,7 +344,7 @@ void bench_array_traversal(
 		},
 		50,
 		500);
-	print("array/traverse 10k numbers", s);
+	print_row("array/traverse 10k numbers", s);
 }
 
 void bench_builder() {
@@ -260,7 +363,7 @@ void bench_builder() {
 		},
 		50,
 		500);
-	print("builder/64-member object", s);
+	print_row("builder/64-member object", s);
 }
 
 void bench_dump_plain(
@@ -274,7 +377,7 @@ void bench_dump_plain(
 		return;
 	}
 	auto s = measure([&] { (void)doc->dump(); }, 50, 500, 1, json_str->size());
-	print("dump/plain (no sort, no ascii_only)", s);
+	print_row("dump/plain (no sort, no ascii_only)", s);
 }
 
 void bench_dump_sorted(
@@ -290,7 +393,34 @@ void bench_dump_sorted(
 		return;
 	}
 	auto s = measure([&] { (void)doc->dump(opts); }, 20, 200, 1, json_str->size());
-	print("dump/sort_object_keys", s);
+	print_row("dump/sort_object_keys", s);
+}
+
+// R0 — generic parse/dump drivers used for the new corpora.
+void bench_parse_named(
+	string_view name,
+	string const &corpus,
+	size_t warmup = 5,
+	size_t iters = 50) {
+	auto s = measure([&] { (void)parse(corpus); }, warmup, iters, 1, corpus.size());
+	print_row(name, s);
+}
+
+void bench_dump_named(
+	string_view name,
+	string const &corpus,
+	size_t warmup = 5,
+	size_t iters = 50) {
+	auto doc = parse(corpus);
+	if (!doc) {
+		return;
+	}
+	auto json_str = doc->dump();
+	if (!json_str) {
+		return;
+	}
+	auto s = measure([&] { (void)doc->dump(); }, warmup, iters, 1, json_str->size());
+	print_row(name, s);
 }
 
 } // namespace
@@ -302,6 +432,11 @@ int main() { // NOLINT(bugprone-exception-escape)
 	string const lookup_corpus = make_lookup_corpus();
 	string const array_corpus = make_array_corpus();
 	string const large_corpus = make_large_corpus();
+	string const long_strings_corpus = make_long_strings_corpus();
+	string const pretty_ws_corpus = make_pretty_ws_corpus();
+	string const escape_heavy_corpus = make_escape_heavy_corpus();
+	string const deep_nest_corpus = make_deep_nest_corpus();
+	string const mixed_numbers_corpus = make_mixed_numbers_corpus();
 
 	println(
 		"[json-bench] corpus sizes: config={}B decode={}B lookup={}B array={}B large={}B",
@@ -310,6 +445,13 @@ int main() { // NOLINT(bugprone-exception-escape)
 		lookup_corpus.size(),
 		array_corpus.size(),
 		large_corpus.size());
+	println(
+		"[json-bench]                long_strings={}B pretty_ws={}B escape_heavy={}B deep_nest={}B mixed_numbers={}B",
+		long_strings_corpus.size(),
+		pretty_ws_corpus.size(),
+		escape_heavy_corpus.size(),
+		deep_nest_corpus.size(),
+		mixed_numbers_corpus.size());
 	println("[json-bench]");
 	println("[json-bench] {:<40} {:>10}     {:>10}", "benchmark", "median", "throughput");
 	println("[json-bench] {}", string(60, '-'));
@@ -322,6 +464,18 @@ int main() { // NOLINT(bugprone-exception-escape)
 	bench_builder();
 	bench_dump_plain(config_corpus);
 	bench_dump_sorted(config_corpus);
+
+	println("[json-bench]");
+	println("[json-bench] -- R0 corpora (added v16) --");
+	bench_parse_named("parse/long_strings (1MB, 32x32KiB)", long_strings_corpus);
+	bench_dump_named("dump/long_strings", long_strings_corpus);
+	bench_parse_named("parse/pretty_ws (1MB indented)", pretty_ws_corpus);
+	bench_dump_named("dump/pretty_ws", pretty_ws_corpus);
+	bench_parse_named("parse/escape_heavy (256KiB)", escape_heavy_corpus, 10, 100);
+	bench_dump_named("dump/escape_heavy", escape_heavy_corpus, 10, 100);
+	bench_parse_named("parse/deep_nest (256 levels)", deep_nest_corpus, 50, 500);
+	bench_parse_named("parse/mixed_numbers (1MB)", mixed_numbers_corpus);
+	bench_dump_named("dump/mixed_numbers", mixed_numbers_corpus);
 
 	println("[json-bench]");
 	println("[json-bench] Acceptance thresholds:");
