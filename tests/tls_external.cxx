@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.net.http;
 import conflux.tests.external_support;
 
 using namespace std;
@@ -114,4 +115,35 @@ TEST_CASE(
 	// curl exits non-zero on handshake failure; body may be empty or an error message.
 	REQUIRE(code != 0);
 	REQUIRE(body.find(R"({"ok":true})") == string::npos);
+}
+
+TEST_CASE(
+	"ext/curl: SSE streams all events and closes") {
+	Router r;
+	r.sse("/events", [](HttpRequest const &, shared_ptr<SseChannel> const &ch) {
+		ch->send("data: alpha\n\n");
+		ch->send("data: beta\n\n");
+		ch->close();
+	});
+	conflux::tests::HttpsServerFixture const fx{move(r)};
+	auto [code, body] =
+		conflux::tests::run_cmd_retry(format("curl -sk -N --max-time 5 https://127.0.0.1:{}/events", fx.port()));
+	REQUIRE(code == 0);
+	REQUIRE(body.find("data: alpha\n\n") != string::npos);
+	REQUIRE(body.find("data: beta\n\n") != string::npos);
+}
+
+TEST_CASE(
+	"ext/curl: SSE send_event delivers typed event") {
+	Router r;
+	r.sse("/typed", [](HttpRequest const &, shared_ptr<SseChannel> const &ch) {
+		ch->send_event("update", "payload42");
+		ch->close();
+	});
+	conflux::tests::HttpsServerFixture const fx{move(r)};
+	auto [code, body] =
+		conflux::tests::run_cmd_retry(format("curl -sk -N --max-time 5 https://127.0.0.1:{}/typed", fx.port()));
+	REQUIRE(code == 0);
+	REQUIRE(body.find("event: update\n") != string::npos);
+	REQUIRE(body.find("data: payload42\n") != string::npos);
 }
