@@ -252,7 +252,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"carrier.model_a: bridge_to_posted changes kind to posted",
+	"carrier.model_a: hop_to_posted changes kind to posted",
 	"[carrier.model_a]") {
 	OwnerCap owner{};
 	auto [task, src] = root::make_task_source<int>();
@@ -261,26 +261,26 @@ TEST_CASE(
 	auto chain = model_a::from_task(std::move(task));
 	CHECK(chain.kind() == model_a::CarrierKind::task);
 
-	auto bridged = model_a::bridge_to_posted(owner, std::move(chain));
-	CHECK(bridged.kind() == model_a::CarrierKind::posted);
+	auto hopped = model_a::hop_to_posted(owner, std::move(chain));
+	CHECK(hopped.kind() == model_a::CarrierKind::posted);
 
-	auto out = std::move(bridged).release_outcome();
+	auto out = std::move(hopped).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 9);
 }
 
 TEST_CASE(
-	"carrier.model_a: bridge_to_operation changes kind to operation",
+	"carrier.model_a: hop_to_operation changes kind to operation",
 	"[carrier.model_a]") {
 	DriverCap driver{};
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.commit_success(root::Success<int>{11}));
 
 	auto chain = model_a::from_task(std::move(task));
-	auto bridged = model_a::bridge_to_operation(driver, std::move(chain));
-	CHECK(bridged.kind() == model_a::CarrierKind::operation);
+	auto hopped = model_a::hop_to_operation(driver, std::move(chain));
+	CHECK(hopped.kind() == model_a::CarrierKind::operation);
 
-	auto out = std::move(bridged).release_outcome();
+	auto out = std::move(hopped).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 11);
 }
@@ -293,8 +293,8 @@ TEST_CASE(
 	REQUIRE(src.commit_success(root::Success<int>{2}));
 
 	auto chain = model_a::from_task(std::move(task));
-	auto bridged = model_a::bridge_to_posted(owner, std::move(chain));
-	auto mapped = model_a::map(std::move(bridged), [](int x) { return x * 2; });
+	auto hopped = model_a::hop_to_posted(owner, std::move(chain));
+	auto mapped = model_a::map(std::move(hopped), [](int x) { return x * 2; });
 
 	CHECK(mapped.kind() == model_a::CarrierKind::posted);
 	auto out = std::move(mapped).release_outcome();
@@ -456,14 +456,14 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"carrier.model_b: bridge_to_posted wraps TaskChain outcome in PostedChain",
+	"carrier.model_b: hop_to_posted wraps TaskChain outcome in PostedChain",
 	"[carrier.model_b]") {
 	OwnerCap owner{};
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.commit_success(root::Success<int>{13}));
 
 	auto task_chain = model_b::from_task(std::move(task));
-	auto posted_chain = model_b::bridge_to_posted(owner, std::move(task_chain));
+	auto posted_chain = model_b::hop_to_posted(owner, std::move(task_chain));
 
 	auto out = std::move(posted_chain).release_outcome();
 	REQUIRE(out.is_success());
@@ -471,7 +471,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"carrier.model_b: bridge_to_operation wraps PostedChain outcome in OperationChain",
+	"carrier.model_b: hop_to_operation wraps PostedChain outcome in OperationChain",
 	"[carrier.model_b]") {
 	OwnerCap owner{};
 	DriverCap driver{};
@@ -479,8 +479,8 @@ TEST_CASE(
 	REQUIRE(src.commit_success(root::Success<int>{17}));
 
 	auto task_chain = model_b::from_task(std::move(task));
-	auto posted_chain = model_b::bridge_to_posted(owner, std::move(task_chain));
-	auto op_chain = model_b::bridge_to_operation(driver, std::move(posted_chain));
+	auto posted_chain = model_b::hop_to_posted(owner, std::move(task_chain));
+	auto op_chain = model_b::hop_to_operation(driver, std::move(posted_chain));
 
 	auto out = std::move(op_chain).release_outcome();
 	REQUIRE(out.is_success());

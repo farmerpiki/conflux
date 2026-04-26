@@ -667,7 +667,7 @@ Case make_carrier_a_cancel_passthru_case() {
 Case make_carrier_a_mixed_3stage_case() {
 	return Case{
 		.name = "carrier_a/mixed_3stage",
-		.description = "Model A: from_task + bridge_to_posted + bridge_to_operation + extract",
+		.description = "Model A: from_task + hop_to_posted + hop_to_operation + extract",
 		.default_iterations = 500'000,
 		.run = [] {
 			OwnerCapA owner{};
@@ -675,9 +675,26 @@ Case make_carrier_a_mixed_3stage_case() {
 			auto [task, src] = root::make_task_source<int>();
 			(void)src.commit_success(root::Success<int>{7});
 			auto c0 = model_a::from_task(move(task));
-			auto c1 = model_a::bridge_to_posted(owner, move(c0));
-			auto c2 = model_a::bridge_to_operation(driver, move(c1));
+			auto c1 = model_a::hop_to_posted(owner, move(c0));
+			auto c2 = model_a::hop_to_operation(driver, move(c1));
 			auto out = move(c2).release_outcome();
+			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+		}};
+}
+
+Case make_carrier_a_hop_verify_case() {
+	return Case{
+		.name = "carrier_a/hop_verify",
+		.description = "Model A: from_task + hop_to_posted + verify_hop (matching) + extract",
+		.default_iterations = 500'000,
+		.run = [] {
+			OwnerCapA owner{};
+			auto [task, src] = root::make_task_source<int>();
+			(void)src.commit_success(root::Success<int>{7});
+			auto c0 = model_a::from_task(move(task));
+			auto c1 = model_a::hop_to_posted(owner, move(c0));
+			model_a::verify_hop(owner, c1);
+			auto out = move(c1).release_outcome();
 			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
 		}};
 }
@@ -776,7 +793,7 @@ Case make_deadline_scope_arm_disarm_case() {
 		.description = "DeadlineScope(60s) arm + immediate destroy (jthread start+stop)",
 		.default_iterations = 5'000,
 		.run = [] {
-			carrier::DeadlineScope scope{chrono::seconds{60}};
+			carrier::DeadlineScope const scope{chrono::seconds{60}};
 			return size_t{1};
 		}};
 }
@@ -859,7 +876,7 @@ Case make_carrier_b_cancel_passthru_case() {
 Case make_carrier_b_mixed_3stage_case() {
 	return Case{
 		.name = "carrier_b/mixed_3stage",
-		.description = "Model B: from_task + bridge_to_posted + bridge_to_operation + extract",
+		.description = "Model B: from_task + hop_to_posted + hop_to_operation + extract",
 		.default_iterations = 500'000,
 		.run = [] {
 			OwnerCapB owner{};
@@ -867,8 +884,8 @@ Case make_carrier_b_mixed_3stage_case() {
 			auto [task, src] = root::make_task_source<int>();
 			(void)src.commit_success(root::Success<int>{7});
 			auto c0 = model_b::from_task(move(task));
-			auto c1 = model_b::bridge_to_posted(owner, move(c0));
-			auto c2 = model_b::bridge_to_operation(driver, move(c1));
+			auto c1 = model_b::hop_to_posted(owner, move(c0));
+			auto c2 = model_b::hop_to_operation(driver, move(c1));
 			auto out = move(c2).release_outcome();
 			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
 		}};
@@ -970,6 +987,7 @@ vector<Case> make_cases() {
 	cases.push_back(make_carrier_a_task_map3_case());
 	cases.push_back(make_carrier_a_cancel_passthru_case());
 	cases.push_back(make_carrier_a_mixed_3stage_case());
+	cases.push_back(make_carrier_a_hop_verify_case());
 	cases.push_back(make_carrier_a_when_all_case());
 	cases.push_back(make_carrier_a_when_all_fast_fail_case());
 	cases.push_back(make_carrier_a_race_a_wins_case());

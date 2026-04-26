@@ -115,14 +115,14 @@ template<root::work_value T, root::progress_capability Driver>
 }
 
 template<root::work_value T, root::progress_capability Owner>
-[[nodiscard]] PostedChain<T> bridge_to_posted(
+[[nodiscard]] PostedChain<T> hop_to_posted(
 	Owner &,
 	TaskChain<T> &&chain) noexcept {
 	return PostedChain<T>{std::move(chain).release_outcome()};
 }
 
 template<root::work_value T, root::progress_capability Driver>
-[[nodiscard]] OperationChain<T> bridge_to_operation(
+[[nodiscard]] OperationChain<T> hop_to_operation(
 	Driver &,
 	PostedChain<T> &&chain) noexcept {
 	return OperationChain<T>{std::move(chain).release_outcome()};

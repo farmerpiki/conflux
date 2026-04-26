@@ -43,10 +43,16 @@ enum class CarrierKind : std::uint8_t {
 	operation,
 };
 
+class HopCapabilityError final : public root::WorkError {
+public:
+	using WorkError::WorkError;
+};
+
 template<root::work_value T>
 class Chain {
 	root::Outcome<T> outcome_;
 	CarrierKind kind_ = CarrierKind::task;
+	root::CapabilityId bound_cap_{};
 
 public:
 	Chain() = delete;
@@ -57,12 +63,22 @@ public:
 		: outcome_{std::move(outcome)}
 		, kind_{kind} {}
 
+	Chain(
+		root::Outcome<T> outcome,
+		CarrierKind kind,
+		root::CapabilityId cap) noexcept
+		: outcome_{std::move(outcome)}
+		, kind_{kind}
+		, bound_cap_{cap} {}
+
 	Chain(Chain &&) noexcept = default;
 	Chain &operator =(Chain &&) noexcept = default;
 	Chain(Chain const &) = delete;
 	Chain &operator =(Chain const &) = delete;
 
 	[[nodiscard]] CarrierKind kind() const noexcept { return kind_; }
+
+	[[nodiscard]] root::CapabilityId bound_capability() const noexcept { return bound_cap_; }
 
 	[[nodiscard]] root::Outcome<T> release_outcome() && noexcept { return std::move(outcome_); }
 };
@@ -88,17 +104,27 @@ template<root::work_value T, root::progress_capability Driver>
 }
 
 template<root::work_value T, root::progress_capability Owner>
-[[nodiscard]] Chain<T> bridge_to_posted(
-	Owner &,
+[[nodiscard]] Chain<T> hop_to_posted(
+	Owner &owner,
 	Chain<T> &&chain) noexcept {
-	return Chain<T>{std::move(chain).release_outcome(), CarrierKind::posted};
+	return Chain<T>{std::move(chain).release_outcome(), CarrierKind::posted, root::capability_id(owner)};
 }
 
 template<root::work_value T, root::progress_capability Driver>
-[[nodiscard]] Chain<T> bridge_to_operation(
-	Driver &,
+[[nodiscard]] Chain<T> hop_to_operation(
+	Driver &driver,
 	Chain<T> &&chain) noexcept {
-	return Chain<T>{std::move(chain).release_outcome(), CarrierKind::operation};
+	return Chain<T>{std::move(chain).release_outcome(), CarrierKind::operation, root::capability_id(driver)};
+}
+
+template<root::progress_capability Cap, root::work_value T>
+void verify_hop(
+	Cap const &cap,
+	Chain<T> const &chain) {
+	auto const bound = chain.bound_capability();
+	if (bound.address && bound != root::capability_id(cap)) {
+		throw HopCapabilityError{"carrier: hop capability mismatch"};
+	}
 }
 
 template<root::work_value T, class Fn>
@@ -167,23 +193,25 @@ template<root::work_value T>
 	Chain<T> &&a,
 	Chain<T> &&b) noexcept {
 	auto kind_a = a.kind();
+	auto cap_a = a.bound_capability();
 	auto kind_b = b.kind();
+	auto cap_b = b.bound_capability();
 	auto out_a = std::move(a).release_outcome();
 	auto out_b = std::move(b).release_outcome();
 
 	if (out_a.is_success()) {
-		return Chain<T>{std::move(out_a), kind_a};
+		return Chain<T>{std::move(out_a), kind_a, cap_a};
 	}
 	if (out_b.is_success()) {
-		return Chain<T>{std::move(out_b), kind_b};
+		return Chain<T>{std::move(out_b), kind_b, cap_b};
 	}
 	if (out_a.is_failure()) {
-		return Chain<T>{std::move(out_a), kind_a};
+		return Chain<T>{std::move(out_a), kind_a, cap_a};
 	}
 	if (out_b.is_failure()) {
-		return Chain<T>{std::move(out_b), kind_b};
+		return Chain<T>{std::move(out_b), kind_b, cap_b};
 	}
-	return Chain<T>{std::move(out_a), kind_a};
+	return Chain<T>{std::move(out_a), kind_a, cap_a};
 }
 
 } // namespace conflux::work::carrier::model_a
