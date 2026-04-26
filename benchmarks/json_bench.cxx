@@ -437,6 +437,20 @@ string make_lookup_mixed_corpus() {
 	return out;
 }
 
+// FI-1 — small object (below kHashThreshold=32): find_member always does linear
+// scan. Proxy for per-lookup cost after the sentinel caches a build failure.
+string make_below_threshold_corpus() {
+	string out = "{";
+	for (int i = 0; i < 7; ++i) {
+		if (i > 0) {
+			out += ',';
+		}
+		out += format(R"("field_{}":{})", i, i);
+	}
+	out += '}';
+	return out;
+}
+
 // Item C — probe throughput on arena-storage names (baseline: bench_find_member
 // uses kStorageInputView names). Delta isolates member_name() dispatch overhead.
 void bench_find_member_escaped(
@@ -585,6 +599,62 @@ void bench_dump_named(
 	print_row(name, s);
 }
 
+// FI-1 — measures two components that together show the value of the sentinel:
+//
+//   (A) linear-only lookup (7-member, below kHashThreshold=48) — this is the
+//       per-lookup cost WITH the sentinel cached (find_member short-circuits
+//       straight to linear scan on every subsequent call after the first failure).
+//
+//   (B) hash-build overhead = (parse + first find_member) − (parse only), measured
+//       on the 1024-member corpus. In the adversarial repeat-lookup scenario
+//       WITHOUT the sentinel, (B) would be paid on every single call because
+//       hash_idx_raw stays nullptr and each call retries alloc + build + free.
+//       With the sentinel (FI-1), (B) is paid exactly once.
+void bench_fi1_sentinel(
+	string const &small_corpus,
+	string const &lookup_corpus) {
+	{
+		auto doc = parse(small_corpus);
+		if (!doc) {
+			return;
+		}
+		auto obj = doc->root().as_object();
+		if (!obj) {
+			return;
+		}
+		auto s = measure(
+			[&] {
+				(void)obj->find_member("field_0");
+				(void)obj->find_member("field_3");
+				(void)obj->find_member("field_6");
+			},
+			200,
+			1000,
+			1000);
+		s.median_ns /= 3.0;
+		print_row("FI-1/sentinel: (A) linear-only 7-member (failure path proxy)", s);
+	}
+	{
+		auto parse_only = measure([&] { (void)parse(lookup_corpus); }, 10, 100);
+		auto parse_find = measure(
+			[&] {
+				auto d = parse(lookup_corpus);
+				if (!d) {
+					return;
+				}
+				auto o = d->root().as_object();
+				if (!o) {
+					return;
+				}
+				(void)o->find_member("member_512");
+			},
+			10,
+			100);
+		double const build_ns = parse_find.median_ns - parse_only.median_ns;
+		print_row("FI-1/sentinel: (B) build+lookup overhead (parse+find − parse-only)", Stats{max(0.0, build_ns), 0.0});
+	}
+}
+
 } // namespace
 
 int main() { // NOLINT(bugprone-exception-escape)
@@ -601,6 +671,7 @@ int main() { // NOLINT(bugprone-exception-escape)
 	string const mixed_numbers_corpus = make_mixed_numbers_corpus();
 	string const lookup_escaped_corpus = make_lookup_escaped_corpus();
 	string const lookup_mixed_corpus = make_lookup_mixed_corpus();
+	string const below_threshold_corpus = make_below_threshold_corpus();
 
 	println(
 		"[json-bench] corpus sizes: config={}B decode={}B lookup={}B array={}B large={}B",
@@ -647,6 +718,12 @@ int main() { // NOLINT(bugprone-exception-escape)
 	bench_find_member_escaped(lookup_escaped_corpus);
 	bench_find_member_mixed(lookup_mixed_corpus);
 	bench_builder_name_length();
+
+	println("[json-bench]");
+	println("[json-bench] -- FI-1: sentinel prevents repeated hash-build on failure --");
+	println("[json-bench]    (A) per-lookup cost after sentinel cached; (B) overhead saved per repeat call");
+	println("[json-bench]    adversarial cost WITHOUT sentinel: (A)+(B) per lookup; WITH: (A) after first call");
+	bench_fi1_sentinel(below_threshold_corpus, lookup_corpus);
 
 	println("[json-bench]");
 	println("[json-bench] Acceptance thresholds:");

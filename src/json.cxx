@@ -438,7 +438,7 @@ struct ObjHashTable {
 	}
 };
 
-constexpr u32 kHashThreshold = 8;
+constexpr u32 kHashThreshold = 32;
 constexpr u32 kProbeChainMax = 64;
 constexpr u32 kMaxHashTableCapacity = 1u << 30;
 // FI-7 — practical byte budget on the per-object hash index to bound
@@ -670,7 +670,7 @@ struct DocumentStorage {
 // pathological underflow tokens like "0." + 4000+ zeros + "1". DoS hardening
 // against megabyte-long number tokens.
 constexpr size_t kSlowFloatLexemeCopyLimit = 4096;
-constexpr size_t kMaxNumberLexemeLen       = 1024;
+constexpr size_t kMaxNumberLexemeLen = 1024;
 
 namespace detail {
 

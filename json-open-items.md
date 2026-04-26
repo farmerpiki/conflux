@@ -4,16 +4,6 @@ Post-v16. All v16 items (A–E) shipped in commit 26839f6.
 
 ---
 
-## v1-era items (low effort, worth landing before merge to main)
-
-**FI-1 — Build-failed sentinel**
-After probe-cap hit, publish `(ObjHashTable*)(1)` sentinel via CAS instead of
-leaving `hash_idx_raw = nullptr`. Prevents repeated re-attempts on adversarial
-repeat-lookup patterns. Cost: ~4 lines, 3 call sites.
-Gate: land only if benchmarks show adversarial repeat-lookup cost.
-
----
-
 ## v2 design work
 
 **FI-5 — TTT remainder: deferred-range-error for lexemes > 4 KiB**
