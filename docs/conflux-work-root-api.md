@@ -9,6 +9,17 @@ This document describes the current public interface and behavior contract of
 import conflux.work.root;
 ```
 
+## Module Separation
+
+`conflux.work` (legacy `Flow<T>`, `WorkPool`, `run_on`) and `conflux.work.root`
+are separate module stacks with no bridge. There is no `co_await`-compatible
+adapter between `Flow<T>` and `root::Task<T>`, and none will be added — the
+`from_root_*` / `to_root_*` adapters were deliberately removed. Consumers that
+must touch both stacks should keep internal logic on one vocabulary and wrap the
+boundary using `make_task_source<T>` + `commit_*` (see continuation plan
+§Legacy Bridge Decision, G2c). Do not attempt to `co_await` a `Flow<T>` from a
+root coroutine or vice versa.
+
 ## Root Categories
 
 Root async values are split into three categories:
@@ -29,7 +40,7 @@ Terminal outcomes are represented by:
 
 - `Success<T>` (`Success<void>` specialization)
 - `Failure` (holds non-null `std::exception_ptr`)
-- `Cancelled` (`CancelReason::{requested,abandoned,shutdown}`)
+- `Cancelled` (`CancelReason::{requested,abandoned,shutdown,deadline}`)
 
 And wrapped by:
 
@@ -41,11 +52,13 @@ Inspection APIs:
 - `kind()`, `is_success()`, `is_failure()`, `is_cancelled()`
 - arm accessors: `success()`, `failure()`, `cancelled()`
 - total visitor: `visit(F&&)` for `&`, `const&`, `&&`
+- per-arm callback: `match(OnSuccess&&, OnFailure&&, OnCancelled&&)` for `&&` and `const&`
 
 Result extraction helpers:
 
-- `value(Outcome<T>&&) -> T`
+- `value(Outcome<T>&&) -> T` (free function; throws `FailureError` or `CancelledError`)
 - `value(Outcome<void>&&) -> void`
+- member `value() &` / `value() const &` / `value() &&` — same semantics, on the object directly
 
 Error translation:
 
@@ -124,6 +137,10 @@ Rules:
 - explicit `commit_cancelled(CancelReason::abandoned)` is a contract violation
   (implementation terminates)
 - source destruction without terminal commit performs fallback abandoned cancel
+- source destruction does **not** fire the installed cancel hook; it fires the
+  `on_ready` callback only — if cleanup must run on all teardown paths, call
+  `request_cancel()` before releasing the source, or include the cleanup in the
+  `on_ready` callback
 
 ### Commit/Cancel-Hook Race Guarantee
 
@@ -174,6 +191,10 @@ Cancel hooks must be noexcept. They fire synchronously on the
 - `ready() -> bool`
 - `state() -> WorkState`
 - `can_join_with(CapabilityId) -> bool`
+- `static constexpr category() -> ControlCategory`
+- `try_set_on_ready(MoveOnlyFunction<void()>) -> ReadyRegistrationResult`
+- `clear_on_ready() -> ClearOnReadyStatus`
+- `set_on_ready_or_run(F&&) noexcept` (convenience: installs or runs immediately)
 
 `request_cancel()` returns `true` only for the first successful request before
 terminal completion.
@@ -183,6 +204,36 @@ Cancel hook semantics:
 - single installed hook at most
 - first successful cancel request runs hook synchronously
 - hook must not throw; throwing hook terminates
+
+### Ready Callback APIs
+
+`try_set_on_ready` installs a one-shot `void()` callback that fires when the
+control block reaches a terminal state. Returns `ReadyRegistrationResult`:
+
+```cpp
+struct ReadyRegistrationResult {
+    ReadyRegistration status;
+    MoveOnlyFunction<void()> rejected_fn; // non-null if not installed
+};
+
+enum class ReadyRegistration : std::uint8_t {
+    installed,           // callback queued; will fire on commit thread
+    already_ready,       // already terminal; caller must run rejected_fn
+    already_installed,   // second install attempt; rejected_fn returned
+    empty,               // control is empty (moved-from); rejected_fn returned
+};
+
+enum class ClearOnReadyStatus : std::uint8_t {
+    cleared,             // callback removed; will not fire
+    in_flight,           // commit already in progress; callback may fire anyway
+    already_terminal,    // terminal reached; callback already fired or will fire
+    not_armed,           // nothing was installed
+};
+```
+
+`set_on_ready_or_run(F&&)` — if `already_ready`, runs `fn` immediately on the
+calling thread; otherwise installs it. `already_installed` and `empty` are
+silently dropped.
 
 ## Join, Value, and Join Handles
 
@@ -200,6 +251,16 @@ Join handles are produced by:
 - `into_join_handle(Task<T>&&)`
 - `into_join_handle(Posted<T>&&)`
 - `into_join_handle(Operation<T>&&)`
+
+Join handles expose `.control()` (returns the matching `*Control` type) and
+`operator bool()` (false if moved-from or empty).
+
+Capability query helpers:
+
+- `can_join(Owner&, PostedControl const&) -> bool`
+- `can_join(Driver&, OperationControl const&) -> bool`
+- `joinable(Cap const&, PostedJoinHandle<T> const&) -> bool`
+- `joinable(Cap const&, OperationJoinHandle<T> const&) -> bool`
 
 Contract behavior:
 
@@ -227,8 +288,21 @@ so first-base subobject aliasing does not collapse distinct capability types.
 
 Abandonment entry points:
 
-- `abandon_to(<result-or-handle>, sink)`
+- `abandon_to(<result-or-handle>, sink)` — blocking; sink runs on commit thread or caller thread if already terminal
+- `try_abandon_to(TaskJoinHandle<T>&&, sink) -> AbandonStatus`
+- `try_abandon_to(PostedJoinHandle<T>&&, sink) -> AbandonStatus`
+- `try_abandon_to(OperationJoinHandle<T>&&, sink) -> AbandonStatus`
 - `guard_abandon(value)` returns `scoped_abandon`
+
+`try_abandon_to` is the non-blocking variant. Returns `AbandonStatus`:
+
+```cpp
+enum class AbandonStatus : std::uint8_t {
+    installed,          // sink queued; will fire when terminal
+    already_abandoned,  // already in abandoned state; sink not called
+    empty,              // handle was empty or moved-from
+};
+```
 
 Sink contract (`abandon_sink`):
 

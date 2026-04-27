@@ -11,6 +11,7 @@ import conflux.work.carrier.scope;     // Scope, admit
 import conflux.work.carrier.deadline;  // DeadlineScope
 import conflux.work.carrier.coro;      // EagerChain<T>, async awaiters
 import conflux.work.carrier.timer;     // TimerService, LaneTimerScope<>
+import conflux.work.carrier.streams;   // DroppableSlot<T>, CoalescingSlot<T>
 ```
 
 All carrier types live in `conflux::work::carrier` or `conflux::work::carrier::model_a`.
@@ -226,7 +227,7 @@ on high-frequency chains.
 ### `HopCapabilityError`
 
 ```cpp
-class HopCapabilityError final : public root::JoinContextError {
+class HopCapabilityError : public root::JoinContextError {
 public:
     HopCapabilityError();
 };
@@ -513,6 +514,77 @@ scope cancels the timer.
 **Internal compaction** — the service uses lazy deletion with a min-heap.
 Cancelled entries become tombstones. Compaction runs when tombstones exceed
 half the heap size or after 1024 cancellations, whichever comes first.
+
+---
+
+## Stream Types
+
+Stream types live in `conflux.work.carrier.streams`.
+
+### `DroppableSlot<T>`
+
+```cpp
+template<root::work_value T>
+class DroppableSlot {
+public:
+    explicit DroppableSlot(root::TaskJoinHandle<T>&&);
+    DroppableSlot(DroppableSlot&&) noexcept = default;
+    DroppableSlot& operator=(DroppableSlot&&) noexcept = default;
+    DroppableSlot(DroppableSlot const&) = delete;
+    DroppableSlot& operator=(DroppableSlot const&) = delete;
+    ~DroppableSlot() noexcept;
+
+    template<class F> void on_drop(F&&) noexcept; // F: noexcept(Outcome<T>) -> void
+    [[nodiscard]] bool ready() const noexcept;
+    [[nodiscard]] std::optional<root::Outcome<T>> try_get() &&;
+    [[nodiscard]] model_a::Chain<T> wait() &&;
+    [[nodiscard]] DroppableSlotAwaiter<T> operator co_await() && noexcept;
+};
+```
+
+`DroppableSlot<T>` wraps a `TaskJoinHandle<T>` with a drain-on-drop contract.
+If the slot is destroyed without being consumed (`try_get`, `wait`, or
+`co_await`), the destructor installs an `on_ready` callback that joins the
+handle and calls the registered `on_drop` function when the task completes.
+If the task is already terminal at destruction time, the drain runs synchronously.
+
+**`on_drop(F&&)`** — registers a noexcept callback to receive the outcome when
+the slot is drained by the destructor. Must be noexcept-invocable with
+`root::Outcome<T>`. Ignored if the slot was already consumed.
+
+**`try_get() &&`** — non-blocking. Returns `nullopt` if not yet terminal.
+Consuming via `try_get`, `wait`, or `co_await` marks the slot consumed;
+the destructor then skips the drain.
+
+**`wait() &&`** — blocking join. Returns a `Chain<T>` with `kind() == task`.
+
+**`co_await` (via `DroppableSlotAwaiter<T>`)** — async path. Suspends the
+coroutine until the task is terminal, then resumes with `Chain<T>`. If the
+awaiter is destroyed before resumption (e.g., coroutine cancelled), the
+awaiter destructor performs the drain with the registered `on_drop` callback.
+
+**Single-consumer invariant:** only one consumer may co_await or call `wait`/
+`try_get` on a given slot. A second `try_set_on_ready` attempt terminates.
+
+### `CoalescingSlot<T>`
+
+```cpp
+template<root::work_value T>  // requires T != void
+class CoalescingSlot {
+public:
+    CoalescingSlot() noexcept = default;
+    CoalescingSlot(CoalescingSlot&&) = delete;
+    CoalescingSlot(CoalescingSlot const&) = delete;
+
+    void commit(T value) noexcept;
+    [[nodiscard]] std::optional<T> take() noexcept;
+    [[nodiscard]] bool available() const noexcept;
+};
+```
+
+Thread-safe single-value slot. `commit` overwrites any previously stored value.
+`take` atomically removes and returns the value, or `nullopt` if empty.
+Not movable — intended as a stable shared object.
 
 ---
 
