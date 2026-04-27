@@ -25,6 +25,12 @@ using namespace conflux::tests;
 
 namespace {
 
+namespace chttp = conflux::http;
+using conflux::http::HttpClient;
+using conflux::http::HttpClientOptions;
+using conflux::http::HttpErrorKind;
+using conflux::http::HttpTimeouts;
+
 // Actual port chosen by the OS; set once in ensure_server().
 uint16_t g_test_port = 0;
 
@@ -1021,84 +1027,72 @@ TEST_CASE(
 TEST_CASE(
 	"http client: GET /api/ping returns parsed response") {
 	ensure_server();
-	auto response = http_request(
-		ClientRequest{
-			.host = "127.0.0.1",
-			.port = g_test_port,
-			.path = "/api/ping",
-		});
+	auto response =
+		HttpClient{}.send_blocking(chttp::HttpRequest::get(std::format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
-	CHECK(response->status == 200);
-	CHECK(response->content_type == "application/json");
+	CHECK(response->head.status == 200);
+	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
 	CHECK(response->body == R"({"status":"ok"})");
 }
 
 TEST_CASE(
-	"http client: pool-backed GET /api/ping returns parsed response") {
+	"http client: GET /api/ping returns parsed response (send_blocking)") {
 	ensure_server();
-	WorkPool pool;
-	auto response = wait(http_request_in(
-		pool,
-		ClientRequest{
-			.host = "127.0.0.1",
-			.port = g_test_port,
-			.path = "/api/ping",
-		}));
-	pool.stop();
-	pool.wait();
+	HttpClient client{};
+	auto response =
+		client.send_blocking(chttp::HttpRequest::get(std::format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
-	CHECK(response->status == 200);
-	CHECK(response->content_type == "application/json");
+	CHECK(response->head.status == 200);
+	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
 	CHECK(response->body == R"({"status":"ok"})");
 }
 
 TEST_CASE(
 	"http client: convenience client sends headers and parses response headers") {
 	ensure_server();
-	ClientOptions options;
-	options.host = "127.0.0.1";
-	options.port = g_test_port;
-	HttpClient client{std::move(options)};
+	HttpClient client{};
 	HttpFields headers{true};
 	headers["X-Test-Header"] = "client-header";
 
-	auto response = client.get("/api/echo-header", headers);
+	auto response = client.send_blocking(
+		chttp::HttpRequest::get(std::format("http://127.0.0.1:{}/api/echo-header", g_test_port)).headers(headers));
 	REQUIRE(response);
-	CHECK(response->status == 200);
+	CHECK(response->head.status == 200);
 	CHECK(response->body == "client-header");
 
-	auto with_headers = client.get("/api/with-header");
+	auto with_headers =
+		client.send_blocking(chttp::HttpRequest::get(std::format("http://127.0.0.1:{}/api/with-header", g_test_port)));
 	REQUIRE(with_headers);
-	CHECK(with_headers->headers["x-custom"] == "hello");
-	CHECK(with_headers->headers["x-another"] == "world");
+	CHECK(with_headers->head.headers["x-custom"] == "hello");
+	CHECK(with_headers->head.headers["x-another"] == "world");
 }
 
 TEST_CASE(
 	"http client: convenience client POST sends body and content type") {
 	ensure_server();
-	ClientOptions options;
-	options.host = "127.0.0.1";
-	options.port = g_test_port;
-	HttpClient client{std::move(options)};
+	HttpClient client{};
 
-	auto response = client.post("/api/echo-json", R"({"from":"client"})", "application/json");
+	auto response = client.send_blocking(
+		chttp::HttpRequest::post(std::format("http://127.0.0.1:{}/api/echo-json", g_test_port))
+			.content_type("application/json")
+			.body(R"({"from":"client"})"));
 	REQUIRE(response);
-	CHECK(response->status == 200);
-	CHECK(response->content_type == "application/json");
+	CHECK(response->head.status == 200);
+	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
 	CHECK(response->body == R"({"from":"client"})");
 }
 
 TEST_CASE(
 	"http client: PUT sends body and receives response") {
 	ensure_server();
-	ClientOptions options;
-	options.host = "127.0.0.1";
-	options.port = g_test_port;
-	HttpClient client{std::move(options)};
+	HttpClient client{};
 
-	auto response = client.put("/api/resource/42", R"({"x":1})", "application/json");
+	auto response = client.send_blocking(
+		chttp::HttpRequest::put(std::format("http://127.0.0.1:{}/api/resource/42", g_test_port))
+			.content_type("application/json")
+			.body(R"({"x":1})"));
 	REQUIRE(response);
-	CHECK(response->status == 200);
+	CHECK(response->head.status == 200);
 	CHECK(response->body.find("PUT") != std::string::npos);
 	CHECK(response->body.find("42") != std::string::npos);
 }
@@ -1106,14 +1100,14 @@ TEST_CASE(
 TEST_CASE(
 	"http client: PATCH sends body and receives response") {
 	ensure_server();
-	ClientOptions options;
-	options.host = "127.0.0.1";
-	options.port = g_test_port;
-	HttpClient client{std::move(options)};
+	HttpClient client{};
 
-	auto response = client.patch("/api/resource/7", R"({"delta":1})", "application/json");
+	auto response = client.send_blocking(
+		chttp::HttpRequest::patch(std::format("http://127.0.0.1:{}/api/resource/7", g_test_port))
+			.content_type("application/json")
+			.body(R"({"delta":1})"));
 	REQUIRE(response);
-	CHECK(response->status == 200);
+	CHECK(response->head.status == 200);
 	CHECK(response->body.find("PATCH") != std::string::npos);
 	CHECK(response->body.find("7") != std::string::npos);
 }
@@ -1121,14 +1115,12 @@ TEST_CASE(
 TEST_CASE(
 	"http client: DELETE returns response") {
 	ensure_server();
-	ClientOptions options;
-	options.host = "127.0.0.1";
-	options.port = g_test_port;
-	HttpClient client{std::move(options)};
+	HttpClient client{};
 
-	auto response = client.del("/api/resource/99");
+	auto response =
+		client.send_blocking(chttp::HttpRequest::del(std::format("http://127.0.0.1:{}/api/resource/99", g_test_port)));
 	REQUIRE(response);
-	CHECK(response->status == 200);
+	CHECK(response->head.status == 200);
 	CHECK(response->body.find("DELETE") != std::string::npos);
 	CHECK(response->body.find("99") != std::string::npos);
 }
@@ -1136,44 +1128,37 @@ TEST_CASE(
 TEST_CASE(
 	"http client: HEAD /api/ping returns 200 with no body") {
 	ensure_server();
-	ClientOptions options;
-	options.host = "127.0.0.1";
-	options.port = g_test_port;
-	HttpClient client{std::move(options)};
+	HttpClient client{};
 
-	auto response = client.head("/api/ping");
+	auto response =
+		client.send_blocking(chttp::HttpRequest::head(std::format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
-	CHECK(response->status == 200);
-	CHECK(response->content_type == "application/json");
+	CHECK(response->head.status == 200);
+	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
 	CHECK(response->body.empty());
 }
 
 TEST_CASE(
-	"http client: convenience client can run on a work pool") {
+	"http client: send_blocking works without pool") {
 	ensure_server();
-	ClientOptions options;
-	options.host = "127.0.0.1";
-	options.port = g_test_port;
-	HttpClient client{std::move(options)};
-	WorkPool pool;
-	auto response = wait(client.get_in(pool, "/api/ping"));
-	pool.stop();
-	pool.wait();
+	HttpClient client{};
+	auto response =
+		client.send_blocking(chttp::HttpRequest::get(std::format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
-	CHECK(response->status == 200);
+	CHECK(response->head.status == 200);
 	CHECK(response->body == R"({"status":"ok"})");
 }
 
 TEST_CASE(
 	"http client: connection failure returns an error") {
-	ClientOptions options;
-	options.host = "127.0.0.1";
-	options.port = 9;
-	options.timeout_sec = 1;
-	HttpClient client{std::move(options)};
-	auto response = client.get("/");
+	HttpTimeouts timeouts{};
+	timeouts.connect = std::chrono::milliseconds{1000};
+	HttpClientOptions opts{};
+	opts.default_timeouts = timeouts;
+	HttpClient client{opts};
+	auto response = client.send_blocking(chttp::HttpRequest::get("http://127.0.0.1:9/"));
 	REQUIRE_FALSE(response);
-	CHECK(response.error() == "connect");
+	CHECK(response.error().kind == HttpErrorKind::connect);
 }
 
 TEST_CASE(
@@ -3577,18 +3562,14 @@ TEST_CASE(
 TEST_CASE(
 	"http client: HTTPS GET /ping returns parsed response") {
 	ensure_tls_server();
-	auto response = http_request(
-		ClientRequest{
-			.host = "127.0.0.1",
-			.port = g_tls_port,
-			.path = "/ping",
-			.use_tls = true,
-			.verify_peer = false,
-			.server_name = "localhost",
-		});
+	HttpClientOptions tls_opts{};
+	tls_opts.verify_peer = false;
+	HttpClient tls_client{std::move(tls_opts)};
+	auto response = tls_client.send_blocking(
+		chttp::HttpRequest::get(std::format("https://127.0.0.1:{}/ping", g_tls_port)).server_name("localhost").build());
 	REQUIRE(response);
-	CHECK(response->status == 200);
-	CHECK(response->content_type == "application/json");
+	CHECK(response->head.status == 200);
+	CHECK(std::string{response->head.headers["content-type"]}.find("application/json") != std::string::npos);
 	CHECK(response->body == R"({"tls":true})");
 }
 
@@ -4990,18 +4971,13 @@ TEST_CASE(
 		::close(c);
 	});
 
-	auto result = http_request(
-		ClientRequest{
-			.host = "127.0.0.1",
-			.port = port,
-			.path = "/",
-		});
+	auto result = HttpClient{}.send_blocking(chttp::HttpRequest::get(std::format("http://127.0.0.1:{}/", port)));
 
 	srv.join();
 	::close(lfd);
 
 	REQUIRE(result.has_value());
-	CHECK(result->status == 200);
+	CHECK(result->head.status == 200);
 	CHECK(result->body == "hello world");
 }
 

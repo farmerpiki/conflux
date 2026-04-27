@@ -1,29 +1,49 @@
-// HTTP reverse proxy: forwards requests to an upstream server over a blocking
-// TCP socket. When a WorkPool is supplied, the blocking upstream exchange runs
-// off-ring and wakes the server back through a deferred response handle.
+// HTTP reverse proxy: forwards requests to an upstream server.
+// Uses HttpClient::send_blocking (Phase 1). Phase 2 will migrate to async.
 module;
 
 export module conflux.net.proxy;
 import std;
 import conflux.types;
 export import conflux.work;
+import conflux.net.http.types;
+import conflux.net.http.request;
 import conflux.net.client;
 import conflux.net.router;
 import conflux.utils;
+
 using namespace std;
+namespace http = conflux::http;
+using http::HttpClient;
+using http::HttpClientOptions;
+using http::HttpTimeouts;
 
 export struct ProxyOptions {
 	string upstream_host;
 	u16 upstream_port{80};
-	// Strip this prefix from the request path before forwarding.
-	string path_prefix;
-	// Forward the original Host header. When false, use upstream_host.
+	string path_prefix{};
 	bool preserve_host{false};
-	// Connect/recv timeout in seconds (0 = blocking until close).
+	bool upstream_tls{false};
 	int timeout_sec{10};
-	// Optional pool for off-ring upstream work. When null, proxying stays synchronous.
 	shared_ptr<WorkPool> work_pool{};
 };
+
+namespace {
+
+constexpr array<string_view, 8> kHopByHop{
+	"connection",
+	"keep-alive",
+	"proxy-authenticate",
+	"proxy-authorization",
+	"te",
+	"trailers",
+	"transfer-encoding",
+	"upgrade",
+};
+
+} // namespace
+
+namespace proxy_detail {
 
 HttpResponse perform_proxy_request(
 	HttpRequestView const &req,
@@ -36,70 +56,83 @@ HttpResponse perform_proxy_request(
 		up_path = "/";
 	}
 
-	ClientRequest creq{
-		.method = string{req.method},
-		.host = opts.upstream_host,
-		.port = opts.upstream_port,
-		.path = move(up_path),
-		.headers = HttpFields{true},
-		.body = string{req.body},
-		.timeout_sec = opts.timeout_sec,
-		.host_override = opts.preserve_host ? string{req.headers["host"]} : string{},
-	};
-	static constexpr array<string_view, 8> kHopByHop{
-		"connection",
-		"keep-alive",
-		"proxy-authenticate",
-		"proxy-authorization",
-		"te",
-		"trailers",
-		"transfer-encoding",
-		"upgrade",
-	};
-	for (auto const &[name, header_value]: req.headers) {
-		if (name != "host" && !ranges::contains(kHopByHop, name)) {
-			creq.headers.emplace_back(string{name}, string{header_value});
+	string const scheme = opts.upstream_tls ? "https" : "http";
+	string const url_str = format("{}://{}:{}{}", scheme, opts.upstream_host, opts.upstream_port, up_path);
+
+	auto builder = http::HttpRequest::method(req.method, url_str);
+
+	// Forward non-hop-by-hop headers.
+	for (auto const &[name, value]: req.headers) {
+		if (name == "host") {
+			continue;
 		}
+		if (ranges::contains(kHopByHop, name)) {
+			continue;
+		}
+		builder.header(name, value);
 	}
 
+	// X-Forwarded-For.
 	auto xff = string{req.headers["x-forwarded-for"]};
 	if (xff.empty()) {
-		creq.headers["x-forwarded-for"] = string{req.remote_addr};
+		builder.header("X-Forwarded-For", req.remote_addr);
 	} else {
-		creq.headers["x-forwarded-for"] = format("{}, {}", xff, req.remote_addr);
+		builder.header("X-Forwarded-For", format("{}, {}", xff, req.remote_addr));
 	}
 
-	auto response = http_request(creq);
-	if (!response) {
-		return HttpResponse::internal_error(format("proxy: {}", response.error()));
+	// Host header.
+	if (opts.preserve_host) {
+		builder.header("Host", req.headers["host"]);
+	}
+
+	if (!req.body.empty()) {
+		builder.body_view(req.body);
+	}
+
+	HttpTimeouts timeouts{};
+	timeouts.connect = chrono::milliseconds{opts.timeout_sec * 1000};
+	timeouts.first_byte = chrono::milliseconds{opts.timeout_sec * 1000};
+	timeouts.between_bytes = chrono::milliseconds{opts.timeout_sec * 1000};
+	builder.timeouts(timeouts);
+
+	HttpClientOptions client_opts{};
+	client_opts.default_timeouts = timeouts;
+	HttpClient client{std::move(client_opts)};
+
+	auto result = client.send_blocking(std::move(builder).build());
+	if (!result) {
+		return HttpResponse::internal_error(
+			format("proxy: {} ({})", result.error().message, static_cast<int>(result.error().kind)));
 	}
 
 	HttpResponse out;
-	out.status = response->status;
-	out.status_text = move(response->status_text);
-	out.content_type = move(response->content_type);
-	out.headers = move(response->headers);
-	out.set_cookies = move(response->set_cookies);
-	out.set_text_body(move(response->body));
+	out.status = result->head.status;
+	out.status_text = std::move(result->head.status_text);
+	out.headers = std::move(result->head.headers);
+	out.set_cookies = std::move(result->head.set_cookies);
+	// Propagate content-type from headers (it's now in headers, not a separate field).
+	if (auto const ct = out.headers["content-type"]; !ct.empty()) {
+		out.content_type = string{ct};
+	}
+	out.set_text_body(std::move(result->body));
 	return out;
 }
 
-// Returns a handler (not middleware) that proxies all requests to the upstream.
-// Mount it with router.get("/api/{*path}", proxy_handler({...})) etc.
+} // namespace proxy_detail
+
 export Router::Handler proxy_handler(
 	ProxyOptions opts) {
-	return [opts = move(opts)](HttpRequestView const &req) -> HttpResponse {
+	return [opts = std::move(opts)](HttpRequestView const &req) -> HttpResponse {
 		if (!opts.work_pool) {
-			return perform_proxy_request(req, opts);
+			return proxy_detail::perform_proxy_request(req, opts);
 		}
-
 		auto deferred = make_shared<DeferredResponse>();
 		auto owned = req.to_owned();
-		if (!opts.work_pool->enqueue([deferred, opts, owned = move(owned)]() mutable {
-				deferred->complete(perform_proxy_request(HttpRequestView{owned}, opts));
+		if (!opts.work_pool->enqueue([deferred, opts, owned = std::move(owned)]() mutable {
+				deferred->complete(proxy_detail::perform_proxy_request(HttpRequestView{owned}, opts));
 			})) {
 			return HttpResponse::internal_error("proxy: work pool");
 		}
-		return HttpResponse::deferred(move(deferred));
+		return HttpResponse::deferred(std::move(deferred));
 	};
 }

@@ -1,6 +1,7 @@
 module;
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <signal.h>
 #include <sys/socket.h>
 #include <unistd.h>
 
@@ -263,6 +264,8 @@ public:
 	uint16_t start(
 		Config const &cfg,
 		Router router) {
+		// TLS server probing in wait_for_server() triggers SIGPIPE without this.
+		(void)::signal(SIGPIPE, SIG_IGN);
 		auto srv = make_shared<HttpServer>(cfg, move(router));
 		{
 			lock_guard const lock{mu_};
@@ -283,6 +286,7 @@ public:
 	uint16_t start(
 		Config const &cfg,
 		VHostRouter vhost_router) {
+		(void)::signal(SIGPIPE, SIG_IGN);
 		auto srv = make_shared<HttpServer>(cfg, move(vhost_router));
 		{
 			lock_guard const lock{mu_};
@@ -338,6 +342,10 @@ public:
 			} catch (...) { println(cerr, "HttpServer test thread failed: unknown exception"); }
 		}) {
 		wait_for_server(server_->port());
+		// Give the io_uring ring one scheduler tick to drain the probe-close SQE
+		// before returning — prevents fd reuse racing with the immediately-following
+		// test connection on the same fd slot.
+		this_thread::sleep_for(chrono::milliseconds(20));
 	}
 
 	[[nodiscard]] uint16_t port() const { return server_->port(); }

@@ -92,17 +92,15 @@ TEST_CASE(
 	router.get("/ping", [](HttpRequestView const &) { return HttpResponse::json(R"({"ok":true})"); });
 	conflux::tests::ScopedTestServer const srv{cfg, std::move(router)};
 
-	auto response = http_request(
-		ClientRequest{
-			.host = "127.0.0.1",
-			.port = srv.port(),
-			.path = "/ping",
-			.use_tls = true,
-			.verify_peer = false,
-			.server_name = "localhost",
-		});
+	conflux::http::HttpClientOptions opts1{};
+	opts1.verify_peer = false;
+	conflux::http::HttpClient client1{std::move(opts1)};
+	auto response = client1.send_blocking(
+		conflux::http::HttpRequest::get(std::format("https://127.0.0.1:{}/ping", srv.port()))
+			.server_name("localhost")
+			.build());
 	REQUIRE(response);
-	CHECK(response->headers["alt-svc"] == http3_alt_svc_value(srv.port(), cfg.http3.alt_svc_max_age_sec));
+	CHECK(response->head.headers["alt-svc"] == http3_alt_svc_value(srv.port(), cfg.http3.alt_svc_max_age_sec));
 }
 
 TEST_CASE(
@@ -116,17 +114,15 @@ TEST_CASE(
 	vhosts.set_default(std::move(def));
 
 	auto const port = conflux::tests::test_servers().start(cfg, std::move(vhosts));
-	auto response = http_request(
-		ClientRequest{
-			.host = "127.0.0.1",
-			.port = port,
-			.path = "/ping",
-			.use_tls = true,
-			.verify_peer = false,
-			.server_name = "localhost",
-		});
-	REQUIRE(response);
-	CHECK(response->status == 200);
-	CHECK_FALSE(response->headers.contains("alt-svc"));
+	conflux::http::HttpClientOptions opts2{};
+	opts2.verify_peer = false;
+	conflux::http::HttpClient client2{std::move(opts2)};
+	auto response2 = client2.send_blocking(
+		conflux::http::HttpRequest::get(std::format("https://127.0.0.1:{}/ping", port))
+			.server_name("localhost")
+			.build());
+	REQUIRE(response2);
+	CHECK(response2->head.status == 200);
+	CHECK_FALSE(response2->head.headers.contains("alt-svc"));
 }
 #endif

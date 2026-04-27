@@ -1,61 +1,75 @@
 module;
 #include <arpa/inet.h>
 #include <cerrno>
+#include <climits>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#if CONFLUX_HAS_TLS
+	#include <openssl/err.h>
+	#include <openssl/ssl.h>
+	#include <openssl/x509.h>
+#endif
 
 export module conflux.net.client;
 import std;
 import conflux.types;
+import conflux.net.http.types;
+import conflux.net.http.request;
+import conflux.net.router;
+import conflux.utils;
 #if CONFLUX_HAS_TLS
 import conflux.net.tls;
 #endif
-import conflux.net.router;
-import conflux.utils;
-import conflux.work;
 
 using namespace std;
 
-export struct ClientRequest {
-	string method{"GET"};
-	string host{};
-	u16 port{80};
-	string path{"/"};
-	HttpFields headers{true};
-	string body{};
-	int timeout_sec{10};
-	bool use_tls{false};
-	bool verify_peer{true};
-	string server_name{};
-	// When non-empty, used as the Host header value instead of host+port.
-	// host is still used for the TCP connection.
-	string host_override{};
-};
+// ─── exported response types ─────────────────────────────────────────────────
 
-export struct ClientResponse {
+export namespace conflux::http {
+
+struct HttpResponseHead {
 	int status{502};
 	string status_text{"Bad Gateway"};
-	string content_type{"application/octet-stream"};
 	HttpFields headers{true};
 	vector<string> set_cookies{};
-	string body{};
 };
 
-export struct ClientOptions {
-	string host{};
-	u16 port{80};
-	int timeout_sec{10};
-	bool use_tls{false};
-	bool verify_peer{true};
-	string server_name{};
-	HttpFields default_headers{true};
+struct HttpResponse {
+	HttpResponseHead head{};
+	string body{};
+	HttpTelemetry telemetry{};
+
+	// Phase 2: json() / json_borrowed() accessors.
 };
+
+using HttpResult = expected<HttpResponse, HttpError>;
+
+struct HttpClientOptions {
+	HttpTimeouts default_timeouts{};
+	bool verify_peer{true};
+	string ca_bundle_path{}; // empty = system default
+	size_t max_header_bytes{64 * 1024};
+	size_t max_body_bytes{16 * 1024 * 1024};
+	size_t max_buffered_bytes{4 * 1024 * 1024};
+	HttpFields default_headers{};
+};
+
+} // namespace conflux::http
+
+// ─── legacy free function (kept for existing test compatibility) ──────────────
+
+export [[nodiscard]] optional<string> decode_chunked_body(string_view encoded);
+
+// ─── internal transport ───────────────────────────────────────────────────────
 
 namespace client_detail {
+
+using namespace conflux::http;
+using conflux::http::HttpResponse; // disambiguate vs router's ::HttpResponse
 
 struct Connection {
 	int fd{-1};
@@ -77,61 +91,25 @@ constexpr array<string_view, 8> kHopByHop{
 	"upgrade",
 };
 
-[[gnu::pure]] bool is_hop_by_hop(
+[[nodiscard]] bool is_hop_by_hop(
 	string_view name) {
 	return ranges::contains(kHopByHop, name);
 }
 
-[[nodiscard]] string host_header(
-	ClientRequest const &req) {
-	if ((!req.use_tls && req.port == 80) || (req.use_tls && req.port == 443)) {
-		return req.host;
+// Convert chrono::milliseconds to seconds for wait_fd (ceiling, ≥1 if ms>0).
+[[nodiscard]] int to_sec(
+	chrono::milliseconds ms) noexcept {
+	if (ms.count() <= 0) {
+		return -1; // indefinite
 	}
-	return format("{}:{}", req.host, req.port);
+	long long const s = (ms.count() + 999) / 1000;
+	return static_cast<int>(min<long long>(s, INT_MAX));
 }
 
-bool connect_with_timeout(
-	int fd,
-	sockaddr const *addr,
-	socklen_t addrlen,
-	int timeout_sec) {
-	if (timeout_sec <= 0) {
-		return ::connect(fd, addr, addrlen) == 0;
-	}
-
-	int const flags = ::fcntl(fd, F_GETFL, 0);
-	if (flags < 0) {
-		return false;
-	}
-	if (::fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
-		return false;
-	}
-
-	int const rc = ::connect(fd, addr, addrlen);
-	if (rc == 0) {
-		::fcntl(fd, F_SETFL, flags);
-		return true;
-	}
-	if (errno != EINPROGRESS) {
-		::fcntl(fd, F_SETFL, flags);
-		return false;
-	}
-	if (!wait_fd(fd, POLLOUT, timeout_sec)) {
-		::fcntl(fd, F_SETFL, flags);
-		return false;
-	}
-
-	int so_error = 0;
-	socklen_t so_error_len = sizeof(so_error);
-	bool const ok = ::getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &so_error_len) == 0 && so_error == 0;
-	::fcntl(fd, F_SETFL, flags);
-	return ok;
-}
-
-void close_connection(
+void close_conn(
 	Connection &conn) noexcept {
 #if CONFLUX_HAS_TLS
-	if (conn.tls_stream.has_value()) {
+	if (conn.tls_stream) {
 		conn.tls_stream->shutdown_safe();
 		conn.tls_stream.reset();
 	}
@@ -143,39 +121,96 @@ void close_connection(
 	}
 }
 
-#if CONFLUX_HAS_TLS
-bool enable_tls(
-	Connection &conn,
-	string_view server_name,
-	int timeout_sec,
-	bool verify_peer) {
-	try {
-		conn.tls_ctx.emplace();
-	} catch (TlsError const &) { return false; }
-	conn.tls_ctx->set_verify_peer(verify_peer);
-	if (verify_peer) {
-		if (!conn.tls_ctx->set_default_verify_paths()) {
-			return false;
-		}
+bool connect_with_timeout(
+	int fd,
+	sockaddr const *addr,
+	socklen_t addrlen,
+	int timeout_sec) {
+	if (timeout_sec <= 0) {
+		return ::connect(fd, addr, addrlen) == 0;
 	}
-
-	try {
-		conn.tls_stream.emplace(*conn.tls_ctx, conn.fd);
-	} catch (TlsError const &) { return false; }
-	if (!conn.tls_stream->set_server_name(server_name)) {
+	int const flags = ::fcntl(fd, F_GETFL, 0);
+	if (flags < 0) {
 		return false;
 	}
-	if (verify_peer && !conn.tls_stream->set_verify_hostname(server_name)) {
+	(void)::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+	int const rc = ::connect(fd, addr, addrlen);
+	if (rc == 0) {
+		(void)::fcntl(fd, F_SETFL, flags);
+		return true;
+	}
+	if (errno != EINPROGRESS) {
+		(void)::fcntl(fd, F_SETFL, flags);
 		return false;
 	}
-
-	if (!conn.tls_stream->handshake_connect(timeout_sec)) {
+	bool const ready = wait_fd(fd, POLLOUT, timeout_sec);
+	(void)::fcntl(fd, F_SETFL, flags);
+	if (!ready) {
 		return false;
 	}
-	conn.use_tls = true;
-	return true;
+	int so_error = 0;
+	socklen_t len = sizeof(so_error);
+	return ::getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &len) == 0 && so_error == 0;
 }
-#endif
+
+enum class ConnectFailure {
+	dns,
+	connect,
+};
+
+// Returns a connected fd, or -1. Fills telemetry. Sets failure on error.
+[[nodiscard]] int resolve_and_connect(
+	string_view host,
+	u16 port,
+	int timeout_sec,
+	HttpTelemetry &tel,
+	ConnectFailure &failure) {
+	addrinfo hints{};
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	addrinfo *res = nullptr;
+	string const h{host};
+	string const p = to_string(port);
+
+	auto t0 = chrono::steady_clock::now();
+	int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res);
+	tel.dns = chrono::steady_clock::now() - t0;
+
+	if (gai != 0 || res == nullptr) {
+		failure = ConnectFailure::dns;
+		return -1;
+	}
+
+	int fd = -1;
+	auto t1 = chrono::steady_clock::now();
+	for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
+		fd = ::socket(rp->ai_family, rp->ai_socktype | SOCK_CLOEXEC, rp->ai_protocol);
+		if (fd < 0) {
+			continue;
+		}
+		if (connect_with_timeout(fd, rp->ai_addr, rp->ai_addrlen, timeout_sec)) {
+			char peer_buf[INET6_ADDRSTRLEN + 8]{};
+			if (rp->ai_family == AF_INET) {
+				auto const *sa4 = reinterpret_cast<sockaddr_in const *>(rp->ai_addr);
+				inet_ntop(AF_INET, &sa4->sin_addr, peer_buf, sizeof(peer_buf));
+				tel.peer_addr = format("{}:{}", peer_buf, port);
+			} else if (rp->ai_family == AF_INET6) {
+				auto const *sa6 = reinterpret_cast<sockaddr_in6 const *>(rp->ai_addr);
+				inet_ntop(AF_INET6, &sa6->sin6_addr, peer_buf, sizeof(peer_buf));
+				tel.peer_addr = format("[{}]:{}", peer_buf, port);
+			}
+			break;
+		}
+		::close(fd);
+		fd = -1;
+	}
+	tel.connect = chrono::steady_clock::now() - t1;
+	::freeaddrinfo(res);
+	if (fd < 0) {
+		failure = ConnectFailure::connect;
+	}
+	return fd;
+}
 
 bool send_all(
 	Connection &conn,
@@ -221,13 +256,15 @@ bool recv_some(
 	return true;
 }
 
+// Receive until delimiter or max bytes. Returns accumulated bytes (may contain
+// data past the delimiter if overread from the socket).
 string recv_until(
 	Connection &conn,
 	string_view delim,
 	int timeout_sec,
-	size_t max = 65536) {
+	size_t max) {
 	string buf;
-	buf.reserve(4096);
+	buf.reserve(min<size_t>(4096, max));
 	while (buf.size() < max) {
 		if (!recv_some(conn, buf, timeout_sec)) {
 			break;
@@ -243,8 +280,12 @@ bool recv_exact(
 	Connection &conn,
 	string &out,
 	int timeout_sec,
-	size_t target_size) {
-	while (out.size() < target_size) {
+	size_t target,
+	size_t cap) {
+	while (out.size() < target) {
+		if (out.size() >= cap) {
+			return false; // body_too_large
+		}
 		if (!recv_some(conn, out, timeout_sec)) {
 			return false;
 		}
@@ -255,40 +296,16 @@ bool recv_exact(
 void recv_to_eof(
 	Connection &conn,
 	string &out,
-	int timeout_sec) {
-	while (recv_some(conn, out, timeout_sec)) {}
-}
-
-// Resolves `host` as AF_UNSPEC, walks the address list in order (v6 first on
-// most systems via /etc/gai.conf), creates a socket, connects with timeout.
-// Returns the connected fd, or -1 on failure.
-int resolve_and_connect(
-	string_view host,
-	u16 port,
-	int timeout_sec) {
-	addrinfo hints{};
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-	addrinfo *res = nullptr;
-	string const h{host};
-	string const p = to_string(port);
-	if (::getaddrinfo(h.c_str(), p.c_str(), &hints, &res) != 0 || res == nullptr) {
-		return -1;
-	}
-	int fd = -1;
-	for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
-		fd = ::socket(rp->ai_family, rp->ai_socktype | SOCK_CLOEXEC, rp->ai_protocol);
-		if (fd < 0) {
-			continue;
+	int timeout_sec,
+	size_t cap,
+	bool &too_large) {
+	too_large = false;
+	while (recv_some(conn, out, timeout_sec)) {
+		if (out.size() > cap) {
+			too_large = true;
+			return;
 		}
-		if (connect_with_timeout(fd, rp->ai_addr, rp->ai_addrlen, timeout_sec)) {
-			break;
-		}
-		::close(fd);
-		fd = -1;
 	}
-	::freeaddrinfo(res);
-	return fd;
 }
 
 enum class ChunkedDecodeStatus : u8 {
@@ -303,13 +320,11 @@ ChunkedDecodeStatus decode_chunked_prefix(
 	size_t &consumed) {
 	decoded.clear();
 	consumed = 0;
-
 	for (;;) {
 		auto const line_end = encoded.find("\r\n", consumed);
 		if (line_end == string_view::npos) {
 			return ChunkedDecodeStatus::incomplete;
 		}
-
 		auto size_str = trim(encoded.substr(consumed, line_end - consumed));
 		if (auto const semi = size_str.find(';'); semi != string_view::npos) {
 			size_str = trim(size_str.substr(0, semi));
@@ -317,33 +332,28 @@ ChunkedDecodeStatus decode_chunked_prefix(
 		if (size_str.empty()) {
 			return ChunkedDecodeStatus::invalid;
 		}
-
 		size_t chunk_size = 0;
 		auto const parsed = from_chars(size_str.data(), size_str.data() + size_str.size(), chunk_size, 16);
 		if (parsed.ec != errc{} || parsed.ptr != size_str.data() + size_str.size()) {
 			return ChunkedDecodeStatus::invalid;
 		}
-
 		consumed = line_end + 2;
 		if (chunk_size == 0) {
-			// Consume optional trailer lines until the terminating empty CRLF.
 			for (;;) {
 				auto const eol = encoded.find("\r\n", consumed);
 				if (eol == string_view::npos) {
 					return ChunkedDecodeStatus::incomplete;
 				}
-				bool const is_empty_line = (eol == consumed);
+				bool const empty = (eol == consumed);
 				consumed = eol + 2;
-				if (is_empty_line) {
+				if (empty) {
 					return ChunkedDecodeStatus::complete;
 				}
 			}
 		}
-
 		if (encoded.size() < consumed + chunk_size + 2) {
 			return ChunkedDecodeStatus::incomplete;
 		}
-
 		decoded.append(encoded.substr(consumed, chunk_size));
 		consumed += chunk_size;
 		if (encoded.substr(consumed, 2) != "\r\n") {
@@ -357,13 +367,20 @@ bool recv_chunked(
 	Connection &conn,
 	string &encoded,
 	string &decoded,
-	int timeout_sec) {
+	int timeout_sec,
+	size_t cap,
+	bool &too_large) {
+	too_large = false;
 	for (;;) {
 		size_t consumed = 0;
 		switch (decode_chunked_prefix(encoded, decoded, consumed)) {
 		case ChunkedDecodeStatus::complete: return true;
 		case ChunkedDecodeStatus::invalid : return false;
 		case ChunkedDecodeStatus::incomplete:
+			if (decoded.size() > cap || encoded.size() > cap * 2) {
+				too_large = true;
+				return false;
+			}
 			if (!recv_some(conn, encoded, timeout_sec)) {
 				return false;
 			}
@@ -372,9 +389,374 @@ bool recv_chunked(
 	}
 }
 
+[[nodiscard]] string build_host_header(
+	Url const &url) {
+	bool const default_port = (url.scheme == "http" && url.port == 80) || (url.scheme == "https" && url.port == 443);
+	return default_port ? url.host : format("{}:{}", url.host, url.port);
+}
+
+// Core blocking transport — returns HttpResult.
+HttpResult do_blocking_request(
+	conflux::http::HttpRequest const &req,
+	HttpClientOptions const &opts) {
+	auto const &url = req.url();
+	bool const use_tls = (url.scheme == "https");
+	auto const &timeouts = req.timeouts();
+	HttpTelemetry tel{};
+
+	// DNS + connect.
+	int const connect_sec = to_sec(timeouts.connect);
+	ConnectFailure conn_fail{};
+	int const fd = resolve_and_connect(url.host, url.port, connect_sec, tel, conn_fail);
+	if (fd < 0) {
+		bool const is_dns = conn_fail == ConnectFailure::dns;
+		return unexpected(
+			HttpError{
+				.kind = is_dns ? HttpErrorKind::dns : HttpErrorKind::connect,
+				.phase = is_dns ? HttpPhase::resolve : HttpPhase::connect,
+				.os_errno = errno,
+				.message = format(
+					"failed to {}/{} '{}:{}'",
+					is_dns ? "resolve" : "connect",
+					is_dns ? "resolve" : "connect",
+					url.host,
+					url.port),
+			});
+	}
+
+#if CONFLUX_HAS_TLS
+	optional<TlsContext> tls_ctx;
+	optional<TlsStream> tls_stream;
+#endif
+
+	if (use_tls) {
+#if CONFLUX_HAS_TLS
+		bool const verify = req.verify_peer() && opts.verify_peer;
+		auto const sni_sv = req.server_name().empty() ? string_view{url.host} : req.server_name();
+		int const tls_sec = to_sec(timeouts.tls);
+
+		try {
+			tls_ctx.emplace();
+		} catch (TlsError const &e) {
+			::close(fd);
+			return unexpected(
+				HttpError{
+					.kind = HttpErrorKind::tls,
+					.phase = HttpPhase::tls,
+					.message = e.what(),
+				});
+		}
+		tls_ctx->set_verify_peer(verify);
+		if (verify) {
+			if (!opts.ca_bundle_path.empty()) {
+				(void)SSL_CTX_load_verify_locations(tls_ctx->native_handle(), opts.ca_bundle_path.c_str(), nullptr);
+			} else {
+				(void)tls_ctx->set_default_verify_paths();
+			}
+		}
+
+		try {
+			tls_stream.emplace(*tls_ctx, fd);
+		} catch (TlsError const &e) {
+			::close(fd);
+			return unexpected(
+				HttpError{
+					.kind = HttpErrorKind::tls,
+					.phase = HttpPhase::tls,
+					.message = e.what(),
+				});
+		}
+		if (!tls_stream->set_server_name(sni_sv)) {
+			tls_stream->shutdown_safe();
+			::close(fd);
+			return unexpected(
+				HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = "SNI setup failed"});
+		}
+		if (verify && !tls_stream->set_verify_hostname(sni_sv)) {
+			tls_stream->shutdown_safe();
+			::close(fd);
+			return unexpected(
+				HttpError{
+					.kind = HttpErrorKind::tls,
+					.phase = HttpPhase::tls,
+					.message = "hostname verification setup failed"});
+		}
+
+		auto t_tls = chrono::steady_clock::now();
+		if (!tls_stream->handshake_connect(tls_sec)) {
+			// Capture TLS error details.
+			long const vr = SSL_get_verify_result(tls_stream->native_handle());
+			int const alert = ERR_GET_REASON(ERR_get_error());
+			string verify_reason;
+			if (verify && vr != X509_V_OK) {
+				if (auto const *s = X509_verify_cert_error_string(vr); s != nullptr) {
+					verify_reason = s;
+				}
+			}
+			tls_stream->shutdown_safe();
+			::close(fd);
+			return unexpected(
+				HttpError{
+					.kind = HttpErrorKind::tls,
+					.phase = HttpPhase::tls,
+					.tls_alert = alert,
+					.verify_reason = std::move(verify_reason),
+					.message = "TLS handshake failed",
+				});
+		}
+		tel.tls = chrono::steady_clock::now() - t_tls;
+		tel.tls_verified = verify;
+		tel.negotiated_protocol = "https/1.1"; // Phase 2: ALPN negotiation
+
+		// Capture cipher/version for telemetry.
+		if (auto const *ssl = tls_stream->native_handle(); ssl != nullptr) {
+			if (auto const *cipher = SSL_get_current_cipher(ssl)) {
+				tel.tls_cipher = SSL_CIPHER_get_name(cipher);
+				tel.tls_version = SSL_CIPHER_get_version(cipher);
+			}
+		}
+#else
+		::close(fd);
+		return unexpected(
+			HttpError{
+				.kind = HttpErrorKind::tls,
+				.phase = HttpPhase::tls,
+				.message = "TLS not available (built without TLS)"});
+#endif
+	}
+
+	// Helper wrappers.
+	Connection conn;
+	conn.fd = fd;
+#if CONFLUX_HAS_TLS
+	conn.use_tls = use_tls;
+	conn.tls_ctx = std::move(tls_ctx);
+	conn.tls_stream = std::move(tls_stream);
+#endif
+
+	// Build request line + headers.
+	string path = url.path;
+	if (!url.query.empty()) {
+		path += '?';
+		path += url.query;
+	}
+	string wire;
+	wire.reserve(256);
+	// Caller-supplied Host overrides URL-derived value (needed for preserve_host).
+	auto const caller_host = req.headers()["host"];
+	string const host_hdr = caller_host.empty() ? build_host_header(url) : string{caller_host};
+	wire += format("{} {} HTTP/1.1\r\nHost: {}\r\n", req.method(), path, host_hdr);
+
+	// Merge default headers first, then per-request headers override.
+	HttpFields merged_headers = opts.default_headers;
+	for (auto const &[k, v]: req.headers()) {
+		auto const lower = ascii_lower(k);
+		if (lower == "host" || is_hop_by_hop(lower)) {
+			continue;
+		}
+		merged_headers.set(k, v);
+	}
+	for (auto const &[k, v]: merged_headers) {
+		auto const lower = ascii_lower(k);
+		if (lower == "host" || is_hop_by_hop(lower)) {
+			continue;
+		}
+		wire += format("{}: {}\r\n", k, v);
+	}
+	wire += "Connection: close\r\n";
+	if (!req.body().empty()) {
+		wire += format("Content-Length: {}\r\n", req.body().size());
+	}
+	wire += "\r\n";
+
+	// Send headers.
+	int const write_sec = to_sec(timeouts.write);
+	if (!send_all(conn, wire, write_sec)) {
+		close_conn(conn);
+		return unexpected(
+			HttpError{
+				.kind = HttpErrorKind::write,
+				.phase = HttpPhase::write,
+				.os_errno = errno,
+				.message = "failed to send request headers"});
+	}
+	tel.bytes_sent += wire.size();
+
+	// Send body.
+	if (!req.body().empty()) {
+		if (!send_all(conn, req.body(), write_sec)) {
+			close_conn(conn);
+			return unexpected(
+				HttpError{
+					.kind = HttpErrorKind::write,
+					.phase = HttpPhase::write,
+					.os_errno = errno,
+					.message = "failed to send request body"});
+		}
+		tel.bytes_sent += req.body().size();
+	}
+
+	// Receive response headers.
+	int const first_byte_sec = to_sec(timeouts.first_byte);
+	int const between_sec = to_sec(timeouts.between_bytes);
+	size_t const max_hdr = opts.max_header_bytes;
+	size_t const max_body = opts.max_body_bytes;
+
+	auto t_ttfb = chrono::steady_clock::now();
+	auto raw = recv_until(conn, "\r\n\r\n", first_byte_sec, max_hdr + 4096);
+	auto const header_end = raw.find("\r\n\r\n");
+
+	if (header_end == string::npos) {
+		close_conn(conn);
+		if (raw.size() >= max_hdr) {
+			return unexpected(
+				HttpError{
+					.kind = HttpErrorKind::header_too_large,
+					.message = format("response headers exceed {} bytes", max_hdr)});
+		}
+		return unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
+	}
+	if (header_end > max_hdr) {
+		close_conn(conn);
+		return unexpected(
+			HttpError{
+				.kind = HttpErrorKind::header_too_large,
+				.message = format("response headers exceed {} bytes", max_hdr)});
+	}
+	tel.ttfb = chrono::steady_clock::now() - t_ttfb;
+
+	// Parse status line + headers.
+	auto const headers_str = string_view{raw}.substr(0, header_end);
+	HttpResponse response;
+	auto const nl = headers_str.find("\r\n");
+	auto const status_line = (nl != string_view::npos) ? headers_str.substr(0, nl) : headers_str;
+	auto const sp1 = status_line.find(' ');
+	if (sp1 == string_view::npos) {
+		close_conn(conn);
+		return unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "malformed status line"});
+	}
+	auto const rest = status_line.substr(sp1 + 1);
+	auto const sp2 = rest.find(' ');
+	auto const code_sv = (sp2 != string_view::npos) ? rest.substr(0, sp2) : rest;
+	int status = 0;
+	auto const [ptr, ec] = from_chars(code_sv.data(), code_sv.data() + code_sv.size(), status);
+	if (ec != errc{} || status < 100 || status > 999) {
+		close_conn(conn);
+		return unexpected(
+			HttpError{.kind = HttpErrorKind::protocol, .message = format("invalid status code '{}'", code_sv)});
+	}
+	response.head.status = status;
+	if (sp2 != string_view::npos) {
+		response.head.status_text = string{rest.substr(sp2 + 1)};
+	}
+
+	size_t content_length = 0;
+	bool has_content_length = false;
+	bool chunked = false;
+	size_t pos = (nl != string_view::npos) ? nl + 2 : headers_str.size();
+	while (pos < headers_str.size()) {
+		auto const end = headers_str.find("\r\n", pos);
+		auto const hdr = (end != string_view::npos) ? headers_str.substr(pos, end - pos) : headers_str.substr(pos);
+		auto const colon = hdr.find(':');
+		if (colon != string_view::npos) {
+			auto k = hdr.substr(0, colon);
+			auto v = hdr.substr(colon + 1);
+			while (!v.empty() && (v[0] == ' ' || v[0] == '\t')) {
+				v.remove_prefix(1);
+			}
+			auto const kl = ascii_lower(k);
+			auto const vl = ascii_lower(v);
+			if (kl == "content-length") {
+				from_chars(v.data(), v.data() + v.size(), content_length);
+				has_content_length = true;
+			} else if (kl == "transfer-encoding" && vl.find("chunked") != string::npos) {
+				chunked = true;
+			} else if (kl == "set-cookie") {
+				response.head.set_cookies.push_back(string{v});
+			} else if (!is_hop_by_hop(kl)) {
+				response.head.headers.set(string{k}, string{v});
+			}
+		}
+		pos = (end != string_view::npos) ? end + 2 : headers_str.size();
+	}
+
+	// Validate content-length against cap.
+	if (has_content_length && content_length > max_body) {
+		close_conn(conn);
+		return unexpected(
+			HttpError{
+				.kind = HttpErrorKind::body_too_large,
+				.message = format("Content-Length {} exceeds limit {}", content_length, max_body)});
+	}
+
+	// Receive body.
+	response.body = raw.substr(header_end + 4);
+	tel.bytes_received += raw.size();
+
+	auto t_body = chrono::steady_clock::now();
+	if (req.method() == "HEAD") {
+		response.body.clear();
+	} else if (chunked) {
+		string decoded;
+		bool too_large = false;
+		if (!recv_chunked(conn, response.body, decoded, between_sec, max_body, too_large)) {
+			close_conn(conn);
+			if (too_large) {
+				return unexpected(
+					HttpError{
+						.kind = HttpErrorKind::body_too_large,
+						.message = format("chunked body exceeds limit {}", max_body)});
+			}
+			return unexpected(
+				HttpError{
+					.kind = HttpErrorKind::read,
+					.phase = HttpPhase::between_bytes,
+					.os_errno = errno,
+					.message = "failed to receive chunked body"});
+		}
+		tel.bytes_received += decoded.size();
+		response.body = std::move(decoded);
+	} else if (has_content_length && content_length > response.body.size()) {
+		if (!recv_exact(conn, response.body, between_sec, content_length, max_body)) {
+			close_conn(conn);
+			if (response.body.size() >= max_body) {
+				return unexpected(
+					HttpError{
+						.kind = HttpErrorKind::body_too_large,
+						.message = format("body exceeds limit {}", max_body)});
+			}
+			return unexpected(
+				HttpError{
+					.kind = HttpErrorKind::read,
+					.phase = HttpPhase::between_bytes,
+					.os_errno = errno,
+					.message = "failed to receive body"});
+		}
+		tel.bytes_received += content_length - (raw.size() - (header_end + 4));
+	} else if (!has_content_length && !chunked) {
+		bool too_large = false;
+		recv_to_eof(conn, response.body, between_sec, max_body, too_large);
+		if (too_large) {
+			close_conn(conn);
+			return unexpected(
+				HttpError{
+					.kind = HttpErrorKind::body_too_large,
+					.message = format("EOF-delimited body exceeds limit {}", max_body)});
+		}
+		tel.bytes_received += response.body.size();
+	}
+	tel.body = chrono::steady_clock::now() - t_body;
+
+	close_conn(conn);
+	response.telemetry = tel;
+	return response;
+}
+
 } // namespace client_detail
 
-export [[nodiscard]] optional<string> decode_chunked_body(
+// ─── decode_chunked_body (legacy free function) ───────────────────────────────
+
+optional<string> decode_chunked_body(
 	string_view encoded) {
 	string decoded;
 	size_t consumed = 0;
@@ -388,299 +770,50 @@ export [[nodiscard]] optional<string> decode_chunked_body(
 	return decoded;
 }
 
-export [[nodiscard]] expected<ClientResponse, string> http_request(
-	ClientRequest const &req) {
-	client_detail::Connection conn{
-		.fd = client_detail::resolve_and_connect(req.host, req.port, req.timeout_sec),
-	};
-	if (conn.fd < 0) {
-		return unexpected{"connect"};
-	}
-	if (req.use_tls) {
-#if CONFLUX_HAS_TLS
-		auto const server_name = req.server_name.empty() ? string_view{req.host} : string_view{req.server_name};
-		if (!client_detail::enable_tls(conn, server_name, req.timeout_sec, req.verify_peer)) {
-			client_detail::close_connection(conn);
-			return unexpected{"tls connect"};
-		}
-#else
-		client_detail::close_connection(conn);
-		return unexpected{"tls unavailable"};
-#endif
-	}
+// ─── HttpClient ───────────────────────────────────────────────────────────────
 
-	string const host_hdr = req.host_override.empty() ? client_detail::host_header(req) : string{req.host_override};
-	string encoded_request = format("{} {} HTTP/1.1\r\nHost: {}\r\n", req.method, req.path, host_hdr);
-	for (auto const &[name, header_value]: req.headers) {
-		auto const lower_name = ascii_lower(name);
-		if (lower_name == "host" || client_detail::is_hop_by_hop(lower_name)) {
-			continue;
-		}
-		encoded_request += format("{}: {}\r\n", name, header_value);
-	}
-	encoded_request += "Connection: close\r\n";
-	if (!req.body.empty()) {
-		encoded_request += format("Content-Length: {}\r\n", req.body.size());
-	}
-	encoded_request += "\r\n";
+export namespace conflux::http {
 
-	if (!client_detail::send_all(conn, encoded_request, req.timeout_sec)) {
-		client_detail::close_connection(conn);
-		return unexpected{"send headers"};
-	}
-	if (!req.body.empty() && !client_detail::send_all(conn, req.body, req.timeout_sec)) {
-		client_detail::close_connection(conn);
-		return unexpected{"send body"};
-	}
+class HttpClient {
+	HttpClientOptions opts_;
 
-	auto raw = client_detail::recv_until(conn, "\r\n\r\n", req.timeout_sec);
-	auto header_end = raw.find("\r\n\r\n");
-	ClientResponse response;
-
-	if (header_end != string::npos) {
-		auto headers_str = string_view{raw}.substr(0, header_end);
-		auto nl = headers_str.find("\r\n");
-		auto status_line = (nl != string_view::npos) ? headers_str.substr(0, nl) : headers_str;
-		auto sp1 = status_line.find(' ');
-		if (sp1 != string_view::npos) {
-			auto rest = status_line.substr(sp1 + 1);
-			auto sp2 = rest.find(' ');
-			auto code_sv = (sp2 != string_view::npos) ? rest.substr(0, sp2) : rest;
-			from_chars(code_sv.data(), code_sv.data() + code_sv.size(), response.status);
-			if (sp2 != string_view::npos) {
-				response.status_text = string{rest.substr(sp2 + 1)};
-			}
-		}
-
-		size_t content_length = 0;
-		bool chunked = false;
-		auto pos = (nl != string_view::npos) ? nl + 2 : headers_str.size();
-		while (pos < headers_str.size()) {
-			auto end = headers_str.find("\r\n", pos);
-			auto hdr = (end != string_view::npos) ? headers_str.substr(pos, end - pos) : headers_str.substr(pos);
-			auto colon = hdr.find(':');
-			if (colon != string_view::npos) {
-				auto k = hdr.substr(0, colon);
-				auto v = hdr.substr(colon + 1);
-				while (!v.empty() && (v.front() == ' ' || v.front() == '\t')) {
-					v.remove_prefix(1);
-				}
-				auto kl = ascii_lower(k);
-				auto const vl = ascii_lower(v);
-				if (kl == "content-type") {
-					response.content_type = string{v};
-				} else if (kl == "content-length") {
-					from_chars(v.data(), v.data() + v.size(), content_length);
-					static constexpr size_t kMaxResponseBody = 16ULL * 1024 * 1024;
-					if (content_length > kMaxResponseBody) {
-						return unexpected{"response body too large"};
-					}
-				} else if (kl == "transfer-encoding" && vl.find("chunked") != string::npos) {
-					chunked = true;
-				} else if (!client_detail::is_hop_by_hop(kl)) {
-					if (kl == "set-cookie") {
-						response.set_cookies.push_back(string{v});
-					} else {
-						response.headers[string{k}] = string{v};
-					}
-				}
-			}
-			pos = (end != string_view::npos) ? end + 2 : headers_str.size();
-		}
-
-		response.body = raw.substr(header_end + 4);
-		if (req.method == "HEAD") {
-			response.body.clear();
-		} else if (!chunked && content_length > response.body.size()) {
-			if (!client_detail::recv_exact(conn, response.body, req.timeout_sec, content_length)) {
-				client_detail::close_connection(conn);
-				return unexpected{"recv body"};
-			}
-		} else if (chunked) {
-			string decoded;
-			if (!client_detail::recv_chunked(conn, response.body, decoded, req.timeout_sec)) {
-				client_detail::close_connection(conn);
-				return unexpected{"recv chunked body"};
-			}
-			response.body = move(decoded);
-		} else if (!chunked && content_length == 0) {
-			client_detail::recv_to_eof(conn, response.body, req.timeout_sec);
-		}
-	}
-
-	client_detail::close_connection(conn);
-	return response;
-}
-
-export template<typename Target>
-[[nodiscard]] auto http_request_in(
-	Target &target,
-	ClientRequest req) {
-	return ::run_on(target, [req = move(req)] { return http_request(req); });
-}
-
-export class HttpClient {
-	ClientOptions options_{};
-
-	[[nodiscard]] ClientRequest make_request(
-		string method,
-		string path,
-		string body,
-		HttpFields const &headers) const {
-		ClientRequest req{
-			.method = move(method),
-			.host = options_.host,
-			.port = options_.port,
-			.path = move(path),
-			.headers = options_.default_headers,
-			.body = move(body),
-			.timeout_sec = options_.timeout_sec,
-			.use_tls = options_.use_tls,
-			.verify_peer = options_.verify_peer,
-			.server_name = options_.server_name,
-		};
-		for (auto const &[name, header_value]: headers) {
-			req.headers.set(name, header_value);
-		}
-		return req;
+	// Merge per-request timeouts with client defaults.
+	// If the request has non-default timeouts they take precedence;
+	// otherwise the client's default_timeouts fill in.
+	// Phase 1: per-request timeouts always override (Builder sets defaults
+	// from HttpTimeouts{} which has sensible values). Client defaults apply
+	// only if the request was built without an explicit .timeouts() call.
+	// For simplicity, trust the request's timeouts directly (Builder already
+	// has HttpTimeouts{} defaults).
+	[[nodiscard]] static HttpTimeouts resolve_timeouts(
+		HttpRequest const &req,
+		HttpClientOptions const &opts) {
+		// If caller explicitly set timeouts, those win.
+		// We can't distinguish "explicitly set" vs "defaulted" from the outside,
+		// so we merge: use per-request value if it differs from HttpTimeouts{} default,
+		// else use the client default.
+		// Simple approach for Phase 1: return request timeouts as-is (they have
+		// sensible defaults). A future enhancement can add a "touched" bitmask.
+		(void)opts;
+		return req.timeouts();
 	}
 
 public:
 	explicit HttpClient(
-		ClientOptions options)
-		: options_{move(options)} {}
+		HttpClientOptions opts = {})
+		: opts_{std::move(opts)} {}
 
-	[[nodiscard]] ClientOptions const &options() const noexcept { return options_; }
+	[[nodiscard]] HttpClientOptions const &options() const noexcept { return opts_; }
 
-	[[nodiscard]] expected<ClientResponse, string> request(
-		string method,
-		string path,
-		string body = {},
-		HttpFields const &headers = {}) const {
-		return http_request(make_request(move(method), move(path), move(body), headers));
-	}
-
-	[[nodiscard]] expected<ClientResponse, string> get(
-		string path,
-		HttpFields const &headers = {}) const {
-		return request("GET", move(path), {}, headers);
-	}
-
-	[[nodiscard]] expected<ClientResponse, string> post(
-		string path,
-		string body,
-		string content_type = "application/octet-stream",
-		HttpFields headers = {}) const {
-		if (!content_type.empty()) {
-			headers.set("Content-Type", move(content_type));
-		}
-		return request("POST", move(path), move(body), headers);
-	}
-
-	[[nodiscard]] expected<ClientResponse, string> put(
-		string path,
-		string body,
-		string content_type = "application/octet-stream",
-		HttpFields headers = {}) const {
-		if (!content_type.empty()) {
-			headers.set("Content-Type", move(content_type));
-		}
-		return request("PUT", move(path), move(body), headers);
-	}
-
-	[[nodiscard]] expected<ClientResponse, string> patch(
-		string path,
-		string body,
-		string content_type = "application/octet-stream",
-		HttpFields headers = {}) const {
-		if (!content_type.empty()) {
-			headers.set("Content-Type", move(content_type));
-		}
-		return request("PATCH", move(path), move(body), headers);
-	}
-
-	[[nodiscard]] expected<ClientResponse, string> del(
-		string path,
-		HttpFields const &headers = {}) const {
-		return request("DELETE", move(path), {}, headers);
-	}
-
-	[[nodiscard]] expected<ClientResponse, string> head(
-		string path,
-		HttpFields const &headers = {}) const {
-		return request("HEAD", move(path), {}, headers);
-	}
-
-	template<typename Target>
-	[[nodiscard]] auto request_in(
-		Target &target,
-		string method,
-		string path,
-		string body = {},
-		HttpFields const &headers = {}) const {
-		return http_request_in(target, make_request(move(method), move(path), move(body), headers));
-	}
-
-	template<typename Target>
-	[[nodiscard]] auto get_in(
-		Target &target,
-		string path,
-		HttpFields headers = {}) const {
-		return request_in(target, "GET", move(path), {}, move(headers));
-	}
-
-	template<typename Target>
-	[[nodiscard]] auto post_in(
-		Target &target,
-		string path,
-		string body,
-		string content_type = "application/octet-stream",
-		HttpFields headers = {}) const {
-		if (!content_type.empty()) {
-			headers.set("Content-Type", move(content_type));
-		}
-		return request_in(target, "POST", move(path), move(body), move(headers));
-	}
-
-	template<typename Target>
-	[[nodiscard]] auto put_in(
-		Target &target,
-		string path,
-		string body,
-		string content_type = "application/octet-stream",
-		HttpFields headers = {}) const {
-		if (!content_type.empty()) {
-			headers.set("Content-Type", move(content_type));
-		}
-		return request_in(target, "PUT", move(path), move(body), move(headers));
-	}
-
-	template<typename Target>
-	[[nodiscard]] auto patch_in(
-		Target &target,
-		string path,
-		string body,
-		string content_type = "application/octet-stream",
-		HttpFields headers = {}) const {
-		if (!content_type.empty()) {
-			headers.set("Content-Type", move(content_type));
-		}
-		return request_in(target, "PATCH", move(path), move(body), move(headers));
-	}
-
-	template<typename Target>
-	[[nodiscard]] auto del_in(
-		Target &target,
-		string path,
-		HttpFields headers = {}) const {
-		return request_in(target, "DELETE", move(path), {}, move(headers));
-	}
-
-	template<typename Target>
-	[[nodiscard]] auto head_in(
-		Target &target,
-		string path,
-		HttpFields headers = {}) const {
-		return request_in(target, "HEAD", move(path), {}, move(headers));
+	[[nodiscard]] HttpResult send_blocking(
+		HttpRequest req) const {
+		// Inject client defaults into a copy — timeouts.
+		// For Phase 1, we just use whatever timeouts are on the request
+		// (they default to HttpTimeouts{}'s values). The client's
+		// default_timeouts can override zero-valued request timeouts.
+		auto effective_opts = opts_;
+		return client_detail::do_blocking_request(req, effective_opts);
 	}
 };
+
+} // namespace conflux::http

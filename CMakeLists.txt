@@ -298,6 +298,8 @@ set(CONFLUX_MODULE_SOURCES
     src/net/config.cxx
     src/conflux.cxx
     src/net/auth.cxx
+    src/net/http_types.cxx
+    src/net/http_request.cxx
     src/net/client.cxx
     src/net/compress.cxx
     src/net/rate_limit.cxx
