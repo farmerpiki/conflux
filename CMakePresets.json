@@ -90,9 +90,10 @@
       "inherits": "clang-libcxx",
       "binaryDir": "${sourceDir}/build/tsan-clang-libcxx",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE":    "RelWithDebInfo",
-        "CONFLUX_ENABLE_TSAN": "ON",
-        "CONFLUX_BUILD_TESTS": "ON"
+        "CMAKE_BUILD_TYPE":         "RelWithDebInfo",
+        "CONFLUX_ENABLE_TSAN":      "ON",
+        "CONFLUX_BUILD_TESTS":      "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
       }
     },
 
@@ -119,9 +120,10 @@
       "inherits": "gcc-stdcxx",
       "binaryDir": "${sourceDir}/build/tsan-gcc-stdcxx",
       "cacheVariables": {
-        "CMAKE_BUILD_TYPE":    "RelWithDebInfo",
-        "CONFLUX_ENABLE_TSAN": "ON",
-        "CONFLUX_BUILD_TESTS": "ON"
+        "CMAKE_BUILD_TYPE":         "RelWithDebInfo",
+        "CONFLUX_ENABLE_TSAN":      "ON",
+        "CONFLUX_BUILD_TESTS":      "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
       }
     }
   ],

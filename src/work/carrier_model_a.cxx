@@ -46,7 +46,7 @@ enum class CarrierKind : std::uint8_t {
 	operation,
 };
 
-class HopCapabilityError final : public root::JoinContextError {
+class HopCapabilityError : public root::JoinContextError {
 public:
 	HopCapabilityError()
 		: JoinContextError{"carrier: hop capability mismatch", root::JoinContextReason::hop_capability_mismatch} {}

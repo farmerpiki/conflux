@@ -516,6 +516,36 @@ half the heap size or after 1024 cancellations, whichever comes first.
 
 ---
 
+## Deployment Requirements
+
+### `RLIMIT_MEMLOCK` — Locked Memory for io_uring
+
+`io_uring` operations that map shared memory between kernel and userspace (notably
+`io_uring_setup_buf_ring` for zero-copy receive) require the process to be able
+to lock those pages. If the locked-memory limit is too low the call fails with
+`ENOMEM` (-12), surfaced as:
+
+```
+fatal: io_uring_setup_buf_ring failed: -12
+```
+
+The default `RLIMIT_MEMLOCK` on many systems is 8 MiB — sufficient for small
+rings but not for production buffer-ring workloads.
+
+**Fix:** set `LimitLOCKED=infinity` in the systemd unit, or `ulimit -l unlimited`
+before launching the process.
+
+```ini
+# /etc/systemd/system/your-service.service
+[Service]
+LimitLOCKED=infinity
+```
+
+`TimerService` itself (timerfd + small SQE ring) stays well within the default
+limit and is not affected.
+
+---
+
 ## `JoinContextReason` Values
 
 `root::JoinContextReason` is used in `root::JoinContextError` and its subclasses:
