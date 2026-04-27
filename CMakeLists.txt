@@ -239,6 +239,9 @@ target_sources(conflux_work
         src/work/carrier_model_b.cxx
         src/work/carrier_scope.cxx
         src/work/carrier_deadline.cxx
+        src/work/carrier_coro.cxx
+        src/work/carrier_streams.cxx
+        src/work/carrier_timer.cxx
         src/work/root.cxx
         src/work.cxx
 )

@@ -125,6 +125,45 @@ Rules:
   (implementation terminates)
 - source destruction without terminal commit performs fallback abandoned cancel
 
+### Commit/Cancel-Hook Race Guarantee
+
+`install_cancel_hook` followed by `commit_*` on a different thread is safe.
+The cancel hook is **advisory and independent of terminal commit.** A call to
+`request_cancel()` fires the hook at most once but does NOT prevent a
+subsequent `commit_success` from winning the terminal commit. Both can happen:
+hook fires (cancel requested) and the terminal is committed as success (because
+the work completed before the cancel took effect). This is by design —
+`request_cancel` is a hint, not a preemption. Callers must not assume that a
+fired cancel hook means the source cannot commit success.
+
+Hook installed after terminal commit fires immediately on the calling thread.
+
+**`on_ready` callback and abandon:** when the producer side abandons the control
+block without calling `commit_*` (e.g., `~TaskSource` without commit), the
+abandon path transitions the control block to a terminal cancelled state and
+fires any installed `on_ready` callback, clearing the cycle. Consumers using
+`DroppableSlot` rely on this — a drain lambda that owns the join handle will be
+invoked and freed by the abandon path, preventing a permanent cycle between the
+control block and the drain lambda.
+
+### Cancel-Hook Safety Reference
+
+Cancel hooks must be noexcept. They fire synchronously on the
+`request_cancel()` caller's thread. Safe and unsafe operations:
+
+- **Posting to a lane is safe:** hook captures a lane handle or ring reference
+  and posts a cleanup job (e.g., `IORING_OP_ASYNC_CANCEL` SQE submission);
+  returns immediately. The cleanup job runs on the lane thread.
+- **Closing an fd directly is risky:** depends on kernel version and in-flight
+  SQE state. Preferred pattern: cancel via SQE and let the CQE handler close
+  the fd.
+- **TLS shutdown is not safe inline:** `SSL_shutdown` can throw. Wrap in
+  `try { } catch (...) {}` inside the hook; actual shutdown belongs in a
+  cleanup job posted to the lane.
+- **Re-entrancy:** if the calling thread is the lane thread (e.g., a CQE
+  handler that triggers cancel), the posted cleanup job must be deferred — use
+  a non-reentrant submission path or check `is_ring_thread()` before posting.
+
 ## Control Contract
 
 `TaskControl` / `PostedControl` / `OperationControl` provide:
@@ -206,11 +245,51 @@ Other rules:
 - `scoped_abandon::release()` disarms guard and returns value
 - calling `release()` on disarmed guard terminates
 
+### Sink Failure Mode Pattern
+
+Abandon sinks that need to log must not let logging throw. The sanctioned
+pattern is a noexcept sink with a try/catch around the logging call:
+
+```cpp
+auto sink = root::drop_on_abandon{};  // simplest: silently drop
+
+// If logging is needed:
+struct LoggingAbandonSink {
+    void operator()(root::Outcome<T> const& out) noexcept {
+        try {
+            log_orphaned(out);
+        } catch (...) {
+            // logging threw; silence — terminate is the only alternative
+        }
+    }
+};
+```
+
+Do not propagate exceptions from the sink body. `abandon_to` is on the
+commit thread; a throwing sink terminates the process.
+
 ## Exceptions
 
 - `WorkError` base class
 - `JoinContextError` for join context/liveness/capability issues
 - `FailureError` and `CancelledError` for `value(...)` extraction
+
+## Implementation Notes
+
+### `MoveOnlyFunction` Inline Buffer
+
+`MoveOnlyFunction<Sig>` uses a **32-byte inline buffer** (default `InlineBytes`
+template parameter, aligned to `std::max_align_t`). Callables that fit within
+32 bytes are stored inline with no heap allocation. Larger callables heap-allocate.
+
+Cancel hooks and `on_ready` callbacks that capture multiple values (e.g.,
+`(fd, ring_handle, context_ptr)`) may exceed the 32-byte limit and heap-allocate.
+Callers on hot paths who want to avoid this allocation should measure with the
+`callable_erasure_*` benchmarks and restructure captures to fit the buffer.
+
+No public size-hint knob is exposed. If profiling reveals a consistent overflow
+pattern, a `MoveOnlyFunction<Sig, InlineCap>` template parameter may be added
+as a follow-up.
 
 ## Non-Goals of This Layer
 

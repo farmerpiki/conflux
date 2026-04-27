@@ -37,15 +37,36 @@ auto map_outcome(
 
 export namespace conflux::work::carrier::model_a {
 
+template<root::work_value T>
+struct ChainAwaiter;
+
 enum class CarrierKind : std::uint8_t {
 	task,
 	posted,
 	operation,
 };
 
-class HopCapabilityError final : public root::WorkError {
+class HopCapabilityError final : public root::JoinContextError {
 public:
-	using WorkError::WorkError;
+	HopCapabilityError()
+		: JoinContextError{"carrier: hop capability mismatch", root::JoinContextReason::hop_capability_mismatch} {}
+};
+
+class AggregateError : public root::WorkError {
+	std::vector<std::exception_ptr> causes_;
+
+public:
+	explicit AggregateError(
+		std::vector<std::exception_ptr> causes)
+		: WorkError{"carrier: multiple failures"}
+		, causes_{std::move(causes)} {}
+
+	[[nodiscard]] std::vector<std::exception_ptr> causes_owned() const { return causes_; }
+
+	[[nodiscard("span lifetime bound to *this — moves invalidate")]] std::span<std::exception_ptr const>
+	causes_view() const noexcept {
+		return causes_;
+	}
 };
 
 template<root::work_value T>
@@ -81,7 +102,38 @@ public:
 	[[nodiscard]] root::CapabilityId bound_capability() const noexcept { return bound_cap_; }
 
 	[[nodiscard]] root::Outcome<T> release_outcome() && noexcept { return std::move(outcome_); }
+
+	[[nodiscard]] ChainAwaiter<T> operator co_await() && noexcept;
 };
+
+template<root::work_value T>
+struct ChainAwaiter {
+	Chain<T> chain_;
+
+	[[nodiscard]] bool await_ready() const noexcept { return true; }
+	void await_suspend(
+		std::coroutine_handle<>) const noexcept {}
+
+	decltype(auto) await_resume() {
+		auto out = std::move(chain_).release_outcome();
+		if (out.is_success()) {
+			if constexpr (!std::same_as<T, void>) {
+				return std::move(out).success().value;
+			} else {
+				return;
+			}
+		}
+		if (out.is_failure()) {
+			std::rethrow_exception(std::move(out).failure().error);
+		}
+		throw root::CancelledError{out.cancelled().reason};
+	}
+};
+
+template<root::work_value T>
+ChainAwaiter<T> Chain<T>::operator co_await() && noexcept {
+	return ChainAwaiter<T>{std::move(*this)};
+}
 
 template<root::work_value T>
 [[nodiscard]] Chain<T> from_task(
@@ -117,13 +169,45 @@ template<root::work_value T, root::progress_capability Driver>
 	return Chain<T>{std::move(chain).release_outcome(), CarrierKind::operation, root::capability_id(driver)};
 }
 
+template<root::work_value T>
+[[nodiscard]] Chain<T> hop_to_task(
+	Chain<T> &&chain) noexcept {
+	return Chain<T>{std::move(chain).release_outcome(), CarrierKind::task};
+}
+
+template<root::work_value T>
+[[nodiscard]] Chain<T> unbind(
+	Chain<T> &&chain) noexcept {
+	auto kind = chain.kind();
+	return Chain<T>{std::move(chain).release_outcome(), kind};
+}
+
+template<root::work_value T>
+[[nodiscard]] root::Task<T> into_ready_task(
+	Chain<T> &&chain) {
+	auto [task, src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false});
+	auto out = std::move(chain).release_outcome();
+	if (out.is_success()) {
+		if constexpr (std::same_as<T, void>) {
+			(void)src.commit_success(root::Success<void>{});
+		} else {
+			(void)src.commit_success(root::Success<T>{std::move(out).success().value});
+		}
+	} else if (out.is_failure()) {
+		(void)src.commit_failure(std::move(out).failure().error);
+	} else {
+		(void)src.commit_cancelled(out.cancelled().reason);
+	}
+	return std::move(task);
+}
+
 template<root::progress_capability Cap, root::work_value T>
 void verify_hop(
 	Cap const &cap,
 	Chain<T> const &chain) {
 	auto const bound = chain.bound_capability();
 	if (bound.address && bound != root::capability_id(cap)) {
-		throw HopCapabilityError{"carrier: hop capability mismatch"};
+		throw HopCapabilityError{};
 	}
 }
 
@@ -158,6 +242,13 @@ template<root::work_value A, root::work_value B>
 	auto out_a = std::move(a).release_outcome();
 	auto out_b = std::move(b).release_outcome();
 
+	if (out_a.is_failure() && out_b.is_failure()) {
+		auto agg = std::make_exception_ptr(
+			AggregateError{
+				{std::move(out_a).failure().error, std::move(out_b).failure().error}
+        });
+		return Chain<T>{root::Outcome<T>{root::Failure{agg}}, CarrierKind::task};
+	}
 	if (out_a.is_failure()) {
 		return Chain<T>{root::Outcome<T>{std::move(out_a).failure()}, CarrierKind::task};
 	}
@@ -181,9 +272,8 @@ template<root::work_value A, root::work_value B>
 [[nodiscard]] auto when_all_fast_fail(
 	Chain<A> &&a,
 	Chain<B> &&b) noexcept -> Chain<std::tuple<A, B>> {
-	// In eager context both chains are already resolved; semantically identical
-	// to when_all. API contract: in async context failure triggers best-effort
-	// sibling cancellation before waiting for the loser to complete.
+	// TODO(phase-6): wire cancel-sibling hook once 5c async path lands;
+	// currently identical to when_all
 	return when_all(std::move(a), std::move(b));
 }
 

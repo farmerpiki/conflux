@@ -27,12 +27,9 @@ struct ThrowOnCopy {
 			throw std::runtime_error{"copy boom"};
 		}
 	}
-	ThrowOnCopy &operator =(
-		ThrowOnCopy const &) = default;
-	ThrowOnCopy(
-		ThrowOnCopy &&) noexcept = default;
-	ThrowOnCopy &operator =(
-		ThrowOnCopy &&) noexcept = default;
+	ThrowOnCopy &operator =(ThrowOnCopy const &) = default;
+	ThrowOnCopy(ThrowOnCopy &&) noexcept = default;
+	ThrowOnCopy &operator =(ThrowOnCopy &&) noexcept = default;
 };
 
 } // namespace
@@ -72,7 +69,7 @@ TEST_CASE(
 	root::Failure f{std::exception_ptr{}};
 	REQUIRE(f.error != nullptr);
 
-	root::FailureError err{std::exception_ptr{}};
+	root::FailureError const err{std::exception_ptr{}};
 	REQUIRE(err.cause() != nullptr);
 	CHECK_THROWS(err.rethrow_cause());
 }
@@ -82,7 +79,8 @@ TEST_CASE(
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.commit_success(root::Success<int>{42}));
-	CHECK(root::value(std::move(task)) == 42);
+	auto val = root::value(std::move(task));
+	CHECK(val == 42);
 }
 
 TEST_CASE(
@@ -107,7 +105,8 @@ TEST_CASE(
 		task = std::move(guard).release();
 	}
 	REQUIRE(src.commit_success(root::Success<int>{17}));
-	CHECK(root::value(std::move(task)) == 17);
+	auto val17 = root::value(std::move(task));
+	CHECK(val17 == 17);
 }
 
 TEST_CASE(
@@ -149,7 +148,8 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: no-cancellation posted/operation control sources yield inert stop_token",
 	"[work.root]") {
-	auto [posted_control, posted_src] = root::make_posted_control_source<int>(root::PostOptions{.enable_cancellation = false});
+	auto [posted_control, posted_src] =
+		root::make_posted_control_source<int>(root::PostOptions{.enable_cancellation = false});
 	auto [operation_control, operation_src] =
 		root::make_operation_control_source<int>(root::OperationOptions{.enable_cancellation = false});
 
@@ -249,7 +249,8 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: no-cancellation posted/operation control sources run installed cancel hooks",
 	"[work.root]") {
-	auto [posted_control, posted_src] = root::make_posted_control_source<int>(root::PostOptions{.enable_cancellation = false});
+	auto [posted_control, posted_src] =
+		root::make_posted_control_source<int>(root::PostOptions{.enable_cancellation = false});
 	auto [operation_control, operation_src] =
 		root::make_operation_control_source<int>(root::OperationOptions{.enable_cancellation = false});
 	std::atomic<int> ran{0};
@@ -281,7 +282,7 @@ TEST_CASE(
 	{
 		auto [control, src] = root::make_task_control_source<int>();
 		auto moved = std::move(control);
-		CHECK_FALSE(control.request_cancel());
+		CHECK_FALSE(control.request_cancel()); // NOLINT(bugprone-use-after-move) — testing empty-handle post-move
 		CHECK(moved.request_cancel());
 		(void)src;
 	}
@@ -304,9 +305,11 @@ TEST_CASE(
 	"work.root: capability_id helper includes per-type tag",
 	"[work.root]") {
 	struct InnerCap : root::capability_id_from_address<InnerCap> {};
-	struct OuterCap : InnerCap, root::capability_id_from_address<OuterCap> {};
+	struct OuterCap
+		: InnerCap
+		, root::capability_id_from_address<OuterCap> {};
 
-	OuterCap cap{};
+	OuterCap const cap{};
 	InnerCap const &base = cap;
 	auto const base_id = root::capability_id(base);
 	auto const outer_id = root::capability_id(cap);
@@ -331,7 +334,8 @@ TEST_CASE(
 	DriverCap driver{};
 	auto [op, src] = root::make_operation_source<int>(driver);
 	REQUIRE(src.commit_success(root::Success<int>{9}));
-	CHECK(root::value(driver, std::move(op)) == 9);
+	auto val9 = root::value(driver, std::move(op));
+	CHECK(val9 == 9);
 }
 
 TEST_CASE(
@@ -340,7 +344,8 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	auto h = root::into_join_handle(std::move(task));
 	REQUIRE(src.commit_success(root::Success<int>{11}));
-	CHECK(root::value(std::move(h)) == 11);
+	auto val11 = root::value(std::move(h));
+	CHECK(val11 == 11);
 }
 
 TEST_CASE(
@@ -423,7 +428,7 @@ TEST_CASE(
 
 	root::abandon_to(std::move(task), Sink{&seen_mtx, &seen, &done});
 
-	std::jthread worker{[source = std::move(src)]() mutable {
+	std::jthread const worker{[source = std::move(src)]() mutable {
 		(void)source.commit_failure(std::make_exception_ptr(std::runtime_error{"armed"}));
 	}};
 	auto worker_tid = worker.get_id();
@@ -434,4 +439,371 @@ TEST_CASE(
 	REQUIRE(done.load(std::memory_order_acquire));
 	std::scoped_lock const lk{seen_mtx};
 	CHECK(seen == worker_tid);
+}
+
+TEST_CASE(
+	"work.root: Outcome<T>::value() returns success and rethrows cause directly",
+	"[work.root][r3]") {
+	root::Outcome<int> ok{root::Success<int>{77}};
+	CHECK(ok.value() == 77);
+
+	auto ep = std::make_exception_ptr(std::runtime_error{"boom"});
+	root::Outcome<int> bad{root::Failure{ep}};
+	CHECK_THROWS_AS(bad.value(), std::runtime_error);
+
+	root::Outcome<int> cancelled{root::Cancelled{root::CancelReason::deadline}};
+	CHECK_THROWS_AS(cancelled.value(), root::CancelledError);
+}
+
+TEST_CASE(
+	"work.root: Outcome<T>::value() && supports move-only payload",
+	"[work.root][r3]") {
+	root::Outcome<std::unique_ptr<int>> ok{root::Success<std::unique_ptr<int>>{std::make_unique<int>(13)}};
+	auto p = std::move(ok).value();
+	REQUIRE(p);
+	CHECK(*p == 13);
+}
+
+TEST_CASE(
+	"work.root: Outcome<void>::value() returns void and throws on non-success",
+	"[work.root][r3]") {
+	root::Outcome<void> const ok{root::Success<void>{}};
+	CHECK_NOTHROW(ok.value());
+
+	root::Outcome<void> const bad{root::Failure{std::make_exception_ptr(std::runtime_error{"x"})}};
+	CHECK_THROWS_AS(bad.value(), std::runtime_error);
+
+	root::Outcome<void> const cancelled{root::Cancelled{root::CancelReason::shutdown}};
+	CHECK_THROWS_AS(cancelled.value(), root::CancelledError);
+}
+
+TEST_CASE(
+	"work.root: Outcome<T>::match() dispatches by branch with unwrapped value",
+	"[work.root][r3]") {
+	root::Outcome<int> ok{root::Success<int>{5}};
+	auto r1 = std::move(ok).match(
+		[](int &&v) { return v + 1; },
+		[](root::Failure const &) { return -1; },
+		[](root::Cancelled const &) { return -2; });
+	CHECK(r1 == 6);
+
+	root::Outcome<int> const bad{root::Failure{std::make_exception_ptr(std::runtime_error{"y"})}};
+	auto r2 = bad.match(
+		[](int const &v) { return v; },
+		[](root::Failure const &) { return -1; },
+		[](root::Cancelled const &) { return -2; });
+	CHECK(r2 == -1);
+
+	root::Outcome<int> const cancelled{root::Cancelled{root::CancelReason::requested}};
+	auto r3 = cancelled.match(
+		[](int const &v) { return v; },
+		[](root::Failure const &) { return -1; },
+		[](root::Cancelled const &) { return -2; });
+	CHECK(r3 == -2);
+}
+
+TEST_CASE(
+	"work.root: Outcome<void>::match() dispatches with no-arg success branch",
+	"[work.root][r3]") {
+	root::Outcome<void> const ok{root::Success<void>{}};
+	auto r = ok.match(
+		[]() { return 1; },
+		[](root::Failure const &) { return 2; },
+		[](root::Cancelled const &) { return 3; });
+	CHECK(r == 1);
+}
+
+TEST_CASE(
+	"work.root: Outcome<T>::match() && moves into success branch",
+	"[work.root][r3]") {
+	root::Outcome<std::unique_ptr<int>> ok{root::Success<std::unique_ptr<int>>{std::make_unique<int>(99)}};
+	auto out = std::move(ok).match(
+		[](std::unique_ptr<int> &&p) { return *p; },
+		[](root::Failure const &) { return -1; },
+		[](root::Cancelled const &) { return -2; });
+	CHECK(out == 99);
+}
+
+TEST_CASE(
+	"work.root: R1 JoinContextError is not final — subclass compiles",
+	"[work.root][r1]") {
+	struct MyContextError : root::JoinContextError {
+		explicit MyContextError()
+			: JoinContextError{"my error", root::JoinContextReason::capability_mismatch} {}
+	};
+	MyContextError const err;
+	CHECK(err.reason() == root::JoinContextReason::capability_mismatch);
+	CHECK(std::string{err.what()} == "my error");
+
+	bool caught_as_join = false;
+	try {
+		throw MyContextError{};
+	} catch (root::JoinContextError const &e) {
+		caught_as_join = true;
+		CHECK(e.reason() == root::JoinContextReason::capability_mismatch);
+	}
+	CHECK(caught_as_join);
+
+	bool caught_as_work = false;
+	try {
+		throw MyContextError{};
+	} catch (root::WorkError const &) { caught_as_work = true; }
+	CHECK(caught_as_work);
+}
+
+TEST_CASE(
+	"work.root: R1 JoinContextError reason defaults to unspecified for legacy ctors",
+	"[work.root][r1]") {
+	root::JoinContextError const e{"string only"};
+	CHECK(e.reason() == root::JoinContextReason::unspecified);
+	CHECK(std::string{e.what()} == "string only");
+}
+
+TEST_CASE(
+	"work.root: R6 BasicJoinHandle operator bool is true when live, false when moved-from",
+	"[work.root][r6]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto handle = root::into_join_handle(std::move(task));
+	REQUIRE(bool(handle));
+
+	auto moved = std::move(handle);
+	CHECK(!bool(handle)); // NOLINT(bugprone-use-after-move) — testing moved state
+	REQUIRE(bool(moved));
+
+	REQUIRE(src.commit_success(root::Success<int>{7}));
+	auto out = root::join(std::move(moved));
+	CHECK(out.is_success());
+}
+
+TEST_CASE(
+	"work.root: R6 default-constructed BasicJoinHandle operator bool is false",
+	"[work.root][r6]") {
+	root::TaskJoinHandle<int> const h;
+	CHECK(!bool(h));
+}
+
+TEST_CASE(
+	"work.root: R2 try_set_on_ready installs callback — fires on commit",
+	"[work.root][r2]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto handle = root::into_join_handle(std::move(task));
+	auto ctrl = handle.control();
+
+	std::atomic<bool> fired{false};
+	auto result = ctrl.try_set_on_ready([&fired]() noexcept { fired.store(true); });
+	REQUIRE(result.status == root::ReadyRegistration::installed);
+	CHECK(!result.rejected_fn);
+	CHECK(!fired.load());
+
+	REQUIRE(src.commit_success(root::Success<int>{42}));
+	CHECK(fired.load());
+	auto out = root::join(std::move(handle));
+	REQUIRE(out.is_success());
+	CHECK(out.value() == 42);
+}
+
+TEST_CASE(
+	"work.root: R2 try_set_on_ready already_ready returns rejected_fn and fires immediately",
+	"[work.root][r2]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto handle = root::into_join_handle(std::move(task));
+	REQUIRE(src.commit_success(root::Success<int>{7}));
+
+	auto ctrl = handle.control();
+	std::atomic<bool> fired{false};
+	auto result = ctrl.try_set_on_ready([&fired]() noexcept { fired.store(true); });
+	REQUIRE(result.status == root::ReadyRegistration::already_ready);
+	REQUIRE(bool(result.rejected_fn));
+	CHECK(!fired.load());
+	result.rejected_fn();
+	CHECK(fired.load());
+
+	auto out = root::join(std::move(handle));
+	CHECK(out.is_success());
+}
+
+TEST_CASE(
+	"work.root: R2 second try_set_on_ready returns already_installed with rejected_fn",
+	"[work.root][r2]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto handle = root::into_join_handle(std::move(task));
+	auto ctrl = handle.control();
+
+	std::atomic<int> count{0};
+	auto r1 = ctrl.try_set_on_ready([&count]() noexcept { count.fetch_add(1); });
+	REQUIRE(r1.status == root::ReadyRegistration::installed);
+
+	auto r2 = ctrl.try_set_on_ready([&count]() noexcept { count.fetch_add(10); });
+	REQUIRE(r2.status == root::ReadyRegistration::already_installed);
+	REQUIRE(bool(r2.rejected_fn));
+
+	REQUIRE(src.commit_success(root::Success<int>{1}));
+	CHECK(count.load() == 1);
+
+	root::abandon_to(std::move(handle), root::drop_on_abandon{});
+}
+
+TEST_CASE(
+	"work.root: R7 clear_on_ready clears armed callback — commit fires no callback",
+	"[work.root][r2][r7]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto handle = root::into_join_handle(std::move(task));
+	auto ctrl = handle.control();
+
+	std::atomic<bool> fired{false};
+	auto r = ctrl.try_set_on_ready([&fired]() noexcept { fired.store(true); });
+	REQUIRE(r.status == root::ReadyRegistration::installed);
+
+	auto cs = ctrl.clear_on_ready();
+	REQUIRE(cs == root::ClearOnReadyStatus::cleared);
+
+	REQUIRE(src.commit_success(root::Success<int>{3}));
+	CHECK(!fired.load());
+
+	auto out = root::join(std::move(handle));
+	CHECK(out.is_success());
+}
+
+TEST_CASE(
+	"work.root: R7 clear_on_ready on terminal control returns already_terminal",
+	"[work.root][r2][r7]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto handle = root::into_join_handle(std::move(task));
+	auto ctrl = handle.control();
+	REQUIRE(src.commit_success(root::Success<int>{5}));
+
+	auto cs = ctrl.clear_on_ready();
+	CHECK(cs == root::ClearOnReadyStatus::already_terminal);
+	(void)root::join(std::move(handle));
+}
+
+TEST_CASE(
+	"work.root: R7 clear_on_ready without armed hook returns not_armed",
+	"[work.root][r2][r7]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto handle = root::into_join_handle(std::move(task));
+	auto ctrl = handle.control();
+
+	auto cs = ctrl.clear_on_ready();
+	CHECK(cs == root::ClearOnReadyStatus::not_armed);
+	root::abandon_to(std::move(handle), root::drop_on_abandon{});
+	(void)src;
+}
+
+TEST_CASE(
+	"work.root: R2 set_on_ready_or_run fires inline when already ready",
+	"[work.root][r2]") {
+	auto [task, src] = root::make_task_source<int>();
+	REQUIRE(src.commit_success(root::Success<int>{9}));
+	auto handle = root::into_join_handle(std::move(task));
+	auto ctrl = handle.control();
+
+	std::atomic<bool> ran{false};
+	ctrl.set_on_ready_or_run([&ran]() noexcept { ran.store(true); });
+	CHECK(ran.load());
+	(void)root::join(std::move(handle));
+}
+
+TEST_CASE(
+	"work.root: try_abandon_to installed returns installed status",
+	"[work.root][r2]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto handle = root::into_join_handle(std::move(task));
+
+	auto status = root::try_abandon_to(std::move(handle), root::drop_on_abandon{});
+	CHECK(status == root::AbandonStatus::installed);
+	(void)src;
+}
+
+TEST_CASE(
+	"work.root: try_abandon_to already_abandoned when called twice via guard",
+	"[work.root][r2]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto handle = root::into_join_handle(std::move(task));
+	auto ctrl = handle.control();
+
+	auto s1 = root::try_abandon_to(std::move(handle), root::drop_on_abandon{});
+	REQUIRE(s1 == root::AbandonStatus::installed);
+
+	root::TaskJoinHandle<int> h2;
+	auto s2 = root::try_abandon_to(std::move(h2), root::drop_on_abandon{});
+	CHECK(s2 == root::AbandonStatus::empty);
+	(void)ctrl;
+	(void)src;
+}
+
+// ---------------------------------------------------------------------------
+// R4: joinable()
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"work.root: joinable returns true for matching posted capability",
+	"[work.root][r4]") {
+	OwnerCap owner{};
+	auto [posted, src] = root::make_posted_source<int>(owner);
+	auto jh = root::into_join_handle(std::move(posted));
+	CHECK(root::joinable(owner, jh));
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
+	(void)src;
+}
+
+TEST_CASE(
+	"work.root: joinable returns false for mismatched posted capability",
+	"[work.root][r4]") {
+	OwnerCap owner{};
+	OwnerCap const other{};
+	auto [posted, src] = root::make_posted_source<int>(owner);
+	auto jh = root::into_join_handle(std::move(posted));
+	CHECK_FALSE(root::joinable(other, jh));
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
+	(void)src;
+}
+
+TEST_CASE(
+	"work.root: joinable matches can_join for posted",
+	"[work.root][r4]") {
+	OwnerCap owner{};
+	OwnerCap const other{};
+	auto [posted, src] = root::make_posted_source<int>(owner);
+	auto jh = root::into_join_handle(std::move(posted));
+	CHECK(root::joinable(owner, jh) == root::can_join(owner, jh.control()));
+	CHECK(root::joinable(other, jh) == root::can_join(other, jh.control()));
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
+	(void)src;
+}
+
+TEST_CASE(
+	"work.root: joinable returns true for matching operation capability",
+	"[work.root][r4]") {
+	DriverCap driver{};
+	auto [op, src] = root::make_operation_source<int>(driver);
+	auto jh = root::into_join_handle(std::move(op));
+	CHECK(root::joinable(driver, jh));
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
+	(void)src;
+}
+
+TEST_CASE(
+	"work.root: joinable returns false for mismatched operation capability",
+	"[work.root][r4]") {
+	DriverCap driver{};
+	DriverCap const other{};
+	auto [op, src] = root::make_operation_source<int>(driver);
+	auto jh = root::into_join_handle(std::move(op));
+	CHECK_FALSE(root::joinable(other, jh));
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
+	(void)src;
+}
+
+TEST_CASE(
+	"work.root: joinable matches can_join for operation",
+	"[work.root][r4]") {
+	DriverCap driver{};
+	DriverCap const other{};
+	auto [op, src] = root::make_operation_source<int>(driver);
+	auto jh = root::into_join_handle(std::move(op));
+	CHECK(root::joinable(driver, jh) == root::can_join(driver, jh.control()));
+	CHECK(root::joinable(other, jh) == root::can_join(other, jh.control()));
+	root::abandon_to(std::move(jh), root::drop_on_abandon{});
+	(void)src;
 }

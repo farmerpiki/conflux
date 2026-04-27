@@ -32,15 +32,34 @@ public:
 	using std::runtime_error::runtime_error;
 };
 
-class JoinContextError final : public WorkError {
+enum class JoinContextReason : std::uint8_t {
+	unspecified,
+	capability_mismatch,
+	thread_precondition,
+	reentrant_pump,
+	hop_capability_mismatch,
+	ready_callback_already_installed,
+};
+
+class JoinContextError : public WorkError {
+	JoinContextReason reason_ = JoinContextReason::unspecified;
+
 public:
 	using WorkError::WorkError;
+
+	explicit JoinContextError(
+		std::string_view msg,
+		JoinContextReason reason)
+		: WorkError{std::string{msg}}
+		, reason_{reason} {}
+
+	[[nodiscard]] JoinContextReason reason() const noexcept { return reason_; }
 };
 
 namespace detail {
 
 [[nodiscard]] inline std::exception_ptr normalize_failure_ptr(
-	std::exception_ptr ep) {
+	std::exception_ptr const &ep) {
 	if (ep) {
 		return ep;
 	}
@@ -55,7 +74,7 @@ struct Failure {
 	Failure() = delete;
 
 	explicit Failure(
-		std::exception_ptr ep)
+		std::exception_ptr const &ep)
 		: error{detail::normalize_failure_ptr(ep)} {}
 };
 
@@ -76,7 +95,7 @@ class FailureError final : public WorkError {
 
 public:
 	explicit FailureError(
-		std::exception_ptr cause)
+		std::exception_ptr const &cause)
 		: WorkError{"work failed"}
 		, cause_{detail::normalize_failure_ptr(cause)} {}
 
@@ -155,7 +174,7 @@ public:
 	}
 
 	[[nodiscard]] static Outcome make_failure(
-		std::exception_ptr error) {
+		std::exception_ptr const &error) {
 		return Outcome{Failure{error}};
 	}
 
@@ -254,6 +273,75 @@ public:
 		case OutcomeKind::success  : return std::invoke(f, std::move(*this).success());
 		case OutcomeKind::failure  : return std::invoke(f, std::move(*this).failure());
 		case OutcomeKind::cancelled: return std::invoke(f, std::move(*this).cancelled());
+		}
+		std::unreachable();
+	}
+
+	[[nodiscard]] T &value() & {
+		switch (kind()) {
+		case OutcomeKind::success  : return success().value;
+		case OutcomeKind::failure  : std::rethrow_exception(failure().error);
+		case OutcomeKind::cancelled: throw CancelledError{cancelled().reason};
+		}
+		std::unreachable();
+	}
+
+	[[nodiscard]] T const &value() const & {
+		switch (kind()) {
+		case OutcomeKind::success  : return success().value;
+		case OutcomeKind::failure  : std::rethrow_exception(failure().error);
+		case OutcomeKind::cancelled: throw CancelledError{cancelled().reason};
+		}
+		std::unreachable();
+	}
+
+	[[nodiscard]] T value() && {
+		switch (kind()) {
+		case OutcomeKind::success  : return std::move(success().value);
+		case OutcomeKind::failure  : std::rethrow_exception(std::move(*this).failure().error);
+		case OutcomeKind::cancelled: throw CancelledError{cancelled().reason};
+		}
+		std::unreachable();
+	}
+
+	template<class OnSuccess, class OnFailure, class OnCancelled>
+		requires std::invocable<OnSuccess, T &&>
+			  && std::invocable<OnFailure, Failure const &>
+			  && std::invocable<OnCancelled, Cancelled const &>
+			  && std::same_as<std::invoke_result_t<OnSuccess, T &&>, std::invoke_result_t<OnFailure, Failure const &>>
+			  && std::same_as<
+					 std::invoke_result_t<OnSuccess, T &&>,
+					 std::invoke_result_t<OnCancelled, Cancelled const &>>
+	auto match(
+		OnSuccess &&on_success,
+		OnFailure &&on_failure,
+		OnCancelled &&on_cancelled) && -> std::invoke_result_t<OnSuccess, T &&> {
+		switch (kind()) {
+		case OutcomeKind::success  : return std::invoke(std::forward<OnSuccess>(on_success), std::move(success().value));
+		case OutcomeKind::failure  : return std::invoke(std::forward<OnFailure>(on_failure), failure());
+		case OutcomeKind::cancelled: return std::invoke(std::forward<OnCancelled>(on_cancelled), cancelled());
+		}
+		std::unreachable();
+	}
+
+	template<class OnSuccess, class OnFailure, class OnCancelled>
+		requires std::invocable<OnSuccess, T const &>
+			  && std::invocable<OnFailure, Failure const &>
+			  && std::invocable<OnCancelled, Cancelled const &>
+			  && std::same_as<
+					 std::invoke_result_t<OnSuccess, T const &>,
+					 std::invoke_result_t<OnFailure, Failure const &>>
+			  && std::same_as<
+					 std::invoke_result_t<OnSuccess, T const &>,
+					 std::invoke_result_t<OnCancelled, Cancelled const &>>
+	auto match(
+		OnSuccess &&on_success,
+		OnFailure &&on_failure,
+		OnCancelled &&on_cancelled) const & -> std::invoke_result_t<OnSuccess, T const &> {
+		switch (kind()) {
+		case OutcomeKind::success  : return std::invoke(std::forward<OnSuccess>(on_success), success().value);
+		case OutcomeKind::failure  : return std::invoke(std::forward<OnFailure>(on_failure), failure());
+		case OutcomeKind::cancelled: return std::invoke(std::forward<OnCancelled>(on_cancelled), cancelled());
 		}
 		std::unreachable();
 	}
@@ -276,7 +364,7 @@ public:
 
 	Outcome(
 		success_t success = success_t{}) noexcept
-		: storage_{std::in_place_type<success_t>, std::move(success)} {}
+		: storage_{std::in_place_type<success_t>, success} {}
 
 	Outcome(
 		Failure failure) noexcept
@@ -284,7 +372,7 @@ public:
 
 	Outcome(
 		Cancelled cancelled) noexcept
-		: storage_{std::in_place_type<Cancelled>, std::move(cancelled)} {}
+		: storage_{std::in_place_type<Cancelled>, cancelled} {}
 
 	Outcome(Outcome const &) = default;
 
@@ -304,7 +392,7 @@ public:
 	[[nodiscard]] static Outcome make_success() noexcept { return Outcome{success_t{}}; }
 
 	[[nodiscard]] static Outcome make_failure(
-		std::exception_ptr error) {
+		std::exception_ptr const &error) {
 		return Outcome{Failure{error}};
 	}
 
@@ -328,23 +416,23 @@ public:
 	[[nodiscard]] bool is_failure() const noexcept { return kind() == OutcomeKind::failure; }
 	[[nodiscard]] bool is_cancelled() const noexcept { return kind() == OutcomeKind::cancelled; }
 
-	[[nodiscard]] success_t &success() & noexcept { return std::get<success_t>(storage_); }
+	[[nodiscard]] success_t &success() & { return std::get<success_t>(storage_); }
 
-	[[nodiscard]] success_t const &success() const & noexcept { return std::get<success_t>(storage_); }
+	[[nodiscard]] success_t const &success() const & { return std::get<success_t>(storage_); }
 
-	[[nodiscard]] success_t &&success() && noexcept { return std::get<success_t>(std::move(storage_)); }
+	[[nodiscard]] success_t &&success() && { return std::get<success_t>(std::move(storage_)); }
 
-	[[nodiscard]] Failure &failure() & noexcept { return std::get<Failure>(storage_); }
+	[[nodiscard]] Failure &failure() & { return std::get<Failure>(storage_); }
 
-	[[nodiscard]] Failure const &failure() const & noexcept { return std::get<Failure>(storage_); }
+	[[nodiscard]] Failure const &failure() const & { return std::get<Failure>(storage_); }
 
-	[[nodiscard]] Failure &&failure() && noexcept { return std::get<Failure>(std::move(storage_)); }
+	[[nodiscard]] Failure &&failure() && { return std::get<Failure>(std::move(storage_)); }
 
-	[[nodiscard]] Cancelled &cancelled() & noexcept { return std::get<Cancelled>(storage_); }
+	[[nodiscard]] Cancelled &cancelled() & { return std::get<Cancelled>(storage_); }
 
-	[[nodiscard]] Cancelled const &cancelled() const & noexcept { return std::get<Cancelled>(storage_); }
+	[[nodiscard]] Cancelled const &cancelled() const & { return std::get<Cancelled>(storage_); }
 
-	[[nodiscard]] Cancelled &&cancelled() && noexcept { return std::get<Cancelled>(std::move(storage_)); }
+	[[nodiscard]] Cancelled &&cancelled() && { return std::get<Cancelled>(std::move(storage_)); }
 
 	template<typename F>
 		requires std::invocable<F &, success_t &>
@@ -403,6 +491,33 @@ public:
 		case OutcomeKind::success  : return std::invoke(f, std::move(*this).success());
 		case OutcomeKind::failure  : return std::invoke(f, std::move(*this).failure());
 		case OutcomeKind::cancelled: return std::invoke(f, std::move(*this).cancelled());
+		}
+		std::unreachable();
+	}
+
+	void value() const {
+		switch (kind()) {
+		case OutcomeKind::success  : return;
+		case OutcomeKind::failure  : std::rethrow_exception(failure().error);
+		case OutcomeKind::cancelled: throw CancelledError{cancelled().reason};
+		}
+		std::unreachable();
+	}
+
+	template<class OnSuccess, class OnFailure, class OnCancelled>
+		requires std::invocable<OnSuccess>
+			  && std::invocable<OnFailure, Failure const &>
+			  && std::invocable<OnCancelled, Cancelled const &>
+			  && std::same_as<std::invoke_result_t<OnSuccess>, std::invoke_result_t<OnFailure, Failure const &>>
+			  && std::same_as<std::invoke_result_t<OnSuccess>, std::invoke_result_t<OnCancelled, Cancelled const &>>
+	auto match(
+		OnSuccess &&on_success,
+		OnFailure &&on_failure,
+		OnCancelled &&on_cancelled) const -> std::invoke_result_t<OnSuccess> {
+		switch (kind()) {
+		case OutcomeKind::success  : return std::invoke(std::forward<OnSuccess>(on_success));
+		case OutcomeKind::failure  : return std::invoke(std::forward<OnFailure>(on_failure), failure());
+		case OutcomeKind::cancelled: return std::invoke(std::forward<OnCancelled>(on_cancelled), cancelled());
 		}
 		std::unreachable();
 	}
@@ -498,6 +613,26 @@ struct SubmitOptions;
 struct PostOptions;
 struct OperationOptions;
 
+enum class ReadyRegistration : std::uint8_t {
+	installed,
+	already_ready,
+	already_installed,
+	empty,
+};
+
+enum class ClearOnReadyStatus : std::uint8_t {
+	cleared,
+	in_flight,
+	already_terminal,
+	not_armed,
+};
+
+enum class AbandonStatus : std::uint8_t {
+	installed,
+	already_abandoned,
+	empty,
+};
+
 namespace detail {
 
 // Benchmark coverage lives in benchmarks/work_bench.cxx
@@ -559,7 +694,7 @@ class MoveOnlyFunction<R(Args...), InlineBytes> {
 	}
 
 	void reset() noexcept {
-		if (!invoke_) {
+		if (invoke_ == nullptr) {
 			return;
 		}
 		destroy_(object_);
@@ -577,7 +712,7 @@ class MoveOnlyFunction<R(Args...), InlineBytes> {
 		move_ = other.move_;
 		inlined_ = other.inlined_;
 
-		if (!invoke_) {
+		if (invoke_ == nullptr) {
 			object_ = nullptr;
 			return;
 		}
@@ -657,11 +792,24 @@ public:
 	}
 };
 
+struct ReadyRegistrationResult {
+	ReadyRegistration status;
+	MoveOnlyFunction<void()> rejected_fn;
+};
+
 enum class TerminalState : std::uint8_t {
 	none,
 	success,
 	failure,
 	cancelled,
+};
+
+enum class ReadyHookState : std::uint8_t {
+	open,
+	armed,
+	committing,
+	terminal,
+	disarmed,
 };
 
 class ControlBlockBase {
@@ -674,6 +822,8 @@ public:
 	[[nodiscard]] virtual WorkState state() const noexcept = 0;
 	[[nodiscard]] virtual bool can_join_with(CapabilityId id) const noexcept = 0;
 	virtual bool install_cancel_hook(MoveOnlyFunction<void(CancelReason)> fn) noexcept = 0;
+	[[nodiscard]] virtual ReadyRegistrationResult try_set_on_ready(MoveOnlyFunction<void()> fn) noexcept = 0;
+	[[nodiscard]] virtual ClearOnReadyStatus clear_on_ready() noexcept = 0;
 };
 
 template<work_value T>
@@ -685,6 +835,8 @@ public:
 	[[nodiscard]] virtual bool commit_cancelled(CancelReason reason, bool allow_abandoned) noexcept = 0;
 	[[nodiscard]] virtual Outcome<T> wait_and_take_outcome() = 0;
 	virtual void install_abandon_sink(MoveOnlyFunction<void(Outcome<T> const &)> sink) noexcept = 0;
+	[[nodiscard]] virtual AbandonStatus
+	try_install_abandon_sink(MoveOnlyFunction<void(Outcome<T> const &)> sink) noexcept = 0;
 };
 
 template<work_value T, bool EnableCancellation>
@@ -713,6 +865,10 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 	bool abandoned_ = false;
 	MoveOnlyFunction<void(Outcome<T> const &)> abandon_sink_{};
 
+	mutable std::mutex ready_hook_mtx_{};
+	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
+	MoveOnlyFunction<void()> on_ready_fn_{};
+
 	[[nodiscard]] MoveOnlyFunction<void(CancelReason)> claim_requested_hook_if_present() noexcept {
 		std::scoped_lock const lk{hook_mtx_};
 		if (!hook_installed_ || hook_claimed_) {
@@ -736,6 +892,32 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 		try {
 			fn(CancelReason::requested);
 		} catch (...) { std::terminate(); }
+	}
+
+	void fire_ready_hook_if_armed_() noexcept {
+		auto prev = ReadyHookState::open;
+		if (ready_hook_state_.compare_exchange_strong(
+				prev,
+				ReadyHookState::committing,
+				std::memory_order_acq_rel,
+				std::memory_order_acquire)) {
+			ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
+			return;
+		}
+		if (prev == ReadyHookState::armed) {
+			MoveOnlyFunction<void()> fn{};
+			{
+				std::unique_lock lk{ready_hook_mtx_};
+				fn = std::move(on_ready_fn_);
+				ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
+			}
+			if (fn) {
+				fn();
+			}
+		} else if (prev == ReadyHookState::disarmed) {
+			std::unique_lock lk{ready_hook_mtx_};
+			ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
+		}
 	}
 
 	[[nodiscard]] bool try_claim_terminal() noexcept {
@@ -881,6 +1063,7 @@ public:
 			outcome_.emplace(Outcome<T>{std::move(success)});
 		}
 		terminal_state_.store(TerminalState::success, std::memory_order_release);
+		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
@@ -896,6 +1079,7 @@ public:
 			outcome_.emplace(Outcome<T>{Failure{error}});
 		}
 		terminal_state_.store(TerminalState::failure, std::memory_order_release);
+		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
@@ -916,9 +1100,61 @@ public:
 			outcome_.emplace(Outcome<T>{Cancelled{reason}});
 		}
 		terminal_state_.store(TerminalState::cancelled, std::memory_order_release);
+		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
+	}
+
+	[[nodiscard]] ReadyRegistrationResult try_set_on_ready(
+		MoveOnlyFunction<void()> fn) noexcept override {
+		if (!fn) {
+			return {ReadyRegistration::empty, std::move(fn)};
+		}
+		if (ready_hook_state_.load(std::memory_order_acquire) == ReadyHookState::terminal) {
+			return {ReadyRegistration::already_ready, std::move(fn)};
+		}
+		std::unique_lock lk{ready_hook_mtx_};
+		auto s = ready_hook_state_.load(std::memory_order_acquire);
+		if (s == ReadyHookState::terminal) {
+			return {ReadyRegistration::already_ready, std::move(fn)};
+		}
+		if (s == ReadyHookState::open) {
+			on_ready_fn_ = std::move(fn);
+			ready_hook_state_.store(ReadyHookState::armed, std::memory_order_release);
+			return {ReadyRegistration::installed, {}};
+		}
+		if (s == ReadyHookState::armed || s == ReadyHookState::disarmed) {
+			return {ReadyRegistration::already_installed, std::move(fn)};
+		}
+		return {ReadyRegistration::already_ready, std::move(fn)};
+	}
+
+	[[nodiscard]] ClearOnReadyStatus clear_on_ready() noexcept override {
+		auto s = ready_hook_state_.load(std::memory_order_acquire);
+		if (s == ReadyHookState::terminal) {
+			return ClearOnReadyStatus::already_terminal;
+		}
+		if (s == ReadyHookState::committing) {
+			return ClearOnReadyStatus::in_flight;
+		}
+		if (s != ReadyHookState::armed) {
+			return ClearOnReadyStatus::not_armed;
+		}
+		std::unique_lock lk{ready_hook_mtx_};
+		s = ready_hook_state_.load(std::memory_order_acquire);
+		if (s == ReadyHookState::terminal) {
+			return ClearOnReadyStatus::already_terminal;
+		}
+		if (s == ReadyHookState::committing) {
+			return ClearOnReadyStatus::in_flight;
+		}
+		if (s != ReadyHookState::armed) {
+			return ClearOnReadyStatus::not_armed;
+		}
+		on_ready_fn_ = nullptr;
+		ready_hook_state_.store(ReadyHookState::disarmed, std::memory_order_release);
+		return ClearOnReadyStatus::cleared;
 	}
 
 	[[nodiscard]] Outcome<T> wait_and_take_outcome() override {
@@ -950,6 +1186,23 @@ public:
 		}
 		run_abandon_path_if_present();
 	}
+
+	[[nodiscard]] AbandonStatus try_install_abandon_sink(
+		MoveOnlyFunction<void(Outcome<T> const &)> sink) noexcept override {
+		if (!sink) {
+			return AbandonStatus::empty;
+		}
+		{
+			std::scoped_lock const lk{abandon_mtx_};
+			if (abandoned_) {
+				return AbandonStatus::already_abandoned;
+			}
+			abandoned_ = true;
+			abandon_sink_ = std::move(sink);
+		}
+		run_abandon_path_if_present();
+		return AbandonStatus::installed;
+	}
 };
 
 template<bool EnableCancellation>
@@ -977,6 +1230,10 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 	mutable std::mutex abandon_mtx_{};
 	bool abandoned_ = false;
 	MoveOnlyFunction<void(Outcome<void> const &)> abandon_sink_{};
+
+	mutable std::mutex ready_hook_mtx_{};
+	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
+	MoveOnlyFunction<void()> on_ready_fn_{};
 
 	[[nodiscard]] MoveOnlyFunction<void(CancelReason)> claim_requested_hook_if_present() noexcept {
 		std::scoped_lock const lk{hook_mtx_};
@@ -1018,6 +1275,32 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 		case TerminalState::cancelled: return WorkState::ready_cancelled;
 		}
 		std::unreachable();
+	}
+
+	void fire_ready_hook_if_armed_() noexcept {
+		auto prev = ReadyHookState::open;
+		if (ready_hook_state_.compare_exchange_strong(
+				prev,
+				ReadyHookState::committing,
+				std::memory_order_acq_rel,
+				std::memory_order_acquire)) {
+			ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
+			return;
+		}
+		if (prev == ReadyHookState::armed) {
+			MoveOnlyFunction<void()> fn{};
+			{
+				std::unique_lock lk{ready_hook_mtx_};
+				fn = std::move(on_ready_fn_);
+				ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
+			}
+			if (fn) {
+				fn();
+			}
+		} else if (prev == ReadyHookState::disarmed) {
+			std::unique_lock lk{ready_hook_mtx_};
+			ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
+		}
 	}
 
 	void run_abandon_path_if_present() noexcept {
@@ -1143,9 +1426,10 @@ public:
 		}
 		{
 			std::scoped_lock const lk{outcome_mtx_};
-			outcome_.emplace(Outcome<void>{std::move(success)});
+			outcome_.emplace(Outcome<void>{success});
 		}
 		terminal_state_.store(TerminalState::success, std::memory_order_release);
+		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
@@ -1161,6 +1445,7 @@ public:
 			outcome_.emplace(Outcome<void>{Failure{error}});
 		}
 		terminal_state_.store(TerminalState::failure, std::memory_order_release);
+		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
@@ -1181,9 +1466,61 @@ public:
 			outcome_.emplace(Outcome<void>{Cancelled{reason}});
 		}
 		terminal_state_.store(TerminalState::cancelled, std::memory_order_release);
+		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
+	}
+
+	[[nodiscard]] ReadyRegistrationResult try_set_on_ready(
+		MoveOnlyFunction<void()> fn) noexcept override {
+		if (!fn) {
+			return {ReadyRegistration::empty, std::move(fn)};
+		}
+		if (ready_hook_state_.load(std::memory_order_acquire) == ReadyHookState::terminal) {
+			return {ReadyRegistration::already_ready, std::move(fn)};
+		}
+		std::unique_lock lk{ready_hook_mtx_};
+		auto s = ready_hook_state_.load(std::memory_order_acquire);
+		if (s == ReadyHookState::terminal) {
+			return {ReadyRegistration::already_ready, std::move(fn)};
+		}
+		if (s == ReadyHookState::open) {
+			on_ready_fn_ = std::move(fn);
+			ready_hook_state_.store(ReadyHookState::armed, std::memory_order_release);
+			return {ReadyRegistration::installed, {}};
+		}
+		if (s == ReadyHookState::armed || s == ReadyHookState::disarmed) {
+			return {ReadyRegistration::already_installed, std::move(fn)};
+		}
+		return {ReadyRegistration::already_ready, std::move(fn)};
+	}
+
+	[[nodiscard]] ClearOnReadyStatus clear_on_ready() noexcept override {
+		auto s = ready_hook_state_.load(std::memory_order_acquire);
+		if (s == ReadyHookState::terminal) {
+			return ClearOnReadyStatus::already_terminal;
+		}
+		if (s == ReadyHookState::committing) {
+			return ClearOnReadyStatus::in_flight;
+		}
+		if (s != ReadyHookState::armed) {
+			return ClearOnReadyStatus::not_armed;
+		}
+		std::unique_lock lk{ready_hook_mtx_};
+		s = ready_hook_state_.load(std::memory_order_acquire);
+		if (s == ReadyHookState::terminal) {
+			return ClearOnReadyStatus::already_terminal;
+		}
+		if (s == ReadyHookState::committing) {
+			return ClearOnReadyStatus::in_flight;
+		}
+		if (s != ReadyHookState::armed) {
+			return ClearOnReadyStatus::not_armed;
+		}
+		on_ready_fn_ = nullptr;
+		ready_hook_state_.store(ReadyHookState::disarmed, std::memory_order_release);
+		return ClearOnReadyStatus::cleared;
 	}
 
 	[[nodiscard]] Outcome<void> wait_and_take_outcome() override {
@@ -1214,6 +1551,23 @@ public:
 			abandon_sink_ = std::move(sink);
 		}
 		run_abandon_path_if_present();
+	}
+
+	[[nodiscard]] AbandonStatus try_install_abandon_sink(
+		MoveOnlyFunction<void(Outcome<void> const &)> sink) noexcept override {
+		if (!sink) {
+			return AbandonStatus::empty;
+		}
+		{
+			std::scoped_lock const lk{abandon_mtx_};
+			if (abandoned_) {
+				return AbandonStatus::already_abandoned;
+			}
+			abandoned_ = true;
+			abandon_sink_ = std::move(sink);
+		}
+		run_abandon_path_if_present();
+		return AbandonStatus::installed;
 	}
 };
 
@@ -1257,6 +1611,39 @@ public:
 	}
 
 	[[nodiscard]] static constexpr ControlCategory category() noexcept { return Category; }
+
+	[[nodiscard]] ReadyRegistrationResult try_set_on_ready(
+		MoveOnlyFunction<void()> fn) noexcept {
+		if (!core_) {
+			return {ReadyRegistration::empty, std::move(fn)};
+		}
+		return core_->try_set_on_ready(std::move(fn));
+	}
+
+	[[nodiscard]] ClearOnReadyStatus clear_on_ready() noexcept {
+		if (!core_) {
+			return ClearOnReadyStatus::not_armed;
+		}
+		return core_->clear_on_ready();
+	}
+
+	template<class F>
+		requires std::invocable<F> && std::is_nothrow_invocable_v<F>
+	void set_on_ready_or_run(
+		F &&fn) noexcept {
+		auto materialised = MoveOnlyFunction<void()>{std::forward<F>(fn)};
+		auto result = try_set_on_ready(std::move(materialised));
+		switch (result.status) {
+		case ReadyRegistration::installed: return;
+		case ReadyRegistration::already_ready:
+			if (result.rejected_fn) {
+				result.rejected_fn();
+			}
+			return;
+		case ReadyRegistration::already_installed:
+		case ReadyRegistration::empty            : return;
+		}
+	}
 };
 
 } // namespace detail
@@ -1377,11 +1764,11 @@ public:
 
 	[[nodiscard]] bool commit_success(
 		Success<void> value = Success<void>{}) noexcept {
-		return state_ ? state_->commit_success(std::move(value)) : false;
+		return state_ ? state_->commit_success(value) : false;
 	}
 
 	[[nodiscard]] bool commit_failure(
-		std::exception_ptr error) {
+		std::exception_ptr const &error) {
 		return state_ ? state_->commit_failure(error) : false;
 	}
 
@@ -1526,6 +1913,19 @@ using Posted = BasicResult<T, ControlCategory::posted>;
 template<work_value T>
 using Operation = BasicResult<T, ControlCategory::operation>;
 
+template<class Sink, class T>
+concept abandon_sink = std::is_nothrow_move_constructible_v<Sink>
+					&& (std::is_nothrow_invocable_v<Sink &, Outcome<T> const &>
+						|| (std::is_nothrow_invocable_v<Sink &, Failure const &>
+							&& std::is_nothrow_invocable_v<Sink &, Cancelled const &>));
+
+struct drop_on_abandon {
+	void operator ()(
+		Failure const &) const noexcept {}
+	void operator ()(
+		Cancelled const &) const noexcept {}
+};
+
 template<work_value T, ControlCategory Category>
 class BasicJoinHandle {
 	std::shared_ptr<detail::ControlBlockInterface<T>> state_{};
@@ -1546,6 +1946,15 @@ class BasicJoinHandle {
 
 	template<work_value U, ControlCategory C, class Sink>
 	friend void abandon_impl(BasicJoinHandle<U, C> &&, Sink &&) noexcept;
+	template<work_value U, class Sink>
+		requires abandon_sink<Sink, U>
+	friend AbandonStatus try_abandon_to(BasicJoinHandle<U, ControlCategory::task> &&, Sink &&) noexcept;
+	template<work_value U, class Sink>
+		requires abandon_sink<Sink, U>
+	friend AbandonStatus try_abandon_to(BasicJoinHandle<U, ControlCategory::posted> &&, Sink &&) noexcept;
+	template<work_value U, class Sink>
+		requires abandon_sink<Sink, U>
+	friend AbandonStatus try_abandon_to(BasicJoinHandle<U, ControlCategory::operation> &&, Sink &&) noexcept;
 	template<work_value U>
 	friend Outcome<U> join(BasicJoinHandle<U, ControlCategory::task> &&);
 	template<progress_capability Owner, work_value U>
@@ -1591,6 +2000,8 @@ public:
 	[[nodiscard]] typename control_handle_for<Category>::type control() const noexcept {
 		return typename control_handle_for<Category>::type{state_};
 	}
+
+	[[nodiscard]] explicit operator bool() const noexcept { return live_; }
 };
 
 template<work_value T>
@@ -1601,19 +2012,6 @@ using PostedJoinHandle = BasicJoinHandle<T, ControlCategory::posted>;
 
 template<work_value T>
 using OperationJoinHandle = BasicJoinHandle<T, ControlCategory::operation>;
-
-template<class Sink, class T>
-concept abandon_sink = std::is_nothrow_move_constructible_v<Sink>
-					&& (std::is_nothrow_invocable_v<Sink &, Outcome<T> const &>
-						|| (std::is_nothrow_invocable_v<Sink &, Failure const &>
-							&& std::is_nothrow_invocable_v<Sink &, Cancelled const &>));
-
-struct drop_on_abandon {
-	void operator ()(
-		Failure const &) const noexcept {}
-	void operator ()(
-		Cancelled const &) const noexcept {}
-};
 
 template<class Sink, work_value T>
 [[nodiscard]] detail::MoveOnlyFunction<void(Outcome<T> const &)> make_abandon_dispatch_sink(
@@ -1701,6 +2099,78 @@ void abandon_to(
 	OperationJoinHandle<T> &&h,
 	Sink &&sink) noexcept {
 	abandon_impl(std::move(h), std::forward<Sink>(sink));
+}
+
+template<work_value T, class Sink>
+	requires abandon_sink<Sink, T>
+[[nodiscard]] AbandonStatus try_abandon_to(
+	TaskJoinHandle<T> &&h,
+	Sink &&sink) noexcept {
+	if (!bool(h)) {
+		return AbandonStatus::empty;
+	}
+	auto state = h.consume();
+	if (!state) {
+		return AbandonStatus::empty;
+	}
+	auto result = state->try_install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(std::forward<Sink>(sink)));
+	return result;
+}
+
+template<work_value T, class Sink>
+	requires abandon_sink<Sink, T>
+[[nodiscard]] AbandonStatus try_abandon_to(
+	PostedJoinHandle<T> &&h,
+	Sink &&sink) noexcept {
+	if (!bool(h)) {
+		return AbandonStatus::empty;
+	}
+	auto state = h.consume();
+	if (!state) {
+		return AbandonStatus::empty;
+	}
+	return state->try_install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(std::forward<Sink>(sink)));
+}
+
+template<work_value T, class Sink>
+	requires abandon_sink<Sink, T>
+[[nodiscard]] AbandonStatus try_abandon_to(
+	OperationJoinHandle<T> &&h,
+	Sink &&sink) noexcept {
+	if (!bool(h)) {
+		return AbandonStatus::empty;
+	}
+	auto state = h.consume();
+	if (!state) {
+		return AbandonStatus::empty;
+	}
+	return state->try_install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(std::forward<Sink>(sink)));
+}
+
+struct CarrierDiagnosticSink {
+	void (*emit)(char const *msg) noexcept = nullptr;
+};
+
+namespace detail {
+
+inline CarrierDiagnosticSink &carrier_diagnostic_sink_() noexcept {
+	static CarrierDiagnosticSink sink{};
+	return sink;
+}
+
+} // namespace detail
+
+inline void set_carrier_diagnostic_sink(
+	CarrierDiagnosticSink sink) noexcept {
+	detail::carrier_diagnostic_sink_() = sink;
+}
+
+inline void emit_carrier_diagnostic(
+	char const *msg) noexcept {
+	auto &s = detail::carrier_diagnostic_sink_();
+	if (s.emit != nullptr) {
+		s.emit(msg);
+	}
 }
 
 template<class R, class Sink = drop_on_abandon>
@@ -1819,6 +2289,20 @@ template<progress_capability Driver>
 	Driver &driver,
 	OperationControl const &control) noexcept {
 	return control.can_join_with(capability_id(driver));
+}
+
+template<progress_capability Cap, work_value T>
+[[nodiscard]] bool joinable(
+	Cap const &cap,
+	PostedJoinHandle<T> const &h) noexcept {
+	return h.control().can_join_with(capability_id(cap));
+}
+
+template<progress_capability Cap, work_value T>
+[[nodiscard]] bool joinable(
+	Cap const &cap,
+	OperationJoinHandle<T> const &h) noexcept {
+	return h.control().can_join_with(capability_id(cap));
 }
 
 template<work_value T>

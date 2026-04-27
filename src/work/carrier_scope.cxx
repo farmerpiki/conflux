@@ -1,5 +1,7 @@
 module;
 
+#include <cassert>
+
 export module conflux.work.carrier.scope;
 
 import std;
@@ -40,6 +42,10 @@ public:
 		{
 			std::unique_lock lock{mu_};
 			if (!cancelled_) {
+				assert(
+					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
+					&& "Scope::track exceeded n=32; partition across multiple Scope instances "
+					   "or file a follow-up for concurrent registry");
 				task_ctrls_.push_back(std::move(ctrl));
 				return;
 			}
@@ -53,6 +59,10 @@ public:
 		{
 			std::unique_lock lock{mu_};
 			if (!cancelled_) {
+				assert(
+					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
+					&& "Scope::track exceeded n=32; partition across multiple Scope instances "
+					   "or file a follow-up for concurrent registry");
 				posted_ctrls_.push_back(std::move(ctrl));
 				return;
 			}
@@ -66,6 +76,10 @@ public:
 		{
 			std::unique_lock lock{mu_};
 			if (!cancelled_) {
+				assert(
+					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
+					&& "Scope::track exceeded n=32; partition across multiple Scope instances "
+					   "or file a follow-up for concurrent registry");
 				op_ctrls_.push_back(std::move(ctrl));
 				return;
 			}
@@ -125,11 +139,33 @@ public:
 		Owner &owner,
 		root::PostedJoinHandle<T> &&jh) {
 		track(jh.control());
+		return model_a::Chain<T>{
+			root::join(owner, std::move(jh)),
+			model_a::CarrierKind::posted,
+			root::capability_id(owner)};
+	}
+
+	template<root::work_value T, root::progress_capability Owner>
+	[[nodiscard]] model_a::Chain<T> admit_unbound(
+		Owner &owner,
+		root::PostedJoinHandle<T> &&jh) {
+		track(jh.control());
 		return model_a::Chain<T>{root::join(owner, std::move(jh)), model_a::CarrierKind::posted};
 	}
 
 	template<root::work_value T, root::progress_capability Driver>
 	[[nodiscard]] model_a::Chain<T> admit(
+		Driver &driver,
+		root::OperationJoinHandle<T> &&jh) {
+		track(jh.control());
+		return model_a::Chain<T>{
+			root::join(driver, std::move(jh)),
+			model_a::CarrierKind::operation,
+			root::capability_id(driver)};
+	}
+
+	template<root::work_value T, root::progress_capability Driver>
+	[[nodiscard]] model_a::Chain<T> admit_unbound(
 		Driver &driver,
 		root::OperationJoinHandle<T> &&jh) {
 		track(jh.control());
