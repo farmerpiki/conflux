@@ -405,6 +405,7 @@ target_link_libraries(conflux
     PUBLIC  conflux_types
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
+    PUBLIC  conflux_dns
     PUBLIC  PkgConfig::LIBURING
     PRIVATE xxhash
 )

@@ -1,7 +1,9 @@
 module;
 
 #include <arpa/inet.h>
+#include <cstring>
 #include <liburing.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 
@@ -886,6 +888,95 @@ public:
 		   });
 }
 
+// ─── UDP flow builder (shared by resolve() and resolve_blocking()) ──────────
+
+[[nodiscard]] Flow<ResolveResult> build_native_udp_flow(
+	FileReader &reader,
+	NameserverEndpoint ns,
+	string hostname,
+	u16 port,
+	bool do_v4,
+	bool do_v6,
+	std::chrono::milliseconds timeout,
+	codec::Edns0Options edns) {
+	u16 const qid_a = static_cast<u16>(std::random_device{}() & 0xFFFFU);
+	u16 const qid_aaaa = static_cast<u16>((static_cast<u32>(qid_a) + 1U) & 0xFFFFU);
+
+	Flow<vector<Endpoint>> a_flow = [&]() -> Flow<vector<Endpoint>> {
+		if (!do_v4) {
+			FlowSource<vector<Endpoint>> const src;
+			auto f = src.flow();
+			src.resolve({});
+			return f;
+		}
+		auto wire = codec::encode_query(qid_a, hostname, codec::QType::a, edns);
+		return udp_single_query(reader, ns, std::move(wire), timeout)
+			 | then([port](codec::Message const &msg) -> vector<Endpoint> {
+				   vector<Endpoint> eps;
+				   for (auto const &rr: msg.answers) {
+					   if (auto ep = codec::rdata_to_endpoint(rr, port);
+						   ep.has_value() && ep->family == AddressFamily::v4) {
+						   eps.push_back(*ep);
+					   }
+				   }
+				   return eps;
+			   })
+			 | on_error([](exception_ptr const &ep) -> vector<Endpoint> {
+				   try {
+					   std::rethrow_exception(ep);
+				   } catch (DnsError const &de) {
+					   if (de.kind == DnsErrorKind::timeout) {
+						   return {};
+					   }
+					   throw;
+				   }
+				   return {};
+			   });
+	}();
+
+	if (!do_v6) {
+		return std::move(a_flow) | then([](vector<Endpoint> eps) -> ResolveResult {
+				   ResolveResult r;
+				   r.endpoints = std::move(eps);
+				   return r;
+			   });
+	}
+
+	return std::move(a_flow)
+		 | flat_then(
+			   [&reader, ns, hostname = std::move(hostname), qid_aaaa, timeout, edns, port](
+				   vector<Endpoint> v4eps) mutable -> Flow<ResolveResult> {
+				   auto v4_ptr = std::make_shared<vector<Endpoint>>(std::move(v4eps));
+				   auto wire_aaaa = codec::encode_query(qid_aaaa, hostname, codec::QType::aaaa, edns);
+				   return udp_single_query(reader, ns, std::move(wire_aaaa), timeout)
+						| then([v4_ptr, port](codec::Message const &msg) -> ResolveResult {
+							  vector<Endpoint> all = *v4_ptr;
+							  for (auto const &rr: msg.answers) {
+								  if (auto ep = codec::rdata_to_endpoint(rr, port);
+									  ep.has_value() && ep->family == AddressFamily::v6) {
+									  all.push_back(*ep);
+								  }
+							  }
+							  ResolveResult r;
+							  r.endpoints = std::move(all);
+							  return r;
+						  })
+						| on_error([v4_ptr](exception_ptr const &ep) -> ResolveResult {
+							  try {
+								  std::rethrow_exception(ep);
+							  } catch (DnsError const &de) {
+								  if (de.kind == DnsErrorKind::timeout) {
+									  ResolveResult r;
+									  r.endpoints = *v4_ptr;
+									  return r;
+								  }
+								  throw;
+							  }
+							  return {};
+						  });
+			   });
+}
+
 // ─── Resolver::Impl ─────────────────────────────────────────────────────────
 
 struct Resolver::Impl {
@@ -1016,84 +1107,7 @@ Flow<ResolveResult> Resolver::resolve(
 		hostname.pop_back();
 	}
 
-	u16 const qid_a = static_cast<u16>(std::random_device{}() & 0xFFFFU);
-	u16 const qid_aaaa = static_cast<u16>((static_cast<u32>(qid_a) + 1U) & 0xFFFFU);
-
-	// A query — timeout is swallowed (returns empty list); other errors propagate.
-	Flow<vector<Endpoint>> a_flow = [&]() -> Flow<vector<Endpoint>> {
-		if (!do_v4) {
-			FlowSource<vector<Endpoint>> const src;
-			auto f = src.flow();
-			src.resolve({});
-			return f;
-		}
-		auto wire = codec::encode_query(qid_a, hostname, codec::QType::a, edns);
-		return udp_single_query(*reader, ns, std::move(wire), timeout)
-			 | then([port](codec::Message const &msg) -> vector<Endpoint> {
-				   vector<Endpoint> eps;
-				   for (auto const &rr: msg.answers) {
-					   if (auto ep = codec::rdata_to_endpoint(rr, port);
-						   ep.has_value() && ep->family == AddressFamily::v4) {
-						   eps.push_back(*ep);
-					   }
-				   }
-				   return eps;
-			   })
-			 | on_error([](exception_ptr const &ep) -> vector<Endpoint> {
-				   try {
-					   std::rethrow_exception(ep);
-				   } catch (DnsError const &de) {
-					   if (de.kind == DnsErrorKind::timeout) {
-						   return {};
-					   }
-					   throw;
-				   }
-				   return {};
-			   });
-	}();
-
-	if (!do_v6) {
-		return std::move(a_flow) | then([](vector<Endpoint> eps) -> ResolveResult {
-				   ResolveResult r;
-				   r.endpoints = std::move(eps);
-				   return r;
-			   });
-	}
-
-	// Chain AAAA after A; v4 results shared across then/on_error branches.
-	return std::move(a_flow)
-		 | flat_then(
-			   [reader, ns, hostname = std::move(hostname), qid_aaaa, timeout, edns, port](
-				   vector<Endpoint> v4eps) mutable -> Flow<ResolveResult> {
-				   auto v4_ptr = std::make_shared<vector<Endpoint>>(std::move(v4eps));
-				   auto wire_aaaa = codec::encode_query(qid_aaaa, hostname, codec::QType::aaaa, edns);
-				   return udp_single_query(*reader, ns, std::move(wire_aaaa), timeout)
-						| then([v4_ptr, port](codec::Message const &msg) -> ResolveResult {
-							  vector<Endpoint> all = *v4_ptr;
-							  for (auto const &rr: msg.answers) {
-								  if (auto ep = codec::rdata_to_endpoint(rr, port);
-									  ep.has_value() && ep->family == AddressFamily::v6) {
-									  all.push_back(*ep);
-								  }
-							  }
-							  ResolveResult r;
-							  r.endpoints = std::move(all);
-							  return r;
-						  })
-						| on_error([v4_ptr](exception_ptr const &ep) -> ResolveResult {
-							  try {
-								  std::rethrow_exception(ep);
-							  } catch (DnsError const &de) {
-								  if (de.kind == DnsErrorKind::timeout) {
-									  ResolveResult r;
-									  r.endpoints = *v4_ptr;
-									  return r;
-								  }
-								  throw;
-							  }
-							  return {};
-						  });
-			   });
+	return build_native_udp_flow(*reader, ns, std::move(hostname), port, do_v4, do_v6, timeout, edns);
 }
 
 expected<ResolveResult, DnsError> Resolver::resolve_blocking(
@@ -1153,11 +1167,93 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 		}
 	}
 
-	return unexpected{
-		DnsError{
-				 DnsErrorKind::not_implemented,
-				 "conflux.net.dns: resolve_blocking not yet implemented for this backend"}
-    };
+	if (impl_->backend == ResolverBackend::nss_thread) {
+		addrinfo hints{};
+		hints.ai_family = AF_UNSPEC;
+		hints.ai_socktype = SOCK_STREAM;
+		hints.ai_flags = AI_ADDRCONFIG;
+		addrinfo *res = nullptr;
+		string const h{host};
+		string const p = std::to_string(port);
+		auto const t0 = std::chrono::steady_clock::now();
+		int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res);
+		auto const elapsed = std::chrono::steady_clock::now() - t0;
+		if (gai != 0 || res == nullptr) {
+			return unexpected{
+				DnsError{DnsErrorKind::nxdomain, std::format("getaddrinfo: {}", ::gai_strerror(gai))}
+            };
+		}
+		ResolveResult result;
+		result.elapsed = elapsed;
+		for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
+			if (rp->ai_family == AF_INET && opts.allow_v4) {
+				Endpoint ep{};
+				ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
+				ep.family = AddressFamily::v4;
+				std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
+				result.endpoints.push_back(ep);
+			} else if (rp->ai_family == AF_INET6 && opts.allow_v6) {
+				Endpoint ep{};
+				ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
+				ep.family = AddressFamily::v6;
+				std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
+				result.endpoints.push_back(ep);
+			}
+		}
+		::freeaddrinfo(res);
+		if (result.endpoints.empty()) {
+			return unexpected{
+				DnsError{DnsErrorKind::nxdomain, std::format("no usable addresses for '{}'", host)}
+            };
+		}
+		return result;
+	}
+
+	// native_udp: spin a temporary ring for this synchronous call
+	{
+		auto const &ns_list = opts.override_nameservers.empty() ? impl_->nameservers : opts.override_nameservers;
+		if (ns_list.empty()) {
+			return unexpected{
+				DnsError{DnsErrorKind::no_servers, "resolve_blocking: no nameservers configured"}
+            };
+		}
+		::io_uring tmp_ring{};
+		if (::io_uring_queue_init(32, &tmp_ring, 0) < 0) {
+			return unexpected{
+				DnsError{DnsErrorKind::no_ring, "resolve_blocking: io_uring_queue_init failed"}
+            };
+		}
+		struct RingGuard {
+			::io_uring *r;
+			~RingGuard() { ::io_uring_queue_exit(r); }
+		} guard{&tmp_ring};
+		CompletionTable tmp_ct;
+		FileReader tmp_reader{&tmp_ring, &tmp_ct, [](u32 slot, u32 gen) noexcept -> u64 {
+								  return (static_cast<u64>(gen) << 32U) | slot;
+							  }};
+		codec::Edns0Options edns{.udp_size = impl_->opts.edns0_udp_size};
+		auto flow = build_native_udp_flow(
+			tmp_reader,
+			ns_list.front(),
+			string{host},
+			port,
+			opts.allow_v4,
+			opts.allow_v6,
+			opts.query_timeout,
+			edns);
+		try {
+			auto budget = opts.query_timeout + std::chrono::milliseconds{500};
+			return block_on<ResolveResult>(tmp_reader, std::move(flow), budget);
+		} catch (PumpTimeout const &) {
+			return unexpected{
+				DnsError{DnsErrorKind::timeout, "resolve_blocking: pump timeout"}
+            };
+		} catch (DnsError const &e) { return unexpected{e}; } catch (std::exception const &e) {
+			return unexpected{
+				DnsError{DnsErrorKind::network, std::format("resolve_blocking: {}", e.what())}
+            };
+		}
+	}
 }
 
 void Resolver::invalidate(
