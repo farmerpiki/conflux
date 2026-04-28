@@ -340,8 +340,10 @@ uint16_t g_security_port = 0;
 void ensure_security_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
+		SecurityOptions sopts{};
+		sopts.hsts_only_on_tls = false;
 		Router router;
-		router.use(security_headers_middleware());
+		router.use(security_headers_middleware(sopts));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 		g_security_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -3053,10 +3055,10 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"security: default options inject X-XSS-Protection") {
+	"security: default X-XSS-Protection is 0 (OWASP-recommended)") {
 	ensure_security_server();
 	auto resp = http_get_on(g_security_port, "/");
-	REQUIRE(resp.find("X-XSS-Protection: 1; mode=block") != std::string::npos);
+	REQUIRE(resp.find("X-XSS-Protection: 0") != std::string::npos);
 }
 
 TEST_CASE(
@@ -3102,6 +3104,7 @@ TEST_CASE(
 
 	SecurityOptions sopts{};
 	sopts.hsts_include_subdomains = false;
+	sopts.hsts_only_on_tls = false;
 
 	Router router;
 	router.use(security_headers_middleware(sopts));

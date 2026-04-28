@@ -14,8 +14,9 @@ export struct SecurityOptions {
 	// X-Content-Type-Options: nosniff (true = send header).
 	bool nosniff{true};
 
-	// X-XSS-Protection: "1; mode=block" (true = send header).
-	bool xss_protection{true};
+	// X-XSS-Protection value; empty disables. OWASP recommends "0" — the legacy
+	// filter (1; mode=block) introduced XSS vectors in older browsers.
+	string xss_protection{"0"};
 
 	// Referrer-Policy value; empty string disables the header.
 	string referrer_policy{"strict-origin-when-cross-origin"};
@@ -25,6 +26,10 @@ export struct SecurityOptions {
 
 	// Content-Security-Policy value; empty string disables the header.
 	string csp;
+
+	// When true, Strict-Transport-Security is only emitted on TLS connections.
+	// Set to false only in tests that run plain-HTTP servers.
+	bool hsts_only_on_tls{true};
 };
 
 // Middleware factory: inject security headers into every response.
@@ -33,7 +38,7 @@ export Router::Middleware security_headers_middleware(
 	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto resp = next(req);
 
-		if (opts.hsts_max_age > 0) {
+		if (opts.hsts_max_age > 0 && (!opts.hsts_only_on_tls || req.is_tls)) {
 			auto hsts = format("max-age={}", opts.hsts_max_age);
 			if (opts.hsts_include_subdomains) {
 				hsts += "; includeSubDomains";
@@ -46,8 +51,8 @@ export Router::Middleware security_headers_middleware(
 		if (opts.nosniff) {
 			resp.headers["X-Content-Type-Options"] = "nosniff";
 		}
-		if (opts.xss_protection) {
-			resp.headers["X-XSS-Protection"] = "1; mode=block";
+		if (!opts.xss_protection.empty()) {
+			resp.headers["X-XSS-Protection"] = opts.xss_protection;
 		}
 		if (!opts.referrer_policy.empty()) {
 			resp.headers["Referrer-Policy"] = opts.referrer_policy;

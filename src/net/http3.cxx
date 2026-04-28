@@ -116,6 +116,7 @@ struct Http3Conn {
 	bool closed{false};
 	bool handshake_done{false};
 	array<u8, 16> ip_key{};
+	size_t max_body_size{0};
 };
 
 void register_cid_on_listener(Http3Conn *c, array<u8, kCidLen> const &key);
@@ -234,7 +235,12 @@ int h3_recv_data_cb(
 	if (it == c->streams.end()) {
 		return 0;
 	}
-	it->second->body.append(reinterpret_cast<char const *>(data), datalen);
+	auto &s = *it->second;
+	if (c->max_body_size != 0 && s.body.size() + datalen > c->max_body_size) {
+		ngtcp2_conn_shutdown_stream(c->conn, 0, stream_id, NGHTTP3_H3_REQUEST_REJECTED);
+		return 0;
+	}
+	s.body.append(reinterpret_cast<char const *>(data), datalen);
 	return 0;
 }
 
@@ -964,6 +970,7 @@ private:
 		c->router = router_;
 		c->listener = this;
 		c->ip_key = ipkey;
+		c->max_body_size = cfg_.max_body_size;
 		memcpy(&c->remote_addr, &remote, remote_len);
 		c->remote_addrlen = remote_len;
 		c->local_addrlen = sizeof(c->local_addr);

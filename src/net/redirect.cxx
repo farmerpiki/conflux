@@ -3,6 +3,14 @@ import std;
 import conflux.net.router;
 using namespace std;
 
+[[nodiscard]] inline bool is_safe_redirect_suffix(
+	string_view s) noexcept {
+	if (s.starts_with("//") || s.starts_with("/\\")) {
+		return false;
+	}
+	return ranges::none_of(s, [](char c) { return c == '@' || c == '\\' || c == '\r' || c == '\n'; });
+}
+
 export struct RedirectRule {
 	// Path to match. When prefix_match is false, exact match only.
 	string from;
@@ -28,9 +36,12 @@ export Router::Middleware redirect_middleware(
 			string target = rule.to;
 			if (rule.prefix_match) {
 				if (req.path.starts_with(rule.from)) {
+					auto const suffix = req.path.substr(rule.from.size());
+					if (!is_safe_redirect_suffix(suffix)) {
+						return HttpResponse::not_found(req.path);
+					}
 					matched = true;
-					// Append the unmatched suffix to the target.
-					target += req.path.substr(rule.from.size());
+					target += suffix;
 				}
 			} else {
 				matched = (req.path == rule.from);

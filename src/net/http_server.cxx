@@ -262,6 +262,8 @@ struct Conn {
 	size_t written = 0;
 	size_t request_bytes = 0; // bytes consumed by current dispatched request
 	chrono::steady_clock::time_point last_activity; // updated on accept and recv
+	chrono::steady_clock::time_point request_started{};
+	bool request_in_progress = false;
 	string remote_addr{}; // peer IP, set on accept
 	// mmap path: non-null when current response has a zero-copy file region
 	shared_ptr<MappedFile> mapped_file{};
@@ -1860,8 +1862,11 @@ struct Ring {
 				}
 				continue;
 			}
-			if (request_timeout_ms != 0 && now - conn.last_activity > req_limit) {
-				queue_close(conn.fd);
+			if (request_timeout_ms != 0) {
+				auto const ref = conn.request_in_progress ? conn.request_started : conn.last_activity;
+				if (now - ref > req_limit) {
+					queue_close(conn.fd);
+				}
 			}
 		}
 		arm_timer(); // re-arm for next tick
@@ -2008,6 +2013,11 @@ struct Ring {
 			conn.partial.clear();
 		}
 		conn.request_bytes = 0;
+		if (conn.partial.empty()) {
+			conn.request_in_progress = false;
+		} else {
+			conn.request_started = chrono::steady_clock::now();
+		}
 		if (!conn.partial.empty()) {
 			dispatch_request(
 				conn,
@@ -2495,6 +2505,10 @@ struct Ring {
 			}
 			rc.buf_id = UINT16_MAX;
 			conn.last_activity = chrono::steady_clock::now();
+			if (!conn.is_tls && !conn.partial.empty() && !conn.request_in_progress) {
+				conn.request_started = conn.last_activity;
+				conn.request_in_progress = true;
+			}
 			if (conn.partial.size() > max_body_size + parser_limits.max_header_block_size) {
 				conn.own_response.clear();
 				conn.own_response.append(
@@ -2642,6 +2656,15 @@ struct Ring {
 		}
 
 		compact_and_refresh_rbio();
+
+	#if CONFLUX_HAS_HTTP2
+		if (!conn.is_h2 && !conn.partial.empty() && !conn.request_in_progress) {
+	#else
+		if (!conn.partial.empty() && !conn.request_in_progress) {
+	#endif
+			conn.request_started = chrono::steady_clock::now();
+			conn.request_in_progress = true;
+		}
 
 		tls_flush_wbio(conn);
 		if (!conn.tls_send_buf.empty() && !conn.send_queued) {
