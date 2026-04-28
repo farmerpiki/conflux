@@ -280,6 +280,7 @@ public:
 		}
 		auto const port = srv->port();
 		wait_for_server(port);
+		this_thread::sleep_for(chrono::milliseconds(20));
 		return port;
 	}
 
@@ -301,6 +302,7 @@ public:
 		}
 		auto const port = srv->port();
 		wait_for_server(port);
+		this_thread::sleep_for(chrono::milliseconds(20));
 		return port;
 	}
 
