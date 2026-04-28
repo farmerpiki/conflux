@@ -49,20 +49,14 @@ int main() {
 
 		Params pa;
 		pa.add(string_view{"alpha"});
-		auto ra = block_on(
-			reader,
-			(*a)->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pa)));
+		auto ra = block_on(reader, a->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pa)));
 		println("a: {}", ra[0].as<string_view>(0));
 
 		Params pb;
 		pb.add(string_view{"beta"});
-		auto rb = block_on(
-			reader,
-			(*b)->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pb)));
+		auto rb = block_on(reader, b->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pb)));
 		println("b: {}", rb[0].as<string_view>(0));
-	} catch (exception const &e) {
-		println(cerr, "error: {}", e.what());
-	}
+	} catch (exception const &e) { println(cerr, "error: {}", e.what()); }
 
 	pool->close();
 	::io_uring_queue_exit(&ring);

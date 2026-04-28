@@ -316,6 +316,59 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"db: with_transaction commit and rollback",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+	block_on(
+		fx->reader,
+		conn->query(R"(CREATE TEMP TABLE tx_test (id int8 PRIMARY KEY, v text))"),
+		chrono::seconds{30});
+
+	// Commit path: row must persist.
+	block_on(
+		fx->reader,
+		move(with_transaction(
+				 *conn,
+				 TxOptions{},
+				 [](Connection &c) -> Task<void> { co_await c.query("INSERT INTO tx_test VALUES (1, 'committed')"); }))
+			.flow(),
+		chrono::seconds{30});
+	{
+		auto r = block_on(fx->reader, conn->query("SELECT v FROM tx_test WHERE id = 1"), chrono::seconds{30});
+		REQUIRE(r.rows() == 1);
+		CHECK(r[0].as<string>(0) == "committed");
+	}
+
+	// Rollback path: thrown exception must roll back the INSERT.
+	try {
+		block_on(
+			fx->reader,
+			move(with_transaction(
+					 *conn,
+					 TxOptions{},
+					 [](Connection &c) -> Task<void> {
+						 co_await c.query("INSERT INTO tx_test VALUES (2, 'rolledback')");
+						 throw runtime_error{"deliberate"};
+					 }))
+				.flow(),
+			chrono::seconds{30});
+		FAIL("expected exception");
+	} catch (runtime_error const &e) { CHECK(string_view{e.what()} == "deliberate"); }
+	{
+		auto r = block_on(fx->reader, conn->query("SELECT count(*) FROM tx_test WHERE id = 2"), chrono::seconds{30});
+		REQUIRE(r.rows() == 1);
+		CHECK(r[0].as<int64_t>(0) == 0);
+	}
+}
+
+TEST_CASE(
 	"db: QueryCache integrated load/use",
 	"[db][integration]") {
 	auto ci = conninfo();

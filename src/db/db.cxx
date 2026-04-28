@@ -68,7 +68,54 @@ export struct PgError final : runtime_error {
 	}
 };
 
+export struct TxOptions {
+	enum class Iso : uint8_t {
+		ReadCommitted,
+		RepeatableRead,
+		Serializable,
+	};
+	Iso iso{Iso::ReadCommitted};
+	bool read_only{false};
+	bool deferrable{false};
+	int max_retries{3};
+};
+
 namespace detail {
+
+template<class T>
+struct awaitable_value;
+
+template<class T>
+struct awaitable_value<Task<T>> {
+	using type = T;
+};
+
+template<class T>
+using awaitable_value_t = typename awaitable_value<T>::type;
+
+inline string begin_sql(
+	TxOptions const &opt) {
+	string s = "BEGIN";
+	switch (opt.iso) {
+	case TxOptions::Iso::RepeatableRead: s += " ISOLATION LEVEL REPEATABLE READ"; break;
+	case TxOptions::Iso::Serializable  : s += " ISOLATION LEVEL SERIALIZABLE"; break;
+	default                            : break;
+	}
+	if (opt.read_only) {
+		s += " READ ONLY";
+	}
+	if (opt.deferrable) {
+		s += " DEFERRABLE";
+	}
+	return s;
+}
+
+inline chrono::milliseconds retry_backoff(
+	int attempt) noexcept {
+	constexpr int base_ms = 100;
+	constexpr int cap_ms = 2000;
+	return chrono::milliseconds{min(base_ms << min(attempt, 4), cap_ms)};
+}
 
 inline void rstrip_nl_(
 	string_view &s) noexcept {
@@ -743,6 +790,79 @@ private:
 	size_t total_{0};
 	bool closed_{false};
 };
+
+export template<class Body>
+	requires requires(Body &&b, Connection &c) {
+		typename detail::awaitable_value<invoke_result_t<Body, Connection &>>::type;
+	}
+auto with_transaction(
+	Connection &c,
+	TxOptions opt,
+	Body &&body) -> Task<detail::awaitable_value_t<invoke_result_t<Body, Connection &>>> {
+	using R = detail::awaitable_value_t<invoke_result_t<Body, Connection &>>;
+	string const begin_stmt = detail::begin_sql(opt);
+	for (int attempt = 0;; ++attempt) {
+		if (attempt > 0) {
+			if (auto *reader = current_file_reader(); reader != nullptr) {
+				co_await reader->timeout_async(detail::retry_backoff(attempt - 1));
+			}
+		}
+		co_await c.query(begin_stmt);
+		exception_ptr err{};
+		if constexpr (same_as<R, void>) {
+			try {
+				co_await body(c);
+			} catch (...) { err = current_exception(); }
+			if (!err) {
+				co_await c.query("COMMIT");
+				co_return;
+			}
+		} else {
+			optional<R> result{};
+			try {
+				result.emplace(co_await body(c));
+			} catch (...) { err = current_exception(); }
+			if (!err) {
+				co_await c.query("COMMIT");
+				co_return move(*result);
+			}
+		}
+		try {
+			co_await c.query("ROLLBACK");
+			// NOLINTNEXTLINE(bugprone-empty-catch) — best-effort rollback; secondary errors swallowed.
+		} catch (...) {}
+		bool const retryable = [&] {
+			try {
+				rethrow_exception(err);
+			} catch (PgError const &e) {
+				return (e.is_serialization() || e.is_deadlock()) && attempt < opt.max_retries;
+			}
+			// NOLINTNEXTLINE(bugprone-empty-catch) — non-PgError → not retryable; swallow.
+			catch (...) {}
+			return false;
+		}();
+		if (!retryable) {
+			rethrow_exception(err);
+		}
+	}
+}
+
+export template<class Body>
+	requires requires(Body &&b, Connection &c) {
+		typename detail::awaitable_value<invoke_result_t<Body, Connection &>>::type;
+	}
+auto with_transaction(
+	Pool &p,
+	TxOptions opt,
+	Body &&body) -> Task<detail::awaitable_value_t<invoke_result_t<Body, Connection &>>> {
+	using R = detail::awaitable_value_t<invoke_result_t<Body, Connection &>>;
+	auto lease = co_await p.acquire();
+	if constexpr (same_as<R, void>) {
+		co_await with_transaction(*lease, opt, forward<Body>(body));
+	} else {
+		co_return co_await with_transaction(*lease, opt, forward<Body>(body));
+	}
+}
 
 // ===========================================================================
 // Implementation
