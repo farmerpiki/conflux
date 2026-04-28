@@ -1209,6 +1209,10 @@ public:
 
 // ─── Resolver::Impl ─────────────────────────────────────────────────────────
 
+struct CoalescedBroadcast {
+	vector<FlowSource<ResolveResult>> waiters;
+};
+
 struct Resolver::Impl {
 	ResolverBackend backend{};
 	std::unique_ptr<FileReader> reader{};
@@ -1217,6 +1221,7 @@ struct Resolver::Impl {
 	vector<NameserverEndpoint> nameservers;
 	unordered_map<string, vector<Endpoint>> hosts_cache;
 	std::shared_ptr<LruDnsCache> cache{};
+	unordered_map<string, CoalescedBroadcast> in_flight;
 };
 
 Resolver::Resolver(
@@ -1314,12 +1319,13 @@ Flow<ResolveResult> Resolver::resolve(
 		}
 	}
 
+	// Unified key for LRU cache and in-flight coalescing (empty when bypass_cache)
+	string const coalesce_key =
+		per_opts.bypass_cache ? string{} : make_cache_key(host, port, per_opts.allow_v4, per_opts.allow_v6);
+
 	// LRU cache lookup
-	auto const cache_key = impl_->cache && !per_opts.bypass_cache ?
-							   make_cache_key(host, port, per_opts.allow_v4, per_opts.allow_v6) :
-							   string{};
-	if (impl_->cache && !per_opts.bypass_cache) {
-		if (auto hit = impl_->cache->get(cache_key); hit.has_value()) {
+	if (impl_->cache && !coalesce_key.empty()) {
+		if (auto hit = impl_->cache->get(coalesce_key); hit.has_value()) {
 			FlowSource<ResolveResult> const src;
 			auto flow = src.flow();
 			hit->from_cache = true;
@@ -1328,10 +1334,10 @@ Flow<ResolveResult> Resolver::resolve(
 		}
 	}
 
-	auto cache_insert = [cache = impl_->cache, cache_key, max_ttl = impl_->opts.cache_max_ttl](
+	auto cache_insert = [cache = impl_->cache, cache_key = coalesce_key, max_ttl = impl_->opts.cache_max_ttl](
 							ResolveResult r) -> ResolveResult { // NOLINT(bugprone-exception-escape)
 		try {
-			if (cache && !r.endpoints.empty()) {
+			if (cache && !cache_key.empty() && !r.endpoints.empty()) {
 				auto const ttl = (r.suggested_ttl.count() > 0) ? std::min(r.suggested_ttl, max_ttl) : max_ttl;
 				cache->put(cache_key, r, ttl);
 			}
@@ -1348,7 +1354,7 @@ Flow<ResolveResult> Resolver::resolve(
 											  allow_v4 = per_opts.allow_v4,
 											  allow_v6 = per_opts.allow_v6,
 											  cache = impl_->cache,
-											  cache_key,
+											  cache_key = coalesce_key,
 											  ttl = impl_->opts.cache_max_ttl]() mutable {
 			try {
 				addrinfo hints{};
@@ -1387,7 +1393,7 @@ Flow<ResolveResult> Resolver::resolve(
 							DnsError{DnsErrorKind::nxdomain, std::format("no usable addresses for '{}'", h)}));
 					return;
 				}
-				if (cache && !result.endpoints.empty()) {
+				if (cache && !cache_key.empty() && !result.endpoints.empty()) {
 					cache->put(cache_key, result, ttl);
 				}
 				src.resolve(std::move(result));
@@ -1409,6 +1415,21 @@ Flow<ResolveResult> Resolver::resolve(
 		return flow;
 	}
 
+	// In-flight coalescing: second+ caller for same query attaches a waiter FlowSource
+	// that the primary query's completion step will resolve/reject.
+	if (!coalesce_key.empty()) {
+		if (auto it = impl_->in_flight.find(coalesce_key); it != impl_->in_flight.end()) {
+			FlowSource<ResolveResult> const waiter;
+			auto flow = waiter.flow();
+			it->second.waiters.push_back(waiter);
+			return std::move(flow) | then([](ResolveResult r) {
+					   r.from_coalesced = true;
+					   return r;
+				   });
+		}
+		impl_->in_flight.emplace(coalesce_key, CoalescedBroadcast{});
+	}
+
 	NameserverEndpoint const ns = ns_list.front();
 	FileReader *reader = impl_->reader.get();
 	auto const timeout = per_opts.query_timeout;
@@ -1421,8 +1442,39 @@ Flow<ResolveResult> Resolver::resolve(
 		hostname.pop_back();
 	}
 
+	auto fanout_success = [impl = impl_.get(),
+						   coalesce_key](ResolveResult r) -> ResolveResult { // NOLINT(bugprone-exception-escape)
+		if (!coalesce_key.empty()) {
+			if (auto it = impl->in_flight.find(coalesce_key); it != impl->in_flight.end()) {
+				for (auto const &w: it->second.waiters) {
+					auto copy = r;
+					copy.from_coalesced = true;
+					w.resolve(std::move(copy));
+				}
+				impl->in_flight.erase(it);
+			}
+		}
+		return r;
+	};
+
+	auto fanout_error = [impl = impl_.get(),
+						 coalesce_key](exception_ptr const &ep) -> ResolveResult { // NOLINT(bugprone-exception-escape)
+		if (!coalesce_key.empty()) {
+			if (auto it = impl->in_flight.find(coalesce_key); it != impl->in_flight.end()) {
+				for (auto const &w: it->second.waiters) {
+					w.reject(ep);
+				}
+				impl->in_flight.erase(it);
+			}
+		}
+		std::rethrow_exception(ep);
+		return {};
+	};
+
 	return build_native_udp_flow(*reader, ns, std::move(hostname), port, do_v4, do_v6, timeout, edns)
-		 | then(std::move(cache_insert));
+		 | then(std::move(cache_insert))
+		 | then(std::move(fanout_success))
+		 | on_error(std::move(fanout_error));
 }
 
 expected<ResolveResult, DnsError> Resolver::resolve_blocking(
@@ -1574,7 +1626,7 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 				auto const ttl = (result.suggested_ttl.count() > 0) ? std::min(result.suggested_ttl, max_ttl) : max_ttl;
 				try {
 					impl_->cache->put(cache_key, result, ttl);
-				} catch (...) {}
+				} catch (...) {} // NOLINT(bugprone-empty-catch)
 			}
 			return result;
 		} catch (PumpTimeout const &) {
