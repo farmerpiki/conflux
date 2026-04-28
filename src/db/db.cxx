@@ -734,6 +734,7 @@ private:
 	void return_(shared_ptr<Connection> conn) noexcept;
 	void try_dispatch_waiters_();
 	void grow_if_needed_();
+	void dispatch_lease_(FlowSource<shared_ptr<Lease>> const &w, shared_ptr<Connection> conn) noexcept;
 
 	PoolConfig cfg_{};
 	thread::id owner_{};
@@ -1264,7 +1265,7 @@ Flow<shared_ptr<Pool::Lease>> Pool::acquire() {
 	if (!idle_.empty()) {
 		auto conn = move(idle_.back());
 		idle_.pop_back();
-		src.resolve(make_shared<Lease>(Lease{shared_from_this(), move(conn)}));
+		dispatch_lease_(src, move(conn));
 		return flow;
 	}
 	if (total_ < cfg_.max_connections) {
@@ -1279,7 +1280,7 @@ Flow<shared_ptr<Pool::Lease>> Pool::acquire() {
 					  src_copy.cancel();
 					  return;
 				  }
-				  src_copy.resolve(make_shared<Lease>(Lease{self, move(conn)}));
+				  self->dispatch_lease_(src_copy, move(conn));
 			  })
 			| on_error([self, src_copy](exception_ptr const &ex) mutable {
 				  --self->total_;
@@ -1288,6 +1289,17 @@ Flow<shared_ptr<Pool::Lease>> Pool::acquire() {
 		return flow;
 	}
 	waiters_.push_back(src);
+	if (cfg_.acquire_timeout.count() > 0) {
+		if (auto *reader = current_file_reader(); reader != nullptr) {
+			auto self = shared_from_this();
+			spawn(
+				reader->timeout_async(cfg_.acquire_timeout)
+				| then(
+					[self, src]() mutable { src.reject(make_exception_ptr(PgError{"conflux.db: acquire timeout"})); })
+				| on_error([](exception_ptr const &) {})
+				| on_cancel([]() {}));
+		}
+	}
 	return flow;
 }
 
@@ -1311,13 +1323,20 @@ void Pool::return_(
 	} catch (...) {}
 }
 
+// NOLINTNEXTLINE(misc-no-recursion) — mutual indirect recursion through async on_acquire boundary; no stack cycle.
 void Pool::try_dispatch_waiters_() {
 	while (!waiters_.empty() && !idle_.empty()) {
+		while (!waiters_.empty() && !waiters_.front().armed()) {
+			waiters_.pop_front();
+		}
+		if (waiters_.empty() || idle_.empty()) {
+			break;
+		}
 		auto w = move(waiters_.front());
 		waiters_.pop_front();
 		auto conn = move(idle_.back());
 		idle_.pop_back();
-		w.resolve(make_shared<Lease>(Lease{shared_from_this(), move(conn)}));
+		dispatch_lease_(w, move(conn));
 	}
 }
 
@@ -1336,6 +1355,59 @@ void Pool::grow_if_needed_() {
 				  self->try_dispatch_waiters_();
 			  })
 			| on_error([self](exception_ptr const &) mutable { --self->total_; }));
+	}
+}
+
+// NOLINTNEXTLINE(bugprone-exception-escape,misc-no-recursion)
+void Pool::dispatch_lease_(
+	FlowSource<shared_ptr<Lease>> const &w,
+	shared_ptr<Connection> conn) noexcept {
+	if (!w.armed()) {
+		if (!closed_) {
+			idle_.push_back(move(conn));
+			try_dispatch_waiters_();
+		} else {
+			conn->close();
+			--total_;
+		}
+		return;
+	}
+	if (!cfg_.on_acquire) {
+		w.resolve(make_shared<Lease>(Lease{shared_from_this(), move(conn)}));
+		return;
+	}
+	auto self = shared_from_this();
+	try {
+		spawn(
+			cfg_.on_acquire(*conn)
+			| then([self, w, conn]() mutable {
+				  if (self->closed_) {
+					  conn->close();
+					  --self->total_;
+					  w.cancel();
+					  return;
+				  }
+				  if (!w.armed()) {
+					  self->idle_.push_back(move(conn));
+					  self->try_dispatch_waiters_();
+					  return;
+				  }
+				  w.resolve(make_shared<Lease>(Lease{self, move(conn)}));
+			  })
+			| on_error([self, w, conn](exception_ptr const &ex) mutable {
+				  conn->close();
+				  --self->total_;
+				  w.reject(ex);
+			  })
+			| on_cancel([self, w, conn]() mutable {
+				  conn->close();
+				  --self->total_;
+				  w.cancel();
+			  }));
+	} catch (...) {
+		conn->close();
+		--self->total_;
+		w.reject(current_exception());
 	}
 }
 
