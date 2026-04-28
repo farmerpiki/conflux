@@ -888,6 +888,62 @@ public:
 		   });
 }
 
+// TCP DNS query per RFC 1035 §4.2.2: 2-byte big-endian length prefix framing.
+[[nodiscard]] Flow<codec::Message> tcp_single_query(
+	FileReader &reader,
+	NameserverEndpoint ns,
+	vector<u8> wire,
+	std::chrono::milliseconds /*timeout*/) {
+	auto framed = std::make_shared<vector<u8>>();
+	framed->reserve(2 + wire.size());
+	auto const wlen = static_cast<u16>(wire.size());
+	framed->push_back(static_cast<u8>(wlen >> 8U));
+	framed->push_back(static_cast<u8>(wlen & 0xFFU));
+	framed->insert(framed->end(), wire.begin(), wire.end());
+	int const family = static_cast<int>(ns.addr.ss_family);
+	return reader.socket_async(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP)
+		 | flat_then([reader_ptr = &reader, ns, framed](FileHandle raw_fh) mutable -> Flow<codec::Message> {
+			   auto fh = std::make_shared<FileHandle>(std::move(raw_fh));
+			   return reader_ptr->connect_async(*fh, ns.addr, ns.addr_len)
+					| flat_then([reader_ptr, fh, framed]() mutable -> Flow<size_t> {
+						  return reader_ptr->send_async(*fh, framed->data(), framed->size(), MSG_NOSIGNAL);
+					  })
+					| flat_then([reader_ptr, fh, framed](size_t sent) mutable -> Flow<codec::Message> {
+						  if (sent != framed->size()) {
+							  throw DnsError{DnsErrorKind::network, "dns: tcp short send"};
+						  }
+						  auto len_buf = std::make_shared<std::array<u8, 2>>();
+						  return reader_ptr->recv_async(*fh, len_buf->data(), 2, MSG_WAITALL)
+							   | flat_then([reader_ptr, fh, len_buf](size_t n) mutable -> Flow<codec::Message> {
+									 if (n != 2) {
+										 throw DnsError{DnsErrorKind::network, "dns: tcp short length prefix"};
+									 }
+									 u16 const resp_len = static_cast<u16>(
+										 (static_cast<u16>((*len_buf)[0]) << 8U) | static_cast<u16>((*len_buf)[1]));
+									 if (resp_len == 0) {
+										 throw DnsError{DnsErrorKind::malformed, "dns: tcp zero-length response"};
+									 }
+									 auto resp_buf = std::make_shared<vector<u8>>(resp_len);
+									 return reader_ptr->recv_async(*fh, resp_buf->data(), resp_len, MSG_WAITALL)
+										  | then([fh, resp_buf](size_t resp_n) -> codec::Message {
+												if (resp_n != resp_buf->size()) {
+													throw DnsError{DnsErrorKind::network, "dns: tcp short response"};
+												}
+												return codec::decode_message(span<u8 const>{resp_buf->data(), resp_n});
+											});
+								 });
+					  });
+		   })
+		 | on_error([](exception_ptr const &ep) -> codec::Message {
+			   try {
+				   std::rethrow_exception(ep);
+			   } catch (DnsError const &) { throw; } catch (...) {
+				   throw DnsError{DnsErrorKind::network, "dns: tcp query failed"};
+			   }
+			   return codec::Message{}; // unreachable
+		   });
+}
+
 // ─── UDP flow builder (shared by resolve() and resolve_blocking()) ──────────
 
 [[nodiscard]] Flow<ResolveResult> build_native_udp_flow(
@@ -909,8 +965,9 @@ public:
 			src.resolve({});
 			return f;
 		}
-		auto wire = codec::encode_query(qid_a, hostname, codec::QType::a, edns);
-		return udp_single_query(reader, ns, std::move(wire), timeout)
+		auto wire_a = codec::encode_query(qid_a, hostname, codec::QType::a, edns);
+		auto wire_a_ptr = std::make_shared<vector<u8>>(wire_a);
+		return udp_single_query(reader, ns, std::move(wire_a), timeout)
 			 | then([port](codec::Message const &msg) -> vector<Endpoint> {
 				   vector<Endpoint> eps;
 				   for (auto const &rr: msg.answers) {
@@ -921,17 +978,38 @@ public:
 				   }
 				   return eps;
 			   })
-			 | on_error([](exception_ptr const &ep) -> vector<Endpoint> {
-				   try {
-					   std::rethrow_exception(ep);
-				   } catch (DnsError const &de) {
-					   if (de.kind == DnsErrorKind::timeout) {
-						   return {};
+			 | on_error(
+				   [reader_ptr = &reader, ns, wire_a_ptr, timeout, port](
+					   exception_ptr const &ep) -> Flow<vector<Endpoint>> {
+					   try {
+						   std::rethrow_exception(ep);
+					   } catch (DnsError const &de) {
+						   if (de.kind == DnsErrorKind::timeout) {
+							   FlowSource<vector<Endpoint>> const s;
+							   auto f = s.flow();
+							   s.resolve({});
+							   return f;
+						   }
+						   if (de.kind == DnsErrorKind::truncated) {
+							   return tcp_single_query(*reader_ptr, ns, *wire_a_ptr, timeout)
+									| then([port](codec::Message const &msg) -> vector<Endpoint> {
+										  vector<Endpoint> eps;
+										  for (auto const &rr: msg.answers) {
+											  if (auto ep2 = codec::rdata_to_endpoint(rr, port);
+												  ep2.has_value() && ep2->family == AddressFamily::v4) {
+												  eps.push_back(*ep2);
+											  }
+										  }
+										  return eps;
+									  });
+						   }
+						   throw;
 					   }
-					   throw;
-				   }
-				   return {};
-			   });
+					   FlowSource<vector<Endpoint>> const s;
+					   auto f = s.flow();
+					   s.resolve({});
+					   return f;
+				   });
 	}();
 
 	if (!do_v6) {
@@ -948,6 +1026,7 @@ public:
 				   vector<Endpoint> v4eps) mutable -> Flow<ResolveResult> {
 				   auto v4_ptr = std::make_shared<vector<Endpoint>>(std::move(v4eps));
 				   auto wire_aaaa = codec::encode_query(qid_aaaa, hostname, codec::QType::aaaa, edns);
+				   auto wire_aaaa_ptr = std::make_shared<vector<u8>>(wire_aaaa);
 				   return udp_single_query(reader, ns, std::move(wire_aaaa), timeout)
 						| then([v4_ptr, port](codec::Message const &msg) -> ResolveResult {
 							  vector<Endpoint> all = *v4_ptr;
@@ -961,19 +1040,42 @@ public:
 							  r.endpoints = std::move(all);
 							  return r;
 						  })
-						| on_error([v4_ptr](exception_ptr const &ep) -> ResolveResult {
-							  try {
-								  std::rethrow_exception(ep);
-							  } catch (DnsError const &de) {
-								  if (de.kind == DnsErrorKind::timeout) {
-									  ResolveResult r;
-									  r.endpoints = *v4_ptr;
-									  return r;
+						| on_error(
+							  [reader_ptr = &reader, ns, wire_aaaa_ptr, timeout, port, v4_ptr](
+								  exception_ptr const &ep) -> Flow<ResolveResult> {
+								  try {
+									  std::rethrow_exception(ep);
+								  } catch (DnsError const &de) {
+									  if (de.kind == DnsErrorKind::timeout) {
+										  FlowSource<ResolveResult> const s;
+										  auto f = s.flow();
+										  ResolveResult r;
+										  r.endpoints = *v4_ptr;
+										  s.resolve(std::move(r));
+										  return f;
+									  }
+									  if (de.kind == DnsErrorKind::truncated) {
+										  return tcp_single_query(*reader_ptr, ns, *wire_aaaa_ptr, timeout)
+											   | then([v4_ptr, port](codec::Message const &msg) -> ResolveResult {
+													 vector<Endpoint> all = *v4_ptr;
+													 for (auto const &rr: msg.answers) {
+														 if (auto ep2 = codec::rdata_to_endpoint(rr, port);
+															 ep2.has_value() && ep2->family == AddressFamily::v6) {
+															 all.push_back(*ep2);
+														 }
+													 }
+													 ResolveResult r;
+													 r.endpoints = std::move(all);
+													 return r;
+												 });
+									  }
+									  throw;
 								  }
-								  throw;
-							  }
-							  return {};
-						  });
+								  FlowSource<ResolveResult> const s;
+								  auto f = s.flow();
+								  s.resolve({});
+								  return f;
+							  });
 			   });
 }
 
@@ -998,7 +1100,7 @@ public:
 
 	[[nodiscard]] std::optional<ResolveResult> get(
 		string const &key) {
-		std::scoped_lock lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		auto it = index_.find(key);
 		if (it == index_.end()) {
 			return std::nullopt;
@@ -1017,7 +1119,7 @@ public:
 		ResolveResult result,
 		std::chrono::seconds ttl) {
 		auto const expires = std::chrono::steady_clock::now() + ttl;
-		std::scoped_lock lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		auto it = index_.find(key);
 		if (it != index_.end()) {
 			it->second->second = {std::move(result), expires};
@@ -1039,7 +1141,7 @@ public:
 	void invalidate_by_host(
 		string_view host) {
 		string const prefix = std::format("{}:", host);
-		std::scoped_lock lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		for (auto it = order_.begin(); it != order_.end();) {
 			if (it->first.starts_with(prefix)) {
 				index_.erase(it->first);
@@ -1051,7 +1153,7 @@ public:
 	}
 
 	void clear() {
-		std::scoped_lock lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		order_.clear();
 		index_.clear();
 	}
@@ -1186,18 +1288,20 @@ Flow<ResolveResult> Resolver::resolve(
 		}
 	}
 
-	auto cache_insert =
-		[cache = impl_->cache, cache_key, ttl = impl_->opts.cache_max_ttl](ResolveResult r) -> ResolveResult {
-		if (cache && !r.endpoints.empty()) {
-			cache->put(cache_key, r, ttl);
-		}
+	auto cache_insert = [cache = impl_->cache, cache_key, ttl = impl_->opts.cache_max_ttl](
+							ResolveResult r) -> ResolveResult { // NOLINT(bugprone-exception-escape)
+		try {
+			if (cache && !r.endpoints.empty()) {
+				cache->put(cache_key, r, ttl);
+			}
+		} catch (...) {} // NOLINT(bugprone-empty-catch)
 		return r;
 	};
 
 	if (impl_->backend == ResolverBackend::nss_thread) {
 		FlowSource<ResolveResult> const src;
 		auto flow = src.flow();
-		bool const ok = impl_->pool->enqueue([src,
+		bool const ok = impl_->pool->enqueue([src, // NOLINT(bugprone-exception-escape)
 											  h = string{host},
 											  port,
 											  allow_v4 = per_opts.allow_v4,
@@ -1205,46 +1309,48 @@ Flow<ResolveResult> Resolver::resolve(
 											  cache = impl_->cache,
 											  cache_key,
 											  ttl = impl_->opts.cache_max_ttl]() mutable {
-			addrinfo hints{};
-			hints.ai_family = AF_UNSPEC;
-			hints.ai_socktype = SOCK_STREAM;
-			hints.ai_flags = AI_ADDRCONFIG;
-			addrinfo *res = nullptr;
-			string const p = std::to_string(port);
-			int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res);
-			if (gai != 0 || res == nullptr) {
-				src.reject(
-					std::make_exception_ptr(
-						DnsError{DnsErrorKind::nxdomain, std::format("getaddrinfo: {}", ::gai_strerror(gai))}));
-				return;
-			}
-			ResolveResult result;
-			for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
-				if (rp->ai_family == AF_INET && allow_v4) {
-					Endpoint ep{};
-					ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
-					ep.family = AddressFamily::v4;
-					std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
-					result.endpoints.push_back(ep);
-				} else if (rp->ai_family == AF_INET6 && allow_v6) {
-					Endpoint ep{};
-					ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
-					ep.family = AddressFamily::v6;
-					std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
-					result.endpoints.push_back(ep);
+			try {
+				addrinfo hints{};
+				hints.ai_family = AF_UNSPEC;
+				hints.ai_socktype = SOCK_STREAM;
+				hints.ai_flags = AI_ADDRCONFIG;
+				addrinfo *res = nullptr;
+				string const p = std::to_string(port);
+				int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res);
+				if (gai != 0 || res == nullptr) {
+					src.reject(
+						std::make_exception_ptr(
+							DnsError{DnsErrorKind::nxdomain, std::format("getaddrinfo: {}", ::gai_strerror(gai))}));
+					return;
 				}
-			}
-			::freeaddrinfo(res);
-			if (result.endpoints.empty()) {
-				src.reject(
-					std::make_exception_ptr(
-						DnsError{DnsErrorKind::nxdomain, std::format("no usable addresses for '{}'", h)}));
-				return;
-			}
-			if (cache && !result.endpoints.empty()) {
-				cache->put(cache_key, result, ttl);
-			}
-			src.resolve(std::move(result));
+				ResolveResult result;
+				for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
+					if (rp->ai_family == AF_INET && allow_v4) {
+						Endpoint ep{};
+						ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
+						ep.family = AddressFamily::v4;
+						std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
+						result.endpoints.push_back(ep);
+					} else if (rp->ai_family == AF_INET6 && allow_v6) {
+						Endpoint ep{};
+						ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
+						ep.family = AddressFamily::v6;
+						std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
+						result.endpoints.push_back(ep);
+					}
+				}
+				::freeaddrinfo(res);
+				if (result.endpoints.empty()) {
+					src.reject(
+						std::make_exception_ptr(
+							DnsError{DnsErrorKind::nxdomain, std::format("no usable addresses for '{}'", h)}));
+					return;
+				}
+				if (cache && !result.endpoints.empty()) {
+					cache->put(cache_key, result, ttl);
+				}
+				src.resolve(std::move(result));
+			} catch (...) { src.reject(std::current_exception()); } // NOLINT(bugprone-empty-catch)
 		});
 		if (!ok) {
 			src.reject(
@@ -1262,10 +1368,10 @@ Flow<ResolveResult> Resolver::resolve(
 		return flow;
 	}
 
-	NameserverEndpoint ns = ns_list.front();
+	NameserverEndpoint const ns = ns_list.front();
 	FileReader *reader = impl_->reader.get();
 	auto const timeout = per_opts.query_timeout;
-	codec::Edns0Options edns{.udp_size = impl_->opts.edns0_udp_size};
+	codec::Edns0Options const edns{.udp_size = impl_->opts.edns0_udp_size};
 	bool const do_v4 = per_opts.allow_v4;
 	bool const do_v6 = per_opts.allow_v6;
 
@@ -1394,12 +1500,12 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 		struct RingGuard {
 			::io_uring *r;
 			~RingGuard() { ::io_uring_queue_exit(r); }
-		} guard{&tmp_ring};
+		} const guard{&tmp_ring};
 		CompletionTable tmp_ct;
 		FileReader tmp_reader{&tmp_ring, &tmp_ct, [](u32 slot, u32 gen) noexcept -> u64 {
 								  return (static_cast<u64>(gen) << 32U) | slot;
 							  }};
-		codec::Edns0Options edns{.udp_size = impl_->opts.edns0_udp_size};
+		codec::Edns0Options const edns{.udp_size = impl_->opts.edns0_udp_size};
 		auto flow = build_native_udp_flow(
 			tmp_reader,
 			ns_list.front(),
