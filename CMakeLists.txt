@@ -268,6 +268,35 @@ target_link_libraries(conflux_file_io
     PUBLIC  PkgConfig::LIBURING
 )
 
+add_library(conflux_udp STATIC)
+target_sources(conflux_udp
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/net/udp/udp.cxx
+)
+target_link_libraries(conflux_udp
+    PRIVATE conflux_options
+    PUBLIC  conflux_work
+    PUBLIC  conflux_file_io
+    PUBLIC  PkgConfig::LIBURING
+)
+
+add_library(conflux_dns STATIC)
+target_sources(conflux_dns
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/net/dns/dns.cxx
+)
+target_link_libraries(conflux_dns
+    PRIVATE conflux_options
+    PUBLIC  conflux_work
+    PUBLIC  conflux_file_io
+    PUBLIC  conflux_udp
+    PUBLIC  PkgConfig::LIBURING
+)
+
 if(CONFLUX_HAS_DB STREQUAL "true")
     add_library(conflux_db STATIC)
     target_sources(conflux_db
