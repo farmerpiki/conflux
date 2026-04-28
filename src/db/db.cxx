@@ -207,6 +207,11 @@ inline bool valid_query_name(
 
 } // namespace detail
 
+export struct Column {
+	int idx{-1};
+	[[nodiscard]] explicit operator bool() const noexcept { return idx >= 0; }
+};
+
 export class Row {
 	PGresult *res_{nullptr};
 	int row_{0};
@@ -220,9 +225,14 @@ public:
 		, row_{i} {}
 
 	[[nodiscard]] int ncols() const noexcept { return ::PQnfields(res_); }
+
 	[[nodiscard]] bool is_null(
 		int c) const noexcept {
 		return ::PQgetisnull(res_, row_, c) != 0;
+	}
+	[[nodiscard]] bool is_null(
+		Column c) const noexcept {
+		return is_null(c.idx);
 	}
 
 	[[nodiscard]] string_view get(
@@ -230,6 +240,10 @@ public:
 		char const *p = ::PQgetvalue(res_, row_, c);
 		auto const n = static_cast<size_t>(::PQgetlength(res_, row_, c));
 		return {p != nullptr ? p : "", n};
+	}
+	[[nodiscard]] string_view get(
+		Column c) const noexcept {
+		return get(c.idx);
 	}
 
 	[[nodiscard]] int length(
@@ -248,6 +262,34 @@ public:
 
 	template<class T>
 	[[nodiscard]] T as(int c) const;
+
+	template<class T>
+	[[nodiscard]] T as(
+		Column c) const {
+		return as<T>(c.idx);
+	}
+
+	template<class T>
+	[[nodiscard]] optional<T> as_opt(
+		int c) const {
+		if (is_null(c)) {
+			return nullopt;
+		}
+		return as<T>(c);
+	}
+
+	template<class T>
+	[[nodiscard]] optional<T> as_opt(
+		Column c) const {
+		return as_opt<T>(c.idx);
+	}
+
+	template<class... Ts>
+	[[nodiscard]] tuple<Ts...> as_tuple(
+		int start = 0) const {
+		int col = start;
+		return tuple<Ts...>{as<Ts>(col++)...};
+	}
 };
 
 template<>
@@ -354,6 +396,11 @@ public:
 			return -1;
 		}
 		return detail::fnumber_sv_(res_.get(), name);
+	}
+
+	[[nodiscard]] Column column(
+		string_view name) const noexcept {
+		return Column{column_index(name)};
 	}
 
 	[[nodiscard]] string_view command_tag() const noexcept {

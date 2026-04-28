@@ -259,7 +259,11 @@ TEST_CASE(
 TEST_CASE(
 	"db: Row::as<T> rejects partial text parses",
 	"[db][unit]") {
-	auto *raw = make_text_result({{string{"42x"}, string{"3.5ms"}, string{"maybe"}}}, {"i", "d", "b"});
+	auto *raw = make_text_result(
+		{
+			{string{"42x"}, string{"3.5ms"}, string{"maybe"}}
+    },
+		{"i", "d", "b"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	auto row = r[0];
@@ -292,4 +296,64 @@ TEST_CASE(
 	auto row = r[0];
 	CHECK(row.get("only") == "x");
 	CHECK_THROWS_AS(row.get("nope"), PgError);
+}
+
+TEST_CASE(
+	"db: Row::as_opt null/value",
+	"[db][unit]") {
+	auto *raw = make_text_result(
+		{
+			{string{"42"}, nullopt, string{"7"}}
+    },
+		{"a", "b", "c"});
+	REQUIRE(raw != nullptr);
+	Result const r{PGResultPtr{raw}};
+	auto row = r[0];
+	CHECK(row.as_opt<int64_t>(0) == optional<int64_t>{42});
+	CHECK(row.as_opt<int64_t>(1) == nullopt);
+	CHECK(row.as_opt<int64_t>(2) == optional<int64_t>{7});
+}
+
+TEST_CASE(
+	"db: Row::as_tuple sequential unpack",
+	"[db][unit]") {
+	auto *raw = make_text_result(
+		{
+			{string{"1"}, string{"hello"}, string{"t"}}
+    },
+		{"id", "name", "flag"});
+	REQUIRE(raw != nullptr);
+	Result const r{PGResultPtr{raw}};
+	auto row = r[0];
+	auto [id, name, flag] = row.as_tuple<int64_t, string, bool>();
+	CHECK(id == 1);
+	CHECK(name == "hello");
+	CHECK(flag);
+}
+
+TEST_CASE(
+	"db: Result::column + Row Column overloads",
+	"[db][unit]") {
+	auto *raw = make_text_result(
+		{
+			{string{"99"}, string{"world"}}
+    },
+		{"num", "str"});
+	REQUIRE(raw != nullptr);
+	Result const r{PGResultPtr{raw}};
+
+	auto c_num = r.column("num");
+	auto c_str = r.column("str");
+	auto c_bad = r.column("missing");
+
+	CHECK(static_cast<bool>(c_num));
+	CHECK(static_cast<bool>(c_str));
+	CHECK_FALSE(static_cast<bool>(c_bad));
+
+	auto row = r[0];
+	CHECK(row.as<int64_t>(c_num) == 99);
+	CHECK(row.as<string>(c_str) == "world");
+	CHECK(row.get(c_num) == "99");
+	CHECK_FALSE(row.is_null(c_num));
+	CHECK(row.as_opt<string>(c_str) == optional<string>{"world"});
 }
