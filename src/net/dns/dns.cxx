@@ -45,6 +45,7 @@ export struct Endpoint {
 export struct ResolveResult {
 	vector<Endpoint> endpoints;
 	std::chrono::nanoseconds elapsed{};
+	std::chrono::seconds suggested_ttl{0};
 	bool from_cache{false};
 	bool from_hosts_file{false};
 	bool from_coalesced{false};
@@ -944,6 +945,27 @@ public:
 		   });
 }
 
+// Minimum TTL across all answer RRs of the given family (UINT32_MAX if none).
+[[nodiscard]] u32 min_answer_ttl(
+	codec::Message const &msg,
+	AddressFamily family) noexcept {
+	u32 min_ttl = std::numeric_limits<u32>::max();
+	for (auto const &rr: msg.answers) {
+		auto const is_match = (family == AddressFamily::v4 && rr.type == codec::QType::a)
+						   || (family == AddressFamily::v6 && rr.type == codec::QType::aaaa);
+		if (is_match) {
+			min_ttl = std::min(min_ttl, rr.ttl);
+		}
+	}
+	return min_ttl;
+}
+
+// Carries A-query results and their min TTL into the AAAA flat_then step.
+struct EndpointBatch {
+	vector<Endpoint> eps;
+	u32 min_ttl{std::numeric_limits<u32>::max()};
+};
+
 // ─── UDP flow builder (shared by resolve() and resolve_blocking()) ──────────
 
 [[nodiscard]] Flow<ResolveResult> build_native_udp_flow(
@@ -958,9 +980,9 @@ public:
 	u16 const qid_a = static_cast<u16>(std::random_device{}() & 0xFFFFU);
 	u16 const qid_aaaa = static_cast<u16>((static_cast<u32>(qid_a) + 1U) & 0xFFFFU);
 
-	Flow<vector<Endpoint>> a_flow = [&]() -> Flow<vector<Endpoint>> {
+	Flow<EndpointBatch> a_flow = [&]() -> Flow<EndpointBatch> {
 		if (!do_v4) {
-			FlowSource<vector<Endpoint>> const src;
+			FlowSource<EndpointBatch> const src;
 			auto f = src.flow();
 			src.resolve({});
 			return f;
@@ -968,44 +990,46 @@ public:
 		auto wire_a = codec::encode_query(qid_a, hostname, codec::QType::a, edns);
 		auto wire_a_ptr = std::make_shared<vector<u8>>(wire_a);
 		return udp_single_query(reader, ns, std::move(wire_a), timeout)
-			 | then([port](codec::Message const &msg) -> vector<Endpoint> {
-				   vector<Endpoint> eps;
+			 | then([port](codec::Message const &msg) -> EndpointBatch {
+				   EndpointBatch batch;
+				   batch.min_ttl = min_answer_ttl(msg, AddressFamily::v4);
 				   for (auto const &rr: msg.answers) {
 					   if (auto ep = codec::rdata_to_endpoint(rr, port);
 						   ep.has_value() && ep->family == AddressFamily::v4) {
-						   eps.push_back(*ep);
+						   batch.eps.push_back(*ep);
 					   }
 				   }
-				   return eps;
+				   return batch;
 			   })
 			 | on_error(
 				   [reader_ptr = &reader, ns, wire_a_ptr, timeout, port](
-					   exception_ptr const &ep) -> Flow<vector<Endpoint>> {
+					   exception_ptr const &ep) -> Flow<EndpointBatch> {
 					   try {
 						   std::rethrow_exception(ep);
 					   } catch (DnsError const &de) {
 						   if (de.kind == DnsErrorKind::timeout) {
-							   FlowSource<vector<Endpoint>> const s;
+							   FlowSource<EndpointBatch> const s;
 							   auto f = s.flow();
 							   s.resolve({});
 							   return f;
 						   }
 						   if (de.kind == DnsErrorKind::truncated) {
 							   return tcp_single_query(*reader_ptr, ns, *wire_a_ptr, timeout)
-									| then([port](codec::Message const &msg) -> vector<Endpoint> {
-										  vector<Endpoint> eps;
+									| then([port](codec::Message const &msg) -> EndpointBatch {
+										  EndpointBatch batch;
+										  batch.min_ttl = min_answer_ttl(msg, AddressFamily::v4);
 										  for (auto const &rr: msg.answers) {
 											  if (auto ep2 = codec::rdata_to_endpoint(rr, port);
 												  ep2.has_value() && ep2->family == AddressFamily::v4) {
-												  eps.push_back(*ep2);
+												  batch.eps.push_back(*ep2);
 											  }
 										  }
-										  return eps;
+										  return batch;
 									  });
 						   }
 						   throw;
 					   }
-					   FlowSource<vector<Endpoint>> const s;
+					   FlowSource<EndpointBatch> const s;
 					   auto f = s.flow();
 					   s.resolve({});
 					   return f;
@@ -1013,9 +1037,12 @@ public:
 	}();
 
 	if (!do_v6) {
-		return std::move(a_flow) | then([](vector<Endpoint> eps) -> ResolveResult {
+		return std::move(a_flow) | then([](EndpointBatch batch) -> ResolveResult {
 				   ResolveResult r;
-				   r.endpoints = std::move(eps);
+				   r.endpoints = std::move(batch.eps);
+				   if (batch.min_ttl != std::numeric_limits<u32>::max()) {
+					   r.suggested_ttl = std::chrono::seconds{batch.min_ttl};
+				   }
 				   return r;
 			   });
 	}
@@ -1023,13 +1050,15 @@ public:
 	return std::move(a_flow)
 		 | flat_then(
 			   [&reader, ns, hostname = std::move(hostname), qid_aaaa, timeout, edns, port](
-				   vector<Endpoint> v4eps) mutable -> Flow<ResolveResult> {
-				   auto v4_ptr = std::make_shared<vector<Endpoint>>(std::move(v4eps));
+				   EndpointBatch v4batch) mutable -> Flow<ResolveResult> {
+				   auto v4_ptr = std::make_shared<EndpointBatch>(std::move(v4batch));
 				   auto wire_aaaa = codec::encode_query(qid_aaaa, hostname, codec::QType::aaaa, edns);
 				   auto wire_aaaa_ptr = std::make_shared<vector<u8>>(wire_aaaa);
 				   return udp_single_query(reader, ns, std::move(wire_aaaa), timeout)
 						| then([v4_ptr, port](codec::Message const &msg) -> ResolveResult {
-							  vector<Endpoint> all = *v4_ptr;
+							  u32 const aaaa_ttl = min_answer_ttl(msg, AddressFamily::v6);
+							  u32 const min_ttl = std::min(v4_ptr->min_ttl, aaaa_ttl);
+							  vector<Endpoint> all = v4_ptr->eps;
 							  for (auto const &rr: msg.answers) {
 								  if (auto ep = codec::rdata_to_endpoint(rr, port);
 									  ep.has_value() && ep->family == AddressFamily::v6) {
@@ -1038,6 +1067,9 @@ public:
 							  }
 							  ResolveResult r;
 							  r.endpoints = std::move(all);
+							  if (min_ttl != std::numeric_limits<u32>::max()) {
+								  r.suggested_ttl = std::chrono::seconds{min_ttl};
+							  }
 							  return r;
 						  })
 						| on_error(
@@ -1050,14 +1082,19 @@ public:
 										  FlowSource<ResolveResult> const s;
 										  auto f = s.flow();
 										  ResolveResult r;
-										  r.endpoints = *v4_ptr;
+										  r.endpoints = v4_ptr->eps;
+										  if (v4_ptr->min_ttl != std::numeric_limits<u32>::max()) {
+											  r.suggested_ttl = std::chrono::seconds{v4_ptr->min_ttl};
+										  }
 										  s.resolve(std::move(r));
 										  return f;
 									  }
 									  if (de.kind == DnsErrorKind::truncated) {
 										  return tcp_single_query(*reader_ptr, ns, *wire_aaaa_ptr, timeout)
 											   | then([v4_ptr, port](codec::Message const &msg) -> ResolveResult {
-													 vector<Endpoint> all = *v4_ptr;
+													 u32 const aaaa_ttl2 = min_answer_ttl(msg, AddressFamily::v6);
+													 u32 const min_ttl2 = std::min(v4_ptr->min_ttl, aaaa_ttl2);
+													 vector<Endpoint> all = v4_ptr->eps;
 													 for (auto const &rr: msg.answers) {
 														 if (auto ep2 = codec::rdata_to_endpoint(rr, port);
 															 ep2.has_value() && ep2->family == AddressFamily::v6) {
@@ -1066,6 +1103,9 @@ public:
 													 }
 													 ResolveResult r;
 													 r.endpoints = std::move(all);
+													 if (min_ttl2 != std::numeric_limits<u32>::max()) {
+														 r.suggested_ttl = std::chrono::seconds{min_ttl2};
+													 }
 													 return r;
 												 });
 									  }
@@ -1288,10 +1328,11 @@ Flow<ResolveResult> Resolver::resolve(
 		}
 	}
 
-	auto cache_insert = [cache = impl_->cache, cache_key, ttl = impl_->opts.cache_max_ttl](
+	auto cache_insert = [cache = impl_->cache, cache_key, max_ttl = impl_->opts.cache_max_ttl](
 							ResolveResult r) -> ResolveResult { // NOLINT(bugprone-exception-escape)
 		try {
 			if (cache && !r.endpoints.empty()) {
+				auto const ttl = (r.suggested_ttl.count() > 0) ? std::min(r.suggested_ttl, max_ttl) : max_ttl;
 				cache->put(cache_key, r, ttl);
 			}
 		} catch (...) {} // NOLINT(bugprone-empty-catch)
@@ -1491,6 +1532,16 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 				DnsError{DnsErrorKind::no_servers, "resolve_blocking: no nameservers configured"}
             };
 		}
+
+		string const cache_key =
+			impl_->cache && !opts.bypass_cache ? make_cache_key(host, port, opts.allow_v4, opts.allow_v6) : string{};
+		if (impl_->cache && !opts.bypass_cache) {
+			if (auto hit = impl_->cache->get(cache_key); hit.has_value()) {
+				hit->from_cache = true;
+				return std::move(*hit);
+			}
+		}
+
 		::io_uring tmp_ring{};
 		if (::io_uring_queue_init(32, &tmp_ring, 0) < 0) {
 			return unexpected{
@@ -1517,7 +1568,15 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 			edns);
 		try {
 			auto budget = opts.query_timeout + std::chrono::milliseconds{500};
-			return block_on<ResolveResult>(tmp_reader, std::move(flow), budget);
+			auto result = block_on<ResolveResult>(tmp_reader, std::move(flow), budget);
+			if (impl_->cache && !cache_key.empty() && !result.endpoints.empty()) {
+				auto const max_ttl = impl_->opts.cache_max_ttl;
+				auto const ttl = (result.suggested_ttl.count() > 0) ? std::min(result.suggested_ttl, max_ttl) : max_ttl;
+				try {
+					impl_->cache->put(cache_key, result, ttl);
+				} catch (...) {}
+			}
+			return result;
 		} catch (PumpTimeout const &) {
 			return unexpected{
 				DnsError{DnsErrorKind::timeout, "resolve_blocking: pump timeout"}
