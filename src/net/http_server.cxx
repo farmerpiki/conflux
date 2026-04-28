@@ -1746,8 +1746,12 @@ struct Ring {
 
 		auto *sqe = get_sqe();
 		if (sqe == nullptr) {
-			// Can't queue async close — fall back to blocking close to avoid fd leak.
-			::close(fd);
+			defer_op([this, fd, ufd, gen] {
+				if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
+					return;
+				}
+				queue_close(fd);
+			});
 			return;
 		}
 		if (fixed_files) {

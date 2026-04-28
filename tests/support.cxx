@@ -280,7 +280,6 @@ public:
 		}
 		auto const port = srv->port();
 		wait_for_server(port);
-		this_thread::sleep_for(chrono::milliseconds(20));
 		return port;
 	}
 
@@ -302,7 +301,6 @@ public:
 		}
 		auto const port = srv->port();
 		wait_for_server(port);
-		this_thread::sleep_for(chrono::milliseconds(20));
 		return port;
 	}
 
@@ -344,10 +342,6 @@ public:
 			} catch (...) { println(cerr, "HttpServer test thread failed: unknown exception"); }
 		}) {
 		wait_for_server(server_->port());
-		// Give the io_uring ring one scheduler tick to drain the probe-close SQE
-		// before returning — prevents fd reuse racing with the immediately-following
-		// test connection on the same fd slot.
-		this_thread::sleep_for(chrono::milliseconds(20));
 	}
 
 	[[nodiscard]] uint16_t port() const { return server_->port(); }
