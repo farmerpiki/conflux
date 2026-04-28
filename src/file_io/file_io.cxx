@@ -2059,13 +2059,15 @@ public:
 		u64 off,
 		size_t len,
 		int dst_fd,
-		PipePair pipe) {
+		PipePair pipe,
+		bool dst_fixed = false) {
 		struct State {
 			io_uring *ring;
 			CompletionTable *completions;
 			UserDataFn encode_ud;
 			int file_fd;
 			int dst_fd;
+			bool dst_fixed;
 			PipePair pipe;
 			u64 file_off;
 			size_t remaining;
@@ -2078,6 +2080,7 @@ public:
 			.encode_ud = encode_ud_,
 			.file_fd = file.raw_fd(),
 			.dst_fd = dst_fd,
+			.dst_fixed = dst_fixed,
 			.pipe = move(pipe),
 			.file_off = off,
 			.remaining = len,
@@ -2678,6 +2681,9 @@ private:
 			-1,
 			static_cast<unsigned>(chunk),
 			SPLICE_F_MOVE | SPLICE_F_MORE);
+		if (st->dst_fixed) {
+			sqe_out->flags |= IOSQE_FIXED_FILE;
+		}
 		auto [slot_out, gen_out] = st->completions->reserve([st](IoResult r) mutable {
 			if (r.res < 0) {
 				if (r.res == -ECANCELED && st->src.armed()) {

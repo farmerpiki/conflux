@@ -1562,7 +1562,13 @@ struct Ring {
 		conn.streamed_splice_in_flight = true;
 		auto const conn_gen = conn.gen;
 		auto terminal =
-			files->splice_to_fd(*conn.streamed_file->handle, off, static_cast<size_t>(remaining), fd, move(*pipe))
+			files->splice_to_fd(
+				*conn.streamed_file->handle,
+				off,
+				static_cast<size_t>(remaining),
+				fd,
+				move(*pipe),
+				fixed_files)
 			| then([this, fd, conn_gen](size_t delivered) { on_streamed_splice_done(fd, conn_gen, delivered, {}); })
 			| on_error([this, fd, conn_gen](exception_ptr const &e) { on_streamed_splice_done(fd, conn_gen, 0, e); });
 		(void)terminal;
@@ -1654,6 +1660,11 @@ struct Ring {
 		auto &conn = fd_table[ufd];
 		conn.streamed_splice_in_flight = false;
 		if (err || !conn.streamed_file) {
+			try {
+				if (err) {
+					rethrow_exception(err);
+				}
+			} catch (...) {}
 			conn.streamed_file.reset();
 			queue_close(fd);
 			return;

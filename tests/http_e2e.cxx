@@ -2647,7 +2647,6 @@ TEST_CASE(
 	cfg.defer_taskrun = true;
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
-
 	Router router;
 	router.serve_static("/f", std::string{tmpdir});
 	ScopedTestServer srv{cfg, std::move(router)};
