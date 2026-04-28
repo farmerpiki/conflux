@@ -144,6 +144,86 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"db: Params overflow path (>kInline params)",
+	"[db][unit]") {
+	Params p;
+	for (int i = 0; i < 12; ++i) {
+		p.add(static_cast<int64_t>(i));
+	}
+	CHECK(p.count() == 12);
+	auto const *vals = p.values();
+	REQUIRE(vals != nullptr);
+	CHECK(string_view{vals[0]} == "0");
+	CHECK(string_view{vals[7]} == "7");
+	CHECK(string_view{vals[11]} == "11");
+}
+
+TEST_CASE(
+	"db: Params binary bind",
+	"[db][unit]") {
+	using namespace oids;
+	Params p;
+	p.add_binary(int64_t{0x0102030405060708LL});
+	p.add_binary(int32_t{0x01020304});
+	p.add_binary(3.14);
+
+	CHECK(p.count() == 3);
+
+	auto const *fmts = p.formats();
+	REQUIRE(fmts != nullptr);
+	CHECK(fmts[0] == 1);
+	CHECK(fmts[1] == 1);
+	CHECK(fmts[2] == 1);
+
+	auto const *lens = p.lengths();
+	REQUIRE(lens != nullptr);
+	CHECK(lens[0] == 8);
+	CHECK(lens[1] == 4);
+	CHECK(lens[2] == 8);
+
+	auto const *typs = p.types();
+	REQUIRE(typs != nullptr);
+	CHECK(typs[0] == int8);
+	CHECK(typs[1] == int4);
+	CHECK(typs[2] == float8);
+
+	// Verify big-endian wire encoding for int64
+	auto const *vals = p.values();
+	REQUIRE(vals != nullptr);
+	array<uint8_t, 8> wire{};
+	memcpy(wire.data(), vals[0], 8);
+	CHECK(wire[0] == 0x01);
+	CHECK(wire[1] == 0x02);
+	CHECK(wire[7] == 0x08);
+}
+
+TEST_CASE(
+	"db: Params result_format setter",
+	"[db][unit]") {
+	Params p;
+	CHECK(p.result_format() == 0);
+	p.result_format(1);
+	CHECK(p.result_format() == 1);
+}
+
+TEST_CASE(
+	"db: Params copy semantics",
+	"[db][unit]") {
+	Params orig;
+	orig.add("hello").add(int64_t{42});
+	Params const copy{orig};
+	CHECK(copy.count() == 2);
+	auto const *vals = copy.values();
+	REQUIRE(vals != nullptr);
+	CHECK(string_view{vals[0]} == "hello");
+	CHECK(string_view{vals[1]} == "42");
+	// Mutating orig does not affect copy
+	orig.add("extra");
+	CHECK(orig.count() == 3);
+	CHECK(copy.count() == 2);
+}
+
+TEST_CASE(
 	"db: PgError SQLSTATE classifiers",
 	"[db][unit]") {
 	{
@@ -365,9 +445,9 @@ TEST_CASE(
 	auto const n2 = StatementCache::stable_name("SELECT 1");
 	auto const n3 = StatementCache::stable_name("SELECT 2");
 
-	CHECK(n1 == n2);         // same SQL → same name
-	CHECK(n1 != n3);         // different SQL → different name
-	CHECK(n1.size() == 15);  // "p_" + 13 base32 chars
+	CHECK(n1 == n2); // same SQL → same name
+	CHECK(n1 != n3); // different SQL → different name
+	CHECK(n1.size() == 15); // "p_" + 13 base32 chars
 	CHECK(n1.starts_with("p_"));
 }
 
