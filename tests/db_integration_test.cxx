@@ -398,3 +398,61 @@ TEST_CASE(
 	error_code ec;
 	filesystem::remove_all(root, ec);
 }
+
+TEST_CASE(
+	"db: cancel_inflight zero-arg uses process-wide cancel pool",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+
+	atomic_flag done{};
+	exception_ptr err;
+	auto held = conn->query("SELECT pg_sleep(10)")
+			  | then([&](Result) { done.test_and_set(memory_order_release); })
+			  | on_error([&](exception_ptr const &ex) {
+					err = ex;
+					done.test_and_set(memory_order_release);
+				});
+	(void)held;
+
+	this_thread::sleep_for(chrono::milliseconds{100});
+	block_on(fx->reader, conn->cancel_inflight(), chrono::seconds{30});
+	pump_until(fx->reader, done, chrono::seconds{10});
+
+	REQUIRE(err);
+	try {
+		rethrow_exception(err);
+	} catch (PgError const &e) { CHECK(e.sqlstate == "57014"); } catch (...) {
+		FAIL("expected PgError");
+	}
+}
+
+TEST_CASE(
+	"db: query with deadline cancels slow query",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+
+	QueryOptions const opts{.deadline = chrono::milliseconds{200}};
+	try {
+		(void)block_on(
+			fx->reader,
+			conn->query("SELECT pg_sleep(10)", Params{}, opts),
+			chrono::seconds{30});
+		FAIL("expected deadline cancellation");
+	} catch (PgError const &e) {
+		CHECK(e.sqlstate == "57014");
+	}
+}

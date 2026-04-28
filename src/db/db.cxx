@@ -80,6 +80,10 @@ export struct TxOptions {
 	int max_retries{3};
 };
 
+export struct QueryOptions {
+	optional<chrono::milliseconds> deadline{};
+};
+
 namespace detail {
 
 template<class T>
@@ -287,8 +291,9 @@ public:
 	template<class... Ts>
 	[[nodiscard]] tuple<Ts...> as_tuple(
 		int start = 0) const {
-		int col = start;
-		return tuple<Ts...>{as<Ts>(col++)...};
+		return [&]<size_t... Is>(index_sequence<Is...>) {
+			return tuple<Ts...>{as<Ts>(start + static_cast<int>(Is))...};
+		}(make_index_sequence<sizeof...(Ts)>{});
 	}
 };
 
@@ -578,6 +583,9 @@ public:
 	Flow<Result> exec_prepared(string_view name, Params params = {});
 
 	Flow<void> cancel_inflight(WorkPool &cancel_pool);
+	Flow<void> cancel_inflight();
+
+	Flow<Result> query(string_view sql, Params params, QueryOptions opts);
 
 	[[nodiscard]] bool ok() const noexcept { return conn_ && ::PQstatus(conn_.get()) == CONNECTION_OK; }
 
@@ -916,6 +924,11 @@ auto with_transaction(
 // ===========================================================================
 
 namespace detail {
+
+inline WorkPool &cancel_pool() {
+	static WorkPool pool{WorkPoolOptions{.threads = 1}};
+	return pool;
+}
 
 inline FileReader *current_reader_or_throw() {
 	auto *r = current_file_reader();
@@ -1391,6 +1404,47 @@ Flow<void> Connection::cancel_inflight(
 	if (!queued) {
 		src.cancel();
 	}
+	return flow;
+}
+
+Flow<void> Connection::cancel_inflight() {
+	return cancel_inflight(detail::cancel_pool());
+}
+
+Flow<Result> Connection::query(
+	string_view sql,
+	Params params,
+	QueryOptions opts) {
+	if (!opts.deadline || opts.deadline->count() <= 0) {
+		return query(sql, move(params));
+	}
+	auto *reader = current_file_reader();
+	if (reader == nullptr) {
+		return query(sql, move(params));
+	}
+	FlowSource<Result> const src;
+	auto flow = src.flow();
+	auto self = shared_from_this();
+	spawn(
+		query(sql, move(params))
+		| then([src](Result r) mutable { src.resolve(move(r)); })
+		| on_error([src](exception_ptr const &ex) mutable { src.reject(ex); })
+		| on_cancel([src]() mutable { src.cancel(); }));
+	auto const deadline = *opts.deadline;
+	spawn(
+		reader->timeout_async(deadline)
+		| then([self, src]() mutable {
+			  if (!src.armed()) {
+				  return;
+			  }
+			  spawn(
+				  self->cancel_inflight()
+				  | on_error([](exception_ptr const &) {})
+				  | on_cancel([]() {}));
+			  src.reject(make_exception_ptr(PgError{"conflux.db: query deadline exceeded", "57014"}));
+		  })
+		| on_error([](exception_ptr const &) {})
+		| on_cancel([]() {}));
 	return flow;
 }
 
