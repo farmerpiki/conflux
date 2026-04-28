@@ -193,28 +193,28 @@ TEST_CASE(
 		"ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id");
 	QueryCache qc{td.path};
 
-	auto a = qc.load("select_one");
+	auto a = qc.load_or_throw("select_one");
 	REQUIRE(a);
 	CHECK(*a == "SELECT 1");
 
-	auto b = qc.load("select_one");
+	auto b = qc.load_or_throw("select_one");
 	REQUIRE(b);
 	CHECK(a.get() == b.get()); // pointer identity → cached
 
-	auto u = qc.load("upsert_user");
+	auto u = qc.load_or_throw("upsert_user");
 	REQUIRE(u);
 	CHECK(u->find("ON CONFLICT") != string::npos);
 
 	qc.clear();
-	auto c = qc.load("select_one");
+	auto c = qc.load_or_throw("select_one");
 	REQUIRE(c);
 	CHECK(*c == "SELECT 1");
 	CHECK(c.get() != a.get()); // new buffer post-clear
 
-	CHECK_THROWS_AS(qc.load("does_not_exist"), filesystem::filesystem_error);
-	CHECK_THROWS_AS(qc.load("../outside"), invalid_argument);
-	CHECK_THROWS_AS(qc.load("nested/query"), invalid_argument);
-	CHECK_THROWS_AS(qc.load(""), invalid_argument);
+	CHECK_THROWS_AS(qc.load_or_throw("does_not_exist"), filesystem::filesystem_error);
+	CHECK_THROWS_AS(qc.load_or_throw("../outside"), invalid_argument);
+	CHECK_THROWS_AS(qc.load_or_throw("nested/query"), invalid_argument);
+	CHECK_THROWS_AS(qc.load_or_throw(""), invalid_argument);
 }
 
 TEST_CASE(

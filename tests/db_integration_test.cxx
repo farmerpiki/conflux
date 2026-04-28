@@ -334,7 +334,7 @@ TEST_CASE(
 	}
 
 	QueryCache const qc{root};
-	auto sql = qc.load("select_two");
+	auto sql = qc.load_or_throw("select_two");
 	REQUIRE(sql);
 
 	auto conn = connect_or_skip(*fx, *ci);

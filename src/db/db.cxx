@@ -2,6 +2,7 @@ module;
 
 #include <cerrno>
 #include <csignal>
+#include <fcntl.h>
 #include <libpq-fe.h>
 #include <poll.h>
 
@@ -288,7 +289,7 @@ public:
 
 	[[nodiscard]] bool ok() const noexcept {
 		auto const s = status();
-		return s == PGRES_TUPLES_OK || s == PGRES_COMMAND_OK || s == PGRES_SINGLE_TUPLE;
+		return s == PGRES_TUPLES_OK || s == PGRES_COMMAND_OK;
 	}
 
 	[[nodiscard]] int rows() const noexcept { return res_ ? ::PQntuples(res_.get()) : 0; }
@@ -469,11 +470,18 @@ public:
 
 	static Flow<shared_ptr<Connection>> connect(ConnectParams const &params);
 
-	Flow<Result> query(string sql, Params params = {});
+	// Ergonomic overload: SQL is materialised into an owned string captured
+	// by enqueue_job_'s lambda. Same allocation count as today.
+	Flow<Result> query(string_view sql, Params params = {});
+	// Zero-copy overload: caller threads a cached SQL handle (e.g. from
+	// QueryCache::load). The lambda captures the shared_ptr; run_query_
+	// reads sql->c_str() without copying.
+	Flow<Result> query(shared_ptr<string const> sql, Params params = {});
 
-	Flow<void> prepare(string name, string sql, vector<Oid> param_types = {});
+	Flow<void> prepare(string_view name, string_view sql, span<Oid const> param_types = {});
+	Flow<void> prepare(string_view name, shared_ptr<string const> sql, span<Oid const> param_types = {});
 
-	Flow<Result> exec_prepared(string name, Params params = {});
+	Flow<Result> exec_prepared(string_view name, Params params = {});
 
 	Flow<void> cancel_inflight(WorkPool &cancel_pool);
 
@@ -556,7 +564,14 @@ public:
 		filesystem::path root)
 		: root_{move(root)} {}
 
-	[[nodiscard]] shared_ptr<string const> load(
+	[[nodiscard]] shared_ptr<string const> lookup(
+		string_view name) const noexcept {
+		shared_lock const lk{mtx_};
+		auto it = cache_.find(name);
+		return it != cache_.end() ? it->second : nullptr;
+	}
+
+	[[nodiscard]] shared_ptr<string const> load_or_throw(
 		string_view name) const {
 		if (!detail::valid_query_name(name)) {
 			throw invalid_argument{format("invalid query name: {}", name)};
@@ -583,11 +598,77 @@ public:
 		return it->second;
 	}
 
+	[[nodiscard]] Flow<shared_ptr<string const>> load_async(string_view name);
+
 	void clear() noexcept {
 		scoped_lock const lk{mtx_};
 		cache_.clear();
 	}
 };
+
+// ===========================================================================
+// QueryCache::load_async implementation
+// ===========================================================================
+
+Flow<shared_ptr<string const>> QueryCache::load_async(
+	string_view name) {
+	FlowSource<shared_ptr<string const>> const src;
+	auto flow = src.flow();
+	if (!detail::valid_query_name(name)) {
+		src.reject(make_exception_ptr(invalid_argument{format("invalid query name: {}", name)}));
+		return flow;
+	}
+	{
+		shared_lock const lk{mtx_};
+		if (auto it = cache_.find(name); it != cache_.end()) {
+			src.resolve(it->second);
+			return flow;
+		}
+	}
+	auto *reader = current_file_reader();
+	if (reader == nullptr) {
+		try {
+			src.resolve(load_or_throw(name));
+		} catch (...) { src.reject(current_exception()); }
+		return flow;
+	}
+	auto name_owned = string{name};
+	auto path = (root_ / (name_owned + ".psql")).string();
+	spawn(
+		reader->open_async(AT_FDCWD, move(path), O_RDONLY)
+		| then([reader, src, name_owned, this](FileHandle fh) mutable {
+			  auto fh_sp = make_shared<FileHandle>(move(fh));
+			  spawn(
+				  reader->stat_async(*fh_sp)
+				  | then([reader, src, name_owned, fh_sp, this](FileStat st) mutable {
+						if (st.size == 0) {
+							auto sp = make_shared<string const>();
+							scoped_lock const lk{mtx_};
+							auto [it, ok] = cache_.try_emplace(name_owned, sp);
+							src.resolve(it->second);
+							return;
+						}
+						auto buf = make_shared<string>(st.size, '\0');
+						auto raw_span = span<byte>{reinterpret_cast<byte *>(buf->data()), buf->size()};
+						spawn(
+							reader->read_into(*fh_sp, 0, raw_span)
+							| then([src, name_owned, buf, fh_sp, this](size_t n) mutable {
+								  buf->resize(n);
+								  auto sp = make_shared<string const>(move(*buf));
+								  scoped_lock const lk{mtx_};
+								  auto [it, ok] = cache_.try_emplace(name_owned, sp);
+								  src.resolve(it->second);
+							  })
+							| on_error([src](exception_ptr const &ep) mutable { src.reject(ep); })
+							| on_cancel([src]() mutable { src.cancel(); }));
+					})
+				  | on_error([src](exception_ptr const &ep) mutable { src.reject(ep); })
+				  | on_cancel([src]() mutable { src.cancel(); }));
+		  })
+		| on_error([src](exception_ptr const &ep) mutable { src.reject(ep); })
+		| on_cancel([src]() mutable { src.cancel(); }));
+	return flow;
+}
 
 export struct PoolConfig {
 	ConnectParams conn{};
@@ -709,7 +790,26 @@ struct ConnectState : enable_shared_from_this<ConnectState> {
 					return;
 				}
 				auto c = shared_ptr<Connection>(new Connection{move(conn), reader});
-				dst.resolve(move(c));
+				// P11b: pin client_encoding to UTF-8 before publishing.
+				// Reuses the existing async query machinery — same idiom
+				// Pool::acquire uses for its own continuation pipeline.
+				auto outer = dst;
+				auto conn_sp = c;
+				spawn(
+					conn_sp->query(string_view{"SET client_encoding = 'UTF8'"})
+					| then([outer, conn_sp](Result) mutable {
+						  char const *enc = ::PQparameterStatus(conn_sp->raw(), "client_encoding");
+						  if (enc == nullptr || string_view{enc} != string_view{"UTF8"}) {
+							  outer.reject(
+								  make_exception_ptr(PgError{"conflux.db: client_encoding must be UTF8", "22021"}));
+							  return;
+						  }
+						  outer.resolve(move(conn_sp));
+					  })
+					| on_error([outer](exception_ptr const &ep) mutable { outer.reject(ep); })
+					| on_cancel([outer]() mutable {
+						  outer.reject(make_exception_ptr(PgError{"conflux.db: connect cancelled"}));
+					  }));
 				return;
 			}
 			short mask = 0;
@@ -805,7 +905,7 @@ void Connection::op_done_() {
 }
 
 Flow<Result> Connection::query(
-	string sql,
+	string_view sql,
 	Params params) {
 	FlowSource<Result> const src;
 	auto flow = src.flow();
@@ -818,7 +918,32 @@ Flow<Result> Connection::query(
 		return flow;
 	}
 	auto self = shared_from_this();
-	enqueue_job_([self, sql = move(sql), params = move(params), src]() mutable { self->run_query_(sql, params, src); });
+	enqueue_job_([self, sql_owned = string{sql}, params = move(params), src]() mutable {
+		self->run_query_(sql_owned, params, src);
+	});
+	return flow;
+}
+
+Flow<Result> Connection::query(
+	shared_ptr<string const> sql,
+	Params params) {
+	FlowSource<Result> const src;
+	auto flow = src.flow();
+	if (closed_ || !conn_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		return flow;
+	}
+	if (!sql) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: null SQL handle"}));
+		return flow;
+	}
+	if (this_thread::get_id() != owner_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: query off owner thread"}));
+		return flow;
+	}
+	auto self = shared_from_this();
+	enqueue_job_(
+		[self, sql = move(sql), params = move(params), src]() mutable { self->run_query_(*sql, params, src); });
 	return flow;
 }
 
@@ -845,9 +970,9 @@ void Connection::run_query_(
 }
 
 Flow<void> Connection::prepare(
-	string name,
-	string sql,
-	vector<Oid> param_types) {
+	string_view name,
+	string_view sql,
+	span<Oid const> param_types) {
 	FlowSource<void> const src;
 	auto flow = src.flow();
 	if (closed_ || !conn_) {
@@ -859,9 +984,38 @@ Flow<void> Connection::prepare(
 		return flow;
 	}
 	auto self = shared_from_this();
-	enqueue_job_([self, name = move(name), sql = move(sql), oids = move(param_types), src]() mutable {
-		self->run_prepare_(name, sql, move(oids), src);
-	});
+	enqueue_job_([self,
+				  name_owned = string{name},
+				  sql_owned = string{sql},
+				  oids = vector<Oid>{param_types.begin(), param_types.end()},
+				  src]() mutable { self->run_prepare_(name_owned, sql_owned, move(oids), src); });
+	return flow;
+}
+
+Flow<void> Connection::prepare(
+	string_view name,
+	shared_ptr<string const> sql,
+	span<Oid const> param_types) {
+	FlowSource<void> const src;
+	auto flow = src.flow();
+	if (closed_ || !conn_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		return flow;
+	}
+	if (!sql) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: null SQL handle"}));
+		return flow;
+	}
+	if (this_thread::get_id() != owner_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: prepare off owner thread"}));
+		return flow;
+	}
+	auto self = shared_from_this();
+	enqueue_job_([self,
+				  name_owned = string{name},
+				  sql = move(sql),
+				  oids = vector<Oid>{param_types.begin(), param_types.end()},
+				  src]() mutable { self->run_prepare_(name_owned, *sql, move(oids), src); });
 	return flow;
 }
 
@@ -885,7 +1039,7 @@ void Connection::run_prepare_(
 }
 
 Flow<Result> Connection::exec_prepared(
-	string name,
+	string_view name,
 	Params params) {
 	FlowSource<Result> const src;
 	auto flow = src.flow();
@@ -898,8 +1052,8 @@ Flow<Result> Connection::exec_prepared(
 		return flow;
 	}
 	auto self = shared_from_this();
-	enqueue_job_([self, name = move(name), params = move(params), src]() mutable {
-		self->run_exec_prepared_(name, params, src);
+	enqueue_job_([self, name_owned = string{name}, params = move(params), src]() mutable {
+		self->run_exec_prepared_(name_owned, params, src);
 	});
 	return flow;
 }
