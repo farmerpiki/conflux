@@ -4,9 +4,9 @@ import conflux.net.http;
 import std;
 
 int main() {
-	std::string cert_path = "/tmp/conflux_h3_probe_cert.pem";
-	std::string key_path = "/tmp/conflux_h3_probe_key.pem";
-	std::string const gen_cmd = std::format(
+	S cert_path = "/tmp/conflux_h3_probe_cert.pem";
+	S key_path = "/tmp/conflux_h3_probe_key.pem";
+	S const gen_cmd = std::format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 		key_path,

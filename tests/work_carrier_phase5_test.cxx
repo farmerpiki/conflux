@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.model_a;
 import conflux.work.carrier.coro;
@@ -13,8 +14,8 @@ namespace {
 template<class T>
 struct SyncTask {
 	struct promise_type {
-		std::optional<T> value_;
-		std::optional<std::exception_ptr> error_;
+		Opt<T> value_;
+		Opt<std::exception_ptr> error_;
 
 		SyncTask get_return_object() { return SyncTask{std::coroutine_handle<promise_type>::from_promise(*this)}; }
 		std::suspend_never initial_suspend() noexcept { return {}; }
@@ -55,7 +56,7 @@ struct SyncTask {
 template<>
 struct SyncTask<void> {
 	struct promise_type {
-		std::optional<std::exception_ptr> error_;
+		Opt<std::exception_ptr> error_;
 
 		SyncTask get_return_object() { return SyncTask{std::coroutine_handle<promise_type>::from_promise(*this)}; }
 		std::suspend_never initial_suspend() noexcept { return {}; }

@@ -4,6 +4,7 @@
 #include <unistd.h>
 
 import std;
+import conflux.types;
 import conflux.utils;
 
 using namespace std;
@@ -268,7 +269,7 @@ TEST_CASE(
 TEST_CASE(
 	"utils: random_bytes fills buffer",
 	"[utils]") {
-	std::array<unsigned char, 16> buf{};
+	A<unsigned char, 16> buf{};
 	random_bytes(buf);
 	bool all_zero = true;
 	for (auto b: buf) {
@@ -283,8 +284,8 @@ TEST_CASE(
 TEST_CASE(
 	"utils: random_bytes two calls differ",
 	"[utils]") {
-	std::array<unsigned char, 16> a{};
-	std::array<unsigned char, 16> b{};
+	A<unsigned char, 16> a{};
+	A<unsigned char, 16> b{};
 	random_bytes(a);
 	random_bytes(b);
 	CHECK(a != b);
@@ -293,7 +294,7 @@ TEST_CASE(
 TEST_CASE(
 	"utils: random_bytes partial fill",
 	"[utils]") {
-	std::array<unsigned char, 3> buf{};
+	A<unsigned char, 3> buf{};
 	random_bytes(buf);
 	// Just verifying it doesn't crash; partial size exercises the tail branch.
 }

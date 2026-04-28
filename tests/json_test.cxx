@@ -3,6 +3,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.types;
 import conflux.json;
 
 using namespace std;
@@ -1101,7 +1102,7 @@ struct Point {
 template<>
 struct JsonMembers<Point> {
 	static constexpr auto members() {
-		return std::tuple{
+		return Tup{
 			json_member("x", &Point::x),
 			json_member("y", &Point::y),
 		};
@@ -1251,7 +1252,7 @@ struct Config {
 template<>
 struct JsonMembers<Config> {
 	static constexpr auto members() {
-		return std::tuple{
+		return Tup{
 			json_member("required_field", &Config::required_field),
 			json_member("optional_field", &Config::optional_field),
 		};
@@ -1283,7 +1284,7 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — std::array<T,N>
+// Phase 2: built-in targets — A<T,N>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -1309,7 +1310,7 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — std::pair<A,B>
+// Phase 2: built-in targets — P<A,B>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -1334,7 +1335,7 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — std::tuple<Ts...>
+// Phase 2: built-in targets — Tup<Ts...>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -1360,7 +1361,7 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — std::map<string, T>
+// Phase 2: built-in targets — M<string, T>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -1387,7 +1388,7 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — std::unordered_map<string, T>
+// Phase 2: built-in targets — UM<string, T>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -2334,7 +2335,7 @@ struct ThreeFieldModel {
 template<>
 struct JsonMembers<ThreeFieldModel> {
 	static constexpr auto members() {
-		return std::tuple{
+		return Tup{
 			json_member("required_val", &ThreeFieldModel::required_val),
 			json_member("optional_val", &ThreeFieldModel::optional_val),
 			json_member("nullable_val", &ThreeFieldModel::nullable_val),
@@ -2666,7 +2667,7 @@ struct InnerData {
 template<>
 struct JsonMembers<InnerData> {
 	static constexpr auto members() {
-		return std::tuple{
+		return Tup{
 			json_member("value", &InnerData::value),
 		};
 	}

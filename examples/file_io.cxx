@@ -9,6 +9,7 @@
 import conflux.file_io;
 import conflux.work;
 import std;
+import conflux.types;
 
 namespace {
 
@@ -21,13 +22,13 @@ constexpr uint64_t pack_ud(
 } // namespace
 
 int main() {
-	std::string path = "/tmp/conflux_file_io_example.txt";
+	S path = "/tmp/conflux_file_io_example.txt";
 	int const seed = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 	if (seed < 0) {
 		std::println(std::cerr, "open seed file failed");
 		return 1;
 	}
-	std::string_view text = "hello from conflux.file_io\n";
+	SV text = "hello from conflux.file_io\n";
 	(void)::write(seed, text.data(), text.size());
 	::close(seed);
 
@@ -48,12 +49,12 @@ int main() {
 			return 1;
 		}
 
-		std::array<std::byte, 128> buf{};
+		A<std::byte, 128> buf{};
 		auto got = block_on(files, files.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()}));
 		std::println(
 			"read {} bytes: {}",
 			got,
-			std::string_view{reinterpret_cast<char const *>(buf.data()), got});
+			SV{reinterpret_cast<char const *>(buf.data()), got});
 	} catch (std::exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);

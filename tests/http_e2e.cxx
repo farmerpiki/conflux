@@ -1,6 +1,6 @@
 // Plain TU — intentionally not a module unit.
 // std::thread with a lambda inside a module unit triggers GCC's TU-local
-// entity exposure rule (the lambda type leaks into std::tuple instantiations).
+// entity exposure rule (the lambda type leaks into Tup instantiations).
 // A plain TU has no such restriction.
 #include <arpa/inet.h>
 #include <catch2/catch_test_macros.hpp>
@@ -14,6 +14,7 @@
 #include <zlib.h>
 
 import std;
+import conflux.types;
 
 import conflux.crypto;
 import conflux.net.http;
@@ -59,7 +60,7 @@ void ensure_server() {
 			if (v.empty()) {
 				return HttpResponse::not_found("x-test-header");
 			}
-			return HttpResponse::text(std::string{v});
+			return HttpResponse::text(S{v});
 		});
 		router.post("/api/echo-body", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
 		router.post("/api/echo-json", [](HttpRequest const &req) { return HttpResponse::json(req.body); });
@@ -68,21 +69,21 @@ void ensure_server() {
 			if (v.empty()) {
 				return HttpResponse::not_found("key");
 			}
-			return HttpResponse::text(std::string{v});
+			return HttpResponse::text(S{v});
 		});
 		router.post("/api/echo-form", [](HttpRequest const &req) {
 			auto v = req.form["field"];
 			if (v.empty()) {
 				return HttpResponse::not_found("field");
 			}
-			return HttpResponse::text(std::string{v});
+			return HttpResponse::text(S{v});
 		});
 		router.post("/api/multipart-field", [](HttpRequest const &req) {
 			auto v = req.form["field"];
 			if (v.empty()) {
 				return HttpResponse::not_found("field");
 			}
-			return HttpResponse::text(std::string{v});
+			return HttpResponse::text(S{v});
 		});
 		router.post("/api/multipart-file", [](HttpRequestView const &req) {
 			if (req.files.empty()) {
@@ -144,7 +145,7 @@ void ensure_server() {
 			if (v.empty()) {
 				return HttpResponse::not_found("name");
 			}
-			return HttpResponse::text(std::string{v});
+			return HttpResponse::text(S{v});
 		});
 		// Set-cookie: sets two cookies on the response.
 		router.get("/api/set-cookie", [](HttpRequest const &) {
@@ -154,14 +155,14 @@ void ensure_server() {
 			return r;
 		});
 		// SSE endpoint: streams 3 events then closes.
-		router.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
+		router.sse("/events", [](HttpRequest const &, SP<SseChannel> const &ch) {
 			ch->send("data: event1\n\n");
 			ch->send("data: event2\n\n");
 			ch->send("data: event3\n\n");
 			ch->close();
 		});
 		// Named-param SSE endpoint.
-		router.sse("/events/{name}", [](HttpRequest const &req, std::shared_ptr<SseChannel> const &ch) {
+		router.sse("/events/{name}", [](HttpRequest const &req, SP<SseChannel> const &ch) {
 			ch->send(std::format("data: hello {}\n\n", req.params["name"]));
 			ch->close();
 		});
@@ -174,43 +175,43 @@ void ensure_server() {
 
 // Connect, send a GET, parse Content-Length, return the full response.
 // No shutdown(SHUT_WR) needed — stops reading once body is complete.
-std::string http_get(
-	std::string_view path) {
+S http_get(
+	SV path) {
 	ensure_server();
 	return conflux::tests::http_get_on(g_test_port, path);
 }
 
 // Like http_get but sends extra request headers.
-std::string http_get_with_headers(
-	std::string_view path,
-	std::string_view extra_headers) {
+S http_get_with_headers(
+	SV path,
+	SV extra_headers) {
 	ensure_server();
 	return conflux::tests::http_get_on(g_test_port, path, extra_headers);
 }
 
 // Send a POST request with a body; returns the full response.
-std::string http_post(
-	std::string_view path,
-	std::string_view content_type,
-	std::string_view body) {
+S http_post(
+	SV path,
+	SV content_type,
+	SV body) {
 	ensure_server();
 	return conflux::tests::http_post_on(g_test_port, path, content_type, body);
 }
 
 // Send an arbitrary HTTP request with a body.
-std::string http_request(
-	std::string_view method,
-	std::string_view path,
-	std::string_view content_type = "",
-	std::string_view body = "") {
+S http_request(
+	SV method,
+	SV path,
+	SV content_type = "",
+	SV body = "") {
 	ensure_server();
 	return conflux::tests::http_request_on(g_test_port, method, path, content_type, body, "Connection: close\r\n");
 }
 
 // Connect and read an SSE stream until the server closes the connection.
 // Returns the full response (headers + all event frames).
-std::string http_get_sse(
-	std::string_view path) {
+S http_get_sse(
+	SV path) {
 	ensure_server();
 
 	LocalTcpClient client{g_test_port};
@@ -224,9 +225,9 @@ std::string http_get_sse(
 // Returns the full raw response (status + headers + body).
 // Send two sequential GET requests on one persistent connection.
 // Returns {response1, response2}.
-std::pair<std::string, std::string> http_two_gets(
-	std::string_view path1,
-	std::string_view path2) {
+P<S, S> http_two_gets(
+	SV path1,
+	SV path2) {
 	ensure_server();
 
 	LocalTcpClient client{g_test_port};
@@ -243,8 +244,8 @@ std::pair<std::string, std::string> http_two_gets(
 
 // Returns true if the server closed the connection after the response.
 bool server_closed_after(
-	std::string_view path,
-	std::string_view extra_headers) {
+	SV path,
+	SV extra_headers) {
 	ensure_server();
 
 	LocalTcpClient client{g_test_port};
@@ -259,16 +260,16 @@ bool server_closed_after(
 }
 
 // Alias: GET with a single extra header line (must end with \r\n).
-std::string http_get_with_header_on(
+S http_get_with_header_on(
 	uint16_t port,
-	std::string_view path,
-	std::string_view header) {
+	SV path,
+	SV header) {
 	return conflux::tests::http_get_on(port, path, header);
 }
 
 // Gzip-decompress a buffer; returns empty on failure.
-std::string gzip_decompress(
-	std::string_view compressed) {
+S gzip_decompress(
+	SV compressed) {
 	z_stream zs{};
 	if (inflateInit2(&zs, 15 | 16) != Z_OK) {
 		return {};
@@ -276,8 +277,8 @@ std::string gzip_decompress(
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast,cppcoreguidelines-pro-type-const-cast)
 	zs.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(compressed.data()));
 	zs.avail_in = static_cast<uInt>(compressed.size());
-	std::string out;
-	std::array<char, 4096> chunk{};
+	S out;
+	A<char, 4096> chunk{};
 	int rc = Z_OK;
 	while (rc == Z_OK) {
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -287,7 +288,7 @@ std::string gzip_decompress(
 		out.append(chunk.data(), chunk.size() - zs.avail_out);
 	}
 	inflateEnd(&zs);
-	return rc == Z_STREAM_END ? out : std::string{};
+	return rc == Z_STREAM_END ? out : S{};
 }
 
 // ---------------------------------------------------------------------------
@@ -302,7 +303,7 @@ void ensure_compress_server() {
 		Router router;
 		router.use(compress_middleware());
 		// Large body (>256 bytes) so min_body_size is exceeded.
-		router.get("/big", [](HttpRequest const &) { return HttpResponse::html(std::string(512, 'A')); });
+		router.get("/big", [](HttpRequest const &) { return HttpResponse::html(S(512, 'A')); });
 		// Small body (<256 bytes).
 		router.get("/small", [](HttpRequest const &) { return HttpResponse::html("hi"); });
 		// Non-compressible MIME type.
@@ -311,7 +312,7 @@ void ensure_compress_server() {
 			r.status = 200;
 			r.status_text = "OK";
 			r.content_type = "application/octet-stream";
-			r.set_text_body(std::string(512, '\x00'));
+			r.set_text_body(S(512, '\x00'));
 			return r;
 		});
 		g_compress_port = start_mw_server(mw_config(), std::move(router));
@@ -326,7 +327,7 @@ void ensure_cors_compress_server() {
 		Router router;
 		router.use(cors_middleware({.allowed_origins = {"https://test.example"}}));
 		router.use(compress_middleware());
-		router.get("/big", [](HttpRequest const &) { return HttpResponse::html(std::string(512, 'A')); });
+		router.get("/big", [](HttpRequest const &) { return HttpResponse::html(S(512, 'A')); });
 		g_cors_compress_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -407,7 +408,7 @@ void ensure_auth_server() {
 	std::call_once(flag, [] {
 		Router router;
 		router.use(basic_auth_middleware(
-			[](std::string_view u, std::string_view p) { return u == "testuser" && p == "testpass"; }));
+			[](SV u, SV p) { return u == "testuser" && p == "testpass"; }));
 		router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
 		g_auth_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -419,7 +420,7 @@ void ensure_bearer_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token-123"; }));
+		router.use(bearer_auth_middleware([](SV token) { return token == "valid-token-123"; }));
 		router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
 		g_bearer_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -520,7 +521,7 @@ void ensure_rid_server() {
 		router.use(request_id_middleware());
 		// Echo the request ID header back in the body so tests can inspect it.
 		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["x-request-id"]});
+			return HttpResponse::text(S{req.headers["x-request-id"]});
 		});
 		g_rid_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -687,57 +688,57 @@ void ensure_ts_307_server() {
 }
 
 // POST to an explicit port with extra headers (for CSRF token etc.).
-std::string http_post_on_full(
+S http_post_on_full(
 	uint16_t port,
-	std::string_view path,
-	std::string_view content_type,
-	std::string_view body,
-	std::string_view extra_headers) {
+	SV path,
+	SV content_type,
+	SV body,
+	SV extra_headers) {
 	return conflux::tests::http_post_on(port, path, content_type, body, extra_headers);
 }
 
 // Extract the value of a named header (case-sensitive) from a raw HTTP response.
 // Returns empty string if not found.
-std::string extract_header(
-	std::string_view resp,
-	std::string_view name) {
+S extract_header(
+	SV resp,
+	SV name) {
 	// Search for "\r\nName: " (after the status line).
-	auto needle = std::string{"\r\n"} + std::string{name} + ": ";
+	auto needle = S{"\r\n"} + S{name} + ": ";
 	auto pos = resp.find(needle);
-	if (pos == std::string_view::npos) {
+	if (pos == SV::npos) {
 		return {};
 	}
 	pos += needle.size();
 	auto end = resp.find("\r\n", pos);
-	if (end == std::string_view::npos) {
+	if (end == SV::npos) {
 		return {};
 	}
-	return std::string{resp.substr(pos, end - pos)};
+	return S{resp.substr(pos, end - pos)};
 }
 
 // Extract body (everything after the first blank line).
-std::string extract_body(
-	std::string_view resp) {
+S extract_body(
+	SV resp) {
 	auto pos = resp.find("\r\n\r\n");
-	if (pos == std::string_view::npos) {
+	if (pos == SV::npos) {
 		return {};
 	}
-	return std::string{resp.substr(pos + 4)};
+	return S{resp.substr(pos + 4)};
 }
 
 // Extract the value of a named cookie from a Set-Cookie header list.
 // Looks for "Set-Cookie: <name>=<value>; ..." lines.
-std::string extract_set_cookie(
-	std::string_view resp,
-	std::string_view name) {
-	std::string const needle = std::string{"Set-Cookie: "} + std::string{name} + "=";
+S extract_set_cookie(
+	SV resp,
+	SV name) {
+	S const needle = S{"Set-Cookie: "} + S{name} + "=";
 	auto pos = resp.find(needle);
-	if (pos == std::string_view::npos) {
+	if (pos == SV::npos) {
 		return {};
 	}
 	pos += needle.size();
 	auto end = resp.find_first_of(";\r\n", pos);
-	return std::string{resp.substr(pos, end - pos)};
+	return S{resp.substr(pos, end - pos)};
 }
 
 // ---------------------------------------------------------------------------
@@ -906,7 +907,7 @@ void ensure_trace_server() {
 		router.use(tracing_middleware({.propagate_in_response = true}));
 		// Echo the injected traceparent header so tests can verify it.
 		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["traceparent"]});
+			return HttpResponse::text(S{req.headers["traceparent"]});
 		});
 		g_trace_port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -919,8 +920,8 @@ void ensure_trace_server() {
 uint16_t g_vhost_port = 0;
 uint16_t g_vhost_direct_port = 0;
 uint16_t g_proxy_port = 0;
-std::shared_ptr<ScopedTestServer> g_proxy_upstream;
-std::shared_ptr<ScopedTestServer> g_proxy_front;
+SP<ScopedTestServer> g_proxy_upstream;
+SP<ScopedTestServer> g_proxy_front;
 
 void ensure_vhost_server() {
 	static std::once_flag flag;
@@ -1003,13 +1004,13 @@ TEST_CASE(
 	"GET / returns 200 with body") {
 	auto resp = http_get("/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Hello from conflux") != std::string::npos);
+	REQUIRE(resp.find("Hello from conflux") != S::npos);
 }
 
 TEST_CASE(
 	"keep-alive header present on 200") {
 	auto resp = http_get("/");
-	REQUIRE(resp.find("Connection: keep-alive") != std::string::npos);
+	REQUIRE(resp.find("Connection: keep-alive") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -1020,8 +1021,8 @@ TEST_CASE(
 	"GET /api/ping returns JSON") {
 	auto resp = http_get("/api/ping");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("application/json") != std::string::npos);
-	REQUIRE(resp.find(R"("status":"ok")") != std::string::npos);
+	REQUIRE(resp.find("application/json") != S::npos);
+	REQUIRE(resp.find(R"("status":"ok")") != S::npos);
 }
 
 TEST_CASE(
@@ -1031,7 +1032,7 @@ TEST_CASE(
 		HttpClient{}.send_blocking(chttp::HttpRequest::get(std::format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
-	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
+	CHECK(S{response->head.headers["content-type"]} == "application/json");
 	CHECK(response->body == R"({"status":"ok"})");
 }
 
@@ -1043,7 +1044,7 @@ TEST_CASE(
 		client.send_blocking(chttp::HttpRequest::get(std::format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
-	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
+	CHECK(S{response->head.headers["content-type"]} == "application/json");
 	CHECK(response->body == R"({"status":"ok"})");
 }
 
@@ -1078,7 +1079,7 @@ TEST_CASE(
 			.body(R"({"from":"client"})"));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
-	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
+	CHECK(S{response->head.headers["content-type"]} == "application/json");
 	CHECK(response->body == R"({"from":"client"})");
 }
 
@@ -1093,8 +1094,8 @@ TEST_CASE(
 			.body(R"({"x":1})"));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
-	CHECK(response->body.find("PUT") != std::string::npos);
-	CHECK(response->body.find("42") != std::string::npos);
+	CHECK(response->body.find("PUT") != S::npos);
+	CHECK(response->body.find("42") != S::npos);
 }
 
 TEST_CASE(
@@ -1108,8 +1109,8 @@ TEST_CASE(
 			.body(R"({"delta":1})"));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
-	CHECK(response->body.find("PATCH") != std::string::npos);
-	CHECK(response->body.find("7") != std::string::npos);
+	CHECK(response->body.find("PATCH") != S::npos);
+	CHECK(response->body.find("7") != S::npos);
 }
 
 TEST_CASE(
@@ -1121,8 +1122,8 @@ TEST_CASE(
 		client.send_blocking(chttp::HttpRequest::del(std::format("http://127.0.0.1:{}/api/resource/99", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
-	CHECK(response->body.find("DELETE") != std::string::npos);
-	CHECK(response->body.find("99") != std::string::npos);
+	CHECK(response->body.find("DELETE") != S::npos);
+	CHECK(response->body.find("99") != S::npos);
 }
 
 TEST_CASE(
@@ -1134,7 +1135,7 @@ TEST_CASE(
 		client.send_blocking(chttp::HttpRequest::head(std::format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
-	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
+	CHECK(S{response->head.headers["content-type"]} == "application/json");
 	CHECK(response->body.empty());
 }
 
@@ -1165,14 +1166,14 @@ TEST_CASE(
 	"GET /hello/{name} captures param") {
 	auto resp = http_get("/hello/World");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Hello, World!") != std::string::npos);
+	REQUIRE(resp.find("Hello, World!") != S::npos);
 }
 
 TEST_CASE(
 	"GET /hello/{name} captures different param") {
 	auto resp = http_get("/hello/conflux");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Hello, conflux!") != std::string::npos);
+	REQUIRE(resp.find("Hello, conflux!") != S::npos);
 }
 
 TEST_CASE(
@@ -1184,7 +1185,7 @@ TEST_CASE(
 TEST_CASE(
 	"404 body contains the requested path") {
 	auto resp = http_get("/nope");
-	REQUIRE(resp.find("/nope") != std::string::npos);
+	REQUIRE(resp.find("/nope") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -1195,27 +1196,27 @@ TEST_CASE(
 	"SSE /events returns text/event-stream") {
 	auto resp = http_get_sse("/events");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Content-Type: text/event-stream") != std::string::npos);
+	REQUIRE(resp.find("Content-Type: text/event-stream") != S::npos);
 }
 
 TEST_CASE(
 	"SSE /events streams all 3 events") {
 	auto resp = http_get_sse("/events");
 	auto body_start = resp.find("\r\n\r\n");
-	REQUIRE(body_start != std::string::npos);
-	auto body = std::string_view{resp}.substr(body_start + 4);
-	REQUIRE(body.find("data: event1") != std::string_view::npos);
-	REQUIRE(body.find("data: event2") != std::string_view::npos);
-	REQUIRE(body.find("data: event3") != std::string_view::npos);
+	REQUIRE(body_start != S::npos);
+	auto body = SV{resp}.substr(body_start + 4);
+	REQUIRE(body.find("data: event1") != SV::npos);
+	REQUIRE(body.find("data: event2") != SV::npos);
+	REQUIRE(body.find("data: event3") != SV::npos);
 }
 
 TEST_CASE(
 	"SSE /events/{name} captures param") {
 	auto resp = http_get_sse("/events/alice");
 	auto body_start = resp.find("\r\n\r\n");
-	REQUIRE(body_start != std::string::npos);
-	auto body = std::string_view{resp}.substr(body_start + 4);
-	REQUIRE(body.find("data: hello alice") != std::string_view::npos);
+	REQUIRE(body_start != S::npos);
+	auto body = SV{resp}.substr(body_start + 4);
+	REQUIRE(body.find("data: hello alice") != SV::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -1254,7 +1255,7 @@ TEST_CASE(
 	auto resp = http_get_with_headers("/api/echo-header", "X-Test-Header: hello-world\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "hello-world");
 }
 
@@ -1263,7 +1264,7 @@ TEST_CASE(
 	auto resp = http_get_with_headers("/api/echo-header", "x-test-header: case-test\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "case-test");
 }
 
@@ -1282,7 +1283,7 @@ TEST_CASE(
 	auto resp = http_post("/api/echo-body", "text/plain", "hello server");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "hello server");
 }
 
@@ -1290,9 +1291,9 @@ TEST_CASE(
 	"POST JSON body is echoed back with application/json content-type") {
 	auto resp = http_post("/api/echo-json", "application/json", R"({"key":"value"})");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("application/json") != std::string::npos);
+	REQUIRE(resp.find("application/json") != S::npos);
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == R"({"key":"value"})");
 }
 
@@ -1301,7 +1302,7 @@ TEST_CASE(
 	auto resp = http_post("/api/echo-body", "text/plain", "");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4).empty());
 }
 
@@ -1320,7 +1321,7 @@ TEST_CASE(
 	auto resp = http_get("/api/echo-query?key=hello");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "hello");
 }
 
@@ -1329,7 +1330,7 @@ TEST_CASE(
 	auto resp = http_get("/api/echo-query?key=hello%20world");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "hello world");
 }
 
@@ -1338,7 +1339,7 @@ TEST_CASE(
 	auto resp = http_get("/api/echo-query?key=hello+world");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "hello world");
 }
 
@@ -1346,7 +1347,7 @@ TEST_CASE(
 	"query string does not bleed into path matching") {
 	auto resp = http_get("/api/ping?ignored=1");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("application/json") != std::string::npos);
+	REQUIRE(resp.find("application/json") != S::npos);
 }
 
 TEST_CASE(
@@ -1364,7 +1365,7 @@ TEST_CASE(
 	auto resp = http_post("/api/echo-form", "application/x-www-form-urlencoded", "field=hello");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "hello");
 }
 
@@ -1373,7 +1374,7 @@ TEST_CASE(
 	auto resp = http_post("/api/echo-form", "application/x-www-form-urlencoded", "field=hello%20world");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "hello world");
 }
 
@@ -1382,7 +1383,7 @@ TEST_CASE(
 	auto resp = http_post("/api/echo-form", "application/x-www-form-urlencoded", "other=x&field=target&more=y");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "target");
 }
 
@@ -1397,10 +1398,10 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 // Builds a minimal multipart/form-data body with one text field.
-static std::string make_multipart_text(
-	std::string_view boundary,
-	std::string_view name,
-	std::string_view field_value) {
+static S make_multipart_text(
+	SV boundary,
+	SV name,
+	SV field_value) {
 	return std::format(
 		"--{}\r\n"
 		"Content-Disposition: form-data; name=\"{}\"\r\n"
@@ -1414,12 +1415,12 @@ static std::string make_multipart_text(
 }
 
 // Builds a multipart/form-data body with one file part.
-static std::string make_multipart_file(
-	std::string_view boundary,
-	std::string_view name,
-	std::string_view filename,
-	std::string_view content_type,
-	std::string_view data) {
+static S make_multipart_file(
+	SV boundary,
+	SV name,
+	SV filename,
+	SV content_type,
+	SV data) {
 	return std::format(
 		"--{}\r\n"
 		"Content-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\n"
@@ -1442,34 +1443,34 @@ TEST_CASE(
 	auto resp = http_post("/api/multipart-field", ct, body);
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "hello from multipart");
 }
 
 TEST_CASE(
 	"multipart/form-data value with special characters is preserved") {
 	auto body = make_multipart_text("bnd42", "field", "a=1&b=2 <> \"quotes\"");
-	auto ct = std::string{"multipart/form-data; boundary=bnd42"};
+	auto ct = S{"multipart/form-data; boundary=bnd42"};
 	auto resp = http_post("/api/multipart-field", ct, body);
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "a=1&b=2 <> \"quotes\"");
 }
 
 TEST_CASE(
 	"multipart/form-data file part populates req.files") {
 	auto body = make_multipart_file("fileBnd", "upload", "hello.txt", "text/plain", "file content here");
-	auto ct = std::string{"multipart/form-data; boundary=fileBnd"};
+	auto ct = S{"multipart/form-data; boundary=fileBnd"};
 	auto resp = http_post("/api/multipart-file", ct, body);
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	auto json = resp.substr(hdr_end + 4);
-	REQUIRE(json.find("\"name\":\"upload\"") != std::string::npos);
-	REQUIRE(json.find("\"filename\":\"hello.txt\"") != std::string::npos);
-	REQUIRE(json.find("\"content_type\":\"text/plain\"") != std::string::npos);
-	REQUIRE(json.find("\"size\":17") != std::string::npos);
+	REQUIRE(json.find("\"name\":\"upload\"") != S::npos);
+	REQUIRE(json.find("\"filename\":\"hello.txt\"") != S::npos);
+	REQUIRE(json.find("\"content_type\":\"text/plain\"") != S::npos);
+	REQUIRE(json.find("\"size\":17") != S::npos);
 }
 
 TEST_CASE(
@@ -1490,7 +1491,7 @@ TEST_CASE(
 	auto resp = http_get("/api/echo-query?key=caf%C3%A9");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "café");
 }
 
@@ -1500,7 +1501,7 @@ TEST_CASE(
 	auto resp = http_get("/api/echo-query?key=%F0%9F%98%80");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "😀");
 }
 
@@ -1509,7 +1510,7 @@ TEST_CASE(
 	auto resp = http_post("/api/echo-body", "text/plain", "héllo");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "héllo");
 }
 
@@ -1519,7 +1520,7 @@ TEST_CASE(
 	auto resp = http_get("/api/echo-query?key=%GGx");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "%GGx");
 }
 
@@ -1532,7 +1533,7 @@ TEST_CASE(
 		"field=%E3%81%93%E3%82%93%E3%81%AB%E3%81%A1%E3%81%AF");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == "こんにちは");
 }
 
@@ -1544,22 +1545,22 @@ TEST_CASE(
 	"custom response headers are sent to client") {
 	auto resp = http_get("/api/with-header");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("X-Custom: hello\r\n") != std::string::npos);
-	REQUIRE(resp.find("X-Another: world\r\n") != std::string::npos);
+	REQUIRE(resp.find("X-Custom: hello\r\n") != S::npos);
+	REQUIRE(resp.find("X-Another: world\r\n") != S::npos);
 }
 
 TEST_CASE(
 	"302 redirect sets Location header and status") {
 	auto resp = http_get("/api/redirect-302");
 	REQUIRE(resp.starts_with("HTTP/1.1 302 Found"));
-	REQUIRE(resp.find("Location: /api/ping\r\n") != std::string::npos);
+	REQUIRE(resp.find("Location: /api/ping\r\n") != S::npos);
 }
 
 TEST_CASE(
 	"301 redirect sets Location header and status") {
 	auto resp = http_get("/api/redirect-301");
 	REQUIRE(resp.starts_with("HTTP/1.1 301 Moved Permanently"));
-	REQUIRE(resp.find("Location: /api/ping\r\n") != std::string::npos);
+	REQUIRE(resp.find("Location: /api/ping\r\n") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -1570,9 +1571,9 @@ TEST_CASE(
 	"two sequential requests on one connection both succeed") {
 	auto [r1, r2] = http_two_gets("/api/ping", "/");
 	REQUIRE(r1.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(r1.find("{\"status\":\"ok\"}") != std::string::npos);
+	REQUIRE(r1.find("{\"status\":\"ok\"}") != S::npos);
 	REQUIRE(r2.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(r2.find("Hello from conflux") != std::string::npos);
+	REQUIRE(r2.find("Hello from conflux") != S::npos);
 }
 
 TEST_CASE(
@@ -1593,7 +1594,7 @@ TEST_CASE(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
-	std::string_view const req = "GET /api/ping HTTP/1.0\r\nHost: localhost\r\n\r\n";
+	SV const req = "GET /api/ping HTTP/1.0\r\nHost: localhost\r\n\r\n";
 	::send(fd, req.data(), req.size(), 0);
 	read_one_response(fd);
 
@@ -1632,7 +1633,7 @@ TEST_CASE(
 		addr.sin_port = htons(port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
-		std::string_view const req = "GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+		SV const req = "GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
 		::send(fd, req.data(), req.size(), 0);
 		auto resp = read_one_response(fd);
 		::close(fd);
@@ -1656,7 +1657,7 @@ TEST_CASE(
 			stopped = true;
 			break;
 		}
-		std::string_view const req = "GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+		SV const req = "GET /ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
 		::send(fd2, req.data(), req.size(), 0);
 		char probe{};
 		auto n = ::recv(fd2, &probe, 1, MSG_DONTWAIT);
@@ -1690,12 +1691,12 @@ TEST_CASE(
 	// Two logging middlewares — verify execution order (A then B, outermost first).
 	router.use([](HttpRequest const &req, Router::Handler const &next) {
 		auto resp = next(req);
-		resp.headers["X-MW-Order"] = std::string{resp.headers["X-MW-Order"]} + "A";
+		resp.headers["X-MW-Order"] = S{resp.headers["X-MW-Order"]} + "A";
 		return resp;
 	});
 	router.use([](HttpRequest const &req, Router::Handler const &next) {
 		auto resp = next(req);
-		resp.headers["X-MW-Order"] = std::string{resp.headers["X-MW-Order"]} + "B";
+		resp.headers["X-MW-Order"] = S{resp.headers["X-MW-Order"]} + "B";
 		return resp;
 	});
 
@@ -1717,13 +1718,13 @@ TEST_CASE(
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
 	router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
 	router.get("/injected", [](HttpRequest const &req) {
-		return HttpResponse::text(std::string{req.headers["x-injected"]});
+		return HttpResponse::text(S{req.headers["x-injected"]});
 	});
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	uint16_t const mw_port = srv.port();
 
-	auto get = [&](std::string_view path, std::string_view extra = "") {
+	auto get = [&](SV path, SV extra = "") {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
@@ -1740,7 +1741,7 @@ TEST_CASE(
 	SECTION("middleware A runs outermost, B innermost (both stamp header)") {
 		auto resp = get("/ping");
 		// A wraps B: B appends "B", then A appends "A" → "BA"
-		REQUIRE(resp.find("X-MW-Order: BA\r\n") != std::string::npos);
+		REQUIRE(resp.find("X-MW-Order: BA\r\n") != S::npos);
 	}
 
 	SECTION("auth middleware blocks /protected without key") {
@@ -1771,7 +1772,7 @@ TEST_CASE(
 TEST_CASE(
 	"POST with body within default limit is accepted") {
 	// 100 bytes — well within 1 MiB default
-	auto resp = http_post("/api/echo-body", "text/plain", std::string(100, 'x'));
+	auto resp = http_post("/api/echo-body", "text/plain", S(100, 'x'));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 }
 
@@ -1793,14 +1794,14 @@ TEST_CASE(
 	ScopedTestServer srv{cfg, std::move(router)};
 	uint16_t const limit_port = srv.port();
 
-	auto post = [&](std::size_t body_size) {
+	auto post = [&](SZ body_size) {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(limit_port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-		std::string body(body_size, 'A');
+		S body(body_size, 'A');
 		auto req = std::format(
 			"POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\n"
 			"Content-Length: {}\r\nConnection: close\r\n\r\n{}",
@@ -1840,18 +1841,18 @@ TEST_CASE(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
-	std::string_view const req = "HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+	SV const req = "HEAD / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
 	::send(fd, req.data(), req.size(), 0);
 
 	// Read until connection closes — no body expected.
-	std::string resp;
-	std::array<char, 4096> buf{};
+	S resp;
+	A<char, 4096> buf{};
 	for (;;) {
 		auto n = ::recv(fd, buf.data(), buf.size(), 0);
 		if (n <= 0) {
 			break;
 		}
-		resp.append(buf.data(), static_cast<std::size_t>(n));
+		resp.append(buf.data(), static_cast<SZ>(n));
 	}
 	::close(fd);
 
@@ -1859,16 +1860,16 @@ TEST_CASE(
 
 	// Status and Content-Type must match GET.
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Content-Type: text/html") != std::string::npos);
+	REQUIRE(resp.find("Content-Type: text/html") != S::npos);
 
 	// Content-Length must equal the GET body size.
-	auto extract_cl = [](std::string const &r) -> std::size_t {
+	auto extract_cl = [](S const &r) -> SZ {
 		auto pos = r.find("Content-Length: ");
-		if (pos == std::string::npos) {
+		if (pos == S::npos) {
 			return 0;
 		}
 		pos += 16;
-		std::size_t v = 0;
+		SZ v = 0;
 		std::from_chars(r.data() + pos, r.data() + r.size(), v);
 		return v;
 	};
@@ -1876,7 +1877,7 @@ TEST_CASE(
 
 	// HEAD response must have no body — everything after \r\n\r\n is empty.
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.size() == hdr_end + 4);
 }
 
@@ -1891,24 +1892,24 @@ TEST_CASE(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
-	std::string_view const req = "HEAD /api/ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+	SV const req = "HEAD /api/ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
 	::send(fd, req.data(), req.size(), 0);
 
-	std::string resp;
-	std::array<char, 4096> buf{};
+	S resp;
+	A<char, 4096> buf{};
 	for (;;) {
 		auto n = ::recv(fd, buf.data(), buf.size(), 0);
 		if (n <= 0) {
 			break;
 		}
-		resp.append(buf.data(), static_cast<std::size_t>(n));
+		resp.append(buf.data(), static_cast<SZ>(n));
 	}
 	::close(fd);
 
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Content-Type: application/json") != std::string::npos);
+	REQUIRE(resp.find("Content-Type: application/json") != S::npos);
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.size() == hdr_end + 4); // no body
 }
 
@@ -1944,7 +1945,7 @@ TEST_CASE(
 	"OPTIONS /api/resource returns Allow header") {
 	auto resp = http_request("OPTIONS", "/api/resource");
 	REQUIRE(resp.starts_with("HTTP/1.1 204 No Content"));
-	REQUIRE(resp.find("Allow: GET, POST, PUT, PATCH, DELETE, OPTIONS\r\n") != std::string::npos);
+	REQUIRE(resp.find("Allow: GET, POST, PUT, PATCH, DELETE, OPTIONS\r\n") != S::npos);
 }
 
 TEST_CASE(
@@ -1987,7 +1988,7 @@ TEST_CASE(
 	ScopedTestServer srv{cfg, std::move(router)};
 	uint16_t const err_port = srv.port();
 
-	auto get = [&](std::string_view path) {
+	auto get = [&](SV path) {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
@@ -2011,7 +2012,7 @@ TEST_CASE(
 	SECTION("custom not_found handler returns JSON 404") {
 		auto resp = get("/missing");
 		REQUIRE(resp.starts_with("HTTP/1.1 200 OK")); // status from handler
-		REQUIRE(resp.find("application/json") != std::string::npos);
+		REQUIRE(resp.find("application/json") != S::npos);
 		auto hdr_end = resp.find("\r\n\r\n");
 		REQUIRE(resp.substr(hdr_end + 4) == R"({"error":"not_found","path":"/missing"})");
 	}
@@ -2019,7 +2020,7 @@ TEST_CASE(
 	SECTION("throwing handler returns custom error response with exception message") {
 		auto resp = get("/boom");
 		REQUIRE(resp.starts_with("HTTP/1.1 500 Internal Server Error"));
-		REQUIRE(resp.find("application/json") != std::string::npos);
+		REQUIRE(resp.find("application/json") != S::npos);
 		auto hdr_end = resp.find("\r\n\r\n");
 		REQUIRE(resp.substr(hdr_end + 4) == R"({"error":"internal","detail":"something exploded"})");
 	}
@@ -2043,7 +2044,7 @@ TEST_CASE(
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
 	// "Hello, " (7 bytes) + "world!" (6 bytes) + terminal chunk
-	std::string_view const raw =
+	SV const raw =
 		"POST /api/echo-body HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"Content-Type: text/plain\r\n"
@@ -2077,7 +2078,7 @@ TEST_CASE(
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
 	// Chunk extensions (";name=val") must be ignored.
-	std::string_view const raw =
+	SV const raw =
 		"POST /api/echo-body HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"Content-Type: text/plain\r\n"
@@ -2127,8 +2128,8 @@ TEST_CASE(
 	"Response set_cookie emits Set-Cookie headers") {
 	auto resp = http_get("/api/set-cookie");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Set-Cookie: session=abc123; Path=/; HttpOnly\r\n") != std::string::npos);
-	REQUIRE(resp.find("Set-Cookie: theme=dark\r\n") != std::string::npos);
+	REQUIRE(resp.find("Set-Cookie: session=abc123; Path=/; HttpOnly\r\n") != S::npos);
+	REQUIRE(resp.find("Set-Cookie: theme=dark\r\n") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -2146,12 +2147,12 @@ TEST_CASE(
 TEST_CASE(
 	"group middleware stamps header on grouped routes only") {
 	auto v2 = http_get("/api/v2/status");
-	REQUIRE(v2.find("X-Api-Version: 2\r\n") != std::string::npos);
+	REQUIRE(v2.find("X-Api-Version: 2\r\n") != S::npos);
 
 	// Route outside the group must NOT receive the group middleware header.
 	auto v1 = http_get("/api/v1/status");
 	REQUIRE(v1.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(v1.find("X-Api-Version:") == std::string::npos);
+	REQUIRE(v1.find("X-Api-Version:") == S::npos);
 }
 
 TEST_CASE(
@@ -2178,8 +2179,8 @@ TEST_CASE(
 	char tmpdir[] = "/tmp/conflux_static_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
-	auto write_file = [&](std::string_view name, std::string_view content) {
-		auto path = std::string{tmpdir} + "/" + std::string{name};
+	auto write_file = [&](SV name, SV content) {
+		auto path = S{tmpdir} + "/" + S{name};
 		int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(fd >= 0);
 		ssize_t const written = ::write(fd, content.data(), content.size());
@@ -2200,12 +2201,12 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	Router router;
-	router.serve_static("/static", std::string{tmpdir});
+	router.serve_static("/static", S{tmpdir});
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	uint16_t const static_port = srv.port();
 
-	auto get = [&](std::string_view path, std::string_view extra = "") {
+	auto get = [&](SV path, SV extra = "") {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
@@ -2222,7 +2223,7 @@ TEST_CASE(
 	SECTION("serves .txt file with correct MIME type") {
 		auto resp = get("/static/hello.txt");
 		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-		REQUIRE(resp.find("Content-Type: text/plain; charset=utf-8\r\n") != std::string::npos);
+		REQUIRE(resp.find("Content-Type: text/plain; charset=utf-8\r\n") != S::npos);
 		auto hdr_end = resp.find("\r\n\r\n");
 		REQUIRE(resp.substr(hdr_end + 4) == "Hello, static!");
 	}
@@ -2230,7 +2231,7 @@ TEST_CASE(
 	SECTION("serves .html file with correct MIME type") {
 		auto resp = get("/static/page.html");
 		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-		REQUIRE(resp.find("Content-Type: text/html; charset=utf-8\r\n") != std::string::npos);
+		REQUIRE(resp.find("Content-Type: text/html; charset=utf-8\r\n") != S::npos);
 		auto hdr_end = resp.find("\r\n\r\n");
 		REQUIRE(resp.substr(hdr_end + 4) == "<h1>Static HTML</h1>");
 	}
@@ -2238,18 +2239,18 @@ TEST_CASE(
 	SECTION("serves .json file with correct MIME type") {
 		auto resp = get("/static/data.json");
 		REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-		REQUIRE(resp.find("Content-Type: application/json\r\n") != std::string::npos);
+		REQUIRE(resp.find("Content-Type: application/json\r\n") != S::npos);
 	}
 
 	SECTION("returns ETag header") {
 		auto resp = get("/static/hello.txt");
-		REQUIRE(resp.find("ETag: \"") != std::string::npos);
+		REQUIRE(resp.find("ETag: \"") != S::npos);
 	}
 
 	SECTION("returns 304 when If-None-Match matches ETag") {
 		auto resp1 = get("/static/hello.txt");
 		auto etag_pos = resp1.find("ETag: ");
-		REQUIRE(etag_pos != std::string::npos);
+		REQUIRE(etag_pos != S::npos);
 		etag_pos += 6;
 		auto etag_end = resp1.find("\r\n", etag_pos);
 		auto etag = resp1.substr(etag_pos, etag_end - etag_pos);
@@ -2260,7 +2261,7 @@ TEST_CASE(
 
 	SECTION("returns 304 for If-Modified-Since using GMT under non-UTC TZ") {
 		struct TzGuard {
-			std::optional<std::string> old_tz;
+			Opt<S> old_tz;
 			TzGuard() {
 				if (char const *tz = ::getenv("TZ"); tz != nullptr) {
 					old_tz = tz;
@@ -2280,7 +2281,7 @@ TEST_CASE(
 
 		auto resp1 = get("/static/hello.txt");
 		auto lm_pos = resp1.find("Last-Modified: ");
-		REQUIRE(lm_pos != std::string::npos);
+		REQUIRE(lm_pos != S::npos);
 		lm_pos += 15;
 		auto lm_end = resp1.find("\r\n", lm_pos);
 		auto last_modified = resp1.substr(lm_pos, lm_end - lm_pos);
@@ -2303,7 +2304,7 @@ TEST_CASE(
 
 	// Cleanup temp files.
 	for (auto const &name: {"hello.txt", "page.html", "data.json"}) {
-		::unlink((std::string{tmpdir} + "/" + name).c_str());
+		::unlink((S{tmpdir} + "/" + name).c_str());
 	}
 	::rmdir(tmpdir);
 }
@@ -2313,8 +2314,8 @@ TEST_CASE(
 	char tmpdir[] = "/tmp/conflux_static_off_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
-	auto write_file = [&](std::string_view name, std::string_view content) {
-		auto path = std::string{tmpdir} + "/" + std::string{name};
+	auto write_file = [&](SV name, SV content) {
+		auto path = S{tmpdir} + "/" + S{name};
 		int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(fd >= 0);
 		ssize_t const written = ::write(fd, content.data(), content.size());
@@ -2338,12 +2339,12 @@ TEST_CASE(
 	Router router;
 	StaticOptions sopts{};
 	sopts.offload_pool = pool;
-	router.serve_static("/static", std::string{tmpdir}, sopts);
+	router.serve_static("/static", S{tmpdir}, sopts);
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	uint16_t const static_port = srv.port();
 
-	auto get = [&](std::string_view path, std::string_view extra = "") {
+	auto get = [&](SV path, SV extra = "") {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
@@ -2377,7 +2378,7 @@ TEST_CASE(
 	SECTION("offloaded 304 If-None-Match round-trip") {
 		auto resp1 = get("/static/hello.txt");
 		auto etag_pos = resp1.find("ETag: ");
-		REQUIRE(etag_pos != std::string::npos);
+		REQUIRE(etag_pos != S::npos);
 		etag_pos += 6;
 		auto etag_end = resp1.find("\r\n", etag_pos);
 		auto etag = resp1.substr(etag_pos, etag_end - etag_pos);
@@ -2394,14 +2395,14 @@ TEST_CASE(
 
 	SECTION("many concurrent offloaded requests") {
 		constexpr int kClients = 32;
-		std::vector<std::jthread> threads;
+		V<std::jthread> threads;
 		std::atomic<int> ok{0};
 		threads.reserve(kClients);
 		for (int i = 0; i < kClients; ++i) {
 			threads.emplace_back([&] {
 				for (int attempt = 0; attempt < 3; ++attempt) {
 					auto resp = get("/static/hello.txt");
-					if (resp.starts_with("HTTP/1.1 200 OK") && resp.find("Hello, offloaded!") != std::string::npos) {
+					if (resp.starts_with("HTTP/1.1 200 OK") && resp.find("Hello, offloaded!") != S::npos) {
 						ok.fetch_add(1);
 						return;
 					}
@@ -2418,7 +2419,7 @@ TEST_CASE(
 	pool->wait();
 
 	for (auto const &name: {"hello.txt", "empty.txt"}) {
-		::unlink((std::string{tmpdir} + "/" + name).c_str());
+		::unlink((S{tmpdir} + "/" + name).c_str());
 	}
 	::rmdir(tmpdir);
 }
@@ -2444,12 +2445,12 @@ TEST_CASE(
 	Router router;
 	StaticOptions sopts{};
 	sopts.allow_put = true;
-	router.serve_static("/static", std::string{tmpdir}, sopts);
+	router.serve_static("/static", S{tmpdir}, sopts);
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	uint16_t const port = srv.port();
 
-	auto raw_request = [&](std::string_view method, std::string_view path, std::string_view body = "") {
+	auto raw_request = [&](SV method, SV path, SV body = "") {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
@@ -2472,19 +2473,19 @@ TEST_CASE(
 		auto resp = raw_request("PUT", "/static/new.txt", "hello");
 		REQUIRE(resp.starts_with("HTTP/1.1 201 Created"));
 		// Verify file was written.
-		auto path = std::string{tmpdir} + "/new.txt";
+		auto path = S{tmpdir} + "/new.txt";
 		int const fd = ::open(path.c_str(), O_RDONLY);
 		REQUIRE(fd >= 0);
 		char buf[16]{};
 		auto n = ::read(fd, buf, sizeof(buf));
 		::close(fd);
 		REQUIRE(n == 5);
-		CHECK(std::string_view{buf, static_cast<size_t>(n)} == "hello");
+		CHECK(SV{buf, static_cast<size_t>(n)} == "hello");
 		::unlink(path.c_str());
 	}
 
 	SECTION("PUT existing file returns 204 No Content") {
-		auto path = std::string{tmpdir} + "/existing.txt";
+		auto path = S{tmpdir} + "/existing.txt";
 		int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(fd >= 0);
 		::write(fd, "old", 3);
@@ -2521,12 +2522,12 @@ TEST_CASE(
 	Router router;
 	StaticOptions sopts{};
 	sopts.allow_delete = true;
-	router.serve_static("/static", std::string{tmpdir}, sopts);
+	router.serve_static("/static", S{tmpdir}, sopts);
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	uint16_t const port = srv.port();
 
-	auto raw_request = [&](std::string_view method, std::string_view path) {
+	auto raw_request = [&](SV method, SV path) {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
@@ -2544,7 +2545,7 @@ TEST_CASE(
 	};
 
 	SECTION("DELETE existing file returns 204 No Content") {
-		auto path = std::string{tmpdir} + "/todelete.txt";
+		auto path = S{tmpdir} + "/todelete.txt";
 		int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(fd >= 0);
 		::write(fd, "bye", 3);
@@ -2579,10 +2580,10 @@ TEST_CASE(
 	char tmpdir[] = "/tmp/conflux_head_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
-	auto path = std::string{tmpdir} + "/hello.txt";
+	auto path = S{tmpdir} + "/hello.txt";
 	int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(fd >= 0);
-	std::string_view const content = "Hello, static!";
+	SV const content = "Hello, static!";
 	::write(fd, content.data(), content.size());
 	::close(fd);
 
@@ -2596,7 +2597,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	Router router;
-	router.serve_static("/f", std::string{tmpdir});
+	router.serve_static("/f", S{tmpdir});
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	int const s = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2605,17 +2606,17 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	std::string_view const req = "HEAD /f/hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+	SV const req = "HEAD /f/hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
 	::send(s, req.data(), req.size(), 0);
 	auto resp = read_one_response(s);
 	::close(s);
 
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	// Content-Length must reflect the actual file size (14 bytes).
-	REQUIRE(resp.find("Content-Length: 14") != std::string::npos);
+	REQUIRE(resp.find("Content-Length: 14") != S::npos);
 	// Body must be empty for HEAD response.
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.size() == hdr_end + 4);
 
 	::unlink(path.c_str());
@@ -2632,10 +2633,10 @@ TEST_CASE(
 	char tmpdir[] = "/tmp/conflux_range_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
-	auto path = std::string{tmpdir} + "/data.txt";
+	auto path = S{tmpdir} + "/data.txt";
 	int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(fd >= 0);
-	std::string_view const content = "0123456789";
+	SV const content = "0123456789";
 	::write(fd, content.data(), content.size());
 	::close(fd);
 
@@ -2648,7 +2649,7 @@ TEST_CASE(
 	cfg.coop_taskrun = true;
 	cfg.taskrun_flag = true;
 	Router router;
-	router.serve_static("/f", std::string{tmpdir});
+	router.serve_static("/f", S{tmpdir});
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	// Request bytes 2-5 (inclusive): "2345"
@@ -2658,14 +2659,14 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	std::string_view const req =
+	SV const req =
 		"GET /f/data.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=2-5\r\nConnection: close\r\n\r\n";
 	::send(s, req.data(), req.size(), 0);
 	auto resp = read_one_response(s);
 	::close(s);
 
 	REQUIRE(resp.starts_with("HTTP/1.1 206 Partial Content"));
-	REQUIRE(resp.find("Content-Range: bytes 2-5/10") != std::string::npos);
+	REQUIRE(resp.find("Content-Range: bytes 2-5/10") != S::npos);
 	REQUIRE(extract_body(resp) == "2345");
 
 	::unlink(path.c_str());
@@ -2678,10 +2679,10 @@ TEST_CASE(
 	char tmpdir[] = "/tmp/conflux_range416_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
-	auto path = std::string{tmpdir} + "/tiny.txt";
+	auto path = S{tmpdir} + "/tiny.txt";
 	int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(fd >= 0);
-	std::string_view const content = "hi";
+	SV const content = "hi";
 	::write(fd, content.data(), content.size());
 	::close(fd);
 
@@ -2695,7 +2696,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	Router router;
-	router.serve_static("/f", std::string{tmpdir});
+	router.serve_static("/f", S{tmpdir});
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	int const s = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2704,7 +2705,7 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	std::string_view const req =
+	SV const req =
 		"GET /f/tiny.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=100-200\r\nConnection: close\r\n\r\n";
 	::send(s, req.data(), req.size(), 0);
 	auto resp = read_one_response(s);
@@ -2726,10 +2727,10 @@ TEST_CASE(
 	char tmpdir[] = "/tmp/conflux_suffix_range_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
-	auto path = std::string{tmpdir} + "/data.txt";
+	auto path = S{tmpdir} + "/data.txt";
 	int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(fd >= 0);
-	std::string_view const content = "0123456789";
+	SV const content = "0123456789";
 	::write(fd, content.data(), content.size());
 	::close(fd);
 
@@ -2743,7 +2744,7 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	Router router;
-	router.serve_static("/f", std::string{tmpdir});
+	router.serve_static("/f", S{tmpdir});
 	ScopedTestServer srv{cfg, std::move(router)};
 
 	// bytes=-5: last 5 bytes not implemented → must NOT return first 5 bytes (old bug)
@@ -2753,7 +2754,7 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	std::string_view const req =
+	SV const req =
 		"GET /f/data.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=-5\r\nConnection: close\r\n\r\n";
 	::send(s, req.data(), req.size(), 0);
 	auto resp = read_one_response(s);
@@ -2814,7 +2815,7 @@ TEST_CASE(
 	// Normal request still works after a timeout reap.
 	int const fd2 = ::socket(AF_INET, SOCK_STREAM, 0);
 	::connect(fd2, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	std::string_view const req = "GET /ok HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+	SV const req = "GET /ok HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
 	::send(fd2, req.data(), req.size(), 0);
 	auto resp = read_one_response(fd2);
 	::close(fd2);
@@ -2847,7 +2848,7 @@ TEST_CASE(
 	ScopedTestServer srv{cfg, std::move(router)};
 	uint16_t const log_port = srv.port();
 
-	auto get = [&](std::string_view path) {
+	auto get = [&](SV path) {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
@@ -2868,10 +2869,10 @@ TEST_CASE(
 	srv.stop();
 
 	auto log = log_out.str();
-	REQUIRE(log.find("GET /ping 200") != std::string::npos);
-	REQUIRE(log.find("GET /missing 404") != std::string::npos);
+	REQUIRE(log.find("GET /ping 200") != S::npos);
+	REQUIRE(log.find("GET /missing 404") != S::npos);
 	// Each line starts with a timestamp in ISO 8601 format.
-	REQUIRE(log.find("[20") != std::string::npos);
+	REQUIRE(log.find("[20") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -2912,8 +2913,8 @@ TEST_CASE(
 
 	// --- Handshake ---
 	// RFC 6455 §1.3 test vector: key → accept.
-	std::string_view const ws_key = "dGhlIHNhbXBsZSBub25jZQ==";
-	std::string upgrade_req = std::format(
+	SV const ws_key = "dGhlIHNhbXBsZSBub25jZQ==";
+	S upgrade_req = std::format(
 		"GET /ws HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"Upgrade: websocket\r\n"
@@ -2923,42 +2924,42 @@ TEST_CASE(
 		ws_key);
 	::send(fd, upgrade_req.data(), upgrade_req.size(), 0);
 
-	std::array<char, 4096> buf{};
+	A<char, 4096> buf{};
 	auto n = ::recv(fd, buf.data(), buf.size(), 0);
 	REQUIRE(n > 0);
-	std::string_view const resp{buf.data(), static_cast<std::size_t>(n)};
+	SV const resp{buf.data(), static_cast<SZ>(n)};
 	REQUIRE(resp.starts_with("HTTP/1.1 101 Switching Protocols\r\n"));
-	REQUIRE(resp.find("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=") != std::string_view::npos);
+	REQUIRE(resp.find("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=") != SV::npos);
 
 	// --- Send masked text frame "hello" ---
 	// FIN=1, opcode=1; MASK=1, len=5; mask=0x01020304; masked payload.
-	std::array<uint8_t, 4> const mask = {0x01, 0x02, 0x03, 0x04};
-	std::string_view const msg = "hello";
-	std::array<uint8_t, 11> tx_frame{};
+	A<uint8_t, 4> const mask = {0x01, 0x02, 0x03, 0x04};
+	SV const msg = "hello";
+	A<uint8_t, 11> tx_frame{};
 	tx_frame[0] = 0x81; // FIN | text
 	tx_frame[1] = 0x80 | 0x05; // MASK | len=5
 	tx_frame[2] = mask[0];
 	tx_frame[3] = mask[1];
 	tx_frame[4] = mask[2];
 	tx_frame[5] = mask[3];
-	for (std::size_t i = 0; i < msg.size(); ++i) {
+	for (SZ i = 0; i < msg.size(); ++i) {
 		tx_frame[6 + i] = static_cast<uint8_t>(msg[i]) ^ mask[i & 3];
 	}
 	::send(fd, tx_frame.data(), tx_frame.size(), 0);
 
 	// --- Receive unmasked echo frame ---
-	std::array<uint8_t, 64> rx_buf{};
+	A<uint8_t, 64> rx_buf{};
 	auto rn = ::recv(fd, rx_buf.data(), rx_buf.size(), 0);
 	REQUIRE(rn >= 7); // 2 header + 5 payload
 	REQUIRE(rx_buf[0] == 0x81); // FIN | text
 	REQUIRE((rx_buf[1] & 0x80U) == 0U); // NOT masked (server→client)
 	REQUIRE((rx_buf[1] & 0x7FU) == 5U); // payload length = 5
-	std::string echo{reinterpret_cast<char const *>(rx_buf.data() + 2), 5};
+	S echo{reinterpret_cast<char const *>(rx_buf.data() + 2), 5};
 	REQUIRE(echo == "hello");
 
 	// --- Send close frame (masked, status 1000) ---
 	uint16_t const status = 1000;
-	std::array<uint8_t, 8> close_frame{};
+	A<uint8_t, 8> close_frame{};
 	close_frame[0] = 0x88; // FIN | close
 	close_frame[1] = 0x80 | 0x02; // MASK | len=2
 	close_frame[2] = 0xAA;
@@ -2985,14 +2986,14 @@ TEST_CASE(
 	ensure_compress_server();
 	auto resp = http_get_on(g_compress_port, "/big", "Accept-Encoding: gzip\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Content-Encoding: gzip") != std::string::npos);
-	REQUIRE(resp.find("Vary: Accept-Encoding") != std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: gzip") != S::npos);
+	REQUIRE(resp.find("Vary: Accept-Encoding") != S::npos);
 	// Body decompresses back to 512 A's.
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	auto body = resp.substr(hdr_end + 4);
 	auto decompressed = gzip_decompress(body);
-	REQUIRE(decompressed == std::string(512, 'A'));
+	REQUIRE(decompressed == S(512, 'A'));
 }
 
 TEST_CASE(
@@ -3000,7 +3001,7 @@ TEST_CASE(
 	ensure_compress_server();
 	auto resp = http_get_on(g_compress_port, "/big");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Content-Encoding: gzip") == std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: gzip") == S::npos);
 }
 
 TEST_CASE(
@@ -3008,7 +3009,7 @@ TEST_CASE(
 	ensure_compress_server();
 	auto resp = http_get_on(g_compress_port, "/small", "Accept-Encoding: gzip\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Content-Encoding: gzip") == std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: gzip") == S::npos);
 }
 
 TEST_CASE(
@@ -3016,7 +3017,7 @@ TEST_CASE(
 	ensure_compress_server();
 	auto resp = http_get_on(g_compress_port, "/bin", "Accept-Encoding: gzip\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Content-Encoding: gzip") == std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: gzip") == S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -3027,43 +3028,43 @@ TEST_CASE(
 	"security: default options inject HSTS header") {
 	ensure_security_server();
 	auto resp = http_get_on(g_security_port, "/");
-	REQUIRE(resp.find("Strict-Transport-Security:") != std::string::npos);
-	REQUIRE(resp.find("max-age=") != std::string::npos);
+	REQUIRE(resp.find("Strict-Transport-Security:") != S::npos);
+	REQUIRE(resp.find("max-age=") != S::npos);
 }
 
 TEST_CASE(
 	"security: default options inject X-Frame-Options DENY") {
 	ensure_security_server();
 	auto resp = http_get_on(g_security_port, "/");
-	REQUIRE(resp.find("X-Frame-Options: DENY") != std::string::npos);
+	REQUIRE(resp.find("X-Frame-Options: DENY") != S::npos);
 }
 
 TEST_CASE(
 	"security: default options inject X-Content-Type-Options nosniff") {
 	ensure_security_server();
 	auto resp = http_get_on(g_security_port, "/");
-	REQUIRE(resp.find("X-Content-Type-Options: nosniff") != std::string::npos);
+	REQUIRE(resp.find("X-Content-Type-Options: nosniff") != S::npos);
 }
 
 TEST_CASE(
 	"security: default options inject Referrer-Policy") {
 	ensure_security_server();
 	auto resp = http_get_on(g_security_port, "/");
-	REQUIRE(resp.find("Referrer-Policy:") != std::string::npos);
+	REQUIRE(resp.find("Referrer-Policy:") != S::npos);
 }
 
 TEST_CASE(
 	"security: default options inject X-XSS-Protection") {
 	ensure_security_server();
 	auto resp = http_get_on(g_security_port, "/");
-	REQUIRE(resp.find("X-XSS-Protection: 1; mode=block") != std::string::npos);
+	REQUIRE(resp.find("X-XSS-Protection: 1; mode=block") != S::npos);
 }
 
 TEST_CASE(
 	"security: default options inject Permissions-Policy") {
 	ensure_security_server();
 	auto resp = http_get_on(g_security_port, "/");
-	REQUIRE(resp.find("Permissions-Policy:") != std::string::npos);
+	REQUIRE(resp.find("Permissions-Policy:") != S::npos);
 }
 
 TEST_CASE(
@@ -3086,7 +3087,7 @@ TEST_CASE(
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	auto resp = http_get_on(srv.port(), "/");
-	REQUIRE(resp.find("Content-Security-Policy: default-src 'self'") != std::string::npos);
+	REQUIRE(resp.find("Content-Security-Policy: default-src 'self'") != S::npos);
 }
 
 TEST_CASE(
@@ -3109,8 +3110,8 @@ TEST_CASE(
 
 	ScopedTestServer srv{cfg, std::move(router)};
 	auto resp = http_get_on(srv.port(), "/");
-	REQUIRE(resp.find("Strict-Transport-Security:") != std::string::npos);
-	REQUIRE(resp.find("includeSubDomains") == std::string::npos);
+	REQUIRE(resp.find("Strict-Transport-Security:") != S::npos);
+	REQUIRE(resp.find("includeSubDomains") == S::npos);
 }
 
 TEST_CASE(
@@ -3124,7 +3125,7 @@ TEST_CASE(
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
-	REQUIRE(resp.find("Strict-Transport-Security") == std::string::npos);
+	REQUIRE(resp.find("Strict-Transport-Security") == S::npos);
 }
 
 TEST_CASE(
@@ -3138,7 +3139,7 @@ TEST_CASE(
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
-	REQUIRE(resp.find("X-Frame-Options") == std::string::npos);
+	REQUIRE(resp.find("X-Frame-Options") == S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -3154,8 +3155,8 @@ TEST_CASE(
 		"Origin: https://test.example\r\n"
 		"Access-Control-Request-Method: GET\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 204"));
-	REQUIRE(resp.find("Access-Control-Allow-Origin: https://test.example") != std::string::npos);
-	REQUIRE(resp.find("Access-Control-Allow-Methods:") != std::string::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Origin: https://test.example") != S::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Methods:") != S::npos);
 }
 
 TEST_CASE(
@@ -3167,7 +3168,7 @@ TEST_CASE(
 		"Origin: https://evil.com\r\n"
 		"Access-Control-Request-Method: GET\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 204"));
-	REQUIRE(resp.find("Access-Control-Allow-Origin:") == std::string::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Origin:") == S::npos);
 }
 
 TEST_CASE(
@@ -3175,7 +3176,7 @@ TEST_CASE(
 	ensure_cors_server();
 	auto resp = http_get_on(g_cors_port, "/api", "Origin: https://test.example\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Access-Control-Allow-Origin: https://test.example") != std::string::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Origin: https://test.example") != S::npos);
 }
 
 TEST_CASE(
@@ -3183,7 +3184,7 @@ TEST_CASE(
 	ensure_cors_server();
 	auto resp = http_get_on(g_cors_port, "/vary", "Origin: https://test.example\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Vary: Accept-Encoding, Origin") != std::string::npos);
+	REQUIRE(resp.find("Vary: Accept-Encoding, Origin") != S::npos);
 }
 
 TEST_CASE(
@@ -3191,7 +3192,7 @@ TEST_CASE(
 	ensure_cors_server();
 	auto resp = http_get_on(g_cors_port, "/api");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Access-Control-Allow-Origin:") == std::string::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Origin:") == S::npos);
 }
 
 TEST_CASE(
@@ -3199,8 +3200,8 @@ TEST_CASE(
 	ensure_cors_cred_server();
 	auto resp = http_get_on(g_cors_cred_port, "/api", "Origin: https://foo.example\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Access-Control-Allow-Origin: https://foo.example") != std::string::npos);
-	REQUIRE(resp.find("Access-Control-Allow-Credentials: true") != std::string::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Origin: https://foo.example") != S::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Credentials: true") != S::npos);
 }
 
 TEST_CASE(
@@ -3208,9 +3209,9 @@ TEST_CASE(
 	ensure_cors_cred_server();
 	auto resp = http_get_on(g_cors_cred_port, "/api", "Origin: https://foo.example\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Access-Control-Expose-Headers:") != std::string::npos);
-	REQUIRE(resp.find("X-Custom-Header") != std::string::npos);
-	REQUIRE(resp.find("X-Request-Id") != std::string::npos);
+	REQUIRE(resp.find("Access-Control-Expose-Headers:") != S::npos);
+	REQUIRE(resp.find("X-Custom-Header") != S::npos);
+	REQUIRE(resp.find("X-Request-Id") != S::npos);
 }
 
 TEST_CASE(
@@ -3222,8 +3223,8 @@ TEST_CASE(
 		"Origin: https://foo.example\r\n"
 		"Access-Control-Request-Method: POST\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 204"));
-	REQUIRE(resp.find("Access-Control-Allow-Origin: https://foo.example") != std::string::npos);
-	REQUIRE(resp.find("Access-Control-Allow-Credentials: true") != std::string::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Origin: https://foo.example") != S::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Credentials: true") != S::npos);
 }
 
 TEST_CASE(
@@ -3231,8 +3232,8 @@ TEST_CASE(
 	ensure_cors_wildcard_server();
 	auto resp = http_get_on(g_cors_wildcard_port, "/api", "Origin: https://any.example\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Access-Control-Allow-Origin: *") != std::string::npos);
-	REQUIRE(resp.find("Access-Control-Allow-Credentials:") == std::string::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Origin: *") != S::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Credentials:") == S::npos);
 }
 
 TEST_CASE(
@@ -3241,8 +3242,8 @@ TEST_CASE(
 	auto resp = http_options_on(g_cors_port, "/api", "Origin: https://test.example\r\n");
 	// Not a preflight — passes to next handler, which may 405 or 200 depending on router.
 	// Either way, CORS headers are still injected for the origin.
-	REQUIRE(resp.find("Access-Control-Allow-Origin: https://test.example") != std::string::npos);
-	REQUIRE(resp.find("Access-Control-Allow-Methods:") == std::string::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Origin: https://test.example") != S::npos);
+	REQUIRE(resp.find("Access-Control-Allow-Methods:") == S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -3254,7 +3255,7 @@ TEST_CASE(
 	ensure_auth_server();
 	auto resp = http_get_on(g_auth_port, "/protected");
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
-	REQUIRE(resp.find("WWW-Authenticate: Basic") != std::string::npos);
+	REQUIRE(resp.find("WWW-Authenticate: Basic") != S::npos);
 }
 
 TEST_CASE(
@@ -3289,13 +3290,13 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(basic_auth_middleware([](std::string_view, std::string_view) { return false; }, "My Realm"));
+		router.use(basic_auth_middleware([](SV, SV) { return false; }, "My Realm"));
 		router.get("/", [](HttpRequest const &) { return HttpResponse::text("x"); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
-	REQUIRE(resp.find(R"(WWW-Authenticate: Basic realm="My Realm")") != std::string::npos);
+	REQUIRE(resp.find(R"(WWW-Authenticate: Basic realm="My Realm")") != S::npos);
 }
 
 TEST_CASE(
@@ -3314,7 +3315,7 @@ TEST_CASE(
 	ensure_bearer_server();
 	auto resp = http_get_on(g_bearer_port, "/protected");
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
-	REQUIRE(resp.find("WWW-Authenticate: Bearer") != std::string::npos);
+	REQUIRE(resp.find("WWW-Authenticate: Bearer") != S::npos);
 }
 
 TEST_CASE(
@@ -3362,7 +3363,7 @@ TEST_CASE(
 	REQUIRE(r1.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(r2.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(r3.starts_with("HTTP/1.1 429"));
-	REQUIRE(r3.find("Retry-After:") != std::string::npos);
+	REQUIRE(r3.find("Retry-After:") != S::npos);
 }
 
 TEST_CASE(
@@ -3395,7 +3396,7 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 429"));
 	auto retry = extract_header(resp, "Retry-After");
 	REQUIRE(!retry.empty());
-	int retry_val = std::stoi(std::string{retry});
+	int retry_val = std::stoi(S{retry});
 	REQUIRE(retry_val > 0);
 	REQUIRE(retry_val <= 10);
 }
@@ -3434,7 +3435,7 @@ void ensure_tls_server() {
 			}
 			::close(fd);
 		}
-		std::string const cmd = std::format(
+		S const cmd = std::format(
 			"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 			"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 			key_tmp,
@@ -3469,9 +3470,9 @@ void ensure_tls_server() {
 
 // Open one TLS connection to g_tls_port, send an arbitrary raw request,
 // read back a complete HTTP response (via Content-Length), close.
-std::string tls_raw(
+S tls_raw(
 	uint16_t port,
-	std::string_view raw_request) {
+	SV raw_request) {
 	SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
 	SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
 
@@ -3488,25 +3489,25 @@ std::string tls_raw(
 
 	SSL_write(ssl, raw_request.data(), static_cast<int>(raw_request.size()));
 
-	std::string response;
-	std::array<char, 4096> buf{};
+	S response;
+	A<char, 4096> buf{};
 	for (;;) {
 		int const n = SSL_read(ssl, buf.data(), static_cast<int>(buf.size()));
 		if (n <= 0) {
 			break;
 		}
-		response.append(buf.data(), static_cast<std::size_t>(n));
+		response.append(buf.data(), static_cast<SZ>(n));
 		auto hdr_end = response.find("\r\n\r\n");
-		if (hdr_end == std::string::npos) {
+		if (hdr_end == S::npos) {
 			continue;
 		}
 		auto cl_pos = response.find("Content-Length: ");
-		if (cl_pos == std::string::npos || cl_pos > hdr_end) {
+		if (cl_pos == S::npos || cl_pos > hdr_end) {
 			break;
 		}
 		cl_pos += 16;
 		auto cl_end = response.find("\r\n", cl_pos);
-		std::size_t body_len = 0;
+		SZ body_len = 0;
 		std::from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
 		if (response.size() >= hdr_end + 4 + body_len) {
 			break;
@@ -3521,19 +3522,19 @@ std::string tls_raw(
 }
 
 // Convenience wrappers.
-std::string tls_get(
-	std::string_view path,
-	std::string_view extra = "") {
+S tls_get(
+	SV path,
+	SV extra = "") {
 	ensure_tls_server();
 	return tls_raw(
 		g_tls_port,
 		std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n{}\r\n", path, extra));
 }
 
-std::string tls_post(
-	std::string_view path,
-	std::string_view body,
-	std::string_view ct = "text/plain") {
+S tls_post(
+	SV path,
+	SV body,
+	SV ct = "text/plain") {
 	ensure_tls_server();
 	return tls_raw(
 		g_tls_port,
@@ -3568,7 +3569,7 @@ TEST_CASE(
 		chttp::HttpRequest::get(std::format("https://127.0.0.1:{}/ping", g_tls_port)).server_name("localhost").build());
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
-	CHECK(std::string{response->head.headers["content-type"]}.find("application/json") != std::string::npos);
+	CHECK(S{response->head.headers["content-type"]}.find("application/json") != S::npos);
 	CHECK(response->body == R"({"tls":true})");
 }
 
@@ -3590,9 +3591,9 @@ TEST_CASE(
 
 TEST_CASE(
 	"TLS: POST with binary-safe body") {
-	std::string body(256, '\x00');
+	S body(256, '\x00');
 	for (int i = 0; i < 256; ++i) {
-		body[static_cast<std::size_t>(i)] = static_cast<char>(i);
+		body[static_cast<SZ>(i)] = static_cast<char>(i);
 	}
 	auto resp = tls_post("/echo", body, "application/octet-stream");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -3635,32 +3636,32 @@ TEST_CASE(
 	REQUIRE(SSL_connect(ssl) == 1);
 
 	// Send two requests back-to-back before reading any response.
-	std::string_view const r1 = "GET /ping HTTP/1.1\r\nHost: localhost\r\n\r\n";
-	std::string_view const r2 = "GET /hello/pipe HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+	SV const r1 = "GET /ping HTTP/1.1\r\nHost: localhost\r\n\r\n";
+	SV const r2 = "GET /hello/pipe HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
 	SSL_write(ssl, r1.data(), static_cast<int>(r1.size()));
 	SSL_write(ssl, r2.data(), static_cast<int>(r2.size()));
 
 	// Read first response via Content-Length.
 	auto read_one_tls = [&]() {
-		std::string resp;
-		std::array<char, 4096> buf{};
+		S resp;
+		A<char, 4096> buf{};
 		while (true) {
 			int const n = SSL_read(ssl, buf.data(), static_cast<int>(buf.size()));
 			if (n <= 0) {
 				break;
 			}
-			resp.append(buf.data(), static_cast<std::size_t>(n));
+			resp.append(buf.data(), static_cast<SZ>(n));
 			auto hdr_end = resp.find("\r\n\r\n");
-			if (hdr_end == std::string::npos) {
+			if (hdr_end == S::npos) {
 				continue;
 			}
 			auto cl_pos = resp.find("Content-Length: ");
-			if (cl_pos == std::string::npos || cl_pos > hdr_end) {
+			if (cl_pos == S::npos || cl_pos > hdr_end) {
 				break;
 			}
 			cl_pos += 16;
 			auto cl_end = resp.find("\r\n", cl_pos);
-			std::size_t body_len = 0;
+			SZ body_len = 0;
 			std::from_chars(resp.data() + cl_pos, resp.data() + cl_end, body_len);
 			if (resp.size() >= hdr_end + 4 + body_len) {
 				// Trim to exactly one response.
@@ -3695,14 +3696,14 @@ TEST_CASE(
 	auto plain_resp = http_get_on(g_tls_port, "/ping");
 	REQUIRE(plain_resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = plain_resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(plain_resp.substr(hdr_end + 4) == R"({"tls":true})");
 
 	// TLS GET to the same port: first-byte 0x16 sniff routes it as HTTPS.
 	auto tls_resp = tls_get("/ping");
 	REQUIRE(tls_resp.starts_with("HTTP/1.1 200 OK"));
 	auto tls_hdr_end = tls_resp.find("\r\n\r\n");
-	REQUIRE(tls_hdr_end != std::string::npos);
+	REQUIRE(tls_hdr_end != S::npos);
 	REQUIRE(tls_resp.substr(tls_hdr_end + 4) == R"({"tls":true})");
 }
 
@@ -3722,7 +3723,7 @@ TEST_CASE(
 		fd = ::mkstemps(key_tmp, 4);
 		::close(fd);
 	}
-	std::string const cmd = std::format(
+	S const cmd = std::format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 		key_tmp,
@@ -3763,7 +3764,7 @@ TEST_CASE(
 	REQUIRE(SSL_connect(ssl) == 1);
 
 	// Send a valid WebSocket upgrade request.
-	std::string_view const upgrade =
+	SV const upgrade =
 		"GET /ws HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"Upgrade: websocket\r\n"
@@ -3773,48 +3774,48 @@ TEST_CASE(
 	REQUIRE(SSL_write(ssl, upgrade.data(), static_cast<int>(upgrade.size())) > 0);
 
 	// Read until we have the 101 response (no Content-Length; ends at \r\n\r\n).
-	std::string resp;
-	std::array<char, 4096> buf{};
+	S resp;
+	A<char, 4096> buf{};
 	for (;;) {
 		int const n = SSL_read(ssl, buf.data(), static_cast<int>(buf.size()));
 		if (n <= 0) {
 			break;
 		}
-		resp.append(buf.data(), static_cast<std::size_t>(n));
-		if (resp.find("\r\n\r\n") != std::string::npos) {
+		resp.append(buf.data(), static_cast<SZ>(n));
+		if (resp.find("\r\n\r\n") != S::npos) {
 			break;
 		}
 	}
 
 	REQUIRE(resp.starts_with("HTTP/1.1 101 Switching Protocols\r\n"));
-	REQUIRE(resp.find("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=") != std::string::npos);
+	REQUIRE(resp.find("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=") != S::npos);
 
 	// Send a masked text frame carrying "hello".
 	// WS client frames must be masked (RFC 6455 §5.3).
-	std::string_view const payload = "hello";
-	std::array<uint8_t, 4> mask_key{0xAB, 0xCD, 0xEF, 0x01};
-	std::array<uint8_t, 2 + 4 + 5> frame_buf{};
+	SV const payload = "hello";
+	A<uint8_t, 4> mask_key{0xAB, 0xCD, 0xEF, 0x01};
+	A<uint8_t, 2 + 4 + 5> frame_buf{};
 	frame_buf[0] = 0x81U; // FIN + Text opcode
 	frame_buf[1] = 0x80U | static_cast<uint8_t>(payload.size()); // MASK + len
 	frame_buf[2] = mask_key[0];
 	frame_buf[3] = mask_key[1];
 	frame_buf[4] = mask_key[2];
 	frame_buf[5] = mask_key[3];
-	for (std::size_t i = 0; i < payload.size(); ++i) {
+	for (SZ i = 0; i < payload.size(); ++i) {
 		frame_buf[6 + i] = static_cast<uint8_t>(payload[i]) ^ mask_key[i & 3];
 	}
 	REQUIRE(SSL_write(ssl, frame_buf.data(), static_cast<int>(frame_buf.size())) > 0);
 
 	// Read the server's echo frame (unmasked text, FIN=1, opcode=1).
-	std::array<char, 32> echo_buf{};
+	A<char, 32> echo_buf{};
 	int const n = SSL_read(ssl, echo_buf.data(), static_cast<int>(echo_buf.size()));
 	REQUIRE(n >= 7); // 2 hdr + 5 payload
 	REQUIRE((static_cast<uint8_t>(echo_buf[0]) & 0x8FU) == 0x81U); // FIN + Text
 	REQUIRE(static_cast<uint8_t>(echo_buf[1]) == 5); // unmasked, len=5
-	REQUIRE(std::string_view{echo_buf.data() + 2, 5} == "hello");
+	REQUIRE(SV{echo_buf.data() + 2, 5} == "hello");
 
 	// Send a close frame (code 1000).
-	std::array<uint8_t, 2 + 4 + 2> close_frame{};
+	A<uint8_t, 2 + 4 + 2> close_frame{};
 	close_frame[0] = 0x88U; // FIN + Close
 	close_frame[1] = 0x82U; // MASK + 2 bytes
 	close_frame[2] = 0x11;
@@ -3921,7 +3922,7 @@ TEST_CASE(
 			.use_x_forwarded_for = false,
 			.use_x_real_ip = true,
 		}));
-		router.get("/addr", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.remote_addr}); });
+		router.get("/addr", [](HttpRequest const &req) { return HttpResponse::text(S{req.remote_addr}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// X-Forwarded-For is set but should be ignored; X-Real-IP wins.
@@ -3941,7 +3942,7 @@ TEST_CASE(
 							 r.use(forwarded_middleware({})); // strict: no trusted proxies
 							 // Echo the header as-seen by the downstream handler.
 							 r.get("/xff", [](HttpRequest const &req) {
-								 return HttpResponse::text(std::string{req.headers["x-forwarded-for"]});
+								 return HttpResponse::text(S{req.headers["x-forwarded-for"]});
 							 });
 							 return r;
 						 }()};
@@ -3962,10 +3963,10 @@ TEST_CASE(
 	auto resp = http_get_on(g_rid_port, "/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	// Response header must contain X-Request-ID.
-	REQUIRE(resp.find("X-Request-ID:") != std::string::npos);
+	REQUIRE(resp.find("X-Request-ID:") != S::npos);
 	// Body contains the ID injected into the request.
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	auto body = resp.substr(hdr_end + 4);
 	REQUIRE(!body.empty());
 	// UUID v4 format: 8-4-4-4-12 hex chars.
@@ -3982,7 +3983,7 @@ TEST_CASE(
 	auto resp = http_get_on(g_rid_port, "/", "X-Request-ID: my-trace-id-123\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	// Response header must echo the client's ID.
-	REQUIRE(resp.find("X-Request-ID: my-trace-id-123") != std::string::npos);
+	REQUIRE(resp.find("X-Request-ID: my-trace-id-123") != S::npos);
 	// Body also reflects the echoed ID.
 	auto hdr_end = resp.find("\r\n\r\n");
 	REQUIRE(resp.substr(hdr_end + 4) == "my-trace-id-123");
@@ -4006,7 +4007,7 @@ TEST_CASE(
 		Router router;
 		router.use(request_id_middleware({.trust_incoming = false}));
 		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["x-request-id"]});
+			return HttpResponse::text(S{req.headers["x-request-id"]});
 		});
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -4028,13 +4029,13 @@ TEST_CASE(
 		Router router;
 		router.use(request_id_middleware({.header = "X-Trace-ID"}));
 		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["x-trace-id"]});
+			return HttpResponse::text(S{req.headers["x-trace-id"]});
 		});
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("X-Trace-ID:") != std::string::npos);
+	REQUIRE(resp.find("X-Trace-ID:") != S::npos);
 	REQUIRE(extract_body(resp).size() == 36);
 }
 
@@ -4093,35 +4094,35 @@ TEST_CASE(
 	ensure_cache_server();
 	auto resp = http_get_on(g_cache_port, "/image");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Cache-Control: max-age=31536000, immutable") != std::string::npos);
+	REQUIRE(resp.find("Cache-Control: max-age=31536000, immutable") != S::npos);
 }
 
 TEST_CASE(
 	"cache_control: text/css gets its specific rule") {
 	ensure_cache_server();
 	auto resp = http_get_on(g_cache_port, "/css");
-	REQUIRE(resp.find("Cache-Control: max-age=86400, public") != std::string::npos);
+	REQUIRE(resp.find("Cache-Control: max-age=86400, public") != S::npos);
 }
 
 TEST_CASE(
 	"cache_control: application/json gets no-store") {
 	ensure_cache_server();
 	auto resp = http_get_on(g_cache_port, "/api");
-	REQUIRE(resp.find("Cache-Control: no-store") != std::string::npos);
+	REQUIRE(resp.find("Cache-Control: no-store") != S::npos);
 }
 
 TEST_CASE(
 	"cache_control: unmatched MIME gets default directive") {
 	ensure_cache_server();
 	auto resp = http_get_on(g_cache_port, "/html");
-	REQUIRE(resp.find("Cache-Control: no-cache") != std::string::npos);
+	REQUIRE(resp.find("Cache-Control: no-cache") != S::npos);
 }
 
 TEST_CASE(
 	"cache_control: handler-set Cache-Control is not overwritten") {
 	ensure_cache_server();
 	auto resp = http_get_on(g_cache_port, "/custom");
-	REQUIRE(resp.find("Cache-Control: max-age=999") != std::string::npos);
+	REQUIRE(resp.find("Cache-Control: max-age=999") != S::npos);
 }
 
 TEST_CASE(
@@ -4142,7 +4143,7 @@ TEST_CASE(
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
-	REQUIRE(resp.find("Cache-Control: max-age=60") != std::string::npos);
+	REQUIRE(resp.find("Cache-Control: max-age=60") != S::npos);
 }
 
 TEST_CASE(
@@ -4158,7 +4159,7 @@ TEST_CASE(
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/any");
-	REQUIRE(resp.find("Cache-Control: no-store") != std::string::npos);
+	REQUIRE(resp.find("Cache-Control: no-store") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -4170,7 +4171,7 @@ TEST_CASE(
 	ensure_ts_remove_server();
 	auto resp = http_get_on(g_ts_remove_port, "/foo/");
 	REQUIRE(resp.starts_with("HTTP/1.1 301"));
-	REQUIRE(resp.find("Location: /foo\r\n") != std::string::npos);
+	REQUIRE(resp.find("Location: /foo\r\n") != S::npos);
 }
 
 TEST_CASE(
@@ -4193,7 +4194,7 @@ TEST_CASE(
 	ensure_ts_add_server();
 	auto resp = http_get_on(g_ts_add_port, "/bar");
 	REQUIRE(resp.starts_with("HTTP/1.1 301"));
-	REQUIRE(resp.find("Location: /bar/\r\n") != std::string::npos);
+	REQUIRE(resp.find("Location: /bar/\r\n") != S::npos);
 }
 
 TEST_CASE(
@@ -4208,7 +4209,7 @@ TEST_CASE(
 	ensure_ts_308_server();
 	auto resp = http_get_on(g_ts_308_port, "/foo/");
 	REQUIRE(resp.starts_with("HTTP/1.1 308"));
-	REQUIRE(resp.find("Location: /foo\r\n") != std::string::npos);
+	REQUIRE(resp.find("Location: /foo\r\n") != S::npos);
 }
 
 TEST_CASE(
@@ -4216,7 +4217,7 @@ TEST_CASE(
 	ensure_ts_307_server();
 	auto resp = http_get_on(g_ts_307_port, "/foo/");
 	REQUIRE(resp.starts_with("HTTP/1.1 307 Temporary Redirect"));
-	REQUIRE(resp.find("Location: /foo\r\n") != std::string::npos);
+	REQUIRE(resp.find("Location: /foo\r\n") != S::npos);
 }
 
 TEST_CASE(
@@ -4234,8 +4235,8 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 301"));
 	auto loc = extract_header(resp, "Location");
 	REQUIRE(loc.starts_with("/foo?"));
-	REQUIRE(loc.find("x=1") != std::string::npos);
-	REQUIRE(loc.find("y=2") != std::string::npos);
+	REQUIRE(loc.find("x=1") != S::npos);
+	REQUIRE(loc.find("y=2") != S::npos);
 }
 
 TEST_CASE(
@@ -4245,7 +4246,7 @@ TEST_CASE(
 	auto resp = http_get_on(g_ts_remove_port, "/foo/?name=hello%20world");
 	REQUIRE(resp.starts_with("HTTP/1.1 301"));
 	auto loc = extract_header(resp, "Location");
-	REQUIRE(loc.find("name=hello%20world") != std::string::npos);
+	REQUIRE(loc.find("name=hello%20world") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -4256,7 +4257,7 @@ namespace {
 
 // Shared JWT test server (single instance, lazy-init).
 uint16_t g_jwt_port = 0;
-std::string g_jwt_secret = "test-secret-key";
+S g_jwt_secret = "test-secret-key";
 
 void ensure_jwt_server() {
 	static std::once_flag once;
@@ -4272,20 +4273,20 @@ void ensure_jwt_server() {
 	});
 }
 
-std::string make_jwt(
-	std::string_view payload_json) {
+S make_jwt(
+	SV payload_json) {
 	return jwt_sign(payload_json, g_jwt_secret);
 }
 
-std::string make_jwt_with_header(
-	std::string_view header_json,
-	std::string_view payload_json,
-	std::string_view secret) {
+S make_jwt_with_header(
+	SV header_json,
+	SV payload_json,
+	SV secret) {
 	auto header_b64 =
 		base64url_encode(std::span{reinterpret_cast<unsigned char const *>(header_json.data()), header_json.size()});
 	auto payload_b64 =
 		base64url_encode(std::span{reinterpret_cast<unsigned char const *>(payload_json.data()), payload_json.size()});
-	std::string const signing_input = header_b64 + '.' + payload_b64;
+	S const signing_input = header_b64 + '.' + payload_b64;
 	auto sig = hmac_sha256(
 		std::span{reinterpret_cast<unsigned char const *>(secret.data()), secret.size()},
 		std::span{reinterpret_cast<unsigned char const *>(signing_input.data()), signing_input.size()});
@@ -4305,7 +4306,7 @@ TEST_CASE(
 		http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == R"({"sub":"user42"})");
 }
 
@@ -4364,7 +4365,7 @@ TEST_CASE(
 		http_get_with_header_on(port, "/api/protected/attacker", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	REQUIRE(resp.substr(hdr_end + 4) == R"({"sub":"victim"})");
 }
 
@@ -4384,7 +4385,7 @@ TEST_CASE(
 	auto token = jwt_sign(R"({"sub":"x","iss":"other"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
-	REQUIRE(result.error().find("issuer") != std::string::npos);
+	REQUIRE(result.error().find("issuer") != S::npos);
 }
 
 TEST_CASE(
@@ -4401,7 +4402,7 @@ TEST_CASE(
 	auto token = jwt_sign(R"({"sub":"u","aud":"other"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
-	REQUIRE(result.error().find("audience") != std::string::npos);
+	REQUIRE(result.error().find("audience") != S::npos);
 }
 
 TEST_CASE(
@@ -4447,7 +4448,7 @@ TEST_CASE(
 	auto token = make_jwt_with_header(R"({"alg":"HS256)", R"({"sub":"x"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
-	REQUIRE(result.error().find("HS256") != std::string::npos);
+	REQUIRE(result.error().find("HS256") != S::npos);
 }
 
 TEST_CASE(
@@ -4497,7 +4498,7 @@ TEST_CASE(
 	auto token = jwt_sign(std::format(R"({{"sub":"x","nbf":{}}})", far_future), "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
-	REQUIRE(result.error().find("not yet valid") != std::string::npos);
+	REQUIRE(result.error().find("not yet valid") != S::npos);
 }
 
 TEST_CASE(
@@ -4522,11 +4523,11 @@ TEST_CASE(
 	// Pre-computed base64url (no padding):
 	// {"alg":"RS256","typ":"JWT"} → eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9
 	// {"sub":"x"}                 → eyJzdWIiOiJ4In0
-	std::string_view token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ4In0.ZmFrZXNpZw";
+	SV token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ4In0.ZmFrZXNpZw";
 	JwtOptions opts{.secret = "sec"};
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
-	REQUIRE(result.error().find("HS256") != std::string::npos);
+	REQUIRE(result.error().find("HS256") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -4609,8 +4610,8 @@ void ensure_protected_metrics_server() {
 		Router router;
 		static MetricsRegistry reg2;
 		router.use(metrics_middleware(reg2));
-		std::vector<Router::Middleware> chain;
-		chain.push_back(bearer_auth_middleware([](std::string_view token) { return token == "supersecret"; }));
+		V<Router::Middleware> chain;
+		chain.push_back(bearer_auth_middleware([](SV token) { return token == "supersecret"; }));
 		router.get("/metrics", metrics_handler_protected(reg2, std::move(chain)));
 		g_protected_metrics_port = test_servers().start(cfg, std::move(router));
 	});
@@ -4625,16 +4626,16 @@ TEST_CASE(
 	http_get_on(g_metrics_port, "/ping");
 	auto resp = http_get_on(g_metrics_port, "/metrics");
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	auto body = resp.substr(hdr_end + 4);
-	REQUIRE(body.find("http_requests_total{method=\"GET\",status=\"2xx\"}") != std::string::npos);
+	REQUIRE(body.find("http_requests_total{method=\"GET\",status=\"2xx\"}") != S::npos);
 }
 
 TEST_CASE(
 	"metrics: /metrics returns Prometheus content-type") {
 	ensure_metrics_server();
 	auto resp = http_get_on(g_metrics_port, "/metrics");
-	REQUIRE(resp.find("text/plain; version=0.0.4") != std::string::npos);
+	REQUIRE(resp.find("text/plain; version=0.0.4") != S::npos);
 }
 
 TEST_CASE(
@@ -4642,7 +4643,7 @@ TEST_CASE(
 	ensure_protected_metrics_server();
 	auto resp = http_get_on(g_protected_metrics_port, "/metrics");
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
-	REQUIRE(resp.find("WWW-Authenticate: Bearer") != std::string::npos);
+	REQUIRE(resp.find("WWW-Authenticate: Bearer") != S::npos);
 }
 
 TEST_CASE(
@@ -4657,8 +4658,8 @@ TEST_CASE(
 	ensure_protected_metrics_server();
 	auto resp = http_get_on(g_protected_metrics_port, "/metrics", "Authorization: Bearer supersecret\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200"));
-	REQUIRE(resp.find("text/plain; version=0.0.4") != std::string::npos);
-	REQUIRE(resp.find("http_requests_total") != std::string::npos);
+	REQUIRE(resp.find("text/plain; version=0.0.4") != S::npos);
+	REQUIRE(resp.find("http_requests_total") != S::npos);
 }
 
 TEST_CASE(
@@ -4667,11 +4668,11 @@ TEST_CASE(
 	http_get_on(g_metrics_port, "/ping");
 	auto resp = http_get_on(g_metrics_port, "/metrics");
 	auto hdr_end = resp.find("\r\n\r\n");
-	REQUIRE(hdr_end != std::string::npos);
+	REQUIRE(hdr_end != S::npos);
 	auto body = resp.substr(hdr_end + 4);
-	REQUIRE(body.find("http_request_duration_seconds_sum") != std::string::npos);
-	REQUIRE(body.find("http_request_duration_seconds_count") != std::string::npos);
-	REQUIRE(body.find("http_request_duration_seconds_bucket") != std::string::npos);
+	REQUIRE(body.find("http_request_duration_seconds_sum") != S::npos);
+	REQUIRE(body.find("http_request_duration_seconds_count") != S::npos);
+	REQUIRE(body.find("http_request_duration_seconds_bucket") != S::npos);
 }
 
 TEST_CASE(
@@ -4692,7 +4693,7 @@ TEST_CASE(
 	http_get_on(port, "/nonexistent"); // 404 → 4xx
 	auto resp = http_get_on(port, "/metrics");
 	auto body = extract_body(resp);
-	REQUIRE(body.find("http_requests_total{method=\"GET\",status=\"4xx\"}") != std::string::npos);
+	REQUIRE(body.find("http_requests_total{method=\"GET\",status=\"4xx\"}") != S::npos);
 }
 
 TEST_CASE(
@@ -4700,7 +4701,7 @@ TEST_CASE(
 	MetricsRegistry reg;
 	reg.record("GET", 500, std::chrono::milliseconds{1});
 	auto out = reg.format_prometheus();
-	REQUIRE(out.find("http_requests_total{method=\"GET\",status=\"5xx\"}") != std::string::npos);
+	REQUIRE(out.find("http_requests_total{method=\"GET\",status=\"5xx\"}") != S::npos);
 }
 
 TEST_CASE(
@@ -4708,7 +4709,7 @@ TEST_CASE(
 	MetricsRegistry reg;
 	reg.record("PURGE", 200, std::chrono::milliseconds{1});
 	auto out = reg.format_prometheus();
-	REQUIRE(out.find("http_requests_total{method=\"OTHER\",status=\"2xx\"}") != std::string::npos);
+	REQUIRE(out.find("http_requests_total{method=\"OTHER\",status=\"2xx\"}") != S::npos);
 }
 
 TEST_CASE(
@@ -4716,7 +4717,7 @@ TEST_CASE(
 	MetricsRegistry reg;
 	reg.record("GET", 999, std::chrono::milliseconds{1});
 	auto out = reg.format_prometheus();
-	REQUIRE(out.find("http_requests_total{method=\"GET\",status=\"other\"}") != std::string::npos);
+	REQUIRE(out.find("http_requests_total{method=\"GET\",status=\"other\"}") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -4734,10 +4735,10 @@ void ensure_codec_server() {
 		Router router;
 		router.use(compress_middleware({.min_body_size = 0})); // compress everything
 		router.get("/data", [](HttpRequest const &) {
-			return HttpResponse::text(std::string(512, 'A')); // compressible
+			return HttpResponse::text(S(512, 'A')); // compressible
 		});
 		router.get("/vary", [](HttpRequest const &) {
-			auto r = HttpResponse::text(std::string(512, 'A'));
+			auto r = HttpResponse::text(S(512, 'A'));
 			r.headers["Vary"] = "X-Test";
 			return r;
 		});
@@ -4753,9 +4754,9 @@ TEST_CASE(
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: br, gzip\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 #if CONFLUX_HAS_COMPRESS
-	REQUIRE(resp.find("Content-Encoding: gzip\r\n") != std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: gzip\r\n") != S::npos);
 #else
-	REQUIRE(resp.find("Content-Encoding:") == std::string::npos);
+	REQUIRE(resp.find("Content-Encoding:") == S::npos);
 #endif
 }
 
@@ -4765,11 +4766,11 @@ TEST_CASE(
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: zstd;q=1, gzip;q=0.5\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 #if CONFLUX_HAS_ZSTD
-	REQUIRE(resp.find("Content-Encoding: zstd\r\n") != std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: zstd\r\n") != S::npos);
 #elif CONFLUX_HAS_COMPRESS
-	REQUIRE(resp.find("Content-Encoding: gzip\r\n") != std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: gzip\r\n") != S::npos);
 #else
-	REQUIRE(resp.find("Content-Encoding:") == std::string::npos);
+	REQUIRE(resp.find("Content-Encoding:") == S::npos);
 #endif
 }
 
@@ -4779,9 +4780,9 @@ TEST_CASE(
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: gzip\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 #if CONFLUX_HAS_COMPRESS
-	REQUIRE(resp.find("Content-Encoding: gzip\r\n") != std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: gzip\r\n") != S::npos);
 #else
-	REQUIRE(resp.find("Content-Encoding:") == std::string::npos);
+	REQUIRE(resp.find("Content-Encoding:") == S::npos);
 #endif
 }
 
@@ -4791,9 +4792,9 @@ TEST_CASE(
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: GZip;Q=1\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 #if CONFLUX_HAS_COMPRESS
-	REQUIRE(resp.find("Content-Encoding: gzip\r\n") != std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: gzip\r\n") != S::npos);
 #else
-	REQUIRE(resp.find("Content-Encoding:") == std::string::npos);
+	REQUIRE(resp.find("Content-Encoding:") == S::npos);
 #endif
 }
 
@@ -4803,9 +4804,9 @@ TEST_CASE(
 	auto resp = http_get_with_header_on(g_codec_port, "/vary", "Accept-Encoding: gzip\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 #if CONFLUX_HAS_COMPRESS
-	REQUIRE(resp.find("Vary: X-Test, Accept-Encoding\r\n") != std::string::npos);
+	REQUIRE(resp.find("Vary: X-Test, Accept-Encoding\r\n") != S::npos);
 #else
-	REQUIRE(resp.find("Vary: X-Test\r\n") != std::string::npos);
+	REQUIRE(resp.find("Vary: X-Test\r\n") != S::npos);
 #endif
 }
 
@@ -4816,9 +4817,9 @@ TEST_CASE(
 	auto resp = http_get_with_header_on(g_codec_port, "/data", "Accept-Encoding: gzip;q=0, zstd\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 #if CONFLUX_HAS_ZSTD
-	REQUIRE(resp.find("Content-Encoding: zstd\r\n") != std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: zstd\r\n") != S::npos);
 #else
-	REQUIRE(resp.find("Content-Encoding:") == std::string::npos);
+	REQUIRE(resp.find("Content-Encoding:") == S::npos);
 #endif
 }
 
@@ -4829,16 +4830,16 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 #if CONFLUX_HAS_COMPRESS && CONFLUX_HAS_ZSTD
 	if (current_dynamic_encoding_preference() == DynamicEncodingPreference::gzip_first) {
-		REQUIRE(resp.find("Content-Encoding: gzip\r\n") != std::string::npos);
+		REQUIRE(resp.find("Content-Encoding: gzip\r\n") != S::npos);
 	} else {
-		REQUIRE(resp.find("Content-Encoding: zstd\r\n") != std::string::npos);
+		REQUIRE(resp.find("Content-Encoding: zstd\r\n") != S::npos);
 	}
 #elif CONFLUX_HAS_ZSTD
-	REQUIRE(resp.find("Content-Encoding: zstd\r\n") != std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: zstd\r\n") != S::npos);
 #elif CONFLUX_HAS_COMPRESS
-	REQUIRE(resp.find("Content-Encoding: gzip\r\n") != std::string::npos);
+	REQUIRE(resp.find("Content-Encoding: gzip\r\n") != S::npos);
 #else
-	REQUIRE(resp.find("Content-Encoding:") == std::string::npos);
+	REQUIRE(resp.find("Content-Encoding:") == S::npos);
 #endif
 }
 
@@ -4853,8 +4854,8 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto vary = extract_header(resp, "Vary");
 	// Both CORS and compress must contribute to Vary without overwriting each other.
-	REQUIRE(vary.find("Origin") != std::string::npos);
-	REQUIRE(vary.find("Accept-Encoding") != std::string::npos);
+	REQUIRE(vary.find("Origin") != S::npos);
+	REQUIRE(vary.find("Accept-Encoding") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -4866,7 +4867,7 @@ TEST_CASE(
 	ensure_redirect_server();
 	auto resp = http_get_on(g_redirect_port, "/old");
 	REQUIRE(resp.starts_with("HTTP/1.1 301"));
-	REQUIRE(resp.find("Location: /new\r\n") != std::string::npos);
+	REQUIRE(resp.find("Location: /new\r\n") != S::npos);
 }
 
 TEST_CASE(
@@ -4874,7 +4875,7 @@ TEST_CASE(
 	ensure_redirect_server();
 	auto resp = http_get_on(g_redirect_port, "/api/v1/users");
 	REQUIRE(resp.starts_with("HTTP/1.1 302"));
-	REQUIRE(resp.find("Location: /api/v2/users\r\n") != std::string::npos);
+	REQUIRE(resp.find("Location: /api/v2/users\r\n") != S::npos);
 }
 
 TEST_CASE(
@@ -4897,7 +4898,7 @@ TEST_CASE(
 	});
 	auto resp = http_get_on(port, "/x");
 	REQUIRE(resp.starts_with("HTTP/1.1 307"));
-	REQUIRE(resp.find("Location: /y\r\n") != std::string::npos);
+	REQUIRE(resp.find("Location: /y\r\n") != S::npos);
 }
 
 TEST_CASE(
@@ -4956,7 +4957,7 @@ TEST_CASE(
 			}
 		}
 		// Send chunked response with no trailers: 0\r\n\r\n
-		std::string_view const resp =
+		SV const resp =
 			"HTTP/1.1 200 OK\r\n"
 			"Content-Type: text/plain\r\n"
 			"Transfer-Encoding: chunked\r\n"
@@ -4985,20 +4986,20 @@ TEST_CASE(
 	ensure_proxy_server();
 	auto resp = http_get_on(g_proxy_port, "/proxy/ping");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("X-Upstream: yes\r\n") != std::string::npos);
+	REQUIRE(resp.find("X-Upstream: yes\r\n") != S::npos);
 	REQUIRE(extract_body(resp) == "proxied-ok");
 }
 
 TEST_CASE(
 	"proxy: preserve_host=true forwards original Host header") {
-	static std::shared_ptr<ScopedTestServer> s_upstream;
-	static std::shared_ptr<ScopedTestServer> s_front;
+	static SP<ScopedTestServer> s_upstream;
+	static SP<ScopedTestServer> s_front;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		auto cfg = mw_config();
 		Router upstream;
 		upstream.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["host"]});
+			return HttpResponse::text(S{req.headers["host"]});
 		});
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		Router front;
@@ -5020,14 +5021,14 @@ TEST_CASE(
 
 TEST_CASE(
 	"proxy: preserve_host=true with port in Host header still connects to upstream") {
-	static std::shared_ptr<ScopedTestServer> s_upstream;
-	static std::shared_ptr<ScopedTestServer> s_front;
+	static SP<ScopedTestServer> s_upstream;
+	static SP<ScopedTestServer> s_front;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		auto cfg = mw_config();
 		Router upstream;
 		upstream.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["host"]});
+			return HttpResponse::text(S{req.headers["host"]});
 		});
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		Router front;
@@ -5049,14 +5050,14 @@ TEST_CASE(
 
 TEST_CASE(
 	"proxy: appends to existing X-Forwarded-For header") {
-	static std::shared_ptr<ScopedTestServer> s_upstream;
-	static std::shared_ptr<ScopedTestServer> s_front;
+	static SP<ScopedTestServer> s_upstream;
+	static SP<ScopedTestServer> s_front;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		auto cfg = mw_config();
 		Router upstream;
 		upstream.get("/xff", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["x-forwarded-for"]});
+			return HttpResponse::text(S{req.headers["x-forwarded-for"]});
 		});
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		Router front;
@@ -5073,10 +5074,10 @@ TEST_CASE(
 	auto resp = http_get_on(s_front->port(), "/xff", "X-Forwarded-For: 1.2.3.4\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto body = extract_body(resp);
-	REQUIRE(body.find("1.2.3.4") != std::string::npos);
-	REQUIRE(body.find("127.0.0.1") != std::string::npos);
+	REQUIRE(body.find("1.2.3.4") != S::npos);
+	REQUIRE(body.find("127.0.0.1") != S::npos);
 	// Must appear as "1.2.3.4, 127.0.0.1" (appended, not replaced).
-	REQUIRE(body.find("1.2.3.4, 127.0.0.1") != std::string::npos);
+	REQUIRE(body.find("1.2.3.4, 127.0.0.1") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -5131,8 +5132,8 @@ TEST_CASE(
 // cookie_signing middleware
 // ---------------------------------------------------------------------------
 
-constexpr std::string_view kCookieMiddlewareSecret = "srv-secret-16-bytes";
-constexpr std::string_view kOtherCookieSecret = "other-secret-16-bytes";
+constexpr SV kCookieMiddlewareSecret = "srv-secret-16-bytes";
+constexpr SV kOtherCookieSecret = "other-secret-16-bytes";
 
 TEST_CASE(
 	"cookie_signing_middleware: valid signed cookie is unwrapped") {
@@ -5141,9 +5142,9 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(cookie_signing_middleware({.secret = std::string{kCookieMiddlewareSecret}}));
+		router.use(cookie_signing_middleware({.secret = S{kCookieMiddlewareSecret}}));
 		router.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.cookies["session"]});
+			return HttpResponse::text(S{req.cookies["session"]});
 		});
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -5159,9 +5160,9 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(cookie_signing_middleware({.secret = std::string{kCookieMiddlewareSecret}, .strip_invalid = true}));
+		router.use(cookie_signing_middleware({.secret = S{kCookieMiddlewareSecret}, .strip_invalid = true}));
 		router.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.cookies["session"]});
+			return HttpResponse::text(S{req.cookies["session"]});
 		});
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -5179,9 +5180,9 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(cookie_signing_middleware({.secret = std::string{kCookieMiddlewareSecret}}));
+		router.use(cookie_signing_middleware({.secret = S{kCookieMiddlewareSecret}}));
 		router.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.cookies["plain"]});
+			return HttpResponse::text(S{req.cookies["plain"]});
 		});
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -5198,7 +5199,7 @@ TEST_CASE(
 		Router router;
 		router.use(cookie_signing_middleware({.secret = "srv-secret-key-1234", .strip_invalid = false}));
 		router.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.cookies["session"]});
+			return HttpResponse::text(S{req.cookies["session"]});
 		});
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -5218,8 +5219,8 @@ TEST_CASE(
 	ensure_csrf_server();
 	auto resp = http_get_on(g_csrf_port, "/page");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("Set-Cookie: csrf_token=") != std::string::npos);
-	REQUIRE(resp.find("X-CSRF-Token: ") != std::string::npos);
+	REQUIRE(resp.find("Set-Cookie: csrf_token=") != S::npos);
+	REQUIRE(resp.find("X-CSRF-Token: ") != S::npos);
 }
 
 TEST_CASE(
@@ -5311,7 +5312,7 @@ TEST_CASE(
 	ensure_etag_server();
 	auto resp = http_get_on(g_etag_port, "/content");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("ETag: \"") != std::string::npos);
+	REQUIRE(resp.find("ETag: \"") != S::npos);
 }
 
 TEST_CASE(
@@ -5365,7 +5366,7 @@ TEST_CASE(
 	ensure_etag_server();
 	auto resp = http_get_on(g_etag_port, "/empty");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(resp.find("ETag:") == std::string::npos);
+	REQUIRE(resp.find("ETag:") == S::npos);
 }
 
 TEST_CASE(
@@ -5414,7 +5415,7 @@ TEST_CASE(
 	auto etag = extract_header(resp1, "ETag"); // e.g. "abc123"
 	REQUIRE(!etag.empty());
 	// Send back as weak variant: W/"abc123" must still match per weak comparison.
-	auto weak_inm = std::string{"W/"} + etag;
+	auto weak_inm = S{"W/"} + etag;
 	auto resp2 = http_get_on(g_etag_port, "/content", std::format("If-None-Match: {}\r\n", weak_inm));
 	REQUIRE(resp2.starts_with("HTTP/1.1 304"));
 }
@@ -5496,8 +5497,8 @@ TEST_CASE(
 	REQUIRE(extract_body(id1) == extract_body(id2));
 	// Different encodings return different bodies (not cross-contaminated).
 	REQUIRE(extract_body(gzip1) != extract_body(id1));
-	REQUIRE(extract_body(gzip1).find("enc=gzip") != std::string::npos);
-	REQUIRE(extract_body(id1).find("enc=identity") != std::string::npos);
+	REQUIRE(extract_body(gzip1).find("enc=gzip") != S::npos);
+	REQUIRE(extract_body(id1).find("enc=identity") != S::npos);
 }
 
 TEST_CASE(
@@ -5729,20 +5730,20 @@ TEST_CASE(
 	std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
 	// Read the log file.
-	std::string log_content;
+	S log_content;
 	{
 		int const fd = ::open(g_slog_path, O_RDONLY);
 		REQUIRE(fd >= 0);
-		std::array<char, 4096> buf{};
+		A<char, 4096> buf{};
 		ssize_t const n = ::read(fd, buf.data(), buf.size() - 1);
 		::close(fd);
 		REQUIRE(n > 0);
-		log_content.assign(buf.data(), static_cast<std::size_t>(n));
+		log_content.assign(buf.data(), static_cast<SZ>(n));
 	}
-	REQUIRE(log_content.find(R"("method":"GET")") != std::string::npos);
-	REQUIRE(log_content.find(R"("path":"/ping")") != std::string::npos);
-	REQUIRE(log_content.find(R"("status":200)") != std::string::npos);
-	REQUIRE(log_content.find(R"("app":"test")") != std::string::npos);
+	REQUIRE(log_content.find(R"("method":"GET")") != S::npos);
+	REQUIRE(log_content.find(R"("path":"/ping")") != S::npos);
+	REQUIRE(log_content.find(R"("status":200)") != S::npos);
+	REQUIRE(log_content.find(R"("app":"test")") != S::npos);
 }
 
 TEST_CASE(
@@ -5763,19 +5764,19 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
-	std::string log_content;
+	S log_content;
 	{
 		int const fd = ::open(path, O_RDONLY);
 		REQUIRE(fd >= 0);
-		std::array<char, 4096> buf{};
+		A<char, 4096> buf{};
 		ssize_t const n = ::read(fd, buf.data(), buf.size() - 1);
 		::close(fd);
 		REQUIRE(n > 0);
-		log_content.assign(buf.data(), static_cast<std::size_t>(n));
+		log_content.assign(buf.data(), static_cast<SZ>(n));
 	}
 	::unlink(path);
-	REQUIRE(log_content.find("\"app\"") == std::string::npos);
-	REQUIRE(log_content.find(R"("path":"/x")") != std::string::npos);
+	REQUIRE(log_content.find("\"app\"") == S::npos);
+	REQUIRE(log_content.find(R"("path":"/x")") != S::npos);
 }
 
 TEST_CASE(
@@ -5798,19 +5799,19 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	std::this_thread::sleep_for(std::chrono::milliseconds(20));
 
-	std::string log_content;
+	S log_content;
 	{
 		int const fd = ::open(path, O_RDONLY);
 		REQUIRE(fd >= 0);
-		std::array<char, 4096> buf{};
+		A<char, 4096> buf{};
 		ssize_t const n = ::read(fd, buf.data(), buf.size() - 1);
 		::close(fd);
 		REQUIRE(n > 0);
-		log_content.assign(buf.data(), static_cast<std::size_t>(n));
+		log_content.assign(buf.data(), static_cast<SZ>(n));
 	}
 	::unlink(path);
 	// "app" field must be present since app_name is set.
-	REQUIRE(log_content.find(R"("app":"test")") != std::string::npos);
+	REQUIRE(log_content.find(R"("app":"test")") != S::npos);
 	// Log line must be valid JSON-like (outer braces present).
 	REQUIRE(log_content.front() == '{');
 }
@@ -5836,7 +5837,7 @@ TEST_CASE(
 TEST_CASE(
 	"tracing: incoming traceparent preserves trace_id, generates new span_id") {
 	ensure_trace_server();
-	std::string_view incoming = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+	SV incoming = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
 	auto resp = http_get_on(g_trace_port, "/", std::format("traceparent: {}\r\n", incoming));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto tp = extract_header(resp, "Traceparent");
@@ -5923,7 +5924,7 @@ TEST_CASE(
 		}));
 		// Echo the injected span id from the request.
 		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(std::string{req.headers["x-injected-span"]});
+			return HttpResponse::text(S{req.headers["x-injected-span"]});
 		});
 		port = start_mw_server(mw_config(), std::move(router));
 	});
@@ -6089,7 +6090,7 @@ TEST_CASE(
 	router.get("/hello/{name}", [](HttpRequest const &) { return HttpResponse::text(""); });
 	router.post("/items", [](HttpRequest const &) { return HttpResponse::text(""); });
 	auto spec = openapi_spec(router, "Test API", "0.1.0");
-	REQUIRE(spec.find(R"("openapi":"3.0.0")") != std::string::npos);
+	REQUIRE(spec.find(R"("openapi":"3.0.0")") != S::npos);
 }
 
 TEST_CASE(
@@ -6097,9 +6098,9 @@ TEST_CASE(
 	Router router;
 	router.get("/hello/{name}", [](HttpRequest const &) { return HttpResponse::text(""); });
 	auto spec = openapi_spec(router, "Test API", "0.1.0");
-	REQUIRE(spec.find(R"("/hello/{name}")") != std::string::npos);
-	REQUIRE(spec.find(R"("name":"name")") != std::string::npos);
-	REQUIRE(spec.find(R"("in":"path")") != std::string::npos);
+	REQUIRE(spec.find(R"("/hello/{name}")") != S::npos);
+	REQUIRE(spec.find(R"("name":"name")") != S::npos);
+	REQUIRE(spec.find(R"("in":"path")") != S::npos);
 }
 
 TEST_CASE(
@@ -6107,8 +6108,8 @@ TEST_CASE(
 	Router router;
 	router.get("/", [](HttpRequest const &) { return HttpResponse::text(""); });
 	auto spec = openapi_spec(router, "My Service", "2.3.4");
-	REQUIRE(spec.find(R"("title":"My Service")") != std::string::npos);
-	REQUIRE(spec.find(R"("version":"2.3.4")") != std::string::npos);
+	REQUIRE(spec.find(R"("title":"My Service")") != S::npos);
+	REQUIRE(spec.find(R"("version":"2.3.4")") != S::npos);
 }
 
 TEST_CASE(
@@ -6116,7 +6117,7 @@ TEST_CASE(
 	Router router;
 	router.post("/items", [](HttpRequest const &) { return HttpResponse::text(""); });
 	auto spec = openapi_spec(router);
-	REQUIRE(spec.find(R"("post":)") != std::string::npos);
+	REQUIRE(spec.find(R"("post":)") != S::npos);
 }
 
 TEST_CASE(
@@ -6124,23 +6125,23 @@ TEST_CASE(
 	Router router;
 	router.get("/", [](HttpRequest const &) { return HttpResponse::text(""); });
 	auto spec = openapi_spec(router, R"(My "API" & More)");
-	REQUIRE(spec.find(R"("title":"My \"API\" & More")") != std::string::npos);
+	REQUIRE(spec.find(R"("title":"My \"API\" & More")") != S::npos);
 }
 
 TEST_CASE(
 	"openapi: empty router produces valid paths object") {
 	Router router;
 	auto spec = openapi_spec(router, "Empty", "0.0.1");
-	REQUIRE(spec.find(R"("paths":{})") != std::string::npos);
-	REQUIRE(spec.find(R"("title":"Empty")") != std::string::npos);
+	REQUIRE(spec.find(R"("paths":{})") != S::npos);
+	REQUIRE(spec.find(R"("title":"Empty")") != S::npos);
 }
 
 TEST_CASE(
 	"openapi_handler_protected: wrong bearer token returns 401") {
 	Router router;
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
-	std::vector<Router::Middleware> chain;
-	chain.push_back(bearer_auth_middleware([](std::string_view token) { return token == "apikey"; }));
+	V<Router::Middleware> chain;
+	chain.push_back(bearer_auth_middleware([](SV token) { return token == "apikey"; }));
 	router.get("/openapi.json", openapi_handler_protected(router, "API", "1.0.0", std::move(chain)));
 
 	Config const cfg{.port = 0, .rings = 1};
@@ -6151,14 +6152,14 @@ TEST_CASE(
 
 	auto resp_ok = http_get_on(port, "/openapi.json", "Authorization: Bearer apikey\r\n");
 	REQUIRE(resp_ok.starts_with("HTTP/1.1 200"));
-	REQUIRE(resp_ok.find("application/json") != std::string::npos);
-	REQUIRE(resp_ok.find(R"("openapi":"3.0.0")") != std::string::npos);
+	REQUIRE(resp_ok.find("application/json") != S::npos);
+	REQUIRE(resp_ok.find(R"("openapi":"3.0.0")") != S::npos);
 }
 
 namespace {
 
-std::string send_raw_bytes(
-	std::string_view raw) {
+S send_raw_bytes(
+	SV raw) {
 	ensure_server();
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	if (fd < 0) {
@@ -6175,14 +6176,14 @@ std::string send_raw_bytes(
 	timeval tv{.tv_sec = 3, .tv_usec = 0};
 	::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	::send(fd, raw.data(), raw.size(), MSG_NOSIGNAL);
-	std::string response;
-	std::array<char, 4096> buf{};
+	S response;
+	A<char, 4096> buf{};
 	for (;;) {
 		auto n = ::recv(fd, buf.data(), buf.size(), 0);
 		if (n <= 0) {
 			break;
 		}
-		response.append(buf.data(), static_cast<std::size_t>(n));
+		response.append(buf.data(), static_cast<SZ>(n));
 	}
 	::close(fd);
 	return response;
@@ -6192,7 +6193,7 @@ std::string send_raw_bytes(
 
 TEST_CASE(
 	"parser: request line exceeding 8 KiB returns 414") {
-	std::string path = "/";
+	S path = "/";
 	path.append(9000, 'a');
 	auto req = std::format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
 	auto resp = send_raw_bytes(req);
@@ -6213,7 +6214,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: single header line exceeding 8 KiB returns 431") {
-	std::string header_value(9000, 'v');
+	S header_value(9000, 'v');
 	auto req = std::format(
 		"GET /api/ping HTTP/1.1\r\nHost: localhost\r\nX-Big: {}\r\nConnection: close\r\n\r\n",
 		header_value);
@@ -6223,7 +6224,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: more than 100 headers returns 431") {
-	std::string req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n";
+	S req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n";
 	for (int i = 0; i < 120; ++i) {
 		req += std::format("X-H-{}: v\r\n", i);
 	}
@@ -6234,14 +6235,14 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: obs-fold line returns 400") {
-	std::string req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nX-A: one\r\n two\r\nConnection: close\r\n\r\n";
+	S req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nX-A: one\r\n two\r\nConnection: close\r\n\r\n";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 400"));
 }
 
 TEST_CASE(
 	"parser: NUL byte in header returns 400") {
-	std::string req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nX-Bad: a";
+	S req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nX-Bad: a";
 	req.push_back('\0');
 	req += "b\r\nConnection: close\r\n\r\n";
 	auto resp = send_raw_bytes(req);
@@ -6250,42 +6251,42 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: header missing colon returns 400") {
-	std::string req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nNoColonHere\r\nConnection: close\r\n\r\n";
+	S req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nNoColonHere\r\nConnection: close\r\n\r\n";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 400"));
 }
 
 TEST_CASE(
 	"parser: field-name with space before colon returns 400") {
-	std::string req = "GET /api/ping HTTP/1.1\r\nHost : localhost\r\nConnection: close\r\n\r\n";
+	S req = "GET /api/ping HTTP/1.1\r\nHost : localhost\r\nConnection: close\r\n\r\n";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 400"));
 }
 
 TEST_CASE(
 	"parser: header with no space after colon is accepted") {
-	std::string req =
+	S req =
 		"GET /api/echo-header HTTP/1.1\r\nHost: localhost\r\nX-Test-Header:no-space\r\nConnection: close\r\n\r\n";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 200"));
-	REQUIRE(resp.find("no-space") != std::string::npos);
+	REQUIRE(resp.find("no-space") != S::npos);
 }
 
 TEST_CASE(
 	"parser: header value is trimmed of leading and trailing OWS") {
-	std::string req =
+	S req =
 		"GET /api/echo-header HTTP/1.1\r\nHost: localhost\r\nX-Test-Header:   spaced   \r\nConnection: close\r\n\r\n";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 200"));
 	auto body_start = resp.find("\r\n\r\n");
-	REQUIRE(body_start != std::string::npos);
+	REQUIRE(body_start != S::npos);
 	auto body = resp.substr(body_start + 4);
 	REQUIRE(body == "spaced");
 }
 
 TEST_CASE(
 	"parser: malformed Content-Length returns 400") {
-	std::string req =
+	S req =
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5abc\r\nConnection: close\r\n\r\nhello";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 400"));
@@ -6293,7 +6294,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: duplicate Content-Length returns 400") {
-	std::string req =
+	S req =
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nContent-Length: 5\r\n"
 		"Connection: close\r\n\r\nhello";
 	auto resp = send_raw_bytes(req);
@@ -6302,7 +6303,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: unsupported Transfer-Encoding returns 400") {
-	std::string req =
+	S req =
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: gzip, chunked\r\n"
 		"Connection: close\r\n\r\n0\r\n\r\n";
 	auto resp = send_raw_bytes(req);
@@ -6311,7 +6312,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: Transfer-Encoding after chunked returns 400") {
-	std::string req =
+	S req =
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked, gzip\r\n"
 		"Connection: close\r\n\r\n0\r\n\r\n";
 	auto resp = send_raw_bytes(req);
@@ -6320,7 +6321,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: duplicate Transfer-Encoding headers return 400") {
-	std::string req =
+	S req =
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n"
 		"Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n0\r\n\r\n";
 	auto resp = send_raw_bytes(req);
@@ -6329,7 +6330,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: uppercase chunked Transfer-Encoding is accepted") {
-	std::string req =
+	S req =
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: CHUNKED\r\n"
 		"Connection: close\r\n\r\n5\r\nhello\r\n0\r\n\r\n";
 	auto resp = send_raw_bytes(req);
@@ -6343,7 +6344,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: chunked transfer with chunk-count overflow returns 400") {
-	std::string req =
+	S req =
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
 	for (int i = 0; i < 200'000; ++i) {
 		req += "1\r\nx\r\n";
@@ -6359,17 +6360,17 @@ TEST_CASE(
 
 namespace ws_test {
 
-std::string read_http_headers(
+S read_http_headers(
 	int fd) {
-	std::string resp;
-	std::array<char, 512> buf{};
-	while (resp.find("\r\n\r\n") == std::string::npos) {
+	S resp;
+	A<char, 512> buf{};
+	while (resp.find("\r\n\r\n") == S::npos) {
 		auto n = ::recv(fd, buf.data(), buf.size(), 0);
 		if (n < 0 && errno == EINTR) {
 			continue;
 		}
 		REQUIRE(n > 0);
-		resp.append(buf.data(), static_cast<std::size_t>(n));
+		resp.append(buf.data(), static_cast<SZ>(n));
 		REQUIRE(resp.size() <= 8192);
 	}
 	return resp;
@@ -6398,7 +6399,7 @@ int ws_handshake(
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 	timeval tv{.tv_sec = 3, .tv_usec = 0};
 	::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	std::string req = std::format(
+	S req = std::format(
 		"GET /ws HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"Upgrade: websocket\r\n"
@@ -6408,15 +6409,15 @@ int ws_handshake(
 	::send(fd, req.data(), req.size(), MSG_NOSIGNAL);
 	auto resp = read_http_headers(fd);
 	REQUIRE(resp.starts_with("HTTP/1.1 101"));
-	REQUIRE(resp.find("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=") != std::string::npos);
+	REQUIRE(resp.find("Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=") != S::npos);
 	return fd;
 }
 
-std::vector<uint8_t> make_masked_frame(
+V<uint8_t> make_masked_frame(
 	uint8_t b0,
-	std::string_view payload,
+	SV payload,
 	bool mask = true) {
-	std::vector<uint8_t> f;
+	V<uint8_t> f;
 	f.push_back(b0);
 	auto len = payload.size();
 	uint8_t const mask_bit = mask ? 0x80U : 0U;
@@ -6433,9 +6434,9 @@ std::vector<uint8_t> make_masked_frame(
 		}
 	}
 	if (mask) {
-		std::array<uint8_t, 4> const key{0x01, 0x02, 0x03, 0x04};
+		A<uint8_t, 4> const key{0x01, 0x02, 0x03, 0x04};
 		f.insert(f.end(), key.begin(), key.end());
-		for (std::size_t i = 0; i < payload.size(); ++i) {
+		for (SZ i = 0; i < payload.size(); ++i) {
 			f.push_back(static_cast<uint8_t>(payload[i]) ^ key[i & 3]);
 		}
 	} else {
@@ -6446,14 +6447,14 @@ std::vector<uint8_t> make_masked_frame(
 
 struct CloseFrame {
 	uint16_t code{};
-	std::string reason;
+	S reason;
 	bool received{};
 };
 
 CloseFrame read_close(
 	int fd) {
 	auto read_exact = [fd](std::span<uint8_t> out) {
-		std::size_t got = 0;
+		SZ got = 0;
 		while (got < out.size()) {
 			auto n = ::recv(fd, out.data() + got, out.size() - got, 0);
 			if (n < 0 && errno == EINTR) {
@@ -6462,12 +6463,12 @@ CloseFrame read_close(
 			if (n <= 0) {
 				return false;
 			}
-			got += static_cast<std::size_t>(n);
+			got += static_cast<SZ>(n);
 		}
 		return true;
 	};
 
-	std::array<uint8_t, 2> header{};
+	A<uint8_t, 2> header{};
 	if (!read_exact(header)) {
 		return {};
 	}
@@ -6479,7 +6480,7 @@ CloseFrame read_close(
 	if (b1 > 125) {
 		return {};
 	}
-	std::array<uint8_t, 125> payload{};
+	A<uint8_t, 125> payload{};
 	if (!read_exact(std::span{payload}.first(b1))) {
 		return {};
 	}
@@ -6488,9 +6489,9 @@ CloseFrame read_close(
 	}
 	auto const code =
 		static_cast<uint16_t>((static_cast<uint32_t>(payload[0]) << 8U) | static_cast<uint32_t>(payload[1]));
-	std::string reason;
+	S reason;
 	if (b1 > 2) {
-		reason.assign(reinterpret_cast<char const *>(payload.data()) + 2, static_cast<std::size_t>(b1) - 2);
+		reason.assign(reinterpret_cast<char const *>(payload.data()) + 2, static_cast<SZ>(b1) - 2);
 	}
 	return {.code = code, .reason = std::move(reason), .received = true};
 }
@@ -6539,7 +6540,7 @@ TEST_CASE(
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
-	std::array<uint8_t, 9> frame{
+	A<uint8_t, 9> frame{
 		0x81U, // FIN | text
 		0xFEU, // MASK | 126 extended length marker
 		0x00U,
@@ -6565,7 +6566,7 @@ TEST_CASE(
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
-	std::string big(126, 'p');
+	S big(126, 'p');
 	auto frame = ws_test::make_masked_frame(0x89U, big); // FIN | ping
 	::send(fd, frame.data(), frame.size(), MSG_NOSIGNAL);
 	auto close = ws_test::read_close(fd);
@@ -6589,7 +6590,7 @@ TEST_CASE(
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 	timeval tv{.tv_sec = 3, .tv_usec = 0};
 	::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	std::string const req =
+	S const req =
 		"GET /ws HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"Connection: keep-alive\r\n"
@@ -6616,7 +6617,7 @@ TEST_CASE(
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 	timeval tv{.tv_sec = 3, .tv_usec = 0};
 	::setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-	std::string const req =
+	S const req =
 		"GET /ws HTTP/1.1\r\n"
 		"Host: localhost\r\n"
 		"Upgrade: websocket\r\n"
@@ -6655,7 +6656,7 @@ TEST_CASE(
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
-	std::string code_payload;
+	S code_payload;
 	code_payload.push_back('\x03');
 	code_payload.push_back('\xED'); // 1005 (reserved/invalid close code)
 	auto frame = ws_test::make_masked_frame(0x88U, code_payload);
@@ -6675,7 +6676,7 @@ TEST_CASE(
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
-	std::string close_payload;
+	S close_payload;
 	close_payload.push_back('\x03');
 	close_payload.push_back('\xE8'); // 1000
 	close_payload.append("\xC0\xAF", 2);
@@ -6714,7 +6715,7 @@ TEST_CASE(
 	Router router;
 	router.ws("/ws", [result](HttpRequest const &, WsConn &ws) {
 		try {
-			ws.close(1000, std::string_view{"\xC0\xAF", 2});
+			ws.close(1000, SV{"\xC0\xAF", 2});
 			result->set_value(false);
 		} catch (std::invalid_argument const &) { result->set_value(true); }
 	});
@@ -6742,12 +6743,12 @@ TEST_CASE(
 	auto part2 = ws_test::make_masked_frame(0x80U, "lo"); // FIN=1 | continuation
 	::send(fd, part1.data(), part1.size(), MSG_NOSIGNAL);
 	::send(fd, part2.data(), part2.size(), MSG_NOSIGNAL);
-	std::array<uint8_t, 64> rx{};
+	A<uint8_t, 64> rx{};
 	auto n = ::recv(fd, rx.data(), rx.size(), 0);
 	REQUIRE(n >= 7);
 	REQUIRE(rx[0] == 0x81U); // FIN | text
 	REQUIRE((rx[1] & 0x7FU) == 5U);
-	std::string echo{reinterpret_cast<char const *>(rx.data()) + 2, 5};
+	S echo{reinterpret_cast<char const *>(rx.data()) + 2, 5};
 	REQUIRE(echo == "hello");
 	::close(fd);
 	srv.stop();
@@ -6761,7 +6762,7 @@ TEST_CASE(
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
-	std::string bad{"\xC0\xAF"}; // overlong / illegal sequence
+	S bad{"\xC0\xAF"}; // overlong / illegal sequence
 	auto frame = ws_test::make_masked_frame(0x81U, bad);
 	::send(fd, frame.data(), frame.size(), MSG_NOSIGNAL);
 	auto close = ws_test::read_close(fd);
@@ -6785,7 +6786,7 @@ TEST_CASE(
 		fd = ::mkstemps(key_tmp, 4);
 		::close(fd);
 	}
-	std::string const cmd = std::format(
+	S const cmd = std::format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 		key_tmp,
@@ -6839,7 +6840,7 @@ TEST_CASE(
 		fd = ::mkstemps(key_tmp, 4);
 		::close(fd);
 	}
-	std::string const cmd = std::format(
+	S const cmd = std::format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 		key_tmp,
@@ -6893,7 +6894,7 @@ TEST_CASE(
 	SseChannel ch{64, SseOverflowPolicy::DropNewest};
 	// Each frame is 10 bytes; queue holds at most 64 bytes → 6 fit.
 	for (int i = 0; i < 10; ++i) {
-		std::string frame(10, 'x');
+		S frame(10, 'x');
 		(void)ch.send(std::move(frame));
 	}
 	REQUIRE(ch.dropped_count() == 4);
@@ -6905,24 +6906,24 @@ TEST_CASE(
 	"SseChannel: DropOldest policy keeps newest frames") {
 	SseChannel ch{30, SseOverflowPolicy::DropOldest};
 	for (int i = 0; i < 5; ++i) {
-		std::string frame(10, static_cast<char>('a' + i));
+		S frame(10, static_cast<char>('a' + i));
 		(void)ch.send(std::move(frame));
 	}
 	REQUIRE(ch.dropped_count() >= 2);
 	auto out = ch.drain();
 	// After overflow, the final 3 frames (cc…, dd…, ee…) should remain.
-	REQUIRE(out.find("eeeeeeeeee") != std::string::npos);
-	REQUIRE(out.find("aaaaaaaaaa") == std::string::npos);
+	REQUIRE(out.find("eeeeeeeeee") != S::npos);
+	REQUIRE(out.find("aaaaaaaaaa") == S::npos);
 }
 
 TEST_CASE(
 	"SseChannel: Disconnect policy closes on overflow") {
 	SseChannel ch{20, SseOverflowPolicy::Disconnect};
-	REQUIRE(ch.send(std::string(10, 'x')));
+	REQUIRE(ch.send(S(10, 'x')));
 	// Next send exceeds the cap → channel is closed; further sends return false.
-	(void)ch.send(std::string(20, 'y'));
+	(void)ch.send(S(20, 'y'));
 	REQUIRE(ch.is_closed());
-	REQUIRE_FALSE(ch.send(std::string(5, 'z')));
+	REQUIRE_FALSE(ch.send(S(5, 'z')));
 }
 
 TEST_CASE(
@@ -6965,7 +6966,7 @@ TEST_CASE(
 	addr.sin_port = htons(p);
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
-	std::string_view const req = "GET /stuck HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+	SV const req = "GET /stuck HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
 	::send(fd, req.data(), req.size(), 0);
 
 	auto const response = read_one_response(fd);
@@ -7004,13 +7005,13 @@ TEST_CASE(
 	addr.sin_port = htons(p);
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
-	std::string_view const req = "GET /fast HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+	SV const req = "GET /fast HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
 	::send(fd, req.data(), req.size(), 0);
 
 	auto const response = read_one_response(fd);
 	::close(fd);
 	REQUIRE(response.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(response.find("pong") != std::string::npos);
+	REQUIRE(response.find("pong") != S::npos);
 	srv.stop();
 }
 
@@ -7052,11 +7053,11 @@ TEST_CASE(
 
 	f.set("dup", "merged");
 	REQUIRE(f.size() == 4);
-	std::vector<std::string> keys;
+	V<S> keys;
 	for (auto const &[k, _v]: f) {
 		keys.push_back(k);
 	}
-	REQUIRE(keys == (std::vector<std::string>{"A", "Dup", "B", "C"}));
+	REQUIRE(keys == (V<S>{"A", "Dup", "B", "C"}));
 	REQUIRE(f.get("dup") == "merged");
 	REQUIRE(f.get("a") == "1");
 	REQUIRE(f.get("b") == "2");
@@ -7113,7 +7114,7 @@ TEST_CASE(
 	f.emplace_back("Other", "x");
 	auto vals = f.values("cookie");
 	REQUIRE(vals.size() == 3);
-	using sv = std::string_view;
+	using sv = SV;
 	REQUIRE(std::ranges::contains(vals, sv{"a=1"}));
 	REQUIRE(std::ranges::contains(vals, sv{"b=2"}));
 	REQUIRE(std::ranges::contains(vals, sv{"c=3"}));
@@ -7133,22 +7134,22 @@ TEST_CASE(
 	char tmpdir[] = "/tmp/conflux_enc_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
-	auto fpath = std::string{tmpdir} + "/hello world.txt";
+	auto fpath = S{tmpdir} + "/hello world.txt";
 	int const wfd = ::open(fpath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(wfd >= 0);
-	std::string_view const content{"space file"};
+	SV const content{"space file"};
 	::write(wfd, content.data(), content.size());
 	::close(wfd);
 
 	Router router;
-	router.serve_static("/s", std::string{tmpdir});
+	router.serve_static("/s", S{tmpdir});
 
 	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	auto resp = conflux::tests::http_get_on(srv.port(), "/s/hello%20world.txt");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto body_start = resp.find("\r\n\r\n");
-	REQUIRE(body_start != std::string::npos);
+	REQUIRE(body_start != S::npos);
 	REQUIRE(resp.substr(body_start + 4) == "space file");
 
 	srv.stop();
@@ -7161,15 +7162,15 @@ TEST_CASE(
 	char tmpdir[] = "/tmp/conflux_ims_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
-	auto fpath = std::string{tmpdir} + "/test.txt";
+	auto fpath = S{tmpdir} + "/test.txt";
 	int const wfd = ::open(fpath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(wfd >= 0);
-	std::string_view const content{"hello"};
+	SV const content{"hello"};
 	::write(wfd, content.data(), content.size());
 	::close(wfd);
 
 	Router router;
-	router.serve_static("/s", std::string{tmpdir});
+	router.serve_static("/s", S{tmpdir});
 
 	ScopedTestServer srv{mw_config(), std::move(router)};
 
@@ -7197,7 +7198,7 @@ TEST_CASE(
 	"router: wildcard {*path} captures entire tail") {
 	Router router;
 	router.get("/files/{*path}", [](HttpRequest const &req) {
-		return HttpResponse::text(std::string{req.params["path"]});
+		return HttpResponse::text(S{req.params["path"]});
 	});
 	HttpRequest req;
 	req.method = "GET";
@@ -7211,7 +7212,7 @@ TEST_CASE(
 	"router: wildcard {*path} captures empty tail when path ends at prefix") {
 	Router router;
 	router.get("/files/{*path}", [](HttpRequest const &req) {
-		return HttpResponse::text(std::string{req.params["path"]});
+		return HttpResponse::text(S{req.params["path"]});
 	});
 	HttpRequest req;
 	req.method = "GET";
@@ -7239,7 +7240,7 @@ TEST_CASE(
 	"router: non-matching path returns 404") {
 	Router router;
 	router.get("/files/{*path}", [](HttpRequest const &req) {
-		return HttpResponse::text(std::string{req.params["path"]});
+		return HttpResponse::text(S{req.params["path"]});
 	});
 	HttpRequest req;
 	req.method = "GET";
@@ -7252,7 +7253,7 @@ TEST_CASE(
 	"router: percent-encoded path param is URL-decoded") {
 	Router router;
 	router.get("/hello/{name}", [](HttpRequest const &req) {
-		return HttpResponse::text(std::string{req.params["name"]});
+		return HttpResponse::text(S{req.params["name"]});
 	});
 	HttpRequest req;
 	req.method = "GET";
@@ -7266,7 +7267,7 @@ TEST_CASE(
 	"router: wildcard tail with percent-encoded segment is URL-decoded") {
 	Router router;
 	router.get("/files/{*path}", [](HttpRequest const &req) {
-		return HttpResponse::text(std::string{req.params["path"]});
+		return HttpResponse::text(S{req.params["path"]});
 	});
 	HttpRequest req;
 	req.method = "GET";
@@ -7297,7 +7298,7 @@ TEST_CASE(
 	"router: on_error custom handler called when route throws") {
 	Router router;
 	router.get("/boom", [](HttpRequest const &) -> HttpResponse { throw std::runtime_error{"oops"}; });
-	std::string captured_what;
+	S captured_what;
 	router.on_error([&](HttpRequest const &, std::exception const &ex) {
 		captured_what = ex.what();
 		return HttpResponse::text("caught");
@@ -7397,11 +7398,11 @@ TEST_CASE(
 TEST_CASE(
 	"http1_parser: header with null byte returns BadRequest") {
 	using namespace conflux::http1;
-	using namespace std::string_literals;
+	using namespace S_literals;
 	ParserLimits const limits{};
 	ParsedRequest out;
-	// Use "s" suffix so std::string captures embedded null bytes.
-	std::string raw = "GET / HTTP/1.1\r\nX-Bad: val\x00ue\r\n\r\n"s;
+	// Use "s" suffix so S captures embedded null bytes.
+	S raw = "GET / HTTP/1.1\r\nX-Bad: val\x00ue\r\n\r\n"s;
 	auto status = parse_request(raw, limits, out);
 	REQUIRE(status == ParseStatus::BadRequest);
 }
@@ -7487,14 +7488,14 @@ TEST_CASE(
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
 	// Put a file so the dir is non-empty (no index.html).
-	auto fpath = std::string{tmpdir} + "/file.txt";
+	auto fpath = S{tmpdir} + "/file.txt";
 	int const fd = ::open(fpath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(fd >= 0);
 	::write(fd, "hi", 2);
 	::close(fd);
 
 	Router router;
-	router.serve_static("/s", std::string{tmpdir});
+	router.serve_static("/s", S{tmpdir});
 
 	ScopedTestServer srv{mw_config(), std::move(router)};
 
@@ -7511,8 +7512,8 @@ TEST_CASE(
 	char tmpdir[] = "/tmp/conflux_dirlist2_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
-	auto write_file = [&](std::string_view name, std::string_view content) {
-		auto path = std::string{tmpdir} + "/" + std::string{name};
+	auto write_file = [&](SV name, SV content) {
+		auto path = S{tmpdir} + "/" + S{name};
 		int const wfd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(wfd >= 0);
 		::write(wfd, content.data(), content.size());
@@ -7524,22 +7525,22 @@ TEST_CASE(
 	Router router;
 	StaticOptions sopts{};
 	sopts.directory_listing = true;
-	router.serve_static("/s", std::string{tmpdir}, sopts);
+	router.serve_static("/s", S{tmpdir}, sopts);
 
 	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	auto resp = conflux::tests::http_get_on(srv.port(), "/s/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto body_start = resp.find("\r\n\r\n");
-	REQUIRE(body_start != std::string::npos);
+	REQUIRE(body_start != S::npos);
 	auto body = resp.substr(body_start + 4);
-	REQUIRE(body.find("alpha.txt") != std::string::npos);
-	REQUIRE(body.find("beta.html") != std::string::npos);
-	REQUIRE(body.find("<ul>") != std::string::npos);
+	REQUIRE(body.find("alpha.txt") != S::npos);
+	REQUIRE(body.find("beta.html") != S::npos);
+	REQUIRE(body.find("<ul>") != S::npos);
 
 	srv.stop();
-	::unlink((std::string{tmpdir} + "/alpha.txt").c_str());
-	::unlink((std::string{tmpdir} + "/beta.html").c_str());
+	::unlink((S{tmpdir} + "/alpha.txt").c_str());
+	::unlink((S{tmpdir} + "/beta.html").c_str());
 	::rmdir(tmpdir);
 }
 
@@ -7548,8 +7549,8 @@ TEST_CASE(
 	char tmpdir[] = "/tmp/conflux_dirlist3_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
-	auto write_file = [&](std::string_view name) {
-		auto path = std::string{tmpdir} + "/" + std::string{name};
+	auto write_file = [&](SV name) {
+		auto path = S{tmpdir} + "/" + S{name};
 		int const wfd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(wfd >= 0);
 		::close(wfd);
@@ -7561,28 +7562,28 @@ TEST_CASE(
 	Router router;
 	StaticOptions sopts{};
 	sopts.directory_listing = true;
-	router.serve_static("/s", std::string{tmpdir}, sopts);
+	router.serve_static("/s", S{tmpdir}, sopts);
 
 	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	auto resp = conflux::tests::http_get_on(srv.port(), "/s/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto body_start = resp.find("\r\n\r\n");
-	REQUIRE(body_start != std::string::npos);
+	REQUIRE(body_start != S::npos);
 	auto body = resp.substr(body_start + 4);
 	auto apple_pos = body.find("apple.txt");
 	auto mango_pos = body.find("mango.txt");
 	auto zebra_pos = body.find("zebra.txt");
-	REQUIRE(apple_pos != std::string::npos);
-	REQUIRE(mango_pos != std::string::npos);
-	REQUIRE(zebra_pos != std::string::npos);
+	REQUIRE(apple_pos != S::npos);
+	REQUIRE(mango_pos != S::npos);
+	REQUIRE(zebra_pos != S::npos);
 	REQUIRE(apple_pos < mango_pos);
 	REQUIRE(mango_pos < zebra_pos);
 
 	srv.stop();
-	::unlink((std::string{tmpdir} + "/zebra.txt").c_str());
-	::unlink((std::string{tmpdir} + "/apple.txt").c_str());
-	::unlink((std::string{tmpdir} + "/mango.txt").c_str());
+	::unlink((S{tmpdir} + "/zebra.txt").c_str());
+	::unlink((S{tmpdir} + "/apple.txt").c_str());
+	::unlink((S{tmpdir} + "/mango.txt").c_str());
 	::rmdir(tmpdir);
 }
 
@@ -7591,24 +7592,24 @@ TEST_CASE(
 	char tmpdir[] = "/tmp/conflux_dirlist4_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
-	auto path = std::string{tmpdir} + "/index.html";
+	auto path = S{tmpdir} + "/index.html";
 	int const wfd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(wfd >= 0);
-	auto content = std::string_view{"<h1>Index</h1>"};
+	auto content = SV{"<h1>Index</h1>"};
 	::write(wfd, content.data(), content.size());
 	::close(wfd);
 
 	Router router;
 	StaticOptions sopts{};
 	sopts.directory_listing = true;
-	router.serve_static("/s", std::string{tmpdir}, sopts);
+	router.serve_static("/s", S{tmpdir}, sopts);
 
 	ScopedTestServer srv{mw_config(), std::move(router)};
 
 	auto resp = conflux::tests::http_get_on(srv.port(), "/s/");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto body_start = resp.find("\r\n\r\n");
-	REQUIRE(body_start != std::string::npos);
+	REQUIRE(body_start != S::npos);
 	auto body = resp.substr(body_start + 4);
 	REQUIRE(body == "<h1>Index</h1>");
 

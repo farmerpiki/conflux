@@ -5,6 +5,7 @@
 #include <unistd.h>
 
 import std;
+import conflux.types;
 import conflux.templates;
 
 using namespace std;
@@ -330,9 +331,9 @@ struct TmplDir {
 	~TmplDir() { ::rmdir(path); }
 
 	void write(
-		std::string_view name,
-		std::string_view content) const {
-		auto full = std::string{path} + "/" + std::string{name};
+		SV name,
+		SV content) const {
+		auto full = S{path} + "/" + S{name};
 		int const fd = ::open(full.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(fd >= 0);
 		[[maybe_unused]] auto n = ::write(fd, content.data(), content.size());
@@ -340,12 +341,12 @@ struct TmplDir {
 	}
 
 	void rm(
-		std::string_view name) const {
-		auto full = std::string{path} + "/" + std::string{name};
+		SV name) const {
+		auto full = S{path} + "/" + S{name};
 		::unlink(full.c_str());
 	}
 
-	[[nodiscard]] Environment make() const { return Environment{std::string{path}}; }
+	[[nodiscard]] Environment make() const { return Environment{S{path}}; }
 };
 
 } // namespace

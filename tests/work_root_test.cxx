@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.types;
 import conflux.work.root;
 
 namespace root = conflux::work::root;
@@ -458,7 +459,7 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: Outcome<T>::value() && supports move-only payload",
 	"[work.root][r3]") {
-	root::Outcome<std::unique_ptr<int>> ok{root::Success<std::unique_ptr<int>>{std::make_unique<int>(13)}};
+	root::Outcome<UP<int>> ok{root::Success<UP<int>>{std::make_unique<int>(13)}};
 	auto p = std::move(ok).value();
 	REQUIRE(p);
 	CHECK(*p == 13);
@@ -516,9 +517,9 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: Outcome<T>::match() && moves into success branch",
 	"[work.root][r3]") {
-	root::Outcome<std::unique_ptr<int>> ok{root::Success<std::unique_ptr<int>>{std::make_unique<int>(99)}};
+	root::Outcome<UP<int>> ok{root::Success<UP<int>>{std::make_unique<int>(99)}};
 	auto out = std::move(ok).match(
-		[](std::unique_ptr<int> &&p) { return *p; },
+		[](UP<int> &&p) { return *p; },
 		[](root::Failure const &) { return -1; },
 		[](root::Cancelled const &) { return -2; });
 	CHECK(out == 99);
@@ -533,7 +534,7 @@ TEST_CASE(
 	};
 	MyContextError const err;
 	CHECK(err.reason() == root::JoinContextReason::capability_mismatch);
-	CHECK(std::string{err.what()} == "my error");
+	CHECK(S{err.what()} == "my error");
 
 	bool caught_as_join = false;
 	try {
@@ -556,7 +557,7 @@ TEST_CASE(
 	"[work.root][r1]") {
 	root::JoinContextError const e{"string only"};
 	CHECK(e.reason() == root::JoinContextReason::unspecified);
-	CHECK(std::string{e.what()} == "string only");
+	CHECK(S{e.what()} == "string only");
 }
 
 TEST_CASE(

@@ -1,6 +1,7 @@
 #include <liburing.h>
 
 import std;
+import conflux.types;
 import conflux.work;
 #if CONFLUX_WORK_CARRIER_MODEL_A
 import conflux.work.carrier.model_a;
@@ -962,17 +963,17 @@ vector<Case> make_cases() {
 			"root/callable_erasure_custom_inline32",
 			"construct + move + invoke root::detail::MoveOnlyFunction<...,32>"));
 	cases.push_back(
-		make_callable_erasure_case<std::function<void(root::CancelReason)>>(
+		make_callable_erasure_case<Fn<void(root::CancelReason)>>(
 			"root/callable_erasure_std_function",
-			"construct + move + invoke std::function baseline"));
+			"construct + move + invoke Fn baseline"));
 	cases.push_back(
 		make_callable_erasure_capture_case<root::detail::MoveOnlyFunction<void(root::CancelReason)>, 3>(
 			"root/callable_erasure_custom_capture24",
 			"capture24 + construct + move + invoke root::detail::MoveOnlyFunction"));
 	cases.push_back(
-		make_callable_erasure_capture_case<std::function<void(root::CancelReason)>, 3>(
+		make_callable_erasure_capture_case<Fn<void(root::CancelReason)>, 3>(
 			"root/callable_erasure_std_function_capture24",
-			"capture24 + construct + move + invoke std::function baseline"));
+			"capture24 + construct + move + invoke Fn baseline"));
 #if defined(__cpp_lib_move_only_function) && __cpp_lib_move_only_function >= 202110L
 	cases.push_back(
 		make_callable_erasure_case<std::move_only_function<void(root::CancelReason)>>(

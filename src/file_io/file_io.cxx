@@ -671,7 +671,7 @@ public:
 	// Open a path relative to dir_fd. Result is a raw-fd FileHandle.
 	// Pass AT_FDCWD for absolute paths / cwd-relative.
 	// `path` must be a null-terminated string owned by the caller until the
-	// CQE fires; if unsure, pass a std::string and we copy.
+	// CQE fires; if unsure, pass a S and we copy.
 	[[nodiscard]] Flow<FileHandle> open_async(
 		int dir_fd,
 		string path,
@@ -2749,7 +2749,7 @@ public:
 // ---------------------------------------------------------------------------
 
 export struct DefaultUdDecoder {
-	std::pair<u32, u32> operator ()(
+	P<u32, u32> operator ()(
 		u64 ud) const noexcept {
 		return {static_cast<u32>(ud & 0xFFFFFFFFU), static_cast<u32>(ud >> 32U)};
 	}
@@ -2764,11 +2764,11 @@ export template<typename Decode = DefaultUdDecoder>
 void pump_until(
 	FileReader &reader,
 	std::atomic_flag const &done,
-	std::optional<std::chrono::milliseconds> budget = std::nullopt,
+	Opt<std::chrono::milliseconds> budget = std::nullopt,
 	Decode decode = {}) {
 	auto *ring = reader.ring();
 	auto *completions = reader.completions();
-	auto const deadline = budget ? std::optional{std::chrono::steady_clock::now() + *budget} : std::nullopt;
+	auto const deadline = budget ? Opt{std::chrono::steady_clock::now() + *budget} : std::nullopt;
 	while (!done.test(std::memory_order_acquire)) {
 		::io_uring_cqe *cqe = nullptr;
 		int rc = 0;
@@ -2813,7 +2813,7 @@ export template<typename T, typename Decode = DefaultUdDecoder>
 T block_on(
 	FileReader &reader,
 	Task<T> task,
-	std::optional<std::chrono::milliseconds> budget = std::nullopt,
+	Opt<std::chrono::milliseconds> budget = std::nullopt,
 	Decode decode = {}) {
 	if constexpr (std::is_void_v<T>) {
 		block_on<void>(reader, std::move(task).flow(), budget, std::move(decode));
@@ -2826,7 +2826,7 @@ export template<typename T, typename Decode = DefaultUdDecoder>
 T block_on(
 	FileReader &reader,
 	Flow<T> flow,
-	std::optional<std::chrono::milliseconds> budget = std::nullopt,
+	Opt<std::chrono::milliseconds> budget = std::nullopt,
 	Decode decode = {}) {
 	if constexpr (std::is_void_v<T>) {
 		struct Slot {
@@ -2849,7 +2849,7 @@ T block_on(
 		struct Slot {
 			std::atomic_flag done{};
 			std::exception_ptr err{};
-			std::optional<T> value{};
+			Opt<T> value{};
 		};
 		auto slot = std::make_shared<Slot>();
 		auto held = std::move(flow)

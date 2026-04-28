@@ -9,6 +9,7 @@
 //   curl -H 'Authorization: Bearer valid-token' http://localhost:9094/private/token
 import conflux.net.http;
 import std;
+import conflux.types;
 
 int main() {
 	Config cfg{};
@@ -49,7 +50,7 @@ int main() {
 
 	router.group("/private", [](Router::Group &g) {
 		g.use(basic_auth_middleware(
-			[](std::string_view user, std::string_view pass) { return user == "demo" && pass == "demo"; }));
+			[](SV user, SV pass) { return user == "demo" && pass == "demo"; }));
 
 		g.get("/profile", [](HttpRequestView const &req) {
 			return HttpResponse::json(
@@ -61,7 +62,7 @@ int main() {
 	});
 
 	router.group("/private", [](Router::Group &g) {
-		g.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token"; }));
+		g.use(bearer_auth_middleware([](SV token) { return token == "valid-token"; }));
 
 		g.get("/token", [](HttpRequestView const &req) {
 			return HttpResponse::json(

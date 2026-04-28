@@ -2831,7 +2831,7 @@ expected<Document, JsonError> parse(
 	return parse_with_storage(storage_ref, move(storage), opts);
 }
 
-// Move-in overload: avoids the input copy. Constrained to actual std::string
+// Move-in overload: avoids the input copy. Constrained to actual S
 // rvalues so that const char[N] literals select the (string_view) overload
 // without ambiguity.
 template<class S>

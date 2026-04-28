@@ -3,6 +3,7 @@ module;
 export module conflux.work.carrier.model_b;
 
 import std;
+import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.flags;
 
@@ -195,8 +196,8 @@ template<root::work_value A, root::work_value B>
 	requires(!std::same_as<A, void> && !std::same_as<B, void>)
 [[nodiscard]] auto when_all(
 	TaskChain<A> &&a,
-	TaskChain<B> &&b) noexcept -> TaskChain<std::tuple<A, B>> {
-	using T = std::tuple<A, B>;
+	TaskChain<B> &&b) noexcept -> TaskChain<Tup<A, B>> {
+	using T = Tup<A, B>;
 	auto out_a = std::move(a).release_outcome();
 	auto out_b = std::move(b).release_outcome();
 

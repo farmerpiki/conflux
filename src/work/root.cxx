@@ -3,6 +3,7 @@ module;
 export module conflux.work.root;
 
 import std;
+import conflux.types;
 
 export namespace conflux::work::root {
 
@@ -48,9 +49,9 @@ public:
 	using WorkError::WorkError;
 
 	explicit JoinContextError(
-		std::string_view msg,
+		SV msg,
 		JoinContextReason reason)
-		: WorkError{std::string{msg}}
+		: WorkError{S{msg}}
 		, reason_{reason} {}
 
 	[[nodiscard]] JoinContextReason reason() const noexcept { return reason_; }
@@ -638,11 +639,11 @@ namespace detail {
 // Benchmark coverage lives in benchmarks/work_bench.cxx
 // (`root/callable_erasure_custom` plus compile-gated std comparator). Keep
 // the lower-overhead option as toolchain support matures. Do not regress to
-// std::function.
-template<typename Signature, std::size_t InlineBytes = 32>
+// Fn.
+template<typename Signature, SZ InlineBytes = 32>
 class MoveOnlyFunction;
 
-template<typename R, typename... Args, std::size_t InlineBytes>
+template<typename R, typename... Args, SZ InlineBytes>
 class MoveOnlyFunction<R(Args...), InlineBytes> {
 	struct storage_t {
 		alignas(std::max_align_t) std::byte bytes[InlineBytes];
@@ -859,7 +860,7 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 	bool hook_claimed_ = false;
 
 	mutable std::mutex outcome_mtx_{};
-	std::optional<Outcome<T>> outcome_{};
+	Opt<Outcome<T>> outcome_{};
 
 	mutable std::mutex abandon_mtx_{};
 	bool abandoned_ = false;
@@ -939,7 +940,7 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 
 	void run_abandon_path_if_present() noexcept {
 		MoveOnlyFunction<void(Outcome<T> const &)> sink{};
-		std::optional<Outcome<T>> local{};
+		Opt<Outcome<T>> local{};
 		{
 			std::scoped_lock const lk{abandon_mtx_, outcome_mtx_};
 			if (!abandoned_ || !abandon_sink_ || !outcome_) {
@@ -1225,7 +1226,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 	bool hook_claimed_ = false;
 
 	mutable std::mutex outcome_mtx_{};
-	std::optional<Outcome<void>> outcome_{};
+	Opt<Outcome<void>> outcome_{};
 
 	mutable std::mutex abandon_mtx_{};
 	bool abandoned_ = false;
@@ -1305,7 +1306,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 
 	void run_abandon_path_if_present() noexcept {
 		MoveOnlyFunction<void(Outcome<void> const &)> sink{};
-		std::optional<Outcome<void>> local{};
+		Opt<Outcome<void>> local{};
 		{
 			std::scoped_lock const lk{abandon_mtx_, outcome_mtx_};
 			if (!abandoned_ || !abandon_sink_ || !outcome_) {
@@ -1573,24 +1574,24 @@ public:
 
 template<ControlCategory Category>
 class BasicControl {
-	std::shared_ptr<ControlBlockBase> core_{};
+	SP<ControlBlockBase> core_{};
 
 	template<work_value, ControlCategory>
 	friend class BasicSource;
 	template<work_value U>
-	friend std::pair<BasicControl<ControlCategory::task>, BasicSource<U, ControlCategory::task>>
+	friend P<BasicControl<ControlCategory::task>, BasicSource<U, ControlCategory::task>>
 	make_task_control_source();
 	template<work_value U>
-	friend std::pair<BasicControl<ControlCategory::posted>, BasicSource<U, ControlCategory::posted>>
+	friend P<BasicControl<ControlCategory::posted>, BasicSource<U, ControlCategory::posted>>
 	make_posted_control_source();
 	template<work_value U>
-	friend std::pair<BasicControl<ControlCategory::operation>, BasicSource<U, ControlCategory::operation>>
+	friend P<BasicControl<ControlCategory::operation>, BasicSource<U, ControlCategory::operation>>
 	make_operation_control_source();
 
 public:
 	BasicControl() = default;
 	explicit BasicControl(
-		std::shared_ptr<ControlBlockBase> core) noexcept
+		SP<ControlBlockBase> core) noexcept
 		: core_{std::move(core)} {}
 
 	[[nodiscard]] bool request_cancel() noexcept { return core_ ? core_->request_cancel() : false; }
@@ -1657,26 +1658,26 @@ using OperationControl = BasicControl<ControlCategory::operation>;
 
 template<work_value T, ControlCategory Category>
 class BasicSource {
-	std::shared_ptr<detail::ControlBlockInterface<T>> state_{};
+	SP<detail::ControlBlockInterface<T>> state_{};
 
 	explicit BasicSource(
-		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept
+		SP<detail::ControlBlockInterface<T>> state) noexcept
 		: state_{std::move(state)} {}
 
 	template<work_value U>
-	friend std::pair<TaskControl, BasicSource<U, ControlCategory::task>> make_task_control_source();
+	friend P<TaskControl, BasicSource<U, ControlCategory::task>> make_task_control_source();
 	template<work_value U>
-	friend std::pair<PostedControl, BasicSource<U, ControlCategory::posted>> make_posted_control_source();
+	friend P<PostedControl, BasicSource<U, ControlCategory::posted>> make_posted_control_source();
 	template<work_value U>
-	friend std::pair<OperationControl, BasicSource<U, ControlCategory::operation>> make_operation_control_source();
+	friend P<OperationControl, BasicSource<U, ControlCategory::operation>> make_operation_control_source();
 	template<work_value U>
-	friend std::pair<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>>
+	friend P<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>>
 		make_task_source(struct SubmitOptions);
 	template<work_value U, progress_capability Owner>
-	friend std::pair<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>>
+	friend P<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>>
 	make_posted_source(Owner &, struct PostOptions);
 	template<work_value U, progress_capability Driver>
-	friend std::pair<class BasicResult<U, ControlCategory::operation>, BasicSource<U, ControlCategory::operation>>
+	friend P<class BasicResult<U, ControlCategory::operation>, BasicSource<U, ControlCategory::operation>>
 	make_operation_source(Driver &, struct OperationOptions);
 
 public:
@@ -1686,7 +1687,7 @@ public:
 	BasicSource(BasicSource const &) = delete;
 	BasicSource &operator =(BasicSource const &) = delete;
 	[[nodiscard]] static BasicSource from_state(
-		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept {
+		SP<detail::ControlBlockInterface<T>> state) noexcept {
 		return BasicSource{std::move(state)};
 	}
 
@@ -1723,26 +1724,26 @@ public:
 
 template<ControlCategory Category>
 class BasicSource<void, Category> {
-	std::shared_ptr<detail::ControlBlockInterface<void>> state_{};
+	SP<detail::ControlBlockInterface<void>> state_{};
 
 	explicit BasicSource(
-		std::shared_ptr<detail::ControlBlockInterface<void>> state) noexcept
+		SP<detail::ControlBlockInterface<void>> state) noexcept
 		: state_{std::move(state)} {}
 
 	template<work_value U>
-	friend std::pair<TaskControl, BasicSource<U, ControlCategory::task>> make_task_control_source();
+	friend P<TaskControl, BasicSource<U, ControlCategory::task>> make_task_control_source();
 	template<work_value U>
-	friend std::pair<PostedControl, BasicSource<U, ControlCategory::posted>> make_posted_control_source();
+	friend P<PostedControl, BasicSource<U, ControlCategory::posted>> make_posted_control_source();
 	template<work_value U>
-	friend std::pair<OperationControl, BasicSource<U, ControlCategory::operation>> make_operation_control_source();
+	friend P<OperationControl, BasicSource<U, ControlCategory::operation>> make_operation_control_source();
 	template<work_value U>
-	friend std::pair<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>>
+	friend P<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>>
 		make_task_source(struct SubmitOptions);
 	template<work_value U, progress_capability Owner>
-	friend std::pair<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>>
+	friend P<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>>
 	make_posted_source(Owner &, struct PostOptions);
 	template<work_value U, progress_capability Driver>
-	friend std::pair<class BasicResult<U, ControlCategory::operation>, BasicSource<U, ControlCategory::operation>>
+	friend P<class BasicResult<U, ControlCategory::operation>, BasicSource<U, ControlCategory::operation>>
 	make_operation_source(Driver &, struct OperationOptions);
 
 public:
@@ -1752,7 +1753,7 @@ public:
 	BasicSource(BasicSource const &) = delete;
 	BasicSource &operator =(BasicSource const &) = delete;
 	[[nodiscard]] static BasicSource from_state(
-		std::shared_ptr<detail::ControlBlockInterface<void>> state) noexcept {
+		SP<detail::ControlBlockInterface<void>> state) noexcept {
 		return BasicSource{std::move(state)};
 	}
 
@@ -1826,15 +1827,15 @@ struct control_handle_for<ControlCategory::operation> {
 
 template<work_value T, ControlCategory Category>
 class BasicResult {
-	std::shared_ptr<detail::ControlBlockInterface<T>> state_{};
+	SP<detail::ControlBlockInterface<T>> state_{};
 	bool live_ = false;
 
 	explicit BasicResult(
-		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept
+		SP<detail::ControlBlockInterface<T>> state) noexcept
 		: state_{std::move(state)}
 		, live_{static_cast<bool>(state_)} {}
 
-	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume() noexcept {
+	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume() noexcept {
 		if (!live_) {
 			return {};
 		}
@@ -1843,11 +1844,11 @@ class BasicResult {
 	}
 
 	template<work_value U>
-	friend std::pair<BasicResult<U, ControlCategory::task>, TaskSource<U>> make_task_source(SubmitOptions);
+	friend P<BasicResult<U, ControlCategory::task>, TaskSource<U>> make_task_source(SubmitOptions);
 	template<work_value U, progress_capability Owner>
-	friend std::pair<BasicResult<U, ControlCategory::posted>, PostedSource<U>> make_posted_source(Owner &, PostOptions);
+	friend P<BasicResult<U, ControlCategory::posted>, PostedSource<U>> make_posted_source(Owner &, PostOptions);
 	template<work_value U, progress_capability Driver>
-	friend std::pair<BasicResult<U, ControlCategory::operation>, OperationSource<U>>
+	friend P<BasicResult<U, ControlCategory::operation>, OperationSource<U>>
 	make_operation_source(Driver &, OperationOptions);
 	template<work_value U, ControlCategory C, class Sink>
 	friend void abandon_impl(BasicResult<U, C> &&, Sink &&) noexcept;
@@ -1872,7 +1873,7 @@ class BasicResult {
 public:
 	BasicResult() = default;
 	[[nodiscard]] static BasicResult from_state(
-		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept {
+		SP<detail::ControlBlockInterface<T>> state) noexcept {
 		return BasicResult{std::move(state)};
 	}
 	BasicResult(
@@ -1928,15 +1929,15 @@ struct drop_on_abandon {
 
 template<work_value T, ControlCategory Category>
 class BasicJoinHandle {
-	std::shared_ptr<detail::ControlBlockInterface<T>> state_{};
+	SP<detail::ControlBlockInterface<T>> state_{};
 	bool live_ = false;
 
 	explicit BasicJoinHandle(
-		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept
+		SP<detail::ControlBlockInterface<T>> state) noexcept
 		: state_{std::move(state)}
 		, live_{static_cast<bool>(state_)} {}
 
-	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume() noexcept {
+	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume() noexcept {
 		if (!live_) {
 			return {};
 		}
@@ -2175,8 +2176,8 @@ inline void emit_carrier_diagnostic(
 
 template<class R, class Sink = drop_on_abandon>
 class scoped_abandon {
-	std::optional<R> value_{};
-	std::optional<Sink> sink_{};
+	Opt<R> value_{};
+	Opt<Sink> sink_{};
 	bool armed_ = false;
 
 public:
@@ -2220,9 +2221,9 @@ template<class R>
 }
 
 template<work_value T>
-[[nodiscard]] std::pair<Task<T>, TaskSource<T>> make_task_source(
+[[nodiscard]] P<Task<T>, TaskSource<T>> make_task_source(
 	SubmitOptions opts = {}) {
-	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
+	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = std::make_shared<detail::ControlBlockModel<T, true>>();
 	} else {
@@ -2232,10 +2233,10 @@ template<work_value T>
 }
 
 template<work_value T, progress_capability Owner>
-[[nodiscard]] std::pair<Posted<T>, PostedSource<T>> make_posted_source(
+[[nodiscard]] P<Posted<T>, PostedSource<T>> make_posted_source(
 	Owner &owner,
 	PostOptions opts = {}) {
-	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
+	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = std::make_shared<detail::ControlBlockModel<T, true>>();
 	} else {
@@ -2246,10 +2247,10 @@ template<work_value T, progress_capability Owner>
 }
 
 template<work_value T, progress_capability Driver>
-[[nodiscard]] std::pair<Operation<T>, OperationSource<T>> make_operation_source(
+[[nodiscard]] P<Operation<T>, OperationSource<T>> make_operation_source(
 	Driver &driver,
 	OperationOptions opts = {}) {
-	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
+	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = std::make_shared<detail::ControlBlockModel<T, true>>();
 	} else {
@@ -2460,15 +2461,15 @@ inline void value(
 }
 
 template<work_value T>
-[[nodiscard]] std::pair<TaskControl, TaskSource<T>> make_task_control_source() {
+[[nodiscard]] P<TaskControl, TaskSource<T>> make_task_control_source() {
 	auto state = std::make_shared<detail::ControlBlockModel<T, true>>();
 	return {TaskControl{state}, TaskSource<T>::from_state(std::move(state))};
 }
 
 template<work_value T>
-[[nodiscard]] std::pair<TaskControl, TaskSource<T>> make_task_control_source(
+[[nodiscard]] P<TaskControl, TaskSource<T>> make_task_control_source(
 	SubmitOptions opts) {
-	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
+	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = std::make_shared<detail::ControlBlockModel<T, true>>();
 	} else {
@@ -2478,15 +2479,15 @@ template<work_value T>
 }
 
 template<work_value T>
-[[nodiscard]] std::pair<PostedControl, PostedSource<T>> make_posted_control_source() {
+[[nodiscard]] P<PostedControl, PostedSource<T>> make_posted_control_source() {
 	auto state = std::make_shared<detail::ControlBlockModel<T, true>>();
 	return {PostedControl{state}, PostedSource<T>::from_state(std::move(state))};
 }
 
 template<work_value T>
-[[nodiscard]] std::pair<PostedControl, PostedSource<T>> make_posted_control_source(
+[[nodiscard]] P<PostedControl, PostedSource<T>> make_posted_control_source(
 	PostOptions opts) {
-	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
+	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = std::make_shared<detail::ControlBlockModel<T, true>>();
 	} else {
@@ -2496,15 +2497,15 @@ template<work_value T>
 }
 
 template<work_value T>
-[[nodiscard]] std::pair<OperationControl, OperationSource<T>> make_operation_control_source() {
+[[nodiscard]] P<OperationControl, OperationSource<T>> make_operation_control_source() {
 	auto state = std::make_shared<detail::ControlBlockModel<T, true>>();
 	return {OperationControl{state}, OperationSource<T>::from_state(std::move(state))};
 }
 
 template<work_value T>
-[[nodiscard]] std::pair<OperationControl, OperationSource<T>> make_operation_control_source(
+[[nodiscard]] P<OperationControl, OperationSource<T>> make_operation_control_source(
 	OperationOptions opts) {
-	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
+	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = std::make_shared<detail::ControlBlockModel<T, true>>();
 	} else {

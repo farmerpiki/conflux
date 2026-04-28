@@ -13,6 +13,7 @@
 #include <unistd.h>
 
 import std;
+import conflux.types;
 import conflux.net.http;
 import conflux.work;
 import conflux.tests.external_support;
@@ -25,9 +26,9 @@ namespace {
 
 struct H2Response {
 	int status = 0;
-	std::string body;
+	S body;
 	bool closed = false;
-	std::vector<std::pair<std::string, std::string>> trailers;
+	V<P<S, S>> trailers;
 };
 
 // Minimal synchronous nghttp2 client over a blocking TLS socket.
@@ -36,8 +37,8 @@ struct H2Response {
 struct H2Client {
 	// Internal body state for nghttp2 data provider.
 	struct ReqBody {
-		std::string data;
-		std::size_t off{0};
+		S data;
+		SZ off{0};
 	};
 
 	// --- public API ---
@@ -116,7 +117,7 @@ struct H2Client {
 
 	// Submit a GET and block until response received.
 	H2Response get(
-		std::string_view path) {
+		SV path) {
 		int32_t const sid = submit_request("GET", path, nullptr);
 		pump_until_closed(sid);
 		return responses_[sid];
@@ -125,9 +126,9 @@ struct H2Client {
 	// Submit a POST with body and block until response received.
 	// ReqBody must outlive the pump — kept in req_bodies_ for stability.
 	H2Response post(
-		std::string_view path,
-		std::string_view body_data) {
-		auto rb = std::make_unique<ReqBody>(ReqBody{.data = std::string{body_data}, .off = 0});
+		SV path,
+		SV body_data) {
+		auto rb = std::make_unique<ReqBody>(ReqBody{.data = S{body_data}, .off = 0});
 		ReqBody *rb_ptr = rb.get();
 		nghttp2_data_provider prd{};
 		prd.read_callback = read_cb;
@@ -141,7 +142,7 @@ struct H2Client {
 
 	// Submit a GET without pumping (for concurrent-stream tests).
 	int32_t submit_get(
-		std::string_view path) {
+		SV path) {
 		return submit_request("GET", path, nullptr);
 	}
 
@@ -155,28 +156,28 @@ struct H2Client {
 		}
 	}
 
-	std::map<int32_t, H2Response> responses_;
+	M<int32_t, H2Response> responses_;
 
 private:
 	SSL_CTX *ctx_ = nullptr;
 	SSL *ssl_ = nullptr;
 	int fd_ = -1;
 	nghttp2_session *session_ = nullptr;
-	std::map<int32_t, std::unique_ptr<ReqBody>> req_bodies_;
+	M<int32_t, UP<ReqBody>> req_bodies_;
 
 	int32_t submit_request(
-		std::string_view method,
-		std::string_view path,
+		SV method,
+		SV path,
 		nghttp2_data_provider const *prd) {
-		std::string ms{method};
-		std::string ps{path};
-		std::vector<std::pair<std::string, std::string>> nv_store;
+		S ms{method};
+		S ps{path};
+		V<P<S, S>> nv_store;
 		nv_store.emplace_back(":method", ms);
 		nv_store.emplace_back(":path", ps);
 		nv_store.emplace_back(":scheme", "https");
 		nv_store.emplace_back(":authority", "localhost");
 
-		std::vector<nghttp2_nv> nva;
+		V<nghttp2_nv> nva;
 		nva.reserve(nv_store.size());
 		for (auto &[n, v]: nv_store) {
 			nva.push_back(
@@ -197,13 +198,13 @@ private:
 	void pump_once() {
 		nghttp2_session_send(session_);
 
-		std::array<char, 16384> buf{};
+		A<char, 16384> buf{};
 		int const n = SSL_read(ssl_, buf.data(), static_cast<int>(buf.size()));
 		if (n > 0) {
 			nghttp2_session_mem_recv(
 				session_,
 				reinterpret_cast<uint8_t const *>(buf.data()),
-				static_cast<std::size_t>(n));
+				static_cast<SZ>(n));
 		}
 		// n <= 0: timeout or close — caller checks stream state
 	}
@@ -221,7 +222,7 @@ private:
 	static ssize_t send_cb(
 		nghttp2_session * /*unused*/,
 		uint8_t const *data,
-		std::size_t length,
+		SZ length,
 		int /*unused*/,
 		void *ud) {
 		auto *c = static_cast<H2Client *>(ud);
@@ -233,17 +234,17 @@ private:
 		nghttp2_session * /*unused*/,
 		nghttp2_frame const *frame,
 		uint8_t const *name,
-		std::size_t namelen,
+		SZ namelen,
 		uint8_t const *value,
-		std::size_t valuelen,
+		SZ valuelen,
 		uint8_t /*unused*/,
 		void *ud) {
 		auto *c = static_cast<H2Client *>(ud);
-		std::string_view const n{reinterpret_cast<char const *>(name), namelen};
-		std::string_view const v{reinterpret_cast<char const *>(value), valuelen};
+		SV const n{reinterpret_cast<char const *>(name), namelen};
+		SV const v{reinterpret_cast<char const *>(value), valuelen};
 		if (frame->headers.cat == NGHTTP2_HCAT_HEADERS) {
 			// Trailer HEADERS frame (follows DATA frames) — capture all fields.
-			c->responses_[frame->hd.stream_id].trailers.emplace_back(std::string{n}, std::string{v});
+			c->responses_[frame->hd.stream_id].trailers.emplace_back(S{n}, S{v});
 		} else if (n == ":status") {
 			int st = 0;
 			std::from_chars(v.data(), v.data() + v.size(), st);
@@ -257,7 +258,7 @@ private:
 		uint8_t /*unused*/,
 		int32_t stream_id,
 		uint8_t const *data,
-		std::size_t len,
+		SZ len,
 		void *ud) {
 		auto *c = static_cast<H2Client *>(ud);
 		c->responses_[stream_id].body.append(reinterpret_cast<char const *>(data), len);
@@ -278,7 +279,7 @@ private:
 		nghttp2_session * /*unused*/,
 		int32_t /*unused*/,
 		uint8_t *buf,
-		std::size_t length,
+		SZ length,
 		uint32_t *data_flags,
 		nghttp2_data_source *source,
 		void * /*unused*/) {
@@ -368,7 +369,7 @@ TEST_CASE(
 	H2Client client{fx.port()};
 
 	// Submit three requests without pumping between them.
-	std::array<int32_t, 3> sids{
+	A<int32_t, 3> sids{
 		client.submit_get("/ping"),
 		client.submit_get("/hello/world"),
 		client.submit_get("/ping"),
@@ -411,7 +412,7 @@ TEST_CASE(
 	"h2: SSE delivers all events over HTTP/2 before channel close") {
 	Router r;
 	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-	r.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
+	r.sse("/events", [](HttpRequest const &, SP<SseChannel> const &ch) {
 		ch->send("data: alpha\n\n");
 		ch->send("data: beta\n\n");
 		ch->send("data: gamma\n\n");
@@ -421,9 +422,9 @@ TEST_CASE(
 	H2Client client{fx.port()};
 	auto resp = client.get("/events");
 	REQUIRE(resp.status == 200);
-	REQUIRE(resp.body.find("data: alpha\n\n") != std::string::npos);
-	REQUIRE(resp.body.find("data: beta\n\n") != std::string::npos);
-	REQUIRE(resp.body.find("data: gamma\n\n") != std::string::npos);
+	REQUIRE(resp.body.find("data: alpha\n\n") != S::npos);
+	REQUIRE(resp.body.find("data: beta\n\n") != S::npos);
+	REQUIRE(resp.body.find("data: gamma\n\n") != S::npos);
 	REQUIRE(resp.closed);
 }
 
@@ -431,7 +432,7 @@ TEST_CASE(
 	"h2: SSE send_event delivers typed event") {
 	Router r;
 	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-	r.sse("/typed", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
+	r.sse("/typed", [](HttpRequest const &, SP<SseChannel> const &ch) {
 		ch->send_event("update", "payload42");
 		ch->close();
 	});
@@ -439,8 +440,8 @@ TEST_CASE(
 	H2Client client{fx.port()};
 	auto resp = client.get("/typed");
 	REQUIRE(resp.status == 200);
-	REQUIRE(resp.body.find("event: update\n") != std::string::npos);
-	REQUIRE(resp.body.find("data: payload42\n") != std::string::npos);
+	REQUIRE(resp.body.find("event: update\n") != S::npos);
+	REQUIRE(resp.body.find("data: payload42\n") != S::npos);
 	REQUIRE(resp.closed);
 }
 
@@ -465,7 +466,7 @@ TEST_CASE(
 	auto resp = client.get("/with-trailers");
 	REQUIRE(resp.status == 200);
 	REQUIRE(resp.body == "hello trailers");
-	auto has_trailer = [&](std::string_view key, std::string_view val) {
+	auto has_trailer = [&](SV key, SV val) {
 		return std::ranges::any_of(resp.trailers, [&](auto const &kv) { return kv.first == key && kv.second == val; });
 	};
 	REQUIRE(has_trailer("x-checksum", "crc32:deadbeef"));
@@ -476,8 +477,8 @@ TEST_CASE(
 	"h2: large body (>65535 bytes) is fully received via flow control") {
 	// Default H2 initial window is 65535 bytes.  A 128 KiB response forces the
 	// server to pause and the client to send WINDOW_UPDATE before delivery completes.
-	static constexpr std::size_t kBodySize = 128 * 1024;
-	std::string large_body(kBodySize, 'X');
+	static constexpr SZ kBodySize = 128 * 1024;
+	S large_body(kBodySize, 'X');
 	Router r;
 	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
 	r.get("/big", [&large_body](HttpRequest const &) { return HttpResponse::text(large_body); });

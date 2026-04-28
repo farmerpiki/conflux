@@ -8,6 +8,7 @@ module;
 export module conflux.work.carrier.timer;
 
 import std;
+import conflux.types;
 import conflux.work.root;
 
 export namespace conflux::work::carrier {
@@ -69,8 +70,8 @@ private:
 	struct Entry {
 		std::chrono::steady_clock::time_point deadline;
 		std::uint64_t expected_gen;
-		std::shared_ptr<std::uint64_t> gen;
-		std::function<void()> fn;
+		SP<std::uint64_t> gen;
+		Fn<void()> fn;
 
 		bool operator >(
 			Entry const &o) const noexcept {
@@ -83,13 +84,13 @@ private:
 	std::thread::id owner_{};
 	int tfd_ = -1;
 	std::uint64_t read_buf_{};
-	std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> heap_;
+	std::priority_queue<Entry, V<Entry>, std::greater<Entry>> heap_;
 	std::uint64_t tombstone_count_ = 0;
 	std::uint64_t cancel_count_ = 0;
 
-	[[nodiscard]] std::shared_ptr<std::uint64_t> insert_(
+	[[nodiscard]] SP<std::uint64_t> insert_(
 		std::chrono::steady_clock::time_point deadline,
-		std::function<void()> fn) {
+		Fn<void()> fn) {
 		check_thread_();
 		auto gen = std::make_shared<std::uint64_t>(0);
 		bool const was_empty = heap_.empty();
@@ -103,7 +104,7 @@ private:
 	}
 
 	void cancel_(
-		std::shared_ptr<std::uint64_t> const &gen) noexcept {
+		SP<std::uint64_t> const &gen) noexcept {
 		if (!gen) {
 			return;
 		}
@@ -169,7 +170,7 @@ private:
 	}
 
 	void compact_() {
-		std::vector<Entry> survivors;
+		V<Entry> survivors;
 		while (!heap_.empty()) {
 			auto e = std::move(const_cast<Entry &>(heap_.top()));
 			heap_.pop();
@@ -212,7 +213,7 @@ public:
 	LaneTimerScope(
 		TimerService &svc,
 		typename Clock::time_point deadline,
-		std::function<void()> cancel_fn)
+		Fn<void()> cancel_fn)
 		: svc_{&svc} {
 		auto const steady_deadline = [&] {
 			if constexpr (std::same_as<Clock, std::chrono::steady_clock>) {
@@ -254,7 +255,7 @@ private:
 	}
 
 	TimerService *svc_ = nullptr;
-	std::shared_ptr<std::uint64_t> gen_;
+	SP<std::uint64_t> gen_;
 };
 
 } // namespace conflux::work::carrier

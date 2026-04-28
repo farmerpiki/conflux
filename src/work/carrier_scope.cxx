@@ -5,6 +5,7 @@ module;
 export module conflux.work.carrier.scope;
 
 import std;
+import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.model_a;
 
@@ -18,9 +19,9 @@ export namespace conflux::work::carrier {
 // The mutex is not held during root::join() to avoid blocking cancel() callers.
 class Scope {
 	mutable std::mutex mu_;
-	std::vector<root::TaskControl> task_ctrls_;
-	std::vector<root::PostedControl> posted_ctrls_;
-	std::vector<root::OperationControl> op_ctrls_;
+	V<root::TaskControl> task_ctrls_;
+	V<root::PostedControl> posted_ctrls_;
+	V<root::OperationControl> op_ctrls_;
 	bool cancelled_ = false;
 	root::CancelReason cancel_reason_ = root::CancelReason::requested;
 
@@ -90,9 +91,9 @@ public:
 
 	void cancel(
 		root::CancelReason reason) noexcept {
-		std::vector<root::TaskControl> task;
-		std::vector<root::PostedControl> posted;
-		std::vector<root::OperationControl> op;
+		V<root::TaskControl> task;
+		V<root::PostedControl> posted;
+		V<root::OperationControl> op;
 		{
 			std::lock_guard const lock{mu_};
 			if (cancelled_) {

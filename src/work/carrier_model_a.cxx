@@ -3,6 +3,7 @@ module;
 export module conflux.work.carrier.model_a;
 
 import std;
+import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.flags;
 
@@ -53,15 +54,15 @@ public:
 };
 
 class AggregateError : public root::WorkError {
-	std::vector<std::exception_ptr> causes_;
+	V<std::exception_ptr> causes_;
 
 public:
 	explicit AggregateError(
-		std::vector<std::exception_ptr> causes)
+		V<std::exception_ptr> causes)
 		: WorkError{"carrier: multiple failures"}
 		, causes_{std::move(causes)} {}
 
-	[[nodiscard]] std::vector<std::exception_ptr> causes_owned() const { return causes_; }
+	[[nodiscard]] V<std::exception_ptr> causes_owned() const { return causes_; }
 
 	[[nodiscard("span lifetime bound to *this — moves invalidate")]] std::span<std::exception_ptr const>
 	causes_view() const noexcept {
@@ -237,8 +238,8 @@ template<root::work_value A, root::work_value B>
 	requires(!std::same_as<A, void> && !std::same_as<B, void>)
 [[nodiscard]] auto when_all(
 	Chain<A> &&a,
-	Chain<B> &&b) noexcept -> Chain<std::tuple<A, B>> {
-	using T = std::tuple<A, B>;
+	Chain<B> &&b) noexcept -> Chain<Tup<A, B>> {
+	using T = Tup<A, B>;
 	auto out_a = std::move(a).release_outcome();
 	auto out_b = std::move(b).release_outcome();
 
@@ -271,7 +272,7 @@ template<root::work_value A, root::work_value B>
 	requires(!std::same_as<A, void> && !std::same_as<B, void>)
 [[nodiscard]] auto when_all_fast_fail(
 	Chain<A> &&a,
-	Chain<B> &&b) noexcept -> Chain<std::tuple<A, B>> {
+	Chain<B> &&b) noexcept -> Chain<Tup<A, B>> {
 	// TODO(phase-6): wire cancel-sibling hook once 5c async path lands;
 	// currently identical to when_all
 	return when_all(std::move(a), std::move(b));

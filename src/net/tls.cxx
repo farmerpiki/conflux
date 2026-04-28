@@ -5,6 +5,7 @@ module;
 
 export module conflux.net.tls;
 import std;
+import conflux.types;
 import conflux.utils;
 import conflux.work;
 import conflux.file_io;
@@ -242,7 +243,7 @@ export class TlsAsyncStream {
 	BIO *wbio_{nullptr}; // SSL writes outgoing ciphertext into this
 	FileReader *files_{nullptr};
 	FileHandle sock_{};
-	std::array<std::byte, static_cast<std::size_t>(16U) * 1024U> scratch_{};
+	A<std::byte, static_cast<SZ>(16U) * 1024U> scratch_{};
 
 public:
 	TlsAsyncStream(
@@ -309,11 +310,11 @@ public:
 	~TlsAsyncStream() { close_ssl(); }
 
 	bool set_server_name(
-		std::string_view sni) {
+		SV sni) {
 		if (sni.empty()) {
 			return true;
 		}
-		std::string const s{sni};
+		S const s{sni};
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wold-style-cast"
 		return SSL_set_tlsext_host_name(ssl_, s.c_str()) == 1;
@@ -321,11 +322,11 @@ public:
 	}
 
 	bool set_verify_hostname(
-		std::string_view host) {
+		SV host) {
 		if (host.empty()) {
 			return true;
 		}
-		std::string const s{host};
+		S const s{host};
 		return SSL_set1_host(ssl_, s.c_str()) == 1;
 	}
 
@@ -349,16 +350,16 @@ public:
 		}
 	}
 
-	Task<std::size_t> read_some(
+	Task<SZ> read_some(
 		std::span<std::byte> dst) {
 		for (;;) {
 			int const n = SSL_read(ssl_, dst.data(), static_cast<int>(dst.size()));
 			if (n > 0) {
-				co_return static_cast<std::size_t>(n);
+				co_return static_cast<SZ>(n);
 			}
 			int const err = SSL_get_error(ssl_, n);
 			if (err == SSL_ERROR_ZERO_RETURN) {
-				co_return std::size_t{0};
+				co_return SZ{0};
 			}
 			if (err == SSL_ERROR_WANT_READ) {
 				co_await fill_rbio();
@@ -374,11 +375,11 @@ public:
 
 	Task<void> write_all(
 		std::span<std::byte const> src) {
-		std::size_t sent = 0;
+		SZ sent = 0;
 		while (sent < src.size()) {
 			int const n = SSL_write(ssl_, src.data() + sent, static_cast<int>(src.size() - sent));
 			if (n > 0) {
-				sent += static_cast<std::size_t>(n);
+				sent += static_cast<SZ>(n);
 				co_await drain_wbio();
 				continue;
 			}
@@ -405,17 +406,17 @@ private:
 			if (pend <= 0) {
 				co_return;
 			}
-			int const want = static_cast<int>(std::min(scratch_.size(), static_cast<std::size_t>(pend)));
+			int const want = static_cast<int>(std::min(scratch_.size(), static_cast<SZ>(pend)));
 			int const got = BIO_read(wbio_, reinterpret_cast<char *>(scratch_.data()), want);
 			if (got <= 0) {
 				co_return;
 			}
-			std::size_t off = 0;
-			while (off < static_cast<std::size_t>(got)) {
+			SZ off = 0;
+			while (off < static_cast<SZ>(got)) {
 				auto const w = co_await files_->write_into(
 					sock_,
 					0,
-					std::span<std::byte const>{scratch_.data() + off, static_cast<std::size_t>(got) - off});
+					std::span<std::byte const>{scratch_.data() + off, static_cast<SZ>(got) - off});
 				if (w == 0) {
 					throw TlsError{"TlsAsyncStream: socket write 0"};
 				}

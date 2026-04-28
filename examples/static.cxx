@@ -11,10 +11,11 @@
 
 import conflux.net.http;
 import std;
+import conflux.types;
 
 static void write_file(
 	std::filesystem::path const &path,
-	std::string_view contents) {
+	SV contents) {
 	std::ofstream out(path, std::ios::binary);
 	out << contents;
 }

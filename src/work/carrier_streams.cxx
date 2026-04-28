@@ -3,6 +3,7 @@ module;
 export module conflux.work.carrier.streams;
 
 import std;
+import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.model_a;
 
@@ -15,10 +16,10 @@ template<root::work_value T>
 class DroppableSlot {
 	struct DrainState {
 		root::TaskJoinHandle<T> handle;
-		std::function<void(root::Outcome<T>)> on_drop_fn;
+		Fn<void(root::Outcome<T>)> on_drop_fn;
 	};
 
-	std::unique_ptr<DrainState> state_;
+	UP<DrainState> state_;
 	bool consumed_ = false;
 
 	friend class DroppableSlotAwaiter<T>;
@@ -83,7 +84,7 @@ public:
 
 	[[nodiscard]] bool ready() const noexcept { return state_ && state_->handle.control().ready(); }
 
-	[[nodiscard]] std::optional<root::Outcome<T>> try_get() && {
+	[[nodiscard]] Opt<root::Outcome<T>> try_get() && {
 		if (!state_ || !state_->handle.control().ready()) {
 			return std::nullopt;
 		}
@@ -105,14 +106,14 @@ template<root::work_value T>
 class DroppableSlotAwaiter {
 	using DrainState = typename DroppableSlot<T>::DrainState;
 
-	std::unique_ptr<DrainState> state_;
+	UP<DrainState> state_;
 	root::BasicControl<root::ControlCategory::task> control_;
 	bool consumed_ = false;
 	bool callback_installed_ = false;
 
 public:
 	explicit DroppableSlotAwaiter(
-		std::unique_ptr<DrainState> s) noexcept
+		UP<DrainState> s) noexcept
 		: state_{std::move(s)}
 		, control_{state_->handle.control()} {}
 
@@ -190,7 +191,7 @@ template<root::work_value T>
 	requires(!std::same_as<T, void>)
 class CoalescingSlot {
 	mutable std::mutex mu_;
-	std::optional<T> slot_;
+	Opt<T> slot_;
 
 public:
 	CoalescingSlot() noexcept = default;
@@ -207,7 +208,7 @@ public:
 		slot_ = std::move(value);
 	}
 
-	[[nodiscard]] std::optional<T> take() noexcept {
+	[[nodiscard]] Opt<T> take() noexcept {
 		std::lock_guard const lock{mu_};
 		return std::exchange(slot_, std::nullopt);
 	}

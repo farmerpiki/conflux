@@ -4,6 +4,7 @@
 //       curl -N http://localhost:9091/events/alice
 import conflux.net.http;
 import std;
+import conflux.types;
 
 int main() {
 	Config cfg{};
@@ -18,7 +19,7 @@ int main() {
 	Router router;
 
 	// Raw frames, 200 ms apart.
-	router.sse("/events", [](HttpRequestView const &, std::shared_ptr<SseChannel> const &ch) {
+	router.sse("/events", [](HttpRequestView const &, SP<SseChannel> const &ch) {
 		for (int i = 1; i <= 5; ++i) {
 			ch->send(std::format("data: event{}\n\n", i));
 			std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -27,7 +28,7 @@ int main() {
 	});
 
 	// Named events via send_event(), with path param capture.
-	router.sse("/events/{name}", [](HttpRequestView const &req, std::shared_ptr<SseChannel> const &ch) {
+	router.sse("/events/{name}", [](HttpRequestView const &req, SP<SseChannel> const &ch) {
 		auto name = req.params["name"];
 		for (int i = 1; i <= 3; ++i) {
 			ch->send_event("greet", std::format("hello {}, message {}", name, i));

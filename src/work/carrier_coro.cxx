@@ -3,6 +3,7 @@ module;
 export module conflux.work.carrier.coro;
 
 import std;
+import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.model_a;
 
@@ -17,7 +18,7 @@ namespace conflux::work::carrier::model_a {
 
 template<root::work_value T>
 struct EagerChainPromise {
-	std::optional<root::Outcome<T>> slot_{};
+	Opt<root::Outcome<T>> slot_{};
 
 	EagerChain<T> get_return_object() noexcept;
 	std::suspend_never initial_suspend() noexcept { return {}; }
@@ -45,7 +46,7 @@ struct EagerChainPromise {
 
 template<>
 struct EagerChainPromise<void> {
-	std::optional<root::Outcome<void>> slot_{};
+	Opt<root::Outcome<void>> slot_{};
 
 	EagerChain<void> get_return_object() noexcept;
 	std::suspend_never initial_suspend() noexcept { return {}; }

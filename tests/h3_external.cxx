@@ -4,6 +4,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.types;
 import conflux.net.http;
 import conflux.tests.external_support;
 
@@ -54,8 +55,8 @@ TEST_CASE(
 
 TEST_CASE(
 	"h3: large body delivered fully") {
-	std::size_t const kSize = 128 * 1024;
-	std::string big(kSize, 'Q');
+	SZ const kSize = 128 * 1024;
+	S big(kSize, 'Q');
 	Router r;
 	r.get("/big", [&](HttpRequest const &) { return HttpResponse::text(big); });
 	conflux::tests::Http3ServerFixture const fx{std::move(r)};

@@ -17,8 +17,8 @@ import conflux.tests.support;
 namespace {
 
 struct TempCert {
-	std::string cert_path;
-	std::string key_path;
+	S cert_path;
+	S key_path;
 
 	TempCert() {
 		char cert_tmp[] = "/tmp/conflux_http3_test_cert_XXXXXX.pem";

@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.model_a;
 import conflux.work.carrier.scope;
@@ -23,9 +24,9 @@ model_a::Chain<int> make_success(
 }
 
 model_a::Chain<int> make_failure(
-	std::string_view msg = "fail") {
+	SV msg = "fail") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_failure(std::make_exception_ptr(std::runtime_error{std::string{msg}}));
+	(void)src.commit_failure(std::make_exception_ptr(std::runtime_error{S{msg}}));
 	return model_a::from_task(std::move(task));
 }
 

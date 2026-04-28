@@ -4,6 +4,7 @@
 #include <liburing.h>
 
 import std;
+import conflux.types;
 import conflux.work.carrier.timer;
 
 namespace {
@@ -29,7 +30,7 @@ struct Ring {
 void run_until(
 	Ring &r,
 	conflux::work::carrier::TimerService &svc,
-	std::function<bool()> const &done,
+	Fn<bool()> const &done,
 	int timeout_ms = 500) {
 	auto const wall_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{timeout_ms};
 	while (!done() && std::chrono::steady_clock::now() < wall_deadline) {
@@ -96,7 +97,7 @@ TEST_CASE(
 	Ring r;
 	conflux::work::carrier::TimerService svc{&r.ring, TIMER_TAG};
 
-	std::vector<int> order;
+	V<int> order;
 	auto now = std::chrono::steady_clock::now();
 
 	conflux::work::carrier::LaneTimerScope<> const s1{svc, now + std::chrono::milliseconds{60}, [&order] {
