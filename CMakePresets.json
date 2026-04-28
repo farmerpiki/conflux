@@ -5,6 +5,7 @@
       "name": "base",
       "hidden": true,
       "generator": "Ninja",
+      "binaryDir": "/tmp/${sourceDirName}/${presetName}",
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
       }
@@ -36,7 +37,6 @@
       "name": "debug-clang-libcxx",
       "displayName": "Debug · clang++ · libc++",
       "inherits": "clang-libcxx",
-      "binaryDir": "${sourceDir}/build/debug-clang-libcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":      "Debug",
         "CONFLUX_ENABLE_ASAN":   "ON",
@@ -49,7 +49,6 @@
       "name": "debug-gcc-stdcxx",
       "displayName": "Debug · g++ · libstdc++",
       "inherits": "gcc-stdcxx",
-      "binaryDir": "${sourceDir}/build/debug-gcc-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":     "Debug",
         "CONFLUX_ENABLE_ASAN":  "OFF",
@@ -63,7 +62,6 @@
       "name": "release-clang-libcxx",
       "displayName": "Release · clang++ · libc++",
       "inherits": "clang-libcxx",
-      "binaryDir": "${sourceDir}/build/release-clang-libcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":    "Release",
         "CONFLUX_ENABLE_LTO":  "ON",
@@ -75,7 +73,6 @@
       "name": "release-gcc-stdcxx",
       "displayName": "Release · g++ · libstdc++ · no LTO",
       "inherits": "gcc-stdcxx",
-      "binaryDir": "${sourceDir}/build/release-gcc-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":   "Release",
         "CONFLUX_ENABLE_LTO": "OFF",
@@ -88,7 +85,6 @@
       "name": "tsan-clang-libcxx",
       "displayName": "TSan · clang++ · libc++",
       "inherits": "clang-libcxx",
-      "binaryDir": "${sourceDir}/build/tsan-clang-libcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":         "RelWithDebInfo",
         "CONFLUX_ENABLE_TSAN":      "ON",
@@ -101,7 +97,6 @@
       "name": "fuzz-clang-stdcxx",
       "displayName": "Fuzz · clang++ · libstdc++ · libFuzzer+ASan+UBSan",
       "inherits": "base",
-      "binaryDir": "${sourceDir}/build/fuzz-clang-stdcxx",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER":   "clang++",
         "CMAKE_C_COMPILER":     "clang",
@@ -118,7 +113,6 @@
       "name": "tsan-gcc-stdcxx",
       "displayName": "TSan · g++ · libstdc++",
       "inherits": "gcc-stdcxx",
-      "binaryDir": "${sourceDir}/build/tsan-gcc-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":         "RelWithDebInfo",
         "CONFLUX_ENABLE_TSAN":      "ON",
