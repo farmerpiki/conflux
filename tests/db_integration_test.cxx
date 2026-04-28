@@ -294,11 +294,11 @@ TEST_CASE(
 	auto pool = Pool::create(move(cfg));
 
 	{
-		auto lease1 = block_on(fx->reader, pool->acquire(), chrono::seconds{30});
+		auto lease1 = optional{block_on(fx->reader, pool->acquire(), chrono::seconds{30})};
 		REQUIRE(lease1);
 		int const pid1 = (*lease1)->backend_pid();
 
-		auto lease2 = block_on(fx->reader, pool->acquire(), chrono::seconds{30});
+		auto lease2 = optional{block_on(fx->reader, pool->acquire(), chrono::seconds{30})};
 		REQUIRE(lease2);
 		int const pid2 = (*lease2)->backend_pid();
 		CHECK(pid1 != pid2);
@@ -307,7 +307,7 @@ TEST_CASE(
 		lease1.reset();
 		lease2.reset();
 
-		auto lease3 = block_on(fx->reader, pool->acquire(), chrono::seconds{30});
+		auto lease3 = optional{block_on(fx->reader, pool->acquire(), chrono::seconds{30})};
 		REQUIRE(lease3);
 		CHECK((*lease3)->backend_pid() == pid2);
 	}

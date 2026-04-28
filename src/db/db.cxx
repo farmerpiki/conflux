@@ -719,7 +719,7 @@ public:
 	Pool(Pool &&) = delete;
 	Pool &operator =(Pool &&) = delete;
 
-	Flow<shared_ptr<Lease>> acquire();
+	Flow<Lease> acquire();
 	void close() noexcept;
 
 	[[nodiscard]] size_t total() const noexcept { return total_; }
@@ -734,12 +734,12 @@ private:
 	void return_(shared_ptr<Connection> conn) noexcept;
 	void try_dispatch_waiters_();
 	void grow_if_needed_();
-	void dispatch_lease_(FlowSource<shared_ptr<Lease>> const &w, shared_ptr<Connection> conn) noexcept;
+	void dispatch_lease_(FlowSource<Lease> const &w, shared_ptr<Connection> conn) noexcept;
 
 	PoolConfig cfg_{};
 	thread::id owner_{};
 	vector<shared_ptr<Connection>> idle_{};
-	deque<FlowSource<shared_ptr<Lease>>> waiters_{};
+	deque<FlowSource<Lease>> waiters_{};
 	size_t total_{0};
 	bool closed_{false};
 };
@@ -1251,8 +1251,8 @@ void Pool::close() noexcept {
 	idle_.clear();
 }
 
-Flow<shared_ptr<Pool::Lease>> Pool::acquire() {
-	FlowSource<shared_ptr<Lease>> const src;
+Flow<Pool::Lease> Pool::acquire() {
+	FlowSource<Lease> const src;
 	auto flow = src.flow();
 	if (closed_) {
 		src.reject(make_exception_ptr(PgError{"conflux.db: pool closed"}));
@@ -1360,7 +1360,7 @@ void Pool::grow_if_needed_() {
 
 // NOLINTNEXTLINE(bugprone-exception-escape,misc-no-recursion)
 void Pool::dispatch_lease_(
-	FlowSource<shared_ptr<Lease>> const &w,
+	FlowSource<Lease> const &w,
 	shared_ptr<Connection> conn) noexcept {
 	if (!w.armed()) {
 		if (!closed_) {
@@ -1373,7 +1373,7 @@ void Pool::dispatch_lease_(
 		return;
 	}
 	if (!cfg_.on_acquire) {
-		w.resolve(make_shared<Lease>(Lease{shared_from_this(), move(conn)}));
+		w.resolve(Lease{shared_from_this(), move(conn)});
 		return;
 	}
 	auto self = shared_from_this();
@@ -1392,7 +1392,7 @@ void Pool::dispatch_lease_(
 					  self->try_dispatch_waiters_();
 					  return;
 				  }
-				  w.resolve(make_shared<Lease>(Lease{self, move(conn)}));
+				  w.resolve(Lease{self, move(conn)});
 			  })
 			| on_error([self, w, conn](exception_ptr const &ex) mutable {
 				  conn->close();
