@@ -977,6 +977,94 @@ public:
 			   });
 }
 
+// ─── LRU TTL cache ──────────────────────────────────────────────────────────
+
+struct DnsCacheEntry {
+	ResolveResult result;
+	std::chrono::steady_clock::time_point expires;
+};
+
+class LruDnsCache {
+	using List = std::list<std::pair<string, DnsCacheEntry>>;
+	size_t capacity_;
+	List order_;
+	unordered_map<string, List::iterator> index_;
+	mutable std::mutex mtx_;
+
+public:
+	explicit LruDnsCache(
+		size_t cap)
+		: capacity_{cap} {}
+
+	[[nodiscard]] std::optional<ResolveResult> get(
+		string const &key) {
+		std::scoped_lock lk{mtx_};
+		auto it = index_.find(key);
+		if (it == index_.end()) {
+			return std::nullopt;
+		}
+		if (std::chrono::steady_clock::now() >= it->second->second.expires) {
+			order_.erase(it->second);
+			index_.erase(it);
+			return std::nullopt;
+		}
+		order_.splice(order_.begin(), order_, it->second);
+		return it->second->second.result;
+	}
+
+	void put(
+		string const &key,
+		ResolveResult result,
+		std::chrono::seconds ttl) {
+		auto const expires = std::chrono::steady_clock::now() + ttl;
+		std::scoped_lock lk{mtx_};
+		auto it = index_.find(key);
+		if (it != index_.end()) {
+			it->second->second = {std::move(result), expires};
+			order_.splice(order_.begin(), order_, it->second);
+			return;
+		}
+		if (order_.size() >= capacity_) {
+			auto lru = std::prev(order_.end());
+			index_.erase(lru->first);
+			order_.erase(lru);
+		}
+		order_.push_front({
+			key,
+			{std::move(result), expires}
+        });
+		index_[key] = order_.begin();
+	}
+
+	void invalidate_by_host(
+		string_view host) {
+		string const prefix = std::format("{}:", host);
+		std::scoped_lock lk{mtx_};
+		for (auto it = order_.begin(); it != order_.end();) {
+			if (it->first.starts_with(prefix)) {
+				index_.erase(it->first);
+				it = order_.erase(it);
+			} else {
+				++it;
+			}
+		}
+	}
+
+	void clear() {
+		std::scoped_lock lk{mtx_};
+		order_.clear();
+		index_.clear();
+	}
+};
+
+[[nodiscard]] string make_cache_key(
+	string_view host,
+	u16 port,
+	bool v4,
+	bool v6) {
+	return std::format("{}:{}{}{}", host, port, v4 ? '4' : '-', v6 ? '6' : '-');
+}
+
 // ─── Resolver::Impl ─────────────────────────────────────────────────────────
 
 struct Resolver::Impl {
@@ -986,6 +1074,7 @@ struct Resolver::Impl {
 	ResolverOptions opts;
 	vector<NameserverEndpoint> nameservers;
 	unordered_map<string, vector<Endpoint>> hosts_cache;
+	std::shared_ptr<LruDnsCache> cache{};
 };
 
 Resolver::Resolver(
@@ -1002,6 +1091,9 @@ Resolver::Resolver(
 	if (impl_->opts.enable_etc_hosts) {
 		impl_->hosts_cache = parse_hosts_file(impl_->opts.hosts_file);
 	}
+	if (impl_->opts.cache_capacity > 0) {
+		impl_->cache = std::make_shared<LruDnsCache>(impl_->opts.cache_capacity);
+	}
 }
 
 Resolver::Resolver(
@@ -1013,6 +1105,9 @@ Resolver::Resolver(
 	impl_->opts = std::move(opts);
 	if (impl_->opts.enable_etc_hosts) {
 		impl_->hosts_cache = parse_hosts_file(impl_->opts.hosts_file);
+	}
+	if (impl_->opts.cache_capacity > 0) {
+		impl_->cache = std::make_shared<LruDnsCache>(impl_->opts.cache_capacity);
 	}
 }
 
@@ -1077,12 +1172,84 @@ Flow<ResolveResult> Resolver::resolve(
 		}
 	}
 
+	// LRU cache lookup
+	auto const cache_key = impl_->cache && !per_opts.bypass_cache ?
+							   make_cache_key(host, port, per_opts.allow_v4, per_opts.allow_v6) :
+							   string{};
+	if (impl_->cache && !per_opts.bypass_cache) {
+		if (auto hit = impl_->cache->get(cache_key); hit.has_value()) {
+			FlowSource<ResolveResult> const src;
+			auto flow = src.flow();
+			hit->from_cache = true;
+			src.resolve(std::move(*hit));
+			return flow;
+		}
+	}
+
+	auto cache_insert =
+		[cache = impl_->cache, cache_key, ttl = impl_->opts.cache_max_ttl](ResolveResult r) -> ResolveResult {
+		if (cache && !r.endpoints.empty()) {
+			cache->put(cache_key, r, ttl);
+		}
+		return r;
+	};
+
 	if (impl_->backend == ResolverBackend::nss_thread) {
 		FlowSource<ResolveResult> const src;
 		auto flow = src.flow();
-		src.reject(
-			std::make_exception_ptr(
-				DnsError{DnsErrorKind::not_implemented, "conflux.net.dns: nss_thread backend not yet implemented"}));
+		bool const ok = impl_->pool->enqueue([src,
+											  h = string{host},
+											  port,
+											  allow_v4 = per_opts.allow_v4,
+											  allow_v6 = per_opts.allow_v6,
+											  cache = impl_->cache,
+											  cache_key,
+											  ttl = impl_->opts.cache_max_ttl]() mutable {
+			addrinfo hints{};
+			hints.ai_family = AF_UNSPEC;
+			hints.ai_socktype = SOCK_STREAM;
+			hints.ai_flags = AI_ADDRCONFIG;
+			addrinfo *res = nullptr;
+			string const p = std::to_string(port);
+			int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res);
+			if (gai != 0 || res == nullptr) {
+				src.reject(
+					std::make_exception_ptr(
+						DnsError{DnsErrorKind::nxdomain, std::format("getaddrinfo: {}", ::gai_strerror(gai))}));
+				return;
+			}
+			ResolveResult result;
+			for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
+				if (rp->ai_family == AF_INET && allow_v4) {
+					Endpoint ep{};
+					ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
+					ep.family = AddressFamily::v4;
+					std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
+					result.endpoints.push_back(ep);
+				} else if (rp->ai_family == AF_INET6 && allow_v6) {
+					Endpoint ep{};
+					ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
+					ep.family = AddressFamily::v6;
+					std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
+					result.endpoints.push_back(ep);
+				}
+			}
+			::freeaddrinfo(res);
+			if (result.endpoints.empty()) {
+				src.reject(
+					std::make_exception_ptr(
+						DnsError{DnsErrorKind::nxdomain, std::format("no usable addresses for '{}'", h)}));
+				return;
+			}
+			if (cache && !result.endpoints.empty()) {
+				cache->put(cache_key, result, ttl);
+			}
+			src.resolve(std::move(result));
+		});
+		if (!ok) {
+			src.reject(
+				std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "nss_thread: work pool not accepting jobs"}));
+		}
 		return flow;
 	}
 
@@ -1107,7 +1274,8 @@ Flow<ResolveResult> Resolver::resolve(
 		hostname.pop_back();
 	}
 
-	return build_native_udp_flow(*reader, ns, std::move(hostname), port, do_v4, do_v6, timeout, edns);
+	return build_native_udp_flow(*reader, ns, std::move(hostname), port, do_v4, do_v6, timeout, edns)
+		 | then(std::move(cache_insert));
 }
 
 expected<ResolveResult, DnsError> Resolver::resolve_blocking(
@@ -1258,10 +1426,16 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 
 void Resolver::invalidate(
 	string_view host) {
-	(void)host;
+	if (impl_->cache) {
+		impl_->cache->invalidate_by_host(host);
+	}
 }
 
-void Resolver::clear_cache() {}
+void Resolver::clear_cache() {
+	if (impl_->cache) {
+		impl_->cache->clear();
+	}
+}
 
 ResolverBackend Resolver::backend() const noexcept {
 	return impl_->backend;
