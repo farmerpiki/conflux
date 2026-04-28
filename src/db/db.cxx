@@ -209,6 +209,15 @@ inline bool valid_query_name(
 	return true;
 }
 
+inline uint64_t fnv1a64(string_view s) noexcept {
+	uint64_t h = 14695981039346656037ULL;
+	for (char const c: s) {
+		h ^= static_cast<uint64_t>(static_cast<uint8_t>(c));
+		h *= 1099511628211ULL;
+	}
+	return h;
+}
+
 } // namespace detail
 
 export struct Column {
@@ -558,6 +567,60 @@ export struct ConnectParams {
 
 export class Pool;
 
+export class StatementCache {
+public:
+	struct Entry {
+		string name;
+		shared_ptr<string const> sql;
+		vector<Oid> param_types;
+	};
+
+	static string stable_name(
+		string_view sql) {
+		static constexpr string_view kAlphabet{"abcdefghijklmnopqrstuvwxyz234567"};
+		uint64_t const h = detail::fnv1a64(sql);
+		string name;
+		name.reserve(15);
+		name += "p_";
+		for (int shift = 59; shift >= 4; shift -= 5) {
+			name += kAlphabet[(h >> static_cast<uint32_t>(shift)) & 0x1fU];
+		}
+		name += kAlphabet[(h & 0xfU) << 1U]; // last 4 bits, pad LSB
+		return name;
+	}
+
+	[[nodiscard]] shared_ptr<Entry const> get(
+		shared_ptr<string const> sql,
+		vector<Oid> param_types = {}) {
+		string const name = stable_name(*sql);
+		{
+			shared_lock const lk{mu_};
+			if (auto it = cache_.find(name); it != cache_.end()) {
+				return it->second;
+			}
+		}
+		auto entry = make_shared<Entry const>(Entry{name, move(sql), move(param_types)});
+		scoped_lock const lk{mu_};
+		auto [it, _] = cache_.try_emplace(name, move(entry));
+		return it->second;
+	}
+
+	[[nodiscard]] shared_ptr<Entry const> get(
+		string_view sql,
+		vector<Oid> param_types = {}) {
+		return get(make_shared<string const>(sql), move(param_types));
+	}
+
+	void clear() noexcept {
+		scoped_lock const lk{mu_};
+		cache_.clear();
+	}
+
+private:
+	mutable shared_mutex mu_{};
+	mutable unordered_map<string, shared_ptr<Entry const>> cache_{};
+};
+
 export class Connection : public enable_shared_from_this<Connection> {
 public:
 	Connection(Connection const &) = delete;
@@ -581,6 +644,7 @@ public:
 	Flow<void> prepare(string_view name, shared_ptr<string const> sql, span<Oid const> param_types = {});
 
 	Flow<Result> exec_prepared(string_view name, Params params = {});
+	Flow<Result> exec_cached(shared_ptr<StatementCache::Entry const> const &stmt, Params params = {});
 
 	Flow<void> cancel_inflight(WorkPool &cancel_pool);
 	Flow<void> cancel_inflight();
@@ -639,6 +703,7 @@ private:
 	bool closed_{false};
 	bool in_flight_{false};
 	deque<function<void()>> queue_{};
+	unordered_set<string> prepared_names_{};
 
 	friend class Pool;
 	friend struct detail::ConnectState;
@@ -1258,6 +1323,47 @@ void Connection::run_exec_prepared_(
 		return;
 	}
 	after_send_drive_flush_(dst, make_shared<Result>(), "conflux.db: query");
+}
+
+Flow<Result> Connection::exec_cached(
+	shared_ptr<StatementCache::Entry const> const &stmt,
+	Params params) {
+	if (prepared_names_.contains(stmt->name)) {
+		return exec_prepared(stmt->name, move(params));
+	}
+	FlowSource<Result> const src;
+	auto flow = src.flow();
+	auto self = shared_from_this();
+	spawn(
+		prepare(stmt->name, stmt->sql, stmt->param_types)
+		| then([self, stmt, params = move(params), src]() mutable {
+			  self->prepared_names_.insert(stmt->name);
+			  spawn(
+				  self->exec_prepared(stmt->name, move(params))
+				  | then([src](Result r) mutable { src.resolve(move(r)); })
+				  | on_error([src](exception_ptr const &ex) mutable { src.reject(ex); })
+				  | on_cancel([src]() mutable { src.cancel(); }));
+		  })
+		| on_error([self, stmt, params = move(params), src](exception_ptr const &ex) mutable {
+			  bool duplicate = false;
+			  try {
+				  rethrow_exception(ex);
+			  } catch (PgError const &e) { duplicate = (e.sqlstate == "42P05"); }
+			  // NOLINTNEXTLINE(bugprone-empty-catch)
+			  catch (...) {}
+			  if (duplicate) {
+				  self->prepared_names_.insert(stmt->name);
+				  spawn(
+					  self->exec_prepared(stmt->name, move(params))
+					  | then([src](Result r) mutable { src.resolve(move(r)); })
+					  | on_error([src](exception_ptr const &ex2) mutable { src.reject(ex2); })
+					  | on_cancel([src]() mutable { src.cancel(); }));
+			  } else {
+				  src.reject(ex);
+			  }
+		  })
+		| on_cancel([src]() mutable { src.cancel(); }));
+	return flow;
 }
 
 template<class T>

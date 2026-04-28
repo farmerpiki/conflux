@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_exception.hpp>
+#include <libpq-fe.h>
 #include <liburing.h>
 
 import std;
@@ -96,6 +97,11 @@ TEST_CASE(
 	REQUIRE(r.cols() == 1);
 	CHECK(r[0].as<int64_t>(0) == 1);
 	CHECK(r.column_name(0) == "v");
+
+	// P11b: connect enforces UTF-8 client_encoding.
+	char const *enc = ::PQparameterStatus(conn->raw(), "client_encoding");
+	REQUIRE(enc != nullptr);
+	CHECK(string_view{enc} == "UTF8");
 }
 
 TEST_CASE(
@@ -454,5 +460,36 @@ TEST_CASE(
 		FAIL("expected deadline cancellation");
 	} catch (PgError const &e) {
 		CHECK(e.sqlstate == "57014");
+	}
+}
+
+TEST_CASE(
+	"db: exec_cached auto-prepares on first call and reuses on second",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+
+	StatementCache sc;
+	auto stmt = sc.get("SELECT $1::int8 + $2::int8");
+
+	{
+		Params p;
+		p.add(int64_t{10}).add(int64_t{32});
+		auto r = block_on(fx->reader, conn->exec_cached(stmt, move(p)), chrono::seconds{30});
+		REQUIRE(r.rows() == 1);
+		CHECK(r[0].as<int64_t>(0) == 42);
+	}
+	{
+		Params p;
+		p.add(int64_t{1}).add(int64_t{99});
+		auto r = block_on(fx->reader, conn->exec_cached(stmt, move(p)), chrono::seconds{30});
+		REQUIRE(r.rows() == 1);
+		CHECK(r[0].as<int64_t>(0) == 100);
 	}
 }

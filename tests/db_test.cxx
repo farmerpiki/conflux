@@ -357,3 +357,30 @@ TEST_CASE(
 	CHECK_FALSE(row.is_null(c_num));
 	CHECK(row.as_opt<string>(c_str) == optional<string>{"world"});
 }
+
+TEST_CASE(
+	"db: StatementCache stable_name deterministic + length",
+	"[db][unit]") {
+	auto const n1 = StatementCache::stable_name("SELECT 1");
+	auto const n2 = StatementCache::stable_name("SELECT 1");
+	auto const n3 = StatementCache::stable_name("SELECT 2");
+
+	CHECK(n1 == n2);         // same SQL → same name
+	CHECK(n1 != n3);         // different SQL → different name
+	CHECK(n1.size() == 15);  // "p_" + 13 base32 chars
+	CHECK(n1.starts_with("p_"));
+}
+
+TEST_CASE(
+	"db: StatementCache get caches by SQL text",
+	"[db][unit]") {
+	StatementCache sc;
+	auto e1 = sc.get("SELECT 1");
+	auto e2 = sc.get("SELECT 1");
+	auto e3 = sc.get("SELECT 2");
+
+	CHECK(e1.get() == e2.get()); // pointer identity → same entry
+	CHECK(e1.get() != e3.get());
+	CHECK(e1->name == StatementCache::stable_name("SELECT 1"));
+	CHECK(*e1->sql == "SELECT 1");
+}
