@@ -195,7 +195,8 @@ export Router::Middleware response_cache_middleware(
 	auto mtx = make_shared<mutex>();
 
 	return [opts, cache, mtx](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
-		if (req.method != "GET") {
+		bool const is_head = req.method == "HEAD";
+		if (req.method != "GET" && !is_head) {
 			return next(req);
 		}
 
@@ -204,15 +205,23 @@ export Router::Middleware response_cache_middleware(
 		{
 			scoped_lock const lk{*mtx};
 			auto const *vary = cache->vary_for(path);
-			auto lookup_key = response_cache_detail::build_cache_key(path, req.query, vary ? *vary : vector<string>{}, req.headers);
+			auto lookup_key =
+				response_cache_detail::build_cache_key(path, req.query, vary ? *vary : vector<string>{}, req.headers);
 			auto const *entry = cache->get(lookup_key);
 			if (entry != nullptr) {
-				return entry->resp;
+				auto resp = entry->resp;
+				if (is_head) {
+					resp.head_only = true;
+				}
+				return resp;
 			}
 		}
 
 		auto resp = next(req);
 
+		if (is_head) {
+			return resp;
+		}
 		if (resp.status != 200) {
 			return resp;
 		}

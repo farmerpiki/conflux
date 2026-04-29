@@ -33,6 +33,9 @@ export struct Http3Config {
 	size_t max_conn_data = size_t{10} * 1024 * 1024;
 	// Alt-Svc max-age advertised on h1/h2 responses when h3 is enabled.
 	u32 alt_svc_max_age_sec = 86400;
+	// Per-request body cap; matches H1 max_body_size semantics.
+	// Streams whose DATA exceeds this are reset with H3_REQUEST_REJECTED.
+	size_t max_body_size = kConfigDefaultMaxBodySize;
 };
 
 export struct StaticFileCacheConfig {

@@ -113,6 +113,9 @@ enum class Op : u8 {
 	Shutdown,
 	Timer,
 	FileIo,
+	WsCancel,
+	FixedFdInstall,
+	Nop,
 };
 
 constexpr u32 OP_SHIFT = 56U;
@@ -262,6 +265,8 @@ struct Conn {
 	size_t written = 0;
 	size_t request_bytes = 0; // bytes consumed by current dispatched request
 	chrono::steady_clock::time_point last_activity; // updated on accept and recv
+	chrono::steady_clock::time_point request_started{};
+	bool request_in_progress = false;
 	string remote_addr{}; // peer IP, set on accept
 	// mmap path: non-null when current response has a zero-copy file region
 	shared_ptr<MappedFile> mapped_file{};
@@ -629,6 +634,20 @@ struct Ring {
 		shared_ptr<DeferredResponse> response{};
 	};
 
+	struct WsHandoffState {
+		shared_ptr<WsUpgrade> upgrade{};
+		shared_ptr<WorkPool> pool{};
+		HttpRequest request{};
+	};
+
+	struct WsInstallEntry {
+		WsHandoffState state{};
+		string initial_buf{};
+#if CONFLUX_HAS_TLS
+		SSL *ssl{nullptr};
+#endif
+	};
+
 	static constexpr size_t BUF_SIZE = 8192;
 	static constexpr u32 MAX_FILES = 65536;
 	static constexpr u16 BUF_GROUP = 0;
@@ -643,6 +662,8 @@ struct Ring {
 	vector<Conn> fd_table{};
 	vector<RecvComp> recvs{};
 	unordered_map<int, DeferredWait> deferred_waits{};
+	unordered_map<int, WsInstallEntry> ws_cancel_handoffs{};
+	unordered_map<int, WsInstallEntry> ws_installs{};
 
 	io_uring_buf_ring *buf_ring = nullptr;
 	u32 buf_count = 0;
@@ -1749,6 +1770,35 @@ struct Ring {
 			gen = fd_table[ufd].gen;
 		}
 
+		if (fixed_files) {
+			if (io_uring_sq_space_left(&ring) < 2) {
+				defer_op([this, fd, ufd, gen] {
+					if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
+						return;
+					}
+					queue_close(fd);
+				});
+				return;
+			}
+			auto *shutdown_sqe = get_sqe();
+			auto *close_sqe = get_sqe();
+			if (shutdown_sqe == nullptr || close_sqe == nullptr) {
+				defer_op([this, fd, ufd, gen] {
+					if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
+						return;
+					}
+					queue_close(fd);
+				});
+				return;
+			}
+			io_uring_prep_shutdown(shutdown_sqe, fd, SHUT_WR);
+			io_uring_sqe_set_flags(shutdown_sqe, IOSQE_FIXED_FILE | IOSQE_IO_HARDLINK);
+			io_uring_sqe_set_data64(shutdown_sqe, pack(Op::Nop, 0, 0));
+			io_uring_prep_close_direct(close_sqe, static_cast<unsigned>(fd));
+			io_uring_sqe_set_data64(close_sqe, pack(Op::Close, gen, fd));
+			return;
+		}
+
 		// Send FIN immediately so the peer sees EOF regardless of any
 		// in-flight io_uring operations (e.g. multishot recv) that hold
 		// a reference to the file description and would otherwise delay
@@ -1765,11 +1815,7 @@ struct Ring {
 			});
 			return;
 		}
-		if (fixed_files) {
-			io_uring_prep_close_direct(sqe, static_cast<unsigned>(fd));
-		} else {
-			io_uring_prep_close(sqe, fd);
-		}
+		io_uring_prep_close(sqe, fd);
 		io_uring_sqe_set_data64(sqe, pack(Op::Close, gen, fd));
 	}
 
@@ -1860,8 +1906,11 @@ struct Ring {
 				}
 				continue;
 			}
-			if (request_timeout_ms != 0 && now - conn.last_activity > req_limit) {
-				queue_close(conn.fd);
+			if (request_timeout_ms != 0) {
+				auto const ref = conn.request_in_progress ? conn.request_started : conn.last_activity;
+				if (now - ref > req_limit) {
+					queue_close(conn.fd);
+				}
 			}
 		}
 		arm_timer(); // re-arm for next tick
@@ -2008,6 +2057,11 @@ struct Ring {
 			conn.partial.clear();
 		}
 		conn.request_bytes = 0;
+		if (conn.partial.empty()) {
+			conn.request_in_progress = false;
+		} else {
+			conn.request_started = chrono::steady_clock::now();
+		}
 		if (!conn.partial.empty()) {
 			dispatch_request(
 				conn,
@@ -2032,29 +2086,21 @@ struct Ring {
 		}
 	}
 
-	void cancel_recv_if_armed(
-		Conn const &conn,
+	[[nodiscard]] static bool make_blocking_fd(
 		int fd) {
-		if (!conn.recv_armed) {
-			return;
+		// NOLINTBEGIN(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
+		int const flags = fcntl(fd, F_GETFL, 0);
+		if (flags < 0) {
+			return false;
 		}
-		if (auto *sqe = get_sqe(); sqe != nullptr) {
-			io_uring_prep_cancel_fd(sqe, fd, 0);
-			io_uring_sqe_set_data64(sqe, 0);
-		}
+		return fcntl(fd, F_SETFL, static_cast<int>(static_cast<unsigned>(flags) & ~static_cast<unsigned>(O_NONBLOCK)))
+			== 0;
+		// NOLINTEND(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
 	}
 
-	struct WsHandoffState {
-		shared_ptr<WsUpgrade> upgrade{};
-		shared_ptr<WorkPool> pool{};
-		HttpRequest request{};
-	};
-
 	[[nodiscard]] WsHandoffState begin_ws_handoff(
-		Conn &conn,
-		int fd) {
+		Conn &conn) {
 		auto state = WsHandoffState{move(conn.ws_upgrade), move(conn.ws_work_pool), move(conn.saved_req)};
-		cancel_recv_if_armed(conn, fd);
 		++conn.gen;
 		conn.fd = -1;
 		conn.is_ws = false;
@@ -2077,6 +2123,21 @@ struct Ring {
 		}
 	}
 
+	void finish_plain_ws_handoff(
+		int fd,
+		WsInstallEntry entry) {
+		if (fixed_files) {
+			queue_ws_fixed_install(fd, move(entry.state), move(entry.initial_buf));
+			return;
+		}
+		if (!make_blocking_fd(fd)) {
+			::close(fd);
+			return;
+		}
+		auto &pool = *entry.state.pool;
+		launch_plain_ws_handler(pool, move(entry.state), fd, move(entry.initial_buf));
+	}
+
 	void handoff_plain_ws(
 		Conn &conn,
 		int fd) {
@@ -2087,13 +2148,32 @@ struct Ring {
 		}
 		conn.request_bytes = 0;
 		string initial_buf = move(conn.partial);
-		auto state = begin_ws_handoff(conn, fd);
+		bool const cancel_recv = conn.recv_armed;
+		auto state = begin_ws_handoff(conn);
 		if (!state.pool) {
-			::close(fd);
+			if (fixed_files) {
+				if (auto *sqe = get_sqe(); sqe != nullptr) {
+					io_uring_prep_close_direct(sqe, static_cast<unsigned>(fd));
+					io_uring_sqe_set_data64(sqe, pack(Op::Nop, 0, 0));
+				}
+			} else {
+				::close(fd);
+			}
 			return;
 		}
-		auto &pool = *state.pool;
-		launch_plain_ws_handler(pool, move(state), fd, move(initial_buf));
+		auto entry = WsInstallEntry{
+			move(state),
+			move(initial_buf)
+#if CONFLUX_HAS_TLS
+				,
+			nullptr
+#endif
+		};
+		if (cancel_recv) {
+			queue_ws_cancel(fd, move(entry));
+			return;
+		}
+		finish_plain_ws_handoff(fd, move(entry));
 	}
 
 #if CONFLUX_HAS_TLS
@@ -2128,30 +2208,190 @@ struct Ring {
 		string initial_buf = move(conn.partial);
 		SSL *orig_ssl = conn.ssl;
 		conn.ssl = nullptr; // transfer ownership to the thread
-		auto state = begin_ws_handoff(conn, fd);
+		bool const cancel_recv = conn.recv_armed;
+		auto state = begin_ws_handoff(conn);
 		if (!state.pool) {
 			SSL_free(orig_ssl);
-			::close(fd);
+			if (fixed_files) {
+				if (auto *sqe = get_sqe(); sqe != nullptr) {
+					io_uring_prep_close_direct(sqe, static_cast<unsigned>(fd));
+					io_uring_sqe_set_data64(sqe, pack(Op::Nop, 0, 0));
+				}
+			} else {
+				::close(fd);
+			}
+			return;
+		}
+		auto entry = WsInstallEntry{move(state), move(initial_buf), orig_ssl};
+		if (cancel_recv) {
+			queue_ws_cancel(fd, move(entry));
+			return;
+		}
+		finish_tls_ws_handoff(fd, move(entry));
+	}
+#endif
+
+	void queue_ws_cancel(
+		int fd,
+		WsInstallEntry entry) {
+		auto *sqe = get_sqe();
+		if (sqe == nullptr) {
+			defer_op([this, fd, e = move(entry)]() mutable { queue_ws_cancel(fd, move(e)); });
+			return;
+		}
+		ws_cancel_handoffs.emplace(fd, move(entry));
+		io_uring_prep_cancel_fd(sqe, fd, fixed_files ? IORING_ASYNC_CANCEL_FD_FIXED : 0);
+		io_uring_sqe_set_data64(sqe, pack(Op::WsCancel, 0, fd));
+	}
+
+#if CONFLUX_HAS_TLS
+	void finish_tls_ws_handoff(
+		int fd,
+		WsInstallEntry entry) {
+		if (fixed_files) {
+			queue_ws_fixed_install(fd, move(entry.state), move(entry.initial_buf), entry.ssl);
 			return;
 		}
 		// Replace memory BIOs with a socket BIO and make fd blocking.
 		// TRICKS.md #2 says "DO NOT call SSL_set_fd" for the io_uring path.
 		// Here we're exiting that path — blocking I/O is correct for the WS thread.
-		SSL_set_fd(orig_ssl, fd); // replaces memory BIOs with socket BIOs
-		// NOLINTBEGIN(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-		int const flags = fcntl(fd, F_GETFL, 0);
-		if (flags < 0
-			|| fcntl(fd, F_SETFL, static_cast<int>(static_cast<unsigned>(flags) & ~static_cast<unsigned>(O_NONBLOCK)))
-				   < 0) {
-			SSL_free(orig_ssl);
+		SSL_set_fd(entry.ssl, fd); // replaces memory BIOs with socket BIOs
+		if (!make_blocking_fd(fd)) {
+			SSL_free(entry.ssl);
 			::close(fd);
 			return;
 		}
-		// NOLINTEND(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-		auto &pool = *state.pool;
-		launch_tls_ws_handler(pool, move(state), fd, orig_ssl, move(initial_buf));
+		auto &pool = *entry.state.pool;
+		launch_tls_ws_handler(pool, move(entry.state), fd, entry.ssl, move(entry.initial_buf));
+	}
+#endif
+
+	void handle_ws_cancel(
+		int fd) {
+		auto it = ws_cancel_handoffs.find(fd);
+		if (it == ws_cancel_handoffs.end()) {
+			return;
+		}
+		auto entry = move(it->second);
+		ws_cancel_handoffs.erase(it);
+#if CONFLUX_HAS_TLS
+		if (entry.ssl != nullptr) {
+			finish_tls_ws_handoff(fd, move(entry));
+			return;
+		}
+#endif
+		finish_plain_ws_handoff(fd, move(entry));
 	}
 
+	void queue_ws_fixed_install(
+		int slot_fd,
+		WsHandoffState state,
+		string initial_buf
+#if CONFLUX_HAS_TLS
+		,
+		SSL *ssl = nullptr
+#endif
+	) {
+		auto *sqe = get_sqe();
+		if (sqe == nullptr) {
+			defer_op([this,
+					  slot_fd,
+					  s = move(state),
+					  ib = move(initial_buf)
+#if CONFLUX_HAS_TLS
+						  ,
+					  ssl
+#endif
+			]() mutable {
+				queue_ws_fixed_install(
+					slot_fd,
+					move(s),
+					move(ib)
+#if CONFLUX_HAS_TLS
+						,
+					ssl
+#endif
+				);
+			});
+			return;
+		}
+		ws_installs.emplace(
+			slot_fd,
+			WsInstallEntry{
+				move(state),
+				move(initial_buf)
+#if CONFLUX_HAS_TLS
+					,
+				ssl
+#endif
+			});
+		io_uring_prep_fixed_fd_install(sqe, slot_fd, 0);
+		io_uring_sqe_set_data64(sqe, pack(Op::FixedFdInstall, 0, slot_fd));
+	}
+
+	void handle_fixed_fd_install(
+		int slot_fd,
+		int real_fd) {
+		auto it = ws_installs.find(slot_fd);
+		if (it == ws_installs.end()) {
+			if (real_fd >= 0) {
+				::close(real_fd);
+			}
+			return;
+		}
+		auto entry = move(it->second);
+		ws_installs.erase(it);
+
+		auto free_slot = [this, slot_fd] {
+			if (auto *sqe = get_sqe(); sqe != nullptr) {
+				io_uring_prep_close_direct(sqe, static_cast<unsigned>(slot_fd));
+				io_uring_sqe_set_data64(sqe, pack(Op::Nop, 0, 0));
+			} else {
+				defer_op([this, slot_fd] {
+					if (auto *sqe2 = get_sqe(); sqe2 != nullptr) {
+						io_uring_prep_close_direct(sqe2, static_cast<unsigned>(slot_fd));
+						io_uring_sqe_set_data64(sqe2, pack(Op::Nop, 0, 0));
+					}
+				});
+			}
+		};
+		free_slot();
+
+		if (real_fd < 0 || !entry.state.pool) {
+			if (real_fd >= 0) {
+				::close(real_fd);
+			}
+#if CONFLUX_HAS_TLS
+			if (entry.ssl != nullptr) {
+				SSL_free(entry.ssl);
+			}
+#endif
+			return;
+		}
+
+#if CONFLUX_HAS_TLS
+		if (entry.ssl != nullptr) {
+			SSL_set_fd(entry.ssl, real_fd);
+			if (!make_blocking_fd(real_fd)) {
+				SSL_free(entry.ssl);
+				::close(real_fd);
+				return;
+			}
+			auto &pool = *entry.state.pool;
+			launch_tls_ws_handler(pool, move(entry.state), real_fd, entry.ssl, move(entry.initial_buf));
+			return;
+		}
+#endif
+
+		if (!make_blocking_fd(real_fd)) {
+			::close(real_fd);
+			return;
+		}
+		auto &pool = *entry.state.pool;
+		launch_plain_ws_handler(pool, move(entry.state), real_fd, move(entry.initial_buf));
+	}
+
+#if CONFLUX_HAS_TLS
 	// Called when all bytes in tls_send_buf have been sent.  Drives the
 	// post-send state machine for TLS connections.
 	void handle_send_tls_complete(
@@ -2462,6 +2702,9 @@ struct Ring {
 				file_completions->dispatch(static_cast<u32>(fd), gen, res, flg);
 			}
 			break;
+		case Op::WsCancel      : handle_ws_cancel(fd); break;
+		case Op::FixedFdInstall: handle_fixed_fd_install(fd, res); break;
+		case Op::Nop           : break;
 		}
 	}
 
@@ -2495,6 +2738,10 @@ struct Ring {
 			}
 			rc.buf_id = UINT16_MAX;
 			conn.last_activity = chrono::steady_clock::now();
+			if (!conn.is_tls && !conn.partial.empty() && !conn.request_in_progress) {
+				conn.request_started = conn.last_activity;
+				conn.request_in_progress = true;
+			}
 			if (conn.partial.size() > max_body_size + parser_limits.max_header_block_size) {
 				conn.own_response.clear();
 				conn.own_response.append(
@@ -2642,6 +2889,15 @@ struct Ring {
 		}
 
 		compact_and_refresh_rbio();
+
+	#if CONFLUX_HAS_HTTP2
+		if (!conn.is_h2 && !conn.partial.empty() && !conn.request_in_progress) {
+	#else
+		if (!conn.partial.empty() && !conn.request_in_progress) {
+	#endif
+			conn.request_started = chrono::steady_clock::now();
+			conn.request_in_progress = true;
+		}
 
 		tls_flush_wbio(conn);
 		if (!conn.tls_send_buf.empty() && !conn.send_queued) {
