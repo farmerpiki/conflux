@@ -143,6 +143,17 @@ target_link_libraries(conflux_dns_codec_tests
         Catch2::Catch2WithMain
 )
 
+add_executable(conflux_dns_resolver_tests dns_resolver_test.cxx)
+target_link_libraries(conflux_dns_resolver_tests
+    PRIVATE
+        conflux_dns
+        conflux_file_io
+        conflux_work
+        conflux_options
+        Catch2::Catch2WithMain
+        PkgConfig::LIBURING
+)
+
 add_executable(conflux_udp_tests udp_test.cxx)
 target_link_libraries(conflux_udp_tests
     PRIVATE
@@ -216,6 +227,7 @@ conflux_discover_tests(conflux_work_carrier_streams_tests)
 conflux_discover_tests(conflux_work_carrier_timer_tests)
 conflux_discover_tests(conflux_file_io_tests)
 conflux_discover_tests(conflux_dns_codec_tests)
+conflux_discover_tests(conflux_dns_resolver_tests)
 conflux_discover_tests(conflux_udp_tests)
 conflux_discover_tests(conflux_file_io_http_e2e)
 if(CONFLUX_HAS_TLS STREQUAL "true")
