@@ -2793,6 +2793,12 @@ void pump_until(
 		if (rc == -EINTR) {
 			continue;
 		}
+		// io_uring_submit_and_wait may report submitted SQEs while no CQE is
+		// immediately visible to peek_cqe yet. Treat as transient and keep
+		// pumping instead of surfacing a hard failure.
+		if (rc >= 0 && cqe == nullptr) {
+			continue;
+		}
 		if (rc < 0 || cqe == nullptr) {
 			throw std::runtime_error{std::format("conflux.file_io: submit_and_wait rc={}", rc)};
 		}

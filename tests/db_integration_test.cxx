@@ -223,6 +223,64 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"db: pipeline query ordering",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+	auto pipeline = block_on(fx->reader, conn->pipeline(), chrono::seconds{30});
+
+	auto f1 = pipeline.query("SELECT 11::int8");
+	auto f2 = pipeline.query("SELECT 22::int8");
+	auto f3 = pipeline.query("SELECT 33::int8");
+
+	block_on(fx->reader, pipeline.sync(), chrono::seconds{30});
+
+	auto r1 = block_on(fx->reader, move(f1), chrono::seconds{30});
+	auto r2 = block_on(fx->reader, move(f2), chrono::seconds{30});
+	auto r3 = block_on(fx->reader, move(f3), chrono::seconds{30});
+
+	REQUIRE(r1.rows() == 1);
+	REQUIRE(r2.rows() == 1);
+	REQUIRE(r3.rows() == 1);
+	CHECK(r1[0].as<i64>(0) == 11);
+	CHECK(r2[0].as<i64>(0) == 22);
+	CHECK(r3[0].as<i64>(0) == 33);
+}
+
+TEST_CASE(
+	"db: pipeline isolates per-query failures",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+	auto pipeline = block_on(fx->reader, conn->pipeline(), chrono::seconds{30});
+
+	auto ok1 = pipeline.query("SELECT 7::int8");
+	auto bad = pipeline.query("SELECT * FROM definitely_missing_table_for_pipeline_test");
+	auto after = pipeline.query("SELECT 9::int8");
+
+	block_on(fx->reader, pipeline.sync(), chrono::seconds{30});
+
+	auto r1 = block_on(fx->reader, move(ok1), chrono::seconds{30});
+	REQUIRE(r1.rows() == 1);
+	CHECK(r1[0].as<i64>(0) == 7);
+
+	CHECK_THROWS_AS(block_on(fx->reader, move(bad), chrono::seconds{30}), PgError);
+	CHECK_THROWS_AS(block_on(fx->reader, move(after), chrono::seconds{30}), PgError);
+}
+
+TEST_CASE(
 	"db: server-side disconnect surfaces as connection_lost",
 	"[db][integration]") {
 	auto ci = conninfo();

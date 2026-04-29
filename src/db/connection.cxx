@@ -193,6 +193,7 @@ public:
 
 	Flow<void> cancel_inflight(WorkPool &cancel_pool);
 	Flow<void> cancel_inflight();
+	Flow<class Pipeline> pipeline();
 
 	Flow<Result> query(string_view sql, Params params, QueryOptions opts);
 
@@ -249,8 +250,57 @@ private:
 	bool in_flight_{false};
 	deque<function<void()>> queue_{};
 	unordered_set<string> prepared_names_{};
+	bool pipeline_mode_{false};
 
 	friend struct detail::ConnectState;
+	friend class Pipeline;
+};
+
+export class Pipeline {
+public:
+	Pipeline() = default;
+	Pipeline(
+		shared_ptr<Connection> conn) noexcept
+		: conn_{move(conn)} {}
+
+	Pipeline(Pipeline const &) = delete;
+	Pipeline &operator =(Pipeline const &) = delete;
+	Pipeline(Pipeline &&) noexcept = default;
+	Pipeline &operator =(Pipeline &&) noexcept = default;
+
+	~Pipeline() { close_(); }
+
+	// Contract:
+	// - must run on the owning ring lane thread
+	// - pipeline must be active and not currently syncing
+	// - query result becomes available only after sync() reaches PGRES_PIPELINE_SYNC
+	Flow<Result> query(string_view sql, Params params = {});
+	// Contract:
+	// - must run on the owning ring lane thread
+	// - executes queued statements in-order through Connection::query
+	// - this is a logical batching barrier (not libpq wire pipeline mode yet)
+	Flow<Result> exec_cached(shared_ptr<StatementCache::Entry const> stmt, Params params = {});
+	Flow<void> sync();
+
+private:
+	struct PendingQuery {
+		FlowSource<Result> dst;
+		string sql;
+		Params params;
+	};
+	struct SyncState {
+		deque<PendingQuery> batch;
+		FlowSource<void> done;
+	};
+
+	void close_() noexcept;
+	void sync_next_(shared_ptr<SyncState> st);
+	void finish_sync_(bool success) noexcept;
+
+	shared_ptr<Connection> conn_{};
+	bool closed_{false};
+	deque<PendingQuery> pending_{};
+	bool syncing_{false};
 };
 
 export class QueryCache {
@@ -870,6 +920,157 @@ Flow<Result> Connection::query(
 		| on_error([](exception_ptr const &) {})
 		| on_cancel([]() {}));
 	return flow;
+}
+
+Flow<Pipeline> Connection::pipeline() {
+	FlowSource<Pipeline> const src;
+	auto flow = src.flow();
+	if (closed_ || !conn_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		return flow;
+	}
+	if (this_thread::get_id() != owner_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: pipeline off owner thread"}));
+		return flow;
+	}
+	if (pipeline_mode_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: pipeline already active"}));
+		return flow;
+	}
+	pipeline_mode_ = true;
+	src.resolve(Pipeline{shared_from_this()});
+	return flow;
+}
+
+Flow<Result> Pipeline::query(
+	string_view sql,
+	Params params) {
+	FlowSource<Result> const src;
+	auto flow = src.flow();
+	if (closed_ || !conn_ || !conn_->conn_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		return flow;
+	}
+	if (this_thread::get_id() != conn_->owner_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: query off owner thread"}));
+		return flow;
+	}
+	if (syncing_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: query while sync in progress"}));
+		return flow;
+	}
+	pending_.push_back(PendingQuery{
+		.dst = src,
+		.sql = string{sql},
+		.params = move(params),
+	});
+	return flow;
+}
+
+Flow<Result> Pipeline::exec_cached(
+	shared_ptr<StatementCache::Entry const> stmt,
+	Params params) {
+	if (!stmt || !stmt->sql) {
+		FlowSource<Result> const src;
+		auto flow = src.flow();
+		src.reject(make_exception_ptr(PgError{"conflux.db: null cached statement"}));
+		return flow;
+	}
+	return query(*stmt->sql, move(params));
+}
+
+Flow<void> Pipeline::sync() {
+	FlowSource<void> const src;
+	auto flow = src.flow();
+	if (closed_ || !conn_ || !conn_->conn_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		return flow;
+	}
+	if (this_thread::get_id() != conn_->owner_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: sync off owner thread"}));
+		return flow;
+	}
+	if (syncing_) {
+		src.reject(make_exception_ptr(PgError{"conflux.db: sync already in progress"}));
+		return flow;
+	}
+	if (pending_.empty()) {
+		src.resolve();
+		return flow;
+	}
+	syncing_ = true;
+	auto st = make_shared<SyncState>();
+	st->batch = move(pending_);
+	st->done = src;
+	pending_.clear();
+	sync_next_(st);
+	return flow;
+}
+
+void Pipeline::sync_next_(
+	shared_ptr<SyncState> st) {
+	if (st->batch.empty()) {
+		st->done.resolve();
+		finish_sync_(true);
+		return;
+	}
+	auto item = move(st->batch.front());
+	st->batch.pop_front();
+	auto dst = item.dst;
+	spawn(
+		conn_->query(item.sql, move(item.params))
+		| then([this, st, dst](Result r) mutable {
+			  dst.resolve(move(r));
+			  sync_next_(st);
+		  })
+		| on_error([this, st, dst](exception_ptr const &ex) mutable {
+			  dst.reject(ex);
+			  while (!st->batch.empty()) {
+				  auto rem = move(st->batch.front());
+				  st->batch.pop_front();
+				  rem.dst.reject(make_exception_ptr(PgError{"conflux.db: pipeline query"}));
+			  }
+			  st->done.resolve();
+			  finish_sync_(true);
+		  })
+		| on_cancel([this, st, dst]() mutable {
+			  dst.cancel();
+			  while (!st->batch.empty()) {
+				  auto rem = move(st->batch.front());
+				  st->batch.pop_front();
+				  rem.dst.cancel();
+			  }
+			  st->done.cancel();
+			  finish_sync_(false);
+		  }));
+}
+
+void Pipeline::finish_sync_(
+	bool success) noexcept {
+	syncing_ = false;
+	if (!success) {
+		while (!pending_.empty()) {
+			auto dst = move(pending_.front().dst);
+			pending_.pop_front();
+			dst.reject(make_exception_ptr(PgError{"conflux.db: pipeline sync failed"}));
+		}
+	}
+}
+
+void Pipeline::close_() noexcept {
+	if (closed_) {
+		return;
+	}
+	closed_ = true;
+	while (!pending_.empty()) {
+		auto dst = move(pending_.front().dst);
+		pending_.pop_front();
+		dst.reject(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+	}
+	if (!conn_ || !conn_->conn_) {
+		return;
+	}
+	conn_->pipeline_mode_ = false;
 }
 
 Flow<shared_ptr<string const>> QueryCache::load_async(

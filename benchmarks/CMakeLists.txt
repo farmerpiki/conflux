@@ -34,6 +34,10 @@ if(CONFLUX_HAS_DB STREQUAL "true")
     add_executable(conflux_db_params_bench db_params_bench.cxx)
     target_link_libraries(conflux_db_params_bench
         PRIVATE conflux_db conflux_options)
+
+    add_executable(conflux_db_pipeline_bench db_pipeline_bench.cxx)
+    target_link_libraries(conflux_db_pipeline_bench
+        PRIVATE conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
 endif()
 
 add_executable(conflux_json_bench json_bench.cxx)
