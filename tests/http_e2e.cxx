@@ -854,6 +854,12 @@ void ensure_resp_cache_server() {
 			r.headers["Cache-Control"] = "no-cache";
 			return r;
 		});
+		router.get("/cache-control-substrings", [](HttpRequest const &) {
+			int n = ++g_resp_cache_count;
+			auto r = HttpResponse::text(std::format("substrings {}", n));
+			r.headers["Cache-Control"] = "no-storehouse, privateer, no-cacheable, s-maxage=0";
+			return r;
+		});
 		router.get("/set-cookie-resp", [](HttpRequest const &) {
 			int n = ++g_resp_cache_count;
 			auto r = HttpResponse::text(std::format("cookie {}", n));
@@ -1008,6 +1014,14 @@ TEST_CASE(
 	"keep-alive header present on 200") {
 	auto resp = http_get("/");
 	REQUIRE(resp.find("Connection: keep-alive") != S::npos);
+}
+
+TEST_CASE(
+	"Date header is present on HTTP/1.1 responses") {
+	auto resp = http_get("/");
+	auto date = extract_header(resp, "Date");
+	REQUIRE(date.size() == std::string_view{"Wed, 29 Apr 2026 00:00:00 GMT"}.size());
+	REQUIRE(date.ends_with(" GMT"));
 }
 
 // ---------------------------------------------------------------------------
@@ -5544,6 +5558,18 @@ TEST_CASE(
 	// Both requests must reach the handler (counter incremented twice).
 	REQUIRE(g_resp_cache_count.load() == before + 2);
 	REQUIRE(extract_body(r1) != extract_body(r2));
+}
+
+TEST_CASE(
+	"response_cache: Cache-Control directive checks do not match substrings") {
+	ensure_resp_cache_server();
+	int const before = g_resp_cache_count.load();
+	auto r1 = http_get_on(g_resp_cache_port, "/cache-control-substrings");
+	auto r2 = http_get_on(g_resp_cache_port, "/cache-control-substrings");
+	REQUIRE(r1.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(r2.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(g_resp_cache_count.load() == before + 1);
+	REQUIRE(extract_body(r1) == extract_body(r2));
 }
 
 TEST_CASE(

@@ -135,6 +135,18 @@ constexpr Tup<Op, u32, int> unpack(
 		static_cast<int>(ud & FD_MASK)};
 }
 
+S http_date_now() {
+	auto const now = chrono::system_clock::now();
+	auto const tt = chrono::system_clock::to_time_t(now);
+	tm gmt{};
+	::gmtime_r(&tt, &gmt);
+	A<char, 32> buf{};
+	if (strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt) == 0) {
+		return {};
+	}
+	return S{buf.data()};
+}
+
 S format_response(
 	HttpResponse const &r,
 	SV alt_svc = {},
@@ -149,10 +161,12 @@ S format_response(
 	}
 	S out = format(
 		"HTTP/1.1 {} {}\r\n"
+		"Date: {}\r\n"
 		"Content-Type: {}\r\n"
 		"Content-Length: {}\r\n",
 		r.status,
 		r.status_text,
+		http_date_now(),
 		r.content_type,
 		r.content_length());
 	for (auto const &[k, v]: r.headers) {
@@ -862,16 +876,16 @@ struct Ring {
 			return 0;
 		}
 		auto &stream = it->second;
-		S n{reinterpret_cast<char const *>(name), namelen};
-		S v{reinterpret_cast<char const *>(header_value), valuelen};
+		SV const n{reinterpret_cast<char const *>(name), namelen};
+		SV const v{reinterpret_cast<char const *>(header_value), valuelen};
 		if (n == ":method") {
-			stream.method = move(v);
+			stream.method = S{v};
 		} else if (n == ":path") {
-			stream.path = move(v);
+			stream.path = S{v};
 		} else if (n == ":scheme") {
-			stream.scheme = move(v);
+			stream.scheme = S{v};
 		} else if (n == ":authority") {
-			stream.authority = move(v);
+			stream.authority = S{v};
 		} else {
 			if (n == "content-length") {
 				SZ content_length{};
@@ -881,7 +895,7 @@ struct Ring {
 					stream.expected_body_size = content_length;
 				}
 			}
-			stream.headers.emplace_back(move(n), move(v));
+			stream.headers.emplace_back(S{n}, S{v});
 		}
 		return 0;
 	}
@@ -950,18 +964,12 @@ struct Ring {
 			if (!stream.response_trailers.empty()) {
 				*data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
 				*data_flags |= NGHTTP2_DATA_FLAG_EOF;
-				// Build NV pairs for the trailer HEADERS frame.
-				V<P<S, S>> nv_storage;
-				nv_storage.reserve(stream.response_trailers.size());
-				for (auto const &[k, v]: stream.response_trailers) {
-					nv_storage.emplace_back(k, v);
-				}
 				V<nghttp2_nv> nva;
-				nva.reserve(nv_storage.size());
-				for (auto &[n, v]: nv_storage) {
+				nva.reserve(stream.response_trailers.size());
+				for (auto const &[n, v]: stream.response_trailers) {
 					nva.push_back(
-						{reinterpret_cast<u8 *>(n.data()),
-						 reinterpret_cast<u8 *>(v.data()),
+						{reinterpret_cast<u8 *>(const_cast<char *>(n.data())),
+						 reinterpret_cast<u8 *>(const_cast<char *>(v.data())),
 						 n.size(),
 						 v.size(),
 						 NGHTTP2_NV_FLAG_NONE});
@@ -1208,12 +1216,25 @@ struct Ring {
 		nghttp2_session_callbacks_set_on_stream_close_callback(cbs, h2_on_stream_close_cb);
 
 		conn.h2_ctx = make_unique<H2ConnCtx>(H2ConnCtx{.ring = this, .fd = conn.fd});
-		nghttp2_session_server_new(&conn.h2_session, cbs, conn.h2_ctx.get());
+		if (nghttp2_session_server_new(&conn.h2_session, cbs, conn.h2_ctx.get()) != 0) {
+			conn.h2_session = nullptr;
+		}
 		nghttp2_session_callbacks_del(cbs);
+		if (conn.h2_session == nullptr) {
+			queue_close(conn.fd);
+			return;
+		}
 
 		constexpr u32 kH2MaxConcurrentStreams = 100;
-		A<nghttp2_settings_entry, 1> const iv{
-			{{.settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, .value = kH2MaxConcurrentStreams}}};
+		constexpr u32 kH2InitialWindowSize = 1U << 24;
+		constexpr u32 kH2MaxFrameSize = 1U << 17;
+		A<nghttp2_settings_entry, 3> const iv{
+			{
+             {.settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, .value = kH2MaxConcurrentStreams},
+             {.settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, .value = kH2InitialWindowSize},
+             {.settings_id = NGHTTP2_SETTINGS_MAX_FRAME_SIZE, .value = kH2MaxFrameSize},
+			 }
+        };
 		nghttp2_submit_settings(conn.h2_session, NGHTTP2_FLAG_NONE, iv.data(), iv.size());
 		// Flush deferred to caller's h2_do_send().
 	}
@@ -2546,14 +2567,14 @@ struct Ring {
 			return;
 		}
 
-			if (res > 0) {
-				if (conn.response_ptr == nullptr) {
-					conn.send_queued = false;
-					return;
-				}
-				conn.written += static_cast<SZ>(res);
-				if (conn.written < conn.response_ptr->size()) {
-					queue_send(fd);
+		if (res > 0) {
+			if (conn.response_ptr == nullptr) {
+				conn.send_queued = false;
+				return;
+			}
+			conn.written += static_cast<SZ>(res);
+			if (conn.written < conn.response_ptr->size()) {
+				queue_send(fd);
 				return;
 			}
 			// Response (or chunk) fully sent.
@@ -3476,7 +3497,7 @@ int sni_callback(
 		return SSL_TLSEXT_ERR_OK;
 	}
 	auto &vhosts = *static_cast<UM<S, SSL_CTX *> *>(user_data);
-	auto const it = vhosts.find(name);
+	auto const it = vhosts.find(ascii_lower(name));
 	if (it != vhosts.end()) {
 		SSL_set_SSL_CTX(ssl, it->second);
 	}
@@ -3586,7 +3607,7 @@ export class HttpServer {
 					}
 					throw RE{format("TLS: cannot load vhost cert/key: {}", vh.hostname)};
 				}
-				impl_->vhost_ctxs.emplace(vh.hostname, vctx);
+				impl_->vhost_ctxs.emplace(ascii_lower(vh.hostname), vctx);
 			}
 
 			// Register SNI callback on the primary SSL_CTX (shared across rings).

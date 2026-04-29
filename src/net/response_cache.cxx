@@ -111,24 +111,66 @@ private:
 
 namespace response_cache_detail {
 
+bool ascii_iequals(
+	SV lhs,
+	SV rhs) noexcept {
+	if (lhs.size() != rhs.size()) {
+		return false;
+	}
+	for (SZ i = 0; i < lhs.size(); ++i) {
+		auto const l = static_cast<unsigned char>(lhs[i]);
+		auto const r = static_cast<unsigned char>(rhs[i]);
+		if ((l | 0x20U) != (r | 0x20U)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool cache_control_directive_contains(
+	SV cc,
+	SV directive) {
+	while (!cc.empty()) {
+		auto comma = cc.find(',');
+		auto part = trim((comma == SV::npos) ? cc : cc.substr(0, comma));
+		auto eq = part.find('=');
+		auto name = trim((eq == SV::npos) ? part : part.substr(0, eq));
+		if (ascii_iequals(name, directive)) {
+			return true;
+		}
+		if (comma == SV::npos) {
+			return false;
+		}
+		cc.remove_prefix(comma + 1);
+	}
+	return false;
+}
+
 // Parse max-age from a Cache-Control header value. Returns 0 if not found.
 chrono::seconds parse_max_age(
 	SV cc) {
-	auto pos = cc.find("max-age=");
-	if (pos == SV::npos) {
-		return chrono::seconds{0};
+	while (!cc.empty()) {
+		auto comma = cc.find(',');
+		auto part = trim((comma == SV::npos) ? cc : cc.substr(0, comma));
+		auto eq = part.find('=');
+		if (eq != SV::npos) {
+			auto name = trim(part.substr(0, eq));
+			if (ascii_iequals(name, "max-age")) {
+				auto val = trim(part.substr(eq + 1));
+				long v = 0;
+				auto [ptr, ec] = from_chars(val.data(), val.data() + val.size(), v);
+				if (ec != errc{} || ptr != val.data() + val.size()) {
+					return chrono::seconds{0};
+				}
+				return chrono::seconds{v};
+			}
+		}
+		if (comma == SV::npos) {
+			return chrono::seconds{0};
+		}
+		cc.remove_prefix(comma + 1);
 	}
-	auto val = cc.substr(pos + 8);
-	auto end = val.find_first_of(", \t");
-	if (end != SV::npos) {
-		val = val.substr(0, end);
-	}
-	long v = 0;
-	auto [ptr, ec] = from_chars(val.data(), val.data() + val.size(), v);
-	if (ec != errc{}) {
-		return chrono::seconds{0};
-	}
-	return chrono::seconds{v};
+	return chrono::seconds{0};
 }
 
 // Parse a Vary header value into a sorted, lowercased, deduped list of header names.
@@ -232,13 +274,13 @@ export Router::Middleware response_cache_middleware(
 			return resp;
 		}
 		auto cc = std::as_const(resp.headers)["Cache-Control"];
-		if (cc.find("no-store") != SV::npos) {
+		if (response_cache_detail::cache_control_directive_contains(cc, "no-store")) {
 			return resp;
 		}
-		if (cc.find("no-cache") != SV::npos) {
+		if (response_cache_detail::cache_control_directive_contains(cc, "no-cache")) {
 			return resp; // no-cache requires revalidation which this cache cannot perform
 		}
-		if (cc.find("private") != SV::npos) {
+		if (response_cache_detail::cache_control_directive_contains(cc, "private")) {
 			return resp;
 		}
 		auto vary_hdr = std::as_const(resp.headers)["Vary"];
@@ -248,7 +290,7 @@ export Router::Middleware response_cache_middleware(
 		auto vary_list = response_cache_detail::parse_vary(vary_hdr);
 
 		auto ttl = response_cache_detail::parse_max_age(cc);
-		if (ttl.count() == 0 && cc.find("max-age=") != SV::npos) {
+		if (ttl.count() == 0 && response_cache_detail::cache_control_directive_contains(cc, "max-age")) {
 			return resp; // max-age=0: do not cache
 		}
 		if (ttl.count() == 0) {

@@ -3298,10 +3298,23 @@ private:
 	// Wrap h in the registered middleware chain. First-registered runs outermost.
 	[[nodiscard]] Handler wrap_middlewares(
 		Handler h) const {
-		for (auto mw: impl_->middlewares | std::views::reverse) {
-			h = [mw = move(mw), n = move(h)](HttpRequestView const &r) { return mw(r, n); };
-		}
-		return h;
+		return [this, h = move(h)](HttpRequestView const &req) -> HttpResponse {
+			struct Step {
+				Router::Impl const *impl_;
+				Handler const *h_;
+				size_t idx_{0};
+				HttpResponse call(
+					HttpRequestView const &r) {
+					if (idx_ == impl_->middlewares.size()) {
+						return (*h_)(r);
+					}
+					auto const &mw = impl_->middlewares[idx_++];
+					return mw(r, [this](HttpRequestView const &rr) -> HttpResponse { return call(rr); });
+				}
+			};
+			Step s{impl_.get(), &h};
+			return s.call(req);
+		};
 	}
 };
 

@@ -44,16 +44,34 @@ export struct StaticFileCacheConfig {
 };
 
 // Per-hostname TLS credentials for SNI virtual hosting.
-// When the client's TLS ClientHello SNI matches VirtualHost::hostname, the
+// When the client's TLS ClientHello SNI matches VirtualHost::hostname case-insensitively, the
 // server switches to the certificate/key P from this struct.
 export struct VirtualHost {
-	S hostname{}; // exact SNI hostname to match
+	S hostname{}; // SNI hostname to match
 	S cert_file{}; // PEM certificate chain for this host
 	S key_file{}; // PEM private key for this host
 	StaticFileCacheConfig static_file_cache{}; // Opt per-host router default
 };
 
 export struct Config {
+	[[nodiscard]] static Config low_latency() {
+		Config cfg{};
+		cfg.rings = 1;
+		cfg.ring_entries = 256;
+		cfg.single_issuer = true;
+		cfg.defer_taskrun = true;
+		cfg.coop_taskrun = true;
+		cfg.taskrun_flag = true;
+		return cfg;
+	}
+
+	[[nodiscard]] static Config test() {
+		auto cfg = low_latency();
+		cfg.port = 0;
+		cfg.startup_banner = false;
+		return cfg;
+	}
+
 	u16 port = kConfigDefaultPort;
 	unsigned rings = 0; // 0 = hardware_concurrency
 	unsigned ring_entries = kConfigDefaultRingEntries; // SQ/CQ depth per ring
@@ -76,7 +94,7 @@ export struct Config {
 	// Required when http_redirect_to_https is true; an empty list rejects all redirects.
 	V<S> https_redirect_hosts{};
 	// SNI virtual hosting: each entry provides an alternate cert/key for a hostname.
-	// Matched by exact SNI hostname; the primary cert_file/key_file is the default.
+	// Matched by case-insensitive SNI hostname; the primary cert_file/key_file is the default.
 	V<VirtualHost> virtual_hosts{};
 	// TLS 1.2 cipher list (OpenSSL SSL_CTX_set_cipher_list format); empty = built-in default.
 	S tls_cipher_list{};
