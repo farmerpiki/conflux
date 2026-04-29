@@ -169,7 +169,7 @@ enum class ConnectFailure {
 	conflux::net::dns::Resolver *resolver = nullptr) {
 	namespace dns = conflux::net::dns;
 
-	auto connect_endpoints = [&](vector<dns::Endpoint> const &endpoints) -> int {
+	auto connect_endpoints = [&](V<dns::Endpoint> const &endpoints) -> int {
 		auto const t1 = chrono::steady_clock::now();
 		int fd = -1;
 		for (auto const &ep: endpoints) {
@@ -229,7 +229,7 @@ enum class ConnectFailure {
 	}
 
 	// Convert addrinfo list to Endpoint vector for uniform connect logic.
-	vector<dns::Endpoint> endpoints;
+	V<dns::Endpoint> endpoints;
 	for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
 		if (rp->ai_family != AF_INET && rp->ai_family != AF_INET6) {
 			continue;

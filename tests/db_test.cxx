@@ -148,14 +148,14 @@ TEST_CASE(
 	"[db][unit]") {
 	Params p;
 	for (int i = 0; i < 12; ++i) {
-		p.add(static_cast<int64_t>(i));
+		p.add(static_cast<i64>(i));
 	}
 	CHECK(p.count() == 12);
 	auto const *vals = p.values();
 	REQUIRE(vals != nullptr);
-	CHECK(string_view{vals[0]} == "0");
-	CHECK(string_view{vals[7]} == "7");
-	CHECK(string_view{vals[11]} == "11");
+	CHECK(SV{vals[0]} == "0");
+	CHECK(SV{vals[7]} == "7");
+	CHECK(SV{vals[11]} == "11");
 }
 
 TEST_CASE(
@@ -163,8 +163,8 @@ TEST_CASE(
 	"[db][unit]") {
 	using namespace oids;
 	Params p;
-	p.add_binary(int64_t{0x0102030405060708LL});
-	p.add_binary(int32_t{0x01020304});
+	p.add_binary(i64{0x0102030405060708LL});
+	p.add_binary(i32{0x01020304});
 	p.add_binary(3.14);
 
 	CHECK(p.count() == 3);
@@ -190,7 +190,7 @@ TEST_CASE(
 	// Verify big-endian wire encoding for int64
 	auto const *vals = p.values();
 	REQUIRE(vals != nullptr);
-	array<uint8_t, 8> wire{};
+	A<u8, 8> wire{};
 	memcpy(wire.data(), vals[0], 8);
 	CHECK(wire[0] == 0x01);
 	CHECK(wire[1] == 0x02);
@@ -210,13 +210,13 @@ TEST_CASE(
 	"db: Params copy semantics",
 	"[db][unit]") {
 	Params orig;
-	orig.add("hello").add(int64_t{42});
+	orig.add("hello").add(i64{42});
 	Params const copy{orig};
 	CHECK(copy.count() == 2);
 	auto const *vals = copy.values();
 	REQUIRE(vals != nullptr);
-	CHECK(string_view{vals[0]} == "hello");
-	CHECK(string_view{vals[1]} == "42");
+	CHECK(SV{vals[0]} == "hello");
+	CHECK(SV{vals[1]} == "42");
 	// Mutating orig does not affect copy
 	orig.add("extra");
 	CHECK(orig.count() == 3);
@@ -383,15 +383,15 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{string{"42"}, nullopt, string{"7"}}
+			{S{"42"}, nullopt, S{"7"}}
     },
 		{"a", "b", "c"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	auto row = r[0];
-	CHECK(row.as_opt<int64_t>(0) == optional<int64_t>{42});
-	CHECK(row.as_opt<int64_t>(1) == nullopt);
-	CHECK(row.as_opt<int64_t>(2) == optional<int64_t>{7});
+	CHECK(row.as_opt<i64>(0) == Opt<i64>{42});
+	CHECK(row.as_opt<i64>(1) == nullopt);
+	CHECK(row.as_opt<i64>(2) == Opt<i64>{7});
 }
 
 TEST_CASE(
@@ -399,13 +399,13 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{string{"1"}, string{"hello"}, string{"t"}}
+			{S{"1"}, S{"hello"}, S{"t"}}
     },
 		{"id", "name", "flag"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	auto row = r[0];
-	auto [id, name, flag] = row.as_tuple<int64_t, string, bool>();
+	auto [id, name, flag] = row.as_tuple<i64, S, bool>();
 	CHECK(id == 1);
 	CHECK(name == "hello");
 	CHECK(flag);
@@ -416,7 +416,7 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{string{"99"}, string{"world"}}
+			{S{"99"}, S{"world"}}
     },
 		{"num", "str"});
 	REQUIRE(raw != nullptr);
@@ -431,11 +431,11 @@ TEST_CASE(
 	CHECK_FALSE(static_cast<bool>(c_bad));
 
 	auto row = r[0];
-	CHECK(row.as<int64_t>(c_num) == 99);
-	CHECK(row.as<string>(c_str) == "world");
+	CHECK(row.as<i64>(c_num) == 99);
+	CHECK(row.as<S>(c_str) == "world");
 	CHECK(row.get(c_num) == "99");
 	CHECK_FALSE(row.is_null(c_num));
-	CHECK(row.as_opt<string>(c_str) == optional<string>{"world"});
+	CHECK(row.as_opt<S>(c_str) == Opt<S>{"world"});
 }
 
 TEST_CASE(
