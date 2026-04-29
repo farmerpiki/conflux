@@ -4,7 +4,6 @@ module;
 #include <climits>
 #include <cstring>
 #include <fcntl.h>
-#include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
@@ -23,6 +22,7 @@ import conflux.net.http.request;
 import conflux.net.router;
 import conflux.utils;
 import conflux.net.dns;
+import conflux.work;
 #if CONFLUX_HAS_TLS
 import conflux.net.tls;
 #endif
@@ -164,16 +164,25 @@ enum class ConnectFailure {
 	SV host,
 	u16 port,
 	int timeout_sec,
+	chrono::milliseconds resolve_timeout,
 	HttpTelemetry &tel,
 	ConnectFailure &failure,
+	S &failure_message,
+	int &failure_errno,
 	conflux::net::dns::Resolver *resolver = nullptr) {
 	namespace dns = conflux::net::dns;
+	constexpr auto kConnectAttemptDelay = chrono::milliseconds{250};
+
+	auto endpoint_family = [](dns::Endpoint const &ep) noexcept {
+		return ep.family == dns::AddressFamily::v4 ? AF_INET : AF_INET6;
+	};
 
 	auto connect_endpoints = [&](V<dns::Endpoint> const &endpoints) -> int {
 		auto const t1 = chrono::steady_clock::now();
 		int fd = -1;
-		for (auto const &ep: endpoints) {
-			int const family = ep.family == dns::AddressFamily::v4 ? AF_INET : AF_INET6;
+		for (SZ i = 0; i < endpoints.size(); ++i) {
+			auto const &ep = endpoints[i];
+			int const family = endpoint_family(ep);
 			fd = ::socket(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
 			if (fd < 0) {
 				continue;
@@ -193,55 +202,45 @@ enum class ConnectFailure {
 			}
 			::close(fd);
 			fd = -1;
+
+			// RFC 8305 style connect-attempt delay between distinct-family attempts.
+			if (i + 1 < endpoints.size() && endpoint_family(endpoints[i + 1]) != family) {
+				std::this_thread::sleep_for(kConnectAttemptDelay);
+			}
 		}
 		tel.connect = chrono::steady_clock::now() - t1;
 		if (fd < 0) {
 			failure = ConnectFailure::connect;
+			failure_errno = errno;
+			failure_message = format("failed to connect to '{}:{}'", host, port);
 		}
 		return fd;
 	};
 
-	if (resolver != nullptr) {
-		auto const t0 = chrono::steady_clock::now();
-		auto result = resolver->resolve_blocking(host, port);
-		tel.dns = chrono::steady_clock::now() - t0;
-		if (!result.has_value()) {
-			failure = ConnectFailure::dns;
-			return -1;
-		}
-		return connect_endpoints(result->endpoints);
+	dns::ResolveOptions resolve_opts{};
+	if (resolve_timeout.count() > 0) {
+		resolve_opts.query_timeout = resolve_timeout;
+		resolve_opts.total_timeout = resolve_timeout;
 	}
-
-	addrinfo hints{};
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-	addrinfo *res = nullptr;
-	S const h{host};
-	S const p = to_string(port);
 
 	auto const t0 = chrono::steady_clock::now();
-	int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res);
+	auto *effective_resolver = resolver != nullptr ? resolver : dns::current_resolver();
+	Opt<WorkPool> fallback_pool{};
+	Opt<dns::Resolver> fallback_resolver{};
+	if (effective_resolver == nullptr) {
+		fallback_pool.emplace(WorkPoolOptions{.threads = 1});
+		fallback_resolver.emplace(*fallback_pool);
+		effective_resolver = &*fallback_resolver;
+	}
+	auto result = effective_resolver->resolve_blocking(host, port, resolve_opts);
 	tel.dns = chrono::steady_clock::now() - t0;
-
-	if (gai != 0 || res == nullptr) {
+	if (!result.has_value()) {
 		failure = ConnectFailure::dns;
+		failure_errno = result.error().os_errno;
+		failure_message = result.error().what();
 		return -1;
 	}
-
-	// Convert addrinfo list to Endpoint vector for uniform connect logic.
-	V<dns::Endpoint> endpoints;
-	for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
-		if (rp->ai_family != AF_INET && rp->ai_family != AF_INET6) {
-			continue;
-		}
-		dns::Endpoint ep{};
-		ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
-		ep.family = rp->ai_family == AF_INET ? dns::AddressFamily::v4 : dns::AddressFamily::v6;
-		std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
-		endpoints.push_back(ep);
-	}
-	::freeaddrinfo(res);
-	return connect_endpoints(endpoints);
+	return connect_endpoints(result->endpoints);
 }
 
 bool send_all(
@@ -439,20 +438,28 @@ HttpResult do_blocking_request(
 	// DNS + connect.
 	int const connect_sec = to_sec(timeouts.connect);
 	ConnectFailure conn_fail{};
-	int const fd = resolve_and_connect(url.host, url.port, connect_sec, tel, conn_fail, opts.resolver);
+	S conn_fail_message{};
+	int conn_fail_errno{0};
+	int const fd = resolve_and_connect(
+		url.host,
+		url.port,
+		connect_sec,
+		timeouts.resolve,
+		tel,
+		conn_fail,
+		conn_fail_message,
+		conn_fail_errno,
+		opts.resolver);
 	if (fd < 0) {
 		bool const is_dns = conn_fail == ConnectFailure::dns;
 		return unexpected(
 			HttpError{
 				.kind = is_dns ? HttpErrorKind::dns : HttpErrorKind::connect,
 				.phase = is_dns ? HttpPhase::resolve : HttpPhase::connect,
-				.os_errno = errno,
-				.message = format(
-					"failed to {}/{} '{}:{}'",
-					is_dns ? "resolve" : "connect",
-					is_dns ? "resolve" : "connect",
-					url.host,
-					url.port),
+				.os_errno = conn_fail_errno,
+				.message = conn_fail_message.empty() ?
+							   format("failed to {} '{}:{}'", is_dns ? "resolve" : "connect", url.host, url.port) :
+							   conn_fail_message,
 			});
 	}
 
