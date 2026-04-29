@@ -2,7 +2,6 @@ module;
 #include <arpa/inet.h>
 #include <cerrno>
 #include <fcntl.h>
-#include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
@@ -15,6 +14,7 @@ import conflux.crypto;
 import conflux.net.tls;
 import conflux.utils;
 import conflux.net.dns;
+import conflux.work;
 
 export struct SmtpError : RE {
 	using RE::runtime_error;
@@ -72,40 +72,34 @@ inline int open_connected_socket(
 	conflux::net::dns::Resolver *resolver = nullptr) {
 	namespace dns = conflux::net::dns;
 
-	if (resolver != nullptr) {
-		auto result = resolver->resolve_blocking(host, port);
-		if (!result.has_value()) {
-			return -1;
-		}
-		for (auto const &ep: result->endpoints) {
-			int const family = ep.family == dns::AddressFamily::v4 ? AF_INET : AF_INET6;
-			int const fd =
-				try_connect_addr(reinterpret_cast<::sockaddr const *>(&ep.addr), ep.addr_len, family, timeout_sec);
-			if (fd >= 0) {
-				return fd;
-			}
-		}
-		return -1;
+	dns::ResolveOptions resolve_opts{};
+	if (timeout_sec > 0) {
+		resolve_opts.query_timeout = std::chrono::seconds{timeout_sec};
+		resolve_opts.total_timeout = std::chrono::seconds{timeout_sec};
 	}
 
-	addrinfo hints{};
-	hints.ai_family = AF_UNSPEC;
-	hints.ai_socktype = SOCK_STREAM;
-	addrinfo *res = nullptr;
-	S const h{host};
-	S const p = to_string(port);
-	if (::getaddrinfo(h.c_str(), p.c_str(), &hints, &res) != 0 || res == nullptr) {
+	auto *effective_resolver = resolver != nullptr ? resolver : dns::current_resolver();
+	Opt<WorkPool> fallback_pool{};
+	Opt<dns::Resolver> fallback_resolver{};
+	if (effective_resolver == nullptr) {
+		fallback_pool.emplace(WorkPoolOptions{.threads = 1});
+		fallback_resolver.emplace(*fallback_pool);
+		effective_resolver = &*fallback_resolver;
+	}
+
+	auto result = effective_resolver->resolve_blocking(host, port, resolve_opts);
+	if (!result.has_value()) {
 		return -1;
 	}
-	int fd = -1;
-	for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
-		fd = try_connect_addr(rp->ai_addr, static_cast<::socklen_t>(rp->ai_addrlen), rp->ai_family, timeout_sec);
+	for (auto const &ep: result->endpoints) {
+		int const family = ep.family == dns::AddressFamily::v4 ? AF_INET : AF_INET6;
+		int const fd =
+			try_connect_addr(reinterpret_cast<::sockaddr const *>(&ep.addr), ep.addr_len, family, timeout_sec);
 		if (fd >= 0) {
-			break;
+			return fd;
 		}
 	}
-	::freeaddrinfo(res);
-	return fd;
+	return -1;
 }
 
 inline bool raw_send_all(
