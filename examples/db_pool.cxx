@@ -49,12 +49,12 @@ int main() {
 
 		Params pa;
 		pa.add(SV{"alpha"});
-		auto ra = block_on(reader, (*a)->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pa)));
+		auto ra = block_on(reader, a->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pa)));
 		println("a: {}", ra[0].as<SV>(0));
 
 		Params pb;
 		pb.add(SV{"beta"});
-		auto rb = block_on(reader, (*b)->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pb)));
+		auto rb = block_on(reader, b->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pb)));
 		println("b: {}", rb[0].as<SV>(0));
 	} catch (exception const &e) { println(cerr, "error: {}", e.what()); }
 

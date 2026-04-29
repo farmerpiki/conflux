@@ -30,6 +30,10 @@ if(CONFLUX_HAS_DB STREQUAL "true")
     add_executable(conflux_db_coro_bench db_coro_bench.cxx)
     target_link_libraries(conflux_db_coro_bench
         PRIVATE conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
+
+    add_executable(conflux_db_params_bench db_params_bench.cxx)
+    target_link_libraries(conflux_db_params_bench
+        PRIVATE conflux_db conflux_options)
 endif()
 
 add_executable(conflux_json_bench json_bench.cxx)

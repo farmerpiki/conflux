@@ -144,6 +144,86 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"db: Params overflow path (>kInline params)",
+	"[db][unit]") {
+	Params p;
+	for (int i = 0; i < 12; ++i) {
+		p.add(static_cast<int64_t>(i));
+	}
+	CHECK(p.count() == 12);
+	auto const *vals = p.values();
+	REQUIRE(vals != nullptr);
+	CHECK(string_view{vals[0]} == "0");
+	CHECK(string_view{vals[7]} == "7");
+	CHECK(string_view{vals[11]} == "11");
+}
+
+TEST_CASE(
+	"db: Params binary bind",
+	"[db][unit]") {
+	using namespace oids;
+	Params p;
+	p.add_binary(int64_t{0x0102030405060708LL});
+	p.add_binary(int32_t{0x01020304});
+	p.add_binary(3.14);
+
+	CHECK(p.count() == 3);
+
+	auto const *fmts = p.formats();
+	REQUIRE(fmts != nullptr);
+	CHECK(fmts[0] == 1);
+	CHECK(fmts[1] == 1);
+	CHECK(fmts[2] == 1);
+
+	auto const *lens = p.lengths();
+	REQUIRE(lens != nullptr);
+	CHECK(lens[0] == 8);
+	CHECK(lens[1] == 4);
+	CHECK(lens[2] == 8);
+
+	auto const *typs = p.types();
+	REQUIRE(typs != nullptr);
+	CHECK(typs[0] == int8);
+	CHECK(typs[1] == int4);
+	CHECK(typs[2] == float8);
+
+	// Verify big-endian wire encoding for int64
+	auto const *vals = p.values();
+	REQUIRE(vals != nullptr);
+	array<uint8_t, 8> wire{};
+	memcpy(wire.data(), vals[0], 8);
+	CHECK(wire[0] == 0x01);
+	CHECK(wire[1] == 0x02);
+	CHECK(wire[7] == 0x08);
+}
+
+TEST_CASE(
+	"db: Params result_format setter",
+	"[db][unit]") {
+	Params p;
+	CHECK(p.result_format() == 0);
+	p.result_format(1);
+	CHECK(p.result_format() == 1);
+}
+
+TEST_CASE(
+	"db: Params copy semantics",
+	"[db][unit]") {
+	Params orig;
+	orig.add("hello").add(int64_t{42});
+	Params const copy{orig};
+	CHECK(copy.count() == 2);
+	auto const *vals = copy.values();
+	REQUIRE(vals != nullptr);
+	CHECK(string_view{vals[0]} == "hello");
+	CHECK(string_view{vals[1]} == "42");
+	// Mutating orig does not affect copy
+	orig.add("extra");
+	CHECK(orig.count() == 3);
+	CHECK(copy.count() == 2);
+}
+
+TEST_CASE(
 	"db: PgError SQLSTATE classifiers",
 	"[db][unit]") {
 	{
@@ -193,28 +273,28 @@ TEST_CASE(
 		"ON CONFLICT (id) DO UPDATE SET id = EXCLUDED.id");
 	QueryCache qc{td.path};
 
-	auto a = qc.load("select_one");
+	auto a = qc.load_or_throw("select_one");
 	REQUIRE(a);
 	CHECK(*a == "SELECT 1");
 
-	auto b = qc.load("select_one");
+	auto b = qc.load_or_throw("select_one");
 	REQUIRE(b);
 	CHECK(a.get() == b.get()); // pointer identity → cached
 
-	auto u = qc.load("upsert_user");
+	auto u = qc.load_or_throw("upsert_user");
 	REQUIRE(u);
 	CHECK(u->find("ON CONFLICT") != S::npos);
 
 	qc.clear();
-	auto c = qc.load("select_one");
+	auto c = qc.load_or_throw("select_one");
 	REQUIRE(c);
 	CHECK(*c == "SELECT 1");
 	CHECK(c.get() != a.get()); // new buffer post-clear
 
-	CHECK_THROWS_AS(qc.load("does_not_exist"), fs::filesystem_error);
-	CHECK_THROWS_AS(qc.load("../outside"), std::invalid_argument);
-	CHECK_THROWS_AS(qc.load("nested/query"), std::invalid_argument);
-	CHECK_THROWS_AS(qc.load(""), std::invalid_argument);
+	CHECK_THROWS_AS(qc.load_or_throw("does_not_exist"), fs::filesystem_error);
+	CHECK_THROWS_AS(qc.load_or_throw("../outside"), std::invalid_argument);
+	CHECK_THROWS_AS(qc.load_or_throw("nested/query"), std::invalid_argument);
+	CHECK_THROWS_AS(qc.load_or_throw(""), std::invalid_argument);
 }
 
 TEST_CASE(
@@ -296,4 +376,91 @@ TEST_CASE(
 	auto row = r[0];
 	CHECK(row.get("only") == "x");
 	CHECK_THROWS_AS(row.get("nope"), PgError);
+}
+
+TEST_CASE(
+	"db: Row::as_opt null/value",
+	"[db][unit]") {
+	auto *raw = make_text_result(
+		{
+			{string{"42"}, nullopt, string{"7"}}
+    },
+		{"a", "b", "c"});
+	REQUIRE(raw != nullptr);
+	Result const r{PGResultPtr{raw}};
+	auto row = r[0];
+	CHECK(row.as_opt<int64_t>(0) == optional<int64_t>{42});
+	CHECK(row.as_opt<int64_t>(1) == nullopt);
+	CHECK(row.as_opt<int64_t>(2) == optional<int64_t>{7});
+}
+
+TEST_CASE(
+	"db: Row::as_tuple sequential unpack",
+	"[db][unit]") {
+	auto *raw = make_text_result(
+		{
+			{string{"1"}, string{"hello"}, string{"t"}}
+    },
+		{"id", "name", "flag"});
+	REQUIRE(raw != nullptr);
+	Result const r{PGResultPtr{raw}};
+	auto row = r[0];
+	auto [id, name, flag] = row.as_tuple<int64_t, string, bool>();
+	CHECK(id == 1);
+	CHECK(name == "hello");
+	CHECK(flag);
+}
+
+TEST_CASE(
+	"db: Result::column + Row Column overloads",
+	"[db][unit]") {
+	auto *raw = make_text_result(
+		{
+			{string{"99"}, string{"world"}}
+    },
+		{"num", "str"});
+	REQUIRE(raw != nullptr);
+	Result const r{PGResultPtr{raw}};
+
+	auto c_num = r.column("num");
+	auto c_str = r.column("str");
+	auto c_bad = r.column("missing");
+
+	CHECK(static_cast<bool>(c_num));
+	CHECK(static_cast<bool>(c_str));
+	CHECK_FALSE(static_cast<bool>(c_bad));
+
+	auto row = r[0];
+	CHECK(row.as<int64_t>(c_num) == 99);
+	CHECK(row.as<string>(c_str) == "world");
+	CHECK(row.get(c_num) == "99");
+	CHECK_FALSE(row.is_null(c_num));
+	CHECK(row.as_opt<string>(c_str) == optional<string>{"world"});
+}
+
+TEST_CASE(
+	"db: StatementCache stable_name deterministic + length",
+	"[db][unit]") {
+	auto const n1 = StatementCache::stable_name("SELECT 1");
+	auto const n2 = StatementCache::stable_name("SELECT 1");
+	auto const n3 = StatementCache::stable_name("SELECT 2");
+
+	CHECK(n1 == n2); // same SQL → same name
+	CHECK(n1 != n3); // different SQL → different name
+	CHECK(n1.size() == 15); // "p_" + 13 base32 chars
+	CHECK(n1.starts_with("p_"));
+}
+
+TEST_CASE(
+	"db: StatementCache get caches by SQL text",
+	"[db][unit]") {
+	StatementCache sc;
+	auto e1 = sc.get("SELECT 1");
+	auto e2 = sc.get("SELECT 1");
+	auto e3 = sc.get("SELECT 2");
+
+	CHECK(e1.get() == e2.get()); // pointer identity → same entry
+	CHECK(e1.get() != e3.get());
+	CHECK(e1->name == StatementCache::stable_name("SELECT 1"));
+	CHECK(*e1->sql == "SELECT 1");
 }

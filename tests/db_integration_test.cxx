@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers.hpp>
 #include <catch2/matchers/catch_matchers_exception.hpp>
+#include <libpq-fe.h>
 #include <liburing.h>
 
 import std;
@@ -96,6 +97,11 @@ TEST_CASE(
 	REQUIRE(r.cols() == 1);
 	CHECK(r[0].as<i64>(0) == 1);
 	CHECK(r.column_name(0) == "v");
+
+	// P11b: connect enforces UTF-8 client_encoding.
+	char const *enc = ::PQparameterStatus(conn->raw(), "client_encoding");
+	REQUIRE(enc != nullptr);
+	CHECK(string_view{enc} == "UTF8");
 }
 
 TEST_CASE(
@@ -294,11 +300,11 @@ TEST_CASE(
 	auto pool = Pool::create(move(cfg));
 
 	{
-		auto lease1 = block_on(fx->reader, pool->acquire(), chrono::seconds{30});
+		auto lease1 = optional{block_on(fx->reader, pool->acquire(), chrono::seconds{30})};
 		REQUIRE(lease1);
 		int const pid1 = (*lease1)->backend_pid();
 
-		auto lease2 = block_on(fx->reader, pool->acquire(), chrono::seconds{30});
+		auto lease2 = optional{block_on(fx->reader, pool->acquire(), chrono::seconds{30})};
 		REQUIRE(lease2);
 		int const pid2 = (*lease2)->backend_pid();
 		CHECK(pid1 != pid2);
@@ -307,12 +313,65 @@ TEST_CASE(
 		lease1.reset();
 		lease2.reset();
 
-		auto lease3 = block_on(fx->reader, pool->acquire(), chrono::seconds{30});
+		auto lease3 = optional{block_on(fx->reader, pool->acquire(), chrono::seconds{30})};
 		REQUIRE(lease3);
 		CHECK((*lease3)->backend_pid() == pid2);
 	}
 
 	pool->close();
+}
+
+TEST_CASE(
+	"db: with_transaction commit and rollback",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+	block_on(
+		fx->reader,
+		conn->query(R"(CREATE TEMP TABLE tx_test (id int8 PRIMARY KEY, v text))"),
+		chrono::seconds{30});
+
+	// Commit path: row must persist.
+	block_on(
+		fx->reader,
+		move(with_transaction(
+				 *conn,
+				 TxOptions{},
+				 [](Connection &c) -> Task<void> { co_await c.query("INSERT INTO tx_test VALUES (1, 'committed')"); }))
+			.flow(),
+		chrono::seconds{30});
+	{
+		auto r = block_on(fx->reader, conn->query("SELECT v FROM tx_test WHERE id = 1"), chrono::seconds{30});
+		REQUIRE(r.rows() == 1);
+		CHECK(r[0].as<string>(0) == "committed");
+	}
+
+	// Rollback path: thrown exception must roll back the INSERT.
+	try {
+		block_on(
+			fx->reader,
+			move(with_transaction(
+					 *conn,
+					 TxOptions{},
+					 [](Connection &c) -> Task<void> {
+						 co_await c.query("INSERT INTO tx_test VALUES (2, 'rolledback')");
+						 throw runtime_error{"deliberate"};
+					 }))
+				.flow(),
+			chrono::seconds{30});
+		FAIL("expected exception");
+	} catch (runtime_error const &e) { CHECK(string_view{e.what()} == "deliberate"); }
+	{
+		auto r = block_on(fx->reader, conn->query("SELECT count(*) FROM tx_test WHERE id = 2"), chrono::seconds{30});
+		REQUIRE(r.rows() == 1);
+		CHECK(r[0].as<int64_t>(0) == 0);
+	}
 }
 
 TEST_CASE(
@@ -334,7 +393,7 @@ TEST_CASE(
 	}
 
 	QueryCache const qc{root};
-	auto sql = qc.load("select_two");
+	auto sql = qc.load_or_throw("select_two");
 	REQUIRE(sql);
 
 	auto conn = connect_or_skip(*fx, *ci);
@@ -344,4 +403,93 @@ TEST_CASE(
 
 	EC ec;
 	fs::remove_all(root, ec);
+}
+
+TEST_CASE(
+	"db: cancel_inflight zero-arg uses process-wide cancel pool",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+
+	atomic_flag done{};
+	exception_ptr err;
+	auto held = conn->query("SELECT pg_sleep(10)")
+			  | then([&](Result) { done.test_and_set(memory_order_release); })
+			  | on_error([&](exception_ptr const &ex) {
+					err = ex;
+					done.test_and_set(memory_order_release);
+				});
+	(void)held;
+
+	this_thread::sleep_for(chrono::milliseconds{100});
+	block_on(fx->reader, conn->cancel_inflight(), chrono::seconds{30});
+	pump_until(fx->reader, done, chrono::seconds{10});
+
+	REQUIRE(err);
+	try {
+		rethrow_exception(err);
+	} catch (PgError const &e) { CHECK(e.sqlstate == "57014"); } catch (...) {
+		FAIL("expected PgError");
+	}
+}
+
+TEST_CASE(
+	"db: query with deadline cancels slow query",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+
+	QueryOptions const opts{.deadline = chrono::milliseconds{200}};
+	try {
+		(void)block_on(
+			fx->reader,
+			conn->query("SELECT pg_sleep(10)", Params{}, opts),
+			chrono::seconds{30});
+		FAIL("expected deadline cancellation");
+	} catch (PgError const &e) {
+		CHECK(e.sqlstate == "57014");
+	}
+}
+
+TEST_CASE(
+	"db: exec_cached auto-prepares on first call and reuses on second",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+
+	StatementCache sc;
+	auto stmt = sc.get("SELECT $1::int8 + $2::int8");
+
+	{
+		Params p;
+		p.add(int64_t{10}).add(int64_t{32});
+		auto r = block_on(fx->reader, conn->exec_cached(stmt, move(p)), chrono::seconds{30});
+		REQUIRE(r.rows() == 1);
+		CHECK(r[0].as<int64_t>(0) == 42);
+	}
+	{
+		Params p;
+		p.add(int64_t{1}).add(int64_t{99});
+		auto r = block_on(fx->reader, conn->exec_cached(stmt, move(p)), chrono::seconds{30});
+		REQUIRE(r.rows() == 1);
+		CHECK(r[0].as<int64_t>(0) == 100);
+	}
 }

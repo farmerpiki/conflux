@@ -303,6 +303,11 @@ if(CONFLUX_HAS_DB STREQUAL "true")
         PUBLIC FILE_SET CXX_MODULES
             BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
             FILES
+            src/db/types.cxx
+            src/db/params.cxx
+            src/db/result.cxx
+            src/db/connection.cxx
+            src/db/pool.cxx
             src/db/db.cxx
     )
     target_link_libraries(conflux_db
