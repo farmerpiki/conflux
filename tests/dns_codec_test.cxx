@@ -487,7 +487,7 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Resolver — construction / IP literal short-circuit / not-implemented stub
+// Resolver — construction / IP literal short-circuit / NSS lookup
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -523,12 +523,12 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"dns: resolve_blocking surfaces not_implemented for real lookups",
+	"dns: resolve_blocking resolves localhost through NSS",
 	"[dns][resolver]") {
 	using namespace conflux;
 	WorkPool pool{WorkPoolOptions{.threads = 1}};
 	Resolver r{pool};
-	auto rr = r.resolve_blocking("example.com", 80);
-	REQUIRE_FALSE(rr.has_value());
-	CHECK(rr.error().kind == DnsErrorKind::not_implemented);
+	auto rr = r.resolve_blocking("localhost", 80);
+	REQUIRE(rr.has_value());
+	CHECK_FALSE(rr->endpoints.empty());
 }

@@ -1178,6 +1178,13 @@ struct Ring {
 	// Drive nghttp2 output (all queued frames) and flush to io_uring.
 	void h2_do_send(
 		Conn &conn) {
+		if (conn.h2_session == nullptr) {
+			return;
+		}
+		if (nghttp2_session_want_write(conn.h2_session) == 0) {
+			h2_flush_pending(conn);
+			return;
+		}
 		if (nghttp2_session_send(conn.h2_session) != 0) {
 			queue_close(conn.fd);
 			return;
@@ -2397,6 +2404,10 @@ struct Ring {
 
 	#if CONFLUX_HAS_HTTP2
 		if (conn.is_h2) {
+			if (conn.close_after_send) {
+				queue_close(fd);
+				return;
+			}
 			// Drive any nghttp2 output queued while the previous send was in flight,
 			// then re-arm recv if nothing new was sent.
 			h2_do_send(conn);

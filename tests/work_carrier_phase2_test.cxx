@@ -233,20 +233,33 @@ TEST_CASE(
 	"carrier.scope: admit after scope-cancel signals task then joins",
 	"[carrier.scope]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto stop_token = src.stop_token();
 	auto jh = root::into_join_handle(std::move(task));
+	std::mutex mu;
+	std::condition_variable cv;
+	bool cancel_seen = false;
+
+	(void)src.install_cancel_hook([&](root::CancelReason) {
+		{
+			std::lock_guard const lock{mu};
+			cancel_seen = true;
+		}
+		cv.notify_one();
+	});
 
 	carrier::Scope scope{};
 	scope.cancel(root::CancelReason::requested);
 
 	auto worker_src = std::move(src);
-	auto worker_token = stop_token;
-	// Worker thread: responds to cancel signal and commits cancelled
-	std::thread worker{[ws = std::move(worker_src), wt = std::move(worker_token)]() mutable {
-		while (!wt.stop_requested()) {
-			std::this_thread::yield();
+	std::thread worker{[&mu, &cv, &cancel_seen, ws = std::move(worker_src)]() mutable {
+		std::unique_lock lock{mu};
+		bool const observed = cv.wait_for(lock, std::chrono::seconds{1}, [&] { return cancel_seen; });
+		lock.unlock();
+		if (observed) {
+			(void)ws.commit_cancelled(root::CancelReason::requested);
+		} else {
+			(void)ws.commit_failure(
+				std::make_exception_ptr(std::runtime_error{"scope admit did not signal cancellation"}));
 		}
-		(void)ws.commit_cancelled(root::CancelReason::requested);
 	}};
 
 	auto chain = scope.admit(std::move(jh));
