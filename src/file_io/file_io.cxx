@@ -599,6 +599,11 @@ public:
 
 	[[nodiscard]] io_uring *ring() const noexcept { return ring_; }
 	[[nodiscard]] CompletionTable *completions() const noexcept { return completions_; }
+	[[nodiscard]] u64 encode_ud(
+		u32 slot,
+		u32 gen) const {
+		return encode_ud_(slot, gen);
+	}
 
 	[[nodiscard]] bool poll_add_multi(
 		int fd,

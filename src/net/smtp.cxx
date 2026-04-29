@@ -14,6 +14,7 @@ import conflux.types;
 import conflux.crypto;
 import conflux.net.tls;
 import conflux.utils;
+import conflux.net.dns;
 
 export struct SmtpError : RE {
 	using RE::runtime_error;
@@ -32,10 +33,61 @@ export struct SmtpEnvelope {
 
 namespace smtp_detail {
 
+inline int try_connect_addr(
+	::sockaddr const *sa,
+	::socklen_t sa_len,
+	int family,
+	int timeout_sec) {
+	int const fd = ::socket(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+	if (fd < 0) {
+		return -1;
+	}
+	int const flags = ::fcntl(fd, F_GETFL, 0);
+	if (flags >= 0) {
+		::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+	}
+	int const rc = ::connect(fd, sa, sa_len);
+	bool ok = rc == 0;
+	if (!ok && errno == EINPROGRESS) {
+		if (wait_fd(fd, POLLOUT, timeout_sec)) {
+			int so_error = 0;
+			socklen_t so_len = sizeof(so_error);
+			ok = ::getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &so_len) == 0 && so_error == 0;
+		}
+	}
+	if (flags >= 0) {
+		::fcntl(fd, F_SETFL, flags);
+	}
+	if (!ok) {
+		::close(fd);
+		return -1;
+	}
+	return fd;
+}
+
 inline int open_connected_socket(
 	SV host,
 	u16 port,
-	int timeout_sec) {
+	int timeout_sec,
+	conflux::net::dns::Resolver *resolver = nullptr) {
+	namespace dns = conflux::net::dns;
+
+	if (resolver != nullptr) {
+		auto result = resolver->resolve_blocking(host, port);
+		if (!result.has_value()) {
+			return -1;
+		}
+		for (auto const &ep: result->endpoints) {
+			int const family = ep.family == dns::AddressFamily::v4 ? AF_INET : AF_INET6;
+			int const fd =
+				try_connect_addr(reinterpret_cast<::sockaddr const *>(&ep.addr), ep.addr_len, family, timeout_sec);
+			if (fd >= 0) {
+				return fd;
+			}
+		}
+		return -1;
+	}
+
 	addrinfo hints{};
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
@@ -47,31 +99,10 @@ inline int open_connected_socket(
 	}
 	int fd = -1;
 	for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
-		fd = ::socket(rp->ai_family, rp->ai_socktype | SOCK_CLOEXEC, rp->ai_protocol);
-		if (fd < 0) {
-			continue;
-		}
-		int const flags = ::fcntl(fd, F_GETFL, 0);
-		if (flags >= 0) {
-			::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
-		}
-		int const rc = ::connect(fd, rp->ai_addr, rp->ai_addrlen);
-		bool ok = rc == 0;
-		if (!ok && errno == EINPROGRESS) {
-			if (wait_fd(fd, POLLOUT, timeout_sec)) {
-				int so_error = 0;
-				socklen_t so_len = sizeof(so_error);
-				ok = ::getsockopt(fd, SOL_SOCKET, SO_ERROR, &so_error, &so_len) == 0 && so_error == 0;
-			}
-		}
-		if (flags >= 0) {
-			::fcntl(fd, F_SETFL, flags);
-		}
-		if (ok) {
+		fd = try_connect_addr(rp->ai_addr, static_cast<::socklen_t>(rp->ai_addrlen), rp->ai_family, timeout_sec);
+		if (fd >= 0) {
 			break;
 		}
-		::close(fd);
-		fd = -1;
 	}
 	::freeaddrinfo(res);
 	return fd;
@@ -146,6 +177,7 @@ export class SmtpClient {
 	Opt<TlsStream> tls_stream_{};
 	S rx_buf_{};
 	S ehlo_caps_{};
+	conflux::net::dns::Resolver *resolver_{nullptr};
 
 public:
 	SmtpClient() = default;
@@ -161,9 +193,11 @@ public:
 		, tls_ctx_{std::move(other.tls_ctx_)}
 		, tls_stream_{std::move(other.tls_stream_)}
 		, rx_buf_{std::move(other.rx_buf_)}
-		, ehlo_caps_{std::move(other.ehlo_caps_)} {
+		, ehlo_caps_{std::move(other.ehlo_caps_)}
+		, resolver_{other.resolver_} {
 		other.fd_ = -1;
 		other.tls_active_ = false;
+		other.resolver_ = nullptr;
 	}
 
 	SmtpClient &operator =(
@@ -177,8 +211,10 @@ public:
 			tls_stream_ = std::move(other.tls_stream_);
 			rx_buf_ = std::move(other.rx_buf_);
 			ehlo_caps_ = std::move(other.ehlo_caps_);
+			resolver_ = other.resolver_;
 			other.fd_ = -1;
 			other.tls_active_ = false;
+			other.resolver_ = nullptr;
 		}
 		return *this;
 	}
@@ -190,12 +226,17 @@ public:
 		timeout_sec_ = seconds;
 	}
 
+	void set_resolver(
+		conflux::net::dns::Resolver *r) noexcept {
+		resolver_ = r;
+	}
+
 	// Plain TCP connect. Reads the server greeting (220).
 	bool connect(
 		SV host,
 		u16 port) {
 		close_all();
-		fd_ = smtp_detail::open_connected_socket(host, port, timeout_sec_);
+		fd_ = smtp_detail::open_connected_socket(host, port, timeout_sec_, resolver_);
 		if (fd_ < 0) {
 			return false;
 		}
@@ -209,7 +250,7 @@ public:
 		u16 port,
 		bool verify_peer = true) {
 		close_all();
-		fd_ = smtp_detail::open_connected_socket(host, port, timeout_sec_);
+		fd_ = smtp_detail::open_connected_socket(host, port, timeout_sec_, resolver_);
 		if (fd_ < 0) {
 			return false;
 		}

@@ -2,6 +2,7 @@ module;
 #include <arpa/inet.h>
 #include <cerrno>
 #include <climits>
+#include <cstring>
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
@@ -21,6 +22,7 @@ import conflux.net.http.types;
 import conflux.net.http.request;
 import conflux.net.router;
 import conflux.utils;
+import conflux.net.dns;
 #if CONFLUX_HAS_TLS
 import conflux.net.tls;
 #endif
@@ -54,6 +56,7 @@ struct HttpClientOptions {
 	SZ max_body_bytes{16 * 1024 * 1024};
 	SZ max_buffered_bytes{4 * 1024 * 1024};
 	HttpFields default_headers{};
+	conflux::net::dns::Resolver *resolver{nullptr};
 };
 
 } // namespace conflux::http
@@ -162,7 +165,53 @@ enum class ConnectFailure {
 	u16 port,
 	int timeout_sec,
 	HttpTelemetry &tel,
-	ConnectFailure &failure) {
+	ConnectFailure &failure,
+	conflux::net::dns::Resolver *resolver = nullptr) {
+	namespace dns = conflux::net::dns;
+
+	auto connect_endpoints = [&](vector<dns::Endpoint> const &endpoints) -> int {
+		auto const t1 = chrono::steady_clock::now();
+		int fd = -1;
+		for (auto const &ep: endpoints) {
+			int const family = ep.family == dns::AddressFamily::v4 ? AF_INET : AF_INET6;
+			fd = ::socket(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+			if (fd < 0) {
+				continue;
+			}
+			if (connect_with_timeout(fd, reinterpret_cast<sockaddr const *>(&ep.addr), ep.addr_len, timeout_sec)) {
+				char buf[INET6_ADDRSTRLEN + 4]{};
+				if (ep.family == dns::AddressFamily::v4) {
+					auto const *sa4 = reinterpret_cast<sockaddr_in const *>(&ep.addr);
+					inet_ntop(AF_INET, &sa4->sin_addr, buf, sizeof(buf));
+					tel.peer_addr = format("{}:{}", buf, port);
+				} else {
+					auto const *sa6 = reinterpret_cast<sockaddr_in6 const *>(&ep.addr);
+					inet_ntop(AF_INET6, &sa6->sin6_addr, buf, sizeof(buf));
+					tel.peer_addr = format("[{}]:{}", buf, port);
+				}
+				break;
+			}
+			::close(fd);
+			fd = -1;
+		}
+		tel.connect = chrono::steady_clock::now() - t1;
+		if (fd < 0) {
+			failure = ConnectFailure::connect;
+		}
+		return fd;
+	};
+
+	if (resolver != nullptr) {
+		auto const t0 = chrono::steady_clock::now();
+		auto result = resolver->resolve_blocking(host, port);
+		tel.dns = chrono::steady_clock::now() - t0;
+		if (!result.has_value()) {
+			failure = ConnectFailure::dns;
+			return -1;
+		}
+		return connect_endpoints(result->endpoints);
+	}
+
 	addrinfo hints{};
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
@@ -170,7 +219,7 @@ enum class ConnectFailure {
 	S const h{host};
 	S const p = to_string(port);
 
-	auto t0 = chrono::steady_clock::now();
+	auto const t0 = chrono::steady_clock::now();
 	int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res);
 	tel.dns = chrono::steady_clock::now() - t0;
 
@@ -179,35 +228,20 @@ enum class ConnectFailure {
 		return -1;
 	}
 
-	int fd = -1;
-	auto t1 = chrono::steady_clock::now();
+	// Convert addrinfo list to Endpoint vector for uniform connect logic.
+	vector<dns::Endpoint> endpoints;
 	for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
-		fd = ::socket(rp->ai_family, rp->ai_socktype | SOCK_CLOEXEC, rp->ai_protocol);
-		if (fd < 0) {
+		if (rp->ai_family != AF_INET && rp->ai_family != AF_INET6) {
 			continue;
 		}
-		if (connect_with_timeout(fd, rp->ai_addr, rp->ai_addrlen, timeout_sec)) {
-			char peer_buf[INET6_ADDRSTRLEN + 8]{};
-			if (rp->ai_family == AF_INET) {
-				auto const *sa4 = reinterpret_cast<sockaddr_in const *>(rp->ai_addr);
-				inet_ntop(AF_INET, &sa4->sin_addr, peer_buf, sizeof(peer_buf));
-				tel.peer_addr = format("{}:{}", peer_buf, port);
-			} else if (rp->ai_family == AF_INET6) {
-				auto const *sa6 = reinterpret_cast<sockaddr_in6 const *>(rp->ai_addr);
-				inet_ntop(AF_INET6, &sa6->sin6_addr, peer_buf, sizeof(peer_buf));
-				tel.peer_addr = format("[{}]:{}", peer_buf, port);
-			}
-			break;
-		}
-		::close(fd);
-		fd = -1;
+		dns::Endpoint ep{};
+		ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
+		ep.family = rp->ai_family == AF_INET ? dns::AddressFamily::v4 : dns::AddressFamily::v6;
+		std::memcpy(&ep.addr, rp->ai_addr, ep.addr_len);
+		endpoints.push_back(ep);
 	}
-	tel.connect = chrono::steady_clock::now() - t1;
 	::freeaddrinfo(res);
-	if (fd < 0) {
-		failure = ConnectFailure::connect;
-	}
-	return fd;
+	return connect_endpoints(endpoints);
 }
 
 bool send_all(
@@ -405,7 +439,7 @@ HttpResult do_blocking_request(
 	// DNS + connect.
 	int const connect_sec = to_sec(timeouts.connect);
 	ConnectFailure conn_fail{};
-	int const fd = resolve_and_connect(url.host, url.port, connect_sec, tel, conn_fail);
+	int const fd = resolve_and_connect(url.host, url.port, connect_sec, tel, conn_fail, opts.resolver);
 	if (fd < 0) {
 		bool const is_dns = conn_fail == ConnectFailure::dns;
 		return unexpected(

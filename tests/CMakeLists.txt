@@ -133,6 +133,26 @@ target_link_libraries(conflux_file_io_tests
         Catch2::Catch2WithMain
 )
 
+add_executable(conflux_dns_codec_tests dns_codec_test.cxx)
+target_link_libraries(conflux_dns_codec_tests
+    PRIVATE
+        conflux_dns
+        conflux_file_io
+        conflux_work
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
+add_executable(conflux_udp_tests udp_test.cxx)
+target_link_libraries(conflux_udp_tests
+    PRIVATE
+        conflux_udp
+        conflux_file_io
+        conflux_work
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
 if(CONFLUX_HAS_DB STREQUAL "true")
     add_executable(conflux_db_tests db_test.cxx)
     target_link_libraries(conflux_db_tests
@@ -195,6 +215,8 @@ conflux_discover_tests(conflux_work_carrier_phase6_tests)
 conflux_discover_tests(conflux_work_carrier_streams_tests)
 conflux_discover_tests(conflux_work_carrier_timer_tests)
 conflux_discover_tests(conflux_file_io_tests)
+conflux_discover_tests(conflux_dns_codec_tests)
+conflux_discover_tests(conflux_udp_tests)
 conflux_discover_tests(conflux_file_io_http_e2e)
 if(CONFLUX_HAS_TLS STREQUAL "true")
     conflux_discover_tests(conflux_smtp_tests)
