@@ -47,7 +47,7 @@ struct H2Client {
 	H2Client &operator =(H2Client const &) = delete;
 
 	explicit H2Client(
-		uint16_t port)
+		u16 port)
 		: ctx_(SSL_CTX_new(TLS_client_method()))
 		, fd_(::socket(AF_INET, SOCK_STREAM, 0)) {
 		SSL_CTX_set_verify(ctx_, SSL_VERIFY_NONE, nullptr);
@@ -118,7 +118,7 @@ struct H2Client {
 	// Submit a GET and block until response received.
 	H2Response get(
 		SV path) {
-		int32_t const sid = submit_request("GET", path, nullptr);
+		i32 const sid = submit_request("GET", path, nullptr);
 		pump_until_closed(sid);
 		return responses_[sid];
 	}
@@ -134,38 +134,38 @@ struct H2Client {
 		prd.read_callback = read_cb;
 		prd.source.ptr = rb_ptr;
 
-		int32_t const sid = submit_request("POST", path, &prd);
+		i32 const sid = submit_request("POST", path, &prd);
 		req_bodies_.emplace(sid, std::move(rb)); // pointer still valid after move
 		pump_until_closed(sid);
 		return responses_[sid];
 	}
 
 	// Submit a GET without pumping (for concurrent-stream tests).
-	int32_t submit_get(
+	i32 submit_get(
 		SV path) {
 		return submit_request("GET", path, nullptr);
 	}
 
 	// Pump until all listed streams are closed (or timeout).
 	void pump_all(
-		std::span<int32_t const> sids) {
+		std::span<i32 const> sids) {
 		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
-		auto all_done = [&] { return std::ranges::all_of(sids, [&](int32_t s) { return responses_[s].closed; }); };
+		auto all_done = [&] { return std::ranges::all_of(sids, [&](i32 s) { return responses_[s].closed; }); };
 		while (!all_done() && std::chrono::steady_clock::now() < deadline) {
 			pump_once();
 		}
 	}
 
-	M<int32_t, H2Response> responses_;
+	M<i32, H2Response> responses_;
 
 private:
 	SSL_CTX *ctx_ = nullptr;
 	SSL *ssl_ = nullptr;
 	int fd_ = -1;
 	nghttp2_session *session_ = nullptr;
-	M<int32_t, UP<ReqBody>> req_bodies_;
+	M<i32, UP<ReqBody>> req_bodies_;
 
-	int32_t submit_request(
+	i32 submit_request(
 		SV method,
 		SV path,
 		nghttp2_data_provider const *prd) {
@@ -181,14 +181,14 @@ private:
 		nva.reserve(nv_store.size());
 		for (auto &[n, v]: nv_store) {
 			nva.push_back(
-				{reinterpret_cast<uint8_t *>(n.data()),
-				 reinterpret_cast<uint8_t *>(v.data()),
+				{reinterpret_cast<u8 *>(n.data()),
+				 reinterpret_cast<u8 *>(v.data()),
 				 n.size(),
 				 v.size(),
 				 NGHTTP2_NV_FLAG_NONE});
 		}
 
-		int32_t const sid = nghttp2_submit_request(session_, nullptr, nva.data(), nva.size(), prd, nullptr);
+		i32 const sid = nghttp2_submit_request(session_, nullptr, nva.data(), nva.size(), prd, nullptr);
 		if (sid < 0) {
 			throw std::runtime_error{"nghttp2_submit_request failed"};
 		}
@@ -201,16 +201,13 @@ private:
 		A<char, 16384> buf{};
 		int const n = SSL_read(ssl_, buf.data(), static_cast<int>(buf.size()));
 		if (n > 0) {
-			nghttp2_session_mem_recv(
-				session_,
-				reinterpret_cast<uint8_t const *>(buf.data()),
-				static_cast<SZ>(n));
+			nghttp2_session_mem_recv(session_, reinterpret_cast<u8 const *>(buf.data()), static_cast<SZ>(n));
 		}
 		// n <= 0: timeout or close — caller checks stream state
 	}
 
 	void pump_until_closed(
-		int32_t sid) {
+		i32 sid) {
 		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
 		while (!responses_[sid].closed && std::chrono::steady_clock::now() < deadline) {
 			pump_once();
@@ -221,7 +218,7 @@ private:
 
 	static ssize_t send_cb(
 		nghttp2_session * /*unused*/,
-		uint8_t const *data,
+		u8 const *data,
 		SZ length,
 		int /*unused*/,
 		void *ud) {
@@ -233,11 +230,11 @@ private:
 	static int on_header_cb(
 		nghttp2_session * /*unused*/,
 		nghttp2_frame const *frame,
-		uint8_t const *name,
+		u8 const *name,
 		SZ namelen,
-		uint8_t const *value,
+		u8 const *value,
 		SZ valuelen,
-		uint8_t /*unused*/,
+		u8 /*unused*/,
 		void *ud) {
 		auto *c = static_cast<H2Client *>(ud);
 		SV const n{reinterpret_cast<char const *>(name), namelen};
@@ -255,9 +252,9 @@ private:
 
 	static int on_data_chunk_cb(
 		nghttp2_session * /*unused*/,
-		uint8_t /*unused*/,
-		int32_t stream_id,
-		uint8_t const *data,
+		u8 /*unused*/,
+		i32 stream_id,
+		u8 const *data,
 		SZ len,
 		void *ud) {
 		auto *c = static_cast<H2Client *>(ud);
@@ -267,8 +264,8 @@ private:
 
 	static int on_stream_close_cb(
 		nghttp2_session * /*unused*/,
-		int32_t stream_id,
-		uint32_t /*unused*/,
+		i32 stream_id,
+		u32 /*unused*/,
 		void *ud) {
 		auto *c = static_cast<H2Client *>(ud);
 		c->responses_[stream_id].closed = true;
@@ -277,10 +274,10 @@ private:
 
 	static ssize_t read_cb(
 		nghttp2_session * /*unused*/,
-		int32_t /*unused*/,
-		uint8_t *buf,
+		i32 /*unused*/,
+		u8 *buf,
 		SZ length,
-		uint32_t *data_flags,
+		u32 *data_flags,
 		nghttp2_data_source *source,
 		void * /*unused*/) {
 		auto &rb = *static_cast<ReqBody *>(source->ptr);
@@ -369,7 +366,7 @@ TEST_CASE(
 	H2Client client{fx.port()};
 
 	// Submit three requests without pumping between them.
-	A<int32_t, 3> sids{
+	A<i32, 3> sids{
 		client.submit_get("/ping"),
 		client.submit_get("/hello/world"),
 		client.submit_get("/ping"),

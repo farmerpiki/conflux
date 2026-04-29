@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 import std;
+import conflux.types;
 import conflux.features;
 #if CONFLUX_HAS_HTTP3
 import conflux.net.http;

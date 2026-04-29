@@ -5,22 +5,22 @@ module;
 
 export module conflux.net.cookie_signing;
 import std;
+import conflux.types;
 import conflux.crypto;
 import conflux.net.router;
 import conflux.utils;
-using namespace std;
 
 namespace {
 
 // Constant-time compare to prevent timing attacks.
 bool constant_time_eq(
-	string_view a,
-	string_view b) {
+	SV a,
+	SV b) {
 	if (a.size() != b.size()) {
 		return false;
 	}
 	unsigned char acc = 0;
-	for (size_t i = 0; i < a.size(); ++i) {
+	for (SZ i = 0; i < a.size(); ++i) {
 		acc = static_cast<unsigned char>(acc | (static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i])));
 	}
 	return acc == 0;
@@ -30,9 +30,9 @@ bool constant_time_eq(
 
 namespace {
 
-string mac_b64(
-	string_view value,
-	string_view secret) {
+S mac_b64(
+	SV value,
+	SV secret) {
 	auto key = span{reinterpret_cast<unsigned char const *>(secret.data()), secret.size()};
 	auto msg = span{reinterpret_cast<unsigned char const *>(value.data()), value.size()};
 	return base64url_encode(hmac_sha256(key, msg));
@@ -41,30 +41,30 @@ string mac_b64(
 } // namespace
 
 // Sign a cookie value. Returns "value.BASE64URL(HMAC-SHA256(secret, value))".
-export string sign_cookie(
-	string_view value,
-	string_view secret) {
-	return string{value} + '.' + mac_b64(value, secret);
+export S sign_cookie(
+	SV value,
+	SV secret) {
+	return S{value} + '.' + mac_b64(value, secret);
 }
 
-// Verify a signed cookie. Returns the original value on success, nullopt on failure.
-export optional<string> verify_cookie(
-	string_view signed_value,
-	string_view secret) {
+// Verify a signed cookie. Returns the original value on success, std::nullopt on failure.
+export Opt<S> verify_cookie(
+	SV signed_value,
+	SV secret) {
 	auto dot = signed_value.rfind('.');
-	if (dot == string_view::npos) {
-		return nullopt;
+	if (dot == SV::npos) {
+		return std::nullopt;
 	}
 	auto value = signed_value.substr(0, dot);
 	auto sig = signed_value.substr(dot + 1);
 	if (!constant_time_eq(sig, mac_b64(value, secret))) {
-		return nullopt;
+		return std::nullopt;
 	}
-	return string{value};
+	return S{value};
 }
 
 export struct CookieSigningOptions {
-	string secret;
+	S secret;
 	// When true, cookies arriving with invalid signatures are stripped (set to empty).
 	bool strip_invalid{true};
 };
@@ -76,12 +76,12 @@ export struct CookieSigningOptions {
 export Router::Middleware cookie_signing_middleware(
 	CookieSigningOptions opts = {}) {
 	if (opts.secret.size() < 16) {
-		throw invalid_argument{"cookie_signing_middleware: secret must be at least 16 bytes"};
+		throw std::invalid_argument{"cookie_signing_middleware: secret must be at least 16 bytes"};
 	}
 	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto modified = req.to_owned();
 		for (auto &[name, value]: modified.cookies) {
-			if (value.find('.') == string::npos) {
+			if (value.find('.') == S::npos) {
 				continue;
 			} // unsigned cookie
 			auto plain = verify_cookie(value, opts.secret);

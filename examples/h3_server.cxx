@@ -10,6 +10,7 @@
 
 import conflux.net.http;
 import std;
+import conflux.types;
 
 int main() {
 	S cert_path = "/tmp/conflux_h3_server_cert.pem";

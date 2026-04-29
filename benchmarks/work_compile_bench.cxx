@@ -1,4 +1,5 @@
 import std;
+import conflux.types;
 import conflux.work.root;
 #if CONFLUX_WORK_CARRIER_MODEL_A
 import conflux.work.carrier.model_a;

@@ -5,6 +5,7 @@
 //       curl http://localhost:9090/api/ping
 import conflux.net.http;
 import std;
+import conflux.types;
 
 int main() {
 	Config cfg{};

@@ -6,7 +6,6 @@ import std;
 import conflux.types;
 import conflux.json;
 
-using namespace std;
 using namespace conflux::json;
 
 // ---------------------------------------------------------------------------
@@ -75,7 +74,7 @@ TEST_CASE(
 	REQUIRE(n.has_value());
 	auto u = n->to_u64();
 	REQUIRE(u.has_value());
-	CHECK(*u == numeric_limits<uint64_t>::max());
+	CHECK(*u == NL<u64>::max());
 }
 
 TEST_CASE(
@@ -92,7 +91,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: parse string",
+	"json: parse S",
 	"[json]") {
 	auto doc = parse(R"("hello world")");
 	REQUIRE(doc.has_value());
@@ -102,7 +101,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: parse string with escape sequences",
+	"json: parse S with escape sequences",
 	"[json]") {
 	auto doc = parse(R"("a\tb\nc")");
 	REQUIRE(doc.has_value());
@@ -112,7 +111,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: parse string with unicode escape",
+	"json: parse S with unicode escape",
 	"[json]") {
 	auto doc = parse(R"("ABC")");
 	REQUIRE(doc.has_value());
@@ -122,7 +121,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: parse surrogate pair",
+	"json: parse surrogate P",
 	"[json]") {
 	auto doc = parse(R"("😀")");
 	REQUIRE(doc.has_value());
@@ -154,7 +153,7 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: parse empty array",
+	"json: parse empty A",
 	"[json]") {
 	auto doc = parse("[]");
 	REQUIRE(doc.has_value());
@@ -164,7 +163,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: parse array",
+	"json: parse A",
 	"[json]") {
 	auto doc = parse("[1, 2, 3]");
 	REQUIRE(doc.has_value());
@@ -177,12 +176,12 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: array element range",
+	"json: A element range",
 	"[json]") {
 	auto doc = parse("[10, 20, 30]");
 	REQUIRE(doc.has_value());
 	auto a = *doc->root().as_array();
-	vector<int64_t> vals;
+	V<i64> vals;
 	for (NodeRef const elem: a.elements()) {
 		vals.push_back(*elem.as_number()->to_i64());
 	}
@@ -193,7 +192,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: array out-of-range error",
+	"json: A out-of-range error",
 	"[json]") {
 	auto doc = parse("[1]");
 	REQUIRE(doc.has_value());
@@ -233,9 +232,9 @@ TEST_CASE(
 	auto doc = parse(R"({"x": 1, "y": 2})");
 	REQUIRE(doc.has_value());
 	auto o = *doc->root().as_object();
-	unordered_map<string, int64_t> seen;
+	UM<S, i64> seen;
 	for (auto [name, val]: o.members()) {
-		seen[string{name}] = *val.as_number()->to_i64();
+		seen[S{name}] = *val.as_number()->to_i64();
 	}
 	CHECK(seen["x"] == 1LL);
 	CHECK(seen["y"] == 2LL);
@@ -283,7 +282,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: nested array via path",
+	"json: nested A via path",
 	"[json]") {
 	auto doc = parse("[[1, 2], [3, 4]]");
 	REQUIRE(doc.has_value());
@@ -377,7 +376,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: deeply nested — within limit",
 	"[json]") {
-	string nested(100, '[');
+	S nested(100, '[');
 	nested += "1";
 	nested.append(100, ']');
 	CHECK(parse(nested).has_value());
@@ -390,7 +389,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: JsonPath from_pointer roundtrip",
 	"[json][path]") {
-	string_view ptr = "/a/b/c";
+	SV ptr = "/a/b/c";
 	auto path = JsonPath::from_pointer(ptr);
 	REQUIRE(path.has_value());
 	CHECK(path->to_pointer() == ptr);
@@ -440,14 +439,14 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: dump string escapes control chars",
+	"json: dump S escapes control chars",
 	"[json][dump]") {
 	auto doc = parse(R"("a\tb\nc")");
 	REQUIRE(doc.has_value());
 	auto d = doc->dump();
 	REQUIRE(d.has_value());
-	CHECK(d->find("\\t") != string::npos);
-	CHECK(d->find("\\n") != string::npos);
+	CHECK(d->find("\\t") != S::npos);
+	CHECK(d->find("\\n") != S::npos);
 }
 
 TEST_CASE(
@@ -459,7 +458,7 @@ TEST_CASE(
 	opts.pretty = true;
 	auto d = doc->dump(opts);
 	REQUIRE(d.has_value());
-	CHECK(d->find('\n') != string::npos);
+	CHECK(d->find('\n') != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -469,7 +468,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: document is self-contained",
 	"[json]") {
-	string src{R"({"msg": "hello"})"};
+	S src{R"({"msg": "hello"})"};
 	auto doc = parse(src);
 	REQUIRE(doc.has_value());
 	src.clear();
@@ -527,10 +526,10 @@ TEST_CASE(
 	"json: builder set_u64",
 	"[json][builder]") {
 	auto b = value_builder();
-	REQUIRE(b.set_u64(numeric_limits<uint64_t>::max()).has_value());
+	REQUIRE(b.set_u64(NL<u64>::max()).has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	CHECK(*doc->root().as_number()->to_u64() == numeric_limits<uint64_t>::max());
+	CHECK(*doc->root().as_number()->to_u64() == NL<u64>::max());
 }
 
 TEST_CASE(
@@ -547,7 +546,7 @@ TEST_CASE(
 	"json: builder set_f64 rejects NaN",
 	"[json][builder]") {
 	auto b = value_builder();
-	auto res = b.set_f64(numeric_limits<double>::quiet_NaN());
+	auto res = b.set_f64(NL<double>::quiet_NaN());
 	CHECK_FALSE(res.has_value());
 	CHECK(res.error().code == JsonIssueCode::number_out_of_range);
 }
@@ -618,11 +617,11 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Builder — array root
+// Builder — A root
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: builder begin_array — flat array",
+	"json: builder begin_array — flat A",
 	"[json][builder]") {
 	auto b = value_builder();
 	auto ab = b.begin_array();
@@ -640,7 +639,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: builder array with mixed types",
+	"json: builder A with mixed types",
 	"[json][builder]") {
 	auto b = value_builder();
 	auto ab = b.begin_array();
@@ -688,22 +687,22 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: Nullable<int64_t> — present value",
+	"json: Nullable<i64> — present value",
 	"[json][nullable]") {
 	auto doc = parse("42");
 	REQUIRE(doc.has_value());
-	auto res = decode<Nullable<int64_t>>(doc->root());
+	auto res = decode<Nullable<i64>>(doc->root());
 	REQUIRE(res.has_value());
 	CHECK(res->has_value());
 	CHECK(**res == 42LL);
 }
 
 TEST_CASE(
-	"json: Nullable<int64_t> — null input",
+	"json: Nullable<i64> — null input",
 	"[json][nullable]") {
 	auto doc = parse("null");
 	REQUIRE(doc.has_value());
-	auto res = decode<Nullable<int64_t>>(doc->root());
+	auto res = decode<Nullable<i64>>(doc->root());
 	REQUIRE(res.has_value());
 	CHECK(res->is_null());
 }
@@ -723,21 +722,21 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: decode<int64_t>",
+	"json: decode<i64>",
 	"[json][codec]") {
 	auto doc = parse("-7");
 	REQUIRE(doc.has_value());
-	auto r = decode<int64_t>(doc->root());
+	auto r = decode<i64>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(*r == -7LL);
 }
 
 TEST_CASE(
-	"json: decode<uint64_t>",
+	"json: decode<u64>",
 	"[json][codec]") {
 	auto doc = parse("42");
 	REQUIRE(doc.has_value());
-	auto r = decode<uint64_t>(doc->root());
+	auto r = decode<u64>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(*r == 42ULL);
 }
@@ -753,21 +752,21 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: decode<string>",
+	"json: decode<S>",
 	"[json][codec]") {
 	auto doc = parse(R"("hello")");
 	REQUIRE(doc.has_value());
-	auto r = decode<string>(doc->root());
+	auto r = decode<S>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(*r == "hello");
 }
 
 TEST_CASE(
-	"json: decode<string_view>",
+	"json: decode<SV>",
 	"[json][codec]") {
 	auto doc = parse(R"("world")");
 	REQUIRE(doc.has_value());
-	auto r = decode<string_view>(doc->root());
+	auto r = decode<SV>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(*r == "world");
 }
@@ -783,11 +782,11 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: decode<vector<int64_t>>",
+	"json: decode<V<i64>>",
 	"[json][codec]") {
 	auto doc = parse("[1,2,3]");
 	REQUIRE(doc.has_value());
-	auto r = decode<vector<int64_t>>(doc->root());
+	auto r = decode<V<i64>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 3UZ);
 	CHECK((*r)[0] == 1LL);
@@ -796,22 +795,22 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: decode<optional<int64_t>> — present",
+	"json: decode<Opt<i64>> — present",
 	"[json][codec]") {
 	auto doc = parse("99");
 	REQUIRE(doc.has_value());
-	auto r = decode<optional<int64_t>>(doc->root());
+	auto r = decode<Opt<i64>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->has_value());
 	CHECK(**r == 99LL);
 }
 
 TEST_CASE(
-	"json: decode<optional<int64_t>> — null yields error",
+	"json: decode<Opt<i64>> — null yields error",
 	"[json][codec]") {
 	auto doc = parse("null");
 	REQUIRE(doc.has_value());
-	auto r = decode<optional<int64_t>>(doc->root());
+	auto r = decode<Opt<i64>>(doc->root());
 	CHECK_FALSE(r.has_value());
 	CHECK(r.error().code == JsonIssueCode::wrong_kind);
 }
@@ -824,11 +823,11 @@ TEST_CASE(
 	"json: has_json_codec detects built-in types",
 	"[json][codec]") {
 	CHECK(has_json_codec<bool>);
-	CHECK(has_json_codec<int64_t>);
-	CHECK(has_json_codec<uint64_t>);
+	CHECK(has_json_codec<i64>);
+	CHECK(has_json_codec<u64>);
 	CHECK(has_json_codec<double>);
-	CHECK(has_json_codec<string>);
-	CHECK(has_json_codec<string_view>);
+	CHECK(has_json_codec<S>);
+	CHECK(has_json_codec<SV>);
 }
 
 TEST_CASE(
@@ -845,7 +844,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: number form — integer vs non_integer",
 	"[json][number]") {
-	auto check = [](string_view input, JsonNumberForm expected_form) {
+	auto check = [](SV input, JsonNumberForm expected_form) {
 		auto doc = parse(input);
 		REQUIRE(doc.has_value());
 		auto n = doc->root().as_number();
@@ -930,7 +929,7 @@ TEST_CASE(
 	"[json][limits]") {
 	JsonParseOptions opts;
 	opts.max_depth = LimitOption::bound(3);
-	string nested(4, '[');
+	S nested(4, '[');
 	nested += "1";
 	nested.append(4, ']');
 	auto res = parse(nested, opts);
@@ -943,7 +942,7 @@ TEST_CASE(
 	"[json][limits]") {
 	JsonParseOptions opts;
 	opts.max_depth = LimitOption::bound(3);
-	string nested(3, '[');
+	S nested(3, '[');
 	nested += "1";
 	nested.append(3, ']');
 	CHECK(parse(nested, opts).has_value());
@@ -988,7 +987,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: BOM at start is skipped",
 	"[json][input]") {
-	string_view bom_json = "\xEF\xBB\xBF\"hello\"";
+	SV bom_json = "\xEF\xBB\xBF\"hello\"";
 	auto res = parse(bom_json);
 	REQUIRE(res.has_value());
 	CHECK(*res->root().as_string() == "hello");
@@ -997,7 +996,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: invalid UTF-8 is rejected",
 	"[json][input]") {
-	string_view bad = "\"\x80\"";
+	SV bad = "\"\x80\"";
 	auto res = parse(bad);
 	REQUIRE_FALSE(res.has_value());
 	CHECK(res.error().code == JsonIssueCode::invalid_utf8);
@@ -1095,8 +1094,8 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 struct Point {
-	int64_t x{};
-	int64_t y{};
+	i64 x{};
+	i64 y{};
 };
 
 template<>
@@ -1107,7 +1106,7 @@ struct JsonMembers<Point> {
 			json_member("y", &Point::y),
 		};
 	}
-	static constexpr string_view type_name() { return "Point"; }
+	static constexpr SV type_name() { return "Point"; }
 };
 
 TEST_CASE(
@@ -1193,7 +1192,7 @@ struct JsonCodec<Color> {
 			JsonError{
 				.stage = JsonStage::decode,
 				.code = JsonIssueCode::invalid_value,
-				.target_type = string{type_name()},
+				.target_type = S{type_name()},
 				.message = format("unknown Color spelling: {}", *s)});
 	}
 	static expected<void, JsonError> encode(
@@ -1208,10 +1207,10 @@ struct JsonCodec<Color> {
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::invalid_value,
-				.target_type = string{type_name()},
+				.target_type = S{type_name()},
 				.message = "Color enum value outside declared range"});
 	}
-	static constexpr string_view type_name() { return "Color"; }
+	static constexpr SV type_name() { return "Color"; }
 };
 
 TEST_CASE(
@@ -1241,12 +1240,12 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: optional<T> member in JsonMembers struct
+// Phase 2: Opt<T> member in JsonMembers struct
 // ---------------------------------------------------------------------------
 
 struct Config {
-	int64_t required_field{};
-	optional<int64_t> optional_field{};
+	i64 required_field{};
+	Opt<i64> optional_field{};
 };
 
 template<>
@@ -1257,12 +1256,12 @@ struct JsonMembers<Config> {
 			json_member("optional_field", &Config::optional_field),
 		};
 	}
-	static constexpr string_view type_name() { return "Config"; }
+	static constexpr SV type_name() { return "Config"; }
 };
 
 TEST_CASE(
-	"json: optional member present decodes value",
-	"[json][codec][optional]") {
+	"json: Opt member present decodes value",
+	"[json][codec][Opt]") {
 	auto doc = parse(R"({"required_field":1,"optional_field":42})");
 	REQUIRE(doc.has_value());
 	auto r = decode<Config>(doc->root());
@@ -1273,8 +1272,8 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: optional member absent yields nullopt",
-	"[json][codec][optional]") {
+	"json: Opt member absent yields std::nullopt",
+	"[json][codec][Opt]") {
 	auto doc = parse(R"({"required_field":1})");
 	REQUIRE(doc.has_value());
 	auto r = decode<Config>(doc->root());
@@ -1288,11 +1287,11 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: decode<array<int64_t,3>>",
-	"[json][codec][array]") {
+	"json: decode<A<i64,3>>",
+	"[json][codec][A]") {
 	auto doc = parse("[10,20,30]");
 	REQUIRE(doc.has_value());
-	auto r = decode<array<int64_t, 3>>(doc->root());
+	auto r = decode<A<i64, 3>>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK((*r)[0] == 10LL);
 	CHECK((*r)[1] == 20LL);
@@ -1300,11 +1299,11 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: decode<array<int64_t,3>> wrong length yields invalid_value",
-	"[json][codec][array]") {
+	"json: decode<A<i64,3>> wrong length yields invalid_value",
+	"[json][codec][A]") {
 	auto doc = parse("[1,2]");
 	REQUIRE(doc.has_value());
-	auto r = decode<array<int64_t, 3>>(doc->root());
+	auto r = decode<A<i64, 3>>(doc->root());
 	CHECK_FALSE(r.has_value());
 	CHECK(r.error().code == JsonIssueCode::invalid_value);
 }
@@ -1314,22 +1313,22 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: decode<pair<string,int64_t>>",
-	"[json][codec][pair]") {
+	"json: decode<P<S,i64>>",
+	"[json][codec][P]") {
 	auto doc = parse(R"(["hello",42])");
 	REQUIRE(doc.has_value());
-	auto r = decode<pair<string, int64_t>>(doc->root());
+	auto r = decode<P<S, i64>>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(r->first == "hello");
 	CHECK(r->second == 42LL);
 }
 
 TEST_CASE(
-	"json: decode<pair<string,int64_t>> wrong length yields invalid_value",
-	"[json][codec][pair]") {
+	"json: decode<P<S,i64>> wrong length yields invalid_value",
+	"[json][codec][P]") {
 	auto doc = parse("[1]");
 	REQUIRE(doc.has_value());
-	auto r = decode<pair<string, int64_t>>(doc->root());
+	auto r = decode<P<S, i64>>(doc->root());
 	CHECK_FALSE(r.has_value());
 	CHECK(r.error().code == JsonIssueCode::invalid_value);
 }
@@ -1339,11 +1338,11 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: decode<tuple<bool,int64_t,string>>",
-	"[json][codec][tuple]") {
+	"json: decode<Tup<bool,i64,S>>",
+	"[json][codec][Tup]") {
 	auto doc = parse(R"([true,99,"hi"])");
 	REQUIRE(doc.has_value());
-	auto r = decode<tuple<bool, int64_t, string>>(doc->root());
+	auto r = decode<Tup<bool, i64, S>>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(get<0>(*r) == true);
 	CHECK(get<1>(*r) == 99LL);
@@ -1351,25 +1350,25 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: decode<tuple<int64_t,int64_t>> wrong length yields invalid_value",
-	"[json][codec][tuple]") {
+	"json: decode<Tup<i64,i64>> wrong length yields invalid_value",
+	"[json][codec][Tup]") {
 	auto doc = parse("[1,2,3]");
 	REQUIRE(doc.has_value());
-	auto r = decode<tuple<int64_t, int64_t>>(doc->root());
+	auto r = decode<Tup<i64, i64>>(doc->root());
 	CHECK_FALSE(r.has_value());
 	CHECK(r.error().code == JsonIssueCode::invalid_value);
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — M<string, T>
+// Phase 2: built-in targets — M<S, T>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: decode<map<string,int64_t>>",
+	"json: decode<M<S,i64>>",
 	"[json][codec][map]") {
 	auto doc = parse(R"({"a":1,"b":2,"c":3})");
 	REQUIRE(doc.has_value());
-	auto r = decode<map<string, int64_t>>(doc->root());
+	auto r = decode<M<S, i64>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 3UZ);
 	CHECK((*r)["a"] == 1LL);
@@ -1378,25 +1377,25 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: decode<map<string,int64_t>> wrong kind yields wrong_kind",
+	"json: decode<M<S,i64>> wrong kind yields wrong_kind",
 	"[json][codec][map]") {
 	auto doc = parse("[1,2,3]");
 	REQUIRE(doc.has_value());
-	auto r = decode<map<string, int64_t>>(doc->root());
+	auto r = decode<M<S, i64>>(doc->root());
 	CHECK_FALSE(r.has_value());
 	CHECK(r.error().code == JsonIssueCode::wrong_kind);
 }
 
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — UM<string, T>
+// Phase 2: built-in targets — UM<S, T>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: decode<unordered_map<string,int64_t>>",
+	"json: decode<UM<S,i64>>",
 	"[json][codec][map]") {
 	auto doc = parse(R"({"x":10,"y":20})");
 	REQUIRE(doc.has_value());
-	auto r = decode<unordered_map<string, int64_t>>(doc->root());
+	auto r = decode<UM<S, i64>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 2UZ);
 	CHECK((*r)["x"] == 10LL);
@@ -1410,7 +1409,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: Nullable<T> default-constructs to null",
 	"[json][nullable]") {
-	Nullable<int64_t> n;
+	Nullable<i64> n;
 	CHECK(n.is_null());
 	CHECK_FALSE(n.has_value());
 	CHECK_FALSE(static_cast<bool>(n));
@@ -1419,7 +1418,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: Nullable<T> value state",
 	"[json][nullable]") {
-	Nullable<int64_t> n{42LL};
+	Nullable<i64> n{42LL};
 	CHECK_FALSE(n.is_null());
 	CHECK(n.has_value());
 	CHECK(static_cast<bool>(n));
@@ -1430,8 +1429,8 @@ TEST_CASE(
 TEST_CASE(
 	"json: Nullable<T> value_or",
 	"[json][nullable]") {
-	Nullable<int64_t> n_null;
-	Nullable<int64_t> n_val{7LL};
+	Nullable<i64> n_null;
+	Nullable<i64> n_val{7LL};
 	CHECK(n_null.value_or(99LL) == 99LL);
 	CHECK(n_val.value_or(99LL) == 7LL);
 }
@@ -1439,10 +1438,10 @@ TEST_CASE(
 TEST_CASE(
 	"json: Nullable<T> equality",
 	"[json][nullable]") {
-	Nullable<int64_t> a{1LL};
-	Nullable<int64_t> b{1LL};
-	Nullable<int64_t> c{2LL};
-	Nullable<int64_t> n;
+	Nullable<i64> a{1LL};
+	Nullable<i64> b{1LL};
+	Nullable<i64> c{2LL};
+	Nullable<i64> n;
 	CHECK(a == b);
 	CHECK_FALSE(a == c);
 	CHECK_FALSE(a == n);
@@ -1451,16 +1450,16 @@ TEST_CASE(
 TEST_CASE(
 	"json: Nullable<T> operator->",
 	"[json][nullable]") {
-	Nullable<string> n{"hello"};
+	Nullable<S> n{"hello"};
 	CHECK(n->size() == 5UZ);
 }
 
 TEST_CASE(
-	"json: decode<Nullable<string>> — non-null",
+	"json: decode<Nullable<S>> — non-null",
 	"[json][nullable][codec]") {
 	auto doc = parse(R"("world")");
 	REQUIRE(doc.has_value());
-	auto r = decode<Nullable<string>>(doc->root());
+	auto r = decode<Nullable<S>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->has_value());
 	CHECK(**r == "world");
@@ -1506,25 +1505,25 @@ TEST_CASE(
 	"json: ValueBuilder::set<T> encodes via codec",
 	"[json][builder][codec]") {
 	auto b = value_builder();
-	auto ok = b.set<int64_t>(42LL);
+	auto ok = b.set<i64>(42LL);
 	REQUIRE(ok.has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<int64_t>(doc->root());
+	auto r = decode<i64>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(*r == 42LL);
 }
 
 TEST_CASE(
-	"json: encode vector<int64_t> via set<T>",
+	"json: encode V<i64> via set<T>",
 	"[json][builder][codec]") {
 	auto b = value_builder();
-	vector<int64_t> const v{1LL, 2LL, 3LL};
-	auto ok = b.set<vector<int64_t>>(v);
+	V<i64> const v{1LL, 2LL, 3LL};
+	auto ok = b.set<V<i64>>(v);
 	REQUIRE(ok.has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<vector<int64_t>>(doc->root());
+	auto r = decode<V<i64>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 3UZ);
 	CHECK((*r)[0] == 1LL);
@@ -1533,46 +1532,46 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: encode pair<string,int64_t> via set<T>",
+	"json: encode P<S,i64> via set<T>",
 	"[json][builder][codec]") {
 	auto b = value_builder();
-	auto ok = b.set<pair<string, int64_t>>({"hello", 7LL});
+	auto ok = b.set<P<S, i64>>({"hello", 7LL});
 	REQUIRE(ok.has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<pair<string, int64_t>>(doc->root());
+	auto r = decode<P<S, i64>>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(r->first == "hello");
 	CHECK(r->second == 7LL);
 }
 
 TEST_CASE(
-	"json: encode tuple<bool,int64_t> via set<T>",
+	"json: encode Tup<bool,i64> via set<T>",
 	"[json][builder][codec]") {
 	auto b = value_builder();
-	auto ok = b.set<tuple<bool, int64_t>>(tuple{true, 99LL});
+	auto ok = b.set<Tup<bool, i64>>(Tup{true, 99LL});
 	REQUIRE(ok.has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<tuple<bool, int64_t>>(doc->root());
+	auto r = decode<Tup<bool, i64>>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(get<0>(*r) == true);
 	CHECK(get<1>(*r) == 99LL);
 }
 
 TEST_CASE(
-	"json: encode map<string,int64_t> via set<T>",
+	"json: encode M<S,i64> via set<T>",
 	"[json][builder][codec]") {
 	auto b = value_builder();
-	map<string, int64_t> const m{
+	M<S, i64> const m{
 		{"a", 1LL},
 		{"b", 2LL}
     };
-	auto ok = b.set<map<string, int64_t>>(m);
+	auto ok = b.set<M<S, i64>>(m);
 	REQUIRE(ok.has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<map<string, int64_t>>(doc->root());
+	auto r = decode<M<S, i64>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 2UZ);
 	CHECK((*r)["a"] == 1LL);
@@ -1601,18 +1600,18 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: encode vector via ArrayBuilder::append<T>",
+	"json: encode V via ArrayBuilder::append<T>",
 	"[json][builder][codec]") {
 	auto b = value_builder();
 	auto arr_res = b.begin_array();
 	REQUIRE(arr_res.has_value());
 	auto &arr = *arr_res;
-	REQUIRE(arr.append<int64_t>(10LL).has_value());
-	REQUIRE(arr.append<int64_t>(20LL).has_value());
+	REQUIRE(arr.append<i64>(10LL).has_value());
+	REQUIRE(arr.append<i64>(20LL).has_value());
 	move(arr).commit();
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<vector<int64_t>>(doc->root());
+	auto r = decode<V<i64>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 2UZ);
 	CHECK((*r)[0] == 10LL);
@@ -1657,7 +1656,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: ObjectBuilder::insert_array — nested array committed",
+	"json: ObjectBuilder::insert_array — nested A committed",
 	"[json][builder][phase3]") {
 	auto b = value_builder();
 	auto root_res = b.begin_object();
@@ -1713,7 +1712,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: ArrayBuilder::append_array — nested array committed",
+	"json: ArrayBuilder::append_array — nested A committed",
 	"[json][builder][phase3]") {
 	auto b = value_builder();
 	auto root_res = b.begin_array();
@@ -1889,7 +1888,7 @@ TEST_CASE(
 
 	REQUIRE(root.insert_i64("key", 1LL).has_value());
 	// Insert<T> duplicate check must fire before encode dispatch.
-	auto dup = root.insert<int64_t>("key", 2LL);
+	auto dup = root.insert<i64>("key", 2LL);
 	REQUIRE(!dup.has_value());
 	CHECK(dup.error().code == JsonIssueCode::duplicate_member);
 }
@@ -2061,7 +2060,7 @@ TEST_CASE(
 	move(arr).commit();
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<vector<Point>>(doc->root());
+	auto r = decode<V<Point>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 2UZ);
 	CHECK((*r)[0].x == 10LL);
@@ -2071,7 +2070,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json: deeply nested builder — object in array in object",
+	"json: deeply nested builder — object in A in object",
 	"[json][builder][phase3]") {
 	auto b = value_builder();
 	auto root_res = b.begin_object();
@@ -2152,14 +2151,14 @@ TEST_CASE(
 	opts.ascii_only = true;
 	auto d = doc->dump(opts);
 	REQUIRE(d.has_value());
-	CHECK(d->find("\\u") != string::npos);
+	CHECK(d->find("\\u") != S::npos);
 	auto reparsed = parse(*d);
 	REQUIRE(reparsed.has_value());
 	CHECK(*reparsed->root().as_string() == "café");
 }
 
 TEST_CASE(
-	"json: dump ascii_only escapes surrogate-pair code point",
+	"json: dump ascii_only escapes surrogate-P code point",
 	"[json][dump][examples]") {
 	auto doc = parse(R"("😀")");
 	REQUIRE(doc.has_value());
@@ -2167,7 +2166,7 @@ TEST_CASE(
 	opts.ascii_only = true;
 	auto d = doc->dump(opts);
 	REQUIRE(d.has_value());
-	CHECK(d->find("\\ud83d") != string::npos);
+	CHECK(d->find("\\ud83d") != S::npos);
 	auto reparsed = parse(*d);
 	REQUIRE(reparsed.has_value());
 	CHECK(*reparsed->root().as_string() == "\xF0\x9F\x98\x80");
@@ -2183,7 +2182,7 @@ TEST_CASE(
 	opts.indent = 4;
 	auto d = doc->dump(opts);
 	REQUIRE(d.has_value());
-	CHECK(d->find("    \"k\"") != string::npos);
+	CHECK(d->find("    \"k\"") != S::npos);
 }
 
 // ---------------------------------------------------------------------------
@@ -2218,7 +2217,7 @@ TEST_CASE(
 	CHECK(active_node->kind() == JsonKind::boolean);
 	CHECK(*active_node->as_bool() == true);
 
-	auto decoded = decode<map<string, int64_t>>(*score_node);
+	auto decoded = decode<M<S, i64>>(*score_node);
 	CHECK_FALSE(decoded.has_value());
 	CHECK(decoded.error().code == JsonIssueCode::wrong_kind);
 }
@@ -2294,21 +2293,21 @@ TEST_CASE(
 	{
 		auto doc = parse("\"hello\"");
 		REQUIRE(doc.has_value());
-		auto r = decode<int64_t>(doc->root());
+		auto r = decode<i64>(doc->root());
 		CHECK_FALSE(r.has_value());
 		CHECK(r.error().code == JsonIssueCode::wrong_kind);
 	}
 	{
 		auto doc = parse("1.5");
 		REQUIRE(doc.has_value());
-		auto r = decode<int64_t>(doc->root());
+		auto r = decode<i64>(doc->root());
 		CHECK_FALSE(r.has_value());
 		CHECK(r.error().code == JsonIssueCode::invalid_number);
 	}
 	{
 		auto doc = parse("-1");
 		REQUIRE(doc.has_value());
-		auto r = decode<uint64_t>(doc->root());
+		auto r = decode<u64>(doc->root());
 		CHECK_FALSE(r.has_value());
 		CHECK(r.error().code == JsonIssueCode::sign_mismatch);
 	}
@@ -2322,14 +2321,14 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 4 examples: missing vs null vs optional field modeling
+// Phase 4 examples: missing vs null vs Opt field modeling
 // ---------------------------------------------------------------------------
 
 struct ThreeFieldModel {
-	int64_t required_val{};
-	optional<int64_t> optional_val{};
-	Nullable<int64_t> nullable_val{};
-	optional<Nullable<int64_t>> opt_nullable_val{};
+	i64 required_val{};
+	Opt<i64> optional_val{};
+	Nullable<i64> nullable_val{};
+	Opt<Nullable<i64>> opt_nullable_val{};
 };
 
 template<>
@@ -2342,11 +2341,11 @@ struct JsonMembers<ThreeFieldModel> {
 			json_member("opt_nullable_val", &ThreeFieldModel::opt_nullable_val),
 		};
 	}
-	static constexpr string_view type_name() { return "ThreeFieldModel"; }
+	static constexpr SV type_name() { return "ThreeFieldModel"; }
 };
 
 TEST_CASE(
-	"json: example — missing vs null vs optional field modeling",
+	"json: example — missing vs null vs Opt field modeling",
 	"[json][examples]") {
 	{
 		auto doc = parse(R"({
@@ -2661,7 +2660,7 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 struct InnerData {
-	int64_t value{};
+	i64 value{};
 };
 
 template<>
@@ -2671,7 +2670,7 @@ struct JsonMembers<InnerData> {
 			json_member("value", &InnerData::value),
 		};
 	}
-	static constexpr string_view type_name() { return "InnerData"; }
+	static constexpr SV type_name() { return "InnerData"; }
 };
 
 struct OuterWithPrefix {
@@ -2717,7 +2716,7 @@ struct JsonCodec<OuterWithPrefix> {
 		move(obj).commit();
 		return {};
 	}
-	static constexpr string_view type_name() { return "OuterWithPrefix"; }
+	static constexpr SV type_name() { return "OuterWithPrefix"; }
 };
 
 TEST_CASE(
@@ -2793,11 +2792,11 @@ TEST_CASE(
 	{
 		JsonParseOptions opts;
 		opts.max_depth = LimitOption::bound(3);
-		string at_boundary(3, '[');
+		S at_boundary(3, '[');
 		at_boundary += "1";
 		at_boundary.append(3, ']');
 		CHECK(parse(at_boundary, opts).has_value());
-		string over_boundary(4, '[');
+		S over_boundary(4, '[');
 		over_boundary += "1";
 		over_boundary.append(4, ']');
 		CHECK_FALSE(parse(over_boundary, opts).has_value());
@@ -2806,7 +2805,7 @@ TEST_CASE(
 	{
 		JsonParseOptions opts;
 		opts.max_depth = no_limit;
-		string deep(200, '[');
+		S deep(200, '[');
 		deep += "1";
 		deep.append(200, ']');
 		CHECK(parse(deep, opts).has_value());
@@ -2835,7 +2834,7 @@ TEST_CASE(
 	}
 	// boundary: exactly N bytes passes, N+1 fails
 	{
-		string const s = R"("hello")"; // 7 bytes
+		S const s = R"("hello")"; // 7 bytes
 		JsonParseOptions opts;
 		opts.max_input_size = LimitOption::bound(s.size());
 		CHECK(parse(s, opts).has_value());
@@ -2846,7 +2845,7 @@ TEST_CASE(
 	{
 		JsonParseOptions opts;
 		opts.max_input_size = no_limit;
-		string big = "[";
+		S big = "[";
 		for (int i = 0; i < 1000; ++i) {
 			if (i > 0) {
 				big += ',';
@@ -2861,7 +2860,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: limits — max_string_size matrix",
 	"[json][limits][pathological]") {
-	// size-0: any non-empty string fails
+	// size-0: any non-empty S fails
 	{
 		JsonParseOptions opts;
 		opts.max_string_size = LimitOption::bound(0);
@@ -2869,7 +2868,7 @@ TEST_CASE(
 		REQUIRE_FALSE(res.has_value());
 		CHECK(res.error().code == JsonIssueCode::string_too_large);
 	}
-	// size-0 empty string passes
+	// size-0 empty S passes
 	{
 		JsonParseOptions opts;
 		opts.max_string_size = LimitOption::bound(0);
@@ -2884,11 +2883,11 @@ TEST_CASE(
 		REQUIRE_FALSE(res.has_value());
 		CHECK(res.error().code == JsonIssueCode::string_too_large);
 	}
-	// no_limit: large string passes
+	// no_limit: large S passes
 	{
 		JsonParseOptions opts;
 		opts.max_string_size = no_limit;
-		string big_str = "\"";
+		S big_str = "\"";
 		big_str.append(100000, 'x');
 		big_str += '"';
 		CHECK(parse(big_str, opts).has_value());
@@ -2932,13 +2931,13 @@ TEST_CASE(
 	"[json][limits][pathological]") {
 	// 1024-char number lexeme: exactly at limit, must parse
 	{
-		string at_limit = "0.";
+		S at_limit = "0.";
 		at_limit.append(1022, '1');
 		CHECK(parse(at_limit).has_value());
 	}
 	// 1025-char number lexeme: one over limit, must fail with invalid_number
 	{
-		string over_limit = "0.";
+		S over_limit = "0.";
 		over_limit.append(1023, '1');
 		auto res = parse(over_limit);
 		REQUIRE_FALSE(res.has_value());
@@ -2971,7 +2970,7 @@ TEST_CASE(
 	REQUIRE(doc.has_value());
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
-	string_view const key{"a\0b", 3};
+	SV const key{"a\0b", 3};
 	auto m = obj->find_member(key);
 	REQUIRE(m.has_value());
 	auto n = m->as_number();
@@ -3007,7 +3006,7 @@ TEST_CASE(
 	"[json][escape][hash]") {
 	// Build an object > kHashThreshold (8) with one escaped-name member,
 	// warm the index, and confirm escaped lookup hits the hash path.
-	string js = "{";
+	S js = "{";
 	for (int i = 0; i < 16; ++i) {
 		if (i > 0) {
 			js += ',';
@@ -3032,16 +3031,16 @@ TEST_CASE(
 TEST_CASE(
 	"json: build_probe_cap_adversarial_hash",
 	"[json][hash][adversarial]") {
-	// Synthesize keys whose 32-bit-truncated std::hash<string_view> all share
-	// the same low-8-bit bucket — formerly a probe-cap attack vector. With
+	// Synthesize keys whose 32-bit-truncated std::hash<SV> all share
+	// the same low-8-bit bucket — formerly a probe-cap attack V. With
 	// seeded xxHash3 (v16 Item B) the same keys are randomised per document, so
 	// warm_member_index now succeeds and find_member uses the hash path.
-	constexpr size_t kTargetCount = 80;
-	vector<string> formerly_colliding_keys;
+	constexpr SZ kTargetCount = 80;
+	V<S> formerly_colliding_keys;
 	formerly_colliding_keys.reserve(kTargetCount);
-	for (size_t i = 0; formerly_colliding_keys.size() < kTargetCount && i < 1'000'000UZ; ++i) {
-		string s = format("k_{}", i);
-		auto const h = static_cast<uint32_t>(hash<string_view>{}(string_view{s}));
+	for (SZ i = 0; formerly_colliding_keys.size() < kTargetCount && i < 1'000'000UZ; ++i) {
+		S s = format("k_{}", i);
+		auto const h = static_cast<u32>(hash<SV>{}(SV{s}));
 		if ((h & 0xFFu) == 0u) {
 			formerly_colliding_keys.push_back(move(s));
 		}
@@ -3050,8 +3049,8 @@ TEST_CASE(
 		WARN("could not synthesize enough formerly-colliding keys; skipping");
 		return;
 	}
-	string js = "{";
-	for (size_t i = 0; i < formerly_colliding_keys.size(); ++i) {
+	S js = "{";
+	for (SZ i = 0; i < formerly_colliding_keys.size(); ++i) {
 		if (i > 0) {
 			js += ',';
 		}

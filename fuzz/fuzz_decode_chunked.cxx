@@ -5,13 +5,14 @@
 //   return -1/-2 → malformed / oversize (must not crash, must not touch `body`)
 
 import std;
+import conflux.types;
 import conflux.net.http_server;
 
 using namespace std;
 
 extern "C" int LLVMFuzzerTestOneInput(
-	uint8_t const *data,
-	size_t size) {
+	u8 const *data,
+	SZ size) {
 	if (size < 2) {
 		return 0;
 	}
@@ -20,15 +21,15 @@ extern "C" int LLVMFuzzerTestOneInput(
 	// so the fuzzer explores boundary behaviour without OOMing.
 	auto const mb_choice = data[0];
 	auto const mc_choice = data[1];
-	size_t const max_body = 1U << (mb_choice % 20U); // 1..1M
-	size_t const max_chunks = 1U << (mc_choice % 14U); // 1..8192
+	SZ const max_body = 1U << (mb_choice % 20U); // 1..1M
+	SZ const max_chunks = 1U << (mc_choice % 14U); // 1..8192
 
-	string_view input{reinterpret_cast<char const *>(data + 2), size - 2};
-	string body;
+	SV input{reinterpret_cast<char const *>(data + 2), size - 2};
+	S body;
 	auto const rc = decode_chunked(input, max_body, max_chunks, body);
 
 	if (rc > 0) {
-		if (static_cast<size_t>(rc) > input.size()) {
+		if (static_cast<SZ>(rc) > input.size()) {
 			__builtin_trap();
 		}
 		if (body.size() > max_body) {

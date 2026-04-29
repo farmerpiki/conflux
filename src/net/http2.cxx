@@ -6,10 +6,10 @@ module;
 export module conflux.net.http2;
 import std;
 import std.compat;
-using namespace std;
+import conflux.types;
 
 // HTTP/2 ALPN protocol identifier.
-export inline string_view const kH2Alpn = "h2";
+export inline SV const kH2Alpn = "h2";
 
 // Configure an SSL_CTX to advertise HTTP/2 via ALPN.
 // Call this after creating the SSL_CTX in HttpServer when HTTP/2 is desired.

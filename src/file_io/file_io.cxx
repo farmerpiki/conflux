@@ -21,18 +21,16 @@ import conflux.types;
 import std.compat;
 import conflux.work;
 
-using namespace std;
-
 // ---------------------------------------------------------------------------
 // User-data encoder.
 //
 // The caller controls the full io_uring user_data layout; the library only
 // knows how to address its own CompletionTable slots. The encoder packs a
-// (slot, gen) pair into the 64 bits the caller owns — e.g. an HTTP server
+// (slot, gen) P into the 64 bits the caller owns — e.g. an HTTP server
 // packs pack(Op::FileIo, gen, slot) using its existing 8+24+32 layout.
 // ---------------------------------------------------------------------------
 
-export using UserDataFn = function<u64(u32 slot, u32 gen)>;
+export using UserDataFn = Fn<u64(u32 slot, u32 gen)>;
 
 // ---------------------------------------------------------------------------
 // Outcome of a single io_uring completion as seen by the library.
@@ -43,7 +41,7 @@ export struct IoResult {
 	u32 flags{};
 };
 
-export using FileCompletionFn = function<void(IoResult)>;
+export using FileCompletionFn = Fn<void(IoResult)>;
 
 // ---------------------------------------------------------------------------
 // CompletionTable: slot-indexed store of pending completion callbacks with
@@ -59,12 +57,12 @@ export class CompletionTable {
 		FileCompletionFn fn{};
 	};
 
-	vector<Slot> slots_{};
-	vector<u32> free_{};
+	V<Slot> slots_{};
+	V<u32> free_{};
 
 public:
 	explicit CompletionTable(
-		size_t initial_capacity = 64) {
+		SZ initial_capacity = 64) {
 		slots_.reserve(initial_capacity);
 	}
 
@@ -74,7 +72,7 @@ public:
 	CompletionTable &operator =(CompletionTable &&) = delete;
 	~CompletionTable() {} // NOLINT(modernize-use-equals-default) — GCC module bug
 
-	[[nodiscard]] pair<u32, u32> reserve(
+	[[nodiscard]] P<u32, u32> reserve(
 		FileCompletionFn fn) {
 		u32 slot = 0;
 		if (!free_.empty()) {
@@ -91,7 +89,7 @@ public:
 		return {slot, s.gen};
 	}
 
-	[[nodiscard]] pair<u32, u32> reserve_multishot(
+	[[nodiscard]] P<u32, u32> reserve_multishot(
 		FileCompletionFn fn) {
 		auto [slot, gen] = reserve(move(fn));
 		slots_[slot].multishot = true;
@@ -146,7 +144,7 @@ public:
 		}
 	}
 
-	[[nodiscard]] size_t pending() const noexcept { return slots_.size() - free_.size(); }
+	[[nodiscard]] SZ pending() const noexcept { return slots_.size() - free_.size(); }
 };
 
 // ---------------------------------------------------------------------------
@@ -277,14 +275,14 @@ public:
 	[[nodiscard]] bool valid() const noexcept { return pool_ != nullptr; }
 	[[nodiscard]] unsigned slot() const noexcept { return slot_; }
 	[[nodiscard]] span<byte> view() const noexcept { return view_; }
-	[[nodiscard]] size_t size() const noexcept { return view_.size(); }
+	[[nodiscard]] SZ size() const noexcept { return view_.size(); }
 };
 
 export class FixedBufferPool {
 	io_uring *ring_;
-	size_t slab_bytes_;
-	vector<unique_ptr<byte[], void (*)(void *)>> slabs_{}; // aligned_alloc'd
-	vector<unsigned> free_{};
+	SZ slab_bytes_;
+	V<std::unique_ptr<byte[], void (*)(void *)>> slabs_{}; // aligned_alloc'd
+	V<unsigned> free_{};
 	bool registered_{false};
 
 	friend class FixedBuffer;
@@ -298,16 +296,16 @@ export class FixedBufferPool {
 public:
 	FixedBufferPool(
 		io_uring *ring,
-		size_t slab_count,
-		size_t slab_bytes)
+		SZ slab_count,
+		SZ slab_bytes)
 		: ring_{ring}
 		, slab_bytes_{slab_bytes} {
 		if (slab_count == 0 || slab_bytes == 0) {
 			return;
 		}
 		long const page = ::sysconf(_SC_PAGESIZE);
-		size_t const align = page > 0 ? static_cast<size_t>(page) : size_t{4096};
-		size_t const aligned_bytes = ((slab_bytes + align - 1) / align) * align;
+		SZ const align = page > 0 ? static_cast<SZ>(page) : SZ{4096};
+		SZ const aligned_bytes = ((slab_bytes + align - 1) / align) * align;
 		slab_bytes_ = aligned_bytes;
 		slabs_.reserve(slab_count);
 		free_.reserve(slab_count);
@@ -315,7 +313,7 @@ public:
 			return;
 		}
 		registered_ = true;
-		for (size_t i = 0; i < slab_count; ++i) {
+		for (SZ i = 0; i < slab_count; ++i) {
 			void *raw = ::aligned_alloc(align, aligned_bytes);
 			if (raw == nullptr) {
 				break;
@@ -341,13 +339,13 @@ public:
 	}
 
 	[[nodiscard]] bool ok() const noexcept { return registered_; }
-	[[nodiscard]] size_t capacity() const noexcept { return slabs_.size(); }
-	[[nodiscard]] size_t available() const noexcept { return free_.size(); }
-	[[nodiscard]] size_t slab_bytes() const noexcept { return slab_bytes_; }
+	[[nodiscard]] SZ capacity() const noexcept { return slabs_.size(); }
+	[[nodiscard]] SZ available() const noexcept { return free_.size(); }
+	[[nodiscard]] SZ slab_bytes() const noexcept { return slab_bytes_; }
 
-	[[nodiscard]] optional<FixedBuffer> try_acquire() {
+	[[nodiscard]] Opt<FixedBuffer> try_acquire() {
 		if (free_.empty()) {
-			return nullopt;
+			return std::nullopt;
 		}
 		unsigned const slot = free_.back();
 		free_.pop_back();
@@ -394,14 +392,14 @@ export class PipePair {
 	u32 slot_{0};
 	int read_fd_{-1};
 	int write_fd_{-1};
-	size_t capacity_{0};
+	SZ capacity_{0};
 
 	PipePair(
 		PipePool *pool,
 		u32 slot,
 		int read_fd,
 		int write_fd,
-		size_t capacity) noexcept
+		SZ capacity) noexcept
 		: pool_{pool}
 		, slot_{slot}
 		, read_fd_{read_fd}
@@ -429,18 +427,18 @@ public:
 	[[nodiscard]] bool valid() const noexcept { return pool_ != nullptr; }
 	[[nodiscard]] int read_fd() const noexcept { return read_fd_; }
 	[[nodiscard]] int write_fd() const noexcept { return write_fd_; }
-	[[nodiscard]] size_t capacity() const noexcept { return capacity_; }
+	[[nodiscard]] SZ capacity() const noexcept { return capacity_; }
 };
 
 export class PipePool {
 	struct Pair {
 		int read_fd;
 		int write_fd;
-		size_t capacity;
+		SZ capacity;
 	};
 
-	vector<Pair> pairs_{};
-	vector<u32> free_{};
+	V<Pair> pairs_{};
+	V<u32> free_{};
 
 	friend class PipePair;
 
@@ -452,20 +450,20 @@ export class PipePool {
 
 public:
 	explicit PipePool(
-		size_t pair_count) {
+		SZ pair_count) {
 		pairs_.reserve(pair_count);
 		free_.reserve(pair_count);
-		for (size_t i = 0; i < pair_count; ++i) {
-			array<int, 2> fds{-1, -1};
+		for (SZ i = 0; i < pair_count; ++i) {
+			A<int, 2> fds{-1, -1};
 			// O_DIRECT = packet-mode pipes: each write yields a distinct read,
 			// exactly what splice with SPLICE_F_MOVE expects. Falls back to byte
 			// stream if kernel rejects (rare).
 			if (::pipe2(fds.data(), O_DIRECT | O_CLOEXEC) < 0 && ::pipe2(fds.data(), O_CLOEXEC) < 0) {
 				break;
 			}
-			size_t cap = 0;
+			SZ cap = 0;
 			if (int const c = ::fcntl(fds[0], F_GETPIPE_SZ); c > 0) {
-				cap = static_cast<size_t>(c);
+				cap = static_cast<SZ>(c);
 			}
 			if (cap == 0) {
 				cap = 64UL * 1024;
@@ -491,12 +489,12 @@ public:
 		}
 	}
 
-	[[nodiscard]] size_t capacity() const noexcept { return pairs_.size(); }
-	[[nodiscard]] size_t available() const noexcept { return free_.size(); }
+	[[nodiscard]] SZ capacity() const noexcept { return pairs_.size(); }
+	[[nodiscard]] SZ available() const noexcept { return free_.size(); }
 
-	[[nodiscard]] optional<PipePair> try_acquire() {
+	[[nodiscard]] Opt<PipePair> try_acquire() {
 		if (free_.empty()) {
-			return nullopt;
+			return std::nullopt;
 		}
 		u32 const idx = free_.back();
 		free_.pop_back();
@@ -530,11 +528,11 @@ inline PipePair::~PipePair() {
 // FileIoError: thrown inside Flow<T> pipelines on negative io_uring res.
 // ---------------------------------------------------------------------------
 
-export struct FileIoError final : system_error {
+export struct FileIoError final : SE {
 	FileIoError(
 		int err,
-		string const &what)
-		: system_error{err, generic_category(), what} {}
+		S const &what)
+		: SE{err, std::generic_category(), what} {}
 };
 
 // ---------------------------------------------------------------------------
@@ -565,7 +563,7 @@ export class FileReader {
 	// a FlowSource<T>. `decode` turns a non-negative res into a T; negative
 	// res flows through as FileIoError automatically.
 	template<typename T, typename Decode>
-	pair<u32, u32> reserve_bridge(
+	P<u32, u32> reserve_bridge(
 		FlowSource<T> &&src,
 		Decode &&decode) {
 		return completions_->reserve([src = move(src), decode = forward<Decode>(decode)](IoResult r) mutable {
@@ -574,13 +572,13 @@ export class FileReader {
 					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: cqe error"}));
 					return;
 				}
-				if constexpr (is_void_v<T>) {
+				if constexpr (std::is_void_v<T>) {
 					decode(r);
 					src.resolve();
 				} else {
 					src.resolve(decode(r));
 				}
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 	}
 
@@ -633,7 +631,7 @@ public:
 private:
 	[[nodiscard]] bool submit_open_direct_fallback(
 		FlowSource<FileHandle> src,
-		shared_ptr<string> const &path_owner,
+		SP<S> const &path_owner,
 		int dir_fd,
 		int flags,
 		mode_t mode,
@@ -661,7 +659,7 @@ private:
 					return;
 				}
 				src.resolve(FileHandle::from_direct_slot(static_cast<int>(file_index)));
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return true;
@@ -670,11 +668,11 @@ private:
 public:
 	// Open a path relative to dir_fd. Result is a raw-fd FileHandle.
 	// Pass AT_FDCWD for absolute paths / cwd-relative.
-	// `path` must be a null-terminated string owned by the caller until the
+	// `path` must be a null-terminated S owned by the caller until the
 	// CQE fires; if unsure, pass a S and we copy.
 	[[nodiscard]] Flow<FileHandle> open_async(
 		int dir_fd,
-		string path,
+		S path,
 		int flags,
 		mode_t mode = 0) {
 		FlowSource<FileHandle> src;
@@ -684,7 +682,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto path_owner = make_shared<string>(move(path));
+		auto path_owner = make_shared<S>(move(path));
 		io_uring_prep_openat(sqe, dir_fd, path_owner->c_str(), flags, mode);
 		auto [slot, gen] = completions_->reserve([src = move(src), path_owner](IoResult r) mutable {
 			(void)path_owner; // keep-alive until CQE
@@ -694,7 +692,7 @@ public:
 					return;
 				}
 				src.resolve(FileHandle::from_fd(r.res));
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -704,7 +702,7 @@ public:
 	// have registered a sparse file table first.
 	[[nodiscard]] Flow<FileHandle> open_direct_async(
 		int dir_fd,
-		string path,
+		S path,
 		int flags,
 		mode_t mode,
 		unsigned file_index) {
@@ -715,7 +713,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto path_owner = make_shared<string>(move(path));
+		auto path_owner = make_shared<S>(move(path));
 		io_uring_prep_openat_direct(sqe, dir_fd, path_owner->c_str(), flags, mode, file_index);
 		auto [slot, gen] = completions_->reserve(
 			[this, src = move(src), path_owner, dir_fd, flags, mode, file_index](IoResult r) mutable {
@@ -731,7 +729,7 @@ public:
 						return;
 					}
 					src.resolve(FileHandle::from_direct_slot(r.res == 0 ? static_cast<int>(file_index) : r.res));
-				} catch (...) { src.reject(current_exception()); }
+				} catch (...) { src.reject(std::current_exception()); }
 			});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -740,7 +738,7 @@ public:
 	// statx on a path. `mask` follows statx(2) — STATX_BASIC_STATS by default.
 	[[nodiscard]] Flow<FileStat> statx_async(
 		int dir_fd,
-		string path,
+		S path,
 		int flags = 0,
 		unsigned mask = STATX_BASIC_STATS,
 		bool fixed_file = false) {
@@ -751,7 +749,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto path_owner = make_shared<string>(move(path));
+		auto path_owner = make_shared<S>(move(path));
 		auto stx_owner = make_shared<struct statx>();
 		io_uring_prep_statx(sqe, dir_fd, path_owner->c_str(), flags, mask, stx_owner.get());
 		if (fixed_file) {
@@ -772,7 +770,7 @@ public:
 					.ino = s.stx_ino,
 					.mode = s.stx_mode};
 				src.resolve(out);
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -782,18 +780,18 @@ public:
 	[[nodiscard]] Flow<FileStat> stat_async(
 		FileHandle const &fh) {
 		if (fh.is_direct()) {
-			return statx_async(fh.direct_slot(), string{}, AT_EMPTY_PATH, STATX_BASIC_STATS, true);
+			return statx_async(fh.direct_slot(), S{}, AT_EMPTY_PATH, STATX_BASIC_STATS, true);
 		}
-		return statx_async(fh.raw_fd(), string{}, AT_EMPTY_PATH);
+		return statx_async(fh.raw_fd(), S{}, AT_EMPTY_PATH);
 	}
 
 	// Read into a caller-owned span. The caller must keep `dst` alive until the
 	// Flow resolves.
-	[[nodiscard]] Flow<size_t> read_into(
+	[[nodiscard]] Flow<SZ> read_into(
 		FileHandle const &fh,
 		u64 offset,
 		span<byte> dst) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -809,26 +807,26 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [](IoResult r) { return static_cast<size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
 
-	// Scatter-gather read: fills `iovecs` segments in sequence. The vector is
+	// Scatter-gather read: fills `iovecs` segments in sequence. The V is
 	// moved into shared state and kept alive until the CQE fires.
 	// Returns total bytes read across all segments.
-	[[nodiscard]] Flow<size_t> readv_into(
+	[[nodiscard]] Flow<SZ> readv_into(
 		FileHandle const &fh,
 		u64 offset,
-		vector<iovec> iovecs) {
-		FlowSource<size_t> src;
+		V<iovec> iovecs) {
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto iov_owner = make_shared<vector<iovec>>(move(iovecs));
+		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
 		io_uring_prep_readv(
 			sqe,
 			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
@@ -838,9 +836,9 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [iov_owner](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [iov_owner](IoResult r) mutable {
 			(void)iov_owner; // keep-alive until CQE
-			return static_cast<size_t>(r.res);
+			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -852,14 +850,14 @@ public:
 	// into the resolved value so the caller decides when to release.
 	struct ReadFixedResult {
 		FixedBuffer buffer;
-		size_t bytes{};
+		SZ bytes{};
 	};
 
 	[[nodiscard]] Flow<ReadFixedResult> read_fixed(
 		FileHandle const &fh,
 		u64 offset,
 		FixedBuffer buf,
-		size_t max_bytes = numeric_limits<size_t>::max()) {
+		SZ max_bytes = NL<SZ>::max()) {
 		FlowSource<ReadFixedResult> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
@@ -869,7 +867,7 @@ public:
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = make_shared<FixedBuffer>(move(buf));
-		size_t const bytes = min(holder->view().size(), max_bytes);
+		SZ const bytes = min(holder->view().size(), max_bytes);
 		io_uring_prep_read_fixed(
 			sqe,
 			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
@@ -886,8 +884,8 @@ public:
 					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: read_fixed"}));
 					return;
 				}
-				src.resolve(ReadFixedResult{.buffer = move(*holder), .bytes = static_cast<size_t>(r.res)});
-			} catch (...) { src.reject(current_exception()); }
+				src.resolve(ReadFixedResult{.buffer = move(*holder), .bytes = static_cast<SZ>(r.res)});
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -905,10 +903,10 @@ public:
 		FileHandle const &fh,
 		u64 offset,
 		FixedBuffer buf,
-		size_t max_bytes = numeric_limits<size_t>::max(),
-		size_t block_size = 4096) {
-		size_t const actual_cap = min(max_bytes, buf.size());
-		size_t aligned_bytes = actual_cap;
+		SZ max_bytes = NL<SZ>::max(),
+		SZ block_size = 4096) {
+		SZ const actual_cap = min(max_bytes, buf.size());
+		SZ aligned_bytes = actual_cap;
 		if (block_size > 1 && actual_cap > 0) {
 			aligned_bytes = ((actual_cap + block_size - 1) / block_size) * block_size;
 			aligned_bytes = min(aligned_bytes, buf.size());
@@ -938,9 +936,9 @@ public:
 					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: read_nocache_fixed"}));
 					return;
 				}
-				size_t const bytes = min(static_cast<size_t>(r.res), actual_cap);
+				SZ const bytes = min(static_cast<SZ>(r.res), actual_cap);
 				src.resolve(ReadFixedResult{.buffer = move(*holder), .bytes = bytes});
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -951,14 +949,14 @@ public:
 	// to the caller (who decides when to release the slot back to the pool).
 	struct WriteFixedResult {
 		FixedBuffer buffer;
-		size_t bytes{};
+		SZ bytes{};
 	};
 
 	[[nodiscard]] Flow<WriteFixedResult> write_fixed(
 		FileHandle const &fh,
 		u64 offset,
 		FixedBuffer buf,
-		size_t max_bytes = numeric_limits<size_t>::max()) {
+		SZ max_bytes = NL<SZ>::max()) {
 		FlowSource<WriteFixedResult> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
@@ -968,7 +966,7 @@ public:
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = make_shared<FixedBuffer>(move(buf));
-		size_t const bytes = min(holder->view().size(), max_bytes);
+		SZ const bytes = min(holder->view().size(), max_bytes);
 		io_uring_prep_write_fixed(
 			sqe,
 			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
@@ -985,18 +983,18 @@ public:
 					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: write_fixed"}));
 					return;
 				}
-				src.resolve(WriteFixedResult{.buffer = move(*holder), .bytes = static_cast<size_t>(r.res)});
-			} catch (...) { src.reject(current_exception()); }
+				src.resolve(WriteFixedResult{.buffer = move(*holder), .bytes = static_cast<SZ>(r.res)});
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
 
-	[[nodiscard]] Flow<size_t> write_into(
+	[[nodiscard]] Flow<SZ> write_into(
 		FileHandle const &fh,
 		u64 offset,
 		span<byte const> src_view) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -1012,26 +1010,26 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [](IoResult r) { return static_cast<size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
 
 	// Scatter-gather write: sends `iovecs` segments to the file in sequence.
-	// The vector is moved into shared state and kept alive until the CQE fires.
+	// The V is moved into shared state and kept alive until the CQE fires.
 	// Returns total bytes written across all segments.
-	[[nodiscard]] Flow<size_t> writev_into(
+	[[nodiscard]] Flow<SZ> writev_into(
 		FileHandle const &fh,
 		u64 offset,
-		vector<iovec> iovecs) {
-		FlowSource<size_t> src;
+		V<iovec> iovecs) {
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto iov_owner = make_shared<vector<iovec>>(move(iovecs));
+		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
 		io_uring_prep_writev(
 			sqe,
 			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
@@ -1041,28 +1039,28 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [iov_owner](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [iov_owner](IoResult r) mutable {
 			(void)iov_owner; // keep-alive until CQE
-			return static_cast<size_t>(r.res);
+			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
 
 	// readv2_into: like readv_into but with RWF flags (e.g. RWF_NOWAIT, RWF_DSYNC).
-	[[nodiscard]] Flow<size_t> readv2_into(
+	[[nodiscard]] Flow<SZ> readv2_into(
 		FileHandle const &fh,
 		u64 offset,
-		vector<iovec> iovecs,
+		V<iovec> iovecs,
 		int rwf_flags = 0) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto iov_owner = make_shared<vector<iovec>>(move(iovecs));
+		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
 		io_uring_prep_readv2(
 			sqe,
 			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
@@ -1073,28 +1071,28 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [iov_owner](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [iov_owner](IoResult r) mutable {
 			(void)iov_owner;
-			return static_cast<size_t>(r.res);
+			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
 
 	// writev2_into: like writev_into but with RWF flags.
-	[[nodiscard]] Flow<size_t> writev2_into(
+	[[nodiscard]] Flow<SZ> writev2_into(
 		FileHandle const &fh,
 		u64 offset,
-		vector<iovec> iovecs,
+		V<iovec> iovecs,
 		int rwf_flags = 0) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto iov_owner = make_shared<vector<iovec>>(move(iovecs));
+		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
 		io_uring_prep_writev2(
 			sqe,
 			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
@@ -1105,9 +1103,9 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [iov_owner](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [iov_owner](IoResult r) mutable {
 			(void)iov_owner;
-			return static_cast<size_t>(r.res);
+			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -1204,7 +1202,7 @@ public:
 
 	[[nodiscard]] Flow<void> unlink_async(
 		int dir_fd,
-		string path,
+		S path,
 		int flags = 0) {
 		FlowSource<void> src;
 		auto flow = src.flow();
@@ -1213,7 +1211,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto path_owner = make_shared<string>(move(path));
+		auto path_owner = make_shared<S>(move(path));
 		io_uring_prep_unlinkat(sqe, dir_fd, path_owner->c_str(), flags);
 		auto [slot, gen] = reserve_bridge<void>(move(src), [path_owner](IoResult) mutable { (void)path_owner; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1222,9 +1220,9 @@ public:
 
 	[[nodiscard]] Flow<void> rename_async(
 		int old_dir_fd,
-		string old_path,
+		S old_path,
 		int new_dir_fd,
-		string new_path,
+		S new_path,
 		unsigned flags = 0) {
 		FlowSource<void> src;
 		auto flow = src.flow();
@@ -1233,7 +1231,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto paths = make_shared<pair<string, string>>(move(old_path), move(new_path));
+		auto paths = make_shared<P<S, S>>(move(old_path), move(new_path));
 		io_uring_prep_renameat(sqe, old_dir_fd, paths->first.c_str(), new_dir_fd, paths->second.c_str(), flags);
 		auto [slot, gen] = reserve_bridge<void>(move(src), [paths](IoResult) mutable { (void)paths; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1242,7 +1240,7 @@ public:
 
 	[[nodiscard]] Flow<void> mkdirat_async(
 		int dir_fd,
-		string path,
+		S path,
 		mode_t mode = 0755) {
 		FlowSource<void> src;
 		auto flow = src.flow();
@@ -1251,7 +1249,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto path_owner = make_shared<string>(move(path));
+		auto path_owner = make_shared<S>(move(path));
 		io_uring_prep_mkdirat(sqe, dir_fd, path_owner->c_str(), mode);
 		auto [slot, gen] = reserve_bridge<void>(move(src), [path_owner](IoResult) mutable { (void)path_owner; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1259,9 +1257,9 @@ public:
 	}
 
 	[[nodiscard]] Flow<void> symlinkat_async(
-		string target,
+		S target,
 		int new_dir_fd,
-		string link_path) {
+		S link_path) {
 		FlowSource<void> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
@@ -1269,7 +1267,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto paths = make_shared<pair<string, string>>(move(target), move(link_path));
+		auto paths = make_shared<P<S, S>>(move(target), move(link_path));
 		io_uring_prep_symlinkat(sqe, paths->first.c_str(), new_dir_fd, paths->second.c_str());
 		auto [slot, gen] = reserve_bridge<void>(move(src), [paths](IoResult) mutable { (void)paths; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1298,9 +1296,9 @@ public:
 
 	[[nodiscard]] Flow<void> linkat_async(
 		int old_dir_fd,
-		string old_path,
+		S old_path,
 		int new_dir_fd,
-		string new_path,
+		S new_path,
 		int flags = 0) {
 		FlowSource<void> src;
 		auto flow = src.flow();
@@ -1309,7 +1307,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto paths = make_shared<pair<string, string>>(move(old_path), move(new_path));
+		auto paths = make_shared<P<S, S>>(move(old_path), move(new_path));
 		io_uring_prep_linkat(sqe, old_dir_fd, paths->first.c_str(), new_dir_fd, paths->second.c_str(), flags);
 		auto [slot, gen] = reserve_bridge<void>(move(src), [paths](IoResult) mutable { (void)paths; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1376,16 +1374,16 @@ public:
 	}
 
 	// Create a pipe asynchronously. Returns (read_fd, write_fd) on success.
-	[[nodiscard]] Flow<pair<int, int>> pipe_async(
+	[[nodiscard]] Flow<P<int, int>> pipe_async(
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
-		FlowSource<pair<int, int>> src;
+		FlowSource<P<int, int>> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto fds = make_shared<array<int, 2>>(array<int, 2>{-1, -1});
+		auto fds = make_shared<A<int, 2>>(A<int, 2>{-1, -1});
 		io_uring_prep_pipe(sqe, fds->data(), pipe_flags);
 		auto [slot, gen] = completions_->reserve([src = move(src), fds](IoResult r) mutable {
 			try {
@@ -1393,8 +1391,8 @@ public:
 					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: pipe"}));
 					return;
 				}
-				src.resolve(make_pair((*fds)[0], (*fds)[1]));
-			} catch (...) { src.reject(current_exception()); }
+				src.resolve(std::make_pair((*fds)[0], (*fds)[1]));
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -1464,12 +1462,12 @@ public:
 		return flow;
 	}
 
-	[[nodiscard]] Flow<size_t> tee_async(
+	[[nodiscard]] Flow<SZ> tee_async(
 		int fd_in,
 		int fd_out,
-		size_t len,
+		SZ len,
 		unsigned flags = 0) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -1477,7 +1475,7 @@ public:
 			return flow;
 		}
 		io_uring_prep_tee(sqe, fd_in, fd_out, static_cast<unsigned int>(len), flags);
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [](IoResult r) { return static_cast<size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
@@ -1508,11 +1506,11 @@ public:
 	// Get extended attribute. `name` is moved and kept alive until CQE.
 	// `value` span must remain valid until the returned Flow resolves.
 	// Returns the actual attribute size (may exceed value.size() — ERANGE).
-	[[nodiscard]] Flow<size_t> fgetxattr_async(
+	[[nodiscard]] Flow<SZ> fgetxattr_async(
 		FileHandle const &fh,
-		string name,
+		S name,
 		span<char> buf) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -1520,14 +1518,14 @@ public:
 			return flow;
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
-		auto name_owner = make_shared<string>(move(name));
+		auto name_owner = make_shared<S>(move(name));
 		io_uring_prep_fgetxattr(sqe, fd, name_owner->c_str(), buf.data(), static_cast<unsigned>(buf.size()));
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [name_owner](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [name_owner](IoResult r) mutable {
 			(void)name_owner;
-			return static_cast<size_t>(r.res);
+			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -1536,8 +1534,8 @@ public:
 	// Set extended attribute. Both `name` and `data` are moved/kept alive until CQE.
 	[[nodiscard]] Flow<void> fsetxattr_async(
 		FileHandle const &fh,
-		string name,
-		string data,
+		S name,
+		S data,
 		int flags = 0) {
 		FlowSource<void> src;
 		auto flow = src.flow();
@@ -1547,7 +1545,7 @@ public:
 			return flow;
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
-		auto kv = make_shared<pair<string, string>>(move(name), move(data));
+		auto kv = make_shared<P<S, S>>(move(name), move(data));
 		io_uring_prep_fsetxattr(
 			sqe,
 			fd,
@@ -1565,27 +1563,27 @@ public:
 
 	// Path-based get extended attribute. `name`, `path`, and `buf` must
 	// remain valid until the Flow resolves.
-	[[nodiscard]] Flow<size_t> getxattr_async(
-		string path,
-		string name,
+	[[nodiscard]] Flow<SZ> getxattr_async(
+		S path,
+		S name,
 		span<char> buf) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto kp = make_shared<pair<string, string>>(move(path), move(name));
+		auto kp = make_shared<P<S, S>>(move(path), move(name));
 		io_uring_prep_getxattr(
 			sqe,
 			kp->second.c_str(),
 			buf.data(),
 			kp->first.c_str(),
 			static_cast<unsigned>(buf.size()));
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [kp](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [kp](IoResult r) mutable {
 			(void)kp;
-			return static_cast<size_t>(r.res);
+			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -1594,9 +1592,9 @@ public:
 	// Path-based set extended attribute. `name`, `data`, and `path` are moved
 	// and kept alive until CQE.
 	[[nodiscard]] Flow<void> setxattr_async(
-		string path,
-		string name,
-		string data,
+		S path,
+		S name,
+		S data,
 		int flags = 0) {
 		FlowSource<void> src;
 		auto flow = src.flow();
@@ -1606,9 +1604,9 @@ public:
 			return flow;
 		}
 		struct XattrState {
-			string path;
-			string name;
-			string data;
+			S path;
+			S name;
+			S data;
 		};
 		auto st = make_shared<XattrState>(move(path), move(name), move(data));
 		io_uring_prep_setxattr(
@@ -1731,7 +1729,7 @@ public:
 					return;
 				}
 				src.resolve();
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 			(void)ts;
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1757,7 +1755,7 @@ public:
 					return;
 				}
 				src.resolve();
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -1788,7 +1786,7 @@ public:
 					return;
 				}
 				src.resolve();
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 			(void)ts;
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1833,7 +1831,7 @@ public:
 					return;
 				}
 				src.resolve();
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -1859,7 +1857,7 @@ public:
 	}
 
 	// Accept one connection on a listening socket. Returns the accepted fd.
-	// `addr`/`addrlen` are optional out-params for the peer address.
+	// `addr`/`addrlen` are Opt out-params for the peer address.
 	[[nodiscard]] Flow<FileHandle> accept_async(
 		FileHandle const &fh,
 		sockaddr *addr = nullptr,
@@ -1883,7 +1881,7 @@ public:
 	}
 
 	// Accept one connection into a registered direct slot.
-	// `addr`/`addrlen` are optional out-params for the peer address.
+	// `addr`/`addrlen` are Opt out-params for the peer address.
 	[[nodiscard]] Flow<FileHandle> accept_direct_async(
 		FileHandle const &fh,
 		unsigned file_index,
@@ -1934,7 +1932,7 @@ public:
 	// Wait on multiple futexes simultaneously. Resolves when any waiter
 	// condition is met. `waiters` is moved and kept alive until CQE.
 	[[nodiscard]] Flow<void> futex_waitv_async(
-		vector<futex_waitv> waiters,
+		V<futex_waitv> waiters,
 		unsigned flags = 0) {
 		FlowSource<void> src;
 		auto flow = src.flow();
@@ -1943,7 +1941,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto wv = make_shared<vector<futex_waitv>>(move(waiters));
+		auto wv = make_shared<V<futex_waitv>>(move(waiters));
 		io_uring_prep_futex_waitv(sqe, wv->data(), static_cast<u32>(wv->size()), flags);
 		auto [slot, gen] = reserve_bridge<void>(move(src), [wv](IoResult) mutable { (void)wv; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1971,7 +1969,7 @@ public:
 					return;
 				}
 				src.resolve();
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -1996,7 +1994,7 @@ public:
 					return;
 				}
 				src.resolve();
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -2054,10 +2052,10 @@ public:
 	//
 	// The PipePair is held until `len` is drained or an error arrives; it is
 	// then dropped (returning to the pool).
-	[[nodiscard]] Flow<size_t> splice_to_fd(
+	[[nodiscard]] Flow<SZ> splice_to_fd(
 		FileHandle const &file,
 		u64 off,
-		size_t len,
+		SZ len,
 		int dst_fd,
 		PipePair pipe,
 		bool dst_fixed = false) {
@@ -2070,9 +2068,9 @@ public:
 			bool dst_fixed;
 			PipePair pipe;
 			u64 file_off;
-			size_t remaining;
-			size_t delivered{0};
-			FlowSource<size_t> src;
+			SZ remaining;
+			SZ delivered{0};
+			FlowSource<SZ> src;
 		};
 		auto st = make_shared<State>(State{
 			.ring = ring_,
@@ -2092,12 +2090,12 @@ public:
 	}
 
 	// Send `len` bytes from `buf` on `fh`. Returns bytes sent.
-	[[nodiscard]] Flow<size_t> send_async(
+	[[nodiscard]] Flow<SZ> send_async(
 		FileHandle const &fh,
 		void const *buf,
-		size_t len,
+		SZ len,
 		int flags = 0) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -2109,18 +2107,18 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [](IoResult r) { return static_cast<size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
 
 	// Receive up to `len` bytes into `buf` from `fh`. Returns bytes received.
-	[[nodiscard]] Flow<size_t> recv_async(
+	[[nodiscard]] Flow<SZ> recv_async(
 		FileHandle const &fh,
 		void *buf,
-		size_t len,
+		SZ len,
 		int flags = 0) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -2132,17 +2130,17 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [](IoResult r) { return static_cast<size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
 
 	// Vectored send via sendmsg(2). `msg` must remain valid until the Flow resolves.
-	[[nodiscard]] Flow<size_t> sendmsg_async(
+	[[nodiscard]] Flow<SZ> sendmsg_async(
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -2154,17 +2152,17 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [](IoResult r) { return static_cast<size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
 
 	// Vectored recv via recvmsg(2). `msg` must remain valid until the Flow resolves.
-	[[nodiscard]] Flow<size_t> recvmsg_async(
+	[[nodiscard]] Flow<SZ> recvmsg_async(
 		FileHandle const &fh,
 		msghdr *msg,
 		unsigned flags = 0) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -2176,7 +2174,7 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [](IoResult r) { return static_cast<size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
@@ -2220,7 +2218,7 @@ public:
 	}
 
 	// Update the registered file table. `fds` is a span of `nr_fds` fds starting
-	// at `offset` in the kernel's registered file array. -1 entries remove a slot.
+	// at `offset` in the kernel's registered file A. -1 entries remove a slot.
 	// `fds` must remain valid until the Flow resolves.
 	[[nodiscard]] Flow<void> files_update_async(
 		int *fds,
@@ -2304,7 +2302,7 @@ public:
 					return;
 				}
 				src.resolve();
-			} catch (...) { src.reject(current_exception()); }
+			} catch (...) { src.reject(std::current_exception()); }
 			(void)ts;
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -2315,7 +2313,7 @@ public:
 	// `how` is copied internally so the caller need not keep it alive.
 	[[nodiscard]] Flow<FileHandle> openat2_async(
 		int dir_fd,
-		string path,
+		S path,
 		open_how how) {
 		FlowSource<FileHandle> src;
 		auto flow = src.flow();
@@ -2324,7 +2322,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto ctx = make_shared<pair<string, open_how>>(move(path), how);
+		auto ctx = make_shared<P<S, open_how>>(move(path), how);
 		io_uring_prep_openat2(sqe, dir_fd, ctx->first.c_str(), &ctx->second);
 		auto [slot, gen] = reserve_bridge<FileHandle>(move(src), [ctx](IoResult r) mutable {
 			(void)ctx;
@@ -2336,14 +2334,14 @@ public:
 
 	// Send with destination address — for SOCK_DGRAM sockets.
 	// `addr` is copied internally; `buf` must remain valid until the Flow resolves.
-	[[nodiscard]] Flow<size_t> sendto_async(
+	[[nodiscard]] Flow<SZ> sendto_async(
 		FileHandle const &fh,
 		void const *buf,
-		size_t len,
+		SZ len,
 		int flags,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -2356,9 +2354,9 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [sa](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [sa](IoResult r) mutable {
 			(void)sa;
-			return static_cast<size_t>(r.res);
+			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -2368,13 +2366,13 @@ public:
 	// IORING_CQE_F_NOTIF fires (the caller is notified via a second CQE).
 	// For simplicity this Flow resolves when the first CQE arrives;
 	// the notification CQE is discarded by the completion dispatch.
-	[[nodiscard]] Flow<size_t> send_zc_async(
+	[[nodiscard]] Flow<SZ> send_zc_async(
 		FileHandle const &fh,
 		void const *buf,
-		size_t len,
+		SZ len,
 		int flags = 0,
 		unsigned zc_flags = 0) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -2386,20 +2384,20 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [](IoResult r) { return static_cast<size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
 
 	// Write using a pre-registered fixed buffer (IORING_OP_WRITE_FIXED).
 	// `buf` pointer and `buf_index` must refer to the registered buffer in the pool.
-	[[nodiscard]] Flow<size_t> write_fixed_async(
+	[[nodiscard]] Flow<SZ> write_fixed_async(
 		FileHandle const &fh,
 		u64 offset,
 		void const *buf,
 		unsigned nbytes,
 		int buf_index) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -2411,7 +2409,7 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [](IoResult r) { return static_cast<size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
@@ -2420,7 +2418,7 @@ public:
 	// `flags` = 0 for file; AT_REMOVEDIR for directory.
 	[[nodiscard]] Flow<void> unlinkat_async(
 		int dir_fd,
-		string path,
+		S path,
 		int flags = 0) {
 		FlowSource<void> src;
 		auto flow = src.flow();
@@ -2429,7 +2427,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto p = make_shared<string>(move(path));
+		auto p = make_shared<S>(move(path));
 		io_uring_prep_unlinkat(sqe, dir_fd, p->c_str(), flags);
 		auto [slot, gen] = reserve_bridge<void>(move(src), [p](IoResult) mutable { (void)p; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -2439,9 +2437,9 @@ public:
 	// Rename with full dirfd control.
 	[[nodiscard]] Flow<void> renameat_async(
 		int old_dir_fd,
-		string old_path,
+		S old_path,
 		int new_dir_fd,
-		string new_path,
+		S new_path,
 		unsigned flags = 0) {
 		FlowSource<void> src;
 		auto flow = src.flow();
@@ -2450,7 +2448,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto paths = make_shared<pair<string, string>>(move(old_path), move(new_path));
+		auto paths = make_shared<P<S, S>>(move(old_path), move(new_path));
 		io_uring_prep_renameat(sqe, old_dir_fd, paths->first.c_str(), new_dir_fd, paths->second.c_str(), flags);
 		auto [slot, gen] = reserve_bridge<void>(move(src), [paths](IoResult) mutable { (void)paths; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -2459,7 +2457,7 @@ public:
 
 	// Create a directory at `path` (relative to AT_FDCWD).
 	[[nodiscard]] Flow<void> mkdir_async(
-		string path,
+		S path,
 		mode_t mode = 0755) {
 		FlowSource<void> src;
 		auto flow = src.flow();
@@ -2468,7 +2466,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto p = make_shared<string>(move(path));
+		auto p = make_shared<S>(move(path));
 		io_uring_prep_mkdir(sqe, p->c_str(), mode);
 		auto [slot, gen] = reserve_bridge<void>(move(src), [p](IoResult) mutable { (void)p; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -2479,7 +2477,7 @@ public:
 	// IORING_FILE_INDEX_ALLOC for `file_index` auto-allocates.
 	[[nodiscard]] Flow<FileHandle> openat2_direct_async(
 		int dir_fd,
-		string path,
+		S path,
 		open_how how,
 		unsigned file_index) {
 		FlowSource<FileHandle> src;
@@ -2489,7 +2487,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto ctx = make_shared<pair<string, open_how>>(move(path), how);
+		auto ctx = make_shared<P<S, open_how>>(move(path), how);
 		io_uring_prep_openat2_direct(sqe, dir_fd, ctx->first.c_str(), &ctx->second, file_index);
 		auto [slot, gen] = reserve_bridge<FileHandle>(move(src), [ctx, file_index](IoResult) mutable {
 			(void)ctx;
@@ -2524,7 +2522,7 @@ public:
 	// Use IORING_FILE_INDEX_ALLOC for `file_index` to let the kernel pick a slot.
 	[[nodiscard]] Flow<FileHandle> openat_direct_async(
 		int dir_fd,
-		string path,
+		S path,
 		int flags,
 		mode_t mode = 0,
 		unsigned file_index = IORING_FILE_INDEX_ALLOC) {
@@ -2535,7 +2533,7 @@ public:
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto p = make_shared<string>(move(path));
+		auto p = make_shared<S>(move(path));
 		io_uring_prep_openat_direct(sqe, dir_fd, p->c_str(), flags, mode, file_index);
 		auto [slot, gen] = reserve_bridge<FileHandle>(move(src), [p, file_index](IoResult r) mutable {
 			(void)p;
@@ -2567,20 +2565,20 @@ public:
 		return flow;
 	}
 
-	// Create a pipe pair directly into fixed file table slots.
+	// Create a pipe P directly into fixed file table slots.
 	// Use IORING_FILE_INDEX_ALLOC for `file_index` to let the kernel choose.
 	// The two slots are allocated consecutively.
-	[[nodiscard]] Flow<pair<int, int>> pipe_direct_async(
+	[[nodiscard]] Flow<P<int, int>> pipe_direct_async(
 		unsigned file_index = IORING_FILE_INDEX_ALLOC,
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
-		FlowSource<pair<int, int>> src;
+		FlowSource<P<int, int>> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
 			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return flow;
 		}
-		auto fds = make_shared<array<int, 2>>(array<int, 2>{-1, -1});
+		auto fds = make_shared<A<int, 2>>(A<int, 2>{-1, -1});
 		io_uring_prep_pipe_direct(sqe, fds->data(), pipe_flags, file_index);
 		auto [slot, gen] = completions_->reserve([src = move(src), fds](IoResult r) mutable {
 			try {
@@ -2588,8 +2586,8 @@ public:
 					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: pipe_direct"}));
 					return;
 				}
-				src.resolve(make_pair((*fds)[0], (*fds)[1]));
-			} catch (...) { src.reject(current_exception()); }
+				src.resolve(std::make_pair((*fds)[0], (*fds)[1]));
+			} catch (...) { src.reject(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
@@ -2620,11 +2618,11 @@ public:
 	// notification CQE fires (i.e., the kernel has finished reading the buffers).
 	// The Flow resolves on the first CQE (send completion); the notification CQE
 	// is a separate event that callers must handle via their completion dispatch.
-	[[nodiscard]] Flow<size_t> sendmsg_zc_async(
+	[[nodiscard]] Flow<SZ> sendmsg_zc_async(
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
-		FlowSource<size_t> src;
+		FlowSource<SZ> src;
 		auto flow = src.flow();
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
@@ -2636,7 +2634,7 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<size_t>(move(src), [](IoResult r) { return static_cast<size_t>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return flow;
 	}
@@ -2649,7 +2647,7 @@ private:
 			st->src.resolve(st->delivered);
 			return;
 		}
-		size_t const chunk = min(st->remaining, st->pipe.capacity());
+		SZ const chunk = min(st->remaining, st->pipe.capacity());
 		auto *sqe_in = io_uring_get_sqe(st->ring);
 		auto *sqe_out = io_uring_get_sqe(st->ring);
 		if (sqe_in == nullptr || sqe_out == nullptr) {
@@ -2692,7 +2690,7 @@ private:
 				st->src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: splice out"}));
 				return;
 			}
-			auto const n = static_cast<size_t>(r.res);
+			auto const n = static_cast<SZ>(r.res);
 			st->delivered += n;
 			st->file_off += n;
 			st->remaining = st->remaining > n ? st->remaining - n : 0;
@@ -2768,7 +2766,7 @@ void pump_until(
 	Decode decode = {}) {
 	auto *ring = reader.ring();
 	auto *completions = reader.completions();
-	auto const deadline = budget ? Opt{std::chrono::steady_clock::now() + *budget} : std::nullopt;
+	auto const deadline = budget ? std::make_optional(std::chrono::steady_clock::now() + *budget) : std::nullopt;
 	while (!done.test(std::memory_order_acquire)) {
 		::io_uring_cqe *cqe = nullptr;
 		int rc = 0;

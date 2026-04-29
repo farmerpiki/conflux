@@ -4,9 +4,9 @@
 // The outgoing traceparent is set in the response header.
 export module conflux.net.tracing;
 import std;
+import conflux.types;
 import conflux.net.router;
 import conflux.utils;
-using namespace std;
 
 template<typename>
 class TraceCallback;
@@ -16,7 +16,7 @@ class TraceCallback<R(Args...)> {
 	struct Concept {
 		virtual ~Concept() = default;
 		virtual R invoke(Args... args) = 0;
-		[[nodiscard]] virtual unique_ptr<Concept> clone() const = 0;
+		[[nodiscard]] virtual UP<Concept> clone() const = 0;
 	};
 
 	template<typename F>
@@ -29,26 +29,26 @@ class TraceCallback<R(Args...)> {
 
 		R invoke(
 			Args... args) override {
-			if constexpr (is_void_v<R>) {
+			if constexpr (std::is_void_v<R>) {
 				fn(forward<Args>(args)...);
 			} else {
 				return fn(forward<Args>(args)...);
 			}
 		}
 
-		[[nodiscard]] unique_ptr<Concept> clone() const override { return make_unique<Model>(fn); }
+		[[nodiscard]] UP<Concept> clone() const override { return make_unique<Model>(fn); }
 	};
 
-	unique_ptr<Concept> impl_{};
+	UP<Concept> impl_{};
 
 public:
 	TraceCallback() = default;
 
 	template<typename F>
-		requires(!same_as<remove_cvref_t<F>, TraceCallback> && invocable<F &, Args...>)
+		requires(!same_as<std::remove_cvref_t<F>, TraceCallback> && std::invocable<F &, Args...>)
 	TraceCallback(
 		F &&fn)
-		: impl_(make_unique<Model<remove_cvref_t<F>>>(forward<F>(fn))) {}
+		: impl_(make_unique<Model<std::remove_cvref_t<F>>>(forward<F>(fn))) {}
 
 	TraceCallback(
 		TraceCallback const &other)
@@ -76,10 +76,10 @@ public:
 };
 
 export struct TraceContext {
-	string trace_id; // 32 hex chars
-	string span_id; // 16 hex chars (this hop)
-	string parent_id; // 16 hex chars (caller's span), may be empty
-	string traceparent; // full W3C header value: "00-trace-span-01"
+	S trace_id; // 32 hex chars
+	S span_id; // 16 hex chars (this hop)
+	S parent_id; // 16 hex chars (caller's span), may be empty
+	S traceparent; // full W3C header value: "00-trace-span-01"
 };
 
 export struct TracingOptions {
@@ -93,12 +93,12 @@ export struct TracingOptions {
 
 namespace tracing_detail {
 
-string gen_hex(
-	size_t nbytes) {
-	vector<unsigned char> buf(nbytes);
+S gen_hex(
+	SZ nbytes) {
+	V<unsigned char> buf(nbytes);
 	random_bytes(buf);
-	static constexpr string_view kHex = "0123456789abcdef";
-	string out;
+	static constexpr SV kHex = "0123456789abcdef";
+	S out;
 	out.reserve(nbytes * 2);
 	for (auto b: buf) {
 		out += kHex[b >> 4];
@@ -109,13 +109,13 @@ string gen_hex(
 
 // Parse W3C traceparent: "00-<trace_id>-<parent_id>-<flags>".
 // Returns {trace_id, parent_id} or empty strings on parse failure.
-pair<string, string> parse_traceparent(
-	string_view tp) {
+P<S, S> parse_traceparent(
+	SV tp) {
 	// version(2)-trace_id(32)-parent_id(16)-flags(2) separated by '-'
 	if (tp.size() < 55 || tp[2] != '-' || tp[35] != '-' || tp[52] != '-') {
 		return {};
 	}
-	auto is_hex = [](string_view s) {
+	auto is_hex = [](SV s) {
 		return ranges::all_of(s, [](unsigned char c) {
 			return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 		});
@@ -125,7 +125,7 @@ pair<string, string> parse_traceparent(
 	if (!is_hex(trace_id) || !is_hex(parent_id)) {
 		return {};
 	}
-	return {string{trace_id}, string{parent_id}};
+	return {S{trace_id}, S{parent_id}};
 }
 
 } // namespace tracing_detail

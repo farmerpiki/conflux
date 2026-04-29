@@ -25,22 +25,20 @@ import conflux.utils;
 import conflux.net.tls;
 #endif
 
-using namespace std;
-
 // ─── exported response types ─────────────────────────────────────────────────
 
 export namespace conflux::http {
 
 struct HttpResponseHead {
 	int status{502};
-	string status_text{"Bad Gateway"};
+	S status_text{"Bad Gateway"};
 	HttpFields headers{true};
-	vector<string> set_cookies{};
+	V<S> set_cookies{};
 };
 
 struct HttpResponse {
 	HttpResponseHead head{};
-	string body{};
+	S body{};
 	HttpTelemetry telemetry{};
 
 	// Phase 2: json() / json_borrowed() accessors.
@@ -51,10 +49,10 @@ using HttpResult = expected<HttpResponse, HttpError>;
 struct HttpClientOptions {
 	HttpTimeouts default_timeouts{};
 	bool verify_peer{true};
-	string ca_bundle_path{}; // empty = system default
-	size_t max_header_bytes{64 * 1024};
-	size_t max_body_bytes{16 * 1024 * 1024};
-	size_t max_buffered_bytes{4 * 1024 * 1024};
+	S ca_bundle_path{}; // empty = system default
+	SZ max_header_bytes{64 * 1024};
+	SZ max_body_bytes{16 * 1024 * 1024};
+	SZ max_buffered_bytes{4 * 1024 * 1024};
 	HttpFields default_headers{};
 };
 
@@ -62,7 +60,7 @@ struct HttpClientOptions {
 
 // ─── legacy free function (kept for existing test compatibility) ──────────────
 
-export [[nodiscard]] optional<string> decode_chunked_body(string_view encoded);
+export [[nodiscard]] Opt<S> decode_chunked_body(SV encoded);
 
 // ─── internal transport ───────────────────────────────────────────────────────
 
@@ -75,12 +73,12 @@ struct Connection {
 	int fd{-1};
 	bool use_tls{false};
 #if CONFLUX_HAS_TLS
-	optional<TlsContext> tls_ctx{};
-	optional<TlsStream> tls_stream{};
+	Opt<TlsContext> tls_ctx{};
+	Opt<TlsStream> tls_stream{};
 #endif
 };
 
-constexpr array<string_view, 8> kHopByHop{
+constexpr A<SV, 8> kHopByHop{
 	"connection",
 	"keep-alive",
 	"proxy-authenticate",
@@ -92,7 +90,7 @@ constexpr array<string_view, 8> kHopByHop{
 };
 
 [[nodiscard]] bool is_hop_by_hop(
-	string_view name) {
+	SV name) {
 	return ranges::contains(kHopByHop, name);
 }
 
@@ -160,7 +158,7 @@ enum class ConnectFailure {
 
 // Returns a connected fd, or -1. Fills telemetry. Sets failure on error.
 [[nodiscard]] int resolve_and_connect(
-	string_view host,
+	SV host,
 	u16 port,
 	int timeout_sec,
 	HttpTelemetry &tel,
@@ -169,8 +167,8 @@ enum class ConnectFailure {
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	addrinfo *res = nullptr;
-	string const h{host};
-	string const p = to_string(port);
+	S const h{host};
+	S const p = to_string(port);
 
 	auto t0 = chrono::steady_clock::now();
 	int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res);
@@ -214,14 +212,14 @@ enum class ConnectFailure {
 
 bool send_all(
 	Connection &conn,
-	string_view data,
+	SV data,
 	int timeout_sec) {
 #if CONFLUX_HAS_TLS
 	if (conn.use_tls) {
 		return conn.tls_stream->write_all(data, timeout_sec);
 	}
 #endif
-	size_t sent = 0;
+	SZ sent = 0;
 	while (sent < data.size()) {
 		if (!wait_fd(conn.fd, POLLOUT, timeout_sec)) {
 			return false;
@@ -230,21 +228,21 @@ bool send_all(
 		if (n <= 0) {
 			return false;
 		}
-		sent += static_cast<size_t>(n);
+		sent += static_cast<SZ>(n);
 	}
 	return true;
 }
 
 bool recv_some(
 	Connection &conn,
-	string &out,
+	S &out,
 	int timeout_sec) {
 #if CONFLUX_HAS_TLS
 	if (conn.use_tls) {
 		return conn.tls_stream->read_some(out, timeout_sec);
 	}
 #endif
-	array<char, 4096> tmp{};
+	A<char, 4096> tmp{};
 	if (!wait_fd(conn.fd, POLLIN, timeout_sec)) {
 		return false;
 	}
@@ -252,24 +250,24 @@ bool recv_some(
 	if (n <= 0) {
 		return false;
 	}
-	out.append(tmp.data(), static_cast<size_t>(n));
+	out.append(tmp.data(), static_cast<SZ>(n));
 	return true;
 }
 
 // Receive until delimiter or max bytes. Returns accumulated bytes (may contain
 // data past the delimiter if overread from the socket).
-string recv_until(
+S recv_until(
 	Connection &conn,
-	string_view delim,
+	SV delim,
 	int timeout_sec,
-	size_t max) {
-	string buf;
-	buf.reserve(min<size_t>(4096, max));
+	SZ max) {
+	S buf;
+	buf.reserve(min<SZ>(4096, max));
 	while (buf.size() < max) {
 		if (!recv_some(conn, buf, timeout_sec)) {
 			break;
 		}
-		if (buf.find(delim) != string::npos) {
+		if (buf.find(delim) != S::npos) {
 			break;
 		}
 	}
@@ -278,10 +276,10 @@ string recv_until(
 
 bool recv_exact(
 	Connection &conn,
-	string &out,
+	S &out,
 	int timeout_sec,
-	size_t target,
-	size_t cap) {
+	SZ target,
+	SZ cap) {
 	while (out.size() < target) {
 		if (out.size() >= cap) {
 			return false; // body_too_large
@@ -295,9 +293,9 @@ bool recv_exact(
 
 void recv_to_eof(
 	Connection &conn,
-	string &out,
+	S &out,
 	int timeout_sec,
-	size_t cap,
+	SZ cap,
 	bool &too_large) {
 	too_large = false;
 	while (recv_some(conn, out, timeout_sec)) {
@@ -315,24 +313,24 @@ enum class ChunkedDecodeStatus : u8 {
 };
 
 ChunkedDecodeStatus decode_chunked_prefix(
-	string_view encoded,
-	string &decoded,
-	size_t &consumed) {
+	SV encoded,
+	S &decoded,
+	SZ &consumed) {
 	decoded.clear();
 	consumed = 0;
 	for (;;) {
 		auto const line_end = encoded.find("\r\n", consumed);
-		if (line_end == string_view::npos) {
+		if (line_end == SV::npos) {
 			return ChunkedDecodeStatus::incomplete;
 		}
 		auto size_str = trim(encoded.substr(consumed, line_end - consumed));
-		if (auto const semi = size_str.find(';'); semi != string_view::npos) {
+		if (auto const semi = size_str.find(';'); semi != SV::npos) {
 			size_str = trim(size_str.substr(0, semi));
 		}
 		if (size_str.empty()) {
 			return ChunkedDecodeStatus::invalid;
 		}
-		size_t chunk_size = 0;
+		SZ chunk_size = 0;
 		auto const parsed = from_chars(size_str.data(), size_str.data() + size_str.size(), chunk_size, 16);
 		if (parsed.ec != errc{} || parsed.ptr != size_str.data() + size_str.size()) {
 			return ChunkedDecodeStatus::invalid;
@@ -341,7 +339,7 @@ ChunkedDecodeStatus decode_chunked_prefix(
 		if (chunk_size == 0) {
 			for (;;) {
 				auto const eol = encoded.find("\r\n", consumed);
-				if (eol == string_view::npos) {
+				if (eol == SV::npos) {
 					return ChunkedDecodeStatus::incomplete;
 				}
 				bool const empty = (eol == consumed);
@@ -365,14 +363,14 @@ ChunkedDecodeStatus decode_chunked_prefix(
 
 bool recv_chunked(
 	Connection &conn,
-	string &encoded,
-	string &decoded,
+	S &encoded,
+	S &decoded,
 	int timeout_sec,
-	size_t cap,
+	SZ cap,
 	bool &too_large) {
 	too_large = false;
 	for (;;) {
-		size_t consumed = 0;
+		SZ consumed = 0;
 		switch (decode_chunked_prefix(encoded, decoded, consumed)) {
 		case ChunkedDecodeStatus::complete: return true;
 		case ChunkedDecodeStatus::invalid : return false;
@@ -389,7 +387,7 @@ bool recv_chunked(
 	}
 }
 
-[[nodiscard]] string build_host_header(
+[[nodiscard]] S build_host_header(
 	Url const &url) {
 	bool const default_port = (url.scheme == "http" && url.port == 80) || (url.scheme == "https" && url.port == 443);
 	return default_port ? url.host : format("{}:{}", url.host, url.port);
@@ -425,14 +423,14 @@ HttpResult do_blocking_request(
 	}
 
 #if CONFLUX_HAS_TLS
-	optional<TlsContext> tls_ctx;
-	optional<TlsStream> tls_stream;
+	Opt<TlsContext> tls_ctx;
+	Opt<TlsStream> tls_stream;
 #endif
 
 	if (use_tls) {
 #if CONFLUX_HAS_TLS
 		bool const verify = req.verify_peer() && opts.verify_peer;
-		auto const sni_sv = req.server_name().empty() ? string_view{url.host} : req.server_name();
+		auto const sni_sv = req.server_name().empty() ? SV{url.host} : req.server_name();
 		int const tls_sec = to_sec(timeouts.tls);
 
 		try {
@@ -487,7 +485,7 @@ HttpResult do_blocking_request(
 			// Capture TLS error details.
 			long const vr = SSL_get_verify_result(tls_stream->native_handle());
 			int const alert = ERR_GET_REASON(ERR_get_error());
-			string verify_reason;
+			S verify_reason;
 			if (verify && vr != X509_V_OK) {
 				if (auto const *s = X509_verify_cert_error_string(vr); s != nullptr) {
 					verify_reason = s;
@@ -535,16 +533,16 @@ HttpResult do_blocking_request(
 #endif
 
 	// Build request line + headers.
-	string path = url.path;
+	S path = url.path;
 	if (!url.query.empty()) {
 		path += '?';
 		path += url.query;
 	}
-	string wire;
+	S wire;
 	wire.reserve(256);
 	// Caller-supplied Host overrides URL-derived value (needed for preserve_host).
 	auto const caller_host = req.headers()["host"];
-	string const host_hdr = caller_host.empty() ? build_host_header(url) : string{caller_host};
+	S const host_hdr = caller_host.empty() ? build_host_header(url) : S{caller_host};
 	wire += format("{} {} HTTP/1.1\r\nHost: {}\r\n", req.method(), path, host_hdr);
 
 	// Merge default headers first, then per-request headers override.
@@ -599,14 +597,14 @@ HttpResult do_blocking_request(
 	// Receive response headers.
 	int const first_byte_sec = to_sec(timeouts.first_byte);
 	int const between_sec = to_sec(timeouts.between_bytes);
-	size_t const max_hdr = opts.max_header_bytes;
-	size_t const max_body = opts.max_body_bytes;
+	SZ const max_hdr = opts.max_header_bytes;
+	SZ const max_body = opts.max_body_bytes;
 
 	auto t_ttfb = chrono::steady_clock::now();
 	auto raw = recv_until(conn, "\r\n\r\n", first_byte_sec, max_hdr + 4096);
 	auto const header_end = raw.find("\r\n\r\n");
 
-	if (header_end == string::npos) {
+	if (header_end == S::npos) {
 		close_conn(conn);
 		if (raw.size() >= max_hdr) {
 			return unexpected(
@@ -626,18 +624,18 @@ HttpResult do_blocking_request(
 	tel.ttfb = chrono::steady_clock::now() - t_ttfb;
 
 	// Parse status line + headers.
-	auto const headers_str = string_view{raw}.substr(0, header_end);
+	auto const headers_str = SV{raw}.substr(0, header_end);
 	HttpResponse response;
 	auto const nl = headers_str.find("\r\n");
-	auto const status_line = (nl != string_view::npos) ? headers_str.substr(0, nl) : headers_str;
+	auto const status_line = (nl != SV::npos) ? headers_str.substr(0, nl) : headers_str;
 	auto const sp1 = status_line.find(' ');
-	if (sp1 == string_view::npos) {
+	if (sp1 == SV::npos) {
 		close_conn(conn);
 		return unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "malformed status line"});
 	}
 	auto const rest = status_line.substr(sp1 + 1);
 	auto const sp2 = rest.find(' ');
-	auto const code_sv = (sp2 != string_view::npos) ? rest.substr(0, sp2) : rest;
+	auto const code_sv = (sp2 != SV::npos) ? rest.substr(0, sp2) : rest;
 	int status = 0;
 	auto const [ptr, ec] = from_chars(code_sv.data(), code_sv.data() + code_sv.size(), status);
 	if (ec != errc{} || status < 100 || status > 999) {
@@ -646,19 +644,19 @@ HttpResult do_blocking_request(
 			HttpError{.kind = HttpErrorKind::protocol, .message = format("invalid status code '{}'", code_sv)});
 	}
 	response.head.status = status;
-	if (sp2 != string_view::npos) {
-		response.head.status_text = string{rest.substr(sp2 + 1)};
+	if (sp2 != SV::npos) {
+		response.head.status_text = S{rest.substr(sp2 + 1)};
 	}
 
-	size_t content_length = 0;
+	SZ content_length = 0;
 	bool has_content_length = false;
 	bool chunked = false;
-	size_t pos = (nl != string_view::npos) ? nl + 2 : headers_str.size();
+	SZ pos = (nl != SV::npos) ? nl + 2 : headers_str.size();
 	while (pos < headers_str.size()) {
 		auto const end = headers_str.find("\r\n", pos);
-		auto const hdr = (end != string_view::npos) ? headers_str.substr(pos, end - pos) : headers_str.substr(pos);
+		auto const hdr = (end != SV::npos) ? headers_str.substr(pos, end - pos) : headers_str.substr(pos);
 		auto const colon = hdr.find(':');
-		if (colon != string_view::npos) {
+		if (colon != SV::npos) {
 			auto k = hdr.substr(0, colon);
 			auto v = hdr.substr(colon + 1);
 			while (!v.empty() && (v[0] == ' ' || v[0] == '\t')) {
@@ -669,15 +667,15 @@ HttpResult do_blocking_request(
 			if (kl == "content-length") {
 				from_chars(v.data(), v.data() + v.size(), content_length);
 				has_content_length = true;
-			} else if (kl == "transfer-encoding" && vl.find("chunked") != string::npos) {
+			} else if (kl == "transfer-encoding" && vl.find("chunked") != S::npos) {
 				chunked = true;
 			} else if (kl == "set-cookie") {
-				response.head.set_cookies.push_back(string{v});
+				response.head.set_cookies.push_back(S{v});
 			} else if (!is_hop_by_hop(kl)) {
-				response.head.headers.set(string{k}, string{v});
+				response.head.headers.set(S{k}, S{v});
 			}
 		}
-		pos = (end != string_view::npos) ? end + 2 : headers_str.size();
+		pos = (end != SV::npos) ? end + 2 : headers_str.size();
 	}
 
 	// Validate content-length against cap.
@@ -697,7 +695,7 @@ HttpResult do_blocking_request(
 	if (req.method() == "HEAD") {
 		response.body.clear();
 	} else if (chunked) {
-		string decoded;
+		S decoded;
 		bool too_large = false;
 		if (!recv_chunked(conn, response.body, decoded, between_sec, max_body, too_large)) {
 			close_conn(conn);
@@ -756,16 +754,16 @@ HttpResult do_blocking_request(
 
 // ─── decode_chunked_body (legacy free function) ───────────────────────────────
 
-optional<string> decode_chunked_body(
-	string_view encoded) {
-	string decoded;
-	size_t consumed = 0;
+Opt<S> decode_chunked_body(
+	SV encoded) {
+	S decoded;
+	SZ consumed = 0;
 	if (client_detail::decode_chunked_prefix(encoded, decoded, consumed)
 		!= client_detail::ChunkedDecodeStatus::complete) {
-		return nullopt;
+		return std::nullopt;
 	}
 	if (consumed != encoded.size()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	return decoded;
 }

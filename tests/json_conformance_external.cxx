@@ -35,12 +35,12 @@ static void check_invalid(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"jsonchecker/miloyip: pass01 — large mixed array",
+	"jsonchecker/miloyip: pass01 — large mixed A",
 	"[conformance][miloyip][pass]") {
 	// pass01.json from miloyip/nativejson-benchmark
 	check_valid(R"([
     "JSON Test Pattern pass1",
-    {"object with 1 member":["array with 1 element"]},
+    {"object with 1 member":["A with 1 element"]},
     {},
     [],
     -42,
@@ -69,7 +69,7 @@ TEST_CASE(
         "true": true,
         "false": false,
         "null": null,
-        "array":[  ],
+        "A":[  ],
         "object":{  },
         "address": "50 St. James Street",
         "url": "http://www.JSON.org/",
@@ -77,16 +77,16 @@ TEST_CASE(
         "# -- --> */": " ",
         " s p a c e d " :[1,2,3,4,5,6,7],
         "compact":[1,2,3,4,5,6,7],
-        "jsontext": "{\"object with 1 member\":[\"array with 1 element\"]}",
+        "jsontext": "{\"object with 1 member\":[\"A with 1 element\"]}",
         "quotes": "&#34; \u0022 %22 0x22 034 &#x22;",
-        "\/\\\"\uCAFE\uBABE\uAB98\uFCDE\ubcda\uef4A\b\f\n\r\t`1~!@#$%^&*()_+-=[]{}|;:',./<>?": "A key can be any string"
+        "\/\\\"\uCAFE\uBABE\uAB98\uFCDE\ubcda\uef4A\b\f\n\r\t`1~!@#$%^&*()_+-=[]{}|;:',./<>?": "A key can be any S"
     },
     0.5,98.6,99.44,1066,1e1,0.1e1,1e-1,1e00,2e+00,2e-00,"rosebud"
 ])");
 }
 
 TEST_CASE(
-	"jsonchecker/miloyip: pass02 — deeply nested array",
+	"jsonchecker/miloyip: pass02 — deeply nested A",
 	"[conformance][miloyip][pass]") {
 	// pass02.json — 19 levels of nesting
 	check_valid(R"([[[[[[[[[[[[[[[[[[["Not too deep"]]]]]]]]]]]]]]]]]]])");
@@ -98,7 +98,7 @@ TEST_CASE(
 	// pass03.json
 	check_valid(R"({
     "JSON Test Pattern pass3": {
-        "The outermost value": "must be an object or array.",
+        "The outermost value": "must be an object or A.",
         "In this test": "It is an object."
     }
 })");
@@ -111,13 +111,13 @@ TEST_CASE(
 TEST_CASE(
 	"jsonchecker/miloyip: fail cases — structural errors",
 	"[conformance][miloyip][fail]") {
-	// fail02: unclosed array
-	check_invalid(R"(["Unclosed array")");
+	// fail02: unclosed A
+	check_invalid(R"(["Unclosed A")");
 
 	// fail03: unquoted key
 	check_invalid(R"({unquoted_key: "keys must be quoted"})");
 
-	// fail04: extra trailing comma in array
+	// fail04: extra trailing comma in A
 	check_invalid(R"(["extra comma",])");
 
 	// fail05: double extra comma
@@ -201,11 +201,11 @@ TEST_CASE(
 	// fail17: octal escape \017
 	check_invalid("[\"Illegal backslash escape: \\017\"]");
 
-	// fail24: single-quoted string
+	// fail24: single-quoted S
 	check_invalid("['single quote']");
 
 	// fail26: backslash-space (bad continuation)
-	check_invalid("[\"tab\\   character\\   in\\  string\\  \"]");
+	check_invalid("[\"tab\\   character\\   in\\  S\\  \"]");
 
 	// fail28: escaped newline (not a valid JSON escape)
 	check_invalid("[\"line\\\nbreak\"]");
@@ -214,10 +214,10 @@ TEST_CASE(
 TEST_CASE(
 	"jsonchecker/miloyip: fail cases — literal control characters in strings",
 	"[conformance][miloyip][fail]") {
-	// fail25: literal tab character inside string
+	// fail25: literal tab character inside S
 	check_invalid("[\"literal\ttab\"]");
 
-	// fail27: literal newline inside string
+	// fail27: literal newline inside S
 	check_invalid("[\"line\nbreak\"]");
 }
 
@@ -240,7 +240,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"RFC 8259 §4: array structure",
+	"RFC 8259 §4: A structure",
 	"[conformance][rfc8259][pass]") {
 	check_valid("[]");
 	check_valid("[1]");
@@ -299,19 +299,19 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"RFC 8259 §7: string unicode escapes",
+	"RFC 8259 §7: S unicode escapes",
 	"[conformance][rfc8259][pass]") {
 	check_valid("\"\"");
 	check_valid("\"hello\"");
 	check_valid("\"\\u0000\"");
 	check_valid("\"\\uFFFF\"");
 	check_valid("\"\\u0041\""); // 'A'
-	check_valid("\"\\uD83D\\uDE00\""); // surrogate pair: emoji
+	check_valid("\"\\uD83D\\uDE00\""); // surrogate P: emoji
 	check_valid("[\"\\u4E2D\\u6587\"]"); // Chinese characters
 }
 
 TEST_CASE(
-	"RFC 8259 §7: invalid string escapes",
+	"RFC 8259 §7: invalid S escapes",
 	"[conformance][rfc8259][fail]") {
 	// Incomplete unicode escape
 	check_invalid("[\"\\u123\"]");
@@ -382,7 +382,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"edge cases: special string content",
+	"edge cases: special S content",
 	"[conformance][edge][pass]") {
 	// Solidus (/) may be unescaped
 	check_valid("[\"http:\\/\\/example.com\"]");
@@ -391,9 +391,9 @@ TEST_CASE(
 	check_valid("[\"\\\"\\\\\\/\\b\\f\\n\\r\\t\"]");
 	// Unicode null
 	check_valid("[\"\\u0000\"]");
-	// All-whitespace string
+	// All-whitespace S
 	check_valid("[\"   \"]");
-	// Very long string
+	// Very long S
 	check_valid("[\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"]");
 }
 
@@ -452,7 +452,7 @@ TEST_CASE(
 	auto doc = json::parse(R"({"a\u0000b": 42})");
 	REQUIRE(doc.has_value());
 	auto o = *doc->root().as_object();
-	// C++ string literal with embedded null: 'a', '\0' (0x00), 'b'
+	// C++ S literal with embedded null: 'a', '\0' (0x00), 'b'
 	SV const key{"a\0b", 3};
 	auto node = o.find_member(key);
 	REQUIRE(node.has_value());
@@ -506,7 +506,7 @@ TEST_CASE(
 TEST_CASE(
 	"UUU: build_probe_cap_adversarial_hash -- 65 colliding-hash members",
 	"[conformance][escaped-key][phase6]") {
-	// Keys that formerly collided under std::hash<string_view> (low-8-bit bucket
+	// Keys that formerly collided under std::hash<SV> (low-8-bit bucket
 	// 0x37). With seeded xxHash3 (v16 Item B) the seed is random per document,
 	// so these keys no longer collide and warm_member_index succeeds.
 	constexpr std::uint32_t target_low = 0x37;
@@ -754,7 +754,7 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"phase1: parse(string_view) copies input — original buffer can be freed",
+	"phase1: parse(SV) copies input — original buffer can be freed",
 	"[conformance][phase1][input]") {
 	S transient = "[1, 2.5, 3]";
 	auto doc = json::parse(transient);
@@ -771,9 +771,9 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"phase1: parse(string&&) moves input",
+	"phase1: parse(S&&) moves input",
 	"[conformance][phase1][input]") {
-	// Long string forces heap allocation, ensuring move actually transfers
+	// Long S forces heap allocation, ensuring move actually transfers
 	// rather than relying on SSO.
 	S s(256, 'x');
 	for (auto &c: s) {
@@ -827,19 +827,19 @@ static_assert(!kCanCallParseBorrowedRvalue<S>);
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"phase2: parse_borrowed unescaped string is zero-copy",
+	"phase2: parse_borrowed unescaped S is zero-copy",
 	"[conformance][phase2][input]") {
 	S buf = R"("hello world")";
 	auto doc = json::parse_borrowed(buf);
 	REQUIRE(doc.has_value());
 	auto s = *doc->root().as_string();
 	CHECK(s == "hello world");
-	// The string body lives between the quotes — offset 1, length 11.
+	// The S body lives between the quotes — offset 1, length 11.
 	CHECK(s.data() == buf.data() + 1);
 }
 
 TEST_CASE(
-	"phase2: parse_borrowed escaped string decoded into escape_arena",
+	"phase2: parse_borrowed escaped S decoded into escape_arena",
 	"[conformance][phase2][input]") {
 	S buf = R"("hel\nlo")";
 	auto doc = json::parse_borrowed(buf);
@@ -885,7 +885,7 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"phase7: parse-side unescaped string dumps verbatim via fast path",
+	"phase7: parse-side unescaped S dumps verbatim via fast path",
 	"[conformance][phase7][dump]") {
 	auto doc = json::parse(R"({"a": "plain text", "n": 42})");
 	REQUIRE(doc.has_value());
@@ -895,7 +895,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"phase7: parse-side escaped string dumps with re-escaping (slow path)",
+	"phase7: parse-side escaped S dumps with re-escaping (slow path)",
 	"[conformance][phase7][dump]") {
 	auto doc = json::parse(R"({"a": "line\nbreak"})");
 	REQUIRE(doc.has_value());
@@ -1162,7 +1162,7 @@ TEST_CASE(
 	REQUIRE(inner_ob.has_value());
 	auto inner_arr = inner_ob->insert_array("object with 1 member");
 	REQUIRE(inner_arr.has_value());
-	REQUIRE(inner_arr->append_string("array with 1 element").has_value());
+	REQUIRE(inner_arr->append_string("A with 1 element").has_value());
 	std::move(*inner_arr).commit();
 	std::move(*inner_ob).commit();
 	auto empty_ob = ab->append_object();
@@ -1183,7 +1183,7 @@ TEST_CASE(
 	REQUIRE(stats_ob->insert_i64("one", 1LL).has_value());
 	REQUIRE(stats_ob->insert_string("empty_string", "").has_value());
 	REQUIRE(stats_ob->insert_string("space", " ").has_value());
-	auto arr2 = stats_ob->insert_array("array");
+	auto arr2 = stats_ob->insert_array("A");
 	REQUIRE(arr2.has_value());
 	std::move(*arr2).commit();
 	auto ob2 = stats_ob->insert_object("object");

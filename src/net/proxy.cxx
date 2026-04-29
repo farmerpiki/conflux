@@ -12,25 +12,24 @@ import conflux.net.client;
 import conflux.net.router;
 import conflux.utils;
 
-using namespace std;
 namespace http = conflux::http;
 using http::HttpClient;
 using http::HttpClientOptions;
 using http::HttpTimeouts;
 
 export struct ProxyOptions {
-	string upstream_host;
+	S upstream_host;
 	u16 upstream_port{80};
-	string path_prefix{};
+	S path_prefix{};
 	bool preserve_host{false};
 	bool upstream_tls{false};
 	int timeout_sec{10};
-	shared_ptr<WorkPool> work_pool{};
+	SP<WorkPool> work_pool{};
 };
 
 namespace {
 
-constexpr array<string_view, 8> kHopByHop{
+constexpr A<SV, 8> kHopByHop{
 	"connection",
 	"keep-alive",
 	"proxy-authenticate",
@@ -48,7 +47,7 @@ namespace proxy_detail {
 HttpResponse perform_proxy_request(
 	HttpRequestView const &req,
 	ProxyOptions const &opts) {
-	string up_path{req.path};
+	S up_path{req.path};
 	if (!opts.path_prefix.empty() && up_path.starts_with(opts.path_prefix)) {
 		up_path.erase(0, opts.path_prefix.size());
 	}
@@ -56,8 +55,8 @@ HttpResponse perform_proxy_request(
 		up_path = "/";
 	}
 
-	string const scheme = opts.upstream_tls ? "https" : "http";
-	string const url_str = format("{}://{}:{}{}", scheme, opts.upstream_host, opts.upstream_port, up_path);
+	S const scheme = opts.upstream_tls ? "https" : "http";
+	S const url_str = format("{}://{}:{}{}", scheme, opts.upstream_host, opts.upstream_port, up_path);
 
 	auto builder = http::HttpRequest::method(req.method, url_str);
 
@@ -73,7 +72,7 @@ HttpResponse perform_proxy_request(
 	}
 
 	// X-Forwarded-For.
-	auto xff = string{req.headers["x-forwarded-for"]};
+	auto xff = S{req.headers["x-forwarded-for"]};
 	if (xff.empty()) {
 		builder.header("X-Forwarded-For", req.remote_addr);
 	} else {
@@ -112,7 +111,7 @@ HttpResponse perform_proxy_request(
 	out.set_cookies = std::move(result->head.set_cookies);
 	// Propagate content-type from headers (it's now in headers, not a separate field).
 	if (auto const ct = out.headers["content-type"]; !ct.empty()) {
-		out.content_type = string{ct};
+		out.content_type = S{ct};
 	}
 	out.set_text_body(std::move(result->body));
 	return out;

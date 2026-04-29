@@ -11,24 +11,24 @@ module;
 
 export module conflux.net.structured_log;
 import std;
+import conflux.types;
 import conflux.net.router;
-using namespace std;
 
 export struct StructuredLogOptions {
 	// Path to the log file. Empty = write to stderr.
-	string log_file;
+	S log_file;
 	// Rotate to a new file each UTC day. Only meaningful when log_file is set.
 	// The suffix ".YYYY-MM-DD" is appended to log_file before opening.
 	bool daily_rotate{false};
 	// Optional application name added as "app" field to every line.
-	string app_name;
+	S app_name;
 };
 
 namespace structured_log_detail {
 
-string json_escape(
-	string_view s) {
-	string out;
+S json_escape(
+	SV s) {
+	S out;
 	out.reserve(s.size() + 4);
 	for (char const raw: s) {
 		auto c = static_cast<unsigned char>(raw);
@@ -57,7 +57,7 @@ string json_escape(
 class LogSink {
 public:
 	explicit LogSink(
-		string path,
+		S path,
 		bool daily_rotate)
 		: path_(move(path))
 		, daily_rotate_(daily_rotate) {
@@ -76,14 +76,14 @@ public:
 	LogSink &operator =(LogSink const &) = delete;
 
 	void write(
-		string const &line) {
-		scoped_lock const lk{mtx_};
+		S const &line) {
+		SL const lk{mtx_};
 		maybe_rotate();
 		if (fd_ < 0) {
 			return;
 		}
-		string l = line + '\n';
-		size_t written = 0;
+		S l = line + '\n';
+		SZ written = 0;
 		while (written < l.size()) {
 			ssize_t const n = ::write(fd_, l.data() + written, l.size() - written);
 			if (n < 0) {
@@ -92,7 +92,7 @@ public:
 				}
 				break;
 			}
-			written += static_cast<size_t>(n);
+			written += static_cast<SZ>(n);
 		}
 	}
 
@@ -115,7 +115,7 @@ private:
 			fd_ = -1;
 		}
 
-		string fpath = path_;
+		S fpath = path_;
 		if (daily_rotate_) {
 			fpath += format(".{:04d}-{:02d}-{:02d}", tm_val.tm_year + 1900, tm_val.tm_mon + 1, tm_val.tm_mday);
 		}
@@ -130,7 +130,7 @@ private:
 		current_day_ = today;
 	}
 
-	string path_;
+	S path_;
 	bool daily_rotate_;
 	mutex mtx_;
 	int fd_{-1};
@@ -139,7 +139,7 @@ private:
 
 export Router::Middleware structured_log_middleware(
 	StructuredLogOptions opts = {}) {
-	string app_name = move(opts.app_name);
+	S app_name = move(opts.app_name);
 	auto sink = make_shared<LogSink>(move(opts.log_file), opts.daily_rotate);
 
 	return [sink, app_name = move(app_name)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
@@ -169,7 +169,7 @@ export Router::Middleware structured_log_middleware(
 			resp.content_length(),
 			ms,
 			structured_log_detail::json_escape(req.remote_addr),
-			app_name.empty() ? ""s : format(R"(,"app":"{}")", structured_log_detail::json_escape(app_name)));
+			app_name.empty() ? S{} : format(R"(,"app":"{}")", structured_log_detail::json_escape(app_name)));
 		sink->write(line);
 		return resp;
 	};

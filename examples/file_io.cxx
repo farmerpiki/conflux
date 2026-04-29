@@ -13,10 +13,10 @@ import conflux.types;
 
 namespace {
 
-constexpr uint64_t pack_ud(
-	uint32_t slot,
-	uint32_t gen) noexcept {
-	return (static_cast<uint64_t>(gen) << 32U) | slot;
+constexpr u64 pack_ud(
+	u32 slot,
+	u32 gen) noexcept {
+	return (static_cast<u64>(gen) << 32U) | slot;
 }
 
 } // namespace
@@ -51,10 +51,7 @@ int main() {
 
 		A<std::byte, 128> buf{};
 		auto got = block_on(files, files.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()}));
-		std::println(
-			"read {} bytes: {}",
-			got,
-			SV{reinterpret_cast<char const *>(buf.data()), got});
+		std::println("read {} bytes: {}", got, SV{reinterpret_cast<char const *>(buf.data()), got});
 	} catch (std::exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);

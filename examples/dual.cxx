@@ -19,7 +19,7 @@ import conflux.net.http;
 import std;
 import conflux.types;
 
-// Write a PEM string to a temp file and return the path.
+// Write a PEM S to a temp file and return the path.
 // Caller must ::unlink() when done.
 static S write_tmp_pem(
 	SV tag) {
@@ -36,7 +36,7 @@ static S write_tmp_pem(
 }
 
 int main() {
-	// Generate a self-signed cert + key pair.
+	// Generate a self-signed cert + key P.
 	S cert_path = write_tmp_pem("cert");
 	S key_path = write_tmp_pem("key");
 

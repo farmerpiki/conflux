@@ -3,101 +3,117 @@
 #include <liburing.h>
 
 import std;
+import conflux.types;
 import conflux.work;
 import conflux.file_io;
 import conflux.db;
 
-using namespace std;
 using namespace conflux::db;
 
 namespace {
 
-constexpr uint64_t pack_ud(
-	uint32_t slot,
-	uint32_t gen) noexcept {
-	return (static_cast<uint64_t>(gen) << 32U) | slot;
+constexpr u64 pack_ud(
+	u32 slot,
+	u32 gen) noexcept {
+	return (static_cast<u64>(gen) << 32U) | slot;
 }
 
-inline atomic<size_t> sink{};
+inline Atom<SZ> sink{};
 
-constexpr string_view kSql = "SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i";
+constexpr SV kSql = "SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i";
 
 void consume(
 	Result const &rs) {
-	size_t acc = 0;
+	SZ acc = 0;
 	for (auto row: rs) {
-		acc += static_cast<size_t>(row.as<int64_t>(0));
-		acc += row.as<string_view>(1).size();
+		acc += static_cast<SZ>(row.as<i64>(0));
+		acc += row.as<SV>(1).size();
 	}
 	sink.fetch_add(acc, memory_order_relaxed);
 }
 
 Params make_params(
-	int64_t n) {
+	i64 n) {
 	Params p;
 	p.add(n);
 	return p;
 }
 
-uint64_t run_callback(
+u64 run_callback(
 	FileReader &reader,
-	shared_ptr<Connection> const &conn,
-	size_t iters,
-	int64_t rows) {
+	SP<Connection> const &conn,
+	SZ iters,
+	i64 rows) {
 	auto const t0 = chrono::steady_clock::now();
-	for (size_t i = 0; i < iters; ++i) {
-		auto rs = block_on(reader, conn->query(string{kSql}, make_params(rows)));
+	for (SZ i = 0; i < iters; ++i) {
+		auto rs = block_on(reader, conn->query(S{kSql}, make_params(rows)));
 		consume(rs);
 	}
 	auto const t1 = chrono::steady_clock::now();
-	return static_cast<uint64_t>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
 
 Task<void> coro_one(
-	shared_ptr<Connection> const &conn,
-	int64_t rows) {
-	auto rs = co_await conn->query(string{kSql}, make_params(rows));
+	SP<Connection> const &conn,
+	i64 rows) {
+	auto rs = co_await conn->query(S{kSql}, make_params(rows));
 	consume(rs);
 	co_return;
 }
 
-uint64_t run_coroutine(
+u64 run_coroutine(
 	FileReader &reader,
-	shared_ptr<Connection> const &conn,
-	size_t iters,
-	int64_t rows) {
+	SP<Connection> const &conn,
+	SZ iters,
+	i64 rows) {
 	auto const t0 = chrono::steady_clock::now();
-	for (size_t i = 0; i < iters; ++i) {
+	for (SZ i = 0; i < iters; ++i) {
 		block_on(reader, coro_one(conn, rows));
 	}
 	auto const t1 = chrono::steady_clock::now();
-	return static_cast<uint64_t>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
 
 struct Config {
-	size_t iterations = 5000;
-	size_t warmup = 500;
-	int64_t rows = 3;
+	SZ iterations = 5000;
+	SZ warmup = 500;
+	i64 rows = 3;
 	bool csv = false;
 };
+
+u64 parse_u64(
+	char const *s) noexcept {
+	SV sv{s};
+	u64 v{};
+	from_chars(sv.data(), sv.data() + sv.size(), v);
+	return v;
+}
+
+i64 parse_i64(
+	char const *s) noexcept {
+	SV sv{s};
+	i64 v{};
+	from_chars(sv.data(), sv.data() + sv.size(), v);
+	return v;
+}
 
 Config parse_args(
 	span<char *> args) {
 	Config cfg;
-	for (size_t i = 1; i < args.size(); ++i) {
-		string_view a = args[i];
+	for (SZ i = 1; i < args.size(); ++i) {
+		SV a = args[i];
 		if (a == "--iterations" && i + 1 < args.size()) {
-			cfg.iterations = stoull(args[++i]);
+			cfg.iterations = parse_u64(args[++i]);
 		} else if (a == "--warmup" && i + 1 < args.size()) {
-			cfg.warmup = stoull(args[++i]);
+			cfg.warmup = parse_u64(args[++i]);
 		} else if (a == "--rows" && i + 1 < args.size()) {
-			cfg.rows = stoll(args[++i]);
+			cfg.rows = parse_i64(args[++i]);
 		} else if (a == "--csv") {
 			cfg.csv = true;
 		} else if (a == "--help" || a == "-h") {
 			println("Usage: conflux_db_coro_bench [--iterations N] [--warmup N] [--rows N] [--csv]");
 			println("Needs PG_CONNINFO set.");
-			exit(0);
+			std::exit(0);
 		}
 	}
 	return cfg;
@@ -108,9 +124,9 @@ Config parse_args(
 int main(
 	int argc,
 	char **argv) {
-	auto cfg = parse_args(span{argv, static_cast<size_t>(argc)});
+	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
 
-	char const *raw = ::getenv("PG_CONNINFO");
+	char const *raw = std::getenv("PG_CONNINFO");
 	if (raw == nullptr || *raw == '\0') {
 		println(cerr, "PG_CONNINFO not set — skipping bench");
 		return 0;
@@ -131,8 +147,8 @@ int main(
 		(void)run_callback(reader, conn, cfg.warmup, cfg.rows);
 		(void)run_coroutine(reader, conn, cfg.warmup, cfg.rows);
 
-		uint64_t const cb_ns = run_callback(reader, conn, cfg.iterations, cfg.rows);
-		uint64_t const co_ns = run_coroutine(reader, conn, cfg.iterations, cfg.rows);
+		u64 const cb_ns = run_callback(reader, conn, cfg.iterations, cfg.rows);
+		u64 const co_ns = run_coroutine(reader, conn, cfg.iterations, cfg.rows);
 
 		double const cb_per = static_cast<double>(cb_ns) / static_cast<double>(cfg.iterations);
 		double const co_per = static_cast<double>(co_ns) / static_cast<double>(cfg.iterations);

@@ -13,8 +13,6 @@ import std.compat;
 import conflux.work;
 import conflux.file_io;
 
-using namespace std;
-
 namespace conflux::db {
 
 namespace detail {
@@ -41,21 +39,21 @@ export struct PGResultDeleter {
 	}
 };
 
-export using PGConnPtr = unique_ptr<PGconn, PGConnDeleter>;
-export using PGResultPtr = unique_ptr<PGresult, PGResultDeleter>;
+export using PGConnPtr = std::unique_ptr<PGconn, PGConnDeleter>;
+export using PGResultPtr = std::unique_ptr<PGresult, PGResultDeleter>;
 
-export struct PgError final : runtime_error {
-	string sqlstate{};
-	string detail{};
-	string hint{};
-	string where{};
+export struct PgError final : RE {
+	S sqlstate{};
+	S detail{};
+	S hint{};
+	S where{};
 	ExecStatusType status{PGRES_FATAL_ERROR};
 
 	explicit PgError(
-		string const &msg,
-		string state = {},
+		S const &msg,
+		S state = {},
 		ExecStatusType st = PGRES_FATAL_ERROR)
-		: runtime_error{msg}
+		: RE{msg}
 		, sqlstate{move(state)}
 		, status{st} {}
 
@@ -70,14 +68,14 @@ export struct PgError final : runtime_error {
 namespace detail {
 
 inline void rstrip_nl_(
-	string_view &s) noexcept {
+	SV &s) noexcept {
 	while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) {
 		s.remove_suffix(1);
 	}
 }
 
 inline void rstrip_nl_(
-	string &s) noexcept {
+	S &s) noexcept {
 	while (!s.empty() && (s.back() == '\n' || s.back() == '\r')) {
 		s.pop_back();
 	}
@@ -85,11 +83,11 @@ inline void rstrip_nl_(
 
 inline PgError from_conn(
 	PGconn *c,
-	string_view label) {
+	SV label) {
 	char const *raw = c != nullptr ? ::PQerrorMessage(c) : "";
-	string_view trimmed{raw != nullptr ? raw : ""};
+	SV trimmed{raw != nullptr ? raw : ""};
 	rstrip_nl_(trimmed);
-	string sqlstate;
+	S sqlstate;
 	if (c != nullptr && ::PQstatus(c) == CONNECTION_BAD) {
 		sqlstate = "08006";
 	}
@@ -98,16 +96,16 @@ inline PgError from_conn(
 
 inline PgError from_result(
 	PGresult *r,
-	string_view label) {
-	auto const fetch = [r](int code) -> string {
+	SV label) {
+	auto const fetch = [r](int code) -> S {
 		char const *p = ::PQresultErrorField(r, code);
-		return p != nullptr ? string{p} : string{};
+		return p != nullptr ? S{p} : S{};
 	};
 	auto state = fetch(PG_DIAG_SQLSTATE);
 	auto primary = fetch(PG_DIAG_MESSAGE_PRIMARY);
 	if (primary.empty()) {
 		char const *p = ::PQresultErrorMessage(r);
-		primary = p != nullptr ? string{p} : string{};
+		primary = p != nullptr ? S{p} : S{};
 	}
 	rstrip_nl_(primary);
 	PgError e{format("{}: {}", label, primary), move(state), ::PQresultStatus(r)};
@@ -118,28 +116,28 @@ inline PgError from_result(
 }
 
 inline void install_sigpipe_ignore() noexcept {
-	static once_flag flag;
-	call_once(flag, [] { (void)::signal(SIGPIPE, SIG_IGN); });
+	static std::once_flag flag;
+	std::call_once(flag, [] { (void)::signal(SIGPIPE, SIG_IGN); });
 }
 
-// PQfnumber needs a NUL-terminated C string. Postgres NAMEDATALEN is 64,
+// PQfnumber needs a NUL-terminated C S. Postgres NAMEDATALEN is 64,
 // so a 128-byte stack buffer covers any real column name without heap alloc.
 // Names longer than that cannot exist in a real result, so report not-found.
 inline int fnumber_sv_(
 	PGresult const *res,
-	string_view col) noexcept {
-	constexpr size_t kStackBuf = 128;
+	SV col) noexcept {
+	constexpr SZ kStackBuf = 128;
 	if (col.size() >= kStackBuf) {
 		return -1;
 	}
-	array<char, kStackBuf> buf{};
+	A<char, kStackBuf> buf{};
 	ranges::copy(col, buf.begin());
 	buf[col.size()] = '\0';
 	return ::PQfnumber(res, buf.data());
 }
 
 inline bool valid_query_name(
-	string_view name) noexcept {
+	SV name) noexcept {
 	if (name.empty() || name == "." || name == "..") {
 		return false;
 	}
@@ -177,10 +175,10 @@ public:
 		return ::PQgetisnull(res_, row_, c) != 0;
 	}
 
-	[[nodiscard]] string_view get(
+	[[nodiscard]] SV get(
 		int c) const noexcept {
 		char const *p = ::PQgetvalue(res_, row_, c);
-		auto const n = static_cast<size_t>(::PQgetlength(res_, row_, c));
+		auto const n = static_cast<SZ>(::PQgetlength(res_, row_, c));
 		return {p != nullptr ? p : "", n};
 	}
 
@@ -189,8 +187,8 @@ public:
 		return ::PQgetlength(res_, row_, c);
 	}
 
-	[[nodiscard]] string_view get(
-		string_view col) const {
+	[[nodiscard]] SV get(
+		SV col) const {
 		int const idx = detail::fnumber_sv_(res_, col);
 		if (idx < 0) {
 			throw PgError{format("column not found: {}", col)};
@@ -203,12 +201,12 @@ public:
 };
 
 template<>
-inline string Row::as<string>(
+inline S Row::as<S>(
 	int c) const {
-	return string{get(c)};
+	return S{get(c)};
 }
 template<>
-inline string_view Row::as<string_view>(
+inline SV Row::as<SV>(
 	int c) const {
 	return get(c);
 }
@@ -294,23 +292,23 @@ public:
 	[[nodiscard]] int rows() const noexcept { return res_ ? ::PQntuples(res_.get()) : 0; }
 	[[nodiscard]] int cols() const noexcept { return res_ ? ::PQnfields(res_.get()) : 0; }
 
-	[[nodiscard]] string_view column_name(
+	[[nodiscard]] SV column_name(
 		int c) const noexcept {
 		char const *p = res_ ? ::PQfname(res_.get(), c) : nullptr;
-		return p != nullptr ? string_view{p} : string_view{};
+		return p != nullptr ? SV{p} : SV{};
 	}
 
 	[[nodiscard]] int column_index(
-		string_view name) const noexcept {
+		SV name) const noexcept {
 		if (!res_) {
 			return -1;
 		}
 		return detail::fnumber_sv_(res_.get(), name);
 	}
 
-	[[nodiscard]] string_view command_tag() const noexcept {
+	[[nodiscard]] SV command_tag() const noexcept {
 		char const *p = res_ ? ::PQcmdTuples(res_.get()) : nullptr;
-		return p != nullptr ? string_view{p} : string_view{};
+		return p != nullptr ? SV{p} : SV{};
 	}
 
 	[[nodiscard]] Row operator [](
@@ -323,9 +321,9 @@ public:
 		int row_{0};
 
 	public:
-		using iterator_category = forward_iterator_tag;
+		using iterator_category = std::forward_iterator_tag;
 		using value_type = Row;
-		using difference_type = ptrdiff_t;
+		using difference_type = std::ptrdiff_t;
 		using pointer = void;
 		using reference = Row;
 
@@ -359,11 +357,11 @@ public:
 };
 
 export class Params {
-	vector<optional<string>> owned_{};
-	vector<int> lengths_{};
-	vector<int> formats_{};
-	vector<Oid> types_{};
-	mutable vector<char const *> values_cache_{};
+	V<Opt<S>> owned_{};
+	V<int> lengths_{};
+	V<int> formats_{};
+	V<Oid> types_{};
+	mutable V<char const *> values_cache_{};
 	mutable bool cache_dirty_{true};
 
 	void rebuild_cache_() const {
@@ -380,7 +378,7 @@ export class Params {
 
 public:
 	Params() {
-		constexpr size_t kCommonSlots = 8;
+		constexpr SZ kCommonSlots = 8;
 		owned_.reserve(kCommonSlots);
 		lengths_.reserve(kCommonSlots);
 		formats_.reserve(kCommonSlots);
@@ -397,8 +395,8 @@ public:
 	}
 
 	Params &add(
-		string_view v) {
-		owned_.emplace_back(string{v});
+		SV v) {
+		owned_.emplace_back(S{v});
 		lengths_.push_back(static_cast<int>(v.size()));
 		formats_.push_back(0);
 		types_.push_back(0);
@@ -408,39 +406,39 @@ public:
 
 	Params &add(
 		char const *v) {
-		return add(string_view{v != nullptr ? v : ""});
+		return add(SV{v != nullptr ? v : ""});
 	}
 
 	Params &add(
 		i64 v) {
-		array<char, 24> buf{};
-		auto [p, _] = to_chars(buf.data(), buf.data() + buf.size(), v);
-		return add(string_view{buf.data(), static_cast<size_t>(p - buf.data())});
+		A<char, 24> buf{};
+		auto [p, _] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
+		return add(SV{buf.data(), static_cast<SZ>(p - buf.data())});
 	}
 	Params &add(
 		i32 v) {
-		array<char, 16> buf{};
-		auto [p, _] = to_chars(buf.data(), buf.data() + buf.size(), v);
-		return add(string_view{buf.data(), static_cast<size_t>(p - buf.data())});
+		A<char, 16> buf{};
+		auto [p, _] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
+		return add(SV{buf.data(), static_cast<SZ>(p - buf.data())});
 	}
 	Params &add(
 		double v) {
-		array<char, 32> buf{};
-		auto [p, _] = to_chars(buf.data(), buf.data() + buf.size(), v);
-		return add(string_view{buf.data(), static_cast<size_t>(p - buf.data())});
+		A<char, 32> buf{};
+		auto [p, _] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
+		return add(SV{buf.data(), static_cast<SZ>(p - buf.data())});
 	}
 	Params &add(
 		bool v) {
-		return add(v ? string_view{"t"} : string_view{"f"});
+		return add(v ? SV{"t"} : SV{"f"});
 	}
 	Params &add_json(
-		string_view j) {
+		SV j) {
 		return add(j);
 	}
 
 	[[nodiscard]] int count() const noexcept { return static_cast<int>(owned_.size()); }
 	[[nodiscard]] Oid const *types() const noexcept { return types_.empty() ? nullptr : types_.data(); }
-	// NOLINTNEXTLINE(bugprone-exception-escape) — vector growth in cache rebuild;
+	// NOLINTNEXTLINE(bugprone-exception-escape) — V growth in cache rebuild;
 	// libpq accessors are documented as noexcept-equivalent.
 	[[nodiscard]] char const *const *values() const noexcept {
 		rebuild_cache_();
@@ -452,13 +450,13 @@ public:
 };
 
 export struct ConnectParams {
-	string conninfo{};
+	S conninfo{};
 	chrono::milliseconds connect_deadline{chrono::seconds{15}};
 };
 
 export class Pool;
 
-export class Connection : public enable_shared_from_this<Connection> {
+export class Connection : public std::enable_shared_from_this<Connection> {
 public:
 	Connection(Connection const &) = delete;
 	Connection &operator =(Connection const &) = delete;
@@ -467,24 +465,24 @@ public:
 
 	~Connection() { close(); }
 
-	static Flow<shared_ptr<Connection>> connect(ConnectParams const &params);
+	static Flow<SP<Connection>> connect(ConnectParams const &params);
 
-	Flow<Result> query(string sql, Params params = {});
+	Flow<Result> query(S sql, Params params = {});
 
-	Flow<void> prepare(string name, string sql, vector<Oid> param_types = {});
+	Flow<void> prepare(S name, S sql, V<Oid> param_types = {});
 
-	Flow<Result> exec_prepared(string name, Params params = {});
+	Flow<Result> exec_prepared(S name, Params params = {});
 
 	Flow<void> cancel_inflight(WorkPool &cancel_pool);
 
 	[[nodiscard]] bool ok() const noexcept { return conn_ && ::PQstatus(conn_.get()) == CONNECTION_OK; }
 
-	[[nodiscard]] string last_error() const {
+	[[nodiscard]] S last_error() const {
 		if (!conn_) {
 			return {};
 		}
 		char const *p = ::PQerrorMessage(conn_.get());
-		return p != nullptr ? string{p} : string{};
+		return p != nullptr ? S{p} : S{};
 	}
 
 	[[nodiscard]] PGconn *raw() const noexcept { return conn_.get(); }
@@ -499,24 +497,24 @@ private:
 		FileReader *reader) noexcept
 		: conn_{move(conn)}
 		, reader_{reader}
-		, owner_{this_thread::get_id()} {}
+		, owner_{std::this_thread::get_id()} {}
 
-	void enqueue_job_(function<void()> job);
+	void enqueue_job_(Fn<void()> job);
 	void start_next_();
 
-	void run_query_(string const &sql, Params const &params, FlowSource<Result> dst);
-	void run_prepare_(string const &name, string const &sql, vector<Oid> oids, FlowSource<void> dst);
-	void run_exec_prepared_(string const &name, Params const &params, FlowSource<Result> dst);
+	void run_query_(S const &sql, Params const &params, FlowSource<Result> dst);
+	void run_prepare_(S const &name, S const &sql, V<Oid> oids, FlowSource<void> dst);
+	void run_exec_prepared_(S const &name, Params const &params, FlowSource<Result> dst);
 
 	template<class T>
-	void after_send_drive_flush_(FlowSource<T> dst, shared_ptr<Result> partial, string const &label);
+	void after_send_drive_flush_(FlowSource<T> dst, SP<Result> partial, S const &label);
 	template<class T>
-	void drive_consume_loop_(FlowSource<T> dst, shared_ptr<Result> partial, string const &label);
+	void drive_consume_loop_(FlowSource<T> dst, SP<Result> partial, S const &label);
 
 	template<class T>
 	void reject_(
 		FlowSource<T> &dst,
-		string const &label) {
+		S const &label) {
 		auto err = detail::from_conn(conn_.get(), label);
 		dst.reject(make_exception_ptr(move(err)));
 	}
@@ -528,7 +526,7 @@ private:
 	thread::id owner_{};
 	bool closed_{false};
 	bool in_flight_{false};
-	deque<function<void()>> queue_{};
+	deque<Fn<void()>> queue_{};
 
 	friend class Pool;
 	friend struct detail::ConnectState;
@@ -537,77 +535,77 @@ private:
 export class QueryCache {
 	struct TransparentHash {
 		using is_transparent = void;
-		size_t operator ()(
-			string_view s) const noexcept {
-			return hash<string_view>{}(s);
+		SZ operator ()(
+			SV s) const noexcept {
+			return hash<SV>{}(s);
 		}
-		size_t operator ()(
-			string const &s) const noexcept {
-			return hash<string_view>{}(s);
+		SZ operator ()(
+			S const &s) const noexcept {
+			return hash<SV>{}(s);
 		}
 	};
 
-	filesystem::path root_{};
-	mutable shared_mutex mtx_{};
-	mutable unordered_map<string, shared_ptr<string const>, TransparentHash, equal_to<>> cache_{};
+	fs::path root_{};
+	mutable std::shared_mutex mtx_{};
+	mutable std::unordered_map<S, SP<S const>, TransparentHash, std::equal_to<>> cache_{};
 
 public:
 	explicit QueryCache(
-		filesystem::path root)
+		fs::path root)
 		: root_{move(root)} {}
 
-	[[nodiscard]] shared_ptr<string const> load(
-		string_view name) const {
+	[[nodiscard]] SP<S const> load(
+		SV name) const {
 		if (!detail::valid_query_name(name)) {
-			throw invalid_argument{format("invalid query name: {}", name)};
+			throw std::invalid_argument{format("invalid query name: {}", name)};
 		}
 		{
-			shared_lock const lk{mtx_};
+			std::shared_lock const lk{mtx_};
 			if (auto it = cache_.find(name); it != cache_.end()) {
 				return it->second;
 			}
 		}
-		auto path = root_ / (string{name} + ".psql");
-		ifstream in{path};
+		auto path = root_ / (S{name} + ".psql");
+		std::ifstream in{path};
 		if (!in) {
-			throw filesystem::filesystem_error{
+			throw fs::filesystem_error{
 				"query file open failed",
 				path,
-				error_code{errno, generic_category()}
+				EC{errno, generic_category()}
             };
 		}
-		string contents{istreambuf_iterator<char>{in}, istreambuf_iterator<char>{}};
-		auto sp = make_shared<string const>(move(contents));
-		scoped_lock const lk{mtx_};
-		auto [it, _] = cache_.try_emplace(string{name}, sp);
+		S contents{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+		auto sp = make_shared<S const>(move(contents));
+		SL const lk{mtx_};
+		auto [it, _] = cache_.try_emplace(S{name}, sp);
 		return it->second;
 	}
 
 	void clear() noexcept {
-		scoped_lock const lk{mtx_};
+		SL const lk{mtx_};
 		cache_.clear();
 	}
 };
 
 export struct PoolConfig {
 	ConnectParams conn{};
-	size_t min_connections{1};
-	size_t max_connections{8};
+	SZ min_connections{1};
+	SZ max_connections{8};
 	chrono::milliseconds acquire_timeout{chrono::seconds{5}};
-	function<Flow<void>(Connection &)> on_acquire{};
+	Fn<Flow<void>(Connection &)> on_acquire{};
 };
 
-export class Pool : public enable_shared_from_this<Pool> {
+export class Pool : public std::enable_shared_from_this<Pool> {
 public:
 	class Lease {
-		shared_ptr<Pool> pool_{};
-		shared_ptr<Connection> conn_{};
+		SP<Pool> pool_{};
+		SP<Connection> conn_{};
 
 		friend class Pool;
 
 		Lease(
-			shared_ptr<Pool> p,
-			shared_ptr<Connection> c) noexcept
+			SP<Pool> p,
+			SP<Connection> c) noexcept
 			: pool_{move(p)}
 			, conn_{move(c)} {}
 
@@ -629,7 +627,7 @@ public:
 		[[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(conn_); }
 	};
 
-	static shared_ptr<Pool> create(PoolConfig cfg);
+	static SP<Pool> create(PoolConfig cfg);
 
 	~Pool() { close(); }
 
@@ -638,27 +636,27 @@ public:
 	Pool(Pool &&) = delete;
 	Pool &operator =(Pool &&) = delete;
 
-	Flow<shared_ptr<Lease>> acquire();
+	Flow<SP<Lease>> acquire();
 	void close() noexcept;
 
-	[[nodiscard]] size_t total() const noexcept { return total_; }
-	[[nodiscard]] size_t idle() const noexcept { return idle_.size(); }
+	[[nodiscard]] SZ total() const noexcept { return total_; }
+	[[nodiscard]] SZ idle() const noexcept { return idle_.size(); }
 
 private:
 	explicit Pool(
 		PoolConfig cfg) noexcept
 		: cfg_{move(cfg)}
-		, owner_{this_thread::get_id()} {}
+		, owner_{std::this_thread::get_id()} {}
 
-	void return_(shared_ptr<Connection> conn) noexcept;
+	void return_(SP<Connection> conn) noexcept;
 	void try_dispatch_waiters_();
 	void grow_if_needed_();
 
 	PoolConfig cfg_{};
 	thread::id owner_{};
-	vector<shared_ptr<Connection>> idle_{};
-	deque<FlowSource<shared_ptr<Lease>>> waiters_{};
-	size_t total_{0};
+	V<SP<Connection>> idle_{};
+	deque<FlowSource<SP<Lease>>> waiters_{};
+	SZ total_{0};
 	bool closed_{false};
 };
 
@@ -676,10 +674,10 @@ inline FileReader *current_reader_or_throw() {
 	return r;
 }
 
-struct ConnectState : enable_shared_from_this<ConnectState> {
+struct ConnectState : std::enable_shared_from_this<ConnectState> {
 	PGConnPtr conn{};
 	FileReader *reader{nullptr};
-	FlowSource<shared_ptr<Connection>> dst{};
+	FlowSource<SP<Connection>> dst{};
 	chrono::steady_clock::time_point deadline{};
 
 	void start() {
@@ -708,7 +706,7 @@ struct ConnectState : enable_shared_from_this<ConnectState> {
 					dst.reject(make_exception_ptr(from_conn(conn.get(), "conflux.db: PQsetnonblocking")));
 					return;
 				}
-				auto c = shared_ptr<Connection>(new Connection{move(conn), reader});
+				auto c = SP<Connection>(new Connection{move(conn), reader});
 				dst.resolve(move(c));
 				return;
 			}
@@ -744,9 +742,9 @@ struct ConnectState : enable_shared_from_this<ConnectState> {
 
 } // namespace detail
 
-Flow<shared_ptr<Connection>> Connection::connect(
+Flow<SP<Connection>> Connection::connect(
 	ConnectParams const &params) {
-	FlowSource<shared_ptr<Connection>> const src;
+	FlowSource<SP<Connection>> const src;
 	auto flow = src.flow();
 	auto *reader = current_file_reader();
 	if (reader == nullptr) {
@@ -781,7 +779,7 @@ void Connection::close() noexcept {
 }
 
 void Connection::enqueue_job_(
-	function<void()> job) {
+	Fn<void()> job) {
 	if (in_flight_) {
 		queue_.push_back(move(job));
 	} else {
@@ -805,7 +803,7 @@ void Connection::op_done_() {
 }
 
 Flow<Result> Connection::query(
-	string sql,
+	S sql,
 	Params params) {
 	FlowSource<Result> const src;
 	auto flow = src.flow();
@@ -813,7 +811,7 @@ Flow<Result> Connection::query(
 		src.reject(make_exception_ptr(PgError{"conflux.db: connection closed"}));
 		return flow;
 	}
-	if (this_thread::get_id() != owner_) {
+	if (std::this_thread::get_id() != owner_) {
 		src.reject(make_exception_ptr(PgError{"conflux.db: query off owner thread"}));
 		return flow;
 	}
@@ -823,7 +821,7 @@ Flow<Result> Connection::query(
 }
 
 void Connection::run_query_(
-	string const &sql,
+	S const &sql,
 	Params const &params,
 	FlowSource<Result> dst) {
 	int const n = params.count();
@@ -845,16 +843,16 @@ void Connection::run_query_(
 }
 
 Flow<void> Connection::prepare(
-	string name,
-	string sql,
-	vector<Oid> param_types) {
+	S name,
+	S sql,
+	V<Oid> param_types) {
 	FlowSource<void> const src;
 	auto flow = src.flow();
 	if (closed_ || !conn_) {
 		src.reject(make_exception_ptr(PgError{"conflux.db: connection closed"}));
 		return flow;
 	}
-	if (this_thread::get_id() != owner_) {
+	if (std::this_thread::get_id() != owner_) {
 		src.reject(make_exception_ptr(PgError{"conflux.db: prepare off owner thread"}));
 		return flow;
 	}
@@ -866,9 +864,9 @@ Flow<void> Connection::prepare(
 }
 
 void Connection::run_prepare_(
-	string const &name,
-	string const &sql,
-	vector<Oid> oids,
+	S const &name,
+	S const &sql,
+	V<Oid> oids,
 	FlowSource<void> dst) {
 	int const send = ::PQsendPrepare(
 		conn_.get(),
@@ -885,7 +883,7 @@ void Connection::run_prepare_(
 }
 
 Flow<Result> Connection::exec_prepared(
-	string name,
+	S name,
 	Params params) {
 	FlowSource<Result> const src;
 	auto flow = src.flow();
@@ -893,7 +891,7 @@ Flow<Result> Connection::exec_prepared(
 		src.reject(make_exception_ptr(PgError{"conflux.db: connection closed"}));
 		return flow;
 	}
-	if (this_thread::get_id() != owner_) {
+	if (std::this_thread::get_id() != owner_) {
 		src.reject(make_exception_ptr(PgError{"conflux.db: exec_prepared off owner thread"}));
 		return flow;
 	}
@@ -905,7 +903,7 @@ Flow<Result> Connection::exec_prepared(
 }
 
 void Connection::run_exec_prepared_(
-	string const &name,
+	S const &name,
 	Params const &params,
 	FlowSource<Result> dst) {
 	int const n = params.count();
@@ -928,8 +926,8 @@ void Connection::run_exec_prepared_(
 template<class T>
 void Connection::after_send_drive_flush_(
 	FlowSource<T> dst,
-	shared_ptr<Result> partial,
-	string const &label) {
+	SP<Result> partial,
+	S const &label) {
 	int const f = ::PQflush(conn_.get());
 	if (f < 0) {
 		reject_(dst, "conflux.db: PQflush");
@@ -969,8 +967,8 @@ void Connection::after_send_drive_flush_(
 template<class T>
 void Connection::drive_consume_loop_(
 	FlowSource<T> dst,
-	shared_ptr<Result> partial,
-	string const &label) {
+	SP<Result> partial,
+	S const &label) {
 	if (::PQconsumeInput(conn_.get()) == 0) {
 		reject_(dst, "conflux.db: PQconsumeInput");
 		op_done_();
@@ -980,7 +978,7 @@ void Connection::drive_consume_loop_(
 		PGResultPtr next{::PQgetResult(conn_.get())};
 		if (!next) {
 			if (partial && *partial && partial->ok()) {
-				if constexpr (is_void_v<T>) {
+				if constexpr (std::is_void_v<T>) {
 					dst.resolve();
 				} else {
 					dst.resolve(move(*partial));
@@ -1037,7 +1035,7 @@ struct PGcancelDeleter {
 		}
 	}
 };
-using PGcancelPtr = unique_ptr<PGcancel, PGcancelDeleter>;
+using PGcancelPtr = std::unique_ptr<PGcancel, PGcancelDeleter>;
 
 } // namespace detail
 
@@ -1056,12 +1054,12 @@ Flow<void> Connection::cancel_inflight(
 		src.reject(make_exception_ptr(PgError{"conflux.db: PQgetCancel returned null"}));
 		return flow;
 	}
-	auto shared_handle = shared_ptr<PGcancel>{handle.release(), detail::PGcancelDeleter{}};
+	auto shared_handle = SP<PGcancel>{handle.release(), detail::PGcancelDeleter{}};
 	bool const queued = cancel_pool.enqueue([shared_handle, src]() mutable {
-		array<char, 256> buf{};
+		A<char, 256> buf{};
 		int const ok = ::PQcancel(shared_handle.get(), buf.data(), static_cast<int>(buf.size()));
 		if (ok == 0) {
-			src.reject(make_exception_ptr(PgError{string{buf.data()}}));
+			src.reject(make_exception_ptr(PgError{S{buf.data()}}));
 		} else {
 			src.resolve();
 		}
@@ -1076,14 +1074,14 @@ Flow<void> Connection::cancel_inflight(
 // Pool
 // ---------------------------------------------------------------------------
 
-shared_ptr<Pool> Pool::create(
+SP<Pool> Pool::create(
 	PoolConfig cfg) {
-	auto p = shared_ptr<Pool>(new Pool{move(cfg)});
+	auto p = SP<Pool>(new Pool{move(cfg)});
 	p->grow_if_needed_();
 	return p;
 }
 
-// NOLINTNEXTLINE(bugprone-exception-escape) — vector ops are noexcept on move-only payloads here.
+// NOLINTNEXTLINE(bugprone-exception-escape) — V ops are noexcept on move-only payloads here.
 void Pool::close() noexcept {
 	if (closed_) {
 		return;
@@ -1096,14 +1094,14 @@ void Pool::close() noexcept {
 	idle_.clear();
 }
 
-Flow<shared_ptr<Pool::Lease>> Pool::acquire() {
-	FlowSource<shared_ptr<Lease>> const src;
+Flow<SP<Pool::Lease>> Pool::acquire() {
+	FlowSource<SP<Lease>> const src;
 	auto flow = src.flow();
 	if (closed_) {
 		src.reject(make_exception_ptr(PgError{"conflux.db: pool closed"}));
 		return flow;
 	}
-	if (this_thread::get_id() != owner_) {
+	if (std::this_thread::get_id() != owner_) {
 		src.reject(make_exception_ptr(PgError{"conflux.db: pool acquire off owner thread"}));
 		return flow;
 	}
@@ -1119,7 +1117,7 @@ Flow<shared_ptr<Pool::Lease>> Pool::acquire() {
 		auto const &src_copy = src;
 		spawn(
 			Connection::connect(cfg_.conn)
-			| then([self, src_copy](shared_ptr<Connection> conn) mutable {
+			| then([self, src_copy](SP<Connection> conn) mutable {
 				  if (self->closed_) {
 					  --self->total_;
 					  src_copy.cancel();
@@ -1127,7 +1125,7 @@ Flow<shared_ptr<Pool::Lease>> Pool::acquire() {
 				  }
 				  src_copy.resolve(make_shared<Lease>(Lease{self, move(conn)}));
 			  })
-			| on_error([self, src_copy](exception_ptr const &ex) mutable {
+			| on_error([self, src_copy](EP const &ex) mutable {
 				  --self->total_;
 				  src_copy.reject(ex);
 			  }));
@@ -1139,7 +1137,7 @@ Flow<shared_ptr<Pool::Lease>> Pool::acquire() {
 
 // NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.
 void Pool::return_(
-	shared_ptr<Connection> conn) noexcept {
+	SP<Connection> conn) noexcept {
 	if (closed_ || !conn || !conn->ok()) {
 		if (conn) {
 			conn->close();
@@ -1173,7 +1171,7 @@ void Pool::grow_if_needed_() {
 		auto self = shared_from_this();
 		spawn(
 			Connection::connect(cfg_.conn)
-			| then([self](shared_ptr<Connection> conn) mutable {
+			| then([self](SP<Connection> conn) mutable {
 				  if (self->closed_) {
 					  --self->total_;
 					  return;
@@ -1181,7 +1179,7 @@ void Pool::grow_if_needed_() {
 				  self->idle_.push_back(move(conn));
 				  self->try_dispatch_waiters_();
 			  })
-			| on_error([self](exception_ptr const &) mutable { --self->total_; }));
+			| on_error([self](EP const &) mutable { --self->total_; }));
 	}
 }
 

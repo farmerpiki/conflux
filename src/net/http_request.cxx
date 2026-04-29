@@ -9,8 +9,6 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.json;
 
-using namespace std;
-
 export namespace conflux::http {
 
 // ─── HttpRequest ──────────────────────────────────────────────────────────────
@@ -19,33 +17,33 @@ class HttpRequest {
 public:
 	class Builder;
 
-	static Builder get(string_view url);
-	static Builder post(string_view url);
-	static Builder put(string_view url);
-	static Builder patch(string_view url);
-	static Builder del(string_view url);
-	static Builder head(string_view url);
-	static Builder method(string_view m, string_view url);
+	static Builder get(SV url);
+	static Builder post(SV url);
+	static Builder put(SV url);
+	static Builder patch(SV url);
+	static Builder del(SV url);
+	static Builder head(SV url);
+	static Builder method(SV m, SV url);
 
-	[[nodiscard]] string_view method() const noexcept { return method_; }
+	[[nodiscard]] SV method() const noexcept { return method_; }
 	[[nodiscard]] Url const &url() const noexcept { return url_; }
 	[[nodiscard]] HttpFields const &headers() const noexcept { return headers_; }
-	[[nodiscard]] string const &body() const noexcept { return body_; }
+	[[nodiscard]] S const &body() const noexcept { return body_; }
 	[[nodiscard]] HttpTimeouts timeouts() const noexcept { return timeouts_; }
 	[[nodiscard]] bool verify_peer() const noexcept { return verify_peer_; }
-	[[nodiscard]] string_view server_name() const noexcept { return server_name_; }
+	[[nodiscard]] SV server_name() const noexcept { return server_name_; }
 	[[nodiscard]] int max_redirects() const noexcept { return max_redirects_; }
 
 private:
 	friend class Builder;
 
-	string method_{"GET"};
+	S method_{"GET"};
 	Url url_{};
 	HttpFields headers_{true}; // case-insensitive
-	string body_{};
+	S body_{};
 	HttpTimeouts timeouts_{};
 	bool verify_peer_{true};
-	string server_name_{};
+	S server_name_{};
 	int max_redirects_{0};
 
 	explicit HttpRequest() = default;
@@ -58,10 +56,10 @@ class HttpRequest::Builder {
 	bool body_set_{false};
 
 	static Url parse_or_throw(
-		string_view raw) {
+		SV raw) {
 		auto r = Url::parse(raw);
 		if (!r) {
-			throw invalid_argument(format("invalid URL: {}", r.error().message));
+			throw std::invalid_argument(format("invalid URL: {}", r.error().message));
 		}
 		return std::move(*r);
 	}
@@ -75,9 +73,9 @@ class HttpRequest::Builder {
 
 public:
 	explicit Builder(
-		string_view method_str,
-		string_view url_raw) {
-		req_.method_ = string{method_str};
+		SV method_str,
+		SV url_raw) {
+		req_.method_ = S{method_str};
 		req_.url_ = parse_or_throw(url_raw);
 	}
 
@@ -89,12 +87,12 @@ public:
 	// ── verbs / URL ──────────────────────────────────────────────────────────
 
 	Builder &method(
-		string_view m) & {
-		req_.method_ = string{m};
+		SV m) & {
+		req_.method_ = S{m};
 		return *this;
 	}
 	Builder &url(
-		string_view raw) & {
+		SV raw) & {
 		req_.url_ = parse_or_throw(raw);
 		return *this;
 	}
@@ -105,11 +103,11 @@ public:
 	}
 
 	Builder &&method(
-		string_view m) && {
+		SV m) && {
 		return std::move(method(m));
 	}
 	Builder &&url(
-		string_view raw) && {
+		SV raw) && {
 		return std::move(url(raw));
 	}
 	Builder &&url(
@@ -120,8 +118,8 @@ public:
 	// ── query ─────────────────────────────────────────────────────────────────
 
 	Builder &query(
-		string_view name,
-		string_view value) & {
+		SV name,
+		SV value) & {
 		req_.url_.set_query_param(name, value);
 		return *this;
 	}
@@ -133,8 +131,8 @@ public:
 		return *this;
 	}
 	Builder &&query(
-		string_view name,
-		string_view value) && {
+		SV name,
+		SV value) && {
 		return std::move(query(name, value));
 	}
 	Builder &&query_params(
@@ -145,9 +143,9 @@ public:
 	// ── headers ───────────────────────────────────────────────────────────────
 
 	Builder &header(
-		string_view name,
-		string_view value) & {
-		req_.headers_.set(string{name}, string{value});
+		SV name,
+		SV value) & {
+		req_.headers_.set(S{name}, S{value});
 		return *this;
 	}
 	Builder &headers(
@@ -158,19 +156,19 @@ public:
 		return *this;
 	}
 	Builder &bearer(
-		string_view token) & {
+		SV token) & {
 		return header("Authorization", format("Bearer {}", token));
 	}
 	Builder &basic(
-		string_view user,
-		string_view pass) & {
+		SV user,
+		SV pass) & {
 		// Base64-encode user:pass.
 		auto const creds = format("{}:{}", user, pass);
 		// Simple base64 without external lib.
-		static constexpr string_view kAlpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-		string b64;
+		static constexpr SV kAlpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+		S b64;
 		b64.reserve(((creds.size() + 2) / 3) * 4);
-		for (size_t i = 0; i < creds.size(); i += 3) {
+		for (SZ i = 0; i < creds.size(); i += 3) {
 			auto const a = static_cast<unsigned char>(creds[i]);
 			auto const b = (i + 1 < creds.size()) ? static_cast<unsigned char>(creds[i + 1]) : 0u;
 			auto const c = (i + 2 < creds.size()) ? static_cast<unsigned char>(creds[i + 2]) : 0u;
@@ -182,24 +180,24 @@ public:
 		return header("Authorization", format("Basic {}", b64));
 	}
 	Builder &user_agent(
-		string_view ua) & {
+		SV ua) & {
 		return header("User-Agent", ua);
 	}
 	Builder &accept(
-		string_view mime) & {
+		SV mime) & {
 		return header("Accept", mime);
 	}
 	Builder &accept_json() & { return accept("application/json"); }
 	Builder &content_type(
-		string_view ct) & {
+		SV ct) & {
 		return header("Content-Type", ct);
 	}
 	Builder &if_match(
-		string_view etag) & {
+		SV etag) & {
 		return header("If-Match", etag);
 	}
 	Builder &if_none_match(
-		string_view etag) & {
+		SV etag) & {
 		return header("If-None-Match", etag);
 	}
 	Builder &if_modified_since(
@@ -208,7 +206,7 @@ public:
 		auto const tt = chrono::system_clock::to_time_t(tp);
 		tm gmt{};
 		gmtime_r(&tt, &gmt);
-		array<char, 32> buf{};
+		A<char, 32> buf{};
 		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
 		return header("If-Modified-Since", buf.data());
 	}
@@ -217,14 +215,14 @@ public:
 		auto const tt = chrono::system_clock::to_time_t(tp);
 		tm gmt{};
 		gmtime_r(&tt, &gmt);
-		array<char, 32> buf{};
+		A<char, 32> buf{};
 		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
 		return header("If-Unmodified-Since", buf.data());
 	}
 
 	Builder &&header(
-		string_view name,
-		string_view value) && {
+		SV name,
+		SV value) && {
 		return std::move(header(name, value));
 	}
 	Builder &&headers(
@@ -232,33 +230,33 @@ public:
 		return std::move(headers(std::move(h)));
 	}
 	Builder &&bearer(
-		string_view token) && {
+		SV token) && {
 		return std::move(bearer(token));
 	}
 	Builder &&basic(
-		string_view user,
-		string_view pass) && {
+		SV user,
+		SV pass) && {
 		return std::move(basic(user, pass));
 	}
 	Builder &&user_agent(
-		string_view ua) && {
+		SV ua) && {
 		return std::move(user_agent(ua));
 	}
 	Builder &&accept(
-		string_view mime) && {
+		SV mime) && {
 		return std::move(accept(mime));
 	}
 	Builder &&accept_json() && { return std::move(accept_json()); }
 	Builder &&content_type(
-		string_view ct) && {
+		SV ct) && {
 		return std::move(content_type(ct));
 	}
 	Builder &&if_match(
-		string_view etag) && {
+		SV etag) && {
 		return std::move(if_match(etag));
 	}
 	Builder &&if_none_match(
-		string_view etag) && {
+		SV etag) && {
 		return std::move(if_none_match(etag));
 	}
 	Builder &&if_modified_since(
@@ -275,15 +273,15 @@ public:
 	// Release builds: last-wins + header overwrite.
 
 	Builder &body(
-		string s) & {
+		S s) & {
 		assert_single_body();
 		req_.body_ = std::move(s);
 		return *this;
 	}
 	Builder &body_view(
-		string_view sv) & {
+		SV sv) & {
 		assert_single_body();
-		req_.body_ = string{sv};
+		req_.body_ = S{sv};
 		return *this;
 	}
 	Builder &body_json(
@@ -311,7 +309,7 @@ public:
 		return content_type("application/json");
 	}
 	Builder &body_json_raw(
-		string already_serialized) & {
+		S already_serialized) & {
 		assert_single_body();
 		req_.body_ = std::move(already_serialized);
 		return content_type("application/json");
@@ -319,13 +317,13 @@ public:
 	Builder &body_form(
 		HttpFields fields) & {
 		assert_single_body();
-		string encoded;
+		S encoded;
 		for (auto const &[k, v]: fields) {
 			if (!encoded.empty()) {
 				encoded += '&';
 			}
-			auto encode_part = [](string_view s) {
-				string out;
+			auto encode_part = [](SV s) {
+				S out;
 				for (auto const raw_c: s) {
 					unsigned char const c = static_cast<unsigned char>(raw_c);
 					if ((c >= 'A' && c <= 'Z')
@@ -358,11 +356,11 @@ public:
 	}
 
 	Builder &&body(
-		string s) && {
+		S s) && {
 		return std::move(body(std::move(s)));
 	}
 	Builder &&body_view(
-		string_view sv) && {
+		SV sv) && {
 		return std::move(body_view(sv));
 	}
 	Builder &&body_json(
@@ -374,7 +372,7 @@ public:
 		return std::move(body_json(n));
 	}
 	Builder &&body_json_raw(
-		string s) && {
+		S s) && {
 		return std::move(body_json_raw(std::move(s)));
 	}
 	Builder &&body_form(
@@ -405,8 +403,8 @@ public:
 		return *this;
 	}
 	Builder &server_name(
-		string_view sni) & {
-		req_.server_name_ = string{sni};
+		SV sni) & {
+		req_.server_name_ = S{sni};
 		return *this;
 	}
 
@@ -424,7 +422,7 @@ public:
 		return std::move(verify_peer(v));
 	}
 	Builder &&server_name(
-		string_view s) && {
+		SV s) && {
 		return std::move(server_name(s));
 	}
 };
@@ -432,32 +430,32 @@ public:
 // ─── Static factory implementations ──────────────────────────────────────────
 
 HttpRequest::Builder HttpRequest::get(
-	string_view url) {
+	SV url) {
 	return Builder{"GET", url};
 }
 HttpRequest::Builder HttpRequest::post(
-	string_view url) {
+	SV url) {
 	return Builder{"POST", url};
 }
 HttpRequest::Builder HttpRequest::put(
-	string_view url) {
+	SV url) {
 	return Builder{"PUT", url};
 }
 HttpRequest::Builder HttpRequest::patch(
-	string_view url) {
+	SV url) {
 	return Builder{"PATCH", url};
 }
 HttpRequest::Builder HttpRequest::del(
-	string_view url) {
+	SV url) {
 	return Builder{"DELETE", url};
 }
 HttpRequest::Builder HttpRequest::head(
-	string_view url) {
+	SV url) {
 	return Builder{"HEAD", url};
 }
 HttpRequest::Builder HttpRequest::method(
-	string_view m,
-	string_view url) {
+	SV m,
+	SV url) {
 	return Builder{m, url};
 }
 

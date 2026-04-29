@@ -13,17 +13,16 @@
 #include <unistd.h>
 
 import std;
+import conflux.types;
 import conflux.work;
 import conflux.file_io;
 
-using namespace std;
-
 namespace {
 
-constexpr uint64_t pack_ud(
-	uint32_t slot,
-	uint32_t gen) noexcept {
-	return (static_cast<uint64_t>(gen) << 32U) | slot;
+constexpr u64 pack_ud(
+	u32 slot,
+	u32 gen) noexcept {
+	return (static_cast<u64>(gen) << 32U) | slot;
 }
 
 struct RingFixture {
@@ -33,9 +32,9 @@ struct RingFixture {
 	bool ring_ok{false};
 
 	RingFixture()
-		: reader{&ring, &completions, [](uint32_t slot, uint32_t gen) noexcept { return pack_ud(slot, gen); }} {}
+		: reader{&ring, &completions, [](u32 slot, u32 gen) noexcept { return pack_ud(slot, gen); }} {}
 
-	static unique_ptr<RingFixture> make(
+	static UP<RingFixture> make(
 		unsigned entries = 64) {
 		auto fx = make_unique<RingFixture>();
 		if (::io_uring_queue_init(entries, &fx->ring, 0) < 0) {
@@ -67,7 +66,7 @@ struct RingFixture {
 	}
 };
 
-unique_ptr<RingFixture> require_ring_fixture(
+UP<RingFixture> require_ring_fixture(
 	unsigned entries = 64) {
 	auto fx = RingFixture::make(entries);
 	INFO("conflux requires a host that permits io_uring_queue_init");
@@ -76,11 +75,11 @@ unique_ptr<RingFixture> require_ring_fixture(
 }
 
 struct TempFile {
-	string path;
+	S path;
 	int fd{-1};
 
 	static TempFile create(
-		string_view content = {}) {
+		SV content = {}) {
 		TempFile t;
 		t.path = "/tmp/conflux_file_io_test_XXXXXX";
 		t.fd = ::mkstemp(t.path.data());
@@ -168,7 +167,7 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 open_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -184,30 +183,30 @@ TEST_CASE(
 						 stat_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 stat_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
 	fx->pump_until(stat_done);
 	(void)stat_flow;
-	CHECK(st.size == string_view{"hello file_io"}.size());
+	CHECK(st.size == SV{"hello file_io"}.size());
 
-	array<byte, 32> buf{};
-	size_t got = 0;
+	A<byte, 32> buf{};
+	SZ got = 0;
 	atomic_flag read_done{};
 	auto read_flow = fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()})
-				   | then([&](size_t n) {
+				   | then([&](SZ n) {
 						 got = n;
 						 read_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 read_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
 	fx->pump_until(read_done);
 	(void)read_flow;
-	REQUIRE(got == string_view{"hello file_io"}.size());
+	REQUIRE(got == SV{"hello file_io"}.size());
 	CHECK(memcmp(buf.data(), "hello file_io", got) == 0);
 }
 
@@ -223,7 +222,7 @@ TEST_CASE(
 	auto buf = pool.try_acquire();
 	REQUIRE(buf.has_value());
 
-	string const content(1024, 'Z');
+	S const content(1024, 'Z');
 	auto tf = TempFile::create(content);
 
 	FileHandle handle;
@@ -234,7 +233,7 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 open_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -250,7 +249,7 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &) {
+			  | on_error([&](EP const &) {
 					done.test_and_set(memory_order_release);
 					return -1;
 				});
@@ -258,7 +257,7 @@ TEST_CASE(
 	(void)flow;
 	REQUIRE(got.bytes == content.size());
 	auto const view = got.buffer.view();
-	for (size_t i = 0; i < got.bytes; ++i) {
+	for (SZ i = 0; i < got.bytes; ++i) {
 		REQUIRE(static_cast<char>(view[i]) == 'Z');
 	}
 }
@@ -272,7 +271,7 @@ TEST_CASE(
 	auto pipe = pipes.try_acquire();
 	REQUIRE(pipe.has_value());
 
-	string const content(8UL * 1024, 'S');
+	S const content(8UL * 1024, 'S');
 	auto tf = TempFile::create(content);
 
 	int sink_pipe[2] = {-1, -1};
@@ -288,7 +287,7 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 open_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -296,15 +295,15 @@ TEST_CASE(
 	(void)open_flow;
 	REQUIRE(handle.valid());
 
-	size_t delivered = 0;
+	SZ delivered = 0;
 	atomic_flag done{};
 	auto flow = fx->reader.splice_to_fd(handle, 0, content.size(), sink_pipe[1], move(*pipe))
-			  | then([&](size_t n) {
+			  | then([&](SZ n) {
 					delivered = n;
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &) {
+			  | on_error([&](EP const &) {
 					done.test_and_set(memory_order_release);
 					return -1;
 				});
@@ -312,14 +311,14 @@ TEST_CASE(
 	(void)flow;
 	CHECK(delivered == content.size());
 
-	string drained(content.size(), '\0');
-	size_t off = 0;
+	S drained(content.size(), '\0');
+	SZ off = 0;
 	while (off < drained.size()) {
 		ssize_t const n = ::read(sink_pipe[0], drained.data() + off, drained.size() - off);
 		if (n <= 0) {
 			break;
 		}
-		off += static_cast<size_t>(n);
+		off += static_cast<SZ>(n);
 	}
 	::close(sink_pipe[0]);
 	::close(sink_pipe[1]);
@@ -346,10 +345,10 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &e) {
+				   | on_error([&](EP const &e) {
 						 try {
 							 rethrow_exception(e);
-						 } catch (system_error const &se) {
+						 } catch (SE const &se) {
 							 open_error = se.code().value();
 						 } catch (...) { // NOLINT(bugprone-empty-catch) - test reports invalid handle below
 						 }
@@ -366,22 +365,22 @@ TEST_CASE(
 	REQUIRE(handle.is_direct());
 	CHECK(handle.direct_slot() == 2);
 
-	array<byte, 32> buf{};
-	size_t got = 0;
+	A<byte, 32> buf{};
+	SZ got = 0;
 	atomic_flag read_done{};
 	auto read_flow = fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()})
-				   | then([&](size_t n) {
+				   | then([&](SZ n) {
 						 got = n;
 						 read_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 read_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
 	fx->pump_until(read_done);
 	(void)read_flow;
-	REQUIRE(got == string_view{"direct file"}.size());
+	REQUIRE(got == SV{"direct file"}.size());
 	CHECK(memcmp(buf.data(), "direct file", got) == 0);
 
 	atomic_flag close_done{};
@@ -390,7 +389,7 @@ TEST_CASE(
 						  close_done.test_and_set(memory_order_release);
 						  return 0;
 					  })
-					| on_error([&](exception_ptr const &) {
+					| on_error([&](EP const &) {
 						  close_done.test_and_set(memory_order_release);
 						  return -1;
 					  });
@@ -411,10 +410,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
+					} catch (SE const &se) {
 						captured = se.code().value();
 					} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows other exceptions
 					}
@@ -477,7 +476,7 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 open_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -488,7 +487,7 @@ TEST_CASE(
 	// Fill a fixed buffer with known content and write it.
 	auto write_buf = pool.try_acquire();
 	REQUIRE(write_buf.has_value());
-	string const payload(512, 'W');
+	S const payload(512, 'W');
 	memcpy(write_buf->view().data(), payload.data(), payload.size());
 
 	FileReader::WriteFixedResult wresult{};
@@ -499,7 +498,7 @@ TEST_CASE(
 						  write_done.test_and_set(memory_order_release);
 						  return 0;
 					  })
-					| on_error([&](exception_ptr const &) {
+					| on_error([&](EP const &) {
 						  write_done.test_and_set(memory_order_release);
 						  return -1;
 					  });
@@ -508,7 +507,7 @@ TEST_CASE(
 	REQUIRE(wresult.bytes == payload.size());
 
 	// Verify on-disk bytes via pread.
-	string verify(payload.size(), '\0');
+	S verify(payload.size(), '\0');
 	ssize_t const n = ::pread(tf.fd, verify.data(), verify.size(), 0);
 	REQUIRE(n == static_cast<ssize_t>(payload.size()));
 	CHECK(verify == payload);
@@ -522,9 +521,9 @@ TEST_CASE(
 	"[file_io][uring]") {
 	auto fx = require_ring_fixture();
 
-	string const part_a(64, 'A');
-	string const part_b(128, 'B');
-	string const content = part_a + part_b;
+	S const part_a(64, 'A');
+	S const part_b(128, 'B');
+	S const content = part_a + part_b;
 	auto tf = TempFile::create(content);
 
 	FileHandle handle;
@@ -535,7 +534,7 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 open_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -543,22 +542,22 @@ TEST_CASE(
 	(void)open_flow;
 	REQUIRE(handle.valid());
 
-	array<byte, 64> buf_a{};
-	array<byte, 128> buf_b{};
-	vector<iovec> iovs{
+	A<byte, 64> buf_a{};
+	A<byte, 128> buf_b{};
+	V<iovec> iovs{
 		iovec{.iov_base = buf_a.data(), .iov_len = buf_a.size()},
 		iovec{.iov_base = buf_b.data(), .iov_len = buf_b.size()},
 	};
 
-	size_t got = 0;
+	SZ got = 0;
 	atomic_flag done{};
 	auto flow = fx->reader.readv_into(handle, 0, move(iovs))
-			  | then([&](size_t n) {
+			  | then([&](SZ n) {
 					got = n;
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &) {
+			  | on_error([&](EP const &) {
 					done.test_and_set(memory_order_release);
 					return -1;
 				});
@@ -566,10 +565,10 @@ TEST_CASE(
 	(void)flow;
 
 	REQUIRE(got == content.size());
-	for (size_t i = 0; i < buf_a.size(); ++i) {
+	for (SZ i = 0; i < buf_a.size(); ++i) {
 		CHECK(static_cast<char>(buf_a[i]) == 'A');
 	}
-	for (size_t i = 0; i < buf_b.size(); ++i) {
+	for (SZ i = 0; i < buf_b.size(); ++i) {
 		CHECK(static_cast<char>(buf_b[i]) == 'B');
 	}
 }
@@ -589,7 +588,7 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 open_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -597,24 +596,24 @@ TEST_CASE(
 	(void)open_flow;
 	REQUIRE(handle.valid());
 
-	string const seg_a(48, 'X');
-	string const seg_b(96, 'Y');
-	vector<iovec> iovs{
+	S const seg_a(48, 'X');
+	S const seg_b(96, 'Y');
+	V<iovec> iovs{
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast) — writev wants non-const iov_base
 		iovec{.iov_base = const_cast<char *>(seg_a.data()), .iov_len = seg_a.size()},
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
 		iovec{.iov_base = const_cast<char *>(seg_b.data()), .iov_len = seg_b.size()},
 	};
 
-	size_t written = 0;
+	SZ written = 0;
 	atomic_flag write_done{};
 	auto write_flow = fx->reader.writev_into(handle, 0, move(iovs))
-					| then([&](size_t n) {
+					| then([&](SZ n) {
 						  written = n;
 						  write_done.test_and_set(memory_order_release);
 						  return 0;
 					  })
-					| on_error([&](exception_ptr const &) {
+					| on_error([&](EP const &) {
 						  write_done.test_and_set(memory_order_release);
 						  return -1;
 					  });
@@ -622,7 +621,7 @@ TEST_CASE(
 	(void)write_flow;
 	REQUIRE(written == seg_a.size() + seg_b.size());
 
-	string verify(seg_a.size() + seg_b.size(), '\0');
+	S verify(seg_a.size() + seg_b.size(), '\0');
 	ssize_t const n = ::pread(tf.fd, verify.data(), verify.size(), 0);
 	REQUIRE(n == static_cast<ssize_t>(verify.size()));
 	CHECK(verify.substr(0, seg_a.size()) == seg_a);
@@ -640,7 +639,7 @@ TEST_CASE(
 	}
 
 	// Non-block-aligned content size to exercise the tail alignment logic.
-	string const content(1500, 'D');
+	S const content(1500, 'D');
 	auto tf = TempFile::create(content);
 
 	// Open with O_DIRECT — some filesystems (e.g. tmpfs) don't support it.
@@ -654,12 +653,12 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &e) {
+				   | on_error([&](EP const &e) {
 						 try {
 							 rethrow_exception(e);
-						 } catch (system_error const &se) {
+						 } catch (SE const &se) {
 							 open_err = se.code().value();
-						 } catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-system_error
+						 } catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE
 						 }
 						 open_done.test_and_set(memory_order_release);
 						 return -1;
@@ -682,12 +681,12 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
+					} catch (SE const &se) {
 						read_err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-system_error
+					} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -701,7 +700,7 @@ TEST_CASE(
 
 	REQUIRE(got.bytes == content.size());
 	auto const view = got.buffer.view();
-	for (size_t i = 0; i < got.bytes; ++i) {
+	for (SZ i = 0; i < got.bytes; ++i) {
 		REQUIRE(static_cast<char>(view[i]) == 'D');
 	}
 }
@@ -717,7 +716,7 @@ TEST_CASE(
 	}
 
 	// Write 4096 bytes but only request 512 to verify max_bytes capping.
-	string const content(4096, 'C');
+	S const content(4096, 'C');
 	auto tf = TempFile::create(content);
 
 	FileHandle handle;
@@ -728,7 +727,7 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 open_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -751,12 +750,12 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
+					} catch (SE const &se) {
 						read_err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-system_error
+					} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -771,7 +770,7 @@ TEST_CASE(
 	// Bytes must be capped to 512 even though the kernel read a full aligned block.
 	CHECK(got.bytes == 512);
 	auto const view = got.buffer.view();
-	for (size_t i = 0; i < got.bytes; ++i) {
+	for (SZ i = 0; i < got.bytes; ++i) {
 		CHECK(static_cast<char>(view[i]) == 'C');
 	}
 }
@@ -805,7 +804,7 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 
 	TempFile const tmp = TempFile::create("hello");
-	string const path = tmp.path;
+	S const path = tmp.path;
 
 	bool ok = false;
 	int err = 0;
@@ -816,12 +815,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -841,7 +838,7 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 
 	TempFile const src = TempFile::create("data");
-	string const dst_path = src.path + ".renamed";
+	S const dst_path = src.path + ".renamed";
 
 	bool ok = false;
 	int err = 0;
@@ -852,12 +849,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -876,7 +871,7 @@ TEST_CASE(
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
-	TempFile tmp = TempFile::create(string(4096, 'X'));
+	TempFile tmp = TempFile::create(S(4096, 'X'));
 
 	atomic_flag done{};
 	bool ok = false;
@@ -888,12 +883,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -910,7 +903,7 @@ TEST_CASE(
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
-	constexpr size_t kSize = 4096;
+	constexpr SZ kSize = 4096;
 	void *addr = ::mmap(nullptr, kSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (addr == MAP_FAILED) {
 		SKIP("mmap failed");
@@ -919,18 +912,16 @@ TEST_CASE(
 	atomic_flag done{};
 	bool ok = false;
 	int err = 0;
-	auto flow = fx->reader.madvise_async(addr, static_cast<uint32_t>(kSize), MADV_SEQUENTIAL)
+	auto flow = fx->reader.madvise_async(addr, static_cast<u32>(kSize), MADV_SEQUENTIAL)
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -947,7 +938,7 @@ TEST_CASE(
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
-	string dir_path = "/tmp/conflux_file_io_mkdir_XXXXXX";
+	S dir_path = "/tmp/conflux_file_io_mkdir_XXXXXX";
 	// Use mkdtemp to get a unique name, then remove it so we can recreate via async.
 	char *tmp = ::mkdtemp(dir_path.data());
 	REQUIRE(tmp != nullptr);
@@ -962,12 +953,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -989,7 +978,7 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 
 	TempFile src = TempFile::create("symlink-target");
-	string link_path = src.path + ".link";
+	S link_path = src.path + ".link";
 
 	bool ok = false;
 	int err = 0;
@@ -1000,12 +989,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1026,7 +1013,7 @@ TEST_CASE(
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
-	TempFile tmp = TempFile::create(string(4096, 'T'));
+	TempFile tmp = TempFile::create(S(4096, 'T'));
 	FileHandle handle = FileHandle::from_fd(::dup(tmp.fd));
 
 	bool ok = false;
@@ -1038,12 +1025,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1072,18 +1057,18 @@ TEST_CASE(
 	bool set_ok = false;
 	int set_err = 0;
 	atomic_flag set_done{};
-	string const xattr_name = "user.test_key";
-	string const xattr_val = "hello_xattr";
+	S const xattr_name = "user.test_key";
+	S const xattr_val = "hello_xattr";
 	auto set_flow = fx->reader.fsetxattr_async(handle, xattr_name, xattr_val)
 				  | then([&]() {
 						set_ok = true;
 						set_done.test_and_set(memory_order_release);
 						return 0;
 					})
-				  | on_error([&](exception_ptr const &e) {
+				  | on_error([&](EP const &e) {
 						try {
 							rethrow_exception(e);
-						} catch (system_error const &se) {
+						} catch (SE const &se) {
 							set_err = se.code().value();
 						} catch (...) { // NOLINT(bugprone-empty-catch)
 						}
@@ -1100,20 +1085,20 @@ TEST_CASE(
 		return;
 	}
 
-	array<char, 64> buf{};
-	size_t got = 0;
+	A<char, 64> buf{};
+	SZ got = 0;
 	int get_err = 0;
 	atomic_flag get_done{};
 	auto get_flow = fx->reader.fgetxattr_async(handle, xattr_name, span<char>{buf.data(), buf.size()})
-				  | then([&](size_t n) {
+				  | then([&](SZ n) {
 						got = n;
 						get_done.test_and_set(memory_order_release);
 						return 0;
 					})
-				  | on_error([&](exception_ptr const &e) {
+				  | on_error([&](EP const &e) {
 						try {
 							rethrow_exception(e);
-						} catch (system_error const &se) {
+						} catch (SE const &se) {
 							get_err = se.code().value();
 						} catch (...) { // NOLINT(bugprone-empty-catch)
 						}
@@ -1125,7 +1110,7 @@ TEST_CASE(
 
 	CHECK(get_err == 0);
 	REQUIRE(got == xattr_val.size());
-	CHECK(string_view{buf.data(), got} == xattr_val);
+	CHECK(SV{buf.data(), got} == xattr_val);
 }
 
 TEST_CASE(
@@ -1146,12 +1131,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1181,12 +1164,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1225,12 +1206,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1270,27 +1249,25 @@ TEST_CASE(
 		}
 	} guard{src_pipe[0], src_pipe[1], dst_pipe[0], dst_pipe[1]};
 
-	string const payload(64, 'T');
+	S const payload(64, 'T');
 	ssize_t const written = ::write(src_pipe[1], payload.data(), payload.size());
 	REQUIRE(written == static_cast<ssize_t>(payload.size()));
 
-	size_t got = 0;
+	SZ got = 0;
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
 	auto flow = fx->reader.tee_async(src_pipe[0], dst_pipe[1], payload.size())
-			  | then([&](size_t n) {
+			  | then([&](SZ n) {
 					got = n;
 					ok = true;
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1302,7 +1279,7 @@ TEST_CASE(
 	CHECK(passed);
 	if (ok) {
 		CHECK(got == payload.size());
-		string dst_buf(payload.size(), '\0');
+		S dst_buf(payload.size(), '\0');
 		ssize_t const n = ::read(dst_pipe[0], dst_buf.data(), dst_buf.size());
 		CHECK(n == static_cast<ssize_t>(payload.size()));
 		CHECK(dst_buf == payload);
@@ -1318,7 +1295,7 @@ TEST_CASE(
 	}
 
 	TempFile const src = TempFile::create("link_content");
-	string const dst_path = src.path + ".hardlink";
+	S const dst_path = src.path + ".hardlink";
 	::unlink(dst_path.c_str());
 
 	bool ok = false;
@@ -1330,12 +1307,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1363,7 +1338,7 @@ TEST_CASE(
 		SKIP("io_uring init failed");
 	}
 
-	TempFile const tmp = TempFile::create(string(4096, 'S'));
+	TempFile const tmp = TempFile::create(S(4096, 'S'));
 	FileHandle const handle = FileHandle::from_fd(::dup(tmp.fd));
 
 	bool ok = false;
@@ -1375,12 +1350,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) {
-						err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch)
+					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1410,10 +1383,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1444,10 +1417,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1486,10 +1459,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1509,20 +1482,20 @@ TEST_CASE(
 		SKIP("io_uring init failed");
 	}
 
-	uint32_t futex_word = 0;
-	uint32_t woken = 42;
+	u32 futex_word = 0;
+	u32 woken = 42;
 	int err = 0;
 	atomic_flag done{};
 	auto flow = fx->reader.futex_wake_async(&futex_word, UINT64_MAX)
-			  | then([&](uint32_t n) {
+			  | then([&](u32 n) {
 					woken = n;
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1542,7 +1515,7 @@ TEST_CASE(
 		SKIP("io_uring init failed");
 	}
 
-	uint32_t futex_word = 1;
+	u32 futex_word = 1;
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
@@ -1553,10 +1526,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1585,10 +1558,10 @@ TEST_CASE(
 						 send_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &e) {
+				   | on_error([&](EP const &e) {
 						 try {
 							 rethrow_exception(e);
-						 } catch (system_error const &se) { err = se.code().value(); } catch (...) {
+						 } catch (SE const &se) { err = se.code().value(); } catch (...) {
 						 }
 						 send_done.test_and_set(memory_order_release);
 						 return -1;
@@ -1613,17 +1586,17 @@ TEST_CASE(
 	bool set_ok = false;
 	int set_err = 0;
 	atomic_flag set_done{};
-	string const xattr_val = "path_xattr_val";
+	S const xattr_val = "path_xattr_val";
 	auto set_flow = fx->reader.setxattr_async(tmp.path, "user.path_test_key", xattr_val)
 				  | then([&]() {
 						set_ok = true;
 						set_done.test_and_set(memory_order_release);
 						return 0;
 					})
-				  | on_error([&](exception_ptr const &e) {
+				  | on_error([&](EP const &e) {
 						try {
 							rethrow_exception(e);
-						} catch (system_error const &se) { set_err = se.code().value(); } catch (...) {
+						} catch (SE const &se) { set_err = se.code().value(); } catch (...) {
 						}
 						set_done.test_and_set(memory_order_release);
 						return -1;
@@ -1638,20 +1611,20 @@ TEST_CASE(
 		return;
 	}
 
-	array<char, 64> buf{};
-	size_t got = 0;
+	A<char, 64> buf{};
+	SZ got = 0;
 	int get_err = 0;
 	atomic_flag get_done{};
 	auto get_flow = fx->reader.getxattr_async(tmp.path, "user.path_test_key", span<char>{buf.data(), buf.size()})
-				  | then([&](size_t n) {
+				  | then([&](SZ n) {
 						got = n;
 						get_done.test_and_set(memory_order_release);
 						return 0;
 					})
-				  | on_error([&](exception_ptr const &e) {
+				  | on_error([&](EP const &e) {
 						try {
 							rethrow_exception(e);
-						} catch (system_error const &se) { get_err = se.code().value(); } catch (...) {
+						} catch (SE const &se) { get_err = se.code().value(); } catch (...) {
 						}
 						get_done.test_and_set(memory_order_release);
 						return -1;
@@ -1661,7 +1634,7 @@ TEST_CASE(
 
 	CHECK(get_err == 0);
 	REQUIRE(got == xattr_val.size());
-	CHECK(string_view{buf.data(), got} == xattr_val);
+	CHECK(SV{buf.data(), got} == xattr_val);
 }
 
 TEST_CASE(
@@ -1680,10 +1653,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1703,21 +1676,21 @@ TEST_CASE(
 		SKIP("io_uring init failed");
 	}
 
-	pair<int, int> fds{-1, -1};
+	P<int, int> fds{-1, -1};
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
 	auto flow = fx->reader.pipe_async(O_CLOEXEC)
-			  | then([&](pair<int, int> p) {
+			  | then([&](P<int, int> p) {
 					fds = p;
 					ok = true;
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1730,13 +1703,13 @@ TEST_CASE(
 	if (ok) {
 		CHECK(fds.first >= 0);
 		CHECK(fds.second >= 0);
-		string const msg = "ping";
+		S const msg = "ping";
 		ssize_t const w = ::write(fds.second, msg.data(), msg.size());
 		CHECK(w == static_cast<ssize_t>(msg.size()));
-		array<char, 8> buf{};
+		A<char, 8> buf{};
 		ssize_t const n = ::read(fds.first, buf.data(), buf.size());
 		CHECK(n == static_cast<ssize_t>(msg.size()));
-		CHECK(string_view{buf.data(), static_cast<size_t>(n)} == msg);
+		CHECK(SV{buf.data(), static_cast<SZ>(n)} == msg);
 		::close(fds.first);
 		::close(fds.second);
 	}
@@ -1773,10 +1746,10 @@ TEST_CASE(
 						 bind_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &e) {
+				   | on_error([&](EP const &e) {
 						 try {
 							 rethrow_exception(e);
-						 } catch (system_error const &se) { bind_err = se.code().value(); } catch (...) {
+						 } catch (SE const &se) { bind_err = se.code().value(); } catch (...) {
 						 }
 						 bind_done.test_and_set(memory_order_release);
 						 return -1;
@@ -1799,10 +1772,10 @@ TEST_CASE(
 						   listen_done.test_and_set(memory_order_release);
 						   return 0;
 					   })
-					 | on_error([&](exception_ptr const &e) {
+					 | on_error([&](EP const &e) {
 						   try {
 							   rethrow_exception(e);
-						   } catch (system_error const &se) { listen_err = se.code().value(); } catch (...) {
+						   } catch (SE const &se) { listen_err = se.code().value(); } catch (...) {
 						   }
 						   listen_done.test_and_set(memory_order_release);
 						   return -1;
@@ -1830,7 +1803,7 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &) {
+			  | on_error([&](EP const &) {
 					done.test_and_set(memory_order_release);
 					return -1;
 				});
@@ -1848,7 +1821,7 @@ TEST_CASE(
 		SKIP("io_uring init failed");
 	}
 
-	string const content(64, 'R');
+	S const content(64, 'R');
 	TempFile const tf = TempFile::create(content);
 
 	FileHandle handle;
@@ -1859,7 +1832,7 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 open_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -1867,24 +1840,24 @@ TEST_CASE(
 	(void)open_flow;
 	REQUIRE(handle.valid());
 
-	array<byte, 64> buf{};
-	vector<iovec> iovs{
+	A<byte, 64> buf{};
+	V<iovec> iovs{
 		iovec{.iov_base = buf.data(), .iov_len = buf.size()}
     };
 
-	size_t got = 0;
+	SZ got = 0;
 	int err = 0;
 	atomic_flag done{};
 	auto flow = fx->reader.readv2_into(handle, 0, move(iovs))
-			  | then([&](size_t n) {
+			  | then([&](SZ n) {
 					got = n;
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1894,7 +1867,7 @@ TEST_CASE(
 
 	CHECK(err == 0);
 	REQUIRE(got == content.size());
-	for (size_t i = 0; i < got; ++i) {
+	for (SZ i = 0; i < got; ++i) {
 		CHECK(static_cast<char>(buf[i]) == 'R');
 	}
 }
@@ -1916,7 +1889,7 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 open_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -1924,24 +1897,24 @@ TEST_CASE(
 	(void)open_flow;
 	REQUIRE(handle.valid());
 
-	string const payload(32, 'W');
-	vector<iovec> iovs{
+	S const payload(32, 'W');
+	V<iovec> iovs{
 		iovec{.iov_base = const_cast<char *>(payload.data()), .iov_len = payload.size()}
     };
 
-	size_t written = 0;
+	SZ written = 0;
 	int err = 0;
 	atomic_flag done{};
 	auto flow = fx->reader.writev2_into(handle, 0, move(iovs))
-			  | then([&](size_t n) {
+			  | then([&](SZ n) {
 					written = n;
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1951,7 +1924,7 @@ TEST_CASE(
 
 	CHECK(err == 0);
 	CHECK(written == payload.size());
-	string verify(payload.size(), '\0');
+	S verify(payload.size(), '\0');
 	ssize_t const n = ::pread(tf.fd, verify.data(), verify.size(), 0);
 	CHECK(n == static_cast<ssize_t>(payload.size()));
 	CHECK(verify == payload);
@@ -1974,10 +1947,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -1997,14 +1970,14 @@ TEST_CASE(
 		SKIP("io_uring init failed");
 	}
 
-	uint32_t futex_word = 42;
-	// uaddr cast to uint64_t as expected by futex_waitv
+	u32 futex_word = 42;
+	// uaddr cast to u64 as expected by futex_waitv
 	futex_waitv w{};
 	w.val = 0;
-	w.uaddr = reinterpret_cast<uint64_t>(&futex_word);
+	w.uaddr = reinterpret_cast<u64>(&futex_word);
 	w.flags = FUTEX2_SIZE_U32;
 	w.__reserved = 0;
-	vector<futex_waitv> waiters{w};
+	V<futex_waitv> waiters{w};
 
 	bool ok = false;
 	int err = 0;
@@ -2015,10 +1988,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -2051,10 +2024,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -2085,10 +2058,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -2117,10 +2090,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -2144,15 +2117,15 @@ TEST_CASE(
 	int pfd[2];
 	REQUIRE(::pipe2(pfd, O_CLOEXEC | O_NONBLOCK) == 0);
 
-	uint32_t mask{0};
+	u32 mask{0};
 	auto flow = fx->reader.poll_add_async(pfd[0], POLLIN)
-			  | then([&](uint32_t m) {
+			  | then([&](u32 m) {
 					mask = m;
 					ok = true;
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &) {
+			  | on_error([&](EP const &) {
 					done.test_and_set(memory_order_release);
 					return -1;
 				});
@@ -2198,10 +2171,10 @@ TEST_CASE(
 						   done.test_and_set(memory_order_release);
 						   return 0;
 					   })
-					 | on_error([&](exception_ptr const &e) {
+					 | on_error([&](EP const &e) {
 						   try {
 							   rethrow_exception(e);
-						   } catch (system_error const &se) { err = se.code().value(); } catch (...) {
+						   } catch (SE const &se) { err = se.code().value(); } catch (...) {
 						   }
 						   done.test_and_set(memory_order_release);
 						   return -1;
@@ -2252,10 +2225,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -2293,16 +2266,16 @@ TEST_CASE(
 	FileHandle const sender = FileHandle::from_fd(sv[0]);
 	FileHandle const recver = FileHandle::from_fd(sv[1]);
 
-	string const payload = "send_recv_test";
-	size_t sent{0};
+	S const payload = "send_recv_test";
+	SZ sent{0};
 	atomic_flag send_done{};
 	auto send_flow = fx->reader.send_async(sender, payload.data(), payload.size())
-				   | then([&](size_t n) {
+				   | then([&](SZ n) {
 						 sent = n;
 						 send_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 send_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -2310,23 +2283,23 @@ TEST_CASE(
 	(void)send_flow;
 	REQUIRE(sent == payload.size());
 
-	array<char, 64> buf{};
-	size_t recvd{0};
+	A<char, 64> buf{};
+	SZ recvd{0};
 	atomic_flag recv_done{};
 	auto recv_flow = fx->reader.recv_async(recver, buf.data(), buf.size())
-				   | then([&](size_t n) {
+				   | then([&](SZ n) {
 						 recvd = n;
 						 recv_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 recv_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
 	fx->pump_until(recv_done);
 	(void)recv_flow;
 	REQUIRE(recvd == payload.size());
-	CHECK(string_view{buf.data(), recvd} == payload);
+	CHECK(SV{buf.data(), recvd} == payload);
 }
 
 TEST_CASE(
@@ -2341,21 +2314,21 @@ TEST_CASE(
 	FileHandle const sender = FileHandle::from_fd(sv[0]);
 	FileHandle const recver = FileHandle::from_fd(sv[1]);
 
-	string const payload = "sendmsg_recvmsg_test";
+	S const payload = "sendmsg_recvmsg_test";
 	iovec send_iov{const_cast<char *>(payload.data()), payload.size()};
 	msghdr send_hdr{};
 	send_hdr.msg_iov = &send_iov;
 	send_hdr.msg_iovlen = 1;
 
-	size_t sent{0};
+	SZ sent{0};
 	atomic_flag send_done{};
 	auto send_flow = fx->reader.sendmsg_async(sender, &send_hdr)
-				   | then([&](size_t n) {
+				   | then([&](SZ n) {
 						 sent = n;
 						 send_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 send_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -2363,28 +2336,28 @@ TEST_CASE(
 	(void)send_flow;
 	REQUIRE(sent == payload.size());
 
-	array<char, 64> buf{};
+	A<char, 64> buf{};
 	iovec recv_iov{buf.data(), buf.size()};
 	msghdr recv_hdr{};
 	recv_hdr.msg_iov = &recv_iov;
 	recv_hdr.msg_iovlen = 1;
 
-	size_t recvd{0};
+	SZ recvd{0};
 	atomic_flag recv_done{};
 	auto recv_flow = fx->reader.recvmsg_async(recver, &recv_hdr)
-				   | then([&](size_t n) {
+				   | then([&](SZ n) {
 						 recvd = n;
 						 recv_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 recv_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
 	fx->pump_until(recv_done);
 	(void)recv_flow;
 	REQUIRE(recvd == payload.size());
-	CHECK(string_view{buf.data(), recvd} == payload);
+	CHECK(SV{buf.data(), recvd} == payload);
 }
 
 TEST_CASE(
@@ -2412,7 +2385,7 @@ TEST_CASE(
 						ctl_done.test_and_set(memory_order_release);
 						return 0;
 					})
-				  | on_error([&](exception_ptr const &) {
+				  | on_error([&](EP const &) {
 						ctl_done.test_and_set(memory_order_release);
 						return -1;
 					});
@@ -2424,7 +2397,7 @@ TEST_CASE(
 	char const c = 'q';
 	REQUIRE(::write(pfd[1], &c, 1) == 1);
 
-	array<epoll_event, 4> events{};
+	A<epoll_event, 4> events{};
 	atomic_flag wait_done{};
 	int n_events{0};
 	auto wait_flow = fx->reader.epoll_wait_async(epfd, events.data(), static_cast<int>(events.size()))
@@ -2433,7 +2406,7 @@ TEST_CASE(
 						 wait_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 wait_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -2458,7 +2431,7 @@ TEST_CASE(
 	constexpr int kBufLen = 4096;
 	constexpr int kNr = 2;
 	constexpr int kBgid = 7;
-	auto region = make_unique<array<char, kBufLen * kNr>>();
+	auto region = make_unique<A<char, kBufLen * kNr>>();
 
 	bool ok{false};
 	int err{0};
@@ -2469,10 +2442,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -2492,7 +2465,7 @@ TEST_CASE(
 						   rm_done.test_and_set(memory_order_release);
 						   return 0;
 					   })
-					 | on_error([&](exception_ptr const &) {
+					 | on_error([&](EP const &) {
 						   rm_done.test_and_set(memory_order_release);
 						   return -1;
 					   });
@@ -2523,7 +2496,7 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &) {
+			  | on_error([&](EP const &) {
 					done.test_and_set(memory_order_release);
 					return -1;
 				});
@@ -2557,16 +2530,16 @@ TEST_CASE(
 	sockaddr_storage dest{};
 	memcpy(&dest, &ra, sizeof(ra));
 
-	string const payload = "sendto_udp_test";
-	size_t sent{0};
+	S const payload = "sendto_udp_test";
+	SZ sent{0};
 	atomic_flag send_done{};
 	auto send_flow = fx->reader.sendto_async(sender, payload.data(), payload.size(), 0, dest, sizeof(ra))
-				   | then([&](size_t n) {
+				   | then([&](SZ n) {
 						 sent = n;
 						 send_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 send_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -2575,23 +2548,23 @@ TEST_CASE(
 	REQUIRE(sent == payload.size());
 
 	FileHandle const recver = FileHandle::from_fd(recv_fd);
-	array<char, 64> buf{};
-	size_t recvd{0};
+	A<char, 64> buf{};
+	SZ recvd{0};
 	atomic_flag recv_done{};
 	auto recv_flow = fx->reader.recv_async(recver, buf.data(), buf.size())
-				   | then([&](size_t n) {
+				   | then([&](SZ n) {
 						 recvd = n;
 						 recv_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 recv_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
 	fx->pump_until(recv_done);
 	(void)recv_flow;
 	REQUIRE(recvd == payload.size());
-	CHECK(string_view{buf.data(), recvd} == payload);
+	CHECK(SV{buf.data(), recvd} == payload);
 }
 
 TEST_CASE(
@@ -2606,20 +2579,20 @@ TEST_CASE(
 	FileHandle const sender = FileHandle::from_fd(sv[0]);
 	FileHandle const recver = FileHandle::from_fd(sv[1]);
 
-	string const payload = "send_zc_test_data";
+	S const payload = "send_zc_test_data";
 	bool ok{false};
 	int err{0};
 	atomic_flag done{};
 	auto flow = fx->reader.send_zc_async(sender, payload.data(), payload.size())
-			  | then([&](size_t n) {
+			  | then([&](SZ n) {
 					ok = (n == payload.size());
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -2638,7 +2611,7 @@ TEST_CASE(
 		SKIP("io_uring_queue_init failed");
 	}
 	auto tf = TempFile::create("unlinkat_content");
-	string const path = tf.path;
+	S const path = tf.path;
 	tf.fd = -1; // don't let TempFile close (will unlink)
 	tf.path = {}; // don't let TempFile unlink
 
@@ -2650,7 +2623,7 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &) {
+			  | on_error([&](EP const &) {
 					done.test_and_set(memory_order_release);
 					return -1;
 				});
@@ -2667,8 +2640,8 @@ TEST_CASE(
 		SKIP("io_uring_queue_init failed");
 	}
 	auto tf = TempFile::create("renameat_content");
-	string const src_path = tf.path;
-	string const dst_path = src_path + "_renamed";
+	S const src_path = tf.path;
+	S const dst_path = src_path + "_renamed";
 
 	atomic_flag done{};
 	bool ok{false};
@@ -2678,7 +2651,7 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &) {
+			  | on_error([&](EP const &) {
 					done.test_and_set(memory_order_release);
 					return -1;
 				});
@@ -2697,9 +2670,9 @@ TEST_CASE(
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
 	}
-	string const dir_path = "/tmp/conflux_file_io_mkdir_test_XXXXXX";
+	S const dir_path = "/tmp/conflux_file_io_mkdir_test_XXXXXX";
 	// Use mktemp to get a unique name; don't create it yet.
-	auto path = string(dir_path);
+	auto path = S(dir_path);
 	path.resize(path.size() - 6); // strip XXXXXX template
 	path += "mkdir_async_test_dir";
 	::rmdir(path.c_str()); // clean up if leftover
@@ -2712,7 +2685,7 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &) {
+			  | on_error([&](EP const &) {
 					done.test_and_set(memory_order_release);
 					return -1;
 				});
@@ -2743,7 +2716,7 @@ TEST_CASE(
 	auto tf = TempFile::create();
 
 	// Write via write_fixed.
-	string const content(512, 'W');
+	S const content(512, 'W');
 	auto const view = wbuf->view();
 	memcpy(view.data(), content.data(), content.size());
 
@@ -2755,7 +2728,7 @@ TEST_CASE(
 						 open_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 open_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -2763,7 +2736,7 @@ TEST_CASE(
 	(void)open_flow;
 	REQUIRE(handle.valid());
 
-	size_t written{0};
+	SZ written{0};
 	atomic_flag write_done{};
 	auto write_flow = fx->reader.write_fixed_async(
 						  handle,
@@ -2771,12 +2744,12 @@ TEST_CASE(
 						  view.data(),
 						  static_cast<unsigned>(content.size()),
 						  static_cast<int>(wbuf->slot()))
-					| then([&](size_t n) {
+					| then([&](SZ n) {
 						  written = n;
 						  write_done.test_and_set(memory_order_release);
 						  return 0;
 					  })
-					| on_error([&](exception_ptr const &) {
+					| on_error([&](EP const &) {
 						  write_done.test_and_set(memory_order_release);
 						  return -1;
 					  });
@@ -2795,7 +2768,7 @@ TEST_CASE(
 						 read_done.test_and_set(memory_order_release);
 						 return 0;
 					 })
-				   | on_error([&](exception_ptr const &) {
+				   | on_error([&](EP const &) {
 						 read_done.test_and_set(memory_order_release);
 						 return -1;
 					 });
@@ -2833,10 +2806,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -2853,7 +2826,7 @@ TEST_CASE(
 							  close_done.test_and_set(memory_order_release);
 							  return 0;
 						  })
-						| on_error([&](exception_ptr const &) {
+						| on_error([&](EP const &) {
 							  close_done.test_and_set(memory_order_release);
 							  return -1;
 						  });
@@ -2880,15 +2853,15 @@ TEST_CASE(
 	int err{0};
 	atomic_flag done{};
 	auto flow = fx->reader.pipe_direct_async(0)
-			  | then([&](pair<int, int> p) {
+			  | then([&](P<int, int> p) {
 					ok = (p.first >= 0 || p.second >= 0);
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -2918,10 +2891,10 @@ TEST_CASE(
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;
@@ -2945,7 +2918,7 @@ TEST_CASE(
 	FileHandle const sender = FileHandle::from_fd(sv[0]);
 	FileHandle const recver = FileHandle::from_fd(sv[1]);
 
-	string const payload = "sendmsg_zc_test";
+	S const payload = "sendmsg_zc_test";
 	iovec iov{const_cast<char *>(payload.data()), payload.size()};
 	msghdr hdr{};
 	hdr.msg_iov = &iov;
@@ -2955,15 +2928,15 @@ TEST_CASE(
 	int err{0};
 	atomic_flag done{};
 	auto flow = fx->reader.sendmsg_zc_async(sender, &hdr)
-			  | then([&](size_t n) {
+			  | then([&](SZ n) {
 					ok = (n == payload.size());
 					done.test_and_set(memory_order_release);
 					return 0;
 				})
-			  | on_error([&](exception_ptr const &e) {
+			  | on_error([&](EP const &e) {
 					try {
 						rethrow_exception(e);
-					} catch (system_error const &se) { err = se.code().value(); } catch (...) {
+					} catch (SE const &se) { err = se.code().value(); } catch (...) {
 					}
 					done.test_and_set(memory_order_release);
 					return -1;

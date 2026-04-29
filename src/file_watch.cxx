@@ -12,8 +12,6 @@ import std;
 import conflux.types;
 import conflux.file_io;
 
-using namespace std;
-
 export enum class FileEventKind : u8 {
 	created,
 	modified,
@@ -25,7 +23,7 @@ export enum class FileEventKind : u8 {
 
 export struct FileEvent {
 	FileEventKind kind{};
-	string path{};
+	S path{};
 	u32 cookie{};
 	bool is_directory{};
 };
@@ -37,9 +35,9 @@ export struct WatchOptions {
 export class FileWatcher {
 	struct Impl {
 		int fd = -1;
-		unordered_map<int, string> watches{};
-		function<void(vector<FileEvent>)> on_events{};
-		function<void(exception_ptr)> on_error{};
+		UM<int, S> watches{};
+		Fn<void(V<FileEvent>)> on_events{};
+		Fn<void(EP)> on_error{};
 		atomic_flag started{};
 		atomic_flag stopped{};
 		mutex callback_mtx{};
@@ -52,18 +50,18 @@ export class FileWatcher {
 			}
 		}
 
-		[[nodiscard]] string root_for(
+		[[nodiscard]] S root_for(
 			int wd) {
-			scoped_lock const lk{watches_mtx};
+			SL const lk{watches_mtx};
 			auto it = watches.find(wd);
-			return it != watches.end() ? it->second : string{};
+			return it != watches.end() ? it->second : S{};
 		}
 
 		void emit_error(
-			exception_ptr eptr) {
-			function<void(exception_ptr)> cb;
+			EP eptr) {
+			Fn<void(EP)> cb;
 			{
-				scoped_lock const lk{callback_mtx};
+				SL const lk{callback_mtx};
 				cb = on_error;
 			}
 			if (cb) {
@@ -72,13 +70,13 @@ export class FileWatcher {
 		}
 
 		void emit(
-			vector<FileEvent> events) {
+			V<FileEvent> events) {
 			if (events.empty()) {
 				return;
 			}
-			function<void(vector<FileEvent>)> cb;
+			Fn<void(V<FileEvent>)> cb;
 			{
-				scoped_lock const lk{callback_mtx};
+				SL const lk{callback_mtx};
 				cb = on_events;
 			}
 			if (cb) {
@@ -86,7 +84,7 @@ export class FileWatcher {
 			}
 		}
 
-		static optional<FileEventKind> kind_from_mask(
+		static Opt<FileEventKind> kind_from_mask(
 			u32 mask) {
 			if ((mask & IN_Q_OVERFLOW) != 0U) {
 				return FileEventKind::overflow;
@@ -106,33 +104,33 @@ export class FileWatcher {
 			if ((mask & IN_MOVED_TO) != 0U) {
 				return FileEventKind::moved_to;
 			}
-			return nullopt;
+			return std::nullopt;
 		}
 
 		void drain_ready() {
-			array<char, 16 * 1024> buf{};
+			A<char, 16 * 1024> buf{};
 			for (;;) {
 				ssize_t const n = ::read(fd, buf.data(), buf.size());
 				if (n < 0) {
 					if (errno == EAGAIN) {
 						break;
 					}
-					emit_error(make_exception_ptr(system_error{errno, system_category(), "inotify read"}));
+					emit_error(make_exception_ptr(SE{errno, system_category(), "inotify read"}));
 					break;
 				}
 				if (n == 0) {
 					break;
 				}
-				vector<FileEvent> events;
-				size_t off = 0;
-				while (off + sizeof(inotify_event) <= static_cast<size_t>(n)) {
+				V<FileEvent> events;
+				SZ off = 0;
+				while (off + sizeof(inotify_event) <= static_cast<SZ>(n)) {
 					auto const *ev = reinterpret_cast<inotify_event const *>(buf.data() + off);
-					size_t const step = sizeof(inotify_event) + ev->len;
-					if (off + step > static_cast<size_t>(n)) {
+					SZ const step = sizeof(inotify_event) + ev->len;
+					if (off + step > static_cast<SZ>(n)) {
 						break;
 					}
 					if (auto kind = kind_from_mask(ev->mask)) {
-						string path = root_for(ev->wd);
+						S path = root_for(ev->wd);
 						if (ev->len > 0 && ev->name[0] != '\0') {
 							if (!path.empty() && path.back() != '/') {
 								path += '/';
@@ -153,14 +151,14 @@ export class FileWatcher {
 		}
 	};
 
-	shared_ptr<Impl> impl_;
+	SP<Impl> impl_;
 
 public:
 	FileWatcher()
 		: impl_{make_shared<Impl>()} {
 		impl_->fd = ::inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
 		if (impl_->fd < 0) {
-			throw system_error{errno, system_category(), "inotify_init1"};
+			throw SE{errno, system_category(), "inotify_init1"};
 		}
 	}
 
@@ -172,26 +170,26 @@ public:
 	FileWatcher &operator =(FileWatcher &&) noexcept = default;
 
 	void on_events(
-		function<void(vector<FileEvent>)> cb) {
-		scoped_lock const lk{impl_->callback_mtx};
+		Fn<void(V<FileEvent>)> cb) {
+		SL const lk{impl_->callback_mtx};
 		impl_->on_events = move(cb);
 	}
 
 	void on_error(
-		function<void(exception_ptr)> cb) {
-		scoped_lock const lk{impl_->callback_mtx};
+		Fn<void(EP)> cb) {
+		SL const lk{impl_->callback_mtx};
 		impl_->on_error = move(cb);
 	}
 
 	void watch_directory(
-		string path,
+		S path,
 		WatchOptions options = {}) {
 		int const wd = ::inotify_add_watch(impl_->fd, path.c_str(), options.mask);
 		if (wd < 0) {
-			throw system_error{errno, system_category(), "inotify_add_watch"};
+			throw SE{errno, system_category(), "inotify_add_watch"};
 		}
 		{
-			scoped_lock const lk{impl_->watches_mtx};
+			SL const lk{impl_->watches_mtx};
 			impl_->watches.emplace(wd, move(path));
 		}
 	}
@@ -203,7 +201,7 @@ public:
 		auto *reader = current_file_reader();
 		if (reader == nullptr) {
 			impl_->started.clear();
-			throw logic_error{"FileWatcher::start requires an active conflux.file_io ring context"};
+			throw LE{"FileWatcher::start requires an active conflux.file_io ring context"};
 		}
 		auto weak = weak_ptr<Impl>{impl_};
 		bool const ok = reader->poll_add_multi(impl_->fd, POLLIN, [weak](IoResult r) mutable {
@@ -213,7 +211,7 @@ public:
 			}
 			if (r.res < 0) {
 				if (r.res != -ECANCELED) {
-					self->emit_error(make_exception_ptr(system_error{-r.res, system_category(), "inotify poll"}));
+					self->emit_error(make_exception_ptr(SE{-r.res, system_category(), "inotify poll"}));
 				}
 				return;
 			}
@@ -223,7 +221,7 @@ public:
 		});
 		if (!ok) {
 			impl_->started.clear();
-			throw runtime_error{"FileWatcher::start: io_uring SQ full"};
+			throw RE{"FileWatcher::start: io_uring SQ full"};
 		}
 	}
 

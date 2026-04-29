@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.model_a;
 import conflux.work.carrier.scope;
@@ -38,7 +39,7 @@ model_a::Chain<int> make_cancelled() {
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"carrier.model_a: when_all_fast_fail both success returns tuple",
+	"carrier.model_a: when_all_fast_fail both success returns Tup",
 	"[carrier.model_a][phase2]") {
 	auto r = model_a::when_all_fast_fail(make_success(10), make_success(20));
 	auto out = std::move(r).release_outcome();

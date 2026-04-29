@@ -562,11 +562,7 @@ struct Environment::Impl {
 
 	Template parse(S const &name, S const &source) const;
 	TmplValue eval_expr(S const &expr, TmplValue const &context) const;
-	TmplValue apply_filter(
-		S const &name,
-		TmplValue const &val,
-		V<S> const &args,
-		TmplValue const &context) const;
+	TmplValue apply_filter(S const &name, TmplValue const &val, V<S> const &args, TmplValue const &context) const;
 	static S value_to_string(TmplValue const &v);
 	static bool is_truthy(TmplValue const &v);
 	static constexpr int kMaxTemplateDepth = 256;
@@ -574,8 +570,7 @@ struct Environment::Impl {
 		NodeList const &nodes,
 		TmplValue context,
 		UM<S, NodeList> const *blocks,
-		UM<S, Tup<V<S>, V<S>, NodeList>>
-			*macros,
+		UM<S, Tup<V<S>, V<S>, NodeList>> *macros,
 		int depth = 0) const;
 	S render_template(
 		Template const &tmpl,
@@ -585,7 +580,7 @@ struct Environment::Impl {
 	void reload_path(S const &path);
 	void remove_path(S const &path);
 	void maybe_start_watcher() const;
-	bool extension_allowed(std::filesystem::path const &path) const;
+	bool extension_allowed(fs::path const &path) const;
 };
 // ---------------------------------------------------------------------------
 // Parser
@@ -1096,9 +1091,7 @@ TmplValue Environment::Impl::eval_expr(
 								return TmplValue{false};
 							}
 							if (right.is_string() && left.is_string()) {
-								return TmplValue{
-									right.as<SV>().find(left.as<SV>())
-									!= SV::npos};
+								return TmplValue{right.as<SV>().find(left.as<SV>()) != SV::npos};
 							}
 							return TmplValue{false};
 						}
@@ -1193,9 +1186,8 @@ TmplValue Environment::Impl::eval_expr(
 							start = std::clamp<i64>(start, 0, static_cast<i64>(s.size()));
 							end = std::clamp<i64>(end, 0, static_cast<i64>(s.size()));
 							set_owned(
-								TmplValue{s.substr(
-									static_cast<SZ>(start),
-									static_cast<SZ>(std::max<i64>(0, end - start)))});
+								TmplValue{
+									s.substr(static_cast<SZ>(start), static_cast<SZ>(std::max<i64>(0, end - start)))});
 						} else {
 							return {};
 						}
@@ -1255,7 +1247,7 @@ TmplValue Environment::Impl::eval_expr(
 				}
 
 				if (is_method_call) {
-					// Find matching ')' respecting nesting and string literals.
+					// Find matching ')' respecting nesting and S literals.
 					SZ close = S::npos;
 					{
 						int d = 0;
@@ -1381,10 +1373,10 @@ TmplValue Environment::Impl::eval_expr(
 					} else if (key == "items" && cur->is_object()) {
 						TmplValue items{TmplValue::Array{}};
 						for (auto const &kv: cur->as_object()) {
-							TmplValue pair{TmplValue::Array{}};
-							pair.push_back(TmplValue{kv.first});
-							pair.push_back(kv.second);
-							items.push_back(std::move(pair));
+							TmplValue P{TmplValue::Array{}};
+							P.push_back(TmplValue{kv.first});
+							P.push_back(kv.second);
+							items.push_back(std::move(P));
 						}
 						set_owned(std::move(items));
 					}
@@ -1447,7 +1439,7 @@ TmplValue Environment::Impl::apply_filter(
 		}
 		return TmplValue{i64{0}};
 	}
-	if (name == "string") {
+	if (name == "S") {
 		return TmplValue{value_to_string(val)};
 	}
 	if (name == "int") {
@@ -1718,8 +1710,7 @@ S Environment::Impl::render_nodes(
 		throw std::runtime_error{"template render recursion depth exceeded"};
 	}
 	S out;
-	UM<S, Tup<V<S>, V<S>, NodeList>>
-		local_macros;
+	UM<S, Tup<V<S>, V<S>, NodeList>> local_macros;
 	if (macros == nullptr) {
 		macros = &local_macros;
 	}
@@ -1815,8 +1806,7 @@ S Environment::Impl::render_nodes(
 					if (iter_val.is_array()) {
 						auto saved = save_scope(context, n.vars);
 						auto const *prev_loop = obj_find(context, "loop");
-						Opt<TmplValue> saved_loop =
-							prev_loop ? Opt<TmplValue>{*prev_loop} : std::nullopt;
+						Opt<TmplValue> saved_loop = prev_loop ? Opt<TmplValue>{*prev_loop} : std::nullopt;
 						auto const &arr = iter_val.as_array();
 						for (SZ i = 0; i < arr.size(); ++i) {
 							if (n.vars.size() == 1) {
@@ -1938,7 +1928,7 @@ S Environment::Impl::render_template(
 // ---------------------------------------------------------------------------
 
 bool Environment::Impl::extension_allowed(
-	std::filesystem::path const &path) const {
+	fs::path const &path) const {
 	auto ext = path.extension().string();
 	for (auto const &allowed: options.extensions) {
 		if (ext == allowed) {
@@ -1950,7 +1940,7 @@ bool Environment::Impl::extension_allowed(
 
 void Environment::Impl::reload_path(
 	S const &path) {
-	std::filesystem::path const p{path};
+	fs::path const p{path};
 	if (!extension_allowed(p)) {
 		return;
 	}
@@ -1967,7 +1957,7 @@ void Environment::Impl::reload_path(
 
 void Environment::Impl::remove_path(
 	S const &path) {
-	std::filesystem::path const p{path};
+	fs::path const p{path};
 	if (!extension_allowed(p)) {
 		return;
 	}
@@ -1997,7 +1987,7 @@ void Environment::Impl::maybe_start_watcher() const {
 				case FileEventKind::removed   :
 				case FileEventKind::moved_from: self->remove_path(ev.path); break;
 				case FileEventKind::overflow:
-					for (auto &entry: std::filesystem::directory_iterator(self->template_dir)) {
+					for (auto &entry: fs::directory_iterator(self->template_dir)) {
 						if (entry.is_regular_file()) {
 							self->reload_path(entry.path().string());
 						}
@@ -2071,7 +2061,7 @@ S Environment::render(
 S Environment::render_string(
 	S const &source,
 	S const &json_ctx) const {
-	auto tmpl = impl_->parse("<string>", source);
+	auto tmpl = impl_->parse("<S>", source);
 	auto parsed_doc = conflux::json::parse(json_ctx);
 	TmplValue ctx = parsed_doc ? node_to_tmpl(parsed_doc->root()) : TmplValue{TmplValue::Object{}};
 	std::shared_lock const lk{impl_->cache_mtx};

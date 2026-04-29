@@ -43,24 +43,22 @@ import conflux.net.http2;
 import conflux.net.http3;
 #endif
 
-using namespace std;
-
 #if CONFLUX_HAS_TLS
 namespace {
 
 void init_openssl_once() {
-	static once_flag flag;
-	call_once(flag, [] {
+	static std::once_flag flag;
+	std::call_once(flag, [] {
 		if (OPENSSL_init_ssl(OPENSSL_INIT_NO_ATEXIT, nullptr) != 1) {
-			throw runtime_error{"OPENSSL_init_ssl failed"};
+			throw RE{"OPENSSL_init_ssl failed"};
 		}
 		if (OPENSSL_init_crypto(OPENSSL_INIT_NO_ATEXIT, nullptr) != 1) {
-			throw runtime_error{"OPENSSL_init_crypto failed"};
+			throw RE{"OPENSSL_init_crypto failed"};
 		}
 	});
 }
 
-constexpr string_view kDefaultTls12CipherList =
+constexpr SV kDefaultTls12CipherList =
 	"ECDHE-ECDSA-AES128-GCM-SHA256:"
 	"ECDHE-RSA-AES128-GCM-SHA256:"
 	"ECDHE-ECDSA-AES256-GCM-SHA384:"
@@ -68,14 +66,14 @@ constexpr string_view kDefaultTls12CipherList =
 	"ECDHE-ECDSA-CHACHA20-POLY1305:"
 	"ECDHE-RSA-CHACHA20-POLY1305";
 
-constexpr string_view kDefaultTls13Ciphersuites =
+constexpr SV kDefaultTls13Ciphersuites =
 	"TLS_AES_128_GCM_SHA256:"
 	"TLS_AES_256_GCM_SHA384:"
 	"TLS_CHACHA20_POLY1305_SHA256";
 
 // Session id context: 1-byte tag unique to this build; SSL_CTX requires a
 // non-empty id to enable server-side session cache.
-constexpr array<unsigned char, 8> kSessionIdContext{'c', 'o', 'n', 'f', 'l', 'u', 'x', '1'};
+constexpr A<unsigned char, 8> kSessionIdContext{'c', 'o', 'n', 'f', 'l', 'u', 'x', '1'};
 
 void configure_tls_ctx(
 	SSL_CTX *ctx,
@@ -86,15 +84,13 @@ void configure_tls_ctx(
 		tls_opts |= SSL_OP_ENABLE_KTLS | SSL_OP_ENABLE_KTLS_TX_ZEROCOPY_SENDFILE;
 	}
 	SSL_CTX_set_options(ctx, tls_opts);
-	string_view const cipher_list =
-		cfg.tls_cipher_list.empty() ? kDefaultTls12CipherList : string_view{cfg.tls_cipher_list};
-	if (SSL_CTX_set_cipher_list(ctx, string{cipher_list}.c_str()) != 1) {
-		throw runtime_error{"TLS: SSL_CTX_set_cipher_list failed"};
+	SV const cipher_list = cfg.tls_cipher_list.empty() ? kDefaultTls12CipherList : SV{cfg.tls_cipher_list};
+	if (SSL_CTX_set_cipher_list(ctx, S{cipher_list}.c_str()) != 1) {
+		throw RE{"TLS: SSL_CTX_set_cipher_list failed"};
 	}
-	string_view const ciphersuites =
-		cfg.tls_ciphersuites.empty() ? kDefaultTls13Ciphersuites : string_view{cfg.tls_ciphersuites};
-	if (SSL_CTX_set_ciphersuites(ctx, string{ciphersuites}.c_str()) != 1) {
-		throw runtime_error{"TLS: SSL_CTX_set_ciphersuites failed"};
+	SV const ciphersuites = cfg.tls_ciphersuites.empty() ? kDefaultTls13Ciphersuites : SV{cfg.tls_ciphersuites};
+	if (SSL_CTX_set_ciphersuites(ctx, S{ciphersuites}.c_str()) != 1) {
+		throw RE{"TLS: SSL_CTX_set_ciphersuites failed"};
 	}
 	SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
 	SSL_CTX_set_session_id_context(ctx, kSessionIdContext.data(), kSessionIdContext.size());
@@ -131,7 +127,7 @@ constexpr u64 pack(
 		 | ((static_cast<u64>(gen) & GEN_MASK) << GEN_SHIFT)
 		 | (static_cast<u64>(static_cast<u32>(fd)) & FD_MASK);
 }
-constexpr tuple<Op, u32, int> unpack(
+constexpr Tup<Op, u32, int> unpack(
 	u64 ud) noexcept {
 	return {
 		static_cast<Op>(ud >> OP_SHIFT),
@@ -139,9 +135,9 @@ constexpr tuple<Op, u32, int> unpack(
 		static_cast<int>(ud & FD_MASK)};
 }
 
-string format_response(
+S format_response(
 	HttpResponse const &r,
-	string_view alt_svc = {},
+	SV alt_svc = {},
 	bool close = false) {
 	if (r.is_ws_upgrade() && r.ws_upgrade_ptr()) {
 		return format(
@@ -151,7 +147,7 @@ string format_response(
 			"Sec-WebSocket-Accept: {}\r\n\r\n",
 			r.ws_upgrade_ptr()->accept_key);
 	}
-	string out = format(
+	S out = format(
 		"HTTP/1.1 {} {}\r\n"
 		"Content-Type: {}\r\n"
 		"Content-Length: {}\r\n",
@@ -178,8 +174,8 @@ string format_response(
 	return out;
 }
 
-[[gnu::const]] string_view format_sse_headers() {
-	static constexpr string_view kSseHeaders =
+[[gnu::const]] SV format_sse_headers() {
+	static constexpr SV kSseHeaders =
 		"HTTP/1.1 200 OK\r\n"
 		"Content-Type: text/event-stream\r\n"
 		"Cache-Control: no-cache\r\n"
@@ -192,23 +188,23 @@ string format_response(
 struct Ring; // forward-declared so H2ConnCtx can hold Ring* while Conn precedes Ring
 
 struct H2Stream {
-	string method{};
-	string path{};
-	string scheme{"https"};
-	string authority{};
+	S method{};
+	S path{};
+	S scheme{"https"};
+	S authority{};
 	HttpFields headers{};
-	string body{};
-	size_t expected_body_size{};
+	S body{};
+	SZ expected_body_size{};
 	bool body_reserved{};
 	bool end_stream_seen{};
 	// Response state for the data provider callback:
-	string response_body{};
-	size_t response_off{};
+	S response_body{};
+	SZ response_off{};
 	HttpFields response_trailers{};
 	int deferred_efd{-1};
 	// SSE streaming state (non-null → H2 SSE stream):
-	shared_ptr<SseChannel> sse_channel{};
-	string h2_sse_buf{}; // overflow: drained SSE data not yet framed
+	SP<SseChannel> sse_channel{};
+	S h2_sse_buf{}; // overflow: drained SSE data not yet framed
 };
 
 struct H2ConnCtx {
@@ -222,11 +218,11 @@ struct Conn;
 
 void dispatch_request(
 	Conn &conn,
-	string_view raw,
+	SV raw,
 	Ring const &ring,
-	size_t max_body_size,
+	SZ max_body_size,
 	bool http_redirect_to_https,
-	vector<string> const &https_redirect_hosts,
+	V<S> const &https_redirect_hosts,
 	ParserLimits const &limits);
 
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): field order mirrors connection state-machine phases.
@@ -241,51 +237,51 @@ struct Conn {
 	bool is_deferred = false;
 	bool close_after_send = false; // true → close instead of re-arming recv
 	int sse_efd = -1;
-	unique_ptr<u64> sse_read_buf{};
-	shared_ptr<SseChannel> sse_channel{};
+	UP<u64> sse_read_buf{};
+	SP<SseChannel> sse_channel{};
 	int deferred_efd = -1;
-	shared_ptr<DeferredResponse> deferred_response{};
-	shared_ptr<WsUpgrade> ws_upgrade{}; // set when 101 pending; cleared after handoff
-	shared_ptr<WorkPool> ws_work_pool{};
+	SP<DeferredResponse> deferred_response{};
+	SP<WsUpgrade> ws_upgrade{}; // set when 101 pending; cleared after handoff
+	SP<WorkPool> ws_work_pool{};
 	HttpRequest saved_req{}; // copy of request saved for WS handler thread
 	bool is_tls = false; // set after first-byte sniff; used by dispatch_request
 #if CONFLUX_HAS_TLS
 	// TLS state (null → plaintext connection)
 	SSL *ssl = nullptr;
-	string tls_send_buf{}; // encrypted bytes waiting to be sent via io_uring
-	size_t tls_send_off{}; // bytes of tls_send_buf already sent
-	string tls_recv_buf{}; // unconsumed ciphertext; rbio (BIO_new_mem_buf) points here
+	S tls_send_buf{}; // encrypted bytes waiting to be sent via io_uring
+	SZ tls_send_off{}; // bytes of tls_send_buf already sent
+	S tls_recv_buf{}; // unconsumed ciphertext; rbio (BIO_new_mem_buf) points here
 	bool tls_hs_done = false; // TLS handshake completed; also used as undecided sentinel
 	bool tls_sending_response = false; // true → current tls_send_buf carries HTTP response data
 	bool ktls_send = false; // kTLS send offload active; splice_to_fd usable for TLS file body
 #endif
-	string const *response_ptr = nullptr;
-	string own_response{};
-	string partial{};
-	size_t written = 0;
-	size_t request_bytes = 0; // bytes consumed by current dispatched request
+	S const *response_ptr = nullptr;
+	S own_response{};
+	S partial{};
+	SZ written = 0;
+	SZ request_bytes = 0; // bytes consumed by current dispatched request
 	chrono::steady_clock::time_point last_activity; // updated on accept and recv
 	chrono::steady_clock::time_point request_started{};
 	bool request_in_progress = false;
-	string remote_addr{}; // peer IP, set on accept
+	S remote_addr{}; // peer IP, set on accept
 	// mmap path: non-null when current response has a zero-copy file region
-	shared_ptr<MappedFile> mapped_file{};
-	size_t mapped_total{}; // own_response.size() + mapped_file->size
-	array<iovec, 2> writev_iov{}; // iovecs rebuilt per-send in queue_send_mapped
+	SP<MappedFile> mapped_file{};
+	SZ mapped_total{}; // own_response.size() + mapped_file->size
+	A<iovec, 2> writev_iov{}; // iovecs rebuilt per-send in queue_send_mapped
 
 	// file_io streaming path: non-null when current response streams via splice
 	// (plain HTTP) or read_fixed+SSL_write (TLS). Phase tracks whether headers
 	// have been flushed to the socket.
-	shared_ptr<StreamedFile> streamed_file{};
+	SP<StreamedFile> streamed_file{};
 	bool streamed_headers_sent = false;
 	u64 streamed_delivered = 0;
 	bool streamed_splice_in_flight = false;
 #if CONFLUX_HAS_HTTP2
 	bool is_h2{};
 	nghttp2_session *h2_session = nullptr;
-	unique_ptr<H2ConnCtx> h2_ctx;
-	map<i32, H2Stream> h2_streams{};
-	string h2_pending_send{};
+	UP<H2ConnCtx> h2_ctx;
+	M<i32, H2Stream> h2_streams{};
+	S h2_pending_send{};
 	i32 h2_sse_stream_id{-1}; // stream_id of active H2 SSE stream (-1 = none)
 	bool h2_sse_pending_wait{}; // set by on_frame_recv_cb to trigger queue_sse_wait after h2_do_send
 #endif
@@ -293,11 +289,11 @@ struct Conn {
 
 // Extract a named parameter from a header value (e.g. boundary= from Content-Type).
 // Returns unquoted value, empty if not found.
-string_view extract_param(
-	string_view header,
-	string_view param_name) {
+SV extract_param(
+	SV header,
+	SV param_name) {
 	auto pos = header.find(param_name);
-	if (pos == string_view::npos) {
+	if (pos == SV::npos) {
 		return {};
 	}
 	pos += param_name.size();
@@ -311,32 +307,32 @@ string_view extract_param(
 	if (header[pos] == '"') {
 		++pos;
 		auto end = header.find('"', pos);
-		return end == string_view::npos ? header.substr(pos) : header.substr(pos, end - pos);
+		return end == SV::npos ? header.substr(pos) : header.substr(pos, end - pos);
 	}
 	auto end = header.find_first_of(";\r\n ", pos);
-	return end == string_view::npos ? header.substr(pos) : header.substr(pos, end - pos);
+	return end == SV::npos ? header.substr(pos) : header.substr(pos, end - pos);
 }
 
 // Parse Cookie header into out: "name1=val1; name2=val2".
 void parse_cookies(
-	string_view cookie_header,
+	SV cookie_header,
 	HttpFieldsView &out) {
-	size_t pos = 0;
+	SZ pos = 0;
 	while (pos < cookie_header.size()) {
 		while (pos < cookie_header.size() && cookie_header[pos] == ' ') {
 			++pos;
 		}
 		auto sep = cookie_header.find(';', pos);
-		auto pair = sep == string_view::npos ? cookie_header.substr(pos) : cookie_header.substr(pos, sep - pos);
-		while (!pair.empty() && pair.back() == ' ') {
-			pair.remove_suffix(1);
+		auto P = sep == SV::npos ? cookie_header.substr(pos) : cookie_header.substr(pos, sep - pos);
+		while (!P.empty() && P.back() == ' ') {
+			P.remove_suffix(1);
 		}
-		if (auto eq = pair.find('='); eq != string_view::npos) {
-			out.emplace_back(pair.substr(0, eq), pair.substr(eq + 1));
-		} else if (!pair.empty()) {
-			out.emplace_back(pair, {});
+		if (auto eq = P.find('='); eq != SV::npos) {
+			out.emplace_back(P.substr(0, eq), P.substr(eq + 1));
+		} else if (!P.empty()) {
+			out.emplace_back(P, {});
 		}
-		if (sep == string_view::npos) {
+		if (sep == SV::npos) {
 			break;
 		}
 		pos = sep + 1;
@@ -344,12 +340,12 @@ void parse_cookies(
 }
 
 [[nodiscard]] bool ascii_iequals(
-	string_view lhs,
-	string_view rhs) noexcept {
+	SV lhs,
+	SV rhs) noexcept {
 	if (lhs.size() != rhs.size()) {
 		return false;
 	}
-	for (size_t i = 0; i < lhs.size(); ++i) {
+	for (SZ i = 0; i < lhs.size(); ++i) {
 		auto const l = static_cast<unsigned char>(lhs[i]);
 		auto const r = static_cast<unsigned char>(rhs[i]);
 		if ((l | 0x20U) != (r | 0x20U)) {
@@ -361,17 +357,16 @@ void parse_cookies(
 
 [[nodiscard]] bool has_connection_token(
 	HttpFieldsView const &headers,
-	string_view wanted) {
+	SV wanted) {
 	for (auto const header_value: headers.values("connection")) {
-		size_t pos = 0;
+		SZ pos = 0;
 		while (pos <= header_value.size()) {
 			auto const comma = header_value.find(',', pos);
-			auto token =
-				trim(comma == string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
+			auto token = trim(comma == SV::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
 			if (!token.empty() && ascii_iequals(token, wanted)) {
 				return true;
 			}
-			if (comma == string_view::npos) {
+			if (comma == SV::npos) {
 				break;
 			}
 			pos = comma + 1;
@@ -382,13 +377,12 @@ void parse_cookies(
 
 [[nodiscard]] bool has_valid_chunked_transfer_encoding(
 	HttpFieldsView const &headers) {
-	size_t token_count = 0;
+	SZ token_count = 0;
 	for (auto const header_value: headers.values("transfer-encoding")) {
-		size_t pos = 0;
+		SZ pos = 0;
 		while (pos <= header_value.size()) {
 			auto const comma = header_value.find(',', pos);
-			auto token =
-				trim(comma == string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
+			auto token = trim(comma == SV::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
 			if (token.empty()) {
 				return false;
 			}
@@ -396,7 +390,7 @@ void parse_cookies(
 			if (!ascii_iequals(token, "chunked")) {
 				return false;
 			}
-			if (comma == string_view::npos) {
+			if (comma == SV::npos) {
 				break;
 			}
 			pos = comma + 1;
@@ -408,18 +402,18 @@ void parse_cookies(
 // Parse multipart/form-data body.
 // Text fields (no filename) go into form; file parts go into files.
 void parse_multipart(
-	string_view body,
-	string_view boundary,
+	SV body,
+	SV boundary,
 	HttpFieldsView &form,
-	vector<UploadedFile> &files) {
-	string const delim = format("--{}", boundary);
-	size_t pos = body.find(delim);
-	if (pos == string_view::npos) {
+	V<UploadedFile> &files) {
+	S const delim = format("--{}", boundary);
+	SZ pos = body.find(delim);
+	if (pos == SV::npos) {
 		return;
 	}
 
-	static constexpr size_t kMaxMultipartParts = 1000;
-	size_t part_count = 0;
+	static constexpr SZ kMaxMultipartParts = 1000;
+	SZ part_count = 0;
 	while (true) {
 		if (++part_count > kMaxMultipartParts) {
 			break;
@@ -442,7 +436,7 @@ void parse_multipart(
 		}
 
 		auto headers_end = body.find("\r\n\r\n", pos);
-		if (headers_end == string_view::npos) {
+		if (headers_end == SV::npos) {
 			break;
 		}
 
@@ -450,7 +444,7 @@ void parse_multipart(
 		auto content_start = headers_end + 4;
 
 		auto next_delim = body.find(delim, content_start);
-		if (next_delim == string_view::npos) {
+		if (next_delim == SV::npos) {
 			break;
 		}
 
@@ -461,14 +455,14 @@ void parse_multipart(
 		auto content = body.substr(content_start, content_end - content_start);
 
 		// Parse part headers
-		string_view disposition;
-		string_view part_ct = "text/plain";
-		size_t h = 0;
+		SV disposition;
+		SV part_ct = "text/plain";
+		SZ h = 0;
 		while (h < part_headers_sv.size()) {
 			auto le = part_headers_sv.find("\r\n", h);
-			auto line = le == string_view::npos ? part_headers_sv.substr(h) : part_headers_sv.substr(h, le - h);
-			if (auto colon = line.find(": "); colon != string_view::npos) {
-				string const key = ascii_lower(line.substr(0, colon));
+			auto line = le == SV::npos ? part_headers_sv.substr(h) : part_headers_sv.substr(h, le - h);
+			if (auto colon = line.find(": "); colon != SV::npos) {
+				S const key = ascii_lower(line.substr(0, colon));
 				auto val = line.substr(colon + 2);
 				if (key == "content-disposition") {
 					disposition = val;
@@ -476,7 +470,7 @@ void parse_multipart(
 					part_ct = val;
 				}
 			}
-			if (le == string_view::npos) {
+			if (le == SV::npos) {
 				break;
 			}
 			h = le + 2;
@@ -495,33 +489,33 @@ void parse_multipart(
 
 // Parse application/x-www-form-urlencoded pairs into out.
 [[gnu::pure]] [[nodiscard]] bool needs_url_decode(
-	string_view s) noexcept {
-	return s.find('%') != string_view::npos || s.find('+') != string_view::npos;
+	SV s) noexcept {
+	return s.find('%') != SV::npos || s.find('+') != SV::npos;
 }
 
 CONFLUX_FUZZ_EXPORT void parse_urlencoded(
-	string_view data,
+	SV data,
 	HttpFieldsView &out) {
-	size_t pos = 0;
+	SZ pos = 0;
 	while (pos <= data.size()) {
 		auto amp = data.find('&', pos);
-		auto pair = (amp == string_view::npos) ? data.substr(pos) : data.substr(pos, amp - pos);
-		if (auto eq = pair.find('='); eq != string_view::npos) {
-			auto key = pair.substr(0, eq);
-			auto field_value = pair.substr(eq + 1);
+		auto P = (amp == SV::npos) ? data.substr(pos) : data.substr(pos, amp - pos);
+		if (auto eq = P.find('='); eq != SV::npos) {
+			auto key = P.substr(0, eq);
+			auto field_value = P.substr(eq + 1);
 			if (!needs_url_decode(key) && !needs_url_decode(field_value)) {
 				out.emplace_back(key, field_value);
 			} else {
 				out.emplace_back_owned(url_decode(key), url_decode(field_value));
 			}
-		} else if (!pair.empty()) {
-			if (!needs_url_decode(pair)) {
-				out.emplace_back(pair, {});
+		} else if (!P.empty()) {
+			if (!needs_url_decode(P)) {
+				out.emplace_back(P, {});
 			} else {
-				out.emplace_back_owned(url_decode(pair), string{});
+				out.emplace_back_owned(url_decode(P), S{});
 			}
 		}
-		if (amp == string_view::npos) {
+		if (amp == SV::npos) {
 			break;
 		}
 		pos = amp + 1;
@@ -536,45 +530,45 @@ CONFLUX_FUZZ_EXPORT void parse_urlencoded(
 // On return > 0, `body` holds the decoded content. On rc ≤ 0 the contents of
 // `body` are indeterminate (may hold a partial prefix) — callers must ignore
 // it until a positive rc is seen.
-CONFLUX_FUZZ_EXPORT ptrdiff_t decode_chunked(
-	string_view data,
-	size_t max_body_size,
-	size_t max_chunks,
-	string &body) {
+CONFLUX_FUZZ_EXPORT i64 decode_chunked(
+	SV data,
+	SZ max_body_size,
+	SZ max_chunks,
+	S &body) {
 	body.clear();
 	body.reserve(min(data.size(), max_body_size));
-	size_t pos = 0;
-	size_t chunks_seen = 0;
+	SZ pos = 0;
+	SZ chunks_seen = 0;
 	while (true) {
 		if (++chunks_seen > max_chunks) {
 			return -1;
 		}
 		auto crlf = data.find("\r\n", pos);
-		if (crlf == string_view::npos) {
+		if (crlf == SV::npos) {
 			return 0;
 		}
 
 		auto size_line = data.substr(pos, crlf - pos);
-		if (auto semi = size_line.find(';'); semi != string_view::npos) {
+		if (auto semi = size_line.find(';'); semi != SV::npos) {
 			size_line = size_line.substr(0, semi); // strip chunk extensions
 		}
 		if (size_line.empty()) {
 			return -1;
 		}
 
-		constexpr size_t kMaxChunkHexDigits = 16;
+		constexpr SZ kMaxChunkHexDigits = 16;
 		if (size_line.size() > kMaxChunkHexDigits) {
 			return -1;
 		}
-		size_t chunk_size = 0;
+		SZ chunk_size = 0;
 		for (char const c: size_line) {
 			int const d = hex_char_to_int(c);
 			if (d < 0) {
 				return -1;
 			}
-			auto const digit = static_cast<size_t>(d);
-			size_t shifted = 0;
-			if (__builtin_mul_overflow(chunk_size, size_t{16}, &shifted)) {
+			auto const digit = static_cast<SZ>(d);
+			SZ shifted = 0;
+			if (__builtin_mul_overflow(chunk_size, SZ{16}, &shifted)) {
 				return -1;
 			}
 			if (__builtin_add_overflow(shifted, digit, &chunk_size)) {
@@ -584,16 +578,16 @@ CONFLUX_FUZZ_EXPORT ptrdiff_t decode_chunked(
 		pos = crlf + 2;
 
 		if (chunk_size == 0) {
-			// Terminal chunk: skip optional trailers until empty CRLF line.
-			static constexpr size_t kMaxTrailerLines = 64;
-			size_t trailer_lines = 0;
+			// Terminal chunk: skip Opt trailers until empty CRLF line.
+			static constexpr SZ kMaxTrailerLines = 64;
+			SZ trailer_lines = 0;
 			while (true) {
 				auto next = data.find("\r\n", pos);
-				if (next == string_view::npos) {
+				if (next == SV::npos) {
 					return 0;
 				}
 				if (next == pos) {
-					return static_cast<ptrdiff_t>(pos + 2);
+					return static_cast<i64>(pos + 2);
 				} // end
 				if (++trailer_lines > kMaxTrailerLines) {
 					return -1;
@@ -623,78 +617,78 @@ struct RecvComp {
 	u16 buf_id;
 };
 
-constexpr size_t FD_TABLE_RESERVE = 4096;
+constexpr SZ FD_TABLE_RESERVE = 4096;
 constexpr unsigned DEFAULT_RING_ENTRIES = 1024U;
 
 struct Ring {
 	struct DeferredWait {
 		int conn_fd{-1};
 		i32 stream_id{-1};
-		unique_ptr<u64> read_buf{};
-		shared_ptr<DeferredResponse> response{};
+		UP<u64> read_buf{};
+		SP<DeferredResponse> response{};
 	};
 
 	struct WsHandoffState {
-		shared_ptr<WsUpgrade> upgrade{};
-		shared_ptr<WorkPool> pool{};
+		SP<WsUpgrade> upgrade{};
+		SP<WorkPool> pool{};
 		HttpRequest request{};
 	};
 
 	struct WsInstallEntry {
 		WsHandoffState state{};
-		string initial_buf{};
+		S initial_buf{};
 #if CONFLUX_HAS_TLS
 		SSL *ssl{nullptr};
 #endif
 	};
 
-	static constexpr size_t BUF_SIZE = 8192;
+	static constexpr SZ BUF_SIZE = 8192;
 	static constexpr u32 MAX_FILES = 65536;
 	static constexpr u16 BUF_GROUP = 0;
 
 	io_uring ring{};
 	// Backing memory for the ring when no_mmap = true. Freed on destroy.
-	unique_ptr<byte[], void (*)(void *)> ring_mem{nullptr, ::free};
+	std::unique_ptr<byte[], void (*)(void *)> ring_mem{nullptr, ::free};
 	int listen_fd = -1;
 	sockaddr_in6 client_addr{};
 	socklen_t client_addr_len = sizeof(client_addr);
 
-	vector<Conn> fd_table{};
-	vector<RecvComp> recvs{};
-	unordered_map<int, DeferredWait> deferred_waits{};
-	unordered_map<int, WsInstallEntry> ws_cancel_handoffs{};
-	unordered_map<int, WsInstallEntry> ws_installs{};
+	V<Conn> fd_table{};
+	V<RecvComp> recvs{};
+	UM<int, DeferredWait> deferred_waits{};
+	UM<int, WsInstallEntry> ws_cancel_handoffs{};
+	UM<int, WsInstallEntry> ws_installs{};
 
 	io_uring_buf_ring *buf_ring = nullptr;
 	u32 buf_count = 0;
 	int buf_ring_mask = 0;
-	vector<array<char, BUF_SIZE>> bufs;
+	V<A<char, BUF_SIZE>> bufs;
 
 	bool fixed_files = false;
 	bool shutting_down = false;
 	bool use_recv_bundle = false; // IORING_RECVSEND_BUNDLE on multishot recv
-	size_t max_body_size = size_t{1024} * 1024; // set from Config before run_loop()
+	SZ max_body_size = SZ{1024} * 1024; // set from Config before run_loop()
 	u32 request_timeout_ms = 30000; // set from Config before run_loop(); 0 = disabled
 	u32 tls_sniff_timeout_ms = 10000; // set from Config before run_loop(); 0 = disabled
 	bool http_redirect_to_https = false; // set from Config before run_loop()
-	vector<string> https_redirect_hosts{}; // set from Config before run_loop()
+	V<S> https_redirect_hosts{}; // set from Config before run_loop()
 	ParserLimits parser_limits{}; // set from Config before run_loop()
-	string alt_svc_header{}; // "h3=\":443\"; ma=86400" when h3 enabled; empty otherwise
+	S alt_svc_header{}; // "h3=\":443\"; ma=86400" when h3 enabled; empty otherwise
 
 	int shutdown_efd = -1; // set by HttpServer before run_loop(); not owned
 	u64 shutdown_buf = 0; // read target for the shutdown eventfd SQE
 
 	// file_io pools — constructed after io_uring_queue_init. Shared by
 	// static-file serving and any other caller that grabs files.get().
-	unique_ptr<CompletionTable> file_completions{};
-	unique_ptr<FixedBufferPool> fixed_buffers{};
-	unique_ptr<PipePool> splice_pipes{};
-	unique_ptr<FileReader> files{};
+	UP<CompletionTable> file_completions{};
+	UP<FixedBufferPool> fixed_buffers{};
+	UP<PipePool> splice_pipes{};
+	UP<FileReader> files{};
 
 	// pool sizing — set from Config before run_loop()
-	size_t file_io_slabs = 64;
-	size_t file_io_slab_bytes = size_t{64} * 1024;
-	size_t file_io_pipe_pairs = 16;
+	SZ file_io_slabs = 64;
+	SZ file_io_slab_bytes = SZ{64} * 1024;
+	SZ file_io_pipe_pairs = 16;
 
 	__kernel_timespec timer_ts{}; // reused for the periodic timeout SQE
 
@@ -708,11 +702,11 @@ struct Ring {
 	VHostRouter const *vhost_router = nullptr; // set before init(); not owned
 
 	u16 bound_port{}; // actual port after bind (handles port=0)
-	atomic<u16> *port_signal = nullptr; // set for ring 0; signalled after listen()
+	Atom<u16> *port_signal = nullptr; // set for ring 0; signalled after listen()
 #if CONFLUX_HAS_TLS
 	SSL_CTX *ssl_ctx = nullptr; // non-owning; set by HttpServer before run(); null → plaintext
 	// vhost_ctxs: hostname → SSL_CTX* for SNI switching (non-owning, owned by HttpServer::Impl)
-	vector<pair<string, SSL_CTX *>> vhost_ctxs;
+	V<P<S, SSL_CTX *>> vhost_ctxs;
 #endif
 
 	Ring() = default;
@@ -738,7 +732,7 @@ struct Ring {
 		return router->dispatch(req);
 	}
 
-	[[nodiscard]] shared_ptr<WorkPool> resolve_ws_work_pool(
+	[[nodiscard]] SP<WorkPool> resolve_ws_work_pool(
 		HttpRequestView const &req) const {
 		if (vhost_router != nullptr) {
 			return vhost_router->resolved_work_pool(req.headers["host"]);
@@ -756,7 +750,7 @@ struct Ring {
 	void queue_deferred_wait(
 		int conn_fd,
 		int deferred_efd,
-		shared_ptr<DeferredResponse> response,
+		SP<DeferredResponse> response,
 		i32 stream_id = -1) {
 		if (deferred_efd < 0 || !response) {
 			return;
@@ -792,10 +786,10 @@ struct Ring {
 	// Drain all encrypted bytes from wbio into conn.tls_send_buf.
 	static void tls_flush_wbio(
 		Conn &conn) {
-		array<char, 4096> buf{};
+		A<char, 4096> buf{};
 		int n{};
 		while ((n = BIO_read(SSL_get_wbio(conn.ssl), buf.data(), static_cast<int>(buf.size()))) > 0) {
-			conn.tls_send_buf.append(buf.data(), static_cast<size_t>(n));
+			conn.tls_send_buf.append(buf.data(), static_cast<SZ>(n));
 		}
 	}
 
@@ -828,7 +822,7 @@ struct Ring {
 	static ssize_t h2_send_cb(
 		nghttp2_session * /*unused*/,
 		u8 const *data,
-		size_t length,
+		SZ length,
 		int /*unused*/,
 		void *user_data) {
 		auto *ctx = static_cast<H2ConnCtx *>(user_data);
@@ -856,9 +850,9 @@ struct Ring {
 		nghttp2_session * /*unused*/,
 		nghttp2_frame const *frame,
 		u8 const *name,
-		size_t namelen,
+		SZ namelen,
 		u8 const *header_value,
-		size_t valuelen,
+		SZ valuelen,
 		u8 /*unused*/,
 		void *user_data) {
 		auto *ctx = static_cast<H2ConnCtx *>(user_data);
@@ -868,8 +862,8 @@ struct Ring {
 			return 0;
 		}
 		auto &stream = it->second;
-		string n{reinterpret_cast<char const *>(name), namelen};
-		string v{reinterpret_cast<char const *>(header_value), valuelen};
+		S n{reinterpret_cast<char const *>(name), namelen};
+		S v{reinterpret_cast<char const *>(header_value), valuelen};
 		if (n == ":method") {
 			stream.method = move(v);
 		} else if (n == ":path") {
@@ -880,7 +874,7 @@ struct Ring {
 			stream.authority = move(v);
 		} else {
 			if (n == "content-length") {
-				size_t content_length{};
+				SZ content_length{};
 				auto const *cl_end = ranges::next(v.data(), ssize(v));
 				auto [ptr, ec] = from_chars(v.data(), cl_end, content_length);
 				if (ec == errc{} && ptr == cl_end) {
@@ -898,7 +892,7 @@ struct Ring {
 		u8 /*unused*/,
 		i32 stream_id,
 		u8 const *data,
-		size_t len,
+		SZ len,
 		void *user_data) {
 		auto *ctx = static_cast<H2ConnCtx *>(user_data);
 		auto &conn = ctx->ring->conn_for(ctx->fd);
@@ -919,7 +913,7 @@ struct Ring {
 		nghttp2_session *session,
 		i32 stream_id,
 		u8 *buf,
-		size_t length,
+		SZ length,
 		u32 *data_flags,
 		nghttp2_data_source *source,
 		void * /*user_data*/) {
@@ -938,7 +932,7 @@ struct Ring {
 				return NGHTTP2_ERR_DEFERRED;
 			}
 			auto to_copy = min(stream.h2_sse_buf.size(), length);
-			// NOLINTNEXTLINE(bugprone-not-null-terminated-result): raw byte copy, not C-string
+			// NOLINTNEXTLINE(bugprone-not-null-terminated-result): raw byte copy, not C-S
 			memcpy(buf, stream.h2_sse_buf.data(), to_copy);
 			stream.h2_sse_buf.erase(0, to_copy);
 			// Don't set EOF — channel may produce more events.
@@ -957,12 +951,12 @@ struct Ring {
 				*data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
 				*data_flags |= NGHTTP2_DATA_FLAG_EOF;
 				// Build NV pairs for the trailer HEADERS frame.
-				vector<pair<string, string>> nv_storage;
+				V<P<S, S>> nv_storage;
 				nv_storage.reserve(stream.response_trailers.size());
 				for (auto const &[k, v]: stream.response_trailers) {
 					nv_storage.emplace_back(k, v);
 				}
-				vector<nghttp2_nv> nva;
+				V<nghttp2_nv> nva;
 				nva.reserve(nv_storage.size());
 				for (auto &[n, v]: nv_storage) {
 					nva.push_back(
@@ -1002,9 +996,9 @@ struct Ring {
 		}
 
 		bool const is_sse_resp = resp.is_sse();
-		string const status_str = to_string(resp.status);
-		string const clen_str = to_string(resp.content_length());
-		vector<pair<string, string>> nv_storage;
+		S const status_str = to_string(resp.status);
+		S const clen_str = to_string(resp.content_length());
+		V<P<S, S>> nv_storage;
 		nv_storage.reserve(3 + resp.headers.size() + resp.set_cookies.size());
 		nv_storage.emplace_back(":status", status_str);
 		nv_storage.emplace_back("content-type", resp.content_type);
@@ -1021,7 +1015,7 @@ struct Ring {
 			nv_storage.emplace_back("alt-svc", conn.h2_ctx->ring->alt_svc_header);
 		}
 
-		vector<nghttp2_nv> nva;
+		V<nghttp2_nv> nva;
 		nva.reserve(nv_storage.size());
 		for (auto &[n, v]: nv_storage) {
 			nva.push_back(
@@ -1082,16 +1076,16 @@ struct Ring {
 		}
 		stream.end_stream_seen = true;
 
-		string_view const method = stream.method;
-		string_view path = stream.path;
-		string_view const version = "HTTP/2";
-		string_view const body = stream.body;
+		SV const method = stream.method;
+		SV path = stream.path;
+		SV const version = "HTTP/2";
+		SV const body = stream.body;
 		HttpFieldsView const params;
 		HttpFieldsView query;
 		HttpFieldsView form;
 		HttpFieldsView cookies;
-		vector<UploadedFile> files;
-		if (auto q = path.find('?'); q != string_view::npos) {
+		V<UploadedFile> files;
+		if (auto q = path.find('?'); q != SV::npos) {
 			parse_urlencoded(path.substr(q + 1), query);
 			path = path.substr(0, q);
 		}
@@ -1142,7 +1136,7 @@ struct Ring {
 	static int h2_on_stream_close_cb(
 		nghttp2_session * /*unused*/,
 		i32 stream_id,
-		u32 /*error_code*/,
+		u32 /*EC*/,
 		void *user_data) {
 		auto *ctx = static_cast<H2ConnCtx *>(user_data);
 		auto &conn = ctx->ring->conn_for(ctx->fd);
@@ -1211,7 +1205,7 @@ struct Ring {
 		nghttp2_session_callbacks_del(cbs);
 
 		constexpr u32 kH2MaxConcurrentStreams = 100;
-		array<nghttp2_settings_entry, 1> const iv{
+		A<nghttp2_settings_entry, 1> const iv{
 			{{.settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, .value = kH2MaxConcurrentStreams}}};
 		nghttp2_submit_settings(conn.h2_session, NGHTTP2_FLAG_NONE, iv.data(), iv.size());
 		// Flush deferred to caller's h2_do_send().
@@ -1236,24 +1230,24 @@ struct Ring {
 		if (no_mmap) {
 			ssize_t const sz = io_uring_mlock_size(entries, params.flags);
 			if (sz <= 0) {
-				throw runtime_error{"io_uring_mlock_size failed"};
+				throw RE{"io_uring_mlock_size failed"};
 			}
-			auto *raw = static_cast<byte *>(
-				::aligned_alloc(static_cast<size_t>(sysconf(_SC_PAGESIZE)), static_cast<size_t>(sz)));
+			auto *raw =
+				static_cast<byte *>(::aligned_alloc(static_cast<SZ>(sysconf(_SC_PAGESIZE)), static_cast<SZ>(sz)));
 			if (raw == nullptr) {
-				throw bad_alloc{};
+				throw std::bad_alloc{};
 			}
 			ring_mem = {raw, ::free};
-			if (io_uring_queue_init_mem(entries, &ring, &params, raw, static_cast<size_t>(sz)) < 0) {
-				throw runtime_error{"io_uring_queue_init_mem failed"};
+			if (io_uring_queue_init_mem(entries, &ring, &params, raw, static_cast<SZ>(sz)) < 0) {
+				throw RE{"io_uring_queue_init_mem failed"};
 			}
 		} else if (io_uring_queue_init_params(entries, &ring, &params) < 0) {
-			throw runtime_error{"io_uring_queue_init_params failed"};
+			throw RE{"io_uring_queue_init_params failed"};
 		}
 
 		listen_fd = ::socket(AF_INET6, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
 		if (listen_fd < 0) {
-			throw system_error{errno, system_category(), "socket"};
+			throw SE{errno, system_category(), "socket"};
 		}
 
 		int opt = 1;
@@ -1269,10 +1263,10 @@ struct Ring {
 		addr.sin6_port = htons(port);
 
 		if (::bind(listen_fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
-			throw system_error{errno, system_category(), "bind"};
+			throw SE{errno, system_category(), "bind"};
 		}
 		if (::listen(listen_fd, SOMAXCONN) < 0) {
-			throw system_error{errno, system_category(), "listen"};
+			throw SE{errno, system_category(), "listen"};
 		}
 
 		// Read back actual port (port=0 → OS-assigned). Signal before io_uring
@@ -1319,7 +1313,7 @@ struct Ring {
 		int ret = 0;
 		buf_ring = io_uring_setup_buf_ring(&ring, buf_count, BUF_GROUP, 0, &ret);
 		if (buf_ring == nullptr) {
-			throw runtime_error{format("io_uring_setup_buf_ring failed: {}", ret)};
+			throw RE{format("io_uring_setup_buf_ring failed: {}", ret)};
 		}
 		buf_ring_mask = io_uring_buf_ring_mask(buf_count);
 
@@ -1340,7 +1334,7 @@ struct Ring {
 
 	Conn &conn_for(
 		int fd) {
-		auto const ufd = static_cast<size_t>(fd);
+		auto const ufd = static_cast<SZ>(fd);
 		if (ufd >= fd_table.size()) {
 			if (ufd >= 1'000'000U) [[unlikely]] {
 				::close(fd);
@@ -1356,7 +1350,7 @@ struct Ring {
 	void conn_erase(
 		int fd,
 		u32 gen) {
-		auto const ufd = static_cast<size_t>(fd);
+		auto const ufd = static_cast<SZ>(fd);
 		if (ufd >= fd_table.size()) {
 			return;
 		}
@@ -1434,7 +1428,7 @@ struct Ring {
 	}
 
 	void drain_pending_ops() {
-		size_t remaining = pending_ops.size();
+		SZ remaining = pending_ops.size();
 		while (remaining > 0 && !pending_ops.empty()) {
 			auto op = move(pending_ops.front());
 			pending_ops.pop_front();
@@ -1501,13 +1495,13 @@ struct Ring {
 			return;
 		}
 
-		size_t skip = conn.written;
-		size_t ni{};
+		SZ skip = conn.written;
+		SZ ni{};
 
 		// iov[0]: remaining header bytes
 		if (skip < conn.own_response.size()) {
 			span<char> const hdr_span{conn.own_response};
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 			conn.writev_iov[ni++] = {
 				.iov_base = static_cast<void *>(hdr_span.subspan(skip).data()),
 				.iov_len = hdr_span.subspan(skip).size()};
@@ -1520,7 +1514,7 @@ struct Ring {
 			span<char> const file_span{
 				static_cast<char *>(conn.mapped_file->ptr),
 				conn.mapped_file->send_offset + conn.mapped_file->send_size};
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-array-index)
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 			conn.writev_iov[ni++] = {
 				.iov_base = file_span.subspan(conn.mapped_file->send_offset + skip).data(),
 				.iov_len = conn.mapped_file->send_size - skip};
@@ -1563,7 +1557,7 @@ struct Ring {
 		io_uring_sqe_set_data64(sqe, pack(Op::Send, conn.gen, fd));
 	}
 
-	// Acquire a pipe pair and submit the splice chain via FileReader. Completion
+	// Acquire a pipe P and submit the splice chain via FileReader. Completion
 	// calls back into handle_streamed_splice_done on the ring thread.
 	void start_streamed_body(
 		int fd) {
@@ -1586,12 +1580,12 @@ struct Ring {
 			files->splice_to_fd(
 				*conn.streamed_file->handle,
 				off,
-				static_cast<size_t>(remaining),
+				static_cast<SZ>(remaining),
 				fd,
 				move(*pipe),
 				fixed_files)
-			| then([this, fd, conn_gen](size_t delivered) { on_streamed_splice_done(fd, conn_gen, delivered, {}); })
-			| on_error([this, fd, conn_gen](exception_ptr const &e) { on_streamed_splice_done(fd, conn_gen, 0, e); });
+			| then([this, fd, conn_gen](SZ delivered) { on_streamed_splice_done(fd, conn_gen, delivered, {}); })
+			| on_error([this, fd, conn_gen](EP const &e) { on_streamed_splice_done(fd, conn_gen, 0, e); });
 		(void)terminal;
 	}
 
@@ -1614,7 +1608,7 @@ struct Ring {
 		}
 		auto const remaining = conn.streamed_file->send_size - conn.streamed_delivered;
 		auto const off = conn.streamed_file->send_offset + conn.streamed_delivered;
-		auto const want = static_cast<size_t>(min<u64>(remaining, buf->size()));
+		auto const want = static_cast<SZ>(min<u64>(remaining, buf->size()));
 		FixedBuffer b = move(*buf);
 		auto const conn_gen = conn.gen;
 		conn.streamed_splice_in_flight = true;
@@ -1623,7 +1617,7 @@ struct Ring {
 					  | then([this, fd, conn_gen, want](FileReader::ReadFixedResult result) {
 							on_streamed_tls_chunk_done(fd, conn_gen, move(result.buffer), min(result.bytes, want), {});
 						})
-					  | on_error([this, fd, conn_gen](exception_ptr const &e) {
+					  | on_error([this, fd, conn_gen](EP const &e) {
 							on_streamed_tls_chunk_done(fd, conn_gen, FixedBuffer{}, 0, e);
 						});
 		(void)terminal;
@@ -1633,9 +1627,9 @@ struct Ring {
 		int fd,
 		u32 conn_gen,
 		FixedBuffer buf,
-		size_t bytes,
-		exception_ptr const &err) {
-		auto const ufd = static_cast<size_t>(fd);
+		SZ bytes,
+		EP const &err) {
+		auto const ufd = static_cast<SZ>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != conn_gen) {
 			return;
 		}
@@ -1672,9 +1666,9 @@ struct Ring {
 	void on_streamed_splice_done(
 		int fd,
 		u32 conn_gen,
-		size_t delivered,
-		exception_ptr const &err) {
-		auto const ufd = static_cast<size_t>(fd);
+		SZ delivered,
+		EP const &err) {
+		auto const ufd = static_cast<SZ>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != conn_gen) {
 			return;
 		}
@@ -1765,7 +1759,7 @@ struct Ring {
 	void queue_close(
 		int fd) {
 		u32 gen = 0;
-		auto const ufd = static_cast<size_t>(fd);
+		auto const ufd = static_cast<SZ>(fd);
 		if (ufd < fd_table.size()) {
 			gen = fd_table[ufd].gen;
 		}
@@ -1924,7 +1918,7 @@ struct Ring {
 			io_uring_sqe_set_data64(sqe, 0);
 		}
 		// Close idle connections immediately; mark active ones to close after send.
-		for (size_t i = 0; i < fd_table.size(); ++i) {
+		for (SZ i = 0; i < fd_table.size(); ++i) {
 			auto &conn = fd_table[i];
 			if (conn.fd < 0) {
 				continue;
@@ -2005,7 +1999,7 @@ struct Ring {
 		int res,
 		u32 flg,
 		u32 gen) {
-		auto const ufd = static_cast<size_t>(fd);
+		auto const ufd = static_cast<SZ>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 			return;
 		}
@@ -2113,7 +2107,7 @@ struct Ring {
 		WorkPool &pool,
 		WsHandoffState state,
 		int fd,
-		string initial_buf) {
+		S initial_buf) {
 		if (!pool.enqueue([state = move(state), fd, ibuf = move(initial_buf)]() mutable {
 				WsConn ws{fd, move(ibuf)};
 				state.upgrade->handler(state.request, ws);
@@ -2147,7 +2141,7 @@ struct Ring {
 			conn.partial.clear();
 		}
 		conn.request_bytes = 0;
-		string initial_buf = move(conn.partial);
+		S initial_buf = move(conn.partial);
 		bool const cancel_recv = conn.recv_armed;
 		auto state = begin_ws_handoff(conn);
 		if (!state.pool) {
@@ -2182,7 +2176,7 @@ struct Ring {
 		WsHandoffState state,
 		int fd,
 		SSL *ssl,
-		string initial_buf) {
+		S initial_buf) {
 		if (!pool.enqueue([state = move(state), fd, ssl, ibuf = move(initial_buf)]() mutable {
 				WsConn ws{fd, ssl, move(ibuf)};
 				state.upgrade->handler(state.request, ws);
@@ -2205,7 +2199,7 @@ struct Ring {
 		}
 		conn.request_bytes = 0;
 
-		string initial_buf = move(conn.partial);
+		S initial_buf = move(conn.partial);
 		SSL *orig_ssl = conn.ssl;
 		conn.ssl = nullptr; // transfer ownership to the thread
 		bool const cancel_recv = conn.recv_armed;
@@ -2286,7 +2280,7 @@ struct Ring {
 	void queue_ws_fixed_install(
 		int slot_fd,
 		WsHandoffState state,
-		string initial_buf
+		S initial_buf
 #if CONFLUX_HAS_TLS
 		,
 		SSL *ssl = nullptr
@@ -2480,7 +2474,7 @@ struct Ring {
 		int fd,
 		int res,
 		u32 gen) {
-		auto const ufd = static_cast<size_t>(fd);
+		auto const ufd = static_cast<SZ>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 			return;
 		}
@@ -2493,7 +2487,7 @@ struct Ring {
 				queue_close(fd);
 				return;
 			}
-			conn.tls_send_off += static_cast<size_t>(res);
+			conn.tls_send_off += static_cast<SZ>(res);
 			if (conn.tls_send_off < conn.tls_send_buf.size()) {
 				tls_queue_send(conn); // continue sending
 				return;
@@ -2509,7 +2503,7 @@ struct Ring {
 				queue_close(fd);
 				return;
 			}
-			conn.written += static_cast<size_t>(res);
+			conn.written += static_cast<SZ>(res);
 			if (conn.written < conn.mapped_total) {
 				queue_send_mapped(fd); // partial — resubmit with adjusted iovecs
 				return;
@@ -2530,7 +2524,7 @@ struct Ring {
 				queue_close(fd);
 				return;
 			}
-			conn.written += static_cast<size_t>(res);
+			conn.written += static_cast<SZ>(res);
 			if (conn.written < conn.own_response.size()) {
 				queue_send_streamed(fd); // headers: resubmit remainder
 				return;
@@ -2541,10 +2535,14 @@ struct Ring {
 			return;
 		}
 
-		if (res > 0) {
-			conn.written += static_cast<size_t>(res);
-			if (conn.written < conn.response_ptr->size()) {
-				queue_send(fd);
+			if (res > 0) {
+				if (conn.response_ptr == nullptr) {
+					conn.send_queued = false;
+					return;
+				}
+				conn.written += static_cast<SZ>(res);
+				if (conn.written < conn.response_ptr->size()) {
+					queue_send(fd);
 				return;
 			}
 			// Response (or chunk) fully sent.
@@ -2563,7 +2561,7 @@ struct Ring {
 		int fd,
 		int res,
 		u32 gen) {
-		auto const ufd = static_cast<size_t>(fd);
+		auto const ufd = static_cast<SZ>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 			return;
 		}
@@ -2621,7 +2619,7 @@ struct Ring {
 
 		auto const fd = it->second.conn_fd;
 		auto const stream_id = it->second.stream_id;
-		auto const ufd = static_cast<size_t>(fd);
+		auto const ufd = static_cast<SZ>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 			deferred_waits.erase(it);
 			return;
@@ -2714,7 +2712,7 @@ struct Ring {
 			if (rc.buf_id == UINT16_MAX) {
 				continue;
 			}
-			auto const ufd = static_cast<size_t>(rc.fd);
+			auto const ufd = static_cast<SZ>(rc.fd);
 			if (rc.res <= 0 || ufd >= fd_table.size() || fd_table[ufd].gen != rc.gen || fd_table[ufd].fd < 0) {
 				return_buffer(rc.buf_id);
 				rc.buf_id = UINT16_MAX;
@@ -2723,17 +2721,17 @@ struct Ring {
 			auto &conn = fd_table[ufd];
 			if (use_recv_bundle) {
 				// Bundle mode: one CQE may span multiple contiguous buffers.
-				size_t remaining = static_cast<size_t>(rc.res);
+				SZ remaining = static_cast<SZ>(rc.res);
 				u16 cur_buf = rc.buf_id;
 				while (remaining > 0) {
-					size_t const chunk = min(remaining, BUF_SIZE);
+					SZ const chunk = min(remaining, BUF_SIZE);
 					conn.partial.append(bufs[cur_buf].data(), chunk);
 					return_buffer(cur_buf);
 					remaining -= chunk;
 					cur_buf = static_cast<u16>((cur_buf + 1U) % buf_count);
 				}
 			} else {
-				conn.partial.append(bufs[rc.buf_id].data(), static_cast<size_t>(rc.res));
+				conn.partial.append(bufs[rc.buf_id].data(), static_cast<SZ>(rc.res));
 				return_buffer(rc.buf_id);
 			}
 			rc.buf_id = UINT16_MAX;
@@ -2748,6 +2746,7 @@ struct Ring {
 					"HTTP/1.1 413 Content Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
 				conn.response_ptr = &conn.own_response;
 				conn.close_after_send = true;
+				conn.send_queued = true;
 				queue_send(static_cast<int>(ufd));
 				continue;
 			}
@@ -2827,8 +2826,8 @@ struct Ring {
 			}
 			BIO *const rbio = SSL_get_rbio(conn.ssl);
 			long const remaining = rbio != nullptr ? BIO_pending(rbio) : 0;
-			if (remaining >= 0 && static_cast<size_t>(remaining) <= recv_len_before) {
-				size_t const consumed = recv_len_before - static_cast<size_t>(remaining);
+			if (remaining >= 0 && static_cast<SZ>(remaining) <= recv_len_before) {
+				SZ const consumed = recv_len_before - static_cast<SZ>(remaining);
 				if (consumed == conn.tls_recv_buf.size()) {
 					conn.tls_recv_buf.clear();
 				} else if (consumed > 0) {
@@ -2875,10 +2874,10 @@ struct Ring {
 		}
 
 		// Handshake done — decrypt application data into partial.
-		array<char, BUF_SIZE> plain{};
+		A<char, BUF_SIZE> plain{};
 		int n{};
 		while ((n = SSL_read(conn.ssl, plain.data(), static_cast<int>(plain.size()))) > 0) {
-			conn.partial.append(plain.data(), static_cast<size_t>(n));
+			conn.partial.append(plain.data(), static_cast<SZ>(n));
 		}
 		int const ssl_err = SSL_get_error(conn.ssl, n);
 		if (ssl_err == SSL_ERROR_ZERO_RETURN || (ssl_err != SSL_ERROR_WANT_READ && ssl_err != SSL_ERROR_NONE)) {
@@ -2915,7 +2914,7 @@ struct Ring {
 			if (rc.res <= 0) {
 				continue;
 			}
-			auto const ufd = static_cast<size_t>(rc.fd);
+			auto const ufd = static_cast<SZ>(rc.fd);
 			if (ufd >= fd_table.size() || fd_table[ufd].gen != rc.gen) {
 				continue;
 			}
@@ -2933,7 +2932,7 @@ struct Ring {
 			if (rc.res <= 0) {
 				continue;
 			}
-			auto const ufd = static_cast<size_t>(rc.fd);
+			auto const ufd = static_cast<SZ>(rc.fd);
 			if (ufd >= fd_table.size() || fd_table[ufd].gen != rc.gen || fd_table[ufd].fd < 0) {
 				continue;
 			}
@@ -2984,7 +2983,7 @@ struct Ring {
 				return_buffer(rc.buf_id);
 			}
 
-			auto const ufd = static_cast<size_t>(rc.fd);
+			auto const ufd = static_cast<SZ>(rc.fd);
 			if (ufd >= fd_table.size() || fd_table[ufd].gen != rc.gen) {
 				continue;
 			}
@@ -3036,7 +3035,7 @@ struct Ring {
 				continue;
 			}
 
-			array<io_uring_cqe *, BATCH> cqes{};
+			A<io_uring_cqe *, BATCH> cqes{};
 			unsigned const count = io_uring_peek_batch_cqe(&ring, cqes.data(), BATCH);
 			if (count == 0) {
 				continue;
@@ -3045,10 +3044,10 @@ struct Ring {
 			recvs.clear();
 
 			for (unsigned i = 0; i < count; ++i) {
-				// NOLINT(cppcoreguidelines-pro-bounds-constant-array-index): runtime batch index
-				auto [op, cqe_gen, fd] = unpack(
-					io_uring_cqe_get_data64(cqes[i])); // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
-				auto *cqe = cqes[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+				// NOLINT(cppcoreguidelines-pro-bounds-constant-A-index): runtime batch index
+				auto [op, cqe_gen, fd] =
+					unpack(io_uring_cqe_get_data64(cqes[i])); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+				auto *cqe = cqes[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 				dispatch_cqe(op, fd, cqe->res, cqe->flags, cqe_gen);
 			}
 			io_uring_cq_advance(&ring, count);
@@ -3109,9 +3108,9 @@ u32 wq_fd_for_ring(
 	return static_cast<u32>(parent_ring_fd);
 }
 
-string flags_str(
+S flags_str(
 	Config const &c) {
-	string s;
+	S s;
 	auto app = [&](char const *name) {
 		if (!s.empty()) {
 			s += '|';
@@ -3165,9 +3164,9 @@ enum class ParseError : u8 {
 
 void emit_parse_error(
 	Conn &conn,
-	string_view raw,
+	SV raw,
 	ParseError err,
-	string_view alt_svc) {
+	SV alt_svc) {
 	HttpResponse r;
 	switch (err) {
 	case ParseError::UriTooLong          : r = HttpResponse::uri_too_long(); break;
@@ -3185,11 +3184,11 @@ void emit_parse_error(
 
 void dispatch_request(
 	Conn &conn,
-	string_view raw,
+	SV raw,
 	Ring const &ring,
-	size_t max_body_size,
+	SZ max_body_size,
 	bool http_redirect_to_https,
-	vector<string> const &https_redirect_hosts,
+	V<S> const &https_redirect_hosts,
 	ParserLimits const &limits) {
 	conn.response_ptr = nullptr;
 	conn.written = 0;
@@ -3215,19 +3214,19 @@ void dispatch_request(
 	auto const sp1 = parsed.method.size();
 	auto const header_end = parsed.header_end_offset;
 
-	string_view const method = parsed.method;
-	string_view path = parsed.target;
-	string_view const version = parsed.version;
+	SV const method = parsed.method;
+	SV path = parsed.target;
+	SV const version = parsed.version;
 	HttpFieldsView const params;
 	HttpFieldsView headers{true};
 	HttpFieldsView query;
 	HttpFieldsView form;
 	HttpFieldsView cookies;
-	vector<UploadedFile> files;
-	string body_storage;
-	string_view body;
+	V<UploadedFile> files;
+	S body_storage;
+	SV body;
 
-	if (auto q = path.find('?'); q != string_view::npos) {
+	if (auto q = path.find('?'); q != SV::npos) {
 		parse_urlencoded(path.substr(q + 1), query);
 		path = path.substr(0, q);
 	}
@@ -3238,10 +3237,10 @@ void dispatch_request(
 
 	if (path.starts_with("https://")) {
 		auto slash = path.find('/', 8);
-		path = (slash != string_view::npos) ? path.substr(slash) : string_view{"/"};
+		path = (slash != SV::npos) ? path.substr(slash) : SV{"/"};
 	} else if (path.starts_with("http://")) {
 		auto slash = path.find('/', 7);
-		path = (slash != string_view::npos) ? path.substr(slash) : string_view{"/"};
+		path = (slash != SV::npos) ? path.substr(slash) : SV{"/"};
 	}
 
 	if (version == "HTTP/1.1" && headers["host"].empty()) {
@@ -3251,13 +3250,13 @@ void dispatch_request(
 
 	if (http_redirect_to_https && !conn.is_tls) {
 		auto host = headers["host"];
-		auto strip_host_port = [](string_view h) -> string_view {
+		auto strip_host_port = [](SV h) -> SV {
 			if (h.starts_with('[')) {
 				auto b = h.find(']');
-				if (b != string_view::npos) {
+				if (b != SV::npos) {
 					auto c = h.find(':', b + 1);
 					// strip port if present, then strip surrounding brackets
-					string_view inner = c != string_view::npos ? h.substr(0, c) : h;
+					SV inner = c != SV::npos ? h.substr(0, c) : h;
 					if (inner.starts_with('[') && inner.ends_with(']')) {
 						inner.remove_prefix(1);
 						inner.remove_suffix(1);
@@ -3267,10 +3266,10 @@ void dispatch_request(
 				return h;
 			}
 			auto c = h.rfind(':');
-			return c != string_view::npos ? h.substr(0, c) : h;
+			return c != SV::npos ? h.substr(0, c) : h;
 		};
-		auto const host_bare = ascii_lower(string{strip_host_port(host)});
-		bool const host_ok = !host.empty() && ranges::any_of(https_redirect_hosts, [&](string const &h) {
+		auto const host_bare = ascii_lower(S{strip_host_port(host)});
+		bool const host_ok = !host.empty() && ranges::any_of(https_redirect_hosts, [&](S const &h) {
 			return ascii_lower(h) == host_bare;
 		});
 		if (!host_ok) {
@@ -3285,9 +3284,8 @@ void dispatch_request(
 			conn.request_bytes = raw.size();
 			return;
 		}
-		auto raw_url = raw.substr(
-			sp1 + 1,
-			(raw.find(' ', sp1 + 1) == string_view::npos ? raw.size() : raw.find(' ', sp1 + 1)) - sp1 - 1);
+		auto raw_url =
+			raw.substr(sp1 + 1, (raw.find(' ', sp1 + 1) == SV::npos ? raw.size() : raw.find(' ', sp1 + 1)) - sp1 - 1);
 		conn.own_response = format_response(
 			HttpResponse::redirect(format("https://{}{}", host, raw_url), 308),
 			ring.alt_svc_header,
@@ -3299,7 +3297,7 @@ void dispatch_request(
 	}
 
 	auto body_start = header_end + 4;
-	size_t body_stream_bytes = 0;
+	SZ body_stream_bytes = 0;
 
 	auto const content_lengths = headers.values("content-length");
 	auto const transfer_encodings = headers.values("transfer-encoding");
@@ -3318,7 +3316,7 @@ void dispatch_request(
 
 	if (!content_lengths.empty()) {
 		auto cl = content_lengths.front();
-		size_t content_length{};
+		SZ content_length{};
 		auto const *cl_end = ranges::next(cl.data(), ssize(cl));
 		auto [ptr, ec] = from_chars(cl.data(), cl_end, content_length);
 		if (ec != errc{} || ptr != cl_end) {
@@ -3370,7 +3368,7 @@ void dispatch_request(
 			return;
 		}
 		body = body_storage;
-		body_stream_bytes = static_cast<size_t>(rc);
+		body_stream_bytes = static_cast<SZ>(rc);
 	}
 
 	if (headers["content-type"].starts_with("application/x-www-form-urlencoded")) {
@@ -3433,7 +3431,7 @@ void dispatch_request(
 		conn.is_sse = true;
 		conn.sse_efd = resp.sse_channel_ptr()->eventfd_fd();
 		conn.sse_channel = resp.take_sse_channel();
-		conn.own_response = string{format_sse_headers()};
+		conn.own_response = S{format_sse_headers()};
 		conn.response_ptr = &conn.own_response;
 	} else if (resp.is_mapped_file()) {
 		conn.own_response = format_response(resp, ring.alt_svc_header);
@@ -3457,7 +3455,7 @@ void dispatch_request(
 namespace {
 
 // SNI servername callback: switch SSL_CTX based on SNI hostname.
-// user_data points to unordered_map<string, SSL_CTX*> (Impl::vhost_ctxs).
+// user_data points to UM<S, SSL_CTX*> (Impl::vhost_ctxs).
 int sni_callback(
 	SSL *ssl,
 	int * /*alert*/,
@@ -3466,7 +3464,7 @@ int sni_callback(
 	if (name == nullptr) {
 		return SSL_TLSEXT_ERR_OK;
 	}
-	auto &vhosts = *static_cast<unordered_map<string, SSL_CTX *> *>(user_data);
+	auto &vhosts = *static_cast<UM<S, SSL_CTX *> *>(user_data);
 	auto const it = vhosts.find(name);
 	if (it != vhosts.end()) {
 		SSL_set_SSL_CTX(ssl, it->second);
@@ -3485,26 +3483,26 @@ export class HttpServer {
 		Router router;
 		VHostRouter vhost_router;
 		bool use_vhost = false;
-		vector<unique_ptr<Ring>> ring_vec;
-		vector<int> shutdown_efds;
-		atomic<u16> bound_port_;
+		V<UP<Ring>> ring_vec;
+		V<int> shutdown_efds;
+		Atom<u16> bound_port_;
 		mutex startup_error_mu;
-		exception_ptr startup_error{};
-		atomic_bool startup_failed{false};
+		EP startup_error{};
+		std::atomic_bool startup_failed{false};
 		// Signalled by ring[0] after init when attach_wq=true. Ring[1..N] wait
 		// here for the wq_fd before calling io_uring_queue_init_params. -2 = unset.
-		atomic<int> wq_ring_fd_{-2};
+		Atom<int> wq_ring_fd_{-2};
 #if CONFLUX_HAS_TLS
 		SSL_CTX *ssl_ctx = nullptr; // owned; shared (read-only) across rings
-		unordered_map<string, SSL_CTX *> vhost_ctxs; // owned
+		UM<S, SSL_CTX *> vhost_ctxs; // owned
 #endif
 #if CONFLUX_HAS_HTTP3
 		mutex http3_mu;
-		unique_ptr<Http3Listener> http3_listener;
+		UP<Http3Listener> http3_listener;
 #endif
 	};
 
-	unique_ptr<Impl> impl_;
+	UP<Impl> impl_;
 
 	void initialize(
 		Config const &cfg) {
@@ -3518,7 +3516,7 @@ export class HttpServer {
 			init_openssl_once();
 			SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
 			if (ctx == nullptr) {
-				throw runtime_error{"SSL_CTX_new failed"};
+				throw RE{"SSL_CTX_new failed"};
 			}
 			try {
 				configure_tls_ctx(ctx, cfg);
@@ -3528,11 +3526,11 @@ export class HttpServer {
 			}
 			if (SSL_CTX_use_certificate_chain_file(ctx, cfg.cert_file.c_str()) != 1) {
 				SSL_CTX_free(ctx);
-				throw runtime_error{format("TLS: cannot load cert: {}", cfg.cert_file)};
+				throw RE{format("TLS: cannot load cert: {}", cfg.cert_file)};
 			}
 			if (SSL_CTX_use_PrivateKey_file(ctx, cfg.key_file.c_str(), SSL_FILETYPE_PEM) != 1) {
 				SSL_CTX_free(ctx);
-				throw runtime_error{format("TLS: cannot load key: {}", cfg.key_file)};
+				throw RE{format("TLS: cannot load key: {}", cfg.key_file)};
 			}
 	#if CONFLUX_HAS_HTTP3
 			if (cfg.http3.enabled) {
@@ -3556,7 +3554,7 @@ export class HttpServer {
 					for (auto &[h, c]: impl_->vhost_ctxs) {
 						SSL_CTX_free(c);
 					}
-					throw runtime_error{"SSL_CTX_new failed (vhost)"};
+					throw RE{"SSL_CTX_new failed (vhost)"};
 				}
 				try {
 					configure_tls_ctx(vctx, cfg);
@@ -3575,7 +3573,7 @@ export class HttpServer {
 					for (auto &[h, c]: impl_->vhost_ctxs) {
 						SSL_CTX_free(c);
 					}
-					throw runtime_error{format("TLS: cannot load vhost cert/key: {}", vh.hostname)};
+					throw RE{format("TLS: cannot load vhost cert/key: {}", vh.hostname)};
 				}
 				impl_->vhost_ctxs.emplace(vh.hostname, vctx);
 			}
@@ -3603,7 +3601,7 @@ export class HttpServer {
 					SSL_CTX_free(impl_->ssl_ctx);
 				}
 #endif
-				throw system_error{errno, system_category(), "eventfd (shutdown)"};
+				throw SE{errno, system_category(), "eventfd (shutdown)"};
 			}
 			impl_->shutdown_efds.push_back(efd);
 		}
@@ -3653,9 +3651,9 @@ public:
 			}
 		}
 #if CONFLUX_HAS_HTTP3
-		unique_ptr<Http3Listener> to_stop;
+		UP<Http3Listener> to_stop;
 		{
-			scoped_lock const lk{impl_->http3_mu};
+			SL const lk{impl_->http3_mu};
 			to_stop = move(impl_->http3_listener);
 		}
 		if (to_stop) {
@@ -3667,7 +3665,7 @@ public:
 	void run() {
 		unsigned const entries = impl_->cfg.ring_entries == 0 ? DEFAULT_RING_ENTRIES : impl_->cfg.ring_entries;
 
-		vector<thread> threads;
+		V<thread> threads;
 		threads.reserve(impl_->rings);
 
 		for (unsigned i = 0; i < impl_->rings; ++i) {
@@ -3736,13 +3734,13 @@ public:
 					r.run_loop();
 				} catch (...) {
 					{
-						scoped_lock const lk{impl_->startup_error_mu};
+						SL const lk{impl_->startup_error_mu};
 						if (!impl_->startup_error) {
 							impl_->startup_error = current_exception();
 						}
 					}
 					impl_->startup_failed.store(true, memory_order_release);
-					impl_->bound_port_.store(numeric_limits<u16>::max(), memory_order_release);
+					impl_->bound_port_.store(NL<u16>::max(), memory_order_release);
 					impl_->bound_port_.notify_all();
 					if (impl_->cfg.attach_wq && i == 0) {
 						impl_->wq_ring_fd_.store(-1, memory_order_release);
@@ -3763,7 +3761,7 @@ public:
 				impl_->ssl_ctx);
 			listener->start();
 			{
-				scoped_lock const lk{impl_->http3_mu};
+				SL const lk{impl_->http3_mu};
 				impl_->http3_listener = move(listener);
 			}
 		}
@@ -3773,16 +3771,16 @@ public:
 			t.join();
 		}
 		if (impl_->startup_failed.load(memory_order_acquire)) {
-			scoped_lock const lk{impl_->startup_error_mu};
+			SL const lk{impl_->startup_error_mu};
 			if (impl_->startup_error) {
 				rethrow_exception(impl_->startup_error);
 			}
-			throw runtime_error{"HttpServer startup failed"};
+			throw RE{"HttpServer startup failed"};
 		}
 #if CONFLUX_HAS_HTTP3
-		unique_ptr<Http3Listener> to_reset;
+		UP<Http3Listener> to_reset;
 		{
-			scoped_lock const lk{impl_->http3_mu};
+			SL const lk{impl_->http3_mu};
 			to_reset = move(impl_->http3_listener);
 		}
 		if (to_reset) {
@@ -3796,20 +3794,20 @@ public:
 		u16 p = 0;
 		while ((p = impl_->bound_port_.load(memory_order_acquire)) == 0) {
 			if (impl_->startup_failed.load(memory_order_acquire)) {
-				scoped_lock const lk{impl_->startup_error_mu};
+				SL const lk{impl_->startup_error_mu};
 				if (impl_->startup_error) {
 					rethrow_exception(impl_->startup_error);
 				}
-				throw runtime_error{"HttpServer startup failed"};
+				throw RE{"HttpServer startup failed"};
 			}
 			impl_->bound_port_.wait(0, memory_order_acquire);
 		}
 		if (impl_->startup_failed.load(memory_order_acquire)) {
-			scoped_lock const lk{impl_->startup_error_mu};
+			SL const lk{impl_->startup_error_mu};
 			if (impl_->startup_error) {
 				rethrow_exception(impl_->startup_error);
 			}
-			throw runtime_error{"HttpServer startup failed"};
+			throw RE{"HttpServer startup failed"};
 		}
 		return p;
 	}

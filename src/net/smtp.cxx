@@ -15,35 +15,33 @@ import conflux.crypto;
 import conflux.net.tls;
 import conflux.utils;
 
-using namespace std;
-
-export struct SmtpError : runtime_error {
-	using runtime_error::runtime_error;
+export struct SmtpError : RE {
+	using RE::runtime_error;
 };
 
 export struct SmtpReply {
 	int code{0};
-	string text{};
+	S text{};
 };
 
 export struct SmtpEnvelope {
-	string from{};
-	vector<string> to{};
-	string data{};
+	S from{};
+	V<S> to{};
+	S data{};
 };
 
 namespace smtp_detail {
 
 inline int open_connected_socket(
-	string_view host,
+	SV host,
 	u16 port,
 	int timeout_sec) {
 	addrinfo hints{};
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	addrinfo *res = nullptr;
-	string const h{host};
-	string const p = to_string(port);
+	S const h{host};
+	S const p = to_string(port);
 	if (::getaddrinfo(h.c_str(), p.c_str(), &hints, &res) != 0 || res == nullptr) {
 		return -1;
 	}
@@ -81,9 +79,9 @@ inline int open_connected_socket(
 
 inline bool raw_send_all(
 	int fd,
-	string_view data,
+	SV data,
 	int timeout_sec) {
-	size_t sent = 0;
+	SZ sent = 0;
 	while (sent < data.size()) {
 		if (!wait_fd(fd, POLLOUT, timeout_sec)) {
 			return false;
@@ -92,16 +90,16 @@ inline bool raw_send_all(
 		if (n <= 0) {
 			return false;
 		}
-		sent += static_cast<size_t>(n);
+		sent += static_cast<SZ>(n);
 	}
 	return true;
 }
 
 inline bool raw_read_some(
 	int fd,
-	string &out,
+	S &out,
 	int timeout_sec) {
-	array<char, 4096> tmp{};
+	A<char, 4096> tmp{};
 	if (!wait_fd(fd, POLLIN, timeout_sec)) {
 		return false;
 	}
@@ -109,16 +107,16 @@ inline bool raw_read_some(
 	if (n <= 0) {
 		return false;
 	}
-	out.append(tmp.data(), static_cast<size_t>(n));
+	out.append(tmp.data(), static_cast<SZ>(n));
 	return true;
 }
 
 // Dot-stuff a DATA payload and terminate with CRLF.CRLF per RFC 5321 §4.5.2.
-inline string dot_stuff(
-	string_view body) {
-	string out;
+inline S dot_stuff(
+	SV body) {
+	S out;
 	out.reserve(body.size() + 8);
-	size_t pos = 0;
+	SZ pos = 0;
 	bool at_line_start = true;
 	char prev = 0;
 	while (pos < body.size()) {
@@ -144,10 +142,10 @@ export class SmtpClient {
 	int fd_{-1};
 	int timeout_sec_{30};
 	bool tls_active_{false};
-	optional<TlsContext> tls_ctx_{};
-	optional<TlsStream> tls_stream_{};
-	string rx_buf_{};
-	string ehlo_caps_{};
+	Opt<TlsContext> tls_ctx_{};
+	Opt<TlsStream> tls_stream_{};
+	S rx_buf_{};
+	S ehlo_caps_{};
 
 public:
 	SmtpClient() = default;
@@ -194,7 +192,7 @@ public:
 
 	// Plain TCP connect. Reads the server greeting (220).
 	bool connect(
-		string_view host,
+		SV host,
 		u16 port) {
 		close_all();
 		fd_ = smtp_detail::open_connected_socket(host, port, timeout_sec_);
@@ -207,7 +205,7 @@ public:
 
 	// Implicit TLS connect (port 465 style). Reads greeting over TLS.
 	bool connect_tls(
-		string_view host,
+		SV host,
 		u16 port,
 		bool verify_peer = true) {
 		close_all();
@@ -223,10 +221,10 @@ public:
 	}
 
 	// EHLO / HELO. Returns parsed multi-line reply.
-	optional<SmtpReply> ehlo(
-		string_view domain) {
+	Opt<SmtpReply> ehlo(
+		SV domain) {
 		if (!write_line(format("EHLO {}\r\n", domain))) {
-			return nullopt;
+			return std::nullopt;
 		}
 		auto reply = read_reply();
 		if (reply) {
@@ -235,10 +233,10 @@ public:
 		return reply;
 	}
 
-	optional<SmtpReply> helo(
-		string_view domain) {
+	Opt<SmtpReply> helo(
+		SV domain) {
 		if (!write_line(format("HELO {}\r\n", domain))) {
-			return nullopt;
+			return std::nullopt;
 		}
 		return read_reply();
 	}
@@ -246,12 +244,12 @@ public:
 	// STARTTLS upgrade (RFC 3207). After 220, drive the TLS handshake and
 	// discard any buffered plaintext state per spec.
 	bool starttls(
-		string_view host,
+		SV host,
 		bool verify_peer = true) {
 		if (tls_active_) {
 			return false;
 		}
-		if (ehlo_caps_.find("STARTTLS") == string::npos) {
+		if (ehlo_caps_.find("STARTTLS") == S::npos) {
 			return false;
 		}
 		if (!write_line("STARTTLS\r\n")) {
@@ -267,9 +265,9 @@ public:
 
 	// AUTH PLAIN with base64(\0user\0pass).
 	bool auth_plain(
-		string_view user,
-		string_view pass) {
-		string raw;
+		SV user,
+		SV pass) {
+		S raw;
 		raw.push_back('\0');
 		raw.append(user);
 		raw.push_back('\0');
@@ -284,8 +282,8 @@ public:
 
 	// AUTH LOGIN challenge/response.
 	bool auth_login(
-		string_view user,
-		string_view pass) {
+		SV user,
+		SV pass) {
 		if (!write_line("AUTH LOGIN\r\n")) {
 			return false;
 		}
@@ -310,7 +308,7 @@ public:
 	}
 
 	bool mail_from(
-		string_view addr) {
+		SV addr) {
 		if (!write_line(format("MAIL FROM:<{}>\r\n", addr))) {
 			return false;
 		}
@@ -319,7 +317,7 @@ public:
 	}
 
 	bool rcpt_to(
-		string_view addr) {
+		SV addr) {
 		if (!write_line(format("RCPT TO:<{}>\r\n", addr))) {
 			return false;
 		}
@@ -329,7 +327,7 @@ public:
 
 	// DATA. Sends body with dot-stuffing and CRLF.CRLF terminator.
 	bool data(
-		string_view body) {
+		SV body) {
 		if (!write_line("DATA\r\n")) {
 			return false;
 		}
@@ -337,7 +335,7 @@ public:
 		if (!r1.has_value() || r1->code != 354) {
 			return false;
 		}
-		string const stuffed = smtp_detail::dot_stuff(body);
+		S const stuffed = smtp_detail::dot_stuff(body);
 		if (!write_line(stuffed)) {
 			return false;
 		}
@@ -374,7 +372,7 @@ public:
 
 private:
 	bool start_tls_handshake(
-		string_view host,
+		SV host,
 		bool verify_peer) {
 		try {
 			tls_ctx_.emplace();
@@ -402,7 +400,7 @@ private:
 	}
 
 	bool write_line(
-		string_view line) {
+		SV line) {
 		if (tls_active_) {
 			return tls_stream_->write_all(line, timeout_sec_);
 		}
@@ -410,7 +408,7 @@ private:
 	}
 
 	bool read_some(
-		string &out) {
+		S &out) {
 		if (tls_active_) {
 			return tls_stream_->read_some(out, timeout_sec_);
 		}
@@ -418,29 +416,29 @@ private:
 	}
 
 	// Parse a multi-line reply: lines "NNN-text" continue, final "NNN text".
-	optional<SmtpReply> read_reply() {
+	Opt<SmtpReply> read_reply() {
 		SmtpReply reply;
 		for (;;) {
-			size_t const nl = rx_buf_.find("\r\n");
-			if (nl == string::npos) {
+			SZ const nl = rx_buf_.find("\r\n");
+			if (nl == S::npos) {
 				if (!read_some(rx_buf_)) {
-					return nullopt;
+					return std::nullopt;
 				}
 				continue;
 			}
 			if (nl < 4) {
-				return nullopt;
+				return std::nullopt;
 			}
-			string_view const line{rx_buf_.data(), nl};
+			SV const line{rx_buf_.data(), nl};
 			int code = 0;
 			auto const res = from_chars(line.data(), line.data() + 3, code);
 			if (res.ec != errc{}) {
-				return nullopt;
+				return std::nullopt;
 			}
 			if (reply.code == 0) {
 				reply.code = code;
 			} else if (reply.code != code) {
-				return nullopt;
+				return std::nullopt;
 			}
 			char const sep = line[3];
 			if (!reply.text.empty()) {
@@ -452,7 +450,7 @@ private:
 				return reply;
 			}
 			if (sep != '-') {
-				return nullopt;
+				return std::nullopt;
 			}
 		}
 	}

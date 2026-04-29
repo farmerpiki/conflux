@@ -14,11 +14,9 @@ import std;
 import conflux.types;
 export import conflux.work.root;
 
-using namespace std;
-
-export struct Cancelled final : runtime_error {
+export struct Cancelled final : RE {
 	Cancelled()
-		: runtime_error{"work cancelled"} {}
+		: RE{"work cancelled"} {}
 };
 
 export struct ValueTag;
@@ -39,24 +37,24 @@ class Task;
 
 namespace work_detail {
 
-constexpr size_t kNoWorker = numeric_limits<size_t>::max();
+constexpr SZ kNoWorker = NL<SZ>::max();
 
 inline int futex_wait_private(
-	atomic<u32> &word,
+	Atom<u32> &word,
 	u32 expected) noexcept {
 	auto *addr = reinterpret_cast<u32 *>(&word); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 	return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAIT_PRIVATE, expected, nullptr, nullptr, 0));
 }
 
 inline int futex_wake_private(
-	atomic<u32> &word,
+	Atom<u32> &word,
 	int count) noexcept {
 	auto *addr = reinterpret_cast<u32 *>(&word); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 	return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAKE_PRIVATE, count, nullptr, nullptr, 0));
 }
 
 template<typename T>
-using StoredValue = conditional_t<is_void_v<T>, monostate, T>;
+using StoredValue = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
 
 export template<typename Signature>
 class UniqueFn;
@@ -78,7 +76,7 @@ class UniqueFn<R(Args...)> {
 
 		R call(
 			Args &&...args) override {
-			if constexpr (is_void_v<R>) {
+			if constexpr (std::is_void_v<R>) {
 				invoke(fn, forward<Args>(args)...);
 			} else {
 				return invoke(fn, forward<Args>(args)...);
@@ -86,7 +84,7 @@ class UniqueFn<R(Args...)> {
 		}
 	};
 
-	unique_ptr<Erased> erased_{};
+	UP<Erased> erased_{};
 
 public:
 	UniqueFn() = default;
@@ -98,10 +96,10 @@ public:
 	UniqueFn &operator =(UniqueFn const &) = delete;
 
 	template<typename Fn>
-		requires(!same_as<remove_cvref_t<Fn>, UniqueFn>)
+		requires(!same_as<std::remove_cvref_t<Fn>, UniqueFn>)
 	UniqueFn(
 		Fn &&fn)
-		: erased_{make_unique<Model<remove_cvref_t<Fn>>>(forward<Fn>(fn))} {}
+		: erased_{make_unique<Model<std::remove_cvref_t<Fn>>>(forward<Fn>(fn))} {}
 
 	[[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(erased_); }
 
@@ -121,13 +119,13 @@ enum class OutcomeTag : u8 {
 template<typename T>
 struct Outcome {
 	OutcomeTag tag = OutcomeTag::cancelled;
-	variant<StoredValue<T>, exception_ptr, monostate> payload{monostate{}};
+	variant<StoredValue<T>, EP, std::monostate> payload{std::monostate{}};
 };
 
 template<>
 struct Outcome<void> {
 	OutcomeTag tag = OutcomeTag::cancelled;
-	exception_ptr error{};
+	EP error{};
 };
 
 template<typename T>
@@ -136,14 +134,14 @@ using Continuation = UniqueFn<void(Outcome<T> &&)>;
 template<typename T>
 struct State {
 	mutex mtx;
-	condition_variable cv;
+	std::condition_variable cv;
 	bool ready = false;
-	optional<Outcome<T>> outcome{};
+	Opt<Outcome<T>> outcome{};
 	Continuation<T> next{};
 };
 
 template<typename T>
-using StatePtr = shared_ptr<State<T>>;
+using StatePtr = SP<State<T>>;
 
 template<typename T>
 void fulfill(
@@ -151,9 +149,9 @@ void fulfill(
 	Outcome<T> outcome) {
 	Continuation<T> next;
 	{
-		scoped_lock const lk{state->mtx};
+		SL const lk{state->mtx};
 		if (state->ready) {
-			throw logic_error{"work state already fulfilled"};
+			throw LE{"work state already fulfilled"};
 		}
 		state->ready = true;
 		if (state->next) {
@@ -187,21 +185,21 @@ void fulfill_value<void>(
 template<typename T>
 void fulfill_error(
 	StatePtr<T> const &state,
-	exception_ptr error) {
+	EP error) {
 	fulfill<T>(state, {.tag = OutcomeTag::error, .payload = error});
 }
 
 template<>
 void fulfill_error<void>(
 	StatePtr<void> const &state,
-	exception_ptr error) {
+	EP error) {
 	fulfill<void>(state, {.tag = OutcomeTag::error, .error = error});
 }
 
 template<typename T>
 void fulfill_cancelled(
 	StatePtr<T> const &state) {
-	fulfill<T>(state, {.tag = OutcomeTag::cancelled, .payload = monostate{}});
+	fulfill<T>(state, {.tag = OutcomeTag::cancelled, .payload = std::monostate{}});
 }
 
 template<>
@@ -214,11 +212,11 @@ template<typename T>
 void attach(
 	StatePtr<T> const &state,
 	Continuation<T> next) {
-	optional<Outcome<T>> ready{};
+	Opt<Outcome<T>> ready{};
 	{
-		scoped_lock const lk{state->mtx};
+		SL const lk{state->mtx};
 		if (state->next) {
-			throw logic_error{"work state already consumed"};
+			throw LE{"work state already consumed"};
 		}
 		if (state->ready) {
 			ready = move(state->outcome);
@@ -236,7 +234,7 @@ void attach(
 template<typename T>
 Outcome<T> await_result(
 	StatePtr<T> const &state) {
-	unique_lock lk{state->mtx};
+	std::unique_lock lk{state->mtx};
 	state->cv.wait(lk, [&] { return state->ready; });
 	auto out = move(*state->outcome);
 	state->outcome.reset();
@@ -253,20 +251,20 @@ template<typename T>
 class [[nodiscard]] Flow;
 
 template<typename T>
-struct IsFlow : false_type {};
+struct IsFlow : std::false_type {};
 
 template<typename T>
-struct IsFlow<Flow<T>> : true_type {};
+struct IsFlow<Flow<T>> : std::true_type {};
 
 template<typename T>
-inline constexpr bool kIsFlow = IsFlow<remove_cvref_t<T>>::value;
+inline constexpr bool kIsFlow = IsFlow<std::remove_cvref_t<T>>::value;
 
 template<typename T>
-using FlowValue = typename remove_cvref_t<T>::value_type;
+using FlowValue = typename std::remove_cvref_t<T>::value_type;
 
 class DetachedErrors {
 	mutex mtx_;
-	UniqueFn<void(exception_ptr)> handler_{[](exception_ptr error) {
+	UniqueFn<void(EP)> handler_{[](EP error) {
 		try {
 			rethrow_exception(error);
 		} catch (exception const &ex) { println(cerr, "conflux.work detached error: {}", ex.what()); } catch (...) {
@@ -281,14 +279,14 @@ public:
 	}
 
 	void handle(
-		exception_ptr error) {
-		scoped_lock const lk{mtx_};
+		EP error) {
+		SL const lk{mtx_};
 		handler_(error);
 	}
 
 	void set_handler(
-		UniqueFn<void(exception_ptr)> handler) {
-		scoped_lock const lk{mtx_};
+		UniqueFn<void(EP)> handler) {
+		SL const lk{mtx_};
 		handler_ = move(handler);
 	}
 };
@@ -322,7 +320,7 @@ public:
 
 	[[nodiscard]] StatePtr<T> release_state() {
 		if (!state_) {
-			throw logic_error{"invalid flow"};
+			throw LE{"invalid flow"};
 		}
 		return exchange(state_, nullptr);
 	}
@@ -337,7 +335,7 @@ template<typename T>
 StoredValue<T> extract_value(
 	Outcome<T> &&outcome) {
 	if (outcome.tag == OutcomeTag::error) {
-		rethrow_exception(get<exception_ptr>(outcome.payload));
+		rethrow_exception(get<EP>(outcome.payload));
 	}
 	if (outcome.tag == OutcomeTag::cancelled) {
 		throw Cancelled{};
@@ -363,7 +361,7 @@ void forward_outcome(
 	Outcome<T> outcome) {
 	switch (outcome.tag) {
 	case OutcomeTag::value    : fulfill<T>(dst, move(outcome)); break;
-	case OutcomeTag::error    : fulfill_error<T>(dst, get<exception_ptr>(outcome.payload)); break;
+	case OutcomeTag::error    : fulfill_error<T>(dst, get<EP>(outcome.payload)); break;
 	case OutcomeTag::cancelled: fulfill_cancelled<T>(dst); break;
 	}
 }
@@ -380,13 +378,13 @@ void forward_outcome<void>(
 }
 
 template<typename T>
-exception_ptr outcome_error(
+EP outcome_error(
 	Outcome<T> const &outcome) {
-	return get<exception_ptr>(outcome.payload);
+	return get<EP>(outcome.payload);
 }
 
 template<>
-exception_ptr outcome_error<void>(
+EP outcome_error<void>(
 	Outcome<void> const &outcome) {
 	return outcome.error;
 }
@@ -394,12 +392,12 @@ exception_ptr outcome_error<void>(
 template<typename T>
 struct FlowAwaiter {
 	StatePtr<T> state{};
-	optional<Outcome<T>> outcome{};
+	Opt<Outcome<T>> outcome{};
 
 	[[nodiscard]] bool await_ready() const noexcept { return false; }
 
 	void await_suspend(
-		coroutine_handle<> h) {
+		std::coroutine_handle<> h) {
 		attach<T>(state, [this, h](Outcome<T> &&out) mutable {
 			outcome.emplace(move(out));
 			h.resume();
@@ -407,7 +405,7 @@ struct FlowAwaiter {
 	}
 
 	decltype(auto) await_resume() {
-		if constexpr (is_void_v<T>) {
+		if constexpr (std::is_void_v<T>) {
 			(void)extract_value<T>(move(*outcome));
 		} else {
 			return extract_value<T>(move(*outcome));
@@ -427,8 +425,8 @@ void connect(
 struct ValueTag {
 	template<typename T>
 	[[nodiscard]] auto operator ()(
-		T &&value) const -> Flow<decay_t<T>> {
-		using U = decay_t<T>;
+		T &&value) const -> Flow<std::decay_t<T>> {
+		using U = std::decay_t<T>;
 		auto state = make_shared<State<U>>();
 		fulfill_value<U>(state, U{forward<T>(value)});
 		return Flow<U>::from_state(move(state));
@@ -479,25 +477,25 @@ struct RunOnTarget {
 template<typename Fn>
 [[nodiscard]] auto then(
 	Fn &&fn) {
-	return ThenStep<decay_t<Fn>>{forward<Fn>(fn)};
+	return ThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 template<typename Fn>
 [[nodiscard]] auto flat_then(
 	Fn &&fn) {
-	return FlatThenStep<decay_t<Fn>>{forward<Fn>(fn)};
+	return FlatThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 template<typename Fn>
 [[nodiscard]] auto on_error(
 	Fn &&fn) {
-	return ErrorStep<decay_t<Fn>>{forward<Fn>(fn)};
+	return ErrorStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 template<typename Fn>
 [[nodiscard]] auto on_cancel(
 	Fn &&fn) {
-	return CancelStep<decay_t<Fn>>{forward<Fn>(fn)};
+	return CancelStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 template<typename Target>
@@ -524,19 +522,19 @@ public:
 } // namespace work_detail
 
 export struct WorkPoolOptions {
-	size_t threads = 0;
-	size_t max_inject_queue = 4096;
-	size_t local_queue_capacity = 1024;
+	SZ threads = 0;
+	SZ max_inject_queue = 4096;
+	SZ local_queue_capacity = 1024;
 	u32 spin_before_park = 256;
 	int numa_node = -1;
 	bool pin_workers = false;
-	string worker_name_prefix = "conflux-work";
+	S worker_name_prefix = "conflux-work";
 };
 
 export struct RingLaneOptions {
 	int ring_fd = -1;
 	u64 wake_user_data = 0x434F4E464C5558ULL; // "CONFLUX"
-	size_t drain_budget = 0;
+	SZ drain_budget = 0;
 	bool allow_inline_on_owner = true;
 };
 
@@ -554,7 +552,7 @@ using BufferView = span<T const>;
 
 export struct IoBuffer {
 	span<byte const> bytes{};
-	shared_ptr<void const> owner{};
+	SP<void const> owner{};
 
 	IoBuffer() = default;
 	explicit IoBuffer(
@@ -562,8 +560,8 @@ export struct IoBuffer {
 		: bytes{view} {}
 
 	[[nodiscard]] static IoBuffer from_string(
-		string value) {
-		auto owned = make_shared<string const>(move(value));
+		S value) {
+		auto owned = make_shared<S const>(move(value));
 		auto view = span{
 			reinterpret_cast<byte const *>(owned->data()),
 			owned->size()}; // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -573,13 +571,13 @@ export struct IoBuffer {
 private:
 	IoBuffer(
 		span<byte const> view,
-		shared_ptr<void const> keep_alive)
+		SP<void const> keep_alive)
 		: bytes{view}
 		, owner{move(keep_alive)} {}
 };
 
 export struct BufferList {
-	vector<span<byte const>> segments{};
+	V<span<byte const>> segments{};
 };
 
 export struct IoPlan {
@@ -604,15 +602,15 @@ export class WorkPool final : public work_detail::QueueTarget {
 	};
 
 	WorkPoolOptions options_{};
-	vector<unique_ptr<Worker>> workers_{};
+	V<UP<Worker>> workers_{};
 	mutex inject_mtx_{};
 	deque<work_detail::UniqueFn<void()>> inject_{};
-	atomic<u32> wake_epoch_{0};
-	atomic<size_t> pending_{0};
+	Atom<u32> wake_epoch_{0};
+	Atom<SZ> pending_{0};
 	atomic_flag stopping_{};
 
 	inline static thread_local WorkPool *tls_pool_ = nullptr;
-	inline static thread_local size_t tls_worker_ = work_detail::kNoWorker;
+	inline static thread_local SZ tls_worker_ = work_detail::kNoWorker;
 
 	[[nodiscard]] bool is_local_worker() const noexcept {
 		return tls_pool_ == this && tls_worker_ != work_detail::kNoWorker;
@@ -631,7 +629,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 	[[nodiscard]] bool push_local(
 		work_detail::UniqueFn<void()> job) {
 		auto &worker = *workers_[tls_worker_];
-		scoped_lock const lk{worker.mtx};
+		SL const lk{worker.mtx};
 		if (worker.local.size() >= options_.local_queue_capacity) {
 			return false;
 		}
@@ -642,7 +640,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 
 	[[nodiscard]] bool push_inject(
 		work_detail::UniqueFn<void()> job) {
-		scoped_lock const lk{inject_mtx_};
+		SL const lk{inject_mtx_};
 		if (inject_.size() >= options_.max_inject_queue) {
 			return false;
 		}
@@ -651,34 +649,34 @@ export class WorkPool final : public work_detail::QueueTarget {
 		return true;
 	}
 
-	[[nodiscard]] optional<work_detail::UniqueFn<void()>> pop_local(
-		size_t index) {
+	[[nodiscard]] Opt<work_detail::UniqueFn<void()>> pop_local(
+		SZ index) {
 		auto &worker = *workers_[index];
-		scoped_lock const lk{worker.mtx};
+		SL const lk{worker.mtx};
 		if (worker.local.empty()) {
-			return nullopt;
+			return std::nullopt;
 		}
 		auto job = move(worker.local.back());
 		worker.local.pop_back();
 		return job;
 	}
 
-	[[nodiscard]] optional<work_detail::UniqueFn<void()>> pop_inject() {
-		scoped_lock const lk{inject_mtx_};
+	[[nodiscard]] Opt<work_detail::UniqueFn<void()>> pop_inject() {
+		SL const lk{inject_mtx_};
 		if (inject_.empty()) {
-			return nullopt;
+			return std::nullopt;
 		}
 		auto job = move(inject_.front());
 		inject_.pop_front();
 		return job;
 	}
 
-	[[nodiscard]] optional<work_detail::UniqueFn<void()>> steal_work(
-		size_t thief) {
-		for (size_t offset = 1; offset < workers_.size(); ++offset) {
-			size_t const victim_index = (thief + offset) % workers_.size();
+	[[nodiscard]] Opt<work_detail::UniqueFn<void()>> steal_work(
+		SZ thief) {
+		for (SZ offset = 1; offset < workers_.size(); ++offset) {
+			SZ const victim_index = (thief + offset) % workers_.size();
 			auto &victim = *workers_[victim_index];
-			scoped_lock const lk{victim.mtx};
+			SL const lk{victim.mtx};
 			if (victim.local.empty()) {
 				continue;
 			}
@@ -686,12 +684,12 @@ export class WorkPool final : public work_detail::QueueTarget {
 			victim.local.pop_front();
 			return job;
 		}
-		return nullopt;
+		return std::nullopt;
 	}
 
 	static void maybe_set_name(
-		string const &prefix,
-		size_t index) noexcept {
+		S const &prefix,
+		SZ index) noexcept {
 		if (prefix.empty()) {
 			return;
 		}
@@ -703,7 +701,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 	}
 
 	void maybe_pin_worker(
-		size_t index) noexcept {
+		SZ index) noexcept {
 		if (!options_.pin_workers) {
 			return;
 		}
@@ -715,8 +713,8 @@ export class WorkPool final : public work_detail::QueueTarget {
 	}
 
 	void worker_loop(
-		stop_token const &st,
-		size_t index) {
+		std::stop_token const &st,
+		SZ index) {
 		tls_pool_ = this;
 		tls_worker_ = index;
 		maybe_set_name(options_.worker_name_prefix, index);
@@ -761,11 +759,11 @@ public:
 			options_.threads = max(1U, thread::hardware_concurrency());
 		}
 		workers_.reserve(options_.threads);
-		for (size_t i = 0; i < options_.threads; ++i) {
+		for (SZ i = 0; i < options_.threads; ++i) {
 			workers_.push_back(make_unique<Worker>());
 		}
-		for (size_t i = 0; i < workers_.size(); ++i) {
-			workers_[i]->thread = jthread([this, i](stop_token const &st) { worker_loop(st, i); });
+		for (SZ i = 0; i < workers_.size(); ++i) {
+			workers_[i]->thread = jthread([this, i](std::stop_token const &st) { worker_loop(st, i); });
 		}
 	}
 
@@ -793,7 +791,7 @@ public:
 	}
 
 	void stop() noexcept {
-		if (!stopping_.test_and_set(memory_order_acq_rel)) {
+		if (!stopping_.test_and_set(std::memory_order_acq_rel)) {
 			for (auto &worker: workers_) {
 				worker->thread.request_stop();
 			}
@@ -818,9 +816,9 @@ export class RingLane final : public work_detail::QueueTarget {
 	deque<work_detail::UniqueFn<void()>> queue_{};
 	atomic_flag stopped_{};
 	atomic_flag wake_pending_{};
-	thread::id owner_{this_thread::get_id()};
+	thread::id owner_{std::this_thread::get_id()};
 
-	[[nodiscard]] bool is_owner_thread() const noexcept { return this_thread::get_id() == owner_; }
+	[[nodiscard]] bool is_owner_thread() const noexcept { return std::this_thread::get_id() == owner_; }
 
 	[[nodiscard]] bool wake_ring() noexcept {
 		if (options_.ring_fd < 0) {
@@ -854,10 +852,10 @@ public:
 		}
 		bool need_wake = false;
 		{
-			scoped_lock const lk{mtx_};
+			SL const lk{mtx_};
 			need_wake = queue_.empty();
 			queue_.push_back(move(job));
-			if (need_wake && !wake_pending_.test_and_set(memory_order_acq_rel)) {
+			if (need_wake && !wake_pending_.test_and_set(std::memory_order_acq_rel)) {
 				if (!wake_ring()) {
 					queue_.pop_back();
 					wake_pending_.clear(memory_order_release);
@@ -868,18 +866,18 @@ public:
 		return true;
 	}
 
-	void adopt_current_thread() noexcept { owner_ = this_thread::get_id(); }
+	void adopt_current_thread() noexcept { owner_ = std::this_thread::get_id(); }
 
-	[[nodiscard]] size_t drain() {
+	[[nodiscard]] SZ drain() {
 		if (!is_owner_thread()) {
-			throw logic_error{"ring lane drained from non-owner thread"};
+			throw LE{"ring lane drained from non-owner thread"};
 		}
-		size_t ran = 0;
-		size_t const budget = options_.drain_budget == 0 ? numeric_limits<size_t>::max() : options_.drain_budget;
+		SZ ran = 0;
+		SZ const budget = options_.drain_budget == 0 ? NL<SZ>::max() : options_.drain_budget;
 		while (ran < budget) {
 			work_detail::UniqueFn<void()> job;
 			{
-				scoped_lock const lk{mtx_};
+				SL const lk{mtx_};
 				if (queue_.empty()) {
 					wake_pending_.clear(memory_order_release);
 					break;
@@ -894,8 +892,8 @@ public:
 			++ran;
 		}
 		if (ran == budget) {
-			scoped_lock const lk{mtx_};
-			if (!queue_.empty() && !wake_pending_.test_and_set(memory_order_acq_rel)) {
+			SL const lk{mtx_};
+			if (!queue_.empty() && !wake_pending_.test_and_set(std::memory_order_acq_rel)) {
 				(void)wake_ring();
 			}
 		}
@@ -915,8 +913,8 @@ using Flow = work_detail::Flow<T>;
 export struct ValueTag {
 	template<typename T>
 	[[nodiscard]] auto operator ()(
-		T &&input) const -> Flow<decay_t<T>> {
-		using U = decay_t<T>;
+		T &&input) const -> Flow<std::decay_t<T>> {
+		using U = std::decay_t<T>;
 		auto state = make_shared<work_detail::State<U>>();
 		work_detail::fulfill_value<U>(state, U{forward<T>(input)});
 		return Flow<U>::from_state(move(state));
@@ -964,25 +962,25 @@ struct StartOnStep {
 export template<typename Fn>
 [[nodiscard]] auto then(
 	Fn &&fn) {
-	return ThenStep<decay_t<Fn>>{forward<Fn>(fn)};
+	return ThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Fn>
 [[nodiscard]] auto flat_then(
 	Fn &&fn) {
-	return FlatThenStep<decay_t<Fn>>{forward<Fn>(fn)};
+	return FlatThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Fn>
 [[nodiscard]] auto on_error(
 	Fn &&fn) {
-	return ErrorStep<decay_t<Fn>>{forward<Fn>(fn)};
+	return ErrorStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Fn>
 [[nodiscard]] auto on_cancel(
 	Fn &&fn) {
-	return CancelStep<decay_t<Fn>>{forward<Fn>(fn)};
+	return CancelStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Target>
@@ -1006,19 +1004,19 @@ template<typename T, typename Fn>
 struct FlatThenResultHelper;
 
 template<typename T, typename Fn>
-using ErrorResult = invoke_result_t<Fn, exception_ptr>;
+using ErrorResult = std::invoke_result_t<Fn, EP>;
 
 template<typename T, typename Fn>
-using CancelResult = invoke_result_t<Fn>;
+using CancelResult = std::invoke_result_t<Fn>;
 
 template<typename T, typename Fn>
 struct ThenResultHelper {
-	using type = invoke_result_t<Fn, T>;
+	using type = std::invoke_result_t<Fn, T>;
 };
 
 template<typename Fn>
 struct ThenResultHelper<void, Fn> {
-	using type = invoke_result_t<Fn>;
+	using type = std::invoke_result_t<Fn>;
 };
 
 template<typename T, typename Fn>
@@ -1026,12 +1024,12 @@ using ThenResult = typename ThenResultHelper<T, Fn>::type;
 
 template<typename T, typename Fn>
 struct FlatThenResultHelper {
-	using type = invoke_result_t<Fn, T>;
+	using type = std::invoke_result_t<Fn, T>;
 };
 
 template<typename Fn>
 struct FlatThenResultHelper<void, Fn> {
-	using type = invoke_result_t<Fn>;
+	using type = std::invoke_result_t<Fn>;
 };
 
 template<typename T, typename Fn>
@@ -1054,17 +1052,17 @@ template<typename Target, typename Fn>
 [[nodiscard]] auto run_on(
 	Target &target,
 	Fn &&fn) {
-	using Result = invoke_result_t<decay_t<Fn>>;
+	using Result = std::invoke_result_t<std::decay_t<Fn>>;
 	auto state = make_shared<State<Result>>();
-	auto job = [state, fn = decay_t<Fn>(forward<Fn>(fn))]() mutable {
+	auto job = [state, fn = std::decay_t<Fn>(forward<Fn>(fn))]() mutable {
 		try {
-			if constexpr (is_void_v<Result>) {
+			if constexpr (std::is_void_v<Result>) {
 				fn();
 				fulfill_value<Result>(state);
 			} else {
 				fulfill_value<Result>(state, fn());
 			}
-		} catch (...) { fulfill_error<Result>(state, current_exception()); }
+		} catch (...) { fulfill_error<Result>(state, std::current_exception()); }
 	};
 	if (!target.enqueue(move(job))) {
 		fulfill_cancelled<Result>(state);
@@ -1088,8 +1086,8 @@ auto operator |(
 			return;
 		}
 		try {
-			if constexpr (is_void_v<T>) {
-				if constexpr (is_void_v<Result>) {
+			if constexpr (std::is_void_v<T>) {
+				if constexpr (std::is_void_v<Result>) {
 					fn();
 					fulfill_value<Result>(next);
 				} else {
@@ -1097,14 +1095,14 @@ auto operator |(
 				}
 			} else {
 				auto value = move(get<StoredValue<T>>(outcome.payload));
-				if constexpr (is_void_v<Result>) {
+				if constexpr (std::is_void_v<Result>) {
 					fn(move(value));
 					fulfill_value<Result>(next);
 				} else {
 					fulfill_value<Result>(next, fn(move(value)));
 				}
 			}
-		} catch (...) { fulfill_error<Result>(next, current_exception()); }
+		} catch (...) { fulfill_error<Result>(next, std::current_exception()); }
 	});
 	return Flow<Result>::from_state(move(next));
 }
@@ -1127,13 +1125,13 @@ auto operator |(
 			return;
 		}
 		try {
-			if constexpr (is_void_v<T>) {
+			if constexpr (std::is_void_v<T>) {
 				connect<Result>(fn(), next);
 			} else {
 				auto value = move(get<StoredValue<T>>(outcome.payload));
 				connect<Result>(fn(move(value)), next);
 			}
-		} catch (...) { fulfill_error<Result>(next, current_exception()); }
+		} catch (...) { fulfill_error<Result>(next, std::current_exception()); }
 	});
 	return Flow<Result>::from_state(move(next));
 }
@@ -1147,14 +1145,16 @@ auto operator |(
 	auto next = make_shared<State<Result>>();
 	attach<T>(flow.release_state(), [next, fn = move(step.fn)](Outcome<T> &&outcome) mutable {
 		if (outcome.tag == OutcomeTag::value) {
-			if constexpr (is_same_v<Result, T>) {
+			if constexpr (std::is_same_v<Result, T>) {
 				forward_outcome<T>(next, move(outcome));
-			} else if constexpr (is_void_v<T> && is_void_v<Result>) {
+			} else if constexpr (std::is_void_v<T> && std::is_void_v<Result>) {
 				fulfill_value<Result>(next);
-			} else if constexpr (!is_void_v<T> && !is_void_v<Result>) {
+			} else if constexpr (!std::is_void_v<T> && !std::is_void_v<Result>) {
 				fulfill_value<Result>(next, move(get<StoredValue<T>>(outcome.payload)));
 			} else {
-				static_assert(is_void_v<T> == is_void_v<Result>, "on_error success path must preserve value shape");
+				static_assert(
+					std::is_void_v<T> == std::is_void_v<Result>,
+					"on_error success path must preserve value shape");
 			}
 			return;
 		}
@@ -1165,13 +1165,13 @@ auto operator |(
 		try {
 			if constexpr (kIsFlow<Handler>) {
 				connect<Result>(fn(outcome_error<T>(outcome)), next);
-			} else if constexpr (is_void_v<Result>) {
+			} else if constexpr (std::is_void_v<Result>) {
 				fn(outcome_error<T>(outcome));
 				fulfill_value<Result>(next);
 			} else {
 				fulfill_value<Result>(next, fn(outcome_error<T>(outcome)));
 			}
-		} catch (...) { fulfill_error<Result>(next, current_exception()); }
+		} catch (...) { fulfill_error<Result>(next, std::current_exception()); }
 	});
 	return Flow<Result>::from_state(move(next));
 }
@@ -1181,17 +1181,18 @@ auto operator |(
 	Flow<T> &&flow,
 	::CancelStep<Fn> step) {
 	using Handler = CancelResult<T, Fn>;
-	using Result = conditional_t<kIsFlow<Handler>, UnwrapFlowT<Handler>, conditional_t<is_void_v<Handler>, T, Handler>>;
+	using Result = std::
+		conditional_t<kIsFlow<Handler>, UnwrapFlowT<Handler>, std::conditional_t<std::is_void_v<Handler>, T, Handler>>;
 	auto next = make_shared<State<Result>>();
 	attach<T>(flow.release_state(), [next, fn = move(step.fn)](Outcome<T> &&outcome) mutable {
 		if (outcome.tag == OutcomeTag::value) {
-			if constexpr (is_void_v<T> && is_void_v<Result>) {
+			if constexpr (std::is_void_v<T> && std::is_void_v<Result>) {
 				fulfill_value<Result>(next);
-			} else if constexpr (!is_void_v<T> && is_same_v<Result, T>) {
+			} else if constexpr (!std::is_void_v<T> && std::is_same_v<Result, T>) {
 				fulfill_value<Result>(next, move(get<StoredValue<T>>(outcome.payload)));
 			} else {
 				static_assert(
-					is_same_v<Result, T> || (is_void_v<T> && is_void_v<Result>),
+					std::is_same_v<Result, T> || (std::is_void_v<T> && std::is_void_v<Result>),
 					"on_cancel success path must preserve value shape");
 			}
 			return;
@@ -1204,16 +1205,16 @@ auto operator |(
 			if constexpr (kIsFlow<Handler>) {
 				connect<Result>(fn(), next);
 			} else {
-				if constexpr (is_void_v<Handler>) {
+				if constexpr (std::is_void_v<Handler>) {
 					fn();
-					if constexpr (is_void_v<Result>) {
+					if constexpr (std::is_void_v<Result>) {
 						fulfill_value<Result>(next);
 					} else {
 						fulfill_cancelled<Result>(next);
 					}
 				} else {
 					auto recovered = fn();
-					if constexpr (is_void_v<Result>) {
+					if constexpr (std::is_void_v<Result>) {
 						(void)recovered;
 						fulfill_value<Result>(next);
 					} else {
@@ -1221,7 +1222,7 @@ auto operator |(
 					}
 				}
 			}
-		} catch (...) { fulfill_error<Result>(next, current_exception()); }
+		} catch (...) { fulfill_error<Result>(next, std::current_exception()); }
 	});
 	return Flow<Result>::from_state(move(next));
 }
@@ -1254,14 +1255,14 @@ auto operator |(
 
 struct JoinShared {
 	mutex mtx;
-	size_t remaining = 0;
+	SZ remaining = 0;
 	bool done = false;
 };
 
 template<typename... Ts>
 auto join_all(
 	Flow<Ts>... flows) {
-	using Result = tuple<StoredValue<Ts>...>;
+	using Result = Tup<StoredValue<Ts>...>;
 	auto next = make_shared<State<Result>>();
 	if constexpr (sizeof...(Ts) == 0) {
 		fulfill_value<Result>(next);
@@ -1269,10 +1270,10 @@ auto join_all(
 	}
 	auto shared = make_shared<JoinShared>();
 	shared->remaining = sizeof...(Ts);
-	auto values = make_shared<tuple<optional<StoredValue<Ts>>...>>();
-	auto attach_one = [shared, next, values]<size_t I, typename U>(Flow<U> flow) mutable {
+	auto values = make_shared<Tup<Opt<StoredValue<Ts>>...>>();
+	auto attach_one = [shared, next, values]<SZ I, typename U>(Flow<U> flow) mutable {
 		attach<U>(flow.release_state(), [shared, next, values]<typename V>(Outcome<V> &&outcome) mutable {
-			unique_lock lk{shared->mtx};
+			std::unique_lock lk{shared->mtx};
 			if (shared->done) {
 				return;
 			}
@@ -1298,9 +1299,9 @@ auto join_all(
 			}
 		});
 	};
-	([&]<size_t... Is>(index_sequence<Is...>) {
+	([&]<SZ... Is>(std::index_sequence<Is...>) {
 		(attach_one.template operator ()<Is>(move(flows)), ...);
-	}(index_sequence_for<Ts...>{}));
+	}(std::index_sequence_for<Ts...>{}));
 	return Flow<Result>::from_state(move(next));
 }
 
@@ -1309,7 +1310,7 @@ auto wait(
 	Flow<T> flow) {
 	auto state = flow.release_state();
 	auto outcome = await_result<T>(state);
-	if constexpr (is_void_v<T>) {
+	if constexpr (std::is_void_v<T>) {
 		(void)extract_value<T>(move(outcome));
 		return;
 	} else {
@@ -1411,9 +1412,9 @@ class FlowSource {
 		work_detail::StatePtr<T> state{make_shared<work_detail::State<T>>()};
 		atomic_flag disarmed_{};
 	};
-	shared_ptr<Control> ctrl_{make_shared<Control>()};
+	SP<Control> ctrl_{make_shared<Control>()};
 
-	[[nodiscard]] bool disarm() const noexcept { return !ctrl_->disarmed_.test_and_set(memory_order_acq_rel); }
+	[[nodiscard]] bool disarm() const noexcept { return !ctrl_->disarmed_.test_and_set(std::memory_order_acq_rel); }
 
 public:
 	FlowSource() = default;
@@ -1421,7 +1422,7 @@ public:
 	[[nodiscard]] Flow<T> flow() const { return Flow<T>::from_state(ctrl_->state); }
 
 	template<typename U = T>
-		requires(!is_void_v<U>)
+		requires(!std::is_void_v<U>)
 	void resolve(
 		U result) const {
 		if (!disarm()) {
@@ -1431,7 +1432,7 @@ public:
 	}
 
 	template<typename U = T>
-		requires(is_void_v<U>)
+		requires(std::is_void_v<U>)
 	void resolve() const {
 		if (!disarm()) {
 			return;
@@ -1440,7 +1441,7 @@ public:
 	}
 
 	void reject(
-		exception_ptr error) const {
+		EP error) const {
 		if (!disarm()) {
 			return;
 		}
@@ -1474,7 +1475,7 @@ struct TaskPromiseBase {
 	[[nodiscard]] std::suspend_never initial_suspend() const noexcept { return {}; }
 	[[nodiscard]] std::suspend_never final_suspend() const noexcept { return {}; }
 
-	void unhandled_exception() { source.reject(current_exception()); }
+	void unhandled_exception() { source.reject(std::current_exception()); }
 };
 
 export template<typename T>

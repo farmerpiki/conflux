@@ -1,7 +1,7 @@
 export module conflux.net.security;
 import std;
+import conflux.types;
 import conflux.net.router;
-using namespace std;
 
 export struct SecurityOptions {
 	// Strict-Transport-Security max-age in seconds; 0 disables the header.
@@ -9,23 +9,23 @@ export struct SecurityOptions {
 	bool hsts_include_subdomains{true};
 
 	// X-Frame-Options: "DENY", "SAMEORIGIN", or "" to disable.
-	string frame_options{"DENY"};
+	S frame_options{"DENY"};
 
 	// X-Content-Type-Options: nosniff (true = send header).
 	bool nosniff{true};
 
 	// X-XSS-Protection value; empty disables. OWASP recommends "0" — the legacy
 	// filter (1; mode=block) introduced XSS vectors in older browsers.
-	string xss_protection{"0"};
+	S xss_protection{"0"};
 
-	// Referrer-Policy value; empty string disables the header.
-	string referrer_policy{"strict-origin-when-cross-origin"};
+	// Referrer-Policy value; empty S disables the header.
+	S referrer_policy{"strict-origin-when-cross-origin"};
 
-	// Permissions-Policy value; empty string disables the header.
-	string permissions_policy{"geolocation=(), microphone=(), camera=()"};
+	// Permissions-Policy value; empty S disables the header.
+	S permissions_policy{"geolocation=(), microphone=(), camera=()"};
 
-	// Content-Security-Policy value; empty string disables the header.
-	string csp;
+	// Content-Security-Policy value; empty S disables the header.
+	S csp;
 
 	// When true, Strict-Transport-Security is only emitted on TLS connections.
 	// Set to false only in tests that run plain-HTTP servers.

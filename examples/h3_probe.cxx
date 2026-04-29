@@ -2,6 +2,7 @@
 #include <unistd.h>
 import conflux.net.http;
 import std;
+import conflux.types;
 
 int main() {
 	S cert_path = "/tmp/conflux_h3_probe_cert.pem";

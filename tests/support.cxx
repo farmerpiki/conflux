@@ -8,9 +8,8 @@ module;
 export module conflux.tests.support;
 
 import std;
+import conflux.types;
 import conflux.net.http;
-
-using namespace std;
 
 export namespace conflux::tests {
 
@@ -19,10 +18,10 @@ class LocalTcpClient {
 
 public:
 	explicit LocalTcpClient(
-		uint16_t port)
+		u16 port)
 		: fd_(::socket(AF_INET, SOCK_STREAM, 0)) {
 		if (fd_ < 0) {
-			throw runtime_error{"socket failed"};
+			throw RE{"socket failed"};
 		}
 
 		sockaddr_in addr{};
@@ -32,7 +31,7 @@ public:
 
 		if (::connect(fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 			close();
-			throw runtime_error{"connect failed"};
+			throw RE{"connect failed"};
 		}
 	}
 
@@ -64,14 +63,14 @@ public:
 	}
 
 	[[nodiscard]] ssize_t send(
-		string_view data,
+		SV data,
 		int flags = 0) const {
 		return ::send(fd_, data.data(), data.size(), flags);
 	}
 
 	ssize_t recv(
 		char *data,
-		size_t size,
+		SZ size,
 		int flags = 0) const {
 		return ::recv(fd_, data, size, flags);
 	}
@@ -82,41 +81,41 @@ public:
 		::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	}
 
-	[[nodiscard]] string read_until_close() const {
-		string response;
-		array<char, 4096> buf{};
+	[[nodiscard]] S read_until_close() const {
+		S response;
+		A<char, 4096> buf{};
 		for (;;) {
 			auto const n = recv(buf.data(), buf.size());
 			if (n <= 0) {
 				break;
 			}
-			response.append(buf.data(), static_cast<size_t>(n));
+			response.append(buf.data(), static_cast<SZ>(n));
 		}
 		return response;
 	}
 
-	[[nodiscard]] string read_one_response() const {
-		string response;
-		array<char, 4096> buf{};
+	[[nodiscard]] S read_one_response() const {
+		S response;
+		A<char, 4096> buf{};
 		for (;;) {
 			auto const n = recv(buf.data(), buf.size());
 			if (n <= 0) {
 				break;
 			}
-			response.append(buf.data(), static_cast<size_t>(n));
+			response.append(buf.data(), static_cast<SZ>(n));
 
 			auto const hdr_end = response.find("\r\n\r\n");
-			if (hdr_end == string::npos) {
+			if (hdr_end == S::npos) {
 				continue;
 			}
 
 			auto cl_pos = response.find("Content-Length: ");
-			if (cl_pos == string::npos || cl_pos > hdr_end) {
+			if (cl_pos == S::npos || cl_pos > hdr_end) {
 				break;
 			}
 			cl_pos += 16;
 			auto const cl_end = response.find("\r\n", cl_pos);
-			size_t body_len = 0;
+			SZ body_len = 0;
 			from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
 			if (response.size() >= hdr_end + 4 + body_len) {
 				break;
@@ -125,16 +124,16 @@ public:
 		return response;
 	}
 
-	[[nodiscard]] string read_headers() const {
-		string response;
-		array<char, 4096> buf{};
+	[[nodiscard]] S read_headers() const {
+		S response;
+		A<char, 4096> buf{};
 		for (;;) {
 			auto const n = recv(buf.data(), buf.size());
 			if (n <= 0) {
 				break;
 			}
-			response.append(buf.data(), static_cast<size_t>(n));
-			if (response.find("\r\n\r\n") != string::npos) {
+			response.append(buf.data(), static_cast<SZ>(n));
+			if (response.find("\r\n\r\n") != S::npos) {
 				break;
 			}
 		}
@@ -142,29 +141,29 @@ public:
 	}
 };
 
-string read_one_response(
+S read_one_response(
 	int fd) {
-	string response;
-	array<char, 4096> buf{};
+	S response;
+	A<char, 4096> buf{};
 	for (;;) {
 		auto const n = ::recv(fd, buf.data(), buf.size(), 0);
 		if (n <= 0) {
 			break;
 		}
-		response.append(buf.data(), static_cast<size_t>(n));
+		response.append(buf.data(), static_cast<SZ>(n));
 
 		auto const hdr_end = response.find("\r\n\r\n");
-		if (hdr_end == string::npos) {
+		if (hdr_end == S::npos) {
 			continue;
 		}
 
 		auto cl_pos = response.find("Content-Length: ");
-		if (cl_pos == string::npos || cl_pos > hdr_end) {
+		if (cl_pos == S::npos || cl_pos > hdr_end) {
 			break;
 		}
 		cl_pos += 16;
 		auto const cl_end = response.find("\r\n", cl_pos);
-		size_t body_len = 0;
+		SZ body_len = 0;
 		from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
 		if (response.size() >= hdr_end + 4 + body_len) {
 			break;
@@ -173,17 +172,17 @@ string read_one_response(
 	return response;
 }
 
-string http_request_on(
-	uint16_t port,
-	string_view method,
-	string_view path,
-	string_view content_type = "",
-	string_view body = "",
-	string_view extra_headers = "",
-	string_view host = "localhost") {
+S http_request_on(
+	u16 port,
+	SV method,
+	SV path,
+	SV content_type = "",
+	SV body = "",
+	SV extra_headers = "",
+	SV host = "localhost") {
 	LocalTcpClient const client{port};
 
-	string request;
+	S request;
 	if (content_type.empty() && body.empty()) {
 		request = format("{} {} HTTP/1.1\r\nHost: {}\r\n{}\r\n", method, path, host, extra_headers);
 	} else {
@@ -201,34 +200,34 @@ string http_request_on(
 	return client.read_one_response();
 }
 
-string http_get_on(
-	uint16_t port,
-	string_view path,
-	string_view extra_headers = "") {
+S http_get_on(
+	u16 port,
+	SV path,
+	SV extra_headers = "") {
 	return http_request_on(port, "GET", path, "", "", extra_headers);
 }
 
-string http_get_on_host(
-	uint16_t port,
-	string_view host,
-	string_view path,
-	string_view extra_headers = "") {
+S http_get_on_host(
+	u16 port,
+	SV host,
+	SV path,
+	SV extra_headers = "") {
 	return http_request_on(port, "GET", path, "", "", extra_headers, host);
 }
 
-string http_post_on(
-	uint16_t port,
-	string_view path,
-	string_view content_type,
-	string_view body,
-	string_view extra_headers = "") {
+S http_post_on(
+	u16 port,
+	SV path,
+	SV content_type,
+	SV body,
+	SV extra_headers = "") {
 	return http_request_on(port, "POST", path, content_type, body, extra_headers);
 }
 
-string http_options_on(
-	uint16_t port,
-	string_view path,
-	string_view extra_headers = "") {
+S http_options_on(
+	u16 port,
+	SV path,
+	SV extra_headers = "") {
 	LocalTcpClient const client{port};
 	auto request = format("OPTIONS {} HTTP/1.1\r\nHost: localhost\r\n{}\r\n", path, extra_headers);
 	(void)client.send(request);
@@ -237,7 +236,7 @@ string http_options_on(
 }
 
 void wait_for_server(
-	uint16_t port) {
+	u16 port) {
 	constexpr int max_tries = 100;
 	for (int i = 0; i < max_tries; ++i) {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -250,25 +249,25 @@ void wait_for_server(
 		if (up) {
 			return;
 		}
-		this_thread::sleep_for(chrono::milliseconds(10));
+		std::this_thread::sleep_for(chrono::milliseconds(10));
 	}
-	throw runtime_error{"server did not start in time"};
+	throw RE{"server did not start in time"};
 }
 
 class TestServerRegistry {
 	mutex mu_;
-	vector<shared_ptr<HttpServer>> servers_;
-	vector<thread> threads_;
+	V<SP<HttpServer>> servers_;
+	V<thread> threads_;
 
 public:
-	uint16_t start(
+	u16 start(
 		Config const &cfg,
 		Router router) {
 		// TLS server probing in wait_for_server() triggers SIGPIPE without this.
 		(void)::signal(SIGPIPE, SIG_IGN);
 		auto srv = make_shared<HttpServer>(cfg, move(router));
 		{
-			lock_guard const lock{mu_};
+			std::lock_guard const lock{mu_};
 			threads_.emplace_back([srv] {
 				try {
 					srv->run();
@@ -283,13 +282,13 @@ public:
 		return port;
 	}
 
-	uint16_t start(
+	u16 start(
 		Config const &cfg,
 		VHostRouter vhost_router) {
 		(void)::signal(SIGPIPE, SIG_IGN);
 		auto srv = make_shared<HttpServer>(cfg, move(vhost_router));
 		{
-			lock_guard const lock{mu_};
+			std::lock_guard const lock{mu_};
 			threads_.emplace_back([srv] {
 				try {
 					srv->run();
@@ -322,7 +321,7 @@ TestServerRegistry &test_servers() {
 }
 
 class ScopedTestServer {
-	shared_ptr<HttpServer> server_;
+	SP<HttpServer> server_;
 	thread thread_;
 
 public:
@@ -344,7 +343,7 @@ public:
 		wait_for_server(server_->port());
 	}
 
-	[[nodiscard]] uint16_t port() const { return server_->port(); }
+	[[nodiscard]] u16 port() const { return server_->port(); }
 
 	void stop() {
 		if (thread_.joinable()) {
@@ -379,7 +378,7 @@ public:
 	return cfg;
 }
 
-uint16_t start_mw_server(
+u16 start_mw_server(
 	Config const &cfg,
 	Router router) {
 	return test_servers().start(cfg, move(router));

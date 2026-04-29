@@ -1,12 +1,12 @@
 export module conflux.net.request_id;
 import std;
+import conflux.types;
 import conflux.net.router;
 import conflux.utils;
-using namespace std;
 
 export struct RequestIdOptions {
 	// Header to read/write the request ID on.
-	string header{"X-Request-ID"};
+	S header{"X-Request-ID"};
 
 	// If true and the client sends the header, echo it through unchanged.
 	// If false, always generate a fresh ID regardless.
@@ -15,10 +15,10 @@ export struct RequestIdOptions {
 
 namespace request_id_detail {
 
-// Generate a UUID v4 (random) as a hex string without dashes.
+// Generate a UUID v4 (random) as a hex S without dashes.
 // Uses /dev/urandom — no dependency on OpenSSL.
-string generate_uuid() {
-	array<unsigned char, 16> bytes{};
+S generate_uuid() {
+	A<unsigned char, 16> bytes{};
 	random_bytes(bytes);
 
 	// Set UUID v4 version and variant bits.
@@ -27,9 +27,9 @@ string generate_uuid() {
 
 	// Format as xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx.
 	static constexpr char kHex[] = "0123456789abcdef";
-	string out;
+	S out;
 	out.reserve(36);
-	for (size_t i = 0; i < 16; ++i) {
+	for (SZ i = 0; i < 16; ++i) {
 		if (i == 4 || i == 6 || i == 8 || i == 10) {
 			out += '-';
 		}
@@ -47,16 +47,16 @@ string generate_uuid() {
 export Router::Middleware request_id_middleware(
 	RequestIdOptions opts = {}) {
 	// Lowercase header name for lookup in req.headers (keys are lowercased).
-	string lower_header = ascii_lower(opts.header);
+	S lower_header = ascii_lower(opts.header);
 
 	return
 		[opts = move(opts),
 		 lower_header = move(lower_header)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
-			string id;
+			S id;
 			if (opts.trust_incoming) {
 				auto existing = req.headers[lower_header];
 				if (!existing.empty()) {
-					id = string{existing};
+					id = S{existing};
 				}
 			}
 			if (id.empty()) {

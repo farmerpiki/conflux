@@ -5,19 +5,19 @@
 #include <liburing.h>
 
 import std;
+import conflux.types;
 import conflux.work;
 import conflux.file_io;
 import conflux.db;
 
-using namespace std;
 using namespace conflux::db;
 
 namespace {
 
-constexpr uint64_t pack_ud(
-	uint32_t slot,
-	uint32_t gen) noexcept {
-	return (static_cast<uint64_t>(gen) << 32U) | slot;
+constexpr u64 pack_ud(
+	u32 slot,
+	u32 gen) noexcept {
+	return (static_cast<u64>(gen) << 32U) | slot;
 }
 
 struct RingFixture {
@@ -27,9 +27,9 @@ struct RingFixture {
 	bool ring_ok{false};
 
 	RingFixture()
-		: reader{&ring, &completions, [](uint32_t slot, uint32_t gen) noexcept { return pack_ud(slot, gen); }} {}
+		: reader{&ring, &completions, [](u32 slot, u32 gen) noexcept { return pack_ud(slot, gen); }} {}
 
-	static unique_ptr<RingFixture> make(
+	static UP<RingFixture> make(
 		unsigned entries = 128) {
 		auto fx = make_unique<RingFixture>();
 		if (::io_uring_queue_init(entries, &fx->ring, 0) < 0) {
@@ -51,24 +51,24 @@ struct RingFixture {
 	RingFixture &operator =(RingFixture &&) = delete;
 };
 
-unique_ptr<RingFixture> require_ring_fixture() {
+UP<RingFixture> require_ring_fixture() {
 	auto fx = RingFixture::make();
 	INFO("conflux requires a host that permits io_uring_queue_init");
 	REQUIRE(fx != nullptr);
 	return fx;
 }
 
-optional<string> conninfo() {
-	char const *p = ::getenv("PG_TEST_CONNINFO");
+Opt<S> conninfo() {
+	char const *p = std::getenv("PG_TEST_CONNINFO");
 	if (p == nullptr || *p == '\0') {
-		return nullopt;
+		return std::nullopt;
 	}
-	return string{p};
+	return S{p};
 }
 
-shared_ptr<Connection> connect_or_skip(
+SP<Connection> connect_or_skip(
 	RingFixture &fx,
-	string const &ci) {
+	S const &ci) {
 	ConnectParams cp{.conninfo = ci, .connect_deadline = chrono::seconds{10}};
 	return block_on(fx.reader, Connection::connect(move(cp)), chrono::seconds{30});
 }
@@ -94,7 +94,7 @@ TEST_CASE(
 	REQUIRE(r.ok());
 	REQUIRE(r.rows() == 1);
 	REQUIRE(r.cols() == 1);
-	CHECK(r[0].as<int64_t>(0) == 1);
+	CHECK(r[0].as<i64>(0) == 1);
 	CHECK(r.column_name(0) == "v");
 }
 
@@ -134,7 +134,7 @@ TEST_CASE(
 
 	{
 		Params p;
-		p.add(int64_t{1}).add("alpha").add_null();
+		p.add(i64{1}).add("alpha").add_null();
 		auto r = block_on(
 			fx->reader,
 			conn->query("INSERT INTO t (id, name, note) VALUES ($1, $2, $3)", move(p)),
@@ -145,18 +145,18 @@ TEST_CASE(
 
 	{
 		Params p;
-		p.add(int64_t{1});
+		p.add(i64{1});
 		auto r =
 			block_on(fx->reader, conn->query("SELECT name, note FROM t WHERE id = $1", move(p)), chrono::seconds{30});
 		REQUIRE(r.ok());
 		REQUIRE(r.rows() == 1);
-		CHECK(r[0].as<string>(0) == "alpha");
+		CHECK(r[0].as<S>(0) == "alpha");
 		CHECK(r[0].is_null(1));
 	}
 
 	{
 		Params p;
-		p.add(int64_t{1}).add("dup").add_null();
+		p.add(i64{1}).add("dup").add_null();
 		try {
 			(void)block_on(
 				fx->reader,
@@ -168,7 +168,7 @@ TEST_CASE(
 
 	{
 		Params p;
-		p.add(int64_t{1}).add("upserted");
+		p.add(i64{1}).add("upserted");
 		auto r = block_on(
 			fx->reader,
 			conn->query(
@@ -182,7 +182,7 @@ TEST_CASE(
 	{
 		auto r = block_on(fx->reader, conn->query("SELECT name FROM t WHERE id = 1"), chrono::seconds{30});
 		REQUIRE(r.rows() == 1);
-		CHECK(r[0].as<string>(0) == "upserted");
+		CHECK(r[0].as<S>(0) == "upserted");
 	}
 }
 
@@ -202,17 +202,17 @@ TEST_CASE(
 
 	{
 		Params p;
-		p.add(int64_t{40}).add(int64_t{2});
+		p.add(i64{40}).add(i64{2});
 		auto r = block_on(fx->reader, conn->exec_prepared("p_add", move(p)), chrono::seconds{30});
 		REQUIRE(r.rows() == 1);
-		CHECK(r[0].as<int64_t>(0) == 42);
+		CHECK(r[0].as<i64>(0) == 42);
 	}
 	{
 		Params p;
-		p.add(int64_t{100}).add(int64_t{-1});
+		p.add(i64{100}).add(i64{-1});
 		auto r = block_on(fx->reader, conn->exec_prepared("p_add", move(p)), chrono::seconds{30});
 		REQUIRE(r.rows() == 1);
-		CHECK(r[0].as<int64_t>(0) == 99);
+		CHECK(r[0].as<i64>(0) == 99);
 	}
 }
 
@@ -252,17 +252,17 @@ TEST_CASE(
 	auto conn = connect_or_skip(*fx, *ci);
 
 	atomic_flag sleep_done{};
-	exception_ptr sleep_err;
+	EP sleep_err;
 	auto sleep_held = conn->query("SELECT pg_sleep(10)")
 					| then([&](Result) { sleep_done.test_and_set(memory_order_release); })
-					| on_error([&](exception_ptr const &ex) {
+					| on_error([&](EP const &ex) {
 						  sleep_err = ex;
 						  sleep_done.test_and_set(memory_order_release);
 					  });
 	(void)sleep_held;
 
 	WorkPool cancel_pool{WorkPoolOptions{.threads = 1}};
-	this_thread::sleep_for(chrono::milliseconds{100});
+	std::this_thread::sleep_for(chrono::milliseconds{100});
 	block_on(fx->reader, conn->cancel_inflight(cancel_pool), chrono::seconds{30});
 	pump_until(fx->reader, sleep_done, chrono::seconds{10});
 
@@ -325,11 +325,11 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 	CurrentFileReaderScope const scope{&fx->reader};
 
-	auto root = filesystem::temp_directory_path()
+	auto root = fs::temp_directory_path()
 			  / format("conflux_db_qc_int_{}", chrono::steady_clock::now().time_since_epoch().count());
-	filesystem::create_directories(root);
+	fs::create_directories(root);
 	{
-		ofstream out{root / "select_two.psql"};
+		std::ofstream out{root / "select_two.psql"};
 		out << "SELECT 2::int8";
 	}
 
@@ -340,8 +340,8 @@ TEST_CASE(
 	auto conn = connect_or_skip(*fx, *ci);
 	auto r = block_on(fx->reader, conn->query(*sql), chrono::seconds{30});
 	REQUIRE(r.rows() == 1);
-	CHECK(r[0].as<int64_t>(0) == 2);
+	CHECK(r[0].as<i64>(0) == 2);
 
-	error_code ec;
-	filesystem::remove_all(root, ec);
+	EC ec;
+	fs::remove_all(root, ec);
 }

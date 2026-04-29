@@ -27,11 +27,10 @@ import conflux.work;
 import conflux.file_io;
 import conflux.utils;
 import conflux.net.config;
-using namespace std;
 
-[[nodiscard]] string html_escape(
-	string_view s) {
-	string out;
+[[nodiscard]] S html_escape(
+	SV s) {
+	S out;
 	out.reserve(s.size());
 	for (char const c: s) {
 		switch (c) {
@@ -50,9 +49,9 @@ export struct FieldHash {
 	using is_transparent = void;
 	bool ci{false};
 
-	[[nodiscard]] size_t operator ()(
-		string_view s) const noexcept {
-		size_t h = 14695981039346656037ULL;
+	[[nodiscard]] SZ operator ()(
+		SV s) const noexcept {
+		SZ h = 14695981039346656037ULL;
 		for (char const ch: s) {
 			auto const c = static_cast<unsigned char>(ch);
 			unsigned char const k = ci ? static_cast<unsigned char>(c | 0x20) : c;
@@ -61,9 +60,9 @@ export struct FieldHash {
 		}
 		return h;
 	}
-	[[nodiscard]] size_t operator ()(
-		string const &s) const noexcept {
-		return operator ()(string_view{s});
+	[[nodiscard]] SZ operator ()(
+		S const &s) const noexcept {
+		return operator ()(SV{s});
 	}
 };
 
@@ -72,8 +71,8 @@ export struct FieldEq {
 	bool ci{false};
 
 	[[nodiscard]] bool operator ()(
-		string_view a,
-		string_view b) const noexcept {
+		SV a,
+		SV b) const noexcept {
 		if (a.size() != b.size()) {
 			return false;
 		}
@@ -83,32 +82,32 @@ export struct FieldEq {
 		return ranges::equal(a, b, [](unsigned char x, unsigned char y) { return (x | 0x20) == (y | 0x20); });
 	}
 	[[nodiscard]] bool operator ()(
-		string const &a,
-		string_view b) const noexcept {
-		return operator ()(string_view{a}, b);
+		S const &a,
+		SV b) const noexcept {
+		return operator ()(SV{a}, b);
 	}
 	[[nodiscard]] bool operator ()(
-		string_view a,
-		string const &b) const noexcept {
-		return operator ()(a, string_view{b});
+		SV a,
+		S const &b) const noexcept {
+		return operator ()(a, SV{b});
 	}
 	[[nodiscard]] bool operator ()(
-		string const &a,
-		string const &b) const noexcept {
-		return operator ()(string_view{a}, string_view{b});
+		S const &a,
+		S const &b) const noexcept {
+		return operator ()(SV{a}, SV{b});
 	}
 };
 
-// Vector-backed string map: operator[] returns string_view (empty if absent).
-// Preferred over unordered_map for small/bounded collections — contiguous storage,
+// Vector-backed S map: operator[] returns SV (empty if absent).
+// Preferred over UM for small/bounded collections — contiguous storage,
 // no hashing, linear scan faster for N < ~100.
 export class HttpFields {
-	vector<pair<string, string>> data_;
-	unordered_multimap<string, size_t, FieldHash, FieldEq> index_;
+	V<P<S, S>> data_;
+	std::unordered_multimap<S, SZ, FieldHash, FieldEq> index_;
 	bool case_insensitive_{false};
 
 	void index_entry(
-		size_t i) {
+		SZ i) {
 		index_.emplace(data_[i].first, i);
 	}
 
@@ -118,45 +117,45 @@ public:
 		: index_(0, FieldHash{case_insensitive}, FieldEq{case_insensitive})
 		, case_insensitive_(case_insensitive) {}
 	HttpFields(
-		initializer_list<pair<string, string>> init)
+		std::initializer_list<P<S, S>> init)
 		: data_(init) {
-		for (size_t i = 0; i < data_.size(); ++i) {
+		for (SZ i = 0; i < data_.size(); ++i) {
 			index_entry(i);
 		}
 	}
 
 	// Read: returns empty view when key absent.
 	// NOLINTNEXTLINE(fuchsia-overloaded-operator)
-	string_view operator [](
-		string_view key) const noexcept {
-		return get(key).value_or(string_view{});
+	SV operator [](
+		SV key) const noexcept {
+		return get(key).value_or(SV{});
 	}
 
 	// Write: inserts key with empty value when absent, then returns ref.
 	// NOLINTNEXTLINE(fuchsia-overloaded-operator)
-	string &operator [](
-		string_view key) {
+	S &operator [](
+		SV key) {
 		auto range = index_.equal_range(key);
 		if (range.first != range.second) {
 			return data_[range.first->second].second;
 		}
-		data_.emplace_back(string{key}, string{});
+		data_.emplace_back(S{key}, S{});
 		index_entry(data_.size() - 1);
 		return data_.back().second;
 	}
 
-	[[nodiscard]] optional<string_view> get(
-		string_view key) const noexcept {
+	[[nodiscard]] Opt<SV> get(
+		SV key) const noexcept {
 		auto range = index_.equal_range(key);
 		if (range.first == range.second) {
-			return nullopt;
+			return std::nullopt;
 		}
-		return string_view{data_[range.first->second].second};
+		return SV{data_[range.first->second].second};
 	}
 
-	[[nodiscard]] vector<string_view> values(
-		string_view key) const {
-		vector<string_view> out;
+	[[nodiscard]] V<SV> values(
+		SV key) const {
+		V<SV> out;
 		auto range = index_.equal_range(key);
 		for (auto it = range.first; it != range.second; ++it) {
 			out.push_back(data_[it->second].second);
@@ -165,69 +164,69 @@ public:
 	}
 
 	[[nodiscard]] bool contains(
-		string_view key) const noexcept {
+		SV key) const noexcept {
 		auto range = index_.equal_range(key);
 		return range.first != range.second;
 	}
 
-	[[nodiscard]] string_view value_or(
-		string_view key,
-		string_view def = {}) const noexcept {
+	[[nodiscard]] SV value_or(
+		SV key,
+		SV def = {}) const noexcept {
 		return get(key).value_or(def);
 	}
 
 	void emplace_back(
-		string k,
-		string v) {
+		S k,
+		S v) {
 		data_.emplace_back(move(k), move(v));
 		index_entry(data_.size() - 1);
 	}
 
 	void append(
-		string k,
-		string v) {
+		S k,
+		S v) {
 		emplace_back(move(k), move(v));
 	}
 
 	void set(
-		string key,
-		string field_value) {
-		auto range = index_.equal_range(string_view{key});
+		S key,
+		S field_value) {
+		auto range = index_.equal_range(SV{key});
 		if (range.first == range.second) {
 			emplace_back(move(key), move(field_value));
 			return;
 		}
 		auto idx_view =
-			ranges::subrange(range.first, range.second) | views::transform([](auto const &e) { return e.second; });
+			ranges::subrange(range.first, range.second) | std::views::transform([](auto const &e) { return e.second; });
 		auto const keep_idx = ranges::min(idx_view);
 		data_[keep_idx].second = move(field_value);
-		unordered_set<size_t> to_remove;
-		ranges::copy_if(idx_view, inserter(to_remove, to_remove.end()), [&](size_t i) { return i != keep_idx; });
+		US<SZ> to_remove;
+		ranges::copy_if(idx_view, inserter(to_remove, to_remove.end()), [&](SZ i) { return i != keep_idx; });
 		if (to_remove.empty()) {
 			return;
 		}
-		size_t cursor = 0;
+		SZ cursor = 0;
 		erase_if(data_, [&](auto const &) { return to_remove.contains(cursor++); });
 		index_.clear();
-		for (size_t i = 0; i < data_.size(); ++i) {
+		for (SZ i = 0; i < data_.size(); ++i) {
 			index_entry(i);
 		}
 	}
 
-	size_t erase(
-		string_view key) {
+	SZ erase(
+		SV key) {
 		auto range = index_.equal_range(key);
 		if (range.first == range.second) {
 			return 0;
 		}
-		unordered_set<size_t> to_remove;
+		US<SZ> to_remove;
 		ranges::copy(
-			ranges::subrange(range.first, range.second) | views::transform([](auto const &e) { return e.second; }),
+			ranges::subrange(range.first, range.second) | std::views::transform([](auto const &e) { return e.second; }),
 			inserter(to_remove, to_remove.end()));
-		size_t cursor = 0;
-		size_t const removed = erase_if(data_, [&](auto const &) { return to_remove.contains(cursor++); });
+		SZ cursor = 0;
+		SZ const removed = erase_if(data_, [&](auto const &) { return to_remove.contains(cursor++); });
 		index_.clear();
-		for (size_t i = 0; i < data_.size(); ++i) {
+		for (SZ i = 0; i < data_.size(); ++i) {
 			index_entry(i);
 		}
 		return removed;
@@ -237,7 +236,7 @@ public:
 		index_.clear();
 	}
 	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
-	[[nodiscard]] size_t size() const noexcept { return data_.size(); }
+	[[nodiscard]] SZ size() const noexcept { return data_.size(); }
 	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
 
 	auto begin() { return data_.begin(); }
@@ -247,20 +246,20 @@ public:
 };
 
 export class HttpFieldsView {
-	vector<pair<string_view, string_view>> data_;
-	unordered_multimap<string_view, size_t, FieldHash, FieldEq> index_;
-	shared_ptr<deque<string>> owned_storage_{};
+	V<P<SV, SV>> data_;
+	std::unordered_multimap<SV, SZ, FieldHash, FieldEq> index_;
+	SP<deque<S>> owned_storage_{};
 	bool case_insensitive_{false};
 
 	void index_entry(
-		size_t i) {
+		SZ i) {
 		index_.emplace(data_[i].first, i);
 	}
 
-	[[nodiscard]] string_view store_owned(
-		string owned_value) {
+	[[nodiscard]] SV store_owned(
+		S owned_value) {
 		if (!owned_storage_) {
-			owned_storage_ = make_shared<deque<string>>();
+			owned_storage_ = make_shared<deque<S>>();
 		}
 		owned_storage_->push_back(move(owned_value));
 		return owned_storage_->back();
@@ -283,23 +282,23 @@ public:
 
 	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
 
-	string_view operator [](
-		string_view key) const noexcept {
-		return get(key).value_or(string_view{});
+	SV operator [](
+		SV key) const noexcept {
+		return get(key).value_or(SV{});
 	}
 
-	[[nodiscard]] optional<string_view> get(
-		string_view key) const noexcept {
+	[[nodiscard]] Opt<SV> get(
+		SV key) const noexcept {
 		auto range = index_.equal_range(key);
 		if (range.first == range.second) {
-			return nullopt;
+			return std::nullopt;
 		}
 		return data_[range.first->second].second;
 	}
 
-	[[nodiscard]] vector<string_view> values(
-		string_view key) const {
-		vector<string_view> out;
+	[[nodiscard]] V<SV> values(
+		SV key) const {
+		V<SV> out;
 		auto range = index_.equal_range(key);
 		for (auto it = range.first; it != range.second; ++it) {
 			out.push_back(data_[it->second].second);
@@ -308,27 +307,27 @@ public:
 	}
 
 	[[nodiscard]] bool contains(
-		string_view key) const noexcept {
+		SV key) const noexcept {
 		auto range = index_.equal_range(key);
 		return range.first != range.second;
 	}
 
-	[[nodiscard]] string_view value_or(
-		string_view key,
-		string_view def = {}) const noexcept {
+	[[nodiscard]] SV value_or(
+		SV key,
+		SV def = {}) const noexcept {
 		return get(key).value_or(def);
 	}
 
 	void emplace_back(
-		string_view k,
-		string_view v) {
+		SV k,
+		SV v) {
 		data_.emplace_back(k, v);
 		index_entry(data_.size() - 1);
 	}
 
 	void emplace_back_owned(
-		string k,
-		string v) {
+		S k,
+		S v) {
 		data_.emplace_back(store_owned(move(k)), store_owned(move(v)));
 		index_entry(data_.size() - 1);
 	}
@@ -340,12 +339,12 @@ public:
 	}
 
 	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
-	[[nodiscard]] size_t size() const noexcept { return data_.size(); }
+	[[nodiscard]] SZ size() const noexcept { return data_.size(); }
 
 	[[nodiscard]] HttpFields to_owned() const {
 		HttpFields out{case_insensitive_};
 		for (auto const &[k, v]: data_) {
-			out.emplace_back(string{k}, string{v});
+			out.emplace_back(S{k}, S{v});
 		}
 		return out;
 	}
@@ -357,24 +356,24 @@ public:
 };
 
 export struct UploadedFile {
-	string_view name;
-	string_view filename;
-	string_view content_type;
-	string_view data;
-	string owned_name;
-	string owned_filename;
-	string owned_content_type;
-	string owned_data;
+	SV name;
+	SV filename;
+	SV content_type;
+	SV data;
+	S owned_name;
+	S owned_filename;
+	S owned_content_type;
+	S owned_data;
 	bool owns_metadata = false;
 	bool owns_data = false;
 
 	UploadedFile() = default;
 
 	UploadedFile(
-		string_view name_,
-		string_view filename_,
-		string_view content_type_,
-		string_view data_)
+		SV name_,
+		SV filename_,
+		SV content_type_,
+		SV data_)
 		: name(name_)
 		, filename(filename_)
 		, content_type(content_type_)
@@ -382,16 +381,16 @@ export struct UploadedFile {
 
 	UploadedFile(
 		UploadedFile const &other)
-		: owned_name(other.owns_metadata ? other.owned_name : string{})
-		, owned_filename(other.owns_metadata ? other.owned_filename : string{})
-		, owned_content_type(other.owns_metadata ? other.owned_content_type : string{})
-		, owned_data(other.owns_data ? other.owned_data : string{})
+		: owned_name(other.owns_metadata ? other.owned_name : S{})
+		, owned_filename(other.owns_metadata ? other.owned_filename : S{})
+		, owned_content_type(other.owns_metadata ? other.owned_content_type : S{})
+		, owned_data(other.owns_data ? other.owned_data : S{})
 		, owns_metadata(other.owns_metadata)
 		, owns_data(other.owns_data) {
-		name = owns_metadata ? string_view{owned_name} : other.name;
-		filename = owns_metadata ? string_view{owned_filename} : other.filename;
-		content_type = owns_metadata ? string_view{owned_content_type} : other.content_type;
-		data = owns_data ? string_view{owned_data} : other.data;
+		name = owns_metadata ? SV{owned_name} : other.name;
+		filename = owns_metadata ? SV{owned_filename} : other.filename;
+		content_type = owns_metadata ? SV{owned_content_type} : other.content_type;
+		data = owns_data ? SV{owned_data} : other.data;
 	}
 
 	UploadedFile(
@@ -421,16 +420,16 @@ export struct UploadedFile {
 		if (this == &other) {
 			return *this;
 		}
-		owned_name = other.owns_metadata ? other.owned_name : string{};
-		owned_filename = other.owns_metadata ? other.owned_filename : string{};
-		owned_content_type = other.owns_metadata ? other.owned_content_type : string{};
-		owned_data = other.owns_data ? other.owned_data : string{};
+		owned_name = other.owns_metadata ? other.owned_name : S{};
+		owned_filename = other.owns_metadata ? other.owned_filename : S{};
+		owned_content_type = other.owns_metadata ? other.owned_content_type : S{};
+		owned_data = other.owns_data ? other.owned_data : S{};
 		owns_metadata = other.owns_metadata;
 		owns_data = other.owns_data;
-		name = owns_metadata ? string_view{owned_name} : other.name;
-		filename = owns_metadata ? string_view{owned_filename} : other.filename;
-		content_type = owns_metadata ? string_view{owned_content_type} : other.content_type;
-		data = owns_data ? string_view{owned_data} : other.data;
+		name = owns_metadata ? SV{owned_name} : other.name;
+		filename = owns_metadata ? SV{owned_filename} : other.filename;
+		content_type = owns_metadata ? SV{owned_content_type} : other.content_type;
+		data = owns_data ? SV{owned_data} : other.data;
 		return *this;
 	}
 
@@ -461,19 +460,19 @@ export struct UploadedFile {
 	}
 
 	[[nodiscard]] static UploadedFile borrowed(
-		string_view name_,
-		string_view filename_,
-		string_view content_type_,
-		string_view data_) {
+		SV name_,
+		SV filename_,
+		SV content_type_,
+		SV data_) {
 		return UploadedFile{name_, filename_, content_type_, data_};
 	}
 
 	[[nodiscard]] static UploadedFile owned(
-		string name_,
-		string filename_,
-		string content_type_,
-		string data_) {
-		UploadedFile file{string_view{}, string_view{}, string_view{}, string_view{}};
+		S name_,
+		S filename_,
+		S content_type_,
+		S data_) {
+		UploadedFile file{SV{}, SV{}, SV{}, SV{}};
 		file.owned_name = move(name_);
 		file.owned_filename = move(filename_);
 		file.owned_content_type = move(content_type_);
@@ -491,32 +490,32 @@ export struct UploadedFile {
 		if (owns_metadata && owns_data) {
 			return *this;
 		}
-		return UploadedFile::owned(string{name}, string{filename}, string{content_type}, string{data});
+		return UploadedFile::owned(S{name}, S{filename}, S{content_type}, S{data});
 	}
 };
 
 export struct HttpRequest {
-	string method;
-	string path; // path only, no query string
-	string version;
-	string remote_addr; // peer IP address (best-effort with multishot accept)
+	S method;
+	S path; // path only, no query S
+	S version;
+	S remote_addr; // peer IP address (best-effort with multishot accept)
 	bool is_tls = false; // true when request arrived over a TLS connection
 	HttpFields params; // {name} captures
 	HttpFields headers{true}; // case-insensitive lookup
 	HttpFields query; // parsed from URL ?k=v&...
 	HttpFields form; // parsed from application/x-www-form-urlencoded body or multipart text fields
 	HttpFields cookies; // parsed from Cookie: header
-	vector<UploadedFile> files; // parsed from multipart/form-data body
-	string body;
+	V<UploadedFile> files; // parsed from multipart/form-data body
+	S body;
 
 	[[nodiscard]] HttpRequest to_owned() const { return *this; }
 };
 
 export struct HttpRequestView {
-	string_view method;
-	string_view path;
-	string_view version;
-	string_view remote_addr;
+	SV method;
+	SV path;
+	SV version;
+	SV remote_addr;
 	bool is_tls = false;
 	HttpFieldsView params;
 	HttpFieldsView headers;
@@ -524,13 +523,13 @@ export struct HttpRequestView {
 	HttpFieldsView form;
 	HttpFieldsView cookies;
 	span<UploadedFile const> files;
-	string_view body;
+	SV body;
 
 	HttpRequestView(
-		string_view method_,
-		string_view path_,
-		string_view version_,
-		string_view remote_addr_,
+		SV method_,
+		SV path_,
+		SV version_,
+		SV remote_addr_,
 		bool is_tls_,
 		HttpFieldsView params_,
 		HttpFieldsView headers_,
@@ -538,7 +537,7 @@ export struct HttpRequestView {
 		HttpFieldsView form_,
 		HttpFieldsView cookies_,
 		span<UploadedFile const> files_,
-		string_view body_)
+		SV body_)
 		: method(method_)
 		, path(path_)
 		, version(version_)
@@ -569,10 +568,10 @@ export struct HttpRequestView {
 
 	[[nodiscard]] HttpRequest to_owned() const {
 		HttpRequest owned;
-		owned.method = string{method};
-		owned.path = string{path};
-		owned.version = string{version};
-		owned.remote_addr = string{remote_addr};
+		owned.method = S{method};
+		owned.path = S{path};
+		owned.version = S{version};
+		owned.remote_addr = S{remote_addr};
 		owned.is_tls = is_tls;
 		owned.params = params.to_owned();
 		owned.headers = headers.to_owned();
@@ -583,7 +582,7 @@ export struct HttpRequestView {
 		for (auto const &file: files) {
 			owned.files.push_back(file.to_owned());
 		}
-		owned.body = string{body};
+		owned.body = S{body};
 		return owned;
 	}
 };
@@ -596,7 +595,7 @@ class CloneableFunction<R(Args...)> {
 	struct Concept {
 		virtual ~Concept() = default;
 		virtual R invoke(Args... args) = 0;
-		[[nodiscard]] virtual unique_ptr<Concept> clone() const = 0;
+		[[nodiscard]] virtual UP<Concept> clone() const = 0;
 	};
 
 	template<typename F>
@@ -612,10 +611,10 @@ class CloneableFunction<R(Args...)> {
 			return std::invoke(fn, forward<Args>(args)...);
 		}
 
-		[[nodiscard]] unique_ptr<Concept> clone() const override { return make_unique<Model>(fn); }
+		[[nodiscard]] UP<Concept> clone() const override { return make_unique<Model>(fn); }
 	};
 
-	unique_ptr<Concept> fn_{};
+	UP<Concept> fn_{};
 
 public:
 	CloneableFunction() = default;
@@ -623,10 +622,10 @@ public:
 		nullptr_t) {}
 
 	template<typename F>
-		requires(!same_as<remove_cvref_t<F>, CloneableFunction>)
+		requires(!same_as<std::remove_cvref_t<F>, CloneableFunction>)
 	CloneableFunction(
 		F &&f)
-		: fn_(make_unique<Model<remove_cvref_t<F>>>(forward<F>(f))) {}
+		: fn_(make_unique<Model<std::remove_cvref_t<F>>>(forward<F>(f))) {}
 
 	CloneableFunction(
 		CloneableFunction const &o)
@@ -655,20 +654,20 @@ export class DeferredResponse; // defined after HttpResponse
 // RAII owner of an mmap'd file region.  munmap() called on destruction.
 export struct MappedFile {
 	void *ptr{};
-	size_t size{}; // mmap extent for munmap
-	size_t send_offset{}; // byte offset within ptr for send start
-	size_t send_size{}; // bytes to send
+	SZ size{}; // mmap extent for munmap
+	SZ send_offset{}; // byte offset within ptr for send start
+	SZ send_size{}; // bytes to send
 	MappedFile(
 		void *p,
-		size_t s)
+		SZ s)
 		: ptr{p}
 		, size{s}
 		, send_size{s} {}
 	MappedFile(
 		void *p,
-		size_t mmap_sz,
-		size_t offset,
-		size_t len)
+		SZ mmap_sz,
+		SZ offset,
+		SZ len)
 		: ptr{p}
 		, size{mmap_sz}
 		, send_offset{offset}
@@ -705,7 +704,7 @@ export struct MappedFile {
 // fixed-buffer read on TLS). Owns a FileHandle — send dispatch consumes it and
 // issues a close_async on the owning ring when the stream finishes.
 export struct StreamedFile {
-	shared_ptr<FileHandle> handle;
+	SP<FileHandle> handle;
 	u64 send_offset{};
 	u64 send_size{};
 	// total file size — needed for Content-Range and range-validation paths.
@@ -722,28 +721,28 @@ export class SseChannel {
 private:
 	int efd_{};
 	mutex mtx_{};
-	queue<string> pending_{};
+	std::queue<S> pending_{};
 	atomic_flag closed_{};
-	size_t queued_bytes_{0};
-	size_t max_queue_bytes_{};
+	SZ queued_bytes_{0};
+	SZ max_queue_bytes_{};
 	SseOverflowPolicy overflow_{SseOverflowPolicy::DropNewest};
-	atomic<size_t> dropped_{0};
+	Atom<SZ> dropped_{0};
 
 public:
-	static constexpr size_t kDefaultMaxQueueBytes = size_t{4} * 1024 * 1024;
+	static constexpr SZ kDefaultMaxQueueBytes = SZ{4} * 1024 * 1024;
 
 	SseChannel(SseChannel const &) = delete;
 	SseChannel &operator =(SseChannel const &) = delete;
 	SseChannel(SseChannel &&) = delete;
 	SseChannel &operator =(SseChannel &&) = delete;
 	explicit SseChannel(
-		size_t max_queue_bytes = kDefaultMaxQueueBytes,
+		SZ max_queue_bytes = kDefaultMaxQueueBytes,
 		SseOverflowPolicy overflow = SseOverflowPolicy::DropNewest)
 		: efd_(::eventfd(0, EFD_CLOEXEC))
 		, max_queue_bytes_(max_queue_bytes)
 		, overflow_(overflow) {
 		if (efd_ < 0) {
-			throw system_error{errno, system_category(), "eventfd"};
+			throw SE{errno, system_category(), "eventfd"};
 		}
 	}
 
@@ -757,16 +756,16 @@ public:
 	// Returns true if the frame was enqueued, false if dropped (overflow).
 	// Also returns false if the channel is closed, regardless of policy.
 	bool send(
-		string frame) {
+		S frame) {
 		bool enqueued = false;
 		bool wake = false;
 		{
-			scoped_lock const lk{mtx_};
+			SL const lk{mtx_};
 			if (closed_.test()) {
 				return false;
 			}
-			size_t const frame_bytes = frame.size();
-			size_t const would_be = queued_bytes_ + frame_bytes;
+			SZ const frame_bytes = frame.size();
+			SZ const would_be = queued_bytes_ + frame_bytes;
 			if (would_be > max_queue_bytes_ && max_queue_bytes_ != 0) {
 				switch (overflow_) {
 				case SseOverflowPolicy::DropNewest: dropped_.fetch_add(1, memory_order_relaxed); return false;
@@ -801,15 +800,13 @@ public:
 	}
 
 	bool send_event(
-		string_view type,
-		string_view data) {
+		SV type,
+		SV data) {
 		// Reject newlines in type and data: they would break SSE framing and
 		// allow injection of arbitrary events.
-		auto has_nl = [](string_view s) {
-			return s.find('\n') != string_view::npos || s.find('\r') != string_view::npos;
-		};
+		auto has_nl = [](SV s) { return s.find('\n') != SV::npos || s.find('\r') != SV::npos; };
 		if (has_nl(type) || has_nl(data)) {
-			throw invalid_argument{"SseChannel::send_event: type and data must not contain newlines"};
+			throw std::invalid_argument{"SseChannel::send_event: type and data must not contain newlines"};
 		}
 		return send(format("event: {}\ndata: {}\n\n", type, data));
 	}
@@ -824,9 +821,9 @@ public:
 		} // wake the io_uring poll
 	}
 
-	[[nodiscard]] string drain() {
-		scoped_lock const lk{mtx_};
-		string result;
+	[[nodiscard]] S drain() {
+		SL const lk{mtx_};
+		S result;
 		while (!pending_.empty()) {
 			result += pending_.front();
 			pending_.pop();
@@ -837,8 +834,8 @@ public:
 
 	[[nodiscard]] bool is_closed() const noexcept { return closed_.test(); }
 	[[nodiscard]] int eventfd_fd() const noexcept { return efd_; }
-	[[nodiscard]] size_t dropped_count() const noexcept { return dropped_.load(memory_order_relaxed); }
-	[[nodiscard]] size_t max_queue_bytes() const noexcept { return max_queue_bytes_; }
+	[[nodiscard]] SZ dropped_count() const noexcept { return dropped_.load(memory_order_relaxed); }
+	[[nodiscard]] SZ max_queue_bytes() const noexcept { return max_queue_bytes_; }
 };
 
 export struct HttpResponse {
@@ -851,24 +848,19 @@ export struct HttpResponse {
 		deferred,
 	};
 
-	using BodyPayload = variant<
-		string,
-		shared_ptr<SseChannel>,
-		shared_ptr<WsUpgrade>,
-		shared_ptr<MappedFile>,
-		shared_ptr<StreamedFile>,
-		shared_ptr<DeferredResponse>>;
+	using BodyPayload =
+		variant<S, SP<SseChannel>, SP<WsUpgrade>, SP<MappedFile>, SP<StreamedFile>, SP<DeferredResponse>>;
 
 	int status = kHttpOk;
-	string status_text = "OK";
-	string content_type = "text/html; charset=utf-8";
+	S status_text = "OK";
+	S content_type = "text/html; charset=utf-8";
 	HttpFields headers{true}; // extra response headers (added after Content-Type/Content-Length)
-	vector<string> set_cookies{}; // Set-Cookie headers (one per entry)
+	V<S> set_cookies{}; // Set-Cookie headers (one per entry)
 	HttpFields trailers{true}; // HTTP/2 trailer headers sent after the DATA frames
 	bool head_only = false; // true → send headers only, suppress body (HEAD requests)
-	size_t content_length_hint{0}; // non-zero overrides content_length() (HEAD static file responses)
+	SZ content_length_hint{0}; // non-zero overrides content_length() (HEAD static file responses)
 	BodyKind body_kind = BodyKind::text;
-	BodyPayload body_payload{string{}};
+	BodyPayload body_payload{S{}};
 
 	[[nodiscard]] bool is_text() const noexcept { return body_kind == BodyKind::text; }
 	[[nodiscard]] bool is_sse() const noexcept { return body_kind == BodyKind::sse; }
@@ -877,140 +869,140 @@ export struct HttpResponse {
 	[[nodiscard]] bool is_streamed_file() const noexcept { return body_kind == BodyKind::streamed_file; }
 	[[nodiscard]] bool is_deferred() const noexcept { return body_kind == BodyKind::deferred; }
 
-	[[nodiscard]] string_view text_body() const noexcept {
-		if (auto const *text = get_if<string>(&body_payload)) {
+	[[nodiscard]] SV text_body() const noexcept {
+		if (auto const *text = get_if<S>(&body_payload)) {
 			return *text;
 		}
 		return {};
 	}
 
-	[[nodiscard]] string &text_body_mut() {
-		if (!is_text() || !holds_alternative<string>(body_payload)) {
+	[[nodiscard]] S &text_body_mut() {
+		if (!is_text() || !holds_alternative<S>(body_payload)) {
 			body_kind = BodyKind::text;
-			body_payload = string{};
+			body_payload = S{};
 		}
-		return get<string>(body_payload);
+		return get<S>(body_payload);
 	}
 
-	[[nodiscard]] string take_text_body() {
-		if (!holds_alternative<string>(body_payload)) {
+	[[nodiscard]] S take_text_body() {
+		if (!holds_alternative<S>(body_payload)) {
 			return {};
 		}
-		return move(get<string>(body_payload));
+		return move(get<S>(body_payload));
 	}
 
-	[[nodiscard]] shared_ptr<SseChannel> const &sse_channel_ptr() const {
-		static shared_ptr<SseChannel> const empty{};
-		if (auto const *ch = get_if<shared_ptr<SseChannel>>(&body_payload)) {
+	[[nodiscard]] SP<SseChannel> const &sse_channel_ptr() const {
+		static SP<SseChannel> const empty{};
+		if (auto const *ch = get_if<SP<SseChannel>>(&body_payload)) {
 			return *ch;
 		}
 		return empty;
 	}
 
-	[[nodiscard]] shared_ptr<WsUpgrade> const &ws_upgrade_ptr() const {
-		static shared_ptr<WsUpgrade> const empty{};
-		if (auto const *up = get_if<shared_ptr<WsUpgrade>>(&body_payload)) {
+	[[nodiscard]] SP<WsUpgrade> const &ws_upgrade_ptr() const {
+		static SP<WsUpgrade> const empty{};
+		if (auto const *up = get_if<SP<WsUpgrade>>(&body_payload)) {
 			return *up;
 		}
 		return empty;
 	}
 
-	[[nodiscard]] shared_ptr<MappedFile> const &mapped_file_ptr() const {
-		static shared_ptr<MappedFile> const empty{};
-		if (auto const *file = get_if<shared_ptr<MappedFile>>(&body_payload)) {
+	[[nodiscard]] SP<MappedFile> const &mapped_file_ptr() const {
+		static SP<MappedFile> const empty{};
+		if (auto const *file = get_if<SP<MappedFile>>(&body_payload)) {
 			return *file;
 		}
 		return empty;
 	}
 
-	[[nodiscard]] shared_ptr<StreamedFile> const &streamed_file_ptr() const {
-		static shared_ptr<StreamedFile> const empty{};
-		if (auto const *file = get_if<shared_ptr<StreamedFile>>(&body_payload)) {
+	[[nodiscard]] SP<StreamedFile> const &streamed_file_ptr() const {
+		static SP<StreamedFile> const empty{};
+		if (auto const *file = get_if<SP<StreamedFile>>(&body_payload)) {
 			return *file;
 		}
 		return empty;
 	}
 
-	[[nodiscard]] shared_ptr<DeferredResponse> const &deferred_response_ptr() const {
-		static shared_ptr<DeferredResponse> const empty{};
-		if (auto const *deferred = get_if<shared_ptr<DeferredResponse>>(&body_payload)) {
+	[[nodiscard]] SP<DeferredResponse> const &deferred_response_ptr() const {
+		static SP<DeferredResponse> const empty{};
+		if (auto const *deferred = get_if<SP<DeferredResponse>>(&body_payload)) {
 			return *deferred;
 		}
 		return empty;
 	}
 
-	[[nodiscard]] shared_ptr<SseChannel> take_sse_channel() {
-		if (!holds_alternative<shared_ptr<SseChannel>>(body_payload)) {
+	[[nodiscard]] SP<SseChannel> take_sse_channel() {
+		if (!holds_alternative<SP<SseChannel>>(body_payload)) {
 			return {};
 		}
-		return move(get<shared_ptr<SseChannel>>(body_payload));
+		return move(get<SP<SseChannel>>(body_payload));
 	}
 
-	[[nodiscard]] shared_ptr<WsUpgrade> take_ws_upgrade() {
-		if (!holds_alternative<shared_ptr<WsUpgrade>>(body_payload)) {
+	[[nodiscard]] SP<WsUpgrade> take_ws_upgrade() {
+		if (!holds_alternative<SP<WsUpgrade>>(body_payload)) {
 			return {};
 		}
-		return move(get<shared_ptr<WsUpgrade>>(body_payload));
+		return move(get<SP<WsUpgrade>>(body_payload));
 	}
 
-	[[nodiscard]] shared_ptr<MappedFile> take_mapped_file() {
-		if (!holds_alternative<shared_ptr<MappedFile>>(body_payload)) {
+	[[nodiscard]] SP<MappedFile> take_mapped_file() {
+		if (!holds_alternative<SP<MappedFile>>(body_payload)) {
 			return {};
 		}
-		return move(get<shared_ptr<MappedFile>>(body_payload));
+		return move(get<SP<MappedFile>>(body_payload));
 	}
 
-	[[nodiscard]] shared_ptr<StreamedFile> take_streamed_file() {
-		if (!holds_alternative<shared_ptr<StreamedFile>>(body_payload)) {
+	[[nodiscard]] SP<StreamedFile> take_streamed_file() {
+		if (!holds_alternative<SP<StreamedFile>>(body_payload)) {
 			return {};
 		}
-		return move(get<shared_ptr<StreamedFile>>(body_payload));
+		return move(get<SP<StreamedFile>>(body_payload));
 	}
 
-	[[nodiscard]] shared_ptr<DeferredResponse> take_deferred_response() {
-		if (!holds_alternative<shared_ptr<DeferredResponse>>(body_payload)) {
+	[[nodiscard]] SP<DeferredResponse> take_deferred_response() {
+		if (!holds_alternative<SP<DeferredResponse>>(body_payload)) {
 			return {};
 		}
-		return move(get<shared_ptr<DeferredResponse>>(body_payload));
+		return move(get<SP<DeferredResponse>>(body_payload));
 	}
 
 	void set_text_body(
-		string text) {
+		S text) {
 		body_kind = BodyKind::text;
 		body_payload = move(text);
 	}
 
 	void set_sse_channel(
-		shared_ptr<SseChannel> ch) {
+		SP<SseChannel> ch) {
 		body_kind = BodyKind::sse;
 		body_payload = move(ch);
 	}
 
 	void set_ws_upgrade(
-		shared_ptr<WsUpgrade> up) {
+		SP<WsUpgrade> up) {
 		body_kind = BodyKind::ws_upgrade;
 		body_payload = move(up);
 	}
 
 	void set_mapped_file(
-		shared_ptr<MappedFile> file) {
+		SP<MappedFile> file) {
 		body_kind = BodyKind::mapped_file;
 		body_payload = move(file);
 	}
 
 	void set_streamed_file(
-		shared_ptr<StreamedFile> file) {
+		SP<StreamedFile> file) {
 		body_kind = BodyKind::streamed_file;
 		body_payload = move(file);
 	}
 
 	void set_deferred_response(
-		shared_ptr<DeferredResponse> deferred) {
+		SP<DeferredResponse> deferred) {
 		body_kind = BodyKind::deferred;
 		body_payload = move(deferred);
 	}
 
-	[[nodiscard]] size_t content_length() const noexcept {
+	[[nodiscard]] SZ content_length() const noexcept {
 		if (content_length_hint != 0) {
 			return content_length_hint;
 		}
@@ -1018,13 +1010,13 @@ export struct HttpResponse {
 			return mapped_file_ptr()->send_size;
 		}
 		if (is_streamed_file() && streamed_file_ptr()) {
-			return static_cast<size_t>(streamed_file_ptr()->send_size);
+			return static_cast<SZ>(streamed_file_ptr()->send_size);
 		}
 		return text_body().size();
 	}
 
 	static HttpResponse html(
-		string body) {
+		S body) {
 		HttpResponse r;
 		r.status = kHttpOk;
 		r.status_text = "OK";
@@ -1034,9 +1026,9 @@ export struct HttpResponse {
 	}
 
 	static HttpResponse html(
-		string body,
+		S body,
 		int status,
-		string status_text) {
+		S status_text) {
 		HttpResponse r;
 		r.status = status;
 		r.status_text = move(status_text);
@@ -1046,7 +1038,7 @@ export struct HttpResponse {
 	}
 
 	static HttpResponse json(
-		string body) {
+		S body) {
 		HttpResponse r;
 		r.status = kHttpOk;
 		r.status_text = "OK";
@@ -1056,9 +1048,9 @@ export struct HttpResponse {
 	}
 
 	static HttpResponse json(
-		string body,
+		S body,
 		int status,
-		string status_text) {
+		S status_text) {
 		HttpResponse r;
 		r.status = status;
 		r.status_text = move(status_text);
@@ -1068,7 +1060,7 @@ export struct HttpResponse {
 	}
 
 	static HttpResponse text(
-		string body) {
+		S body) {
 		HttpResponse r;
 		r.status = kHttpOk;
 		r.status_text = "OK";
@@ -1078,7 +1070,7 @@ export struct HttpResponse {
 	}
 
 	static HttpResponse redirect(
-		string location,
+		S location,
 		int code = kHttpFound) {
 		char const *status_text = "Found";
 		switch (code) {
@@ -1093,7 +1085,7 @@ export struct HttpResponse {
 	}
 
 	static HttpResponse not_found(
-		string_view path) {
+		SV path) {
 		HttpResponse r;
 		r.status = kHttpNotFound;
 		r.status_text = "Not Found";
@@ -1139,24 +1131,24 @@ export struct HttpResponse {
 	}
 
 	static HttpResponse sse(
-		shared_ptr<SseChannel> ch) {
+		SP<SseChannel> ch) {
 		HttpResponse r{.status = kHttpOk, .status_text = "OK", .content_type = "text/event-stream"};
 		r.set_sse_channel(move(ch));
 		return r;
 	}
 
 	static HttpResponse deferred(
-		shared_ptr<DeferredResponse> response) {
+		SP<DeferredResponse> response) {
 		HttpResponse r;
 		r.set_deferred_response(move(response));
 		return r;
 	}
 
 	static HttpResponse internal_error(
-		string_view detail = {}) {
+		SV detail = {}) {
 		auto body =
 			detail.empty() ?
-				string{"<html><body><h1>500 Internal Server Error</h1></body></html>"} :
+				S{"<html><body><h1>500 Internal Server Error</h1></body></html>"} :
 				format("<html><body><h1>500 Internal Server Error</h1><p>{}</p></body></html>", html_escape(detail));
 		HttpResponse r;
 		r.status = 500;
@@ -1166,12 +1158,12 @@ export struct HttpResponse {
 		return r;
 	}
 
-	// Append a Set-Cookie header. Attributes are optional; pass empty strings to omit.
+	// Append a Set-Cookie header. Attributes are Opt; pass empty strings to omit.
 	// Example: resp.set_cookie("session", "abc123", "Path=/; HttpOnly; SameSite=Lax")
 	HttpResponse &set_cookie(
-		string_view name,
-		string_view cookie_value,
-		string_view attributes = {}) {
+		SV name,
+		SV cookie_value,
+		SV attributes = {}) {
 		if (attributes.empty()) {
 			set_cookies.push_back(format("{}={}", name, cookie_value));
 		} else {
@@ -1184,7 +1176,7 @@ export struct HttpResponse {
 export class DeferredResponse {
 	int efd_{-1};
 	mutable mutex mtx_{};
-	unique_ptr<HttpResponse> ready_{};
+	UP<HttpResponse> ready_{};
 	chrono::steady_clock::time_point deadline_{};
 
 public:
@@ -1200,7 +1192,7 @@ public:
 	[[nodiscard]] int eventfd_fd() const noexcept;
 	void complete(HttpResponse response);
 	[[nodiscard]] bool is_ready() const;
-	[[nodiscard]] optional<HttpResponse> take_ready();
+	[[nodiscard]] Opt<HttpResponse> take_ready();
 	[[nodiscard]] chrono::steady_clock::time_point deadline() const;
 	void set_deadline(chrono::steady_clock::time_point deadline);
 	// Force-complete with 504 if the deadline has passed and no response is ready.
@@ -1214,7 +1206,7 @@ DeferredResponse::DeferredResponse(
 	: efd_{::eventfd(0, EFD_CLOEXEC)}
 	, deadline_{chrono::steady_clock::now() + timeout} {
 	if (efd_ < 0) {
-		throw system_error{errno, system_category(), "eventfd"};
+		throw SE{errno, system_category(), "eventfd"};
 	}
 }
 
@@ -1231,7 +1223,7 @@ int DeferredResponse::eventfd_fd() const noexcept {
 void DeferredResponse::complete(
 	HttpResponse response) {
 	{
-		scoped_lock const lk{mtx_};
+		SL const lk{mtx_};
 		if (ready_) {
 			return;
 		}
@@ -1244,14 +1236,14 @@ void DeferredResponse::complete(
 }
 
 bool DeferredResponse::is_ready() const {
-	scoped_lock const lk{mtx_};
+	SL const lk{mtx_};
 	return ready_ != nullptr;
 }
 
-optional<HttpResponse> DeferredResponse::take_ready() {
-	scoped_lock const lk{mtx_};
+Opt<HttpResponse> DeferredResponse::take_ready() {
+	SL const lk{mtx_};
 	if (!ready_) {
-		return nullopt;
+		return std::nullopt;
 	}
 	auto response = move(*ready_);
 	ready_.reset();
@@ -1259,20 +1251,20 @@ optional<HttpResponse> DeferredResponse::take_ready() {
 }
 
 chrono::steady_clock::time_point DeferredResponse::deadline() const {
-	scoped_lock const lk{mtx_};
+	SL const lk{mtx_};
 	return deadline_;
 }
 
 void DeferredResponse::set_deadline(
 	chrono::steady_clock::time_point deadline) {
-	scoped_lock const lk{mtx_};
+	SL const lk{mtx_};
 	deadline_ = deadline;
 }
 
 bool DeferredResponse::expire_if_past_deadline(
 	chrono::steady_clock::time_point now) {
 	{
-		scoped_lock const lk{mtx_};
+		SL const lk{mtx_};
 		if (ready_) {
 			return false;
 		}
@@ -1295,22 +1287,22 @@ bool DeferredResponse::expire_if_past_deadline(
 namespace ws_detail {
 
 // Compute Sec-WebSocket-Accept from Sec-WebSocket-Key.
-CONFLUX_FUZZ_EXPORT string ws_accept_key(
-	string_view client_key) {
-	static constexpr string_view kMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-	string input{client_key};
+CONFLUX_FUZZ_EXPORT S ws_accept_key(
+	SV client_key) {
+	static constexpr SV kMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+	S input{client_key};
 	input += kMagic;
 	auto digest = sha1(span{reinterpret_cast<unsigned char const *>(input.data()), input.size()});
 	return base64_encode(span{digest.data(), digest.size()});
 }
 
 bool ascii_iequals(
-	string_view lhs,
-	string_view rhs) noexcept {
+	SV lhs,
+	SV rhs) noexcept {
 	if (lhs.size() != rhs.size()) {
 		return false;
 	}
-	for (size_t i = 0; i < lhs.size(); ++i) {
+	for (SZ i = 0; i < lhs.size(); ++i) {
 		auto const l = static_cast<unsigned char>(lhs[i]);
 		auto const r = static_cast<unsigned char>(rhs[i]);
 		if ((l | 0x20U) != (r | 0x20U)) {
@@ -1321,15 +1313,15 @@ bool ascii_iequals(
 }
 
 bool header_token_contains(
-	string_view header,
-	string_view token) noexcept {
+	SV header,
+	SV token) noexcept {
 	while (!header.empty()) {
 		auto comma = header.find(',');
-		auto part = trim((comma == string_view::npos) ? header : header.substr(0, comma));
+		auto part = trim((comma == SV::npos) ? header : header.substr(0, comma));
 		if (ascii_iequals(part, token)) {
 			return true;
 		}
-		if (comma == string_view::npos) {
+		if (comma == SV::npos) {
 			return false;
 		}
 		header.remove_prefix(comma + 1);
@@ -1338,7 +1330,7 @@ bool header_token_contains(
 }
 
 bool is_valid_client_key(
-	string_view key) {
+	SV key) {
 	if (key.size() != 24) {
 		return false;
 	}
@@ -1357,13 +1349,13 @@ bool is_valid_handshake(
 
 // Build a complete WebSocket frame (server→client, unmasked) in one buffer so
 // the transport call below emits header+payload as a single TCP segment / TLS record.
-string ws_build_frame(
+S ws_build_frame(
 	u8 opcode,
 	span<byte const> payload) {
-	array<u8, 10> hdr{};
-	size_t hdr_len = 0;
+	A<u8, 10> hdr{};
+	SZ hdr_len = 0;
 	hdr[hdr_len++] = 0x80U | opcode; // FIN + opcode
-	size_t const len = payload.size();
+	SZ const len = payload.size();
 	if (len < 126) {
 		hdr[hdr_len++] = static_cast<u8>(len);
 	} else if (len <= 0xFFFF) {
@@ -1376,7 +1368,7 @@ string ws_build_frame(
 			hdr[hdr_len++] = static_cast<u8>((len >> s) & 0xFF);
 		}
 	}
-	string frame;
+	S frame;
 	frame.reserve(hdr_len + len);
 	frame.append(reinterpret_cast<char const *>(hdr.data()), hdr_len);
 	frame.append(reinterpret_cast<char const *>(payload.data()), len);
@@ -1388,7 +1380,7 @@ bool ws_send_frame(
 	u8 opcode,
 	span<byte const> payload) {
 	auto frame = ws_detail::ws_build_frame(opcode, payload);
-	size_t sent = 0;
+	SZ sent = 0;
 	while (sent < frame.size()) {
 		auto n = ::send(fd, frame.data() + sent, frame.size() - sent, MSG_NOSIGNAL);
 		if (n < 0 && errno == EINTR) {
@@ -1397,7 +1389,7 @@ bool ws_send_frame(
 		if (n <= 0) {
 			return false;
 		}
-		sent += static_cast<size_t>(n);
+		sent += static_cast<SZ>(n);
 	}
 	return true;
 }
@@ -1408,12 +1400,12 @@ bool ws_tls_send_frame(
 	u8 opcode,
 	span<byte const> payload) {
 	auto frame = ws_detail::ws_build_frame(opcode, payload);
-	size_t sent = 0;
+	SZ sent = 0;
 	while (sent < frame.size()) {
-		auto const chunk = min<size_t>(frame.size() - sent, static_cast<size_t>(numeric_limits<int>::max()));
+		auto const chunk = min<SZ>(frame.size() - sent, static_cast<SZ>(NL<int>::max()));
 		int const n = SSL_write(ssl, frame.data() + sent, static_cast<int>(chunk));
 		if (n > 0) {
-			sent += static_cast<size_t>(n);
+			sent += static_cast<SZ>(n);
 			continue;
 		}
 		int const err = SSL_get_error(ssl, n);
@@ -1447,11 +1439,11 @@ bool ws_tls_send_frame(
 }
 
 CONFLUX_FUZZ_EXPORT bool utf8_is_valid(
-	string_view s) {
-	size_t i = 0;
+	SV s) {
+	SZ i = 0;
 	while (i < s.size()) {
 		auto const b = static_cast<u8>(s[i]);
-		size_t extra{};
+		SZ extra{};
 		u32 min_cp{};
 		u32 cp{};
 		if (b < 0x80U) {
@@ -1476,7 +1468,7 @@ CONFLUX_FUZZ_EXPORT bool utf8_is_valid(
 		if (i + extra >= s.size()) {
 			return false;
 		}
-		for (size_t k = 1; k <= extra; ++k) {
+		for (SZ k = 1; k <= extra; ++k) {
 			auto const c = static_cast<u8>(s[i + k]);
 			if ((c & 0xC0U) != 0x80U) {
 				return false;
@@ -1502,8 +1494,8 @@ CONFLUX_FUZZ_EXPORT struct FrameHeader {
 	bool fin{};
 	bool masked{};
 	u64 payload_len{};
-	array<u8, 4> mask{};
-	size_t header_size{};
+	A<u8, 4> mask{};
+	SZ header_size{};
 };
 
 CONFLUX_FUZZ_EXPORT enum class FrameParseStatus : u8 {
@@ -1540,7 +1532,7 @@ CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 		return FrameParseStatus::ProtocolError;
 	}
 
-	size_t off = 2;
+	SZ off = 2;
 	if (plen == 126) {
 		if (buf.size() < off + 2) {
 			return FrameParseStatus::Incomplete;
@@ -1555,7 +1547,7 @@ CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 			return FrameParseStatus::Incomplete;
 		}
 		plen = 0;
-		for (size_t i = 0; i < 8; ++i) {
+		for (SZ i = 0; i < 8; ++i) {
 			plen = (plen << 8U) | to_integer<u8>(buf[off + i]);
 		}
 		if (plen <= 0xFFFF) {
@@ -1593,7 +1585,7 @@ public:
 
 	struct Frame {
 		Opcode opcode{};
-		string payload;
+		S payload;
 	};
 
 	WsConn(WsConn const &) = delete;
@@ -1603,7 +1595,7 @@ public:
 
 	explicit WsConn(
 		int fd,
-		string initial_buf = {})
+		S initial_buf = {})
 		: fd_(fd)
 		, buf_(move(initial_buf)) {}
 #if CONFLUX_HAS_TLS
@@ -1613,7 +1605,7 @@ public:
 	explicit WsConn(
 		int fd,
 		SSL *ssl,
-		string initial_buf)
+		S initial_buf)
 		: fd_(fd)
 		, ssl_(ssl)
 		, buf_(move(initial_buf)) {}
@@ -1625,10 +1617,10 @@ public:
 		}
 	}
 
-	optional<Frame> recv() {
+	Opt<Frame> recv() {
 		while (true) {
 			if (!fill(2)) {
-				return nullopt;
+				return std::nullopt;
 			}
 			ws_detail::FrameHeader hdr{};
 			// First parse pass on 2 bytes surfaces protocol errors (rsv, opcode,
@@ -1647,18 +1639,18 @@ public:
 			};
 			if (pre == ws_detail::FrameParseStatus::ProtocolError) {
 				emit_protocol_close();
-				return nullopt;
+				return std::nullopt;
 			}
 			if (pre == ws_detail::FrameParseStatus::ControlTooLarge) {
 				close(1002, "invalid control frame");
-				return nullopt;
+				return std::nullopt;
 			}
 			// pre is Ok (no extended length) or Incomplete (need extended length + mask).
 			auto const b1 = static_cast<u8>(buf_[1]);
 			u64 const len7 = b1 & 0x7FU;
-			size_t const header_needed = 2 + (len7 == 126 ? 2 : len7 == 127 ? 8 : 0) + 4;
+			SZ const header_needed = 2 + (len7 == 126 ? 2 : len7 == 127 ? 8 : 0) + 4;
 			if (!fill(header_needed)) {
-				return nullopt;
+				return std::nullopt;
 			}
 			auto const status = ws_detail::parse_frame_header(as_bytes(span{buf_.data(), header_needed}), hdr);
 			if (status != ws_detail::FrameParseStatus::Ok) {
@@ -1667,7 +1659,7 @@ public:
 				} else if (status == ws_detail::FrameParseStatus::ControlTooLarge) {
 					close(1002, "invalid control frame");
 				}
-				return nullopt;
+				return std::nullopt;
 			}
 			consume(hdr.header_size);
 
@@ -1675,25 +1667,25 @@ public:
 			u8 const opcode_raw = hdr.opcode;
 			u64 const plen = hdr.payload_len;
 			bool const is_control = (opcode_raw & 0x08U) != 0;
-			array<u8, 4> const mask_key = hdr.mask;
+			A<u8, 4> const mask_key = hdr.mask;
 
 			if (plen > kMaxMessageSize) {
 				close(1009, "message too big");
-				return nullopt;
+				return std::nullopt;
 			}
 			if (!is_control && (frag_payload_.size() + plen) > kMaxMessageSize) {
 				close(1009, "message too big");
-				return nullopt;
+				return std::nullopt;
 			}
-			if (!fill(static_cast<size_t>(plen))) {
-				return nullopt;
+			if (!fill(static_cast<SZ>(plen))) {
+				return std::nullopt;
 			}
-			string payload(buf_.data(), static_cast<size_t>(plen));
-			consume(static_cast<size_t>(plen));
-			for (size_t i = 0; i < payload.size(); ++i) {
+			S payload(buf_.data(), static_cast<SZ>(plen));
+			consume(static_cast<SZ>(plen));
+			for (SZ i = 0; i < payload.size(); ++i) {
 				payload[i] = static_cast<char>(
 					static_cast<unsigned char>(payload[i])
-					^ mask_key[i & 3]); // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+					^ mask_key[i & 3]); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 			}
 
 			if (opcode_raw == 0x9U) {
@@ -1706,7 +1698,7 @@ public:
 			if (opcode_raw == 0x8U) {
 				if (plen == 1) {
 					close(1002, "invalid close payload");
-					return nullopt;
+					return std::nullopt;
 				}
 				u16 echo_code = 1000;
 				if (plen >= 2) {
@@ -1715,44 +1707,44 @@ public:
 						| static_cast<unsigned>(static_cast<u8>(payload[1])));
 					if (!ws_detail::is_valid_close_code(echo_code)) {
 						close(1002, "invalid close code");
-						return nullopt;
+						return std::nullopt;
 					}
-					if (payload.size() > 2 && !ws_detail::utf8_is_valid(string_view{payload}.substr(2))) {
+					if (payload.size() > 2 && !ws_detail::utf8_is_valid(SV{payload}.substr(2))) {
 						close(1007, "invalid utf-8");
-						return nullopt;
+						return std::nullopt;
 					}
 				}
 				close(echo_code, {});
-				return nullopt;
+				return std::nullopt;
 			}
 
 			if (opcode_raw == 0x0U) {
 				if (!frag_opcode_) {
 					close(1002, "unexpected continuation");
-					return nullopt;
+					return std::nullopt;
 				}
 				frag_payload_.append(payload);
 				if (!fin) {
 					continue;
 				}
 				auto const final_op = *frag_opcode_;
-				string final_payload = move(frag_payload_);
+				S final_payload = move(frag_payload_);
 				frag_opcode_.reset();
 				frag_payload_.clear();
 				if (final_op == Opcode::Text && !ws_detail::utf8_is_valid(final_payload)) {
 					close(1007, "invalid utf-8");
-					return nullopt;
+					return std::nullopt;
 				}
 				return Frame{.opcode = final_op, .payload = move(final_payload)};
 			}
 
 			if (opcode_raw != 0x1U && opcode_raw != 0x2U) {
 				close(1002, "reserved opcode");
-				return nullopt;
+				return std::nullopt;
 			}
 			if (frag_opcode_) {
 				close(1002, "nested data frame");
-				return nullopt;
+				return std::nullopt;
 			}
 			auto const opcode = static_cast<Opcode>(opcode_raw);
 			if (!fin) {
@@ -1762,51 +1754,51 @@ public:
 			}
 			if (opcode == Opcode::Text && !ws_detail::utf8_is_valid(payload)) {
 				close(1007, "invalid utf-8");
-				return nullopt;
+				return std::nullopt;
 			}
 			return Frame{.opcode = opcode, .payload = move(payload)};
 		}
 	}
 
 	void send_text(
-		string_view data) {
-		scoped_lock const lk{send_mtx_};
+		SV data) {
+		SL const lk{send_mtx_};
 		do_send_frame(1, as_bytes(span{data}));
 	}
 	void send_binary(
 		span<byte const> data) {
-		scoped_lock const lk{send_mtx_};
+		SL const lk{send_mtx_};
 		do_send_frame(2, data);
 	}
 	void send_ping(
-		string_view data = {}) {
+		SV data = {}) {
 		if (data.size() > 125) {
-			throw invalid_argument{"WsConn::send_ping: payload exceeds 125-byte control frame limit"};
+			throw std::invalid_argument{"WsConn::send_ping: payload exceeds 125-byte control frame limit"};
 		}
-		scoped_lock const lk{send_mtx_};
+		SL const lk{send_mtx_};
 		do_send_frame(9, as_bytes(span{data}));
 	}
 	void close(
 		u16 code = 1000,
-		string_view reason = {}) {
+		SV reason = {}) {
 		if (!ws_detail::is_valid_close_code(code)) {
-			throw invalid_argument{"WsConn::close: invalid close code"};
+			throw std::invalid_argument{"WsConn::close: invalid close code"};
 		}
 		if (reason.size() > 123) {
-			throw invalid_argument{"WsConn::close: reason exceeds 123-byte limit (control frame payload max 125)"};
+			throw std::invalid_argument{"WsConn::close: reason exceeds 123-byte limit (control frame payload max 125)"};
 		}
 		if (!ws_detail::utf8_is_valid(reason)) {
-			throw invalid_argument{"WsConn::close: reason must be valid UTF-8"};
+			throw std::invalid_argument{"WsConn::close: reason must be valid UTF-8"};
 		}
 		if (closed_.test_and_set()) {
 			return;
 		}
 		stop_keepalive();
-		array<char, 2> code_bytes{static_cast<char>(code >> 8), static_cast<char>(code & 0xFF)};
-		string payload{code_bytes.data(), 2};
+		A<char, 2> code_bytes{static_cast<char>(code >> 8), static_cast<char>(code & 0xFF)};
+		S payload{code_bytes.data(), 2};
 		payload += reason;
 		{
-			scoped_lock const lk{send_mtx_};
+			SL const lk{send_mtx_};
 			do_send_frame(8, as_bytes(span{payload}));
 		}
 #if CONFLUX_HAS_TLS
@@ -1834,7 +1826,7 @@ public:
 			return; // already started
 		}
 		keepalive_thread_ = jthread([this, interval_ms](stop_token const &st) {
-			unique_lock lk{keepalive_mtx_};
+			std::unique_lock lk{keepalive_mtx_};
 			while (is_open()) {
 				if (keepalive_cv_.wait_for(lk, st, chrono::milliseconds{interval_ms}, [this] { return !is_open(); })) {
 					break;
@@ -1864,23 +1856,23 @@ private:
 	atomic_flag closed_{};
 	mutex send_mtx_;
 	mutex keepalive_mtx_;
-	condition_variable_any keepalive_cv_;
+	std::condition_variable_any keepalive_cv_;
 	jthread keepalive_thread_{};
-	string buf_;
-	optional<Opcode> frag_opcode_{};
-	string frag_payload_{};
+	S buf_;
+	Opt<Opcode> frag_opcode_{};
+	S frag_payload_{};
 
 	bool fill(
-		size_t n) {
+		SZ n) {
 		while (buf_.size() < n) {
-			array<char, 4096> tmp{};
+			A<char, 4096> tmp{};
 #if CONFLUX_HAS_TLS
 			if (ssl_ != nullptr) {
 				auto rc = SSL_read(ssl_, tmp.data(), static_cast<int>(tmp.size()));
 				if (rc <= 0) {
 					return false;
 				}
-				buf_.append(tmp.data(), static_cast<size_t>(rc));
+				buf_.append(tmp.data(), static_cast<SZ>(rc));
 				continue;
 			}
 #endif
@@ -1888,12 +1880,12 @@ private:
 			if (rc <= 0) {
 				return false;
 			}
-			buf_.append(tmp.data(), static_cast<size_t>(rc));
+			buf_.append(tmp.data(), static_cast<SZ>(rc));
 		}
 		return true;
 	}
 	void consume(
-		size_t n) {
+		SZ n) {
 		buf_.erase(0, n);
 	}
 
@@ -1912,35 +1904,35 @@ private:
 
 // Token carried in HttpResponse.ws_upgrade to signal a 101 WebSocket upgrade.
 export struct WsUpgrade {
-	string accept_key;
+	S accept_key;
 	CloneableFunction<void(HttpRequestView const &, WsConn &)> handler;
 };
 
 // ---------------------------------------------------------------------------
 
 struct Segment {
-	string value;
+	S value;
 	bool is_param; // true → {name} single-segment capture
 	bool is_wildcard; // true → {*name} greedy tail capture (must be last segment)
 };
 
-vector<Segment> parse_pattern(
-	string_view pattern) {
-	vector<Segment> segs;
-	size_t pos = 0;
+V<Segment> parse_pattern(
+	SV pattern) {
+	V<Segment> segs;
+	SZ pos = 0;
 	while (true) {
 		auto next = pattern.find('/', pos);
-		auto part = (next == string_view::npos) ? pattern.substr(pos) : pattern.substr(pos, next - pos);
+		auto part = (next == SV::npos) ? pattern.substr(pos) : pattern.substr(pos, next - pos);
 
 		if (part.size() >= 3 && part.front() == '{' && part.back() == '}' && part[1] == '*') {
-			segs.push_back({string{part.substr(2, part.size() - 3)}, false, true});
+			segs.push_back({S{part.substr(2, part.size() - 3)}, false, true});
 		} else if (part.size() >= 2 && part.front() == '{' && part.back() == '}') {
-			segs.push_back({string{part.substr(1, part.size() - 2)}, true, false});
+			segs.push_back({S{part.substr(1, part.size() - 2)}, true, false});
 		} else {
-			segs.push_back({string{part}, false, false});
+			segs.push_back({S{part}, false, false});
 		}
 
-		if (next == string_view::npos) {
+		if (next == SV::npos) {
 			break;
 		}
 		pos = next + 1;
@@ -1949,43 +1941,43 @@ vector<Segment> parse_pattern(
 }
 
 bool match_segments(
-	vector<Segment> const &pattern,
-	string_view path,
+	V<Segment> const &pattern,
+	SV path,
 	HttpFieldsView &out_params) {
 	// Wildcard tail: last segment {*name} matches everything remaining.
 	if (!pattern.empty() && pattern.back().is_wildcard) {
 		// Match all non-wildcard leading segments first.
 		auto prefix_count = pattern.size() - 1;
-		size_t pos = 0;
+		SZ pos = 0;
 		HttpFieldsView tmp;
-		for (size_t i = 0; i < prefix_count; ++i) {
+		for (SZ i = 0; i < prefix_count; ++i) {
 			if (pos >= path.size()) {
 				return false;
 			}
 			auto next = path.find('/', pos);
-			auto part = (next == string_view::npos) ? path.substr(pos) : path.substr(pos, next - pos);
-			if (next == string_view::npos && i + 1 < prefix_count) {
+			auto part = (next == SV::npos) ? path.substr(pos) : path.substr(pos, next - pos);
+			if (next == SV::npos && i + 1 < prefix_count) {
 				return false;
 			}
 			if (pattern[i].is_param) {
-				tmp.emplace_back_owned(string{pattern[i].value}, url_decode_path(part));
+				tmp.emplace_back_owned(S{pattern[i].value}, url_decode_path(part));
 			} else if (pattern[i].value != part) {
 				return false;
 			}
-			pos = (next == string_view::npos) ? path.size() : next + 1;
+			pos = (next == SV::npos) ? path.size() : next + 1;
 		}
 		// Capture the remainder (may be empty for trailing slash).
-		tmp.emplace_back_owned(string{pattern.back().value}, url_decode_path(path.substr(pos)));
+		tmp.emplace_back_owned(S{pattern.back().value}, url_decode_path(path.substr(pos)));
 		out_params = move(tmp);
 		return true;
 	}
 
-	vector<string_view> parts;
-	size_t pos = 0;
+	V<SV> parts;
+	SZ pos = 0;
 	while (true) {
 		auto next = path.find('/', pos);
-		parts.push_back((next == string_view::npos) ? path.substr(pos) : path.substr(pos, next - pos));
-		if (next == string_view::npos) {
+		parts.push_back((next == SV::npos) ? path.substr(pos) : path.substr(pos, next - pos));
+		if (next == SV::npos) {
 			break;
 		}
 		pos = next + 1;
@@ -1996,9 +1988,9 @@ bool match_segments(
 	}
 
 	HttpFieldsView tmp;
-	for (size_t i = 0; i < pattern.size(); ++i) {
+	for (SZ i = 0; i < pattern.size(); ++i) {
 		if (pattern[i].is_param) {
-			tmp.emplace_back_owned(string{pattern[i].value}, url_decode_path(parts[i]));
+			tmp.emplace_back_owned(S{pattern[i].value}, url_decode_path(parts[i]));
 		} else if (pattern[i].value != parts[i]) {
 			return false;
 		}
@@ -2009,17 +2001,17 @@ bool match_segments(
 
 // Metadata for a single registered route, exposed by Router::route_infos().
 export struct RouteInfo {
-	string method;
-	string path_pattern; // OpenAPI-style path e.g. /users/{id}
-	vector<string> path_params; // captured parameter names in order
+	S method;
+	S path_pattern; // OpenAPI-style path e.g. /users/{id}
+	V<S> path_params; // captured parameter names in order
 };
 
-// Reconstruct an OpenAPI path string from a parsed Segment vector.
+// Reconstruct an OpenAPI path S from a parsed Segment V.
 // The first segment is always an empty literal (artifact of the leading '/');
 // skip it so the result starts with a single '/'.
-inline string segments_to_pattern(
-	vector<Segment> const &segs) {
-	string out;
+inline S segments_to_pattern(
+	V<Segment> const &segs) {
+	S out;
 	bool first = true;
 	for (auto const &seg: segs) {
 		if (first && seg.value.empty() && !seg.is_param && !seg.is_wildcard) {
@@ -2044,14 +2036,14 @@ inline string segments_to_pattern(
 
 export struct StaticOptions {
 	// Cache-Control header value. Empty = no Cache-Control header set.
-	string cache_control{"max-age=3600, public"};
+	S cache_control{"max-age=3600, public"};
 	// Serve pre-compressed .gz or .br sidecars when the client accepts them.
 	bool precompressed{true};
 	// Generate an HTML directory listing when no index.html is found.
 	bool directory_listing{false};
 	// When set, stat/open/mmap happen on this pool's threads via DeferredResponse,
 	// keeping the io_uring thread free while slow disks resolve.
-	shared_ptr<WorkPool> offload_pool{};
+	SP<WorkPool> offload_pool{};
 	// Small static file cache. Disabled by default to preserve existing memory
 	// behavior unless callers opt in via Config/Router defaults or per route.
 	StaticFileCacheConfig file_cache{};
@@ -2062,7 +2054,7 @@ export struct StaticOptions {
 export class Router {
 public:
 	using Handler = CloneableFunction<HttpResponse(HttpRequestView const &)>;
-	using SseHandler = CloneableFunction<void(HttpRequestView const &, shared_ptr<SseChannel>)>;
+	using SseHandler = CloneableFunction<void(HttpRequestView const &, SP<SseChannel>)>;
 	// next is the downstream handler (or next middleware); call it to continue the chain.
 	using Middleware = CloneableFunction<HttpResponse(HttpRequestView const &, Handler const &)>;
 	using WsHandler = CloneableFunction<void(HttpRequestView const &, WsConn &)>;
@@ -2091,52 +2083,52 @@ public:
 	// NOLINTBEGIN(clang-analyzer-cplusplus.NewDeleteLeaks): false positive on CloneableFunction ownership.
 	template<typename F>
 	Router &add(
-		string_view method,
-		string_view path,
+		SV method,
+		SV path,
 		F &&handler) {
-		impl_->routes.push_back({string{method}, parse_pattern(path), make_handler(forward<F>(handler))});
+		impl_->routes.push_back({S{method}, parse_pattern(path), make_handler(forward<F>(handler))});
 		return *this;
 	}
 	// NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
 
 	template<typename F>
 	Router &get(
-		string_view path,
+		SV path,
 		F &&handler) {
 		return add("GET", path, forward<F>(handler));
 	}
 
 	template<typename F>
 	Router &post(
-		string_view path,
+		SV path,
 		F &&handler) {
 		return add("POST", path, forward<F>(handler));
 	}
 
 	template<typename F>
 	Router &put(
-		string_view path,
+		SV path,
 		F &&handler) {
 		return add("PUT", path, forward<F>(handler));
 	}
 
 	template<typename F>
 	Router &patch(
-		string_view path,
+		SV path,
 		F &&handler) {
 		return add("PATCH", path, forward<F>(handler));
 	}
 
 	template<typename F>
 	Router &del(
-		string_view path,
+		SV path,
 		F &&handler) {
 		return add("DELETE", path, forward<F>(handler));
 	}
 
 	template<typename F>
 	Router &options(
-		string_view path,
+		SV path,
 		F &&handler) {
 		return add("OPTIONS", path, forward<F>(handler));
 	}
@@ -2163,8 +2155,8 @@ public:
 	}
 
 	// Return metadata for all registered routes (regular routes only).
-	[[nodiscard]] vector<RouteInfo> route_infos() const {
-		vector<RouteInfo> result;
+	[[nodiscard]] V<RouteInfo> route_infos() const {
+		V<RouteInfo> result;
 		result.reserve(impl_->routes.size());
 		for (auto const &route: impl_->routes) {
 			RouteInfo info;
@@ -2182,19 +2174,19 @@ public:
 
 	template<typename F>
 	Router &sse(
-		string_view path,
+		SV path,
 		F &&handler) {
 		impl_->sse_routes.push_back({parse_pattern(path), make_sse_handler(forward<F>(handler))});
 		return *this;
 	}
 
 	Router &set_work_pool(
-		shared_ptr<WorkPool> pool) {
+		SP<WorkPool> pool) {
 		impl_->work_pool = move(pool);
 		return *this;
 	}
 
-	[[nodiscard]] shared_ptr<WorkPool> work_pool() const { return impl_->work_pool; }
+	[[nodiscard]] SP<WorkPool> work_pool() const { return impl_->work_pool; }
 
 	Router &set_static_file_cache(
 		StaticFileCacheConfig cfg) {
@@ -2206,7 +2198,7 @@ public:
 	// handshake are upgraded to WebSocket; the handler runs on the router's work pool.
 	template<typename F>
 	Router &ws(
-		string_view path,
+		SV path,
 		F &&handler) {
 		auto ws_handler = make_ws_handler(forward<F>(handler));
 		// Implement as a regular GET route that returns a WsUpgrade response.
@@ -2225,7 +2217,7 @@ public:
 		return *this;
 	}
 
-	// Route group: scopes a set of routes under a path prefix with optional group-local middleware.
+	// Route group: scopes a set of routes under a path prefix with Opt group-local middleware.
 	// Group middleware wraps only the routes registered inside the group callback;
 	// it does NOT affect routes registered outside. The group callback receives a Group&.
 	class Group {
@@ -2238,45 +2230,45 @@ public:
 		}
 		template<typename F>
 		Group &add(
-			string_view method,
-			string_view path,
+			SV method,
+			SV path,
 			F &&handler) {
-			router_.add(method, prefix_ + string{path}, wrap(Router::make_handler(forward<F>(handler))));
+			router_.add(method, prefix_ + S{path}, wrap(Router::make_handler(forward<F>(handler))));
 			return *this;
 		}
 		template<typename F>
 		Group &get(
-			string_view path,
+			SV path,
 			F &&handler) {
 			return add("GET", path, forward<F>(handler));
 		}
 		template<typename F>
 		Group &post(
-			string_view path,
+			SV path,
 			F &&handler) {
 			return add("POST", path, forward<F>(handler));
 		}
 		template<typename F>
 		Group &put(
-			string_view path,
+			SV path,
 			F &&handler) {
 			return add("PUT", path, forward<F>(handler));
 		}
 		template<typename F>
 		Group &patch(
-			string_view path,
+			SV path,
 			F &&handler) {
 			return add("PATCH", path, forward<F>(handler));
 		}
 		template<typename F>
 		Group &del(
-			string_view path,
+			SV path,
 			F &&handler) {
 			return add("DELETE", path, forward<F>(handler));
 		}
 		template<typename F>
 		Group &options(
-			string_view path,
+			SV path,
 			F &&handler) {
 			return add("OPTIONS", path, forward<F>(handler));
 		}
@@ -2285,7 +2277,7 @@ public:
 		friend class Router;
 		Group(
 			Router &router,
-			string prefix)
+			S prefix)
 			: router_(router)
 			, prefix_(move(prefix))
 			, middlewares_{} {}
@@ -2296,22 +2288,22 @@ public:
 		[[nodiscard]] Handler wrap(
 			Handler h) const {
 			for (int i = static_cast<int>(middlewares_.size()) - 1; i >= 0; --i) {
-				auto mw = middlewares_[static_cast<size_t>(i)]; // copy: Group is destroyed after group() returns
+				auto mw = middlewares_[static_cast<SZ>(i)]; // copy: Group is destroyed after group() returns
 				h = [mw = move(mw), n = move(h)](HttpRequestView const &r) { return mw(r, n); };
 			}
 			return h;
 		}
 
 		Router &router_;
-		string prefix_;
-		vector<Middleware> middlewares_;
+		S prefix_;
+		V<Middleware> middlewares_;
 	};
 
 	template<typename F>
 	Router &group(
-		string_view prefix,
+		SV prefix,
 		F &&fn) {
-		Group g{*this, string{prefix}};
+		Group g{*this, S{prefix}};
 		forward<F>(fn)(g);
 		return *this;
 	}
@@ -2322,35 +2314,35 @@ public:
 	// ETag based on size+mtime; Range requests (206 Partial Content) supported.
 	// Pre-compressed sidecar files (.gz, .br) served when client accepts them.
 	Router &serve_static(
-		string_view url_prefix,
-		string root_dir,
+		SV url_prefix,
+		S root_dir,
 		StaticOptions const &sopts = {}) {
 		// Strip trailing slash from root_dir.
 		while (!root_dir.empty() && root_dir.back() == '/') {
 			root_dir.pop_back();
 		}
 
-		auto pattern = string{url_prefix} + "/{*file}";
+		auto pattern = S{url_prefix} + "/{*file}";
 		auto effective_sopts = sopts;
 		if (!effective_sopts.file_cache.enabled) {
 			effective_sopts.file_cache = impl_->static_file_cache;
 		}
 
 		struct StaticReq {
-			string file_param;
-			string method;
-			string accept_encoding;
-			string if_none_match;
-			string if_modified_since;
-			string range;
+			S file_param;
+			S method;
+			S accept_encoding;
+			S if_none_match;
+			S if_modified_since;
+			S range;
 		};
 
 		struct StaticCacheEntry {
-			string body;
-			string mime;
-			string etag;
-			string last_modified;
-			string content_encoding;
+			S body;
+			S mime;
+			S etag;
+			S last_modified;
+			S content_encoding;
 			off_t size{};
 			time_t mtime{};
 			dev_t dev{};
@@ -2360,33 +2352,33 @@ public:
 
 		struct StaticCacheStore {
 			mutex mtx;
-			unordered_map<string, StaticCacheEntry> entries;
-			size_t total_bytes{};
+			UM<S, StaticCacheEntry> entries;
+			SZ total_bytes{};
 			u64 tick{};
 
-			[[nodiscard]] optional<StaticCacheEntry> get(
-				string const &key,
+			[[nodiscard]] Opt<StaticCacheEntry> get(
+				S const &key,
 				struct ::stat const &st) {
-				scoped_lock const lk{mtx};
+				SL const lk{mtx};
 				auto it = entries.find(key);
 				if (it == entries.end()) {
-					return nullopt;
+					return std::nullopt;
 				}
 				auto &e = it->second;
 				if (e.size != st.st_size || e.mtime != st.st_mtime || e.dev != st.st_dev || e.ino != st.st_ino) {
 					total_bytes -= e.body.size();
 					entries.erase(it);
-					return nullopt;
+					return std::nullopt;
 				}
 				e.tick = ++tick;
 				return e;
 			}
 
 			void put(
-				string key,
+				S key,
 				StaticCacheEntry entry,
-				size_t max_total_bytes) {
-				scoped_lock const lk{mtx};
+				SZ max_total_bytes) {
+				SL const lk{mtx};
 				if (entry.body.size() > max_total_bytes) {
 					return;
 				}
@@ -2405,8 +2397,8 @@ public:
 			}
 
 			void evict(
-				string const &key) {
-				scoped_lock const lk{mtx};
+				S const &key) {
+				SL const lk{mtx};
 				if (auto it = entries.find(key); it != entries.end()) {
 					total_bytes -= it->second.body.size();
 					entries.erase(it);
@@ -2414,7 +2406,7 @@ public:
 			}
 
 			void evict_all_encodings(
-				string const &path) {
+				S const &path) {
 				evict(path + "|");
 				evict(path + "|br");
 				evict(path + "|gzip");
@@ -2424,9 +2416,9 @@ public:
 		auto static_cache = make_shared<StaticCacheStore>();
 
 		auto do_work =
-			[static_cache](string const &rd, StaticOptions const &static_options, StaticReq const &r) -> HttpResponse {
+			[static_cache](S const &rd, StaticOptions const &static_options, StaticReq const &r) -> HttpResponse {
 			try {
-				string file_param = r.file_param;
+				S file_param = r.file_param;
 				auto full_path = rd + file_param;
 
 				struct ::stat st{};
@@ -2456,7 +2448,7 @@ public:
 								kHttpForbidden,
 								"Forbidden");
 						}
-						string html = format(
+						S html = format(
 							"<html><head><title>Index of {}</title></head>"
 							"<body><h1>Index of {}</h1><ul>",
 							html_escape(file_param),
@@ -2465,10 +2457,10 @@ public:
 							html += "<li><a href=\"../\">..</a></li>";
 						}
 						struct ::dirent *ent{};
-						vector<string> names;
+						V<S> names;
 						while ((ent = ::readdir(dir)) != nullptr) {
-							// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
-							string_view const n{ent->d_name};
+							// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
+							SV const n{ent->d_name};
 							if (n == "." || n == "..") {
 								continue;
 							}
@@ -2490,10 +2482,10 @@ public:
 				}
 
 				// Pre-compressed sidecar: try .br then .gz.
-				string content_encoding;
+				S content_encoding;
 				if (static_options.precompressed) {
 					auto const &accept_enc = r.accept_encoding;
-					if (accept_enc.find("br") != string::npos) {
+					if (accept_enc.find("br") != S::npos) {
 						auto br_path = full_path + ".br";
 						struct ::stat br_st{};
 						if (::stat(br_path.c_str(), &br_st) == 0) {
@@ -2502,7 +2494,7 @@ public:
 							content_encoding = "br";
 						}
 					}
-					if (content_encoding.empty() && accept_enc.find("gzip") != string::npos) {
+					if (content_encoding.empty() && accept_enc.find("gzip") != S::npos) {
 						auto gz_path = full_path + ".gz";
 						struct ::stat gz_st{};
 						if (::stat(gz_path.c_str(), &gz_st) == 0) {
@@ -2520,14 +2512,14 @@ public:
 				// directory typically serves many files sharing a handful of mtimes,
 				// so strftime runs once per mtime value per thread.
 				thread_local time_t last_mtime_cached = 0;
-				thread_local string last_modified_cached;
-				string last_modified;
+				thread_local S last_modified_cached;
+				S last_modified;
 				if (st.st_mtime == last_mtime_cached && !last_modified_cached.empty()) {
 					last_modified = last_modified_cached;
 				} else {
 					tm tm_val{};
 					::gmtime_r(&st.st_mtime, &tm_val);
-					array<char, 64> buf{};
+					A<char, 64> buf{};
 					if (strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &tm_val) > 0) {
 						last_modified = buf.data();
 						last_modified_cached = last_modified;
@@ -2561,9 +2553,9 @@ public:
 
 				// MIME type from extension (use original file_param, not .gz/.br path).
 				auto ext_pos = file_param.rfind('.');
-				string_view mime = "application/octet-stream";
-				if (ext_pos != string::npos) {
-					auto ext = string_view{file_param}.substr(ext_pos);
+				SV mime = "application/octet-stream";
+				if (ext_pos != S::npos) {
+					auto ext = SV{file_param}.substr(ext_pos);
 					if (ext == ".html" || ext == ".htm") {
 						mime = "text/html; charset=utf-8";
 					} else if (ext == ".css") {
@@ -2607,13 +2599,10 @@ public:
 					}
 				}
 
-				auto file_size = static_cast<size_t>(st.st_size);
+				auto file_size = static_cast<SZ>(st.st_size);
 
-				auto base_response = [&](int status, string_view status_text) {
-					HttpResponse resp{
-						.status = status,
-						.status_text = string{status_text},
-						.content_type = string{mime}};
+				auto base_response = [&](int status, SV status_text) {
+					HttpResponse resp{.status = status, .status_text = S{status_text}, .content_type = S{mime}};
 					resp.headers["ETag"] = etag;
 					resp.headers["Last-Modified"] = last_modified;
 					resp.headers["Accept-Ranges"] = "bytes";
@@ -2640,19 +2629,19 @@ public:
 				}
 
 				// Parse Range header for partial content (only supported when no precompression applied).
-				size_t range_start = 0;
-				size_t range_end = file_size - 1;
+				SZ range_start = 0;
+				SZ range_end = file_size - 1;
 				bool is_range_request = false;
 				if (content_encoding.empty()) {
 					auto const &range_hdr = r.range;
 					if (!range_hdr.empty() && range_hdr.starts_with("bytes=")) {
-						auto spec = string_view{range_hdr}.substr(6);
+						auto spec = SV{range_hdr}.substr(6);
 						auto dash = spec.find('-');
-						if (dash != string_view::npos) {
+						if (dash != SV::npos) {
 							auto start_sv = spec.substr(0, dash);
 							auto end_sv = spec.substr(dash + 1);
-							size_t rs = 0;
-							size_t re = file_size - 1;
+							SZ rs = 0;
+							SZ re = file_size - 1;
 							bool ok = true;
 							if (!start_sv.empty()) {
 								auto [p, ec] =
@@ -2734,8 +2723,8 @@ public:
 					if (fd < 0) {
 						return HttpResponse::not_found(file_param);
 					}
-					string body(file_size, '\0');
-					size_t off = 0;
+					S body(file_size, '\0');
+					SZ off = 0;
 					while (off < body.size()) {
 						ssize_t const n = ::read(fd, body.data() + off, body.size() - off);
 						if (n < 0) {
@@ -2748,7 +2737,7 @@ public:
 						if (n == 0) {
 							break;
 						}
-						off += static_cast<size_t>(n);
+						off += static_cast<SZ>(n);
 					}
 					::close(fd);
 					if (off != body.size()) {
@@ -2756,7 +2745,7 @@ public:
 					}
 					StaticCacheEntry entry{
 						.body = move(body),
-						.mime = string{mime},
+						.mime = S{mime},
 						.etag = etag,
 						.last_modified = last_modified,
 						.content_encoding = content_encoding,
@@ -2782,7 +2771,7 @@ public:
 					if (is_range_request) {
 						base.headers["Content-Range"] = format("bytes {}-{}/{}", range_start, range_end, file_size);
 					}
-					auto const send_off = is_range_request ? range_start : size_t{0};
+					auto const send_off = is_range_request ? range_start : SZ{0};
 					auto const send_sz = is_range_request ? (range_end - range_start + 1) : file_size;
 					auto terminal =
 						fr->open_async(AT_FDCWD, full_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
@@ -2795,9 +2784,7 @@ public:
 									  .total_size = fs}));
 							  dr->complete(move(base));
 						  })
-						| ::on_error([dr](exception_ptr const &) {
-							  dr->complete(HttpResponse::not_found("async open failed"));
-						  });
+						| ::on_error([dr](EP const &) { dr->complete(HttpResponse::not_found("async open failed")); });
 					(void)terminal;
 					return HttpResponse::deferred(move(dr));
 				}
@@ -2830,16 +2817,15 @@ public:
 		};
 
 		auto rd = move(root_dir);
-		auto normalize_path = [](string_view raw) -> optional<string> {
-			string const fp{raw};
-			vector<string> parts;
-			size_t pos = 0;
+		auto normalize_path = [](SV raw) -> Opt<S> {
+			S const fp{raw};
+			V<S> parts;
+			SZ pos = 0;
 			bool bad = false;
 			while (pos < fp.size()) {
 				auto next = fp.find('/', pos);
-				auto seg =
-					(next == string::npos) ? string_view{fp}.substr(pos) : string_view{fp}.substr(pos, next - pos);
-				if (seg.find('\0') != string_view::npos) {
+				auto seg = (next == S::npos) ? SV{fp}.substr(pos) : SV{fp}.substr(pos, next - pos);
+				if (seg.find('\0') != SV::npos) {
 					bad = true;
 					break;
 				}
@@ -2852,15 +2838,15 @@ public:
 				} else if (!seg.empty() && seg != ".") {
 					parts.emplace_back(seg);
 				}
-				if (next == string::npos) {
+				if (next == S::npos) {
 					break;
 				}
 				pos = next + 1;
 			}
 			if (bad) {
-				return nullopt;
+				return std::nullopt;
 			}
-			string result;
+			S result;
 			for (auto const &p: parts) {
 				result += '/';
 				result += p;
@@ -2882,11 +2868,11 @@ public:
 
 					StaticReq sreq{
 						.file_param = move(*norm),
-						.method = string{req.method},
-						.accept_encoding = string{req.headers["accept-encoding"]},
-						.if_none_match = string{as_const(req.headers)["if-none-match"]},
-						.if_modified_since = string{as_const(req.headers)["if-modified-since"]},
-						.range = string{req.headers["range"]},
+						.method = S{req.method},
+						.accept_encoding = S{req.headers["accept-encoding"]},
+						.if_none_match = S{std::as_const(req.headers)["if-none-match"]},
+						.if_modified_since = S{std::as_const(req.headers)["if-modified-since"]},
+						.range = S{req.headers["range"]},
 					};
 
 					if (sopts.offload_pool) {
@@ -2925,9 +2911,9 @@ public:
 						bool const existed = ::stat(full_path.c_str(), &st) == 0;
 
 						if (auto *fr = current_file_reader(); fr != nullptr) {
-							auto body_owned = make_shared<string>(req.body);
+							auto body_owned = make_shared<S>(req.body);
 							auto dr = make_shared<DeferredResponse>();
-							auto fp = make_shared<string>(full_path);
+							auto fp = make_shared<S>(full_path);
 							auto terminal =
 								fr->open_async(
 									AT_FDCWD,
@@ -2937,24 +2923,22 @@ public:
 								| ::flat_then([fr, body_owned, fp, existed, static_cache, dr](FileHandle fh) mutable {
 									  auto fh_ptr = make_shared<FileHandle>(move(fh));
 									  return fr->write_into(*fh_ptr, 0, as_bytes(span{*body_owned}))
-										   | ::then(
-												 [dr, fh_ptr, body_owned, fp, existed, static_cache](size_t) mutable {
-													 static_cache->evict_all_encodings(*fp);
-													 HttpResponse resp;
-													 resp.status = existed ? kHttpNoContent : kHttpCreated;
-													 resp.status_text = existed ? "No Content" : "Created";
-													 dr->complete(move(resp));
-												 });
+										   | ::then([dr, fh_ptr, body_owned, fp, existed, static_cache](SZ) mutable {
+												 static_cache->evict_all_encodings(*fp);
+												 HttpResponse resp;
+												 resp.status = existed ? kHttpNoContent : kHttpCreated;
+												 resp.status_text = existed ? "No Content" : "Created";
+												 dr->complete(move(resp));
+											 });
 								  })
-								| ::on_error(
-									[dr](exception_ptr const &) { dr->complete(HttpResponse::internal_error()); });
+								| ::on_error([dr](EP const &) { dr->complete(HttpResponse::internal_error()); });
 							(void)terminal;
 							return HttpResponse::deferred(move(dr));
 						}
 
 						if (sopts.offload_pool) {
 							auto dr = make_shared<DeferredResponse>();
-							auto body_owned = make_shared<string>(req.body);
+							auto body_owned = make_shared<S>(req.body);
 							auto ok = sopts.offload_pool->enqueue(
 								[full_path = move(full_path), body_owned, existed, static_cache, dr]() mutable {
 									try {
@@ -2967,7 +2951,7 @@ public:
 											return;
 										}
 										auto const body = span<char const>{body_owned->data(), body_owned->size()};
-										size_t off = 0;
+										SZ off = 0;
 										while (off < body.size()) {
 											ssize_t const n = ::write(wfd, body.data() + off, body.size() - off);
 											if (n < 0) {
@@ -2978,7 +2962,7 @@ public:
 												dr->complete(HttpResponse::internal_error());
 												return;
 											}
-											off += static_cast<size_t>(n);
+											off += static_cast<SZ>(n);
 										}
 										::close(wfd);
 										static_cache->evict_all_encodings(full_path);
@@ -3000,7 +2984,7 @@ public:
 							return HttpResponse::internal_error();
 						}
 						auto const body = span<char const>{req.body.data(), req.body.size()};
-						size_t off = 0;
+						SZ off = 0;
 						while (off < body.size()) {
 							ssize_t const n = ::write(wfd, body.data() + off, body.size() - off);
 							if (n < 0) {
@@ -3010,7 +2994,7 @@ public:
 								::close(wfd);
 								return HttpResponse::internal_error();
 							}
-							off += static_cast<size_t>(n);
+							off += static_cast<SZ>(n);
 						}
 						::close(wfd);
 						static_cache->evict_all_encodings(full_path);
@@ -3039,14 +3023,14 @@ public:
 
 						if (auto *fr = current_file_reader(); fr != nullptr) {
 							auto dr = make_shared<DeferredResponse>();
-							auto fp = make_shared<string>(full_path);
+							auto fp = make_shared<S>(full_path);
 							auto terminal =
 								fr->unlink_async(AT_FDCWD, full_path)
 								| ::then([dr, fp, static_cache]() mutable {
 									  static_cache->evict_all_encodings(*fp);
 									  dr->complete(HttpResponse{.status = kHttpNoContent, .status_text = "No Content"});
 								  })
-								| ::on_error([dr, fp](exception_ptr const &ep) mutable {
+								| ::on_error([dr, fp](EP const &ep) mutable {
 									  try {
 										  rethrow_exception(ep);
 									  } catch (FileIoError const &e) {
@@ -3104,9 +3088,9 @@ public:
 		// HEAD is dispatched as GET; response body is suppressed before sending.
 		bool const is_head = (req.method == "HEAD");
 
-		// Strip query string before matching.
-		auto path_sv = string_view{req.path};
-		if (auto q = path_sv.find('?'); q != string_view::npos) {
+		// Strip query S before matching.
+		auto path_sv = SV{req.path};
+		if (auto q = path_sv.find('?'); q != SV::npos) {
 			path_sv = path_sv.substr(0, q);
 		}
 
@@ -3151,9 +3135,8 @@ public:
 							return impl_->error_handler ? impl_->error_handler(matched_view, ex) :
 														  HttpResponse::internal_error(ex.what());
 						} catch (...) {
-							return impl_->error_handler ?
-									   impl_->error_handler(matched_view, runtime_error{"unknown exception"}) :
-									   HttpResponse::internal_error();
+							return impl_->error_handler ? impl_->error_handler(matched_view, RE{"unknown exception"}) :
+														  HttpResponse::internal_error();
 						}
 					}
 				}
@@ -3166,7 +3149,7 @@ public:
 							auto channel = make_shared<SseChannel>();
 							HttpRequest matched = r.to_owned();
 							for (auto &[k, v]: matched_params) {
-								matched.params.emplace_back(string{k}, string{v});
+								matched.params.emplace_back(S{k}, S{v});
 							}
 							launch_sse_handler(impl_->work_pool, route.handler, move(matched), channel);
 							return HttpResponse::sse(move(channel));
@@ -3191,10 +3174,10 @@ private:
 	template<typename F>
 	static Handler make_handler(
 		F &&fn) {
-		using Fn = decay_t<F>;
-		if constexpr (invocable<Fn &, HttpRequestView const &>) {
+		using Fn = std::decay_t<F>;
+		if constexpr (std::invocable<Fn &, HttpRequestView const &>) {
 			return Handler{forward<F>(fn)};
-		} else if constexpr (invocable<Fn &, HttpRequest const &>) {
+		} else if constexpr (std::invocable<Fn &, HttpRequest const &>) {
 			return Handler{[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req) mutable -> HttpResponse {
 				auto owned = req.to_owned();
 				return invoke(wrapped, owned);
@@ -3207,10 +3190,10 @@ private:
 	template<typename F>
 	static Middleware make_middleware(
 		F &&fn) {
-		using Fn = decay_t<F>;
-		if constexpr (invocable<Fn &, HttpRequestView const &, Handler const &>) {
+		using Fn = std::decay_t<F>;
+		if constexpr (std::invocable<Fn &, HttpRequestView const &, Handler const &>) {
 			return Middleware{forward<F>(fn)};
-		} else if constexpr (invocable<Fn &, HttpRequest const &, Handler const &>) {
+		} else if constexpr (std::invocable<Fn &, HttpRequest const &, Handler const &>) {
 			return Middleware{
 				[wrapped =
 					 Fn(forward<F>(fn))](HttpRequestView const &req, Handler const &next) mutable -> HttpResponse {
@@ -3225,15 +3208,14 @@ private:
 	template<typename F>
 	static SseHandler make_sse_handler(
 		F &&fn) {
-		using Fn = decay_t<F>;
-		if constexpr (invocable<Fn &, HttpRequestView const &, shared_ptr<SseChannel>>) {
+		using Fn = std::decay_t<F>;
+		if constexpr (std::invocable<Fn &, HttpRequestView const &, SP<SseChannel>>) {
 			return SseHandler{forward<F>(fn)};
-		} else if constexpr (invocable<Fn &, HttpRequest const &, shared_ptr<SseChannel>>) {
-			return SseHandler{
-				[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req, shared_ptr<SseChannel> ch) mutable {
-					auto owned = req.to_owned();
-					invoke(wrapped, owned, move(ch));
-				}};
+		} else if constexpr (std::invocable<Fn &, HttpRequest const &, SP<SseChannel>>) {
+			return SseHandler{[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req, SP<SseChannel> ch) mutable {
+				auto owned = req.to_owned();
+				invoke(wrapped, owned, move(ch));
+			}};
 		} else {
 			static_assert(kDependentFalse<Fn>, "SSE handler must accept HttpRequestView const& or HttpRequest const&");
 		}
@@ -3242,10 +3224,10 @@ private:
 	template<typename F>
 	static WsHandler make_ws_handler(
 		F &&fn) {
-		using Fn = decay_t<F>;
-		if constexpr (invocable<Fn &, HttpRequestView const &, WsConn &>) {
+		using Fn = std::decay_t<F>;
+		if constexpr (std::invocable<Fn &, HttpRequestView const &, WsConn &>) {
 			return WsHandler{forward<F>(fn)};
-		} else if constexpr (invocable<Fn &, HttpRequest const &, WsConn &>) {
+		} else if constexpr (std::invocable<Fn &, HttpRequest const &, WsConn &>) {
 			return WsHandler{[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req, WsConn &ws) mutable {
 				auto owned = req.to_owned();
 				invoke(wrapped, owned, ws);
@@ -3260,10 +3242,10 @@ private:
 	template<typename F>
 	static ErrorHandler make_error_handler(
 		F &&fn) {
-		using Fn = decay_t<F>;
-		if constexpr (invocable<Fn &, HttpRequestView const &, exception const &>) {
+		using Fn = std::decay_t<F>;
+		if constexpr (std::invocable<Fn &, HttpRequestView const &, exception const &>) {
 			return ErrorHandler{forward<F>(fn)};
-		} else if constexpr (invocable<Fn &, HttpRequest const &, exception const &>) {
+		} else if constexpr (std::invocable<Fn &, HttpRequest const &, exception const &>) {
 			return ErrorHandler{
 				[wrapped =
 					 Fn(forward<F>(fn))](HttpRequestView const &req, exception const &ex) mutable -> HttpResponse {
@@ -3279,29 +3261,29 @@ private:
 
 	struct Impl {
 		struct Route {
-			string method{};
-			vector<Segment> pattern{};
+			S method{};
+			V<Segment> pattern{};
 			Handler handler{};
 		};
 		struct SseRoute {
-			vector<Segment> pattern{};
+			V<Segment> pattern{};
 			SseHandler handler{};
 		};
-		vector<Route> routes{};
-		vector<SseRoute> sse_routes{};
-		vector<Middleware> middlewares{};
+		V<Route> routes{};
+		V<SseRoute> sse_routes{};
+		V<Middleware> middlewares{};
 		Handler not_found_handler{};
 		ErrorHandler error_handler{};
-		shared_ptr<WorkPool> work_pool{make_shared<WorkPool>()};
+		SP<WorkPool> work_pool{make_shared<WorkPool>()};
 		StaticFileCacheConfig static_file_cache{};
 	};
-	unique_ptr<Impl> impl_;
+	UP<Impl> impl_;
 
 	static void launch_sse_handler(
-		shared_ptr<WorkPool> const &pool,
+		SP<WorkPool> const &pool,
 		SseHandler handler,
 		HttpRequest matched,
-		shared_ptr<SseChannel> const &channel) {
+		SP<SseChannel> const &channel) {
 		auto task = run_on(
 						*pool,
 						[h = move(handler), matched = move(matched), channel]() mutable {
@@ -3316,7 +3298,7 @@ private:
 	// Wrap h in the registered middleware chain. First-registered runs outermost.
 	[[nodiscard]] Handler wrap_middlewares(
 		Handler h) const {
-		for (auto mw: impl_->middlewares | views::reverse) {
+		for (auto mw: impl_->middlewares | std::views::reverse) {
 			h = [mw = move(mw), n = move(h)](HttpRequestView const &r) { return mw(r, n); };
 		}
 		return h;
@@ -3338,40 +3320,40 @@ public:
 	SseBroadcaster(SseBroadcaster &&) = delete;
 	SseBroadcaster &operator =(SseBroadcaster &&) = delete;
 
-	// Register a new subscriber.  Returns the shared_ptr to pass to HttpResponse::sse().
-	shared_ptr<SseChannel> subscribe() {
+	// Register a new subscriber.  Returns the SP to pass to HttpResponse::sse().
+	SP<SseChannel> subscribe() {
 		auto ch = make_shared<SseChannel>();
-		scoped_lock const lk{mtx_};
+		SL const lk{mtx_};
 		channels_.emplace_back(ch);
 		return ch;
 	}
 
 	// Broadcast an SSE event to all active subscribers.
 	void broadcast(
-		string_view event,
-		string_view data) {
+		SV event,
+		SV data) {
 		auto frame = format("event: {}\ndata: {}\n\n", event, data);
 		broadcast_raw(frame);
 	}
 
 	// Broadcast a data-only SSE message to all active subscribers.
 	void broadcast_data(
-		string_view data) {
+		SV data) {
 		auto frame = format("data: {}\n\n", data);
 		broadcast_raw(frame);
 	}
 
 	// Number of currently-active subscribers (approximate; may include ones
 	// that have just disconnected).
-	[[nodiscard]] size_t subscriber_count() const {
-		scoped_lock const lk{mtx_};
+	[[nodiscard]] SZ subscriber_count() const {
+		SL const lk{mtx_};
 		return channels_.size();
 	}
 
 private:
 	void broadcast_raw(
-		string const &frame) {
-		scoped_lock const lk{mtx_};
+		S const &frame) {
+		SL const lk{mtx_};
 		// Erase stale weak_ptrs while delivering to live ones.
 		erase_if(channels_, [&](weak_ptr<SseChannel> const &wch) {
 			auto ch = wch.lock();
@@ -3384,32 +3366,29 @@ private:
 	}
 
 	mutable mutex mtx_;
-	vector<weak_ptr<SseChannel>> channels_;
+	V<weak_ptr<SseChannel>> channels_;
 };
 
-// Returns a middleware that logs each request to `out` in the format:
+// Returns a middleware that formats each request as:
 //   [ISO8601] METHOD path status bytes elapsed_ms
-// Thread-safe: writes are serialised with a mutex.
+// and passes the formatted line to `sink`. Thread-safety of `sink` is
+// the caller's responsibility.
 export Router::Middleware make_access_log_middleware(
-	ostream &out) {
-	auto mtx = make_shared<mutex>();
-	return [&out, mtx](HttpRequestView const &req, Router::Handler const &next) {
-		auto t0 = chrono::steady_clock::now();
+	Fn<void(S const &)> sink) {
+	return [sink = move(sink)](HttpRequestView const &req, Router::Handler const &next) {
+		auto const t0 = chrono::steady_clock::now();
 		auto resp = next(req);
-		auto elapsed = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - t0).count();
+		auto const elapsed = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - t0).count();
 
-		// Wall-clock timestamp (UTC).
-		auto now = chrono::system_clock::now();
-		auto tt = chrono::system_clock::to_time_t(now);
-		array<char, 32> ts_buf{};
-		string_view ts{};
+		auto const now = chrono::system_clock::now();
+		auto const tt = chrono::system_clock::to_time_t(now);
+		A<char, 32> ts_buf{};
+		SV ts{};
 		if (strftime(ts_buf.data(), ts_buf.size(), "%Y-%m-%dT%H:%M:%SZ", gmtime(&tt)) > 0) {
 			ts = ts_buf.data();
 		}
 
-		scoped_lock const lk{*mtx};
-		println(out, "[{}] {} {} {} {} {}ms", ts, req.method, req.path, resp.status, resp.text_body().size(), elapsed);
-		out.flush();
+		sink(format("[{}] {} {} {} {} {}ms", ts, req.method, req.path, resp.status, resp.text_body().size(), elapsed));
 		return resp;
 	};
 }

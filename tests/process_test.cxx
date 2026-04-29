@@ -6,10 +6,9 @@
 #include <unistd.h>
 
 import std;
+import conflux.types;
 import conflux.process;
 import conflux.work;
-
-using namespace std;
 
 TEST_CASE(
 	"process: run echo",
@@ -109,7 +108,7 @@ TEST_CASE(
 	REQUIRE(proc.has_value());
 
 	int const in_fd = proc->take_stdin_fd();
-	string const msg = "test input\n";
+	S const msg = "test input\n";
 	[[maybe_unused]] auto wr1 = ::write(in_fd, msg.data(), msg.size());
 	::close(in_fd);
 
@@ -124,7 +123,7 @@ TEST_CASE(
 	int pipefd[2]{};
 	REQUIRE(::pipe2(pipefd, O_CLOEXEC) == 0);
 
-	string const msg = "fd_map_test";
+	S const msg = "fd_map_test";
 	[[maybe_unused]] auto wr2 = ::write(pipefd[1], msg.data(), msg.size());
 	::close(pipefd[1]);
 
@@ -139,14 +138,14 @@ TEST_CASE(
 	REQUIRE(proc.has_value());
 
 	int const out_fd = proc->take_stdout_fd();
-	string out;
+	S out;
 	char buf[256]{};
 	for (;;) {
 		auto n = ::read(out_fd, buf, sizeof(buf));
 		if (n <= 0) {
 			break;
 		}
-		out.append(buf, static_cast<size_t>(n));
+		out.append(buf, static_cast<SZ>(n));
 	}
 	::close(out_fd);
 	CHECK(proc->wait() == 0);
@@ -163,7 +162,7 @@ TEST_CASE(
 	REQUIRE(child_fd >= 10);
 	::close(pipefd[0]);
 
-	string const msg = "same_fd_map_test";
+	S const msg = "same_fd_map_test";
 	[[maybe_unused]] auto wr = ::write(pipefd[1], msg.data(), msg.size());
 	::close(pipefd[1]);
 
@@ -178,14 +177,14 @@ TEST_CASE(
 	REQUIRE(proc.has_value());
 
 	int const out_fd = proc->take_stdout_fd();
-	string out;
+	S out;
 	char buf[256]{};
 	for (;;) {
 		auto n = ::read(out_fd, buf, sizeof(buf));
 		if (n <= 0) {
 			break;
 		}
-		out.append(buf, static_cast<size_t>(n));
+		out.append(buf, static_cast<SZ>(n));
 	}
 	::close(out_fd);
 	CHECK(proc->wait() == 0);
@@ -193,7 +192,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"process: try_wait returns nullopt while running",
+	"process: try_wait returns std::nullopt while running",
 	"[process]") {
 	auto proc = spawn("/bin/sleep", {"5"});
 	REQUIRE(proc.has_value());
@@ -276,18 +275,18 @@ TEST_CASE(
 	int const in_fd = proc->take_stdin_fd();
 	int const out_fd = proc->take_stdout_fd();
 
-	string const msg = "hello from parent";
+	S const msg = "hello from parent";
 	[[maybe_unused]] auto wr = ::write(in_fd, msg.data(), msg.size());
 	::close(in_fd);
 
-	string out;
+	S out;
 	char buf[256]{};
 	for (;;) {
 		auto n = ::read(out_fd, buf, sizeof(buf));
 		if (n <= 0) {
 			break;
 		}
-		out.append(buf, static_cast<size_t>(n));
+		out.append(buf, static_cast<SZ>(n));
 	}
 	::close(out_fd);
 	CHECK(proc->wait() == 0);

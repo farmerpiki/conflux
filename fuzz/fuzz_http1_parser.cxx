@@ -5,14 +5,15 @@
 //   must not crash on any byte sequence
 
 import std;
+import conflux.types;
 import conflux.net.http1_parser;
 import conflux.net.config;
 
 using namespace std;
 
 extern "C" int LLVMFuzzerTestOneInput(
-	uint8_t const *data,
-	size_t size) {
+	u8 const *data,
+	SZ size) {
 	if (size < 1) {
 		return 0;
 	}
@@ -23,7 +24,7 @@ extern "C" int LLVMFuzzerTestOneInput(
 	limits.max_headers = 64;
 	limits.max_header_block_size = 16U * 1024U;
 
-	string_view input{reinterpret_cast<char const *>(data + 1), size - 1};
+	SV input{reinterpret_cast<char const *>(data + 1), size - 1};
 
 	conflux::http1::ParsedRequest out;
 	auto const st = conflux::http1::parse_request(input, limits, out);
@@ -33,7 +34,7 @@ extern "C" int LLVMFuzzerTestOneInput(
 
 	auto const *base = input.data();
 	auto const *end = base + input.size();
-	auto within = [&](string_view sv) {
+	auto within = [&](SV sv) {
 		if (sv.empty()) {
 			return true;
 		}

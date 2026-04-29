@@ -15,40 +15,51 @@
 #include <unistd.h>
 
 import std;
+import conflux.types;
 import conflux.work;
 import conflux.file_io;
 import conflux.net.tls;
 
-using namespace std;
-
 namespace {
 
-constexpr uint64_t pack_ud(
-	uint32_t slot,
-	uint32_t gen) noexcept {
-	return (static_cast<uint64_t>(gen) << 32U) | slot;
+constexpr u64 pack_ud(
+	u32 slot,
+	u32 gen) noexcept {
+	return (static_cast<u64>(gen) << 32U) | slot;
 }
 
 struct Config {
-	size_t iterations = 50'000;
-	size_t warmup = 2'000;
+	SZ iterations = 50'000;
+	SZ warmup = 2'000;
 	bool csv = false;
 };
+
+namespace {
+
+u64 parse_u64(
+	char const *s) noexcept {
+	SV sv{s};
+	u64 v{};
+	from_chars(sv.data(), sv.data() + sv.size(), v);
+	return v;
+}
+
+} // namespace
 
 Config parse_args(
 	span<char *> args) {
 	Config cfg;
-	for (size_t i = 1; i < args.size(); ++i) {
-		string_view a = args[i];
+	for (SZ i = 1; i < args.size(); ++i) {
+		SV a = args[i];
 		if (a == "--iterations" && i + 1 < args.size()) {
-			cfg.iterations = stoull(args[++i]);
+			cfg.iterations = parse_u64(args[++i]);
 		} else if (a == "--warmup" && i + 1 < args.size()) {
-			cfg.warmup = stoull(args[++i]);
+			cfg.warmup = parse_u64(args[++i]);
 		} else if (a == "--csv") {
 			cfg.csv = true;
 		} else if (a == "--help" || a == "-h") {
 			println("Usage: conflux_tls_tcp_increment_coro_bench [--iterations N] [--warmup N] [--csv]");
-			exit(0);
+			std::exit(0);
 		}
 	}
 	return cfg;
@@ -72,25 +83,25 @@ KeyCert make_self_signed() {
 	KeyCert kc;
 	EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_from_name(nullptr, "RSA", nullptr);
 	if (pctx == nullptr) {
-		throw runtime_error{"EVP_PKEY_CTX_new"};
+		throw RE{"EVP_PKEY_CTX_new"};
 	}
 	if (EVP_PKEY_keygen_init(pctx) <= 0) {
 		EVP_PKEY_CTX_free(pctx);
-		throw runtime_error{"keygen_init"};
+		throw RE{"keygen_init"};
 	}
 	if (EVP_PKEY_CTX_set_rsa_keygen_bits(pctx, 2048) <= 0) {
 		EVP_PKEY_CTX_free(pctx);
-		throw runtime_error{"rsa_bits"};
+		throw RE{"rsa_bits"};
 	}
 	if (EVP_PKEY_keygen(pctx, &kc.pkey) <= 0) {
 		EVP_PKEY_CTX_free(pctx);
-		throw runtime_error{"keygen"};
+		throw RE{"keygen"};
 	}
 	EVP_PKEY_CTX_free(pctx);
 
 	kc.cert = X509_new();
 	if (kc.cert == nullptr) {
-		throw runtime_error{"X509_new"};
+		throw RE{"X509_new"};
 	}
 	X509_set_version(kc.cert, 2);
 	ASN1_INTEGER_set(X509_get_serialNumber(kc.cert), 1);
@@ -108,7 +119,7 @@ KeyCert make_self_signed() {
 		0);
 	X509_set_issuer_name(kc.cert, name);
 	if (X509_sign(kc.cert, kc.pkey, EVP_sha256()) == 0) {
-		throw runtime_error{"X509_sign"};
+		throw RE{"X509_sign"};
 	}
 	return kc;
 }
@@ -137,47 +148,47 @@ void run_server(
 		return;
 	}
 
-	array<char, 128> buf{};
-	size_t held = 0;
+	A<char, 128> buf{};
+	SZ held = 0;
 	while (!stop.test(memory_order_acquire)) {
 		int got = SSL_read(ssl, buf.data() + held, static_cast<int>(buf.size() - held));
 		if (got <= 0) {
 			break;
 		}
-		held += static_cast<size_t>(got);
-		size_t scan = 0;
+		held += static_cast<SZ>(got);
+		SZ scan = 0;
 		while (scan < held) {
-			auto it =
-				find(buf.begin() + static_cast<ptrdiff_t>(scan), buf.begin() + static_cast<ptrdiff_t>(held), '\n');
-			if (it == buf.begin() + static_cast<ptrdiff_t>(held)) {
+			auto view = span{buf}.subspan(scan, held - scan);
+			auto it = ranges::find(view, '\n');
+			if (it == view.end()) {
 				break;
 			}
-			size_t const msg_end = static_cast<size_t>(it - buf.begin());
-			uint64_t n = 0;
+			SZ const msg_end = scan + static_cast<SZ>(it - view.begin());
+			u64 n = 0;
 			auto const parsed = from_chars(buf.data() + scan, buf.data() + msg_end, n);
 			if (parsed.ec != errc{}) {
 				goto done;
 			}
 			++n;
-			array<char, 24> out{};
+			A<char, 24> out{};
 			auto const conv = to_chars(out.data(), out.data() + out.size() - 1, n);
 			if (conv.ec != errc{}) {
 				goto done;
 			}
 			*conv.ptr = '\n';
-			size_t const out_len = static_cast<size_t>(conv.ptr - out.data()) + 1;
-			size_t sent = 0;
+			SZ const out_len = static_cast<SZ>(conv.ptr - out.data()) + 1;
+			SZ sent = 0;
 			while (sent < out_len) {
 				int const w = SSL_write(ssl, out.data() + sent, static_cast<int>(out_len - sent));
 				if (w <= 0) {
 					goto done;
 				}
-				sent += static_cast<size_t>(w);
+				sent += static_cast<SZ>(w);
 			}
 			scan = msg_end + 1;
 		}
 		if (scan > 0) {
-			size_t const remain = held - scan;
+			SZ const remain = held - scan;
 			memmove(buf.data(), buf.data() + scan, remain);
 			held = remain;
 		}
@@ -192,10 +203,10 @@ done:
 }
 
 int start_listener(
-	uint16_t &port_out) {
+	u16 &port_out) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
-		throw runtime_error{"socket"};
+		throw RE{"socket"};
 	}
 	int one = 1;
 	::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
@@ -205,26 +216,26 @@ int start_listener(
 	addr.sin_port = 0;
 	if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 		::close(fd);
-		throw runtime_error{"bind"};
+		throw RE{"bind"};
 	}
 	socklen_t slen = sizeof(addr);
 	if (::getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &slen) < 0) {
 		::close(fd);
-		throw runtime_error{"getsockname"};
+		throw RE{"getsockname"};
 	}
 	port_out = ::ntohs(addr.sin_port);
 	if (::listen(fd, 16) < 0) {
 		::close(fd);
-		throw runtime_error{"listen"};
+		throw RE{"listen"};
 	}
 	return fd;
 }
 
 int connect_to(
-	uint16_t port) {
+	u16 port) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
-		throw runtime_error{"socket"};
+		throw RE{"socket"};
 	}
 	int one = 1;
 	::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
@@ -234,55 +245,56 @@ int connect_to(
 	addr.sin_port = ::htons(port);
 	if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 		::close(fd);
-		throw runtime_error{"connect"};
+		throw RE{"connect"};
 	}
 	return fd;
 }
 
-size_t encode_line(
+SZ encode_line(
 	span<char> out,
-	uint64_t n) {
+	u64 n) {
 	auto const r = to_chars(out.data(), out.data() + out.size() - 1, n);
 	if (r.ec != errc{}) {
-		throw runtime_error{"to_chars"};
+		throw RE{"to_chars"};
 	}
 	*r.ptr = '\n';
-	return static_cast<size_t>(r.ptr - out.data()) + 1;
+	return static_cast<SZ>(r.ptr - out.data()) + 1;
 }
 
-uint64_t decode_line(
-	string_view line) {
-	uint64_t n = 0;
+u64 decode_line(
+	SV line) {
+	u64 n = 0;
 	auto const r = from_chars(line.data(), line.data() + line.size(), n);
 	if (r.ec != errc{}) {
-		throw runtime_error{"from_chars"};
+		throw RE{"from_chars"};
 	}
 	return n;
 }
 
 struct AsyncTlsLineReader {
 	TlsAsyncStream &tls;
-	array<byte, 256> buf{};
-	size_t held = 0;
+	A<byte, 256> buf{};
+	SZ held = 0;
 
-	Task<string_view> read_line() {
+	Task<SV> read_line() {
 		for (;;) {
-			auto it = find(buf.begin(), buf.begin() + static_cast<ptrdiff_t>(held), static_cast<byte>('\n'));
-			if (it != buf.begin() + static_cast<ptrdiff_t>(held)) {
-				auto const end = static_cast<size_t>(it - buf.begin());
-				co_return string_view{reinterpret_cast<char const *>(buf.data()), end};
+			auto view = span{buf}.first(held);
+			auto it = ranges::find(view, static_cast<byte>('\n'));
+			if (it != view.end()) {
+				auto const end = static_cast<SZ>(it - view.begin());
+				co_return SV{reinterpret_cast<char const *>(buf.data()), end};
 			}
 			auto got = co_await tls.read_some(span{buf.data() + held, buf.size() - held});
 			if (got == 0) {
-				throw runtime_error{"tls eof"};
+				throw RE{"tls eof"};
 			}
 			held += got;
 		}
 	}
 
 	void consume_line(
-		size_t line_len) {
-		size_t const drop = line_len + 1;
+		SZ line_len) {
+		SZ const drop = line_len + 1;
 		if (drop >= held) {
 			held = 0;
 		} else {
@@ -292,60 +304,60 @@ struct AsyncTlsLineReader {
 	}
 };
 
-uint64_t run_callback(
+u64 run_callback(
 	FileReader &files,
 	TlsAsyncStream &tls,
-	size_t iters,
-	uint64_t start) {
+	SZ iters,
+	u64 start) {
 	AsyncTlsLineReader reader{.tls = tls};
-	array<char, 24> out{};
-	uint64_t n = start;
+	A<char, 24> out{};
+	u64 n = start;
 	auto const t0 = chrono::steady_clock::now();
-	for (size_t i = 0; i < iters; ++i) {
-		size_t const len = encode_line(out, n);
+	for (SZ i = 0; i < iters; ++i) {
+		SZ const len = encode_line(out, n);
 		block_on(files, tls.write_all(as_bytes(span{out.data(), len})));
 		auto line = block_on(files, reader.read_line());
-		uint64_t const got = decode_line(line);
+		u64 const got = decode_line(line);
 		reader.consume_line(line.size());
 		if (got != n + 1) {
-			throw runtime_error{format("expected {} got {}", n + 1, got)};
+			throw RE{format("expected {} got {}", n + 1, got)};
 		}
 		n = got;
 	}
 	auto const t1 = chrono::steady_clock::now();
-	return static_cast<uint64_t>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
 
-Task<uint64_t> coro_loop(
+Task<u64> coro_loop(
 	TlsAsyncStream &tls,
-	size_t iters,
-	uint64_t start) {
+	SZ iters,
+	u64 start) {
 	AsyncTlsLineReader reader{.tls = tls};
-	array<char, 24> out{};
-	uint64_t n = start;
-	for (size_t i = 0; i < iters; ++i) {
-		size_t const len = encode_line(out, n);
+	A<char, 24> out{};
+	u64 n = start;
+	for (SZ i = 0; i < iters; ++i) {
+		SZ const len = encode_line(out, n);
 		co_await tls.write_all(as_bytes(span{out.data(), len}));
 		auto line = co_await reader.read_line();
-		uint64_t const got = decode_line(line);
+		u64 const got = decode_line(line);
 		reader.consume_line(line.size());
 		if (got != n + 1) {
-			throw runtime_error{format("expected {} got {}", n + 1, got)};
+			throw RE{format("expected {} got {}", n + 1, got)};
 		}
 		n = got;
 	}
 	co_return n;
 }
 
-uint64_t run_coroutine(
+u64 run_coroutine(
 	FileReader &files,
 	TlsAsyncStream &tls,
-	size_t iters,
-	uint64_t start) {
+	SZ iters,
+	u64 start) {
 	auto const t0 = chrono::steady_clock::now();
 	(void)block_on(files, coro_loop(tls, iters, start));
 	auto const t1 = chrono::steady_clock::now();
-	return static_cast<uint64_t>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
 
 } // namespace
@@ -353,7 +365,7 @@ uint64_t run_coroutine(
 int main(
 	int argc,
 	char **argv) try {
-	auto cfg = parse_args(span{argv, static_cast<size_t>(argc)});
+	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
 
 	auto kc = make_self_signed();
 
@@ -366,7 +378,7 @@ int main(
 	SSL_CTX_use_PrivateKey(sctx, kc.pkey);
 
 	for (int which = 0; which < 2; ++which) {
-		uint16_t port = 0;
+		u16 port = 0;
 		int const lfd = start_listener(port);
 		atomic_flag server_stop{};
 		thread server{[lfd, sctx, &server_stop] { run_server(lfd, sctx, server_stop); }};
@@ -396,10 +408,10 @@ int main(
 			block_on(files, tls.handshake_connect());
 
 			(void)run_callback(files, tls, cfg.warmup, 0);
-			uint64_t const ns = (which == 0) ? run_callback(files, tls, cfg.iterations, cfg.warmup) :
-											   run_coroutine(files, tls, cfg.iterations, cfg.warmup);
+			u64 const ns = (which == 0) ? run_callback(files, tls, cfg.iterations, cfg.warmup) :
+										  run_coroutine(files, tls, cfg.iterations, cfg.warmup);
 			double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
-			string_view const label = (which == 0) ? "callback" : "coroutine";
+			SV const label = (which == 0) ? "callback" : "coroutine";
 			if (cfg.csv) {
 				if (which == 0) {
 					println("style,iterations,total_ns,ns_per_iter");

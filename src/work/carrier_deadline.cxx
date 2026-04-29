@@ -3,6 +3,7 @@ module;
 export module conflux.work.carrier.deadline;
 
 import std;
+import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.scope;
 

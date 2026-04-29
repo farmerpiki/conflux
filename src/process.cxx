@@ -17,7 +17,6 @@ import std;
 import conflux.types;
 import conflux.work;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
-using namespace std; // NOLINT(google-build-using-namespace)
 
 // ---------------------------------------------------------------------------
 // Stdio — describes how stdin/stdout/stderr is connected in the child process.
@@ -47,8 +46,8 @@ export struct Stdio {
 // ---------------------------------------------------------------------------
 
 export struct SpawnOptions {
-	filesystem::path working_dir{};
-	vector<string> extra_env{}; // "KEY=VALUE" entries; add or override
+	fs::path working_dir{};
+	V<S> extra_env{}; // "KEY=VALUE" entries; add or override
 	bool clear_env{false};
 	Stdio stdin_{Stdio::inherit()};
 	Stdio stdout_{Stdio::inherit()};
@@ -58,7 +57,7 @@ export struct SpawnOptions {
 	int dup3_flags{0}; // flags passed to dup3() (e.g. O_CLOEXEC)
 	// Extra fd mappings: {parent_fd, child_fd}. Applied after stdio, before close_range.
 	// close_range will close parent_fd originals if close_other_fds=true.
-	vector<pair<int, int>> fd_map{};
+	V<P<int, int>> fd_map{};
 };
 
 // ---------------------------------------------------------------------------
@@ -147,10 +146,10 @@ public:
 		return -1;
 	}
 
-	// Non-blocking wait.  Returns nullopt if still running.
-	[[nodiscard]] optional<int> try_wait() noexcept {
+	// Non-blocking wait.  Returns std::nullopt if still running.
+	[[nodiscard]] Opt<int> try_wait() noexcept {
 		if (pid_ < 0) {
-			return nullopt;
+			return std::nullopt;
 		}
 		int status = 0;
 		pid_t r = 0;
@@ -158,10 +157,10 @@ public:
 			r = ::waitpid(pid_, &status, WNOHANG);
 		} while (r < 0 && errno == EINTR);
 		if (r == 0) {
-			return nullopt;
+			return std::nullopt;
 		}
 		if (r < 0) {
-			return nullopt;
+			return std::nullopt;
 		}
 		pid_ = -1;
 		if (WIFEXITED(status)) {
@@ -197,8 +196,8 @@ public:
 
 export struct RunResult {
 	int exit_code{};
-	string stdout_out{};
-	string stderr_out{};
+	S stdout_out{};
+	S stderr_out{};
 };
 
 // ---------------------------------------------------------------------------
@@ -208,10 +207,10 @@ export struct RunResult {
 namespace {
 
 // Build envp from environ (unless clear_env) + extra_env overrides.
-vector<string> build_env(
-	vector<string> const &extra_env,
+V<S> build_env(
+	V<S> const &extra_env,
 	bool clear_env) {
-	vector<string> env_strs;
+	V<S> env_strs;
 	if (!clear_env) {
 		// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		for (char *const *e = environ; *e != nullptr; ++e) {
@@ -222,13 +221,12 @@ vector<string> build_env(
 	for (auto const &entry: extra_env) {
 		// Strip any existing entry with the same KEY= prefix.
 		auto const eq_pos = entry.find('=');
-		if (eq_pos == string::npos) {
+		if (eq_pos == S::npos) {
 			continue;
 		}
-		string_view key{entry.data(), eq_pos + 1}; // includes '='
-		auto it = remove_if(env_strs.begin(), env_strs.end(), [&](string const &s) {
-			return string_view{s}.substr(0, key.size()) == key;
-		});
+		SV key{entry.data(), eq_pos + 1}; // includes '='
+		auto it =
+			remove_if(env_strs.begin(), env_strs.end(), [&](S const &s) { return SV{s}.substr(0, key.size()) == key; });
 		env_strs.erase(it, env_strs.end());
 		env_strs.push_back(entry);
 	}
@@ -308,13 +306,13 @@ constexpr int kExecFailed = 127;
 // ---------------------------------------------------------------------------
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-export expected<Process, error_code> spawn_clone(
-	filesystem::path const &exe,
-	vector<string_view> const &args,
+export expected<Process, EC> spawn_clone(
+	fs::path const &exe,
+	V<SV> const &args,
 	SpawnOptions const &opts,
 	u64 clone_flags) {
-	// Copy string_view args → vector<string> before fork (views may be into caller's stack).
-	vector<string> arg_strs;
+	// Copy SV args → V<S> before fork (views may be into caller's stack).
+	V<S> arg_strs;
 	arg_strs.reserve(args.size() + 1);
 	arg_strs.emplace_back(exe.string());
 	for (auto const &a: args) {
@@ -322,7 +320,7 @@ export expected<Process, error_code> spawn_clone(
 	}
 
 	// Build argv and envp now (no alloc after fork in child).
-	vector<char *> argv_ptrs;
+	V<char *> argv_ptrs;
 	argv_ptrs.reserve(arg_strs.size() + 1);
 	for (auto &s: arg_strs) {
 		argv_ptrs.push_back(s.data());
@@ -330,7 +328,7 @@ export expected<Process, error_code> spawn_clone(
 	argv_ptrs.push_back(nullptr);
 
 	auto env_strs = build_env(opts.extra_env, opts.clear_env);
-	vector<char *> envp_ptrs;
+	V<char *> envp_ptrs;
 	envp_ptrs.reserve(env_strs.size() + 1);
 	for (auto &s: env_strs) {
 		envp_ptrs.push_back(s.data());
@@ -345,38 +343,38 @@ export expected<Process, error_code> spawn_clone(
 	int parent_out = -1;
 	int parent_err = -1;
 
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
 	int const child_in = setup_stdio(opts.stdin_, true, in_pipe, parent_in);
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
 	int const child_out = setup_stdio(opts.stdout_, false, out_pipe, parent_out);
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
 	int const child_err = setup_stdio(opts.stderr_, false, err_pipe, parent_err);
 
 	auto close_stdio_pipes = [&] {
-		// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-array-index)
+		// NOLINTBEGIN(cppcoreguidelines-pro-bounds-constant-A-index)
 		for (auto *pipe: {&in_pipe, &out_pipe, &err_pipe}) {
 			if ((*pipe)[0] >= 0) {
 				::close((*pipe)[0]);
 				::close((*pipe)[1]);
 			}
 		}
-		// NOLINTEND(cppcoreguidelines-pro-bounds-constant-array-index)
+		// NOLINTEND(cppcoreguidelines-pro-bounds-constant-A-index)
 	};
 
 	if (child_in == -3 || child_out == -3 || child_err == -3) {
 		close_stdio_pipes();
 		return unexpected{
-			error_code{errno, system_category()}
+			EC{errno, std::system_category()}
         };
 	}
 
 	// Error-reporting pipe: child writes errno if exec fails; parent detects success via EOF.
 	int exec_err_pipe[2]{-1, -1}; // NOLINT(modernize-avoid-c-arrays)
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
 	if (::pipe2(exec_err_pipe, O_CLOEXEC) < 0) {
 		close_stdio_pipes();
 		return unexpected{
-			error_code{errno, system_category()}
+			EC{errno, std::system_category()}
         };
 	}
 
@@ -391,7 +389,7 @@ export expected<Process, error_code> spawn_clone(
 		::close(exec_err_pipe[0]);
 		::close(exec_err_pipe[1]);
 		return unexpected{
-			error_code{err, system_category()}
+			EC{err, std::system_category()}
         };
 	}
 
@@ -497,7 +495,7 @@ export expected<Process, error_code> spawn_clone(
 			::close(parent_err);
 		}
 		return unexpected{
-			error_code{child_errno, system_category()}
+			EC{child_errno, std::system_category()}
         };
 	}
 
@@ -508,9 +506,9 @@ export expected<Process, error_code> spawn_clone(
 // spawn — convenience wrapper with default clone flags
 // ---------------------------------------------------------------------------
 
-export expected<Process, error_code> spawn(
-	filesystem::path const &exe,
-	vector<string_view> const &args,
+export expected<Process, EC> spawn(
+	fs::path const &exe,
+	V<SV> const &args,
 	SpawnOptions const &opts = {}) {
 	return spawn_clone(exe, args, opts, 0);
 }
@@ -518,11 +516,11 @@ export expected<Process, error_code> spawn(
 export template<typename Target>
 [[nodiscard]] auto spawn_in(
 	Target &target,
-	filesystem::path exe,
-	vector<string> args,
+	fs::path exe,
+	V<S> args,
 	SpawnOptions opts = {}) {
 	return ::run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
-		vector<string_view> views;
+		V<SV> views;
 		views.reserve(args.size());
 		for (auto const &arg: args) {
 			views.push_back(arg);
@@ -535,9 +533,9 @@ export template<typename Target>
 // run — spawn + drain stdout/stderr + wait
 // ---------------------------------------------------------------------------
 
-export expected<RunResult, error_code> run(
-	filesystem::path const &exe,
-	vector<string_view> const &args,
+export expected<RunResult, EC> run(
+	fs::path const &exe,
+	V<SV> const &args,
 	SpawnOptions opts = {}) {
 	opts.stdout_ = Stdio::piped();
 	opts.stderr_ = Stdio::piped();
@@ -553,18 +551,17 @@ export expected<RunResult, error_code> run(
 	RunResult result;
 
 	// Poll loop: drain stdout and stderr concurrently to prevent deadlock.
-	array<pollfd, 2> pfds{};
+	A<pollfd, 2> pfds{};
 	pfds[0] = {.fd = out_fd, .events = POLLIN, .revents = 0};
 	pfds[1] = {.fd = err_fd, .events = POLLIN, .revents = 0};
 
 	while (pfds[0].fd >= 0 || pfds[1].fd >= 0) {
-		// Build active pollfd array (skip closed fds).
-		array<pollfd, 2> active{};
+		// Build active pollfd A (skip closed fds).
+		A<pollfd, 2> active{};
 		int n_active = 0; // NOLINT(misc-const-correctness) — incremented in loop
 		for (auto const &pfd: pfds) {
 			if (pfd.fd >= 0) {
-				active[static_cast<size_t>(n_active++)] =
-					pfd; // NOLINT(cppcoreguidelines-pro-bounds-constant-array-index)
+				active[static_cast<SZ>(n_active++)] = pfd; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 			}
 		}
 
@@ -583,7 +580,7 @@ export expected<RunResult, error_code> run(
 				pfds[1].fd = -1;
 			}
 			return unexpected{
-				error_code{poll_err, system_category()}
+				EC{poll_err, std::system_category()}
             };
 		}
 
@@ -591,21 +588,21 @@ export expected<RunResult, error_code> run(
 			if (a.revents == 0) {
 				continue;
 			}
-			string &buf = (a.fd == out_fd) ? result.stdout_out : result.stderr_out;
+			S &buf = (a.fd == out_fd) ? result.stdout_out : result.stderr_out;
 			if ((a.revents & POLLIN) != 0) {
 				char tmp[4096]; // NOLINT(modernize-avoid-c-arrays,readability-magic-numbers)
 				ssize_t nr = 0;
 				do {
-					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
+					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
 					nr = ::read(a.fd, tmp, sizeof(tmp));
 				} while (nr < 0 && errno == EINTR);
 				if (nr > 0) {
-					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay,hicpp-no-array-decay)
-					buf.append(tmp, static_cast<size_t>(nr));
+					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
+					buf.append(tmp, static_cast<SZ>(nr));
 				}
 			}
 			if ((a.revents & (POLLHUP | POLLERR)) != 0) {
-				// Close this fd in the pfds tracking array.
+				// Close this fd in the pfds tracking A.
 				if (a.fd == pfds[0].fd) {
 					::close(pfds[0].fd);
 					pfds[0].fd = -1;
@@ -624,11 +621,11 @@ export expected<RunResult, error_code> run(
 export template<typename Target>
 [[nodiscard]] auto run_in(
 	Target &target,
-	filesystem::path exe,
-	vector<string> args,
+	fs::path exe,
+	V<S> args,
 	SpawnOptions opts = {}) {
 	return ::run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
-		vector<string_view> views;
+		V<SV> views;
 		views.reserve(args.size());
 		for (auto const &arg: args) {
 			views.push_back(arg);

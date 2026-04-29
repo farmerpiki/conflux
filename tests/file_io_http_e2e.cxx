@@ -7,21 +7,21 @@
 #include <unistd.h>
 
 import std;
+import conflux.types;
 import conflux.net.http;
 import conflux.tests.support;
 
-using namespace std;
 using namespace conflux::tests;
 
 namespace {
 
-string read_exactly(
+S read_exactly(
 	int fd,
-	size_t expected,
+	SZ expected,
 	chrono::milliseconds budget = chrono::seconds{10}) {
-	string out;
+	S out;
 	out.resize(expected);
-	size_t off = 0;
+	SZ off = 0;
 	auto const deadline = chrono::steady_clock::now() + budget;
 	while (off < expected) {
 		if (chrono::steady_clock::now() > deadline) {
@@ -31,16 +31,16 @@ string read_exactly(
 		if (n <= 0) {
 			break;
 		}
-		off += static_cast<size_t>(n);
+		off += static_cast<SZ>(n);
 	}
 	out.resize(off);
 	return out;
 }
 
-pair<string, string> send_get_split_body(
-	uint16_t port,
-	string_view path,
-	size_t expected_body) {
+P<S, S> send_get_split_body(
+	u16 port,
+	SV path,
+	SZ expected_body) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
 	sockaddr_in addr{};
@@ -52,19 +52,19 @@ pair<string, string> send_get_split_body(
 	auto const req = format("GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n", path);
 	::send(fd, req.data(), req.size(), 0);
 
-	string buf;
-	array<char, 64UL * 1024> tmp{};
-	while (buf.find("\r\n\r\n") == string::npos) {
+	S buf;
+	A<char, 64UL * 1024> tmp{};
+	while (buf.find("\r\n\r\n") == S::npos) {
 		ssize_t const n = ::recv(fd, tmp.data(), tmp.size(), 0);
 		if (n <= 0) {
 			::close(fd);
 			return {move(buf), {}};
 		}
-		buf.append(tmp.data(), static_cast<size_t>(n));
+		buf.append(tmp.data(), static_cast<SZ>(n));
 	}
 	auto const hdr_end = buf.find("\r\n\r\n");
-	string headers = buf.substr(0, hdr_end + 4);
-	string body = buf.substr(hdr_end + 4);
+	S headers = buf.substr(0, hdr_end + 4);
+	S body = buf.substr(hdr_end + 4);
 	if (body.size() < expected_body) {
 		body += read_exactly(fd, expected_body - body.size());
 	}
@@ -73,31 +73,31 @@ pair<string, string> send_get_split_body(
 }
 
 struct StaticDir {
-	string path;
+	S path;
 	explicit StaticDir(
 		char const *pattern = "/tmp/conflux_file_io_http_XXXXXX") {
 		path = pattern;
 		REQUIRE(::mkdtemp(path.data()) != nullptr);
 	}
 	~StaticDir() {
-		for (auto &ent: filesystem::directory_iterator{path}) {
+		for (auto &ent: fs::directory_iterator{path}) {
 			(void)ent;
 		}
-		error_code ec;
-		filesystem::remove_all(path, ec);
+		EC ec;
+		fs::remove_all(path, ec);
 	}
 	StaticDir(StaticDir const &) = delete;
 	StaticDir &operator =(StaticDir const &) = delete;
 
 	void write(
-		string_view name,
-		string_view content) const {
-		auto full = path + "/" + string{name};
+		SV name,
+		SV content) const {
+		auto full = path + "/" + S{name};
 		int const fd = ::open(full.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(fd >= 0);
 		ssize_t off = 0;
 		while (off < static_cast<ssize_t>(content.size())) {
-			ssize_t const n = ::write(fd, content.data() + off, content.size() - static_cast<size_t>(off));
+			ssize_t const n = ::write(fd, content.data() + off, content.size() - static_cast<SZ>(off));
 			REQUIRE(n > 0);
 			off += n;
 		}
@@ -111,7 +111,7 @@ TEST_CASE(
 	"file_io http e2e: large file delivered via uring splice path",
 	"[file_io][http][e2e]") {
 	StaticDir const dir;
-	string const content(2UL * 1024 * 1024, 'A'); // 2 MiB → spans many splice chunks
+	S const content(2UL * 1024 * 1024, 'A'); // 2 MiB → spans many splice chunks
 	dir.write("big.bin", content);
 	dir.write("small.txt", "tiny");
 
@@ -128,7 +128,7 @@ TEST_CASE(
 	SECTION("2 MiB file GET over plain HTTP") {
 		auto [headers, body] = send_get_split_body(srv.port(), "/static/big.bin", content.size());
 		REQUIRE(headers.starts_with("HTTP/1.1 200 OK"));
-		REQUIRE(headers.find(format("Content-Length: {}\r\n", content.size())) != string::npos);
+		REQUIRE(headers.find(format("Content-Length: {}\r\n", content.size())) != S::npos);
 		REQUIRE(body.size() == content.size());
 		CHECK(body == content);
 	}
@@ -155,23 +155,23 @@ TEST_CASE(
 		REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 		::send(fd, hdr_req.data(), hdr_req.size(), 0);
 
-		string resp;
-		array<char, 8192> tmp{};
-		while (resp.find("\r\n\r\n") == string::npos) {
+		S resp;
+		A<char, 8192> tmp{};
+		while (resp.find("\r\n\r\n") == S::npos) {
 			ssize_t const n = ::recv(fd, tmp.data(), tmp.size(), 0);
 			if (n <= 0) {
 				break;
 			}
-			resp.append(tmp.data(), static_cast<size_t>(n));
+			resp.append(tmp.data(), static_cast<SZ>(n));
 		}
 		auto const hdr_end = resp.find("\r\n\r\n");
-		string body = resp.substr(hdr_end + 4);
+		S body = resp.substr(hdr_end + 4);
 		body += read_exactly(fd, 100 - body.size());
 		::close(fd);
 
 		CHECK(resp.starts_with("HTTP/1.1 206"));
 		CHECK(body.size() == 100);
-		CHECK(body == string(100, 'A'));
+		CHECK(body == S(100, 'A'));
 	}
 }
 
@@ -179,7 +179,7 @@ TEST_CASE(
 	"file_io http e2e: disabled pools fall back to mmap static serving",
 	"[file_io][http][e2e]") {
 	StaticDir const dir{"/tmp/conflux_file_io_http_fallback_XXXXXX"};
-	string const content(256UL * 1024, 'F');
+	S const content(256UL * 1024, 'F');
 	dir.write("fallback.bin", content);
 
 	Config cfg = mw_config();
@@ -193,6 +193,6 @@ TEST_CASE(
 	ScopedTestServer const srv{cfg, move(router)};
 	auto [headers, body] = send_get_split_body(srv.port(), "/static/fallback.bin", content.size());
 	REQUIRE(headers.starts_with("HTTP/1.1 200 OK"));
-	REQUIRE(headers.find(format("Content-Length: {}\r\n", content.size())) != string::npos);
+	REQUIRE(headers.find(format("Content-Length: {}\r\n", content.size())) != S::npos);
 	CHECK(body == content);
 }

@@ -2,10 +2,9 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.types;
 import conflux.net.http;
 import conflux.tests.external_support;
-
-using namespace std;
 
 TEST_CASE(
 	"ext/curl: HTTPS GET /ping returns 200 with JSON body") {
@@ -75,9 +74,9 @@ TEST_CASE(
 	"ext/openssl: s_client GET /ping returns 200 OK") {
 	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
 	auto resp = fx.sclient_get("/ping");
-	REQUIRE(resp.find("HTTP/1.") != string::npos);
-	REQUIRE(resp.find("200") != string::npos);
-	REQUIRE(resp.find(R"({"ok":true})") != string::npos);
+	REQUIRE(resp.find("HTTP/1.") != S::npos);
+	REQUIRE(resp.find("200") != S::npos);
+	REQUIRE(resp.find(R"({"ok":true})") != S::npos);
 }
 
 TEST_CASE(
@@ -94,8 +93,8 @@ TEST_CASE(
 	"ext/openssl: s_client GET path param echoes correctly") {
 	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
 	auto resp = fx.sclient_get("/hello/tls");
-	REQUIRE(resp.find("200") != string::npos);
-	REQUIRE(resp.find("hello tls") != string::npos);
+	REQUIRE(resp.find("200") != S::npos);
+	REQUIRE(resp.find("hello tls") != S::npos);
 }
 
 TEST_CASE(
@@ -103,7 +102,7 @@ TEST_CASE(
 	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
 	for (int i = 0; i < 5; ++i) {
 		auto resp = fx.sclient_get("/ping");
-		REQUIRE(resp.find(R"({"ok":true})") != string::npos);
+		REQUIRE(resp.find(R"({"ok":true})") != S::npos);
 	}
 }
 
@@ -114,13 +113,13 @@ TEST_CASE(
 		format("curl -sk --tls-max 1.1 --tlsv1.1 --max-time 5 https://127.0.0.1:{}/ping 2>&1", fx.port()));
 	// curl exits non-zero on handshake failure; body may be empty or an error message.
 	REQUIRE(code != 0);
-	REQUIRE(body.find(R"({"ok":true})") == string::npos);
+	REQUIRE(body.find(R"({"ok":true})") == S::npos);
 }
 
 TEST_CASE(
 	"ext/curl: SSE streams all events and closes") {
 	Router r;
-	r.sse("/events", [](HttpRequest const &, shared_ptr<SseChannel> const &ch) {
+	r.sse("/events", [](HttpRequest const &, SP<SseChannel> const &ch) {
 		ch->send("data: alpha\n\n");
 		ch->send("data: beta\n\n");
 		ch->close();
@@ -129,14 +128,14 @@ TEST_CASE(
 	auto [code, body] =
 		conflux::tests::run_cmd_retry(format("curl -sk -N --max-time 5 https://127.0.0.1:{}/events", fx.port()));
 	REQUIRE(code == 0);
-	REQUIRE(body.find("data: alpha\n\n") != string::npos);
-	REQUIRE(body.find("data: beta\n\n") != string::npos);
+	REQUIRE(body.find("data: alpha\n\n") != S::npos);
+	REQUIRE(body.find("data: beta\n\n") != S::npos);
 }
 
 TEST_CASE(
 	"ext/curl: SSE send_event delivers typed event") {
 	Router r;
-	r.sse("/typed", [](HttpRequest const &, shared_ptr<SseChannel> const &ch) {
+	r.sse("/typed", [](HttpRequest const &, SP<SseChannel> const &ch) {
 		ch->send_event("update", "payload42");
 		ch->close();
 	});
@@ -144,6 +143,6 @@ TEST_CASE(
 	auto [code, body] =
 		conflux::tests::run_cmd_retry(format("curl -sk -N --max-time 5 https://127.0.0.1:{}/typed", fx.port()));
 	REQUIRE(code == 0);
-	REQUIRE(body.find("event: update\n") != string::npos);
-	REQUIRE(body.find("data: payload42\n") != string::npos);
+	REQUIRE(body.find("event: update\n") != S::npos);
+	REQUIRE(body.find("data: payload42\n") != S::npos);
 }

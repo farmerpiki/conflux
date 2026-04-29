@@ -8,26 +8,25 @@ import std.compat;
 import conflux.crypto;
 import conflux.net.router;
 import conflux.utils;
-using namespace std;
 
 // ---------------------------------------------------------------------------
 // Public types
 // ---------------------------------------------------------------------------
 
 export struct JwtClaims {
-	string sub{};
-	string iss{};
-	string jti{};
+	S sub{};
+	S iss{};
+	S jti{};
 	i64 exp{};
 	i64 nbf{};
 	i64 iat{};
-	string raw{}; // full decoded payload JSON (for custom claims)
+	S raw{}; // full decoded payload JSON (for custom claims)
 };
 
 export struct JwtOptions {
-	string secret{}; // HMAC-SHA256 signing secret (required)
-	string issuer{}; // expected iss claim; "" = skip check
-	string audience{}; // expected aud claim; "" = skip check
+	S secret{}; // HMAC-SHA256 signing secret (required)
+	S issuer{}; // expected iss claim; "" = skip check
+	S audience{}; // expected aud claim; "" = skip check
 	bool verify_exp{true}; // reject expired tokens
 	bool verify_nbf{true}; // reject not-yet-valid tokens
 };
@@ -43,24 +42,24 @@ bool is_json_ws(
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
 
-size_t skip_json_ws(
-	string_view json,
-	size_t pos) {
+SZ skip_json_ws(
+	SV json,
+	SZ pos) {
 	auto rest = json.substr(pos);
 	auto it = ranges::find_if_not(rest, is_json_ws);
-	return pos + static_cast<size_t>(ranges::distance(rest.begin(), it));
+	return pos + static_cast<SZ>(ranges::distance(rest.begin(), it));
 }
 
 // Locate the position of the value after `"key":` in a JSON object, skipping
-// whitespace after the colon. Returns string_view::npos on miss.
-size_t json_value_pos(
-	string_view json,
-	string_view key) {
-	size_t pos = 0;
+// whitespace after the colon. Returns SV::npos on miss.
+SZ json_value_pos(
+	SV json,
+	SV key) {
+	SZ pos = 0;
 	while (true) {
 		pos = json.find('"', pos);
-		if (pos == string_view::npos) {
-			return string_view::npos;
+		if (pos == SV::npos) {
+			return SV::npos;
 		}
 		auto const key_begin = pos + 1;
 		auto const key_end = key_begin + key.size();
@@ -72,17 +71,17 @@ size_t json_value_pos(
 	}
 	pos = skip_json_ws(json, pos);
 	if (pos >= json.size() || json[pos] != ':') {
-		return string_view::npos;
+		return SV::npos;
 	}
 	++pos;
 	return skip_json_ws(json, pos);
 }
 
-// Minimal JSON string extractor: find the string value of `"key"` in a JSON object.
+// Minimal JSON S extractor: find the S value of `"key"` in a JSON object.
 // Handles basic escaping but not full Unicode escapes — sufficient for JWT claims.
-string_view json_string(
-	string_view json,
-	string_view key) {
+SV json_string(
+	SV json,
+	SV key) {
 	auto pos = json_value_pos(json, key);
 	if (pos >= json.size() || json[pos] != '"') {
 		return {};
@@ -105,26 +104,26 @@ string_view json_string(
 }
 
 // Minimal JSON number extractor: find i64 value of `"key"`.
-optional<i64> json_int_at(
-	string_view json,
-	size_t pos) {
+Opt<i64> json_int_at(
+	SV json,
+	SZ pos) {
 	if (pos >= json.size()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	i64 val{};
 	auto const *jend = ranges::next(json.data(), ssize(json));
-	auto const *jpos = ranges::next(json.data(), static_cast<ptrdiff_t>(pos));
+	auto const *jpos = json.data() + pos;
 	auto [ptr, ec] = from_chars(jpos, jend, val);
 	if (ec != errc{} || ptr == jpos) {
-		return nullopt;
+		return std::nullopt;
 	}
 	return val;
 }
 
 bool json_array_contains_string(
-	string_view json,
-	string_view key,
-	string_view value) {
+	SV json,
+	SV key,
+	SV value) {
 	auto pos = json_value_pos(json, key);
 	if (pos >= json.size() || json[pos] != '[') {
 		return false;
@@ -192,12 +191,12 @@ bool ct_equal(
 namespace jwt_detail {
 
 bool ascii_iequals(
-	string_view lhs,
-	string_view rhs) noexcept {
+	SV lhs,
+	SV rhs) noexcept {
 	if (lhs.size() != rhs.size()) {
 		return false;
 	}
-	for (size_t i = 0; i < lhs.size(); ++i) {
+	for (SZ i = 0; i < lhs.size(); ++i) {
 		auto const l = static_cast<unsigned char>(lhs[i]);
 		auto const r = static_cast<unsigned char>(rhs[i]);
 		if ((l | 0x20U) != (r | 0x20U)) {
@@ -207,14 +206,14 @@ bool ascii_iequals(
 	return true;
 }
 
-optional<string_view> bearer_token(
-	string_view auth) noexcept {
-	static constexpr string_view kScheme = "Bearer";
+Opt<SV> bearer_token(
+	SV auth) noexcept {
+	static constexpr SV kScheme = "Bearer";
 	if (auth.size() <= kScheme.size() || auth[kScheme.size()] != ' ') {
-		return nullopt;
+		return std::nullopt;
 	}
 	if (!ascii_iequals(auth.substr(0, kScheme.size()), kScheme)) {
-		return nullopt;
+		return std::nullopt;
 	}
 	return auth.substr(kScheme.size() + 1);
 }
@@ -225,17 +224,17 @@ optional<string_view> bearer_token(
 // Public API
 // ---------------------------------------------------------------------------
 
-// Decode and verify a JWT.  Returns JwtClaims on success, error string on failure.
-export expected<JwtClaims, string> jwt_decode(
-	string_view token,
+// Decode and verify a JWT.  Returns JwtClaims on success, error S on failure.
+export expected<JwtClaims, S> jwt_decode(
+	SV token,
 	JwtOptions const &opts) {
 	// Split header.payload.signature
 	auto dot1 = token.find('.');
-	if (dot1 == string_view::npos) {
+	if (dot1 == SV::npos) {
 		return unexpected{"malformed token: missing first dot"};
 	}
 	auto dot2 = token.find('.', dot1 + 1);
-	if (dot2 == string_view::npos) {
+	if (dot2 == SV::npos) {
 		return unexpected{"malformed token: missing second dot"};
 	}
 
@@ -267,7 +266,7 @@ export expected<JwtClaims, string> jwt_decode(
 	// Recompute expected signature over "header_b64.payload_b64".
 	auto sig_expected = hmac_sha256(
 		span{reinterpret_cast<unsigned char const *>(opts.secret.data()), opts.secret.size()},
-		span{reinterpret_cast<unsigned char const *>(token.data()), static_cast<size_t>(dot2)});
+		span{reinterpret_cast<unsigned char const *>(token.data()), static_cast<SZ>(dot2)});
 
 	if (!ct_equal(
 			span{reinterpret_cast<unsigned char const *>(sig_claimed.data()), sig_claimed.size()},
@@ -278,22 +277,22 @@ export expected<JwtClaims, string> jwt_decode(
 	// Extract standard claims.
 	JwtClaims claims{};
 	claims.raw = payload;
-	claims.sub = string{json_string(payload, "sub")};
-	claims.iss = string{json_string(payload, "iss")};
-	claims.jti = string{json_string(payload, "jti")};
+	claims.sub = S{json_string(payload, "sub")};
+	claims.iss = S{json_string(payload, "iss")};
+	claims.jti = S{json_string(payload, "jti")};
 	auto const exp_pos = json_value_pos(payload, "exp");
 	auto const nbf_pos = json_value_pos(payload, "nbf");
 	auto const iat_pos = json_value_pos(payload, "iat");
 	auto exp = json_int_at(payload, exp_pos);
 	auto nbf = json_int_at(payload, nbf_pos);
 	auto iat = json_int_at(payload, iat_pos);
-	if (exp_pos != string_view::npos && !exp) {
+	if (exp_pos != SV::npos && !exp) {
 		return unexpected{"invalid exp claim"};
 	}
-	if (nbf_pos != string_view::npos && !nbf) {
+	if (nbf_pos != SV::npos && !nbf) {
 		return unexpected{"invalid nbf claim"};
 	}
-	if (iat_pos != string_view::npos && !iat) {
+	if (iat_pos != SV::npos && !iat) {
 		return unexpected{"invalid iat claim"};
 	}
 	claims.exp = exp.value_or(0);
@@ -326,18 +325,18 @@ export expected<JwtClaims, string> jwt_decode(
 	return claims;
 }
 
-// Sign a payload JSON string and return a complete JWT.
-// payload_json must be a valid JSON object string, e.g. R"({"sub":"user1","exp":9999999999})".
-export string jwt_sign(
-	string_view payload_json,
-	string_view secret) {
+// Sign a payload JSON S and return a complete JWT.
+// payload_json must be a valid JSON object S, e.g. R"({"sub":"user1","exp":9999999999})".
+export S jwt_sign(
+	SV payload_json,
+	SV secret) {
 	// Header: {"alg":"HS256","typ":"JWT"}
-	static constexpr string_view kHeader = R"({"alg":"HS256","typ":"JWT"})";
+	static constexpr SV kHeader = R"({"alg":"HS256","typ":"JWT"})";
 	auto header_b64 = base64url_encode(span{reinterpret_cast<unsigned char const *>(kHeader.data()), kHeader.size()});
 	auto payload_b64 =
 		base64url_encode(span{reinterpret_cast<unsigned char const *>(payload_json.data()), payload_json.size()});
 
-	string const signing_input = header_b64 + '.' + payload_b64;
+	S const signing_input = header_b64 + '.' + payload_b64;
 	auto sig = hmac_sha256(
 		span{reinterpret_cast<unsigned char const *>(secret.data()), secret.size()},
 		span{reinterpret_cast<unsigned char const *>(signing_input.data()), signing_input.size()});
@@ -352,13 +351,13 @@ export string jwt_sign(
 export Router::Middleware jwt_middleware(
 	JwtOptions opts) {
 	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
-		auto unauthorized = [](string_view www_auth) {
+		auto unauthorized = [](SV www_auth) {
 			HttpResponse r;
 			r.status = kHttpUnauthorized;
 			r.status_text = "Unauthorized";
 			r.content_type = "text/plain; charset=utf-8";
 			r.set_text_body("Unauthorized");
-			r.headers["WWW-Authenticate"] = string{www_auth};
+			r.headers["WWW-Authenticate"] = S{www_auth};
 			return r;
 		};
 

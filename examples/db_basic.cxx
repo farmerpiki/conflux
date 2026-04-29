@@ -5,25 +5,25 @@
 #include <liburing.h>
 
 import std;
+import conflux.types;
 import conflux.work;
 import conflux.file_io;
 import conflux.db;
 
-using namespace std;
 using namespace conflux::db;
 
 namespace {
 
-constexpr uint64_t pack_ud(
-	uint32_t slot,
-	uint32_t gen) noexcept {
-	return (static_cast<uint64_t>(gen) << 32U) | slot;
+constexpr u64 pack_ud(
+	u32 slot,
+	u32 gen) noexcept {
+	return (static_cast<u64>(gen) << 32U) | slot;
 }
 
 } // namespace
 
 int main() {
-	char const *raw = ::getenv("PG_CONNINFO");
+	char const *raw = std::getenv("PG_CONNINFO");
 	if (raw == nullptr || *raw == '\0') {
 		println(cerr, "set PG_CONNINFO, e.g. host=/var/run/postgresql user=postgres dbname=postgres");
 		return 2;
@@ -35,10 +35,7 @@ int main() {
 		return 1;
 	}
 	CompletionTable ct;
-	FileReader reader{
-		&ring,
-		&ct,
-		[](uint32_t s, uint32_t g) noexcept { return pack_ud(s, g); }};
+	FileReader reader{&ring, &ct, [](u32 s, u32 g) noexcept { return pack_ud(s, g); }};
 	CurrentFileReaderScope const scope{&reader};
 
 	try {
@@ -46,13 +43,12 @@ int main() {
 		println("connected — backend pid {}, server {}", conn->backend_pid(), conn->server_version());
 
 		Params p;
-		p.add(int64_t{3});
-		auto rs = block_on(
-			reader,
-			conn->query("SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i", move(p)));
+		p.add(i64{3});
+		auto rs =
+			block_on(reader, conn->query("SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i", move(p)));
 		println("rows: {} cols: {}", rs.rows(), rs.cols());
 		for (auto row: rs) {
-			println("  {} = {}", row.as<int64_t>(0), row.as<string_view>(1));
+			println("  {} = {}", row.as<i64>(0), row.as<SV>(1));
 		}
 		conn->close();
 	} catch (exception const &e) {

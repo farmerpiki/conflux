@@ -65,7 +65,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"work.root: Failure and FailureError normalize null exception_ptr",
+	"work.root: Failure and FailureError normalize null EP",
 	"[work.root]") {
 	root::Failure f{std::exception_ptr{}};
 	REQUIRE(f.error != nullptr);
@@ -555,9 +555,9 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: R1 JoinContextError reason defaults to unspecified for legacy ctors",
 	"[work.root][r1]") {
-	root::JoinContextError const e{"string only"};
+	root::JoinContextError const e{"S only"};
 	CHECK(e.reason() == root::JoinContextReason::unspecified);
-	CHECK(S{e.what()} == "string only");
+	CHECK(S{e.what()} == "S only");
 }
 
 TEST_CASE(

@@ -1,10 +1,10 @@
 export module conflux.net.redirect;
 import std;
+import conflux.types;
 import conflux.net.router;
-using namespace std;
 
 [[nodiscard]] inline bool is_safe_redirect_suffix(
-	string_view s) noexcept {
+	SV s) noexcept {
 	if (s.starts_with("//") || s.starts_with("/\\")) {
 		return false;
 	}
@@ -13,9 +13,9 @@ using namespace std;
 
 export struct RedirectRule {
 	// Path to match. When prefix_match is false, exact match only.
-	string from;
+	S from;
 	// Target URL or path. For prefix matches the unmatched suffix is appended.
-	string to;
+	S to;
 	// HTTP redirect status code (301, 302, 307, 308).
 	int status{302};
 	// When true, match any request path starting with `from`.
@@ -23,7 +23,7 @@ export struct RedirectRule {
 };
 
 export struct RedirectOptions {
-	vector<RedirectRule> rules;
+	V<RedirectRule> rules;
 };
 
 // Middleware factory: redirect requests matching configured rules.
@@ -33,7 +33,7 @@ export Router::Middleware redirect_middleware(
 	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		for (auto const &rule: opts.rules) {
 			bool matched = false;
-			string target = rule.to;
+			S target = rule.to;
 			if (rule.prefix_match) {
 				if (req.path.starts_with(rule.from)) {
 					auto const suffix = req.path.substr(rule.from.size());

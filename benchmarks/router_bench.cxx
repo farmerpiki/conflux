@@ -1,18 +1,17 @@
 import std;
+import conflux.types;
 
 import conflux.net.http;
 
-using namespace std;
-
 namespace benchmark_detail {
 
-inline atomic<size_t> sink{};
+inline Atom<SZ> sink{};
 
 struct Config {
 	bool list_only = false;
-	string filter;
-	optional<size_t> iterations_override;
-	enum class Format : uint8_t {
+	S filter;
+	Opt<SZ> iterations_override;
+	enum class Format : u8 {
 		table,
 		csv,
 	};
@@ -20,23 +19,23 @@ struct Config {
 };
 
 struct Stats {
-	string_view name;
-	size_t iterations{};
-	uint64_t total_ns{};
+	SV name;
+	SZ iterations{};
+	u64 total_ns{};
 	double ns_per_iter{};
 };
 
-using BenchFn = function<size_t()>;
+using BenchFn = Fn<SZ()>;
 
 struct Case {
-	string_view name;
-	string_view description;
-	size_t default_iterations;
+	SV name;
+	SV description;
+	SZ default_iterations;
 	BenchFn run;
 };
 
-[[gnu::const]] size_t iterations_for_payload(
-	size_t payload_size) {
+[[gnu::const]] SZ iterations_for_payload(
+	SZ payload_size) {
 	if (payload_size <= 512) {
 		return 50'000;
 	}
@@ -62,79 +61,79 @@ void print_usage() {
 Config parse_args(
 	span<char *> args) {
 	Config cfg;
-	for (size_t i = 1; i < args.size(); ++i) {
-		string_view arg = args[i];
+	for (SZ i = 1; i < args.size(); ++i) {
+		SV arg = args[i];
 		if (arg == "--list") {
 			cfg.list_only = true;
 			continue;
 		}
 		if (arg == "--help" || arg == "-h") {
 			print_usage();
-			exit(0);
+			std::exit(0);
 		}
 		if (arg == "--filter") {
 			if (i + 1 >= args.size()) {
-				throw invalid_argument{"--filter requires a value"};
+				throw std::invalid_argument{"--filter requires a value"};
 			}
 			cfg.filter = args[++i];
 			continue;
 		}
 		if (arg == "--iterations") {
 			if (i + 1 >= args.size()) {
-				throw invalid_argument{"--iterations requires a value"};
+				throw std::invalid_argument{"--iterations requires a value"};
 			}
-			size_t iters = 0;
-			auto const value = string_view{args[++i]};
+			SZ iters = 0;
+			auto const value = SV{args[++i]};
 			auto const [ptr, ec] = from_chars(value.data(), value.data() + value.size(), iters);
 			if (ec != errc{} || ptr != value.data() + value.size() || iters == 0) {
-				throw invalid_argument{"--iterations must be a positive integer"};
+				throw std::invalid_argument{"--iterations must be a positive integer"};
 			}
 			cfg.iterations_override = iters;
 			continue;
 		}
 		if (arg == "--format") {
 			if (i + 1 >= args.size()) {
-				throw invalid_argument{"--format requires a value"};
+				throw std::invalid_argument{"--format requires a value"};
 			}
-			auto const value = string_view{args[++i]};
+			auto const value = SV{args[++i]};
 			if (value == "table") {
 				cfg.format = Config::Format::table;
 			} else if (value == "csv") {
 				cfg.format = Config::Format::csv;
 			} else {
-				throw invalid_argument{"--format must be table or csv"};
+				throw std::invalid_argument{"--format must be table or csv"};
 			}
 			continue;
 		}
-		throw invalid_argument{format("unknown argument: {}", arg)};
+		throw std::invalid_argument{format("unknown argument: {}", arg)};
 	}
 	return cfg;
 }
 
 [[gnu::pure]] bool matches_filter(
 	Case const &bench,
-	string_view filter) {
+	SV filter) {
 	return filter.empty() || bench.name.contains(filter) || bench.description.contains(filter);
 }
 
-[[gnu::const]] size_t warmup_iterations(
-	size_t iterations) {
-	return clamp(iterations / 10, size_t{1}, size_t{1000});
+[[gnu::const]] SZ warmup_iterations(
+	SZ iterations) {
+	return std::clamp(iterations / 10, SZ{1}, SZ{1000});
 }
 
 Stats measure_case(
 	Case const &bench,
-	size_t iterations) {
-	for (size_t i = 0; i < warmup_iterations(iterations); ++i) {
+	SZ iterations) {
+	for (SZ i = 0; i < warmup_iterations(iterations); ++i) {
 		sink.fetch_add(bench.run(), memory_order_relaxed);
 	}
 
 	auto const start = chrono::steady_clock::now();
-	for (size_t i = 0; i < iterations; ++i) {
+	for (SZ i = 0; i < iterations; ++i) {
 		sink.fetch_add(bench.run(), memory_order_relaxed);
 	}
 	auto const elapsed = chrono::steady_clock::now() - start;
-	auto const total_ns = static_cast<uint64_t>(chrono::duration_cast<chrono::nanoseconds>(elapsed).count());
+	auto const total_ns = static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(elapsed).count());
 	return Stats{
 		.name = bench.name,
 		.iterations = iterations,
@@ -143,7 +142,7 @@ Stats measure_case(
 }
 
 void print_list(
-	vector<Case> const &cases) {
+	V<Case> const &cases) {
 	for (auto const &bench: cases) {
 		println("{:32} {}", bench.name, bench.description);
 	}
@@ -228,12 +227,14 @@ Case make_compress_case() {
 	struct State {
 		Router router;
 		HttpRequest req;
-		shared_ptr<string> payload{make_shared<string>()};
+		SP<S> payload{make_shared<S>()};
 	};
 	auto state = make_shared<State>();
 	state->payload->assign(4096, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
-	state->router.get("/data", [payload = state->payload](HttpRequestView const &) { return HttpResponse::text(*payload); });
+	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
+		return HttpResponse::text(*payload);
+	});
 	state->req.method = "GET";
 	state->req.path = "/data";
 	state->req.version = "HTTP/1.1";
@@ -253,12 +254,14 @@ Case make_compress_negotiation_miss_case() {
 	struct State {
 		Router router;
 		HttpRequest req;
-		shared_ptr<string> payload{make_shared<string>()};
+		SP<S> payload{make_shared<S>()};
 	};
 	auto state = make_shared<State>();
 	state->payload->assign(4096, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
-	state->router.get("/data", [payload = state->payload](HttpRequestView const &) { return HttpResponse::text(*payload); });
+	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
+		return HttpResponse::text(*payload);
+	});
 	state->req.method = "GET";
 	state->req.path = "/data";
 	state->req.version = "HTTP/1.1";
@@ -278,12 +281,14 @@ Case make_compress_below_threshold_case() {
 	struct State {
 		Router router;
 		HttpRequest req;
-		shared_ptr<string> payload{make_shared<string>()};
+		SP<S> payload{make_shared<S>()};
 	};
 	auto state = make_shared<State>();
 	state->payload->assign(128, 'x');
 	state->router.use(compress_middleware({.min_body_size = 256}));
-	state->router.get("/data", [payload = state->payload](HttpRequestView const &) { return HttpResponse::text(*payload); });
+	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
+		return HttpResponse::text(*payload);
+	});
 	state->req.method = "GET";
 	state->req.path = "/data";
 	state->req.version = "HTTP/1.1";
@@ -300,21 +305,23 @@ Case make_compress_below_threshold_case() {
 }
 
 Case make_codec_payload_case_owned(
-	string codec_name,
-	size_t payload_size) {
+	S codec_name,
+	SZ payload_size) {
 	struct State {
-		string name;
-		string description;
+		S name;
+		S description;
 		Router router;
 		HttpRequest req;
-		shared_ptr<string> payload{make_shared<string>()};
+		SP<S> payload{make_shared<S>()};
 	};
 	auto state = make_shared<State>();
 	state->name = format("codec/{}/{}B", codec_name, payload_size);
 	state->description = format("Compression path pinned to {} for {} byte text payloads", codec_name, payload_size);
 	state->payload->assign(payload_size, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
-	state->router.get("/data", [payload = state->payload](HttpRequestView const &) { return HttpResponse::text(*payload); });
+	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
+		return HttpResponse::text(*payload);
+	});
 	state->req.method = "GET";
 	state->req.path = "/data";
 	state->req.version = "HTTP/1.1";
@@ -332,13 +339,13 @@ Case make_codec_payload_case_owned(
 
 Case make_gzip_backend_payload_case(
 	GzipBackend backend,
-	size_t payload_size) {
+	SZ payload_size) {
 	struct State {
-		string name;
-		string description;
+		S name;
+		S description;
 		Router router;
 		HttpRequest req;
-		shared_ptr<string> payload{make_shared<string>()};
+		SP<S> payload{make_shared<S>()};
 		GzipBackend backend;
 		bool configured = false;
 	};
@@ -348,7 +355,9 @@ Case make_gzip_backend_payload_case(
 	state->description = format("Gzip backend {} on {} byte text payloads", gzip_backend_name(backend), payload_size);
 	state->payload->assign(payload_size, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
-	state->router.get("/data", [payload = state->payload](HttpRequestView const &) { return HttpResponse::text(*payload); });
+	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
+		return HttpResponse::text(*payload);
+	});
 	state->req.method = "GET";
 	state->req.path = "/data";
 	state->req.version = "HTTP/1.1";
@@ -361,7 +370,7 @@ Case make_gzip_backend_payload_case(
 		.run = [state] {
 			bool const ok = state->configured || force_gzip_backend(state->backend);
 			if (!ok) {
-				return size_t{0};
+				return SZ{0};
 			}
 			state->configured = true;
 			auto resp = state->router.dispatch(state->req);
@@ -494,12 +503,12 @@ Case make_flow_not_found_case() {
 		.default_iterations = 200'000,
 		.run = [state] {
 			auto resp = state->router.dispatch(state->req);
-			return static_cast<size_t>(resp.status) + resp.text_body().size();
+			return static_cast<SZ>(resp.status) + resp.text_body().size();
 		}};
 }
 
-vector<Case> build_cases() {
-	vector<Case> cases;
+V<Case> build_cases() {
+	V<Case> cases;
 	cases.push_back(make_httpfields_lookup_case());
 	cases.push_back(make_router_exact_case());
 	cases.push_back(make_router_params_case());
@@ -562,10 +571,10 @@ int main(
 	int argc,
 	char **argv) {
 	try {
-		auto const cfg = benchmark_detail::parse_args({argv, static_cast<size_t>(argc)});
+		auto const cfg = benchmark_detail::parse_args({argv, static_cast<SZ>(argc)});
 		auto cases = benchmark_detail::build_cases();
 
-		vector<benchmark_detail::Case const *> selected;
+		V<benchmark_detail::Case const *> selected;
 		selected.reserve(cases.size());
 		for (auto const &bench: cases) {
 			if (benchmark_detail::matches_filter(bench, cfg.filter)) {
@@ -578,7 +587,7 @@ int main(
 			return 0;
 		}
 		if (selected.empty()) {
-			throw runtime_error{"no benchmark cases matched the current filter"};
+			throw RE{"no benchmark cases matched the current filter"};
 		}
 
 		benchmark_detail::print_header(cfg.format);

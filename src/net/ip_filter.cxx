@@ -1,8 +1,8 @@
 export module conflux.net.ip_filter;
 import std;
+import conflux.types;
 import conflux.utils;
 import conflux.net.router;
-using namespace std;
 
 export enum class IpFilterMode {
 	allowlist, // only listed CIDRs pass; all others → 403
@@ -11,7 +11,7 @@ export enum class IpFilterMode {
 
 export struct IpFilterOptions {
 	IpFilterMode mode{IpFilterMode::allowlist};
-	vector<string> cidrs;
+	V<S> cidrs;
 };
 
 namespace ip_filter_detail {

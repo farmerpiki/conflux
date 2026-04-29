@@ -1,7 +1,6 @@
 import std;
+import conflux.types;
 import conflux.templates;
-
-using namespace std;
 
 namespace {
 
@@ -12,26 +11,25 @@ struct Stats {
 template<typename F>
 Stats measure(
 	F &&fn,
-	size_t warmup,
-	size_t iters) {
-	for (size_t i = 0; i < warmup; ++i) {
+	SZ warmup,
+	SZ iters) {
+	for (SZ i = 0; i < warmup; ++i) {
 		fn();
 	}
-	vector<double> samples;
+	V<double> samples;
 	samples.reserve(iters);
-	for (size_t i = 0; i < iters; ++i) {
+	for (SZ i = 0; i < iters; ++i) {
 		auto t0 = chrono::steady_clock::now();
 		fn();
 		auto t1 = chrono::steady_clock::now();
-		samples.push_back(
-			static_cast<double>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count()));
+		samples.push_back(static_cast<double>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count()));
 	}
 	sort(samples.begin(), samples.end());
 	return {samples[iters / 2]};
 }
 
 void report(
-	string_view name,
+	SV name,
 	Stats const &s) {
 	println("[tmpl-bench] {:<50} {:>10.1f} ns", name, s.median_ns);
 }
@@ -41,16 +39,16 @@ void report(
 // ---------------------------------------------------------------------------
 
 // Simple variable substitution: {{ name }}
-constexpr string_view kSimpleTmpl = "Hello, {{ name }}! You have {{ count }} messages.";
-constexpr string_view kSimpleCtx  = R"({"name":"Alice","count":42})";
+constexpr SV kSimpleTmpl = "Hello, {{ name }}! You have {{ count }} messages.";
+constexpr SV kSimpleCtx = R"({"name":"Alice","count":42})";
 
 // Loop over 10 items
-constexpr string_view kLoopTmpl = R"(
+constexpr SV kLoopTmpl = R"(
 {%- for item in items -%}
 {{ loop.index }}. {{ item.title }} ({{ item.score }})
 {%- endfor -%}
 )";
-constexpr string_view kLoopCtx10 = R"({
+constexpr SV kLoopCtx10 = R"({
   "items": [
     {"title":"Alpha","score":95},{"title":"Beta","score":87},
     {"title":"Gamma","score":76},{"title":"Delta","score":91},
@@ -61,8 +59,8 @@ constexpr string_view kLoopCtx10 = R"({
 })";
 
 // Loop over 100 items
-string make_loop_ctx_100() {
-	string out = R"({"items":[)";
+S make_loop_ctx_100() {
+	S out = R"({"items":[)";
 	for (int i = 0; i < 100; ++i) {
 		if (i > 0) {
 			out += ',';
@@ -74,7 +72,7 @@ string make_loop_ctx_100() {
 }
 
 // Nested conditionals
-constexpr string_view kCondTmpl = R"(
+constexpr SV kCondTmpl = R"(
 {%- if user.admin -%}
   Admin: {{ user.name }}
 {%- elif user.active -%}
@@ -83,14 +81,14 @@ constexpr string_view kCondTmpl = R"(
   Guest
 {%- endif -%}
 )";
-constexpr string_view kCondCtxTrue = R"({"user":{"admin":false,"active":true,"name":"Bob","role":"editor"}})";
+constexpr SV kCondCtxTrue = R"({"user":{"admin":false,"active":true,"name":"Bob","role":"editor"}})";
 
 // Filter chain: value | upper | replace(",", "") | default("n/a")
-constexpr string_view kFilterTmpl = R"({{ tags | join(", ") | upper }})";
-constexpr string_view kFilterCtx  = R"({"tags":["rust","cpp","python","go","zig"]})";
+constexpr SV kFilterTmpl = R"({{ tags | join(", ") | upper }})";
+constexpr SV kFilterCtx = R"({"tags":["rust","cpp","python","go","zig"]})";
 
 // HTML-like template with blocks, loops and filters (realistic web page fragment)
-constexpr string_view kPageTmpl = R"(
+constexpr SV kPageTmpl = R"(
 <ul>
 {%- for p in products -%}
   <li class="{{ p.category | lower }}">
@@ -101,7 +99,7 @@ constexpr string_view kPageTmpl = R"(
 </ul>
 <p>Total: {{ products | length }} items</p>
 )";
-constexpr string_view kPageCtx = R"({
+constexpr SV kPageCtx = R"({
   "products": [
     {"name":"Widget <A>","category":"TOOLS","price":"9.99","sale":true},
     {"name":"Gadget B","category":"ELECTRONICS","price":"49.99","sale":false},
@@ -112,19 +110,19 @@ constexpr string_view kPageCtx = R"({
 })";
 
 // Macro definition and call
-constexpr string_view kMacroTmpl = R"(
+constexpr SV kMacroTmpl = R"(
 {%- macro badge(label, cls) -%}
 <span class="{{ cls }}">{{ label }}</span>
 {%- endmacro -%}
 {{ badge("New", "tag-new") }} {{ badge("Hot", "tag-hot") }} {{ badge("Sale", "tag-sale") }}
 )";
-constexpr string_view kMacroCtx = R"({})";
+constexpr SV kMacroCtx = R"({})";
 
 } // namespace
 
 int main() {
 	println("[tmpl-bench] Template engine benchmarks");
-	println("[tmpl-bench] {}", string(60, '-'));
+	println("[tmpl-bench] {}", S(60, '-'));
 
 	// Each sub-bench creates its own Environment to also measure cold-path
 	// parse+render. The hot-path bench reuses a pre-parsed environment.
@@ -134,7 +132,7 @@ int main() {
 		auto s = measure(
 			[] {
 				tmpl::Environment env{"."};
-				string out = env.render_string(string(kSimpleTmpl), string(kSimpleCtx));
+				S out = env.render_string(S(kSimpleTmpl), S(kSimpleCtx));
 				(void)out;
 			},
 			20,
@@ -145,7 +143,7 @@ int main() {
 		auto s = measure(
 			[] {
 				tmpl::Environment env{"."};
-				string out = env.render_string(string(kLoopTmpl), string(kLoopCtx10));
+				S out = env.render_string(S(kLoopTmpl), S(kLoopCtx10));
 				(void)out;
 			},
 			20,
@@ -153,11 +151,11 @@ int main() {
 		report("parse+render: loop 10 items", s);
 	}
 	{
-		string ctx100 = make_loop_ctx_100();
+		S ctx100 = make_loop_ctx_100();
 		auto s = measure(
 			[&ctx100] {
 				tmpl::Environment env{"."};
-				string out = env.render_string(string(kLoopTmpl), ctx100);
+				S out = env.render_string(S(kLoopTmpl), ctx100);
 				(void)out;
 			},
 			20,
@@ -168,7 +166,7 @@ int main() {
 		auto s = measure(
 			[] {
 				tmpl::Environment env{"."};
-				string out = env.render_string(string(kCondTmpl), string(kCondCtxTrue));
+				S out = env.render_string(S(kCondTmpl), S(kCondCtxTrue));
 				(void)out;
 			},
 			20,
@@ -179,7 +177,7 @@ int main() {
 		auto s = measure(
 			[] {
 				tmpl::Environment env{"."};
-				string out = env.render_string(string(kFilterTmpl), string(kFilterCtx));
+				S out = env.render_string(S(kFilterTmpl), S(kFilterCtx));
 				(void)out;
 			},
 			20,
@@ -190,7 +188,7 @@ int main() {
 		auto s = measure(
 			[] {
 				tmpl::Environment env{"."};
-				string out = env.render_string(string(kPageTmpl), string(kPageCtx));
+				S out = env.render_string(S(kPageTmpl), S(kPageCtx));
 				(void)out;
 			},
 			20,
@@ -201,7 +199,7 @@ int main() {
 		auto s = measure(
 			[] {
 				tmpl::Environment env{"."};
-				string out = env.render_string(string(kMacroTmpl), string(kMacroCtx));
+				S out = env.render_string(S(kMacroTmpl), S(kMacroCtx));
 				(void)out;
 			},
 			20,
@@ -209,13 +207,13 @@ int main() {
 		report("parse+render: macro define+call x3", s);
 	}
 
-	println("[tmpl-bench] {}", string(60, '-'));
+	println("[tmpl-bench] {}", S(60, '-'));
 
 	// --- render-only (hot path: template pre-parsed, context varies) ---
 	{
 		tmpl::Environment env{"."};
 		// warm parse
-		(void)env.render_string(string(kSimpleTmpl), string(kSimpleCtx));
+		(void)env.render_string(S(kSimpleTmpl), S(kSimpleCtx));
 		// NOTE: render_string re-parses every call; use a file-loaded env for
 		// true render-only. We measure render_string to keep it self-contained.
 		// Still useful: shows parse overhead relative to render.
@@ -228,10 +226,10 @@ int main() {
 		tmpl::Environment env{"."};
 		// Pre-parse by doing one call (render_string re-parses each call, so
 		// we can't eliminate it — measure as-is and label accurately).
-		string ctx100 = make_loop_ctx_100();
+		S ctx100 = make_loop_ctx_100();
 		auto s = measure(
 			[&] {
-				string out = env.render_string(string(kLoopTmpl), ctx100);
+				S out = env.render_string(S(kLoopTmpl), ctx100);
 				(void)out;
 			},
 			50,
@@ -239,11 +237,11 @@ int main() {
 		report("render_string: loop 100 (shared env, re-parse)", s);
 	}
 	{
-		string ctx100 = make_loop_ctx_100();
+		S ctx100 = make_loop_ctx_100();
 		auto s = measure(
 			[&] {
 				tmpl::Environment env{"."};
-				string out = env.render_string(string(kPageTmpl), string(kPageCtx));
+				S out = env.render_string(S(kPageTmpl), S(kPageCtx));
 				(void)out;
 			},
 			50,
@@ -251,6 +249,6 @@ int main() {
 		report("render_string: page fragment (2000 iters)", s);
 	}
 
-	println("[tmpl-bench] {}", string(60, '-'));
+	println("[tmpl-bench] {}", S(60, '-'));
 	println("[tmpl-bench] Done.");
 }

@@ -64,7 +64,7 @@ namespace detail {
 	if (ep) {
 		return ep;
 	}
-	return std::make_exception_ptr(std::runtime_error{"conflux.work.root: normalized null exception_ptr"});
+	return std::make_exception_ptr(std::runtime_error{"conflux.work.root: normalized null EP"});
 }
 
 } // namespace detail
@@ -1579,8 +1579,7 @@ class BasicControl {
 	template<work_value, ControlCategory>
 	friend class BasicSource;
 	template<work_value U>
-	friend P<BasicControl<ControlCategory::task>, BasicSource<U, ControlCategory::task>>
-	make_task_control_source();
+	friend P<BasicControl<ControlCategory::task>, BasicSource<U, ControlCategory::task>> make_task_control_source();
 	template<work_value U>
 	friend P<BasicControl<ControlCategory::posted>, BasicSource<U, ControlCategory::posted>>
 	make_posted_control_source();

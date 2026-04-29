@@ -23,11 +23,10 @@ import conflux.net.compress.backend.isal;
 #endif
 import conflux.net.router;
 import conflux.utils;
-using namespace std;
 
 export struct CompressOptions {
 	// Responses smaller than this (in bytes) are not compressed.
-	size_t min_body_size{256};
+	SZ min_body_size{256};
 };
 
 export enum class GzipBackend : u8 {
@@ -38,7 +37,7 @@ export enum class GzipBackend : u8 {
 	isa_l,
 };
 
-export [[nodiscard]] string_view gzip_backend_name(
+export [[nodiscard]] SV gzip_backend_name(
 	GzipBackend backend) noexcept {
 	switch (backend) {
 	case GzipBackend::auto_select: return "auto";
@@ -98,8 +97,8 @@ namespace compress_detail {
 	return false;
 }
 
-vector<GzipBackend> available_gzip_backends() {
-	vector<GzipBackend> backends;
+V<GzipBackend> available_gzip_backends() {
+	V<GzipBackend> backends;
 #if CONFLUX_HAS_LIBDEFLATE
 	backends.push_back(GzipBackend::libdeflate);
 #endif
@@ -128,7 +127,7 @@ bool zstd_supported() noexcept {
 }
 
 bool is_compressible(
-	string_view content_type) {
+	SV content_type) {
 	return content_type.starts_with("text/")
 		|| content_type.starts_with("application/json")
 		|| content_type.starts_with("application/xml")
@@ -137,20 +136,20 @@ bool is_compressible(
 }
 
 float header_q_value(
-	string_view hdr,
-	string_view codec_name) {
+	SV hdr,
+	SV codec_name) {
 	float q_star = -1.0F;
 	float q_codec = -1.0F;
 
-	for (size_t pos = 0; pos <= hdr.size();) {
+	for (SZ pos = 0; pos <= hdr.size();) {
 		auto comma = hdr.find(',', pos);
-		auto token = (comma == string_view::npos) ? hdr.substr(pos) : hdr.substr(pos, comma - pos);
+		auto token = (comma == SV::npos) ? hdr.substr(pos) : hdr.substr(pos, comma - pos);
 		auto semi = token.find(';');
 		auto name = ascii_lower(trim(token.substr(0, semi)));
 
 		float q = 1.0F;
-		if (semi != string_view::npos) {
-			if (auto eq = token.find('=', semi); eq != string_view::npos) {
+		if (semi != SV::npos) {
+			if (auto eq = token.find('=', semi); eq != SV::npos) {
 				auto key = ascii_lower(trim(token.substr(semi + 1, eq - semi - 1)));
 				if (key == "q") {
 					auto val = trim(token.substr(eq + 1));
@@ -165,7 +164,7 @@ float header_q_value(
 			q_codec = max(q_codec, q);
 		}
 
-		if (comma == string_view::npos) {
+		if (comma == SV::npos) {
 			break;
 		}
 		pos = comma + 1;
@@ -174,9 +173,9 @@ float header_q_value(
 	return (q_codec < 0.0F) ? q_star : q_codec;
 }
 
-string gzip_compress_with_backend(
+S gzip_compress_with_backend(
 	GzipBackend backend,
-	string_view input) {
+	SV input) {
 	(void)input;
 	switch (backend) {
 #if CONFLUX_HAS_LIBDEFLATE
@@ -197,7 +196,7 @@ string gzip_compress_with_backend(
 }
 
 #if CONFLUX_HAS_ZSTD
-string zstd_compress(string_view input);
+S zstd_compress(SV input);
 #endif
 
 GzipBackend benchmark_fastest_gzip_backend() {
@@ -209,7 +208,7 @@ GzipBackend benchmark_fastest_gzip_backend() {
 		return backends.front();
 	}
 
-	string const sample(4096, 'x');
+	S const sample(4096, 'x');
 	GzipBackend winner = backends.front();
 	auto best = chrono::steady_clock::duration::max();
 	for (auto const backend: backends) {
@@ -243,7 +242,7 @@ GzipBackend default_gzip_backend() {
 		return backends.front();
 	}
 
-	array preferred{
+	A preferred{
 		GzipBackend::isa_l,
 		GzipBackend::zlib_ng,
 		GzipBackend::libdeflate,
@@ -283,7 +282,7 @@ DynamicEncodingPreference benchmark_dynamic_encoding_preference() {
 		return DynamicEncodingPreference::gzip_first;
 	}
 
-	string const sample(4096, 'x');
+	S const sample(4096, 'x');
 	auto const gzip_backend = resolve_gzip_backend();
 
 	auto const gzip_start = chrono::steady_clock::now();
@@ -349,8 +348,8 @@ DynamicEncodingPreference resolve_dynamic_encoding_preference() {
 // Parse Accept-Encoding header and return the best dynamic codec available.
 // Dynamic responses only consider gzip and zstd. Brotli is intentionally left
 // out of this path and should be reserved for cached/static responses.
-string pick_encoding(
-	string_view hdr) {
+S pick_encoding(
+	SV hdr) {
 	float const q_gzip = gzip_supported() ? header_q_value(hdr, "gzip") : -1.0F;
 	float const q_zstd = zstd_supported() ? header_q_value(hdr, "zstd") : -1.0F;
 
@@ -385,12 +384,12 @@ string pick_encoding(
 }
 
 bool ascii_iequals(
-	string_view lhs,
-	string_view rhs) noexcept {
+	SV lhs,
+	SV rhs) noexcept {
 	if (lhs.size() != rhs.size()) {
 		return false;
 	}
-	for (size_t i = 0; i < lhs.size(); ++i) {
+	for (SZ i = 0; i < lhs.size(); ++i) {
 		auto const l = static_cast<unsigned char>(lhs[i]);
 		auto const r = static_cast<unsigned char>(rhs[i]);
 		if ((l | 0x20U) != (r | 0x20U)) {
@@ -401,15 +400,15 @@ bool ascii_iequals(
 }
 
 bool vary_contains(
-	string_view vary,
-	string_view token) noexcept {
+	SV vary,
+	SV token) noexcept {
 	while (!vary.empty()) {
 		auto comma = vary.find(',');
-		auto part = trim((comma == string_view::npos) ? vary : vary.substr(0, comma));
+		auto part = trim((comma == SV::npos) ? vary : vary.substr(0, comma));
 		if (ascii_iequals(part, token)) {
 			return true;
 		}
-		if (comma == string_view::npos) {
+		if (comma == SV::npos) {
 			break;
 		}
 		vary.remove_prefix(comma + 1);
@@ -419,10 +418,10 @@ bool vary_contains(
 
 void append_vary(
 	HttpResponse &resp,
-	string_view token) {
-	string const current{resp.headers["Vary"]};
+	SV token) {
+	S const current{resp.headers["Vary"]};
 	if (current.empty()) {
-		resp.headers["Vary"] = string{token};
+		resp.headers["Vary"] = S{token};
 		return;
 	}
 	if (trim(current) == "*" || vary_contains(current, token)) {
@@ -432,13 +431,13 @@ void append_vary(
 }
 
 #if CONFLUX_HAS_BROTLI
-string brotli_compress(
-	string_view input) {
-	size_t out_size = BrotliEncoderMaxCompressedSize(input.size());
+S brotli_compress(
+	SV input) {
+	SZ out_size = BrotliEncoderMaxCompressedSize(input.size());
 	if (out_size == 0) {
 		return {};
 	}
-	string out(out_size, '\0');
+	S out(out_size, '\0');
 	if (BrotliEncoderCompress(
 			BROTLI_DEFAULT_QUALITY,
 			BROTLI_DEFAULT_WINDOW,
@@ -456,11 +455,11 @@ string brotli_compress(
 #endif // CONFLUX_HAS_BROTLI
 
 #if CONFLUX_HAS_ZSTD
-string zstd_compress(
-	string_view input) {
-	size_t const bound = ZSTD_compressBound(input.size());
-	string out(bound, '\0');
-	size_t const result = ZSTD_compress(
+S zstd_compress(
+	SV input) {
+	SZ const bound = ZSTD_compressBound(input.size());
+	S out(bound, '\0');
+	SZ const result = ZSTD_compress(
 		out.data(),
 		bound,
 		input.data(),
@@ -476,7 +475,7 @@ string zstd_compress(
 
 } // namespace compress_detail
 
-export [[nodiscard]] vector<GzipBackend> available_gzip_backends() {
+export [[nodiscard]] V<GzipBackend> available_gzip_backends() {
 	return compress_detail::available_gzip_backends();
 }
 
@@ -567,7 +566,7 @@ export Router::Middleware compress_middleware(
 			return resp;
 		}
 
-		string compressed;
+		S compressed;
 #if CONFLUX_HAS_BROTLI
 		if (enc == "br") {
 			compressed = compress_detail::brotli_compress(resp.text_body());

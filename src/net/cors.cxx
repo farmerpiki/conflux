@@ -1,26 +1,26 @@
 export module conflux.net.cors;
 import std;
+import conflux.types;
 import conflux.net.router;
 import conflux.utils;
-using namespace std;
 
 export constexpr unsigned kCorsDefaultMaxAge = 86400U; // 24 hours
 
 export struct CorsOptions {
-	vector<string> allowed_origins{"*"};
-	vector<string> allowed_methods{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"};
-	vector<string> allowed_headers{"Content-Type", "Authorization", "Accept"};
-	vector<string> expose_headers{};
+	V<S> allowed_origins{"*"};
+	V<S> allowed_methods{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"};
+	V<S> allowed_headers{"Content-Type", "Authorization", "Accept"};
+	V<S> expose_headers{};
 	unsigned max_age{kCorsDefaultMaxAge};
 	bool allow_credentials{false};
 };
 
 namespace cors_detail {
 
-// Join a vector of strings with ", ".
-string join(
-	vector<string> const &v) {
-	string s;
+// Join a V of strings with ", ".
+S join(
+	V<S> const &v) {
+	S s;
 	for (auto const &e: v) {
 		if (!s.empty()) {
 			s += ", ";
@@ -31,24 +31,24 @@ string join(
 }
 
 // Resolve the Access-Control-Allow-Origin value for this request.
-// Returns the matching origin string, or empty if the request origin is not allowed.
-string resolve_origin(
+// Returns the matching origin S, or empty if the request origin is not allowed.
+S resolve_origin(
 	CorsOptions const &opts,
-	string_view request_origin) {
+	SV request_origin) {
 	if (opts.allowed_origins.size() == 1 && opts.allowed_origins[0] == "*") {
 		// Wildcard: reflect origin when credentials are used, else return "*".
-		return opts.allow_credentials ? string{request_origin} : string{"*"};
+		return opts.allow_credentials ? S{request_origin} : S{"*"};
 	}
-	return ranges::contains(opts.allowed_origins, request_origin) ? string{request_origin} : string{};
+	return ranges::contains(opts.allowed_origins, request_origin) ? S{request_origin} : S{};
 }
 
 bool ascii_iequals(
-	string_view lhs,
-	string_view rhs) noexcept {
+	SV lhs,
+	SV rhs) noexcept {
 	if (lhs.size() != rhs.size()) {
 		return false;
 	}
-	for (size_t i = 0; i < lhs.size(); ++i) {
+	for (SZ i = 0; i < lhs.size(); ++i) {
 		auto const l = static_cast<unsigned char>(lhs[i]);
 		auto const r = static_cast<unsigned char>(rhs[i]);
 		if ((l | 0x20U) != (r | 0x20U)) {
@@ -59,15 +59,15 @@ bool ascii_iequals(
 }
 
 bool vary_contains(
-	string_view vary,
-	string_view token) noexcept {
+	SV vary,
+	SV token) noexcept {
 	while (!vary.empty()) {
 		auto comma = vary.find(',');
-		auto part = trim((comma == string_view::npos) ? vary : vary.substr(0, comma));
+		auto part = trim((comma == SV::npos) ? vary : vary.substr(0, comma));
 		if (ascii_iequals(part, token)) {
 			return true;
 		}
-		if (comma == string_view::npos) {
+		if (comma == SV::npos) {
 			break;
 		}
 		vary.remove_prefix(comma + 1);
@@ -77,10 +77,10 @@ bool vary_contains(
 
 void append_vary(
 	HttpResponse &resp,
-	string_view token) {
-	string const current{resp.headers["Vary"]};
+	SV token) {
+	S const current{resp.headers["Vary"]};
 	if (current.empty()) {
-		resp.headers["Vary"] = string{token};
+		resp.headers["Vary"] = S{token};
 		return;
 	}
 	if (trim(current) == "*" || vary_contains(current, token)) {
@@ -91,7 +91,7 @@ void append_vary(
 
 void inject_cors_headers(
 	CorsOptions const &opts,
-	string_view request_origin,
+	SV request_origin,
 	HttpResponse &resp) {
 	auto origin = resolve_origin(opts, request_origin);
 	if (origin.empty()) {

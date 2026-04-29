@@ -11,20 +11,20 @@ module;
 
 export module conflux.net.csrf;
 import std;
+import conflux.types;
 import conflux.crypto;
 import conflux.net.router;
 import conflux.utils;
-using namespace std;
 
 namespace csrf_detail {
 
-string generate_token() {
-	array<unsigned char, 24> bytes{};
+S generate_token() {
+	A<unsigned char, 24> bytes{};
 	int const fd = ::open("/dev/urandom", O_RDONLY | O_CLOEXEC);
 	if (fd < 0) {
-		throw system_error{errno, system_category(), "generate_token: open /dev/urandom"};
+		throw SE{errno, system_category(), "generate_token: open /dev/urandom"};
 	}
-	size_t total = 0;
+	SZ total = 0;
 	while (total < bytes.size()) {
 		ssize_t const n = ::read(fd, bytes.data() + total, bytes.size() - total);
 		if (n < 0 && errno == EINTR) {
@@ -32,22 +32,22 @@ string generate_token() {
 		}
 		if (n <= 0) {
 			::close(fd);
-			throw system_error{errno, system_category(), "generate_token: read /dev/urandom"};
+			throw SE{errno, system_category(), "generate_token: read /dev/urandom"};
 		}
-		total += static_cast<size_t>(n);
+		total += static_cast<SZ>(n);
 	}
 	::close(fd);
 	return base64url_encode(bytes);
 }
 
 bool constant_time_eq(
-	string_view a,
-	string_view b) {
+	SV a,
+	SV b) {
 	if (a.size() != b.size()) {
 		return false;
 	}
 	unsigned char acc = 0;
-	for (size_t i = 0; i < a.size(); ++i) {
+	for (SZ i = 0; i < a.size(); ++i) {
 		acc = static_cast<unsigned char>(acc | (static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i])));
 	}
 	return acc == 0;
@@ -57,15 +57,15 @@ bool constant_time_eq(
 
 export struct CsrfOptions {
 	// Name of the cookie that stores the CSRF token.
-	string cookie_name{"csrf_token"};
+	S cookie_name{"csrf_token"};
 	// Request header the client must echo the token in.
-	string header_name{"X-CSRF-Token"};
+	S header_name{"X-CSRF-Token"};
 	// Form field the client may echo the token in (checked if header absent).
-	string form_field{"csrf_token"};
+	S form_field{"csrf_token"};
 	// Cookie attributes. Includes Secure by default; remove for plain-HTTP dev environments.
-	string cookie_attrs{"Path=/; Secure; SameSite=Strict"};
+	S cookie_attrs{"Path=/; Secure; SameSite=Strict"};
 	// HTTP methods that require a valid CSRF token.
-	vector<string> protected_methods{"POST", "PUT", "PATCH", "DELETE"};
+	V<S> protected_methods{"POST", "PUT", "PATCH", "DELETE"};
 };
 
 // Middleware factory implementing the double-submit cookie pattern.
@@ -74,19 +74,19 @@ export struct CsrfOptions {
 // when the submitted token does not match the cookie.
 export Router::Middleware csrf_middleware(
 	CsrfOptions opts = {}) {
-	string lower_cookie = ascii_lower(opts.cookie_name);
-	string lower_header = ascii_lower(opts.header_name);
-	string lower_field = ascii_lower(opts.form_field);
+	S lower_cookie = ascii_lower(opts.cookie_name);
+	S lower_header = ascii_lower(opts.header_name);
+	S lower_field = ascii_lower(opts.form_field);
 
 	return [opts = move(opts),
 			lower_cookie = move(lower_cookie),
 			lower_header = move(lower_header),
 			lower_field = move(lower_field)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
-		auto is_protected = ranges::any_of(opts.protected_methods, [&](string const &m) { return m == req.method; });
+		auto is_protected = ranges::any_of(opts.protected_methods, [&](S const &m) { return m == req.method; });
 
 		if (is_protected) {
 			// Read cookie token.
-			auto cookie_token = string{req.cookies[lower_cookie]};
+			auto cookie_token = S{req.cookies[lower_cookie]};
 			if (cookie_token.empty()) {
 				HttpResponse r;
 				r.status = 403;
@@ -96,9 +96,9 @@ export Router::Middleware csrf_middleware(
 				return r;
 			}
 			// Read submitted token (header takes precedence over form field).
-			string submitted{req.headers[lower_header]};
+			S submitted{req.headers[lower_header]};
 			if (submitted.empty()) {
-				submitted = string{req.form[lower_field]};
+				submitted = S{req.form[lower_field]};
 			}
 			if (!csrf_detail::constant_time_eq(cookie_token, submitted)) {
 				HttpResponse r;
@@ -113,7 +113,7 @@ export Router::Middleware csrf_middleware(
 		auto resp = next(req);
 
 		// Refresh/set the CSRF cookie on every response.
-		string token{req.cookies[lower_cookie]};
+		S token{req.cookies[lower_cookie]};
 		if (token.empty()) {
 			token = csrf_detail::generate_token();
 		}

@@ -6,6 +6,7 @@
 //   curl -X POST http://localhost:9092/submit -d "name=Alice&age=30"
 import conflux.net.http;
 import std;
+import conflux.types;
 
 int main() {
 	Config cfg{};
@@ -28,7 +29,7 @@ int main() {
 			"<h2>Search — GET with query params</h2>"
 			"<form method='get' action='/search'>"
 			"  <input name='q' placeholder='query'> "
-			"  <input name='lang' placeholder='lang (optional)'> "
+			"  <input name='lang' placeholder='lang (Opt)'> "
 			"  <button>Search</button>"
 			"</form>"
 

@@ -7,8 +7,6 @@ import std;
 import conflux.types;
 import conflux.utils;
 
-using namespace std;
-
 // ---------------------------------------------------------------------------
 // url_decode
 // ---------------------------------------------------------------------------
@@ -101,7 +99,7 @@ TEST_CASE(
 TEST_CASE(
 	"utils: ascii_lower_inplace modifies in-place",
 	"[utils]") {
-	string s{"FOO"};
+	S s{"FOO"};
 	ascii_lower_inplace(s);
 	CHECK(s == "foo");
 }
@@ -167,7 +165,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"utils: parse_ip invalid returns nullopt",
+	"utils: parse_ip invalid returns std::nullopt",
 	"[utils]") {
 	CHECK_FALSE(parse_ip("not.an.ip").has_value());
 	CHECK_FALSE(parse_ip("").has_value());
@@ -208,7 +206,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"utils: parse_cidr invalid returns nullopt",
+	"utils: parse_cidr invalid returns std::nullopt",
 	"[utils]") {
 	CHECK_FALSE(parse_cidr("not/valid").has_value());
 	CHECK_FALSE(parse_cidr("").has_value());
@@ -226,7 +224,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"utils: parse_cidr_list empty vector",
+	"utils: parse_cidr_list empty V",
 	"[utils]") {
 	auto const list = parse_cidr_list({});
 	CHECK(list.empty());

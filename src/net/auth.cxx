@@ -1,19 +1,19 @@
 export module conflux.net.auth;
 import std;
+import conflux.types;
 import conflux.crypto;
 import conflux.net.router;
 import conflux.utils;
-using namespace std;
 
 namespace auth_detail {
 
 bool ascii_iequals(
-	string_view lhs,
-	string_view rhs) noexcept {
+	SV lhs,
+	SV rhs) noexcept {
 	if (lhs.size() != rhs.size()) {
 		return false;
 	}
-	for (size_t i = 0; i < lhs.size(); ++i) {
+	for (SZ i = 0; i < lhs.size(); ++i) {
 		auto const l = static_cast<unsigned char>(lhs[i]);
 		auto const r = static_cast<unsigned char>(rhs[i]);
 		if ((l | 0x20U) != (r | 0x20U)) {
@@ -23,26 +23,26 @@ bool ascii_iequals(
 	return true;
 }
 
-optional<string_view> credentials_for_scheme(
-	string_view auth,
-	string_view scheme) noexcept {
+Opt<SV> credentials_for_scheme(
+	SV auth,
+	SV scheme) noexcept {
 	if (auth.size() <= scheme.size() || auth[scheme.size()] != ' ') {
-		return nullopt;
+		return std::nullopt;
 	}
 	if (!ascii_iequals(auth.substr(0, scheme.size()), scheme)) {
-		return nullopt;
+		return std::nullopt;
 	}
 	return auth.substr(scheme.size() + 1);
 }
 
 HttpResponse unauthorized(
-	string_view www_auth) {
+	SV www_auth) {
 	HttpResponse r;
 	r.status = kHttpUnauthorized;
 	r.status_text = "Unauthorized";
 	r.content_type = "text/plain; charset=utf-8";
 	r.set_text_body("Unauthorized");
-	r.headers["WWW-Authenticate"] = string{www_auth};
+	r.headers["WWW-Authenticate"] = S{www_auth};
 	return r;
 }
 
@@ -53,8 +53,8 @@ HttpResponse unauthorized(
 export template<typename Validator>
 Router::Middleware basic_auth_middleware(
 	Validator &&validator,
-	string realm = "Restricted") {
-	return [v = decay_t<Validator>(forward<Validator>(validator)),
+	S realm = "Restricted") {
+	return [v = std::decay_t<Validator>(forward<Validator>(validator)),
 			realm = move(realm)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto auth = req.headers["authorization"];
 		auto credentials = auth_detail::credentials_for_scheme(auth, "Basic");
@@ -63,12 +63,12 @@ Router::Middleware basic_auth_middleware(
 		}
 		auto decoded = base64_decode(*credentials);
 		auto colon = decoded.find(':');
-		if (colon == string::npos) {
+		if (colon == S::npos) {
 			return auth_detail::unauthorized(format("Basic realm=\"{}\"", realm));
 		}
-		string_view const sv{decoded};
-		string_view const user = sv.substr(0, colon);
-		string_view const pass = sv.substr(colon + 1);
+		SV const sv{decoded};
+		SV const user = sv.substr(0, colon);
+		SV const pass = sv.substr(colon + 1);
 		if (!v(user, pass)) {
 			return auth_detail::unauthorized(format("Basic realm=\"{}\"", realm));
 		}
@@ -81,9 +81,8 @@ Router::Middleware basic_auth_middleware(
 export template<typename Validator>
 Router::Middleware bearer_auth_middleware(
 	Validator &&validator) {
-	return [v = decay_t<Validator>(forward<Validator>(validator))](
-			   HttpRequestView const &req,
-			   Router::Handler const &next) -> HttpResponse {
+	return [v = std::decay_t<Validator>(forward<Validator>(
+				validator))](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto auth = req.headers["authorization"];
 		auto credentials = auth_detail::credentials_for_scheme(auth, "Bearer");
 		if (!credentials) {

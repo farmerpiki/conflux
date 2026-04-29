@@ -10,10 +10,8 @@ import conflux.utils;
 import conflux.work;
 import conflux.file_io;
 
-using namespace std;
-
-export struct TlsError : runtime_error {
-	using runtime_error::runtime_error;
+export struct TlsError : RE {
+	using RE::runtime_error;
 };
 
 export class TlsContext {
@@ -119,11 +117,11 @@ public:
 	~TlsStream() { close_ssl(); }
 
 	bool set_server_name(
-		string_view sni) {
+		SV sni) {
 		if (sni.empty()) {
 			return true;
 		}
-		string const s{sni};
+		S const s{sni};
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wold-style-cast"
 		return SSL_set_tlsext_host_name(ssl_, s.c_str()) == 1;
@@ -131,11 +129,11 @@ public:
 	}
 
 	bool set_verify_hostname(
-		string_view host) {
+		SV host) {
 		if (host.empty()) {
 			return true;
 		}
-		string const s{host};
+		S const s{host};
 		return SSL_set1_host(ssl_, s.c_str()) == 1;
 	}
 
@@ -159,16 +157,16 @@ public:
 
 	// Blocking send-all. Returns false on timeout or connection error.
 	bool write_all(
-		string_view data,
+		SV data,
 		int timeout_sec) {
-		size_t sent = 0;
+		SZ sent = 0;
 		while (sent < data.size()) {
 			if (!wait_fd(fd_, POLLOUT, timeout_sec)) {
 				return false;
 			}
 			int const n = SSL_write(ssl_, data.data() + sent, static_cast<int>(data.size() - sent));
 			if (n > 0) {
-				sent += static_cast<size_t>(n);
+				sent += static_cast<SZ>(n);
 				continue;
 			}
 			int const err = SSL_get_error(ssl_, n);
@@ -188,16 +186,16 @@ public:
 	// Blocking read. Appends up to tmp.size() bytes into `out`, returns false on
 	// error/timeout. Short reads (one SSL record) are normal.
 	bool read_some(
-		string &out,
+		S &out,
 		int timeout_sec) {
-		array<char, 4096> tmp{};
+		A<char, 4096> tmp{};
 		for (;;) {
 			if (!wait_fd(fd_, POLLIN, timeout_sec)) {
 				return false;
 			}
 			int const n = SSL_read(ssl_, tmp.data(), static_cast<int>(tmp.size()));
 			if (n > 0) {
-				out.append(tmp.data(), static_cast<size_t>(n));
+				out.append(tmp.data(), static_cast<SZ>(n));
 				return true;
 			}
 			int const err = SSL_get_error(ssl_, n);

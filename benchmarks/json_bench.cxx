@@ -1,7 +1,7 @@
 import std;
+import conflux.types;
 import conflux.json;
 
-using namespace std;
 using namespace conflux::json;
 
 namespace {
@@ -18,18 +18,18 @@ struct Stats {
 template<typename F>
 Stats measure(
 	F &&fn,
-	size_t warmup,
-	size_t iters,
-	size_t batch = 1, // calls per timed window — amortises clock overhead for fast ops
-	size_t bytes = 0) {
-	for (size_t i = 0; i < warmup * batch; ++i) {
+	SZ warmup,
+	SZ iters,
+	SZ batch = 1, // calls per timed window — amortises clock overhead for fast ops
+	SZ bytes = 0) {
+	for (SZ i = 0; i < warmup * batch; ++i) {
 		fn();
 	}
-	vector<double> samples;
+	V<double> samples;
 	samples.reserve(iters);
-	for (size_t i = 0; i < iters; ++i) {
+	for (SZ i = 0; i < iters; ++i) {
 		auto t0 = chrono::steady_clock::now();
-		for (size_t j = 0; j < batch; ++j) {
+		for (SZ j = 0; j < batch; ++j) {
 			fn();
 		}
 		auto t1 = chrono::steady_clock::now();
@@ -44,7 +44,7 @@ Stats measure(
 }
 
 void print_row(
-	string_view name,
+	SV name,
 	Stats const &s) {
 	if (s.throughput_mbs > 0.0) {
 		print("[json-bench] {:<40} {:>10.1f} ns  {:>8.1f} MB/s\n", name, s.median_ns, s.throughput_mbs);
@@ -57,9 +57,9 @@ void print_row(
 // Corpus builders
 // ---------------------------------------------------------------------------
 
-// Typical config corpus: ~4 KB flat object with string/number/bool values.
-string make_config_corpus() {
-	string out;
+// Typical config corpus: ~4 KB flat object with S/number/bool values.
+S make_config_corpus() {
+	S out;
 	out.reserve(4096);
 	out += '{';
 	for (int i = 0; i < 64; ++i) {
@@ -77,9 +77,9 @@ string make_config_corpus() {
 	return out;
 }
 
-// Struct-decode corpus: array of objects with string_view-compatible fields.
-string make_decode_corpus() {
-	string out;
+// Struct-decode corpus: A of objects with SV-compatible fields.
+S make_decode_corpus() {
+	S out;
 	out.reserve(8192);
 	out += '[';
 	for (int i = 0; i < 200; ++i) {
@@ -93,8 +93,8 @@ string make_decode_corpus() {
 }
 
 // Lookup corpus: object with 1024 members.
-string make_lookup_corpus() {
-	string out;
+S make_lookup_corpus() {
+	S out;
 	out.reserve(32768);
 	out += '{';
 	for (int i = 0; i < 1024; ++i) {
@@ -108,9 +108,9 @@ string make_lookup_corpus() {
 	return out;
 }
 
-// Array traversal corpus: array of 10000 numbers.
-string make_array_corpus() {
-	string out;
+// Array traversal corpus: A of 10000 numbers.
+S make_array_corpus() {
+	S out;
 	out.reserve(65536);
 	out += '[';
 	for (int i = 0; i < 10000; ++i) {
@@ -124,8 +124,8 @@ string make_array_corpus() {
 }
 
 // Large corpus for parse throughput gate: ~1 MB nested structure.
-string make_large_corpus() {
-	string out;
+S make_large_corpus() {
+	S out;
 	out.reserve(1024UZ * 1024UZ);
 	out += '[';
 	for (int i = 0; i < 2000; ++i) {
@@ -143,11 +143,11 @@ string make_large_corpus() {
 	return out;
 }
 
-// R0 — long-string-heavy corpus: 32 elements of 32 KiB ASCII payload, no
-// escapes. Exercises memcpy-free zero-copy string slice + the SIMD scan_str
+// R0 — long-S-heavy corpus: 32 elements of 32 KiB ASCII payload, no
+// escapes. Exercises memcpy-free zero-copy S slice + the SIMD scan_str
 // fast path on long unescaped runs.
-string make_long_strings_corpus() {
-	string out;
+S make_long_strings_corpus() {
+	S out;
 	out.reserve(1024UZ * 1024UZ + 4096);
 	out += '[';
 	constexpr int kElems = 32;
@@ -168,8 +168,8 @@ string make_long_strings_corpus() {
 
 // R0 — pretty-printed corpus: ~1 MB flat object, 2-space indent + newlines.
 // Exposes skip_ws cost; today's compact corpora hide it.
-string make_pretty_ws_corpus() {
-	string out;
+S make_pretty_ws_corpus() {
+	S out;
 	out.reserve(1024UZ * 1024UZ + 4096);
 	out += "{\n";
 	constexpr int kMembers = 16000;
@@ -187,12 +187,12 @@ string make_pretty_ws_corpus() {
 	return out;
 }
 
-// R0 — escape-heavy corpus: a single 256 KiB string with backslash escapes
+// R0 — escape-heavy corpus: a single 256 KiB S with backslash escapes
 // at high density. Stresses the parse-side slow path (parse_str_decode_tail)
 // and the dump-side escape scan.
-string make_escape_heavy_corpus() {
-	string out;
-	constexpr size_t kTarget = 256UZ * 1024UZ;
+S make_escape_heavy_corpus() {
+	S out;
+	constexpr SZ kTarget = 256UZ * 1024UZ;
 	out.reserve(kTarget + 16);
 	out += '"';
 	while (out.size() + 8 < kTarget) {
@@ -202,11 +202,11 @@ string make_escape_heavy_corpus() {
 	return out;
 }
 
-// R0 — deeply-nested array: 256 levels of [[…]] with a single 0 at center.
+// R0 — deeply-nested A: 256 levels of [[…]] with a single 0 at center.
 // Tests recursion / iterative parse depth handling without tripping the
 // 512-frame default max_depth.
-string make_deep_nest_corpus() {
-	string out;
+S make_deep_nest_corpus() {
+	S out;
 	constexpr int kDepth = 256;
 	out.reserve(kDepth * 2 + 4);
 	out.append(kDepth, '[');
@@ -215,15 +215,15 @@ string make_deep_nest_corpus() {
 	return out;
 }
 
-// R0 — mixed-number corpus: ~1 MB array of integers, scientific,
+// R0 — mixed-number corpus: ~1 MB A of integers, scientific,
 // long fractions, signed values. Stresses number-lexeme parse paths.
-string make_mixed_numbers_corpus() {
-	string out;
+S make_mixed_numbers_corpus() {
+	S out;
 	out.reserve(1024UZ * 1024UZ + 4096);
 	out += '[';
 	bool first = true;
 	int i = 0;
-	constexpr size_t kTarget = 1024UZ * 1024UZ - 16;
+	constexpr SZ kTarget = 1024UZ * 1024UZ - 16;
 	while (out.size() < kTarget) {
 		if (!first) {
 			out += ',';
@@ -247,24 +247,24 @@ string make_mixed_numbers_corpus() {
 // ---------------------------------------------------------------------------
 
 void bench_parse_small(
-	string const &corpus) {
+	S const &corpus) {
 	auto s = measure([&] { (void)parse(corpus); }, 50, 500, 1, corpus.size());
 	print_row("parse/small (~4KB config)", s);
 }
 
 void bench_parse_large(
-	string const &corpus) {
+	S const &corpus) {
 	auto s = measure([&] { (void)parse(corpus); }, 5, 20, 1, corpus.size());
 	print_row("parse/large (~1MB nested)", s);
 }
 
 void bench_decode(
-	string const &corpus) {
+	S const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
 	}
-	// Measure: parse + extract name field as string_view from each object
+	// Measure: parse + extract name field as SV from each object
 	auto s = measure(
 		[&] {
 			auto res = parse(corpus);
@@ -294,7 +294,7 @@ void bench_decode(
 }
 
 void bench_find_member(
-	string const &corpus) {
+	S const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -319,7 +319,7 @@ void bench_find_member(
 }
 
 void bench_array_traversal(
-	string const &corpus) {
+	S const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -330,7 +330,7 @@ void bench_array_traversal(
 	}
 	auto s = measure(
 		[&] {
-			int64_t sum = 0;
+			i64 sum = 0;
 			for (NodeRef const elem: arr->elements()) {
 				auto n = elem.as_number();
 				if (n) {
@@ -344,7 +344,7 @@ void bench_array_traversal(
 		},
 		50,
 		500);
-	print_row("array/traverse 10k numbers", s);
+	print_row("A/traverse 10k numbers", s);
 }
 
 void bench_builder() {
@@ -367,7 +367,7 @@ void bench_builder() {
 }
 
 void bench_dump_plain(
-	string const &corpus) {
+	S const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -381,7 +381,7 @@ void bench_dump_plain(
 }
 
 void bench_dump_sorted(
-	string const &corpus) {
+	S const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -399,10 +399,10 @@ void bench_dump_sorted(
 // Item C — 1024-member object where every key has a \u escape → arena storage.
 // Decoded names are identical to make_lookup_corpus() ("member_N"), so the
 // same lookup keys can be used for apples-to-apples comparison.
-string make_lookup_escaped_corpus() {
+S make_lookup_escaped_corpus() {
 	// Keys: "member_N" (JSON) → decoded "member_N".
 	// All MemberEntry flags = 0 (arena); kStorageInputView never set.
-	string out;
+	S out;
 	out.reserve(65536);
 	out += '{';
 	for (int i = 0; i < 1024; ++i) {
@@ -419,8 +419,8 @@ string make_lookup_escaped_corpus() {
 // Even indices: plain ("member_N", kStorageInputView).
 // Odd indices:  "member_N" decoded to "member_N" (arena storage).
 // Half-half pattern is worst-case for branch prediction in member_name() dispatch.
-string make_lookup_mixed_corpus() {
-	string out;
+S make_lookup_mixed_corpus() {
+	S out;
 	out.reserve(65536);
 	out += '{';
 	for (int i = 0; i < 1024; ++i) {
@@ -439,8 +439,8 @@ string make_lookup_mixed_corpus() {
 
 // FI-1 — small object (below kHashThreshold=32): find_member always does linear
 // scan. Proxy for per-lookup cost after the sentinel caches a build failure.
-string make_below_threshold_corpus() {
-	string out = "{";
+S make_below_threshold_corpus() {
+	S out = "{";
 	for (int i = 0; i < 7; ++i) {
 		if (i > 0) {
 			out += ',';
@@ -454,7 +454,7 @@ string make_below_threshold_corpus() {
 // Item C — probe throughput on arena-storage names (baseline: bench_find_member
 // uses kStorageInputView names). Delta isolates member_name() dispatch overhead.
 void bench_find_member_escaped(
-	string const &corpus) {
+	S const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -479,7 +479,7 @@ void bench_find_member_escaped(
 
 // Item C — worst-case dispatch: alternating kStorageInputView/arena per probe.
 void bench_find_member_mixed(
-	string const &corpus) {
+	S const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -507,23 +507,23 @@ void bench_find_member_mixed(
 // If flat, overhead is in tree structure — name-copy optimisation is not justified.
 void bench_builder_name_length() {
 	constexpr int kMembers = 256;
-	auto gen_keys = [](size_t n, size_t total_len) {
-		vector<string> keys;
+	auto gen_keys = [](SZ n, SZ total_len) {
+		V<S> keys;
 		keys.reserve(n);
-		for (size_t i = 0; i < n; ++i) {
-			string const suffix = to_string(i);
-			size_t const pad = total_len > suffix.size() ? total_len - suffix.size() : 0;
-			string k(pad, 'k');
+		for (SZ i = 0; i < n; ++i) {
+			S const suffix = to_string(i);
+			SZ const pad = total_len > suffix.size() ? total_len - suffix.size() : 0;
+			S k(pad, 'k');
 			k += suffix;
 			keys.push_back(move(k));
 		}
 		return keys;
 	};
-	vector<string> const k5 = gen_keys(static_cast<size_t>(kMembers), 5);
-	vector<string> const k32 = gen_keys(static_cast<size_t>(kMembers), 32);
-	vector<string> const k128 = gen_keys(static_cast<size_t>(kMembers), 128);
+	V<S> const k5 = gen_keys(static_cast<SZ>(kMembers), 5);
+	V<S> const k32 = gen_keys(static_cast<SZ>(kMembers), 32);
+	V<S> const k128 = gen_keys(static_cast<SZ>(kMembers), 128);
 
-	auto run = [&](vector<string> const &keys, string_view label) {
+	auto run = [&](V<S> const &keys, SV label) {
 		auto s = measure(
 			[&] {
 				auto b = value_builder();
@@ -532,7 +532,7 @@ void bench_builder_name_length() {
 					return;
 				}
 				for (int i = 0; i < kMembers; ++i) {
-					(void)obj->insert_string(keys[static_cast<size_t>(i)], "v");
+					(void)obj->insert_string(keys[static_cast<SZ>(i)], "v");
 				}
 				move(*obj).commit();
 				(void)move(b).finish();
@@ -547,7 +547,7 @@ void bench_builder_name_length() {
 	run(k32, "builder/insert_string  32-char keys (per insert)");
 	run(k128, "builder/insert_string 128-char keys (per insert)");
 
-	auto run_view = [&](vector<string> const &keys, string_view label) {
+	auto run_view = [&](V<S> const &keys, SV label) {
 		auto s = measure(
 			[&] {
 				auto b = value_builder();
@@ -555,7 +555,7 @@ void bench_builder_name_length() {
 				if (!obj) {
 					return;
 				}
-				for (size_t i = 0; i < static_cast<size_t>(kMembers); ++i) {
+				for (SZ i = 0; i < static_cast<SZ>(kMembers); ++i) {
 					(void)obj->insert_string_view(keys[i], "v");
 				}
 				move(*obj).commit();
@@ -574,19 +574,19 @@ void bench_builder_name_length() {
 
 // R0 — generic parse/dump drivers used for the new corpora.
 void bench_parse_named(
-	string_view name,
-	string const &corpus,
-	size_t warmup = 5,
-	size_t iters = 50) {
+	SV name,
+	S const &corpus,
+	SZ warmup = 5,
+	SZ iters = 50) {
 	auto s = measure([&] { (void)parse(corpus); }, warmup, iters, 1, corpus.size());
 	print_row(name, s);
 }
 
 void bench_dump_named(
-	string_view name,
-	string const &corpus,
-	size_t warmup = 5,
-	size_t iters = 50) {
+	SV name,
+	S const &corpus,
+	SZ warmup = 5,
+	SZ iters = 50) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -611,8 +611,8 @@ void bench_dump_named(
 //       hash_idx_raw stays nullptr and each call retries alloc + build + free.
 //       With the sentinel (FI-1), (B) is paid exactly once.
 void bench_fi1_sentinel(
-	string const &small_corpus,
-	string const &lookup_corpus) {
+	S const &small_corpus,
+	S const &lookup_corpus) {
 	{
 		auto doc = parse(small_corpus);
 		if (!doc) {
@@ -659,22 +659,22 @@ void bench_fi1_sentinel(
 
 int main() { // NOLINT(bugprone-exception-escape)
 	println("[json-bench] building corpora…");
-	string const config_corpus = make_config_corpus();
-	string const decode_corpus = make_decode_corpus();
-	string const lookup_corpus = make_lookup_corpus();
-	string const array_corpus = make_array_corpus();
-	string const large_corpus = make_large_corpus();
-	string const long_strings_corpus = make_long_strings_corpus();
-	string const pretty_ws_corpus = make_pretty_ws_corpus();
-	string const escape_heavy_corpus = make_escape_heavy_corpus();
-	string const deep_nest_corpus = make_deep_nest_corpus();
-	string const mixed_numbers_corpus = make_mixed_numbers_corpus();
-	string const lookup_escaped_corpus = make_lookup_escaped_corpus();
-	string const lookup_mixed_corpus = make_lookup_mixed_corpus();
-	string const below_threshold_corpus = make_below_threshold_corpus();
+	S const config_corpus = make_config_corpus();
+	S const decode_corpus = make_decode_corpus();
+	S const lookup_corpus = make_lookup_corpus();
+	S const array_corpus = make_array_corpus();
+	S const large_corpus = make_large_corpus();
+	S const long_strings_corpus = make_long_strings_corpus();
+	S const pretty_ws_corpus = make_pretty_ws_corpus();
+	S const escape_heavy_corpus = make_escape_heavy_corpus();
+	S const deep_nest_corpus = make_deep_nest_corpus();
+	S const mixed_numbers_corpus = make_mixed_numbers_corpus();
+	S const lookup_escaped_corpus = make_lookup_escaped_corpus();
+	S const lookup_mixed_corpus = make_lookup_mixed_corpus();
+	S const below_threshold_corpus = make_below_threshold_corpus();
 
 	println(
-		"[json-bench] corpus sizes: config={}B decode={}B lookup={}B array={}B large={}B",
+		"[json-bench] corpus sizes: config={}B decode={}B lookup={}B A={}B large={}B",
 		config_corpus.size(),
 		decode_corpus.size(),
 		lookup_corpus.size(),
@@ -689,7 +689,7 @@ int main() { // NOLINT(bugprone-exception-escape)
 		mixed_numbers_corpus.size());
 	println("[json-bench]");
 	println("[json-bench] {:<40} {:>10}     {:>10}", "benchmark", "median", "throughput");
-	println("[json-bench] {}", string(60, '-'));
+	println("[json-bench] {}", S(60, '-'));
 
 	bench_parse_small(config_corpus);
 	bench_parse_large(large_corpus);

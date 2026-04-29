@@ -1,7 +1,7 @@
 export module conflux.net.trailing_slash;
 import std;
+import conflux.types;
 import conflux.net.router;
-using namespace std;
 
 export enum class TrailingSlashMode {
 	remove, // /foo/  → /foo   (default; canonical form for most APIs)
@@ -23,9 +23,9 @@ inline bool is_unreserved(
 	return c == '-' || c == '.' || c == '_' || c == '~';
 }
 
-inline string percent_encode(
-	string_view in) {
-	string out;
+inline S percent_encode(
+	SV in) {
+	S out;
 	out.reserve(in.size());
 	static constexpr char kHex[] = "0123456789ABCDEF";
 	for (char const ch: in) {
@@ -41,9 +41,9 @@ inline string percent_encode(
 	return out;
 }
 
-inline string build_query(
+inline S build_query(
 	HttpFieldsView const &query) {
-	string out;
+	S out;
 	bool first = true;
 	for (auto const &[k, v]: query) {
 		if (!first) {
@@ -61,7 +61,7 @@ inline string build_query(
 
 // Middleware factory: redirect requests with a trailing slash mismatch.
 // The root path "/" is never redirected regardless of mode.
-// Query string is re-serialized from parsed fields (percent-encoded per RFC 3986
+// Query S is re-serialized from parsed fields (percent-encoded per RFC 3986
 // unreserved set) and appended to the Location header.
 export Router::Middleware trailing_slash_middleware(
 	TrailingSlashOptions opts = {}) {
@@ -75,7 +75,7 @@ export Router::Middleware trailing_slash_middleware(
 
 		bool const has_slash = path.back() == '/';
 
-		auto make_redirect = [&](string new_path) {
+		auto make_redirect = [&](S new_path) {
 			if (!req.query.empty()) {
 				new_path.push_back('?');
 				new_path += trailing_slash_detail::build_query(req.query);
@@ -96,10 +96,10 @@ export Router::Middleware trailing_slash_middleware(
 		};
 
 		if (opts.mode == TrailingSlashMode::remove && has_slash) {
-			return make_redirect(string{path.substr(0, path.size() - 1)});
+			return make_redirect(S{path.substr(0, path.size() - 1)});
 		}
 		if (opts.mode == TrailingSlashMode::add && !has_slash) {
-			return make_redirect(string{path} + '/');
+			return make_redirect(S{path} + '/');
 		}
 
 		return next(req);

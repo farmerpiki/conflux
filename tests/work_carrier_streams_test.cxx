@@ -214,7 +214,7 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"phase8d: try_get returns nullopt when not yet ready",
+	"phase8d: try_get returns std::nullopt when not yet ready",
 	"[phase8d]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
@@ -314,7 +314,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"phase8g: CoalescingSlot take returns nullopt when empty",
+	"phase8g: CoalescingSlot take returns std::nullopt when empty",
 	"[phase8g]") {
 	carrier::CoalescingSlot<int> slot{};
 	CHECK_FALSE(slot.take().has_value());

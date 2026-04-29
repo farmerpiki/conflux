@@ -33,7 +33,7 @@ using conflux::http::HttpErrorKind;
 using conflux::http::HttpTimeouts;
 
 // Actual port chosen by the OS; set once in ensure_server().
-uint16_t g_test_port = 0;
+u16 g_test_port = 0;
 
 void ensure_server() {
 	static std::once_flag flag;
@@ -261,7 +261,7 @@ bool server_closed_after(
 
 // Alias: GET with a single extra header line (must end with \r\n).
 S http_get_with_header_on(
-	uint16_t port,
+	u16 port,
 	SV path,
 	SV header) {
 	return conflux::tests::http_get_on(port, path, header);
@@ -295,7 +295,7 @@ S gzip_decompress(
 // compress_middleware test server
 // ---------------------------------------------------------------------------
 
-uint16_t g_compress_port = 0;
+u16 g_compress_port = 0;
 
 void ensure_compress_server() {
 	static std::once_flag flag;
@@ -319,7 +319,7 @@ void ensure_compress_server() {
 	});
 }
 
-uint16_t g_cors_compress_port = 0;
+u16 g_cors_compress_port = 0;
 
 void ensure_cors_compress_server() {
 	static std::once_flag flag;
@@ -336,7 +336,7 @@ void ensure_cors_compress_server() {
 // security_headers_middleware test server
 // ---------------------------------------------------------------------------
 
-uint16_t g_security_port = 0;
+u16 g_security_port = 0;
 
 void ensure_security_server() {
 	static std::once_flag flag;
@@ -354,7 +354,7 @@ void ensure_security_server() {
 // cors_middleware test server
 // ---------------------------------------------------------------------------
 
-uint16_t g_cors_port = 0;
+u16 g_cors_port = 0;
 
 void ensure_cors_server() {
 	static std::once_flag flag;
@@ -371,7 +371,7 @@ void ensure_cors_server() {
 	});
 }
 
-uint16_t g_cors_cred_port = 0;
+u16 g_cors_cred_port = 0;
 
 void ensure_cors_cred_server() {
 	static std::once_flag flag;
@@ -387,7 +387,7 @@ void ensure_cors_cred_server() {
 	});
 }
 
-uint16_t g_cors_wildcard_port = 0;
+u16 g_cors_wildcard_port = 0;
 
 void ensure_cors_wildcard_server() {
 	static std::once_flag flag;
@@ -403,20 +403,19 @@ void ensure_cors_wildcard_server() {
 // auth middleware test server
 // ---------------------------------------------------------------------------
 
-uint16_t g_auth_port = 0;
+u16 g_auth_port = 0;
 
 void ensure_auth_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(basic_auth_middleware(
-			[](SV u, SV p) { return u == "testuser" && p == "testpass"; }));
+		router.use(basic_auth_middleware([](SV u, SV p) { return u == "testuser" && p == "testpass"; }));
 		router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
 		g_auth_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
 
-uint16_t g_bearer_port = 0;
+u16 g_bearer_port = 0;
 
 void ensure_bearer_server() {
 	static std::once_flag flag;
@@ -432,8 +431,8 @@ void ensure_bearer_server() {
 // rate_limit_middleware test server (2 req per 60s window)
 // ---------------------------------------------------------------------------
 
-uint16_t g_rate_port = 0;
-uint16_t g_rate_zero_clients_port = 0;
+u16 g_rate_port = 0;
+u16 g_rate_zero_clients_port = 0;
 
 void ensure_rate_server() {
 	static std::once_flag flag;
@@ -445,7 +444,7 @@ void ensure_rate_server() {
 	});
 }
 
-uint16_t g_rate_burst_port = 0;
+u16 g_rate_burst_port = 0;
 
 void ensure_rate_burst_server() {
 	static std::once_flag flag;
@@ -472,9 +471,9 @@ void ensure_rate_zero_clients_server() {
 // forwarded_middleware helpers
 // ---------------------------------------------------------------------------
 
-uint16_t g_fwd_port = 0;
-uint16_t g_fwd_strict_empty_port = 0;
-uint16_t g_fwd_lax_empty_port = 0;
+u16 g_fwd_port = 0;
+u16 g_fwd_strict_empty_port = 0;
+u16 g_fwd_lax_empty_port = 0;
 
 void ensure_forwarded_server() {
 	static std::once_flag flag;
@@ -514,7 +513,7 @@ void ensure_forwarded_lax_empty_server() {
 // request_id_middleware helpers
 // ---------------------------------------------------------------------------
 
-uint16_t g_rid_port = 0;
+u16 g_rid_port = 0;
 
 void ensure_rid_server() {
 	static std::once_flag flag;
@@ -522,9 +521,7 @@ void ensure_rid_server() {
 		Router router;
 		router.use(request_id_middleware());
 		// Echo the request ID header back in the body so tests can inspect it.
-		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(S{req.headers["x-request-id"]});
-		});
+		router.get("/", [](HttpRequest const &req) { return HttpResponse::text(S{req.headers["x-request-id"]}); });
 		g_rid_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -533,8 +530,8 @@ void ensure_rid_server() {
 // ip_filter_middleware helpers
 // ---------------------------------------------------------------------------
 
-uint16_t g_ipallow_port = 0;
-uint16_t g_ipblock_port = 0;
+u16 g_ipallow_port = 0;
+u16 g_ipblock_port = 0;
 
 void ensure_ipallow_server() {
 	static std::once_flag flag;
@@ -564,7 +561,7 @@ void ensure_ipblock_server() {
 	});
 }
 
-uint16_t g_ipallow_block_port = 0;
+u16 g_ipallow_block_port = 0;
 
 void ensure_ipallow_block_server() {
 	static std::once_flag flag;
@@ -580,7 +577,7 @@ void ensure_ipallow_block_server() {
 	});
 }
 
-uint16_t g_ipblock_pass_port = 0;
+u16 g_ipblock_pass_port = 0;
 
 void ensure_ipblock_pass_server() {
 	static std::once_flag flag;
@@ -600,7 +597,7 @@ void ensure_ipblock_pass_server() {
 // cache_control_middleware helpers
 // ---------------------------------------------------------------------------
 
-uint16_t g_cache_port = 0;
+u16 g_cache_port = 0;
 
 void ensure_cache_server() {
 	static std::once_flag flag;
@@ -642,8 +639,8 @@ void ensure_cache_server() {
 // trailing_slash_middleware helpers
 // ---------------------------------------------------------------------------
 
-uint16_t g_ts_remove_port = 0;
-uint16_t g_ts_add_port = 0;
+u16 g_ts_remove_port = 0;
+u16 g_ts_add_port = 0;
 
 void ensure_ts_remove_server() {
 	static std::once_flag flag;
@@ -665,7 +662,7 @@ void ensure_ts_add_server() {
 	});
 }
 
-uint16_t g_ts_308_port = 0;
+u16 g_ts_308_port = 0;
 
 void ensure_ts_308_server() {
 	static std::once_flag flag;
@@ -677,7 +674,7 @@ void ensure_ts_308_server() {
 	});
 }
 
-uint16_t g_ts_307_port = 0;
+u16 g_ts_307_port = 0;
 
 void ensure_ts_307_server() {
 	static std::once_flag flag;
@@ -691,7 +688,7 @@ void ensure_ts_307_server() {
 
 // POST to an explicit port with extra headers (for CSRF token etc.).
 S http_post_on_full(
-	uint16_t port,
+	u16 port,
 	SV path,
 	SV content_type,
 	SV body,
@@ -700,7 +697,7 @@ S http_post_on_full(
 }
 
 // Extract the value of a named header (case-sensitive) from a raw HTTP response.
-// Returns empty string if not found.
+// Returns empty S if not found.
 S extract_header(
 	SV resp,
 	SV name) {
@@ -747,7 +744,7 @@ S extract_set_cookie(
 // redirect_middleware test server
 // ---------------------------------------------------------------------------
 
-uint16_t g_redirect_port = 0;
+u16 g_redirect_port = 0;
 
 void ensure_redirect_server() {
 	static std::once_flag flag;
@@ -769,7 +766,7 @@ void ensure_redirect_server() {
 // csrf_middleware test server
 // ---------------------------------------------------------------------------
 
-uint16_t g_csrf_port = 0;
+u16 g_csrf_port = 0;
 
 void ensure_csrf_server() {
 	static std::once_flag flag;
@@ -786,7 +783,7 @@ void ensure_csrf_server() {
 // etag_middleware test server
 // ---------------------------------------------------------------------------
 
-uint16_t g_etag_port = 0;
+u16 g_etag_port = 0;
 
 void ensure_etag_server() {
 	static std::once_flag flag;
@@ -804,7 +801,7 @@ void ensure_etag_server() {
 // ---------------------------------------------------------------------------
 
 std::atomic<int> g_resp_cache_count{0};
-uint16_t g_resp_cache_port = 0;
+u16 g_resp_cache_port = 0;
 
 void ensure_resp_cache_server() {
 	static std::once_flag flag;
@@ -879,7 +876,7 @@ void ensure_resp_cache_server() {
 // structured_log_middleware test server
 // ---------------------------------------------------------------------------
 
-uint16_t g_slog_port = 0;
+u16 g_slog_port = 0;
 char g_slog_path[64]{};
 
 void ensure_slog_server() {
@@ -900,7 +897,7 @@ void ensure_slog_server() {
 // tracing_middleware test server
 // ---------------------------------------------------------------------------
 
-uint16_t g_trace_port = 0;
+u16 g_trace_port = 0;
 
 void ensure_trace_server() {
 	static std::once_flag flag;
@@ -908,9 +905,7 @@ void ensure_trace_server() {
 		Router router;
 		router.use(tracing_middleware({.propagate_in_response = true}));
 		// Echo the injected traceparent header so tests can verify it.
-		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(S{req.headers["traceparent"]});
-		});
+		router.get("/", [](HttpRequest const &req) { return HttpResponse::text(S{req.headers["traceparent"]}); });
 		g_trace_port = start_mw_server(mw_config(), std::move(router));
 	});
 }
@@ -919,9 +914,9 @@ void ensure_trace_server() {
 // VHostRouter test server
 // ---------------------------------------------------------------------------
 
-uint16_t g_vhost_port = 0;
-uint16_t g_vhost_direct_port = 0;
-uint16_t g_proxy_port = 0;
+u16 g_vhost_port = 0;
+u16 g_vhost_direct_port = 0;
+u16 g_proxy_port = 0;
 SP<ScopedTestServer> g_proxy_upstream;
 SP<ScopedTestServer> g_proxy_front;
 
@@ -1315,7 +1310,7 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Query string (GET form)
+// Query S (GET form)
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -1346,7 +1341,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"query string does not bleed into path matching") {
+	"query S does not bleed into path matching") {
 	auto resp = http_get("/api/ping?ignored=1");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(resp.find("application/json") != S::npos);
@@ -1625,7 +1620,7 @@ TEST_CASE(
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const port = srv.port();
+	u16 const port = srv.port();
 
 	// Verify it responds before shutdown.
 	{
@@ -1719,12 +1714,10 @@ TEST_CASE(
 
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
 	router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
-	router.get("/injected", [](HttpRequest const &req) {
-		return HttpResponse::text(S{req.headers["x-injected"]});
-	});
+	router.get("/injected", [](HttpRequest const &req) { return HttpResponse::text(S{req.headers["x-injected"]}); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const mw_port = srv.port();
+	u16 const mw_port = srv.port();
 
 	auto get = [&](SV path, SV extra = "") {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -1794,7 +1787,7 @@ TEST_CASE(
 	router.post("/upload", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const limit_port = srv.port();
+	u16 const limit_port = srv.port();
 
 	auto post = [&](SZ body_size) {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -1988,7 +1981,7 @@ TEST_CASE(
 	router.get("/boom", [](HttpRequest const &) -> HttpResponse { throw std::runtime_error{"something exploded"}; });
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const err_port = srv.port();
+	u16 const err_port = srv.port();
 
 	auto get = [&](SV path) {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2206,7 +2199,7 @@ TEST_CASE(
 	router.serve_static("/static", S{tmpdir});
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const static_port = srv.port();
+	u16 const static_port = srv.port();
 
 	auto get = [&](SV path, SV extra = "") {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2265,7 +2258,7 @@ TEST_CASE(
 		struct TzGuard {
 			Opt<S> old_tz;
 			TzGuard() {
-				if (char const *tz = ::getenv("TZ"); tz != nullptr) {
+				if (char const *tz = std::getenv("TZ"); tz != nullptr) {
 					old_tz = tz;
 				}
 				::setenv("TZ", "Asia/Tokyo", 1);
@@ -2344,7 +2337,7 @@ TEST_CASE(
 	router.serve_static("/static", S{tmpdir}, sopts);
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const static_port = srv.port();
+	u16 const static_port = srv.port();
 
 	auto get = [&](SV path, SV extra = "") {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2450,7 +2443,7 @@ TEST_CASE(
 	router.serve_static("/static", S{tmpdir}, sopts);
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const port = srv.port();
+	u16 const port = srv.port();
 
 	auto raw_request = [&](SV method, SV path, SV body = "") {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2482,7 +2475,7 @@ TEST_CASE(
 		auto n = ::read(fd, buf, sizeof(buf));
 		::close(fd);
 		REQUIRE(n == 5);
-		CHECK(SV{buf, static_cast<size_t>(n)} == "hello");
+		CHECK(SV{buf, static_cast<SZ>(n)} == "hello");
 		::unlink(path.c_str());
 	}
 
@@ -2527,7 +2520,7 @@ TEST_CASE(
 	router.serve_static("/static", S{tmpdir}, sopts);
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const port = srv.port();
+	u16 const port = srv.port();
 
 	auto raw_request = [&](SV method, SV path) {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2661,8 +2654,7 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	SV const req =
-		"GET /f/data.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=2-5\r\nConnection: close\r\n\r\n";
+	SV const req = "GET /f/data.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=2-5\r\nConnection: close\r\n\r\n";
 	::send(s, req.data(), req.size(), 0);
 	auto resp = read_one_response(s);
 	::close(s);
@@ -2707,8 +2699,7 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	SV const req =
-		"GET /f/tiny.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=100-200\r\nConnection: close\r\n\r\n";
+	SV const req = "GET /f/tiny.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=100-200\r\nConnection: close\r\n\r\n";
 	::send(s, req.data(), req.size(), 0);
 	auto resp = read_one_response(s);
 	::close(s);
@@ -2756,8 +2747,7 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	SV const req =
-		"GET /f/data.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=-5\r\nConnection: close\r\n\r\n";
+	SV const req = "GET /f/data.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=-5\r\nConnection: close\r\n\r\n";
 	::send(s, req.data(), req.size(), 0);
 	auto resp = read_one_response(s);
 	::close(s);
@@ -2794,7 +2784,7 @@ TEST_CASE(
 	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const timeout_port = srv.port();
+	u16 const timeout_port = srv.port();
 
 	// Connect but send nothing — the server should close the connection after ~1.5s.
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2831,8 +2821,9 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"make_access_log_middleware logs request lines to ostream") {
-	std::ostringstream log_out;
+	"make_access_log_middleware logs request lines via sink") {
+	V<S> lines;
+	mutex lines_mtx;
 	Config cfg{};
 	cfg.port = 0;
 	cfg.rings = 1;
@@ -2843,12 +2834,15 @@ TEST_CASE(
 	cfg.taskrun_flag = true;
 
 	Router router;
-	router.use(make_access_log_middleware(log_out));
+	router.use(make_access_log_middleware([&](S const &line) {
+		SL lk{lines_mtx};
+		lines.push_back(line);
+	}));
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
 	router.get("/missing", [](HttpRequest const &req) { return HttpResponse::not_found(req.path); });
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const log_port = srv.port();
+	u16 const log_port = srv.port();
 
 	auto get = [&](SV path) {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
@@ -2866,15 +2860,15 @@ TEST_CASE(
 
 	get("/ping");
 	get("/missing");
-	std::this_thread::sleep_for(std::chrono::milliseconds(50)); // let the log flush
+	std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
 	srv.stop();
 
-	auto log = log_out.str();
-	REQUIRE(log.find("GET /ping 200") != S::npos);
-	REQUIRE(log.find("GET /missing 404") != S::npos);
-	// Each line starts with a timestamp in ISO 8601 format.
-	REQUIRE(log.find("[20") != S::npos);
+	SL lk{lines_mtx};
+	auto has = [&](SV sub) { return ranges::any_of(lines, [&](S const &l) { return l.find(sub) != S::npos; }); };
+	REQUIRE(has("GET /ping 200"));
+	REQUIRE(has("GET /missing 404"));
+	REQUIRE(has("[20"));
 }
 
 // ---------------------------------------------------------------------------
@@ -2903,7 +2897,7 @@ TEST_CASE(
 	});
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const ws_port = srv.port();
+	u16 const ws_port = srv.port();
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
@@ -2914,7 +2908,7 @@ TEST_CASE(
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
 	// --- Handshake ---
-	// RFC 6455 §1.3 test vector: key → accept.
+	// RFC 6455 §1.3 test V: key → accept.
 	SV const ws_key = "dGhlIHNhbXBsZSBub25jZQ==";
 	S upgrade_req = std::format(
 		"GET /ws HTTP/1.1\r\n"
@@ -2935,9 +2929,9 @@ TEST_CASE(
 
 	// --- Send masked text frame "hello" ---
 	// FIN=1, opcode=1; MASK=1, len=5; mask=0x01020304; masked payload.
-	A<uint8_t, 4> const mask = {0x01, 0x02, 0x03, 0x04};
+	A<u8, 4> const mask = {0x01, 0x02, 0x03, 0x04};
 	SV const msg = "hello";
-	A<uint8_t, 11> tx_frame{};
+	A<u8, 11> tx_frame{};
 	tx_frame[0] = 0x81; // FIN | text
 	tx_frame[1] = 0x80 | 0x05; // MASK | len=5
 	tx_frame[2] = mask[0];
@@ -2945,12 +2939,12 @@ TEST_CASE(
 	tx_frame[4] = mask[2];
 	tx_frame[5] = mask[3];
 	for (SZ i = 0; i < msg.size(); ++i) {
-		tx_frame[6 + i] = static_cast<uint8_t>(msg[i]) ^ mask[i & 3];
+		tx_frame[6 + i] = static_cast<u8>(msg[i]) ^ mask[i & 3];
 	}
 	::send(fd, tx_frame.data(), tx_frame.size(), 0);
 
 	// --- Receive unmasked echo frame ---
-	A<uint8_t, 64> rx_buf{};
+	A<u8, 64> rx_buf{};
 	auto rn = ::recv(fd, rx_buf.data(), rx_buf.size(), 0);
 	REQUIRE(rn >= 7); // 2 header + 5 payload
 	REQUIRE(rx_buf[0] == 0x81); // FIN | text
@@ -2960,16 +2954,16 @@ TEST_CASE(
 	REQUIRE(echo == "hello");
 
 	// --- Send close frame (masked, status 1000) ---
-	uint16_t const status = 1000;
-	A<uint8_t, 8> close_frame{};
+	u16 const status = 1000;
+	A<u8, 8> close_frame{};
 	close_frame[0] = 0x88; // FIN | close
 	close_frame[1] = 0x80 | 0x02; // MASK | len=2
 	close_frame[2] = 0xAA;
 	close_frame[3] = 0xBB;
 	close_frame[4] = 0xCC;
 	close_frame[5] = 0xDD; // mask key
-	close_frame[6] = static_cast<uint8_t>((status >> 8) ^ close_frame[2]);
-	close_frame[7] = static_cast<uint8_t>((status & 0xFF) ^ close_frame[3]);
+	close_frame[6] = static_cast<u8>((status >> 8) ^ close_frame[2]);
+	close_frame[7] = static_cast<u8>((status & 0xFF) ^ close_frame[3]);
 	::send(fd, close_frame.data(), close_frame.size(), 0);
 
 	// Server echoes a close frame then closes.
@@ -3119,7 +3113,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"security: hsts_max_age=0 disables HSTS header") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -3133,7 +3127,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"security: empty frame_options disables X-Frame-Options header") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -3289,7 +3283,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"basic_auth: custom realm appears in WWW-Authenticate header") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -3386,7 +3380,7 @@ TEST_CASE(
 TEST_CASE(
 	"rate_limit: 429 response includes Retry-After header") {
 	// Use the existing 1-request rate server: exhaust it then check the header.
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -3417,9 +3411,9 @@ TEST_CASE(
 // TLS (HTTPS) shared infrastructure
 // ---------------------------------------------------------------------------
 
-uint16_t g_tls_port = 0;
+u16 g_tls_port = 0;
 
-// Generate a self-signed cert+key pair once, start a TLS server, delete the
+// Generate a self-signed cert+key P once, start a TLS server, delete the
 // temp files (already loaded into SSL_CTX by the time port() returns).
 void ensure_tls_server() {
 	static std::once_flag flag;
@@ -3474,7 +3468,7 @@ void ensure_tls_server() {
 // Open one TLS connection to g_tls_port, send an arbitrary raw request,
 // read back a complete HTTP response (via Content-Length), close.
 S tls_raw(
-	uint16_t port,
+	u16 port,
 	SV raw_request) {
 	SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
 	SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
@@ -3747,7 +3741,7 @@ TEST_CASE(
 	});
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const wss_port = srv.port();
+	u16 const wss_port = srv.port();
 	::unlink(cert_tmp);
 	::unlink(key_tmp);
 
@@ -3796,16 +3790,16 @@ TEST_CASE(
 	// Send a masked text frame carrying "hello".
 	// WS client frames must be masked (RFC 6455 §5.3).
 	SV const payload = "hello";
-	A<uint8_t, 4> mask_key{0xAB, 0xCD, 0xEF, 0x01};
-	A<uint8_t, 2 + 4 + 5> frame_buf{};
+	A<u8, 4> mask_key{0xAB, 0xCD, 0xEF, 0x01};
+	A<u8, 2 + 4 + 5> frame_buf{};
 	frame_buf[0] = 0x81U; // FIN + Text opcode
-	frame_buf[1] = 0x80U | static_cast<uint8_t>(payload.size()); // MASK + len
+	frame_buf[1] = 0x80U | static_cast<u8>(payload.size()); // MASK + len
 	frame_buf[2] = mask_key[0];
 	frame_buf[3] = mask_key[1];
 	frame_buf[4] = mask_key[2];
 	frame_buf[5] = mask_key[3];
 	for (SZ i = 0; i < payload.size(); ++i) {
-		frame_buf[6 + i] = static_cast<uint8_t>(payload[i]) ^ mask_key[i & 3];
+		frame_buf[6 + i] = static_cast<u8>(payload[i]) ^ mask_key[i & 3];
 	}
 	REQUIRE(SSL_write(ssl, frame_buf.data(), static_cast<int>(frame_buf.size())) > 0);
 
@@ -3813,20 +3807,20 @@ TEST_CASE(
 	A<char, 32> echo_buf{};
 	int const n = SSL_read(ssl, echo_buf.data(), static_cast<int>(echo_buf.size()));
 	REQUIRE(n >= 7); // 2 hdr + 5 payload
-	REQUIRE((static_cast<uint8_t>(echo_buf[0]) & 0x8FU) == 0x81U); // FIN + Text
-	REQUIRE(static_cast<uint8_t>(echo_buf[1]) == 5); // unmasked, len=5
+	REQUIRE((static_cast<u8>(echo_buf[0]) & 0x8FU) == 0x81U); // FIN + Text
+	REQUIRE(static_cast<u8>(echo_buf[1]) == 5); // unmasked, len=5
 	REQUIRE(SV{echo_buf.data() + 2, 5} == "hello");
 
 	// Send a close frame (code 1000).
-	A<uint8_t, 2 + 4 + 2> close_frame{};
+	A<u8, 2 + 4 + 2> close_frame{};
 	close_frame[0] = 0x88U; // FIN + Close
 	close_frame[1] = 0x82U; // MASK + 2 bytes
 	close_frame[2] = 0x11;
 	close_frame[3] = 0x22;
 	close_frame[4] = 0x33;
 	close_frame[5] = 0x44; // mask
-	close_frame[6] = static_cast<uint8_t>(0x03U ^ 0x11U); // 1000 >> 8 XOR mask[0]
-	close_frame[7] = static_cast<uint8_t>(0xE8U ^ 0x22U); // 1000 & 0xFF XOR mask[1]
+	close_frame[6] = static_cast<u8>(0x03U ^ 0x11U); // 1000 >> 8 XOR mask[0]
+	close_frame[7] = static_cast<u8>(0xE8U ^ 0x22U); // 1000 & 0xFF XOR mask[1]
 	SSL_write(ssl, close_frame.data(), static_cast<int>(close_frame.size()));
 
 	// Drain until EOF (server echoes Close frame and then shuts down).
@@ -3916,7 +3910,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"forwarded: use_x_forwarded_for=false falls back to X-Real-IP") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -3952,7 +3946,7 @@ TEST_CASE(
 	// Send a spoofed X-Forwarded-For from an untrusted peer (loopback).
 	auto resp = http_get_on(srv.port(), "/xff", "X-Forwarded-For: 203.0.113.99\r\n");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
-	// Middleware must strip the header; downstream sees empty string.
+	// Middleware must strip the header; downstream sees empty S.
 	REQUIRE(extract_body(resp).empty());
 }
 
@@ -4004,14 +3998,12 @@ TEST_CASE(
 
 TEST_CASE(
 	"request_id: trust_incoming=false always generates fresh ID") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
 		router.use(request_id_middleware({.trust_incoming = false}));
-		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(S{req.headers["x-request-id"]});
-		});
+		router.get("/", [](HttpRequest const &req) { return HttpResponse::text(S{req.headers["x-request-id"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Client sends a specific ID; middleware must ignore it and generate its own.
@@ -4026,14 +4018,12 @@ TEST_CASE(
 
 TEST_CASE(
 	"request_id: custom header name is stamped on request and response") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
 		router.use(request_id_middleware({.header = "X-Trace-ID"}));
-		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(S{req.headers["x-trace-id"]});
-		});
+		router.get("/", [](HttpRequest const &req) { return HttpResponse::text(S{req.headers["x-trace-id"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
@@ -4076,7 +4066,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"ip_filter: empty allowlist blocks all requests") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -4130,7 +4120,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"cache_control: Content-Type with charset still matches mime prefix") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -4151,7 +4141,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"cache_control: empty mime_prefix rule matches everything") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -4231,7 +4221,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"trailing_slash: query string is preserved in redirect Location") {
+	"trailing_slash: query S is preserved in redirect Location") {
 	ensure_ts_remove_server();
 	// /foo/?x=1&y=2 should redirect to /foo?x=1&y=2
 	auto resp = http_get_on(g_ts_remove_port, "/foo/?x=1&y=2");
@@ -4243,7 +4233,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"trailing_slash: query string with spaces is percent-encoded in Location") {
+	"trailing_slash: query S with spaces is percent-encoded in Location") {
 	ensure_ts_remove_server();
 	// /foo/?name=hello world should percent-encode the space
 	auto resp = http_get_on(g_ts_remove_port, "/foo/?name=hello%20world");
@@ -4259,7 +4249,7 @@ TEST_CASE(
 namespace {
 
 // Shared JWT test server (single instance, lazy-init).
-uint16_t g_jwt_port = 0;
+u16 g_jwt_port = 0;
 S g_jwt_secret = "test-secret-key";
 
 void ensure_jwt_server() {
@@ -4392,7 +4382,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"jwt_decode: audience string match") {
+	"jwt_decode: audience S match") {
 	JwtOptions opts{.secret = "sec", .audience = "myapp", .verify_exp = false};
 	auto token = jwt_sign(R"({"sub":"u","aud":"myapp"})", "sec");
 	auto result = jwt_decode(token, opts);
@@ -4409,7 +4399,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"jwt_decode: audience array match") {
+	"jwt_decode: audience A match") {
 	JwtOptions opts{.secret = "sec", .audience = "myapp", .verify_exp = false};
 	auto token = jwt_sign(R"({"sub":"u","aud":["svc","myapp"]})", "sec");
 	auto result = jwt_decode(token, opts);
@@ -4426,7 +4416,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"jwt_decode: audience array matches only aud claim") {
+	"jwt_decode: audience A matches only aud claim") {
 	JwtOptions const opts{.secret = "sec", .audience = "expected", .verify_exp = false};
 	auto good = jwt_sign(R"({"sub":"x","aud":["other","expected"]})", "sec");
 	auto bad = jwt_sign(R"({"sub":"expected","aud":["other"]})", "sec");
@@ -4437,7 +4427,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"jwt_decode: malformed audience array with leading comma does not match") {
+	"jwt_decode: malformed audience A with leading comma does not match") {
 	JwtOptions const opts{.secret = "sec", .audience = "expected", .verify_exp = false};
 	auto token = jwt_sign(R"({"sub":"x","aud":[,"expected"]})", "sec");
 	auto result = jwt_decode(token, opts);
@@ -4446,7 +4436,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"jwt_decode: unterminated alg string is rejected") {
+	"jwt_decode: unterminated alg S is rejected") {
 	JwtOptions const opts{.secret = "sec", .verify_exp = false};
 	auto token = make_jwt_with_header(R"({"alg":"HS256)", R"({"sub":"x"})", "sec");
 	auto result = jwt_decode(token, opts);
@@ -4587,7 +4577,7 @@ TEST_CASE(
 
 namespace {
 
-uint16_t g_metrics_port = 0;
+u16 g_metrics_port = 0;
 MetricsRegistry *g_metrics_reg = nullptr;
 
 void ensure_metrics_server() {
@@ -4604,7 +4594,7 @@ void ensure_metrics_server() {
 	});
 }
 
-uint16_t g_protected_metrics_port = 0;
+u16 g_protected_metrics_port = 0;
 
 void ensure_protected_metrics_server() {
 	static std::once_flag once;
@@ -4680,7 +4670,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"metrics: 4xx response increments GET 4xx counter") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static MetricsRegistry *reg_ptr = nullptr;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
@@ -4729,7 +4719,7 @@ TEST_CASE(
 
 namespace {
 
-uint16_t g_codec_port = 0;
+u16 g_codec_port = 0;
 
 void ensure_codec_server() {
 	static std::once_flag once;
@@ -4891,7 +4881,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"redirect: custom status 307 preserved in redirect response") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -4932,7 +4922,7 @@ TEST_CASE(
 TEST_CASE(
 	"http client: chunked response without trailers is decoded correctly") {
 	// Build a mock server that sends a chunked response (no trailers).
-	uint16_t port = 0;
+	u16 port = 0;
 	int const lfd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	REQUIRE(lfd >= 0);
 	int yes = 1;
@@ -5001,9 +4991,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		auto cfg = mw_config();
 		Router upstream;
-		upstream.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(S{req.headers["host"]});
-		});
+		upstream.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(S{req.headers["host"]}); });
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		Router front;
 		front.get(
@@ -5030,9 +5018,7 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		auto cfg = mw_config();
 		Router upstream;
-		upstream.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(S{req.headers["host"]});
-		});
+		upstream.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(S{req.headers["host"]}); });
 		s_upstream = std::make_shared<ScopedTestServer>(cfg, std::move(upstream));
 		Router front;
 		front.get(
@@ -5097,14 +5083,14 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"cookie_signing: verify with wrong secret returns nullopt") {
+	"cookie_signing: verify with wrong secret returns std::nullopt") {
 	auto signed_val = sign_cookie("hello", "my-secret");
 	auto result = verify_cookie(signed_val, "wrong-secret");
 	REQUIRE(!result.has_value());
 }
 
 TEST_CASE(
-	"cookie_signing: tampered signature returns nullopt") {
+	"cookie_signing: tampered signature returns std::nullopt") {
 	auto signed_val = sign_cookie("hello", "my-secret");
 	signed_val.back() = (signed_val.back() == 'A') ? 'B' : 'A'; // flip last char
 	auto result = verify_cookie(signed_val, "my-secret");
@@ -5112,7 +5098,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"cookie_signing: value without dot returns nullopt") {
+	"cookie_signing: value without dot returns std::nullopt") {
 	auto result = verify_cookie("nodot", "any-secret");
 	REQUIRE(!result.has_value());
 }
@@ -5127,7 +5113,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"cookie_signing_middleware: short secret throws invalid_argument") {
+	"cookie_signing_middleware: short secret throws std::invalid_argument") {
 	REQUIRE_THROWS_AS(cookie_signing_middleware({.secret = "tooshort"}), std::invalid_argument);
 }
 
@@ -5141,14 +5127,12 @@ constexpr SV kOtherCookieSecret = "other-secret-16-bytes";
 TEST_CASE(
 	"cookie_signing_middleware: valid signed cookie is unwrapped") {
 	// Set up a server that echoes the "session" cookie value.
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
 		router.use(cookie_signing_middleware({.secret = S{kCookieMiddlewareSecret}}));
-		router.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(S{req.cookies["session"]});
-		});
+		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(S{req.cookies["session"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto signed_val = sign_cookie("user42", kCookieMiddlewareSecret);
@@ -5159,14 +5143,12 @@ TEST_CASE(
 
 TEST_CASE(
 	"cookie_signing_middleware: invalid signature strips cookie value") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
 		router.use(cookie_signing_middleware({.secret = S{kCookieMiddlewareSecret}, .strip_invalid = true}));
-		router.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(S{req.cookies["session"]});
-		});
+		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(S{req.cookies["session"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Forge a signed value with the wrong secret.
@@ -5179,14 +5161,12 @@ TEST_CASE(
 
 TEST_CASE(
 	"cookie_signing_middleware: unsigned cookie (no dot) passes through") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
 		router.use(cookie_signing_middleware({.secret = S{kCookieMiddlewareSecret}}));
-		router.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(S{req.cookies["plain"]});
-		});
+		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(S{req.cookies["plain"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/echo", "Cookie: plain=nodot\r\n");
@@ -5196,14 +5176,12 @@ TEST_CASE(
 
 TEST_CASE(
 	"cookie_signing_middleware: strip_invalid=false keeps invalid cookie as-is") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
 		router.use(cookie_signing_middleware({.secret = "srv-secret-key-1234", .strip_invalid = false}));
-		router.get("/echo", [](HttpRequest const &req) {
-			return HttpResponse::text(S{req.cookies["session"]});
-		});
+		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(S{req.cookies["session"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	// Cookie with bad signature — handler receives the raw signed value unchanged.
@@ -5291,7 +5269,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"csrf: custom protected_methods excludes DELETE") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -5385,7 +5363,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"etag: weak option produces W/ prefix") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -5425,7 +5403,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"etag: handler-set ETag is not overwritten by middleware") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router r;
@@ -5518,7 +5496,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"response_cache: query string participates in cache key") {
+	"response_cache: query S participates in cache key") {
 	ensure_resp_cache_server();
 	int const before = g_resp_cache_count.load();
 	auto a1 = http_get_on(g_resp_cache_port, "/query?value=a");
@@ -5881,7 +5859,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"tracing: propagate_in_response=false omits Traceparent response header") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -5896,7 +5874,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"tracing: on_end callback can add response header") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -5917,7 +5895,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"tracing: on_start callback receives TraceContext and can inject header") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
@@ -5926,9 +5904,7 @@ TEST_CASE(
 			.propagate_in_response = false,
 		}));
 		// Echo the injected span id from the request.
-		router.get("/", [](HttpRequest const &req) {
-			return HttpResponse::text(S{req.headers["x-injected-span"]});
-		});
+		router.get("/", [](HttpRequest const &req) { return HttpResponse::text(S{req.headers["x-injected-span"]}); });
 		port = start_mw_server(mw_config(), std::move(router));
 	});
 	auto resp = http_get_on(port, "/");
@@ -6034,7 +6010,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"vhost: unknown host with no default returns 404") {
-	static uint16_t port = 0;
+	static u16 port = 0;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router api;
@@ -6148,7 +6124,7 @@ TEST_CASE(
 	router.get("/openapi.json", openapi_handler_protected(router, "API", "1.0.0", std::move(chain)));
 
 	Config const cfg{.port = 0, .rings = 1};
-	uint16_t port = test_servers().start(cfg, std::move(router));
+	u16 port = test_servers().start(cfg, std::move(router));
 
 	auto resp_no_auth = http_get_on(port, "/openapi.json");
 	REQUIRE(resp_no_auth.starts_with("HTTP/1.1 401"));
@@ -6268,8 +6244,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: header with no space after colon is accepted") {
-	S req =
-		"GET /api/echo-header HTTP/1.1\r\nHost: localhost\r\nX-Test-Header:no-space\r\nConnection: close\r\n\r\n";
+	S req = "GET /api/echo-header HTTP/1.1\r\nHost: localhost\r\nX-Test-Header:no-space\r\nConnection: close\r\n\r\n";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 200"));
 	REQUIRE(resp.find("no-space") != S::npos);
@@ -6289,8 +6264,7 @@ TEST_CASE(
 
 TEST_CASE(
 	"parser: malformed Content-Length returns 400") {
-	S req =
-		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5abc\r\nConnection: close\r\n\r\nhello";
+	S req = "POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5abc\r\nConnection: close\r\n\r\nhello";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 400"));
 }
@@ -6392,7 +6366,7 @@ Config ws_cfg() {
 }
 
 int ws_handshake(
-	uint16_t port) {
+	u16 port) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
 	sockaddr_in addr{};
@@ -6416,31 +6390,31 @@ int ws_handshake(
 	return fd;
 }
 
-V<uint8_t> make_masked_frame(
-	uint8_t b0,
+V<u8> make_masked_frame(
+	u8 b0,
 	SV payload,
 	bool mask = true) {
-	V<uint8_t> f;
+	V<u8> f;
 	f.push_back(b0);
 	auto len = payload.size();
-	uint8_t const mask_bit = mask ? 0x80U : 0U;
+	u8 const mask_bit = mask ? 0x80U : 0U;
 	if (len < 126) {
-		f.push_back(mask_bit | static_cast<uint8_t>(len));
+		f.push_back(mask_bit | static_cast<u8>(len));
 	} else if (len <= 0xFFFF) {
 		f.push_back(mask_bit | 126U);
-		f.push_back(static_cast<uint8_t>(len >> 8));
-		f.push_back(static_cast<uint8_t>(len & 0xFFU));
+		f.push_back(static_cast<u8>(len >> 8));
+		f.push_back(static_cast<u8>(len & 0xFFU));
 	} else {
 		f.push_back(mask_bit | 127U);
 		for (int s = 56; s >= 0; s -= 8) {
-			f.push_back(static_cast<uint8_t>((len >> s) & 0xFFU));
+			f.push_back(static_cast<u8>((len >> s) & 0xFFU));
 		}
 	}
 	if (mask) {
-		A<uint8_t, 4> const key{0x01, 0x02, 0x03, 0x04};
+		A<u8, 4> const key{0x01, 0x02, 0x03, 0x04};
 		f.insert(f.end(), key.begin(), key.end());
 		for (SZ i = 0; i < payload.size(); ++i) {
-			f.push_back(static_cast<uint8_t>(payload[i]) ^ key[i & 3]);
+			f.push_back(static_cast<u8>(payload[i]) ^ key[i & 3]);
 		}
 	} else {
 		f.insert(f.end(), payload.begin(), payload.end());
@@ -6449,14 +6423,14 @@ V<uint8_t> make_masked_frame(
 }
 
 struct CloseFrame {
-	uint16_t code{};
+	u16 code{};
 	S reason;
 	bool received{};
 };
 
 CloseFrame read_close(
 	int fd) {
-	auto read_exact = [fd](std::span<uint8_t> out) {
+	auto read_exact = [fd](std::span<u8> out) {
 		SZ got = 0;
 		while (got < out.size()) {
 			auto n = ::recv(fd, out.data() + got, out.size() - got, 0);
@@ -6471,27 +6445,26 @@ CloseFrame read_close(
 		return true;
 	};
 
-	A<uint8_t, 2> header{};
+	A<u8, 2> header{};
 	if (!read_exact(header)) {
 		return {};
 	}
-	uint8_t const b0 = header[0];
-	uint8_t const b1 = header[1] & 0x7FU;
+	u8 const b0 = header[0];
+	u8 const b1 = header[1] & 0x7FU;
 	if ((b0 & 0x0FU) != 0x08U) {
 		return {};
 	}
 	if (b1 > 125) {
 		return {};
 	}
-	A<uint8_t, 125> payload{};
+	A<u8, 125> payload{};
 	if (!read_exact(std::span{payload}.first(b1))) {
 		return {};
 	}
 	if (b1 < 2) {
 		return {.code = 0, .reason = {}, .received = true};
 	}
-	auto const code =
-		static_cast<uint16_t>((static_cast<uint32_t>(payload[0]) << 8U) | static_cast<uint32_t>(payload[1]));
+	auto const code = static_cast<u16>((static_cast<u32>(payload[0]) << 8U) | static_cast<u32>(payload[1]));
 	S reason;
 	if (b1 > 2) {
 		reason.assign(reinterpret_cast<char const *>(payload.data()) + 2, static_cast<SZ>(b1) - 2);
@@ -6543,7 +6516,7 @@ TEST_CASE(
 	});
 	ScopedTestServer srv{ws_test::ws_cfg(), std::move(router)};
 	int const fd = ws_test::ws_handshake(srv.port());
-	A<uint8_t, 9> frame{
+	A<u8, 9> frame{
 		0x81U, // FIN | text
 		0xFEU, // MASK | 126 extended length marker
 		0x00U,
@@ -6552,7 +6525,7 @@ TEST_CASE(
 		0x02U,
 		0x03U,
 		0x04U,
-		static_cast<uint8_t>('x' ^ 0x01U)};
+		static_cast<u8>('x' ^ 0x01U)};
 	::send(fd, frame.data(), frame.size(), MSG_NOSIGNAL);
 	auto close = ws_test::read_close(fd);
 	REQUIRE(close.received);
@@ -6746,7 +6719,7 @@ TEST_CASE(
 	auto part2 = ws_test::make_masked_frame(0x80U, "lo"); // FIN=1 | continuation
 	::send(fd, part1.data(), part1.size(), MSG_NOSIGNAL);
 	::send(fd, part2.data(), part2.size(), MSG_NOSIGNAL);
-	A<uint8_t, 64> rx{};
+	A<u8, 64> rx{};
 	auto n = ::recv(fd, rx.data(), rx.size(), 0);
 	REQUIRE(n >= 7);
 	REQUIRE(rx[0] == 0x81U); // FIN | text
@@ -6812,7 +6785,7 @@ TEST_CASE(
 	Router router;
 	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const port = srv.port();
+	u16 const port = srv.port();
 	::unlink(cert_tmp);
 	::unlink(key_tmp);
 
@@ -6866,7 +6839,7 @@ TEST_CASE(
 	Router router;
 	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const port = srv.port();
+	u16 const port = srv.port();
 	::unlink(cert_tmp);
 	::unlink(key_tmp);
 
@@ -6961,7 +6934,7 @@ TEST_CASE(
 	});
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const p = srv.port();
+	u16 const p = srv.port();
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
@@ -7000,7 +6973,7 @@ TEST_CASE(
 	});
 
 	ScopedTestServer srv{cfg, std::move(router)};
-	uint16_t const p = srv.port();
+	u16 const p = srv.port();
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
@@ -7200,9 +7173,7 @@ TEST_CASE(
 TEST_CASE(
 	"router: wildcard {*path} captures entire tail") {
 	Router router;
-	router.get("/files/{*path}", [](HttpRequest const &req) {
-		return HttpResponse::text(S{req.params["path"]});
-	});
+	router.get("/files/{*path}", [](HttpRequest const &req) { return HttpResponse::text(S{req.params["path"]}); });
 	HttpRequest req;
 	req.method = "GET";
 	req.path = "/files/docs/readme.txt";
@@ -7214,9 +7185,7 @@ TEST_CASE(
 TEST_CASE(
 	"router: wildcard {*path} captures empty tail when path ends at prefix") {
 	Router router;
-	router.get("/files/{*path}", [](HttpRequest const &req) {
-		return HttpResponse::text(S{req.params["path"]});
-	});
+	router.get("/files/{*path}", [](HttpRequest const &req) { return HttpResponse::text(S{req.params["path"]}); });
 	HttpRequest req;
 	req.method = "GET";
 	req.path = "/files/";
@@ -7242,9 +7211,7 @@ TEST_CASE(
 TEST_CASE(
 	"router: non-matching path returns 404") {
 	Router router;
-	router.get("/files/{*path}", [](HttpRequest const &req) {
-		return HttpResponse::text(S{req.params["path"]});
-	});
+	router.get("/files/{*path}", [](HttpRequest const &req) { return HttpResponse::text(S{req.params["path"]}); });
 	HttpRequest req;
 	req.method = "GET";
 	req.path = "/other/stuff";
@@ -7255,9 +7222,7 @@ TEST_CASE(
 TEST_CASE(
 	"router: percent-encoded path param is URL-decoded") {
 	Router router;
-	router.get("/hello/{name}", [](HttpRequest const &req) {
-		return HttpResponse::text(S{req.params["name"]});
-	});
+	router.get("/hello/{name}", [](HttpRequest const &req) { return HttpResponse::text(S{req.params["name"]}); });
 	HttpRequest req;
 	req.method = "GET";
 	req.path = "/hello/hello%20world";
@@ -7269,9 +7234,7 @@ TEST_CASE(
 TEST_CASE(
 	"router: wildcard tail with percent-encoded segment is URL-decoded") {
 	Router router;
-	router.get("/files/{*path}", [](HttpRequest const &req) {
-		return HttpResponse::text(S{req.params["path"]});
-	});
+	router.get("/files/{*path}", [](HttpRequest const &req) { return HttpResponse::text(S{req.params["path"]}); });
 	HttpRequest req;
 	req.method = "GET";
 	req.path = "/files/dir/my%20file.txt";
@@ -7401,7 +7364,7 @@ TEST_CASE(
 TEST_CASE(
 	"http1_parser: header with null byte returns BadRequest") {
 	using namespace conflux::http1;
-	using namespace S_literals;
+	using namespace std::string_literals;
 	ParserLimits const limits{};
 	ParsedRequest out;
 	// Use "s" suffix so S captures embedded null bytes.

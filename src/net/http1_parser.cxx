@@ -6,8 +6,6 @@ import std;
 import conflux.types;
 import conflux.net.config;
 
-using namespace std;
-
 export namespace conflux::http1 {
 
 enum class ParseStatus : u8 {
@@ -19,11 +17,11 @@ enum class ParseStatus : u8 {
 };
 
 struct ParsedRequest {
-	string_view method;
-	string_view target;
-	string_view version;
-	vector<pair<string_view, string_view>> headers;
-	size_t header_end_offset = 0;
+	SV method;
+	SV target;
+	SV version;
+	V<P<SV, SV>> headers;
+	SZ header_end_offset = 0;
 };
 
 } // namespace conflux::http1
@@ -61,13 +59,13 @@ constexpr bool is_tchar(
 export namespace conflux::http1 {
 
 ParseStatus parse_request(
-	string_view raw,
+	SV raw,
 	ParserLimits const &limits,
 	ParsedRequest &out) {
 	out.headers.clear();
 
 	auto header_end = raw.find("\r\n\r\n");
-	if (header_end == string_view::npos) {
+	if (header_end == SV::npos) {
 		if (raw.size() > limits.max_header_block_size + limits.max_request_line_size + 2) {
 			return ParseStatus::HeaderFieldsTooLarge;
 		}
@@ -81,13 +79,13 @@ ParseStatus parse_request(
 	}
 
 	auto const post_req_line = eol + 2;
-	auto const header_block_size = (header_end > post_req_line) ? header_end - post_req_line : size_t{0};
+	auto const header_block_size = (header_end > post_req_line) ? header_end - post_req_line : SZ{0};
 	if (header_block_size > limits.max_header_block_size) {
 		return ParseStatus::HeaderFieldsTooLarge;
 	}
 
 	auto sp1 = req_line.find(' ');
-	if (sp1 == string_view::npos) {
+	if (sp1 == SV::npos) {
 		return ParseStatus::BadRequest;
 	}
 
@@ -100,20 +98,20 @@ ParseStatus parse_request(
 	}
 	auto rest = req_line.substr(sp1 + 1);
 	auto sp2 = rest.find(' ');
-	out.target = sp2 != string_view::npos ? rest.substr(0, sp2) : rest;
+	out.target = sp2 != SV::npos ? rest.substr(0, sp2) : rest;
 	if (out.target.empty()) {
 		return ParseStatus::BadRequest;
 	}
-	out.version = sp2 != string_view::npos ? rest.substr(sp2 + 1) : string_view{};
+	out.version = sp2 != SV::npos ? rest.substr(sp2 + 1) : SV{};
 	if (out.version != "HTTP/1.0" && out.version != "HTTP/1.1") {
 		return ParseStatus::BadRequest;
 	}
 
-	size_t header_count = 0;
+	SZ header_count = 0;
 	auto pos = eol + 2;
 	while (pos < header_end) {
 		auto line_end = raw.find("\r\n", pos);
-		if (line_end == string_view::npos || line_end > header_end) {
+		if (line_end == SV::npos || line_end > header_end) {
 			return ParseStatus::BadRequest;
 		}
 		auto line = raw.substr(pos, line_end - pos);
@@ -126,11 +124,11 @@ ParseStatus parse_request(
 		if (line.empty() || line.front() == ' ' || line.front() == '\t') {
 			return ParseStatus::BadRequest;
 		}
-		if (line.find('\0') != string_view::npos || line.find('\r') != string_view::npos) {
+		if (line.find('\0') != SV::npos || line.find('\r') != SV::npos) {
 			return ParseStatus::BadRequest;
 		}
 		auto colon = line.find(':');
-		if (colon == string_view::npos || colon == 0) {
+		if (colon == SV::npos || colon == 0) {
 			return ParseStatus::BadRequest;
 		}
 		auto name = line.substr(0, colon);

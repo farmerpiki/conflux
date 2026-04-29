@@ -10,68 +10,67 @@
 #include <unistd.h>
 
 import std;
+import conflux.types;
 import conflux.work;
 import conflux.file_io;
 import conflux.json;
 
-using namespace std;
-
 namespace {
 
-constexpr uint64_t pack_ud(
-	uint32_t slot,
-	uint32_t gen) noexcept {
-	return (static_cast<uint64_t>(gen) << 32U) | slot;
+constexpr u64 pack_ud(
+	u32 slot,
+	u32 gen) noexcept {
+	return (static_cast<u64>(gen) << 32U) | slot;
 }
 
 struct Config {
-	vector<size_t> parallelism{1, 2, 4, 8, 16, 32};
-	size_t iterations = 20'000; // per connection
-	size_t warmup = 500;
+	V<SZ> parallelism{1, 2, 4, 8, 16, 32};
+	SZ iterations = 20'000; // per connection
+	SZ warmup = 500;
 	bool csv = false;
-	string config_path;
+	S config_path;
 };
 
-template<class T, size_t N>
+template<class T, SZ N>
 void consume_prefix(
-	array<T, N> &buf,
-	size_t &held,
-	size_t drop) {
+	A<T, N> &buf,
+	SZ &held,
+	SZ drop) {
 	if (drop >= held) {
 		held = 0;
 		return;
 	}
-	size_t const remain = held - drop;
-	for (size_t i = 0; i < remain; ++i) {
+	SZ const remain = held - drop;
+	for (SZ i = 0; i < remain; ++i) {
 		buf[i] = buf[i + drop];
 	}
 	held = remain;
 }
 
 struct RingConfig {
-	string label = "default";
-	uint32_t flags = 0;
+	S label = "default";
+	u32 flags = 0;
 	unsigned entries = 256;
 };
 
 RingConfig load_ring_config(
-	string const &path) {
+	S const &path) {
 	RingConfig rc;
 	if (path.empty()) {
 		return rc;
 	}
-	ifstream const f{path};
+	std::ifstream const f{path};
 	if (!f) {
-		throw runtime_error{format("cannot open config {}", path)};
+		throw RE{format("cannot open config {}", path)};
 	}
-	stringstream ss;
+	std::stringstream ss;
 	ss << f.rdbuf();
 	auto parsed = conflux::json::parse(ss.str());
 	if (!parsed) {
-		throw runtime_error{format("json parse failed: {}", path)};
+		throw RE{format("json parse failed: {}", path)};
 	}
 	auto const &root = parsed->root();
-	rc.label = filesystem::path{path}.stem().string();
+	rc.label = fs::path{path}.stem().string();
 	if (auto obj = root.as_object(); obj) {
 		if (auto entries_node = obj->find_member("ring_entries")) {
 			if (auto num = entries_node->as_number(); num) {
@@ -81,7 +80,7 @@ RingConfig load_ring_config(
 			}
 		}
 		auto maybe_flags = obj->find_member("io_uring_flags");
-		auto set = [&](string_view key, uint32_t bit) {
+		auto set = [&](SV key, u32 bit) {
 			if (!maybe_flags) {
 				return;
 			}
@@ -103,9 +102,9 @@ RingConfig load_ring_config(
 	return rc;
 }
 
-string flags_str(
-	uint32_t f) {
-	string s;
+S flags_str(
+	u32 f) {
+	S s;
 	auto app = [&](char const *n) {
 		if (!s.empty()) {
 			s += '|';
@@ -136,26 +135,38 @@ string flags_str(
 	return s;
 }
 
+namespace {
+
+u64 parse_u64(
+	char const *s) noexcept {
+	SV sv{s};
+	u64 v{};
+	from_chars(sv.data(), sv.data() + sv.size(), v);
+	return v;
+}
+
+} // namespace
+
 Config parse_args(
 	span<char *> args) {
 	Config cfg;
-	for (size_t i = 1; i < args.size(); ++i) {
-		string_view const a = args[i];
+	for (SZ i = 1; i < args.size(); ++i) {
+		SV const a = args[i];
 		if (a == "--iterations" && i + 1 < args.size()) {
-			cfg.iterations = stoull(args[++i]);
+			cfg.iterations = parse_u64(args[++i]);
 		} else if (a == "--warmup" && i + 1 < args.size()) {
-			cfg.warmup = stoull(args[++i]);
+			cfg.warmup = parse_u64(args[++i]);
 		} else if (a == "--parallel" && i + 1 < args.size()) {
 			cfg.parallelism.clear();
-			string_view const list = args[++i];
-			size_t pos = 0;
+			SV const list = args[++i];
+			SZ pos = 0;
 			while (pos < list.size()) {
-				size_t const comma = list.find(',', pos);
-				size_t const end = (comma == string_view::npos) ? list.size() : comma;
-				size_t v = 0;
+				SZ const comma = list.find(',', pos);
+				SZ const end = (comma == SV::npos) ? list.size() : comma;
+				SZ v = 0;
 				auto const r = from_chars(list.data() + pos, list.data() + end, v);
 				if (r.ec != errc{} || v == 0) {
-					throw runtime_error{"bad --parallel list"};
+					throw RE{"bad --parallel list"};
 				}
 				cfg.parallelism.push_back(v);
 				pos = end + 1;
@@ -168,7 +179,7 @@ Config parse_args(
 			println(
 				"Usage: conflux_tcp_parallel_coro_bench [--iterations N] [--warmup N] "
 				"[--parallel 1,2,4,8,16] [--config path.json] [--csv]");
-			exit(0);
+			std::exit(0);
 		}
 	}
 	return cfg;
@@ -176,11 +187,11 @@ Config parse_args(
 
 // Shared join primitive: N workers, last one resolves the flow.
 struct Barrier {
-	atomic<size_t> remaining;
+	Atom<SZ> remaining;
 	FlowSource<void> src;
 
 	explicit Barrier(
-		size_t n)
+		SZ n)
 		: remaining{n} {}
 };
 
@@ -202,22 +213,20 @@ Task<void> async_server(
 	FileHandle sock,
 	Barrier *done) {
 	BarrierTicket const ticket{done};
-	array<byte, 64> buf{};
-	size_t held = 0;
-	array<char, 24> out{};
+	A<byte, 64> buf{};
+	SZ held = 0;
+	A<char, 24> out{};
 	try {
 		for (;;) {
-			size_t scan = 0;
+			SZ scan = 0;
 			while (scan < held) {
-				auto it = find(
-					buf.begin() + static_cast<ptrdiff_t>(scan),
-					buf.begin() + static_cast<ptrdiff_t>(held),
-					static_cast<byte>('\n'));
-				if (it == buf.begin() + static_cast<ptrdiff_t>(held)) {
+				auto view = span{buf}.subspan(scan, held - scan);
+				auto it = ranges::find(view, static_cast<byte>('\n'));
+				if (it == view.end()) {
 					break;
 				}
-				size_t const msg_end = static_cast<size_t>(it - buf.begin());
-				uint64_t n = 0;
+				SZ const msg_end = scan + static_cast<SZ>(it - view.begin());
+				u64 n = 0;
 				auto const parsed = from_chars(
 					reinterpret_cast<char const *>(buf.data()) + scan,
 					reinterpret_cast<char const *>(buf.data()) + msg_end,
@@ -228,8 +237,8 @@ Task<void> async_server(
 				++n;
 				auto const conv = to_chars(out.data(), out.data() + out.size() - 1, n);
 				*conv.ptr = '\n';
-				size_t const out_len = static_cast<size_t>(conv.ptr - out.data()) + 1;
-				size_t sent = 0;
+				SZ const out_len = static_cast<SZ>(conv.ptr - out.data()) + 1;
+				SZ sent = 0;
 				while (sent < out_len) {
 					auto const w =
 						co_await files.write_into(sock, 0, as_bytes(span{out.data() + sent, out_len - sent}));
@@ -253,7 +262,7 @@ Task<void> async_server(
 }
 
 int start_listener(
-	uint16_t &port_out) {
+	u16 &port_out) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	int one = 1;
 	::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
@@ -270,7 +279,7 @@ int start_listener(
 }
 
 int connect_to(
-	uint16_t port) {
+	u16 port) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	int one = 1;
 	::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
@@ -280,22 +289,22 @@ int connect_to(
 	addr.sin_port = ::htons(port);
 	if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 		::close(fd);
-		throw runtime_error{"connect"};
+		throw RE{"connect"};
 	}
 	return fd;
 }
 
-size_t encode_line(
+SZ encode_line(
 	span<char> out,
-	uint64_t n) {
+	u64 n) {
 	auto const r = to_chars(out.data(), out.data() + out.size() - 1, n);
 	*r.ptr = '\n';
-	return static_cast<size_t>(r.ptr - out.data()) + 1;
+	return static_cast<SZ>(r.ptr - out.data()) + 1;
 }
 
-uint64_t decode_line(
-	string_view line) {
-	uint64_t n = 0;
+u64 decode_line(
+	SV line) {
+	u64 n = 0;
 	from_chars(line.data(), line.data() + line.size(), n);
 	return n;
 }
@@ -303,27 +312,28 @@ uint64_t decode_line(
 struct AsyncLineReader {
 	FileReader &files;
 	FileHandle const &handle;
-	array<byte, 128> buf{};
-	size_t held = 0;
+	A<byte, 128> buf{};
+	SZ held = 0;
 
-	Task<string_view> read_line() {
+	Task<SV> read_line() {
 		for (;;) {
-			auto it = find(buf.begin(), buf.begin() + static_cast<ptrdiff_t>(held), static_cast<byte>('\n'));
-			if (it != buf.begin() + static_cast<ptrdiff_t>(held)) {
-				auto const end = static_cast<size_t>(it - buf.begin());
-				co_return string_view{reinterpret_cast<char const *>(buf.data()), end};
+			auto view = span{buf}.first(held);
+			auto it = ranges::find(view, static_cast<byte>('\n'));
+			if (it != view.end()) {
+				auto const end = static_cast<SZ>(it - view.begin());
+				co_return SV{reinterpret_cast<char const *>(buf.data()), end};
 			}
 			auto got = co_await files.read_into(handle, 0, span{buf.data() + held, buf.size() - held});
 			if (got == 0) {
-				throw runtime_error{"eof"};
+				throw RE{"eof"};
 			}
 			held += got;
 		}
 	}
 
 	void consume_line(
-		size_t line_len) {
-		size_t const drop = line_len + 1;
+		SZ line_len) {
+		SZ const drop = line_len + 1;
 		consume_prefix(buf, held, drop);
 	}
 };
@@ -331,21 +341,21 @@ struct AsyncLineReader {
 Task<void> worker(
 	FileReader &files,
 	FileHandle sock,
-	size_t iters,
+	SZ iters,
 	Barrier *b) {
 	BarrierTicket const ticket{b};
 	AsyncLineReader reader{.files = files, .handle = sock};
-	array<char, 24> out{};
-	uint64_t n = 0;
+	A<char, 24> out{};
+	u64 n = 0;
 	try {
-		for (size_t i = 0; i < iters; ++i) {
-			size_t const len = encode_line(out, n);
+		for (SZ i = 0; i < iters; ++i) {
+			SZ const len = encode_line(out, n);
 			co_await files.write_into(sock, 0, as_bytes(span{out.data(), len}));
 			auto line = co_await reader.read_line();
-			uint64_t const got = decode_line(line);
+			u64 const got = decode_line(line);
 			reader.consume_line(line.size());
 			if (got != n + 1) {
-				throw runtime_error{format("expected {} got {}", n + 1, got)};
+				throw RE{format("expected {} got {}", n + 1, got)};
 			}
 			n = got;
 		}
@@ -362,32 +372,32 @@ Task<void> spawn_arm(
 }
 
 struct RunResult {
-	uint64_t ns;
-	size_t total_iters;
+	u64 ns;
+	SZ total_iters;
 };
 
 RunResult run_parallel(
 	FileReader &files,
-	size_t parallelism,
-	size_t iters_per_conn,
+	SZ parallelism,
+	SZ iters_per_conn,
 	int listen_fd) {
-	vector<FileHandle> client_socks;
-	vector<FileHandle> server_socks;
+	V<FileHandle> client_socks;
+	V<FileHandle> server_socks;
 	client_socks.reserve(parallelism);
 	server_socks.reserve(parallelism);
 
-	uint16_t port = 0;
+	u16 port = 0;
 	sockaddr_in la{};
 	socklen_t slen = sizeof(la);
 	::getsockname(listen_fd, reinterpret_cast<sockaddr *>(&la), &slen);
 	port = ::ntohs(la.sin_port);
 
-	for (size_t i = 0; i < parallelism; ++i) {
+	for (SZ i = 0; i < parallelism; ++i) {
 		int const cfd = connect_to(port);
 		int const afd = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
 		if (afd < 0) {
 			::close(cfd);
-			throw runtime_error{"accept"};
+			throw RE{"accept"};
 		}
 		int one = 1;
 		::setsockopt(afd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
@@ -399,7 +409,7 @@ RunResult run_parallel(
 	auto done = b.src.flow();
 
 	auto const t0 = chrono::steady_clock::now();
-	for (size_t i = 0; i < parallelism; ++i) {
+	for (SZ i = 0; i < parallelism; ++i) {
 		co_spawn(async_server(files, std::move(server_socks[i]), &b));
 		co_spawn(spawn_arm(worker(files, std::move(client_socks[i]), iters_per_conn, &b)));
 	}
@@ -407,7 +417,7 @@ RunResult run_parallel(
 	auto const t1 = chrono::steady_clock::now();
 
 	return {
-		.ns = static_cast<uint64_t>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count()),
+		.ns = static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count()),
 		.total_iters = parallelism * iters_per_conn};
 }
 
@@ -416,9 +426,9 @@ RunResult run_parallel(
 int main(
 	int argc,
 	char **argv) try {
-	auto cfg = parse_args(span{argv, static_cast<size_t>(argc)});
+	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
 
-	uint16_t port = 0;
+	u16 port = 0;
 	int const lfd = start_listener(port);
 	(void)port;
 
@@ -450,7 +460,7 @@ int main(
 	// Warmup with P=1.
 	(void)run_parallel(files, 1, cfg.warmup, lfd);
 
-	for (size_t p: cfg.parallelism) {
+	for (SZ p: cfg.parallelism) {
 		auto const r = run_parallel(files, p, cfg.iterations, lfd);
 		double const per = static_cast<double>(r.ns) / static_cast<double>(r.total_iters);
 		double const tput = static_cast<double>(r.total_iters) / (static_cast<double>(r.ns) / 1e9);

@@ -8,7 +8,6 @@ import std;
 import conflux.types;
 import conflux.templates;
 
-using namespace std;
 using namespace tmpl;
 
 static Environment make_env() {
@@ -88,7 +87,7 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"template: for loop over array",
+	"template: for loop over A",
 	"[template]") {
 	auto env = make_env();
 	auto result = env.render_string("{% for x in items %}{{ x }},{% endfor %}", R"({"items":[1,2,3]})");
@@ -96,7 +95,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"template: for loop over empty array",
+	"template: for loop over empty A",
 	"[template]") {
 	auto env = make_env();
 	auto result = env.render_string("{% for x in items %}{{ x }}{% endfor %}", R"({"items":[]})");
@@ -148,7 +147,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"template: loop.length reports array size",
+	"template: loop.length reports A size",
 	"[template]") {
 	auto env = make_env();
 	auto result = env.render_string("{% for x in items %}{{ loop.length }}{% endfor %}", R"({"items":[1,2,3]})");
@@ -311,7 +310,7 @@ TEST_CASE(
 	"template: render unknown named template throws",
 	"[template]") {
 	auto env = make_env();
-	CHECK_THROWS_AS(env.render("no_such.html", "{}"), runtime_error);
+	CHECK_THROWS_AS(env.render("no_such.html", "{}"), RE);
 }
 
 // ---------------------------------------------------------------------------

@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.model_a;
 

@@ -9,7 +9,6 @@ module;
 export module conflux.utils;
 import std;
 import conflux.types;
-using namespace std;
 
 namespace utils_detail {
 
@@ -21,7 +20,7 @@ inline constexpr u64 rotl(
 
 // xoshiro256** PRNG. Seeded once per thread from getrandom(2).
 class Xoshiro256ss {
-	array<u64, 4> s_{};
+	A<u64, 4> s_{};
 
 public:
 	Xoshiro256ss() {
@@ -53,7 +52,7 @@ public:
 export void random_bytes(
 	span<unsigned char> out) {
 	static thread_local utils_detail::Xoshiro256ss rng{};
-	size_t i = 0;
+	SZ i = 0;
 	while (i + sizeof(u64) <= out.size()) {
 		u64 const v = rng.next();
 		memcpy(out.data() + i, &v, sizeof(v));
@@ -114,12 +113,12 @@ export constexpr int hex_char_to_int(
 // ---------------------------------------------------------------------------
 
 // Decode a percent-encoded URL component ('+' → space, %XX → byte).
-export string url_decode(
-	string_view s) {
-	string out;
+export S url_decode(
+	SV s) {
+	S out;
 	auto const n = s.size();
 	out.reserve(n);
-	for (size_t i = 0; i < n; ++i) {
+	for (SZ i = 0; i < n; ++i) {
 		if (s[i] == '+') {
 			out += ' ';
 		} else if (s[i] == '%' && i + 2 < n) {
@@ -140,12 +139,12 @@ export string url_decode(
 
 // Decode percent-encoded URL path segment (%XX → byte). '+' is NOT decoded to
 // space (it is a literal '+' in path segments, not a form-encoding indicator).
-export string url_decode_path(
-	string_view s) {
-	string out;
+export S url_decode_path(
+	SV s) {
+	S out;
 	auto const n = s.size();
 	out.reserve(n);
-	for (size_t i = 0; i < n; ++i) {
+	for (SZ i = 0; i < n; ++i) {
 		if (s[i] == '%' && i + 2 < n) {
 			int const hi = hex_char_to_int(s[i + 1]);
 			int const lo = hex_char_to_int(s[i + 2]);
@@ -178,28 +177,28 @@ export struct IpCidr {
 
 namespace {
 
-// POSIX inet_pton wants NUL-terminated C string; stage into a stack buffer.
+// POSIX inet_pton wants NUL-terminated C S; stage into a stack buffer.
 template<typename T>
-optional<T> try_pton(
+Opt<T> try_pton(
 	int af,
-	string_view s) noexcept {
-	array<char, INET6_ADDRSTRLEN> buf{};
+	SV s) noexcept {
+	A<char, INET6_ADDRSTRLEN> buf{};
 	if (s.size() >= buf.size()) {
-		return nullopt;
+		return std::nullopt;
 	}
 	memcpy(buf.data(), s.data(), s.size());
 	buf[s.size()] = '\0';
 	T a{};
-	return ::inet_pton(af, buf.data(), &a) == 1 ? optional{a} : nullopt;
+	return ::inet_pton(af, buf.data(), &a) == 1 ? Opt{a} : std::nullopt;
 }
 
 template<typename T>
-string ntop(
+S ntop(
 	int af,
 	T const &a) {
-	array<char, INET6_ADDRSTRLEN> buf{};
+	A<char, INET6_ADDRSTRLEN> buf{};
 	if (::inet_ntop(af, &a, buf.data(), buf.size()) != nullptr) {
-		return string{buf.data()};
+		return S{buf.data()};
 	}
 	return {};
 }
@@ -228,10 +227,10 @@ void apply_prefix(
 	}
 }
 
-// Strip zone ID (%...) and surrounding brackets from an address string.
-string_view strip_ip_decorators(
-	string_view s) noexcept {
-	if (auto z = s.find('%'); z != string_view::npos) {
+// Strip zone ID (%...) and surrounding brackets from an address S.
+SV strip_ip_decorators(
+	SV s) noexcept {
+	if (auto z = s.find('%'); z != SV::npos) {
 		s.remove_suffix(s.size() - z);
 	}
 	if (s.size() >= 2 && s.front() == '[' && s.back() == ']') {
@@ -244,16 +243,16 @@ string_view strip_ip_decorators(
 } // namespace
 
 // Parse a dotted-decimal IPv4 address into host byte order.
-export optional<u32> parse_ipv4(
-	string_view s) noexcept {
+export Opt<u32> parse_ipv4(
+	SV s) noexcept {
 	auto v4 = try_pton<in_addr>(AF_INET, s);
-	return v4 ? optional{ntohl(v4->s_addr)} : nullopt;
+	return v4 ? Opt{ntohl(v4->s_addr)} : std::nullopt;
 }
 
 // Parse an IPv4 or IPv6 address. IPv4 → IPv4-mapped in6_addr.
-// Strips zone IDs and surrounding brackets. Returns nullopt on failure.
-export optional<IpAddr> parse_ip(
-	string_view s) noexcept {
+// Strips zone IDs and surrounding brackets. Returns std::nullopt on failure.
+export Opt<IpAddr> parse_ip(
+	SV s) noexcept {
 	s = strip_ip_decorators(s);
 	if (auto v4 = try_pton<in_addr>(AF_INET, s)) {
 		return ipv4_mapped(*v4);
@@ -263,30 +262,29 @@ export optional<IpAddr> parse_ip(
 
 // Parse "addr/prefix" or bare "addr" (defaults to /32 for IPv4, /128 for IPv6).
 // IPv4 CIDR prefix is stored as 96+N to match IPv4-mapped addresses uniformly.
-// Returns nullopt if the address or prefix is invalid.
-export optional<IpCidr> parse_cidr(
-	string_view s) noexcept {
+// Returns std::nullopt if the address or prefix is invalid.
+export Opt<IpCidr> parse_cidr(
+	SV s) noexcept {
 	auto slash = s.find('/');
-	auto ip_stripped = strip_ip_decorators(slash == string_view::npos ? s : s.substr(0, slash));
+	auto ip_stripped = strip_ip_decorators(slash == SV::npos ? s : s.substr(0, slash));
 	auto v4 = try_pton<in_addr>(AF_INET, ip_stripped);
-	auto v6 = v4 ? optional<in6_addr>{} : try_pton<in6_addr>(AF_INET6, ip_stripped);
+	auto v6 = v4 ? Opt<in6_addr>{} : try_pton<in6_addr>(AF_INET6, ip_stripped);
 	if (!v4 && !v6) {
-		return nullopt;
+		return std::nullopt;
 	}
 	unsigned const max_prefix = v4 ? 32U : 128U;
 	u32 prefix = max_prefix;
-	if (slash != string_view::npos) {
-		char const *const pfx_begin = s.data() + static_cast<ptrdiff_t>(slash) + 1;
-		char const *const pfx_end = s.data() + s.size();
-		if (pfx_begin == pfx_end) {
-			return nullopt;
+	if (slash != SV::npos) {
+		SV const pfx_sv = s.substr(slash + 1);
+		if (pfx_sv.empty()) {
+			return std::nullopt;
 		}
-		auto const res = from_chars(pfx_begin, pfx_end, prefix);
-		if (res.ec != errc{} || res.ptr != pfx_end) {
-			return nullopt;
+		auto const res = from_chars(pfx_sv.data(), pfx_sv.data() + pfx_sv.size(), prefix);
+		if (res.ec != errc{} || res.ptr != pfx_sv.data() + pfx_sv.size()) {
+			return std::nullopt;
 		}
 		if (prefix > max_prefix) {
-			return nullopt;
+			return std::nullopt;
 		}
 	}
 	in6_addr net = v4 ? ipv4_mapped(*v4) : *v6;
@@ -326,16 +324,16 @@ export void ascii_lower_inplace(
 }
 
 // Allocate a lowercase copy of `s`.
-export string ascii_lower(
-	string_view s) {
-	string out{s};
+export S ascii_lower(
+	SV s) {
+	S out{s};
 	ascii_lower_inplace(out);
 	return out;
 }
 
 // Trim leading/trailing ASCII whitespace (space, tab, CR, LF).
-export string_view trim(
-	string_view s) noexcept {
+export SV trim(
+	SV s) noexcept {
 	auto is_ws = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
 	while (!s.empty() && is_ws(s.front())) {
 		s.remove_prefix(1);
@@ -346,8 +344,8 @@ export string_view trim(
 	return s;
 }
 
-// Format an IpAddr as a string. IPv4-mapped addresses render as bare IPv4.
-export string ip_to_string(
+// Format an IpAddr as a S. IPv4-mapped addresses render as bare IPv4.
+export S ip_to_string(
 	IpAddr const &ip) {
 	if (IN6_IS_ADDR_V4MAPPED(&ip)) {
 		in_addr v4{};
@@ -358,9 +356,9 @@ export string ip_to_string(
 }
 
 // Parse a list of CIDR strings. Invalid entries emit a warning to stderr and are skipped.
-export vector<IpCidr> parse_cidr_list(
-	vector<string> const &cidr_strings) {
-	vector<IpCidr> result;
+export V<IpCidr> parse_cidr_list(
+	V<S> const &cidr_strings) {
+	V<IpCidr> result;
 	result.reserve(cidr_strings.size());
 	for (auto const &s: cidr_strings) {
 		if (auto c = parse_cidr(s)) {

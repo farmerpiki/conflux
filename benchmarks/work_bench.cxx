@@ -11,7 +11,8 @@ import conflux.work.carrier.model_b;
 #endif
 import conflux.work.carrier.deadline;
 
-using namespace std;
+using namespace std::string_view_literals;
+
 namespace root = conflux::work::root;
 #if CONFLUX_WORK_CARRIER_MODEL_A
 namespace model_a = conflux::work::carrier::model_a;
@@ -23,7 +24,7 @@ namespace carrier = conflux::work::carrier;
 
 namespace {
 
-inline atomic<size_t> sink{};
+inline Atom<SZ> sink{};
 
 struct OwnerCap : root::capability_id_from_address<OwnerCap> {};
 
@@ -31,9 +32,9 @@ struct DriverCap : root::capability_id_from_address<DriverCap> {};
 
 struct Config {
 	bool list_only = false;
-	string filter;
-	optional<size_t> iterations_override;
-	enum class Format : uint8_t {
+	S filter;
+	Opt<SZ> iterations_override;
+	enum class Format : u8 {
 		table,
 		csv,
 	};
@@ -41,18 +42,18 @@ struct Config {
 };
 
 struct Stats {
-	string_view name;
-	size_t iterations{};
-	uint64_t total_ns{};
+	SV name;
+	SZ iterations{};
+	u64 total_ns{};
 	double ns_per_iter{};
 };
 
-using BenchFn = root::detail::MoveOnlyFunction<size_t()>;
+using BenchFn = root::detail::MoveOnlyFunction<SZ()>;
 
 struct Case {
-	string_view name;
-	string_view description;
-	size_t default_iterations;
+	SV name;
+	SV description;
+	SZ default_iterations;
 	BenchFn run;
 };
 
@@ -63,78 +64,78 @@ void print_usage() {
 Config parse_args(
 	span<char *> args) {
 	Config cfg;
-	for (size_t i = 1; i < args.size(); ++i) {
-		string_view arg = args[i];
+	for (SZ i = 1; i < args.size(); ++i) {
+		SV arg = args[i];
 		if (arg == "--list") {
 			cfg.list_only = true;
 			continue;
 		}
 		if (arg == "--help" || arg == "-h") {
 			print_usage();
-			exit(0);
+			std::exit(0);
 		}
 		if (arg == "--filter") {
 			if (i + 1 >= args.size()) {
-				throw invalid_argument{"--filter requires a value"};
+				throw std::invalid_argument{"--filter requires a value"};
 			}
 			cfg.filter = args[++i];
 			continue;
 		}
 		if (arg == "--iterations") {
 			if (i + 1 >= args.size()) {
-				throw invalid_argument{"--iterations requires a value"};
+				throw std::invalid_argument{"--iterations requires a value"};
 			}
-			size_t iters = 0;
-			auto const value = string_view{args[++i]};
+			SZ iters = 0;
+			auto const value = SV{args[++i]};
 			auto const [ptr, ec] = from_chars(value.data(), value.data() + value.size(), iters);
 			if (ec != errc{} || ptr != value.data() + value.size() || iters == 0) {
-				throw invalid_argument{"--iterations must be a positive integer"};
+				throw std::invalid_argument{"--iterations must be a positive integer"};
 			}
 			cfg.iterations_override = iters;
 			continue;
 		}
 		if (arg == "--format") {
 			if (i + 1 >= args.size()) {
-				throw invalid_argument{"--format requires a value"};
+				throw std::invalid_argument{"--format requires a value"};
 			}
-			auto const value = string_view{args[++i]};
+			auto const value = SV{args[++i]};
 			if (value == "table") {
 				cfg.format = Config::Format::table;
 			} else if (value == "csv") {
 				cfg.format = Config::Format::csv;
 			} else {
-				throw invalid_argument{"--format must be table or csv"};
+				throw std::invalid_argument{"--format must be table or csv"};
 			}
 			continue;
 		}
-		throw invalid_argument{format("unknown argument: {}", arg)};
+		throw std::invalid_argument{format("unknown argument: {}", arg)};
 	}
 	return cfg;
 }
 
 bool matches_filter(
 	Case const &bench,
-	string_view filter) {
+	SV filter) {
 	return filter.empty() || bench.name.contains(filter) || bench.description.contains(filter);
 }
 
-size_t warmup_iterations(
-	size_t iterations) {
-	return clamp(iterations / 10, size_t{1}, size_t{1000});
+SZ warmup_iterations(
+	SZ iterations) {
+	return std::clamp(iterations / 10, SZ{1}, SZ{1000});
 }
 
 Stats measure_case(
 	Case const &bench,
-	size_t iterations) {
-	for (size_t i = 0; i < warmup_iterations(iterations); ++i) {
+	SZ iterations) {
+	for (SZ i = 0; i < warmup_iterations(iterations); ++i) {
 		sink.fetch_add(bench.run(), memory_order_relaxed);
 	}
 	auto const start = chrono::steady_clock::now();
-	for (size_t i = 0; i < iterations; ++i) {
+	for (SZ i = 0; i < iterations; ++i) {
 		sink.fetch_add(bench.run(), memory_order_relaxed);
 	}
 	auto const elapsed = chrono::steady_clock::now() - start;
-	auto const total_ns = static_cast<uint64_t>(chrono::duration_cast<chrono::nanoseconds>(elapsed).count());
+	auto const total_ns = static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(elapsed).count());
 	return Stats{
 		.name = bench.name,
 		.iterations = iterations,
@@ -167,7 +168,7 @@ Case make_value_then_case() {
 		.name = "micro/value_then",
 		.description = "Immediate value through a simple then-chain",
 		.default_iterations = 200'000,
-		.run = [] { return static_cast<size_t>(wait(value(7) | then([](int x) { return x + 1; }))); }};
+		.run = [] { return static_cast<SZ>(wait(value(7) | then([](int x) { return x + 1; }))); }};
 }
 
 Case make_pool_roundtrip_case() {
@@ -176,7 +177,7 @@ Case make_pool_roundtrip_case() {
 		.name = "micro/pool_roundtrip",
 		.description = "Submit to WorkPool and wait for one result",
 		.default_iterations = 100'000,
-		.run = [pool] { return static_cast<size_t>(wait(run_on(*pool, [] { return 42; }))); }};
+		.run = [pool] { return static_cast<SZ>(wait(run_on(*pool, [] { return 42; }))); }};
 }
 
 Case make_pool_chain_case() {
@@ -186,7 +187,7 @@ Case make_pool_chain_case() {
 		.description = "WorkPool submit followed by chained continuation",
 		.default_iterations = 100'000,
 		.run = [pool] {
-			return static_cast<size_t>(
+			return static_cast<SZ>(
 				wait(run_on(*pool, [] { return 10; }) | then([](int x) { return x * 4; }) | then([](int x) {
 						 return x + 2;
 					 })));
@@ -201,20 +202,20 @@ Case make_join_all_case() {
 		.default_iterations = 50'000,
 		.run = [pool] {
 			auto [a, b, c] = wait(join_all(run_on(*pool, [] { return 1; }), run_on(*pool, [] { return 2; }), value(3)));
-			return static_cast<size_t>(a + b + c);
+			return static_cast<SZ>(a + b + c);
 		}};
 }
 
 Case make_ring_lane_case() {
 	struct State {
 		io_uring ring{};
-		unique_ptr<RingLane> lane;
+		UP<RingLane> lane;
 
 		State()
 			: lane{} {
 			int const rc = ::io_uring_queue_init(8, &ring, 0);
 			if (rc != 0) {
-				throw runtime_error{format("io_uring_queue_init failed: {}", rc)};
+				throw RE{format("io_uring_queue_init failed: {}", rc)};
 			}
 			lane = make_unique<RingLane>(RingLaneOptions{
 				.ring_fd = ring.ring_fd,
@@ -234,17 +235,17 @@ Case make_ring_lane_case() {
 		.description = "Foreign-thread enqueue, msg-ring wake, owner-thread drain",
 		.default_iterations = 20'000,
 		.run = [state] {
-			atomic<size_t> value_out{};
+			Atom<SZ> value_out{};
 			jthread producer([&] {
 				bool const queued = state->lane->enqueue([&] { value_out.store(77, memory_order_release); });
 				if (!queued) {
-					throw runtime_error{"ring lane enqueue failed"};
+					throw RE{"ring lane enqueue failed"};
 				}
 			});
 			producer.join();
 			io_uring_cqe *cqe = nullptr;
 			if (::io_uring_wait_cqe(&state->ring, &cqe) != 0 || cqe == nullptr) {
-				throw runtime_error{"io_uring_wait_cqe failed"};
+				throw RE{"io_uring_wait_cqe failed"};
 			}
 			::io_uring_cqe_seen(&state->ring, cqe);
 			(void)state->lane->drain();
@@ -261,9 +262,9 @@ Case make_root_task_join_case() {
 			auto [task, src] = root::make_task_source<int>();
 			bool const committed = src.commit_success(root::Success<int>{9});
 			if (!committed) {
-				throw runtime_error{"commit_success failed"};
+				throw RE{"commit_success failed"};
 			}
-			return static_cast<size_t>(root::value(move(task)));
+			return static_cast<SZ>(root::value(move(task)));
 		}};
 }
 
@@ -277,9 +278,9 @@ Case make_root_posted_join_case() {
 			auto [posted, src] = root::make_posted_source<int>(owner);
 			bool const committed = src.commit_success(root::Success<int>{7});
 			if (!committed) {
-				throw runtime_error{"commit_success failed"};
+				throw RE{"commit_success failed"};
 			}
-			return static_cast<size_t>(root::value(owner, move(posted)));
+			return static_cast<SZ>(root::value(owner, move(posted)));
 		}};
 }
 
@@ -293,9 +294,9 @@ Case make_root_operation_join_case() {
 			auto [op, src] = root::make_operation_source<int>(driver);
 			bool const committed = src.commit_success(root::Success<int>{5});
 			if (!committed) {
-				throw runtime_error{"commit_success failed"};
+				throw RE{"commit_success failed"};
 			}
-			return static_cast<size_t>(root::value(driver, move(op)));
+			return static_cast<SZ>(root::value(driver, move(op)));
 		}};
 }
 
@@ -309,7 +310,7 @@ Case make_root_task_admission_case(
 						root::make_task_source<int>(root::SubmitOptions{.enable_cancellation = enable_cancellation});
 					root::abandon_to(move(task), root::drop_on_abandon{});
 					(void)src;
-					return size_t{1};
+					return SZ{1};
 				}};
 }
 
@@ -325,7 +326,7 @@ Case make_root_posted_admission_case(
 						root::PostOptions{.enable_cancellation = enable_cancellation});
 					root::abandon_to(move(posted), root::drop_on_abandon{});
 					(void)src;
-					return size_t{1};
+					return SZ{1};
 				}};
 }
 
@@ -342,7 +343,7 @@ Case make_root_operation_admission_case(
 						root::OperationOptions{.enable_cancellation = enable_cancellation});
 					root::abandon_to(move(op), root::drop_on_abandon{});
 					(void)src;
-					return size_t{1};
+					return SZ{1};
 				}};
 }
 
@@ -357,7 +358,7 @@ Case make_root_task_control_admission_case(
 						root::SubmitOptions{.enable_cancellation = enable_cancellation});
 					(void)control;
 					(void)src;
-					return size_t{1};
+					return SZ{1};
 				}};
 }
 
@@ -372,7 +373,7 @@ Case make_root_posted_control_admission_case(
 						root::PostOptions{.enable_cancellation = enable_cancellation});
 					(void)control;
 					(void)src;
-					return size_t{1};
+					return SZ{1};
 				}};
 }
 
@@ -387,7 +388,7 @@ Case make_root_operation_control_admission_case(
 						root::OperationOptions{.enable_cancellation = enable_cancellation});
 					(void)control;
 					(void)src;
-					return size_t{1};
+					return SZ{1};
 				}};
 }
 
@@ -399,17 +400,17 @@ Case make_root_cancel_hook_case(
 	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
 					auto [task, src] =
 						root::make_task_source<int>(root::SubmitOptions{.enable_cancellation = enable_cancellation});
-					size_t seen = 0;
+					SZ seen = 0;
 					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
 						if (reason == root::CancelReason::requested) {
 							++seen;
 						}
 					});
 					if (!installed) {
-						throw runtime_error{"install_cancel_hook failed"};
+						throw RE{"install_cancel_hook failed"};
 					}
 					auto control = task.control();
-					size_t score = control.request_cancel() ? 1U : 0U;
+					SZ score = control.request_cancel() ? 1U : 0U;
 					score += seen;
 					root::abandon_to(move(task), root::drop_on_abandon{});
 					return score;
@@ -426,17 +427,17 @@ Case make_root_posted_cancel_hook_case(
 					auto [posted, src] = root::make_posted_source<int>(
 						owner,
 						root::PostOptions{.enable_cancellation = enable_cancellation});
-					size_t seen = 0;
+					SZ seen = 0;
 					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
 						if (reason == root::CancelReason::requested) {
 							++seen;
 						}
 					});
 					if (!installed) {
-						throw runtime_error{"install_cancel_hook failed"};
+						throw RE{"install_cancel_hook failed"};
 					}
 					auto control = posted.control();
-					size_t score = control.request_cancel() ? 1U : 0U;
+					SZ score = control.request_cancel() ? 1U : 0U;
 					score += seen;
 					root::abandon_to(move(posted), root::drop_on_abandon{});
 					return score;
@@ -454,17 +455,17 @@ Case make_root_operation_cancel_hook_case(
 					auto [op, src] = root::make_operation_source<int>(
 						driver,
 						root::OperationOptions{.enable_cancellation = enable_cancellation});
-					size_t seen = 0;
+					SZ seen = 0;
 					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
 						if (reason == root::CancelReason::requested) {
 							++seen;
 						}
 					});
 					if (!installed) {
-						throw runtime_error{"install_cancel_hook failed"};
+						throw RE{"install_cancel_hook failed"};
 					}
 					auto control = op.control();
-					size_t score = control.request_cancel() ? 1U : 0U;
+					SZ score = control.request_cancel() ? 1U : 0U;
 					score += seen;
 					root::abandon_to(move(op), root::drop_on_abandon{});
 					return score;
@@ -481,16 +482,16 @@ Case make_root_control_cancel_hook_case(
 	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
 					auto [control, src] = root::make_task_control_source<int>(
 						root::SubmitOptions{.enable_cancellation = enable_cancellation});
-					size_t seen = 0;
+					SZ seen = 0;
 					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
 						if (reason == root::CancelReason::requested) {
 							++seen;
 						}
 					});
 					if (!installed) {
-						throw runtime_error{"install_cancel_hook failed"};
+						throw RE{"install_cancel_hook failed"};
 					}
-					size_t score = control.request_cancel() ? 1U : 0U;
+					SZ score = control.request_cancel() ? 1U : 0U;
 					score += seen;
 					return score;
 				}};
@@ -506,16 +507,16 @@ Case make_root_posted_control_cancel_hook_case(
 	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
 					auto [control, src] = root::make_posted_control_source<int>(
 						root::PostOptions{.enable_cancellation = enable_cancellation});
-					size_t seen = 0;
+					SZ seen = 0;
 					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
 						if (reason == root::CancelReason::requested) {
 							++seen;
 						}
 					});
 					if (!installed) {
-						throw runtime_error{"install_cancel_hook failed"};
+						throw RE{"install_cancel_hook failed"};
 					}
-					size_t score = control.request_cancel() ? 1U : 0U;
+					SZ score = control.request_cancel() ? 1U : 0U;
 					score += seen;
 					return score;
 				}};
@@ -531,16 +532,16 @@ Case make_root_operation_control_cancel_hook_case(
 	return Case{.name = name, .description = description, .default_iterations = 200'000, .run = [enable_cancellation] {
 					auto [control, src] = root::make_operation_control_source<int>(
 						root::OperationOptions{.enable_cancellation = enable_cancellation});
-					size_t seen = 0;
+					SZ seen = 0;
 					bool const installed = src.install_cancel_hook([&seen](root::CancelReason reason) noexcept {
 						if (reason == root::CancelReason::requested) {
 							++seen;
 						}
 					});
 					if (!installed) {
-						throw runtime_error{"install_cancel_hook failed"};
+						throw RE{"install_cancel_hook failed"};
 					}
-					size_t score = control.request_cancel() ? 1U : 0U;
+					SZ score = control.request_cancel() ? 1U : 0U;
 					score += seen;
 					return score;
 				}};
@@ -548,7 +549,7 @@ Case make_root_operation_control_cancel_hook_case(
 
 Case make_root_abandon_sink_case() {
 	struct Sink {
-		size_t *seen{};
+		SZ *seen{};
 		void operator ()(
 			root::Failure const &) const noexcept {}
 		void operator ()(
@@ -563,11 +564,11 @@ Case make_root_abandon_sink_case() {
 		.default_iterations = 200'000,
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
-			size_t seen = 0;
+			SZ seen = 0;
 			root::abandon_to(move(task), Sink{.seen = &seen});
 			bool const committed = src.commit_cancelled(root::CancelReason::requested);
 			if (!committed) {
-				throw runtime_error{"commit_cancelled failed"};
+				throw RE{"commit_cancelled failed"};
 			}
 			return seen;
 		}};
@@ -575,10 +576,10 @@ Case make_root_abandon_sink_case() {
 
 template<typename Fn>
 Case make_callable_erasure_case(
-	string_view name,
-	string_view description) {
+	SV name,
+	SV description) {
 	return Case{.name = name, .description = description, .default_iterations = 500'000, .run = [] {
-					size_t seen = 0;
+					SZ seen = 0;
 					Fn fn{[&seen](root::CancelReason reason) noexcept {
 						if (reason == root::CancelReason::requested) {
 							++seen;
@@ -590,21 +591,21 @@ Case make_callable_erasure_case(
 				}};
 }
 
-template<typename Fn, size_t CaptureWords>
+template<typename Fn, SZ CaptureWords>
 Case make_callable_erasure_capture_case(
-	string_view name,
-	string_view description) {
+	SV name,
+	SV description) {
 	struct Payload {
-		array<uintptr_t, CaptureWords> words{};
+		A<uintptr_t, CaptureWords> words{};
 	};
 
 	return Case{.name = name, .description = description, .default_iterations = 500'000, .run = [] {
-					size_t seen = 0;
+					SZ seen = 0;
 					Payload payload{};
 					payload.words[0] = 0xC0FFEEU;
 					Fn fn{[&seen, payload](root::CancelReason reason) noexcept {
 						if (reason == root::CancelReason::requested) {
-							seen += static_cast<size_t>(payload.words[0] & 1U) + 1U;
+							seen += static_cast<SZ>(payload.words[0] & 1U) + 1U;
 						}
 					}};
 					Fn moved{move(fn)};
@@ -629,7 +630,7 @@ Case make_carrier_a_task_map1_case() {
 			auto chain = model_a::from_task(move(task));
 			auto mapped = model_a::map(move(chain), [](int x) { return x + 1; });
 			auto out = move(mapped).release_outcome();
-			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+			return static_cast<SZ>(out.is_success() ? out.success().value : 0);
 		}};
 }
 
@@ -646,7 +647,7 @@ Case make_carrier_a_task_map3_case() {
 			auto c2 = model_a::map(move(c1), [](int x) { return x * 2; });
 			auto c3 = model_a::map(move(c2), [](int x) { return x - 1; });
 			auto out = move(c3).release_outcome();
-			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+			return static_cast<SZ>(out.is_success() ? out.success().value : 0);
 		}};
 }
 
@@ -661,7 +662,7 @@ Case make_carrier_a_cancel_passthru_case() {
 			auto chain = model_a::from_task(move(task));
 			auto mapped = model_a::map(move(chain), [](int x) { return x + 1; });
 			auto out = move(mapped).release_outcome();
-			return static_cast<size_t>(out.is_cancelled() ? 1 : 0);
+			return static_cast<SZ>(out.is_cancelled() ? 1 : 0);
 		}};
 }
 
@@ -679,7 +680,7 @@ Case make_carrier_a_mixed_3stage_case() {
 			auto c1 = model_a::hop_to_posted(owner, move(c0));
 			auto c2 = model_a::hop_to_operation(driver, move(c1));
 			auto out = move(c2).release_outcome();
-			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+			return static_cast<SZ>(out.is_success() ? out.success().value : 0);
 		}};
 }
 
@@ -696,7 +697,7 @@ Case make_carrier_a_hop_verify_case() {
 			auto c1 = model_a::hop_to_posted(owner, move(c0));
 			model_a::verify_hop(owner, c1);
 			auto out = move(c1).release_outcome();
-			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+			return static_cast<SZ>(out.is_success() ? out.success().value : 0);
 		}};
 }
 
@@ -715,10 +716,10 @@ Case make_carrier_a_when_all_case() {
 			auto combined = model_a::when_all(move(ca), move(cb));
 			auto out = move(combined).release_outcome();
 			if (!out.is_success()) {
-				throw runtime_error{"when_all failed"};
+				throw RE{"when_all failed"};
 			}
 			auto [a, b] = move(out).success().value;
-			return static_cast<size_t>(a + b);
+			return static_cast<SZ>(a + b);
 		}};
 }
 
@@ -737,10 +738,10 @@ Case make_carrier_a_when_all_fast_fail_case() {
 			auto combined = model_a::when_all_fast_fail(move(ca), move(cb));
 			auto out = move(combined).release_outcome();
 			if (!out.is_success()) {
-				throw runtime_error{"when_all_fast_fail failed"};
+				throw RE{"when_all_fast_fail failed"};
 			}
 			auto [a, b] = move(out).success().value;
-			return static_cast<size_t>(a + b);
+			return static_cast<SZ>(a + b);
 		}};
 }
 
@@ -759,9 +760,9 @@ Case make_carrier_a_race_a_wins_case() {
 			auto winner = model_a::race(move(ca), move(cb));
 			auto out = move(winner).release_outcome();
 			if (!out.is_success()) {
-				throw runtime_error{"race failed"};
+				throw RE{"race failed"};
 			}
-			return static_cast<size_t>(out.success().value);
+			return static_cast<SZ>(out.success().value);
 		}};
 }
 
@@ -773,16 +774,16 @@ Case make_carrier_a_race_b_wins_case() {
 		.run = [] {
 			auto [ta, sa] = root::make_task_source<int>();
 			auto [tb, sb] = root::make_task_source<int>();
-			(void)sa.commit_failure(make_exception_ptr(runtime_error{"fail"}));
+			(void)sa.commit_failure(make_exception_ptr(RE{"fail"}));
 			(void)sb.commit_success(root::Success<int>{5});
 			auto ca = model_a::from_task(move(ta));
 			auto cb = model_a::from_task(move(tb));
 			auto winner = model_a::race(move(ca), move(cb));
 			auto out = move(winner).release_outcome();
 			if (!out.is_success()) {
-				throw runtime_error{"race b-wins failed"};
+				throw RE{"race b-wins failed"};
 			}
-			return static_cast<size_t>(out.success().value);
+			return static_cast<SZ>(out.success().value);
 		}};
 }
 
@@ -795,7 +796,7 @@ Case make_deadline_scope_arm_disarm_case() {
 		.default_iterations = 5'000,
 		.run = [] {
 			carrier::DeadlineScope const scope{chrono::seconds{60}};
-			return size_t{1};
+			return SZ{1};
 		}};
 }
 
@@ -814,9 +815,9 @@ Case make_deadline_scope_fast_path_case() {
 			auto chain = scope.admit(move(jh));
 			auto out = move(chain).release_outcome();
 			if (!out.is_success()) {
-				throw runtime_error{"deadline fast path failed"};
+				throw RE{"deadline fast path failed"};
 			}
-			return static_cast<size_t>(out.success().value);
+			return static_cast<SZ>(out.success().value);
 		}};
 }
 
@@ -838,7 +839,7 @@ Case make_carrier_b_task_map1_case() {
 			auto chain = model_b::from_task(move(task));
 			auto mapped = model_b::map(move(chain), [](int x) { return x + 1; });
 			auto out = move(mapped).release_outcome();
-			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+			return static_cast<SZ>(out.is_success() ? out.success().value : 0);
 		}};
 }
 
@@ -855,7 +856,7 @@ Case make_carrier_b_task_map3_case() {
 			auto c2 = model_b::map(move(c1), [](int x) { return x * 2; });
 			auto c3 = model_b::map(move(c2), [](int x) { return x - 1; });
 			auto out = move(c3).release_outcome();
-			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+			return static_cast<SZ>(out.is_success() ? out.success().value : 0);
 		}};
 }
 
@@ -870,7 +871,7 @@ Case make_carrier_b_cancel_passthru_case() {
 			auto chain = model_b::from_task(move(task));
 			auto mapped = model_b::map(move(chain), [](int x) { return x + 1; });
 			auto out = move(mapped).release_outcome();
-			return static_cast<size_t>(out.is_cancelled() ? 1 : 0);
+			return static_cast<SZ>(out.is_cancelled() ? 1 : 0);
 		}};
 }
 
@@ -888,7 +889,7 @@ Case make_carrier_b_mixed_3stage_case() {
 			auto c1 = model_b::hop_to_posted(owner, move(c0));
 			auto c2 = model_b::hop_to_operation(driver, move(c1));
 			auto out = move(c2).release_outcome();
-			return static_cast<size_t>(out.is_success() ? out.success().value : 0);
+			return static_cast<SZ>(out.is_success() ? out.success().value : 0);
 		}};
 }
 
@@ -907,17 +908,17 @@ Case make_carrier_b_when_all_case() {
 			auto combined = model_b::when_all(move(ca), move(cb));
 			auto out = move(combined).release_outcome();
 			if (!out.is_success()) {
-				throw runtime_error{"when_all failed"};
+				throw RE{"when_all failed"};
 			}
 			auto [a, b] = move(out).success().value;
-			return static_cast<size_t>(a + b);
+			return static_cast<SZ>(a + b);
 		}};
 }
 
 #endif // CONFLUX_WORK_CARRIER_MODEL_B
 
-vector<Case> make_cases() {
-	vector<Case> cases;
+V<Case> make_cases() {
+	V<Case> cases;
 	cases.push_back(make_value_then_case());
 	cases.push_back(make_pool_roundtrip_case());
 	cases.push_back(make_pool_chain_case());
@@ -1014,7 +1015,7 @@ int main(
 	int argc,
 	char **argv) {
 	try {
-		auto const cfg = parse_args({argv, static_cast<size_t>(argc)});
+		auto const cfg = parse_args({argv, static_cast<SZ>(argc)});
 		auto cases = make_cases();
 		if (cfg.list_only) {
 			for (auto const &bench: cases) {

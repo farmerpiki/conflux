@@ -6,6 +6,7 @@
 //   curl -s                              http://localhost:9093/api/data  # uncompressed
 import conflux.net.http;
 import std;
+import conflux.types;
 
 int main() {
 	Config cfg{};

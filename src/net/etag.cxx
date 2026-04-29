@@ -11,7 +11,6 @@ export module conflux.net.etag;
 import std;
 import conflux.types;
 import conflux.net.router;
-using namespace std;
 
 export struct ETagOptions {
 	// Use weak ETags (W/"hash"). Weak ETags are semantically equivalent
@@ -21,8 +20,8 @@ export struct ETagOptions {
 
 namespace etag_detail {
 
-string_view weak_value(
-	string_view tag) noexcept {
+SV weak_value(
+	SV tag) noexcept {
 	if (tag.starts_with("W/")) {
 		tag.remove_prefix(2);
 	}
@@ -30,15 +29,15 @@ string_view weak_value(
 }
 
 bool weak_match(
-	string_view lhs,
-	string_view rhs) noexcept {
+	SV lhs,
+	SV rhs) noexcept {
 	return weak_value(lhs) == weak_value(rhs);
 }
 
 HttpResponse not_modified(
-	string_view etag) {
+	SV etag) {
 	HttpResponse r{.status = 304, .status_text = "Not Modified"};
-	r.headers["ETag"] = string{etag};
+	r.headers["ETag"] = S{etag};
 	return r;
 }
 
@@ -50,7 +49,7 @@ export Router::Middleware etag_middleware(
 		auto resp = next(req);
 
 		// Skip: already has ETag, empty body, SSE/WS, or mmap response.
-		if (!as_const(resp.headers)["ETag"].empty()) {
+		if (!std::as_const(resp.headers)["ETag"].empty()) {
 			return resp;
 		}
 		if (!resp.is_text()) {
@@ -78,14 +77,14 @@ export Router::Middleware etag_middleware(
 				return etag_detail::not_modified(etag);
 			}
 			// Scan comma-separated values.
-			size_t pos = 0;
+			SZ pos = 0;
 			while (pos < inm.size()) {
 				// skip whitespace
 				while (pos < inm.size() && (inm[pos] == ' ' || inm[pos] == ',')) {
 					++pos;
 				}
 				auto end = inm.find(',', pos);
-				auto token = (end == string_view::npos) ? inm.substr(pos) : inm.substr(pos, end - pos);
+				auto token = (end == SV::npos) ? inm.substr(pos) : inm.substr(pos, end - pos);
 				// trim trailing whitespace
 				while (!token.empty() && token.back() == ' ') {
 					token.remove_suffix(1);
@@ -93,7 +92,7 @@ export Router::Middleware etag_middleware(
 				if (etag_detail::weak_match(token, etag)) {
 					return etag_detail::not_modified(etag);
 				}
-				pos = (end == string_view::npos) ? inm.size() : end + 1;
+				pos = (end == SV::npos) ? inm.size() : end + 1;
 			}
 		}
 		return resp;

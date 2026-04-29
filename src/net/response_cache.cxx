@@ -1,19 +1,19 @@
 // Response caching middleware: in-memory LRU cache with TTL.
 // Only caches GET requests with 200 responses and no Set-Cookie headers.
-// Cache key is the full request path (including query string).
+// Cache key is the full request path (including query S).
 // TTL is taken from the response Cache-Control max-age if present; otherwise
 // falls back to ResponseCacheOptions::default_ttl.
 export module conflux.net.response_cache;
 import std;
+import conflux.types;
 import conflux.utils;
 import conflux.net.router;
-using namespace std;
 
 export struct ResponseCacheOptions {
 	// Maximum number of entries in the LRU cache.
-	size_t max_entries{256};
+	SZ max_entries{256};
 	// Maximum total bytes of cached response bodies (0 = unlimited).
-	size_t max_bytes{64ULL * 1024 * 1024};
+	SZ max_bytes{64ULL * 1024 * 1024};
 	// Default TTL when the response has no Cache-Control max-age.
 	chrono::seconds default_ttl{60};
 	// When true, Vary: * responses are not cached.
@@ -30,14 +30,14 @@ struct RespCacheEntry {
 class RespLruCache {
 public:
 	explicit RespLruCache(
-		size_t max,
-		size_t max_bytes)
+		SZ max,
+		SZ max_bytes)
 		: max_(max)
 		, max_bytes_(max_bytes) {}
 
 	// Returns pointer to cached entry (nullptr if absent or expired).
 	RespCacheEntry const *get(
-		string const &key) {
+		S const &key) {
 		auto it = map_.find(key);
 		if (it == map_.end()) {
 			return nullptr;
@@ -57,9 +57,9 @@ public:
 	}
 
 	void put(
-		string const &key,
+		S const &key,
 		RespCacheEntry entry) {
-		size_t const entry_bytes = entry.resp.text_body().size();
+		SZ const entry_bytes = entry.resp.text_body().size();
 		if (max_bytes_ > 0 && entry_bytes > max_bytes_) {
 			return;
 		}
@@ -75,7 +75,7 @@ public:
 			if (order_.empty()) {
 				return;
 			}
-			string const &lru = order_.back();
+			S const &lru = order_.back();
 			total_bytes_ -= map_.at(lru).resp.text_body().size();
 			map_.erase(lru);
 			iters_.erase(lru);
@@ -87,40 +87,40 @@ public:
 		map_.emplace(key, move(entry));
 	}
 
-	[[nodiscard]] vector<string> const *vary_for(
-		string const &path) const {
+	[[nodiscard]] V<S> const *vary_for(
+		S const &path) const {
 		auto it = path_vary_.find(path);
 		return it == path_vary_.end() ? nullptr : &it->second;
 	}
 
 	void set_vary(
-		string const &path,
-		vector<string> headers) {
+		S const &path,
+		V<S> headers) {
 		path_vary_[path] = move(headers);
 	}
 
 private:
-	size_t max_;
-	size_t max_bytes_;
-	size_t total_bytes_{0};
-	list<string> order_;
-	unordered_map<string, list<string>::iterator> iters_;
-	unordered_map<string, RespCacheEntry> map_;
-	unordered_map<string, vector<string>> path_vary_;
+	SZ max_;
+	SZ max_bytes_;
+	SZ total_bytes_{0};
+	std::list<S> order_;
+	UM<S, std::list<S>::iterator> iters_;
+	UM<S, RespCacheEntry> map_;
+	UM<S, V<S>> path_vary_;
 };
 
 namespace response_cache_detail {
 
 // Parse max-age from a Cache-Control header value. Returns 0 if not found.
 chrono::seconds parse_max_age(
-	string_view cc) {
+	SV cc) {
 	auto pos = cc.find("max-age=");
-	if (pos == string_view::npos) {
+	if (pos == SV::npos) {
 		return chrono::seconds{0};
 	}
 	auto val = cc.substr(pos + 8);
 	auto end = val.find_first_of(", \t");
-	if (end != string_view::npos) {
+	if (end != SV::npos) {
 		val = val.substr(0, end);
 	}
 	long v = 0;
@@ -132,16 +132,16 @@ chrono::seconds parse_max_age(
 }
 
 // Parse a Vary header value into a sorted, lowercased, deduped list of header names.
-// Returns empty vector for empty input or "*".
-vector<string> parse_vary(
-	string_view vary) {
-	vector<string> out;
-	size_t i = 0;
+// Returns empty V for empty input or "*".
+V<S> parse_vary(
+	SV vary) {
+	V<S> out;
+	SZ i = 0;
 	while (i < vary.size()) {
 		while (i < vary.size() && (vary[i] == ' ' || vary[i] == '\t' || vary[i] == ',')) {
 			++i;
 		}
-		size_t const start = i;
+		SZ const start = i;
 		while (i < vary.size() && vary[i] != ',') {
 			++i;
 		}
@@ -160,12 +160,12 @@ vector<string> parse_vary(
 	return out;
 }
 
-string build_cache_key(
-	string_view path,
+S build_cache_key(
+	SV path,
 	HttpFieldsView const &query,
-	vector<string> const &vary,
+	V<S> const &vary,
 	HttpFieldsView const &req_headers) {
-	string key{path};
+	S key{path};
 	if (!query.empty()) {
 		key += "|q:";
 		for (auto const &[name, value]: query) {
@@ -200,13 +200,13 @@ export Router::Middleware response_cache_middleware(
 			return next(req);
 		}
 
-		string const path{req.path};
+		S const path{req.path};
 
 		{
-			scoped_lock const lk{*mtx};
+			SL const lk{*mtx};
 			auto const *vary = cache->vary_for(path);
 			auto lookup_key =
-				response_cache_detail::build_cache_key(path, req.query, vary ? *vary : vector<string>{}, req.headers);
+				response_cache_detail::build_cache_key(path, req.query, vary ? *vary : V<S>{}, req.headers);
 			auto const *entry = cache->get(lookup_key);
 			if (entry != nullptr) {
 				auto resp = entry->resp;
@@ -231,24 +231,24 @@ export Router::Middleware response_cache_middleware(
 		if (!resp.is_text()) {
 			return resp;
 		}
-		auto cc = as_const(resp.headers)["Cache-Control"];
-		if (cc.find("no-store") != string_view::npos) {
+		auto cc = std::as_const(resp.headers)["Cache-Control"];
+		if (cc.find("no-store") != SV::npos) {
 			return resp;
 		}
-		if (cc.find("no-cache") != string_view::npos) {
+		if (cc.find("no-cache") != SV::npos) {
 			return resp; // no-cache requires revalidation which this cache cannot perform
 		}
-		if (cc.find("private") != string_view::npos) {
+		if (cc.find("private") != SV::npos) {
 			return resp;
 		}
-		auto vary_hdr = as_const(resp.headers)["Vary"];
-		if (opts.respect_vary && vary_hdr.find('*') != string_view::npos) {
+		auto vary_hdr = std::as_const(resp.headers)["Vary"];
+		if (opts.respect_vary && vary_hdr.find('*') != SV::npos) {
 			return resp;
 		}
 		auto vary_list = response_cache_detail::parse_vary(vary_hdr);
 
 		auto ttl = response_cache_detail::parse_max_age(cc);
-		if (ttl.count() == 0 && cc.find("max-age=") != string_view::npos) {
+		if (ttl.count() == 0 && cc.find("max-age=") != SV::npos) {
 			return resp; // max-age=0: do not cache
 		}
 		if (ttl.count() == 0) {
@@ -256,7 +256,7 @@ export Router::Middleware response_cache_middleware(
 		}
 
 		{
-			scoped_lock const lk{*mtx};
+			SL const lk{*mtx};
 			if (!vary_list.empty()) {
 				cache->set_vary(path, vary_list);
 			}

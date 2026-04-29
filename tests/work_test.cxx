@@ -3,9 +3,8 @@
 #include <liburing.h>
 
 import std;
+import conflux.types;
 import conflux.work;
-
-using namespace std;
 
 TEST_CASE(
 	"work: value and then chain",
@@ -35,10 +34,10 @@ TEST_CASE(
 	"work: on_error recovers",
 	"[work]") {
 	WorkPool pool;
-	auto result = wait(run_on(pool, []() -> int { throw runtime_error{"boom"}; }) | on_error([](exception_ptr error) {
+	auto result = wait(run_on(pool, []() -> int { throw RE{"boom"}; }) | on_error([](EP error) {
 						   try {
 							   rethrow_exception(error);
-						   } catch (exception const &ex) { return static_cast<int>(string_view{ex.what()} == "boom"); }
+						   } catch (exception const &ex) { return static_cast<int>(SV{ex.what()} == "boom"); }
 						   return 0;
 					   }));
 	CHECK(result == 1);
@@ -86,7 +85,7 @@ TEST_CASE(
     };
 	lane.adopt_current_thread();
 
-	atomic<int> observed{0};
+	Atom<int> observed{0};
 	jthread producer([&] { CHECK(lane.enqueue([&] { observed.store(42, memory_order_release); })); });
 	producer.join();
 
@@ -113,11 +112,9 @@ TEST_CASE(
     };
 	lane.adopt_current_thread();
 
-	atomic<int> observed{0};
+	Atom<int> observed{0};
 	bool queued = true;
-	jthread producer([&] {
-		queued = lane.enqueue([&] { observed.store(42, memory_order_release); });
-	});
+	jthread producer([&] { queued = lane.enqueue([&] { observed.store(42, memory_order_release); }); });
 	producer.join();
 
 	CHECK_FALSE(queued);
@@ -145,7 +142,7 @@ TEST_CASE(
 	"work: spawn fires and forgets without wait",
 	"[work]") {
 	WorkPool pool;
-	atomic<int> counter{0};
+	Atom<int> counter{0};
 	auto gate = make_shared<barrier<>>(2);
 	spawn(run_on(pool, [gate, &counter] {
 		counter.fetch_add(1, memory_order_release);
@@ -169,8 +166,8 @@ TEST_CASE(
 	"[work]") {
 	FlowSource<int> src;
 	auto flow = src.flow();
-	src.reject(make_exception_ptr(runtime_error{"fail"}));
-	auto result = wait(move(flow) | on_error([](exception_ptr) { return -1; }));
+	src.reject(make_exception_ptr(RE{"fail"}));
+	auto result = wait(move(flow) | on_error([](EP) { return -1; }));
 	CHECK(result == -1);
 }
 
@@ -204,7 +201,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"work: IoBuffer from_string keeps string alive",
+	"work: IoBuffer from_string keeps S alive",
 	"[work]") {
 	IoBuffer buf = IoBuffer::from_string("hello");
 	CHECK(buf.bytes.size() == 5);
@@ -214,7 +211,7 @@ TEST_CASE(
 TEST_CASE(
 	"work: IoBuffer from span does not own",
 	"[work]") {
-	string s{"world"};
+	S s{"world"};
 	IoBuffer buf{
 		span{reinterpret_cast<byte const *>(s.data()), s.size()}
     };

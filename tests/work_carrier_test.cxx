@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 import std;
+import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.model_a;
 import conflux.work.carrier.model_b;
@@ -185,7 +186,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"carrier.model_a: when_all both success produces tuple",
+	"carrier.model_a: when_all both success produces Tup",
 	"[carrier.model_a]") {
 	auto [task_a, src_a] = root::make_task_source<int>();
 	auto [task_b, src_b] = root::make_task_source<int>();
@@ -488,7 +489,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"carrier.model_b: when_all both TaskChain success produces tuple",
+	"carrier.model_b: when_all both TaskChain success produces Tup",
 	"[carrier.model_b]") {
 	auto [task_a, src_a] = root::make_task_source<int>();
 	auto [task_b, src_b] = root::make_task_source<int>();

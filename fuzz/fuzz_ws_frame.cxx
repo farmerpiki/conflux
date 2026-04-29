@@ -4,13 +4,14 @@
 //   Incomplete/ProtocolError/ControlTooLarge → must not crash, must not read past buf
 
 import std;
+import conflux.types;
 import conflux.net.router;
 
 using namespace std;
 
 extern "C" int LLVMFuzzerTestOneInput(
-	uint8_t const *data,
-	size_t size) {
+	u8 const *data,
+	SZ size) {
 	ws_detail::FrameHeader hdr{};
 	auto const st = ws_detail::parse_frame_header(as_bytes(span{data, size}), hdr);
 	if (st == ws_detail::FrameParseStatus::Ok) {

@@ -5,8 +5,6 @@ export module conflux.net.http.types;
 import std;
 import conflux.types;
 
-using namespace std;
-
 export namespace conflux::http {
 
 // ─── errors ──────────────────────────────────────────────────────────────────
@@ -39,8 +37,8 @@ struct HttpError {
 	HttpPhase phase{};
 	int os_errno{0};
 	int tls_alert{0};
-	string verify_reason{};
-	string message{};
+	S verify_reason{};
+	S message{};
 };
 
 // ─── timeouts ────────────────────────────────────────────────────────────────
@@ -62,16 +60,16 @@ struct HttpTelemetry {
 	chrono::nanoseconds tls{};
 	chrono::nanoseconds ttfb{};
 	chrono::nanoseconds body{};
-	optional<chrono::nanoseconds> pool_wait{};
+	Opt<chrono::nanoseconds> pool_wait{};
 	u64 bytes_sent{0};
 	u64 bytes_received{0};
 	bool reused_connection{false};
-	string negotiated_protocol{};
-	string tls_cipher{};
-	string tls_version{};
+	S negotiated_protocol{};
+	S tls_cipher{};
+	S tls_version{};
 	bool tls_verified{false};
-	string peer_addr{};
-	optional<string> decoded_encoding{};
+	S peer_addr{};
+	Opt<S> decoded_encoding{};
 };
 
 // ─── URL ─────────────────────────────────────────────────────────────────────
@@ -87,20 +85,20 @@ enum class UrlErrorKind : u8 {
 
 struct UrlError {
 	UrlErrorKind kind{UrlErrorKind::empty};
-	string message{};
+	S message{};
 };
 
 struct Url {
-	string scheme{};
-	string host{};
+	S scheme{};
+	S host{};
 	u16 port{80};
-	string path{"/"};
-	string query{}; // raw, without leading '?'
+	S path{"/"};
+	S query{}; // raw, without leading '?'
 
-	[[nodiscard]] static expected<Url, UrlError> parse(string_view input);
+	[[nodiscard]] static expected<Url, UrlError> parse(SV input);
 
-	[[nodiscard]] string str() const {
-		string out;
+	[[nodiscard]] S str() const {
+		S out;
 		out.reserve(scheme.size() + 3 + host.size() + 7 + path.size() + query.size() + 1);
 		out += scheme;
 		out += "://";
@@ -108,7 +106,7 @@ struct Url {
 		bool const default_port = (scheme == "http" && port == 80) || (scheme == "https" && port == 443);
 		if (!default_port) {
 			out += ':';
-			out += to_string(port);
+			out += std::to_string(port);
 		}
 		if (path.empty() || path[0] != '/') {
 			out += '/';
@@ -122,10 +120,10 @@ struct Url {
 	}
 
 	void set_query_param(
-		string_view name,
-		string_view value) {
-		auto encode = [](string_view s) {
-			string out;
+		SV name,
+		SV value) {
+		auto encode = [](SV s) {
+			S out;
 			out.reserve(s.size());
 			for (auto const raw_c: s) {
 				unsigned char const c = static_cast<unsigned char>(raw_c);
@@ -153,23 +151,23 @@ struct Url {
 };
 
 expected<Url, UrlError> Url::parse(
-	string_view input) {
+	SV input) {
 	if (input.empty()) {
 		return unexpected(UrlError{UrlErrorKind::empty, "empty URL"});
 	}
-	constexpr size_t kMaxUrl = 8192;
+	constexpr SZ kMaxUrl = 8192;
 	if (input.size() > kMaxUrl) {
 		return unexpected(UrlError{UrlErrorKind::too_long, "URL exceeds 8192 bytes"});
 	}
 
 	auto const scheme_end = input.find("://");
-	if (scheme_end == string_view::npos) {
+	if (scheme_end == SV::npos) {
 		return unexpected(UrlError{UrlErrorKind::missing_scheme, "missing '://'"});
 	}
 
 	Url url;
 	url.scheme.resize(scheme_end);
-	for (size_t i = 0; i < scheme_end; ++i) {
+	for (SZ i = 0; i < scheme_end; ++i) {
 		url.scheme[i] = static_cast<char>(tolower(static_cast<unsigned char>(input[i])));
 	}
 
@@ -184,7 +182,7 @@ expected<Url, UrlError> Url::parse(
 	}
 
 	auto const authority_end = rest.find_first_of("/?");
-	auto const authority = (authority_end == string_view::npos) ? rest : rest.substr(0, authority_end);
+	auto const authority = (authority_end == SV::npos) ? rest : rest.substr(0, authority_end);
 
 	if (authority.empty()) {
 		return unexpected(UrlError{UrlErrorKind::missing_host, "missing host"});
@@ -192,10 +190,10 @@ expected<Url, UrlError> Url::parse(
 
 	if (authority.starts_with('[')) {
 		auto const bracket_end = authority.find(']');
-		if (bracket_end == string_view::npos) {
+		if (bracket_end == SV::npos) {
 			return unexpected(UrlError{UrlErrorKind::missing_host, "unterminated IPv6 literal"});
 		}
-		url.host = string{authority.substr(0, bracket_end + 1)};
+		url.host = S{authority.substr(0, bracket_end + 1)};
 		auto const after = authority.substr(bracket_end + 1);
 		if (!after.empty()) {
 			if (after[0] != ':') {
@@ -211,10 +209,10 @@ expected<Url, UrlError> Url::parse(
 		}
 	} else {
 		auto const colon = authority.rfind(':');
-		if (colon == string_view::npos) {
-			url.host = string{authority};
+		if (colon == SV::npos) {
+			url.host = S{authority};
 		} else {
-			url.host = string{authority.substr(0, colon)};
+			url.host = S{authority.substr(0, colon)};
 			auto const port_sv = authority.substr(colon + 1);
 			u16 p = 0;
 			auto const [ptr, ec] = from_chars(port_sv.data(), port_sv.data() + port_sv.size(), p);
@@ -229,22 +227,22 @@ expected<Url, UrlError> Url::parse(
 		return unexpected(UrlError{UrlErrorKind::missing_host, "empty host"});
 	}
 
-	if (authority_end == string_view::npos) {
+	if (authority_end == SV::npos) {
 		url.path = "/";
 	} else {
 		auto const path_and_query = rest.substr(authority_end);
 		auto const qmark = path_and_query.find('?');
-		if (qmark == string_view::npos) {
-			url.path = string{path_and_query};
+		if (qmark == SV::npos) {
+			url.path = S{path_and_query};
 			if (url.path.empty()) {
 				url.path = "/";
 			}
 		} else {
-			url.path = string{path_and_query.substr(0, qmark)};
+			url.path = S{path_and_query.substr(0, qmark)};
 			if (url.path.empty()) {
 				url.path = "/";
 			}
-			url.query = string{path_and_query.substr(qmark + 1)};
+			url.query = S{path_and_query.substr(qmark + 1)};
 		}
 	}
 

@@ -3,25 +3,25 @@
 #include <libpq-fe.h>
 
 import std;
+import conflux.types;
 import conflux.db;
 
-using namespace std;
 using namespace conflux::db;
 
 namespace {
 
 struct TempDir {
-	filesystem::path path;
+	fs::path path;
 
 	TempDir() {
-		path = filesystem::temp_directory_path()
+		path = fs::temp_directory_path()
 			 / format("conflux_db_test_{}", chrono::steady_clock::now().time_since_epoch().count());
-		filesystem::create_directories(path);
+		fs::create_directories(path);
 	}
 
 	~TempDir() {
-		error_code ec;
-		filesystem::remove_all(path, ec);
+		EC ec;
+		fs::remove_all(path, ec);
 	}
 
 	TempDir(TempDir const &) = delete;
@@ -30,17 +30,17 @@ struct TempDir {
 	TempDir &operator =(TempDir &&) = delete;
 
 	void write(
-		string_view name,
-		string_view content) const {
-		ofstream out{path / name};
+		SV name,
+		SV content) const {
+		std::ofstream out{path / name};
 		out << content;
 	}
 };
 
 PGresult *make_text_result(
-	vector<vector<optional<string>>> const &rows,
-	vector<string> const &cols) {
-	vector<char const *> field_names;
+	V<V<Opt<S>>> const &rows,
+	V<S> const &cols) {
+	V<char const *> field_names;
 	field_names.reserve(cols.size());
 	for (auto const &c: cols) {
 		field_names.push_back(c.c_str());
@@ -49,8 +49,8 @@ PGresult *make_text_result(
 	REQUIRE(res != nullptr);
 	auto const ncols = static_cast<int>(cols.size());
 
-	vector<PGresAttDesc> attrs(cols.size());
-	for (size_t i = 0; i < cols.size(); ++i) {
+	V<PGresAttDesc> attrs(cols.size());
+	for (SZ i = 0; i < cols.size(); ++i) {
 		attrs[i] = PGresAttDesc{
 			.name = const_cast<char *>(field_names[i]),
 			.tableid = 0,
@@ -63,9 +63,9 @@ PGresult *make_text_result(
 	}
 	REQUIRE(::PQsetResultAttrs(res, ncols, attrs.data()) == 1);
 
-	for (size_t r = 0; r < rows.size(); ++r) {
+	for (SZ r = 0; r < rows.size(); ++r) {
 		auto const &row = rows[r];
-		for (size_t c = 0; c < row.size(); ++c) {
+		for (SZ c = 0; c < row.size(); ++c) {
 			if (row[c]) {
 				REQUIRE(
 					::PQsetvalue(
@@ -95,15 +95,15 @@ TEST_CASE(
 	CHECK(p.formats() == nullptr);
 	CHECK(p.types() == nullptr);
 
-	p.add("hello").add_null().add(int64_t{42}).add(true);
+	p.add("hello").add_null().add(i64{42}).add(true);
 	CHECK(p.count() == 4);
 
 	auto const *vals = p.values();
 	REQUIRE(vals != nullptr);
-	CHECK(string_view{vals[0]} == "hello");
+	CHECK(SV{vals[0]} == "hello");
 	CHECK(vals[1] == nullptr);
-	CHECK(string_view{vals[2]} == "42");
-	CHECK(string_view{vals[3]} == "t");
+	CHECK(SV{vals[2]} == "42");
+	CHECK(SV{vals[3]} == "t");
 
 	auto const *lens = p.lengths();
 	REQUIRE(lens != nullptr);
@@ -123,9 +123,9 @@ TEST_CASE(
 	p.add(false).add(2.5).add_json(R"({"k":1})");
 	auto const *vals = p.values();
 	REQUIRE(vals != nullptr);
-	CHECK(string_view{vals[0]} == "f");
-	CHECK(string_view{vals[1]} == "2.5");
-	CHECK(string_view{vals[2]} == R"({"k":1})");
+	CHECK(SV{vals[0]} == "f");
+	CHECK(SV{vals[1]} == "2.5");
+	CHECK(SV{vals[2]} == R"({"k":1})");
 }
 
 TEST_CASE(
@@ -135,12 +135,12 @@ TEST_CASE(
 	p.add("first");
 	auto const *v1 = p.values();
 	REQUIRE(v1 != nullptr);
-	CHECK(string_view{v1[0]} == "first");
+	CHECK(SV{v1[0]} == "first");
 	p.add("second");
 	auto const *v2 = p.values();
 	REQUIRE(v2 != nullptr);
-	CHECK(string_view{v2[0]} == "first");
-	CHECK(string_view{v2[1]} == "second");
+	CHECK(SV{v2[0]} == "first");
+	CHECK(SV{v2[1]} == "second");
 }
 
 TEST_CASE(
@@ -203,7 +203,7 @@ TEST_CASE(
 
 	auto u = qc.load("upsert_user");
 	REQUIRE(u);
-	CHECK(u->find("ON CONFLICT") != string::npos);
+	CHECK(u->find("ON CONFLICT") != S::npos);
 
 	qc.clear();
 	auto c = qc.load("select_one");
@@ -211,10 +211,10 @@ TEST_CASE(
 	CHECK(*c == "SELECT 1");
 	CHECK(c.get() != a.get()); // new buffer post-clear
 
-	CHECK_THROWS_AS(qc.load("does_not_exist"), filesystem::filesystem_error);
-	CHECK_THROWS_AS(qc.load("../outside"), invalid_argument);
-	CHECK_THROWS_AS(qc.load("nested/query"), invalid_argument);
-	CHECK_THROWS_AS(qc.load(""), invalid_argument);
+	CHECK_THROWS_AS(qc.load("does_not_exist"), fs::filesystem_error);
+	CHECK_THROWS_AS(qc.load("../outside"), std::invalid_argument);
+	CHECK_THROWS_AS(qc.load("nested/query"), std::invalid_argument);
+	CHECK_THROWS_AS(qc.load(""), std::invalid_argument);
 }
 
 TEST_CASE(
@@ -222,8 +222,8 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{string{"42"},   string{"3.5"}, string{"t"},      nullopt,    string{},         string{"abc"}},
-			{string{"-7"}, string{"-0.25"}, string{"f"}, string{"hi"}, string{"x"}, string{"99999999999"}}
+			{S{"42"},   S{"3.5"}, S{"t"}, std::nullopt,    S{},         S{"abc"}},
+			{S{"-7"}, S{"-0.25"}, S{"f"},      S{"hi"}, S{"x"}, S{"99999999999"}}
     },
 		{"i", "d", "b", "nul", "empty", "txt"});
 	REQUIRE(raw != nullptr);
@@ -233,23 +233,23 @@ TEST_CASE(
 	REQUIRE(r.cols() == 6);
 
 	auto row0 = r[0];
-	CHECK(row0.as<int64_t>(0) == 42);
+	CHECK(row0.as<i64>(0) == 42);
 	CHECK(row0.as<double>(1) == 3.5);
 	CHECK(row0.as<bool>(2));
 	CHECK(row0.is_null(3));
 	CHECK(row0.get(4).empty());
-	CHECK(row0.as<string>(5) == "abc");
-	CHECK(row0.as<string_view>(5) == "abc");
+	CHECK(row0.as<S>(5) == "abc");
+	CHECK(row0.as<SV>(5) == "abc");
 
 	auto row1 = r[1];
-	CHECK(row1.as<int64_t>(0) == -7);
+	CHECK(row1.as<i64>(0) == -7);
 	CHECK(row1.as<double>(1) == -0.25);
 	CHECK_FALSE(row1.as<bool>(2));
-	CHECK(row1.as<string>(3) == "hi");
+	CHECK(row1.as<S>(3) == "hi");
 
-	CHECK_THROWS_AS(row0.as<int64_t>(5), PgError); // "abc"
+	CHECK_THROWS_AS(row0.as<i64>(5), PgError); // "abc"
 	CHECK_THROWS_AS(row1.as<double>(4), PgError); // "x"
-	CHECK_THROWS_AS(row0.as<int64_t>(4), PgError); // empty
+	CHECK_THROWS_AS(row0.as<i64>(4), PgError); // empty
 
 	CHECK(r.column_index("d") == 1);
 	CHECK(r.column_index("missing") < 0);
@@ -259,13 +259,17 @@ TEST_CASE(
 TEST_CASE(
 	"db: Row::as<T> rejects partial text parses",
 	"[db][unit]") {
-	auto *raw = make_text_result({{string{"42x"}, string{"3.5ms"}, string{"maybe"}}}, {"i", "d", "b"});
+	auto *raw = make_text_result(
+		{
+			{S{"42x"}, S{"3.5ms"}, S{"maybe"}}
+    },
+		{"i", "d", "b"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	auto row = r[0];
 
-	CHECK_THROWS_AS(row.as<int64_t>(0), PgError);
-	CHECK_THROWS_AS(row.as<int32_t>(0), PgError);
+	CHECK_THROWS_AS(row.as<i64>(0), PgError);
+	CHECK_THROWS_AS(row.as<i32>(0), PgError);
 	CHECK_THROWS_AS(row.as<double>(1), PgError);
 	CHECK_THROWS_AS(row.as<bool>(2), PgError);
 }
@@ -273,12 +277,12 @@ TEST_CASE(
 TEST_CASE(
 	"db: Result iteration",
 	"[db][unit]") {
-	auto *raw = make_text_result({{string{"1"}}, {string{"2"}}, {string{"3"}}}, {"v"});
+	auto *raw = make_text_result({{S{"1"}}, {S{"2"}}, {S{"3"}}}, {"v"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	int sum = 0;
 	for (auto row: r) {
-		sum += static_cast<int>(row.as<int64_t>(0));
+		sum += static_cast<int>(row.as<i64>(0));
 	}
 	CHECK(sum == 6);
 }
@@ -286,7 +290,7 @@ TEST_CASE(
 TEST_CASE(
 	"db: Row::get(col) throws on missing column",
 	"[db][unit]") {
-	auto *raw = make_text_result({{string{"x"}}}, {"only"});
+	auto *raw = make_text_result({{S{"x"}}}, {"only"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	auto row = r[0];
