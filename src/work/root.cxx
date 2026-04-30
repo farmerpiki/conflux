@@ -1147,8 +1147,19 @@ public:
 		}
 		if (s == ReadyHookState::open) {
 			on_ready_fn_ = std::move(fn);
-			ready_hook_state_.store(ReadyHookState::armed, std::memory_order_release);
-			return {ReadyRegistration::installed, {}};
+			auto expected = ReadyHookState::open;
+			if (ready_hook_state_.compare_exchange_strong(
+					expected,
+					ReadyHookState::armed,
+					std::memory_order_acq_rel,
+					std::memory_order_acquire)) {
+				return {ReadyRegistration::installed, {}};
+			}
+			// Lost race vs fire_ready_hook_if_armed_: it CAS'd open→committing
+			// before our CAS, then stored terminal. Our fn was never seen by it.
+			// Take it back and report already_ready so caller dispatches it.
+			auto rejected = std::move(on_ready_fn_);
+			return {ReadyRegistration::already_ready, std::move(rejected)};
 		}
 		if (s == ReadyHookState::armed || s == ReadyHookState::disarmed) {
 			return {ReadyRegistration::already_installed, std::move(fn)};
@@ -1522,8 +1533,19 @@ public:
 		}
 		if (s == ReadyHookState::open) {
 			on_ready_fn_ = std::move(fn);
-			ready_hook_state_.store(ReadyHookState::armed, std::memory_order_release);
-			return {ReadyRegistration::installed, {}};
+			auto expected = ReadyHookState::open;
+			if (ready_hook_state_.compare_exchange_strong(
+					expected,
+					ReadyHookState::armed,
+					std::memory_order_acq_rel,
+					std::memory_order_acquire)) {
+				return {ReadyRegistration::installed, {}};
+			}
+			// Lost race vs fire_ready_hook_if_armed_: it CAS'd open→committing
+			// before our CAS, then stored terminal. Our fn was never seen by it.
+			// Take it back and report already_ready so caller dispatches it.
+			auto rejected = std::move(on_ready_fn_);
+			return {ReadyRegistration::already_ready, std::move(rejected)};
 		}
 		if (s == ReadyHookState::armed || s == ReadyHookState::disarmed) {
 			return {ReadyRegistration::already_installed, std::move(fn)};

@@ -64,6 +64,25 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"work: join_all stress — ready-hook arm vs fire race",
+	"[work][stress]") {
+	// Race repro: try_set_on_ready arms on_ready_fn_ while fire_ready_hook_if_armed_
+	// CAS's open→committing→terminal lock-free. With load+store in arm path the fn
+	// could become orphaned, hanging sync_wait. With CAS-armed path the late
+	// registration is rejected and dispatched as already_ready.
+	WorkPool pool;
+	for (int i = 0; i < 2000; ++i) {
+		auto [a, b, c] = sync_wait(
+			join_all(run_on_task(pool, [] { return 1; }), run_on_task(pool, [] { return 2; }), run_on_task(pool, [] {
+						 return 3;
+					 })));
+		REQUIRE(a == 1);
+		REQUIRE(b == 2);
+		REQUIRE(c == 3);
+	}
+}
+
+TEST_CASE(
 	"work: ring lane wakes through msg ring and drains on owner",
 	"[work]") {
 	::io_uring ring{};
@@ -131,9 +150,9 @@ TEST_CASE(
 	co_spawn([](std::shared_ptr<barrier<>>, auto t) -> Task<void> {
 		co_await std::move(t);
 	}(gate, run_on_task(pool, [gate, &counter] {
-		counter.fetch_add(1, memory_order_release);
-		gate->arrive_and_wait();
-	})));
+				 counter.fetch_add(1, memory_order_release);
+				 gate->arrive_and_wait();
+			 })));
 	gate->arrive_and_wait();
 	CHECK(counter.load(memory_order_acquire) == 1);
 }
