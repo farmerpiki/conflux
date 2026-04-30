@@ -3411,16 +3411,19 @@ void pump_until(
 		if (rc < 0 || cqe == nullptr) {
 			throw std::runtime_error{std::format("conflux.file_io: submit_and_wait rc={}", rc)};
 		}
+		std::array<::io_uring_cqe *, 32> batch{};
 		for (;;) {
-			auto [slot, gen] = decode(cqe->user_data);
-			i32 const res = cqe->res;
-			u32 const flags = cqe->flags;
-			::io_uring_cqe_seen(ring, cqe);
-			completions->dispatch(slot, gen, res, flags);
-			if (done.test(std::memory_order_acquire)) {
+			int const n = ::io_uring_peek_batch_cqe(ring, batch.data(), static_cast<unsigned>(batch.size()));
+			if (n <= 0) {
 				break;
 			}
-			if (::io_uring_peek_cqe(ring, &cqe) != 0 || cqe == nullptr) {
+			for (int i = 0; i < n; ++i) {
+				auto const *c = batch[static_cast<SZ>(i)];
+				auto [slot, gen] = decode(c->user_data);
+				completions->dispatch(slot, gen, c->res, c->flags);
+			}
+			::io_uring_cq_advance(ring, static_cast<unsigned>(n));
+			if (done.test(std::memory_order_acquire)) {
 				break;
 			}
 		}

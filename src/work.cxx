@@ -583,7 +583,7 @@ export struct IoPlan {
 };
 
 export class WorkPool final : public work_detail::QueueTarget {
-	struct Worker {
+	struct alignas(64) Worker {
 		mutex mtx;
 		deque<work_detail::UniqueFn<void()>> local{};
 		jthread thread{};

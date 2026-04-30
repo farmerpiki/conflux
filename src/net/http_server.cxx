@@ -240,7 +240,7 @@ void dispatch_request(
 	ParserLimits const &limits);
 
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): field order mirrors connection state-machine phases.
-struct Conn {
+struct alignas(64) Conn {
 	int fd = -1;
 	u32 gen = 0;
 	bool recv_armed = false;
@@ -689,6 +689,7 @@ struct Ring {
 	u32 buf_count = 0;
 	int buf_ring_mask = 0;
 	V<A<char, BUF_SIZE>> bufs;
+	int tcp_opt_one_ = 1; // stable optval for cmd_sock SETSOCKOPT
 
 	bool fixed_files = false;
 	bool shutting_down = false;
@@ -1351,6 +1352,12 @@ struct Ring {
 
 		buf_count = entries * 4;
 		bufs.resize(buf_count);
+		{
+			SZ const slab_sz = buf_count * BUF_SIZE;
+			void *slab = bufs[0].data();
+			::madvise(slab, slab_sz, MADV_HUGEPAGE);
+			::madvise(slab, slab_sz, MADV_DONTFORK);
+		}
 
 		int ret = 0;
 		buf_ring = io_uring_setup_buf_ring(&ring, buf_count, BUF_GROUP, 0, &ret);
@@ -2039,6 +2046,19 @@ struct Ring {
 			conn.h2_sse_stream_id = -1;
 			conn.h2_sse_pending_wait = false;
 #endif
+			if (!fixed_files) {
+				::setsockopt(res, IPPROTO_TCP, TCP_NODELAY, &tcp_opt_one_, sizeof tcp_opt_one_);
+				::setsockopt(res, IPPROTO_TCP, TCP_QUICKACK, &tcp_opt_one_, sizeof tcp_opt_one_);
+			} else {
+				for (int opt : {TCP_NODELAY, TCP_QUICKACK}) {
+					auto *sqe = get_sqe();
+					io_uring_prep_cmd_sock(
+						sqe, SOCKET_URING_OP_SETSOCKOPT, res,
+						IPPROTO_TCP, opt, &tcp_opt_one_, static_cast<int>(sizeof tcp_opt_one_));
+					io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
+					io_uring_sqe_set_data64(sqe, pack(Op::Nop, 0, 0));
+				}
+			}
 			queue_multishot_recv(res);
 		}
 		if ((flg & IORING_CQE_F_MORE) == 0U) {
