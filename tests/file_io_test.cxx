@@ -149,15 +149,15 @@ TEST_CASE(
 
 	auto tf = TempFile::create("hello file_io");
 
-	FileHandle handle =
+	FileHandle const handle =
 		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	FileStat st = block_on(fx->reader, fx->reader.stat_async(handle), chrono::seconds{5});
+	FileStat const st = block_on(fx->reader, fx->reader.stat_async(handle), chrono::seconds{5});
 	CHECK(st.size == SV{"hello file_io"}.size());
 
 	A<byte, 32> buf{};
-	SZ got =
+	SZ const got =
 		block_on(fx->reader, fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}), chrono::seconds{5});
 	REQUIRE(got == SV{"hello file_io"}.size());
 	CHECK(memcmp(buf.data(), "hello file_io", got) == 0);
@@ -178,11 +178,11 @@ TEST_CASE(
 	S const content(1024, 'Z');
 	auto tf = TempFile::create(content);
 
-	FileHandle handle =
+	FileHandle const handle =
 		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	FileReader::ReadFixedResult got =
+	FileReader::ReadFixedResult const got =
 		block_on(fx->reader, fx->reader.read_fixed(handle, 0, move(*buf)), chrono::seconds{5});
 	REQUIRE(got.bytes == content.size());
 	auto const view = got.buffer.view();
@@ -208,11 +208,11 @@ TEST_CASE(
 	// Enlarge the sink pipe so a single splice completes in one chunk.
 	::fcntl(sink_pipe[1], F_SETPIPE_SZ, 1 << 20);
 
-	FileHandle handle =
+	FileHandle const handle =
 		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	SZ delivered = block_on(
+	SZ const delivered = block_on(
 		fx->reader,
 		fx->reader.splice_to_fd(handle, 0, content.size(), sink_pipe[1], move(*pipe)),
 		chrono::seconds{5});
@@ -263,7 +263,7 @@ TEST_CASE(
 	CHECK(handle.direct_slot() == 2);
 
 	A<byte, 32> buf{};
-	SZ got =
+	SZ const got =
 		block_on(fx->reader, fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}), chrono::seconds{5});
 	REQUIRE(got == SV{"direct file"}.size());
 	CHECK(memcmp(buf.data(), "direct file", got) == 0);
@@ -333,7 +333,7 @@ TEST_CASE(
 
 	auto tf = TempFile::create();
 
-	FileHandle wh =
+	FileHandle const wh =
 		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(wh.valid());
 
@@ -343,7 +343,7 @@ TEST_CASE(
 	S const payload(512, 'W');
 	memcpy(write_buf->view().data(), payload.data(), payload.size());
 
-	FileReader::WriteFixedResult wresult =
+	FileReader::WriteFixedResult const wresult =
 		block_on(fx->reader, fx->reader.write_fixed(wh, 0, move(*write_buf), payload.size()), chrono::seconds{5});
 	REQUIRE(wresult.bytes == payload.size());
 
@@ -367,7 +367,7 @@ TEST_CASE(
 	S const content = part_a + part_b;
 	auto tf = TempFile::create(content);
 
-	FileHandle handle =
+	FileHandle const handle =
 		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
@@ -378,7 +378,7 @@ TEST_CASE(
 		iovec{.iov_base = buf_b.data(), .iov_len = buf_b.size()},
 	};
 
-	SZ got = block_on(fx->reader, fx->reader.readv_into(handle, 0, move(iovs)), chrono::seconds{5});
+	SZ const got = block_on(fx->reader, fx->reader.readv_into(handle, 0, move(iovs)), chrono::seconds{5});
 
 	REQUIRE(got == content.size());
 	for (SZ i = 0; i < buf_a.size(); ++i) {
@@ -396,7 +396,7 @@ TEST_CASE(
 
 	auto tf = TempFile::create();
 
-	FileHandle handle =
+	FileHandle const handle =
 		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
@@ -409,7 +409,7 @@ TEST_CASE(
 		iovec{.iov_base = const_cast<char *>(seg_b.data()), .iov_len = seg_b.size()},
 	};
 
-	SZ written = block_on(fx->reader, fx->reader.writev_into(handle, 0, move(iovs)), chrono::seconds{5});
+	SZ const written = block_on(fx->reader, fx->reader.writev_into(handle, 0, move(iovs)), chrono::seconds{5});
 	REQUIRE(written == seg_a.size() + seg_b.size());
 
 	S verify(seg_a.size() + seg_b.size(), '\0');
@@ -599,11 +599,11 @@ TEST_CASE(
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
-	TempFile tmp = TempFile::create(S(4096, 'X'));
+	TempFile const tmp = TempFile::create(S(4096, 'X'));
 
 	bool ok = false;
 	int err = 0;
-	FileHandle handle = FileHandle::from_fd(::dup(tmp.fd));
+	FileHandle const handle = FileHandle::from_fd(::dup(tmp.fd));
 	try {
 		block_on(fx->reader, fx->reader.fadvise_async(handle, 0, 4096, POSIX_FADV_SEQUENTIAL), chrono::seconds{5});
 		ok = true;
@@ -647,7 +647,7 @@ TEST_CASE(
 
 	S dir_path = "/tmp/conflux_file_io_mkdir_XXXXXX";
 	// Use mkdtemp to get a unique name, then remove it so we can recreate via async.
-	char *tmp = ::mkdtemp(dir_path.data());
+	char  const*tmp = ::mkdtemp(dir_path.data());
 	REQUIRE(tmp != nullptr);
 	::rmdir(dir_path.c_str());
 
@@ -672,8 +672,8 @@ TEST_CASE(
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
-	TempFile src = TempFile::create("symlink-target");
-	S link_path = src.path + ".link";
+	TempFile const src = TempFile::create("symlink-target");
+	S const link_path = src.path + ".link";
 
 	bool ok = false;
 	int err = 0;
@@ -696,8 +696,8 @@ TEST_CASE(
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
-	TempFile tmp = TempFile::create(S(4096, 'T'));
-	FileHandle handle = FileHandle::from_fd(::dup(tmp.fd));
+	TempFile const tmp = TempFile::create(S(4096, 'T'));
+	FileHandle const handle = FileHandle::from_fd(::dup(tmp.fd));
 
 	bool ok = false;
 	int err = 0;
@@ -997,7 +997,7 @@ TEST_CASE(
 	if (raw_fd < 0) {
 		SKIP("socket() failed");
 	}
-	FileHandle handle = FileHandle::from_fd(raw_fd);
+	FileHandle const handle = FileHandle::from_fd(raw_fd);
 
 	sockaddr_storage addr{};
 	auto *sa4 = reinterpret_cast<sockaddr_in *>(&addr);
@@ -1249,7 +1249,7 @@ TEST_CASE(
 	S const content(64, 'R');
 	TempFile const tf = TempFile::create(content);
 
-	FileHandle handle =
+	FileHandle const handle =
 		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
@@ -1281,7 +1281,7 @@ TEST_CASE(
 	}
 
 	TempFile const tf = TempFile::create();
-	FileHandle handle =
+	FileHandle const handle =
 		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
@@ -1492,7 +1492,7 @@ TEST_CASE(
 	int accepted_fd{-1};
 	int err{0};
 
-	int listen_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+	int const listen_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
 	REQUIRE(listen_fd >= 0);
 	int const optval = 1;
 	::setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &optval, sizeof(optval));
@@ -1510,8 +1510,8 @@ TEST_CASE(
 	REQUIRE(::getsockname(listen_fd, reinterpret_cast<sockaddr *>(&addr), &slen) == 0);
 
 	// Connect from a background thread.
-	jthread connector{[addr]() {
-		int c = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	jthread const connector{[addr]() {
+		int const c = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 		if (c >= 0) {
 			::connect(c, reinterpret_cast<sockaddr const *>(&addr), sizeof(addr));
 			::close(c);
@@ -1547,11 +1547,11 @@ TEST_CASE(
 	FileHandle const recver = FileHandle::from_fd(sv[1]);
 
 	S const payload = "send_recv_test";
-	SZ sent = block_on(fx->reader, fx->reader.send_async(sender, payload.data(), payload.size()), chrono::seconds{5});
+	SZ const sent = block_on(fx->reader, fx->reader.send_async(sender, payload.data(), payload.size()), chrono::seconds{5});
 	REQUIRE(sent == payload.size());
 
 	A<char, 64> buf{};
-	SZ recvd = block_on(fx->reader, fx->reader.recv_async(recver, buf.data(), buf.size()), chrono::seconds{5});
+	SZ const recvd = block_on(fx->reader, fx->reader.recv_async(recver, buf.data(), buf.size()), chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(SV{buf.data(), recvd} == payload);
 }
@@ -1574,7 +1574,7 @@ TEST_CASE(
 	send_hdr.msg_iov = &send_iov;
 	send_hdr.msg_iovlen = 1;
 
-	SZ sent = block_on(fx->reader, fx->reader.sendmsg_async(sender, &send_hdr), chrono::seconds{5});
+	SZ const sent = block_on(fx->reader, fx->reader.sendmsg_async(sender, &send_hdr), chrono::seconds{5});
 	REQUIRE(sent == payload.size());
 
 	A<char, 64> buf{};
@@ -1583,7 +1583,7 @@ TEST_CASE(
 	recv_hdr.msg_iov = &recv_iov;
 	recv_hdr.msg_iovlen = 1;
 
-	SZ recvd = block_on(fx->reader, fx->reader.recvmsg_async(recver, &recv_hdr), chrono::seconds{5});
+	SZ const recvd = block_on(fx->reader, fx->reader.recvmsg_async(recver, &recv_hdr), chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(SV{buf.data(), recvd} == payload);
 }
@@ -1595,7 +1595,7 @@ TEST_CASE(
 		SKIP("io_uring_queue_init failed");
 	}
 
-	int epfd = ::epoll_create1(EPOLL_CLOEXEC);
+	int const epfd = ::epoll_create1(EPOLL_CLOEXEC);
 	REQUIRE(epfd >= 0);
 
 	int pfd[2];
@@ -1698,7 +1698,7 @@ TEST_CASE(
 		SKIP("io_uring_queue_init failed");
 	}
 
-	int recv_fd = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
+	int const recv_fd = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0);
 	REQUIRE(recv_fd >= 0);
 	sockaddr_in ra{};
 	ra.sin_family = AF_INET;
@@ -1708,7 +1708,7 @@ TEST_CASE(
 	socklen_t ralen = sizeof(ra);
 	REQUIRE(::getsockname(recv_fd, reinterpret_cast<sockaddr *>(&ra), &ralen) == 0);
 
-	int send_fd = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
+	int const send_fd = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, 0);
 	REQUIRE(send_fd >= 0);
 	FileHandle const sender = FileHandle::from_fd(send_fd);
 
@@ -1716,7 +1716,7 @@ TEST_CASE(
 	memcpy(&dest, &ra, sizeof(ra));
 
 	S const payload = "sendto_udp_test";
-	SZ sent = block_on(
+	SZ const sent = block_on(
 		fx->reader,
 		fx->reader.sendto_async(sender, payload.data(), payload.size(), 0, dest, sizeof(ra)),
 		chrono::seconds{5});
@@ -1724,7 +1724,7 @@ TEST_CASE(
 
 	FileHandle const recver = FileHandle::from_fd(recv_fd);
 	A<char, 64> buf{};
-	SZ recvd = block_on(fx->reader, fx->reader.recv_async(recver, buf.data(), buf.size()), chrono::seconds{5});
+	SZ const recvd = block_on(fx->reader, fx->reader.recv_async(recver, buf.data(), buf.size()), chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(SV{buf.data(), recvd} == payload);
 }
@@ -1745,7 +1745,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		SZ n =
+		SZ const n =
 			block_on(fx->reader, fx->reader.send_zc_async(sender, payload.data(), payload.size()), chrono::seconds{5});
 		ok = (n == payload.size());
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
@@ -1847,11 +1847,11 @@ TEST_CASE(
 	auto const view = wbuf->view();
 	memcpy(view.data(), content.data(), content.size());
 
-	FileHandle handle =
+	FileHandle const handle =
 		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDWR | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	SZ written = block_on(
+	SZ const written = block_on(
 		fx->reader,
 		fx->reader.write_fixed_async(
 			handle,
@@ -1865,7 +1865,7 @@ TEST_CASE(
 	// Verify via read_fixed.
 	auto rbuf = pool.try_acquire();
 	REQUIRE(rbuf.has_value());
-	FileReader::ReadFixedResult rr =
+	FileReader::ReadFixedResult const rr =
 		block_on(fx->reader, fx->reader.read_fixed(handle, 0, move(*rbuf)), chrono::seconds{5});
 	REQUIRE(rr.bytes == content.size());
 	auto const rview = rr.buffer.view();
@@ -1924,7 +1924,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		P<int, int> p = block_on(fx->reader, fx->reader.pipe_direct_async(0), chrono::seconds{5});
+		P<int, int> const p = block_on(fx->reader, fx->reader.pipe_direct_async(0), chrono::seconds{5});
 		ok = (p.first >= 0 || p.second >= 0);
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1975,7 +1975,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		SZ n = block_on(fx->reader, fx->reader.sendmsg_zc_async(sender, &hdr), chrono::seconds{5});
+		SZ const n = block_on(fx->reader, fx->reader.sendmsg_zc_async(sender, &hdr), chrono::seconds{5});
 		ok = (n == payload.size());
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}

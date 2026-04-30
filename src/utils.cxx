@@ -80,6 +80,7 @@ export constexpr int kHttpUnauthorized = 401;
 export constexpr int kHttpForbidden = 403;
 export constexpr int kHttpNotFound = 404;
 export constexpr int kHttpMethodNotAllowed = 405;
+export constexpr int kHttpUnprocessableEntity = 422;
 export constexpr int kHttpRequestEntityTooLarge = 413;
 export constexpr int kHttpUriTooLong = 414;
 export constexpr int kHttpRangeNotSatisfiable = 416;

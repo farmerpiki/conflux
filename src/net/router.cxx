@@ -1170,12 +1170,79 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse bad_request() {
+	static HttpResponse bad_request(
+		SV detail = {}) {
+		auto body =
+			detail.empty() ?
+				S{"<html><body><h1>400 Bad Request</h1></body></html>"} :
+				format("<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>", html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpBadRequest;
 		r.status_text = "Bad Request";
 		r.content_type = "text/html; charset=utf-8";
-		r.set_text_body("<html><body><h1>400 Bad Request</h1></body></html>");
+		r.set_text_body(move(body));
+		return r;
+	}
+
+	static HttpResponse unauthorized(
+		SV www_authenticate = {}) {
+		HttpResponse r;
+		r.status = kHttpUnauthorized;
+		r.status_text = "Unauthorized";
+		r.content_type = "text/html; charset=utf-8";
+		r.set_text_body("<html><body><h1>401 Unauthorized</h1></body></html>");
+		if (!www_authenticate.empty()) {
+			r.headers["WWW-Authenticate"] = S{www_authenticate};
+		}
+		return r;
+	}
+
+	static HttpResponse forbidden(
+		SV detail = {}) {
+		auto body =
+			detail.empty() ?
+				S{"<html><body><h1>403 Forbidden</h1></body></html>"} :
+				format("<html><body><h1>403 Forbidden</h1><p>{}</p></body></html>", html_escape(detail));
+		HttpResponse r;
+		r.status = kHttpForbidden;
+		r.status_text = "Forbidden";
+		r.content_type = "text/html; charset=utf-8";
+		r.set_text_body(move(body));
+		return r;
+	}
+
+	static HttpResponse method_not_allowed(
+		std::initializer_list<SV> allowed = {}) {
+		HttpResponse r;
+		r.status = kHttpMethodNotAllowed;
+		r.status_text = "Method Not Allowed";
+		r.content_type = "text/html; charset=utf-8";
+		r.set_text_body("<html><body><h1>405 Method Not Allowed</h1></body></html>");
+		if (allowed.size() > 0) {
+			S allow;
+			for (auto it = allowed.begin(); it != allowed.end(); ++it) {
+				if (it != allowed.begin()) {
+					allow += ", ";
+				}
+				allow += *it;
+			}
+			r.headers["Allow"] = move(allow);
+		}
+		return r;
+	}
+
+	static HttpResponse unprocessable_entity(
+		SV detail = {}) {
+		auto body =
+			detail.empty() ?
+				S{"<html><body><h1>422 Unprocessable Entity</h1></body></html>"} :
+				format(
+					"<html><body><h1>422 Unprocessable Entity</h1><p>{}</p></body></html>", html_escape(detail));
+		HttpResponse r;
+		r.status = kHttpUnprocessableEntity;
+		r.status_text = "Unprocessable Entity";
+		r.content_type = "text/html; charset=utf-8";
+		r.set_text_body(move(body));
 		return r;
 	}
 
@@ -3140,8 +3207,10 @@ public:
 								all_params.emplace_back(k, v);
 							}
 						}
+						// HEAD matched to a GET route: present as GET so handlers are HEAD-transparent.
+						SV const effective_method = (is_head && route.method == "GET") ? SV{"GET"} : r.method;
 						HttpRequestView const matched_view{
-							r.method,
+							effective_method,
 							r.path,
 							r.version,
 							r.remote_addr,
