@@ -196,7 +196,7 @@ export [[nodiscard]] conflux::work::root::Task<size_t> sendto(
 	}
 	::sockaddr_storage stor{};
 	std::memcpy(&stor, dest, static_cast<size_t>(dest_len));
-	return detail::flow_to_root_task(reader.sendto_async(sock.handle(), bytes.data(), bytes.size(), flags, stor, dest_len));
+	return reader.sendto_async(sock.handle(), bytes.data(), bytes.size(), flags, stor, dest_len);
 }
 
 // ─── recvfrom: wraps recvmsg_async with caller-managed msghdr ──────────────
@@ -208,7 +208,7 @@ export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom(
 	int flags = 0) {
 	auto h = detail::make_recv_holder(buf);
 	return detail::flow_to_root_task(
-		reader.recvmsg_async(sock.handle(), &h->msg, static_cast<unsigned>(flags))
+		task_as_flow(reader.recvmsg_async(sock.handle(), &h->msg, static_cast<unsigned>(flags)))
 		| then([h](size_t n) { return detail::holder_to_result(h, n); }));
 }
 

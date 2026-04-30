@@ -1609,13 +1609,13 @@ struct Ring {
 		conn.streamed_splice_in_flight = true;
 		auto const conn_gen = conn.gen;
 		auto terminal =
-			files->splice_to_fd(
+			task_as_flow(files->splice_to_fd(
 				*conn.streamed_file->handle,
 				off,
 				static_cast<SZ>(remaining),
 				fd,
 				move(*pipe),
-				fixed_files)
+				fixed_files))
 			| then([this, fd, conn_gen](SZ delivered) { on_streamed_splice_done(fd, conn_gen, delivered, {}); })
 			| on_error([this, fd, conn_gen](EP const &e) { on_streamed_splice_done(fd, conn_gen, 0, e); });
 		(void)terminal;
@@ -1645,7 +1645,7 @@ struct Ring {
 		auto const conn_gen = conn.gen;
 		conn.streamed_splice_in_flight = true;
 		auto &fh = *conn.streamed_file->handle;
-		auto terminal = files->read_fixed(fh, off, move(b), want)
+		auto terminal = task_as_flow(files->read_fixed(fh, off, move(b), want))
 					  | then([this, fd, conn_gen, want](FileReader::ReadFixedResult result) {
 							on_streamed_tls_chunk_done(fd, conn_gen, move(result.buffer), min(result.bytes, want), {});
 						})

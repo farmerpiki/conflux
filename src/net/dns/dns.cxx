@@ -782,7 +782,7 @@ void parse_resolv_options(
 			rest.remove_prefix(1);
 		}
 		auto const end = rest.find_first_of(" \t");
-		string_view token = end == string_view::npos ? rest : rest.substr(0, end);
+		string_view const token = end == string_view::npos ? rest : rest.substr(0, end);
 		if (end == string_view::npos) {
 			rest = {};
 		} else {
@@ -856,7 +856,7 @@ void parse_resolv_options(
 				continue;
 			}
 			auto const split = trimmed.find_first_of(" \t");
-			string_view key{trimmed.data(), split == string::npos ? trimmed.size() : split};
+			string_view const key{trimmed.data(), split == string::npos ? trimmed.size() : split};
 			string_view rest{};
 			if (split != string::npos) {
 				rest = string_view{trimmed.data() + split + 1, trimmed.size() - split - 1};
@@ -1029,8 +1029,8 @@ void validate_accepted_response_status(
 
 [[nodiscard]] Flow<codec::Message> recv_valid_udp_response(
 	FileReader &reader,
-	std::shared_ptr<udp_ns::UdpSocket> sock,
-	std::shared_ptr<std::array<u8, 4096>> rx_buf,
+	std::shared_ptr<udp_ns::UdpSocket> const &sock,
+	std::shared_ptr<std::array<u8, 4096>> const &rx_buf,
 	NameserverEndpoint ns,
 	u16 expected_id,
 	string expected_qname,
@@ -1151,7 +1151,7 @@ void validate_accepted_response_status(
 	NameserverEndpoint ns,
 	vector<u8> wire,
 	u16 expected_id,
-	string expected_qname,
+	string const &expected_qname,
 	codec::QType expected_qtype,
 	std::chrono::milliseconds timeout) {
 	auto framed = std::make_shared<vector<u8>>();
@@ -1161,7 +1161,7 @@ void validate_accepted_response_status(
 	framed->push_back(static_cast<u8>(wlen & 0xFFU));
 	framed->insert(framed->end(), wire.begin(), wire.end());
 	int const family = static_cast<int>(ns.addr.ss_family);
-	return reader.socket_async(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP)
+	return task_as_flow(reader.socket_async(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP))
 		 | flat_then(
 			   [reader_ptr = &reader, ns, framed, expected_id, expected_qname, expected_qtype, timeout](
 				   FileHandle raw_fh) mutable -> Flow<codec::Message> {
@@ -1178,9 +1178,10 @@ void validate_accepted_response_status(
 						   (void)::setsockopt(raw_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 					   }
 				   }
-				   return reader_ptr->connect_async(*fh, ns.addr, ns.addr_len)
+				   return task_as_flow(reader_ptr->connect_async(*fh, ns.addr, ns.addr_len))
 						| flat_then([reader_ptr, fh, framed]() mutable -> Flow<size_t> {
-							  return reader_ptr->send_async(*fh, framed->data(), framed->size(), MSG_NOSIGNAL);
+							  return task_as_flow(
+								  reader_ptr->send_async(*fh, framed->data(), framed->size(), MSG_NOSIGNAL));
 						  })
 						| flat_then(
 							  [reader_ptr, fh, framed, expected_id, expected_qname, expected_qtype](
@@ -1189,7 +1190,7 @@ void validate_accepted_response_status(
 									  throw DnsError{DnsErrorKind::network, "dns: tcp short send"};
 								  }
 								  auto len_buf = std::make_shared<std::array<u8, 2>>();
-								  return reader_ptr->recv_async(*fh, len_buf->data(), 2, MSG_WAITALL)
+								  return task_as_flow(reader_ptr->recv_async(*fh, len_buf->data(), 2, MSG_WAITALL))
 									   | flat_then(
 											 [reader_ptr, fh, len_buf, expected_id, expected_qname, expected_qtype](
 												 size_t n) mutable -> Flow<codec::Message> {
@@ -1207,8 +1208,11 @@ void validate_accepted_response_status(
 														 "dns: tcp zero-length response"};
 												 }
 												 auto resp_buf = std::make_shared<vector<u8>>(resp_len);
-												 return reader_ptr
-															->recv_async(*fh, resp_buf->data(), resp_len, MSG_WAITALL)
+												 return task_as_flow(reader_ptr->recv_async(
+															*fh,
+															resp_buf->data(),
+															resp_len,
+															MSG_WAITALL))
 													  | then(
 															[fh, resp_buf, expected_id, expected_qname, expected_qtype](
 																size_t resp_n) -> codec::Message {

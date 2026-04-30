@@ -43,37 +43,7 @@ export struct IoResult {
 
 export using FileCompletionFn = Fn<void(IoResult)>;
 
-namespace detail {
-
-template<typename T>
-[[nodiscard]] auto flow_to_root_task(
-	Flow<T> flow) -> conflux::work::root::Task<T> {
-	using namespace conflux::work::root;
-	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = make_shared<TaskSource<T>>(move(src));
-	spawn(
-		move(flow)
-		| then([shared_src](T value) mutable { (void)shared_src->commit_success(Success<T>{move(value)}); })
-		| on_error([shared_src](std::exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
-	return move(task);
-}
-
-template<>
-[[nodiscard]] inline auto flow_to_root_task<void>(
-	Flow<void> flow) -> conflux::work::root::Task<void> {
-	using namespace conflux::work::root;
-	auto [task, src] = make_task_source<void>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = make_shared<TaskSource<void>>(move(src));
-	spawn(
-		move(flow)
-		| then([shared_src]() mutable { (void)shared_src->commit_success(Success<void>{}); })
-		| on_error([shared_src](std::exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
-	return move(task);
-}
-
-} // namespace detail
+namespace root = conflux::work::root;
 
 // ---------------------------------------------------------------------------
 // CompletionTable: slot-indexed store of pending completion callbacks with
@@ -584,33 +554,33 @@ export class FileReader {
 	UserDataFn encode_ud_;
 
 	template<typename T>
-	Flow<T> fail_sq_full() const {
-		FlowSource<T> src;
-		auto flow = src.flow();
-		src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-		return flow;
+	root::Task<T> fail_sq_full() const {
+		auto [task, raw_src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<T>>(move(raw_src));
+		(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+		return move(task);
 	}
 
 	// Reserve a completion slot with a callback that bridges an IoResult into
-	// a FlowSource<T>. `decode` turns a non-negative res into a T; negative
+	// a root::TaskSource<T>. `decode` turns a non-negative res into a T; negative
 	// res flows through as FileIoError automatically.
 	template<typename T, typename Decode>
 	P<u32, u32> reserve_bridge(
-		FlowSource<T> &&src,
+		std::shared_ptr<root::TaskSource<T>> const &src,
 		Decode &&decode) {
-		return completions_->reserve([src = move(src), decode = forward<Decode>(decode)](IoResult r) mutable {
+		return completions_->reserve([src, decode = forward<Decode>(decode)](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: cqe error"}));
+					(void)src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: cqe error"}));
 					return;
 				}
 				if constexpr (std::is_void_v<T>) {
 					decode(r);
-					src.resolve();
+					(void)src->commit_success(root::Success<void>{});
 				} else {
-					src.resolve(decode(r));
+					(void)src->commit_success(root::Success<T>{decode(r)});
 				}
-			} catch (...) { src.reject(std::current_exception()); }
+			} catch (...) { (void)src->commit_failure(std::current_exception()); }
 		});
 	}
 
@@ -667,7 +637,7 @@ public:
 
 private:
 	[[nodiscard]] bool submit_open_direct_fallback(
-		FlowSource<FileHandle> src,
+		std::shared_ptr<root::TaskSource<FileHandle>> const &src,
 		SP<S> const &path_owner,
 		int dir_fd,
 		int flags,
@@ -675,15 +645,15 @@ private:
 		unsigned file_index) {
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return false;
 		}
 		io_uring_prep_openat(sqe, dir_fd, path_owner->c_str(), flags, mode);
-		auto [slot, gen] = completions_->reserve([this, src = move(src), path_owner, file_index](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([this, src, path_owner, file_index](IoResult r) mutable {
 			(void)path_owner; // keep-alive until CQE
 			try {
 				if (r.res < 0) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
+					(void)src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
 					return;
 				}
 				int const fd = r.res;
@@ -692,11 +662,12 @@ private:
 				if (update_rc < 0) {
 					int const sparse = -1;
 					::io_uring_register_files_update(ring_, file_index, &sparse, 1);
-					src.reject(make_exception_ptr(FileIoError{-update_rc, "file_io: open_direct"}));
+					(void)src->commit_failure(make_exception_ptr(FileIoError{-update_rc, "file_io: open_direct"}));
 					return;
 				}
-				src.resolve(FileHandle::from_direct_slot(static_cast<int>(file_index)));
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)src->commit_success(
+					root::Success<FileHandle>{FileHandle::from_direct_slot(static_cast<int>(file_index))});
+			} catch (...) { (void)src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return true;
@@ -707,32 +678,32 @@ public:
 	// Pass AT_FDCWD for absolute paths / cwd-relative.
 	// `path` must be a null-terminated S owned by the caller until the
 	// CQE fires; if unsure, pass a S and we copy.
-	[[nodiscard]] Flow<FileHandle> open_async(
+	[[nodiscard]] root::Task<FileHandle> open_async(
 		int dir_fd,
 		S path,
 		int flags,
 		mode_t mode = 0) {
-		FlowSource<FileHandle> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto path_owner = make_shared<S>(move(path));
 		io_uring_prep_openat(sqe, dir_fd, path_owner->c_str(), flags, mode);
-		auto [slot, gen] = completions_->reserve([src = move(src), path_owner](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src, path_owner](IoResult r) mutable {
 			(void)path_owner; // keep-alive until CQE
 			try {
 				if (r.res < 0) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: open"}));
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: open"}));
 					return;
 				}
-				src.resolve(FileHandle::from_fd(r.res));
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success({FileHandle::from_fd(r.res)});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileHandle> open_task(
@@ -740,44 +711,45 @@ public:
 		S path,
 		int flags,
 		mode_t mode = 0) {
-		return detail::flow_to_root_task(open_async(dir_fd, move(path), flags, mode));
+		return open_async(dir_fd, move(path), flags, mode);
 	}
 
 	// Open a path directly into the ring's fixed-file table. The owner must
 	// have registered a sparse file table first.
-	[[nodiscard]] Flow<FileHandle> open_direct_async(
+	[[nodiscard]] root::Task<FileHandle> open_direct_async(
 		int dir_fd,
 		S path,
 		int flags,
 		mode_t mode,
 		unsigned file_index) {
-		FlowSource<FileHandle> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto path_owner = make_shared<S>(move(path));
 		io_uring_prep_openat_direct(sqe, dir_fd, path_owner->c_str(), flags, mode, file_index);
-		auto [slot, gen] = completions_->reserve(
-			[this, src = move(src), path_owner, dir_fd, flags, mode, file_index](IoResult r) mutable {
-				(void)path_owner; // keep-alive until CQE
-				try {
-					if (r.res < 0) {
-						int const err = -r.res;
-						if (err == EINVAL || err == EOPNOTSUPP || err == ENOSYS) {
-							(void)submit_open_direct_fallback(move(src), path_owner, dir_fd, flags, mode, file_index);
-							return;
-						}
-						src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
+		auto [slot, gen] = completions_->reserve([this, shared_src, path_owner, dir_fd, flags, mode, file_index](
+													 IoResult r) mutable {
+			(void)path_owner; // keep-alive until CQE
+			try {
+				if (r.res < 0) {
+					int const err = -r.res;
+					if (err == EINVAL || err == EOPNOTSUPP || err == ENOSYS) {
+						(void)submit_open_direct_fallback(shared_src, path_owner, dir_fd, flags, mode, file_index);
 						return;
 					}
-					src.resolve(FileHandle::from_direct_slot(r.res == 0 ? static_cast<int>(file_index) : r.res));
-				} catch (...) { src.reject(std::current_exception()); }
-			});
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
+					return;
+				}
+				(void)shared_src->commit_success(
+					{FileHandle::from_direct_slot(r.res == 0 ? static_cast<int>(file_index) : r.res)});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileHandle> open_direct_task(
@@ -786,22 +758,22 @@ public:
 		int flags,
 		mode_t mode,
 		unsigned file_index) {
-		return detail::flow_to_root_task(open_direct_async(dir_fd, move(path), flags, mode, file_index));
+		return open_direct_async(dir_fd, move(path), flags, mode, file_index);
 	}
 
 	// statx on a path. `mask` follows statx(2) — STATX_BASIC_STATS by default.
-	[[nodiscard]] Flow<FileStat> statx_async(
+	[[nodiscard]] root::Task<FileStat> statx_async(
 		int dir_fd,
 		S path,
 		int flags = 0,
 		unsigned mask = STATX_BASIC_STATS,
 		bool fixed_file = false) {
-		FlowSource<FileStat> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileStat>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileStat>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto path_owner = make_shared<S>(move(path));
 		auto stx_owner = make_shared<struct statx>();
@@ -809,11 +781,11 @@ public:
 		if (fixed_file) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = completions_->reserve([src = move(src), path_owner, stx_owner](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src, path_owner, stx_owner](IoResult r) mutable {
 			(void)path_owner;
 			try {
 				if (r.res < 0) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: statx"}));
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: statx"}));
 					return;
 				}
 				auto const &s = *stx_owner;
@@ -823,11 +795,11 @@ public:
 					.dev = (static_cast<u64>(s.stx_dev_major) << 32U) | s.stx_dev_minor,
 					.ino = s.stx_ino,
 					.mode = s.stx_mode};
-				src.resolve(out);
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success({out});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileStat> statx_task(
@@ -836,11 +808,11 @@ public:
 		int flags = 0,
 		unsigned mask = STATX_BASIC_STATS,
 		bool fixed_file = false) {
-		return detail::flow_to_root_task(statx_async(dir_fd, move(path), flags, mask, fixed_file));
+		return statx_async(dir_fd, move(path), flags, mask, fixed_file);
 	}
 
 	// fstat-equivalent via statx with AT_EMPTY_PATH — avoids a path lookup.
-	[[nodiscard]] Flow<FileStat> stat_async(
+	[[nodiscard]] root::Task<FileStat> stat_async(
 		FileHandle const &fh) {
 		if (fh.is_direct()) {
 			return statx_async(fh.direct_slot(), S{}, AT_EMPTY_PATH, STATX_BASIC_STATS, true);
@@ -850,21 +822,21 @@ public:
 
 	[[nodiscard]] conflux::work::root::Task<FileStat> stat_task(
 		FileHandle const &fh) {
-		return detail::flow_to_root_task(stat_async(fh));
+		return stat_async(fh);
 	}
 
 	// Read into a caller-owned span. The caller must keep `dst` alive until the
 	// Flow resolves.
-	[[nodiscard]] Flow<SZ> read_into(
+	[[nodiscard]] root::Task<SZ> read_into(
 		FileHandle const &fh,
 		u64 offset,
 		span<byte> dst) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_read(
 			sqe,
@@ -875,31 +847,31 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> read_into_task(
 		FileHandle const &fh,
 		u64 offset,
 		span<byte> dst) {
-		return detail::flow_to_root_task(read_into(fh, offset, dst));
+		return read_into(fh, offset, dst);
 	}
 
 	// Scatter-gather read: fills `iovecs` segments in sequence. The V is
 	// moved into shared state and kept alive until the CQE fires.
 	// Returns total bytes read across all segments.
-	[[nodiscard]] Flow<SZ> readv_into(
+	[[nodiscard]] root::Task<SZ> readv_into(
 		FileHandle const &fh,
 		u64 offset,
 		V<iovec> iovecs) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
 		io_uring_prep_readv(
@@ -911,19 +883,19 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [iov_owner](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [iov_owner](IoResult r) mutable {
 			(void)iov_owner; // keep-alive until CQE
 			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> readv_into_task(
 		FileHandle const &fh,
 		u64 offset,
 		V<iovec> iovecs) {
-		return detail::flow_to_root_task(readv_into(fh, offset, move(iovecs)));
+		return readv_into(fh, offset, move(iovecs));
 	}
 
 	// Read into a pre-registered fixed buffer. The pool slot is held by the
@@ -935,17 +907,18 @@ public:
 		SZ bytes{};
 	};
 
-	[[nodiscard]] Flow<ReadFixedResult> read_fixed(
+	[[nodiscard]] root::Task<ReadFixedResult> read_fixed(
 		FileHandle const &fh,
 		u64 offset,
 		FixedBuffer buf,
 		SZ max_bytes = NL<SZ>::max()) {
-		FlowSource<ReadFixedResult> src;
-		auto flow = src.flow();
+		auto [task, raw_src] =
+			root::make_task_source<ReadFixedResult>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<ReadFixedResult>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = make_shared<FixedBuffer>(move(buf));
@@ -960,17 +933,19 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = completions_->reserve([src = move(src), holder](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: read_fixed"}));
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: read_fixed"}));
 					return;
 				}
-				src.resolve(ReadFixedResult{.buffer = move(*holder), .bytes = static_cast<SZ>(r.res)});
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success({
+					ReadFixedResult{.buffer = move(*holder), .bytes = static_cast<SZ>(r.res)}
+                });
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<ReadFixedResult> read_fixed_task(
@@ -978,7 +953,7 @@ public:
 		u64 offset,
 		FixedBuffer buf,
 		SZ max_bytes = NL<SZ>::max()) {
-		return detail::flow_to_root_task(read_fixed(fh, offset, move(buf), max_bytes));
+		return read_fixed(fh, offset, move(buf), max_bytes);
 	}
 
 	// Read into a pre-registered fixed buffer, bypassing the kernel page cache.
@@ -989,7 +964,7 @@ public:
 	// capped back to the original `max_bytes`, trimming any alignment padding.
 	// If the underlying filesystem does not support O_DIRECT, the kernel returns
 	// EINVAL, which surfaces as FileIoError{EINVAL, ...}.
-	[[nodiscard]] Flow<ReadFixedResult> read_nocache_fixed(
+	[[nodiscard]] root::Task<ReadFixedResult> read_nocache_fixed(
 		FileHandle const &fh,
 		u64 offset,
 		FixedBuffer buf,
@@ -1001,12 +976,13 @@ public:
 			aligned_bytes = ((actual_cap + block_size - 1) / block_size) * block_size;
 			aligned_bytes = min(aligned_bytes, buf.size());
 		}
-		FlowSource<ReadFixedResult> src;
-		auto flow = src.flow();
+		auto [task, raw_src] =
+			root::make_task_source<ReadFixedResult>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<ReadFixedResult>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = make_shared<FixedBuffer>(move(buf));
@@ -1020,18 +996,21 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = completions_->reserve([src = move(src), holder, actual_cap](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src, holder, actual_cap](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: read_nocache_fixed"}));
+					(void)shared_src->commit_failure(
+						make_exception_ptr(FileIoError{-r.res, "file_io: read_nocache_fixed"}));
 					return;
 				}
 				SZ const bytes = min(static_cast<SZ>(r.res), actual_cap);
-				src.resolve(ReadFixedResult{.buffer = move(*holder), .bytes = bytes});
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success({
+					ReadFixedResult{.buffer = move(*holder), .bytes = bytes}
+                });
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<ReadFixedResult> read_nocache_fixed_task(
@@ -1040,7 +1019,7 @@ public:
 		FixedBuffer buf,
 		SZ max_bytes = NL<SZ>::max(),
 		SZ block_size = 4096) {
-		return detail::flow_to_root_task(read_nocache_fixed(fh, offset, move(buf), max_bytes, block_size));
+		return read_nocache_fixed(fh, offset, move(buf), max_bytes, block_size);
 	}
 
 	// Write from a pre-registered fixed buffer. Symmetric to read_fixed.
@@ -1051,17 +1030,18 @@ public:
 		SZ bytes{};
 	};
 
-	[[nodiscard]] Flow<WriteFixedResult> write_fixed(
+	[[nodiscard]] root::Task<WriteFixedResult> write_fixed(
 		FileHandle const &fh,
 		u64 offset,
 		FixedBuffer buf,
 		SZ max_bytes = NL<SZ>::max()) {
-		FlowSource<WriteFixedResult> src;
-		auto flow = src.flow();
+		auto [task, raw_src] =
+			root::make_task_source<WriteFixedResult>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<WriteFixedResult>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = make_shared<FixedBuffer>(move(buf));
@@ -1076,17 +1056,19 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = completions_->reserve([src = move(src), holder](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: write_fixed"}));
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: write_fixed"}));
 					return;
 				}
-				src.resolve(WriteFixedResult{.buffer = move(*holder), .bytes = static_cast<SZ>(r.res)});
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success({
+					WriteFixedResult{.buffer = move(*holder), .bytes = static_cast<SZ>(r.res)}
+                });
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<WriteFixedResult> write_fixed_task(
@@ -1094,19 +1076,19 @@ public:
 		u64 offset,
 		FixedBuffer buf,
 		SZ max_bytes = NL<SZ>::max()) {
-		return detail::flow_to_root_task(write_fixed(fh, offset, move(buf), max_bytes));
+		return write_fixed(fh, offset, move(buf), max_bytes);
 	}
 
-	[[nodiscard]] Flow<SZ> write_into(
+	[[nodiscard]] root::Task<SZ> write_into(
 		FileHandle const &fh,
 		u64 offset,
 		span<byte const> src_view) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_write(
 			sqe,
@@ -1117,31 +1099,31 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> write_into_task(
 		FileHandle const &fh,
 		u64 offset,
 		span<byte const> src_view) {
-		return detail::flow_to_root_task(write_into(fh, offset, src_view));
+		return write_into(fh, offset, src_view);
 	}
 
 	// Scatter-gather write: sends `iovecs` segments to the file in sequence.
 	// The V is moved into shared state and kept alive until the CQE fires.
 	// Returns total bytes written across all segments.
-	[[nodiscard]] Flow<SZ> writev_into(
+	[[nodiscard]] root::Task<SZ> writev_into(
 		FileHandle const &fh,
 		u64 offset,
 		V<iovec> iovecs) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
 		io_uring_prep_writev(
@@ -1153,33 +1135,33 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [iov_owner](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [iov_owner](IoResult r) mutable {
 			(void)iov_owner; // keep-alive until CQE
 			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> writev_into_task(
 		FileHandle const &fh,
 		u64 offset,
 		V<iovec> iovecs) {
-		return detail::flow_to_root_task(writev_into(fh, offset, move(iovecs)));
+		return writev_into(fh, offset, move(iovecs));
 	}
 
 	// readv2_into: like readv_into but with RWF flags (e.g. RWF_NOWAIT, RWF_DSYNC).
-	[[nodiscard]] Flow<SZ> readv2_into(
+	[[nodiscard]] root::Task<SZ> readv2_into(
 		FileHandle const &fh,
 		u64 offset,
 		V<iovec> iovecs,
 		int rwf_flags = 0) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
 		io_uring_prep_readv2(
@@ -1192,12 +1174,12 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [iov_owner](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [iov_owner](IoResult r) mutable {
 			(void)iov_owner;
 			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> readv2_into_task(
@@ -1205,21 +1187,21 @@ public:
 		u64 offset,
 		V<iovec> iovecs,
 		int rwf_flags = 0) {
-		return detail::flow_to_root_task(readv2_into(fh, offset, move(iovecs), rwf_flags));
+		return readv2_into(fh, offset, move(iovecs), rwf_flags);
 	}
 
 	// writev2_into: like writev_into but with RWF flags.
-	[[nodiscard]] Flow<SZ> writev2_into(
+	[[nodiscard]] root::Task<SZ> writev2_into(
 		FileHandle const &fh,
 		u64 offset,
 		V<iovec> iovecs,
 		int rwf_flags = 0) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
 		io_uring_prep_writev2(
@@ -1232,12 +1214,12 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [iov_owner](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [iov_owner](IoResult r) mutable {
 			(void)iov_owner;
 			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> writev2_into_task(
@@ -1245,64 +1227,64 @@ public:
 		u64 offset,
 		V<iovec> iovecs,
 		int rwf_flags = 0) {
-		return detail::flow_to_root_task(writev2_into(fh, offset, move(iovecs), rwf_flags));
+		return writev2_into(fh, offset, move(iovecs), rwf_flags);
 	}
 
 	// No-op SQE — useful for latency measurement, wakeup, or pipeline flushing.
-	[[nodiscard]] Flow<void> nop_async() {
-		FlowSource<void> src;
-		auto flow = src.flow();
+	[[nodiscard]] root::Task<void> nop_async() {
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_nop(sqe);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
-	[[nodiscard]] conflux::work::root::Task<void> nop_task() { return detail::flow_to_root_task(nop_async()); }
+	[[nodiscard]] conflux::work::root::Task<void> nop_task() { return nop_async(); }
 
-	[[nodiscard]] Flow<void> fsync_async(
+	[[nodiscard]] root::Task<void> fsync_async(
 		FileHandle const &fh,
 		bool data_only = false) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_fsync(sqe, fh.raw_fd(), data_only ? IORING_FSYNC_DATASYNC : 0U);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> fsync_task(
 		FileHandle const &fh,
 		bool data_only = false) {
-		return detail::flow_to_root_task(fsync_async(fh, data_only));
+		return fsync_async(fh, data_only);
 	}
 
-	[[nodiscard]] Flow<void> fallocate_async(
+	[[nodiscard]] root::Task<void> fallocate_async(
 		FileHandle const &fh,
 		int mode,
 		u64 offset,
 		u64 len) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_fallocate(sqe, fh.raw_fd(), mode, offset, len);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> fallocate_task(
@@ -1310,30 +1292,30 @@ public:
 		int mode,
 		u64 offset,
 		u64 len) {
-		return detail::flow_to_root_task(fallocate_async(fh, mode, offset, len));
+		return fallocate_async(fh, mode, offset, len);
 	}
 
 	// Consumes the handle; the ring closes the fd via io_uring.
-	[[nodiscard]] Flow<void> fadvise_async(
+	[[nodiscard]] root::Task<void> fadvise_async(
 		FileHandle const &fh,
 		u64 offset,
 		u32 len,
 		int advice) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_fadvise(sqe, fd, offset, len, advice);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> fadvise_task(
@@ -1341,76 +1323,76 @@ public:
 		u64 offset,
 		u32 len,
 		int advice) {
-		return detail::flow_to_root_task(fadvise_async(fh, offset, len, advice));
+		return fadvise_async(fh, offset, len, advice);
 	}
 
-	[[nodiscard]] Flow<void> madvise_async(
+	[[nodiscard]] root::Task<void> madvise_async(
 		void *addr,
 		u32 length,
 		int advice) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_madvise(sqe, addr, length, advice);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> madvise_task(
 		void *addr,
 		u32 length,
 		int advice) {
-		return detail::flow_to_root_task(madvise_async(addr, length, advice));
+		return madvise_async(addr, length, advice);
 	}
 
-	[[nodiscard]] Flow<void> unlink_async(
+	[[nodiscard]] root::Task<void> unlink_async(
 		int dir_fd,
 		S path,
 		int flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto path_owner = make_shared<S>(move(path));
 		io_uring_prep_unlinkat(sqe, dir_fd, path_owner->c_str(), flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [path_owner](IoResult) mutable { (void)path_owner; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [path_owner](IoResult) mutable { (void)path_owner; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> unlink_task(
 		int dir_fd,
 		S path,
 		int flags = 0) {
-		return detail::flow_to_root_task(unlink_async(dir_fd, move(path), flags));
+		return unlink_async(dir_fd, move(path), flags);
 	}
 
-	[[nodiscard]] Flow<void> rename_async(
+	[[nodiscard]] root::Task<void> rename_async(
 		int old_dir_fd,
 		S old_path,
 		int new_dir_fd,
 		S new_path,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto paths = make_shared<P<S, S>>(move(old_path), move(new_path));
 		io_uring_prep_renameat(sqe, old_dir_fd, paths->first.c_str(), new_dir_fd, paths->second.c_str(), flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [paths](IoResult) mutable { (void)paths; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { (void)paths; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> rename_task(
@@ -1419,103 +1401,103 @@ public:
 		int new_dir_fd,
 		S new_path,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(rename_async(old_dir_fd, move(old_path), new_dir_fd, move(new_path), flags));
+		return rename_async(old_dir_fd, move(old_path), new_dir_fd, move(new_path), flags);
 	}
 
-	[[nodiscard]] Flow<void> mkdirat_async(
+	[[nodiscard]] root::Task<void> mkdirat_async(
 		int dir_fd,
 		S path,
 		mode_t mode = 0755) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto path_owner = make_shared<S>(move(path));
 		io_uring_prep_mkdirat(sqe, dir_fd, path_owner->c_str(), mode);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [path_owner](IoResult) mutable { (void)path_owner; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [path_owner](IoResult) mutable { (void)path_owner; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> mkdirat_task(
 		int dir_fd,
 		S path,
 		mode_t mode = 0755) {
-		return detail::flow_to_root_task(mkdirat_async(dir_fd, move(path), mode));
+		return mkdirat_async(dir_fd, move(path), mode);
 	}
 
-	[[nodiscard]] Flow<void> symlinkat_async(
+	[[nodiscard]] root::Task<void> symlinkat_async(
 		S target,
 		int new_dir_fd,
 		S link_path) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto paths = make_shared<P<S, S>>(move(target), move(link_path));
 		io_uring_prep_symlinkat(sqe, paths->first.c_str(), new_dir_fd, paths->second.c_str());
-		auto [slot, gen] = reserve_bridge<void>(move(src), [paths](IoResult) mutable { (void)paths; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { (void)paths; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> symlinkat_task(
 		S target,
 		int new_dir_fd,
 		S link_path) {
-		return detail::flow_to_root_task(symlinkat_async(move(target), new_dir_fd, move(link_path)));
+		return symlinkat_async(move(target), new_dir_fd, move(link_path));
 	}
 
-	[[nodiscard]] Flow<void> ftruncate_async(
+	[[nodiscard]] root::Task<void> ftruncate_async(
 		FileHandle const &fh,
 		u64 length) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_ftruncate(sqe, fd, static_cast<loff_t>(length));
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> ftruncate_task(
 		FileHandle const &fh,
 		u64 length) {
-		return detail::flow_to_root_task(ftruncate_async(fh, length));
+		return ftruncate_async(fh, length);
 	}
 
-	[[nodiscard]] Flow<void> linkat_async(
+	[[nodiscard]] root::Task<void> linkat_async(
 		int old_dir_fd,
 		S old_path,
 		int new_dir_fd,
 		S new_path,
 		int flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto paths = make_shared<P<S, S>>(move(old_path), move(new_path));
 		io_uring_prep_linkat(sqe, old_dir_fd, paths->first.c_str(), new_dir_fd, paths->second.c_str(), flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [paths](IoResult) mutable { (void)paths; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { (void)paths; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> linkat_task(
@@ -1524,29 +1506,29 @@ public:
 		int new_dir_fd,
 		S new_path,
 		int flags = 0) {
-		return detail::flow_to_root_task(linkat_async(old_dir_fd, move(old_path), new_dir_fd, move(new_path), flags));
+		return linkat_async(old_dir_fd, move(old_path), new_dir_fd, move(new_path), flags);
 	}
 
-	[[nodiscard]] Flow<void> sync_file_range_async(
+	[[nodiscard]] root::Task<void> sync_file_range_async(
 		FileHandle const &fh,
 		u64 offset,
 		unsigned len,
 		int flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_sync_file_range(sqe, fd, len, offset, flags);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> sync_file_range_task(
@@ -1554,51 +1536,52 @@ public:
 		u64 offset,
 		unsigned len,
 		int flags = 0) {
-		return detail::flow_to_root_task(sync_file_range_async(fh, offset, len, flags));
+		return sync_file_range_async(fh, offset, len, flags);
 	}
 
-	[[nodiscard]] Flow<FileHandle> socket_async(
+	[[nodiscard]] root::Task<FileHandle> socket_async(
 		int domain,
 		int type,
 		int protocol) {
-		FlowSource<FileHandle> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_socket(sqe, domain, type, protocol, 0);
-		auto [slot, gen] = reserve_bridge<FileHandle>(move(src), [](IoResult r) { return FileHandle::from_fd(r.res); });
+		auto [slot, gen] =
+			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_fd(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileHandle> socket_task(
 		int domain,
 		int type,
 		int protocol) {
-		return detail::flow_to_root_task(socket_async(domain, type, protocol));
+		return socket_async(domain, type, protocol);
 	}
 
-	[[nodiscard]] Flow<FileHandle> socket_direct_async(
+	[[nodiscard]] root::Task<FileHandle> socket_direct_async(
 		int domain,
 		int type,
 		int protocol,
 		unsigned file_index) {
-		FlowSource<FileHandle> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_socket_direct(sqe, domain, type, protocol, file_index, 0);
-		auto [slot, gen] = reserve_bridge<FileHandle>(move(src), [file_index](IoResult) {
+		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [file_index](IoResult) {
 			return FileHandle::from_direct_slot(static_cast<int>(file_index));
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileHandle> socket_direct_task(
@@ -1606,50 +1589,50 @@ public:
 		int type,
 		int protocol,
 		unsigned file_index) {
-		return detail::flow_to_root_task(socket_direct_async(domain, type, protocol, file_index));
+		return socket_direct_async(domain, type, protocol, file_index);
 	}
 
 	// Create a pipe asynchronously. Returns (read_fd, write_fd) on success.
-	[[nodiscard]] Flow<P<int, int>> pipe_async(
+	[[nodiscard]] root::Task<P<int, int>> pipe_async(
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
-		FlowSource<P<int, int>> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<P<int, int>>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<P<int, int>>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto fds = make_shared<A<int, 2>>(A<int, 2>{-1, -1});
 		io_uring_prep_pipe(sqe, fds->data(), pipe_flags);
-		auto [slot, gen] = completions_->reserve([src = move(src), fds](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src, fds](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: pipe"}));
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: pipe"}));
 					return;
 				}
-				src.resolve(std::make_pair((*fds)[0], (*fds)[1]));
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success({std::make_pair((*fds)[0], (*fds)[1])});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<P<int, int>> pipe_task(
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
-		return detail::flow_to_root_task(pipe_async(pipe_flags));
+		return pipe_async(pipe_flags);
 	}
 
 	// Async bind. `addr` is copied and kept alive until CQE.
-	[[nodiscard]] Flow<void> bind_async(
+	[[nodiscard]] root::Task<void> bind_async(
 		FileHandle const &fh,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		auto addr_owner = make_shared<sockaddr_storage>(addr);
@@ -1657,87 +1640,87 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<void>(move(src), [addr_owner](IoResult) mutable { (void)addr_owner; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable { (void)addr_owner; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> bind_task(
 		FileHandle const &fh,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
-		return detail::flow_to_root_task(bind_async(fh, addr, addrlen));
+		return bind_async(fh, addr, addrlen);
 	}
 
 	// Async listen.
-	[[nodiscard]] Flow<void> listen_async(
+	[[nodiscard]] root::Task<void> listen_async(
 		FileHandle const &fh,
 		int backlog = SOMAXCONN) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_listen(sqe, fd, backlog);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> listen_task(
 		FileHandle const &fh,
 		int backlog = SOMAXCONN) {
-		return detail::flow_to_root_task(listen_async(fh, backlog));
+		return listen_async(fh, backlog);
 	}
 
-	[[nodiscard]] Flow<void> shutdown_async(
+	[[nodiscard]] root::Task<void> shutdown_async(
 		FileHandle const &fh,
 		int how) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_shutdown(sqe, fd, how);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> shutdown_task(
 		FileHandle const &fh,
 		int how) {
-		return detail::flow_to_root_task(shutdown_async(fh, how));
+		return shutdown_async(fh, how);
 	}
 
-	[[nodiscard]] Flow<SZ> tee_async(
+	[[nodiscard]] root::Task<SZ> tee_async(
 		int fd_in,
 		int fd_out,
 		SZ len,
 		unsigned flags = 0) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_tee(sqe, fd_in, fd_out, static_cast<unsigned int>(len), flags);
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> tee_task(
@@ -1745,51 +1728,53 @@ public:
 		int fd_out,
 		SZ len,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(tee_async(fd_in, fd_out, len, flags));
+		return tee_async(fd_in, fd_out, len, flags);
 	}
 
 	// Installs a direct-slot fd into the process fd table. Returns a raw-fd
 	// FileHandle wrapping the installed fd. Caller must hold a registered-files
 	// table (io_uring_register_files) on this ring.
-	[[nodiscard]] Flow<FileHandle> fixed_fd_install_async(
+	[[nodiscard]] root::Task<FileHandle> fixed_fd_install_async(
 		FileHandle const &fh,
 		unsigned flags = 0) {
-		FlowSource<FileHandle> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		if (!fh.is_direct()) {
-			src.reject(make_exception_ptr(FileIoError{EINVAL, "file_io: fixed_fd_install requires direct slot"}));
-			return flow;
+			(void)shared_src->commit_failure(
+				make_exception_ptr(FileIoError{EINVAL, "file_io: fixed_fd_install requires direct slot"}));
+			return move(task);
 		}
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_fixed_fd_install(sqe, fh.direct_slot(), flags);
-		auto [slot, gen] = reserve_bridge<FileHandle>(move(src), [](IoResult r) { return FileHandle::from_fd(r.res); });
+		auto [slot, gen] =
+			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_fd(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileHandle> fixed_fd_install_task(
 		FileHandle const &fh,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(fixed_fd_install_async(fh, flags));
+		return fixed_fd_install_async(fh, flags);
 	}
 
 	// Get extended attribute. `name` is moved and kept alive until CQE.
 	// `value` span must remain valid until the returned Flow resolves.
 	// Returns the actual attribute size (may exceed value.size() — ERANGE).
-	[[nodiscard]] Flow<SZ> fgetxattr_async(
+	[[nodiscard]] root::Task<SZ> fgetxattr_async(
 		FileHandle const &fh,
 		S name,
 		span<char> buf) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		auto name_owner = make_shared<S>(move(name));
@@ -1797,33 +1782,33 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [name_owner](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [name_owner](IoResult r) mutable {
 			(void)name_owner;
 			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> fgetxattr_task(
 		FileHandle const &fh,
 		S name,
 		span<char> buf) {
-		return detail::flow_to_root_task(fgetxattr_async(fh, move(name), buf));
+		return fgetxattr_async(fh, move(name), buf);
 	}
 
 	// Set extended attribute. Both `name` and `data` are moved/kept alive until CQE.
-	[[nodiscard]] Flow<void> fsetxattr_async(
+	[[nodiscard]] root::Task<void> fsetxattr_async(
 		FileHandle const &fh,
 		S name,
 		S data,
 		int flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		auto kv = make_shared<P<S, S>>(move(name), move(data));
@@ -1837,9 +1822,9 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<void>(move(src), [kv](IoResult) mutable { (void)kv; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [kv](IoResult) mutable { (void)kv; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> fsetxattr_task(
@@ -1847,21 +1832,21 @@ public:
 		S name,
 		S data,
 		int flags = 0) {
-		return detail::flow_to_root_task(fsetxattr_async(fh, move(name), move(data), flags));
+		return fsetxattr_async(fh, move(name), move(data), flags);
 	}
 
 	// Path-based get extended attribute. `name`, `path`, and `buf` must
 	// remain valid until the Flow resolves.
-	[[nodiscard]] Flow<SZ> getxattr_async(
+	[[nodiscard]] root::Task<SZ> getxattr_async(
 		S path,
 		S name,
 		span<char> buf) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto kp = make_shared<P<S, S>>(move(path), move(name));
 		io_uring_prep_getxattr(
@@ -1870,34 +1855,34 @@ public:
 			buf.data(),
 			kp->first.c_str(),
 			static_cast<unsigned>(buf.size()));
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [kp](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [kp](IoResult r) mutable {
 			(void)kp;
 			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> getxattr_task(
 		S path,
 		S name,
 		span<char> buf) {
-		return detail::flow_to_root_task(getxattr_async(move(path), move(name), buf));
+		return getxattr_async(move(path), move(name), buf);
 	}
 
 	// Path-based set extended attribute. `name`, `data`, and `path` are moved
 	// and kept alive until CQE.
-	[[nodiscard]] Flow<void> setxattr_async(
+	[[nodiscard]] root::Task<void> setxattr_async(
 		S path,
 		S name,
 		S data,
 		int flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		struct XattrState {
 			S path;
@@ -1912,9 +1897,9 @@ public:
 			st->path.c_str(),
 			flags,
 			static_cast<unsigned>(st->data.size()));
-		auto [slot, gen] = reserve_bridge<void>(move(src), [st](IoResult) mutable { (void)st; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [st](IoResult) mutable { (void)st; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> setxattr_task(
@@ -1922,28 +1907,28 @@ public:
 		S name,
 		S data,
 		int flags = 0) {
-		return detail::flow_to_root_task(setxattr_async(move(path), move(name), move(data), flags));
+		return setxattr_async(move(path), move(name), move(data), flags);
 	}
 
 	// Wait for process state change (IORING_OP_WAITID). `infop` must stay valid
 	// until the Flow resolves; on success it is filled with signal info.
-	[[nodiscard]] Flow<void> waitid_async(
+	[[nodiscard]] root::Task<void> waitid_async(
 		idtype_t idtype,
 		id_t id,
 		siginfo_t *infop,
 		int options = WEXITED,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_waitid(sqe, idtype, id, infop, options, flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> waitid_task(
@@ -1952,28 +1937,28 @@ public:
 		siginfo_t *infop,
 		int options = WEXITED,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(waitid_async(idtype, id, infop, options, flags));
+		return waitid_async(idtype, id, infop, options, flags);
 	}
 
 	// Futex wait — waits until *futex != val. The futex pointer must remain
 	// valid until the Flow resolves. Returns void on wakeup.
-	[[nodiscard]] Flow<void> futex_wait_async(
+	[[nodiscard]] root::Task<void> futex_wait_async(
 		u32 *futex,
 		u64 val,
 		u64 mask = FUTEX_BITSET_MATCH_ANY,
 		u32 futex_flags = FUTEX2_SIZE_U32,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_futex_wait(sqe, futex, val, mask, futex_flags, flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> futex_wait_task(
@@ -1982,27 +1967,27 @@ public:
 		u64 mask = FUTEX_BITSET_MATCH_ANY,
 		u32 futex_flags = FUTEX2_SIZE_U32,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(futex_wait_async(futex, val, mask, futex_flags, flags));
+		return futex_wait_async(futex, val, mask, futex_flags, flags);
 	}
 
 	// Futex wake — wakes up to `val` waiters. Returns the number woken.
-	[[nodiscard]] Flow<u32> futex_wake_async(
+	[[nodiscard]] root::Task<u32> futex_wake_async(
 		u32 *futex,
 		u64 val,
 		u64 mask = FUTEX_BITSET_MATCH_ANY,
 		u32 futex_flags = FUTEX2_SIZE_U32,
 		unsigned flags = 0) {
-		FlowSource<u32> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<u32>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<u32>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_futex_wake(sqe, futex, val, mask, futex_flags, flags);
-		auto [slot, gen] = reserve_bridge<u32>(move(src), [](IoResult r) { return static_cast<u32>(r.res); });
+		auto [slot, gen] = reserve_bridge<u32>(shared_src, [](IoResult r) { return static_cast<u32>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<u32> futex_wake_task(
@@ -2011,27 +1996,27 @@ public:
 		u64 mask = FUTEX_BITSET_MATCH_ANY,
 		u32 futex_flags = FUTEX2_SIZE_U32,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(futex_wake_async(futex, val, mask, futex_flags, flags));
+		return futex_wake_async(futex, val, mask, futex_flags, flags);
 	}
 
 	// Send a synthetic CQE to `target_ring_fd` (the target ring's ring_fd).
 	// The CQE on the target will have res=len, user_data=data.
-	[[nodiscard]] Flow<void> msg_ring_async(
+	[[nodiscard]] root::Task<void> msg_ring_async(
 		int target_ring_fd,
 		unsigned len,
 		u64 data,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_msg_ring(sqe, target_ring_fd, len, data, flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> msg_ring_task(
@@ -2039,222 +2024,225 @@ public:
 		unsigned len,
 		u64 data,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(msg_ring_async(target_ring_fd, len, data, flags));
+		return msg_ring_async(target_ring_fd, len, data, flags);
 	}
 
 	// Arm a one-shot timeout. Resolves (with -ETIME mapped to void) when ms
 	// elapses. If count > 0, fires after count CQE completions OR ms, whichever
 	// is first (IORING_TIMEOUT_BOOTTIME etc. can be passed in flags).
-	[[nodiscard]] Flow<void> timeout_async(
+	[[nodiscard]] root::Task<void> timeout_async(
 		chrono::milliseconds ms,
 		unsigned count = 0,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto ts = make_shared<__kernel_timespec>();
 		auto const sec = chrono::duration_cast<chrono::seconds>(ms);
 		ts->tv_sec = sec.count();
 		ts->tv_nsec = (ms - sec).count() * 1'000'000LL;
 		io_uring_prep_timeout(sqe, ts.get(), count, flags);
-		auto [slot, gen] = completions_->reserve([src = move(src), ts](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src, ts](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ETIME && r.res != -ECANCELED) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: timeout"}));
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: timeout"}));
 					return;
 				}
-				src.resolve();
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success(root::Success<void>{});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 			(void)ts;
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> timeout_task(
 		chrono::milliseconds ms,
 		unsigned count = 0,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(timeout_async(ms, count, flags));
+		return timeout_async(ms, count, flags);
 	}
 
 	// Cancel a running timeout by its user_data tag. -ENOENT → already fired.
-	[[nodiscard]] Flow<void> timeout_remove_async(
+	[[nodiscard]] root::Task<void> timeout_remove_async(
 		u64 user_data,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_timeout_remove(sqe, user_data, flags);
-		auto [slot, gen] = completions_->reserve([src = move(src)](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: timeout_remove"}));
+					(void)shared_src->commit_failure(
+						make_exception_ptr(FileIoError{-r.res, "file_io: timeout_remove"}));
 					return;
 				}
-				src.resolve();
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success(root::Success<void>{});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> timeout_remove_task(
 		u64 user_data,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(timeout_remove_async(user_data, flags));
+		return timeout_remove_async(user_data, flags);
 	}
 
 	// Update an armed timeout. New deadline `ms` replaces the existing one.
 	// `user_data` identifies the timeout SQE to update (its encoded user_data).
-	[[nodiscard]] Flow<void> timeout_update_async(
+	[[nodiscard]] root::Task<void> timeout_update_async(
 		u64 user_data,
 		chrono::milliseconds ms,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto ts = make_shared<__kernel_timespec>();
 		auto const sec = chrono::duration_cast<chrono::seconds>(ms);
 		ts->tv_sec = sec.count();
 		ts->tv_nsec = (ms - sec).count() * 1'000'000LL;
 		io_uring_prep_timeout_update(sqe, ts.get(), user_data, flags);
-		auto [slot, gen] = completions_->reserve([src = move(src), ts](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src, ts](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: timeout_update"}));
+					(void)shared_src->commit_failure(
+						make_exception_ptr(FileIoError{-r.res, "file_io: timeout_update"}));
 					return;
 				}
-				src.resolve();
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success(root::Success<void>{});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 			(void)ts;
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> timeout_update_task(
 		u64 user_data,
 		chrono::milliseconds ms,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(timeout_update_async(user_data, ms, flags));
+		return timeout_update_async(user_data, ms, flags);
 	}
 
 	// Register a one-shot poll on `fd` for `events` (POLLIN, POLLOUT, …).
 	// Resolves with the triggered poll mask when any event fires.
 	// -ENOENT on poll_remove before the event: treated as ECANCELED by caller.
-	[[nodiscard]] Flow<u32> poll_add_async(
+	[[nodiscard]] root::Task<u32> poll_add_async(
 		int fd,
 		u32 events) {
-		FlowSource<u32> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<u32>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<u32>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_poll_add(sqe, fd, events);
-		auto [slot, gen] = reserve_bridge<u32>(move(src), [](IoResult r) { return static_cast<u32>(r.res); });
+		auto [slot, gen] = reserve_bridge<u32>(shared_src, [](IoResult r) { return static_cast<u32>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<u32> poll_add_task(
 		int fd,
 		u32 events) {
-		return detail::flow_to_root_task(poll_add_async(fd, events));
+		return poll_add_async(fd, events);
 	}
 
 	// Cancel a pending poll_add identified by `user_data`.
 	// -ENOENT means the poll already fired — treated as success.
-	[[nodiscard]] Flow<void> poll_remove_async(
+	[[nodiscard]] root::Task<void> poll_remove_async(
 		u64 user_data) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_poll_remove(sqe, user_data);
-		auto [slot, gen] = completions_->reserve([src = move(src)](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: poll_remove"}));
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: poll_remove"}));
 					return;
 				}
-				src.resolve();
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success(root::Success<void>{});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> poll_remove_task(
 		u64 user_data) {
-		return detail::flow_to_root_task(poll_remove_async(user_data));
+		return poll_remove_async(user_data);
 	}
 
 	// Update an armed multishot poll's event mask in-place.
 	// `user_data` is the encoded user_data of the original poll SQE.
-	[[nodiscard]] Flow<void> poll_update_async(
+	[[nodiscard]] root::Task<void> poll_update_async(
 		u64 user_data,
 		u32 new_events,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_poll_update(sqe, user_data, 0, new_events, flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> poll_update_task(
 		u64 user_data,
 		u32 new_events,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(poll_update_async(user_data, new_events, flags));
+		return poll_update_async(user_data, new_events, flags);
 	}
 
 	// Accept one connection on a listening socket. Returns the accepted fd.
 	// `addr`/`addrlen` are Opt out-params for the peer address.
-	[[nodiscard]] Flow<FileHandle> accept_async(
+	[[nodiscard]] root::Task<FileHandle> accept_async(
 		FileHandle const &fh,
 		sockaddr *addr = nullptr,
 		socklen_t *addrlen = nullptr,
 		int flags = SOCK_CLOEXEC) {
-		FlowSource<FileHandle> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_accept(sqe, fd, addr, addrlen, flags);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<FileHandle>(move(src), [](IoResult r) { return FileHandle::from_fd(r.res); });
+		auto [slot, gen] =
+			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_fd(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileHandle> accept_task(
@@ -2262,34 +2250,34 @@ public:
 		sockaddr *addr = nullptr,
 		socklen_t *addrlen = nullptr,
 		int flags = SOCK_CLOEXEC) {
-		return detail::flow_to_root_task(accept_async(fh, addr, addrlen, flags));
+		return accept_async(fh, addr, addrlen, flags);
 	}
 
 	// Accept one connection into a registered direct slot.
 	// `addr`/`addrlen` are Opt out-params for the peer address.
-	[[nodiscard]] Flow<FileHandle> accept_direct_async(
+	[[nodiscard]] root::Task<FileHandle> accept_direct_async(
 		FileHandle const &fh,
 		unsigned file_index,
 		sockaddr *addr = nullptr,
 		socklen_t *addrlen = nullptr,
 		int flags = SOCK_CLOEXEC) {
-		FlowSource<FileHandle> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_accept_direct(sqe, fd, addr, addrlen, flags, file_index);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<FileHandle>(move(src), [file_index](IoResult) {
+		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [file_index](IoResult) {
 			return FileHandle::from_direct_slot(static_cast<int>(file_index));
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileHandle> accept_direct_task(
@@ -2298,29 +2286,29 @@ public:
 		sockaddr *addr = nullptr,
 		socklen_t *addrlen = nullptr,
 		int flags = SOCK_CLOEXEC) {
-		return detail::flow_to_root_task(accept_direct_async(fh, file_index, addr, addrlen, flags));
+		return accept_direct_async(fh, file_index, addr, addrlen, flags);
 	}
 
 	// Send an fd to another ring's registered file table. `source_fd` is
 	// installed at `target_fd` slot in the target ring's file table.
 	// Pass IORING_FILE_INDEX_ALLOC for `target_fd` to auto-allocate.
-	[[nodiscard]] Flow<void> msg_ring_fd_async(
+	[[nodiscard]] root::Task<void> msg_ring_fd_async(
 		int target_ring_fd,
 		int source_fd,
 		int target_fd,
 		u64 data = 0,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_msg_ring_fd(sqe, target_ring_fd, source_fd, target_fd, data, flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> msg_ring_fd_task(
@@ -2329,109 +2317,109 @@ public:
 		int target_fd,
 		u64 data = 0,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(msg_ring_fd_async(target_ring_fd, source_fd, target_fd, data, flags));
+		return msg_ring_fd_async(target_ring_fd, source_fd, target_fd, data, flags);
 	}
 
 	// Wait on multiple futexes simultaneously. Resolves when any waiter
 	// condition is met. `waiters` is moved and kept alive until CQE.
-	[[nodiscard]] Flow<void> futex_waitv_async(
+	[[nodiscard]] root::Task<void> futex_waitv_async(
 		V<futex_waitv> waiters,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto wv = make_shared<V<futex_waitv>>(move(waiters));
 		io_uring_prep_futex_waitv(sqe, wv->data(), static_cast<u32>(wv->size()), flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [wv](IoResult) mutable { (void)wv; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [wv](IoResult) mutable { (void)wv; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> futex_waitv_task(
 		V<futex_waitv> waiters,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(futex_waitv_async(move(waiters), flags));
+		return futex_waitv_async(move(waiters), flags);
 	}
 
 	// Cancel a pending op by its user_data tag. Resolves when the cancel
 	// was submitted; the target op's CQE will still arrive (with -ECANCELED).
 	// -ENOENT means the target already completed — treated as success here.
-	[[nodiscard]] Flow<void> cancel_async(
+	[[nodiscard]] root::Task<void> cancel_async(
 		u64 user_data,
 		int flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_cancel64(sqe, user_data, flags);
-		auto [slot, gen] = completions_->reserve([src = move(src)](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: cancel"}));
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: cancel"}));
 					return;
 				}
-				src.resolve();
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success(root::Success<void>{});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> cancel_task(
 		u64 user_data,
 		int flags = 0) {
-		return detail::flow_to_root_task(cancel_async(user_data, flags));
+		return cancel_async(user_data, flags);
 	}
 
 	// Cancel all pending ops for `fd`. -ENOENT treated as success.
-	[[nodiscard]] Flow<void> cancel_fd_async(
+	[[nodiscard]] root::Task<void> cancel_fd_async(
 		int fd,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_cancel_fd(sqe, fd, flags);
-		auto [slot, gen] = completions_->reserve([src = move(src)](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: cancel_fd"}));
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: cancel_fd"}));
 					return;
 				}
-				src.resolve();
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success(root::Success<void>{});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> cancel_fd_task(
 		int fd,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(cancel_fd_async(fd, flags));
+		return cancel_fd_async(fd, flags);
 	}
 
 	// Async connect. `addr` is copied into a shared buffer kept alive until CQE.
-	[[nodiscard]] Flow<void> connect_async(
+	[[nodiscard]] root::Task<void> connect_async(
 		FileHandle const &fh,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		auto addr_owner = make_shared<sockaddr_storage>(addr);
@@ -2439,40 +2427,40 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<void>(move(src), [addr_owner](IoResult) mutable { (void)addr_owner; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable { (void)addr_owner; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> connect_task(
 		FileHandle const &fh,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
-		return detail::flow_to_root_task(connect_async(fh, addr, addrlen));
+		return connect_async(fh, addr, addrlen);
 	}
 
-	[[nodiscard]] Flow<void> close_async(
+	[[nodiscard]] root::Task<void> close_async(
 		FileHandle fh) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		if (fh.is_direct()) {
 			io_uring_prep_close_direct(sqe, static_cast<unsigned>(fh.release_direct_slot()));
 		} else {
 			io_uring_prep_close(sqe, fh.release_fd());
 		}
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> close_task(
 		FileHandle fh) {
-		return detail::flow_to_root_task(close_async(move(fh)));
+		return close_async(move(fh));
 	}
 
 	// Splice `len` bytes from `file` at `off` into `dst_fd`, using `pipe` as
@@ -2485,7 +2473,7 @@ public:
 	//
 	// The PipePair is held until `len` is drained or an error arrives; it is
 	// then dropped (returning to the pool).
-	[[nodiscard]] Flow<SZ> splice_to_fd(
+	[[nodiscard]] root::Task<SZ> splice_to_fd(
 		FileHandle const &file,
 		u64 off,
 		SZ len,
@@ -2503,8 +2491,9 @@ public:
 			u64 file_off;
 			SZ remaining;
 			SZ delivered{0};
-			FlowSource<SZ> src;
+			std::shared_ptr<root::TaskSource<SZ>> src;
 		};
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
 		auto st = make_shared<State>(State{
 			.ring = ring_,
 			.completions = completions_,
@@ -2516,10 +2505,9 @@ public:
 			.file_off = off,
 			.remaining = len,
 			.delivered = 0,
-			.src = {}});
-		auto flow = st->src.flow();
+			.src = make_shared<root::TaskSource<SZ>>(move(raw_src))});
 		step_splice(st);
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> splice_to_fd_task(
@@ -2529,30 +2517,30 @@ public:
 		int dst_fd,
 		PipePair pipe,
 		bool dst_fixed = false) {
-		return detail::flow_to_root_task(splice_to_fd(file, off, len, dst_fd, move(pipe), dst_fixed));
+		return splice_to_fd(file, off, len, dst_fd, move(pipe), dst_fixed);
 	}
 
 	// Send `len` bytes from `buf` on `fh`. Returns bytes sent.
-	[[nodiscard]] Flow<SZ> send_async(
+	[[nodiscard]] root::Task<SZ> send_async(
 		FileHandle const &fh,
 		void const *buf,
 		SZ len,
 		int flags = 0) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_send(sqe, fd, buf, len, flags);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> send_task(
@@ -2560,30 +2548,30 @@ public:
 		void const *buf,
 		SZ len,
 		int flags = 0) {
-		return detail::flow_to_root_task(send_async(fh, buf, len, flags));
+		return send_async(fh, buf, len, flags);
 	}
 
 	// Receive up to `len` bytes into `buf` from `fh`. Returns bytes received.
-	[[nodiscard]] Flow<SZ> recv_async(
+	[[nodiscard]] root::Task<SZ> recv_async(
 		FileHandle const &fh,
 		void *buf,
 		SZ len,
 		int flags = 0) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_recv(sqe, fd, buf, len, flags);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> recv_task(
@@ -2591,86 +2579,86 @@ public:
 		void *buf,
 		SZ len,
 		int flags = 0) {
-		return detail::flow_to_root_task(recv_async(fh, buf, len, flags));
+		return recv_async(fh, buf, len, flags);
 	}
 
 	// Vectored send via sendmsg(2). `msg` must remain valid until the Flow resolves.
-	[[nodiscard]] Flow<SZ> sendmsg_async(
+	[[nodiscard]] root::Task<SZ> sendmsg_async(
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_sendmsg(sqe, fd, msg, flags);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> sendmsg_task(
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(sendmsg_async(fh, msg, flags));
+		return sendmsg_async(fh, msg, flags);
 	}
 
 	// Vectored recv via recvmsg(2). `msg` must remain valid until the Flow resolves.
-	[[nodiscard]] Flow<SZ> recvmsg_async(
+	[[nodiscard]] root::Task<SZ> recvmsg_async(
 		FileHandle const &fh,
 		msghdr *msg,
 		unsigned flags = 0) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_recvmsg(sqe, fd, msg, flags);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> recvmsg_task(
 		FileHandle const &fh,
 		msghdr *msg,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(recvmsg_async(fh, msg, flags));
+		return recvmsg_async(fh, msg, flags);
 	}
 
 	// Register `nr` buffers of `len` bytes starting at `addr` into buffer group `bgid`.
 	// Kernel increments `bid` automatically for subsequent provides in the same group.
-	[[nodiscard]] Flow<void> provide_buffers_async(
+	[[nodiscard]] root::Task<void> provide_buffers_async(
 		void *addr,
 		int len,
 		int nr,
 		int bgid,
 		int bid = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_provide_buffers(sqe, addr, len, nr, bgid, bid);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> provide_buffers_task(
@@ -2679,76 +2667,76 @@ public:
 		int nr,
 		int bgid,
 		int bid = 0) {
-		return detail::flow_to_root_task(provide_buffers_async(addr, len, nr, bgid, bid));
+		return provide_buffers_async(addr, len, nr, bgid, bid);
 	}
 
 	// Remove `nr` buffers from buffer group `bgid`.
-	[[nodiscard]] Flow<void> remove_buffers_async(
+	[[nodiscard]] root::Task<void> remove_buffers_async(
 		int nr,
 		int bgid) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_remove_buffers(sqe, nr, bgid);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> remove_buffers_task(
 		int nr,
 		int bgid) {
-		return detail::flow_to_root_task(remove_buffers_async(nr, bgid));
+		return remove_buffers_async(nr, bgid);
 	}
 
 	// Update the registered file table. `fds` is a span of `nr_fds` fds starting
 	// at `offset` in the kernel's registered file A. -1 entries remove a slot.
 	// `fds` must remain valid until the Flow resolves.
-	[[nodiscard]] Flow<void> files_update_async(
+	[[nodiscard]] root::Task<void> files_update_async(
 		int *fds,
 		unsigned nr_fds,
 		int offset = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_files_update(sqe, fds, nr_fds, offset);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> files_update_task(
 		int *fds,
 		unsigned nr_fds,
 		int offset = 0) {
-		return detail::flow_to_root_task(files_update_async(fds, nr_fds, offset));
+		return files_update_async(fds, nr_fds, offset);
 	}
 
 	// Modify an epoll interest list entry. `ev` may be null for EPOLL_CTL_DEL.
-	[[nodiscard]] Flow<void> epoll_ctl_async(
+	[[nodiscard]] root::Task<void> epoll_ctl_async(
 		int epfd,
 		int fd,
 		int op,
 		epoll_event const *ev = nullptr) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_epoll_ctl(sqe, epfd, fd, op, ev);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> epoll_ctl_task(
@@ -2756,27 +2744,27 @@ public:
 		int fd,
 		int op,
 		epoll_event const *ev = nullptr) {
-		return detail::flow_to_root_task(epoll_ctl_async(epfd, fd, op, ev));
+		return epoll_ctl_async(epfd, fd, op, ev);
 	}
 
 	// Wait for epoll events. Resolves with the number of events returned.
 	// `events` must remain valid until the Flow resolves.
-	[[nodiscard]] Flow<int> epoll_wait_async(
+	[[nodiscard]] root::Task<int> epoll_wait_async(
 		int epfd,
 		epoll_event *events,
 		int maxevents,
 		unsigned flags = 0) {
-		FlowSource<int> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<int>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<int>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_epoll_wait(sqe, epfd, events, maxevents, flags);
-		auto [slot, gen] = reserve_bridge<int>(move(src), [](IoResult r) { return r.res; });
+		auto [slot, gen] = reserve_bridge<int>(shared_src, [](IoResult r) { return r.res; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<int> epoll_wait_task(
@@ -2784,93 +2772,93 @@ public:
 		epoll_event *events,
 		int maxevents,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(epoll_wait_async(epfd, events, maxevents, flags));
+		return epoll_wait_async(epfd, events, maxevents, flags);
 	}
 
 	// Attach a timeout to the preceding SQE in the ring's submission chain.
 	// The preceding SQE must have been submitted with IOSQE_IO_LINK.
 	// Resolves when the link fires (either the linked op completed or the
 	// timeout expired — -ETIME in the latter case is treated as success).
-	[[nodiscard]] Flow<void> link_timeout_async(
+	[[nodiscard]] root::Task<void> link_timeout_async(
 		chrono::milliseconds ms,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto ts = make_shared<__kernel_timespec>();
 		auto const sec = chrono::duration_cast<chrono::seconds>(ms);
 		ts->tv_sec = sec.count();
 		ts->tv_nsec = (ms - sec).count() * 1'000'000LL;
 		io_uring_prep_link_timeout(sqe, ts.get(), flags);
-		auto [slot, gen] = completions_->reserve([src = move(src), ts](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src, ts](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ETIME && r.res != -ECANCELED && r.res != -ENOENT) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: link_timeout"}));
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: link_timeout"}));
 					return;
 				}
-				src.resolve();
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success(root::Success<void>{});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 			(void)ts;
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> link_timeout_task(
 		chrono::milliseconds ms,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(link_timeout_async(ms, flags));
+		return link_timeout_async(ms, flags);
 	}
 
 	// Open a file with full openat2(2) semantics (`open_how` struct).
 	// `how` is copied internally so the caller need not keep it alive.
-	[[nodiscard]] Flow<FileHandle> openat2_async(
+	[[nodiscard]] root::Task<FileHandle> openat2_async(
 		int dir_fd,
 		S path,
 		open_how how) {
-		FlowSource<FileHandle> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto ctx = make_shared<P<S, open_how>>(move(path), how);
 		io_uring_prep_openat2(sqe, dir_fd, ctx->first.c_str(), &ctx->second);
-		auto [slot, gen] = reserve_bridge<FileHandle>(move(src), [ctx](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [ctx](IoResult r) mutable {
 			(void)ctx;
 			return FileHandle::from_fd(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileHandle> openat2_task(
 		int dir_fd,
 		S path,
 		open_how how) {
-		return detail::flow_to_root_task(openat2_async(dir_fd, move(path), how));
+		return openat2_async(dir_fd, move(path), how);
 	}
 
 	// Send with destination address — for SOCK_DGRAM sockets.
 	// `addr` is copied internally; `buf` must remain valid until the Flow resolves.
-	[[nodiscard]] Flow<SZ> sendto_async(
+	[[nodiscard]] root::Task<SZ> sendto_async(
 		FileHandle const &fh,
 		void const *buf,
 		SZ len,
 		int flags,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto sa = make_shared<sockaddr_storage>(addr);
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -2878,12 +2866,12 @@ public:
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [sa](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [sa](IoResult r) mutable {
 			(void)sa;
 			return static_cast<SZ>(r.res);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> sendto_task(
@@ -2893,34 +2881,34 @@ public:
 		int flags,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
-		return detail::flow_to_root_task(sendto_async(fh, buf, len, flags, addr, addrlen));
+		return sendto_async(fh, buf, len, flags, addr, addrlen);
 	}
 
 	// Zero-copy send. `buf` must remain valid until the CQE with
 	// IORING_CQE_F_NOTIF fires (the caller is notified via a second CQE).
 	// For simplicity this Flow resolves when the first CQE arrives;
 	// the notification CQE is discarded by the completion dispatch.
-	[[nodiscard]] Flow<SZ> send_zc_async(
+	[[nodiscard]] root::Task<SZ> send_zc_async(
 		FileHandle const &fh,
 		void const *buf,
 		SZ len,
 		int flags = 0,
 		unsigned zc_flags = 0) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_send_zc(sqe, fd, buf, len, flags, zc_flags);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> send_zc_task(
@@ -2929,32 +2917,32 @@ public:
 		SZ len,
 		int flags = 0,
 		unsigned zc_flags = 0) {
-		return detail::flow_to_root_task(send_zc_async(fh, buf, len, flags, zc_flags));
+		return send_zc_async(fh, buf, len, flags, zc_flags);
 	}
 
 	// Write using a pre-registered fixed buffer (IORING_OP_WRITE_FIXED).
 	// `buf` pointer and `buf_index` must refer to the registered buffer in the pool.
-	[[nodiscard]] Flow<SZ> write_fixed_async(
+	[[nodiscard]] root::Task<SZ> write_fixed_async(
 		FileHandle const &fh,
 		u64 offset,
 		void const *buf,
 		unsigned nbytes,
 		int buf_index) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_write_fixed(sqe, fd, buf, nbytes, offset, buf_index);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> write_fixed_task(
@@ -2963,55 +2951,55 @@ public:
 		void const *buf,
 		unsigned nbytes,
 		int buf_index) {
-		return detail::flow_to_root_task(write_fixed_async(fh, offset, buf, nbytes, buf_index));
+		return write_fixed_async(fh, offset, buf, nbytes, buf_index);
 	}
 
 	// Remove a file by name relative to `dir_fd`.
 	// `flags` = 0 for file; AT_REMOVEDIR for directory.
-	[[nodiscard]] Flow<void> unlinkat_async(
+	[[nodiscard]] root::Task<void> unlinkat_async(
 		int dir_fd,
 		S path,
 		int flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto p = make_shared<S>(move(path));
 		io_uring_prep_unlinkat(sqe, dir_fd, p->c_str(), flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [p](IoResult) mutable { (void)p; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable { (void)p; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> unlinkat_task(
 		int dir_fd,
 		S path,
 		int flags = 0) {
-		return detail::flow_to_root_task(unlinkat_async(dir_fd, move(path), flags));
+		return unlinkat_async(dir_fd, move(path), flags);
 	}
 
 	// Rename with full dirfd control.
-	[[nodiscard]] Flow<void> renameat_async(
+	[[nodiscard]] root::Task<void> renameat_async(
 		int old_dir_fd,
 		S old_path,
 		int new_dir_fd,
 		S new_path,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto paths = make_shared<P<S, S>>(move(old_path), move(new_path));
 		io_uring_prep_renameat(sqe, old_dir_fd, paths->first.c_str(), new_dir_fd, paths->second.c_str(), flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [paths](IoResult) mutable { (void)paths; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { (void)paths; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> renameat_task(
@@ -3020,55 +3008,55 @@ public:
 		int new_dir_fd,
 		S new_path,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(renameat_async(old_dir_fd, move(old_path), new_dir_fd, move(new_path), flags));
+		return renameat_async(old_dir_fd, move(old_path), new_dir_fd, move(new_path), flags);
 	}
 
 	// Create a directory at `path` (relative to AT_FDCWD).
-	[[nodiscard]] Flow<void> mkdir_async(
+	[[nodiscard]] root::Task<void> mkdir_async(
 		S path,
 		mode_t mode = 0755) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto p = make_shared<S>(move(path));
 		io_uring_prep_mkdir(sqe, p->c_str(), mode);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [p](IoResult) mutable { (void)p; });
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable { (void)p; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> mkdir_task(
 		S path,
 		mode_t mode = 0755) {
-		return detail::flow_to_root_task(mkdir_async(move(path), mode));
+		return mkdir_async(move(path), mode);
 	}
 
 	// Open directly into the registered file table with full openat2 semantics.
 	// IORING_FILE_INDEX_ALLOC for `file_index` auto-allocates.
-	[[nodiscard]] Flow<FileHandle> openat2_direct_async(
+	[[nodiscard]] root::Task<FileHandle> openat2_direct_async(
 		int dir_fd,
 		S path,
 		open_how how,
 		unsigned file_index) {
-		FlowSource<FileHandle> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto ctx = make_shared<P<S, open_how>>(move(path), how);
 		io_uring_prep_openat2_direct(sqe, dir_fd, ctx->first.c_str(), &ctx->second, file_index);
-		auto [slot, gen] = reserve_bridge<FileHandle>(move(src), [ctx, file_index](IoResult) mutable {
+		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [ctx, file_index](IoResult) mutable {
 			(void)ctx;
 			return FileHandle::from_direct_slot(static_cast<int>(file_index));
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileHandle> openat2_direct_task(
@@ -3076,28 +3064,28 @@ public:
 		S path,
 		open_how how,
 		unsigned file_index) {
-		return detail::flow_to_root_task(openat2_direct_async(dir_fd, move(path), how, file_index));
+		return openat2_direct_async(dir_fd, move(path), how, file_index);
 	}
 
 	// Create a socket directly into the registered file table, with the kernel
 	// choosing the slot (IORING_FILE_INDEX_ALLOC). Returns the allocated slot.
-	[[nodiscard]] Flow<FileHandle> socket_direct_alloc_async(
+	[[nodiscard]] root::Task<FileHandle> socket_direct_alloc_async(
 		int domain,
 		int type,
 		int protocol,
 		unsigned flags = 0) {
-		FlowSource<FileHandle> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_socket_direct_alloc(sqe, domain, type, protocol, flags);
 		auto [slot, gen] =
-			reserve_bridge<FileHandle>(move(src), [](IoResult r) { return FileHandle::from_direct_slot(r.res); });
+			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_direct_slot(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileHandle> socket_direct_alloc_task(
@@ -3105,34 +3093,34 @@ public:
 		int type,
 		int protocol,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(socket_direct_alloc_async(domain, type, protocol, flags));
+		return socket_direct_alloc_async(domain, type, protocol, flags);
 	}
 
 	// Open a file directly into the fixed file table (openat semantics).
 	// Use IORING_FILE_INDEX_ALLOC for `file_index` to let the kernel pick a slot.
-	[[nodiscard]] Flow<FileHandle> openat_direct_async(
+	[[nodiscard]] root::Task<FileHandle> openat_direct_async(
 		int dir_fd,
 		S path,
 		int flags,
 		mode_t mode = 0,
 		unsigned file_index = IORING_FILE_INDEX_ALLOC) {
-		FlowSource<FileHandle> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto p = make_shared<S>(move(path));
 		io_uring_prep_openat_direct(sqe, dir_fd, p->c_str(), flags, mode, file_index);
-		auto [slot, gen] = reserve_bridge<FileHandle>(move(src), [p, file_index](IoResult r) mutable {
+		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [p, file_index](IoResult r) mutable {
 			(void)p;
 			// When IORING_FILE_INDEX_ALLOC: res carries the allocated slot.
 			int const s = (file_index == IORING_FILE_INDEX_ALLOC) ? r.res : static_cast<int>(file_index);
 			return FileHandle::from_direct_slot(s);
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<FileHandle> openat_direct_task(
@@ -3141,27 +3129,27 @@ public:
 		int flags,
 		mode_t mode = 0,
 		unsigned file_index = IORING_FILE_INDEX_ALLOC) {
-		return detail::flow_to_root_task(openat_direct_async(dir_fd, move(path), flags, mode, file_index));
+		return openat_direct_async(dir_fd, move(path), flags, mode, file_index);
 	}
 
 	// Send a source fd to another ring, letting the kernel auto-allocate the slot.
 	// Returns the allocated slot index via the target ring's CQE.
-	[[nodiscard]] Flow<void> msg_ring_fd_alloc_async(
+	[[nodiscard]] root::Task<void> msg_ring_fd_alloc_async(
 		int target_ring_fd,
 		int source_fd,
 		u64 data = 0,
 		unsigned flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_msg_ring_fd_alloc(sqe, target_ring_fd, source_fd, data, flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> msg_ring_fd_alloc_task(
@@ -3169,62 +3157,62 @@ public:
 		int source_fd,
 		u64 data = 0,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(msg_ring_fd_alloc_async(target_ring_fd, source_fd, data, flags));
+		return msg_ring_fd_alloc_async(target_ring_fd, source_fd, data, flags);
 	}
 
 	// Create a pipe P directly into fixed file table slots.
 	// Use IORING_FILE_INDEX_ALLOC for `file_index` to let the kernel choose.
 	// The two slots are allocated consecutively.
-	[[nodiscard]] Flow<P<int, int>> pipe_direct_async(
+	[[nodiscard]] root::Task<P<int, int>> pipe_direct_async(
 		unsigned file_index = IORING_FILE_INDEX_ALLOC,
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
-		FlowSource<P<int, int>> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<P<int, int>>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<P<int, int>>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		auto fds = make_shared<A<int, 2>>(A<int, 2>{-1, -1});
 		io_uring_prep_pipe_direct(sqe, fds->data(), pipe_flags, file_index);
-		auto [slot, gen] = completions_->reserve([src = move(src), fds](IoResult r) mutable {
+		auto [slot, gen] = completions_->reserve([shared_src, fds](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: pipe_direct"}));
+					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: pipe_direct"}));
 					return;
 				}
-				src.resolve(std::make_pair((*fds)[0], (*fds)[1]));
-			} catch (...) { src.reject(std::current_exception()); }
+				(void)shared_src->commit_success({std::make_pair((*fds)[0], (*fds)[1])});
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<P<int, int>> pipe_direct_task(
 		unsigned file_index = IORING_FILE_INDEX_ALLOC,
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
-		return detail::flow_to_root_task(pipe_direct_async(file_index, pipe_flags));
+		return pipe_direct_async(file_index, pipe_flags);
 	}
 
 	// Post a message to another ring, forwarding specific CQE flags in the payload.
 	// Useful for waking up a consumer ring with custom CQE flags set.
-	[[nodiscard]] Flow<void> msg_ring_cqe_flags_async(
+	[[nodiscard]] root::Task<void> msg_ring_cqe_flags_async(
 		int target_ring_fd,
 		unsigned len,
 		u64 data,
 		unsigned flags = 0,
 		unsigned cqe_flags = 0) {
-		FlowSource<void> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		io_uring_prep_msg_ring_cqe_flags(sqe, target_ring_fd, len, data, flags, cqe_flags);
-		auto [slot, gen] = reserve_bridge<void>(move(src), [](IoResult) {});
+		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<void> msg_ring_cqe_flags_task(
@@ -3233,39 +3221,39 @@ public:
 		u64 data,
 		unsigned flags = 0,
 		unsigned cqe_flags = 0) {
-		return detail::flow_to_root_task(msg_ring_cqe_flags_async(target_ring_fd, len, data, flags, cqe_flags));
+		return msg_ring_cqe_flags_async(target_ring_fd, len, data, flags, cqe_flags);
 	}
 
 	// Zero-copy vectored send via sendmsg(2). `msg` must remain valid until the
 	// notification CQE fires (i.e., the kernel has finished reading the buffers).
 	// The Flow resolves on the first CQE (send completion); the notification CQE
 	// is a separate event that callers must handle via their completion dispatch.
-	[[nodiscard]] Flow<SZ> sendmsg_zc_async(
+	[[nodiscard]] root::Task<SZ> sendmsg_zc_async(
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
-		FlowSource<SZ> src;
-		auto flow = src.flow();
+		auto [task, raw_src] = root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation = false});
+		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return flow;
+			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
 		io_uring_prep_sendmsg_zc(sqe, fd, msg, flags);
 		if (fh.is_direct()) {
 			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 		}
-		auto [slot, gen] = reserve_bridge<SZ>(move(src), [](IoResult r) { return static_cast<SZ>(r.res); });
+		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return flow;
+		return move(task);
 	}
 
 	[[nodiscard]] conflux::work::root::Task<SZ> sendmsg_zc_task(
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
-		return detail::flow_to_root_task(sendmsg_zc_async(fh, msg, flags));
+		return sendmsg_zc_async(fh, msg, flags);
 	}
 
 private:
@@ -3273,14 +3261,14 @@ private:
 	static void step_splice(
 		StatePtr const &st) {
 		if (st->remaining == 0) {
-			st->src.resolve(st->delivered);
+			(void)st->src->commit_success(root::Success<SZ>{st->delivered});
 			return;
 		}
 		SZ const chunk = min(st->remaining, st->pipe.capacity());
 		auto *sqe_in = io_uring_get_sqe(st->ring);
 		auto *sqe_out = io_uring_get_sqe(st->ring);
 		if (sqe_in == nullptr || sqe_out == nullptr) {
-			st->src.reject(make_exception_ptr(FileIoError{ENOSPC, "file_io: splice SQ full"}));
+			(void)st->src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: splice SQ full"}));
 			return;
 		}
 
@@ -3295,7 +3283,7 @@ private:
 		sqe_in->flags |= IOSQE_IO_LINK;
 		auto [slot_in, gen_in] = st->completions->reserve([st](IoResult r) mutable {
 			if (r.res < 0 && r.res != -ECANCELED) {
-				st->src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: splice in"}));
+				(void)st->src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: splice in"}));
 			}
 		});
 		io_uring_sqe_set_data64(sqe_in, st->encode_ud(slot_in, gen_in));
@@ -3313,10 +3301,7 @@ private:
 		}
 		auto [slot_out, gen_out] = st->completions->reserve([st](IoResult r) mutable {
 			if (r.res < 0) {
-				if (r.res == -ECANCELED && st->src.armed()) {
-					return;
-				}
-				st->src.reject(make_exception_ptr(FileIoError{-r.res, "file_io: splice out"}));
+				(void)st->src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: splice out"}));
 				return;
 			}
 			auto const n = static_cast<SZ>(r.res);

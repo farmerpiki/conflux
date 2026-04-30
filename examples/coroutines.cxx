@@ -22,12 +22,12 @@ constexpr u64 pack_ud(
 Task<S> read_file(
 	FileReader &files,
 	S path) {
-	auto handle = co_await files.open_async(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
+	auto handle = co_await task_as_flow(files.open_async(AT_FDCWD, path, O_RDONLY | O_CLOEXEC));
 	if (!handle.valid()) {
 		throw std::runtime_error{std::format("open {} failed", path)};
 	}
 	A<std::byte, 256> buf{};
-	auto got = co_await files.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()});
+	auto got = co_await task_as_flow(files.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()}));
 	co_return S{reinterpret_cast<char const *>(buf.data()), got};
 }
 
@@ -44,13 +44,13 @@ Task<void> demo(
 } // namespace
 
 int main() {
-	S path = "/tmp/conflux_coroutine_example.txt";
+	S const path = "/tmp/conflux_coroutine_example.txt";
 	int const seed = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 	if (seed < 0) {
 		std::println(std::cerr, "open seed failed");
 		return 1;
 	}
-	SV text = "hello from a coroutine!\n";
+	SV const text = "hello from a coroutine!\n";
 	(void)::write(seed, text.data(), text.size());
 	::close(seed);
 

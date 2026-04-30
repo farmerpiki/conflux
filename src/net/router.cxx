@@ -2777,7 +2777,7 @@ public:
 					auto const send_off = is_range_request ? range_start : SZ{0};
 					auto const send_sz = is_range_request ? (range_end - range_start + 1) : file_size;
 					auto terminal =
-						fr->open_async(AT_FDCWD, full_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)
+						task_as_flow(fr->open_async(AT_FDCWD, full_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW))
 						| ::then([dr, base = move(base), send_off, send_sz, fs = file_size](FileHandle fh) mutable {
 							  base.set_streamed_file(
 								  make_shared<StreamedFile>(StreamedFile{
@@ -2918,14 +2918,14 @@ public:
 							auto dr = make_shared<DeferredResponse>();
 							auto fp = make_shared<S>(full_path);
 							auto terminal =
-								fr->open_async(
+								task_as_flow(fr->open_async(
 									AT_FDCWD,
 									*fp,
 									O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
-									0644)
+									0644))
 								| ::flat_then([fr, body_owned, fp, existed, static_cache, dr](FileHandle fh) mutable {
 									  auto fh_ptr = make_shared<FileHandle>(move(fh));
-									  return fr->write_into(*fh_ptr, 0, as_bytes(span{*body_owned}))
+									  return task_as_flow(fr->write_into(*fh_ptr, 0, as_bytes(span{*body_owned})))
 										   | ::then([dr, fh_ptr, body_owned, fp, existed, static_cache](SZ) mutable {
 												 static_cache->evict_all_encodings(*fp);
 												 HttpResponse resp;
@@ -3028,7 +3028,7 @@ public:
 							auto dr = make_shared<DeferredResponse>();
 							auto fp = make_shared<S>(full_path);
 							auto terminal =
-								fr->unlink_async(AT_FDCWD, full_path)
+								task_as_flow(fr->unlink_async(AT_FDCWD, full_path))
 								| ::then([dr, fp, static_cache]() mutable {
 									  static_cache->evict_all_encodings(*fp);
 									  dr->complete(HttpResponse{.status = kHttpNoContent, .status_text = "No Content"});
@@ -3184,9 +3184,9 @@ private:
 		bool const enqueued = pool->enqueue([deferred, task = move(task)]() mutable {
 			try {
 				deferred->complete(conflux::work::root::value(move(task)));
-			} catch (exception const &ex) {
-				deferred->complete(HttpResponse::internal_error(ex.what()));
-			} catch (...) { deferred->complete(HttpResponse::internal_error()); }
+			} catch (exception const &ex) { deferred->complete(HttpResponse::internal_error(ex.what())); } catch (...) {
+				deferred->complete(HttpResponse::internal_error());
+			}
 		});
 		if (!enqueued) {
 			return HttpResponse::internal_error("offload queue full");

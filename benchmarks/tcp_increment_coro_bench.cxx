@@ -53,7 +53,7 @@ namespace {
 
 u64 parse_u64(
 	char const *s) noexcept {
-	SV sv{s};
+	SV const sv{s};
 	u64 v{};
 	from_chars(sv.data(), sv.data() + sv.size(), v);
 	return v;
@@ -65,7 +65,7 @@ Config parse_args(
 	span<char *> args) {
 	Config cfg;
 	for (SZ i = 1; i < args.size(); ++i) {
-		SV a = args[i];
+		SV const a = args[i];
 		if (a == "--iterations" && i + 1 < args.size()) {
 			cfg.iterations = parse_u64(args[++i]);
 		} else if (a == "--warmup" && i + 1 < args.size()) {
@@ -85,7 +85,7 @@ Config parse_args(
 void run_server(
 	int listen_fd,
 	atomic_flag &stop) {
-	int cfd = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
+	int const cfd = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
 	if (cfd < 0) {
 		return;
 	}
@@ -95,7 +95,7 @@ void run_server(
 	A<char, 64> buf{};
 	SZ held = 0;
 	while (!stop.test(memory_order_acquire)) {
-		ssize_t got = ::read(cfd, buf.data() + held, buf.size() - held);
+		ssize_t const got = ::read(cfd, buf.data() + held, buf.size() - held);
 		if (got <= 0) {
 			break;
 		}
@@ -147,7 +147,7 @@ void run_server(
 
 int start_listener(
 	u16 &port_out) {
-	int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
 		throw RE{"socket"};
 	}
@@ -176,7 +176,7 @@ int start_listener(
 
 int connect_to(
 	u16 port) {
-	int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
 		throw RE{"socket"};
 	}
@@ -224,14 +224,14 @@ struct AsyncLineReader {
 
 private:
 	Flow<SV> read_line_impl() {
-		FlowSource<SV> src;
+		FlowSource<SV> const src;
 		auto flow = src.flow();
 		step(src);
 		return flow;
 	}
 
 	void step(
-		FlowSource<SV> dst) {
+		FlowSource<SV> const &dst) {
 		auto view = span{buf}.first(held);
 		auto it = ranges::find(view, static_cast<byte>('\n'));
 		if (it != view.end()) {
@@ -239,7 +239,7 @@ private:
 			dst.resolve(SV{reinterpret_cast<char const *>(buf.data()), end});
 			return;
 		}
-		auto read_flow = files.read_into(handle, 0, span{buf.data() + held, buf.size() - held});
+		auto read_flow = task_as_flow(files.read_into(handle, 0, span{buf.data() + held, buf.size() - held}));
 		auto chained = move(read_flow)
 					 | then([this, dst](SZ got) mutable {
 						   if (got == 0) {
@@ -249,7 +249,7 @@ private:
 						   held += got;
 						   step(dst);
 					   })
-					 | on_error([dst](EP e) { dst.reject(e); });
+					 | on_error([dst](const EP &e) { dst.reject(e); });
 		(void)chained;
 	}
 
@@ -295,7 +295,7 @@ Task<u64> coro_loop(
 	u64 n = start;
 	for (SZ i = 0; i < iters; ++i) {
 		SZ const len = encode_line(out, n);
-		co_await files.write_into(sock, 0, as_bytes(span{out.data(), len}));
+		co_await task_as_flow(files.write_into(sock, 0, as_bytes(span{out.data(), len})));
 		auto line = co_await reader.read_line();
 		u64 const got = decode_line(line);
 		reader.consume_line(line.size());

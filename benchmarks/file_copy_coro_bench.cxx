@@ -31,7 +31,7 @@ namespace {
 
 SZ parse_sz(
 	char const *s) noexcept {
-	SV sv{s};
+	SV const sv{s};
 	SZ v{};
 	from_chars(sv.data(), sv.data() + sv.size(), v);
 	return v;
@@ -43,7 +43,7 @@ Config parse_args(
 	span<char *> args) {
 	Config cfg;
 	for (SZ i = 1; i < args.size(); ++i) {
-		SV a = args[i];
+		SV const a = args[i];
 		if (a == "--size-mib" && i + 1 < args.size()) {
 			cfg.size_mib = parse_sz(args[++i]);
 		} else if (a == "--chunk-kib" && i + 1 < args.size()) {
@@ -63,7 +63,7 @@ Config parse_args(
 void seed_source(
 	S const &path,
 	SZ bytes) {
-	int fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+	int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 	if (fd < 0) {
 		throw RE{"open src"};
 	}
@@ -87,7 +87,7 @@ void seed_source(
 }
 
 void drop_caches() noexcept {
-	int fd = ::open("/proc/sys/vm/drop_caches", O_WRONLY);
+	int const fd = ::open("/proc/sys/vm/drop_caches", O_WRONLY);
 	if (fd >= 0) {
 		(void)::write(fd, "1\n", 2);
 		::close(fd);
@@ -126,20 +126,21 @@ Task<void> coro_copy(
 	S src_path,
 	S dst_path,
 	SZ chunk) {
-	auto src = co_await files.open_async(AT_FDCWD, src_path, O_RDONLY | O_CLOEXEC);
-	auto dst = co_await files.open_async(AT_FDCWD, dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+	auto src = co_await task_as_flow(files.open_async(AT_FDCWD, src_path, O_RDONLY | O_CLOEXEC));
+	auto dst =
+		co_await task_as_flow(files.open_async(AT_FDCWD, dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644));
 
 	V<byte> buf(chunk);
 	u64 off = 0;
 	while (true) {
-		auto got = co_await files.read_into(src, off, span{buf});
+		auto got = co_await task_as_flow(files.read_into(src, off, span{buf}));
 		if (got == 0) {
 			break;
 		}
-		co_await files.write_into(dst, off, span<byte const>{buf.data(), got});
+		co_await task_as_flow(files.write_into(dst, off, span<byte const>{buf.data(), got}));
 		off += got;
 	}
-	co_await files.fsync_async(dst);
+	co_await task_as_flow(files.fsync_async(dst));
 	co_return;
 }
 

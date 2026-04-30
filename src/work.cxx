@@ -316,7 +316,7 @@ public:
 
 	[[nodiscard]] bool valid() const noexcept { return static_cast<bool>(state_); }
 
-	auto operator co_await() { return FlowAwaiter<T>{.state = release_state()}; }
+	FlowAwaiter<T> operator co_await() { return FlowAwaiter<T>{.state = release_state()}; }
 
 	[[nodiscard]] StatePtr<T> release_state() {
 		if (!state_) {
@@ -908,7 +908,8 @@ public:
 };
 
 export template<typename T>
-using Flow [[deprecated("Flow<T> is legacy; use conflux.work.root Task/Posted/Operation APIs for new code")]] = work_detail::Flow<T>;
+using Flow [[deprecated("Flow<T> is legacy; use conflux.work.root Task/Posted/Operation APIs for new code")]] =
+	work_detail::Flow<T>;
 
 export struct ValueTag {
 	template<typename T>
@@ -960,43 +961,41 @@ struct StartOnStep {
 };
 
 export template<typename Fn>
-[[deprecated("then(...) is legacy Flow API; use conflux.work.root for new async code")]]
-[[nodiscard]] auto then(
+[[deprecated("then(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto then(
 	Fn &&fn) {
 	return ThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Fn>
-[[deprecated("flat_then(...) is legacy Flow API; use conflux.work.root for new async code")]]
-[[nodiscard]] auto flat_then(
+[[deprecated("flat_then(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto
+flat_then(
 	Fn &&fn) {
 	return FlatThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Fn>
-[[deprecated("on_error(...) is legacy Flow API; use conflux.work.root for new async code")]]
-[[nodiscard]] auto on_error(
+[[deprecated("on_error(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto
+on_error(
 	Fn &&fn) {
 	return ErrorStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Fn>
-[[deprecated("on_cancel(...) is legacy Flow API; use conflux.work.root for new async code")]]
-[[nodiscard]] auto on_cancel(
+[[deprecated("on_cancel(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto
+on_cancel(
 	Fn &&fn) {
 	return CancelStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Target>
-[[deprecated("move_to(...) is legacy Flow API; use conflux.work.root for new async code")]]
-[[nodiscard]] auto move_to(
+[[deprecated("move_to(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto move_to(
 	Target &target) {
 	return MoveToStep<Target>{&target};
 }
 
 export template<typename Target>
-[[deprecated("start_on(...) is legacy Flow API; use conflux.work.root for new async code")]]
-[[nodiscard]] auto start_on(
+[[deprecated("start_on(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto
+start_on(
 	Target &target) {
 	return StartOnStep<Target>{&target};
 }
@@ -1337,8 +1336,7 @@ void spawn(
 } // namespace work_detail
 
 export template<typename Target, typename Fn>
-[[deprecated("run_on(...) is legacy Flow API; use conflux.work.root for new async code")]]
-[[nodiscard]] auto run_on(
+[[deprecated("run_on(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto run_on(
 	Target &target,
 	Fn &&fn) {
 	return work_detail::run_on(target, forward<Fn>(fn));
@@ -1536,28 +1534,28 @@ void co_spawn(
 // The on_ready callback fires after the task is terminal, so root::join() returns
 // immediately without blocking.
 export template<typename T>
-[[nodiscard]] Flow<T> task_as_flow(conflux::work::root::Task<T> task) {
+[[nodiscard]] Flow<T> task_as_flow(
+	conflux::work::root::Task<T> task) {
 	using namespace conflux::work::root;
 	FlowSource<T> src;
 	auto flow = src.flow();
 	auto shared_src = std::make_shared<FlowSource<T>>(std::move(src));
 	auto shared_jh = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(task)));
-	shared_jh->control().set_on_ready_or_run(
-		[shared_src, shared_jh]() noexcept {
-			try {
-				auto outcome = join(std::move(*shared_jh));
-				if (outcome.is_success()) {
-					if constexpr (std::is_void_v<T>) {
-						shared_src->resolve();
-					} else {
-						shared_src->resolve(std::move(outcome).success().value);
-					}
-				} else if (outcome.is_failure()) {
-					shared_src->reject(std::move(outcome).failure().error);
+	shared_jh->control().set_on_ready_or_run([shared_src, shared_jh]() noexcept {
+		try {
+			auto outcome = join(std::move(*shared_jh));
+			if (outcome.is_success()) {
+				if constexpr (std::is_void_v<T>) {
+					shared_src->resolve();
 				} else {
-					shared_src->cancel();
+					shared_src->resolve(std::move(outcome).success().value);
 				}
-			} catch (...) { shared_src->reject(std::current_exception()); }
-		});
+			} else if (outcome.is_failure()) {
+				shared_src->reject(std::move(outcome).failure().error);
+			} else {
+				shared_src->cancel();
+			}
+		} catch (...) { shared_src->reject(std::current_exception()); }
+	});
 	return flow;
 }

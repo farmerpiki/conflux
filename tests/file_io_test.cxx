@@ -161,7 +161,7 @@ TEST_CASE(
 
 	FileHandle handle;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC)
+	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC))
 				   | then([&](FileHandle h) {
 						 handle = move(h);
 						 open_done.test_and_set(memory_order_release);
@@ -177,7 +177,7 @@ TEST_CASE(
 
 	FileStat st{};
 	atomic_flag stat_done{};
-	auto stat_flow = fx->reader.stat_async(handle)
+	auto stat_flow = task_as_flow(fx->reader.stat_async(handle))
 				   | then([&](FileStat s) {
 						 st = s;
 						 stat_done.test_and_set(memory_order_release);
@@ -194,7 +194,7 @@ TEST_CASE(
 	A<byte, 32> buf{};
 	SZ got = 0;
 	atomic_flag read_done{};
-	auto read_flow = fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()})
+	auto read_flow = task_as_flow(fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}))
 				   | then([&](SZ n) {
 						 got = n;
 						 read_done.test_and_set(memory_order_release);
@@ -227,7 +227,7 @@ TEST_CASE(
 
 	FileHandle handle;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC)
+	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC))
 				   | then([&](FileHandle h) {
 						 handle = move(h);
 						 open_done.test_and_set(memory_order_release);
@@ -243,7 +243,7 @@ TEST_CASE(
 
 	FileReader::ReadFixedResult got{};
 	atomic_flag done{};
-	auto flow = fx->reader.read_fixed(handle, 0, move(*buf))
+	auto flow = task_as_flow(fx->reader.read_fixed(handle, 0, move(*buf)))
 			  | then([&](FileReader::ReadFixedResult r) {
 					got = move(r);
 					done.test_and_set(memory_order_release);
@@ -281,7 +281,7 @@ TEST_CASE(
 
 	FileHandle handle;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC)
+	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC))
 				   | then([&](FileHandle h) {
 						 handle = move(h);
 						 open_done.test_and_set(memory_order_release);
@@ -297,7 +297,7 @@ TEST_CASE(
 
 	SZ delivered = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.splice_to_fd(handle, 0, content.size(), sink_pipe[1], move(*pipe))
+	auto flow = task_as_flow(fx->reader.splice_to_fd(handle, 0, content.size(), sink_pipe[1], move(*pipe)))
 			  | then([&](SZ n) {
 					delivered = n;
 					done.test_and_set(memory_order_release);
@@ -339,7 +339,7 @@ TEST_CASE(
 	FileHandle handle;
 	int open_error = 0;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_direct_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 2)
+	auto open_flow = task_as_flow(fx->reader.open_direct_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 2))
 				   | then([&](FileHandle h) {
 						 handle = move(h);
 						 open_done.test_and_set(memory_order_release);
@@ -368,7 +368,7 @@ TEST_CASE(
 	A<byte, 32> buf{};
 	SZ got = 0;
 	atomic_flag read_done{};
-	auto read_flow = fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()})
+	auto read_flow = task_as_flow(fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}))
 				   | then([&](SZ n) {
 						 got = n;
 						 read_done.test_and_set(memory_order_release);
@@ -384,7 +384,7 @@ TEST_CASE(
 	CHECK(memcmp(buf.data(), "direct file", got) == 0);
 
 	atomic_flag close_done{};
-	auto close_flow = fx->reader.close_async(move(handle))
+	auto close_flow = task_as_flow(fx->reader.close_async(move(handle)))
 					| then([&] {
 						  close_done.test_and_set(memory_order_release);
 						  return 0;
@@ -405,7 +405,7 @@ TEST_CASE(
 
 	int captured = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.open_async(AT_FDCWD, "/definitely/not/a/real/path.xyz", O_RDONLY | O_CLOEXEC)
+	auto flow = task_as_flow(fx->reader.open_async(AT_FDCWD, "/definitely/not/a/real/path.xyz", O_RDONLY | O_CLOEXEC))
 			  | then([&](FileHandle) {
 					done.test_and_set(memory_order_release);
 					return 0;
@@ -470,7 +470,7 @@ TEST_CASE(
 
 	FileHandle wh;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC)
+	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC))
 				   | then([&](FileHandle h) {
 						 wh = move(h);
 						 open_done.test_and_set(memory_order_release);
@@ -492,7 +492,7 @@ TEST_CASE(
 
 	FileReader::WriteFixedResult wresult{};
 	atomic_flag write_done{};
-	auto write_flow = fx->reader.write_fixed(wh, 0, move(*write_buf), payload.size())
+	auto write_flow = task_as_flow(fx->reader.write_fixed(wh, 0, move(*write_buf), payload.size()))
 					| then([&](FileReader::WriteFixedResult r) {
 						  wresult = move(r);
 						  write_done.test_and_set(memory_order_release);
@@ -528,7 +528,7 @@ TEST_CASE(
 
 	FileHandle handle;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC)
+	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC))
 				   | then([&](FileHandle h) {
 						 handle = move(h);
 						 open_done.test_and_set(memory_order_release);
@@ -551,7 +551,7 @@ TEST_CASE(
 
 	SZ got = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.readv_into(handle, 0, move(iovs))
+	auto flow = task_as_flow(fx->reader.readv_into(handle, 0, move(iovs)))
 			  | then([&](SZ n) {
 					got = n;
 					done.test_and_set(memory_order_release);
@@ -582,7 +582,7 @@ TEST_CASE(
 
 	FileHandle handle;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC)
+	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC))
 				   | then([&](FileHandle h) {
 						 handle = move(h);
 						 open_done.test_and_set(memory_order_release);
@@ -607,7 +607,7 @@ TEST_CASE(
 
 	SZ written = 0;
 	atomic_flag write_done{};
-	auto write_flow = fx->reader.writev_into(handle, 0, move(iovs))
+	auto write_flow = task_as_flow(fx->reader.writev_into(handle, 0, move(iovs)))
 					| then([&](SZ n) {
 						  written = n;
 						  write_done.test_and_set(memory_order_release);
@@ -647,7 +647,7 @@ TEST_CASE(
 	FileHandle handle;
 	int open_err = 0;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC)
+	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC))
 				   | then([&](FileHandle h) {
 						 handle = move(h);
 						 open_done.test_and_set(memory_order_release);
@@ -675,7 +675,7 @@ TEST_CASE(
 	FileReader::ReadFixedResult got{};
 	int read_err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.read_nocache_fixed(handle, 0, move(*buf), content.size())
+	auto flow = task_as_flow(fx->reader.read_nocache_fixed(handle, 0, move(*buf), content.size()))
 			  | then([&](FileReader::ReadFixedResult r) {
 					got = move(r);
 					done.test_and_set(memory_order_release);
@@ -721,7 +721,7 @@ TEST_CASE(
 
 	FileHandle handle;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC)
+	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC))
 				   | then([&](FileHandle h) {
 						 handle = move(h);
 						 open_done.test_and_set(memory_order_release);
@@ -744,7 +744,7 @@ TEST_CASE(
 	int read_err = 0;
 	atomic_flag done{};
 	// Request only 512 bytes from a 4096-byte file.
-	auto flow = fx->reader.read_nocache_fixed(handle, 0, move(*buf), 512)
+	auto flow = task_as_flow(fx->reader.read_nocache_fixed(handle, 0, move(*buf), 512))
 			  | then([&](FileReader::ReadFixedResult r) {
 					got = move(r);
 					done.test_and_set(memory_order_release);
@@ -809,7 +809,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.unlink_async(AT_FDCWD, path)
+	auto flow = task_as_flow(fx->reader.unlink_async(AT_FDCWD, path))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -843,7 +843,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.rename_async(AT_FDCWD, src.path, AT_FDCWD, dst_path)
+	auto flow = task_as_flow(fx->reader.rename_async(AT_FDCWD, src.path, AT_FDCWD, dst_path))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -877,7 +877,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	FileHandle handle = FileHandle::from_fd(::dup(tmp.fd));
-	auto flow = fx->reader.fadvise_async(handle, 0, 4096, POSIX_FADV_SEQUENTIAL)
+	auto flow = task_as_flow(fx->reader.fadvise_async(handle, 0, 4096, POSIX_FADV_SEQUENTIAL))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -912,7 +912,7 @@ TEST_CASE(
 	atomic_flag done{};
 	bool ok = false;
 	int err = 0;
-	auto flow = fx->reader.madvise_async(addr, static_cast<u32>(kSize), MADV_SEQUENTIAL)
+	auto flow = task_as_flow(fx->reader.madvise_async(addr, static_cast<u32>(kSize), MADV_SEQUENTIAL))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -947,7 +947,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.mkdirat_async(AT_FDCWD, dir_path, 0755)
+	auto flow = task_as_flow(fx->reader.mkdirat_async(AT_FDCWD, dir_path, 0755))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -983,7 +983,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.symlinkat_async(src.path, AT_FDCWD, link_path)
+	auto flow = task_as_flow(fx->reader.symlinkat_async(src.path, AT_FDCWD, link_path))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -1019,7 +1019,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.ftruncate_async(handle, 1024)
+	auto flow = task_as_flow(fx->reader.ftruncate_async(handle, 1024))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -1059,7 +1059,7 @@ TEST_CASE(
 	atomic_flag set_done{};
 	S const xattr_name = "user.test_key";
 	S const xattr_val = "hello_xattr";
-	auto set_flow = fx->reader.fsetxattr_async(handle, xattr_name, xattr_val)
+	auto set_flow = task_as_flow(fx->reader.fsetxattr_async(handle, xattr_name, xattr_val))
 				  | then([&]() {
 						set_ok = true;
 						set_done.test_and_set(memory_order_release);
@@ -1089,7 +1089,7 @@ TEST_CASE(
 	SZ got = 0;
 	int get_err = 0;
 	atomic_flag get_done{};
-	auto get_flow = fx->reader.fgetxattr_async(handle, xattr_name, span<char>{buf.data(), buf.size()})
+	auto get_flow = task_as_flow(fx->reader.fgetxattr_async(handle, xattr_name, span<char>{buf.data(), buf.size()}))
 				  | then([&](SZ n) {
 						got = n;
 						get_done.test_and_set(memory_order_release);
@@ -1126,7 +1126,7 @@ TEST_CASE(
 
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.fixed_fd_install_async(handle)
+	auto flow = task_as_flow(fx->reader.fixed_fd_install_async(handle))
 			  | then([&](FileHandle) {
 					done.test_and_set(memory_order_release);
 					return 0;
@@ -1157,7 +1157,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.socket_async(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0)
+	auto flow = task_as_flow(fx->reader.socket_async(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0))
 			  | then([&](FileHandle fh) {
 					handle = move(fh);
 					ok = true;
@@ -1200,7 +1200,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.shutdown_async(handle, SHUT_WR)
+	auto flow = task_as_flow(fx->reader.shutdown_async(handle, SHUT_WR))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -1257,7 +1257,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.tee_async(src_pipe[0], dst_pipe[1], payload.size())
+	auto flow = task_as_flow(fx->reader.tee_async(src_pipe[0], dst_pipe[1], payload.size()))
 			  | then([&](SZ n) {
 					got = n;
 					ok = true;
@@ -1301,7 +1301,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.linkat_async(AT_FDCWD, src.path, AT_FDCWD, dst_path)
+	auto flow = task_as_flow(fx->reader.linkat_async(AT_FDCWD, src.path, AT_FDCWD, dst_path))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -1344,7 +1344,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.sync_file_range_async(handle, 0, 4096, SYNC_FILE_RANGE_WRITE)
+	auto flow = task_as_flow(fx->reader.sync_file_range_async(handle, 0, 4096, SYNC_FILE_RANGE_WRITE))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -1377,7 +1377,7 @@ TEST_CASE(
 	int err = 0;
 	atomic_flag done{};
 	// user_data 0xDEADBEEF has no pending op — should resolve (ENOENT → ok path).
-	auto flow = fx->reader.cancel_async(0xDEADBEEFULL)
+	auto flow = task_as_flow(fx->reader.cancel_async(0xDEADBEEFULL))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -1411,7 +1411,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.cancel_fd_async(tmp.fd)
+	auto flow = task_as_flow(fx->reader.cancel_fd_async(tmp.fd))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -1454,7 +1454,7 @@ TEST_CASE(
 
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.connect_async(handle, addr, sizeof(sockaddr_in))
+	auto flow = task_as_flow(fx->reader.connect_async(handle, addr, sizeof(sockaddr_in)))
 			  | then([&]() {
 					done.test_and_set(memory_order_release);
 					return 0;
@@ -1486,7 +1486,7 @@ TEST_CASE(
 	u32 woken = 42;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.futex_wake_async(&futex_word, UINT64_MAX)
+	auto flow = task_as_flow(fx->reader.futex_wake_async(&futex_word, UINT64_MAX))
 			  | then([&](u32 n) {
 					woken = n;
 					done.test_and_set(memory_order_release);
@@ -1520,7 +1520,7 @@ TEST_CASE(
 	int err = 0;
 	atomic_flag done{};
 	// val=0 but *futex=1 — condition already met, returns immediately.
-	auto flow = fx->reader.futex_wait_async(&futex_word, 0)
+	auto flow = task_as_flow(fx->reader.futex_wait_async(&futex_word, 0))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -1552,7 +1552,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag send_done{};
-	auto send_flow = fx->reader.msg_ring_async(fx->ring.ring_fd, 42, 0xCAFEBABEULL)
+	auto send_flow = task_as_flow(fx->reader.msg_ring_async(fx->ring.ring_fd, 42, 0xCAFEBABEULL))
 				   | then([&]() {
 						 ok = true;
 						 send_done.test_and_set(memory_order_release);
@@ -1587,7 +1587,7 @@ TEST_CASE(
 	int set_err = 0;
 	atomic_flag set_done{};
 	S const xattr_val = "path_xattr_val";
-	auto set_flow = fx->reader.setxattr_async(tmp.path, "user.path_test_key", xattr_val)
+	auto set_flow = task_as_flow(fx->reader.setxattr_async(tmp.path, "user.path_test_key", xattr_val))
 				  | then([&]() {
 						set_ok = true;
 						set_done.test_and_set(memory_order_release);
@@ -1615,20 +1615,21 @@ TEST_CASE(
 	SZ got = 0;
 	int get_err = 0;
 	atomic_flag get_done{};
-	auto get_flow = fx->reader.getxattr_async(tmp.path, "user.path_test_key", span<char>{buf.data(), buf.size()})
-				  | then([&](SZ n) {
-						got = n;
-						get_done.test_and_set(memory_order_release);
-						return 0;
-					})
-				  | on_error([&](EP const &e) {
-						try {
-							rethrow_exception(e);
-						} catch (SE const &se) { get_err = se.code().value(); } catch (...) {
-						}
-						get_done.test_and_set(memory_order_release);
-						return -1;
-					});
+	auto get_flow =
+		task_as_flow(fx->reader.getxattr_async(tmp.path, "user.path_test_key", span<char>{buf.data(), buf.size()}))
+		| then([&](SZ n) {
+			  got = n;
+			  get_done.test_and_set(memory_order_release);
+			  return 0;
+		  })
+		| on_error([&](EP const &e) {
+			  try {
+				  rethrow_exception(e);
+			  } catch (SE const &se) { get_err = se.code().value(); } catch (...) {
+			  }
+			  get_done.test_and_set(memory_order_release);
+			  return -1;
+		  });
 	fx->pump_until(get_done);
 	(void)get_flow;
 
@@ -1648,7 +1649,7 @@ TEST_CASE(
 	siginfo_t info{};
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.waitid_async(P_PID, static_cast<id_t>(99999999), &info)
+	auto flow = task_as_flow(fx->reader.waitid_async(P_PID, static_cast<id_t>(99999999), &info))
 			  | then([&]() {
 					done.test_and_set(memory_order_release);
 					return 0;
@@ -1680,7 +1681,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.pipe_async(O_CLOEXEC)
+	auto flow = task_as_flow(fx->reader.pipe_async(O_CLOEXEC))
 			  | then([&](P<int, int> p) {
 					fds = p;
 					ok = true;
@@ -1740,7 +1741,7 @@ TEST_CASE(
 	bool bind_ok = false;
 	int bind_err = 0;
 	atomic_flag bind_done{};
-	auto bind_flow = fx->reader.bind_async(handle, addr, sizeof(sockaddr_in))
+	auto bind_flow = task_as_flow(fx->reader.bind_async(handle, addr, sizeof(sockaddr_in)))
 				   | then([&]() {
 						 bind_ok = true;
 						 bind_done.test_and_set(memory_order_release);
@@ -1766,7 +1767,7 @@ TEST_CASE(
 	bool listen_ok = false;
 	int listen_err = 0;
 	atomic_flag listen_done{};
-	auto listen_flow = fx->reader.listen_async(handle)
+	auto listen_flow = task_as_flow(fx->reader.listen_async(handle))
 					 | then([&]() {
 						   listen_ok = true;
 						   listen_done.test_and_set(memory_order_release);
@@ -1797,7 +1798,7 @@ TEST_CASE(
 
 	bool ok = false;
 	atomic_flag done{};
-	auto flow = fx->reader.nop_async()
+	auto flow = task_as_flow(fx->reader.nop_async())
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -1826,7 +1827,7 @@ TEST_CASE(
 
 	FileHandle handle;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC)
+	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC))
 				   | then([&](FileHandle h) {
 						 handle = move(h);
 						 open_done.test_and_set(memory_order_release);
@@ -1848,7 +1849,7 @@ TEST_CASE(
 	SZ got = 0;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.readv2_into(handle, 0, move(iovs))
+	auto flow = task_as_flow(fx->reader.readv2_into(handle, 0, move(iovs)))
 			  | then([&](SZ n) {
 					got = n;
 					done.test_and_set(memory_order_release);
@@ -1883,7 +1884,7 @@ TEST_CASE(
 	TempFile const tf = TempFile::create();
 	FileHandle handle;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC)
+	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC))
 				   | then([&](FileHandle h) {
 						 handle = move(h);
 						 open_done.test_and_set(memory_order_release);
@@ -1905,7 +1906,7 @@ TEST_CASE(
 	SZ written = 0;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.writev2_into(handle, 0, move(iovs))
+	auto flow = task_as_flow(fx->reader.writev2_into(handle, 0, move(iovs)))
 			  | then([&](SZ n) {
 					written = n;
 					done.test_and_set(memory_order_release);
@@ -1941,7 +1942,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.timeout_async(chrono::milliseconds{10})
+	auto flow = task_as_flow(fx->reader.timeout_async(chrono::milliseconds{10}))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -1982,7 +1983,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.futex_waitv_async(move(waiters))
+	auto flow = task_as_flow(fx->reader.futex_waitv_async(move(waiters)))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -2018,7 +2019,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.msg_ring_fd_async(fx->ring.ring_fd, dup_fd, -1, 0xABCDULL)
+	auto flow = task_as_flow(fx->reader.msg_ring_fd_async(fx->ring.ring_fd, dup_fd, -1, 0xABCDULL))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -2052,7 +2053,7 @@ TEST_CASE(
 	int err = 0;
 	atomic_flag done{};
 	// Remove a timeout tag that was never armed — should resolve (ENOENT→ok).
-	auto flow = fx->reader.timeout_remove_async(0xDEADULL)
+	auto flow = task_as_flow(fx->reader.timeout_remove_async(0xDEADULL))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -2084,7 +2085,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	atomic_flag done{};
-	auto flow = fx->reader.timeout_update_async(0xBEEFULL, chrono::milliseconds{100})
+	auto flow = task_as_flow(fx->reader.timeout_update_async(0xBEEFULL, chrono::milliseconds{100}))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -2118,7 +2119,7 @@ TEST_CASE(
 	REQUIRE(::pipe2(pfd, O_CLOEXEC | O_NONBLOCK) == 0);
 
 	u32 mask{0};
-	auto flow = fx->reader.poll_add_async(pfd[0], POLLIN)
+	auto flow = task_as_flow(fx->reader.poll_add_async(pfd[0], POLLIN))
 			  | then([&](u32 m) {
 					mask = m;
 					ok = true;
@@ -2165,7 +2166,7 @@ TEST_CASE(
 	// Our fixture encodes ud as pack_ud(slot, gen). We know the poll_add
 	// reserved slot 0 gen 1 (first reservation after construction).
 	// Use cancel_fd_async instead — simpler to test.
-	auto cancel_flow = fx->reader.cancel_fd_async(sv[0], 0)
+	auto cancel_flow = task_as_flow(fx->reader.cancel_fd_async(sv[0], 0))
 					 | then([&]() {
 						   remove_ok = true;
 						   done.test_and_set(memory_order_release);
@@ -2219,7 +2220,7 @@ TEST_CASE(
 	REQUIRE(::getsockname(listen_fd, reinterpret_cast<sockaddr *>(&addr), &slen) == 0);
 
 	FileHandle const listen_handle = FileHandle::from_fd(dup(listen_fd));
-	auto flow = fx->reader.accept_async(listen_handle)
+	auto flow = task_as_flow(fx->reader.accept_async(listen_handle))
 			  | then([&](FileHandle fh) {
 					accepted_fd = fh.release_fd();
 					done.test_and_set(memory_order_release);
@@ -2269,7 +2270,7 @@ TEST_CASE(
 	S const payload = "send_recv_test";
 	SZ sent{0};
 	atomic_flag send_done{};
-	auto send_flow = fx->reader.send_async(sender, payload.data(), payload.size())
+	auto send_flow = task_as_flow(fx->reader.send_async(sender, payload.data(), payload.size()))
 				   | then([&](SZ n) {
 						 sent = n;
 						 send_done.test_and_set(memory_order_release);
@@ -2286,7 +2287,7 @@ TEST_CASE(
 	A<char, 64> buf{};
 	SZ recvd{0};
 	atomic_flag recv_done{};
-	auto recv_flow = fx->reader.recv_async(recver, buf.data(), buf.size())
+	auto recv_flow = task_as_flow(fx->reader.recv_async(recver, buf.data(), buf.size()))
 				   | then([&](SZ n) {
 						 recvd = n;
 						 recv_done.test_and_set(memory_order_release);
@@ -2322,7 +2323,7 @@ TEST_CASE(
 
 	SZ sent{0};
 	atomic_flag send_done{};
-	auto send_flow = fx->reader.sendmsg_async(sender, &send_hdr)
+	auto send_flow = task_as_flow(fx->reader.sendmsg_async(sender, &send_hdr))
 				   | then([&](SZ n) {
 						 sent = n;
 						 send_done.test_and_set(memory_order_release);
@@ -2344,7 +2345,7 @@ TEST_CASE(
 
 	SZ recvd{0};
 	atomic_flag recv_done{};
-	auto recv_flow = fx->reader.recvmsg_async(recver, &recv_hdr)
+	auto recv_flow = task_as_flow(fx->reader.recvmsg_async(recver, &recv_hdr))
 				   | then([&](SZ n) {
 						 recvd = n;
 						 recv_done.test_and_set(memory_order_release);
@@ -2379,7 +2380,7 @@ TEST_CASE(
 	ev.data.fd = pfd[0];
 	atomic_flag ctl_done{};
 	bool ctl_ok{false};
-	auto ctl_flow = fx->reader.epoll_ctl_async(epfd, pfd[0], EPOLL_CTL_ADD, &ev)
+	auto ctl_flow = task_as_flow(fx->reader.epoll_ctl_async(epfd, pfd[0], EPOLL_CTL_ADD, &ev))
 				  | then([&]() {
 						ctl_ok = true;
 						ctl_done.test_and_set(memory_order_release);
@@ -2400,7 +2401,7 @@ TEST_CASE(
 	A<epoll_event, 4> events{};
 	atomic_flag wait_done{};
 	int n_events{0};
-	auto wait_flow = fx->reader.epoll_wait_async(epfd, events.data(), static_cast<int>(events.size()))
+	auto wait_flow = task_as_flow(fx->reader.epoll_wait_async(epfd, events.data(), static_cast<int>(events.size())))
 				   | then([&](int n) {
 						 n_events = n;
 						 wait_done.test_and_set(memory_order_release);
@@ -2436,7 +2437,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	atomic_flag done{};
-	auto flow = fx->reader.provide_buffers_async(region->data(), kBufLen, kNr, kBgid)
+	auto flow = task_as_flow(fx->reader.provide_buffers_async(region->data(), kBufLen, kNr, kBgid))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -2459,7 +2460,7 @@ TEST_CASE(
 	if (ok) {
 		atomic_flag rm_done{};
 		bool rm_ok{false};
-		auto rm_flow = fx->reader.remove_buffers_async(kNr, kBgid)
+		auto rm_flow = task_as_flow(fx->reader.remove_buffers_async(kNr, kBgid))
 					 | then([&]() {
 						   rm_ok = true;
 						   rm_done.test_and_set(memory_order_release);
@@ -2489,7 +2490,7 @@ TEST_CASE(
 	FileHandle handle;
 	atomic_flag done{};
 	bool ok{false};
-	auto flow = fx->reader.openat2_async(AT_FDCWD, tf.path, how)
+	auto flow = task_as_flow(fx->reader.openat2_async(AT_FDCWD, tf.path, how))
 			  | then([&](FileHandle fh) {
 					handle = move(fh);
 					ok = true;
@@ -2533,7 +2534,7 @@ TEST_CASE(
 	S const payload = "sendto_udp_test";
 	SZ sent{0};
 	atomic_flag send_done{};
-	auto send_flow = fx->reader.sendto_async(sender, payload.data(), payload.size(), 0, dest, sizeof(ra))
+	auto send_flow = task_as_flow(fx->reader.sendto_async(sender, payload.data(), payload.size(), 0, dest, sizeof(ra)))
 				   | then([&](SZ n) {
 						 sent = n;
 						 send_done.test_and_set(memory_order_release);
@@ -2551,7 +2552,7 @@ TEST_CASE(
 	A<char, 64> buf{};
 	SZ recvd{0};
 	atomic_flag recv_done{};
-	auto recv_flow = fx->reader.recv_async(recver, buf.data(), buf.size())
+	auto recv_flow = task_as_flow(fx->reader.recv_async(recver, buf.data(), buf.size()))
 				   | then([&](SZ n) {
 						 recvd = n;
 						 recv_done.test_and_set(memory_order_release);
@@ -2583,7 +2584,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	atomic_flag done{};
-	auto flow = fx->reader.send_zc_async(sender, payload.data(), payload.size())
+	auto flow = task_as_flow(fx->reader.send_zc_async(sender, payload.data(), payload.size()))
 			  | then([&](SZ n) {
 					ok = (n == payload.size());
 					done.test_and_set(memory_order_release);
@@ -2617,7 +2618,7 @@ TEST_CASE(
 
 	atomic_flag done{};
 	bool ok{false};
-	auto flow = fx->reader.unlinkat_async(AT_FDCWD, path)
+	auto flow = task_as_flow(fx->reader.unlinkat_async(AT_FDCWD, path))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -2645,7 +2646,7 @@ TEST_CASE(
 
 	atomic_flag done{};
 	bool ok{false};
-	auto flow = fx->reader.renameat_async(AT_FDCWD, src_path, AT_FDCWD, dst_path)
+	auto flow = task_as_flow(fx->reader.renameat_async(AT_FDCWD, src_path, AT_FDCWD, dst_path))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -2679,7 +2680,7 @@ TEST_CASE(
 
 	atomic_flag done{};
 	bool ok{false};
-	auto flow = fx->reader.mkdir_async(path)
+	auto flow = task_as_flow(fx->reader.mkdir_async(path))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -2722,7 +2723,7 @@ TEST_CASE(
 
 	FileHandle handle;
 	atomic_flag open_done{};
-	auto open_flow = fx->reader.open_async(AT_FDCWD, tf.path, O_RDWR | O_CLOEXEC)
+	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDWR | O_CLOEXEC))
 				   | then([&](FileHandle fh) {
 						 handle = move(fh);
 						 open_done.test_and_set(memory_order_release);
@@ -2738,12 +2739,12 @@ TEST_CASE(
 
 	SZ written{0};
 	atomic_flag write_done{};
-	auto write_flow = fx->reader.write_fixed_async(
+	auto write_flow = task_as_flow(fx->reader.write_fixed_async(
 						  handle,
 						  0,
 						  view.data(),
 						  static_cast<unsigned>(content.size()),
-						  static_cast<int>(wbuf->slot()))
+						  static_cast<int>(wbuf->slot())))
 					| then([&](SZ n) {
 						  written = n;
 						  write_done.test_and_set(memory_order_release);
@@ -2762,7 +2763,7 @@ TEST_CASE(
 	REQUIRE(rbuf.has_value());
 	atomic_flag read_done{};
 	FileReader::ReadFixedResult rr{};
-	auto read_flow = fx->reader.read_fixed(handle, 0, move(*rbuf))
+	auto read_flow = task_as_flow(fx->reader.read_fixed(handle, 0, move(*rbuf)))
 				   | then([&](FileReader::ReadFixedResult r) {
 						 rr = move(r);
 						 read_done.test_and_set(memory_order_release);
@@ -2799,7 +2800,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	// Slot 0 is the registered slot; IORING_FILE_INDEX_ALLOC let kernel choose.
-	auto flow = fx->reader.openat_direct_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 0)
+	auto flow = task_as_flow(fx->reader.openat_direct_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 0))
 			  | then([&](FileHandle fh) {
 					handle = move(fh);
 					ok = true;
@@ -2821,7 +2822,7 @@ TEST_CASE(
 	CHECK(passed);
 	if (handle.valid()) {
 		atomic_flag close_done{};
-		auto close_flow = fx->reader.close_async(move(handle))
+		auto close_flow = task_as_flow(fx->reader.close_async(move(handle)))
 						| then([&]() {
 							  close_done.test_and_set(memory_order_release);
 							  return 0;
@@ -2852,7 +2853,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	atomic_flag done{};
-	auto flow = fx->reader.pipe_direct_async(0)
+	auto flow = task_as_flow(fx->reader.pipe_direct_async(0))
 			  | then([&](P<int, int> p) {
 					ok = (p.first >= 0 || p.second >= 0);
 					done.test_and_set(memory_order_release);
@@ -2885,7 +2886,7 @@ TEST_CASE(
 	int err{0};
 	atomic_flag done{};
 	int const ring_fd = fx->ring.ring_fd;
-	auto flow = fx->reader.msg_ring_cqe_flags_async(ring_fd, 42, 0xBEEFULL, 0, 0)
+	auto flow = task_as_flow(fx->reader.msg_ring_cqe_flags_async(ring_fd, 42, 0xBEEFULL, 0, 0))
 			  | then([&]() {
 					ok = true;
 					done.test_and_set(memory_order_release);
@@ -2927,7 +2928,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	atomic_flag done{};
-	auto flow = fx->reader.sendmsg_zc_async(sender, &hdr)
+	auto flow = task_as_flow(fx->reader.sendmsg_zc_async(sender, &hdr))
 			  | then([&](SZ n) {
 					ok = (n == payload.size());
 					done.test_and_set(memory_order_release);

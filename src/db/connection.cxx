@@ -925,7 +925,7 @@ root::Task<Result> Connection::query(
 		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(root::CancelReason::requested); }));
 	auto const deadline = *opts.deadline;
 	spawn(
-		reader->timeout_async(deadline)
+		task_as_flow(reader->timeout_async(deadline))
 		| then([self, shared_src]() mutable {
 			  if (shared_src->commit_failure(
 					  make_exception_ptr(PgError{"conflux.db: query deadline exceeded", "57014"}))) {
@@ -1119,11 +1119,11 @@ root::Task<shared_ptr<string const>> QueryCache::load_async(
 	auto name_owned = string{name};
 	auto path = (root_ / (name_owned + ".psql")).string();
 	spawn(
-		reader->open_async(AT_FDCWD, move(path), O_RDONLY)
+		task_as_flow(reader->open_async(AT_FDCWD, move(path), O_RDONLY))
 		| then([reader, shared_src, name_owned, this](FileHandle fh) mutable {
 			  auto fh_sp = make_shared<FileHandle>(move(fh));
 			  spawn(
-				  reader->stat_async(*fh_sp)
+				  task_as_flow(reader->stat_async(*fh_sp))
 				  | then([reader, shared_src, name_owned, fh_sp, this](FileStat st) mutable {
 						if (st.size == 0) {
 							auto sp = make_shared<string const>();
@@ -1135,7 +1135,7 @@ root::Task<shared_ptr<string const>> QueryCache::load_async(
 						auto buf = make_shared<string>(st.size, '\0');
 						auto raw_span = span<byte>{reinterpret_cast<byte *>(buf->data()), buf->size()};
 						spawn(
-							reader->read_into(*fh_sp, 0, raw_span)
+							task_as_flow(reader->read_into(*fh_sp, 0, raw_span))
 							| then([shared_src, name_owned, buf, fh_sp, this](size_t n) mutable {
 								  buf->resize(n);
 								  auto sp = make_shared<string const>(move(*buf));

@@ -411,10 +411,10 @@ private:
 			}
 			SZ off = 0;
 			while (off < static_cast<SZ>(got)) {
-				auto const w = co_await files_->write_into(
+				auto const w = co_await task_as_flow(files_->write_into(
 					sock_,
 					0,
-					std::span<std::byte const>{scratch_.data() + off, static_cast<SZ>(got) - off});
+					std::span<std::byte const>{scratch_.data() + off, static_cast<SZ>(got) - off}));
 				if (w == 0) {
 					throw TlsError{"TlsAsyncStream: socket write 0"};
 				}
@@ -424,7 +424,7 @@ private:
 	}
 
 	Task<void> fill_rbio() {
-		auto const got = co_await files_->read_into(sock_, 0, std::span<std::byte>{scratch_});
+		auto const got = co_await task_as_flow(files_->read_into(sock_, 0, std::span<std::byte>{scratch_}));
 		if (got == 0) {
 			throw TlsError{"TlsAsyncStream: socket EOF"};
 		}

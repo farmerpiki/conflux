@@ -139,7 +139,7 @@ namespace {
 
 u64 parse_u64(
 	char const *s) noexcept {
-	SV sv{s};
+	SV const sv{s};
 	u64 v{};
 	from_chars(sv.data(), sv.data() + sv.size(), v);
 	return v;
@@ -240,8 +240,8 @@ Task<void> async_server(
 				SZ const out_len = static_cast<SZ>(conv.ptr - out.data()) + 1;
 				SZ sent = 0;
 				while (sent < out_len) {
-					auto const w =
-						co_await files.write_into(sock, 0, as_bytes(span{out.data() + sent, out_len - sent}));
+					auto const w = co_await task_as_flow(
+						files.write_into(sock, 0, as_bytes(span{out.data() + sent, out_len - sent})));
 					if (w == 0) {
 						co_return;
 					}
@@ -252,7 +252,7 @@ Task<void> async_server(
 			if (scan > 0) {
 				consume_prefix(buf, held, scan);
 			}
-			auto got = co_await files.read_into(sock, 0, span{buf.data() + held, buf.size() - held});
+			auto got = co_await task_as_flow(files.read_into(sock, 0, span{buf.data() + held, buf.size() - held}));
 			if (got == 0) {
 				co_return;
 			}
@@ -323,7 +323,7 @@ struct AsyncLineReader {
 				auto const end = static_cast<SZ>(it - view.begin());
 				co_return SV{reinterpret_cast<char const *>(buf.data()), end};
 			}
-			auto got = co_await files.read_into(handle, 0, span{buf.data() + held, buf.size() - held});
+			auto got = co_await task_as_flow(files.read_into(handle, 0, span{buf.data() + held, buf.size() - held}));
 			if (got == 0) {
 				throw RE{"eof"};
 			}
@@ -350,7 +350,7 @@ Task<void> worker(
 	try {
 		for (SZ i = 0; i < iters; ++i) {
 			SZ const len = encode_line(out, n);
-			co_await files.write_into(sock, 0, as_bytes(span{out.data(), len}));
+			co_await task_as_flow(files.write_into(sock, 0, as_bytes(span{out.data(), len})));
 			auto line = co_await reader.read_line();
 			u64 const got = decode_line(line);
 			reader.consume_line(line.size());

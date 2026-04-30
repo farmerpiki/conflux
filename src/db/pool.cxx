@@ -151,7 +151,7 @@ auto with_transaction(
 	for (int attempt = 0;; ++attempt) {
 		if (attempt > 0) {
 			if (auto *reader = current_file_reader(); reader != nullptr) {
-				co_await reader->timeout_async(detail::retry_backoff(attempt - 1));
+				co_await task_as_flow(reader->timeout_async(detail::retry_backoff(attempt - 1)));
 			}
 		}
 		co_await task_as_flow(c.query(begin_stmt));
@@ -276,7 +276,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 		if (auto *reader = current_file_reader(); reader != nullptr) {
 			auto self = shared_from_this();
 			spawn(
-				reader->timeout_async(cfg_.acquire_timeout)
+				task_as_flow(reader->timeout_async(cfg_.acquire_timeout))
 				| then([self, shared_src]() mutable {
 					  (void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
 				  })
