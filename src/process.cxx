@@ -18,24 +18,6 @@ import conflux.types;
 import conflux.work;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
-namespace conflux::process_detail {
-
-template<typename T>
-[[nodiscard]] auto flow_to_root_task(
-	Flow<T> flow) -> conflux::work::root::Task<T> {
-	using namespace conflux::work::root;
-	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<TaskSource<T>>(std::move(src));
-	spawn(
-		std::move(flow)
-		| then([shared_src](T value) mutable { (void)shared_src->commit_success(Success<T>{std::move(value)}); })
-		| on_error([shared_src](std::exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
-	return std::move(task);
-}
-
-} // namespace conflux::process_detail
-
 // ---------------------------------------------------------------------------
 // Stdio — describes how stdin/stdout/stderr is connected in the child process.
 // ---------------------------------------------------------------------------
@@ -553,7 +535,17 @@ export template<typename Target>
 	fs::path exe,
 	V<S> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<Process, EC>> {
-	return conflux::process_detail::flow_to_root_task(spawn_in(target, move(exe), move(args), move(opts)));
+	using namespace conflux::work::root;
+	auto [task, src] = make_task_source<expected<Process, EC>>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = std::make_shared<TaskSource<expected<Process, EC>>>(std::move(src));
+	::spawn(
+		spawn_in(target, move(exe), move(args), move(opts))
+		| then([shared_src](expected<Process, EC> value) mutable {
+			  (void)shared_src->commit_success(Success<expected<Process, EC>>{std::move(value)});
+		  })
+		| on_error([shared_src](std::exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
+		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
+	return std::move(task);
 }
 
 // ---------------------------------------------------------------------------
@@ -667,7 +659,17 @@ export template<typename Target>
 	fs::path exe,
 	V<S> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<RunResult, EC>> {
-	return conflux::process_detail::flow_to_root_task(run_in(target, move(exe), move(args), move(opts)));
+	using namespace conflux::work::root;
+	auto [task, src] = make_task_source<expected<RunResult, EC>>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = std::make_shared<TaskSource<expected<RunResult, EC>>>(std::move(src));
+	::spawn(
+		run_in(target, move(exe), move(args), move(opts))
+		| then([shared_src](expected<RunResult, EC> value) mutable {
+			  (void)shared_src->commit_success(Success<expected<RunResult, EC>>{std::move(value)});
+		  })
+		| on_error([shared_src](std::exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
+		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
+	return std::move(task);
 }
 
 export template<typename Target>
@@ -681,5 +683,13 @@ export template<typename Target>
 [[nodiscard]] auto wait_task_in(
 	Target &target,
 	Process proc) -> conflux::work::root::Task<int> {
-	return conflux::process_detail::flow_to_root_task(wait_in(target, move(proc)));
+	using namespace conflux::work::root;
+	auto [task, src] = make_task_source<int>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = std::make_shared<TaskSource<int>>(std::move(src));
+	::spawn(
+		wait_in(target, move(proc))
+		| then([shared_src](int value) mutable { (void)shared_src->commit_success(Success<int>{value}); })
+		| on_error([shared_src](std::exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
+		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
+	return std::move(task);
 }
