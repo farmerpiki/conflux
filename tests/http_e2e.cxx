@@ -55,17 +55,24 @@ void ensure_server() {
 			return HttpResponse::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 		});
 		router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
-		router.get("/api/defer-ok", [](HttpRequest const &) {
-			static auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
-			return conflux::http::defer(pool, [] { return HttpResponse::json(R"({"defer":"ok"})"); });
+		// Pools captured by value so their lifetime ties to the router/server.
+		// Avoids atexit race: a function-local static here would destruct
+		// before the test server registry destructs (LIFO), while the ring
+		// thread can still be enqueueing into the pool.
+		auto defer_ok_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
+		auto defer_full_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 0});
+		router.get("/api/defer-ok", [defer_ok_pool](HttpRequest const &) {
+			return conflux::http::defer(defer_ok_pool, [] { return HttpResponse::json(R"({"defer":"ok"})"); });
 		});
-		router.get("/api/defer-full", [](HttpRequest const &) {
-			static auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 0});
-			return conflux::http::defer(pool, [] { return HttpResponse::json(R"({"defer":"unreachable"})"); });
+		router.get("/api/defer-full", [defer_full_pool](HttpRequest const &) {
+			return conflux::http::defer(defer_full_pool, [] {
+				return HttpResponse::json(R"({"defer":"unreachable"})");
+			});
 		});
 		router.get("/api/task-ping", [](HttpRequest const &) -> conflux::work::root::Task<HttpResponse> {
 			auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
-			(void)source.commit_success(conflux::work::root::Success<HttpResponse>{HttpResponse::json(R"({"task":"ok"})")});
+			(void)source.commit_success(
+				conflux::work::root::Success<HttpResponse>{HttpResponse::json(R"({"task":"ok"})")});
 			return std::move(task);
 		});
 		router.get("/api/echo-header", [](HttpRequest const &req) {
@@ -2888,9 +2895,8 @@ TEST_CASE(
 
 	auto const started = std::chrono::steady_clock::now();
 	auto resp = http_get_on(port, "/slow");
-	auto const elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-		std::chrono::steady_clock::now() - started)
-							 .count();
+	auto const elapsed_ms =
+		std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
 
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(extract_body(resp) == "slow-ok");
