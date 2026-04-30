@@ -1,0 +1,7 @@
+{
+  "ring_entries": 256,
+  "io_uring_flags": {
+    "coop_taskrun": true,
+    "taskrun_flag": true
+  }
+}

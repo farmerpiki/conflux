@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
-# bench_record.sh — run a curated set of benchmarks for the current checkout
-# and write results into the conflux_bench Postgres database.
+# bench_record.sh — record benchmark results into the conflux_bench database.
 #
-# Each invocation creates a new row in `runs` (with commit_sha, branch, dirty,
-# host, build_preset, compiler) and inserts one row per benchmark variant into
-# `results` linked by run_id (FK).
+# One `runs` row per (commit, benchmark, config_name). All variants produced
+# by that single (bench, config) invocation share that run_id via the
+# results.run_id FK. Re-runnable; each invocation produces fresh datapoints.
 #
-# Re-runnable: just run again — produces a new run row with current commit.
+# Build dirs under /tmp are wiped at exit so repeated cross-branch sweeps do
+# not exhaust the tmpfs.
 #
 # Usage:
 #   PGURI=postgres://postgres@localhost/conflux_bench scripts/bench_record.sh [run-name]
 #
-# Defaults: PGURI=postgres://postgres@localhost/conflux_bench, build preset =
-# release-clang-libcxx (built first if needed).
+# Env knobs:
+#   PGURI         postgres URI (default: postgres://postgres@localhost/conflux_bench)
+#   BENCH_PRESET  cmake preset (default: release-clang-libcxx)
+#   KEEP_BUILD=1  skip /tmp build-dir cleanup
+#   ONLY_BENCH    if set, run only that benchmark (e.g. "tcp_parallel_coro")
 
 set -euo pipefail
 
@@ -30,11 +33,8 @@ if ! git diff --quiet || ! git diff --cached --quiet; then DIRTY=true; fi
 
 HOST="$(hostname)"
 COMPILER="clang++"
-case "$PRESET" in
-  *gcc*) COMPILER="g++" ;;
-esac
+case "$PRESET" in *gcc*) COMPILER="g++" ;; esac
 
-# Resolve binaryDir from the preset (handles both /tmp/... and ${sourceDir}/build/... layouts).
 CONFIGURE_LOG=$(cmake --preset "$PRESET" 2>&1)
 BUILD_DIR=$(printf '%s\n' "$CONFIGURE_LOG" | sed -n 's/^-- Build files have been written to: //p' | tail -1)
 if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
@@ -50,46 +50,98 @@ cmake --build "$BUILD_DIR" --target \
   >/dev/null
 
 BENCHDIR="$BUILD_DIR/benchmarks"
+CONFIGS_DIR="${BENCH_CONFIGS_DIR:-$REPO_ROOT/benchmarks/configs}"
 
-psql_q() { psql "$PGURI" -At -q -F$'\t' -c "$1"; }
+cleanup() {
+  if [[ "${KEEP_BUILD:-0}" != "1" && "$BUILD_DIR" == /tmp/* ]]; then
+    rm -rf "$BUILD_DIR"
+    echo "cleaned $BUILD_DIR"
+  fi
+}
+trap cleanup EXIT
 
-RUN_ID="$(psql "$PGURI" -At -q -c "
-INSERT INTO runs (name, commit_sha, branch, dirty, host, build_preset, compiler)
-VALUES ('$NAME', '$COMMIT', '$BRANCH', $DIRTY, '$HOST', '$PRESET', '$COMPILER')
-RETURNING id;")"
+# ---------------------------------------------------------------------------
+# DB helpers
+# ---------------------------------------------------------------------------
+sql_escape() { printf '%s' "$1" | sed "s/'/''/g"; }
 
-echo "run_id=$RUN_ID  commit=$COMMIT  branch=$BRANCH  dirty=$DIRTY"
-
-insert_row() {
-  local bench="$1" variant="$2" iters="$3" total_ns="$4" ns_per_iter="$5"
-  local extra="${6-}"
-  [[ -z "$extra" ]] && extra='{}'
+new_run() {
+  local bench="$1" config="$2" extra="$3"
   psql "$PGURI" -At -q -c "
-    INSERT INTO results (run_id, benchmark, variant, iterations, total_ns, ns_per_iter, extra)
-    VALUES ($RUN_ID, '$bench', '$variant', $iters, $total_ns, $ns_per_iter, '$extra'::jsonb);" >/dev/null
+    INSERT INTO runs
+      (name, commit_sha, branch, dirty, host, build_preset, compiler,
+       benchmark, config_name, config_extra)
+    VALUES
+      ('$(sql_escape "$NAME")', '$COMMIT', '$BRANCH', $DIRTY,
+       '$HOST', '$PRESET', '$COMPILER',
+       '$(sql_escape "$bench")', '$(sql_escape "$config")', '$(sql_escape "$extra")'::jsonb)
+    RETURNING id;"
 }
 
-# tcp_increment: style,iterations,total_ns,ns_per_iter
-echo "+ tcp_increment_coro"
-"$BENCHDIR/conflux_tcp_increment_coro_bench" --iterations 200 --warmup 50 --csv 2>/dev/null \
-  | tail -n +2 | while IFS=, read -r style iters total ns_pi; do
-    insert_row tcp_increment_coro "$style" "$iters" "$total" "$ns_pi"
-  done
+insert_row() {
+  local run_id="$1" bench="$2" variant="$3" iters="$4" total_ns="$5" ns_pi="$6"
+  local extra="${7-}"; [[ -z "$extra" ]] && extra='{}'
+  psql "$PGURI" -At -q -c "
+    INSERT INTO results (run_id, benchmark, variant, iterations, total_ns, ns_per_iter, extra)
+    VALUES ($run_id, '$(sql_escape "$bench")', '$(sql_escape "$variant")',
+            $iters, $total_ns, $ns_pi, '$(sql_escape "$extra")'::jsonb);" >/dev/null
+}
 
-# tcp_parallel: config,flags,ring_entries,parallel,iters_per_conn,total_iters,total_ns,ns_per_iter,throughput_iter_per_s
-echo "+ tcp_parallel_coro"
-"$BENCHDIR/conflux_tcp_parallel_coro_bench" --iterations 200 --warmup 50 --parallel 1,2,4,8 --csv 2>/dev/null \
-  | tail -n +2 | while IFS=, read -r config flags ring par ipc total_iters total_ns ns_pi tput; do
-    extra=$(printf '{"parallel":%s,"throughput_iter_per_s":%s,"ring_entries":%s}' "$par" "$tput" "$ring")
-    insert_row tcp_parallel_coro "P=$par" "$total_iters" "$total_ns" "$ns_pi" "$extra"
-  done
+want() { [[ -z "${ONLY_BENCH:-}" || "${ONLY_BENCH}" == "$1" ]]; }
 
-# file_copy: style,runs,avg_ns,best_ns,avg_mib_per_s,best_mib_per_s
-echo "+ file_copy_coro"
-"$BENCHDIR/conflux_file_copy_coro_bench" --size-mib 64 --runs 5 --csv 2>/dev/null \
-  | grep -E '^(style|callback|coroutine)' | tail -n +2 | while IFS=, read -r style runs avg_ns best_ns avg_mibs best_mibs; do
-    extra=$(printf '{"avg_mib_per_s":%s,"best_mib_per_s":%s,"best_ns":%s}' "$avg_mibs" "$best_mibs" "$best_ns")
-    insert_row file_copy_coro "$style" "$runs" "$avg_ns" "$avg_ns" "$extra"
-  done
+# ---------------------------------------------------------------------------
+# tcp_increment_coro — single config (no ring knobs exposed by the bench)
+# variants: callback, coroutine
+# ---------------------------------------------------------------------------
+if want tcp_increment_coro; then
+  CFG="default"
+  RID=$(new_run tcp_increment_coro "$CFG" "{}")
+  echo "+ tcp_increment_coro [$CFG] run_id=$RID"
+  "$BENCHDIR/conflux_tcp_increment_coro_bench" --iterations 200 --warmup 50 --csv 2>/dev/null \
+    | tail -n +2 | while IFS=, read -r style iters total ns_pi; do
+      insert_row "$RID" tcp_increment_coro "$style" "$iters" "$total" "$ns_pi"
+    done
+fi
 
-echo "done. run_id=$RUN_ID"
+# ---------------------------------------------------------------------------
+# tcp_parallel_coro — ring config matrix
+# variants: P=1, P=2, P=4, P=8
+# ---------------------------------------------------------------------------
+if want tcp_parallel_coro; then
+  for cfgfile in default single_defer coop_taskrun submit_all large_ring; do
+    path="$CONFIGS_DIR/$cfgfile.json"
+    [[ -f "$path" ]] || { echo "skip tcp_parallel_coro [$cfgfile]: missing $path"; continue; }
+    extra=$(cat "$path")
+    RID=$(new_run tcp_parallel_coro "$cfgfile" "$extra")
+    echo "+ tcp_parallel_coro [$cfgfile] run_id=$RID"
+    "$BENCHDIR/conflux_tcp_parallel_coro_bench" \
+        --iterations 200 --warmup 50 --parallel 1,2,4,8 --config "$path" --csv 2>/dev/null \
+      | tail -n +2 | while IFS=, read -r config flags ring par ipc total_iters total_ns ns_pi tput; do
+        ex=$(printf '{"flags":"%s","ring_entries":%s,"throughput_iter_per_s":%s}' "$flags" "$ring" "$tput")
+        insert_row "$RID" tcp_parallel_coro "P=$par" "$total_iters" "$total_ns" "$ns_pi" "$ex"
+      done
+  done
+fi
+
+# ---------------------------------------------------------------------------
+# file_copy_coro — size/chunk matrix
+# variants: callback, coroutine
+# ---------------------------------------------------------------------------
+if want file_copy_coro; then
+  # cfg_name  size_mib  chunk_kib  runs
+  for spec in "small 4 16 5" "medium 64 64 5" "large 256 256 3"; do
+    read -r cfg size chunk runs <<< "$spec"
+    extra=$(printf '{"size_mib":%s,"chunk_kib":%s,"runs":%s}' "$size" "$chunk" "$runs")
+    RID=$(new_run file_copy_coro "$cfg" "$extra")
+    echo "+ file_copy_coro [$cfg size=${size}MiB chunk=${chunk}KiB] run_id=$RID"
+    "$BENCHDIR/conflux_file_copy_coro_bench" \
+        --size-mib "$size" --chunk-kib "$chunk" --runs "$runs" --csv 2>/dev/null \
+      | grep -E '^(callback|coroutine),' \
+      | while IFS=, read -r style runs_v avg_ns best_ns avg_mibs best_mibs; do
+        ex=$(printf '{"avg_mib_per_s":%s,"best_mib_per_s":%s,"best_ns":%s}' "$avg_mibs" "$best_mibs" "$best_ns")
+        insert_row "$RID" file_copy_coro "$style" "$runs_v" "$avg_ns" "$avg_ns" "$ex"
+      done
+  done
+fi
+
+echo "done."

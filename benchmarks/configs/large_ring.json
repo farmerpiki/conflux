@@ -1,0 +1,7 @@
+{
+  "ring_entries": 1024,
+  "io_uring_flags": {
+    "single_issuer": true,
+    "defer_taskrun": true
+  }
+}
