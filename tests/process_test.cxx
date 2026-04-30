@@ -51,7 +51,7 @@ TEST_CASE(
 TEST_CASE(
 	"process: spawn and wait",
 	"[process]") {
-	SpawnOptions opts;
+	SpawnOptions const opts;
 	auto proc = spawn("/bin/sleep", {"0"}, opts);
 	REQUIRE(proc.has_value());
 	CHECK(proc->pid() > 0);

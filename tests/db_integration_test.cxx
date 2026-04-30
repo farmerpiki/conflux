@@ -70,8 +70,8 @@ Opt<S> conninfo() {
 SP<Connection> connect_or_skip(
 	RingFixture &fx,
 	S const &ci) {
-	ConnectParams cp{.conninfo = ci, .connect_deadline = chrono::seconds{10}};
-	return block_on(fx.reader, Connection::connect(move(cp)), chrono::seconds{30});
+	ConnectParams const cp{.conninfo = ci, .connect_deadline = chrono::seconds{10}};
+	return block_on(fx.reader, Connection::connect(cp), chrono::seconds{30});
 }
 
 } // namespace
@@ -114,11 +114,11 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 	CurrentFileReaderScope const scope{&fx->reader};
 
-	ConnectParams cp{
+	ConnectParams const cp{
 		.conninfo = "host=127.0.0.1 port=1 user=nope dbname=nope connect_timeout=2",
 		.connect_deadline = chrono::seconds{5},
 	};
-	CHECK_THROWS_AS(block_on(fx->reader, Connection::connect(move(cp)), chrono::seconds{30}), PgError);
+	CHECK_THROWS_AS(block_on(fx->reader, Connection::connect(cp), chrono::seconds{30}), PgError);
 }
 
 TEST_CASE(

@@ -400,7 +400,7 @@ TEST_CASE(
 	"[dns][resolver][hosts]") {
 	auto g = RingGuard::make();
 	REQUIRE(g->ok);
-	TempTextFile hosts{
+	TempTextFile const hosts{
 		"hosts",
 		"203.0.113.9 HostAlias\n"
 		"2001:db8::9 HostAlias\n"};
@@ -408,7 +408,7 @@ TEST_CASE(
 	resolver_opts.hosts_file = hosts.path();
 	Resolver r{&g->ring, &g->ct, pack_ud, std::move(resolver_opts)};
 
-	DnsMockServer mock;
+	DnsMockServer const mock;
 	auto opts = mock_opts(mock);
 	auto result = r.resolve_blocking("HostAlias", 2525, opts);
 
@@ -442,7 +442,7 @@ TEST_CASE(
 			.records = {{.rdata = {10, 7, 0, 1}, .ttl = 60}},
 		});
 
-	TempTextFile resolv{"resolv", std::format("nameserver 127.0.0.1:{}\n", mock.port())};
+	TempTextFile const resolv{"resolv", std::format("nameserver 127.0.0.1:{}\n", mock.port())};
 	ResolverOptions resolver_opts;
 	resolver_opts.resolv_conf = resolv.path();
 	Resolver r{&g->ring, &g->ct, pack_ud, std::move(resolver_opts)};
@@ -471,7 +471,7 @@ TEST_CASE(
 			.records = {{.rdata = {10, 7, 0, 2}, .ttl = 60}},
 		});
 
-	TempTextFile resolv{
+	TempTextFile const resolv{
 		"resolv-search",
 		std::format(
 			"nameserver 127.0.0.1:{}\n"
@@ -508,7 +508,7 @@ TEST_CASE(
 			.records = {},
 		});
 
-	TempTextFile resolv{
+	TempTextFile const resolv{
 		"resolv-attempts",
 		std::format(
 			"nameserver 127.0.0.1:{}\n"
@@ -551,7 +551,7 @@ TEST_CASE(
 			.records = {{.rdata = {10, 7, 0, 4}, .ttl = 60}},
 		});
 
-	TempTextFile resolv{"resolv-reload", std::format("nameserver 127.0.0.1:{}\n", first.port())};
+	TempTextFile const resolv{"resolv-reload", std::format("nameserver 127.0.0.1:{}\n", first.port())};
 	ResolverOptions resolver_opts;
 	resolver_opts.resolv_conf = resolv.path();
 	resolver_opts.cache_capacity = 0;
@@ -1003,7 +1003,7 @@ TEST_CASE(
 			.records = {{.rdata = {10, 8, 0, 9}, .ttl = 60}},
 		});
 
-	TempTextFile resolv{
+	TempTextFile const resolv{
 		"resolv-async-search",
 		std::format(
 			"nameserver 127.0.0.1:{}\n"

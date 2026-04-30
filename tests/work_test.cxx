@@ -115,7 +115,7 @@ TEST_CASE(
 	WorkPool pool;
 	Atom<int> counter{0};
 	auto gate = make_shared<barrier<>>(2);
-	co_spawn([gate, &counter, task = run_on_task(pool, [gate, &counter] {
+	co_spawn([gate, task = run_on_task(pool, [gate, &counter] {
 								  counter.fetch_add(1, memory_order_release);
 								  gate->arrive_and_wait();
 							  })]() mutable -> Task<void> { co_await std::move(task); }());
@@ -126,7 +126,7 @@ TEST_CASE(
 TEST_CASE(
 	"work: IoBuffer from_string keeps S alive",
 	"[work]") {
-	IoBuffer buf = IoBuffer::from_string("hello");
+	IoBuffer const buf = IoBuffer::from_string("hello");
 	CHECK(buf.bytes.size() == 5);
 	CHECK(buf.bytes[0] == byte{'h'});
 }

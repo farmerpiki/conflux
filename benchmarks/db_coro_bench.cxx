@@ -83,7 +83,7 @@ struct Config {
 
 u64 parse_u64(
 	char const *s) noexcept {
-	SV sv{s};
+	SV const sv{s};
 	u64 v{};
 	from_chars(sv.data(), sv.data() + sv.size(), v);
 	return v;
@@ -91,7 +91,7 @@ u64 parse_u64(
 
 i64 parse_i64(
 	char const *s) noexcept {
-	SV sv{s};
+	SV const sv{s};
 	i64 v{};
 	from_chars(sv.data(), sv.data() + sv.size(), v);
 	return v;
@@ -101,7 +101,7 @@ Config parse_args(
 	span<char *> args) {
 	Config cfg;
 	for (SZ i = 1; i < args.size(); ++i) {
-		SV a = args[i];
+		SV const a = args[i];
 		if (a == "--iterations" && i + 1 < args.size()) {
 			cfg.iterations = parse_u64(args[++i]);
 		} else if (a == "--warmup" && i + 1 < args.size()) {
