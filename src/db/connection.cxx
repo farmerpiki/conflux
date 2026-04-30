@@ -410,21 +410,23 @@ struct ConnectState : enable_shared_from_this<ConnectState> {
 				// P11b: pin client_encoding to UTF-8 before publishing.
 				auto outer = dst;
 				auto conn_sp = c;
-				spawn(
-					task_as_flow(conn_sp->query(string_view{"SET client_encoding = 'UTF8'"}))
-					| then([outer, conn_sp](Result) mutable {
-						  char const *enc = ::PQparameterStatus(conn_sp->raw(), "client_encoding");
-						  if (enc == nullptr || string_view{enc} != string_view{"UTF8"}) {
-							  (void)outer->commit_failure(
-								  make_exception_ptr(PgError{"conflux.db: client_encoding must be UTF8", "22021"}));
-							  return;
-						  }
-						  (void)outer->commit_success(root::Success<shared_ptr<Connection>>{move(conn_sp)});
-					  })
-					| on_error([outer](exception_ptr const &ep) mutable { (void)outer->commit_failure(ep); })
-					| on_cancel([outer]() mutable {
-						  (void)outer->commit_failure(make_exception_ptr(PgError{"conflux.db: connect cancelled"}));
-					  }));
+				co_spawn(
+					[outer,
+					 conn_sp,
+					 q_task = conn_sp->query(string_view{"SET client_encoding = 'UTF8'"})]() mutable -> Task<void> {
+						try {
+							co_await std::move(q_task);
+							char const *enc = ::PQparameterStatus(conn_sp->raw(), "client_encoding");
+							if (enc == nullptr || string_view{enc} != string_view{"UTF8"}) {
+								(void)outer->commit_failure(
+									make_exception_ptr(PgError{"conflux.db: client_encoding must be UTF8", "22021"}));
+								co_return;
+							}
+							(void)outer->commit_success(root::Success<shared_ptr<Connection>>{move(conn_sp)});
+						} catch (Cancelled const &) {
+							(void)outer->commit_failure(make_exception_ptr(PgError{"conflux.db: connect cancelled"}));
+						} catch (...) { (void)outer->commit_failure(current_exception()); }
+					}());
 				return;
 			}
 			short mask = 0;
@@ -723,46 +725,35 @@ root::Task<Result> Connection::exec_cached(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
 	auto self = shared_from_this();
-	Params params_err{params};
-	spawn(
-		task_as_flow(prepare(stmt->name, stmt->sql, stmt->param_types))
-		| then([self, stmt, params = move(params), shared_src]() mutable {
-			  self->prepared_names_.insert(stmt->name);
-			  spawn(
-				  task_as_flow(self->exec_prepared(stmt->name, move(params)))
-				  | then([shared_src](Result r) mutable {
-						(void)shared_src->commit_success(root::Success<Result>{move(r)});
-					})
-				  | on_error([shared_src](exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
-				  | on_cancel(
-					  [shared_src]() mutable { (void)shared_src->commit_cancelled(root::CancelReason::requested); }));
-		  })
-		| on_error([self, stmt, params = move(params_err), shared_src](exception_ptr const &ex) mutable {
-			  bool duplicate = false;
-			  try {
-				  rethrow_exception(ex);
-			  } catch (PgError const &e) {
-				  duplicate = (e.sqlstate == "42P05");
-			  }
-			  // NOLINTNEXTLINE(bugprone-empty-catch)
-			  catch (...) {}
-			  if (duplicate) {
-				  self->prepared_names_.insert(stmt->name);
-				  spawn(
-					  task_as_flow(self->exec_prepared(stmt->name, move(params)))
-					  | then([shared_src](Result r) mutable {
-							(void)shared_src->commit_success(root::Success<Result>{move(r)});
-						})
-					  | on_error(
-						  [shared_src](exception_ptr const &ex2) mutable { (void)shared_src->commit_failure(ex2); })
-					  | on_cancel([shared_src]() mutable {
-							(void)shared_src->commit_cancelled(root::CancelReason::requested);
-						}));
-			  } else {
-				  (void)shared_src->commit_failure(ex);
-			  }
-		  })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(root::CancelReason::requested); }));
+	co_spawn(
+		[self,
+		 stmt,
+		 params = move(params),
+		 shared_src,
+		 prep_task = prepare(stmt->name, stmt->sql, stmt->param_types)]() mutable -> Task<void> {
+			try {
+				co_await std::move(prep_task);
+				self->prepared_names_.insert(stmt->name);
+			} catch (Cancelled const &) {
+				(void)shared_src->commit_cancelled(root::CancelReason::requested);
+				co_return;
+			} catch (PgError const &e) {
+				if (e.sqlstate != "42P05") {
+					(void)shared_src->commit_failure(current_exception());
+					co_return;
+				}
+				self->prepared_names_.insert(stmt->name);
+			} catch (...) {
+				(void)shared_src->commit_failure(current_exception());
+				co_return;
+			}
+			try {
+				auto r = co_await self->exec_prepared(stmt->name, move(params));
+				(void)shared_src->commit_success(root::Success<Result>{move(r)});
+			} catch (Cancelled const &) {
+				(void)shared_src->commit_cancelled(root::CancelReason::requested);
+			} catch (...) { (void)shared_src->commit_failure(current_exception()); }
+		}());
 	return move(task);
 }
 
@@ -918,24 +909,28 @@ root::Task<Result> Connection::query(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
 	auto self = shared_from_this();
-	spawn(
-		task_as_flow(query(sql, move(params)))
-		| then([shared_src](Result r) mutable { (void)shared_src->commit_success(root::Success<Result>{move(r)}); })
-		| on_error([shared_src](exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(root::CancelReason::requested); }));
+	co_spawn([shared_src, q_task = query(sql, move(params))]() mutable -> Task<void> {
+		try {
+			auto r = co_await std::move(q_task);
+			(void)shared_src->commit_success(root::Success<Result>{move(r)});
+		} catch (Cancelled const &) { (void)shared_src->commit_cancelled(root::CancelReason::requested); } catch (...) {
+			(void)shared_src->commit_failure(current_exception());
+		}
+	}());
 	auto const deadline = *opts.deadline;
-	spawn(
-		task_as_flow(reader->timeout_async(deadline))
-		| then([self, shared_src]() mutable {
-			  if (shared_src->commit_failure(
-					  make_exception_ptr(PgError{"conflux.db: query deadline exceeded", "57014"}))) {
-				  spawn(
-					  task_as_flow(self->cancel_inflight()) | on_error([](exception_ptr const &) {}) | on_cancel([]() {
-					  }));
-			  }
-		  })
-		| on_error([](exception_ptr const &) {})
-		| on_cancel([]() {}));
+	co_spawn([self, shared_src, to_task = reader->timeout_async(deadline)]() mutable -> Task<void> {
+		try {
+			co_await std::move(to_task);
+			if (shared_src->commit_failure(
+					make_exception_ptr(PgError{"conflux.db: query deadline exceeded", "57014"}))) {
+				co_spawn([self]() mutable -> Task<void> {
+					try {
+						co_await self->cancel_inflight();
+					} catch (...) {}
+				}());
+			}
+		} catch (...) {}
+	}());
 	return move(task);
 }
 
@@ -1037,32 +1032,31 @@ void Pipeline::sync_next_(
 	auto item = move(st->batch.front());
 	st->batch.pop_front();
 	auto shared_src = item.dst;
-	spawn(
-		task_as_flow(conn_->query(item.sql, move(item.params)))
-		| then([this, st, shared_src](Result r) mutable {
-			  (void)shared_src->commit_success(root::Success<Result>{move(r)});
-			  sync_next_(st);
-		  })
-		| on_error([this, st, shared_src](exception_ptr const &ex) mutable {
-			  (void)shared_src->commit_failure(ex);
-			  while (!st->batch.empty()) {
-				  auto rem = move(st->batch.front());
-				  st->batch.pop_front();
-				  (void)rem.dst->commit_failure(make_exception_ptr(PgError{"conflux.db: pipeline query"}));
-			  }
-			  (void)st->done->commit_success(root::Success<void>{});
-			  finish_sync_(true);
-		  })
-		| on_cancel([this, st, shared_src]() mutable {
-			  (void)shared_src->commit_cancelled(root::CancelReason::requested);
-			  while (!st->batch.empty()) {
-				  auto rem = move(st->batch.front());
-				  st->batch.pop_front();
-				  (void)rem.dst->commit_cancelled(root::CancelReason::requested);
-			  }
-			  (void)st->done->commit_cancelled(root::CancelReason::requested);
-			  finish_sync_(false);
-		  }));
+	co_spawn([this, st, shared_src, q_task = conn_->query(item.sql, move(item.params))]() mutable -> Task<void> {
+		try {
+			auto r = co_await std::move(q_task);
+			(void)shared_src->commit_success(root::Success<Result>{move(r)});
+			sync_next_(st);
+		} catch (Cancelled const &) {
+			(void)shared_src->commit_cancelled(root::CancelReason::requested);
+			while (!st->batch.empty()) {
+				auto rem = move(st->batch.front());
+				st->batch.pop_front();
+				(void)rem.dst->commit_cancelled(root::CancelReason::requested);
+			}
+			(void)st->done->commit_cancelled(root::CancelReason::requested);
+			finish_sync_(false);
+		} catch (...) {
+			(void)shared_src->commit_failure(current_exception());
+			while (!st->batch.empty()) {
+				auto rem = move(st->batch.front());
+				st->batch.pop_front();
+				(void)rem.dst->commit_failure(make_exception_ptr(PgError{"conflux.db: pipeline query"}));
+			}
+			(void)st->done->commit_success(root::Success<void>{});
+			finish_sync_(true);
+		}
+	}());
 }
 
 void Pipeline::finish_sync_(
@@ -1118,43 +1112,32 @@ root::Task<shared_ptr<string const>> QueryCache::load_async(
 	}
 	auto name_owned = string{name};
 	auto path = (root_ / (name_owned + ".psql")).string();
-	spawn(
-		task_as_flow(reader->open_async(AT_FDCWD, move(path), O_RDONLY))
-		| then([reader, shared_src, name_owned, this](FileHandle fh) mutable {
-			  auto fh_sp = make_shared<FileHandle>(move(fh));
-			  spawn(
-				  task_as_flow(reader->stat_async(*fh_sp))
-				  | then([reader, shared_src, name_owned, fh_sp, this](FileStat st) mutable {
-						if (st.size == 0) {
-							auto sp = make_shared<string const>();
-							scoped_lock const lk{mtx_};
-							auto [it, ok] = cache_.try_emplace(name_owned, sp);
-							(void)shared_src->commit_success(root::Success<shared_ptr<string const>>{it->second});
-							return;
-						}
-						auto buf = make_shared<string>(st.size, '\0');
-						auto raw_span = span<byte>{reinterpret_cast<byte *>(buf->data()), buf->size()};
-						spawn(
-							task_as_flow(reader->read_into(*fh_sp, 0, raw_span))
-							| then([shared_src, name_owned, buf, fh_sp, this](size_t n) mutable {
-								  buf->resize(n);
-								  auto sp = make_shared<string const>(move(*buf));
-								  scoped_lock const lk{mtx_};
-								  auto [it, ok] = cache_.try_emplace(name_owned, sp);
-								  (void)shared_src->commit_success(root::Success<shared_ptr<string const>>{it->second});
-							  })
-							| on_error(
-								[shared_src](exception_ptr const &ep) mutable { (void)shared_src->commit_failure(ep); })
-							| on_cancel([shared_src]() mutable {
-								  (void)shared_src->commit_cancelled(root::CancelReason::requested);
-							  }));
-					})
-				  | on_error([shared_src](exception_ptr const &ep) mutable { (void)shared_src->commit_failure(ep); })
-				  | on_cancel(
-					  [shared_src]() mutable { (void)shared_src->commit_cancelled(root::CancelReason::requested); }));
-		  })
-		| on_error([shared_src](exception_ptr const &ep) mutable { (void)shared_src->commit_failure(ep); })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(root::CancelReason::requested); }));
+	co_spawn(
+		[reader, shared_src, name_owned, this, open_task = reader->open_async(AT_FDCWD, move(path), O_RDONLY)]() mutable
+			-> Task<void> {
+			try {
+				auto fh = co_await std::move(open_task);
+				auto fh_sp = make_shared<FileHandle>(move(fh));
+				auto const st = co_await reader->stat_async(*fh_sp);
+				if (st.size == 0) {
+					auto sp = make_shared<string const>();
+					scoped_lock const lk{mtx_};
+					auto [it, ok] = cache_.try_emplace(name_owned, sp);
+					(void)shared_src->commit_success(root::Success<shared_ptr<string const>>{it->second});
+					co_return;
+				}
+				auto buf = make_shared<string>(st.size, '\0');
+				auto raw_span = span<byte>{reinterpret_cast<byte *>(buf->data()), buf->size()};
+				auto const n = co_await reader->read_into(*fh_sp, 0, raw_span);
+				buf->resize(n);
+				auto sp = make_shared<string const>(move(*buf));
+				scoped_lock const lk{mtx_};
+				auto [it, ok] = cache_.try_emplace(name_owned, sp);
+				(void)shared_src->commit_success(root::Success<shared_ptr<string const>>{it->second});
+			} catch (Cancelled const &) {
+				(void)shared_src->commit_cancelled(root::CancelReason::requested);
+			} catch (...) { (void)shared_src->commit_failure(current_exception()); }
+		}());
 	return move(task);
 }
 

@@ -151,17 +151,17 @@ auto with_transaction(
 	for (int attempt = 0;; ++attempt) {
 		if (attempt > 0) {
 			if (auto *reader = current_file_reader(); reader != nullptr) {
-				co_await task_as_flow(reader->timeout_async(detail::retry_backoff(attempt - 1)));
+				co_await reader->timeout_async(detail::retry_backoff(attempt - 1));
 			}
 		}
-		co_await task_as_flow(c.query(begin_stmt));
+		co_await c.query(begin_stmt);
 		exception_ptr err{};
 		if constexpr (same_as<R, void>) {
 			try {
 				co_await body(c);
 			} catch (...) { err = current_exception(); }
 			if (!err) {
-				co_await task_as_flow(c.query("COMMIT"));
+				co_await c.query("COMMIT");
 				co_return;
 			}
 		} else {
@@ -170,12 +170,12 @@ auto with_transaction(
 				result.emplace(co_await body(c));
 			} catch (...) { err = current_exception(); }
 			if (!err) {
-				co_await task_as_flow(c.query("COMMIT"));
+				co_await c.query("COMMIT");
 				co_return move(*result);
 			}
 		}
 		try {
-			co_await task_as_flow(c.query("ROLLBACK"));
+			co_await c.query("ROLLBACK");
 			// NOLINTNEXTLINE(bugprone-empty-catch) — best-effort rollback; secondary errors swallowed.
 		} catch (...) {}
 		bool const retryable = [&] {
@@ -203,7 +203,7 @@ auto with_transaction(
 	TxOptions opt,
 	Body &&body) -> Task<detail::awaitable_value_t<invoke_result_t<Body, Connection &>>> {
 	using R = detail::awaitable_value_t<invoke_result_t<Body, Connection &>>;
-	auto lease = co_await task_as_flow(p.acquire());
+	auto lease = co_await p.acquire();
 	if constexpr (same_as<R, void>) {
 		co_await with_transaction(*lease, opt, forward<Body>(body));
 	} else {
@@ -255,33 +255,32 @@ root::Task<Pool::Lease> Pool::acquire() {
 	if (total_ < cfg_.max_connections) {
 		++total_;
 		auto self = shared_from_this();
-		spawn(
-			task_as_flow(Connection::connect(cfg_.conn))
-			| then([self, shared_src](shared_ptr<Connection> conn) mutable {
-				  if (self->closed_) {
-					  --self->total_;
-					  (void)shared_src->commit_cancelled(root::CancelReason::requested);
-					  return;
-				  }
-				  self->dispatch_lease_(shared_src, move(conn));
-			  })
-			| on_error([self, shared_src](exception_ptr const &ex) mutable {
-				  --self->total_;
-				  (void)shared_src->commit_failure(ex);
-			  }));
+		co_spawn([self, shared_src, conn_task = Connection::connect(cfg_.conn)]() mutable -> Task<void> {
+			try {
+				auto conn = co_await std::move(conn_task);
+				if (self->closed_) {
+					--self->total_;
+					(void)shared_src->commit_cancelled(root::CancelReason::requested);
+					co_return;
+				}
+				self->dispatch_lease_(shared_src, move(conn));
+			} catch (...) {
+				--self->total_;
+				(void)shared_src->commit_failure(current_exception());
+			}
+		}());
 		return move(task);
 	}
 	waiters_.push_back(shared_src);
 	if (cfg_.acquire_timeout.count() > 0) {
 		if (auto *reader = current_file_reader(); reader != nullptr) {
 			auto self = shared_from_this();
-			spawn(
-				task_as_flow(reader->timeout_async(cfg_.acquire_timeout))
-				| then([self, shared_src]() mutable {
-					  (void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
-				  })
-				| on_error([](exception_ptr const &) {})
-				| on_cancel([]() {}));
+			co_spawn([shared_src, to_task = reader->timeout_async(cfg_.acquire_timeout)]() mutable -> Task<void> {
+				try {
+					co_await std::move(to_task);
+					(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
+				} catch (...) {}
+			}());
 		}
 	}
 	return move(task);
@@ -323,17 +322,17 @@ void Pool::grow_if_needed_() {
 	while (total_ < cfg_.min_connections) {
 		++total_;
 		auto self = shared_from_this();
-		spawn(
-			task_as_flow(Connection::connect(cfg_.conn))
-			| then([self](shared_ptr<Connection> conn) mutable {
-				  if (self->closed_) {
-					  --self->total_;
-					  return;
-				  }
-				  self->idle_.push_back(move(conn));
-				  self->try_dispatch_waiters_();
-			  })
-			| on_error([self](exception_ptr const &) mutable { --self->total_; }));
+		co_spawn([self, conn_task = Connection::connect(cfg_.conn)]() mutable -> Task<void> {
+			try {
+				auto conn = co_await std::move(conn_task);
+				if (self->closed_) {
+					--self->total_;
+					co_return;
+				}
+				self->idle_.push_back(move(conn));
+				self->try_dispatch_waiters_();
+			} catch (...) { --self->total_; }
+		}());
 	}
 }
 
@@ -351,31 +350,29 @@ void Pool::dispatch_lease_(
 	}
 	auto self = shared_from_this();
 	try {
-		spawn(
-			task_as_flow(cfg_.on_acquire(*conn))
-			| then([self, src, conn]() mutable {
-				  if (self->closed_) {
-					  conn->close();
-					  --self->total_;
-					  (void)src->commit_cancelled(root::CancelReason::requested);
-					  return;
-				  }
-				  // If commit fails (timeout during on_acquire), ~Lease returns conn to pool.
-				  (void)src->commit_success(
-					  root::Success<Lease>{
-						  Lease{self, move(conn)}
-                  });
-			  })
-			| on_error([self, src, conn](exception_ptr const &ex) mutable {
-				  conn->close();
-				  --self->total_;
-				  (void)src->commit_failure(ex);
-			  })
-			| on_cancel([self, src, conn]() mutable {
-				  conn->close();
-				  --self->total_;
-				  (void)src->commit_cancelled(root::CancelReason::requested);
-			  }));
+		co_spawn([self, src, conn, on_acq_task = cfg_.on_acquire(*conn)]() mutable -> Task<void> {
+			try {
+				co_await std::move(on_acq_task);
+				if (self->closed_) {
+					conn->close();
+					--self->total_;
+					(void)src->commit_cancelled(root::CancelReason::requested);
+					co_return;
+				}
+				(void)src->commit_success(
+					root::Success<Lease>{
+						Lease{self, move(conn)}
+                });
+			} catch (Cancelled const &) {
+				conn->close();
+				--self->total_;
+				(void)src->commit_cancelled(root::CancelReason::requested);
+			} catch (...) {
+				conn->close();
+				--self->total_;
+				(void)src->commit_failure(current_exception());
+			}
+		}());
 	} catch (...) {
 		conn->close();
 		--self->total_;

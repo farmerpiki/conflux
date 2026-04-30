@@ -126,21 +126,20 @@ Task<void> coro_copy(
 	S src_path,
 	S dst_path,
 	SZ chunk) {
-	auto src = co_await task_as_flow(files.open_async(AT_FDCWD, src_path, O_RDONLY | O_CLOEXEC));
-	auto dst =
-		co_await task_as_flow(files.open_async(AT_FDCWD, dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644));
+	auto src = co_await files.open_async(AT_FDCWD, src_path, O_RDONLY | O_CLOEXEC);
+	auto dst = co_await files.open_async(AT_FDCWD, dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 
 	V<byte> buf(chunk);
 	u64 off = 0;
 	while (true) {
-		auto got = co_await task_as_flow(files.read_into(src, off, span{buf}));
+		auto got = co_await files.read_into(src, off, span{buf});
 		if (got == 0) {
 			break;
 		}
-		co_await task_as_flow(files.write_into(dst, off, span<byte const>{buf.data(), got}));
+		co_await files.write_into(dst, off, span<byte const>{buf.data(), got});
 		off += got;
 	}
-	co_await task_as_flow(files.fsync_async(dst));
+	co_await files.fsync_async(dst);
 	co_return;
 }
 

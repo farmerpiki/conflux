@@ -317,13 +317,12 @@ TEST_CASE(
 
 	atomic_flag sleep_done{};
 	EP sleep_err;
-	auto sleep_held = task_as_flow(conn->query("SELECT pg_sleep(10)"))
-					| then([&](Result) { sleep_done.test_and_set(memory_order_release); })
-					| on_error([&](EP const &ex) {
-						  sleep_err = ex;
-						  sleep_done.test_and_set(memory_order_release);
-					  });
-	(void)sleep_held;
+	co_spawn([&sleep_done, &sleep_err, q_task = conn->query("SELECT pg_sleep(10)")]() mutable -> Task<void> {
+		try {
+			co_await std::move(q_task);
+		} catch (...) { sleep_err = std::current_exception(); }
+		sleep_done.test_and_set(memory_order_release);
+	}());
 
 	WorkPool cancel_pool{WorkPoolOptions{.threads = 1}};
 	std::this_thread::sleep_for(chrono::milliseconds{100});
@@ -398,13 +397,10 @@ TEST_CASE(
 	// Commit path: row must persist.
 	block_on(
 		fx->reader,
-		move(with_transaction(
-				 *conn,
-				 TxOptions{},
-				 [](Connection &c) -> Task<void> {
-					 co_await task_as_flow(c.query("INSERT INTO tx_test VALUES (1, 'committed')"));
-				 }))
-			.flow(),
+		with_transaction(
+			*conn,
+			TxOptions{},
+			[](Connection &c) -> Task<void> { co_await c.query("INSERT INTO tx_test VALUES (1, 'committed')"); }),
 		chrono::seconds{30});
 	{
 		auto r = block_on(fx->reader, conn->query("SELECT v FROM tx_test WHERE id = 1"), chrono::seconds{30});
@@ -416,14 +412,13 @@ TEST_CASE(
 	try {
 		block_on(
 			fx->reader,
-			move(with_transaction(
-					 *conn,
-					 TxOptions{},
-					 [](Connection &c) -> Task<void> {
-						 co_await task_as_flow(c.query("INSERT INTO tx_test VALUES (2, 'rolledback')"));
-						 throw RE{"deliberate"};
-					 }))
-				.flow(),
+			with_transaction(
+				*conn,
+				TxOptions{},
+				[](Connection &c) -> Task<void> {
+					co_await c.query("INSERT INTO tx_test VALUES (2, 'rolledback')");
+					throw RE{"deliberate"};
+				}),
 			chrono::seconds{30});
 		FAIL("expected exception");
 	} catch (RE const &e) { CHECK(SV{e.what()} == "deliberate"); }
@@ -479,13 +474,12 @@ TEST_CASE(
 
 	atomic_flag done{};
 	EP err;
-	auto held = task_as_flow(conn->query("SELECT pg_sleep(10)"))
-			  | then([&](Result) { done.test_and_set(memory_order_release); })
-			  | on_error([&](EP const &ex) {
-					err = ex;
-					done.test_and_set(memory_order_release);
-				});
-	(void)held;
+	co_spawn([&done, &err, q_task = conn->query("SELECT pg_sleep(10)")]() mutable -> Task<void> {
+		try {
+			co_await std::move(q_task);
+		} catch (...) { err = std::current_exception(); }
+		done.test_and_set(memory_order_release);
+	}());
 
 	std::this_thread::sleep_for(chrono::milliseconds{100});
 	block_on(fx->reader, conn->cancel_inflight(), chrono::seconds{30});

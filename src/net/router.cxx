@@ -45,6 +45,82 @@ import conflux.net.config;
 	return out;
 }
 
+struct StaticCacheEntry {
+	S body;
+	S mime;
+	S etag;
+	S last_modified;
+	S content_encoding;
+	off_t size{};
+	time_t mtime{};
+	dev_t dev{};
+	ino_t ino{};
+	u64 tick{};
+};
+
+struct StaticCacheStore {
+	mutex mtx;
+	UM<S, StaticCacheEntry> entries;
+	SZ total_bytes{};
+	u64 tick{};
+
+	[[nodiscard]] Opt<StaticCacheEntry> get(
+		S const &key,
+		struct ::stat const &st) {
+		SL const lk{mtx};
+		auto it = entries.find(key);
+		if (it == entries.end()) {
+			return std::nullopt;
+		}
+		auto &e = it->second;
+		if (e.size != st.st_size || e.mtime != st.st_mtime || e.dev != st.st_dev || e.ino != st.st_ino) {
+			total_bytes -= e.body.size();
+			entries.erase(it);
+			return std::nullopt;
+		}
+		e.tick = ++tick;
+		return e;
+	}
+
+	void put(
+		S key,
+		StaticCacheEntry entry,
+		SZ max_total_bytes) {
+		SL const lk{mtx};
+		if (entry.body.size() > max_total_bytes) {
+			return;
+		}
+		if (auto it = entries.find(key); it != entries.end()) {
+			total_bytes -= it->second.body.size();
+			entries.erase(it);
+		}
+		while (total_bytes + entry.body.size() > max_total_bytes && !entries.empty()) {
+			auto victim = ranges::min_element(entries, {}, [](auto const &kv) { return kv.second.tick; });
+			total_bytes -= victim->second.body.size();
+			entries.erase(victim);
+		}
+		entry.tick = ++tick;
+		total_bytes += entry.body.size();
+		entries.emplace(move(key), move(entry));
+	}
+
+	void evict(
+		S const &key) {
+		SL const lk{mtx};
+		if (auto it = entries.find(key); it != entries.end()) {
+			total_bytes -= it->second.body.size();
+			entries.erase(it);
+		}
+	}
+
+	void evict_all_encodings(
+		S const &path) {
+		evict(path + "|");
+		evict(path + "|br");
+		evict(path + "|gzip");
+	}
+};
+
 export struct FieldHash {
 	using is_transparent = void;
 	bool ci{false};
@@ -2051,6 +2127,59 @@ export struct StaticOptions {
 	bool allow_delete{false};
 };
 
+Task<void> do_serve_file(
+	SP<DeferredResponse> dr,
+	HttpResponse base,
+	SZ send_off,
+	SZ send_sz,
+	SZ total_size,
+	conflux::work::root::Task<FileHandle> open_task) {
+	try {
+		auto fh = co_await std::move(open_task);
+		base.set_streamed_file(
+			make_shared<StreamedFile>(StreamedFile{
+				.handle = make_shared<FileHandle>(move(fh)),
+				.send_offset = send_off,
+				.send_size = send_sz,
+				.total_size = total_size}));
+		dr->complete(move(base));
+	} catch (...) { dr->complete(HttpResponse::not_found("async open failed")); }
+}
+
+Task<void> do_save_file(
+	FileReader *fr,
+	SP<S> body_owned,
+	SP<S> fp,
+	bool existed,
+	SP<StaticCacheStore> static_cache,
+	SP<DeferredResponse> dr,
+	conflux::work::root::Task<FileHandle> open_task) {
+	try {
+		auto fh = co_await std::move(open_task);
+		auto fh_ptr = make_shared<FileHandle>(move(fh));
+		co_await fr->write_into(*fh_ptr, 0, as_bytes(span{*body_owned}));
+		static_cache->evict_all_encodings(*fp);
+		HttpResponse resp;
+		resp.status = existed ? kHttpNoContent : kHttpCreated;
+		resp.status_text = existed ? "No Content" : "Created";
+		dr->complete(move(resp));
+	} catch (...) { dr->complete(HttpResponse::internal_error()); }
+}
+
+Task<void> do_delete_file(
+	SP<DeferredResponse> dr,
+	SP<S> fp,
+	SP<StaticCacheStore> static_cache,
+	conflux::work::root::Task<void> unlink_task) {
+	try {
+		co_await std::move(unlink_task);
+		static_cache->evict_all_encodings(*fp);
+		dr->complete(HttpResponse{.status = kHttpNoContent, .status_text = "No Content"});
+	} catch (FileIoError const &e) {
+		dr->complete(e.code().value() == ENOENT ? HttpResponse::not_found(*fp) : HttpResponse::internal_error());
+	} catch (...) { dr->complete(HttpResponse::internal_error()); }
+}
+
 export class Router {
 public:
 	using Handler = CloneableFunction<HttpResponse(HttpRequestView const &)>;
@@ -2338,82 +2467,6 @@ public:
 			S if_none_match;
 			S if_modified_since;
 			S range;
-		};
-
-		struct StaticCacheEntry {
-			S body;
-			S mime;
-			S etag;
-			S last_modified;
-			S content_encoding;
-			off_t size{};
-			time_t mtime{};
-			dev_t dev{};
-			ino_t ino{};
-			u64 tick{};
-		};
-
-		struct StaticCacheStore {
-			mutex mtx;
-			UM<S, StaticCacheEntry> entries;
-			SZ total_bytes{};
-			u64 tick{};
-
-			[[nodiscard]] Opt<StaticCacheEntry> get(
-				S const &key,
-				struct ::stat const &st) {
-				SL const lk{mtx};
-				auto it = entries.find(key);
-				if (it == entries.end()) {
-					return std::nullopt;
-				}
-				auto &e = it->second;
-				if (e.size != st.st_size || e.mtime != st.st_mtime || e.dev != st.st_dev || e.ino != st.st_ino) {
-					total_bytes -= e.body.size();
-					entries.erase(it);
-					return std::nullopt;
-				}
-				e.tick = ++tick;
-				return e;
-			}
-
-			void put(
-				S key,
-				StaticCacheEntry entry,
-				SZ max_total_bytes) {
-				SL const lk{mtx};
-				if (entry.body.size() > max_total_bytes) {
-					return;
-				}
-				if (auto it = entries.find(key); it != entries.end()) {
-					total_bytes -= it->second.body.size();
-					entries.erase(it);
-				}
-				while (total_bytes + entry.body.size() > max_total_bytes && !entries.empty()) {
-					auto victim = ranges::min_element(entries, {}, [](auto const &kv) { return kv.second.tick; });
-					total_bytes -= victim->second.body.size();
-					entries.erase(victim);
-				}
-				entry.tick = ++tick;
-				total_bytes += entry.body.size();
-				entries.emplace(move(key), move(entry));
-			}
-
-			void evict(
-				S const &key) {
-				SL const lk{mtx};
-				if (auto it = entries.find(key); it != entries.end()) {
-					total_bytes -= it->second.body.size();
-					entries.erase(it);
-				}
-			}
-
-			void evict_all_encodings(
-				S const &path) {
-				evict(path + "|");
-				evict(path + "|br");
-				evict(path + "|gzip");
-			}
 		};
 
 		auto static_cache = make_shared<StaticCacheStore>();
@@ -2776,19 +2829,13 @@ public:
 					}
 					auto const send_off = is_range_request ? range_start : SZ{0};
 					auto const send_sz = is_range_request ? (range_end - range_start + 1) : file_size;
-					auto terminal =
-						task_as_flow(fr->open_async(AT_FDCWD, full_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW))
-						| ::then([dr, base = move(base), send_off, send_sz, fs = file_size](FileHandle fh) mutable {
-							  base.set_streamed_file(
-								  make_shared<StreamedFile>(StreamedFile{
-									  .handle = make_shared<FileHandle>(move(fh)),
-									  .send_offset = send_off,
-									  .send_size = send_sz,
-									  .total_size = fs}));
-							  dr->complete(move(base));
-						  })
-						| ::on_error([dr](EP const &) { dr->complete(HttpResponse::not_found("async open failed")); });
-					(void)terminal;
+					co_spawn(do_serve_file(
+						dr,
+						move(base),
+						send_off,
+						send_sz,
+						file_size,
+						fr->open_async(AT_FDCWD, full_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)));
 					return HttpResponse::deferred(move(dr));
 				}
 
@@ -2917,25 +2964,18 @@ public:
 							auto body_owned = make_shared<S>(req.body);
 							auto dr = make_shared<DeferredResponse>();
 							auto fp = make_shared<S>(full_path);
-							auto terminal =
-								task_as_flow(fr->open_async(
+							co_spawn(do_save_file(
+								fr,
+								body_owned,
+								fp,
+								existed,
+								static_cache,
+								dr,
+								fr->open_async(
 									AT_FDCWD,
 									*fp,
 									O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
-									0644))
-								| ::flat_then([fr, body_owned, fp, existed, static_cache, dr](FileHandle fh) mutable {
-									  auto fh_ptr = make_shared<FileHandle>(move(fh));
-									  return task_as_flow(fr->write_into(*fh_ptr, 0, as_bytes(span{*body_owned})))
-										   | ::then([dr, fh_ptr, body_owned, fp, existed, static_cache](SZ) mutable {
-												 static_cache->evict_all_encodings(*fp);
-												 HttpResponse resp;
-												 resp.status = existed ? kHttpNoContent : kHttpCreated;
-												 resp.status_text = existed ? "No Content" : "Created";
-												 dr->complete(move(resp));
-											 });
-								  })
-								| ::on_error([dr](EP const &) { dr->complete(HttpResponse::internal_error()); });
-							(void)terminal;
+									0644)));
 							return HttpResponse::deferred(move(dr));
 						}
 
@@ -3027,22 +3067,7 @@ public:
 						if (auto *fr = current_file_reader(); fr != nullptr) {
 							auto dr = make_shared<DeferredResponse>();
 							auto fp = make_shared<S>(full_path);
-							auto terminal =
-								task_as_flow(fr->unlink_async(AT_FDCWD, full_path))
-								| ::then([dr, fp, static_cache]() mutable {
-									  static_cache->evict_all_encodings(*fp);
-									  dr->complete(HttpResponse{.status = kHttpNoContent, .status_text = "No Content"});
-								  })
-								| ::on_error([dr, fp](EP const &ep) mutable {
-									  try {
-										  rethrow_exception(ep);
-									  } catch (FileIoError const &e) {
-										  dr->complete(
-											  e.code().value() == ENOENT ? HttpResponse::not_found(*fp) :
-																		   HttpResponse::internal_error());
-									  } catch (...) { dr->complete(HttpResponse::internal_error()); }
-								  });
-							(void)terminal;
+							co_spawn(do_delete_file(dr, fp, static_cache, fr->unlink_async(AT_FDCWD, full_path)));
 							return HttpResponse::deferred(move(dr));
 						}
 
@@ -3333,15 +3358,13 @@ private:
 		SseHandler handler,
 		HttpRequest matched,
 		SP<SseChannel> const &channel) {
-		auto task = run_on(
-						*pool,
-						[h = move(handler), matched = move(matched), channel]() mutable {
-							HttpRequestView const matched_view{matched};
-							h(matched_view, channel);
-							channel->close();
-						})
-				  | on_cancel([channel] { channel->close(); });
-		spawn(move(task));
+		if (!pool->enqueue([h = move(handler), matched = move(matched), channel]() mutable {
+				HttpRequestView const matched_view{matched};
+				h(matched_view, channel);
+				channel->close();
+			})) {
+			channel->close();
+		}
 	}
 
 	// Wrap h in the registered middleware chain. First-registered runs outermost.

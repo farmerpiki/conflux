@@ -635,6 +635,17 @@ struct RecvComp {
 constexpr SZ FD_TABLE_RESERVE = 4096;
 constexpr unsigned DEFAULT_RING_ENTRIES = 1024U;
 
+struct Ring;
+
+static Task<void> do_streamed_splice(Ring *ring, int fd, u32 conn_gen, conflux::work::root::Task<SZ> splice_task);
+
+static Task<void> do_streamed_tls_chunk(
+	Ring *ring,
+	int fd,
+	u32 conn_gen,
+	SZ want,
+	conflux::work::root::Task<FileReader::ReadFixedResult> read_task);
+
 struct Ring {
 	struct DeferredWait {
 		int conn_fd{-1};
@@ -1608,17 +1619,17 @@ struct Ring {
 		auto const off = conn.streamed_file->send_offset + conn.streamed_delivered;
 		conn.streamed_splice_in_flight = true;
 		auto const conn_gen = conn.gen;
-		auto terminal =
-			task_as_flow(files->splice_to_fd(
+		co_spawn(do_streamed_splice(
+			this,
+			fd,
+			conn_gen,
+			files->splice_to_fd(
 				*conn.streamed_file->handle,
 				off,
 				static_cast<SZ>(remaining),
 				fd,
 				move(*pipe),
-				fixed_files))
-			| then([this, fd, conn_gen](SZ delivered) { on_streamed_splice_done(fd, conn_gen, delivered, {}); })
-			| on_error([this, fd, conn_gen](EP const &e) { on_streamed_splice_done(fd, conn_gen, 0, e); });
-		(void)terminal;
+				fixed_files)));
 	}
 
 #if CONFLUX_HAS_TLS
@@ -1645,14 +1656,7 @@ struct Ring {
 		auto const conn_gen = conn.gen;
 		conn.streamed_splice_in_flight = true;
 		auto &fh = *conn.streamed_file->handle;
-		auto terminal = task_as_flow(files->read_fixed(fh, off, move(b), want))
-					  | then([this, fd, conn_gen, want](FileReader::ReadFixedResult result) {
-							on_streamed_tls_chunk_done(fd, conn_gen, move(result.buffer), min(result.bytes, want), {});
-						})
-					  | on_error([this, fd, conn_gen](EP const &e) {
-							on_streamed_tls_chunk_done(fd, conn_gen, FixedBuffer{}, 0, e);
-						});
-		(void)terminal;
+		co_spawn(do_streamed_tls_chunk(this, fd, conn_gen, want, files->read_fixed(fh, off, move(b), want)));
 	}
 
 	void on_streamed_tls_chunk_done(
@@ -3118,6 +3122,29 @@ struct Ring {
 		}
 	}
 };
+
+static Task<void> do_streamed_splice(
+	Ring *ring,
+	int fd,
+	u32 conn_gen,
+	conflux::work::root::Task<SZ> splice_task) {
+	try {
+		auto const delivered = co_await std::move(splice_task);
+		ring->on_streamed_splice_done(fd, conn_gen, delivered, {});
+	} catch (...) { ring->on_streamed_splice_done(fd, conn_gen, SZ{0}, std::current_exception()); }
+}
+
+static Task<void> do_streamed_tls_chunk(
+	Ring *ring,
+	int fd,
+	u32 conn_gen,
+	SZ want,
+	conflux::work::root::Task<FileReader::ReadFixedResult> read_task) {
+	try {
+		auto result = co_await std::move(read_task);
+		ring->on_streamed_tls_chunk_done(fd, conn_gen, move(result.buffer), min(result.bytes, want), {});
+	} catch (...) { ring->on_streamed_tls_chunk_done(fd, conn_gen, FixedBuffer{}, 0, std::current_exception()); }
+}
 
 [[gnu::pure]] u32 build_uring_flags(
 	Config const &c) {

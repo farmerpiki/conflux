@@ -518,12 +518,12 @@ export template<typename Target>
 	Target &target,
 	fs::path exe,
 	V<S> args,
-	SpawnOptions opts = {}) {
-	return ::run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
+	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<Process, EC>> {
+	return run_on_task(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
 		V<SV> views;
 		views.reserve(args.size());
-		for (auto const &arg: args) {
-			views.push_back(arg);
+		for (auto const &a: args) {
+			views.push_back(a);
 		}
 		return spawn(exe, views, opts);
 	});
@@ -535,17 +535,7 @@ export template<typename Target>
 	fs::path exe,
 	V<S> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<Process, EC>> {
-	using namespace conflux::work::root;
-	auto [task, src] = make_task_source<expected<Process, EC>>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<TaskSource<expected<Process, EC>>>(std::move(src));
-	::spawn(
-		spawn_in(target, move(exe), move(args), move(opts))
-		| then([shared_src](expected<Process, EC> value) mutable {
-			  (void)shared_src->commit_success(Success<expected<Process, EC>>{std::move(value)});
-		  })
-		| on_error([shared_src](std::exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
-	return std::move(task);
+	return spawn_in(target, move(exe), move(args), move(opts));
 }
 
 // ---------------------------------------------------------------------------
@@ -642,12 +632,12 @@ export template<typename Target>
 	Target &target,
 	fs::path exe,
 	V<S> args,
-	SpawnOptions opts = {}) {
-	return ::run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
+	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<RunResult, EC>> {
+	return run_on_task(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
 		V<SV> views;
 		views.reserve(args.size());
-		for (auto const &arg: args) {
-			views.push_back(arg);
+		for (auto const &a: args) {
+			views.push_back(a);
 		}
 		return run(exe, views, move(opts));
 	});
@@ -659,37 +649,19 @@ export template<typename Target>
 	fs::path exe,
 	V<S> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<RunResult, EC>> {
-	using namespace conflux::work::root;
-	auto [task, src] = make_task_source<expected<RunResult, EC>>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<TaskSource<expected<RunResult, EC>>>(std::move(src));
-	::spawn(
-		run_in(target, move(exe), move(args), move(opts))
-		| then([shared_src](expected<RunResult, EC> value) mutable {
-			  (void)shared_src->commit_success(Success<expected<RunResult, EC>>{std::move(value)});
-		  })
-		| on_error([shared_src](std::exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
-	return std::move(task);
+	return run_in(target, move(exe), move(args), move(opts));
 }
 
 export template<typename Target>
 [[nodiscard]] auto wait_in(
 	Target &target,
-	Process proc) {
-	return ::run_on(target, [proc = move(proc)]() mutable { return proc.wait(); });
+	Process proc) -> conflux::work::root::Task<int> {
+	return run_on_task(target, [proc = move(proc)]() mutable { return proc.wait(); });
 }
 
 export template<typename Target>
 [[nodiscard]] auto wait_task_in(
 	Target &target,
 	Process proc) -> conflux::work::root::Task<int> {
-	using namespace conflux::work::root;
-	auto [task, src] = make_task_source<int>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<TaskSource<int>>(std::move(src));
-	::spawn(
-		wait_in(target, move(proc))
-		| then([shared_src](int value) mutable { (void)shared_src->commit_success(Success<int>{value}); })
-		| on_error([shared_src](std::exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
-	return std::move(task);
+	return wait_in(target, move(proc));
 }

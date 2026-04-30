@@ -969,14 +969,10 @@ TEST_CASE(
 	ResolveOptions const opts = mock_opts(mock);
 
 	// Both calls happen before the ring is pumped → second attaches as waiter.
-	auto flow1 = task_as_flow(r.resolve("coalesce.test", 80, opts));
-	auto flow2 = task_as_flow(r.resolve("coalesce.test", 80, opts));
-	auto both = join_all(std::move(flow1), std::move(flow2));
-
 	using RR = ResolveResult;
-	auto [res1, res2] = block_on<Tup<RR, RR>>(
+	auto [res1, res2] = block_on<std::tuple<RR, RR>>(
 		*r.file_reader(),
-		std::move(both),
+		join_all(r.resolve("coalesce.test", 80, opts), r.resolve("coalesce.test", 80, opts)),
 		std::make_optional(std::chrono::milliseconds{5000}),
 		PackUdDecode{});
 
@@ -1021,10 +1017,9 @@ TEST_CASE(
 	ResolveOptions opts;
 	opts.allow_v6 = false;
 	opts.query_timeout = std::chrono::milliseconds{100};
-	auto flow = task_as_flow(r.resolve("www", 80, opts));
 	auto result = block_on<ResolveResult>(
 		*r.file_reader(),
-		std::move(flow),
+		r.resolve("www", 80, opts),
 		std::make_optional(std::chrono::milliseconds{5000}),
 		PackUdDecode{});
 

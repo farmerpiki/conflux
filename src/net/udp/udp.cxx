@@ -196,13 +196,18 @@ export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom(
 	auto h = detail::make_recv_holder(buf);
 	auto [task, raw_src] = make_task_source<UdpRecvResult>(SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<TaskSource<UdpRecvResult>>(std::move(raw_src));
-	spawn(
-		task_as_flow(reader.recvmsg_async(sock.handle(), &h->msg, static_cast<unsigned>(flags)))
-		| then([shared_src, h](size_t n) mutable {
-			  (void)shared_src->commit_success(Success<UdpRecvResult>{detail::holder_to_result(h, n)});
-		  })
-		| on_error([shared_src](std::exception_ptr const &ep) mutable { (void)shared_src->commit_failure(ep); })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
+	co_spawn(
+		[shared_src,
+		 h,
+		 recv_task =
+			 reader.recvmsg_async(sock.handle(), &h->msg, static_cast<unsigned>(flags))]() mutable -> ::Task<void> {
+			try {
+				auto const n = co_await std::move(recv_task);
+				(void)shared_src->commit_success(Success<UdpRecvResult>{detail::holder_to_result(h, n)});
+			} catch (Cancelled const &) { (void)shared_src->commit_cancelled(CancelReason::requested); } catch (...) {
+				(void)shared_src->commit_failure(std::current_exception());
+			}
+		}());
 	return std::move(task);
 }
 

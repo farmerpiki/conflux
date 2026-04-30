@@ -134,7 +134,6 @@ using Continuation = UniqueFn<void(Outcome<T> &&)>;
 template<typename T>
 struct State {
 	mutex mtx;
-	std::condition_variable cv;
 	bool ready = false;
 	Opt<Outcome<T>> outcome{};
 	Continuation<T> next{};
@@ -159,7 +158,6 @@ void fulfill(
 		} else {
 			assert(!next);
 			state->outcome = move(outcome);
-			state->cv.notify_all();
 			return;
 		}
 	}
@@ -229,16 +227,6 @@ void attach(
 	try {
 		next(move(*ready));
 	} catch (...) {} // NOLINT(bugprone-empty-catch)
-}
-
-template<typename T>
-Outcome<T> await_result(
-	StatePtr<T> const &state) {
-	std::unique_lock lk{state->mtx};
-	state->cv.wait(lk, [&] { return state->ready; });
-	auto out = move(*state->outcome);
-	state->outcome.reset();
-	return out;
 }
 
 class QueueTarget {
@@ -907,11 +895,10 @@ public:
 	[[nodiscard]] int ring_fd() const noexcept { return options_.ring_fd; }
 };
 
-export template<typename T>
-using Flow [[deprecated("Flow<T> is legacy; use conflux.work.root Task/Posted/Operation APIs for new code")]] =
-	work_detail::Flow<T>;
+template<typename T>
+using Flow = work_detail::Flow<T>;
 
-export struct ValueTag {
+struct ValueTag {
 	template<typename T>
 	[[nodiscard]] auto operator ()(
 		T &&input) const -> Flow<std::decay_t<T>> {
@@ -928,74 +915,70 @@ export struct ValueTag {
 	}
 };
 
-export inline constexpr ValueTag value{};
+inline constexpr ValueTag value{};
 
-export template<typename Fn>
+template<typename Fn>
 struct ThenStep {
 	Fn fn;
 };
 
-export template<typename Fn>
+template<typename Fn>
 struct FlatThenStep {
 	Fn fn;
 };
 
-export template<typename Fn>
+template<typename Fn>
 struct ErrorStep {
 	Fn fn;
 };
 
-export template<typename Fn>
+template<typename Fn>
 struct CancelStep {
 	Fn fn;
 };
 
-export template<typename Target>
+template<typename Target>
 struct MoveToStep {
 	Target *target = nullptr;
 };
 
-export template<typename Target>
+template<typename Target>
 struct StartOnStep {
 	Target *target = nullptr;
 };
 
-export template<typename Fn>
-[[deprecated("then(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto then(
+template<typename Fn>
+[[nodiscard]] auto then(
 	Fn &&fn) {
 	return ThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
-export template<typename Fn>
-[[deprecated("flat_then(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto
-flat_then(
+template<typename Fn>
+[[nodiscard]] auto flat_then(
 	Fn &&fn) {
 	return FlatThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
-export template<typename Fn>
-[[deprecated("on_error(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto
-on_error(
+template<typename Fn>
+[[nodiscard]] auto on_error(
 	Fn &&fn) {
 	return ErrorStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
-export template<typename Fn>
-[[deprecated("on_cancel(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto
-on_cancel(
+template<typename Fn>
+[[nodiscard]] auto on_cancel(
 	Fn &&fn) {
 	return CancelStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
-export template<typename Target>
-[[deprecated("move_to(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto move_to(
+template<typename Target>
+[[nodiscard]] auto move_to(
 	Target &target) {
 	return MoveToStep<Target>{&target};
 }
 
-export template<typename Target>
-[[deprecated("start_on(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto
-start_on(
+template<typename Target>
+[[nodiscard]] auto start_on(
 	Target &target) {
 	return StartOnStep<Target>{&target};
 }
@@ -1311,19 +1294,6 @@ auto join_all(
 }
 
 template<typename T>
-auto wait(
-	Flow<T> flow) {
-	auto state = flow.release_state();
-	auto outcome = await_result<T>(state);
-	if constexpr (std::is_void_v<T>) {
-		(void)extract_value<T>(move(outcome));
-		return;
-	} else {
-		return extract_value<T>(move(outcome));
-	}
-}
-
-template<typename T>
 void spawn(
 	Flow<T> flow) {
 	attach<T>(flow.release_state(), [](Outcome<T> &&outcome) {
@@ -1336,79 +1306,95 @@ void spawn(
 } // namespace work_detail
 
 export template<typename Target, typename Fn>
-[[deprecated("run_on(...) is legacy Flow API; use conflux.work.root for new async code")]] [[nodiscard]] auto run_on(
+[[nodiscard]] auto run_on_task(
 	Target &target,
 	Fn &&fn) {
-	return work_detail::run_on(target, forward<Fn>(fn));
-}
-
-export template<typename T, typename Fn>
-[[nodiscard]] auto operator |(
-	Flow<T> &&flow,
-	ThenStep<Fn> step) {
-	return work_detail::operator |(move(flow), move(step));
-}
-
-export template<typename T, typename Fn>
-[[nodiscard]] auto operator |(
-	Flow<T> &&flow,
-	FlatThenStep<Fn> step) {
-	return work_detail::operator |(move(flow), move(step));
-}
-
-export template<typename T, typename Fn>
-[[nodiscard]] auto operator |(
-	Flow<T> &&flow,
-	ErrorStep<Fn> step) {
-	return work_detail::operator |(move(flow), move(step));
-}
-
-export template<typename T, typename Fn>
-[[nodiscard]] auto operator |(
-	Flow<T> &&flow,
-	CancelStep<Fn> step) {
-	return work_detail::operator |(move(flow), move(step));
-}
-
-export template<typename T, typename Target>
-[[nodiscard]] auto operator |(
-	Flow<T> &&flow,
-	MoveToStep<Target> step) {
-	return work_detail::operator |(move(flow), move(step));
-}
-
-export template<typename T, typename Target>
-[[nodiscard]] auto operator |(
-	Flow<T> &&flow,
-	StartOnStep<Target> step) {
-	return work_detail::operator |(move(flow), move(step));
+	using T = std::invoke_result_t<Fn>;
+	using namespace conflux::work::root;
+	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = std::make_shared<TaskSource<T>>(std::move(src));
+	work_detail::attach<T>(
+		work_detail::run_on(target, forward<Fn>(fn)).release_state(),
+		[shared_src](work_detail::Outcome<T> &&outcome) mutable {
+			if (outcome.tag == work_detail::OutcomeTag::error) {
+				if constexpr (std::is_void_v<T>) {
+					(void)shared_src->commit_failure(outcome.error);
+				} else {
+					(void)shared_src->commit_failure(std::get<std::exception_ptr>(outcome.payload));
+				}
+				return;
+			}
+			if (outcome.tag == work_detail::OutcomeTag::cancelled) {
+				(void)shared_src->commit_cancelled(CancelReason::requested);
+				return;
+			}
+			if constexpr (std::is_void_v<T>) {
+				(void)shared_src->commit_success(Success<T>{});
+			} else {
+				(void)shared_src->commit_success(
+					Success<T>{std::get<work_detail::StoredValue<T>>(std::move(outcome.payload))});
+			}
+		});
+	return std::move(task);
 }
 
 export template<typename... Ts>
 [[nodiscard]] auto join_all(
-	Flow<Ts>... flows) {
-	return work_detail::join_all(move(flows)...);
+	Task<Ts>... tasks) {
+	return work_detail::join_all(std::move(tasks).flow()...);
 }
 
+// Synchronous blocking wait for a root::Task<T> — no FileReader required.
+// Useful when the task completes on a thread pool (not io_uring).
 export template<typename T>
-auto wait(
-	Flow<T> flow) {
-	return work_detail::wait(move(flow));
-}
-
-export template<typename T>
-void spawn(
-	Flow<T> flow) {
-	work_detail::spawn(move(flow));
+T sync_wait(
+	conflux::work::root::Task<T> task) {
+	using namespace conflux::work::root;
+	struct Slot {
+		std::mutex mtx{};
+		std::condition_variable cv{};
+		bool done = false;
+		std::exception_ptr err{};
+		Opt<std::conditional_t<std::is_void_v<T>, std::monostate, T>> value{};
+	};
+	auto slot = std::make_shared<Slot>();
+	auto jh = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(task)));
+	jh->control().set_on_ready_or_run([slot, jh]() noexcept {
+		try {
+			auto outcome = join(std::move(*jh));
+			std::unique_lock lk{slot->mtx};
+			if (outcome.is_failure()) {
+				slot->err = std::move(outcome).failure().error;
+			} else if (outcome.is_cancelled()) {
+				slot->err = std::make_exception_ptr(::Cancelled{});
+			} else if constexpr (!std::is_void_v<T>) {
+				slot->value.emplace(std::move(outcome).success().value);
+			}
+			slot->done = true;
+			lk.unlock();
+			slot->cv.notify_one();
+		} catch (...) {
+			std::unique_lock lk{slot->mtx};
+			slot->err = std::current_exception();
+			slot->done = true;
+			lk.unlock();
+			slot->cv.notify_one();
+		}
+	});
+	std::unique_lock lk{slot->mtx};
+	slot->cv.wait(lk, [&] { return slot->done; });
+	if (slot->err) {
+		std::rethrow_exception(slot->err);
+	}
+	if constexpr (!std::is_void_v<T>) {
+		return std::move(*slot->value);
+	}
 }
 
 // ---------------------------------------------------------------------------
-// FlowSource<T>: externally-resolvable producer for a Flow<T>. Used by code
-// that bridges I/O completions (io_uring CQEs, eventfd readiness, etc.) into
-// the Flow<T> pipeline without going through run_on / WorkPool.
-//
-// Copyable (shared-ownership of the control block). Only the first of
-// resolve/reject/cancel across all copies takes effect.
+// FlowSource<T>: internal coroutine backing store. TaskPromise<T> owns one;
+// Task<T> holds a shared reference to its flow() output.
+// Copyable (shared-ownership). Only the first resolve/reject/cancel takes effect.
 // ---------------------------------------------------------------------------
 
 export template<typename T>
@@ -1530,10 +1516,10 @@ void co_spawn(
 	work_detail::spawn(move(task).flow());
 }
 
-// Bridge: converts a root::Task<T> into a Flow<T> for use in legacy Flow chains.
+// Bridge: converts a root::Task<T> into a Flow<T> for use inside Task<T> coroutines.
 // The on_ready callback fires after the task is terminal, so root::join() returns
 // immediately without blocking.
-export template<typename T>
+template<typename T>
 [[nodiscard]] Flow<T> task_as_flow(
 	conflux::work::root::Task<T> task) {
 	using namespace conflux::work::root;
@@ -1558,4 +1544,32 @@ export template<typename T>
 		} catch (...) { shared_src->reject(std::current_exception()); }
 	});
 	return flow;
+}
+
+export namespace conflux::work::root {
+
+template<typename T>
+[[nodiscard]] auto operator co_await(
+	Task<T> task) {
+	return task_as_flow(std::move(task)).operator co_await();
+}
+
+} // namespace conflux::work::root
+
+export template<typename... Ts>
+[[nodiscard]] auto join_all(
+	conflux::work::root::Task<Ts>... tasks) -> conflux::work::root::Task<std::tuple<Ts...>> {
+	using Result = std::tuple<Ts...>;
+	using namespace conflux::work::root;
+	auto [root_task, src] = make_task_source<Result>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = std::make_shared<TaskSource<Result>>(std::move(src));
+	co_spawn([shared_src, inner = work_detail::join_all(task_as_flow(std::move(tasks))...)]() mutable -> ::Task<void> {
+		try {
+			auto val = co_await std::move(inner);
+			(void)shared_src->commit_success(Success<Result>{std::move(val)});
+		} catch (::Cancelled const &) { (void)shared_src->commit_cancelled(CancelReason::requested); } catch (...) {
+			(void)shared_src->commit_failure(std::current_exception());
+		}
+	}());
+	return std::move(root_task);
 }

@@ -220,43 +220,25 @@ struct AsyncLineReader {
 	A<byte, 128> buf{};
 	SZ held = 0;
 
-	Flow<SV> read_line() { return read_line_impl(); }
-
-private:
-	Flow<SV> read_line_impl() {
-		FlowSource<SV> const src;
-		auto flow = src.flow();
-		step(src);
-		return flow;
-	}
-
-	void step(
-		FlowSource<SV> const &dst) {
-		auto view = span{buf}.first(held);
-		auto it = ranges::find(view, static_cast<byte>('\n'));
-		if (it != view.end()) {
-			auto const end = static_cast<SZ>(it - view.begin());
-			dst.resolve(SV{reinterpret_cast<char const *>(buf.data()), end});
-			return;
+	Task<SV> read_line() {
+		for (;;) {
+			auto view = span{buf}.first(held);
+			auto it = ranges::find(view, static_cast<byte>('\n'));
+			if (it != view.end()) {
+				auto const end = static_cast<SZ>(it - view.begin());
+				co_return SV{reinterpret_cast<char const *>(buf.data()), end};
+			}
+			auto got = co_await files.read_into(handle, 0, span{buf.data() + held, buf.size() - held});
+			if (got == 0) {
+				throw RE{"eof"};
+			}
+			held += got;
 		}
-		auto read_flow = task_as_flow(files.read_into(handle, 0, span{buf.data() + held, buf.size() - held}));
-		auto chained = move(read_flow)
-					 | then([this, dst](SZ got) mutable {
-						   if (got == 0) {
-							   dst.reject(make_exception_ptr(RE{"eof"}));
-							   return;
-						   }
-						   held += got;
-						   step(dst);
-					   })
-					 | on_error([dst](const EP &e) { dst.reject(e); });
-		(void)chained;
 	}
 
-public:
 	void consume_line(
 		SZ line_len) {
-		SZ const drop = line_len + 1; // includes '\n'
+		SZ const drop = line_len + 1;
 		consume_prefix(buf, held, drop);
 	}
 };
@@ -295,7 +277,7 @@ Task<u64> coro_loop(
 	u64 n = start;
 	for (SZ i = 0; i < iters; ++i) {
 		SZ const len = encode_line(out, n);
-		co_await task_as_flow(files.write_into(sock, 0, as_bytes(span{out.data(), len})));
+		co_await files.write_into(sock, 0, as_bytes(span{out.data(), len}));
 		auto line = co_await reader.read_line();
 		u64 const got = decode_line(line);
 		reader.consume_line(line.size());

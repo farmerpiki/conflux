@@ -30,24 +30,6 @@ namespace udp_ns = conflux::net::udp;
 
 namespace conflux::net::dns {
 
-namespace detail {
-
-template<typename T>
-[[nodiscard]] auto flow_to_root_task(
-	Flow<T> flow) -> conflux::work::root::Task<T> {
-	using namespace conflux::work::root;
-	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
-	auto shared = std::make_shared<TaskSource<T>>(std::move(src));
-	spawn(
-		std::move(flow)
-		| then([shared](T value) mutable { (void)shared->commit_success(Success<T>{std::move(value)}); })
-		| on_error([shared](std::exception_ptr const &ep) mutable { (void)shared->commit_failure(ep); })
-		| on_cancel([shared]() mutable { (void)shared->commit_cancelled(CancelReason::requested); }));
-	return std::move(task);
-}
-
-} // namespace detail
-
 namespace root = conflux::work::root;
 
 // ─── address family / endpoint ──────────────────────────────────────────────
@@ -1046,7 +1028,7 @@ void validate_accepted_response_status(
 		auto const remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
 		auto recv_task =
 			udp_ns::recvfrom_with_timeout(reader, *sock, span<u8>{rx_buf->data(), rx_buf->size()}, remaining);
-		auto const result = co_await task_as_flow(std::move(recv_task));
+		auto const result = co_await std::move(recv_task);
 		auto msg = codec::decode_message(span<u8 const>{rx_buf->data(), result.bytes});
 		if (!same_dns_peer(result.from, result.from_len, ns)) {
 			continue;
@@ -1082,7 +1064,7 @@ void validate_accepted_response_status(
 			span<u8 const>{wire_buf->data(), wire_buf->size()},
 			reinterpret_cast<::sockaddr const *>(&ns.addr),
 			ns.addr_len);
-		co_await task_as_flow(std::move(send_task));
+		co_await std::move(send_task);
 		auto recv_task = recv_valid_udp_response(
 			reader,
 			sock,
@@ -1119,7 +1101,7 @@ void validate_accepted_response_status(
 	int const family = static_cast<int>(ns.addr.ss_family);
 	try {
 		auto sock_task = reader.socket_async(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
-		auto fh = co_await task_as_flow(std::move(sock_task));
+		auto fh = co_await std::move(sock_task);
 		if (timeout.count() > 0) {
 			auto const sec = std::chrono::duration_cast<std::chrono::seconds>(timeout);
 			auto const usec = std::chrono::duration_cast<std::chrono::microseconds>(timeout - sec).count();
@@ -1133,15 +1115,15 @@ void validate_accepted_response_status(
 			}
 		}
 		auto conn_task = reader.connect_async(fh, ns.addr, ns.addr_len);
-		co_await task_as_flow(std::move(conn_task));
+		co_await std::move(conn_task);
 		auto send_task = reader.send_async(fh, framed->data(), framed->size(), MSG_NOSIGNAL);
-		auto const sent = co_await task_as_flow(std::move(send_task));
+		auto const sent = co_await std::move(send_task);
 		if (sent != framed->size()) {
 			throw DnsError{DnsErrorKind::network, "dns: tcp short send"};
 		}
 		std::array<u8, 2> len_buf{};
 		auto len_task = reader.recv_async(fh, len_buf.data(), 2, MSG_WAITALL);
-		auto const n = co_await task_as_flow(std::move(len_task));
+		auto const n = co_await std::move(len_task);
 		if (n != 2) {
 			throw DnsError{DnsErrorKind::network, "dns: tcp short length prefix"};
 		}
@@ -1151,7 +1133,7 @@ void validate_accepted_response_status(
 		}
 		vector<u8> resp_buf(resp_len);
 		auto resp_task = reader.recv_async(fh, resp_buf.data(), resp_len, MSG_WAITALL);
-		auto const resp_n = co_await task_as_flow(std::move(resp_task));
+		auto const resp_n = co_await std::move(resp_task);
 		if (resp_n != resp_buf.size()) {
 			throw DnsError{DnsErrorKind::network, "dns: tcp short response"};
 		}
@@ -1277,30 +1259,21 @@ struct EndpointBatch {
 	codec::Edns0Options edns) {
 	u16 const qid_a = static_cast<u16>(std::random_device{}() & 0xFFFFU);
 	u16 const qid_aaaa = static_cast<u16>((static_cast<u32>(qid_a) + 1U) & 0xFFFFU);
-	Flow<EndpointBatch> a_flow;
-	if (do_v4) {
-		a_flow = build_family_flow(reader, ns, hostname, port, qid_a, codec::QType::a, AddressFamily::v4, timeout, edns)
-					 .flow();
-	} else {
-		a_flow = make_empty_batch_task().flow();
-	}
-	Flow<EndpointBatch> aaaa_flow;
-	if (do_v6) {
-		aaaa_flow = build_family_flow(
-						reader,
-						ns,
-						hostname,
-						port,
-						qid_aaaa,
-						codec::QType::aaaa,
-						AddressFamily::v6,
-						timeout,
-						edns)
-						.flow();
-	} else {
-		aaaa_flow = make_empty_batch_task().flow();
-	}
-	auto [v4, v6] = co_await join_all(std::move(a_flow), std::move(aaaa_flow));
+	auto [v4, v6] = co_await join_all(
+		do_v4 ?
+			build_family_flow(reader, ns, hostname, port, qid_a, codec::QType::a, AddressFamily::v4, timeout, edns) :
+			make_empty_batch_task(),
+		do_v6 ? build_family_flow(
+					reader,
+					ns,
+					hostname,
+					port,
+					qid_aaaa,
+					codec::QType::aaaa,
+					AddressFamily::v6,
+					timeout,
+					edns) :
+				make_empty_batch_task());
 	if (v4.eps.empty() && v6.eps.empty()) {
 		// Both families have no results. Propagate the dominant failure.
 		auto const w =
@@ -1817,16 +1790,20 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 			auto shared_waiter = std::make_shared<root::TaskSource<ResolveResult>>(std::move(wraw_src));
 			it->second.waiters.push_back(shared_waiter);
-			return detail::flow_to_root_task(
-				task_as_flow(std::move(wtask))
-				| then([](ResolveResult r) {
-					  r.from_coalesced = true;
-					  return r;
-				  })
-				| on_cancel([]() -> ResolveResult {
-					  throw DnsError{DnsErrorKind::cancelled, "dns: query cancelled"};
-					  return {};
-				  }));
+			auto [out_task, out_raw_src] =
+				root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
+			auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
+			co_spawn([out_src, wtask = std::move(wtask)]() mutable -> Task<void> {
+				try {
+					auto r = co_await std::move(wtask);
+					r.from_coalesced = true;
+					(void)out_src->commit_success(root::Success<ResolveResult>{std::move(r)});
+				} catch (Cancelled const &) {
+					(void)out_src->commit_failure(
+						std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
+				} catch (...) { (void)out_src->commit_failure(std::current_exception()); }
+			}());
+			return std::move(out_task);
 		}
 		impl_->in_flight.emplace(coalesce_key, CoalescedBroadcast{});
 	}
@@ -1879,36 +1856,52 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		return {};
 	};
 
-	return detail::flow_to_root_task(
-		build_native_udp_flow_with_candidates(
-			*reader,
-			ns_list,
-			candidates,
-			0,
-			port,
-			do_v4,
-			do_v6,
-			effective_opts.prefer,
-			timeout,
-			edns)
-			.flow()
-		| then(std::move(cache_insert))
-		| then(std::move(fanout_success))
-		| on_error(std::move(fanout_error))
-		| on_cancel([impl = impl_.get(), coalesce_key]() -> ResolveResult {
-			  if (!coalesce_key.empty()) {
-				  if (auto it = impl->in_flight.find(coalesce_key); it != impl->in_flight.end()) {
-					  auto cancelled =
-						  std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"});
-					  for (auto const &w: it->second.waiters) {
-						  (void)w->commit_failure(cancelled);
-					  }
-					  impl->in_flight.erase(it);
-				  }
-			  }
-			  throw DnsError{DnsErrorKind::cancelled, "dns: query cancelled"};
-			  return {};
-		  }));
+	auto [out_task, out_raw_src] =
+		root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
+	auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
+	co_spawn(
+		[out_src,
+		 inner = build_native_udp_flow_with_candidates(
+			 *reader,
+			 ns_list,
+			 candidates,
+			 0,
+			 port,
+			 do_v4,
+			 do_v6,
+			 effective_opts.prefer,
+			 timeout,
+			 edns),
+		 cache_insert = std::move(cache_insert),
+		 fanout_success = std::move(fanout_success),
+		 fanout_error = std::move(fanout_error),
+		 impl = impl_.get(),
+		 coalesce_key]() mutable -> Task<void> {
+			try {
+				auto r = co_await std::move(inner);
+				r = cache_insert(std::move(r));
+				r = fanout_success(std::move(r));
+				(void)out_src->commit_success(root::Success<ResolveResult>{std::move(r)});
+			} catch (Cancelled const &) {
+				if (!coalesce_key.empty()) {
+					if (auto it = impl->in_flight.find(coalesce_key); it != impl->in_flight.end()) {
+						auto cancelled =
+							std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"});
+						for (auto const &w: it->second.waiters) {
+							(void)w->commit_failure(cancelled);
+						}
+						impl->in_flight.erase(it);
+					}
+				}
+				(void)out_src->commit_failure(
+					std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
+			} catch (...) {
+				try {
+					fanout_error(std::current_exception());
+				} catch (...) { (void)out_src->commit_failure(std::current_exception()); }
+			}
+		}());
+	return std::move(out_task);
 }
 
 conflux::work::root::Task<ResolveResult> Resolver::resolve(

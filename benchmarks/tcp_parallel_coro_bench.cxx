@@ -185,14 +185,20 @@ Config parse_args(
 	return cfg;
 }
 
-// Shared join primitive: N workers, last one resolves the flow.
+// Shared join primitive: N workers, last one resolves the task.
 struct Barrier {
 	Atom<SZ> remaining;
-	FlowSource<void> src;
+	std::shared_ptr<conflux::work::root::TaskSource<void>> src;
+	conflux::work::root::Task<void> done;
 
 	explicit Barrier(
 		SZ n)
-		: remaining{n} {}
+		: remaining{n} {
+		auto [task, source] = conflux::work::root::make_task_source<void>(
+			conflux::work::root::SubmitOptions{.enable_cancellation = false});
+		done = std::move(task);
+		src = std::make_shared<conflux::work::root::TaskSource<void>>(std::move(source));
+	}
 };
 
 struct BarrierTicket {
@@ -200,7 +206,7 @@ struct BarrierTicket {
 
 	~BarrierTicket() {
 		if (barrier != nullptr && barrier->remaining.fetch_sub(1, memory_order_acq_rel) == 1) {
-			barrier->src.resolve();
+			(void)barrier->src->commit_success(conflux::work::root::Success<void>{});
 		}
 	}
 };
@@ -240,8 +246,8 @@ Task<void> async_server(
 				SZ const out_len = static_cast<SZ>(conv.ptr - out.data()) + 1;
 				SZ sent = 0;
 				while (sent < out_len) {
-					auto const w = co_await task_as_flow(
-						files.write_into(sock, 0, as_bytes(span{out.data() + sent, out_len - sent})));
+					auto const w =
+						co_await files.write_into(sock, 0, as_bytes(span{out.data() + sent, out_len - sent}));
 					if (w == 0) {
 						co_return;
 					}
@@ -252,7 +258,7 @@ Task<void> async_server(
 			if (scan > 0) {
 				consume_prefix(buf, held, scan);
 			}
-			auto got = co_await task_as_flow(files.read_into(sock, 0, span{buf.data() + held, buf.size() - held}));
+			auto got = co_await files.read_into(sock, 0, span{buf.data() + held, buf.size() - held});
 			if (got == 0) {
 				co_return;
 			}
@@ -323,7 +329,7 @@ struct AsyncLineReader {
 				auto const end = static_cast<SZ>(it - view.begin());
 				co_return SV{reinterpret_cast<char const *>(buf.data()), end};
 			}
-			auto got = co_await task_as_flow(files.read_into(handle, 0, span{buf.data() + held, buf.size() - held}));
+			auto got = co_await files.read_into(handle, 0, span{buf.data() + held, buf.size() - held});
 			if (got == 0) {
 				throw RE{"eof"};
 			}
@@ -350,7 +356,7 @@ Task<void> worker(
 	try {
 		for (SZ i = 0; i < iters; ++i) {
 			SZ const len = encode_line(out, n);
-			co_await task_as_flow(files.write_into(sock, 0, as_bytes(span{out.data(), len})));
+			co_await files.write_into(sock, 0, as_bytes(span{out.data(), len}));
 			auto line = co_await reader.read_line();
 			u64 const got = decode_line(line);
 			reader.consume_line(line.size());
@@ -406,14 +412,13 @@ RunResult run_parallel(
 	}
 
 	Barrier b{parallelism * 2};
-	auto done = b.src.flow();
 
 	auto const t0 = chrono::steady_clock::now();
 	for (SZ i = 0; i < parallelism; ++i) {
 		co_spawn(async_server(files, std::move(server_socks[i]), &b));
 		co_spawn(spawn_arm(worker(files, std::move(client_socks[i]), iters_per_conn, &b)));
 	}
-	block_on(files, std::move(done));
+	block_on(files, std::move(b.done));
 	auto const t1 = chrono::steady_clock::now();
 
 	return {

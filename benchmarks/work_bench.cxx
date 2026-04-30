@@ -166,9 +166,12 @@ void print_stats(
 Case make_value_then_case() {
 	return Case{
 		.name = "micro/value_then",
-		.description = "Immediate value through a simple then-chain",
+		.description = "Immediate value through sync_wait",
 		.default_iterations = 200'000,
-		.run = [] { return static_cast<SZ>(wait(value(7) | then([](int x) { return x + 1; }))); }};
+		.run = [] {
+			WorkPool pool;
+			return static_cast<SZ>(sync_wait(run_on_task(pool, [] { return 7 + 1; })));
+		}};
 }
 
 Case make_pool_roundtrip_case() {
@@ -177,7 +180,7 @@ Case make_pool_roundtrip_case() {
 		.name = "micro/pool_roundtrip",
 		.description = "Submit to WorkPool and wait for one result",
 		.default_iterations = 100'000,
-		.run = [pool] { return static_cast<SZ>(wait(run_on(*pool, [] { return 42; }))); }};
+		.run = [pool] { return static_cast<SZ>(sync_wait(run_on_task(*pool, [] { return 42; }))); }};
 }
 
 Case make_pool_chain_case() {
@@ -186,22 +189,20 @@ Case make_pool_chain_case() {
 		.name = "micro/pool_chain",
 		.description = "WorkPool submit followed by chained continuation",
 		.default_iterations = 100'000,
-		.run = [pool] {
-			return static_cast<SZ>(
-				wait(run_on(*pool, [] { return 10; }) | then([](int x) { return x * 4; }) | then([](int x) {
-						 return x + 2;
-					 })));
-		}};
+		.run = [pool] { return static_cast<SZ>(sync_wait(run_on_task(*pool, [] { return (10 * 4) + 2; }))); }};
 }
 
 Case make_join_all_case() {
 	auto pool = make_shared<WorkPool>();
 	return Case{
 		.name = "micro/join_all",
-		.description = "Join two pool tasks and one immediate value",
+		.description = "Join three pool tasks",
 		.default_iterations = 50'000,
 		.run = [pool] {
-			auto [a, b, c] = wait(join_all(run_on(*pool, [] { return 1; }), run_on(*pool, [] { return 2; }), value(3)));
+			auto [a, b, c] = sync_wait(join_all(
+				run_on_task(*pool, [] { return 1; }),
+				run_on_task(*pool, [] { return 2; }),
+				run_on_task(*pool, [] { return 3; })));
 			return static_cast<SZ>(a + b + c);
 		}};
 }

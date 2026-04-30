@@ -3430,73 +3430,62 @@ void pump_until(
 export template<typename T, typename Decode = DefaultUdDecoder>
 T block_on(
 	FileReader &reader,
-	Task<T> task,
-	Opt<std::chrono::milliseconds> budget = std::nullopt,
-	Decode decode = {}) {
-	if constexpr (std::is_void_v<T>) {
-		block_on<void>(reader, std::move(task).flow(), budget, std::move(decode));
-	} else {
-		return block_on<T>(reader, std::move(task).flow(), budget, std::move(decode));
-	}
-}
-
-export template<typename T, typename Decode = DefaultUdDecoder>
-T block_on(
-	FileReader &reader,
 	conflux::work::root::Task<T> task,
 	Opt<std::chrono::milliseconds> budget = std::nullopt,
 	Decode decode = {}) {
-	if constexpr (std::is_void_v<T>) {
-		block_on<void>(reader, task_as_flow(std::move(task)), budget, std::move(decode));
-	} else {
-		return block_on<T>(reader, task_as_flow(std::move(task)), budget, std::move(decode));
+	using namespace conflux::work::root;
+	struct Slot {
+		std::atomic_flag done{};
+		std::exception_ptr err{};
+		[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, Opt<T>> value{};
+	};
+	auto slot = std::make_shared<Slot>();
+	auto jh = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(task)));
+	jh->control().set_on_ready_or_run([slot, jh]() noexcept {
+		try {
+			auto outcome = join(std::move(*jh));
+			if (outcome.is_failure()) {
+				slot->err = std::move(outcome).failure().error;
+			} else if (outcome.is_cancelled()) {
+				slot->err = std::make_exception_ptr(::Cancelled{});
+			} else {
+				if constexpr (!std::is_void_v<T>) {
+					slot->value.emplace(std::move(outcome).success().value);
+				}
+			}
+		} catch (...) { slot->err = std::current_exception(); }
+		slot->done.test_and_set(std::memory_order_release);
+	});
+	pump_until(reader, slot->done, budget, std::move(decode));
+	if (slot->err) {
+		std::rethrow_exception(slot->err);
+	}
+	if constexpr (!std::is_void_v<T>) {
+		return std::move(*slot->value);
 	}
 }
 
 export template<typename T, typename Decode = DefaultUdDecoder>
 T block_on(
 	FileReader &reader,
-	Flow<T> flow,
+	Task<T> task,
 	Opt<std::chrono::milliseconds> budget = std::nullopt,
 	Decode decode = {}) {
-	if constexpr (std::is_void_v<T>) {
-		struct Slot {
-			std::atomic_flag done{};
-			std::exception_ptr err{};
-		};
-		auto slot = std::make_shared<Slot>();
-		auto held = std::move(flow)
-				  | then([slot]() { slot->done.test_and_set(std::memory_order_release); })
-				  | on_error([slot](std::exception_ptr const &ex) {
-						slot->err = ex;
-						slot->done.test_and_set(std::memory_order_release);
-					});
-		(void)held;
-		pump_until(reader, slot->done, budget, std::move(decode));
-		if (slot->err) {
-			std::rethrow_exception(slot->err);
+	using namespace conflux::work::root;
+	auto [root_task, raw_src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = std::make_shared<TaskSource<T>>(std::move(raw_src));
+	co_spawn([shared_src, inner = std::move(task)]() mutable -> ::Task<void> {
+		try {
+			if constexpr (std::is_void_v<T>) {
+				co_await std::move(inner);
+				(void)shared_src->commit_success(Success<T>{});
+			} else {
+				auto v = co_await std::move(inner);
+				(void)shared_src->commit_success(Success<T>{std::move(v)});
+			}
+		} catch (::Cancelled const &) { (void)shared_src->commit_cancelled(CancelReason::requested); } catch (...) {
+			(void)shared_src->commit_failure(std::current_exception());
 		}
-	} else {
-		struct Slot {
-			std::atomic_flag done{};
-			std::exception_ptr err{};
-			Opt<T> value{};
-		};
-		auto slot = std::make_shared<Slot>();
-		auto held = std::move(flow)
-				  | then([slot](T v) {
-						slot->value.emplace(std::move(v));
-						slot->done.test_and_set(std::memory_order_release);
-					})
-				  | on_error([slot](std::exception_ptr const &ex) {
-						slot->err = ex;
-						slot->done.test_and_set(std::memory_order_release);
-					});
-		(void)held;
-		pump_until(reader, slot->done, budget, std::move(decode));
-		if (slot->err) {
-			std::rethrow_exception(slot->err);
-		}
-		return std::move(*slot->value);
-	}
+	}());
+	return block_on<T>(reader, std::move(root_task), budget, std::move(decode));
 }

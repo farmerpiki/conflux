@@ -54,14 +54,11 @@ struct RingFixture {
 	RingFixture(RingFixture &&) = delete;
 	RingFixture &operator =(RingFixture &&) = delete;
 
-	void pump_until(
-		atomic_flag const &done,
+	template<typename T>
+	T run(
+		conflux::work::root::Task<T> task,
 		chrono::milliseconds budget = chrono::seconds{5}) {
-		try {
-			::pump_until(reader, done, budget);
-		} catch (PumpTimeout const &) { FAIL("pump_until: timeout"); } catch (exception const &e) {
-			FAIL(format("pump_until: {}", e.what()));
-		}
+		return block_on(reader, std::move(task), budget);
 	}
 };
 
@@ -133,50 +130,24 @@ TEST_CASE(
 	auto const recv_port = recv_sock.local_port();
 	REQUIRE(recv_port > 0);
 
-	std::array<uint8_t, 256> rx_buf{};
-	UdpRecvResult rx{};
-	atomic_flag rx_done{};
-	auto rx_flow = task_as_flow(recvfrom(fx->reader, recv_sock, span<uint8_t>{rx_buf.data(), rx_buf.size()}))
-				 | then([&](UdpRecvResult r) {
-					   rx = r;
-					   rx_done.test_and_set(memory_order_release);
-					   return 0;
-				   })
-				 | on_error([&](exception_ptr const &) {
-					   rx_done.test_and_set(memory_order_release);
-					   return -1;
-				   });
-
 	std::array<uint8_t, 5> payload{'h', 'e', 'l', 'l', 'o'};
 	auto dest = v4_loopback(recv_port);
 
-	size_t bytes_sent = 0;
-	atomic_flag tx_done{};
-	auto tx_flow = task_as_flow(sendto(
-					   fx->reader,
-					   send_sock,
-					   span<uint8_t const>{payload.data(), payload.size()},
-					   reinterpret_cast<::sockaddr const *>(&dest),
-					   sizeof(dest)))
-				 | then([&](size_t n) {
-					   bytes_sent = n;
-					   tx_done.test_and_set(memory_order_release);
-					   return 0;
-				   })
-				 | on_error([&](exception_ptr const &) {
-					   tx_done.test_and_set(memory_order_release);
-					   return -1;
-				   });
-
-	fx->pump_until(tx_done);
-	fx->pump_until(rx_done);
-	(void)tx_flow;
-	(void)rx_flow;
-
+	// Send first; kernel buffers the datagram.
+	auto const bytes_sent = fx->run(sendto(
+		fx->reader,
+		send_sock,
+		span<uint8_t const>{payload.data(), payload.size()},
+		reinterpret_cast<::sockaddr const *>(&dest),
+		sizeof(dest)));
 	CHECK(bytes_sent == payload.size());
+
+	// Recv now — packet is already in the kernel buffer.
+	std::array<uint8_t, 256> rx_buf{};
+	auto const rx = fx->run(recvfrom(fx->reader, recv_sock, span<uint8_t>{rx_buf.data(), rx_buf.size()}));
+
 	REQUIRE(rx.bytes == payload.size());
 	CHECK(memcmp(rx_buf.data(), payload.data(), rx.bytes) == 0);
-
 	CHECK(rx.from_len >= sizeof(::sockaddr_in));
 	auto const &from = *reinterpret_cast<::sockaddr_in const *>(&rx.from);
 	CHECK(from.sin_family == AF_INET);
@@ -196,29 +167,19 @@ TEST_CASE(
 	auto sock = UdpSocket::open_ephemeral(AF_INET);
 
 	std::array<uint8_t, 256> rx_buf{};
-	atomic_flag done{};
 	int err_code = 0;
 	bool got_value = false;
-	auto flow = task_as_flow(recvfrom_with_timeout(
-					fx->reader,
-					sock,
-					span<uint8_t>{rx_buf.data(), rx_buf.size()},
-					chrono::milliseconds{50}))
-			  | then([&](UdpRecvResult) {
-					got_value = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](exception_ptr const &e) {
-					try {
-						std::rethrow_exception(e);
-					} catch (UdpError const &ue) { err_code = ue.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done, chrono::seconds{2});
-	(void)flow;
+	try {
+		fx->run(
+			recvfrom_with_timeout(
+				fx->reader,
+				sock,
+				span<uint8_t>{rx_buf.data(), rx_buf.size()},
+				chrono::milliseconds{50}),
+			chrono::seconds{2});
+		got_value = true;
+	} catch (UdpError const &ue) { err_code = ue.code().value(); } catch (...) {
+	}
 
 	CHECK_FALSE(got_value);
 	CHECK(err_code == ETIMEDOUT);
@@ -238,50 +199,26 @@ TEST_CASE(
 
 	auto const recv_port = recv_sock.local_port();
 
-	std::array<uint8_t, 256> rx_buf{};
-	UdpRecvResult rx{};
-	atomic_flag rx_done{};
-	bool rx_ok = false;
-	auto rx_flow = task_as_flow(recvfrom_with_timeout(
-					   fx->reader,
-					   recv_sock,
-					   span<uint8_t>{rx_buf.data(), rx_buf.size()},
-					   chrono::milliseconds{2000}))
-				 | then([&](UdpRecvResult r) {
-					   rx = r;
-					   rx_ok = true;
-					   rx_done.test_and_set(memory_order_release);
-					   return 0;
-				   })
-				 | on_error([&](exception_ptr const &) {
-					   rx_done.test_and_set(memory_order_release);
-					   return -1;
-				   });
-
 	std::array<uint8_t, 4> payload{0xDE, 0xAD, 0xBE, 0xEF};
 	auto dest = v4_loopback(recv_port);
-	atomic_flag tx_done{};
-	auto tx_flow = task_as_flow(sendto(
-					   fx->reader,
-					   send_sock,
-					   span<uint8_t const>{payload.data(), payload.size()},
-					   reinterpret_cast<::sockaddr const *>(&dest),
-					   sizeof(dest)))
-				 | then([&](size_t) {
-					   tx_done.test_and_set(memory_order_release);
-					   return 0;
-				   })
-				 | on_error([&](exception_ptr const &) {
-					   tx_done.test_and_set(memory_order_release);
-					   return -1;
-				   });
 
-	fx->pump_until(tx_done);
-	fx->pump_until(rx_done, chrono::seconds{3});
-	(void)tx_flow;
-	(void)rx_flow;
+	// Send first; kernel buffers the datagram.
+	fx->run(sendto(
+		fx->reader,
+		send_sock,
+		span<uint8_t const>{payload.data(), payload.size()},
+		reinterpret_cast<::sockaddr const *>(&dest),
+		sizeof(dest)));
 
-	REQUIRE(rx_ok);
+	std::array<uint8_t, 256> rx_buf{};
+	auto const rx = fx->run(
+		recvfrom_with_timeout(
+			fx->reader,
+			recv_sock,
+			span<uint8_t>{rx_buf.data(), rx_buf.size()},
+			chrono::milliseconds{2000}),
+		chrono::seconds{3});
+
 	REQUIRE(rx.bytes == payload.size());
 	CHECK(memcmp(rx_buf.data(), payload.data(), rx.bytes) == 0);
 }
@@ -297,23 +234,11 @@ TEST_CASE(
 	auto sock = UdpSocket::open_ephemeral(AF_INET);
 
 	std::array<uint8_t, 1> payload{0};
-	atomic_flag done{};
 	int err_code = 0;
-	auto flow = task_as_flow(sendto(fx->reader, sock, span<uint8_t const>{payload.data(), payload.size()}, nullptr, 0))
-			  | then([&](size_t) {
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](exception_ptr const &e) {
-					try {
-						std::rethrow_exception(e);
-					} catch (UdpError const &ue) { err_code = ue.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		fx->run(sendto(fx->reader, sock, span<uint8_t const>{payload.data(), payload.size()}, nullptr, 0));
+	} catch (UdpError const &ue) { err_code = ue.code().value(); } catch (...) {
+	}
 
 	CHECK(err_code == EINVAL);
 }

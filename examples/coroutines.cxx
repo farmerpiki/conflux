@@ -1,7 +1,4 @@
-// Legacy coroutine example — co_await over conflux.work Flow<T> (deprecated for new code).
-//
-// Any Flow<T> is directly awaitable. Define a coroutine returning Task<T>,
-// co_await each async op, and let block_on() drive the io_uring until done.
+// Coroutine example — co_await async file ops inside a Task<T> coroutine.
 #include <fcntl.h>
 #include <liburing.h>
 #include <unistd.h>
@@ -22,12 +19,12 @@ constexpr u64 pack_ud(
 Task<S> read_file(
 	FileReader &files,
 	S path) {
-	auto handle = co_await task_as_flow(files.open_async(AT_FDCWD, path, O_RDONLY | O_CLOEXEC));
+	auto handle = co_await files.open_async(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
 	if (!handle.valid()) {
 		throw std::runtime_error{std::format("open {} failed", path)};
 	}
 	A<std::byte, 256> buf{};
-	auto got = co_await task_as_flow(files.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()}));
+	auto got = co_await files.read_into(handle, 0, std::span<std::byte>{buf.data(), buf.size()});
 	co_return S{reinterpret_cast<char const *>(buf.data()), got};
 }
 

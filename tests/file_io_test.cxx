@@ -54,16 +54,6 @@ struct RingFixture {
 	RingFixture &operator =(RingFixture const &) = delete;
 	RingFixture(RingFixture &&) = delete;
 	RingFixture &operator =(RingFixture &&) = delete;
-
-	void pump_until(
-		atomic_flag const &done,
-		chrono::milliseconds budget = chrono::seconds{5}) {
-		try {
-			::pump_until(reader, done, budget);
-		} catch (PumpTimeout const &) { FAIL("pump_until: timeout"); } catch (exception const &e) {
-			FAIL(format("pump_until: {}", e.what()));
-		}
-	}
 };
 
 UP<RingFixture> require_ring_fixture(
@@ -159,53 +149,16 @@ TEST_CASE(
 
 	auto tf = TempFile::create("hello file_io");
 
-	FileHandle handle;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC))
-				   | then([&](FileHandle h) {
-						 handle = move(h);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	FileHandle handle =
+		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	FileStat st{};
-	atomic_flag stat_done{};
-	auto stat_flow = task_as_flow(fx->reader.stat_async(handle))
-				   | then([&](FileStat s) {
-						 st = s;
-						 stat_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 stat_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(stat_done);
-	(void)stat_flow;
+	FileStat st = block_on(fx->reader, fx->reader.stat_async(handle), chrono::seconds{5});
 	CHECK(st.size == SV{"hello file_io"}.size());
 
 	A<byte, 32> buf{};
-	SZ got = 0;
-	atomic_flag read_done{};
-	auto read_flow = task_as_flow(fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}))
-				   | then([&](SZ n) {
-						 got = n;
-						 read_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 read_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(read_done);
-	(void)read_flow;
+	SZ got =
+		block_on(fx->reader, fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}), chrono::seconds{5});
 	REQUIRE(got == SV{"hello file_io"}.size());
 	CHECK(memcmp(buf.data(), "hello file_io", got) == 0);
 }
@@ -225,36 +178,12 @@ TEST_CASE(
 	S const content(1024, 'Z');
 	auto tf = TempFile::create(content);
 
-	FileHandle handle;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC))
-				   | then([&](FileHandle h) {
-						 handle = move(h);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	FileHandle handle =
+		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	FileReader::ReadFixedResult got{};
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.read_fixed(handle, 0, move(*buf)))
-			  | then([&](FileReader::ReadFixedResult r) {
-					got = move(r);
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &) {
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	FileReader::ReadFixedResult got =
+		block_on(fx->reader, fx->reader.read_fixed(handle, 0, move(*buf)), chrono::seconds{5});
 	REQUIRE(got.bytes == content.size());
 	auto const view = got.buffer.view();
 	for (SZ i = 0; i < got.bytes; ++i) {
@@ -279,36 +208,14 @@ TEST_CASE(
 	// Enlarge the sink pipe so a single splice completes in one chunk.
 	::fcntl(sink_pipe[1], F_SETPIPE_SZ, 1 << 20);
 
-	FileHandle handle;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC))
-				   | then([&](FileHandle h) {
-						 handle = move(h);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	FileHandle handle =
+		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	SZ delivered = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.splice_to_fd(handle, 0, content.size(), sink_pipe[1], move(*pipe)))
-			  | then([&](SZ n) {
-					delivered = n;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &) {
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	SZ delivered = block_on(
+		fx->reader,
+		fx->reader.splice_to_fd(handle, 0, content.size(), sink_pipe[1], move(*pipe)),
+		chrono::seconds{5});
 	CHECK(delivered == content.size());
 
 	S drained(content.size(), '\0');
@@ -338,25 +245,15 @@ TEST_CASE(
 
 	FileHandle handle;
 	int open_error = 0;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_direct_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 2))
-				   | then([&](FileHandle h) {
-						 handle = move(h);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &e) {
-						 try {
-							 rethrow_exception(e);
-						 } catch (SE const &se) {
-							 open_error = se.code().value();
-						 } catch (...) { // NOLINT(bugprone-empty-catch) - test reports invalid handle below
-						 }
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	try {
+		handle = block_on(
+			fx->reader,
+			fx->reader.open_direct_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 2),
+			chrono::seconds{5});
+	} catch (SE const &se) {
+		open_error = se.code().value();
+	} catch (...) { // NOLINT(bugprone-empty-catch) - test reports invalid handle below
+	}
 	if (!handle.valid() && (open_error == EINVAL || open_error == EOPNOTSUPP || open_error == ENOSYS)) {
 		::io_uring_unregister_files(&fx->ring);
 		SKIP("direct open unsupported by this kernel/ring configuration");
@@ -366,35 +263,12 @@ TEST_CASE(
 	CHECK(handle.direct_slot() == 2);
 
 	A<byte, 32> buf{};
-	SZ got = 0;
-	atomic_flag read_done{};
-	auto read_flow = task_as_flow(fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}))
-				   | then([&](SZ n) {
-						 got = n;
-						 read_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 read_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(read_done);
-	(void)read_flow;
+	SZ got =
+		block_on(fx->reader, fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}), chrono::seconds{5});
 	REQUIRE(got == SV{"direct file"}.size());
 	CHECK(memcmp(buf.data(), "direct file", got) == 0);
 
-	atomic_flag close_done{};
-	auto close_flow = task_as_flow(fx->reader.close_async(move(handle)))
-					| then([&] {
-						  close_done.test_and_set(memory_order_release);
-						  return 0;
-					  })
-					| on_error([&](EP const &) {
-						  close_done.test_and_set(memory_order_release);
-						  return -1;
-					  });
-	fx->pump_until(close_done);
-	(void)close_flow;
+	block_on(fx->reader, fx->reader.close_async(move(handle)), chrono::seconds{5});
 	::io_uring_unregister_files(&fx->ring);
 }
 
@@ -404,24 +278,15 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 
 	int captured = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.open_async(AT_FDCWD, "/definitely/not/a/real/path.xyz", O_RDONLY | O_CLOEXEC))
-			  | then([&](FileHandle) {
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) {
-						captured = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows other exceptions
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		(void)block_on(
+			fx->reader,
+			fx->reader.open_async(AT_FDCWD, "/definitely/not/a/real/path.xyz", O_RDONLY | O_CLOEXEC),
+			chrono::seconds{5});
+	} catch (SE const &se) {
+		captured = se.code().value();
+	} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows other exceptions
+	}
 	CHECK(captured == ENOENT);
 }
 
@@ -468,20 +333,8 @@ TEST_CASE(
 
 	auto tf = TempFile::create();
 
-	FileHandle wh;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC))
-				   | then([&](FileHandle h) {
-						 wh = move(h);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	FileHandle wh =
+		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(wh.valid());
 
 	// Fill a fixed buffer with known content and write it.
@@ -490,20 +343,8 @@ TEST_CASE(
 	S const payload(512, 'W');
 	memcpy(write_buf->view().data(), payload.data(), payload.size());
 
-	FileReader::WriteFixedResult wresult{};
-	atomic_flag write_done{};
-	auto write_flow = task_as_flow(fx->reader.write_fixed(wh, 0, move(*write_buf), payload.size()))
-					| then([&](FileReader::WriteFixedResult r) {
-						  wresult = move(r);
-						  write_done.test_and_set(memory_order_release);
-						  return 0;
-					  })
-					| on_error([&](EP const &) {
-						  write_done.test_and_set(memory_order_release);
-						  return -1;
-					  });
-	fx->pump_until(write_done);
-	(void)write_flow;
+	FileReader::WriteFixedResult wresult =
+		block_on(fx->reader, fx->reader.write_fixed(wh, 0, move(*write_buf), payload.size()), chrono::seconds{5});
 	REQUIRE(wresult.bytes == payload.size());
 
 	// Verify on-disk bytes via pread.
@@ -526,20 +367,8 @@ TEST_CASE(
 	S const content = part_a + part_b;
 	auto tf = TempFile::create(content);
 
-	FileHandle handle;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC))
-				   | then([&](FileHandle h) {
-						 handle = move(h);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	FileHandle handle =
+		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	A<byte, 64> buf_a{};
@@ -549,20 +378,7 @@ TEST_CASE(
 		iovec{.iov_base = buf_b.data(), .iov_len = buf_b.size()},
 	};
 
-	SZ got = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.readv_into(handle, 0, move(iovs)))
-			  | then([&](SZ n) {
-					got = n;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &) {
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	SZ got = block_on(fx->reader, fx->reader.readv_into(handle, 0, move(iovs)), chrono::seconds{5});
 
 	REQUIRE(got == content.size());
 	for (SZ i = 0; i < buf_a.size(); ++i) {
@@ -580,20 +396,8 @@ TEST_CASE(
 
 	auto tf = TempFile::create();
 
-	FileHandle handle;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC))
-				   | then([&](FileHandle h) {
-						 handle = move(h);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	FileHandle handle =
+		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	S const seg_a(48, 'X');
@@ -605,20 +409,7 @@ TEST_CASE(
 		iovec{.iov_base = const_cast<char *>(seg_b.data()), .iov_len = seg_b.size()},
 	};
 
-	SZ written = 0;
-	atomic_flag write_done{};
-	auto write_flow = task_as_flow(fx->reader.writev_into(handle, 0, move(iovs)))
-					| then([&](SZ n) {
-						  written = n;
-						  write_done.test_and_set(memory_order_release);
-						  return 0;
-					  })
-					| on_error([&](EP const &) {
-						  write_done.test_and_set(memory_order_release);
-						  return -1;
-					  });
-	fx->pump_until(write_done);
-	(void)write_flow;
+	SZ written = block_on(fx->reader, fx->reader.writev_into(handle, 0, move(iovs)), chrono::seconds{5});
 	REQUIRE(written == seg_a.size() + seg_b.size());
 
 	S verify(seg_a.size() + seg_b.size(), '\0');
@@ -646,25 +437,15 @@ TEST_CASE(
 	// We detect support via the first read result; EINVAL → skip.
 	FileHandle handle;
 	int open_err = 0;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC))
-				   | then([&](FileHandle h) {
-						 handle = move(h);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &e) {
-						 try {
-							 rethrow_exception(e);
-						 } catch (SE const &se) {
-							 open_err = se.code().value();
-						 } catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE
-						 }
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	try {
+		handle = block_on(
+			fx->reader,
+			fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC),
+			chrono::seconds{5});
+	} catch (SE const &se) {
+		open_err = se.code().value();
+	} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE
+	}
 	if (!handle.valid()) {
 		SKIP(format("O_DIRECT open failed: errno={}", open_err));
 	}
@@ -674,25 +455,15 @@ TEST_CASE(
 
 	FileReader::ReadFixedResult got{};
 	int read_err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.read_nocache_fixed(handle, 0, move(*buf), content.size()))
-			  | then([&](FileReader::ReadFixedResult r) {
-					got = move(r);
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) {
-						read_err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		got = block_on(
+			fx->reader,
+			fx->reader.read_nocache_fixed(handle, 0, move(*buf), content.size()),
+			chrono::seconds{5});
+	} catch (SE const &se) {
+		read_err = se.code().value();
+	} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE
+	}
 
 	if (!got.buffer.valid() && read_err == EINVAL) {
 		SKIP("filesystem does not support O_DIRECT reads (e.g. tmpfs)");
@@ -720,19 +491,13 @@ TEST_CASE(
 	auto tf = TempFile::create(content);
 
 	FileHandle handle;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC))
-				   | then([&](FileHandle h) {
-						 handle = move(h);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	try {
+		handle = block_on(
+			fx->reader,
+			fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC),
+			chrono::seconds{5});
+	} catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 	if (!handle.valid()) {
 		SKIP("O_DIRECT open failed");
 	}
@@ -742,26 +507,13 @@ TEST_CASE(
 
 	FileReader::ReadFixedResult got{};
 	int read_err = 0;
-	atomic_flag done{};
 	// Request only 512 bytes from a 4096-byte file.
-	auto flow = task_as_flow(fx->reader.read_nocache_fixed(handle, 0, move(*buf), 512))
-			  | then([&](FileReader::ReadFixedResult r) {
-					got = move(r);
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) {
-						read_err = se.code().value();
-					} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		got = block_on(fx->reader, fx->reader.read_nocache_fixed(handle, 0, move(*buf), 512), chrono::seconds{5});
+	} catch (SE const &se) {
+		read_err = se.code().value();
+	} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE
+	}
 
 	if (!got.buffer.valid() && read_err == EINVAL) {
 		SKIP("filesystem does not support O_DIRECT reads");
@@ -808,23 +560,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.unlink_async(AT_FDCWD, path))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.unlink_async(AT_FDCWD, path), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	CHECK(ok);
 	CHECK(err == 0);
@@ -842,23 +582,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.rename_async(AT_FDCWD, src.path, AT_FDCWD, dst_path))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.rename_async(AT_FDCWD, src.path, AT_FDCWD, dst_path), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	CHECK(ok);
 	CHECK(err == 0);
@@ -873,26 +601,14 @@ TEST_CASE(
 
 	TempFile tmp = TempFile::create(S(4096, 'X'));
 
-	atomic_flag done{};
 	bool ok = false;
 	int err = 0;
 	FileHandle handle = FileHandle::from_fd(::dup(tmp.fd));
-	auto flow = task_as_flow(fx->reader.fadvise_async(handle, 0, 4096, POSIX_FADV_SEQUENTIAL))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.fadvise_async(handle, 0, 4096, POSIX_FADV_SEQUENTIAL), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	bool const passed = ok || err == EBADF;
 	CHECK(passed); // EBADF acceptable on some kernel versions for fadvise via io_uring
@@ -909,25 +625,16 @@ TEST_CASE(
 		SKIP("mmap failed");
 	}
 
-	atomic_flag done{};
 	bool ok = false;
 	int err = 0;
-	auto flow = task_as_flow(fx->reader.madvise_async(addr, static_cast<u32>(kSize), MADV_SEQUENTIAL))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(
+			fx->reader,
+			fx->reader.madvise_async(addr, static_cast<u32>(kSize), MADV_SEQUENTIAL),
+			chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 	::munmap(addr, kSize);
 
 	bool const passed = ok || err == EINVAL;
@@ -946,23 +653,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.mkdirat_async(AT_FDCWD, dir_path, 0755))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.mkdirat_async(AT_FDCWD, dir_path, 0755), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	CHECK(ok);
 	CHECK(err == 0);
@@ -982,23 +677,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.symlinkat_async(src.path, AT_FDCWD, link_path))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.symlinkat_async(src.path, AT_FDCWD, link_path), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	CHECK(ok);
 	CHECK(err == 0);
@@ -1018,23 +701,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.ftruncate_async(handle, 1024))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.ftruncate_async(handle, 1024), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	CHECK(ok);
 	CHECK(err == 0);
@@ -1056,27 +727,13 @@ TEST_CASE(
 
 	bool set_ok = false;
 	int set_err = 0;
-	atomic_flag set_done{};
 	S const xattr_name = "user.test_key";
 	S const xattr_val = "hello_xattr";
-	auto set_flow = task_as_flow(fx->reader.fsetxattr_async(handle, xattr_name, xattr_val))
-				  | then([&]() {
-						set_ok = true;
-						set_done.test_and_set(memory_order_release);
-						return 0;
-					})
-				  | on_error([&](EP const &e) {
-						try {
-							rethrow_exception(e);
-						} catch (SE const &se) {
-							set_err = se.code().value();
-						} catch (...) { // NOLINT(bugprone-empty-catch)
-						}
-						set_done.test_and_set(memory_order_release);
-						return -1;
-					});
-	fx->pump_until(set_done);
-	(void)set_flow;
+	try {
+		block_on(fx->reader, fx->reader.fsetxattr_async(handle, xattr_name, xattr_val), chrono::seconds{5});
+		set_ok = true;
+	} catch (SE const &se) { set_err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	bool const set_passed =
 		set_ok || set_err == EOPNOTSUPP || set_err == ENOTSUP || set_err == EINVAL || set_err == ENOSYS;
@@ -1088,25 +745,13 @@ TEST_CASE(
 	A<char, 64> buf{};
 	SZ got = 0;
 	int get_err = 0;
-	atomic_flag get_done{};
-	auto get_flow = task_as_flow(fx->reader.fgetxattr_async(handle, xattr_name, span<char>{buf.data(), buf.size()}))
-				  | then([&](SZ n) {
-						got = n;
-						get_done.test_and_set(memory_order_release);
-						return 0;
-					})
-				  | on_error([&](EP const &e) {
-						try {
-							rethrow_exception(e);
-						} catch (SE const &se) {
-							get_err = se.code().value();
-						} catch (...) { // NOLINT(bugprone-empty-catch)
-						}
-						get_done.test_and_set(memory_order_release);
-						return -1;
-					});
-	fx->pump_until(get_done);
-	(void)get_flow;
+	try {
+		got = block_on(
+			fx->reader,
+			fx->reader.fgetxattr_async(handle, xattr_name, span<char>{buf.data(), buf.size()}),
+			chrono::seconds{5});
+	} catch (SE const &se) { get_err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	CHECK(get_err == 0);
 	REQUIRE(got == xattr_val.size());
@@ -1125,22 +770,10 @@ TEST_CASE(
 	FileHandle const handle = FileHandle::from_fd(::dup(tmp.fd));
 
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.fixed_fd_install_async(handle))
-			  | then([&](FileHandle) {
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		(void)block_on(fx->reader, fx->reader.fixed_fd_install_async(handle), chrono::seconds{5});
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	CHECK(err == EINVAL);
 }
@@ -1156,24 +789,14 @@ TEST_CASE(
 	FileHandle handle;
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.socket_async(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0))
-			  | then([&](FileHandle fh) {
-					handle = move(fh);
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		handle = block_on(
+			fx->reader,
+			fx->reader.socket_async(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0),
+			chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1199,23 +822,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.shutdown_async(handle, SHUT_WR))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.shutdown_async(handle, SHUT_WR), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	bool const passed = ok || err == ENOTCONN || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1256,24 +867,11 @@ TEST_CASE(
 	SZ got = 0;
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.tee_async(src_pipe[0], dst_pipe[1], payload.size()))
-			  | then([&](SZ n) {
-					got = n;
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		got = block_on(fx->reader, fx->reader.tee_async(src_pipe[0], dst_pipe[1], payload.size()), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1300,23 +898,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.linkat_async(AT_FDCWD, src.path, AT_FDCWD, dst_path))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.linkat_async(AT_FDCWD, src.path, AT_FDCWD, dst_path), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1343,23 +929,14 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.sync_file_range_async(handle, 0, 4096, SYNC_FILE_RANGE_WRITE))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(
+			fx->reader,
+			fx->reader.sync_file_range_async(handle, 0, 4096, SYNC_FILE_RANGE_WRITE),
+			chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS || err == EROFS;
 	CHECK(passed);
@@ -1375,24 +952,12 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
 	// user_data 0xDEADBEEF has no pending op — should resolve (ENOENT → ok path).
-	auto flow = task_as_flow(fx->reader.cancel_async(0xDEADBEEFULL))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.cancel_async(0xDEADBEEFULL), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1410,23 +975,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.cancel_fd_async(tmp.fd))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.cancel_fd_async(tmp.fd), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1453,22 +1006,10 @@ TEST_CASE(
 	sa4->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.connect_async(handle, addr, sizeof(sockaddr_in)))
-			  | then([&]() {
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.connect_async(handle, addr, sizeof(sockaddr_in)), chrono::seconds{5});
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = err == ECONNREFUSED || err == EINPROGRESS || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1485,23 +1026,10 @@ TEST_CASE(
 	u32 futex_word = 0;
 	u32 woken = 42;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.futex_wake_async(&futex_word, UINT64_MAX))
-			  | then([&](u32 n) {
-					woken = n;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		woken = block_on(fx->reader, fx->reader.futex_wake_async(&futex_word, UINT64_MAX), chrono::seconds{5});
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = (woken == 0 && err == 0) || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1518,24 +1046,12 @@ TEST_CASE(
 	u32 futex_word = 1;
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
 	// val=0 but *futex=1 — condition already met, returns immediately.
-	auto flow = task_as_flow(fx->reader.futex_wait_async(&futex_word, 0))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.futex_wait_async(&futex_word, 0), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EAGAIN || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1551,23 +1067,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag send_done{};
-	auto send_flow = task_as_flow(fx->reader.msg_ring_async(fx->ring.ring_fd, 42, 0xCAFEBABEULL))
-				   | then([&]() {
-						 ok = true;
-						 send_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &e) {
-						 try {
-							 rethrow_exception(e);
-						 } catch (SE const &se) { err = se.code().value(); } catch (...) {
-						 }
-						 send_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(send_done);
-	(void)send_flow;
+	try {
+		block_on(fx->reader, fx->reader.msg_ring_async(fx->ring.ring_fd, 42, 0xCAFEBABEULL), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS || err == EOPNOTSUPP;
 	CHECK(passed);
@@ -1585,24 +1089,12 @@ TEST_CASE(
 
 	bool set_ok = false;
 	int set_err = 0;
-	atomic_flag set_done{};
 	S const xattr_val = "path_xattr_val";
-	auto set_flow = task_as_flow(fx->reader.setxattr_async(tmp.path, "user.path_test_key", xattr_val))
-				  | then([&]() {
-						set_ok = true;
-						set_done.test_and_set(memory_order_release);
-						return 0;
-					})
-				  | on_error([&](EP const &e) {
-						try {
-							rethrow_exception(e);
-						} catch (SE const &se) { set_err = se.code().value(); } catch (...) {
-						}
-						set_done.test_and_set(memory_order_release);
-						return -1;
-					});
-	fx->pump_until(set_done);
-	(void)set_flow;
+	try {
+		block_on(fx->reader, fx->reader.setxattr_async(tmp.path, "user.path_test_key", xattr_val), chrono::seconds{5});
+		set_ok = true;
+	} catch (SE const &se) { set_err = se.code().value(); } catch (...) {
+	}
 
 	bool const set_passed =
 		set_ok || set_err == EOPNOTSUPP || set_err == ENOTSUP || set_err == EINVAL || set_err == ENOSYS;
@@ -1614,24 +1106,13 @@ TEST_CASE(
 	A<char, 64> buf{};
 	SZ got = 0;
 	int get_err = 0;
-	atomic_flag get_done{};
-	auto get_flow =
-		task_as_flow(fx->reader.getxattr_async(tmp.path, "user.path_test_key", span<char>{buf.data(), buf.size()}))
-		| then([&](SZ n) {
-			  got = n;
-			  get_done.test_and_set(memory_order_release);
-			  return 0;
-		  })
-		| on_error([&](EP const &e) {
-			  try {
-				  rethrow_exception(e);
-			  } catch (SE const &se) { get_err = se.code().value(); } catch (...) {
-			  }
-			  get_done.test_and_set(memory_order_release);
-			  return -1;
-		  });
-	fx->pump_until(get_done);
-	(void)get_flow;
+	try {
+		got = block_on(
+			fx->reader,
+			fx->reader.getxattr_async(tmp.path, "user.path_test_key", span<char>{buf.data(), buf.size()}),
+			chrono::seconds{5});
+	} catch (SE const &se) { get_err = se.code().value(); } catch (...) {
+	}
 
 	CHECK(get_err == 0);
 	REQUIRE(got == xattr_val.size());
@@ -1648,22 +1129,10 @@ TEST_CASE(
 
 	siginfo_t info{};
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.waitid_async(P_PID, static_cast<id_t>(99999999), &info))
-			  | then([&]() {
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.waitid_async(P_PID, static_cast<id_t>(99999999), &info), chrono::seconds{5});
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = err == ECHILD || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1680,24 +1149,11 @@ TEST_CASE(
 	P<int, int> fds{-1, -1};
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.pipe_async(O_CLOEXEC))
-			  | then([&](P<int, int> p) {
-					fds = p;
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		fds = block_on(fx->reader, fx->reader.pipe_async(O_CLOEXEC), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1740,23 +1196,11 @@ TEST_CASE(
 
 	bool bind_ok = false;
 	int bind_err = 0;
-	atomic_flag bind_done{};
-	auto bind_flow = task_as_flow(fx->reader.bind_async(handle, addr, sizeof(sockaddr_in)))
-				   | then([&]() {
-						 bind_ok = true;
-						 bind_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &e) {
-						 try {
-							 rethrow_exception(e);
-						 } catch (SE const &se) { bind_err = se.code().value(); } catch (...) {
-						 }
-						 bind_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(bind_done);
-	(void)bind_flow;
+	try {
+		block_on(fx->reader, fx->reader.bind_async(handle, addr, sizeof(sockaddr_in)), chrono::seconds{5});
+		bind_ok = true;
+	} catch (SE const &se) { bind_err = se.code().value(); } catch (...) {
+	}
 
 	bool const bind_passed = bind_ok || bind_err == EINVAL || bind_err == ENOSYS;
 	CHECK(bind_passed);
@@ -1766,23 +1210,11 @@ TEST_CASE(
 
 	bool listen_ok = false;
 	int listen_err = 0;
-	atomic_flag listen_done{};
-	auto listen_flow = task_as_flow(fx->reader.listen_async(handle))
-					 | then([&]() {
-						   listen_ok = true;
-						   listen_done.test_and_set(memory_order_release);
-						   return 0;
-					   })
-					 | on_error([&](EP const &e) {
-						   try {
-							   rethrow_exception(e);
-						   } catch (SE const &se) { listen_err = se.code().value(); } catch (...) {
-						   }
-						   listen_done.test_and_set(memory_order_release);
-						   return -1;
-					   });
-	fx->pump_until(listen_done);
-	(void)listen_flow;
+	try {
+		block_on(fx->reader, fx->reader.listen_async(handle), chrono::seconds{5});
+		listen_ok = true;
+	} catch (SE const &se) { listen_err = se.code().value(); } catch (...) {
+	}
 
 	bool const listen_passed = listen_ok || listen_err == EINVAL || listen_err == ENOSYS;
 	CHECK(listen_passed);
@@ -1797,19 +1229,11 @@ TEST_CASE(
 	}
 
 	bool ok = false;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.nop_async())
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &) {
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.nop_async(), chrono::seconds{5});
+		ok = true;
+	} catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	CHECK(ok);
 }
@@ -1825,20 +1249,8 @@ TEST_CASE(
 	S const content(64, 'R');
 	TempFile const tf = TempFile::create(content);
 
-	FileHandle handle;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC))
-				   | then([&](FileHandle h) {
-						 handle = move(h);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	FileHandle handle =
+		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	A<byte, 64> buf{};
@@ -1848,23 +1260,10 @@ TEST_CASE(
 
 	SZ got = 0;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.readv2_into(handle, 0, move(iovs)))
-			  | then([&](SZ n) {
-					got = n;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		got = block_on(fx->reader, fx->reader.readv2_into(handle, 0, move(iovs)), chrono::seconds{5});
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	CHECK(err == 0);
 	REQUIRE(got == content.size());
@@ -1882,20 +1281,8 @@ TEST_CASE(
 	}
 
 	TempFile const tf = TempFile::create();
-	FileHandle handle;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC))
-				   | then([&](FileHandle h) {
-						 handle = move(h);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	FileHandle handle =
+		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	S const payload(32, 'W');
@@ -1905,23 +1292,10 @@ TEST_CASE(
 
 	SZ written = 0;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.writev2_into(handle, 0, move(iovs)))
-			  | then([&](SZ n) {
-					written = n;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		written = block_on(fx->reader, fx->reader.writev2_into(handle, 0, move(iovs)), chrono::seconds{5});
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	CHECK(err == 0);
 	CHECK(written == payload.size());
@@ -1941,23 +1315,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.timeout_async(chrono::milliseconds{10}))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.timeout_async(chrono::milliseconds{10}), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1982,23 +1344,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.futex_waitv_async(move(waiters)))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.futex_waitv_async(move(waiters)), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EAGAIN || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -2018,23 +1368,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.msg_ring_fd_async(fx->ring.ring_fd, dup_fd, -1, 0xABCDULL))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.msg_ring_fd_async(fx->ring.ring_fd, dup_fd, -1, 0xABCDULL), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 	::close(dup_fd);
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS || err == EOPNOTSUPP;
@@ -2051,24 +1389,12 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
 	// Remove a timeout tag that was never armed — should resolve (ENOENT→ok).
-	auto flow = task_as_flow(fx->reader.timeout_remove_async(0xDEADULL))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.timeout_remove_async(0xDEADULL), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -2084,23 +1410,11 @@ TEST_CASE(
 
 	bool ok = false;
 	int err = 0;
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.timeout_update_async(0xBEEFULL, chrono::milliseconds{100}))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.timeout_update_async(0xBEEFULL, chrono::milliseconds{100}), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -2112,31 +1426,21 @@ TEST_CASE(
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
 	}
-	atomic_flag done{};
-	bool ok{false};
 
 	int pfd[2];
 	REQUIRE(::pipe2(pfd, O_CLOEXEC | O_NONBLOCK) == 0);
-
-	u32 mask{0};
-	auto flow = task_as_flow(fx->reader.poll_add_async(pfd[0], POLLIN))
-			  | then([&](u32 m) {
-					mask = m;
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &) {
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
 
 	// Write one byte so the read-end becomes readable.
 	char const c = 'x';
 	REQUIRE(::write(pfd[1], &c, 1) == 1);
 
-	fx->pump_until(done);
-	(void)flow;
+	u32 mask{0};
+	bool ok{false};
+	try {
+		mask = block_on(fx->reader, fx->reader.poll_add_async(pfd[0], POLLIN), chrono::seconds{5});
+		ok = true;
+	} catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	CHECK(ok);
 	CHECK((mask & POLLIN) != 0u);
@@ -2150,7 +1454,6 @@ TEST_CASE(
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
 	}
-	atomic_flag done{};
 	bool remove_ok{false};
 	int err{0};
 
@@ -2166,24 +1469,12 @@ TEST_CASE(
 	// Our fixture encodes ud as pack_ud(slot, gen). We know the poll_add
 	// reserved slot 0 gen 1 (first reservation after construction).
 	// Use cancel_fd_async instead — simpler to test.
-	auto cancel_flow = task_as_flow(fx->reader.cancel_fd_async(sv[0], 0))
-					 | then([&]() {
-						   remove_ok = true;
-						   done.test_and_set(memory_order_release);
-						   return 0;
-					   })
-					 | on_error([&](EP const &e) {
-						   try {
-							   rethrow_exception(e);
-						   } catch (SE const &se) { err = se.code().value(); } catch (...) {
-						   }
-						   done.test_and_set(memory_order_release);
-						   return -1;
-					   });
-
-	fx->pump_until(done);
+	try {
+		block_on(fx->reader, fx->reader.cancel_fd_async(sv[0], 0), chrono::seconds{5});
+		remove_ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 	(void)poll_flow;
-	(void)cancel_flow;
 
 	bool const passed = remove_ok || err == ENOENT || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -2198,7 +1489,6 @@ TEST_CASE(
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
 	}
-	atomic_flag done{};
 	int accepted_fd{-1};
 	int err{0};
 
@@ -2219,22 +1509,6 @@ TEST_CASE(
 	socklen_t slen = sizeof(addr);
 	REQUIRE(::getsockname(listen_fd, reinterpret_cast<sockaddr *>(&addr), &slen) == 0);
 
-	FileHandle const listen_handle = FileHandle::from_fd(dup(listen_fd));
-	auto flow = task_as_flow(fx->reader.accept_async(listen_handle))
-			  | then([&](FileHandle fh) {
-					accepted_fd = fh.release_fd();
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-
 	// Connect from a background thread.
 	jthread connector{[addr]() {
 		int c = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -2244,8 +1518,13 @@ TEST_CASE(
 		}
 	}};
 
-	fx->pump_until(done);
-	(void)flow;
+	FileHandle const listen_handle = FileHandle::from_fd(dup(listen_fd));
+	try {
+		FileHandle fh = block_on(fx->reader, fx->reader.accept_async(listen_handle), chrono::seconds{5});
+		accepted_fd = fh.release_fd();
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
+
 	::close(listen_fd);
 
 	bool const passed = accepted_fd >= 0 || err == EINVAL || err == ENOSYS;
@@ -2268,37 +1547,11 @@ TEST_CASE(
 	FileHandle const recver = FileHandle::from_fd(sv[1]);
 
 	S const payload = "send_recv_test";
-	SZ sent{0};
-	atomic_flag send_done{};
-	auto send_flow = task_as_flow(fx->reader.send_async(sender, payload.data(), payload.size()))
-				   | then([&](SZ n) {
-						 sent = n;
-						 send_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 send_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(send_done);
-	(void)send_flow;
+	SZ sent = block_on(fx->reader, fx->reader.send_async(sender, payload.data(), payload.size()), chrono::seconds{5});
 	REQUIRE(sent == payload.size());
 
 	A<char, 64> buf{};
-	SZ recvd{0};
-	atomic_flag recv_done{};
-	auto recv_flow = task_as_flow(fx->reader.recv_async(recver, buf.data(), buf.size()))
-				   | then([&](SZ n) {
-						 recvd = n;
-						 recv_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 recv_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(recv_done);
-	(void)recv_flow;
+	SZ recvd = block_on(fx->reader, fx->reader.recv_async(recver, buf.data(), buf.size()), chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(SV{buf.data(), recvd} == payload);
 }
@@ -2321,20 +1574,7 @@ TEST_CASE(
 	send_hdr.msg_iov = &send_iov;
 	send_hdr.msg_iovlen = 1;
 
-	SZ sent{0};
-	atomic_flag send_done{};
-	auto send_flow = task_as_flow(fx->reader.sendmsg_async(sender, &send_hdr))
-				   | then([&](SZ n) {
-						 sent = n;
-						 send_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 send_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(send_done);
-	(void)send_flow;
+	SZ sent = block_on(fx->reader, fx->reader.sendmsg_async(sender, &send_hdr), chrono::seconds{5});
 	REQUIRE(sent == payload.size());
 
 	A<char, 64> buf{};
@@ -2343,20 +1583,7 @@ TEST_CASE(
 	recv_hdr.msg_iov = &recv_iov;
 	recv_hdr.msg_iovlen = 1;
 
-	SZ recvd{0};
-	atomic_flag recv_done{};
-	auto recv_flow = task_as_flow(fx->reader.recvmsg_async(recver, &recv_hdr))
-				   | then([&](SZ n) {
-						 recvd = n;
-						 recv_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 recv_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(recv_done);
-	(void)recv_flow;
+	SZ recvd = block_on(fx->reader, fx->reader.recvmsg_async(recver, &recv_hdr), chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(SV{buf.data(), recvd} == payload);
 }
@@ -2378,20 +1605,12 @@ TEST_CASE(
 	epoll_event ev{};
 	ev.events = EPOLLIN;
 	ev.data.fd = pfd[0];
-	atomic_flag ctl_done{};
 	bool ctl_ok{false};
-	auto ctl_flow = task_as_flow(fx->reader.epoll_ctl_async(epfd, pfd[0], EPOLL_CTL_ADD, &ev))
-				  | then([&]() {
-						ctl_ok = true;
-						ctl_done.test_and_set(memory_order_release);
-						return 0;
-					})
-				  | on_error([&](EP const &) {
-						ctl_done.test_and_set(memory_order_release);
-						return -1;
-					});
-	fx->pump_until(ctl_done);
-	(void)ctl_flow;
+	try {
+		block_on(fx->reader, fx->reader.epoll_ctl_async(epfd, pfd[0], EPOLL_CTL_ADD, &ev), chrono::seconds{5});
+		ctl_ok = true;
+	} catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 	REQUIRE(ctl_ok);
 
 	// Write a byte to make pfd[0] readable, then wait.
@@ -2399,20 +1618,14 @@ TEST_CASE(
 	REQUIRE(::write(pfd[1], &c, 1) == 1);
 
 	A<epoll_event, 4> events{};
-	atomic_flag wait_done{};
 	int n_events{0};
-	auto wait_flow = task_as_flow(fx->reader.epoll_wait_async(epfd, events.data(), static_cast<int>(events.size())))
-				   | then([&](int n) {
-						 n_events = n;
-						 wait_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 wait_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(wait_done);
-	(void)wait_flow;
+	try {
+		n_events = block_on(
+			fx->reader,
+			fx->reader.epoll_wait_async(epfd, events.data(), static_cast<int>(events.size())),
+			chrono::seconds{5});
+	} catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 
 	CHECK(n_events == 1);
 	CHECK((events[0].events & EPOLLIN) != 0u);
@@ -2436,42 +1649,22 @@ TEST_CASE(
 
 	bool ok{false};
 	int err{0};
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.provide_buffers_async(region->data(), kBufLen, kNr, kBgid))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.provide_buffers_async(region->data(), kBufLen, kNr, kBgid), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
 
 	if (ok) {
-		atomic_flag rm_done{};
 		bool rm_ok{false};
-		auto rm_flow = task_as_flow(fx->reader.remove_buffers_async(kNr, kBgid))
-					 | then([&]() {
-						   rm_ok = true;
-						   rm_done.test_and_set(memory_order_release);
-						   return 0;
-					   })
-					 | on_error([&](EP const &) {
-						   rm_done.test_and_set(memory_order_release);
-						   return -1;
-					   });
-		fx->pump_until(rm_done);
-		(void)rm_flow;
+		try {
+			block_on(fx->reader, fx->reader.remove_buffers_async(kNr, kBgid), chrono::seconds{5});
+			rm_ok = true;
+		} catch (...) { // NOLINT(bugprone-empty-catch)
+		}
 		CHECK(rm_ok);
 	}
 }
@@ -2488,21 +1681,12 @@ TEST_CASE(
 	how.flags = O_RDONLY | O_CLOEXEC;
 
 	FileHandle handle;
-	atomic_flag done{};
 	bool ok{false};
-	auto flow = task_as_flow(fx->reader.openat2_async(AT_FDCWD, tf.path, how))
-			  | then([&](FileHandle fh) {
-					handle = move(fh);
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &) {
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		handle = block_on(fx->reader, fx->reader.openat2_async(AT_FDCWD, tf.path, how), chrono::seconds{5});
+		ok = true;
+	} catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 	CHECK(ok);
 	CHECK(handle.valid());
 }
@@ -2532,38 +1716,15 @@ TEST_CASE(
 	memcpy(&dest, &ra, sizeof(ra));
 
 	S const payload = "sendto_udp_test";
-	SZ sent{0};
-	atomic_flag send_done{};
-	auto send_flow = task_as_flow(fx->reader.sendto_async(sender, payload.data(), payload.size(), 0, dest, sizeof(ra)))
-				   | then([&](SZ n) {
-						 sent = n;
-						 send_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 send_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(send_done);
-	(void)send_flow;
+	SZ sent = block_on(
+		fx->reader,
+		fx->reader.sendto_async(sender, payload.data(), payload.size(), 0, dest, sizeof(ra)),
+		chrono::seconds{5});
 	REQUIRE(sent == payload.size());
 
 	FileHandle const recver = FileHandle::from_fd(recv_fd);
 	A<char, 64> buf{};
-	SZ recvd{0};
-	atomic_flag recv_done{};
-	auto recv_flow = task_as_flow(fx->reader.recv_async(recver, buf.data(), buf.size()))
-				   | then([&](SZ n) {
-						 recvd = n;
-						 recv_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 recv_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(recv_done);
-	(void)recv_flow;
+	SZ recvd = block_on(fx->reader, fx->reader.recv_async(recver, buf.data(), buf.size()), chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(SV{buf.data(), recvd} == payload);
 }
@@ -2583,23 +1744,12 @@ TEST_CASE(
 	S const payload = "send_zc_test_data";
 	bool ok{false};
 	int err{0};
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.send_zc_async(sender, payload.data(), payload.size()))
-			  | then([&](SZ n) {
-					ok = (n == payload.size());
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		SZ n =
+			block_on(fx->reader, fx->reader.send_zc_async(sender, payload.data(), payload.size()), chrono::seconds{5});
+		ok = (n == payload.size());
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EOPNOTSUPP || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -2616,20 +1766,12 @@ TEST_CASE(
 	tf.fd = -1; // don't let TempFile close (will unlink)
 	tf.path = {}; // don't let TempFile unlink
 
-	atomic_flag done{};
 	bool ok{false};
-	auto flow = task_as_flow(fx->reader.unlinkat_async(AT_FDCWD, path))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &) {
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.unlinkat_async(AT_FDCWD, path), chrono::seconds{5});
+		ok = true;
+	} catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 	CHECK(ok);
 	CHECK(::access(path.c_str(), F_OK) != 0);
 }
@@ -2644,20 +1786,12 @@ TEST_CASE(
 	S const src_path = tf.path;
 	S const dst_path = src_path + "_renamed";
 
-	atomic_flag done{};
 	bool ok{false};
-	auto flow = task_as_flow(fx->reader.renameat_async(AT_FDCWD, src_path, AT_FDCWD, dst_path))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &) {
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.renameat_async(AT_FDCWD, src_path, AT_FDCWD, dst_path), chrono::seconds{5});
+		ok = true;
+	} catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 	CHECK(ok);
 	if (ok) {
 		CHECK(::access(dst_path.c_str(), F_OK) == 0);
@@ -2678,20 +1812,12 @@ TEST_CASE(
 	path += "mkdir_async_test_dir";
 	::rmdir(path.c_str()); // clean up if leftover
 
-	atomic_flag done{};
 	bool ok{false};
-	auto flow = task_as_flow(fx->reader.mkdir_async(path))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &) {
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.mkdir_async(path), chrono::seconds{5});
+		ok = true;
+	} catch (...) { // NOLINT(bugprone-empty-catch)
+	}
 	CHECK(ok);
 	if (ok) {
 		struct stat st{};
@@ -2721,60 +1847,26 @@ TEST_CASE(
 	auto const view = wbuf->view();
 	memcpy(view.data(), content.data(), content.size());
 
-	FileHandle handle;
-	atomic_flag open_done{};
-	auto open_flow = task_as_flow(fx->reader.open_async(AT_FDCWD, tf.path, O_RDWR | O_CLOEXEC))
-				   | then([&](FileHandle fh) {
-						 handle = move(fh);
-						 open_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 open_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(open_done);
-	(void)open_flow;
+	FileHandle handle =
+		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDWR | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	SZ written{0};
-	atomic_flag write_done{};
-	auto write_flow = task_as_flow(fx->reader.write_fixed_async(
-						  handle,
-						  0,
-						  view.data(),
-						  static_cast<unsigned>(content.size()),
-						  static_cast<int>(wbuf->slot())))
-					| then([&](SZ n) {
-						  written = n;
-						  write_done.test_and_set(memory_order_release);
-						  return 0;
-					  })
-					| on_error([&](EP const &) {
-						  write_done.test_and_set(memory_order_release);
-						  return -1;
-					  });
-	fx->pump_until(write_done);
-	(void)write_flow;
+	SZ written = block_on(
+		fx->reader,
+		fx->reader.write_fixed_async(
+			handle,
+			0,
+			view.data(),
+			static_cast<unsigned>(content.size()),
+			static_cast<int>(wbuf->slot())),
+		chrono::seconds{5});
 	REQUIRE(written == content.size());
 
 	// Verify via read_fixed.
 	auto rbuf = pool.try_acquire();
 	REQUIRE(rbuf.has_value());
-	atomic_flag read_done{};
-	FileReader::ReadFixedResult rr{};
-	auto read_flow = task_as_flow(fx->reader.read_fixed(handle, 0, move(*rbuf)))
-				   | then([&](FileReader::ReadFixedResult r) {
-						 rr = move(r);
-						 read_done.test_and_set(memory_order_release);
-						 return 0;
-					 })
-				   | on_error([&](EP const &) {
-						 read_done.test_and_set(memory_order_release);
-						 return -1;
-					 });
-	fx->pump_until(read_done);
-	(void)read_flow;
+	FileReader::ReadFixedResult rr =
+		block_on(fx->reader, fx->reader.read_fixed(handle, 0, move(*rbuf)), chrono::seconds{5});
 	REQUIRE(rr.bytes == content.size());
 	auto const rview = rr.buffer.view();
 	CHECK(memcmp(rview.data(), content.data(), content.size()) == 0);
@@ -2796,43 +1888,22 @@ TEST_CASE(
 	auto tf = TempFile::create("openat_direct_content");
 
 	FileHandle handle;
-	atomic_flag done{};
 	bool ok{false};
 	int err{0};
 	// Slot 0 is the registered slot; IORING_FILE_INDEX_ALLOC let kernel choose.
-	auto flow = task_as_flow(fx->reader.openat_direct_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 0))
-			  | then([&](FileHandle fh) {
-					handle = move(fh);
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		handle = block_on(
+			fx->reader,
+			fx->reader.openat_direct_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 0),
+			chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS || err == ENFILE;
 	CHECK(passed);
 	if (handle.valid()) {
-		atomic_flag close_done{};
-		auto close_flow = task_as_flow(fx->reader.close_async(move(handle)))
-						| then([&]() {
-							  close_done.test_and_set(memory_order_release);
-							  return 0;
-						  })
-						| on_error([&](EP const &) {
-							  close_done.test_and_set(memory_order_release);
-							  return -1;
-						  });
-		fx->pump_until(close_done);
-		(void)close_flow;
+		block_on(fx->reader, fx->reader.close_async(move(handle)), chrono::seconds{5});
 	}
 	::io_uring_unregister_files(&fx->ring);
 }
@@ -2852,23 +1923,11 @@ TEST_CASE(
 
 	bool ok{false};
 	int err{0};
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.pipe_direct_async(0))
-			  | then([&](P<int, int> p) {
-					ok = (p.first >= 0 || p.second >= 0);
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		P<int, int> p = block_on(fx->reader, fx->reader.pipe_direct_async(0), chrono::seconds{5});
+		ok = (p.first >= 0 || p.second >= 0);
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS || err == EOPNOTSUPP;
 	CHECK(passed);
@@ -2884,24 +1943,12 @@ TEST_CASE(
 
 	bool ok{false};
 	int err{0};
-	atomic_flag done{};
 	int const ring_fd = fx->ring.ring_fd;
-	auto flow = task_as_flow(fx->reader.msg_ring_cqe_flags_async(ring_fd, 42, 0xBEEFULL, 0, 0))
-			  | then([&]() {
-					ok = true;
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		block_on(fx->reader, fx->reader.msg_ring_cqe_flags_async(ring_fd, 42, 0xBEEFULL, 0, 0), chrono::seconds{5});
+		ok = true;
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -2927,23 +1974,11 @@ TEST_CASE(
 
 	bool ok{false};
 	int err{0};
-	atomic_flag done{};
-	auto flow = task_as_flow(fx->reader.sendmsg_zc_async(sender, &hdr))
-			  | then([&](SZ n) {
-					ok = (n == payload.size());
-					done.test_and_set(memory_order_release);
-					return 0;
-				})
-			  | on_error([&](EP const &e) {
-					try {
-						rethrow_exception(e);
-					} catch (SE const &se) { err = se.code().value(); } catch (...) {
-					}
-					done.test_and_set(memory_order_release);
-					return -1;
-				});
-	fx->pump_until(done);
-	(void)flow;
+	try {
+		SZ n = block_on(fx->reader, fx->reader.sendmsg_zc_async(sender, &hdr), chrono::seconds{5});
+		ok = (n == payload.size());
+	} catch (SE const &se) { err = se.code().value(); } catch (...) {
+	}
 
 	bool const passed = ok || err == EOPNOTSUPP || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
