@@ -1029,7 +1029,7 @@ void validate_accepted_response_status(
 	}
 }
 
-[[nodiscard]] Flow<codec::Message> recv_valid_udp_response(
+[[nodiscard]] Task<codec::Message> recv_valid_udp_response(
 	FileReader &reader,
 	std::shared_ptr<udp_ns::UdpSocket> const &sock,
 	std::shared_ptr<std::array<u8, 4096>> const &rx_buf,
@@ -1038,51 +1038,31 @@ void validate_accepted_response_status(
 	string expected_qname,
 	codec::QType expected_qtype,
 	std::chrono::steady_clock::time_point deadline) {
-	auto const now = std::chrono::steady_clock::now();
-	if (now >= deadline) {
-		FlowSource<codec::Message> const src;
-		auto flow = src.flow();
-		src.reject(std::make_exception_ptr(DnsError{DnsErrorKind::timeout, "dns: query timed out"}));
-		return flow;
+	for (;;) {
+		auto const now = std::chrono::steady_clock::now();
+		if (now >= deadline) {
+			throw DnsError{DnsErrorKind::timeout, "dns: query timed out"};
+		}
+		auto const remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
+		auto recv_task =
+			udp_ns::recvfrom_with_timeout(reader, *sock, span<u8>{rx_buf->data(), rx_buf->size()}, remaining);
+		auto const result = co_await task_as_flow(std::move(recv_task));
+		auto msg = codec::decode_message(span<u8 const>{rx_buf->data(), result.bytes});
+		if (!same_dns_peer(result.from, result.from_len, ns)) {
+			continue;
+		}
+		if (!has_expected_question(msg, expected_id, expected_qname, expected_qtype)) {
+			continue;
+		}
+		validate_accepted_response_status(msg);
+		co_return std::move(msg);
 	}
-	auto const remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
-	return task_as_flow(
-			   udp_ns::recvfrom_with_timeout(reader, *sock, span<u8>{rx_buf->data(), rx_buf->size()}, remaining))
-		 | flat_then(
-			   [reader_ptr = &reader,
-				sock,
-				rx_buf,
-				ns,
-				expected_id,
-				expected_qname = std::move(expected_qname),
-				expected_qtype,
-				deadline](udp_ns::UdpRecvResult result) mutable -> Flow<codec::Message> {
-				   auto msg = codec::decode_message(span<u8 const>{rx_buf->data(), result.bytes});
-				   bool const source_ok = same_dns_peer(result.from, result.from_len, ns);
-				   bool const question_ok = has_expected_question(msg, expected_id, expected_qname, expected_qtype);
-				   if (!source_ok || !question_ok) {
-					   return recv_valid_udp_response(
-						   *reader_ptr,
-						   sock,
-						   rx_buf,
-						   ns,
-						   expected_id,
-						   std::move(expected_qname),
-						   expected_qtype,
-						   deadline);
-				   }
-				   validate_accepted_response_status(msg);
-				   FlowSource<codec::Message> const src;
-				   auto flow = src.flow();
-				   src.resolve(std::move(msg));
-				   return flow;
-			   });
 }
 
 // Single UDP DNS query: open ephemeral socket, send wire bytes to ns,
 // receive response with timeout, decode and validate. Maps UdpError →
 // DnsError so callers only see DnsError.
-[[nodiscard]] Flow<codec::Message> udp_single_query(
+[[nodiscard]] Task<codec::Message> udp_single_query(
 	FileReader &reader,
 	NameserverEndpoint ns,
 	vector<u8> wire,
@@ -1091,64 +1071,38 @@ void validate_accepted_response_status(
 	codec::QType expected_qtype,
 	std::chrono::milliseconds timeout) {
 	constexpr size_t kRxSize = 4096;
-
-	std::shared_ptr<udp_ns::UdpSocket> sock;
-	try {
-		sock =
-			std::make_shared<udp_ns::UdpSocket>(udp_ns::UdpSocket::open_ephemeral(static_cast<int>(ns.addr.ss_family)));
-	} catch (...) {
-		FlowSource<codec::Message> const src;
-		auto flow = src.flow();
-		src.reject(std::current_exception());
-		return flow;
-	}
-
+	auto sock =
+		std::make_shared<udp_ns::UdpSocket>(udp_ns::UdpSocket::open_ephemeral(static_cast<int>(ns.addr.ss_family)));
 	auto wire_buf = std::make_shared<vector<u8>>(std::move(wire));
 	auto rx_buf = std::make_shared<std::array<u8, kRxSize>>();
-
-	return task_as_flow(
-			   udp_ns::sendto(
-				   reader,
-				   *sock,
-				   span<u8 const>{wire_buf->data(), wire_buf->size()},
-				   reinterpret_cast<::sockaddr const *>(&ns.addr),
-				   ns.addr_len))
-		 | flat_then(
-			   [reader_ptr = &reader,
-				sock,
-				wire_buf,
-				rx_buf,
-				ns,
-				expected_id,
-				expected_qname = std::move(expected_qname),
-				expected_qtype,
-				timeout](size_t) mutable -> Flow<codec::Message> {
-				   (void)wire_buf;
-				   return recv_valid_udp_response(
-					   *reader_ptr,
-					   sock,
-					   rx_buf,
-					   ns,
-					   expected_id,
-					   std::move(expected_qname),
-					   expected_qtype,
-					   std::chrono::steady_clock::now() + timeout);
-			   })
-		 | on_error([](exception_ptr const &ep) -> codec::Message {
-			   try {
-				   std::rethrow_exception(ep);
-			   } catch (DnsError const &) { throw; } catch (udp_ns::UdpError const &e) {
-				   if (e.code().value() == ETIMEDOUT) {
-					   throw DnsError{DnsErrorKind::timeout, "dns: query timed out"};
-				   }
-				   throw DnsError{DnsErrorKind::network, std::format("dns: udp error: {}", e.what()), e.code().value()};
-			   } catch (...) { throw; }
-			   return codec::Message{}; // unreachable
-		   });
+	try {
+		auto send_task = udp_ns::sendto(
+			reader,
+			*sock,
+			span<u8 const>{wire_buf->data(), wire_buf->size()},
+			reinterpret_cast<::sockaddr const *>(&ns.addr),
+			ns.addr_len);
+		co_await task_as_flow(std::move(send_task));
+		auto recv_task = recv_valid_udp_response(
+			reader,
+			sock,
+			rx_buf,
+			ns,
+			expected_id,
+			std::move(expected_qname),
+			expected_qtype,
+			std::chrono::steady_clock::now() + timeout);
+		co_return co_await recv_task;
+	} catch (DnsError const &) { throw; } catch (udp_ns::UdpError const &e) {
+		if (e.code().value() == ETIMEDOUT) {
+			throw DnsError{DnsErrorKind::timeout, "dns: query timed out"};
+		}
+		throw DnsError{DnsErrorKind::network, std::format("dns: udp error: {}", e.what()), e.code().value()};
+	}
 }
 
 // TCP DNS query per RFC 1035 §4.2.2: 2-byte big-endian length prefix framing.
-[[nodiscard]] Flow<codec::Message> tcp_single_query(
+[[nodiscard]] Task<codec::Message> tcp_single_query(
 	FileReader &reader,
 	NameserverEndpoint ns,
 	vector<u8> wire,
@@ -1163,91 +1117,53 @@ void validate_accepted_response_status(
 	framed->push_back(static_cast<u8>(wlen & 0xFFU));
 	framed->insert(framed->end(), wire.begin(), wire.end());
 	int const family = static_cast<int>(ns.addr.ss_family);
-	return task_as_flow(reader.socket_async(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP))
-		 | flat_then(
-			   [reader_ptr = &reader, ns, framed, expected_id, expected_qname, expected_qtype, timeout](
-				   FileHandle raw_fh) mutable -> Flow<codec::Message> {
-				   auto fh = std::make_shared<FileHandle>(std::move(raw_fh));
-				   if (timeout.count() > 0) {
-					   auto const sec = std::chrono::duration_cast<std::chrono::seconds>(timeout);
-					   auto const usec = std::chrono::duration_cast<std::chrono::microseconds>(timeout - sec).count();
-					   ::timeval tv{};
-					   tv.tv_sec = sec.count();
-					   tv.tv_usec = static_cast<suseconds_t>(usec);
-					   int const raw_fd = fh->raw_fd();
-					   if (raw_fd >= 0) {
-						   (void)::setsockopt(raw_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-						   (void)::setsockopt(raw_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-					   }
-				   }
-				   return task_as_flow(reader_ptr->connect_async(*fh, ns.addr, ns.addr_len))
-						| flat_then([reader_ptr, fh, framed]() mutable -> Flow<size_t> {
-							  return task_as_flow(
-								  reader_ptr->send_async(*fh, framed->data(), framed->size(), MSG_NOSIGNAL));
-						  })
-						| flat_then(
-							  [reader_ptr, fh, framed, expected_id, expected_qname, expected_qtype](
-								  size_t sent) mutable -> Flow<codec::Message> {
-								  if (sent != framed->size()) {
-									  throw DnsError{DnsErrorKind::network, "dns: tcp short send"};
-								  }
-								  auto len_buf = std::make_shared<std::array<u8, 2>>();
-								  return task_as_flow(reader_ptr->recv_async(*fh, len_buf->data(), 2, MSG_WAITALL))
-									   | flat_then(
-											 [reader_ptr, fh, len_buf, expected_id, expected_qname, expected_qtype](
-												 size_t n) mutable -> Flow<codec::Message> {
-												 if (n != 2) {
-													 throw DnsError{
-														 DnsErrorKind::network,
-														 "dns: tcp short length prefix"};
-												 }
-												 u16 const resp_len = static_cast<u16>(
-													 (static_cast<u16>((*len_buf)[0]) << 8U)
-													 | static_cast<u16>((*len_buf)[1]));
-												 if (resp_len == 0) {
-													 throw DnsError{
-														 DnsErrorKind::malformed,
-														 "dns: tcp zero-length response"};
-												 }
-												 auto resp_buf = std::make_shared<vector<u8>>(resp_len);
-												 return task_as_flow(reader_ptr->recv_async(
-															*fh,
-															resp_buf->data(),
-															resp_len,
-															MSG_WAITALL))
-													  | then(
-															[fh, resp_buf, expected_id, expected_qname, expected_qtype](
-																size_t resp_n) -> codec::Message {
-																if (resp_n != resp_buf->size()) {
-																	throw DnsError{
-																		DnsErrorKind::network,
-																		"dns: tcp short response"};
-																}
-																auto msg = codec::decode_message(
-																	span<u8 const>{resp_buf->data(), resp_n});
-																if (!has_expected_question(
-																		msg,
-																		expected_id,
-																		expected_qname,
-																		expected_qtype)) {
-																	throw DnsError{
-																		DnsErrorKind::malformed,
-																		"dns: tcp response mismatch"};
-																}
-																validate_accepted_response_status(msg);
-																return msg;
-															});
-											 });
-							  });
-			   })
-		 | on_error([](exception_ptr const &ep) -> codec::Message {
-			   try {
-				   std::rethrow_exception(ep);
-			   } catch (DnsError const &) { throw; } catch (...) {
-				   throw DnsError{DnsErrorKind::network, "dns: tcp query failed"};
-			   }
-			   return codec::Message{}; // unreachable
-		   });
+	try {
+		auto sock_task = reader.socket_async(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+		auto fh = co_await task_as_flow(std::move(sock_task));
+		if (timeout.count() > 0) {
+			auto const sec = std::chrono::duration_cast<std::chrono::seconds>(timeout);
+			auto const usec = std::chrono::duration_cast<std::chrono::microseconds>(timeout - sec).count();
+			::timeval tv{};
+			tv.tv_sec = sec.count();
+			tv.tv_usec = static_cast<suseconds_t>(usec);
+			int const raw_fd = fh.raw_fd();
+			if (raw_fd >= 0) {
+				(void)::setsockopt(raw_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+				(void)::setsockopt(raw_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+			}
+		}
+		auto conn_task = reader.connect_async(fh, ns.addr, ns.addr_len);
+		co_await task_as_flow(std::move(conn_task));
+		auto send_task = reader.send_async(fh, framed->data(), framed->size(), MSG_NOSIGNAL);
+		auto const sent = co_await task_as_flow(std::move(send_task));
+		if (sent != framed->size()) {
+			throw DnsError{DnsErrorKind::network, "dns: tcp short send"};
+		}
+		std::array<u8, 2> len_buf{};
+		auto len_task = reader.recv_async(fh, len_buf.data(), 2, MSG_WAITALL);
+		auto const n = co_await task_as_flow(std::move(len_task));
+		if (n != 2) {
+			throw DnsError{DnsErrorKind::network, "dns: tcp short length prefix"};
+		}
+		u16 const resp_len = static_cast<u16>((static_cast<u16>(len_buf[0]) << 8U) | static_cast<u16>(len_buf[1]));
+		if (resp_len == 0) {
+			throw DnsError{DnsErrorKind::malformed, "dns: tcp zero-length response"};
+		}
+		vector<u8> resp_buf(resp_len);
+		auto resp_task = reader.recv_async(fh, resp_buf.data(), resp_len, MSG_WAITALL);
+		auto const resp_n = co_await task_as_flow(std::move(resp_task));
+		if (resp_n != resp_buf.size()) {
+			throw DnsError{DnsErrorKind::network, "dns: tcp short response"};
+		}
+		auto msg = codec::decode_message(span<u8 const>{resp_buf.data(), resp_n});
+		if (!has_expected_question(msg, expected_id, expected_qname, expected_qtype)) {
+			throw DnsError{DnsErrorKind::malformed, "dns: tcp response mismatch"};
+		}
+		validate_accepted_response_status(msg);
+		co_return msg;
+	} catch (DnsError const &) { throw; } catch (...) {
+		throw DnsError{DnsErrorKind::network, "dns: tcp query failed"};
+	}
 }
 
 // Minimum TTL across all answer RRs of the given family (UINT32_MAX if none).
@@ -1283,22 +1199,10 @@ struct EndpointBatch {
 
 // ─── UDP flow builder (shared by resolve() and resolve_blocking()) ──────────
 
-// Immediately-resolved fail batch for a queried family.
-[[nodiscard]] Flow<EndpointBatch> resolve_to_fail_flow(
-	BatchFailReason reason) {
-	FlowSource<EndpointBatch> const src;
-	auto f = src.flow();
-	EndpointBatch b;
-	b.fail_reason = reason;
-	b.was_queried = true;
-	src.resolve(std::move(b));
-	return f;
-}
-
-// Build a Flow<EndpointBatch> for a single address family. Errors are absorbed
+// Build a Task<EndpointBatch> for a single address family. Errors are absorbed
 // into a BatchFailReason field so the parallel join (join_all) always completes.
 // Cancellation is the only exception that still propagates.
-[[nodiscard]] Flow<EndpointBatch> build_family_flow(
+[[nodiscard]] Task<EndpointBatch> build_family_flow(
 	FileReader &reader,
 	NameserverEndpoint ns,
 	SV hostname,
@@ -1311,75 +1215,57 @@ struct EndpointBatch {
 	auto wire = codec::encode_query(qid, hostname, qtype, edns);
 	auto wire_ptr = make_shared<V<u8>>(wire); // copy for TCP fallback
 	auto expected_qname = lowercase_ascii(hostname);
-	return udp_single_query(reader, ns, std::move(wire), qid, expected_qname, qtype, timeout)
-		 | then([fam, port](codec::Message const &msg) -> EndpointBatch {
-			   EndpointBatch batch;
-			   batch.was_queried = true;
-			   batch.min_ttl = min_answer_ttl(msg, fam);
-			   for (auto const &rr: msg.answers) {
-				   if (auto ep = codec::rdata_to_endpoint(rr, port); ep.has_value() && ep->family == fam) {
-					   batch.eps.push_back(*ep);
-				   }
-			   }
-			   return batch;
-		   })
-		 | on_error(
-			   [reader_ptr = &reader, ns, wire_ptr, timeout, fam, port, qid, hostname = string{hostname}, qtype](
-				   EP const &eptr) -> Flow<EndpointBatch> {
-				   try {
-					   std::rethrow_exception(eptr);
-				   } catch (DnsError const &de) {
-					   if (de.kind == DnsErrorKind::cancelled) {
-						   throw;
-					   }
-					   if (de.kind == DnsErrorKind::truncated) {
-						   return tcp_single_query(
-									  *reader_ptr,
-									  ns,
-									  *wire_ptr,
-									  qid,
-									  lowercase_ascii(hostname),
-									  qtype,
-									  timeout)
-								| then([fam, port](codec::Message const &msg) -> EndpointBatch {
-									  EndpointBatch b;
-									  b.was_queried = true;
-									  b.min_ttl = min_answer_ttl(msg, fam);
-									  for (auto const &rr: msg.answers) {
-										  if (auto ep = codec::rdata_to_endpoint(rr, port);
-											  ep.has_value() && ep->family == fam) {
-											  b.eps.push_back(*ep);
-										  }
-									  }
-									  return b;
-								  })
-								| on_error([](EP const &) -> EndpointBatch {
-									  EndpointBatch b;
-									  b.fail_reason = BatchFailReason::truncated;
-									  b.was_queried = true;
-									  return b;
-								  });
-					   }
-					   auto const r = (de.kind == DnsErrorKind::nxdomain) ? BatchFailReason::nxdomain :
-									  (de.kind == DnsErrorKind::timeout)  ? BatchFailReason::timeout :
-																			BatchFailReason::network;
-					   return resolve_to_fail_flow(r);
-				   }
-				   return resolve_to_fail_flow(BatchFailReason::network);
-			   });
+	bool needs_tcp_fallback = false;
+	try {
+		auto udp_task = udp_single_query(reader, ns, std::move(wire), qid, expected_qname, qtype, timeout);
+		auto const msg = co_await udp_task;
+		EndpointBatch batch;
+		batch.was_queried = true;
+		batch.min_ttl = min_answer_ttl(msg, fam);
+		for (auto const &rr: msg.answers) {
+			if (auto ep = codec::rdata_to_endpoint(rr, port); ep.has_value() && ep->family == fam) {
+				batch.eps.push_back(*ep);
+			}
+		}
+		co_return batch;
+	} catch (DnsError const &de) {
+		if (de.kind == DnsErrorKind::cancelled) {
+			throw;
+		}
+		if (de.kind == DnsErrorKind::truncated) {
+			needs_tcp_fallback = true;
+		} else {
+			auto const r = (de.kind == DnsErrorKind::nxdomain) ? BatchFailReason::nxdomain :
+						   (de.kind == DnsErrorKind::timeout)  ? BatchFailReason::timeout :
+																 BatchFailReason::network;
+			co_return EndpointBatch{.fail_reason = r, .was_queried = true};
+		}
+	} catch (...) { co_return EndpointBatch{.fail_reason = BatchFailReason::network, .was_queried = true}; }
+	(void)needs_tcp_fallback; // always true here
+	// TCP fallback (co_await must be outside catch block):
+	try {
+		auto tcp_task = tcp_single_query(reader, ns, *wire_ptr, qid, lowercase_ascii(hostname), qtype, timeout);
+		auto const msg2 = co_await tcp_task;
+		EndpointBatch b;
+		b.was_queried = true;
+		b.min_ttl = min_answer_ttl(msg2, fam);
+		for (auto const &rr: msg2.answers) {
+			if (auto ep = codec::rdata_to_endpoint(rr, port); ep.has_value() && ep->family == fam) {
+				b.eps.push_back(*ep);
+			}
+		}
+		co_return b;
+	} catch (...) { co_return EndpointBatch{.fail_reason = BatchFailReason::truncated, .was_queried = true}; }
 }
 
 // Immediate empty batch for a disabled address family (was_queried=false).
-[[nodiscard]] Flow<EndpointBatch> make_empty_batch_flow() {
-	FlowSource<EndpointBatch> const src;
-	auto f = src.flow();
-	src.resolve({});
-	return f;
+[[nodiscard]] Task<EndpointBatch> make_empty_batch_task() {
+	co_return EndpointBatch{};
 }
 
 // Fire A and AAAA queries in parallel (RFC 8305 §3). Connection-attempt
 // staggering belongs in the caller's connect loop, not here.
-[[nodiscard]] Flow<ResolveResult> build_native_udp_flow(
+[[nodiscard]] Task<ResolveResult> build_native_udp_flow(
 	FileReader &reader,
 	NameserverEndpoint ns,
 	string const &hostname,
@@ -1391,63 +1277,65 @@ struct EndpointBatch {
 	codec::Edns0Options edns) {
 	u16 const qid_a = static_cast<u16>(std::random_device{}() & 0xFFFFU);
 	u16 const qid_aaaa = static_cast<u16>((static_cast<u32>(qid_a) + 1U) & 0xFFFFU);
-
-	auto a_flow =
-		do_v4 ?
-			build_family_flow(reader, ns, hostname, port, qid_a, codec::QType::a, AddressFamily::v4, timeout, edns) :
-			make_empty_batch_flow();
-	auto aaaa_flow = do_v6 ? build_family_flow(
-								 reader,
-								 ns,
-								 hostname,
-								 port,
-								 qid_aaaa,
-								 codec::QType::aaaa,
-								 AddressFamily::v6,
-								 timeout,
-								 edns) :
-							 make_empty_batch_flow();
-
-	return join_all(std::move(a_flow), std::move(aaaa_flow))
-		 | then([prefer](Tup<EndpointBatch, EndpointBatch> batches) -> ResolveResult {
-			   auto [v4, v6] = std::move(batches);
-			   if (v4.eps.empty() && v6.eps.empty()) {
-				   // Both families have no results. Propagate the dominant failure.
-				   auto const w = (static_cast<u8>(v4.fail_reason) >= static_cast<u8>(v6.fail_reason)) ?
-									  v4.fail_reason :
-									  v6.fail_reason;
-				   if (w == BatchFailReason::truncated) {
-					   throw DnsError{DnsErrorKind::truncated, "dns: udp truncated and tcp fallback failed"};
-				   }
-				   if (w == BatchFailReason::nxdomain) {
-					   throw DnsError{DnsErrorKind::nxdomain, "dns: name not found"};
-				   }
-			   }
-			   vector<Endpoint> all;
-			   all.reserve(v6.eps.size() + v4.eps.size());
-			   auto append_all = [&all](vector<Endpoint> const &eps) {
-				   for (auto const &ep: eps) {
-					   all.push_back(ep);
-				   }
-			   };
-			   if (prefer == AddressFamily::v4) {
-				   append_all(v4.eps);
-				   append_all(v6.eps);
-			   } else {
-				   append_all(v6.eps);
-				   append_all(v4.eps);
-			   }
-			   u32 const min_ttl = std::min(v4.min_ttl, v6.min_ttl);
-			   ResolveResult r;
-			   r.endpoints = std::move(all);
-			   if (min_ttl != std::numeric_limits<u32>::max()) {
-				   r.suggested_ttl = std::chrono::seconds{min_ttl};
-			   }
-			   return r;
-		   });
+	Flow<EndpointBatch> a_flow;
+	if (do_v4) {
+		a_flow = build_family_flow(reader, ns, hostname, port, qid_a, codec::QType::a, AddressFamily::v4, timeout, edns)
+					 .flow();
+	} else {
+		a_flow = make_empty_batch_task().flow();
+	}
+	Flow<EndpointBatch> aaaa_flow;
+	if (do_v6) {
+		aaaa_flow = build_family_flow(
+						reader,
+						ns,
+						hostname,
+						port,
+						qid_aaaa,
+						codec::QType::aaaa,
+						AddressFamily::v6,
+						timeout,
+						edns)
+						.flow();
+	} else {
+		aaaa_flow = make_empty_batch_task().flow();
+	}
+	auto [v4, v6] = co_await join_all(std::move(a_flow), std::move(aaaa_flow));
+	if (v4.eps.empty() && v6.eps.empty()) {
+		// Both families have no results. Propagate the dominant failure.
+		auto const w =
+			(static_cast<u8>(v4.fail_reason) >= static_cast<u8>(v6.fail_reason)) ? v4.fail_reason : v6.fail_reason;
+		if (w == BatchFailReason::truncated) {
+			throw DnsError{DnsErrorKind::truncated, "dns: udp truncated and tcp fallback failed"};
+		}
+		if (w == BatchFailReason::nxdomain) {
+			throw DnsError{DnsErrorKind::nxdomain, "dns: name not found"};
+		}
+	}
+	vector<Endpoint> all;
+	all.reserve(v6.eps.size() + v4.eps.size());
+	auto append_all = [&all](vector<Endpoint> const &eps) {
+		for (auto const &ep: eps) {
+			all.push_back(ep);
+		}
+	};
+	if (prefer == AddressFamily::v4) {
+		append_all(v4.eps);
+		append_all(v6.eps);
+	} else {
+		append_all(v6.eps);
+		append_all(v4.eps);
+	}
+	u32 const min_ttl = std::min(v4.min_ttl, v6.min_ttl);
+	ResolveResult r;
+	r.endpoints = std::move(all);
+	if (min_ttl != std::numeric_limits<u32>::max()) {
+		r.suggested_ttl = std::chrono::seconds{min_ttl};
+	}
+	co_return r;
 }
 
-[[nodiscard]] Flow<ResolveResult> build_native_udp_flow_with_nameservers(
+[[nodiscard]] Task<ResolveResult> build_native_udp_flow_with_nameservers(
 	FileReader &reader,
 	vector<NameserverEndpoint> nameservers,
 	size_t index,
@@ -1459,46 +1347,30 @@ struct EndpointBatch {
 	std::chrono::milliseconds timeout,
 	codec::Edns0Options edns) {
 	if (index >= nameservers.size()) {
-		FlowSource<ResolveResult> const src;
-		auto flow = src.flow();
-		src.reject(std::make_exception_ptr(DnsError{DnsErrorKind::no_servers, "dns: no nameservers configured"}));
-		return flow;
+		throw DnsError{DnsErrorKind::no_servers, "dns: no nameservers configured"};
 	}
 	auto const ns = nameservers[index];
 	auto query_host = hostname;
-	return build_native_udp_flow(reader, ns, query_host, port, do_v4, do_v6, prefer, timeout, edns)
-		 | flat_then(
-			   [reader_ptr = &reader,
-				nameservers = std::move(nameservers),
-				index,
-				hostname = std::move(hostname),
-				port,
-				do_v4,
-				do_v6,
-				prefer,
-				timeout,
-				edns](ResolveResult result) mutable -> Flow<ResolveResult> {
-				   if (!result.endpoints.empty() || index + 1 >= nameservers.size()) {
-					   FlowSource<ResolveResult> const src;
-					   auto flow = src.flow();
-					   src.resolve(std::move(result));
-					   return flow;
-				   }
-				   return build_native_udp_flow_with_nameservers(
-					   *reader_ptr,
-					   std::move(nameservers),
-					   index + 1,
-					   std::move(hostname),
-					   port,
-					   do_v4,
-					   do_v6,
-					   prefer,
-					   timeout,
-					   edns);
-			   });
+	auto udp_task = build_native_udp_flow(reader, ns, query_host, port, do_v4, do_v6, prefer, timeout, edns);
+	auto result = co_await udp_task;
+	if (!result.endpoints.empty() || index + 1 >= nameservers.size()) {
+		co_return std::move(result);
+	}
+	auto next_task = build_native_udp_flow_with_nameservers(
+		reader,
+		std::move(nameservers),
+		index + 1,
+		std::move(hostname),
+		port,
+		do_v4,
+		do_v6,
+		prefer,
+		timeout,
+		edns);
+	co_return co_await next_task;
 }
 
-[[nodiscard]] Flow<ResolveResult> build_native_udp_flow_with_candidates(
+[[nodiscard]] Task<ResolveResult> build_native_udp_flow_with_candidates(
 	FileReader &reader,
 	vector<NameserverEndpoint> nameservers,
 	vector<string> candidates,
@@ -1510,55 +1382,44 @@ struct EndpointBatch {
 	std::chrono::milliseconds timeout,
 	codec::Edns0Options edns) {
 	if (index >= candidates.size()) {
-		FlowSource<ResolveResult> const src;
-		auto flow = src.flow();
-		src.reject(std::make_exception_ptr(DnsError{DnsErrorKind::nxdomain, "dns: name not found"}));
-		return flow;
+		throw DnsError{DnsErrorKind::nxdomain, "dns: name not found"};
 	}
 	auto candidate = candidates[index];
 	auto query_nameservers = nameservers;
-	return build_native_udp_flow_with_nameservers(
-			   reader,
-			   std::move(query_nameservers),
-			   0,
-			   candidate,
-			   port,
-			   do_v4,
-			   do_v6,
-			   prefer,
-			   timeout,
-			   edns)
-		 | on_error(
-			   [reader_ptr = &reader,
-				nameservers = std::move(nameservers),
-				candidates = std::move(candidates),
-				index,
-				port,
-				do_v4,
-				do_v6,
-				prefer,
-				timeout,
-				edns](exception_ptr const &ep) mutable -> Flow<ResolveResult> {
-				   try {
-					   std::rethrow_exception(ep);
-				   } catch (DnsError const &de) {
-					   if (de.kind != DnsErrorKind::nxdomain || index + 1 >= candidates.size()) {
-						   throw;
-					   }
-					   return build_native_udp_flow_with_candidates(
-						   *reader_ptr,
-						   std::move(nameservers),
-						   std::move(candidates),
-						   index + 1,
-						   port,
-						   do_v4,
-						   do_v6,
-						   prefer,
-						   timeout,
-						   edns);
-				   }
-				   throw;
-			   });
+	bool try_next = false;
+	try {
+		auto ns_task = build_native_udp_flow_with_nameservers(
+			reader,
+			std::move(query_nameservers),
+			0,
+			candidate,
+			port,
+			do_v4,
+			do_v6,
+			prefer,
+			timeout,
+			edns);
+		co_return co_await ns_task;
+	} catch (DnsError const &de) {
+		if (de.kind != DnsErrorKind::nxdomain || index + 1 >= candidates.size()) {
+			throw;
+		}
+		try_next = true;
+	}
+	(void)try_next; // always true here
+	// recursive fallback outside catch block:
+	auto next_task = build_native_udp_flow_with_candidates(
+		reader,
+		std::move(nameservers),
+		std::move(candidates),
+		index + 1,
+		port,
+		do_v4,
+		do_v6,
+		prefer,
+		timeout,
+		edns);
+	co_return co_await next_task;
 }
 
 // ─── LRU TTL cache ──────────────────────────────────────────────────────────
@@ -2030,6 +1891,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 			effective_opts.prefer,
 			timeout,
 			edns)
+			.flow()
 		| then(std::move(cache_insert))
 		| then(std::move(fanout_success))
 		| on_error(std::move(fanout_error))

@@ -163,20 +163,6 @@ inline UdpRecvResult holder_to_result(
 	return r;
 }
 
-template<typename T>
-[[nodiscard]] auto flow_to_root_task(
-	Flow<T> flow) -> conflux::work::root::Task<T> {
-	using namespace conflux::work::root;
-	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = make_shared<TaskSource<T>>(std::move(src));
-	spawn(
-		std::move(flow)
-		| then([shared_src](T value) mutable { (void)shared_src->commit_success(Success<T>{std::move(value)}); })
-		| on_error([shared_src](std::exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
-	return std::move(task);
-}
-
 } // namespace detail
 
 // ─── sendto: thin wrapper around FileReader::sendto_async ───────────────────
@@ -206,10 +192,18 @@ export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom(
 	UdpSocket const &sock,
 	span<u8> buf,
 	int flags = 0) {
+	using namespace conflux::work::root;
 	auto h = detail::make_recv_holder(buf);
-	return detail::flow_to_root_task(
+	auto [task, raw_src] = make_task_source<UdpRecvResult>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = std::make_shared<TaskSource<UdpRecvResult>>(std::move(raw_src));
+	spawn(
 		task_as_flow(reader.recvmsg_async(sock.handle(), &h->msg, static_cast<unsigned>(flags)))
-		| then([h](size_t n) { return detail::holder_to_result(h, n); }));
+		| then([shared_src, h](size_t n) mutable {
+			  (void)shared_src->commit_success(Success<UdpRecvResult>{detail::holder_to_result(h, n)});
+		  })
+		| on_error([shared_src](std::exception_ptr const &ep) mutable { (void)shared_src->commit_failure(ep); })
+		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
+	return std::move(task);
 }
 
 // ─── recvfrom_with_timeout: linked recvmsg + link_timeout SQE pair ──────────
