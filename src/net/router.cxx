@@ -1903,23 +1903,23 @@ public:
 		}
 	}
 
-	void send_text(
+	[[nodiscard]] bool send_text(
 		SV data) {
 		SL const lk{send_mtx_};
-		do_send_frame(1, as_bytes(span{data}));
+		return do_send_frame(1, as_bytes(span{data}));
 	}
-	void send_binary(
+	[[nodiscard]] bool send_binary(
 		span<byte const> data) {
 		SL const lk{send_mtx_};
-		do_send_frame(2, data);
+		return do_send_frame(2, data);
 	}
-	void send_ping(
+	bool send_ping(
 		SV data = {}) {
 		if (data.size() > 125) {
 			throw std::invalid_argument{"WsConn::send_ping: payload exceeds 125-byte control frame limit"};
 		}
 		SL const lk{send_mtx_};
-		do_send_frame(9, as_bytes(span{data}));
+		return do_send_frame(9, as_bytes(span{data}));
 	}
 	void close(
 		u16 code = 1000,

@@ -2974,7 +2974,9 @@ TEST_CASE(
 		// Echo all text frames until connection closes.
 		while (auto frame = ws.recv()) {
 			if (frame->opcode == WsConn::Opcode::Text) {
-				ws.send_text(frame->payload);
+				if (!ws.send_text(frame->payload)) {
+					break;
+				}
 			}
 		}
 	});
@@ -3818,7 +3820,9 @@ TEST_CASE(
 	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
 		while (auto f = ws.recv()) {
 			if (f->opcode == WsConn::Opcode::Text) {
-				ws.send_text(f->payload);
+				if (!ws.send_text(f->payload)) {
+					break;
+				}
 			}
 		}
 	});
@@ -6804,7 +6808,9 @@ TEST_CASE(
 	router.ws("/ws", [](HttpRequest const &, WsConn &ws) {
 		while (auto f = ws.recv()) {
 			if (f->opcode == WsConn::Opcode::Text) {
-				ws.send_text(f->payload);
+				if (!ws.send_text(f->payload)) {
+					break;
+				}
 			}
 		}
 	});
