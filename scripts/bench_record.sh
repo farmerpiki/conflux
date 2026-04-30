@@ -28,16 +28,21 @@ BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 DIRTY=false
 if ! git diff --quiet || ! git diff --cached --quiet; then DIRTY=true; fi
 
-BUILD_DIR="/tmp/$(basename "$REPO_ROOT")/$PRESET"
 HOST="$(hostname)"
 COMPILER="clang++"
 case "$PRESET" in
   *gcc*) COMPILER="g++" ;;
 esac
 
-if [[ ! -f "$BUILD_DIR/build.ninja" ]]; then
-  cmake --preset "$PRESET" >/dev/null
+# Resolve binaryDir from the preset (handles both /tmp/... and ${sourceDir}/build/... layouts).
+CONFIGURE_LOG=$(cmake --preset "$PRESET" 2>&1)
+BUILD_DIR=$(printf '%s\n' "$CONFIGURE_LOG" | sed -n 's/^-- Build files have been written to: //p' | tail -1)
+if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
+  echo "configure failed; preset=$PRESET" >&2
+  printf '%s\n' "$CONFIGURE_LOG" | tail -20 >&2
+  exit 2
 fi
+
 cmake --build "$BUILD_DIR" --target \
   conflux_tcp_increment_coro_bench \
   conflux_tcp_parallel_coro_bench \
