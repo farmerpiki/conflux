@@ -53,9 +53,7 @@ export class Params {
 		string_view v) {
 		auto const off = static_cast<ptrdiff_t>(arena_.size());
 		arena_.resize(arena_.size() + v.size() + 1);
-		if (!v.empty()) {
-			memcpy(arena_.data() + off, v.data(), v.size());
-		}
+		std::copy_n(v.data(), v.size(), arena_.data() + off);
 		arena_[static_cast<size_t>(off) + v.size()] = '\0';
 		dirty_ = true;
 		return off;
@@ -66,9 +64,7 @@ export class Params {
 		size_t n) {
 		auto const off = static_cast<ptrdiff_t>(arena_.size());
 		arena_.resize(arena_.size() + n);
-		if (n > 0) {
-			memcpy(arena_.data() + off, data, n);
-		}
+		std::copy_n(static_cast<char const *>(data), n, arena_.data() + off);
 		dirty_ = true;
 		return off;
 	}

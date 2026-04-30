@@ -240,7 +240,8 @@ void dispatch_request(
 	ParserLimits const &limits);
 
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): field order mirrors connection state-machine phases.
-struct alignas(64) Conn {
+struct alignas(
+	64) Conn {
 	int fd = -1;
 	u32 gen = 0;
 	bool recv_armed = false;
@@ -249,6 +250,7 @@ struct alignas(64) Conn {
 	bool sse_headers_sent = false;
 	bool is_ws = false; // true → WebSocket upgrade; hand off fd to WS thread after send
 	bool is_deferred = false;
+	bool deferred_head_only = false; // HEAD on deferred route → strip body when ready
 	bool closing = false; // close SQE already submitted for this generation
 	bool close_after_send = false; // true → close instead of re-arming recv
 	int sse_efd = -1;
@@ -2050,11 +2052,16 @@ struct Ring {
 				::setsockopt(res, IPPROTO_TCP, TCP_NODELAY, &tcp_opt_one_, sizeof tcp_opt_one_);
 				::setsockopt(res, IPPROTO_TCP, TCP_QUICKACK, &tcp_opt_one_, sizeof tcp_opt_one_);
 			} else {
-				for (int opt : {TCP_NODELAY, TCP_QUICKACK}) {
+				for (int opt: {TCP_NODELAY, TCP_QUICKACK}) {
 					auto *sqe = get_sqe();
 					io_uring_prep_cmd_sock(
-						sqe, SOCKET_URING_OP_SETSOCKOPT, res,
-						IPPROTO_TCP, opt, &tcp_opt_one_, static_cast<int>(sizeof tcp_opt_one_));
+						sqe,
+						SOCKET_URING_OP_SETSOCKOPT,
+						res,
+						IPPROTO_TCP,
+						opt,
+						&tcp_opt_one_,
+						static_cast<int>(sizeof tcp_opt_one_));
 					io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
 					io_uring_sqe_set_data64(sqe, pack(Op::Nop, 0, 0));
 				}
@@ -2735,18 +2742,30 @@ struct Ring {
 		conn.is_deferred = false;
 		conn.deferred_efd = -1;
 		conn.deferred_response.reset();
+		if (conn.deferred_head_only) {
+			ready->head_only = true;
+		}
+		conn.deferred_head_only = false;
 		if (ready->is_mapped_file()) {
 			conn.own_response = format_response(*ready, alt_svc_header, conn.close_after_send);
-			conn.mapped_file = ready->take_mapped_file();
-			conn.mapped_total = conn.own_response.size() + conn.mapped_file->send_size;
-			conn.response_ptr = nullptr;
+			if (ready->head_only) {
+				conn.response_ptr = &conn.own_response;
+			} else {
+				conn.mapped_file = ready->take_mapped_file();
+				conn.mapped_total = conn.own_response.size() + conn.mapped_file->send_size;
+				conn.response_ptr = nullptr;
+			}
 		} else if (ready->is_streamed_file()) {
 			conn.own_response = format_response(*ready, alt_svc_header, conn.close_after_send);
-			conn.streamed_file = ready->take_streamed_file();
-			conn.streamed_headers_sent = false;
-			conn.streamed_delivered = 0;
-			conn.streamed_splice_in_flight = false;
-			conn.response_ptr = &conn.own_response;
+			if (ready->head_only) {
+				conn.response_ptr = &conn.own_response;
+			} else {
+				conn.streamed_file = ready->take_streamed_file();
+				conn.streamed_headers_sent = false;
+				conn.streamed_delivered = 0;
+				conn.streamed_splice_in_flight = false;
+				conn.response_ptr = &conn.own_response;
+			}
 		} else {
 			conn.own_response = format_response(*ready, alt_svc_header, conn.close_after_send);
 			conn.response_ptr = &conn.own_response;
@@ -3518,6 +3537,7 @@ void dispatch_request(
 		}
 #endif
 		conn.is_deferred = true;
+		conn.deferred_head_only = resp.head_only;
 		conn.deferred_efd = resp.deferred_response_ptr()->eventfd_fd();
 		conn.deferred_response = resp.take_deferred_response();
 		conn.response_ptr = nullptr;
@@ -3537,16 +3557,24 @@ void dispatch_request(
 		conn.response_ptr = &conn.own_response;
 	} else if (resp.is_mapped_file()) {
 		conn.own_response = format_response(resp, ring.alt_svc_header);
-		conn.mapped_file = resp.take_mapped_file();
-		conn.mapped_total = conn.own_response.size() + conn.mapped_file->send_size;
-		conn.response_ptr = nullptr;
+		if (resp.head_only) {
+			conn.response_ptr = &conn.own_response;
+		} else {
+			conn.mapped_file = resp.take_mapped_file();
+			conn.mapped_total = conn.own_response.size() + conn.mapped_file->send_size;
+			conn.response_ptr = nullptr;
+		}
 	} else if (resp.is_streamed_file()) {
 		conn.own_response = format_response(resp, ring.alt_svc_header);
-		conn.streamed_file = resp.take_streamed_file();
-		conn.streamed_headers_sent = false;
-		conn.streamed_delivered = 0;
-		conn.streamed_splice_in_flight = false;
-		conn.response_ptr = &conn.own_response;
+		if (resp.head_only) {
+			conn.response_ptr = &conn.own_response;
+		} else {
+			conn.streamed_file = resp.take_streamed_file();
+			conn.streamed_headers_sent = false;
+			conn.streamed_delivered = 0;
+			conn.streamed_splice_in_flight = false;
+			conn.response_ptr = &conn.own_response;
+		}
 	} else {
 		conn.own_response = format_response(resp, ring.alt_svc_header);
 		conn.response_ptr = &conn.own_response;

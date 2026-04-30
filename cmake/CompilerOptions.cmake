@@ -37,6 +37,12 @@ function(conflux_apply_compiler_options target)
             -Wmissing-format-attribute
             -Wno-global-module
         )
+        # hack: GCC 15.2.1 ICE in nonnull_arg_p (tree.cc:14759) at -O2/-O3
+        # with C++26 modules. Cap module TUs at -O1 until upstream fix lands.
+        if(CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "15.0"
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16.0")
+            target_compile_options(${target} INTERFACE -O1)
+        endif()
     endif()
 
     # ── Clang 18 extras ──────────────────────────────────────────────────────

@@ -735,8 +735,7 @@ struct ClassifiedDouble {
 		p = heap_buf.get();
 	}
 
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	memcpy(p, first, n);
+	std::copy_n(first, n, p);
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 	p[n] = '\0';
 

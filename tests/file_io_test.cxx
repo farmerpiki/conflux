@@ -17,6 +17,8 @@ import conflux.types;
 import conflux.work;
 import conflux.file_io;
 
+namespace root = conflux::work::root;
+
 namespace {
 
 constexpr u64 pack_ud(
@@ -647,7 +649,7 @@ TEST_CASE(
 
 	S dir_path = "/tmp/conflux_file_io_mkdir_XXXXXX";
 	// Use mkdtemp to get a unique name, then remove it so we can recreate via async.
-	char  const*tmp = ::mkdtemp(dir_path.data());
+	char const *tmp = ::mkdtemp(dir_path.data());
 	REQUIRE(tmp != nullptr);
 	::rmdir(dir_path.c_str());
 
@@ -1474,7 +1476,7 @@ TEST_CASE(
 		remove_ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
-	(void)poll_flow;
+	root::abandon_to(move(poll_flow), root::drop_on_abandon{});
 
 	bool const passed = remove_ok || err == ENOENT || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
@@ -1547,7 +1549,8 @@ TEST_CASE(
 	FileHandle const recver = FileHandle::from_fd(sv[1]);
 
 	S const payload = "send_recv_test";
-	SZ const sent = block_on(fx->reader, fx->reader.send_async(sender, payload.data(), payload.size()), chrono::seconds{5});
+	SZ const sent =
+		block_on(fx->reader, fx->reader.send_async(sender, payload.data(), payload.size()), chrono::seconds{5});
 	REQUIRE(sent == payload.size());
 
 	A<char, 64> buf{};
