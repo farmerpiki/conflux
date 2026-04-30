@@ -3406,12 +3406,7 @@ void dispatch_request(
 			return;
 		}
 		if (content_length > max_body_size) {
-			auto r = HttpResponse{};
-			r.status = kHttpRequestEntityTooLarge;
-			r.status_text = "Content Too Large";
-			r.content_type = "text/html; charset=utf-8";
-			r.set_text_body("<html><body><h1>413 Content Too Large</h1></body></html>");
-			conn.own_response = format_response(r, ring.alt_svc_header);
+			conn.own_response = format_response(HttpResponse::content_too_large(), ring.alt_svc_header);
 			conn.response_ptr = &conn.own_response;
 			conn.close_after_send = true;
 			conn.request_bytes = raw.size();
@@ -3435,12 +3430,7 @@ void dispatch_request(
 			return;
 		}
 		if (rc == -2) {
-			auto r = HttpResponse{};
-			r.status = kHttpRequestEntityTooLarge;
-			r.status_text = "Content Too Large";
-			r.content_type = "text/html; charset=utf-8";
-			r.set_text_body("<html><body><h1>413 Content Too Large</h1></body></html>");
-			conn.own_response = format_response(r, ring.alt_svc_header);
+			conn.own_response = format_response(HttpResponse::content_too_large(), ring.alt_svc_header);
 			conn.response_ptr = &conn.own_response;
 			conn.close_after_send = true;
 			conn.request_bytes = raw.size();

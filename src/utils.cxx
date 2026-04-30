@@ -88,6 +88,7 @@ export constexpr int kHttpRequestHeaderFieldsTooLarge = 431;
 export constexpr int kHttpGatewayTimeout = 504;
 export constexpr int kHttpNoContent = 204;
 export constexpr int kHttpPartialContent = 206;
+export constexpr int kHttpInternalServerError = 500;
 
 // ---------------------------------------------------------------------------
 // Hex

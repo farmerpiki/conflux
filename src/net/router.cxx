@@ -831,7 +831,7 @@ public:
 
 	// Returns true if the frame was enqueued, false if dropped (overflow).
 	// Also returns false if the channel is closed, regardless of policy.
-	bool send(
+	[[nodiscard]] bool send(
 		S frame) {
 		bool enqueued = false;
 		bool wake = false;
@@ -875,7 +875,7 @@ public:
 		return enqueued;
 	}
 
-	bool send_event(
+	[[nodiscard]] bool send_event(
 		SV type,
 		SV data) {
 		// Reject newlines in type and data: they would break SSE framing and
@@ -1091,7 +1091,7 @@ export struct HttpResponse {
 		return text_body().size();
 	}
 
-	static HttpResponse html(
+	[[nodiscard]] static HttpResponse html(
 		S body) {
 		HttpResponse r;
 		r.status = kHttpOk;
@@ -1101,7 +1101,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse html(
+	[[nodiscard]] static HttpResponse html(
 		S body,
 		int status,
 		S status_text) {
@@ -1113,7 +1113,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse json(
+	[[nodiscard]] static HttpResponse json(
 		S body) {
 		HttpResponse r;
 		r.status = kHttpOk;
@@ -1123,7 +1123,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse json(
+	[[nodiscard]] static HttpResponse json(
 		S body,
 		int status,
 		S status_text) {
@@ -1135,7 +1135,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse text(
+	[[nodiscard]] static HttpResponse text(
 		S body) {
 		HttpResponse r;
 		r.status = kHttpOk;
@@ -1145,8 +1145,20 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse redirect(
-		S location,
+	[[nodiscard]] static HttpResponse text(
+		S body,
+		int status,
+		S status_text) {
+		HttpResponse r;
+		r.status = status;
+		r.status_text = move(status_text);
+		r.content_type = "text/plain; charset=utf-8";
+		r.set_text_body(move(body));
+		return r;
+	}
+
+	[[nodiscard]] static HttpResponse redirect(
+		SV location,
 		int code = kHttpFound) {
 		char const *status_text = "Found";
 		switch (code) {
@@ -1156,11 +1168,11 @@ export struct HttpResponse {
 		default                    : break;
 		}
 		HttpResponse r{.status = code, .status_text = status_text, .content_type = "text/html; charset=utf-8"};
-		r.headers["Location"] = move(location);
+		r.headers["Location"] = S{location};
 		return r;
 	}
 
-	static HttpResponse not_found(
+	[[nodiscard]] static HttpResponse not_found(
 		SV path) {
 		HttpResponse r;
 		r.status = kHttpNotFound;
@@ -1170,7 +1182,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse bad_request(
+	[[nodiscard]] static HttpResponse bad_request(
 		SV detail = {}) {
 		auto body =
 			detail.empty() ?
@@ -1184,7 +1196,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse unauthorized(
+	[[nodiscard]] static HttpResponse unauthorized(
 		SV www_authenticate = {}) {
 		HttpResponse r;
 		r.status = kHttpUnauthorized;
@@ -1197,7 +1209,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse forbidden(
+	[[nodiscard]] static HttpResponse forbidden(
 		SV detail = {}) {
 		auto body =
 			detail.empty() ?
@@ -1211,7 +1223,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse method_not_allowed(
+	[[nodiscard]] static HttpResponse method_not_allowed(
 		std::initializer_list<SV> allowed = {}) {
 		HttpResponse r;
 		r.status = kHttpMethodNotAllowed;
@@ -1231,7 +1243,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse unprocessable_entity(
+	[[nodiscard]] static HttpResponse unprocessable_entity(
 		SV detail = {}) {
 		auto body =
 			detail.empty() ?
@@ -1246,7 +1258,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse uri_too_long() {
+	[[nodiscard]] static HttpResponse uri_too_long() {
 		HttpResponse r;
 		r.status = kHttpUriTooLong;
 		r.status_text = "URI Too Long";
@@ -1255,7 +1267,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse header_fields_too_large() {
+	[[nodiscard]] static HttpResponse header_fields_too_large() {
 		HttpResponse r;
 		r.status = kHttpRequestHeaderFieldsTooLarge;
 		r.status_text = "Request Header Fields Too Large";
@@ -1264,7 +1276,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse gateway_timeout() {
+	[[nodiscard]] static HttpResponse gateway_timeout() {
 		HttpResponse r;
 		r.status = kHttpGatewayTimeout;
 		r.status_text = "Gateway Timeout";
@@ -1273,31 +1285,44 @@ export struct HttpResponse {
 		return r;
 	}
 
-	static HttpResponse sse(
+	[[nodiscard]] static HttpResponse sse(
 		SP<SseChannel> ch) {
 		HttpResponse r{.status = kHttpOk, .status_text = "OK", .content_type = "text/event-stream"};
 		r.set_sse_channel(move(ch));
 		return r;
 	}
 
-	static HttpResponse deferred(
+	[[nodiscard]] static HttpResponse deferred(
 		SP<DeferredResponse> response) {
 		HttpResponse r;
 		r.set_deferred_response(move(response));
 		return r;
 	}
 
-	static HttpResponse internal_error(
+	[[nodiscard]] static HttpResponse internal_error(
 		SV detail = {}) {
 		auto body =
 			detail.empty() ?
 				S{"<html><body><h1>500 Internal Server Error</h1></body></html>"} :
 				format("<html><body><h1>500 Internal Server Error</h1><p>{}</p></body></html>", html_escape(detail));
 		HttpResponse r;
-		r.status = 500;
+		r.status = kHttpInternalServerError;
 		r.status_text = "Internal Server Error";
 		r.content_type = "text/html; charset=utf-8";
 		r.set_text_body(move(body));
+		return r;
+	}
+
+	[[nodiscard]] static HttpResponse no_content() {
+		return {.status = kHttpNoContent, .status_text = "No Content"};
+	}
+
+	[[nodiscard]] static HttpResponse content_too_large() {
+		HttpResponse r;
+		r.status = kHttpRequestEntityTooLarge;
+		r.status_text = "Content Too Large";
+		r.content_type = "text/html; charset=utf-8";
+		r.set_text_body("<html><body><h1>413 Content Too Large</h1></body></html>");
 		return r;
 	}
 
@@ -1913,7 +1938,7 @@ public:
 		SL const lk{send_mtx_};
 		return do_send_frame(2, data);
 	}
-	bool send_ping(
+	[[nodiscard]] bool send_ping(
 		SV data = {}) {
 		if (data.size() > 125) {
 			throw std::invalid_argument{"WsConn::send_ping: payload exceeds 125-byte control frame limit"};
@@ -1975,7 +2000,7 @@ public:
 					break;
 				}
 				lk.unlock();
-				send_ping();
+				(void)send_ping();
 				lk.lock();
 			}
 		});
@@ -2241,7 +2266,7 @@ Task<void> do_delete_file(
 	try {
 		co_await std::move(unlink_task);
 		static_cache->evict_all_encodings(*fp);
-		dr->complete(HttpResponse{.status = kHttpNoContent, .status_text = "No Content"});
+		dr->complete(HttpResponse::no_content());
 	} catch (FileIoError const &e) {
 		dr->complete(e.code().value() == ENOENT ? HttpResponse::not_found(*fp) : HttpResponse::internal_error());
 	} catch (...) { dr->complete(HttpResponse::internal_error()); }
@@ -3151,7 +3176,7 @@ public:
 										}
 										static_cache->evict_all_encodings(full_path);
 										dr->complete(
-											HttpResponse{.status = kHttpNoContent, .status_text = "No Content"});
+											HttpResponse::no_content());
 									} catch (...) { dr->complete(HttpResponse::internal_error()); }
 								});
 							if (!ok) {
@@ -3164,7 +3189,7 @@ public:
 							return errno == ENOENT ? HttpResponse::not_found(*norm) : HttpResponse::internal_error();
 						}
 						static_cache->evict_all_encodings(full_path);
-						return HttpResponse{.status = kHttpNoContent, .status_text = "No Content"};
+						return HttpResponse::no_content();
 					} catch (...) { return HttpResponse::internal_error(); }
 				});
 		}
