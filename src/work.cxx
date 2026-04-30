@@ -1563,13 +1563,15 @@ export template<typename... Ts>
 	using namespace conflux::work::root;
 	auto [root_task, src] = make_task_source<Result>(SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<TaskSource<Result>>(std::move(src));
-	co_spawn([shared_src, inner = work_detail::join_all(task_as_flow(std::move(tasks))...)]() mutable -> ::Task<void> {
+	co_spawn([](SP<TaskSource<Result>> src,
+				 decltype(work_detail::join_all(task_as_flow(std::move(tasks))...)) inner)
+				 -> ::Task<void> {
 		try {
 			auto val = co_await std::move(inner);
-			(void)shared_src->commit_success(Success<Result>{std::move(val)});
-		} catch (::Cancelled const &) { (void)shared_src->commit_cancelled(CancelReason::requested); } catch (...) {
-			(void)shared_src->commit_failure(std::current_exception());
+			(void)src->commit_success(Success<Result>{std::move(val)});
+		} catch (::Cancelled const &) { (void)src->commit_cancelled(CancelReason::requested); } catch (...) {
+			(void)src->commit_failure(std::current_exception());
 		}
-	}());
+	}(shared_src, work_detail::join_all(task_as_flow(std::move(tasks))...)));
 	return std::move(root_task);
 }

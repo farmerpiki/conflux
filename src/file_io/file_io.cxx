@@ -3477,18 +3477,18 @@ T block_on(
 	using namespace conflux::work::root;
 	auto [root_task, raw_src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<TaskSource<T>>(std::move(raw_src));
-	co_spawn([shared_src, inner = std::move(task)]() mutable -> ::Task<void> {
+	co_spawn([](SP<TaskSource<T>> src, ::Task<T> inner) -> ::Task<void> {
 		try {
 			if constexpr (std::is_void_v<T>) {
 				co_await std::move(inner);
-				(void)shared_src->commit_success(Success<T>{});
+				(void)src->commit_success(Success<T>{});
 			} else {
 				auto v = co_await std::move(inner);
-				(void)shared_src->commit_success(Success<T>{std::move(v)});
+				(void)src->commit_success(Success<T>{std::move(v)});
 			}
-		} catch (::Cancelled const &) { (void)shared_src->commit_cancelled(CancelReason::requested); } catch (...) {
-			(void)shared_src->commit_failure(std::current_exception());
+		} catch (::Cancelled const &) { (void)src->commit_cancelled(CancelReason::requested); } catch (...) {
+			(void)src->commit_failure(std::current_exception());
 		}
-	}());
+	}(shared_src, std::move(task)));
 	return block_on<T>(reader, std::move(root_task), budget, std::move(decode));
 }

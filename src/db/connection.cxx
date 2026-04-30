@@ -195,7 +195,7 @@ public:
 
 private:
 	struct PendingQuery {
-		shared_ptr<root::TaskSource<Result>> dst;
+		SP<root::TaskSource<Result>> dst;
 		string sql;
 		Params params;
 	};
@@ -267,13 +267,13 @@ private:
 	void enqueue_job_(function<void()> job);
 	void start_next_();
 
-	void run_query_(string const &sql, Params const &params, shared_ptr<root::TaskSource<Result>> const &dst);
+	void run_query_(string const &sql, Params const &params, SP<root::TaskSource<Result>> const &dst);
 	void run_prepare_(
 		string const &name,
 		string const &sql,
 		vector<Oid> oids,
 		shared_ptr<root::TaskSource<void>> const &dst);
-	void run_exec_prepared_(string const &name, Params const &params, shared_ptr<root::TaskSource<Result>> const &dst);
+	void run_exec_prepared_(string const &name, Params const &params, SP<root::TaskSource<Result>> const &dst);
 
 	template<class T>
 	void after_send_drive_flush_(shared_ptr<root::TaskSource<T>> dst, shared_ptr<Result> partial, string const &label);
@@ -587,7 +587,7 @@ root::Task<Result> Connection::query(
 void Connection::run_query_(
 	string const &sql,
 	Params const &params,
-	shared_ptr<root::TaskSource<Result>> const &dst) {
+	SP<root::TaskSource<Result>> const &dst) {
 	int const n = params.count();
 	int const send = ::PQsendQueryParams(
 		conn_.get(),
@@ -698,7 +698,7 @@ root::Task<Result> Connection::exec_prepared(
 void Connection::run_exec_prepared_(
 	string const &name,
 	Params const &params,
-	shared_ptr<root::TaskSource<Result>> const &dst) {
+	SP<root::TaskSource<Result>> const &dst) {
 	int const n = params.count();
 	int const send = ::PQsendQueryPrepared(
 		conn_.get(),
@@ -909,28 +909,28 @@ root::Task<Result> Connection::query(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
 	auto self = shared_from_this();
-	co_spawn([shared_src, q_task = query(sql, move(params))]() mutable -> Task<void> {
+	co_spawn([](SP<root::TaskSource<Result>> src, root::Task<Result> qt) -> Task<void> {
 		try {
-			auto r = co_await std::move(q_task);
-			(void)shared_src->commit_success(root::Success<Result>{move(r)});
-		} catch (Cancelled const &) { (void)shared_src->commit_cancelled(root::CancelReason::requested); } catch (...) {
-			(void)shared_src->commit_failure(current_exception());
+			auto r = co_await std::move(qt);
+			(void)src->commit_success(root::Success<Result>{move(r)});
+		} catch (Cancelled const &) { (void)src->commit_cancelled(root::CancelReason::requested); } catch (...) {
+			(void)src->commit_failure(current_exception());
 		}
-	}());
+	}(shared_src, query(sql, move(params))));
 	auto const deadline = *opts.deadline;
-	co_spawn([self, shared_src, to_task = reader->timeout_async(deadline)]() mutable -> Task<void> {
+	co_spawn([](SP<Connection> s, SP<root::TaskSource<Result>> src, root::Task<void> tt) -> Task<void> {
 		try {
-			co_await std::move(to_task);
-			if (shared_src->commit_failure(
+			co_await std::move(tt);
+			if (src->commit_failure(
 					make_exception_ptr(PgError{"conflux.db: query deadline exceeded", "57014"}))) {
-				co_spawn([self]() mutable -> Task<void> {
+				co_spawn([](SP<Connection> s2) -> Task<void> {
 					try {
-						co_await self->cancel_inflight();
+						co_await s2->cancel_inflight();
 					} catch (...) {}
-				}());
+				}(s));
 			}
 		} catch (...) {}
-	}());
+	}(self, shared_src, reader->timeout_async(deadline)));
 	return move(task);
 }
 
@@ -1032,11 +1032,12 @@ void Pipeline::sync_next_(
 	auto item = move(st->batch.front());
 	st->batch.pop_front();
 	auto shared_src = item.dst;
-	co_spawn([this, st, shared_src, q_task = conn_->query(item.sql, move(item.params))]() mutable -> Task<void> {
+	co_spawn([](Pipeline *self, SP<SyncState> st, SP<root::TaskSource<Result>> shared_src,
+				 root::Task<Result> qt) -> Task<void> {
 		try {
-			auto r = co_await std::move(q_task);
+			auto r = co_await std::move(qt);
 			(void)shared_src->commit_success(root::Success<Result>{move(r)});
-			sync_next_(st);
+			self->sync_next_(st);
 		} catch (Cancelled const &) {
 			(void)shared_src->commit_cancelled(root::CancelReason::requested);
 			while (!st->batch.empty()) {
@@ -1045,7 +1046,7 @@ void Pipeline::sync_next_(
 				(void)rem.dst->commit_cancelled(root::CancelReason::requested);
 			}
 			(void)st->done->commit_cancelled(root::CancelReason::requested);
-			finish_sync_(false);
+			self->finish_sync_(false);
 		} catch (...) {
 			(void)shared_src->commit_failure(current_exception());
 			while (!st->batch.empty()) {
@@ -1054,9 +1055,9 @@ void Pipeline::sync_next_(
 				(void)rem.dst->commit_failure(make_exception_ptr(PgError{"conflux.db: pipeline query"}));
 			}
 			(void)st->done->commit_success(root::Success<void>{});
-			finish_sync_(true);
+			self->finish_sync_(true);
 		}
-	}());
+	}(this, st, shared_src, conn_->query(item.sql, move(item.params))));
 }
 
 void Pipeline::finish_sync_(

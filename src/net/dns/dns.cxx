@@ -1551,7 +1551,7 @@ public:
 // ─── Resolver::Impl ─────────────────────────────────────────────────────────
 
 struct CoalescedBroadcast {
-	vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
+	vector<SP<root::TaskSource<ResolveResult>>> waiters;
 };
 
 struct Resolver::Impl {
@@ -1793,16 +1793,17 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 			auto [out_task, out_raw_src] =
 				root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 			auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
-			co_spawn([out_src, wtask = std::move(wtask)]() mutable -> Task<void> {
+			co_spawn([](SP<root::TaskSource<ResolveResult>> out_src,
+						 root::Task<ResolveResult> wt) -> Task<void> {
 				try {
-					auto r = co_await std::move(wtask);
+					auto r = co_await std::move(wt);
 					r.from_coalesced = true;
 					(void)out_src->commit_success(root::Success<ResolveResult>{std::move(r)});
 				} catch (Cancelled const &) {
 					(void)out_src->commit_failure(
 						std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
 				} catch (...) { (void)out_src->commit_failure(std::current_exception()); }
-			}());
+			}(out_src, std::move(wtask)));
 			return std::move(out_task);
 		}
 		impl_->in_flight.emplace(coalesce_key, CoalescedBroadcast{});

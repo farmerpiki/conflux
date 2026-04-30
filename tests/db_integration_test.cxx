@@ -317,12 +317,12 @@ TEST_CASE(
 
 	atomic_flag sleep_done{};
 	EP sleep_err;
-	co_spawn([&sleep_done, &sleep_err, q_task = conn->query("SELECT pg_sleep(10)")]() mutable -> Task<void> {
+	co_spawn([](atomic_flag *done, EP *err, decltype(conn->query("")) qt) -> Task<void> {
 		try {
-			co_await std::move(q_task);
-		} catch (...) { sleep_err = std::current_exception(); }
-		sleep_done.test_and_set(memory_order_release);
-	}());
+			co_await std::move(qt);
+		} catch (...) { *err = std::current_exception(); }
+		done->test_and_set(memory_order_release);
+	}(&sleep_done, &sleep_err, conn->query("SELECT pg_sleep(10)")));
 
 	WorkPool cancel_pool{WorkPoolOptions{.threads = 1}};
 	std::this_thread::sleep_for(chrono::milliseconds{100});
@@ -474,12 +474,12 @@ TEST_CASE(
 
 	atomic_flag done{};
 	EP err;
-	co_spawn([&done, &err, q_task = conn->query("SELECT pg_sleep(10)")]() mutable -> Task<void> {
+	co_spawn([](atomic_flag *d, EP *e, decltype(conn->query("")) qt) -> Task<void> {
 		try {
-			co_await std::move(q_task);
-		} catch (...) { err = std::current_exception(); }
-		done.test_and_set(memory_order_release);
-	}());
+			co_await std::move(qt);
+		} catch (...) { *e = std::current_exception(); }
+		d->test_and_set(memory_order_release);
+	}(&done, &err, conn->query("SELECT pg_sleep(10)")));
 
 	std::this_thread::sleep_for(chrono::milliseconds{100});
 	block_on(fx->reader, conn->cancel_inflight(), chrono::seconds{30});

@@ -1,6 +1,7 @@
 export module conflux.db.pool;
 
 import std;
+import conflux.types;
 import conflux.db.types;
 import conflux.db.result;
 import conflux.db.connection;
@@ -75,14 +76,14 @@ export struct PoolConfig {
 export class Pool : public enable_shared_from_this<Pool> {
 public:
 	class Lease {
-		shared_ptr<Pool> pool_{};
-		shared_ptr<Connection> conn_{};
+		SP<Pool> pool_{};
+		SP<Connection> conn_{};
 
 		friend class Pool;
 
 		Lease(
-			shared_ptr<Pool> p,
-			shared_ptr<Connection> c) noexcept
+			SP<Pool> p,
+			SP<Connection> c) noexcept
 			: pool_{move(p)}
 			, conn_{move(c)} {}
 
@@ -104,7 +105,7 @@ public:
 		[[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(conn_); }
 	};
 
-	static shared_ptr<Pool> create(PoolConfig cfg);
+	static SP<Pool> create(PoolConfig cfg);
 
 	~Pool() { close(); }
 
@@ -125,15 +126,15 @@ private:
 		: cfg_{move(cfg)}
 		, owner_{this_thread::get_id()} {}
 
-	void return_(shared_ptr<Connection> conn) noexcept;
+	void return_(SP<Connection> conn) noexcept;
 	void try_dispatch_waiters_();
 	void grow_if_needed_();
-	void dispatch_lease_(shared_ptr<root::TaskSource<Lease>> const &src, shared_ptr<Connection> conn) noexcept;
+	void dispatch_lease_(SP<root::TaskSource<Lease>> const &src, SP<Connection> conn) noexcept;
 
 	PoolConfig cfg_{};
 	thread::id owner_{};
-	vector<shared_ptr<Connection>> idle_{};
-	deque<shared_ptr<root::TaskSource<Lease>>> waiters_{};
+	vector<SP<Connection>> idle_{};
+	deque<SP<root::TaskSource<Lease>>> waiters_{};
 	size_t total_{0};
 	bool closed_{false};
 };
@@ -215,9 +216,9 @@ auto with_transaction(
 // Pool implementation
 // ===========================================================================
 
-shared_ptr<Pool> Pool::create(
+SP<Pool> Pool::create(
 	PoolConfig cfg) {
-	auto p = shared_ptr<Pool>(new Pool{move(cfg)});
+	auto p = SP<Pool>(new Pool{move(cfg)});
 	p->grow_if_needed_();
 	return p;
 }
@@ -255,7 +256,8 @@ root::Task<Pool::Lease> Pool::acquire() {
 	if (total_ < cfg_.max_connections) {
 		++total_;
 		auto self = shared_from_this();
-		co_spawn([self, shared_src, conn_task = Connection::connect(cfg_.conn)]() mutable -> Task<void> {
+		co_spawn([](SP<Pool> self, SP<root::TaskSource<Lease>> shared_src,
+					 root::Task<SP<Connection>> conn_task) -> Task<void> {
 			try {
 				auto conn = co_await std::move(conn_task);
 				if (self->closed_) {
@@ -268,19 +270,19 @@ root::Task<Pool::Lease> Pool::acquire() {
 				--self->total_;
 				(void)shared_src->commit_failure(current_exception());
 			}
-		}());
+		}(self, shared_src, Connection::connect(cfg_.conn)));
 		return move(task);
 	}
 	waiters_.push_back(shared_src);
 	if (cfg_.acquire_timeout.count() > 0) {
 		if (auto *reader = current_file_reader(); reader != nullptr) {
 			auto self = shared_from_this();
-			co_spawn([shared_src, to_task = reader->timeout_async(cfg_.acquire_timeout)]() mutable -> Task<void> {
+			co_spawn([](SP<root::TaskSource<Lease>> shared_src, root::Task<void> to_task) -> Task<void> {
 				try {
 					co_await std::move(to_task);
 					(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
 				} catch (...) {}
-			}());
+			}(shared_src, reader->timeout_async(cfg_.acquire_timeout)));
 		}
 	}
 	return move(task);
@@ -288,7 +290,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 
 // NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.
 void Pool::return_(
-	shared_ptr<Connection> conn) noexcept {
+	SP<Connection> conn) noexcept {
 	if (closed_ || !conn || !conn->ok()) {
 		if (conn) {
 			conn->close();
@@ -322,7 +324,7 @@ void Pool::grow_if_needed_() {
 	while (total_ < cfg_.min_connections) {
 		++total_;
 		auto self = shared_from_this();
-		co_spawn([self, conn_task = Connection::connect(cfg_.conn)]() mutable -> Task<void> {
+		co_spawn([](SP<Pool> self, root::Task<SP<Connection>> conn_task) -> Task<void> {
 			try {
 				auto conn = co_await std::move(conn_task);
 				if (self->closed_) {
@@ -332,14 +334,14 @@ void Pool::grow_if_needed_() {
 				self->idle_.push_back(move(conn));
 				self->try_dispatch_waiters_();
 			} catch (...) { --self->total_; }
-		}());
+		}(self, Connection::connect(cfg_.conn)));
 	}
 }
 
 // NOLINTNEXTLINE(bugprone-exception-escape,misc-no-recursion)
 void Pool::dispatch_lease_(
-	shared_ptr<root::TaskSource<Lease>> const &src,
-	shared_ptr<Connection> conn) noexcept {
+	SP<root::TaskSource<Lease>> const &src,
+	SP<Connection> conn) noexcept {
 	if (!cfg_.on_acquire) {
 		// If commit fails (waiter timed out), ~Lease fires → return_ → try_dispatch_waiters_.
 		(void)src->commit_success(
@@ -350,7 +352,8 @@ void Pool::dispatch_lease_(
 	}
 	auto self = shared_from_this();
 	try {
-		co_spawn([self, src, conn, on_acq_task = cfg_.on_acquire(*conn)]() mutable -> Task<void> {
+		co_spawn([](SP<Pool> self, SP<root::TaskSource<Lease>> src,
+					 SP<Connection> conn, root::Task<void> on_acq_task) -> Task<void> {
 			try {
 				co_await std::move(on_acq_task);
 				if (self->closed_) {
@@ -372,7 +375,7 @@ void Pool::dispatch_lease_(
 				--self->total_;
 				(void)src->commit_failure(current_exception());
 			}
-		}());
+		}(self, src, conn, cfg_.on_acquire(*conn)));
 	} catch (...) {
 		conn->close();
 		--self->total_;
