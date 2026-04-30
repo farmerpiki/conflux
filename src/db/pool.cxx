@@ -11,6 +11,8 @@ using namespace std;
 
 namespace conflux::db {
 
+namespace root = conflux::work::root;
+
 export struct TxOptions {
 	enum class Iso : uint8_t {
 		ReadCommitted,
@@ -60,20 +62,6 @@ inline chrono::milliseconds retry_backoff(
 	return chrono::milliseconds{min(base_ms << min(attempt, 4), cap_ms)};
 }
 
-template<class T>
-[[nodiscard]] auto flow_to_root_task(
-	Flow<T> flow) -> conflux::work::root::Task<T> {
-	using namespace conflux::work::root;
-	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = make_shared<TaskSource<T>>(move(src));
-	spawn(
-		move(flow)
-		| then([shared_src](T value) mutable { (void)shared_src->commit_success(Success<T>{move(value)}); })
-		| on_error([shared_src](exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
-		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
-	return move(task);
-}
-
 } // namespace detail
 
 export struct PoolConfig {
@@ -81,7 +69,7 @@ export struct PoolConfig {
 	size_t min_connections{1};
 	size_t max_connections{8};
 	chrono::milliseconds acquire_timeout{chrono::seconds{5}};
-	function<conflux::work::root::Task<void>(Connection &)> on_acquire{};
+	function<root::Task<void>(Connection &)> on_acquire{};
 };
 
 export class Pool : public enable_shared_from_this<Pool> {
@@ -125,7 +113,7 @@ public:
 	Pool(Pool &&) = delete;
 	Pool &operator =(Pool &&) = delete;
 
-	conflux::work::root::Task<Lease> acquire();
+	root::Task<Lease> acquire();
 	void close() noexcept;
 
 	[[nodiscard]] size_t total() const noexcept { return total_; }
@@ -140,13 +128,12 @@ private:
 	void return_(shared_ptr<Connection> conn) noexcept;
 	void try_dispatch_waiters_();
 	void grow_if_needed_();
-	void dispatch_lease_(FlowSource<Lease> const &w, shared_ptr<Connection> conn) noexcept;
-	Flow<Lease> acquire_flow_();
+	void dispatch_lease_(shared_ptr<root::TaskSource<Lease>> const &src, shared_ptr<Connection> conn) noexcept;
 
 	PoolConfig cfg_{};
 	thread::id owner_{};
 	vector<shared_ptr<Connection>> idle_{};
-	deque<FlowSource<Lease>> waiters_{};
+	deque<shared_ptr<root::TaskSource<Lease>>> waiters_{};
 	size_t total_{0};
 	bool closed_{false};
 };
@@ -235,73 +222,69 @@ shared_ptr<Pool> Pool::create(
 	return p;
 }
 
-// NOLINTNEXTLINE(bugprone-exception-escape) — vector ops are noexcept on move-only payloads here.
+// NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.
 void Pool::close() noexcept {
 	if (closed_) {
 		return;
 	}
 	closed_ = true;
-	for (auto &w: waiters_) {
-		w.cancel();
+	for (auto &src: waiters_) {
+		(void)src->commit_cancelled(root::CancelReason::requested);
 	}
 	waiters_.clear();
 	idle_.clear();
 }
 
-Flow<Pool::Lease> Pool::acquire_flow_() {
-	FlowSource<Lease> const src;
-	auto flow = src.flow();
+root::Task<Pool::Lease> Pool::acquire() {
+	auto [task, raw_src] = root::make_task_source<Lease>(root::SubmitOptions{.enable_cancellation = false});
+	auto shared_src = make_shared<root::TaskSource<Lease>>(move(raw_src));
 	if (closed_) {
-		src.reject(make_exception_ptr(PgError{"conflux.db: pool closed"}));
-		return flow;
+		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: pool closed"}));
+		return move(task);
 	}
 	if (this_thread::get_id() != owner_) {
-		src.reject(make_exception_ptr(PgError{"conflux.db: pool acquire off owner thread"}));
-		return flow;
+		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: pool acquire off owner thread"}));
+		return move(task);
 	}
 	if (!idle_.empty()) {
 		auto conn = move(idle_.back());
 		idle_.pop_back();
-		dispatch_lease_(src, move(conn));
-		return flow;
+		dispatch_lease_(shared_src, move(conn));
+		return move(task);
 	}
 	if (total_ < cfg_.max_connections) {
 		++total_;
 		auto self = shared_from_this();
-		auto const &src_copy = src;
 		spawn(
 			task_as_flow(Connection::connect(cfg_.conn))
-			| then([self, src_copy](shared_ptr<Connection> conn) mutable {
+			| then([self, shared_src](shared_ptr<Connection> conn) mutable {
 				  if (self->closed_) {
 					  --self->total_;
-					  src_copy.cancel();
+					  (void)shared_src->commit_cancelled(root::CancelReason::requested);
 					  return;
 				  }
-				  self->dispatch_lease_(src_copy, move(conn));
+				  self->dispatch_lease_(shared_src, move(conn));
 			  })
-			| on_error([self, src_copy](exception_ptr const &ex) mutable {
+			| on_error([self, shared_src](exception_ptr const &ex) mutable {
 				  --self->total_;
-				  src_copy.reject(ex);
+				  (void)shared_src->commit_failure(ex);
 			  }));
-		return flow;
+		return move(task);
 	}
-	waiters_.push_back(src);
+	waiters_.push_back(shared_src);
 	if (cfg_.acquire_timeout.count() > 0) {
 		if (auto *reader = current_file_reader(); reader != nullptr) {
 			auto self = shared_from_this();
 			spawn(
 				reader->timeout_async(cfg_.acquire_timeout)
-				| then(
-					[self, src]() mutable { src.reject(make_exception_ptr(PgError{"conflux.db: acquire timeout"})); })
+				| then([self, shared_src]() mutable {
+					  (void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
+				  })
 				| on_error([](exception_ptr const &) {})
 				| on_cancel([]() {}));
 		}
 	}
-	return flow;
-}
-
-conflux::work::root::Task<Pool::Lease> Pool::acquire() {
-	return detail::flow_to_root_task(acquire_flow_());
+	return move(task);
 }
 
 // NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.
@@ -320,25 +303,19 @@ void Pool::return_(
 	try {
 		try_dispatch_waiters_();
 	}
-	// NOLINTNEXTLINE(bugprone-empty-catch) — FlowSource::resolve may throw if waiter cancelled by close(); swallow to
-	// keep noexcept.
+	// NOLINTNEXTLINE(bugprone-empty-catch) — spawn or container ops may throw; swallow to keep noexcept.
 	catch (...) {}
 }
 
-// NOLINTNEXTLINE(misc-no-recursion) — mutual indirect recursion through async on_acquire boundary; no stack cycle.
+// NOLINTNEXTLINE(misc-no-recursion) — mutual indirect recursion through Lease RAII and async on_acquire boundary; no
+// stack cycle in steady state.
 void Pool::try_dispatch_waiters_() {
 	while (!waiters_.empty() && !idle_.empty()) {
-		while (!waiters_.empty() && !waiters_.front().armed()) {
-			waiters_.pop_front();
-		}
-		if (waiters_.empty() || idle_.empty()) {
-			break;
-		}
-		auto w = move(waiters_.front());
+		auto src = move(waiters_.front());
 		waiters_.pop_front();
 		auto conn = move(idle_.back());
 		idle_.pop_back();
-		dispatch_lease_(w, move(conn));
+		dispatch_lease_(src, move(conn));
 	}
 }
 
@@ -362,54 +339,47 @@ void Pool::grow_if_needed_() {
 
 // NOLINTNEXTLINE(bugprone-exception-escape,misc-no-recursion)
 void Pool::dispatch_lease_(
-	FlowSource<Lease> const &w,
+	shared_ptr<root::TaskSource<Lease>> const &src,
 	shared_ptr<Connection> conn) noexcept {
-	if (!w.armed()) {
-		if (!closed_) {
-			idle_.push_back(move(conn));
-			try_dispatch_waiters_();
-		} else {
-			conn->close();
-			--total_;
-		}
-		return;
-	}
 	if (!cfg_.on_acquire) {
-		w.resolve(Lease{shared_from_this(), move(conn)});
+		// If commit fails (waiter timed out), ~Lease fires → return_ → try_dispatch_waiters_.
+		(void)src->commit_success(
+			root::Success<Lease>{
+				Lease{shared_from_this(), move(conn)}
+        });
 		return;
 	}
 	auto self = shared_from_this();
 	try {
 		spawn(
 			task_as_flow(cfg_.on_acquire(*conn))
-			| then([self, w, conn]() mutable {
+			| then([self, src, conn]() mutable {
 				  if (self->closed_) {
 					  conn->close();
 					  --self->total_;
-					  w.cancel();
+					  (void)src->commit_cancelled(root::CancelReason::requested);
 					  return;
 				  }
-				  if (!w.armed()) {
-					  self->idle_.push_back(move(conn));
-					  self->try_dispatch_waiters_();
-					  return;
-				  }
-				  w.resolve(Lease{self, move(conn)});
+				  // If commit fails (timeout during on_acquire), ~Lease returns conn to pool.
+				  (void)src->commit_success(
+					  root::Success<Lease>{
+						  Lease{self, move(conn)}
+                  });
 			  })
-			| on_error([self, w, conn](exception_ptr const &ex) mutable {
+			| on_error([self, src, conn](exception_ptr const &ex) mutable {
 				  conn->close();
 				  --self->total_;
-				  w.reject(ex);
+				  (void)src->commit_failure(ex);
 			  })
-			| on_cancel([self, w, conn]() mutable {
+			| on_cancel([self, src, conn]() mutable {
 				  conn->close();
 				  --self->total_;
-				  w.cancel();
+				  (void)src->commit_cancelled(root::CancelReason::requested);
 			  }));
 	} catch (...) {
 		conn->close();
 		--self->total_;
-		w.reject(current_exception());
+		(void)src->commit_failure(current_exception());
 	}
 }
 
