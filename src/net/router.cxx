@@ -831,6 +831,7 @@ public:
 
 	// Returns true if the frame was enqueued, false if dropped (overflow).
 	// Also returns false if the channel is closed, regardless of policy.
+	// Channel takes ownership of frame.
 	[[nodiscard]] bool send(
 		S frame) {
 		bool enqueued = false;
@@ -873,6 +874,15 @@ public:
 			}
 		}
 		return enqueued;
+	}
+
+	// Zero-copy intent: caller owns the backing buffer and is responsible for
+	// keeping it alive until the frame is flushed to the socket. Currently
+	// copies into the queue; when the queue migrates to SV storage this
+	// contract becomes a hard lifetime requirement.
+	[[nodiscard]] bool send_view(
+		SV frame) {
+		return send(S{frame});
 	}
 
 	[[nodiscard]] bool send_event(
