@@ -226,8 +226,8 @@ export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom_with_time
 	std::chrono::milliseconds timeout,
 	int flags = 0) {
 	using namespace conflux::work::root;
-	FlowSource<UdpRecvResult> const src;
-	auto flow = src.flow();
+	auto [task, raw_src] = make_task_source<UdpRecvResult>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = make_shared<TaskSource<UdpRecvResult>>(std::move(raw_src));
 
 	auto *ring = reader.ring();
 	auto *completions = reader.completions();
@@ -235,8 +235,8 @@ export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom_with_time
 	auto *sqe_recv = ::io_uring_get_sqe(ring);
 	auto *sqe_to = sqe_recv != nullptr ? ::io_uring_get_sqe(ring) : nullptr;
 	if (sqe_recv == nullptr || sqe_to == nullptr) {
-		src.reject(make_exception_ptr(UdpError{ENOSPC, "udp: SQ full"}));
-		return detail::flow_to_root_task(std::move(flow));
+		(void)shared_src->commit_failure(make_exception_ptr(UdpError{ENOSPC, "udp: SQ full"}));
+		return std::move(task);
 	}
 
 	auto h = detail::make_recv_holder(buf);
@@ -253,18 +253,19 @@ export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom_with_time
 	::io_uring_prep_recvmsg(sqe_recv, fd, &h->msg, static_cast<unsigned>(flags));
 	sqe_recv->flags |= IOSQE_IO_LINK;
 
-	auto [slot_recv, gen_recv] = completions->reserve([src, h](IoResult r) mutable {
+	auto [slot_recv, gen_recv] = completions->reserve([shared_src, h](IoResult r) mutable {
 		try {
 			if (r.res == -ECANCELED) {
-				src.reject(make_exception_ptr(UdpError{ETIMEDOUT, "udp: recvfrom timed out"}));
+				(void)shared_src->commit_failure(make_exception_ptr(UdpError{ETIMEDOUT, "udp: recvfrom timed out"}));
 				return;
 			}
 			if (r.res < 0) {
-				src.reject(make_exception_ptr(UdpError{-r.res, "udp: recvfrom failed"}));
+				(void)shared_src->commit_failure(make_exception_ptr(UdpError{-r.res, "udp: recvfrom failed"}));
 				return;
 			}
-			src.resolve(detail::holder_to_result(h, static_cast<size_t>(r.res)));
-		} catch (...) { src.reject(std::current_exception()); }
+			(void)shared_src->commit_success(
+				Success<UdpRecvResult>{detail::holder_to_result(h, static_cast<size_t>(r.res))});
+		} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
 	});
 	::io_uring_sqe_set_data64(sqe_recv, reader.encode_ud(slot_recv, gen_recv));
 
@@ -272,7 +273,7 @@ export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom_with_time
 	auto [slot_to, gen_to] = completions->reserve([ts](IoResult) mutable { (void)ts; });
 	::io_uring_sqe_set_data64(sqe_to, reader.encode_ud(slot_to, gen_to));
 
-	return detail::flow_to_root_task(std::move(flow));
+	return std::move(task);
 }
 
 } // namespace conflux::net::udp
