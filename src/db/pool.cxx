@@ -81,7 +81,7 @@ export struct PoolConfig {
 	size_t min_connections{1};
 	size_t max_connections{8};
 	chrono::milliseconds acquire_timeout{chrono::seconds{5}};
-	function<Flow<void>(Connection &)> on_acquire{};
+	function<conflux::work::root::Task<void>(Connection &)> on_acquire{};
 };
 
 export class Pool : public enable_shared_from_this<Pool> {
@@ -125,8 +125,7 @@ public:
 	Pool(Pool &&) = delete;
 	Pool &operator =(Pool &&) = delete;
 
-	Flow<Lease> acquire();
-	conflux::work::root::Task<Lease> acquire_task();
+	conflux::work::root::Task<Lease> acquire();
 	void close() noexcept;
 
 	[[nodiscard]] size_t total() const noexcept { return total_; }
@@ -142,6 +141,7 @@ private:
 	void try_dispatch_waiters_();
 	void grow_if_needed_();
 	void dispatch_lease_(FlowSource<Lease> const &w, shared_ptr<Connection> conn) noexcept;
+	Flow<Lease> acquire_flow_();
 
 	PoolConfig cfg_{};
 	thread::id owner_{};
@@ -216,7 +216,7 @@ auto with_transaction(
 	TxOptions opt,
 	Body &&body) -> Task<detail::awaitable_value_t<invoke_result_t<Body, Connection &>>> {
 	using R = detail::awaitable_value_t<invoke_result_t<Body, Connection &>>;
-	auto lease = co_await p.acquire();
+	auto lease = co_await task_as_flow(p.acquire());
 	if constexpr (same_as<R, void>) {
 		co_await with_transaction(*lease, opt, forward<Body>(body));
 	} else {
@@ -248,7 +248,7 @@ void Pool::close() noexcept {
 	idle_.clear();
 }
 
-Flow<Pool::Lease> Pool::acquire() {
+Flow<Pool::Lease> Pool::acquire_flow_() {
 	FlowSource<Lease> const src;
 	auto flow = src.flow();
 	if (closed_) {
@@ -300,8 +300,8 @@ Flow<Pool::Lease> Pool::acquire() {
 	return flow;
 }
 
-conflux::work::root::Task<Pool::Lease> Pool::acquire_task() {
-	return detail::flow_to_root_task(acquire());
+conflux::work::root::Task<Pool::Lease> Pool::acquire() {
+	return detail::flow_to_root_task(acquire_flow_());
 }
 
 // NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.
@@ -381,7 +381,7 @@ void Pool::dispatch_lease_(
 	auto self = shared_from_this();
 	try {
 		spawn(
-			cfg_.on_acquire(*conn)
+			task_as_flow(cfg_.on_acquire(*conn))
 			| then([self, w, conn]() mutable {
 				  if (self->closed_) {
 					  conn->close();

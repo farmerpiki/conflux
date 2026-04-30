@@ -78,24 +78,25 @@ landed on the `db` branch.
 Exposes a `Pipeline` object from `Connection::pipeline()` that batches sends
 and demultiplexes results in order.
 
-**API sketch:**
+**Implemented API (as of 2026-04-30):**
 
 ```cpp
 class Pipeline {
 public:
-    Flow<Result> query(string_view sql, Params params = {});
-    Flow<Result> exec_cached(shared_ptr<StatementCache::Entry const>, Params);
-    Flow<void>   sync();   // explicit sync point; destructor also syncs
+    conflux::work::root::Task<Result> query(string_view sql, Params params = {});
+    conflux::work::root::Task<Result> exec_cached(shared_ptr<StatementCache::Entry const>, Params);
+    conflux::work::root::Task<void>   sync();
 };
 
+// Connection::pipeline() still returns Flow<Pipeline> — migration pending
 Flow<Pipeline> Connection::pipeline();
 ```
 
-- Destructor calls `PQpipelineSync` + drain loop then `PQexitPipelineMode`.
-- All sends share one flush pass per iteration — the main win.
-- Results demultiplexed by insertion order (one internal `deque<FlowSource<Result>>`).
-- Errors in one sub-query do not cancel others (Postgres pipeline semantics: error
-  enters abort-until-sync mode; subsequent results are `PGRES_PIPELINE_ABORTED`).
+- Destructor rejects all pending queries as `pipeline closed`.
+- Logical batching barrier: queries enqueued via `query()`, executed in-order during `sync()`.
+- True libpq wire pipeline mode (`PQpipelineSync`) is a follow-up.
+- Results demultiplexed by insertion order.
+- Errors in one sub-query reject that query; remaining queries continue (unless sync fails).
 - `Pool::acquire` returns a `Lease`; caller constructs `Pipeline` from `*lease`.
 
 **Performance target:** 5–20× ops/sec for N=100 small INSERTs vs non-pipeline
@@ -112,18 +113,20 @@ Flow<Pipeline> Connection::pipeline();
 **API sketch:**
 
 ```cpp
+namespace root = conflux::work::root;
+
 class CopyIn {
 public:
-    Flow<void>    write(span<byte const> chunk);   // PQputCopyData
-    Flow<void>    write_text(string_view line);    // appends '\n' if missing
-    Flow<int64_t> finish();                        // PQputCopyEnd; returns rows affected
-    Flow<void>    abort(string_view reason);
+    root::Task<void>    write(span<byte const> chunk);
+    root::Task<void>    write_text(string_view line);
+    root::Task<int64_t> finish();
+    root::Task<void>    abort(string_view reason);
 };
 
 class CopyOut {
 public:
-    Flow<optional<vector<byte>>> next();   // nullopt = end-of-copy
-    Flow<void>                   cancel();
+    root::Task<optional<vector<byte>>> next();
+    root::Task<void>                   cancel();
 };
 
 Flow<CopyIn>  Connection::copy_in (string_view sql);

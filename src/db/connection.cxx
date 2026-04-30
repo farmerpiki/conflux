@@ -199,103 +199,7 @@ private:
 	mutable unordered_map<string, shared_ptr<Entry const>> cache_{};
 };
 
-export class Connection : public enable_shared_from_this<Connection> {
-public:
-	Connection(Connection const &) = delete;
-	Connection &operator =(Connection const &) = delete;
-	Connection(Connection &&) = delete;
-	Connection &operator =(Connection &&) = delete;
-
-	~Connection() { close(); }
-
-	static conflux::work::root::Task<shared_ptr<Connection>> connect(ConnectParams const &params);
-
-	conflux::work::root::Task<Result> query(string_view sql, Params params = {});
-	conflux::work::root::Task<Result> query(shared_ptr<string const> sql, Params params = {});
-
-	conflux::work::root::Task<void> prepare(string_view name, string_view sql, span<Oid const> param_types = {});
-	conflux::work::root::Task<void>
-	prepare(string_view name, shared_ptr<string const> sql, span<Oid const> param_types = {});
-
-	conflux::work::root::Task<Result> exec_prepared(string_view name, Params params = {});
-	conflux::work::root::Task<Result>
-	exec_cached(shared_ptr<StatementCache::Entry const> const &stmt, Params params = {});
-
-	conflux::work::root::Task<void> cancel_inflight(WorkPool &cancel_pool);
-	conflux::work::root::Task<void> cancel_inflight();
-	Flow<class Pipeline> pipeline();
-
-	conflux::work::root::Task<Result> query(string_view sql, Params params, QueryOptions opts);
-
-	[[nodiscard]] bool ok() const noexcept { return conn_ && ::PQstatus(conn_.get()) == CONNECTION_OK; }
-
-	[[nodiscard]] string last_error() const {
-		if (!conn_) {
-			return {};
-		}
-		char const *p = ::PQerrorMessage(conn_.get());
-		return p != nullptr ? string{p} : string{};
-	}
-
-	[[nodiscard]] PGconn *raw() const noexcept { return conn_.get(); }
-	[[nodiscard]] int backend_pid() const noexcept { return conn_ ? ::PQbackendPID(conn_.get()) : 0; }
-	[[nodiscard]] int server_version() const noexcept { return conn_ ? ::PQserverVersion(conn_.get()) : 0; }
-
-	void close() noexcept;
-
-private:
-	static Flow<shared_ptr<Connection>> connect_flow(ConnectParams const &params);
-	Flow<Result> query_flow(string_view sql, Params params = {});
-	Flow<Result> query_flow(shared_ptr<string const> sql, Params params = {});
-	Flow<void> prepare_flow(string_view name, string_view sql, span<Oid const> param_types = {});
-	Flow<void> prepare_flow(string_view name, shared_ptr<string const> sql, span<Oid const> param_types = {});
-	Flow<Result> exec_prepared_flow(string_view name, Params params = {});
-	Flow<Result> exec_cached_flow(shared_ptr<StatementCache::Entry const> const &stmt, Params params = {});
-	Flow<void> cancel_inflight_flow(WorkPool &cancel_pool);
-	Flow<void> cancel_inflight_flow();
-	Flow<Result> query_flow(string_view sql, Params params, QueryOptions opts);
-
-	Connection(
-		PGConnPtr conn,
-		FileReader *reader) noexcept
-		: conn_{move(conn)}
-		, reader_{reader}
-		, owner_{this_thread::get_id()} {}
-
-	void enqueue_job_(function<void()> job);
-	void start_next_();
-
-	void run_query_(string const &sql, Params const &params, FlowSource<Result> dst);
-	void run_prepare_(string const &name, string const &sql, vector<Oid> oids, FlowSource<void> dst);
-	void run_exec_prepared_(string const &name, Params const &params, FlowSource<Result> dst);
-
-	template<class T>
-	void after_send_drive_flush_(FlowSource<T> dst, shared_ptr<Result> partial, string const &label);
-	template<class T>
-	void drive_consume_loop_(FlowSource<T> dst, shared_ptr<Result> partial, string const &label);
-
-	template<class T>
-	void reject_(
-		FlowSource<T> &dst,
-		string const &label) {
-		auto err = detail::from_conn(conn_.get(), label);
-		dst.reject(make_exception_ptr(move(err)));
-	}
-
-	void op_done_();
-
-	PGConnPtr conn_;
-	FileReader *reader_{nullptr};
-	thread::id owner_{};
-	bool closed_{false};
-	bool in_flight_{false};
-	deque<function<void()>> queue_{};
-	unordered_set<string> prepared_names_{};
-	bool pipeline_mode_{false};
-
-	friend struct detail::ConnectState;
-	friend class Pipeline;
-};
+export class Connection;
 
 export class Pipeline {
 public:
@@ -345,6 +249,105 @@ private:
 	bool closed_{false};
 	deque<PendingQuery> pending_{};
 	bool syncing_{false};
+};
+
+export class Connection : public enable_shared_from_this<Connection> {
+public:
+	Connection(Connection const &) = delete;
+	Connection &operator =(Connection const &) = delete;
+	Connection(Connection &&) = delete;
+	Connection &operator =(Connection &&) = delete;
+
+	~Connection() { close(); }
+
+	static conflux::work::root::Task<shared_ptr<Connection>> connect(ConnectParams const &params);
+
+	conflux::work::root::Task<Result> query(string_view sql, Params params = {});
+	conflux::work::root::Task<Result> query(shared_ptr<string const> sql, Params params = {});
+
+	conflux::work::root::Task<void> prepare(string_view name, string_view sql, span<Oid const> param_types = {});
+	conflux::work::root::Task<void>
+	prepare(string_view name, shared_ptr<string const> sql, span<Oid const> param_types = {});
+
+	conflux::work::root::Task<Result> exec_prepared(string_view name, Params params = {});
+	conflux::work::root::Task<Result>
+	exec_cached(shared_ptr<StatementCache::Entry const> const &stmt, Params params = {});
+
+	conflux::work::root::Task<void> cancel_inflight(WorkPool &cancel_pool);
+	conflux::work::root::Task<void> cancel_inflight();
+	conflux::work::root::Task<Pipeline> pipeline();
+
+	conflux::work::root::Task<Result> query(string_view sql, Params params, QueryOptions opts);
+
+	[[nodiscard]] bool ok() const noexcept { return conn_ && ::PQstatus(conn_.get()) == CONNECTION_OK; }
+
+	[[nodiscard]] string last_error() const {
+		if (!conn_) {
+			return {};
+		}
+		char const *p = ::PQerrorMessage(conn_.get());
+		return p != nullptr ? string{p} : string{};
+	}
+
+	[[nodiscard]] PGconn *raw() const noexcept { return conn_.get(); }
+	[[nodiscard]] int backend_pid() const noexcept { return conn_ ? ::PQbackendPID(conn_.get()) : 0; }
+	[[nodiscard]] int server_version() const noexcept { return conn_ ? ::PQserverVersion(conn_.get()) : 0; }
+
+	void close() noexcept;
+
+private:
+	static Flow<shared_ptr<Connection>> connect_flow(ConnectParams const &params);
+	Flow<Result> query_flow(string_view sql, Params params = {});
+	Flow<Result> query_flow(shared_ptr<string const> sql, Params params = {});
+	Flow<void> prepare_flow(string_view name, string_view sql, span<Oid const> param_types = {});
+	Flow<void> prepare_flow(string_view name, shared_ptr<string const> sql, span<Oid const> param_types = {});
+	Flow<Result> exec_prepared_flow(string_view name, Params params = {});
+	Flow<Result> exec_cached_flow(shared_ptr<StatementCache::Entry const> const &stmt, Params params = {});
+	Flow<void> cancel_inflight_flow(WorkPool &cancel_pool);
+	Flow<void> cancel_inflight_flow();
+	Flow<Result> query_flow(string_view sql, Params params, QueryOptions opts);
+	Flow<Pipeline> pipeline_flow_();
+
+	Connection(
+		PGConnPtr conn,
+		FileReader *reader) noexcept
+		: conn_{move(conn)}
+		, reader_{reader}
+		, owner_{this_thread::get_id()} {}
+
+	void enqueue_job_(function<void()> job);
+	void start_next_();
+
+	void run_query_(string const &sql, Params const &params, FlowSource<Result> dst);
+	void run_prepare_(string const &name, string const &sql, vector<Oid> oids, FlowSource<void> dst);
+	void run_exec_prepared_(string const &name, Params const &params, FlowSource<Result> dst);
+
+	template<class T>
+	void after_send_drive_flush_(FlowSource<T> dst, shared_ptr<Result> partial, string const &label);
+	template<class T>
+	void drive_consume_loop_(FlowSource<T> dst, shared_ptr<Result> partial, string const &label);
+
+	template<class T>
+	void reject_(
+		FlowSource<T> &dst,
+		string const &label) {
+		auto err = detail::from_conn(conn_.get(), label);
+		dst.reject(make_exception_ptr(move(err)));
+	}
+
+	void op_done_();
+
+	PGConnPtr conn_;
+	FileReader *reader_{nullptr};
+	thread::id owner_{};
+	bool closed_{false};
+	bool in_flight_{false};
+	deque<function<void()>> queue_{};
+	unordered_set<string> prepared_names_{};
+	bool pipeline_mode_{false};
+
+	friend struct detail::ConnectState;
+	friend class Pipeline;
 };
 
 export class QueryCache {
@@ -1028,7 +1031,11 @@ conflux::work::root::Task<Result> Connection::query(
 	return detail::flow_to_root_task(query_flow(sql, move(params), opts));
 }
 
-Flow<Pipeline> Connection::pipeline() {
+conflux::work::root::Task<Pipeline> Connection::pipeline() {
+	return detail::flow_to_root_task(pipeline_flow_());
+}
+
+Flow<Pipeline> Connection::pipeline_flow_() {
 	FlowSource<Pipeline> const src;
 	auto flow = src.flow();
 	if (closed_ || !conn_) {
