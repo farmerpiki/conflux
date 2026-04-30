@@ -317,7 +317,7 @@ TEST_CASE(
 
 	atomic_flag sleep_done{};
 	EP sleep_err;
-	auto sleep_held = conn->query("SELECT pg_sleep(10)")
+	auto sleep_held = task_as_flow(conn->query("SELECT pg_sleep(10)"))
 					| then([&](Result) { sleep_done.test_and_set(memory_order_release); })
 					| on_error([&](EP const &ex) {
 						  sleep_err = ex;
@@ -401,7 +401,9 @@ TEST_CASE(
 		move(with_transaction(
 				 *conn,
 				 TxOptions{},
-				 [](Connection &c) -> Task<void> { co_await c.query("INSERT INTO tx_test VALUES (1, 'committed')"); }))
+				 [](Connection &c) -> Task<void> {
+					 co_await task_as_flow(c.query("INSERT INTO tx_test VALUES (1, 'committed')"));
+				 }))
 			.flow(),
 		chrono::seconds{30});
 	{
@@ -418,7 +420,7 @@ TEST_CASE(
 					 *conn,
 					 TxOptions{},
 					 [](Connection &c) -> Task<void> {
-						 co_await c.query("INSERT INTO tx_test VALUES (2, 'rolledback')");
+						 co_await task_as_flow(c.query("INSERT INTO tx_test VALUES (2, 'rolledback')"));
 						 throw RE{"deliberate"};
 					 }))
 				.flow(),
@@ -477,7 +479,7 @@ TEST_CASE(
 
 	atomic_flag done{};
 	EP err;
-	auto held = conn->query("SELECT pg_sleep(10)")
+	auto held = task_as_flow(conn->query("SELECT pg_sleep(10)"))
 			  | then([&](Result) { done.test_and_set(memory_order_release); })
 			  | on_error([&](EP const &ex) {
 					err = ex;

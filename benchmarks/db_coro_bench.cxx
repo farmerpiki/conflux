@@ -56,7 +56,7 @@ u64 run_callback(
 Task<void> coro_one(
 	SP<Connection> const &conn,
 	i64 rows) {
-	auto rs = co_await conn->query(S{kSql}, make_params(rows));
+	auto rs = co_await task_as_flow(conn->query(S{kSql}, make_params(rows)));
 	consume(rs);
 	co_return;
 }

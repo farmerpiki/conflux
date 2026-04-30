@@ -136,7 +136,7 @@ TEST_CASE(
 	std::array<uint8_t, 256> rx_buf{};
 	UdpRecvResult rx{};
 	atomic_flag rx_done{};
-	auto rx_flow = recvfrom(fx->reader, recv_sock, span<uint8_t>{rx_buf.data(), rx_buf.size()})
+	auto rx_flow = task_as_flow(recvfrom(fx->reader, recv_sock, span<uint8_t>{rx_buf.data(), rx_buf.size()}))
 				 | then([&](UdpRecvResult r) {
 					   rx = r;
 					   rx_done.test_and_set(memory_order_release);
@@ -152,12 +152,12 @@ TEST_CASE(
 
 	size_t bytes_sent = 0;
 	atomic_flag tx_done{};
-	auto tx_flow = sendto(
+	auto tx_flow = task_as_flow(sendto(
 					   fx->reader,
 					   send_sock,
 					   span<uint8_t const>{payload.data(), payload.size()},
 					   reinterpret_cast<::sockaddr const *>(&dest),
-					   sizeof(dest))
+					   sizeof(dest)))
 				 | then([&](size_t n) {
 					   bytes_sent = n;
 					   tx_done.test_and_set(memory_order_release);
@@ -199,21 +199,24 @@ TEST_CASE(
 	atomic_flag done{};
 	int err_code = 0;
 	bool got_value = false;
-	auto flow =
-		recvfrom_with_timeout(fx->reader, sock, span<uint8_t>{rx_buf.data(), rx_buf.size()}, chrono::milliseconds{50})
-		| then([&](UdpRecvResult) {
-			  got_value = true;
-			  done.test_and_set(memory_order_release);
-			  return 0;
-		  })
-		| on_error([&](exception_ptr const &e) {
-			  try {
-				  std::rethrow_exception(e);
-			  } catch (UdpError const &ue) { err_code = ue.code().value(); } catch (...) {
-			  }
-			  done.test_and_set(memory_order_release);
-			  return -1;
-		  });
+	auto flow = task_as_flow(recvfrom_with_timeout(
+					fx->reader,
+					sock,
+					span<uint8_t>{rx_buf.data(), rx_buf.size()},
+					chrono::milliseconds{50}))
+			  | then([&](UdpRecvResult) {
+					got_value = true;
+					done.test_and_set(memory_order_release);
+					return 0;
+				})
+			  | on_error([&](exception_ptr const &e) {
+					try {
+						std::rethrow_exception(e);
+					} catch (UdpError const &ue) { err_code = ue.code().value(); } catch (...) {
+					}
+					done.test_and_set(memory_order_release);
+					return -1;
+				});
 	fx->pump_until(done, chrono::seconds{2});
 	(void)flow;
 
@@ -239,11 +242,11 @@ TEST_CASE(
 	UdpRecvResult rx{};
 	atomic_flag rx_done{};
 	bool rx_ok = false;
-	auto rx_flow = recvfrom_with_timeout(
+	auto rx_flow = task_as_flow(recvfrom_with_timeout(
 					   fx->reader,
 					   recv_sock,
 					   span<uint8_t>{rx_buf.data(), rx_buf.size()},
-					   chrono::milliseconds{2000})
+					   chrono::milliseconds{2000}))
 				 | then([&](UdpRecvResult r) {
 					   rx = r;
 					   rx_ok = true;
@@ -258,12 +261,12 @@ TEST_CASE(
 	std::array<uint8_t, 4> payload{0xDE, 0xAD, 0xBE, 0xEF};
 	auto dest = v4_loopback(recv_port);
 	atomic_flag tx_done{};
-	auto tx_flow = sendto(
+	auto tx_flow = task_as_flow(sendto(
 					   fx->reader,
 					   send_sock,
 					   span<uint8_t const>{payload.data(), payload.size()},
 					   reinterpret_cast<::sockaddr const *>(&dest),
-					   sizeof(dest))
+					   sizeof(dest)))
 				 | then([&](size_t) {
 					   tx_done.test_and_set(memory_order_release);
 					   return 0;
@@ -296,7 +299,7 @@ TEST_CASE(
 	std::array<uint8_t, 1> payload{0};
 	atomic_flag done{};
 	int err_code = 0;
-	auto flow = sendto(fx->reader, sock, span<uint8_t const>{payload.data(), payload.size()}, nullptr, 0)
+	auto flow = task_as_flow(sendto(fx->reader, sock, span<uint8_t const>{payload.data(), payload.size()}, nullptr, 0))
 			  | then([&](size_t) {
 					done.test_and_set(memory_order_release);
 					return 0;

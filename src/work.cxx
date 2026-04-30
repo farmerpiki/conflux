@@ -1531,3 +1531,33 @@ void co_spawn(
 	Task<T> task) {
 	work_detail::spawn(move(task).flow());
 }
+
+// Bridge: converts a root::Task<T> into a Flow<T> for use in legacy Flow chains.
+// The on_ready callback fires after the task is terminal, so root::join() returns
+// immediately without blocking.
+export template<typename T>
+[[nodiscard]] Flow<T> task_as_flow(conflux::work::root::Task<T> task) {
+	using namespace conflux::work::root;
+	FlowSource<T> src;
+	auto flow = src.flow();
+	auto shared_src = std::make_shared<FlowSource<T>>(std::move(src));
+	auto shared_jh = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(task)));
+	shared_jh->control().set_on_ready_or_run(
+		[shared_src, shared_jh]() noexcept {
+			try {
+				auto outcome = join(std::move(*shared_jh));
+				if (outcome.is_success()) {
+					if constexpr (std::is_void_v<T>) {
+						shared_src->resolve();
+					} else {
+						shared_src->resolve(std::move(outcome).success().value);
+					}
+				} else if (outcome.is_failure()) {
+					shared_src->reject(std::move(outcome).failure().error);
+				} else {
+					shared_src->cancel();
+				}
+			} catch (...) { shared_src->reject(std::current_exception()); }
+		});
+	return flow;
+}

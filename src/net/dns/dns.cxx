@@ -32,7 +32,7 @@ namespace conflux::net::dns {
 
 namespace detail {
 
-template <typename T>
+template<typename T>
 [[nodiscard]] auto flow_to_root_task(
 	Flow<T> flow) -> conflux::work::root::Task<T> {
 	using namespace conflux::work::root;
@@ -688,9 +688,8 @@ public:
 	Resolver(Resolver &&) = delete;
 	Resolver &operator =(Resolver &&) = delete;
 
-	[[nodiscard]] Flow<ResolveResult> resolve(string_view host, u16 port, ResolveOptions const &opts = {});
 	[[nodiscard]] conflux::work::root::Task<ResolveResult>
-	resolve_task(string_view host, u16 port, ResolveOptions const &opts = {});
+	resolve(string_view host, u16 port, ResolveOptions const &opts = {});
 
 	[[nodiscard]] expected<ResolveResult, DnsError>
 	resolve_blocking(string_view host, u16 port, ResolveOptions const &opts = {});
@@ -705,6 +704,8 @@ public:
 	[[nodiscard]] FileReader *file_reader() const noexcept;
 
 private:
+	[[nodiscard]] Flow<ResolveResult> resolve_flow(string_view host, u16 port, ResolveOptions const &opts = {});
+
 	struct Impl;
 	std::unique_ptr<Impl> impl_;
 };
@@ -1043,7 +1044,8 @@ void validate_accepted_response_status(
 		return flow;
 	}
 	auto const remaining = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now);
-	return udp_ns::recvfrom_with_timeout(reader, *sock, span<u8>{rx_buf->data(), rx_buf->size()}, remaining)
+	return task_as_flow(
+			   udp_ns::recvfrom_with_timeout(reader, *sock, span<u8>{rx_buf->data(), rx_buf->size()}, remaining))
 		 | flat_then(
 			   [reader_ptr = &reader,
 				sock,
@@ -1102,12 +1104,13 @@ void validate_accepted_response_status(
 	auto wire_buf = std::make_shared<vector<u8>>(std::move(wire));
 	auto rx_buf = std::make_shared<std::array<u8, kRxSize>>();
 
-	return udp_ns::sendto(
-			   reader,
-			   *sock,
-			   span<u8 const>{wire_buf->data(), wire_buf->size()},
-			   reinterpret_cast<::sockaddr const *>(&ns.addr),
-			   ns.addr_len)
+	return task_as_flow(
+			   udp_ns::sendto(
+				   reader,
+				   *sock,
+				   span<u8 const>{wire_buf->data(), wire_buf->size()},
+				   reinterpret_cast<::sockaddr const *>(&ns.addr),
+				   ns.addr_len))
 		 | flat_then(
 			   [reader_ptr = &reader,
 				sock,
@@ -1774,7 +1777,7 @@ Resolver::Resolver(
 
 Resolver::~Resolver() = default;
 
-Flow<ResolveResult> Resolver::resolve(
+Flow<ResolveResult> Resolver::resolve_flow(
 	string_view host,
 	u16 port,
 	ResolveOptions const &per_opts) {
@@ -2036,11 +2039,11 @@ Flow<ResolveResult> Resolver::resolve(
 		   });
 }
 
-conflux::work::root::Task<ResolveResult> Resolver::resolve_task(
+conflux::work::root::Task<ResolveResult> Resolver::resolve(
 	string_view host,
 	u16 port,
 	ResolveOptions const &opts) {
-	return detail::flow_to_root_task(resolve(host, port, opts));
+	return detail::flow_to_root_task(resolve_flow(host, port, opts));
 }
 
 expected<ResolveResult, DnsError> Resolver::resolve_blocking(

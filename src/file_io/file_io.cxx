@@ -1263,9 +1263,7 @@ public:
 		return flow;
 	}
 
-	[[nodiscard]] conflux::work::root::Task<void> nop_task() {
-		return detail::flow_to_root_task(nop_async());
-	}
+	[[nodiscard]] conflux::work::root::Task<void> nop_task() { return detail::flow_to_root_task(nop_async()); }
 
 	[[nodiscard]] Flow<void> fsync_async(
 		FileHandle const &fh,
@@ -3454,6 +3452,19 @@ T block_on(
 		block_on<void>(reader, std::move(task).flow(), budget, std::move(decode));
 	} else {
 		return block_on<T>(reader, std::move(task).flow(), budget, std::move(decode));
+	}
+}
+
+export template<typename T, typename Decode = DefaultUdDecoder>
+T block_on(
+	FileReader &reader,
+	conflux::work::root::Task<T> task,
+	Opt<std::chrono::milliseconds> budget = std::nullopt,
+	Decode decode = {}) {
+	if constexpr (std::is_void_v<T>) {
+		block_on<void>(reader, task_as_flow(std::move(task)), budget, std::move(decode));
+	} else {
+		return block_on<T>(reader, task_as_flow(std::move(task)), budget, std::move(decode));
 	}
 }
 

@@ -181,7 +181,7 @@ template<typename T>
 
 // ─── sendto: thin wrapper around FileReader::sendto_async ───────────────────
 
-export [[nodiscard]] Flow<size_t> sendto(
+export [[nodiscard]] conflux::work::root::Task<size_t> sendto(
 	FileReader &reader,
 	UdpSocket const &sock,
 	span<u8 const> bytes,
@@ -189,44 +189,27 @@ export [[nodiscard]] Flow<size_t> sendto(
 	::socklen_t dest_len,
 	int flags = 0) {
 	if (dest == nullptr || dest_len == 0 || dest_len > static_cast<::socklen_t>(sizeof(::sockaddr_storage))) {
-		FlowSource<size_t> const src;
-		auto flow = src.flow();
-		src.reject(make_exception_ptr(UdpError{EINVAL, "udp: invalid destination"}));
-		return flow;
+		using namespace conflux::work::root;
+		auto [task, src] = make_task_source<size_t>(SubmitOptions{.enable_cancellation = false});
+		(void)src.commit_failure(make_exception_ptr(UdpError{EINVAL, "udp: invalid destination"}));
+		return std::move(task);
 	}
 	::sockaddr_storage stor{};
 	std::memcpy(&stor, dest, static_cast<size_t>(dest_len));
-	return reader.sendto_async(sock.handle(), bytes.data(), bytes.size(), flags, stor, dest_len);
-}
-
-export [[nodiscard]] conflux::work::root::Task<size_t> sendto_task(
-	FileReader &reader,
-	UdpSocket const &sock,
-	span<u8 const> bytes,
-	::sockaddr const *dest,
-	::socklen_t dest_len,
-	int flags = 0) {
-	return detail::flow_to_root_task(sendto(reader, sock, bytes, dest, dest_len, flags));
+	return detail::flow_to_root_task(reader.sendto_async(sock.handle(), bytes.data(), bytes.size(), flags, stor, dest_len));
 }
 
 // ─── recvfrom: wraps recvmsg_async with caller-managed msghdr ──────────────
 
-export [[nodiscard]] Flow<UdpRecvResult> recvfrom(
+export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom(
 	FileReader &reader,
 	UdpSocket const &sock,
 	span<u8> buf,
 	int flags = 0) {
 	auto h = detail::make_recv_holder(buf);
-	return reader.recvmsg_async(sock.handle(), &h->msg, static_cast<unsigned>(flags))
-		 | then([h](size_t n) { return detail::holder_to_result(h, n); });
-}
-
-export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom_task(
-	FileReader &reader,
-	UdpSocket const &sock,
-	span<u8> buf,
-	int flags = 0) {
-	return detail::flow_to_root_task(recvfrom(reader, sock, buf, flags));
+	return detail::flow_to_root_task(
+		reader.recvmsg_async(sock.handle(), &h->msg, static_cast<unsigned>(flags))
+		| then([h](size_t n) { return detail::holder_to_result(h, n); }));
 }
 
 // ─── recvfrom_with_timeout: linked recvmsg + link_timeout SQE pair ──────────
@@ -236,26 +219,24 @@ export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom_task(
 // The link_timeout's CQE is consumed by a no-op slot whose only job is to
 // keep the timespec alive until the kernel is done with it.
 
-export [[nodiscard]] Flow<UdpRecvResult> recvfrom_with_timeout(
+export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom_with_timeout(
 	FileReader &reader,
 	UdpSocket const &sock,
 	span<u8> buf,
 	std::chrono::milliseconds timeout,
 	int flags = 0) {
+	using namespace conflux::work::root;
 	FlowSource<UdpRecvResult> const src;
 	auto flow = src.flow();
 
 	auto *ring = reader.ring();
 	auto *completions = reader.completions();
 
-	// Two SQEs are required: the linked recvmsg and the LINK_TIMEOUT.
-	// io_uring rejects a partial submission if either get_sqe fails, so
-	// we acquire both up front before any state is mutated.
 	auto *sqe_recv = ::io_uring_get_sqe(ring);
 	auto *sqe_to = sqe_recv != nullptr ? ::io_uring_get_sqe(ring) : nullptr;
 	if (sqe_recv == nullptr || sqe_to == nullptr) {
 		src.reject(make_exception_ptr(UdpError{ENOSPC, "udp: SQ full"}));
-		return flow;
+		return detail::flow_to_root_task(std::move(flow));
 	}
 
 	auto h = detail::make_recv_holder(buf);
@@ -291,16 +272,7 @@ export [[nodiscard]] Flow<UdpRecvResult> recvfrom_with_timeout(
 	auto [slot_to, gen_to] = completions->reserve([ts](IoResult) mutable { (void)ts; });
 	::io_uring_sqe_set_data64(sqe_to, reader.encode_ud(slot_to, gen_to));
 
-	return flow;
-}
-
-export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom_with_timeout_task(
-	FileReader &reader,
-	UdpSocket const &sock,
-	span<u8> buf,
-	std::chrono::milliseconds timeout,
-	int flags = 0) {
-	return detail::flow_to_root_task(recvfrom_with_timeout(reader, sock, buf, timeout, flags));
+	return detail::flow_to_root_task(std::move(flow));
 }
 
 } // namespace conflux::net::udp

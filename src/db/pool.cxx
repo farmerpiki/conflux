@@ -167,14 +167,14 @@ auto with_transaction(
 				co_await reader->timeout_async(detail::retry_backoff(attempt - 1));
 			}
 		}
-		co_await c.query(begin_stmt);
+		co_await task_as_flow(c.query(begin_stmt));
 		exception_ptr err{};
 		if constexpr (same_as<R, void>) {
 			try {
 				co_await body(c);
 			} catch (...) { err = current_exception(); }
 			if (!err) {
-				co_await c.query("COMMIT");
+				co_await task_as_flow(c.query("COMMIT"));
 				co_return;
 			}
 		} else {
@@ -183,12 +183,12 @@ auto with_transaction(
 				result.emplace(co_await body(c));
 			} catch (...) { err = current_exception(); }
 			if (!err) {
-				co_await c.query("COMMIT");
+				co_await task_as_flow(c.query("COMMIT"));
 				co_return move(*result);
 			}
 		}
 		try {
-			co_await c.query("ROLLBACK");
+			co_await task_as_flow(c.query("ROLLBACK"));
 			// NOLINTNEXTLINE(bugprone-empty-catch) — best-effort rollback; secondary errors swallowed.
 		} catch (...) {}
 		bool const retryable = [&] {
@@ -270,7 +270,7 @@ Flow<Pool::Lease> Pool::acquire() {
 		auto self = shared_from_this();
 		auto const &src_copy = src;
 		spawn(
-			Connection::connect(cfg_.conn)
+			task_as_flow(Connection::connect(cfg_.conn))
 			| then([self, src_copy](shared_ptr<Connection> conn) mutable {
 				  if (self->closed_) {
 					  --self->total_;
@@ -320,7 +320,8 @@ void Pool::return_(
 	try {
 		try_dispatch_waiters_();
 	}
-	// NOLINTNEXTLINE(bugprone-empty-catch) — FlowSource::resolve may throw if waiter cancelled by close(); swallow to keep noexcept.
+	// NOLINTNEXTLINE(bugprone-empty-catch) — FlowSource::resolve may throw if waiter cancelled by close(); swallow to
+	// keep noexcept.
 	catch (...) {}
 }
 
@@ -346,7 +347,7 @@ void Pool::grow_if_needed_() {
 		++total_;
 		auto self = shared_from_this();
 		spawn(
-			Connection::connect(cfg_.conn)
+			task_as_flow(Connection::connect(cfg_.conn))
 			| then([self](shared_ptr<Connection> conn) mutable {
 				  if (self->closed_) {
 					  --self->total_;

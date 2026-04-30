@@ -93,7 +93,7 @@ u64 run_pipeline(
 	i64 id = 0;
 	for (SZ b = 0; b < batches; ++b) {
 		auto pipe = block_on(reader, conn->pipeline(), chrono::seconds{30});
-		V<Flow<Result>> pending;
+		V<conflux::work::root::Task<Result>> pending;
 		pending.reserve(batch_n);
 		for (SZ i = 0; i < batch_n; ++i) {
 			Params p;
@@ -170,4 +170,3 @@ int main(
 	::io_uring_queue_exit(&ring);
 	return 0;
 }
-
