@@ -1,4 +1,4 @@
-// Minimal HTTPS + HTTP/3 server.
+// Advanced runtime example: explicit HTTPS + HTTP/3 server config.
 //
 // Run:
 //   build/debug-gcc-stdcxx/conflux_h3_server

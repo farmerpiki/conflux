@@ -1,26 +1,23 @@
-// Small example app: demonstrates conflux router + io_uring HTTP server.
+// Small example app: easy HTTP facade over Router + HttpServer defaults.
+// Demonstrates the three preferred handler shapes:
+//   - sync: HttpResponse
+//   - root async: root::Task<HttpResponse>
+//   - deferred pool offload: http::defer(...)
 // Build and run: build/debug-gcc-stdcxx/examples/hello
 // Then: curl http://localhost:9090/
 //       curl http://localhost:9090/hello/World
 //       curl http://localhost:9090/api/ping
+//       curl http://localhost:9090/api/defer-ping
 import conflux.net.http;
+import conflux.work.root;
 import std;
-import conflux.types;
 
 int main() {
-	Config cfg{};
-	cfg.port = 9090;
-	cfg.rings = 0; // 0 → hardware_concurrency
-	cfg.ring_entries = 1024;
-	cfg.single_issuer = true;
-	cfg.defer_taskrun = true;
-	cfg.coop_taskrun = true;
-	cfg.taskrun_flag = true;
+	namespace http = conflux::http;
+	auto app = http::App::default_server();
 
-	Router router;
-
-	router.get("/", [](HttpRequestView const &) {
-		return HttpResponse::html(
+	app.get("/", [](http::Request const &) {
+		return http::Response::html(
 			"<html><body>"
 			"<h1>conflux example</h1>"
 			"<ul>"
@@ -30,14 +27,25 @@ int main() {
 			"</body></html>");
 	});
 
-	router.get("/hello/{name}", [](HttpRequestView const &req) {
-		return HttpResponse::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
+	app.get("/hello/{name}", [](http::Request const &req) {
+		return http::Response::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 	});
 
-	router.get("/api/ping", [](HttpRequestView const &) {
-		return HttpResponse::json(R"({"status":"ok","server":"conflux"})");
+	app.get("/api/ping", [](http::Request const &) {
+		return http::Response::json(R"({"status":"ok","server":"conflux"})");
 	});
 
-	HttpServer srv{cfg, std::move(router)};
-	srv.run();
+	app.get("/api/async-ping", [](http::Request const &) -> conflux::work::root::Task<http::Response> {
+		auto [task, source] = conflux::work::root::make_task_source<http::Response>();
+		(void)source.commit_success(
+			conflux::work::root::Success<http::Response>{http::Response::json(R"({"status":"ok","mode":"async"})")});
+		return std::move(task);
+	});
+
+	app.get("/api/defer-ping", [](http::Request const &) {
+		static auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
+		return http::defer(pool, [] { return http::Response::json(R"({"status":"ok","mode":"defer"})"); });
+	});
+
+	std::move(app).run({.port = 9090});
 }

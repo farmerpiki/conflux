@@ -152,7 +152,9 @@ public:
 
 	Outcome(Outcome const &) = default;
 
-	Outcome(Outcome &&) noexcept = default;
+	Outcome(
+		Outcome &&other) noexcept
+		: storage_{std::move(other.storage_)} {}
 
 	Outcome &operator =(
 		Outcome const &other)
@@ -165,7 +167,13 @@ public:
 		return *this;
 	}
 
-	Outcome &operator =(Outcome &&) noexcept = default;
+	Outcome &operator =(
+		Outcome &&other) noexcept {
+		if (this != std::addressof(other)) {
+			storage_ = std::move(other.storage_);
+		}
+		return *this;
+	}
 
 	[[nodiscard]] static Outcome make_success(
 		success_t success)
@@ -377,7 +385,9 @@ public:
 
 	Outcome(Outcome const &) = default;
 
-	Outcome(Outcome &&) noexcept = default;
+	Outcome(
+		Outcome &&other) noexcept
+		: storage_{std::move(other.storage_)} {}
 
 	Outcome &operator =(
 		Outcome const &other) {
@@ -388,7 +398,13 @@ public:
 		return *this;
 	}
 
-	Outcome &operator =(Outcome &&) noexcept = default;
+	Outcome &operator =(
+		Outcome &&other) noexcept {
+		if (this != std::addressof(other)) {
+			storage_ = std::move(other.storage_);
+		}
+		return *this;
+	}
 
 	[[nodiscard]] static Outcome make_success() noexcept { return Outcome{success_t{}}; }
 

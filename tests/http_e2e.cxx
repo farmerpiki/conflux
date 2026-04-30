@@ -55,6 +55,19 @@ void ensure_server() {
 			return HttpResponse::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 		});
 		router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
+		router.get("/api/defer-ok", [](HttpRequest const &) {
+			static auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
+			return conflux::http::defer(pool, [] { return HttpResponse::json(R"({"defer":"ok"})"); });
+		});
+		router.get("/api/defer-full", [](HttpRequest const &) {
+			static auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 0});
+			return conflux::http::defer(pool, [] { return HttpResponse::json(R"({"defer":"unreachable"})"); });
+		});
+		router.get("/api/task-ping", [](HttpRequest const &) -> conflux::work::root::Task<HttpResponse> {
+			auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
+			(void)source.commit_success(conflux::work::root::Success<HttpResponse>{HttpResponse::json(R"({"task":"ok"})")});
+			return std::move(task);
+		});
 		router.get("/api/echo-header", [](HttpRequest const &req) {
 			auto v = req.headers["x-test-header"];
 			if (v.empty()) {
@@ -1034,6 +1047,27 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(resp.find("application/json") != S::npos);
 	REQUIRE(resp.find(R"("status":"ok")") != S::npos);
+}
+
+TEST_CASE(
+	"GET /api/defer-ok returns deferred payload") {
+	auto resp = http_get("/api/defer-ok");
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(resp.find(R"("defer":"ok")") != S::npos);
+}
+
+TEST_CASE(
+	"GET /api/defer-full returns queue-full error") {
+	auto resp = http_get("/api/defer-full");
+	REQUIRE(resp.starts_with("HTTP/1.1 500 Internal Server Error"));
+	REQUIRE(resp.find("offload queue full") != S::npos);
+}
+
+TEST_CASE(
+	"GET /api/task-ping returns root task payload") {
+	auto resp = http_get("/api/task-ping");
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(resp.find(R"("task":"ok")") != S::npos);
 }
 
 TEST_CASE(
@@ -2826,6 +2860,41 @@ TEST_CASE(
 	auto resp = read_one_response(fd2);
 	::close(fd2);
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+
+	srv.stop();
+}
+
+TEST_CASE(
+	"slow handler diagnostics: slow sync handler still serves response") {
+	Config cfg{};
+	cfg.port = 0;
+	cfg.rings = 1;
+	cfg.ring_entries = 256;
+	cfg.single_issuer = true;
+	cfg.defer_taskrun = true;
+	cfg.coop_taskrun = true;
+	cfg.taskrun_flag = true;
+	cfg.slow_handler_diagnostics = true;
+	cfg.slow_handler_warn_ms = 1;
+
+	Router router;
+	router.get("/slow", [](HttpRequest const &) {
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
+		return HttpResponse::text("slow-ok");
+	});
+
+	ScopedTestServer srv{cfg, std::move(router)};
+	u16 const port = srv.port();
+
+	auto const started = std::chrono::steady_clock::now();
+	auto resp = http_get_on(port, "/slow");
+	auto const elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+		std::chrono::steady_clock::now() - started)
+							 .count();
+
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "slow-ok");
+	REQUIRE(elapsed_ms >= 10);
 
 	srv.stop();
 }

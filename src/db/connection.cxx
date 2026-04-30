@@ -106,6 +106,34 @@ inline uint64_t fnv1a64(
 	return h;
 }
 
+template<class T>
+[[nodiscard]] auto flow_to_root_task(
+	Flow<T> flow) -> conflux::work::root::Task<T> {
+	using namespace conflux::work::root;
+	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = make_shared<TaskSource<T>>(move(src));
+	spawn(
+		move(flow)
+		| then([shared_src](T value) mutable { (void)shared_src->commit_success(Success<T>{move(value)}); })
+		| on_error([shared_src](exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
+		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
+	return move(task);
+}
+
+template<>
+[[nodiscard]] auto flow_to_root_task<void>(
+	Flow<void> flow) -> conflux::work::root::Task<void> {
+	using namespace conflux::work::root;
+	auto [task, src] = make_task_source<void>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = make_shared<TaskSource<void>>(move(src));
+	spawn(
+		move(flow)
+		| then([shared_src]() mutable { (void)shared_src->commit_success(Success<void>{}); })
+		| on_error([shared_src](exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
+		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
+	return move(task);
+}
+
 } // namespace detail
 
 export struct ConnectParams {
@@ -181,21 +209,32 @@ public:
 	~Connection() { close(); }
 
 	static Flow<shared_ptr<Connection>> connect(ConnectParams const &params);
+	static conflux::work::root::Task<shared_ptr<Connection>> connect_task(ConnectParams const &params);
 
 	Flow<Result> query(string_view sql, Params params = {});
 	Flow<Result> query(shared_ptr<string const> sql, Params params = {});
+	conflux::work::root::Task<Result> query_task(string_view sql, Params params = {});
+	conflux::work::root::Task<Result> query_task(shared_ptr<string const> sql, Params params = {});
 
 	Flow<void> prepare(string_view name, string_view sql, span<Oid const> param_types = {});
 	Flow<void> prepare(string_view name, shared_ptr<string const> sql, span<Oid const> param_types = {});
+	conflux::work::root::Task<void> prepare_task(string_view name, string_view sql, span<Oid const> param_types = {});
+	conflux::work::root::Task<void>
+	prepare_task(string_view name, shared_ptr<string const> sql, span<Oid const> param_types = {});
 
 	Flow<Result> exec_prepared(string_view name, Params params = {});
 	Flow<Result> exec_cached(shared_ptr<StatementCache::Entry const> const &stmt, Params params = {});
+	conflux::work::root::Task<Result> exec_prepared_task(string_view name, Params params = {});
+	conflux::work::root::Task<Result> exec_cached_task(shared_ptr<StatementCache::Entry const> const &stmt, Params params = {});
 
 	Flow<void> cancel_inflight(WorkPool &cancel_pool);
 	Flow<void> cancel_inflight();
+	conflux::work::root::Task<void> cancel_inflight_task(WorkPool &cancel_pool);
+	conflux::work::root::Task<void> cancel_inflight_task();
 	Flow<class Pipeline> pipeline();
 
 	Flow<Result> query(string_view sql, Params params, QueryOptions opts);
+	conflux::work::root::Task<Result> query_task(string_view sql, Params params, QueryOptions opts);
 
 	[[nodiscard]] bool ok() const noexcept { return conn_ && ::PQstatus(conn_.get()) == CONNECTION_OK; }
 
@@ -281,6 +320,9 @@ public:
 	// - this is a logical batching barrier (not libpq wire pipeline mode yet)
 	Flow<Result> exec_cached(shared_ptr<StatementCache::Entry const> stmt, Params params = {});
 	Flow<void> sync();
+	conflux::work::root::Task<Result> query_task(string_view sql, Params params = {});
+	conflux::work::root::Task<Result> exec_cached_task(shared_ptr<StatementCache::Entry const> stmt, Params params = {});
+	conflux::work::root::Task<void> sync_task();
 
 private:
 	struct PendingQuery {
@@ -360,6 +402,7 @@ public:
 	}
 
 	[[nodiscard]] Flow<shared_ptr<string const>> load_async(string_view name);
+	[[nodiscard]] conflux::work::root::Task<shared_ptr<string const>> load_task(string_view name);
 
 	void clear() noexcept {
 		scoped_lock const lk{mtx_};
@@ -500,6 +543,11 @@ Flow<shared_ptr<Connection>> Connection::connect(
 	return flow;
 }
 
+conflux::work::root::Task<shared_ptr<Connection>> Connection::connect_task(
+	ConnectParams const &params) {
+	return detail::flow_to_root_task(Connection::connect(params));
+}
+
 void Connection::close() noexcept {
 	if (closed_) {
 		return;
@@ -553,6 +601,12 @@ Flow<Result> Connection::query(
 	return flow;
 }
 
+conflux::work::root::Task<Result> Connection::query_task(
+	string_view sql,
+	Params params) {
+	return detail::flow_to_root_task(query(sql, move(params)));
+}
+
 Flow<Result> Connection::query(
 	shared_ptr<string const> sql,
 	Params params) {
@@ -574,6 +628,12 @@ Flow<Result> Connection::query(
 	enqueue_job_(
 		[self, sql = move(sql), params = move(params), src]() mutable { self->run_query_(*sql, params, src); });
 	return flow;
+}
+
+conflux::work::root::Task<Result> Connection::query_task(
+	shared_ptr<string const> sql,
+	Params params) {
+	return detail::flow_to_root_task(query(move(sql), move(params)));
 }
 
 void Connection::run_query_(
@@ -621,6 +681,13 @@ Flow<void> Connection::prepare(
 	return flow;
 }
 
+conflux::work::root::Task<void> Connection::prepare_task(
+	string_view name,
+	string_view sql,
+	span<Oid const> param_types) {
+	return detail::flow_to_root_task(prepare(name, sql, param_types));
+}
+
 Flow<void> Connection::prepare(
 	string_view name,
 	shared_ptr<string const> sql,
@@ -646,6 +713,13 @@ Flow<void> Connection::prepare(
 				  oids = vector<Oid>{param_types.begin(), param_types.end()},
 				  src]() mutable { self->run_prepare_(name_owned, *sql, move(oids), src); });
 	return flow;
+}
+
+conflux::work::root::Task<void> Connection::prepare_task(
+	string_view name,
+	shared_ptr<string const> sql,
+	span<Oid const> param_types) {
+	return detail::flow_to_root_task(prepare(name, move(sql), param_types));
 }
 
 void Connection::run_prepare_(
@@ -685,6 +759,12 @@ Flow<Result> Connection::exec_prepared(
 		self->run_exec_prepared_(name_owned, params, src);
 	});
 	return flow;
+}
+
+conflux::work::root::Task<Result> Connection::exec_prepared_task(
+	string_view name,
+	Params params) {
+	return detail::flow_to_root_task(exec_prepared(name, move(params)));
 }
 
 void Connection::run_exec_prepared_(
@@ -750,6 +830,12 @@ Flow<Result> Connection::exec_cached(
 		  })
 		| on_cancel([src]() mutable { src.cancel(); }));
 	return flow;
+}
+
+conflux::work::root::Task<Result> Connection::exec_cached_task(
+	shared_ptr<StatementCache::Entry const> const &stmt,
+	Params params) {
+	return detail::flow_to_root_task(exec_cached(stmt, move(params)));
 }
 
 template<class T>
@@ -884,8 +970,17 @@ Flow<void> Connection::cancel_inflight(
 	return flow;
 }
 
+conflux::work::root::Task<void> Connection::cancel_inflight_task(
+	WorkPool &cancel_pool) {
+	return detail::flow_to_root_task(cancel_inflight(cancel_pool));
+}
+
 Flow<void> Connection::cancel_inflight() {
 	return cancel_inflight(detail::cancel_pool());
+}
+
+conflux::work::root::Task<void> Connection::cancel_inflight_task() {
+	return detail::flow_to_root_task(cancel_inflight());
 }
 
 Flow<Result> Connection::query(
@@ -920,6 +1015,13 @@ Flow<Result> Connection::query(
 		| on_error([](exception_ptr const &) {})
 		| on_cancel([]() {}));
 	return flow;
+}
+
+conflux::work::root::Task<Result> Connection::query_task(
+	string_view sql,
+	Params params,
+	QueryOptions opts) {
+	return detail::flow_to_root_task(query(sql, move(params), opts));
 }
 
 Flow<Pipeline> Connection::pipeline() {
@@ -967,6 +1069,12 @@ Flow<Result> Pipeline::query(
 	return flow;
 }
 
+conflux::work::root::Task<Result> Pipeline::query_task(
+	string_view sql,
+	Params params) {
+	return detail::flow_to_root_task(query(sql, move(params)));
+}
+
 Flow<Result> Pipeline::exec_cached(
 	shared_ptr<StatementCache::Entry const> stmt,
 	Params params) {
@@ -977,6 +1085,12 @@ Flow<Result> Pipeline::exec_cached(
 		return flow;
 	}
 	return query(*stmt->sql, move(params));
+}
+
+conflux::work::root::Task<Result> Pipeline::exec_cached_task(
+	shared_ptr<StatementCache::Entry const> stmt,
+	Params params) {
+	return detail::flow_to_root_task(exec_cached(move(stmt), move(params)));
 }
 
 Flow<void> Pipeline::sync() {
@@ -1005,6 +1119,10 @@ Flow<void> Pipeline::sync() {
 	pending_.clear();
 	sync_next_(st);
 	return flow;
+}
+
+conflux::work::root::Task<void> Pipeline::sync_task() {
+	return detail::flow_to_root_task(sync());
 }
 
 void Pipeline::sync_next_(
@@ -1131,6 +1249,11 @@ Flow<shared_ptr<string const>> QueryCache::load_async(
 		| on_error([src](exception_ptr const &ep) mutable { src.reject(ep); })
 		| on_cancel([src]() mutable { src.cancel(); }));
 	return flow;
+}
+
+conflux::work::root::Task<shared_ptr<string const>> QueryCache::load_task(
+	string_view name) {
+	return detail::flow_to_root_task(load_async(name));
 }
 
 } // namespace conflux::db

@@ -1,4 +1,4 @@
-// Coroutine example — asio-style co_await over conflux.work Flow<T>.
+// Legacy coroutine example — co_await over conflux.work Flow<T> (deprecated for new code).
 //
 // Any Flow<T> is directly awaitable. Define a coroutine returning Task<T>,
 // co_await each async op, and let block_on() drive the io_uring until done.

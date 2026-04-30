@@ -11,7 +11,6 @@
 
 import conflux.net.http;
 import std;
-import conflux.types;
 
 static void write_file(
 	fs::path const &path,
@@ -21,12 +20,10 @@ static void write_file(
 }
 
 int main() {
-	Config cfg{};
-	cfg.port = 9095;
-	cfg.rings = 1;
-	cfg.ring_entries = 256;
-	cfg.fixed_buffer_slabs = 8;
-	cfg.splice_pipe_pairs = 2;
+	namespace http = conflux::http;
+	auto app = http::App::default_server();
+	app.config().fixed_buffer_slabs = 8;
+	app.config().splice_pipe_pairs = 2;
 
 	auto asset_dir = fs::temp_directory_path() / "conflux_static_example";
 	fs::create_directories(asset_dir);
@@ -39,12 +36,12 @@ int main() {
 		"<p>Try <a href='/api/info'>/api/info</a> or <a href='/assets/hello.txt'>/assets/hello.txt</a>.</p>"
 		"</body></html>");
 
-	Router router;
+	auto &router = app.router();
 
-	router.get("/", [](HttpRequestView const &) { return HttpResponse::redirect("/assets/"); });
+	router.get("/", [](http::Request const &) { return http::Response::redirect("/assets/"); });
 
-	router.get("/api/info", [asset_dir = asset_dir.string()](HttpRequestView const &) {
-		return HttpResponse::json(
+	router.get("/api/info", [asset_dir = asset_dir.string()](http::Request const &) {
+		return http::Response::json(
 			std::format(
 				R"({{"status":"ok","assets":"{}","routes":["/","/api/info","/assets/{{*file}}"]}})",
 				asset_dir));
@@ -52,6 +49,5 @@ int main() {
 
 	router.serve_static("/assets", asset_dir.string(), {.directory_listing = true});
 
-	HttpServer srv{cfg, std::move(router)};
-	srv.run();
+	std::move(app).run({.port = 9095});
 }

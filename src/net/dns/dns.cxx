@@ -30,6 +30,24 @@ namespace udp_ns = conflux::net::udp;
 
 namespace conflux::net::dns {
 
+namespace detail {
+
+template <typename T>
+[[nodiscard]] auto flow_to_root_task(
+	Flow<T> flow) -> conflux::work::root::Task<T> {
+	using namespace conflux::work::root;
+	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
+	auto shared = std::make_shared<TaskSource<T>>(std::move(src));
+	spawn(
+		std::move(flow)
+		| then([shared](T value) mutable { (void)shared->commit_success(Success<T>{std::move(value)}); })
+		| on_error([shared](std::exception_ptr const &ep) mutable { (void)shared->commit_failure(ep); })
+		| on_cancel([shared]() mutable { (void)shared->commit_cancelled(CancelReason::requested); }));
+	return std::move(task);
+}
+
+} // namespace detail
+
 // ─── address family / endpoint ──────────────────────────────────────────────
 
 export enum class AddressFamily : u8 {
@@ -671,6 +689,8 @@ public:
 	Resolver &operator =(Resolver &&) = delete;
 
 	[[nodiscard]] Flow<ResolveResult> resolve(string_view host, u16 port, ResolveOptions const &opts = {});
+	[[nodiscard]] conflux::work::root::Task<ResolveResult>
+	resolve_task(string_view host, u16 port, ResolveOptions const &opts = {});
 
 	[[nodiscard]] expected<ResolveResult, DnsError>
 	resolve_blocking(string_view host, u16 port, ResolveOptions const &opts = {});
@@ -1435,7 +1455,9 @@ struct EndpointBatch {
 		src.reject(std::make_exception_ptr(DnsError{DnsErrorKind::no_servers, "dns: no nameservers configured"}));
 		return flow;
 	}
-	return build_native_udp_flow(reader, nameservers[index], hostname, port, do_v4, do_v6, prefer, timeout, edns)
+	auto const ns = nameservers[index];
+	auto query_host = hostname;
+	return build_native_udp_flow(reader, ns, query_host, port, do_v4, do_v6, prefer, timeout, edns)
 		 | flat_then(
 			   [reader_ptr = &reader,
 				nameservers = std::move(nameservers),
@@ -1484,11 +1506,13 @@ struct EndpointBatch {
 		src.reject(std::make_exception_ptr(DnsError{DnsErrorKind::nxdomain, "dns: name not found"}));
 		return flow;
 	}
+	auto candidate = candidates[index];
+	auto query_nameservers = nameservers;
 	return build_native_udp_flow_with_nameservers(
 			   reader,
-			   nameservers,
+			   std::move(query_nameservers),
 			   0,
-			   candidates[index],
+			   candidate,
 			   port,
 			   do_v4,
 			   do_v6,
@@ -2010,6 +2034,13 @@ Flow<ResolveResult> Resolver::resolve(
 			   throw DnsError{DnsErrorKind::cancelled, "dns: query cancelled"};
 			   return {};
 		   });
+}
+
+conflux::work::root::Task<ResolveResult> Resolver::resolve_task(
+	string_view host,
+	u16 port,
+	ResolveOptions const &opts) {
+	return detail::flow_to_root_task(resolve(host, port, opts));
 }
 
 expected<ResolveResult, DnsError> Resolver::resolve_blocking(

@@ -1,4 +1,4 @@
-// Same-port HTTP/HTTPS example.
+// Advanced runtime example: same-port HTTP/HTTPS.
 //
 // Generates a self-signed certificate on the fly, then starts a single server
 // that accepts both plain HTTP and HTTPS on the same port (default 9090).

@@ -48,6 +48,10 @@ function(conflux_apply_compiler_options target)
         )
     endif()
 
+    if(CONFLUX_SUPPRESS_DEPRECATION_WARNINGS)
+        target_compile_options(${target} INTERFACE -Wno-deprecated-declarations)
+    endif()
+
     # ── Sanitisers ────────────────────────────────────────────────────────────
     if(CONFLUX_ENABLE_ASAN)
         target_compile_options(${target} INTERFACE -fsanitize=address -fno-omit-frame-pointer)

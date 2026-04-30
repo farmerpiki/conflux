@@ -69,4 +69,12 @@ if [[ ! -d "$test_dir" ]]; then
 	exit 126
 fi
 
-exec env "${env_args[@]}" ctest --test-dir "$test_dir" "$@"
+# Keep both values present by default for libpq-based codepaths.
+# Tests and benchmarks intentionally default to different DBs.
+: "${PG_TEST_CONNINFO:=postgresql:///postgres?user=postgres}"
+: "${PG_CONNINFO:=postgresql:///conflux_bench?user=postgres}"
+
+exec env "${env_args[@]}" \
+	PG_TEST_CONNINFO="$PG_TEST_CONNINFO" \
+	PG_CONNINFO="$PG_CONNINFO" \
+	ctest --test-dir "$test_dir" "$@"

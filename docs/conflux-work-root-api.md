@@ -3,6 +3,9 @@
 This document describes the current public interface and behavior contract of
 `conflux.work.root` as implemented in this repository.
 
+For broader pre-v1 compatibility and breakage expectations across HTTP + work
+surfaces, see `docs/pre-v1-migration-contract.md`.
+
 ## Import
 
 ```cpp
@@ -19,6 +22,18 @@ must touch both stacks should keep internal logic on one vocabulary and wrap the
 boundary using `make_task_source<T>` + `commit_*` (see continuation plan
 §Legacy Bridge Decision, G2c). Do not attempt to `co_await` a `Flow<T>` from a
 root coroutine or vice versa.
+
+`Flow<T>` and its combinators are legacy and deprecated for new public usage.
+Treat these APIs as compatibility-only during migration:
+
+- `Flow<T>`
+- `then(...)`
+- `flat_then(...)`
+- `on_error(...)`
+- `on_cancel(...)`
+- `run_on(...)`
+- `move_to(...)`
+- `start_on(...)`
 
 ## Root Categories
 

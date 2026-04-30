@@ -60,6 +60,20 @@ inline chrono::milliseconds retry_backoff(
 	return chrono::milliseconds{min(base_ms << min(attempt, 4), cap_ms)};
 }
 
+template<class T>
+[[nodiscard]] auto flow_to_root_task(
+	Flow<T> flow) -> conflux::work::root::Task<T> {
+	using namespace conflux::work::root;
+	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = make_shared<TaskSource<T>>(move(src));
+	spawn(
+		move(flow)
+		| then([shared_src](T value) mutable { (void)shared_src->commit_success(Success<T>{move(value)}); })
+		| on_error([shared_src](exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
+		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
+	return move(task);
+}
+
 } // namespace detail
 
 export struct PoolConfig {
@@ -112,6 +126,7 @@ public:
 	Pool &operator =(Pool &&) = delete;
 
 	Flow<Lease> acquire();
+	conflux::work::root::Task<Lease> acquire_task();
 	void close() noexcept;
 
 	[[nodiscard]] size_t total() const noexcept { return total_; }
@@ -283,6 +298,10 @@ Flow<Pool::Lease> Pool::acquire() {
 		}
 	}
 	return flow;
+}
+
+conflux::work::root::Task<Pool::Lease> Pool::acquire_task() {
+	return detail::flow_to_root_task(acquire());
 }
 
 // NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.

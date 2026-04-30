@@ -4,22 +4,13 @@
 //       curl -N http://localhost:9091/events/alice
 import conflux.net.http;
 import std;
-import conflux.types;
 
 int main() {
-	Config cfg{};
-	cfg.port = 9091;
-	cfg.rings = 1;
-	cfg.ring_entries = 256;
-	cfg.single_issuer = true;
-	cfg.defer_taskrun = true;
-	cfg.coop_taskrun = true;
-	cfg.taskrun_flag = true;
-
-	Router router;
+	namespace http = conflux::http;
+	auto app = http::App::default_server();
 
 	// Raw frames, 200 ms apart.
-	router.sse("/events", [](HttpRequestView const &, SP<SseChannel> const &ch) {
+	app.sse("/events", [](http::Request const &, SP<SseChannel> const &ch) {
 		for (int i = 1; i <= 5; ++i) {
 			ch->send(std::format("data: event{}\n\n", i));
 			std::this_thread::sleep_for(std::chrono::milliseconds(200));
@@ -28,7 +19,7 @@ int main() {
 	});
 
 	// Named events via send_event(), with path param capture.
-	router.sse("/events/{name}", [](HttpRequestView const &req, SP<SseChannel> const &ch) {
+	app.sse("/events/{name}", [](http::Request const &req, SP<SseChannel> const &ch) {
 		auto name = req.params["name"];
 		for (int i = 1; i <= 3; ++i) {
 			ch->send_event("greet", std::format("hello {}, message {}", name, i));
@@ -37,6 +28,5 @@ int main() {
 		ch->close();
 	});
 
-	HttpServer srv{cfg, std::move(router)};
-	srv.run();
+	std::move(app).run({.port = 9091});
 }

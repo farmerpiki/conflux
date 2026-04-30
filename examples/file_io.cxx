@@ -1,4 +1,4 @@
-// Direct conflux.file_io example.
+// Advanced runtime example: direct conflux.file_io with caller-owned io_uring.
 //
 // Demonstrates using FileReader with a caller-owned io_uring and completion
 // table. The block_on helper drives the ring until each Flow resolves.

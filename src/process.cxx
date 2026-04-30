@@ -18,6 +18,24 @@ import conflux.types;
 import conflux.work;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
+namespace conflux::process_detail {
+
+template<typename T>
+[[nodiscard]] auto flow_to_root_task(
+	Flow<T> flow) -> conflux::work::root::Task<T> {
+	using namespace conflux::work::root;
+	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = std::make_shared<TaskSource<T>>(std::move(src));
+	spawn(
+		std::move(flow)
+		| then([shared_src](T value) mutable { (void)shared_src->commit_success(Success<T>{std::move(value)}); })
+		| on_error([shared_src](std::exception_ptr const &ex) mutable { (void)shared_src->commit_failure(ex); })
+		| on_cancel([shared_src]() mutable { (void)shared_src->commit_cancelled(CancelReason::requested); }));
+	return std::move(task);
+}
+
+} // namespace conflux::process_detail
+
 // ---------------------------------------------------------------------------
 // Stdio — describes how stdin/stdout/stderr is connected in the child process.
 // ---------------------------------------------------------------------------
@@ -529,6 +547,15 @@ export template<typename Target>
 	});
 }
 
+export template<typename Target>
+[[nodiscard]] auto spawn_task_in(
+	Target &target,
+	fs::path exe,
+	V<S> args,
+	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<Process, EC>> {
+	return conflux::process_detail::flow_to_root_task(spawn_in(target, move(exe), move(args), move(opts)));
+}
+
 // ---------------------------------------------------------------------------
 // run — spawn + drain stdout/stderr + wait
 // ---------------------------------------------------------------------------
@@ -635,8 +662,24 @@ export template<typename Target>
 }
 
 export template<typename Target>
+[[nodiscard]] auto run_task_in(
+	Target &target,
+	fs::path exe,
+	V<S> args,
+	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<RunResult, EC>> {
+	return conflux::process_detail::flow_to_root_task(run_in(target, move(exe), move(args), move(opts)));
+}
+
+export template<typename Target>
 [[nodiscard]] auto wait_in(
 	Target &target,
 	Process proc) {
 	return ::run_on(target, [proc = move(proc)]() mutable { return proc.wait(); });
+}
+
+export template<typename Target>
+[[nodiscard]] auto wait_task_in(
+	Target &target,
+	Process proc) -> conflux::work::root::Task<int> {
+	return conflux::process_detail::flow_to_root_task(wait_in(target, move(proc)));
 }

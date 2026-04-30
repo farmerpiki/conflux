@@ -1,5 +1,6 @@
 export module conflux.net.http;
 export import conflux.types;
+export import conflux.net.app;
 export import conflux.net.router;
 export import conflux.net.config;
 export import conflux.net.http.types;

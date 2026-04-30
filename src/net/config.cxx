@@ -78,6 +78,10 @@ export struct Config {
 	SZ max_body_size = kConfigDefaultMaxBodySize; // max Content-Length before 413
 	u32 request_timeout_ms = kConfigDefaultRequestTimeoutMs; // 0 = disabled
 	u32 tls_sniff_timeout_ms = kConfigDefaultTlsSniffTimeoutMs; // 0 = disabled
+	// Emit a warning when a synchronous handler blocks on the ring thread past
+	// slow_handler_warn_ms. Disabled by default to keep baseline overhead minimal.
+	bool slow_handler_diagnostics = false;
+	u32 slow_handler_warn_ms = 25;
 	ParserLimits parser_limits{};
 	bool startup_banner = true;
 
@@ -220,6 +224,10 @@ void apply_server_key(
 		cfg.request_timeout_ms = parse_uint<u32>(val, key);
 	} else if (key == "tls_sniff_timeout_ms") {
 		cfg.tls_sniff_timeout_ms = parse_uint<u32>(val, key);
+	} else if (key == "slow_handler_diagnostics") {
+		cfg.slow_handler_diagnostics = parse_bool(val, key);
+	} else if (key == "slow_handler_warn_ms") {
+		cfg.slow_handler_warn_ms = parse_uint<u32>(val, key);
 	} else if (key == "fixed_buffer_slabs") {
 		cfg.fixed_buffer_slabs = parse_uint<SZ>(val, key);
 	} else if (key == "fixed_buffer_bytes") {

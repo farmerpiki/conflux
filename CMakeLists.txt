@@ -32,6 +32,7 @@ option(CONFLUX_ENABLE_HTTP3   "Build HTTP/3 support (requires ngtcp2+nghttp3+Ope
 option(CONFLUX_ENABLE_DB      "Build PostgreSQL client support (requires libpq)" ON)
 option(CONFLUX_WORK_CARRIER_MODEL_A "Enable experimental work carrier Model A prototype surface" ON)
 option(CONFLUX_WORK_CARRIER_MODEL_B "Enable experimental work carrier Model B prototype surface" ON)
+option(CONFLUX_SUPPRESS_DEPRECATION_WARNINGS "Temporarily suppress deprecated API warnings during pre-v1 migration" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerOptions)
@@ -354,6 +355,7 @@ set(CONFLUX_MODULE_SOURCES
     src/net/vhost.cxx
     src/net/proxy.cxx
     src/net/openapi.cxx
+    src/net/app.cxx
     src/net/http.cxx
     src/net/http1_parser.cxx
     src/net/http_server.cxx
@@ -532,23 +534,32 @@ if(CONFLUX_BUILD_FUZZ)
     add_subdirectory(fuzz)
 endif()
 
+# Easy HTTP examples (first-contact / v1-facing)
 add_executable(conflux_hello examples/hello.cxx)
 target_link_libraries(conflux_hello PRIVATE conflux conflux_options)
+
+add_executable(conflux_middleware examples/middleware.cxx)
+target_link_libraries(conflux_middleware PRIVATE conflux conflux_options)
 
 add_executable(conflux_sse examples/sse.cxx)
 target_link_libraries(conflux_sse PRIVATE conflux conflux_options)
 
+add_executable(conflux_static examples/static.cxx)
+target_link_libraries(conflux_static PRIVATE conflux conflux_options)
+
+# Additional examples
 add_executable(conflux_forms examples/forms.cxx)
 target_link_libraries(conflux_forms PRIVATE conflux conflux_options)
 
 add_executable(conflux_gzip examples/gzip.cxx)
 target_link_libraries(conflux_gzip PRIVATE conflux conflux_options)
 
-add_executable(conflux_dual examples/dual.cxx)
-target_link_libraries(conflux_dual PRIVATE conflux conflux_options)
-
 add_executable(conflux_http_client examples/http_client.cxx)
 target_link_libraries(conflux_http_client PRIVATE conflux conflux_options)
+
+# Advanced examples (explicit runtime placement / ring ownership / feature-specific setup)
+add_executable(conflux_dual examples/dual.cxx)
+target_link_libraries(conflux_dual PRIVATE conflux conflux_options)
 
 add_executable(conflux_file_io_example examples/file_io.cxx)
 target_link_libraries(conflux_file_io_example PRIVATE conflux_file_io conflux_work conflux_options)
@@ -562,12 +573,6 @@ if(CONFLUX_HAS_HTTP3 STREQUAL "true")
     add_executable(conflux_h3_server examples/h3_server.cxx)
     target_link_libraries(conflux_h3_server PRIVATE conflux conflux_options)
 endif()
-
-add_executable(conflux_middleware examples/middleware.cxx)
-target_link_libraries(conflux_middleware PRIVATE conflux conflux_options)
-
-add_executable(conflux_static examples/static.cxx)
-target_link_libraries(conflux_static PRIVATE conflux conflux_options)
 
 if(CONFLUX_HAS_DB STREQUAL "true")
     add_executable(conflux_db_basic examples/db_basic.cxx)

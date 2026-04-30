@@ -3,6 +3,11 @@
 This document describes the current public interface and behavior contract of the
 carrier layer (`conflux.work.carrier.*`) as implemented in this repository.
 
+Carrier APIs are advanced/experimental compared with the preferred
+`conflux.work.root` vocabulary. New public-facing async code should default to
+root types (`Task`, `Posted`, `Operation`) unless it specifically needs carrier
+hop/composition behavior.
+
 ## Imports
 
 ```cpp

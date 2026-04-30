@@ -908,7 +908,7 @@ public:
 };
 
 export template<typename T>
-using Flow = work_detail::Flow<T>;
+using Flow [[deprecated("Flow<T> is legacy; use conflux.work.root Task/Posted/Operation APIs for new code")]] = work_detail::Flow<T>;
 
 export struct ValueTag {
 	template<typename T>
@@ -960,36 +960,42 @@ struct StartOnStep {
 };
 
 export template<typename Fn>
+[[deprecated("then(...) is legacy Flow API; use conflux.work.root for new async code")]]
 [[nodiscard]] auto then(
 	Fn &&fn) {
 	return ThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Fn>
+[[deprecated("flat_then(...) is legacy Flow API; use conflux.work.root for new async code")]]
 [[nodiscard]] auto flat_then(
 	Fn &&fn) {
 	return FlatThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Fn>
+[[deprecated("on_error(...) is legacy Flow API; use conflux.work.root for new async code")]]
 [[nodiscard]] auto on_error(
 	Fn &&fn) {
 	return ErrorStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Fn>
+[[deprecated("on_cancel(...) is legacy Flow API; use conflux.work.root for new async code")]]
 [[nodiscard]] auto on_cancel(
 	Fn &&fn) {
 	return CancelStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 export template<typename Target>
+[[deprecated("move_to(...) is legacy Flow API; use conflux.work.root for new async code")]]
 [[nodiscard]] auto move_to(
 	Target &target) {
 	return MoveToStep<Target>{&target};
 }
 
 export template<typename Target>
+[[deprecated("start_on(...) is legacy Flow API; use conflux.work.root for new async code")]]
 [[nodiscard]] auto start_on(
 	Target &target) {
 	return StartOnStep<Target>{&target};
@@ -1331,6 +1337,7 @@ void spawn(
 } // namespace work_detail
 
 export template<typename Target, typename Fn>
+[[deprecated("run_on(...) is legacy Flow API; use conflux.work.root for new async code")]]
 [[nodiscard]] auto run_on(
 	Target &target,
 	Fn &&fn) {

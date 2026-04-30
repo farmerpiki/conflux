@@ -249,6 +249,7 @@ struct Conn {
 	bool sse_headers_sent = false;
 	bool is_ws = false; // true → WebSocket upgrade; hand off fd to WS thread after send
 	bool is_deferred = false;
+	bool closing = false; // close SQE already submitted for this generation
 	bool close_after_send = false; // true → close instead of re-arming recv
 	int sse_efd = -1;
 	UP<u64> sse_read_buf{};
@@ -684,6 +685,8 @@ struct Ring {
 	SZ max_body_size = SZ{1024} * 1024; // set from Config before run_loop()
 	u32 request_timeout_ms = 30000; // set from Config before run_loop(); 0 = disabled
 	u32 tls_sniff_timeout_ms = 10000; // set from Config before run_loop(); 0 = disabled
+	bool slow_handler_diagnostics = false; // set from Config before run_loop()
+	u32 slow_handler_warn_ms = 25; // set from Config before run_loop()
 	bool http_redirect_to_https = false; // set from Config before run_loop()
 	V<S> https_redirect_hosts{}; // set from Config before run_loop()
 	ParserLimits parser_limits{}; // set from Config before run_loop()
@@ -1392,6 +1395,7 @@ struct Ring {
 		++conn.gen; // prevent a second Close CQE from erasing the next tenant
 		conn.fd = -1;
 		conn.recv_armed = false;
+		conn.closing = false;
 		conn.is_sse = false;
 		conn.sse_headers_sent = false;
 		conn.is_ws = false;
@@ -1789,6 +1793,9 @@ struct Ring {
 		u32 gen = 0;
 		auto const ufd = static_cast<SZ>(fd);
 		if (ufd < fd_table.size()) {
+			if (fd_table[ufd].closing) {
+				return;
+			}
 			gen = fd_table[ufd].gen;
 		}
 
@@ -1813,6 +1820,12 @@ struct Ring {
 				});
 				return;
 			}
+			if (ufd < fd_table.size()) {
+				if (fd_table[ufd].gen != gen || fd_table[ufd].closing) {
+					return;
+				}
+				fd_table[ufd].closing = true;
+			}
 			io_uring_prep_shutdown(shutdown_sqe, fd, SHUT_WR);
 			io_uring_sqe_set_flags(shutdown_sqe, IOSQE_FIXED_FILE | IOSQE_IO_HARDLINK);
 			io_uring_sqe_set_data64(shutdown_sqe, pack(Op::Nop, 0, 0));
@@ -1836,6 +1849,12 @@ struct Ring {
 				queue_close(fd);
 			});
 			return;
+		}
+		if (ufd < fd_table.size()) {
+			if (fd_table[ufd].gen != gen || fd_table[ufd].closing) {
+				return;
+			}
+			fd_table[ufd].closing = true;
 		}
 		io_uring_prep_close(sqe, fd);
 		io_uring_sqe_set_data64(sqe, pack(Op::Close, gen, fd));
@@ -1971,6 +1990,7 @@ struct Ring {
 			conn.fd = res;
 			conn.recv_armed = false;
 			conn.send_queued = false;
+			conn.closing = false;
 			conn.response_ptr = nullptr;
 			conn.written = 0;
 			conn.is_sse = false;
@@ -3436,7 +3456,20 @@ void dispatch_request(
 
 	HttpRequestView const
 		req{method, path, version, conn.remote_addr, conn.is_tls, params, headers, query, form, cookies, files, body};
+	auto const handler_started = chrono::steady_clock::now();
 	auto resp = ring.dispatch(req);
+	if (ring.slow_handler_diagnostics) {
+		auto const elapsed_ms =
+			chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - handler_started).count();
+		if (elapsed_ms >= static_cast<i64>(ring.slow_handler_warn_ms)) {
+			println(
+				cerr,
+				"warning: slow handler on ring thread (method={}, path={}, elapsed_ms={})",
+				method,
+				path,
+				elapsed_ms);
+		}
+	}
 	if (resp.is_deferred()) {
 #if CONFLUX_HAS_HTTP2
 		if (conn.is_h2) {
@@ -3710,6 +3743,8 @@ public:
 					r.max_body_size = impl_->cfg.max_body_size;
 					r.request_timeout_ms = impl_->cfg.request_timeout_ms;
 					r.tls_sniff_timeout_ms = impl_->cfg.tls_sniff_timeout_ms;
+					r.slow_handler_diagnostics = impl_->cfg.slow_handler_diagnostics;
+					r.slow_handler_warn_ms = impl_->cfg.slow_handler_warn_ms;
 					r.http_redirect_to_https = impl_->cfg.http_redirect_to_https;
 					r.https_redirect_hosts = impl_->cfg.https_redirect_hosts;
 					r.parser_limits = impl_->cfg.parser_limits;

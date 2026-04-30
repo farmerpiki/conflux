@@ -90,4 +90,22 @@ if [[ ! -x "$artifact" || -d "$artifact" ]]; then
 	exit 126
 fi
 
+set_default_env=false
+case "$artifact" in
+	./build/*/tests/*|./build/*/benchmarks/*)
+		set_default_env=true
+		;;
+esac
+
+if $set_default_env; then
+	# Keep both values present by default for libpq-based codepaths.
+	# Tests and benchmarks intentionally default to different DBs.
+	: "${PG_TEST_CONNINFO:=postgresql:///postgres?user=postgres}"
+	: "${PG_CONNINFO:=postgresql:///conflux_bench?user=postgres}"
+	exec env "${env_args[@]}" \
+		PG_TEST_CONNINFO="$PG_TEST_CONNINFO" \
+		PG_CONNINFO="$PG_CONNINFO" \
+		"$artifact" "$@"
+fi
+
 exec env "${env_args[@]}" "$artifact" "$@"
