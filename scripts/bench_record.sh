@@ -51,6 +51,8 @@ cmake --build "$BUILD_DIR" --target \
 
 BENCHDIR="$BUILD_DIR/benchmarks"
 CONFIGS_DIR="${BENCH_CONFIGS_DIR:-$REPO_ROOT/benchmarks/configs}"
+# fall back to the top-level configs/ dir if the benchmarks copy is absent
+[[ -d "$CONFIGS_DIR" ]] || CONFIGS_DIR="$REPO_ROOT/configs"
 
 cleanup() {
   if [[ "${KEEP_BUILD:-0}" != "1" && "$BUILD_DIR" == /tmp/* ]]; then
@@ -108,9 +110,14 @@ fi
 # variants: P=1, P=2, P=4, P=8
 # ---------------------------------------------------------------------------
 if want tcp_parallel_coro; then
-  for cfgfile in default single_defer coop_taskrun submit_all large_ring; do
-    path="$CONFIGS_DIR/$cfgfile.json"
-    [[ -f "$path" ]] || { echo "skip tcp_parallel_coro [$cfgfile]: missing $path"; continue; }
+  shopt -s nullglob
+  cfg_paths=("$CONFIGS_DIR"/*.json)
+  shopt -u nullglob
+  if (( ${#cfg_paths[@]} == 0 )); then
+    echo "skip tcp_parallel_coro: no configs in $CONFIGS_DIR"
+  fi
+  for path in "${cfg_paths[@]}"; do
+    cfgfile="$(basename "$path" .json)"
     extra=$(cat "$path")
     RID=$(new_run tcp_parallel_coro "$cfgfile" "$extra")
     echo "+ tcp_parallel_coro [$cfgfile] run_id=$RID"

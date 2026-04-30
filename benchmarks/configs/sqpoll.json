@@ -3,9 +3,9 @@
   "io_uring_flags": {
     "single_issuer": true,
     "defer_taskrun": false,
-    "sqpoll": false,
-    "coop_taskrun": true,
-    "taskrun_flag": true,
+    "sqpoll": true,
+    "coop_taskrun": false,
+    "taskrun_flag": false,
     "submit_all": false
   }
 }

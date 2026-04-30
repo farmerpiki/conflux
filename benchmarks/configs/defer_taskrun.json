@@ -1,11 +1,11 @@
 {
-  "ring_entries": 1024,
+  "ring_entries": 512,
   "io_uring_flags": {
     "single_issuer": true,
     "defer_taskrun": true,
     "sqpoll": false,
-    "coop_taskrun": true,
-    "taskrun_flag": true,
+    "coop_taskrun": false,
+    "taskrun_flag": false,
     "submit_all": false
   }
 }
