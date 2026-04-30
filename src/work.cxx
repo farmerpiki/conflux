@@ -379,24 +379,33 @@ EP outcome_error<void>(
 
 template<typename T>
 struct FlowAwaiter {
+	struct AwaitState {
+		Opt<Outcome<T>> outcome{};
+	};
+
 	StatePtr<T> state{};
-	Opt<Outcome<T>> outcome{};
+	SP<AwaitState> await_state{make_shared<AwaitState>()};
 
 	[[nodiscard]] bool await_ready() const noexcept { return false; }
 
 	void await_suspend(
 		std::coroutine_handle<> h) {
-		attach<T>(state, [this, h](Outcome<T> &&out) mutable {
-			outcome.emplace(move(out));
+		std::weak_ptr<AwaitState> weak = await_state;
+		attach<T>(state, [weak, h](Outcome<T> &&out) mutable {
+			auto locked = weak.lock();
+			if (!locked) {
+				return;
+			}
+			locked->outcome.emplace(move(out));
 			h.resume();
 		});
 	}
 
 	decltype(auto) await_resume() {
 		if constexpr (std::is_void_v<T>) {
-			(void)extract_value<T>(move(*outcome));
+			(void)extract_value<T>(move(*await_state->outcome));
 		} else {
-			return extract_value<T>(move(*outcome));
+			return extract_value<T>(move(*await_state->outcome));
 		}
 	}
 };
@@ -1306,37 +1315,29 @@ void spawn(
 } // namespace work_detail
 
 export template<typename Target, typename Fn>
-[[nodiscard]] auto run_on_task(
-	Target &target,
-	Fn &&fn) {
-	using T = std::invoke_result_t<Fn>;
-	using namespace conflux::work::root;
-	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<TaskSource<T>>(std::move(src));
-	work_detail::attach<T>(
-		work_detail::run_on(target, forward<Fn>(fn)).release_state(),
-		[shared_src](work_detail::Outcome<T> &&outcome) mutable {
-			if (outcome.tag == work_detail::OutcomeTag::error) {
+	[[nodiscard]] auto run_on_task(
+		Target &target,
+		Fn &&fn) {
+		using fn_t = std::decay_t<Fn>;
+		using T = std::invoke_result_t<fn_t &>;
+		using namespace conflux::work::root;
+		auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
+		auto shared_src = std::make_shared<TaskSource<T>>(std::move(src));
+		auto job = [shared_src, fn = fn_t{forward<Fn>(fn)}]() mutable {
+			try {
 				if constexpr (std::is_void_v<T>) {
-					(void)shared_src->commit_failure(outcome.error);
+					fn();
+					(void)shared_src->commit_success(Success<T>{});
 				} else {
-					(void)shared_src->commit_failure(std::get<std::exception_ptr>(outcome.payload));
+					(void)shared_src->commit_success(Success<T>{fn()});
 				}
-				return;
-			}
-			if (outcome.tag == work_detail::OutcomeTag::cancelled) {
-				(void)shared_src->commit_cancelled(CancelReason::requested);
-				return;
-			}
-			if constexpr (std::is_void_v<T>) {
-				(void)shared_src->commit_success(Success<T>{});
-			} else {
-				(void)shared_src->commit_success(
-					Success<T>{std::get<work_detail::StoredValue<T>>(std::move(outcome.payload))});
-			}
-		});
-	return std::move(task);
-}
+			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+		};
+		if (!target.enqueue(std::move(job))) {
+			(void)shared_src->commit_cancelled(CancelReason::requested);
+		}
+		return std::move(task);
+	}
 
 export template<typename... Ts>
 [[nodiscard]] auto join_all(
@@ -1350,44 +1351,15 @@ export template<typename T>
 T sync_wait(
 	conflux::work::root::Task<T> task) {
 	using namespace conflux::work::root;
-	struct Slot {
-		std::mutex mtx{};
-		std::condition_variable cv{};
-		bool done = false;
-		std::exception_ptr err{};
-		Opt<std::conditional_t<std::is_void_v<T>, std::monostate, T>> value{};
-	};
-	auto slot = std::make_shared<Slot>();
-	auto jh = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(task)));
-	jh->control().set_on_ready_or_run([slot, jh]() noexcept {
-		try {
-			auto outcome = join(std::move(*jh));
-			std::unique_lock lk{slot->mtx};
-			if (outcome.is_failure()) {
-				slot->err = std::move(outcome).failure().error;
-			} else if (outcome.is_cancelled()) {
-				slot->err = std::make_exception_ptr(::Cancelled{});
-			} else if constexpr (!std::is_void_v<T>) {
-				slot->value.emplace(std::move(outcome).success().value);
-			}
-			slot->done = true;
-			lk.unlock();
-			slot->cv.notify_one();
-		} catch (...) {
-			std::unique_lock lk{slot->mtx};
-			slot->err = std::current_exception();
-			slot->done = true;
-			lk.unlock();
-			slot->cv.notify_one();
-		}
-	});
-	std::unique_lock lk{slot->mtx};
-	slot->cv.wait(lk, [&] { return slot->done; });
-	if (slot->err) {
-		std::rethrow_exception(slot->err);
+	auto outcome = join(into_join_handle(std::move(task)));
+	if (outcome.is_failure()) {
+		std::rethrow_exception(std::move(outcome).failure().error);
+	}
+	if (outcome.is_cancelled()) {
+		throw ::Cancelled{};
 	}
 	if constexpr (!std::is_void_v<T>) {
-		return std::move(*slot->value);
+		return std::move(outcome).success().value;
 	}
 }
 
@@ -1526,10 +1498,13 @@ template<typename T>
 	FlowSource<T> src;
 	auto flow = src.flow();
 	auto shared_src = std::make_shared<FlowSource<T>>(std::move(src));
-	auto shared_jh = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(task)));
-	shared_jh->control().set_on_ready_or_run([shared_src, shared_jh]() noexcept {
+	auto join_handle = into_join_handle(std::move(task));
+	auto control = join_handle.control();
+	auto guarded_jh = guard_abandon(std::move(join_handle));
+	auto shared_jh = std::make_shared<decltype(guarded_jh)>(std::move(guarded_jh));
+	control.set_on_ready_or_run([shared_src, shared_jh]() noexcept {
 		try {
-			auto outcome = join(std::move(*shared_jh));
+			auto outcome = join(std::move(*shared_jh).release());
 			if (outcome.is_success()) {
 				if constexpr (std::is_void_v<T>) {
 					shared_src->resolve();

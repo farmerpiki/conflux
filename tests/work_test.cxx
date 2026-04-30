@@ -6,12 +6,25 @@ import std;
 import conflux.types;
 import conflux.work;
 
+namespace root = conflux::work::root;
+
 TEST_CASE(
 	"work: run_on_task executes callable on pool",
 	"[work]") {
 	WorkPool pool;
 	auto result = sync_wait(run_on_task(pool, [] { return 42; }));
 	CHECK(result == 42);
+}
+
+TEST_CASE(
+	"work: run_on_task high-iteration roundtrip remains live",
+	"[work]") {
+	WorkPool pool;
+	constexpr SZ kIters = 50'001;
+	for (SZ i = 0; i < kIters; ++i) {
+		auto const v = root::value(run_on_task(pool, [] { return 7; }));
+		REQUIRE(v == 7);
+	}
 }
 
 TEST_CASE(

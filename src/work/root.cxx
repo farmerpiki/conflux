@@ -1079,7 +1079,10 @@ public:
 			std::scoped_lock const lk{outcome_mtx_};
 			outcome_.emplace(Outcome<T>{std::move(success)});
 		}
-		terminal_state_.store(TerminalState::success, std::memory_order_release);
+		{
+			std::scoped_lock const ready_lk{ready_mtx_};
+			terminal_state_.store(TerminalState::success, std::memory_order_release);
+		}
 		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();
@@ -1095,7 +1098,10 @@ public:
 			std::scoped_lock const lk{outcome_mtx_};
 			outcome_.emplace(Outcome<T>{Failure{error}});
 		}
-		terminal_state_.store(TerminalState::failure, std::memory_order_release);
+		{
+			std::scoped_lock const ready_lk{ready_mtx_};
+			terminal_state_.store(TerminalState::failure, std::memory_order_release);
+		}
 		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();
@@ -1116,7 +1122,10 @@ public:
 			std::scoped_lock const lk{outcome_mtx_};
 			outcome_.emplace(Outcome<T>{Cancelled{reason}});
 		}
-		terminal_state_.store(TerminalState::cancelled, std::memory_order_release);
+		{
+			std::scoped_lock const ready_lk{ready_mtx_};
+			terminal_state_.store(TerminalState::cancelled, std::memory_order_release);
+		}
 		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();
@@ -1445,7 +1454,10 @@ public:
 			std::scoped_lock const lk{outcome_mtx_};
 			outcome_.emplace(Outcome<void>{success});
 		}
-		terminal_state_.store(TerminalState::success, std::memory_order_release);
+		{
+			std::scoped_lock const ready_lk{ready_mtx_};
+			terminal_state_.store(TerminalState::success, std::memory_order_release);
+		}
 		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();
@@ -1461,7 +1473,10 @@ public:
 			std::scoped_lock const lk{outcome_mtx_};
 			outcome_.emplace(Outcome<void>{Failure{error}});
 		}
-		terminal_state_.store(TerminalState::failure, std::memory_order_release);
+		{
+			std::scoped_lock const ready_lk{ready_mtx_};
+			terminal_state_.store(TerminalState::failure, std::memory_order_release);
+		}
 		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();
@@ -1482,7 +1497,10 @@ public:
 			std::scoped_lock const lk{outcome_mtx_};
 			outcome_.emplace(Outcome<void>{Cancelled{reason}});
 		}
-		terminal_state_.store(TerminalState::cancelled, std::memory_order_release);
+		{
+			std::scoped_lock const ready_lk{ready_mtx_};
+			terminal_state_.store(TerminalState::cancelled, std::memory_order_release);
+		}
 		fire_ready_hook_if_armed_();
 		ready_cv_.notify_all();
 		run_abandon_path_if_present();

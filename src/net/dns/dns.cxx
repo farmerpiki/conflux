@@ -691,7 +691,7 @@ private:
 	[[nodiscard]] root::Task<ResolveResult> resolve_flow(string_view host, u16 port, ResolveOptions const &opts = {});
 
 	struct Impl;
-	std::unique_ptr<Impl> impl_;
+	std::shared_ptr<Impl> impl_;
 };
 
 // ─── thread-local current resolver ──────────────────────────────────────────
@@ -1574,7 +1574,7 @@ Resolver::Resolver(
 	CompletionTable *completions,
 	UserDataFn encode_ud,
 	ResolverOptions opts)
-	: impl_{std::make_unique<Impl>()} {
+	: impl_{std::make_shared<Impl>()} {
 	impl_->backend = ResolverBackend::native_udp;
 	impl_->reader = std::make_unique<FileReader>(ring, completions, std::move(encode_ud));
 	impl_->opts = std::move(opts);
@@ -1596,7 +1596,7 @@ Resolver::Resolver(
 Resolver::Resolver(
 	WorkPool &pool,
 	ResolverOptions opts)
-	: impl_{std::make_unique<Impl>()} {
+	: impl_{std::make_shared<Impl>()} {
 	impl_->backend = ResolverBackend::nss_thread;
 	impl_->pool = &pool;
 	impl_->opts = std::move(opts);
@@ -1817,39 +1817,47 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	auto const candidates = resolve_candidates(host, impl_->search_domains, impl_->ndots);
 
 	auto fanout_success = // NOLINT(bugprone-exception-escape)
-		[impl = impl_.get(), coalesce_key](ResolveResult r) -> ResolveResult {
-		if (!coalesce_key.empty()) {
-			if (auto it = impl->in_flight.find(coalesce_key); it != impl->in_flight.end()) {
-				for (auto const &w: it->second.waiters) {
-					auto copy = r;
-					copy.from_coalesced = true;
-					(void)w->commit_success(root::Success<ResolveResult>{std::move(copy)});
-				}
-				impl->in_flight.erase(it);
+		[impl = impl_, coalesce_key](ResolveResult r) -> ResolveResult {
+		auto impl_keep = impl;
+		auto key = coalesce_key;
+		vector<SP<root::TaskSource<ResolveResult>>> waiters;
+		if (!key.empty()) {
+			if (auto it = impl_keep->in_flight.find(key); it != impl_keep->in_flight.end()) {
+				waiters = std::move(it->second.waiters);
+				impl_keep->in_flight.erase(it);
 			}
+		}
+		for (auto const &w: waiters) {
+			auto copy = r;
+			copy.from_coalesced = true;
+			(void)w->commit_success(root::Success<ResolveResult>{std::move(copy)});
 		}
 		return r;
 	};
 
 	auto fanout_error = // NOLINT(bugprone-exception-escape)
-		[impl = impl_.get(), coalesce_key](exception_ptr const &ep) -> ResolveResult {
-		if (!coalesce_key.empty()) {
-			if (auto it = impl->in_flight.find(coalesce_key); it != impl->in_flight.end()) {
-				for (auto const &w: it->second.waiters) {
-					(void)w->commit_failure(ep);
-				}
-				impl->in_flight.erase(it);
+		[impl = impl_, coalesce_key](exception_ptr const &ep) -> ResolveResult {
+		auto impl_keep = impl;
+		auto key = coalesce_key;
+		vector<SP<root::TaskSource<ResolveResult>>> waiters;
+		if (!key.empty()) {
+			if (auto it = impl_keep->in_flight.find(key); it != impl_keep->in_flight.end()) {
+				waiters = std::move(it->second.waiters);
+				impl_keep->in_flight.erase(it);
 			}
+		}
+		for (auto const &w: waiters) {
+			(void)w->commit_failure(ep);
 		}
 		// Negative caching: store NXDOMAIN entries so repeat lookups skip the wire.
 		try {
 			std::rethrow_exception(ep);
 		} catch (DnsError const &de) {
-			if (de.kind == DnsErrorKind::nxdomain && impl->cache && !coalesce_key.empty()) {
+			if (de.kind == DnsErrorKind::nxdomain && impl_keep->cache && !key.empty()) {
 				ResolveResult neg;
 				neg.is_negative = true;
 				try {
-					impl->cache->put(coalesce_key, neg, impl->opts.cache_negative_ttl);
+					impl_keep->cache->put(key, neg, impl_keep->opts.cache_negative_ttl);
 				} catch (...) {} // NOLINT(bugprone-empty-catch)
 			}
 			throw;
@@ -1861,47 +1869,59 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 	auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
 	co_spawn(
-		[out_src,
-		 inner = build_native_udp_flow_with_candidates(
-			 *reader,
-			 ns_list,
-			 candidates,
-			 0,
-			 port,
-			 do_v4,
-			 do_v6,
-			 effective_opts.prefer,
-			 timeout,
-			 edns),
-		 cache_insert = std::move(cache_insert),
-		 fanout_success = std::move(fanout_success),
-		 fanout_error = std::move(fanout_error),
-		 impl = impl_.get(),
-		 coalesce_key]() mutable -> Task<void> {
-			try {
+		[](SP<root::TaskSource<ResolveResult>> out_src,
+		   Task<ResolveResult> inner,
+		   auto cache_insert,
+		   auto fanout_success,
+		   auto fanout_error,
+		   SP<Resolver::Impl> impl,
+		   string coalesce_key) mutable -> Task<void> {
+		 try {
+				auto out = out_src;
 				auto r = co_await std::move(inner);
 				r = cache_insert(std::move(r));
 				r = fanout_success(std::move(r));
-				(void)out_src->commit_success(root::Success<ResolveResult>{std::move(r)});
+				(void)out->commit_success(root::Success<ResolveResult>{std::move(r)});
 			} catch (Cancelled const &) {
-				if (!coalesce_key.empty()) {
-					if (auto it = impl->in_flight.find(coalesce_key); it != impl->in_flight.end()) {
-						auto cancelled =
-							std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"});
-						for (auto const &w: it->second.waiters) {
-							(void)w->commit_failure(cancelled);
-						}
+				auto out = out_src;
+				auto key = coalesce_key;
+				vector<SP<root::TaskSource<ResolveResult>>> waiters;
+				if (!key.empty()) {
+					if (auto it = impl->in_flight.find(key); it != impl->in_flight.end()) {
+						waiters = std::move(it->second.waiters);
 						impl->in_flight.erase(it);
 					}
 				}
-				(void)out_src->commit_failure(
+				auto cancelled = std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"});
+				for (auto const &w: waiters) {
+					(void)w->commit_failure(cancelled);
+				}
+				(void)out->commit_failure(
 					std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
 			} catch (...) {
+				auto out = out_src;
 				try {
 					fanout_error(std::current_exception());
-				} catch (...) { (void)out_src->commit_failure(std::current_exception()); }
+				} catch (...) { (void)out->commit_failure(std::current_exception()); }
 			}
-		}());
+		}(
+			out_src,
+			build_native_udp_flow_with_candidates(
+				*reader,
+				ns_list,
+				candidates,
+				0,
+				port,
+				do_v4,
+				do_v6,
+				effective_opts.prefer,
+				timeout,
+				edns),
+			std::move(cache_insert),
+			std::move(fanout_success),
+			std::move(fanout_error),
+			impl_,
+			coalesce_key));
 	return std::move(out_task);
 }
 

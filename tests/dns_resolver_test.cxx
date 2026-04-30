@@ -970,9 +970,11 @@ TEST_CASE(
 
 	// Both calls happen before the ring is pumped → second attaches as waiter.
 	using RR = ResolveResult;
+	auto first = r.resolve("coalesce.test", 80, opts);
+	auto second = r.resolve("coalesce.test", 80, opts);
 	auto [res1, res2] = block_on<std::tuple<RR, RR>>(
 		*r.file_reader(),
-		join_all(r.resolve("coalesce.test", 80, opts), r.resolve("coalesce.test", 80, opts)),
+		join_all(std::move(first), std::move(second)),
 		std::make_optional(std::chrono::milliseconds{5000}),
 		PackUdDecode{});
 

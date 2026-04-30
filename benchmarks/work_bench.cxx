@@ -180,7 +180,7 @@ Case make_pool_roundtrip_case() {
 		.name = "micro/pool_roundtrip",
 		.description = "Submit to WorkPool and wait for one result",
 		.default_iterations = 100'000,
-		.run = [pool] { return static_cast<SZ>(sync_wait(run_on_task(*pool, [] { return 42; }))); }};
+		.run = [pool] { return static_cast<SZ>(root::value(run_on_task(*pool, [] { return 42; }))); }};
 }
 
 Case make_pool_chain_case() {
