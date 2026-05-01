@@ -227,16 +227,16 @@ TEST_CASE(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 6d: HopCapabilityError reparented to JoinContextError
+// Phase 6d: HopCapabilityError reparented to JoinError
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"phase6d: HopCapabilityError catchable as JoinContextError",
+	"phase6d: HopCapabilityError catchable as JoinError",
 	"[phase6d]") {
 	OwnerCap owner_a{};
 	OwnerCap const owner_b{};
 	auto chain = model_a::hop_to_posted(owner_a, make_success(1));
-	CHECK_THROWS_AS(model_a::verify_hop(owner_b, chain), root::JoinContextError);
+	CHECK_THROWS_AS(model_a::verify_hop(owner_b, chain), root::JoinError);
 }
 
 TEST_CASE(
@@ -248,16 +248,16 @@ TEST_CASE(
 	try {
 		model_a::verify_hop(owner_b, chain);
 		FAIL("expected HopCapabilityError");
-	} catch (root::JoinContextError const &e) { CHECK(e.reason() == root::JoinContextReason::hop_capability_mismatch); }
+	} catch (root::JoinError const &e) { CHECK(e.reason_code() == root::JoinError::reason::hop_capability_mismatch); }
 }
 
 TEST_CASE(
-	"phase6d: HopCapabilityError still catchable as WorkError",
+	"phase6d: HopCapabilityError still catchable as JoinError",
 	"[phase6d]") {
 	OwnerCap owner_a{};
 	OwnerCap const owner_b{};
 	auto chain = model_a::hop_to_posted(owner_a, make_success(1));
-	CHECK_THROWS_AS(model_a::verify_hop(owner_b, chain), root::WorkError);
+	CHECK_THROWS_AS(model_a::verify_hop(owner_b, chain), root::JoinError);
 }
 
 // ---------------------------------------------------------------------------

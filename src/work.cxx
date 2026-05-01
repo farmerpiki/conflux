@@ -818,7 +818,7 @@ public:
 
 	[[nodiscard]] SZ drain() {
 		if (!is_owner_thread()) {
-			throw LE{"ring lane drained from non-owner thread"};
+			throw conflux::work::root::JoinError{conflux::work::root::JoinError::reason::thread_precondition};
 		}
 		SZ ran = 0;
 		SZ const budget = options_.drain_budget == 0 ? NL<SZ>::max() : options_.drain_budget;

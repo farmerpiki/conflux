@@ -40,29 +40,6 @@ public:
 	using std::runtime_error::runtime_error;
 };
 
-enum class JoinContextReason : std::uint8_t {
-	unspecified,
-	capability_mismatch,
-	thread_precondition,
-	reentrant_pump,
-	hop_capability_mismatch,
-	ready_callback_already_installed,
-};
-
-class JoinContextError : public WorkError {
-	JoinContextReason reason_ = JoinContextReason::unspecified;
-
-public:
-	using WorkError::WorkError;
-
-	explicit JoinContextError(
-		SV msg,
-		JoinContextReason reason)
-		: WorkError{S{msg}}
-		, reason_{reason} {}
-
-	[[nodiscard]] JoinContextReason reason() const noexcept { return reason_; }
-};
 
 namespace detail {
 
@@ -122,34 +99,6 @@ public:
 		, reason_{reason} {}
 
 	[[nodiscard]] CancelReason reason() const noexcept { return reason_; }
-};
-
-// Programmer-error exception for misuse of Task/JoinTask handles.
-// E2b.2 adds remaining reason values + capability fields.
-class JoinError final : public std::logic_error {
-public:
-	enum class reason : std::uint8_t {
-		consumed_handle,
-	};
-
-	explicit JoinError(
-		reason r)
-		: std::logic_error{make_msg(r)}
-		, reason_{r} {}
-
-	[[nodiscard]] reason reason_code() const noexcept { return reason_; }
-
-private:
-	reason reason_{};
-
-	static std::string make_msg(
-		reason r) {
-		using enum reason;
-		switch (r) {
-		case consumed_handle: return "PROGRAMMER ERROR (JoinError): co_await or outcome() on moved-from/consumed Task";
-		}
-		return "PROGRAMMER ERROR (JoinError): unknown";
-	}
 };
 
 enum class work_errc : int { // NOLINT(performance-enum-size): int required for std::error_code
@@ -705,6 +654,57 @@ concept progress_capability = requires(C const &c) {
 	{ capability_id(c) } noexcept -> std::same_as<CapabilityId>;
 };
 
+class JoinError : public std::logic_error {
+public:
+	enum class reason : std::uint8_t {
+		consumed_handle,
+		capability_mismatch,
+		thread_precondition,
+		reentrant_pump,
+		hop_capability_mismatch,
+		ready_callback_already_installed,
+		lifetime_violation,
+	};
+
+	explicit JoinError(reason r)
+		: std::logic_error{make_msg(r)}
+		, reason_{r} {}
+
+	explicit JoinError(
+		reason r,
+		std::optional<CapabilityId> expected,
+		CapabilityId actual)
+		: std::logic_error{make_msg(r)}
+		, reason_{r}
+		, expected_{expected}
+		, actual_{actual} {}
+
+	[[nodiscard]] reason reason_code() const noexcept { return reason_; }
+	[[nodiscard]] std::optional<CapabilityId> expected() const noexcept { return expected_; }
+	[[nodiscard]] std::optional<CapabilityId> actual() const noexcept { return actual_; }
+	[[nodiscard]] std::source_location origin() const noexcept { return origin_; }
+
+private:
+	reason reason_{};
+	std::optional<CapabilityId> expected_{};
+	std::optional<CapabilityId> actual_{};
+	std::source_location origin_{};
+
+	static std::string make_msg(reason r) {
+		using enum reason;
+		switch (r) {
+		case consumed_handle:                  return "PROGRAMMER ERROR (JoinError): co_await or outcome() on moved-from/consumed Task";
+		case capability_mismatch:              return "PROGRAMMER ERROR (JoinError): capability mismatch";
+		case thread_precondition:              return "PROGRAMMER ERROR (JoinError): thread precondition violated";
+		case reentrant_pump:                   return "PROGRAMMER ERROR (JoinError): reentrant pump";
+		case hop_capability_mismatch:          return "PROGRAMMER ERROR (JoinError): hop capability mismatch";
+		case ready_callback_already_installed: return "PROGRAMMER ERROR (JoinError): ready callback already installed";
+		case lifetime_violation:               return "PROGRAMMER ERROR (JoinError): handle not live";
+		}
+		return "PROGRAMMER ERROR (JoinError): unknown";
+	}
+};
+
 template<work_value T, ControlCategory Category>
 class BasicSource;
 
@@ -969,6 +969,7 @@ public:
 	[[nodiscard]] virtual bool ready() const noexcept = 0;
 	[[nodiscard]] virtual WorkState state() const noexcept = 0;
 	[[nodiscard]] virtual bool can_join_with(CapabilityId id) const noexcept = 0;
+	[[nodiscard]] virtual std::optional<CapabilityId> required_capability() const noexcept = 0;
 	virtual bool install_cancel_hook(small_move_only_function<void(CancelReason)> fn) noexcept = 0;
 	[[nodiscard]] virtual ReadyRegistrationResult try_set_on_ready(small_move_only_function<void()> fn) noexcept = 0;
 	[[nodiscard]] virtual ClearOnReadyStatus clear_on_ready() noexcept = 0;
@@ -1121,6 +1122,16 @@ public:
 		}
 		return required_capability_address_.load(std::memory_order_relaxed) == id.address
 			&& required_capability_type_tag_.load(std::memory_order_relaxed) == id.type_tag;
+	}
+
+	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept override {
+		if (!requires_capability_.load(std::memory_order_acquire)) {
+			return std::nullopt;
+		}
+		return CapabilityId{
+			.address  = required_capability_address_.load(std::memory_order_relaxed),
+			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
+		};
 	}
 
 	[[nodiscard]] bool request_cancel() noexcept override {
@@ -1507,6 +1518,16 @@ public:
 		}
 		return required_capability_address_.load(std::memory_order_relaxed) == id.address
 			&& required_capability_type_tag_.load(std::memory_order_relaxed) == id.type_tag;
+	}
+
+	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept override {
+		if (!requires_capability_.load(std::memory_order_acquire)) {
+			return std::nullopt;
+		}
+		return CapabilityId{
+			.address  = required_capability_address_.load(std::memory_order_relaxed),
+			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
+		};
 	}
 
 	[[nodiscard]] bool request_cancel() noexcept override {
@@ -2733,7 +2754,7 @@ template<work_value T>
 	Task<T> &&task) {
 	auto state = task.consume(join_state::joined);
 	if (!state) {
-		throw JoinContextError{"join(task): task is not live"};
+		throw JoinError{JoinError::reason::lifetime_violation};
 	}
 	return state->wait_and_take_outcome();
 }
@@ -2744,10 +2765,10 @@ template<progress_capability Owner, work_value T>
 	Posted<T> &&posted) {
 	auto state = posted.consume(join_state::joined);
 	if (!state) {
-		throw JoinContextError{"join(owner, posted): posted is not live"};
+		throw JoinError{JoinError::reason::lifetime_violation};
 	}
 	if (!state->can_join_with(capability_id(owner))) {
-		throw JoinContextError{"join(owner, posted): owner capability mismatch"};
+		throw JoinError{JoinError::reason::capability_mismatch, state->required_capability(), capability_id(owner)};
 	}
 	return state->wait_and_take_outcome();
 }
@@ -2758,10 +2779,10 @@ template<progress_capability Driver, work_value T>
 	Operation<T> &&op) {
 	auto state = op.consume(join_state::joined);
 	if (!state) {
-		throw JoinContextError{"join(driver, operation): operation is not live"};
+		throw JoinError{JoinError::reason::lifetime_violation};
 	}
 	if (!state->can_join_with(capability_id(driver))) {
-		throw JoinContextError{"join(driver, operation): driver capability mismatch"};
+		throw JoinError{JoinError::reason::capability_mismatch, state->required_capability(), capability_id(driver)};
 	}
 	return state->wait_and_take_outcome();
 }
@@ -2771,7 +2792,7 @@ template<work_value T>
 	TaskJoinHandle<T> &&h) {
 	auto state = h.consume();
 	if (!state) {
-		throw JoinContextError{"join(task-handle): handle is not live"};
+		throw JoinError{JoinError::reason::lifetime_violation};
 	}
 	return state->wait_and_take_outcome();
 }
@@ -2782,10 +2803,10 @@ template<progress_capability Owner, work_value T>
 	PostedJoinHandle<T> &&h) {
 	auto state = h.consume();
 	if (!state) {
-		throw JoinContextError{"join(owner, posted-handle): handle is not live"};
+		throw JoinError{JoinError::reason::lifetime_violation};
 	}
 	if (!state->can_join_with(capability_id(owner))) {
-		throw JoinContextError{"join(owner, posted-handle): owner capability mismatch"};
+		throw JoinError{JoinError::reason::capability_mismatch, state->required_capability(), capability_id(owner)};
 	}
 	return state->wait_and_take_outcome();
 }
@@ -2796,10 +2817,10 @@ template<progress_capability Driver, work_value T>
 	OperationJoinHandle<T> &&h) {
 	auto state = h.consume();
 	if (!state) {
-		throw JoinContextError{"join(driver, operation-handle): handle is not live"};
+		throw JoinError{JoinError::reason::lifetime_violation};
 	}
 	if (!state->can_join_with(capability_id(driver))) {
-		throw JoinContextError{"join(driver, operation-handle): driver capability mismatch"};
+		throw JoinError{JoinError::reason::capability_mismatch, state->required_capability(), capability_id(driver)};
 	}
 	return state->wait_and_take_outcome();
 }

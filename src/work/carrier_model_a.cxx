@@ -56,10 +56,10 @@ enum class CarrierKind : std::uint8_t {
 	operation,
 };
 
-class HopCapabilityError : public root::JoinContextError {
+class HopCapabilityError : public root::JoinError {
 public:
 	HopCapabilityError()
-		: JoinContextError{"carrier: hop capability mismatch", root::JoinContextReason::hop_capability_mismatch} {}
+		: JoinError{root::JoinError::reason::hop_capability_mismatch} {}
 };
 
 class AggregateError : public root::WorkError {

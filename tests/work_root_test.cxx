@@ -325,8 +325,8 @@ TEST_CASE(
 	OwnerCap owner{};
 	OwnerCap other{};
 	auto [posted, src] = root::make_posted_source<int>(owner);
-	REQUIRE(src.commit_success(root::Success<int>{7}));
-	CHECK_THROWS_AS(root::join(other, std::move(posted)), root::JoinContextError);
+	REQUIRE(src.try_set_value(root::Success<int>{7}));
+	CHECK_THROWS_AS(root::join(other, std::move(posted)), root::JoinError);
 }
 
 TEST_CASE(
@@ -356,8 +356,8 @@ TEST_CASE(
 	OwnerCap other{};
 	auto [posted, src] = root::make_posted_source<int>(owner);
 	auto h = root::into_join_handle(std::move(posted));
-	REQUIRE(src.commit_success(root::Success<int>{5}));
-	CHECK_THROWS_AS(root::join(other, std::move(h)), root::JoinContextError);
+	REQUIRE(src.try_set_value(root::Success<int>{5}));
+	CHECK_THROWS_AS(root::join(other, std::move(h)), root::JoinError);
 }
 
 TEST_CASE(
@@ -526,39 +526,25 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"work.root: R1 JoinContextError is not final — subclass compiles",
-	"[work.root][r1]") {
-	struct MyContextError : root::JoinContextError {
-		explicit MyContextError()
-			: JoinContextError{"my error", root::JoinContextReason::capability_mismatch} {}
+	"work.root: JoinError is not final — subclass compiles",
+	"[work.root]") {
+	struct MyJoinError : root::JoinError {
+		explicit MyJoinError()
+			: JoinError{root::JoinError::reason::capability_mismatch} {}
 	};
-	MyContextError const err;
-	CHECK(err.reason() == root::JoinContextReason::capability_mismatch);
-	CHECK(S{err.what()} == "my error");
+	MyJoinError const err;
+	CHECK(err.reason_code() == root::JoinError::reason::capability_mismatch);
 
-	bool caught_as_join = false;
+	bool caught = false;
 	try {
-		throw MyContextError{};
-	} catch (root::JoinContextError const &e) {
-		caught_as_join = true;
-		CHECK(e.reason() == root::JoinContextReason::capability_mismatch);
+		throw MyJoinError{};
+	} catch (root::JoinError const &e) {
+		caught = true;
+		CHECK(e.reason_code() == root::JoinError::reason::capability_mismatch);
 	}
-	CHECK(caught_as_join);
-
-	bool caught_as_work = false;
-	try {
-		throw MyContextError{};
-	} catch (root::WorkError const &) { caught_as_work = true; }
-	CHECK(caught_as_work);
+	CHECK(caught);
 }
 
-TEST_CASE(
-	"work.root: R1 JoinContextError reason defaults to unspecified for legacy ctors",
-	"[work.root][r1]") {
-	root::JoinContextError const e{"S only"};
-	CHECK(e.reason() == root::JoinContextReason::unspecified);
-	CHECK(S{e.what()} == "S only");
-}
 
 TEST_CASE(
 	"work.root: R6 BasicJoinHandle operator bool is true when live, false when moved-from",

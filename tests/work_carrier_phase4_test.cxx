@@ -91,7 +91,7 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"phase4: HopCapabilityError is catchable as root::WorkError",
+	"phase4: HopCapabilityError is catchable as root::JoinError",
 	"[phase4]") {
 	OwnerCap owner_a{};
 	OwnerCap const owner_b{};
@@ -99,7 +99,7 @@ TEST_CASE(
 	REQUIRE(src.commit_success(root::Success<int>{6}));
 
 	auto chain = model_a::hop_to_posted(owner_a, model_a::from_task(std::move(task)));
-	CHECK_THROWS_AS(model_a::verify_hop(owner_b, chain), root::WorkError);
+	CHECK_THROWS_AS(model_a::verify_hop(owner_b, chain), root::JoinError);
 }
 
 // ---------------------------------------------------------------------------

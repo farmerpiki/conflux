@@ -118,7 +118,7 @@ namespace root = conflux::work::root;
 using _CancelReason = root::CancelReason;
 using _WorkState = root::WorkState;
 using _OutcomeKind = root::OutcomeKind;
-using _JoinContextReason = root::JoinContextReason;
+// JoinContextReason removed in E2b.2 — merged into JoinError::reason
 using _ControlCategory = root::ControlCategory;
 using _AbandonStatus = root::AbandonStatus;
 using _ReadyRegistration = root::ReadyRegistration;
@@ -141,7 +141,7 @@ static_assert(std::is_same_v<decltype(root::cancel_reason_errc(root::CancelReaso
 
 // Exception / error types
 using _WorkError_class = root::WorkError; // class (distinct from outer WorkError enum)
-using _JoinContextError = root::JoinContextError;
+// JoinContextError removed in E2b.2 — replaced by JoinError
 using _FailureError = root::FailureError;
 using _CancelledError = root::CancelledError;
 
@@ -231,9 +231,22 @@ void _e1x_sink_check_() {
 // E1.y — value-category, co_await, .outcome(), .consume(), JoinError
 // ---------------------------------------------------------------------------
 
-// JoinError
+// JoinError — E2b.2: full reason enum + capability fields + source_location
 using _JoinError = root::JoinError;
 static_assert(std::same_as<root::JoinError::reason, root::JoinError::reason>);
+// Reason values
+static_assert(root::JoinError::reason::consumed_handle                  == root::JoinError::reason::consumed_handle);
+static_assert(root::JoinError::reason::capability_mismatch              == root::JoinError::reason::capability_mismatch);
+static_assert(root::JoinError::reason::thread_precondition              == root::JoinError::reason::thread_precondition);
+static_assert(root::JoinError::reason::reentrant_pump                   == root::JoinError::reason::reentrant_pump);
+static_assert(root::JoinError::reason::hop_capability_mismatch          == root::JoinError::reason::hop_capability_mismatch);
+static_assert(root::JoinError::reason::ready_callback_already_installed == root::JoinError::reason::ready_callback_already_installed);
+static_assert(root::JoinError::reason::lifetime_violation               == root::JoinError::reason::lifetime_violation);
+// Accessors
+static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().reason_code()), root::JoinError::reason>);
+static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().expected()), std::optional<root::CapabilityId>>);
+static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().actual()), std::optional<root::CapabilityId>>);
+static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().origin()), std::source_location>);
 
 // consume() lvalue/rvalue overloads
 void _e1y_consume_check_() {

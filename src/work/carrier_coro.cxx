@@ -218,15 +218,11 @@ public:
 		if (error_ == AwaiterError::already_installed) {
 			(void)root::try_abandon_to(std::move(handle_), root::drop_on_abandon{});
 			handle_consumed_ = true;
-			throw root::JoinContextError{
-				"TaskHandleAwaiter: another consumer already installed the on-ready hook",
-				root::JoinContextReason::ready_callback_already_installed};
+			throw root::JoinError{root::JoinError::reason::ready_callback_already_installed};
 		}
 		if (error_ == AwaiterError::empty) {
 			handle_consumed_ = true;
-			throw root::JoinContextError{
-				"TaskHandleAwaiter: moved-from or default handle awaited",
-				root::JoinContextReason::thread_precondition};
+			throw root::JoinError{root::JoinError::reason::consumed_handle};
 		}
 		auto out = root::join(std::move(handle_));
 		handle_consumed_ = true;
@@ -303,17 +299,13 @@ public:
 			(void)root::try_abandon_to(std::move(handle_), root::drop_on_abandon{});
 			handle_consumed_ = true;
 			auto ex = std::make_exception_ptr(
-				root::JoinContextError{
-					"TaskHandleChainAwaiter: another consumer already installed the on-ready hook",
-					root::JoinContextReason::ready_callback_already_installed});
+				root::JoinError{root::JoinError::reason::ready_callback_already_installed});
 			return Chain<T>{root::Outcome<T>{root::Failure{ex}}, CarrierKind::task};
 		}
 		if (error_ == AwaiterError::empty) {
 			handle_consumed_ = true;
 			auto ex = std::make_exception_ptr(
-				root::JoinContextError{
-					"TaskHandleChainAwaiter: moved-from or default handle awaited",
-					root::JoinContextReason::thread_precondition});
+				root::JoinError{root::JoinError::reason::consumed_handle});
 			return Chain<T>{root::Outcome<T>{root::Failure{ex}}, CarrierKind::task};
 		}
 		auto out = root::join(std::move(handle_));

@@ -695,7 +695,7 @@ class CloneableFunction<R(Args...)> {
 public:
 	CloneableFunction() = default;
 	CloneableFunction(
-		nullptr_t) {}
+		std::nullptr_t) {}
 
 	template<typename F>
 		requires(!same_as<std::remove_cvref_t<F>, CloneableFunction>)
