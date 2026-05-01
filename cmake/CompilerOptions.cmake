@@ -59,14 +59,22 @@ function(conflux_apply_compiler_options target)
     endif()
 
     # ── Sanitisers ────────────────────────────────────────────────────────────
+    # hack: GCC 15.x ICE in tree_node (cp/module.cc:10037) when ASan or UBSan
+    # is enabled alongside C++26 modules. CONFLUX_ENABLE_ASAN/UBSAN must be
+    # left OFF for debug-gcc-stdcxx until the upstream GCC bug is resolved.
     if(CONFLUX_ENABLE_ASAN)
-        target_compile_options(${target} INTERFACE -fsanitize=address -fno-omit-frame-pointer)
-        target_link_options(${target}    INTERFACE -fsanitize=address)
+        target_compile_options(${target} INTERFACE
+            -fsanitize=address
+            -fno-omit-frame-pointer
+            -fno-sanitize-recover=all)
+        target_link_options(${target} INTERFACE -fsanitize=address)
     endif()
 
     if(CONFLUX_ENABLE_UBSAN)
-        target_compile_options(${target} INTERFACE -fsanitize=undefined)
-        target_link_options(${target}    INTERFACE -fsanitize=undefined)
+        target_compile_options(${target} INTERFACE
+            -fsanitize=undefined
+            -fno-sanitize-recover=all)
+        target_link_options(${target} INTERFACE -fsanitize=undefined)
     endif()
 
     if(CONFLUX_ENABLE_TSAN)

@@ -47,7 +47,7 @@
     },
     {
       "name": "debug-gcc-stdcxx",
-      "displayName": "Debug · g++ · libstdc++",
+      "displayName": "Debug · g++ · libstdc++ (no sanitizers — GCC 15 ICE)",
       "inherits": "gcc-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE":     "Debug",

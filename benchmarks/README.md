@@ -35,7 +35,36 @@ Run:
 ./build/release-clang-libcxx/benchmarks/conflux_benchmarks --filter router
 ./build/release-clang-libcxx/benchmarks/conflux_benchmarks --iterations 50000
 ./build/release-clang-libcxx/benchmarks/conflux_benchmarks --format csv
+./build/release-clang-libcxx/benchmarks/conflux_benchmarks --csv   # alias for --format csv
 ```
+
+## Bench binary contract
+
+All `conflux_*bench` binaries implement a standard interface:
+
+- `--bench-info` — prints a JSON descriptor and exits 0; used by `scripts/bench_record.sh` for auto-discovery
+- `--csv` — outputs CSV in the standard format: `variant,iterations,total_ns,ns_per_iter`
+
+`--bench-info` JSON shape:
+```json
+{
+  "name":    "logical_bench_name",
+  "parser":  "standard|strip1|tcp_parallel|file_copy",
+  "configs": [
+    { "name": "cfg", "extra": {}, "args": ["--iterations", "N"] }
+  ]
+}
+```
+
+Parsers:
+- `standard` — `variant,iterations,total_ns,ns_per_iter`; recorded via `record_with_reps`
+- `strip1` — same but first CSV column (config name prefix) is stripped before recording
+- `tcp_parallel` — custom parser; configs sourced from `benchmarks/configs/*.json`
+- `file_copy` — custom parser; configs come from `--bench-info` JSON
+
+To add a new bench:
+1. Implement `--bench-info` and `--csv` in the binary
+2. Add the CMake target to `_record_targets` in `benchmarks/CMakeLists.txt`
 
 Current benchmark groups:
 

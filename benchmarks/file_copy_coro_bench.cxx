@@ -21,7 +21,7 @@ constexpr u64 pack_ud(
 struct Config {
 	SZ size_mib = 256;
 	SZ chunk_kib = 64;
-	SZ runs = 5;
+	SZ runs = 2;
 	bool csv = false;
 	S src_path = "/tmp/conflux_copy_src.bin";
 	S dst_path = "/tmp/conflux_copy_dst.bin";
@@ -170,6 +170,12 @@ struct Agg {
 int main(
 	int argc,
 	char **argv) {
+	if (argc >= 2 && SV{argv[1]} == "--bench-info") {
+		std::print(
+			"{}\n",
+			R"({"name":"file_copy_coro","parser":"file_copy","configs":[{"name":"256mib_64kib","extra":{"size_mib":256,"chunk_kib":64},"args":["--size-mib","256","--chunk-kib","64","--runs","2"]}]})");
+		return 0;
+	}
 	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
 	SZ const bytes = cfg.size_mib << 20U;
 

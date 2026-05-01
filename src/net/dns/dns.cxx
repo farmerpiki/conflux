@@ -1782,7 +1782,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		return std::move(task);
 	}
 
-	// In-flight coalescing: second+ caller for same query attaches a waiter FlowSource
+	// In-flight coalescing: second+ caller for same query attaches a waiter TaskSource
 	// that the primary query's completion step will resolve/reject.
 	if (!coalesce_key.empty()) {
 		if (auto it = impl_->in_flight.find(coalesce_key); it != impl_->in_flight.end()) {

@@ -305,6 +305,12 @@ u64 run_coroutine(
 int main(
 	int argc,
 	char **argv) {
+	if (argc >= 2 && SV{argv[1]} == "--bench-info") {
+		std::print(
+			"{}\n",
+			R"({"name":"tcp_increment_coro","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","200","--warmup","50"]}]})");
+		return 0;
+	}
 	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
 
 	for (int which = 0; which < 2; ++which) {

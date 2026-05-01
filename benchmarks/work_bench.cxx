@@ -36,7 +36,7 @@ struct Config {
 	Opt<SZ> iterations_override;
 	enum class Format : u8 {
 		table,
-		csv,
+		json,
 	};
 	Format format = Format::table;
 };
@@ -58,7 +58,7 @@ struct Case {
 };
 
 void print_usage() {
-	println("Usage: conflux_work_benchmarks [--list] [--filter SUBSTR] [--iterations N] [--format table|csv]");
+	println("Usage: conflux_work_benchmarks [--list] [--filter SUBSTR] [--iterations N] [--format table|json]");
 }
 
 Config parse_args(
@@ -101,11 +101,15 @@ Config parse_args(
 			auto const value = SV{args[++i]};
 			if (value == "table") {
 				cfg.format = Config::Format::table;
-			} else if (value == "csv") {
-				cfg.format = Config::Format::csv;
+			} else if (value == "json") {
+				cfg.format = Config::Format::json;
 			} else {
-				throw std::invalid_argument{"--format must be table or csv"};
+				throw std::invalid_argument{"--format must be table or json"};
 			}
+			continue;
+		}
+		if (arg == "--json") {
+			cfg.format = Config::Format::json;
 			continue;
 		}
 		throw std::invalid_argument{format("unknown argument: {}", arg)};
@@ -147,8 +151,6 @@ void print_header(
 	Config::Format format) {
 	if (format == Config::Format::table) {
 		println("{:32} {:>12} {:>14} {:>14}", "Benchmark", "Iterations", "Total (ms)", "ns/iter");
-	} else {
-		println("name,iterations,total_ns,ns_per_iter");
 	}
 }
 
@@ -159,7 +161,12 @@ void print_stats(
 		auto const total_ms = static_cast<double>(stats.total_ns) / 1'000'000.0;
 		println("{:32} {:>12} {:>14.3f} {:>14.1f}", stats.name, stats.iterations, total_ms, stats.ns_per_iter);
 	} else {
-		println("{},{},{},{}", stats.name, stats.iterations, stats.total_ns, stats.ns_per_iter);
+		println(
+			"{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.3f}}}",
+			stats.name,
+			stats.iterations,
+			stats.total_ns,
+			stats.ns_per_iter);
 	}
 }
 
@@ -179,7 +186,7 @@ Case make_pool_roundtrip_case() {
 	return Case{
 		.name = "micro/pool_roundtrip",
 		.description = "Submit to WorkPool and wait for one result",
-		.default_iterations = 100'000,
+		.default_iterations = 25'000,
 		.run = [pool] { return static_cast<SZ>(root::value(run_on_task(*pool, [] { return 42; }))); }};
 }
 
@@ -188,7 +195,7 @@ Case make_pool_chain_case() {
 	return Case{
 		.name = "micro/pool_chain",
 		.description = "WorkPool submit followed by chained continuation",
-		.default_iterations = 100'000,
+		.default_iterations = 25'000,
 		.run = [pool] { return static_cast<SZ>(sync_wait(run_on_task(*pool, [] { return (10 * 4) + 2; }))); }};
 }
 
@@ -197,7 +204,7 @@ Case make_join_all_case() {
 	return Case{
 		.name = "micro/join_all",
 		.description = "Join three pool tasks",
-		.default_iterations = 50'000,
+		.default_iterations = 30'000,
 		.run = [pool] {
 			auto [a, b, c] = sync_wait(join_all(
 				run_on_task(*pool, [] { return 1; }),
@@ -1015,6 +1022,12 @@ V<Case> make_cases() {
 int main(
 	int argc,
 	char **argv) {
+	if (argc >= 2 && SV{argv[1]} == "--bench-info") {
+		std::print(
+			"{}\n",
+			R"({"name":"work","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
+		return 0;
+	}
 	try {
 		auto const cfg = parse_args({argv, static_cast<SZ>(argc)});
 		auto cases = make_cases();

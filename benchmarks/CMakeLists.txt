@@ -45,3 +45,43 @@ target_link_libraries(conflux_json_bench PRIVATE conflux conflux_options)
 
 add_executable(conflux_template_bench template_bench.cxx)
 target_link_libraries(conflux_template_bench PRIVATE conflux conflux_options)
+
+# Phase 0 microbenches
+add_executable(conflux_task_creation_bench task_creation_bench.cxx)
+target_link_libraries(conflux_task_creation_bench PRIVATE conflux_work conflux_options)
+
+add_executable(conflux_task_chain_composition_bench task_chain_composition_bench.cxx)
+target_link_libraries(conflux_task_chain_composition_bench PRIVATE conflux_work conflux_options)
+
+add_executable(conflux_task_cancellation_bench task_cancellation_bench.cxx)
+target_link_libraries(conflux_task_cancellation_bench PRIVATE conflux_work conflux_options)
+
+add_executable(conflux_workpool_enqueue_dequeue_bench workpool_enqueue_dequeue_bench.cxx)
+target_link_libraries(conflux_workpool_enqueue_dequeue_bench PRIVATE conflux_work conflux_options)
+
+add_executable(conflux_join_all_N_bench join_all_N_bench.cxx)
+target_link_libraries(conflux_join_all_N_bench PRIVATE conflux_work conflux_options)
+
+# Meta-target: build all benches that support --bench-info recording.
+# Add new recordable bench targets here when they implement --bench-info.
+set(_record_targets
+    conflux_benchmarks
+    conflux_work_benchmarks
+    conflux_file_copy_coro_bench
+    conflux_tcp_increment_coro_bench
+    conflux_tcp_parallel_coro_bench
+    conflux_json_bench
+    conflux_template_bench
+    conflux_task_creation_bench
+    conflux_task_chain_composition_bench
+    conflux_task_cancellation_bench
+    conflux_workpool_enqueue_dequeue_bench
+    conflux_join_all_N_bench
+)
+if(CONFLUX_HAS_TLS STREQUAL "true")
+    list(APPEND _record_targets conflux_tls_tcp_increment_coro_bench)
+endif()
+if(CONFLUX_HAS_DB STREQUAL "true")
+    list(APPEND _record_targets conflux_db_coro_bench conflux_db_params_bench conflux_db_pipeline_bench)
+endif()
+add_custom_target(conflux_record_benches DEPENDS ${_record_targets})

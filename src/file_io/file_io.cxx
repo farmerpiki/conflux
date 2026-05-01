@@ -527,7 +527,7 @@ inline PipePair::~PipePair() {
 }
 
 // ---------------------------------------------------------------------------
-// FileIoError: thrown inside Flow<T> pipelines on negative io_uring res.
+// FileIoError: thrown on negative io_uring res inside Task<T> chains.
 // ---------------------------------------------------------------------------
 
 export struct FileIoError final : SE {

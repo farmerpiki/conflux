@@ -105,6 +105,10 @@ Config parse_args(
 			}
 			continue;
 		}
+		if (arg == "--csv") {
+			cfg.format = Config::Format::csv;
+			continue;
+		}
 		throw std::invalid_argument{format("unknown argument: {}", arg)};
 	}
 	return cfg;
@@ -153,7 +157,7 @@ void print_header(
 	if (format == Config::Format::table) {
 		println("{:32} {:>12} {:>14} {:>14}", "Benchmark", "Iterations", "Total (ms)", "ns/iter");
 	} else {
-		println("name,iterations,total_ns,ns_per_iter");
+		println("variant,iterations,total_ns,ns_per_iter");
 	}
 }
 
@@ -570,6 +574,12 @@ V<Case> build_cases() {
 int main(
 	int argc,
 	char **argv) {
+	if (argc >= 2 && SV{argv[1]} == "--bench-info") {
+		std::print(
+			"{}\n",
+			R"({"name":"router","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
+		return 0;
+	}
 	try {
 		auto const cfg = benchmark_detail::parse_args({argv, static_cast<SZ>(argc)});
 		auto cases = benchmark_detail::build_cases();

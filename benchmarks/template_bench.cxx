@@ -6,6 +6,8 @@ namespace {
 
 struct Stats {
 	double median_ns;
+	SZ iters;
+	double total_ns;
 };
 
 template<typename F>
@@ -18,20 +20,29 @@ Stats measure(
 	}
 	V<double> samples;
 	samples.reserve(iters);
+	double total_ns = 0.0;
 	for (SZ i = 0; i < iters; ++i) {
 		auto t0 = chrono::steady_clock::now();
 		fn();
 		auto t1 = chrono::steady_clock::now();
-		samples.push_back(static_cast<double>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count()));
+		auto const dur = static_cast<double>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+		total_ns += dur;
+		samples.push_back(dur);
 	}
 	sort(samples.begin(), samples.end());
-	return {samples[iters / 2]};
+	return {samples[iters / 2], iters, total_ns};
 }
+
+bool g_csv = false;
 
 void report(
 	SV name,
 	Stats const &s) {
-	println("[tmpl-bench] {:<50} {:>10.1f} ns", name, s.median_ns);
+	if (g_csv) {
+		std::println("{},{},{},{:.2f}", name, s.iters, static_cast<u64>(s.total_ns), s.median_ns);
+	} else {
+		println("[tmpl-bench] {:<50} {:>10.1f} ns", name, s.median_ns);
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -120,9 +131,28 @@ constexpr SV kMacroCtx = R"({})";
 
 } // namespace
 
-int main() {
-	println("[tmpl-bench] Template engine benchmarks");
-	println("[tmpl-bench] {}", S(60, '-'));
+// NOLINTNEXTLINE(bugprone-exception-escape)
+int main(
+	int argc,
+	char **argv) {
+	for (int i = 1; i < argc; ++i) {
+		SV const a{argv[i]};
+		if (a == "--bench-info") {
+			std::print(
+				"{}\n",
+				R"({"name":"template","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
+			return 0;
+		}
+		if (a == "--csv") {
+			g_csv = true;
+		}
+	}
+	if (g_csv) {
+		std::println("variant,iterations,total_ns,ns_per_iter");
+	} else {
+		println("[tmpl-bench] Template engine benchmarks");
+		println("[tmpl-bench] {}", S(60, '-'));
+	}
 
 	// Each sub-bench creates its own Environment to also measure cold-path
 	// parse+render. The hot-path bench reuses a pre-parsed environment.
@@ -131,8 +161,8 @@ int main() {
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment env{"."};
-				S out = env.render_string(S(kSimpleTmpl), S(kSimpleCtx));
+				tmpl::Environment const env{"."};
+				S const out = env.render_string(S(kSimpleTmpl), S(kSimpleCtx));
 				(void)out;
 			},
 			20,
@@ -142,8 +172,8 @@ int main() {
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment env{"."};
-				S out = env.render_string(S(kLoopTmpl), S(kLoopCtx10));
+				tmpl::Environment const env{"."};
+				S const out = env.render_string(S(kLoopTmpl), S(kLoopCtx10));
 				(void)out;
 			},
 			20,
@@ -154,8 +184,8 @@ int main() {
 		S ctx100 = make_loop_ctx_100();
 		auto s = measure(
 			[&ctx100] {
-				tmpl::Environment env{"."};
-				S out = env.render_string(S(kLoopTmpl), ctx100);
+				tmpl::Environment const env{"."};
+				S const out = env.render_string(S(kLoopTmpl), ctx100);
 				(void)out;
 			},
 			20,
@@ -165,8 +195,8 @@ int main() {
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment env{"."};
-				S out = env.render_string(S(kCondTmpl), S(kCondCtxTrue));
+				tmpl::Environment const env{"."};
+				S const out = env.render_string(S(kCondTmpl), S(kCondCtxTrue));
 				(void)out;
 			},
 			20,
@@ -176,8 +206,8 @@ int main() {
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment env{"."};
-				S out = env.render_string(S(kFilterTmpl), S(kFilterCtx));
+				tmpl::Environment const env{"."};
+				S const out = env.render_string(S(kFilterTmpl), S(kFilterCtx));
 				(void)out;
 			},
 			20,
@@ -187,8 +217,8 @@ int main() {
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment env{"."};
-				S out = env.render_string(S(kPageTmpl), S(kPageCtx));
+				tmpl::Environment const env{"."};
+				S const out = env.render_string(S(kPageTmpl), S(kPageCtx));
 				(void)out;
 			},
 			20,
@@ -198,8 +228,8 @@ int main() {
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment env{"."};
-				S out = env.render_string(S(kMacroTmpl), S(kMacroCtx));
+				tmpl::Environment const env{"."};
+				S const out = env.render_string(S(kMacroTmpl), S(kMacroCtx));
 				(void)out;
 			},
 			20,
@@ -207,11 +237,13 @@ int main() {
 		report("parse+render: macro define+call x3", s);
 	}
 
-	println("[tmpl-bench] {}", S(60, '-'));
+	if (!g_csv) {
+		println("[tmpl-bench] {}", S(60, '-'));
+	}
 
 	// --- render-only (hot path: template pre-parsed, context varies) ---
 	{
-		tmpl::Environment env{"."};
+		tmpl::Environment const env{"."};
 		// warm parse
 		(void)env.render_string(S(kSimpleTmpl), S(kSimpleCtx));
 		// NOTE: render_string re-parses every call; use a file-loaded env for
@@ -229,7 +261,7 @@ int main() {
 		S ctx100 = make_loop_ctx_100();
 		auto s = measure(
 			[&] {
-				S out = env.render_string(S(kLoopTmpl), ctx100);
+				S const out = env.render_string(S(kLoopTmpl), ctx100);
 				(void)out;
 			},
 			50,
@@ -237,11 +269,11 @@ int main() {
 		report("render_string: loop 100 (shared env, re-parse)", s);
 	}
 	{
-		S ctx100 = make_loop_ctx_100();
+		S const ctx100 = make_loop_ctx_100();
 		auto s = measure(
 			[&] {
-				tmpl::Environment env{"."};
-				S out = env.render_string(S(kPageTmpl), S(kPageCtx));
+				tmpl::Environment const env{"."};
+				S const out = env.render_string(S(kPageTmpl), S(kPageCtx));
 				(void)out;
 			},
 			50,
@@ -249,6 +281,8 @@ int main() {
 		report("render_string: page fragment (2000 iters)", s);
 	}
 
-	println("[tmpl-bench] {}", S(60, '-'));
-	println("[tmpl-bench] Done.");
+	if (!g_csv) {
+		println("[tmpl-bench] {}", S(60, '-'));
+		println("[tmpl-bench] Done.");
+	}
 }

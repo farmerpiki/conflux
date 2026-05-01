@@ -431,6 +431,10 @@ RunResult run_parallel(
 int main(
 	int argc,
 	char **argv) try {
+	if (argc >= 2 && SV{argv[1]} == "--bench-info") {
+		std::print("{}\n", R"({"name":"tcp_parallel_coro","parser":"tcp_parallel","configs":[]})");
+		return 0;
+	}
 	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
 
 	u16 port = 0;

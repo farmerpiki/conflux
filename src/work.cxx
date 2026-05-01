@@ -19,7 +19,7 @@ export struct Cancelled final : RE {
 		: RE{"work cancelled"} {}
 };
 
-export struct ValueTag;
+export struct [[deprecated("use conflux::work::root::make_task_source<T>()")]] ValueTag;
 export template<typename Fn>
 struct ThenStep;
 export template<typename Fn>
@@ -33,7 +33,7 @@ struct MoveToStep;
 export template<typename Target>
 struct StartOnStep;
 export template<typename T>
-class Task;
+class [[deprecated("use conflux::work::Task<T>")]] Task;
 
 namespace work_detail {
 
@@ -907,7 +907,7 @@ public:
 template<typename T>
 using Flow = work_detail::Flow<T>;
 
-struct ValueTag {
+struct [[deprecated("use conflux::work::root::make_task_source<T>()")]] ValueTag {
 	template<typename T>
 	[[nodiscard]] auto operator ()(
 		T &&input) const -> Flow<std::decay_t<T>> {
@@ -924,6 +924,7 @@ struct ValueTag {
 	}
 };
 
+[[deprecated("use conflux::work::root::make_task_source<T>()")]]
 inline constexpr ValueTag value{};
 
 template<typename Fn>
@@ -957,37 +958,37 @@ struct StartOnStep {
 };
 
 template<typename Fn>
-[[nodiscard]] auto then(
+[[nodiscard, deprecated("use conflux::work::Task<T> pipelines")]] auto then(
 	Fn &&fn) {
 	return ThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 template<typename Fn>
-[[nodiscard]] auto flat_then(
+[[nodiscard, deprecated("use conflux::work::Task<T> pipelines")]] auto flat_then(
 	Fn &&fn) {
 	return FlatThenStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 template<typename Fn>
-[[nodiscard]] auto on_error(
+[[nodiscard, deprecated("use conflux::work::Task<T> pipelines")]] auto on_error(
 	Fn &&fn) {
 	return ErrorStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 template<typename Fn>
-[[nodiscard]] auto on_cancel(
+[[nodiscard, deprecated("use conflux::work::Task<T> pipelines")]] auto on_cancel(
 	Fn &&fn) {
 	return CancelStep<std::decay_t<Fn>>{forward<Fn>(fn)};
 }
 
 template<typename Target>
-[[nodiscard]] auto move_to(
+[[nodiscard, deprecated("use conflux::work::Task<T> pipelines")]] auto move_to(
 	Target &target) {
 	return MoveToStep<Target>{&target};
 }
 
 template<typename Target>
-[[nodiscard]] auto start_on(
+[[nodiscard, deprecated("use conflux::work::Task<T> pipelines")]] auto start_on(
 	Target &target) {
 	return StartOnStep<Target>{&target};
 }
@@ -1340,7 +1341,7 @@ export template<typename Target, typename Fn>
 	}
 
 export template<typename... Ts>
-[[nodiscard]] auto join_all(
+[[nodiscard, deprecated("use conflux::work::Task<T> (root-backed)")]] auto join_all(
 	Task<Ts>... tasks) {
 	return work_detail::join_all(std::move(tasks).flow()...);
 }
@@ -1348,6 +1349,7 @@ export template<typename... Ts>
 // Synchronous blocking wait for a root::Task<T> — no FileReader required.
 // Useful when the task completes on a thread pool (not io_uring).
 export template<typename T>
+[[deprecated("use conflux::work::root::join() + Outcome<T>")]]
 T sync_wait(
 	conflux::work::root::Task<T> task) {
 	using namespace conflux::work::root;
@@ -1364,13 +1366,16 @@ T sync_wait(
 }
 
 // ---------------------------------------------------------------------------
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+
 // FlowSource<T>: internal coroutine backing store. TaskPromise<T> owns one;
 // Task<T> holds a shared reference to its flow() output.
 // Copyable (shared-ownership). Only the first resolve/reject/cancel takes effect.
 // ---------------------------------------------------------------------------
 
 export template<typename T>
-class FlowSource {
+class [[deprecated("use conflux::work::TaskSource<T>")]] FlowSource {
 	struct Control {
 		work_detail::StatePtr<T> state{make_shared<work_detail::State<T>>()};
 		atomic_flag disarmed_{};
@@ -1483,10 +1488,13 @@ Task<T> TaskPromiseBase<T>::get_return_object() {
 }
 
 export template<typename T>
+[[deprecated("use conflux::work::Task<T>::detach()")]]
 void co_spawn(
 	Task<T> task) {
 	work_detail::spawn(move(task).flow());
 }
+
+#pragma GCC diagnostic pop
 
 // Bridge: converts a root::Task<T> into a Flow<T> for use inside Task<T> coroutines.
 // The on_ready callback fires after the task is terminal, so root::join() returns
@@ -1530,6 +1538,26 @@ template<typename T>
 }
 
 } // namespace conflux::work::root
+
+export namespace conflux::work {
+
+template<typename T>
+using Task = root::Task<T>;
+
+template<typename T>
+using TaskSource = root::TaskSource<T>;
+
+using TaskControl = root::TaskControl;
+
+template<typename T>
+using Outcome = root::Outcome<T>;
+
+using CancelReason = root::CancelReason;
+
+using root::make_task_source;
+using root::join;
+
+} // namespace conflux::work
 
 export template<typename... Ts>
 [[nodiscard]] auto join_all(
