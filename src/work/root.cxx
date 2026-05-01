@@ -1995,7 +1995,21 @@ struct TaskAwaiter {
 		if (!state_) {
 			throw JoinError{JoinError::reason::consumed_handle};
 		}
-		return value(state_->wait_and_take_outcome());
+		// Rethrow original exception on Failure (not FailureError wrapper) so
+		// existing catch sites work. E2b.2 migrates to FailureError uniformly.
+		return std::move(state_->wait_and_take_outcome())
+			.visit([](auto &&arm) -> std::conditional_t<std::is_void_v<T>, void, T> {
+				using arm_t = std::remove_cvref_t<decltype(arm)>;
+				if constexpr (std::same_as<arm_t, Success<T>>) {
+					if constexpr (!std::is_void_v<T>) {
+						return std::move(arm.value);
+					}
+				} else if constexpr (std::same_as<arm_t, Failure>) {
+					std::rethrow_exception(arm.error);
+				} else {
+					throw CancelledError{arm.reason};
+				}
+			});
 	}
 };
 

@@ -2,6 +2,7 @@ find_package(Catch2 3 REQUIRED)
 include(Catch)
 
 set(CONFLUX_CATCH_RNG_SEED "" CACHE STRING "Optional Catch2 RNG seed used by discovered CTest tests")
+set(CONFLUX_PG_TEST_CONNINFO "" CACHE STRING "libpq conninfo for DB integration tests (e.g. host=localhost user=postgres dbname=conflux_test)")
 
 function(conflux_discover_tests target)
     set(extra_args --order lex)
@@ -11,6 +12,21 @@ function(conflux_discover_tests target)
     catch_discover_tests(${target}
         EXTRA_ARGS ${extra_args}
         PROPERTIES RUN_SERIAL TRUE
+    )
+endfunction()
+
+function(conflux_discover_db_integration_tests target)
+    set(extra_args --order lex)
+    if(NOT CONFLUX_CATCH_RNG_SEED STREQUAL "")
+        list(APPEND extra_args --rng-seed ${CONFLUX_CATCH_RNG_SEED})
+    endif()
+    set(env_props "")
+    if(NOT CONFLUX_PG_TEST_CONNINFO STREQUAL "")
+        list(APPEND env_props ENVIRONMENT "PG_TEST_CONNINFO=${CONFLUX_PG_TEST_CONNINFO}")
+    endif()
+    catch_discover_tests(${target}
+        EXTRA_ARGS ${extra_args}
+        PROPERTIES RUN_SERIAL TRUE ${env_props}
     )
 endfunction()
 
@@ -248,5 +264,5 @@ if(CONFLUX_HAS_HTTP3 STREQUAL "true")
 endif()
 if(CONFLUX_HAS_DB STREQUAL "true")
     conflux_discover_tests(conflux_db_tests)
-    conflux_discover_tests(conflux_db_integration)
+    conflux_discover_db_integration_tests(conflux_db_integration)
 endif()
