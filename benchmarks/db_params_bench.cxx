@@ -1,5 +1,6 @@
 import std;
 import conflux.db;
+import bench_common;
 
 using namespace std;
 using namespace conflux::db;
@@ -22,30 +23,49 @@ void add_n(
 	}
 }
 
-void bench(
-	string_view label,
+BenchStats bench_params(
+	string_view cfg_name,
 	size_t n_params,
-	size_t iters) {
-	auto const t0 = chrono::steady_clock::now();
+	size_t iters,
+	size_t warmup) {
+	for (size_t i = 0; i < warmup; ++i) {
+		Params p;
+		add_n(p, n_params);
+		sink.fetch_add(reinterpret_cast<uintptr_t>(p.values()), memory_order_relaxed);
+	}
+	uint64_t const t0 = bench_now_ns();
 	for (size_t i = 0; i < iters; ++i) {
 		Params p;
 		add_n(p, n_params);
-		auto const *v = p.values();
-		sink.fetch_add(reinterpret_cast<uintptr_t>(v), memory_order_relaxed);
+		sink.fetch_add(reinterpret_cast<uintptr_t>(p.values()), memory_order_relaxed);
 	}
-	auto const ns = chrono::duration_cast<chrono::nanoseconds>(chrono::steady_clock::now() - t0).count();
-	println("{:<35}  {:6} ns/iter  ({} iters)", label, ns / static_cast<int64_t>(iters), iters);
+	uint64_t const elapsed = bench_now_ns() - t0;
+	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(iters);
+	return {cfg_name, "params_bind"sv, iters, elapsed, ns_pi};
 }
 
 } // namespace
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
-int main() {
-	constexpr size_t kIters = 1'000'000;
-	println("=== Params bind baseline (text, heap) ===");
-	bench("params=1  (int64)", 1, kIters);
-	bench("params=4  (i64,f64,str,bool)", 4, kIters);
-	bench("params=16 (mixed)", 16, kIters);
-	bench("params=64 (mixed)", 64, kIters);
-	println("(sink={})", sink.load());
+int main(
+	int argc,
+	char **argv) {
+	bench_info_if_requested(argc, argv,
+		R"({"name":"db_params","parser":"strip1","configs":[{"name":"params_1","extra":{"n_params":1},"args":["--n-params","1","--config-name","params_1","--iterations","1000000","--warmup","50000"]},{"name":"params_4","extra":{"n_params":4},"args":["--n-params","4","--config-name","params_4","--iterations","1000000","--warmup","50000"]},{"name":"params_16","extra":{"n_params":16},"args":["--n-params","16","--config-name","params_16","--iterations","1000000","--warmup","50000"]},{"name":"params_64","extra":{"n_params":64},"args":["--n-params","64","--config-name","params_64","--iterations","1000000","--warmup","50000"]}]})");
+
+	auto cfg = bench_parse_args(span{argv, static_cast<size_t>(argc)});
+	size_t n_params = 4;
+	for (size_t i = 1; i < static_cast<size_t>(argc); ++i) {
+		string_view a = argv[i];
+		if (a == "--n-params" && i + 1 < static_cast<size_t>(argc)) {
+			n_params = bench_parse_sz(argv[++i]);
+			if (cfg.config_name.empty())
+				cfg.config_name = format("params_{}", n_params);
+		}
+	}
+
+	auto stats = bench_params(cfg.config_name, n_params, cfg.iterations, cfg.warmup);
+	bench_print(stats, cfg.json_out, true);
+	if (!cfg.json_out)
+		println("(sink={})", sink.load());
 }

@@ -20,6 +20,8 @@ import conflux.work;
 import conflux.file_io;
 import conflux.net.tls;
 
+import bench_common;
+
 namespace {
 
 constexpr u64 pack_ud(
@@ -31,7 +33,7 @@ constexpr u64 pack_ud(
 struct Config {
 	SZ iterations = 50'000;
 	SZ warmup = 2'000;
-	bool csv = false;
+	bool json_out = false;
 };
 
 namespace {
@@ -55,10 +57,10 @@ Config parse_args(
 			cfg.iterations = parse_u64(args[++i]);
 		} else if (a == "--warmup" && i + 1 < args.size()) {
 			cfg.warmup = parse_u64(args[++i]);
-		} else if (a == "--csv") {
-			cfg.csv = true;
+		} else if (a == "--json") {
+			cfg.json_out = true;
 		} else if (a == "--help" || a == "-h") {
-			println("Usage: conflux_tls_tcp_increment_coro_bench [--iterations N] [--warmup N] [--csv]");
+			println("Usage: conflux_tls_tcp_increment_coro_bench [--iterations N] [--warmup N] [--json]");
 			std::exit(0);
 		}
 	}
@@ -365,6 +367,8 @@ u64 run_coroutine(
 int main(
 	int argc,
 	char **argv) try {
+	bench_info_if_requested(argc, argv,
+		R"({"name":"tls_tcp_increment_coro","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","10000","--warmup","500"]}]})");
 	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
 
 	auto kc = make_self_signed();
@@ -412,11 +416,10 @@ int main(
 										  run_coroutine(files, tls, cfg.iterations, cfg.warmup);
 			double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 			SV const label = (which == 0) ? "callback" : "coroutine";
-			if (cfg.csv) {
-				if (which == 0) {
-					println("style,iterations,total_ns,ns_per_iter");
-				}
-				println("{},{},{},{:.1f}", label, cfg.iterations, ns, per);
+			if (cfg.json_out) {
+				println(
+					"{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.3f}}}",
+					label, cfg.iterations, ns, per);
 			} else {
 				if (which == 0) {
 					println("iterations: {}, warmup: {}", cfg.iterations, cfg.warmup);

@@ -49,6 +49,7 @@
 set -euo pipefail
 
 PGURI="${PGURI:-postgres://postgres@localhost/conflux_bench}"
+export PG_CONNINFO="${PG_CONNINFO:-host=localhost dbname=conflux_bench user=postgres}"
 PRESET="${BENCH_PRESET:-release-clang-libcxx}"
 NAME="${1:-manual}"
 BENCH_REPS="${BENCH_REPS:-5}"
@@ -296,7 +297,11 @@ for binary in "$BENCHDIR"/conflux_*bench; do
     continue
   }
 
-  bench_name=$(jq -r .name <<< "$info")
+  bench_name=$(jq -r .name <<< "$info" 2>/dev/null || true)
+  if [[ -z "$bench_name" || "$bench_name" == "null" ]]; then
+    echo "skip $(basename "$binary"): --bench-info returned invalid JSON" >&2
+    continue
+  fi
   parser=$(jq -r .parser <<< "$info")
 
   want "$bench_name" || continue

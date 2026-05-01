@@ -7,8 +7,10 @@ import conflux.types;
 import conflux.work;
 import conflux.file_io;
 import conflux.db;
+import bench_common;
 
 using namespace conflux::db;
+using namespace std::string_view_literals;
 
 namespace {
 
@@ -74,57 +76,27 @@ u64 run_coroutine(
 	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
 
-struct Config {
-	SZ iterations = 5000;
-	SZ warmup = 500;
-	i64 rows = 3;
-	bool csv = false;
-};
-
-u64 parse_u64(
-	char const *s) noexcept {
-	SV const sv{s};
-	u64 v{};
-	from_chars(sv.data(), sv.data() + sv.size(), v);
-	return v;
-}
-
-i64 parse_i64(
-	char const *s) noexcept {
-	SV const sv{s};
-	i64 v{};
-	from_chars(sv.data(), sv.data() + sv.size(), v);
-	return v;
-}
-
-Config parse_args(
-	span<char *> args) {
-	Config cfg;
-	for (SZ i = 1; i < args.size(); ++i) {
-		SV const a = args[i];
-		if (a == "--iterations" && i + 1 < args.size()) {
-			cfg.iterations = parse_u64(args[++i]);
-		} else if (a == "--warmup" && i + 1 < args.size()) {
-			cfg.warmup = parse_u64(args[++i]);
-		} else if (a == "--rows" && i + 1 < args.size()) {
-			cfg.rows = parse_i64(args[++i]);
-		} else if (a == "--csv") {
-			cfg.csv = true;
-		} else if (a == "--help" || a == "-h") {
-			println("Usage: conflux_db_coro_bench [--iterations N] [--warmup N] [--rows N] [--csv]");
-			println("Needs PG_CONNINFO set.");
-			std::exit(0);
-		}
-	}
-	return cfg;
-}
-
 } // namespace
 
 int main(
 	int argc,
 	char **argv) {
-	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
+	bench_info_if_requested(argc, argv,
+		R"({"name":"db_coro","parser":"strip1","configs":[{"name":"rows_3","extra":{"rows":3},"args":["--rows","3","--config-name","rows_3","--iterations","5000","--warmup","500"]},{"name":"rows_100","extra":{"rows":100},"args":["--rows","100","--config-name","rows_100","--iterations","1000","--warmup","100"]}]})");
+
+	auto cfg = bench_parse_args(std::span{argv, static_cast<SZ>(argc)});
+	i64 rows = 3;
+	for (SZ i = 1; i < static_cast<SZ>(argc); ++i) {
+		SV const a = argv[i];
+		if (a == "--rows" && i + 1 < static_cast<SZ>(argc)) {
+			u64 v{};
+			SV sv{argv[++i]};
+			from_chars(sv.data(), sv.data() + sv.size(), v);
+			rows = static_cast<i64>(v);
+			if (cfg.config_name.empty())
+				cfg.config_name = std::format("rows_{}", rows);
+		}
+	}
 
 	char const *raw = std::getenv("PG_CONNINFO");
 	if (raw == nullptr || *raw == '\0') {
@@ -144,24 +116,21 @@ int main(
 	try {
 		auto conn = block_on(reader, Connection::connect({.conninfo = raw}));
 
-		(void)run_callback(reader, conn, cfg.warmup, cfg.rows);
-		(void)run_coroutine(reader, conn, cfg.warmup, cfg.rows);
+		(void)run_callback(reader, conn, cfg.warmup, rows);
+		(void)run_coroutine(reader, conn, cfg.warmup, rows);
 
-		u64 const cb_ns = run_callback(reader, conn, cfg.iterations, cfg.rows);
-		u64 const co_ns = run_coroutine(reader, conn, cfg.iterations, cfg.rows);
+		u64 const cb_ns = run_callback(reader, conn, cfg.iterations, rows);
+		u64 const co_ns = run_coroutine(reader, conn, cfg.iterations, rows);
 
 		double const cb_per = static_cast<double>(cb_ns) / static_cast<double>(cfg.iterations);
 		double const co_per = static_cast<double>(co_ns) / static_cast<double>(cfg.iterations);
-		double const delta_pct = 100.0 * (co_per - cb_per) / cb_per;
 
-		if (cfg.csv) {
-			println("style,iterations,total_ns,ns_per_iter");
-			println("callback,{},{},{:.1f}", cfg.iterations, cb_ns, cb_per);
-			println("coroutine,{},{},{:.1f}", cfg.iterations, co_ns, co_per);
-		} else {
-			println("iterations: {}, rows/query: {}, warmup: {}", cfg.iterations, cfg.rows, cfg.warmup);
-			println("  callback   {:>10.1f} ns/iter  ({} ns total)", cb_per, cb_ns);
-			println("  coroutine  {:>10.1f} ns/iter  ({} ns total)", co_per, co_ns);
+		BenchStats cb_stats{cfg.config_name, "callback"sv, cfg.iterations, cb_ns, cb_per};
+		BenchStats co_stats{cfg.config_name, "coroutine"sv, cfg.iterations, co_ns, co_per};
+		bench_print(cb_stats, cfg.json_out, true);
+		bench_print(co_stats, cfg.json_out, false);
+		if (!cfg.json_out) {
+			double const delta_pct = 100.0 * (co_per - cb_per) / cb_per;
 			println("  delta      {:+.2f}% (coro vs callback)", delta_pct);
 			println("  sink       {}", sink.load(memory_order_relaxed));
 		}

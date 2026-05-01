@@ -5,8 +5,10 @@ import conflux.types;
 import conflux.work;
 import conflux.file_io;
 import conflux.db;
+import bench_common;
 
 using namespace conflux::db;
+using namespace std::string_view_literals;
 
 namespace {
 
@@ -16,38 +18,23 @@ constexpr u64 pack_ud(
 	return (static_cast<u64>(gen) << 32U) | slot;
 }
 
-struct Config {
+struct PipeConfig {
 	SZ batches = 200;
 	SZ batch_n = 100;
 	SZ warmup_batches = 20;
-	bool csv = false;
 };
 
-u64 parse_u64(
-	char const *s) noexcept {
-	SV sv{s};
-	u64 v{};
-	(void)from_chars(sv.data(), sv.data() + sv.size(), v);
-	return v;
-}
-
-Config parse_args(
-	span<char *> args) {
-	Config cfg;
+PipeConfig parse_pipe_args(
+	std::span<char *> args) {
+	PipeConfig cfg;
 	for (SZ i = 1; i < args.size(); ++i) {
 		SV a = args[i];
 		if (a == "--batches" && i + 1 < args.size()) {
-			cfg.batches = parse_u64(args[++i]);
+			cfg.batches = bench_parse_sz(args[++i]);
 		} else if (a == "--batch-n" && i + 1 < args.size()) {
-			cfg.batch_n = parse_u64(args[++i]);
+			cfg.batch_n = bench_parse_sz(args[++i]);
 		} else if (a == "--warmup-batches" && i + 1 < args.size()) {
-			cfg.warmup_batches = parse_u64(args[++i]);
-		} else if (a == "--csv") {
-			cfg.csv = true;
-		} else if (a == "--help" || a == "-h") {
-			println("Usage: conflux_db_pipeline_bench [--batches N] [--batch-n N] [--warmup-batches N] [--csv]");
-			println("Needs PG_CONNINFO set.");
-			std::exit(0);
+			cfg.warmup_batches = bench_parse_sz(args[++i]);
 		}
 	}
 	return cfg;
@@ -114,7 +101,13 @@ u64 run_pipeline(
 int main(
 	int argc,
 	char **argv) {
-	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
+	bench_info_if_requested(argc, argv,
+		R"({"name":"db_pipeline","parser":"strip1","configs":[{"name":"b60_n100","extra":{"batches":60,"batch_n":100},"args":["--batches","60","--batch-n","100","--config-name","b60_n100"]}]})");
+
+	auto cfg = bench_parse_args(std::span{argv, static_cast<SZ>(argc)});
+	auto pipe_cfg = parse_pipe_args(std::span{argv, static_cast<SZ>(argc)});
+	if (cfg.config_name.empty())
+		cfg.config_name = std::format("b{}_n{}", pipe_cfg.batches, pipe_cfg.batch_n);
 
 	char const *raw = std::getenv("PG_CONNINFO");
 	if (raw == nullptr || *raw == '\0') {
@@ -134,28 +127,25 @@ int main(
 	try {
 		auto conn = block_on(reader, Connection::connect({.conninfo = raw}), chrono::seconds{30});
 		setup_table(reader, conn);
-		(void)run_plain(reader, conn, cfg.warmup_batches, cfg.batch_n);
+		(void)run_plain(reader, conn, pipe_cfg.warmup_batches, pipe_cfg.batch_n);
 		setup_table(reader, conn);
-		(void)run_pipeline(reader, conn, cfg.warmup_batches, cfg.batch_n);
+		(void)run_pipeline(reader, conn, pipe_cfg.warmup_batches, pipe_cfg.batch_n);
 
 		setup_table(reader, conn);
-		u64 const plain_ns = run_plain(reader, conn, cfg.batches, cfg.batch_n);
+		u64 const plain_ns = run_plain(reader, conn, pipe_cfg.batches, pipe_cfg.batch_n);
 		setup_table(reader, conn);
-		u64 const pipe_ns = run_pipeline(reader, conn, cfg.batches, cfg.batch_n);
+		u64 const pipe_ns = run_pipeline(reader, conn, pipe_cfg.batches, pipe_cfg.batch_n);
 
-		double const total_ops = static_cast<double>(cfg.batches * cfg.batch_n);
-		double const plain_ops_s = total_ops * 1e9 / static_cast<double>(plain_ns);
-		double const pipe_ops_s = total_ops * 1e9 / static_cast<double>(pipe_ns);
-		double const speedup = pipe_ops_s / plain_ops_s;
+		SZ const total_ops = pipe_cfg.batches * pipe_cfg.batch_n;
+		double const ns_per_plain = static_cast<double>(plain_ns) / static_cast<double>(total_ops);
+		double const ns_per_pipe  = static_cast<double>(pipe_ns)  / static_cast<double>(total_ops);
 
-		if (cfg.csv) {
-			println("mode,batches,batch_n,total_ns,ops_per_sec");
-			println("plain,{},{},{},{:.1f}", cfg.batches, cfg.batch_n, plain_ns, plain_ops_s);
-			println("pipeline,{},{},{},{:.1f}", cfg.batches, cfg.batch_n, pipe_ns, pipe_ops_s);
-		} else {
-			println("batches: {}, batch_n: {}, warmup_batches: {}", cfg.batches, cfg.batch_n, cfg.warmup_batches);
-			println("  plain      {:>10.1f} ops/s  ({} ns total)", plain_ops_s, plain_ns);
-			println("  pipeline   {:>10.1f} ops/s  ({} ns total)", pipe_ops_s, pipe_ns);
+		BenchStats plain_stats{cfg.config_name, "plain"sv, total_ops, plain_ns, ns_per_plain};
+		BenchStats pipe_stats {cfg.config_name, "pipeline"sv, total_ops, pipe_ns, ns_per_pipe};
+		bench_print(plain_stats, cfg.json_out, true);
+		bench_print(pipe_stats, cfg.json_out, false);
+		if (!cfg.json_out) {
+			double const speedup = ns_per_plain / ns_per_pipe;
 			println("  speedup    {:.2f}x", speedup);
 			println("  note       logical batching Pipeline::sync() (not wire-level libpq pipeline mode)");
 		}
