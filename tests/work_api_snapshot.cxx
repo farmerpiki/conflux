@@ -132,6 +132,13 @@ using _ReadyHookState = root::detail::ReadyHookState;
 using _small_move_only_fn_void = root::detail::small_move_only_function<void()>;
 using _small_move_only_fn_int = root::detail::small_move_only_function<int(int), 64>;
 
+// E2b.1: work_errc error code domain
+using _work_errc = root::work_errc;
+static_assert(root::work_errc::cancelled_requested == root::work_errc{1});
+static_assert(std::is_same_v<decltype(root::work_category()), std::error_category const &>);
+static_assert(std::is_same_v<decltype(root::make_error_code(root::work_errc{})), std::error_code>);
+static_assert(std::is_same_v<decltype(root::cancel_reason_errc(root::CancelReason::requested)), root::work_errc>);
+
 // Exception / error types
 using _WorkError_class = root::WorkError; // class (distinct from outer WorkError enum)
 using _JoinContextError = root::JoinContextError;

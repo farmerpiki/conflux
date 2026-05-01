@@ -152,6 +152,59 @@ private:
 	}
 };
 
+enum class work_errc : int { // NOLINT(performance-enum-size): int required for std::error_code
+	cancelled_requested = 1,
+	cancelled_abandoned,
+	cancelled_shutdown,
+	cancelled_deadline,
+	not_live,
+	capability_mismatch,
+	already_fulfilled,
+	already_consumed,
+};
+
+[[nodiscard]] std::error_category const &work_category() noexcept;
+
+[[nodiscard]] inline std::error_code make_error_code(
+	work_errc e) noexcept {
+	return {static_cast<int>(e), work_category()};
+}
+
+[[nodiscard]] inline work_errc cancel_reason_errc(
+	CancelReason r) noexcept {
+	using enum CancelReason;
+	switch (r) {
+	case requested: return work_errc::cancelled_requested;
+	case abandoned: return work_errc::cancelled_abandoned;
+	case shutdown : return work_errc::cancelled_shutdown;
+	case deadline : return work_errc::cancelled_deadline;
+	}
+	return work_errc::cancelled_requested;
+}
+
+std::error_category const &work_category() noexcept {
+	struct impl final : std::error_category {
+		[[nodiscard]] char const *name() const noexcept override { return "conflux.work"; }
+		[[nodiscard]] std::string message(
+			int ev) const override {
+			using enum work_errc;
+			switch (static_cast<work_errc>(ev)) {
+			case cancelled_requested: return "work cancelled (requested)";
+			case cancelled_abandoned: return "work cancelled (abandoned)";
+			case cancelled_shutdown : return "work cancelled (shutdown)";
+			case cancelled_deadline : return "work cancelled (deadline)";
+			case not_live           : return "handle not live";
+			case capability_mismatch: return "capability mismatch";
+			case already_fulfilled  : return "state already fulfilled";
+			case already_consumed   : return "state already consumed";
+			}
+			return "unknown work error";
+		}
+	};
+	static impl const inst{};
+	return inst;
+}
+
 template<typename T>
 concept work_value =
 	std::same_as<std::remove_cv_t<T>, void> || (!std::is_reference_v<T> && std::is_nothrow_move_constructible_v<T>);

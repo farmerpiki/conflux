@@ -808,3 +808,69 @@ TEST_CASE(
 	root::abandon_to(std::move(jh), root::drop_on_abandon{});
 	(void)src;
 }
+
+// ---------------------------------------------------------------------------
+// E2b.1: work_errc / work_category
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"work.root: work_category name is 'conflux.work'",
+	"[work.root][e2b1]") {
+	CHECK(std::string_view{root::work_category().name()} == "conflux.work");
+}
+
+TEST_CASE(
+	"work.root: work_category is a singleton",
+	"[work.root][e2b1]") {
+	CHECK(&root::work_category() == &root::work_category());
+}
+
+TEST_CASE(
+	"work.root: make_error_code round-trips work_errc value",
+	"[work.root][e2b1]") {
+	auto const ec = root::make_error_code(root::work_errc::cancelled_requested);
+	CHECK(ec.value() == static_cast<int>(root::work_errc::cancelled_requested));
+	CHECK(&ec.category() == &root::work_category());
+}
+
+TEST_CASE(
+	"work.root: work_category message covers all enumerators",
+	"[work.root][e2b1]") {
+	auto const &cat = root::work_category();
+	using e = root::work_errc;
+	CHECK(!cat.message(static_cast<int>(e::cancelled_requested)).empty());
+	CHECK(!cat.message(static_cast<int>(e::cancelled_abandoned)).empty());
+	CHECK(!cat.message(static_cast<int>(e::cancelled_shutdown)).empty());
+	CHECK(!cat.message(static_cast<int>(e::cancelled_deadline)).empty());
+	CHECK(!cat.message(static_cast<int>(e::not_live)).empty());
+	CHECK(!cat.message(static_cast<int>(e::capability_mismatch)).empty());
+	CHECK(!cat.message(static_cast<int>(e::already_fulfilled)).empty());
+	CHECK(!cat.message(static_cast<int>(e::already_consumed)).empty());
+}
+
+TEST_CASE(
+	"work.root: cancel_reason_errc maps each CancelReason",
+	"[work.root][e2b1]") {
+	using enum root::CancelReason;
+	CHECK(root::cancel_reason_errc(requested) == root::work_errc::cancelled_requested);
+	CHECK(root::cancel_reason_errc(abandoned) == root::work_errc::cancelled_abandoned);
+	CHECK(root::cancel_reason_errc(shutdown) == root::work_errc::cancelled_shutdown);
+	CHECK(root::cancel_reason_errc(deadline) == root::work_errc::cancelled_deadline);
+}
+
+TEST_CASE(
+	"work.root: make_error_code messages are non-empty",
+	"[work.root][e2b1]") {
+	using e = root::work_errc;
+	for (auto code:
+		 {e::cancelled_requested,
+		  e::cancelled_abandoned,
+		  e::cancelled_shutdown,
+		  e::cancelled_deadline,
+		  e::not_live,
+		  e::capability_mismatch,
+		  e::already_fulfilled,
+		  e::already_consumed}) {
+		CHECK(!root::make_error_code(code).message().empty());
+	}
+}
