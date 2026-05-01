@@ -206,7 +206,7 @@ struct BarrierTicket {
 
 	~BarrierTicket() {
 		if (barrier != nullptr && barrier->remaining.fetch_sub(1, memory_order_acq_rel) == 1) {
-			(void)barrier->src->commit_success(conflux::work::root::Success<void>{});
+			(void)barrier->src->try_set_value(conflux::work::root::Success<void>{});
 		}
 	}
 };

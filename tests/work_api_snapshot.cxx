@@ -100,7 +100,7 @@ static_assert(std::is_same_v<conflux::work::CancelReason, conflux::work::root::C
 // make_task_source and join accessible at conflux::work level.
 void _check_facade_make_and_join() {
 	auto [task, source] = conflux::work::make_task_source<int>();
-	(void)source.commit_success(conflux::work::root::Success<int>{42});
+	(void)source.try_set_value(conflux::work::root::Success<int>{42});
 	[[maybe_unused]] auto outcome = conflux::work::join(std::move(task));
 }
 
@@ -131,6 +131,24 @@ using _ReadyHookState = root::detail::ReadyHookState;
 // E2a: SBO move-only callable (exported from root::detail for internal reuse)
 using _small_move_only_fn_void = root::detail::small_move_only_function<void()>;
 using _small_move_only_fn_int = root::detail::small_move_only_function<int(int), 64>;
+
+// E4: Source setter API (try_set_value / try_set_exception / try_set_cancelled / try_set_error)
+static_assert(
+	std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_value(root::Success<int>{})), bool>);
+static_assert(
+	std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_exception(std::exception_ptr{})), bool>);
+static_assert(std::is_same_v<
+			  decltype(std::declval<root::TaskSource<int>>().try_set_cancelled(root::CancelReason::requested)),
+			  bool>);
+static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_error(std::error_code{})), bool>);
+
+// E4: concept work_handle — satisfied by Task, Posted, Operation, *JoinHandle
+static_assert(root::work_handle<root::Task<int>>);
+static_assert(root::work_handle<root::Posted<int>>);
+static_assert(root::work_handle<root::Operation<int>>);
+static_assert(root::work_handle<root::TaskJoinHandle<int>>);
+static_assert(root::work_handle<root::PostedJoinHandle<int>>);
+static_assert(root::work_handle<root::OperationJoinHandle<int>>);
 
 // E2b.1: work_errc error code domain
 using _work_errc = root::work_errc;
@@ -369,7 +387,7 @@ using _AggErr = model_a::AggregateError;
 // from_task, map, then, into_ready_task — name-check
 void _check_pipeline() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = model_a::from_task(std::move(task));
 	auto mapped = model_a::map(std::move(chain), [](int x) { return x + 1; });
 	auto result = model_a::into_ready_task(std::move(mapped));
@@ -386,7 +404,7 @@ struct _DummyCap : root::capability_id_from_address {};
 
 void _e1z_then_check_() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = model_a::from_task(std::move(task));
 	auto chained = std::move(chain).then([](int x) { return x + 1; });
 	static_assert(std::same_as<decltype(chained), model_a::Chain<int>>);
@@ -395,7 +413,7 @@ void _e1z_then_check_() {
 
 void _e1z_catch_error_check_() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = model_a::from_task(std::move(task));
 	auto recovered = std::move(chain).catch_error([](std::exception_ptr) { return 0; });
 	static_assert(std::same_as<decltype(recovered), model_a::Chain<int>>);
@@ -404,7 +422,7 @@ void _e1z_catch_error_check_() {
 
 void _e1z_on_cancel_check_() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = model_a::from_task(std::move(task));
 	auto result = std::move(chain).on_cancel([] {});
 	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
@@ -413,7 +431,7 @@ void _e1z_on_cancel_check_() {
 
 void _e1z_recover_cancel_check_() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = model_a::from_task(std::move(task));
 	auto result = std::move(chain).recover_cancel([] { return 0; });
 	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
@@ -422,7 +440,7 @@ void _e1z_recover_cancel_check_() {
 
 void _e1z_recover_check_() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = model_a::from_task(std::move(task));
 	auto result = std::move(chain).recover([](root::Outcome<int>) { return 0; });
 	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
@@ -431,7 +449,7 @@ void _e1z_recover_check_() {
 
 void _e1z_transform_outcome_check_() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = model_a::from_task(std::move(task));
 	auto result =
 		std::move(chain).transform_outcome([](root::Outcome<int> out) { return root::Outcome<int>{std::move(out)}; });
@@ -442,7 +460,7 @@ void _e1z_transform_outcome_check_() {
 void _e1z_schedule_on_check_() {
 	_DummyCap cap{};
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = model_a::from_task(std::move(task));
 	auto result = std::move(chain).schedule_on(cap);
 	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
@@ -452,7 +470,7 @@ void _e1z_schedule_on_check_() {
 void _e1z_then_on_check_() {
 	_DummyCap cap{};
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = model_a::from_task(std::move(task));
 	auto result = std::move(chain).then_on(cap, [](int x) { return x + 1; });
 	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
@@ -461,7 +479,7 @@ void _e1z_then_on_check_() {
 
 void _e1z_into_task_check_() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = model_a::from_task(std::move(task));
 	auto t = std::move(chain).into_task();
 	static_assert(std::same_as<decltype(t), root::Task<int>>);
@@ -470,7 +488,7 @@ void _e1z_into_task_check_() {
 
 void _e1z_into_task_unchecked_check_() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = model_a::from_task(std::move(task));
 	auto t = std::move(chain).into_task_unchecked();
 	static_assert(std::same_as<decltype(t), root::Task<int>>);
@@ -497,7 +515,7 @@ using _OperationChain_ = model_b::OperationChain<T>;
 
 void _check_from_task() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{0});
+	(void)src.try_set_value(root::Success<int>{0});
 	[[maybe_unused]] auto chain = model_b::from_task(std::move(task));
 }
 

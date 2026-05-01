@@ -285,7 +285,7 @@ private:
 		shared_ptr<root::TaskSource<T>> const &dst,
 		string const &label) {
 		auto err = detail::from_conn(conn_.get(), label);
-		(void)dst->commit_failure(make_exception_ptr(move(err)));
+		(void)dst->try_set_exception(make_exception_ptr(move(err)));
 	}
 
 	void op_done_();
@@ -387,22 +387,22 @@ struct ConnectState : enable_shared_from_this<ConnectState> {
 	void drive(
 		bool initial) {
 		if (chrono::steady_clock::now() > deadline) {
-			(void)dst->commit_failure(make_exception_ptr(PgError{"conflux.db: connect deadline exceeded", "08001"}));
+			(void)dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: connect deadline exceeded", "08001"}));
 			return;
 		}
 		PostgresPollingStatusType const status = initial ? PGRES_POLLING_WRITING : ::PQconnectPoll(conn.get());
 		while (true) {
 			if (::PQstatus(conn.get()) == CONNECTION_BAD && !initial) {
-				(void)dst->commit_failure(make_exception_ptr(from_conn(conn.get(), "conflux.db: connect")));
+				(void)dst->try_set_exception(make_exception_ptr(from_conn(conn.get(), "conflux.db: connect")));
 				return;
 			}
 			if (status == PGRES_POLLING_FAILED) {
-				(void)dst->commit_failure(make_exception_ptr(from_conn(conn.get(), "conflux.db: connect")));
+				(void)dst->try_set_exception(make_exception_ptr(from_conn(conn.get(), "conflux.db: connect")));
 				return;
 			}
 			if (status == PGRES_POLLING_OK) {
 				if (::PQsetnonblocking(conn.get(), 1) != 0) {
-					(void)dst->commit_failure(
+					(void)dst->try_set_exception(
 						make_exception_ptr(from_conn(conn.get(), "conflux.db: PQsetnonblocking")));
 					return;
 				}
@@ -418,14 +418,15 @@ struct ConnectState : enable_shared_from_this<ConnectState> {
 							co_await std::move(q_task);
 							char const *enc = ::PQparameterStatus(conn_sp->raw(), "client_encoding");
 							if (enc == nullptr || string_view{enc} != string_view{"UTF8"}) {
-								(void)outer->commit_failure(
+								(void)outer->try_set_exception(
 									make_exception_ptr(PgError{"conflux.db: client_encoding must be UTF8", "22021"}));
 								co_return;
 							}
-							(void)outer->commit_success(root::Success<shared_ptr<Connection>>{move(conn_sp)});
+							(void)outer->try_set_value(root::Success<shared_ptr<Connection>>{move(conn_sp)});
 						} catch (Cancelled const &) {
-							(void)outer->commit_failure(make_exception_ptr(PgError{"conflux.db: connect cancelled"}));
-						} catch (...) { (void)outer->commit_failure(current_exception()); }
+							(void)outer->try_set_exception(
+								make_exception_ptr(PgError{"conflux.db: connect cancelled"}));
+						} catch (...) { (void)outer->try_set_exception(current_exception()); }
 					}(outer, conn_sp, conn_sp->query(string_view{"SET client_encoding = 'UTF8'"})));
 				return;
 			}
@@ -435,25 +436,25 @@ struct ConnectState : enable_shared_from_this<ConnectState> {
 			} else if (status == PGRES_POLLING_WRITING) {
 				mask = POLLOUT;
 			} else {
-				(void)dst->commit_failure(make_exception_ptr(PgError{"conflux.db: unexpected polling status"}));
+				(void)dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: unexpected polling status"}));
 				return;
 			}
 			int const fd = ::PQsocket(conn.get());
 			if (fd < 0) {
-				(void)dst->commit_failure(make_exception_ptr(from_conn(conn.get(), "conflux.db: PQsocket")));
+				(void)dst->try_set_exception(make_exception_ptr(from_conn(conn.get(), "conflux.db: PQsocket")));
 				return;
 			}
 			auto self = shared_from_this();
 			bool const armed = reader->poll_add_oneshot(fd, mask, [self](IoResult r) {
 				if (r.res < 0) {
-					(void)self->dst->commit_failure(
+					(void)self->dst->try_set_exception(
 						make_exception_ptr(PgError{format("conflux.db: poll: {}", strerror(-r.res))}));
 					return;
 				}
 				self->drive(false);
 			});
 			if (!armed) {
-				(void)dst->commit_failure(make_exception_ptr(PgError{"conflux.db: io_uring SQ full"}));
+				(void)dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: io_uring SQ full"}));
 			}
 			return;
 		}
@@ -484,17 +485,18 @@ root::Task<shared_ptr<Connection>> Connection::connect(
 	auto shared_src = make_shared<root::TaskSource<shared_ptr<Connection>>>(move(raw_src));
 	auto *reader = current_file_reader();
 	if (reader == nullptr) {
-		(void)shared_src->commit_failure(
+		(void)shared_src->try_set_exception(
 			make_exception_ptr(PgError{"conflux.db: no current FileReader (not on a ring lane)"}));
 		return move(task);
 	}
 	if (::PQisthreadsafe() == 0) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: libpq built without thread safety"}));
+		(void)shared_src->try_set_exception(
+			make_exception_ptr(PgError{"conflux.db: libpq built without thread safety"}));
 		return move(task);
 	}
 	PGConnPtr conn{::PQconnectStart(params.conninfo.c_str())};
 	if (!conn || ::PQstatus(conn.get()) == CONNECTION_BAD) {
-		(void)shared_src->commit_failure(
+		(void)shared_src->try_set_exception(
 			make_exception_ptr(detail::from_conn(conn.get(), "conflux.db: PQconnectStart")));
 		return move(task);
 	}
@@ -546,11 +548,11 @@ root::Task<Result> Connection::query(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
 	if (closed_ || !conn_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: connection closed"}));
 		return move(task);
 	}
 	if (this_thread::get_id() != owner_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: query off owner thread"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: query off owner thread"}));
 		return move(task);
 	}
 	auto self = shared_from_this();
@@ -566,15 +568,15 @@ root::Task<Result> Connection::query(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
 	if (closed_ || !conn_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: connection closed"}));
 		return move(task);
 	}
 	if (!sql) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: null SQL handle"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: null SQL handle"}));
 		return move(task);
 	}
 	if (this_thread::get_id() != owner_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: query off owner thread"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: query off owner thread"}));
 		return move(task);
 	}
 	auto self = shared_from_this();
@@ -613,11 +615,11 @@ root::Task<void> Connection::prepare(
 	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 	if (closed_ || !conn_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: connection closed"}));
 		return move(task);
 	}
 	if (this_thread::get_id() != owner_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: prepare off owner thread"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: prepare off owner thread"}));
 		return move(task);
 	}
 	auto self = shared_from_this();
@@ -636,15 +638,15 @@ root::Task<void> Connection::prepare(
 	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 	if (closed_ || !conn_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: connection closed"}));
 		return move(task);
 	}
 	if (!sql) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: null SQL handle"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: null SQL handle"}));
 		return move(task);
 	}
 	if (this_thread::get_id() != owner_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: prepare off owner thread"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: prepare off owner thread"}));
 		return move(task);
 	}
 	auto self = shared_from_this();
@@ -681,11 +683,11 @@ root::Task<Result> Connection::exec_prepared(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
 	if (closed_ || !conn_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: connection closed"}));
 		return move(task);
 	}
 	if (this_thread::get_id() != owner_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: exec_prepared off owner thread"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: exec_prepared off owner thread"}));
 		return move(task);
 	}
 	auto self = shared_from_this();
@@ -735,24 +737,24 @@ root::Task<Result> Connection::exec_cached(
 				co_await std::move(prep_task);
 				self->prepared_names_.insert(stmt->name);
 			} catch (Cancelled const &) {
-				(void)shared_src->commit_cancelled(root::CancelReason::requested);
+				(void)shared_src->try_set_cancelled(root::CancelReason::requested);
 				co_return;
 			} catch (PgError const &e) {
 				if (e.sqlstate != "42P05") {
-					(void)shared_src->commit_failure(current_exception());
+					(void)shared_src->try_set_exception(current_exception());
 					co_return;
 				}
 				self->prepared_names_.insert(stmt->name);
 			} catch (...) {
-				(void)shared_src->commit_failure(current_exception());
+				(void)shared_src->try_set_exception(current_exception());
 				co_return;
 			}
 			try {
 				auto r = co_await self->exec_prepared(stmt->name, move(params));
-				(void)shared_src->commit_success(root::Success<Result>{move(r)});
+				(void)shared_src->try_set_value(root::Success<Result>{move(r)});
 			} catch (Cancelled const &) {
-				(void)shared_src->commit_cancelled(root::CancelReason::requested);
-			} catch (...) { (void)shared_src->commit_failure(current_exception()); }
+				(void)shared_src->try_set_cancelled(root::CancelReason::requested);
+			} catch (...) { (void)shared_src->try_set_exception(current_exception()); }
 		}(self, stmt, move(params), shared_src, prepare(stmt->name, stmt->sql, stmt->param_types)));
 	return move(task);
 }
@@ -777,12 +779,12 @@ void Connection::after_send_drive_flush_(
 	// NOLINTNEXTLINE(bugprone-exception-escape) — poll callback; any throw would terminate, treated as fatal.
 	bool const armed = reader_->poll_add_oneshot(fd, POLLOUT, [self, dst, partial, label](IoResult r) mutable {
 		if (self->closed_) {
-			(void)dst->commit_cancelled(root::CancelReason::requested);
+			(void)dst->try_set_cancelled(root::CancelReason::requested);
 			self->op_done_();
 			return;
 		}
 		if (r.res < 0) {
-			(void)dst->commit_failure(
+			(void)dst->try_set_exception(
 				make_exception_ptr(PgError{format("conflux.db: poll write: {}", strerror(-r.res))}));
 			self->op_done_();
 			return;
@@ -790,7 +792,7 @@ void Connection::after_send_drive_flush_(
 		self->after_send_drive_flush_(move(dst), move(partial), label);
 	});
 	if (!armed) {
-		(void)dst->commit_failure(make_exception_ptr(PgError{"conflux.db: io_uring SQ full"}));
+		(void)dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: io_uring SQ full"}));
 		op_done_();
 	}
 }
@@ -814,15 +816,15 @@ void Connection::drive_consume_loop_(
 		if (!next) {
 			if (partial && *partial && partial->ok()) {
 				if constexpr (is_void_v<T>) {
-					(void)dst->commit_success(root::Success<void>{});
+					(void)dst->try_set_value(root::Success<void>{});
 				} else {
-					(void)dst->commit_success(root::Success<T>{move(*partial)});
+					(void)dst->try_set_value(root::Success<T>{move(*partial)});
 				}
 			} else if (partial && *partial) {
 				auto err = detail::from_result(partial->raw(), label);
-				(void)dst->commit_failure(make_exception_ptr(move(err)));
+				(void)dst->try_set_exception(make_exception_ptr(move(err)));
 			} else {
-				(void)dst->commit_failure(make_exception_ptr(PgError{"conflux.db: empty result"}));
+				(void)dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: empty result"}));
 			}
 			op_done_();
 			return;
@@ -833,7 +835,7 @@ void Connection::drive_consume_loop_(
 			while (PGresult *drain = ::PQgetResult(conn_.get())) {
 				::PQclear(drain);
 			}
-			(void)dst->commit_failure(make_exception_ptr(move(err)));
+			(void)dst->try_set_exception(make_exception_ptr(move(err)));
 			op_done_();
 			return;
 		}
@@ -844,12 +846,12 @@ void Connection::drive_consume_loop_(
 	// NOLINTNEXTLINE(bugprone-exception-escape) — poll callback; any throw would terminate, treated as fatal.
 	bool const armed = reader_->poll_add_oneshot(fd, POLLIN, [self, dst, partial, label](IoResult r) mutable {
 		if (self->closed_) {
-			(void)dst->commit_cancelled(root::CancelReason::requested);
+			(void)dst->try_set_cancelled(root::CancelReason::requested);
 			self->op_done_();
 			return;
 		}
 		if (r.res < 0) {
-			(void)dst->commit_failure(
+			(void)dst->try_set_exception(
 				make_exception_ptr(PgError{format("conflux.db: poll read: {}", strerror(-r.res))}));
 			self->op_done_();
 			return;
@@ -857,7 +859,7 @@ void Connection::drive_consume_loop_(
 		self->drive_consume_loop_(move(dst), move(partial), label);
 	});
 	if (!armed) {
-		(void)dst->commit_failure(make_exception_ptr(PgError{"conflux.db: io_uring SQ full"}));
+		(void)dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: io_uring SQ full"}));
 		op_done_();
 	}
 }
@@ -867,12 +869,12 @@ root::Task<void> Connection::cancel_inflight(
 	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 	if (!conn_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: connection closed"}));
 		return move(task);
 	}
 	detail::PGcancelPtr handle{::PQgetCancel(conn_.get())};
 	if (!handle) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: PQgetCancel returned null"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: PQgetCancel returned null"}));
 		return move(task);
 	}
 	auto cancel_handle = shared_ptr<PGcancel>{handle.release(), detail::PGcancelDeleter{}};
@@ -880,13 +882,13 @@ root::Task<void> Connection::cancel_inflight(
 		array<char, 256> buf{};
 		int const ok = ::PQcancel(cancel_handle.get(), buf.data(), static_cast<int>(buf.size()));
 		if (ok == 0) {
-			(void)shared_src->commit_failure(make_exception_ptr(PgError{string{buf.data()}}));
+			(void)shared_src->try_set_exception(make_exception_ptr(PgError{string{buf.data()}}));
 		} else {
-			(void)shared_src->commit_success(root::Success<void>{});
+			(void)shared_src->try_set_value(root::Success<void>{});
 		}
 	});
 	if (!queued) {
-		(void)shared_src->commit_cancelled(root::CancelReason::requested);
+		(void)shared_src->try_set_cancelled(root::CancelReason::requested);
 	}
 	return move(task);
 }
@@ -912,17 +914,16 @@ root::Task<Result> Connection::query(
 	co_spawn([](SP<root::TaskSource<Result>> src, root::Task<Result> qt) -> Task<void> {
 		try {
 			auto r = co_await std::move(qt);
-			(void)src->commit_success(root::Success<Result>{move(r)});
-		} catch (Cancelled const &) { (void)src->commit_cancelled(root::CancelReason::requested); } catch (...) {
-			(void)src->commit_failure(current_exception());
+			(void)src->try_set_value(root::Success<Result>{move(r)});
+		} catch (Cancelled const &) { (void)src->try_set_cancelled(root::CancelReason::requested); } catch (...) {
+			(void)src->try_set_exception(current_exception());
 		}
 	}(shared_src, query(sql, move(params))));
 	auto const deadline = *opts.deadline;
 	co_spawn([](SP<Connection> s, SP<root::TaskSource<Result>> src, root::Task<void> tt) -> Task<void> {
 		try {
 			co_await std::move(tt);
-			if (src->commit_failure(
-					make_exception_ptr(PgError{"conflux.db: query deadline exceeded", "57014"}))) {
+			if (src->try_set_exception(make_exception_ptr(PgError{"conflux.db: query deadline exceeded", "57014"}))) {
 				co_spawn([](SP<Connection> s2) -> Task<void> {
 					try {
 						co_await s2->cancel_inflight();
@@ -938,19 +939,19 @@ root::Task<Pipeline> Connection::pipeline() {
 	auto [task, raw_src] = root::make_task_source<Pipeline>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Pipeline>>(move(raw_src));
 	if (closed_ || !conn_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: connection closed"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: connection closed"}));
 		return move(task);
 	}
 	if (this_thread::get_id() != owner_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: pipeline off owner thread"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline off owner thread"}));
 		return move(task);
 	}
 	if (pipeline_mode_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: pipeline already active"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline already active"}));
 		return move(task);
 	}
 	pipeline_mode_ = true;
-	(void)shared_src->commit_success(root::Success<Pipeline>{Pipeline{shared_from_this()}});
+	(void)shared_src->try_set_value(root::Success<Pipeline>{Pipeline{shared_from_this()}});
 	return move(task);
 }
 
@@ -960,15 +961,15 @@ root::Task<Result> Pipeline::query(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
 	if (closed_ || !conn_ || !conn_->conn_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
 		return move(task);
 	}
 	if (this_thread::get_id() != conn_->owner_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: query off owner thread"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: query off owner thread"}));
 		return move(task);
 	}
 	if (syncing_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: query while sync in progress"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: query while sync in progress"}));
 		return move(task);
 	}
 	pending_.push_back(
@@ -986,7 +987,7 @@ root::Task<Result> Pipeline::exec_cached(
 	if (!stmt || !stmt->sql) {
 		auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: null cached statement"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: null cached statement"}));
 		return move(task);
 	}
 	return query(*stmt->sql, move(params));
@@ -996,19 +997,19 @@ root::Task<void> Pipeline::sync() {
 	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 	if (closed_ || !conn_ || !conn_->conn_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
 		return move(task);
 	}
 	if (this_thread::get_id() != conn_->owner_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: sync off owner thread"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: sync off owner thread"}));
 		return move(task);
 	}
 	if (syncing_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: sync already in progress"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: sync already in progress"}));
 		return move(task);
 	}
 	if (pending_.empty()) {
-		(void)shared_src->commit_success(root::Success<void>{});
+		(void)shared_src->try_set_value(root::Success<void>{});
 		return move(task);
 	}
 	syncing_ = true;
@@ -1025,39 +1026,40 @@ root::Task<void> Pipeline::sync() {
 void Pipeline::sync_next_(
 	shared_ptr<SyncState> const &st) {
 	if (st->batch.empty()) {
-		(void)st->done->commit_success(root::Success<void>{});
+		(void)st->done->try_set_value(root::Success<void>{});
 		finish_sync_(true);
 		return;
 	}
 	auto item = move(st->batch.front());
 	st->batch.pop_front();
 	auto shared_src = item.dst;
-	co_spawn([](Pipeline *self, SP<SyncState> st, SP<root::TaskSource<Result>> shared_src,
-				 root::Task<Result> qt) -> Task<void> {
-		try {
-			auto r = co_await std::move(qt);
-			(void)shared_src->commit_success(root::Success<Result>{move(r)});
-			self->sync_next_(st);
-		} catch (Cancelled const &) {
-			(void)shared_src->commit_cancelled(root::CancelReason::requested);
-			while (!st->batch.empty()) {
-				auto rem = move(st->batch.front());
-				st->batch.pop_front();
-				(void)rem.dst->commit_cancelled(root::CancelReason::requested);
+	co_spawn(
+		[](Pipeline *self, SP<SyncState> st, SP<root::TaskSource<Result>> shared_src, root::Task<Result> qt)
+			-> Task<void> {
+			try {
+				auto r = co_await std::move(qt);
+				(void)shared_src->try_set_value(root::Success<Result>{move(r)});
+				self->sync_next_(st);
+			} catch (Cancelled const &) {
+				(void)shared_src->try_set_cancelled(root::CancelReason::requested);
+				while (!st->batch.empty()) {
+					auto rem = move(st->batch.front());
+					st->batch.pop_front();
+					(void)rem.dst->try_set_cancelled(root::CancelReason::requested);
+				}
+				(void)st->done->try_set_cancelled(root::CancelReason::requested);
+				self->finish_sync_(false);
+			} catch (...) {
+				(void)shared_src->try_set_exception(current_exception());
+				while (!st->batch.empty()) {
+					auto rem = move(st->batch.front());
+					st->batch.pop_front();
+					(void)rem.dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline query"}));
+				}
+				(void)st->done->try_set_value(root::Success<void>{});
+				self->finish_sync_(true);
 			}
-			(void)st->done->commit_cancelled(root::CancelReason::requested);
-			self->finish_sync_(false);
-		} catch (...) {
-			(void)shared_src->commit_failure(current_exception());
-			while (!st->batch.empty()) {
-				auto rem = move(st->batch.front());
-				st->batch.pop_front();
-				(void)rem.dst->commit_failure(make_exception_ptr(PgError{"conflux.db: pipeline query"}));
-			}
-			(void)st->done->commit_success(root::Success<void>{});
-			self->finish_sync_(true);
-		}
-	}(this, st, shared_src, conn_->query(item.sql, move(item.params))));
+		}(this, st, shared_src, conn_->query(item.sql, move(item.params))));
 }
 
 void Pipeline::finish_sync_(
@@ -1067,7 +1069,7 @@ void Pipeline::finish_sync_(
 		while (!pending_.empty()) {
 			auto dst = move(pending_.front().dst);
 			pending_.pop_front();
-			(void)dst->commit_failure(make_exception_ptr(PgError{"conflux.db: pipeline sync failed"}));
+			(void)dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline sync failed"}));
 		}
 	}
 }
@@ -1080,7 +1082,7 @@ void Pipeline::close_() noexcept {
 	while (!pending_.empty()) {
 		auto dst = move(pending_.front().dst);
 		pending_.pop_front();
-		(void)dst->commit_failure(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		(void)dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
 	}
 	if (!conn_ || !conn_->conn_) {
 		return;
@@ -1094,21 +1096,22 @@ root::Task<shared_ptr<string const>> QueryCache::load_async(
 		root::make_task_source<shared_ptr<string const>>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<shared_ptr<string const>>>(move(raw_src));
 	if (!detail::valid_query_name(name)) {
-		(void)shared_src->commit_failure(make_exception_ptr(invalid_argument{format("invalid query name: {}", name)}));
+		(void)shared_src->try_set_exception(
+			make_exception_ptr(invalid_argument{format("invalid query name: {}", name)}));
 		return move(task);
 	}
 	{
 		shared_lock const lk{mtx_};
 		if (auto it = cache_.find(name); it != cache_.end()) {
-			(void)shared_src->commit_success(root::Success<shared_ptr<string const>>{it->second});
+			(void)shared_src->try_set_value(root::Success<shared_ptr<string const>>{it->second});
 			return move(task);
 		}
 	}
 	auto *reader = current_file_reader();
 	if (reader == nullptr) {
 		try {
-			(void)shared_src->commit_success(root::Success<shared_ptr<string const>>{load_or_throw(name)});
-		} catch (...) { (void)shared_src->commit_failure(current_exception()); }
+			(void)shared_src->try_set_value(root::Success<shared_ptr<string const>>{load_or_throw(name)});
+		} catch (...) { (void)shared_src->try_set_exception(current_exception()); }
 		return move(task);
 	}
 	auto name_owned = string{name};
@@ -1127,7 +1130,7 @@ root::Task<shared_ptr<string const>> QueryCache::load_async(
 					auto sp = make_shared<string const>();
 					scoped_lock const lk{self->mtx_};
 					auto [it, ok] = self->cache_.try_emplace(name_owned, sp);
-					(void)shared_src->commit_success(root::Success<shared_ptr<string const>>{it->second});
+					(void)shared_src->try_set_value(root::Success<shared_ptr<string const>>{it->second});
 					co_return;
 				}
 				auto buf = make_shared<string>(st.size, '\0');
@@ -1137,10 +1140,10 @@ root::Task<shared_ptr<string const>> QueryCache::load_async(
 				auto sp = make_shared<string const>(move(*buf));
 				scoped_lock const lk{self->mtx_};
 				auto [it, ok] = self->cache_.try_emplace(name_owned, sp);
-				(void)shared_src->commit_success(root::Success<shared_ptr<string const>>{it->second});
+				(void)shared_src->try_set_value(root::Success<shared_ptr<string const>>{it->second});
 			} catch (Cancelled const &) {
-				(void)shared_src->commit_cancelled(root::CancelReason::requested);
-			} catch (...) { (void)shared_src->commit_failure(current_exception()); }
+				(void)shared_src->try_set_cancelled(root::CancelReason::requested);
+			} catch (...) { (void)shared_src->try_set_exception(current_exception()); }
 		}(reader, shared_src, name_owned, this, reader->open_async(AT_FDCWD, move(path), O_RDONLY)));
 	return move(task);
 }

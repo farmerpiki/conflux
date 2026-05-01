@@ -16,19 +16,19 @@ namespace {
 model_a::Chain<int> make_success(
 	int v) {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{v});
+	(void)src.try_set_value(root::Success<int>{v});
 	return model_a::from_task(std::move(task));
 }
 
 model_a::Chain<int> make_failure() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_failure(std::make_exception_ptr(std::runtime_error{"fail"}));
+	(void)src.try_set_exception(std::make_exception_ptr(std::runtime_error{"fail"}));
 	return model_a::from_task(std::move(task));
 }
 
 model_a::Chain<int> make_cancelled() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_cancelled(root::CancelReason::shutdown);
+	(void)src.try_set_cancelled(root::CancelReason::shutdown);
 	return model_a::from_task(std::move(task));
 }
 
@@ -206,7 +206,7 @@ TEST_CASE(
 	"carrier.scope: admit success task returns success chain",
 	"[carrier.scope]") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{42});
+	(void)src.try_set_value(root::Success<int>{42});
 	auto jh = root::into_join_handle(std::move(task));
 
 	carrier::Scope scope{};
@@ -220,7 +220,7 @@ TEST_CASE(
 	"carrier.scope: admit already-cancelled task returns cancelled chain",
 	"[carrier.scope]") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_cancelled(root::CancelReason::shutdown);
+	(void)src.try_set_cancelled(root::CancelReason::shutdown);
 	auto jh = root::into_join_handle(std::move(task));
 
 	carrier::Scope scope{};
@@ -255,9 +255,9 @@ TEST_CASE(
 		bool const observed = cv.wait_for(lock, std::chrono::seconds{1}, [&] { return cancel_seen; });
 		lock.unlock();
 		if (observed) {
-			(void)ws.commit_cancelled(root::CancelReason::requested);
+			(void)ws.try_set_cancelled(root::CancelReason::requested);
 		} else {
-			(void)ws.commit_failure(
+			(void)ws.try_set_exception(
 				std::make_exception_ptr(std::runtime_error{"scope admit did not signal cancellation"}));
 		}
 	}};
@@ -287,7 +287,7 @@ TEST_CASE(
 		while (!ct.stop_requested()) {
 			std::this_thread::yield();
 		}
-		(void)cs.commit_cancelled(root::CancelReason::requested);
+		(void)cs.try_set_cancelled(root::CancelReason::requested);
 	}};
 
 	auto chain = scope.admit(std::move(jh));

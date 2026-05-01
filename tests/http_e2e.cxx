@@ -71,7 +71,7 @@ void ensure_server() {
 		});
 		router.get("/api/task-ping", [](HttpRequest const &) -> conflux::work::root::Task<HttpResponse> {
 			auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
-			(void)source.commit_success(
+			(void)source.try_set_value(
 				conflux::work::root::Success<HttpResponse>{HttpResponse::json(R"({"task":"ok"})")});
 			return std::move(task);
 		});

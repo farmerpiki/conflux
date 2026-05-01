@@ -74,7 +74,7 @@ TEST_CASE(
 	{
 		carrier::DroppableSlot<int> const slot{std::move(jh)};
 	} // drain installed; handle will be consumed when src commits
-	(void)src.commit_success(root::Success<int>{1});
+	(void)src.try_set_value(root::Success<int>{1});
 	// Reaching here without std::terminate means the test passes.
 }
 
@@ -82,7 +82,7 @@ TEST_CASE(
 	"phase8a: DroppableSlot dtor does not terminate when dropped after result ready",
 	"[phase8a]") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{2});
+	(void)src.try_set_value(root::Success<int>{2});
 	auto jh = root::into_join_handle(std::move(task));
 	{ carrier::DroppableSlot<int> const slot{std::move(jh)}; } // ready path: join inline in dtor
 }
@@ -94,7 +94,7 @@ TEST_CASE(
 	auto jh = root::into_join_handle(std::move(task));
 	carrier::DroppableSlot<int> slot{std::move(jh)};
 	CHECK_FALSE(slot.ready());
-	(void)src.commit_success(root::Success<int>{3});
+	(void)src.try_set_value(root::Success<int>{3});
 	CHECK(slot.ready());
 	(void)std::move(slot).wait();
 }
@@ -107,7 +107,7 @@ TEST_CASE(
 	"phase8b: on_drop fires with ready outcome when slot dropped unconsumed (ready path)",
 	"[phase8b]") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{42});
+	(void)src.try_set_value(root::Success<int>{42});
 	auto jh = root::into_join_handle(std::move(task));
 
 	int drop_value = -1;
@@ -138,8 +138,8 @@ TEST_CASE(
 		});
 	} // drain hook installed here
 
-	// Drain fires synchronously on commit thread during commit_success.
-	(void)src.commit_success(root::Success<int>{99});
+	// Drain fires synchronously on commit thread during try_set_value.
+	(void)src.try_set_value(root::Success<int>{99});
 	CHECK(drop_value == 99);
 }
 
@@ -154,7 +154,7 @@ TEST_CASE(
 		carrier::DroppableSlot<int> slot{std::move(jh)};
 		slot.on_drop([&](root::Outcome<int> const &out) noexcept { drop_saw_failure = out.is_failure(); });
 	}
-	(void)src.commit_failure(std::make_exception_ptr(std::runtime_error{"fail"}));
+	(void)src.try_set_exception(std::make_exception_ptr(std::runtime_error{"fail"}));
 	CHECK(drop_saw_failure);
 }
 
@@ -169,7 +169,7 @@ TEST_CASE(
 		carrier::DroppableSlot<int> slot{std::move(jh)};
 		slot.on_drop([&](root::Outcome<int> const &out) noexcept { drop_saw_cancel = out.is_cancelled(); });
 	}
-	(void)src.commit_cancelled(root::CancelReason::requested);
+	(void)src.try_set_cancelled(root::CancelReason::requested);
 	CHECK(drop_saw_cancel);
 }
 
@@ -181,7 +181,7 @@ TEST_CASE(
 	"phase8c: on_drop does not fire when consumed via wait()",
 	"[phase8c]") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{7});
+	(void)src.try_set_value(root::Success<int>{7});
 	auto jh = root::into_join_handle(std::move(task));
 
 	bool fired = false;
@@ -197,7 +197,7 @@ TEST_CASE(
 	"phase8c: on_drop does not fire when consumed via try_get()",
 	"[phase8c]") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{8});
+	(void)src.try_set_value(root::Success<int>{8});
 	auto jh = root::into_join_handle(std::move(task));
 
 	bool fired = false;
@@ -222,14 +222,14 @@ TEST_CASE(
 	auto result = std::move(slot).try_get();
 	CHECK_FALSE(result.has_value());
 	// Slot dtor drains; commit satisfies liveness.
-	(void)src.commit_cancelled(root::CancelReason::requested);
+	(void)src.try_set_cancelled(root::CancelReason::requested);
 }
 
 TEST_CASE(
 	"phase8d: try_get returns outcome when ready",
 	"[phase8d]") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{11});
+	(void)src.try_set_value(root::Success<int>{11});
 	auto jh = root::into_join_handle(std::move(task));
 	carrier::DroppableSlot<int> slot{std::move(jh)};
 	auto result = std::move(slot).try_get();
@@ -247,7 +247,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
 	{ carrier::DroppableSlot<int> const slot{std::move(jh)}; } // drain hook installed
-	// ~BasicSource fires commit_cancelled(abandoned) → drain hook fires → liveness satisfied
+	// ~BasicSource fires try_set_cancelled(abandoned) → drain hook fires → liveness satisfied
 	// If liveness were violated, ~TaskJoinHandle would std::terminate.
 }
 
@@ -259,7 +259,7 @@ TEST_CASE(
 	"phase8f: co_await DroppableSlot sync path returns Chain<int> on success",
 	"[phase8f]") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{55});
+	(void)src.try_set_value(root::Success<int>{55});
 	auto jh = root::into_join_handle(std::move(task));
 	auto coro = coro_droppable_slot(carrier::DroppableSlot<int>{std::move(jh)});
 	auto chain = coro.get();
@@ -275,7 +275,7 @@ TEST_CASE(
 	auto jh = root::into_join_handle(std::move(task));
 	auto coro = coro_droppable_slot(carrier::DroppableSlot<int>{std::move(jh)});
 	// coroutine started eagerly, suspended at co_await (not yet ready)
-	std::thread t{[s = std::move(src)]() mutable { (void)s.commit_success(root::Success<int>{77}); }};
+	std::thread t{[s = std::move(src)]() mutable { (void)s.try_set_value(root::Success<int>{77}); }};
 	t.join();
 	auto chain = coro.get();
 	auto out = std::move(chain).release_outcome();
@@ -287,7 +287,7 @@ TEST_CASE(
 	"phase8f: on_drop does not fire when consumed via co_await",
 	"[phase8f]") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{33});
+	(void)src.try_set_value(root::Success<int>{33});
 	auto jh = root::into_join_handle(std::move(task));
 
 	bool fired = false;

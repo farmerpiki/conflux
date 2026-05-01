@@ -557,7 +557,7 @@ export class FileReader {
 	root::Task<T> fail_sq_full() const {
 		auto [task, raw_src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = make_shared<root::TaskSource<T>>(move(raw_src));
-		(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 		return move(task);
 	}
 
@@ -571,16 +571,16 @@ export class FileReader {
 		return completions_->reserve([src, decode = forward<Decode>(decode)](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					(void)src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: cqe error"}));
+					(void)src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: cqe error"}));
 					return;
 				}
 				if constexpr (std::is_void_v<T>) {
 					decode(r);
-					(void)src->commit_success(root::Success<void>{});
+					(void)src->try_set_value(root::Success<void>{});
 				} else {
-					(void)src->commit_success(root::Success<T>{decode(r)});
+					(void)src->try_set_value(root::Success<T>{decode(r)});
 				}
-			} catch (...) { (void)src->commit_failure(std::current_exception()); }
+			} catch (...) { (void)src->try_set_exception(std::current_exception()); }
 		});
 	}
 
@@ -645,7 +645,7 @@ private:
 		unsigned file_index) {
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return false;
 		}
 		io_uring_prep_openat(sqe, dir_fd, path_owner->c_str(), flags, mode);
@@ -653,7 +653,7 @@ private:
 			(void)path_owner; // keep-alive until CQE
 			try {
 				if (r.res < 0) {
-					(void)src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
+					(void)src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
 					return;
 				}
 				int const fd = r.res;
@@ -662,12 +662,12 @@ private:
 				if (update_rc < 0) {
 					int const sparse = -1;
 					::io_uring_register_files_update(ring_, file_index, &sparse, 1);
-					(void)src->commit_failure(make_exception_ptr(FileIoError{-update_rc, "file_io: open_direct"}));
+					(void)src->try_set_exception(make_exception_ptr(FileIoError{-update_rc, "file_io: open_direct"}));
 					return;
 				}
-				(void)src->commit_success(
+				(void)src->try_set_value(
 					root::Success<FileHandle>{FileHandle::from_direct_slot(static_cast<int>(file_index))});
-			} catch (...) { (void)src->commit_failure(std::current_exception()); }
+			} catch (...) { (void)src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return true;
@@ -687,7 +687,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto path_owner = make_shared<S>(move(path));
@@ -696,11 +696,11 @@ public:
 			(void)path_owner; // keep-alive until CQE
 			try {
 				if (r.res < 0) {
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: open"}));
+					(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: open"}));
 					return;
 				}
-				(void)shared_src->commit_success({FileHandle::from_fd(r.res)});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+				(void)shared_src->try_set_value({FileHandle::from_fd(r.res)});
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -726,28 +726,29 @@ public:
 		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto path_owner = make_shared<S>(move(path));
 		io_uring_prep_openat_direct(sqe, dir_fd, path_owner->c_str(), flags, mode, file_index);
-		auto [slot, gen] = completions_->reserve([this, shared_src, path_owner, dir_fd, flags, mode, file_index](
-													 IoResult r) mutable {
-			(void)path_owner; // keep-alive until CQE
-			try {
-				if (r.res < 0) {
-					int const err = -r.res;
-					if (err == EINVAL || err == EOPNOTSUPP || err == ENOSYS) {
-						(void)submit_open_direct_fallback(shared_src, path_owner, dir_fd, flags, mode, file_index);
+		auto [slot, gen] =
+			completions_->reserve([this, shared_src, path_owner, dir_fd, flags, mode, file_index](IoResult r) mutable {
+				(void)path_owner; // keep-alive until CQE
+				try {
+					if (r.res < 0) {
+						int const err = -r.res;
+						if (err == EINVAL || err == EOPNOTSUPP || err == ENOSYS) {
+							(void)submit_open_direct_fallback(shared_src, path_owner, dir_fd, flags, mode, file_index);
+							return;
+						}
+						(void)shared_src->try_set_exception(
+							make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
 						return;
 					}
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
-					return;
-				}
-				(void)shared_src->commit_success(
-					{FileHandle::from_direct_slot(r.res == 0 ? static_cast<int>(file_index) : r.res)});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
-		});
+					(void)shared_src->try_set_value(
+						{FileHandle::from_direct_slot(r.res == 0 ? static_cast<int>(file_index) : r.res)});
+				} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
+			});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -772,7 +773,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<FileStat>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto path_owner = make_shared<S>(move(path));
@@ -785,7 +786,7 @@ public:
 			(void)path_owner;
 			try {
 				if (r.res < 0) {
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: statx"}));
+					(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: statx"}));
 					return;
 				}
 				auto const &s = *stx_owner;
@@ -795,8 +796,8 @@ public:
 					.dev = (static_cast<u64>(s.stx_dev_major) << 32U) | s.stx_dev_minor,
 					.ino = s.stx_ino,
 					.mode = s.stx_mode};
-				(void)shared_src->commit_success({out});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+				(void)shared_src->try_set_value({out});
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -835,7 +836,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_read(
@@ -870,7 +871,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
@@ -917,7 +918,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<ReadFixedResult>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		unsigned const slot_idx = buf.slot();
@@ -936,13 +937,13 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: read_fixed"}));
+					(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: read_fixed"}));
 					return;
 				}
-				(void)shared_src->commit_success({
+				(void)shared_src->try_set_value({
 					ReadFixedResult{.buffer = move(*holder), .bytes = static_cast<SZ>(r.res)}
                 });
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -981,7 +982,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<ReadFixedResult>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		unsigned const slot_idx = buf.slot();
@@ -999,15 +1000,15 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, holder, actual_cap](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					(void)shared_src->commit_failure(
+					(void)shared_src->try_set_exception(
 						make_exception_ptr(FileIoError{-r.res, "file_io: read_nocache_fixed"}));
 					return;
 				}
 				SZ const bytes = min(static_cast<SZ>(r.res), actual_cap);
-				(void)shared_src->commit_success({
+				(void)shared_src->try_set_value({
 					ReadFixedResult{.buffer = move(*holder), .bytes = bytes}
                 });
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -1040,7 +1041,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<WriteFixedResult>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		unsigned const slot_idx = buf.slot();
@@ -1059,13 +1060,14 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: write_fixed"}));
+					(void)shared_src->try_set_exception(
+						make_exception_ptr(FileIoError{-r.res, "file_io: write_fixed"}));
 					return;
 				}
-				(void)shared_src->commit_success({
+				(void)shared_src->try_set_value({
 					WriteFixedResult{.buffer = move(*holder), .bytes = static_cast<SZ>(r.res)}
                 });
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -1087,7 +1089,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_write(
@@ -1122,7 +1124,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
@@ -1160,7 +1162,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
@@ -1200,7 +1202,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto iov_owner = make_shared<V<iovec>>(move(iovecs));
@@ -1236,7 +1238,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_nop(sqe);
@@ -1254,7 +1256,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_fsync(sqe, fh.raw_fd(), data_only ? IORING_FSYNC_DATASYNC : 0U);
@@ -1278,7 +1280,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_fallocate(sqe, fh.raw_fd(), mode, offset, len);
@@ -1305,7 +1307,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -1334,7 +1336,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_madvise(sqe, addr, length, advice);
@@ -1358,7 +1360,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto path_owner = make_shared<S>(move(path));
@@ -1385,7 +1387,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto paths = make_shared<P<S, S>>(move(old_path), move(new_path));
@@ -1412,7 +1414,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto path_owner = make_shared<S>(move(path));
@@ -1437,7 +1439,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto paths = make_shared<P<S, S>>(move(target), move(link_path));
@@ -1461,7 +1463,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -1490,7 +1492,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto paths = make_shared<P<S, S>>(move(old_path), move(new_path));
@@ -1518,7 +1520,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -1547,7 +1549,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_socket(sqe, domain, type, protocol, 0);
@@ -1573,7 +1575,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_socket_direct(sqe, domain, type, protocol, file_index, 0);
@@ -1599,7 +1601,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<P<int, int>>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto fds = make_shared<A<int, 2>>(A<int, 2>{-1, -1});
@@ -1607,11 +1609,11 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, fds](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: pipe"}));
+					(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: pipe"}));
 					return;
 				}
-				(void)shared_src->commit_success({std::make_pair((*fds)[0], (*fds)[1])});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+				(void)shared_src->try_set_value({std::make_pair((*fds)[0], (*fds)[1])});
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -1631,7 +1633,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -1660,7 +1662,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -1686,7 +1688,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -1714,7 +1716,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_tee(sqe, fd_in, fd_out, static_cast<unsigned int>(len), flags);
@@ -1740,13 +1742,13 @@ public:
 		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		if (!fh.is_direct()) {
-			(void)shared_src->commit_failure(
+			(void)shared_src->try_set_exception(
 				make_exception_ptr(FileIoError{EINVAL, "file_io: fixed_fd_install requires direct slot"}));
 			return move(task);
 		}
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_fixed_fd_install(sqe, fh.direct_slot(), flags);
@@ -1773,7 +1775,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -1807,7 +1809,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -1845,7 +1847,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto kp = make_shared<P<S, S>>(move(path), move(name));
@@ -1881,7 +1883,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		struct XattrState {
@@ -1922,7 +1924,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_waitid(sqe, idtype, id, infop, options, flags);
@@ -1952,7 +1954,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_futex_wait(sqe, futex, val, mask, futex_flags, flags);
@@ -1981,7 +1983,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<u32>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_futex_wake(sqe, futex, val, mask, futex_flags, flags);
@@ -2010,7 +2012,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_msg_ring(sqe, target_ring_fd, len, data, flags);
@@ -2038,7 +2040,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto ts = make_shared<__kernel_timespec>();
@@ -2049,11 +2051,11 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, ts](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ETIME && r.res != -ECANCELED) {
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: timeout"}));
+					(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: timeout"}));
 					return;
 				}
-				(void)shared_src->commit_success(root::Success<void>{});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+				(void)shared_src->try_set_value(root::Success<void>{});
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 			(void)ts;
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -2075,19 +2077,19 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_timeout_remove(sqe, user_data, flags);
 		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {
-					(void)shared_src->commit_failure(
+					(void)shared_src->try_set_exception(
 						make_exception_ptr(FileIoError{-r.res, "file_io: timeout_remove"}));
 					return;
 				}
-				(void)shared_src->commit_success(root::Success<void>{});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+				(void)shared_src->try_set_value(root::Success<void>{});
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -2109,7 +2111,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto ts = make_shared<__kernel_timespec>();
@@ -2120,12 +2122,12 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, ts](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {
-					(void)shared_src->commit_failure(
+					(void)shared_src->try_set_exception(
 						make_exception_ptr(FileIoError{-r.res, "file_io: timeout_update"}));
 					return;
 				}
-				(void)shared_src->commit_success(root::Success<void>{});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+				(void)shared_src->try_set_value(root::Success<void>{});
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 			(void)ts;
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -2149,7 +2151,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<u32>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_poll_add(sqe, fd, events);
@@ -2172,18 +2174,19 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_poll_remove(sqe, user_data);
 		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: poll_remove"}));
+					(void)shared_src->try_set_exception(
+						make_exception_ptr(FileIoError{-r.res, "file_io: poll_remove"}));
 					return;
 				}
-				(void)shared_src->commit_success(root::Success<void>{});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+				(void)shared_src->try_set_value(root::Success<void>{});
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -2204,7 +2207,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_poll_update(sqe, user_data, 0, new_events, flags);
@@ -2231,7 +2234,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -2265,7 +2268,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -2302,7 +2305,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_msg_ring_fd(sqe, target_ring_fd, source_fd, target_fd, data, flags);
@@ -2329,7 +2332,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto wv = make_shared<V<futex_waitv>>(move(waiters));
@@ -2355,18 +2358,18 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_cancel64(sqe, user_data, flags);
 		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT) {
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: cancel"}));
+					(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: cancel"}));
 					return;
 				}
-				(void)shared_src->commit_success(root::Success<void>{});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+				(void)shared_src->try_set_value(root::Success<void>{});
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -2386,18 +2389,18 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_cancel_fd(sqe, fd, flags);
 		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT) {
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: cancel_fd"}));
+					(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: cancel_fd"}));
 					return;
 				}
-				(void)shared_src->commit_success(root::Success<void>{});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+				(void)shared_src->try_set_value(root::Success<void>{});
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -2418,7 +2421,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -2445,7 +2448,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		if (fh.is_direct()) {
@@ -2530,7 +2533,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -2561,7 +2564,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -2591,7 +2594,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -2620,7 +2623,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -2652,7 +2655,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_provide_buffers(sqe, addr, len, nr, bgid, bid);
@@ -2678,7 +2681,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_remove_buffers(sqe, nr, bgid);
@@ -2704,7 +2707,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_files_update(sqe, fds, nr_fds, offset);
@@ -2730,7 +2733,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_epoll_ctl(sqe, epfd, fd, op, ev);
@@ -2758,7 +2761,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<int>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_epoll_wait(sqe, epfd, events, maxevents, flags);
@@ -2786,7 +2789,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto ts = make_shared<__kernel_timespec>();
@@ -2797,11 +2800,12 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, ts](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ETIME && r.res != -ECANCELED && r.res != -ENOENT) {
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: link_timeout"}));
+					(void)shared_src->try_set_exception(
+						make_exception_ptr(FileIoError{-r.res, "file_io: link_timeout"}));
 					return;
 				}
-				(void)shared_src->commit_success(root::Success<void>{});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+				(void)shared_src->try_set_value(root::Success<void>{});
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 			(void)ts;
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -2824,7 +2828,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto ctx = make_shared<P<S, open_how>>(move(path), how);
@@ -2857,7 +2861,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto sa = make_shared<sockaddr_storage>(addr);
@@ -2898,7 +2902,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -2932,7 +2936,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -2964,7 +2968,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto p = make_shared<S>(move(path));
@@ -2992,7 +2996,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto paths = make_shared<P<S, S>>(move(old_path), move(new_path));
@@ -3019,7 +3023,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto p = make_shared<S>(move(path));
@@ -3046,7 +3050,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto ctx = make_shared<P<S, open_how>>(move(path), how);
@@ -3078,7 +3082,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_socket_direct_alloc(sqe, domain, type, protocol, flags);
@@ -3108,7 +3112,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto p = make_shared<S>(move(path));
@@ -3143,7 +3147,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_msg_ring_fd_alloc(sqe, target_ring_fd, source_fd, data, flags);
@@ -3170,7 +3174,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<P<int, int>>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto fds = make_shared<A<int, 2>>(A<int, 2>{-1, -1});
@@ -3178,11 +3182,12 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, fds](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					(void)shared_src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: pipe_direct"}));
+					(void)shared_src->try_set_exception(
+						make_exception_ptr(FileIoError{-r.res, "file_io: pipe_direct"}));
 					return;
 				}
-				(void)shared_src->commit_success({std::make_pair((*fds)[0], (*fds)[1])});
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+				(void)shared_src->try_set_value({std::make_pair((*fds)[0], (*fds)[1])});
+			} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -3206,7 +3211,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_msg_ring_cqe_flags(sqe, target_ring_fd, len, data, flags, cqe_flags);
@@ -3236,7 +3241,7 @@ public:
 		auto shared_src = make_shared<root::TaskSource<SZ>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			(void)shared_src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+			(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
@@ -3261,14 +3266,14 @@ private:
 	static void step_splice(
 		StatePtr const &st) {
 		if (st->remaining == 0) {
-			(void)st->src->commit_success(root::Success<SZ>{st->delivered});
+			(void)st->src->try_set_value(root::Success<SZ>{st->delivered});
 			return;
 		}
 		SZ const chunk = min(st->remaining, st->pipe.capacity());
 		auto *sqe_in = io_uring_get_sqe(st->ring);
 		auto *sqe_out = io_uring_get_sqe(st->ring);
 		if (sqe_in == nullptr || sqe_out == nullptr) {
-			(void)st->src->commit_failure(make_exception_ptr(FileIoError{ENOSPC, "file_io: splice SQ full"}));
+			(void)st->src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: splice SQ full"}));
 			return;
 		}
 
@@ -3283,7 +3288,7 @@ private:
 		sqe_in->flags |= IOSQE_IO_LINK;
 		auto [slot_in, gen_in] = st->completions->reserve([st](IoResult r) mutable {
 			if (r.res < 0 && r.res != -ECANCELED) {
-				(void)st->src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: splice in"}));
+				(void)st->src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: splice in"}));
 			}
 		});
 		io_uring_sqe_set_data64(sqe_in, st->encode_ud(slot_in, gen_in));
@@ -3301,7 +3306,7 @@ private:
 		}
 		auto [slot_out, gen_out] = st->completions->reserve([st](IoResult r) mutable {
 			if (r.res < 0) {
-				(void)st->src->commit_failure(make_exception_ptr(FileIoError{-r.res, "file_io: splice out"}));
+				(void)st->src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: splice out"}));
 				return;
 			}
 			auto const n = static_cast<SZ>(r.res);
@@ -3481,13 +3486,13 @@ T block_on(
 		try {
 			if constexpr (std::is_void_v<T>) {
 				co_await std::move(inner);
-				(void)src->commit_success(Success<T>{});
+				(void)src->try_set_value(Success<T>{});
 			} else {
 				auto v = co_await std::move(inner);
-				(void)src->commit_success(Success<T>{std::move(v)});
+				(void)src->try_set_value(Success<T>{std::move(v)});
 			}
-		} catch (::Cancelled const &) { (void)src->commit_cancelled(CancelReason::requested); } catch (...) {
-			(void)src->commit_failure(std::current_exception());
+		} catch (::Cancelled const &) { (void)src->try_set_cancelled(CancelReason::requested); } catch (...) {
+			(void)src->try_set_exception(std::current_exception());
 		}
 	}(shared_src, std::move(task)));
 	return block_on<T>(reader, std::move(root_task), budget, std::move(decode));

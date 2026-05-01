@@ -31,7 +31,7 @@ model_a::Chain<int> apply_steps(
 void run_once(
 	SZ steps) {
 	auto [task, source] = root::make_task_source<int>();
-	(void)source.commit_success(root::Success<int>{0});
+	(void)source.try_set_value(root::Success<int>{0});
 	auto chain = model_a::from_task(std::move(task));
 	chain = apply_steps(std::move(chain), steps);
 	auto result_task = model_a::into_ready_task(std::move(chain));

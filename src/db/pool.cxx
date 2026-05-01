@@ -230,7 +230,7 @@ void Pool::close() noexcept {
 	}
 	closed_ = true;
 	for (auto &src: waiters_) {
-		(void)src->commit_cancelled(root::CancelReason::requested);
+		(void)src->try_set_cancelled(root::CancelReason::requested);
 	}
 	waiters_.clear();
 	idle_.clear();
@@ -240,11 +240,11 @@ root::Task<Pool::Lease> Pool::acquire() {
 	auto [task, raw_src] = root::make_task_source<Lease>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Lease>>(move(raw_src));
 	if (closed_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: pool closed"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pool closed"}));
 		return move(task);
 	}
 	if (this_thread::get_id() != owner_) {
-		(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: pool acquire off owner thread"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pool acquire off owner thread"}));
 		return move(task);
 	}
 	if (!idle_.empty()) {
@@ -256,21 +256,23 @@ root::Task<Pool::Lease> Pool::acquire() {
 	if (total_ < cfg_.max_connections) {
 		++total_;
 		auto self = shared_from_this();
-		co_spawn([](SP<Pool> self, SP<root::TaskSource<Lease>> shared_src,
-					 root::Task<SP<Connection>> conn_task) -> Task<void> {
-			try {
-				auto conn = co_await std::move(conn_task);
-				if (self->closed_) {
+		co_spawn(
+			[](SP<Pool> self,
+			   SP<root::TaskSource<Lease>> shared_src,
+			   root::Task<SP<Connection>> conn_task) -> Task<void> {
+				try {
+					auto conn = co_await std::move(conn_task);
+					if (self->closed_) {
+						--self->total_;
+						(void)shared_src->try_set_cancelled(root::CancelReason::requested);
+						co_return;
+					}
+					self->dispatch_lease_(shared_src, move(conn));
+				} catch (...) {
 					--self->total_;
-					(void)shared_src->commit_cancelled(root::CancelReason::requested);
-					co_return;
+					(void)shared_src->try_set_exception(current_exception());
 				}
-				self->dispatch_lease_(shared_src, move(conn));
-			} catch (...) {
-				--self->total_;
-				(void)shared_src->commit_failure(current_exception());
-			}
-		}(self, shared_src, Connection::connect(cfg_.conn)));
+			}(self, shared_src, Connection::connect(cfg_.conn)));
 		return move(task);
 	}
 	waiters_.push_back(shared_src);
@@ -280,7 +282,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 			co_spawn([](SP<root::TaskSource<Lease>> shared_src, root::Task<void> to_task) -> Task<void> {
 				try {
 					co_await std::move(to_task);
-					(void)shared_src->commit_failure(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
+					(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
 				} catch (...) {}
 			}(shared_src, reader->timeout_async(cfg_.acquire_timeout)));
 		}
@@ -344,7 +346,7 @@ void Pool::dispatch_lease_(
 	SP<Connection> conn) noexcept {
 	if (!cfg_.on_acquire) {
 		// If commit fails (waiter timed out), ~Lease fires → return_ → try_dispatch_waiters_.
-		(void)src->commit_success(
+		(void)src->try_set_value(
 			root::Success<Lease>{
 				Lease{shared_from_this(), move(conn)}
         });
@@ -352,34 +354,35 @@ void Pool::dispatch_lease_(
 	}
 	auto self = shared_from_this();
 	try {
-		co_spawn([](SP<Pool> self, SP<root::TaskSource<Lease>> src,
-					 SP<Connection> conn, root::Task<void> on_acq_task) -> Task<void> {
-			try {
-				co_await std::move(on_acq_task);
-				if (self->closed_) {
+		co_spawn(
+			[](SP<Pool> self, SP<root::TaskSource<Lease>> src, SP<Connection> conn, root::Task<void> on_acq_task)
+				-> Task<void> {
+				try {
+					co_await std::move(on_acq_task);
+					if (self->closed_) {
+						conn->close();
+						--self->total_;
+						(void)src->try_set_cancelled(root::CancelReason::requested);
+						co_return;
+					}
+					(void)src->try_set_value(
+						root::Success<Lease>{
+							Lease{self, move(conn)}
+                    });
+				} catch (Cancelled const &) {
 					conn->close();
 					--self->total_;
-					(void)src->commit_cancelled(root::CancelReason::requested);
-					co_return;
+					(void)src->try_set_cancelled(root::CancelReason::requested);
+				} catch (...) {
+					conn->close();
+					--self->total_;
+					(void)src->try_set_exception(current_exception());
 				}
-				(void)src->commit_success(
-					root::Success<Lease>{
-						Lease{self, move(conn)}
-                });
-			} catch (Cancelled const &) {
-				conn->close();
-				--self->total_;
-				(void)src->commit_cancelled(root::CancelReason::requested);
-			} catch (...) {
-				conn->close();
-				--self->total_;
-				(void)src->commit_failure(current_exception());
-			}
-		}(self, src, conn, cfg_.on_acquire(*conn)));
+			}(self, src, conn, cfg_.on_acquire(*conn)));
 	} catch (...) {
 		conn->close();
 		--self->total_;
-		(void)src->commit_failure(current_exception());
+		(void)src->try_set_exception(current_exception());
 	}
 }
 

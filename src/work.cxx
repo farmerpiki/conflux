@@ -1278,14 +1278,14 @@ export template<typename Target, typename Fn>
 		try {
 			if constexpr (std::is_void_v<T>) {
 				fn();
-				(void)shared_src->commit_success(Success<T>{});
+				(void)shared_src->try_set_value(Success<T>{});
 			} else {
-				(void)shared_src->commit_success(Success<T>{fn()});
+				(void)shared_src->try_set_value(Success<T>{fn()});
 			}
-		} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+		} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 	};
 	if (!target.enqueue(std::move(job))) {
-		(void)shared_src->commit_cancelled(CancelReason::requested);
+		(void)shared_src->try_set_cancelled(CancelReason::requested);
 	}
 	return std::move(task);
 }
@@ -1519,9 +1519,9 @@ export template<typename... Ts>
 		   decltype(work_detail::join_all(task_as_flow(std::move(tasks))...)) inner) -> ::Task<void> {
 			try {
 				auto val = co_await std::move(inner);
-				(void)src->commit_success(Success<Result>{std::move(val)});
-			} catch (::Cancelled const &) { (void)src->commit_cancelled(CancelReason::requested); } catch (...) {
-				(void)src->commit_failure(std::current_exception());
+				(void)src->try_set_value(Success<Result>{std::move(val)});
+			} catch (::Cancelled const &) { (void)src->try_set_cancelled(CancelReason::requested); } catch (...) {
+				(void)src->try_set_exception(std::current_exception());
 			}
 		}(shared_src, work_detail::join_all(task_as_flow(std::move(tasks))...)));
 	return std::move(root_task);

@@ -264,13 +264,13 @@ Case make_ring_lane_case() {
 Case make_root_task_join_case() {
 	return Case{
 		.name = "root/task_join_success",
-		.description = "make_task_source + commit_success + value(join)",
+		.description = "make_task_source + try_set_value + value(join)",
 		.default_iterations = 200'000,
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
-			bool const committed = src.commit_success(root::Success<int>{9});
+			bool const committed = src.try_set_value(root::Success<int>{9});
 			if (!committed) {
-				throw RE{"commit_success failed"};
+				throw RE{"try_set_value failed"};
 			}
 			return static_cast<SZ>(root::value(move(task)));
 		}};
@@ -279,14 +279,14 @@ Case make_root_task_join_case() {
 Case make_root_posted_join_case() {
 	return Case{
 		.name = "root/posted_join_success",
-		.description = "make_posted_source + commit_success + value(join)",
+		.description = "make_posted_source + try_set_value + value(join)",
 		.default_iterations = 200'000,
 		.run = [] {
 			OwnerCap owner{};
 			auto [posted, src] = root::make_posted_source<int>(owner);
-			bool const committed = src.commit_success(root::Success<int>{7});
+			bool const committed = src.try_set_value(root::Success<int>{7});
 			if (!committed) {
-				throw RE{"commit_success failed"};
+				throw RE{"try_set_value failed"};
 			}
 			return static_cast<SZ>(root::value(owner, move(posted)));
 		}};
@@ -295,14 +295,14 @@ Case make_root_posted_join_case() {
 Case make_root_operation_join_case() {
 	return Case{
 		.name = "root/operation_join_success",
-		.description = "make_operation_source + commit_success + value(join)",
+		.description = "make_operation_source + try_set_value + value(join)",
 		.default_iterations = 200'000,
 		.run = [] {
 			DriverCap driver{};
 			auto [op, src] = root::make_operation_source<int>(driver);
-			bool const committed = src.commit_success(root::Success<int>{5});
+			bool const committed = src.try_set_value(root::Success<int>{5});
 			if (!committed) {
-				throw RE{"commit_success failed"};
+				throw RE{"try_set_value failed"};
 			}
 			return static_cast<SZ>(root::value(driver, move(op)));
 		}};
@@ -574,9 +574,9 @@ Case make_root_abandon_sink_case() {
 			auto [task, src] = root::make_task_source<int>();
 			SZ seen = 0;
 			root::abandon_to(move(task), Sink{.seen = &seen});
-			bool const committed = src.commit_cancelled(root::CancelReason::requested);
+			bool const committed = src.try_set_cancelled(root::CancelReason::requested);
 			if (!committed) {
-				throw RE{"commit_cancelled failed"};
+				throw RE{"try_set_cancelled failed"};
 			}
 			return seen;
 		}};
@@ -659,7 +659,7 @@ Case make_carrier_a_task_map1_case() {
 		.default_iterations = 500'000,
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
-			(void)src.commit_success(root::Success<int>{42});
+			(void)src.try_set_value(root::Success<int>{42});
 			auto chain = model_a::from_task(move(task));
 			auto mapped = model_a::map(move(chain), [](int x) { return x + 1; });
 			auto out = move(mapped).release_outcome();
@@ -674,7 +674,7 @@ Case make_carrier_a_task_map3_case() {
 		.default_iterations = 500'000,
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
-			(void)src.commit_success(root::Success<int>{1});
+			(void)src.try_set_value(root::Success<int>{1});
 			auto c0 = model_a::from_task(move(task));
 			auto c1 = model_a::map(move(c0), [](int x) { return x + 1; });
 			auto c2 = model_a::map(move(c1), [](int x) { return x * 2; });
@@ -691,7 +691,7 @@ Case make_carrier_a_cancel_passthru_case() {
 		.default_iterations = 500'000,
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
-			(void)src.commit_cancelled(root::CancelReason::requested);
+			(void)src.try_set_cancelled(root::CancelReason::requested);
 			auto chain = model_a::from_task(move(task));
 			auto mapped = model_a::map(move(chain), [](int x) { return x + 1; });
 			auto out = move(mapped).release_outcome();
@@ -708,7 +708,7 @@ Case make_carrier_a_mixed_3stage_case() {
 			OwnerCapA owner{};
 			DriverCapA driver{};
 			auto [task, src] = root::make_task_source<int>();
-			(void)src.commit_success(root::Success<int>{7});
+			(void)src.try_set_value(root::Success<int>{7});
 			auto c0 = model_a::from_task(move(task));
 			auto c1 = model_a::hop_to_posted(owner, move(c0));
 			auto c2 = model_a::hop_to_operation(driver, move(c1));
@@ -725,7 +725,7 @@ Case make_carrier_a_hop_verify_case() {
 		.run = [] {
 			OwnerCapA owner{};
 			auto [task, src] = root::make_task_source<int>();
-			(void)src.commit_success(root::Success<int>{7});
+			(void)src.try_set_value(root::Success<int>{7});
 			auto c0 = model_a::from_task(move(task));
 			auto c1 = model_a::hop_to_posted(owner, move(c0));
 			model_a::verify_hop(owner, c1);
@@ -742,8 +742,8 @@ Case make_carrier_a_when_all_case() {
 		.run = [] {
 			auto [ta, sa] = root::make_task_source<int>();
 			auto [tb, sb] = root::make_task_source<int>();
-			(void)sa.commit_success(root::Success<int>{10});
-			(void)sb.commit_success(root::Success<int>{20});
+			(void)sa.try_set_value(root::Success<int>{10});
+			(void)sb.try_set_value(root::Success<int>{20});
 			auto ca = model_a::from_task(move(ta));
 			auto cb = model_a::from_task(move(tb));
 			auto combined = model_a::when_all(move(ca), move(cb));
@@ -764,8 +764,8 @@ Case make_carrier_a_when_all_fast_fail_case() {
 		.run = [] {
 			auto [ta, sa] = root::make_task_source<int>();
 			auto [tb, sb] = root::make_task_source<int>();
-			(void)sa.commit_success(root::Success<int>{10});
-			(void)sb.commit_success(root::Success<int>{20});
+			(void)sa.try_set_value(root::Success<int>{10});
+			(void)sb.try_set_value(root::Success<int>{20});
 			auto ca = model_a::from_task(move(ta));
 			auto cb = model_a::from_task(move(tb));
 			auto combined = model_a::when_all_fast_fail(move(ca), move(cb));
@@ -786,8 +786,8 @@ Case make_carrier_a_race_a_wins_case() {
 		.run = [] {
 			auto [ta, sa] = root::make_task_source<int>();
 			auto [tb, sb] = root::make_task_source<int>();
-			(void)sa.commit_success(root::Success<int>{7});
-			(void)sb.commit_success(root::Success<int>{99});
+			(void)sa.try_set_value(root::Success<int>{7});
+			(void)sb.try_set_value(root::Success<int>{99});
 			auto ca = model_a::from_task(move(ta));
 			auto cb = model_a::from_task(move(tb));
 			auto winner = model_a::race(move(ca), move(cb));
@@ -807,8 +807,8 @@ Case make_carrier_a_race_b_wins_case() {
 		.run = [] {
 			auto [ta, sa] = root::make_task_source<int>();
 			auto [tb, sb] = root::make_task_source<int>();
-			(void)sa.commit_failure(make_exception_ptr(RE{"fail"}));
-			(void)sb.commit_success(root::Success<int>{5});
+			(void)sa.try_set_exception(make_exception_ptr(RE{"fail"}));
+			(void)sb.try_set_value(root::Success<int>{5});
 			auto ca = model_a::from_task(move(ta));
 			auto cb = model_a::from_task(move(tb));
 			auto winner = model_a::race(move(ca), move(cb));
@@ -842,7 +842,7 @@ Case make_deadline_scope_fast_path_case() {
 		.default_iterations = 5'000,
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
-			(void)src.commit_success(root::Success<int>{42});
+			(void)src.try_set_value(root::Success<int>{42});
 			auto jh = root::into_join_handle(move(task));
 			carrier::DeadlineScope scope{chrono::seconds{60}};
 			auto chain = scope.admit(move(jh));
@@ -868,7 +868,7 @@ Case make_carrier_b_task_map1_case() {
 		.default_iterations = 500'000,
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
-			(void)src.commit_success(root::Success<int>{42});
+			(void)src.try_set_value(root::Success<int>{42});
 			auto chain = model_b::from_task(move(task));
 			auto mapped = model_b::map(move(chain), [](int x) { return x + 1; });
 			auto out = move(mapped).release_outcome();
@@ -883,7 +883,7 @@ Case make_carrier_b_task_map3_case() {
 		.default_iterations = 500'000,
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
-			(void)src.commit_success(root::Success<int>{1});
+			(void)src.try_set_value(root::Success<int>{1});
 			auto c0 = model_b::from_task(move(task));
 			auto c1 = model_b::map(move(c0), [](int x) { return x + 1; });
 			auto c2 = model_b::map(move(c1), [](int x) { return x * 2; });
@@ -900,7 +900,7 @@ Case make_carrier_b_cancel_passthru_case() {
 		.default_iterations = 500'000,
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
-			(void)src.commit_cancelled(root::CancelReason::requested);
+			(void)src.try_set_cancelled(root::CancelReason::requested);
 			auto chain = model_b::from_task(move(task));
 			auto mapped = model_b::map(move(chain), [](int x) { return x + 1; });
 			auto out = move(mapped).release_outcome();
@@ -917,7 +917,7 @@ Case make_carrier_b_mixed_3stage_case() {
 			OwnerCapB owner{};
 			DriverCapB driver{};
 			auto [task, src] = root::make_task_source<int>();
-			(void)src.commit_success(root::Success<int>{7});
+			(void)src.try_set_value(root::Success<int>{7});
 			auto c0 = model_b::from_task(move(task));
 			auto c1 = model_b::hop_to_posted(owner, move(c0));
 			auto c2 = model_b::hop_to_operation(driver, move(c1));
@@ -934,8 +934,8 @@ Case make_carrier_b_when_all_case() {
 		.run = [] {
 			auto [ta, sa] = root::make_task_source<int>();
 			auto [tb, sb] = root::make_task_source<int>();
-			(void)sa.commit_success(root::Success<int>{10});
-			(void)sb.commit_success(root::Success<int>{20});
+			(void)sa.try_set_value(root::Success<int>{10});
+			(void)sb.try_set_value(root::Success<int>{20});
 			auto ca = model_b::from_task(move(ta));
 			auto cb = model_b::from_task(move(tb));
 			auto combined = model_b::when_all(move(ca), move(cb));

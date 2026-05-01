@@ -88,7 +88,7 @@ TEST_CASE(
 	"carrier.deadline: admit task that completes before deadline returns success",
 	"[carrier.deadline]") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{99});
+	(void)src.try_set_value(root::Success<int>{99});
 	auto jh = root::into_join_handle(std::move(task));
 
 	carrier::DeadlineScope scope{std::chrono::seconds{60}};
@@ -103,7 +103,7 @@ TEST_CASE(
 	"carrier.deadline: admit already-cancelled task returns cancelled",
 	"[carrier.deadline]") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_cancelled(root::CancelReason::shutdown);
+	(void)src.try_set_cancelled(root::CancelReason::shutdown);
 	auto jh = root::into_join_handle(std::move(task));
 
 	carrier::DeadlineScope scope{std::chrono::seconds{60}};
@@ -127,7 +127,7 @@ TEST_CASE(
 		while (!wt.stop_requested()) {
 			std::this_thread::yield();
 		}
-		(void)ws.commit_cancelled(root::CancelReason::deadline);
+		(void)ws.try_set_cancelled(root::CancelReason::deadline);
 	}};
 
 	auto chain = scope.admit(std::move(jh));

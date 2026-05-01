@@ -5,7 +5,7 @@
 //   task_drop_joinable_release — make_task_source<int> + try_set_value, Task dropped (not joined)
 //   task_drop_joinable_debug   — same as release variant (debug/release builds differ in dtor)
 //
-// CSV output (--csv): variant,iterations,total_ns,ns_per_iter
+// NDJSON output (--json): {"config":"default","variant":"...","iterations":N,"total_ns":N,"ns_per_iter":X}
 
 import std;
 import conflux.types;
@@ -22,7 +22,7 @@ void run_warmup(
 	SZ warmup) {
 	for (SZ i = 0; i < warmup; ++i) {
 		auto [task, source] = root::make_task_source<int>();
-		(void)source.commit_success(root::Success<int>{42});
+		(void)source.try_set_value(root::Success<int>{42});
 		(void)root::join(std::move(task));
 	}
 }
@@ -32,7 +32,7 @@ BenchStats bench_task_creation(
 	u64 const t0 = bench_now_ns();
 	for (SZ i = 0; i < iters; ++i) {
 		auto [task, source] = root::make_task_source<int>();
-		(void)source.commit_success(root::Success<int>{static_cast<int>(i)});
+		(void)source.try_set_value(root::Success<int>{static_cast<int>(i)});
 		[[maybe_unused]] auto outcome = root::join(std::move(task));
 	}
 	u64 const elapsed = bench_now_ns() - t0;
@@ -46,7 +46,7 @@ BenchStats bench_task_drop_joinable(
 	u64 const t0 = bench_now_ns();
 	for (SZ i = 0; i < iters; ++i) {
 		auto [task, source] = root::make_task_source<int>();
-		(void)source.commit_success(root::Success<int>{static_cast<int>(i)});
+		(void)source.try_set_value(root::Success<int>{static_cast<int>(i)});
 		(void)root::join(std::move(task)); // remove after E1.x auto-detach
 	}
 	u64 const elapsed = bench_now_ns() - t0;

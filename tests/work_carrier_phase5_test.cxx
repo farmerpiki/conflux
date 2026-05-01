@@ -103,7 +103,7 @@ TEST_CASE(
 	"phase5a: co_await Chain<int> returns value on success",
 	"[phase5a]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{7}));
+	REQUIRE(src.try_set_value(root::Success<int>{7}));
 	auto chain = model_a::from_task(std::move(task));
 	auto awaiter = std::move(chain).operator co_await();
 	CHECK(awaiter.await_ready());
@@ -116,7 +116,7 @@ TEST_CASE(
 	"[phase5a]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto ex = std::make_exception_ptr(std::runtime_error{"fail"});
-	REQUIRE(src.commit_failure(ex));
+	REQUIRE(src.try_set_exception(ex));
 	auto chain = model_a::from_task(std::move(task));
 
 	auto awaiter = std::move(chain).operator co_await();
@@ -127,7 +127,7 @@ TEST_CASE(
 	"phase5a: co_await Chain<int> throws CancelledError on cancellation",
 	"[phase5a]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_cancelled(root::CancelReason::requested));
+	REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
 	auto chain = model_a::from_task(std::move(task));
 
 	auto awaiter = std::move(chain).operator co_await();
@@ -138,7 +138,7 @@ TEST_CASE(
 	"phase5a: ChainAwaiter::await_ready always returns true",
 	"[phase5a]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{1}));
+	REQUIRE(src.try_set_value(root::Success<int>{1}));
 	auto chain = model_a::from_task(std::move(task));
 	auto awaiter = std::move(chain).operator co_await();
 	CHECK(awaiter.await_ready());
@@ -158,7 +158,7 @@ TEST_CASE(
 	"phase5b: EagerChain processes success via co_await Chain<int>",
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{6}));
+	REQUIRE(src.try_set_value(root::Success<int>{6}));
 	auto chain = model_a::from_task(std::move(task));
 
 	auto out = eager_double(std::move(chain)).chain().release_outcome();
@@ -170,7 +170,7 @@ TEST_CASE(
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto ex = std::make_exception_ptr(std::runtime_error{"boom"});
-	REQUIRE(src.commit_failure(ex));
+	REQUIRE(src.try_set_exception(ex));
 	auto chain = model_a::from_task(std::move(task));
 
 	auto out = eager_double(std::move(chain)).chain().release_outcome();
@@ -181,7 +181,7 @@ TEST_CASE(
 	"phase5b: EagerChain propagates cancellation as failure through co_await Chain",
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_cancelled(root::CancelReason::requested));
+	REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
 	auto chain = model_a::from_task(std::move(task));
 
 	// co_await throws CancelledError; unhandled_exception stores it as Failure.
@@ -200,7 +200,7 @@ TEST_CASE(
 	"phase5b: EagerChain nested co_await of EagerChain works",
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{3}));
+	REQUIRE(src.try_set_value(root::Success<int>{3}));
 	auto chain = model_a::from_task(std::move(task));
 
 	auto out = eager_nested(std::move(chain)).chain().release_outcome();
@@ -229,7 +229,7 @@ TEST_CASE(
 	"phase5b: EagerChain<void> co_returns void on success",
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{0}));
+	REQUIRE(src.try_set_value(root::Success<int>{0}));
 	auto chain = model_a::from_task(std::move(task));
 
 	auto out = eager_void_fn(std::move(chain)).chain().release_outcome();
@@ -240,7 +240,7 @@ TEST_CASE(
 	"phase5b: EagerChain feeds into model_a map combinator",
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{5}));
+	REQUIRE(src.try_set_value(root::Success<int>{5}));
 	auto chain = model_a::from_task(std::move(task));
 
 	auto mapped = model_a::map(eager_double(std::move(chain)).chain(), [](int v) { return v + 100; });
@@ -268,7 +268,7 @@ TEST_CASE(
 	"[phase5c]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
-	REQUIRE(src.commit_success(root::Success<int>{99}));
+	REQUIRE(src.try_set_value(root::Success<int>{99}));
 	CHECK(coro_await_task_handle_success(std::move(jh)).get() == 99);
 }
 
@@ -283,7 +283,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
 	auto ex = std::make_exception_ptr(std::runtime_error{"task failed"});
-	REQUIRE(src.commit_failure(ex));
+	REQUIRE(src.try_set_exception(ex));
 	CHECK_THROWS_AS(coro_await_task_handle_failure(std::move(jh)).get(), std::runtime_error);
 }
 
@@ -297,7 +297,7 @@ TEST_CASE(
 	"[phase5c]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
-	REQUIRE(src.commit_cancelled(root::CancelReason::requested));
+	REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
 	CHECK_THROWS_AS(coro_await_task_handle_cancel(std::move(jh)).get(), root::CancelledError);
 }
 
@@ -308,7 +308,7 @@ TEST_CASE(
 	"[phase5c]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
-	REQUIRE(src.commit_success(root::Success<int>{1}));
+	REQUIRE(src.try_set_value(root::Success<int>{1}));
 	model_a::TaskHandleAwaiter<int> awaiter{std::move(jh)};
 	CHECK(awaiter.await_ready());
 }
@@ -320,7 +320,7 @@ TEST_CASE(
 	auto jh = root::into_join_handle(std::move(task));
 	model_a::TaskHandleAwaiter<int> awaiter{std::move(jh)};
 	CHECK_FALSE(awaiter.await_ready());
-	REQUIRE(src.commit_success(root::Success<int>{0}));
+	REQUIRE(src.try_set_value(root::Success<int>{0}));
 }
 
 // --- async suspension path (commit from another thread) ---
@@ -337,7 +337,7 @@ TEST_CASE(
 	auto jh = root::into_join_handle(std::move(task));
 	auto coro = coro_async_await(std::move(jh));
 	// coroutine started eagerly, suspended at co_await (not yet ready)
-	std::thread t{[s = std::move(src)]() mutable { (void)s.commit_success(root::Success<int>{77}); }};
+	std::thread t{[s = std::move(src)]() mutable { (void)s.try_set_value(root::Success<int>{77}); }};
 	t.join();
 	CHECK(coro.get() == 77);
 }
@@ -354,7 +354,7 @@ TEST_CASE(
 	"[phase5c]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
-	REQUIRE(src.commit_success(root::Success<int>{55}));
+	REQUIRE(src.try_set_value(root::Success<int>{55}));
 	auto chain = coro_await_chain_success(std::move(jh)).get();
 	auto out = std::move(chain).release_outcome();
 	REQUIRE(out.is_success());
@@ -372,7 +372,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
 	auto ex = std::make_exception_ptr(std::runtime_error{"chain fail"});
-	REQUIRE(src.commit_failure(ex));
+	REQUIRE(src.try_set_exception(ex));
 	auto chain = coro_await_chain_failure(std::move(jh)).get();
 	auto out = std::move(chain).release_outcome();
 	CHECK(out.is_failure());
@@ -388,7 +388,7 @@ TEST_CASE(
 	"[phase5c]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
-	REQUIRE(src.commit_cancelled(root::CancelReason::requested));
+	REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
 	auto chain = coro_await_chain_cancel(std::move(jh)).get();
 	auto out = std::move(chain).release_outcome();
 	CHECK(out.is_cancelled());
@@ -401,7 +401,7 @@ TEST_CASE(
 	"[phase5c]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
-	REQUIRE(src.commit_success(root::Success<int>{0}));
+	REQUIRE(src.try_set_value(root::Success<int>{0}));
 	{
 		model_a::TaskHandleAwaiter<int> awaiter{std::move(jh)};
 		(void)awaiter.await_ready();

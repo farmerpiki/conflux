@@ -1626,13 +1626,13 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 		ResolveResult r;
 		r.endpoints.push_back(*ep);
-		(void)raw_src.commit_success(root::Success<ResolveResult>{std::move(r)});
+		(void)raw_src.try_set_value(root::Success<ResolveResult>{std::move(r)});
 		return std::move(task);
 	}
 
 	if (!is_valid_hostname(host)) {
 		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
-		(void)raw_src.commit_failure(
+		(void)raw_src.try_set_exception(
 			std::make_exception_ptr(
 				DnsError{DnsErrorKind::invalid_hostname, std::format("invalid hostname '{}'", host)}));
 		return std::move(task);
@@ -1669,7 +1669,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				ResolveResult r;
 				r.endpoints = std::move(eps);
 				r.from_hosts_file = true;
-				(void)raw_src.commit_success(root::Success<ResolveResult>{std::move(r)});
+				(void)raw_src.try_set_value(root::Success<ResolveResult>{std::move(r)});
 				return std::move(task);
 			}
 		}
@@ -1687,12 +1687,12 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 			auto [task, raw_src] =
 				root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 			if (hit->is_negative) {
-				(void)raw_src.commit_failure(
+				(void)raw_src.try_set_exception(
 					std::make_exception_ptr(DnsError{DnsErrorKind::nxdomain, "dns: nxdomain (cached)"}));
 				return std::move(task);
 			}
 			hit->from_cache = true;
-			(void)raw_src.commit_success(root::Success<ResolveResult>{std::move(*hit)});
+			(void)raw_src.try_set_value(root::Success<ResolveResult>{std::move(*hit)});
 			return std::move(task);
 		}
 	}
@@ -1728,7 +1728,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				string const p = std::to_string(port);
 				int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res);
 				if (gai != 0 || res == nullptr) {
-					(void)shared_src->commit_failure(
+					(void)shared_src->try_set_exception(
 						std::make_exception_ptr(
 							DnsError{DnsErrorKind::nxdomain, std::format("getaddrinfo: {}", ::gai_strerror(gai))}));
 					return;
@@ -1751,7 +1751,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				}
 				::freeaddrinfo(res);
 				if (result.endpoints.empty()) {
-					(void)shared_src->commit_failure(
+					(void)shared_src->try_set_exception(
 						std::make_exception_ptr(
 							DnsError{DnsErrorKind::nxdomain, std::format("no usable addresses for '{}'", h)}));
 					return;
@@ -1759,13 +1759,13 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				if (cache && !cache_key.empty() && !result.endpoints.empty()) {
 					cache->put(cache_key, result, ttl);
 				}
-				(void)shared_src->commit_success(root::Success<ResolveResult>{std::move(result)});
+				(void)shared_src->try_set_value(root::Success<ResolveResult>{std::move(result)});
 			} catch (...) {
-				(void)shared_src->commit_failure(std::current_exception());
+				(void)shared_src->try_set_exception(std::current_exception());
 			} // NOLINT(bugprone-empty-catch)
 		});
 		if (!ok) {
-			(void)shared_src->commit_failure(
+			(void)shared_src->try_set_exception(
 				std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "nss_thread: work pool not accepting jobs"}));
 		}
 		return std::move(task);
@@ -1777,7 +1777,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 
 	if (ns_list.empty()) {
 		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
-		(void)raw_src.commit_failure(
+		(void)raw_src.try_set_exception(
 			std::make_exception_ptr(DnsError{DnsErrorKind::no_servers, "resolve: no nameservers configured"}));
 		return std::move(task);
 	}
@@ -1793,16 +1793,15 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 			auto [out_task, out_raw_src] =
 				root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 			auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
-			co_spawn([](SP<root::TaskSource<ResolveResult>> out_src,
-						 root::Task<ResolveResult> wt) -> Task<void> {
+			co_spawn([](SP<root::TaskSource<ResolveResult>> out_src, root::Task<ResolveResult> wt) -> Task<void> {
 				try {
 					auto r = co_await std::move(wt);
 					r.from_coalesced = true;
-					(void)out_src->commit_success(root::Success<ResolveResult>{std::move(r)});
+					(void)out_src->try_set_value(root::Success<ResolveResult>{std::move(r)});
 				} catch (Cancelled const &) {
-					(void)out_src->commit_failure(
+					(void)out_src->try_set_exception(
 						std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
-				} catch (...) { (void)out_src->commit_failure(std::current_exception()); }
+				} catch (...) { (void)out_src->try_set_exception(std::current_exception()); }
 			}(out_src, std::move(wtask)));
 			return std::move(out_task);
 		}
@@ -1830,7 +1829,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		for (auto const &w: waiters) {
 			auto copy = r;
 			copy.from_coalesced = true;
-			(void)w->commit_success(root::Success<ResolveResult>{std::move(copy)});
+			(void)w->try_set_value(root::Success<ResolveResult>{std::move(copy)});
 		}
 		return r;
 	};
@@ -1847,7 +1846,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 			}
 		}
 		for (auto const &w: waiters) {
-			(void)w->commit_failure(ep);
+			(void)w->try_set_exception(ep);
 		}
 		// Negative caching: store NXDOMAIN entries so repeat lookups skip the wire.
 		try {
@@ -1876,12 +1875,12 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		   auto fanout_error,
 		   SP<Resolver::Impl> impl,
 		   string coalesce_key) mutable -> Task<void> {
-		 try {
+			try {
 				auto out = out_src;
 				auto r = co_await std::move(inner);
 				r = cache_insert(std::move(r));
 				r = fanout_success(std::move(r));
-				(void)out->commit_success(root::Success<ResolveResult>{std::move(r)});
+				(void)out->try_set_value(root::Success<ResolveResult>{std::move(r)});
 			} catch (Cancelled const &) {
 				auto out = out_src;
 				auto key = coalesce_key;
@@ -1894,34 +1893,33 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				}
 				auto cancelled = std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"});
 				for (auto const &w: waiters) {
-					(void)w->commit_failure(cancelled);
+					(void)w->try_set_exception(cancelled);
 				}
-				(void)out->commit_failure(
+				(void)out->try_set_exception(
 					std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
 			} catch (...) {
 				auto out = out_src;
 				try {
 					fanout_error(std::current_exception());
-				} catch (...) { (void)out->commit_failure(std::current_exception()); }
+				} catch (...) { (void)out->try_set_exception(std::current_exception()); }
 			}
-		}(
-			out_src,
-			build_native_udp_flow_with_candidates(
-				*reader,
-				ns_list,
-				candidates,
-				0,
-				port,
-				do_v4,
-				do_v6,
-				effective_opts.prefer,
-				timeout,
-				edns),
-			std::move(cache_insert),
-			std::move(fanout_success),
-			std::move(fanout_error),
-			impl_,
-			coalesce_key));
+		}(out_src,
+										build_native_udp_flow_with_candidates(
+											*reader,
+											ns_list,
+											candidates,
+											0,
+											port,
+											do_v4,
+											do_v6,
+											effective_opts.prefer,
+											timeout,
+											edns),
+										std::move(cache_insert),
+										std::move(fanout_success),
+										std::move(fanout_error),
+										impl_,
+										coalesce_key));
 	return std::move(out_task);
 }
 

@@ -24,7 +24,7 @@ BenchStats bench_cancel_before_commit(
 	for (SZ i = 0; i < iters; ++i) {
 		auto [ctl, source] = root::make_task_control_source<int>();
 		(void)ctl.request_cancel();
-		(void)source.commit_success(root::Success<int>{0});
+		(void)source.try_set_value(root::Success<int>{0});
 	}
 	u64 const elapsed = bench_now_ns() - t0;
 	return {{}, "cancel_before_commit"sv, iters, elapsed,
@@ -36,7 +36,7 @@ BenchStats bench_cancel_after_commit(
 	u64 const t0 = bench_now_ns();
 	for (SZ i = 0; i < iters; ++i) {
 		auto [ctl, source] = root::make_task_control_source<int>();
-		(void)source.commit_success(root::Success<int>{0});
+		(void)source.try_set_value(root::Success<int>{0});
 		(void)ctl.request_cancel();
 	}
 	u64 const elapsed = bench_now_ns() - t0;
@@ -53,7 +53,7 @@ BenchStats bench_cancel_with_hook(
 		(void)source.install_cancel_hook(
 			[&hook_calls](root::CancelReason) noexcept { hook_calls.fetch_add(1, std::memory_order_relaxed); });
 		(void)ctl.request_cancel();
-		(void)source.commit_cancelled(root::CancelReason::requested);
+		(void)source.try_set_cancelled(root::CancelReason::requested);
 	}
 	u64 const elapsed = bench_now_ns() - t0;
 	(void)hook_calls.load();
@@ -74,7 +74,7 @@ int main(
 	for (SZ i = 0; i < cfg.warmup; ++i) {
 		auto [ctl, source] = root::make_task_control_source<int>();
 		(void)ctl.request_cancel();
-		(void)source.commit_cancelled(root::CancelReason::requested);
+		(void)source.try_set_cancelled(root::CancelReason::requested);
 	}
 
 	BenchStats stats[] = {

@@ -177,7 +177,7 @@ export [[nodiscard]] conflux::work::root::Task<size_t> sendto(
 	if (dest == nullptr || dest_len == 0 || dest_len > static_cast<::socklen_t>(sizeof(::sockaddr_storage))) {
 		using namespace conflux::work::root;
 		auto [task, src] = make_task_source<size_t>(SubmitOptions{.enable_cancellation = false});
-		(void)src.commit_failure(make_exception_ptr(UdpError{EINVAL, "udp: invalid destination"}));
+		(void)src.try_set_exception(make_exception_ptr(UdpError{EINVAL, "udp: invalid destination"}));
 		return std::move(task);
 	}
 	::sockaddr_storage stor{};
@@ -197,20 +197,20 @@ export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom(
 	auto [task, src] = make_task_source<UdpRecvResult>(SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<TaskSource<UdpRecvResult>>(std::move(src));
 	auto shared_h = h;
-	auto shared_jh = make_shared<TaskJoinHandle<size_t>>(into_join_handle(
-		reader.recvmsg_async(sock.handle(), &h->msg, static_cast<unsigned>(flags))));
+	auto shared_jh = make_shared<TaskJoinHandle<size_t>>(
+		into_join_handle(reader.recvmsg_async(sock.handle(), &h->msg, static_cast<unsigned>(flags))));
 	shared_jh->control().set_on_ready_or_run([shared_src, shared_h, shared_jh]() noexcept {
 		try {
 			auto outcome = join(std::move(*shared_jh));
 			if (outcome.is_success()) {
-				(void)
-					shared_src->commit_success(Success<UdpRecvResult>{detail::holder_to_result(shared_h, outcome.success().value)});
+				(void)shared_src->try_set_value(
+					Success<UdpRecvResult>{detail::holder_to_result(shared_h, outcome.success().value)});
 			} else if (outcome.is_cancelled()) {
-				(void)shared_src->commit_cancelled(CancelReason::requested);
+				(void)shared_src->try_set_cancelled(CancelReason::requested);
 			} else {
-				(void)shared_src->commit_failure(std::move(outcome).failure().error);
+				(void)shared_src->try_set_exception(std::move(outcome).failure().error);
 			}
-		} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+		} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 	});
 	return std::move(task);
 }
@@ -238,7 +238,7 @@ export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom_with_time
 	auto *sqe_recv = ::io_uring_get_sqe(ring);
 	auto *sqe_to = sqe_recv != nullptr ? ::io_uring_get_sqe(ring) : nullptr;
 	if (sqe_recv == nullptr || sqe_to == nullptr) {
-		(void)shared_src->commit_failure(make_exception_ptr(UdpError{ENOSPC, "udp: SQ full"}));
+		(void)shared_src->try_set_exception(make_exception_ptr(UdpError{ENOSPC, "udp: SQ full"}));
 		return std::move(task);
 	}
 
@@ -259,16 +259,16 @@ export [[nodiscard]] conflux::work::root::Task<UdpRecvResult> recvfrom_with_time
 	auto [slot_recv, gen_recv] = completions->reserve([shared_src, h](IoResult r) mutable {
 		try {
 			if (r.res == -ECANCELED) {
-				(void)shared_src->commit_failure(make_exception_ptr(UdpError{ETIMEDOUT, "udp: recvfrom timed out"}));
+				(void)shared_src->try_set_exception(make_exception_ptr(UdpError{ETIMEDOUT, "udp: recvfrom timed out"}));
 				return;
 			}
 			if (r.res < 0) {
-				(void)shared_src->commit_failure(make_exception_ptr(UdpError{-r.res, "udp: recvfrom failed"}));
+				(void)shared_src->try_set_exception(make_exception_ptr(UdpError{-r.res, "udp: recvfrom failed"}));
 				return;
 			}
-			(void)shared_src->commit_success(
+			(void)shared_src->try_set_value(
 				Success<UdpRecvResult>{detail::holder_to_result(h, static_cast<size_t>(r.res))});
-		} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+		} catch (...) { (void)shared_src->try_set_exception(std::current_exception()); }
 	});
 	::io_uring_sqe_set_data64(sqe_recv, reader.encode_ud(slot_recv, gen_recv));
 

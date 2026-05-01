@@ -19,20 +19,20 @@ struct DriverCap : root::capability_id_from_address {};
 model_a::Chain<int> make_success(
 	int v) {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_success(root::Success<int>{v});
+	(void)src.try_set_value(root::Success<int>{v});
 	return model_a::from_task(std::move(task));
 }
 
 model_a::Chain<int> make_failure(
 	SV msg = "fail") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_failure(std::make_exception_ptr(std::runtime_error{S{msg}}));
+	(void)src.try_set_exception(std::make_exception_ptr(std::runtime_error{S{msg}}));
 	return model_a::from_task(std::move(task));
 }
 
 model_a::Chain<int> make_cancelled() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.commit_cancelled(root::CancelReason::requested);
+	(void)src.try_set_cancelled(root::CancelReason::requested);
 	return model_a::from_task(std::move(task));
 }
 
@@ -270,7 +270,7 @@ TEST_CASE(
 	OwnerCap owner{};
 	auto [posted, src] = root::make_posted_source<int>(owner);
 	auto jh = root::into_join_handle(std::move(posted));
-	REQUIRE(src.commit_success(root::Success<int>{10}));
+	REQUIRE(src.try_set_value(root::Success<int>{10}));
 
 	carrier::Scope scope{};
 	auto chain = scope.admit(owner, std::move(jh));
@@ -284,7 +284,7 @@ TEST_CASE(
 	OwnerCap owner{};
 	auto [posted, src] = root::make_posted_source<int>(owner);
 	auto jh = root::into_join_handle(std::move(posted));
-	REQUIRE(src.commit_success(root::Success<int>{10}));
+	REQUIRE(src.try_set_value(root::Success<int>{10}));
 
 	carrier::Scope scope{};
 	auto chain = scope.admit_unbound(owner, std::move(jh));
@@ -299,7 +299,7 @@ TEST_CASE(
 	OwnerCap const owner_b{};
 	auto [posted, src] = root::make_posted_source<int>(owner_a);
 	auto jh = root::into_join_handle(std::move(posted));
-	REQUIRE(src.commit_success(root::Success<int>{0}));
+	REQUIRE(src.try_set_value(root::Success<int>{0}));
 
 	carrier::Scope scope{};
 	auto chain = scope.admit(owner_a, std::move(jh));
@@ -312,7 +312,7 @@ TEST_CASE(
 	DriverCap driver{};
 	auto [op, src] = root::make_operation_source<int>(driver);
 	auto jh = root::into_join_handle(std::move(op));
-	REQUIRE(src.commit_success(root::Success<int>{20}));
+	REQUIRE(src.try_set_value(root::Success<int>{20}));
 
 	carrier::Scope scope{};
 	auto chain = scope.admit(driver, std::move(jh));
@@ -326,7 +326,7 @@ TEST_CASE(
 	DriverCap driver{};
 	auto [op, src] = root::make_operation_source<int>(driver);
 	auto jh = root::into_join_handle(std::move(op));
-	REQUIRE(src.commit_success(root::Success<int>{20}));
+	REQUIRE(src.try_set_value(root::Success<int>{20}));
 
 	carrier::Scope scope{};
 	auto chain = scope.admit_unbound(driver, std::move(jh));
@@ -339,7 +339,7 @@ TEST_CASE(
 	"[phase6e]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
-	REQUIRE(src.commit_success(root::Success<int>{5}));
+	REQUIRE(src.try_set_value(root::Success<int>{5}));
 
 	carrier::Scope scope{};
 	auto chain = scope.admit(std::move(jh));

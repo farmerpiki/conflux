@@ -301,14 +301,14 @@ public:
 		auto [task, src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false}, loc);
 		if (outcome_.is_success()) {
 			if constexpr (std::same_as<T, void>) {
-				(void)src.commit_success(root::Success<T>{});
+				(void)src.try_set_value(root::Success<T>{});
 			} else {
-				(void)src.commit_success(root::Success<T>{std::move(outcome_).success().value});
+				(void)src.try_set_value(root::Success<T>{std::move(outcome_).success().value});
 			}
 		} else if (outcome_.is_failure()) {
-			(void)src.commit_failure(outcome_.failure().error);
+			(void)src.try_set_exception(outcome_.failure().error);
 		} else {
-			(void)src.commit_cancelled(outcome_.cancelled().reason);
+			(void)src.try_set_cancelled(outcome_.cancelled().reason);
 		}
 		return std::move(task);
 	}
@@ -403,14 +403,14 @@ template<root::work_value T>
 	auto out = std::move(chain).release_outcome();
 	if (out.is_success()) {
 		if constexpr (std::same_as<T, void>) {
-			(void)src.commit_success(root::Success<void>{});
+			(void)src.try_set_value(root::Success<void>{});
 		} else {
-			(void)src.commit_success(root::Success<T>{std::move(out).success().value});
+			(void)src.try_set_value(root::Success<T>{std::move(out).success().value});
 		}
 	} else if (out.is_failure()) {
-		(void)src.commit_failure(std::move(out).failure().error);
+		(void)src.try_set_exception(std::move(out).failure().error);
 	} else {
-		(void)src.commit_cancelled(out.cancelled().reason);
+		(void)src.try_set_cancelled(out.cancelled().reason);
 	}
 	return std::move(task);
 }

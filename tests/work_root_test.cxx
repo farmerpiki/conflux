@@ -79,7 +79,7 @@ TEST_CASE(
 	"work.root: task join returns committed success",
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{42}));
+	REQUIRE(src.try_set_value(root::Success<int>{42}));
 	auto val = root::value(std::move(task));
 	CHECK(val == 42);
 }
@@ -105,7 +105,7 @@ TEST_CASE(
 		auto guard = root::guard_abandon(std::move(task));
 		task = std::move(guard).release();
 	}
-	REQUIRE(src.commit_success(root::Success<int>{17}));
+	REQUIRE(src.try_set_value(root::Success<int>{17}));
 	auto val17 = root::value(std::move(task));
 	CHECK(val17 == 17);
 }
@@ -276,7 +276,7 @@ TEST_CASE(
 	"[work.root]") {
 	{
 		auto [control, src] = root::make_task_control_source<int>();
-		REQUIRE(src.commit_success(root::Success<int>{1}));
+		REQUIRE(src.try_set_value(root::Success<int>{1}));
 		CHECK_FALSE(control.request_cancel());
 	}
 
@@ -332,7 +332,7 @@ TEST_CASE(
 	"[work.root]") {
 	DriverCap driver{};
 	auto [op, src] = root::make_operation_source<int>(driver);
-	REQUIRE(src.commit_success(root::Success<int>{9}));
+	REQUIRE(src.try_set_value(root::Success<int>{9}));
 	auto val9 = root::value(driver, std::move(op));
 	CHECK(val9 == 9);
 }
@@ -342,7 +342,7 @@ TEST_CASE(
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto h = root::into_join_handle(std::move(task));
-	REQUIRE(src.commit_success(root::Success<int>{11}));
+	REQUIRE(src.try_set_value(root::Success<int>{11}));
 	auto val11 = root::value(std::move(h));
 	CHECK(val11 == 11);
 }
@@ -373,7 +373,7 @@ TEST_CASE(
 			root::Cancelled const &) const noexcept {}
 	};
 	root::abandon_to(std::move(task), Sink{&saw_failure});
-	REQUIRE(src.commit_failure(std::make_exception_ptr(std::runtime_error{"boom"})));
+	REQUIRE(src.try_set_exception(std::make_exception_ptr(std::runtime_error{"boom"})));
 	CHECK(saw_failure.load(std::memory_order_acquire));
 }
 
@@ -381,7 +381,7 @@ TEST_CASE(
 	"work.root: late abandon_to runs sink on caller thread",
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_failure(std::make_exception_ptr(std::runtime_error{"late"})));
+	REQUIRE(src.try_set_exception(std::make_exception_ptr(std::runtime_error{"late"})));
 
 	std::thread::id seen{};
 	struct Sink {
@@ -428,7 +428,7 @@ TEST_CASE(
 	root::abandon_to(std::move(task), Sink{&seen_mtx, &seen, &done});
 
 	std::jthread const worker{[source = std::move(src)]() mutable {
-		(void)source.commit_failure(std::make_exception_ptr(std::runtime_error{"armed"}));
+		(void)source.try_set_exception(std::make_exception_ptr(std::runtime_error{"armed"}));
 	}};
 	auto worker_tid = worker.get_id();
 
@@ -555,7 +555,7 @@ TEST_CASE(
 	CHECK(!bool(handle)); // NOLINT(bugprone-use-after-move) — testing moved state
 	REQUIRE(bool(moved));
 
-	REQUIRE(src.commit_success(root::Success<int>{7}));
+	REQUIRE(src.try_set_value(root::Success<int>{7}));
 	auto out = root::join(std::move(moved));
 	CHECK(out.is_success());
 }
@@ -580,7 +580,7 @@ TEST_CASE(
 	CHECK(!result.rejected_fn);
 	CHECK(!fired.load());
 
-	REQUIRE(src.commit_success(root::Success<int>{42}));
+	REQUIRE(src.try_set_value(root::Success<int>{42}));
 	CHECK(fired.load());
 	auto out = root::join(std::move(handle));
 	REQUIRE(out.is_success());
@@ -592,7 +592,7 @@ TEST_CASE(
 	"[work.root][r2]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto handle = root::into_join_handle(std::move(task));
-	REQUIRE(src.commit_success(root::Success<int>{7}));
+	REQUIRE(src.try_set_value(root::Success<int>{7}));
 
 	auto ctrl = handle.control();
 	std::atomic<bool> fired{false};
@@ -622,7 +622,7 @@ TEST_CASE(
 	REQUIRE(r2.status == root::ReadyRegistration::already_installed);
 	REQUIRE(bool(r2.rejected_fn));
 
-	REQUIRE(src.commit_success(root::Success<int>{1}));
+	REQUIRE(src.try_set_value(root::Success<int>{1}));
 	CHECK(count.load() == 1);
 
 	root::abandon_to(std::move(handle), root::drop_on_abandon{});
@@ -642,7 +642,7 @@ TEST_CASE(
 	auto cs = ctrl.clear_on_ready();
 	REQUIRE(cs == root::ClearOnReadyStatus::cleared);
 
-	REQUIRE(src.commit_success(root::Success<int>{3}));
+	REQUIRE(src.try_set_value(root::Success<int>{3}));
 	CHECK(!fired.load());
 
 	auto out = root::join(std::move(handle));
@@ -655,7 +655,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	auto handle = root::into_join_handle(std::move(task));
 	auto ctrl = handle.control();
-	REQUIRE(src.commit_success(root::Success<int>{5}));
+	REQUIRE(src.try_set_value(root::Success<int>{5}));
 
 	auto cs = ctrl.clear_on_ready();
 	CHECK(cs == root::ClearOnReadyStatus::already_terminal);
@@ -679,7 +679,7 @@ TEST_CASE(
 	"work.root: R2 set_on_ready_or_run fires inline when already ready",
 	"[work.root][r2]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{9}));
+	REQUIRE(src.try_set_value(root::Success<int>{9}));
 	auto handle = root::into_join_handle(std::move(task));
 	auto ctrl = handle.control();
 

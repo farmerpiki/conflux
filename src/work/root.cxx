@@ -979,9 +979,13 @@ template<work_value T>
 class ControlBlockInterface : public ControlBlockBase {
 public:
 	virtual void set_required_capability(CapabilityId id) noexcept = 0;
-	[[nodiscard]] virtual bool commit_success(Success<T> success) = 0;
-	[[nodiscard]] virtual bool commit_failure(std::exception_ptr error) = 0;
-	[[nodiscard]] virtual bool commit_cancelled(CancelReason reason, bool allow_abandoned) noexcept = 0;
+	[[nodiscard]] virtual bool try_set_value(Success<T> success) = 0;
+	[[nodiscard]] virtual bool try_set_exception(std::exception_ptr error) = 0;
+	[[nodiscard]] virtual bool try_set_error(
+		std::error_code ec) {
+		return try_set_exception(std::make_exception_ptr(std::system_error(ec)));
+	}
+	[[nodiscard]] virtual bool try_set_cancelled(CancelReason reason, bool allow_abandoned) noexcept = 0;
 	[[nodiscard]] virtual Outcome<T> wait_and_take_outcome() = 0;
 	virtual void install_abandon_sink(small_move_only_function<void(Outcome<T> const &)> sink) noexcept = 0;
 	[[nodiscard]] virtual AbandonStatus
@@ -1212,7 +1216,7 @@ public:
 		return true;
 	}
 
-	[[nodiscard]] bool commit_success(
+	[[nodiscard]] bool try_set_value(
 		Success<T> success) override {
 		if (!try_claim_terminal()) {
 			return false;
@@ -1231,7 +1235,7 @@ public:
 		return true;
 	}
 
-	[[nodiscard]] bool commit_failure(
+	[[nodiscard]] bool try_set_exception(
 		std::exception_ptr error) override {
 		if (!try_claim_terminal()) {
 			return false;
@@ -1250,7 +1254,7 @@ public:
 		return true;
 	}
 
-	[[nodiscard]] bool commit_cancelled(
+	[[nodiscard]] bool try_set_cancelled(
 		CancelReason reason,
 		bool allow_abandoned) noexcept override {
 		if (!allow_abandoned && reason == CancelReason::abandoned) {
@@ -1608,7 +1612,7 @@ public:
 		return true;
 	}
 
-	[[nodiscard]] bool commit_success(
+	[[nodiscard]] bool try_set_value(
 		Success<void> success = Success<void>{}) noexcept override {
 		if (!try_claim_terminal()) {
 			return false;
@@ -1627,7 +1631,7 @@ public:
 		return true;
 	}
 
-	[[nodiscard]] bool commit_failure(
+	[[nodiscard]] bool try_set_exception(
 		std::exception_ptr error) override {
 		if (!try_claim_terminal()) {
 			return false;
@@ -1646,7 +1650,7 @@ public:
 		return true;
 	}
 
-	[[nodiscard]] bool commit_cancelled(
+	[[nodiscard]] bool try_set_cancelled(
 		CancelReason reason,
 		bool allow_abandoned) noexcept override {
 		if (!allow_abandoned && reason == CancelReason::abandoned) {
@@ -1900,23 +1904,28 @@ public:
 
 	~BasicSource() noexcept {
 		if (state_) {
-			(void)state_->commit_cancelled(CancelReason::abandoned, true);
+			(void)state_->try_set_cancelled(CancelReason::abandoned, true);
 		}
 	}
 
-	[[nodiscard]] bool commit_success(
+	[[nodiscard]] bool try_set_value(
 		Success<T> value) {
-		return state_ ? state_->commit_success(std::move(value)) : false;
+		return state_ ? state_->try_set_value(std::move(value)) : false;
 	}
 
-	[[nodiscard]] bool commit_failure(
+	[[nodiscard]] bool try_set_exception(
 		std::exception_ptr error) {
-		return state_ ? state_->commit_failure(error) : false;
+		return state_ ? state_->try_set_exception(error) : false;
 	}
 
-	[[nodiscard]] bool commit_cancelled(
+	[[nodiscard]] bool try_set_cancelled(
 		CancelReason reason) noexcept {
-		return state_ ? state_->commit_cancelled(reason, false) : false;
+		return state_ ? state_->try_set_cancelled(reason, false) : false;
+	}
+
+	[[nodiscard]] bool try_set_error(
+		std::error_code ec) {
+		return state_ ? state_->try_set_error(ec) : false;
 	}
 
 	[[nodiscard]] bool install_cancel_hook(
@@ -1966,23 +1975,28 @@ public:
 
 	~BasicSource() noexcept {
 		if (state_) {
-			(void)state_->commit_cancelled(CancelReason::abandoned, true);
+			(void)state_->try_set_cancelled(CancelReason::abandoned, true);
 		}
 	}
 
-	[[nodiscard]] bool commit_success(
+	[[nodiscard]] bool try_set_value(
 		Success<void> value = Success<void>{}) noexcept {
-		return state_ ? state_->commit_success(value) : false;
+		return state_ ? state_->try_set_value(value) : false;
 	}
 
-	[[nodiscard]] bool commit_failure(
+	[[nodiscard]] bool try_set_exception(
 		std::exception_ptr const &error) {
-		return state_ ? state_->commit_failure(error) : false;
+		return state_ ? state_->try_set_exception(error) : false;
 	}
 
-	[[nodiscard]] bool commit_cancelled(
+	[[nodiscard]] bool try_set_cancelled(
 		CancelReason reason) noexcept {
-		return state_ ? state_->commit_cancelled(reason, false) : false;
+		return state_ ? state_->try_set_cancelled(reason, false) : false;
+	}
+
+	[[nodiscard]] bool try_set_error(
+		std::error_code ec) {
+		return state_ ? state_->try_set_error(ec) : false;
 	}
 
 	[[nodiscard]] bool install_cancel_hook(
@@ -2356,6 +2370,19 @@ template<class Fn>
 	return require_join(spawn(std::forward<Fn>(fn), loc), loc);
 }
 
+// [REVISIT] Collapse BasicResult/BasicJoinHandle?
+// [option] Rename to BasicJoinHandle (join-by-default, explicit abandon())
+//   Pros: RAII-safe defaults (prevents leaked/corrupted task state),
+//         explicit detach intent, predictable cleanup,
+//         aligns with executor best practices.
+//   Cons: Slightly verbose for fire-and-forget, requires
+//         drop-panic/warn discipline, breaks legacy auto-detach
+//         expectations.
+// [option] Keep separate (JoinHandle awaits → yields Result)
+//   Pros: Zero runtime overhead, clean separation (lifecycle vs. output),
+//         matches tokio/async-std patterns, compile-time correctness.
+//   Cons: Two types, requires understanding the join() → Result
+//         relationship.
 template<work_value T, ControlCategory Category>
 class BasicJoinHandle {
 	SP<detail::ControlBlockInterface<T>> state_{};
@@ -2402,6 +2429,8 @@ class BasicJoinHandle {
 	into_join_handle(BasicResult<U, ControlCategory::operation> &&) noexcept;
 
 public:
+	using value_type = T;
+
 	BasicJoinHandle() = default;
 	BasicJoinHandle(
 		BasicJoinHandle &&other) noexcept
@@ -2442,6 +2471,9 @@ using PostedJoinHandle = BasicJoinHandle<T, ControlCategory::posted>;
 
 template<work_value T>
 using OperationJoinHandle = BasicJoinHandle<T, ControlCategory::operation>;
+
+template<class H>
+concept work_handle = work_value<typename H::value_type> && requires(H const &h) { h.control(); };
 
 template<class Sink, work_value T>
 [[nodiscard]] detail::small_move_only_function<void(Outcome<T> const &)> make_abandon_dispatch_sink(

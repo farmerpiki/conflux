@@ -25,7 +25,7 @@ TEST_CASE(
 	"[phase4]") {
 	OwnerCap owner{};
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{1}));
+	REQUIRE(src.try_set_value(root::Success<int>{1}));
 
 	auto chain = model_a::from_task(std::move(task));
 	CHECK(chain.bound_capability().address == nullptr);
@@ -44,7 +44,7 @@ TEST_CASE(
 	"[phase4]") {
 	DriverCap driver{};
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{2}));
+	REQUIRE(src.try_set_value(root::Success<int>{2}));
 
 	auto chain = model_a::from_task(std::move(task));
 	auto hopped = model_a::hop_to_operation(driver, std::move(chain));
@@ -61,7 +61,7 @@ TEST_CASE(
 	"[phase4]") {
 	OwnerCap const owner{};
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{3}));
+	REQUIRE(src.try_set_value(root::Success<int>{3}));
 
 	auto chain = model_a::from_task(std::move(task));
 	CHECK_NOTHROW(model_a::verify_hop(owner, chain));
@@ -72,7 +72,7 @@ TEST_CASE(
 	"[phase4]") {
 	OwnerCap owner{};
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{4}));
+	REQUIRE(src.try_set_value(root::Success<int>{4}));
 
 	auto chain = model_a::hop_to_posted(owner, model_a::from_task(std::move(task)));
 	CHECK_NOTHROW(model_a::verify_hop(owner, chain));
@@ -84,7 +84,7 @@ TEST_CASE(
 	OwnerCap owner_a{};
 	OwnerCap const owner_b{};
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{5}));
+	REQUIRE(src.try_set_value(root::Success<int>{5}));
 
 	auto chain = model_a::hop_to_posted(owner_a, model_a::from_task(std::move(task)));
 	CHECK_THROWS_AS(model_a::verify_hop(owner_b, chain), model_a::HopCapabilityError);
@@ -96,7 +96,7 @@ TEST_CASE(
 	OwnerCap owner_a{};
 	OwnerCap const owner_b{};
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{6}));
+	REQUIRE(src.try_set_value(root::Success<int>{6}));
 
 	auto chain = model_a::hop_to_posted(owner_a, model_a::from_task(std::move(task)));
 	CHECK_THROWS_AS(model_a::verify_hop(owner_b, chain), root::JoinError);
@@ -112,7 +112,7 @@ TEST_CASE(
 	OwnerCap owner_a{};
 	OwnerCap owner_b{};
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{7}));
+	REQUIRE(src.try_set_value(root::Success<int>{7}));
 
 	auto c0 = model_a::from_task(std::move(task));
 	auto c1 = model_a::hop_to_posted(owner_a, std::move(c0));
@@ -132,7 +132,7 @@ TEST_CASE(
 	"[phase4]") {
 	OwnerCap owner{};
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.commit_success(root::Success<int>{8}));
+	REQUIRE(src.try_set_value(root::Success<int>{8}));
 
 	auto hopped = model_a::hop_to_posted(owner, model_a::from_task(std::move(task)));
 	CHECK(hopped.bound_capability().address != nullptr);
@@ -152,8 +152,8 @@ TEST_CASE(
 	OwnerCap owner{};
 	auto [ta, sa] = root::make_task_source<int>();
 	auto [tb, sb] = root::make_task_source<int>();
-	REQUIRE(sa.commit_success(root::Success<int>{1}));
-	REQUIRE(sb.commit_success(root::Success<int>{2}));
+	REQUIRE(sa.try_set_value(root::Success<int>{1}));
+	REQUIRE(sb.try_set_value(root::Success<int>{2}));
 
 	auto ca = model_a::hop_to_posted(owner, model_a::from_task(std::move(ta)));
 	auto cb = model_a::hop_to_posted(owner, model_a::from_task(std::move(tb)));
@@ -172,8 +172,8 @@ TEST_CASE(
 	OwnerCap owner{};
 	auto [ta, sa] = root::make_task_source<int>();
 	auto [tb, sb] = root::make_task_source<int>();
-	REQUIRE(sa.commit_success(root::Success<int>{10}));
-	REQUIRE(sb.commit_failure(std::make_exception_ptr(std::runtime_error{"lose"})));
+	REQUIRE(sa.try_set_value(root::Success<int>{10}));
+	REQUIRE(sb.try_set_exception(std::make_exception_ptr(std::runtime_error{"lose"})));
 
 	auto ca = model_a::hop_to_posted(owner, model_a::from_task(std::move(ta)));
 	auto cb = model_a::from_task(std::move(tb));
@@ -188,8 +188,8 @@ TEST_CASE(
 	OwnerCap owner{};
 	auto [ta, sa] = root::make_task_source<int>();
 	auto [tb, sb] = root::make_task_source<int>();
-	REQUIRE(sa.commit_failure(std::make_exception_ptr(std::runtime_error{"lose"})));
-	REQUIRE(sb.commit_success(root::Success<int>{20}));
+	REQUIRE(sa.try_set_exception(std::make_exception_ptr(std::runtime_error{"lose"})));
+	REQUIRE(sb.try_set_value(root::Success<int>{20}));
 
 	auto ca = model_a::hop_to_posted(owner, model_a::from_task(std::move(ta)));
 	auto cb = model_a::from_task(std::move(tb));
