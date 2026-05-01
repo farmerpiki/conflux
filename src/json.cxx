@@ -2758,6 +2758,12 @@ struct TreeBuilder {
 	storage->nodes.reserve(reserve_n);
 	storage->array_children.reserve(reserve_n);
 	storage->object_members.reserve(reserve_n);
+	// Reserve string_arena up-front so it never reallocates mid-parse.
+	// The dedup hash set in parse_object stores SVs into string_arena;
+	// any realloc would dangle them (TSan UAF, json.cxx:2598). Decoded
+	// strings are always ≤ input size (escapes only ever shrink), so the
+	// input length is a safe upper bound.
+	storage_ref.string_arena.reserve(storage_ref.input_view.size());
 
 	TreeBuilder tb{
 		.tok =
