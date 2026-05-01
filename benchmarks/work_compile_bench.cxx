@@ -1,6 +1,7 @@
 import std;
 import conflux.types;
 import conflux.work.root;
+import bench_common;
 #if CONFLUX_WORK_CARRIER_MODEL_A
 import conflux.work.carrier.model_a;
 #endif
@@ -48,4 +49,9 @@ auto chain_b_10stage(
 }
 #endif
 
-int main() {}
+int main(
+	int argc,
+	char **argv) {
+	bench_info_if_requested(argc, argv,
+		R"({"name":"work_compile","parser":"standard","configs":[]})");
+}
