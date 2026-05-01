@@ -48,7 +48,7 @@ struct Stats {
 	double ns_per_iter{};
 };
 
-using BenchFn = root::detail::MoveOnlyFunction<SZ()>;
+using BenchFn = root::detail::small_move_only_function<SZ()>;
 
 struct Case {
 	SV name;
@@ -582,6 +582,31 @@ Case make_root_abandon_sink_case() {
 		}};
 }
 
+Case make_root_small_fn_inline_case() {
+	return Case{
+		.name = "root/small_fn_inline",
+		.description = "small_move_only_function<SZ()> inline storage path",
+		.default_iterations = 500'000,
+		.run = [] {
+			using Fn = root::detail::small_move_only_function<SZ()>;
+			Fn fn = [] { return SZ{1}; };
+			return fn();
+		}};
+}
+
+Case make_root_small_fn_heap_case() {
+	return Case{
+		.name = "root/small_fn_heap",
+		.description = "small_move_only_function<SZ()> heap allocation path (large capture)",
+		.default_iterations = 500'000,
+		.run = [] {
+			using Fn = root::detail::small_move_only_function<SZ()>;
+			A<SZ, 8> big{};
+			Fn fn = [big] { return big[0]; };
+			return fn();
+		}};
+}
+
 template<typename Fn>
 Case make_callable_erasure_case(
 	SV name,
@@ -959,26 +984,28 @@ V<Case> make_cases() {
 	cases.push_back(make_root_operation_control_cancel_hook_case(true));
 	cases.push_back(make_root_operation_control_cancel_hook_case(false));
 	cases.push_back(make_root_abandon_sink_case());
+	cases.push_back(make_root_small_fn_inline_case());
+	cases.push_back(make_root_small_fn_heap_case());
 	cases.push_back(
-		make_callable_erasure_case<root::detail::MoveOnlyFunction<void(root::CancelReason)>>(
+		make_callable_erasure_case<root::detail::small_move_only_function<void(root::CancelReason)>>(
 			"root/callable_erasure_custom",
-			"construct + move + invoke root::detail::MoveOnlyFunction"));
+			"construct + move + invoke root::detail::small_move_only_function"));
 	cases.push_back(
-		make_callable_erasure_case<root::detail::MoveOnlyFunction<void(root::CancelReason), 24>>(
+		make_callable_erasure_case<root::detail::small_move_only_function<void(root::CancelReason), 24>>(
 			"root/callable_erasure_custom_inline24",
-			"construct + move + invoke root::detail::MoveOnlyFunction<...,24>"));
+			"construct + move + invoke root::detail::small_move_only_function<...,24>"));
 	cases.push_back(
-		make_callable_erasure_case<root::detail::MoveOnlyFunction<void(root::CancelReason), 32>>(
+		make_callable_erasure_case<root::detail::small_move_only_function<void(root::CancelReason), 32>>(
 			"root/callable_erasure_custom_inline32",
-			"construct + move + invoke root::detail::MoveOnlyFunction<...,32>"));
+			"construct + move + invoke root::detail::small_move_only_function<...,32>"));
 	cases.push_back(
 		make_callable_erasure_case<Fn<void(root::CancelReason)>>(
 			"root/callable_erasure_std_function",
 			"construct + move + invoke Fn baseline"));
 	cases.push_back(
-		make_callable_erasure_capture_case<root::detail::MoveOnlyFunction<void(root::CancelReason)>, 3>(
+		make_callable_erasure_capture_case<root::detail::small_move_only_function<void(root::CancelReason)>, 3>(
 			"root/callable_erasure_custom_capture24",
-			"capture24 + construct + move + invoke root::detail::MoveOnlyFunction"));
+			"capture24 + construct + move + invoke root::detail::small_move_only_function"));
 	cases.push_back(
 		make_callable_erasure_capture_case<Fn<void(root::CancelReason)>, 3>(
 			"root/callable_erasure_std_function_capture24",

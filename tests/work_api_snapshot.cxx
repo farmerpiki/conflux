@@ -25,9 +25,7 @@ using _Task_outer = ::Task<int>;
 using _FlowSource_int = ::FlowSource<int>;
 using _TaskPromise_int = ::TaskPromise<int>;
 
-// Function erasure (internal SBO implementation — exported for internal use)
-using _UniqueFn_void = work_detail::UniqueFn<void()>;
-using _UniqueFn_int = work_detail::UniqueFn<int(int)>;
+// E2a: UniqueFn retired → detail::small_move_only_function; BufferView alias deleted.
 
 // Outer Cancelled (different from root::Cancelled)
 using _Cancelled_outer = ::Cancelled;
@@ -47,14 +45,12 @@ using _MoveToStep_ = ::MoveToStep<T>;
 template<class T>
 using _StartOnStep_ = ::StartOnStep<T>;
 
-// BufferView alias
-using _BufferView_byte = ::BufferView<std::byte>;
-
 // Concrete types
 using _WorkPoolOptions = ::WorkPoolOptions;
 using _RingLaneOptions = ::RingLaneOptions;
 using _WorkError_enum = ::WorkError; // outer enum, distinct from root::WorkError class
 using _IoBuffer = ::IoBuffer;
+static_assert(std::is_constructible_v<::IoBuffer, std::shared_ptr<std::byte const[]>, std::size_t>);
 using _BufferList = ::BufferList;
 using _IoPlan = ::IoPlan;
 using _WorkPool = ::WorkPool;
@@ -131,6 +127,10 @@ using _ClearOnReadyStatus = root::ClearOnReadyStatus;
 // detail enums (inside root::detail)
 using _TerminalState = root::detail::TerminalState;
 using _ReadyHookState = root::detail::ReadyHookState;
+
+// E2a: SBO move-only callable (exported from root::detail for internal reuse)
+using _small_move_only_fn_void = root::detail::small_move_only_function<void()>;
+using _small_move_only_fn_int = root::detail::small_move_only_function<int(int), 64>;
 
 // Exception / error types
 using _WorkError_class = root::WorkError; // class (distinct from outer WorkError enum)

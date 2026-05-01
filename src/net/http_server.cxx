@@ -43,6 +43,8 @@ import conflux.net.http2;
 import conflux.net.http3;
 #endif
 
+namespace detail = conflux::work::root::detail;
+
 #if CONFLUX_HAS_TLS
 namespace {
 
@@ -727,7 +729,7 @@ struct Ring {
 	// a flush. Drained at the top of each run_loop iteration (after CQE reap
 	// frees SQ slots). Each thunk re-invokes the original queue_* path so
 	// conn state (gen, buffers) is re-read at replay time.
-	deque<work_detail::UniqueFn<void()>> pending_ops{};
+	deque<detail::small_move_only_function<void()>> pending_ops{};
 
 	Router const *router = nullptr; // set before init(); not owned
 	VHostRouter const *vhost_router = nullptr; // set before init(); not owned
@@ -1475,7 +1477,7 @@ struct Ring {
 	// Defer an op whose SQE allocation failed. Replayed from run_loop once
 	// the CQE reap frees ring capacity.
 	void defer_op(
-		work_detail::UniqueFn<void()> op) {
+		detail::small_move_only_function<void()> op) {
 		pending_ops.push_back(move(op));
 	}
 
@@ -2052,7 +2054,7 @@ struct Ring {
 				::setsockopt(res, IPPROTO_TCP, TCP_NODELAY, &tcp_opt_one_, sizeof tcp_opt_one_);
 				::setsockopt(res, IPPROTO_TCP, TCP_QUICKACK, &tcp_opt_one_, sizeof tcp_opt_one_);
 			} else {
-				for (int opt: {TCP_NODELAY, TCP_QUICKACK}) {
+				for (int const opt: {TCP_NODELAY, TCP_QUICKACK}) {
 					auto *sqe = get_sqe();
 					io_uring_prep_cmd_sock(
 						sqe,

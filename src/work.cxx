@@ -14,6 +14,8 @@ import std;
 import conflux.types;
 export import conflux.work.root;
 
+namespace detail = conflux::work::root::detail;
+
 export struct Cancelled final : RE {
 	Cancelled()
 		: RE{"work cancelled"} {}
@@ -56,60 +58,6 @@ inline int futex_wake_private(
 template<typename T>
 using StoredValue = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
 
-export template<typename Signature>
-class UniqueFn;
-
-template<typename R, typename... Args>
-class UniqueFn<R(Args...)> {
-	struct Erased {
-		virtual ~Erased() = default;
-		virtual R call(Args &&...args) = 0;
-	};
-
-	template<typename Fn>
-	struct Model final : Erased {
-		Fn fn;
-
-		explicit Model(
-			Fn input)
-			: fn{move(input)} {}
-
-		R call(
-			Args &&...args) override {
-			if constexpr (std::is_void_v<R>) {
-				invoke(fn, forward<Args>(args)...);
-			} else {
-				return invoke(fn, forward<Args>(args)...);
-			}
-		}
-	};
-
-	UP<Erased> erased_{};
-
-public:
-	UniqueFn() = default;
-	UniqueFn(
-		nullptr_t) {}
-	UniqueFn(UniqueFn &&) noexcept = default;
-	UniqueFn &operator =(UniqueFn &&) noexcept = default;
-	UniqueFn(UniqueFn const &) = delete;
-	UniqueFn &operator =(UniqueFn const &) = delete;
-
-	template<typename Fn>
-		requires(!same_as<std::remove_cvref_t<Fn>, UniqueFn>)
-	UniqueFn(
-		Fn &&fn)
-		: erased_{make_unique<Model<std::remove_cvref_t<Fn>>>(forward<Fn>(fn))} {}
-
-	[[nodiscard]] explicit operator bool() const noexcept { return static_cast<bool>(erased_); }
-
-	R operator ()(
-		Args... args) {
-		assert(erased_);
-		return erased_->call(forward<Args>(args)...);
-	}
-};
-
 enum class OutcomeTag : u8 {
 	value,
 	error,
@@ -129,7 +77,7 @@ struct Outcome<void> {
 };
 
 template<typename T>
-using Continuation = UniqueFn<void(Outcome<T> &&)>;
+using Continuation = detail::small_move_only_function<void(Outcome<T> &&)>;
 
 template<typename T>
 struct State {
@@ -232,7 +180,7 @@ void attach(
 class QueueTarget {
 public:
 	virtual ~QueueTarget() = default;
-	virtual bool enqueue(UniqueFn<void()> job) = 0;
+	virtual bool enqueue(detail::small_move_only_function<void()> job) = 0;
 };
 
 template<typename T>
@@ -252,7 +200,7 @@ using FlowValue = typename std::remove_cvref_t<T>::value_type;
 
 class DetachedErrors {
 	mutex mtx_;
-	UniqueFn<void(EP)> handler_{[](EP error) {
+	detail::small_move_only_function<void(EP)> handler_{[](EP error) {
 		try {
 			rethrow_exception(error);
 		} catch (exception const &ex) { println(cerr, "conflux.work detached error: {}", ex.what()); } catch (...) {
@@ -273,7 +221,7 @@ public:
 	}
 
 	void set_handler(
-		UniqueFn<void(EP)> handler) {
+		detail::small_move_only_function<void(EP)> handler) {
 		SL const lk{mtx_};
 		handler_ = move(handler);
 	}
@@ -544,9 +492,6 @@ export enum class WorkError : u8 {
 	owner_violation,
 };
 
-export template<typename T>
-using BufferView = span<T const>;
-
 export struct IoBuffer {
 	span<byte const> bytes{};
 	SP<void const> owner{};
@@ -555,6 +500,11 @@ export struct IoBuffer {
 	explicit IoBuffer(
 		span<byte const> view)
 		: bytes{view} {}
+	IoBuffer(
+		std::shared_ptr<std::byte const[]> owned_bytes,
+		std::size_t size)
+		: bytes{owned_bytes.get(), size}
+		, owner{owned_bytes, static_cast<void const *>(owned_bytes.get())} {}
 
 	[[nodiscard]] static IoBuffer from_string(
 		S value) {
@@ -583,25 +533,26 @@ export struct IoPlan {
 	};
 
 	Kind kind = Kind::callback;
-	work_detail::UniqueFn<void()> callback{};
+	detail::small_move_only_function<void()> callback{};
 
 	[[nodiscard]] static IoPlan call(
-		work_detail::UniqueFn<void()> fn) {
+		detail::small_move_only_function<void()> fn) {
 		return IoPlan{.kind = Kind::callback, .callback = move(fn)};
 	}
 };
 
 export class WorkPool final : public work_detail::QueueTarget {
-	struct alignas(64) Worker {
+	struct alignas(
+		64) Worker {
 		mutex mtx;
-		deque<work_detail::UniqueFn<void()>> local{};
+		deque<detail::small_move_only_function<void()>> local{};
 		jthread thread{};
 	};
 
 	WorkPoolOptions options_{};
 	V<UP<Worker>> workers_{};
 	mutex inject_mtx_{};
-	deque<work_detail::UniqueFn<void()>> inject_{};
+	deque<detail::small_move_only_function<void()>> inject_{};
 	Atom<u32> wake_epoch_{0};
 	Atom<SZ> pending_{0};
 	atomic_flag stopping_{};
@@ -624,7 +575,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 	}
 
 	[[nodiscard]] bool push_local(
-		work_detail::UniqueFn<void()> job) {
+		detail::small_move_only_function<void()> job) {
 		auto &worker = *workers_[tls_worker_];
 		SL const lk{worker.mtx};
 		if (worker.local.size() >= options_.local_queue_capacity) {
@@ -636,7 +587,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 	}
 
 	[[nodiscard]] bool push_inject(
-		work_detail::UniqueFn<void()> job) {
+		detail::small_move_only_function<void()> job) {
 		SL const lk{inject_mtx_};
 		if (inject_.size() >= options_.max_inject_queue) {
 			return false;
@@ -646,7 +597,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		return true;
 	}
 
-	[[nodiscard]] Opt<work_detail::UniqueFn<void()>> pop_local(
+	[[nodiscard]] Opt<detail::small_move_only_function<void()>> pop_local(
 		SZ index) {
 		auto &worker = *workers_[index];
 		SL const lk{worker.mtx};
@@ -658,7 +609,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		return job;
 	}
 
-	[[nodiscard]] Opt<work_detail::UniqueFn<void()>> pop_inject() {
+	[[nodiscard]] Opt<detail::small_move_only_function<void()>> pop_inject() {
 		SL const lk{inject_mtx_};
 		if (inject_.empty()) {
 			return std::nullopt;
@@ -668,7 +619,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		return job;
 	}
 
-	[[nodiscard]] Opt<work_detail::UniqueFn<void()>> steal_work(
+	[[nodiscard]] Opt<detail::small_move_only_function<void()>> steal_work(
 		SZ thief) {
 		for (SZ offset = 1; offset < workers_.size(); ++offset) {
 			SZ const victim_index = (thief + offset) % workers_.size();
@@ -775,7 +726,7 @@ public:
 	WorkPool &operator =(WorkPool &&) = delete;
 
 	[[nodiscard]] bool enqueue(
-		work_detail::UniqueFn<void()> job) override {
+		detail::small_move_only_function<void()> job) override {
 		if (stopping_.test(memory_order_acquire)) {
 			return false;
 		}
@@ -810,7 +761,7 @@ public:
 export class RingLane final : public work_detail::QueueTarget {
 	RingLaneOptions options_{};
 	mutex mtx_{};
-	deque<work_detail::UniqueFn<void()>> queue_{};
+	deque<detail::small_move_only_function<void()>> queue_{};
 	atomic_flag stopped_{};
 	atomic_flag wake_pending_{};
 	thread::id owner_{std::this_thread::get_id()};
@@ -827,7 +778,7 @@ export class RingLane final : public work_detail::QueueTarget {
 	}
 
 	void run_inline(
-		work_detail::UniqueFn<void()> job) {
+		detail::small_move_only_function<void()> job) {
 		try {
 			job();
 		} catch (...) {} // NOLINT(bugprone-empty-catch)
@@ -839,7 +790,7 @@ public:
 		: options_{move(options)} {}
 
 	[[nodiscard]] bool enqueue(
-		work_detail::UniqueFn<void()> job) override {
+		detail::small_move_only_function<void()> job) override {
 		if (stopped_.test(memory_order_acquire)) {
 			return false;
 		}
@@ -872,7 +823,7 @@ public:
 		SZ ran = 0;
 		SZ const budget = options_.drain_budget == 0 ? NL<SZ>::max() : options_.drain_budget;
 		while (ran < budget) {
-			work_detail::UniqueFn<void()> job;
+			detail::small_move_only_function<void()> job;
 			{
 				SL const lk{mtx_};
 				if (queue_.empty()) {
@@ -924,8 +875,7 @@ struct [[deprecated("use conflux::work::root::make_task_source<T>()")]] ValueTag
 	}
 };
 
-[[deprecated("use conflux::work::root::make_task_source<T>()")]]
-inline constexpr ValueTag value{};
+[[deprecated("use conflux::work::root::make_task_source<T>()")]] inline constexpr ValueTag value{};
 
 template<typename Fn>
 struct ThenStep {
@@ -1316,29 +1266,29 @@ void spawn(
 } // namespace work_detail
 
 export template<typename Target, typename Fn>
-	[[nodiscard]] auto run_on_task(
-		Target &target,
-		Fn &&fn) {
-		using fn_t = std::decay_t<Fn>;
-		using T = std::invoke_result_t<fn_t &>;
-		using namespace conflux::work::root;
-		auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
-		auto shared_src = std::make_shared<TaskSource<T>>(std::move(src));
-		auto job = [shared_src, fn = fn_t{forward<Fn>(fn)}]() mutable {
-			try {
-				if constexpr (std::is_void_v<T>) {
-					fn();
-					(void)shared_src->commit_success(Success<T>{});
-				} else {
-					(void)shared_src->commit_success(Success<T>{fn()});
-				}
-			} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
-		};
-		if (!target.enqueue(std::move(job))) {
-			(void)shared_src->commit_cancelled(CancelReason::requested);
-		}
-		return std::move(task);
+[[nodiscard]] auto run_on_task(
+	Target &target,
+	Fn &&fn) {
+	using fn_t = std::decay_t<Fn>;
+	using T = std::invoke_result_t<fn_t &>;
+	using namespace conflux::work::root;
+	auto [task, src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
+	auto shared_src = std::make_shared<TaskSource<T>>(std::move(src));
+	auto job = [shared_src, fn = fn_t{forward<Fn>(fn)}]() mutable {
+		try {
+			if constexpr (std::is_void_v<T>) {
+				fn();
+				(void)shared_src->commit_success(Success<T>{});
+			} else {
+				(void)shared_src->commit_success(Success<T>{fn()});
+			}
+		} catch (...) { (void)shared_src->commit_failure(std::current_exception()); }
+	};
+	if (!target.enqueue(std::move(job))) {
+		(void)shared_src->commit_cancelled(CancelReason::requested);
 	}
+	return std::move(task);
+}
 
 export template<typename... Ts>
 [[nodiscard, deprecated("use conflux::work::Task<T> (root-backed)")]] auto join_all(
@@ -1349,8 +1299,7 @@ export template<typename... Ts>
 // Synchronous blocking wait for a root::Task<T> — no FileReader required.
 // Useful when the task completes on a thread pool (not io_uring).
 export template<typename T>
-[[deprecated("use conflux::work::root::join() + Outcome<T>")]]
-T sync_wait(
+[[deprecated("use conflux::work::root::join() + Outcome<T>")]] T sync_wait(
 	conflux::work::root::Task<T> task) {
 	using namespace conflux::work::root;
 	auto outcome = join(into_join_handle(std::move(task)));
@@ -1488,8 +1437,7 @@ Task<T> TaskPromiseBase<T>::get_return_object() {
 }
 
 export template<typename T>
-[[deprecated("use conflux::work::Task<T>::detach()")]]
-void co_spawn(
+[[deprecated("use conflux::work::Task<T>::detach()")]] void co_spawn(
 	Task<T> task) {
 	work_detail::spawn(move(task).flow());
 }
@@ -1554,8 +1502,8 @@ using Outcome = root::Outcome<T>;
 
 using CancelReason = root::CancelReason;
 
-using root::make_task_source;
 using root::join;
+using root::make_task_source;
 
 } // namespace conflux::work
 
@@ -1566,15 +1514,15 @@ export template<typename... Ts>
 	using namespace conflux::work::root;
 	auto [root_task, src] = make_task_source<Result>(SubmitOptions{.enable_cancellation = false});
 	auto shared_src = std::make_shared<TaskSource<Result>>(std::move(src));
-	co_spawn([](SP<TaskSource<Result>> src,
-				 decltype(work_detail::join_all(task_as_flow(std::move(tasks))...)) inner)
-				 -> ::Task<void> {
-		try {
-			auto val = co_await std::move(inner);
-			(void)src->commit_success(Success<Result>{std::move(val)});
-		} catch (::Cancelled const &) { (void)src->commit_cancelled(CancelReason::requested); } catch (...) {
-			(void)src->commit_failure(std::current_exception());
-		}
-	}(shared_src, work_detail::join_all(task_as_flow(std::move(tasks))...)));
+	co_spawn(
+		[](SP<TaskSource<Result>> src,
+		   decltype(work_detail::join_all(task_as_flow(std::move(tasks))...)) inner) -> ::Task<void> {
+			try {
+				auto val = co_await std::move(inner);
+				(void)src->commit_success(Success<Result>{std::move(val)});
+			} catch (::Cancelled const &) { (void)src->commit_cancelled(CancelReason::requested); } catch (...) {
+				(void)src->commit_failure(std::current_exception());
+			}
+		}(shared_src, work_detail::join_all(task_as_flow(std::move(tasks))...)));
 	return std::move(root_task);
 }
