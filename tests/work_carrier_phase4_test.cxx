@@ -11,8 +11,8 @@ namespace model_a = conflux::work::carrier::model_a;
 
 namespace {
 
-struct OwnerCap : root::capability_id_from_address<OwnerCap> {};
-struct DriverCap : root::capability_id_from_address<DriverCap> {};
+struct OwnerCap : root::capability_id_from_address {};
+struct DriverCap : root::capability_id_from_address {};
 
 } // namespace
 

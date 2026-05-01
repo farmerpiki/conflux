@@ -635,16 +635,16 @@ struct capability_id_t {
 
 inline constexpr capability_id_t capability_id{};
 
-template<class Derived>
 struct capability_id_from_address {
-	inline static unsigned char type_tag_object = 0;
-
+	template<class Self>
+		requires std::derived_from<Self, capability_id_from_address>
 	friend auto tag_invoke(
 		capability_id_t,
-		Derived const &self) noexcept -> CapabilityId {
+		Self const &self) noexcept -> CapabilityId {
+		static unsigned char tag = 0;
 		return CapabilityId{
 			.address = static_cast<void const *>(std::addressof(self)),
-			.type_tag = static_cast<void const *>(&type_tag_object),
+			.type_tag = static_cast<void const *>(&tag),
 		};
 	}
 };

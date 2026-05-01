@@ -164,7 +164,7 @@ using _capability_id_t_ = root::capability_id_t;
 [[maybe_unused]] auto _cap_id_cst = root::capability_id;
 
 // capability_id_from_address — verify via concrete derived type
-struct _TestCap : root::capability_id_from_address<_TestCap> {};
+struct _TestCap : root::capability_id_from_address {};
 
 // progress_capability — satisfied by custom capability_id_from_address types
 static_assert(root::progress_capability<_TestCap>);
@@ -382,7 +382,7 @@ using _unbind_fn = decltype(&model_a::unbind<int>);
 
 // E1.z — combinator member functions
 
-struct _DummyCap : root::capability_id_from_address<_DummyCap> {};
+struct _DummyCap : root::capability_id_from_address {};
 
 void _e1z_then_check_() {
 	auto [task, src] = root::make_task_source<int>();

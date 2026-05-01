@@ -9,9 +9,9 @@ namespace root = conflux::work::root;
 
 namespace {
 
-struct OwnerCap : root::capability_id_from_address<OwnerCap> {};
+struct OwnerCap : root::capability_id_from_address {};
 
-struct DriverCap : root::capability_id_from_address<DriverCap> {};
+struct DriverCap : root::capability_id_from_address {};
 
 struct ThrowOnCopy {
 	inline static bool throw_now = false;
@@ -305,10 +305,8 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: capability_id helper includes per-type tag",
 	"[work.root]") {
-	struct InnerCap : root::capability_id_from_address<InnerCap> {};
-	struct OuterCap
-		: InnerCap
-		, root::capability_id_from_address<OuterCap> {};
+	struct InnerCap : root::capability_id_from_address {};
+	struct OuterCap : InnerCap {};
 
 	OuterCap const cap{};
 	InnerCap const &base = cap;

@@ -26,9 +26,9 @@ namespace {
 
 inline Atom<SZ> sink{};
 
-struct OwnerCap : root::capability_id_from_address<OwnerCap> {};
+struct OwnerCap : root::capability_id_from_address {};
 
-struct DriverCap : root::capability_id_from_address<DriverCap> {};
+struct DriverCap : root::capability_id_from_address {};
 
 struct Config {
 	bool list_only = false;
@@ -649,8 +649,8 @@ Case make_callable_erasure_capture_case(
 
 #if CONFLUX_WORK_CARRIER_MODEL_A
 
-struct OwnerCapA : root::capability_id_from_address<OwnerCapA> {};
-struct DriverCapA : root::capability_id_from_address<DriverCapA> {};
+struct OwnerCapA : root::capability_id_from_address {};
+struct DriverCapA : root::capability_id_from_address {};
 
 Case make_carrier_a_task_map1_case() {
 	return Case{
@@ -858,8 +858,8 @@ Case make_deadline_scope_fast_path_case() {
 
 #if CONFLUX_WORK_CARRIER_MODEL_B
 
-struct OwnerCapB : root::capability_id_from_address<OwnerCapB> {};
-struct DriverCapB : root::capability_id_from_address<DriverCapB> {};
+struct OwnerCapB : root::capability_id_from_address {};
+struct DriverCapB : root::capability_id_from_address {};
 
 Case make_carrier_b_task_map1_case() {
 	return Case{
