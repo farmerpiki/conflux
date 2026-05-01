@@ -698,7 +698,7 @@ public:
 		std::nullptr_t) {}
 
 	template<typename F>
-		requires(!same_as<std::remove_cvref_t<F>, CloneableFunction>)
+		requires(!std::same_as<std::remove_cvref_t<F>, CloneableFunction>)
 	CloneableFunction(
 		F &&f)
 		: fn_(make_unique<Model<std::remove_cvref_t<F>>>(forward<F>(f))) {}

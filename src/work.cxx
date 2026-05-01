@@ -14,8 +14,6 @@ import std;
 import conflux.types;
 export import conflux.work.root;
 
-namespace detail = conflux::work::root::detail;
-
 export struct Cancelled final : RE {
 	Cancelled()
 		: RE{"work cancelled"} {}
@@ -77,7 +75,7 @@ struct Outcome<void> {
 };
 
 template<typename T>
-using Continuation = detail::small_move_only_function<void(Outcome<T> &&)>;
+using Continuation = conflux::work::root::detail::small_move_only_function<void(Outcome<T> &&)>;
 
 template<typename T>
 struct State {
@@ -180,7 +178,7 @@ void attach(
 class QueueTarget {
 public:
 	virtual ~QueueTarget() = default;
-	virtual bool enqueue(detail::small_move_only_function<void()> job) = 0;
+	virtual bool enqueue(conflux::work::root::detail::small_move_only_function<void()> job) = 0;
 };
 
 template<typename T>
@@ -200,7 +198,7 @@ using FlowValue = typename std::remove_cvref_t<T>::value_type;
 
 class DetachedErrors {
 	mutex mtx_;
-	detail::small_move_only_function<void(EP)> handler_{[](EP error) {
+	conflux::work::root::detail::small_move_only_function<void(EP)> handler_{[](EP error) {
 		try {
 			rethrow_exception(error);
 		} catch (exception const &ex) { println(cerr, "conflux.work detached error: {}", ex.what()); } catch (...) {
@@ -221,7 +219,7 @@ public:
 	}
 
 	void set_handler(
-		detail::small_move_only_function<void(EP)> handler) {
+		conflux::work::root::detail::small_move_only_function<void(EP)> handler) {
 		SL const lk{mtx_};
 		handler_ = move(handler);
 	}
@@ -533,10 +531,10 @@ export struct IoPlan {
 	};
 
 	Kind kind = Kind::callback;
-	detail::small_move_only_function<void()> callback{};
+	conflux::work::root::detail::small_move_only_function<void()> callback{};
 
 	[[nodiscard]] static IoPlan call(
-		detail::small_move_only_function<void()> fn) {
+		conflux::work::root::detail::small_move_only_function<void()> fn) {
 		return IoPlan{.kind = Kind::callback, .callback = move(fn)};
 	}
 };
@@ -545,14 +543,14 @@ export class WorkPool final : public work_detail::QueueTarget {
 	struct alignas(
 		64) Worker {
 		mutex mtx;
-		deque<detail::small_move_only_function<void()>> local{};
+		deque<conflux::work::root::detail::small_move_only_function<void()>> local{};
 		jthread thread{};
 	};
 
 	WorkPoolOptions options_{};
 	V<UP<Worker>> workers_{};
 	mutex inject_mtx_{};
-	deque<detail::small_move_only_function<void()>> inject_{};
+	deque<conflux::work::root::detail::small_move_only_function<void()>> inject_{};
 	Atom<u32> wake_epoch_{0};
 	Atom<SZ> pending_{0};
 	atomic_flag stopping_{};
@@ -575,7 +573,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 	}
 
 	[[nodiscard]] bool push_local(
-		detail::small_move_only_function<void()> job) {
+		conflux::work::root::detail::small_move_only_function<void()> job) {
 		auto &worker = *workers_[tls_worker_];
 		SL const lk{worker.mtx};
 		if (worker.local.size() >= options_.local_queue_capacity) {
@@ -587,7 +585,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 	}
 
 	[[nodiscard]] bool push_inject(
-		detail::small_move_only_function<void()> job) {
+		conflux::work::root::detail::small_move_only_function<void()> job) {
 		SL const lk{inject_mtx_};
 		if (inject_.size() >= options_.max_inject_queue) {
 			return false;
@@ -597,7 +595,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		return true;
 	}
 
-	[[nodiscard]] Opt<detail::small_move_only_function<void()>> pop_local(
+	[[nodiscard]] Opt<conflux::work::root::detail::small_move_only_function<void()>> pop_local(
 		SZ index) {
 		auto &worker = *workers_[index];
 		SL const lk{worker.mtx};
@@ -609,7 +607,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		return job;
 	}
 
-	[[nodiscard]] Opt<detail::small_move_only_function<void()>> pop_inject() {
+	[[nodiscard]] Opt<conflux::work::root::detail::small_move_only_function<void()>> pop_inject() {
 		SL const lk{inject_mtx_};
 		if (inject_.empty()) {
 			return std::nullopt;
@@ -619,7 +617,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		return job;
 	}
 
-	[[nodiscard]] Opt<detail::small_move_only_function<void()>> steal_work(
+	[[nodiscard]] Opt<conflux::work::root::detail::small_move_only_function<void()>> steal_work(
 		SZ thief) {
 		for (SZ offset = 1; offset < workers_.size(); ++offset) {
 			SZ const victim_index = (thief + offset) % workers_.size();
@@ -726,7 +724,7 @@ public:
 	WorkPool &operator =(WorkPool &&) = delete;
 
 	[[nodiscard]] bool enqueue(
-		detail::small_move_only_function<void()> job) override {
+		conflux::work::root::detail::small_move_only_function<void()> job) override {
 		if (stopping_.test(memory_order_acquire)) {
 			return false;
 		}
@@ -761,7 +759,7 @@ public:
 export class RingLane final : public work_detail::QueueTarget {
 	RingLaneOptions options_{};
 	mutex mtx_{};
-	deque<detail::small_move_only_function<void()>> queue_{};
+	deque<conflux::work::root::detail::small_move_only_function<void()>> queue_{};
 	atomic_flag stopped_{};
 	atomic_flag wake_pending_{};
 	thread::id owner_{std::this_thread::get_id()};
@@ -778,7 +776,7 @@ export class RingLane final : public work_detail::QueueTarget {
 	}
 
 	void run_inline(
-		detail::small_move_only_function<void()> job) {
+		conflux::work::root::detail::small_move_only_function<void()> job) {
 		try {
 			job();
 		} catch (...) {} // NOLINT(bugprone-empty-catch)
@@ -790,7 +788,7 @@ public:
 		: options_{move(options)} {}
 
 	[[nodiscard]] bool enqueue(
-		detail::small_move_only_function<void()> job) override {
+		conflux::work::root::detail::small_move_only_function<void()> job) override {
 		if (stopped_.test(memory_order_acquire)) {
 			return false;
 		}
@@ -823,7 +821,7 @@ public:
 		SZ ran = 0;
 		SZ const budget = options_.drain_budget == 0 ? NL<SZ>::max() : options_.drain_budget;
 		while (ran < budget) {
-			detail::small_move_only_function<void()> job;
+			conflux::work::root::detail::small_move_only_function<void()> job;
 			{
 				SL const lk{mtx_};
 				if (queue_.empty()) {
