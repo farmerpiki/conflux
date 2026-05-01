@@ -9,6 +9,15 @@ import conflux.work.carrier.flags;
 
 namespace conflux::work::carrier::model_a::detail {
 
+template<class O>
+struct outcome_value_impl;
+template<root::work_value T>
+struct outcome_value_impl<root::Outcome<T>> {
+	using type = T;
+};
+template<class O>
+using outcome_value_t = typename outcome_value_impl<std::remove_cvref_t<O>>::type;
+
 template<root::work_value T, class Fn>
 	requires(!std::same_as<T, void>)
 		 && std::invocable<Fn &, T>
@@ -105,6 +114,210 @@ public:
 	[[nodiscard]] root::Outcome<T> release_outcome() && noexcept { return std::move(outcome_); }
 
 	[[nodiscard]] ChainAwaiter<T> operator co_await() && noexcept;
+
+	// --- E1.z combinators ---
+
+	// success → f(value) → Chain<R>; failure/cancel pass through
+	template<class Fn>
+		requires(std::same_as<T, void>
+				 && std::invocable<Fn &>
+				 && root::work_value<std::remove_cvref_t<std::invoke_result_t<Fn &>>>)
+			 || (!std::same_as<T, void>
+				 && std::invocable<Fn &, T>
+				 && root::work_value<std::remove_cvref_t<std::invoke_result_t<Fn &, T>>>)
+	[[nodiscard]] auto then(
+		Fn &&fn) && {
+		if constexpr (std::same_as<T, void>) {
+			using R = std::remove_cvref_t<std::invoke_result_t<Fn &>>;
+			if (outcome_.is_failure()) {
+				return Chain<R>{root::Outcome<R>{std::move(outcome_).failure()}, kind_, bound_cap_};
+			}
+			if (outcome_.is_cancelled()) {
+				return Chain<R>{root::Outcome<R>{std::move(outcome_).cancelled()}, kind_, bound_cap_};
+			}
+			try {
+				if constexpr (std::same_as<R, void>) {
+					std::invoke(std::forward<Fn>(fn));
+					return Chain<R>{root::Outcome<R>{root::Success<R>{}}, kind_, bound_cap_};
+				} else {
+					return Chain<R>{
+						root::Outcome<R>{root::Success<R>{std::invoke(std::forward<Fn>(fn))}},
+						kind_,
+						bound_cap_};
+				}
+			} catch (...) {
+				return Chain<R>{root::Outcome<R>{root::Failure{std::current_exception()}}, kind_, bound_cap_};
+			}
+		} else {
+			using R = std::remove_cvref_t<std::invoke_result_t<Fn &, T>>;
+			if (outcome_.is_failure()) {
+				return Chain<R>{root::Outcome<R>{std::move(outcome_).failure()}, kind_, bound_cap_};
+			}
+			if (outcome_.is_cancelled()) {
+				return Chain<R>{root::Outcome<R>{std::move(outcome_).cancelled()}, kind_, bound_cap_};
+			}
+			try {
+				if constexpr (std::same_as<R, void>) {
+					std::invoke(std::forward<Fn>(fn), std::move(outcome_).success().value);
+					return Chain<R>{root::Outcome<R>{root::Success<R>{}}, kind_, bound_cap_};
+				} else {
+					return Chain<R>{
+						root::Outcome<R>{
+							root::Success<R>{std::invoke(std::forward<Fn>(fn), std::move(outcome_).success().value)}},
+						kind_,
+						bound_cap_};
+				}
+			} catch (...) {
+				return Chain<R>{root::Outcome<R>{root::Failure{std::current_exception()}}, kind_, bound_cap_};
+			}
+		}
+	}
+
+	// failure → f(exception_ptr) → T or Chain<T>; success/cancel pass through
+	template<class Fn>
+		requires std::invocable<Fn &, std::exception_ptr>
+			  && (std::same_as<std::remove_cvref_t<std::invoke_result_t<Fn &, std::exception_ptr>>, T>
+				  || std::same_as<std::remove_cvref_t<std::invoke_result_t<Fn &, std::exception_ptr>>, Chain<T>>)
+	[[nodiscard]] Chain<T> catch_error(
+		Fn &&fn) && {
+		using R = std::remove_cvref_t<std::invoke_result_t<Fn &, std::exception_ptr>>;
+		if (!outcome_.is_failure()) {
+			return Chain<T>{std::move(outcome_), kind_, bound_cap_};
+		}
+		auto ep = outcome_.failure().error;
+		try {
+			if constexpr (std::same_as<R, Chain<T>>) {
+				return std::invoke(std::forward<Fn>(fn), ep);
+			} else if constexpr (std::same_as<T, void>) {
+				std::invoke(std::forward<Fn>(fn), ep);
+				return Chain<T>{root::Outcome<T>{root::Success<T>{}}, kind_, bound_cap_};
+			} else {
+				return Chain<T>{
+					root::Outcome<T>{root::Success<T>{std::invoke(std::forward<Fn>(fn), ep)}},
+					kind_,
+					bound_cap_};
+			}
+		} catch (...) { return Chain<T>{root::Outcome<T>{root::Failure{std::current_exception()}}, kind_, bound_cap_}; }
+	}
+
+	// cancelled → f() side-effect; still cancelled. success/failure pass through.
+	template<class Fn>
+		requires std::invocable<Fn &>
+	[[nodiscard]] Chain<T> on_cancel(
+		Fn &&fn) && noexcept {
+		if (!outcome_.is_cancelled()) {
+			return Chain<T>{std::move(outcome_), kind_, bound_cap_};
+		}
+		try {
+			std::invoke(std::forward<Fn>(fn));
+		} catch (...) { (void)std::current_exception(); } // side-effect only; discard throw
+		return Chain<T>{std::move(outcome_), kind_, bound_cap_};
+	}
+
+	// cancelled → f() → T or Chain<T> (becomes success); success/failure pass through
+	template<class Fn>
+		requires std::invocable<Fn &>
+			  && (std::same_as<std::remove_cvref_t<std::invoke_result_t<Fn &>>, T>
+				  || std::same_as<std::remove_cvref_t<std::invoke_result_t<Fn &>>, Chain<T>>)
+	[[nodiscard]] Chain<T> recover_cancel(
+		Fn &&fn) && {
+		using R = std::remove_cvref_t<std::invoke_result_t<Fn &>>;
+		if (!outcome_.is_cancelled()) {
+			return Chain<T>{std::move(outcome_), kind_, bound_cap_};
+		}
+		try {
+			if constexpr (std::same_as<R, Chain<T>>) {
+				return std::invoke(std::forward<Fn>(fn));
+			} else if constexpr (std::same_as<T, void>) {
+				std::invoke(std::forward<Fn>(fn));
+				return Chain<T>{root::Outcome<T>{root::Success<T>{}}, kind_, bound_cap_};
+			} else {
+				return Chain<T>{
+					root::Outcome<T>{root::Success<T>{std::invoke(std::forward<Fn>(fn))}},
+					kind_,
+					bound_cap_};
+			}
+		} catch (...) { return Chain<T>{root::Outcome<T>{root::Failure{std::current_exception()}}, kind_, bound_cap_}; }
+	}
+
+	// failure or cancel → f(Outcome<T>) → T; success passes through
+	template<class Fn>
+		requires std::invocable<Fn &, root::Outcome<T>>
+			  && std::same_as<std::remove_cvref_t<std::invoke_result_t<Fn &, root::Outcome<T>>>, T>
+	[[nodiscard]] Chain<T> recover(
+		Fn &&fn) && {
+		if (outcome_.is_success()) {
+			return Chain<T>{std::move(outcome_), kind_, bound_cap_};
+		}
+		try {
+			if constexpr (std::same_as<T, void>) {
+				std::invoke(std::forward<Fn>(fn), std::move(outcome_));
+				return Chain<T>{root::Outcome<T>{root::Success<T>{}}, kind_, bound_cap_};
+			} else {
+				return Chain<T>{
+					root::Outcome<T>{root::Success<T>{std::invoke(std::forward<Fn>(fn), std::move(outcome_))}},
+					kind_,
+					bound_cap_};
+			}
+		} catch (...) { return Chain<T>{root::Outcome<T>{root::Failure{std::current_exception()}}, kind_, bound_cap_}; }
+	}
+
+	// any outcome → f(Outcome<T>) → Outcome<R> → Chain<R> (outcome-preserving transform)
+	template<class Fn>
+		requires std::invocable<Fn &, root::Outcome<T>>
+	[[nodiscard]] auto transform_outcome(
+		Fn &&fn) && {
+		using OutR = std::remove_cvref_t<std::invoke_result_t<Fn &, root::Outcome<T>>>;
+		using R = detail::outcome_value_t<OutR>;
+		try {
+			return Chain<R>{std::invoke(std::forward<Fn>(fn), std::move(outcome_)), kind_, bound_cap_};
+		} catch (...) { return Chain<R>{root::Outcome<R>{root::Failure{std::current_exception()}}, kind_, bound_cap_}; }
+	}
+
+	// bind chain execution to capability (outcome-preserving)
+	template<root::progress_capability Cap>
+	[[nodiscard]] Chain<T> schedule_on(
+		Cap &target) && noexcept {
+		return Chain<T>{std::move(outcome_), kind_, root::capability_id(target)};
+	}
+
+	// success hop to target + transform; non-success pass through
+	template<root::progress_capability Cap, class Fn>
+		requires(std::same_as<T, void>
+				 && std::invocable<Fn &>
+				 && root::work_value<std::remove_cvref_t<std::invoke_result_t<Fn &>>>)
+			 || (!std::same_as<T, void>
+				 && std::invocable<Fn &, T>
+				 && root::work_value<std::remove_cvref_t<std::invoke_result_t<Fn &, T>>>)
+	[[nodiscard]] auto then_on(
+		Cap &target,
+		Fn &&fn) && {
+		return std::move(*this).schedule_on(target).then(std::forward<Fn>(fn));
+	}
+
+	// materialize resolved outcome as a Task (always allocates one control block)
+	[[nodiscard]] root::Task<T> into_task(
+		std::source_location loc = std::source_location::current()) && {
+		auto [task, src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false}, loc);
+		if (outcome_.is_success()) {
+			if constexpr (std::same_as<T, void>) {
+				(void)src.commit_success(root::Success<T>{});
+			} else {
+				(void)src.commit_success(root::Success<T>{std::move(outcome_).success().value});
+			}
+		} else if (outcome_.is_failure()) {
+			(void)src.commit_failure(outcome_.failure().error);
+		} else {
+			(void)src.commit_cancelled(outcome_.cancelled().reason);
+		}
+		return std::move(task);
+	}
+
+	// into_task without source_location capture; precondition check reserved for future lazy carrier
+	[[nodiscard]] root::Task<T> into_task_unchecked(
+		std::source_location loc = std::source_location::current()) && {
+		return std::move(*this).into_task(loc);
+	}
 };
 
 template<root::work_value T>

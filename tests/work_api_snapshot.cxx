@@ -360,6 +360,103 @@ void _check_pipeline() {
 using _hop_to_task_fn = decltype(&model_a::hop_to_task<int>);
 using _unbind_fn = decltype(&model_a::unbind<int>);
 
+// E1.z — combinator member functions
+
+struct _DummyCap : root::capability_id_from_address<_DummyCap> {};
+
+void _e1z_then_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	(void)src.commit_success(root::Success<int>{1});
+	auto chain = model_a::from_task(std::move(task));
+	auto chained = std::move(chain).then([](int x) { return x + 1; });
+	static_assert(std::same_as<decltype(chained), model_a::Chain<int>>);
+	(void)chained;
+}
+
+void _e1z_catch_error_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	(void)src.commit_success(root::Success<int>{1});
+	auto chain = model_a::from_task(std::move(task));
+	auto recovered = std::move(chain).catch_error([](std::exception_ptr) { return 0; });
+	static_assert(std::same_as<decltype(recovered), model_a::Chain<int>>);
+	(void)recovered;
+}
+
+void _e1z_on_cancel_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	(void)src.commit_success(root::Success<int>{1});
+	auto chain = model_a::from_task(std::move(task));
+	auto result = std::move(chain).on_cancel([] {});
+	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	(void)result;
+}
+
+void _e1z_recover_cancel_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	(void)src.commit_success(root::Success<int>{1});
+	auto chain = model_a::from_task(std::move(task));
+	auto result = std::move(chain).recover_cancel([] { return 0; });
+	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	(void)result;
+}
+
+void _e1z_recover_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	(void)src.commit_success(root::Success<int>{1});
+	auto chain = model_a::from_task(std::move(task));
+	auto result = std::move(chain).recover([](root::Outcome<int>) { return 0; });
+	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	(void)result;
+}
+
+void _e1z_transform_outcome_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	(void)src.commit_success(root::Success<int>{1});
+	auto chain = model_a::from_task(std::move(task));
+	auto result =
+		std::move(chain).transform_outcome([](root::Outcome<int> out) { return root::Outcome<int>{std::move(out)}; });
+	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	(void)result;
+}
+
+void _e1z_schedule_on_check_() {
+	_DummyCap cap{};
+	auto [task, src] = root::make_task_source<int>();
+	(void)src.commit_success(root::Success<int>{1});
+	auto chain = model_a::from_task(std::move(task));
+	auto result = std::move(chain).schedule_on(cap);
+	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	(void)result;
+}
+
+void _e1z_then_on_check_() {
+	_DummyCap cap{};
+	auto [task, src] = root::make_task_source<int>();
+	(void)src.commit_success(root::Success<int>{1});
+	auto chain = model_a::from_task(std::move(task));
+	auto result = std::move(chain).then_on(cap, [](int x) { return x + 1; });
+	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	(void)result;
+}
+
+void _e1z_into_task_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	(void)src.commit_success(root::Success<int>{1});
+	auto chain = model_a::from_task(std::move(task));
+	auto t = std::move(chain).into_task();
+	static_assert(std::same_as<decltype(t), root::Task<int>>);
+	std::move(t).detach();
+}
+
+void _e1z_into_task_unchecked_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	(void)src.commit_success(root::Success<int>{1});
+	auto chain = model_a::from_task(std::move(task));
+	auto t = std::move(chain).into_task_unchecked();
+	static_assert(std::same_as<decltype(t), root::Task<int>>);
+	std::move(t).detach();
+}
+
 } // namespace snapshot_model_a
 
 // ---------------------------------------------------------------------------
