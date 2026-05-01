@@ -28,6 +28,13 @@ enum class OutcomeKind : std::uint8_t {
 	cancelled,
 };
 
+enum class join_state : std::uint8_t {
+	empty, // moved-from / default-constructed
+	joinable, // owns control block, not yet awaited or detached
+	joined, // co_await consumed it (E1.y)
+	detached, // detach()/abandon_to()/dtor-auto-detach
+};
+
 class WorkError : public std::runtime_error {
 public:
 	using std::runtime_error::runtime_error;
@@ -804,7 +811,7 @@ public:
 	[[nodiscard]] explicit operator bool() const noexcept { return invoke_ != nullptr; }
 
 	R operator ()(
-		Args... args) const {
+		Args... args) const { // NOLINT(performance-unnecessary-value-param): pack must be forwarded
 		return invoke_(object_, std::forward<Args>(args)...);
 	}
 };
@@ -827,6 +834,49 @@ enum class ReadyHookState : std::uint8_t {
 	committing,
 	terminal,
 	disarmed,
+};
+
+// Dropped-outcome sink — stored once at startup; reads use acquire load to
+// skip the mutex on the hot path.
+struct DroppedOutcomeSinkStore {
+	std::mutex mtx;
+	MoveOnlyFunction<void(std::source_location, OutcomeKind, std::exception_ptr)> fn;
+	std::atomic<bool> installed{false};
+};
+
+inline DroppedOutcomeSinkStore &dropped_outcome_sink_store() noexcept {
+	static DroppedOutcomeSinkStore s;
+	return s;
+}
+
+inline void invoke_dropped_outcome_sink(
+	std::source_location loc,
+	OutcomeKind kind,
+	std::exception_ptr const &cause) noexcept {
+	auto &s = dropped_outcome_sink_store();
+	if (!s.installed.load(std::memory_order_acquire)) {
+		return;
+	}
+	std::lock_guard const lk{s.mtx};
+	if (s.fn) {
+		s.fn(loc, kind, cause);
+	}
+}
+
+// Sink installed by Task::detach() / ~Task(). Drops success; forwards
+// failure/cancelled to the process-wide dropped-outcome sink if installed.
+template<typename T>
+struct detach_outcome_sink {
+	std::source_location loc;
+	void operator ()(
+		Failure const &f) const noexcept {
+		invoke_dropped_outcome_sink(loc, OutcomeKind::failure, f.error);
+	}
+	void operator ()(
+		Cancelled const & /*c*/) const noexcept {
+		static std::exception_ptr const null{};
+		invoke_dropped_outcome_sink(loc, OutcomeKind::cancelled, null);
+	}
 };
 
 class ControlBlockBase {
@@ -1727,13 +1777,13 @@ class BasicSource {
 	friend P<OperationControl, BasicSource<U, ControlCategory::operation>> make_operation_control_source();
 	template<work_value U>
 	friend P<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>>
-		make_task_source(struct SubmitOptions);
+		make_task_source(struct SubmitOptions, std::source_location);
 	template<work_value U, progress_capability Owner>
 	friend P<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>>
-	make_posted_source(Owner &, struct PostOptions);
+	make_posted_source(Owner &, struct PostOptions, std::source_location);
 	template<work_value U, progress_capability Driver>
 	friend P<class BasicResult<U, ControlCategory::operation>, BasicSource<U, ControlCategory::operation>>
-	make_operation_source(Driver &, struct OperationOptions);
+	make_operation_source(Driver &, struct OperationOptions, std::source_location);
 
 public:
 	BasicSource() = default;
@@ -1793,13 +1843,13 @@ class BasicSource<void, Category> {
 	friend P<OperationControl, BasicSource<U, ControlCategory::operation>> make_operation_control_source();
 	template<work_value U>
 	friend P<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>>
-		make_task_source(struct SubmitOptions);
+		make_task_source(struct SubmitOptions, std::source_location);
 	template<work_value U, progress_capability Owner>
 	friend P<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>>
-	make_posted_source(Owner &, struct PostOptions);
+	make_posted_source(Owner &, struct PostOptions, std::source_location);
 	template<work_value U, progress_capability Driver>
 	friend P<class BasicResult<U, ControlCategory::operation>, BasicSource<U, ControlCategory::operation>>
-	make_operation_source(Driver &, struct OperationOptions);
+	make_operation_source(Driver &, struct OperationOptions, std::source_location);
 
 public:
 	BasicSource() = default;
@@ -1880,31 +1930,52 @@ struct control_handle_for<ControlCategory::operation> {
 	using type = OperationControl;
 };
 
+template<class Sink, class T>
+concept abandon_sink = std::is_nothrow_move_constructible_v<Sink>
+					&& (std::is_nothrow_invocable_v<Sink &, Outcome<T> const &>
+						|| (std::is_nothrow_invocable_v<Sink &, Failure const &>
+							&& std::is_nothrow_invocable_v<Sink &, Cancelled const &>));
+
+struct drop_on_abandon {
+	void operator ()(
+		Failure const &) const noexcept {}
+	void operator ()(
+		Cancelled const &) const noexcept {}
+};
+
 template<work_value T, ControlCategory Category>
 class BasicResult {
 	SP<detail::ControlBlockInterface<T>> state_{};
-	bool live_ = false;
+	join_state state_js_ = join_state::empty;
+	std::source_location spawn_loc_{};
 
 	explicit BasicResult(
-		SP<detail::ControlBlockInterface<T>> state) noexcept
+		SP<detail::ControlBlockInterface<T>> state,
+		std::source_location loc) noexcept
 		: state_{std::move(state)}
-		, live_{static_cast<bool>(state_)} {}
+		, state_js_{state_ ? join_state::joinable : join_state::empty}
+		, spawn_loc_{loc} {}
 
-	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume() noexcept {
-		if (!live_) {
+	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume(
+		join_state target) noexcept {
+		if (state_js_ != join_state::joinable) {
 			return {};
 		}
-		live_ = false;
+		state_js_ = target;
 		return std::move(state_);
 	}
 
+	void detach_noexcept() noexcept { abandon_impl(std::move(*this), detail::detach_outcome_sink<T>{spawn_loc_}); }
+
 	template<work_value U>
-	friend P<BasicResult<U, ControlCategory::task>, TaskSource<U>> make_task_source(SubmitOptions);
+	friend P<BasicResult<U, ControlCategory::task>, TaskSource<U>>
+		make_task_source(SubmitOptions, std::source_location);
 	template<work_value U, progress_capability Owner>
-	friend P<BasicResult<U, ControlCategory::posted>, PostedSource<U>> make_posted_source(Owner &, PostOptions);
+	friend P<BasicResult<U, ControlCategory::posted>, PostedSource<U>>
+	make_posted_source(Owner &, PostOptions, std::source_location);
 	template<work_value U, progress_capability Driver>
 	friend P<BasicResult<U, ControlCategory::operation>, OperationSource<U>>
-	make_operation_source(Driver &, OperationOptions);
+	make_operation_source(Driver &, OperationOptions, std::source_location);
 	template<work_value U, ControlCategory C, class Sink>
 	friend void abandon_impl(BasicResult<U, C> &&, Sink &&) noexcept;
 	template<work_value U, ControlCategory C, class Sink>
@@ -1924,39 +1995,73 @@ class BasicResult {
 	template<work_value U>
 	friend BasicJoinHandle<U, ControlCategory::operation>
 	into_join_handle(BasicResult<U, ControlCategory::operation> &&) noexcept;
+	template<class Fn>
+	friend auto spawn(Fn &&, std::source_location) -> std::invoke_result_t<Fn>;
 
 public:
+	using value_type = T;
+
 	BasicResult() = default;
+
 	[[nodiscard]] static BasicResult from_state(
-		SP<detail::ControlBlockInterface<T>> state) noexcept {
-		return BasicResult{std::move(state)};
+		SP<detail::ControlBlockInterface<T>> state,
+		std::source_location loc = std::source_location::current()) noexcept {
+		return BasicResult{std::move(state), loc};
 	}
+
 	BasicResult(
 		BasicResult &&other) noexcept
 		: state_{std::move(other.state_)}
-		, live_{std::exchange(other.live_, false)} {}
+		, state_js_{std::exchange(other.state_js_, join_state::empty)}
+		, spawn_loc_{other.spawn_loc_} {}
+
 	BasicResult &operator =(
 		BasicResult &&other) noexcept {
 		if (this != &other) {
-			if (live_ && state_) {
-				std::terminate();
+			if (state_js_ == join_state::joinable) {
+				detach_noexcept();
 			}
 			state_ = std::move(other.state_);
-			live_ = std::exchange(other.live_, false);
+			state_js_ = std::exchange(other.state_js_, join_state::empty);
+			spawn_loc_ = other.spawn_loc_;
 		}
 		return *this;
 	}
+
 	BasicResult(BasicResult const &) = delete;
 	BasicResult &operator =(BasicResult const &) = delete;
 
 	~BasicResult() noexcept {
-		if (live_ && state_) {
-			std::terminate();
+		if (state_js_ == join_state::joinable) {
+			detach_noexcept();
 		}
 	}
 
+	[[nodiscard]] join_state state() const noexcept { return state_js_; }
+
 	[[nodiscard]] typename control_handle_for<Category>::type control() const noexcept {
 		return typename control_handle_for<Category>::type{state_};
+	}
+
+	void cancel() noexcept {
+		if (state_js_ != join_state::empty) {
+			(void)control().request_cancel();
+		}
+	}
+
+	void detach() && noexcept {
+		if (state_js_ == join_state::joinable) {
+			detach_noexcept();
+		}
+	}
+
+	template<class Sink>
+		requires abandon_sink<Sink, T>
+	void abandon_to(
+		Sink &&sink) && noexcept {
+		if (state_js_ == join_state::joinable) {
+			abandon_impl(std::move(*this), std::forward<Sink>(sink));
+		}
 	}
 };
 
@@ -1969,18 +2074,90 @@ using Posted = BasicResult<T, ControlCategory::posted>;
 template<work_value T>
 using Operation = BasicResult<T, ControlCategory::operation>;
 
-template<class Sink, class T>
-concept abandon_sink = std::is_nothrow_move_constructible_v<Sink>
-					&& (std::is_nothrow_invocable_v<Sink &, Outcome<T> const &>
-						|| (std::is_nothrow_invocable_v<Sink &, Failure const &>
-							&& std::is_nothrow_invocable_v<Sink &, Cancelled const &>));
+// JoinTask<T> — strict variant: dtor on joinable state calls std::terminate.
+// No combinators (use std::move(jt).detach_to_task() to compose).
+// Obtain via require_join(task, loc) or spawn_strict(fn, loc).
+template<work_value T>
+class JoinTask {
+	Task<T> inner_{};
+	std::source_location origin_{};
 
-struct drop_on_abandon {
-	void operator ()(
-		Failure const &) const noexcept {}
-	void operator ()(
-		Cancelled const &) const noexcept {}
+public:
+	using value_type = T;
+
+	JoinTask() = default;
+
+	JoinTask(
+		Task<T> &&task,
+		std::source_location origin) noexcept
+		: inner_{std::move(task)}
+		, origin_{origin} {}
+
+	JoinTask(JoinTask &&) noexcept = default;
+	JoinTask &operator =(
+		JoinTask &&other) noexcept {
+		if (this != &other) {
+			if (inner_.state() == join_state::joinable) {
+				std::terminate();
+			}
+			inner_ = std::move(other.inner_);
+			origin_ = other.origin_;
+		}
+		return *this;
+	}
+	JoinTask(JoinTask const &) = delete;
+	JoinTask &operator =(JoinTask const &) = delete;
+
+	~JoinTask() noexcept {
+		if (inner_.state() == join_state::joinable) {
+			std::terminate();
+		}
+	}
+
+	[[nodiscard]] join_state state() const noexcept { return inner_.state(); }
+
+	[[nodiscard]] decltype(auto) control() const noexcept { return inner_.control(); }
+
+	void cancel() noexcept { inner_.cancel(); }
+
+	// Downgrade to Task<T> (enables combinators). Caller accepts auto-detach.
+	[[nodiscard]] Task<T> detach_to_task() && noexcept {
+		auto out = std::move(inner_);
+		inner_ = Task<T>{};
+		return out;
+	}
+
+	[[nodiscard]] std::source_location origin() const noexcept { return origin_; }
 };
+
+template<work_value T>
+[[nodiscard]] JoinTask<T> require_join(
+	Task<T> &&task,
+	std::source_location origin = std::source_location::current()) noexcept {
+	return JoinTask<T>{std::move(task), origin};
+}
+
+// spawn: calls fn() to produce a Task<T>, attaches loc as spawn_loc.
+// The returned Task auto-detaches if dropped without co_await.
+template<class Fn>
+[[nodiscard]] auto spawn(
+	Fn &&fn,
+	std::source_location loc = std::source_location::current()) -> std::invoke_result_t<Fn> {
+	auto task = std::invoke(std::forward<Fn>(fn));
+	// Update the spawn location so the dropped-outcome sink reports the
+	// caller's site, not wherever make_task_source was called inside fn.
+	task.spawn_loc_ = loc;
+	return task;
+}
+
+// spawn_strict: like spawn but returns JoinTask<T> (dtor → terminate).
+template<class Fn>
+[[nodiscard]] auto spawn_strict(
+	Fn &&fn,
+	std::source_location loc = std::source_location::current())
+	-> JoinTask<typename std::invoke_result_t<Fn>::value_type> {
+	return require_join(spawn(std::forward<Fn>(fn), loc), loc);
+}
 
 template<work_value T, ControlCategory Category>
 class BasicJoinHandle {
@@ -2091,9 +2268,9 @@ template<work_value T, ControlCategory Category, class Sink>
 void abandon_impl(
 	BasicResult<T, Category> &&r,
 	Sink &&sink) noexcept {
-	auto state = r.consume();
+	auto state = r.consume(join_state::detached);
 	if (!state) {
-		std::terminate();
+		return; // empty or already-detached/joined — no-op
 	}
 	state->install_abandon_sink(make_abandon_dispatch_sink<Sink, T>(std::forward<Sink>(sink)));
 }
@@ -2229,6 +2406,16 @@ inline void emit_carrier_diagnostic(
 	}
 }
 
+template<class Fn>
+	requires std::is_invocable_v<Fn &, std::source_location, OutcomeKind, std::exception_ptr>
+inline void set_dropped_outcome_sink(
+	Fn &&fn) {
+	auto &s = detail::dropped_outcome_sink_store();
+	std::lock_guard const lk{s.mtx};
+	s.fn = detail::MoveOnlyFunction<void(std::source_location, OutcomeKind, std::exception_ptr)>{std::forward<Fn>(fn)};
+	s.installed.store(true, std::memory_order_release);
+}
+
 template<class R, class Sink = drop_on_abandon>
 class scoped_abandon {
 	Opt<R> value_{};
@@ -2277,20 +2464,22 @@ template<class R>
 
 template<work_value T>
 [[nodiscard]] P<Task<T>, TaskSource<T>> make_task_source(
-	SubmitOptions opts = {}) {
+	SubmitOptions opts = {},
+	std::source_location loc = std::source_location::current()) {
 	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = std::make_shared<detail::ControlBlockModel<T, true>>();
 	} else {
 		state = std::make_shared<detail::ControlBlockModel<T, false>>();
 	}
-	return {Task<T>::from_state(state), TaskSource<T>::from_state(std::move(state))};
+	return {Task<T>::from_state(state, loc), TaskSource<T>::from_state(std::move(state))};
 }
 
 template<work_value T, progress_capability Owner>
 [[nodiscard]] P<Posted<T>, PostedSource<T>> make_posted_source(
 	Owner &owner,
-	PostOptions opts = {}) {
+	PostOptions opts = {},
+	std::source_location loc = std::source_location::current()) {
 	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = std::make_shared<detail::ControlBlockModel<T, true>>();
@@ -2298,13 +2487,14 @@ template<work_value T, progress_capability Owner>
 		state = std::make_shared<detail::ControlBlockModel<T, false>>();
 	}
 	state->set_required_capability(capability_id(owner));
-	return {Posted<T>::from_state(state), PostedSource<T>::from_state(std::move(state))};
+	return {Posted<T>::from_state(state, loc), PostedSource<T>::from_state(std::move(state))};
 }
 
 template<work_value T, progress_capability Driver>
 [[nodiscard]] P<Operation<T>, OperationSource<T>> make_operation_source(
 	Driver &driver,
-	OperationOptions opts = {}) {
+	OperationOptions opts = {},
+	std::source_location loc = std::source_location::current()) {
 	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = std::make_shared<detail::ControlBlockModel<T, true>>();
@@ -2312,25 +2502,25 @@ template<work_value T, progress_capability Driver>
 		state = std::make_shared<detail::ControlBlockModel<T, false>>();
 	}
 	state->set_required_capability(capability_id(driver));
-	return {Operation<T>::from_state(state), OperationSource<T>::from_state(std::move(state))};
+	return {Operation<T>::from_state(state, loc), OperationSource<T>::from_state(std::move(state))};
 }
 
 template<work_value T>
 [[nodiscard]] TaskJoinHandle<T> into_join_handle(
 	Task<T> &&task) noexcept {
-	return TaskJoinHandle<T>{task.consume()};
+	return TaskJoinHandle<T>{task.consume(join_state::detached)};
 }
 
 template<work_value T>
 [[nodiscard]] PostedJoinHandle<T> into_join_handle(
 	Posted<T> &&posted) noexcept {
-	return PostedJoinHandle<T>{posted.consume()};
+	return PostedJoinHandle<T>{posted.consume(join_state::detached)};
 }
 
 template<work_value T>
 [[nodiscard]] OperationJoinHandle<T> into_join_handle(
 	Operation<T> &&op) noexcept {
-	return OperationJoinHandle<T>{op.consume()};
+	return OperationJoinHandle<T>{op.consume(join_state::detached)};
 }
 
 template<progress_capability Owner>
@@ -2364,7 +2554,7 @@ template<progress_capability Cap, work_value T>
 template<work_value T>
 [[nodiscard]] Outcome<T> join(
 	Task<T> &&task) {
-	auto state = task.consume();
+	auto state = task.consume(join_state::joined);
 	if (!state) {
 		throw JoinContextError{"join(task): task is not live"};
 	}
@@ -2375,7 +2565,7 @@ template<progress_capability Owner, work_value T>
 [[nodiscard]] Outcome<T> join(
 	Owner &owner,
 	Posted<T> &&posted) {
-	auto state = posted.consume();
+	auto state = posted.consume(join_state::joined);
 	if (!state) {
 		throw JoinContextError{"join(owner, posted): posted is not live"};
 	}
@@ -2389,7 +2579,7 @@ template<progress_capability Driver, work_value T>
 [[nodiscard]] Outcome<T> join(
 	Driver &driver,
 	Operation<T> &&op) {
-	auto state = op.consume();
+	auto state = op.consume(join_state::joined);
 	if (!state) {
 		throw JoinContextError{"join(driver, operation): operation is not live"};
 	}

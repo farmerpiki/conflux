@@ -175,6 +175,10 @@ using _SubmitOptions = root::SubmitOptions;
 using _PostOptions = root::PostOptions;
 using _OperationOptions = root::OperationOptions;
 
+// E1.x — join_state enum
+static_assert(root::join_state::empty != root::join_state::joinable);
+static_assert(root::join_state::joined != root::join_state::detached);
+
 // Result type aliases (the canonical Task/Posted/Operation)
 template<class T>
 using _TaskRoot_ = root::Task<T>;
@@ -182,6 +186,39 @@ template<class T>
 using _Posted_ = root::Posted<T>;
 template<class T>
 using _Operation_ = root::Operation<T>;
+
+// E1.x — JoinTask<T> + require_join + spawn + spawn_strict
+template<class T>
+using _JoinTask_ = root::JoinTask<T>;
+static_assert(std::same_as<root::JoinTask<int>::value_type, int>);
+static_assert(std::same_as<root::Task<int>::value_type, int>);
+
+void _e1x_api_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	// state() returns join_state
+	static_assert(std::same_as<decltype(task.state()), root::join_state>);
+	// cancel() is callable
+	task.cancel();
+	// control() works on empty after cancel
+	[[maybe_unused]] auto ctl = task.control();
+	// detach() rvalue-ref overload
+	std::move(task).detach();
+	// require_join
+	auto [task2, src2] = root::make_task_source<int>();
+	auto jt = root::require_join(std::move(task2));
+	static_assert(std::same_as<decltype(jt), root::JoinTask<int>>);
+	// detach_to_task downgrades JoinTask → Task
+	auto t2 = std::move(jt).detach_to_task();
+	static_assert(std::same_as<decltype(t2), root::Task<int>>);
+	std::move(t2).detach();
+	(void)src;
+	(void)src2;
+}
+
+// E1.x — set_dropped_outcome_sink
+void _e1x_sink_check_() {
+	root::set_dropped_outcome_sink([](std::source_location, root::OutcomeKind, std::exception_ptr) {});
+}
 
 // JoinHandle type aliases
 template<class T>
