@@ -220,6 +220,46 @@ void _e1x_sink_check_() {
 	root::set_dropped_outcome_sink([](std::source_location, root::OutcomeKind, std::exception_ptr) {});
 }
 
+// ---------------------------------------------------------------------------
+// E1.y — value-category, co_await, .outcome(), .consume(), JoinError
+// ---------------------------------------------------------------------------
+
+// JoinError
+using _JoinError = root::JoinError;
+static_assert(std::same_as<root::JoinError::reason, root::JoinError::reason>);
+
+// consume() lvalue/rvalue overloads
+void _e1y_consume_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	(void)src;
+	// lvalue consume() returns rvalue-ref
+	static_assert(std::same_as<decltype(task.consume()), root::Task<int> &&>);
+	// rvalue consume() also returns rvalue-ref
+	static_assert(std::same_as<decltype(std::move(task).consume()), root::Task<int> &&>);
+}
+
+// operator co_await() & = delete — hard contract; deleted overload causes a hard
+// error, not a SFINAE failure, so we can't static_assert it here.
+
+// operator co_await() && and outcome() && exist and return awaitables
+void _e1y_awaiter_type_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	(void)src;
+	// co_await rvalue returns something (type-erase to silence nodiscard)
+	[[maybe_unused]] auto aw = std::move(task).operator co_await();
+	static_assert(requires { aw.await_ready(); });
+	static_assert(requires { aw.await_resume(); });
+}
+
+void _e1y_outcome_awaiter_check_() {
+	auto [task, src] = root::make_task_source<int>();
+	(void)src;
+	[[maybe_unused]] auto aw = std::move(task).outcome();
+	static_assert(requires { aw.await_ready(); });
+	using out_t = decltype(aw.await_resume());
+	static_assert(std::same_as<out_t, root::Outcome<int>>);
+}
+
 // JoinHandle type aliases
 template<class T>
 using _TaskJoinHandle_ = root::TaskJoinHandle<T>;

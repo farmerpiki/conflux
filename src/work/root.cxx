@@ -124,6 +124,34 @@ public:
 	[[nodiscard]] CancelReason reason() const noexcept { return reason_; }
 };
 
+// Programmer-error exception for misuse of Task/JoinTask handles.
+// E2b.2 adds remaining reason values + capability fields.
+class JoinError final : public std::logic_error {
+public:
+	enum class reason : std::uint8_t {
+		consumed_handle,
+	};
+
+	explicit JoinError(
+		reason r)
+		: std::logic_error{make_msg(r)}
+		, reason_{r} {}
+
+	[[nodiscard]] reason reason_code() const noexcept { return reason_; }
+
+private:
+	reason reason_{};
+
+	static std::string make_msg(
+		reason r) {
+		using enum reason;
+		switch (r) {
+		case consumed_handle: return "PROGRAMMER ERROR (JoinError): co_await or outcome() on moved-from/consumed Task";
+		}
+		return "PROGRAMMER ERROR (JoinError): unknown";
+	}
+};
+
 template<typename T>
 concept work_value =
 	std::same_as<std::remove_cv_t<T>, void> || (!std::is_reference_v<T> && std::is_nothrow_move_constructible_v<T>);
@@ -1943,6 +1971,62 @@ struct drop_on_abandon {
 		Cancelled const &) const noexcept {}
 };
 
+namespace detail {
+
+template<work_value T>
+struct TaskAwaiter {
+	SP<ControlBlockInterface<T>> state_;
+
+	[[nodiscard]] bool await_ready() const noexcept { return !state_ || state_->ready(); }
+
+	[[nodiscard]] bool await_suspend(
+		std::coroutine_handle<> h) noexcept {
+		auto result = state_->try_set_on_ready(MoveOnlyFunction<void()>{[h]() noexcept { h.resume(); }});
+		switch (result.status) {
+		case ReadyRegistration::installed        : return true;
+		case ReadyRegistration::already_ready    :
+		case ReadyRegistration::already_installed:
+		case ReadyRegistration::empty            : return false;
+		}
+		std::unreachable();
+	}
+
+	decltype(auto) await_resume() {
+		if (!state_) {
+			throw JoinError{JoinError::reason::consumed_handle};
+		}
+		return value(state_->wait_and_take_outcome());
+	}
+};
+
+template<work_value T>
+struct OutcomeAwaiter {
+	SP<ControlBlockInterface<T>> state_;
+
+	[[nodiscard]] bool await_ready() const noexcept { return !state_ || state_->ready(); }
+
+	[[nodiscard]] bool await_suspend(
+		std::coroutine_handle<> h) noexcept {
+		auto result = state_->try_set_on_ready(MoveOnlyFunction<void()>{[h]() noexcept { h.resume(); }});
+		switch (result.status) {
+		case ReadyRegistration::installed        : return true;
+		case ReadyRegistration::already_ready    :
+		case ReadyRegistration::already_installed:
+		case ReadyRegistration::empty            : return false;
+		}
+		std::unreachable();
+	}
+
+	Outcome<T> await_resume() {
+		if (!state_) {
+			throw JoinError{JoinError::reason::consumed_handle};
+		}
+		return state_->wait_and_take_outcome();
+	}
+};
+
+} // namespace detail
+
 template<work_value T, ControlCategory Category>
 class BasicResult {
 	SP<detail::ControlBlockInterface<T>> state_{};
@@ -2039,6 +2123,10 @@ public:
 
 	[[nodiscard]] join_state state() const noexcept { return state_js_; }
 
+	// Named std::move alias; lvalue-friendly (R2 #2 v4 fix).
+	[[nodiscard]] BasicResult &&consume() & noexcept { return std::move(*this); }
+	[[nodiscard]] BasicResult &&consume() && noexcept { return std::move(*this); }
+
 	[[nodiscard]] typename control_handle_for<Category>::type control() const noexcept {
 		return typename control_handle_for<Category>::type{state_};
 	}
@@ -2062,6 +2150,16 @@ public:
 		if (state_js_ == join_state::joinable) {
 			abandon_impl(std::move(*this), std::forward<Sink>(sink));
 		}
+	}
+
+	// Hard contract: only rvalue can be awaited (R4 v6 #9).
+	[[nodiscard("Task must be consumed: use co_await std::move(task) or co_await task.consume()")]] auto
+	operator co_await() & = delete;
+
+	[[nodiscard]] auto operator co_await() && noexcept { return detail::TaskAwaiter<T>{consume(join_state::joined)}; }
+
+	[[nodiscard]] auto outcome() && noexcept -> detail::OutcomeAwaiter<T> {
+		return detail::OutcomeAwaiter<T>{consume(join_state::joined)};
 	}
 };
 
@@ -2116,6 +2214,10 @@ public:
 
 	[[nodiscard]] join_state state() const noexcept { return inner_.state(); }
 
+	// Named std::move alias; lvalue-friendly.
+	[[nodiscard]] JoinTask &&consume() & noexcept { return std::move(*this); }
+	[[nodiscard]] JoinTask &&consume() && noexcept { return std::move(*this); }
+
 	[[nodiscard]] decltype(auto) control() const noexcept { return inner_.control(); }
 
 	void cancel() noexcept { inner_.cancel(); }
@@ -2128,6 +2230,13 @@ public:
 	}
 
 	[[nodiscard]] std::source_location origin() const noexcept { return origin_; }
+
+	[[nodiscard("JoinTask must be consumed: use co_await std::move(jt) or co_await jt.consume()")]] auto
+	operator co_await() & = delete;
+
+	[[nodiscard]] auto operator co_await() && noexcept { return std::move(inner_).operator co_await(); }
+
+	[[nodiscard]] auto outcome() && noexcept { return std::move(inner_).outcome(); }
 };
 
 template<work_value T>
