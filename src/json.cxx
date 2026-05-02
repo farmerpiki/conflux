@@ -3553,6 +3553,11 @@ struct Tokenizer {
 	}
 };
 
+// gcc15: nonnull_arg_p ICE in IPA pure/const pass — do not remove
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ == 15
+#    pragma GCC push_options
+#    pragma GCC optimize("no-ipa-pure-const")
+#endif
 struct TreeBuilder {
 	Tokenizer tok;
 	DocumentStorage &store;
@@ -3880,6 +3885,9 @@ struct TreeBuilder {
 		return store.nodes.size() - 1;
 	}
 };
+#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ == 15
+#    pragma GCC pop_options
+#endif
 
 // ---------------------------------------------------------------------------
 // parse()

@@ -26,6 +26,8 @@ option(CONFLUX_ENABLE_ASAN    "Build with AddressSanitizer"                  OFF
 option(CONFLUX_ENABLE_UBSAN   "Build with UBSanitizer"                       OFF)
 option(CONFLUX_ENABLE_TSAN    "Build with ThreadSanitizer"                   OFF)
 option(CONFLUX_ENABLE_LTO     "Enable link-time optimisation"                OFF)
+option(CONFLUX_PGO_GENERATE  "Instrument build for PGO profile collection"  OFF)
+set(CONFLUX_PGO_PROFILE_DIR  "" CACHE STRING "Profile data path for PGO use phase")
 option(CONFLUX_BUILD_TESTS    "Build test targets"                           ON)
 option(CONFLUX_BUILD_BENCHMARKS "Build benchmark targets"                    OFF)
 option(CONFLUX_BUILD_FUZZ     "Build libFuzzer harness targets"              OFF)

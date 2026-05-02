@@ -82,6 +82,27 @@ function(conflux_apply_compiler_options target)
         target_link_options(${target}    INTERFACE -flto=auto)
     endif()
 
+    # ── PGO ──────────────────────────────────────────────────────────────────
+    if(CONFLUX_PGO_GENERATE)
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+            target_compile_options(${target} INTERFACE -fprofile-instr-generate)
+            target_link_options(${target}    INTERFACE -fprofile-instr-generate)
+        else()
+            target_compile_options(${target} INTERFACE -fprofile-generate=${CONFLUX_PGO_PROFILE_DIR})
+            target_link_options(${target}    INTERFACE -fprofile-generate=${CONFLUX_PGO_PROFILE_DIR})
+        endif()
+    elseif(NOT CONFLUX_PGO_PROFILE_DIR STREQUAL "")
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+            target_compile_options(${target} INTERFACE -fprofile-instr-use=${CONFLUX_PGO_PROFILE_DIR})
+            target_link_options(${target}    INTERFACE -fprofile-instr-use=${CONFLUX_PGO_PROFILE_DIR})
+        else()
+            target_compile_options(${target} INTERFACE
+                -fprofile-use=${CONFLUX_PGO_PROFILE_DIR}
+                -fprofile-correction)
+            target_link_options(${target}    INTERFACE -fprofile-use=${CONFLUX_PGO_PROFILE_DIR})
+        endif()
+    endif()
+
     # ── libFuzzer coverage instrumentation ───────────────────────────────────
     if(CONFLUX_BUILD_FUZZ)
         target_compile_options(${target} INTERFACE -fsanitize=fuzzer-no-link)

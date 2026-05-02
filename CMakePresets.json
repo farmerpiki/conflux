@@ -111,6 +111,56 @@
       }
     },
     {
+      "name": "pgo-gen-clang-libcxx",
+      "displayName": "PGO gen \u00b7 clang++ \u00b7 libc++",
+      "inherits": "release-clang-libcxx",
+      "cacheVariables": {
+        "CONFLUX_PGO_GENERATE": "ON"
+      }
+    },
+    {
+      "name": "pgo-use-clang-libcxx",
+      "displayName": "PGO use \u00b7 clang++ \u00b7 libc++",
+      "inherits": "release-clang-libcxx",
+      "cacheVariables": {
+        "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/clang/work.profdata"
+      }
+    },
+    {
+      "name": "pgo-gen-gcc-stdcxx",
+      "displayName": "PGO gen \u00b7 g++ \u00b7 libstdc++",
+      "inherits": "release-gcc-stdcxx",
+      "cacheVariables": {
+        "CONFLUX_PGO_GENERATE": "ON",
+        "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/gcc15"
+      }
+    },
+    {
+      "name": "pgo-use-gcc-stdcxx",
+      "displayName": "PGO use \u00b7 g++ \u00b7 libstdc++",
+      "inherits": "release-gcc-stdcxx",
+      "cacheVariables": {
+        "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/gcc15"
+      }
+    },
+    {
+      "name": "pgo-gen-gcc16-stdcxx",
+      "displayName": "PGO gen \u00b7 g++-16 \u00b7 libstdc++",
+      "inherits": "release-gcc16-stdcxx",
+      "cacheVariables": {
+        "CONFLUX_PGO_GENERATE": "ON",
+        "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/gcc16"
+      }
+    },
+    {
+      "name": "pgo-use-gcc16-stdcxx",
+      "displayName": "PGO use \u00b7 g++-16 \u00b7 libstdc++",
+      "inherits": "release-gcc16-stdcxx",
+      "cacheVariables": {
+        "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/gcc16"
+      }
+    },
+    {
       "name": "tsan-clang-libcxx",
       "displayName": "TSan \u00b7 clang++ \u00b7 libc++",
       "inherits": "clang-libcxx",
@@ -173,6 +223,30 @@
     {
       "name": "release-gcc16-stdcxx",
       "configurePreset": "release-gcc16-stdcxx"
+    },
+    {
+      "name": "pgo-gen-clang-libcxx",
+      "configurePreset": "pgo-gen-clang-libcxx"
+    },
+    {
+      "name": "pgo-use-clang-libcxx",
+      "configurePreset": "pgo-use-clang-libcxx"
+    },
+    {
+      "name": "pgo-gen-gcc-stdcxx",
+      "configurePreset": "pgo-gen-gcc-stdcxx"
+    },
+    {
+      "name": "pgo-use-gcc-stdcxx",
+      "configurePreset": "pgo-use-gcc-stdcxx"
+    },
+    {
+      "name": "pgo-gen-gcc16-stdcxx",
+      "configurePreset": "pgo-gen-gcc16-stdcxx"
+    },
+    {
+      "name": "pgo-use-gcc16-stdcxx",
+      "configurePreset": "pgo-use-gcc16-stdcxx"
     },
     {
       "name": "tsan-clang-libcxx",
