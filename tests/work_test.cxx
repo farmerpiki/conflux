@@ -5,6 +5,7 @@
 import std;
 import conflux.types;
 import conflux.work;
+import conflux.net.io_buffer;
 
 namespace root = conflux::work::root;
 

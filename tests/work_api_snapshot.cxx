@@ -1,4 +1,5 @@
-// Compile-only API snapshot for conflux.work + conflux.work.root.
+// Compile-only API snapshot for conflux.work, conflux.work.root, and
+// conflux.net.io_buffer.
 //
 // Every public name exported by these modules must be referenced here.
 // Symmetric rule: any addition or deletion in E1–E5 also updates this file.
@@ -13,6 +14,7 @@ import conflux.work;
 import conflux.work.root;
 import conflux.work.carrier.model_a;
 import conflux.work.carrier.model_b;
+import conflux.net.io_buffer;
 
 // ---------------------------------------------------------------------------
 // conflux.work — outer module symbols
@@ -49,10 +51,6 @@ using _StartOnStep_ = ::StartOnStep<T>;
 using _WorkPoolOptions = ::WorkPoolOptions;
 using _RingLaneOptions = ::RingLaneOptions;
 using _WorkError_enum = ::WorkError; // outer enum, distinct from root::WorkError class
-using _IoBuffer = ::IoBuffer;
-static_assert(std::is_constructible_v<::IoBuffer, std::shared_ptr<std::byte const[]>, std::size_t>);
-using _BufferList = ::BufferList;
-using _IoPlan = ::IoPlan;
 using _WorkPool = ::WorkPool;
 using _RingLane = ::RingLane;
 
@@ -532,3 +530,16 @@ void _check_from_task() {
 }
 
 } // namespace snapshot_model_b
+
+// ---------------------------------------------------------------------------
+// conflux.net.io_buffer (E5 — moved from conflux.work)
+// ---------------------------------------------------------------------------
+
+namespace snapshot_net_io_buffer {
+
+using _IoBuffer = ::IoBuffer;
+static_assert(std::is_constructible_v<::IoBuffer, std::shared_ptr<std::byte const[]>, std::size_t>);
+using _BufferList = ::BufferList;
+using _IoPlan = ::IoPlan;
+
+} // namespace snapshot_net_io_buffer

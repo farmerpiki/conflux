@@ -111,14 +111,14 @@ target_link_libraries(conflux_json_conformance_external PRIVATE conflux conflux_
 conflux_discover_tests(conflux_json_conformance_external)
 
 add_library(conflux_work_api_snapshot OBJECT work_api_snapshot.cxx)
-target_link_libraries(conflux_work_api_snapshot PRIVATE conflux_work conflux_options)
+target_link_libraries(conflux_work_api_snapshot PRIVATE conflux conflux_options)
 
 add_executable(conflux_work_compat_tests work_compat_test.cxx)
 target_link_libraries(conflux_work_compat_tests PRIVATE conflux_work conflux_options Catch2::Catch2WithMain)
 conflux_discover_tests(conflux_work_compat_tests)
 
 add_executable(conflux_work_tests work_test.cxx)
-target_link_libraries(conflux_work_tests PRIVATE conflux_work conflux_options Catch2::Catch2WithMain)
+target_link_libraries(conflux_work_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
 add_executable(conflux_work_root_tests work_root_test.cxx)
 target_link_libraries(conflux_work_root_tests PRIVATE conflux_work conflux_options Catch2::Catch2WithMain)

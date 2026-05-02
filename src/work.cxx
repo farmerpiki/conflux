@@ -490,55 +490,6 @@ export enum class WorkError : u8 {
 	owner_violation,
 };
 
-export struct IoBuffer {
-	span<byte const> bytes{};
-	SP<void const> owner{};
-
-	IoBuffer() = default;
-	explicit IoBuffer(
-		span<byte const> view)
-		: bytes{view} {}
-	IoBuffer(
-		std::shared_ptr<std::byte const[]> owned_bytes,
-		std::size_t size)
-		: bytes{owned_bytes.get(), size}
-		, owner{owned_bytes, static_cast<void const *>(owned_bytes.get())} {}
-
-	[[nodiscard]] static IoBuffer from_string(
-		S value) {
-		auto owned = make_shared<S const>(move(value));
-		auto view = span{
-			reinterpret_cast<byte const *>(owned->data()),
-			owned->size()}; // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
-		return IoBuffer{view, move(owned)};
-	}
-
-private:
-	IoBuffer(
-		span<byte const> view,
-		SP<void const> keep_alive)
-		: bytes{view}
-		, owner{move(keep_alive)} {}
-};
-
-export struct BufferList {
-	V<span<byte const>> segments{};
-};
-
-export struct IoPlan {
-	enum class Kind : u8 {
-		callback,
-	};
-
-	Kind kind = Kind::callback;
-	conflux::work::root::detail::small_move_only_function<void()> callback{};
-
-	[[nodiscard]] static IoPlan call(
-		conflux::work::root::detail::small_move_only_function<void()> fn) {
-		return IoPlan{.kind = Kind::callback, .callback = move(fn)};
-	}
-};
-
 export class WorkPool final : public work_detail::QueueTarget {
 	struct alignas(
 		64) Worker {
@@ -756,6 +707,8 @@ public:
 	[[nodiscard]] bool stopped() const noexcept { return stopping_.test(memory_order_acquire); }
 };
 
+// Requires a live io_uring ring (ring_fd from RingLaneOptions). Each wake issues
+// exactly one io_uring_register_sync_msg syscall (only when queue was empty).
 export class RingLane final : public work_detail::QueueTarget {
 	RingLaneOptions options_{};
 	mutex mtx_{};

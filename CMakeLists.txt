@@ -341,6 +341,7 @@ set(CONFLUX_MODULE_SOURCES
     src/utils.cxx
     src/crypto.cxx
     src/net/config.cxx
+    src/net/io_buffer.cxx
     src/conflux.cxx
     src/net/auth.cxx
     src/net/http_types.cxx
