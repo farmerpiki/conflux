@@ -8,19 +8,18 @@
 #
 # Bench binary contract:
 #   --bench-info   print JSON descriptor (see below) and exit 0
-#   --csv          output standard CSV: variant,iterations,total_ns,ns_per_iter
+#   --json         output NDJSON: one {"config":"","variant":"","iterations":N,"total_ns":N,"ns_per_iter":X} per line
 #
 # --bench-info JSON:
 #   {
 #     "name":    "logical_bench_name",          # used as runs.benchmark
-#     "parser":  "standard|strip1|tcp_parallel|file_copy",
+#     "parser":  "standard|tcp_parallel|file_copy",
 #     "configs": [
 #       { "name": "cfg", "extra": {}, "args": ["--iterations","N",...] }
 #     ]
 #   }
 #   Parsers:
-#     standard    — CSV variant,iterations,total_ns,ns_per_iter; uses record_with_reps
-#     strip1      — same but first CSV column (config name) is stripped before recording
+#     standard    — NDJSON variant,iterations,total_ns,ns_per_iter; uses record_with_reps
 #     tcp_parallel — custom parser; configs read from $CONFIGS_DIR/*.json (args/extra ignored)
 #     file_copy   — custom parser; configs come from --bench-info JSON
 #
@@ -29,7 +28,8 @@
 #
 # Env knobs:
 #   PGURI              postgres URI (default: postgres://postgres@localhost/conflux_bench)
-#   BENCH_PRESET       cmake preset (default: release-clang-libcxx)
+#   BENCH_PRESET       space-separated cmake preset(s) (default: release-clang-libcxx release-gcc-stdcxx)
+#                      each preset is built, run, and deleted before the next one starts
 #   KEEP_BUILD=1       skip /tmp build-dir cleanup
 #   ONLY_BENCH         if set, run only that logical bench name (e.g. "task_creation")
 #   BENCH_PIN_CPUS     cpuset for taskset (e.g. "0-3"); wraps every bench launch
@@ -50,7 +50,7 @@ set -euo pipefail
 
 PGURI="${PGURI:-postgres://postgres@localhost/conflux_bench}"
 export PG_CONNINFO="${PG_CONNINFO:-host=localhost dbname=conflux_bench user=postgres}"
-PRESET="${BENCH_PRESET:-release-clang-libcxx}"
+BENCH_PRESETS="${BENCH_PRESET:-release-clang-libcxx release-gcc-stdcxx}"
 NAME="${1:-manual}"
 BENCH_REPS="${BENCH_REPS:-5}"
 MACHINE_ID="${MACHINE_ID:-$(cat /etc/machine-id 2>/dev/null || hostname)}"
@@ -59,17 +59,29 @@ WAIVER_REASON="${WAIVER_REASON:-}"
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
 
+# ---------------------------------------------------------------------------
+# Pre-flight: abort if any core is already saturated
+# ---------------------------------------------------------------------------
+cores=$(nproc)
+load1=$(awk '{print $1}' /proc/loadavg)
+threshold=$(awk "BEGIN {printf \"%.1f\", $cores * 1.5}")
+if awk "BEGIN {exit !($load1 > $threshold)}"; then
+  echo "ERROR: 1-min load average $load1 exceeds threshold $threshold (${cores} cores × 1.5)." >&2
+  echo "       Wait for background work to finish before recording benchmarks." >&2
+  exit 3
+fi
+echo "load check passed: load=$load1 threshold=$threshold"
+
 COMMIT="$(git rev-parse HEAD)"
 BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 DIRTY=false
 if ! git diff --quiet || ! git diff --cached --quiet; then DIRTY=true; fi
 
 HOST="$(hostname)"
-COMPILER="clang++"
-case "$PRESET" in *gcc*) COMPILER="g++" ;; esac
+SYS_PINNED_CPUS="${BENCH_PIN_CPUS:-}"
 
 # ---------------------------------------------------------------------------
-# System metadata (read-only)
+# System metadata helpers (preset-independent fields)
 # ---------------------------------------------------------------------------
 cpu_model()  { grep -m1 'model name' /proc/cpuinfo 2>/dev/null | sed 's/.*: //' || echo 'unknown'; }
 cpu_cores()  { nproc 2>/dev/null || echo 1; }
@@ -91,48 +103,18 @@ SYS_SMT=$(cpu_smt)
 SYS_KERNEL=$(kernel_ver)
 SYS_LIBC=$(libc_ver)
 SYS_GOVERNOR=$(governor)
-SYS_COMPILER_VER=$(compiler_version)
-SYS_PINNED_CPUS="${BENCH_PIN_CPUS:-}"
-
-METADATA=$(printf '{
-  "cpu": "%s",
-  "cores": %s,
-  "smt": "%s",
-  "kernel": "%s",
-  "libc": "%s",
-  "governor": "%s",
-  "compiler_version": "%s",
-  "pinned_cpus": "%s",
-  "reps": %s
-}' \
-  "$SYS_CPU" "$SYS_CORES" "$SYS_SMT" "$SYS_KERNEL" \
-  "$SYS_LIBC" "$SYS_GOVERNOR" "$SYS_COMPILER_VER" \
-  "$SYS_PINNED_CPUS" "$BENCH_REPS")
 
 # ---------------------------------------------------------------------------
-# Build
+# Pre-bench cleanup: remove debug trees to free tmpfs RAM before any builds
 # ---------------------------------------------------------------------------
-CONFIGURE_LOG=$(cmake --preset "$PRESET" 2>&1)
-BUILD_DIR=$(printf '%s\n' "$CONFIGURE_LOG" | sed -n 's/^-- Build files have been written to: //p' | tail -1)
-if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
-  echo "configure failed; preset=$PRESET" >&2
-  printf '%s\n' "$CONFIGURE_LOG" | tail -20 >&2
-  exit 2
+PROJECT_TMP="/tmp/$(basename "$REPO_ROOT")"
+if [[ -d "$PROJECT_TMP" ]]; then
+  for tree in "$PROJECT_TMP"/debug-*; do
+    [[ -d "$tree" ]] || continue
+    echo "removing debug tree: $tree"
+    rm -rf "$tree"
+  done
 fi
-
-cmake --build "$BUILD_DIR" --target conflux_record_benches -- -j"$(nproc)" >/dev/null
-
-BENCHDIR="$BUILD_DIR/benchmarks"
-CONFIGS_DIR="${BENCH_CONFIGS_DIR:-$REPO_ROOT/benchmarks/configs}"
-[[ -d "$CONFIGS_DIR" ]] || CONFIGS_DIR="$REPO_ROOT/configs"
-
-cleanup() {
-  if [[ "${KEEP_BUILD:-0}" != "1" && "$BUILD_DIR" == /tmp/* ]]; then
-    rm -rf "$BUILD_DIR"
-    echo "cleaned $BUILD_DIR"
-  fi
-}
-trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
 # Bench launcher — wraps with taskset if BENCH_PIN_CPUS is set
@@ -144,9 +126,6 @@ run_bench() {
     "$@"
   fi
 }
-
-# run_bench_strip1: drops the first comma-separated column (config name prefix)
-run_bench_strip1() { run_bench "$@" | cut -d, -f2-; }
 
 # ---------------------------------------------------------------------------
 # DB helpers
@@ -180,20 +159,20 @@ insert_row() {
 }
 
 # record_with_reps: runs bench $BENCH_REPS times, inserts raw rows + summary row.
-# Args: run_id bench_name <bench_args_to_produce_csv>...
-# Expects CSV with header: variant,iterations,total_ns,ns_per_iter
+# Args: run_id bench_name <bench_args_to_produce_ndjson>...
+# Expects NDJSON lines: {"config":"","variant":"","iterations":N,"total_ns":N,"ns_per_iter":X}
 record_with_reps() {
   local run_id="$1" bench="$2"; shift 2
   local reps="${BENCH_REPS:-5}"
   local tmpf
-  tmpf=$(mktemp /tmp/bench_reps_XXXXXX.csv)
+  tmpf=$(mktemp /tmp/bench_reps_XXXXXX.ndjson)
   trap 'rm -f "$tmpf"' RETURN
 
   local i; for i in $(seq 1 "$reps"); do
-    "$@" 2>/dev/null | tail -n +2 >> "$tmpf"
+    "$@" 2>/dev/null >> "$tmpf"
   done
 
-  while IFS=, read -r variant iters total ns_pi _rest; do
+  while IFS=$'\t' read -r variant iters total ns_pi; do
     psql "$PGURI" -At -q -c "
       INSERT INTO results
         (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
@@ -202,7 +181,7 @@ record_with_reps() {
         ($run_id, '$(sql_escape "$bench")', '$(sql_escape "$variant")',
          $iters, $total, $ns_pi,
          'ns_per_iter', $ns_pi, 'ns', 1);" >/dev/null
-  done < "$tmpf"
+  done < <(jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter] | @tsv)' "$tmpf")
 
   psql "$PGURI" -At -q -c "
     WITH raw AS (
@@ -240,10 +219,10 @@ record_with_reps() {
 want() { [[ -z "${ONLY_BENCH:-}" || "${ONLY_BENCH}" == "$1" ]]; }
 
 # ---------------------------------------------------------------------------
-# Custom parsers (for benches with non-standard CSV formats)
+# Custom parsers (for benches with non-standard output fields)
 # ---------------------------------------------------------------------------
 
-# tcp_parallel_coro — complex CSV; configs from CONFIGS_DIR/*.json
+# tcp_parallel_coro — per-parallelism NDJSON with extra fields; configs from CONFIGS_DIR/*.json
 run_tcp_parallel() {
   local binary="$1" bench="$2"
   shopt -s nullglob
@@ -260,16 +239,17 @@ run_tcp_parallel() {
     RID=$(new_run "$bench" "$cfgfile" "$extra")
     echo "+ $bench [$cfgfile] run_id=$RID"
     run_bench "$binary" \
-        --iterations 200 --warmup 50 --parallel 1,2,4,8 --config "$path" --csv 2>/dev/null \
-      | tail -n +2 | while IFS=, read -r config flags ring par ipc total_iters total_ns ns_pi tput; do
-        local ex
-        ex=$(printf '{"flags":"%s","ring_entries":%s,"throughput_iter_per_s":%s}' "$flags" "$ring" "$tput")
-        insert_row "$RID" "$bench" "P=$par" "$total_iters" "$total_ns" "$ns_pi" "$ex"
-      done
+        --iterations 200 --warmup 50 --parallel 1,2,4,8 --config "$path" --json 2>/dev/null \
+      | jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.flags // ""), (.ring_entries // 0), (.throughput_iter_per_s // 0)] | @tsv)' \
+      | while IFS=$'\t' read -r variant iters total_ns ns_pi flags ring tput; do
+          local ex
+          ex=$(printf '{"flags":"%s","ring_entries":%s,"throughput_iter_per_s":%s}' "$flags" "$ring" "$tput")
+          insert_row "$RID" "$bench" "$variant" "$iters" "$total_ns" "$ns_pi" "$ex"
+        done
   done
 }
 
-# file_copy_coro — non-standard CSV; configs from --bench-info JSON
+# file_copy_coro — NDJSON with extra mib/best fields; configs from --bench-info JSON
 run_file_copy() {
   local binary="$1" bench="$2" cfg_name="$3" extra="$4"
   shift 4
@@ -277,68 +257,131 @@ run_file_copy() {
   local RID
   RID=$(new_run "$bench" "$cfg_name" "$extra")
   echo "+ $bench [$cfg_name] run_id=$RID"
-  run_bench "$binary" "${args[@]}" --csv 2>/dev/null \
-    | grep -E '^(callback|coroutine),' \
-    | while IFS=, read -r style runs_v avg_ns best_ns avg_mibs best_mibs; do
+  run_bench "$binary" "${args[@]}" --json 2>/dev/null \
+    | jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.avg_mib_per_s // 0), (.best_mib_per_s // 0), (.best_ns // 0)] | @tsv)' \
+    | while IFS=$'\t' read -r variant iters total_ns ns_pi avg_mibs best_mibs best_ns; do
         local ex
         ex=$(printf '{"avg_mib_per_s":%s,"best_mib_per_s":%s,"best_ns":%s}' "$avg_mibs" "$best_mibs" "$best_ns")
-        insert_row "$RID" "$bench" "$style" "$runs_v" "$avg_ns" "$avg_ns" "$ex"
+        insert_row "$RID" "$bench" "$variant" "$iters" "$total_ns" "$ns_pi" "$ex"
       done
 }
 
 # ---------------------------------------------------------------------------
-# Auto-discovery loop
+# Per-preset build → run → delete loop
 # ---------------------------------------------------------------------------
-for binary in "$BENCHDIR"/conflux_*bench; do
-  [[ -x "$binary" ]] || continue
-
-  info=$("$binary" --bench-info 2>/dev/null) || {
-    echo "skip $(basename "$binary"): no --bench-info support" >&2
-    continue
-  }
-
-  bench_name=$(jq -r .name <<< "$info" 2>/dev/null || true)
-  if [[ -z "$bench_name" || "$bench_name" == "null" ]]; then
-    echo "skip $(basename "$binary"): --bench-info returned invalid JSON" >&2
-    continue
+clean_build() {
+  local dir="$1"
+  if [[ "${KEEP_BUILD:-0}" != "1" && "$dir" == /tmp/* && -d "$dir" ]]; then
+    rm -rf "$dir"
+    echo "cleaned $dir"
   fi
-  parser=$(jq -r .parser <<< "$info")
+}
 
-  want "$bench_name" || continue
+CURRENT_BUILD_DIR=""
+trap '[[ -n "$CURRENT_BUILD_DIR" ]] && clean_build "$CURRENT_BUILD_DIR"' EXIT
 
-  if [[ "$parser" == "tcp_parallel" ]]; then
-    run_tcp_parallel "$binary" "$bench_name"
-    continue
+read -r -a PRESET_LIST <<< "$BENCH_PRESETS"
+preset_count=${#PRESET_LIST[@]}
+preset_idx=0
+
+for PRESET in "${PRESET_LIST[@]}"; do
+  preset_idx=$((preset_idx + 1))
+  echo "=== preset $preset_idx/$preset_count: $PRESET ==="
+
+  COMPILER="clang++"
+  case "$PRESET" in *gcc*) COMPILER="g++" ;; esac
+  SYS_COMPILER_VER=$(compiler_version)
+
+  METADATA=$(printf '{
+  "cpu": "%s",
+  "cores": %s,
+  "smt": "%s",
+  "kernel": "%s",
+  "libc": "%s",
+  "governor": "%s",
+  "compiler_version": "%s",
+  "pinned_cpus": "%s",
+  "reps": %s
+}' \
+    "$SYS_CPU" "$SYS_CORES" "$SYS_SMT" "$SYS_KERNEL" \
+    "$SYS_LIBC" "$SYS_GOVERNOR" "$SYS_COMPILER_VER" \
+    "$SYS_PINNED_CPUS" "$BENCH_REPS")
+
+  # Build
+  CONFIGURE_LOG=$(cmake --preset "$PRESET" 2>&1)
+  BUILD_DIR=$(printf '%s\n' "$CONFIGURE_LOG" | sed -n 's/^-- Build files have been written to: //p' | tail -1)
+  if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
+    echo "configure failed; preset=$PRESET" >&2
+    printf '%s\n' "$CONFIGURE_LOG" | tail -20 >&2
+    exit 2
   fi
 
-  # Iterate configs from --bench-info JSON
-  while IFS= read -r cfg_json; do
-    cfg_name=$(jq -r .name <<< "$cfg_json")
-    extra=$(jq -c .extra <<< "$cfg_json")
-    mapfile -t args < <(jq -r '.args[]' <<< "$cfg_json")
+  CURRENT_BUILD_DIR="$BUILD_DIR"
+  cmake --build "$BUILD_DIR" --target conflux_record_benches -- -j"$(nproc)" >/dev/null
 
-    if [[ "$parser" == "file_copy" ]]; then
-      run_file_copy "$binary" "$bench_name" "$cfg_name" "$extra" "${args[@]}"
+  # Let CPU caches and frequency scaling settle after a full-core build.
+  echo "build done — settling 20s before benchmarks..."
+  sleep 20
+
+  BENCHDIR="$BUILD_DIR/benchmarks"
+  CONFIGS_DIR="${BENCH_CONFIGS_DIR:-$REPO_ROOT/benchmarks/configs}"
+  [[ -d "$CONFIGS_DIR" ]] || CONFIGS_DIR="$REPO_ROOT/configs"
+
+  # Auto-discovery loop for this preset
+  for binary in "$BENCHDIR"/conflux_*bench*; do
+    [[ -x "$binary" ]] || continue
+
+    info=$("$binary" --bench-info 2>/dev/null) || {
+      echo "skip $(basename "$binary"): no --bench-info support" >&2
+      continue
+    }
+
+    bench_name=$(jq -r .name <<< "$info" 2>/dev/null || true)
+    if [[ -z "$bench_name" || "$bench_name" == "null" ]]; then
+      echo "skip $(basename "$binary"): --bench-info returned invalid JSON" >&2
+      continue
+    fi
+    parser=$(jq -r .parser <<< "$info")
+
+    want "$bench_name" || continue
+
+    if [[ "$parser" == "tcp_parallel" ]]; then
+      run_tcp_parallel "$binary" "$bench_name"
+      sleep 1
       continue
     fi
 
-    RID=$(new_run "$bench_name" "$cfg_name" "$extra")
-    echo "+ $bench_name [$cfg_name] run_id=$RID"
+    # Iterate configs from --bench-info JSON
+    while IFS= read -r cfg_json; do
+      cfg_name=$(jq -r .name <<< "$cfg_json")
+      extra=$(jq -c .extra <<< "$cfg_json")
+      mapfile -t args < <(jq -r '.args[]' <<< "$cfg_json")
 
-    case "$parser" in
-      standard)
-        record_with_reps "$RID" "$bench_name" \
-          run_bench "$binary" "${args[@]}" --csv
-        ;;
-      strip1)
-        record_with_reps "$RID" "$bench_name" \
-          run_bench_strip1 "$binary" "${args[@]}" --csv
-        ;;
-      *)
-        echo "unknown parser '$parser' for $bench_name, skipping" >&2
-        ;;
-    esac
-  done < <(jq -c '.configs[]' <<< "$info")
+      if [[ "$parser" == "file_copy" ]]; then
+        run_file_copy "$binary" "$bench_name" "$cfg_name" "$extra" "${args[@]}"
+        sleep 1
+        continue
+      fi
+
+      RID=$(new_run "$bench_name" "$cfg_name" "$extra")
+      echo "+ $bench_name [$cfg_name] run_id=$RID"
+
+      record_with_reps "$RID" "$bench_name" \
+        run_bench "$binary" "${args[@]}" --json
+      sleep 1
+    done < <(jq -c '.configs[]' <<< "$info")
+  done
+
+  echo "done: $PRESET"
+
+  # Delete this build tree immediately before starting the next preset.
+  clean_build "$BUILD_DIR"
+  CURRENT_BUILD_DIR=""
+
+  if (( preset_idx < preset_count )); then
+    echo "settling 5s before next preset..."
+    sleep 5
+  fi
 done
 
-echo "done."
+echo "all done."

@@ -27,7 +27,7 @@ struct Config {
 	V<SZ> parallelism{1, 2, 4, 8, 16, 32};
 	SZ iterations = 20'000; // per connection
 	SZ warmup = 500;
-	bool csv = false;
+	bool json_out = false;
 	S config_path;
 };
 
@@ -171,14 +171,14 @@ Config parse_args(
 				cfg.parallelism.push_back(v);
 				pos = end + 1;
 			}
-		} else if (a == "--csv") {
-			cfg.csv = true;
+		} else if (a == "--json") {
+			cfg.json_out = true;
 		} else if (a == "--config" && i + 1 < args.size()) {
 			cfg.config_path = args[++i];
 		} else if (a == "--help" || a == "-h") {
 			println(
 				"Usage: conflux_tcp_parallel_coro_bench [--iterations N] [--warmup N] "
-				"[--parallel 1,2,4,8,16] [--config path.json] [--csv]");
+				"[--parallel 1,2,4,8,16] [--config path.json] [--json]");
 			std::exit(0);
 		}
 	}
@@ -453,10 +453,7 @@ int main(
 	CompletionTable ct;
 	FileReader files{&ring, &ct, pack_ud};
 
-	if (cfg.csv) {
-		println(
-			"config,flags,ring_entries,parallel,iters_per_conn,total_iters,total_ns,ns_per_iter,throughput_iter_per_s");
-	} else {
+	if (!cfg.json_out) {
 		println(
 			"config: {}, flags: {}, ring_entries: {}, iterations/conn: {}, warmup: {}",
 			rc.label,
@@ -473,17 +470,17 @@ int main(
 		auto const r = run_parallel(files, p, cfg.iterations, lfd);
 		double const per = static_cast<double>(r.ns) / static_cast<double>(r.total_iters);
 		double const tput = static_cast<double>(r.total_iters) / (static_cast<double>(r.ns) / 1e9);
-		if (cfg.csv) {
+		if (cfg.json_out) {
 			println(
-				"{},{},{},{},{},{},{},{:.1f},{:.0f}",
+				"{{\"config\":\"{}\",\"variant\":\"P{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"flags\":\"{}\",\"ring_entries\":{},\"iters_per_conn\":{},\"throughput_iter_per_s\":{:.0f}}}",
 				rc.label,
-				flags_str(rc.flags),
-				rc.entries,
 				p,
-				cfg.iterations,
 				r.total_iters,
 				r.ns,
 				per,
+				flags_str(rc.flags),
+				rc.entries,
+				cfg.iterations,
 				tput);
 		} else {
 			println(

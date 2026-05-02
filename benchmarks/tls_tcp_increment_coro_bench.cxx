@@ -417,9 +417,7 @@ int main(
 			double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 			SV const label = (which == 0) ? "callback" : "coroutine";
 			if (cfg.json_out) {
-				println(
-					"{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.3f}}}",
-					label, cfg.iterations, ns, per);
+				println("{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}", label, cfg.iterations, ns, per);
 			} else {
 				if (which == 0) {
 					println("iterations: {}, warmup: {}", cfg.iterations, cfg.warmup);

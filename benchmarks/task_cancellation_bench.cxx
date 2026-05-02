@@ -5,7 +5,7 @@
 //   cancel_after_commit   — cancel requested after source commits; join sees Success (race)
 //   cancel_with_hook      — cancel hook installed; measures hook dispatch overhead
 //
-// CSV output (--csv): variant,iterations,total_ns,ns_per_iter
+// CSV output (--json): variant,iterations,total_ns,ns_per_iter
 
 import std;
 import conflux.types;

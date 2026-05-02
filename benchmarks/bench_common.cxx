@@ -50,8 +50,8 @@ export [[nodiscard]] BenchArgs bench_parse_args(std::span<char *> args) {
 // ── stats output ─────────────────────────────────────────────────────────────
 
 // Standard result row.
-// config     — non-empty for strip1-parser benches; printed as leading NDJSON field.
-// throughput — optional ops/s for human-readable display only; not in NDJSON.
+// config     — bench config name, emitted as "config" field in NDJSON.
+// throughput — optional ops/s for human-readable display only.
 export struct BenchStats {
 	std::string_view config;
 	std::string_view variant;
@@ -61,17 +61,13 @@ export struct BenchStats {
 	double           throughput{};
 };
 
-// Prints one NDJSON line (--json) or one human-readable line.
-export void bench_print(BenchStats const &s, bool json_out, bool /*first*/) {
+// Prints one NDJSON line (json_out=true) or one human-readable line.
+// first is accepted but unused in JSON mode (no header emitted).
+export void bench_print(BenchStats const &s, bool json_out, bool first) {
 	if (json_out) {
-		if (s.config.empty())
-			std::println(
-				"{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.3f}}}",
-				s.variant, s.iterations, s.total_ns, s.ns_per_iter);
-		else
-			std::println(
-				"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.3f}}}",
-				s.config, s.variant, s.iterations, s.total_ns, s.ns_per_iter);
+		std::println("{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",
+		             s.config, s.variant, s.iterations, s.total_ns, s.ns_per_iter);
+		(void)first;
 	} else {
 		if (!s.config.empty())
 			std::print("[{}] ", s.config);

@@ -102,7 +102,7 @@ int main(
 	int argc,
 	char **argv) {
 	bench_info_if_requested(argc, argv,
-		R"({"name":"db_pipeline","parser":"strip1","configs":[{"name":"b60_n100","extra":{"batches":60,"batch_n":100},"args":["--batches","60","--batch-n","100","--config-name","b60_n100"]}]})");
+		R"({"name":"db_pipeline","parser":"standard","configs":[{"name":"b60_n100","extra":{"batches":60,"batch_n":100},"args":["--batches","60","--batch-n","100","--config-name","b60_n100"]}]})"
 
 	auto cfg = bench_parse_args(std::span{argv, static_cast<SZ>(argc)});
 	auto pipe_cfg = parse_pipe_args(std::span{argv, static_cast<SZ>(argc)});

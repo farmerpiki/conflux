@@ -13,7 +13,7 @@ struct Config {
 	Opt<SZ> iterations_override;
 	enum class Format : u8 {
 		table,
-		csv,
+		json,
 	};
 	Format format = Format::table;
 };
@@ -55,7 +55,7 @@ bool force_gzip_backend(
 }
 
 void print_usage() {
-	println("Usage: conflux_benchmarks [--list] [--filter SUBSTR] [--iterations N] [--format table|csv]");
+	println("Usage: conflux_benchmarks [--list] [--filter SUBSTR] [--iterations N] [--format table|json]");
 }
 
 Config parse_args(
@@ -98,15 +98,15 @@ Config parse_args(
 			auto const value = SV{args[++i]};
 			if (value == "table") {
 				cfg.format = Config::Format::table;
-			} else if (value == "csv") {
-				cfg.format = Config::Format::csv;
+			} else if (value == "json") {
+				cfg.format = Config::Format::json;
 			} else {
-				throw std::invalid_argument{"--format must be table or csv"};
+				throw std::invalid_argument{"--format must be table or json"};
 			}
 			continue;
 		}
-		if (arg == "--csv") {
-			cfg.format = Config::Format::csv;
+		if (arg == "--json") {
+			cfg.format = Config::Format::json;
 			continue;
 		}
 		throw std::invalid_argument{format("unknown argument: {}", arg)};
@@ -156,8 +156,6 @@ void print_header(
 	Config::Format format) {
 	if (format == Config::Format::table) {
 		println("{:32} {:>12} {:>14} {:>14}", "Benchmark", "Iterations", "Total (ms)", "ns/iter");
-	} else {
-		println("variant,iterations,total_ns,ns_per_iter");
 	}
 }
 
@@ -168,7 +166,8 @@ void print_stats(
 		auto const total_ms = static_cast<double>(stats.total_ns) / 1'000'000.0;
 		println("{:32} {:>12} {:>14.3f} {:>14.1f}", stats.name, stats.iterations, total_ms, stats.ns_per_iter);
 	} else {
-		println("{},{},{},{}", stats.name, stats.iterations, stats.total_ns, stats.ns_per_iter);
+		println("{{\"config\":\"\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",
+		        stats.name, stats.iterations, stats.total_ns, stats.ns_per_iter);
 	}
 }
 
@@ -606,7 +605,7 @@ int main(
 			auto const stats = benchmark_detail::measure_case(*bench, iterations);
 			benchmark_detail::print_stats(stats, cfg.format);
 		}
-		println("sink={}", benchmark_detail::sink.load(memory_order_relaxed));
+		println(cerr, "sink={}", benchmark_detail::sink.load(memory_order_relaxed));
 		return 0;
 	} catch (exception const &ex) {
 		println(cerr, "conflux_benchmarks: {}", ex.what());

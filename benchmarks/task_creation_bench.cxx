@@ -5,7 +5,7 @@
 //   task_drop_joinable_release — make_task_source<int> + try_set_value, Task dropped (not joined)
 //   task_drop_joinable_debug   — same as release variant (debug/release builds differ in dtor)
 //
-// NDJSON output (--json): {"config":"default","variant":"...","iterations":N,"total_ns":N,"ns_per_iter":X}
+// NDJSON output (--json): {"config":"","variant":"...","iterations":N,"total_ns":N,"ns_per_iter":X}
 
 import std;
 import conflux.types;

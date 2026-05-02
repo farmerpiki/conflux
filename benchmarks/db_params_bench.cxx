@@ -51,7 +51,7 @@ int main(
 	int argc,
 	char **argv) {
 	bench_info_if_requested(argc, argv,
-		R"({"name":"db_params","parser":"strip1","configs":[{"name":"params_1","extra":{"n_params":1},"args":["--n-params","1","--config-name","params_1","--iterations","1000000","--warmup","50000"]},{"name":"params_4","extra":{"n_params":4},"args":["--n-params","4","--config-name","params_4","--iterations","1000000","--warmup","50000"]},{"name":"params_16","extra":{"n_params":16},"args":["--n-params","16","--config-name","params_16","--iterations","1000000","--warmup","50000"]},{"name":"params_64","extra":{"n_params":64},"args":["--n-params","64","--config-name","params_64","--iterations","1000000","--warmup","50000"]}]})");
+		R"({"name":"db_params","parser":"standard","configs":[{"name":"params_1","extra":{"n_params":1},"args":["--n-params","1","--config-name","params_1","--iterations","1000000","--warmup","50000"]},{"name":"params_4","extra":{"n_params":4},"args":["--n-params","4","--config-name","params_4","--iterations","1000000","--warmup","50000"]},{"name":"params_16","extra":{"n_params":16},"args":["--n-params","16","--config-name","params_16","--iterations","1000000","--warmup","50000"]},{"name":"params_64","extra":{"n_params":64},"args":["--n-params","64","--config-name","params_64","--iterations","1000000","--warmup","50000"]}]})");
 
 	auto cfg = bench_parse_args(span{argv, static_cast<size_t>(argc)});
 	size_t n_params = 4;

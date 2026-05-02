@@ -22,7 +22,7 @@ struct Config {
 	SZ size_mib = 256;
 	SZ chunk_kib = 64;
 	SZ runs = 2;
-	bool csv = false;
+	bool json_out = false;
 	S src_path = "/tmp/conflux_copy_src.bin";
 	S dst_path = "/tmp/conflux_copy_dst.bin";
 };
@@ -50,10 +50,10 @@ Config parse_args(
 			cfg.chunk_kib = parse_sz(args[++i]);
 		} else if (a == "--runs" && i + 1 < args.size()) {
 			cfg.runs = parse_sz(args[++i]);
-		} else if (a == "--csv") {
-			cfg.csv = true;
+		} else if (a == "--json") {
+			cfg.json_out = true;
 		} else if (a == "--help" || a == "-h") {
-			println("Usage: conflux_file_copy_coro_bench [--size-mib N] [--chunk-kib N] [--runs N] [--csv]");
+			println("Usage: conflux_file_copy_coro_bench [--size-mib N] [--chunk-kib N] [--runs N] [--json]");
 			std::exit(0);
 		}
 	}
@@ -179,7 +179,7 @@ int main(
 	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
 	SZ const bytes = cfg.size_mib << 20U;
 
-	println("seeding {} MiB into {}", cfg.size_mib, cfg.src_path);
+	println(cerr, "seeding {} MiB into {}", cfg.size_mib, cfg.src_path);
 	seed_source(cfg.src_path, bytes);
 
 	::io_uring ring{};
@@ -210,22 +210,23 @@ int main(
 		double const co_avg = static_cast<double>(co.total_ns) / static_cast<double>(cfg.runs);
 		double const delta = 100.0 * (co_avg - cb_avg) / cb_avg;
 
-		if (cfg.csv) {
-			println("style,runs,avg_ns,best_ns,avg_mib_per_s,best_mib_per_s");
+		if (cfg.json_out) {
 			println(
-				"callback,{},{:.0f},{},{:.1f},{:.1f}",
+				"{{\"config\":\"default\",\"variant\":\"callback\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"avg_mib_per_s\":{:.1f},\"best_mib_per_s\":{:.1f},\"best_ns\":{}}}",
 				cfg.runs,
+				cb.total_ns,
 				cb_avg,
-				cb.best_ns,
 				mib_per_sec(bytes, static_cast<u64>(cb_avg)),
-				mib_per_sec(bytes, cb.best_ns));
+				mib_per_sec(bytes, cb.best_ns),
+				cb.best_ns);
 			println(
-				"coroutine,{},{:.0f},{},{:.1f},{:.1f}",
+				"{{\"config\":\"default\",\"variant\":\"coroutine\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"avg_mib_per_s\":{:.1f},\"best_mib_per_s\":{:.1f},\"best_ns\":{}}}",
 				cfg.runs,
+				co.total_ns,
 				co_avg,
-				co.best_ns,
 				mib_per_sec(bytes, static_cast<u64>(co_avg)),
-				mib_per_sec(bytes, co.best_ns));
+				mib_per_sec(bytes, co.best_ns),
+				co.best_ns);
 		} else {
 			println("size: {} MiB, chunk: {} KiB, runs: {} (+1 warmup each)", cfg.size_mib, cfg.chunk_kib, cfg.runs);
 			println(

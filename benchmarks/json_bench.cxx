@@ -46,13 +46,13 @@ Stats measure(
 	return {med, mbs, iters * batch, total_ns};
 }
 
-bool g_csv = false;
+bool g_json = false;
 
 void print_row(
 	SV name,
 	Stats const &s) {
-	if (g_csv) {
-		std::println("{},{},{},{:.2f}", name, s.iters, static_cast<u64>(s.total_ns), s.median_ns);
+	if (g_json) {
+		std::println("{{\"config\":\"\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}", name, s.iters, static_cast<u64>(s.total_ns), s.median_ns);
 	} else if (s.throughput_mbs > 0.0) {
 		print("[json-bench] {:<40} {:>10.1f} ns  {:>8.1f} MB/s\n", name, s.median_ns, s.throughput_mbs);
 	} else {
@@ -384,7 +384,7 @@ void bench_dump_plain(
 		return;
 	}
 	auto s = measure([&] { (void)doc->dump(); }, 50, 500, 1, json_str->size());
-	print_row("dump/plain (no sort, no ascii_only)", s);
+	print_row("dump/plain (no sort / no ascii_only)", s);
 }
 
 void bench_dump_sorted(
@@ -678,13 +678,11 @@ int main(
 				R"({"name":"json","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
 			return 0;
 		}
-		if (a == "--csv") {
-			g_csv = true;
+		if (a == "--json") {
+			g_json = true;
 		}
 	}
-	if (g_csv) {
-		std::println("variant,iterations,total_ns,ns_per_iter");
-	} else {
+	if (!g_json) {
 		println("[json-bench] building corpora…");
 	}
 	S const config_corpus = make_config_corpus();
@@ -701,7 +699,7 @@ int main(
 	S const lookup_mixed_corpus = make_lookup_mixed_corpus();
 	S const below_threshold_corpus = make_below_threshold_corpus();
 
-	if (!g_csv) {
+	if (!g_json) {
 		println(
 			"[json-bench] corpus sizes: config={}B decode={}B lookup={}B A={}B large={}B",
 			config_corpus.size(),
@@ -731,11 +729,11 @@ int main(
 	bench_dump_plain(config_corpus);
 	bench_dump_sorted(config_corpus);
 
-	if (!g_csv) {
+	if (!g_json) {
 		println("[json-bench]");
 		println("[json-bench] -- R0 corpora (added v16) --");
 	}
-	bench_parse_named("parse/long_strings (1MB, 32x32KiB)", long_strings_corpus);
+	bench_parse_named("parse/long_strings (1MB / 32x32KiB)", long_strings_corpus);
 	bench_dump_named("dump/long_strings", long_strings_corpus);
 	bench_parse_named("parse/pretty_ws (1MB indented)", pretty_ws_corpus);
 	bench_dump_named("dump/pretty_ws", pretty_ws_corpus);
@@ -745,7 +743,7 @@ int main(
 	bench_parse_named("parse/mixed_numbers (1MB)", mixed_numbers_corpus);
 	bench_dump_named("dump/mixed_numbers", mixed_numbers_corpus);
 
-	if (!g_csv) {
+	if (!g_json) {
 		println("[json-bench]");
 		println("[json-bench] -- v16 Item C/E: member_name dispatch + builder name-copy --");
 		println("[json-bench]    Baseline (plain names, kStorageInputView) already shown above.");
@@ -754,7 +752,7 @@ int main(
 	bench_find_member_mixed(lookup_mixed_corpus);
 	bench_builder_name_length();
 
-	if (!g_csv) {
+	if (!g_json) {
 		println("[json-bench]");
 		println("[json-bench] -- FI-1: sentinel prevents repeated hash-build on failure --");
 		println("[json-bench]    (A) per-lookup cost after sentinel cached; (B) overhead saved per repeat call");
@@ -762,7 +760,7 @@ int main(
 	}
 	bench_fi1_sentinel(below_threshold_corpus, lookup_corpus);
 
-	if (!g_csv) {
+	if (!g_json) {
 		println("[json-bench]");
 		println("[json-bench] Acceptance thresholds:");
 		println("[json-bench]   parse >=500 MB/s on typical-config corpus");

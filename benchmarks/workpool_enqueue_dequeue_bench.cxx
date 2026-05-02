@@ -5,7 +5,7 @@
 //   single_thread — single-producer, single-worker, no cross-thread contention
 //   contended     — N producer threads, WorkPool workers; N from --threads
 //
-// CSV output (--csv): config,variant,iterations,total_ns,ns_per_iter
+// CSV output (--json): config,variant,iterations,total_ns,ns_per_iter
 
 import std;
 import conflux.types;

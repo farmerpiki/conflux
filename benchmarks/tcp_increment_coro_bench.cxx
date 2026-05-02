@@ -30,7 +30,7 @@ constexpr u64 pack_ud(
 struct Config {
 	SZ iterations = 100'000;
 	SZ warmup = 5'000;
-	bool csv = false;
+	bool json_out = false;
 };
 
 template<class T, SZ N>
@@ -70,10 +70,10 @@ Config parse_args(
 			cfg.iterations = parse_u64(args[++i]);
 		} else if (a == "--warmup" && i + 1 < args.size()) {
 			cfg.warmup = parse_u64(args[++i]);
-		} else if (a == "--csv") {
-			cfg.csv = true;
+		} else if (a == "--json") {
+			cfg.json_out = true;
 		} else if (a == "--help" || a == "-h") {
-			println("Usage: conflux_tcp_increment_coro_bench [--iterations N] [--warmup N] [--csv]");
+			println("Usage: conflux_tcp_increment_coro_bench [--iterations N] [--warmup N] [--json]");
 			std::exit(0);
 		}
 	}
@@ -340,11 +340,8 @@ int main(
 										  run_coroutine(files, sock, cfg.iterations, cfg.warmup);
 			double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 			SV const label = (which == 0) ? "callback" : "coroutine";
-			if (cfg.csv) {
-				if (which == 0) {
-					println("style,iterations,total_ns,ns_per_iter");
-				}
-				println("{},{},{},{:.1f}", label, cfg.iterations, ns, per);
+			if (cfg.json_out) {
+				println("{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}", label, cfg.iterations, ns, per);
 			} else {
 				if (which == 0) {
 					println("iterations: {}, warmup: {}", cfg.iterations, cfg.warmup);

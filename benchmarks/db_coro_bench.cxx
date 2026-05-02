@@ -82,7 +82,7 @@ int main(
 	int argc,
 	char **argv) {
 	bench_info_if_requested(argc, argv,
-		R"({"name":"db_coro","parser":"strip1","configs":[{"name":"rows_3","extra":{"rows":3},"args":["--rows","3","--config-name","rows_3","--iterations","5000","--warmup","500"]},{"name":"rows_100","extra":{"rows":100},"args":["--rows","100","--config-name","rows_100","--iterations","1000","--warmup","100"]}]})");
+		R"({"name":"db_coro","parser":"standard","configs":[{"name":"rows_3","extra":{"rows":3},"args":["--rows","3","--config-name","rows_3","--iterations","5000","--warmup","500"]},{"name":"rows_100","extra":{"rows":100},"args":["--rows","100","--config-name","rows_100","--iterations","1000","--warmup","100"]}]})");
 
 	auto cfg = bench_parse_args(std::span{argv, static_cast<SZ>(argc)});
 	i64 rows = 3;
