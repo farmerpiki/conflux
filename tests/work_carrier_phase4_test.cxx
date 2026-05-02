@@ -11,10 +11,15 @@ namespace model_a = conflux::work::carrier::model_a;
 
 namespace {
 
-struct OwnerCap : root::capability_id_from_address {};
-struct DriverCap : root::capability_id_from_address {};
+struct OwnerCap {};
+struct DriverCap {};
 
 } // namespace
+
+namespace conflux::work::root {
+template<> inline constexpr bool enable_address_capability_v<OwnerCap> = true;
+template<> inline constexpr bool enable_address_capability_v<DriverCap> = true;
+}
 
 // ---------------------------------------------------------------------------
 // hop_to_posted — kind + binding

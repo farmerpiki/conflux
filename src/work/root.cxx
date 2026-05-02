@@ -623,6 +623,9 @@ struct CapabilityId {
 	}
 };
 
+template<class T>
+inline constexpr bool enable_address_capability_v = false;
+
 struct capability_id_t {
 	template<class Cap>
 	[[nodiscard]] auto operator ()(
@@ -631,23 +634,21 @@ struct capability_id_t {
 			noexcept(tag_invoke(*this, cap))) -> decltype(tag_invoke(*this, cap)) {
 		return tag_invoke(*this, cap);
 	}
-};
 
-inline constexpr capability_id_t capability_id{};
-
-struct capability_id_from_address {
-	template<class Self>
-		requires std::derived_from<Self, capability_id_from_address>
-	friend auto tag_invoke(
+	template<class T>
+		requires enable_address_capability_v<T>
+	[[nodiscard]] friend CapabilityId tag_invoke(
 		capability_id_t,
-		Self const &self) noexcept -> CapabilityId {
+		T const &self) noexcept {
 		static unsigned char tag = 0;
 		return CapabilityId{
-			.address = static_cast<void const *>(std::addressof(self)),
+			.address  = static_cast<void const *>(std::addressof(self)),
 			.type_tag = static_cast<void const *>(&tag),
 		};
 	}
 };
+
+inline constexpr capability_id_t capability_id{};
 
 template<class C>
 concept progress_capability = requires(C const &c) {

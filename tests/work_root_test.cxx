@@ -9,9 +9,21 @@ namespace root = conflux::work::root;
 
 namespace {
 
-struct OwnerCap : root::capability_id_from_address {};
+struct OwnerCap {};
+struct DriverCap {};
+struct InnerCap {};
+struct OuterCap : InnerCap {};
 
-struct DriverCap : root::capability_id_from_address {};
+} // namespace
+
+namespace conflux::work::root {
+template<> inline constexpr bool enable_address_capability_v<OwnerCap> = true;
+template<> inline constexpr bool enable_address_capability_v<DriverCap> = true;
+template<> inline constexpr bool enable_address_capability_v<InnerCap> = true;
+template<> inline constexpr bool enable_address_capability_v<OuterCap> = true;
+}
+
+namespace {
 
 struct ThrowOnCopy {
 	inline static bool throw_now = false;
@@ -305,9 +317,6 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: capability_id helper includes per-type tag",
 	"[work.root]") {
-	struct InnerCap : root::capability_id_from_address {};
-	struct OuterCap : InnerCap {};
-
 	OuterCap const cap{};
 	InnerCap const &base = cap;
 	auto const base_id = root::capability_id(base);

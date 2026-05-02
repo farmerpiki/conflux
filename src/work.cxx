@@ -853,6 +853,11 @@ public:
 	[[nodiscard]] int ring_fd() const noexcept { return options_.ring_fd; }
 };
 
+namespace conflux::work::root {
+template<> inline constexpr bool enable_address_capability_v<WorkPool> = true;
+template<> inline constexpr bool enable_address_capability_v<RingLane> = true;
+}
+
 template<typename T>
 using Flow = work_detail::Flow<T>;
 

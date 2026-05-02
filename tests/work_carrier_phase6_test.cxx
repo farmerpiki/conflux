@@ -13,8 +13,8 @@ namespace carrier = conflux::work::carrier;
 
 namespace {
 
-struct OwnerCap : root::capability_id_from_address {};
-struct DriverCap : root::capability_id_from_address {};
+struct OwnerCap {};
+struct DriverCap {};
 
 model_a::Chain<int> make_success(
 	int v) {
@@ -37,6 +37,11 @@ model_a::Chain<int> make_cancelled() {
 }
 
 } // namespace
+
+namespace conflux::work::root {
+template<> inline constexpr bool enable_address_capability_v<OwnerCap> = true;
+template<> inline constexpr bool enable_address_capability_v<DriverCap> = true;
+}
 
 // ---------------------------------------------------------------------------
 // Phase 6a: hop_to_task + unbind

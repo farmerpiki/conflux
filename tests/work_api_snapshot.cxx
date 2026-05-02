@@ -181,10 +181,17 @@ using _CapabilityId = root::CapabilityId;
 using _capability_id_t_ = root::capability_id_t;
 [[maybe_unused]] auto _cap_id_cst = root::capability_id;
 
-// capability_id_from_address — verify via concrete derived type
-struct _TestCap : root::capability_id_from_address {};
+// E3: enable_address_capability_v<T> opt-in trait
+static_assert(!root::enable_address_capability_v<int>);
+struct _TestCap {};
+} // namespace snapshot_root
+namespace conflux::work::root {
+template<> inline constexpr bool enable_address_capability_v<snapshot_root::_TestCap> = true;
+}
+namespace snapshot_root {
+static_assert(root::enable_address_capability_v<_TestCap>);
 
-// progress_capability — satisfied by custom capability_id_from_address types
+// progress_capability — satisfied by enable_address_capability_v<T> opt-in
 static_assert(root::progress_capability<_TestCap>);
 
 // Source type aliases
@@ -400,7 +407,12 @@ using _unbind_fn = decltype(&model_a::unbind<int>);
 
 // E1.z — combinator member functions
 
-struct _DummyCap : root::capability_id_from_address {};
+struct _DummyCap {};
+} // namespace snapshot_model_a
+namespace conflux::work::root {
+template<> inline constexpr bool enable_address_capability_v<snapshot_model_a::_DummyCap> = true;
+}
+namespace snapshot_model_a {
 
 void _e1z_then_check_() {
 	auto [task, src] = root::make_task_source<int>();
