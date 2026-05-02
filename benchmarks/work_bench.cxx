@@ -22,13 +22,33 @@ namespace model_b = conflux::work::carrier::model_b;
 #endif
 namespace carrier = conflux::work::carrier;
 
+struct OwnerCap {};
+struct DriverCap {};
+#if CONFLUX_WORK_CARRIER_MODEL_A
+struct OwnerCapA {};
+struct DriverCapA {};
+#endif
+#if CONFLUX_WORK_CARRIER_MODEL_B
+struct OwnerCapB {};
+struct DriverCapB {};
+#endif
+
+namespace conflux::work::root {
+template<> inline constexpr bool enable_address_capability_v<OwnerCap> = true;
+template<> inline constexpr bool enable_address_capability_v<DriverCap> = true;
+#if CONFLUX_WORK_CARRIER_MODEL_A
+template<> inline constexpr bool enable_address_capability_v<OwnerCapA> = true;
+template<> inline constexpr bool enable_address_capability_v<DriverCapA> = true;
+#endif
+#if CONFLUX_WORK_CARRIER_MODEL_B
+template<> inline constexpr bool enable_address_capability_v<OwnerCapB> = true;
+template<> inline constexpr bool enable_address_capability_v<DriverCapB> = true;
+#endif
+}
+
 namespace {
 
 inline Atom<SZ> sink{};
-
-struct OwnerCap : root::capability_id_from_address {};
-
-struct DriverCap : root::capability_id_from_address {};
 
 struct Config {
 	bool list_only = false;
@@ -649,9 +669,6 @@ Case make_callable_erasure_capture_case(
 
 #if CONFLUX_WORK_CARRIER_MODEL_A
 
-struct OwnerCapA : root::capability_id_from_address {};
-struct DriverCapA : root::capability_id_from_address {};
-
 Case make_carrier_a_task_map1_case() {
 	return Case{
 		.name = "carrier_a/task_map1",
@@ -857,9 +874,6 @@ Case make_deadline_scope_fast_path_case() {
 #endif // CONFLUX_WORK_CARRIER_MODEL_A (deadline fast path)
 
 #if CONFLUX_WORK_CARRIER_MODEL_B
-
-struct OwnerCapB : root::capability_id_from_address {};
-struct DriverCapB : root::capability_id_from_address {};
 
 Case make_carrier_b_task_map1_case() {
 	return Case{
@@ -1072,7 +1086,7 @@ int main(
 			auto const iterations = cfg.iterations_override.value_or(bench.default_iterations);
 			print_stats(measure_case(bench, iterations), cfg.format);
 		}
-		println("sink={}", sink.load(memory_order_relaxed));
+		println(cerr, "sink={}", sink.load(memory_order_relaxed));
 		return 0;
 	} catch (exception const &ex) {
 		println(cerr, "conflux_work_benchmarks: {}", ex.what());
