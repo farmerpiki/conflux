@@ -22,6 +22,7 @@ export module conflux.net.router;
 
 import std;
 import conflux.types;
+export import conflux.net.http.types;
 import conflux.crypto;
 import conflux.work;
 import conflux.file_io;
@@ -119,316 +120,6 @@ struct StaticCacheStore {
 		evict(path + "|br");
 		evict(path + "|gzip");
 	}
-};
-
-export struct FieldHash {
-	using is_transparent = void;
-	bool ci{false};
-
-	[[nodiscard]] SZ operator ()(
-		SV s) const noexcept {
-		SZ h = 14695981039346656037ULL;
-		for (char const ch: s) {
-			auto const c = static_cast<unsigned char>(ch);
-			unsigned char const k = ci ? static_cast<unsigned char>(c | 0x20) : c;
-			h ^= k;
-			h *= 1099511628211ULL;
-		}
-		return h;
-	}
-	[[nodiscard]] SZ operator ()(
-		S const &s) const noexcept {
-		return operator ()(SV{s});
-	}
-};
-
-export struct FieldEq {
-	using is_transparent = void;
-	bool ci{false};
-
-	[[nodiscard]] bool operator ()(
-		SV a,
-		SV b) const noexcept {
-		if (a.size() != b.size()) {
-			return false;
-		}
-		if (!ci) {
-			return a == b;
-		}
-		return ranges::equal(a, b, [](unsigned char x, unsigned char y) { return (x | 0x20) == (y | 0x20); });
-	}
-	[[nodiscard]] bool operator ()(
-		S const &a,
-		SV b) const noexcept {
-		return operator ()(SV{a}, b);
-	}
-	[[nodiscard]] bool operator ()(
-		SV a,
-		S const &b) const noexcept {
-		return operator ()(a, SV{b});
-	}
-	[[nodiscard]] bool operator ()(
-		S const &a,
-		S const &b) const noexcept {
-		return operator ()(SV{a}, SV{b});
-	}
-};
-
-// Vector-backed S map: operator[] returns SV (empty if absent).
-// Preferred over UM for small/bounded collections — contiguous storage,
-// no hashing, linear scan faster for N < ~100.
-export class HttpFields {
-	V<P<S, S>> data_;
-	std::unordered_multimap<S, SZ, FieldHash, FieldEq> index_;
-	bool case_insensitive_{false};
-
-	void index_entry(
-		SZ i) {
-		index_.emplace(data_[i].first, i);
-	}
-
-public:
-	HttpFields(
-		bool case_insensitive = false)
-		: index_(0, FieldHash{case_insensitive}, FieldEq{case_insensitive})
-		, case_insensitive_(case_insensitive) {}
-	HttpFields(
-		std::initializer_list<P<S, S>> init)
-		: data_(init) {
-		for (SZ i = 0; i < data_.size(); ++i) {
-			index_entry(i);
-		}
-	}
-
-	// Read: returns empty view when key absent.
-	// NOLINTNEXTLINE(fuchsia-overloaded-operator)
-	SV operator [](
-		SV key) const noexcept {
-		return get(key).value_or(SV{});
-	}
-
-	// Write: inserts key with empty value when absent, then returns ref.
-	// NOLINTNEXTLINE(fuchsia-overloaded-operator)
-	S &operator [](
-		SV key) {
-		auto range = index_.equal_range(key);
-		if (range.first != range.second) {
-			return data_[range.first->second].second;
-		}
-		data_.emplace_back(S{key}, S{});
-		index_entry(data_.size() - 1);
-		return data_.back().second;
-	}
-
-	[[nodiscard]] Opt<SV> get(
-		SV key) const noexcept {
-		auto range = index_.equal_range(key);
-		if (range.first == range.second) {
-			return std::nullopt;
-		}
-		return SV{data_[range.first->second].second};
-	}
-
-	[[nodiscard]] V<SV> values(
-		SV key) const {
-		V<SV> out;
-		auto range = index_.equal_range(key);
-		for (auto it = range.first; it != range.second; ++it) {
-			out.push_back(data_[it->second].second);
-		}
-		return out;
-	}
-
-	[[nodiscard]] bool contains(
-		SV key) const noexcept {
-		auto range = index_.equal_range(key);
-		return range.first != range.second;
-	}
-
-	[[nodiscard]] SV value_or(
-		SV key,
-		SV def = {}) const noexcept {
-		return get(key).value_or(def);
-	}
-
-	void emplace_back(
-		S k,
-		S v) {
-		data_.emplace_back(move(k), move(v));
-		index_entry(data_.size() - 1);
-	}
-
-	void append(
-		S k,
-		S v) {
-		emplace_back(move(k), move(v));
-	}
-
-	void set(
-		S key,
-		S field_value) {
-		auto range = index_.equal_range(SV{key});
-		if (range.first == range.second) {
-			emplace_back(move(key), move(field_value));
-			return;
-		}
-		auto idx_view =
-			ranges::subrange(range.first, range.second) | std::views::transform([](auto const &e) { return e.second; });
-		auto const keep_idx = ranges::min(idx_view);
-		data_[keep_idx].second = move(field_value);
-		US<SZ> to_remove;
-		ranges::copy_if(idx_view, inserter(to_remove, to_remove.end()), [&](SZ i) { return i != keep_idx; });
-		if (to_remove.empty()) {
-			return;
-		}
-		SZ cursor = 0;
-		erase_if(data_, [&](auto const &) { return to_remove.contains(cursor++); });
-		index_.clear();
-		for (SZ i = 0; i < data_.size(); ++i) {
-			index_entry(i);
-		}
-	}
-
-	SZ erase(
-		SV key) {
-		auto range = index_.equal_range(key);
-		if (range.first == range.second) {
-			return 0;
-		}
-		US<SZ> to_remove;
-		ranges::copy(
-			ranges::subrange(range.first, range.second) | std::views::transform([](auto const &e) { return e.second; }),
-			inserter(to_remove, to_remove.end()));
-		SZ cursor = 0;
-		SZ const removed = erase_if(data_, [&](auto const &) { return to_remove.contains(cursor++); });
-		index_.clear();
-		for (SZ i = 0; i < data_.size(); ++i) {
-			index_entry(i);
-		}
-		return removed;
-	}
-	void clear() noexcept {
-		data_.clear();
-		index_.clear();
-	}
-	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
-	[[nodiscard]] SZ size() const noexcept { return data_.size(); }
-	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
-
-	auto begin() { return data_.begin(); }
-	auto end() { return data_.end(); }
-	[[nodiscard]] auto begin() const { return data_.begin(); }
-	[[nodiscard]] auto end() const { return data_.end(); }
-};
-
-export class HttpFieldsView {
-	V<P<SV, SV>> data_;
-	std::unordered_multimap<SV, SZ, FieldHash, FieldEq> index_;
-	SP<deque<S>> owned_storage_{};
-	bool case_insensitive_{false};
-
-	void index_entry(
-		SZ i) {
-		index_.emplace(data_[i].first, i);
-	}
-
-	[[nodiscard]] SV store_owned(
-		S owned_value) {
-		if (!owned_storage_) {
-			owned_storage_ = make_shared<deque<S>>();
-		}
-		owned_storage_->push_back(move(owned_value));
-		return owned_storage_->back();
-	}
-
-public:
-	HttpFieldsView(
-		bool case_insensitive = false)
-		: index_(0, FieldHash{case_insensitive}, FieldEq{case_insensitive})
-		, case_insensitive_(case_insensitive) {}
-
-	HttpFieldsView(
-		HttpFields const &fields)
-		: index_(0, FieldHash{fields.case_insensitive()}, FieldEq{fields.case_insensitive()})
-		, case_insensitive_(fields.case_insensitive()) {
-		for (auto const &[k, v]: fields) {
-			emplace_back(k, v);
-		}
-	}
-
-	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
-
-	SV operator [](
-		SV key) const noexcept {
-		return get(key).value_or(SV{});
-	}
-
-	[[nodiscard]] Opt<SV> get(
-		SV key) const noexcept {
-		auto range = index_.equal_range(key);
-		if (range.first == range.second) {
-			return std::nullopt;
-		}
-		return data_[range.first->second].second;
-	}
-
-	[[nodiscard]] V<SV> values(
-		SV key) const {
-		V<SV> out;
-		auto range = index_.equal_range(key);
-		for (auto it = range.first; it != range.second; ++it) {
-			out.push_back(data_[it->second].second);
-		}
-		return out;
-	}
-
-	[[nodiscard]] bool contains(
-		SV key) const noexcept {
-		auto range = index_.equal_range(key);
-		return range.first != range.second;
-	}
-
-	[[nodiscard]] SV value_or(
-		SV key,
-		SV def = {}) const noexcept {
-		return get(key).value_or(def);
-	}
-
-	void emplace_back(
-		SV k,
-		SV v) {
-		data_.emplace_back(k, v);
-		index_entry(data_.size() - 1);
-	}
-
-	void emplace_back_owned(
-		S k,
-		S v) {
-		data_.emplace_back(store_owned(move(k)), store_owned(move(v)));
-		index_entry(data_.size() - 1);
-	}
-
-	void clear() noexcept {
-		data_.clear();
-		index_.clear();
-		owned_storage_.reset();
-	}
-
-	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
-	[[nodiscard]] SZ size() const noexcept { return data_.size(); }
-
-	[[nodiscard]] HttpFields to_owned() const {
-		HttpFields out{case_insensitive_};
-		for (auto const &[k, v]: data_) {
-			out.emplace_back(S{k}, S{v});
-		}
-		return out;
-	}
-
-	auto begin() { return data_.begin(); }
-	auto end() { return data_.end(); }
-	[[nodiscard]] auto begin() const { return data_.begin(); }
-	[[nodiscard]] auto end() const { return data_.end(); }
 };
 
 export struct UploadedFile {
@@ -577,7 +268,7 @@ export struct HttpRequest {
 	S remote_addr; // peer IP address (best-effort with multishot accept)
 	bool is_tls = false; // true when request arrived over a TLS connection
 	HttpFields params; // {name} captures
-	HttpFields headers{true}; // case-insensitive lookup
+	HttpFields headers = HttpFields(true); // case-insensitive lookup
 	HttpFields query; // parsed from URL ?k=v&...
 	HttpFields form; // parsed from application/x-www-form-urlencoded body or multipart text fields
 	HttpFields cookies; // parsed from Cookie: header
@@ -940,9 +631,9 @@ export struct HttpResponse {
 	int status = kHttpOk;
 	S status_text = "OK";
 	S content_type = "text/html; charset=utf-8";
-	HttpFields headers{true}; // extra response headers (added after Content-Type/Content-Length)
+	HttpFields headers = HttpFields(true); // extra response headers (added after Content-Type/Content-Length)
 	V<S> set_cookies{}; // Set-Cookie headers (one per entry)
-	HttpFields trailers{true}; // HTTP/2 trailer headers sent after the DATA frames
+	HttpFields trailers = HttpFields(true); // HTTP/2 trailer headers sent after the DATA frames
 	bool head_only = false; // true → send headers only, suppress body (HEAD requests)
 	SZ content_length_hint{0}; // non-zero overrides content_length() (HEAD static file responses)
 	BodyKind body_kind = BodyKind::text;
@@ -1194,10 +885,9 @@ export struct HttpResponse {
 
 	[[nodiscard]] static HttpResponse bad_request(
 		SV detail = {}) {
-		auto body =
-			detail.empty() ?
-				S{"<html><body><h1>400 Bad Request</h1></body></html>"} :
-				format("<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>", html_escape(detail));
+		auto body = detail.empty() ?
+						S{"<html><body><h1>400 Bad Request</h1></body></html>"} :
+						format("<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>", html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpBadRequest;
 		r.status_text = "Bad Request";
@@ -1221,10 +911,9 @@ export struct HttpResponse {
 
 	[[nodiscard]] static HttpResponse forbidden(
 		SV detail = {}) {
-		auto body =
-			detail.empty() ?
-				S{"<html><body><h1>403 Forbidden</h1></body></html>"} :
-				format("<html><body><h1>403 Forbidden</h1><p>{}</p></body></html>", html_escape(detail));
+		auto body = detail.empty() ?
+						S{"<html><body><h1>403 Forbidden</h1></body></html>"} :
+						format("<html><body><h1>403 Forbidden</h1><p>{}</p></body></html>", html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpForbidden;
 		r.status_text = "Forbidden";
@@ -1258,8 +947,7 @@ export struct HttpResponse {
 		auto body =
 			detail.empty() ?
 				S{"<html><body><h1>422 Unprocessable Entity</h1></body></html>"} :
-				format(
-					"<html><body><h1>422 Unprocessable Entity</h1><p>{}</p></body></html>", html_escape(detail));
+				format("<html><body><h1>422 Unprocessable Entity</h1><p>{}</p></body></html>", html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpUnprocessableEntity;
 		r.status_text = "Unprocessable Entity";
@@ -1323,9 +1011,7 @@ export struct HttpResponse {
 		return r;
 	}
 
-	[[nodiscard]] static HttpResponse no_content() {
-		return {.status = kHttpNoContent, .status_text = "No Content"};
-	}
+	[[nodiscard]] static HttpResponse no_content() { return {.status = kHttpNoContent, .status_text = "No Content"}; }
 
 	[[nodiscard]] static HttpResponse content_too_large() {
 		HttpResponse r;
@@ -3185,8 +2871,7 @@ public:
 											return;
 										}
 										static_cache->evict_all_encodings(full_path);
-										dr->complete(
-											HttpResponse::no_content());
+										dr->complete(HttpResponse::no_content());
 									} catch (...) { dr->complete(HttpResponse::internal_error()); }
 								});
 							if (!ok) {

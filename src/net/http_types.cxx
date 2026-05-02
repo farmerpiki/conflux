@@ -5,6 +5,310 @@ export module conflux.net.http.types;
 import std;
 import conflux.types;
 
+export struct FieldHash {
+	using is_transparent = void;
+	bool ci{false};
+
+	[[nodiscard]] SZ operator ()(
+		SV s) const noexcept {
+		SZ h = 14695981039346656037ULL;
+		for (char const ch: s) {
+			auto const c = static_cast<unsigned char>(ch);
+			unsigned char const k = ci ? static_cast<unsigned char>(c | 0x20) : c;
+			h ^= k;
+			h *= 1099511628211ULL;
+		}
+		return h;
+	}
+	[[nodiscard]] SZ operator ()(
+		S const &s) const noexcept {
+		return operator ()(SV{s});
+	}
+};
+
+export struct FieldEq {
+	using is_transparent = void;
+	bool ci{false};
+
+	[[nodiscard]] bool operator ()(
+		SV a,
+		SV b) const noexcept {
+		if (a.size() != b.size()) {
+			return false;
+		}
+		if (!ci) {
+			return a == b;
+		}
+		return ranges::equal(a, b, [](unsigned char x, unsigned char y) { return (x | 0x20) == (y | 0x20); });
+	}
+	[[nodiscard]] bool operator ()(
+		S const &a,
+		SV b) const noexcept {
+		return operator ()(SV{a}, b);
+	}
+	[[nodiscard]] bool operator ()(
+		SV a,
+		S const &b) const noexcept {
+		return operator ()(a, SV{b});
+	}
+	[[nodiscard]] bool operator ()(
+		S const &a,
+		S const &b) const noexcept {
+		return operator ()(SV{a}, SV{b});
+	}
+};
+
+// Vector-backed string map. Linear scan — sufficient for HTTP header counts (<100).
+export class HttpFields {
+	V<P<S, S>> data_;
+	bool case_insensitive_{false};
+
+	[[nodiscard]] bool key_eq(
+		SV a,
+		SV b) const noexcept {
+		if (a.size() != b.size()) {
+			return false;
+		}
+		if (!case_insensitive_) {
+			return a == b;
+		}
+		return ranges::equal(a, b, [](unsigned char x, unsigned char y) { return (x | 0x20) == (y | 0x20); });
+	}
+
+public:
+	HttpFields(
+		bool case_insensitive = false)
+		: case_insensitive_(case_insensitive) {}
+	HttpFields(
+		std::initializer_list<P<S, S>> init)
+		: data_(init) {}
+
+	// NOLINTNEXTLINE(fuchsia-overloaded-operator)
+	SV operator [](
+		SV key) const noexcept {
+		return get(key).value_or(SV{});
+	}
+
+	// NOLINTNEXTLINE(fuchsia-overloaded-operator)
+	S &operator [](
+		SV key) {
+		for (auto &[k, v]: data_) {
+			if (key_eq(k, key)) {
+				return v;
+			}
+		}
+		data_.emplace_back(S{key}, S{});
+		return data_.back().second;
+	}
+
+	[[nodiscard]] Opt<SV> get(
+		SV key) const noexcept {
+		for (auto const &[k, v]: data_) {
+			if (key_eq(k, key)) {
+				return SV{v};
+			}
+		}
+		return std::nullopt;
+	}
+
+	[[nodiscard]] V<SV> values(
+		SV key) const {
+		V<SV> out;
+		for (auto const &[k, v]: data_) {
+			if (key_eq(k, key)) {
+				out.push_back(v);
+			}
+		}
+		return out;
+	}
+
+	[[nodiscard]] bool contains(
+		SV key) const noexcept {
+		for (auto const &[k, v]: data_) {
+			if (key_eq(k, key)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	[[nodiscard]] SV value_or(
+		SV key,
+		SV def = {}) const noexcept {
+		return get(key).value_or(def);
+	}
+
+	void emplace_back(
+		S k,
+		S v) {
+		data_.emplace_back(move(k), move(v));
+	}
+
+	void append(
+		S k,
+		S v) {
+		emplace_back(move(k), move(v));
+	}
+
+	void set(
+		S key,
+		S field_value) {
+		SZ keep_idx = SZ(-1);
+		for (SZ i = 0; i < data_.size(); ++i) {
+			if (key_eq(data_[i].first, key) && keep_idx == SZ(-1)) {
+				keep_idx = i;
+			}
+		}
+		if (keep_idx == SZ(-1)) {
+			data_.emplace_back(move(key), move(field_value));
+			return;
+		}
+		data_[keep_idx].second = move(field_value);
+		S const keep_key = data_[keep_idx].first;
+		SZ cursor = 0;
+		erase_if(data_, [&](auto const &pair) {
+			SZ const i = cursor++;
+			return i != keep_idx && key_eq(SV{pair.first}, SV{keep_key});
+		});
+	}
+
+	SZ erase(
+		SV key) {
+		SZ cursor = 0;
+		return erase_if(data_, [&](auto const &pair) {
+			(void)cursor++;
+			return key_eq(SV{pair.first}, key);
+		});
+	}
+
+	void clear() noexcept { data_.clear(); }
+	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
+	[[nodiscard]] SZ size() const noexcept { return data_.size(); }
+	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
+
+	auto begin() { return data_.begin(); }
+	auto end() { return data_.end(); }
+	[[nodiscard]] auto begin() const { return data_.begin(); }
+	[[nodiscard]] auto end() const { return data_.end(); }
+};
+
+export class HttpFieldsView {
+	V<P<SV, SV>> data_;
+	SP<deque<S>> owned_storage_{};
+	bool case_insensitive_{false};
+
+	[[nodiscard]] bool key_eq(
+		SV a,
+		SV b) const noexcept {
+		if (a.size() != b.size()) {
+			return false;
+		}
+		if (!case_insensitive_) {
+			return a == b;
+		}
+		return ranges::equal(a, b, [](unsigned char x, unsigned char y) { return (x | 0x20) == (y | 0x20); });
+	}
+
+	[[nodiscard]] SV store_owned(
+		S owned_value) {
+		if (!owned_storage_) {
+			owned_storage_ = make_shared<deque<S>>();
+		}
+		owned_storage_->push_back(move(owned_value));
+		return owned_storage_->back();
+	}
+
+public:
+	HttpFieldsView(
+		bool case_insensitive = false)
+		: case_insensitive_(case_insensitive) {}
+
+	HttpFieldsView(
+		HttpFields const &fields)
+		: case_insensitive_(fields.case_insensitive()) {
+		for (auto const &[k, v]: fields) {
+			emplace_back(k, v);
+		}
+	}
+
+	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
+
+	SV operator [](
+		SV key) const noexcept {
+		return get(key).value_or(SV{});
+	}
+
+	[[nodiscard]] Opt<SV> get(
+		SV key) const noexcept {
+		for (auto const &[k, v]: data_) {
+			if (key_eq(k, key)) {
+				return v;
+			}
+		}
+		return std::nullopt;
+	}
+
+	[[nodiscard]] V<SV> values(
+		SV key) const {
+		V<SV> out;
+		for (auto const &[k, v]: data_) {
+			if (key_eq(k, key)) {
+				out.push_back(v);
+			}
+		}
+		return out;
+	}
+
+	[[nodiscard]] bool contains(
+		SV key) const noexcept {
+		for (auto const &[k, v]: data_) {
+			if (key_eq(k, key)) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	[[nodiscard]] SV value_or(
+		SV key,
+		SV def = {}) const noexcept {
+		return get(key).value_or(def);
+	}
+
+	void emplace_back(
+		SV k,
+		SV v) {
+		data_.emplace_back(k, v);
+	}
+
+	void emplace_back_owned(
+		S k,
+		S v) {
+		data_.emplace_back(store_owned(move(k)), store_owned(move(v)));
+	}
+
+	void clear() noexcept {
+		data_.clear();
+		owned_storage_.reset();
+	}
+
+	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
+	[[nodiscard]] SZ size() const noexcept { return data_.size(); }
+
+	[[nodiscard]] HttpFields to_owned() const {
+		HttpFields out{case_insensitive_};
+		for (auto const &[k, v]: data_) {
+			out.emplace_back(S{k}, S{v});
+		}
+		return out;
+	}
+
+	auto begin() { return data_.begin(); }
+	auto end() { return data_.end(); }
+	[[nodiscard]] auto begin() const { return data_.begin(); }
+	[[nodiscard]] auto end() const { return data_.end(); }
+};
+
 export namespace conflux::http {
 
 // ─── errors ──────────────────────────────────────────────────────────────────

@@ -40,7 +40,6 @@ public:
 	using std::runtime_error::runtime_error;
 };
 
-
 namespace detail {
 
 [[nodiscard]] inline std::exception_ptr normalize_failure_ptr(
@@ -642,7 +641,7 @@ struct capability_id_t {
 		T const &self) noexcept {
 		static unsigned char tag = 0;
 		return CapabilityId{
-			.address  = static_cast<void const *>(std::addressof(self)),
+			.address = static_cast<void const *>(std::addressof(self)),
 			.type_tag = static_cast<void const *>(&tag),
 		};
 	}
@@ -667,7 +666,8 @@ public:
 		lifetime_violation,
 	};
 
-	explicit JoinError(reason r)
+	explicit JoinError(
+		reason r)
 		: std::logic_error{make_msg(r)}
 		, reason_{r} {}
 
@@ -691,16 +691,17 @@ private:
 	std::optional<CapabilityId> actual_{};
 	std::source_location origin_{};
 
-	static std::string make_msg(reason r) {
+	static std::string make_msg(
+		reason r) {
 		using enum reason;
 		switch (r) {
-		case consumed_handle:                  return "PROGRAMMER ERROR (JoinError): co_await or outcome() on moved-from/consumed Task";
-		case capability_mismatch:              return "PROGRAMMER ERROR (JoinError): capability mismatch";
-		case thread_precondition:              return "PROGRAMMER ERROR (JoinError): thread precondition violated";
-		case reentrant_pump:                   return "PROGRAMMER ERROR (JoinError): reentrant pump";
-		case hop_capability_mismatch:          return "PROGRAMMER ERROR (JoinError): hop capability mismatch";
+		case consumed_handle                 : return "PROGRAMMER ERROR (JoinError): co_await or outcome() on moved-from/consumed Task";
+		case capability_mismatch             : return "PROGRAMMER ERROR (JoinError): capability mismatch";
+		case thread_precondition             : return "PROGRAMMER ERROR (JoinError): thread precondition violated";
+		case reentrant_pump                  : return "PROGRAMMER ERROR (JoinError): reentrant pump";
+		case hop_capability_mismatch         : return "PROGRAMMER ERROR (JoinError): hop capability mismatch";
 		case ready_callback_already_installed: return "PROGRAMMER ERROR (JoinError): ready callback already installed";
-		case lifetime_violation:               return "PROGRAMMER ERROR (JoinError): handle not live";
+		case lifetime_violation              : return "PROGRAMMER ERROR (JoinError): handle not live";
 		}
 		return "PROGRAMMER ERROR (JoinError): unknown";
 	}
@@ -1134,7 +1135,7 @@ public:
 			return std::nullopt;
 		}
 		return CapabilityId{
-			.address  = required_capability_address_.load(std::memory_order_relaxed),
+			.address = required_capability_address_.load(std::memory_order_relaxed),
 			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 	}
@@ -1530,7 +1531,7 @@ public:
 			return std::nullopt;
 		}
 		return CapabilityId{
-			.address  = required_capability_address_.load(std::memory_order_relaxed),
+			.address = required_capability_address_.load(std::memory_order_relaxed),
 			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 	}
@@ -2173,15 +2174,7 @@ class BasicResult {
 	friend Outcome<U> join(Owner &, BasicResult<U, ControlCategory::posted> &&);
 	template<progress_capability Driver, work_value U>
 	friend Outcome<U> join(Driver &, BasicResult<U, ControlCategory::operation> &&);
-	template<work_value U>
-	friend BasicJoinHandle<U, ControlCategory::task>
-	into_join_handle(BasicResult<U, ControlCategory::task> &&) noexcept;
-	template<work_value U>
-	friend BasicJoinHandle<U, ControlCategory::posted>
-	into_join_handle(BasicResult<U, ControlCategory::posted> &&) noexcept;
-	template<work_value U>
-	friend BasicJoinHandle<U, ControlCategory::operation>
-	into_join_handle(BasicResult<U, ControlCategory::operation> &&) noexcept;
+	friend class BasicJoinHandle<T, Category>;
 	template<class Fn>
 	friend auto spawn(Fn &&, std::source_location) -> std::invoke_result_t<Fn>;
 
@@ -2419,18 +2412,14 @@ class BasicJoinHandle {
 	friend Outcome<U> join(Owner &, BasicJoinHandle<U, ControlCategory::posted> &&);
 	template<progress_capability Driver, work_value U>
 	friend Outcome<U> join(Driver &, BasicJoinHandle<U, ControlCategory::operation> &&);
-	template<work_value U>
-	friend BasicJoinHandle<U, ControlCategory::task>
-	into_join_handle(BasicResult<U, ControlCategory::task> &&) noexcept;
-	template<work_value U>
-	friend BasicJoinHandle<U, ControlCategory::posted>
-	into_join_handle(BasicResult<U, ControlCategory::posted> &&) noexcept;
-	template<work_value U>
-	friend BasicJoinHandle<U, ControlCategory::operation>
-	into_join_handle(BasicResult<U, ControlCategory::operation> &&) noexcept;
 
 public:
 	using value_type = T;
+
+	[[nodiscard]] static BasicJoinHandle adopt(
+		BasicResult<T, Category> &&result) noexcept {
+		return BasicJoinHandle{result.consume(join_state::detached)};
+	}
 
 	BasicJoinHandle() = default;
 	BasicJoinHandle(
@@ -2736,22 +2725,10 @@ template<work_value T, progress_capability Driver>
 	return {Operation<T>::from_state(state, loc), OperationSource<T>::from_state(std::move(state))};
 }
 
-template<work_value T>
-[[nodiscard]] TaskJoinHandle<T> into_join_handle(
-	Task<T> &&task) noexcept {
-	return TaskJoinHandle<T>{task.consume(join_state::detached)};
-}
-
-template<work_value T>
-[[nodiscard]] PostedJoinHandle<T> into_join_handle(
-	Posted<T> &&posted) noexcept {
-	return PostedJoinHandle<T>{posted.consume(join_state::detached)};
-}
-
-template<work_value T>
-[[nodiscard]] OperationJoinHandle<T> into_join_handle(
-	Operation<T> &&op) noexcept {
-	return OperationJoinHandle<T>{op.consume(join_state::detached)};
+template<work_value T, ControlCategory C>
+[[nodiscard]] BasicJoinHandle<T, C> into_join_handle(
+	BasicResult<T, C> &&result) noexcept {
+	return BasicJoinHandle<T, C>::adopt(std::move(result));
 }
 
 template<progress_capability Owner>

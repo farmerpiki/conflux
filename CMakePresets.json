@@ -101,11 +101,11 @@
     },
     {
       "name": "release-gcc16-stdcxx",
-      "displayName": "Release \u00b7 g++-16 \u00b7 libstdc++ \u00b7 no LTO",
+      "displayName": "Release \u00b7 g++-16 \u00b7 libstdc++",
       "inherits": "gcc16-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "CONFLUX_ENABLE_LTO": "OFF",
+        "CONFLUX_ENABLE_LTO": "ON",
         "CONFLUX_BUILD_TESTS": "ON",
         "CONFLUX_BUILD_BENCHMARKS": "ON"
       }

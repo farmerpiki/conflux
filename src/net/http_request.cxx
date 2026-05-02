@@ -6,7 +6,6 @@ export module conflux.net.http.request;
 import std;
 import conflux.types;
 import conflux.net.http.types;
-import conflux.net.router;
 import conflux.json;
 
 export namespace conflux::http {
@@ -149,7 +148,7 @@ public:
 		return *this;
 	}
 	Builder &headers(
-		HttpFields h) & {
+		const HttpFields& h) & {
 		for (auto const &[k, v]: h) {
 			req_.headers_.set(k, v);
 		}
@@ -315,7 +314,7 @@ public:
 		return content_type("application/json");
 	}
 	Builder &body_form(
-		HttpFields fields) & {
+		const HttpFields& fields) & {
 		assert_single_body();
 		S encoded;
 		for (auto const &[k, v]: fields) {

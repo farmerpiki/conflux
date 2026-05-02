@@ -4,6 +4,7 @@ module;
 #include <climits>
 #include <cstring>
 #include <fcntl.h>
+#include <netdb.h>
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/socket.h>
@@ -19,9 +20,7 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.request;
-import conflux.net.router;
 import conflux.utils;
-import conflux.net.dns;
 import conflux.work;
 #if CONFLUX_HAS_TLS
 import conflux.net.tls;
@@ -34,7 +33,7 @@ export namespace conflux::http {
 struct HttpResponseHead {
 	int status{502};
 	S status_text{"Bad Gateway"};
-	HttpFields headers{true};
+	HttpFields headers = HttpFields(true);
 	V<S> set_cookies{};
 };
 
@@ -56,7 +55,7 @@ struct HttpClientOptions {
 	SZ max_body_bytes{16 * 1024 * 1024};
 	SZ max_buffered_bytes{4 * 1024 * 1024};
 	HttpFields default_headers{};
-	conflux::net::dns::Resolver *resolver{nullptr};
+	void *resolver{nullptr}; // conflux::net::dns::Resolver*; void* avoids exporting dns types
 };
 
 } // namespace conflux::http
@@ -70,14 +69,13 @@ export [[nodiscard]] Opt<S> decode_chunked_body(SV encoded);
 namespace client_detail {
 
 using namespace conflux::http;
-using conflux::http::HttpResponse; // disambiguate vs router's ::HttpResponse
 
 struct Connection {
 	int fd{-1};
 	bool use_tls{false};
 #if CONFLUX_HAS_TLS
-	Opt<TlsContext> tls_ctx{};
-	Opt<TlsStream> tls_stream{};
+	Opt<TlsContext> tls_ctx;
+	Opt<TlsStream> tls_stream;
 #endif
 };
 
@@ -160,87 +158,86 @@ enum class ConnectFailure {
 };
 
 // Returns a connected fd, or -1. Fills telemetry. Sets failure on error.
+// Uses POSIX getaddrinfo — avoids importing conflux.net.dns to break gcc16 module cluster bug.
 [[nodiscard]] int resolve_and_connect(
 	SV host,
 	u16 port,
 	int timeout_sec,
-	chrono::milliseconds resolve_timeout,
+	chrono::milliseconds /*resolve_timeout*/,
 	HttpTelemetry &tel,
 	ConnectFailure &failure,
 	S &failure_message,
 	int &failure_errno,
-	conflux::net::dns::Resolver *resolver = nullptr) {
-	namespace dns = conflux::net::dns;
+	void * /*resolver_unused*/ = nullptr) {
 	constexpr auto kConnectAttemptDelay = chrono::milliseconds{250};
 
-	auto endpoint_family = [](dns::Endpoint const &ep) noexcept {
-		return ep.family == dns::AddressFamily::v4 ? AF_INET : AF_INET6;
-	};
+	S const host_str{host};
+	S const port_str = std::to_string(port);
 
-	auto connect_endpoints = [&](V<dns::Endpoint> const &endpoints) -> int {
-		auto const t1 = chrono::steady_clock::now();
-		int fd = -1;
-		for (SZ i = 0; i < endpoints.size(); ++i) {
-			auto const &ep = endpoints[i];
-			int const family = endpoint_family(ep);
-			fd = ::socket(family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
-			if (fd < 0) {
-				continue;
-			}
-			if (connect_with_timeout(fd, reinterpret_cast<sockaddr const *>(&ep.addr), ep.addr_len, timeout_sec)) {
-				char buf[INET6_ADDRSTRLEN + 4]{};
-				if (ep.family == dns::AddressFamily::v4) {
-					auto const *sa4 = reinterpret_cast<sockaddr_in const *>(&ep.addr);
-					inet_ntop(AF_INET, &sa4->sin_addr, buf, sizeof(buf));
-					tel.peer_addr = format("{}:{}", buf, port);
-				} else {
-					auto const *sa6 = reinterpret_cast<sockaddr_in6 const *>(&ep.addr);
-					inet_ntop(AF_INET6, &sa6->sin6_addr, buf, sizeof(buf));
-					tel.peer_addr = format("[{}]:{}", buf, port);
-				}
-				break;
-			}
-			::close(fd);
-			fd = -1;
-
-			// RFC 8305 style connect-attempt delay between distinct-family attempts.
-			if (i + 1 < endpoints.size() && endpoint_family(endpoints[i + 1]) != family) {
-				std::this_thread::sleep_for(kConnectAttemptDelay);
-			}
-		}
-		tel.connect = chrono::steady_clock::now() - t1;
-		if (fd < 0) {
-			failure = ConnectFailure::connect;
-			failure_errno = errno;
-			failure_message = format("failed to connect to '{}:{}'", host, port);
-		}
-		return fd;
-	};
-
-	dns::ResolveOptions resolve_opts{};
-	if (resolve_timeout.count() > 0) {
-		resolve_opts.query_timeout = resolve_timeout;
-		resolve_opts.total_timeout = resolve_timeout;
-	}
+	addrinfo hints{};
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_protocol = IPPROTO_TCP;
+	hints.ai_flags = AI_ADDRCONFIG;
 
 	auto const t0 = chrono::steady_clock::now();
-	auto *effective_resolver = resolver != nullptr ? resolver : dns::current_resolver();
-	Opt<WorkPool> fallback_pool{};
-	Opt<dns::Resolver> fallback_resolver{};
-	if (effective_resolver == nullptr) {
-		fallback_pool.emplace(WorkPoolOptions{.threads = 1});
-		fallback_resolver.emplace(*fallback_pool);
-		effective_resolver = &*fallback_resolver;
-	}
-	auto result = effective_resolver->resolve_blocking(host, port, resolve_opts);
+	addrinfo *res = nullptr;
+	int const gai_err = ::getaddrinfo(host_str.c_str(), port_str.c_str(), &hints, &res);
 	tel.dns = chrono::steady_clock::now() - t0;
-	if (!result.has_value()) {
+
+	if (gai_err != 0) {
 		failure = ConnectFailure::dns;
-		failure_errno = result.error().os_errno;
-		failure_message = result.error().what();
+		failure_errno = 0;
+		failure_message = format("DNS resolution failed for '{}': {}", host, ::gai_strerror(gai_err));
 		return -1;
 	}
-	return connect_endpoints(result->endpoints);
+
+	auto const t1 = chrono::steady_clock::now();
+	int fd = -1;
+	int prev_family = -1;
+
+	for (addrinfo  const*ai = res; ai != nullptr; ai = ai->ai_next) {
+		if (fd != -1) {
+			::close(fd);
+			fd = -1;
+		}
+		if (prev_family != -1 && ai->ai_family != prev_family) {
+			std::this_thread::sleep_for(kConnectAttemptDelay);
+		}
+		prev_family = ai->ai_family;
+
+		fd = ::socket(ai->ai_family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
+		if (fd < 0) {
+			continue;
+		}
+
+		if (connect_with_timeout(fd, ai->ai_addr, static_cast<socklen_t>(ai->ai_addrlen), timeout_sec)) {
+			char buf[INET6_ADDRSTRLEN]{};
+			if (ai->ai_family == AF_INET) {
+				auto const *sa4 = reinterpret_cast<sockaddr_in const *>(ai->ai_addr);
+				inet_ntop(AF_INET, &sa4->sin_addr, buf, sizeof(buf));
+				tel.peer_addr = format("{}:{}", buf, port);
+			} else {
+				auto const *sa6 = reinterpret_cast<sockaddr_in6 const *>(ai->ai_addr);
+				inet_ntop(AF_INET6, &sa6->sin6_addr, buf, sizeof(buf));
+				tel.peer_addr = format("[{}]:{}", buf, port);
+			}
+			break;
+		}
+
+		::close(fd);
+		fd = -1;
+	}
+
+	::freeaddrinfo(res);
+	tel.connect = chrono::steady_clock::now() - t1;
+
+	if (fd < 0) {
+		failure = ConnectFailure::connect;
+		failure_errno = errno;
+		failure_message = format("failed to connect to '{}:{}'", host, port);
+	}
+	return fd;
 }
 
 bool send_all(
@@ -845,7 +842,7 @@ public:
 	[[nodiscard]] HttpClientOptions const &options() const noexcept { return opts_; }
 
 	[[nodiscard]] HttpResult send_blocking(
-		HttpRequest req) const {
+		const HttpRequest& req) const {
 		// Inject client defaults into a copy — timeouts.
 		// For Phase 1, we just use whatever timeouts are on the request
 		// (they default to HttpTimeouts{}'s values). The client's
