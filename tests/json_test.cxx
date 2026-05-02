@@ -3071,3 +3071,1115 @@ TEST_CASE(
 	REQUIRE(n.has_value());
 	CHECK(*n->to_i64() == 42LL);
 }
+
+// ---------------------------------------------------------------------------
+// Phase 2.1 — JsonDecodeOptions: UnknownMemberPolicy
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: decode with unknown_members=ignore skips extra fields",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"x":1,"y":2,"z":3})");
+	REQUIRE(doc.has_value());
+	JsonDecodeOptions opts{.unknown_members = UnknownMemberPolicy::ignore};
+	auto r = decode<Point>(doc->root(), opts);
+	REQUIRE(r.has_value());
+	CHECK(r->x == 1LL);
+	CHECK(r->y == 2LL);
+}
+
+TEST_CASE(
+	"json: decode with unknown_members=reject still rejects (default)",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"x":1,"y":2,"extra":99})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Point>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::invalid_value);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2.2 — JsonConstraintFn: constrained struct decode
+// ---------------------------------------------------------------------------
+
+struct Rect {
+	i64 width{};
+	i64 height{};
+};
+
+template<>
+struct JsonMembers<Rect> {
+	static constexpr auto members() {
+		return Tup{
+			make_tuple(
+				json_member("width", &Rect::width),
+				static_cast<JsonConstraintFn<i64>>([](i64 const &v) -> expected<void, JsonError> {
+					if (v <= 0) {
+						return unexpected(JsonError{
+							.stage = JsonStage::decode,
+							.code = JsonIssueCode::constraint_violation,
+							.message = "width must be positive"});
+					}
+					return {};
+				})),
+			json_member("height", &Rect::height),
+		};
+	}
+};
+
+TEST_CASE(
+	"json: constrained member passes when valid",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"width":10,"height":5})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Rect>(doc->root());
+	REQUIRE(r.has_value());
+	CHECK(r->width == 10LL);
+	CHECK(r->height == 5LL);
+}
+
+TEST_CASE(
+	"json: constrained member fails on violation",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"width":-1,"height":5})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Rect>(doc->root());
+	CHECK_FALSE(r.has_value());
+	CHECK(r.error().code == JsonIssueCode::constraint_violation);
+	CHECK(r.error().member_name == "width");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 2.3 — O(depth) path: nested struct error propagation
+// ---------------------------------------------------------------------------
+
+struct Inner {
+	i64 val{};
+};
+
+template<>
+struct JsonMembers<Inner> {
+	static constexpr auto members() {
+		return Tup{json_member("val", &Inner::val)};
+	}
+};
+
+struct Outer {
+	Inner inner{};
+};
+
+template<>
+struct JsonMembers<Outer> {
+	static constexpr auto members() {
+		return Tup{json_member("inner", &Outer::inner)};
+	}
+};
+
+TEST_CASE(
+	"json: nested struct wrong type propagates full path",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"inner":{"val":"bad"}})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Outer>(doc->root());
+	CHECK_FALSE(r.has_value());
+	auto &err = r.error();
+	CHECK(err.code == JsonIssueCode::wrong_kind);
+	REQUIRE(err.path.size() == 2UZ);
+	CHECK(get<JsonPathMember>(err.path.segment(0)).name == "inner");
+	CHECK(get<JsonPathMember>(err.path.segment(1)).name == "val");
+}
+
+TEST_CASE(
+	"json: nested struct missing member has parent path",
+	"[json][codec][members][phase2]") {
+	auto doc = parse(R"({"inner":{}})");
+	REQUIRE(doc.has_value());
+	auto r = decode<Outer>(doc->root());
+	CHECK_FALSE(r.has_value());
+	auto &err = r.error();
+	CHECK(err.code == JsonIssueCode::missing_member);
+	CHECK(err.member_name == "val");
+	REQUIRE(err.path.size() == 1UZ);
+	CHECK(get<JsonPathMember>(err.path.segment(0)).name == "inner");
+}
+
+// ---------------------------------------------------------------------------
+// Phase 4 — JsonReader pull parser
+// ---------------------------------------------------------------------------
+
+// Types for phase4 tests.
+
+struct P4Person {
+	std::string name{};
+	i64 age{};
+};
+
+template<>
+struct JsonMembers<P4Person> {
+	static constexpr auto members() {
+		return Tup{
+			json_member("name", &P4Person::name),
+			json_member("age", &P4Person::age),
+		};
+	}
+};
+
+struct P4Address {
+	std::string street{};
+	Opt<std::string> city{};
+};
+
+template<>
+struct JsonMembers<P4Address> {
+	static constexpr auto members() {
+		return Tup{
+			json_member("street", &P4Address::street),
+			json_member("city", &P4Address::city),
+		};
+	}
+};
+
+struct P4Nested {
+	P4Person person{};
+	i64 score{};
+};
+
+template<>
+struct JsonMembers<P4Nested> {
+	static constexpr auto members() {
+		return Tup{
+			json_member("person", &P4Nested::person),
+			json_member("score", &P4Nested::score),
+		};
+	}
+};
+
+TEST_CASE(
+	"phase4: JsonReader scalar events",
+	"[phase4]") {
+	{
+		JsonReader r{"42"};
+		auto ev = r.next();
+		REQUIRE(ev.has_value());
+		REQUIRE(ev->has_value());
+		CHECK(**ev == JsonReader::Event::number_value);
+		auto i = r.number_val().to_i64();
+		REQUIRE(i.has_value());
+		CHECK(*i == 42LL);
+	}
+	{
+		JsonReader r{"true"};
+		auto ev = r.next();
+		REQUIRE(ev.has_value());
+		REQUIRE(ev->has_value());
+		CHECK(**ev == JsonReader::Event::bool_value);
+		CHECK(r.bool_val() == true);
+	}
+	{
+		JsonReader r{"null"};
+		auto ev = r.next();
+		REQUIRE(ev.has_value());
+		REQUIRE(ev->has_value());
+		CHECK(**ev == JsonReader::Event::null_value);
+	}
+	{
+		JsonReader r{R"("hello")"};
+		auto ev = r.next();
+		REQUIRE(ev.has_value());
+		REQUIRE(ev->has_value());
+		CHECK(**ev == JsonReader::Event::string_value);
+		auto borrow = r.string_token().unescaped_borrow();
+		REQUIRE(borrow.has_value());
+		CHECK(*borrow == "hello");
+	}
+}
+
+TEST_CASE(
+	"phase4: JsonReader EOF returns nullopt",
+	"[phase4]") {
+	JsonReader r{"null"};
+	auto ev1 = r.next();
+	REQUIRE(ev1.has_value());
+	REQUIRE(ev1->has_value());
+	auto ev2 = r.next();
+	REQUIRE(ev2.has_value());
+	CHECK(!ev2->has_value());
+}
+
+TEST_CASE(
+	"phase4: JsonReader object events",
+	"[phase4]") {
+	JsonReader r{R"({"x":1,"y":2})"};
+
+	auto e0 = r.next();
+	REQUIRE(e0.has_value()); REQUIRE(e0->has_value());
+	CHECK(**e0 == JsonReader::Event::begin_object);
+
+	auto e1 = r.next();
+	REQUIRE(e1.has_value()); REQUIRE(e1->has_value());
+	CHECK(**e1 == JsonReader::Event::key);
+	auto borrow1 = r.key_token().unescaped_borrow();
+	REQUIRE(borrow1.has_value());
+	CHECK(*borrow1 == "x");
+
+	auto e2 = r.next();
+	REQUIRE(e2.has_value()); REQUIRE(e2->has_value());
+	CHECK(**e2 == JsonReader::Event::number_value);
+	auto v1 = r.number_val().to_i64();
+	REQUIRE(v1.has_value());
+	CHECK(*v1 == 1LL);
+
+	auto e3 = r.next();
+	REQUIRE(e3.has_value()); REQUIRE(e3->has_value());
+	CHECK(**e3 == JsonReader::Event::key);
+	auto borrow2 = r.key_token().unescaped_borrow();
+	REQUIRE(borrow2.has_value());
+	CHECK(*borrow2 == "y");
+
+	auto e4 = r.next();
+	REQUIRE(e4.has_value()); REQUIRE(e4->has_value());
+	CHECK(**e4 == JsonReader::Event::number_value);
+	auto v2 = r.number_val().to_i64();
+	REQUIRE(v2.has_value());
+	CHECK(*v2 == 2LL);
+
+	auto e5 = r.next();
+	REQUIRE(e5.has_value()); REQUIRE(e5->has_value());
+	CHECK(**e5 == JsonReader::Event::end_object);
+
+	auto e6 = r.next();
+	REQUIRE(e6.has_value());
+	CHECK(!e6->has_value());
+}
+
+TEST_CASE(
+	"phase4: JsonReader array events",
+	"[phase4]") {
+	JsonReader r{"[1,2,3]"};
+
+	auto e0 = r.next();
+	REQUIRE(e0.has_value()); REQUIRE(e0->has_value());
+	CHECK(**e0 == JsonReader::Event::begin_array);
+
+	for (i64 expected = 1; expected <= 3; ++expected) {
+		auto en = r.next();
+		REQUIRE(en.has_value()); REQUIRE(en->has_value());
+		CHECK(**en == JsonReader::Event::number_value);
+		auto v = r.number_val().to_i64();
+		REQUIRE(v.has_value());
+		CHECK(*v == expected);
+	}
+
+	auto e4 = r.next();
+	REQUIRE(e4.has_value()); REQUIRE(e4->has_value());
+	CHECK(**e4 == JsonReader::Event::end_array);
+}
+
+TEST_CASE(
+	"phase4: JsonReader depth tracking",
+	"[phase4]") {
+	JsonReader r{R"([[1,2]])"};
+	CHECK(r.depth() == 0UZ);
+
+	auto e0 = r.next();
+	REQUIRE(e0.has_value()); REQUIRE(e0->has_value());
+	CHECK(**e0 == JsonReader::Event::begin_array);
+	CHECK(r.depth() == 1UZ);
+
+	auto e1 = r.next();
+	REQUIRE(e1.has_value()); REQUIRE(e1->has_value());
+	CHECK(**e1 == JsonReader::Event::begin_array);
+	CHECK(r.depth() == 2UZ);
+
+	r.next(); // 1
+	r.next(); // 2
+	auto e_end = r.next();
+	REQUIRE(e_end.has_value()); REQUIRE(e_end->has_value());
+	CHECK(**e_end == JsonReader::Event::end_array);
+	CHECK(r.depth() == 1UZ);
+
+	auto e_end2 = r.next();
+	REQUIRE(e_end2.has_value()); REQUIRE(e_end2->has_value());
+	CHECK(**e_end2 == JsonReader::Event::end_array);
+	CHECK(r.depth() == 0UZ);
+}
+
+TEST_CASE(
+	"phase4: JsonReader skip_next_value returns byte range",
+	"[phase4]") {
+	JsonReader r{R"({"a":{"b":1},"c":2})"};
+
+	auto e0 = r.next();
+	REQUIRE(e0.has_value()); REQUIRE(e0->has_value());
+	CHECK(**e0 == JsonReader::Event::begin_object);
+
+	auto e1 = r.next(); // key "a"
+	REQUIRE(e1.has_value()); REQUIRE(e1->has_value());
+	CHECK(**e1 == JsonReader::Event::key);
+
+	auto range = r.skip_next_value();
+	REQUIRE(range.has_value());
+	auto slice = r.input().substr(range->start, range->end - range->start);
+	CHECK(slice == R"({"b":1})");
+
+	auto e2 = r.next(); // key "c"
+	REQUIRE(e2.has_value()); REQUIRE(e2->has_value());
+	CHECK(**e2 == JsonReader::Event::key);
+
+	auto e3 = r.next(); // value 2
+	REQUIRE(e3.has_value()); REQUIRE(e3->has_value());
+	CHECK(**e3 == JsonReader::Event::number_value);
+	auto v = r.number_val().to_i64();
+	REQUIRE(v.has_value());
+	CHECK(*v == 2LL);
+
+	auto e4 = r.next(); // end_object
+	REQUIRE(e4.has_value()); REQUIRE(e4->has_value());
+	CHECK(**e4 == JsonReader::Event::end_object);
+}
+
+TEST_CASE(
+	"phase4: JsonReader has_error and reset",
+	"[phase4]") {
+	JsonReader r{"bad_input"};
+	CHECK_FALSE(r.has_error());
+	auto ev = r.next();
+	CHECK_FALSE(ev.has_value());
+	CHECK(r.has_error());
+
+	r.reset();
+	CHECK_FALSE(r.has_error());
+	CHECK(r.depth() == 0UZ);
+
+	auto ev2 = r.next();
+	CHECK_FALSE(ev2.has_value()); // still fails but fresh error
+}
+
+TEST_CASE(
+	"phase4: JsonStringToken unescaped_borrow for simple string",
+	"[phase4]") {
+	JsonReader r{R"("hello world")"};
+	auto ev = r.next();
+	REQUIRE(ev.has_value()); REQUIRE(ev->has_value());
+	CHECK(**ev == JsonReader::Event::string_value);
+	CHECK(r.string_token().has_escapes() == false);
+	auto borrow = r.string_token().unescaped_borrow();
+	REQUIRE(borrow.has_value());
+	CHECK(*borrow == "hello world");
+}
+
+TEST_CASE(
+	"phase4: JsonStringToken append_decoded_to for escaped string",
+	"[phase4]") {
+	JsonReader r{R"("hello\nworld")"};
+	auto ev = r.next();
+	REQUIRE(ev.has_value()); REQUIRE(ev->has_value());
+	CHECK(**ev == JsonReader::Event::string_value);
+	CHECK(r.string_token().has_escapes() == true);
+	CHECK(!r.string_token().unescaped_borrow().has_value());
+	std::string out;
+	auto res = r.string_token().append_decoded_to(out);
+	REQUIRE(res.has_value());
+	CHECK(out == "hello\nworld");
+}
+
+TEST_CASE(
+	"phase4: JsonStringToken decode_into caller buffer",
+	"[phase4]") {
+	JsonReader r{R"("a\tb")"};
+	auto ev = r.next();
+	REQUIRE(ev.has_value()); REQUIRE(ev->has_value());
+	CHECK(**ev == JsonReader::Event::string_value);
+	std::vector<char> buf(r.string_token().max_decoded_size());
+	auto sv_res = r.string_token().decode_into(buf);
+	REQUIRE(sv_res.has_value());
+	CHECK(*sv_res == "a\tb");
+}
+
+TEST_CASE(
+	"phase4: decode<P4Person>(JsonReader&) basic struct",
+	"[phase4]") {
+	JsonReader r{R"({"name":"Alice","age":30})"};
+	auto p = decode<P4Person>(r);
+	REQUIRE(p.has_value());
+	CHECK(p->name == "Alice");
+	CHECK(p->age == 30LL);
+}
+
+TEST_CASE(
+	"phase4: decode<P4Person>(JsonReader&) unknown_members=ignore",
+	"[phase4]") {
+	JsonReader r{R"({"name":"Bob","age":25,"extra":true})"};
+	JsonDecodeOptions opts;
+	opts.unknown_members = UnknownMemberPolicy::ignore;
+	auto p = decode<P4Person>(r, opts);
+	REQUIRE(p.has_value());
+	CHECK(p->name == "Bob");
+	CHECK(p->age == 25LL);
+}
+
+TEST_CASE(
+	"phase4: decode<P4Person>(JsonReader&) unknown_members=reject",
+	"[phase4]") {
+	JsonReader r{R"({"name":"Bob","age":25,"extra":true})"};
+	auto p = decode<P4Person>(r);
+	CHECK_FALSE(p.has_value());
+	CHECK(p.error().code == JsonIssueCode::invalid_value);
+}
+
+TEST_CASE(
+	"phase4: decode<P4Nested>(JsonReader&) nested struct",
+	"[phase4]") {
+	JsonReader r{R"({"person":{"name":"Carol","age":40},"score":99})"};
+	auto n = decode<P4Nested>(r);
+	REQUIRE(n.has_value());
+	CHECK(n->person.name == "Carol");
+	CHECK(n->person.age == 40LL);
+	CHECK(n->score == 99LL);
+}
+
+TEST_CASE(
+	"phase4: decode<V<P4Person>>(JsonReader&) array of structs",
+	"[phase4]") {
+	JsonReader r{R"([{"name":"A","age":1},{"name":"B","age":2}])"};
+	auto v = decode<V<P4Person>>(r);
+	REQUIRE(v.has_value());
+	REQUIRE(v->size() == 2UZ);
+	CHECK((*v)[0].name == "A");
+	CHECK((*v)[0].age == 1LL);
+	CHECK((*v)[1].name == "B");
+	CHECK((*v)[1].age == 2LL);
+}
+
+TEST_CASE(
+	"phase4: decode<Opt<i64>>(JsonReader&) with null",
+	"[phase4]") {
+	{
+		JsonReader r{"null"};
+		auto v = decode<Opt<i64>>(r);
+		REQUIRE(v.has_value());
+		CHECK(!v->has_value());
+	}
+	{
+		JsonReader r{"42"};
+		auto v = decode<Opt<i64>>(r);
+		REQUIRE(v.has_value());
+		REQUIRE(v->has_value());
+		CHECK(**v == 42LL);
+	}
+}
+
+TEST_CASE(
+	"phase4: decode<M<S,i64>>(JsonReader&) map",
+	"[phase4]") {
+	JsonReader r{R"({"a":1,"b":2})"};
+	auto m = decode<M<S, i64>>(r);
+	REQUIRE(m.has_value());
+	CHECK(m->size() == 2UZ);
+	CHECK((*m)["a"] == 1LL);
+	CHECK((*m)["b"] == 2LL);
+}
+
+TEST_CASE(
+	"phase4: decode<P4Address>(JsonReader&) optional member absent",
+	"[phase4]") {
+	JsonReader r{R"({"street":"Main St"})"};
+	auto a = decode<P4Address>(r);
+	REQUIRE(a.has_value());
+	CHECK(a->street == "Main St");
+	CHECK(!a->city.has_value());
+}
+
+TEST_CASE(
+	"phase4: decode<P4Address>(JsonReader&) optional member present",
+	"[phase4]") {
+	JsonReader r{R"({"street":"Main St","city":"Springfield"})"};
+	auto a = decode<P4Address>(r);
+	REQUIRE(a.has_value());
+	CHECK(a->street == "Main St");
+	REQUIRE(a->city.has_value());
+	CHECK(*a->city == "Springfield");
+}
+
+TEST_CASE(
+	"phase4: decode<P4Person>(JsonReader&) missing required member",
+	"[phase4]") {
+	JsonReader r{R"({"name":"Alice"})"};
+	auto p = decode<P4Person>(r);
+	CHECK_FALSE(p.has_value());
+	CHECK(p.error().code == JsonIssueCode::missing_member);
+}
+
+TEST_CASE(
+	"phase4: decode<bool>(JsonReader&)",
+	"[phase4]") {
+	{
+		JsonReader r{"true"};
+		auto v = decode<bool>(r);
+		REQUIRE(v.has_value());
+		CHECK(*v == true);
+	}
+	{
+		JsonReader r{"false"};
+		auto v = decode<bool>(r);
+		REQUIRE(v.has_value());
+		CHECK(*v == false);
+	}
+}
+
+TEST_CASE(
+	"phase4: decode<double>(JsonReader&)",
+	"[phase4]") {
+	JsonReader r{"3.14"};
+	auto v = decode<double>(r);
+	REQUIRE(v.has_value());
+	CHECK(*v == Catch::Approx(3.14));
+}
+
+TEST_CASE(
+	"phase4: decode<V<i64>>(JsonReader&)",
+	"[phase4]") {
+	JsonReader r{"[1,2,3,4,5]"};
+	auto v = decode<V<i64>>(r);
+	REQUIRE(v.has_value());
+	REQUIRE(v->size() == 5UZ);
+	for (SZ i = 0; i < 5; ++i) {
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
+		CHECK((*v)[i] == static_cast<i64>(i + 1));
+	}
+}
+
+TEST_CASE(
+	"phase4: JsonReader empty object",
+	"[phase4]") {
+	JsonReader r{"{}"};
+	auto e0 = r.next();
+	REQUIRE(e0.has_value()); REQUIRE(e0->has_value());
+	CHECK(**e0 == JsonReader::Event::begin_object);
+	auto e1 = r.next();
+	REQUIRE(e1.has_value()); REQUIRE(e1->has_value());
+	CHECK(**e1 == JsonReader::Event::end_object);
+}
+
+TEST_CASE(
+	"phase4: JsonReader empty array",
+	"[phase4]") {
+	JsonReader r{"[]"};
+	auto e0 = r.next();
+	REQUIRE(e0.has_value()); REQUIRE(e0->has_value());
+	CHECK(**e0 == JsonReader::Event::begin_array);
+	auto e1 = r.next();
+	REQUIRE(e1.has_value()); REQUIRE(e1->has_value());
+	CHECK(**e1 == JsonReader::Event::end_array);
+}
+
+TEST_CASE(
+	"phase4: decode<P<S,i64>>(JsonReader&) pair",
+	"[phase4]") {
+	JsonReader r{R"(["hello",42])"};
+	auto v = decode<P<S, i64>>(r);
+	REQUIRE(v.has_value());
+	CHECK(v->first == "hello");
+	CHECK(v->second == 42LL);
+}
+
+TEST_CASE(
+	"phase4: decode<A<i64,3>>(JsonReader&) fixed array",
+	"[phase4]") {
+	JsonReader r{"[10,20,30]"};
+	auto v = decode<A<i64, 3>>(r);
+	REQUIRE(v.has_value());
+	CHECK((*v)[0] == 10LL);
+	CHECK((*v)[1] == 20LL);
+	CHECK((*v)[2] == 30LL);
+}
+
+TEST_CASE(
+	"phase4: decode<Tup<S,i64,bool>>(JsonReader&) tuple",
+	"[phase4]") {
+	JsonReader r{R"(["hello",42,true])"};
+	auto v = decode<Tup<S, i64, bool>>(r);
+	REQUIRE(v.has_value());
+	CHECK(get<0>(*v) == "hello");
+	CHECK(get<1>(*v) == 42LL);
+	CHECK(get<2>(*v) == true);
+}
+
+TEST_CASE(
+	"phase4: JsonReader escaped unicode string",
+	"[phase4]") {
+	JsonReader r{R"("Hello")"};
+	auto ev = r.next();
+	REQUIRE(ev.has_value()); REQUIRE(ev->has_value());
+	CHECK(**ev == JsonReader::Event::string_value);
+	std::string out;
+	auto res = r.string_token().append_decoded_to(out);
+	REQUIRE(res.has_value());
+	CHECK(out == "Hello");
+}
+
+TEST_CASE(
+	"phase4: decode<UM<S,i64>>(JsonReader&) unordered map",
+	"[phase4]") {
+	JsonReader r{R"({"x":10,"y":20})"};
+	auto m = decode<UM<S, i64>>(r);
+	REQUIRE(m.has_value());
+	CHECK(m->size() == 2UZ);
+	CHECK((*m)["x"] == 10LL);
+	CHECK((*m)["y"] == 20LL);
+}
+
+TEST_CASE(
+	"phase4: JsonReader reset restores fresh state",
+	"[phase4]") {
+	JsonReader r{"42"};
+	auto ev = r.next();
+	REQUIRE(ev.has_value()); REQUIRE(ev->has_value());
+	auto eof = r.next();
+	REQUIRE(eof.has_value());
+	CHECK(!eof->has_value());
+
+	r.reset();
+	auto ev2 = r.next();
+	REQUIRE(ev2.has_value()); REQUIRE(ev2->has_value());
+	CHECK(**ev2 == JsonReader::Event::number_value);
+	auto v = r.number_val().to_i64();
+	REQUIRE(v.has_value());
+	CHECK(*v == 42LL);
+}
+
+// ─── Phase 3 — SAX / Event Interface ────────────────────────────────────────
+
+TEST_CASE("phase3: parse_sax null literal", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        bool got_null = false;
+        expected<void, JsonError> on_null() { got_null = true; return {}; }
+    } h;
+    auto r = parse_sax("null", h);
+    REQUIRE(r.has_value());
+    CHECK(h.got_null);
+}
+
+TEST_CASE("phase3: parse_sax bool true/false", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        std::vector<bool> vals;
+        expected<void, JsonError> on_bool(bool b) { vals.push_back(b); return {}; }
+    } h;
+    auto r = parse_sax("[true,false]", h);
+    REQUIRE(r.has_value());
+    REQUIRE(h.vals.size() == 2UZ);
+    CHECK(h.vals[0] == true);
+    CHECK(h.vals[1] == false);
+}
+
+TEST_CASE("phase3: parse_sax string value decoded", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        std::string got;
+        expected<void, JsonError> on_string(std::string_view sv) { got = sv; return {}; }
+    } h;
+    auto r = parse_sax(R"("hello")", h);
+    REQUIRE(r.has_value());
+    CHECK(h.got == "hello");
+}
+
+TEST_CASE("phase3: parse_sax string with escapes", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        std::string got;
+        expected<void, JsonError> on_string(std::string_view sv) { got = sv; return {}; }
+    } h;
+    auto r = parse_sax(R"("a\nb")", h);
+    REQUIRE(r.has_value());
+    CHECK(h.got == "a\nb");
+}
+
+TEST_CASE("phase3: parse_sax typed number dispatch i64", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        int64_t val{};
+        expected<void, JsonError> on_i64(int64_t v) { val = v; return {}; }
+    } h;
+    auto r = parse_sax("-42", h);
+    REQUIRE(r.has_value());
+    CHECK(h.val == -42LL);
+}
+
+TEST_CASE("phase3: parse_sax typed number dispatch u64", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        uint64_t val{};
+        expected<void, JsonError> on_u64(uint64_t v) { val = v; return {}; }
+    } h;
+    // large positive beyond i64 max
+    auto r = parse_sax("18446744073709551615", h);
+    REQUIRE(r.has_value());
+    CHECK(h.val == 18446744073709551615ULL);
+}
+
+TEST_CASE("phase3: parse_sax typed number dispatch double", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        double val{};
+        expected<void, JsonError> on_double(double v) { val = v; return {}; }
+    } h;
+    auto r = parse_sax("3.14", h);
+    REQUIRE(r.has_value());
+    CHECK(h.val == Catch::Approx(3.14));
+}
+
+TEST_CASE("phase3: parse_sax on_number_raw opt-in", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        std::string raw;
+        expected<void, JsonError> on_number_raw(std::string_view sv) {
+            raw = sv; return {};
+        }
+    } h;
+    auto r = parse_sax("3.14", h);
+    REQUIRE(r.has_value());
+    CHECK(h.raw == "3.14");
+}
+
+TEST_CASE("phase3: parse_sax object events and keys", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        int begin_obj{}, end_obj{};
+        std::vector<std::string> keys;
+        std::vector<std::string> strings;
+        expected<void, JsonError> on_begin_object() { ++begin_obj; return {}; }
+        expected<void, JsonError> on_end_object()   { ++end_obj; return {}; }
+        expected<void, JsonError> on_key(std::string_view k) { keys.emplace_back(k); return {}; }
+        expected<void, JsonError> on_string(std::string_view v) { strings.emplace_back(v); return {}; }
+    } h;
+    auto r = parse_sax(R"({"a":"x","b":"y"})", h);
+    REQUIRE(r.has_value());
+    CHECK(h.begin_obj == 1);
+    CHECK(h.end_obj == 1);
+    REQUIRE(h.keys.size() == 2UZ);
+    CHECK(h.keys[0] == "a");
+    CHECK(h.keys[1] == "b");
+    CHECK(h.strings[0] == "x");
+    CHECK(h.strings[1] == "y");
+}
+
+TEST_CASE("phase3: parse_sax array events", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        int begin_arr{}, end_arr{};
+        std::vector<int64_t> nums;
+        expected<void, JsonError> on_begin_array() { ++begin_arr; return {}; }
+        expected<void, JsonError> on_end_array()   { ++end_arr; return {}; }
+        expected<void, JsonError> on_i64(int64_t v) { nums.push_back(v); return {}; }
+    } h;
+    auto r = parse_sax("[1,2,3]", h);
+    REQUIRE(r.has_value());
+    CHECK(h.begin_arr == 1);
+    CHECK(h.end_arr == 1);
+    REQUIRE(h.nums.size() == 3UZ);
+    CHECK(h.nums[0] == 1LL);
+    CHECK(h.nums[2] == 3LL);
+}
+
+TEST_CASE("phase3: parse_sax handler abort via error return", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        int count{};
+        expected<void, JsonError> on_i64(int64_t) {
+            ++count;
+            if (count >= 2)
+                return unexpected(JsonError{.code = JsonIssueCode::invalid_value, .message = "stop"});
+            return {};
+        }
+    } h;
+    auto r = parse_sax("[1,2,3]", h);
+    CHECK_FALSE(r.has_value());
+    CHECK(h.count == 2);
+}
+
+TEST_CASE("phase3: parse_sax void handler compiles and runs", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        int nulls{};
+        void on_null() { ++nulls; }
+    } h;
+    auto r = parse_sax("[null,null]", h);
+    REQUIRE(r.has_value());
+    CHECK(h.nulls == 2);
+}
+
+TEST_CASE("phase3: parse_sax malformed input returns error", "[phase3]") {
+    struct H : JsonDefaultHandler {} h;
+    auto r = parse_sax("{bad}", h);
+    CHECK_FALSE(r.has_value());
+}
+
+TEST_CASE("phase3: parse_sax nested object structure", "[phase3]") {
+    struct H : JsonDefaultHandler {
+        int depth_max{};
+        int current{};
+        expected<void, JsonError> on_begin_object() { ++current; depth_max = std::max(depth_max, current); return {}; }
+        expected<void, JsonError> on_end_object()   { --current; return {}; }
+    } h;
+    auto r = parse_sax(R"({"a":{"b":{"c":1}}})", h);
+    REQUIRE(r.has_value());
+    CHECK(h.depth_max == 3);
+    CHECK(h.current == 0);
+}
+
+// ─── Phase 5 — Memory Model & Performance Hardening ─────────────────────────
+
+TEST_CASE("phase5: parse with pmr monotonic_buffer_resource", "[phase5]") {
+    std::pmr::monotonic_buffer_resource mbr{4096};
+    auto doc = parse("42", {}, &mbr);
+    REQUIRE(doc.has_value());
+    auto v = doc->root().as_i64();
+    REQUIRE(v.has_value());
+    CHECK(*v == 42LL);
+}
+
+TEST_CASE("phase5: parse_borrowed with pmr resource", "[phase5]") {
+    std::string input = R"({"x":1})";
+    std::pmr::monotonic_buffer_resource mbr{4096};
+    auto doc = parse_borrowed(input, {}, &mbr);
+    REQUIRE(doc.has_value());
+    auto root = doc->root().as_object();
+    REQUIRE(root.has_value());
+    CHECK(root->size() == 1UZ);
+}
+
+TEST_CASE("phase5: pmr parse returns same result as default parse", "[phase5]") {
+    std::string_view input = R"([1,2,3,"hello"])";
+    std::pmr::monotonic_buffer_resource mbr{4096};
+    auto d1 = parse(input);
+    auto d2 = parse(input, {}, &mbr);
+    REQUIRE(d1.has_value());
+    REQUIRE(d2.has_value());
+    auto v1 = d1->dump();
+    auto v2 = d2->dump();
+    REQUIRE(v1.has_value());
+    REQUIRE(v2.has_value());
+    CHECK(*v1 == *v2);
+}
+
+TEST_CASE("phase5: JsonArena basic parse_into", "[phase5]") {
+    JsonArena arena;
+    auto doc = arena.parse_into(R"({"name":"Alice","age":30})");
+    REQUIRE(doc.has_value());
+    auto root = doc->root().as_object();
+    REQUIRE(root.has_value());
+    auto name = root->find_member("name");
+    REQUIRE(name.has_value());
+    auto sv = name->as_string();
+    REQUIRE(sv.has_value());
+    CHECK(*sv == "Alice");
+}
+
+TEST_CASE("phase5: JsonArena parse_into two documents sequentially", "[phase5]") {
+    JsonArena arena;
+    auto d1 = arena.parse_into("1");
+    REQUIRE(d1.has_value());
+    CHECK(*d1->root().as_i64() == 1LL);
+
+    // Second parse reuses arena storage
+    auto d2 = arena.parse_into("2");
+    REQUIRE(d2.has_value());
+    CHECK(*d2->root().as_i64() == 2LL);
+}
+
+TEST_CASE("phase5: JsonArena reset then parse_into", "[phase5]") {
+    JsonArena arena;
+    auto d1 = arena.parse_into(R"("hello")");
+    REQUIRE(d1.has_value());
+
+    arena.reset();
+
+    auto d2 = arena.parse_into(R"("world")");
+    REQUIRE(d2.has_value());
+    auto sv = d2->root().as_string();
+    REQUIRE(sv.has_value());
+    CHECK(*sv == "world");
+}
+
+TEST_CASE("phase5: JsonArena slab_capacity returns configured size", "[phase5]") {
+    JsonArena arena{JsonArenaOptions{.initial_slab = 128 * 1024}};
+    CHECK(arena.slab_capacity() == 128 * 1024UZ);
+}
+
+TEST_CASE("phase5: ArenaDocument dump produces correct JSON", "[phase5]") {
+    JsonArena arena;
+    auto doc = arena.parse_into(R"([1,2,3])");
+    REQUIRE(doc.has_value());
+    auto dumped = doc->dump();
+    REQUIRE(dumped.has_value());
+    CHECK(*dumped == "[1,2,3]");
+}
+
+TEST_CASE("phase5: JsonArena parse_into error propagation", "[phase5]") {
+    JsonArena arena;
+    auto doc = arena.parse_into("{bad json}");
+    CHECK_FALSE(doc.has_value());
+}
+
+TEST_CASE("phase5: from_chars deferred overflow returns error", "[phase5]") {
+    auto doc = parse("1e999");
+    REQUIRE(doc.has_value());
+    auto n = doc->root().as_number();
+    REQUIRE(n.has_value());
+    auto res = n->to_f64();
+    CHECK_FALSE(res.has_value());
+    CHECK(res.error().code == JsonIssueCode::number_out_of_range);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 7 — NDJSON / JsonAccumulator
+// ---------------------------------------------------------------------------
+
+TEST_CASE("phase7: NdjsonRange basic two-line NDJSON", "[phase7]") {
+    std::string_view ndjson = R"({"a":1}
+{"b":2})";
+    NdjsonRange range{ndjson};
+    std::vector<std::string> results;
+    for (auto const& d : range) {
+        REQUIRE(d.has_value());
+        auto dumped = d->dump();
+        REQUIRE(dumped.has_value());
+        results.push_back(*dumped);
+    }
+    REQUIRE(results.size() == 2);
+    CHECK(results[0] == R"({"a":1})");
+    CHECK(results[1] == R"({"b":2})");
+}
+
+TEST_CASE("phase7: NdjsonRange skips blank lines", "[phase7]") {
+    std::string_view ndjson = "1\n\n2\n\n3";
+    NdjsonRange range{ndjson};
+    int count = 0;
+    for (auto const& d : range) {
+        REQUIRE(d.has_value());
+        ++count;
+    }
+    CHECK(count == 3);
+}
+
+TEST_CASE("phase7: NdjsonRange strips CRLF", "[phase7]") {
+    std::string_view ndjson = "\"hello\"\r\n\"world\"\r\n";
+    NdjsonRange range{ndjson};
+    std::vector<std::string> results;
+    for (auto const& d : range) {
+        REQUIRE(d.has_value());
+        results.push_back(*d->dump());
+    }
+    REQUIRE(results.size() == 2);
+    CHECK(results[0] == "\"hello\"");
+    CHECK(results[1] == "\"world\"");
+}
+
+TEST_CASE("phase7: NdjsonRange propagates parse error per line", "[phase7]") {
+    std::string_view ndjson = "1\nbad json\n3";
+    NdjsonRange range{ndjson};
+    auto it = range.begin();
+
+    REQUIRE(it != std::default_sentinel);
+    CHECK(it->has_value());
+    ++it;
+
+    REQUIRE(it != std::default_sentinel);
+    CHECK_FALSE(it->has_value());
+    ++it;
+
+    REQUIRE(it != std::default_sentinel);
+    CHECK(it->has_value());
+    ++it;
+
+    CHECK(it == std::default_sentinel);
+}
+
+TEST_CASE("phase7: NdjsonRange empty input yields no elements", "[phase7]") {
+    NdjsonRange range{""};
+    int count = 0;
+    for (auto const& _ : range) { (void)_; ++count; }
+    CHECK(count == 0);
+}
+
+TEST_CASE("phase7: NdjsonRange single line no trailing newline", "[phase7]") {
+    NdjsonRange range{R"([1,2,3])"};
+    auto it = range.begin();
+    REQUIRE(it != std::default_sentinel);
+    REQUIRE(it->has_value());
+    CHECK(*it->value().dump() == "[1,2,3]");
+    ++it;
+    CHECK(it == std::default_sentinel);
+}
+
+TEST_CASE("phase7: JsonAccumulator basic feed and finish", "[phase7]") {
+    JsonAccumulator acc;
+    REQUIRE(acc.feed("{\"x\":").has_value());
+    REQUIRE(acc.feed("42}").has_value());
+    auto doc = acc.finish();
+    REQUIRE(doc.has_value());
+    auto obj = doc->root().as_object();
+    REQUIRE(obj.has_value());
+    auto n = obj->find_member("x");
+    REQUIRE(n.has_value());
+    auto num = n->as_number();
+    REQUIRE(num.has_value());
+    CHECK(*num->to_i64() == 42);
+}
+
+TEST_CASE("phase7: JsonAccumulator single feed", "[phase7]") {
+    JsonAccumulator acc;
+    REQUIRE(acc.feed(R"("hello")").has_value());
+    auto doc = acc.finish();
+    REQUIRE(doc.has_value());
+    auto sv = doc->root().as_string();
+    REQUIRE(sv.has_value());
+    CHECK(*sv == "hello");
+}
+
+TEST_CASE("phase7: JsonAccumulator finish with invalid JSON returns error", "[phase7]") {
+    JsonAccumulator acc;
+    REQUIRE(acc.feed("{broken").has_value());
+    auto doc = acc.finish();
+    CHECK_FALSE(doc.has_value());
+}
+
+TEST_CASE("phase7: JsonAccumulator feed rejects over max_input_size", "[phase7]") {
+    JsonParseOptions opts;
+    opts.max_input_size = LimitOption::bound(10);
+    JsonAccumulator acc{opts};
+    REQUIRE(acc.feed("12345").has_value());
+    auto res = acc.feed("678901");
+    CHECK_FALSE(res.has_value());
+    CHECK(res.error().code == JsonIssueCode::input_too_large);
+}
+
+TEST_CASE("phase7: JsonAccumulator reset clears buffer", "[phase7]") {
+    JsonAccumulator acc;
+    REQUIRE(acc.feed("[1,2,3]").has_value());
+    CHECK(acc.buffered_bytes() == 7);
+    acc.reset();
+    CHECK(acc.buffered_bytes() == 0);
+    REQUIRE(acc.feed("null").has_value());
+    auto doc = acc.finish();
+    REQUIRE(doc.has_value());
+    CHECK(doc->root().is_null());
+}
+
+TEST_CASE("phase7: JsonAccumulator buffered_bytes tracks feed", "[phase7]") {
+    JsonAccumulator acc;
+    CHECK(acc.buffered_bytes() == 0);
+    REQUIRE(acc.feed("abc").has_value());
+    CHECK(acc.buffered_bytes() == 3);
+    REQUIRE(acc.feed("def").has_value());
+    CHECK(acc.buffered_bytes() == 6);
+}
+
+TEST_CASE("phase7: NdjsonRange with parse options", "[phase7]") {
+    JsonParseOptions opts;
+    opts.max_input_size = LimitOption::bound(5);
+    std::string_view ndjson = "1\n\"toolongstring\"\n2";
+    NdjsonRange range{ndjson, opts};
+    auto it = range.begin();
+    REQUIRE(it != std::default_sentinel);
+    CHECK(it->has_value());
+    ++it;
+    REQUIRE(it != std::default_sentinel);
+    CHECK_FALSE(it->has_value());  // too long
+    CHECK(it->error().code == JsonIssueCode::input_too_large);
+    ++it;
+    REQUIRE(it != std::default_sentinel);
+    CHECK(it->has_value());
+    ++it;
+    CHECK(it == std::default_sentinel);
+}

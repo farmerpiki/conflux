@@ -8,6 +8,9 @@ module;
 	#include <immintrin.h>
 	#ifndef CONFLUX_JSON_DISABLE_SIMD
 		#define CONFLUX_JSON_HAS_SSE2 1
+		#if defined(__AVX2__)
+			#define CONFLUX_JSON_HAS_AVX2 1
+		#endif
 	#endif
 #endif
 
@@ -38,6 +41,13 @@ export struct ObjectMember;
 export struct WarmIndexOptions;
 export template<class T>
 class Nullable;
+export class JsonStringToken;
+export class JsonReader;
+export struct JsonArenaOptions;
+export class ArenaDocument;
+export class JsonArena;
+export class NdjsonRange;
+export class JsonAccumulator;
 
 // ---------------------------------------------------------------------------
 // JsonKind / stage / issue code
@@ -88,6 +98,13 @@ export struct JsonSourceLocation {
 	SZ offset{};
 	SZ line{1};
 	SZ column{1};
+};
+
+// NOLINTNEXTLINE(performance-enum-size)
+export enum class DuplicateKeyPolicy : u8 {
+	reject,     // RFC 8259 recommended; current default
+	last_wins,  // keep last value; first occurrence's name position preserved
+	first_wins, // keep first value; duplicate parsed for syntax, then discarded
 };
 
 // ---------------------------------------------------------------------------
@@ -341,9 +358,26 @@ public:
 };
 
 export struct JsonParseOptions {
-	LimitOption max_depth;
-	LimitOption max_input_size;
-	LimitOption max_string_size;
+	LimitOption       max_depth;
+	LimitOption       max_input_size;
+	LimitOption       max_string_size;
+	DuplicateKeyPolicy duplicate_key{DuplicateKeyPolicy::reject};
+	Opt<u32>           warm_threshold{};
+};
+
+// NOLINTNEXTLINE(performance-enum-size)
+export enum class UnknownMemberPolicy : u8 {
+	reject,
+	ignore,
+};
+
+export struct JsonDecodeOptions {
+	UnknownMemberPolicy unknown_members{UnknownMemberPolicy::reject};
+};
+
+export struct JsonByteRange {
+	SZ start;
+	SZ end;
 };
 
 // ---------------------------------------------------------------------------
@@ -374,7 +408,7 @@ constexpr u8 kLexIntForm = 0x08; // lexeme matches -?(0|[1-9][0-9]*)
 constexpr u8 kValKindInt = 0x10; // ival valid
 constexpr u8 kValKindUint = 0x20; // uval valid
 constexpr u8 kValKindF64 = 0x40; // dval valid
-constexpr u8 kValKindDeferred = 0x04; // range-error f64 ≤ 4 KiB; strtod_l deferred to to_f64()
+constexpr u8 kValKindDeferred = 0x04; // range-error f64 ≤ 4 KiB; from_chars deferred to to_f64()
 
 // All three kValKind* clear on a number node = f64-overflow (lexeme preserved).
 
@@ -511,13 +545,13 @@ namespace detail {
 	return Node{.kind = NodeKind::string_, .flags = flags, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, ._raw = 0};
 }
 
-[[nodiscard]] inline Node make_array(
+[[nodiscard]] inline Node node_array(
 	u32 off,
 	u32 len) noexcept {
 	return Node{.kind = NodeKind::array_, .flags = 0, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, ._raw = 0};
 }
 
-[[nodiscard]] inline Node make_object(
+[[nodiscard]] inline Node node_object(
 	u32 off,
 	u32 len) noexcept {
 	return Node{
@@ -604,26 +638,30 @@ namespace detail {
 } // namespace detail
 
 struct DocumentStorage {
-	V<Node> nodes;
-	S string_arena;
-	V<u32> array_children;
-	V<MemberEntry> object_members;
-	// Phase 1 (v11): owned/borrowed input buffer. Numbers index into input_view
-	// when their flags include kStorageInputView; strings still live in
-	// string_arena until Phase 2 lands.
-	UP<S> owned_input; // non-null for copy/move modes; null in parse_borrowed
-	SV input_view; // post-BOM bytes; pointer-stable across Document moves
-	u32 root_node{0}; // index of the root Node
-	u32 bom_prefix_bytes{0}; // 0 or 3 — added to source-offset reports (Correction Q)
+	std::pmr::vector<Node> nodes;
+	std::pmr::string string_arena;
+	std::pmr::vector<u32> array_children;
+	std::pmr::vector<MemberEntry> object_members;
+	UP<S> owned_input;
+	SV input_view;
+	u32 root_node{0};
+	u32 bom_prefix_bytes{0};
 	u64 hash_seed_{detail::make_hash_seed()};
 
-	DocumentStorage() = default;
+	DocumentStorage()
+		: nodes(std::pmr::new_delete_resource())
+		, string_arena(std::pmr::new_delete_resource())
+		, array_children(std::pmr::new_delete_resource())
+		, object_members(std::pmr::new_delete_resource()) {}
+
+	explicit DocumentStorage(std::pmr::memory_resource *r)
+		: nodes(r)
+		, string_arena(r)
+		, array_children(r)
+		, object_members(r) {}
+
 	DocumentStorage(DocumentStorage const &) = delete;
 	DocumentStorage &operator =(DocumentStorage const &) = delete;
-	// Explicit move ops re-instate what the user-declared destructor suppresses.
-	// owned_input transfers via UP (heap allocation stays put);
-	// input_view's data pointer remains valid because it points into the heap
-	// S body, not the moved-from S object.
 	DocumentStorage(DocumentStorage &&) noexcept = default;
 	DocumentStorage &operator =(DocumentStorage &&) noexcept = default;
 	~DocumentStorage() noexcept {
@@ -670,6 +708,9 @@ struct DocumentStorage {
 // against megabyte-long number tokens.
 constexpr SZ kSlowFloatLexemeCopyLimit = 4096;
 constexpr SZ kMaxNumberLexemeLen = 1024;
+constexpr SZ kDefaultMaxDepth = 128;
+constexpr SZ kDefaultMaxInput = 128ULL * 1024 * 1024;
+constexpr SZ kDefaultMaxString = 64ULL * 1024 * 1024;
 
 namespace detail {
 
@@ -685,8 +726,6 @@ struct CLocaleHolder {
 		return CLocaleHolder{l, l != static_cast<::locale_t>(0)}; // NOLINT(modernize-use-nullptr)
 	}();
 	// Intentional: process-lifetime singleton, never freelocale'd.
-	// Static-destruction order would create use-after-free for any caller
-	// that touches the slow path during teardown.
 	return h;
 }
 
@@ -701,68 +740,76 @@ struct ClassifiedDouble {
 [[nodiscard]] inline expected<ClassifiedDouble, JsonError> classify_range_error_slow(
 	char const *first,
 	char const *last) noexcept {
-	auto const &lh = c_locale_holder();
-	if (!lh.ok) {
-		return unexpected(
-			JsonError{
-				.stage = JsonStage::parse,
-				.code = JsonIssueCode::resource_exhausted,
-				.message = "newlocale(C) failed at startup; strtod_l unavailable"});
-	}
-
 	auto const n = static_cast<SZ>(last - first);
 	if (n > kSlowFloatLexemeCopyLimit) {
 		return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
 	}
+	double dv{};
+	auto const [p, ec] = from_chars(first, last, dv, std::chars_format::general);
+	if (ec == errc{} && p == last) {
+		if (isfinite(dv)) return ClassifiedDouble{ClassifiedDouble::Kind::underflow_finite, dv};
+		return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
+	}
+	if (ec == errc::result_out_of_range) {
+		// libc++ sets dv=inf for overflow; libstdc++ sets dv=0 for both cases.
+		// When from_chars is informative (isinf), use it directly.
+		// Otherwise fall back to strtod_l to distinguish overflow from underflow.
+		if (isinf(dv)) return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
 
-	// NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays)
-	char stack_buf[128];
-	// NOLINTEND(cppcoreguidelines-avoid-c-arrays)
-	UP<char[]> heap_buf;
-	char *p = nullptr;
-
-	if (n + 1 <= sizeof(stack_buf)) {
-		p = stack_buf;
-	} else {
-		heap_buf = UP<char[]>{new (std::nothrow) char[n + 1]};
-		if (!heap_buf) {
+		auto const &lh = c_locale_holder();
+		if (!lh.ok) {
 			return unexpected(
 				JsonError{
 					.stage = JsonStage::parse,
 					.code = JsonIssueCode::resource_exhausted,
-					.message = "OOM in classify_range_error_slow"});
+					.message = "newlocale(C) failed at startup; strtod_l unavailable"});
 		}
-		p = heap_buf.get();
+		// NOLINTBEGIN(cppcoreguidelines-avoid-c-arrays)
+		char stack_buf[128];
+		// NOLINTEND(cppcoreguidelines-avoid-c-arrays)
+		UP<char[]> heap_buf;
+		char *cp = nullptr;
+		if (n + 1 <= sizeof(stack_buf)) {
+			cp = stack_buf;
+		} else {
+			heap_buf = UP<char[]>{new (std::nothrow) char[n + 1]};
+			if (!heap_buf) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::parse,
+						.code = JsonIssueCode::resource_exhausted,
+						.message = "OOM in classify_range_error_slow"});
+			}
+			cp = heap_buf.get();
+		}
+		std::copy_n(first, n, cp);
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		cp[n] = '\0';
+		char *end = nullptr; // NOLINT(misc-const-correctness)
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		double const v = ::strtod_l(cp, &end, lh.loc);
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		if (end != cp + n) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::parse,
+					.code = JsonIssueCode::invalid_number,
+					.message = "strtod_l rejected deferred lexeme"});
+		}
+		if (isinf(v)) return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
+		return ClassifiedDouble{ClassifiedDouble::Kind::underflow_finite, v};
 	}
-
-	std::copy_n(first, n, p);
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	p[n] = '\0';
-
-	char *end = nullptr; // NOLINT(misc-const-correctness) — strtod_l takes char**
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	double const v = ::strtod_l(p, &end, lh.loc);
-
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-	if (end != p + n) {
-		return unexpected(
-			JsonError{
-				.stage = JsonStage::parse,
-				.code = JsonIssueCode::invalid_number,
-				.message = "strtod_l rejected lexeme (stage-2 check)"});
-	}
-
-	if (isinf(v)) {
-		return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
-	}
-	return ClassifiedDouble{ClassifiedDouble::Kind::underflow_finite, v};
+	return unexpected(
+		JsonError{
+			.stage = JsonStage::parse,
+			.code = JsonIssueCode::invalid_number,
+			.message = format("from_chars rejected deferred lexeme: {}", SV{first, last})});
 }
 
 // Pre-parsed number factory: takes a syntactically valid JSON number lexeme
 // (caller validates) plus its arena offset/length, runs the two-stage parse
-// (i64 → u64 → f64 with strtod_l fallback for range-error f64), and returns
-// the appropriate Node. Locale-init / OOM in the slow path surface as
-// resource_exhausted via expected<>.
+// (i64 → u64 → f64 with from_chars fallback for range-error f64), and returns
+// the appropriate Node.
 [[nodiscard]] inline expected<Node, JsonError> build_number_node_from_lexeme(
 	u32 off,
 	u32 len,
@@ -826,6 +873,7 @@ export class JsonNumberView {
 	u8 flags_; // kLexIntForm | kValKindInt|Uint|F64
 
 	friend class NodeRef;
+	friend class JsonReader;
 	friend bool is_value_equal(NodeRef, NodeRef);
 	JsonNumberView(
 		SV lex,
@@ -925,6 +973,801 @@ public:
 				.code = JsonIssueCode::number_out_of_range,
 				.message = format("f64 conversion overflows: {}", lexeme_)});
 	}
+
+	template<class T>
+		requires ((std::integral<T> && !std::same_as<T, bool>) || std::floating_point<T>)
+	[[nodiscard]] expected<T, JsonError> get_as() const {
+		if constexpr (std::floating_point<T>) {
+			return to_f64().transform([](double v) noexcept { return static_cast<T>(v); });
+		} else if constexpr (std::is_signed_v<T>) {
+			auto v = to_i64();
+			if (!v) {
+				return unexpected(move(v).error());
+			}
+			if constexpr (sizeof(T) < sizeof(i64)) {
+				if (*v < static_cast<i64>(NL<T>::min()) || *v > static_cast<i64>(NL<T>::max())) {
+					return unexpected(
+						JsonError{
+							.stage = JsonStage::lookup,
+							.code = JsonIssueCode::number_out_of_range,
+							.message = format("value {} out of range for target type", lexeme_)});
+				}
+			}
+			return static_cast<T>(*v);
+		} else {
+			auto v = to_u64();
+			if (!v) {
+				return unexpected(move(v).error());
+			}
+			if constexpr (sizeof(T) < sizeof(u64)) {
+				if (*v > static_cast<u64>(NL<T>::max())) {
+					return unexpected(
+						JsonError{
+							.stage = JsonStage::lookup,
+							.code = JsonIssueCode::number_out_of_range,
+							.message = format("value {} out of range for target type", lexeme_)});
+				}
+			}
+			return static_cast<T>(*v);
+		}
+	}
+};
+
+// Forward declarations for parser helpers used by JsonStringToken/JsonReader.
+SZ utf8_seq_len(unsigned char lead) noexcept;
+bool is_cont(unsigned char c) noexcept;
+namespace detail::simd {
+[[nodiscard]] SZ scan_str_until_special(char const *p, SZ n) noexcept;
+} // namespace detail::simd
+
+// ---------------------------------------------------------------------------
+// decode_str_body helper (used by JsonStringToken)
+// ---------------------------------------------------------------------------
+
+namespace detail {
+
+[[nodiscard]] inline u32 hex4_from_sv(
+	SV body,
+	SZ pos) noexcept {
+	u32 out = 0;
+	for (SZ i = 0; i < 4; ++i) {
+		char const c = body[pos + i];
+		u32 d = 0;
+		constexpr u32 kA = 10;
+		if (c >= '0' && c <= '9') {
+			d = static_cast<u32>(c - '0');
+		} else if (c >= 'a' && c <= 'f') {
+			d = static_cast<u32>(c - 'a') + kA;
+		} else if (c >= 'A' && c <= 'F') {
+			d = static_cast<u32>(c - 'A') + kA;
+		}
+		// NOLINTNEXTLINE(hicpp-signed-bitwise)
+		out = (out << 4U) | d;
+	}
+	return out;
+}
+
+inline void append_utf8_to_sv(
+	u32 cp,
+	auto &&writer) {
+	// NOLINTBEGIN(readability-magic-numbers,hicpp-signed-bitwise)
+	char buf[4];
+	SZ len = 0;
+	if (cp < 0x80U) {
+		buf[0] = static_cast<char>(cp);
+		len = 1;
+	} else if (cp < 0x800U) {
+		buf[0] = static_cast<char>(0xC0U | (cp >> 6U));
+		buf[1] = static_cast<char>(0x80U | (cp & 0x3FU));
+		len = 2;
+	} else if (cp < 0x10000U) {
+		buf[0] = static_cast<char>(0xE0U | (cp >> 12U));
+		buf[1] = static_cast<char>(0x80U | ((cp >> 6U) & 0x3FU));
+		buf[2] = static_cast<char>(0x80U | (cp & 0x3FU));
+		len = 3;
+	} else {
+		buf[0] = static_cast<char>(0xF0U | (cp >> 18U));
+		buf[1] = static_cast<char>(0x80U | ((cp >> 12U) & 0x3FU));
+		buf[2] = static_cast<char>(0x80U | ((cp >> 6U) & 0x3FU));
+		buf[3] = static_cast<char>(0x80U | (cp & 0x3FU));
+		len = 4;
+	}
+	// NOLINTEND(readability-magic-numbers,hicpp-signed-bitwise)
+	writer(SV{buf, len});
+}
+
+template<class Writer>
+[[nodiscard]] expected<SZ, JsonError> decode_str_body(
+	SV body,
+	Writer &&writer,
+	LimitOption max_sz) noexcept(false) {
+	SZ total = 0;
+	SZ i = 0;
+	while (i < body.size()) {
+		auto const c = static_cast<unsigned char>(body[i]);
+		if (c != '\\') {
+			SZ run_start = i;
+			while (i < body.size() && static_cast<unsigned char>(body[i]) != '\\') {
+				++i;
+			}
+			SV chunk = body.substr(run_start, i - run_start);
+			writer(chunk);
+			total += chunk.size();
+			if (max_sz.exceeds(total, kDefaultMaxString)) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::string_too_large,
+						.message = "decoded string exceeds max_string_size"});
+			}
+			continue;
+		}
+		++i; // skip '\\'
+		if (i >= body.size()) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::syntax_error,
+					.message = "EOF in escape"});
+		}
+		char esc_char[1]{};
+		bool simple = true;
+		switch (body[i]) {
+		case '"': esc_char[0] = '"'; break;
+		case '\\': esc_char[0] = '\\'; break;
+		case '/': esc_char[0] = '/'; break;
+		case 'b': esc_char[0] = '\b'; break;
+		case 'f': esc_char[0] = '\f'; break;
+		case 'n': esc_char[0] = '\n'; break;
+		case 'r': esc_char[0] = '\r'; break;
+		case 't': esc_char[0] = '\t'; break;
+		case 'u':
+			{
+				simple = false;
+				++i;
+				if (i + 4 > body.size()) {
+					return unexpected(
+						JsonError{
+							.stage = JsonStage::decode,
+							.code = JsonIssueCode::invalid_unicode_escape,
+							.message = "invalid \\uXXXX"});
+				}
+				u32 cp = hex4_from_sv(body, i);
+				i += 4;
+				// NOLINTBEGIN(readability-magic-numbers)
+				if (cp >= 0xD800U && cp <= 0xDBFFU) {
+					if (i + 6 > body.size() || body[i] != '\\' || body[i + 1] != 'u') {
+						return unexpected(
+							JsonError{
+								.stage = JsonStage::decode,
+								.code = JsonIssueCode::invalid_unicode_escape,
+								.message = "unpaired high surrogate"});
+					}
+					i += 2;
+					u32 const lo = hex4_from_sv(body, i);
+					i += 4;
+					if (lo < 0xDC00U || lo > 0xDFFFU) {
+						return unexpected(
+							JsonError{
+								.stage = JsonStage::decode,
+								.code = JsonIssueCode::invalid_unicode_escape,
+								.message = "invalid low surrogate"});
+					}
+					cp = 0x10000U + ((cp - 0xD800U) << 10U) + (lo - 0xDC00U);
+				}
+				// NOLINTEND(readability-magic-numbers)
+				SZ before = total;
+				append_utf8_to_sv(cp, [&](SV chunk) {
+					writer(chunk);
+					total += chunk.size();
+				});
+				(void)before;
+				if (max_sz.exceeds(total, kDefaultMaxString)) {
+					return unexpected(
+						JsonError{
+							.stage = JsonStage::decode,
+							.code = JsonIssueCode::string_too_large,
+							.message = "decoded string exceeds max_string_size"});
+				}
+				break;
+			}
+		default:
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::syntax_error,
+					.message = "invalid escape"});
+		}
+		if (simple) {
+			++i;
+			writer(SV{esc_char, 1});
+			total += 1;
+			if (max_sz.exceeds(total, kDefaultMaxString)) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::string_too_large,
+						.message = "decoded string exceeds max_string_size"});
+			}
+		}
+	}
+	return total;
+}
+
+} // namespace detail
+
+// ---------------------------------------------------------------------------
+// JsonStringToken
+// ---------------------------------------------------------------------------
+
+export class JsonStringToken {
+	SV raw_lexeme_{};
+	bool has_escapes_{false};
+	LimitOption max_string_size_{};
+
+	friend class JsonReader;
+	JsonStringToken(
+		SV raw_lex,
+		bool has_esc,
+		LimitOption max_sz) noexcept
+		: raw_lexeme_{raw_lex}
+		, has_escapes_{has_esc}
+		, max_string_size_{max_sz} {}
+
+public:
+	JsonStringToken() = default;
+
+	[[nodiscard]] SV raw_lexeme() const noexcept { return raw_lexeme_; }
+	[[nodiscard]] bool has_escapes() const noexcept { return has_escapes_; }
+
+	[[nodiscard]] Opt<SV> unescaped_borrow() const noexcept {
+		if (has_escapes_) {
+			return std::nullopt;
+		}
+		return raw_lexeme_.substr(1, raw_lexeme_.size() - 2);
+	}
+
+	[[nodiscard]] SZ max_decoded_size() const noexcept {
+		return raw_lexeme_.size() >= 2 ? raw_lexeme_.size() - 2 : 0;
+	}
+
+	[[nodiscard]] expected<void, JsonError> append_decoded_to(
+		S &out) const {
+		if (raw_lexeme_.size() < 2) {
+			return {};
+		}
+		SV body = raw_lexeme_.substr(1, raw_lexeme_.size() - 2);
+		if (!has_escapes_) {
+			out.append(body.data(), body.size());
+			return {};
+		}
+		auto res = detail::decode_str_body(
+			body,
+			[&](SV chunk) { out.append(chunk.data(), chunk.size()); },
+			max_string_size_);
+		if (!res) {
+			return unexpected(move(res).error());
+		}
+		return {};
+	}
+
+	[[nodiscard]] expected<SV, JsonError> decode_into(
+		std::span<char> buf) const {
+		if (raw_lexeme_.size() < 2) {
+			return SV{buf.data(), 0};
+		}
+		SV body = raw_lexeme_.substr(1, raw_lexeme_.size() - 2);
+		if (!has_escapes_) {
+			std::memcpy(buf.data(), body.data(), body.size());
+			return SV{buf.data(), body.size()};
+		}
+		SZ written = 0;
+		auto res = detail::decode_str_body(
+			body,
+			[&](SV chunk) {
+				std::memcpy(buf.data() + written, chunk.data(), chunk.size());
+				written += chunk.size();
+			},
+			max_string_size_);
+		if (!res) {
+			return unexpected(move(res).error());
+		}
+		return SV{buf.data(), written};
+	}
+};
+
+// ---------------------------------------------------------------------------
+// JsonReader
+// ---------------------------------------------------------------------------
+
+export class JsonReader {
+public:
+	enum class Event : u8 {
+		begin_object,
+		end_object,
+		begin_array,
+		end_array,
+		key,
+		string_value,
+		number_value,
+		bool_value,
+		null_value,
+	};
+
+private:
+	struct StateFrame {
+		enum class Kind : u8 {
+			object,
+			array,
+		} kind;
+		bool first{true};
+		bool awaiting_value{false};
+	};
+
+	SV input_;
+	JsonParseOptions opts_;
+	SZ pos_{0};
+	SZ line_{1};
+	SZ col_{1};
+	V<StateFrame> stack_;
+	JsonStringToken key_token_{};
+	JsonStringToken str_token_{};
+	JsonNumberView num_val_{SV{}, 0, 0};
+	bool bool_val_{false};
+	bool has_error_{false};
+	JsonError last_error_{};
+	SZ value_start_{0};
+
+	void set_error(
+		JsonError e) noexcept {
+		has_error_ = true;
+		last_error_ = move(e);
+	}
+
+	[[nodiscard]] JsonError mk_err(
+		JsonIssueCode code,
+		S msg) const {
+		return {
+			.stage = JsonStage::parse,
+			.code = code,
+			.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
+			.message = move(msg)};
+	}
+
+	void skip_ws() noexcept {
+		while (pos_ < input_.size()) {
+			char const c = input_[pos_];
+			if (c == '\n') {
+				++pos_;
+				++line_;
+				col_ = 1;
+			} else if (c == ' ' || c == '\t' || c == '\r') {
+				++pos_;
+				++col_;
+			} else {
+				break;
+			}
+		}
+	}
+
+	void adv(
+		SZ n = 1) noexcept {
+		pos_ += n;
+		col_ += n;
+	}
+
+	[[nodiscard]] expected<void, JsonError> parse_str_into_token(
+		LimitOption max_sz,
+		JsonStringToken &tok_out) {
+		SZ const raw_start = pos_ - 1;
+		bool has_esc = false;
+		while (pos_ < input_.size()) {
+			SZ const remaining = input_.size() - pos_;
+			SZ const skip = detail::simd::scan_str_until_special(input_.data() + pos_, remaining);
+			pos_ += skip;
+			col_ += skip;
+			if (pos_ >= input_.size()) {
+				break;
+			}
+			auto const c = static_cast<unsigned char>(input_[pos_]);
+			if (c == '"') {
+				adv();
+				SV raw_lex = input_.substr(raw_start, pos_ - raw_start);
+				SZ const body_len = raw_lex.size() - 2;
+				if (max_sz.exceeds(body_len, kDefaultMaxString)) {
+					return unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
+				}
+				tok_out = JsonStringToken{raw_lex, has_esc, max_sz};
+				return {};
+			}
+			if (c < 0x20U) {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
+			}
+			if (c == '\\') {
+				has_esc = true;
+				adv();
+				if (pos_ >= input_.size()) {
+					return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
+				}
+				char const esc = input_[pos_];
+				if (esc == 'u') {
+					adv();
+					if (pos_ + 4 > input_.size()) {
+						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
+					}
+					// NOLINTBEGIN(readability-magic-numbers)
+					u32 cp = detail::hex4_from_sv(input_, pos_);
+					adv(4);
+					if (cp >= 0xD800U && cp <= 0xDBFFU) {
+						if (pos_ + 6 > input_.size() || input_[pos_] != '\\' || input_[pos_ + 1] != 'u') {
+							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
+						}
+						adv(2);
+						u32 const lo = detail::hex4_from_sv(input_, pos_);
+						adv(4);
+						if (lo < 0xDC00U || lo > 0xDFFFU) {
+							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
+						}
+					} else if (cp >= 0xDC00U && cp <= 0xDFFFU) {
+						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
+					}
+					// NOLINTEND(readability-magic-numbers)
+				} else {
+					adv();
+				}
+				continue;
+			}
+			SZ const seq = utf8_seq_len(c);
+			if (seq == 0) {
+				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
+			}
+			if (pos_ + seq > input_.size()) {
+				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
+			}
+			for (SZ k = 1; k < seq; ++k) {
+				if (!is_cont(static_cast<unsigned char>(input_[pos_ + k]))) {
+					return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
+				}
+			}
+			pos_ += seq;
+			col_ += 1;
+		}
+		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
+	}
+
+	[[nodiscard]] expected<void, JsonError> parse_number_into_val() {
+		SZ const start = pos_;
+		bool const neg = input_[pos_] == '-';
+		if (neg) {
+			adv();
+		}
+		if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') {
+			return unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after sign"));
+		}
+		bool const starts_zero = input_[pos_] == '0';
+		adv();
+		if (starts_zero && pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
+			return unexpected(mk_err(JsonIssueCode::syntax_error, "leading zeros forbidden"));
+		}
+		while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
+			adv();
+		}
+		if (pos_ < input_.size() && input_[pos_] == '.') {
+			adv();
+			if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "digit required after '.'"));
+			}
+			while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
+				adv();
+			}
+		}
+		if (pos_ < input_.size() && (input_[pos_] == 'e' || input_[pos_] == 'E')) {
+			adv();
+			if (pos_ < input_.size() && (input_[pos_] == '+' || input_[pos_] == '-')) {
+				adv();
+			}
+			if (pos_ >= input_.size() || input_[pos_] < '0' || input_[pos_] > '9') {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "digit required in exponent"));
+			}
+			while (pos_ < input_.size() && input_[pos_] >= '0' && input_[pos_] <= '9') {
+				adv();
+			}
+		}
+		if (pos_ - start > kMaxNumberLexemeLen) {
+			return unexpected(mk_err(JsonIssueCode::invalid_number, "number lexeme exceeds maximum length"));
+		}
+		SV const lex = input_.substr(start, pos_ - start);
+		auto node = detail::build_number_node_from_lexeme(0, static_cast<u32>(lex.size()), 0, lex);
+		if (!node) {
+			auto err = move(node).error();
+			err.stage = JsonStage::parse;
+			return unexpected(move(err));
+		}
+		num_val_ = JsonNumberView{lex, node->flags, node->_raw};
+		return {};
+	}
+
+	[[nodiscard]] expected<Event, JsonError> parse_value_event() {
+		if (opts_.max_depth.exceeds(stack_.size(), kDefaultMaxDepth)) {
+			return unexpected(mk_err(JsonIssueCode::nesting_too_deep, "nesting depth limit exceeded"));
+		}
+		if (pos_ >= input_.size()) {
+			return unexpected(mk_err(JsonIssueCode::unexpected_eof, "unexpected end of input"));
+		}
+		char const c = input_[pos_];
+		if (c == '"') {
+			adv();
+			auto res = parse_str_into_token(opts_.max_string_size, str_token_);
+			if (!res) {
+				return unexpected(move(res).error());
+			}
+			return Event::string_value;
+		}
+		if (c == '{') {
+			adv();
+			stack_.push_back(StateFrame{.kind = StateFrame::Kind::object, .first = true, .awaiting_value = false});
+			return Event::begin_object;
+		}
+		if (c == '[') {
+			adv();
+			stack_.push_back(StateFrame{.kind = StateFrame::Kind::array, .first = true, .awaiting_value = false});
+			return Event::begin_array;
+		}
+		if (c == 't') {
+			if (input_.substr(pos_, 4) != "true") {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			adv(4);
+			bool_val_ = true;
+			return Event::bool_value;
+		}
+		if (c == 'f') {
+			if (input_.substr(pos_, 5) != "false") {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			adv(5);
+			bool_val_ = false;
+			return Event::bool_value;
+		}
+		if (c == 'n') {
+			if (input_.substr(pos_, 4) != "null") {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid token"));
+			}
+			adv(4);
+			return Event::null_value;
+		}
+		if (c == '-' || (c >= '0' && c <= '9')) {
+			auto res = parse_number_into_val();
+			if (!res) {
+				return unexpected(move(res).error());
+			}
+			return Event::number_value;
+		}
+		return unexpected(mk_err(JsonIssueCode::syntax_error, format("unexpected character '{}'", c)));
+	}
+
+public:
+	explicit JsonReader(
+		SV input,
+		JsonParseOptions const &opts = {})
+		: input_{input}
+		, opts_{opts} {}
+
+	[[nodiscard]] expected<Opt<Event>, JsonError> next() {
+		if (has_error_) {
+			return unexpected(last_error_);
+		}
+		skip_ws();
+
+		if (stack_.empty()) {
+			if (pos_ >= input_.size()) {
+				return Opt<Event>{};
+			}
+			value_start_ = pos_;
+			auto ev = parse_value_event();
+			if (!ev) {
+				set_error(ev.error());
+				return unexpected(last_error_);
+			}
+			return Opt<Event>{*ev};
+		}
+
+		auto &top = stack_.back();
+
+		if (top.kind == StateFrame::Kind::array) {
+			skip_ws();
+			if (pos_ < input_.size() && input_[pos_] == ']') {
+				adv();
+				stack_.pop_back();
+				return Opt<Event>{Event::end_array};
+			}
+			if (!top.first) {
+				if (pos_ >= input_.size() || input_[pos_] != ',') {
+					auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'");
+					set_error(e);
+					return unexpected(last_error_);
+				}
+				adv();
+				skip_ws();
+			}
+			top.first = false;
+			value_start_ = pos_;
+			auto ev = parse_value_event();
+			if (!ev) {
+				set_error(ev.error());
+				return unexpected(last_error_);
+			}
+			return Opt<Event>{*ev};
+		}
+
+		// object
+		if (top.awaiting_value) {
+			top.awaiting_value = false;
+			skip_ws();
+			value_start_ = pos_;
+			auto ev = parse_value_event();
+			if (!ev) {
+				set_error(ev.error());
+				return unexpected(last_error_);
+			}
+			return Opt<Event>{*ev};
+		}
+
+		skip_ws();
+		if (pos_ < input_.size() && input_[pos_] == '}') {
+			adv();
+			stack_.pop_back();
+			return Opt<Event>{Event::end_object};
+		}
+		if (!top.first) {
+			if (pos_ >= input_.size() || input_[pos_] != ',') {
+				auto e = mk_err(JsonIssueCode::syntax_error, "expected ',' or '}'");
+				set_error(e);
+				return unexpected(last_error_);
+			}
+			adv();
+			skip_ws();
+		}
+		top.first = false;
+		if (pos_ >= input_.size() || input_[pos_] != '"') {
+			auto e = mk_err(JsonIssueCode::syntax_error, "expected string key");
+			set_error(e);
+			return unexpected(last_error_);
+		}
+		adv();
+		auto str_res = parse_str_into_token(opts_.max_string_size, key_token_);
+		if (!str_res) {
+			set_error(str_res.error());
+			return unexpected(last_error_);
+		}
+		skip_ws();
+		if (pos_ >= input_.size() || input_[pos_] != ':') {
+			auto e = mk_err(JsonIssueCode::syntax_error, "expected ':'");
+			set_error(e);
+			return unexpected(last_error_);
+		}
+		adv();
+		top.awaiting_value = true;
+		return Opt<Event>{Event::key};
+	}
+
+	[[nodiscard]] JsonStringToken key_token() const noexcept { return key_token_; }
+	[[nodiscard]] JsonStringToken string_token() const noexcept { return str_token_; }
+	[[nodiscard]] JsonNumberView number_val() const noexcept { return num_val_; }
+	[[nodiscard]] bool bool_val() const noexcept { return bool_val_; }
+	[[nodiscard]] SV input() const noexcept { return input_; }
+	[[nodiscard]] SZ depth() const noexcept { return stack_.size(); }
+	[[nodiscard]] bool has_error() const noexcept { return has_error_; }
+	[[nodiscard]] SZ pos() const noexcept { return pos_; }
+	[[nodiscard]] SZ value_start_pos() const noexcept { return value_start_; }
+
+	void reset() noexcept {
+		pos_ = 0;
+		line_ = 1;
+		col_ = 1;
+		stack_.clear();
+		has_error_ = false;
+		last_error_ = {};
+	}
+
+	[[nodiscard]] expected<JsonByteRange, JsonError> skip_next_value() {
+		if (has_error_) {
+			return unexpected(last_error_);
+		}
+		skip_ws();
+		// If we're in an object awaiting a value (just emitted a key event),
+		// clear awaiting_value so next() knows the value has been consumed.
+		if (!stack_.empty() && stack_.back().kind == StateFrame::Kind::object && stack_.back().awaiting_value) {
+			stack_.back().awaiting_value = false;
+		}
+		SZ const start = pos_;
+		if (pos_ >= input_.size()) {
+			auto e = mk_err(JsonIssueCode::unexpected_eof, "unexpected end of input");
+			set_error(e);
+			return unexpected(last_error_);
+		}
+		char const c = input_[pos_];
+		if (c == '"') {
+			adv();
+			while (pos_ < input_.size()) {
+				char const ch = input_[pos_];
+				if (ch == '\\') {
+					adv(2);
+					continue;
+				}
+				if (ch == '"') {
+					adv();
+					return JsonByteRange{start, pos_};
+				}
+				adv();
+			}
+			auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in string");
+			set_error(e);
+			return unexpected(last_error_);
+		}
+		if (c == '{' || c == '[') {
+			int depth = 1;
+			adv();
+			bool in_str = false;
+			while (pos_ < input_.size() && depth > 0) {
+				char const ch = input_[pos_];
+				if (in_str) {
+					if (ch == '\\') {
+						adv(2);
+						continue;
+					}
+					if (ch == '"') {
+						in_str = false;
+					}
+					adv();
+					continue;
+				}
+				if (ch == '"') {
+					in_str = true;
+					adv();
+					continue;
+				}
+				if (ch == '{' || ch == '[') {
+					++depth;
+				} else if (ch == '}' || ch == ']') {
+					--depth;
+				}
+				adv();
+			}
+			if (depth != 0) {
+				auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in container");
+				set_error(e);
+				return unexpected(last_error_);
+			}
+			return JsonByteRange{start, pos_};
+		}
+		if (c == 't') {
+			adv(4);
+			return JsonByteRange{start, pos_};
+		}
+		if (c == 'f') {
+			adv(5);
+			return JsonByteRange{start, pos_};
+		}
+		if (c == 'n') {
+			adv(4);
+			return JsonByteRange{start, pos_};
+		}
+		if (c == '-' || (c >= '0' && c <= '9')) {
+			while (pos_ < input_.size()) {
+				char const ch = input_[pos_];
+				if (ch == '-' || ch == '+' || ch == '.' || ch == 'e' || ch == 'E' || (ch >= '0' && ch <= '9')) {
+					adv();
+				} else {
+					break;
+				}
+			}
+			return JsonByteRange{start, pos_};
+		}
+		auto e = mk_err(JsonIssueCode::syntax_error, format("unexpected character '{}'", c));
+		set_error(e);
+		return unexpected(last_error_);
+	}
 };
 
 // ---------------------------------------------------------------------------
@@ -936,6 +1779,7 @@ export class NodeRef {
 	SZ idx_{};
 
 	friend class Document;
+	friend class ArenaDocument;
 	friend class ObjectView;
 	friend class ArrayView;
 	friend class ObjectMemberRange;
@@ -1017,6 +1861,16 @@ public:
 					.message = "expected number"});
 		}
 		return JsonNumberView{storage_->bytes_at(rec().off, rec().len, rec().flags), rec().flags, rec()._raw};
+	}
+
+	[[nodiscard]] expected<i64, JsonError> as_i64() const {
+		return as_number().and_then([](JsonNumberView n) { return n.to_i64(); });
+	}
+	[[nodiscard]] expected<u64, JsonError> as_u64() const {
+		return as_number().and_then([](JsonNumberView n) { return n.to_u64(); });
+	}
+	[[nodiscard]] expected<double, JsonError> as_double() const {
+		return as_number().and_then([](JsonNumberView n) { return n.to_f64(); });
 	}
 
 	[[nodiscard]] expected<NodeRef, JsonError> at(JsonPath const &path) const;
@@ -1637,10 +2491,12 @@ export struct NodeIdentityEqual {
 // ---------------------------------------------------------------------------
 
 export struct JsonDumpOptions {
-	bool pretty{false};
+	bool     pretty{false};
 	unsigned indent{2};
-	bool sort_object_keys{false};
-	bool ascii_only{false};
+	bool     sort_object_keys{false};
+	bool     ascii_only{false};
+	char     indent_char{' '};
+	Opt<SZ>  truncate_depth{};
 };
 
 export struct WarmIndexOptions {
@@ -1798,6 +2654,168 @@ Document make_document(
 	return Document{move(s)};
 }
 
+// ─── Phase 5.2 — JsonArena / ArenaDocument ──────────────────────────────────
+
+export struct JsonArenaOptions {
+	SZ initial_slab{64 * 1024};
+};
+
+export class ArenaDocument {
+	DocumentStorage const *storage_{};
+	u32 generation_{};
+	u32 const *arena_gen_{};
+
+	friend class JsonArena;
+	ArenaDocument(
+		DocumentStorage const *s,
+		u32 gen,
+		u32 const *ag) noexcept
+		: storage_{s}
+		, generation_{gen}
+		, arena_gen_{ag} {}
+
+	void check_live() const noexcept {
+		assert(storage_ != nullptr && *arena_gen_ == generation_);
+	}
+
+public:
+	ArenaDocument() = default;
+
+	[[nodiscard]] NodeRef root() const noexcept {
+		check_live();
+		return NodeRef{storage_, storage_->root_node};
+	}
+
+	[[nodiscard]] expected<S, JsonError> dump(JsonDumpOptions const &opts = {}) const;
+};
+
+export class JsonArena {
+	SZ initial_slab_;
+	std::pmr::monotonic_buffer_resource mbr_;
+	UP<DocumentStorage> storage_;
+	u32 generation_{0};
+
+public:
+	explicit JsonArena(JsonArenaOptions const &opts = {})
+		: initial_slab_{opts.initial_slab}
+		, mbr_{opts.initial_slab}
+		, storage_{make_unique<DocumentStorage>(&mbr_)} {}
+
+	JsonArena(JsonArena const &) = delete;
+	JsonArena &operator =(JsonArena const &) = delete;
+	JsonArena(JsonArena &&) = delete;
+	JsonArena &operator =(JsonArena &&) = delete;
+
+	[[nodiscard]] expected<ArenaDocument, JsonError> parse_into(
+		SV input,
+		JsonParseOptions const &opts = {});
+
+	void reset() noexcept;
+
+	[[nodiscard]] SZ slab_capacity() const noexcept { return initial_slab_; }
+	[[nodiscard]] SZ slab_used()     const noexcept { return 0; }
+};
+
+// ---------------------------------------------------------------------------
+// Field accessor helpers (Phase 1.1)
+// ---------------------------------------------------------------------------
+
+namespace detail {
+
+[[nodiscard]] inline JsonError missing_err(SV name) {
+	return JsonError{
+		.stage = JsonStage::lookup,
+		.code = JsonIssueCode::missing_member,
+		.path = [&] { JsonPath p; p.push_member(name); return p; }(),
+		.member_name = S{name},
+		.message = format("missing member: {}", name)};
+}
+
+[[nodiscard]] inline JsonError type_err(SV name, JsonKind expected, JsonKind actual) {
+	return JsonError{
+		.stage = JsonStage::lookup,
+		.code = JsonIssueCode::wrong_kind,
+		.path = [&] { JsonPath p; p.push_member(name); return p; }(),
+		.expected_kind = expected,
+		.actual_kind = actual,
+		.member_name = S{name},
+		.message = format("member '{}' has wrong type", name)};
+}
+
+} // namespace detail
+
+export [[nodiscard]] expected<S, JsonError> require_string(ObjectView const &obj, SV name) {
+	auto node = obj.find_member(name);
+	if (!node) return unexpected(detail::missing_err(name));
+	auto sv = node->as_string();
+	if (!sv) return unexpected(detail::type_err(name, JsonKind::string, node->kind()));
+	return S{*sv};
+}
+export [[nodiscard]] expected<i64, JsonError> require_int(ObjectView const &obj, SV name) {
+	auto node = obj.find_member(name);
+	if (!node) return unexpected(detail::missing_err(name));
+	auto v = node->as_i64();
+	if (!v) { auto e = move(v).error(); e.path.push_member(name); e.member_name = S{name}; return unexpected(move(e)); }
+	return *v;
+}
+export [[nodiscard]] expected<u64, JsonError> require_uint(ObjectView const &obj, SV name) {
+	auto node = obj.find_member(name);
+	if (!node) return unexpected(detail::missing_err(name));
+	auto v = node->as_u64();
+	if (!v) { auto e = move(v).error(); e.path.push_member(name); e.member_name = S{name}; return unexpected(move(e)); }
+	return *v;
+}
+export [[nodiscard]] expected<double, JsonError> require_double(ObjectView const &obj, SV name) {
+	auto node = obj.find_member(name);
+	if (!node) return unexpected(detail::missing_err(name));
+	auto v = node->as_double();
+	if (!v) { auto e = move(v).error(); e.path.push_member(name); e.member_name = S{name}; return unexpected(move(e)); }
+	return *v;
+}
+export [[nodiscard]] expected<bool, JsonError> require_bool(ObjectView const &obj, SV name) {
+	auto node = obj.find_member(name);
+	if (!node) return unexpected(detail::missing_err(name));
+	auto v = node->as_bool();
+	if (!v) { auto e = move(v).error(); e.path.push_member(name); e.member_name = S{name}; return unexpected(move(e)); }
+	return *v;
+}
+
+export [[nodiscard]] expected<Opt<S>, JsonError> optional_string(ObjectView const &obj, SV name) {
+	auto node = obj.find_member(name);
+	if (!node || node->is_null()) return Opt<S>{};
+	auto sv = node->as_string();
+	if (!sv) return unexpected(detail::type_err(name, JsonKind::string, node->kind()));
+	return Opt<S>{S{*sv}};
+}
+export [[nodiscard]] expected<Opt<i64>, JsonError> optional_int(ObjectView const &obj, SV name) {
+	auto node = obj.find_member(name);
+	if (!node || node->is_null()) return Opt<i64>{};
+	auto v = node->as_i64();
+	if (!v) { auto e = move(v).error(); e.path.push_member(name); e.member_name = S{name}; return unexpected(move(e)); }
+	return Opt<i64>{*v};
+}
+export [[nodiscard]] expected<Opt<u64>, JsonError> optional_uint(ObjectView const &obj, SV name) {
+	auto node = obj.find_member(name);
+	if (!node || node->is_null()) return Opt<u64>{};
+	auto v = node->as_u64();
+	if (!v) { auto e = move(v).error(); e.path.push_member(name); e.member_name = S{name}; return unexpected(move(e)); }
+	return Opt<u64>{*v};
+}
+export [[nodiscard]] expected<Opt<double>, JsonError> optional_double(ObjectView const &obj, SV name) {
+	auto node = obj.find_member(name);
+	if (!node || node->is_null()) return Opt<double>{};
+	auto v = node->as_double();
+	if (!v) { auto e = move(v).error(); e.path.push_member(name); e.member_name = S{name}; return unexpected(move(e)); }
+	return Opt<double>{*v};
+}
+export [[nodiscard]] expected<Opt<bool>, JsonError> optional_bool(ObjectView const &obj, SV name) {
+	auto node = obj.find_member(name);
+	if (!node || node->is_null()) return Opt<bool>{};
+	auto v = node->as_bool();
+	if (!v) { auto e = move(v).error(); e.path.push_member(name); e.member_name = S{name}; return unexpected(move(e)); }
+	return Opt<bool>{*v};
+}
+
 // ---------------------------------------------------------------------------
 // Dump implementation
 // ---------------------------------------------------------------------------
@@ -1821,14 +2839,55 @@ inline void dump_str_raw(
 // With ascii_only=true: also any byte >= 0x80 (UTF-8 lead/continuation —
 // caller decodes the code point and emits \uXXXX surrogate pairs).
 //
-// SSE2 chunked scan; scalar tail. Symmetric to detail::simd::scan_str_until_special
+// AVX2/SSE2 chunked scan; scalar tail. Symmetric to detail::simd::scan_str_until_special
 // on the parse side, modulo the conditional high-bit threshold.
 [[nodiscard]] inline SZ scan_dump_safe_run(
 	char const *p,
 	SZ n,
 	bool ascii_only) noexcept {
 	SZ i = 0;
-#if defined(CONFLUX_JSON_HAS_SSE2)
+#if defined(CONFLUX_JSON_HAS_AVX2)
+	__m256i const v_quote = _mm256_set1_epi8('"');
+	__m256i const v_back  = _mm256_set1_epi8('\\');
+	__m256i const v_lim   = _mm256_set1_epi8(0x20);
+	while (i + 32 <= n) {
+		__m256i const v    = _mm256_loadu_si256(reinterpret_cast<__m256i const *>(p + i));
+		__m256i const eq_q = _mm256_cmpeq_epi8(v, v_quote);
+		__m256i const eq_b = _mm256_cmpeq_epi8(v, v_back);
+		__m256i const lt_l = _mm256_cmpgt_epi8(v_lim, v);
+		__m256i mix = _mm256_or_si256(eq_q, eq_b);
+		if (ascii_only) {
+			mix = _mm256_or_si256(mix, lt_l);
+		} else {
+			// ctrl_only: bytes < 0x20 AND not high-bit (>= 0 signed)
+			__m256i const ctrl_only = _mm256_andnot_si256(_mm256_cmpgt_epi8(_mm256_setzero_si256(), v), lt_l);
+			mix = _mm256_or_si256(mix, ctrl_only);
+		}
+		auto const mask = static_cast<unsigned>(_mm256_movemask_epi8(mix));
+		if (mask != 0U) {
+			return i + static_cast<SZ>(__builtin_ctz(mask));
+		}
+		i += 32;
+	}
+	if (i + 16 <= n) {
+		__m128i const v128  = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
+		__m128i const eq_q  = _mm_cmpeq_epi8(v128, _mm256_castsi256_si128(v_quote));
+		__m128i const eq_b  = _mm_cmpeq_epi8(v128, _mm256_castsi256_si128(v_back));
+		__m128i const lt_l  = _mm_cmplt_epi8(v128, _mm256_castsi256_si128(v_lim));
+		__m128i mix16 = _mm_or_si128(eq_q, eq_b);
+		if (ascii_only) {
+			mix16 = _mm_or_si128(mix16, lt_l);
+		} else {
+			__m128i const ctrl_only = _mm_and_si128(lt_l, _mm_cmpgt_epi8(v128, _mm_set1_epi8(-1)));
+			mix16 = _mm_or_si128(mix16, ctrl_only);
+		}
+		auto const mask16 = static_cast<unsigned>(_mm_movemask_epi8(mix16));
+		if (mask16 != 0U) {
+			return i + static_cast<SZ>(__builtin_ctz(mask16));
+		}
+		i += 16;
+	}
+#elif defined(CONFLUX_JSON_HAS_SSE2)
 	__m128i const v_quote = _mm_set1_epi8('"');
 	__m128i const v_back = _mm_set1_epi8('\\');
 	// cmplt_epi8(byte, 0x20) is true for ctrl bytes (<0x20) AND signed-negative
@@ -1836,7 +2895,6 @@ inline void dump_str_raw(
 	// false we still want only ctrl bytes, so we additionally require the
 	// signed comparison against 0 (high-bit clear).
 	__m128i const v_lim = _mm_set1_epi8(0x20);
-	__m128i const v_zero = _mm_setzero_si128();
 	while (i + 16 <= n) {
 		__m128i const v = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
 		__m128i const eq_q = _mm_cmpeq_epi8(v, v_quote);
@@ -1848,7 +2906,6 @@ inline void dump_str_raw(
 		} else {
 			// Restrict lt_lim to non-high-bit (ctrl only).
 			__m128i const ctrl_only = _mm_and_si128(lt_lim, _mm_cmpgt_epi8(v, _mm_set1_epi8(-1)));
-			(void)v_zero;
 			mix = _mm_or_si128(mix, ctrl_only);
 		}
 		auto const mask = static_cast<unsigned>(_mm_movemask_epi8(mix));
@@ -1967,6 +3024,10 @@ void dump_node(
 	JsonDumpOptions const &opts,
 	unsigned depth,
 	S &out) {
+	if (opts.truncate_depth.has_value() && static_cast<SZ>(depth) > *opts.truncate_depth) {
+		out += "null";
+		return;
+	}
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 	auto const &n = store.nodes[node_idx];
 	auto indent = [&](unsigned d) {
@@ -1974,7 +3035,7 @@ void dump_node(
 			return;
 		}
 		out += '\n';
-		out.append(static_cast<SZ>(d) * opts.indent, ' ');
+		out.append(static_cast<SZ>(d) * opts.indent, opts.indent_char);
 	};
 
 	switch (n.kind) {
@@ -2075,13 +3136,17 @@ expected<S, JsonError> Document::dump(
 	return out;
 }
 
+expected<S, JsonError> ArenaDocument::dump(JsonDumpOptions const &opts) const {
+	check_live();
+	S out;
+	out.reserve(storage_->input_view.size() + storage_->string_arena.size() + 32);
+	dump_node(*storage_, storage_->root_node, opts, 0, out);
+	return out;
+}
+
 // ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
-
-constexpr SZ kDefaultMaxDepth = 128;
-constexpr SZ kDefaultMaxInput = 128ULL * 1024 * 1024;
-constexpr SZ kDefaultMaxString = 64ULL * 1024 * 1024;
 
 SZ utf8_seq_len(
 	unsigned char lead) noexcept {
@@ -2124,7 +3189,38 @@ namespace detail::simd {
 	char const *p,
 	SZ n) noexcept {
 	SZ i = 0;
-#if defined(CONFLUX_JSON_HAS_SSE2)
+#if defined(CONFLUX_JSON_HAS_AVX2)
+	__m256i const v_quote = _mm256_set1_epi8('"');
+	__m256i const v_back  = _mm256_set1_epi8('\\');
+	// Signed cmplt against 0x20 catches bytes <0x20 (control) AND bytes >=0x80
+	// (negative under signed interpretation of AVX2 bytes).
+	__m256i const v_lim   = _mm256_set1_epi8(0x20);
+	while (i + 32 <= n) {
+		__m256i const v    = _mm256_loadu_si256(reinterpret_cast<__m256i const *>(p + i));
+		__m256i const eq_q = _mm256_cmpeq_epi8(v, v_quote);
+		__m256i const eq_b = _mm256_cmpeq_epi8(v, v_back);
+		__m256i const lt_l = _mm256_cmpgt_epi8(v_lim, v); // v < 0x20 (signed)
+		__m256i const mix  = _mm256_or_si256(_mm256_or_si256(eq_q, eq_b), lt_l);
+		auto const mask = static_cast<unsigned>(_mm256_movemask_epi8(mix));
+		if (mask != 0U) {
+			return i + static_cast<SZ>(__builtin_ctz(mask));
+		}
+		i += 32;
+	}
+	// 16-byte tail (avoids extra scalar loop iterations when leftover >= 16)
+	if (i + 16 <= n) {
+		__m128i const v128  = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
+		__m128i const eq_q  = _mm_cmpeq_epi8(v128, _mm256_castsi256_si128(v_quote));
+		__m128i const eq_b  = _mm_cmpeq_epi8(v128, _mm256_castsi256_si128(v_back));
+		__m128i const lt_l  = _mm_cmplt_epi8(v128, _mm256_castsi256_si128(v_lim));
+		__m128i const mix16 = _mm_or_si128(_mm_or_si128(eq_q, eq_b), lt_l);
+		auto const mask16 = static_cast<unsigned>(_mm_movemask_epi8(mix16));
+		if (mask16 != 0U) {
+			return i + static_cast<SZ>(__builtin_ctz(mask16));
+		}
+		i += 16;
+	}
+#elif defined(CONFLUX_JSON_HAS_SSE2)
 	__m128i const v_quote = _mm_set1_epi8('"');
 	__m128i const v_back = _mm_set1_epi8('\\');
 	// Signed cmplt against 0x20 simultaneously catches bytes <0x20 (positive
@@ -2201,9 +3297,10 @@ struct Tokenizer {
 		col += n;
 	}
 
+	template<class Str>
 	static void append_utf8(
 		u32 cp,
-		S &out) {
+		Str &out) {
 		// NOLINTBEGIN(readability-magic-numbers,hicpp-signed-bitwise)
 		if (cp < 0x80U) {
 			out += static_cast<char>(cp);
@@ -2548,7 +3645,7 @@ struct TreeBuilder {
 		if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
 			tok.adv();
 			SZ const cs = store.array_children.size();
-			store.nodes.push_back(detail::make_array(static_cast<u32>(cs), static_cast<u32>(0)));
+			store.nodes.push_back(detail::node_array(static_cast<u32>(cs), static_cast<u32>(0)));
 			return store.nodes.size() - 1;
 		}
 		// Phase 4: append child indices to shared staging[children_start..],
@@ -2573,7 +3670,7 @@ struct TreeBuilder {
 					std::next(staging.begin(), children_start),
 					staging.end());
 				staging.resize(children_start);
-				store.nodes.push_back(detail::make_array(static_cast<u32>(cs), static_cast<u32>(len)));
+				store.nodes.push_back(detail::node_array(static_cast<u32>(cs), static_cast<u32>(len)));
 				return store.nodes.size() - 1;
 			}
 			if (tok.src[tok.pos] != ',') {
@@ -2606,15 +3703,33 @@ struct TreeBuilder {
 		return false;
 	}
 
+	// Destroy hash tables in store.nodes[from..store.nodes.size()) before resize.
+	void destroy_nodes_range(
+		SZ from) noexcept {
+		for (SZ i = from; i < store.nodes.size(); ++i) {
+			auto const &n = store.nodes[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+			if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
+				ObjHashTable::destroy(n.hash_idx_raw);
+			}
+		}
+	}
+
 	// NOLINTNEXTLINE(misc-no-recursion,readability-function-cognitive-complexity)
 	[[nodiscard]] expected<SZ, JsonError> parse_object(
 		SZ depth) {
+		struct StorageMark {
+			SZ nodes;
+			SZ string_arena;
+			SZ array_children;
+			SZ object_members;
+		};
+
 		tok.adv(); // '{'
 		tok.skip_ws();
 		if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
 			tok.adv();
 			SZ const ms = store.object_members.size();
-			store.nodes.push_back(detail::make_object(static_cast<u32>(ms), static_cast<u32>(0)));
+			store.nodes.push_back(detail::node_object(static_cast<u32>(ms), static_cast<u32>(0)));
 			return store.nodes.size() - 1;
 		}
 		// Phase 4: members go to shared staging_members[members_start..],
@@ -2623,6 +3738,7 @@ struct TreeBuilder {
 		// Phase 5: dedup is linear until size > kDedupLinearMax, then a
 		// hash set is built once and reused for the remainder of this object.
 		Opt<US<SV>> seen_hash;
+		auto const dup_policy = opts.duplicate_key;
 		while (true) {
 			tok.skip_ws();
 			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != '"') {
@@ -2636,11 +3752,12 @@ struct TreeBuilder {
 				return unexpected(move(parsed_name).error());
 			}
 			SV const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
-			if (dedup_member_present(members_start, name_sv, seen_hash)) {
+			bool const is_dup = dedup_member_present(members_start, name_sv, seen_hash);
+			if (is_dup && dup_policy == DuplicateKeyPolicy::reject) {
 				staging_members.resize(members_start);
 				return unexpected(mk_err(JsonIssueCode::duplicate_member, format("duplicate member: {}", name_sv)));
 			}
-			if (seen_hash.has_value()) {
+			if (!is_dup && seen_hash.has_value()) {
 				seen_hash->insert(name_sv);
 			}
 
@@ -2651,21 +3768,52 @@ struct TreeBuilder {
 			}
 			tok.adv();
 
+			// For first_wins, snapshot before parsing the duplicate value.
+			StorageMark mark{};
+			if (is_dup && dup_policy == DuplicateKeyPolicy::first_wins) {
+				mark = StorageMark{
+					store.nodes.size(),
+					store.string_arena.size(),
+					store.array_children.size(),
+					store.object_members.size()};
+			}
+
 			auto val = parse_value(depth + 1);
 			if (!val) {
 				staging_members.resize(members_start);
 				return unexpected(move(val).error());
 			}
-			staging_members.push_back({parsed_name->off, parsed_name->len, static_cast<u32>(*val), parsed_name->flags});
 
-			// Promote linear → hash once we cross the threshold.
-			SZ const cur_count = staging_members.size() - members_start;
-			if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
-				seen_hash.emplace();
-				seen_hash->reserve(cur_count * 2);
-				for (SZ i = members_start; i < staging_members.size(); ++i) {
-					auto const &m = staging_members[i];
-					seen_hash->insert(store.bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags)));
+			if (is_dup) {
+				if (dup_policy == DuplicateKeyPolicy::first_wins) {
+					// Discard the newly parsed value; restore storage to mark.
+					destroy_nodes_range(mark.nodes);
+					store.nodes.resize(mark.nodes);
+					store.string_arena.resize(mark.string_arena);
+					store.array_children.resize(mark.array_children);
+					store.object_members.resize(mark.object_members);
+				} else {
+					// last_wins: update the first occurrence's val_node.
+					for (SZ i = members_start; i < staging_members.size(); ++i) {
+						auto &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+						if (store.bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags)) == name_sv) {
+							m.val_node = static_cast<u32>(*val);
+							break;
+						}
+					}
+				}
+			} else {
+				staging_members.push_back({parsed_name->off, parsed_name->len, static_cast<u32>(*val), parsed_name->flags});
+
+				// Promote linear → hash once we cross the threshold.
+				SZ const cur_count = staging_members.size() - members_start;
+				if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
+					seen_hash.emplace();
+					seen_hash->reserve(cur_count * 2);
+					for (SZ i = members_start; i < staging_members.size(); ++i) {
+						auto const &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+						seen_hash->insert(store.bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags)));
+					}
 				}
 			}
 
@@ -2683,8 +3831,26 @@ struct TreeBuilder {
 					std::next(staging_members.begin(), members_start),
 					staging_members.end());
 				staging_members.resize(members_start);
-				store.nodes.push_back(detail::make_object(static_cast<u32>(ms), static_cast<u32>(len)));
-				return store.nodes.size() - 1;
+				store.nodes.push_back(detail::node_object(static_cast<u32>(ms), static_cast<u32>(len)));
+				SZ const obj_node_idx = store.nodes.size() - 1;
+				// Auto-warm if warm_threshold is set and object is large enough.
+				if (opts.warm_threshold.has_value()
+					&& len >= static_cast<SZ>(*opts.warm_threshold)
+					&& len >= kHashThreshold) {
+					u32 const cap = detail::clamped_capacity(static_cast<u32>(len));
+					if (cap > 0) {
+						ObjHashTable *ht = ObjHashTable::create(cap, static_cast<u32>(len));
+						if (ht != nullptr) {
+							if (detail::build_table(*ht, &store, ms, len)) {
+								store.nodes[obj_node_idx].hash_idx_raw = ht; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+							} else {
+								ObjHashTable::destroy(ht);
+								store.nodes[obj_node_idx].hash_idx_raw = kHashBuildFailedSentinel; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+							}
+						}
+					}
+				}
+				return obj_node_idx;
 			}
 			if (tok.src[tok.pos] != ',') {
 				staging_members.resize(members_start);
@@ -2739,6 +3905,51 @@ struct TreeBuilder {
 				.stage = JsonStage::parse,
 				.code = JsonIssueCode::input_too_large,
 				.message = "input exceeds max_input_size"});
+	}
+	return {};
+}
+
+[[nodiscard]] inline expected<void, JsonError> parse_inplace(
+	DocumentStorage &store,
+	JsonParseOptions const &opts) {
+	SZ const reserve_n = max<SZ>(64, store.input_view.size() / 16 + 16);
+	store.nodes.reserve(reserve_n);
+	store.array_children.reserve(reserve_n);
+	store.object_members.reserve(reserve_n);
+	store.string_arena.reserve(store.input_view.size());
+
+	TreeBuilder tb{
+		.tok =
+			Tokenizer{
+					  .src = store.input_view,
+					  .store = store,
+					  .bom_prefix_bytes = store.bom_prefix_bytes},
+		.store = store,
+		.opts = opts,
+		.staging = {},
+		.staging_members = {}
+    };
+	tb.tok.skip_ws();
+	if (tb.tok.pos >= store.input_view.size()) {
+		return unexpected(
+			JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::unexpected_eof, .message = "empty input"});
+	}
+	auto root = tb.parse_value(0);
+	if (!root) return unexpected(move(root).error());
+	store.root_node = static_cast<u32>(*root);
+	tb.tok.skip_ws();
+	if (tb.tok.pos < store.input_view.size()) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::parse,
+				.code = JsonIssueCode::trailing_garbage,
+				.source =
+					JsonSourceLocation{
+									   .offset = tb.tok.pos + store.bom_prefix_bytes,
+									   .line = tb.tok.line,
+									   .column = tb.tok.col},
+				.message = "trailing content after value"
+        });
 	}
 	return {};
 }
@@ -2804,6 +4015,56 @@ struct TreeBuilder {
 	}
 
 	return make_document(move(storage));
+}
+
+expected<ArenaDocument, JsonError> JsonArena::parse_into(
+	SV input,
+	JsonParseOptions const &opts) {
+	if (auto ok = check_input_limits(input.size(), opts); !ok) {
+		return unexpected(move(ok).error());
+	}
+	// Clear storage for reuse — hash tables use ::operator delete (safe before mbr release).
+	for (auto &n: storage_->nodes) {
+		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr
+			&& n.hash_idx_raw != kHashBuildFailedSentinel) {
+			ObjHashTable::destroy(n.hash_idx_raw);
+			n.hash_idx_raw = nullptr;
+		}
+	}
+	storage_->nodes.clear();
+	storage_->string_arena.clear();
+	storage_->array_children.clear();
+	storage_->object_members.clear();
+	storage_->owned_input.reset();
+	storage_->root_node = 0;
+	storage_->bom_prefix_bytes = 0;
+
+	storage_->owned_input = make_unique<S>(input);
+	SV src = *storage_->owned_input;
+	constexpr SV kBOM = "\xEF\xBB\xBF";
+	if (src.starts_with(kBOM)) {
+		src.remove_prefix(kBOM.size());
+		storage_->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+	}
+	storage_->input_view = src;
+
+	auto r = parse_inplace(*storage_, opts);
+	if (!r) return unexpected(move(r).error());
+	return ArenaDocument{storage_.get(), generation_, &generation_};
+}
+
+void JsonArena::reset() noexcept {
+	++generation_;
+	for (auto &n: storage_->nodes) {
+		if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr
+			&& n.hash_idx_raw != kHashBuildFailedSentinel) {
+			ObjHashTable::destroy(n.hash_idx_raw);
+			n.hash_idx_raw = nullptr;
+		}
+	}
+	storage_ = nullptr;   // ~DocumentStorage: pmr dealloc is no-op on monotonic
+	mbr_.release();       // actually frees the slab
+	storage_ = make_unique<DocumentStorage>(&mbr_);
 }
 
 export namespace conflux::json {
@@ -2886,11 +4147,55 @@ template<class S>
 	requires same_as<std::remove_cvref_t<S>, S> && (!std::is_lvalue_reference_v<S>)
 expected<Document, JsonError> parse_borrowed(S &&, JsonParseOptions const & = {}) = delete;
 
+// pmr-injecting overloads — caller supplies the memory resource.
+// The resource must outlive every Document (and NodeRef) derived from it.
+expected<Document, JsonError> parse(
+	SV input,
+	JsonParseOptions const &opts,
+	std::pmr::memory_resource *resource) {
+	if (auto ok = check_input_limits(input.size(), opts); !ok) {
+		return unexpected(move(ok).error());
+	}
+	auto storage = make_unique<DocumentStorage>(resource);
+	storage->owned_input = make_unique<S>(input);
+	SV src = *storage->owned_input;
+	constexpr SV kBOM = "\xEF\xBB\xBF";
+	if (src.starts_with(kBOM)) {
+		src.remove_prefix(kBOM.size());
+		storage->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+	}
+	storage->input_view = src;
+	auto &storage_ref = *storage;
+	return parse_with_storage(storage_ref, move(storage), opts);
+}
+
+expected<Document, JsonError> parse_borrowed(
+	SV input,
+	JsonParseOptions const &opts,
+	std::pmr::memory_resource *resource) {
+	if (auto ok = check_input_limits(input.size(), opts); !ok) {
+		return unexpected(move(ok).error());
+	}
+	auto storage = make_unique<DocumentStorage>(resource);
+	SV src = input;
+	constexpr SV kBOM = "\xEF\xBB\xBF";
+	if (src.starts_with(kBOM)) {
+		src.remove_prefix(kBOM.size());
+		storage->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+	}
+	storage->input_view = src;
+	auto &storage_ref = *storage;
+	return parse_with_storage(storage_ref, move(storage), opts);
+}
+
 } // namespace conflux::json
 
 // ---------------------------------------------------------------------------
 // has_json_codec — forward-declared here so builders can use it in requires
 // ---------------------------------------------------------------------------
+
+export template<class M>
+using JsonConstraintFn = expected<void, JsonError> (*)(M const &);
 
 export template<class T>
 struct JsonMembers;
@@ -2916,6 +4221,76 @@ struct is_nullable_type : std::false_type {};
 
 template<class T>
 struct is_nullable_type<Nullable<T>> : std::true_type {};
+
+template<class T>
+struct nullable_inner {
+	using type = void;
+};
+template<class T>
+struct nullable_inner<Nullable<T>> {
+	using type = T;
+};
+template<class T>
+using nullable_inner_t = typename nullable_inner<T>::type;
+
+template<class T>
+struct is_vector_of : std::false_type {};
+template<class T>
+struct is_vector_of<V<T>> : std::true_type {};
+template<class T>
+constexpr bool is_vector_of_v = is_vector_of<T>::value;
+
+template<class T>
+struct is_std_array : std::false_type {};
+template<class T, SZ N>
+struct is_std_array<A<T, N>> : std::true_type {};
+template<class T>
+constexpr bool is_std_array_v = is_std_array<T>::value;
+
+template<class T>
+struct is_pair : std::false_type {};
+template<class A, class B>
+struct is_pair<P<A, B>> : std::true_type {};
+template<class T>
+constexpr bool is_pair_v = is_pair<T>::value;
+
+template<class T>
+struct is_tuple_of : std::false_type {};
+template<class... Ts>
+struct is_tuple_of<Tup<Ts...>> : std::true_type {};
+template<class T>
+constexpr bool is_tuple_of_v = is_tuple_of<T>::value;
+
+template<class T>
+struct is_map_type : std::false_type {};
+template<class K, class Vt>
+struct is_map_type<M<K, Vt>> : std::true_type {};
+template<class T>
+constexpr bool is_map_type_v = is_map_type<T>::value;
+
+template<class T>
+struct is_unordered_map_type : std::false_type {};
+template<class K, class Vt>
+struct is_unordered_map_type<UM<K, Vt>> : std::true_type {};
+template<class T>
+constexpr bool is_unordered_map_type_v = is_unordered_map_type<T>::value;
+
+struct PathFrame {
+	enum class Kind : u8 { member, index } kind;
+	SV member_name{};
+	SZ index{};
+};
+
+[[nodiscard]] inline JsonPath materialize_path(std::span<PathFrame const> frames) {
+	JsonPath p;
+	for (auto const &f : frames) {
+		if (f.kind == PathFrame::Kind::member)
+			p.push_member(f.member_name);
+		else
+			p.push_index(f.index);
+	}
+	return p;
+}
 
 } // namespace detail
 
@@ -3079,7 +4454,7 @@ public:
 			st->store.object_members.push_back(m);
 		}
 		SZ const cnt = frame_.local_members.size();
-		st->store.nodes.push_back(detail::make_object(static_cast<u32>(mem_start), static_cast<u32>(cnt)));
+		st->store.nodes.push_back(detail::node_object(static_cast<u32>(mem_start), static_cast<u32>(cnt)));
 		SZ const node_idx = st->store.nodes.size() - 1;
 		switch (frame_.parent.kind) {
 		case ParentSlot::Kind::set_root:
@@ -3184,7 +4559,7 @@ public:
 			st->store.array_children.push_back(static_cast<u32>(idx));
 		}
 		SZ const cnt = frame_.local_children.size();
-		st->store.nodes.push_back(detail::make_array(static_cast<u32>(child_start), static_cast<u32>(cnt)));
+		st->store.nodes.push_back(detail::node_array(static_cast<u32>(child_start), static_cast<u32>(cnt)));
 		SZ const node_idx = st->store.nodes.size() - 1;
 		switch (frame_.parent.kind) {
 		case ParentSlot::Kind::set_root:
@@ -4169,6 +5544,18 @@ template<class T>
 struct has_members_spec<T, std::void_t<decltype(JsonMembers<T>::members())>>
 	: std::bool_constant<std::default_initializable<T>> {};
 
+// Overload set: extract JsonMember from plain or constrained member entry.
+template<class T, class M>
+[[nodiscard]] constexpr JsonMember<T, M> const &jm_member(JsonMember<T, M> const &jm) noexcept { return jm; }
+template<class T, class M>
+[[nodiscard]] constexpr JsonMember<T, M> const &jm_member(Tup<JsonMember<T, M>, JsonConstraintFn<M>> const &t) noexcept { return get<0>(t); }
+
+// Overload set: extract constraint fn-ptr (nullptr = none).
+template<class T, class M>
+[[nodiscard]] constexpr JsonConstraintFn<M> jm_constraint(JsonMember<T, M> const &) noexcept { return nullptr; }
+template<class T, class M>
+[[nodiscard]] constexpr JsonConstraintFn<M> jm_constraint(Tup<JsonMember<T, M>, JsonConstraintFn<M>> const &t) noexcept { return get<1>(t); }
+
 } // namespace detail
 
 // Built-in specializations declared here, defined below.
@@ -4202,12 +5589,16 @@ template<class T>
 struct JsonCodec<UM<S, T>>;
 
 export template<class T>
-expected<T, JsonError> decode(NodeRef root);
+expected<T, JsonError> decode(NodeRef root, JsonDecodeOptions const &opts = {});
+
+export template<class T>
+expected<T, JsonError> decode(JsonReader &reader, JsonDecodeOptions const &opts = {});
 
 export template<class T>
 expected<T, JsonError> decode(
-	Document const &d) {
-	return decode<T>(d.root());
+	Document const &d,
+	JsonDecodeOptions const &opts = {}) {
+	return decode<T>(d.root(), opts);
 }
 
 // Built-in JsonCodec specializations.
@@ -4696,13 +6087,545 @@ struct JsonCodec<UM<S, T>> {
 	static constexpr SV type_name() { return "UM"; }
 };
 
-// decode<T> dispatch
+// ---------------------------------------------------------------------------
+// JsonReader-based decode
+// ---------------------------------------------------------------------------
+
+namespace detail {
+
+[[nodiscard]] inline expected<void, JsonError> skip_remaining_reader(
+	JsonReader &r,
+	JsonReader::Event ev) {
+	using Ev = JsonReader::Event;
+	if (ev == Ev::string_value || ev == Ev::number_value || ev == Ev::bool_value || ev == Ev::null_value) {
+		return {};
+	}
+	int depth = 1;
+	while (depth > 0) {
+		auto ne = r.next();
+		if (!ne) {
+			return unexpected(move(ne).error());
+		}
+		if (!*ne) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::parse,
+					.code = JsonIssueCode::unexpected_eof,
+					.message = "EOF while skipping"});
+		}
+		if (**ne == Ev::begin_object || **ne == Ev::begin_array) {
+			++depth;
+		} else if (**ne == Ev::end_object || **ne == Ev::end_array) {
+			--depth;
+		}
+	}
+	return {};
+}
+
+template<class T>
+expected<T, JsonError> decode_from_event(
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts);
+
+template<class T>
+expected<T, JsonError> decode_with_reader(
+	JsonReader &r,
+	JsonDecodeOptions const &opts) {
+	auto ne = r.next();
+	if (!ne) {
+		return unexpected(move(ne).error());
+	}
+	if (!*ne) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::unexpected_eof,
+				.message = "unexpected end of input"});
+	}
+	return decode_from_event<T>(r, **ne, opts);
+}
+
+template<class T>
+expected<T, JsonError> decode_from_event(
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts) {
+	using Ev = JsonReader::Event;
+
+	if constexpr (std::same_as<T, bool>) {
+		if (ev != Ev::bool_value) {
+			return unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected bool"});
+		}
+		return r.bool_val();
+	} else if constexpr (std::same_as<T, i64>) {
+		if (ev != Ev::number_value) {
+			return unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected number"});
+		}
+		return r.number_val().to_i64();
+	} else if constexpr (std::same_as<T, u64>) {
+		if (ev != Ev::number_value) {
+			return unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected number"});
+		}
+		return r.number_val().to_u64();
+	} else if constexpr (std::same_as<T, double>) {
+		if (ev != Ev::number_value) {
+			return unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected number"});
+		}
+		return r.number_val().to_f64();
+	} else if constexpr (std::same_as<T, S>) {
+		if (ev != Ev::string_value) {
+			return unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected string"});
+		}
+		S out;
+		auto res = r.string_token().append_decoded_to(out);
+		if (!res) {
+			return unexpected(move(res).error());
+		}
+		return out;
+	} else if constexpr (std::same_as<T, SV>) {
+		static_assert(!std::same_as<T, SV>, "decode<string_view>(JsonReader&) is deleted; use std::string");
+	} else if constexpr (is_optional<T>::value) {
+		using Inner = typename T::value_type;
+		if (ev == Ev::null_value) {
+			return T{};
+		}
+		auto v = decode_from_event<Inner>(r, ev, opts);
+		if (!v) {
+			return unexpected(move(v).error());
+		}
+		return T{move(*v)};
+	} else if constexpr (is_nullable_type<T>::value) {
+		if (ev == Ev::null_value) {
+			return T{};
+		}
+		using Inner = nullable_inner_t<T>;
+		auto v = decode_from_event<Inner>(r, ev, opts);
+		if (!v) {
+			return unexpected(move(v).error());
+		}
+		return T{move(*v)};
+	} else if constexpr (is_vector_of_v<T>) {
+		using E = typename T::value_type;
+		if (ev != Ev::begin_array) {
+			return unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
+		}
+		T result;
+		while (true) {
+			auto ne = r.next();
+			if (!ne) {
+				return unexpected(move(ne).error());
+			}
+			if (!*ne) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in array"});
+			}
+			if (**ne == Ev::end_array) {
+				return result;
+			}
+			auto elem = decode_from_event<E>(r, **ne, opts);
+			if (!elem) {
+				return unexpected(move(elem).error());
+			}
+			result.push_back(move(*elem));
+		}
+	} else if constexpr (is_std_array_v<T>) {
+		using E = typename T::value_type;
+		constexpr SZ N = std::tuple_size_v<T>;
+		if (ev != Ev::begin_array) {
+			return unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
+		}
+		T result;
+		for (SZ i = 0; i < N; ++i) {
+			auto ne = r.next();
+			if (!ne) {
+				return unexpected(move(ne).error());
+			}
+			if (!*ne) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in array"});
+			}
+			if (**ne == Ev::end_array) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.message = format("expected array of length {}", N)});
+			}
+			auto elem = decode_from_event<E>(r, **ne, opts);
+			if (!elem) {
+				return unexpected(move(elem).error());
+			}
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
+			result[i] = move(*elem);
+		}
+		auto ne = r.next();
+		if (!ne) {
+			return unexpected(move(ne).error());
+		}
+		if (!*ne || **ne != Ev::end_array) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.message = format("expected array of length {}", N)});
+		}
+		return result;
+	} else if constexpr (is_pair_v<T>) {
+		using FA = typename T::first_type;
+		using FB = typename T::second_type;
+		if (ev != Ev::begin_array) {
+			return unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
+		}
+		T result;
+		{
+			auto ne = r.next();
+			if (!ne) {
+				return unexpected(move(ne).error());
+			}
+			if (!*ne) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in pair"});
+			}
+			auto v = decode_from_event<FA>(r, **ne, opts);
+			if (!v) {
+				return unexpected(move(v).error());
+			}
+			result.first = move(*v);
+		}
+		{
+			auto ne = r.next();
+			if (!ne) {
+				return unexpected(move(ne).error());
+			}
+			if (!*ne) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in pair"});
+			}
+			auto v = decode_from_event<FB>(r, **ne, opts);
+			if (!v) {
+				return unexpected(move(v).error());
+			}
+			result.second = move(*v);
+		}
+		{
+			auto ne = r.next();
+			if (!ne) {
+				return unexpected(move(ne).error());
+			}
+			if (!*ne || **ne != Ev::end_array) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.message = "expected pair of length 2"});
+			}
+		}
+		return result;
+	} else if constexpr (is_tuple_of_v<T>) {
+		if (ev != Ev::begin_array) {
+			return unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected array"});
+		}
+		T result;
+		bool ok = true;
+		JsonError first_err;
+		constexpr SZ N = std::tuple_size_v<T>;
+		[&]<SZ... Is>(std::index_sequence<Is...>) {
+			(([&]() {
+				 if (!ok) {
+					 return;
+				 }
+				 auto ne = r.next();
+				 if (!ne) {
+					 ok = false;
+					 first_err = move(ne).error();
+					 return;
+				 }
+				 if (!*ne) {
+					 ok = false;
+					 first_err = JsonError{
+						 .stage = JsonStage::decode,
+						 .code = JsonIssueCode::unexpected_eof,
+						 .message = "EOF in tuple"};
+					 return;
+				 }
+				 if (**ne == Ev::end_array) {
+					 ok = false;
+					 first_err = JsonError{
+						 .stage = JsonStage::decode,
+						 .code = JsonIssueCode::invalid_value,
+						 .message = format("expected tuple of length {}", N)};
+					 return;
+				 }
+				 using E = std::tuple_element_t<Is, T>;
+				 auto v = decode_from_event<E>(r, **ne, opts);
+				 if (!v) {
+					 ok = false;
+					 first_err = move(v).error();
+					 return;
+				 }
+				 get<Is>(result) = move(*v);
+			 })(),
+			 ...);
+		}(std::make_index_sequence<N>{});
+		if (!ok) {
+			return unexpected(move(first_err));
+		}
+		auto ne = r.next();
+		if (!ne) {
+			return unexpected(move(ne).error());
+		}
+		if (!*ne || **ne != Ev::end_array) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::invalid_value,
+					.message = format("expected tuple of length {}", N)});
+		}
+		return result;
+	} else if constexpr (is_map_type_v<T> || is_unordered_map_type_v<T>) {
+		using Vt = typename T::mapped_type;
+		if (ev != Ev::begin_object) {
+			return unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected object"});
+		}
+		T result;
+		while (true) {
+			auto ne = r.next();
+			if (!ne) {
+				return unexpected(move(ne).error());
+			}
+			if (!*ne) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in object"});
+			}
+			if (**ne == Ev::end_object) {
+				return result;
+			}
+			if (**ne != Ev::key) {
+				return unexpected(
+					JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::syntax_error, .message = "expected key"});
+			}
+			S key;
+			auto key_res = r.key_token().append_decoded_to(key);
+			if (!key_res) {
+				return unexpected(move(key_res).error());
+			}
+			auto vne = r.next();
+			if (!vne) {
+				return unexpected(move(vne).error());
+			}
+			if (!*vne) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::unexpected_eof,
+						.message = "EOF in object value"});
+			}
+			auto val = decode_from_event<Vt>(r, **vne, opts);
+			if (!val) {
+				return unexpected(move(val).error());
+			}
+			result.emplace(move(key), move(*val));
+		}
+	} else if constexpr (std::same_as<T, Document>) {
+		SZ const start = r.value_start_pos();
+		if (auto ok = skip_remaining_reader(r, ev); !ok) {
+			return unexpected(move(ok).error());
+		}
+		SV const slice = r.input().substr(start, r.pos() - start);
+		return conflux::json::parse(slice);
+	} else if constexpr (has_members_spec<T>::value) {
+		if (ev != Ev::begin_object) {
+			return unexpected(
+				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected object"});
+		}
+		T result{};
+		auto const members = JsonMembers<T>::members();
+		bool ok = true;
+		JsonError first_err;
+		SZ const member_count = std::apply([](auto const &...ms) { return sizeof...(ms); }, members);
+		V<bool> found(member_count, false);
+
+		while (ok) {
+			auto ne = r.next();
+			if (!ne) {
+				ok = false;
+				first_err = move(ne).error();
+				break;
+			}
+			if (!*ne) {
+				ok = false;
+				first_err = JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::unexpected_eof,
+					.message = "EOF in object"};
+				break;
+			}
+			if (**ne == Ev::end_object) {
+				break;
+			}
+			if (**ne != Ev::key) {
+				ok = false;
+				first_err = JsonError{
+					.stage = JsonStage::decode, .code = JsonIssueCode::syntax_error, .message = "expected key"};
+				break;
+			}
+			S key_name;
+			if (auto kr = r.key_token().append_decoded_to(key_name); !kr) {
+				ok = false;
+				first_err = move(kr).error();
+				break;
+			}
+
+			bool matched = false;
+			apply(
+				[&](auto const &...ms) {
+					SZ idx = 0;
+					(([&](auto const &entry) {
+						 if (matched || !ok) {
+							 ++idx;
+							 return;
+						 }
+						 auto const &m = jm_member(entry);
+						 if (SV{key_name} == m.name) {
+							 matched = true;
+							 // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
+							 found[idx] = true;
+							 using M = std::remove_reference_t<decltype(result.*m.pointer)>;
+							 auto vne = r.next();
+							 if (!vne || !*vne) {
+								 ok = false;
+								 first_err = !vne ? move(vne).error() :
+												   JsonError{
+													   .stage = JsonStage::decode,
+													   .code = JsonIssueCode::unexpected_eof,
+													   .message = "EOF in object value"};
+								 ++idx;
+								 return;
+							 }
+							 auto decoded = decode_from_event<M>(r, **vne, opts);
+							 if (!decoded) {
+								 ok = false;
+								 first_err = move(decoded).error();
+								 ++idx;
+								 return;
+							 }
+							 result.*m.pointer = move(*decoded);
+							 auto cfn = jm_constraint(entry);
+							 if (cfn != nullptr) {
+								 if (auto cr = cfn(result.*m.pointer); !cr) {
+									 ok = false;
+									 first_err = move(cr).error();
+									 first_err.member_name = S{m.name};
+								 }
+							 }
+						 }
+						 ++idx;
+					 })(ms),
+					 ...);
+				},
+				members);
+
+			if (!matched && ok) {
+				if (opts.unknown_members == UnknownMemberPolicy::reject) {
+					ok = false;
+					first_err = JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.member_name = key_name,
+						.message = format("unknown member: {}", key_name)};
+				} else {
+					auto skip_res = r.skip_next_value();
+					if (!skip_res) {
+						ok = false;
+						first_err = move(skip_res).error();
+					}
+				}
+			}
+		}
+
+		if (!ok) {
+			return unexpected(move(first_err));
+		}
+
+		apply(
+			[&](auto const &...ms) {
+				SZ idx = 0;
+				(([&](auto const &entry) {
+					 if (!ok) {
+						 ++idx;
+						 return;
+					 }
+					 auto const &m = jm_member(entry);
+					 using M = std::remove_reference_t<decltype(result.*m.pointer)>;
+					 // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
+					 if (!found[idx] && !is_optional<M>::value) {
+						 ok = false;
+						 first_err = JsonError{
+							 .stage = JsonStage::decode,
+							 .code = JsonIssueCode::missing_member,
+							 .member_name = S{m.name},
+							 .message = format("missing member: {}", m.name)};
+					 }
+					 ++idx;
+				 })(ms),
+				 ...);
+			},
+			members);
+
+		if (!ok) {
+			return unexpected(move(first_err));
+		}
+		return result;
+	} else {
+		static_assert(!std::same_as<T, T>, "No JsonReader support for type T");
+	}
+}
+
+} // namespace detail
+
 export template<class T>
 expected<T, JsonError> decode(
-	NodeRef root) {
-	if constexpr (detail::has_codec_spec<T>::value) {
+	JsonReader &reader,
+	JsonDecodeOptions const &opts) {
+	return detail::decode_with_reader<T>(reader, opts);
+}
+
+namespace detail {
+
+template<class T>
+expected<T, JsonError> decode_with_frames(
+	NodeRef root,
+	V<PathFrame> &frames,
+	JsonDecodeOptions const &opts) {
+	if constexpr (has_codec_spec<T>::value) {
 		return JsonCodec<T>::decode(root);
-	} else if constexpr (detail::has_members_spec<T>::value) {
+	} else if constexpr (has_members_spec<T>::value) {
 		auto obj = root.as_object();
 		if (!obj) {
 			return unexpected(move(obj).error());
@@ -4713,34 +6636,51 @@ expected<T, JsonError> decode(
 		JsonError first_err;
 		apply(
 			[&](auto const &...ms) {
-				(([&](auto const &m) {
+				(([&](auto const &entry) {
 					 if (!ok) {
 						 return;
 					 }
+					 auto const &m = jm_member(entry);
 					 using M = std::remove_reference_t<decltype(result.*m.pointer)>;
 					 auto val = obj->find_member(m.name);
 					 if (!val) {
-						 if constexpr (detail::is_optional<M>::value) {
+						 if constexpr (is_optional<M>::value) {
 							 result.*m.pointer = M{};
 						 } else {
 							 ok = false;
 							 first_err = JsonError{
 								 .stage = JsonStage::decode,
 								 .code = JsonIssueCode::missing_member,
+								 .path = materialize_path(frames),
 								 .member_name = S{m.name},
 								 .message = format("missing member: {}", m.name)};
 						 }
 						 return;
 					 }
-					 auto decoded = decode<M>(*val);
+					 frames.push_back({PathFrame::Kind::member, m.name, 0});
+					 auto decoded = decode_with_frames<M>(*val, frames, opts);
 					 if (!decoded) {
 						 ok = false;
-						 JsonPath prefix;
-						 prefix.push_member(m.name);
-						 first_err = move(decoded).error().with_prefix(prefix);
+						 first_err = move(decoded).error();
+						 if (first_err.path.empty()) {
+							 first_err.path = materialize_path(frames);
+						 }
+						 frames.pop_back();
 						 return;
 					 }
+					 frames.pop_back();
 					 result.*m.pointer = move(*decoded);
+					 auto cfn = jm_constraint(entry);
+					 if (cfn != nullptr) {
+						 if (auto cr = cfn(result.*m.pointer); !cr) {
+							 ok = false;
+							 first_err = move(cr).error();
+							 first_err.member_name = S{m.name};
+							 if (first_err.path.empty()) {
+								 first_err.path = materialize_path(frames);
+							 }
+						 }
+					 }
 				 })(ms),
 				 ...);
 			},
@@ -4748,23 +6688,41 @@ expected<T, JsonError> decode(
 		if (!ok) {
 			return unexpected(move(first_err));
 		}
-		// Unknown members check.
-		for (auto const &[name, val]: obj->members()) {
-			bool found = false;
-			apply([&](auto const &...ms) { ((found = found || name == ms.name), ...); }, members);
-			if (!found) {
-				return unexpected(
-					JsonError{
-						.stage = JsonStage::decode,
-						.code = JsonIssueCode::invalid_value,
-						.member_name = S{name},
-						.message = format("unknown member: {}", name)});
+		if (opts.unknown_members == UnknownMemberPolicy::reject) {
+			for (auto const &[name, val]: obj->members()) {
+				bool found = false;
+				apply(
+					[&](auto const &...ms) {
+						((found = found || name == jm_member(ms).name), ...);
+					},
+					members);
+				if (!found) {
+					return unexpected(
+						JsonError{
+							.stage = JsonStage::decode,
+							.code = JsonIssueCode::invalid_value,
+							.path = materialize_path(frames),
+							.member_name = S{name},
+							.message = format("unknown member: {}", name)});
+				}
 			}
 		}
 		return result;
 	} else {
 		static_assert(false, "No JsonCodec<T> or JsonMembers<T> found for T");
 	}
+}
+
+} // namespace detail
+
+// decode<T> dispatch
+export template<class T>
+expected<T, JsonError> decode(
+	NodeRef root,
+	JsonDecodeOptions const &opts) {
+	V<detail::PathFrame> frames;
+	frames.reserve(16);
+	return detail::decode_with_frames<T>(root, frames, opts);
 }
 
 // ---------------------------------------------------------------------------
@@ -4871,3 +6829,444 @@ expected<void, JsonError> ValueBuilder::set(
 	}
 	return detail::encode_dispatch<T>(*this, value);
 }
+
+// ---------------------------------------------------------------------------
+// JsonWritable concept + make_object / make_array factories (Phase 1.4)
+// ---------------------------------------------------------------------------
+
+export template<class T>
+concept JsonWritable =
+	std::same_as<std::remove_cvref_t<T>, bool>               ||
+	has_json_codec<std::remove_cvref_t<T>>                   ||
+	std::same_as<std::remove_cvref_t<T>, S>                  ||
+	std::convertible_to<std::remove_cvref_t<T>, SV>          ||
+	(std::integral<std::remove_cvref_t<T>> &&
+	 !std::same_as<std::remove_cvref_t<T>, bool> &&
+	 !std::same_as<std::remove_cvref_t<T>, char> &&
+	 !std::same_as<std::remove_cvref_t<T>, char8_t> &&
+	 !std::same_as<std::remove_cvref_t<T>, signed char> &&
+	 !std::same_as<std::remove_cvref_t<T>, unsigned char> &&
+	 !std::same_as<std::remove_cvref_t<T>, wchar_t> &&
+	 !std::same_as<std::remove_cvref_t<T>, char16_t> &&
+	 !std::same_as<std::remove_cvref_t<T>, char32_t>)        ||
+	std::floating_point<std::remove_cvref_t<T>>;
+
+export template<class P>
+concept JsonObjectPair =
+	std::tuple_size<std::remove_cvref_t<P>>::value == 2 &&
+	std::convertible_to<std::tuple_element_t<0, std::remove_cvref_t<P>>, SV> &&
+	JsonWritable<std::tuple_element_t<1, std::remove_cvref_t<P>>>;
+
+// Internal dispatch: encode a JsonWritable value into ObjectBuilder.
+namespace detail {
+
+template<class T>
+expected<void, JsonError> write_writable(ObjectBuilder &obj, SV name, T const &value) {
+	using U = std::remove_cvref_t<T>;
+	if constexpr (std::same_as<U, bool>) {
+		return obj.insert_bool(name, value);
+	} else if constexpr (has_json_codec<U>) {
+		return obj.template insert<U>(name, value);
+	} else if constexpr (std::same_as<U, S>) {
+		return obj.insert_string(name, SV{value});
+	} else if constexpr (std::convertible_to<U, SV>) {
+		SV sv = static_cast<SV>(value);
+		if constexpr (std::same_as<U, char const *> || std::is_pointer_v<U>) {
+			if (sv.data() == nullptr) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::build,
+						.code = JsonIssueCode::invalid_value,
+						.member_name = S{name},
+						.message = format("null pointer for member '{}'", name)});
+			}
+		}
+		return obj.insert_string(name, sv);
+	} else if constexpr (std::is_signed_v<U>) {
+		if constexpr (sizeof(U) < sizeof(i64)) {
+			return obj.insert_i64(name, static_cast<i64>(value));
+		} else {
+			if (value < static_cast<U>(NL<i64>::min()) || value > static_cast<U>(NL<i64>::max())) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::build,
+						.code = JsonIssueCode::number_out_of_range,
+						.member_name = S{name},
+						.message = format("value out of i64 range for member '{}'", name)});
+			}
+			return obj.insert_i64(name, static_cast<i64>(value));
+		}
+	} else if constexpr (std::is_unsigned_v<U>) {
+		return obj.insert_u64(name, static_cast<u64>(value));
+	} else {
+		return obj.insert_f64(name, static_cast<double>(value));
+	}
+}
+
+template<class T>
+expected<void, JsonError> write_writable_arr(ArrayBuilder &arr, T const &value) {
+	using U = std::remove_cvref_t<T>;
+	if constexpr (std::same_as<U, bool>) {
+		return arr.append_bool(value);
+	} else if constexpr (has_json_codec<U>) {
+		return arr.template append<U>(value);
+	} else if constexpr (std::same_as<U, S>) {
+		return arr.append_string(SV{value});
+	} else if constexpr (std::convertible_to<U, SV>) {
+		SV sv = static_cast<SV>(value);
+		if constexpr (std::same_as<U, char const *> || std::is_pointer_v<U>) {
+			if (sv.data() == nullptr) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::build,
+						.code = JsonIssueCode::invalid_value,
+						.message = "null pointer in array element"});
+			}
+		}
+		return arr.append_string(sv);
+	} else if constexpr (std::is_signed_v<U>) {
+		if constexpr (sizeof(U) < sizeof(i64)) {
+			return arr.append_i64(static_cast<i64>(value));
+		} else {
+			if (value < static_cast<U>(NL<i64>::min()) || value > static_cast<U>(NL<i64>::max())) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::build,
+						.code = JsonIssueCode::number_out_of_range,
+						.message = "value out of i64 range"});
+			}
+			return arr.append_i64(static_cast<i64>(value));
+		}
+	} else if constexpr (std::is_unsigned_v<U>) {
+		return arr.append_u64(static_cast<u64>(value));
+	} else {
+		return arr.append_f64(static_cast<double>(value));
+	}
+}
+
+} // namespace detail
+
+// Heterogeneous variadic form.
+export template<class... Pairs>
+	requires (JsonObjectPair<std::remove_cvref_t<Pairs>> && ...)
+[[nodiscard]] expected<Document, JsonError> make_object(
+	Pairs &&...pairs) {
+	ValueBuilder vb;
+	auto obj_or = vb.begin_object();
+	if (!obj_or) return unexpected(move(obj_or).error());
+	auto &obj = *obj_or;
+	bool ok = true;
+	JsonError first_err;
+	(([&](auto &&p) {
+		 if (!ok) return;
+		 SV const key = static_cast<SV>(std::get<0>(p));
+		 auto res = detail::write_writable(obj, key, std::get<1>(p));
+		 if (!res) { ok = false; first_err = move(res).error(); }
+	 })(std::forward<Pairs>(pairs)),
+	 ...);
+	if (!ok) return unexpected(move(first_err));
+	move(obj).commit();
+	return move(vb).finish();
+}
+
+// Homogeneous initializer_list form.
+export template<class V>
+	requires JsonWritable<V>
+[[nodiscard]] expected<Document, JsonError> make_object(
+	std::initializer_list<P<SV, V>> pairs) {
+	ValueBuilder vb;
+	auto obj_or = vb.begin_object();
+	if (!obj_or) return unexpected(move(obj_or).error());
+	auto &obj = *obj_or;
+	for (auto const &[k, v]: pairs) {
+		auto res = detail::write_writable(obj, k, v);
+		if (!res) return unexpected(move(res).error());
+	}
+	move(obj).commit();
+	return move(vb).finish();
+}
+
+// Heterogeneous variadic array form.
+export template<class... Elems>
+	requires (JsonWritable<std::remove_cvref_t<Elems>> && ...)
+[[nodiscard]] expected<Document, JsonError> make_array(
+	Elems &&...elems) {
+	ValueBuilder vb;
+	auto arr_or = vb.begin_array();
+	if (!arr_or) return unexpected(move(arr_or).error());
+	auto &arr = *arr_or;
+	bool ok = true;
+	JsonError first_err;
+	(([&](auto &&e) {
+		 if (!ok) return;
+		 auto res = detail::write_writable_arr(arr, std::forward<decltype(e)>(e));
+		 if (!res) { ok = false; first_err = move(res).error(); }
+	 })(std::forward<Elems>(elems)),
+	 ...);
+	if (!ok) return unexpected(move(first_err));
+	move(arr).commit();
+	return move(vb).finish();
+}
+
+// Homogeneous initializer_list array form.
+export template<class V>
+	requires JsonWritable<V>
+[[nodiscard]] expected<Document, JsonError> make_array(
+	std::initializer_list<V> elems) {
+	ValueBuilder vb;
+	auto arr_or = vb.begin_array();
+	if (!arr_or) return unexpected(move(arr_or).error());
+	auto &arr = *arr_or;
+	for (auto const &e: elems) {
+		auto res = detail::write_writable_arr(arr, e);
+		if (!res) return unexpected(move(res).error());
+	}
+	move(arr).commit();
+	return move(vb).finish();
+}
+
+// ─── Phase 3 — SAX / Event Interface ────────────────────────────────────────
+
+export template<class R>
+concept HandlerReturn =
+    std::same_as<R, void> ||
+    std::convertible_to<R, expected<void, JsonError>>;
+
+export template<class H>
+concept JsonHandler =
+    requires(H& h, SV sv, i64 i, u64 u, double d, bool b) {
+        requires HandlerReturn<decltype(h.on_null())>;
+        requires HandlerReturn<decltype(h.on_bool(b))>;
+        requires HandlerReturn<decltype(h.on_string(sv))>;
+        requires HandlerReturn<decltype(h.on_i64(i))>;
+        requires HandlerReturn<decltype(h.on_u64(u))>;
+        requires HandlerReturn<decltype(h.on_double(d))>;
+        requires HandlerReturn<decltype(h.on_begin_object())>;
+        requires HandlerReturn<decltype(h.on_key(sv))>;
+        requires HandlerReturn<decltype(h.on_end_object())>;
+        requires HandlerReturn<decltype(h.on_begin_array())>;
+        requires HandlerReturn<decltype(h.on_end_array())>;
+    };
+
+export struct JsonDefaultHandler {
+    expected<void, JsonError> on_null()         { return {}; }
+    expected<void, JsonError> on_bool(bool)     { return {}; }
+    expected<void, JsonError> on_string(SV)     { return {}; }
+    expected<void, JsonError> on_i64(i64)       { return {}; }
+    expected<void, JsonError> on_u64(u64)       { return {}; }
+    expected<void, JsonError> on_double(double) { return {}; }
+    expected<void, JsonError> on_begin_object() { return {}; }
+    expected<void, JsonError> on_key(SV)        { return {}; }
+    expected<void, JsonError> on_end_object()   { return {}; }
+    expected<void, JsonError> on_begin_array()  { return {}; }
+    expected<void, JsonError> on_end_array()    { return {}; }
+    // on_number_raw intentionally absent
+};
+
+namespace detail {
+
+// Invoke callable, normalize return to expected<void,JsonError>.
+// Avoids passing void as a function argument.
+template<class F>
+[[nodiscard]] inline expected<void, JsonError> invoke_handler(F&& f) {
+    using R = decltype(std::forward<F>(f)());
+    if constexpr (std::same_as<R, void>) {
+        std::forward<F>(f)();
+        return {};
+    } else {
+        expected<void, JsonError> e = std::forward<F>(f)();
+        return e;
+    }
+}
+
+// Dispatch a number event to the handler.
+// If H provides on_number_raw: call it only (raw bytes, no typed conversion).
+// Otherwise dispatch on_i64 / on_u64 / on_double based on value kind.
+template<JsonHandler H>
+[[nodiscard]] expected<void, JsonError> dispatch_number(H& h, JsonNumberView nv) {
+    if constexpr (requires { h.on_number_raw(SV{}); }) {
+        static_assert(HandlerReturn<decltype(h.on_number_raw(SV{}))>,
+            "on_number_raw must return void or expected<void,JsonError>");
+        return invoke_handler([&]{ return h.on_number_raw(nv.lexeme()); });
+    } else {
+        if (nv.form() == JsonNumberForm::non_integer) {
+            auto d = nv.to_f64();
+            if (!d) return unexpected(move(d).error());
+            return invoke_handler([&]{ return h.on_double(*d); });
+        }
+        // Integer form: try i64 → u64 → f64 (huge integer).
+        auto iv = nv.to_i64();
+        if (iv) return invoke_handler([&]{ return h.on_i64(*iv); });
+        auto uv = nv.to_u64();
+        if (uv) return invoke_handler([&]{ return h.on_u64(*uv); });
+        auto dv = nv.to_f64();
+        if (!dv) return unexpected(move(dv).error());
+        return invoke_handler([&]{ return h.on_double(*dv); });
+    }
+}
+
+// Decode a JsonStringToken to string_view or S, call cb(SV).
+template<class Cb>
+[[nodiscard]] expected<void, JsonError> dispatch_string_cb(
+    JsonStringToken const& tok, Cb&& cb) {
+    if (auto borrow = tok.unescaped_borrow()) {
+        return std::forward<Cb>(cb)(*borrow);
+    }
+    S buf;
+    buf.reserve(tok.max_decoded_size());
+    auto r = tok.append_decoded_to(buf);
+    if (!r) return unexpected(move(r).error());
+    return std::forward<Cb>(cb)(SV{buf});
+}
+
+} // namespace detail
+
+export template<JsonHandler H>
+[[nodiscard]] expected<void, JsonError> parse_sax(
+    SV input,
+    H& handler,
+    JsonParseOptions const& opts = {}) {
+    using Ev = JsonReader::Event;
+    JsonReader reader{input, opts};
+
+    for (;;) {
+        auto ev_or = reader.next();
+        if (!ev_or) return unexpected(move(ev_or).error());
+        if (!*ev_or) break; // EOF
+
+        Ev ev = **ev_or;
+        expected<void, JsonError> res{};
+
+        switch (ev) {
+        case Ev::begin_object:
+            res = detail::invoke_handler([&]{ return handler.on_begin_object(); });
+            break;
+        case Ev::end_object:
+            res = detail::invoke_handler([&]{ return handler.on_end_object(); });
+            break;
+        case Ev::begin_array:
+            res = detail::invoke_handler([&]{ return handler.on_begin_array(); });
+            break;
+        case Ev::end_array:
+            res = detail::invoke_handler([&]{ return handler.on_end_array(); });
+            break;
+        case Ev::key:
+            res = detail::dispatch_string_cb(reader.key_token(),
+                [&](SV sv) { return detail::invoke_handler([&]{ return handler.on_key(sv); }); });
+            break;
+        case Ev::string_value:
+            res = detail::dispatch_string_cb(reader.string_token(),
+                [&](SV sv) { return detail::invoke_handler([&]{ return handler.on_string(sv); }); });
+            break;
+        case Ev::number_value:
+            res = detail::dispatch_number(handler, reader.number_val());
+            break;
+        case Ev::bool_value:
+            res = detail::invoke_handler([&]{ return handler.on_bool(reader.bool_val()); });
+            break;
+        case Ev::null_value:
+            res = detail::invoke_handler([&]{ return handler.on_null(); });
+            break;
+        }
+
+        if (!res) return unexpected(move(res).error());
+    }
+    return {};
+}
+
+// ─── Phase 7 — Streaming & NDJSON ───────────────────────────────────────────
+
+export class NdjsonRange {
+    SV input_;
+    JsonParseOptions opts_;
+
+public:
+    explicit NdjsonRange(SV input, JsonParseOptions const &opts = {}) noexcept
+        : input_{input}, opts_{opts} {}
+
+    struct Iterator {
+        using iterator_category = std::input_iterator_tag;
+        using value_type        = expected<Document, JsonError>;
+        using difference_type   = std::ptrdiff_t;
+        using pointer           = value_type const *;
+        using reference         = value_type const &;
+
+    private:
+        SV remaining_;
+        JsonParseOptions opts_;
+        Opt<value_type> cache_;
+
+        void advance_one() noexcept {
+            cache_.reset();
+            while (!remaining_.empty()) {
+                auto pos = remaining_.find('\n');
+                SV line;
+                if (pos == SV::npos) {
+                    line = remaining_;
+                    remaining_ = {};
+                } else {
+                    line = remaining_.substr(0, pos);
+                    remaining_.remove_prefix(pos + 1);
+                }
+                // strip trailing CR
+                if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+                if (line.empty()) continue;
+                cache_ = conflux::json::parse_borrowed(line, opts_);
+                return;
+            }
+        }
+
+        friend class NdjsonRange;
+        Iterator(SV remaining, JsonParseOptions const &opts) noexcept
+            : remaining_{remaining}, opts_{opts} {
+            advance_one();
+        }
+
+    public:
+        [[nodiscard]] reference operator*() const noexcept { return *cache_; }
+        [[nodiscard]] pointer   operator->() const noexcept { return &*cache_; }
+
+        Iterator &operator++() noexcept {
+            advance_one();
+            return *this;
+        }
+        void operator++(int) noexcept { ++*this; }
+
+        [[nodiscard]] bool operator==(std::default_sentinel_t) const noexcept {
+            return !cache_.has_value();
+        }
+    };
+
+    [[nodiscard]] Iterator begin() const noexcept { return {input_, opts_}; }
+    [[nodiscard]] std::default_sentinel_t end() const noexcept { return {}; }
+};
+
+export class JsonAccumulator {
+    S buf_;
+    JsonParseOptions opts_;
+
+public:
+    explicit JsonAccumulator(JsonParseOptions const &opts = {}) noexcept
+        : opts_{opts} {}
+
+    [[nodiscard]] expected<void, JsonError> feed(SV chunk) {
+        constexpr SZ kU32Ceiling = (SZ{1} << 32) - 1;
+        SZ const total = buf_.size() + chunk.size();
+        if (opts_.max_input_size.exceeds(total, kDefaultMaxInput) || total >= kU32Ceiling) {
+            return unexpected(JsonError{
+                .stage   = JsonStage::parse,
+                .code    = JsonIssueCode::input_too_large,
+                .message = "accumulated size exceeds max_input_size"});
+        }
+        buf_.append(chunk);
+        return {};
+    }
+
+    [[nodiscard]] expected<Document, JsonError> finish() {
+        return conflux::json::parse(move(buf_), opts_);
+    }
+
+    void reset() noexcept { buf_.clear(); }
+
+    [[nodiscard]] SZ buffered_bytes() const noexcept { return buf_.size(); }
+};

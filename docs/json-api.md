@@ -58,7 +58,7 @@ destroyed.
 NodeRef    root()  const noexcept;
 expected<string, JsonError> dump(JsonDumpOptions const& opts = {}) const;
 
-expected<void, JsonError> warm_member_index (NodeRef node,                         ) const;
+expected<void, JsonError> warm_member_index(NodeRef node) const;
 expected<void, JsonError> warm_member_indices(WarmIndexOptions const& opts = {}) const;
 ```
 
@@ -171,12 +171,33 @@ Out-of-range values return `number_out_of_range`.
 ### JsonPath and `at()`
 
 ```cpp
+struct JsonPathMember { string name; };
+struct JsonPathIndex  { size_t index{}; };
+using  JsonPathSegment = variant<JsonPathMember, JsonPathIndex>;
+
+class JsonPath {
+public:
+    static JsonPath root();
+    static expected<JsonPath, JsonError> from_pointer(string_view sv); // parses RFC 6901 JSON Pointer
+
+    bool   empty()  const noexcept;
+    size_t size()   const noexcept;
+    void   push_member(string_view name);
+    void   push_index (size_t idx);
+    void   pop()          noexcept;
+    string to_pointer()   const;  // serialise back to RFC 6901 string
+
+    // range-for over JsonPathSegment elements
+    auto begin() const noexcept;
+    auto end()   const noexcept;
+};
+
 auto node = doc->root().at(JsonPath::from_pointer("/users/0/name").value());
 ```
 
-`JsonPath` is a sequence of `JsonPathSegment` (`JsonPathMember` or
-`JsonPathIndex`). `from_pointer` parses a JSON Pointer (RFC 6901). `at()` walks
-the tree and returns `missing_member` or `index_out_of_range` on failure.
+`JsonPath` is a sequence of `JsonPathSegment`. `from_pointer` parses a JSON
+Pointer (RFC 6901). `at()` walks the tree and returns `missing_member` or
+`index_out_of_range` on failure.
 
 ---
 
@@ -295,6 +316,21 @@ auto doc = move(b).finish();
 | `map<string, T>` | object |
 | `unordered_map<string, T>` | object |
 
+### `json_member` helper
+
+```cpp
+template<class T, class M>
+struct JsonMember {
+    string_view  name;
+    M T::*       pointer;
+};
+
+template<class T, class M>
+constexpr JsonMember<T, M> json_member(string_view name, M T::* p);
+```
+
+Convenience factory used inside `JsonMembers<T>::members()` tuples.
+
 ### Struct decode via `JsonMembers`
 
 Specialise `JsonMembers<T>` to decode structs. Unknown members and missing
@@ -349,8 +385,8 @@ struct JsonCodec<Color> {
 };
 ```
 
-`has_json_codec<T>` (concept) is true when either `JsonMembers<T>` or
-`JsonCodec<T>` is specialised.
+`has_json_codec<T>` (concept) and `has_json_codec_v<T>` (variable template)
+are true when either `JsonMembers<T>` or `JsonCodec<T>` is specialised.
 
 ### Free decode helpers
 
@@ -370,7 +406,7 @@ struct JsonError {
     JsonStage             stage;
     JsonIssueCode         code;
     JsonPath              path;
-    optional<JsonSourceLocation> source;      // byte offset + line/column
+    optional<JsonSourceLocation> source;      // byte offset + line/column (1-based)
     optional<JsonKind>    expected_kind;
     optional<JsonKind>    actual_kind;
     optional<string>      member_name;
@@ -381,6 +417,16 @@ struct JsonError {
 
     JsonError with_prefix(JsonPath const& prefix) const&;
     JsonError with_prefix(JsonPath const& prefix) &&;
+};
+```
+
+### JsonSourceLocation
+
+```cpp
+struct JsonSourceLocation {
+    size_t offset{};    // byte offset from start of input
+    size_t line{1};     // 1-based line number
+    size_t column{1};   // 1-based column number
 };
 ```
 
@@ -408,7 +454,7 @@ enum class JsonStage { parse, lookup, decode, build, dump };
 | `number_out_of_range` | value overflows target type |
 | `sign_mismatch` | negative number into `uint64_t` |
 | `invalid_value` | value rejected by codec logic |
-| `constraint_violation` | internal invariant broken |
+| `constraint_violation` | internal invariant or user codec constraint violated |
 | `nesting_too_deep` | nesting exceeds `max_depth` |
 | `input_too_large` | input exceeds `max_input_size` |
 | `string_too_large` | string exceeds `max_string_size` |
@@ -427,12 +473,19 @@ struct — it just may be null.
 Nullable<int64_t> n = nullptr;
 n.is_null();          // true
 n.has_value();        // false
+bool(n);              // false
 
 Nullable<int64_t> v = 42LL;
 v.has_value();        // true
-*v;                   // 42
+bool(v);              // true
+*v;                   // 42 (UB if null)
+v.value();            // 42 (UB if null)
 v.value_or(0);        // 42
+v->some_method();     // arrow access (UB if null)
 ```
+
+Supports `==` and `<=>` comparison (null compares less than any value;
+two nulls compare equal).
 
 Decoded from JSON `null` → null state. Decoded from any non-null JSON value →
 populated state via `JsonCodec<T>::decode`.

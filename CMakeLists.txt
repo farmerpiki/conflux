@@ -428,6 +428,10 @@ target_link_libraries(conflux
     PRIVATE xxhash
 )
 
+if(CONFLUX_JSON_AVX2)
+    target_compile_options(conflux PRIVATE -mavx2 -mbmi2)
+endif()
+
 # TLS
 if(CONFLUX_HAS_TLS STREQUAL "true")
     target_compile_definitions(conflux PUBLIC CONFLUX_HAS_TLS=1)

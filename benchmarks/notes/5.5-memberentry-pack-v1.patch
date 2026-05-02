@@ -1,0 +1,119 @@
+diff --git a/src/json.cxx b/src/json.cxx
+index 30a58cf..726a3d4 100644
+--- a/src/json.cxx
++++ b/src/json.cxx
+@@ -385,9 +385,8 @@ struct MemberEntry {
+ 	u32 name_len;
+ 	u32 val_node;
+ 	u32 name_flags; // 0=arena; kStorageInputView=0x01; kMemberExternalView=0x02
+-	char const *name_ptr{nullptr}; // C: filled by build_table; E: caller-owned pointer
+ };
+-static_assert(sizeof(MemberEntry) == 24);
++static_assert(sizeof(MemberEntry) == 16);
+ static_assert(std::is_trivially_copyable_v<MemberEntry>);
+ 
+ // ---------------------------------------------------------------------------
+@@ -608,6 +607,7 @@ struct DocumentStorage {
+ 	S string_arena;
+ 	V<u32> array_children;
+ 	V<MemberEntry> object_members;
++	V<P<u32, char const*>> external_ptrs_;
+ 	// Phase 1 (v11): owned/borrowed input buffer. Numbers index into input_view
+ 	// when their flags include kStorageInputView; strings still live in
+ 	// string_arena until Phase 2 lands.
+@@ -654,7 +654,13 @@ struct DocumentStorage {
+ 	[[nodiscard]] SV member_name(
+ 		MemberEntry const &m) const noexcept {
+ 		if ((m.name_flags & kMemberExternalView) != 0) {
+-			return {m.name_ptr, m.name_len}; // Item E: caller-owned pointer
++			auto const abs = static_cast<u32>(&m - object_members.data());
++			auto it = std::lower_bound(external_ptrs_.begin(), external_ptrs_.end(), abs,
++				[](auto const &p, u32 idx) { return p.first < idx; });
++			if (it != external_ptrs_.end() && it->first == abs) {
++				return {it->second, m.name_len};
++			}
++			return {};
+ 		}
+ 		return bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags));
+ 	}
+@@ -1094,7 +1100,7 @@ namespace detail {
+ 		if (s.name_hash == h) {
+ 			auto const &m = storage->object_members
+ 								[mem_start + s.member_index]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+-			if (SV{m.name_ptr, m.name_len} == name) { // Item C: direct pointer, no dispatch
++			if (storage->member_name(m) == name) {
+ 				return m.val_node;
+ 			}
+ 		}
+@@ -1114,7 +1120,6 @@ namespace detail {
+ 	for (u32 i = 0; i < static_cast<u32>(mem_count); ++i) {
+ 		auto const &m = storage->object_members[mem_start + i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+ 		auto const sv = storage->member_name(m);
+-		const_cast<MemberEntry &>(m).name_ptr = sv.data(); // Item C: cache pointer (arena stable post-parse)
+ 		auto const h = hash_name(sv, storage->hash_seed_);
+ 		u32 slot = h & mask;
+ 		bool inserted = false;
+@@ -2975,6 +2980,7 @@ struct ChildFrame {
+ 	ParentSlot parent; // parent.arena_start is the rollback point for string_arena
+ 	V<SZ> local_children; // staged A child node indices (A builders only)
+ 	V<MemberEntry> local_members; // staged object members (object builders only)
++	V<P<SZ, char const*>> local_ext_ptrs_;
+ 	// Per-session duplicate detection for ObjectBuilder (kind==object only).
+ 	UM<S, SZ> dup_check;
+ };
+@@ -2993,6 +2999,7 @@ export class ObjectBuilder {
+ 			  .parent = parent,
+ 			  .local_children = {},
+ 			  .local_members = {},
++			  .local_ext_ptrs_ = {},
+ 			  .dup_check = {}} {}
+ 
+ 	[[nodiscard]] expected<void, JsonError> check_can_insert() const {
+@@ -3040,6 +3047,7 @@ public:
+ 			auto *st = frame_.state;
+ 			st->built_input.resize(frame_.parent.arena_start);
+ 			frame_.local_members.clear();
++			frame_.local_ext_ptrs_.clear();
+ 			frame_.dup_check.clear();
+ 			st->active_depth = frame_.depth - 1;
+ 			if (frame_.parent.kind == ParentSlot::Kind::set_root) {
+@@ -3075,8 +3083,11 @@ public:
+ 		}
+ 		auto *st = frame_.state;
+ 		SZ const mem_start = st->store.object_members.size();
+-		for (auto const &m: frame_.local_members) {
+-			st->store.object_members.push_back(m);
++		for (SZ i = 0; i < static_cast<SZ>(frame_.local_members.size()); ++i) {
++			st->store.object_members.push_back(frame_.local_members[i]);
++		}
++		for (auto const &[local_idx, ptr]: frame_.local_ext_ptrs_) {
++			st->store.external_ptrs_.push_back({static_cast<u32>(mem_start + local_idx), ptr});
+ 		}
+ 		SZ const cnt = frame_.local_members.size();
+ 		st->store.nodes.push_back(detail::make_object(static_cast<u32>(mem_start), static_cast<u32>(cnt)));
+@@ -3097,6 +3108,7 @@ public:
+ 		}
+ 		st->active_depth = frame_.depth - 1;
+ 		frame_.local_members.clear();
++		frame_.local_ext_ptrs_.clear();
+ 		frame_.dup_check.clear();
+ 		frame_.committed = true;
+ 	}
+@@ -3121,6 +3133,7 @@ export class ArrayBuilder {
+ 			  .parent = parent,
+ 			  .local_children = {},
+ 			  .local_members = {},
++			  .local_ext_ptrs_ = {},
+ 			  .dup_check = {}} {}
+ 
+ 	// NOLINTNEXTLINE(bugprone-exception-escape)
+@@ -3634,8 +3647,8 @@ expected<void, JsonError> ObjectBuilder::do_insert_node_view(
+ 	m.name_len = static_cast<u32>(name.size());
+ 	m.val_node = static_cast<u32>(node_idx);
+ 	m.name_flags = kMemberExternalView;
+-	m.name_ptr = name.data();
+ 	frame_.local_members.push_back(m);
++	frame_.local_ext_ptrs_.push_back({frame_.local_members.size() - 1, name.data()});
+ 	return {};
+ }
+ 
