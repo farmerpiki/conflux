@@ -100,6 +100,17 @@
       }
     },
     {
+      "name": "release-gcc16-stdcxx",
+      "displayName": "Release \u00b7 g++-16 \u00b7 libstdc++ \u00b7 no LTO",
+      "inherits": "gcc16-stdcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_ENABLE_LTO": "OFF",
+        "CONFLUX_BUILD_TESTS": "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
       "name": "tsan-clang-libcxx",
       "displayName": "TSan \u00b7 clang++ \u00b7 libc++",
       "inherits": "clang-libcxx",
@@ -158,6 +169,10 @@
     {
       "name": "release-gcc-stdcxx",
       "configurePreset": "release-gcc-stdcxx"
+    },
+    {
+      "name": "release-gcc16-stdcxx",
+      "configurePreset": "release-gcc16-stdcxx"
     },
     {
       "name": "tsan-clang-libcxx",
