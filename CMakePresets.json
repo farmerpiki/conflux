@@ -33,6 +33,15 @@
       }
     },
     {
+      "name": "gcc16-stdcxx",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "g++-16",
+        "CMAKE_C_COMPILER": "gcc-16"
+      }
+    },
+    {
       "name": "debug-clang-libcxx",
       "displayName": "Debug \u00b7 clang++ \u00b7 libc++",
       "inherits": "clang-libcxx",
@@ -40,6 +49,18 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CONFLUX_ENABLE_ASAN": "ON",
         "CONFLUX_ENABLE_UBSAN": "ON",
+        "CONFLUX_BUILD_TESTS": "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
+      "name": "debug-gcc16-stdcxx",
+      "displayName": "Debug \u00b7 g++-16 \u00b7 libstdc++",
+      "inherits": "gcc16-stdcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CONFLUX_ENABLE_ASAN": "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
         "CONFLUX_BUILD_TESTS": "ON",
         "CONFLUX_BUILD_BENCHMARKS": "ON"
       }
@@ -121,6 +142,10 @@
     {
       "name": "debug-clang-libcxx",
       "configurePreset": "debug-clang-libcxx"
+    },
+    {
+      "name": "debug-gcc16-stdcxx",
+      "configurePreset": "debug-gcc16-stdcxx"
     },
     {
       "name": "debug-gcc-stdcxx",
