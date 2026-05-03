@@ -622,6 +622,7 @@ struct CapabilityId {
 	}
 };
 
+
 template<class T>
 inline constexpr bool enable_address_capability_v = false;
 
@@ -667,18 +668,22 @@ public:
 	};
 
 	explicit JoinError(
-		reason r)
+		reason r,
+		std::source_location loc = std::source_location::current())
 		: std::logic_error{make_msg(r)}
-		, reason_{r} {}
+		, reason_{r}
+		, origin_{loc} {}
 
 	explicit JoinError(
 		reason r,
 		std::optional<CapabilityId> expected,
-		CapabilityId actual)
+		CapabilityId actual,
+		std::source_location loc = std::source_location::current())
 		: std::logic_error{make_msg(r)}
 		, reason_{r}
 		, expected_{expected}
-		, actual_{actual} {}
+		, actual_{actual}
+		, origin_{loc} {}
 
 	[[nodiscard]] reason reason_code() const noexcept { return reason_; }
 	[[nodiscard]] std::optional<CapabilityId> expected() const noexcept { return expected_; }
@@ -1123,19 +1128,20 @@ public:
 
 	[[nodiscard]] bool can_join_with(
 		CapabilityId id) const noexcept override {
-		if (!requires_capability_.load(std::memory_order_acquire)) {
+		if (!requires_capability_.load(std::memory_order_acquire))
 			return true;
-		}
-		return required_capability_address_.load(std::memory_order_relaxed) == id.address
-			&& required_capability_type_tag_.load(std::memory_order_relaxed) == id.type_tag;
+		CapabilityId const expected{
+			.address  = required_capability_address_.load(std::memory_order_relaxed),
+			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
+		};
+		return expected == id;
 	}
 
 	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept override {
-		if (!requires_capability_.load(std::memory_order_acquire)) {
+		if (!requires_capability_.load(std::memory_order_acquire))
 			return std::nullopt;
-		}
 		return CapabilityId{
-			.address = required_capability_address_.load(std::memory_order_relaxed),
+			.address  = required_capability_address_.load(std::memory_order_relaxed),
 			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 	}
@@ -1519,19 +1525,20 @@ public:
 
 	[[nodiscard]] bool can_join_with(
 		CapabilityId id) const noexcept override {
-		if (!requires_capability_.load(std::memory_order_acquire)) {
+		if (!requires_capability_.load(std::memory_order_acquire))
 			return true;
-		}
-		return required_capability_address_.load(std::memory_order_relaxed) == id.address
-			&& required_capability_type_tag_.load(std::memory_order_relaxed) == id.type_tag;
+		CapabilityId const expected{
+			.address  = required_capability_address_.load(std::memory_order_relaxed),
+			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
+		};
+		return expected == id;
 	}
 
 	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept override {
-		if (!requires_capability_.load(std::memory_order_acquire)) {
+		if (!requires_capability_.load(std::memory_order_acquire))
 			return std::nullopt;
-		}
 		return CapabilityId{
-			.address = required_capability_address_.load(std::memory_order_relaxed),
+			.address  = required_capability_address_.load(std::memory_order_relaxed),
 			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 	}
@@ -1821,7 +1828,11 @@ public:
 
 	[[nodiscard]] bool can_join_with(
 		CapabilityId id) const noexcept {
-		return core_ ? core_->can_join_with(id) : false;
+		return core_ && core_->can_join_with(id);
+	}
+
+	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept {
+		return core_ ? core_->required_capability() : std::nullopt;
 	}
 
 	[[nodiscard]] static constexpr ControlCategory category() noexcept { return Category; }
@@ -2061,6 +2072,26 @@ struct drop_on_abandon {
 		Cancelled const &) const noexcept {}
 };
 
+[[noreturn]] [[gnu::cold]] [[gnu::noinline]]
+void raise_join_lifetime_violation(
+	std::source_location loc = std::source_location::current()) {
+	throw JoinError{JoinError::reason::lifetime_violation, loc};
+}
+
+[[noreturn]] [[gnu::cold]] [[gnu::noinline]]
+void raise_join_consumed_handle(
+	std::source_location loc = std::source_location::current()) {
+	throw JoinError{JoinError::reason::consumed_handle, loc};
+}
+
+[[noreturn]] [[gnu::cold]] [[gnu::noinline]]
+void raise_join_capability_mismatch(
+	std::optional<CapabilityId> expected,
+	CapabilityId actual,
+	std::source_location loc = std::source_location::current()) {
+	throw JoinError{JoinError::reason::capability_mismatch, expected, actual, loc};
+}
+
 namespace detail {
 
 template<work_value T>
@@ -2082,9 +2113,8 @@ struct TaskAwaiter {
 	}
 
 	decltype(auto) await_resume() {
-		if (!state_) {
-			throw JoinError{JoinError::reason::consumed_handle};
-		}
+		if (!state_) [[unlikely]]
+			raise_join_consumed_handle();
 		// Rethrow original exception on Failure (not FailureError wrapper) so
 		// existing catch sites work. E2b.2 migrates to FailureError uniformly.
 		return std::move(state_->wait_and_take_outcome())
@@ -2122,9 +2152,8 @@ struct OutcomeAwaiter {
 	}
 
 	Outcome<T> await_resume() {
-		if (!state_) {
-			throw JoinError{JoinError::reason::consumed_handle};
-		}
+		if (!state_) [[unlikely]]
+			raise_join_consumed_handle();
 		return state_->wait_and_take_outcome();
 	}
 };
@@ -2763,9 +2792,8 @@ template<work_value T>
 [[nodiscard]] Outcome<T> join(
 	Task<T> &&task) {
 	auto state = task.consume(join_state::joined);
-	if (!state) {
-		throw JoinError{JoinError::reason::lifetime_violation};
-	}
+	if (!state) [[unlikely]]
+		raise_join_lifetime_violation();
 	return state->wait_and_take_outcome();
 }
 
@@ -2774,12 +2802,10 @@ template<progress_capability Owner, work_value T>
 	Owner &owner,
 	Posted<T> &&posted) {
 	auto state = posted.consume(join_state::joined);
-	if (!state) {
-		throw JoinError{JoinError::reason::lifetime_violation};
-	}
-	if (!state->can_join_with(capability_id(owner))) {
-		throw JoinError{JoinError::reason::capability_mismatch, state->required_capability(), capability_id(owner)};
-	}
+	if (!state) [[unlikely]]
+		raise_join_lifetime_violation();
+	if (!state->can_join_with(capability_id(owner))) [[unlikely]]
+		raise_join_capability_mismatch(state->required_capability(), capability_id(owner));
 	return state->wait_and_take_outcome();
 }
 
@@ -2788,12 +2814,10 @@ template<progress_capability Driver, work_value T>
 	Driver &driver,
 	Operation<T> &&op) {
 	auto state = op.consume(join_state::joined);
-	if (!state) {
-		throw JoinError{JoinError::reason::lifetime_violation};
-	}
-	if (!state->can_join_with(capability_id(driver))) {
-		throw JoinError{JoinError::reason::capability_mismatch, state->required_capability(), capability_id(driver)};
-	}
+	if (!state) [[unlikely]]
+		raise_join_lifetime_violation();
+	if (!state->can_join_with(capability_id(driver))) [[unlikely]]
+		raise_join_capability_mismatch(state->required_capability(), capability_id(driver));
 	return state->wait_and_take_outcome();
 }
 
@@ -2801,9 +2825,8 @@ template<work_value T>
 [[nodiscard]] Outcome<T> join(
 	TaskJoinHandle<T> &&h) {
 	auto state = h.consume();
-	if (!state) {
-		throw JoinError{JoinError::reason::lifetime_violation};
-	}
+	if (!state) [[unlikely]]
+		raise_join_lifetime_violation();
 	return state->wait_and_take_outcome();
 }
 
@@ -2812,12 +2835,10 @@ template<progress_capability Owner, work_value T>
 	Owner &owner,
 	PostedJoinHandle<T> &&h) {
 	auto state = h.consume();
-	if (!state) {
-		throw JoinError{JoinError::reason::lifetime_violation};
-	}
-	if (!state->can_join_with(capability_id(owner))) {
-		throw JoinError{JoinError::reason::capability_mismatch, state->required_capability(), capability_id(owner)};
-	}
+	if (!state) [[unlikely]]
+		raise_join_lifetime_violation();
+	if (!state->can_join_with(capability_id(owner))) [[unlikely]]
+		raise_join_capability_mismatch(state->required_capability(), capability_id(owner));
 	return state->wait_and_take_outcome();
 }
 
@@ -2826,12 +2847,10 @@ template<progress_capability Driver, work_value T>
 	Driver &driver,
 	OperationJoinHandle<T> &&h) {
 	auto state = h.consume();
-	if (!state) {
-		throw JoinError{JoinError::reason::lifetime_violation};
-	}
-	if (!state->can_join_with(capability_id(driver))) {
-		throw JoinError{JoinError::reason::capability_mismatch, state->required_capability(), capability_id(driver)};
-	}
+	if (!state) [[unlikely]]
+		raise_join_lifetime_violation();
+	if (!state->can_join_with(capability_id(driver))) [[unlikely]]
+		raise_join_capability_mismatch(state->required_capability(), capability_id(driver));
 	return state->wait_and_take_outcome();
 }
 

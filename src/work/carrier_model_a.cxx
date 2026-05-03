@@ -129,13 +129,11 @@ public:
 		Fn &&fn) && {
 		if constexpr (std::same_as<T, void>) {
 			using R = std::remove_cvref_t<std::invoke_result_t<Fn &>>;
-			if (outcome_.is_failure()) {
+			if (outcome_.is_failure())
 				return Chain<R>{root::Outcome<R>{std::move(outcome_).failure()}, kind_, bound_cap_};
-			}
-			if (outcome_.is_cancelled()) {
+			if (outcome_.is_cancelled())
 				return Chain<R>{root::Outcome<R>{std::move(outcome_).cancelled()}, kind_, bound_cap_};
-			}
-			try {
+			if constexpr (std::is_nothrow_invocable_v<Fn &>) {
 				if constexpr (std::same_as<R, void>) {
 					std::invoke(std::forward<Fn>(fn));
 					return Chain<R>{root::Outcome<R>{root::Success<R>{}}, kind_, bound_cap_};
@@ -145,18 +143,28 @@ public:
 						kind_,
 						bound_cap_};
 				}
-			} catch (...) {
-				return Chain<R>{root::Outcome<R>{root::Failure{std::current_exception()}}, kind_, bound_cap_};
+			} else {
+				try {
+					if constexpr (std::same_as<R, void>) {
+						std::invoke(std::forward<Fn>(fn));
+						return Chain<R>{root::Outcome<R>{root::Success<R>{}}, kind_, bound_cap_};
+					} else {
+						return Chain<R>{
+							root::Outcome<R>{root::Success<R>{std::invoke(std::forward<Fn>(fn))}},
+							kind_,
+							bound_cap_};
+					}
+				} catch (...) {
+					return Chain<R>{root::Outcome<R>{root::Failure{std::current_exception()}}, kind_, bound_cap_};
+				}
 			}
 		} else {
 			using R = std::remove_cvref_t<std::invoke_result_t<Fn &, T>>;
-			if (outcome_.is_failure()) {
+			if (outcome_.is_failure())
 				return Chain<R>{root::Outcome<R>{std::move(outcome_).failure()}, kind_, bound_cap_};
-			}
-			if (outcome_.is_cancelled()) {
+			if (outcome_.is_cancelled())
 				return Chain<R>{root::Outcome<R>{std::move(outcome_).cancelled()}, kind_, bound_cap_};
-			}
-			try {
+			if constexpr (std::is_nothrow_invocable_v<Fn &, T>) {
 				if constexpr (std::same_as<R, void>) {
 					std::invoke(std::forward<Fn>(fn), std::move(outcome_).success().value);
 					return Chain<R>{root::Outcome<R>{root::Success<R>{}}, kind_, bound_cap_};
@@ -167,8 +175,21 @@ public:
 						kind_,
 						bound_cap_};
 				}
-			} catch (...) {
-				return Chain<R>{root::Outcome<R>{root::Failure{std::current_exception()}}, kind_, bound_cap_};
+			} else {
+				try {
+					if constexpr (std::same_as<R, void>) {
+						std::invoke(std::forward<Fn>(fn), std::move(outcome_).success().value);
+						return Chain<R>{root::Outcome<R>{root::Success<R>{}}, kind_, bound_cap_};
+					} else {
+						return Chain<R>{
+							root::Outcome<R>{
+								root::Success<R>{std::invoke(std::forward<Fn>(fn), std::move(outcome_).success().value)}},
+							kind_,
+							bound_cap_};
+					}
+				} catch (...) {
+					return Chain<R>{root::Outcome<R>{root::Failure{std::current_exception()}}, kind_, bound_cap_};
+				}
 			}
 		}
 	}
