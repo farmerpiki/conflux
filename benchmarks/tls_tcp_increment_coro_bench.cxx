@@ -38,15 +38,6 @@ struct Config {
 
 namespace {
 
-struct SslCtxDeleter {
-	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
-};
-struct SslDeleter {
-	void operator ()(SSL *p) const noexcept { SSL_free(p); }
-};
-using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
-using UniqueSsl    = std::unique_ptr<SSL, SslDeleter>;
-
 u64 parse_u64(
 	char const *s) noexcept {
 	SV sv{s};

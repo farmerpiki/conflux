@@ -28,6 +28,9 @@ import conflux.work;
 import conflux.file_io;
 import conflux.utils;
 import conflux.net.config;
+#if CONFLUX_HAS_TLS
+import conflux.net.tls;
+#endif
 
 [[nodiscard]] S html_escape(
 	SV s) {
@@ -1150,13 +1153,6 @@ bool DeferredResponse::expire_if_past_deadline(
 
 namespace ws_detail {
 
-#if CONFLUX_HAS_TLS
-struct SslDeleter {
-	void operator ()(SSL *p) const noexcept { SSL_free(p); }
-};
-using UniqueSsl = std::unique_ptr<SSL, SslDeleter>;
-#endif
-
 // Compute Sec-WebSocket-Accept from Sec-WebSocket-Key.
 CONFLUX_FUZZ_EXPORT S ws_accept_key(
 	SV client_key) {
@@ -1721,7 +1717,7 @@ private:
 
 	int fd_;
 #if CONFLUX_HAS_TLS
-	ws_detail::UniqueSsl ssl_;
+	UniqueSsl ssl_;
 #endif
 	atomic_flag closed_{};
 	mutex send_mtx_;

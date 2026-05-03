@@ -42,75 +42,8 @@ import conflux.net.http2;
 #if CONFLUX_HAS_HTTP3
 import conflux.net.http3;
 #endif
-
 #if CONFLUX_HAS_TLS
-namespace http_server_local {
-struct SslCtxDeleter {
-	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
-};
-struct SslDeleter {
-	void operator ()(SSL *p) const noexcept { SSL_free(p); }
-};
-using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
-using UniqueSsl    = std::unique_ptr<SSL, SslDeleter>;
-} // namespace http_server_local
-
-using http_server_local::UniqueSsl;
-using http_server_local::UniqueSslCtx;
-namespace {
-
-void init_openssl_once() {
-	static std::once_flag flag;
-	std::call_once(flag, [] {
-		if (OPENSSL_init_ssl(OPENSSL_INIT_NO_ATEXIT, nullptr) != 1) {
-			throw RE{"OPENSSL_init_ssl failed"};
-		}
-		if (OPENSSL_init_crypto(OPENSSL_INIT_NO_ATEXIT, nullptr) != 1) {
-			throw RE{"OPENSSL_init_crypto failed"};
-		}
-	});
-}
-
-constexpr SV kDefaultTls12CipherList =
-	"ECDHE-ECDSA-AES128-GCM-SHA256:"
-	"ECDHE-RSA-AES128-GCM-SHA256:"
-	"ECDHE-ECDSA-AES256-GCM-SHA384:"
-	"ECDHE-RSA-AES256-GCM-SHA384:"
-	"ECDHE-ECDSA-CHACHA20-POLY1305:"
-	"ECDHE-RSA-CHACHA20-POLY1305";
-
-constexpr SV kDefaultTls13Ciphersuites =
-	"TLS_AES_128_GCM_SHA256:"
-	"TLS_AES_256_GCM_SHA384:"
-	"TLS_CHACHA20_POLY1305_SHA256";
-
-// Session id context: 1-byte tag unique to this build; SSL_CTX requires a
-// non-empty id to enable server-side session cache.
-constexpr A<unsigned char, 8> kSessionIdContext{'c', 'o', 'n', 'f', 'l', 'u', 'x', '1'};
-
-
-void configure_tls_ctx(
-	SSL_CTX *ctx,
-	Config const &cfg) {
-	SSL_CTX_set_min_proto_version(ctx, TLS1_2_VERSION);
-	u64 tls_opts = SSL_OP_CIPHER_SERVER_PREFERENCE | SSL_OP_NO_COMPRESSION | SSL_OP_NO_RENEGOTIATION;
-	if (cfg.ktls) {
-		tls_opts |= SSL_OP_ENABLE_KTLS | SSL_OP_ENABLE_KTLS_TX_ZEROCOPY_SENDFILE;
-	}
-	SSL_CTX_set_options(ctx, tls_opts);
-	SV const cipher_list = cfg.tls_cipher_list.empty() ? kDefaultTls12CipherList : SV{cfg.tls_cipher_list};
-	if (SSL_CTX_set_cipher_list(ctx, S{cipher_list}.c_str()) != 1) {
-		throw RE{"TLS: SSL_CTX_set_cipher_list failed"};
-	}
-	SV const ciphersuites = cfg.tls_ciphersuites.empty() ? kDefaultTls13Ciphersuites : SV{cfg.tls_ciphersuites};
-	if (SSL_CTX_set_ciphersuites(ctx, S{ciphersuites}.c_str()) != 1) {
-		throw RE{"TLS: SSL_CTX_set_ciphersuites failed"};
-	}
-	SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_SERVER);
-	SSL_CTX_set_session_id_context(ctx, kSessionIdContext.data(), kSessionIdContext.size());
-}
-
-} // namespace
+import conflux.net.tls;
 #endif
 
 enum class Op : u8 {
@@ -3586,30 +3519,6 @@ void dispatch_request(
 	}
 }
 
-#if CONFLUX_HAS_TLS
-namespace {
-
-// SNI servername callback: switch SSL_CTX based on SNI hostname.
-// user_data points to UM<S, SSL_CTX*> (Impl::vhost_ctxs).
-int sni_callback(
-	SSL *ssl,
-	int * /*alert*/,
-	void *user_data) {
-	auto const *name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
-	if (name == nullptr) {
-		return SSL_TLSEXT_ERR_OK;
-	}
-	auto &vhosts = *static_cast<UM<S, UniqueSslCtx> *>(user_data);
-	auto const it = vhosts.find(ascii_lower(name));
-	if (it != vhosts.end()) {
-		SSL_set_SSL_CTX(ssl, it->second.get());
-	}
-	return SSL_TLSEXT_ERR_OK;
-}
-
-} // namespace
-#endif // CONFLUX_HAS_TLS
-
 export class HttpServer {
 	struct Impl {
 		Config cfg{};
@@ -3628,8 +3537,7 @@ export class HttpServer {
 		// here for the wq_fd before calling io_uring_queue_init_params. -2 = unset.
 		Atom<int> wq_ring_fd_{-2};
 #if CONFLUX_HAS_TLS
-		UniqueSslCtx ssl_ctx; // owned; shared (read-only) across rings
-		UM<S, UniqueSslCtx> vhost_ctxs; // owned
+		std::optional<TlsServerContext> tls_ctx; // owned; shared (read-only) across rings
 #endif
 #if CONFLUX_HAS_HTTP3
 		mutex http3_mu;
@@ -3649,54 +3557,41 @@ export class HttpServer {
 		// TLS setup: create SSL_CTX if cert and key are provided.
 		if (!cfg.cert_file.empty() && !cfg.key_file.empty()) {
 			init_openssl_once();
-			UniqueSslCtx ctx{SSL_CTX_new(TLS_server_method())};
-			if (!ctx) {
-				throw RE{"SSL_CTX_new failed"};
-			}
-			configure_tls_ctx(ctx.get(), cfg);
-			if (SSL_CTX_use_certificate_chain_file(ctx.get(), cfg.cert_file.c_str()) != 1) {
-				throw RE{format("TLS: cannot load cert: {}", cfg.cert_file)};
-			}
-			if (SSL_CTX_use_PrivateKey_file(ctx.get(), cfg.key_file.c_str(), SSL_FILETYPE_PEM) != 1) {
-				throw RE{format("TLS: cannot load key: {}", cfg.key_file)};
-			}
+			TlsServerOptions const primary_opts{
+				.cert_file = cfg.cert_file,
+				.key_file = cfg.key_file,
+				.cipher_list = cfg.tls_cipher_list,
+				.ciphersuites = cfg.tls_ciphersuites,
+				.ktls = cfg.ktls,
+			};
+			impl_->tls_ctx.emplace(primary_opts);
+			SSL_CTX *const ctx = impl_->tls_ctx->native_handle();
 	#if CONFLUX_HAS_HTTP3
 			if (cfg.http3.enabled) {
-				http3_configure_alpn(ctx.get()); // prefer h3, then h2, then http/1.1
+				http3_configure_alpn(ctx); // prefer h3, then h2, then http/1.1
 			}
 		#if CONFLUX_HAS_HTTP2
 			else {
-				http2_configure_alpn(ctx.get()); // prefer h2, fall back to http/1.1
+				http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
 			}
 		#endif
 	#elif CONFLUX_HAS_HTTP2
-			http2_configure_alpn(ctx.get()); // prefer h2, fall back to http/1.1
+			http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
 	#endif
-			impl_->ssl_ctx = std::move(ctx);
 
 			// Load per-hostname SSL_CTX for SNI virtual hosts.
 			for (auto const &vh: cfg.virtual_hosts) {
-				UniqueSslCtx vctx{SSL_CTX_new(TLS_server_method())};
-				if (!vctx) {
-					throw RE{"SSL_CTX_new failed (vhost)"};
-				}
-				configure_tls_ctx(vctx.get(), cfg);
-				if (SSL_CTX_use_certificate_chain_file(vctx.get(), vh.cert_file.c_str()) != 1
-					|| SSL_CTX_use_PrivateKey_file(vctx.get(), vh.key_file.c_str(), SSL_FILETYPE_PEM) != 1) {
-					throw RE{format("TLS: cannot load vhost cert/key: {}", vh.hostname)};
-				}
-				impl_->vhost_ctxs.emplace(ascii_lower(vh.hostname), std::move(vctx));
+				impl_->tls_ctx->add_vhost(
+					vh.hostname,
+					TlsServerOptions{
+						.cert_file = vh.cert_file,
+						.key_file = vh.key_file,
+						.cipher_list = cfg.tls_cipher_list,
+						.ciphersuites = cfg.tls_ciphersuites,
+						.ktls = cfg.ktls,
+					});
 			}
-
-			// Register SNI callback on the primary SSL_CTX (shared across rings).
-			// Fires for every new TLS ClientHello with server_name extension.
-			if (!impl_->vhost_ctxs.empty()) {
-	#pragma GCC diagnostic push
-	#pragma GCC diagnostic ignored "-Wold-style-cast"
-				SSL_CTX_set_tlsext_servername_callback(impl_->ssl_ctx.get(), sni_callback);
-	#pragma GCC diagnostic pop
-				SSL_CTX_set_tlsext_servername_arg(impl_->ssl_ctx.get(), &impl_->vhost_ctxs);
-			}
+			impl_->tls_ctx->install_sni();
 		}
 #endif // CONFLUX_HAS_TLS
 
@@ -3784,7 +3679,7 @@ public:
 					r.file_io_slab_bytes = impl_->cfg.fixed_buffer_bytes;
 					r.file_io_pipe_pairs = impl_->cfg.splice_pipe_pairs;
 #if CONFLUX_HAS_TLS
-					r.ssl_ctx = impl_->ssl_ctx.get();
+					r.ssl_ctx = impl_->tls_ctx ? impl_->tls_ctx->native_handle() : nullptr;
 					// vhost_ctxs on Ring is informational only; SNI callback is already
 					// registered on the primary SSL_CTX in the constructor.
 #endif
@@ -3808,7 +3703,7 @@ public:
 						impl_->wq_ring_fd_.notify_all();
 					}
 #if CONFLUX_HAS_HTTP3
-					if (impl_->cfg.http3.enabled && !impl_->use_vhost && impl_->ssl_ctx != nullptr) {
+					if (impl_->cfg.http3.enabled && !impl_->use_vhost && impl_->tls_ctx) {
 						r.alt_svc_header = http3_alt_svc_value(r.bound_port, impl_->cfg.http3.alt_svc_max_age_sec);
 					}
 #endif
@@ -3819,7 +3714,7 @@ public:
 							"listening on {}://0.0.0.0:{}  "
 							"(rings={}, entries={}, flags={}, fixed_files={}, buf_ring=true)",
 #if CONFLUX_HAS_TLS
-							impl_->ssl_ctx != nullptr ? "http/https" : "http",
+							impl_->tls_ctx ? "http/https" : "http",
 #else
 							"http",
 #endif
@@ -3851,13 +3746,13 @@ public:
 		}
 
 #if CONFLUX_HAS_HTTP3
-		if (impl_->cfg.http3.enabled && impl_->ssl_ctx && !impl_->use_vhost) {
+		if (impl_->cfg.http3.enabled && impl_->tls_ctx && !impl_->use_vhost) {
 			u16 const h3_port = port();
 			auto listener = make_unique<Http3Listener>(
 				impl_->use_vhost ? nullptr : &impl_->router,
 				impl_->cfg.http3,
 				h3_port,
-				impl_->ssl_ctx.get());
+				impl_->tls_ctx->native_handle());
 			listener->start();
 			{
 				SL const lk{impl_->http3_mu};

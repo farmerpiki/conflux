@@ -11,16 +11,12 @@ import conflux.features;
 #if CONFLUX_HAS_HTTP3
 import conflux.net.http;
 import conflux.net.http3;
+import conflux.net.tls;
 import conflux.tests.support;
 #endif
 
 #if CONFLUX_HAS_HTTP3
 namespace {
-
-struct SslCtxDeleter {
-	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
-};
-using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
 
 struct TempCert {
 	S cert_path;

@@ -19,6 +19,7 @@ import conflux.types;
 import conflux.crypto;
 import conflux.net.http;
 import conflux.net.http1_parser;
+import conflux.net.tls;
 import conflux.tests.support;
 import conflux.work;
 
@@ -31,15 +32,6 @@ using conflux::http::HttpClient;
 using conflux::http::HttpClientOptions;
 using conflux::http::HttpErrorKind;
 using conflux::http::HttpTimeouts;
-
-struct SslCtxDeleter {
-	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
-};
-struct SslDeleter {
-	void operator ()(SSL *p) const noexcept { SSL_free(p); }
-};
-using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
-using UniqueSsl    = std::unique_ptr<SSL, SslDeleter>;
 
 // Actual port chosen by the OS; set once in ensure_server().
 u16 g_test_port = 0;

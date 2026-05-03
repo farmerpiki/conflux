@@ -15,19 +15,11 @@
 import std;
 import conflux.types;
 import conflux.net.http;
+import conflux.net.tls;
 import conflux.work;
 import conflux.tests.external_support;
 
 namespace {
-
-struct SslCtxDeleter {
-	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
-};
-struct SslDeleter {
-	void operator ()(SSL *p) const noexcept { SSL_free(p); }
-};
-using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
-using UniqueSsl    = std::unique_ptr<SSL, SslDeleter>;
 
 // ---------------------------------------------------------------------------
 // H2Response + H2Client

@@ -14,18 +14,152 @@ export struct TlsError : RE {
 	using RE::runtime_error;
 };
 
-struct SslCtxDeleter {
+export struct SslCtxDeleter {
 	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
 };
-struct SslDeleter {
+export struct SslDeleter {
 	void operator ()(SSL *p) const noexcept { SSL_free(p); }
 };
-struct BioDeleter {
+export struct BioDeleter {
 	void operator ()(BIO *p) const noexcept { BIO_free(p); }
 };
-using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
-using UniqueSsl    = std::unique_ptr<SSL, SslDeleter>;
-using UniqueBio    = std::unique_ptr<BIO, BioDeleter>;
+export using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
+export using UniqueSsl    = std::unique_ptr<SSL, SslDeleter>;
+export using UniqueBio    = std::unique_ptr<BIO, BioDeleter>;
+
+export void init_openssl_once() {
+	static std::once_flag flag;
+	std::call_once(flag, [] {
+		if (OPENSSL_init_ssl(OPENSSL_INIT_NO_ATEXIT, nullptr) != 1) {
+			throw TlsError{"OPENSSL_init_ssl failed"};
+		}
+		if (OPENSSL_init_crypto(OPENSSL_INIT_NO_ATEXIT, nullptr) != 1) {
+			throw TlsError{"OPENSSL_init_crypto failed"};
+		}
+	});
+}
+
+export struct TlsServerOptions {
+	SV cert_file;
+	SV key_file;
+	SV cipher_list{};   // empty = built-in TLS 1.2 default
+	SV ciphersuites{};  // empty = built-in TLS 1.3 default
+	bool ktls{false};
+};
+
+namespace tls_detail {
+
+constexpr SV kDefaultTls12CipherList =
+	"ECDHE-ECDSA-AES128-GCM-SHA256:"
+	"ECDHE-RSA-AES128-GCM-SHA256:"
+	"ECDHE-ECDSA-AES256-GCM-SHA384:"
+	"ECDHE-RSA-AES256-GCM-SHA384:"
+	"ECDHE-ECDSA-CHACHA20-POLY1305:"
+	"ECDHE-RSA-CHACHA20-POLY1305";
+
+constexpr SV kDefaultTls13Ciphersuites =
+	"TLS_AES_128_GCM_SHA256:"
+	"TLS_AES_256_GCM_SHA384:"
+	"TLS_CHACHA20_POLY1305_SHA256";
+
+// Session id context: 1-byte tag unique to this build; SSL_CTX requires a
+// non-empty id to enable server-side session cache.
+constexpr A<unsigned char, 8> kSessionIdContext{'c', 'o', 'n', 'f', 'l', 'u', 'x', '1'};
+
+inline UniqueSslCtx make_server_ctx(
+	TlsServerOptions const &opts) {
+	UniqueSslCtx ctx{SSL_CTX_new(TLS_server_method())};
+	if (!ctx) {
+		throw TlsError{"SSL_CTX_new failed"};
+	}
+	SSL_CTX_set_min_proto_version(ctx.get(), TLS1_2_VERSION);
+	u64 tls_opts = SSL_OP_CIPHER_SERVER_PREFERENCE | SSL_OP_NO_COMPRESSION | SSL_OP_NO_RENEGOTIATION;
+	if (opts.ktls) {
+		tls_opts |= SSL_OP_ENABLE_KTLS | SSL_OP_ENABLE_KTLS_TX_ZEROCOPY_SENDFILE;
+	}
+	SSL_CTX_set_options(ctx.get(), tls_opts);
+	S const cipher_list{opts.cipher_list.empty() ? kDefaultTls12CipherList : opts.cipher_list};
+	if (SSL_CTX_set_cipher_list(ctx.get(), cipher_list.c_str()) != 1) {
+		throw TlsError{"SSL_CTX_set_cipher_list failed"};
+	}
+	S const ciphersuites{opts.ciphersuites.empty() ? kDefaultTls13Ciphersuites : opts.ciphersuites};
+	if (SSL_CTX_set_ciphersuites(ctx.get(), ciphersuites.c_str()) != 1) {
+		throw TlsError{"SSL_CTX_set_ciphersuites failed"};
+	}
+	SSL_CTX_set_session_cache_mode(ctx.get(), SSL_SESS_CACHE_SERVER);
+	SSL_CTX_set_session_id_context(ctx.get(), kSessionIdContext.data(), kSessionIdContext.size());
+	if (SSL_CTX_use_certificate_chain_file(ctx.get(), S{opts.cert_file}.c_str()) != 1) {
+		throw TlsError{format("TLS: cannot load cert: {}", opts.cert_file)};
+	}
+	if (SSL_CTX_use_PrivateKey_file(ctx.get(), S{opts.key_file}.c_str(), SSL_FILETYPE_PEM) != 1) {
+		throw TlsError{format("TLS: cannot load key: {}", opts.key_file)};
+	}
+	return ctx;
+}
+
+inline S ascii_lower_local(
+	SV s) {
+	S out{s};
+	for (auto &c: out) {
+		if (c >= 'A' && c <= 'Z') {
+			c = static_cast<char>(c + 32);
+		}
+	}
+	return out;
+}
+
+inline int sni_callback(
+	SSL *ssl,
+	int * /*alert*/,
+	void *user_data) {
+	auto const *name = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+	if (name == nullptr) {
+		return SSL_TLSEXT_ERR_OK;
+	}
+	auto &vhosts = *static_cast<UM<S, UniqueSslCtx> *>(user_data);
+	auto const it = vhosts.find(ascii_lower_local(name));
+	if (it != vhosts.end()) {
+		SSL_set_SSL_CTX(ssl, it->second.get());
+	}
+	return SSL_TLSEXT_ERR_OK;
+}
+
+} // namespace tls_detail
+
+// Owns a primary server SSL_CTX plus optional per-SNI vhost contexts.
+// init_openssl_once() must be called before constructing.
+export class TlsServerContext {
+	UniqueSslCtx ctx_;
+	UM<S, UniqueSslCtx> vhost_ctxs_;
+
+public:
+	explicit TlsServerContext(
+		TlsServerOptions const &opts)
+		: ctx_{tls_detail::make_server_ctx(opts)} {}
+
+	void add_vhost(
+		SV hostname,
+		TlsServerOptions const &opts) {
+		vhost_ctxs_.emplace(tls_detail::ascii_lower_local(hostname), tls_detail::make_server_ctx(opts));
+	}
+
+	// Install SNI servername callback dispatching to vhost contexts. No-op if
+	// no vhosts were added. Caller must keep this TlsServerContext alive while
+	// the primary SSL_CTX is in use.
+	void install_sni() {
+		if (vhost_ctxs_.empty()) {
+			return;
+		}
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+		SSL_CTX_set_tlsext_servername_callback(ctx_.get(), tls_detail::sni_callback);
+#pragma GCC diagnostic pop
+		SSL_CTX_set_tlsext_servername_arg(ctx_.get(), &vhost_ctxs_);
+	}
+
+	[[nodiscard]] SSL_CTX *native_handle() const noexcept { return ctx_.get(); }
+	[[nodiscard]] bool has_vhosts() const noexcept { return !vhost_ctxs_.empty(); }
+};
 
 export class TlsContext {
 	UniqueSslCtx ctx_;
