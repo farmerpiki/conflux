@@ -2239,16 +2239,6 @@ class BasicResult {
 	template<work_value U, progress_capability Driver>
 	friend P<BasicResult<U, ControlCategory::operation>, OperationSource<U>>
 	make_operation_source(Driver &, OperationOptions, std::source_location);
-	template<work_value U, ControlCategory C, class Sink>
-	friend void abandon_impl(BasicResult<U, C> &&, Sink &&) noexcept;
-	template<work_value U, ControlCategory C, class Sink>
-	friend void abandon_impl(BasicJoinHandle<U, C> &&, Sink &&) noexcept;
-	template<work_value U>
-	friend Outcome<U> join(BasicResult<U, ControlCategory::task> &&, std::source_location);
-	template<progress_capability Owner, work_value U>
-	friend Outcome<U> join(Owner &, BasicResult<U, ControlCategory::posted> &&, std::source_location);
-	template<progress_capability Driver, work_value U>
-	friend Outcome<U> join(Driver &, BasicResult<U, ControlCategory::operation> &&, std::source_location);
 	friend class BasicJoinHandle<T, Category>;
 	template<class Fn>
 	friend auto spawn(Fn &&, std::source_location) -> std::invoke_result_t<Fn>;
@@ -2296,6 +2286,17 @@ public:
 	// Named std::move alias; lvalue-friendly (R2 #2 v4 fix).
 	[[nodiscard]] BasicResult &&consume() & noexcept { return std::move(*this); }
 	[[nodiscard]] BasicResult &&consume() && noexcept { return std::move(*this); }
+
+	// HACK: GCC 16 module exporter treats `friend abandon_impl(...)` decl + the
+	// namespace-scope decl as two distinct ADL candidates. Public-method indirection
+	// keeps abandon_impl/join as plain non-friend free functions, eliminating the
+	// duplicate. These are detail-level entry points, not part of the user API.
+	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume_for_join() noexcept {
+		return consume(join_state::joined);
+	}
+	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume_for_abandon() noexcept {
+		return consume(join_state::detached);
+	}
 
 	[[nodiscard]] typename control_handle_for<Category>::type control() const noexcept {
 		return typename control_handle_for<Category>::type{state_};
@@ -2468,8 +2469,6 @@ class BasicJoinHandle {
 		return std::move(state_);
 	}
 
-	template<work_value U, ControlCategory C, class Sink>
-	friend void abandon_impl(BasicJoinHandle<U, C> &&, Sink &&) noexcept;
 	template<work_value U, class Sink>
 		requires abandon_sink<Sink, U>
 	friend AbandonStatus try_abandon_to(BasicJoinHandle<U, ControlCategory::task> &&, Sink &&) noexcept;
@@ -2479,12 +2478,6 @@ class BasicJoinHandle {
 	template<work_value U, class Sink>
 		requires abandon_sink<Sink, U>
 	friend AbandonStatus try_abandon_to(BasicJoinHandle<U, ControlCategory::operation> &&, Sink &&) noexcept;
-	template<work_value U>
-	friend Outcome<U> join(BasicJoinHandle<U, ControlCategory::task> &&, std::source_location);
-	template<progress_capability Owner, work_value U>
-	friend Outcome<U> join(Owner &, BasicJoinHandle<U, ControlCategory::posted> &&, std::source_location);
-	template<progress_capability Driver, work_value U>
-	friend Outcome<U> join(Driver &, BasicJoinHandle<U, ControlCategory::operation> &&, std::source_location);
 
 public:
 	using value_type = T;
@@ -2524,6 +2517,10 @@ public:
 	}
 
 	[[nodiscard]] explicit operator bool() const noexcept { return live_; }
+
+	// HACK: see matching note in BasicResult::consume_for_join.
+	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume_for_join() noexcept { return consume(); }
+	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume_for_abandon() noexcept { return consume(); }
 };
 
 template<work_value T>
@@ -2560,7 +2557,7 @@ template<work_value T, ControlCategory Category, class Sink>
 void abandon_impl(
 	BasicResult<T, Category> &&r,
 	Sink &&sink) noexcept {
-	auto state = r.consume(join_state::detached);
+	auto state = r.consume_for_abandon();
 	if (!state) {
 		return; // empty or already-detached/joined — no-op
 	}
@@ -2571,7 +2568,7 @@ template<work_value T, ControlCategory Category, class Sink>
 void abandon_impl(
 	BasicJoinHandle<T, Category> &&h,
 	Sink &&sink) noexcept {
-	auto state = h.consume();
+	auto state = h.consume_for_abandon();
 	if (!state) {
 		std::terminate();
 	}
@@ -2836,7 +2833,7 @@ template<work_value T>
 [[nodiscard]] Outcome<T> join(
 	Task<T> &&task,
 	std::source_location loc = std::source_location::current()) {
-	auto state = task.consume(join_state::joined);
+	auto state = task.consume_for_join();
 	if (!state) [[unlikely]]
 		raise_join_lifetime_violation(loc);
 	return state->wait_and_take_outcome();
@@ -2847,7 +2844,7 @@ template<progress_capability Owner, work_value T>
 	Owner &owner,
 	Posted<T> &&posted,
 	std::source_location loc = std::source_location::current()) {
-	auto state = posted.consume(join_state::joined);
+	auto state = posted.consume_for_join();
 	if (!state) [[unlikely]]
 		raise_join_lifetime_violation(loc);
 	if (!state->can_join_with(capability_id(owner))) [[unlikely]]
@@ -2860,7 +2857,7 @@ template<progress_capability Driver, work_value T>
 	Driver &driver,
 	Operation<T> &&op,
 	std::source_location loc = std::source_location::current()) {
-	auto state = op.consume(join_state::joined);
+	auto state = op.consume_for_join();
 	if (!state) [[unlikely]]
 		raise_join_lifetime_violation(loc);
 	if (!state->can_join_with(capability_id(driver))) [[unlikely]]
@@ -2872,7 +2869,7 @@ template<work_value T>
 [[nodiscard]] Outcome<T> join(
 	TaskJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	auto state = h.consume();
+	auto state = h.consume_for_join();
 	if (!state) [[unlikely]]
 		raise_join_lifetime_violation(loc);
 	return state->wait_and_take_outcome();
@@ -2883,7 +2880,7 @@ template<progress_capability Owner, work_value T>
 	Owner &owner,
 	PostedJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	auto state = h.consume();
+	auto state = h.consume_for_join();
 	if (!state) [[unlikely]]
 		raise_join_lifetime_violation(loc);
 	if (!state->can_join_with(capability_id(owner))) [[unlikely]]
@@ -2896,7 +2893,7 @@ template<progress_capability Driver, work_value T>
 	Driver &driver,
 	OperationJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	auto state = h.consume();
+	auto state = h.consume_for_join();
 	if (!state) [[unlikely]]
 		raise_join_lifetime_violation(loc);
 	if (!state->can_join_with(capability_id(driver))) [[unlikely]]
