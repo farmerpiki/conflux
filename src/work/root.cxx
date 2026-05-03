@@ -2111,15 +2111,20 @@ struct drop_on_abandon {
 		Cancelled const &) const noexcept {}
 };
 
+// HACK: do not give these cold helpers a `source_location loc = current()` default arg.
+// When called from a templated body (e.g. join<T>) instantiated in a consumer TU, GCC 15
+// emits a local `.Lsrc_locN` reference to source_location data that is never defined,
+// producing an undefined-reference link error. Callers must pass loc explicitly — and
+// templated callers must in turn capture it from a non-template default arg of their own.
 [[noreturn]] [[gnu::cold]] [[gnu::noinline]]
 void raise_join_lifetime_violation(
-	std::source_location loc = std::source_location::current()) {
+	std::source_location loc) {
 	throw JoinError{JoinError::reason::lifetime_violation, loc};
 }
 
 [[noreturn]] [[gnu::cold]] [[gnu::noinline]]
 void raise_join_consumed_handle(
-	std::source_location loc = std::source_location::current()) {
+	std::source_location loc) {
 	throw JoinError{JoinError::reason::consumed_handle, loc};
 }
 
@@ -2127,7 +2132,7 @@ void raise_join_consumed_handle(
 void raise_join_capability_mismatch(
 	std::optional<CapabilityId> expected,
 	CapabilityId actual,
-	std::source_location loc = std::source_location::current()) {
+	std::source_location loc) {
 	throw JoinError{JoinError::reason::capability_mismatch, expected, actual, loc};
 }
 
@@ -2136,6 +2141,7 @@ namespace detail {
 template<work_value T>
 struct TaskAwaiter {
 	SP<ControlBlockInterface<T>> state_;
+	std::source_location loc_{};
 
 	[[nodiscard]] bool await_ready() const noexcept { return !state_ || state_->ready(); }
 
@@ -2153,7 +2159,7 @@ struct TaskAwaiter {
 
 	decltype(auto) await_resume() {
 		if (!state_) [[unlikely]]
-			raise_join_consumed_handle();
+			raise_join_consumed_handle(loc_);
 		// Rethrow original exception on Failure (not FailureError wrapper) so
 		// existing catch sites work. E2b.2 migrates to FailureError uniformly.
 		return std::move(state_->wait_and_take_outcome())
@@ -2175,6 +2181,7 @@ struct TaskAwaiter {
 template<work_value T>
 struct OutcomeAwaiter {
 	SP<ControlBlockInterface<T>> state_;
+	std::source_location loc_{};
 
 	[[nodiscard]] bool await_ready() const noexcept { return !state_ || state_->ready(); }
 
@@ -2192,7 +2199,7 @@ struct OutcomeAwaiter {
 
 	Outcome<T> await_resume() {
 		if (!state_) [[unlikely]]
-			raise_join_consumed_handle();
+			raise_join_consumed_handle(loc_);
 		return state_->wait_and_take_outcome();
 	}
 };
@@ -2237,11 +2244,11 @@ class BasicResult {
 	template<work_value U, ControlCategory C, class Sink>
 	friend void abandon_impl(BasicJoinHandle<U, C> &&, Sink &&) noexcept;
 	template<work_value U>
-	friend Outcome<U> join(BasicResult<U, ControlCategory::task> &&);
+	friend Outcome<U> join(BasicResult<U, ControlCategory::task> &&, std::source_location);
 	template<progress_capability Owner, work_value U>
-	friend Outcome<U> join(Owner &, BasicResult<U, ControlCategory::posted> &&);
+	friend Outcome<U> join(Owner &, BasicResult<U, ControlCategory::posted> &&, std::source_location);
 	template<progress_capability Driver, work_value U>
-	friend Outcome<U> join(Driver &, BasicResult<U, ControlCategory::operation> &&);
+	friend Outcome<U> join(Driver &, BasicResult<U, ControlCategory::operation> &&, std::source_location);
 	friend class BasicJoinHandle<T, Category>;
 	template<class Fn>
 	friend auto spawn(Fn &&, std::source_location) -> std::invoke_result_t<Fn>;
@@ -2473,11 +2480,11 @@ class BasicJoinHandle {
 		requires abandon_sink<Sink, U>
 	friend AbandonStatus try_abandon_to(BasicJoinHandle<U, ControlCategory::operation> &&, Sink &&) noexcept;
 	template<work_value U>
-	friend Outcome<U> join(BasicJoinHandle<U, ControlCategory::task> &&);
+	friend Outcome<U> join(BasicJoinHandle<U, ControlCategory::task> &&, std::source_location);
 	template<progress_capability Owner, work_value U>
-	friend Outcome<U> join(Owner &, BasicJoinHandle<U, ControlCategory::posted> &&);
+	friend Outcome<U> join(Owner &, BasicJoinHandle<U, ControlCategory::posted> &&, std::source_location);
 	template<progress_capability Driver, work_value U>
-	friend Outcome<U> join(Driver &, BasicJoinHandle<U, ControlCategory::operation> &&);
+	friend Outcome<U> join(Driver &, BasicJoinHandle<U, ControlCategory::operation> &&, std::source_location);
 
 public:
 	using value_type = T;
@@ -2827,67 +2834,73 @@ template<progress_capability Cap, work_value T>
 
 template<work_value T>
 [[nodiscard]] Outcome<T> join(
-	Task<T> &&task) {
+	Task<T> &&task,
+	std::source_location loc = std::source_location::current()) {
 	auto state = task.consume(join_state::joined);
 	if (!state) [[unlikely]]
-		raise_join_lifetime_violation();
+		raise_join_lifetime_violation(loc);
 	return state->wait_and_take_outcome();
 }
 
 template<progress_capability Owner, work_value T>
 [[nodiscard]] Outcome<T> join(
 	Owner &owner,
-	Posted<T> &&posted) {
+	Posted<T> &&posted,
+	std::source_location loc = std::source_location::current()) {
 	auto state = posted.consume(join_state::joined);
 	if (!state) [[unlikely]]
-		raise_join_lifetime_violation();
+		raise_join_lifetime_violation(loc);
 	if (!state->can_join_with(capability_id(owner))) [[unlikely]]
-		raise_join_capability_mismatch(state->required_capability(), capability_id(owner));
+		raise_join_capability_mismatch(state->required_capability(), capability_id(owner), loc);
 	return state->wait_and_take_outcome();
 }
 
 template<progress_capability Driver, work_value T>
 [[nodiscard]] Outcome<T> join(
 	Driver &driver,
-	Operation<T> &&op) {
+	Operation<T> &&op,
+	std::source_location loc = std::source_location::current()) {
 	auto state = op.consume(join_state::joined);
 	if (!state) [[unlikely]]
-		raise_join_lifetime_violation();
+		raise_join_lifetime_violation(loc);
 	if (!state->can_join_with(capability_id(driver))) [[unlikely]]
-		raise_join_capability_mismatch(state->required_capability(), capability_id(driver));
+		raise_join_capability_mismatch(state->required_capability(), capability_id(driver), loc);
 	return state->wait_and_take_outcome();
 }
 
 template<work_value T>
 [[nodiscard]] Outcome<T> join(
-	TaskJoinHandle<T> &&h) {
+	TaskJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
 	auto state = h.consume();
 	if (!state) [[unlikely]]
-		raise_join_lifetime_violation();
+		raise_join_lifetime_violation(loc);
 	return state->wait_and_take_outcome();
 }
 
 template<progress_capability Owner, work_value T>
 [[nodiscard]] Outcome<T> join(
 	Owner &owner,
-	PostedJoinHandle<T> &&h) {
+	PostedJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
 	auto state = h.consume();
 	if (!state) [[unlikely]]
-		raise_join_lifetime_violation();
+		raise_join_lifetime_violation(loc);
 	if (!state->can_join_with(capability_id(owner))) [[unlikely]]
-		raise_join_capability_mismatch(state->required_capability(), capability_id(owner));
+		raise_join_capability_mismatch(state->required_capability(), capability_id(owner), loc);
 	return state->wait_and_take_outcome();
 }
 
 template<progress_capability Driver, work_value T>
 [[nodiscard]] Outcome<T> join(
 	Driver &driver,
-	OperationJoinHandle<T> &&h) {
+	OperationJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
 	auto state = h.consume();
 	if (!state) [[unlikely]]
-		raise_join_lifetime_violation();
+		raise_join_lifetime_violation(loc);
 	if (!state->can_join_with(capability_id(driver))) [[unlikely]]
-		raise_join_capability_mismatch(state->required_capability(), capability_id(driver));
+		raise_join_capability_mismatch(state->required_capability(), capability_id(driver), loc);
 	return state->wait_and_take_outcome();
 }
 
