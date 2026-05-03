@@ -968,7 +968,12 @@ struct detach_outcome_sink {
 };
 
 class ControlBlockBase {
+	std::source_location spawn_loc_{};
+
 public:
+	void set_spawn_location(std::source_location loc) noexcept { spawn_loc_ = loc; }
+	[[nodiscard]] std::source_location spawn_location() const noexcept { return spawn_loc_; }
+
 	virtual ~ControlBlockBase() = default;
 	virtual bool request_cancel() noexcept = 0;
 	[[nodiscard]] virtual std::stop_token stop_token() const noexcept = 0;
@@ -2164,14 +2169,11 @@ template<work_value T, ControlCategory Category>
 class BasicResult {
 	SP<detail::ControlBlockInterface<T>> state_{};
 	join_state state_js_ = join_state::empty;
-	std::source_location spawn_loc_{};
 
 	explicit BasicResult(
-		SP<detail::ControlBlockInterface<T>> state,
-		std::source_location loc) noexcept
+		SP<detail::ControlBlockInterface<T>> state) noexcept
 		: state_{std::move(state)}
-		, state_js_{state_ ? join_state::joinable : join_state::empty}
-		, spawn_loc_{loc} {}
+		, state_js_{state_ ? join_state::joinable : join_state::empty} {}
 
 	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume(
 		join_state target) noexcept {
@@ -2182,7 +2184,10 @@ class BasicResult {
 		return std::move(state_);
 	}
 
-	void detach_noexcept() noexcept { abandon_impl(std::move(*this), detail::detach_outcome_sink<T>{spawn_loc_}); }
+	void detach_noexcept() noexcept {
+		auto loc = state_ ? state_->spawn_location() : std::source_location{};
+		abandon_impl(std::move(*this), detail::detach_outcome_sink<T>{loc});
+	}
 
 	template<work_value U>
 	friend P<BasicResult<U, ControlCategory::task>, TaskSource<U>>
@@ -2215,14 +2220,14 @@ public:
 	[[nodiscard]] static BasicResult from_state(
 		SP<detail::ControlBlockInterface<T>> state,
 		std::source_location loc = std::source_location::current()) noexcept {
-		return BasicResult{std::move(state), loc};
+		if (state) state->set_spawn_location(loc);
+		return BasicResult{std::move(state)};
 	}
 
 	BasicResult(
 		BasicResult &&other) noexcept
 		: state_{std::move(other.state_)}
-		, state_js_{std::exchange(other.state_js_, join_state::empty)}
-		, spawn_loc_{other.spawn_loc_} {}
+		, state_js_{std::exchange(other.state_js_, join_state::empty)} {}
 
 	BasicResult &operator =(
 		BasicResult &&other) noexcept {
@@ -2232,7 +2237,6 @@ public:
 			}
 			state_ = std::move(other.state_);
 			state_js_ = std::exchange(other.state_js_, join_state::empty);
-			spawn_loc_ = other.spawn_loc_;
 		}
 		return *this;
 	}
@@ -2296,6 +2300,7 @@ using Posted = BasicResult<T, ControlCategory::posted>;
 
 template<work_value T>
 using Operation = BasicResult<T, ControlCategory::operation>;
+
 
 // JoinTask<T> — strict variant: dtor on joinable state calls std::terminate.
 // No combinators (use std::move(jt).detach_to_task() to compose).
@@ -2378,9 +2383,7 @@ template<class Fn>
 	Fn &&fn,
 	std::source_location loc = std::source_location::current()) -> std::invoke_result_t<Fn> {
 	auto task = std::invoke(std::forward<Fn>(fn));
-	// Update the spawn location so the dropped-outcome sink reports the
-	// caller's site, not wherever make_task_source was called inside fn.
-	task.spawn_loc_ = loc;
+	if (task.state_) task.state_->set_spawn_location(loc);
 	return task;
 }
 
