@@ -696,6 +696,17 @@ private:
 
 // ─── thread-local current resolver ──────────────────────────────────────────
 
+namespace dns_local {
+
+struct AddrInfoDeleter {
+	void operator ()(addrinfo *p) const noexcept { ::freeaddrinfo(p); }
+};
+using UniqueAddrInfo = std::unique_ptr<addrinfo, AddrInfoDeleter>;
+
+} // namespace dns_local
+
+using dns_local::UniqueAddrInfo;
+
 namespace {
 
 thread_local Resolver *tls_current_resolver{nullptr};
@@ -1724,17 +1735,18 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				hints.ai_family = AF_UNSPEC;
 				hints.ai_socktype = SOCK_STREAM;
 				hints.ai_flags = AI_ADDRCONFIG;
-				addrinfo *res = nullptr;
+				addrinfo *res_raw = nullptr;
 				string const p = std::to_string(port);
-				int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res);
-				if (gai != 0 || res == nullptr) {
+				int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res_raw);
+				if (gai != 0 || res_raw == nullptr) {
 					(void)shared_src->try_set_exception(
 						std::make_exception_ptr(
 							DnsError{DnsErrorKind::nxdomain, std::format("getaddrinfo: {}", ::gai_strerror(gai))}));
 					return;
 				}
+				UniqueAddrInfo const res{res_raw};
 				ResolveResult result;
-				for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
+				for (auto *rp = res.get(); rp != nullptr; rp = rp->ai_next) {
 					if (rp->ai_family == AF_INET && allow_v4) {
 						Endpoint ep{};
 						ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
@@ -1749,7 +1761,6 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 						result.endpoints.push_back(ep);
 					}
 				}
-				::freeaddrinfo(res);
 				if (result.endpoints.empty()) {
 					(void)shared_src->try_set_exception(
 						std::make_exception_ptr(
@@ -1993,20 +2004,21 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 		hints.ai_family = AF_UNSPEC;
 		hints.ai_socktype = SOCK_STREAM;
 		hints.ai_flags = AI_ADDRCONFIG;
-		addrinfo *res = nullptr;
+		addrinfo *res_raw = nullptr;
 		string const h{host};
 		string const p = std::to_string(port);
 		auto const t0 = std::chrono::steady_clock::now();
-		int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res);
+		int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res_raw);
 		auto const elapsed = std::chrono::steady_clock::now() - t0;
-		if (gai != 0 || res == nullptr) {
+		if (gai != 0 || res_raw == nullptr) {
 			return unexpected{
 				DnsError{DnsErrorKind::nxdomain, std::format("getaddrinfo: {}", ::gai_strerror(gai))}
             };
 		}
+		UniqueAddrInfo const res{res_raw};
 		ResolveResult result;
 		result.elapsed = elapsed;
-		for (auto *rp = res; rp != nullptr; rp = rp->ai_next) {
+		for (auto *rp = res.get(); rp != nullptr; rp = rp->ai_next) {
 			if (rp->ai_family == AF_INET && effective_opts.allow_v4) {
 				Endpoint ep{};
 				ep.addr_len = static_cast<::socklen_t>(rp->ai_addrlen);
@@ -2021,7 +2033,6 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 				result.endpoints.push_back(ep);
 			}
 		}
-		::freeaddrinfo(res);
 		if (result.endpoints.empty()) {
 			return unexpected{
 				DnsError{DnsErrorKind::nxdomain, std::format("no usable addresses for '{}'", host)}

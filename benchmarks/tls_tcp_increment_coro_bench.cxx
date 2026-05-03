@@ -38,6 +38,15 @@ struct Config {
 
 namespace {
 
+struct SslCtxDeleter {
+	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
+};
+struct SslDeleter {
+	void operator ()(SSL *p) const noexcept { SSL_free(p); }
+};
+using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
+using UniqueSsl    = std::unique_ptr<SSL, SslDeleter>;
+
 u64 parse_u64(
 	char const *s) noexcept {
 	SV sv{s};
@@ -138,14 +147,13 @@ void run_server(
 	int one = 1;
 	::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
 
-	SSL *ssl = SSL_new(sctx);
-	if (ssl == nullptr) {
+	UniqueSsl const ssl{SSL_new(sctx)};
+	if (!ssl) {
 		::close(cfd);
 		return;
 	}
-	SSL_set_fd(ssl, cfd);
-	if (SSL_accept(ssl) != 1) {
-		SSL_free(ssl);
+	SSL_set_fd(ssl.get(), cfd);
+	if (SSL_accept(ssl.get()) != 1) {
 		::close(cfd);
 		return;
 	}
@@ -153,7 +161,7 @@ void run_server(
 	A<char, 128> buf{};
 	SZ held = 0;
 	while (!stop.test(memory_order_acquire)) {
-		int got = SSL_read(ssl, buf.data() + held, static_cast<int>(buf.size() - held));
+		int got = SSL_read(ssl.get(), buf.data() + held, static_cast<int>(buf.size() - held));
 		if (got <= 0) {
 			break;
 		}
@@ -181,7 +189,7 @@ void run_server(
 			SZ const out_len = static_cast<SZ>(conv.ptr - out.data()) + 1;
 			SZ sent = 0;
 			while (sent < out_len) {
-				int const w = SSL_write(ssl, out.data() + sent, static_cast<int>(out_len - sent));
+				int const w = SSL_write(ssl.get(), out.data() + sent, static_cast<int>(out_len - sent));
 				if (w <= 0) {
 					goto done;
 				}
@@ -199,8 +207,7 @@ void run_server(
 		}
 	}
 done:
-	SSL_shutdown(ssl);
-	SSL_free(ssl);
+	SSL_shutdown(ssl.get());
 	::close(cfd);
 }
 
@@ -373,19 +380,19 @@ int main(
 
 	auto kc = make_self_signed();
 
-	SSL_CTX *sctx = SSL_CTX_new(TLS_server_method());
-	if (sctx == nullptr) {
+	UniqueSslCtx const sctx{SSL_CTX_new(TLS_server_method())};
+	if (!sctx) {
 		println(cerr, "SSL_CTX_new server failed");
 		return 1;
 	}
-	SSL_CTX_use_certificate(sctx, kc.cert);
-	SSL_CTX_use_PrivateKey(sctx, kc.pkey);
+	SSL_CTX_use_certificate(sctx.get(), kc.cert);
+	SSL_CTX_use_PrivateKey(sctx.get(), kc.pkey);
 
 	for (int which = 0; which < 2; ++which) {
 		u16 port = 0;
 		int const lfd = start_listener(port);
 		atomic_flag server_stop{};
-		thread server{[lfd, sctx, &server_stop] { run_server(lfd, sctx, server_stop); }};
+		thread server{[lfd, sctx_raw = sctx.get(), &server_stop] { run_server(lfd, sctx_raw, server_stop); }};
 
 		int const csock = connect_to(port);
 		::close(lfd);
@@ -396,7 +403,6 @@ int main(
 			server_stop.test_and_set(memory_order_release);
 			server.join();
 			println(cerr, "io_uring_queue_init failed");
-			SSL_CTX_free(sctx);
 			return 1;
 		}
 		CompletionTable ct;
@@ -432,8 +438,6 @@ int main(
 		::shutdown(raw, SHUT_RDWR);
 		server.join();
 	}
-
-	SSL_CTX_free(sctx);
 } catch (exception const &e) {
 	println(cerr, "fatal: {}", e.what());
 	return 1;

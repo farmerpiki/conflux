@@ -96,11 +96,35 @@ struct Http3Stream {
 	bool response_eof{false};
 };
 
+struct Ngtcp2ConnDeleter {
+	void operator ()(ngtcp2_conn *p) const noexcept { ngtcp2_conn_del(p); }
+};
+struct Nghttp3ConnDeleter {
+	void operator ()(nghttp3_conn *p) const noexcept { nghttp3_conn_del(p); }
+};
+struct Ngtcp2OsslCtxDeleter {
+	void operator ()(ngtcp2_crypto_ossl_ctx *p) const noexcept { ngtcp2_crypto_ossl_ctx_del(p); }
+};
+struct Http3SslDeleter {
+	void operator ()(SSL *p) const noexcept {
+		// HACK: app_data points back into Http3Conn — clear before free so any
+		// SSL teardown callback can't follow a dangling pointer.
+		SSL_set_app_data(p, nullptr);
+		SSL_free(p);
+	}
+};
+using UniqueNgtcp2Conn   = std::unique_ptr<ngtcp2_conn, Ngtcp2ConnDeleter>;
+using UniqueNghttp3Conn  = std::unique_ptr<nghttp3_conn, Nghttp3ConnDeleter>;
+using UniqueOsslCtx      = std::unique_ptr<ngtcp2_crypto_ossl_ctx, Ngtcp2OsslCtxDeleter>;
+using UniqueHttp3Ssl     = std::unique_ptr<SSL, Http3SslDeleter>;
+
+// Field declaration order is destruction-order-significant (reverse): h3conn
+// first, then ossl_ctx, ssl, conn — mirrors free_quic_state ordering.
 struct Http3Conn {
-	ngtcp2_conn *conn{nullptr};
-	nghttp3_conn *h3conn{nullptr};
-	SSL *ssl{nullptr};
-	ngtcp2_crypto_ossl_ctx *ossl_ctx{nullptr};
+	UniqueNgtcp2Conn conn{};
+	UniqueHttp3Ssl ssl{};
+	UniqueOsslCtx ossl_ctx{};
+	UniqueNghttp3Conn h3conn{};
 	ngtcp2_crypto_conn_ref conn_ref{};
 	sockaddr_storage remote_addr{};
 	socklen_t remote_addrlen{};
@@ -123,7 +147,7 @@ void unregister_cid_on_listener(Http3Conn *c, A<u8, kCidLen> const &key);
 
 ngtcp2_conn *crypto_conn_ref_get_conn(
 	ngtcp2_crypto_conn_ref *ref) {
-	return static_cast<Http3Conn *>(ref->user_data)->conn;
+	return static_cast<Http3Conn *>(ref->user_data)->conn.get();
 }
 
 void rand_cb(
@@ -180,8 +204,8 @@ int acked_stream_data_offset_cb(
 	void *user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(user_data);
-	if (c->h3conn != nullptr) {
-		(void)nghttp3_conn_add_ack_offset(c->h3conn, stream_id, datalen);
+	if (c->h3conn.get() != nullptr) {
+		(void)nghttp3_conn_add_ack_offset(c->h3conn.get(), stream_id, datalen);
 	}
 	return 0;
 }
@@ -201,8 +225,8 @@ int stream_reset_cb(
 	void *user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(user_data);
-	if (c->h3conn != nullptr) {
-		(void)nghttp3_conn_shutdown_stream_read(c->h3conn, stream_id);
+	if (c->h3conn.get() != nullptr) {
+		(void)nghttp3_conn_shutdown_stream_read(c->h3conn.get(), stream_id);
 	}
 	return 0;
 }
@@ -214,8 +238,8 @@ int stream_stop_sending_cb(
 	void *user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(user_data);
-	if (c->h3conn != nullptr) {
-		(void)nghttp3_conn_shutdown_stream_read(c->h3conn, stream_id);
+	if (c->h3conn.get() != nullptr) {
+		(void)nghttp3_conn_shutdown_stream_read(c->h3conn.get(), stream_id);
 	}
 	return 0;
 }
@@ -236,7 +260,7 @@ int h3_recv_data_cb(
 	}
 	auto &s = *it->second;
 	if (c->max_body_size != 0 && s.body.size() + datalen > c->max_body_size) {
-		ngtcp2_conn_shutdown_stream(c->conn, 0, stream_id, NGHTTP3_H3_REQUEST_REJECTED);
+		ngtcp2_conn_shutdown_stream(c->conn.get(), 0, stream_id, NGHTTP3_H3_REQUEST_REJECTED);
 		return 0;
 	}
 	s.body.append(reinterpret_cast<char const *>(data), datalen);
@@ -341,7 +365,7 @@ int h3_stop_sending_cb(
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
-	(void)ngtcp2_conn_shutdown_stream_read(c->conn, 0, stream_id, app_error_code);
+	(void)ngtcp2_conn_shutdown_stream_read(c->conn.get(), 0, stream_id, app_error_code);
 	return 0;
 }
 
@@ -352,7 +376,7 @@ int h3_reset_stream_cb(
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
-	(void)ngtcp2_conn_shutdown_stream_write(c->conn, 0, stream_id, app_error_code);
+	(void)ngtcp2_conn_shutdown_stream_write(c->conn.get(), 0, stream_id, app_error_code);
 	return 0;
 }
 
@@ -398,16 +422,16 @@ int recv_stream_data_cb(
 	void *user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(user_data);
-	if (c->h3conn == nullptr) {
+	if (c->h3conn.get() == nullptr) {
 		return 0;
 	}
 	int const fin = (flags & NGTCP2_STREAM_DATA_FLAG_FIN) != 0 ? 1 : 0;
-	nghttp3_ssize const n = nghttp3_conn_read_stream(c->h3conn, stream_id, data, datalen, fin);
+	nghttp3_ssize const n = nghttp3_conn_read_stream(c->h3conn.get(), stream_id, data, datalen, fin);
 	if (n < 0) {
 		return NGTCP2_ERR_CALLBACK_FAILURE;
 	}
-	ngtcp2_conn_extend_max_stream_offset(c->conn, stream_id, static_cast<u64>(n));
-	ngtcp2_conn_extend_max_offset(c->conn, static_cast<u64>(n));
+	ngtcp2_conn_extend_max_stream_offset(c->conn.get(), stream_id, static_cast<u64>(n));
+	ngtcp2_conn_extend_max_offset(c->conn.get(), static_cast<u64>(n));
 	return 0;
 }
 
@@ -419,12 +443,12 @@ int stream_close_cb(
 	void *user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(user_data);
-	if (c->h3conn != nullptr) {
+	if (c->h3conn.get() != nullptr) {
 		u64 code = app_error_code;
 		if ((flags & NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET) == 0) {
 			code = NGHTTP3_H3_NO_ERROR;
 		}
-		(void)nghttp3_conn_close_stream(c->h3conn, stream_id, code);
+		(void)nghttp3_conn_close_stream(c->h3conn.get(), stream_id, code);
 	}
 	c->streams.erase(stream_id);
 	return 0;
@@ -447,19 +471,23 @@ int handshake_completed_cb(
 	cbs.acked_stream_data = h3_acked_stream_data_cb;
 	cbs.stop_sending = h3_stop_sending_cb;
 	cbs.reset_stream = h3_reset_stream_cb;
-	if (nghttp3_conn_server_new(&c->h3conn, &cbs, &settings, nullptr, c) != 0) {
-		return NGTCP2_ERR_CALLBACK_FAILURE;
+	{
+		nghttp3_conn *raw{nullptr};
+		if (nghttp3_conn_server_new(&raw, &cbs, &settings, nullptr, c) != 0) {
+			return NGTCP2_ERR_CALLBACK_FAILURE;
+		}
+		c->h3conn.reset(raw);
 	}
 	i64 ctrl_id{};
 	i64 qenc_id{};
 	i64 qdec_id{};
-	if (ngtcp2_conn_open_uni_stream(c->conn, &ctrl_id, nullptr) != 0
-		|| ngtcp2_conn_open_uni_stream(c->conn, &qenc_id, nullptr) != 0
-		|| ngtcp2_conn_open_uni_stream(c->conn, &qdec_id, nullptr) != 0) {
+	if (ngtcp2_conn_open_uni_stream(c->conn.get(), &ctrl_id, nullptr) != 0
+		|| ngtcp2_conn_open_uni_stream(c->conn.get(), &qenc_id, nullptr) != 0
+		|| ngtcp2_conn_open_uni_stream(c->conn.get(), &qdec_id, nullptr) != 0) {
 		return NGTCP2_ERR_CALLBACK_FAILURE;
 	}
-	if (nghttp3_conn_bind_control_stream(c->h3conn, ctrl_id) != 0
-		|| nghttp3_conn_bind_qpack_streams(c->h3conn, qenc_id, qdec_id) != 0) {
+	if (nghttp3_conn_bind_control_stream(c->h3conn.get(), ctrl_id) != 0
+		|| nghttp3_conn_bind_qpack_streams(c->h3conn.get(), qenc_id, qdec_id) != 0) {
 		return NGTCP2_ERR_CALLBACK_FAILURE;
 	}
 	return 0;
@@ -580,7 +608,7 @@ void dispatch_stream(
 	}
 	nghttp3_data_reader dr{};
 	dr.read_data = h3_read_response_body_cb;
-	(void)nghttp3_conn_submit_response(c->h3conn, s.stream_id, nva.data(), nva.size(), &dr);
+	(void)nghttp3_conn_submit_response(c->h3conn.get(), s.stream_id, nva.data(), nva.size(), &dr);
 }
 
 struct CidHash {
@@ -747,7 +775,7 @@ private:
 		u64 const now = now_ns();
 		u64 earliest = UINT64_MAX;
 		for (auto const &[k, c]: conns_) {
-			u64 const exp = ngtcp2_conn_get_expiry(c->conn);
+			u64 const exp = ngtcp2_conn_get_expiry(c->conn.get());
 			if (exp < earliest) {
 				earliest = exp;
 			}
@@ -766,7 +794,7 @@ private:
 	void arm_earliest_timer() {
 		u64 earliest = UINT64_MAX;
 		for (auto const &[k, c]: conns_) {
-			u64 const exp = ngtcp2_conn_get_expiry(c->conn);
+			u64 const exp = ngtcp2_conn_get_expiry(c->conn.get());
 			if (exp < earliest) {
 				earliest = exp;
 			}
@@ -789,8 +817,8 @@ private:
 			if (c->closed || c->closing) {
 				continue;
 			}
-			if (ngtcp2_conn_get_expiry(c->conn) <= now) {
-				if (ngtcp2_conn_handle_expiry(c->conn, now) != 0) {
+			if (ngtcp2_conn_get_expiry(c->conn.get()) <= now) {
+				if (ngtcp2_conn_handle_expiry(c->conn.get(), now) != 0) {
 					c->closing = true;
 				} else {
 					dirty_conns_.insert(c->scid_key);
@@ -872,7 +900,7 @@ private:
 		path.remote.addr = reinterpret_cast<ngtcp2_sockaddr *>(&remote_copy);
 		path.remote.addrlen = remote_len;
 		ngtcp2_pkt_info pi{};
-		int const prv = ngtcp2_conn_read_pkt(c->conn, &path, &pi, pkt, pktlen, now_ns());
+		int const prv = ngtcp2_conn_read_pkt(c->conn.get(), &path, &pi, pkt, pktlen, now_ns());
 		if (prv != 0) {
 			if (prv == NGTCP2_ERR_DRAINING || prv == NGTCP2_ERR_CLOSING || prv == NGTCP2_ERR_DROP_CONN) {
 				c->closing = true;
@@ -1005,42 +1033,43 @@ private:
 		params.original_dcid = hd.dcid;
 		ngtcp2_callbacks cbs{};
 		fill_callbacks(cbs);
-		if (ngtcp2_conn_server_new(
-				&c->conn,
-				&hd.scid,
-				&scid,
-				&path,
-				hd.version,
-				&cbs,
-				&settings,
-				&params,
-				nullptr,
-				c.get())
-			!= 0) {
-			return nullptr;
+		{
+			ngtcp2_conn *raw{nullptr};
+			if (ngtcp2_conn_server_new(
+					&raw,
+					&hd.scid,
+					&scid,
+					&path,
+					hd.version,
+					&cbs,
+					&settings,
+					&params,
+					nullptr,
+					c.get())
+				!= 0) {
+				return nullptr;
+			}
+			c->conn.reset(raw);
 		}
-		c->ssl = SSL_new(ssl_ctx_);
-		if (c->ssl == nullptr) {
-			ngtcp2_conn_del(c->conn);
+		c->ssl.reset(SSL_new(ssl_ctx_));
+		if (!c->ssl.get()) {
 			return nullptr;
 		}
 		c->conn_ref.get_conn = crypto_conn_ref_get_conn;
 		c->conn_ref.user_data = c.get();
-		SSL_set_accept_state(c->ssl);
-		if (ngtcp2_crypto_ossl_ctx_new(&c->ossl_ctx, c->ssl) != 0) {
-			SSL_free(c->ssl);
-			ngtcp2_conn_del(c->conn);
+		SSL_set_accept_state(c->ssl.get());
+		{
+			ngtcp2_crypto_ossl_ctx *raw{nullptr};
+			if (ngtcp2_crypto_ossl_ctx_new(&raw, c->ssl.get()) != 0) {
+				return nullptr;
+			}
+			c->ossl_ctx.reset(raw);
+		}
+		if (ngtcp2_crypto_ossl_configure_server_session(c->ssl.get()) != 0) {
 			return nullptr;
 		}
-		if (ngtcp2_crypto_ossl_configure_server_session(c->ssl) != 0) {
-			ngtcp2_crypto_ossl_ctx_del(c->ossl_ctx);
-			c->ossl_ctx = nullptr;
-			SSL_free(c->ssl);
-			ngtcp2_conn_del(c->conn);
-			return nullptr;
-		}
-		SSL_set_app_data(c->ssl, &c->conn_ref);
-		ngtcp2_conn_set_tls_native_handle(c->conn, c->ossl_ctx);
+		SSL_set_app_data(c->ssl.get(), &c->conn_ref);
+		ngtcp2_conn_set_tls_native_handle(c->conn.get(), c->ossl_ctx.get());
 		auto const key = c->scid_key;
 		auto const client_dcid_key = cid_to_key(hd.dcid.data, hd.dcid.datalen);
 		c->cid_keys.push_back(client_dcid_key);
@@ -1066,8 +1095,8 @@ private:
 			int fin = 0;
 			nghttp3_vec vec[16];
 			nghttp3_ssize sveccnt = 0;
-			if (c->h3conn != nullptr) {
-				sveccnt = nghttp3_conn_writev_stream(c->h3conn, &stream_id, &fin, vec, 16);
+			if (c->h3conn.get() != nullptr) {
+				sveccnt = nghttp3_conn_writev_stream(c->h3conn.get(), &stream_id, &fin, vec, 16);
 				if (sveccnt < 0) {
 					c->closing = true;
 					return;
@@ -1077,7 +1106,7 @@ private:
 			u32 const flags = (sveccnt > 0 ? NGTCP2_WRITE_STREAM_FLAG_MORE : NGTCP2_WRITE_STREAM_FLAG_NONE)
 							| (fin != 0 ? NGTCP2_WRITE_STREAM_FLAG_FIN : 0u);
 			ngtcp2_ssize const nwrite = ngtcp2_conn_writev_stream(
-				c->conn,
+				c->conn.get(),
 				&ps.path,
 				&pi,
 				buf,
@@ -1090,26 +1119,26 @@ private:
 				now_ns());
 			if (nwrite < 0) {
 				if (nwrite == NGTCP2_ERR_WRITE_MORE) {
-					if (c->h3conn != nullptr && ndatalen >= 0) {
-						(void)nghttp3_conn_add_write_offset(c->h3conn, stream_id, static_cast<SZ>(ndatalen));
+					if (c->h3conn.get() != nullptr && ndatalen >= 0) {
+						(void)nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<SZ>(ndatalen));
 					}
 					continue;
 				}
-				if (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED && c->h3conn != nullptr) {
-					nghttp3_conn_block_stream(c->h3conn, stream_id);
+				if (nwrite == NGTCP2_ERR_STREAM_DATA_BLOCKED && c->h3conn.get() != nullptr) {
+					nghttp3_conn_block_stream(c->h3conn.get(), stream_id);
 					continue;
 				}
 				c->closing = true;
 				return;
 			}
 			if (nwrite == 0) {
-				if (ndatalen >= 0 && c->h3conn != nullptr) {
-					(void)nghttp3_conn_add_write_offset(c->h3conn, stream_id, static_cast<SZ>(ndatalen));
+				if (ndatalen >= 0 && c->h3conn.get() != nullptr) {
+					(void)nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<SZ>(ndatalen));
 				}
 				return;
 			}
-			if (ndatalen >= 0 && c->h3conn != nullptr) {
-				(void)nghttp3_conn_add_write_offset(c->h3conn, stream_id, static_cast<SZ>(ndatalen));
+			if (ndatalen >= 0 && c->h3conn.get() != nullptr) {
+				(void)nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<SZ>(ndatalen));
 			}
 			(void)::sendto(
 				udp_fd_,
@@ -1123,7 +1152,7 @@ private:
 
 	void write_immediate_close(
 		Http3Conn *c) {
-		if (c->conn == nullptr || c->closed) {
+		if (c->conn.get() == nullptr || c->closed) {
 			return;
 		}
 		u8 buf[kMaxUdpPayload];
@@ -1133,7 +1162,7 @@ private:
 		ngtcp2_ccerr_default(&ccerr);
 		ngtcp2_pkt_info pi{};
 		ngtcp2_ssize const n =
-			ngtcp2_conn_write_connection_close(c->conn, &ps.path, &pi, buf, sizeof(buf), &ccerr, now_ns());
+			ngtcp2_conn_write_connection_close(c->conn.get(), &ps.path, &pi, buf, sizeof(buf), &ccerr, now_ns());
 		if (n > 0) {
 			(void)::sendto(
 				udp_fd_,
@@ -1148,23 +1177,10 @@ private:
 
 	static void free_quic_state(
 		Http3Conn *c) noexcept {
-		if (c->h3conn != nullptr) {
-			nghttp3_conn_del(c->h3conn);
-			c->h3conn = nullptr;
-		}
-		if (c->ossl_ctx != nullptr) {
-			ngtcp2_crypto_ossl_ctx_del(c->ossl_ctx);
-			c->ossl_ctx = nullptr;
-		}
-		if (c->ssl != nullptr) {
-			SSL_set_app_data(c->ssl, nullptr);
-			SSL_free(c->ssl);
-			c->ssl = nullptr;
-		}
-		if (c->conn != nullptr) {
-			ngtcp2_conn_del(c->conn);
-			c->conn = nullptr;
-		}
+		c->h3conn.reset();
+		c->ossl_ctx.reset();
+		c->ssl.reset();
+		c->conn.reset();
 	}
 
 	void drain_close_all() {

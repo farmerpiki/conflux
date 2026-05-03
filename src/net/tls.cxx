@@ -14,78 +14,62 @@ export struct TlsError : RE {
 	using RE::runtime_error;
 };
 
+struct SslCtxDeleter {
+	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
+};
+struct SslDeleter {
+	void operator ()(SSL *p) const noexcept { SSL_free(p); }
+};
+struct BioDeleter {
+	void operator ()(BIO *p) const noexcept { BIO_free(p); }
+};
+using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
+using UniqueSsl    = std::unique_ptr<SSL, SslDeleter>;
+using UniqueBio    = std::unique_ptr<BIO, BioDeleter>;
+
 export class TlsContext {
-	SSL_CTX *ctx_{nullptr};
+	UniqueSslCtx ctx_;
 
 public:
-	TlsContext() {
-		ctx_ = SSL_CTX_new(TLS_client_method());
-		if (ctx_ == nullptr) {
+	TlsContext()
+		: ctx_{SSL_CTX_new(TLS_client_method())} {
+		if (!ctx_) {
 			throw TlsError{"TlsContext: SSL_CTX_new failed"};
 		}
-		SSL_CTX_set_verify(ctx_, SSL_VERIFY_PEER, nullptr);
-		SSL_CTX_set_default_verify_paths(ctx_);
-	}
-
-	TlsContext(TlsContext const &) = delete;
-	TlsContext &operator =(TlsContext const &) = delete;
-
-	TlsContext(
-		TlsContext &&other) noexcept
-		: ctx_{other.ctx_} {
-		other.ctx_ = nullptr;
-	}
-
-	TlsContext &operator =(
-		TlsContext &&other) noexcept {
-		if (this != &other) {
-			if (ctx_ != nullptr) {
-				SSL_CTX_free(ctx_);
-			}
-			ctx_ = other.ctx_;
-			other.ctx_ = nullptr;
-		}
-		return *this;
-	}
-
-	~TlsContext() {
-		if (ctx_ != nullptr) {
-			SSL_CTX_free(ctx_);
-		}
+		SSL_CTX_set_verify(ctx_.get(), SSL_VERIFY_PEER, nullptr);
+		SSL_CTX_set_default_verify_paths(ctx_.get());
 	}
 
 	void set_verify_peer(
 		bool enable) {
-		SSL_CTX_set_verify(ctx_, enable ? SSL_VERIFY_PEER : SSL_VERIFY_NONE, nullptr);
+		SSL_CTX_set_verify(ctx_.get(), enable ? SSL_VERIFY_PEER : SSL_VERIFY_NONE, nullptr);
 	}
 
-	void disable_verify() { SSL_CTX_set_verify(ctx_, SSL_VERIFY_NONE, nullptr); }
+	void disable_verify() { SSL_CTX_set_verify(ctx_.get(), SSL_VERIFY_NONE, nullptr); }
 
-	bool set_default_verify_paths() { return SSL_CTX_set_default_verify_paths(ctx_) == 1; }
+	bool set_default_verify_paths() { return SSL_CTX_set_default_verify_paths(ctx_.get()) == 1; }
 
 	bool set_min_proto_version(
 		int version) {
-		return SSL_CTX_set_min_proto_version(ctx_, version) == 1;
+		return SSL_CTX_set_min_proto_version(ctx_.get(), version) == 1;
 	}
 
-	[[nodiscard]] SSL_CTX *native_handle() const noexcept { return ctx_; }
+	[[nodiscard]] SSL_CTX *native_handle() const noexcept { return ctx_.get(); }
 };
 
 export class TlsStream {
-	SSL *ssl_{nullptr};
+	UniqueSsl ssl_;
 	int fd_{-1};
 
 public:
 	TlsStream(
 		TlsContext &ctx,
-		int fd) {
-		ssl_ = SSL_new(ctx.native_handle());
-		if (ssl_ == nullptr) {
+		int fd)
+		: ssl_{SSL_new(ctx.native_handle())} {
+		if (!ssl_) {
 			throw TlsError{"TlsStream: SSL_new failed"};
 		}
-		if (SSL_set_fd(ssl_, fd) != 1) {
-			SSL_free(ssl_);
-			ssl_ = nullptr;
+		if (SSL_set_fd(ssl_.get(), fd) != 1) {
 			throw TlsError{"TlsStream: SSL_set_fd failed"};
 		}
 		fd_ = fd;
@@ -93,28 +77,18 @@ public:
 
 	TlsStream(TlsStream const &) = delete;
 	TlsStream &operator =(TlsStream const &) = delete;
-
 	TlsStream(
 		TlsStream &&other) noexcept
-		: ssl_{other.ssl_}
-		, fd_{other.fd_} {
-		other.ssl_ = nullptr;
-		other.fd_ = -1;
-	}
-
+		: ssl_{std::move(other.ssl_)}
+		, fd_{std::exchange(other.fd_, -1)} {}
 	TlsStream &operator =(
 		TlsStream &&other) noexcept {
 		if (this != &other) {
-			close_ssl();
-			ssl_ = other.ssl_;
-			fd_ = other.fd_;
-			other.ssl_ = nullptr;
-			other.fd_ = -1;
+			ssl_ = std::move(other.ssl_);
+			fd_ = std::exchange(other.fd_, -1);
 		}
 		return *this;
 	}
-
-	~TlsStream() { close_ssl(); }
 
 	bool set_server_name(
 		SV sni) {
@@ -124,7 +98,7 @@ public:
 		S const s{sni};
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wold-style-cast"
-		return SSL_set_tlsext_host_name(ssl_, s.c_str()) == 1;
+		return SSL_set_tlsext_host_name(ssl_.get(), s.c_str()) == 1;
 #pragma GCC diagnostic pop
 	}
 
@@ -134,7 +108,7 @@ public:
 			return true;
 		}
 		S const s{host};
-		return SSL_set1_host(ssl_, s.c_str()) == 1;
+		return SSL_set1_host(ssl_.get(), s.c_str()) == 1;
 	}
 
 	// Blocking client handshake. `timeout_sec <= 0` disables timeout.
@@ -144,11 +118,11 @@ public:
 			if (!wait_fd(fd_, POLLIN | POLLOUT, timeout_sec)) {
 				return false;
 			}
-			int const rc = SSL_connect(ssl_);
+			int const rc = SSL_connect(ssl_.get());
 			if (rc == 1) {
 				return true;
 			}
-			int const err = SSL_get_error(ssl_, rc);
+			int const err = SSL_get_error(ssl_.get(), rc);
 			if (err != SSL_ERROR_WANT_READ && err != SSL_ERROR_WANT_WRITE) {
 				return false;
 			}
@@ -164,12 +138,12 @@ public:
 			if (!wait_fd(fd_, POLLOUT, timeout_sec)) {
 				return false;
 			}
-			int const n = SSL_write(ssl_, data.data() + sent, static_cast<int>(data.size() - sent));
+			int const n = SSL_write(ssl_.get(), data.data() + sent, static_cast<int>(data.size() - sent));
 			if (n > 0) {
 				sent += static_cast<SZ>(n);
 				continue;
 			}
-			int const err = SSL_get_error(ssl_, n);
+			int const err = SSL_get_error(ssl_.get(), n);
 			if (err == SSL_ERROR_WANT_READ) {
 				if (!wait_fd(fd_, POLLIN, timeout_sec)) {
 					return false;
@@ -193,12 +167,12 @@ public:
 			if (!wait_fd(fd_, POLLIN, timeout_sec)) {
 				return false;
 			}
-			int const n = SSL_read(ssl_, tmp.data(), static_cast<int>(tmp.size()));
+			int const n = SSL_read(ssl_.get(), tmp.data(), static_cast<int>(tmp.size()));
 			if (n > 0) {
 				out.append(tmp.data(), static_cast<SZ>(n));
 				return true;
 			}
-			int const err = SSL_get_error(ssl_, n);
+			int const err = SSL_get_error(ssl_.get(), n);
 			if (err == SSL_ERROR_WANT_READ) {
 				continue;
 			}
@@ -213,22 +187,14 @@ public:
 	}
 
 	void shutdown_safe() noexcept {
-		if (ssl_ != nullptr) {
-			SSL_shutdown(ssl_);
+		if (ssl_) {
+			SSL_shutdown(ssl_.get());
 		}
 	}
 
-	[[nodiscard]] SSL *native_handle() const noexcept { return ssl_; }
+	[[nodiscard]] SSL *native_handle() const noexcept { return ssl_.get(); }
 
 	[[nodiscard]] int fd() const noexcept { return fd_; }
-
-private:
-	void close_ssl() noexcept {
-		if (ssl_ != nullptr) {
-			SSL_free(ssl_);
-			ssl_ = nullptr;
-		}
-	}
 };
 
 // Async client TLS over a FileReader-driven socket. SSL is attached to memory
@@ -236,9 +202,9 @@ private:
 // Task<T> so both coroutine and callback-style (via Task::flow() + block_on)
 // call sites work.
 export class TlsAsyncStream {
-	SSL *ssl_{nullptr};
-	BIO *rbio_{nullptr}; // SSL reads plaintext-source ciphertext from this
-	BIO *wbio_{nullptr}; // SSL writes outgoing ciphertext into this
+	UniqueSsl ssl_;
+	BIO *rbio_{nullptr}; // owned by ssl_ after SSL_set_bio
+	BIO *wbio_{nullptr}; // owned by ssl_ after SSL_set_bio
 	FileReader *files_{nullptr};
 	FileHandle sock_{};
 	A<std::byte, static_cast<SZ>(16U) * 1024U> scratch_{};
@@ -248,64 +214,44 @@ public:
 		TlsContext &ctx,
 		FileReader &files,
 		FileHandle sock)
-		: files_{&files}
+		: ssl_{SSL_new(ctx.native_handle())}
+		, files_{&files}
 		, sock_{std::move(sock)} {
-		ssl_ = SSL_new(ctx.native_handle());
-		if (ssl_ == nullptr) {
+		if (!ssl_) {
 			throw TlsError{"TlsAsyncStream: SSL_new failed"};
 		}
-		rbio_ = BIO_new(BIO_s_mem());
-		wbio_ = BIO_new(BIO_s_mem());
-		if (rbio_ == nullptr || wbio_ == nullptr) {
-			if (rbio_ != nullptr) {
-				BIO_free(rbio_);
-			}
-			if (wbio_ != nullptr) {
-				BIO_free(wbio_);
-			}
-			SSL_free(ssl_);
-			ssl_ = nullptr;
+		UniqueBio rbio{BIO_new(BIO_s_mem())};
+		UniqueBio wbio{BIO_new(BIO_s_mem())};
+		if (!rbio || !wbio) {
 			throw TlsError{"TlsAsyncStream: BIO_new failed"};
 		}
-		SSL_set_bio(ssl_, rbio_, wbio_); // SSL owns both BIOs
+		rbio_ = rbio.get();
+		wbio_ = wbio.get();
+		SSL_set_bio(ssl_.get(), rbio.release(), wbio.release()); // SSL owns both BIOs
 	}
 
 	TlsAsyncStream(TlsAsyncStream const &) = delete;
 	TlsAsyncStream &operator =(TlsAsyncStream const &) = delete;
-
 	TlsAsyncStream(
 		TlsAsyncStream &&other) noexcept
-		: ssl_{other.ssl_}
-		, rbio_{other.rbio_}
-		, wbio_{other.wbio_}
-		, files_{other.files_}
+		: ssl_{std::move(other.ssl_)}
+		, rbio_{std::exchange(other.rbio_, nullptr)}
+		, wbio_{std::exchange(other.wbio_, nullptr)}
+		, files_{std::exchange(other.files_, nullptr)}
 		, sock_{std::move(other.sock_)}
-		, scratch_{other.scratch_} {
-		other.ssl_ = nullptr;
-		other.rbio_ = nullptr;
-		other.wbio_ = nullptr;
-		other.files_ = nullptr;
-	}
-
+		, scratch_{other.scratch_} {}
 	TlsAsyncStream &operator =(
 		TlsAsyncStream &&other) noexcept {
 		if (this != &other) {
-			close_ssl();
-			ssl_ = other.ssl_;
-			rbio_ = other.rbio_;
-			wbio_ = other.wbio_;
-			files_ = other.files_;
+			ssl_ = std::move(other.ssl_);
+			rbio_ = std::exchange(other.rbio_, nullptr);
+			wbio_ = std::exchange(other.wbio_, nullptr);
+			files_ = std::exchange(other.files_, nullptr);
 			sock_ = std::move(other.sock_);
 			scratch_ = other.scratch_;
-			other.ssl_ = nullptr;
-			other.rbio_ = nullptr;
-			other.wbio_ = nullptr;
-			other.files_ = nullptr;
 		}
 		return *this;
 	}
-
-	~TlsAsyncStream() { close_ssl(); }
 
 	bool set_server_name(
 		SV sni) {
@@ -315,7 +261,7 @@ public:
 		S const s{sni};
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wold-style-cast"
-		return SSL_set_tlsext_host_name(ssl_, s.c_str()) == 1;
+		return SSL_set_tlsext_host_name(ssl_.get(), s.c_str()) == 1;
 #pragma GCC diagnostic pop
 	}
 
@@ -325,18 +271,18 @@ public:
 			return true;
 		}
 		S const s{host};
-		return SSL_set1_host(ssl_, s.c_str()) == 1;
+		return SSL_set1_host(ssl_.get(), s.c_str()) == 1;
 	}
 
 	Task<void> handshake_connect() {
-		SSL_set_connect_state(ssl_);
+		SSL_set_connect_state(ssl_.get());
 		for (;;) {
-			int const rc = SSL_do_handshake(ssl_);
+			int const rc = SSL_do_handshake(ssl_.get());
 			co_await drain_wbio();
 			if (rc == 1) {
 				co_return;
 			}
-			int const err = SSL_get_error(ssl_, rc);
+			int const err = SSL_get_error(ssl_.get(), rc);
 			if (err == SSL_ERROR_WANT_READ) {
 				co_await fill_rbio();
 				continue;
@@ -351,11 +297,11 @@ public:
 	Task<SZ> read_some(
 		std::span<std::byte> dst) {
 		for (;;) {
-			int const n = SSL_read(ssl_, dst.data(), static_cast<int>(dst.size()));
+			int const n = SSL_read(ssl_.get(), dst.data(), static_cast<int>(dst.size()));
 			if (n > 0) {
 				co_return static_cast<SZ>(n);
 			}
-			int const err = SSL_get_error(ssl_, n);
+			int const err = SSL_get_error(ssl_.get(), n);
 			if (err == SSL_ERROR_ZERO_RETURN) {
 				co_return SZ{0};
 			}
@@ -375,13 +321,13 @@ public:
 		std::span<std::byte const> src) {
 		SZ sent = 0;
 		while (sent < src.size()) {
-			int const n = SSL_write(ssl_, src.data() + sent, static_cast<int>(src.size() - sent));
+			int const n = SSL_write(ssl_.get(), src.data() + sent, static_cast<int>(src.size() - sent));
 			if (n > 0) {
 				sent += static_cast<SZ>(n);
 				co_await drain_wbio();
 				continue;
 			}
-			int const err = SSL_get_error(ssl_, n);
+			int const err = SSL_get_error(ssl_.get(), n);
 			if (err == SSL_ERROR_WANT_READ) {
 				co_await fill_rbio();
 				continue;
@@ -394,7 +340,7 @@ public:
 		}
 	}
 
-	[[nodiscard]] SSL *native_handle() const noexcept { return ssl_; }
+	[[nodiscard]] SSL *native_handle() const noexcept { return ssl_.get(); }
 	[[nodiscard]] FileHandle const &handle() const noexcept { return sock_; }
 
 private:
@@ -429,14 +375,5 @@ private:
 			throw TlsError{"TlsAsyncStream: socket EOF"};
 		}
 		BIO_write(rbio_, reinterpret_cast<char const *>(scratch_.data()), static_cast<int>(got));
-	}
-
-	void close_ssl() noexcept {
-		if (ssl_ != nullptr) {
-			SSL_free(ssl_); // also frees owned BIOs
-			ssl_ = nullptr;
-			rbio_ = nullptr;
-			wbio_ = nullptr;
-		}
 	}
 };

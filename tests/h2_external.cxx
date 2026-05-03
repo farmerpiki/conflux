@@ -20,6 +20,15 @@ import conflux.tests.external_support;
 
 namespace {
 
+struct SslCtxDeleter {
+	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
+};
+struct SslDeleter {
+	void operator ()(SSL *p) const noexcept { SSL_free(p); }
+};
+using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
+using UniqueSsl    = std::unique_ptr<SSL, SslDeleter>;
+
 // ---------------------------------------------------------------------------
 // H2Response + H2Client
 // ---------------------------------------------------------------------------
@@ -50,10 +59,10 @@ struct H2Client {
 		u16 port)
 		: ctx_(SSL_CTX_new(TLS_client_method()))
 		, fd_(::socket(AF_INET, SOCK_STREAM, 0)) {
-		SSL_CTX_set_verify(ctx_, SSL_VERIFY_NONE, nullptr);
+		SSL_CTX_set_verify(ctx_.get(), SSL_VERIFY_NONE, nullptr);
 		// Advertise "h2" in ALPN.
 		static constexpr unsigned char kAlpn[] = "\x02h2";
-		SSL_CTX_set_alpn_protos(ctx_, kAlpn, sizeof(kAlpn) - 1);
+		SSL_CTX_set_alpn_protos(ctx_.get(), kAlpn, sizeof(kAlpn) - 1);
 
 		timeval tv{.tv_sec = 5, .tv_usec = 0};
 		::setsockopt(fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -66,21 +75,21 @@ struct H2Client {
 			throw std::runtime_error{"H2Client: connect failed"};
 		}
 
-		ssl_ = SSL_new(ctx_);
-		SSL_set_fd(ssl_, fd_);
+		ssl_.reset(SSL_new(ctx_.get()));
+		SSL_set_fd(ssl_.get(), fd_);
 		SSL_ctrl(
-			ssl_,
+			ssl_.get(),
 			SSL_CTRL_SET_TLSEXT_HOSTNAME,
 			TLSEXT_NAMETYPE_host_name,
 			const_cast<void *>(static_cast<void const *>("localhost")));
-		if (SSL_connect(ssl_) != 1) {
+		if (SSL_connect(ssl_.get()) != 1) {
 			throw std::runtime_error{"H2Client: TLS handshake failed"};
 		}
 
 		// Verify ALPN negotiated "h2".
 		unsigned char const *proto = nullptr;
 		unsigned int proto_len = 0;
-		SSL_get0_alpn_selected(ssl_, &proto, &proto_len);
+		SSL_get0_alpn_selected(ssl_.get(), &proto, &proto_len);
 		if (proto_len != 2 || proto[0] != 'h' || proto[1] != '2') {
 			throw std::runtime_error{"H2Client: server did not negotiate h2"};
 		}
@@ -103,13 +112,11 @@ struct H2Client {
 		if (session_ != nullptr) {
 			nghttp2_session_del(session_);
 		}
-		if (ssl_ != nullptr) {
-			SSL_shutdown(ssl_);
-			SSL_free(ssl_);
+		if (ssl_) {
+			SSL_shutdown(ssl_.get());
+			ssl_.reset();
 		}
-		if (ctx_ != nullptr) {
-			SSL_CTX_free(ctx_);
-		}
+		ctx_.reset();
 		if (fd_ >= 0) {
 			::close(fd_);
 		}
@@ -159,8 +166,8 @@ struct H2Client {
 	M<i32, H2Response> responses_;
 
 private:
-	SSL_CTX *ctx_ = nullptr;
-	SSL *ssl_ = nullptr;
+	UniqueSslCtx ctx_;
+	UniqueSsl ssl_;
 	int fd_ = -1;
 	nghttp2_session *session_ = nullptr;
 	M<i32, UP<ReqBody>> req_bodies_;
@@ -199,7 +206,7 @@ private:
 		nghttp2_session_send(session_);
 
 		A<char, 16384> buf{};
-		int const n = SSL_read(ssl_, buf.data(), static_cast<int>(buf.size()));
+		int const n = SSL_read(ssl_.get(), buf.data(), static_cast<int>(buf.size()));
 		if (n > 0) {
 			nghttp2_session_mem_recv(session_, reinterpret_cast<u8 const *>(buf.data()), static_cast<SZ>(n));
 		}
@@ -223,7 +230,7 @@ private:
 		int /*unused*/,
 		void *ud) {
 		auto *c = static_cast<H2Client *>(ud);
-		int const n = SSL_write(c->ssl_, data, static_cast<int>(length));
+		int const n = SSL_write(c->ssl_.get(), data, static_cast<int>(length));
 		return n > 0 ? static_cast<ssize_t>(n) : static_cast<ssize_t>(NGHTTP2_ERR_CALLBACK_FAILURE);
 	}
 

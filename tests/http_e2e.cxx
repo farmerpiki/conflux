@@ -32,6 +32,15 @@ using conflux::http::HttpClientOptions;
 using conflux::http::HttpErrorKind;
 using conflux::http::HttpTimeouts;
 
+struct SslCtxDeleter {
+	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
+};
+struct SslDeleter {
+	void operator ()(SSL *p) const noexcept { SSL_free(p); }
+};
+using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
+using UniqueSsl    = std::unique_ptr<SSL, SslDeleter>;
+
 // Actual port chosen by the OS; set once in ensure_server().
 u16 g_test_port = 0;
 
@@ -3561,8 +3570,8 @@ void ensure_tls_server() {
 S tls_raw(
 	u16 port,
 	SV raw_request) {
-	SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
-	SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
+	UniqueSslCtx const ctx{SSL_CTX_new(TLS_client_method())};
+	SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, nullptr);
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
@@ -3571,16 +3580,16 @@ S tls_raw(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
 
-	SSL *ssl = SSL_new(ctx);
-	SSL_set_fd(ssl, fd);
-	SSL_connect(ssl);
+	UniqueSsl const ssl{SSL_new(ctx.get())};
+	SSL_set_fd(ssl.get(), fd);
+	SSL_connect(ssl.get());
 
-	SSL_write(ssl, raw_request.data(), static_cast<int>(raw_request.size()));
+	SSL_write(ssl.get(), raw_request.data(), static_cast<int>(raw_request.size()));
 
 	S response;
 	A<char, 4096> buf{};
 	for (;;) {
-		int const n = SSL_read(ssl, buf.data(), static_cast<int>(buf.size()));
+		int const n = SSL_read(ssl.get(), buf.data(), static_cast<int>(buf.size()));
 		if (n <= 0) {
 			break;
 		}
@@ -3602,9 +3611,7 @@ S tls_raw(
 		}
 	}
 
-	SSL_shutdown(ssl);
-	SSL_free(ssl);
-	SSL_CTX_free(ctx);
+	SSL_shutdown(ssl.get());
 	::close(fd);
 	return response;
 }
@@ -3709,8 +3716,8 @@ TEST_CASE(
 TEST_CASE(
 	"TLS: pipelined requests on one connection both succeed") {
 	ensure_tls_server();
-	SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
-	SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
+	UniqueSslCtx const ctx{SSL_CTX_new(TLS_client_method())};
+	SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, nullptr);
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
@@ -3719,22 +3726,22 @@ TEST_CASE(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
-	SSL *ssl = SSL_new(ctx);
-	SSL_set_fd(ssl, fd);
-	REQUIRE(SSL_connect(ssl) == 1);
+	UniqueSsl const ssl{SSL_new(ctx.get())};
+	SSL_set_fd(ssl.get(), fd);
+	REQUIRE(SSL_connect(ssl.get()) == 1);
 
 	// Send two requests back-to-back before reading any response.
 	SV const r1 = "GET /ping HTTP/1.1\r\nHost: localhost\r\n\r\n";
 	SV const r2 = "GET /hello/pipe HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
-	SSL_write(ssl, r1.data(), static_cast<int>(r1.size()));
-	SSL_write(ssl, r2.data(), static_cast<int>(r2.size()));
+	SSL_write(ssl.get(), r1.data(), static_cast<int>(r1.size()));
+	SSL_write(ssl.get(), r2.data(), static_cast<int>(r2.size()));
 
 	// Read first response via Content-Length.
 	auto read_one_tls = [&]() {
 		S resp;
 		A<char, 4096> buf{};
 		while (true) {
-			int const n = SSL_read(ssl, buf.data(), static_cast<int>(buf.size()));
+			int const n = SSL_read(ssl.get(), buf.data(), static_cast<int>(buf.size()));
 			if (n <= 0) {
 				break;
 			}
@@ -3763,9 +3770,7 @@ TEST_CASE(
 	auto resp1 = read_one_tls();
 	auto resp2 = read_one_tls();
 
-	SSL_shutdown(ssl);
-	SSL_free(ssl);
-	SSL_CTX_free(ctx);
+	SSL_shutdown(ssl.get());
 	::close(fd);
 
 	REQUIRE(resp1.starts_with("HTTP/1.1 200 OK"));
@@ -3838,8 +3843,8 @@ TEST_CASE(
 	::unlink(cert_tmp);
 	::unlink(key_tmp);
 
-	SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
-	SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, nullptr);
+	UniqueSslCtx const ctx{SSL_CTX_new(TLS_client_method())};
+	SSL_CTX_set_verify(ctx.get(), SSL_VERIFY_NONE, nullptr);
 
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
@@ -3849,9 +3854,9 @@ TEST_CASE(
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
 
-	SSL *ssl = SSL_new(ctx);
-	SSL_set_fd(ssl, fd);
-	REQUIRE(SSL_connect(ssl) == 1);
+	UniqueSsl const ssl{SSL_new(ctx.get())};
+	SSL_set_fd(ssl.get(), fd);
+	REQUIRE(SSL_connect(ssl.get()) == 1);
 
 	// Send a valid WebSocket upgrade request.
 	SV const upgrade =
@@ -3861,13 +3866,13 @@ TEST_CASE(
 		"Connection: Upgrade\r\n"
 		"Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n"
 		"Sec-WebSocket-Version: 13\r\n\r\n";
-	REQUIRE(SSL_write(ssl, upgrade.data(), static_cast<int>(upgrade.size())) > 0);
+	REQUIRE(SSL_write(ssl.get(), upgrade.data(), static_cast<int>(upgrade.size())) > 0);
 
 	// Read until we have the 101 response (no Content-Length; ends at \r\n\r\n).
 	S resp;
 	A<char, 4096> buf{};
 	for (;;) {
-		int const n = SSL_read(ssl, buf.data(), static_cast<int>(buf.size()));
+		int const n = SSL_read(ssl.get(), buf.data(), static_cast<int>(buf.size()));
 		if (n <= 0) {
 			break;
 		}
@@ -3894,11 +3899,11 @@ TEST_CASE(
 	for (SZ i = 0; i < payload.size(); ++i) {
 		frame_buf[6 + i] = static_cast<u8>(payload[i]) ^ mask_key[i & 3];
 	}
-	REQUIRE(SSL_write(ssl, frame_buf.data(), static_cast<int>(frame_buf.size())) > 0);
+	REQUIRE(SSL_write(ssl.get(), frame_buf.data(), static_cast<int>(frame_buf.size())) > 0);
 
 	// Read the server's echo frame (unmasked text, FIN=1, opcode=1).
 	A<char, 32> echo_buf{};
-	int const n = SSL_read(ssl, echo_buf.data(), static_cast<int>(echo_buf.size()));
+	int const n = SSL_read(ssl.get(), echo_buf.data(), static_cast<int>(echo_buf.size()));
 	REQUIRE(n >= 7); // 2 hdr + 5 payload
 	REQUIRE((static_cast<u8>(echo_buf[0]) & 0x8FU) == 0x81U); // FIN + Text
 	REQUIRE(static_cast<u8>(echo_buf[1]) == 5); // unmasked, len=5
@@ -3914,19 +3919,17 @@ TEST_CASE(
 	close_frame[5] = 0x44; // mask
 	close_frame[6] = static_cast<u8>(0x03U ^ 0x11U); // 1000 >> 8 XOR mask[0]
 	close_frame[7] = static_cast<u8>(0xE8U ^ 0x22U); // 1000 & 0xFF XOR mask[1]
-	SSL_write(ssl, close_frame.data(), static_cast<int>(close_frame.size()));
+	SSL_write(ssl.get(), close_frame.data(), static_cast<int>(close_frame.size()));
 
 	// Drain until EOF (server echoes Close frame and then shuts down).
 	for (int i = 0; i < 10; ++i) {
 		char drain[64]{};
-		int const dr = SSL_read(ssl, drain, sizeof(drain));
+		int const dr = SSL_read(ssl.get(), drain, sizeof(drain));
 		if (dr <= 0) {
 			break;
 		}
 	}
 
-	SSL_free(ssl);
-	SSL_CTX_free(ctx);
 	::close(fd);
 
 	srv.stop();

@@ -44,6 +44,19 @@ import conflux.net.http3;
 #endif
 
 #if CONFLUX_HAS_TLS
+namespace http_server_local {
+struct SslCtxDeleter {
+	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
+};
+struct SslDeleter {
+	void operator ()(SSL *p) const noexcept { SSL_free(p); }
+};
+using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
+using UniqueSsl    = std::unique_ptr<SSL, SslDeleter>;
+} // namespace http_server_local
+
+using http_server_local::UniqueSsl;
+using http_server_local::UniqueSslCtx;
 namespace {
 
 void init_openssl_once() {
@@ -74,6 +87,7 @@ constexpr SV kDefaultTls13Ciphersuites =
 // Session id context: 1-byte tag unique to this build; SSL_CTX requires a
 // non-empty id to enable server-side session cache.
 constexpr A<unsigned char, 8> kSessionIdContext{'c', 'o', 'n', 'f', 'l', 'u', 'x', '1'};
+
 
 void configure_tls_ctx(
 	SSL_CTX *ctx,
@@ -264,7 +278,7 @@ struct alignas(
 	bool is_tls = false; // set after first-byte sniff; used by dispatch_request
 #if CONFLUX_HAS_TLS
 	// TLS state (null → plaintext connection)
-	SSL *ssl = nullptr;
+	UniqueSsl ssl;
 	S tls_send_buf{}; // encrypted bytes waiting to be sent via io_uring
 	SZ tls_send_off{}; // bytes of tls_send_buf already sent
 	S tls_recv_buf{}; // unconsumed ciphertext; rbio (BIO_new_mem_buf) points here
@@ -666,7 +680,7 @@ struct Ring {
 		WsHandoffState state{};
 		S initial_buf{};
 #if CONFLUX_HAS_TLS
-		SSL *ssl{nullptr};
+		UniqueSsl ssl{};
 #endif
 	};
 
@@ -819,7 +833,7 @@ struct Ring {
 		Conn &conn) {
 		A<char, 4096> buf{};
 		int n{};
-		while ((n = BIO_read(SSL_get_wbio(conn.ssl), buf.data(), static_cast<int>(buf.size()))) > 0) {
+		while ((n = BIO_read(SSL_get_wbio(conn.ssl.get()), buf.data(), static_cast<int>(buf.size()))) > 0) {
 			conn.tls_send_buf.append(buf.data(), static_cast<SZ>(n));
 		}
 	}
@@ -1191,7 +1205,7 @@ struct Ring {
 		if (conn.h2_pending_send.empty() || conn.send_queued) {
 			return;
 		}
-		SSL_write(conn.ssl, conn.h2_pending_send.data(), static_cast<int>(conn.h2_pending_send.size()));
+		SSL_write(conn.ssl.get(), conn.h2_pending_send.data(), static_cast<int>(conn.h2_pending_send.size()));
 		conn.h2_pending_send.clear();
 		tls_flush_wbio(conn);
 		if (!conn.tls_send_buf.empty()) {
@@ -1431,8 +1445,7 @@ struct Ring {
 		conn.is_tls = false;
 #if CONFLUX_HAS_TLS
 		if (conn.ssl != nullptr) {
-			SSL_free(conn.ssl); // frees both BIOs attached to conn.ssl
-			conn.ssl = nullptr;
+			conn.ssl.reset();
 		}
 		conn.tls_send_buf.clear();
 		conn.tls_send_off = 0;
@@ -1693,7 +1706,7 @@ struct Ring {
 			return;
 		}
 		auto view = buf.view().subspan(0, bytes);
-		auto const w = SSL_write(conn.ssl, view.data(), static_cast<int>(view.size()));
+		auto const w = SSL_write(conn.ssl.get(), view.data(), static_cast<int>(view.size()));
 		if (w <= 0) {
 			conn.streamed_file.reset();
 			queue_close(fd);
@@ -1769,7 +1782,7 @@ struct Ring {
 				return;
 			}
 			auto const &resp = *conn.response_ptr;
-			SSL_write(conn.ssl, resp.data(), static_cast<int>(resp.size()));
+			SSL_write(conn.ssl.get(), resp.data(), static_cast<int>(resp.size()));
 			tls_flush_wbio(conn);
 			conn.tls_sending_response = true;
 			tls_queue_send(conn);
@@ -2024,8 +2037,7 @@ struct Ring {
 #if CONFLUX_HAS_TLS
 			// Free any SSL left by a prior tenant on this fd slot.
 			if (conn.ssl != nullptr) {
-				SSL_free(conn.ssl);
-				conn.ssl = nullptr;
+				conn.ssl.reset();
 			}
 			conn.tls_send_buf.clear();
 			conn.tls_send_off = 0;
@@ -2256,12 +2268,12 @@ struct Ring {
 		int fd,
 		SSL *ssl,
 		S initial_buf) {
-		if (!pool.enqueue([state = move(state), fd, ssl, ibuf = move(initial_buf)]() mutable {
-				WsConn ws{fd, ssl, move(ibuf)};
+		UniqueSsl owned{ssl};
+		if (!pool.enqueue([state = move(state), fd, ssl_owned = std::move(owned), ibuf = move(initial_buf)]() mutable {
+				WsConn ws{fd, ssl_owned.release(), move(ibuf)};
 				state.upgrade->handler(state.request, ws);
 				::close(fd);
 			})) {
-			SSL_free(ssl);
 			::close(fd);
 		}
 	}
@@ -2279,12 +2291,11 @@ struct Ring {
 		conn.request_bytes = 0;
 
 		S initial_buf = move(conn.partial);
-		SSL *orig_ssl = conn.ssl;
-		conn.ssl = nullptr; // transfer ownership to the thread
+		auto orig_ssl = std::move(conn.ssl); // transfer ownership to the thread
 		bool const cancel_recv = conn.recv_armed;
 		auto state = begin_ws_handoff(conn);
 		if (!state.pool) {
-			SSL_free(orig_ssl);
+			orig_ssl.reset();
 			if (fixed_files) {
 				if (auto *sqe = get_sqe(); sqe != nullptr) {
 					io_uring_prep_close_direct(sqe, static_cast<unsigned>(fd));
@@ -2295,7 +2306,7 @@ struct Ring {
 			}
 			return;
 		}
-		auto entry = WsInstallEntry{move(state), move(initial_buf), orig_ssl};
+		auto entry = WsInstallEntry{move(state), move(initial_buf), std::move(orig_ssl)};
 		if (cancel_recv) {
 			queue_ws_cancel(fd, move(entry));
 			return;
@@ -2322,20 +2333,20 @@ struct Ring {
 		int fd,
 		WsInstallEntry entry) {
 		if (fixed_files) {
-			queue_ws_fixed_install(fd, move(entry.state), move(entry.initial_buf), entry.ssl);
+			queue_ws_fixed_install(fd, move(entry.state), move(entry.initial_buf), entry.ssl.release());
 			return;
 		}
 		// Replace memory BIOs with a socket BIO and make fd blocking.
 		// TRICKS.md #2 says "DO NOT call SSL_set_fd" for the io_uring path.
 		// Here we're exiting that path — blocking I/O is correct for the WS thread.
-		SSL_set_fd(entry.ssl, fd); // replaces memory BIOs with socket BIOs
+		SSL_set_fd(entry.ssl.get(), fd); // replaces memory BIOs with socket BIOs
 		if (!make_blocking_fd(fd)) {
-			SSL_free(entry.ssl);
+			entry.ssl.reset();
 			::close(fd);
 			return;
 		}
 		auto &pool = *entry.state.pool;
-		launch_tls_ws_handler(pool, move(entry.state), fd, entry.ssl, move(entry.initial_buf));
+		launch_tls_ws_handler(pool, move(entry.state), fd, entry.ssl.release(), move(entry.initial_buf));
 	}
 #endif
 
@@ -2395,7 +2406,7 @@ struct Ring {
 				move(initial_buf)
 #if CONFLUX_HAS_TLS
 					,
-				ssl
+				UniqueSsl{ssl}
 #endif
 			});
 		io_uring_prep_fixed_fd_install(sqe, slot_fd, 0);
@@ -2434,24 +2445,19 @@ struct Ring {
 			if (real_fd >= 0) {
 				::close(real_fd);
 			}
-#if CONFLUX_HAS_TLS
-			if (entry.ssl != nullptr) {
-				SSL_free(entry.ssl);
-			}
-#endif
 			return;
 		}
 
 #if CONFLUX_HAS_TLS
-		if (entry.ssl != nullptr) {
-			SSL_set_fd(entry.ssl, real_fd);
+		if (entry.ssl) {
+			SSL_set_fd(entry.ssl.get(), real_fd);
 			if (!make_blocking_fd(real_fd)) {
-				SSL_free(entry.ssl);
+				entry.ssl.reset();
 				::close(real_fd);
 				return;
 			}
 			auto &pool = *entry.state.pool;
-			launch_tls_ws_handler(pool, move(entry.state), real_fd, entry.ssl, move(entry.initial_buf));
+			launch_tls_ws_handler(pool, move(entry.state), real_fd, entry.ssl.release(), move(entry.initial_buf));
 			return;
 		}
 #endif
@@ -2848,11 +2854,11 @@ struct Ring {
 #if CONFLUX_HAS_TLS
 			// Protocol sniff: ssl==nullptr && tls_hs_done==true is the "undecided" sentinel
 			// (set in handle_accept when ssl_ctx!=nullptr). Decide on the very first byte.
-			if (conn.ssl == nullptr && conn.tls_hs_done && !conn.partial.empty()) {
+			if (!conn.ssl && conn.tls_hs_done && !conn.partial.empty()) {
 				if (static_cast<unsigned char>(conn.partial[0]) == 0x16U) {
 					// TLS ClientHello record type — create SSL and start handshake.
-					conn.ssl = SSL_new(ssl_ctx);
-					if (conn.ssl != nullptr) {
+					conn.ssl.reset(SSL_new(ssl_ctx));
+					if (conn.ssl) {
 						BIO *rbio = BIO_new_mem_buf("", 0);
 						if (rbio != nullptr) {
 							BIO_set_mem_eof_return(rbio, -1);
@@ -2865,13 +2871,12 @@ struct Ring {
 							if (wbio != nullptr) {
 								BIO_free(wbio);
 							}
-							SSL_free(conn.ssl);
-							conn.ssl = nullptr;
+							conn.ssl.reset();
 							queue_close(conn.fd);
 							continue;
 						}
-						SSL_set_bio(conn.ssl, rbio, wbio);
-						SSL_set_accept_state(conn.ssl);
+						SSL_set_bio(conn.ssl.get(), rbio, wbio);
+						SSL_set_accept_state(conn.ssl.get());
 					} else {
 						queue_close(conn.fd);
 						continue;
@@ -2911,7 +2916,7 @@ struct Ring {
 			BIO *const fresh = BIO_new_mem_buf(conn.tls_recv_buf.data(), static_cast<int>(recv_len_before));
 			if (fresh != nullptr) {
 				BIO_set_mem_eof_return(fresh, -1);
-				SSL_set0_rbio(conn.ssl, fresh);
+				SSL_set0_rbio(conn.ssl.get(), fresh);
 			}
 		}
 
@@ -2919,7 +2924,7 @@ struct Ring {
 			if (recv_len_before == 0) {
 				return;
 			}
-			BIO *const rbio = SSL_get_rbio(conn.ssl);
+			BIO *const rbio = SSL_get_rbio(conn.ssl.get());
 			long const remaining = rbio != nullptr ? BIO_pending(rbio) : 0;
 			if (remaining >= 0 && static_cast<SZ>(remaining) <= recv_len_before) {
 				SZ const consumed = recv_len_before - static_cast<SZ>(remaining);
@@ -2935,22 +2940,22 @@ struct Ring {
 					BIO_new_mem_buf(conn.tls_recv_buf.data(), static_cast<int>(conn.tls_recv_buf.size()));
 			if (refreshed != nullptr) {
 				BIO_set_mem_eof_return(refreshed, -1);
-				SSL_set0_rbio(conn.ssl, refreshed);
+				SSL_set0_rbio(conn.ssl.get(), refreshed);
 			}
 		};
 
 		// Drive the handshake until it completes or needs more data.
 		if (!conn.tls_hs_done) {
-			int const r = SSL_do_handshake(conn.ssl);
+			int const r = SSL_do_handshake(conn.ssl.get());
 			tls_flush_wbio(conn);
 			if (r == 1) {
 				conn.tls_hs_done = true;
-				conn.ktls_send = (BIO_get_ktls_send(SSL_get_wbio(conn.ssl)) != 0);
+				conn.ktls_send = (BIO_get_ktls_send(SSL_get_wbio(conn.ssl.get())) != 0);
 	#if CONFLUX_HAS_HTTP2
-				conn.is_h2 = http2_negotiated(conn.ssl);
+				conn.is_h2 = http2_negotiated(conn.ssl.get());
 	#endif
 			} else {
-				int const err = SSL_get_error(conn.ssl, r);
+				int const err = SSL_get_error(conn.ssl.get(), r);
 				if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
 					if (!conn.tls_send_buf.empty() && !conn.send_queued) {
 						conn.send_queued = true;
@@ -2971,10 +2976,10 @@ struct Ring {
 		// Handshake done — decrypt application data into partial.
 		A<char, BUF_SIZE> plain{};
 		int n{};
-		while ((n = SSL_read(conn.ssl, plain.data(), static_cast<int>(plain.size()))) > 0) {
+		while ((n = SSL_read(conn.ssl.get(), plain.data(), static_cast<int>(plain.size()))) > 0) {
 			conn.partial.append(plain.data(), static_cast<SZ>(n));
 		}
-		int const ssl_err = SSL_get_error(conn.ssl, n);
+		int const ssl_err = SSL_get_error(conn.ssl.get(), n);
 		if (ssl_err == SSL_ERROR_ZERO_RETURN || (ssl_err != SSL_ERROR_WANT_READ && ssl_err != SSL_ERROR_NONE)) {
 			if (!conn.send_queued) {
 				queue_close(conn.fd);
@@ -3594,10 +3599,10 @@ int sni_callback(
 	if (name == nullptr) {
 		return SSL_TLSEXT_ERR_OK;
 	}
-	auto &vhosts = *static_cast<UM<S, SSL_CTX *> *>(user_data);
+	auto &vhosts = *static_cast<UM<S, UniqueSslCtx> *>(user_data);
 	auto const it = vhosts.find(ascii_lower(name));
 	if (it != vhosts.end()) {
-		SSL_set_SSL_CTX(ssl, it->second);
+		SSL_set_SSL_CTX(ssl, it->second.get());
 	}
 	return SSL_TLSEXT_ERR_OK;
 }
@@ -3623,8 +3628,8 @@ export class HttpServer {
 		// here for the wq_fd before calling io_uring_queue_init_params. -2 = unset.
 		Atom<int> wq_ring_fd_{-2};
 #if CONFLUX_HAS_TLS
-		SSL_CTX *ssl_ctx = nullptr; // owned; shared (read-only) across rings
-		UM<S, SSL_CTX *> vhost_ctxs; // owned
+		UniqueSslCtx ssl_ctx; // owned; shared (read-only) across rings
+		UM<S, UniqueSslCtx> vhost_ctxs; // owned
 #endif
 #if CONFLUX_HAS_HTTP3
 		mutex http3_mu;
@@ -3644,68 +3649,43 @@ export class HttpServer {
 		// TLS setup: create SSL_CTX if cert and key are provided.
 		if (!cfg.cert_file.empty() && !cfg.key_file.empty()) {
 			init_openssl_once();
-			SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
-			if (ctx == nullptr) {
+			UniqueSslCtx ctx{SSL_CTX_new(TLS_server_method())};
+			if (!ctx) {
 				throw RE{"SSL_CTX_new failed"};
 			}
-			try {
-				configure_tls_ctx(ctx, cfg);
-			} catch (...) {
-				SSL_CTX_free(ctx);
-				throw;
-			}
-			if (SSL_CTX_use_certificate_chain_file(ctx, cfg.cert_file.c_str()) != 1) {
-				SSL_CTX_free(ctx);
+			configure_tls_ctx(ctx.get(), cfg);
+			if (SSL_CTX_use_certificate_chain_file(ctx.get(), cfg.cert_file.c_str()) != 1) {
 				throw RE{format("TLS: cannot load cert: {}", cfg.cert_file)};
 			}
-			if (SSL_CTX_use_PrivateKey_file(ctx, cfg.key_file.c_str(), SSL_FILETYPE_PEM) != 1) {
-				SSL_CTX_free(ctx);
+			if (SSL_CTX_use_PrivateKey_file(ctx.get(), cfg.key_file.c_str(), SSL_FILETYPE_PEM) != 1) {
 				throw RE{format("TLS: cannot load key: {}", cfg.key_file)};
 			}
 	#if CONFLUX_HAS_HTTP3
 			if (cfg.http3.enabled) {
-				http3_configure_alpn(ctx); // prefer h3, then h2, then http/1.1
+				http3_configure_alpn(ctx.get()); // prefer h3, then h2, then http/1.1
 			}
 		#if CONFLUX_HAS_HTTP2
 			else {
-				http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
+				http2_configure_alpn(ctx.get()); // prefer h2, fall back to http/1.1
 			}
 		#endif
 	#elif CONFLUX_HAS_HTTP2
-			http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
+			http2_configure_alpn(ctx.get()); // prefer h2, fall back to http/1.1
 	#endif
-			impl_->ssl_ctx = ctx;
+			impl_->ssl_ctx = std::move(ctx);
 
 			// Load per-hostname SSL_CTX for SNI virtual hosts.
 			for (auto const &vh: cfg.virtual_hosts) {
-				SSL_CTX *vctx = SSL_CTX_new(TLS_server_method());
-				if (vctx == nullptr) {
-					SSL_CTX_free(ctx);
-					for (auto &[h, c]: impl_->vhost_ctxs) {
-						SSL_CTX_free(c);
-					}
+				UniqueSslCtx vctx{SSL_CTX_new(TLS_server_method())};
+				if (!vctx) {
 					throw RE{"SSL_CTX_new failed (vhost)"};
 				}
-				try {
-					configure_tls_ctx(vctx, cfg);
-				} catch (...) {
-					SSL_CTX_free(vctx);
-					SSL_CTX_free(ctx);
-					for (auto &[h, c]: impl_->vhost_ctxs) {
-						SSL_CTX_free(c);
-					}
-					throw;
-				}
-				if (SSL_CTX_use_certificate_chain_file(vctx, vh.cert_file.c_str()) != 1
-					|| SSL_CTX_use_PrivateKey_file(vctx, vh.key_file.c_str(), SSL_FILETYPE_PEM) != 1) {
-					SSL_CTX_free(vctx);
-					SSL_CTX_free(ctx);
-					for (auto &[h, c]: impl_->vhost_ctxs) {
-						SSL_CTX_free(c);
-					}
+				configure_tls_ctx(vctx.get(), cfg);
+				if (SSL_CTX_use_certificate_chain_file(vctx.get(), vh.cert_file.c_str()) != 1
+					|| SSL_CTX_use_PrivateKey_file(vctx.get(), vh.key_file.c_str(), SSL_FILETYPE_PEM) != 1) {
 					throw RE{format("TLS: cannot load vhost cert/key: {}", vh.hostname)};
 				}
-				impl_->vhost_ctxs.emplace(ascii_lower(vh.hostname), vctx);
+				impl_->vhost_ctxs.emplace(ascii_lower(vh.hostname), std::move(vctx));
 			}
 
 			// Register SNI callback on the primary SSL_CTX (shared across rings).
@@ -3713,9 +3693,9 @@ export class HttpServer {
 			if (!impl_->vhost_ctxs.empty()) {
 	#pragma GCC diagnostic push
 	#pragma GCC diagnostic ignored "-Wold-style-cast"
-				SSL_CTX_set_tlsext_servername_callback(impl_->ssl_ctx, sni_callback);
+				SSL_CTX_set_tlsext_servername_callback(impl_->ssl_ctx.get(), sni_callback);
 	#pragma GCC diagnostic pop
-				SSL_CTX_set_tlsext_servername_arg(impl_->ssl_ctx, &impl_->vhost_ctxs);
+				SSL_CTX_set_tlsext_servername_arg(impl_->ssl_ctx.get(), &impl_->vhost_ctxs);
 			}
 		}
 #endif // CONFLUX_HAS_TLS
@@ -3726,11 +3706,6 @@ export class HttpServer {
 			impl_->ring_vec.emplace_back(make_unique<Ring>());
 			int const efd = ::eventfd(0, EFD_CLOEXEC);
 			if (efd < 0) {
-#if CONFLUX_HAS_TLS
-				if (impl_->ssl_ctx != nullptr) {
-					SSL_CTX_free(impl_->ssl_ctx);
-				}
-#endif
 				throw SE{errno, system_category(), "eventfd (shutdown)"};
 			}
 			impl_->shutdown_efds.push_back(efd);
@@ -3760,14 +3735,6 @@ public:
 			for (int const efd: impl_->shutdown_efds) {
 				::close(efd);
 			}
-#if CONFLUX_HAS_TLS
-			if (impl_->ssl_ctx != nullptr) {
-				SSL_CTX_free(impl_->ssl_ctx);
-			}
-			for (auto &[h, ctx]: impl_->vhost_ctxs) {
-				SSL_CTX_free(ctx);
-			}
-#endif
 		}
 	}
 
@@ -3817,7 +3784,7 @@ public:
 					r.file_io_slab_bytes = impl_->cfg.fixed_buffer_bytes;
 					r.file_io_pipe_pairs = impl_->cfg.splice_pipe_pairs;
 #if CONFLUX_HAS_TLS
-					r.ssl_ctx = impl_->ssl_ctx;
+					r.ssl_ctx = impl_->ssl_ctx.get();
 					// vhost_ctxs on Ring is informational only; SNI callback is already
 					// registered on the primary SSL_CTX in the constructor.
 #endif
@@ -3884,13 +3851,13 @@ public:
 		}
 
 #if CONFLUX_HAS_HTTP3
-		if (impl_->cfg.http3.enabled && impl_->ssl_ctx != nullptr && !impl_->use_vhost) {
+		if (impl_->cfg.http3.enabled && impl_->ssl_ctx && !impl_->use_vhost) {
 			u16 const h3_port = port();
 			auto listener = make_unique<Http3Listener>(
 				impl_->use_vhost ? nullptr : &impl_->router,
 				impl_->cfg.http3,
 				h3_port,
-				impl_->ssl_ctx);
+				impl_->ssl_ctx.get());
 			listener->start();
 			{
 				SL const lk{impl_->http3_mu};

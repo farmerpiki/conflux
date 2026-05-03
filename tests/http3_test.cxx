@@ -17,6 +17,11 @@ import conflux.tests.support;
 #if CONFLUX_HAS_HTTP3
 namespace {
 
+struct SslCtxDeleter {
+	void operator ()(SSL_CTX *p) const noexcept { SSL_CTX_free(p); }
+};
+using UniqueSslCtx = std::unique_ptr<SSL_CTX, SslCtxDeleter>;
+
 struct TempCert {
 	S cert_path;
 	S key_path;
@@ -70,18 +75,12 @@ TEST_CASE(
 	router.get("/", [](HttpRequestView const &) { return HttpResponse::text("hi"); });
 	Http3Config cfg{};
 	cfg.enabled = true;
-	SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
-	REQUIRE(ctx != nullptr);
-	try {
-		Http3Listener listener(&router, cfg, 0, ctx);
-		listener.start();
-		std::this_thread::sleep_for(std::chrono::milliseconds(20));
-		listener.stop();
-	} catch (...) {
-		SSL_CTX_free(ctx);
-		throw;
-	}
-	SSL_CTX_free(ctx);
+	UniqueSslCtx const ctx{SSL_CTX_new(TLS_server_method())};
+	REQUIRE(ctx);
+	Http3Listener listener(&router, cfg, 0, ctx.get());
+	listener.start();
+	std::this_thread::sleep_for(std::chrono::milliseconds(20));
+	listener.stop();
 }
 
 TEST_CASE(

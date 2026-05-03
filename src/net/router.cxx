@@ -1150,6 +1150,13 @@ bool DeferredResponse::expire_if_past_deadline(
 
 namespace ws_detail {
 
+#if CONFLUX_HAS_TLS
+struct SslDeleter {
+	void operator ()(SSL *p) const noexcept { SSL_free(p); }
+};
+using UniqueSsl = std::unique_ptr<SSL, SslDeleter>;
+#endif
+
 // Compute Sec-WebSocket-Accept from Sec-WebSocket-Key.
 CONFLUX_FUZZ_EXPORT S ws_accept_key(
 	SV client_key) {
@@ -1666,13 +1673,12 @@ public:
 			do_send_frame(8, as_bytes(span{payload}));
 		}
 #if CONFLUX_HAS_TLS
-		if (ssl_ != nullptr) {
+		if (ssl_) {
 			// Do NOT call SSL_shutdown(): in blocking mode it waits for the peer's
 			// close_notify, deadlocking against a client that sent a WS close frame
 			// but hasn't yet issued a TLS close_notify.  WS close frames are
 			// application-level; just free the SSL object and shut the socket.
-			SSL_free(ssl_);
-			ssl_ = nullptr;
+			ssl_.reset();
 		}
 #endif
 		::shutdown(fd_, SHUT_WR);
@@ -1715,7 +1721,7 @@ private:
 
 	int fd_;
 #if CONFLUX_HAS_TLS
-	SSL *ssl_ = nullptr;
+	ws_detail::UniqueSsl ssl_;
 #endif
 	atomic_flag closed_{};
 	mutex send_mtx_;
@@ -1731,8 +1737,8 @@ private:
 		while (buf_.size() < n) {
 			A<char, 4096> tmp{};
 #if CONFLUX_HAS_TLS
-			if (ssl_ != nullptr) {
-				auto rc = SSL_read(ssl_, tmp.data(), static_cast<int>(tmp.size()));
+			if (ssl_) {
+				auto rc = SSL_read(ssl_.get(), tmp.data(), static_cast<int>(tmp.size()));
 				if (rc <= 0) {
 					return false;
 				}
@@ -1758,8 +1764,8 @@ private:
 		u8 opcode,
 		span<byte const> payload) {
 #if CONFLUX_HAS_TLS
-		if (ssl_ != nullptr) {
-			return ws_detail::ws_tls_send_frame(ssl_, opcode, payload);
+		if (ssl_) {
+			return ws_detail::ws_tls_send_frame(ssl_.get(), opcode, payload);
 		}
 #endif
 		return ws_detail::ws_send_frame(fd_, opcode, payload);

@@ -181,8 +181,8 @@ enum class ConnectFailure {
 	hints.ai_flags = AI_ADDRCONFIG;
 
 	auto const t0 = chrono::steady_clock::now();
-	addrinfo *res = nullptr;
-	int const gai_err = ::getaddrinfo(host_str.c_str(), port_str.c_str(), &hints, &res);
+	addrinfo *res_raw = nullptr;
+	int const gai_err = ::getaddrinfo(host_str.c_str(), port_str.c_str(), &hints, &res_raw);
 	tel.dns = chrono::steady_clock::now() - t0;
 
 	if (gai_err != 0) {
@@ -191,12 +191,16 @@ enum class ConnectFailure {
 		failure_message = format("DNS resolution failed for '{}': {}", host, ::gai_strerror(gai_err));
 		return -1;
 	}
+	struct AddrInfoDeleter {
+		void operator ()(addrinfo *p) const noexcept { ::freeaddrinfo(p); }
+	};
+	std::unique_ptr<addrinfo, AddrInfoDeleter> const res{res_raw};
 
 	auto const t1 = chrono::steady_clock::now();
 	int fd = -1;
 	int prev_family = -1;
 
-	for (addrinfo  const*ai = res; ai != nullptr; ai = ai->ai_next) {
+	for (addrinfo  const*ai = res.get(); ai != nullptr; ai = ai->ai_next) {
 		if (fd != -1) {
 			::close(fd);
 			fd = -1;
@@ -229,7 +233,6 @@ enum class ConnectFailure {
 		fd = -1;
 	}
 
-	::freeaddrinfo(res);
 	tel.connect = chrono::steady_clock::now() - t1;
 
 	if (fd < 0) {
