@@ -967,6 +967,16 @@ struct detach_outcome_sink {
 	}
 };
 
+[[gnu::always_inline]] inline void cb_pause() noexcept {
+#if defined(__x86_64__) || defined(__i386__)
+	__builtin_ia32_pause();
+#elif defined(__aarch64__)
+	asm volatile("yield");
+#else
+	asm volatile("" ::: "memory");
+#endif
+}
+
 class ControlBlockBase {
 	std::source_location spawn_loc_{};
 
@@ -1354,9 +1364,21 @@ public:
 	}
 
 	[[nodiscard]] Outcome<T> wait_and_take_outcome() override {
-		std::unique_lock lk{ready_mtx_};
-		ready_cv_.wait(lk, [&] { return terminal_state_.load(std::memory_order_acquire) != TerminalState::none; });
-		lk.unlock();
+		auto const terminal = [&] {
+			return terminal_state_.load(std::memory_order_acquire) != TerminalState::none;
+		};
+		// Spin before blocking: avoids condvar futex pair for fast tasks.
+		// Release/acquire on terminal_state_ guarantees outcome_ is visible once true.
+		static constexpr int kSpinIter = 400;
+		bool done = terminal();
+		for (int i = 0; !done && i < kSpinIter; ++i) {
+			cb_pause();
+			done = terminal();
+		}
+		if (!done) {
+			std::unique_lock lk{ready_mtx_};
+			ready_cv_.wait(lk, terminal);
+		}
 
 		std::scoped_lock const out_lk{outcome_mtx_};
 		if (!outcome_) {
@@ -1751,9 +1773,21 @@ public:
 	}
 
 	[[nodiscard]] Outcome<void> wait_and_take_outcome() override {
-		std::unique_lock lk{ready_mtx_};
-		ready_cv_.wait(lk, [&] { return terminal_state_.load(std::memory_order_acquire) != TerminalState::none; });
-		lk.unlock();
+		auto const terminal = [&] {
+			return terminal_state_.load(std::memory_order_acquire) != TerminalState::none;
+		};
+		// Spin before blocking: avoids condvar futex pair for fast tasks.
+		// Release/acquire on terminal_state_ guarantees outcome_ is visible once true.
+		static constexpr int kSpinIter = 400;
+		bool done = terminal();
+		for (int i = 0; !done && i < kSpinIter; ++i) {
+			cb_pause();
+			done = terminal();
+		}
+		if (!done) {
+			std::unique_lock lk{ready_mtx_};
+			ready_cv_.wait(lk, terminal);
+		}
 
 		std::scoped_lock const out_lk{outcome_mtx_};
 		if (!outcome_) {
