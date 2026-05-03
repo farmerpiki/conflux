@@ -1258,14 +1258,14 @@ public:
 		}
 		SV body = raw_lexeme_.substr(1, raw_lexeme_.size() - 2);
 		if (!has_escapes_) {
-			std::memcpy(buf.data(), body.data(), body.size());
+			std::ranges::copy(body, buf.data());
 			return SV{buf.data(), body.size()};
 		}
 		SZ written = 0;
 		auto res = detail::decode_str_body(
 			body,
 			[&](SV chunk) {
-				std::memcpy(buf.data() + written, chunk.data(), chunk.size());
+				std::ranges::copy(chunk, buf.data() + written);
 				written += chunk.size();
 			},
 			max_string_size_);
@@ -3553,11 +3553,6 @@ struct Tokenizer {
 	}
 };
 
-// gcc15: nonnull_arg_p ICE in IPA pure/const pass — do not remove
-#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ == 15
-#    pragma GCC push_options
-#    pragma GCC optimize("no-ipa-pure-const")
-#endif
 struct TreeBuilder {
 	Tokenizer tok;
 	DocumentStorage &store;
@@ -3885,9 +3880,6 @@ struct TreeBuilder {
 		return store.nodes.size() - 1;
 	}
 };
-#if defined(__GNUC__) && !defined(__clang__) && __GNUC__ == 15
-#    pragma GCC pop_options
-#endif
 
 // ---------------------------------------------------------------------------
 // parse()
