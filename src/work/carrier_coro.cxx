@@ -17,7 +17,6 @@ module;
 	#define CONFLUX_WORK_CFP_ACTIVE 0
 #endif
 #if CONFLUX_WORK_CFP_ACTIVE
-	#include <cstdint>
 	#include <cstdio>
 	#include <sys/mman.h>
 #endif
@@ -30,22 +29,25 @@ import conflux.work.root;
 import conflux.work.carrier.model_a;
 
 // ---------------------------------------------------------------------------
-// Per-thread monotonic bump arena for EagerChain coroutine frames (Design 1:
-// address-range check distinguishes pool vs heap fallback — no per-allocation
-// header overhead).
+// Per-thread monotonic bump arena for EagerChain coroutine frames (Design 2:
+// allocation header byte distinguishes pool vs heap fallback).
 //
-// Pool allocations are aligned to 8 bytes. On dealloc, comparing the frame
-// pointer against [base_, base_+kCap) identifies pool allocations. LIFO
-// reclaim retracts the bump pointer when the freed frame is the topmost.
+// Layout of each allocation:
+//   [1-byte marker | 7 bytes padding | frame (sz bytes)]
+// Marker: 1 = pool, 0 = heap fallback. The 8-byte header keeps the frame
+// pointer at least 8-byte aligned.
 //
-// EagerChain coroutines never suspend asynchronously (initial_suspend =
-// suspend_never), so nested EagerChains produce a LIFO allocation pattern.
+// Reclaim is LIFO: if the freed frame is the topmost allocation, the bump
+// pointer retracts. EagerChain coroutines never suspend (initial_suspend =
+// suspend_never, final_suspend = suspend_always with immediate chain()/
+// destroy()), so nested EagerChains produce a LIFO allocation pattern.
 // ---------------------------------------------------------------------------
 #if CONFLUX_WORK_CFP_ACTIVE
 namespace conflux::work::carrier::model_a::pool {
 
 struct FrameArena {
 	static constexpr std::size_t kCap = 8u * 1024u * 1024u;
+	static constexpr std::size_t kHeaderSize = 8u;
 
 	char *base_ = nullptr;
 	std::size_t top_ = 0;
@@ -85,36 +87,38 @@ struct FrameArena {
 
 	[[nodiscard]] void *alloc(
 		std::size_t sz) {
-		std::size_t need = (sz + 7u) & ~7u;
+		std::size_t need = (sz + kHeaderSize + 7u) & ~7u;
 		if (base_ && top_ + need <= kCap) {
-			void *p = base_ + top_;
+			char *hdr = base_ + top_;
+			hdr[0] = 1;
 			top_ += need;
 			++pool_alloc_count_;
 			if (sz > largest_frame_) {
 				largest_frame_ = sz;
 			}
-			return p;
+			return hdr + kHeaderSize;
 		}
 		++fallback_count_;
 		if (sz > largest_frame_) {
 			largest_frame_ = sz;
 		}
-		return ::operator new(sz);
+		void *raw = ::operator new(sz + kHeaderSize);
+		static_cast<char *>(raw)[0] = 0;
+		return static_cast<char *>(raw) + kHeaderSize;
 	}
 
 	void dealloc(
 		void *ptr,
 		std::size_t sz) noexcept {
-		auto p = reinterpret_cast<std::uintptr_t>(ptr);
-		auto b = reinterpret_cast<std::uintptr_t>(base_);
-		if (b != 0u && p >= b && p < b + kCap) {
-			std::size_t need = (sz + 7u) & ~7u;
-			if (static_cast<char *>(ptr) == base_ + top_ - need) {
-				top_ -= need;
-			}
+		char *hdr = static_cast<char *>(ptr) - kHeaderSize;
+		if (hdr[0] == 0) {
+			::operator delete(static_cast<void *>(hdr), sz + kHeaderSize);
 			return;
 		}
-		::operator delete(ptr, sz);
+		std::size_t need = (sz + kHeaderSize + 7u) & ~7u;
+		if (hdr == base_ + top_ - need) {
+			top_ -= need;
+		}
 	}
 };
 
