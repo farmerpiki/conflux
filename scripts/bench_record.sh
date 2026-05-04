@@ -56,12 +56,19 @@ MACHINE_ID="${MACHINE_ID:-$(cat /etc/machine-id 2>/dev/null || hostname)}"
 WAIVER_REASON="${WAIVER_REASON:-}"
 
 COMPARE_MODE=false
+COMPARE_BINS_MODE=false
 COMPARE_PRESETS=()
+COMPARE_BINS_ARGS=()
 if [[ "${1:-}" == "--compare" ]]; then
   COMPARE_MODE=true
   shift
   COMPARE_PRESETS=("$@")
   NAME="compare"
+elif [[ "${1:-}" == "--compare-bins" ]]; then
+  COMPARE_BINS_MODE=true
+  shift
+  COMPARE_BINS_ARGS=("$@")
+  NAME="compare-bins"
 else
   NAME="${1:-manual}"
 fi
@@ -383,6 +390,142 @@ run_compare() {
 }
 
 # ---------------------------------------------------------------------------
+# --compare-bins mode: interleaved comparison with pre-built binaries
+#
+# Usage: bench_record.sh --compare-bins label1:path1 label2:path2 [...]
+#   Each argument is "label:binary_path". Binaries must already be built.
+#   Runs BENCH_REPS rounds with rotating candidate order.
+#   Same 2s settle + load check before every execution as --compare.
+# ---------------------------------------------------------------------------
+_compare_bins_insert_row() {
+  local rid="$1" label="$2" round="$3" pos="$4"; shift 4
+  while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
+    local ex
+    ex=$(printf '{"round":%d,"position":%d,"label":"%s","min":%s,"p10":%s,"mad":%s}' \
+      "$round" "$pos" "$label" "${min_v:-null}" "${p10_v:-null}" "${mad_v:-null}")
+    psql "$PGURI" -At -q -c "
+      INSERT INTO results
+        (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
+         metric, value, unit, sample_count, extra)
+      VALUES
+        ($rid, 'work', '$(sql_escape "$variant")',
+         $iters, $total, $ns_pi,
+         'ns_per_iter', $ns_pi, 'ns', 1, '$(sql_escape "$ex")'::jsonb);" >/dev/null
+  done < <(run_bench "$@" --json 2>/dev/null \
+    | jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.min // "null"), (.p10 // "null"), (.mad // "null")] | @tsv)')
+}
+
+_compare_bins_insert_summary() {
+  local rid="$1"
+  psql "$PGURI" -At -q -c "
+    WITH raw AS (
+      SELECT variant,
+             PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ns_per_iter) AS med,
+             PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ns_per_iter) AS p50,
+             PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY ns_per_iter) AS p99,
+             MIN((extra->>'min')::double precision) AS best,
+             PERCENTILE_CONT(0.5) WITHIN GROUP (
+               ORDER BY (extra->>'p10')::double precision) AS p10,
+             COUNT(*) AS n,
+             AVG(iterations) AS avg_iters
+      FROM results
+      WHERE run_id = $rid AND (extra->>'round') IS NOT NULL
+      GROUP BY variant
+    ),
+    mad_raw AS (
+      SELECT r.variant, raw.med,
+             PERCENTILE_CONT(0.5) WITHIN GROUP (
+               ORDER BY ABS(r.ns_per_iter - raw.med)) AS mad,
+             raw.p50, raw.p99, raw.best, raw.p10, raw.avg_iters, raw.n
+      FROM results r
+      JOIN raw ON raw.variant = r.variant
+      WHERE r.run_id = $rid AND (r.extra->>'round') IS NOT NULL
+      GROUP BY r.variant, raw.med, raw.p50, raw.p99, raw.best, raw.p10,
+               raw.avg_iters, raw.n
+    )
+    INSERT INTO results
+      (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
+       metric, value, unit, sample_count, median, mad, p50, p99, best, p10, extra)
+    SELECT $rid, 'work', variant,
+           avg_iters::bigint, 0, med,
+           'ns_per_iter', med, 'ns', n::bigint,
+           med, mad, p50, p99, best, p10,
+           '{\"kind\":\"summary\"}'::jsonb
+    FROM mad_raw;" >/dev/null
+}
+
+run_compare_bins() {
+  # args: label1:binary1 label2:binary2 ...
+  local n=$#
+  [[ $n -ge 2 ]] || { echo "compare-bins requires at least 2 candidates" >&2; exit 1; }
+
+  local labels=() binaries=()
+  for arg in "$@"; do
+    local label="${arg%%:*}" bin="${arg#*:}"
+    [[ -x "$bin" ]] || { echo "binary not found or not executable: $bin" >&2; exit 1; }
+    labels+=("$label")
+    binaries+=("$bin")
+  done
+
+  echo "candidates:"
+  for ((i=0; i<n; i++)); do
+    echo "  [${labels[$i]}] ${binaries[$i]}"
+  done
+
+  # Create run_ids: use git commit of the REPO_ROOT (where script is invoked).
+  COMPILER="clang++"  # best-effort; refine via label naming if needed
+  SYS_COMPILER_VER=$(compiler_version)
+  METADATA=$(printf '{
+  "cpu": "%s",
+  "cores": %s,
+  "smt": "%s",
+  "kernel": "%s",
+  "libc": "%s",
+  "governor": "%s",
+  "compiler_version": "%s",
+  "pinned_cpus": "%s",
+  "reps": %s
+}' "$SYS_CPU" "$SYS_CORES" "$SYS_SMT" "$SYS_KERNEL" \
+     "$SYS_LIBC" "$SYS_GOVERNOR" "$SYS_COMPILER_VER" \
+     "$SYS_PINNED_CPUS" "$BENCH_REPS")
+
+  local run_ids=()
+  for ((i=0; i<n; i++)); do
+    PRESET="${labels[$i]}"
+    local rid
+    rid=$(new_run "work" "compare-bins" "{\"compare\":true,\"label\":\"${labels[$i]}\"}")
+    run_ids+=("$rid")
+    echo "  ${labels[$i]} → run_id=$rid"
+  done
+
+  local reps="${BENCH_REPS:-5}"
+  for round in $(seq 1 "$reps"); do
+    echo "--- round $round/$reps ---"
+    local offset=$(( (round - 1) % n ))
+    for ((j=0; j<n; j++)); do
+      local idx=$(( (offset + j) % n ))
+      local pos=$((j + 1))
+      local label="${labels[$idx]}"
+      local bin="${binaries[$idx]}"
+      local rid="${run_ids[$idx]}"
+
+      load_check_or_abort
+      echo "  settle 2s before ${label} (round=$round pos=$pos)..."
+      sleep 2
+      echo "  running ${label}..."
+      _compare_bins_insert_row "$rid" "$label" "$round" "$pos" "$bin"
+    done
+  done
+
+  for ((i=0; i<n; i++)); do
+    _compare_bins_insert_summary "${run_ids[$i]}"
+    echo "summary inserted for ${labels[$i]} (run_id=${run_ids[$i]})"
+  done
+
+  echo "compare-bins done."
+}
+
+# ---------------------------------------------------------------------------
 # Custom parsers (for benches with non-standard output fields)
 # ---------------------------------------------------------------------------
 
@@ -446,6 +589,11 @@ trap '[[ -n "$CURRENT_BUILD_DIR" ]] && clean_build "$CURRENT_BUILD_DIR"' EXIT
 
 if $COMPARE_MODE; then
   run_compare "${COMPARE_PRESETS[@]}"
+  exit 0
+fi
+
+if $COMPARE_BINS_MODE; then
+  run_compare_bins "${COMPARE_BINS_ARGS[@]}"
   exit 0
 fi
 
