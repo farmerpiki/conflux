@@ -122,7 +122,7 @@ After that: additive only; removals require major bump.
 
 ---
 
-## Phase 0 — Discoverability Cookbook
+## Phase 0 — Discoverability Cookbook ✅ COMPLETE
 **Scope:** `docs/json-cookbook.md` only. No code changes.
 **Effort:** 3–4 days.
 **Execute:** parallel with Phase 1.
@@ -1149,7 +1149,7 @@ Phase 3 after Phase 4 (SAX wraps reader). All others independent.
 
 | Phase | Deliverable | Effort | Priority |
 |-------|-------------|--------|----------|
-| 0 | Cookbook (integer literal note, warm_threshold guidance, error taxonomy) | 3–4 days | P0 |
+| ~~0~~ ✅ | Cookbook (integer literal note, warm_threshold guidance, error taxonomy) | 3–4 days | P0 |
 | 1 | `require_*` (owning S), `get_as<T>`, `DuplicateKeyPolicy` + `StorageMark` rollback, `make_object`/`make_array` (`JsonWritable`), `truncate_depth`/`indent_char`, `as_i64/double` aliases, `warm_threshold{Opt<u32>}` | 1–2 wk | P0 |
 | 2 | `JsonDecodeOptions` (`if constexpr` compat), compile-time constraints (fn-ptr), O(depth²) fix (pass-down accumulator for `JsonMembers` only) | 1 wk | P0 |
 | 4 | `JsonReader` (`JsonStringToken`, `skip_next_value() → JsonByteRange`, `input()`, no `skip_to_depth`) + `decode<T>(reader)` (consume-on-entry, `string_view` deleted) + `JsonCodec<Document>::decode(reader)` (via `skip_next_value`) + corpus baseline (MB/s + alloc/op + latency) | 3–4 wk | P0 |

@@ -12,28 +12,18 @@ surfaces, see `docs/pre-v1-migration-contract.md`.
 import conflux.work.root;
 ```
 
-## Module Separation
+## Module Surface
 
-`conflux.work` (legacy `Flow<T>`, `WorkPool`, `run_on`) and `conflux.work.root`
-are separate module stacks with no bridge. There is no `co_await`-compatible
-adapter between `Flow<T>` and `root::Task<T>`, and none will be added — the
-`from_root_*` / `to_root_*` adapters were deliberately removed. Consumers that
-must touch both stacks should keep internal logic on one vocabulary and wrap the
-boundary using `make_task_source<T>` + `commit_*` (see continuation plan
-§Legacy Bridge Decision, G2c). Do not attempt to `co_await` a `Flow<T>` from a
-root coroutine or vice versa.
+`conflux.work` re-exports `conflux.work.root` and adds the executor layer:
 
-`Flow<T>` and its combinators are legacy and deprecated for new public usage.
-Treat these APIs as compatibility-only during migration:
+- `WorkPool` — thread-pool executor with a lock-free MPMC inject queue
+- `RingLane` — io_uring-coupled single-threaded executor
+- `run_on_task(pool, fn) -> Task<T>` — submit a callable to a pool
+- `join_all(range) -> vector<Outcome<T>>` — join a collection of tasks
 
-- `Flow<T>`
-- `then(...)`
-- `flat_then(...)`
-- `on_error(...)`
-- `on_cancel(...)`
-- `run_on(...)`
-- `move_to(...)`
-- `start_on(...)`
+All root async vocabulary (`Task<T>`, `Posted<T>`, `Operation<T>`, source/control
+types, `Outcome<T>`, join, abandon APIs) lives in `conflux.work.root`. Import
+`conflux.work` when you also need `WorkPool` or `RingLane`.
 
 ## Root Categories
 

@@ -11,7 +11,7 @@ hop/composition behavior.
 ## Imports
 
 ```cpp
-import conflux.work.carrier.model_a;   // Chain<T>, combinators, hop surface
+import conflux.work.carrier;           // Chain<T>, combinators, hop surface
 import conflux.work.carrier.scope;     // Scope, admit
 import conflux.work.carrier.deadline;  // DeadlineScope
 import conflux.work.carrier.coro;      // EagerChain<T>, async awaiters
@@ -19,7 +19,7 @@ import conflux.work.carrier.timer;     // TimerService, LaneTimerScope<>
 import conflux.work.carrier.streams;   // DroppableSlot<T>, CoalescingSlot<T>
 ```
 
-All carrier types live in `conflux::work::carrier` or `conflux::work::carrier::model_a`.
+All carrier types live in `conflux::work::carrier`.
 
 ## Naming Conventions
 
@@ -154,7 +154,7 @@ path (Phase 5c) that does not yet exist.
 
 **Consumers MUST NOT** depend on sibling-cancellation behaviour. This combinator
 is safe to use; it simply does not yet deliver the promised fast-fail
-optimization. The TODO at `carrier_model_a.cxx` marks this gap.
+optimization. The TODO at `carrier.cxx` marks this gap.
 
 ### `race`
 
@@ -542,7 +542,7 @@ public:
     template<class F> void on_drop(F&&) noexcept; // F: noexcept(Outcome<T>) -> void
     [[nodiscard]] bool ready() const noexcept;
     [[nodiscard]] std::optional<root::Outcome<T>> try_get() &&;
-    [[nodiscard]] model_a::Chain<T> wait() &&;
+    [[nodiscard]] Chain<T> wait() &&;
     [[nodiscard]] DroppableSlotAwaiter<T> operator co_await() && noexcept;
 };
 ```
