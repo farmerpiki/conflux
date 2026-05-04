@@ -1022,7 +1022,9 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
 	std::atomic<bool> cancel_requested_{false};
 	std::atomic<bool> terminal_claimed_{false};
-	mutable std::mutex mtx_{};
+	// P2b false-sharing fix: hot atomics above land on one cache line;
+	// alignas(64) on mtx_ starts cold lock/cv on a fresh line.
+	alignas(64) mutable std::mutex mtx_{};
 	std::condition_variable cv_{};
 	Opt<Outcome<T>> outcome_{};
 	small_move_only_function<void()> on_ready_fn_{};
@@ -1406,7 +1408,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
 	std::atomic<bool> cancel_requested_{false};
 	std::atomic<bool> terminal_claimed_{false};
-	mutable std::mutex mtx_{};
+	alignas(64) mutable std::mutex mtx_{};
 	std::condition_variable cv_{};
 	Opt<Outcome<void>> outcome_{};
 	small_move_only_function<void()> on_ready_fn_{};
@@ -1783,6 +1785,26 @@ public:
 		return AbandonStatus::installed;
 	}
 };
+
+// P2b size guard: delta against P2a baseline (432B measured on clang-libcxx +
+// libstdc++ on x86_64). P2b padding must not exceed one additional cache line.
+#ifndef CONFLUX_WORK_RELAX_CONTROL_BLOCK_SIZE_GUARD
+static_assert(
+	sizeof(ControlBlockModel<std::monostate, false>) <= 432 + 64,
+	"P2b padding regressed vs P2a baseline beyond one cache line — "
+	"define CONFLUX_WORK_RELAX_CONTROL_BLOCK_SIZE_GUARD to bypass");
+	#if defined(_LIBCPP_VERSION)
+inline constexpr std::size_t kControlBlockSizeBudget = 512;
+	#elif defined(__GLIBCXX__)
+inline constexpr std::size_t kControlBlockSizeBudget = 544;
+	#else
+inline constexpr std::size_t kControlBlockSizeBudget = 576;
+	#endif
+static_assert(
+	sizeof(ControlBlockModel<std::monostate, false>) <= kControlBlockSizeBudget,
+	"P2b padding regressed beyond per-platform budget — "
+	"define CONFLUX_WORK_RELAX_CONTROL_BLOCK_SIZE_GUARD to bypass");
+#endif
 
 template<ControlCategory Category>
 class BasicControl {
