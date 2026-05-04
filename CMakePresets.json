@@ -111,6 +111,30 @@
       }
     },
     {
+      "name": "release-clang-libcxx-p5",
+      "displayName": "Release \u00b7 clang++ \u00b7 libc++ \u00b7 P5 coro pool",
+      "inherits": "release-clang-libcxx",
+      "cacheVariables": {
+        "CONFLUX_WORK_CORO_FRAME_POOL": "ON"
+      }
+    },
+    {
+      "name": "release-gcc-stdcxx-p5",
+      "displayName": "Release \u00b7 g++ \u00b7 libstdc++ \u00b7 P5 coro pool",
+      "inherits": "release-gcc-stdcxx",
+      "cacheVariables": {
+        "CONFLUX_WORK_CORO_FRAME_POOL": "ON"
+      }
+    },
+    {
+      "name": "release-gcc16-stdcxx-p5",
+      "displayName": "Release \u00b7 g++-16 \u00b7 libstdc++ \u00b7 P5 coro pool",
+      "inherits": "release-gcc16-stdcxx",
+      "cacheVariables": {
+        "CONFLUX_WORK_CORO_FRAME_POOL": "ON"
+      }
+    },
+    {
       "name": "pgo-gen-clang-libcxx",
       "displayName": "PGO gen \u00b7 clang++ \u00b7 libc++",
       "inherits": "release-clang-libcxx",
@@ -223,6 +247,18 @@
     {
       "name": "release-gcc16-stdcxx",
       "configurePreset": "release-gcc16-stdcxx"
+    },
+    {
+      "name": "release-clang-libcxx-p5",
+      "configurePreset": "release-clang-libcxx-p5"
+    },
+    {
+      "name": "release-gcc-stdcxx-p5",
+      "configurePreset": "release-gcc-stdcxx-p5"
+    },
+    {
+      "name": "release-gcc16-stdcxx-p5",
+      "configurePreset": "release-gcc16-stdcxx-p5"
     },
     {
       "name": "pgo-gen-clang-libcxx",

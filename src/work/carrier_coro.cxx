@@ -1,11 +1,130 @@
 module;
 
+// Sanitizer detection → disable pool when running under ASAN/TSAN/MSAN
+#if CONFLUX_WORK_CORO_FRAME_POOL
+	#if defined(__has_feature)
+		#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || __has_feature(memory_sanitizer)
+			#define CONFLUX_WORK_CFP_ACTIVE 0
+		#else
+			#define CONFLUX_WORK_CFP_ACTIVE 1
+		#endif
+	#elif defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+		#define CONFLUX_WORK_CFP_ACTIVE 0
+	#else
+		#define CONFLUX_WORK_CFP_ACTIVE 1
+	#endif
+#else
+	#define CONFLUX_WORK_CFP_ACTIVE 0
+#endif
+#if CONFLUX_WORK_CFP_ACTIVE
+	#include <cstdint>
+	#include <cstdio>
+	#include <sys/mman.h>
+#endif
+
 export module conflux.work.carrier.coro;
 
 import std;
 import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.model_a;
+
+// ---------------------------------------------------------------------------
+// Per-thread monotonic bump arena for EagerChain coroutine frames (Design 1:
+// address-range check distinguishes pool vs heap fallback — no per-allocation
+// header overhead).
+//
+// Pool allocations are aligned to 8 bytes. On dealloc, comparing the frame
+// pointer against [base_, base_+kCap) identifies pool allocations. LIFO
+// reclaim retracts the bump pointer when the freed frame is the topmost.
+//
+// EagerChain coroutines never suspend asynchronously (initial_suspend =
+// suspend_never), so nested EagerChains produce a LIFO allocation pattern.
+// ---------------------------------------------------------------------------
+#if CONFLUX_WORK_CFP_ACTIVE
+namespace conflux::work::carrier::model_a::pool {
+
+struct FrameArena {
+	static constexpr std::size_t kCap = 8u * 1024u * 1024u;
+
+	char *base_ = nullptr;
+	std::size_t top_ = 0;
+	std::size_t pool_alloc_count_ = 0;
+	std::size_t fallback_count_ = 0;
+	std::size_t largest_frame_ = 0;
+
+	FrameArena() noexcept {
+		void *p = mmap(nullptr, kCap, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+		if (p != MAP_FAILED) {
+			base_ = static_cast<char *>(p);
+		}
+	}
+
+	~FrameArena() noexcept {
+		if (!base_) {
+			return;
+		}
+		auto total = pool_alloc_count_ + fallback_count_;
+		if (total > 0 && fallback_count_ * 100u > total) {
+			try {
+				std::print(
+					stderr,
+					"conflux work: coro frame pool fallback rate {:.1f}% "
+					"({}/{} allocs, largest frame {} B)\n",
+					100.0 * static_cast<double>(fallback_count_) / static_cast<double>(total),
+					fallback_count_,
+					total,
+					largest_frame_);
+			} catch (...) {}
+		}
+		munmap(base_, kCap);
+	}
+
+	FrameArena(FrameArena const &) = delete;
+	FrameArena &operator =(FrameArena const &) = delete;
+
+	[[nodiscard]] void *alloc(
+		std::size_t sz) {
+		std::size_t need = (sz + 7u) & ~7u;
+		if (base_ && top_ + need <= kCap) {
+			void *p = base_ + top_;
+			top_ += need;
+			++pool_alloc_count_;
+			if (sz > largest_frame_) {
+				largest_frame_ = sz;
+			}
+			return p;
+		}
+		++fallback_count_;
+		if (sz > largest_frame_) {
+			largest_frame_ = sz;
+		}
+		return ::operator new(sz);
+	}
+
+	void dealloc(
+		void *ptr,
+		std::size_t sz) noexcept {
+		auto p = reinterpret_cast<std::uintptr_t>(ptr);
+		auto b = reinterpret_cast<std::uintptr_t>(base_);
+		if (b != 0u && p >= b && p < b + kCap) {
+			std::size_t need = (sz + 7u) & ~7u;
+			if (static_cast<char *>(ptr) == base_ + top_ - need) {
+				top_ -= need;
+			}
+			return;
+		}
+		::operator delete(ptr, sz);
+	}
+};
+
+[[nodiscard]] inline FrameArena &frame_arena() noexcept {
+	thread_local FrameArena arena;
+	return arena;
+}
+
+} // namespace conflux::work::carrier::model_a::pool
+#endif
 
 export namespace conflux::work::carrier::model_a {
 
@@ -42,6 +161,18 @@ struct EagerChainPromise {
 
 	template<class Awaitable>
 	void await_transform(Awaitable &&) = delete;
+
+#if CONFLUX_WORK_CFP_ACTIVE
+	[[nodiscard]] static void *operator new(
+		std::size_t sz) {
+		return pool::frame_arena().alloc(sz);
+	}
+	static void operator delete(
+		void *ptr,
+		std::size_t sz) noexcept {
+		pool::frame_arena().dealloc(ptr, sz);
+	}
+#endif
 };
 
 template<>
@@ -67,6 +198,18 @@ struct EagerChainPromise<void> {
 
 	template<class Awaitable>
 	void await_transform(Awaitable &&) = delete;
+
+#if CONFLUX_WORK_CFP_ACTIVE
+	[[nodiscard]] static void *operator new(
+		std::size_t sz) {
+		return pool::frame_arena().alloc(sz);
+	}
+	static void operator delete(
+		void *ptr,
+		std::size_t sz) noexcept {
+		pool::frame_arena().dealloc(ptr, sz);
+	}
+#endif
 };
 
 } // namespace conflux::work::carrier::model_a
@@ -298,14 +441,13 @@ public:
 		if (error_ == AwaiterError::already_installed) {
 			(void)root::try_abandon_to(std::move(handle_), root::drop_on_abandon{});
 			handle_consumed_ = true;
-			auto ex = std::make_exception_ptr(
-				root::JoinError{root::JoinError::reason::ready_callback_already_installed});
+			auto ex =
+				std::make_exception_ptr(root::JoinError{root::JoinError::reason::ready_callback_already_installed});
 			return Chain<T>{root::Outcome<T>{root::Failure{ex}}, CarrierKind::task};
 		}
 		if (error_ == AwaiterError::empty) {
 			handle_consumed_ = true;
-			auto ex = std::make_exception_ptr(
-				root::JoinError{root::JoinError::reason::consumed_handle});
+			auto ex = std::make_exception_ptr(root::JoinError{root::JoinError::reason::consumed_handle});
 			return Chain<T>{root::Outcome<T>{root::Failure{ex}}, CarrierKind::task};
 		}
 		auto out = root::join(std::move(handle_));

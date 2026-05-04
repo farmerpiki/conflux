@@ -45,6 +45,7 @@ option(CONFLUX_ENABLE_DB      "Build PostgreSQL client support (requires libpq)"
 option(CONFLUX_WORK_CARRIER_MODEL_A "Enable experimental work carrier Model A prototype surface" ON)
 option(CONFLUX_WORK_CARRIER_MODEL_B "Enable experimental work carrier Model B prototype surface" ON)
 option(CONFLUX_SUPPRESS_DEPRECATION_WARNINGS "Temporarily suppress deprecated API warnings during pre-v1 migration" ON)
+option(CONFLUX_WORK_CORO_FRAME_POOL "Enable per-thread monotonic bump arena for EagerChain coroutine frames" OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerOptions)
@@ -261,6 +262,7 @@ target_sources(conflux_work
 target_compile_definitions(conflux_work
     PUBLIC CONFLUX_WORK_CARRIER_MODEL_A=$<BOOL:${CONFLUX_WORK_CARRIER_MODEL_A}>
     PUBLIC CONFLUX_WORK_CARRIER_MODEL_B=$<BOOL:${CONFLUX_WORK_CARRIER_MODEL_B}>
+    PUBLIC CONFLUX_WORK_CORO_FRAME_POOL=$<BOOL:${CONFLUX_WORK_CORO_FRAME_POOL}>
 )
 target_link_libraries(conflux_work
     PRIVATE conflux_options
