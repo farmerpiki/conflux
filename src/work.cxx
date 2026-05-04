@@ -1,6 +1,5 @@
 module;
 #include <cassert>
-#include <immintrin.h>
 #include <liburing.h>
 #include <linux/futex.h>
 #include <pthread.h>
@@ -51,6 +50,16 @@ inline int futex_wake_private(
 	int count) noexcept {
 	auto *addr = reinterpret_cast<u32 *>(&word); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 	return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAKE_PRIVATE, count, nullptr, nullptr, 0));
+}
+
+[[gnu::always_inline]] inline void cpu_pause() noexcept {
+#if defined(__x86_64__) || defined(__i386__)
+	__builtin_ia32_pause();
+#elif defined(__aarch64__)
+	asm volatile("yield");
+#else
+	std::this_thread::yield();
+#endif
 }
 
 template<typename T>
@@ -503,6 +512,10 @@ export class WorkPool final : public work_detail::QueueTarget {
 	mutex inject_mtx_{};
 	deque<conflux::work::root::detail::small_move_only_function<void()>> inject_{};
 	Atom<u32> wake_epoch_{0};
+	// parked_ on a separate cache line: producer loads it after every push;
+	// isolating prevents wake_epoch_ stores from invalidating this line and
+	// adding a cache miss to the no-parked-workers fast path.
+	alignas(64) Atom<int> parked_{0};
 	Atom<SZ> pending_{0};
 	atomic_flag stopping_{};
 
@@ -514,11 +527,19 @@ export class WorkPool final : public work_detail::QueueTarget {
 	}
 
 	void wake_one() noexcept {
+		// P6 candidate (b) — fence-between: release store on wake_epoch_ +
+		// SC fence forms one half of the SC fence pair with the worker's
+		// parked_++ + SC fence. Guarantees: if any worker is parked (parked_>0)
+		// we issue a wake; if none are parked, the futex_wake is elided.
 		wake_epoch_.fetch_add(1, memory_order_release);
-		work_detail::futex_wake_private(wake_epoch_, 1);
+		std::atomic_thread_fence(memory_order_seq_cst);
+		if (parked_.load(memory_order_acquire) > 0) {
+			work_detail::futex_wake_private(wake_epoch_, 1);
+		}
 	}
 
 	void wake_all() noexcept {
+		// Unconditional: shutdown must guarantee all parked workers exit.
 		wake_epoch_.fetch_add(1, memory_order_release);
 		work_detail::futex_wake_private(wake_epoch_, static_cast<int>(workers_.size()));
 	}
@@ -634,13 +655,27 @@ export class WorkPool final : public work_detail::QueueTarget {
 			auto const has_pending = [&] { return pending_.load(memory_order_relaxed) > 0; };
 			bool spun = false;
 			for (u32 s = 0; s < options_.spin_before_park && !spun; ++s) {
-				_mm_pause();
+				work_detail::cpu_pause();
 				spun = has_pending();
 			}
 			if (!spun) {
-				u32 const epoch = wake_epoch_.load(memory_order_acquire);
-				if (pending_.load(memory_order_acquire) == 0 && !stopping_.test(memory_order_acquire)) {
+				// P6 candidate (b) park protocol:
+				// 1. Announce parked before the re-check so a concurrent push
+				//    that lands after our spin loop sees us parked and wakes us.
+				parked_.fetch_add(1, memory_order_acq_rel);
+				// 2. SC fence: parked++ is globally visible before pending_ load,
+				//    forming the pair with wake_one()'s SC fence.
+				std::atomic_thread_fence(memory_order_seq_cst);
+				// 3. Re-check: if a producer pushed between our spin loop and
+				//    parked++, either pending_ reflects it (→ skip park) or the
+				//    producer saw parked_>0 and issued a wake (→ futex_wait
+				//    returns EAGAIN immediately on the stale epoch).
+				if (pending_.load(memory_order_acquire) > 0 || stopping_.test(memory_order_acquire)) {
+					parked_.fetch_sub(1, memory_order_acq_rel);
+				} else {
+					u32 const epoch = wake_epoch_.load(memory_order_acquire);
 					work_detail::futex_wait_private(wake_epoch_, epoch);
+					parked_.fetch_sub(1, memory_order_acq_rel);
 				}
 			}
 		}
@@ -807,9 +842,13 @@ public:
 };
 
 namespace conflux::work::root {
-template<> inline constexpr bool enable_address_capability_v<WorkPool> = true;
-template<> inline constexpr bool enable_address_capability_v<RingLane> = true;
-}
+
+template<>
+inline constexpr bool enable_address_capability_v<WorkPool> = true;
+template<>
+inline constexpr bool enable_address_capability_v<RingLane> = true;
+
+} // namespace conflux::work::root
 
 template<typename T>
 using Flow = work_detail::Flow<T>;
@@ -1458,27 +1497,122 @@ using Outcome = root::Outcome<T>;
 
 using CancelReason = root::CancelReason;
 
-using root::join;
-using root::make_task_source;
+using root::join; // NOLINT(misc-unused-using-decls) — re-export for module consumers
+using root::make_task_source; // NOLINT(misc-unused-using-decls)
 
 } // namespace conflux::work
+
+// P9 join_all: single-allocation implementation.
+// Two allocs total: make_task_source (output control block) +
+// make_shared<JoinState> (slots, handles, and join state in one block).
+// Each input handle stored in JoinState — no per-task shared_ptr.
+// The ready callback for slot I fires after the control block lock is dropped,
+// calls join() (non-blocking at that point) to extract the rvalue outcome,
+// then decrements remaining. When remaining reaches 0, commits the result.
+// Cancel-cascade: first cancellation calls request_cancel() on all sibling
+// controls; shared_from_this keepalive prevents JoinState destruction during
+// the cascade; all N slots must complete before commit.
+namespace join_all_detail {
+
+template<typename... Ts>
+struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
+	using Result = std::tuple<Ts...>;
+	using Slots = std::tuple<std::optional<std::conditional_t<std::is_void_v<Ts>, std::monostate, Ts>>...>;
+
+	std::atomic<std::size_t> remaining{sizeof...(Ts)};
+	mutex mtx;
+	std::exception_ptr first_error;
+	bool any_cancelled = false;
+	Slots slots;
+	std::tuple<conflux::work::root::TaskJoinHandle<Ts>...> handles;
+	conflux::work::root::TaskSource<Result> src;
+
+	JoinState(
+		conflux::work::root::TaskSource<Result> s,
+		conflux::work::root::TaskJoinHandle<Ts>... hs)
+		: handles{std::move(hs)...}
+		, src{std::move(s)} {}
+
+	void cancel_all() noexcept {
+		auto keepalive = this->shared_from_this();
+		std::apply([](auto &...hs) noexcept { (hs.control().request_cancel(), ...); }, handles);
+	}
+
+	void commit() noexcept {
+		using namespace conflux::work::root;
+		if (any_cancelled) {
+			(void)src.try_set_cancelled(CancelReason::requested);
+			return;
+		}
+		if (first_error) {
+			(void)src.try_set_exception(std::move(first_error));
+			return;
+		}
+		try {
+			auto result = std::apply([](auto &...opts) { return Result{std::move(*opts)...}; }, slots);
+			(void)src.try_set_value(conflux::work::root::Success<Result>{std::move(result)});
+		} catch (...) { (void)src.try_set_exception(std::current_exception()); }
+	}
+
+	template<std::size_t I>
+	void on_ready() noexcept {
+		using namespace conflux::work::root;
+		using T = std::tuple_element_t<I, std::tuple<Ts...>>;
+		auto outcome = join(std::move(std::get<I>(handles)));
+		bool should_cancel = false;
+		if (outcome.is_success()) {
+			if constexpr (std::is_void_v<T>) {
+				std::get<I>(slots).emplace();
+			} else {
+				std::get<I>(slots) = std::move(outcome).success().value;
+			}
+		} else if (outcome.is_failure()) {
+			SL lk{mtx};
+			if (!first_error) {
+				first_error = std::move(outcome).failure().error;
+			}
+		} else {
+			SL lk{mtx};
+			if (!any_cancelled) {
+				any_cancelled = true;
+				should_cancel = true;
+			}
+		}
+		if (should_cancel) {
+			cancel_all();
+		}
+		if (remaining.fetch_sub(1, memory_order_acq_rel) == 1) {
+			commit();
+		}
+	}
+};
+
+} // namespace join_all_detail
 
 export template<typename... Ts>
 [[nodiscard]] auto join_all(
 	conflux::work::root::Task<Ts>... tasks) -> conflux::work::root::Task<std::tuple<Ts...>> {
-	using Result = std::tuple<Ts...>;
 	using namespace conflux::work::root;
+	using Result = std::tuple<Ts...>;
+
+	if constexpr (sizeof...(Ts) == 0) {
+		auto [t, s] = make_task_source<Result>(SubmitOptions{.enable_cancellation = false});
+		(void)s.try_set_value(Success<Result>{Result{}});
+		return std::move(t);
+	}
+
 	auto [root_task, src] = make_task_source<Result>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<TaskSource<Result>>(std::move(src));
-	co_spawn(
-		[](SP<TaskSource<Result>> src,
-		   decltype(work_detail::join_all(task_as_flow(std::move(tasks))...)) inner) -> ::Task<void> {
-			try {
-				auto val = co_await std::move(inner);
-				(void)src->try_set_value(Success<Result>{std::move(val)});
-			} catch (::Cancelled const &) { (void)src->try_set_cancelled(CancelReason::requested); } catch (...) {
-				(void)src->try_set_exception(std::current_exception());
-			}
-		}(shared_src, work_detail::join_all(task_as_flow(std::move(tasks))...)));
+	auto state =
+		std::make_shared<join_all_detail::JoinState<Ts...>>(std::move(src), into_join_handle(std::move(tasks))...);
+
+	[&state]<std::size_t... Is>(std::index_sequence<Is...>) {
+		auto attach = [&state]<std::size_t I>() noexcept {
+			std::get<I>(state->handles).control().set_on_ready_or_run([s = state]() noexcept {
+				s->template on_ready<I>();
+			});
+		};
+		(attach.template operator ()<Is>(), ...);
+	}(std::index_sequence_for<Ts...>{});
+
 	return std::move(root_task);
 }
