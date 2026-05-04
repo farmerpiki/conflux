@@ -1022,7 +1022,9 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
 	std::atomic<bool> cancel_requested_{false};
 	std::atomic<bool> terminal_claimed_{false};
-	mutable std::mutex mtx_{};
+	// false-sharing protection: mtx_ aligned to 64-byte boundary so hot atomics
+	// above and cold mutex/cv below land on separate cache lines.
+	alignas(64) mutable std::mutex mtx_{};
 	std::condition_variable cv_{};
 	Opt<Outcome<T>> outcome_{};
 	small_move_only_function<void()> on_ready_fn_{};
@@ -1406,7 +1408,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
 	std::atomic<bool> cancel_requested_{false};
 	std::atomic<bool> terminal_claimed_{false};
-	mutable std::mutex mtx_{};
+	alignas(64) mutable std::mutex mtx_{};
 	std::condition_variable cv_{};
 	Opt<Outcome<void>> outcome_{};
 	small_move_only_function<void()> on_ready_fn_{};
@@ -1783,6 +1785,14 @@ public:
 		return AbandonStatus::installed;
 	}
 };
+
+// P2b size guard. Measured on debug-{clang-libcxx,gcc-stdcxx}: sizeof(CM<T,false>) = 448B,
+// sizeof(CM<T,true>) = 512B. Budget = next 64B increment above current (one cache line headroom).
+#ifndef CONFLUX_WORK_RELAX_CONTROL_BLOCK_SIZE_GUARD
+static_assert(
+    sizeof(ControlBlockModel<std::monostate, false>) <= 512,
+    "P2b size regression — define CONFLUX_WORK_RELAX_CONTROL_BLOCK_SIZE_GUARD to bypass");
+#endif
 
 template<ControlCategory Category>
 class BasicControl {
