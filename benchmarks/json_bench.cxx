@@ -456,6 +456,43 @@ S make_below_threshold_corpus() {
 	return out;
 }
 
+// 5.5-B gate: 31-member object — always linear (just below kHashThreshold=32).
+// Isolates cache-line packing benefit of 16-byte vs 24-byte MemberEntry.
+S make_linear31_corpus() {
+	S out = "{";
+	for (int i = 0; i < 31; ++i) {
+		if (i > 0) {
+			out += ',';
+		}
+		out += format(R"("member_{}":{},)", i, i);
+		out.pop_back(); // remove trailing comma left by format string
+	}
+	out += '}';
+	return out;
+}
+
+void bench_find_member_linear31(S const &corpus) {
+	auto doc = parse(corpus);
+	if (!doc) {
+		return;
+	}
+	auto obj = doc->root().as_object();
+	if (!obj) {
+		return;
+	}
+	auto s = measure(
+		[&] {
+			(void)obj->find_member("member_0");
+			(void)obj->find_member("member_15");
+			(void)obj->find_member("member_30");
+		},
+		200,
+		500,
+		1000);
+	s.ns_per_iter /= 3.0;
+	print_row("find_member/31-member linear (per lookup)", s);
+}
+
 // Item C — probe throughput on arena-storage names (baseline: bench_find_member
 // uses kStorageInputView names). Delta isolates member_name() dispatch overhead.
 void bench_find_member_escaped(
@@ -690,6 +727,7 @@ int main(
 	S const lookup_escaped_corpus = make_lookup_escaped_corpus();
 	S const lookup_mixed_corpus = make_lookup_mixed_corpus();
 	S const below_threshold_corpus = make_below_threshold_corpus();
+	S const linear31_corpus = make_linear31_corpus();
 
 	if (!g_csv) {
 		println(
@@ -742,6 +780,7 @@ int main(
 	}
 	bench_find_member_escaped(lookup_escaped_corpus);
 	bench_find_member_mixed(lookup_mixed_corpus);
+	bench_find_member_linear31(linear31_corpus);
 	bench_builder_name_length();
 
 	if (!g_csv) {

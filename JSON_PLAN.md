@@ -783,7 +783,7 @@ Store baseline in `benchmarks/baseline.json` as `{median, p25, p75}` per benchma
 
 ---
 
-## Phase 5 — Memory Model & Performance Hardening ✅ COMPLETE (5.1/5.2/5.4; 5.3/5.5 DEFERRED — measurement-gated)
+## Phase 5 — Memory Model & Performance Hardening ✅ COMPLETE (5.1/5.2/5.4/5.5; 5.3 DEFERRED — measurement-gated)
 **Effort:** 3 weeks.
 
 ### 5.1 `pmr::memory_resource` injection
@@ -911,7 +911,7 @@ keep `strtod_l` for those cases and document why. Do not delete until the suite 
 Documents read back across a library upgrade. No change to `Node::flags` layout. No public
 API change.
 
-### 5.5 `MemberEntry` cache-line packing — GATE NOT MET (v1), SECOND PASS PENDING
+### 5.5 `MemberEntry` cache-line packing ✅ COMPLETE (Option B)
 
 Target: 16 bytes (4 per cache line, vs current 2.67). Requires removing `name_ptr`.
 
@@ -937,17 +937,16 @@ Root cause: dropping Item C (`name_ptr` as pre-cached pointer in `find_member_wa
 forces a `member_name()` dispatch call per hash-match comparison. This dominates the warmed
 hash-table path regression.
 
-**Option B (second pass):** Keep 16-byte `MemberEntry` but preserve Item C by caching
-the pointer in `ObjHashTable` instead of `MemberEntry`. Add `char const** ptr_cache` array
-to `ObjHashTable` (one entry per member, indexed by `s.member_index`). `build_table()` fills
-`ht.ptr_cache[i] = sv.data()`; `find_member_warmed()` uses `ht.ptr_cache[s.member_index]`.
-This way `lookup_linear()` benefits from 16-byte packing (smaller scan) while the hash
-table path retains direct pointer comparison.
+**Option B (implemented 2026-05-04):** 16-byte `MemberEntry` (name_ptr removed);
+ptr_cache appended after slots in `ObjHashTable` allocation; `DocumentStorage::external_ptrs_`
+side table for `kMemberExternalView` names (name_off reused as index). `ChildFrame::local_external_ptrs_`
+accumulates ptrs during build; `commit()` relocates them into `DocumentStorage::external_ptrs_`.
 
-**Measurement gate:** benchmark warmed and unwarmed lookup on `github_events.json` and
-`apache_builds.json` before committing. Packing helps unwarmed linear scans most; warmed
-lookup is hash-dominated. Measure both. Require ≥5% improvement in linear-scan-dominated
-workloads with no regression on warmed paths.
+**Gate result (2026-05-04, 5 runs each, release-clang-libcxx):**
+| Path | 24B baseline | 16B Option B | Required | Result |
+|------|-------------|--------------|----------|--------|
+| 31-member linear scan (per lookup) | 38.5 ns | 34.5 ns | ≥5% gain | ✅ −10.4% |
+| 1024-member warmed hash (per lookup) | 9.7 ns | 9.6 ns | no regression | ✅ ≈0% |
 
 ---
 

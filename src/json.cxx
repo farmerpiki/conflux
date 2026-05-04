@@ -412,16 +412,16 @@ constexpr u8 kValKindDeferred = 0x04; // range-error f64 ≤ 4 KiB; from_chars d
 
 // All three kValKind* clear on a number node = f64-overflow (lexeme preserved).
 
-constexpr u32 kMemberExternalView = 0x04u; // insert_member_view: caller-owned pointer in name_ptr
+// kMemberExternalView: name is caller-owned. name_off indexes DocumentStorage::external_ptrs_.
+constexpr u32 kMemberExternalView = 0x04u;
 
 struct MemberEntry {
-	u32 name_off;
+	u32 name_off;   // arena offset; or external_ptrs_ index when kMemberExternalView
 	u32 name_len;
 	u32 val_node;
-	u32 name_flags; // 0=arena; kStorageInputView=0x01; kMemberExternalView=0x02
-	char const *name_ptr{nullptr}; // C: filled by build_table; E: caller-owned pointer
+	u32 name_flags; // 0=arena; kStorageInputView=0x01; kMemberExternalView=0x04
 };
-static_assert(sizeof(MemberEntry) == 24);
+static_assert(sizeof(MemberEntry) == 16);
 static_assert(std::is_trivially_copyable_v<MemberEntry>);
 
 // ---------------------------------------------------------------------------
@@ -448,11 +448,23 @@ struct ObjHashTable {
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		return reinterpret_cast<ObjHashSlot const *>(this + 1);
 	}
+	// ptr_cache follows slots: one char const* per member (build_table fills all member_count
+	// entries before the table is published; lookup_in reads via s.member_index).
+	[[nodiscard]] char const **ptr_cache_data() noexcept {
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		return reinterpret_cast<char const **>(slots_data() + capacity);
+	}
+	[[nodiscard]] char const *const *ptr_cache_data() const noexcept {
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		return reinterpret_cast<char const *const *>(slots_data() + capacity);
+	}
 
 	static ObjHashTable *create(
 		u32 capacity,
 		u32 member_count) noexcept {
-		SZ const bytes = sizeof(ObjHashTable) + sizeof(ObjHashSlot) * capacity;
+		SZ const bytes = sizeof(ObjHashTable)
+		               + sizeof(ObjHashSlot) * capacity
+		               + sizeof(char const *) * member_count;
 		void *mem = ::operator new(bytes, std::nothrow); // NOLINT(misc-const-correctness)
 		if (mem == nullptr) {
 			return nullptr;
@@ -642,6 +654,7 @@ struct DocumentStorage {
 	std::pmr::string string_arena;
 	std::pmr::vector<u32> array_children;
 	std::pmr::vector<MemberEntry> object_members;
+	V<char const *> external_ptrs_; // indexed by MemberEntry::name_off when kMemberExternalView
 	UP<S> owned_input;
 	SV input_view;
 	u32 root_node{0};
@@ -692,7 +705,7 @@ struct DocumentStorage {
 	[[nodiscard]] SV member_name(
 		MemberEntry const &m) const noexcept {
 		if ((m.name_flags & kMemberExternalView) != 0) {
-			return {m.name_ptr, m.name_len}; // Item E: caller-owned pointer
+			return {external_ptrs_[m.name_off], m.name_len};
 		}
 		return bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags));
 	}
@@ -1940,6 +1953,7 @@ namespace detail {
 	u32 const mask = ht.capacity - 1;
 	u32 slot = h & mask;
 	auto const *slots = ht.slots_data();
+	auto const *const *ptr_cache = ht.ptr_cache_data();
 	for (u32 probe = 0; probe < kProbeChainMax; ++probe) {
 		auto const &s = slots[slot]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		if (s.member_index == kEmptySlot) {
@@ -1948,7 +1962,9 @@ namespace detail {
 		if (s.name_hash == h) {
 			auto const &m = storage->object_members
 								[mem_start + s.member_index]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-			if (SV{m.name_ptr, m.name_len} == name) { // Item C: direct pointer, no dispatch
+			// Item C: ptr_cache holds pre-resolved data pointer; no dispatch per probe
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+			if (SV{ptr_cache[s.member_index], m.name_len} == name) {
 				return m.val_node;
 			}
 		}
@@ -1965,10 +1981,12 @@ namespace detail {
 	SZ mem_count) noexcept {
 	u32 const mask = ht.capacity - 1;
 	auto *slots = ht.slots_data();
+	auto **ptr_cache = ht.ptr_cache_data();
 	for (u32 i = 0; i < static_cast<u32>(mem_count); ++i) {
 		auto const &m = storage->object_members[mem_start + i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 		auto const sv = storage->member_name(m);
-		const_cast<MemberEntry &>(m).name_ptr = sv.data(); // Item C: cache pointer (arena stable post-parse)
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		ptr_cache[i] = sv.data(); // Item C: cache pointer in ptr_cache (arena stable post-parse)
 		auto const h = hash_name(sv, storage->hash_seed_);
 		u32 slot = h & mask;
 		bool inserted = false;
@@ -4350,6 +4368,7 @@ struct ChildFrame {
 	ParentSlot parent; // parent.arena_start is the rollback point for string_arena
 	V<SZ> local_children; // staged A child node indices (A builders only)
 	V<MemberEntry> local_members; // staged object members (object builders only)
+	V<char const *> local_external_ptrs_; // parallel to local_members; non-null only for kMemberExternalView entries
 	// Per-session duplicate detection for ObjectBuilder (kind==object only).
 	UM<S, SZ> dup_check;
 };
@@ -4368,6 +4387,7 @@ export class ObjectBuilder {
 			  .parent = parent,
 			  .local_children = {},
 			  .local_members = {},
+			  .local_external_ptrs_ = {},
 			  .dup_check = {}} {}
 
 	[[nodiscard]] expected<void, JsonError> check_can_insert() const {
@@ -4415,6 +4435,7 @@ public:
 			auto *st = frame_.state;
 			st->built_input.resize(frame_.parent.arena_start);
 			frame_.local_members.clear();
+			frame_.local_external_ptrs_.clear();
 			frame_.dup_check.clear();
 			st->active_depth = frame_.depth - 1;
 			if (frame_.parent.kind == ParentSlot::Kind::set_root) {
@@ -4450,7 +4471,13 @@ public:
 		}
 		auto *st = frame_.state;
 		SZ const mem_start = st->store.object_members.size();
-		for (auto const &m: frame_.local_members) {
+		for (auto m: frame_.local_members) { // copy: may patch name_off for external ptrs
+			if ((m.name_flags & kMemberExternalView) != 0) {
+				// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+				char const *ptr = frame_.local_external_ptrs_[m.name_off];
+				m.name_off = static_cast<u32>(st->store.external_ptrs_.size());
+				st->store.external_ptrs_.push_back(ptr);
+			}
 			st->store.object_members.push_back(m);
 		}
 		SZ const cnt = frame_.local_members.size();
@@ -4472,6 +4499,7 @@ public:
 		}
 		st->active_depth = frame_.depth - 1;
 		frame_.local_members.clear();
+		frame_.local_external_ptrs_.clear();
 		frame_.dup_check.clear();
 		frame_.committed = true;
 	}
@@ -4496,6 +4524,7 @@ export class ArrayBuilder {
 			  .parent = parent,
 			  .local_children = {},
 			  .local_members = {},
+			  .local_external_ptrs_ = {},
 			  .dup_check = {}} {}
 
 	// NOLINTNEXTLINE(bugprone-exception-escape)
@@ -5006,10 +5035,11 @@ expected<void, JsonError> ObjectBuilder::do_insert_node_view(
 				.message = format("duplicate member: {}", name)});
 	}
 	MemberEntry m{};
+	m.name_off = static_cast<u32>(frame_.local_external_ptrs_.size());
 	m.name_len = static_cast<u32>(name.size());
 	m.val_node = static_cast<u32>(node_idx);
 	m.name_flags = kMemberExternalView;
-	m.name_ptr = name.data();
+	frame_.local_external_ptrs_.push_back(name.data());
 	frame_.local_members.push_back(m);
 	return {};
 }
