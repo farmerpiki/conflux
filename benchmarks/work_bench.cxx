@@ -3,8 +3,11 @@
 import std;
 import conflux.types;
 import conflux.work;
+import conflux.work.carrier.coro;
 
 using namespace std::string_view_literals;
+
+namespace ec = conflux::work::carrier::model_a;
 
 namespace root = conflux::work::root;
 
@@ -36,6 +39,9 @@ struct Stats {
 	SZ iterations{};
 	u64 total_ns{};
 	double ns_per_iter{};
+	double min_ns{};
+	double p10_ns{};
+	double mad_ns{};
 };
 
 using BenchFn = root::detail::small_move_only_function<SZ()>;
@@ -44,6 +50,7 @@ struct Case {
 	SV name;
 	SV description;
 	SZ default_iterations;
+	SZ reps = 10;
 	BenchFn run;
 };
 
@@ -124,23 +131,54 @@ Stats measure_case(
 	for (SZ i = 0; i < warmup_iterations(iterations); ++i) {
 		sink.fetch_add(bench.run(), memory_order_relaxed);
 	}
-	auto const start = chrono::steady_clock::now();
-	for (SZ i = 0; i < iterations; ++i) {
-		sink.fetch_add(bench.run(), memory_order_relaxed);
+
+	V<double> times;
+	times.reserve(bench.reps);
+	for (SZ r = 0; r < bench.reps; ++r) {
+		auto const t0 = chrono::steady_clock::now();
+		for (SZ i = 0; i < iterations; ++i) {
+			sink.fetch_add(bench.run(), memory_order_relaxed);
+		}
+		auto const dt = chrono::duration_cast<chrono::nanoseconds>(chrono::steady_clock::now() - t0).count();
+		times.push_back(static_cast<double>(dt) / static_cast<double>(iterations));
 	}
-	auto const elapsed = chrono::steady_clock::now() - start;
-	auto const total_ns = static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(elapsed).count());
+
+	ranges::sort(times);
+	SZ const n = times.size();
+
+	auto const min_ns = times[0];
+	auto const p10_ns = times[static_cast<SZ>(0.1 * static_cast<double>(n - 1))];
+
+	double const med_ns = (n % 2 == 0) ?
+		(times[n / 2 - 1] + times[n / 2]) / 2.0 :
+		times[n / 2];
+
+	V<double> devs;
+	devs.reserve(n);
+	for (auto t : times) {
+		devs.push_back(std::abs(t - med_ns));
+	}
+	ranges::sort(devs);
+	double const mad_ns = (n % 2 == 0) ?
+		(devs[n / 2 - 1] + devs[n / 2]) / 2.0 :
+		devs[n / 2];
+
+	auto const total_ns = static_cast<u64>(med_ns * static_cast<double>(iterations));
 	return Stats{
 		.name = bench.name,
 		.iterations = iterations,
 		.total_ns = total_ns,
-		.ns_per_iter = static_cast<double>(total_ns) / static_cast<double>(iterations)};
+		.ns_per_iter = med_ns,
+		.min_ns = min_ns,
+		.p10_ns = p10_ns,
+		.mad_ns = mad_ns,
+	};
 }
 
 void print_header(
 	Config::Format format) {
 	if (format == Config::Format::table) {
-		println("{:48} {:>12} {:>14} {:>14}", "Benchmark", "Iterations", "Total (ms)", "ns/iter");
+		println("{:48} {:>12} {:>10} {:>10} {:>10} {:>10}", "Benchmark", "Iterations", "med ns", "min ns", "p10 ns", "mad ns");
 	}
 }
 
@@ -148,11 +186,11 @@ void print_stats(
 	Stats const &stats,
 	Config::Format format) {
 	if (format == Config::Format::table) {
-		auto const total_ms = static_cast<double>(stats.total_ns) / 1'000'000.0;
-		println("{:48} {:>12} {:>14.3f} {:>14.1f}", stats.name, stats.iterations, total_ms, stats.ns_per_iter);
+		println("{:48} {:>12} {:>10.1f} {:>10.1f} {:>10.1f} {:>10.1f}",
+		        stats.name, stats.iterations, stats.ns_per_iter, stats.min_ns, stats.p10_ns, stats.mad_ns);
 	} else {
-		println("{{\"config\":\"\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",
-		        stats.name, stats.iterations, stats.total_ns, stats.ns_per_iter);
+		println("{{\"config\":\"\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"min\":{:.2f},\"p10\":{:.2f},\"mad\":{:.2f}}}",
+		        stats.name, stats.iterations, stats.total_ns, stats.ns_per_iter, stats.min_ns, stats.p10_ns, stats.mad_ns);
 	}
 }
 
@@ -377,6 +415,50 @@ Case make_pool_join_all_3_case() {
 }
 
 // ---------------------------------------------------------------------------
+// work: EagerChain coroutine microbench
+// ---------------------------------------------------------------------------
+
+ec::EagerChain<int> ec_l1() { co_return 1; }
+ec::EagerChain<int> ec_l2() { co_return 1 + co_await ec_l1(); }
+ec::EagerChain<int> ec_l3() { co_return 1 + co_await ec_l2(); }
+ec::EagerChain<int> ec_l4() { co_return 1 + co_await ec_l3(); }
+
+Case make_eager_chain_flat_int_case() {
+	return Case{
+		.name = "eager_chain/flat_int",
+		.description = "EagerChain<int>: allocate frame + co_return int (single frame)",
+		.default_iterations = 2'000'000,
+		.run = [] {
+			auto c = []() -> ec::EagerChain<int> { co_return 42; }();
+			auto out = std::move(c).chain().release_outcome();
+			return static_cast<SZ>(std::move(out).success().value);
+		}};
+}
+
+Case make_eager_chain_flat_void_case() {
+	return Case{
+		.name = "eager_chain/flat_void",
+		.description = "EagerChain<void>: allocate frame + co_return void (single frame)",
+		.default_iterations = 2'000'000,
+		.run = [] {
+			auto c = []() -> ec::EagerChain<void> { co_return; }();
+			(void)std::move(c).chain().release_outcome();
+			return SZ{1};
+		}};
+}
+
+Case make_eager_chain_nested_4_case() {
+	return Case{
+		.name = "eager_chain/nested_4",
+		.description = "EagerChain<int> 4-deep: LIFO frame stack, all synchronous",
+		.default_iterations = 500'000,
+		.run = [] {
+			auto out = ec_l4().chain().release_outcome();
+			return static_cast<SZ>(std::move(out).success().value);
+		}};
+}
+
+// ---------------------------------------------------------------------------
 // work: RingLane
 // ---------------------------------------------------------------------------
 
@@ -407,6 +489,7 @@ Case make_ring_lane_case() {
 		.name = "work/ring_lane_roundtrip",
 		.description = "RingLane enqueue from jthread + msg-ring wake + owner drain",
 		.default_iterations = 5'000,
+		.reps = 1,
 		.run = [state] {
 			Atom<SZ> out{};
 			jthread producer([&] {
@@ -451,6 +534,10 @@ V<Case> make_cases() {
 	try {
 		cases.push_back(make_ring_lane_case());
 	} catch (exception const &) {}
+	// work: EagerChain microbench
+	cases.push_back(make_eager_chain_flat_int_case());
+	cases.push_back(make_eager_chain_flat_void_case());
+	cases.push_back(make_eager_chain_nested_4_case());
 	return cases;
 }
 

@@ -51,10 +51,20 @@ set -euo pipefail
 PGURI="${PGURI:-postgres://postgres@localhost/conflux_bench}"
 export PG_CONNINFO="${PG_CONNINFO:-host=localhost dbname=conflux_bench user=postgres}"
 BENCH_PRESETS="${BENCH_PRESET:-release-clang-libcxx release-gcc-stdcxx}"
-NAME="${1:-manual}"
 BENCH_REPS="${BENCH_REPS:-5}"
 MACHINE_ID="${MACHINE_ID:-$(cat /etc/machine-id 2>/dev/null || hostname)}"
 WAIVER_REASON="${WAIVER_REASON:-}"
+
+COMPARE_MODE=false
+COMPARE_PRESETS=()
+if [[ "${1:-}" == "--compare" ]]; then
+  COMPARE_MODE=true
+  shift
+  COMPARE_PRESETS=("$@")
+  NAME="compare"
+else
+  NAME="${1:-manual}"
+fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
 cd "$REPO_ROOT"
@@ -160,7 +170,7 @@ insert_row() {
 
 # record_with_reps: runs bench $BENCH_REPS times, inserts raw rows + summary row.
 # Args: run_id bench_name <bench_args_to_produce_ndjson>...
-# Expects NDJSON lines: {"config":"","variant":"","iterations":N,"total_ns":N,"ns_per_iter":X}
+# Expects NDJSON: {"config":"","variant":"","iterations":N,"total_ns":N,"ns_per_iter":X,"min":X,"p10":X,"mad":X}
 record_with_reps() {
   local run_id="$1" bench="$2"; shift 2
   local reps="${BENCH_REPS:-5}"
@@ -172,16 +182,19 @@ record_with_reps() {
     "$@" 2>/dev/null >> "$tmpf"
   done
 
-  while IFS=$'\t' read -r variant iters total ns_pi; do
+  while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
+    local ex
+    ex=$(printf '{"min":%s,"p10":%s,"mad":%s}' \
+      "${min_v:-null}" "${p10_v:-null}" "${mad_v:-null}")
     psql "$PGURI" -At -q -c "
       INSERT INTO results
         (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
-         metric, value, unit, sample_count)
+         metric, value, unit, sample_count, extra)
       VALUES
         ($run_id, '$(sql_escape "$bench")', '$(sql_escape "$variant")',
          $iters, $total, $ns_pi,
-         'ns_per_iter', $ns_pi, 'ns', 1);" >/dev/null
-  done < <(jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter] | @tsv)' "$tmpf")
+         'ns_per_iter', $ns_pi, 'ns', 1, '$(sql_escape "$ex")'::jsonb);" >/dev/null
+  done < <(jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.min // "null"), (.p10 // "null"), (.mad // "null")] | @tsv)' "$tmpf")
 
   psql "$PGURI" -At -q -c "
     WITH raw AS (
@@ -189,34 +202,185 @@ record_with_reps() {
              PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ns_per_iter) AS med,
              PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ns_per_iter) AS p50,
              PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY ns_per_iter) AS p99,
+             MIN((extra->>'min')::double precision) AS best,
+             PERCENTILE_CONT(0.5) WITHIN GROUP (
+               ORDER BY (extra->>'p10')::double precision) AS p10,
              COUNT(*) AS n,
              AVG(iterations) AS avg_iters
       FROM results
       WHERE run_id = $run_id AND benchmark = '$(sql_escape "$bench")'
+        AND (extra->>'min') IS NOT NULL
       GROUP BY variant
     ),
     mad_raw AS (
       SELECT r.variant, raw.med,
              PERCENTILE_CONT(0.5) WITHIN GROUP (
                ORDER BY ABS(r.ns_per_iter - raw.med)) AS mad,
-             raw.p50, raw.p99, raw.avg_iters, raw.n
+             raw.p50, raw.p99, raw.best, raw.p10, raw.avg_iters, raw.n
       FROM results r
       JOIN raw ON raw.variant = r.variant
       WHERE r.run_id = $run_id AND r.benchmark = '$(sql_escape "$bench")'
-      GROUP BY r.variant, raw.med, raw.p50, raw.p99, raw.avg_iters, raw.n
+        AND (r.extra->>'min') IS NOT NULL
+      GROUP BY r.variant, raw.med, raw.p50, raw.p99, raw.best, raw.p10,
+               raw.avg_iters, raw.n
     )
     INSERT INTO results
       (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
-       metric, value, unit, sample_count, median, mad, p50, p99, extra)
+       metric, value, unit, sample_count, median, mad, p50, p99, best, p10, extra)
     SELECT $run_id, '$(sql_escape "$bench")', variant,
            avg_iters::bigint, 0, med,
            'ns_per_iter', med, 'ns', n::bigint,
-           med, mad, p50, p99,
+           med, mad, p50, p99, best, p10,
            '{\"kind\":\"summary\"}'::jsonb
     FROM mad_raw;" >/dev/null
 }
 
 want() { [[ -z "${ONLY_BENCH:-}" || "${ONLY_BENCH}" == "$1" ]]; }
+
+# ---------------------------------------------------------------------------
+# --compare mode: interleaved multi-preset thermal-fair comparison
+#
+# Usage: bench_record.sh --compare preset1 preset2 [preset3 ...]
+#   Builds each preset once, then runs BENCH_REPS rounds.
+#   Each round rotates candidate order (offset = (round-1) % n).
+#   Constant 2s settle before every bench execution.
+#   Load check before every execution; abort if overloaded.
+#   Results tagged with {"round":N,"position":P,...} in extra JSONB.
+# ---------------------------------------------------------------------------
+load_check_or_abort() {
+  local cores thr load
+  cores=$(nproc)
+  load=$(awk '{print $1}' /proc/loadavg)
+  thr=$(awk "BEGIN {printf \"%.1f\", $cores * 1.5}")
+  if awk "BEGIN {exit !($load > $thr)}"; then
+    echo "ERROR: load $load > threshold $thr before bench run — aborting compare" >&2
+    exit 3
+  fi
+}
+
+run_compare() {
+  local presets=("$@")
+  local n=${#presets[@]}
+  [[ $n -ge 2 ]] || { echo "compare requires at least 2 presets" >&2; exit 1; }
+
+  # Build each preset and create its run_id (no cleanup between builds).
+  declare -A build_dirs run_ids
+  for p in "${presets[@]}"; do
+    echo "=== building $p ==="
+    PRESET="$p"
+    COMPILER="clang++"
+    case "$p" in *gcc*) COMPILER="g++" ;; esac
+    SYS_COMPILER_VER=$(compiler_version)
+    METADATA=$(printf '{
+  "cpu": "%s",
+  "cores": %s,
+  "smt": "%s",
+  "kernel": "%s",
+  "libc": "%s",
+  "governor": "%s",
+  "compiler_version": "%s",
+  "pinned_cpus": "%s",
+  "reps": %s
+}' "$SYS_CPU" "$SYS_CORES" "$SYS_SMT" "$SYS_KERNEL" \
+       "$SYS_LIBC" "$SYS_GOVERNOR" "$SYS_COMPILER_VER" \
+       "$SYS_PINNED_CPUS" "$BENCH_REPS")
+    local cfg_log bdir
+    cfg_log=$(cmake --preset "$p" 2>&1)
+    bdir=$(printf '%s\n' "$cfg_log" | sed -n 's/^-- Build files have been written to: //p' | tail -1)
+    if [[ -z "$bdir" || ! -d "$bdir" ]]; then
+      echo "configure failed for preset $p" >&2
+      printf '%s\n' "$cfg_log" | tail -20 >&2
+      exit 2
+    fi
+    cmake --build "$bdir" --target conflux_work_benchmarks -- -j"$(nproc)" >/dev/null
+    build_dirs[$p]="$bdir"
+    run_ids[$p]=$(new_run "work" "compare" "{\"compare\":true,\"preset\":\"$p\"}")
+    echo "  run_id=${run_ids[$p]}"
+  done
+
+  echo "all presets built — settling 20s before compare rounds..."
+  sleep 20
+
+  local reps="${BENCH_REPS:-5}"
+  for round in $(seq 1 "$reps"); do
+    echo "--- round $round/$reps ---"
+    local offset=$(( (round - 1) % n ))
+    local pos=0
+    for ((j=0; j<n; j++)); do
+      local idx=$(( (offset + j) % n ))
+      local p="${presets[$idx]}"
+      pos=$((j + 1))
+
+      load_check_or_abort
+      echo "  settle 2s before $p (round=$round pos=$pos)..."
+      sleep 2
+
+      local binary="${build_dirs[$p]}/benchmarks/conflux_work_benchmarks"
+      local rid="${run_ids[$p]}"
+      echo "  running $p (round=$round pos=$pos)..."
+
+      while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
+        local ex
+        ex=$(printf '{"round":%d,"position":%d,"min":%s,"p10":%s,"mad":%s}' \
+          "$round" "$pos" "${min_v:-null}" "${p10_v:-null}" "${mad_v:-null}")
+        psql "$PGURI" -At -q -c "
+          INSERT INTO results
+            (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
+             metric, value, unit, sample_count, extra)
+          VALUES
+            ($rid, 'work', '$(sql_escape "$variant")',
+             $iters, $total, $ns_pi,
+             'ns_per_iter', $ns_pi, 'ns', 1, '$(sql_escape "$ex")'::jsonb);" >/dev/null
+      done < <(run_bench "$binary" --json 2>/dev/null \
+        | jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.min // "null"), (.p10 // "null"), (.mad // "null")] | @tsv)')
+    done
+  done
+
+  # Insert summary rows for each preset.
+  for p in "${presets[@]}"; do
+    local rid="${run_ids[$p]}"
+    psql "$PGURI" -At -q -c "
+      WITH raw AS (
+        SELECT variant,
+               PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ns_per_iter) AS med,
+               PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ns_per_iter) AS p50,
+               PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY ns_per_iter) AS p99,
+               MIN((extra->>'min')::double precision) AS best,
+               PERCENTILE_CONT(0.5) WITHIN GROUP (
+                 ORDER BY (extra->>'p10')::double precision) AS p10,
+               COUNT(*) AS n,
+               AVG(iterations) AS avg_iters
+        FROM results
+        WHERE run_id = $rid AND (extra->>'min') IS NOT NULL
+          AND (extra->>'round') IS NOT NULL
+        GROUP BY variant
+      ),
+      mad_raw AS (
+        SELECT r.variant, raw.med,
+               PERCENTILE_CONT(0.5) WITHIN GROUP (
+                 ORDER BY ABS(r.ns_per_iter - raw.med)) AS mad,
+               raw.p50, raw.p99, raw.best, raw.p10, raw.avg_iters, raw.n
+        FROM results r
+        JOIN raw ON raw.variant = r.variant
+        WHERE r.run_id = $rid AND (r.extra->>'min') IS NOT NULL
+          AND (r.extra->>'round') IS NOT NULL
+        GROUP BY r.variant, raw.med, raw.p50, raw.p99, raw.best, raw.p10,
+                 raw.avg_iters, raw.n
+      )
+      INSERT INTO results
+        (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
+         metric, value, unit, sample_count, median, mad, p50, p99, best, p10, extra)
+      SELECT $rid, 'work', variant,
+             avg_iters::bigint, 0, med,
+             'ns_per_iter', med, 'ns', n::bigint,
+             med, mad, p50, p99, best, p10,
+             '{\"kind\":\"summary\"}'::jsonb
+      FROM mad_raw;" >/dev/null
+    echo "summary inserted for $p (run_id=$rid)"
+  done
+
+  echo "compare done."
+}
 
 # ---------------------------------------------------------------------------
 # Custom parsers (for benches with non-standard output fields)
@@ -279,6 +443,11 @@ clean_build() {
 
 CURRENT_BUILD_DIR=""
 trap '[[ -n "$CURRENT_BUILD_DIR" ]] && clean_build "$CURRENT_BUILD_DIR"' EXIT
+
+if $COMPARE_MODE; then
+  run_compare "${COMPARE_PRESETS[@]}"
+  exit 0
+fi
 
 read -r -a PRESET_LIST <<< "$BENCH_PRESETS"
 preset_count=${#PRESET_LIST[@]}

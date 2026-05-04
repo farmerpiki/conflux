@@ -1,3 +1,10 @@
+add_library(conflux_bench_release_opts INTERFACE)
+if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
+    target_compile_options(conflux_bench_release_opts INTERFACE
+        -ffunction-sections -fdata-sections -falign-functions=64)
+    target_link_options(conflux_bench_release_opts INTERFACE -Wl,--gc-sections)
+endif()
+
 add_library(bench_common STATIC)
 target_sources(bench_common
     PUBLIC FILE_SET CXX_MODULES
@@ -10,7 +17,7 @@ add_executable(conflux_benchmarks router_bench.cxx)
 target_link_libraries(conflux_benchmarks PRIVATE conflux conflux_options)
 
 add_executable(conflux_work_benchmarks work_bench.cxx)
-target_link_libraries(conflux_work_benchmarks PRIVATE conflux_work conflux_options)
+target_link_libraries(conflux_work_benchmarks PRIVATE conflux_work conflux_options conflux_bench_release_opts)
 
 add_executable(conflux_work_compile_bench work_compile_bench.cxx)
 target_link_libraries(conflux_work_compile_bench PRIVATE bench_common conflux_work conflux_options)
