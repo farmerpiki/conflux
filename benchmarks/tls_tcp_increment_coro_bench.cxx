@@ -132,6 +132,7 @@ void run_server(
 	SSL_CTX *sctx,
 	atomic_flag &stop) {
 	int cfd = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
+	::close(listen_fd);
 	if (cfd < 0) {
 		return;
 	}
@@ -386,7 +387,6 @@ int main(
 		thread server{[lfd, sctx_raw = sctx.get(), &server_stop] { run_server(lfd, sctx_raw, server_stop); }};
 
 		int const csock = connect_to(port);
-		::close(lfd);
 
 		::io_uring ring{};
 		if (::io_uring_queue_init(64, &ring, 0) < 0) {

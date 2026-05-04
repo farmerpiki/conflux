@@ -86,6 +86,7 @@ void run_server(
 	int listen_fd,
 	atomic_flag &stop) {
 	int const cfd = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
+	::close(listen_fd);
 	if (cfd < 0) {
 		return;
 	}
@@ -320,7 +321,6 @@ int main(
 		thread server{[lfd, &server_stop] { run_server(lfd, server_stop); }};
 
 		int const csock = connect_to(port);
-		::close(lfd);
 
 		::io_uring ring{};
 		if (::io_uring_queue_init(64, &ring, 0) < 0) {
