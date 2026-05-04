@@ -26,7 +26,7 @@ export module conflux.work.carrier.coro;
 import std;
 import conflux.types;
 import conflux.work.root;
-import conflux.work.carrier.model_a;
+import conflux.work.carrier;
 
 // ---------------------------------------------------------------------------
 // Per-thread monotonic bump arena for EagerChain coroutine frames (Design 2:
@@ -43,7 +43,7 @@ import conflux.work.carrier.model_a;
 // destroy()), so nested EagerChains produce a LIFO allocation pattern.
 // ---------------------------------------------------------------------------
 #if CONFLUX_WORK_CFP_ACTIVE
-namespace conflux::work::carrier::model_a::pool {
+namespace conflux::work::carrier::pool {
 
 struct FrameArena {
 	static constexpr std::size_t kCap = 8u * 1024u * 1024u;
@@ -127,17 +127,17 @@ struct FrameArena {
 	return arena;
 }
 
-} // namespace conflux::work::carrier::model_a::pool
+} // namespace conflux::work::carrier::pool
 #endif
 
-export namespace conflux::work::carrier::model_a {
+export namespace conflux::work::carrier {
 
 template<root::work_value T>
 class EagerChain;
 
-} // namespace conflux::work::carrier::model_a
+} // namespace conflux::work::carrier
 
-namespace conflux::work::carrier::model_a {
+namespace conflux::work::carrier {
 
 template<root::work_value T>
 struct EagerChainPromise {
@@ -216,13 +216,13 @@ struct EagerChainPromise<void> {
 #endif
 };
 
-} // namespace conflux::work::carrier::model_a
+} // namespace conflux::work::carrier
 
-export namespace conflux::work::carrier::model_a {
+export namespace conflux::work::carrier {
 
 template<root::work_value T>
 class EagerChain {
-	using promise_t = ::conflux::work::carrier::model_a::EagerChainPromise<T>;
+	using promise_t = ::conflux::work::carrier::EagerChainPromise<T>;
 	std::coroutine_handle<promise_t> handle_;
 
 public:
@@ -276,9 +276,9 @@ public:
 	}
 };
 
-} // namespace conflux::work::carrier::model_a
+} // namespace conflux::work::carrier
 
-namespace conflux::work::carrier::model_a {
+namespace conflux::work::carrier {
 
 template<root::work_value T>
 EagerChain<T> EagerChainPromise<T>::get_return_object() noexcept {
@@ -302,9 +302,9 @@ ChainAwaiter<U> EagerChainPromise<void>::await_transform(
 	return std::move(e).chain().operator co_await();
 }
 
-} // namespace conflux::work::carrier::model_a
+} // namespace conflux::work::carrier
 
-export namespace conflux::work::carrier::model_a {
+export namespace conflux::work::carrier {
 
 template<root::work_value T>
 class TaskHandleAwaiter {
@@ -488,4 +488,4 @@ template<root::work_value T>
 	"call from inside a coroutine), then co_await the Chain.")]] auto
 operator co_await(root::OperationJoinHandle<T> &&) = delete;
 
-} // namespace conflux::work::carrier::model_a
+} // namespace conflux::work::carrier

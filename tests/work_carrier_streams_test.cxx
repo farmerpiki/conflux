@@ -4,11 +4,11 @@
 import std;
 import conflux.types;
 import conflux.work.root;
-import conflux.work.carrier.model_a;
+import conflux.work.carrier;
 import conflux.work.carrier.streams;
 
 namespace root = conflux::work::root;
-namespace model_a = conflux::work::carrier::model_a;
+namespace carrier = conflux::work::carrier;
 namespace carrier = conflux::work::carrier;
 
 namespace {
@@ -55,7 +55,7 @@ struct SyncTask {
 	}
 };
 
-SyncTask<model_a::Chain<int>> coro_droppable_slot(
+SyncTask<carrier::Chain<int>> coro_droppable_slot(
 	carrier::DroppableSlot<int> slot) {
 	co_return co_await std::move(slot);
 }

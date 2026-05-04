@@ -7,7 +7,7 @@ export module conflux.work.carrier.scope;
 import std;
 import conflux.types;
 import conflux.work.root;
-import conflux.work.carrier.model_a;
+import conflux.work.carrier;
 
 export namespace conflux::work::carrier {
 
@@ -129,48 +129,48 @@ public:
 	// Track the join handle's control then join: cancel() fired concurrently
 	// will signal the task to cancel, causing root::join to return Cancelled.
 	template<root::work_value T>
-	[[nodiscard]] model_a::Chain<T> admit(
+	[[nodiscard]] Chain<T> admit(
 		root::TaskJoinHandle<T> &&jh) {
 		track(jh.control());
-		return model_a::Chain<T>{root::join(std::move(jh)), model_a::CarrierKind::task};
+		return Chain<T>{root::join(std::move(jh)), CarrierKind::task};
 	}
 
 	template<root::work_value T, root::progress_capability Owner>
-	[[nodiscard]] model_a::Chain<T> admit(
+	[[nodiscard]] Chain<T> admit(
 		Owner &owner,
 		root::PostedJoinHandle<T> &&jh) {
 		track(jh.control());
-		return model_a::Chain<T>{
+		return Chain<T>{
 			root::join(owner, std::move(jh)),
-			model_a::CarrierKind::posted,
+			CarrierKind::posted,
 			root::capability_id(owner)};
 	}
 
 	template<root::work_value T, root::progress_capability Owner>
-	[[nodiscard]] model_a::Chain<T> admit_unbound(
+	[[nodiscard]] Chain<T> admit_unbound(
 		Owner &owner,
 		root::PostedJoinHandle<T> &&jh) {
 		track(jh.control());
-		return model_a::Chain<T>{root::join(owner, std::move(jh)), model_a::CarrierKind::posted};
+		return Chain<T>{root::join(owner, std::move(jh)), CarrierKind::posted};
 	}
 
 	template<root::work_value T, root::progress_capability Driver>
-	[[nodiscard]] model_a::Chain<T> admit(
+	[[nodiscard]] Chain<T> admit(
 		Driver &driver,
 		root::OperationJoinHandle<T> &&jh) {
 		track(jh.control());
-		return model_a::Chain<T>{
+		return Chain<T>{
 			root::join(driver, std::move(jh)),
-			model_a::CarrierKind::operation,
+			CarrierKind::operation,
 			root::capability_id(driver)};
 	}
 
 	template<root::work_value T, root::progress_capability Driver>
-	[[nodiscard]] model_a::Chain<T> admit_unbound(
+	[[nodiscard]] Chain<T> admit_unbound(
 		Driver &driver,
 		root::OperationJoinHandle<T> &&jh) {
 		track(jh.control());
-		return model_a::Chain<T>{root::join(driver, std::move(jh)), model_a::CarrierKind::operation};
+		return Chain<T>{root::join(driver, std::move(jh)), CarrierKind::operation};
 	}
 };
 

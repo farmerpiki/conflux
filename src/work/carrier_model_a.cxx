@@ -1,13 +1,13 @@
 module;
 
-export module conflux.work.carrier.model_a;
+export module conflux.work.carrier;
 
 import std;
 import conflux.types;
 import conflux.work.root;
 import conflux.work.carrier.flags;
 
-namespace conflux::work::carrier::model_a::detail {
+namespace conflux::work::carrier::detail {
 
 template<class O>
 struct outcome_value_impl;
@@ -43,9 +43,9 @@ auto map_outcome(
 	} catch (...) { return root::Outcome<U>{root::Failure{std::current_exception()}}; }
 }
 
-} // namespace conflux::work::carrier::model_a::detail
+} // namespace conflux::work::carrier::detail
 
-export namespace conflux::work::carrier::model_a {
+export namespace conflux::work::carrier {
 
 template<root::work_value T>
 struct ChainAwaiter;
@@ -539,4 +539,4 @@ template<root::work_value T>
 	return Chain<T>{std::move(out_a), kind_a, cap_a};
 }
 
-} // namespace conflux::work::carrier::model_a
+} // namespace conflux::work::carrier

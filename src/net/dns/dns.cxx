@@ -1022,7 +1022,7 @@ void validate_accepted_response_status(
 	}
 }
 
-[[nodiscard]] Task<codec::Message> recv_valid_udp_response(
+[[nodiscard]] root::Task<codec::Message> recv_valid_udp_response(
 	FileReader &reader,
 	std::shared_ptr<udp_ns::UdpSocket> const &sock,
 	std::shared_ptr<std::array<u8, 4096>> const &rx_buf,
@@ -1055,7 +1055,7 @@ void validate_accepted_response_status(
 // Single UDP DNS query: open ephemeral socket, send wire bytes to ns,
 // receive response with timeout, decode and validate. Maps UdpError →
 // DnsError so callers only see DnsError.
-[[nodiscard]] Task<codec::Message> udp_single_query(
+[[nodiscard]] root::Task<codec::Message> udp_single_query(
 	FileReader &reader,
 	NameserverEndpoint ns,
 	vector<u8> wire,
@@ -1085,7 +1085,7 @@ void validate_accepted_response_status(
 			std::move(expected_qname),
 			expected_qtype,
 			std::chrono::steady_clock::now() + timeout);
-		co_return co_await recv_task;
+		co_return co_await std::move(recv_task);
 	} catch (DnsError const &) { throw; } catch (udp_ns::UdpError const &e) {
 		if (e.code().value() == ETIMEDOUT) {
 			throw DnsError{DnsErrorKind::timeout, "dns: query timed out"};
@@ -1095,7 +1095,7 @@ void validate_accepted_response_status(
 }
 
 // TCP DNS query per RFC 1035 §4.2.2: 2-byte big-endian length prefix framing.
-[[nodiscard]] Task<codec::Message> tcp_single_query(
+[[nodiscard]] root::Task<codec::Message> tcp_single_query(
 	FileReader &reader,
 	NameserverEndpoint ns,
 	vector<u8> wire,
@@ -1195,7 +1195,7 @@ struct EndpointBatch {
 // Build a Task<EndpointBatch> for a single address family. Errors are absorbed
 // into a BatchFailReason field so the parallel join (join_all) always completes.
 // Cancellation is the only exception that still propagates.
-[[nodiscard]] Task<EndpointBatch> build_family_flow(
+[[nodiscard]] root::Task<EndpointBatch> build_family_flow(
 	FileReader &reader,
 	NameserverEndpoint ns,
 	SV hostname,
@@ -1211,7 +1211,7 @@ struct EndpointBatch {
 	bool needs_tcp_fallback = false;
 	try {
 		auto udp_task = udp_single_query(reader, ns, std::move(wire), qid, expected_qname, qtype, timeout);
-		auto const msg = co_await udp_task;
+		auto const msg = co_await std::move(udp_task);
 		EndpointBatch batch;
 		batch.was_queried = true;
 		batch.min_ttl = min_answer_ttl(msg, fam);
@@ -1238,7 +1238,7 @@ struct EndpointBatch {
 	// TCP fallback (co_await must be outside catch block):
 	try {
 		auto tcp_task = tcp_single_query(reader, ns, *wire_ptr, qid, lowercase_ascii(hostname), qtype, timeout);
-		auto const msg2 = co_await tcp_task;
+		auto const msg2 = co_await std::move(tcp_task);
 		EndpointBatch b;
 		b.was_queried = true;
 		b.min_ttl = min_answer_ttl(msg2, fam);
@@ -1252,13 +1252,13 @@ struct EndpointBatch {
 }
 
 // Immediate empty batch for a disabled address family (was_queried=false).
-[[nodiscard]] Task<EndpointBatch> make_empty_batch_task() {
+[[nodiscard]] root::Task<EndpointBatch> make_empty_batch_task() {
 	co_return EndpointBatch{};
 }
 
 // Fire A and AAAA queries in parallel (RFC 8305 §3). Connection-attempt
 // staggering belongs in the caller's connect loop, not here.
-[[nodiscard]] Task<ResolveResult> build_native_udp_flow(
+[[nodiscard]] root::Task<ResolveResult> build_native_udp_flow(
 	FileReader &reader,
 	NameserverEndpoint ns,
 	string const &hostname,
@@ -1319,7 +1319,7 @@ struct EndpointBatch {
 	co_return r;
 }
 
-[[nodiscard]] Task<ResolveResult> build_native_udp_flow_with_nameservers(
+[[nodiscard]] root::Task<ResolveResult> build_native_udp_flow_with_nameservers(
 	FileReader &reader,
 	vector<NameserverEndpoint> nameservers,
 	size_t index,
@@ -1336,7 +1336,7 @@ struct EndpointBatch {
 	auto const ns = nameservers[index];
 	auto query_host = hostname;
 	auto udp_task = build_native_udp_flow(reader, ns, query_host, port, do_v4, do_v6, prefer, timeout, edns);
-	auto result = co_await udp_task;
+	auto result = co_await std::move(udp_task);
 	if (!result.endpoints.empty() || index + 1 >= nameservers.size()) {
 		co_return std::move(result);
 	}
@@ -1351,10 +1351,10 @@ struct EndpointBatch {
 		prefer,
 		timeout,
 		edns);
-	co_return co_await next_task;
+	co_return co_await std::move(next_task);
 }
 
-[[nodiscard]] Task<ResolveResult> build_native_udp_flow_with_candidates(
+[[nodiscard]] root::Task<ResolveResult> build_native_udp_flow_with_candidates(
 	FileReader &reader,
 	vector<NameserverEndpoint> nameservers,
 	vector<string> candidates,
@@ -1383,7 +1383,7 @@ struct EndpointBatch {
 			prefer,
 			timeout,
 			edns);
-		co_return co_await ns_task;
+		co_return co_await std::move(ns_task);
 	} catch (DnsError const &de) {
 		if (de.kind != DnsErrorKind::nxdomain || index + 1 >= candidates.size()) {
 			throw;
@@ -1403,7 +1403,7 @@ struct EndpointBatch {
 		prefer,
 		timeout,
 		edns);
-	co_return co_await next_task;
+	co_return co_await std::move(next_task);
 }
 
 // ─── LRU TTL cache ──────────────────────────────────────────────────────────
@@ -1804,7 +1804,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 			auto [out_task, out_raw_src] =
 				root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 			auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
-			co_spawn([](SP<root::TaskSource<ResolveResult>> out_src, root::Task<ResolveResult> wt) -> Task<void> {
+			[](SP<root::TaskSource<ResolveResult>> out_src, root::Task<ResolveResult> wt) -> root::Task<void> {
 				try {
 					auto r = co_await std::move(wt);
 					r.from_coalesced = true;
@@ -1813,7 +1813,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 					(void)out_src->try_set_exception(
 						std::make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
 				} catch (...) { (void)out_src->try_set_exception(std::current_exception()); }
-			}(out_src, std::move(wtask)));
+			}(out_src, std::move(wtask)).detach();
 			return std::move(out_task);
 		}
 		impl_->in_flight.emplace(coalesce_key, CoalescedBroadcast{});
@@ -1878,14 +1878,13 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	auto [out_task, out_raw_src] =
 		root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 	auto out_src = std::make_shared<root::TaskSource<ResolveResult>>(std::move(out_raw_src));
-	co_spawn(
-		[](SP<root::TaskSource<ResolveResult>> out_src,
-		   Task<ResolveResult> inner,
+	[](SP<root::TaskSource<ResolveResult>> out_src,
+		   root::Task<ResolveResult> inner,
 		   auto cache_insert,
 		   auto fanout_success,
 		   auto fanout_error,
 		   SP<Resolver::Impl> impl,
-		   string coalesce_key) mutable -> Task<void> {
+		   string coalesce_key) mutable -> root::Task<void> {
 			try {
 				auto out = out_src;
 				auto r = co_await std::move(inner);
@@ -1915,22 +1914,22 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				} catch (...) { (void)out->try_set_exception(std::current_exception()); }
 			}
 		}(out_src,
-										build_native_udp_flow_with_candidates(
-											*reader,
-											ns_list,
-											candidates,
-											0,
-											port,
-											do_v4,
-											do_v6,
-											effective_opts.prefer,
-											timeout,
-											edns),
-										std::move(cache_insert),
-										std::move(fanout_success),
-										std::move(fanout_error),
-										impl_,
-										coalesce_key));
+			build_native_udp_flow_with_candidates(
+				*reader,
+				ns_list,
+				candidates,
+				0,
+				port,
+				do_v4,
+				do_v6,
+				effective_opts.prefer,
+				timeout,
+				edns),
+			std::move(cache_insert),
+			std::move(fanout_success),
+			std::move(fanout_error),
+			impl_,
+			coalesce_key).detach();
 	return std::move(out_task);
 }
 

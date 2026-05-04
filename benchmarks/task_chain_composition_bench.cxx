@@ -9,21 +9,21 @@
 import std;
 import conflux.types;
 import conflux.work.root;
-import conflux.work.carrier.model_a;
+import conflux.work.carrier;
 
 import bench_common;
 
 using namespace std::string_view_literals;
 namespace root    = conflux::work::root;
-namespace model_a = conflux::work::carrier::model_a;
+namespace carrier = conflux::work::carrier;
 
 namespace {
 
-model_a::Chain<int> apply_steps(
-	model_a::Chain<int> chain,
+carrier::Chain<int> apply_steps(
+	carrier::Chain<int> chain,
 	SZ n) {
 	for (SZ i = 0; i < n; ++i) {
-		chain = model_a::map(std::move(chain), [](int v) { return v + 1; });
+		chain = carrier::map(std::move(chain), [](int v) { return v + 1; });
 	}
 	return chain;
 }
@@ -32,9 +32,9 @@ void run_once(
 	SZ steps) {
 	auto [task, source] = root::make_task_source<int>();
 	(void)source.try_set_value(root::Success<int>{0});
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	chain = apply_steps(std::move(chain), steps);
-	auto result_task = model_a::into_ready_task(std::move(chain));
+	auto result_task = carrier::into_ready_task(std::move(chain));
 	[[maybe_unused]] auto outcome = root::join(std::move(result_task));
 }
 

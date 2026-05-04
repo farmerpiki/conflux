@@ -4,10 +4,10 @@
 import std;
 import conflux.types;
 import conflux.work.root;
-import conflux.work.carrier.model_a;
+import conflux.work.carrier;
 
 namespace root = conflux::work::root;
-namespace model_a = conflux::work::carrier::model_a;
+namespace carrier = conflux::work::carrier;
 
 namespace {
 
@@ -32,11 +32,11 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{1}));
 
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	CHECK(chain.bound_capability().address == nullptr);
 
-	auto hopped = model_a::hop_to_posted(owner, std::move(chain));
-	CHECK(hopped.kind() == model_a::CarrierKind::posted);
+	auto hopped = carrier::hop_to_posted(owner, std::move(chain));
+	CHECK(hopped.kind() == carrier::CarrierKind::posted);
 	CHECK(hopped.bound_capability() == root::capability_id(owner));
 }
 
@@ -51,9 +51,9 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{2}));
 
-	auto chain = model_a::from_task(std::move(task));
-	auto hopped = model_a::hop_to_operation(driver, std::move(chain));
-	CHECK(hopped.kind() == model_a::CarrierKind::operation);
+	auto chain = carrier::from_task(std::move(task));
+	auto hopped = carrier::hop_to_operation(driver, std::move(chain));
+	CHECK(hopped.kind() == carrier::CarrierKind::operation);
 	CHECK(hopped.bound_capability() == root::capability_id(driver));
 }
 
@@ -68,8 +68,8 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{3}));
 
-	auto chain = model_a::from_task(std::move(task));
-	CHECK_NOTHROW(model_a::verify_hop(owner, chain));
+	auto chain = carrier::from_task(std::move(task));
+	CHECK_NOTHROW(carrier::verify_hop(owner, chain));
 }
 
 TEST_CASE(
@@ -79,8 +79,8 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{4}));
 
-	auto chain = model_a::hop_to_posted(owner, model_a::from_task(std::move(task)));
-	CHECK_NOTHROW(model_a::verify_hop(owner, chain));
+	auto chain = carrier::hop_to_posted(owner, carrier::from_task(std::move(task)));
+	CHECK_NOTHROW(carrier::verify_hop(owner, chain));
 }
 
 TEST_CASE(
@@ -91,8 +91,8 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{5}));
 
-	auto chain = model_a::hop_to_posted(owner_a, model_a::from_task(std::move(task)));
-	CHECK_THROWS_AS(model_a::verify_hop(owner_b, chain), model_a::HopCapabilityError);
+	auto chain = carrier::hop_to_posted(owner_a, carrier::from_task(std::move(task)));
+	CHECK_THROWS_AS(carrier::verify_hop(owner_b, chain), carrier::HopCapabilityError);
 }
 
 TEST_CASE(
@@ -103,8 +103,8 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{6}));
 
-	auto chain = model_a::hop_to_posted(owner_a, model_a::from_task(std::move(task)));
-	CHECK_THROWS_AS(model_a::verify_hop(owner_b, chain), root::JoinError);
+	auto chain = carrier::hop_to_posted(owner_a, carrier::from_task(std::move(task)));
+	CHECK_THROWS_AS(carrier::verify_hop(owner_b, chain), root::JoinError);
 }
 
 // ---------------------------------------------------------------------------
@@ -119,11 +119,11 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{7}));
 
-	auto c0 = model_a::from_task(std::move(task));
-	auto c1 = model_a::hop_to_posted(owner_a, std::move(c0));
+	auto c0 = carrier::from_task(std::move(task));
+	auto c1 = carrier::hop_to_posted(owner_a, std::move(c0));
 	CHECK(c1.bound_capability() == root::capability_id(owner_a));
 
-	auto c2 = model_a::hop_to_posted(owner_b, std::move(c1));
+	auto c2 = carrier::hop_to_posted(owner_b, std::move(c1));
 	CHECK(c2.bound_capability() == root::capability_id(owner_b));
 	CHECK(c2.bound_capability() != root::capability_id(owner_a));
 }
@@ -139,11 +139,11 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{8}));
 
-	auto hopped = model_a::hop_to_posted(owner, model_a::from_task(std::move(task)));
+	auto hopped = carrier::hop_to_posted(owner, carrier::from_task(std::move(task)));
 	CHECK(hopped.bound_capability().address != nullptr);
 
-	auto mapped = model_a::map(std::move(hopped), [](int x) { return x * 2; });
-	CHECK(mapped.kind() == model_a::CarrierKind::posted);
+	auto mapped = carrier::map(std::move(hopped), [](int x) { return x * 2; });
+	CHECK(mapped.kind() == carrier::CarrierKind::posted);
 	CHECK(mapped.bound_capability().address == nullptr);
 }
 
@@ -160,9 +160,9 @@ TEST_CASE(
 	REQUIRE(sa.try_set_value(root::Success<int>{1}));
 	REQUIRE(sb.try_set_value(root::Success<int>{2}));
 
-	auto ca = model_a::hop_to_posted(owner, model_a::from_task(std::move(ta)));
-	auto cb = model_a::hop_to_posted(owner, model_a::from_task(std::move(tb)));
-	auto combined = model_a::when_all(std::move(ca), std::move(cb));
+	auto ca = carrier::hop_to_posted(owner, carrier::from_task(std::move(ta)));
+	auto cb = carrier::hop_to_posted(owner, carrier::from_task(std::move(tb)));
+	auto combined = carrier::when_all(std::move(ca), std::move(cb));
 
 	CHECK(combined.bound_capability().address == nullptr);
 }
@@ -180,9 +180,9 @@ TEST_CASE(
 	REQUIRE(sa.try_set_value(root::Success<int>{10}));
 	REQUIRE(sb.try_set_exception(std::make_exception_ptr(std::runtime_error{"lose"})));
 
-	auto ca = model_a::hop_to_posted(owner, model_a::from_task(std::move(ta)));
-	auto cb = model_a::from_task(std::move(tb));
-	auto winner = model_a::race(std::move(ca), std::move(cb));
+	auto ca = carrier::hop_to_posted(owner, carrier::from_task(std::move(ta)));
+	auto cb = carrier::from_task(std::move(tb));
+	auto winner = carrier::race(std::move(ca), std::move(cb));
 
 	CHECK(winner.bound_capability() == root::capability_id(owner));
 }
@@ -196,9 +196,9 @@ TEST_CASE(
 	REQUIRE(sa.try_set_exception(std::make_exception_ptr(std::runtime_error{"lose"})));
 	REQUIRE(sb.try_set_value(root::Success<int>{20}));
 
-	auto ca = model_a::hop_to_posted(owner, model_a::from_task(std::move(ta)));
-	auto cb = model_a::from_task(std::move(tb));
-	auto winner = model_a::race(std::move(ca), std::move(cb));
+	auto ca = carrier::hop_to_posted(owner, carrier::from_task(std::move(ta)));
+	auto cb = carrier::from_task(std::move(tb));
+	auto winner = carrier::race(std::move(ca), std::move(cb));
 
 	CHECK(winner.bound_capability().address == nullptr);
 }

@@ -410,10 +410,9 @@ struct ConnectState : enable_shared_from_this<ConnectState> {
 				// P11b: pin client_encoding to UTF-8 before publishing.
 				auto outer = dst;
 				auto conn_sp = c;
-				co_spawn(
-					[](SP<root::TaskSource<SP<Connection>>> outer,
+				[](SP<root::TaskSource<SP<Connection>>> outer,
 					   SP<Connection> conn_sp,
-					   root::Task<Result> q_task) mutable -> Task<void> {
+					   root::Task<Result> q_task) mutable -> root::Task<void> {
 						try {
 							co_await std::move(q_task);
 							char const *enc = ::PQparameterStatus(conn_sp->raw(), "client_encoding");
@@ -427,7 +426,7 @@ struct ConnectState : enable_shared_from_this<ConnectState> {
 							(void)outer->try_set_exception(
 								make_exception_ptr(PgError{"conflux.db: connect cancelled"}));
 						} catch (...) { (void)outer->try_set_exception(current_exception()); }
-					}(outer, conn_sp, conn_sp->query(string_view{"SET client_encoding = 'UTF8'"})));
+					}(outer, conn_sp, conn_sp->query(string_view{"SET client_encoding = 'UTF8'"})).detach();
 				return;
 			}
 			short mask = 0;
@@ -727,12 +726,11 @@ root::Task<Result> Connection::exec_cached(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
 	auto self = shared_from_this();
-	co_spawn(
-		[](SP<Connection> self,
+	[](SP<Connection> self,
 		   shared_ptr<StatementCache::Entry const> stmt,
 		   Params params,
 		   SP<root::TaskSource<Result>> shared_src,
-		   root::Task<void> prep_task) mutable -> Task<void> {
+		   root::Task<void> prep_task) mutable -> root::Task<void> {
 			try {
 				co_await std::move(prep_task);
 				self->prepared_names_.insert(stmt->name);
@@ -755,7 +753,7 @@ root::Task<Result> Connection::exec_cached(
 			} catch (Cancelled const &) {
 				(void)shared_src->try_set_cancelled(root::CancelReason::requested);
 			} catch (...) { (void)shared_src->try_set_exception(current_exception()); }
-		}(self, stmt, move(params), shared_src, prepare(stmt->name, stmt->sql, stmt->param_types)));
+		}(self, stmt, move(params), shared_src, prepare(stmt->name, stmt->sql, stmt->param_types)).detach();
 	return move(task);
 }
 
@@ -911,27 +909,27 @@ root::Task<Result> Connection::query(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
 	auto self = shared_from_this();
-	co_spawn([](SP<root::TaskSource<Result>> src, root::Task<Result> qt) -> Task<void> {
+	[](SP<root::TaskSource<Result>> src, root::Task<Result> qt) -> root::Task<void> {
 		try {
 			auto r = co_await std::move(qt);
 			(void)src->try_set_value(root::Success<Result>{move(r)});
 		} catch (Cancelled const &) { (void)src->try_set_cancelled(root::CancelReason::requested); } catch (...) {
 			(void)src->try_set_exception(current_exception());
 		}
-	}(shared_src, query(sql, move(params))));
+	}(shared_src, query(sql, move(params))).detach();
 	auto const deadline = *opts.deadline;
-	co_spawn([](SP<Connection> s, SP<root::TaskSource<Result>> src, root::Task<void> tt) -> Task<void> {
+	[](SP<Connection> s, SP<root::TaskSource<Result>> src, root::Task<void> tt) -> root::Task<void> {
 		try {
 			co_await std::move(tt);
 			if (src->try_set_exception(make_exception_ptr(PgError{"conflux.db: query deadline exceeded", "57014"}))) {
-				co_spawn([](SP<Connection> s2) -> Task<void> {
+				[](SP<Connection> s2) -> root::Task<void> {
 					try {
 						co_await s2->cancel_inflight();
 					} catch (...) {}
-				}(s));
+				}(s).detach();
 			}
 		} catch (...) {}
-	}(self, shared_src, reader->timeout_async(deadline)));
+	}(self, shared_src, reader->timeout_async(deadline)).detach();
 	return move(task);
 }
 
@@ -1033,9 +1031,8 @@ void Pipeline::sync_next_(
 	auto item = move(st->batch.front());
 	st->batch.pop_front();
 	auto shared_src = item.dst;
-	co_spawn(
-		[](Pipeline *self, SP<SyncState> st, SP<root::TaskSource<Result>> shared_src, root::Task<Result> qt)
-			-> Task<void> {
+	[](Pipeline *self, SP<SyncState> st, SP<root::TaskSource<Result>> shared_src, root::Task<Result> qt)
+			-> root::Task<void> {
 			try {
 				auto r = co_await std::move(qt);
 				(void)shared_src->try_set_value(root::Success<Result>{move(r)});
@@ -1059,7 +1056,7 @@ void Pipeline::sync_next_(
 				(void)st->done->try_set_value(root::Success<void>{});
 				self->finish_sync_(true);
 			}
-		}(this, st, shared_src, conn_->query(item.sql, move(item.params))));
+		}(this, st, shared_src, conn_->query(item.sql, move(item.params))).detach();
 }
 
 void Pipeline::finish_sync_(
@@ -1116,12 +1113,11 @@ root::Task<shared_ptr<string const>> QueryCache::load_async(
 	}
 	auto name_owned = string{name};
 	auto path = (root_ / (name_owned + ".psql")).string();
-	co_spawn(
-		[](FileReader *reader,
+	[](FileReader *reader,
 		   SP<root::TaskSource<shared_ptr<string const>>> shared_src,
 		   string name_owned,
 		   QueryCache *self,
-		   root::Task<FileHandle> open_task) mutable -> Task<void> {
+		   root::Task<FileHandle> open_task) mutable -> root::Task<void> {
 			try {
 				auto fh = co_await std::move(open_task);
 				auto fh_sp = make_shared<FileHandle>(move(fh));
@@ -1144,7 +1140,7 @@ root::Task<shared_ptr<string const>> QueryCache::load_async(
 			} catch (Cancelled const &) {
 				(void)shared_src->try_set_cancelled(root::CancelReason::requested);
 			} catch (...) { (void)shared_src->try_set_exception(current_exception()); }
-		}(reader, shared_src, name_owned, this, reader->open_async(AT_FDCWD, move(path), O_RDONLY)));
+		}(reader, shared_src, name_owned, this, reader->open_async(AT_FDCWD, move(path), O_RDONLY)).detach();
 	return move(task);
 }
 

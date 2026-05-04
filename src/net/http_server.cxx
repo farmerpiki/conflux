@@ -586,9 +586,9 @@ constexpr unsigned DEFAULT_RING_ENTRIES = 1024U;
 
 struct Ring;
 
-static Task<void> do_streamed_splice(Ring *ring, int fd, u32 conn_gen, conflux::work::root::Task<SZ> splice_task);
+static conflux::work::root::Task<void> do_streamed_splice(Ring *ring, int fd, u32 conn_gen, conflux::work::root::Task<SZ> splice_task);
 
-static Task<void> do_streamed_tls_chunk(
+static conflux::work::root::Task<void> do_streamed_tls_chunk(
 	Ring *ring,
 	int fd,
 	u32 conn_gen,
@@ -1574,7 +1574,7 @@ struct Ring {
 		auto const off = conn.streamed_file->send_offset + conn.streamed_delivered;
 		conn.streamed_splice_in_flight = true;
 		auto const conn_gen = conn.gen;
-		co_spawn(do_streamed_splice(
+		do_streamed_splice(
 			this,
 			fd,
 			conn_gen,
@@ -1584,7 +1584,7 @@ struct Ring {
 				static_cast<SZ>(remaining),
 				fd,
 				move(*pipe),
-				fixed_files)));
+				fixed_files)).detach();
 	}
 
 #if CONFLUX_HAS_TLS
@@ -1611,7 +1611,7 @@ struct Ring {
 		auto const conn_gen = conn.gen;
 		conn.streamed_splice_in_flight = true;
 		auto &fh = *conn.streamed_file->handle;
-		co_spawn(do_streamed_tls_chunk(this, fd, conn_gen, want, files->read_fixed(fh, off, move(b), want)));
+		do_streamed_tls_chunk(this, fd, conn_gen, want, files->read_fixed(fh, off, move(b), want)).detach();
 	}
 
 	void on_streamed_tls_chunk_done(
@@ -3100,7 +3100,7 @@ struct Ring {
 	}
 };
 
-static Task<void> do_streamed_splice(
+static conflux::work::root::Task<void> do_streamed_splice(
 	Ring *ring,
 	int fd,
 	u32 conn_gen,
@@ -3111,7 +3111,7 @@ static Task<void> do_streamed_splice(
 	} catch (...) { ring->on_streamed_splice_done(fd, conn_gen, SZ{0}, std::current_exception()); }
 }
 
-static Task<void> do_streamed_tls_chunk(
+static conflux::work::root::Task<void> do_streamed_tls_chunk(
 	Ring *ring,
 	int fd,
 	u32 conn_gen,

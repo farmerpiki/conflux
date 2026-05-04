@@ -4,7 +4,7 @@
 import std;
 import conflux.types;
 import conflux.work.root;
-import conflux.work.carrier.model_a;
+import conflux.work.carrier;
 import conflux.work.carrier.coro;
 
 namespace {
@@ -93,7 +93,7 @@ struct SyncTask<void> {
 } // anonymous namespace
 
 namespace root = conflux::work::root;
-namespace model_a = conflux::work::carrier::model_a;
+namespace carrier = conflux::work::carrier;
 
 // ---------------------------------------------------------------------------
 // Phase 5a: Chain<T> co_await
@@ -104,7 +104,7 @@ TEST_CASE(
 	"[phase5a]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{7}));
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto awaiter = std::move(chain).operator co_await();
 	CHECK(awaiter.await_ready());
 	int const v = awaiter.await_resume();
@@ -117,7 +117,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	auto ex = std::make_exception_ptr(std::runtime_error{"fail"});
 	REQUIRE(src.try_set_exception(ex));
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 
 	auto awaiter = std::move(chain).operator co_await();
 	CHECK_THROWS_AS(awaiter.await_resume(), std::runtime_error);
@@ -128,7 +128,7 @@ TEST_CASE(
 	"[phase5a]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 
 	auto awaiter = std::move(chain).operator co_await();
 	CHECK_THROWS_AS(awaiter.await_resume(), root::CancelledError);
@@ -139,7 +139,7 @@ TEST_CASE(
 	"[phase5a]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{1}));
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto awaiter = std::move(chain).operator co_await();
 	CHECK(awaiter.await_ready());
 }
@@ -148,8 +148,8 @@ TEST_CASE(
 // Phase 5b: EagerChain<T>
 // ---------------------------------------------------------------------------
 
-model_a::EagerChain<int> eager_double(
-	model_a::Chain<int> input) {
+carrier::EagerChain<int> eager_double(
+	carrier::Chain<int> input) {
 	int const v = co_await std::move(input);
 	co_return v * 2;
 }
@@ -159,7 +159,7 @@ TEST_CASE(
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{6}));
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 
 	auto out = eager_double(std::move(chain)).chain().release_outcome();
 	REQUIRE(out.is_success());
@@ -171,7 +171,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	auto ex = std::make_exception_ptr(std::runtime_error{"boom"});
 	REQUIRE(src.try_set_exception(ex));
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 
 	auto out = eager_double(std::move(chain)).chain().release_outcome();
 	REQUIRE(out.is_failure());
@@ -182,7 +182,7 @@ TEST_CASE(
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 
 	// co_await throws CancelledError; unhandled_exception stores it as Failure.
 	auto out = eager_double(std::move(chain)).chain().release_outcome();
@@ -190,8 +190,8 @@ TEST_CASE(
 	CHECK_THROWS_AS(std::rethrow_exception(out.failure().error), root::CancelledError);
 }
 
-model_a::EagerChain<int> eager_nested(
-	model_a::Chain<int> input) {
+carrier::EagerChain<int> eager_nested(
+	carrier::Chain<int> input) {
 	int const v = co_await eager_double(std::move(input));
 	co_return v + 1;
 }
@@ -201,14 +201,14 @@ TEST_CASE(
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{3}));
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 
 	auto out = eager_nested(std::move(chain)).chain().release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 7);
 }
 
-model_a::EagerChain<int> eager_produces_value() {
+carrier::EagerChain<int> eager_produces_value() {
 	co_return 42;
 }
 
@@ -220,8 +220,8 @@ TEST_CASE(
 	CHECK(out.success().value == 42);
 }
 
-model_a::EagerChain<void> eager_void_fn(
-	model_a::Chain<int> input) {
+carrier::EagerChain<void> eager_void_fn(
+	carrier::Chain<int> input) {
 	(void)(co_await std::move(input));
 }
 
@@ -230,7 +230,7 @@ TEST_CASE(
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{0}));
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 
 	auto out = eager_void_fn(std::move(chain)).chain().release_outcome();
 	CHECK(out.is_success());
@@ -241,9 +241,9 @@ TEST_CASE(
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{5}));
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 
-	auto mapped = model_a::map(eager_double(std::move(chain)).chain(), [](int v) { return v + 100; });
+	auto mapped = carrier::map(eager_double(std::move(chain)).chain(), [](int v) { return v + 100; });
 	auto out = std::move(mapped).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 110);
@@ -260,7 +260,7 @@ TEST_CASE(
 
 SyncTask<int> coro_await_task_handle_success(
 	root::TaskJoinHandle<int> jh) {
-	co_return co_await model_a::TaskHandleAwaiter<int>{std::move(jh)};
+	co_return co_await carrier::TaskHandleAwaiter<int>{std::move(jh)};
 }
 
 TEST_CASE(
@@ -274,7 +274,7 @@ TEST_CASE(
 
 SyncTask<int> coro_await_task_handle_failure(
 	root::TaskJoinHandle<int> jh) {
-	co_return co_await model_a::TaskHandleAwaiter<int>{std::move(jh)};
+	co_return co_await carrier::TaskHandleAwaiter<int>{std::move(jh)};
 }
 
 TEST_CASE(
@@ -289,7 +289,7 @@ TEST_CASE(
 
 SyncTask<void> coro_await_task_handle_cancel(
 	root::TaskJoinHandle<int> jh) {
-	(void)(co_await model_a::TaskHandleAwaiter<int>{std::move(jh)});
+	(void)(co_await carrier::TaskHandleAwaiter<int>{std::move(jh)});
 }
 
 TEST_CASE(
@@ -309,7 +309,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
 	REQUIRE(src.try_set_value(root::Success<int>{1}));
-	model_a::TaskHandleAwaiter<int> awaiter{std::move(jh)};
+	carrier::TaskHandleAwaiter<int> awaiter{std::move(jh)};
 	CHECK(awaiter.await_ready());
 }
 
@@ -318,7 +318,7 @@ TEST_CASE(
 	"[phase5c]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
-	model_a::TaskHandleAwaiter<int> awaiter{std::move(jh)};
+	carrier::TaskHandleAwaiter<int> awaiter{std::move(jh)};
 	CHECK_FALSE(awaiter.await_ready());
 	REQUIRE(src.try_set_value(root::Success<int>{0}));
 }
@@ -327,7 +327,7 @@ TEST_CASE(
 
 SyncTask<int> coro_async_await(
 	root::TaskJoinHandle<int> jh) {
-	co_return co_await model_a::TaskHandleAwaiter<int>{std::move(jh)};
+	co_return co_await carrier::TaskHandleAwaiter<int>{std::move(jh)};
 }
 
 TEST_CASE(
@@ -344,9 +344,9 @@ TEST_CASE(
 
 // --- await_chain ---
 
-SyncTask<model_a::Chain<int>> coro_await_chain_success(
+SyncTask<carrier::Chain<int>> coro_await_chain_success(
 	root::TaskJoinHandle<int> jh) {
-	co_return co_await model_a::TaskHandleChainAwaiter<int>{std::move(jh)};
+	co_return co_await carrier::TaskHandleChainAwaiter<int>{std::move(jh)};
 }
 
 TEST_CASE(
@@ -361,9 +361,9 @@ TEST_CASE(
 	CHECK(out.success().value == 55);
 }
 
-SyncTask<model_a::Chain<int>> coro_await_chain_failure(
+SyncTask<carrier::Chain<int>> coro_await_chain_failure(
 	root::TaskJoinHandle<int> jh) {
-	co_return co_await model_a::TaskHandleChainAwaiter<int>{std::move(jh)};
+	co_return co_await carrier::TaskHandleChainAwaiter<int>{std::move(jh)};
 }
 
 TEST_CASE(
@@ -378,9 +378,9 @@ TEST_CASE(
 	CHECK(out.is_failure());
 }
 
-SyncTask<model_a::Chain<int>> coro_await_chain_cancel(
+SyncTask<carrier::Chain<int>> coro_await_chain_cancel(
 	root::TaskJoinHandle<int> jh) {
-	co_return co_await model_a::TaskHandleChainAwaiter<int>{std::move(jh)};
+	co_return co_await carrier::TaskHandleChainAwaiter<int>{std::move(jh)};
 }
 
 TEST_CASE(
@@ -403,7 +403,7 @@ TEST_CASE(
 	auto jh = root::into_join_handle(std::move(task));
 	REQUIRE(src.try_set_value(root::Success<int>{0}));
 	{
-		model_a::TaskHandleAwaiter<int> awaiter{std::move(jh)};
+		carrier::TaskHandleAwaiter<int> awaiter{std::move(jh)};
 		(void)awaiter.await_ready();
 		// destroy without calling await_resume — defensive abandon fires in dtor
 	}

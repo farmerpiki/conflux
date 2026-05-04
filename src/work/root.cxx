@@ -2110,6 +2110,17 @@ struct drop_on_abandon {
 namespace detail {
 
 template<work_value T>
+struct TaskPromiseReturn {
+	SP<ControlBlockInterface<T>> state_{std::make_shared<ControlBlockModel<T, false>>()};
+	void return_value(T v) { (void)state_->try_set_value(Success<T>{std::move(v)}); }
+};
+template<>
+struct TaskPromiseReturn<void> {
+	SP<ControlBlockInterface<void>> state_{std::make_shared<ControlBlockModel<void, false>>()};
+	void return_void() { (void)state_->try_set_value(Success<void>{}); }
+};
+
+template<work_value T>
 struct TaskAwaiter {
 	SP<ControlBlockInterface<T>> state_;
 	std::source_location loc_{};
@@ -2307,7 +2318,25 @@ public:
 	[[nodiscard]] auto outcome() && noexcept -> detail::OutcomeAwaiter<T> {
 		return detail::OutcomeAwaiter<T>{consume(join_state::joined)};
 	}
+
+	struct promise_type : detail::TaskPromiseReturn<T> {
+		static_assert(Category == ControlCategory::task,
+			"promise_type only available on Task<T>");
+
+		[[nodiscard]] BasicResult get_return_object() noexcept;
+		[[nodiscard]] std::suspend_never initial_suspend() const noexcept { return {}; }
+		[[nodiscard]] std::suspend_never final_suspend() const noexcept { return {}; }
+		void unhandled_exception() noexcept {
+			(void)this->state_->try_set_exception(std::current_exception());
+		}
+	};
 };
+
+template<work_value T, ControlCategory Category>
+BasicResult<T, Category>
+BasicResult<T, Category>::promise_type::get_return_object() noexcept {
+	return BasicResult<T, Category>::from_state(this->state_);
+}
 
 template<work_value T>
 using Task = BasicResult<T, ControlCategory::task>;

@@ -1917,7 +1917,7 @@ export struct StaticOptions {
 	bool allow_delete{false};
 };
 
-Task<void> do_serve_file(
+conflux::work::root::Task<void> do_serve_file(
 	SP<DeferredResponse> dr,
 	HttpResponse base,
 	SZ send_off,
@@ -1936,7 +1936,7 @@ Task<void> do_serve_file(
 	} catch (...) { dr->complete(HttpResponse::not_found("async open failed")); }
 }
 
-Task<void> do_save_file(
+conflux::work::root::Task<void> do_save_file(
 	FileReader *fr,
 	SP<S> body_owned,
 	SP<S> fp,
@@ -1956,7 +1956,7 @@ Task<void> do_save_file(
 	} catch (...) { dr->complete(HttpResponse::internal_error()); }
 }
 
-Task<void> do_delete_file(
+conflux::work::root::Task<void> do_delete_file(
 	SP<DeferredResponse> dr,
 	SP<S> fp,
 	SP<StaticCacheStore> static_cache,
@@ -2619,13 +2619,13 @@ public:
 					}
 					auto const send_off = is_range_request ? range_start : SZ{0};
 					auto const send_sz = is_range_request ? (range_end - range_start + 1) : file_size;
-					co_spawn(do_serve_file(
+					do_serve_file(
 						dr,
 						move(base),
 						send_off,
 						send_sz,
 						file_size,
-						fr->open_async(AT_FDCWD, full_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)));
+						fr->open_async(AT_FDCWD, full_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)).detach();
 					return HttpResponse::deferred(move(dr));
 				}
 
@@ -2754,7 +2754,7 @@ public:
 							auto body_owned = make_shared<S>(req.body);
 							auto dr = make_shared<DeferredResponse>();
 							auto fp = make_shared<S>(full_path);
-							co_spawn(do_save_file(
+							do_save_file(
 								fr,
 								body_owned,
 								fp,
@@ -2765,7 +2765,7 @@ public:
 									AT_FDCWD,
 									*fp,
 									O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
-									0644)));
+									0644)).detach();
 							return HttpResponse::deferred(move(dr));
 						}
 
@@ -2857,7 +2857,7 @@ public:
 						if (auto *fr = current_file_reader(); fr != nullptr) {
 							auto dr = make_shared<DeferredResponse>();
 							auto fp = make_shared<S>(full_path);
-							co_spawn(do_delete_file(dr, fp, static_cache, fr->unlink_async(AT_FDCWD, full_path)));
+							do_delete_file(dr, fp, static_cache, fr->unlink_async(AT_FDCWD, full_path)).detach();
 							return HttpResponse::deferred(move(dr));
 						}
 

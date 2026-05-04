@@ -3473,27 +3473,3 @@ T block_on(
 	}
 }
 
-export template<typename T, typename Decode = DefaultUdDecoder>
-T block_on(
-	FileReader &reader,
-	Task<T> task,
-	Opt<std::chrono::milliseconds> budget = std::nullopt,
-	Decode decode = {}) {
-	using namespace conflux::work::root;
-	auto [root_task, raw_src] = make_task_source<T>(SubmitOptions{.enable_cancellation = false});
-	auto shared_src = std::make_shared<TaskSource<T>>(std::move(raw_src));
-	co_spawn([](SP<TaskSource<T>> src, ::Task<T> inner) -> ::Task<void> {
-		try {
-			if constexpr (std::is_void_v<T>) {
-				co_await std::move(inner);
-				(void)src->try_set_value(Success<T>{});
-			} else {
-				auto v = co_await std::move(inner);
-				(void)src->try_set_value(Success<T>{std::move(v)});
-			}
-		} catch (::Cancelled const &) { (void)src->try_set_cancelled(CancelReason::requested); } catch (...) {
-			(void)src->try_set_exception(std::current_exception());
-		}
-	}(shared_src, std::move(task)));
-	return block_on<T>(reader, std::move(root_task), budget, std::move(decode));
-}

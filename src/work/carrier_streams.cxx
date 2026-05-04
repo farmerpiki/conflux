@@ -5,7 +5,7 @@ export module conflux.work.carrier.streams;
 import std;
 import conflux.types;
 import conflux.work.root;
-import conflux.work.carrier.model_a;
+import conflux.work.carrier;
 
 export namespace conflux::work::carrier {
 
@@ -93,10 +93,10 @@ public:
 		return out;
 	}
 
-	[[nodiscard]] model_a::Chain<T> wait() && {
+	[[nodiscard]] Chain<T> wait() && {
 		auto out = root::join(std::move(state_->handle));
 		consumed_ = true;
-		return model_a::Chain<T>{std::move(out), model_a::CarrierKind::task};
+		return Chain<T>{std::move(out), CarrierKind::task};
 	}
 
 	[[nodiscard]] DroppableSlotAwaiter<T> operator co_await() && noexcept;
@@ -173,11 +173,11 @@ public:
 		return false;
 	}
 
-	[[nodiscard]] model_a::Chain<T> await_resume() {
+	[[nodiscard]] Chain<T> await_resume() {
 		callback_installed_ = false;
 		auto out = root::join(std::move(state_->handle));
 		consumed_ = true;
-		return model_a::Chain<T>{std::move(out), model_a::CarrierKind::task};
+		return Chain<T>{std::move(out), CarrierKind::task};
 	}
 };
 

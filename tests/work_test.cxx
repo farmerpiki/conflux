@@ -148,12 +148,12 @@ TEST_CASE(
 	WorkPool pool;
 	Atom<int> counter{0};
 	auto gate = make_shared<barrier<>>(2);
-	co_spawn([](std::shared_ptr<barrier<>>, auto t) -> Task<void> {
+	[](std::shared_ptr<barrier<>>, auto t) -> root::Task<void> {
 		co_await std::move(t);
 	}(gate, run_on_task(pool, [gate, &counter] {
 				 counter.fetch_add(1, memory_order_release);
 				 gate->arrive_and_wait();
-			 })));
+			 })).detach();
 	gate->arrive_and_wait();
 	CHECK(counter.load(memory_order_acquire) == 1);
 }

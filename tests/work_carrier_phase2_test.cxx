@@ -4,32 +4,32 @@
 import std;
 import conflux.types;
 import conflux.work.root;
-import conflux.work.carrier.model_a;
+import conflux.work.carrier;
 import conflux.work.carrier.scope;
 
 namespace root = conflux::work::root;
-namespace model_a = conflux::work::carrier::model_a;
+namespace carrier = conflux::work::carrier;
 namespace carrier = conflux::work::carrier;
 
 namespace {
 
-model_a::Chain<int> make_success(
+carrier::Chain<int> make_success(
 	int v) {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{v});
-	return model_a::from_task(std::move(task));
+	return carrier::from_task(std::move(task));
 }
 
-model_a::Chain<int> make_failure() {
+carrier::Chain<int> make_failure() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_exception(std::make_exception_ptr(std::runtime_error{"fail"}));
-	return model_a::from_task(std::move(task));
+	return carrier::from_task(std::move(task));
 }
 
-model_a::Chain<int> make_cancelled() {
+carrier::Chain<int> make_cancelled() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_cancelled(root::CancelReason::shutdown);
-	return model_a::from_task(std::move(task));
+	return carrier::from_task(std::move(task));
 }
 
 } // namespace
@@ -41,7 +41,7 @@ model_a::Chain<int> make_cancelled() {
 TEST_CASE(
 	"carrier.model_a: when_all_fast_fail both success returns Tup",
 	"[carrier.model_a][phase2]") {
-	auto r = model_a::when_all_fast_fail(make_success(10), make_success(20));
+	auto r = carrier::when_all_fast_fail(make_success(10), make_success(20));
 	auto out = std::move(r).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(std::get<0>(out.success().value) == 10);
@@ -51,35 +51,35 @@ TEST_CASE(
 TEST_CASE(
 	"carrier.model_a: when_all_fast_fail a-failure returns failure",
 	"[carrier.model_a][phase2]") {
-	auto out = std::move(model_a::when_all_fast_fail(make_failure(), make_success(1))).release_outcome();
+	auto out = std::move(carrier::when_all_fast_fail(make_failure(), make_success(1))).release_outcome();
 	CHECK(out.is_failure());
 }
 
 TEST_CASE(
 	"carrier.model_a: when_all_fast_fail b-failure returns failure",
 	"[carrier.model_a][phase2]") {
-	auto out = std::move(model_a::when_all_fast_fail(make_success(1), make_failure())).release_outcome();
+	auto out = std::move(carrier::when_all_fast_fail(make_success(1), make_failure())).release_outcome();
 	CHECK(out.is_failure());
 }
 
 TEST_CASE(
 	"carrier.model_a: when_all_fast_fail a-cancel returns cancel",
 	"[carrier.model_a][phase2]") {
-	auto out = std::move(model_a::when_all_fast_fail(make_cancelled(), make_success(1))).release_outcome();
+	auto out = std::move(carrier::when_all_fast_fail(make_cancelled(), make_success(1))).release_outcome();
 	CHECK(out.is_cancelled());
 }
 
 TEST_CASE(
 	"carrier.model_a: when_all_fast_fail b-cancel returns cancel",
 	"[carrier.model_a][phase2]") {
-	auto out = std::move(model_a::when_all_fast_fail(make_success(1), make_cancelled())).release_outcome();
+	auto out = std::move(carrier::when_all_fast_fail(make_success(1), make_cancelled())).release_outcome();
 	CHECK(out.is_cancelled());
 }
 
 TEST_CASE(
 	"carrier.model_a: when_all_fast_fail failure beats cancel",
 	"[carrier.model_a][phase2]") {
-	auto out = std::move(model_a::when_all_fast_fail(make_failure(), make_cancelled())).release_outcome();
+	auto out = std::move(carrier::when_all_fast_fail(make_failure(), make_cancelled())).release_outcome();
 	CHECK(out.is_failure());
 }
 
@@ -90,7 +90,7 @@ TEST_CASE(
 TEST_CASE(
 	"carrier.model_a: race a-wins when a is success",
 	"[carrier.model_a][phase2]") {
-	auto out = std::move(model_a::race(make_success(7), make_success(99))).release_outcome();
+	auto out = std::move(carrier::race(make_success(7), make_success(99))).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 7);
 }
@@ -98,7 +98,7 @@ TEST_CASE(
 TEST_CASE(
 	"carrier.model_a: race b-wins when only b is success",
 	"[carrier.model_a][phase2]") {
-	auto out = std::move(model_a::race(make_failure(), make_success(5))).release_outcome();
+	auto out = std::move(carrier::race(make_failure(), make_success(5))).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 5);
 }
@@ -106,36 +106,36 @@ TEST_CASE(
 TEST_CASE(
 	"carrier.model_a: race success beats cancel (b wins)",
 	"[carrier.model_a][phase2]") {
-	auto out = std::move(model_a::race(make_cancelled(), make_success(3))).release_outcome();
+	auto out = std::move(carrier::race(make_cancelled(), make_success(3))).release_outcome();
 	CHECK(out.is_success());
 }
 
 TEST_CASE(
 	"carrier.model_a: race failure beats cancel",
 	"[carrier.model_a][phase2]") {
-	auto out = std::move(model_a::race(make_cancelled(), make_failure())).release_outcome();
+	auto out = std::move(carrier::race(make_cancelled(), make_failure())).release_outcome();
 	CHECK(out.is_failure());
 }
 
 TEST_CASE(
 	"carrier.model_a: race both fail returns a failure",
 	"[carrier.model_a][phase2]") {
-	auto out = std::move(model_a::race(make_failure(), make_failure())).release_outcome();
+	auto out = std::move(carrier::race(make_failure(), make_failure())).release_outcome();
 	CHECK(out.is_failure());
 }
 
 TEST_CASE(
 	"carrier.model_a: race both cancel returns a cancel",
 	"[carrier.model_a][phase2]") {
-	auto out = std::move(model_a::race(make_cancelled(), make_cancelled())).release_outcome();
+	auto out = std::move(carrier::race(make_cancelled(), make_cancelled())).release_outcome();
 	CHECK(out.is_cancelled());
 }
 
 TEST_CASE(
 	"carrier.model_a: race preserves a kind on a-win",
 	"[carrier.model_a][phase2]") {
-	auto r = model_a::race(make_success(1), make_success(2));
-	CHECK(r.kind() == model_a::CarrierKind::task);
+	auto r = carrier::race(make_success(1), make_success(2));
+	CHECK(r.kind() == carrier::CarrierKind::task);
 	auto out = std::move(r).release_outcome();
 	CHECK(out.success().value == 1);
 }

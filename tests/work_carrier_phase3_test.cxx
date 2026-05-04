@@ -4,12 +4,12 @@
 import std;
 import conflux.types;
 import conflux.work.root;
-import conflux.work.carrier.model_a;
+import conflux.work.carrier;
 import conflux.work.carrier.scope;
 import conflux.work.carrier.deadline;
 
 namespace root = conflux::work::root;
-namespace model_a = conflux::work::carrier::model_a;
+namespace carrier = conflux::work::carrier;
 namespace carrier = conflux::work::carrier;
 
 // ---------------------------------------------------------------------------

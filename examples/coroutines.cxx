@@ -1,4 +1,4 @@
-// Coroutine example — co_await async file ops inside a Task<T> coroutine.
+// Coroutine example — co_await async file ops inside a root::Task<T> coroutine.
 #include <fcntl.h>
 #include <liburing.h>
 #include <unistd.h>
@@ -8,6 +8,8 @@ import conflux.work;
 import std;
 import conflux.types;
 
+namespace root = conflux::work::root;
+
 namespace {
 
 constexpr u64 pack_ud(
@@ -16,7 +18,7 @@ constexpr u64 pack_ud(
 	return (static_cast<u64>(gen) << 32U) | slot;
 }
 
-Task<S> read_file(
+root::Task<S> read_file(
 	FileReader &files,
 	S path) {
 	auto handle = co_await files.open_async(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
@@ -28,7 +30,7 @@ Task<S> read_file(
 	co_return S{reinterpret_cast<char const *>(buf.data()), got};
 }
 
-Task<void> demo(
+root::Task<void> demo(
 	FileReader &files,
 	S path) {
 	auto first = co_await read_file(files, path);

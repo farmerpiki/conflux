@@ -12,65 +12,12 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.work.root;
-import conflux.work.carrier.model_a;
-import conflux.work.carrier.model_b;
+import conflux.work.carrier;
 import conflux.net.io_buffer;
 
 // ---------------------------------------------------------------------------
 // conflux.work — outer module symbols
 // ---------------------------------------------------------------------------
-
-namespace snapshot_work_outer {
-
-// Legacy outer Task<T> (Flow-backed) — distinct from root::Task<T>
-using _Task_outer = ::Task<int>;
-using _FlowSource_int = ::FlowSource<int>;
-using _TaskPromise_int = ::TaskPromise<int>;
-
-// E2a: UniqueFn retired → detail::small_move_only_function; BufferView alias deleted.
-
-// Outer Cancelled (different from root::Cancelled)
-using _Cancelled_outer = ::Cancelled;
-
-// ValueTag and step types (legacy pipe API — deleted in E1.4)
-using _ValueTag = ::ValueTag;
-template<class Fn>
-using _ThenStep_ = ::ThenStep<Fn>;
-template<class Fn>
-using _FlatThenStep_ = ::FlatThenStep<Fn>;
-template<class Fn>
-using _ErrorStep_ = ::ErrorStep<Fn>;
-template<class Fn>
-using _CancelStep_ = ::CancelStep<Fn>;
-template<class T>
-using _MoveToStep_ = ::MoveToStep<T>;
-template<class T>
-using _StartOnStep_ = ::StartOnStep<T>;
-
-// Concrete types
-using _WorkPoolOptions = ::WorkPoolOptions;
-using _RingLaneOptions = ::RingLaneOptions;
-using _WorkError_enum = ::WorkError; // outer enum, distinct from root::WorkError class
-using _WorkPool = ::WorkPool;
-using _RingLane = ::RingLane;
-
-// sync_wait (outer helper over root::Task<T>)
-void _check_sync_wait(
-	conflux::work::root::Task<int> t) {
-	[[maybe_unused]] auto v = sync_wait(std::move(t));
-}
-
-// co_spawn (outer helper)
-void _check_co_spawn_outer(
-	::Task<void> t) {
-	co_spawn(std::move(t));
-}
-
-// join_all (outer — takes root::Task<Ts>...)
-using _join_all_result_2 =
-	decltype(join_all(std::declval<conflux::work::root::Task<int>>(), std::declval<conflux::work::root::Task<int>>()));
-
-} // namespace snapshot_work_outer
 
 // ---------------------------------------------------------------------------
 // conflux::work façade aliases (E1.0)
@@ -380,28 +327,28 @@ static_assert(
 
 namespace snapshot_model_a {
 
-namespace model_a = conflux::work::carrier::model_a;
+namespace carrier = conflux::work::carrier;
 namespace root = conflux::work::root;
 
 template<class T>
-using _Chain_ = model_a::Chain<T>;
-using _CarrierKind = model_a::CarrierKind;
-using _HopCapErr = model_a::HopCapabilityError;
-using _AggErr = model_a::AggregateError;
+using _Chain_ = carrier::Chain<T>;
+using _CarrierKind = carrier::CarrierKind;
+using _HopCapErr = carrier::HopCapabilityError;
+using _AggErr = carrier::AggregateError;
 
 // from_task, map, then, into_ready_task — name-check
 void _check_pipeline() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = model_a::from_task(std::move(task));
-	auto mapped = model_a::map(std::move(chain), [](int x) { return x + 1; });
-	auto result = model_a::into_ready_task(std::move(mapped));
+	auto chain = carrier::from_task(std::move(task));
+	auto mapped = carrier::map(std::move(chain), [](int x) { return x + 1; });
+	auto result = carrier::into_ready_task(std::move(mapped));
 	(void)result;
 }
 
 // hop_to_task, unbind
-using _hop_to_task_fn = decltype(&model_a::hop_to_task<int>);
-using _unbind_fn = decltype(&model_a::unbind<int>);
+using _hop_to_task_fn = decltype(&carrier::hop_to_task<int>);
+using _unbind_fn = decltype(&carrier::unbind<int>);
 
 // E1.z — combinator member functions
 
@@ -415,55 +362,55 @@ namespace snapshot_model_a {
 void _e1z_then_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto chained = std::move(chain).then([](int x) { return x + 1; });
-	static_assert(std::same_as<decltype(chained), model_a::Chain<int>>);
+	static_assert(std::same_as<decltype(chained), carrier::Chain<int>>);
 	(void)chained;
 }
 
 void _e1z_catch_error_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto recovered = std::move(chain).catch_error([](std::exception_ptr) { return 0; });
-	static_assert(std::same_as<decltype(recovered), model_a::Chain<int>>);
+	static_assert(std::same_as<decltype(recovered), carrier::Chain<int>>);
 	(void)recovered;
 }
 
 void _e1z_on_cancel_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto result = std::move(chain).on_cancel([] {});
-	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 
 void _e1z_recover_cancel_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto result = std::move(chain).recover_cancel([] { return 0; });
-	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 
 void _e1z_recover_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto result = std::move(chain).recover([](root::Outcome<int>) { return 0; });
-	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 
 void _e1z_transform_outcome_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto result =
 		std::move(chain).transform_outcome([](root::Outcome<int> out) { return root::Outcome<int>{std::move(out)}; });
-	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 
@@ -471,9 +418,9 @@ void _e1z_schedule_on_check_() {
 	_DummyCap cap{};
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto result = std::move(chain).schedule_on(cap);
-	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 
@@ -481,16 +428,16 @@ void _e1z_then_on_check_() {
 	_DummyCap cap{};
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto result = std::move(chain).then_on(cap, [](int x) { return x + 1; });
-	static_assert(std::same_as<decltype(result), model_a::Chain<int>>);
+	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }
 
 void _e1z_into_task_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto t = std::move(chain).into_task();
 	static_assert(std::same_as<decltype(t), root::Task<int>>);
 	std::move(t).detach();
@@ -499,37 +446,13 @@ void _e1z_into_task_check_() {
 void _e1z_into_task_unchecked_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
-	auto chain = model_a::from_task(std::move(task));
+	auto chain = carrier::from_task(std::move(task));
 	auto t = std::move(chain).into_task_unchecked();
 	static_assert(std::same_as<decltype(t), root::Task<int>>);
 	std::move(t).detach();
 }
 
 } // namespace snapshot_model_a
-
-// ---------------------------------------------------------------------------
-// conflux.work.carrier.model_b (legacy — deprecated in E1.1, deleted in E1.4)
-// ---------------------------------------------------------------------------
-
-namespace snapshot_model_b {
-
-namespace model_b = conflux::work::carrier::model_b;
-namespace root = conflux::work::root;
-
-template<class T>
-using _TaskChain_ = model_b::TaskChain<T>;
-template<class T>
-using _PostedChain_ = model_b::PostedChain<T>;
-template<class T>
-using _OperationChain_ = model_b::OperationChain<T>;
-
-void _check_from_task() {
-	auto [task, src] = root::make_task_source<int>();
-	(void)src.try_set_value(root::Success<int>{0});
-	[[maybe_unused]] auto chain = model_b::from_task(std::move(task));
-}
-
-} // namespace snapshot_model_b
 
 // ---------------------------------------------------------------------------
 // conflux.net.io_buffer (E5 — moved from conflux.work)

@@ -332,9 +332,7 @@ public:
 };
 
 // Async client TLS over a FileReader-driven socket. SSL is attached to memory
-// BIOs; ciphertext is shuttled to/from the socket via io_uring. All ops are
-// Task<T> so both coroutine and callback-style (via Task::flow() + block_on)
-// call sites work.
+// BIOs; ciphertext is shuttled to/from the socket via io_uring.
 export class TlsAsyncStream {
 	UniqueSsl ssl_;
 	BIO *rbio_{nullptr}; // owned by ssl_ after SSL_set_bio
@@ -408,7 +406,7 @@ public:
 		return SSL_set1_host(ssl_.get(), s.c_str()) == 1;
 	}
 
-	Task<void> handshake_connect() {
+	conflux::work::root::Task<void> handshake_connect() {
 		SSL_set_connect_state(ssl_.get());
 		for (;;) {
 			int const rc = SSL_do_handshake(ssl_.get());
@@ -428,7 +426,7 @@ public:
 		}
 	}
 
-	Task<SZ> read_some(
+	conflux::work::root::Task<SZ> read_some(
 		std::span<std::byte> dst) {
 		for (;;) {
 			int const n = SSL_read(ssl_.get(), dst.data(), static_cast<int>(dst.size()));
@@ -451,7 +449,7 @@ public:
 		}
 	}
 
-	Task<void> write_all(
+	conflux::work::root::Task<void> write_all(
 		std::span<std::byte const> src) {
 		SZ sent = 0;
 		while (sent < src.size()) {
@@ -478,7 +476,7 @@ public:
 	[[nodiscard]] FileHandle const &handle() const noexcept { return sock_; }
 
 private:
-	Task<void> drain_wbio() {
+	conflux::work::root::Task<void> drain_wbio() {
 		for (;;) {
 			int const pend = BIO_pending(wbio_);
 			if (pend <= 0) {
@@ -503,7 +501,7 @@ private:
 		}
 	}
 
-	Task<void> fill_rbio() {
+	conflux::work::root::Task<void> fill_rbio() {
 		auto const got = co_await files_->read_into(sock_, 0, std::span<std::byte>{scratch_});
 		if (got == 0) {
 			throw TlsError{"TlsAsyncStream: socket EOF"};
