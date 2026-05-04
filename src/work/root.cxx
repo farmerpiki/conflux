@@ -622,7 +622,6 @@ struct CapabilityId {
 	}
 };
 
-
 template<class T>
 inline constexpr bool enable_address_capability_v = false;
 
@@ -977,11 +976,14 @@ struct detach_outcome_sink {
 #endif
 }
 
-class ControlBlockBase {
+class ControlBlockBase : public std::enable_shared_from_this<ControlBlockBase> {
 	std::source_location spawn_loc_{};
 
 public:
-	void set_spawn_location(std::source_location loc) noexcept { spawn_loc_ = loc; }
+	void set_spawn_location(
+		std::source_location loc) noexcept {
+		spawn_loc_ = loc;
+	}
 	[[nodiscard]] std::source_location spawn_location() const noexcept { return spawn_loc_; }
 
 	virtual ~ControlBlockBase() = default;
@@ -1016,36 +1018,24 @@ public:
 
 template<work_value T, bool EnableCancellation>
 class ControlBlockModel final : public ControlBlockInterface<T> {
+	std::atomic<TerminalState> terminal_state_{TerminalState::none};
+	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
 	std::atomic<bool> cancel_requested_{false};
 	std::atomic<bool> terminal_claimed_{false};
-	std::atomic<TerminalState> terminal_state_{TerminalState::none};
-	std::atomic<CancelReason> terminal_cancel_reason_{CancelReason::requested};
-	std::conditional_t<EnableCancellation, std::stop_source, std::monostate> stop_source_{};
+	mutable std::mutex mtx_{};
+	std::condition_variable cv_{};
+	Opt<Outcome<T>> outcome_{};
+	small_move_only_function<void()> on_ready_fn_{};
+	small_move_only_function<void(CancelReason)> hook_fn_{};
+	small_move_only_function<void(Outcome<T> const &)> abandon_sink_{};
+	bool hook_installed_ = false, hook_claimed_ = false, abandoned_ = false;
+	[[no_unique_address]] std::conditional_t<EnableCancellation, std::stop_source, std::monostate> stop_source_{};
 	std::atomic<bool> requires_capability_{false};
 	std::atomic<void const *> required_capability_address_{nullptr};
 	std::atomic<void const *> required_capability_type_tag_{nullptr};
 
-	mutable std::mutex ready_mtx_{};
-	mutable std::condition_variable ready_cv_{};
-
-	mutable std::mutex hook_mtx_{};
-	small_move_only_function<void(CancelReason)> hook_fn_{};
-	bool hook_installed_ = false;
-	bool hook_claimed_ = false;
-
-	mutable std::mutex outcome_mtx_{};
-	Opt<Outcome<T>> outcome_{};
-
-	mutable std::mutex abandon_mtx_{};
-	bool abandoned_ = false;
-	small_move_only_function<void(Outcome<T> const &)> abandon_sink_{};
-
-	mutable std::mutex ready_hook_mtx_{};
-	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
-	small_move_only_function<void()> on_ready_fn_{};
-
 	[[nodiscard]] small_move_only_function<void(CancelReason)> claim_requested_hook_if_present() noexcept {
-		std::scoped_lock const lk{hook_mtx_};
+		std::scoped_lock const lk{mtx_};
 		if (!hook_installed_ || hook_claimed_) {
 			return {};
 		}
@@ -1064,6 +1054,7 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 		if (terminal_claimed_.load(std::memory_order_acquire)) {
 			return;
 		}
+		auto keepalive = this->shared_from_this();
 		try {
 			fn(CancelReason::requested);
 		} catch (...) { std::terminate(); }
@@ -1080,9 +1071,10 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 			return;
 		}
 		if (prev == ReadyHookState::armed) {
+			auto keepalive = this->shared_from_this();
 			small_move_only_function<void()> fn{};
 			{
-				std::unique_lock lk{ready_hook_mtx_};
+				std::unique_lock lk{mtx_};
 				fn = std::move(on_ready_fn_);
 				ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
 			}
@@ -1090,7 +1082,7 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 				fn();
 			}
 		} else if (prev == ReadyHookState::disarmed) {
-			std::unique_lock lk{ready_hook_mtx_};
+			std::unique_lock lk{mtx_};
 			ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
 		}
 	}
@@ -1116,7 +1108,7 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 		small_move_only_function<void(Outcome<T> const &)> sink{};
 		Opt<Outcome<T>> local{};
 		{
-			std::scoped_lock const lk{abandon_mtx_, outcome_mtx_};
+			std::unique_lock lk{mtx_};
 			if (!abandoned_ || !abandon_sink_ || !outcome_) {
 				return;
 			}
@@ -1125,12 +1117,10 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 			local.emplace(std::move(*outcome_));
 			outcome_.reset();
 		}
-
-		if (local->is_failure() || local->is_cancelled()) {
-			try {
-				sink(*local);
-			} catch (...) { std::terminate(); }
-		}
+		auto keepalive = this->shared_from_this();
+		try {
+			sink(*local);
+		} catch (...) { std::terminate(); }
 	}
 
 public:
@@ -1143,20 +1133,22 @@ public:
 
 	[[nodiscard]] bool can_join_with(
 		CapabilityId id) const noexcept override {
-		if (!requires_capability_.load(std::memory_order_acquire))
+		if (!requires_capability_.load(std::memory_order_acquire)) {
 			return true;
+		}
 		CapabilityId const expected{
-			.address  = required_capability_address_.load(std::memory_order_relaxed),
+			.address = required_capability_address_.load(std::memory_order_relaxed),
 			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 		return expected == id;
 	}
 
 	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept override {
-		if (!requires_capability_.load(std::memory_order_acquire))
+		if (!requires_capability_.load(std::memory_order_acquire)) {
 			return std::nullopt;
+		}
 		return CapabilityId{
-			.address  = required_capability_address_.load(std::memory_order_relaxed),
+			.address = required_capability_address_.load(std::memory_order_relaxed),
 			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 	}
@@ -1211,10 +1203,9 @@ public:
 		if (!fn) {
 			return false;
 		}
-
 		small_move_only_function<void(CancelReason)> invoke_now{};
 		{
-			std::scoped_lock const lk{hook_mtx_};
+			std::scoped_lock const lk{mtx_};
 			if (hook_installed_) {
 				return false;
 			}
@@ -1230,8 +1221,8 @@ public:
 				invoke_now = std::move(hook_fn_);
 			}
 		}
-
 		if (invoke_now && !terminal_claimed_.load(std::memory_order_acquire)) {
+			auto keepalive = this->shared_from_this();
 			try {
 				invoke_now(CancelReason::requested);
 			} catch (...) { std::terminate(); }
@@ -1245,15 +1236,12 @@ public:
 			return false;
 		}
 		{
-			std::scoped_lock const lk{outcome_mtx_};
+			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<T>{std::move(success)});
-		}
-		{
-			std::scoped_lock const ready_lk{ready_mtx_};
 			terminal_state_.store(TerminalState::success, std::memory_order_release);
 		}
+		cv_.notify_all();
 		fire_ready_hook_if_armed_();
-		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
 	}
@@ -1264,15 +1252,12 @@ public:
 			return false;
 		}
 		{
-			std::scoped_lock const lk{outcome_mtx_};
+			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<T>{Failure{error}});
-		}
-		{
-			std::scoped_lock const ready_lk{ready_mtx_};
 			terminal_state_.store(TerminalState::failure, std::memory_order_release);
 		}
+		cv_.notify_all();
 		fire_ready_hook_if_armed_();
-		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
 	}
@@ -1286,17 +1271,13 @@ public:
 		if (!try_claim_terminal()) {
 			return false;
 		}
-		terminal_cancel_reason_.store(reason, std::memory_order_relaxed);
 		{
-			std::scoped_lock const lk{outcome_mtx_};
+			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<T>{Cancelled{reason}});
-		}
-		{
-			std::scoped_lock const ready_lk{ready_mtx_};
 			terminal_state_.store(TerminalState::cancelled, std::memory_order_release);
 		}
+		cv_.notify_all();
 		fire_ready_hook_if_armed_();
-		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
 	}
@@ -1309,7 +1290,7 @@ public:
 		if (ready_hook_state_.load(std::memory_order_acquire) == ReadyHookState::terminal) {
 			return {ReadyRegistration::already_ready, std::move(fn)};
 		}
-		std::unique_lock lk{ready_hook_mtx_};
+		std::unique_lock lk{mtx_};
 		auto s = ready_hook_state_.load(std::memory_order_acquire);
 		if (s == ReadyHookState::terminal) {
 			return {ReadyRegistration::already_ready, std::move(fn)};
@@ -1347,7 +1328,7 @@ public:
 		if (s != ReadyHookState::armed) {
 			return ClearOnReadyStatus::not_armed;
 		}
-		std::unique_lock lk{ready_hook_mtx_};
+		std::unique_lock lk{mtx_};
 		s = ready_hook_state_.load(std::memory_order_acquire);
 		if (s == ReadyHookState::terminal) {
 			return ClearOnReadyStatus::already_terminal;
@@ -1364,9 +1345,7 @@ public:
 	}
 
 	[[nodiscard]] Outcome<T> wait_and_take_outcome() override {
-		auto const terminal = [&] {
-			return terminal_state_.load(std::memory_order_acquire) != TerminalState::none;
-		};
+		auto const terminal = [&] { return terminal_state_.load(std::memory_order_acquire) != TerminalState::none; };
 		// Spin before blocking: avoids condvar futex pair for fast tasks.
 		// Release/acquire on terminal_state_ guarantees outcome_ is visible once true.
 		static constexpr int kSpinIter = 400;
@@ -1375,12 +1354,10 @@ public:
 			cb_pause();
 			done = terminal();
 		}
+		std::unique_lock lk{mtx_};
 		if (!done) {
-			std::unique_lock lk{ready_mtx_};
-			ready_cv_.wait(lk, terminal);
+			cv_.wait(lk, terminal);
 		}
-
-		std::scoped_lock const out_lk{outcome_mtx_};
 		if (!outcome_) {
 			throw std::logic_error{"conflux.work.root: missing terminal outcome"};
 		}
@@ -1395,7 +1372,7 @@ public:
 			std::terminate();
 		}
 		{
-			std::scoped_lock const lk{abandon_mtx_};
+			std::scoped_lock const lk{mtx_};
 			if (abandoned_) {
 				std::terminate();
 			}
@@ -1411,7 +1388,7 @@ public:
 			return AbandonStatus::empty;
 		}
 		{
-			std::scoped_lock const lk{abandon_mtx_};
+			std::scoped_lock const lk{mtx_};
 			if (abandoned_) {
 				return AbandonStatus::already_abandoned;
 			}
@@ -1425,36 +1402,24 @@ public:
 
 template<bool EnableCancellation>
 class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInterface<void> {
+	std::atomic<TerminalState> terminal_state_{TerminalState::none};
+	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
 	std::atomic<bool> cancel_requested_{false};
 	std::atomic<bool> terminal_claimed_{false};
-	std::atomic<TerminalState> terminal_state_{TerminalState::none};
-	std::atomic<CancelReason> terminal_cancel_reason_{CancelReason::requested};
-	std::conditional_t<EnableCancellation, std::stop_source, std::monostate> stop_source_{};
+	mutable std::mutex mtx_{};
+	std::condition_variable cv_{};
+	Opt<Outcome<void>> outcome_{};
+	small_move_only_function<void()> on_ready_fn_{};
+	small_move_only_function<void(CancelReason)> hook_fn_{};
+	small_move_only_function<void(Outcome<void> const &)> abandon_sink_{};
+	bool hook_installed_ = false, hook_claimed_ = false, abandoned_ = false;
+	[[no_unique_address]] std::conditional_t<EnableCancellation, std::stop_source, std::monostate> stop_source_{};
 	std::atomic<bool> requires_capability_{false};
 	std::atomic<void const *> required_capability_address_{nullptr};
 	std::atomic<void const *> required_capability_type_tag_{nullptr};
 
-	mutable std::mutex ready_mtx_{};
-	mutable std::condition_variable ready_cv_{};
-
-	mutable std::mutex hook_mtx_{};
-	small_move_only_function<void(CancelReason)> hook_fn_{};
-	bool hook_installed_ = false;
-	bool hook_claimed_ = false;
-
-	mutable std::mutex outcome_mtx_{};
-	Opt<Outcome<void>> outcome_{};
-
-	mutable std::mutex abandon_mtx_{};
-	bool abandoned_ = false;
-	small_move_only_function<void(Outcome<void> const &)> abandon_sink_{};
-
-	mutable std::mutex ready_hook_mtx_{};
-	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
-	small_move_only_function<void()> on_ready_fn_{};
-
 	[[nodiscard]] small_move_only_function<void(CancelReason)> claim_requested_hook_if_present() noexcept {
-		std::scoped_lock const lk{hook_mtx_};
+		std::scoped_lock const lk{mtx_};
 		if (!hook_installed_ || hook_claimed_) {
 			return {};
 		}
@@ -1473,6 +1438,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 		if (terminal_claimed_.load(std::memory_order_acquire)) {
 			return;
 		}
+		auto keepalive = this->shared_from_this();
 		try {
 			fn(CancelReason::requested);
 		} catch (...) { std::terminate(); }
@@ -1506,9 +1472,10 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 			return;
 		}
 		if (prev == ReadyHookState::armed) {
+			auto keepalive = this->shared_from_this();
 			small_move_only_function<void()> fn{};
 			{
-				std::unique_lock lk{ready_hook_mtx_};
+				std::unique_lock lk{mtx_};
 				fn = std::move(on_ready_fn_);
 				ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
 			}
@@ -1516,7 +1483,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 				fn();
 			}
 		} else if (prev == ReadyHookState::disarmed) {
-			std::unique_lock lk{ready_hook_mtx_};
+			std::unique_lock lk{mtx_};
 			ready_hook_state_.store(ReadyHookState::terminal, std::memory_order_release);
 		}
 	}
@@ -1525,7 +1492,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 		small_move_only_function<void(Outcome<void> const &)> sink{};
 		Opt<Outcome<void>> local{};
 		{
-			std::scoped_lock const lk{abandon_mtx_, outcome_mtx_};
+			std::unique_lock lk{mtx_};
 			if (!abandoned_ || !abandon_sink_ || !outcome_) {
 				return;
 			}
@@ -1534,12 +1501,10 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 			local.emplace(std::move(*outcome_));
 			outcome_.reset();
 		}
-
-		if (local->is_failure() || local->is_cancelled()) {
-			try {
-				sink(*local);
-			} catch (...) { std::terminate(); }
-		}
+		auto keepalive = this->shared_from_this();
+		try {
+			sink(*local);
+		} catch (...) { std::terminate(); }
 	}
 
 public:
@@ -1552,20 +1517,22 @@ public:
 
 	[[nodiscard]] bool can_join_with(
 		CapabilityId id) const noexcept override {
-		if (!requires_capability_.load(std::memory_order_acquire))
+		if (!requires_capability_.load(std::memory_order_acquire)) {
 			return true;
+		}
 		CapabilityId const expected{
-			.address  = required_capability_address_.load(std::memory_order_relaxed),
+			.address = required_capability_address_.load(std::memory_order_relaxed),
 			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 		return expected == id;
 	}
 
 	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept override {
-		if (!requires_capability_.load(std::memory_order_acquire))
+		if (!requires_capability_.load(std::memory_order_acquire)) {
 			return std::nullopt;
+		}
 		return CapabilityId{
-			.address  = required_capability_address_.load(std::memory_order_relaxed),
+			.address = required_capability_address_.load(std::memory_order_relaxed),
 			.type_tag = required_capability_type_tag_.load(std::memory_order_relaxed),
 		};
 	}
@@ -1620,10 +1587,9 @@ public:
 		if (!fn) {
 			return false;
 		}
-
 		small_move_only_function<void(CancelReason)> invoke_now{};
 		{
-			std::scoped_lock const lk{hook_mtx_};
+			std::scoped_lock const lk{mtx_};
 			if (hook_installed_) {
 				return false;
 			}
@@ -1639,8 +1605,8 @@ public:
 				invoke_now = std::move(hook_fn_);
 			}
 		}
-
 		if (invoke_now && !terminal_claimed_.load(std::memory_order_acquire)) {
+			auto keepalive = this->shared_from_this();
 			try {
 				invoke_now(CancelReason::requested);
 			} catch (...) { std::terminate(); }
@@ -1654,15 +1620,12 @@ public:
 			return false;
 		}
 		{
-			std::scoped_lock const lk{outcome_mtx_};
+			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<void>{success});
-		}
-		{
-			std::scoped_lock const ready_lk{ready_mtx_};
 			terminal_state_.store(TerminalState::success, std::memory_order_release);
 		}
+		cv_.notify_all();
 		fire_ready_hook_if_armed_();
-		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
 	}
@@ -1673,15 +1636,12 @@ public:
 			return false;
 		}
 		{
-			std::scoped_lock const lk{outcome_mtx_};
+			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<void>{Failure{error}});
-		}
-		{
-			std::scoped_lock const ready_lk{ready_mtx_};
 			terminal_state_.store(TerminalState::failure, std::memory_order_release);
 		}
+		cv_.notify_all();
 		fire_ready_hook_if_armed_();
-		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
 	}
@@ -1695,17 +1655,13 @@ public:
 		if (!try_claim_terminal()) {
 			return false;
 		}
-		terminal_cancel_reason_.store(reason, std::memory_order_relaxed);
 		{
-			std::scoped_lock const lk{outcome_mtx_};
+			std::unique_lock lk{mtx_};
 			outcome_.emplace(Outcome<void>{Cancelled{reason}});
-		}
-		{
-			std::scoped_lock const ready_lk{ready_mtx_};
 			terminal_state_.store(TerminalState::cancelled, std::memory_order_release);
 		}
+		cv_.notify_all();
 		fire_ready_hook_if_armed_();
-		ready_cv_.notify_all();
 		run_abandon_path_if_present();
 		return true;
 	}
@@ -1718,7 +1674,7 @@ public:
 		if (ready_hook_state_.load(std::memory_order_acquire) == ReadyHookState::terminal) {
 			return {ReadyRegistration::already_ready, std::move(fn)};
 		}
-		std::unique_lock lk{ready_hook_mtx_};
+		std::unique_lock lk{mtx_};
 		auto s = ready_hook_state_.load(std::memory_order_acquire);
 		if (s == ReadyHookState::terminal) {
 			return {ReadyRegistration::already_ready, std::move(fn)};
@@ -1756,7 +1712,7 @@ public:
 		if (s != ReadyHookState::armed) {
 			return ClearOnReadyStatus::not_armed;
 		}
-		std::unique_lock lk{ready_hook_mtx_};
+		std::unique_lock lk{mtx_};
 		s = ready_hook_state_.load(std::memory_order_acquire);
 		if (s == ReadyHookState::terminal) {
 			return ClearOnReadyStatus::already_terminal;
@@ -1773,9 +1729,7 @@ public:
 	}
 
 	[[nodiscard]] Outcome<void> wait_and_take_outcome() override {
-		auto const terminal = [&] {
-			return terminal_state_.load(std::memory_order_acquire) != TerminalState::none;
-		};
+		auto const terminal = [&] { return terminal_state_.load(std::memory_order_acquire) != TerminalState::none; };
 		// Spin before blocking: avoids condvar futex pair for fast tasks.
 		// Release/acquire on terminal_state_ guarantees outcome_ is visible once true.
 		static constexpr int kSpinIter = 400;
@@ -1784,12 +1738,10 @@ public:
 			cb_pause();
 			done = terminal();
 		}
+		std::unique_lock lk{mtx_};
 		if (!done) {
-			std::unique_lock lk{ready_mtx_};
-			ready_cv_.wait(lk, terminal);
+			cv_.wait(lk, terminal);
 		}
-
-		std::scoped_lock const out_lk{outcome_mtx_};
 		if (!outcome_) {
 			throw std::logic_error{"conflux.work.root: missing terminal outcome"};
 		}
@@ -1804,7 +1756,7 @@ public:
 			std::terminate();
 		}
 		{
-			std::scoped_lock const lk{abandon_mtx_};
+			std::scoped_lock const lk{mtx_};
 			if (abandoned_) {
 				std::terminate();
 			}
@@ -1820,7 +1772,7 @@ public:
 			return AbandonStatus::empty;
 		}
 		{
-			std::scoped_lock const lk{abandon_mtx_};
+			std::scoped_lock const lk{mtx_};
 			if (abandoned_) {
 				return AbandonStatus::already_abandoned;
 			}
@@ -2116,20 +2068,17 @@ struct drop_on_abandon {
 // emits a local `.Lsrc_locN` reference to source_location data that is never defined,
 // producing an undefined-reference link error. Callers must pass loc explicitly — and
 // templated callers must in turn capture it from a non-template default arg of their own.
-[[noreturn]] [[gnu::cold]] [[gnu::noinline]]
-void raise_join_lifetime_violation(
+[[noreturn]] [[gnu::cold]] [[gnu::noinline]] void raise_join_lifetime_violation(
 	std::source_location loc) {
 	throw JoinError{JoinError::reason::lifetime_violation, loc};
 }
 
-[[noreturn]] [[gnu::cold]] [[gnu::noinline]]
-void raise_join_consumed_handle(
+[[noreturn]] [[gnu::cold]] [[gnu::noinline]] void raise_join_consumed_handle(
 	std::source_location loc) {
 	throw JoinError{JoinError::reason::consumed_handle, loc};
 }
 
-[[noreturn]] [[gnu::cold]] [[gnu::noinline]]
-void raise_join_capability_mismatch(
+[[noreturn]] [[gnu::cold]] [[gnu::noinline]] void raise_join_capability_mismatch(
 	std::optional<CapabilityId> expected,
 	CapabilityId actual,
 	std::source_location loc) {
@@ -2158,8 +2107,9 @@ struct TaskAwaiter {
 	}
 
 	decltype(auto) await_resume() {
-		if (!state_) [[unlikely]]
+		if (!state_) [[unlikely]] {
 			raise_join_consumed_handle(loc_);
+		}
 		// Rethrow original exception on Failure (not FailureError wrapper) so
 		// existing catch sites work. E2b.2 migrates to FailureError uniformly.
 		return std::move(state_->wait_and_take_outcome())
@@ -2198,8 +2148,9 @@ struct OutcomeAwaiter {
 	}
 
 	Outcome<T> await_resume() {
-		if (!state_) [[unlikely]]
+		if (!state_) [[unlikely]] {
 			raise_join_consumed_handle(loc_);
+		}
 		return state_->wait_and_take_outcome();
 	}
 };
@@ -2251,7 +2202,9 @@ public:
 	[[nodiscard]] static BasicResult from_state(
 		SP<detail::ControlBlockInterface<T>> state,
 		std::source_location loc = std::source_location::current()) noexcept {
-		if (state) state->set_spawn_location(loc);
+		if (state) {
+			state->set_spawn_location(loc);
+		}
 		return BasicResult{std::move(state)};
 	}
 
@@ -2343,7 +2296,6 @@ using Posted = BasicResult<T, ControlCategory::posted>;
 template<work_value T>
 using Operation = BasicResult<T, ControlCategory::operation>;
 
-
 // JoinTask<T> — strict variant: dtor on joinable state calls std::terminate.
 // No combinators (use std::move(jt).detach_to_task() to compose).
 // Obtain via require_join(task, loc) or spawn_strict(fn, loc).
@@ -2425,7 +2377,9 @@ template<class Fn>
 	Fn &&fn,
 	std::source_location loc = std::source_location::current()) -> std::invoke_result_t<Fn> {
 	auto task = std::invoke(std::forward<Fn>(fn));
-	if (task.state_) task.state_->set_spawn_location(loc);
+	if (task.state_) {
+		task.state_->set_spawn_location(loc);
+	}
 	return task;
 }
 
@@ -2834,8 +2788,9 @@ template<work_value T>
 	Task<T> &&task,
 	std::source_location loc = std::source_location::current()) {
 	auto state = task.consume_for_join();
-	if (!state) [[unlikely]]
+	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
+	}
 	return state->wait_and_take_outcome();
 }
 
@@ -2845,10 +2800,12 @@ template<progress_capability Owner, work_value T>
 	Posted<T> &&posted,
 	std::source_location loc = std::source_location::current()) {
 	auto state = posted.consume_for_join();
-	if (!state) [[unlikely]]
+	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
-	if (!state->can_join_with(capability_id(owner))) [[unlikely]]
+	}
+	if (!state->can_join_with(capability_id(owner))) [[unlikely]] {
 		raise_join_capability_mismatch(state->required_capability(), capability_id(owner), loc);
+	}
 	return state->wait_and_take_outcome();
 }
 
@@ -2858,10 +2815,12 @@ template<progress_capability Driver, work_value T>
 	Operation<T> &&op,
 	std::source_location loc = std::source_location::current()) {
 	auto state = op.consume_for_join();
-	if (!state) [[unlikely]]
+	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
-	if (!state->can_join_with(capability_id(driver))) [[unlikely]]
+	}
+	if (!state->can_join_with(capability_id(driver))) [[unlikely]] {
 		raise_join_capability_mismatch(state->required_capability(), capability_id(driver), loc);
+	}
 	return state->wait_and_take_outcome();
 }
 
@@ -2870,8 +2829,9 @@ template<work_value T>
 	TaskJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
 	auto state = h.consume_for_join();
-	if (!state) [[unlikely]]
+	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
+	}
 	return state->wait_and_take_outcome();
 }
 
@@ -2881,10 +2841,12 @@ template<progress_capability Owner, work_value T>
 	PostedJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
 	auto state = h.consume_for_join();
-	if (!state) [[unlikely]]
+	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
-	if (!state->can_join_with(capability_id(owner))) [[unlikely]]
+	}
+	if (!state->can_join_with(capability_id(owner))) [[unlikely]] {
 		raise_join_capability_mismatch(state->required_capability(), capability_id(owner), loc);
+	}
 	return state->wait_and_take_outcome();
 }
 
@@ -2894,10 +2856,12 @@ template<progress_capability Driver, work_value T>
 	OperationJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
 	auto state = h.consume_for_join();
-	if (!state) [[unlikely]]
+	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
-	if (!state->can_join_with(capability_id(driver))) [[unlikely]]
+	}
+	if (!state->can_join_with(capability_id(driver))) [[unlikely]] {
 		raise_join_capability_mismatch(state->required_capability(), capability_id(driver), loc);
+	}
 	return state->wait_and_take_outcome();
 }
 
