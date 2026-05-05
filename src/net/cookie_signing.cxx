@@ -15,8 +15,8 @@ namespace {
 S mac_b64(
 	SV value,
 	SV secret) {
-	auto key = span{reinterpret_cast<unsigned char const *>(secret.data()), secret.size()};
-	auto msg = span{reinterpret_cast<unsigned char const *>(value.data()), value.size()};
+	auto key = to_unsigned_span(secret);
+	auto msg = to_unsigned_span(value);
 	return base64url_encode(hmac_sha256(key, msg));
 }
 

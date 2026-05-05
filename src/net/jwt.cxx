@@ -265,11 +265,11 @@ export expected<JwtClaims, S> jwt_decode(
 
 	// Recompute expected signature over "header_b64.payload_b64".
 	auto sig_expected = hmac_sha256(
-		span{reinterpret_cast<unsigned char const *>(opts.secret.data()), opts.secret.size()},
-		span{reinterpret_cast<unsigned char const *>(token.data()), static_cast<SZ>(dot2)});
+		to_unsigned_span(opts.secret),
+		to_unsigned_span(token.substr(0, static_cast<SZ>(dot2))));
 
 	if (!ct_equal(
-			span{reinterpret_cast<unsigned char const *>(sig_claimed.data()), sig_claimed.size()},
+			to_unsigned_span(sig_claimed),
 			span{sig_expected.data(), sig_expected.size()})) {
 		return unexpected{"signature verification failed"};
 	}
@@ -332,14 +332,14 @@ export S jwt_sign(
 	SV secret) {
 	// Header: {"alg":"HS256","typ":"JWT"}
 	static constexpr SV kHeader = R"({"alg":"HS256","typ":"JWT"})";
-	auto header_b64 = base64url_encode(span{reinterpret_cast<unsigned char const *>(kHeader.data()), kHeader.size()});
+	auto header_b64 = base64url_encode(to_unsigned_span(kHeader));
 	auto payload_b64 =
-		base64url_encode(span{reinterpret_cast<unsigned char const *>(payload_json.data()), payload_json.size()});
+		base64url_encode(to_unsigned_span(payload_json));
 
 	S const signing_input = header_b64 + '.' + payload_b64;
 	auto sig = hmac_sha256(
-		span{reinterpret_cast<unsigned char const *>(secret.data()), secret.size()},
-		span{reinterpret_cast<unsigned char const *>(signing_input.data()), signing_input.size()});
+		to_unsigned_span(secret),
+		to_unsigned_span(signing_input));
 	auto sig_b64 = base64url_encode(span{sig.data(), sig.size()});
 
 	return signing_input + '.' + sig_b64;

@@ -1159,7 +1159,7 @@ CONFLUX_FUZZ_EXPORT S ws_accept_key(
 	static constexpr SV kMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 	S input{client_key};
 	input += kMagic;
-	auto digest = sha1(span{reinterpret_cast<unsigned char const *>(input.data()), input.size()});
+	auto digest = sha1(to_unsigned_span(input));
 	return base64_encode(span{digest.data(), digest.size()});
 }
 
@@ -1203,7 +1203,7 @@ bool is_valid_client_key(
 	}
 	auto decoded = base64_decode(key);
 	return decoded.size() == 16
-		&& base64_encode(span{reinterpret_cast<unsigned char const *>(decoded.data()), decoded.size()}) == key;
+		&& base64_encode(to_unsigned_span(decoded)) == key;
 }
 
 bool is_valid_handshake(

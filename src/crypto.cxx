@@ -82,6 +82,11 @@ S b64_decode_impl(
 
 } // namespace
 
+export [[gnu::always_inline]] inline span<unsigned char const> to_unsigned_span(
+	SV s) noexcept {
+	return {reinterpret_cast<unsigned char const *>(s.data()), s.size()}; // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+}
+
 export S base64_encode(
 	span<unsigned char const> in) {
 	return b64_encode_impl(in, kB64Alphabet, true);
