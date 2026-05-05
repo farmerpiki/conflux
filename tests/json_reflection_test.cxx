@@ -7,259 +7,236 @@ import conflux.types;
 import std;
 
 using namespace conflux::json;
-using std::string, std::optional;
-
+using std::string,std::optional;
 // ---------------------------------------------------------------------------
 // Test fixtures
 // ---------------------------------------------------------------------------
 
-struct Point {
-    int x{0};
-    int y{0};
+struct Point{
+int x{0};
+int y{0};
 };
-
-struct Config {
-    [[=conflux::json::name("host_name")]] string host;
-    int port{0};
-    bool tls{false};
-    optional<string> label{};
+struct Config{
+[[=conflux::json::name("host_name")]]string host;
+int port{0};
+bool tls{false};
+optional<string>label{};
 };
-
-struct WithSkip {
-    string name;
-    [[=conflux::json::skip{}]] int internal_id{99};
-    int value{0};
+struct WithSkip{
+string name;
+[[=conflux::json::skip{}]]int internal_id{99};
+int value{0};
 };
-
-struct Nested {
-    string id;
-    Point origin{};
+struct Nested{
+string id;
+Point origin{};
 };
-
 // ---------------------------------------------------------------------------
 // Minimal test runner
 // ---------------------------------------------------------------------------
 
-namespace {
-
-int g_failures = 0;
-int g_checks = 0;
-
-void check_impl(bool cond, SV test, SV msg) {
-    ++g_checks;
-    if (!cond) {
-        ++g_failures;
-        println(std::cerr, "  FAIL [{}]: {}", test, msg);
-    }
+namespace{
+int g_failures=0;
+int g_checks=0;
+void check_impl(bool cond,SV test,SV msg){
+++g_checks;
+if(!cond){
+++g_failures;
+println(cerr,"  FAIL [{}]: {}",test,msg);
 }
-
-#define CHECK(cond)  check_impl(!!(cond), __func__, #cond)
-#define REQUIRE(cond) do { check_impl(!!(cond), __func__, #cond); if (!(cond)) return; } while (false)
-
+}
+#define CHECK(cond)check_impl(!!(cond),__func__,#cond)
+#define REQUIRE(cond)do{check_impl(!!(cond),__func__,#cond);if(!(cond))return;}while(false)
 // ---------------------------------------------------------------------------
 // Decode tests
 // ---------------------------------------------------------------------------
 
-void test_decode_plain_aggregate() {
-    auto doc = *parse(R"({"x": 1, "y": 2})");
-    auto p = decode<Point>(doc);
-    REQUIRE(p.has_value());
-    CHECK(p->x == 1);
-    CHECK(p->y == 2);
+void test_decode_plain_aggregate(){
+auto doc=*parse(R"({"x": 1, "y": 2})");
+auto p=decode<Point>(doc);
+REQUIRE(p.has_value());
+CHECK(p->x==1);
+CHECK(p->y==2);
 }
-
-void test_decode_with_name_annotation() {
-    auto doc = *parse(R"({"host_name": "localhost", "port": 8080, "tls": true})");
-    auto cfg = decode<Config>(doc);
-    REQUIRE(cfg.has_value());
-    CHECK(cfg->host == "localhost");
-    CHECK(cfg->port == 8080);
-    CHECK(cfg->tls == true);
-    CHECK(!cfg->label.has_value());
+void test_decode_with_name_annotation(){
+auto doc=*parse(R"({"host_name": "localhost", "port": 8080, "tls": true})");
+auto cfg=decode<Config>(doc);
+REQUIRE(cfg.has_value());
+CHECK(cfg->host=="localhost");
+CHECK(cfg->port==8080);
+CHECK(cfg->tls==true);
+CHECK(!cfg->label.has_value());
 }
-
-void test_decode_optional_field_present() {
-    auto doc = *parse(R"({"host_name": "example.com", "port": 443, "tls": true, "label": "prod"})");
-    auto cfg = decode<Config>(doc);
-    REQUIRE(cfg.has_value());
-    CHECK(cfg->label == "prod");
+void test_decode_optional_field_present(){
+auto doc=*parse(R"({"host_name": "example.com", "port": 443, "tls": true, "label": "prod"})");
+auto cfg=decode<Config>(doc);
+REQUIRE(cfg.has_value());
+CHECK(cfg->label=="prod");
 }
-
-void test_decode_missing_required_field() {
-    auto doc = *parse(R"({"x": 1})");
-    auto p = decode<Point>(doc);
-    REQUIRE(!p.has_value());
-    CHECK(p.error().code == JsonIssueCode::missing_member);
-    CHECK(p.error().member_name == "y");
+void test_decode_missing_required_field(){
+auto doc=*parse(R"({"x": 1})");
+auto p=decode<Point>(doc);
+REQUIRE(!p.has_value());
+CHECK(p.error().code==JsonIssueCode::missing_member);
+CHECK(p.error().member_name=="y");
 }
-
-void test_decode_skip_field_present_rejected() {
-    auto doc = *parse(R"({"name": "alice", "internal_id": 777, "value": 42})");
-    auto w = decode<WithSkip>(doc);
-    REQUIRE(!w.has_value());
-    CHECK(w.error().code == JsonIssueCode::invalid_value);
+void test_decode_skip_field_present_rejected(){
+auto doc=*parse(R"({"name": "alice", "internal_id": 777, "value": 42})");
+auto w=decode<WithSkip>(doc);
+REQUIRE(!w.has_value());
+CHECK(w.error().code==JsonIssueCode::invalid_value);
 }
-
-void test_decode_skip_field_absent_ok() {
-    auto doc = *parse(R"({"name": "alice", "value": 42})");
-    auto w = decode<WithSkip>(doc);
-    REQUIRE(w.has_value());
-    CHECK(w->name == "alice");
-    CHECK(w->internal_id == 99);
-    CHECK(w->value == 42);
+void test_decode_skip_field_absent_ok(){
+auto doc=*parse(R"({"name": "alice", "value": 42})");
+auto w=decode<WithSkip>(doc);
+REQUIRE(w.has_value());
+CHECK(w->name=="alice");
+CHECK(w->internal_id==99);
+CHECK(w->value==42);
 }
-
-void test_decode_nested_aggregate() {
-    auto doc = *parse(R"({"id": "root", "origin": {"x": 10, "y": 20}})");
-    auto n = decode<Nested>(doc);
-    REQUIRE(n.has_value());
-    CHECK(n->id == "root");
-    CHECK(n->origin.x == 10);
-    CHECK(n->origin.y == 20);
+void test_decode_nested_aggregate(){
+auto doc=*parse(R"({"id": "root", "origin": {"x": 10, "y": 20}})");
+auto n=decode<Nested>(doc);
+REQUIRE(n.has_value());
+CHECK(n->id=="root");
+CHECK(n->origin.x==10);
+CHECK(n->origin.y==20);
 }
-
 // ---------------------------------------------------------------------------
 // Encode tests
 // ---------------------------------------------------------------------------
 
-void test_encode_plain_aggregate() {
-    Point p{3, 7};
-    ValueBuilder vb;
-    auto res = JsonCodec<Point>::encode(vb, p);
-    REQUIRE(res.has_value());
-    auto doc = *std::move(vb).finish();
-    auto obj = *doc.root().as_object();
-    auto x = *obj.find_member("x");
-    auto y = *obj.find_member("y");
-    CHECK(*x.as_i64() == 3);
-    CHECK(*y.as_i64() == 7);
+void test_encode_plain_aggregate(){
+Point p{3,7};
+ValueBuilder vb;
+auto res=JsonCodec<Point>::encode(vb,p);
+REQUIRE(res.has_value());
+auto doc=*move(vb).finish();
+auto obj=*doc.root().as_object();
+auto x=*obj.find_member("x");
+auto y=*obj.find_member("y");
+CHECK(*x.as_i64()==3);
+CHECK(*y.as_i64()==7);
 }
-
-void test_encode_with_name_annotation() {
-    Config cfg{.host = "srv", .port = 9000, .tls = false};
-    ValueBuilder vb;
-    auto res = JsonCodec<Config>::encode(vb, cfg);
-    REQUIRE(res.has_value());
-    auto doc = *std::move(vb).finish();
-    auto obj = *doc.root().as_object();
-    REQUIRE(obj.find_member("host_name").has_value());
-    CHECK(*obj.find_member("host_name")->as_string() == "srv");
-    CHECK(!obj.find_member("host").has_value());
+void test_encode_with_name_annotation(){
+Config cfg{.host="srv",.port=9000,.tls=false};
+ValueBuilder vb;
+auto res=JsonCodec<Config>::encode(vb,cfg);
+REQUIRE(res.has_value());
+auto doc=*move(vb).finish();
+auto obj=*doc.root().as_object();
+REQUIRE(obj.find_member("host_name").has_value());
+CHECK(*obj.find_member("host_name")->as_string()=="srv");
+CHECK(!obj.find_member("host").has_value());
 }
-
-void test_encode_skip_field_absent() {
-    WithSkip w{.name = "bob", .internal_id = 55, .value = 7};
-    ValueBuilder vb;
-    auto res = JsonCodec<WithSkip>::encode(vb, w);
-    REQUIRE(res.has_value());
-    auto doc = *std::move(vb).finish();
-    auto obj = *doc.root().as_object();
-    CHECK(obj.find_member("name").has_value());
-    CHECK(obj.find_member("value").has_value());
-    CHECK(!obj.find_member("internal_id").has_value());
+void test_encode_skip_field_absent(){
+WithSkip w{.name="bob",.internal_id=55,.value=7};
+ValueBuilder vb;
+auto res=JsonCodec<WithSkip>::encode(vb,w);
+REQUIRE(res.has_value());
+auto doc=*move(vb).finish();
+auto obj=*doc.root().as_object();
+CHECK(obj.find_member("name").has_value());
+CHECK(obj.find_member("value").has_value());
+CHECK(!obj.find_member("internal_id").has_value());
 }
-
-void test_encode_nested_aggregate() {
-    Nested n{.id = "r", .origin = {5, 6}};
-    ValueBuilder vb;
-    auto res = JsonCodec<Nested>::encode(vb, n);
-    REQUIRE(res.has_value());
-    auto doc = *std::move(vb).finish();
-    auto s = *doc.dump();
-    CHECK(s.find("\"origin\"") != string::npos);
-    CHECK(s.find("\"x\"") != string::npos);
-    CHECK(s.find("\"y\"") != string::npos);
+void test_encode_nested_aggregate(){
+Nested n{.id="r",.origin={5,6}};
+ValueBuilder vb;
+auto res=JsonCodec<Nested>::encode(vb,n);
+REQUIRE(res.has_value());
+auto doc=*move(vb).finish();
+auto s=*doc.dump();
+CHECK(s.find("\"origin\"")!=string::npos);
+CHECK(s.find("\"x\"")!=string::npos);
+CHECK(s.find("\"y\"")!=string::npos);
 }
-
 // ---------------------------------------------------------------------------
 // Round-trip tests
 // ---------------------------------------------------------------------------
 
-void test_roundtrip_point() {
-    Point orig{-1, 42};
-    ValueBuilder vb;
-    auto enc = JsonCodec<Point>::encode(vb, orig);
-    REQUIRE(enc.has_value());
-    auto doc = *std::move(vb).finish();
-    auto rt = decode<Point>(doc);
-    REQUIRE(rt.has_value());
-    CHECK(rt->x == orig.x);
-    CHECK(rt->y == orig.y);
+void test_roundtrip_point(){
+Point orig{-1,42};
+ValueBuilder vb;
+auto enc=JsonCodec<Point>::encode(vb,orig);
+REQUIRE(enc.has_value());
+auto doc=*move(vb).finish();
+auto rt=decode<Point>(doc);
+REQUIRE(rt.has_value());
+CHECK(rt->x==orig.x);
+CHECK(rt->y==orig.y);
 }
-
-void test_roundtrip_config() {
-    Config orig{.host = "example.com", .port = 443, .tls = true, .label = "staging"};
-    ValueBuilder vb;
-    auto enc = JsonCodec<Config>::encode(vb, orig);
-    REQUIRE(enc.has_value());
-    auto doc = *std::move(vb).finish();
-    auto rt = decode<Config>(doc);
-    REQUIRE(rt.has_value());
-    CHECK(rt->host == orig.host);
-    CHECK(rt->port == orig.port);
-    CHECK(rt->tls == orig.tls);
-    CHECK(rt->label == orig.label);
+void test_roundtrip_config(){
+Config orig{.host="example.com",.port=443,.tls=true,.label="staging"};
+ValueBuilder vb;
+auto enc=JsonCodec<Config>::encode(vb,orig);
+REQUIRE(enc.has_value());
+auto doc=*move(vb).finish();
+auto rt=decode<Config>(doc);
+REQUIRE(rt.has_value());
+CHECK(rt->host==orig.host);
+CHECK(rt->port==orig.port);
+CHECK(rt->tls==orig.tls);
+CHECK(rt->label==orig.label);
 }
-
 // ---------------------------------------------------------------------------
 // Concept checks
 // ---------------------------------------------------------------------------
 
-void test_has_json_codec_concept() {
-    static_assert(has_json_codec<Point>);
-    static_assert(has_json_codec<Config>);
-    static_assert(has_json_codec<WithSkip>);
-    static_assert(has_json_codec<Nested>);
+void test_has_json_codec_concept(){
+static_assert(has_json_codec<Point>);
+static_assert(has_json_codec<Config>);
+static_assert(has_json_codec<WithSkip>);
+static_assert(has_json_codec<Nested>);
 }
-
 // ---------------------------------------------------------------------------
 // Reader path
 // ---------------------------------------------------------------------------
 
-void test_reader_path_decode() {
-    SV input = R"({"x": 5, "y": -3})";
-    JsonReader reader{input};
-    auto p = decode<Point>(reader);
-    REQUIRE(p.has_value());
-    CHECK(p->x == 5);
-    CHECK(p->y == -3);
+void test_reader_path_decode(){
+SV input=R"({"x": 5, "y": -3})";
+JsonReader reader{input};
+auto p=decode<Point>(reader);
+REQUIRE(p.has_value());
+CHECK(p->x==5);
+CHECK(p->y==-3);
 }
-
-} // namespace
-
+}// namespace
 // ---------------------------------------------------------------------------
 
-export int run_tests() {
-    using fn_t = void (*)();
-    struct { fn_t fn; SV name; } tests[] = {
-        {test_decode_plain_aggregate,       "decode plain aggregate"},
-        {test_decode_with_name_annotation,  "decode with name annotation"},
-        {test_decode_optional_field_present,"decode optional field present"},
-        {test_decode_missing_required_field,"decode missing required field"},
-        {test_decode_skip_field_present_rejected, "decode skip field present rejected"},
-        {test_decode_skip_field_absent_ok,  "decode skip field absent ok"},
-        {test_decode_nested_aggregate,      "decode nested aggregate"},
-        {test_encode_plain_aggregate,       "encode plain aggregate"},
-        {test_encode_with_name_annotation,  "encode with name annotation"},
-        {test_encode_skip_field_absent,     "encode skip field absent"},
-        {test_encode_nested_aggregate,      "encode nested aggregate"},
-        {test_roundtrip_point,              "round-trip Point"},
-        {test_roundtrip_config,             "round-trip Config"},
-        {test_has_json_codec_concept,       "has_json_codec concept"},
-        {test_reader_path_decode,           "reader path decode"},
-    };
-
-    int saved = g_failures;
-    for (auto const &t : tests) {
-        int before = g_failures;
-        t.fn();
-        if (g_failures == before)
-            println("PASS: {}", t.name);
-        else
-            println("FAIL: {}", t.name);
-    }
-    int total_failed = g_failures - saved;
-    println("{}/{} tests passed.", static_cast<int>(std::size(tests)) - total_failed,
-            static_cast<int>(std::size(tests)));
-    return total_failed;
+export int run_tests(){
+using fn_t=void(*)();
+struct{
+fn_t fn;
+SV name;
+}tests[]={
+{test_decode_plain_aggregate,"decode plain aggregate"},
+{test_decode_with_name_annotation,"decode with name annotation"},
+{test_decode_optional_field_present,"decode optional field present"},
+{test_decode_missing_required_field,"decode missing required field"},
+{test_decode_skip_field_present_rejected,"decode skip field present rejected"},
+{test_decode_skip_field_absent_ok,"decode skip field absent ok"},
+{test_decode_nested_aggregate,"decode nested aggregate"},
+{test_encode_plain_aggregate,"encode plain aggregate"},
+{test_encode_with_name_annotation,"encode with name annotation"},
+{test_encode_skip_field_absent,"encode skip field absent"},
+{test_encode_nested_aggregate,"encode nested aggregate"},
+{test_roundtrip_point,"round-trip Point"},
+{test_roundtrip_config,"round-trip Config"},
+{test_has_json_codec_concept,"has_json_codec concept"},
+{test_reader_path_decode,"reader path decode"},
+};
+int saved=g_failures;
+for(auto const&t:tests){
+int before=g_failures;
+t.fn();
+if(g_failures==before)
+println("PASS: {}",t.name);
+else
+println("FAIL: {}",t.name);
+}
+int total_failed=g_failures-saved;
+println("{}/{} tests passed.",static_cast<int>(std::size(tests))-total_failed,
+static_cast<int>(std::size(tests)));
+return total_failed;
 }

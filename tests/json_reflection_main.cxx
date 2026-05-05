@@ -1,3 +1,2 @@
 import conflux.tests.json_reflect;
-
-int main() { return run_tests(); }
+int main(){return run_tests();}

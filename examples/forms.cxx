@@ -7,74 +7,46 @@
 import conflux.net.http;
 import std;
 import conflux.types;
+int main(){
+Config cfg{};
+cfg.port=9092;
+cfg.rings=1;
+cfg.ring_entries=256;
+cfg.single_issuer=true;
+cfg.defer_taskrun=true;
+cfg.coop_taskrun=true;
+cfg.taskrun_flag=true;
 
-int main() {
-	Config cfg{};
-	cfg.port = 9092;
-	cfg.rings = 1;
-	cfg.ring_entries = 256;
-	cfg.single_issuer = true;
-	cfg.defer_taskrun = true;
-	cfg.coop_taskrun = true;
-	cfg.taskrun_flag = true;
+Router router;
 
-	Router router;
+// Home page with two forms: one GET (query params), one POST (urlencoded body).
+router.get("/",[](HttpRequestView const&){
+return HttpResponse::html(
+"<html><body>" "<h1>conflux forms example</h1>" "<h2>Search — GET with query params</h2>" "<form method='get' action='/search'>" "  <input name='q' placeholder='query'> " "  <input name='lang' placeholder='lang (Opt)'> " "  <button>Search</button>" "</form>" "<h2>Submit — POST with urlencoded body</h2>" "<form method='post' action='/submit'" "      enctype='application/x-www-form-urlencoded'>" "  <input name='name' placeholder='name'> " "  <input name='age'  placeholder='age'> " "  <button>Submit</button>" "</form>" "</body></html>");
+});
 
-	// Home page with two forms: one GET (query params), one POST (urlencoded body).
-	router.get("/", [](HttpRequestView const &) {
-		return HttpResponse::html(
-			"<html><body>"
-			"<h1>conflux forms example</h1>"
+// GET /search?q=...&lang=...
+router.get("/search",[](HttpRequestView const&req){
+auto q=req.query["q"];
+auto lang=req.query["lang"];
+return HttpResponse::html(
+format(
+"<html><body>" "<h1>Search results</h1>" "<p>Query: <strong>{}</strong></p>" "<p>Language filter: <strong>{}</strong></p>" "<p><a href='/'>back</a></p>" "</body></html>",
+q.empty()?"(none)":q,
+lang.empty()?"any":lang));
+});
 
-			"<h2>Search — GET with query params</h2>"
-			"<form method='get' action='/search'>"
-			"  <input name='q' placeholder='query'> "
-			"  <input name='lang' placeholder='lang (Opt)'> "
-			"  <button>Search</button>"
-			"</form>"
+// POST /submit  body: name=...&age=...
+router.post("/submit",[](HttpRequestView const&req){
+auto name=req.form["name"];
+auto age=req.form["age"];
+return HttpResponse::html(
+format(
+"<html><body>" "<h1>Submitted</h1>" "<p>Name: <strong>{}</strong></p>" "<p>Age: <strong>{}</strong></p>" "<p><a href='/'>back</a></p>" "</body></html>",
+name.empty()?"(none)":name,
+age.empty()?"(none)":age));
+});
 
-			"<h2>Submit — POST with urlencoded body</h2>"
-			"<form method='post' action='/submit'"
-			"      enctype='application/x-www-form-urlencoded'>"
-			"  <input name='name' placeholder='name'> "
-			"  <input name='age'  placeholder='age'> "
-			"  <button>Submit</button>"
-			"</form>"
-			"</body></html>");
-	});
-
-	// GET /search?q=...&lang=...
-	router.get("/search", [](HttpRequestView const &req) {
-		auto q = req.query["q"];
-		auto lang = req.query["lang"];
-		return HttpResponse::html(
-			std::format(
-				"<html><body>"
-				"<h1>Search results</h1>"
-				"<p>Query: <strong>{}</strong></p>"
-				"<p>Language filter: <strong>{}</strong></p>"
-				"<p><a href='/'>back</a></p>"
-				"</body></html>",
-				q.empty() ? "(none)" : q,
-				lang.empty() ? "any" : lang));
-	});
-
-	// POST /submit  body: name=...&age=...
-	router.post("/submit", [](HttpRequestView const &req) {
-		auto name = req.form["name"];
-		auto age = req.form["age"];
-		return HttpResponse::html(
-			std::format(
-				"<html><body>"
-				"<h1>Submitted</h1>"
-				"<p>Name: <strong>{}</strong></p>"
-				"<p>Age: <strong>{}</strong></p>"
-				"<p><a href='/'>back</a></p>"
-				"</body></html>",
-				name.empty() ? "(none)" : name,
-				age.empty() ? "(none)" : age));
-	});
-
-	HttpServer srv{cfg, std::move(router)};
-	srv.run();
+HttpServer srv{cfg,move(router)};
+srv.run();
 }
