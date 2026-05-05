@@ -183,6 +183,36 @@ export A<unsigned char, 20> sha1(
 }
 
 // ---------------------------------------------------------------------------
+// HMAC-SHA1 (RFC 2104)
+// ---------------------------------------------------------------------------
+
+export A<unsigned char, 20> hmac_sha1(
+	span<unsigned char const> key,
+	span<unsigned char const> msg) {
+	A<unsigned char, 64> k_pad{};
+	if (key.size() > 64) {
+		auto kh = sha1(key);
+		ranges::copy(kh, k_pad.begin());
+	} else {
+		ranges::copy(key, k_pad.begin());
+	}
+
+	V<unsigned char> inner_buf(64 + msg.size());
+	for (SZ i = 0; i < 64; ++i) {
+		inner_buf[i] = static_cast<unsigned char>(k_pad[i] ^ 0x36U);
+	}
+	ranges::copy(msg, inner_buf.begin() + 64);
+	auto inner = sha1(inner_buf);
+
+	A<unsigned char, 84> outer_buf{};
+	for (SZ i = 0; i < 64; ++i) {
+		outer_buf[i] = static_cast<unsigned char>(k_pad[i] ^ 0x5CU);
+	}
+	ranges::copy(inner, outer_buf.begin() + 64);
+	return sha1(span{outer_buf.data(), 84});
+}
+
+// ---------------------------------------------------------------------------
 // SHA-256 (FIPS 180-4)
 // ---------------------------------------------------------------------------
 

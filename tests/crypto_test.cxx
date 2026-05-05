@@ -210,3 +210,51 @@ TEST_CASE(
 		{reinterpret_cast<unsigned char const *>(d2.data()), d2.size()});
 	CHECK(h1 != h2);
 }
+
+// ---------------------------------------------------------------------------
+// HMAC-SHA1
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"crypto: hmac_sha1 rfc2202 test V 1",
+	"[crypto]") {
+	// Key = 20 bytes of 0x0b, Data = "Hi There"
+	// HMAC-SHA1 = b617318655057264e28bc0b6fb378c8ef146be00
+	A<unsigned char, 20> key{};
+	key.fill(0x0b);
+	SV const data = "Hi There";
+	auto h = hmac_sha1({key.data(), key.size()}, {reinterpret_cast<unsigned char const *>(data.data()), data.size()});
+	CHECK(h[0] == 0xb6);
+	CHECK(h[1] == 0x17);
+	CHECK(h[19] == 0x00);
+}
+
+TEST_CASE(
+	"crypto: hmac_sha1 rfc2202 test V 2",
+	"[crypto]") {
+	// Key = "Jefe", Data = "what do ya want for nothing?"
+	// HMAC-SHA1 = effcdf6ae5eb2fa2d27416d5f184df9c259a7c79
+	SV const key = "Jefe";
+	SV const data = "what do ya want for nothing?";
+	auto h = hmac_sha1(
+		{reinterpret_cast<unsigned char const *>(key.data()), key.size()},
+		{reinterpret_cast<unsigned char const *>(data.data()), data.size()});
+	CHECK(h[0] == 0xef);
+	CHECK(h[1] == 0xfc);
+	CHECK(h[19] == 0x79);
+}
+
+TEST_CASE(
+	"crypto: hmac_sha1 rfc2202 test V 3",
+	"[crypto]") {
+	// Key = 20 bytes of 0xaa, Data = 50 bytes of 0xdd
+	// HMAC-SHA1 = 125d7342b9ac11cd91a39af48aa17b4f63f175d3
+	A<unsigned char, 20> key{};
+	key.fill(0xaa);
+	A<unsigned char, 50> data{};
+	data.fill(0xdd);
+	auto h = hmac_sha1({key.data(), key.size()}, {data.data(), data.size()});
+	CHECK(h[0] == 0x12);
+	CHECK(h[1] == 0x5d);
+	CHECK(h[19] == 0xd3);
+}
