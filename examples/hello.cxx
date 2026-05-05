@@ -35,7 +35,7 @@ int main() {
 		return http::Response::json(R"({"status":"ok","server":"conflux"})");
 	});
 
-	app.get("/api/async-ping", [](http::Request const &) -> conflux::work::root::Task<http::Response> {
+	app.get("/api/async-ping", [](HttpRequest const &) -> conflux::work::root::Task<http::Response> {
 		auto [task, source] = conflux::work::root::make_task_source<http::Response>();
 		(void)source.try_set_value(
 			conflux::work::root::Success<http::Response>{http::Response::json(R"({"status":"ok","mode":"async"})")});

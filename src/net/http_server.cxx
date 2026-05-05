@@ -94,6 +94,69 @@ S http_date_now() {
 	return S{buf.data()};
 }
 
+bool is_valid_header_name(SV name) noexcept {
+	if (name.empty()) {
+		return false;
+	}
+	for (auto c: name) {
+		auto const u = static_cast<unsigned char>(c);
+		if (u >= 0x80U) {
+			return false;
+		}
+		bool const ok = (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+					 || c == '!' || c == '#' || c == '$' || c == '%' || c == '&' || c == '\''
+					 || c == '*' || c == '+' || c == '-' || c == '.' || c == '^' || c == '_'
+					 || c == '`' || c == '|' || c == '~';
+		if (!ok) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool is_valid_header_value(SV value) noexcept {
+	for (auto c: value) {
+		auto const u = static_cast<unsigned char>(c);
+		if (u < 0x20 && u != '\t') {
+			return false;
+		}
+		if (u == 0x7F) {
+			return false;
+		}
+	}
+	return true;
+}
+
+bool is_framing_header(SV name) noexcept {
+	auto lower_eq = [](SV a, SV b) {
+		if (a.size() != b.size()) {
+			return false;
+		}
+		for (SZ i = 0; i < a.size(); ++i) {
+			auto ca = static_cast<unsigned char>(a[i]);
+			auto cb = static_cast<unsigned char>(b[i]);
+			if (ca >= 'A' && ca <= 'Z') {
+				ca += 32;
+			}
+			if (ca != cb) {
+				return false;
+			}
+		}
+		return true;
+	};
+	return lower_eq(name, "content-length")
+		|| lower_eq(name, "transfer-encoding")
+		|| lower_eq(name, "connection")
+		|| lower_eq(name, "upgrade")
+		|| lower_eq(name, "keep-alive")
+		|| lower_eq(name, "te")
+		|| lower_eq(name, "trailer");
+}
+
+bool must_not_have_body(int status) noexcept {
+	return (status >= 100 && status < 200) || status == 204 || status == 304;
+}
+
 S format_response(
 	HttpResponse const &r,
 	SV alt_svc = {},
@@ -106,30 +169,48 @@ S format_response(
 			"Sec-WebSocket-Accept: {}\r\n\r\n",
 			r.ws_upgrade_ptr()->accept_key);
 	}
+	bool const status_no_body = must_not_have_body(r.status);
+	bool const suppress_body = status_no_body || r.head_only;
 	S out = format(
 		"HTTP/1.1 {} {}\r\n"
-		"Date: {}\r\n"
-		"Content-Type: {}\r\n"
-		"Content-Length: {}\r\n",
+		"Date: {}\r\n",
 		r.status,
 		r.status_text,
-		http_date_now(),
-		r.content_type,
-		r.content_length());
+		http_date_now());
+	if (r.status != 204) {
+		out += format("Content-Type: {}\r\n", r.content_type);
+	}
+	if (r.status == 204) {
+		// 204 must not have Content-Length per RFC 9110 §15.3.5 (omit it).
+	} else if (r.status == 304) {
+		if (r.content_length_hint != 0) {
+			out += format("Content-Length: {}\r\n", r.content_length_hint);
+		}
+	} else if (status_no_body) {
+		// 1xx: no Content-Length
+	} else {
+		out += format("Content-Length: {}\r\n", r.content_length());
+	}
 	for (auto const &[k, v]: r.headers) {
+		if (is_framing_header(k)) {
+			continue;
+		}
+		if (!is_valid_header_name(k) || !is_valid_header_value(v)) {
+			continue;
+		}
 		out += format("{}: {}\r\n", k, v);
 	}
 	for (auto const &sc: r.set_cookies) {
+		if (!is_valid_header_value(sc)) {
+			continue;
+		}
 		out += format("Set-Cookie: {}\r\n", sc);
 	}
 	if (!alt_svc.empty()) {
 		out += format("Alt-Svc: {}\r\n", alt_svc);
 	}
 	out += close ? "Connection: close\r\n\r\n" : "Connection: keep-alive\r\n\r\n";
-	// body appended inline only for plain responses; mapped_file content is
-	// sent via WRITEV, streamed_file content via splice/read_fixed after the
-	// header send CQE fires.
-	if (!r.head_only && !r.is_mapped_file() && !r.is_streamed_file()) {
+	if (!suppress_body && !r.is_mapped_file() && !r.is_streamed_file()) {
 		out += r.text_body();
 	}
 	return out;
@@ -1138,7 +1219,16 @@ struct Ring {
 		if (conn.h2_pending_send.empty() || conn.send_queued) {
 			return;
 		}
-		SSL_write(conn.ssl.get(), conn.h2_pending_send.data(), static_cast<int>(conn.h2_pending_send.size()));
+		char const *h2_data = conn.h2_pending_send.data();
+		int h2_remaining = static_cast<int>(conn.h2_pending_send.size());
+		while (h2_remaining > 0) {
+			auto const w = SSL_write(conn.ssl.get(), h2_data, h2_remaining);
+			if (w <= 0) {
+				break;
+			}
+			h2_data += w;
+			h2_remaining -= w;
+		}
 		conn.h2_pending_send.clear();
 		tls_flush_wbio(conn);
 		if (!conn.tls_send_buf.empty()) {
@@ -1715,7 +1805,17 @@ struct Ring {
 				return;
 			}
 			auto const &resp = *conn.response_ptr;
-			SSL_write(conn.ssl.get(), resp.data(), static_cast<int>(resp.size()));
+			char const *data = resp.data();
+			int remaining = static_cast<int>(resp.size());
+			while (remaining > 0) {
+				auto const w = SSL_write(conn.ssl.get(), data, remaining);
+				if (w <= 0) {
+					queue_close(fd);
+					return;
+				}
+				data += w;
+				remaining -= w;
+			}
 			tls_flush_wbio(conn);
 			conn.tls_sending_response = true;
 			tls_queue_send(conn);
@@ -1963,9 +2063,17 @@ struct Ring {
 			conn.ws_upgrade.reset();
 			conn.partial.clear();
 			conn.last_activity = chrono::steady_clock::now();
-			// Capture peer address from the Ring's client_addr (valid for this CQE).
-			// ip_to_string canonicalizes IPv4-mapped addresses (::ffff:a.b.c.d → a.b.c.d).
-			conn.remote_addr = ip_to_string(client_addr.sin6_addr);
+			if (!fixed_files) {
+				sockaddr_in6 peer_addr{};
+				socklen_t peer_len = sizeof(peer_addr);
+				if (::getpeername(res, reinterpret_cast<sockaddr *>(&peer_addr), &peer_len) == 0) {
+					conn.remote_addr = ip_to_string(peer_addr.sin6_addr);
+				} else {
+					conn.remote_addr.clear();
+				}
+			} else {
+				conn.remote_addr = ip_to_string(client_addr.sin6_addr);
+			}
 			conn.is_tls = false;
 #if CONFLUX_HAS_TLS
 			// Free any SSL left by a prior tenant on this fd slot.
@@ -2774,6 +2882,9 @@ struct Ring {
 				conn.request_started = conn.last_activity;
 				conn.request_in_progress = true;
 			}
+			if (conn.send_queued) {
+				continue;
+			}
 			if (conn.partial.size() > max_body_size + parser_limits.max_header_block_size) {
 				conn.own_response.clear();
 				conn.own_response.append(
@@ -3299,9 +3410,12 @@ void dispatch_request(
 		path = (slash != SV::npos) ? path.substr(slash) : SV{"/"};
 	}
 
-	if (version == "HTTP/1.1" && headers["host"].empty()) {
-		emit_parse_error(conn, raw, ParseError::BadRequest, ring.alt_svc_header);
-		return;
+	if (version == "HTTP/1.1") {
+		auto const hosts = headers.values("host");
+		if (hosts.empty() || hosts.size() > 1) {
+			emit_parse_error(conn, raw, ParseError::BadRequest, ring.alt_svc_header);
+			return;
+		}
 	}
 
 	if (http_redirect_to_https && !conn.is_tls) {
@@ -3325,10 +3439,14 @@ void dispatch_request(
 			return c != SV::npos ? h.substr(0, c) : h;
 		};
 		auto const host_bare = ascii_lower(S{strip_host_port(host)});
-		bool const host_ok = !host.empty() && ranges::any_of(https_redirect_hosts, [&](S const &h) {
-			return ascii_lower(h) == host_bare;
-		});
-		if (!host_ok) {
+		SV canonical_host;
+		for (auto const &h: https_redirect_hosts) {
+			if (ascii_lower(h) == host_bare) {
+				canonical_host = h;
+				break;
+			}
+		}
+		if (host.empty() || canonical_host.empty()) {
 			auto r = HttpResponse{};
 			r.status = kHttpBadRequest;
 			r.status_text = "Bad Request";
@@ -3343,7 +3461,7 @@ void dispatch_request(
 		auto raw_url =
 			raw.substr(sp1 + 1, (raw.find(' ', sp1 + 1) == SV::npos ? raw.size() : raw.find(' ', sp1 + 1)) - sp1 - 1);
 		conn.own_response = format_response(
-			HttpResponse::redirect(format("https://{}{}", host, raw_url), 308),
+			HttpResponse::redirect(format("https://{}{}", canonical_host, raw_url), 308),
 			ring.alt_svc_header,
 			true);
 		conn.response_ptr = &conn.own_response;

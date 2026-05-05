@@ -142,6 +142,12 @@ ParseStatus parse_request(
 		while (!field_value.empty() && (field_value.back() == ' ' || field_value.back() == '\t')) {
 			field_value.remove_suffix(1);
 		}
+		for (auto c: field_value) {
+			auto const u = static_cast<unsigned char>(c);
+			if ((u < 0x20 && u != '\t') || u == 0x7F) {
+				return ParseStatus::BadRequest;
+			}
+		}
 		out.headers.emplace_back(name, field_value);
 		pos = line_end + 2;
 	}

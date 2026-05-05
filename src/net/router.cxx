@@ -3,10 +3,12 @@ module;
 #include <ctime>
 #include <dirent.h>
 #include <fcntl.h>
+#include <linux/openat2.h>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <unistd.h>
 #if CONFLUX_HAS_TLS
 	#include <openssl/ssl.h>
@@ -44,6 +46,26 @@ import conflux.net.tls;
 		case '"' : out += "&quot;"; break;
 		case '\'': out += "&#39;"; break;
 		default  : out += c; break;
+		}
+	}
+	return out;
+}
+
+[[nodiscard]] S path_percent_encode(
+	SV s) {
+	S out;
+	out.reserve(s.size());
+	static constexpr char kHex[] = "0123456789ABCDEF";
+	for (char const ch: s) {
+		auto const c = static_cast<unsigned char>(ch);
+		bool const safe = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+						|| c == '-' || c == '_' || c == '.' || c == '~' || c == '/';
+		if (safe) {
+			out.push_back(static_cast<char>(c));
+		} else {
+			out.push_back('%');
+			out.push_back(kHex[c >> 4U]);
+			out.push_back(kHex[c & 0x0FU]);
 		}
 	}
 	return out;
@@ -1900,6 +1922,23 @@ inline S segments_to_pattern(
 	return out;
 }
 
+int contained_open(int root_fd, char const *relative, int flags) noexcept {
+	open_how how{};
+	how.flags = static_cast<__u64>(flags);
+	how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
+	return static_cast<int>(::syscall(SYS_openat2, root_fd, relative, &how, sizeof(how)));
+}
+
+struct RootDirFd {
+	int fd{-1};
+	explicit RootDirFd(char const *path) : fd(::open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)) {}
+	~RootDirFd() noexcept { if (fd >= 0) ::close(fd); }
+	RootDirFd(RootDirFd const &) = delete;
+	RootDirFd &operator =(RootDirFd const &) = delete;
+	RootDirFd(RootDirFd &&o) noexcept : fd(exchange(o.fd, -1)) {}
+	RootDirFd &operator =(RootDirFd &&o) noexcept { if (fd >= 0) ::close(fd); fd = exchange(o.fd, -1); return *this; }
+};
+
 export struct StaticOptions {
 	// Cache-Control header value. Empty = no Cache-Control header set.
 	S cache_control{"max-age=3600, public"};
@@ -2262,24 +2301,42 @@ public:
 		auto static_cache = make_shared<StaticCacheStore>();
 
 		auto do_work =
-			[static_cache](S const &rd, StaticOptions const &static_options, StaticReq const &r) -> HttpResponse {
+			[static_cache](S const &rd, int root_fd, StaticOptions const &static_options, StaticReq const &r) -> HttpResponse {
 			try {
 				S file_param = r.file_param;
 				auto full_path = rd + file_param;
+				SV rel_path = SV{file_param};
+				if (rel_path.starts_with('/')) {
+					rel_path.remove_prefix(1);
+				}
+				S rel_str{rel_path};
 
 				struct ::stat st{};
-				if (::stat(full_path.c_str(), &st) != 0) {
+				int probe_fd = rel_str.empty()
+					? contained_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY)
+					: contained_open(root_fd, rel_str.c_str(), O_PATH | O_CLOEXEC);
+				if (probe_fd < 0) {
 					return HttpResponse::not_found(file_param);
 				}
+				if (::fstat(probe_fd, &st) != 0) {
+					::close(probe_fd);
+					return HttpResponse::not_found(file_param);
+				}
+				::close(probe_fd);
+
 				if (S_ISDIR(st.st_mode)) {
-					// Try index.html first.
-					auto index = full_path + "/index.html";
-					if (::stat(index.c_str(), &st) == 0) {
-						full_path = move(index);
+					auto index_rel = rel_str.empty() ? S{"index.html"} : rel_str + "/index.html";
+					int idx_fd = contained_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC);
+					if (idx_fd >= 0) {
+						::fstat(idx_fd, &st);
+						::close(idx_fd);
+						full_path = rd + "/" + index_rel;
 						file_param += "/index.html";
+						rel_str = index_rel;
 					} else if (static_options.directory_listing) {
-						// Generate HTML directory listing.
-						int const dfd = ::open(full_path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+						int const dfd = rel_str.empty()
+							? contained_open(root_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
+							: contained_open(root_fd, rel_str.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 						if (dfd < 0) {
 							return HttpResponse::html(
 								"<html><body><h1>403 Forbidden</h1></body></html>",
@@ -2315,7 +2372,7 @@ public:
 						::closedir(dir);
 						ranges::sort(names);
 						for (auto const &name: names) {
-							html += format("<li><a href=\"{}\">{}</a></li>", html_escape(name), html_escape(name));
+							html += format("<li><a href=\"{}\">{}</a></li>", path_percent_encode(name), html_escape(name));
 						}
 						html += "</ul></body></html>";
 						return HttpResponse::html(move(html));
@@ -2331,22 +2388,77 @@ public:
 				S content_encoding;
 				if (static_options.precompressed) {
 					auto const &accept_enc = r.accept_encoding;
-					if (accept_enc.find("br") != S::npos) {
-						auto br_path = full_path + ".br";
-						struct ::stat br_st{};
-						if (::stat(br_path.c_str(), &br_st) == 0) {
-							full_path = move(br_path);
-							st = br_st;
-							content_encoding = "br";
+					auto encoding_accepted = [&](SV token) -> bool {
+						SV ae{accept_enc};
+						SZ pos = 0;
+						while (pos < ae.size()) {
+							auto comma = ae.find(',', pos);
+							SV entry = ae.substr(pos, comma == SV::npos ? SV::npos : comma - pos);
+							pos = comma == SV::npos ? ae.size() : comma + 1;
+							while (!entry.empty() && entry.front() == ' ') {
+								entry.remove_prefix(1);
+							}
+							while (!entry.empty() && entry.back() == ' ') {
+								entry.remove_suffix(1);
+							}
+							auto semi = entry.find(';');
+							SV coding = entry.substr(0, semi);
+							while (!coding.empty() && coding.back() == ' ') {
+								coding.remove_suffix(1);
+							}
+							bool match = coding.size() == token.size()
+								&& ranges::equal(coding, token, [](char a, char b) {
+									return (static_cast<unsigned char>(a) | 0x20) == (static_cast<unsigned char>(b) | 0x20);
+								});
+							if (!match) {
+								continue;
+							}
+							if (semi == SV::npos) {
+								return true;
+							}
+							auto params = entry.substr(semi + 1);
+							auto q_pos = params.find("q=");
+							if (q_pos == SV::npos) {
+								q_pos = params.find("Q=");
+							}
+							if (q_pos == SV::npos) {
+								return true;
+							}
+							auto qval = params.substr(q_pos + 2);
+							auto qend = qval.find_first_of(", ;");
+							if (qend != SV::npos) {
+								qval = qval.substr(0, qend);
+							}
+							return qval != "0" && qval != "0." && qval != "0.0" && qval != "0.00" && qval != "0.000";
+						}
+						return false;
+					};
+					if (encoding_accepted("br")) {
+						auto br_rel = rel_str + ".br";
+						int br_fd = contained_open(root_fd, br_rel.c_str(), O_PATH | O_CLOEXEC);
+						if (br_fd >= 0) {
+							struct ::stat br_st{};
+							if (::fstat(br_fd, &br_st) == 0) {
+								full_path = rd + "/" + br_rel;
+								st = br_st;
+								content_encoding = "br";
+								rel_str = br_rel;
+							}
+							::close(br_fd);
 						}
 					}
-					if (content_encoding.empty() && accept_enc.find("gzip") != S::npos) {
-						auto gz_path = full_path + ".gz";
-						struct ::stat gz_st{};
-						if (::stat(gz_path.c_str(), &gz_st) == 0) {
-							full_path = move(gz_path);
-							st = gz_st;
-							content_encoding = "gzip";
+					if (content_encoding.empty() && encoding_accepted("gzip")) {
+						auto gz_rel = rel_str + ".gz";
+						int gz_fd = contained_open(root_fd, gz_rel.c_str(), O_PATH | O_CLOEXEC);
+						if (gz_fd >= 0) {
+							struct ::stat gz_st{};
+							if (::fstat(gz_fd, &gz_st) == 0) {
+								full_path = rd + "/" + gz_rel;
+								st = gz_st;
+								content_encoding = "gzip";
+								rel_str = gz_rel;
+							}
+							::close(gz_fd);
 						}
 					}
 				}
@@ -2520,7 +2632,7 @@ public:
 								resp.status = kHttpRangeNotSatisfiable;
 								resp.status_text = "Range Not Satisfiable";
 								resp.content_type = "text/plain; charset=utf-8";
-								resp.set_text_body(format("bytes */{}", file_size));
+								resp.headers["Content-Range"] = format("bytes */{}", file_size);
 								return resp;
 							}
 						}
@@ -2625,13 +2737,12 @@ public:
 						send_off,
 						send_sz,
 						file_size,
-						fr->open_async(AT_FDCWD, full_path, O_RDONLY | O_CLOEXEC | O_NOFOLLOW)).detach();
+						fr->open_async(root_fd, rel_str, O_RDONLY | O_CLOEXEC)).detach();
 					return HttpResponse::deferred(move(dr));
 				}
 
 				// mmap the file.
-				// NOLINTNEXTLINE(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
-				int const fd = ::open(full_path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+				int const fd = contained_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC);
 				if (fd < 0) {
 					return HttpResponse::not_found(file_param);
 				}
@@ -2656,6 +2767,7 @@ public:
 			} catch (...) { return HttpResponse::internal_error(); }
 		};
 
+		auto root_dir_fd = make_shared<RootDirFd>(root_dir.c_str());
 		auto rd = move(root_dir);
 		auto normalize_path = [](SV raw) -> Opt<S> {
 			S const fp{raw};
@@ -2696,7 +2808,7 @@ public:
 
 		// NOLINTNEXTLINE(bugprone-exception-escape): lambda already handles failures via top-level try/catch.
 		get(pattern,
-			[rd, sopts = effective_sopts, do_work, normalize_path](HttpRequestView const &req) -> HttpResponse {
+			[rd, root_dir_fd, sopts = effective_sopts, do_work, normalize_path](HttpRequestView const &req) -> HttpResponse {
 				try {
 					auto norm = normalize_path(req.params["file"]);
 					if (!norm) {
@@ -2715,11 +2827,12 @@ public:
 						.range = S{req.headers["range"]},
 					};
 
+					auto const rfd = root_dir_fd->fd;
 					if (sopts.offload_pool) {
 						auto dr = make_shared<DeferredResponse>();
-						auto ok = sopts.offload_pool->enqueue([rd, sopts, sreq = move(sreq), do_work, dr]() mutable {
+						auto ok = sopts.offload_pool->enqueue([rd, rfd, sopts, sreq = move(sreq), do_work, dr]() mutable {
 							try {
-								dr->complete(do_work(rd, sopts, sreq));
+								dr->complete(do_work(rd, rfd, sopts, sreq));
 							} catch (...) { dr->complete(HttpResponse::internal_error()); }
 						});
 						if (!ok) {
@@ -2728,14 +2841,14 @@ public:
 						return HttpResponse::deferred(move(dr));
 					}
 
-					return do_work(rd, sopts, sreq);
+					return do_work(rd, rfd, sopts, sreq);
 				} catch (...) { return HttpResponse::internal_error(); }
 			});
 
 		if (effective_sopts.allow_put) {
 			// NOLINTNEXTLINE(bugprone-exception-escape)
 			put(pattern,
-				[rd, sopts = effective_sopts, static_cache, normalize_path](
+				[rd, root_dir_fd, sopts = effective_sopts, static_cache, normalize_path](
 					HttpRequestView const &req) -> HttpResponse {
 					try {
 						auto norm = normalize_path(req.params["file"]);
@@ -2746,9 +2859,17 @@ public:
 								"Forbidden");
 						}
 						auto full_path = rd + *norm;
+						SV rel_sv = SV{*norm};
+						if (rel_sv.starts_with('/')) {
+							rel_sv.remove_prefix(1);
+						}
+						S rel{rel_sv};
 
-						struct ::stat st{};
-						bool const existed = ::stat(full_path.c_str(), &st) == 0;
+						int probe = contained_open(root_dir_fd->fd, rel.c_str(), O_PATH | O_CLOEXEC);
+						bool const existed = probe >= 0;
+						if (probe >= 0) {
+							::close(probe);
+						}
 
 						if (auto *fr = current_file_reader(); fr != nullptr) {
 							auto body_owned = make_shared<S>(req.body);
@@ -2762,9 +2883,9 @@ public:
 								static_cache,
 								dr,
 								fr->open_async(
-									AT_FDCWD,
-									*fp,
-									O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
+									root_dir_fd->fd,
+									rel,
+									O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
 									0644)).detach();
 							return HttpResponse::deferred(move(dr));
 						}
@@ -2772,13 +2893,13 @@ public:
 						if (sopts.offload_pool) {
 							auto dr = make_shared<DeferredResponse>();
 							auto body_owned = make_shared<S>(req.body);
+							auto rfd = root_dir_fd->fd;
 							auto ok = sopts.offload_pool->enqueue(
-								[full_path = move(full_path), body_owned, existed, static_cache, dr]() mutable {
+								[full_path = move(full_path), rel = move(rel), rfd, body_owned, existed, static_cache, dr]() mutable {
 									try {
-										int const wfd = ::open(
-											full_path.c_str(),
-											O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW,
-											0644);
+										int const wfd = contained_open(
+											rfd, rel.c_str(),
+											O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC);
 										if (wfd < 0) {
 											dr->complete(HttpResponse::internal_error());
 											return;
@@ -2811,8 +2932,9 @@ public:
 							return HttpResponse::deferred(move(dr));
 						}
 
-						int const wfd =
-							::open(full_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC | O_NOFOLLOW, 0644);
+						int const wfd = contained_open(
+							root_dir_fd->fd, rel.c_str(),
+							O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC);
 						if (wfd < 0) {
 							return HttpResponse::internal_error();
 						}
@@ -2842,7 +2964,7 @@ public:
 		if (effective_sopts.allow_delete) {
 			// NOLINTNEXTLINE(bugprone-exception-escape)
 			del(pattern,
-				[rd, sopts = effective_sopts, static_cache, normalize_path](
+				[rd, root_dir_fd, sopts = effective_sopts, static_cache, normalize_path](
 					HttpRequestView const &req) -> HttpResponse {
 					try {
 						auto norm = normalize_path(req.params["file"]);
@@ -2853,20 +2975,32 @@ public:
 								"Forbidden");
 						}
 						auto full_path = rd + *norm;
+						SV rel_sv = SV{*norm};
+						if (rel_sv.starts_with('/')) {
+							rel_sv.remove_prefix(1);
+						}
+						S rel{rel_sv};
+
+						int probe = contained_open(root_dir_fd->fd, rel.c_str(), O_PATH | O_CLOEXEC);
+						if (probe < 0) {
+							return errno == ENOENT ? HttpResponse::not_found(*norm) : HttpResponse::forbidden();
+						}
+						::close(probe);
 
 						if (auto *fr = current_file_reader(); fr != nullptr) {
 							auto dr = make_shared<DeferredResponse>();
 							auto fp = make_shared<S>(full_path);
-							do_delete_file(dr, fp, static_cache, fr->unlink_async(AT_FDCWD, full_path)).detach();
+							do_delete_file(dr, fp, static_cache, fr->unlink_async(root_dir_fd->fd, rel)).detach();
 							return HttpResponse::deferred(move(dr));
 						}
 
 						if (sopts.offload_pool) {
 							auto dr = make_shared<DeferredResponse>();
+							auto rfd = root_dir_fd->fd;
 							auto ok =
-								sopts.offload_pool->enqueue([full_path = move(full_path), static_cache, dr]() mutable {
+								sopts.offload_pool->enqueue([full_path = move(full_path), rel = move(rel), rfd, static_cache, dr]() mutable {
 									try {
-										if (::unlink(full_path.c_str()) != 0) {
+										if (::unlinkat(rfd, rel.c_str(), 0) != 0) {
 											dr->complete(
 												errno == ENOENT ? HttpResponse::not_found(full_path) :
 																  HttpResponse::internal_error());
@@ -2882,7 +3016,7 @@ public:
 							return HttpResponse::deferred(move(dr));
 						}
 
-						if (::unlink(full_path.c_str()) != 0) {
+						if (::unlinkat(root_dir_fd->fd, rel.c_str(), 0) != 0) {
 							return errno == ENOENT ? HttpResponse::not_found(*norm) : HttpResponse::internal_error();
 						}
 						static_cache->evict_all_encodings(full_path);
@@ -3020,14 +3154,14 @@ private:
 			if constexpr (std::same_as<Ret, HttpResponse>) {
 				return Handler{forward<F>(fn)};
 			} else if constexpr (std::same_as<Ret, conflux::work::root::Task<HttpResponse>>) {
-				return Handler{
-					[wrapped = Fn(forward<F>(fn)), pool](HttpRequestView const &req) mutable -> HttpResponse {
-						return run_async_http_task(pool, invoke(wrapped, req));
-					}};
+				static_assert(
+					kDependentFalse<Fn>,
+					"Async handlers must take HttpRequest const&, not HttpRequestView const& — "
+					"the view can dangle after coroutine suspension");
 			} else {
 				static_assert(
 					kDependentFalse<Fn>,
-					"Handler returning HttpRequestView const& must return HttpResponse or root::Task<HttpResponse>");
+					"Handler taking HttpRequestView const& must return HttpResponse (sync only)");
 			}
 		} else if constexpr (std::invocable<Fn &, HttpRequest const &>) {
 			using Ret = std::invoke_result_t<Fn &, HttpRequest const &>;
