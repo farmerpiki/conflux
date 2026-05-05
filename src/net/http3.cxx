@@ -3,7 +3,6 @@ module;
 #include <cerrno>
 #include <cstddef> // before openssl: establishes C++ linkage for __is_constant_evaluated
 #include <cstdint>
-#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -520,19 +519,19 @@ void fill_callbacks(
 
 S addr_to_string(
 	sockaddr const *sa) {
-	char buf[INET6_ADDRSTRLEN + 16]{};
 	if (sa->sa_family == AF_INET) {
 		auto const *in = reinterpret_cast<sockaddr_in const *>(sa);
 		char ip[INET_ADDRSTRLEN]{};
 		inet_ntop(AF_INET, &in->sin_addr, ip, sizeof(ip));
-		(void)snprintf(buf, sizeof(buf), "%s:%u", ip, ntohs(in->sin_port));
-	} else if (sa->sa_family == AF_INET6) {
+		return format("{}:{}", ip, ntohs(in->sin_port));
+	}
+	if (sa->sa_family == AF_INET6) {
 		auto const *in6 = reinterpret_cast<sockaddr_in6 const *>(sa);
 		char ip[INET6_ADDRSTRLEN]{};
 		inet_ntop(AF_INET6, &in6->sin6_addr, ip, sizeof(ip));
-		(void)snprintf(buf, sizeof(buf), "[%s]:%u", ip, ntohs(in6->sin6_port));
+		return format("[{}]:{}", ip, ntohs(in6->sin6_port));
 	}
-	return S{buf};
+	return {};
 }
 
 void dispatch_stream(
