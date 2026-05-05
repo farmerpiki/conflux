@@ -47,7 +47,7 @@ option(CONFLUX_WORK_CARRIER_MODEL_A "Enable experimental work carrier Model A pr
 option(CONFLUX_WORK_CARRIER_MODEL_B "Enable experimental work carrier Model B prototype surface" ON)
 option(CONFLUX_SUPPRESS_DEPRECATION_WARNINGS "Temporarily suppress deprecated API warnings during pre-v1 migration" ON)
 option(CONFLUX_WORK_CORO_FRAME_POOL "Enable per-thread monotonic bump arena for EagerChain coroutine frames" OFF)
-option(CONFLUX_JSON_USE_STDSIMD "Use std::experimental::simd for JSON SIMD paths (AUTO=detect GCC>=15)" AUTO)
+option(CONFLUX_JSON_USE_STDSIMD "Use std::experimental::simd for JSON SIMD paths (AUTO=compile-test)" AUTO)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerOptions)
@@ -455,19 +455,43 @@ if(CONFLUX_JSON_AVX2)
 endif()
 
 if(CONFLUX_JSON_USE_STDSIMD STREQUAL "AUTO")
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "15")
+    include(CheckCXXSourceCompiles)
+    set(_STDSIMD_TEST_CODE "
+#include <experimental/simd>
+#include <cstddef>
+namespace stdx = std::experimental::parallelism_v2;
+using vec_t = stdx::native_simd<signed char>;
+int main() {
+    vec_t a{};
+    vec_t b{};
+    auto mask = (a == b) | (a < b);
+    if (stdx::any_of(mask))
+        return static_cast<int>(stdx::find_first_set(mask));
+    return static_cast<int>(vec_t::size());
+}")
+    set(CMAKE_REQUIRED_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -fexperimental-library")
+    endif()
+    check_cxx_source_compiles("${_STDSIMD_TEST_CODE}" CONFLUX_HAS_STDSIMD)
+    unset(CMAKE_REQUIRED_FLAGS)
+    if(CONFLUX_HAS_STDSIMD)
         set(CONFLUX_JSON_USE_STDSIMD ON)
     else()
         set(CONFLUX_JSON_USE_STDSIMD OFF)
     endif()
 endif()
 if(CONFLUX_JSON_USE_STDSIMD)
-    message(STATUS "conflux: JSON stdsimd path enabled (GCC ${CMAKE_CXX_COMPILER_VERSION})")
+    message(STATUS "conflux: JSON stdsimd path enabled (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
     target_compile_definitions(conflux PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
     target_sources(conflux PRIVATE src/json_simd_stdx.cxx)
     set_source_files_properties(src/json_simd_stdx.cxx PROPERTIES
         COMPILE_OPTIONS "-mavx2"
     )
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        set_property(SOURCE src/json_simd_stdx.cxx APPEND_STRING PROPERTY
+            COMPILE_OPTIONS ";-fexperimental-library")
+    endif()
     if(TARGET conflux_json)
         target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
         target_sources(conflux_json PRIVATE src/json_simd_stdx.cxx)
