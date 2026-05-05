@@ -345,6 +345,22 @@ export S jwt_sign(
 	return signing_input + '.' + sig_b64;
 }
 
+export S jwt_sign(
+	SV header_json,
+	SV payload_json,
+	SV secret) {
+	auto header_b64 = base64url_encode(to_unsigned_span(header_json));
+	auto payload_b64 = base64url_encode(to_unsigned_span(payload_json));
+
+	S const signing_input = header_b64 + '.' + payload_b64;
+	auto sig = hmac_sha256(
+		to_unsigned_span(secret),
+		to_unsigned_span(signing_input));
+	auto sig_b64 = base64url_encode(span{sig.data(), sig.size()});
+
+	return signing_input + '.' + sig_b64;
+}
+
 // Middleware: verify the Bearer JWT in Authorization header.
 // On success: injects jwt_sub, jwt_iss, jwt_payload into a copy of the request params.
 // On failure: returns 401 with WWW-Authenticate: Bearer error=...
