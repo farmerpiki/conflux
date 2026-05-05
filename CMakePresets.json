@@ -9,7 +9,12 @@
       "cacheVariables": {
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "CONFLUX_PG_TEST_CONNINFO": "host=localhost user=postgres dbname=conflux_test"
-      }
+      },
+      "condition": {                       
+        "type": "equals",                                                                                                               
+        "lhs": "${sourceDir}",
+        "rhs": "${fileDir}"                                                                                                             
+      }           
     },
     {
       "name": "clang-libcxx",
