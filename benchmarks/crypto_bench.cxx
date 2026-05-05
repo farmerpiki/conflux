@@ -162,5 +162,50 @@ int main(
 				asm volatile("" : : "r"(r) : "memory");
 			},
 			cfg.warmup,
-			cfg.iterations));
+			cfg.iterations,
+			100));
+
+	for (SZ sz: {32UZ, 128UZ, 512UZ, 4096UZ}) {
+		V<char> buf(sz, 'X');
+		auto lower_name = format("ascii_lower/{}", sz);
+		emit(
+			lower_name,
+			measure(
+				[&] {
+					for (auto &c: buf) {
+						c = 'X';
+					}
+					asm volatile("" : "+m"(*buf.data()));
+					ascii_lower_inplace(span{buf});
+					asm volatile("" : : "r"(buf.data()) : "memory");
+				},
+				cfg.warmup,
+				cfg.iterations,
+				100,
+				sz));
+	}
+
+	S const url_plain = "https://example.com/api/v1/users/12345/profile?format=json&lang=en";
+	emit(
+		"url_decode/plain_65",
+		measure(
+			[&] {
+				auto r = url_decode(url_plain);
+				asm volatile("" : : "r"(r.data()) : "memory");
+			},
+			cfg.warmup,
+			cfg.iterations,
+			10));
+
+	S const url_encoded = "key1%3Dval1%26key2%3Dval2%26key3%3Dval3%26key4%3Dval4%26key5%3Dval5";
+	emit(
+		"url_decode/encoded_67",
+		measure(
+			[&] {
+				auto r = url_decode(url_encoded);
+				asm volatile("" : : "r"(r.data()) : "memory");
+			},
+			cfg.warmup,
+			cfg.iterations,
+			10));
 }

@@ -19,6 +19,11 @@ int conflux_aes_gcm_decrypt_aesni(
 	unsigned char *out);
 }
 #endif
+#if defined(CONFLUX_STDSIMD)
+extern "C" {
+int conflux_constant_time_eq_stdsimd(unsigned char const *a, unsigned char const *b, __SIZE_TYPE__ n);
+}
+#endif
 
 export module conflux.crypto;
 import std;
@@ -362,11 +367,19 @@ export bool constant_time_eq(
 	if (a.size() != b.size()) {
 		return false;
 	}
+#if defined(CONFLUX_STDSIMD)
+	return conflux_constant_time_eq_stdsimd(
+			   reinterpret_cast<unsigned char const *>(a.data()),
+			   reinterpret_cast<unsigned char const *>(b.data()),
+			   a.size())
+		!= 0;
+#else
 	unsigned char acc = 0;
 	for (SZ i = 0; i < a.size(); ++i) {
 		acc = static_cast<unsigned char>(acc | (static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i])));
 	}
 	return acc == 0;
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -497,18 +510,18 @@ void ghash_mult(
 	A<unsigned char, 16> z{};
 
 	for (int i = 0; i < 128; ++i) {
-		if ((x[i / 8] >> (7 - (i % 8))) & 1) {
+		if (((x[i / 8] >> (7 - (i % 8))) & 1) != 0) {
 			for (SZ j = 0; j < 16; ++j) {
 				z[j] = static_cast<unsigned char>(z[j] ^ v[j]);
 			}
 		}
-		unsigned char carry = v[15] & 1;
+		unsigned char const carry = v[15] & 1;
 		for (int j = 15; j > 0; --j) {
 			v[static_cast<SZ>(j)] =
 				static_cast<unsigned char>((v[static_cast<SZ>(j)] >> 1) | (v[static_cast<SZ>(j) - 1] << 7));
 		}
 		v[0] >>= 1;
-		if (carry) {
+		if (carry != 0u) {
 			v[0] = static_cast<unsigned char>(v[0] ^ 0xe1);
 		}
 	}
@@ -642,7 +655,7 @@ export expected<V<unsigned char>, S> aes_gcm_decrypt(
 #if defined(CONFLUX_CRYPTO_USE_AESNI)
 	SZ const ct_len = ciphertext_and_tag.size() - 16;
 	V<unsigned char> pt(ct_len);
-	int rc = conflux_aes_gcm_decrypt_aesni(
+	int const rc = conflux_aes_gcm_decrypt_aesni(
 		key.data(),
 		iv.data(),
 		ciphertext_and_tag.data(),

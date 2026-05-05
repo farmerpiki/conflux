@@ -12,6 +12,12 @@ extern "C" {
 void conflux_hex_encode_ssse3(unsigned char const *in, __SIZE_TYPE__ len, char *out);
 }
 #endif
+#if defined(CONFLUX_STDSIMD)
+extern "C" {
+void conflux_ascii_lower_inplace_stdsimd(char *p, __SIZE_TYPE__ n);
+__SIZE_TYPE__ conflux_url_scan_plain_run_stdsimd(char const *p, __SIZE_TYPE__ n, int plus_is_special);
+}
+#endif
 export module conflux.utils;
 import std;
 import conflux.types;
@@ -213,49 +219,80 @@ export constexpr int hex_char_to_int(
 // ---------------------------------------------------------------------------
 
 // Decode a percent-encoded URL component ('+' → space, %XX → byte).
+namespace {
+
+SZ scan_url_plain_run_(
+	char const *p,
+	SZ n,
+	bool plus_is_special) noexcept {
+#if defined(CONFLUX_STDSIMD)
+	return conflux_url_scan_plain_run_stdsimd(p, n, plus_is_special ? 1 : 0);
+#else
+	for (SZ i = 0; i < n; ++i) {
+		if (p[i] == '%' || (plus_is_special && p[i] == '+')) {
+			return i;
+		}
+	}
+	return n;
+#endif
+}
+
+} // namespace
+
 export S url_decode(
 	SV s) {
 	S out;
-	auto const n = s.size();
-	out.reserve(n);
-	for (SZ i = 0; i < n; ++i) {
+	out.reserve(s.size());
+	SZ i = 0;
+	while (i < s.size()) {
+		SZ const run = scan_url_plain_run_(s.data() + i, s.size() - i, true);
+		out.append(s.data() + i, run);
+		i += run;
+		if (i >= s.size()) {
+			break;
+		}
 		if (s[i] == '+') {
 			out += ' ';
-		} else if (s[i] == '%' && i + 2 < n) {
+			++i;
+		} else if (s[i] == '%' && i + 2 < s.size()) {
 			int const hi = hex_char_to_int(s[i + 1]);
 			int const lo = hex_char_to_int(s[i + 2]);
 			if (hi >= 0 && lo >= 0) {
 				out += static_cast<char>(static_cast<unsigned>(hi) << 4U | static_cast<unsigned>(lo));
-				i += 2;
+				i += 3;
 			} else {
-				out += s[i];
+				out += s[i++];
 			}
 		} else {
-			out += s[i];
+			out += s[i++];
 		}
 	}
 	return out;
 }
 
-// Decode percent-encoded URL path segment (%XX → byte). '+' is NOT decoded to
-// space (it is a literal '+' in path segments, not a form-encoding indicator).
 export S url_decode_path(
 	SV s) {
 	S out;
-	auto const n = s.size();
-	out.reserve(n);
-	for (SZ i = 0; i < n; ++i) {
-		if (s[i] == '%' && i + 2 < n) {
+	out.reserve(s.size());
+	SZ i = 0;
+	while (i < s.size()) {
+		SZ const run = scan_url_plain_run_(s.data() + i, s.size() - i, false);
+		out.append(s.data() + i, run);
+		i += run;
+		if (i >= s.size()) {
+			break;
+		}
+		if (s[i] == '%' && i + 2 < s.size()) {
 			int const hi = hex_char_to_int(s[i + 1]);
 			int const lo = hex_char_to_int(s[i + 2]);
 			if (hi >= 0 && lo >= 0) {
 				out += static_cast<char>(static_cast<unsigned>(hi) << 4U | static_cast<unsigned>(lo));
-				i += 2;
+				i += 3;
 			} else {
-				out += s[i];
+				out += s[i++];
 			}
 		} else {
-			out += s[i];
+			out += s[i++];
 		}
 	}
 	return out;
@@ -417,10 +454,14 @@ export bool cidr_match(
 // bytes untouched; branch-free via the ASCII case bit.
 export void ascii_lower_inplace(
 	span<char> s) noexcept {
+#if defined(CONFLUX_STDSIMD)
+	conflux_ascii_lower_inplace_stdsimd(s.data(), s.size());
+#else
 	for (auto &c: s) {
 		unsigned char const u = static_cast<unsigned char>(c);
 		c = static_cast<char>(u >= 'A' && u <= 'Z' ? u | 0x20 : u);
 	}
+#endif
 }
 
 // Allocate a lowercase copy of `s`.

@@ -499,6 +499,14 @@ if(CONFLUX_JSON_USE_STDSIMD)
     endif()
 endif()
 
+if(CONFLUX_JSON_USE_STDSIMD)
+    target_compile_definitions(conflux PRIVATE CONFLUX_STDSIMD=1)
+    target_sources(conflux PRIVATE src/simd_stdx.cxx)
+    set_source_files_properties(src/simd_stdx.cxx PROPERTIES
+        COMPILE_OPTIONS "-mavx2"
+    )
+endif()
+
 set(CMAKE_REQUIRED_FLAGS "-maes -mpclmul -mssse3 -msse4.1")
 set(_AESNI_TEST_CODE "
 #include <wmmintrin.h>

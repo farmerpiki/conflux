@@ -13,6 +13,11 @@ module;
 #if CONFLUX_HAS_TLS
 	#include <openssl/ssl.h>
 #endif
+#if defined(CONFLUX_STDSIMD)
+extern "C" {
+void conflux_ws_unmask_stdsimd(unsigned char *data, __SIZE_TYPE__ n, unsigned char const *mask4);
+}
+#endif
 
 export module conflux.net.router;
 
@@ -58,8 +63,14 @@ import conflux.net.tls;
 	static constexpr char kHex[] = "0123456789ABCDEF";
 	for (char const ch: s) {
 		auto const c = static_cast<unsigned char>(ch);
-		bool const safe = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
-						|| c == '-' || c == '_' || c == '.' || c == '~' || c == '/';
+		bool const safe = (c >= 'A' && c <= 'Z')
+					   || (c >= 'a' && c <= 'z')
+					   || (c >= '0' && c <= '9')
+					   || c == '-'
+					   || c == '_'
+					   || c == '.'
+					   || c == '~'
+					   || c == '/';
 		if (safe) {
 			out.push_back(static_cast<char>(c));
 		} else {
@@ -1224,8 +1235,7 @@ bool is_valid_client_key(
 		return false;
 	}
 	auto decoded = base64_decode(key);
-	return decoded.size() == 16
-		&& base64_encode(to_unsigned_span(decoded)) == key;
+	return decoded.size() == 16 && base64_encode(to_unsigned_span(decoded)) == key;
 }
 
 bool is_valid_handshake(
@@ -1571,11 +1581,18 @@ public:
 			}
 			S payload(buf_.data(), static_cast<SZ>(plen));
 			consume(static_cast<SZ>(plen));
+#if defined(CONFLUX_STDSIMD)
+			conflux_ws_unmask_stdsimd(
+				reinterpret_cast<unsigned char *>(payload.data()),
+				payload.size(),
+				mask_key.data());
+#else
 			for (SZ i = 0; i < payload.size(); ++i) {
 				payload[i] = static_cast<char>(
 					static_cast<unsigned char>(payload[i])
 					^ mask_key[i & 3]); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 			}
+#endif
 
 			if (opcode_raw == 0x9U) {
 				do_send_frame(10, as_bytes(span{payload}));
@@ -1922,7 +1939,10 @@ inline S segments_to_pattern(
 	return out;
 }
 
-int contained_open(int root_fd, char const *relative, int flags) noexcept {
+int contained_open(
+	int root_fd,
+	char const *relative,
+	int flags) noexcept {
 	open_how how{};
 	how.flags = static_cast<__u64>(flags);
 	how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
@@ -1931,12 +1951,27 @@ int contained_open(int root_fd, char const *relative, int flags) noexcept {
 
 struct RootDirFd {
 	int fd{-1};
-	explicit RootDirFd(char const *path) : fd(::open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)) {}
-	~RootDirFd() noexcept { if (fd >= 0) ::close(fd); }
+	explicit RootDirFd(
+		char const *path)
+		: fd(::open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)) {}
+	~RootDirFd() noexcept {
+		if (fd >= 0) {
+			::close(fd);
+		}
+	}
 	RootDirFd(RootDirFd const &) = delete;
 	RootDirFd &operator =(RootDirFd const &) = delete;
-	RootDirFd(RootDirFd &&o) noexcept : fd(exchange(o.fd, -1)) {}
-	RootDirFd &operator =(RootDirFd &&o) noexcept { if (fd >= 0) ::close(fd); fd = exchange(o.fd, -1); return *this; }
+	RootDirFd(
+		RootDirFd &&o) noexcept
+		: fd(exchange(o.fd, -1)) {}
+	RootDirFd &operator =(
+		RootDirFd &&o) noexcept {
+		if (fd >= 0) {
+			::close(fd);
+		}
+		fd = exchange(o.fd, -1);
+		return *this;
+	}
 };
 
 export struct StaticOptions {
@@ -2300,8 +2335,8 @@ public:
 
 		auto static_cache = make_shared<StaticCacheStore>();
 
-		auto do_work =
-			[static_cache](S const &rd, int root_fd, StaticOptions const &static_options, StaticReq const &r) -> HttpResponse {
+		auto do_work = [static_cache](S const &rd, int root_fd, StaticOptions const &static_options, StaticReq const &r)
+			-> HttpResponse {
 			try {
 				S file_param = r.file_param;
 				auto full_path = rd + file_param;
@@ -2312,9 +2347,8 @@ public:
 				S rel_str{rel_path};
 
 				struct ::stat st{};
-				int probe_fd = rel_str.empty()
-					? contained_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY)
-					: contained_open(root_fd, rel_str.c_str(), O_PATH | O_CLOEXEC);
+				int probe_fd = rel_str.empty() ? contained_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY) :
+												 contained_open(root_fd, rel_str.c_str(), O_PATH | O_CLOEXEC);
 				if (probe_fd < 0) {
 					return HttpResponse::not_found(file_param);
 				}
@@ -2334,9 +2368,10 @@ public:
 						file_param += "/index.html";
 						rel_str = index_rel;
 					} else if (static_options.directory_listing) {
-						int const dfd = rel_str.empty()
-							? contained_open(root_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC)
-							: contained_open(root_fd, rel_str.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+						int const dfd =
+							rel_str.empty() ?
+								contained_open(root_fd, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC) :
+								contained_open(root_fd, rel_str.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 						if (dfd < 0) {
 							return HttpResponse::html(
 								"<html><body><h1>403 Forbidden</h1></body></html>",
@@ -2372,7 +2407,8 @@ public:
 						::closedir(dir);
 						ranges::sort(names);
 						for (auto const &name: names) {
-							html += format("<li><a href=\"{}\">{}</a></li>", path_percent_encode(name), html_escape(name));
+							html +=
+								format("<li><a href=\"{}\">{}</a></li>", path_percent_encode(name), html_escape(name));
 						}
 						html += "</ul></body></html>";
 						return HttpResponse::html(move(html));
@@ -2406,9 +2442,10 @@ public:
 							while (!coding.empty() && coding.back() == ' ') {
 								coding.remove_suffix(1);
 							}
-							bool match = coding.size() == token.size()
-								&& ranges::equal(coding, token, [](char a, char b) {
-									return (static_cast<unsigned char>(a) | 0x20) == (static_cast<unsigned char>(b) | 0x20);
+							bool match =
+								coding.size() == token.size() && ranges::equal(coding, token, [](char a, char b) {
+									return (static_cast<unsigned char>(a) | 0x20)
+										== (static_cast<unsigned char>(b) | 0x20);
 								});
 							if (!match) {
 								continue;
@@ -2737,7 +2774,8 @@ public:
 						send_off,
 						send_sz,
 						file_size,
-						fr->open_async(root_fd, rel_str, O_RDONLY | O_CLOEXEC)).detach();
+						fr->open_async(root_fd, rel_str, O_RDONLY | O_CLOEXEC))
+						.detach();
 					return HttpResponse::deferred(move(dr));
 				}
 
@@ -2808,7 +2846,8 @@ public:
 
 		// NOLINTNEXTLINE(bugprone-exception-escape): lambda already handles failures via top-level try/catch.
 		get(pattern,
-			[rd, root_dir_fd, sopts = effective_sopts, do_work, normalize_path](HttpRequestView const &req) -> HttpResponse {
+			[rd, root_dir_fd, sopts = effective_sopts, do_work, normalize_path](
+				HttpRequestView const &req) -> HttpResponse {
 				try {
 					auto norm = normalize_path(req.params["file"]);
 					if (!norm) {
@@ -2830,11 +2869,12 @@ public:
 					auto const rfd = root_dir_fd->fd;
 					if (sopts.offload_pool) {
 						auto dr = make_shared<DeferredResponse>();
-						auto ok = sopts.offload_pool->enqueue([rd, rfd, sopts, sreq = move(sreq), do_work, dr]() mutable {
-							try {
-								dr->complete(do_work(rd, rfd, sopts, sreq));
-							} catch (...) { dr->complete(HttpResponse::internal_error()); }
-						});
+						auto ok =
+							sopts.offload_pool->enqueue([rd, rfd, sopts, sreq = move(sreq), do_work, dr]() mutable {
+								try {
+									dr->complete(do_work(rd, rfd, sopts, sreq));
+								} catch (...) { dr->complete(HttpResponse::internal_error()); }
+							});
 						if (!ok) {
 							return HttpResponse::internal_error("offload queue full");
 						}
@@ -2882,11 +2922,8 @@ public:
 								existed,
 								static_cache,
 								dr,
-								fr->open_async(
-									root_dir_fd->fd,
-									rel,
-									O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC,
-									0644)).detach();
+								fr->open_async(root_dir_fd->fd, rel, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644))
+								.detach();
 							return HttpResponse::deferred(move(dr));
 						}
 
@@ -2894,47 +2931,50 @@ public:
 							auto dr = make_shared<DeferredResponse>();
 							auto body_owned = make_shared<S>(req.body);
 							auto rfd = root_dir_fd->fd;
-							auto ok = sopts.offload_pool->enqueue(
-								[full_path = move(full_path), rel = move(rel), rfd, body_owned, existed, static_cache, dr]() mutable {
-									try {
-										int const wfd = contained_open(
-											rfd, rel.c_str(),
-											O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC);
-										if (wfd < 0) {
+							auto ok = sopts.offload_pool->enqueue([full_path = move(full_path),
+																   rel = move(rel),
+																   rfd,
+																   body_owned,
+																   existed,
+																   static_cache,
+																   dr]() mutable {
+								try {
+									int const wfd =
+										contained_open(rfd, rel.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC);
+									if (wfd < 0) {
+										dr->complete(HttpResponse::internal_error());
+										return;
+									}
+									auto const body = span<char const>{body_owned->data(), body_owned->size()};
+									SZ off = 0;
+									while (off < body.size()) {
+										ssize_t const n = ::write(wfd, body.data() + off, body.size() - off);
+										if (n < 0) {
+											if (errno == EINTR) {
+												continue;
+											}
+											::close(wfd);
 											dr->complete(HttpResponse::internal_error());
 											return;
 										}
-										auto const body = span<char const>{body_owned->data(), body_owned->size()};
-										SZ off = 0;
-										while (off < body.size()) {
-											ssize_t const n = ::write(wfd, body.data() + off, body.size() - off);
-											if (n < 0) {
-												if (errno == EINTR) {
-													continue;
-												}
-												::close(wfd);
-												dr->complete(HttpResponse::internal_error());
-												return;
-											}
-											off += static_cast<SZ>(n);
-										}
-										::close(wfd);
-										static_cache->evict_all_encodings(full_path);
-										HttpResponse resp;
-										resp.status = existed ? kHttpNoContent : kHttpCreated;
-										resp.status_text = existed ? "No Content" : "Created";
-										dr->complete(move(resp));
-									} catch (...) { dr->complete(HttpResponse::internal_error()); }
-								});
+										off += static_cast<SZ>(n);
+									}
+									::close(wfd);
+									static_cache->evict_all_encodings(full_path);
+									HttpResponse resp;
+									resp.status = existed ? kHttpNoContent : kHttpCreated;
+									resp.status_text = existed ? "No Content" : "Created";
+									dr->complete(move(resp));
+								} catch (...) { dr->complete(HttpResponse::internal_error()); }
+							});
 							if (!ok) {
 								return HttpResponse::internal_error("offload queue full");
 							}
 							return HttpResponse::deferred(move(dr));
 						}
 
-						int const wfd = contained_open(
-							root_dir_fd->fd, rel.c_str(),
-							O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC);
+						int const wfd =
+							contained_open(root_dir_fd->fd, rel.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC);
 						if (wfd < 0) {
 							return HttpResponse::internal_error();
 						}
@@ -2997,8 +3037,8 @@ public:
 						if (sopts.offload_pool) {
 							auto dr = make_shared<DeferredResponse>();
 							auto rfd = root_dir_fd->fd;
-							auto ok =
-								sopts.offload_pool->enqueue([full_path = move(full_path), rel = move(rel), rfd, static_cache, dr]() mutable {
+							auto ok = sopts.offload_pool->enqueue(
+								[full_path = move(full_path), rel = move(rel), rfd, static_cache, dr]() mutable {
 									try {
 										if (::unlinkat(rfd, rel.c_str(), 0) != 0) {
 											dr->complete(
