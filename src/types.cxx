@@ -31,6 +31,9 @@ using UM = std::unordered_map<K, T>;
 export template<typename T>
 using SP = std::shared_ptr<T>;
 
+export template<typename T, typename D>
+using UPD = std::unique_ptr<T, D>;
+
 export template<typename T>
 using UP = std::unique_ptr<T>;
 
