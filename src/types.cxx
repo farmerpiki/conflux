@@ -1,6 +1,3 @@
-module;
-#include <cstdint>
-
 export module conflux.types;
 
 import std;
@@ -45,6 +42,9 @@ using Opt = std::optional<T>;
 
 export template<typename T>
 using Fn = std::function<T>;
+
+export template<SZ i, typename Tp>
+using TEt = std::tuple_element_t<i, Tp>;
 
 export template<typename... Ts>
 using Tup = std::tuple<Ts...>;

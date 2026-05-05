@@ -11,7 +11,7 @@ target_sources(bench_common
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES bench_common.cxx
 )
-target_link_libraries(bench_common PUBLIC conflux_options)
+target_link_libraries(bench_common PUBLIC conflux_types conflux_options)
 
 add_executable(conflux_benchmarks router_bench.cxx)
 target_link_libraries(conflux_benchmarks PRIVATE conflux conflux_options)

@@ -4,7 +4,7 @@
 #include <smmintrin.h>
 #include <tmmintrin.h>
 #include <wmmintrin.h>
-
+import conflux.types;
 inline static __m128i aes256_key_expand_assist_1(
 	__m128i key,
 	__m128i keygen) {
@@ -14,7 +14,6 @@ inline static __m128i aes256_key_expand_assist_1(
 	key = _mm_xor_si128(key, _mm_slli_si128(key, 4));
 	return _mm_xor_si128(key, keygen);
 }
-
 inline static __m128i aes256_key_expand_assist_2(
 	__m128i key1,
 	__m128i key2) {
@@ -25,11 +24,9 @@ inline static __m128i aes256_key_expand_assist_2(
 	key2 = _mm_xor_si128(key2, _mm_slli_si128(key2, 4));
 	return _mm_xor_si128(key2, t);
 }
-
 struct AesniKey256 {
 	__m128i rk[15];
 };
-
 static AesniKey256 aesni_expand_key(
 	unsigned char const *key) {
 	AesniKey256 ek{};
@@ -73,7 +70,6 @@ static AesniKey256 aesni_expand_key(
 
 	return ek;
 }
-
 inline static __m128i aesni_encrypt_block(
 	AesniKey256 const &ek,
 	__m128i block) {
@@ -93,7 +89,6 @@ inline static __m128i aesni_encrypt_block(
 	block = _mm_aesenc_si128(block, ek.rk[13]);
 	return _mm_aesenclast_si128(block, ek.rk[14]);
 }
-
 // GCM ↔ PCLMULQDQ domain: reverse bits within each byte (no byte-swap)
 inline static __m128i byte_bitrev(
 	__m128i v) {
@@ -105,7 +100,6 @@ inline static __m128i byte_bitrev(
 	hi = _mm_shuffle_epi8(lut, hi);
 	return _mm_or_si128(_mm_slli_epi16(lo, 4), hi);
 }
-
 // PCLMULQDQ multiply + reduce mod P(x) = x^128+x^7+x^2+x+1
 // Inputs/outputs in byte-bitrev'd domain. Folds hi 128 bits into lo.
 inline static __m128i gf128_mul(
@@ -137,7 +131,6 @@ inline static __m128i gf128_mul(
 		_mm_xor_si128(_mm_slli_epi64(ov, 1), _mm_xor_si128(_mm_slli_epi64(ov, 2), _mm_slli_epi64(ov, 7))));
 	return r;
 }
-
 inline static __m128i gcm_inc32_sse(
 	__m128i ctr) {
 	alignas(16) unsigned char buf[16];
@@ -149,7 +142,6 @@ inline static __m128i gcm_inc32_sse(
 	}
 	return _mm_load_si128(reinterpret_cast<__m128i const *>(buf));
 }
-
 // GHASH: state kept in byte_bitrev'd domain. h_br = byte_bitrev(H).
 static void ghash_update_clmul(
 	__m128i &state_br,
@@ -169,9 +161,7 @@ static void ghash_update_clmul(
 		pos += 16;
 	}
 }
-
 extern "C" {
-
 int conflux_aes_gcm_encrypt_aesni(
 	unsigned char const *key,
 	unsigned char const *iv,
@@ -228,7 +218,6 @@ int conflux_aes_gcm_encrypt_aesni(
 
 	return 0;
 }
-
 int conflux_aes_gcm_decrypt_aesni(
 	unsigned char const *key,
 	unsigned char const *iv,
@@ -296,7 +285,6 @@ int conflux_aes_gcm_decrypt_aesni(
 
 	return 0;
 }
-
 void conflux_hex_encode_ssse3(
 	unsigned char const *in,
 	std::size_t len,
@@ -324,5 +312,4 @@ void conflux_hex_encode_ssse3(
 		out[i * 2 + 1] = kHex[in[i] & 0x0FU];
 	}
 }
-
 } // extern "C"
