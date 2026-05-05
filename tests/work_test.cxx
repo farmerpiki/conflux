@@ -47,6 +47,38 @@ sync_wait(run_on_task(pool,[]{return 99;}));
 CHECK(cancelled);
 }
 TEST_CASE(
+"work: WorkPool raw enqueue reports thrown exception to sink",
+"[work]"){
+mutex mtx;
+std::condition_variable cv;
+bool seen=false;
+S message;
+WorkPool pool{WorkPoolOptions{
+.threads=1,
+.raw_exception_sink=[&](EP ep){
+S local;
+try{
+rethrow_exception(ep);
+}catch(RE const&e){
+local=e.what();
+}catch(...){
+local="unexpected";
+}
+{
+SL const lk{mtx};
+message=move(local);
+seen=true;
+}
+cv.notify_one();
+},
+}};
+
+REQUIRE(pool.enqueue([]{throw RE{"raw boom"};}));
+std::unique_lock lk{mtx};
+REQUIRE(cv.wait_for(lk,chrono::seconds{5},[&]{return seen;}));
+CHECK(message=="raw boom");
+}
+TEST_CASE(
 "work: join_all collects results",
 "[work]"){
 WorkPool pool;

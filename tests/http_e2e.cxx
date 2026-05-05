@@ -1239,6 +1239,40 @@ REQUIRE(hdr_end!=S::npos);
 REQUIRE(resp.substr(hdr_end+4).empty());
 }
 TEST_CASE(
+"POST with Expect: 100-continue receives interim response before body"){
+ensure_server();
+LocalTcpClient client{g_test_port};
+client.set_recv_timeout(chrono::seconds{5});
+
+S body="hello server";
+auto req=format(
+"POST /api/echo-body HTTP/1.1\r\n" "Host: localhost\r\n" "Content-Type: text/plain\r\n" "Content-Length: {}\r\n" "Expect: 100-continue\r\n" "Connection: close\r\n" "\r\n",
+body.size());
+(void)client.send(req);
+
+auto interim=client.read_headers();
+REQUIRE(interim.starts_with("HTTP/1.1 100 Continue"));
+
+(void)client.send(body);
+auto resp=client.read_one_response();
+REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+auto hdr_end=resp.find("\r\n\r\n");
+REQUIRE(hdr_end!=S::npos);
+CHECK(resp.substr(hdr_end+4)==body);
+}
+TEST_CASE(
+"POST with unsupported Expect returns 417"){
+ensure_server();
+LocalTcpClient client{g_test_port};
+client.set_recv_timeout(chrono::seconds{5});
+S req=
+"POST /api/echo-body HTTP/1.1\r\n" "Host: localhost\r\n" "Content-Length: 5\r\n" "Expect: wait-for-magic\r\n" "Connection: close\r\n" "\r\n";
+(void)client.send(req);
+
+auto resp=client.read_one_response();
+REQUIRE(resp.starts_with("HTTP/1.1 417 Expectation Failed"));
+}
+TEST_CASE(
 "POST to unknown route returns 404"){
 auto resp=http_post("/api/no-such-route","text/plain","body");
 REQUIRE(resp.starts_with("HTTP/1.1 404 Not Found"));
@@ -1713,6 +1747,41 @@ REQUIRE(resp.starts_with("HTTP/1.1 413 Content Too Large"));
 
 srv.stop();
 }
+TEST_CASE(
+"POST with near-limit request line and max body is accepted"){
+Config cfg=Config::test();
+cfg.max_body_size=4;
+cfg.parser_limits.max_request_line_size=80;
+cfg.parser_limits.max_header_block_size=64;
+
+S path="/";
+path.append(50,'a');
+Router router;
+router.post(path,[](HttpRequest const&req){return HttpResponse::text(req.body);});
+ScopedTestServer srv{cfg,move(router)};
+
+int const fd=::socket(AF_INET,SOCK_STREAM,0);
+sockaddr_in addr{};
+addr.sin_family=AF_INET;
+addr.sin_port=htons(srv.port());
+::inet_pton(AF_INET,"127.0.0.1",&addr.sin_addr);
+REQUIRE(::connect(fd,reinterpret_cast<sockaddr*>(&addr),sizeof(addr))==0);
+S body="ABCD";
+auto req=format(
+"POST {} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+path,
+body.size(),
+body);
+::send(fd,req.data(),req.size(),0);
+auto resp=read_one_response(fd);
+::close(fd);
+
+REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+auto hdr_end=resp.find("\r\n\r\n");
+REQUIRE(hdr_end!=S::npos);
+REQUIRE(resp.substr(hdr_end+4)==body);
+srv.stop();
+}
 // ---------------------------------------------------------------------------
 // HEAD method
 // ---------------------------------------------------------------------------
@@ -1902,6 +1971,29 @@ auto hdr_end=resp.find("\r\n\r\n");
 REQUIRE(resp.substr(hdr_end+4)==R"({"error":"internal","detail":"something exploded"})");
 }
 
+srv.stop();
+}
+TEST_CASE(
+"throwing middleware returns per-request 500"){
+Config cfg=Config::test();
+Router router;
+router.use([](HttpRequest const&,Router::Handler const&)->HttpResponse{throw RE{"middleware crash"};});
+router.get("/ok",[](HttpRequest const&){return HttpResponse::text("ok");});
+ScopedTestServer srv{cfg,move(router)};
+
+int const fd=::socket(AF_INET,SOCK_STREAM,0);
+sockaddr_in addr{};
+addr.sin_family=AF_INET;
+addr.sin_port=htons(srv.port());
+::inet_pton(AF_INET,"127.0.0.1",&addr.sin_addr);
+REQUIRE(::connect(fd,reinterpret_cast<sockaddr*>(&addr),sizeof(addr))==0);
+SV const req="GET /ok HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+::send(fd,req.data(),req.size(),0);
+auto resp=read_one_response(fd);
+::close(fd);
+
+REQUIRE(resp.starts_with("HTTP/1.1 500 Internal Server Error"));
+REQUIRE(resp.find("middleware crash")!=S::npos);
 srv.stop();
 }
 // ---------------------------------------------------------------------------

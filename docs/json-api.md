@@ -394,7 +394,19 @@ are true when either `JsonMembers<T>` or `JsonCodec<T>` is specialised.
 ```cpp
 template<has_json_codec T> expected<T, JsonError> decode(NodeRef node);
 template<has_json_codec T> expected<T, JsonError> decode(Document const& d); // decodes root
+template<class T> expected<T, JsonError> decode(JsonReader& r);              // full document
+template<class T> expected<T, JsonError> decode_full(JsonReader& r);
+template<class T> expected<T, JsonError> decode_full(string_view input);
+template<class T> expected<T, JsonError> decode_next(JsonReader& r);          // streaming
 ```
+
+`decode(JsonReader&)` and `decode_full(...)` require EOF after one decoded root
+value and return `trailing_garbage` if another top-level value remains.
+`decode_next(...)` is the explicit streaming form for NDJSON-like loops or other
+multi-value inputs.
+
+`JsonReader::skip_next_value()` validates the skipped value by consuming normal
+reader events and returns the byte range it consumed.
 
 ---
 

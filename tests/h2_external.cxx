@@ -27,6 +27,7 @@ struct H2Response{
 int status=0;
 S body;
 bool closed=false;
+u32 error_code=0;
 V<P<S,S>>trailers;
 };
 // Minimal synchronous nghttp2 client over a blocking TLS socket.
@@ -108,18 +109,37 @@ i32 const sid=submit_request("GET",path,nullptr);
 pump_until_closed(sid);
 return responses_[sid];
 }
+H2Response get_with_headers(
+SV path,
+V<P<S,S>>extra_headers){
+i32 const sid=submit_request("GET",path,nullptr,move(extra_headers));
+pump_until_closed(sid);
+return responses_[sid];
+}
 // Submit a POST with body and block until response received.
 // ReqBody must outlive the pump — kept in req_bodies_ for stability.
 H2Response post(
 SV path,
 SV body_data){
+return post_with_headers(path,body_data,{});
+}
+H2Response post_with_content_length(
+SV path,
+SV body_data,
+SZ content_length){
+return post_with_headers(path,body_data,{{"content-length",to_string(content_length)}});
+}
+H2Response post_with_headers(
+SV path,
+SV body_data,
+V<P<S,S>>extra_headers){
 auto rb=make_unique<ReqBody>(ReqBody{.data=S{body_data},.off=0});
 ReqBody*rb_ptr=rb.get();
 nghttp2_data_provider prd{};
 prd.read_callback=read_cb;
 prd.source.ptr=rb_ptr;
 
-i32 const sid=submit_request("POST",path,&prd);
+i32 const sid=submit_request("POST",path,&prd,move(extra_headers));
 req_bodies_.emplace(sid,move(rb));// pointer still valid after move
 pump_until_closed(sid);
 return responses_[sid];
@@ -147,7 +167,8 @@ M<i32,UP<ReqBody>>req_bodies_;
 i32 submit_request(
 SV method,
 SV path,
-nghttp2_data_provider const*prd){
+nghttp2_data_provider const*prd,
+V<P<S,S>>extra_headers={}){
 S ms{method};
 S ps{path};
 V<P<S,S>>nv_store;
@@ -155,6 +176,8 @@ nv_store.emplace_back(":method",ms);
 nv_store.emplace_back(":path",ps);
 nv_store.emplace_back(":scheme","https");
 nv_store.emplace_back(":authority","localhost");
+for(auto&h:extra_headers)
+nv_store.push_back(move(h));
 
 V<nghttp2_nv>nva;
 nva.reserve(nv_store.size());
@@ -234,10 +257,11 @@ return 0;
 static int on_stream_close_cb(
 nghttp2_session*/*unused*/,
 i32 stream_id,
-u32 /*unused*/,
+u32 error_code,
 void*ud){
 auto*c=static_cast<H2Client*>(ud);
 c->responses_[stream_id].closed=true;
+c->responses_[stream_id].error_code=error_code;
 return 0;
 }
 static ssize_t read_cb(
@@ -299,6 +323,57 @@ H2Client client{fx.port()};
 auto resp=client.post("/echo","hello h2 world");
 REQUIRE(resp.status==200);
 REQUIRE(resp.body=="hello h2 world");
+}
+TEST_CASE(
+"h2: content-length over max body resets stream"){
+Config cfg=Config::test();
+cfg.max_body_size=8;
+conflux::tests::HttpsServerFixture const fx{cfg,make_router()};
+H2Client client{fx.port()};
+auto resp=client.post_with_content_length("/echo","",9);
+REQUIRE(resp.closed);
+CHECK(resp.status==0);
+CHECK(resp.error_code==NGHTTP2_CANCEL);
+}
+TEST_CASE(
+"h2: DATA over max body resets stream"){
+Config cfg=Config::test();
+cfg.max_body_size=8;
+conflux::tests::HttpsServerFixture const fx{cfg,make_router()};
+H2Client client{fx.port()};
+auto resp=client.post("/echo","012345678");
+REQUIRE(resp.closed);
+CHECK(resp.status==0);
+CHECK(resp.error_code==NGHTTP2_CANCEL);
+}
+TEST_CASE(
+"h2: header count over parser limit resets stream"){
+Config cfg=Config::test();
+cfg.parser_limits.max_headers=16;
+conflux::tests::HttpsServerFixture const fx{cfg,make_router()};
+H2Client client{fx.port()};
+auto ok=client.get("/ping");
+REQUIRE(ok.status==200);
+V<P<S,S>>headers;
+for(int i=0;i<20;++i)
+headers.emplace_back(format("x-extra-{}",i),"1");
+auto resp=client.get_with_headers("/ping",move(headers));
+REQUIRE(resp.closed);
+CHECK(resp.status==0);
+CHECK(resp.error_code==NGHTTP2_ENHANCE_YOUR_CALM);
+}
+TEST_CASE(
+"h2: header list bytes over parser limit resets stream"){
+Config cfg=Config::test();
+cfg.parser_limits.max_header_block_size=256;
+conflux::tests::HttpsServerFixture const fx{cfg,make_router()};
+H2Client client{fx.port()};
+auto ok=client.get("/ping");
+REQUIRE(ok.status==200);
+auto resp=client.get_with_headers("/ping",{{"x-large",S(256,'x')}});
+REQUIRE(resp.closed);
+CHECK(resp.status==0);
+CHECK(resp.error_code==NGHTTP2_ENHANCE_YOUR_CALM);
 }
 TEST_CASE(
 "h2: unknown route returns 404"){

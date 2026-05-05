@@ -135,17 +135,14 @@ public:
 HttpsServerFixture(HttpsServerFixture const&)=delete;
 HttpsServerFixture&operator=(HttpsServerFixture const&)=delete;
 explicit HttpsServerFixture(
+Router router)
+:HttpsServerFixture(Config::test(),move(router)){}
+HttpsServerFixture(
+Config cfg,
 Router router){
 generate_cert();
 
-Config cfg{};
 cfg.port=0;
-cfg.rings=1;
-cfg.ring_entries=256;
-cfg.single_issuer=true;
-cfg.defer_taskrun=true;
-cfg.coop_taskrun=true;
-cfg.taskrun_flag=true;
 cfg.startup_banner=false;
 cfg.cert_file=cert_path_;
 cfg.key_file=key_path_;

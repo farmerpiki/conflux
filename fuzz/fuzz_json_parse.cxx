@@ -25,8 +25,8 @@ auto res=parse(input,opts);
 if(!res){
 // parse failure: validate error is well-formed
 auto const&err=res.error();
-(void)(err.code!=JsonIssueCode{});
-(void)(!err.message.empty());
+if(err.code==JsonIssueCode{}||err.message.empty())
+__builtin_trap();
 return 0;
 }
 
@@ -49,6 +49,7 @@ return 0;
 auto res2=parse(*dumped);
 if(!res2)
 return 0;
-(void)is_value_equal(root,res2->root());
+if(!is_value_equal(root,res2->root()))
+__builtin_trap();
 return 0;
 }

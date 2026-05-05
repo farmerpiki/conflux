@@ -19,7 +19,8 @@ import conflux.work.root;
 - `WorkPool` — thread-pool executor with a lock-free MPMC inject queue
 - `RingLane` — io_uring-coupled single-threaded executor
 - `run_on_task(pool, fn) -> Task<T>` — submit a callable to a pool
-- `join_all(range) -> vector<Outcome<T>>` — join a collection of tasks
+- `join_all(tasks...) -> Task<std::tuple<Ts...>>` — wait for all tasks and
+  return a tuple of successful values
 
 All root async vocabulary (`Task<T>`, `Posted<T>`, `Operation<T>`, source/control
 types, `Outcome<T>`, join, abandon APIs) lives in `conflux.work.root`. Import
@@ -346,6 +347,45 @@ struct LoggingAbandonSink {
 
 Do not propagate exceptions from the sink body. `abandon_to` is on the
 commit thread; a throwing sink terminates the process.
+
+## Executor Contract
+
+`WorkPoolOptions`:
+
+```cpp
+struct WorkPoolOptions {
+    size_t threads = 0;                // 0 => hardware_concurrency, at least 1
+    size_t max_inject_queue = 4096;    // external producer queue bound
+    size_t local_queue_capacity = 1024;// per-worker local queue bound
+    uint32_t spin_before_park = 256;
+    int numa_node = -1;
+    bool pin_workers = false;
+    std::string worker_name_prefix = "conflux-work";
+    std::function<void(std::exception_ptr)> raw_exception_sink = {};
+};
+```
+
+`enqueue(job)` returns `false` if the pool is stopped or the relevant queue is
+full. Jobs submitted from a worker in the same pool first use that worker's
+bounded local queue; other producers use the bounded inject queue.
+
+Raw jobs submitted through `enqueue()` must not throw unless
+`raw_exception_sink` is configured. If a raw job throws and a sink is present,
+the sink receives the `std::exception_ptr`; exceptions thrown by the sink are
+suppressed. `run_on_task(pool, fn)` does not use this sink for normal callable
+failures because it reports them through the returned task.
+
+Blocking waits are not assisted by `WorkPool`. A job running on a pool worker
+must not synchronously wait for other work that is queued only to the same pool,
+especially with `threads == 1`; doing so can deadlock. Use continuations,
+separate capacity, or wait from a non-worker thread.
+
+`join_all(tasks...)` has wait-all semantics. It completes only after every input
+task is terminal. The returned task preserves the first observed failure and
+does not aggregate additional failures. If an input task is cancelled,
+`join_all` requests cancellation on siblings and still waits for all of them to
+finish before committing cancelled. Cancelling the returned task is inert; it
+does not cancel children.
 
 ## Exceptions
 

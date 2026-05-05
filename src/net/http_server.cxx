@@ -196,6 +196,9 @@ S body{};
 SZ expected_body_size{};
 bool body_reserved{};
 bool end_stream_seen{};
+bool rejected{};
+SZ header_count{};
+SZ header_list_size{};
 // Response state for the data provider callback:
 S response_body{};
 SZ response_off{};
@@ -263,6 +266,7 @@ SZ request_bytes=0;// bytes consumed by current dispatched request
 chrono::steady_clock::time_point last_activity;// updated on accept and recv
 chrono::steady_clock::time_point request_started{};
 bool request_in_progress=false;
+bool expect_continue_sent=false;
 S remote_addr{};// peer IP, set on accept
 // mmap path: non-null when current response has a zero-copy file region
 SP<MappedFile>mapped_file{};
@@ -358,6 +362,31 @@ pos=comma+1;
 }
 }
 return false;
+}
+enum class ExpectState:u8{
+none,
+continue_100,
+unsupported
+};
+[[nodiscard]]ExpectState parse_expect_header(
+HttpFieldsView const&headers){
+bool saw_continue=false;
+for(auto const header_value:headers.values("expect")){
+SZ pos=0;
+while(pos<=header_value.size()){
+auto const comma=header_value.find(',',pos);
+auto token=trim(comma==SV::npos?header_value.substr(pos):header_value.substr(pos,comma-pos));
+if(!token.empty()){
+if(!ascii_iequals(token,"100-continue"))
+return ExpectState::unsupported;
+saw_continue=true;
+}
+if(comma==SV::npos)
+break;
+pos=comma+1;
+}
+}
+return saw_continue?ExpectState::continue_100:ExpectState::none;
 }
 [[nodiscard]]bool has_valid_chunked_transfer_encoding(
 HttpFieldsView const&headers){
@@ -789,7 +818,7 @@ return 0;
 }
 // Populate H2Stream fields from pseudo-headers and regular headers.
 static int h2_on_header_cb(
-nghttp2_session*/*unused*/,
+nghttp2_session*session,
 nghttp2_frame const*frame,
 u8 const*name,
 SZ namelen,
@@ -803,8 +832,25 @@ auto it=conn.h2_streams.find(frame->hd.stream_id);
 if(it==conn.h2_streams.end())
 return 0;
 auto&stream=it->second;
+if(stream.rejected)
+return 0;
 SV const n{reinterpret_cast<char const*>(name),namelen};
 SV const v{reinterpret_cast<char const*>(header_value),valuelen};
+if(stream.header_count==NL<SZ>::max()||
+namelen>NL<SZ>::max()-valuelen||
+stream.header_list_size>NL<SZ>::max()-namelen-valuelen){
+stream.rejected=true;
+nghttp2_submit_rst_stream(session,NGHTTP2_FLAG_NONE,frame->hd.stream_id,NGHTTP2_ENHANCE_YOUR_CALM);
+return 0;
+}
+++stream.header_count;
+stream.header_list_size+=namelen+valuelen;
+if(stream.header_count>ctx->ring->parser_limits.max_headers||
+stream.header_list_size>ctx->ring->parser_limits.max_header_block_size){
+stream.rejected=true;
+nghttp2_submit_rst_stream(session,NGHTTP2_FLAG_NONE,frame->hd.stream_id,NGHTTP2_ENHANCE_YOUR_CALM);
+return 0;
+}
 if(n==":method"){
 stream.method=S{v};
 }else if(n==":path"){
@@ -818,8 +864,13 @@ if(n=="content-length"){
 SZ content_length{};
 auto const*cl_end=ranges::next(v.data(),ssize(v));
 auto[ptr,ec]=from_chars(v.data(),cl_end,content_length);
-if(ec==errc{}&&ptr==cl_end)
+if(ec==errc{}&&ptr==cl_end&&content_length<=ctx->ring->max_body_size)
 stream.expected_body_size=content_length;
+else{
+stream.rejected=true;
+nghttp2_submit_rst_stream(session,NGHTTP2_FLAG_NONE,frame->hd.stream_id,NGHTTP2_CANCEL);
+return 0;
+}
 }
 stream.headers.emplace_back(S{n},S{v});
 }
@@ -827,7 +878,7 @@ return 0;
 }
 // Accumulate DATA frame body bytes into stream.body.
 static int h2_on_data_chunk_cb(
-nghttp2_session*/*unused*/,
+nghttp2_session*session,
 u8 /*unused*/,
 i32 stream_id,
 u8 const*data,
@@ -837,11 +888,19 @@ auto*ctx=static_cast<H2ConnCtx*>(user_data);
 auto&conn=ctx->ring->conn_for(ctx->fd);
 auto it=conn.h2_streams.find(stream_id);
 if(it!=conn.h2_streams.end()){
-if(!it->second.body_reserved&&it->second.expected_body_size>0){
-it->second.body.reserve(it->second.expected_body_size);
-it->second.body_reserved=true;
+auto&stream=it->second;
+if(stream.rejected)
+return 0;
+if(len>ctx->ring->max_body_size||stream.body.size()>ctx->ring->max_body_size-len){
+stream.rejected=true;
+nghttp2_submit_rst_stream(session,NGHTTP2_FLAG_NONE,stream_id,NGHTTP2_CANCEL);
+return 0;
 }
-it->second.body.append(reinterpret_cast<char const*>(data),len);
+if(!stream.body_reserved&&stream.expected_body_size>0){
+stream.body.reserve(stream.expected_body_size);
+stream.body_reserved=true;
+}
+stream.body.append(reinterpret_cast<char const*>(data),len);
 }
 return 0;
 }
@@ -987,6 +1046,8 @@ auto it=conn.h2_streams.find(frame->hd.stream_id);
 if(it==conn.h2_streams.end())
 return 0;
 auto&stream=it->second;
+if(stream.rejected)
+return 0;
 if(stream.end_stream_seen)
 return 0;
 stream.end_stream_seen=true;
@@ -1032,7 +1093,11 @@ body};
 HttpResponse resp;
 try{
 resp=ctx->ring->dispatch(req);
-}catch(...){return NGHTTP2_ERR_CALLBACK_FAILURE;}
+}catch(exception const&e){
+resp=HttpResponse::internal_error(e.what());
+}catch(...){
+resp=HttpResponse::internal_error();
+}
 
 if(resp.is_deferred()){
 stream.deferred_efd=resp.deferred_response_ptr()->eventfd_fd();
@@ -1132,11 +1197,15 @@ return;
 constexpr u32 kH2MaxConcurrentStreams=100;
 constexpr u32 kH2InitialWindowSize=1U<<24;
 constexpr u32 kH2MaxFrameSize=1U<<17;
-A<nghttp2_settings_entry,3>const iv{
+u32 const h2_max_header_list_size=static_cast<u32>(min<SZ>(
+parser_limits.max_header_block_size,
+static_cast<SZ>(NL<u32>::max())));
+A<nghttp2_settings_entry,4>const iv{
 {
 {.settings_id=NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,.value=kH2MaxConcurrentStreams},
 {.settings_id=NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE,.value=kH2InitialWindowSize},
 {.settings_id=NGHTTP2_SETTINGS_MAX_FRAME_SIZE,.value=kH2MaxFrameSize},
+{.settings_id=NGHTTP2_SETTINGS_MAX_HEADER_LIST_SIZE,.value=h2_max_header_list_size},
 }};
 nghttp2_submit_settings(conn.h2_session,NGHTTP2_FLAG_NONE,iv.data(),iv.size());
 // Flush deferred to caller's h2_do_send().
@@ -1989,6 +2058,8 @@ if(conn.request_bytes<=conn.partial.size())
 conn.partial.erase(0,conn.request_bytes);
 else
 conn.partial.clear();
+if(conn.request_bytes>0)
+conn.expect_continue_sent=false;
 conn.request_bytes=0;
 if(conn.partial.empty())
 conn.request_in_progress=false;
@@ -2657,7 +2728,16 @@ conn.request_in_progress=true;
 }
 if(conn.send_queued)
 continue;
-if(conn.partial.size()>max_body_size+parser_limits.max_header_block_size){
+auto bounded_add=[](SZ a,SZ b)noexcept{
+if(a>NL<SZ>::max()-b)
+return NL<SZ>::max();
+return a+b;
+};
+SZ raw_receive_cap=max_body_size;
+raw_receive_cap=bounded_add(raw_receive_cap,parser_limits.max_header_block_size);
+raw_receive_cap=bounded_add(raw_receive_cap,parser_limits.max_request_line_size);
+raw_receive_cap=bounded_add(raw_receive_cap,6);
+if(conn.partial.size()>raw_receive_cap){
 conn.own_response.clear();
 conn.own_response.append(
 "HTTP/1.1 413 Content Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
@@ -3198,6 +3278,27 @@ emit_parse_error(conn,raw,ParseError::BadRequest,ring.alt_svc_header);
 return;
 }
 
+auto const expect_state=parse_expect_header(headers);
+if(expect_state==ExpectState::unsupported){
+HttpResponse r;
+r.status=417;
+r.status_text="Expectation Failed";
+r.content_type="text/html; charset=utf-8";
+r.set_text_body("<html><body><h1>417 Expectation Failed</h1></body></html>");
+conn.own_response=format_response(r,ring.alt_svc_header,true);
+conn.response_ptr=&conn.own_response;
+conn.close_after_send=true;
+conn.request_bytes=raw.size();
+return;
+}
+auto const queue_continue=[&]{
+conn.own_response="HTTP/1.1 100 Continue\r\n\r\n";
+conn.response_ptr=&conn.own_response;
+conn.written=0;
+conn.request_bytes=0;
+conn.expect_continue_sent=true;
+};
+
 if(!content_lengths.empty()){
 auto cl=content_lengths.front();
 SZ content_length{};
@@ -3217,14 +3318,20 @@ conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
 }
-if(raw.size()-body_start<content_length)
+if(raw.size()-body_start<content_length){
+if(expect_state==ExpectState::continue_100&&!conn.expect_continue_sent)
+queue_continue();
 return;
+}
 body=raw.substr(body_start,content_length);
 body_stream_bytes=content_length;
 }else if(!transfer_encodings.empty()){
 auto rc=decode_chunked(raw.substr(body_start),max_body_size,limits.max_chunks,body_storage);
-if(rc==0)
+if(rc==0){
+if(expect_state==ExpectState::continue_100&&!conn.expect_continue_sent)
+queue_continue();
 return;
+}
 if(rc==-1){
 conn.own_response=format_response(HttpResponse::bad_request(),ring.alt_svc_header);
 conn.response_ptr=&conn.own_response;
@@ -3242,6 +3349,8 @@ return;
 body=body_storage;
 body_stream_bytes=static_cast<SZ>(rc);
 }
+
+conn.expect_continue_sent=false;
 
 if(headers["content-type"].starts_with("application/x-www-form-urlencoded"))
 parse_urlencoded(body,form);
@@ -3273,7 +3382,14 @@ conn.request_bytes=header_end+4+body_stream_bytes;
 HttpRequestView const
 req{method,path,version,conn.remote_addr,conn.is_tls,params,headers,query,form,cookies,files,body};
 auto const handler_started=chrono::steady_clock::now();
-auto resp=ring.dispatch(req);
+HttpResponse resp;
+try{
+resp=ring.dispatch(req);
+}catch(exception const&e){
+resp=HttpResponse::internal_error(e.what());
+}catch(...){
+resp=HttpResponse::internal_error();
+}
 if(ring.slow_handler_diagnostics){
 auto const elapsed_ms=
 chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()-handler_started).count();

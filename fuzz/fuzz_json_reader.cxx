@@ -18,7 +18,8 @@ JsonReader reader{input,opts};
 for(;;){
 auto ev_or=reader.next();
 if(!ev_or){
-(void)(!ev_or.error().message.empty());
+if(ev_or.error().message.empty())
+__builtin_trap();
 break;
 }
 if(!*ev_or)

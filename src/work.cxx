@@ -114,6 +114,7 @@ u32 spin_before_park=256;
 int numa_node=-1;
 bool pin_workers=false;
 S worker_name_prefix="conflux-work";
+Fn<void(EP)>raw_exception_sink{};
 };
 export struct RingLaneOptions{
 int ring_fd=-1;
@@ -248,7 +249,12 @@ job=steal_work(index);
 if(job){
 try{
 (*job)();
+}catch(...){
+if(options_.raw_exception_sink)
+try{
+options_.raw_exception_sink(current_exception());
 }catch(...){}// NOLINT(bugprone-empty-catch)
+}
 pending_.fetch_sub(1,memory_order_release);
 continue;
 }
@@ -501,7 +507,7 @@ conflux::work::root::TaskJoinHandle<Ts>...hs)
 :handles{move(hs)...},src{move(s)}{}
 void cancel_all()noexcept{
 auto keepalive=this->shared_from_this();
-std::apply([](auto&...hs)noexcept{(hs.control().request_cancel(),...);},handles);
+std::apply([](auto&...hs)noexcept{((void)hs.control().request_cancel(),...);},handles);
 }
 void commit()noexcept{
 using namespace conflux::work::root;

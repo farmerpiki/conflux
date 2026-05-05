@@ -3222,6 +3222,25 @@ REQUIRE(e4->has_value());
 CHECK(**e4==JsonReader::Event::end_object);
 }
 TEST_CASE(
+"phase4: JsonReader skip_next_value validates skipped input",
+"[phase4]"){
+JsonReader r{R"({"a":"bad\q","c":2})"};
+
+auto e0=r.next();
+REQUIRE(e0.has_value());
+REQUIRE(e0->has_value());
+CHECK(**e0==JsonReader::Event::begin_object);
+
+auto e1=r.next();
+REQUIRE(e1.has_value());
+REQUIRE(e1->has_value());
+CHECK(**e1==JsonReader::Event::key);
+
+auto range=r.skip_next_value();
+CHECK_FALSE(range.has_value());
+CHECK(range.error().code==JsonIssueCode::syntax_error);
+}
+TEST_CASE(
 "phase4: JsonReader has_error and reset",
 "[phase4]"){
 JsonReader r{"bad_input"};
@@ -3288,6 +3307,38 @@ CHECK(p->name=="Alice");
 CHECK(p->age==30LL);
 }
 TEST_CASE(
+"phase4: decode<JsonReader&> rejects trailing top-level value",
+"[phase4]"){
+JsonReader r{R"({"name":"Alice","age":30} false)"};
+auto p=decode<P4Person>(r);
+CHECK_FALSE(p.has_value());
+CHECK(p.error().code==JsonIssueCode::trailing_garbage);
+}
+TEST_CASE(
+"phase4: decode_next<JsonReader&> permits streaming top-level values",
+"[phase4]"){
+JsonReader r{R"({"name":"Alice","age":30} false)"};
+auto p=decode_next<P4Person>(r);
+REQUIRE(p.has_value());
+CHECK(p->name=="Alice");
+CHECK(p->age==30LL);
+
+auto b=decode_next<bool>(r);
+REQUIRE(b.has_value());
+CHECK(*b==false);
+}
+TEST_CASE(
+"phase4: decode_full<string_view> requires a single complete input",
+"[phase4]"){
+auto v=decode_full<i64>("42 43");
+CHECK_FALSE(v.has_value());
+CHECK(v.error().code==JsonIssueCode::trailing_garbage);
+
+auto ok=decode_full<i64>("42");
+REQUIRE(ok.has_value());
+CHECK(*ok==42LL);
+}
+TEST_CASE(
 "phase4: decode<P4Person>(JsonReader&) unknown_members=ignore",
 "[phase4]"){
 JsonReader r{R"({"name":"Bob","age":25,"extra":true})"};
@@ -3297,6 +3348,19 @@ auto p=decode<P4Person>(r,opts);
 REQUIRE(p.has_value());
 CHECK(p->name=="Bob");
 CHECK(p->age==25LL);
+}
+TEST_CASE(
+"phase4: decode<P4Person>(JsonReader&) unknown_members=ignore validates skipped value",
+"[phase4]"){
+S input=R"({"name":"Bob","age":25,"extra":"bad)";
+input.push_back('\x01');
+input+=R"("})";
+JsonReader r{input};
+JsonDecodeOptions opts;
+opts.unknown_members=UnknownMemberPolicy::ignore;
+auto p=decode<P4Person>(r,opts);
+CHECK_FALSE(p.has_value());
+CHECK(p.error().code==JsonIssueCode::syntax_error);
 }
 TEST_CASE(
 "phase4: decode<P4Person>(JsonReader&) unknown_members=reject",

@@ -1352,6 +1352,9 @@ return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape,"lone low surroga
 }
 // NOLINTEND(readability-magic-numbers)
 }else{
+if(opts_.mode==ParseMode::strict&&
+esc!='"'&&esc!='\\'&&esc!='/'&&esc!='b'&&esc!='f'&&esc!='n'&&esc!='r'&&esc!='t')
+return unexpected(mk_err(JsonIssueCode::syntax_error,"invalid escape"));
 adv();
 }
 continue;
@@ -1685,100 +1688,43 @@ stack_.clear();
 has_error_=false;
 last_error_={};
 }
-// Precondition: input was produced by next() or is known-valid JSON. Skips
-// structurally without re-validating escapes, control chars, or literal spelling.
+// Validating skip: consumes one value through the same event parser used by
+// next(), preserving the returned byte range for callers that need the slice.
 [[nodiscard]]expected<JsonByteRange,JsonError>skip_next_value(){
 if(has_error_)
 return unexpected(last_error_);
 skip_ws();
-// If we're in an object awaiting a value (just emitted a key event),
-// clear awaiting_value so next() knows the value has been consumed.
-if(!stack_.empty()&&stack_.back().kind==StateFrame::Kind::object&&stack_.back().awaiting_value)
-stack_.back().awaiting_value=false;
 SZ const start=pos_;
-if(pos_>=input_.size()){
-auto e=mk_err(JsonIssueCode::unexpected_eof,"unexpected end of input");
+auto ev=next();
+if(!ev)
+return unexpected(move(ev).error());
+if(!*ev){
+auto e=JsonError{
+.stage=JsonStage::parse,
+.code=JsonIssueCode::unexpected_eof,
+.source=JsonSourceLocation{.offset=start},
+.message="unexpected end of input"};
 set_error(e);
 return unexpected(last_error_);
 }
-char const c=input_[pos_];
-if(c=='"'){
-adv();
-while(pos_<input_.size()){
-char const ch=input_[pos_];
-if(ch=='\\'){
-adv(2);
-continue;
-}
-if(ch=='"'){
-adv();
-return JsonByteRange{start,pos_};
-}
-adv();
-}
-auto e=mk_err(JsonIssueCode::unexpected_eof,"EOF in string");
-set_error(e);
-return unexpected(last_error_);
-}
-if(c=='{'||c=='['){
 int depth=1;
-adv();
-bool in_str=false;
-while(pos_<input_.size()&&depth>0){
-char const ch=input_[pos_];
-if(in_str){
-if(ch=='\\'){
-adv(2);
-continue;
+if(**ev==Event::string_value||**ev==Event::number_value||**ev==Event::bool_value||**ev==Event::null_value)
+return JsonByteRange{start,pos_};
+while(depth>0){
+auto ne=next();
+if(!ne)
+return unexpected(move(ne).error());
+if(!*ne){
+auto e=mk_err(JsonIssueCode::unexpected_eof,"EOF while skipping");
+set_error(e);
+return unexpected(last_error_);
 }
-if(ch=='"')
-in_str=false;
-adv();
-continue;
-}
-if(ch=='"'){
-in_str=true;
-adv();
-continue;
-}
-if(ch=='{'||ch=='[')
+if(**ne==Event::begin_object||**ne==Event::begin_array)
 ++depth;
-else if(ch=='}'||ch==']')
+else if(**ne==Event::end_object||**ne==Event::end_array)
 --depth;
-adv();
-}
-if(depth!=0){
-auto e=mk_err(JsonIssueCode::unexpected_eof,"EOF in container");
-set_error(e);
-return unexpected(last_error_);
 }
 return JsonByteRange{start,pos_};
-}
-if(c=='t'){
-adv(4);
-return JsonByteRange{start,pos_};
-}
-if(c=='f'){
-adv(5);
-return JsonByteRange{start,pos_};
-}
-if(c=='n'){
-adv(4);
-return JsonByteRange{start,pos_};
-}
-if(c=='-'||(c>='0'&&c<='9')){
-while(pos_<input_.size()){
-char const ch=input_[pos_];
-if(ch=='-'||ch=='+'||ch=='.'||ch=='e'||ch=='E'||(ch>='0'&&ch<='9'))
-adv();
-else
-break;
-}
-return JsonByteRange{start,pos_};
-}
-auto e=mk_err(JsonIssueCode::syntax_error,format("unexpected character '{}'",c));
-set_error(e);
-return unexpected(last_error_);
 }
 };
 // ---------------------------------------------------------------------------
@@ -5540,6 +5486,15 @@ expected<T,JsonError>decode(NodeRef root,JsonDecodeOptions const&opts={});
 export template<class T>
 expected<T,JsonError>decode(JsonReader&reader,JsonDecodeOptions const&opts={});
 export template<class T>
+expected<T,JsonError>decode_next(JsonReader&reader,JsonDecodeOptions const&opts={});
+export template<class T>
+expected<T,JsonError>decode_full(JsonReader&reader,JsonDecodeOptions const&opts={});
+export template<class T>
+expected<T,JsonError>decode_full(
+SV input,
+JsonParseOptions const&parse_opts={},
+JsonDecodeOptions const&decode_opts={});
+export template<class T>
 expected<T,JsonError>decode(
 Document const&d,
 JsonDecodeOptions const&opts={}){
@@ -6393,8 +6348,17 @@ first_err=JsonError{
 .member_name=key_name,
 .message=format("unknown member: {}",key_name)};
 }else{
-auto skip_res=r.skip_next_value();
-if(!skip_res){
+auto vne=r.next();
+if(!vne){
+ok=false;
+first_err=move(vne).error();
+}else if(!*vne){
+ok=false;
+first_err=JsonError{
+.stage=JsonStage::decode,
+.code=JsonIssueCode::unexpected_eof,
+.message="EOF in object value"};
+}else if(auto skip_res=skip_remaining_reader(r,**vne);!skip_res){
 ok=false;
 first_err=move(skip_res).error();
 }
@@ -6452,7 +6416,40 @@ export template<class T>
 expected<T,JsonError>decode(
 JsonReader&reader,
 JsonDecodeOptions const&opts){
+return decode_full<T>(reader,opts);
+}
+export template<class T>
+expected<T,JsonError>decode_next(
+JsonReader&reader,
+JsonDecodeOptions const&opts){
 return detail::decode_with_reader<T>(reader,opts);
+}
+export template<class T>
+expected<T,JsonError>decode_full(
+JsonReader&reader,
+JsonDecodeOptions const&opts){
+auto value=decode_next<T>(reader,opts);
+if(!value)
+return unexpected(move(value).error());
+auto next=reader.next();
+if(!next)
+return unexpected(move(next).error());
+if(*next)
+return unexpected(
+JsonError{
+.stage=JsonStage::parse,
+.code=JsonIssueCode::trailing_garbage,
+.source=JsonSourceLocation{.offset=reader.value_start_pos()},
+.message="trailing JSON value after document root"});
+return move(value);
+}
+export template<class T>
+expected<T,JsonError>decode_full(
+SV input,
+JsonParseOptions const&parse_opts,
+JsonDecodeOptions const&decode_opts){
+JsonReader reader{input,parse_opts};
+return decode_full<T>(reader,decode_opts);
 }
 namespace detail{
 template<class T>

@@ -2,13 +2,19 @@
 set -euo pipefail
 
 usage() {
-	printf 'usage: %s [NAME=VALUE ...] ./build/{debug,release,tsan}-{clang-libcxx,gcc-stdcxx}/{tests,benchmarks,examples}/<exe> [args...]\n' "$0" >&2
-	printf '       %s [NAME=VALUE ...] ./build/{debug,release,tsan}-{clang-libcxx,gcc-stdcxx}/conflux_<example> [args...]\n' "$0" >&2
+	printf 'usage: %s [NAME=VALUE ...] /tmp/%s/<preset>/{tests,benchmarks,examples}/<exe> [args...]\n' "$0" "$(basename "$PWD")" >&2
+	printf '       %s [NAME=VALUE ...] /tmp/%s/<preset>/conflux_<example> [args...]\n' "$0" "$(basename "$PWD")" >&2
+	printf '       defaults: PG_TEST_CONNINFO=postgresql:///postgres?user=postgres, PG_CONNINFO=postgresql:///conflux_bench?user=postgres\n' >&2
 }
 
 valid_profile() {
 	case "$1" in
-		debug-clang-libcxx|debug-gcc-stdcxx|release-clang-libcxx|release-gcc-stdcxx|tsan-clang-libcxx|tsan-gcc-stdcxx)
+		debug-clang-libcxx|debug-clang-stdcxx|debug-gcc-stdcxx|debug-gcc16-stdcxx|\
+			release-clang-libcxx|release-clang-stdcxx|release-gcc-stdcxx|release-gcc16-stdcxx|\
+			release-clang-libcxx-p5|release-gcc-stdcxx-p5|release-gcc16-stdcxx-p5|\
+			pgo-gen-clang-libcxx|pgo-use-clang-libcxx|pgo-gen-gcc-stdcxx|pgo-use-gcc-stdcxx|\
+			pgo-gen-gcc16-stdcxx|pgo-use-gcc16-stdcxx|\
+			tsan-clang-libcxx|tsan-gcc-stdcxx|fuzz-clang-stdcxx)
 			return 0
 			;;
 		*)
@@ -21,7 +27,7 @@ valid_root_example() {
 	case "$1" in
 		conflux_coroutines|conflux_db_basic|conflux_db_pool|conflux_dual|conflux_file_io_example|\
 			conflux_forms|conflux_gzip|conflux_h3_probe|conflux_h3_server|conflux_hello|\
-			conflux_http_client|conflux_middleware|conflux_sse|conflux_static)
+			conflux_http_client|conflux_json_example|conflux_middleware|conflux_sse|conflux_static)
 			return 0
 			;;
 		*)
@@ -56,24 +62,23 @@ fi
 artifact=$1
 shift
 
+repo_name=$(basename "$PWD")
+preset_root="/tmp/$repo_name"
 case "$artifact" in
-	./build/*/tests/*|./build/*/benchmarks/*|./build/*/examples/*) ;;
-	build/*/tests/*|build/*/benchmarks/*|build/*/examples/*) artifact="./$artifact" ;;
-	./build/*/conflux_*|build/*/conflux_*)
-		artifact=${artifact#./}
+	"$preset_root"/*/tests/*|"$preset_root"/*/benchmarks/*|"$preset_root"/*/examples/*) ;;
+	"$preset_root"/*/conflux_*)
 		if ! valid_root_example "$(basename "$artifact")"; then
 			printf 'refusing to run non-example root build artifact: %s\n' "$artifact" >&2
 			exit 126
 		fi
-		artifact="./$artifact"
 		;;
 	*)
-		printf 'refusing to run non-build test/benchmark/example artifact: %s\n' "$artifact" >&2
+		printf 'refusing to run non-preset test/benchmark/example artifact: %s\n' "$artifact" >&2
 		exit 126
 		;;
 esac
 
-profile=${artifact#./build/}
+profile=${artifact#"$preset_root"/}
 profile=${profile%%/*}
 if ! valid_profile "$profile"; then
 	printf 'refusing artifact from unsupported build profile: %s\n' "$profile" >&2
@@ -90,22 +95,11 @@ if [[ ! -x "$artifact" || -d "$artifact" ]]; then
 	exit 126
 fi
 
-set_default_env=false
-case "$artifact" in
-	./build/*/tests/*|./build/*/benchmarks/*)
-		set_default_env=true
-		;;
-esac
-
-if $set_default_env; then
-	# Keep both values present by default for libpq-based codepaths.
-	# Tests and benchmarks intentionally default to different DBs.
-	: "${PG_TEST_CONNINFO:=postgresql:///postgres?user=postgres}"
-	: "${PG_CONNINFO:=postgresql:///conflux_bench?user=postgres}"
-	exec env "${env_args[@]}" \
-		PG_TEST_CONNINFO="$PG_TEST_CONNINFO" \
-		PG_CONNINFO="$PG_CONNINFO" \
-		"$artifact" "$@"
-fi
-
-exec env "${env_args[@]}" "$artifact" "$@"
+# Keep both values present by default for libpq-based codepaths.
+# Tests and benchmarks intentionally default to different DBs. Put explicit
+# NAME=VALUE arguments last so one-off overrides win over these defaults.
+exec env \
+	PG_TEST_CONNINFO="${PG_TEST_CONNINFO:-postgresql:///postgres?user=postgres}" \
+	PG_CONNINFO="${PG_CONNINFO:-postgresql:///conflux_bench?user=postgres}" \
+	"${env_args[@]}" \
+	"$artifact" "$@"
