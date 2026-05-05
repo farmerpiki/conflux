@@ -258,3 +258,141 @@ TEST_CASE(
 	CHECK(h[1] == 0x5d);
 	CHECK(h[19] == 0xd3);
 }
+
+// ---------------------------------------------------------------------------
+// AES-256-GCM
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"crypto: aes_gcm_encrypt/decrypt round-trip",
+	"[crypto]") {
+	A<unsigned char, 32> key{};
+	for (SZ i = 0; i < 32; ++i) {
+		key[i] = static_cast<unsigned char>(i);
+	}
+	A<unsigned char, 12> iv{};
+	for (SZ i = 0; i < 12; ++i) {
+		iv[i] = static_cast<unsigned char>(i + 0x10);
+	}
+	SV const msg = "Hello AES-GCM!";
+	auto ct = aes_gcm_encrypt(key, iv, {reinterpret_cast<unsigned char const *>(msg.data()), msg.size()}, {});
+	REQUIRE(ct.has_value());
+	REQUIRE(ct->size() == msg.size() + 16);
+
+	auto pt = aes_gcm_decrypt(key, iv, *ct, {});
+	REQUIRE(pt.has_value());
+	CHECK(S(pt->begin(), pt->end()) == msg);
+}
+
+TEST_CASE(
+	"crypto: aes_gcm_decrypt detects tampered ciphertext",
+	"[crypto]") {
+	A<unsigned char, 32> key{};
+	key.fill(0xAA);
+	A<unsigned char, 12> iv{};
+	iv.fill(0xBB);
+	SV const msg = "secret data";
+	auto ct = aes_gcm_encrypt(key, iv, {reinterpret_cast<unsigned char const *>(msg.data()), msg.size()}, {});
+	REQUIRE(ct.has_value());
+
+	// Flip a byte in ciphertext
+	(*ct)[0] = static_cast<unsigned char>((*ct)[0] ^ 0xFF);
+	auto pt = aes_gcm_decrypt(key, iv, *ct, {});
+	CHECK(!pt.has_value());
+}
+
+TEST_CASE(
+	"crypto: aes_gcm_decrypt detects tampered tag",
+	"[crypto]") {
+	A<unsigned char, 32> key{};
+	key.fill(0x11);
+	A<unsigned char, 12> iv{};
+	iv.fill(0x22);
+	SV const msg = "authenticate me";
+	auto ct = aes_gcm_encrypt(key, iv, {reinterpret_cast<unsigned char const *>(msg.data()), msg.size()}, {});
+	REQUIRE(ct.has_value());
+
+	// Flip last byte (in tag)
+	ct->back() = static_cast<unsigned char>(ct->back() ^ 1);
+	auto pt = aes_gcm_decrypt(key, iv, *ct, {});
+	CHECK(!pt.has_value());
+}
+
+TEST_CASE(
+	"crypto: aes_gcm with AAD",
+	"[crypto]") {
+	A<unsigned char, 32> key{};
+	key.fill(0x55);
+	A<unsigned char, 12> iv{};
+	iv.fill(0x66);
+	SV const msg = "payload";
+	SV const aad = "associated data";
+	auto ct = aes_gcm_encrypt(
+		key, iv,
+		{reinterpret_cast<unsigned char const *>(msg.data()), msg.size()},
+		{reinterpret_cast<unsigned char const *>(aad.data()), aad.size()});
+	REQUIRE(ct.has_value());
+
+	// Decrypt with correct AAD
+	auto pt = aes_gcm_decrypt(
+		key, iv, *ct,
+		{reinterpret_cast<unsigned char const *>(aad.data()), aad.size()});
+	REQUIRE(pt.has_value());
+	CHECK(S(pt->begin(), pt->end()) == msg);
+
+	// Decrypt with wrong AAD fails
+	SV const bad_aad = "wrong data";
+	auto pt2 = aes_gcm_decrypt(
+		key, iv, *ct,
+		{reinterpret_cast<unsigned char const *>(bad_aad.data()), bad_aad.size()});
+	CHECK(!pt2.has_value());
+}
+
+TEST_CASE(
+	"crypto: aes_gcm NIST test vector (AES-256, 96-bit IV)",
+	"[crypto]") {
+	// NIST SP 800-38D, Test Case 16
+	// Key = 0000...00 (32 bytes), IV = 0000...00 (12 bytes), PT = empty, AAD = empty
+	// Expected CT = empty, Tag = 530f8afbc74536b9a963b4f1c4cb738b
+	A<unsigned char, 32> key{};
+	A<unsigned char, 12> iv{};
+	auto ct = aes_gcm_encrypt(key, iv, {}, {});
+	REQUIRE(ct.has_value());
+	REQUIRE(ct->size() == 16); // tag only
+	CHECK((*ct)[0] == 0x53);
+	CHECK((*ct)[1] == 0x0f);
+	CHECK((*ct)[2] == 0x8a);
+	CHECK((*ct)[3] == 0xfb);
+	CHECK((*ct)[14] == 0x73);
+	CHECK((*ct)[15] == 0x8b);
+}
+
+TEST_CASE(
+	"crypto: aes_gcm empty plaintext decrypt",
+	"[crypto]") {
+	A<unsigned char, 32> key{};
+	A<unsigned char, 12> iv{};
+	auto ct = aes_gcm_encrypt(key, iv, {}, {});
+	REQUIRE(ct.has_value());
+	auto pt = aes_gcm_decrypt(key, iv, *ct, {});
+	REQUIRE(pt.has_value());
+	CHECK(pt->empty());
+}
+
+TEST_CASE(
+	"crypto: aes_gcm rejects wrong key size",
+	"[crypto]") {
+	A<unsigned char, 16> short_key{};
+	A<unsigned char, 12> iv{};
+	auto r = aes_gcm_encrypt(short_key, iv, {}, {});
+	CHECK(!r.has_value());
+}
+
+TEST_CASE(
+	"crypto: aes_gcm rejects wrong IV size",
+	"[crypto]") {
+	A<unsigned char, 32> key{};
+	A<unsigned char, 8> short_iv{};
+	auto r = aes_gcm_encrypt(key, short_iv, {}, {});
+	CHECK(!r.has_value());
+}

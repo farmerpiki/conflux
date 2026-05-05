@@ -94,6 +94,11 @@ endif()
 add_executable(conflux_crypto_tests crypto_test.cxx)
 target_link_libraries(conflux_crypto_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
+if(CONFLUX_HAS_TLS STREQUAL "true")
+    add_executable(conflux_aes_gcm_compare aes_gcm_openssl_compare.cxx)
+    target_link_libraries(conflux_aes_gcm_compare PRIVATE conflux conflux_options OpenSSL::SSL OpenSSL::Crypto)
+endif()
+
 add_executable(conflux_utils_tests utils_test.cxx)
 target_link_libraries(conflux_utils_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
