@@ -148,7 +148,7 @@ S out=format(
 r.status,
 r.status_text,
 http_date_now());
-if(r.status!=204)
+if(!r.content_type.empty())
 out+=format("Content-Type: {}\r\n",r.content_type);
 if(r.status==204){
 // 204 must not have Content-Length per RFC 9110 §15.3.5 (omit it).

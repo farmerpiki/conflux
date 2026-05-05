@@ -4,6 +4,7 @@ module;
 #include <fcntl.h>
 #include <liburing.h>
 #include <linux/futex.h>
+#include <linux/openat2.h>
 #include <linux/stat.h>
 #include <poll.h>
 #include <sys/epoll.h>
@@ -3317,6 +3318,39 @@ private:
 		});
 		io_uring_sqe_set_data64(sqe_out, st->encode_ud(slot_out, gen_out));
 	}
+
+public:
+	[[nodiscard]] root::Task<void> atomic_write_async(
+		int dir_fd,
+		S rel_path,
+		span<byte const> data,
+		mode_t mode = 0644) {
+		open_how how{};
+		how.flags = O_TMPFILE | O_WRONLY;
+		how.mode = static_cast<__u64>(mode);
+		how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
+
+		auto fh = co_await openat2_async(dir_fd, S{"."}, how);
+
+		SZ off = 0;
+		while (off < data.size()) {
+			auto wrote = co_await write_into(fh, off, data.subspan(off));
+			if (wrote == 0) {
+				throw FileIoError{EIO, "file_io: short write"};
+			}
+			off += wrote;
+		}
+
+		try {
+			co_await unlink_async(dir_fd, S{rel_path});
+		} catch (...) {} // NOLINT(bugprone-empty-catch)
+		co_await linkat_async(
+			AT_FDCWD,
+			format("/proc/self/fd/{}", fh.raw_fd()),
+			dir_fd,
+			move(rel_path),
+			AT_SYMLINK_FOLLOW);
+	}
 };
 
 // ---------------------------------------------------------------------------
@@ -3472,4 +3506,3 @@ T block_on(
 		return std::move(*slot->value);
 	}
 }
-

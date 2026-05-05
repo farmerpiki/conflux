@@ -1942,11 +1942,42 @@ inline S segments_to_pattern(
 int contained_open(
 	int root_fd,
 	char const *relative,
-	int flags) noexcept {
+	int flags,
+	mode_t mode = 0) noexcept {
 	open_how how{};
 	how.flags = static_cast<__u64>(flags);
+	how.mode = static_cast<__u64>(mode);
 	how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
 	return static_cast<int>(::syscall(SYS_openat2, root_fd, relative, &how, sizeof(how)));
+}
+
+bool contained_atomic_write(
+	int root_fd,
+	char const *relative,
+	span<char const> data,
+	mode_t mode = 0644) noexcept {
+	int const tmp_fd = contained_open(root_fd, ".", O_TMPFILE | O_WRONLY, mode);
+	if (tmp_fd < 0) {
+		return false;
+	}
+	SZ off = 0;
+	while (off < data.size()) {
+		ssize_t const n = ::write(tmp_fd, data.data() + off, data.size() - off);
+		if (n < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			::close(tmp_fd);
+			return false;
+		}
+		off += static_cast<SZ>(n);
+	}
+	::unlinkat(root_fd, relative, 0);
+	char proc_path[64];
+	(void)std::snprintf(proc_path, sizeof(proc_path), "/proc/self/fd/%d", tmp_fd);
+	int const rc = ::linkat(AT_FDCWD, proc_path, root_fd, relative, AT_SYMLINK_FOLLOW);
+	::close(tmp_fd);
+	return rc == 0;
 }
 
 struct RootDirFd {
@@ -2017,11 +2048,10 @@ conflux::work::root::Task<void> do_save_file(
 	bool existed,
 	SP<StaticCacheStore> static_cache,
 	SP<DeferredResponse> dr,
-	conflux::work::root::Task<FileHandle> open_task) {
+	int dir_fd,
+	S rel_path) {
 	try {
-		auto fh = co_await std::move(open_task);
-		auto fh_ptr = make_shared<FileHandle>(move(fh));
-		co_await fr->write_into(*fh_ptr, 0, as_bytes(span{*body_owned}));
+		co_await fr->atomic_write_async(dir_fd, move(rel_path), as_bytes(span{*body_owned}));
 		static_cache->evict_all_encodings(*fp);
 		HttpResponse resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;
@@ -2347,8 +2377,8 @@ public:
 				S rel_str{rel_path};
 
 				struct ::stat st{};
-				int probe_fd = rel_str.empty() ? contained_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY) :
-												 contained_open(root_fd, rel_str.c_str(), O_PATH | O_CLOEXEC);
+				int const probe_fd = rel_str.empty() ? contained_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY) :
+													   contained_open(root_fd, rel_str.c_str(), O_PATH | O_CLOEXEC);
 				if (probe_fd < 0) {
 					return HttpResponse::not_found(file_param);
 				}
@@ -2360,7 +2390,7 @@ public:
 
 				if (S_ISDIR(st.st_mode)) {
 					auto index_rel = rel_str.empty() ? S{"index.html"} : rel_str + "/index.html";
-					int idx_fd = contained_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC);
+					int const idx_fd = contained_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC);
 					if (idx_fd >= 0) {
 						::fstat(idx_fd, &st);
 						::close(idx_fd);
@@ -2425,7 +2455,7 @@ public:
 				if (static_options.precompressed) {
 					auto const &accept_enc = r.accept_encoding;
 					auto encoding_accepted = [&](SV token) -> bool {
-						SV ae{accept_enc};
+						SV const ae{accept_enc};
 						SZ pos = 0;
 						while (pos < ae.size()) {
 							auto comma = ae.find(',', pos);
@@ -2442,7 +2472,7 @@ public:
 							while (!coding.empty() && coding.back() == ' ') {
 								coding.remove_suffix(1);
 							}
-							bool match =
+							bool const match =
 								coding.size() == token.size() && ranges::equal(coding, token, [](char a, char b) {
 									return (static_cast<unsigned char>(a) | 0x20)
 										== (static_cast<unsigned char>(b) | 0x20);
@@ -2472,7 +2502,7 @@ public:
 					};
 					if (encoding_accepted("br")) {
 						auto br_rel = rel_str + ".br";
-						int br_fd = contained_open(root_fd, br_rel.c_str(), O_PATH | O_CLOEXEC);
+						int const br_fd = contained_open(root_fd, br_rel.c_str(), O_PATH | O_CLOEXEC);
 						if (br_fd >= 0) {
 							struct ::stat br_st{};
 							if (::fstat(br_fd, &br_st) == 0) {
@@ -2486,7 +2516,7 @@ public:
 					}
 					if (content_encoding.empty() && encoding_accepted("gzip")) {
 						auto gz_rel = rel_str + ".gz";
-						int gz_fd = contained_open(root_fd, gz_rel.c_str(), O_PATH | O_CLOEXEC);
+						int const gz_fd = contained_open(root_fd, gz_rel.c_str(), O_PATH | O_CLOEXEC);
 						if (gz_fd >= 0) {
 							struct ::stat gz_st{};
 							if (::fstat(gz_fd, &gz_st) == 0) {
@@ -2714,7 +2744,7 @@ public:
 					if (auto cached = static_cache->get(cache_key, st)) {
 						return make_cached_response(*cached);
 					}
-					int const fd = ::open(full_path.c_str(), O_RDONLY | O_CLOEXEC | O_NOFOLLOW);
+					int const fd = contained_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC);
 					if (fd < 0) {
 						return HttpResponse::not_found(file_param);
 					}
@@ -2774,7 +2804,13 @@ public:
 						send_off,
 						send_sz,
 						file_size,
-						fr->open_async(root_fd, rel_str, O_RDONLY | O_CLOEXEC))
+						fr->openat2_async(
+							root_fd,
+							S{rel_str},
+							open_how{
+								.flags = static_cast<__u64>(O_RDONLY | O_CLOEXEC),
+								.mode = 0,
+								.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS}))
 						.detach();
 					return HttpResponse::deferred(move(dr));
 				}
@@ -2905,7 +2941,7 @@ public:
 						}
 						S rel{rel_sv};
 
-						int probe = contained_open(root_dir_fd->fd, rel.c_str(), O_PATH | O_CLOEXEC);
+						int const probe = contained_open(root_dir_fd->fd, rel.c_str(), O_PATH | O_CLOEXEC);
 						bool const existed = probe >= 0;
 						if (probe >= 0) {
 							::close(probe);
@@ -2915,14 +2951,7 @@ public:
 							auto body_owned = make_shared<S>(req.body);
 							auto dr = make_shared<DeferredResponse>();
 							auto fp = make_shared<S>(full_path);
-							do_save_file(
-								fr,
-								body_owned,
-								fp,
-								existed,
-								static_cache,
-								dr,
-								fr->open_async(root_dir_fd->fd, rel, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644))
+							do_save_file(fr, body_owned, fp, existed, static_cache, dr, root_dir_fd->fd, S{rel})
 								.detach();
 							return HttpResponse::deferred(move(dr));
 						}
@@ -2938,34 +2967,16 @@ public:
 																   existed,
 																   static_cache,
 																   dr]() mutable {
-								try {
-									int const wfd =
-										contained_open(rfd, rel.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC);
-									if (wfd < 0) {
-										dr->complete(HttpResponse::internal_error());
-										return;
-									}
-									auto const body = span<char const>{body_owned->data(), body_owned->size()};
-									SZ off = 0;
-									while (off < body.size()) {
-										ssize_t const n = ::write(wfd, body.data() + off, body.size() - off);
-										if (n < 0) {
-											if (errno == EINTR) {
-												continue;
-											}
-											::close(wfd);
-											dr->complete(HttpResponse::internal_error());
-											return;
-										}
-										off += static_cast<SZ>(n);
-									}
-									::close(wfd);
-									static_cache->evict_all_encodings(full_path);
-									HttpResponse resp;
-									resp.status = existed ? kHttpNoContent : kHttpCreated;
-									resp.status_text = existed ? "No Content" : "Created";
-									dr->complete(move(resp));
-								} catch (...) { dr->complete(HttpResponse::internal_error()); }
+								auto const body = span<char const>{body_owned->data(), body_owned->size()};
+								if (!contained_atomic_write(rfd, rel.c_str(), body)) {
+									dr->complete(HttpResponse::internal_error());
+									return;
+								}
+								static_cache->evict_all_encodings(full_path);
+								HttpResponse resp;
+								resp.status = existed ? kHttpNoContent : kHttpCreated;
+								resp.status_text = existed ? "No Content" : "Created";
+								dr->complete(move(resp));
 							});
 							if (!ok) {
 								return HttpResponse::internal_error("offload queue full");
@@ -2973,25 +2984,10 @@ public:
 							return HttpResponse::deferred(move(dr));
 						}
 
-						int const wfd =
-							contained_open(root_dir_fd->fd, rel.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC);
-						if (wfd < 0) {
+						auto const body = span<char const>{req.body.data(), req.body.size()};
+						if (!contained_atomic_write(root_dir_fd->fd, rel.c_str(), body)) {
 							return HttpResponse::internal_error();
 						}
-						auto const body = span<char const>{req.body.data(), req.body.size()};
-						SZ off = 0;
-						while (off < body.size()) {
-							ssize_t const n = ::write(wfd, body.data() + off, body.size() - off);
-							if (n < 0) {
-								if (errno == EINTR) {
-									continue;
-								}
-								::close(wfd);
-								return HttpResponse::internal_error();
-							}
-							off += static_cast<SZ>(n);
-						}
-						::close(wfd);
 						static_cache->evict_all_encodings(full_path);
 						HttpResponse resp;
 						resp.status = existed ? kHttpNoContent : kHttpCreated;
@@ -3021,7 +3017,7 @@ public:
 						}
 						S rel{rel_sv};
 
-						int probe = contained_open(root_dir_fd->fd, rel.c_str(), O_PATH | O_CLOEXEC);
+						int const probe = contained_open(root_dir_fd->fd, rel.c_str(), O_PATH | O_CLOEXEC);
 						if (probe < 0) {
 							return errno == ENOENT ? HttpResponse::not_found(*norm) : HttpResponse::forbidden();
 						}

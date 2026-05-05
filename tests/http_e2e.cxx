@@ -61,7 +61,8 @@ void ensure_server() {
 		// before the test server registry destructs (LIFO), while the ring
 		// thread can still be enqueueing into the pool.
 		auto defer_ok_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
-		auto defer_full_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 0});
+		auto defer_full_pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 1});
+		defer_full_pool->stop();
 		router.get("/api/defer-ok", [defer_ok_pool](HttpRequest const &) {
 			return conflux::http::defer(defer_ok_pool, [] { return HttpResponse::json(R"({"defer":"ok"})"); });
 		});
