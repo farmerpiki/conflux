@@ -1,4 +1,5 @@
 module;
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 
@@ -46,9 +47,21 @@ public:
 
 } // namespace utils_detail
 
-// Fill `out` with pseudo-random bytes from a thread-local xoshiro256**
-// seeded once from getrandom(2). Not cryptographically strong — use for
-// trace IDs, request IDs, jitter, and similar non-security purposes.
+export void crypto_random_bytes(
+	span<unsigned char> out) {
+	SZ total = 0;
+	while (total < out.size()) {
+		auto n = ::getrandom(out.data() + total, out.size() - total, 0);
+		if (n < 0 && errno == EINTR) {
+			continue;
+		}
+		if (n <= 0) {
+			throw SE{errno, system_category(), "crypto_random_bytes: getrandom"};
+		}
+		total += static_cast<SZ>(n);
+	}
+}
+
 export void random_bytes(
 	span<unsigned char> out) {
 	static thread_local utils_detail::Xoshiro256ss rng{};

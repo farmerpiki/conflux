@@ -4,11 +4,6 @@
 // JavaScript to read.
 // On mutating requests (POST/PUT/PATCH/DELETE), compare the cookie value with
 // the token submitted in the request header or form field.
-module;
-#include <cerrno>
-#include <fcntl.h>
-#include <unistd.h>
-
 export module conflux.net.csrf;
 import std;
 import conflux.types;
@@ -20,23 +15,7 @@ namespace csrf_detail {
 
 S generate_token() {
 	A<unsigned char, 24> bytes{};
-	int const fd = ::open("/dev/urandom", O_RDONLY | O_CLOEXEC);
-	if (fd < 0) {
-		throw SE{errno, system_category(), "generate_token: open /dev/urandom"};
-	}
-	SZ total = 0;
-	while (total < bytes.size()) {
-		ssize_t const n = ::read(fd, bytes.data() + total, bytes.size() - total);
-		if (n < 0 && errno == EINTR) {
-			continue;
-		}
-		if (n <= 0) {
-			::close(fd);
-			throw SE{errno, system_category(), "generate_token: read /dev/urandom"};
-		}
-		total += static_cast<SZ>(n);
-	}
-	::close(fd);
+	crypto_random_bytes(bytes);
 	return base64url_encode(bytes);
 }
 
