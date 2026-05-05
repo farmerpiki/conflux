@@ -44,13 +44,11 @@ std::size_t conflux_json_scan_dump_safe_run_stdsimd(
 		vec_t v(reinterpret_cast<signed char const *>(p + i), stdx::element_aligned);
 		auto eq_q = (v == v_quote);
 		auto eq_b = (v == v_back);
-		auto lt_l = (v < v_lim);
 		decltype(eq_q) mix;
 		if (ascii_only) {
-			mix = eq_q | eq_b | lt_l;
+			mix = eq_q | eq_b | (v < v_lim);
 		} else {
-			auto ctrl_only = lt_l & !(v < v_zero);
-			mix = eq_q | eq_b | ctrl_only;
+			mix = eq_q | eq_b | ((v >= v_zero) & (v < v_lim));
 		}
 		if (stdx::any_of(mix)) {
 			return i + static_cast<std::size_t>(stdx::find_first_set(mix));

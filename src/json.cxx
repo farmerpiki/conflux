@@ -2878,17 +2878,16 @@ inline void dump_str_raw(
 	__m256i const v_quote = _mm256_set1_epi8('"');
 	__m256i const v_back  = _mm256_set1_epi8('\\');
 	__m256i const v_lim   = _mm256_set1_epi8(0x20);
+	__m256i const v_1f    = _mm256_set1_epi8(0x1F);
 	while (i + 32 <= n) {
 		__m256i const v    = _mm256_loadu_si256(reinterpret_cast<__m256i const *>(p + i));
 		__m256i const eq_q = _mm256_cmpeq_epi8(v, v_quote);
 		__m256i const eq_b = _mm256_cmpeq_epi8(v, v_back);
-		__m256i const lt_l = _mm256_cmpgt_epi8(v_lim, v);
 		__m256i mix = _mm256_or_si256(eq_q, eq_b);
 		if (ascii_only) {
-			mix = _mm256_or_si256(mix, lt_l);
+			mix = _mm256_or_si256(mix, _mm256_cmpgt_epi8(v_lim, v));
 		} else {
-			__m256i const ctrl_only = _mm256_andnot_si256(_mm256_cmpgt_epi8(_mm256_setzero_si256(), v), lt_l);
-			mix = _mm256_or_si256(mix, ctrl_only);
+			mix = _mm256_or_si256(mix, _mm256_cmpeq_epi8(_mm256_min_epu8(v, v_1f), v));
 		}
 		auto const mask = static_cast<unsigned>(_mm256_movemask_epi8(mix));
 		if (mask != 0U) {
@@ -2897,16 +2896,14 @@ inline void dump_str_raw(
 		i += 32;
 	}
 	if (i + 16 <= n) {
-		__m128i const v128  = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
-		__m128i const eq_q  = _mm_cmpeq_epi8(v128, _mm256_castsi256_si128(v_quote));
-		__m128i const eq_b  = _mm_cmpeq_epi8(v128, _mm256_castsi256_si128(v_back));
-		__m128i const lt_l  = _mm_cmplt_epi8(v128, _mm256_castsi256_si128(v_lim));
+		__m128i const v128   = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
+		__m128i const eq_q   = _mm_cmpeq_epi8(v128, _mm256_castsi256_si128(v_quote));
+		__m128i const eq_b   = _mm_cmpeq_epi8(v128, _mm256_castsi256_si128(v_back));
 		__m128i mix16 = _mm_or_si128(eq_q, eq_b);
 		if (ascii_only) {
-			mix16 = _mm_or_si128(mix16, lt_l);
+			mix16 = _mm_or_si128(mix16, _mm_cmplt_epi8(v128, _mm256_castsi256_si128(v_lim)));
 		} else {
-			__m128i const ctrl_only = _mm_and_si128(lt_l, _mm_cmpgt_epi8(v128, _mm_set1_epi8(-1)));
-			mix16 = _mm_or_si128(mix16, ctrl_only);
+			mix16 = _mm_or_si128(mix16, _mm_cmpeq_epi8(_mm_min_epu8(v128, _mm256_castsi256_si128(v_1f)), v128));
 		}
 		auto const mask16 = static_cast<unsigned>(_mm_movemask_epi8(mix16));
 		if (mask16 != 0U) {
@@ -2916,19 +2913,18 @@ inline void dump_str_raw(
 	}
 #elif defined(CONFLUX_JSON_HAS_SSE2)
 	__m128i const v_quote = _mm_set1_epi8('"');
-	__m128i const v_back = _mm_set1_epi8('\\');
-	__m128i const v_lim = _mm_set1_epi8(0x20);
+	__m128i const v_back  = _mm_set1_epi8('\\');
+	__m128i const v_lim   = _mm_set1_epi8(0x20);
+	__m128i const v_1f    = _mm_set1_epi8(0x1F);
 	while (i + 16 <= n) {
-		__m128i const v = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
+		__m128i const v    = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
 		__m128i const eq_q = _mm_cmpeq_epi8(v, v_quote);
 		__m128i const eq_b = _mm_cmpeq_epi8(v, v_back);
-		__m128i const lt_lim = _mm_cmplt_epi8(v, v_lim);
 		__m128i mix = _mm_or_si128(eq_q, eq_b);
 		if (ascii_only) {
-			mix = _mm_or_si128(mix, lt_lim);
+			mix = _mm_or_si128(mix, _mm_cmplt_epi8(v, v_lim));
 		} else {
-			__m128i const ctrl_only = _mm_and_si128(lt_lim, _mm_cmpgt_epi8(v, _mm_set1_epi8(-1)));
-			mix = _mm_or_si128(mix, ctrl_only);
+			mix = _mm_or_si128(mix, _mm_cmpeq_epi8(_mm_min_epu8(v, v_1f), v));
 		}
 		auto const mask = static_cast<unsigned>(_mm_movemask_epi8(mix));
 		if (mask != 0U) {
