@@ -301,6 +301,106 @@ TEST_CASE(
 // wait_fd
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// percent_encode
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"utils: percent_encode unreserved passthrough",
+	"[utils]") {
+	CHECK(percent_encode("abcXYZ019") == "abcXYZ019");
+	CHECK(percent_encode("-._~") == "-._~");
+}
+
+TEST_CASE(
+	"utils: percent_encode reserved chars",
+	"[utils]") {
+	CHECK(percent_encode(" ") == "%20");
+	CHECK(percent_encode("/") == "%2F");
+	CHECK(percent_encode("a b") == "a%20b");
+	CHECK(percent_encode("100%") == "100%25");
+	CHECK(percent_encode("hello world!") == "hello%20world%21");
+}
+
+TEST_CASE(
+	"utils: percent_encode empty",
+	"[utils]") {
+	CHECK(percent_encode("").empty());
+}
+
+// ---------------------------------------------------------------------------
+// hex_encode / hex_decode
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"utils: hex_encode empty",
+	"[utils]") {
+	CHECK(hex_encode({}).empty());
+}
+
+TEST_CASE(
+	"utils: hex_encode known values",
+	"[utils]") {
+	A<unsigned char, 3> data{0xDE, 0xAD, 0x01};
+	CHECK(hex_encode(data) == "dead01");
+}
+
+TEST_CASE(
+	"utils: hex_decode empty",
+	"[utils]") {
+	auto r = hex_decode("");
+	REQUIRE(r.has_value());
+	CHECK(r->empty());
+}
+
+TEST_CASE(
+	"utils: hex_decode known values",
+	"[utils]") {
+	auto r = hex_decode("dead01");
+	REQUIRE(r.has_value());
+	REQUIRE(r->size() == 3);
+	CHECK((*r)[0] == 0xDE);
+	CHECK((*r)[1] == 0xAD);
+	CHECK((*r)[2] == 0x01);
+}
+
+TEST_CASE(
+	"utils: hex_decode case insensitive",
+	"[utils]") {
+	auto r = hex_decode("DeAd");
+	REQUIRE(r.has_value());
+	CHECK((*r)[0] == 0xDE);
+	CHECK((*r)[1] == 0xAD);
+}
+
+TEST_CASE(
+	"utils: hex_decode odd length fails",
+	"[utils]") {
+	auto r = hex_decode("abc");
+	CHECK(!r.has_value());
+}
+
+TEST_CASE(
+	"utils: hex_decode invalid chars fails",
+	"[utils]") {
+	auto r = hex_decode("zz");
+	CHECK(!r.has_value());
+}
+
+TEST_CASE(
+	"utils: hex_encode/decode round-trip",
+	"[utils]") {
+	A<unsigned char, 5> data{0x00, 0xFF, 0x7F, 0x80, 0x42};
+	auto enc = hex_encode(data);
+	auto dec = hex_decode(enc);
+	REQUIRE(dec.has_value());
+	CHECK(ranges::equal(*dec, data));
+}
+
+// ---------------------------------------------------------------------------
+// wait_fd
+// ---------------------------------------------------------------------------
+
 TEST_CASE(
 	"utils: wait_fd returns true when data available",
 	"[utils]") {

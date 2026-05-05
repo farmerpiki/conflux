@@ -78,6 +78,77 @@ export void random_bytes(
 }
 
 // ---------------------------------------------------------------------------
+// RFC 3986 percent-encoding
+// ---------------------------------------------------------------------------
+
+export S percent_encode(
+	SV in) {
+	S out;
+	out.reserve(in.size());
+	static constexpr char kHex[] = "0123456789ABCDEF";
+	for (char const ch: in) {
+		auto const c = static_cast<unsigned char>(ch);
+		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+			|| c == '-' || c == '.' || c == '_' || c == '~') {
+			out.push_back(ch);
+		} else {
+			out.push_back('%');
+			out.push_back(kHex[c >> 4U]);
+			out.push_back(kHex[c & 0x0FU]);
+		}
+	}
+	return out;
+}
+
+// ---------------------------------------------------------------------------
+// Hex encode / decode
+// ---------------------------------------------------------------------------
+
+export S hex_encode(
+	span<unsigned char const> in) {
+	static constexpr char kHex[] = "0123456789abcdef";
+	S out;
+	out.resize(in.size() * 2);
+	for (SZ i = 0; i < in.size(); ++i) {
+		out[i * 2] = kHex[in[i] >> 4U];
+		out[i * 2 + 1] = kHex[in[i] & 0x0FU];
+	}
+	return out;
+}
+
+constexpr int hex_nibble_(
+	char c) noexcept {
+	if (c >= '0' && c <= '9') {
+		return c - '0';
+	}
+	if (c >= 'a' && c <= 'f') {
+		return c - 'a' + 10;
+	}
+	if (c >= 'A' && c <= 'F') {
+		return c - 'A' + 10;
+	}
+	return -1;
+}
+
+export expected<V<unsigned char>, S> hex_decode(
+	SV in) {
+	if (in.size() % 2 != 0) {
+		return unexpected(S{"hex_decode: odd-length input"});
+	}
+	V<unsigned char> out;
+	out.reserve(in.size() / 2);
+	for (SZ i = 0; i < in.size(); i += 2) {
+		int const hi = hex_nibble_(in[i]);
+		int const lo = hex_nibble_(in[i + 1]);
+		if (hi < 0 || lo < 0) {
+			return unexpected(S{"hex_decode: invalid hex digit"});
+		}
+		out.push_back(static_cast<unsigned char>((hi << 4) | lo));
+	}
+	return out;
+}
+
+// ---------------------------------------------------------------------------
 // HTTP status codes
 // ---------------------------------------------------------------------------
 
