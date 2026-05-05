@@ -24,6 +24,15 @@
       }
     },
     {
+      "name": "clang-stdcxx",
+      "hidden": true,
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_CXX_COMPILER": "clang++",
+        "CMAKE_C_COMPILER": "clang"
+      }
+    },
+    {
       "name": "gcc-stdcxx",
       "hidden": true,
       "inherits": "base",
@@ -45,6 +54,18 @@
       "name": "debug-clang-libcxx",
       "displayName": "Debug · clang++ · libc++",
       "inherits": "clang-libcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CONFLUX_ENABLE_ASAN": "ON",
+        "CONFLUX_ENABLE_UBSAN": "ON",
+        "CONFLUX_BUILD_TESTS": "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
+      "name": "debug-clang-stdcxx",
+      "displayName": "Debug · clang++ · libstdc++",
+      "inherits": "clang-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CONFLUX_ENABLE_ASAN": "ON",
