@@ -29,7 +29,9 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_C_COMPILER": "clang"
+        "CMAKE_C_COMPILER": "clang",
+        "CMAKE_CXX_FLAGS": "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0",
+        "CMAKE_EXE_LINKER_FLAGS": ""
       }
     },
     {
@@ -117,6 +119,17 @@
       "name": "release-clang-libcxx",
       "displayName": "Release · clang++ · libc++",
       "inherits": "clang-libcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CONFLUX_ENABLE_LTO": "ON",
+        "CONFLUX_BUILD_TESTS": "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
+      "name": "release-clang-stdcxx",
+      "displayName": "Release · clang++ · libstdc++",
+      "inherits": "clang-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CONFLUX_ENABLE_LTO": "ON",
