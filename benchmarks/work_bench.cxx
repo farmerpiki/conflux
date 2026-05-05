@@ -388,8 +388,17 @@ Case make_small_fn_heap_case() {
 // work: WorkPool dispatch
 // ---------------------------------------------------------------------------
 
+WorkPoolOptions bench_pool_opts() {
+	WorkPoolOptions opts;
+#ifdef CONFLUX_BENCH_SPIN_BEFORE_PARK
+	opts.spin_before_park = CONFLUX_BENCH_SPIN_BEFORE_PARK;
+#endif
+	opts.threads = 4;
+	return opts;
+}
+
 Case make_pool_single_case() {
-	auto pool = make_shared<WorkPool>();
+	auto pool = make_shared<WorkPool>(bench_pool_opts());
 	return Case{
 		.name = "work/pool_single",
 		.description = "run_on_task(pool, fn) + root::value(task) — single dispatch roundtrip",
@@ -400,7 +409,7 @@ Case make_pool_single_case() {
 }
 
 Case make_pool_join_all_3_case() {
-	auto pool = make_shared<WorkPool>();
+	auto pool = make_shared<WorkPool>(bench_pool_opts());
 	return Case{
 		.name = "work/pool_join_all_3",
 		.description = "join_all(3 × run_on_task) + root::value — 3-way fan-out",
@@ -411,6 +420,31 @@ Case make_pool_join_all_3_case() {
 				run_on_task(*pool, [] { return 2; }),
 				run_on_task(*pool, [] { return 3; })));
 			return static_cast<SZ>(a + b + c);
+		}};
+}
+
+Case make_pool_bursty_case() {
+	auto pool = make_shared<WorkPool>(bench_pool_opts());
+	return Case{
+		.name = "work/pool_bursty_8",
+		.description = "burst of 8 tasks after idle gap — exercises park/wake path",
+		.default_iterations = 10'000,
+		.run = [pool] {
+			// Brief idle to let workers park
+			for (volatile int i = 0; i < 200; ++i) {}
+			// Burst 8 tasks
+			auto t0 = run_on_task(*pool, [] { return 1; });
+			auto t1 = run_on_task(*pool, [] { return 2; });
+			auto t2 = run_on_task(*pool, [] { return 3; });
+			auto t3 = run_on_task(*pool, [] { return 4; });
+			auto t4 = run_on_task(*pool, [] { return 5; });
+			auto t5 = run_on_task(*pool, [] { return 6; });
+			auto t6 = run_on_task(*pool, [] { return 7; });
+			auto t7 = run_on_task(*pool, [] { return 8; });
+			auto [a, b, c, d, e, f, g, h] = root::value(join_all(
+				move(t0), move(t1), move(t2), move(t3),
+				move(t4), move(t5), move(t6), move(t7)));
+			return static_cast<SZ>(a + b + c + d + e + f + g + h);
 		}};
 }
 
@@ -530,6 +564,7 @@ V<Case> make_cases() {
 	// work: pool dispatch (sync join)
 	cases.push_back(make_pool_single_case());
 	cases.push_back(make_pool_join_all_3_case());
+	cases.push_back(make_pool_bursty_case());
 	// work: ring lane
 	try {
 		cases.push_back(make_ring_lane_case());

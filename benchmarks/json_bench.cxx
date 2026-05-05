@@ -703,6 +703,90 @@ void bench_fi1_sentinel(
 
 } // namespace
 
+// ---------------------------------------------------------------------------
+// UnknownMemberPolicy::reject cost on wide objects
+// ---------------------------------------------------------------------------
+
+struct BenchModel5 {
+	i64 id{};
+	S name{};
+	double score{};
+	bool active{};
+	S tag{};
+};
+
+template<>
+struct JsonMembers<BenchModel5> {
+	static constexpr auto members() {
+		return Tup{
+			json_member("id", &BenchModel5::id),
+			json_member("name", &BenchModel5::name),
+			json_member("score", &BenchModel5::score),
+			json_member("active", &BenchModel5::active),
+			json_member("tag", &BenchModel5::tag),
+		};
+	}
+	static constexpr SV type_name() { return "BenchModel5"; }
+};
+
+namespace {
+
+S make_reject_corpus(
+	SZ extra_members) {
+	S out;
+	out.reserve(extra_members * 30 + 128);
+	out += R"({"id":42,"name":"bench","score":3.14,"active":true,"tag":"x")";
+	for (SZ i = 0; i < extra_members; ++i) {
+		out += format(R"(,"extra_field_{}":{})", i, i);
+	}
+	out += '}';
+	return out;
+}
+
+void bench_reject_policy() {
+	for (SZ extra: {0, 10, 50, 100, 200}) {
+		S const corpus = make_reject_corpus(extra);
+		auto doc_res = parse(corpus);
+		if (!doc_res) {
+			return;
+		}
+
+		// reject policy (default): O(N·M) scan after DOM decode
+		auto s_reject = measure(
+			[&] {
+				auto d = parse(corpus);
+				if (!d) {
+					return;
+				}
+				JsonDecodeOptions opts;
+				opts.unknown_members = UnknownMemberPolicy::reject;
+				auto r = decode<BenchModel5>(d->root(), opts);
+				(void)r;
+			},
+			20,
+			500);
+		print_row(format("decode/reject 5+{} members", extra), s_reject);
+
+		// ignore policy: no extra scan
+		auto s_ignore = measure(
+			[&] {
+				auto d = parse(corpus);
+				if (!d) {
+					return;
+				}
+				JsonDecodeOptions opts;
+				opts.unknown_members = UnknownMemberPolicy::ignore;
+				auto r = decode<BenchModel5>(d->root(), opts);
+				(void)r;
+			},
+			20,
+			500);
+		print_row(format("decode/ignore 5+{} members", extra), s_ignore);
+	}
+}
+
+} // namespace
+
 // NOLINTNEXTLINE(bugprone-exception-escape)
 int main(
 	int argc,
@@ -790,6 +874,12 @@ int main(
 		println("[json-bench]    adversarial cost WITHOUT sentinel: (A)+(B) per lookup; WITH: (A) after first call");
 	}
 	bench_fi1_sentinel(below_threshold_corpus, lookup_corpus);
+
+	if (!g_csv) {
+		println("[json-bench]");
+		println("[json-bench] -- UnknownMemberPolicy::reject O(N·M) cost --");
+	}
+	bench_reject_policy();
 
 	if (!g_csv) {
 		println("[json-bench]");
