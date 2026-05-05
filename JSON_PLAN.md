@@ -783,7 +783,7 @@ Store baseline in `benchmarks/baseline.json` as `{median, p25, p75}` per benchma
 
 ---
 
-## Phase 5 — Memory Model & Performance Hardening ✅ COMPLETE (5.1/5.2/5.4/5.5; 5.3 DEFERRED — measurement-gated)
+## Phase 5 — Memory Model & Performance Hardening ✅ COMPLETE (5.1/5.2/5.5; 5.3 DEFERRED — measurement-gated; 5.4 DEFERRED — platform-blocked)
 **Effort:** 3 weeks.
 
 ### 5.1 `pmr::memory_resource` injection
@@ -906,6 +906,9 @@ and need not be tested via this path.
 
 If the full suite passes: delete `CLocaleHolder`, `strtod_l`, `locale.h`. If any case fails:
 keep `strtod_l` for those cases and document why. Do not delete until the suite is clean.
+
+**Proof gate result (2026-05-05, GCC 15.2.1 / GCC 16.1.0 libstdc++ on Gentoo glibc): FAILED.**
+On this libstdc++, `from_chars<double>` does NOT write `dv` when returning `result_out_of_range` — the output parameter is unchanged for both overflow (`1e999`) and underflow (`1e-999`). Consequently `isinf(dv)` is always false and overflow cannot be distinguished from underflow without `strtod_l`. Gate fails; `strtod_l` / `CLocaleHolder` retained. Revisit when libstdc++ `from_chars` sets `dv=inf` on overflow (C++ standard requires this).
 
 **Preserve `kValKindDeferred` flag** — stored in `Node::flags`; removing it would break
 Documents read back across a library upgrade. No change to `Node::flags` layout. No public

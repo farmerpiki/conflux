@@ -19,6 +19,10 @@ conflux_add_fuzz(fuzz_urlencoded)
 conflux_add_fuzz(fuzz_http1_parser)
 conflux_add_fuzz(fuzz_ws_frame)
 conflux_add_fuzz(fuzz_json_parse)
+conflux_add_fuzz(fuzz_json5)
+conflux_add_fuzz(fuzz_json_reader)
+conflux_add_fuzz(fuzz_json_sax)
+conflux_add_fuzz(fuzz_ndjson)
 
 if(CONFLUX_BUILD_TESTS)
     enable_testing()
@@ -31,10 +35,12 @@ if(CONFLUX_BUILD_TESTS)
         set_tests_properties(${fz}_smoke PROPERTIES LABELS "fuzz-smoke")
     endforeach()
 
-    add_test(
-        NAME fuzz_json_parse_smoke
-        COMMAND fuzz_json_parse -runs=10000 -max_total_time=5
-                      ${CMAKE_CURRENT_SOURCE_DIR}/corpus/fuzz_json_parse
-    )
-    set_tests_properties(fuzz_json_parse_smoke PROPERTIES LABELS "fuzz-smoke")
+    foreach(fz IN ITEMS fuzz_json_parse fuzz_json5 fuzz_json_reader fuzz_json_sax fuzz_ndjson)
+        add_test(
+            NAME ${fz}_smoke
+            COMMAND ${fz} -runs=10000 -max_total_time=5
+                          ${CMAKE_CURRENT_SOURCE_DIR}/corpus/fuzz_json_parse
+        )
+        set_tests_properties(${fz}_smoke PROPERTIES LABELS "fuzz-smoke")
+    endforeach()
 endif()

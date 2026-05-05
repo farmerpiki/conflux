@@ -370,12 +370,15 @@ public:
 	}
 };
 
+export enum class ParseMode : u8 { strict, json5 };
+
 export struct JsonParseOptions {
 	LimitOption       max_depth;
 	LimitOption       max_input_size;
 	LimitOption       max_string_size;
 	DuplicateKeyPolicy duplicate_key{DuplicateKeyPolicy::reject};
 	Opt<u32>           warm_threshold{};
+	ParseMode          mode{ParseMode::strict};
 };
 
 // NOLINTNEXTLINE(performance-enum-size)
@@ -1139,6 +1142,7 @@ template<class Writer>
 		bool simple = true;
 		switch (body[i]) {
 		case '"': esc_char[0] = '"'; break;
+		case '\'': esc_char[0] = '\''; break;
 		case '\\': esc_char[0] = '\\'; break;
 		case '/': esc_char[0] = '/'; break;
 		case 'b': esc_char[0] = '\b'; break;
@@ -1228,6 +1232,7 @@ template<class Writer>
 export class JsonStringToken {
 	SV raw_lexeme_{};
 	bool has_escapes_{false};
+	bool unquoted_{false};
 	LimitOption max_string_size_{};
 
 	friend class JsonReader;
@@ -1249,15 +1254,25 @@ public:
 		if (has_escapes_) {
 			return std::nullopt;
 		}
+		if (unquoted_) {
+			return raw_lexeme_;
+		}
 		return raw_lexeme_.substr(1, raw_lexeme_.size() - 2);
 	}
 
 	[[nodiscard]] SZ max_decoded_size() const noexcept {
+		if (unquoted_) {
+			return raw_lexeme_.size();
+		}
 		return raw_lexeme_.size() >= 2 ? raw_lexeme_.size() - 2 : 0;
 	}
 
 	[[nodiscard]] expected<void, JsonError> append_decoded_to(
 		S &out) const {
+		if (unquoted_) {
+			out.append(raw_lexeme_.data(), raw_lexeme_.size());
+			return {};
+		}
 		if (raw_lexeme_.size() < 2) {
 			return {};
 		}
@@ -1278,6 +1293,10 @@ public:
 
 	[[nodiscard]] expected<SV, JsonError> decode_into(
 		std::span<char> buf) const {
+		if (unquoted_) {
+			std::ranges::copy(raw_lexeme_, buf.data());
+			return SV{buf.data(), raw_lexeme_.size()};
+		}
 		if (raw_lexeme_.size() < 2) {
 			return SV{buf.data(), 0};
 		}
@@ -1360,18 +1379,55 @@ private:
 	}
 
 	void skip_ws() noexcept {
-		while (pos_ < input_.size()) {
-			char const c = input_[pos_];
-			if (c == '\n') {
-				++pos_;
-				++line_;
-				col_ = 1;
-			} else if (c == ' ' || c == '\t' || c == '\r') {
-				++pos_;
-				++col_;
-			} else {
-				break;
+		for (;;) {
+			while (pos_ < input_.size()) {
+				char const c = input_[pos_];
+				if (c == '\n') {
+					++pos_;
+					++line_;
+					col_ = 1;
+				} else if (c == ' ' || c == '\t' || c == '\r') {
+					++pos_;
+					++col_;
+				} else {
+					break;
+				}
 			}
+			if (opts_.mode != ParseMode::json5 || pos_ + 1 >= input_.size() || input_[pos_] != '/') {
+				return;
+			}
+			if (input_[pos_ + 1] == '/') {
+				pos_ += 2;
+				col_ += 2;
+				while (pos_ < input_.size() && input_[pos_] != '\n') {
+					++pos_;
+					++col_;
+				}
+				continue;
+			}
+			if (input_[pos_ + 1] == '*') {
+				pos_ += 2;
+				col_ += 2;
+				while (pos_ + 1 < input_.size()) {
+					if (input_[pos_] == '*' && input_[pos_ + 1] == '/') {
+						pos_ += 2;
+						col_ += 2;
+						goto next_reader_ws;
+					}
+					if (input_[pos_] == '\n') {
+						++pos_;
+						++line_;
+						col_ = 1;
+					} else {
+						++pos_;
+						++col_;
+					}
+				}
+				pos_ = input_.size();
+				return;
+			}
+			return;
+			next_reader_ws:;
 		}
 	}
 
@@ -1423,6 +1479,78 @@ private:
 					// NOLINTBEGIN(readability-magic-numbers)
 					u32 cp = detail::hex4_from_sv(input_, pos_);
 					adv(4);
+					if (cp >= 0xD800U && cp <= 0xDBFFU) {
+						if (pos_ + 6 > input_.size() || input_[pos_] != '\\' || input_[pos_ + 1] != 'u') {
+							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
+						}
+						adv(2);
+						u32 const lo = detail::hex4_from_sv(input_, pos_);
+						adv(4);
+						if (lo < 0xDC00U || lo > 0xDFFFU) {
+							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
+						}
+					} else if (cp >= 0xDC00U && cp <= 0xDFFFU) {
+						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
+					}
+					// NOLINTEND(readability-magic-numbers)
+				} else {
+					adv();
+				}
+				continue;
+			}
+			SZ const seq = utf8_seq_len(c);
+			if (seq == 0) {
+				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
+			}
+			if (pos_ + seq > input_.size()) {
+				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
+			}
+			for (SZ k = 1; k < seq; ++k) {
+				if (!is_cont(static_cast<unsigned char>(input_[pos_ + k]))) {
+					return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
+				}
+			}
+			pos_ += seq;
+			col_ += 1;
+		}
+		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
+	}
+
+	[[nodiscard]] expected<void, JsonError> parse_str_sq_into_token(
+		LimitOption max_sz,
+		JsonStringToken &tok_out) {
+		SZ const raw_start = pos_ - 1;
+		bool has_esc = false;
+		while (pos_ < input_.size()) {
+			auto const c = static_cast<unsigned char>(input_[pos_]);
+			if (c == '\'') {
+				adv();
+				SV raw_lex = input_.substr(raw_start, pos_ - raw_start);
+				SZ const body_len = raw_lex.size() - 2;
+				if (max_sz.exceeds(body_len, kDefaultMaxString)) {
+					return unexpected(mk_err(JsonIssueCode::string_too_large, "string exceeds max_string_size"));
+				}
+				tok_out = JsonStringToken{raw_lex, has_esc, max_sz};
+				return {};
+			}
+			if (c < 0x20U) {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
+			}
+			if (c == '\\') {
+				has_esc = true;
+				adv();
+				if (pos_ >= input_.size()) {
+					return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
+				}
+				char const esc = input_[pos_];
+				if (esc == 'u') {
+					adv();
+					if (pos_ + 4 > input_.size()) {
+						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
+					}
+					u32 cp = detail::hex4_from_sv(input_, pos_);
+					adv(4);
+					// NOLINTBEGIN(readability-magic-numbers)
 					if (cp >= 0xD800U && cp <= 0xDBFFU) {
 						if (pos_ + 6 > input_.size() || input_[pos_] != '\\' || input_[pos_ + 1] != 'u') {
 							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
@@ -1528,6 +1656,14 @@ private:
 			}
 			return Event::string_value;
 		}
+		if (c == '\'' && opts_.mode == ParseMode::json5) {
+			adv();
+			auto res = parse_str_sq_into_token(opts_.max_string_size, str_token_);
+			if (!res) {
+				return unexpected(move(res).error());
+			}
+			return Event::string_value;
+		}
 		if (c == '{') {
 			adv();
 			stack_.push_back(StateFrame{.kind = StateFrame::Kind::object, .first = true, .awaiting_value = false});
@@ -1614,6 +1750,11 @@ public:
 				}
 				adv();
 				skip_ws();
+				if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == ']') {
+					adv();
+					stack_.pop_back();
+					return Opt<Event>{Event::end_array};
+				}
 			}
 			top.first = false;
 			value_start_ = pos_;
@@ -1652,15 +1793,45 @@ public:
 			}
 			adv();
 			skip_ws();
+			if (opts_.mode == ParseMode::json5 && pos_ < input_.size() && input_[pos_] == '}') {
+				adv();
+				stack_.pop_back();
+				return Opt<Event>{Event::end_object};
+			}
 		}
 		top.first = false;
-		if (pos_ >= input_.size() || input_[pos_] != '"') {
-			auto e = mk_err(JsonIssueCode::syntax_error, "expected string key");
+		if (pos_ >= input_.size()) {
+			auto e = mk_err(JsonIssueCode::unexpected_eof, "EOF in object");
 			set_error(e);
 			return unexpected(last_error_);
 		}
-		adv();
-		auto str_res = parse_str_into_token(opts_.max_string_size, key_token_);
+		expected<void, JsonError> str_res = unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key"));
+		if (input_[pos_] == '"') {
+			adv();
+			str_res = parse_str_into_token(opts_.max_string_size, key_token_);
+		} else if (input_[pos_] == '\'' && opts_.mode == ParseMode::json5) {
+			adv();
+			str_res = parse_str_sq_into_token(opts_.max_string_size, key_token_);
+		} else if (opts_.mode == ParseMode::json5) {
+			SZ const key_start = pos_;
+			char const fc = input_[pos_];
+			if ((fc >= 'A' && fc <= 'Z') || (fc >= 'a' && fc <= 'z') || fc == '_' || fc == '$') {
+				adv();
+				while (pos_ < input_.size()) {
+					char const ch = input_[pos_];
+					if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
+						|| (ch >= '0' && ch <= '9') || ch == '_' || ch == '$') {
+						adv();
+					} else {
+						break;
+					}
+				}
+				SV raw_lex = input_.substr(key_start, pos_ - key_start);
+				key_token_ = JsonStringToken{raw_lex, false, opts_.max_string_size};
+				key_token_.unquoted_ = true;
+				str_res = {};
+			}
+		}
 		if (!str_res) {
 			set_error(str_res.error());
 			return unexpected(last_error_);
@@ -3271,6 +3442,7 @@ struct Tokenizer {
 	SZ col{1};
 	DocumentStorage &store;
 	u32 bom_prefix_bytes;
+	ParseMode mode{};
 
 	[[nodiscard]] JsonError mk_err(
 		JsonIssueCode code,
@@ -3287,18 +3459,55 @@ struct Tokenizer {
 	}
 
 	void skip_ws() noexcept {
-		while (pos < src.size()) {
-			char const c = src[pos];
-			if (c == '\n') {
-				++pos;
-				++line;
-				col = 1;
-			} else if (c == ' ' || c == '\t' || c == '\r') {
-				++pos;
-				++col;
-			} else {
-				break;
+		for (;;) {
+			while (pos < src.size()) {
+				char const c = src[pos];
+				if (c == '\n') {
+					++pos;
+					++line;
+					col = 1;
+				} else if (c == ' ' || c == '\t' || c == '\r') {
+					++pos;
+					++col;
+				} else {
+					break;
+				}
 			}
+			if (mode != ParseMode::json5 || pos + 1 >= src.size() || src[pos] != '/') {
+				return;
+			}
+			if (src[pos + 1] == '/') {
+				pos += 2;
+				col += 2;
+				while (pos < src.size() && src[pos] != '\n') {
+					++pos;
+					++col;
+				}
+				continue;
+			}
+			if (src[pos + 1] == '*') {
+				pos += 2;
+				col += 2;
+				while (pos + 1 < src.size()) {
+					if (src[pos] == '*' && src[pos + 1] == '/') {
+						pos += 2;
+						col += 2;
+						goto next_ws;
+					}
+					if (src[pos] == '\n') {
+						++pos;
+						++line;
+						col = 1;
+					} else {
+						++pos;
+						++col;
+					}
+				}
+				pos = src.size();
+				return;
+			}
+			return;
+			next_ws:;
 		}
 	}
 	void adv(
@@ -3514,6 +3723,104 @@ struct Tokenizer {
 		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
 	}
 
+	// JSON5: single-quoted string. Scalar scan (no SIMD). Allows \' escape.
+	// NOLINTNEXTLINE(readability-function-cognitive-complexity)
+	[[nodiscard]] expected<ParsedStr, JsonError> parse_str_body_sq() {
+		constexpr unsigned char kCtrlEnd = 0x20U;
+		SZ const arena_off = store.string_arena.size();
+		while (pos < src.size()) {
+			auto const c = static_cast<unsigned char>(src[pos]);
+			if (c == '\'') {
+				adv();
+				SZ const len = store.string_arena.size() - arena_off;
+				return ParsedStr{static_cast<u32>(arena_off), static_cast<u32>(len), 0};
+			}
+			if (c < kCtrlEnd) {
+				return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
+			}
+			if (c == '\\') {
+				adv();
+				if (pos >= src.size()) {
+					return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in escape"));
+				}
+				switch (src[pos]) {
+				case '\'': store.string_arena += '\''; adv(); break;
+				case '"':  store.string_arena += '"';  adv(); break;
+				case '\\': store.string_arena += '\\'; adv(); break;
+				case '/':  store.string_arena += '/';  adv(); break;
+				case 'b':  store.string_arena += '\b'; adv(); break;
+				case 'f':  store.string_arena += '\f'; adv(); break;
+				case 'n':  store.string_arena += '\n'; adv(); break;
+				case 'r':  store.string_arena += '\r'; adv(); break;
+				case 't':  store.string_arena += '\t'; adv(); break;
+				case 'u': {
+					adv();
+					u32 cp = 0;
+					if (!hex4(cp)) {
+						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
+					}
+					// NOLINTBEGIN(readability-magic-numbers)
+					if (cp >= 0xD800U && cp <= 0xDBFFU) {
+						if (pos + 6 > src.size() || src[pos] != '\\' || src[pos + 1] != 'u') {
+							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
+						}
+						adv(2);
+						u32 lo = 0;
+						if (!hex4(lo) || lo < 0xDC00U || lo > 0xDFFFU) {
+							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
+						}
+						cp = 0x10000U + ((cp - 0xD800U) << 10U) + (lo - 0xDC00U);
+					} else if (cp >= 0xDC00U && cp <= 0xDFFFU) {
+						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "lone low surrogate"));
+					}
+					// NOLINTEND(readability-magic-numbers)
+					append_utf8(cp, store.string_arena);
+					break;
+				}
+				default: return unexpected(mk_err(JsonIssueCode::syntax_error, "invalid escape"));
+				}
+				continue;
+			}
+			SZ const seq = utf8_seq_len(c);
+			if (seq == 0) {
+				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
+			}
+			if (pos + seq > src.size()) {
+				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
+			}
+			for (SZ k = 1; k < seq; ++k) {
+				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) {
+					return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
+				}
+			}
+			store.string_arena.append(src.data() + pos, seq);
+			pos += seq;
+			col += 1;
+		}
+		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
+	}
+
+	// JSON5: unquoted key — [A-Za-z_$][A-Za-z0-9_$]*
+	[[nodiscard]] expected<ParsedStr, JsonError> parse_unquoted_key() {
+		SZ const start = pos;
+		char const first = src[pos];
+		if (!((first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z') || first == '_' || first == '$')) {
+			return unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key or identifier"));
+		}
+		adv();
+		while (pos < src.size()) {
+			char const ch = src[pos];
+			if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z')
+				|| (ch >= '0' && ch <= '9') || ch == '_' || ch == '$') {
+				adv();
+			} else {
+				break;
+			}
+		}
+		auto const len = static_cast<u32>(pos - start);
+		return ParsedStr{static_cast<u32>(start), len, static_cast<u8>(kStorageInputView | kRawJsonSlice)};
+	}
+
 	// Scans a number lexeme per RFC 8259 grammar and returns the slice of `src`
 	// covering it. Caller (TreeBuilder) classifies the value and stores the
 	// node; the lexeme references input_view directly (Phase 1: zero-copy).
@@ -3599,6 +3906,10 @@ struct TreeBuilder {
 			tok.adv();
 			return parse_str_node();
 		}
+		if (c == '\'' && opts.mode == ParseMode::json5) {
+			tok.adv();
+			return parse_str_node_sq();
+		}
 		if (c == '[') {
 			return parse_array(depth);
 		}
@@ -3637,6 +3948,18 @@ struct TreeBuilder {
 
 	[[nodiscard]] expected<SZ, JsonError> parse_str_node() {
 		auto parsed = tok.parse_str_body();
+		if (!parsed) {
+			return unexpected(move(parsed).error());
+		}
+		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
+			return unexpected(mk_err(JsonIssueCode::string_too_large, "S exceeds max_string_size"));
+		}
+		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
+		return store.nodes.size() - 1;
+	}
+
+	[[nodiscard]] expected<SZ, JsonError> parse_str_node_sq() {
+		auto parsed = tok.parse_str_body_sq();
 		if (!parsed) {
 			return unexpected(move(parsed).error());
 		}
@@ -3688,6 +4011,21 @@ struct TreeBuilder {
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or ']'"));
 			}
 			tok.adv();
+			if (opts.mode == ParseMode::json5) {
+				tok.skip_ws();
+				if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
+					tok.adv();
+					SZ const len = staging.size() - children_start;
+					SZ const cs = store.array_children.size();
+					store.array_children.insert(
+						store.array_children.end(),
+						std::next(staging.begin(), children_start),
+						staging.end());
+					staging.resize(children_start);
+					store.nodes.push_back(detail::node_array(static_cast<u32>(cs), static_cast<u32>(len)));
+					return store.nodes.size() - 1;
+				}
+			}
 		}
 	}
 
@@ -3751,12 +4089,22 @@ struct TreeBuilder {
 		auto const dup_policy = opts.duplicate_key;
 		while (true) {
 			tok.skip_ws();
-			if (tok.pos >= tok.src.size() || tok.src[tok.pos] != '"') {
+			if (tok.pos >= tok.src.size()) {
 				staging_members.resize(members_start);
-				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key"));
+				return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in object"));
 			}
-			tok.adv();
-			auto parsed_name = tok.parse_str_body();
+			expected<Tokenizer::ParsedStr, JsonError> parsed_name = unexpected(
+				mk_err(JsonIssueCode::syntax_error, "expected string key"));
+			char const key_ch = tok.src[tok.pos];
+			if (key_ch == '"') {
+				tok.adv();
+				parsed_name = tok.parse_str_body();
+			} else if (key_ch == '\'' && opts.mode == ParseMode::json5) {
+				tok.adv();
+				parsed_name = tok.parse_str_body_sq();
+			} else if (opts.mode == ParseMode::json5) {
+				parsed_name = tok.parse_unquoted_key();
+			}
 			if (!parsed_name) {
 				staging_members.resize(members_start);
 				return unexpected(move(parsed_name).error());
@@ -3867,6 +4215,38 @@ struct TreeBuilder {
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "expected ',' or '}'"));
 			}
 			tok.adv();
+			if (opts.mode == ParseMode::json5) {
+				tok.skip_ws();
+				if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
+					tok.adv();
+					SZ const len2 = staging_members.size() - members_start;
+					SZ const ms2 = store.object_members.size();
+					store.object_members.insert(
+						store.object_members.end(),
+						std::next(staging_members.begin(), members_start),
+						staging_members.end());
+					staging_members.resize(members_start);
+					store.nodes.push_back(detail::node_object(static_cast<u32>(ms2), static_cast<u32>(len2)));
+					SZ const obj2 = store.nodes.size() - 1;
+					if (opts.warm_threshold.has_value()
+						&& len2 >= static_cast<SZ>(*opts.warm_threshold)
+						&& len2 >= kHashThreshold) {
+						u32 const cap2 = detail::clamped_capacity(static_cast<u32>(len2));
+						if (cap2 > 0) {
+							ObjHashTable *ht2 = ObjHashTable::create(cap2, static_cast<u32>(len2));
+							if (ht2 != nullptr) {
+								if (detail::build_table(*ht2, &store, ms2, len2)) {
+									store.nodes[obj2].hash_idx_raw = ht2; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+								} else {
+									ObjHashTable::destroy(ht2);
+									store.nodes[obj2].hash_idx_raw = kHashBuildFailedSentinel; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+								}
+							}
+						}
+					}
+					return obj2;
+				}
+			}
 		}
 	}
 
@@ -3933,7 +4313,8 @@ struct TreeBuilder {
 			Tokenizer{
 					  .src = store.input_view,
 					  .store = store,
-					  .bom_prefix_bytes = store.bom_prefix_bytes},
+					  .bom_prefix_bytes = store.bom_prefix_bytes,
+					  .mode = opts.mode},
 		.store = store,
 		.opts = opts,
 		.staging = {},
@@ -3991,7 +4372,8 @@ struct TreeBuilder {
 			Tokenizer{
 					  .src = storage_ref.input_view,
 					  .store = storage_ref,
-					  .bom_prefix_bytes = storage_ref.bom_prefix_bytes},
+					  .bom_prefix_bytes = storage_ref.bom_prefix_bytes,
+					  .mode = opts.mode},
 		.store = storage_ref,
 		.opts = opts,
 		.staging = {},
@@ -6862,6 +7244,195 @@ expected<void, JsonError> ValueBuilder::set(
 		return ok;
 	}
 	return detail::encode_dispatch<T>(*this, value);
+}
+
+// ---------------------------------------------------------------------------
+// Phase 8.3 — schema_for / validate
+// ---------------------------------------------------------------------------
+
+namespace detail {
+
+template<class M>
+constexpr SV json_type_name() noexcept {
+	using Raw = std::remove_cvref_t<M>;
+	if constexpr (std::same_as<Raw, bool>) {
+		return "boolean";
+	} else if constexpr (std::same_as<Raw, i64> || std::same_as<Raw, u64>
+						 || std::same_as<Raw, i32> || std::same_as<Raw, u32>
+						 || std::same_as<Raw, i16> || std::same_as<Raw, u16>
+						 || std::same_as<Raw, i8> || std::same_as<Raw, u8>) {
+		return "integer";
+	} else if constexpr (std::same_as<Raw, double> || std::same_as<Raw, float>) {
+		return "number";
+	} else if constexpr (std::same_as<Raw, S> || std::same_as<Raw, SV>) {
+		return "string";
+	} else if constexpr (is_vector_of_v<Raw> || is_std_array_v<Raw>) {
+		return "array";
+	} else if constexpr (is_map_type_v<Raw> || is_unordered_map_type_v<Raw>) {
+		return "object";
+	} else if constexpr (has_codec_spec<Raw>::value || has_members_spec<Raw>::value) {
+		return "object";
+	} else {
+		return "any";
+	}
+}
+
+template<class M>
+void schema_insert_type(ObjectBuilder &obj) {
+	using Raw = std::remove_cvref_t<M>;
+	if constexpr (is_optional<Raw>::value) {
+		using Inner = typename Raw::value_type;
+		(void)obj.insert_string("type", json_type_name<Inner>());
+	} else if constexpr (is_nullable_type<Raw>::value) {
+		using Inner = nullable_inner_t<Raw>;
+		(void)obj.insert_string("type", json_type_name<Inner>());
+		(void)obj.insert_bool("nullable", true);
+	} else {
+		(void)obj.insert_string("type", json_type_name<Raw>());
+	}
+}
+
+} // namespace detail
+
+export template<class T>
+	requires (detail::has_members_spec<T>::value || detail::has_codec_spec<T>::value)
+expected<Document, JsonError> schema_for() {
+	ValueBuilder vb;
+	auto obj_r = vb.begin_object();
+	if (!obj_r) return unexpected(move(obj_r).error());
+	auto &schema = *obj_r;
+	(void)schema.insert_string("type", "object");
+
+	if constexpr (detail::has_members_spec<T>::value) {
+		auto props_r = schema.insert_object("properties");
+		auto &props = *props_r;
+		auto const members = JsonMembers<T>::members();
+
+		apply(
+			[&](auto const &...ms) {
+				(([&](auto const &entry) {
+					 auto const &m = detail::jm_member(entry);
+					 using M = std::remove_reference_t<decltype(std::declval<T>().*m.pointer)>;
+					 auto field_r = props.insert_object(m.name);
+					 auto &field = *field_r;
+					 detail::schema_insert_type<M>(field);
+					 move(field).commit();
+				 })(ms),
+				 ...);
+			},
+			members);
+		move(props).commit();
+
+		auto req_r = schema.insert_array("required");
+		auto &req = *req_r;
+		apply(
+			[&](auto const &...ms) {
+				(([&](auto const &entry) {
+					 auto const &m = detail::jm_member(entry);
+					 using M = std::remove_reference_t<decltype(std::declval<T>().*m.pointer)>;
+					 if constexpr (!detail::is_optional<std::remove_cvref_t<M>>::value) {
+						 (void)req.append_string(m.name);
+					 }
+				 })(ms),
+				 ...);
+			},
+			members);
+		move(req).commit();
+	}
+
+	move(schema).commit();
+	return move(vb).finish();
+}
+
+export [[nodiscard]] expected<void, JsonError> validate(
+	NodeRef root,
+	NodeRef schema) {
+	auto schema_obj = schema.as_object();
+	if (!schema_obj) {
+		return {};
+	}
+	auto type_node = schema_obj->find_member("type");
+	if (!type_node) {
+		return {};
+	}
+	auto type_sv = type_node->as_string();
+	if (!type_sv) {
+		return {};
+	}
+	SV const expected_type = *type_sv;
+
+	auto kind_matches = [&]() -> bool {
+		if (expected_type == "object")  return root.kind() == JsonKind::object;
+		if (expected_type == "array")   return root.kind() == JsonKind::array;
+		if (expected_type == "string")  return root.kind() == JsonKind::string;
+		if (expected_type == "integer") return root.kind() == JsonKind::number;
+		if (expected_type == "number")  return root.kind() == JsonKind::number;
+		if (expected_type == "boolean") return root.kind() == JsonKind::boolean;
+		if (expected_type == "any")     return true;
+		return true;
+	};
+
+	if (root.is_null()) {
+		auto nullable_node = schema_obj->find_member("nullable");
+		if (nullable_node && nullable_node->as_bool().value_or(false)) {
+			return {};
+		}
+	}
+
+	if (!root.is_null() && !kind_matches()) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::decode,
+				.code = JsonIssueCode::wrong_kind,
+				.message = format("expected type '{}', got '{}'", expected_type,
+					root.kind() == JsonKind::object  ? "object" :
+					root.kind() == JsonKind::array   ? "array" :
+					root.kind() == JsonKind::string  ? "string" :
+					root.kind() == JsonKind::number  ? "number" :
+					root.kind() == JsonKind::boolean ? "boolean" :
+					root.kind() == JsonKind::null    ? "null" : "unknown")});
+	}
+
+	if (expected_type == "object" && root.kind() == JsonKind::object) {
+		auto obj = *root.as_object();
+		auto req_node = schema_obj->find_member("required");
+		if (req_node) {
+			if (auto req_arr = req_node->as_array()) {
+				for (NodeRef const el: req_arr->elements()) {
+					if (auto name = el.as_string()) {
+						if (!obj.find_member(*name)) {
+							return unexpected(
+								JsonError{
+									.stage = JsonStage::decode,
+									.code = JsonIssueCode::missing_member,
+									.member_name = S{*name},
+									.message = format("missing required member: {}", *name)});
+						}
+					}
+				}
+			}
+		}
+		auto props_node = schema_obj->find_member("properties");
+		if (props_node) {
+			if (auto props_obj = props_node->as_object()) {
+				for (auto const &[name, val]: obj.members()) {
+					auto field_schema = props_obj->find_member(name);
+					if (field_schema) {
+						auto r = validate(val, *field_schema);
+						if (!r) {
+							auto e = move(r).error();
+							if (!e.member_name.has_value()) {
+								e.member_name = S{name};
+							}
+							return unexpected(move(e));
+						}
+					}
+				}
+			}
+		}
+	}
+
+	return {};
 }
 
 // ---------------------------------------------------------------------------
