@@ -29,25 +29,18 @@ import conflux.work.root;
 import conflux.work.carrier;
 
 // ---------------------------------------------------------------------------
-// Per-thread monotonic bump arena for EagerChain coroutine frames (Design 2:
-// allocation header byte distinguishes pool vs heap fallback).
-//
-// Layout of each allocation:
-//   [1-byte marker | 7 bytes padding | frame (sz bytes)]
-// Marker: 1 = pool, 0 = heap fallback. The 8-byte header keeps the frame
-// pointer at least 8-byte aligned.
-//
-// Reclaim is LIFO: if the freed frame is the topmost allocation, the bump
-// pointer retracts. EagerChain coroutines never suspend (initial_suspend =
-// suspend_never, final_suspend = suspend_always with immediate chain()/
-// destroy()), so nested EagerChains produce a LIFO allocation pattern.
+// Per-thread monotonic bump arena for EagerChain coroutine frames.
+// Layout: [kAlign-byte header (marker in byte 0) | frame (sz bytes)]
+// Alignment: all returned pointers are __STDCPP_DEFAULT_NEW_ALIGNMENT__-aligned.
+// Reclaim is LIFO: nested EagerChains (never suspend) produce strict stack order.
 // ---------------------------------------------------------------------------
 #if CONFLUX_WORK_CFP_ACTIVE
 namespace conflux::work::carrier::pool {
 
 struct FrameArena {
 	static constexpr std::size_t kCap = 8u * 1024u * 1024u;
-	static constexpr std::size_t kHeaderSize = 8u;
+	static constexpr std::size_t kAlign = __STDCPP_DEFAULT_NEW_ALIGNMENT__;
+	static constexpr std::size_t kHeaderSize = kAlign;
 
 	char *base_ = nullptr;
 	std::size_t top_ = 0;
@@ -85,9 +78,15 @@ struct FrameArena {
 	FrameArena(FrameArena const &) = delete;
 	FrameArena &operator =(FrameArena const &) = delete;
 
+	static constexpr std::size_t align_up(
+		std::size_t n,
+		std::size_t a) noexcept {
+		return (n + a - 1u) & ~(a - 1u);
+	}
+
 	[[nodiscard]] void *alloc(
 		std::size_t sz) {
-		std::size_t need = (sz + kHeaderSize + 7u) & ~7u;
+		std::size_t need = align_up(sz + kHeaderSize, kAlign);
 		if (base_ && top_ + need <= kCap) {
 			char *hdr = base_ + top_;
 			hdr[0] = 1;
@@ -102,7 +101,7 @@ struct FrameArena {
 		if (sz > largest_frame_) {
 			largest_frame_ = sz;
 		}
-		void *raw = ::operator new(sz + kHeaderSize);
+		void *raw = ::operator new(sz + kHeaderSize, std::align_val_t{kAlign});
 		static_cast<char *>(raw)[0] = 0;
 		return static_cast<char *>(raw) + kHeaderSize;
 	}
@@ -112,10 +111,10 @@ struct FrameArena {
 		std::size_t sz) noexcept {
 		char *hdr = static_cast<char *>(ptr) - kHeaderSize;
 		if (hdr[0] == 0) {
-			::operator delete(static_cast<void *>(hdr), sz + kHeaderSize);
+			::operator delete(static_cast<void *>(hdr), sz + kHeaderSize, std::align_val_t{kAlign});
 			return;
 		}
-		std::size_t need = (sz + kHeaderSize + 7u) & ~7u;
+		std::size_t need = align_up(sz + kHeaderSize, kAlign);
 		if (hdr == base_ + top_ - need) {
 			top_ -= need;
 		}

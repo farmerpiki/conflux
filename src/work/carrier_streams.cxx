@@ -124,6 +124,9 @@ public:
 		if (callback_installed_) {
 			auto status = control_.clear_on_ready();
 			if (status == root::ClearOnReadyStatus::in_flight) {
+				// Race: callback is executing concurrently. Cannot synchronize without
+				// blocking the dtor. Best-effort: route the join result to the abandon
+				// sink so the in-flight callback resolves into a safe discard path.
 #ifdef CONFLUX_WORK_CHECKED_BUILD
 				root::emit_carrier_diagnostic_fmt(
 					"DroppableSlotAwaiter dtor raced commit's in-flight callback "

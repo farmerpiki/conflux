@@ -418,6 +418,7 @@ enum class NodeKind : u8 {
 
 constexpr u8 kStorageInputView = 0x01; // off,len index into input_view
 constexpr u8 kRawJsonSlice = 0x02; // bytes are raw JSON content (dump-safe memcpy)
+constexpr u8 kValueExternalView = 0x80; // off indexes external_ptrs_, value is caller-owned (string nodes only)
 
 // Number value-kind flags (at most one of kValKind* set on a number node).
 constexpr u8 kLexIntForm = 0x08; // lexeme matches -?(0|[1-9][0-9]*)
@@ -707,11 +708,13 @@ struct DocumentStorage {
 		return {string_arena.data() + off, len};
 	}
 
-	// Resolve a Node's lexeme bytes by storage-flag dispatch.
 	[[nodiscard]] SV bytes_at(
 		u32 off,
 		u32 len,
 		u8 flags) const noexcept {
+		if ((flags & kValueExternalView) != 0) {
+			return {external_ptrs_[off], len};
+		}
 		if ((flags & kStorageInputView) != 0) {
 			return input_view.substr(off, len);
 		}
@@ -1054,13 +1057,13 @@ namespace detail::simd {
 
 namespace detail {
 
-[[nodiscard]] inline u32 hex4_from_sv(
+[[nodiscard]] inline Opt<u32> hex4_from_sv(
 	SV body,
 	SZ pos) noexcept {
 	u32 out = 0;
 	for (SZ i = 0; i < 4; ++i) {
 		char const c = body[pos + i];
-		u32 d = 0;
+		u32 d;
 		constexpr u32 kA = 10;
 		if (c >= '0' && c <= '9') {
 			d = static_cast<u32>(c - '0');
@@ -1068,6 +1071,8 @@ namespace detail {
 			d = static_cast<u32>(c - 'a') + kA;
 		} else if (c >= 'A' && c <= 'F') {
 			d = static_cast<u32>(c - 'A') + kA;
+		} else {
+			return std::nullopt;
 		}
 		// NOLINTNEXTLINE(hicpp-signed-bitwise)
 		out = (out << 4U) | d;
@@ -1161,7 +1166,15 @@ template<class Writer>
 							.code = JsonIssueCode::invalid_unicode_escape,
 							.message = "invalid \\uXXXX"});
 				}
-				u32 cp = hex4_from_sv(body, i);
+				auto cp_opt = hex4_from_sv(body, i);
+				if (!cp_opt) {
+					return unexpected(
+						JsonError{
+							.stage = JsonStage::decode,
+							.code = JsonIssueCode::invalid_unicode_escape,
+							.message = "invalid hex digit in \\uXXXX"});
+				}
+				u32 cp = *cp_opt;
 				i += 4;
 				// NOLINTBEGIN(readability-magic-numbers)
 				if (cp >= 0xD800U && cp <= 0xDBFFU) {
@@ -1173,7 +1186,15 @@ template<class Writer>
 								.message = "unpaired high surrogate"});
 					}
 					i += 2;
-					u32 const lo = hex4_from_sv(body, i);
+					auto lo_opt = hex4_from_sv(body, i);
+					if (!lo_opt) {
+						return unexpected(
+							JsonError{
+								.stage = JsonStage::decode,
+								.code = JsonIssueCode::invalid_unicode_escape,
+								.message = "invalid hex digit in \\uXXXX"});
+					}
+					u32 const lo = *lo_opt;
 					i += 4;
 					if (lo < 0xDC00U || lo > 0xDFFFU) {
 						return unexpected(
@@ -1477,14 +1498,22 @@ private:
 						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
 					}
 					// NOLINTBEGIN(readability-magic-numbers)
-					u32 cp = detail::hex4_from_sv(input_, pos_);
+					auto cp_opt = detail::hex4_from_sv(input_, pos_);
+					if (!cp_opt) {
+						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid hex digit in \\uXXXX"));
+					}
+					u32 cp = *cp_opt;
 					adv(4);
 					if (cp >= 0xD800U && cp <= 0xDBFFU) {
 						if (pos_ + 6 > input_.size() || input_[pos_] != '\\' || input_[pos_ + 1] != 'u') {
 							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
 						}
 						adv(2);
-						u32 const lo = detail::hex4_from_sv(input_, pos_);
+						auto lo_opt = detail::hex4_from_sv(input_, pos_);
+						if (!lo_opt) {
+							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid hex digit in \\uXXXX"));
+						}
+						u32 const lo = *lo_opt;
 						adv(4);
 						if (lo < 0xDC00U || lo > 0xDFFFU) {
 							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
@@ -1548,7 +1577,11 @@ private:
 					if (pos_ + 4 > input_.size()) {
 						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
 					}
-					u32 cp = detail::hex4_from_sv(input_, pos_);
+					auto cp_opt = detail::hex4_from_sv(input_, pos_);
+					if (!cp_opt) {
+						return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid hex digit in \\uXXXX"));
+					}
+					u32 cp = *cp_opt;
 					adv(4);
 					// NOLINTBEGIN(readability-magic-numbers)
 					if (cp >= 0xD800U && cp <= 0xDBFFU) {
@@ -1556,7 +1589,11 @@ private:
 							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
 						}
 						adv(2);
-						u32 const lo = detail::hex4_from_sv(input_, pos_);
+						auto lo_opt = detail::hex4_from_sv(input_, pos_);
+						if (!lo_opt) {
+							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid hex digit in \\uXXXX"));
+						}
+						u32 const lo = *lo_opt;
 						adv(4);
 						if (lo < 0xDC00U || lo > 0xDFFFU) {
 							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
@@ -1866,6 +1903,8 @@ public:
 		last_error_ = {};
 	}
 
+	// Precondition: input was produced by next() or is known-valid JSON. Skips
+	// structurally without re-validating escapes, control chars, or literal spelling.
 	[[nodiscard]] expected<JsonByteRange, JsonError> skip_next_value() {
 		if (has_error_) {
 			return unexpected(last_error_);
@@ -1992,6 +2031,7 @@ export class NodeRef {
 		, idx_{i} {}
 
 	[[nodiscard]] Node const &rec() const noexcept {
+		assert(storage_ && "NodeRef used in default-constructed state");
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 		return storage_->nodes[idx_];
 	}
@@ -2388,15 +2428,44 @@ expected<NodeRef, JsonError> NodeRef::at(
 			return unexpected(move(err));
 		};
 		if (holds_alternative<JsonPathMember>(seg)) {
-			auto obj = cur.as_object();
-			if (!obj) {
-				return set_path(move(obj).error());
+			auto const &name = get<JsonPathMember>(seg).name;
+			if (cur.kind() == JsonKind::array) {
+				bool all_digits = !name.empty() && (name.size() == 1 || name[0] != '0');
+				for (SZ k = 0; all_digits && k < name.size(); ++k) {
+					all_digits = name[k] >= '0' && name[k] <= '9';
+				}
+				if (!all_digits) {
+					return set_path(JsonError{
+						.stage = JsonStage::lookup,
+						.code = JsonIssueCode::wrong_kind,
+						.expected_kind = JsonKind::object,
+						.actual_kind = JsonKind::array,
+						.message = "non-numeric JSON Pointer segment on array"});
+				}
+				SZ idx = 0;
+				for (char const ch: name) {
+					idx = idx * 10 + static_cast<SZ>(ch - '0');
+				}
+				auto arr = cur.as_array();
+				if (!arr) {
+					return set_path(move(arr).error());
+				}
+				auto child = arr->element(idx);
+				if (!child) {
+					return set_path(move(child).error());
+				}
+				cur = *child;
+			} else {
+				auto obj = cur.as_object();
+				if (!obj) {
+					return set_path(move(obj).error());
+				}
+				auto child = obj->member(name);
+				if (!child) {
+					return set_path(move(child).error());
+				}
+				cur = *child;
 			}
-			auto child = obj->member(get<JsonPathMember>(seg).name);
-			if (!child) {
-				return set_path(move(child).error());
-			}
-			cur = *child;
 		} else {
 			auto arr = cur.as_array();
 			if (!arr) {
@@ -2721,7 +2790,10 @@ public:
 	Document(Document const &) = delete;
 	Document &operator =(Document const &) = delete;
 
-	[[nodiscard]] NodeRef root() const noexcept { return NodeRef{storage_.get(), storage_->root_node}; }
+	[[nodiscard]] NodeRef root() const noexcept {
+		assert(storage_ && "Document::root() called on empty Document");
+		return NodeRef{storage_.get(), storage_->root_node};
+	}
 
 	[[nodiscard]] expected<S, JsonError> dump(JsonDumpOptions const &opts = {}) const;
 
@@ -4826,7 +4898,9 @@ public:
 	expected<void, JsonError> insert_null(SV name);
 	expected<void, JsonError> insert_bool(SV name, bool v);
 	expected<void, JsonError> insert_string(SV name, SV value);
-	expected<void, JsonError> insert_string_view(SV name, SV value); // Item E: name not copied
+	expected<void, JsonError> insert_string_checked(SV name, SV value);
+	expected<void, JsonError> insert_string_borrowed_name(SV name, SV value);
+	expected<void, JsonError> insert_string_borrowed(SV name, SV value);
 	expected<void, JsonError> insert_number(SV name, SV lexeme);
 	expected<void, JsonError> insert_i64(SV name, i64 v);
 	expected<void, JsonError> insert_u64(SV name, u64 v);
@@ -4940,6 +5014,8 @@ public:
 	expected<void, JsonError> append_null();
 	expected<void, JsonError> append_bool(bool v);
 	expected<void, JsonError> append_string(SV value);
+	expected<void, JsonError> append_string_checked(SV value);
+	expected<void, JsonError> append_string_borrowed(SV value);
 	expected<void, JsonError> append_number(SV lexeme);
 	expected<void, JsonError> append_i64(i64 v);
 	expected<void, JsonError> append_u64(u64 v);
@@ -5451,7 +5527,40 @@ expected<void, JsonError> ObjectBuilder::insert_string(
 		detail::make_string(static_cast<u32>(off), static_cast<u32>(value.size()), kStorageInputView));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
-expected<void, JsonError> ObjectBuilder::insert_string_view(
+expected<void, JsonError> ObjectBuilder::insert_string_checked(
+	SV name,
+	SV value) {
+	for (SZ i = 0; i < value.size();) {
+		auto const c = static_cast<unsigned char>(value[i]);
+		SZ const seq = utf8_seq_len(c);
+		if (seq == 0) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::build,
+					.code = JsonIssueCode::invalid_utf8,
+					.message = format("invalid UTF-8 byte at offset {}", i)});
+		}
+		if (i + seq > value.size()) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::build,
+					.code = JsonIssueCode::invalid_utf8,
+					.message = format("truncated UTF-8 at offset {}", i)});
+		}
+		for (SZ k = 1; k < seq; ++k) {
+			if (!is_cont(static_cast<unsigned char>(value[i + k]))) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::build,
+						.code = JsonIssueCode::invalid_utf8,
+						.message = format("invalid UTF-8 continuation at offset {}", i + k)});
+			}
+		}
+		i += seq;
+	}
+	return insert_string(name, value);
+}
+expected<void, JsonError> ObjectBuilder::insert_string_borrowed_name(
 	SV name,
 	SV value) {
 	if (auto ok = check_can_insert(); !ok) {
@@ -5462,6 +5571,19 @@ expected<void, JsonError> ObjectBuilder::insert_string_view(
 	st->built_input.append(value.data(), value.size());
 	st->store.nodes.push_back(
 		detail::make_string(static_cast<u32>(off), static_cast<u32>(value.size()), kStorageInputView));
+	return do_insert_node_view(name, st->store.nodes.size() - 1);
+}
+expected<void, JsonError> ObjectBuilder::insert_string_borrowed(
+	SV name,
+	SV value) {
+	if (auto ok = check_can_insert(); !ok) {
+		return ok;
+	}
+	auto *st = frame_.state;
+	u32 const val_ptr_idx = static_cast<u32>(st->store.external_ptrs_.size());
+	st->store.external_ptrs_.push_back(value.data());
+	st->store.nodes.push_back(
+		detail::make_string(val_ptr_idx, static_cast<u32>(value.size()), kValueExternalView));
 	return do_insert_node_view(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_number(
@@ -5679,6 +5801,55 @@ expected<void, JsonError> ArrayBuilder::append_string(
 	st->built_input.append(value.data(), value.size());
 	st->store.nodes.push_back(
 		detail::make_string(static_cast<u32>(off), static_cast<u32>(value.size()), kStorageInputView));
+	frame_.local_children.push_back(st->store.nodes.size() - 1);
+	return {};
+}
+expected<void, JsonError> ArrayBuilder::append_string_checked(
+	SV value) {
+	for (SZ i = 0; i < value.size();) {
+		auto const c = static_cast<unsigned char>(value[i]);
+		SZ const seq = utf8_seq_len(c);
+		if (seq == 0) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::build,
+					.code = JsonIssueCode::invalid_utf8,
+					.message = format("invalid UTF-8 byte at offset {}", i)});
+		}
+		if (i + seq > value.size()) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::build,
+					.code = JsonIssueCode::invalid_utf8,
+					.message = format("truncated UTF-8 at offset {}", i)});
+		}
+		for (SZ k = 1; k < seq; ++k) {
+			if (!is_cont(static_cast<unsigned char>(value[i + k]))) {
+				return unexpected(
+					JsonError{
+						.stage = JsonStage::build,
+						.code = JsonIssueCode::invalid_utf8,
+						.message = format("invalid UTF-8 continuation at offset {}", i + k)});
+			}
+		}
+		i += seq;
+	}
+	return append_string(value);
+}
+expected<void, JsonError> ArrayBuilder::append_string_borrowed(
+	SV value) {
+	if (!arr_check_active(frame_)) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::constraint_violation,
+				.message = frame_.committed ? "ArrayBuilder already committed" : "child builder already active"});
+	}
+	auto *st = frame_.state;
+	u32 const val_ptr_idx = static_cast<u32>(st->store.external_ptrs_.size());
+	st->store.external_ptrs_.push_back(value.data());
+	st->store.nodes.push_back(
+		detail::make_string(val_ptr_idx, static_cast<u32>(value.size()), kValueExternalView));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }

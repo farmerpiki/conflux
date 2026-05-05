@@ -2646,8 +2646,8 @@ TEST_CASE(
 		auto doc = parse("[10,20,30]");
 		REQUIRE(doc.has_value());
 		auto by_member = doc->root().at(*reparsed);
-		CHECK_FALSE(by_member.has_value());
-		CHECK(by_member.error().code == JsonIssueCode::wrong_kind);
+		REQUIRE(by_member.has_value());
+		CHECK(*by_member->as_number()->to_i64() == 30LL);
 
 		auto by_index = doc->root().at(idx_path);
 		REQUIRE(by_index.has_value());

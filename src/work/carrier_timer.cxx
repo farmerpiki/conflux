@@ -105,6 +105,7 @@ private:
 
 	void cancel_(
 		SP<std::uint64_t> const &gen) noexcept {
+		check_thread_();
 		if (!gen) {
 			return;
 		}

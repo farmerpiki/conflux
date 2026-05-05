@@ -2109,6 +2109,9 @@ struct drop_on_abandon {
 
 namespace detail {
 
+// Coroutine-backed Tasks use EnableCancellation=false: cancellation is cooperative
+// only (check stop_token in coroutine body). External request_cancel() requires
+// make_task_source(SubmitOptions{.enable_cancellation=true}).
 template<work_value T>
 struct TaskPromiseReturn {
 	SP<ControlBlockInterface<T>> state_{std::make_shared<ControlBlockModel<T, false>>()};

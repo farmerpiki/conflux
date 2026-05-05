@@ -43,10 +43,11 @@ public:
 		{
 			std::unique_lock lock{mu_};
 			if (!cancelled_) {
+#ifdef CONFLUX_WORK_CHECKED_BUILD
 				assert(
 					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
-					&& "Scope::track exceeded n=32; partition across multiple Scope instances "
-					   "or file a follow-up for concurrent registry");
+					&& "Scope::track exceeded n=32; partition across multiple Scope instances");
+#endif
 				task_ctrls_.push_back(std::move(ctrl));
 				return;
 			}
@@ -60,10 +61,11 @@ public:
 		{
 			std::unique_lock lock{mu_};
 			if (!cancelled_) {
+#ifdef CONFLUX_WORK_CHECKED_BUILD
 				assert(
 					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
-					&& "Scope::track exceeded n=32; partition across multiple Scope instances "
-					   "or file a follow-up for concurrent registry");
+					&& "Scope::track exceeded n=32; partition across multiple Scope instances");
+#endif
 				posted_ctrls_.push_back(std::move(ctrl));
 				return;
 			}
@@ -77,10 +79,11 @@ public:
 		{
 			std::unique_lock lock{mu_};
 			if (!cancelled_) {
+#ifdef CONFLUX_WORK_CHECKED_BUILD
 				assert(
 					(task_ctrls_.size() + posted_ctrls_.size() + op_ctrls_.size()) < 32
-					&& "Scope::track exceeded n=32; partition across multiple Scope instances "
-					   "or file a follow-up for concurrent registry");
+					&& "Scope::track exceeded n=32; partition across multiple Scope instances");
+#endif
 				op_ctrls_.push_back(std::move(ctrl));
 				return;
 			}

@@ -238,7 +238,8 @@ expected<Document, JsonError>      finish()  &&;       // consumes builder
 expected<void, JsonError>          insert_null  (string_view name);
 expected<void, JsonError>          insert_bool  (string_view name, bool v);
 expected<void, JsonError>          insert_string(string_view name, string_view value); // copies value
-expected<void, JsonError>          insert_string_view(string_view name, string_view value); // borrows value; caller guarantees lifetime >= Document
+expected<void, JsonError>          insert_string_borrowed_name(string_view name, string_view value); // name NOT copied — must outlive Document; value is copied
+expected<void, JsonError>          insert_string_borrowed(string_view name, string_view value);      // NEITHER copied — both must outlive Document
 expected<void, JsonError>          insert_number(string_view name, string_view lexeme);
 expected<void, JsonError>          insert_i64   (string_view name, int64_t v);
 expected<void, JsonError>          insert_u64   (string_view name, uint64_t v);
@@ -516,8 +517,11 @@ struct NodeIdentityEqual { bool   operator()(NodeRef, NodeRef) const noexcept; }
   across moves of the same `Document`.
 - `parse_borrowed` string values point into the original `input` buffer.
   Destroying or mutating that buffer after parse is undefined behaviour.
-- `insert_string_view` / `ObjectBuilder` stores a `string_view` reference
-  without copying. The pointed-to data must outlive the `Document`.
+- `insert_string_borrowed_name` stores the member *name* pointer without
+  copying. The name data must outlive the `Document`.
+- `insert_string_borrowed` / `append_string_borrowed` store neither name nor
+  value — both pointers must outlive the `Document`. Zero-copy path for
+  caller-owned strings (e.g. mapped file content, arena-allocated data).
 - Builder sub-builders (`ObjectBuilder`, `ArrayBuilder`) must be `commit()`'d
   before the parent or `ValueBuilder::finish()` is called. Dropping without
   commit is a logic error (debug assertion in debug builds).
