@@ -37,15 +37,6 @@ inline int futex_wake_private(
 	return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAKE_PRIVATE, count, nullptr, nullptr, 0));
 }
 
-[[gnu::always_inline]] inline void cpu_pause() noexcept {
-#if defined(__x86_64__) || defined(__i386__)
-	__builtin_ia32_pause();
-#elif defined(__aarch64__)
-	asm volatile("yield");
-#else
-	std::this_thread::yield();
-#endif
-}
 
 class QueueTarget {
 public:
@@ -102,7 +93,7 @@ public:
 			} else if (diff < 0) {
 				return false;
 			} else {
-				cpu_pause();
+				conflux::work::root::detail::cpu_pause();
 				pos = head_.load(std::memory_order_relaxed);
 			}
 		}
@@ -123,7 +114,7 @@ public:
 			} else if (diff < 0) {
 				return std::nullopt;
 			} else {
-				cpu_pause();
+				conflux::work::root::detail::cpu_pause();
 				pos = tail_.load(std::memory_order_relaxed);
 			}
 		}
@@ -305,7 +296,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 			auto const has_pending = [&] { return pending_.load(memory_order_relaxed) > 0; };
 			bool spun = false;
 			for (u32 s = 0; s < options_.spin_before_park && !spun; ++s) {
-				work_detail::cpu_pause();
+				conflux::work::root::detail::cpu_pause();
 				spun = has_pending();
 			}
 			if (!spun) {

@@ -966,7 +966,7 @@ struct detach_outcome_sink {
 	}
 };
 
-[[gnu::always_inline]] inline void cb_pause() noexcept {
+[[gnu::always_inline]] inline void cpu_pause() noexcept {
 #if defined(__x86_64__) || defined(__i386__)
 	__builtin_ia32_pause();
 #elif defined(__aarch64__)
@@ -1353,7 +1353,7 @@ public:
 		static constexpr int kSpinIter = 400;
 		bool done = terminal();
 		for (int i = 0; !done && i < kSpinIter; ++i) {
-			cb_pause();
+			cpu_pause();
 			done = terminal();
 		}
 		std::unique_lock lk{mtx_};
@@ -1737,7 +1737,7 @@ public:
 		static constexpr int kSpinIter = 400;
 		bool done = terminal();
 		for (int i = 0; !done && i < kSpinIter; ++i) {
-			cb_pause();
+			cpu_pause();
 			done = terminal();
 		}
 		std::unique_lock lk{mtx_};
