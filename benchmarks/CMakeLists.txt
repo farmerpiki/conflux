@@ -30,9 +30,10 @@ add_executable(conflux_tcp_increment_coro_bench tcp_increment_coro_bench.cxx)
 target_link_libraries(conflux_tcp_increment_coro_bench
     PRIVATE bench_common conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
 
-add_executable(conflux_tcp_parallel_coro_bench tcp_parallel_coro_bench.cxx)
-target_link_libraries(conflux_tcp_parallel_coro_bench
-    PRIVATE conflux conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
+# TODO: co_spawn not yet implemented — re-enable when available
+# add_executable(conflux_tcp_parallel_coro_bench tcp_parallel_coro_bench.cxx)
+# target_link_libraries(conflux_tcp_parallel_coro_bench
+#     PRIVATE conflux conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
 
 if(CONFLUX_HAS_TLS STREQUAL "true")
     add_executable(conflux_tls_tcp_increment_coro_bench tls_tcp_increment_coro_bench.cxx)
@@ -85,7 +86,7 @@ set(_record_targets
     conflux_work_benchmarks
     conflux_file_copy_coro_bench
     conflux_tcp_increment_coro_bench
-    conflux_tcp_parallel_coro_bench
+    # conflux_tcp_parallel_coro_bench
     conflux_json_bench
     conflux_template_bench
     conflux_task_creation_bench

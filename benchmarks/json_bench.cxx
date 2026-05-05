@@ -598,7 +598,7 @@ void bench_builder_name_length() {
 					return;
 				}
 				for (SZ i = 0; i < static_cast<SZ>(kMembers); ++i) {
-					(void)obj->insert_string_view(keys[i], "v");
+					(void)obj->insert_string_borrowed_name(keys[i], "v");
 				}
 				move(*obj).commit();
 				(void)move(b).finish();
@@ -609,9 +609,9 @@ void bench_builder_name_length() {
 		print_row(label, s);
 	};
 
-	run_view(k5, "builder/insert_string_view   5-char keys (per insert)");
-	run_view(k32, "builder/insert_string_view  32-char keys (per insert)");
-	run_view(k128, "builder/insert_string_view 128-char keys (per insert)");
+	run_view(k5, "builder/insert_string_borrowed_name   5-char keys (per insert)");
+	run_view(k32, "builder/insert_string_borrowed_name  32-char keys (per insert)");
+	run_view(k128, "builder/insert_string_borrowed_name 128-char keys (per insert)");
 }
 
 // R0 — generic parse/dump drivers used for the new corpora.

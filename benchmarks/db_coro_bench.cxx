@@ -11,6 +11,7 @@ import bench_common;
 
 using namespace conflux::db;
 using namespace std::string_view_literals;
+using conflux::work::root::Task;
 
 namespace {
 

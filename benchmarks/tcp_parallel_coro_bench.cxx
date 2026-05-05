@@ -15,6 +15,8 @@ import conflux.work;
 import conflux.file_io;
 import conflux.json;
 
+using conflux::work::root::Task;
+
 namespace {
 
 constexpr u64 pack_ud(

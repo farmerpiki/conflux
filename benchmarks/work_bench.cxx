@@ -7,7 +7,7 @@ import conflux.work.carrier.coro;
 
 using namespace std::string_view_literals;
 
-namespace ec = conflux::work::carrier::model_a;
+namespace ec = conflux::work::carrier;
 
 namespace root = conflux::work::root;
 
