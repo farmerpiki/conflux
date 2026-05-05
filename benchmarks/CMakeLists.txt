@@ -67,6 +67,9 @@ if(CONFLUX_JSON_AVX2)
     target_compile_options(conflux_json_bench PRIVATE -mavx2 -mbmi2)
 endif()
 
+add_executable(conflux_crypto_bench crypto_bench.cxx)
+target_link_libraries(conflux_crypto_bench PRIVATE bench_common conflux conflux_options)
+
 add_executable(conflux_template_bench template_bench.cxx)
 target_link_libraries(conflux_template_bench PRIVATE conflux conflux_options)
 
@@ -93,6 +96,7 @@ set(_record_targets
     conflux_tcp_increment_coro_bench
     # conflux_tcp_parallel_coro_bench
     conflux_json_bench
+    conflux_crypto_bench
     conflux_template_bench
     conflux_task_creation_bench
     conflux_task_chain_composition_bench

@@ -383,6 +383,7 @@ if(CONFLUX_HAS_TLS STREQUAL "true")
     list(APPEND CONFLUX_MODULE_SOURCES src/net/tls.cxx)
     list(APPEND CONFLUX_MODULE_SOURCES src/net/smtp.cxx)
     list(APPEND CONFLUX_MODULE_SOURCES src/net/jwt.cxx)
+    list(APPEND CONFLUX_MODULE_SOURCES src/net/oauth.cxx)
 endif()
 if(CONFLUX_HAS_METRICS STREQUAL "true")
     list(APPEND CONFLUX_MODULE_SOURCES src/net/metrics.cxx)
@@ -496,6 +497,30 @@ if(CONFLUX_JSON_USE_STDSIMD)
         target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
         target_sources(conflux_json PRIVATE src/json_simd_stdx.cxx)
     endif()
+endif()
+
+set(CMAKE_REQUIRED_FLAGS "-maes -mpclmul -mssse3 -msse4.1")
+set(_AESNI_TEST_CODE "
+#include <wmmintrin.h>
+#include <tmmintrin.h>
+#include <smmintrin.h>
+int main() {
+    __m128i a = _mm_setzero_si128();
+    __m128i b = _mm_aesenc_si128(a, a);
+    __m128i c = _mm_clmulepi64_si128(a, b, 0x00);
+    __m128i d = _mm_shuffle_epi8(c, a);
+    (void)_mm_test_all_zeros(d, d);
+    return 0;
+}")
+check_cxx_source_compiles("${_AESNI_TEST_CODE}" CONFLUX_HAS_AESNI)
+unset(CMAKE_REQUIRED_FLAGS)
+if(CONFLUX_HAS_AESNI)
+    message(STATUS "conflux: AES-NI + PCLMUL + SSSE3 path enabled")
+    target_compile_definitions(conflux PRIVATE CONFLUX_CRYPTO_USE_AESNI=1)
+    target_sources(conflux PRIVATE src/crypto_aesni.cxx)
+    set_source_files_properties(src/crypto_aesni.cxx PROPERTIES
+        COMPILE_OPTIONS "-maes;-mpclmul;-mssse3;-msse4.1"
+    )
 endif()
 
 if(CONFLUX_JSON_REFLECT)

@@ -7,6 +7,11 @@ module;
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/random.h>
+#if defined(CONFLUX_CRYPTO_USE_AESNI)
+extern "C" {
+void conflux_hex_encode_ssse3(unsigned char const *in, __SIZE_TYPE__ len, char *out);
+}
+#endif
 export module conflux.utils;
 import std;
 import conflux.types;
@@ -88,8 +93,13 @@ export S percent_encode(
 	static constexpr char kHex[] = "0123456789ABCDEF";
 	for (char const ch: in) {
 		auto const c = static_cast<unsigned char>(ch);
-		if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
-			|| c == '-' || c == '.' || c == '_' || c == '~') {
+		if ((c >= 'A' && c <= 'Z')
+			|| (c >= 'a' && c <= 'z')
+			|| (c >= '0' && c <= '9')
+			|| c == '-'
+			|| c == '.'
+			|| c == '_'
+			|| c == '~') {
 			out.push_back(ch);
 		} else {
 			out.push_back('%');
@@ -106,13 +116,17 @@ export S percent_encode(
 
 export S hex_encode(
 	span<unsigned char const> in) {
-	static constexpr char kHex[] = "0123456789abcdef";
 	S out;
 	out.resize(in.size() * 2);
+#if defined(CONFLUX_CRYPTO_USE_AESNI)
+	conflux_hex_encode_ssse3(in.data(), in.size(), out.data());
+#else
+	static constexpr char kHex[] = "0123456789abcdef";
 	for (SZ i = 0; i < in.size(); ++i) {
 		out[i * 2] = kHex[in[i] >> 4U];
 		out[i * 2 + 1] = kHex[in[i] & 0x0FU];
 	}
+#endif
 	return out;
 }
 
