@@ -26,6 +26,7 @@ option(CONFLUX_ENABLE_ASAN    "Build with AddressSanitizer"                  OFF
 option(CONFLUX_ENABLE_UBSAN   "Build with UBSanitizer"                       OFF)
 option(CONFLUX_ENABLE_TSAN    "Build with ThreadSanitizer"                   OFF)
 option(CONFLUX_ENABLE_LTO     "Enable link-time optimisation"                OFF)
+option(CONFLUX_JSON_REFLECT   "Enable P2996 reflection codec (GCC 16+ only)" OFF)
 option(CONFLUX_PGO_GENERATE  "Instrument build for PGO profile collection"  OFF)
 set(CONFLUX_PGO_PROFILE_DIR  "" CACHE STRING "Profile data path for PGO use phase")
 option(CONFLUX_BUILD_TESTS    "Build test targets"                           ON)
@@ -404,6 +405,23 @@ if(CONFLUX_HAS_ISAL STREQUAL "true")
     list(APPEND CONFLUX_MODULE_SOURCES src/net/compress_backend_isal.cxx)
 endif()
 
+if(CONFLUX_JSON_REFLECT)
+    # Extract json.cxx into its own target so reflect consumers don't pull in all
+    # of conflux (which has modules with C headers that conflict with std BMI under
+    # GCC -freflection).
+    list(REMOVE_ITEM CONFLUX_MODULE_SOURCES src/json.cxx)
+    add_library(conflux_json STATIC)
+    target_sources(conflux_json
+        PUBLIC FILE_SET CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/json.cxx
+    )
+    target_link_libraries(conflux_json
+        PUBLIC  conflux_types
+        PRIVATE conflux_options xxhash
+    )
+endif()
+
 target_sources(conflux
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
@@ -433,6 +451,23 @@ target_link_libraries(conflux
 
 if(CONFLUX_JSON_AVX2)
     target_compile_options(conflux PRIVATE -mavx2 -mbmi2)
+endif()
+
+if(CONFLUX_JSON_REFLECT)
+    # Consumers import conflux.json.reflect in addition to conflux.json.
+    add_library(conflux_json_reflect STATIC)
+    target_sources(conflux_json_reflect
+        PUBLIC FILE_SET CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/json_reflect.cxx
+    )
+    target_link_libraries(conflux_json_reflect
+        PUBLIC  conflux_json conflux_types
+        PRIVATE conflux_options
+    )
+    # conflux re-exports conflux.json for callers that link against the full library.
+    target_link_libraries(conflux PUBLIC conflux_json)
+    message(STATUS "conflux: JSON P2996 reflection codec enabled (requires GCC 16+ -freflection)")
 endif()
 
 # TLS

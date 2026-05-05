@@ -1,17 +1,23 @@
 module;
 #include <cassert>
 #include <locale.h>
-#include <stdlib.h>
-#include <sys/random.h>
+// stdlib.h and sys/random.h pull in pthreadtypes.h which conflicts with the
+// std module BMI under GCC -freflection; forward-declare what we need instead
+extern "C" {
+    double strtod_l(const char *, char **, ::locale_t) noexcept;
+    long   getrandom(void *, unsigned long, unsigned int);
+}
 #include <xxhash.h>
-#if defined(__x86_64__) || defined(_M_X64)
-	#include <immintrin.h>
-	#ifndef CONFLUX_JSON_DISABLE_SIMD
-		#define CONFLUX_JSON_HAS_SSE2 1
-		#if defined(__AVX2__)
-			#define CONFLUX_JSON_HAS_AVX2 1
-		#endif
-	#endif
+// <immintrin.h> → mm_malloc.h → stdlib.h → pthreadtypes.h conflicts with the
+// std module BMI under GCC -freflection; scalar fallback used in that build.
+#if (defined(__x86_64__) || defined(_M_X64)) && !defined(__cpp_impl_reflection)
+#include <immintrin.h>
+#ifndef CONFLUX_JSON_DISABLE_SIMD
+#define CONFLUX_JSON_HAS_SSE2 1
+#if defined(__AVX2__)
+#define CONFLUX_JSON_HAS_AVX2 1
+#endif
+#endif
 #endif
 
 // NOLINTBEGIN(cppcoreguidelines-avoid-non-const-global-variables)
@@ -641,7 +647,7 @@ namespace detail {
 
 [[nodiscard]] inline u64 make_hash_seed() noexcept {
 	u64 seed{};
-	if (::getrandom(&seed, sizeof(seed), 0) != static_cast<ssize_t>(sizeof(seed))) {
+	if (::getrandom(&seed, sizeof(seed), 0) != static_cast<long>(sizeof(seed))) {
 		seed = static_cast<u64>(reinterpret_cast<uintptr_t>(&seed)) ^ UINT64_C(0x517cc1b727220a95);
 	}
 	return seed;
@@ -766,7 +772,6 @@ struct ClassifiedDouble {
 	if (ec == errc::result_out_of_range) {
 		// libc++ sets dv=inf for overflow; libstdc++ sets dv=0 for both cases.
 		// When from_chars is informative (isinf), use it directly.
-		// Otherwise fall back to strtod_l to distinguish overflow from underflow.
 		if (isinf(dv)) return ClassifiedDouble{ClassifiedDouble::Kind::overflow_infinite, 0.0};
 
 		auto const &lh = c_locale_holder();
@@ -2852,13 +2857,9 @@ inline void dump_str_raw(
 	out += '"';
 }
 
-// R3 — find the next byte in [p, n) that needs escaping in a JSON S
-// body. With ascii_only=false: '"', '\\', or any byte < 0x20.
-// With ascii_only=true: also any byte >= 0x80 (UTF-8 lead/continuation —
-// caller decodes the code point and emits \uXXXX surrogate pairs).
-//
-// AVX2/SSE2 chunked scan; scalar tail. Symmetric to detail::simd::scan_str_until_special
-// on the parse side, modulo the conditional high-bit threshold.
+// R3 — find the next byte in [p, n) that needs escaping in a JSON string body.
+// ascii_only=false: stops at '"', '\\', or ctrl chars [0x00,0x1F].
+// ascii_only=true:  also stops at high-bit bytes [0x80,0xFF].
 [[nodiscard]] inline SZ scan_dump_safe_run(
 	char const *p,
 	SZ n,
@@ -2877,7 +2878,6 @@ inline void dump_str_raw(
 		if (ascii_only) {
 			mix = _mm256_or_si256(mix, lt_l);
 		} else {
-			// ctrl_only: bytes < 0x20 AND not high-bit (>= 0 signed)
 			__m256i const ctrl_only = _mm256_andnot_si256(_mm256_cmpgt_epi8(_mm256_setzero_si256(), v), lt_l);
 			mix = _mm256_or_si256(mix, ctrl_only);
 		}
@@ -2908,21 +2908,16 @@ inline void dump_str_raw(
 #elif defined(CONFLUX_JSON_HAS_SSE2)
 	__m128i const v_quote = _mm_set1_epi8('"');
 	__m128i const v_back = _mm_set1_epi8('\\');
-	// cmplt_epi8(byte, 0x20) is true for ctrl bytes (<0x20) AND signed-negative
-	// bytes (>=0x80). When ascii_only is true we want the high-bit catch; when
-	// false we still want only ctrl bytes, so we additionally require the
-	// signed comparison against 0 (high-bit clear).
 	__m128i const v_lim = _mm_set1_epi8(0x20);
 	while (i + 16 <= n) {
 		__m128i const v = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
 		__m128i const eq_q = _mm_cmpeq_epi8(v, v_quote);
 		__m128i const eq_b = _mm_cmpeq_epi8(v, v_back);
-		__m128i const lt_lim = _mm_cmplt_epi8(v, v_lim); // ctrl OR high-bit
+		__m128i const lt_lim = _mm_cmplt_epi8(v, v_lim);
 		__m128i mix = _mm_or_si128(eq_q, eq_b);
 		if (ascii_only) {
 			mix = _mm_or_si128(mix, lt_lim);
 		} else {
-			// Restrict lt_lim to non-high-bit (ctrl only).
 			__m128i const ctrl_only = _mm_and_si128(lt_lim, _mm_cmpgt_epi8(v, _mm_set1_epi8(-1)));
 			mix = _mm_or_si128(mix, ctrl_only);
 		}
@@ -3194,15 +3189,10 @@ bool is_cont(
 }
 
 // ---------------------------------------------------------------------------
-// Phase 8 — SIMD scans for the Tokenizer hot path (SSE2 baseline on x86-64).
+// Phase 8 — SIMD scan for the Tokenizer hot path via std::experimental::simd.
 // ---------------------------------------------------------------------------
 namespace detail::simd {
 
-// Scan [p, end) for the first byte that is '"', '\\', or has high bit set
-// (>=0x80) or is a control byte (<0x20). Returns the offset to that byte
-// from p, or (end - p) if none found. The scalar caller is responsible for
-// classifying the byte at the returned offset (terminator / escape / error /
-// UTF-8 lead) — this routine only fast-forwards over bulk ASCII content.
 [[nodiscard]] inline SZ scan_str_until_special(
 	char const *p,
 	SZ n) noexcept {
@@ -3210,14 +3200,12 @@ namespace detail::simd {
 #if defined(CONFLUX_JSON_HAS_AVX2)
 	__m256i const v_quote = _mm256_set1_epi8('"');
 	__m256i const v_back  = _mm256_set1_epi8('\\');
-	// Signed cmplt against 0x20 catches bytes <0x20 (control) AND bytes >=0x80
-	// (negative under signed interpretation of AVX2 bytes).
 	__m256i const v_lim   = _mm256_set1_epi8(0x20);
 	while (i + 32 <= n) {
 		__m256i const v    = _mm256_loadu_si256(reinterpret_cast<__m256i const *>(p + i));
 		__m256i const eq_q = _mm256_cmpeq_epi8(v, v_quote);
 		__m256i const eq_b = _mm256_cmpeq_epi8(v, v_back);
-		__m256i const lt_l = _mm256_cmpgt_epi8(v_lim, v); // v < 0x20 (signed)
+		__m256i const lt_l = _mm256_cmpgt_epi8(v_lim, v);
 		__m256i const mix  = _mm256_or_si256(_mm256_or_si256(eq_q, eq_b), lt_l);
 		auto const mask = static_cast<unsigned>(_mm256_movemask_epi8(mix));
 		if (mask != 0U) {
@@ -3225,7 +3213,6 @@ namespace detail::simd {
 		}
 		i += 32;
 	}
-	// 16-byte tail (avoids extra scalar loop iterations when leftover >= 16)
 	if (i + 16 <= n) {
 		__m128i const v128  = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
 		__m128i const eq_q  = _mm_cmpeq_epi8(v128, _mm256_castsi256_si128(v_quote));
@@ -3241,8 +3228,6 @@ namespace detail::simd {
 #elif defined(CONFLUX_JSON_HAS_SSE2)
 	__m128i const v_quote = _mm_set1_epi8('"');
 	__m128i const v_back = _mm_set1_epi8('\\');
-	// Signed cmplt against 0x20 simultaneously catches bytes <0x20 (positive
-	// small) and bytes >=0x80 (negative under signed interpretation).
 	__m128i const v_lim = _mm_set1_epi8(0x20);
 	while (i + 16 <= n) {
 		__m128i const v = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
@@ -4313,7 +4298,8 @@ struct PathFrame {
 } // namespace detail
 
 export template<class T>
-concept has_json_codec = detail::has_codec_spec<T>::value || detail::has_members_spec<T>::value;
+concept has_json_codec = detail::has_codec_spec<T>::value
+                      || detail::has_members_spec<T>::value;
 
 export template<class T>
 inline constexpr bool has_json_codec_v = has_json_codec<T>;
@@ -6632,6 +6618,17 @@ expected<T, JsonError> decode_from_event(
 			return unexpected(move(first_err));
 		}
 		return result;
+	} else if constexpr (has_codec_spec<T>::value) {
+		// Generic fallback: re-parse as DOM and delegate to JsonCodec<T>::decode.
+		// Used by any type with a custom JsonCodec that has no dedicated streaming branch.
+		SZ const start = r.value_start_pos();
+		if (auto ok = skip_remaining_reader(r, ev); !ok) {
+			return unexpected(move(ok).error());
+		}
+		SV const slice = r.input().substr(start, r.pos() - start);
+		auto doc = conflux::json::parse(slice);
+		if (!doc) return unexpected(move(doc).error());
+		return JsonCodec<T>::decode(doc->root());
 	} else {
 		static_assert(!std::same_as<T, T>, "No JsonReader support for type T");
 	}
@@ -7300,3 +7297,183 @@ public:
 
     [[nodiscard]] SZ buffered_bytes() const noexcept { return buf_.size(); }
 };
+
+// (reflect codec moved to src/json_reflect.cxx — separate module conflux.json.reflect)
+#if 0
+
+export namespace conflux::json {
+
+// Structural annotation: JSON field name override.
+// 'p' points to static storage (via define_static_string); always valid.
+struct name_t {
+    const char *p;
+    std::size_t n;
+};
+
+// Factory: converts a string literal to a name_t annotation.
+// Usage: [[=conflux::json::name("my_field")]]
+consteval name_t name(std::string_view sv) {
+    return {std::define_static_string(sv), sv.size()};
+}
+
+// Annotation marker: field is excluded from encode and decode.
+// Usage: [[=conflux::json::skip{}]]
+struct skip {};
+
+} // namespace conflux::json
+
+namespace detail {
+
+// -- Annotation probe helpers (consteval, take info as NTTP) -----------------
+
+template<std::meta::info Mem>
+consteval bool reflect_has_skip() {
+    return !std::meta::annotations_of_with_type(Mem, ^^conflux::json::skip).empty();
+}
+
+template<std::meta::info Mem>
+consteval bool reflect_has_name() {
+    return !std::meta::annotations_of_with_type(Mem, ^^conflux::json::name_t).empty();
+}
+
+template<std::meta::info Mem>
+consteval conflux::json::name_t reflect_get_name_ann() {
+    return std::meta::extract<conflux::json::name_t>(
+        std::meta::annotations_of_with_type(Mem, ^^conflux::json::name_t)[0]);
+}
+
+// -- Member iteration helpers ------------------------------------------------
+
+template<class T>
+consteval std::size_t reflect_member_count() {
+    return std::meta::nonstatic_data_members_of(
+        ^^T, std::meta::access_context::unchecked()).size();
+}
+
+template<class T, std::size_t I>
+consteval std::meta::info reflect_member_at() {
+    return std::meta::nonstatic_data_members_of(
+        ^^T, std::meta::access_context::unchecked())[I];
+}
+
+// Returns the effective JSON name for a member: annotation if present, else identifier.
+template<std::meta::info Mem>
+consteval conflux::json::name_t reflect_field_name() {
+    if constexpr (reflect_has_name<Mem>()) {
+        return reflect_get_name_ann<Mem>();
+    } else {
+        auto sv = std::meta::identifier_of(Mem);
+        return {std::define_static_string(sv), sv.size()};
+    }
+}
+
+// -- has_reflect_spec specialization -----------------------------------------
+//
+// Activates for aggregates that are default-initializable and have no
+// explicit JsonCodec<T> or JsonMembers<T> spec.  The !has_codec_spec check
+// is intentionally omitted to avoid a self-referential instantiation cycle
+// (the reflect partial spec itself would satisfy has_codec_spec<T>).
+// Explicit full specializations of JsonCodec<T> take priority over partial
+// specializations by the C++ overload resolution rules for templates.
+
+template<class T>
+    requires std::is_aggregate_v<T>
+          && std::default_initializable<T>
+          && (!has_members_spec<T>::value)
+struct has_reflect_spec<T> : std::true_type {};
+
+} // namespace detail
+
+// ---------------------------------------------------------------------------
+// JsonCodec<T> partial specialization — reflection-derived encode / decode
+// ---------------------------------------------------------------------------
+
+template<class T>
+    requires (detail::has_reflect_spec<T>::value)
+struct JsonCodec<T> {
+
+    static expected<T, JsonError> decode(NodeRef root) {
+        auto obj_res = root.as_object();
+        if (!obj_res) return unexpected(move(obj_res).error());
+        auto const &obj = *obj_res;
+
+        T result{};
+        bool ok = true;
+        JsonError first_err;
+
+        constexpr auto N = detail::reflect_member_count<T>();
+        [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+            ([&]<std::size_t I>() {
+                if (!ok) return;
+                constexpr auto mem  = detail::reflect_member_at<T, I>();
+                if constexpr (detail::reflect_has_skip<mem>()) return;
+
+                constexpr auto name_info = detail::reflect_field_name<mem>();
+                SV const field_name{name_info.p, name_info.n};
+
+                using M = std::remove_cvref_t<decltype(result.[:mem:])>;
+                auto node = obj.find_member(field_name);
+                if (!node) {
+                    if constexpr (!detail::is_optional<M>::value) {
+                        ok = false;
+                        first_err = JsonError{
+                            .stage = JsonStage::decode,
+                            .code  = JsonIssueCode::missing_member,
+                            .member_name = S{field_name},
+                            .message = format("missing member: {}", field_name)};
+                    }
+                    return;
+                }
+                V<detail::PathFrame> frames;
+                frames.push_back({detail::PathFrame::Kind::member, field_name, 0});
+                auto decoded = detail::decode_with_frames<M>(*node, frames, {});
+                if (!decoded) {
+                    ok = false;
+                    first_err = move(decoded).error();
+                    if (first_err.path.empty())
+                        first_err.path = detail::materialize_path(frames);
+                    return;
+                }
+                result.[:mem:] = move(*decoded);
+            }.template operator()<Is>(), ...);
+        }(std::make_index_sequence<N>{});
+
+        if (!ok) return unexpected(move(first_err));
+        return result;
+    }
+
+    static expected<void, JsonError> encode(ValueBuilder &b, T const &value) {
+        auto obj_res = b.begin_object();
+        if (!obj_res) return unexpected(move(obj_res).error());
+        auto &obj = *obj_res;
+
+        bool ok = true;
+        JsonError first_err;
+
+        constexpr auto N = detail::reflect_member_count<T>();
+        [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+            ([&]<std::size_t I>() {
+                if (!ok) return;
+                constexpr auto mem = detail::reflect_member_at<T, I>();
+                if constexpr (detail::reflect_has_skip<mem>()) return;
+
+                constexpr auto name_info = detail::reflect_field_name<mem>();
+                SV const field_name{name_info.p, name_info.n};
+
+                auto res = obj.insert(field_name, value.[:mem:]);
+                if (!res) {
+                    ok = false;
+                    first_err = move(res).error();
+                }
+            }.template operator()<Is>(), ...);
+        }(std::make_index_sequence<N>{});
+
+        if (!ok) return unexpected(move(first_err));
+        move(obj).commit();
+        return {};
+    }
+
+    static constexpr SV type_name() { return std::meta::display_string_of(^^T); }
+};
+
+#endif

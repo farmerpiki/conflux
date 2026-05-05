@@ -43,7 +43,7 @@
     },
     {
       "name": "debug-clang-libcxx",
-      "displayName": "Debug \u00b7 clang++ \u00b7 libc++",
+      "displayName": "Debug · clang++ · libc++",
       "inherits": "clang-libcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -55,7 +55,7 @@
     },
     {
       "name": "debug-gcc16-stdcxx",
-      "displayName": "Debug \u00b7 g++-16 \u00b7 libstdc++",
+      "displayName": "Debug · g++-16 · libstdc++",
       "inherits": "gcc16-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -66,8 +66,23 @@
       }
     },
     {
+      "name": "debug-p2996-gcc",
+      "displayName": "Debug · g++-16 · P2996 reflection",
+      "inherits": "gcc16-stdcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CXX_FLAGS_DEBUG": "-g -freflection",
+        "CONFLUX_ENABLE_ASAN": "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
+        "CONFLUX_BUILD_TESTS": "ON",
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_JSON_REFLECT": "ON",
+        "CONFLUX_ENABLE_DB": "OFF"
+      }
+    },
+    {
       "name": "debug-gcc-stdcxx",
-      "displayName": "Debug \u00b7 g++ \u00b7 libstdc++ (no sanitizers \u2014 GCC 15 ICE)",
+      "displayName": "Debug · g++ · libstdc++ (no sanitizers — GCC 15 ICE)",
       "inherits": "gcc-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
@@ -79,7 +94,7 @@
     },
     {
       "name": "release-clang-libcxx",
-      "displayName": "Release \u00b7 clang++ \u00b7 libc++",
+      "displayName": "Release · clang++ · libc++",
       "inherits": "clang-libcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -90,7 +105,7 @@
     },
     {
       "name": "release-gcc-stdcxx",
-      "displayName": "Release \u00b7 g++ \u00b7 libstdc++ \u00b7 no LTO",
+      "displayName": "Release · g++ · libstdc++ · no LTO",
       "inherits": "gcc-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -101,7 +116,7 @@
     },
     {
       "name": "release-gcc16-stdcxx",
-      "displayName": "Release \u00b7 g++-16 \u00b7 libstdc++",
+      "displayName": "Release · g++-16 · libstdc++",
       "inherits": "gcc16-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
@@ -112,7 +127,7 @@
     },
     {
       "name": "release-clang-libcxx-p5",
-      "displayName": "Release \u00b7 clang++ \u00b7 libc++ \u00b7 P5 coro pool",
+      "displayName": "Release · clang++ · libc++ · P5 coro pool",
       "inherits": "release-clang-libcxx",
       "cacheVariables": {
         "CONFLUX_WORK_CORO_FRAME_POOL": "ON"
@@ -120,7 +135,7 @@
     },
     {
       "name": "release-gcc-stdcxx-p5",
-      "displayName": "Release \u00b7 g++ \u00b7 libstdc++ \u00b7 P5 coro pool",
+      "displayName": "Release · g++ · libstdc++ · P5 coro pool",
       "inherits": "release-gcc-stdcxx",
       "cacheVariables": {
         "CONFLUX_WORK_CORO_FRAME_POOL": "ON"
@@ -128,7 +143,7 @@
     },
     {
       "name": "release-gcc16-stdcxx-p5",
-      "displayName": "Release \u00b7 g++-16 \u00b7 libstdc++ \u00b7 P5 coro pool",
+      "displayName": "Release · g++-16 · libstdc++ · P5 coro pool",
       "inherits": "release-gcc16-stdcxx",
       "cacheVariables": {
         "CONFLUX_WORK_CORO_FRAME_POOL": "ON"
@@ -136,7 +151,7 @@
     },
     {
       "name": "pgo-gen-clang-libcxx",
-      "displayName": "PGO gen \u00b7 clang++ \u00b7 libc++",
+      "displayName": "PGO gen · clang++ · libc++",
       "inherits": "release-clang-libcxx",
       "cacheVariables": {
         "CONFLUX_PGO_GENERATE": "ON"
@@ -144,7 +159,7 @@
     },
     {
       "name": "pgo-use-clang-libcxx",
-      "displayName": "PGO use \u00b7 clang++ \u00b7 libc++",
+      "displayName": "PGO use · clang++ · libc++",
       "inherits": "release-clang-libcxx",
       "cacheVariables": {
         "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/clang/work.profdata"
@@ -152,7 +167,7 @@
     },
     {
       "name": "pgo-gen-gcc-stdcxx",
-      "displayName": "PGO gen \u00b7 g++ \u00b7 libstdc++",
+      "displayName": "PGO gen · g++ · libstdc++",
       "inherits": "release-gcc-stdcxx",
       "cacheVariables": {
         "CONFLUX_PGO_GENERATE": "ON",
@@ -161,7 +176,7 @@
     },
     {
       "name": "pgo-use-gcc-stdcxx",
-      "displayName": "PGO use \u00b7 g++ \u00b7 libstdc++",
+      "displayName": "PGO use · g++ · libstdc++",
       "inherits": "release-gcc-stdcxx",
       "cacheVariables": {
         "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/gcc15"
@@ -169,7 +184,7 @@
     },
     {
       "name": "pgo-gen-gcc16-stdcxx",
-      "displayName": "PGO gen \u00b7 g++-16 \u00b7 libstdc++",
+      "displayName": "PGO gen · g++-16 · libstdc++",
       "inherits": "release-gcc16-stdcxx",
       "cacheVariables": {
         "CONFLUX_PGO_GENERATE": "ON",
@@ -178,7 +193,7 @@
     },
     {
       "name": "pgo-use-gcc16-stdcxx",
-      "displayName": "PGO use \u00b7 g++-16 \u00b7 libstdc++",
+      "displayName": "PGO use · g++-16 · libstdc++",
       "inherits": "release-gcc16-stdcxx",
       "cacheVariables": {
         "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/gcc16"
@@ -186,7 +201,7 @@
     },
     {
       "name": "tsan-clang-libcxx",
-      "displayName": "TSan \u00b7 clang++ \u00b7 libc++",
+      "displayName": "TSan · clang++ · libc++",
       "inherits": "clang-libcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
@@ -197,7 +212,7 @@
     },
     {
       "name": "fuzz-clang-stdcxx",
-      "displayName": "Fuzz \u00b7 clang++ \u00b7 libstdc++ \u00b7 libFuzzer+ASan+UBSan",
+      "displayName": "Fuzz · clang++ · libstdc++ · libFuzzer+ASan+UBSan",
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "clang++",
@@ -213,7 +228,7 @@
     },
     {
       "name": "tsan-gcc-stdcxx",
-      "displayName": "TSan \u00b7 g++ \u00b7 libstdc++",
+      "displayName": "TSan · g++ · libstdc++",
       "inherits": "gcc-stdcxx",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
