@@ -299,3 +299,16 @@ export A<unsigned char, 32> hmac_sha256(
 	ranges::copy(inner, outer_input.begin() + 64);
 	return sha256(outer_input);
 }
+
+export bool constant_time_eq(
+	SV a,
+	SV b) {
+	if (a.size() != b.size()) {
+		return false;
+	}
+	unsigned char acc = 0;
+	for (SZ i = 0; i < a.size(); ++i) {
+		acc = static_cast<unsigned char>(acc | (static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i])));
+	}
+	return acc == 0;
+}

@@ -40,19 +40,6 @@ S generate_token() {
 	return base64url_encode(bytes);
 }
 
-bool constant_time_eq(
-	SV a,
-	SV b) {
-	if (a.size() != b.size()) {
-		return false;
-	}
-	unsigned char acc = 0;
-	for (SZ i = 0; i < a.size(); ++i) {
-		acc = static_cast<unsigned char>(acc | (static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i])));
-	}
-	return acc == 0;
-}
-
 } // namespace csrf_detail
 
 export struct CsrfOptions {
@@ -100,7 +87,7 @@ export Router::Middleware csrf_middleware(
 			if (submitted.empty()) {
 				submitted = S{req.form[lower_field]};
 			}
-			if (!csrf_detail::constant_time_eq(cookie_token, submitted)) {
+			if (!constant_time_eq(cookie_token, submitted)) {
 				HttpResponse r;
 				r.status = 403;
 				r.status_text = "Forbidden";

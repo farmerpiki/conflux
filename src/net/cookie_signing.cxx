@@ -12,24 +12,6 @@ import conflux.utils;
 
 namespace {
 
-// Constant-time compare to prevent timing attacks.
-bool constant_time_eq(
-	SV a,
-	SV b) {
-	if (a.size() != b.size()) {
-		return false;
-	}
-	unsigned char acc = 0;
-	for (SZ i = 0; i < a.size(); ++i) {
-		acc = static_cast<unsigned char>(acc | (static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i])));
-	}
-	return acc == 0;
-}
-
-} // namespace
-
-namespace {
-
 S mac_b64(
 	SV value,
 	SV secret) {
