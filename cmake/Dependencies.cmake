@@ -15,6 +15,15 @@ if(CONFLUX_BUILD_TESTS)
         OVERRIDE_FIND_PACKAGE
     )
     FetchContent_MakeAvailable(Catch2)
+
+    FetchContent_Declare(
+        JSONTestSuite
+        GIT_REPOSITORY https://github.com/nst/JSONTestSuite.git
+        GIT_TAG        master
+        GIT_SHALLOW    TRUE
+    )
+    FetchContent_MakeAvailable(JSONTestSuite)
+    set(JSONTESTSUITE_DIR "${jsontestsuite_SOURCE_DIR}/test_parsing" CACHE INTERNAL "")
 endif()
 pkg_check_modules(LIBURING  REQUIRED IMPORTED_TARGET liburing)
 pkg_check_modules(BROTLI    IMPORTED_TARGET libbrotlienc libbrotlidec)
