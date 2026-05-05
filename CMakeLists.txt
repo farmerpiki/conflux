@@ -47,6 +47,7 @@ option(CONFLUX_WORK_CARRIER_MODEL_A "Enable experimental work carrier Model A pr
 option(CONFLUX_WORK_CARRIER_MODEL_B "Enable experimental work carrier Model B prototype surface" ON)
 option(CONFLUX_SUPPRESS_DEPRECATION_WARNINGS "Temporarily suppress deprecated API warnings during pre-v1 migration" ON)
 option(CONFLUX_WORK_CORO_FRAME_POOL "Enable per-thread monotonic bump arena for EagerChain coroutine frames" OFF)
+option(CONFLUX_JSON_USE_STDSIMD "Use std::experimental::simd instead of raw intrinsics for JSON SIMD paths" OFF)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(CompilerOptions)
@@ -451,6 +452,18 @@ target_link_libraries(conflux
 
 if(CONFLUX_JSON_AVX2)
     target_compile_options(conflux PRIVATE -mavx2 -mbmi2)
+endif()
+
+if(CONFLUX_JSON_USE_STDSIMD)
+    target_compile_definitions(conflux PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
+    target_sources(conflux PRIVATE src/json_simd_stdx.cxx)
+    set_source_files_properties(src/json_simd_stdx.cxx PROPERTIES
+        COMPILE_OPTIONS "-mavx2"
+    )
+    if(TARGET conflux_json)
+        target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
+        target_sources(conflux_json PRIVATE src/json_simd_stdx.cxx)
+    endif()
 endif()
 
 if(CONFLUX_JSON_REFLECT)

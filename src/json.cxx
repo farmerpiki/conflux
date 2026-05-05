@@ -10,7 +10,14 @@ extern "C" {
 #include <xxhash.h>
 // <immintrin.h> → mm_malloc.h → stdlib.h → pthreadtypes.h conflicts with the
 // std module BMI under GCC -freflection; scalar fallback used in that build.
-#if (defined(__x86_64__) || defined(_M_X64)) && !defined(__cpp_impl_reflection)
+#if defined(CONFLUX_JSON_USE_STDSIMD)
+#include <cstddef>
+#define CONFLUX_JSON_HAS_STDSIMD 1
+extern "C" {
+    std::size_t conflux_json_scan_str_until_special_stdsimd(char const *, std::size_t) noexcept;
+    std::size_t conflux_json_scan_dump_safe_run_stdsimd(char const *, std::size_t, int) noexcept;
+}
+#elif (defined(__x86_64__) || defined(_M_X64)) && !defined(__cpp_impl_reflection)
 #include <immintrin.h>
 #ifndef CONFLUX_JSON_DISABLE_SIMD
 #define CONFLUX_JSON_HAS_SSE2 1
@@ -2865,7 +2872,9 @@ inline void dump_str_raw(
 	SZ n,
 	bool ascii_only) noexcept {
 	SZ i = 0;
-#if defined(CONFLUX_JSON_HAS_AVX2)
+#if defined(CONFLUX_JSON_HAS_STDSIMD)
+	return conflux_json_scan_dump_safe_run_stdsimd(p, n, ascii_only ? 1 : 0);
+#elif defined(CONFLUX_JSON_HAS_AVX2)
 	__m256i const v_quote = _mm256_set1_epi8('"');
 	__m256i const v_back  = _mm256_set1_epi8('\\');
 	__m256i const v_lim   = _mm256_set1_epi8(0x20);
@@ -3197,7 +3206,9 @@ namespace detail::simd {
 	char const *p,
 	SZ n) noexcept {
 	SZ i = 0;
-#if defined(CONFLUX_JSON_HAS_AVX2)
+#if defined(CONFLUX_JSON_HAS_STDSIMD)
+	return conflux_json_scan_str_until_special_stdsimd(p, n);
+#elif defined(CONFLUX_JSON_HAS_AVX2)
 	__m256i const v_quote = _mm256_set1_epi8('"');
 	__m256i const v_back  = _mm256_set1_epi8('\\');
 	__m256i const v_lim   = _mm256_set1_epi8(0x20);
