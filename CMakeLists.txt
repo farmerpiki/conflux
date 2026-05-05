@@ -681,3 +681,13 @@ if(CONFLUX_HAS_DB STREQUAL "true")
     target_link_libraries(conflux_db_pool
         PRIVATE conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
 endif()
+
+# JSON examples
+add_executable(conflux_json_example examples/json.cxx)
+target_link_libraries(conflux_json_example PRIVATE conflux conflux_options)
+
+if(CONFLUX_JSON_REFLECT)
+    add_executable(conflux_json_reflect_example examples/json_reflect.cxx)
+    target_link_libraries(conflux_json_reflect_example
+        PRIVATE conflux_json_reflect conflux_json conflux_types conflux_options)
+endif()
