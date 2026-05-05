@@ -12,6 +12,7 @@ import conflux.file_io;
 import conflux.db;
 
 using namespace conflux::db;
+using conflux::work::root::Task;
 
 namespace {
 
@@ -317,12 +318,12 @@ TEST_CASE(
 
 	atomic_flag sleep_done{};
 	EP sleep_err;
-	co_spawn([](atomic_flag *done, EP *err, decltype(conn->query("")) qt) -> Task<void> {
+	[](atomic_flag *done, EP *err, decltype(conn->query("")) qt) -> Task<void> {
 		try {
 			co_await std::move(qt);
 		} catch (...) { *err = std::current_exception(); }
 		done->test_and_set(memory_order_release);
-	}(&sleep_done, &sleep_err, conn->query("SELECT pg_sleep(10)")));
+	}(&sleep_done, &sleep_err, conn->query("SELECT pg_sleep(10)")).detach();
 
 	WorkPool cancel_pool{WorkPoolOptions{.threads = 1}};
 	std::this_thread::sleep_for(chrono::milliseconds{100});
@@ -474,12 +475,12 @@ TEST_CASE(
 
 	atomic_flag done{};
 	EP err;
-	co_spawn([](atomic_flag *d, EP *e, decltype(conn->query("")) qt) -> Task<void> {
+	[](atomic_flag *d, EP *e, decltype(conn->query("")) qt) -> Task<void> {
 		try {
 			co_await std::move(qt);
 		} catch (...) { *e = std::current_exception(); }
 		d->test_and_set(memory_order_release);
-	}(&done, &err, conn->query("SELECT pg_sleep(10)")));
+	}(&done, &err, conn->query("SELECT pg_sleep(10)")).detach();
 
 	std::this_thread::sleep_for(chrono::milliseconds{100});
 	block_on(fx->reader, conn->cancel_inflight(), chrono::seconds{30});
