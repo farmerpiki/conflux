@@ -49,7 +49,7 @@ Scope: `conflux.work`, `conflux.json`, `conflux.net.http_server` including `http
   - Decide whether to document "first failure only" or add a separate aggregate-result API.
   - Files: `src/work.cxx`, `docs/conflux-work-root-api.md`.
 
-- [ ] Borrowed JSON lifetime signaling
+- [x] Borrowed JSON lifetime signaling
   - `parse_borrowed`, borrowed builder insertions, and NDJSON range entries are documented, but they still present an easy dangling-reference trap when callers mutate or release the backing buffer after parsing.
   - Decide whether to strengthen naming, examples, and API docs around "borrowed/unsafe/view" semantics.
   - Files: `src/json.cxx`, `docs/json-api.md`, `tests/json_test.cxx`.

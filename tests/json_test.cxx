@@ -3821,6 +3821,16 @@ auto root=doc->root().as_object();
 REQUIRE(root.has_value());
 CHECK(root->size()==1UZ);
 }
+TEST_CASE("phase5: explicit borrowed parse aliases","[phase5]"){
+S input=R"({"name":"ada"})";
+auto doc=parse_borrowed_unsafe(input);
+REQUIRE(doc.has_value());
+auto view_doc=parse_view(SV{input});
+REQUIRE(view_doc.has_value());
+auto obj=doc->root().as_object();
+REQUIRE(obj.has_value());
+CHECK(*obj->member("name")->as_string()=="ada");
+}
 TEST_CASE("phase5: pmr parse returns same result as default parse","[phase5]"){
 SV input=R"([1,2,3,"hello"])";
 std::pmr::monotonic_buffer_resource mbr{4096};

@@ -15,6 +15,8 @@ All types live in namespace `conflux::json`. All fallible operations return
 expected<Document, JsonError> parse(string_view input, JsonParseOptions const& opts = {});
 expected<Document, JsonError> parse(string&&      input, JsonParseOptions const& opts = {});
 expected<Document, JsonError> parse_borrowed(string_view input, JsonParseOptions const& opts = {});
+expected<Document, JsonError> parse_borrowed_unsafe(string_view input, JsonParseOptions const& opts = {});
+expected<Document, JsonError> parse_view(string_view input, JsonParseOptions const& opts = {});
 ```
 
 - `parse(string_view)` — copies input into the Document's owned buffer.
@@ -22,10 +24,22 @@ expected<Document, JsonError> parse_borrowed(string_view input, JsonParseOptions
 - `parse_borrowed(string_view)` — zero-copy: string values borrow directly from
   `input`. The caller must keep `input` alive for the Document's lifetime.
   `parse_borrowed(string&&)` is `= delete` to prevent accidental dangling.
+- `parse_borrowed_unsafe(string_view)` / `parse_view(string_view)` — explicit
+  aliases for `parse_borrowed`. Prefer these names in new code when a review
+  should notice that the returned `Document` contains views into caller-owned
+  bytes. Their rvalue overloads are also deleted.
 
 ```cpp
 auto doc = parse(R"({"x": 1, "y": 2})");
 if (!doc) { /* doc.error() */ }
+```
+
+Borrowed parsing is only valid when the backing bytes are stable:
+
+```cpp
+std::string input = load_config();
+auto doc = parse_borrowed_unsafe(input);
+// Do not mutate, clear, resize, or destroy input while doc is alive.
 ```
 
 ### JsonParseOptions
@@ -529,6 +543,11 @@ struct NodeIdentityEqual { bool   operator()(NodeRef, NodeRef) const noexcept; }
   across moves of the same `Document`.
 - `parse_borrowed` string values point into the original `input` buffer.
   Destroying or mutating that buffer after parse is undefined behaviour.
+- `parse_borrowed_unsafe` and `parse_view` are aliases for `parse_borrowed`;
+  they exist to make the lifetime contract visible at call sites.
+- `NdjsonRange` returns per-line `Document` values that borrow from the original
+  NDJSON buffer. The entire NDJSON input must remain alive and immutable while
+  any iterator result is alive.
 - `insert_string_borrowed_name` stores the member *name* pointer without
   copying. The name data must outlive the `Document`.
 - `insert_string_borrowed` / `append_string_borrowed` store neither name nor

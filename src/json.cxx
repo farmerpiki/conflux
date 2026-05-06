@@ -4162,6 +4162,16 @@ storage->input_view=src;
 auto&storage_ref=*storage;
 return parse_with_storage(storage_ref,move(storage),opts);
 }
+expected<Document,JsonError>parse_borrowed_unsafe(
+SV input,
+JsonParseOptions const&opts={}){
+return parse_borrowed(input,opts);
+}
+expected<Document,JsonError>parse_view(
+SV input,
+JsonParseOptions const&opts={}){
+return parse_borrowed(input,opts);
+}
 
 // Deleted rvalue overload (Correction T) — borrowing requires the caller to
 // own the bytes. Constrained the same way as the parse(S&&) overload
@@ -4169,6 +4179,12 @@ return parse_with_storage(storage_ref,move(storage),opts);
 template<class S>
 requires same_as<std::remove_cvref_t<S>,S>&&(!std::is_lvalue_reference_v<S>)
 expected<Document,JsonError>parse_borrowed(S&&,JsonParseOptions const& ={})=delete;
+template<class S>
+requires same_as<std::remove_cvref_t<S>,S>&&(!std::is_lvalue_reference_v<S>)
+expected<Document,JsonError>parse_borrowed_unsafe(S&&,JsonParseOptions const& ={})=delete;
+template<class S>
+requires same_as<std::remove_cvref_t<S>,S>&&(!std::is_lvalue_reference_v<S>)
+expected<Document,JsonError>parse_view(S&&,JsonParseOptions const& ={})=delete;
 // pmr-injecting overloads — caller supplies the memory resource.
 // The resource must outlive every Document (and NodeRef) derived from it.
 expected<Document,JsonError>parse(
@@ -4205,6 +4221,18 @@ storage->bom_prefix_bytes=static_cast<u32>(kBOM.size());
 storage->input_view=src;
 auto&storage_ref=*storage;
 return parse_with_storage(storage_ref,move(storage),opts);
+}
+expected<Document,JsonError>parse_borrowed_unsafe(
+SV input,
+JsonParseOptions const&opts,
+std::pmr::memory_resource*resource){
+return parse_borrowed(input,opts,resource);
+}
+expected<Document,JsonError>parse_view(
+SV input,
+JsonParseOptions const&opts,
+std::pmr::memory_resource*resource){
+return parse_borrowed(input,opts,resource);
 }
 }// namespace conflux::json
 
@@ -7248,7 +7276,7 @@ remaining_.remove_prefix(pos+1);
 // strip trailing CR
 if(!line.empty()&&line.back()=='\r')line.remove_suffix(1);
 if(line.empty())continue;
-cache_=conflux::json::parse_borrowed(line,opts_);
+cache_=conflux::json::parse_borrowed_unsafe(line,opts_);
 return;
 }
 }
