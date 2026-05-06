@@ -62,7 +62,7 @@ Scope: `conflux.work`, `conflux.json`, `conflux.net.http_server` including `http
   - Audit lazy object-index reserve/capacity math such as `count * 2` and convert any user-influenced multiplication to checked or division-form bounds.
   - File: `src/json.cxx`.
 
-- [ ] WorkPool stop/destructor semantics
+- [x] WorkPool stop/destructor semantics
   - `stop()` is a hard stop that can abandon queued raw jobs; this is valid only with a loud contract, or separate drain-vs-shutdown APIs.
   - Files: `src/work.cxx`, `docs/conflux-work-root-api.md`, `tests/work_test.cxx`.
 

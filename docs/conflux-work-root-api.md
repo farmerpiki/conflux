@@ -369,6 +369,16 @@ struct WorkPoolOptions {
 full. Jobs submitted from a worker in the same pool first use that worker's
 bounded local queue; other producers use the bounded inject queue.
 
+`stop()` is a hard stop: it rejects new work, requests worker shutdown, and may
+abandon queued jobs that have not started. This is also the destructor behavior.
+Call `wait()` after `stop()` when you need to join workers before destroying
+dependent state.
+
+`drain_and_stop()` rejects new work, wakes workers, waits until already queued
+and running jobs finish, then stops and joins the pool. Use it when queued raw
+jobs must run before shutdown. It can block indefinitely if a job blocks
+indefinitely.
+
 Raw jobs submitted through `enqueue()` must not throw unless
 `raw_exception_sink` is configured. If a raw job throws and a sink is present,
 the sink receives the `std::exception_ptr`; exceptions thrown by the sink are

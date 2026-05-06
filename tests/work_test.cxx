@@ -79,6 +79,73 @@ REQUIRE(cv.wait_for(lk,chrono::seconds{5},[&]{return seen;}));
 CHECK(message=="raw boom");
 }
 TEST_CASE(
+"work: WorkPool stop abandons queued raw jobs",
+"[work]"){
+mutex mtx;
+std::condition_variable cv;
+bool first_started=false;
+bool release_first=false;
+bool second_ran=false;
+WorkPool pool{WorkPoolOptions{.threads=1}};
+REQUIRE(pool.enqueue([&]{
+std::unique_lock lk{mtx};
+first_started=true;
+cv.notify_all();
+cv.wait(lk,[&]{return release_first;});
+}));
+{
+std::unique_lock lk{mtx};
+REQUIRE(cv.wait_for(lk,chrono::seconds{5},[&]{return first_started;}));
+}
+REQUIRE(pool.enqueue([&]{second_ran=true;}));
+pool.stop();
+{
+SL const lk{mtx};
+release_first=true;
+}
+cv.notify_all();
+pool.wait();
+CHECK_FALSE(second_ran);
+CHECK(pool.stopped());
+}
+TEST_CASE(
+"work: WorkPool drain_and_stop finishes queued raw jobs",
+"[work]"){
+mutex mtx;
+std::condition_variable cv;
+bool first_started=false;
+bool release_first=false;
+bool second_ran=false;
+WorkPool pool{WorkPoolOptions{.threads=1}};
+REQUIRE(pool.enqueue([&]{
+std::unique_lock lk{mtx};
+first_started=true;
+cv.notify_all();
+cv.wait(lk,[&]{return release_first;});
+}));
+{
+std::unique_lock lk{mtx};
+REQUIRE(cv.wait_for(lk,chrono::seconds{5},[&]{return first_started;}));
+}
+REQUIRE(pool.enqueue([&]{
+SL const lk{mtx};
+second_ran=true;
+cv.notify_all();
+}));
+jthread stopper{[&]{pool.drain_and_stop();}};
+{
+SL const lk{mtx};
+release_first=true;
+}
+cv.notify_all();
+{
+std::unique_lock lk{mtx};
+REQUIRE(cv.wait_for(lk,chrono::seconds{5},[&]{return second_ran;}));
+}
+stopper.join();
+CHECK(pool.stopped());
+}
+TEST_CASE(
 "work: join_all collects results",
 "[work]"){
 WorkPool pool;

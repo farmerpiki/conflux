@@ -147,6 +147,7 @@ Atom<u32>wake_epoch_{0};
 // adding a cache miss to the no-parked-workers fast path.
 alignas(64)Atom<int>parked_{0};
 Atom<SZ>pending_{0};
+atomic_flag accepting_stopped_{};
 atomic_flag stopping_{};
 
 inline static thread_local WorkPool*tls_pool_=nullptr;
@@ -310,7 +311,7 @@ WorkPool(WorkPool&&)=delete;
 WorkPool&operator=(WorkPool&&)=delete;
 [[nodiscard]]bool enqueue(
 conflux::work::root::detail::small_move_only_function<void()>job)override{
-if(stopping_.test(memory_order_acquire))
+if(accepting_stopped_.test(memory_order_acquire)||stopping_.test(memory_order_acquire))
 return false;
 bool const queued=is_local_worker()?push_local(move(job)):push_inject(move(job));
 if(!queued)
@@ -319,18 +320,28 @@ wake_one();
 return true;
 }
 void stop()noexcept{
+accepting_stopped_.test_and_set(memory_order_acq_rel);
 if(!stopping_.test_and_set(memory_order_acq_rel)){
 for(auto&worker:workers_)
 worker->thread.request_stop();
 wake_all();
 }
 }
+void drain_and_stop()noexcept{
+accepting_stopped_.test_and_set(memory_order_acq_rel);
+while(pending_.load(memory_order_acquire)>0){
+wake_all();
+std::this_thread::yield();
+}
+stop();
+wait();
+}
 void wait()noexcept{
 for(auto&worker:workers_)
 if(worker->thread.joinable())
 worker->thread.join();
 }
-[[nodiscard]]bool stopped()const noexcept{return stopping_.test(memory_order_acquire);}
+[[nodiscard]]bool stopped()const noexcept{return accepting_stopped_.test(memory_order_acquire);}
 };
 // io_uring-coupled executor: requires a live ring (ring_fd from RingLaneOptions).
 // Each non-inline enqueue into an empty queue issues exactly one
