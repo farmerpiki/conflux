@@ -1721,6 +1721,7 @@ template<work_value T>
 struct TaskAwaiter{
 SP<ControlBlockInterface<T>>state_;
 std::source_location loc_{};
+bool ready_callback_already_installed_{false};
 [[nodiscard]]bool await_ready()const noexcept{return!state_||state_->ready();}
 [[nodiscard]]bool await_suspend(
 std::coroutine_handle<>h)noexcept{
@@ -1728,14 +1729,18 @@ auto result=state_->try_set_on_ready(small_move_only_function<void()>{[h]()noexc
 switch(result.status){
 case ReadyRegistration::installed:return true;
 case ReadyRegistration::already_ready:
-case ReadyRegistration::already_installed:
 case ReadyRegistration::empty:return false;
+case ReadyRegistration::already_installed:
+ready_callback_already_installed_=true;
+return false;
 }
 std::unreachable();
 }
 decltype(auto)await_resume(){
 if(!state_)[[unlikely]]
 raise_join_consumed_handle(loc_);
+if(ready_callback_already_installed_)[[unlikely]]
+throw JoinError{JoinError::reason::ready_callback_already_installed,loc_};
 // Rethrow original exception on Failure (not FailureError wrapper) so
 // existing catch sites work. E2b.2 migrates to FailureError uniformly.
 return move(state_->wait_and_take_outcome())
@@ -1756,6 +1761,7 @@ template<work_value T>
 struct OutcomeAwaiter{
 SP<ControlBlockInterface<T>>state_;
 std::source_location loc_{};
+bool ready_callback_already_installed_{false};
 [[nodiscard]]bool await_ready()const noexcept{return!state_||state_->ready();}
 [[nodiscard]]bool await_suspend(
 std::coroutine_handle<>h)noexcept{
@@ -1763,14 +1769,18 @@ auto result=state_->try_set_on_ready(small_move_only_function<void()>{[h]()noexc
 switch(result.status){
 case ReadyRegistration::installed:return true;
 case ReadyRegistration::already_ready:
-case ReadyRegistration::already_installed:
 case ReadyRegistration::empty:return false;
+case ReadyRegistration::already_installed:
+ready_callback_already_installed_=true;
+return false;
 }
 std::unreachable();
 }
 Outcome<T>await_resume(){
 if(!state_)[[unlikely]]
 raise_join_consumed_handle(loc_);
+if(ready_callback_already_installed_)[[unlikely]]
+throw JoinError{JoinError::reason::ready_callback_already_installed,loc_};
 return state_->wait_and_take_outcome();
 }
 };

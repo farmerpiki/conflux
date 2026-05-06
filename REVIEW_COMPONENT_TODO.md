@@ -66,7 +66,7 @@ Scope: `conflux.work`, `conflux.json`, `conflux.net.http_server` including `http
   - `stop()` is a hard stop that can abandon queued raw jobs; this is valid only with a loud contract, or separate drain-vs-shutdown APIs.
   - Files: `src/work.cxx`, `docs/conflux-work-root-api.md`, `tests/work_test.cxx`.
 
-- [ ] Task second-consumer await behavior
+- [x] Task second-consumer await behavior
   - `TaskAwaiter::await_suspend()` returns non-suspending when a ready callback is already installed, so accidental second awaits should be reviewed for deterministic failure rather than a possible blocking `await_resume()`.
   - Files: `src/work/root.cxx`, `tests/work_root_test.cxx`.
 

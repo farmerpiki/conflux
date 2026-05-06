@@ -11,6 +11,10 @@ struct OwnerCap{};
 struct DriverCap{};
 struct InnerCap{};
 struct OuterCap:InnerCap{};
+root::Task<int> await_task_value(
+root::Task<int> task){
+co_return co_await move(task);
+}
 }// namespace
 namespace conflux::work::root{
 template<>inline constexpr bool enable_address_capability_v<OwnerCap> =true;
@@ -580,6 +584,27 @@ REQUIRE(src.try_set_value(root::Success<int>{1}));
 CHECK(count.load()==1);
 
 root::abandon_to(move(handle),root::drop_on_abandon{});
+}
+TEST_CASE(
+"work.root: co_await fails deterministically when ready callback already installed",
+"[work.root][r2]"){
+auto[task,src]=root::make_task_source<int>();
+auto ctrl=task.control();
+
+auto r=ctrl.try_set_on_ready([]()noexcept{});
+REQUIRE(r.status==root::ReadyRegistration::installed);
+
+auto outer=await_task_value(move(task));
+auto out=root::join(move(outer));
+REQUIRE(out.is_failure());
+try{
+rethrow_exception(out.failure().error);
+FAIL("expected JoinError");
+}catch(root::JoinError const&e){
+CHECK(e.reason_code()==root::JoinError::reason::ready_callback_already_installed);
+}
+
+REQUIRE(src.try_set_value(root::Success<int>{5}));
 }
 TEST_CASE(
 "work.root: R7 clear_on_ready clears armed callback — commit fires no callback",

@@ -241,6 +241,11 @@ enum class ClearOnReadyStatus : std::uint8_t {
 calling thread; otherwise installs it. `already_installed` and `empty` are
 silently dropped.
 
+`co_await` and `outcome()` use this same one-shot ready callback. If another
+callback is already installed on the control block, awaiting the task fails
+deterministically with `JoinError::ready_callback_already_installed`; it does
+not block waiting for the outcome.
+
 ## Join, Value, and Join Handles
 
 Join and value APIs:
