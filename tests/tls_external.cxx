@@ -1,5 +1,7 @@
 // External TLS validation tests.
 #include<catch2/catch_test_macros.hpp>
+#include<cstdlib>
+#include<unistd.h>
 
 import std;
 import conflux.types;
@@ -44,6 +46,32 @@ REQUIRE(tls_body==R"({"ok":true})");
 auto[plain_code,plain_body]=fx.curl_http("/ping");
 REQUIRE(plain_code==0);
 REQUIRE(plain_body==R"({"ok":true})");
+}
+TEST_CASE(
+"ext/curl: HTTPS static file mmap fallback sends full body"){
+char dir_template[]="/tmp/conflux_tls_static_XXXXXX";
+char*const dir_ptr=::mkdtemp(dir_template);
+REQUIRE(dir_ptr!=nullptr);
+S const dir{dir_ptr};
+S const body(256UL*1024,'M');
+{
+std::ofstream out{dir+"/large.bin",std::ios::binary};
+out<<body;
+}
+
+Config cfg=Config::test();
+cfg.fixed_buffer_slabs=0;
+cfg.splice_pipe_pairs=0;
+Router router;
+router.serve_static("/static",dir);
+
+conflux::tests::HttpsServerFixture const fx{cfg,move(router)};
+auto[code,got]=conflux::tests::run_cmd_retry(
+format("curl -sk --http1.1 --max-time 5 https://127.0.0.1:{}/static/large.bin",fx.port()));
+fs::remove_all(dir);
+
+REQUIRE(code==0);
+REQUIRE(got==body);
 }
 TEST_CASE(
 "ext/curl: TLS 1.2 is accepted"){

@@ -7204,8 +7204,10 @@ explicit JsonAccumulator(JsonParseOptions const&opts={})noexcept
 :opts_{opts}{}
 [[nodiscard]]expected<void,JsonError>feed(SV chunk){
 constexpr SZ kU32Ceiling=(SZ{1}<<32)-1;
-SZ const total=buf_.size()+chunk.size();
-if(opts_.max_input_size.exceeds(total,kDefaultMaxInput)||total>=kU32Ceiling)
+SZ const hard_cap=kU32Ceiling-1;
+SZ const configured_cap=opts_.max_input_size.is_unlimited()?
+hard_cap:min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput),hard_cap);
+if(buf_.size()>configured_cap||chunk.size()>configured_cap-buf_.size())
 return unexpected(JsonError{
 .stage=JsonStage::parse,
 .code=JsonIssueCode::input_too_large,

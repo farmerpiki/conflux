@@ -1485,6 +1485,21 @@ REQUIRE(resp.find("X-Custom: hello\r\n")!=S::npos);
 REQUIRE(resp.find("X-Another: world\r\n")!=S::npos);
 }
 TEST_CASE(
+"response status_text with CRLF is sanitized"){
+Config cfg=mw_config();
+Router router;
+router.get("/bad-status",[](HttpRequest const&){
+HttpResponse r=HttpResponse::text("ok");
+r.status=299;
+r.status_text="Fine\r\nX-Injected: yes";
+return r;
+});
+ScopedTestServer srv{cfg,move(router)};
+auto resp=http_get_on(srv.port(),"/bad-status","Connection: close\r\n");
+REQUIRE(resp.starts_with("HTTP/1.1 299 \r\n"));
+REQUIRE(resp.find("X-Injected: yes")==S::npos);
+}
+TEST_CASE(
 "302 redirect sets Location header and status"){
 auto resp=http_get("/api/redirect-302");
 REQUIRE(resp.starts_with("HTTP/1.1 302 Found"));
@@ -2043,6 +2058,27 @@ auto resp=read_one_response(fd);
 REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 auto hdr_end=resp.find("\r\n\r\n");
 REQUIRE(resp.substr(hdr_end+4)=="abcde");
+}
+TEST_CASE(
+"POST with chopped chunked body is decoded incrementally"){
+ensure_server();
+
+LocalTcpClient client{g_test_port};
+client.set_recv_timeout(chrono::seconds{5});
+
+SV const headers=
+"POST /api/echo-body HTTP/1.1\r\n" "Host: localhost\r\n" "Content-Type: text/plain\r\n" "Transfer-Encoding: chunked\r\n" "Connection: close\r\n" "\r\n";
+(void)client.send(headers);
+(void)client.send("7\r\nHe");
+(void)client.send("llo, \r\n6\r\nwo");
+(void)client.send("rld!\r\n0\r\n");
+(void)client.send("X-Trailer: ok\r\n\r\n");
+
+auto resp=client.read_one_response();
+REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+auto hdr_end=resp.find("\r\n\r\n");
+REQUIRE(hdr_end!=S::npos);
+REQUIRE(resp.substr(hdr_end+4)=="Hello, world!");
 }
 // ---------------------------------------------------------------------------
 // Cookie support
@@ -5788,7 +5824,7 @@ TEST_CASE(
 Router router;
 router.get("/",[](HttpRequest const&){return HttpResponse::text("");});
 auto spec=openapi_spec(router,R"(My "API" & More)");
-REQUIRE(spec.find(R"("title":"My\"API\" & More")")!=S::npos);
+REQUIRE(spec.find(R"("title":"My \"API\" & More")")!=S::npos);
 }
 TEST_CASE(
 "openapi: empty router produces valid paths object"){
@@ -5980,6 +6016,24 @@ req+="1\r\nx\r\n";
 req+="0\r\n\r\n";
 auto resp=send_raw_bytes(req);
 REQUIRE(resp.starts_with("HTTP/1.1 400"));
+}
+TEST_CASE(
+"parser: chunked transfer with oversized trailer returns 400"){
+S req=
+"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+"0\r\nX-Trailer: ";
+req.append(9000,'x');
+req+="\r\n\r\n";
+auto resp=send_raw_bytes(req);
+REQUIRE(resp.starts_with("HTTP/1.1 400"));
+}
+TEST_CASE(
+"parser: chunked transfer with huge declared chunk returns 413"){
+S req=
+"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
+"ffffffffffffffff\r\n";
+auto resp=send_raw_bytes(req);
+REQUIRE(resp.starts_with("HTTP/1.1 413"));
 }
 // ---------------------------------------------------------------------------
 // WebSocket frame validation + fragmentation (A2)

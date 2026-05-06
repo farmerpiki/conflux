@@ -3996,6 +3996,17 @@ auto res=acc.feed("678901");
 CHECK_FALSE(res.has_value());
 CHECK(res.error().code==JsonIssueCode::input_too_large);
 }
+TEST_CASE("phase7: JsonAccumulator accepts exact max_input_size boundary","[phase7]"){
+JsonParseOptions opts;
+opts.max_input_size=LimitOption::bound(10);
+JsonAccumulator acc{opts};
+REQUIRE(acc.feed("12345").has_value());
+REQUIRE(acc.feed("67890").has_value());
+CHECK(acc.buffered_bytes()==10);
+auto res=acc.feed("1");
+CHECK_FALSE(res.has_value());
+CHECK(res.error().code==JsonIssueCode::input_too_large);
+}
 TEST_CASE("phase7: JsonAccumulator reset clears buffer","[phase7]"){
 JsonAccumulator acc;
 REQUIRE(acc.feed("[1,2,3]").has_value());
