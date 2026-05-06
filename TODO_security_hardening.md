@@ -84,7 +84,7 @@
   - Validate required pseudo-headers, duplicate pseudo-headers, pseudo-header ordering, lowercase field names, forbidden connection-specific headers, `te` value, and `content-length` consistency.
   - File: src/net/http_server.cxx
 
-- [ ] 17. Chunked wire-overhead limits
+- [x] 17. Chunked wire-overhead limits
   - Decoded body size and chunk count are bounded, but the raw receive cap should intentionally account for small-chunk overhead, chunk extensions, and trailer bytes.
   - File: src/net/http_server.cxx
 

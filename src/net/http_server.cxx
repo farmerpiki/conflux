@@ -61,9 +61,6 @@ FixedFdInstall,
 Nop
 };
 
-constexpr SZ H2_MAX_PENDING_SEND=4U*1024U*1024U;// 4 MiB per-connection H2 buffer cap
-constexpr SZ MAPPED_TLS_CHUNK=256U*1024U;// mmap body chunk size per TLS send
-
 constexpr u32 OP_SHIFT=56U;
 constexpr u32 GEN_SHIFT=24U;
 constexpr u64 GEN_MASK=0xFFFFFFFFULL;
@@ -91,7 +88,8 @@ if(strftime(buf.data(),buf.size(),"%a, %d %b %Y %H:%M:%S GMT",&gmt)==0)
 return{};
 return S{buf.data()};
 }
-bool is_valid_header_name(SV name)noexcept{
+bool is_valid_header_name(
+SV name)noexcept{
 if(name.empty())
 return false;
 for(auto c:name){
@@ -104,7 +102,8 @@ return false;
 }
 return true;
 }
-bool is_valid_header_value(SV value)noexcept{
+bool is_valid_header_value(
+SV value)noexcept{
 for(auto c:value){
 auto const u=static_cast<unsigned char>(c);
 if(u<0x20&&u!='\t')
@@ -114,7 +113,8 @@ return false;
 }
 return true;
 }
-bool is_framing_header(SV name)noexcept{
+bool is_framing_header(
+SV name)noexcept{
 auto lower_eq=[](SV a,SV b){
 if(a.size()!=b.size())
 return false;
@@ -130,8 +130,20 @@ return true;
 };
 return lower_eq(name,"content-length")||lower_eq(name,"transfer-encoding")||lower_eq(name,"connection")||lower_eq(name,"upgrade")||lower_eq(name,"keep-alive")||lower_eq(name,"te")||lower_eq(name,"trailer");
 }
-bool must_not_have_body(int status)noexcept{
+bool must_not_have_body(
+int status)noexcept{
 return(status>=100&&status<200)||status==204||status==304;
+}
+bool is_valid_reason_phrase(
+SV value)noexcept{
+for(auto c:value){
+auto const u=static_cast<unsigned char>(c);
+if(u<0x20&&u!='\t')
+return false;
+if(u==0x7F)
+return false;
+}
+return true;
 }
 S format_response(
 HttpResponse const&r,
@@ -146,7 +158,7 @@ bool const suppress_body=status_no_body||r.head_only;
 S out=format(
 "HTTP/1.1 {} {}\r\n" "Date: {}\r\n",
 r.status,
-r.status_text,
+is_valid_reason_phrase(r.status_text)?SV{r.status_text}:SV{},
 http_date_now());
 if(!r.content_type.empty())
 out+=format("Content-Type: {}\r\n",r.content_type);
@@ -186,6 +198,7 @@ return kSseHeaders;
 }
 #if CONFLUX_HAS_HTTP2
 struct Ring;// forward-declared so H2ConnCtx can hold Ring* while Conn precedes Ring
+static constexpr SZ kH2PendingSendCap=64U*1024U;
 struct H2Stream{
 S method{};
 S path{};
@@ -222,6 +235,43 @@ int fd;
 
 struct Ring;
 struct Conn;
+
+static constexpr SZ kMaxChunkHexDigits=16;
+static constexpr SZ kMaxChunkSizeLineBytes=256;
+static constexpr SZ kMaxChunkTrailerLines=64;
+static constexpr SZ kMaxChunkTrailerBytes=8192;
+
+enum class ChunkedDecodePhase:u8{
+SizeLine,
+Data,
+DataCrlf,
+Trailers,
+Complete
+};
+struct ChunkedDecodeState{
+bool active{};
+SZ body_start{};
+SZ pos{};
+SZ chunks_seen{};
+SZ current_chunk_size{};
+SZ remaining{};
+SZ trailer_lines{};
+SZ trailer_bytes{};
+ChunkedDecodePhase phase{ChunkedDecodePhase::SizeLine};
+S body{};
+void reset(){
+active=false;
+body_start=0;
+pos=0;
+chunks_seen=0;
+current_chunk_size=0;
+remaining=0;
+trailer_lines=0;
+trailer_bytes=0;
+phase=ChunkedDecodePhase::SizeLine;
+body.clear();
+}
+};
 
 void dispatch_request(
 Conn&conn,
@@ -274,9 +324,11 @@ chrono::steady_clock::time_point request_started{};
 bool request_in_progress=false;
 bool expect_continue_sent=false;
 S remote_addr{};// peer IP, set on accept
+ChunkedDecodeState chunked_decode{};
 // mmap path: non-null when current response has a zero-copy file region
 SP<MappedFile>mapped_file{};
 SZ mapped_total{};// own_response.size() + mapped_file->size
+u64 mapped_delivered{};
 A<iovec,2>writev_iov{};// iovecs rebuilt per-send in queue_send_mapped
 
 // file_io streaming path: non-null when current response streams via splice
@@ -567,7 +619,6 @@ SZ max_body_size,
 SZ max_chunks,
 S&body){
 body.clear();
-body.reserve(min(data.size(),max_body_size));
 SZ pos=0;
 SZ chunks_seen=0;
 while(true){
@@ -577,17 +628,19 @@ auto crlf=data.find("\r\n",pos);
 if(crlf==SV::npos)
 return 0;
 
-auto size_line=data.substr(pos,crlf-pos);
-if(auto semi=size_line.find(';');semi!=SV::npos)
-size_line=size_line.substr(0,semi);// strip chunk extensions
-if(size_line.empty())
+auto size_line_raw=data.substr(pos,crlf-pos);
+if(size_line_raw.size()>kMaxChunkSizeLineBytes)
+return-1;
+auto size_digits=size_line_raw;
+if(auto semi=size_digits.find(';');semi!=SV::npos)
+size_digits=size_digits.substr(0,semi);// strip chunk extensions
+if(size_digits.empty())
 return-1;
 
-constexpr SZ kMaxChunkHexDigits=16;
-if(size_line.size()>kMaxChunkHexDigits)
+if(size_digits.size()>kMaxChunkHexDigits)
 return-1;
 SZ chunk_size=0;
-for(char const c:size_line){
+for(char const c:size_digits){
 int const d=hex_char_to_int(c);
 if(d<0)
 return-1;
@@ -602,8 +655,8 @@ pos=crlf+2;
 
 if(chunk_size==0){
 // Terminal chunk: skip Opt trailers until empty CRLF line.
-static constexpr SZ kMaxTrailerLines=64;
 SZ trailer_lines=0;
+SZ trailer_bytes=0;
 while(true){
 auto next=data.find("\r\n",pos);
 if(next==SV::npos)
@@ -611,20 +664,131 @@ return 0;
 if(next==pos){
 return static_cast<i64>(pos+2);
 }// end
-if(++trailer_lines>kMaxTrailerLines)
+if(++trailer_lines>kMaxChunkTrailerLines)
 return-1;
+auto const line_bytes=next-pos+2;
+if(line_bytes>kMaxChunkTrailerBytes||trailer_bytes>kMaxChunkTrailerBytes-line_bytes)
+return-1;
+trailer_bytes+=line_bytes;
 pos=next+2;
 }
 }
 
-if(body.size()+chunk_size>max_body_size)
+if(body.size()>max_body_size||chunk_size>max_body_size-body.size())
 return-2;
-if(pos+chunk_size+2>data.size())
+auto const remaining_wire=data.size()-pos;
+if(chunk_size>remaining_wire||remaining_wire-chunk_size<2)
 return 0;
 body.append(data.substr(pos,chunk_size));
 if(data[pos+chunk_size]!='\r'||data[pos+chunk_size+1]!='\n')
 return-1;
 pos+=chunk_size+2;
+}
+}
+// Incremental variant for live HTTP/1 uploads. `pos` is absolute within
+// `raw`, so callers can keep appending to the connection buffer without
+// rescanning already-decoded chunks.
+[[nodiscard]]i64 decode_chunked_incremental(
+SV raw,
+SZ body_start,
+SZ max_body_size,
+SZ max_chunks,
+ChunkedDecodeState&st){
+if(!st.active||st.body_start!=body_start){
+st.reset();
+st.active=true;
+st.body_start=body_start;
+st.pos=body_start;
+}
+
+while(true){
+switch(st.phase){
+case ChunkedDecodePhase::SizeLine:{
+auto const crlf=raw.find("\r\n",st.pos);
+if(crlf==SV::npos)
+return 0;
+if(++st.chunks_seen>max_chunks)
+return-1;
+
+auto size_line_raw=raw.substr(st.pos,crlf-st.pos);
+if(size_line_raw.size()>kMaxChunkSizeLineBytes)
+return-1;
+auto size_digits=size_line_raw;
+if(auto semi=size_digits.find(';');semi!=SV::npos)
+size_digits=size_digits.substr(0,semi);
+if(size_digits.empty())
+return-1;
+
+if(size_digits.size()>kMaxChunkHexDigits)
+return-1;
+SZ chunk_size=0;
+for(char const c:size_digits){
+int const d=hex_char_to_int(c);
+if(d<0)
+return-1;
+auto const digit=static_cast<SZ>(d);
+SZ shifted=0;
+if(__builtin_mul_overflow(chunk_size,SZ{16},&shifted))
+return-1;
+if(__builtin_add_overflow(shifted,digit,&chunk_size))
+return-1;
+}
+
+st.pos=crlf+2;
+st.current_chunk_size=chunk_size;
+if(chunk_size==0){
+st.phase=ChunkedDecodePhase::Trailers;
+break;
+}
+if(st.body.size()>max_body_size||chunk_size>max_body_size-st.body.size())
+return-2;
+st.remaining=chunk_size;
+st.phase=ChunkedDecodePhase::Data;
+break;
+}
+case ChunkedDecodePhase::Data:{
+if(st.pos>=raw.size())
+return 0;
+auto const available=min(st.remaining,raw.size()-st.pos);
+if(available>0){
+st.body.append(raw.substr(st.pos,available));
+st.pos+=available;
+st.remaining-=available;
+}
+if(st.remaining>0)
+return 0;
+st.phase=ChunkedDecodePhase::DataCrlf;
+break;
+}
+case ChunkedDecodePhase::DataCrlf:
+if(raw.size()-st.pos<2)
+return 0;
+if(raw[st.pos]!='\r'||raw[st.pos+1]!='\n')
+return-1;
+st.pos+=2;
+st.phase=ChunkedDecodePhase::SizeLine;
+break;
+case ChunkedDecodePhase::Trailers:{
+auto const next=raw.find("\r\n",st.pos);
+if(next==SV::npos)
+return 0;
+if(next==st.pos){
+st.pos+=2;
+st.phase=ChunkedDecodePhase::Complete;
+return static_cast<i64>(st.pos-body_start);
+}
+if(++st.trailer_lines>kMaxChunkTrailerLines)
+return-1;
+auto const line_bytes=next-st.pos+2;
+if(line_bytes>kMaxChunkTrailerBytes||st.trailer_bytes>kMaxChunkTrailerBytes-line_bytes)
+return-1;
+st.trailer_bytes+=line_bytes;
+st.pos=next+2;
+break;
+}
+case ChunkedDecodePhase::Complete:
+return static_cast<i64>(st.pos-body_start);
+}
 }
 }
 struct RecvComp{
@@ -638,7 +802,8 @@ constexpr unsigned DEFAULT_RING_ENTRIES=1024U;
 
 struct Ring;
 
-static conflux::work::root::Task<void>do_streamed_splice(Ring*ring,int fd,u32 conn_gen,conflux::work::root::Task<SZ>splice_task);
+static conflux::work::root::Task<void>
+do_streamed_splice(Ring*ring,int fd,u32 conn_gen,conflux::work::root::Task<SZ>splice_task);
 
 static conflux::work::root::Task<void>do_streamed_tls_chunk(
 Ring*ring,
@@ -671,7 +836,7 @@ static constexpr u16 BUF_GROUP=0;
 
 io_uring ring{};
 // Backing memory for the ring when no_mmap = true. Freed on destroy.
-std::unique_ptr<byte[],void(*)(void*)>ring_mem{nullptr,::free};
+UPD<byte[],void(*)(void*)>ring_mem{nullptr,::free};
 int listen_fd=-1;
 sockaddr_in6 client_addr{};
 socklen_t client_addr_len=sizeof(client_addr);
@@ -858,10 +1023,12 @@ int /*unused*/,
 void*user_data){
 auto*ctx=static_cast<H2ConnCtx*>(user_data);
 auto&conn=ctx->ring->conn_for(ctx->fd);
-if(length>H2_MAX_PENDING_SEND||conn.h2_pending_send.size()>H2_MAX_PENDING_SEND-length)
-return NGHTTP2_ERR_CALLBACK_FAILURE;
-conn.h2_pending_send.append(reinterpret_cast<char const*>(data),length);
-return static_cast<ssize_t>(length);
+if(conn.h2_pending_send.size()>=kH2PendingSendCap)
+return NGHTTP2_ERR_WOULDBLOCK;
+auto const available=kH2PendingSendCap-conn.h2_pending_send.size();
+auto const to_copy=min(length,available);
+conn.h2_pending_send.append(reinterpret_cast<char const*>(data),to_copy);
+return static_cast<ssize_t>(to_copy);
 }
 // A new request stream is beginning; allocate its H2Stream entry.
 static int h2_on_begin_headers_cb(
@@ -1254,8 +1421,10 @@ char const*h2_data=conn.h2_pending_send.data();
 int h2_remaining=static_cast<int>(conn.h2_pending_send.size());
 while(h2_remaining>0){
 auto const w=SSL_write(conn.ssl.get(),h2_data,h2_remaining);
-if(w<=0)
-break;
+if(w<=0){
+queue_close(conn.fd);
+return;
+}
 h2_data+=w;
 h2_remaining-=w;
 }
@@ -1271,6 +1440,11 @@ void h2_do_send(
 Conn&conn){
 if(conn.h2_session==nullptr)
 return;
+if(!conn.h2_pending_send.empty()){
+h2_flush_pending(conn);
+if(conn.send_queued||conn.closing||!conn.h2_pending_send.empty())
+return;
+}
 if(nghttp2_session_want_write(conn.h2_session)==0){
 h2_flush_pending(conn);
 return;
@@ -1479,6 +1653,10 @@ conn.deferred_efd=-1;
 conn.deferred_response.reset();
 conn.ws_upgrade.reset();
 conn.partial.clear();
+conn.chunked_decode.reset();
+conn.mapped_file.reset();
+conn.mapped_total=0;
+conn.mapped_delivered=0;
 conn.is_tls=false;
 #if CONFLUX_HAS_TLS
 if(conn.ssl!=nullptr)
@@ -1737,21 +1915,26 @@ conn.send_queued=true;
 tls_queue_send(conn);
 // `buf` drops here → slab returned to pool.
 }
-// mmap body streaming over TLS: SSL_write one MAPPED_TLS_CHUNK from the
-// mmap region, flush wbio, queue send. Resumes from handle_send_tls_complete.
-void send_mapped_tls_chunk(
-int fd){
-auto&conn=conn_for(fd);
-auto const remaining=conn.mapped_file->send_size-conn.streamed_delivered;
-auto const chunk=min(remaining,MAPPED_TLS_CHUNK);
-auto const*body=static_cast<char const*>(conn.mapped_file->ptr)+conn.mapped_file->send_offset+conn.streamed_delivered;
-auto const w=SSL_write(conn.ssl.get(),body,static_cast<int>(chunk));
+void write_mapped_tls_chunk(
+int fd,
+Conn&conn){
+if(!conn.mapped_file||conn.ssl==nullptr){
+queue_close(fd);
+return;
+}
+auto const remaining=conn.mapped_file->send_size-conn.mapped_delivered;
+if(remaining==0)
+return;
+static constexpr u64 kMappedTlsChunk=64U*1024U;
+auto const want=static_cast<SZ>(min<u64>(remaining,kMappedTlsChunk));
+auto const*data=static_cast<char const*>(conn.mapped_file->ptr)+conn.mapped_file->send_offset+conn.mapped_delivered;
+auto const w=SSL_write(conn.ssl.get(),data,static_cast<int>(want));
 if(w<=0){
 conn.mapped_file.reset();
 queue_close(fd);
 return;
 }
-conn.streamed_delivered+=static_cast<SZ>(w);
+conn.mapped_delivered+=static_cast<u64>(w);
 tls_flush_wbio(conn);
 conn.tls_sending_response=true;
 conn.send_queued=true;
@@ -1805,25 +1988,26 @@ auto&conn=conn_for(fd);
 if(conn.ssl!=nullptr){
 // TLS path: encrypt the response into tls_send_buf, then send.
 if(conn.mapped_file&&conn.response_ptr==nullptr){
-// SSL_write headers now; body follows in MAPPED_TLS_CHUNK pieces
-// via send_mapped_tls_chunk after each tls_send_buf drains.
-char const*hdr=conn.own_response.data();
-int hdr_rem=static_cast<int>(conn.own_response.size());
-while(hdr_rem>0){
-auto const w=SSL_write(conn.ssl.get(),hdr,hdr_rem);
+if(conn.written<conn.own_response.size()){
+auto const hdr=span{conn.own_response}.subspan(conn.written);
+char const*data=hdr.data();
+int remaining=static_cast<int>(hdr.size());
+while(remaining>0){
+auto const w=SSL_write(conn.ssl.get(),data,remaining);
 if(w<=0){
-conn.mapped_file.reset();
 queue_close(fd);
 return;
 }
-hdr+=w;
-hdr_rem-=w;
+data+=w;
+remaining-=w;
+conn.written+=static_cast<SZ>(w);
 }
-conn.streamed_delivered=0;
 tls_flush_wbio(conn);
 conn.tls_sending_response=true;
-conn.send_queued=true;
 tls_queue_send(conn);
+return;
+}
+write_mapped_tls_chunk(fd,conn);
 return;
 }
 if(conn.response_ptr==nullptr)
@@ -2059,6 +2243,10 @@ conn.deferred_efd=-1;
 conn.deferred_response.reset();
 conn.ws_upgrade.reset();
 conn.partial.clear();
+conn.chunked_decode.reset();
+conn.mapped_file.reset();
+conn.mapped_total=0;
+conn.mapped_delivered=0;
 conn.last_activity=chrono::steady_clock::now();
 if(!fixed_files){
 sockaddr_in6 peer_addr{};
@@ -2169,8 +2357,10 @@ if(conn.request_bytes<=conn.partial.size())
 conn.partial.erase(0,conn.request_bytes);
 else
 conn.partial.clear();
-if(conn.request_bytes>0)
+if(conn.request_bytes>0){
 conn.expect_continue_sent=false;
+conn.chunked_decode.reset();
+}
 conn.request_bytes=0;
 if(conn.partial.empty())
 conn.request_in_progress=false;
@@ -2287,7 +2477,7 @@ int fd,
 SSL*ssl,
 S initial_buf){
 UniqueSsl owned{ssl};
-if(!pool.enqueue([state=move(state),fd,ssl_owned=std::move(owned),ibuf=move(initial_buf)]()mutable{
+if(!pool.enqueue([state=move(state),fd,ssl_owned=move(owned),ibuf=move(initial_buf)]()mutable{
 WsConn ws{fd,ssl_owned.release(),move(ibuf)};
 state.upgrade->handler(state.request,ws);
 ::close(fd);
@@ -2502,19 +2692,20 @@ return;
 #endif
 
 if(conn.tls_sending_response){
-// file_io TLS streaming: after the header batch is acked, pull
-// plaintext via read_fixed and SSL_write one chunk; repeat until the
-// whole file is delivered. handle_send_tls_complete fires once per
-// tls_send_buf drain, so this naturally interleaves with TLS sends.
 if(conn.mapped_file){
-if(conn.streamed_delivered<conn.mapped_file->send_size){
-send_mapped_tls_chunk(fd);
+if(conn.mapped_delivered<conn.mapped_file->send_size){
+write_mapped_tls_chunk(fd,conn);
 return;
 }
 conn.mapped_file.reset();
 conn.mapped_total=0;
-conn.streamed_delivered=0;
+conn.mapped_delivered=0;
 }
+
+// file_io TLS streaming: after the header batch is acked, pull
+// plaintext via read_fixed and SSL_write one chunk; repeat until the
+// whole file is delivered. handle_send_tls_complete fires once per
+// tls_send_buf drain, so this naturally interleaves with TLS sends.
 if(conn.streamed_file){
 if(conn.streamed_delivered<conn.streamed_file->send_size){
 if(!conn.streamed_splice_in_flight){
@@ -2608,6 +2799,7 @@ return;
 // Fully sent: release mmap region, clean up send state.
 conn.mapped_file.reset();
 conn.mapped_total=0;
+conn.mapped_delivered=0;
 conn.written=0;
 conn.send_queued=false;
 conn.own_response.clear();
@@ -2759,6 +2951,7 @@ conn.response_ptr=&conn.own_response;
 }else{
 conn.mapped_file=ready->take_mapped_file();
 conn.mapped_total=conn.own_response.size()+conn.mapped_file->send_size;
+conn.mapped_delivered=0;
 conn.response_ptr=nullptr;
 }
 }else if(ready->is_streamed_file()){
@@ -2844,9 +3037,18 @@ if(a>NL<SZ>::max()-b)
 return NL<SZ>::max();
 return a+b;
 };
+auto bounded_mul=[](SZ a,SZ b)noexcept{
+if(a!=0&&b>NL<SZ>::max()/a)
+return NL<SZ>::max();
+return a*b;
+};
 SZ raw_receive_cap=max_body_size;
 raw_receive_cap=bounded_add(raw_receive_cap,parser_limits.max_header_block_size);
 raw_receive_cap=bounded_add(raw_receive_cap,parser_limits.max_request_line_size);
+raw_receive_cap=bounded_add(
+raw_receive_cap,
+bounded_mul(parser_limits.max_chunks,kMaxChunkSizeLineBytes+4));
+raw_receive_cap=bounded_add(raw_receive_cap,kMaxChunkTrailerBytes);
 raw_receive_cap=bounded_add(raw_receive_cap,6);
 if(conn.partial.size()>raw_receive_cap){
 conn.own_response.clear();
@@ -3151,7 +3353,7 @@ conflux::work::root::Task<SZ>splice_task){
 try{
 auto const delivered=co_await move(splice_task);
 ring->on_streamed_splice_done(fd,conn_gen,delivered,{});
-}catch(...){ring->on_streamed_splice_done(fd,conn_gen,SZ{0},std::current_exception());}
+}catch(...){ring->on_streamed_splice_done(fd,conn_gen,SZ{0},current_exception());}
 }
 static conflux::work::root::Task<void>do_streamed_tls_chunk(
 Ring*ring,
@@ -3162,7 +3364,7 @@ conflux::work::root::Task<FileReader::ReadFixedResult>read_task){
 try{
 auto result=co_await move(read_task);
 ring->on_streamed_tls_chunk_done(fd,conn_gen,move(result.buffer),min(result.bytes,want),{});
-}catch(...){ring->on_streamed_tls_chunk_done(fd,conn_gen,FixedBuffer{},0,std::current_exception());}
+}catch(...){ring->on_streamed_tls_chunk_done(fd,conn_gen,FixedBuffer{},0,current_exception());}
 }
 [[gnu::pure]]u32 build_uring_flags(
 Config const&c){
@@ -3263,6 +3465,7 @@ conn.response_ptr=nullptr;
 conn.written=0;
 conn.mapped_file.reset();
 conn.mapped_total=0;
+conn.mapped_delivered=0;
 conn.is_sse=false;
 conn.sse_headers_sent=false;
 
@@ -3292,7 +3495,6 @@ HttpFieldsView query;
 HttpFieldsView form;
 HttpFieldsView cookies;
 V<UploadedFile>files;
-S body_storage;
 SV body;
 
 if(auto q=path.find('?');q!=SV::npos){
@@ -3437,7 +3639,7 @@ return;
 body=raw.substr(body_start,content_length);
 body_stream_bytes=content_length;
 }else if(!transfer_encodings.empty()){
-auto rc=decode_chunked(raw.substr(body_start),max_body_size,limits.max_chunks,body_storage);
+auto rc=decode_chunked_incremental(raw,body_start,max_body_size,limits.max_chunks,conn.chunked_decode);
 if(rc==0){
 if(expect_state==ExpectState::continue_100&&!conn.expect_continue_sent)
 queue_continue();
@@ -3457,7 +3659,7 @@ conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
 }
-body=body_storage;
+body=conn.chunked_decode.body;
 body_stream_bytes=static_cast<SZ>(rc);
 }
 
@@ -3470,8 +3672,6 @@ auto ct_header=headers["content-type"];
 if(ct_header.starts_with("multipart/form-data")){
 auto boundary=extract_param(ct_header,"boundary");
 if(!boundary.empty()){
-if(body.empty()&&!body_storage.empty())
-body=body_storage;
 parse_multipart(body,boundary,form,files);
 }
 }
@@ -3548,6 +3748,7 @@ conn.response_ptr=&conn.own_response;
 }else{
 conn.mapped_file=resp.take_mapped_file();
 conn.mapped_total=conn.own_response.size()+conn.mapped_file->send_size;
+conn.mapped_delivered=0;
 conn.response_ptr=nullptr;
 }
 }else if(resp.is_streamed_file()){

@@ -2106,6 +2106,34 @@ auto hdr_end=resp.find("\r\n\r\n");
 REQUIRE(hdr_end!=S::npos);
 REQUIRE(resp.substr(hdr_end+4)=="Hello, world!");
 }
+TEST_CASE(
+"POST with many small chunked frames stays under decoded body limit"){
+Config cfg=Config::test();
+cfg.max_body_size=16U*1024U;
+cfg.parser_limits.max_chunks=20000;
+Router router;
+router.post("/upload",[](HttpRequest const&req){return HttpResponse::text(req.body);});
+ScopedTestServer srv{cfg,move(router)};
+
+S chunks;
+static constexpr int kChunkCount=15000;
+chunks.reserve(static_cast<SZ>(kChunkCount)*6+5);
+for(int i=0;i<kChunkCount;++i)
+chunks+="1\r\nx\r\n";
+chunks+="0\r\n\r\n";
+
+LocalTcpClient client{srv.port()};
+client.set_recv_timeout(chrono::seconds{5});
+SV const headers=
+"POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n";
+(void)client.send(headers);
+(void)client.send(chunks);
+auto resp=client.read_one_response();
+REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+auto hdr_end=resp.find("\r\n\r\n");
+REQUIRE(hdr_end!=S::npos);
+REQUIRE(resp.substr(hdr_end+4)==S(static_cast<SZ>(kChunkCount),'x'));
+}
 // ---------------------------------------------------------------------------
 // Cookie support
 // ---------------------------------------------------------------------------
