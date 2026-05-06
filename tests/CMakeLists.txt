@@ -94,7 +94,13 @@ endif()
 add_executable(conflux_crypto_tests crypto_test.cxx)
 target_link_libraries(conflux_crypto_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
-if(CONFLUX_HAS_TLS STREQUAL "true")
+set(CONFLUX_BUILD_AES_GCM_COMPARE TRUE)
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    # GCC modules conflict/ICE when this standalone OpenSSL comparison TU includes
+    # OpenSSL headers; the Catch2 crypto coverage above still builds and runs.
+    set(CONFLUX_BUILD_AES_GCM_COMPARE FALSE)
+endif()
+if(CONFLUX_HAS_TLS STREQUAL "true" AND CONFLUX_BUILD_AES_GCM_COMPARE)
     add_executable(conflux_aes_gcm_compare aes_gcm_openssl_compare.cxx)
     target_link_libraries(conflux_aes_gcm_compare PRIVATE conflux conflux_options OpenSSL::SSL OpenSSL::Crypto)
 endif()

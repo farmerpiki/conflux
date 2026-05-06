@@ -14,8 +14,8 @@ long getrandom(void*,unsigned long,unsigned int);
 #include<cstddef>
 #define CONFLUX_JSON_HAS_STDSIMD 1
 extern "C"{
-SZ conflux_json_scan_str_until_special_stdsimd(char const*,SZ)noexcept;
-SZ conflux_json_scan_dump_safe_run_stdsimd(char const*,SZ,int)noexcept;
+std::size_t conflux_json_scan_str_until_special_stdsimd(char const*,std::size_t)noexcept;
+std::size_t conflux_json_scan_dump_safe_run_stdsimd(char const*,std::size_t,int)noexcept;
 }
 #elif(defined(__x86_64__)||defined(_M_X64))&&!defined(__cpp_impl_reflection)
 #include<immintrin.h>
@@ -188,13 +188,13 @@ static expected<JsonPath,JsonError>from_pointer(SV sv);
 bool friend operator==(JsonPath const&,JsonPath const&)=default;
 };
 template<>
-struct hash<JsonPath>{
+struct std::hash<JsonPath>{
 SZ operator()(
 JsonPath const&p)const noexcept{
 SZ h=0;
 for(auto const&seg:p){
-SZ const sh=holds_alternative<JsonPathMember>(seg)?hash<S>{}(get<JsonPathMember>(seg).name):
-hash<SZ>{}(get<JsonPathIndex>(seg).index);
+SZ const sh=holds_alternative<JsonPathMember>(seg)?std::hash<S>{}(get<JsonPathMember>(seg).name):
+std::hash<SZ>{}(get<JsonPathIndex>(seg).index);
 h^=sh+0x9e3779b9U+(h<<6U)+(h>>2U);
 }
 return h;
@@ -5510,12 +5510,12 @@ return a.val_<=>b.val_;
 }
 };
 template<class T>
-struct hash<Nullable<T>>{
+struct std::hash<Nullable<T>>{
 SZ operator()(
 Nullable<T>const&n)const noexcept{
 if(!n.has_value())
 return 0;
-return hash<T>{}(n.value());
+return std::hash<T>{}(n.value());
 }
 };
 // ---------------------------------------------------------------------------

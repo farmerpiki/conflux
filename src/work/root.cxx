@@ -1896,7 +1896,7 @@ void unhandled_exception()noexcept{
 template<work_value T,ControlCategory Category>
 BasicResult<T,Category>
 BasicResult<T,Category>::promise_type::get_return_object()noexcept{
-return BasicResult<T,Category>::from_state(this->state_);
+return BasicResult<T,Category>::from_state(this->state_,std::source_location{});
 }
 template<work_value T>
 using Task=BasicResult<T,ControlCategory::task>;
