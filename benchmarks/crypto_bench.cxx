@@ -11,6 +11,8 @@ SZ warmup,
 SZ iters,
 SZ batch=1,
 SZ bytes=0){
+iters=max(iters,SZ{1});
+batch=max(batch,SZ{1});
 for(SZ i=0;i<warmup*batch;++i)
 fn();
 V<u64>samples;
