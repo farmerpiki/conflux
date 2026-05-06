@@ -197,6 +197,12 @@ SZ expected_body_size{};
 bool body_reserved{};
 bool end_stream_seen{};
 bool rejected{};
+bool regular_header_seen{};
+bool seen_method{};
+bool seen_path{};
+bool seen_scheme{};
+bool seen_authority{};
+bool seen_content_length{};
 SZ header_count{};
 SZ header_list_size{};
 // Response state for the data provider callback:
@@ -821,6 +827,27 @@ io_uring_sqe_set_data64(sqe,pack(Op::Send,conn.gen,conn.fd));
 // ---------------------------------------------------------------------------
 // nghttp2 static callbacks (passed as C function pointers; no capture)
 // ---------------------------------------------------------------------------
+static void h2_reject_stream(
+nghttp2_session*session,
+H2Stream&stream,
+i32 stream_id,
+u32 error_code){
+stream.rejected=true;
+nghttp2_submit_rst_stream(session,NGHTTP2_FLAG_NONE,stream_id,error_code);
+}
+[[nodiscard]]static bool h2_valid_regular_header_name(
+SV name)noexcept{
+if(!is_valid_header_name(name))
+return false;
+for(char const c:name)
+if(c>='A'&&c<='Z')
+return false;
+return true;
+}
+[[nodiscard]]static bool h2_forbidden_connection_header(
+SV name)noexcept{
+return name=="connection"||name=="keep-alive"||name=="proxy-connection"||name=="transfer-encoding"||name=="upgrade";
+}
 
 // nghttp2 wants to write bytes to the wire; accumulate into h2_pending_send.
 static ssize_t h2_send_cb(
@@ -871,38 +898,78 @@ SV const v{reinterpret_cast<char const*>(header_value),valuelen};
 if(stream.header_count==NL<SZ>::max()||
 namelen>NL<SZ>::max()-valuelen||
 stream.header_list_size>NL<SZ>::max()-namelen-valuelen){
-stream.rejected=true;
-nghttp2_submit_rst_stream(session,NGHTTP2_FLAG_NONE,frame->hd.stream_id,NGHTTP2_ENHANCE_YOUR_CALM);
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_ENHANCE_YOUR_CALM);
 return 0;
 }
 ++stream.header_count;
 stream.header_list_size+=namelen+valuelen;
 if(stream.header_count>ctx->ring->parser_limits.max_headers||
 stream.header_list_size>ctx->ring->parser_limits.max_header_block_size){
-stream.rejected=true;
-nghttp2_submit_rst_stream(session,NGHTTP2_FLAG_NONE,frame->hd.stream_id,NGHTTP2_ENHANCE_YOUR_CALM);
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_ENHANCE_YOUR_CALM);
+return 0;
+}
+if(n.starts_with(":")){
+if(stream.regular_header_seen){
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
 return 0;
 }
 if(n==":method"){
+if(stream.seen_method){
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
+return 0;
+}
+stream.seen_method=true;
 stream.method=S{v};
 }else if(n==":path"){
+if(stream.seen_path){
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
+return 0;
+}
+stream.seen_path=true;
 stream.path=S{v};
 }else if(n==":scheme"){
+if(stream.seen_scheme){
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
+return 0;
+}
+stream.seen_scheme=true;
 stream.scheme=S{v};
 }else if(n==":authority"){
+if(stream.seen_authority){
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
+return 0;
+}
+stream.seen_authority=true;
 stream.authority=S{v};
 }else{
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
+return 0;
+}
+}else{
+stream.regular_header_seen=true;
+if(!h2_valid_regular_header_name(n)||h2_forbidden_connection_header(n)){
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
+return 0;
+}
+if(n=="te"&&v!="trailers"){
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
+return 0;
+}
 if(n=="content-length"){
+if(stream.seen_content_length){
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
+return 0;
+}
 SZ content_length{};
 auto const*cl_end=ranges::next(v.data(),ssize(v));
 auto[ptr,ec]=from_chars(v.data(),cl_end,content_length);
 if(ec==errc{}&&ptr==cl_end&&content_length<=ctx->ring->max_body_size)
 stream.expected_body_size=content_length;
 else{
-stream.rejected=true;
-nghttp2_submit_rst_stream(session,NGHTTP2_FLAG_NONE,frame->hd.stream_id,NGHTTP2_CANCEL);
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_CANCEL);
 return 0;
 }
+stream.seen_content_length=true;
 }
 stream.headers.emplace_back(S{n},S{v});
 }
@@ -924,8 +991,11 @@ auto&stream=it->second;
 if(stream.rejected)
 return 0;
 if(len>ctx->ring->max_body_size||stream.body.size()>ctx->ring->max_body_size-len){
-stream.rejected=true;
-nghttp2_submit_rst_stream(session,NGHTTP2_FLAG_NONE,stream_id,NGHTTP2_CANCEL);
+h2_reject_stream(session,stream,stream_id,NGHTTP2_CANCEL);
+return 0;
+}
+if(stream.seen_content_length&&len>stream.expected_body_size-stream.body.size()){
+h2_reject_stream(session,stream,stream_id,NGHTTP2_PROTOCOL_ERROR);
 return 0;
 }
 if(!stream.body_reserved&&stream.expected_body_size>0){
@@ -1063,7 +1133,7 @@ nva.size(),
 // A frame is fully received.  On END_STREAM, dispatch to the router and
 // submit the HTTP/2 response via nghttp2_submit_response.
 static int h2_on_frame_recv_cb(
-nghttp2_session*/*session*/,
+nghttp2_session*session,
 nghttp2_frame const*frame,
 void*user_data){
 // Only act on request streams that are now complete.
@@ -1083,6 +1153,15 @@ return 0;
 if(stream.end_stream_seen)
 return 0;
 stream.end_stream_seen=true;
+if(!stream.seen_method||!stream.seen_path||!stream.seen_scheme||
+stream.method.empty()||stream.path.empty()||stream.scheme.empty()){
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
+return 0;
+}
+if(stream.seen_content_length&&stream.body.size()!=stream.expected_body_size){
+h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
+return 0;
+}
 
 SV const method=stream.method;
 SV path=stream.path;

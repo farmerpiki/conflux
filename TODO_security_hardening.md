@@ -80,7 +80,7 @@
   - Current parser is simple and scans for delimiter text inside the body; production parsing should require real boundary lines, final boundary handling, robust part header parsing, per-part/header limits, and an explicit filename policy.
   - File: src/net/http_server.cxx
 
-- [ ] 16. HTTP/2 request validation parity
+- [x] 16. HTTP/2 request validation parity
   - Validate required pseudo-headers, duplicate pseudo-headers, pseudo-header ordering, lowercase field names, forbidden connection-specific headers, `te` value, and `content-length` consistency.
   - File: src/net/http_server.cxx
 

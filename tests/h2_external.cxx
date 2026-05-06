@@ -28,6 +28,7 @@ int status=0;
 S body;
 bool closed=false;
 u32 error_code=0;
+bool connection_error=false;
 V<P<S,S>>trailers;
 };
 // Minimal synchronous nghttp2 client over a blocking TLS socket.
@@ -84,7 +85,12 @@ nghttp2_session_callbacks_set_send_callback(cbs,send_cb);
 nghttp2_session_callbacks_set_on_header_callback(cbs,on_header_cb);
 nghttp2_session_callbacks_set_on_data_chunk_recv_callback(cbs,on_data_chunk_cb);
 nghttp2_session_callbacks_set_on_stream_close_callback(cbs,on_stream_close_cb);
-nghttp2_session_client_new(&session_,cbs,this);
+nghttp2_session_callbacks_set_on_frame_recv_callback(cbs,on_frame_recv_cb);
+nghttp2_option*opts=nullptr;
+nghttp2_option_new(&opts);
+nghttp2_option_set_no_http_messaging(opts,1);
+nghttp2_session_client_new2(&session_,cbs,this,opts);
+nghttp2_option_del(opts);
 nghttp2_session_callbacks_del(cbs);
 
 // Send client connection preface (magic bytes + empty SETTINGS).
@@ -113,6 +119,12 @@ H2Response get_with_headers(
 SV path,
 V<P<S,S>>extra_headers){
 i32 const sid=submit_request("GET",path,nullptr,move(extra_headers));
+pump_until_closed(sid);
+return responses_[sid];
+}
+H2Response raw_request(
+V<P<S,S>>headers){
+i32 const sid=submit_raw_headers(move(headers));
 pump_until_closed(sid);
 return responses_[sid];
 }
@@ -164,6 +176,8 @@ UniqueSsl ssl_;
 int fd_=-1;
 nghttp2_session*session_=nullptr;
 M<i32,UP<ReqBody>>req_bodies_;
+bool goaway_received_=false;
+u32 goaway_error_code_=0;
 i32 submit_request(
 SV method,
 SV path,
@@ -194,6 +208,46 @@ if(sid<0)
 throw RE{"nghttp2_submit_request failed"};
 return sid;
 }
+i32 submit_raw_request(
+V<P<S,S>>headers,
+nghttp2_data_provider const*prd){
+V<nghttp2_nv>nva;
+nva.reserve(headers.size());
+for(auto&[n,v]:headers)
+nva.push_back(
+{reinterpret_cast<u8*>(n.data()),
+reinterpret_cast<u8*>(v.data()),
+n.size(),
+v.size(),
+NGHTTP2_NV_FLAG_NONE});
+i32 const sid=nghttp2_submit_request(session_,nullptr,nva.data(),nva.size(),prd,nullptr);
+if(sid<0)
+throw RE{"nghttp2_submit_request failed"};
+return sid;
+}
+i32 submit_raw_headers(
+V<P<S,S>>headers){
+V<nghttp2_nv>nva;
+nva.reserve(headers.size());
+for(auto&[n,v]:headers)
+nva.push_back(
+{reinterpret_cast<u8*>(n.data()),
+reinterpret_cast<u8*>(v.data()),
+n.size(),
+v.size(),
+NGHTTP2_NV_FLAG_NONE});
+i32 const sid=nghttp2_submit_headers(
+session_,
+NGHTTP2_FLAG_END_STREAM,
+-1,
+nullptr,
+nva.data(),
+nva.size(),
+nullptr);
+if(sid<0)
+throw RE{"nghttp2_submit_headers failed"};
+return sid;
+}
 void pump_once(){
 nghttp2_session_send(session_);
 
@@ -206,8 +260,13 @@ nghttp2_session_mem_recv(session_,reinterpret_cast<u8 const*>(buf.data()),static
 void pump_until_closed(
 i32 sid){
 auto deadline=chrono::steady_clock::now()+chrono::seconds{5};
-while(!responses_[sid].closed&&chrono::steady_clock::now()<deadline)
+while(!responses_[sid].closed&&!goaway_received_&&chrono::steady_clock::now()<deadline)
 pump_once();
+if(goaway_received_&&!responses_[sid].closed){
+responses_[sid].closed=true;
+responses_[sid].connection_error=true;
+responses_[sid].error_code=goaway_error_code_;
+}
 }
 // --- nghttp2 static callbacks ---
 
@@ -262,6 +321,17 @@ void*ud){
 auto*c=static_cast<H2Client*>(ud);
 c->responses_[stream_id].closed=true;
 c->responses_[stream_id].error_code=error_code;
+return 0;
+}
+static int on_frame_recv_cb(
+nghttp2_session*/*unused*/,
+nghttp2_frame const*frame,
+void*ud){
+auto*c=static_cast<H2Client*>(ud);
+if(frame->hd.type==NGHTTP2_GOAWAY){
+c->goaway_received_=true;
+c->goaway_error_code_=frame->goaway.error_code;
+}
 return 0;
 }
 static ssize_t read_cb(
@@ -374,6 +444,61 @@ auto resp=client.get_with_headers("/ping",{{"x-large",S(256,'x')}});
 REQUIRE(resp.closed);
 CHECK(resp.status==0);
 CHECK(resp.error_code==NGHTTP2_ENHANCE_YOUR_CALM);
+}
+TEST_CASE(
+"h2: duplicate pseudo-header resets stream"){
+conflux::tests::HttpsServerFixture const fx{make_router()};
+H2Client client{fx.port()};
+auto resp=client.raw_request({
+{":method","GET"},
+{":path","/ping"},
+{":path","/other"},
+{":scheme","https"},
+{":authority","localhost"}});
+REQUIRE(resp.closed);
+CHECK(resp.status==0);
+CHECK(resp.error_code==NGHTTP2_PROTOCOL_ERROR);
+}
+TEST_CASE(
+"h2: pseudo-header after regular header resets stream"){
+conflux::tests::HttpsServerFixture const fx{make_router()};
+H2Client client{fx.port()};
+auto resp=client.raw_request({
+{":method","GET"},
+{"x-before","1"},
+{":path","/ping"},
+{":scheme","https"},
+{":authority","localhost"}});
+REQUIRE(resp.closed);
+CHECK(resp.status==0);
+CHECK(resp.error_code==NGHTTP2_PROTOCOL_ERROR);
+}
+TEST_CASE(
+"h2: forbidden connection header resets stream"){
+conflux::tests::HttpsServerFixture const fx{make_router()};
+H2Client client{fx.port()};
+auto resp=client.get_with_headers("/ping",{{"connection","keep-alive"}});
+REQUIRE(resp.closed);
+CHECK(resp.status==0);
+CHECK(resp.error_code==NGHTTP2_PROTOCOL_ERROR);
+}
+TEST_CASE(
+"h2: invalid TE header resets stream"){
+conflux::tests::HttpsServerFixture const fx{make_router()};
+H2Client client{fx.port()};
+auto resp=client.get_with_headers("/ping",{{"te","gzip"}});
+REQUIRE(resp.closed);
+CHECK(resp.status==0);
+CHECK(resp.error_code==NGHTTP2_PROTOCOL_ERROR);
+}
+TEST_CASE(
+"h2: content-length mismatch resets stream"){
+conflux::tests::HttpsServerFixture const fx{make_router()};
+H2Client client{fx.port()};
+auto resp=client.post_with_content_length("/echo","abc",2);
+REQUIRE(resp.closed);
+CHECK(resp.status==0);
+CHECK(resp.error_code==NGHTTP2_PROTOCOL_ERROR);
 }
 TEST_CASE(
 "h2: unknown route returns 404"){
