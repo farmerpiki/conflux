@@ -11,8 +11,8 @@ struct OwnerCap{};
 struct DriverCap{};
 struct InnerCap{};
 struct OuterCap:InnerCap{};
-root::Task<int> await_task_value(
-root::Task<int> task){
+root::Task<int>await_task_value(
+root::Task<int>task){
 co_return co_await move(task);
 }
 }// namespace

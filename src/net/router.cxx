@@ -416,7 +416,7 @@ u64 total_size{};
 export enum class SseOverflowPolicy:u8{
 DropNewest,
 DropOldest,
-Disconnect
+Disconnect,
 };
 export class SseChannel{
 private:
@@ -488,7 +488,7 @@ wake=true;
 if(wake){
 u64 v=1;
 if(::write(efd_,&v,sizeof(v))<0&&errno!=EAGAIN)
-println(cerr,"SseChannel::send: eventfd write: {}",strerror(errno));
+eprintln(format("SseChannel::send: eventfd write: {}",strerror(errno)));
 }
 return enqueued;
 }
@@ -516,7 +516,7 @@ return;
 }// already closed
 u64 v=1;
 if(::write(efd_,&v,sizeof(v))<0&&errno!=EAGAIN){
-println(cerr,"SseChannel::close: eventfd write: {}",strerror(errno));
+eprintln(format("SseChannel::close: eventfd write: {}",strerror(errno)));
 }// wake the io_uring poll
 }
 [[nodiscard]]S drain(){
@@ -541,7 +541,7 @@ sse,
 ws_upgrade,
 mapped_file,
 streamed_file,
-deferred
+deferred,
 };
 
 using BodyPayload=
@@ -943,7 +943,7 @@ ready_=make_unique<HttpResponse>(move(response));
 }
 u64 wake=1;
 if(::write(efd_,&wake,sizeof(wake))<0&&errno!=EAGAIN)
-println(cerr,"DeferredResponse::complete: eventfd write: {}",strerror(errno));
+eprintln(format("DeferredResponse::complete: eventfd write: {}",strerror(errno)));
 }
 bool DeferredResponse::is_ready()const{
 SL const lk{mtx_};
@@ -978,7 +978,7 @@ ready_=make_unique<HttpResponse>(HttpResponse::gateway_timeout());
 }
 u64 wake=1;
 if(::write(efd_,&wake,sizeof(wake))<0&&errno!=EAGAIN)
-println(cerr,"DeferredResponse::expire_if_past_deadline: eventfd write: {}",strerror(errno));
+eprintln(format("DeferredResponse::expire_if_past_deadline: eventfd write: {}",strerror(errno)));
 return true;
 }
 // ---------------------------------------------------------------------------
@@ -1169,7 +1169,7 @@ CONFLUX_FUZZ_EXPORT enum class FrameParseStatus:u8{
 Ok,
 Incomplete,
 ProtocolError,
-ControlTooLarge
+ControlTooLarge,
 };
 CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 span<byte const>buf,
@@ -1233,7 +1233,7 @@ Text=1,
 Binary=2,
 Close=8,
 Ping=9,
-Pong=10
+Pong=10,
 };
 struct Frame{
 Opcode opcode{};

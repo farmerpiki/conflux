@@ -1501,11 +1501,7 @@ REQUIRE(json.find(format("\"size\":{}",data.size()))!=S::npos);
 TEST_CASE(
 "multipart/form-data part header without space after colon is parsed"){
 S const body=
-"--bNoSpace\r\n"
-"Content-Disposition:form-data; name=\"field\"\r\n"
-"\r\n"
-"hello\r\n"
-"--bNoSpace--\r\n";
+"--bNoSpace\r\n" "Content-Disposition:form-data; name=\"field\"\r\n" "\r\n" "hello\r\n" "--bNoSpace--\r\n";
 auto resp=http_post("/api/multipart-field","multipart/form-data; boundary=bNoSpace",body);
 REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 auto hdr_end=resp.find("\r\n\r\n");
@@ -6145,8 +6141,7 @@ REQUIRE(resp.starts_with("HTTP/1.1 400"));
 TEST_CASE(
 "parser: chunked transfer with oversized trailer returns 400"){
 S req=
-"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
-"0\r\nX-Trailer: ";
+"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" "0\r\nX-Trailer: ";
 req.append(9000,'x');
 req+="\r\n\r\n";
 auto resp=send_raw_bytes(req);
@@ -6155,8 +6150,7 @@ REQUIRE(resp.starts_with("HTTP/1.1 400"));
 TEST_CASE(
 "parser: chunked transfer with huge declared chunk returns 413"){
 S req=
-"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n"
-"ffffffffffffffff\r\n";
+"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n" "ffffffffffffffff\r\n";
 auto resp=send_raw_bytes(req);
 REQUIRE(resp.starts_with("HTTP/1.1 413"));
 }

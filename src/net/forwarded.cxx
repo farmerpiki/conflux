@@ -35,7 +35,7 @@ export Router::Middleware forwarded_middleware(
 ForwardedOptions opts={}){
 auto cidrs=parse_cidr_list(opts.trusted_proxies);
 if(opts.trusted_proxies.empty()&&!opts.strict_mode)
-println(cerr,"forwarded_middleware: empty trusted_proxies with strict_mode=false trusts every peer");
+eprintln("forwarded_middleware: empty trusted_proxies with strict_mode=false trusts every peer");
 
 return[opts=move(opts),
 cidrs=move(cidrs)](HttpRequestView const&req,Router::Handler const&next)->HttpResponse{

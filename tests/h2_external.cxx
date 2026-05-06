@@ -449,8 +449,7 @@ TEST_CASE(
 "h2: duplicate pseudo-header resets stream"){
 conflux::tests::HttpsServerFixture const fx{make_router()};
 H2Client client{fx.port()};
-auto resp=client.raw_request({
-{":method","GET"},
+auto resp=client.raw_request({{":method","GET"},
 {":path","/ping"},
 {":path","/other"},
 {":scheme","https"},
@@ -463,8 +462,7 @@ TEST_CASE(
 "h2: pseudo-header after regular header resets stream"){
 conflux::tests::HttpsServerFixture const fx{make_router()};
 H2Client client{fx.port()};
-auto resp=client.raw_request({
-{":method","GET"},
+auto resp=client.raw_request({{":method","GET"},
 {"x-before","1"},
 {":path","/ping"},
 {":scheme","https"},

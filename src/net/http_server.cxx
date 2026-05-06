@@ -58,7 +58,9 @@ Timer,
 FileIo,
 WsCancel,
 FixedFdInstall,
-Nop
+Nop,
+
+
 };
 
 constexpr u32 OP_SHIFT=56U;
@@ -246,7 +248,9 @@ SizeLine,
 Data,
 DataCrlf,
 Trailers,
-Complete
+Complete,
+
+
 };
 struct ChunkedDecodeState{
 bool active{};
@@ -272,7 +276,6 @@ phase=ChunkedDecodePhase::SizeLine;
 body.clear();
 }
 };
-
 void dispatch_request(
 Conn&conn,
 SV raw,
@@ -424,7 +427,9 @@ return false;
 enum class ExpectState:u8{
 none,
 continue_100,
-unsupported
+unsupported,
+
+
 };
 [[nodiscard]]ExpectState parse_expect_header(
 HttpFieldsView const&headers){
@@ -786,8 +791,7 @@ st.trailer_bytes+=line_bytes;
 st.pos=next+2;
 break;
 }
-case ChunkedDecodePhase::Complete:
-return static_cast<i64>(st.pos-body_start);
+case ChunkedDecodePhase::Complete:return static_cast<i64>(st.pos-body_start);
 }
 }
 }
@@ -1013,7 +1017,6 @@ return true;
 SV name)noexcept{
 return name=="connection"||name=="keep-alive"||name=="proxy-connection"||name=="transfer-encoding"||name=="upgrade";
 }
-
 // nghttp2 wants to write bytes to the wire; accumulate into h2_pending_send.
 static ssize_t h2_send_cb(
 nghttp2_session*/*unused*/,
@@ -1062,16 +1065,13 @@ if(stream.rejected)
 return 0;
 SV const n{reinterpret_cast<char const*>(name),namelen};
 SV const v{reinterpret_cast<char const*>(header_value),valuelen};
-if(stream.header_count==NL<SZ>::max()||
-namelen>NL<SZ>::max()-valuelen||
-stream.header_list_size>NL<SZ>::max()-namelen-valuelen){
+if(stream.header_count==NL<SZ>::max()||namelen>NL<SZ>::max()-valuelen||stream.header_list_size>NL<SZ>::max()-namelen-valuelen){
 h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_ENHANCE_YOUR_CALM);
 return 0;
 }
 ++stream.header_count;
 stream.header_list_size+=namelen+valuelen;
-if(stream.header_count>ctx->ring->parser_limits.max_headers||
-stream.header_list_size>ctx->ring->parser_limits.max_header_block_size){
+if(stream.header_count>ctx->ring->parser_limits.max_headers||stream.header_list_size>ctx->ring->parser_limits.max_header_block_size){
 h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_ENHANCE_YOUR_CALM);
 return 0;
 }
@@ -1130,9 +1130,9 @@ return 0;
 SZ content_length{};
 auto const*cl_end=ranges::next(v.data(),ssize(v));
 auto[ptr,ec]=from_chars(v.data(),cl_end,content_length);
-if(ec==errc{}&&ptr==cl_end&&content_length<=ctx->ring->max_body_size)
+if(ec==errc{}&&ptr==cl_end&&content_length<=ctx->ring->max_body_size){
 stream.expected_body_size=content_length;
-else{
+}else{
 h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_CANCEL);
 return 0;
 }
@@ -1320,8 +1320,7 @@ return 0;
 if(stream.end_stream_seen)
 return 0;
 stream.end_stream_seen=true;
-if(!stream.seen_method||!stream.seen_path||!stream.seen_scheme||
-stream.method.empty()||stream.path.empty()||stream.scheme.empty()){
+if(!stream.seen_method||!stream.seen_path||!stream.seen_scheme||stream.method.empty()||stream.path.empty()||stream.scheme.empty()){
 h2_reject_stream(session,stream,frame->hd.stream_id,NGHTTP2_PROTOCOL_ERROR);
 return 0;
 }
@@ -1371,9 +1370,7 @@ body};
 HttpResponse resp;
 try{
 resp=ctx->ring->dispatch(req);
-}catch(exception const&e){
-resp=HttpResponse::internal_error(e.what());
-}catch(...){
+}catch(exception const&e){resp=HttpResponse::internal_error(e.what());}catch(...){
 resp=HttpResponse::internal_error();
 }
 
@@ -1482,9 +1479,8 @@ return;
 constexpr u32 kH2MaxConcurrentStreams=100;
 constexpr u32 kH2InitialWindowSize=1U<<24;
 constexpr u32 kH2MaxFrameSize=1U<<17;
-u32 const h2_max_header_list_size=static_cast<u32>(min<SZ>(
-parser_limits.max_header_block_size,
-static_cast<SZ>(NL<u32>::max())));
+u32 const h2_max_header_list_size=
+static_cast<u32>(min<SZ>(parser_limits.max_header_block_size,static_cast<SZ>(NL<u32>::max())));
 A<nghttp2_settings_entry,4>const iv{
 {
 {.settings_id=NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,.value=kH2MaxConcurrentStreams},
@@ -1692,7 +1688,7 @@ auto*sqe=io_uring_get_sqe(&ring);
 if(sqe!=nullptr)
 return sqe;
 if(int const r=io_uring_submit(&ring);r<0)
-println(cerr,"io_uring_submit: {}",strerror(-r));
+eprintln(format("io_uring_submit: {}",strerror(-r)));
 return io_uring_get_sqe(&ring);
 }
 // Defer an op whose SQE allocation failed. Replayed from run_loop once
@@ -1927,7 +1923,8 @@ if(remaining==0)
 return;
 static constexpr u64 kMappedTlsChunk=64U*1024U;
 auto const want=static_cast<SZ>(min<u64>(remaining,kMappedTlsChunk));
-auto const*data=static_cast<char const*>(conn.mapped_file->ptr)+conn.mapped_file->send_offset+conn.mapped_delivered;
+auto const*data=
+static_cast<char const*>(conn.mapped_file->ptr)+conn.mapped_file->send_offset+conn.mapped_delivered;
 auto const w=SSL_write(conn.ssl.get(),data,static_cast<int>(want));
 if(w<=0){
 conn.mapped_file.reset();
@@ -3045,9 +3042,8 @@ return a*b;
 SZ raw_receive_cap=max_body_size;
 raw_receive_cap=bounded_add(raw_receive_cap,parser_limits.max_header_block_size);
 raw_receive_cap=bounded_add(raw_receive_cap,parser_limits.max_request_line_size);
-raw_receive_cap=bounded_add(
-raw_receive_cap,
-bounded_mul(parser_limits.max_chunks,kMaxChunkSizeLineBytes+4));
+raw_receive_cap=
+bounded_add(raw_receive_cap,bounded_mul(parser_limits.max_chunks,kMaxChunkSizeLineBytes+4));
 raw_receive_cap=bounded_add(raw_receive_cap,kMaxChunkTrailerBytes);
 raw_receive_cap=bounded_add(raw_receive_cap,6);
 if(conn.partial.size()>raw_receive_cap){
@@ -3433,7 +3429,9 @@ enum class ParseError:u8{
 None,
 BadRequest,
 UriTooLong,
-HeaderFieldsTooLarge
+HeaderFieldsTooLarge,
+
+
 };
 void emit_parse_error(
 Conn&conn,
@@ -3671,9 +3669,8 @@ parse_urlencoded(body,form);
 auto ct_header=headers["content-type"];
 if(ct_header.starts_with("multipart/form-data")){
 auto boundary=extract_param(ct_header,"boundary");
-if(!boundary.empty()){
+if(!boundary.empty())
 parse_multipart(body,boundary,form,files);
-}
 }
 
 if(auto cookie=headers["cookie"];!cookie.empty())
@@ -3696,21 +3693,18 @@ auto const handler_started=chrono::steady_clock::now();
 HttpResponse resp;
 try{
 resp=ring.dispatch(req);
-}catch(exception const&e){
-resp=HttpResponse::internal_error(e.what());
-}catch(...){
+}catch(exception const&e){resp=HttpResponse::internal_error(e.what());}catch(...){
 resp=HttpResponse::internal_error();
 }
 if(ring.slow_handler_diagnostics){
 auto const elapsed_ms=
 chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now()-handler_started).count();
 if(elapsed_ms>=static_cast<i64>(ring.slow_handler_warn_ms))
-println(
-cerr,
+eprintln(format(
 "warning: slow handler on ring thread (method={}, path={}, elapsed_ms={})",
 method,
 path,
-elapsed_ms);
+elapsed_ms));
 }
 if(resp.is_deferred()){
 #if CONFLUX_HAS_HTTP2
@@ -3877,7 +3871,7 @@ void shutdown(){
 u64 const v=1;
 for(int const efd:impl_->shutdown_efds)
 if(::write(efd,&v,sizeof(v))<0&&errno!=EAGAIN)
-println(cerr,"HttpServer::shutdown: eventfd write: {}",strerror(errno));
+eprintln(format("HttpServer::shutdown: eventfd write: {}",strerror(errno)));
 #if CONFLUX_HAS_HTTP3
 UP<Http3Listener>to_stop;
 {
@@ -3939,8 +3933,7 @@ r.alt_svc_header=http3_alt_svc_value(r.bound_port,impl_->cfg.http3.alt_svc_max_a
 #endif
 
 if(i==0&&impl_->cfg.startup_banner)
-println(
-cerr,
+eprintln(format(
 "listening on {}://0.0.0.0:{}  " "(rings={}, entries={}, flags={}, fixed_files={}, buf_ring=true)",
 #if CONFLUX_HAS_TLS
 impl_->tls_ctx?"http/https":"http",
@@ -3951,7 +3944,7 @@ r.bound_port,
 impl_->rings,
 entries,
 flags_str(impl_->cfg),
-r.fixed_files);
+r.fixed_files));
 
 r.run_loop();
 }catch(...){

@@ -556,8 +556,7 @@ throw RE{"template parse recursion depth exceeded"};
 NodeList nodes;
 auto const fail_missing_end=[&]{
 if(!end_tags.empty())
-throw RE{
-format("template parse error: missing end tag (expected one of '{}')",end_tags.front())};
+throw RE{format("template parse error: missing end tag (expected one of '{}')",end_tags.front())};
 };
 while(!state.done()){
 auto&tok=state.cur();
@@ -797,7 +796,7 @@ if(b.find('.')!=S::npos)
 return TmplValue{std::stod(b)};
 return TmplValue{static_cast<i64>(std::stoll(b))};
 }catch(exception const&ex){
-println(cerr,"template eval_literal: failed to parse number '{}': {}",b,ex.what());
+eprintln(format("template eval_literal: failed to parse number '{}': {}",b,ex.what()));
 }
 }
 
@@ -1086,8 +1085,7 @@ end=max<i64>(0,static_cast<i64>(s.size())+end);
 start=std::clamp<i64>(start,0,static_cast<i64>(s.size()));
 end=std::clamp<i64>(end,0,static_cast<i64>(s.size()));
 set_owned(
-TmplValue{
-s.substr(static_cast<SZ>(start),static_cast<SZ>(max<i64>(0,end-start)))});
+TmplValue{s.substr(static_cast<SZ>(start),static_cast<SZ>(max<i64>(0,end-start)))});
 }else{
 return{};
 }
@@ -1330,7 +1328,7 @@ auto s=S(val.as<SV>());
 try{
 return TmplValue{static_cast<i64>(std::stoll(s))};
 }catch(exception const&e){
-println(cerr,"template filter int: failed to parse '{}': {}",s,e.what());
+eprintln(format("template filter int: failed to parse '{}': {}",s,e.what()));
 return TmplValue{i64{0}};
 }
 }
@@ -1629,8 +1627,7 @@ out+=render_nodes(n.body,context,blocks,macros,depth+1);
 }else if constexpr(std::is_same_v<T,IncludeNode>){
 auto it=cache.find(n.name);
 if(it==cache.end())
-throw RE{
-format("template error: included template '{}' not found",n.name)};
+throw RE{format("template error: included template '{}' not found",n.name)};
 out+=render_template(it->second,context,blocks,depth+1);
 }else if constexpr(std::is_same_v<T,SetNode>){
 auto val=eval_expr(n.expr,context);
@@ -1701,8 +1698,7 @@ found=true;
 sub->data);
 }
 if(!found)
-throw RE{
-format("template error: macro '{}' not found in '{}'",n.name,n.file)};
+throw RE{format("template error: macro '{}' not found in '{}'",n.name,n.file)};
 }
 },
 node->data);

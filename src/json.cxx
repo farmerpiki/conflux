@@ -3819,7 +3819,7 @@ SZ const cur_count=staging_members.size()-members_start;
 if(!seen_hash.has_value()&&cur_count>kDedupLinearMax){
 seen_hash.emplace();
 SZ reserve_count=cur_count;
-if(cur_count<=std::numeric_limits<SZ>::max()-cur_count)
+if(cur_count<=NL<SZ>::max()-cur_count)
 reserve_count+=cur_count;
 seen_hash->reserve(reserve_count);
 for(SZ i=members_start;i<staging_members.size();++i){
@@ -7311,7 +7311,8 @@ explicit JsonAccumulator(JsonParseOptions const&opts={})noexcept
 constexpr SZ kU32Ceiling=(SZ{1}<<32)-1;
 SZ const hard_cap=kU32Ceiling-1;
 SZ const configured_cap=opts_.max_input_size.is_unlimited()?
-hard_cap:min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput),hard_cap);
+hard_cap:
+min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput),hard_cap);
 if(buf_.size()>configured_cap||chunk.size()>configured_cap-buf_.size())
 return unexpected(JsonError{
 .stage=JsonStage::parse,
