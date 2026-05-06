@@ -92,6 +92,6 @@
   - Add cases for headers-only arrival, delayed body, no body, pipelined follow-up request, timeout after provisional response, and chunked bodies with `Expect`.
   - Files: src/net/http_server.cxx, tests/http_e2e.cxx
 
-- [ ] 19. Ring-thread synchronous handler contract
+- [x] 19. Ring-thread synchronous handler contract
   - Document that synchronous handlers run on the ring thread and are suitable only for short non-blocking work, or provide a default work-pool offload path for slow handlers.
   - Files: src/net/http_server.cxx, docs

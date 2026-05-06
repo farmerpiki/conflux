@@ -87,6 +87,20 @@ int main() {
 
 ## Blocking Handler Guardrails
 
+Synchronous route handlers run on the HTTP server ring thread. They are intended
+for short, non-blocking work such as routing decisions, header/body inspection,
+small in-memory transformations, and immediate response construction. CPU-heavy
+work, disk I/O, DNS, blocking HTTP clients, database calls, and other operations
+that can stall should be moved off-ring.
+
+Preferred off-ring options:
+
+- Return `conflux::work::root::Task<http::Response>` from a handler that takes
+  `http::Request const&`; the router adapts it to a deferred response and runs
+  the join on the router work pool.
+- Use `http::defer(pool, fn)` when the work is naturally a blocking callable
+  and a caller-owned `WorkPool` is available.
+
 Synchronous handlers are still supported, but ring-thread blocking can now be
 surfaced with opt-in diagnostics:
 
