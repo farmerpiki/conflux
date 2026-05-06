@@ -1416,6 +1416,32 @@ REQUIRE(json.find("\"content_type\":\"text/plain\"")!=S::npos);
 REQUIRE(json.find("\"size\":17")!=S::npos);
 }
 TEST_CASE(
+"multipart/form-data delimiter text inside file content is preserved"){
+S const data="before --fileBnd after";
+auto body=make_multipart_file("fileBnd","upload","hello.txt","text/plain",data);
+auto ct=S{"multipart/form-data; boundary=fileBnd"};
+auto resp=http_post("/api/multipart-file",ct,body);
+REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+auto hdr_end=resp.find("\r\n\r\n");
+REQUIRE(hdr_end!=S::npos);
+auto json=resp.substr(hdr_end+4);
+REQUIRE(json.find(format("\"size\":{}",data.size()))!=S::npos);
+}
+TEST_CASE(
+"multipart/form-data part header without space after colon is parsed"){
+S const body=
+"--bNoSpace\r\n"
+"Content-Disposition:form-data; name=\"field\"\r\n"
+"\r\n"
+"hello\r\n"
+"--bNoSpace--\r\n";
+auto resp=http_post("/api/multipart-field","multipart/form-data; boundary=bNoSpace",body);
+REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+auto hdr_end=resp.find("\r\n\r\n");
+REQUIRE(hdr_end!=S::npos);
+REQUIRE(resp.substr(hdr_end+4)=="hello");
+}
+TEST_CASE(
 "multipart/form-data without boundary returns 404 (field not parsed)"){
 // Content-Type has no boundary= — parser cannot find parts.
 auto body=make_multipart_text("bnd","field","ignored");

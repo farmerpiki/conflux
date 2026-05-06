@@ -408,6 +408,34 @@ pos=comma+1;
 }
 return token_count==1;
 }
+struct MultipartBoundaryMatch{
+SZ delim_pos{};
+SZ content_end{};
+};
+[[nodiscard]]Opt<MultipartBoundaryMatch>find_multipart_boundary_line(
+SV body,
+SV delim,
+SZ from)noexcept{
+SZ search=from;
+while(search<body.size()){
+auto const pos=body.find(delim,search);
+if(pos==SV::npos)
+return nullopt;
+bool const at_start=pos==0;
+bool const after_crlf=pos>=2&&body.substr(pos-2,2)=="\r\n";
+bool const after_lf=!after_crlf&&pos>=1&&body[pos-1]=='\n';
+if(at_start||after_crlf||after_lf){
+auto const after=pos+delim.size();
+bool const valid_end=after==body.size()||body.substr(after,2)=="--"||body.substr(after,2)=="\r\n"||body[after]=='\n';
+if(valid_end)
+return MultipartBoundaryMatch{
+.delim_pos=pos,
+.content_end=after_crlf?pos-2:(after_lf?pos-1:pos)};
+}
+search=pos+1;
+}
+return nullopt;
+}
 // Parse multipart/form-data body.
 // Text fields (no filename) go into form; file parts go into files.
 void parse_multipart(
@@ -416,11 +444,13 @@ SV boundary,
 HttpFieldsView&form,
 V<UploadedFile>&files){
 S const delim=format("--{}",boundary);
-SZ pos=body.find(delim);
-if(pos==SV::npos)
+auto first=find_multipart_boundary_line(body,delim,0);
+if(!first)
 return;
+SZ pos=first->delim_pos;
 
 static constexpr SZ kMaxMultipartParts=1000;
+static constexpr SZ kMaxPartHeaderBytes=16U*1024U;
 SZ part_count=0;
 while(true){
 if(++part_count>kMaxMultipartParts)
@@ -443,17 +473,19 @@ break;
 auto headers_end=body.find("\r\n\r\n",pos);
 if(headers_end==SV::npos)
 break;
+if(headers_end<pos||headers_end-pos>kMaxPartHeaderBytes)
+break;
 
 auto part_headers_sv=body.substr(pos,headers_end-pos);
 auto content_start=headers_end+4;
 
-auto next_delim=body.find(delim,content_start);
-if(next_delim==SV::npos)
+auto next_boundary=find_multipart_boundary_line(body,delim,content_start);
+if(!next_boundary)
 break;
 
-auto content_end=next_delim;
-if(content_end>=2&&body.substr(content_end-2,2)=="\r\n")
-content_end-=2;
+auto content_end=next_boundary->content_end;
+if(content_end<content_start)
+break;
 auto content=body.substr(content_start,content_end-content_start);
 
 // Parse part headers
@@ -463,9 +495,9 @@ SZ h=0;
 while(h<part_headers_sv.size()){
 auto le=part_headers_sv.find("\r\n",h);
 auto line=le==SV::npos?part_headers_sv.substr(h):part_headers_sv.substr(h,le-h);
-if(auto colon=line.find(": ");colon!=SV::npos){
+if(auto colon=line.find(':');colon!=SV::npos){
 S const key=ascii_lower(line.substr(0,colon));
-auto val=line.substr(colon+2);
+auto val=trim(line.substr(colon+1));
 if(key=="content-disposition")
 disposition=val;
 else if(key=="content-type")
@@ -482,7 +514,7 @@ if(!filename.empty())
 files.push_back(UploadedFile::borrowed(name,filename,part_ct,content));
 else if(!name.empty())
 form.emplace_back(name,content);
-pos=next_delim;
+pos=next_boundary->delim_pos;
 }
 }
 // Parse application/x-www-form-urlencoded pairs into out.

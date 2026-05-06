@@ -58,15 +58,13 @@
   - File: src/net/http_server.cxx
 
 - [x] 11. TLS mapped-file streaming
-  - queue_send SSL_writes headers only; body sent in MAPPED_TLS_CHUNK (256 KiB) pieces
-  - Each chunk: SSL_write → tls_flush_wbio → tls_queue_send; resumes in handle_send_tls_complete
-  - Uses conn.streamed_delivered to track position; mapped_file held until last chunk acked
-  - File: src/net/http_server.cxx (queue_send, send_mapped_tls_chunk, handle_send_tls_complete)
+  - Use streamed-file path for TLS large files instead of full copy into own_response
+  - File: src/net/http_server.cxx (~line 1707)
+  - Lower priority: works correctly, just memory-inefficient for large TLS file responses
 
 - [x] 12. H2 pending_send cap
-  - 4 MiB per-connection limit (H2_MAX_PENDING_SEND)
-  - h2_send_cb returns NGHTTP2_ERR_CALLBACK_FAILURE on overflow → nghttp2 closes session
-  - File: src/net/http_server.cxx (h2_send_cb)
+  - Add per-connection buffer limit and nghttp2 backpressure on overflow
+  - File: src/net/http_server.cxx (h2_pending_send usage)
 
 - [x] 13. Directory listing URL-encode hrefs
   - Added path_percent_encode() for href attribute, html_escape for display text
@@ -75,3 +73,25 @@
 - [x] 14. HTTPS redirect use canonical host from allowlist
   - Uses matched allowlist entry instead of raw Host header value in Location
   - File: src/net/http_server.cxx
+
+## Phase 4 — Review Follow-ups
+
+- [x] 15. Multipart boundary-line parsing
+  - Current parser is simple and scans for delimiter text inside the body; production parsing should require real boundary lines, final boundary handling, robust part header parsing, per-part/header limits, and an explicit filename policy.
+  - File: src/net/http_server.cxx
+
+- [ ] 16. HTTP/2 request validation parity
+  - Validate required pseudo-headers, duplicate pseudo-headers, pseudo-header ordering, lowercase field names, forbidden connection-specific headers, `te` value, and `content-length` consistency.
+  - File: src/net/http_server.cxx
+
+- [ ] 17. Chunked wire-overhead limits
+  - Decoded body size and chunk count are bounded, but the raw receive cap should intentionally account for small-chunk overhead, chunk extensions, and trailer bytes.
+  - File: src/net/http_server.cxx
+
+- [ ] 18. `Expect: 100-continue` stress tests
+  - Add cases for headers-only arrival, delayed body, no body, pipelined follow-up request, timeout after provisional response, and chunked bodies with `Expect`.
+  - Files: src/net/http_server.cxx, tests/http_e2e.cxx
+
+- [ ] 19. Ring-thread synchronous handler contract
+  - Document that synchronous handlers run on the ring thread and are suitable only for short non-blocking work, or provide a default work-pool offload path for slow handlers.
+  - Files: src/net/http_server.cxx, docs
