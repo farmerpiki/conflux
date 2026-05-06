@@ -149,6 +149,7 @@ alignas(64)Atom<int>parked_{0};
 Atom<SZ>pending_{0};
 atomic_flag accepting_stopped_{};
 atomic_flag stopping_{};
+mutex admission_mtx_{};
 
 inline static thread_local WorkPool*tls_pool_=nullptr;
 inline static thread_local SZ tls_worker_=work_detail::kNoWorker;
@@ -311,15 +312,18 @@ WorkPool(WorkPool&&)=delete;
 WorkPool&operator=(WorkPool&&)=delete;
 [[nodiscard]]bool enqueue(
 conflux::work::root::detail::small_move_only_function<void()>job)override{
+std::unique_lock admission{admission_mtx_};
 if(accepting_stopped_.test(memory_order_acquire)||stopping_.test(memory_order_acquire))
 return false;
 bool const queued=is_local_worker()?push_local(move(job)):push_inject(move(job));
 if(!queued)
 return false;
+admission.unlock();
 wake_one();
 return true;
 }
 void stop()noexcept{
+SL const admission{admission_mtx_};
 accepting_stopped_.test_and_set(memory_order_acq_rel);
 if(!stopping_.test_and_set(memory_order_acq_rel)){
 for(auto&worker:workers_)
@@ -328,7 +332,10 @@ wake_all();
 }
 }
 void drain_and_stop()noexcept{
+{
+SL const admission{admission_mtx_};
 accepting_stopped_.test_and_set(memory_order_acq_rel);
+}
 while(pending_.load(memory_order_acquire)>0){
 wake_all();
 std::this_thread::yield();
@@ -500,10 +507,12 @@ using root::make_task_source;// NOLINT(misc-unused-using-decls)
 // controls; shared_from_this keepalive prevents JoinState destruction during
 // the cascade; all N slots must complete before commit.
 namespace join_all_detail{
+template<class T>
+using JoinResultT=std::conditional_t<std::is_void_v<T>,std::monostate,T>;
 template<typename...Ts>
 struct JoinState:std::enable_shared_from_this<JoinState<Ts...>>{
-using Result=std::tuple<Ts...>;
-using Slots=std::tuple<std::optional<std::conditional_t<std::is_void_v<Ts>,std::monostate,Ts>>...>;
+using Result=std::tuple<JoinResultT<Ts>...>;
+using Slots=std::tuple<std::optional<JoinResultT<Ts>>...>;
 
 Atom<SZ>remaining{sizeof...(Ts)};
 mutex mtx;
@@ -566,9 +575,9 @@ commit();
 }// namespace join_all_detail
 export template<typename...Ts>
 [[nodiscard]]auto join_all(
-conflux::work::root::Task<Ts>...tasks)->conflux::work::root::Task<Tup<Ts...>>{
+conflux::work::root::Task<Ts>...tasks)->conflux::work::root::Task<Tup<std::conditional_t<std::is_void_v<Ts>,std::monostate,Ts>...>>{
 using namespace conflux::work::root;
-using Result=std::tuple<Ts...>;
+using Result=std::tuple<std::conditional_t<std::is_void_v<Ts>,std::monostate,Ts>...>;
 
 if constexpr(sizeof...(Ts)==0){
 auto[t,s]=make_task_source<Result>(SubmitOptions{.enable_cancellation=false});

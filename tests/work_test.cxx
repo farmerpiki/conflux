@@ -146,6 +146,30 @@ stopper.join();
 CHECK(pool.stopped());
 }
 TEST_CASE(
+"work: WorkPool drain_and_stop accounts for concurrent enqueue",
+"[work][stress]"){
+for(int round=0;round<100;++round){
+WorkPool pool{WorkPoolOptions{.threads=2,.max_inject_queue=4096}};
+Atom<bool>start{false};
+Atom<int>accepted{0};
+Atom<int>ran{0};
+V<jthread>producers;
+for(int i=0;i<16;++i)
+producers.emplace_back([&]{
+while(!start.load(memory_order_acquire))
+conflux::work::root::detail::cpu_pause();
+if(pool.enqueue([&]{ran.fetch_add(1,memory_order_release);}))
+accepted.fetch_add(1,memory_order_release);
+});
+start.store(true,memory_order_release);
+pool.drain_and_stop();
+for(auto&p:producers)
+if(p.joinable())
+p.join();
+CHECK(ran.load(memory_order_acquire)==accepted.load(memory_order_acquire));
+}
+}
+TEST_CASE(
 "work: join_all collects results",
 "[work]"){
 WorkPool pool;
@@ -156,6 +180,14 @@ return 3;
 CHECK(a==1);
 CHECK(b==2);
 CHECK(c==3);
+}
+TEST_CASE(
+"work: join_all maps void tasks to monostate",
+"[work]"){
+WorkPool pool;
+auto[v,i]=sync_wait(join_all(run_on_task(pool,[]{}),run_on_task(pool,[]{return 7;})));
+CHECK(i==7);
+static_assert(std::is_same_v<decltype(v),std::monostate>);
 }
 TEST_CASE(
 "work: join_all stress — ready-hook arm vs fire race",

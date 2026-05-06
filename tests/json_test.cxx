@@ -4140,6 +4140,17 @@ auto doc=parse(R"('it\'s \"fine\"')",json5_opts);
 REQUIRE(doc.has_value());
 CHECK(*doc->root().as_string()=="it's \"fine\"");
 }
+TEST_CASE("phase8: json5 reader rejects unsupported string escapes","[phase8]"){
+JsonReader double_quoted{R"("bad\q")",json5_opts};
+auto ev=double_quoted.next();
+REQUIRE_FALSE(ev.has_value());
+CHECK(ev.error().message=="invalid escape");
+
+JsonReader single_quoted{R"('bad\q')",json5_opts};
+ev=single_quoted.next();
+REQUIRE_FALSE(ev.has_value());
+CHECK(ev.error().message=="invalid escape");
+}
 TEST_CASE("phase8: json5 single-quoted string in array","[phase8]"){
 auto doc=parse("['a', 'b']",json5_opts);
 REQUIRE(doc.has_value());

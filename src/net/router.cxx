@@ -416,7 +416,7 @@ u64 total_size{};
 export enum class SseOverflowPolicy:u8{
 DropNewest,
 DropOldest,
-Disconnect,
+Disconnect
 };
 export class SseChannel{
 private:
@@ -541,7 +541,7 @@ sse,
 ws_upgrade,
 mapped_file,
 streamed_file,
-deferred,
+deferred
 };
 
 using BodyPayload=
@@ -1169,7 +1169,7 @@ CONFLUX_FUZZ_EXPORT enum class FrameParseStatus:u8{
 Ok,
 Incomplete,
 ProtocolError,
-ControlTooLarge,
+ControlTooLarge
 };
 CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 span<byte const>buf,
@@ -1233,7 +1233,7 @@ Text=1,
 Binary=2,
 Close=8,
 Ping=9,
-Pong=10,
+Pong=10
 };
 struct Frame{
 Opcode opcode{};

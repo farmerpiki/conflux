@@ -112,6 +112,13 @@ f.filename,
 f.content_type,
 f.data.size()));
 });
+router.post("/api/multipart-counts",[](HttpRequestView const&req){
+return HttpResponse::json(
+format(
+R"({{"fields":{},"files":{}}})",
+req.form.values("field").size(),
+req.files.size()));
+});
 router.get("/api/with-header",[](HttpRequest const&){
 auto r=HttpResponse::text("ok");
 r.headers["X-Custom"]="hello";
@@ -1452,6 +1459,26 @@ content_type,
 data,
 boundary);
 }
+static S make_multipart_text_and_file(
+SV boundary,
+SV field_name,
+SV field_value,
+SV file_name,
+SV filename,
+SV content_type,
+SV data){
+return format(
+"--{}\r\n" "Content-Disposition: form-data; name=\"{}\"\r\n" "\r\n" "{}\r\n" "--{}\r\n" "Content-Disposition: form-data; name=\"{}\"; filename=\"{}\"\r\n" "Content-Type: {}\r\n" "\r\n" "{}\r\n" "--{}--\r\n",
+boundary,
+field_name,
+field_value,
+boundary,
+file_name,
+filename,
+content_type,
+data,
+boundary);
+}
 TEST_CASE(
 "multipart/form-data text field is parsed into req.form"){
 auto body=make_multipart_text("boundary123","field","hello from multipart");
@@ -1485,6 +1512,22 @@ REQUIRE(json.find("\"name\":\"upload\"")!=S::npos);
 REQUIRE(json.find("\"filename\":\"hello.txt\"")!=S::npos);
 REQUIRE(json.find("\"content_type\":\"text/plain\"")!=S::npos);
 REQUIRE(json.find("\"size\":17")!=S::npos);
+}
+TEST_CASE(
+"multipart/form-data parses each part exactly once"){
+auto body=make_multipart_text_and_file(
+"countBnd",
+"field",
+"value",
+"upload",
+"hello.txt",
+"text/plain",
+"file content");
+auto resp=http_post("/api/multipart-counts","multipart/form-data; boundary=countBnd",body);
+REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+auto hdr_end=resp.find("\r\n\r\n");
+REQUIRE(hdr_end!=S::npos);
+REQUIRE(resp.substr(hdr_end+4)==R"({"fields":1,"files":1})");
 }
 TEST_CASE(
 "multipart/form-data delimiter text inside file content is preserved"){
@@ -1603,6 +1646,23 @@ TEST_CASE(
 auto resp=http_get("/api/redirect-301");
 REQUIRE(resp.starts_with("HTTP/1.1 301 Moved Permanently"));
 REQUIRE(resp.find("Location: /api/ping\r\n")!=S::npos);
+}
+TEST_CASE(
+"HTTPS redirect uses normalized absolute-form target"){
+Config cfg=mw_config();
+cfg.http_redirect_to_https=true;
+cfg.https_redirect_hosts={"example.com"};
+Router router;
+router.get("/path",[](HttpRequest const&){return HttpResponse::text("ok");});
+ScopedTestServer srv{cfg,move(router)};
+
+LocalTcpClient client{srv.port()};
+SV const req="GET http://ignored.test/path?q=1 HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
+(void)client.send(req);
+auto resp=client.read_until_close();
+REQUIRE(resp.starts_with("HTTP/1.1 308 Permanent Redirect"));
+REQUIRE(resp.find("Location: https://example.com/path?q=1\r\n")!=S::npos);
+REQUIRE(resp.find("https://example.comhttp://")==S::npos);
 }
 // ---------------------------------------------------------------------------
 // Keep-alive / persistent connections
@@ -4407,7 +4467,7 @@ REQUIRE(result.error()=="audience mismatch");
 TEST_CASE(
 "jwt_decode: unterminated alg S is rejected"){
 JwtOptions const opts{.secret="sec",.verify_exp=false};
-auto token=make_jwt_with_header(R"({"alg":"HS256)", R"({"sub":"x"})", "sec");
+auto token=make_jwt_with_header(R"({"alg":"HS256)",R"({"sub":"x"})","sec");
 auto result=jwt_decode(token,opts);
 REQUIRE(!result.has_value());
 REQUIRE(result.error().find("HS256")!=S::npos);
@@ -6864,6 +6924,22 @@ f.emplace_back("A","hello");
 REQUIRE(f.value_or("A")=="hello");
 REQUIRE(f.value_or("Missing","default")=="default");
 REQUIRE(f.value_or("Missing")=="");
+}
+TEST_CASE(
+"HttpFields case-insensitive lookup folds only ASCII letters"){
+HttpFields f{true};
+f.emplace_back("X^Name","caret");
+f.emplace_back("X~Name","tilde");
+REQUIRE(f.get("x^name")=="caret");
+REQUIRE(f.get("x~name")=="tilde");
+REQUIRE(f.values("x^name").size()==1);
+REQUIRE(f.values("x~name").size()==1);
+
+HttpFieldsView view{f};
+REQUIRE(view.get("x^name")=="caret");
+REQUIRE(view.get("x~name")=="tilde");
+REQUIRE(view.values("x^name").size()==1);
+REQUIRE(view.values("x~name").size()==1);
 }
 TEST_CASE(
 "static file serving: percent-encoded filename in URL is decoded and served"){

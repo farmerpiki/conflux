@@ -193,8 +193,8 @@ SZ operator()(
 JsonPath const&p)const noexcept{
 SZ h=0;
 for(auto const&seg:p){
-SZ const sh=holds_alternative<JsonPathMember>(seg)?std::hash<S>{}(get<JsonPathMember>(seg).name):
-std::hash<SZ>{}(get<JsonPathIndex>(seg).index);
+SZ const sh=holds_alternative<JsonPathMember>(seg)?hash<S>{}(get<JsonPathMember>(seg).name):
+hash<SZ>{}(get<JsonPathIndex>(seg).index);
 h^=sh+0x9e3779b9U+(h<<6U)+(h>>2U);
 }
 return h;
@@ -1366,8 +1366,7 @@ return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape,"lone low surroga
 }
 // NOLINTEND(readability-magic-numbers)
 }else{
-if(opts_.mode==ParseMode::strict&&
-esc!='"'&&esc!='\\'&&esc!='/'&&esc!='b'&&esc!='f'&&esc!='n'&&esc!='r'&&esc!='t')
+if(esc!='"'&&esc!='\\'&&esc!='/'&&esc!='b'&&esc!='f'&&esc!='n'&&esc!='r'&&esc!='t')
 return unexpected(mk_err(JsonIssueCode::syntax_error,"invalid escape"));
 adv();
 }
@@ -1436,6 +1435,8 @@ return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape,"lone low surroga
 }
 // NOLINTEND(readability-magic-numbers)
 }else{
+if(esc!='\''&&esc!='"'&&esc!='\\'&&esc!='/'&&esc!='b'&&esc!='f'&&esc!='n'&&esc!='r'&&esc!='t')
+return unexpected(mk_err(JsonIssueCode::syntax_error,"invalid escape"));
 adv();
 }
 continue;
@@ -5515,7 +5516,7 @@ SZ operator()(
 Nullable<T>const&n)const noexcept{
 if(!n.has_value())
 return 0;
-return std::hash<T>{}(n.value());
+return hash<T>{}(n.value());
 }
 };
 // ---------------------------------------------------------------------------

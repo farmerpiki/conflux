@@ -58,8 +58,7 @@ Timer,
 FileIo,
 WsCancel,
 FixedFdInstall,
-Nop,
-
+Nop
 
 };
 
@@ -248,8 +247,7 @@ SizeLine,
 Data,
 DataCrlf,
 Trailers,
-Complete,
-
+Complete
 
 };
 struct ChunkedDecodeState{
@@ -427,8 +425,7 @@ return false;
 enum class ExpectState:u8{
 none,
 continue_100,
-unsupported,
-
+unsupported
 
 };
 [[nodiscard]]ExpectState parse_expect_header(
@@ -3429,8 +3426,7 @@ enum class ParseError:u8{
 None,
 BadRequest,
 UriTooLong,
-HeaderFieldsTooLarge,
-
+HeaderFieldsTooLarge
 
 };
 void emit_parse_error(
@@ -3481,11 +3477,11 @@ emit_parse_error(conn,raw,ParseError::BadRequest,ring.alt_svc_header);
 return;
 case conflux::http1::ParseStatus::Ok:break;
 }
-auto const sp1=parsed.method.size();
 auto const header_end=parsed.header_end_offset;
 
 SV const method=parsed.method;
 SV path=parsed.target;
+SV redirect_query;
 SV const version=parsed.version;
 HttpFieldsView const params;
 HttpFieldsView headers{true};
@@ -3496,6 +3492,7 @@ V<UploadedFile>files;
 SV body;
 
 if(auto q=path.find('?');q!=SV::npos){
+redirect_query=path.substr(q);
 parse_urlencoded(path.substr(q+1),query);
 path=path.substr(0,q);
 }
@@ -3510,6 +3507,8 @@ path=(slash!=SV::npos)?path.substr(slash):SV{"/"};
 auto slash=path.find('/',7);
 path=(slash!=SV::npos)?path.substr(slash):SV{"/"};
 }
+S redirect_target{path.empty()?SV{"/"}:path};
+redirect_target+=redirect_query;
 
 if(version=="HTTP/1.1"){
 auto const hosts=headers.values("host");
@@ -3559,10 +3558,8 @@ conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
 }
-auto raw_url=
-raw.substr(sp1+1,(raw.find(' ',sp1+1)==SV::npos?raw.size():raw.find(' ',sp1+1))-sp1-1);
 conn.own_response=format_response(
-HttpResponse::redirect(format("https://{}{}",canonical_host,raw_url),308),
+HttpResponse::redirect(format("https://{}{}",canonical_host,redirect_target),308),
 ring.alt_svc_header,
 true);
 conn.response_ptr=&conn.own_response;

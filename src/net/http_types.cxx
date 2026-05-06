@@ -4,6 +4,10 @@ module;
 export module conflux.net.http.types;
 import std;
 import conflux.types;
+[[nodiscard]]constexpr unsigned char ascii_ci_fold(
+unsigned char c)noexcept{
+return c>='A'&&c<='Z'?static_cast<unsigned char>(c+('a'-'A')):c;
+}
 export struct FieldHash{
 using is_transparent=void;
 bool ci{false};
@@ -12,7 +16,7 @@ SV s)const noexcept{
 SZ h=14695981039346656037ULL;
 for(char const ch:s){
 auto const c=static_cast<unsigned char>(ch);
-unsigned char const k=ci?static_cast<unsigned char>(c|0x20):c;
+unsigned char const k=ci?ascii_ci_fold(c):c;
 h^=k;
 h*=1099511628211ULL;
 }
@@ -33,7 +37,7 @@ if(a.size()!=b.size())
 return false;
 if(!ci)
 return a==b;
-return ranges::equal(a,b,[](unsigned char x,unsigned char y){return(x|0x20)==(y|0x20);});
+return ranges::equal(a,b,[](unsigned char x,unsigned char y){return ascii_ci_fold(x)==ascii_ci_fold(y);});
 }
 [[nodiscard]]bool operator()(
 S const&a,
@@ -62,7 +66,7 @@ if(a.size()!=b.size())
 return false;
 if(!case_insensitive_)
 return a==b;
-return ranges::equal(a,b,[](unsigned char x,unsigned char y){return(x|0x20)==(y|0x20);});
+return ranges::equal(a,b,[](unsigned char x,unsigned char y){return ascii_ci_fold(x)==ascii_ci_fold(y);});
 }
 public:
 HttpFields(
@@ -169,7 +173,7 @@ if(a.size()!=b.size())
 return false;
 if(!case_insensitive_)
 return a==b;
-return ranges::equal(a,b,[](unsigned char x,unsigned char y){return(x|0x20)==(y|0x20);});
+return ranges::equal(a,b,[](unsigned char x,unsigned char y){return ascii_ci_fold(x)==ascii_ci_fold(y);});
 }
 [[nodiscard]]SV store_owned(
 S owned_value){
