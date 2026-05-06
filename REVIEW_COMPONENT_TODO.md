@@ -54,7 +54,7 @@ Scope: `conflux.work`, `conflux.json`, `conflux.net.http_server` including `http
   - Decide whether to strengthen naming, examples, and API docs around "borrowed/unsafe/view" semantics.
   - Files: `src/json.cxx`, `docs/json-api.md`, `tests/json_test.cxx`.
 
-- [ ] JSON5 unterminated block comment diagnostic
+- [x] JSON5 unterminated block comment diagnostic
   - The JSON5 comment skipper should report an explicit `unterminated block comment` instead of falling through to a generic EOF-style parse error.
   - Files: `src/json.cxx`, `tests/json_test.cxx`.
 

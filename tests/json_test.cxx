@@ -4074,6 +4074,17 @@ CHECK(*a.element(1)->as_number()->to_i64()==2);
 TEST_CASE("phase8: json5 unterminated block comment","[phase8]"){
 auto doc=parse("/* never closed",json5_opts);
 CHECK_FALSE(doc.has_value());
+CHECK(doc.error().message=="unterminated block comment");
+REQUIRE(doc.error().source.has_value());
+CHECK(doc.error().source->offset==0);
+}
+TEST_CASE("phase8: json5 SAX unterminated block comment","[phase8]"){
+JsonReader r{"[1, /* never closed",json5_opts};
+REQUIRE(r.next().has_value());
+REQUIRE(r.next().has_value());
+auto ev=r.next();
+CHECK_FALSE(ev.has_value());
+CHECK(ev.error().message=="unterminated block comment");
 }
 TEST_CASE("phase8: json5 trailing comma in array","[phase8]"){
 auto doc=parse("[1, 2, 3,]",json5_opts);

@@ -1240,7 +1240,7 @@ return{
 .source=JsonSourceLocation{.offset=pos_,.line=line_,.column=col_},
 .message=move(msg)};
 }
-void skip_ws()noexcept{
+void skip_ws(){
 for(;;){
 while(pos_<input_.size()){
 char const c=input_[pos_];
@@ -1267,6 +1267,9 @@ while(pos_<input_.size()&&input_[pos_]!='\n'){
 continue;
 }
 if(input_[pos_+1]=='*'){
+SZ const comment_offset=pos_;
+SZ const comment_line=line_;
+SZ const comment_col=col_;
 pos_+=2;
 col_+=2;
 while(pos_+1<input_.size()){
@@ -1285,11 +1288,22 @@ col_=1;
 }
 }
 pos_=input_.size();
+set_error(JsonError{
+.stage=JsonStage::parse,
+.code=JsonIssueCode::unexpected_eof,
+.source=JsonSourceLocation{.offset=comment_offset,.line=comment_line,.column=comment_col},
+.message="unterminated block comment"});
 return;
 }
 return;
 next_reader_ws:;
 }
+}
+[[nodiscard]]expected<void,JsonError>skip_ws_checked(){
+skip_ws();
+if(has_error_)
+return unexpected(last_error_);
+return{};
 }
 void adv(
 SZ n=1)noexcept{
@@ -1546,7 +1560,8 @@ JsonParseOptions const&opts={})
 [[nodiscard]]expected<Opt<Event>,JsonError>next(){
 if(has_error_)
 return unexpected(last_error_);
-skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 
 if(stack_.empty()){
 if(pos_>=input_.size())
@@ -1563,7 +1578,8 @@ return Opt<Event>{*ev};
 auto&top=stack_.back();
 
 if(top.kind==StateFrame::Kind::array){
-skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(pos_<input_.size()&&input_[pos_]==']'){
 adv();
 stack_.pop_back();
@@ -1576,7 +1592,8 @@ set_error(e);
 return unexpected(last_error_);
 }
 adv();
-skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(opts_.mode==ParseMode::json5&&pos_<input_.size()&&input_[pos_]==']'){
 adv();
 stack_.pop_back();
@@ -1596,7 +1613,8 @@ return Opt<Event>{*ev};
 // object
 if(top.awaiting_value){
 top.awaiting_value=false;
-skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 value_start_=pos_;
 auto ev=parse_value_event();
 if(!ev){
@@ -1606,7 +1624,8 @@ return unexpected(last_error_);
 return Opt<Event>{*ev};
 }
 
-skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(pos_<input_.size()&&input_[pos_]=='}'){
 adv();
 stack_.pop_back();
@@ -1619,7 +1638,8 @@ set_error(e);
 return unexpected(last_error_);
 }
 adv();
-skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(opts_.mode==ParseMode::json5&&pos_<input_.size()&&input_[pos_]=='}'){
 adv();
 stack_.pop_back();
@@ -1661,7 +1681,8 @@ if(!str_res){
 set_error(str_res.error());
 return unexpected(last_error_);
 }
-skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(pos_>=input_.size()||input_[pos_]!=':'){
 auto e=mk_err(JsonIssueCode::syntax_error,"expected ':'");
 set_error(e);
@@ -1693,7 +1714,8 @@ last_error_={};
 [[nodiscard]]expected<JsonByteRange,JsonError>skip_next_value(){
 if(has_error_)
 return unexpected(last_error_);
-skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 SZ const start=pos_;
 auto ev=next();
 if(!ev)
@@ -3085,6 +3107,10 @@ SZ col{1};
 DocumentStorage&store;
 u32 bom_prefix_bytes;
 ParseMode mode{};
+bool unterminated_block_comment{};
+SZ unterminated_block_comment_pos{};
+SZ unterminated_block_comment_line{1};
+SZ unterminated_block_comment_col{1};
 [[nodiscard]]JsonError mk_err(
 JsonIssueCode code,
 S msg)const{
@@ -3097,7 +3123,20 @@ return{
 .source=JsonSourceLocation{.offset=pos+bom_prefix_bytes,.line=line,.column=col},
 .message=move(msg)};
 }
-void skip_ws()noexcept{
+[[nodiscard]]JsonError whitespace_error()const{
+return{
+.stage=JsonStage::parse,
+.code=JsonIssueCode::unexpected_eof,
+.source=
+JsonSourceLocation{
+.offset=unterminated_block_comment_pos+bom_prefix_bytes,
+.line=unterminated_block_comment_line,
+.column=unterminated_block_comment_col},
+.message="unterminated block comment"};
+}
+void skip_ws(){
+if(unterminated_block_comment)
+return;
 for(;;){
 while(pos<src.size()){
 char const c=src[pos];
@@ -3124,6 +3163,9 @@ while(pos<src.size()&&src[pos]!='\n'){
 continue;
 }
 if(src[pos+1]=='*'){
+SZ const comment_pos=pos;
+SZ const comment_line=line;
+SZ const comment_col=col;
 pos+=2;
 col+=2;
 while(pos+1<src.size()){
@@ -3142,6 +3184,10 @@ col=1;
 }
 }
 pos=src.size();
+unterminated_block_comment=true;
+unterminated_block_comment_pos=comment_pos;
+unterminated_block_comment_line=comment_line;
+unterminated_block_comment_col=comment_col;
 return;
 }
 return;
@@ -3504,10 +3550,17 @@ JsonIssueCode code,
 S msg)const{
 return tok.mk_err(code,move(msg));
 }
+[[nodiscard]]expected<void,JsonError>skip_ws_checked(){
+tok.skip_ws();
+if(tok.unterminated_block_comment)
+return unexpected(tok.whitespace_error());
+return{};
+}
 // NOLINTNEXTLINE(misc-no-recursion)
 [[nodiscard]]expected<SZ,JsonError>parse_value(
 SZ depth){
-tok.skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(tok.pos>=tok.src.size())
 return unexpected(mk_err(JsonIssueCode::unexpected_eof,"unexpected end of input"));
 if(opts.max_depth.exceeds(depth,kDefaultMaxDepth))
@@ -3573,7 +3626,8 @@ return store.nodes.size()-1;
 [[nodiscard]]expected<SZ,JsonError>parse_array(
 SZ depth){
 tok.adv();// '['
-tok.skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(tok.pos<tok.src.size()&&tok.src[tok.pos]==']'){
 tok.adv();
 SZ const cs=store.array_children.size();
@@ -3588,7 +3642,8 @@ auto child=parse_value(depth+1);
 if(!child)
 return unexpected(move(child).error());
 staging.push_back(static_cast<u32>(*child));
-tok.skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(tok.pos>=tok.src.size())
 return unexpected(mk_err(JsonIssueCode::unexpected_eof,"EOF in array"));
 if(tok.src[tok.pos]==']'){
@@ -3609,7 +3664,8 @@ return unexpected(mk_err(JsonIssueCode::syntax_error,"expected ',' or ']'"));
 }
 tok.adv();
 if(opts.mode==ParseMode::json5){
-tok.skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(tok.pos<tok.src.size()&&tok.src[tok.pos]==']'){
 tok.adv();
 SZ const len=staging.size()-children_start;
@@ -3662,7 +3718,8 @@ SZ array_children;
 SZ object_members;
 };
 tok.adv();// '{'
-tok.skip_ws();
+if(auto ok=skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(tok.pos<tok.src.size()&&tok.src[tok.pos]=='}'){
 tok.adv();
 SZ const ms=store.object_members.size();
@@ -3677,7 +3734,10 @@ SZ const members_start=staging_members.size();
 Opt<US<SV>>seen_hash;
 auto const dup_policy=opts.duplicate_key;
 while(true){
-tok.skip_ws();
+if(auto ok=skip_ws_checked();!ok){
+staging_members.resize(members_start);
+return unexpected(move(ok).error());
+}
 if(tok.pos>=tok.src.size()){
 staging_members.resize(members_start);
 return unexpected(mk_err(JsonIssueCode::unexpected_eof,"EOF in object"));
@@ -3707,7 +3767,10 @@ return unexpected(mk_err(JsonIssueCode::duplicate_member,format("duplicate membe
 if(!is_dup&&seen_hash.has_value())
 seen_hash->insert(name_sv);
 
-tok.skip_ws();
+if(auto ok=skip_ws_checked();!ok){
+staging_members.resize(members_start);
+return unexpected(move(ok).error());
+}
 if(tok.pos>=tok.src.size()||tok.src[tok.pos]!=':'){
 staging_members.resize(members_start);
 return unexpected(mk_err(JsonIssueCode::syntax_error,"expected ':'"));
@@ -3762,7 +3825,10 @@ seen_hash->insert(store.bytes_at(m.name_off,m.name_len,static_cast<u8>(m.name_fl
 }
 }
 
-tok.skip_ws();
+if(auto ok=skip_ws_checked();!ok){
+staging_members.resize(members_start);
+return unexpected(move(ok).error());
+}
 if(tok.pos>=tok.src.size()){
 staging_members.resize(members_start);
 return unexpected(mk_err(JsonIssueCode::unexpected_eof,"EOF in object"));
@@ -3801,7 +3867,10 @@ return unexpected(mk_err(JsonIssueCode::syntax_error,"expected ',' or '}'"));
 }
 tok.adv();
 if(opts.mode==ParseMode::json5){
-tok.skip_ws();
+if(auto ok=skip_ws_checked();!ok){
+staging_members.resize(members_start);
+return unexpected(move(ok).error());
+}
 if(tok.pos<tok.src.size()&&tok.src[tok.pos]=='}'){
 tok.adv();
 SZ const len2=staging_members.size()-members_start;
@@ -3895,14 +3964,16 @@ Tokenizer{
 .opts=opts,
 .staging={},
 .staging_members={}};
-tb.tok.skip_ws();
+if(auto ok=tb.skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(tb.tok.pos>=store.input_view.size())
 return unexpected(
 JsonError{.stage=JsonStage::parse,.code=JsonIssueCode::unexpected_eof,.message="empty input"});
 auto root=tb.parse_value(0);
 if(!root)return unexpected(move(root).error());
 store.root_node=static_cast<u32>(*root);
-tb.tok.skip_ws();
+if(auto ok=tb.skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(tb.tok.pos<store.input_view.size())
 return unexpected(
 JsonError{
@@ -3949,7 +4020,8 @@ Tokenizer{
 .opts=opts,
 .staging={},
 .staging_members={}};
-tb.tok.skip_ws();
+if(auto ok=tb.skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(tb.tok.pos>=storage_ref.input_view.size())
 return unexpected(
 JsonError{.stage=JsonStage::parse,.code=JsonIssueCode::unexpected_eof,.message="empty input"});
@@ -3959,7 +4031,8 @@ if(!root)
 return unexpected(move(root).error());
 storage->root_node=static_cast<u32>(*root);
 
-tb.tok.skip_ws();
+if(auto ok=tb.skip_ws_checked();!ok)
+return unexpected(move(ok).error());
 if(tb.tok.pos<storage_ref.input_view.size())
 return unexpected(
 JsonError{
