@@ -1261,6 +1261,77 @@ REQUIRE(hdr_end!=S::npos);
 CHECK(resp.substr(hdr_end+4)==body);
 }
 TEST_CASE(
+"POST with Expect: 100-continue supports pipelined follow-up request"){
+ensure_server();
+LocalTcpClient client{g_test_port};
+client.set_recv_timeout(chrono::seconds{5});
+
+S body="first";
+auto req=format(
+"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: {}\r\nExpect: 100-continue\r\n\r\n",
+body.size());
+(void)client.send(req);
+auto interim=client.read_headers();
+REQUIRE(interim.starts_with("HTTP/1.1 100 Continue"));
+
+S rest=body;
+rest+="GET /api/ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+(void)client.send(rest);
+auto combined=client.read_until_close();
+auto first_pos=combined.find("HTTP/1.1 200 OK");
+REQUIRE(first_pos!=S::npos);
+auto second_pos=combined.find("HTTP/1.1 200 OK",first_pos+1);
+REQUIRE(second_pos!=S::npos);
+auto first=combined.substr(first_pos,second_pos-first_pos);
+auto second=combined.substr(second_pos);
+REQUIRE(extract_body(first)==body);
+REQUIRE(extract_body(second)==R"({"status":"ok"})");
+}
+TEST_CASE(
+"POST with Expect: 100-continue works with chunked body"){
+ensure_server();
+LocalTcpClient client{g_test_port};
+client.set_recv_timeout(chrono::seconds{5});
+
+SV const headers=
+"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nTransfer-Encoding: chunked\r\nExpect: 100-continue\r\nConnection: close\r\n\r\n";
+(void)client.send(headers);
+auto interim=client.read_headers();
+REQUIRE(interim.starts_with("HTTP/1.1 100 Continue"));
+
+(void)client.send("5\r\nhello\r\n0\r\n\r\n");
+auto resp=client.read_one_response();
+REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+REQUIRE(extract_body(resp)=="hello");
+}
+TEST_CASE(
+"POST with Expect: 100-continue times out if body never arrives"){
+Config cfg=Config::test();
+cfg.request_timeout_ms=1500;
+Router router;
+router.post("/upload",[](HttpRequest const&req){return HttpResponse::text(req.body);});
+ScopedTestServer srv{cfg,move(router)};
+
+int const fd=::socket(AF_INET,SOCK_STREAM,0);
+sockaddr_in addr{};
+addr.sin_family=AF_INET;
+addr.sin_port=htons(srv.port());
+::inet_pton(AF_INET,"127.0.0.1",&addr.sin_addr);
+REQUIRE(::connect(fd,reinterpret_cast<sockaddr*>(&addr),sizeof(addr))==0);
+SV const req=
+"POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nExpect: 100-continue\r\n\r\n";
+::send(fd,req.data(),req.size(),0);
+auto interim=read_one_response(fd);
+REQUIRE(interim.starts_with("HTTP/1.1 100 Continue"));
+
+std::this_thread::sleep_for(chrono::milliseconds{2500});
+char probe{};
+auto n=::recv(fd,&probe,1,MSG_DONTWAIT);
+::close(fd);
+bool const connection_gone=(n==0)||(n<0&&(errno==ECONNRESET||errno==EAGAIN));
+REQUIRE(connection_gone);
+}
+TEST_CASE(
 "POST with unsupported Expect returns 417"){
 ensure_server();
 LocalTcpClient client{g_test_port};

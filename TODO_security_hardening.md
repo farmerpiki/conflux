@@ -88,7 +88,7 @@
   - Decoded body size and chunk count are bounded, but the raw receive cap should intentionally account for small-chunk overhead, chunk extensions, and trailer bytes.
   - File: src/net/http_server.cxx
 
-- [ ] 18. `Expect: 100-continue` stress tests
+- [x] 18. `Expect: 100-continue` stress tests
   - Add cases for headers-only arrival, delayed body, no body, pipelined follow-up request, timeout after provisional response, and chunked bodies with `Expect`.
   - Files: src/net/http_server.cxx, tests/http_e2e.cxx
 
