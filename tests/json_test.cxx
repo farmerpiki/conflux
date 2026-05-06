@@ -2862,6 +2862,22 @@ auto n=m->as_number();
 REQUIRE(n.has_value());
 CHECK(*n->to_i64()==42LL);
 }
+TEST_CASE(
+"json: duplicate-key detection after hash promotion",
+"[json][hash]"){
+JsonParseOptions opts;
+opts.duplicate_key=DuplicateKeyPolicy::reject;
+S js="{";
+for(int i=0;i<10;++i){
+if(i>0)
+js+=',';
+js+=format(R"("k{}": {})",i,i);
+}
+js+=R"(, "k3": 99})";
+auto doc=parse(js,opts);
+REQUIRE_FALSE(doc.has_value());
+CHECK(doc.error().code==JsonIssueCode::duplicate_member);
+}
 // ---------------------------------------------------------------------------
 // Phase 2.1 — JsonDecodeOptions: UnknownMemberPolicy
 // ---------------------------------------------------------------------------

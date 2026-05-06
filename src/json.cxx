@@ -1865,8 +1865,9 @@ return static_cast<u32>(XXH3_64bits_withSeed(name.data(),name.size(),seed));
 u32 count)noexcept{
 constexpr u32 kSlotMax=static_cast<u32>(kMaxHashIndexBytes/sizeof(ObjHashSlot));
 constexpr u32 kEffectiveMax=kMaxHashTableCapacity<kSlotMax?kMaxHashTableCapacity:kSlotMax;
+u32 const target=count<=kEffectiveMax/2U?count*2U:kEffectiveMax;
 u32 cap=1;
-while(cap<2*count&&cap<kEffectiveMax)
+while(cap<target&&cap<kEffectiveMax)
 cap<<=1;
 if(cap<count)
 return 0;// Object too large to index — fall back to linear scan.
@@ -3817,7 +3818,10 @@ staging_members.push_back({parsed_name->off,parsed_name->len,static_cast<u32>(*v
 SZ const cur_count=staging_members.size()-members_start;
 if(!seen_hash.has_value()&&cur_count>kDedupLinearMax){
 seen_hash.emplace();
-seen_hash->reserve(cur_count*2);
+SZ reserve_count=cur_count;
+if(cur_count<=std::numeric_limits<SZ>::max()-cur_count)
+reserve_count+=cur_count;
+seen_hash->reserve(reserve_count);
 for(SZ i=members_start;i<staging_members.size();++i){
 auto const&m=staging_members[i];// NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 seen_hash->insert(store.bytes_at(m.name_off,m.name_len,static_cast<u8>(m.name_flags)));

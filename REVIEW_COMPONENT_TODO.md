@@ -58,7 +58,7 @@ Scope: `conflux.work`, `conflux.json`, `conflux.net.http_server` including `http
   - The JSON5 comment skipper should report an explicit `unterminated block comment` instead of falling through to a generic EOF-style parse error.
   - Files: `src/json.cxx`, `tests/json_test.cxx`.
 
-- [ ] JSON object hash capacity arithmetic audit
+- [x] JSON object hash capacity arithmetic audit
   - Audit lazy object-index reserve/capacity math such as `count * 2` and convert any user-influenced multiplication to checked or division-form bounds.
   - File: `src/json.cxx`.
 
