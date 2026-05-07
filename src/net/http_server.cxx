@@ -79,15 +79,19 @@ static_cast<Op>(ud>>OP_SHIFT),
 static_cast<u32>((ud>>GEN_SHIFT)&GEN_MASK),
 static_cast<int>(ud&FD_MASK)};
 }
-S http_date_now(){
-auto const now=chrono::system_clock::now();
-auto const tt=chrono::system_clock::to_time_t(now);
+SV http_date_now(){
+static thread_local S cached;
+static thread_local time_t cached_epoch=0;
+auto const now=::time(nullptr);
+if(now!=cached_epoch){
+cached_epoch=now;
 tm gmt{};
-::gmtime_r(&tt,&gmt);
+::gmtime_r(&now,&gmt);
 A<char,32>buf{};
-if(strftime(buf.data(),buf.size(),"%a, %d %b %Y %H:%M:%S GMT",&gmt)==0)
-return{};
-return S{buf.data()};
+strftime(buf.data(),buf.size(),"%a, %d %b %Y %H:%M:%S GMT",&gmt);
+cached=S{buf.data()};
+}
+return cached;
 }
 bool is_valid_header_name(
 SV name)noexcept{
