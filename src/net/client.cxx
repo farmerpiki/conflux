@@ -22,6 +22,7 @@ import conflux.net.http.types;
 import conflux.net.http.request;
 import conflux.utils;
 import conflux.work;
+import conflux.net.dns;
 #if CONFLUX_HAS_TLS
 import conflux.net.tls;
 #endif
@@ -137,34 +138,86 @@ enum class ConnectFailure{
 dns,
 connect
 };
-// Returns a connected fd, or -1. Fills telemetry. Sets failure on error.
-// Uses POSIX getaddrinfo — avoids importing conflux.net.dns to break gcc16 module cluster bug.
+[[nodiscard]]int try_connect_endpoints(
+span<conflux::net::dns::Endpoint const>endpoints,
+u16 port,
+int timeout_sec,
+HttpTelemetry&tel){
+constexpr auto kConnectAttemptDelay=chrono::milliseconds{250};
+auto const t1=chrono::steady_clock::now();
+int fd=-1;
+int prev_family=-1;
+for(auto const&ep:endpoints){
+if(fd!=-1){
+::close(fd);
+fd=-1;
+}
+int const fam=(ep.family==conflux::net::dns::AddressFamily::v4)?AF_INET:AF_INET6;
+if(prev_family!=-1&&fam!=prev_family)
+std::this_thread::sleep_for(kConnectAttemptDelay);
+prev_family=fam;
+fd=::socket(fam,SOCK_STREAM|SOCK_CLOEXEC,IPPROTO_TCP);
+if(fd<0)
+continue;
+if(connect_with_timeout(fd,reinterpret_cast<sockaddr const*>(&ep.addr),ep.addr_len,timeout_sec)){
+char buf[INET6_ADDRSTRLEN]{};
+if(fam==AF_INET){
+auto const*sa4=reinterpret_cast<sockaddr_in const*>(&ep.addr);
+inet_ntop(AF_INET,&sa4->sin_addr,buf,sizeof(buf));
+tel.peer_addr=format("{}:{}",buf,port);
+}else{
+auto const*sa6=reinterpret_cast<sockaddr_in6 const*>(&ep.addr);
+inet_ntop(AF_INET6,&sa6->sin6_addr,buf,sizeof(buf));
+tel.peer_addr=format("[{}]:{}",buf,port);
+}
+break;
+}
+::close(fd);
+fd=-1;
+}
+tel.connect=chrono::steady_clock::now()-t1;
+return fd;
+}
 [[nodiscard]]int resolve_and_connect(
 SV host,
 u16 port,
 int timeout_sec,
-chrono::milliseconds /*resolve_timeout*/,
+chrono::milliseconds resolve_timeout,
 HttpTelemetry&tel,
 ConnectFailure&failure,
 S&failure_message,
 int&failure_errno,
-void*/*resolver_unused*/=nullptr){
-constexpr auto kConnectAttemptDelay=chrono::milliseconds{250};
-
+void*resolver_ptr=nullptr){
+if(resolver_ptr){
+auto*resolver=static_cast<conflux::net::dns::Resolver*>(resolver_ptr);
+auto const t0=chrono::steady_clock::now();
+auto result=resolver->resolve_blocking(host,port,{.total_timeout=resolve_timeout});
+tel.dns=chrono::steady_clock::now()-t0;
+if(!result){
+failure=ConnectFailure::dns;
+failure_errno=0;
+failure_message=format("DNS resolution failed for '{}': {}",host,result.error().what());
+return-1;
+}
+int const fd=try_connect_endpoints(result->endpoints,port,timeout_sec,tel);
+if(fd<0){
+failure=ConnectFailure::connect;
+failure_errno=errno;
+failure_message=format("failed to connect to '{}:{}'",host,port);
+}
+return fd;
+}
 S const host_str{host};
 S const port_str=to_string(port);
-
 addrinfo hints{};
 hints.ai_family=AF_UNSPEC;
 hints.ai_socktype=SOCK_STREAM;
 hints.ai_protocol=IPPROTO_TCP;
 hints.ai_flags=AI_ADDRCONFIG;
-
 auto const t0=chrono::steady_clock::now();
 addrinfo*res_raw=nullptr;
 int const gai_err=::getaddrinfo(host_str.c_str(),port_str.c_str(),&hints,&res_raw);
 tel.dns=chrono::steady_clock::now()-t0;
-
 if(gai_err!=0){
 failure=ConnectFailure::dns;
 failure_errno=0;
@@ -175,24 +228,20 @@ struct AddrInfoDeleter{
 void operator()(addrinfo*p)const noexcept{::freeaddrinfo(p);}
 };
 UPD<addrinfo,AddrInfoDeleter>const res{res_raw};
-
 auto const t1=chrono::steady_clock::now();
 int fd=-1;
 int prev_family=-1;
-
 for(addrinfo const*ai=res.get();ai!=nullptr;ai=ai->ai_next){
 if(fd!=-1){
 ::close(fd);
 fd=-1;
 }
 if(prev_family!=-1&&ai->ai_family!=prev_family)
-std::this_thread::sleep_for(kConnectAttemptDelay);
+std::this_thread::sleep_for(chrono::milliseconds{250});
 prev_family=ai->ai_family;
-
 fd=::socket(ai->ai_family,SOCK_STREAM|SOCK_CLOEXEC,IPPROTO_TCP);
 if(fd<0)
 continue;
-
 if(connect_with_timeout(fd,ai->ai_addr,static_cast<socklen_t>(ai->ai_addrlen),timeout_sec)){
 char buf[INET6_ADDRSTRLEN]{};
 if(ai->ai_family==AF_INET){
@@ -206,13 +255,10 @@ tel.peer_addr=format("[{}]:{}",buf,port);
 }
 break;
 }
-
 ::close(fd);
 fd=-1;
 }
-
 tel.connect=chrono::steady_clock::now()-t1;
-
 if(fd<0){
 failure=ConnectFailure::connect;
 failure_errno=errno;
