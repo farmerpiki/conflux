@@ -3613,14 +3613,14 @@ SZ content_length{};
 auto const*cl_end=ranges::next(cl.data(),ssize(cl));
 auto[ptr,ec]=from_chars(cl.data(),cl_end,content_length);
 if(ec!=errc{}||ptr!=cl_end){
-conn.own_response=format_response(HttpResponse::bad_request(),ring.alt_svc_header);
+conn.own_response=format_response(HttpResponse::bad_request(),ring.alt_svc_header,true);
 conn.response_ptr=&conn.own_response;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
 }
 if(content_length>max_body_size){
-conn.own_response=format_response(HttpResponse::content_too_large(),ring.alt_svc_header);
+conn.own_response=format_response(HttpResponse::content_too_large(),ring.alt_svc_header,true);
 conn.response_ptr=&conn.own_response;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
@@ -3641,14 +3641,14 @@ queue_continue();
 return;
 }
 if(rc==-1){
-conn.own_response=format_response(HttpResponse::bad_request(),ring.alt_svc_header);
+conn.own_response=format_response(HttpResponse::bad_request(),ring.alt_svc_header,true);
 conn.response_ptr=&conn.own_response;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
 }
 if(rc==-2){
-conn.own_response=format_response(HttpResponse::content_too_large(),ring.alt_svc_header);
+conn.own_response=format_response(HttpResponse::content_too_large(),ring.alt_svc_header,true);
 conn.response_ptr=&conn.own_response;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
@@ -3733,7 +3733,7 @@ conn.sse_channel=resp.take_sse_channel();
 conn.own_response=S{format_sse_headers()};
 conn.response_ptr=&conn.own_response;
 }else if(resp.is_mapped_file()){
-conn.own_response=format_response(resp,ring.alt_svc_header);
+conn.own_response=format_response(resp,ring.alt_svc_header,conn.close_after_send);
 if(resp.head_only){
 conn.response_ptr=&conn.own_response;
 }else{
@@ -3743,7 +3743,7 @@ conn.mapped_delivered=0;
 conn.response_ptr=nullptr;
 }
 }else if(resp.is_streamed_file()){
-conn.own_response=format_response(resp,ring.alt_svc_header);
+conn.own_response=format_response(resp,ring.alt_svc_header,conn.close_after_send);
 if(resp.head_only){
 conn.response_ptr=&conn.own_response;
 }else{
@@ -3754,7 +3754,7 @@ conn.streamed_splice_in_flight=false;
 conn.response_ptr=&conn.own_response;
 }
 }else{
-conn.own_response=format_response(resp,ring.alt_svc_header);
+conn.own_response=format_response(resp,ring.alt_svc_header,conn.close_after_send);
 conn.response_ptr=&conn.own_response;
 }
 }

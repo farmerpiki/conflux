@@ -1798,7 +1798,7 @@ Router&add(
 SV method,
 SV path,
 F&&handler){
-impl_->routes.push_back({S{method},parse_pattern(path),make_handler(impl_->work_pool,forward<F>(handler))});
+impl_->routes.push_back({S{method},parse_pattern(path),make_handler(forward<F>(handler))});
 return*this;
 }
 // NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
@@ -1848,7 +1848,7 @@ return*this;
 template<typename F>
 Router&on_not_found(
 F&&handler){
-impl_->not_found_handler=make_handler(impl_->work_pool,forward<F>(handler));
+impl_->not_found_handler=make_handler(forward<F>(handler));
 return*this;
 }
 template<typename F>
@@ -1930,7 +1930,7 @@ F&&handler){
 router_.add(
 method,
 prefix_+S{path},
-wrap(Router::make_handler(router_.impl_->work_pool,forward<F>(handler))));
+wrap(Router::make_handler(forward<F>(handler))));
 return*this;
 }
 template<typename F>
@@ -2762,25 +2762,27 @@ private:
 template<class>
 static constexpr bool kDependentFalse=false;
 [[nodiscard]]static HttpResponse run_async_http_task(
-SP<WorkPool>const&pool,
 conflux::work::root::Task<HttpResponse>task){
-if(!pool)
-return HttpResponse::internal_error("async handler requires a work pool");
 auto deferred=make_shared<DeferredResponse>();
-bool const enqueued=pool->enqueue([deferred,task=move(task)]()mutable{
+auto jh=make_shared<conflux::work::root::TaskJoinHandle<HttpResponse>>(
+conflux::work::root::into_join_handle(move(task)));
+jh->control().set_on_ready_or_run([deferred,jh]()noexcept{
 try{
-deferred->complete(conflux::work::root::value(move(task)));
-}catch(exception const&ex){deferred->complete(HttpResponse::internal_error(ex.what()));}catch(...){
+auto outcome=conflux::work::root::join(move(*jh));
+if(outcome.is_success())
+deferred->complete(move(outcome).success().value);
+else
+deferred->complete(HttpResponse::internal_error());
+}catch(exception const&ex){
+deferred->complete(HttpResponse::internal_error(ex.what()));
+}catch(...){
 deferred->complete(HttpResponse::internal_error());
 }
 });
-if(!enqueued)
-return HttpResponse::internal_error("offload queue full");
 return HttpResponse::deferred(move(deferred));
 }
 template<typename F>
 static Handler make_handler(
-SP<WorkPool>const&pool,
 F&&fn){
 using Fn=std::decay_t<F>;
 if constexpr(std::invocable<Fn&,HttpRequestView const&>){
@@ -2804,9 +2806,9 @@ return invoke(wrapped,owned);
 }};
 else if constexpr(same_as<Ret,conflux::work::root::Task<HttpResponse>>)
 return Handler{
-[wrapped=Fn(forward<F>(fn)),pool](HttpRequestView const&req)mutable->HttpResponse{
+[wrapped=Fn(forward<F>(fn))](HttpRequestView const&req)mutable->HttpResponse{
 auto owned=req.to_owned();
-return run_async_http_task(pool,invoke(wrapped,owned));
+return run_async_http_task(invoke(wrapped,owned));
 }};
 else
 static_assert(

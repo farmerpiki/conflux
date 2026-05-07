@@ -311,8 +311,6 @@ ChunkedDecodeStatus decode_chunked_prefix(
 SV encoded,
 S&decoded,
 SZ&consumed){
-decoded.clear();
-consumed=0;
 for(;;){
 auto const line_end=encoded.find("\r\n",consumed);
 if(line_end==SV::npos)
@@ -353,15 +351,17 @@ S&encoded,
 S&decoded,
 int timeout_sec,
 SZ cap,
+SZ buf_cap,
 bool&too_large){
 too_large=false;
-for(;;){
+decoded.clear();
 SZ consumed=0;
+for(;;){
 switch(decode_chunked_prefix(encoded,decoded,consumed)){
 case ChunkedDecodeStatus::complete:return true;
 case ChunkedDecodeStatus::invalid:return false;
 case ChunkedDecodeStatus::incomplete:
-if(decoded.size()>cap||encoded.size()>cap*2){
+if(decoded.size()>cap||encoded.size()>buf_cap){
 too_large=true;
 return false;
 }
@@ -585,6 +585,7 @@ int const first_byte_sec=to_sec(timeouts.first_byte);
 int const between_sec=to_sec(timeouts.between_bytes);
 SZ const max_hdr=opts.max_header_bytes;
 SZ const max_body=opts.max_body_bytes;
+SZ const max_buf=opts.max_buffered_bytes;
 
 auto t_ttfb=chrono::steady_clock::now();
 auto raw=recv_until(conn,"\r\n\r\n",first_byte_sec,max_hdr+4096);
@@ -680,7 +681,7 @@ response.body.clear();
 }else if(chunked){
 S decoded;
 bool too_large=false;
-if(!recv_chunked(conn,response.body,decoded,between_sec,max_body,too_large)){
+if(!recv_chunked(conn,response.body,decoded,between_sec,max_body,max_buf,too_large)){
 close_conn(conn);
 if(too_large)
 return unexpected(
@@ -748,25 +749,20 @@ return decoded;
 export namespace conflux::http{
 class HttpClient{
 HttpClientOptions opts_;
-// Merge per-request timeouts with client defaults.
-// If the request has non-default timeouts they take precedence;
-// otherwise the client's default_timeouts fill in.
-// Phase 1: per-request timeouts always override (Builder sets defaults
-// from HttpTimeouts{} which has sensible values). Client defaults apply
-// only if the request was built without an explicit .timeouts() call.
-// For simplicity, trust the request's timeouts directly (Builder already
-// has HttpTimeouts{} defaults).
 [[nodiscard]]static HttpTimeouts resolve_timeouts(
 HttpRequest const&req,
 HttpClientOptions const&opts){
-// If caller explicitly set timeouts, those win.
-// We can't distinguish "explicitly set" vs "defaulted" from the outside,
-// so we merge: use per-request value if it differs from HttpTimeouts{} default,
-// else use the client default.
-// Simple approach for Phase 1: return request timeouts as-is (they have
-// sensible defaults). A future enhancement can add a "touched" bitmask.
-(void)opts;
-return req.timeouts();
+constexpr HttpTimeouts def{};
+auto const&rt=req.timeouts();
+auto const&ct=opts.default_timeouts;
+return{
+.resolve=rt.resolve!=def.resolve?rt.resolve:ct.resolve,
+.connect=rt.connect!=def.connect?rt.connect:ct.connect,
+.tls=rt.tls!=def.tls?rt.tls:ct.tls,
+.write=rt.write!=def.write?rt.write:ct.write,
+.first_byte=rt.first_byte!=def.first_byte?rt.first_byte:ct.first_byte,
+.between_bytes=rt.between_bytes!=def.between_bytes?rt.between_bytes:ct.between_bytes,
+};
 }
 public:
 explicit HttpClient(
@@ -775,10 +771,6 @@ HttpClientOptions opts={})
 [[nodiscard]]HttpClientOptions const&options()const noexcept{return opts_;}
 [[nodiscard]]HttpResult send_blocking(
 HttpRequest const&req)const{
-// Inject client defaults into a copy — timeouts.
-// For Phase 1, we just use whatever timeouts are on the request
-// (they default to HttpTimeouts{}'s values). The client's
-// default_timeouts can override zero-valued request timeouts.
 auto effective_opts=opts_;
 return client_detail::do_blocking_request(req,effective_opts);
 }
