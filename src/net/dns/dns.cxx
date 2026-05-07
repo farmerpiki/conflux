@@ -1109,7 +1109,8 @@ bool do_v6,
 AddressFamily prefer,
 chrono::milliseconds timeout,
 codec::Edns0Options edns){
-u16 const qid_a=static_cast<u16>(std::random_device{}()&0xFFFFU);
+static thread_local std::mt19937 tl_rng{std::random_device{}()};
+u16 const qid_a=static_cast<u16>(tl_rng()&0xFFFFU);
 u16 const qid_aaaa=static_cast<u16>((static_cast<u32>(qid_a)+1U)&0xFFFFU);
 auto[v4,v6]=co_await join_all(
 do_v4?
@@ -1587,8 +1588,12 @@ make_exception_ptr(DnsError{DnsErrorKind::no_servers,"resolve: no nameservers co
 return move(task);
 }
 
-// In-flight coalescing: second+ caller for same query attaches a waiter TaskSource
-// that the primary query's completion step will resolve/reject.
+if(impl_->in_flight.size()>=impl_->opts.max_in_flight_queries){
+auto[task,raw_src]=root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
+(void)raw_src.try_set_exception(
+make_exception_ptr(DnsError{DnsErrorKind::cancelled,"resolve: max in-flight queries exceeded"}));
+return move(task);
+}
 if(!coalesce_key.empty()){
 if(auto it=impl_->in_flight.find(coalesce_key);it!=impl_->in_flight.end()){
 auto[wtask,wraw_src]=
@@ -1830,6 +1835,19 @@ if(ns_list.empty())
 return unexpected{
 DnsError{DnsErrorKind::no_servers,"resolve_blocking: no nameservers configured"}};
 
+::io_uring tmp_ring{};
+if(::io_uring_queue_init(32,&tmp_ring,0)<0)
+return unexpected{
+DnsError{DnsErrorKind::no_ring,"resolve_blocking: io_uring_queue_init failed"}};
+struct RingGuard{
+::io_uring*r;
+~RingGuard(){::io_uring_queue_exit(r);}
+}const guard{&tmp_ring};
+CompletionTable tmp_ct;
+FileReader tmp_reader{&tmp_ring,&tmp_ct,[](u32 slot,u32 gen)noexcept->u64{
+return(static_cast<u64>(gen)<<32U)|slot;
+}};
+codec::Edns0Options const edns{.udp_size=impl_->opts.edns0_udp_size};
 optional<DnsError>last_nxdomain;
 for(auto const&candidate:resolve_candidates(host,impl_->search_domains,impl_->ndots)){
 string const cache_key=impl_->cache&&!effective_opts.bypass_cache?make_cache_key(
@@ -1849,20 +1867,6 @@ hit->from_cache=true;
 return move(*hit);
 }
 }
-
-::io_uring tmp_ring{};
-if(::io_uring_queue_init(32,&tmp_ring,0)<0)
-return unexpected{
-DnsError{DnsErrorKind::no_ring,"resolve_blocking: io_uring_queue_init failed"}};
-struct RingGuard{
-::io_uring*r;
-~RingGuard(){::io_uring_queue_exit(r);}
-}const guard{&tmp_ring};
-CompletionTable tmp_ct;
-FileReader tmp_reader{&tmp_ring,&tmp_ct,[](u32 slot,u32 gen)noexcept->u64{
-return(static_cast<u64>(gen)<<32U)|slot;
-}};
-codec::Edns0Options const edns{.udp_size=impl_->opts.edns0_udp_size};
 auto flow=build_native_udp_flow_with_nameservers(
 tmp_reader,
 ns_list,
