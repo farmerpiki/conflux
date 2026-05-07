@@ -430,6 +430,10 @@ target_sources(conflux
         ${CONFLUX_MODULE_SOURCES}
 )
 target_sources(conflux
+    PRIVATE
+        src/net/client_dns_bridge.cxx
+)
+target_sources(conflux
     PUBLIC FILE_SET generated_mods TYPE CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_BINARY_DIR}"
         FILES

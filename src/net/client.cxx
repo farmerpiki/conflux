@@ -1,4 +1,5 @@
 module;
+#include "client_dns_bridge.hxx"
 #include<arpa/inet.h>
 #include<cerrno>
 #include<climits>
@@ -22,7 +23,6 @@ import conflux.net.http.types;
 import conflux.net.http.request;
 import conflux.utils;
 import conflux.work;
-import conflux.net.dns;
 #if CONFLUX_HAS_TLS
 import conflux.net.tls;
 #endif
@@ -139,7 +139,7 @@ dns,
 connect
 };
 [[nodiscard]]int try_connect_endpoints(
-span<conflux::net::dns::Endpoint const>endpoints,
+span<client_dns_bridge::Endpoint const>endpoints,
 u16 port,
 int timeout_sec,
 HttpTelemetry&tel){
@@ -152,21 +152,27 @@ if(fd!=-1){
 ::close(fd);
 fd=-1;
 }
-int const fam=(ep.family==conflux::net::dns::AddressFamily::v4)?AF_INET:AF_INET6;
+int const fam=(ep.family==4)?AF_INET:AF_INET6;
 if(prev_family!=-1&&fam!=prev_family)
 std::this_thread::sleep_for(kConnectAttemptDelay);
 prev_family=fam;
 fd=::socket(fam,SOCK_STREAM|SOCK_CLOEXEC,IPPROTO_TCP);
 if(fd<0)
 continue;
-if(connect_with_timeout(fd,reinterpret_cast<sockaddr const*>(&ep.addr),ep.addr_len,timeout_sec)){
+sockaddr_storage addr{};
+std::memcpy(&addr,ep.addr,min(sizeof(addr),sizeof(ep.addr)));
+if(connect_with_timeout(
+fd,
+reinterpret_cast<sockaddr const*>(&addr),
+static_cast<socklen_t>(ep.addr_len),
+timeout_sec)){
 char buf[INET6_ADDRSTRLEN]{};
 if(fam==AF_INET){
-auto const*sa4=reinterpret_cast<sockaddr_in const*>(&ep.addr);
+auto const*sa4=reinterpret_cast<sockaddr_in const*>(&addr);
 inet_ntop(AF_INET,&sa4->sin_addr,buf,sizeof(buf));
 tel.peer_addr=format("{}:{}",buf,port);
 }else{
-auto const*sa6=reinterpret_cast<sockaddr_in6 const*>(&ep.addr);
+auto const*sa6=reinterpret_cast<sockaddr_in6 const*>(&addr);
 inet_ntop(AF_INET6,&sa6->sin6_addr,buf,sizeof(buf));
 tel.peer_addr=format("[{}]:{}",buf,port);
 }
@@ -177,6 +183,19 @@ fd=-1;
 }
 tel.connect=chrono::steady_clock::now()-t1;
 return fd;
+}
+struct EndpointCollector{
+V<client_dns_bridge::Endpoint>endpoints;
+};
+bool collect_endpoint(
+void*ctx,
+client_dns_bridge::Endpoint const&endpoint)noexcept{
+try{
+static_cast<EndpointCollector*>(ctx)->endpoints.push_back(endpoint);
+return true;
+}catch(...){
+return false;
+}
 }
 [[nodiscard]]int resolve_and_connect(
 SV host,
@@ -189,17 +208,27 @@ S&failure_message,
 int&failure_errno,
 void*resolver_ptr=nullptr){
 if(resolver_ptr){
-auto*resolver=static_cast<conflux::net::dns::Resolver*>(resolver_ptr);
+EndpointCollector collector;
+A<char,256>error_buf{};
 auto const t0=chrono::steady_clock::now();
-auto result=resolver->resolve_blocking(host,port,{.total_timeout=resolve_timeout});
+bool const resolved=client_dns_bridge::resolve(
+resolver_ptr,
+host.data(),
+host.size(),
+port,
+resolve_timeout.count(),
+&collector,
+collect_endpoint,
+error_buf.data(),
+error_buf.size());
 tel.dns=chrono::steady_clock::now()-t0;
-if(!result){
+if(!resolved){
 failure=ConnectFailure::dns;
 failure_errno=0;
-failure_message=format("DNS resolution failed for '{}': {}",host,result.error().what());
+failure_message=format("DNS resolution failed for '{}': {}",host,error_buf.data());
 return-1;
 }
-int const fd=try_connect_endpoints(result->endpoints,port,timeout_sec,tel);
+int const fd=try_connect_endpoints(collector.endpoints,port,timeout_sec,tel);
 if(fd<0){
 failure=ConnectFailure::connect;
 failure_errno=errno;
