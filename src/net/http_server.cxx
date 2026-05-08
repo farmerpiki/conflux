@@ -301,7 +301,6 @@ bool deferred_head_only=false;// HEAD on deferred route → strip body when read
 bool closing=false;// close SQE already submitted for this generation
 bool close_after_send=false;// true → close instead of re-arming recv
 int sse_efd=-1;
-UP<u64>sse_read_buf{};
 SP<SseChannel>sse_channel{};
 int deferred_efd=-1;
 SP<DeferredResponse>deferred_response{};
@@ -820,7 +819,6 @@ struct Ring{
 struct DeferredWait{
 int conn_fd{-1};
 i32 stream_id{-1};
-UP<u64>read_buf{};
 SP<DeferredResponse>response{};
 };
 struct WsHandoffState{
@@ -849,8 +847,10 @@ socklen_t client_addr_len=sizeof(client_addr);
 V<Conn>fd_table{};
 V<RecvComp>recvs{};
 UM<int,DeferredWait>deferred_waits{};
+UM<u64,UP<u64>>in_flight_read_bufs{};
 UM<int,WsInstallEntry>ws_cancel_handoffs{};
 UM<int,WsInstallEntry>ws_installs{};
+V<int>ws_cancel_ready{};
 
 io_uring_buf_ring*buf_ring=nullptr;
 u32 buf_count=0;
@@ -953,12 +953,13 @@ auto&wait=deferred_waits[deferred_efd];
 wait.conn_fd=conn_fd;
 wait.stream_id=stream_id;
 wait.response=move(response);
-if(!wait.read_buf)
-wait.read_buf=make_unique<u64>(0);
 
-io_uring_prep_read(sqe,deferred_efd,wait.read_buf.get(),sizeof(u64),0);
 auto const conn_gen=conn_for(conn_fd).gen;
-io_uring_sqe_set_data64(sqe,pack(Op::DeferredPoll,conn_gen,deferred_efd));
+auto const ud=pack(Op::DeferredPoll,conn_gen,deferred_efd);
+auto buf=make_unique<u64>(0);
+io_uring_prep_read(sqe,deferred_efd,buf.get(),sizeof(u64),0);
+io_uring_sqe_set_data64(sqe,ud);
+in_flight_read_bufs[ud]=move(buf);
 }
 void return_buffer(
 u16 bid){
@@ -1643,7 +1644,6 @@ conn.sse_headers_sent=false;
 conn.is_ws=false;
 conn.is_deferred=false;
 conn.sse_efd=-1;
-conn.sse_read_buf.reset();
 conn.sse_channel.reset();
 clear_deferred_wait(conn.deferred_efd);
 conn.deferred_efd=-1;
@@ -2118,17 +2118,18 @@ io_uring_sqe_set_data64(sqe,pack(Op::Close,gen,fd));
 void queue_sse_wait(
 int fd){
 auto&conn=conn_for(fd);
-if(!conn.sse_read_buf)
-conn.sse_read_buf=make_unique<u64>(0);
 auto*sqe=get_sqe();
 if(sqe==nullptr){
 defer_op([this,fd]{queue_sse_wait(fd);});
 return;
 }
+auto const ud=pack(Op::SsePoll,conn.gen,fd);
+auto buf=make_unique<u64>(0);
 // Blocking read on the eventfd — io_uring uses io-wq when the fd
 // is not immediately readable.  Offset 0 is ignored for eventfd.
-io_uring_prep_read(sqe,conn.sse_efd,conn.sse_read_buf.get(),sizeof(u64),0);
-io_uring_sqe_set_data64(sqe,pack(Op::SsePoll,conn.gen,fd));
+io_uring_prep_read(sqe,conn.sse_efd,buf.get(),sizeof(u64),0);
+io_uring_sqe_set_data64(sqe,ud);
+in_flight_read_bufs[ud]=move(buf);
 }
 void queue_deferred_wait(
 int fd){
@@ -2235,7 +2236,6 @@ conn.is_sse=false;
 conn.sse_headers_sent=false;
 conn.is_deferred=false;
 conn.sse_efd=-1;
-conn.sse_read_buf.reset();
 conn.sse_channel.reset();
 conn.deferred_efd=-1;
 conn.deferred_response.reset();
@@ -2311,9 +2311,13 @@ int res,
 u32 flg,
 u32 gen){
 auto const ufd=static_cast<SZ>(fd);
-if(ufd>=fd_table.size()||fd_table[ufd].gen!=gen)
+if(ufd>=fd_table.size())
 return;
-if((flg&IORING_CQE_F_MORE)==0U)
+bool const gen_match=fd_table[ufd].gen==gen;
+bool const ws_pending=ws_cancel_handoffs.find(fd)!=ws_cancel_handoffs.end();
+if(!gen_match&&!ws_pending)
+return;
+if((flg&IORING_CQE_F_MORE)==0U&&gen_match)
 fd_table[ufd].recv_armed=false;
 u16 const buf_id=
 (flg&IORING_CQE_F_BUFFER)!=0U?static_cast<u16>(flg>>IORING_CQE_BUFFER_SHIFT):UINT16_MAX;
@@ -2555,15 +2559,7 @@ int fd){
 auto it=ws_cancel_handoffs.find(fd);
 if(it==ws_cancel_handoffs.end())
 return;
-auto entry=move(it->second);
-ws_cancel_handoffs.erase(it);
-#if CONFLUX_HAS_TLS
-if(entry.ssl!=nullptr){
-finish_tls_ws_handoff(fd,move(entry));
-return;
-}
-#endif
-finish_plain_ws_handoff(fd,move(entry));
+ws_cancel_ready.push_back(fd);
 }
 void queue_ws_fixed_install(
 int slot_fd,
@@ -2847,6 +2843,7 @@ void handle_sse_poll(
 int fd,
 int res,
 u32 gen){
+in_flight_read_bufs.erase(pack(Op::SsePoll,gen,fd));
 auto const ufd=static_cast<SZ>(fd);
 if(ufd>=fd_table.size()||fd_table[ufd].gen!=gen)
 return;
@@ -2894,6 +2891,7 @@ void handle_deferred_poll(
 int deferred_efd,
 int res,
 u32 gen){
+in_flight_read_bufs.erase(pack(Op::DeferredPoll,gen,deferred_efd));
 auto it=deferred_waits.find(deferred_efd);
 if(it==deferred_waits.end())
 return;
@@ -2996,33 +2994,47 @@ case Op::Nop:break;
 }
 }
 // Phase 1: copy recv data out of provided buffers, return immediately.
-void phase1_copy_recv_bufs(){
-for(auto&rc:recvs){
-if(rc.buf_id==UINT16_MAX)
-continue;
-auto const ufd=static_cast<SZ>(rc.fd);
-if(rc.res<=0||ufd>=fd_table.size()||fd_table[ufd].gen!=rc.gen||fd_table[ufd].fd<0){
-return_buffer(rc.buf_id);
-rc.buf_id=UINT16_MAX;
-continue;
-}
-auto&conn=fd_table[ufd];
+void append_recv_buf_to(
+S&dst,
+RecvComp&rc){
 if(use_recv_bundle){
-// Bundle mode: one CQE may span multiple contiguous buffers.
 SZ remaining=static_cast<SZ>(rc.res);
 u16 cur_buf=rc.buf_id;
 while(remaining>0){
 SZ const chunk=min(remaining,BUF_SIZE);
-conn.partial.append(bufs[cur_buf].data(),chunk);
+dst.append(bufs[cur_buf].data(),chunk);
 return_buffer(cur_buf);
 remaining-=chunk;
 cur_buf=static_cast<u16>((cur_buf+1U)%buf_count);
 }
 }else{
-conn.partial.append(bufs[rc.buf_id].data(),static_cast<SZ>(rc.res));
+dst.append(bufs[rc.buf_id].data(),static_cast<SZ>(rc.res));
 return_buffer(rc.buf_id);
 }
 rc.buf_id=UINT16_MAX;
+}
+void phase1_copy_recv_bufs(){
+for(auto&rc:recvs){
+if(rc.buf_id==UINT16_MAX)
+continue;
+auto const ufd=static_cast<SZ>(rc.fd);
+auto ws_it=ws_cancel_handoffs.find(rc.fd);
+bool const ws_pending=ws_it!=ws_cancel_handoffs.end()
+#if CONFLUX_HAS_TLS
+&&ws_it->second.ssl==nullptr
+#endif
+;
+if(rc.res<=0||ufd>=fd_table.size()||(!ws_pending&&(fd_table[ufd].gen!=rc.gen||fd_table[ufd].fd<0))){
+return_buffer(rc.buf_id);
+rc.buf_id=UINT16_MAX;
+continue;
+}
+if(ws_pending&&(fd_table[ufd].gen!=rc.gen||fd_table[ufd].fd<0)){
+append_recv_buf_to(ws_it->second.initial_buf,rc);
+continue;
+}
+auto&conn=fd_table[ufd];
+append_recv_buf_to(conn.partial,rc);
 conn.last_activity=chrono::steady_clock::now();
 if(!conn.is_tls&&!conn.partial.empty()&&!conn.request_in_progress){
 conn.request_started=conn.last_activity;
@@ -3093,6 +3105,23 @@ conn.tls_hs_done=false;
 }
 #endif// CONFLUX_HAS_TLS
 }
+}
+void finish_ready_ws_handoffs(){
+for(int const fd:ws_cancel_ready){
+auto it=ws_cancel_handoffs.find(fd);
+if(it==ws_cancel_handoffs.end())
+continue;
+auto entry=move(it->second);
+ws_cancel_handoffs.erase(it);
+#if CONFLUX_HAS_TLS
+if(entry.ssl!=nullptr){
+finish_tls_ws_handoff(fd,move(entry));
+continue;
+}
+#endif
+finish_plain_ws_handoff(fd,move(entry));
+}
+ws_cancel_ready.clear();
 }
 #if CONFLUX_HAS_TLS
 // Per-connection TLS recv handler: feeds ciphertext into OpenSSL, drives the
@@ -3330,6 +3359,7 @@ dispatch_cqe(op,fd,cqe->res,cqe->flags,cqe_gen);
 io_uring_cq_advance(&ring,count);
 
 phase1_copy_recv_bufs();
+finish_ready_ws_handoffs();
 phase1b_process();
 phase2_build_responses();
 phase3_dispatch();

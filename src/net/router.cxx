@@ -1904,7 +1904,7 @@ return HttpResponse::bad_request();
 auto key=trim(req.headers["sec-websocket-key"]);
 auto up=make_shared<WsUpgrade>();
 up->accept_key=ws_detail::ws_accept_key(key);
-up->handler=move(h);
+up->handler=h;
 HttpResponse r{.status=101,.status_text="Switching Protocols"};
 r.set_ws_upgrade(move(up));
 return r;
