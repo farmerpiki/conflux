@@ -57,14 +57,16 @@
   - H2 pending_send path: loops SSL_write
   - File: src/net/http_server.cxx
 
-- [ ] 11. TLS mapped-file streaming
-  - Use streamed-file path for TLS large files instead of full copy into own_response
-  - File: src/net/http_server.cxx (~line 1707)
-  - Lower priority: works correctly, just memory-inefficient for large TLS file responses
+- [x] 11. TLS mapped-file streaming
+  - queue_send SSL_writes headers only; body sent in MAPPED_TLS_CHUNK (256 KiB) pieces
+  - Each chunk: SSL_write → tls_flush_wbio → tls_queue_send; resumes in handle_send_tls_complete
+  - Uses conn.streamed_delivered to track position; mapped_file held until last chunk acked
+  - File: src/net/http_server.cxx (queue_send, send_mapped_tls_chunk, handle_send_tls_complete)
 
-- [ ] 12. H2 pending_send cap
-  - Add per-connection buffer limit, RST_STREAM on overflow
-  - File: src/net/http_server.cxx (h2_pending_send usage)
+- [x] 12. H2 pending_send cap
+  - 4 MiB per-connection limit (H2_MAX_PENDING_SEND)
+  - h2_send_cb returns NGHTTP2_ERR_CALLBACK_FAILURE on overflow → nghttp2 closes session
+  - File: src/net/http_server.cxx (h2_send_cb)
 
 - [x] 13. Directory listing URL-encode hrefs
   - Added path_percent_encode() for href attribute, html_escape for display text
