@@ -11,10 +11,9 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.file_io;
-import conflux.net.udp;
+import conflux.socket_io;
 
 using namespace std;
-using namespace conflux::net::udp;
 namespace{
 constexpr uint64_t pack_ud(
 uint32_t slot,
@@ -58,48 +57,61 @@ INFO("conflux requires a host that permits io_uring_queue_init");
 REQUIRE(fx!=nullptr);
 return fx;
 }
-::sockaddr_in v4_loopback(
-uint16_t port)noexcept{
-::sockaddr_in sa{};
-sa.sin_family=AF_INET;
-sa.sin_port=htons(port);
-sa.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
-return sa;
+uint16_t get_local_port(
+int fd)noexcept{
+sockaddr_storage ss{};
+socklen_t len=sizeof(ss);
+if(::getsockname(fd,reinterpret_cast<sockaddr*>(&ss),&len)<0)
+return 0;
+if(ss.ss_family==AF_INET)
+return ntohs(reinterpret_cast<sockaddr_in const*>(&ss)->sin_port);
+if(ss.ss_family==AF_INET6)
+return ntohs(reinterpret_cast<sockaddr_in6 const*>(&ss)->sin6_port);
+return 0;
+}
+sockaddr_storage to_storage(
+sockaddr_in const&sa)noexcept{
+sockaddr_storage ss{};
+memcpy(&ss,&sa,sizeof(sa));
+return ss;
 }
 }// namespace
 // ---------------------------------------------------------------------------
-// UdpSocket — RAII / open_ephemeral / local_port
+// UdpSocket — RAII / ephemeral / family / valid
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-"udp: open_ephemeral binds to non-zero local port",
+"udp: ephemeral binds to non-zero local port",
 "[udp]"){
-auto sock=UdpSocket::open_ephemeral(AF_INET);
-CHECK(sock.is_open());
+auto fx=require_ring_fixture();
+auto sock=UdpSocket::ephemeral(fx->reader,AF_INET);
+CHECK(sock.valid());
 CHECK(sock.family()==AF_INET);
 CHECK(sock.raw_fd()>=0);
-CHECK(sock.local_port()>0);
+CHECK(get_local_port(sock.raw_fd())>0);
 }
 TEST_CASE(
-"udp: open_ephemeral works for AF_INET6",
+"udp: ephemeral works for AF_INET6",
 "[udp]"){
-auto sock=UdpSocket::open_ephemeral(AF_INET6);
-CHECK(sock.is_open());
+auto fx=require_ring_fixture();
+auto sock=UdpSocket::ephemeral(fx->reader,AF_INET6);
+CHECK(sock.valid());
 CHECK(sock.family()==AF_INET6);
-CHECK(sock.local_port()>0);
+CHECK(get_local_port(sock.raw_fd())>0);
 }
 TEST_CASE(
 "udp: UdpSocket move-only — source becomes empty",
 "[udp]"){
-auto src=UdpSocket::open_ephemeral(AF_INET);
+auto fx=require_ring_fixture();
+auto src=UdpSocket::ephemeral(fx->reader,AF_INET);
 int const fd=src.raw_fd();
 REQUIRE(fd>=0);
 auto dst=move(src);
-CHECK_FALSE(src.is_open());
+CHECK_FALSE(src.valid());
 CHECK(dst.raw_fd()==fd);
 }
 // ---------------------------------------------------------------------------
-// sendto + recvfrom — loopback round-trip
+// send_to + recv_from — loopback round-trip
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -107,27 +119,28 @@ TEST_CASE(
 "[udp][uring]"){
 auto fx=require_ring_fixture();
 
-auto recv_sock=UdpSocket::open_ephemeral(AF_INET);
-auto send_sock=UdpSocket::open_ephemeral(AF_INET);
+auto recv_sock=UdpSocket::ephemeral(fx->reader,AF_INET);
+auto send_sock=UdpSocket::ephemeral(fx->reader,AF_INET);
 
-auto const recv_port=recv_sock.local_port();
+uint16_t const recv_port=get_local_port(recv_sock.raw_fd());
 REQUIRE(recv_port>0);
 
 A<uint8_t,5>payload{'h','e','l','l','o'};
-auto dest=v4_loopback(recv_port);
+sockaddr_in dest{};
+dest.sin_family=AF_INET;
+dest.sin_port=htons(recv_port);
+dest.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+socklen_t const dest_len=sizeof(dest);
 
 // Send first; kernel buffers the datagram.
-auto const bytes_sent=fx->run(sendto(
-fx->reader,
-send_sock,
+auto const bytes_sent=fx->run(send_sock.send_to(
 span<uint8_t const>{payload.data(),payload.size()},
-reinterpret_cast<::sockaddr const*>(&dest),
-sizeof(dest)));
+to_storage(dest),dest_len));
 CHECK(bytes_sent==payload.size());
 
 // Recv now — packet is already in the kernel buffer.
 A<uint8_t,256>rx_buf{};
-auto const rx=fx->run(recvfrom(fx->reader,recv_sock,span<uint8_t>{rx_buf.data(),rx_buf.size()}));
+auto const rx=fx->run(recv_sock.recv_from(span<uint8_t>{rx_buf.data(),rx_buf.size()}));
 
 REQUIRE(rx.bytes==payload.size());
 CHECK(memcmp(rx_buf.data(),payload.data(),rx.bytes)==0);
@@ -135,90 +148,68 @@ CHECK(rx.from_len>=sizeof(::sockaddr_in));
 auto const&from=*reinterpret_cast<::sockaddr_in const*>(&rx.from);
 CHECK(from.sin_family==AF_INET);
 CHECK(from.sin_addr.s_addr==htonl(INADDR_LOOPBACK));
-CHECK(ntohs(from.sin_port)==send_sock.local_port());
+CHECK(ntohs(from.sin_port)==get_local_port(send_sock.raw_fd()));
 }
 // ---------------------------------------------------------------------------
-// recvfrom_with_timeout — fires when no data arrives
+// recv_from with timeout — fires on idle socket
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-"udp: recvfrom_with_timeout fires UdpError on idle socket",
+"udp: recv_from with timeout fires FileIoError on idle socket",
 "[udp][uring]"){
 auto fx=require_ring_fixture();
 
-auto sock=UdpSocket::open_ephemeral(AF_INET);
+auto sock=UdpSocket::ephemeral(fx->reader,AF_INET);
 
 A<uint8_t,256>rx_buf{};
 int err_code=0;
 bool got_value=false;
 try{
 fx->run(
-recvfrom_with_timeout(
-fx->reader,
-sock,
+sock.recv_from(
 span<uint8_t>{rx_buf.data(),rx_buf.size()},
 chrono::milliseconds{50}),
 chrono::seconds{2});
 got_value=true;
-}catch(UdpError const&ue){err_code=ue.code().value();}catch(...){
+}catch(FileIoError const&e){err_code=e.code().value();}catch(...){
 }
 
 CHECK_FALSE(got_value);
 CHECK(err_code==ETIMEDOUT);
 }
 // ---------------------------------------------------------------------------
-// recvfrom_with_timeout — succeeds when data arrives in time
+// recv_from with timeout — succeeds when data arrives in time
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-"udp: recvfrom_with_timeout receives packet that arrives before timeout",
+"udp: recv_from with timeout receives packet that arrives before timeout",
 "[udp][uring]"){
 auto fx=require_ring_fixture();
 
-auto recv_sock=UdpSocket::open_ephemeral(AF_INET);
-auto send_sock=UdpSocket::open_ephemeral(AF_INET);
+auto recv_sock=UdpSocket::ephemeral(fx->reader,AF_INET);
+auto send_sock=UdpSocket::ephemeral(fx->reader,AF_INET);
 
-auto const recv_port=recv_sock.local_port();
+uint16_t const recv_port=get_local_port(recv_sock.raw_fd());
 
 A<uint8_t,4>payload{0xDE,0xAD,0xBE,0xEF};
-auto dest=v4_loopback(recv_port);
+sockaddr_in dest{};
+dest.sin_family=AF_INET;
+dest.sin_port=htons(recv_port);
+dest.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+socklen_t const dest_len=sizeof(dest);
 
 // Send first; kernel buffers the datagram.
-fx->run(sendto(
-fx->reader,
-send_sock,
+fx->run(send_sock.send_to(
 span<uint8_t const>{payload.data(),payload.size()},
-reinterpret_cast<::sockaddr const*>(&dest),
-sizeof(dest)));
+to_storage(dest),dest_len));
 
 A<uint8_t,256>rx_buf{};
 auto const rx=fx->run(
-recvfrom_with_timeout(
-fx->reader,
-recv_sock,
+recv_sock.recv_from(
 span<uint8_t>{rx_buf.data(),rx_buf.size()},
 chrono::milliseconds{2000}),
 chrono::seconds{3});
 
 REQUIRE(rx.bytes==payload.size());
 CHECK(memcmp(rx_buf.data(),payload.data(),rx.bytes)==0);
-}
-// ---------------------------------------------------------------------------
-// sendto — invalid destination is rejected synchronously
-// ---------------------------------------------------------------------------
-
-TEST_CASE(
-"udp: sendto rejects null destination",
-"[udp]"){
-auto fx=require_ring_fixture();
-auto sock=UdpSocket::open_ephemeral(AF_INET);
-
-A<uint8_t,1>payload{0};
-int err_code=0;
-try{
-fx->run(sendto(fx->reader,sock,span<uint8_t const>{payload.data(),payload.size()},nullptr,0));
-}catch(UdpError const&ue){err_code=ue.code().value();}catch(...){
-}
-
-CHECK(err_code==EINVAL);
 }

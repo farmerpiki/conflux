@@ -216,7 +216,7 @@ target_link_libraries(conflux_dns_resolver_tests
 add_executable(conflux_udp_tests udp_test.cxx)
 target_link_libraries(conflux_udp_tests
     PRIVATE
-        conflux_udp
+        conflux_socket_io
         conflux_file_io
         conflux_work
         conflux_options

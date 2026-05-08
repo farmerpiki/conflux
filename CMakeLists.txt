@@ -284,20 +284,6 @@ target_link_libraries(conflux_file_io
     PUBLIC  PkgConfig::LIBURING
 )
 
-add_library(conflux_udp STATIC)
-target_sources(conflux_udp
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES
-        src/net/udp/udp.cxx
-)
-target_link_libraries(conflux_udp
-    PRIVATE conflux_options
-    PUBLIC  conflux_work
-    PUBLIC  conflux_file_io
-    PUBLIC  PkgConfig::LIBURING
-)
-
 add_library(conflux_socket_io STATIC)
 target_sources(conflux_socket_io
     PUBLIC FILE_SET CXX_MODULES
@@ -308,6 +294,8 @@ target_sources(conflux_socket_io
 target_link_libraries(conflux_socket_io
     PRIVATE conflux_options
     PUBLIC  conflux_types
+    PUBLIC  conflux_file_io
+    PUBLIC  conflux_work
     PUBLIC  PkgConfig::LIBURING
 )
 
@@ -322,7 +310,7 @@ target_link_libraries(conflux_dns
     PRIVATE conflux_options
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
-    PUBLIC  conflux_udp
+    PUBLIC  conflux_socket_io
     PUBLIC  PkgConfig::LIBURING
 )
 

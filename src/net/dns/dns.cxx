@@ -14,7 +14,7 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.file_io;
-import conflux.net.udp;
+import conflux.socket_io;
 
 using std::exception_ptr;
 using std::expected;
@@ -25,8 +25,6 @@ using std::string_view;
 using std::unexpected;
 using std::unordered_map;
 using std::vector;
-
-namespace udp_ns=conflux::net::udp;
 namespace conflux::net::dns{
 namespace root=conflux::work::root;
 
@@ -887,9 +885,8 @@ if(msg.header.tc())
 throw DnsError{DnsErrorKind::truncated,"dns: response TC=1"};
 }
 [[nodiscard]]root::Task<codec::Message>recv_valid_udp_response(
-FileReader&reader,
-SP<udp_ns::UdpSocket>const&sock,
-SP<A<u8,4096>>const&rx_buf,
+UdpSocket&sock,
+span<u8>rx_buf,
 NameserverEndpoint ns,
 u16 expected_id,
 string expected_qname,
@@ -900,10 +897,8 @@ auto const now=chrono::steady_clock::now();
 if(now>=deadline)
 throw DnsError{DnsErrorKind::timeout,"dns: query timed out"};
 auto const remaining=chrono::duration_cast<chrono::milliseconds>(deadline-now);
-auto recv_task=
-udp_ns::recvfrom_with_timeout(reader,*sock,span<u8>{rx_buf->data(),rx_buf->size()},remaining);
-auto const result=co_await move(recv_task);
-auto msg=codec::decode_message(span<u8 const>{rx_buf->data(),result.bytes});
+auto const result=co_await sock.recv_from(rx_buf,remaining);
+auto msg=codec::decode_message(span<u8 const>{rx_buf.data(),result.bytes});
 if(!same_dns_peer(result.from,result.from_len,ns))
 continue;
 if(!has_expected_question(msg,expected_id,expected_qname,expected_qtype))
@@ -923,30 +918,22 @@ u16 expected_id,
 string expected_qname,
 codec::QType expected_qtype,
 chrono::milliseconds timeout){
-constexpr size_t kRxSize=4096;
-auto sock=
-make_shared<udp_ns::UdpSocket>(udp_ns::UdpSocket::open_ephemeral(static_cast<int>(ns.addr.ss_family)));
-auto wire_buf=make_shared<vector<u8>>(move(wire));
-auto rx_buf=make_shared<A<u8,kRxSize>>();
+constexpr SZ kRxSize=4096;
+UdpSocket sock=UdpSocket::ephemeral(reader,static_cast<int>(ns.addr.ss_family));
+A<u8,kRxSize>rx_buf{};
 try{
-auto send_task=udp_ns::sendto(
-reader,
-*sock,
-span<u8 const>{wire_buf->data(),wire_buf->size()},
-reinterpret_cast<::sockaddr const*>(&ns.addr),
-ns.addr_len);
-co_await move(send_task);
-auto recv_task=recv_valid_udp_response(
-reader,
+co_await sock.send_to(
+span<u8 const>{wire.data(),wire.size()},
+ns.addr,ns.addr_len);
+co_return co_await recv_valid_udp_response(
 sock,
-rx_buf,
+span<u8>{rx_buf.data(),rx_buf.size()},
 ns,
 expected_id,
 move(expected_qname),
 expected_qtype,
 chrono::steady_clock::now()+timeout);
-co_return co_await move(recv_task);
-}catch(DnsError const&){throw;}catch(udp_ns::UdpError const&e){
+}catch(DnsError const&){throw;}catch(FileIoError const&e){
 if(e.code().value()==ETIMEDOUT)
 throw DnsError{DnsErrorKind::timeout,"dns: query timed out"};
 throw DnsError{DnsErrorKind::network,format("dns: udp error: {}",e.what()),e.code().value()};
@@ -961,45 +948,39 @@ u16 expected_id,
 string const&expected_qname,
 codec::QType expected_qtype,
 chrono::milliseconds timeout){
-auto framed=make_shared<vector<u8>>();
-framed->reserve(2+wire.size());
+vector<u8>framed;
+framed.reserve(2+wire.size());
 auto const wlen=static_cast<u16>(wire.size());
-framed->push_back(static_cast<u8>(wlen>>8U));
-framed->push_back(static_cast<u8>(wlen&0xFFU));
-framed->insert(framed->end(),wire.begin(),wire.end());
+framed.push_back(static_cast<u8>(wlen>>8U));
+framed.push_back(static_cast<u8>(wlen&0xFFU));
+framed.insert(framed.end(),wire.begin(),wire.end());
 int const family=static_cast<int>(ns.addr.ss_family);
 try{
-auto sock_task=reader.socket_async(family,SOCK_STREAM|SOCK_CLOEXEC,IPPROTO_TCP);
-auto fh=co_await move(sock_task);
+TcpStream stream=co_await tcp_connect(reader,family,ns.addr,ns.addr_len);
 if(timeout.count()>0){
 auto const sec=chrono::duration_cast<chrono::seconds>(timeout);
 auto const usec=chrono::duration_cast<chrono::microseconds>(timeout-sec).count();
 ::timeval tv{};
 tv.tv_sec=sec.count();
 tv.tv_usec=static_cast<suseconds_t>(usec);
-int const raw_fd=fh.raw_fd();
-if(raw_fd>=0){
-(void)::setsockopt(raw_fd,SOL_SOCKET,SO_SNDTIMEO,&tv,sizeof(tv));
-(void)::setsockopt(raw_fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
+int const fd=stream.raw_fd();
+if(fd>=0){
+(void)::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&tv,sizeof(tv));
+(void)::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
 }
 }
-auto conn_task=reader.connect_async(fh,ns.addr,ns.addr_len);
-co_await move(conn_task);
-auto send_task=reader.send_async(fh,framed->data(),framed->size(),MSG_NOSIGNAL);
-auto const sent=co_await move(send_task);
-if(sent!=framed->size())
+auto const sent=co_await stream.send(span<u8 const>{framed.data(),framed.size()},MSG_NOSIGNAL);
+if(sent!=framed.size())
 throw DnsError{DnsErrorKind::network,"dns: tcp short send"};
 A<u8,2>len_buf{};
-auto len_task=reader.recv_async(fh,len_buf.data(),2,MSG_WAITALL);
-auto const n=co_await move(len_task);
+auto const n=co_await stream.recv(span<u8>{len_buf.data(),2},MSG_WAITALL);
 if(n!=2)
 throw DnsError{DnsErrorKind::network,"dns: tcp short length prefix"};
 u16 const resp_len=static_cast<u16>((static_cast<u16>(len_buf[0])<<8U)|static_cast<u16>(len_buf[1]));
 if(resp_len==0)
 throw DnsError{DnsErrorKind::malformed,"dns: tcp zero-length response"};
 vector<u8>resp_buf(resp_len);
-auto resp_task=reader.recv_async(fh,resp_buf.data(),resp_len,MSG_WAITALL);
-auto const resp_n=co_await move(resp_task);
+auto const resp_n=co_await stream.recv(span<u8>{resp_buf.data(),resp_len},MSG_WAITALL);
 if(resp_n!=resp_buf.size())
 throw DnsError{DnsErrorKind::network,"dns: tcp short response"};
 auto msg=codec::decode_message(span<u8 const>{resp_buf.data(),resp_n});
