@@ -298,6 +298,19 @@ target_link_libraries(conflux_udp
     PUBLIC  PkgConfig::LIBURING
 )
 
+add_library(conflux_socket_io STATIC)
+target_sources(conflux_socket_io
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/socket_io/socket_io.cxx
+)
+target_link_libraries(conflux_socket_io
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  PkgConfig::LIBURING
+)
+
 add_library(conflux_dns STATIC)
 target_sources(conflux_dns
     PUBLIC FILE_SET CXX_MODULES
