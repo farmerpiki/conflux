@@ -686,7 +686,10 @@ submit_fixed_fd_install(raw,0,1);
 raw.submit();
 io_uring_cqe*cqe{};
 wait_cqe(rg.get(),&cqe);
+int const installed=cqe->res;
 io_uring_cqe_seen(rg.get(),cqe);
+if(installed>=0)
+::close(installed);
 },
 };
 

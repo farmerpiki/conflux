@@ -136,6 +136,11 @@ endif()
 add_executable(conflux_process_tests process_test.cxx)
 target_link_libraries(conflux_process_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
+add_executable(conflux_resource_tests resource_limits_test.cxx)
+target_link_libraries(conflux_resource_tests
+    PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain PkgConfig::LIBURING)
+conflux_discover_tests(conflux_resource_tests)
+
 add_executable(conflux_json_conformance_external json_conformance_external.cxx)
 target_link_libraries(conflux_json_conformance_external PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 conflux_discover_tests(conflux_json_conformance_external)

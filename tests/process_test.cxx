@@ -9,6 +9,20 @@ import std;
 import conflux.types;
 import conflux.process;
 import conflux.work;
+namespace{
+S drain_stdout(Process&proc){
+int const out=proc.take_stdout_fd();
+S buf;
+char tmp[256]{};
+for(;;){
+auto n=::read(out,tmp,sizeof(tmp));
+if(n<=0)break;
+buf.append(tmp,static_cast<SZ>(n));
+}
+::close(out);
+return buf;
+}
+}
 TEST_CASE(
 "process: run echo",
 "[process]"){
@@ -278,4 +292,44 @@ proc->detach();
 CHECK(proc->pid()==-1);
 // Reap the now-detached zombie so the process table is clean.
 ::waitpid(pid,nullptr,0);
+}
+TEST_CASE(
+"process: close_other_fds=true prevents fd inheritance",
+"[process]"){
+// Open /dev/null then dup to a high fd number (>= 100) without O_CLOEXEC
+// so it would normally survive exec if not explicitly closed.
+int const base=::open("/dev/null",O_RDONLY);
+REQUIRE(base>=0);
+int const high=::fcntl(base,F_DUPFD,100);
+::close(base);
+REQUIRE(high>=100);
+
+SpawnOptions opts;
+opts.stdout_=Stdio::piped();
+// close_other_fds defaults to true — child must not inherit high fd.
+auto proc=spawn("/bin/sh",{"-c",format("test -e /proc/self/fd/{} && echo open || echo closed",high)},opts);
+REQUIRE(proc.has_value());
+S const out=drain_stdout(*proc);
+::close(high);
+CHECK(proc->wait()==0);
+CHECK(out=="closed\n");
+}
+TEST_CASE(
+"process: close_other_fds=false allows fd inheritance",
+"[process]"){
+int const base=::open("/dev/null",O_RDONLY);
+REQUIRE(base>=0);
+int const high=::fcntl(base,F_DUPFD,100);
+::close(base);
+REQUIRE(high>=100);
+
+SpawnOptions opts;
+opts.stdout_=Stdio::piped();
+opts.close_other_fds=false;
+auto proc=spawn("/bin/sh",{"-c",format("test -e /proc/self/fd/{} && echo open || echo closed",high)},opts);
+REQUIRE(proc.has_value());
+S const out=drain_stdout(*proc);
+::close(high);
+CHECK(proc->wait()==0);
+CHECK(out=="open\n");
 }

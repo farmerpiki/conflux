@@ -318,7 +318,7 @@ bool tls_hs_done=false;// TLS handshake completed; also used as undecided sentin
 bool tls_sending_response=false;// true → current tls_send_buf carries HTTP response data
 bool ktls_send=false;// kTLS send offload active; splice_to_fd usable for TLS file body
 #endif
-S const*response_ptr=nullptr;
+bool has_response=false;
 S own_response{};
 S partial{};
 SZ written=0;
@@ -1970,7 +1970,7 @@ return;
 conn.streamed_file.reset();
 conn.written=0;
 conn.send_queued=false;
-conn.response_ptr=nullptr;
+conn.has_response=false;
 conn.own_response.clear();
 #if CONFLUX_HAS_TLS
 // kTLS file body went through splice, not tls_queue_send — clear manually.
@@ -1985,7 +1985,7 @@ auto&conn=conn_for(fd);
 #if CONFLUX_HAS_TLS
 if(conn.ssl!=nullptr){
 // TLS path: encrypt the response into tls_send_buf, then send.
-if(conn.mapped_file&&conn.response_ptr==nullptr){
+if(conn.mapped_file&&!conn.has_response){
 if(conn.written<conn.own_response.size()){
 auto const hdr=span{conn.own_response}.subspan(conn.written);
 char const*data=hdr.data();
@@ -2008,9 +2008,9 @@ return;
 write_mapped_tls_chunk(fd,conn);
 return;
 }
-if(conn.response_ptr==nullptr)
+if(!conn.has_response)
 return;
-auto const&resp=*conn.response_ptr;
+auto const&resp=conn.own_response;
 char const*data=resp.data();
 int remaining=static_cast<int>(resp.size());
 while(remaining>0){
@@ -2036,9 +2036,9 @@ if(conn.streamed_file){
 queue_send_streamed(fd);
 return;
 }
-if(conn.response_ptr==nullptr)
+if(!conn.has_response)
 return;
-auto const&resp=*conn.response_ptr;
+auto const&resp=conn.own_response;
 auto*sqe=get_sqe();
 if(sqe==nullptr){
 defer_op([this,fd]{queue_send(fd);});
@@ -2230,7 +2230,7 @@ conn.fd=res;
 conn.recv_armed=false;
 conn.send_queued=false;
 conn.closing=false;
-conn.response_ptr=nullptr;
+conn.has_response=false;
 conn.written=0;
 conn.is_sse=false;
 conn.sse_headers_sent=false;
@@ -2336,7 +2336,7 @@ return true;
 auto remaining=conn.sse_channel->drain();
 if(!remaining.empty()){
 conn.own_response=move(remaining);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.written=0;
 conn.send_queued=true;
 queue_send(fd);
@@ -2377,7 +2377,7 @@ max_body_size,
 http_redirect_to_https,
 https_redirect_hosts,
 parser_limits);
-if(conn.response_ptr!=nullptr||conn.mapped_file){
+if(conn.has_response||conn.mapped_file){
 conn.send_queued=true;
 queue_send(fd);
 return;
@@ -2717,7 +2717,7 @@ conn.streamed_delivered=0;
 
 // An HTTP response (or SSE/WS payload) was fully delivered.
 conn.tls_sending_response=false;
-conn.response_ptr=nullptr;
+conn.has_response=false;
 conn.own_response.clear();
 conn.written=0;
 
@@ -2731,7 +2731,7 @@ handle_http_response_send_complete(fd,conn);
 }else{
 // TLS handshake data was sent (or a post-handshake alert).
 // If an HTTP response accumulated while we were busy, send it now.
-if(conn.response_ptr!=nullptr){
+if(conn.has_response){
 conn.send_queued=true;
 queue_send(fd);
 }else if(!conn.recv_armed){
@@ -2819,21 +2819,21 @@ return;
 }
 
 if(res>0){
-if(conn.response_ptr==nullptr){
+if(!conn.has_response){
 conn.send_queued=false;
 if(!conn.recv_armed&&!conn.is_sse&&!conn.is_ws&&!conn.is_deferred)
 queue_multishot_recv(fd);
 return;
 }
 conn.written+=static_cast<SZ>(res);
-if(conn.written<conn.response_ptr->size()){
+if(conn.written<conn.own_response.size()){
 queue_send(fd);
 return;
 }
 // Response (or chunk) fully sent.
 conn.written=0;
 conn.send_queued=false;
-conn.response_ptr=nullptr;
+conn.has_response=false;
 conn.own_response.clear();
 
 handle_send_complete(fd,conn);
@@ -2878,7 +2878,7 @@ return;
 auto data=conn.sse_channel->drain();
 if(!data.empty()){
 conn.own_response=move(data);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.written=0;
 conn.send_queued=true;
 queue_send(fd);
@@ -2945,27 +2945,27 @@ conn.deferred_head_only=false;
 if(ready->is_mapped_file()){
 conn.own_response=format_response(*ready,alt_svc_header,conn.close_after_send);
 if(ready->head_only){
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 }else{
 conn.mapped_file=ready->take_mapped_file();
 conn.mapped_total=conn.own_response.size()+conn.mapped_file->send_size;
 conn.mapped_delivered=0;
-conn.response_ptr=nullptr;
+conn.has_response=false;
 }
 }else if(ready->is_streamed_file()){
 conn.own_response=format_response(*ready,alt_svc_header,conn.close_after_send);
 if(ready->head_only){
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 }else{
 conn.streamed_file=ready->take_streamed_file();
 conn.streamed_headers_sent=false;
 conn.streamed_delivered=0;
 conn.streamed_splice_in_flight=false;
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 }
 }else{
 conn.own_response=format_response(*ready,alt_svc_header,conn.close_after_send);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 }
 conn.written=0;
 conn.send_queued=true;
@@ -3065,7 +3065,7 @@ if(conn.partial.size()>raw_receive_cap){
 conn.own_response.clear();
 conn.own_response.append(
 "HTTP/1.1 413 Content Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.close_after_send=true;
 conn.send_queued=true;
 queue_send(static_cast<int>(ufd));
@@ -3283,7 +3283,7 @@ continue;
 }
 #endif
 // Skip SSE/WS connections — their I/O is driven by separate loops.
-if(conn.response_ptr==nullptr&&!conn.is_sse&&!conn.is_ws)
+if(!conn.has_response&&!conn.is_sse&&!conn.is_ws)
 dispatch_request(
 conn,
 conn.partial,
@@ -3311,13 +3311,13 @@ continue;
 }
 if(conn.fd<0){
 queue_close(rc.fd);
-}else if((conn.response_ptr!=nullptr||conn.mapped_file)&&!conn.send_queued){
+}else if((conn.has_response||conn.mapped_file)&&!conn.send_queued){
 conn.send_queued=true;
 queue_send(rc.fd);
 }else if(conn.is_deferred&&!conn.send_queued){
 queue_deferred_wait(rc.fd);
 }else if(
-!conn.is_sse&&!conn.is_ws&&!conn.is_deferred&&conn.response_ptr==nullptr&&!conn.mapped_file&&!conn.recv_armed){
+!conn.is_sse&&!conn.is_ws&&!conn.is_deferred&&!conn.has_response&&!conn.mapped_file&&!conn.recv_armed){
 // Normal connection: re-arm recv.
 // SSE/WS connections: their own I/O loops drive further work.
 queue_multishot_recv(rc.fd);
@@ -3478,7 +3478,7 @@ case ParseError::BadRequest:
 default:r=HttpResponse::bad_request();break;
 }
 conn.own_response=format_response(r,alt_svc,true);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
 }
@@ -3491,7 +3491,7 @@ SZ max_body_size,
 bool http_redirect_to_https,
 V<S>const&https_redirect_hosts,
 ParserLimits const&limits){
-conn.response_ptr=nullptr;
+conn.has_response=false;
 conn.written=0;
 conn.mapped_file.reset();
 conn.mapped_total=0;
@@ -3589,7 +3589,7 @@ r.status_text="Bad Request";
 r.content_type="text/plain; charset=utf-8";
 r.set_text_body("Bad Request");
 conn.own_response=format_response(r,ring.alt_svc_header,true);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
@@ -3598,7 +3598,7 @@ conn.own_response=format_response(
 HttpResponse::redirect(format("https://{}{}",canonical_host,redirect_target),308),
 ring.alt_svc_header,
 true);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
@@ -3630,14 +3630,14 @@ r.status_text="Expectation Failed";
 r.content_type="text/html; charset=utf-8";
 r.set_text_body("<html><body><h1>417 Expectation Failed</h1></body></html>");
 conn.own_response=format_response(r,ring.alt_svc_header,true);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
 }
 auto const queue_continue=[&]{
 conn.own_response="HTTP/1.1 100 Continue\r\n\r\n";
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.written=0;
 conn.request_bytes=0;
 conn.expect_continue_sent=true;
@@ -3650,14 +3650,14 @@ auto const*cl_end=ranges::next(cl.data(),ssize(cl));
 auto[ptr,ec]=from_chars(cl.data(),cl_end,content_length);
 if(ec!=errc{}||ptr!=cl_end){
 conn.own_response=format_response(HttpResponse::bad_request(),ring.alt_svc_header,true);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
 }
 if(content_length>max_body_size){
 conn.own_response=format_response(HttpResponse::content_too_large(),ring.alt_svc_header,true);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
@@ -3678,14 +3678,14 @@ return;
 }
 if(rc==-1){
 conn.own_response=format_response(HttpResponse::bad_request(),ring.alt_svc_header,true);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
 }
 if(rc==-2){
 conn.own_response=format_response(HttpResponse::content_too_large(),ring.alt_svc_header,true);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 conn.close_after_send=true;
 conn.request_bytes=raw.size();
 return;
@@ -3745,7 +3745,7 @@ if(conn.is_h2){
 conn.own_response=format_response(
 HttpResponse::internal_error("deferred responses unsupported over HTTP/2"),
 ring.alt_svc_header);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 return;
 }
 #endif
@@ -3753,7 +3753,7 @@ conn.is_deferred=true;
 conn.deferred_head_only=resp.head_only;
 conn.deferred_efd=resp.deferred_response_ptr()->eventfd_fd();
 conn.deferred_response=resp.take_deferred_response();
-conn.response_ptr=nullptr;
+conn.has_response=false;
 }else if(resp.is_ws_upgrade()){
 conn.is_ws=true;
 conn.ws_upgrade=resp.ws_upgrade_ptr();
@@ -3761,37 +3761,37 @@ conn.ws_work_pool=ring.resolve_ws_work_pool(req);
 conn.saved_req=req.to_owned();
 conn.close_after_send=false;
 conn.own_response=format_response(resp);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 }else if(resp.is_sse()){
 conn.is_sse=true;
 conn.sse_efd=resp.sse_channel_ptr()->eventfd_fd();
 conn.sse_channel=resp.take_sse_channel();
 conn.own_response=S{format_sse_headers()};
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 }else if(resp.is_mapped_file()){
 conn.own_response=format_response(resp,ring.alt_svc_header,conn.close_after_send);
 if(resp.head_only){
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 }else{
 conn.mapped_file=resp.take_mapped_file();
 conn.mapped_total=conn.own_response.size()+conn.mapped_file->send_size;
 conn.mapped_delivered=0;
-conn.response_ptr=nullptr;
+conn.has_response=false;
 }
 }else if(resp.is_streamed_file()){
 conn.own_response=format_response(resp,ring.alt_svc_header,conn.close_after_send);
 if(resp.head_only){
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 }else{
 conn.streamed_file=resp.take_streamed_file();
 conn.streamed_headers_sent=false;
 conn.streamed_delivered=0;
 conn.streamed_splice_in_flight=false;
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 }
 }else{
 conn.own_response=format_response(resp,ring.alt_svc_header,conn.close_after_send);
-conn.response_ptr=&conn.own_response;
+conn.has_response=true;
 }
 }
 export class HttpServer{

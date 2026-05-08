@@ -56,6 +56,9 @@ int dup3_flags{0};// flags passed to dup3() (e.g. O_CLOEXEC)
 // Extra fd mappings: {parent_fd, child_fd}. Applied after stdio, before close_range.
 // close_range will close parent_fd originals if close_other_fds=true.
 V<P<int,int>>fd_map{};
+// Called in child after fd setup but before exec. Must use only async-signal-safe
+// functions (setrlimit, setsockopt, etc.). Not called if null.
+void(*pre_exec_fn)()=nullptr;
 };
 // ---------------------------------------------------------------------------
 // Process
@@ -395,6 +398,10 @@ if(ep>3UL)
 ::syscall(SYS_close_range,ep+1UL,~0U,0UL);
 // NOLINTEND(cppcoreguidelines-pro-type-vararg,hicpp-vararg)
 }
+
+// Pre-exec hook (async-signal-safe ops only: setrlimit, prctl, etc.).
+if(opts.pre_exec_fn)
+opts.pre_exec_fn();
 
 // exec.
 ::execvpe(exe.c_str(),argv_ptrs.data(),envp_ptrs.data());
