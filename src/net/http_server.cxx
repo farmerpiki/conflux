@@ -2821,6 +2821,8 @@ return;
 if(res>0){
 if(conn.response_ptr==nullptr){
 conn.send_queued=false;
+if(!conn.recv_armed&&!conn.is_sse&&!conn.is_ws&&!conn.is_deferred)
+queue_multishot_recv(fd);
 return;
 }
 conn.written+=static_cast<SZ>(res);
