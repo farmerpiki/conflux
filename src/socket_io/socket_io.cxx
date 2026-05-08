@@ -269,7 +269,7 @@ return(cqe_flags&IORING_CQE_F_BUFFER)!=0;
 // ─── raw submission: accept ──────────────────────────────────────────────────
 // All borrowed data (buffers, iovecs) must remain valid until CQE completion.
 
-export void submit_accept_multishot(
+export bool submit_accept_multishot(
 SocketRawRing&ring,
 SocketHandle listen,
 sockaddr*addr,
@@ -277,7 +277,7 @@ socklen_t*addrlen,
 u64 user_data,
 bool direct=true){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 if(direct)
 io_uring_prep_multishot_accept_direct(sqe,listen.as_fd(),addr,addrlen,0);
 else
@@ -285,17 +285,18 @@ io_uring_prep_multishot_accept(sqe,listen.as_fd(),addr,addrlen,0);
 if(listen.fixed)
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
 // ─── raw submission: recv ────────────────────────────────────────────────────
 
-export void submit_recv_multishot(
+export bool submit_recv_multishot(
 SocketRawRing&ring,
 SocketHandle handle,
 BufferRing&bufs,
 u64 user_data,
 bool bundle=false){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_recv_multishot(sqe,handle.as_fd(),nullptr,0,0);
 sqe->buf_group=bufs.group_id();
 if(bundle)
@@ -305,10 +306,11 @@ if(handle.fixed)
 flags|=IOSQE_FIXED_FILE;
 io_uring_sqe_set_flags(sqe,flags);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
 // ─── raw submission: send ────────────────────────────────────────────────────
 
-export void submit_send_borrowed(
+export bool submit_send_borrowed(
 SocketRawRing&ring,
 SocketHandle handle,
 void const*data,
@@ -316,24 +318,26 @@ SZ len,
 u64 user_data,
 int msg_flags=MSG_NOSIGNAL){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_send(sqe,handle.as_fd(),data,len,msg_flags);
 if(handle.fixed)
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
-export void submit_writev_borrowed(
+export bool submit_writev_borrowed(
 SocketRawRing&ring,
 SocketHandle handle,
 iovec const*iov,
 unsigned nr_vecs,
 u64 user_data){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_writev(sqe,handle.as_fd(),iov,nr_vecs,0);
 if(handle.fixed)
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
 // ─── raw submission: shutdown + close ────────────────────────────────────────
 // Linked HARDLINK: shutdown(WR) then close. Requires 2 SQE slots.
@@ -363,22 +367,23 @@ return true;
 }
 // ─── raw submission: close ───────────────────────────────────────────────────
 
-export void submit_close(
+export bool submit_close(
 SocketRawRing&ring,
 SocketHandle handle,
 u64 user_data){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 if(handle.fixed)
 io_uring_prep_close_direct(sqe,handle.id);
 else
 io_uring_prep_close(sqe,handle.as_fd());
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
 // ─── raw submission: setsockopt ──────────────────────────────────────────────
 // Async socket option via io_uring cmd_sock. Only works with fixed fds.
 
-export void submit_setsockopt(
+export bool submit_setsockopt(
 SocketRawRing&ring,
 SocketHandle handle,
 int level,
@@ -387,98 +392,106 @@ void const*optval,
 socklen_t optlen,
 u64 user_data){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_cmd_sock(sqe,SOCKET_URING_OP_SETSOCKOPT,
 handle.as_fd(),level,optname,
 const_cast<void*>(optval),static_cast<int>(optlen));
 if(handle.fixed)
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
 // ─── raw submission: cancel ──────────────────────────────────────────────────
 
-export void submit_cancel_fd(
+export bool submit_cancel_fd(
 SocketRawRing&ring,
 SocketHandle handle,
 u64 user_data){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_cancel_fd(sqe,handle.as_fd(),
 handle.fixed?IORING_ASYNC_CANCEL_FD_FIXED:0);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
-export void submit_cancel_by_ud(
+export bool submit_cancel_by_ud(
 SocketRawRing&ring,
 u64 target_ud,
 u64 cancel_ud){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_cancel64(sqe,target_ud,0);
 io_uring_sqe_set_data64(sqe,cancel_ud);
+return true;
 }
 // ─── raw submission: timeout ─────────────────────────────────────────────────
 
-export void submit_timeout(
+export bool submit_timeout(
 SocketRawRing&ring,
 __kernel_timespec*ts,
 u64 user_data){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_timeout(sqe,ts,0,0);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
-export void submit_link_timeout(
+export bool submit_link_timeout(
 SocketRawRing&ring,
 __kernel_timespec*ts,
 u64 user_data){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_link_timeout(sqe,ts,0);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
 // ─── raw submission: socket creation ─────────────────────────────────────────
 
-export void submit_socket(
+export bool submit_socket(
 SocketRawRing&ring,
 int domain,
 int type,
 int protocol,
 u64 user_data){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_socket(sqe,domain,type,protocol,0);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
-export void submit_socket_direct(
+export bool submit_socket_direct(
 SocketRawRing&ring,
 int domain,
 int type,
 int protocol,
 u64 user_data){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_socket_direct_alloc(sqe,domain,type,protocol,0);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
 // ─── raw submission: connect ─────────────────────────────────────────────────
 // addr must remain valid until CQE. Caller owns lifetime.
 
-export void submit_connect_borrowed(
+export bool submit_connect_borrowed(
 SocketRawRing&ring,
 SocketHandle handle,
 sockaddr const*addr,
 socklen_t addrlen,
 u64 user_data){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_connect(sqe,handle.as_fd(),addr,addrlen);
 if(handle.fixed)
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
 // ─── raw submission: recv (single-shot, into caller buffer) ──────────────────
 
-export void submit_recv_borrowed(
+export bool submit_recv_borrowed(
 SocketRawRing&ring,
 SocketHandle handle,
 void*buf,
@@ -486,39 +499,42 @@ SZ len,
 u64 user_data,
 int msg_flags=0){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_recv(sqe,handle.as_fd(),buf,len,msg_flags);
 if(handle.fixed)
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
 // ─── raw submission: sendmsg / recvmsg (UDP) ─────────────────────────────────
 
-export void submit_sendmsg_borrowed(
+export bool submit_sendmsg_borrowed(
 SocketRawRing&ring,
 SocketHandle handle,
 msghdr const*msg,
 u64 user_data,
 unsigned flags=0){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_sendmsg(sqe,handle.as_fd(),msg,flags);
 if(handle.fixed)
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
-export void submit_recvmsg_borrowed(
+export bool submit_recvmsg_borrowed(
 SocketRawRing&ring,
 SocketHandle handle,
 msghdr*msg,
 u64 user_data,
 unsigned flags=0){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_recvmsg(sqe,handle.as_fd(),msg,flags);
 if(handle.fixed)
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }
 // ─── raw submission: linked recvmsg + timeout (UDP pattern) ──────────────────
 // Requires 2 SQE slots. recvmsg is IO_LINK'd to a link_timeout.
@@ -549,12 +565,13 @@ return true;
 }
 // ─── raw submission: fixed fd install ────────────────────────────────────────
 
-export void submit_fixed_fd_install(
+export bool submit_fixed_fd_install(
 SocketRawRing&ring,
 u32 direct_slot,
 u64 user_data){
 auto*sqe=ring.get_sqe();
-if(!sqe)return;
+if(!sqe)return false;
 io_uring_prep_fixed_fd_install(sqe,static_cast<int>(direct_slot),0);
 io_uring_sqe_set_data64(sqe,user_data);
+return true;
 }

@@ -35,6 +35,7 @@ import conflux.net.config;
 import conflux.net.http1_parser;
 import conflux.work;
 import conflux.file_io;
+import conflux.socket_io;
 import conflux.utils;
 #if CONFLUX_HAS_HTTP2
 import conflux.net.http2;
@@ -835,9 +836,9 @@ UniqueSsl ssl{};
 };
 static constexpr SZ BUF_SIZE=8192;
 static constexpr u32 MAX_FILES=65536;
-static constexpr u16 BUF_GROUP=0;
 
 io_uring ring{};
+SocketRawRing raw_{&ring};
 // Backing memory for the ring when no_mmap = true. Freed on destroy.
 UPD<byte[],void(*)(void*)>ring_mem{nullptr,::free};
 int listen_fd=-1;
@@ -852,10 +853,8 @@ UM<int,WsInstallEntry>ws_cancel_handoffs{};
 UM<int,WsInstallEntry>ws_installs{};
 V<int>ws_cancel_ready{};
 
-io_uring_buf_ring*buf_ring=nullptr;
-u32 buf_count=0;
-int buf_ring_mask=0;
-V<A<char,BUF_SIZE>>bufs;
+UP<BufferRing>buf_ring_;
+UP<DirectFdTable>direct_fds_;
 int tcp_opt_one_=1;// stable optval for cmd_sock SETSOCKOPT
 
 bool fixed_files=false;
@@ -907,8 +906,8 @@ V<P<S,SSL_CTX*>>vhost_ctxs;
 
 Ring()=default;
 ~Ring(){
-if(buf_ring!=nullptr)
-io_uring_free_buf_ring(&ring,buf_ring,buf_count,BUF_GROUP);
+buf_ring_.reset();
+direct_fds_.reset();
 if(listen_fd>=0)
 ::close(listen_fd);
 io_uring_queue_exit(&ring);
@@ -963,8 +962,7 @@ in_flight_read_bufs[ud]=move(buf);
 }
 void return_buffer(
 u16 bid){
-io_uring_buf_ring_add(buf_ring,bufs[bid].data(),BUF_SIZE,bid,buf_ring_mask,0);
-io_uring_buf_ring_advance(buf_ring,1);
+buf_ring_->recycle(bid);
 }
 #if CONFLUX_HAS_TLS
 // Drain all encrypted bytes from wbio into conn.tls_send_buf.
@@ -979,18 +977,13 @@ conn.tls_send_buf.append(buf.data(),static_cast<SZ>(n));
 // Caller must set conn.send_queued = true before calling.
 void tls_queue_send(
 Conn&conn){
-auto*sqe=get_sqe();
-if(sqe==nullptr){
-int const fd=conn.fd;
-defer_op([this,fd]{tls_queue_send(conn_for(fd));});
-return;
-}
 auto const off=conn.tls_send_off;
 auto const tls_view=span{conn.tls_send_buf}.subspan(off);
-io_uring_prep_send(sqe,conn.fd,tls_view.data(),tls_view.size(),0);
-if(fixed_files)
-io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
-io_uring_sqe_set_data64(sqe,pack(Op::Send,conn.gen,conn.fd));
+auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(conn.fd)):SocketHandle::from_os(conn.fd);
+if(!submit_send_borrowed(raw_,handle,tls_view.data(),tls_view.size(),pack(Op::Send,conn.gen,conn.fd))){
+int const fd=conn.fd;
+defer_op([this,fd]{tls_queue_send(conn_for(fd));});
+}
 }
 #endif// CONFLUX_HAS_TLS
 
@@ -1558,9 +1551,10 @@ port_signal->notify_all();
 }
 }
 
-if(io_uring_register_files_sparse(&ring,MAX_FILES)==0){
+direct_fds_=make_unique<DirectFdTable>(&ring,MAX_FILES);
+if(direct_fds_->registered()){
 fixed_files=true;
-io_uring_register_files_update(&ring,static_cast<unsigned>(listen_fd),&listen_fd,1);
+direct_fds_->install(static_cast<u32>(listen_fd),listen_fd);
 }
 
 // file_io pools: constructed here so register_buffers_sparse runs before
@@ -1582,30 +1576,12 @@ return pack(Op::FileIo,gen,static_cast<int>(slot));
 }
 }
 
-buf_count=entries*4;
-bufs.resize(buf_count);
-{
-SZ const slab_sz=buf_count*BUF_SIZE;
-void*slab=bufs[0].data();
-::madvise(slab,slab_sz,MADV_HUGEPAGE);
-::madvise(slab,slab_sz,MADV_DONTFORK);
-}
-
-int ret=0;
-buf_ring=io_uring_setup_buf_ring(&ring,buf_count,BUF_GROUP,0,&ret);
-if(buf_ring==nullptr)
-throw RE{format("io_uring_setup_buf_ring failed: {}",ret)};
-buf_ring_mask=io_uring_buf_ring_mask(buf_count);
-
-for(u32 i=0;i<buf_count;++i)
-io_uring_buf_ring_add(
-buf_ring,
-bufs[i].data(),
-BUF_SIZE,
-static_cast<u16>(i),
-buf_ring_mask,
-static_cast<int>(i));
-io_uring_buf_ring_advance(buf_ring,static_cast<int>(buf_count));
+buf_ring_=make_unique<BufferRing>(&ring,BufferRingOptions{
+.count=entries*4,
+.buf_size=BUF_SIZE,
+.group_id=0,
+.huge_pages=true,
+});
 
 fd_table.reserve(FD_TABLE_RESERVE);
 recvs.reserve(entries);
@@ -1684,14 +1660,7 @@ conn.h2_sse_pending_wait=false;
 // Submit any pending SQEs and retry once. Returns null only if the ring
 // is genuinely exhausted after flushing — callers must handle null via
 // defer_op() to avoid state-machine stalls.
-io_uring_sqe*get_sqe(){
-auto*sqe=io_uring_get_sqe(&ring);
-if(sqe!=nullptr)
-return sqe;
-if(int const r=io_uring_submit(&ring);r<0)
-eprintln(format("io_uring_submit: {}",strerror(-r)));
-return io_uring_get_sqe(&ring);
-}
+io_uring_sqe*get_sqe(){return raw_.get_sqe();}
 // Defer an op whose SQE allocation failed. Replayed from run_loop once
 // the CQE reap frees ring capacity.
 void defer_op(
@@ -1708,46 +1677,18 @@ op();
 }
 }
 void queue_multishot_accept(){
-auto*sqe=get_sqe();
-if(sqe==nullptr){
+auto listen_handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(listen_fd)):SocketHandle::from_os(listen_fd);
+if(!submit_accept_multishot(raw_,listen_handle,reinterpret_cast<sockaddr*>(&client_addr),&client_addr_len,pack(Op::Accept,0,listen_fd),fixed_files))
 defer_op([this]{queue_multishot_accept();});
-return;
-}
-if(fixed_files){
-io_uring_prep_multishot_accept_direct(
-sqe,
-listen_fd,
-reinterpret_cast<sockaddr*>(&client_addr),
-&client_addr_len,
-0);
-io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
-}else{
-io_uring_prep_multishot_accept(
-sqe,
-listen_fd,
-reinterpret_cast<sockaddr*>(&client_addr),
-&client_addr_len,
-0);
-}
-io_uring_sqe_set_data64(sqe,pack(Op::Accept,0,listen_fd));
 }
 void queue_multishot_recv(
 int fd){
 auto&conn=conn_for(fd);
-auto*sqe=get_sqe();
-if(sqe==nullptr){
+auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+if(!submit_recv_multishot(raw_,handle,*buf_ring_,pack(Op::Recv,conn.gen,fd),use_recv_bundle)){
 defer_op([this,fd]{queue_multishot_recv(fd);});
 return;
 }
-io_uring_prep_recv_multishot(sqe,fd,nullptr,0,0);
-sqe->buf_group=BUF_GROUP;
-if(use_recv_bundle)
-sqe->ioprio|=IORING_RECVSEND_BUNDLE;
-unsigned flags=IOSQE_BUFFER_SELECT;
-if(fixed_files)
-flags|=IOSQE_FIXED_FILE;
-io_uring_sqe_set_flags(sqe,flags);
-io_uring_sqe_set_data64(sqe,pack(Op::Recv,conn.gen,fd));
 conn.recv_armed=true;
 }
 // Submit WRITEV for a mapped-file response.
@@ -1755,12 +1696,6 @@ conn.recv_armed=true;
 void queue_send_mapped(
 int fd){
 auto&conn=conn_for(fd);
-auto*sqe=get_sqe();
-if(sqe==nullptr){
-defer_op([this,fd]{queue_send_mapped(fd);});
-return;
-}
-
 SZ skip=conn.written;
 SZ ni{};
 
@@ -1788,10 +1723,9 @@ conn.writev_iov[ni++]={
 
 if(ni==0)
 return;
-io_uring_prep_writev(sqe,fd,conn.writev_iov.data(),static_cast<unsigned>(ni),0);
-if(fixed_files)
-io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
-io_uring_sqe_set_data64(sqe,pack(Op::Send,conn.gen,fd));
+auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+if(!submit_writev_borrowed(raw_,handle,conn.writev_iov.data(),static_cast<unsigned>(ni),pack(Op::Send,conn.gen,fd)))
+defer_op([this,fd]{queue_send_mapped(fd);});
 }
 // file_io streaming path. Phase 1: send headers via prep_send. Phase 2:
 // once headers are fully delivered, kick off splice (plain) or read_fixed+
@@ -1806,16 +1740,10 @@ if(!conn.streamed_splice_in_flight)
 start_streamed_body(fd);
 return;
 }
-auto*sqe=get_sqe();
-if(sqe==nullptr){
-defer_op([this,fd]{queue_send_streamed(fd);});
-return;
-}
 auto const hdr_view=span{conn.own_response}.subspan(conn.written);
-io_uring_prep_send(sqe,fd,hdr_view.data(),hdr_view.size(),0);
-if(fixed_files)
-io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
-io_uring_sqe_set_data64(sqe,pack(Op::Send,conn.gen,fd));
+auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+if(!submit_send_borrowed(raw_,handle,hdr_view.data(),hdr_view.size(),pack(Op::Send,conn.gen,fd)))
+defer_op([this,fd]{queue_send_streamed(fd);});
 }
 // Acquire a pipe P and submit the splice chain via FileReader. Completion
 // calls back into handle_streamed_splice_done on the ring thread.
@@ -2039,16 +1967,10 @@ return;
 if(!conn.has_response)
 return;
 auto const&resp=conn.own_response;
-auto*sqe=get_sqe();
-if(sqe==nullptr){
-defer_op([this,fd]{queue_send(fd);});
-return;
-}
 auto const resp_view=span{resp}.subspan(conn.written);
-io_uring_prep_send(sqe,fd,resp_view.data(),resp_view.size(),0);
-if(fixed_files)
-io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
-io_uring_sqe_set_data64(sqe,pack(Op::Send,conn.gen,fd));
+auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+if(!submit_send_borrowed(raw_,handle,resp_view.data(),resp_view.size(),pack(Op::Send,conn.gen,fd)))
+defer_op([this,fd]{queue_send(fd);});
 }
 void queue_close(
 int fd){
@@ -2061,34 +1983,21 @@ gen=fd_table[ufd].gen;
 }
 
 if(fixed_files){
-if(io_uring_sq_space_left(&ring)<2){
-defer_op([this,fd,ufd,gen]{
-if(ufd>=fd_table.size()||fd_table[ufd].gen!=gen)
-return;
-queue_close(fd);
-});
-return;
-}
-auto*shutdown_sqe=get_sqe();
-auto*close_sqe=get_sqe();
-if(shutdown_sqe==nullptr||close_sqe==nullptr){
-defer_op([this,fd,ufd,gen]{
-if(ufd>=fd_table.size()||fd_table[ufd].gen!=gen)
-return;
-queue_close(fd);
-});
-return;
-}
 if(ufd<fd_table.size()){
 if(fd_table[ufd].gen!=gen||fd_table[ufd].closing)
 return;
-fd_table[ufd].closing=true;
 }
-io_uring_prep_shutdown(shutdown_sqe,fd,SHUT_WR);
-io_uring_sqe_set_flags(shutdown_sqe,IOSQE_FIXED_FILE|IOSQE_IO_HARDLINK);
-io_uring_sqe_set_data64(shutdown_sqe,pack(Op::Nop,0,0));
-io_uring_prep_close_direct(close_sqe,static_cast<unsigned>(fd));
-io_uring_sqe_set_data64(close_sqe,pack(Op::Close,gen,fd));
+auto handle=SocketHandle::from_direct(static_cast<u32>(fd));
+if(!submit_shutdown_close(raw_,handle,pack(Op::Nop,0,0),pack(Op::Close,gen,fd))){
+defer_op([this,fd,ufd,gen]{
+if(ufd>=fd_table.size()||fd_table[ufd].gen!=gen)
+return;
+queue_close(fd);
+});
+return;
+}
+if(ufd<fd_table.size())
+fd_table[ufd].closing=true;
 return;
 }
 
@@ -2098,8 +2007,12 @@ return;
 // the actual socket close until those operations complete.
 ::shutdown(fd,SHUT_WR);
 
-auto*sqe=get_sqe();
-if(sqe==nullptr){
+if(ufd<fd_table.size()){
+if(fd_table[ufd].gen!=gen||fd_table[ufd].closing)
+return;
+}
+auto handle=SocketHandle::from_os(fd);
+if(!submit_close(raw_,handle,pack(Op::Close,gen,fd))){
 defer_op([this,fd,ufd,gen]{
 if(ufd>=fd_table.size()||fd_table[ufd].gen!=gen)
 return;
@@ -2107,13 +2020,8 @@ queue_close(fd);
 });
 return;
 }
-if(ufd<fd_table.size()){
-if(fd_table[ufd].gen!=gen||fd_table[ufd].closing)
-return;
+if(ufd<fd_table.size())
 fd_table[ufd].closing=true;
-}
-io_uring_prep_close(sqe,fd);
-io_uring_sqe_set_data64(sqe,pack(Op::Close,gen,fd));
 }
 void queue_sse_wait(
 int fd){
@@ -2153,13 +2061,8 @@ if(request_timeout_ms==0&&tls_sniff_timeout_ms==0)
 return;
 timer_ts.tv_sec=1;
 timer_ts.tv_nsec=0;
-auto*sqe=get_sqe();
-if(sqe==nullptr){
+if(!submit_timeout(raw_,&timer_ts,pack(Op::Timer,0,0)))
 defer_op([this]{arm_timer();});
-return;
-}
-io_uring_prep_timeout(sqe,&timer_ts,0,0);
-io_uring_sqe_set_data64(sqe,pack(Op::Timer,0,0));
 }
 void handle_timer(){
 if(request_timeout_ms==0&&tls_sniff_timeout_ms==0)
@@ -2203,10 +2106,7 @@ arm_timer();// re-arm for next tick
 void handle_shutdown(){
 shutting_down=true;
 // Cancel the multishot accept — no new connections.
-if(auto*sqe=get_sqe();sqe!=nullptr){
-io_uring_prep_cancel64(sqe,pack(Op::Accept,0,listen_fd),0);
-io_uring_sqe_set_data64(sqe,0);
-}
+submit_cancel_by_ud(raw_,pack(Op::Accept,0,listen_fd),0);
 // Close idle connections immediately; mark active ones to close after send.
 for(SZ i=0;i<fd_table.size();++i){
 auto&conn=fd_table[i];
@@ -2287,22 +2187,13 @@ if(!fixed_files){
 ::setsockopt(res,IPPROTO_TCP,TCP_QUICKACK,&tcp_opt_one_,sizeof tcp_opt_one_);
 }else{
 for(int const opt:{TCP_NODELAY,TCP_QUICKACK}){
-auto*sqe=get_sqe();
-io_uring_prep_cmd_sock(
-sqe,
-SOCKET_URING_OP_SETSOCKOPT,
-res,
-IPPROTO_TCP,
-opt,
-&tcp_opt_one_,
-static_cast<int>(sizeof tcp_opt_one_));
-io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
-io_uring_sqe_set_data64(sqe,pack(Op::Nop,0,0));
+auto handle=SocketHandle::from_direct(static_cast<u32>(res));
+submit_setsockopt(raw_,handle,IPPROTO_TCP,opt,&tcp_opt_one_,sizeof tcp_opt_one_,pack(Op::Nop,0,0));
 }
 }
 queue_multishot_recv(res);
 }
-if((flg&IORING_CQE_F_MORE)==0U)
+if(!cqe_has_more(flg))
 queue_multishot_accept();
 }
 void handle_recv_cqe(
@@ -2317,10 +2208,9 @@ bool const gen_match=fd_table[ufd].gen==gen;
 bool const ws_pending=ws_cancel_handoffs.find(fd)!=ws_cancel_handoffs.end();
 if(!gen_match&&!ws_pending)
 return;
-if((flg&IORING_CQE_F_MORE)==0U&&gen_match)
+if(!cqe_has_more(flg)&&gen_match)
 fd_table[ufd].recv_armed=false;
-u16 const buf_id=
-(flg&IORING_CQE_F_BUFFER)!=0U?static_cast<u16>(flg>>IORING_CQE_BUFFER_SHIFT):UINT16_MAX;
+u16 const buf_id=cqe_has_buffer(flg)?cqe_buffer_id(flg):UINT16_MAX;
 recvs.push_back({fd,res,gen,buf_id});
 }
 bool handle_sse_send_complete(
@@ -2503,14 +2393,10 @@ bool const cancel_recv=conn.recv_armed;
 auto state=begin_ws_handoff(conn);
 if(!state.pool){
 orig_ssl.reset();
-if(fixed_files){
-if(auto*sqe=get_sqe();sqe!=nullptr){
-io_uring_prep_close_direct(sqe,static_cast<unsigned>(fd));
-io_uring_sqe_set_data64(sqe,pack(Op::Nop,0,0));
-}
-}else{
+if(fixed_files)
+submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),pack(Op::Nop,0,0));
+else
 ::close(fd);
-}
 return;
 }
 auto entry=WsInstallEntry{move(state),move(initial_buf),move(orig_ssl)};
@@ -2530,7 +2416,8 @@ defer_op([this,fd,e=move(entry)]()mutable{queue_ws_cancel(fd,move(e));});
 return;
 }
 ws_cancel_handoffs.emplace(fd,move(entry));
-io_uring_prep_cancel_fd(sqe,fd,fixed_files?IORING_ASYNC_CANCEL_FD_FIXED:0);
+auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+io_uring_prep_cancel_fd(sqe,handle.as_fd(),handle.fixed?IORING_ASYNC_CANCEL_FD_FIXED:0);
 io_uring_sqe_set_data64(sqe,pack(Op::WsCancel,0,fd));
 }
 #if CONFLUX_HAS_TLS
@@ -2570,29 +2457,6 @@ S initial_buf
 SSL*ssl=nullptr
 #endif
 ){
-auto*sqe=get_sqe();
-if(sqe==nullptr){
-defer_op([this,
-slot_fd,
-s=move(state),
-ib=move(initial_buf)
-#if CONFLUX_HAS_TLS
-,
-ssl
-#endif
-]()mutable{
-queue_ws_fixed_install(
-slot_fd,
-move(s),
-move(ib)
-#if CONFLUX_HAS_TLS
-,
-ssl
-#endif
-);
-});
-return;
-}
 ws_installs.emplace(
 slot_fd,
 WsInstallEntry{
@@ -2603,8 +2467,29 @@ move(initial_buf)
 UniqueSsl{ssl}
 #endif
 });
-io_uring_prep_fixed_fd_install(sqe,slot_fd,0);
-io_uring_sqe_set_data64(sqe,pack(Op::FixedFdInstall,0,slot_fd));
+if(!submit_fixed_fd_install(raw_,static_cast<u32>(slot_fd),pack(Op::FixedFdInstall,0,slot_fd))){
+auto entry=move(ws_installs.at(slot_fd));
+ws_installs.erase(slot_fd);
+defer_op([this,
+slot_fd,
+s=move(entry.state),
+ib=move(entry.initial_buf)
+#if CONFLUX_HAS_TLS
+,
+ssl_raw=entry.ssl.release()
+#endif
+]()mutable{
+queue_ws_fixed_install(
+slot_fd,
+move(s),
+move(ib)
+#if CONFLUX_HAS_TLS
+,
+ssl_raw
+#endif
+);
+});
+}
 }
 void handle_fixed_fd_install(
 int slot_fd,
@@ -2619,17 +2504,10 @@ auto entry=move(it->second);
 ws_installs.erase(it);
 
 auto free_slot=[this,slot_fd]{
-if(auto*sqe=get_sqe();sqe!=nullptr){
-io_uring_prep_close_direct(sqe,static_cast<unsigned>(slot_fd));
-io_uring_sqe_set_data64(sqe,pack(Op::Nop,0,0));
-}else{
+if(!submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(slot_fd)),pack(Op::Nop,0,0)))
 defer_op([this,slot_fd]{
-if(auto*sqe2=get_sqe();sqe2!=nullptr){
-io_uring_prep_close_direct(sqe2,static_cast<unsigned>(slot_fd));
-io_uring_sqe_set_data64(sqe2,pack(Op::Nop,0,0));
-}
+submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(slot_fd)),pack(Op::Nop,0,0));
 });
-}
 };
 free_slot();
 
@@ -3002,15 +2880,18 @@ RecvComp&rc){
 if(use_recv_bundle){
 SZ remaining=static_cast<SZ>(rc.res);
 u16 cur_buf=rc.buf_id;
+u32 const bcount=buf_ring_->count();
 while(remaining>0){
-SZ const chunk=min(remaining,BUF_SIZE);
-dst.append(bufs[cur_buf].data(),chunk);
+SZ const chunk=min(remaining,buf_ring_->buf_size());
+auto const bv=buf_ring_->buffer_view(cur_buf,chunk);
+dst.append(reinterpret_cast<char const*>(bv.data()),bv.size());
 return_buffer(cur_buf);
 remaining-=chunk;
-cur_buf=static_cast<u16>((cur_buf+1U)%buf_count);
+cur_buf=static_cast<u16>((cur_buf+1U)%bcount);
 }
 }else{
-dst.append(bufs[rc.buf_id].data(),static_cast<SZ>(rc.res));
+auto const bv=buf_ring_->buffer_view(rc.buf_id,static_cast<SZ>(rc.res));
+dst.append(reinterpret_cast<char const*>(bv.data()),bv.size());
 return_buffer(rc.buf_id);
 }
 rc.buf_id=UINT16_MAX;
@@ -3332,7 +3213,7 @@ CurrentFileReaderScope const file_reader_scope{files.get()};
 queue_multishot_accept();
 arm_shutdown_read();
 arm_timer();
-io_uring_submit(&ring);
+raw_.submit();
 
 for(;;){
 drain_pending_ops();
