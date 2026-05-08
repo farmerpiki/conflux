@@ -340,9 +340,14 @@ auto v=Variant{
 [&]{
 io_uring_cqe*cqe{};
 wait_cqe(rg.get(),&cqe);
+bool const more=(cqe->flags&IORING_CQE_F_MORE)!=0;
 if(cqe->res>0&&cqe_has_buffer(static_cast<u32>(cqe->flags)))
 bufs.recycle(cqe_buffer_id(static_cast<u32>(cqe->flags)));
 io_uring_cqe_seen(rg.get(),cqe);
+if(!more){
+submit_recv_multishot(raw,SocketHandle::from_os(srv),bufs,10);
+raw.submit();
+}
 },
 .setup=
 [&]{
@@ -408,9 +413,16 @@ auto v=Variant{
 [&]{
 io_uring_cqe*cqe{};
 wait_cqe(rg.get(),&cqe);
+bool const more=(cqe->flags&IORING_CQE_F_MORE)!=0;
+u64 const ud=io_uring_cqe_get_data64(cqe);
 if(cqe->res>0&&cqe_has_buffer(static_cast<u32>(cqe->flags)))
 bufs.recycle(cqe_buffer_id(static_cast<u32>(cqe->flags)));
 io_uring_cqe_seen(rg.get(),cqe);
+if(!more&&ud>=100&&ud<100+kConns){
+SZ idx=static_cast<SZ>(ud-100);
+submit_recv_multishot(raw,SocketHandle::from_os(servers[idx].fd),bufs,ud);
+raw.submit();
+}
 },
 .setup=
 [&]{
@@ -474,9 +486,14 @@ auto v=Variant{
 [&]{
 io_uring_cqe*cqe{};
 wait_cqe(rg.get(),&cqe);
+bool const more=(cqe->flags&IORING_CQE_F_MORE)!=0;
 if(cqe->res>0&&cqe_has_buffer(static_cast<u32>(cqe->flags)))
 bufs.recycle(cqe_buffer_id(static_cast<u32>(cqe->flags)));
 io_uring_cqe_seen(rg.get(),cqe);
+if(!more){
+submit_recv_multishot(raw,SocketHandle::from_direct(0),bufs,10);
+raw.submit();
+}
 },
 .setup=
 [&]{
