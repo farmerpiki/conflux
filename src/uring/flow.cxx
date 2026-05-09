@@ -570,17 +570,13 @@ break;
 }
 }
 }
-// drain_deferred_closes — bulk wrapper: retries every pending deferred close;
-// removes entries that successfully submitted; leaves still-pending ones.
+// drain_deferred_closes — retries every pending deferred close; iterate
+// end-to-front so resume_deferred_close's swap-with-last removal never shifts
+// an unvisited entry past the current cursor.
 void drain_deferred_closes()noexcept{
-u32 w=0;
-for(u32 r=0;r<deferred_count_;++r){
+u32 r=deferred_count_;
+while(r-- >0)
 resume_deferred_close(deferred_[r].flow_index,deferred_[r].generation);
-auto*st=slab_.try_get(deferred_[r].flow_index,deferred_[r].generation);
-if(st!=nullptr&&st->close_pending)
-deferred_[w++]=deferred_[r];
-}
-deferred_count_=w;
 }
 [[nodiscard]]FlowBuilder flow()noexcept{
 assert(builder_count_==0);
@@ -723,8 +719,10 @@ if(!s){
 // hack: emit NOPs for already-acquired slots; cannot un-get SQEs.
 // This path is unreachable under correct single-issuer usage.
 assert(false);
-for(u8 j=0;j<n;++j)
+for(u8 j=0;j<n;++j){
 io_uring_prep_nop(sqes[j]);
+sqes[j]->user_data=0;// io_uring_prep_nop does not zero user_data; must be explicit
+}
 rt_.slab_.release(*state_ptr);
 reject(-EAGAIN);
 sq_ok=false;
