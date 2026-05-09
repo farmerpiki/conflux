@@ -196,7 +196,7 @@ if(closed_)
 return;
 closed_=true;
 for(auto&src:waiters_)
-(void)src->try_set_cancelled(root::CancelReason::requested);
+(void)src->try_set_cancelled(root::work_errc::cancelled_requested);
 waiters_.clear();
 idle_.clear();
 }
@@ -227,7 +227,7 @@ try{
 auto conn=co_await move(conn_task);
 if(self->closed_){
 --self->total_;
-(void)shared_src->try_set_cancelled(root::CancelReason::requested);
+(void)shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
 co_return;
 }
 self->dispatch_lease_(shared_src,move(conn));
@@ -320,7 +320,7 @@ co_await move(on_acq_task);
 if(self->closed_){
 conn->close();
 --self->total_;
-(void)src->try_set_cancelled(root::CancelReason::requested);
+(void)src->try_set_cancelled(root::work_errc::cancelled_requested);
 co_return;
 }
 (void)src->try_set_value(
@@ -329,7 +329,7 @@ Lease{self,move(conn)}});
 }catch(Cancelled const&){
 conn->close();
 --self->total_;
-(void)src->try_set_cancelled(root::CancelReason::requested);
+(void)src->try_set_cancelled(root::work_errc::cancelled_requested);
 }catch(...){
 conn->close();
 --self->total_;

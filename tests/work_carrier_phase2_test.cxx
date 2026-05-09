@@ -24,7 +24,7 @@ return carrier::from_task(move(task));
 }
 carrier::Chain<int>make_cancelled(){
 auto[task,src]=root::make_task_source<int>();
-(void)src.try_set_cancelled(root::CancelReason::shutdown);
+(void)src.try_set_cancelled(root::work_errc::cancelled_shutdown);
 return carrier::from_task(move(task));
 }
 }// namespace
@@ -195,7 +195,7 @@ TEST_CASE(
 "carrier.scope: admit already-cancelled task returns cancelled chain",
 "[carrier.scope]"){
 auto[task,src]=root::make_task_source<int>();
-(void)src.try_set_cancelled(root::CancelReason::shutdown);
+(void)src.try_set_cancelled(root::work_errc::cancelled_shutdown);
 auto jh=root::into_join_handle(move(task));
 
 carrier::Scope scope{};
@@ -229,7 +229,7 @@ std::unique_lock lock{mu};
 bool const observed=cv.wait_for(lock,chrono::seconds{1},[&]{return cancel_seen;});
 lock.unlock();
 if(observed)
-(void)ws.try_set_cancelled(root::CancelReason::requested);
+(void)ws.try_set_cancelled(root::work_errc::cancelled_requested);
 else
 (void)ws.try_set_exception(
 make_exception_ptr(RE{"scope admit did not signal cancellation"}));
@@ -258,7 +258,7 @@ std::this_thread::sleep_for(chrono::milliseconds{5});
 scope.cancel(root::CancelReason::requested);
 while(!ct.stop_requested())
 std::this_thread::yield();
-(void)cs.try_set_cancelled(root::CancelReason::requested);
+(void)cs.try_set_cancelled(root::work_errc::cancelled_requested);
 }};
 
 auto chain=scope.admit(move(jh));

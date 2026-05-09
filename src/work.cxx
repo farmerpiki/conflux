@@ -462,7 +462,7 @@ fn();
 }catch(...){(void)shared_src->try_set_exception(current_exception());}
 };
 if(!target.enqueue(move(job)))
-(void)shared_src->try_set_cancelled(CancelReason::requested);
+(void)shared_src->try_set_cancelled(work_errc::cancelled_requested);
 return move(task);
 }
 // Synchronous blocking wait for a root::Task<T> — no FileReader required.
@@ -532,7 +532,7 @@ std::apply([](auto&...hs)noexcept{((void)hs.control().request_cancel(),...);},ha
 void commit()noexcept{
 using namespace conflux::work::root;
 if(any_cancelled){
-(void)src.try_set_cancelled(CancelReason::requested);
+(void)src.try_set_cancelled(work_errc::cancelled_requested);
 return;
 }
 if(first_error){

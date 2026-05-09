@@ -47,7 +47,7 @@ TEST_CASE(
 "carrier.model_a: from_task preserves cancelled outcome",
 "[carrier.model_a]"){
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 
 auto chain=carrier::from_task(move(task));
 auto out=move(chain).release_outcome();
@@ -117,7 +117,7 @@ TEST_CASE(
 "carrier.model_a: map passes through cancelled without calling fn",
 "[carrier.model_a]"){
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::shutdown));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_shutdown));
 
 bool fn_called=false;
 auto chain=carrier::from_task(move(task));
@@ -225,7 +225,7 @@ TEST_CASE(
 "[carrier.model_a]"){
 auto[task_a,src_a]=root::make_task_source<int>();
 auto[task_b,src_b]=root::make_task_source<int>();
-REQUIRE(src_a.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src_a.try_set_cancelled(root::work_errc::cancelled_requested));
 REQUIRE(src_b.try_set_value(root::Success<int>{1}));
 
 auto ca=carrier::from_task(move(task_a));
@@ -313,7 +313,7 @@ TEST_CASE(
 "chain.then: passes through cancel without calling fn",
 "[chain.combinators]"){
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 bool called=false;
 auto out=move(carrier::from_task(move(task)).then([&](int x){
 called=true;
@@ -388,7 +388,7 @@ TEST_CASE(
 "chain.catch_error: cancel passes through",
 "[chain.combinators]"){
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 bool called=false;
 auto out=move(carrier::from_task(move(task)).catch_error([&](EP){
 called=true;
@@ -401,7 +401,7 @@ TEST_CASE(
 "chain.on_cancel: cancel side-effect fires, still cancelled",
 "[chain.combinators]"){
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 bool called=false;
 auto out=move(carrier::from_task(move(task)).on_cancel([&]{called=true;})).release_outcome();
 CHECK(called);
@@ -422,7 +422,7 @@ TEST_CASE(
 "chain.on_cancel: throwing fn is swallowed; still cancelled",
 "[chain.combinators]"){
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 auto out=move(carrier::from_task(move(task)).on_cancel([]{
 throw RE{"x"};
 })).release_outcome();
@@ -432,7 +432,7 @@ TEST_CASE(
 "chain.recover_cancel: cancel recovery returns T",
 "[chain.combinators]"){
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 auto out=move(carrier::from_task(move(task)).recover_cancel([]{return 42;})).release_outcome();
 REQUIRE(out.is_success());
 CHECK(out.success().value==42);
@@ -478,7 +478,7 @@ TEST_CASE(
 "chain.recover: cancel recovered",
 "[chain.combinators]"){
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 auto out=
 move(carrier::from_task(move(task)).recover([](root::Outcome<int>){return 33;})).release_outcome();
 REQUIRE(out.is_success());
@@ -556,7 +556,7 @@ TEST_CASE(
 "[chain.combinators]"){
 OwnerCap cap{};
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 bool called=false;
 auto result=carrier::from_task(move(task)).then_on(cap,[&](int x){
 called=true;
@@ -588,7 +588,7 @@ TEST_CASE(
 "chain.into_task: cancelled outcome becomes Task with cancel",
 "[chain.combinators]"){
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 auto t=carrier::from_task(move(task)).into_task();
 auto out=root::join(move(t));
 CHECK(out.is_cancelled());

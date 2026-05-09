@@ -85,8 +85,8 @@ Items verified against source. PARTIAL = code exists but incomplete. NOT DONE = 
 | Item | State |
 |------|-------|
 | E1.z — `into_task_unchecked()` still present; v7 B4 said to drop it | DONE |
-| E2b.1 — `try_set_cancelled` public setter still takes internal `CancelReason` enum, not `work_errc` as required | PARTIAL |
-| E4 — `try_set_error(ec, string_view message) noexcept` overload missing from `BasicSource<T>` | NOT DONE |
+| E2b.1 — `try_set_cancelled` public setter still takes internal `CancelReason` enum, not `work_errc` as required | DONE |
+| E4 — `try_set_error(ec, string_view message) noexcept` overload missing from `BasicSource<T>` | DONE |
 | E4 — `concept work_handle<H>` simplified; missing `awaits_outcome<>` requires-clause | PARTIAL |
 | E4 — `BasicResult` / `BasicJoinHandle` collapse not done (deferred; `// [REVISIT]` comment at root.cxx:1984) | NOT DONE |
 | P2b — Fix B (`alignas(64)` on Cold) used without a code comment explaining false-sharing rationale; plan mandated the comment on `hot_pad` member (which doesn't exist) | DONE |

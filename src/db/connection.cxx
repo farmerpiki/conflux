@@ -648,7 +648,7 @@ try{
 co_await move(prep_task);
 self->prepared_names_.insert(stmt->name);
 }catch(Cancelled const&){
-(void)shared_src->try_set_cancelled(root::CancelReason::requested);
+(void)shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
 co_return;
 }catch(PgError const&e){
 if(e.sqlstate!="42P05"){
@@ -664,7 +664,7 @@ try{
 auto r=co_await self->exec_prepared(stmt->name,move(params));
 (void)shared_src->try_set_value(root::Success<Result>{move(r)});
 }catch(Cancelled const&){
-(void)shared_src->try_set_cancelled(root::CancelReason::requested);
+(void)shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
 }catch(...){(void)shared_src->try_set_exception(current_exception());}
 }(self,stmt,move(params),shared_src,prepare(stmt->name,stmt->sql,stmt->param_types))
 .detach();
@@ -690,7 +690,7 @@ auto self=shared_from_this();
 // NOLINTNEXTLINE(bugprone-exception-escape) — poll callback; any throw would terminate, treated as fatal.
 bool const armed=reader_->poll_add_oneshot(fd,POLLOUT,[self,dst,partial,label](IoResult r)mutable{
 if(self->closed_){
-(void)dst->try_set_cancelled(root::CancelReason::requested);
+(void)dst->try_set_cancelled(root::work_errc::cancelled_requested);
 self->op_done_();
 return;
 }
@@ -754,7 +754,7 @@ auto self=shared_from_this();
 // NOLINTNEXTLINE(bugprone-exception-escape) — poll callback; any throw would terminate, treated as fatal.
 bool const armed=reader_->poll_add_oneshot(fd,POLLIN,[self,dst,partial,label](IoResult r)mutable{
 if(self->closed_){
-(void)dst->try_set_cancelled(root::CancelReason::requested);
+(void)dst->try_set_cancelled(root::work_errc::cancelled_requested);
 self->op_done_();
 return;
 }
@@ -794,7 +794,7 @@ else
 (void)shared_src->try_set_value(root::Success<void>{});
 });
 if(!queued)
-(void)shared_src->try_set_cancelled(root::CancelReason::requested);
+(void)shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
 return move(task);
 }
 root::Task<void>Connection::cancel_inflight(){
@@ -816,7 +816,7 @@ auto self=shared_from_this();
 try{
 auto r=co_await move(qt);
 (void)src->try_set_value(root::Success<Result>{move(r)});
-}catch(Cancelled const&){(void)src->try_set_cancelled(root::CancelReason::requested);}catch(...){
+}catch(Cancelled const&){(void)src->try_set_cancelled(root::work_errc::cancelled_requested);}catch(...){
 (void)src->try_set_exception(current_exception());
 }
 }(shared_src,query(sql,move(params)))
@@ -938,13 +938,13 @@ auto r=co_await move(qt);
 (void)shared_src->try_set_value(root::Success<Result>{move(r)});
 self->sync_next_(st);
 }catch(Cancelled const&){
-(void)shared_src->try_set_cancelled(root::CancelReason::requested);
+(void)shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
 while(!st->batch.empty()){
 auto rem=move(st->batch.front());
 st->batch.pop_front();
-(void)rem.dst->try_set_cancelled(root::CancelReason::requested);
+(void)rem.dst->try_set_cancelled(root::work_errc::cancelled_requested);
 }
-(void)st->done->try_set_cancelled(root::CancelReason::requested);
+(void)st->done->try_set_cancelled(root::work_errc::cancelled_requested);
 self->finish_sync_(false);
 }catch(...){
 (void)shared_src->try_set_exception(current_exception());
@@ -1034,7 +1034,7 @@ scoped_lock const lk{self->mtx_};
 auto[it,ok]=self->cache_.try_emplace(name_owned,sp);
 (void)shared_src->try_set_value(root::Success<shared_ptr<string const>>{it->second});
 }catch(Cancelled const&){
-(void)shared_src->try_set_cancelled(root::CancelReason::requested);
+(void)shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
 }catch(...){(void)shared_src->try_set_exception(current_exception());}
 }(reader,shared_src,name_owned,this,reader->open_async(AT_FDCWD,move(path),O_RDONLY))
 .detach();

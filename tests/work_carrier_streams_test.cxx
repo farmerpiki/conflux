@@ -150,7 +150,7 @@ bool drop_saw_cancel=false;
 carrier::DroppableSlot<int>slot{move(jh)};
 slot.on_drop([&](root::Outcome<int>const&out)noexcept{drop_saw_cancel=out.is_cancelled();});
 }
-(void)src.try_set_cancelled(root::CancelReason::requested);
+(void)src.try_set_cancelled(root::work_errc::cancelled_requested);
 CHECK(drop_saw_cancel);
 }
 // ---------------------------------------------------------------------------
@@ -200,7 +200,7 @@ carrier::DroppableSlot<int>slot{move(jh)};
 auto result=move(slot).try_get();
 CHECK_FALSE(result.has_value());
 // Slot dtor drains; commit satisfies liveness.
-(void)src.try_set_cancelled(root::CancelReason::requested);
+(void)src.try_set_cancelled(root::work_errc::cancelled_requested);
 }
 TEST_CASE(
 "phase8d: try_get returns outcome when ready",

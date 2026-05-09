@@ -49,7 +49,7 @@ auto[ctl,source]=root::make_task_control_source<int>();
 (void)source.install_cancel_hook(
 [&hook_calls](root::CancelReason)noexcept{hook_calls.fetch_add(1,memory_order_relaxed);});
 (void)ctl.request_cancel();
-(void)source.try_set_cancelled(root::CancelReason::requested);
+(void)source.try_set_cancelled(root::work_errc::cancelled_requested);
 }
 u64 const elapsed=bench_now_ns()-t0;
 (void)hook_calls.load();
@@ -68,7 +68,7 @@ auto const cfg=bench_parse_args(span{argv,static_cast<SZ>(argc)});
 for(SZ i=0;i<cfg.warmup;++i){
 auto[ctl,source]=root::make_task_control_source<int>();
 (void)ctl.request_cancel();
-(void)source.try_set_cancelled(root::CancelReason::requested);
+(void)source.try_set_cancelled(root::work_errc::cancelled_requested);
 }
 
 BenchStats stats[]={

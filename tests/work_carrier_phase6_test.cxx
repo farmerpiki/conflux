@@ -27,7 +27,7 @@ return carrier::from_task(move(task));
 }
 carrier::Chain<int>make_cancelled(){
 auto[task,src]=root::make_task_source<int>();
-(void)src.try_set_cancelled(root::CancelReason::requested);
+(void)src.try_set_cancelled(root::work_errc::cancelled_requested);
 return carrier::from_task(move(task));
 }
 }// namespace

@@ -93,7 +93,7 @@ TEST_CASE(
 "carrier.deadline: admit already-cancelled task returns cancelled",
 "[carrier.deadline]"){
 auto[task,src]=root::make_task_source<int>();
-(void)src.try_set_cancelled(root::CancelReason::shutdown);
+(void)src.try_set_cancelled(root::work_errc::cancelled_shutdown);
 auto jh=root::into_join_handle(move(task));
 
 carrier::DeadlineScope scope{chrono::seconds{60}};
@@ -115,7 +115,7 @@ auto worker_token=stop_token;
 thread worker{[ws=move(worker_src),wt=move(worker_token)]()mutable{
 while(!wt.stop_requested())
 std::this_thread::yield();
-(void)ws.try_set_cancelled(root::CancelReason::deadline);
+(void)ws.try_set_cancelled(root::work_errc::cancelled_deadline);
 }};
 
 auto chain=scope.admit(move(jh));

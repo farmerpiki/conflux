@@ -106,7 +106,7 @@ TEST_CASE(
 "phase5a: co_await Chain<int> throws CancelledError on cancellation",
 "[phase5a]"){
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 auto chain=carrier::from_task(move(task));
 
 auto awaiter=move(chain).operator co_await();
@@ -155,7 +155,7 @@ TEST_CASE(
 "phase5b: EagerChain propagates cancellation as failure through co_await Chain",
 "[phase5b]"){
 auto[task,src]=root::make_task_source<int>();
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 auto chain=carrier::from_task(move(task));
 
 // co_await throws CancelledError; unhandled_exception stores it as Failure.
@@ -258,7 +258,7 @@ TEST_CASE(
 "[phase5c]"){
 auto[task,src]=root::make_task_source<int>();
 auto jh=root::into_join_handle(move(task));
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 CHECK_THROWS_AS(coro_await_task_handle_cancel(move(jh)).get(),root::CancelledError);
 }
 // --- TaskHandleAwaiter::await_ready ---
@@ -339,7 +339,7 @@ TEST_CASE(
 "[phase5c]"){
 auto[task,src]=root::make_task_source<int>();
 auto jh=root::into_join_handle(move(task));
-REQUIRE(src.try_set_cancelled(root::CancelReason::requested));
+REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 auto chain=coro_await_chain_cancel(move(jh)).get();
 auto out=move(chain).release_outcome();
 CHECK(out.is_cancelled());

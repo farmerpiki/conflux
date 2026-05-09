@@ -214,7 +214,7 @@ return Case{
 .default_iterations=200000,
 .run=[]{
 auto[task,src]=root::make_task_source<int>();
-(void)src.try_set_cancelled(root::CancelReason::requested);
+(void)src.try_set_cancelled(root::work_errc::cancelled_requested);
 auto out=root::join(move(task));
 return static_cast<SZ>(out.is_cancelled()?1:0);
 }};
@@ -270,7 +270,7 @@ return Case{
 auto[task,src]=root::make_task_source<int>();
 SZ seen=0;
 root::abandon_to(move(task),Sink{.seen=&seen});
-(void)src.try_set_cancelled(root::CancelReason::requested);
+(void)src.try_set_cancelled(root::work_errc::cancelled_requested);
 return seen;
 }};
 }

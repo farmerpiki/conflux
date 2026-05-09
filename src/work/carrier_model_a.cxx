@@ -272,7 +272,7 @@ else
 else if(outcome_.is_failure())
 (void)src.try_set_exception(outcome_.failure().error);
 else
-(void)src.try_set_cancelled(outcome_.cancelled().reason);
+(void)src.try_set_cancelled(root::cancel_reason_errc(outcome_.cancelled().reason));
 return move(task);
 }
 };
@@ -352,7 +352,7 @@ else
 else if(out.is_failure())
 (void)src.try_set_exception(move(out).failure().error);
 else
-(void)src.try_set_cancelled(out.cancelled().reason);
+(void)src.try_set_cancelled(root::cancel_reason_errc(out.cancelled().reason));
 return move(task);
 }
 template<root::progress_capability Cap,root::work_value T>

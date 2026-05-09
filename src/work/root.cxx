@@ -106,6 +106,17 @@ case deadline:return work_errc::cancelled_deadline;
 }
 return work_errc::cancelled_requested;
 }
+[[nodiscard]]inline CancelReason errc_cancel_reason(
+work_errc e)noexcept{
+using enum work_errc;
+switch(e){
+case cancelled_requested:return CancelReason::requested;
+case cancelled_abandoned:return CancelReason::abandoned;
+case cancelled_shutdown:return CancelReason::shutdown;
+case cancelled_deadline:return CancelReason::deadline;
+default:return CancelReason::requested;
+}
+}
 std::error_category const&work_category()noexcept{
 struct impl final:std::error_category{
 [[nodiscard]]char const*name()const noexcept override{return "conflux.work";}
@@ -799,6 +810,14 @@ virtual void set_required_capability(CapabilityId id)noexcept=0;
 [[nodiscard]]virtual bool try_set_error(
 EC ec){
 return try_set_exception(make_exception_ptr(SE(ec)));
+}
+[[nodiscard]]virtual bool try_set_error(
+EC ec,SV msg)noexcept{
+try{
+return try_set_exception(make_exception_ptr(SE(ec,S{msg})));
+}catch(...){
+return try_set_error(ec);
+}
 }
 [[nodiscard]]virtual bool try_set_cancelled(CancelReason reason,bool allow_abandoned)noexcept=0;
 [[nodiscard]]virtual Outcome<T>wait_and_take_outcome()=0;
@@ -1575,12 +1594,16 @@ EP error){
 return state_?state_->try_set_exception(error):false;
 }
 [[nodiscard]]bool try_set_cancelled(
-CancelReason reason)noexcept{
-return state_?state_->try_set_cancelled(reason,false):false;
+work_errc errc=work_errc::cancelled_requested)noexcept{
+return state_?state_->try_set_cancelled(errc_cancel_reason(errc),false):false;
 }
 [[nodiscard]]bool try_set_error(
 EC ec){
 return state_?state_->try_set_error(ec):false;
+}
+[[nodiscard]]bool try_set_error(
+EC ec,SV msg)noexcept{
+return state_?state_->try_set_error(ec,msg):false;
 }
 [[nodiscard]]bool install_cancel_hook(
 detail::small_move_only_function<void(CancelReason)>fn)noexcept{
@@ -1631,12 +1654,16 @@ EP const&error){
 return state_?state_->try_set_exception(error):false;
 }
 [[nodiscard]]bool try_set_cancelled(
-CancelReason reason)noexcept{
-return state_?state_->try_set_cancelled(reason,false):false;
+work_errc errc=work_errc::cancelled_requested)noexcept{
+return state_?state_->try_set_cancelled(errc_cancel_reason(errc),false):false;
 }
 [[nodiscard]]bool try_set_error(
 EC ec){
 return state_?state_->try_set_error(ec):false;
+}
+[[nodiscard]]bool try_set_error(
+EC ec,SV msg)noexcept{
+return state_?state_->try_set_error(ec,msg):false;
 }
 [[nodiscard]]bool install_cancel_hook(
 detail::small_move_only_function<void(CancelReason)>fn)noexcept{

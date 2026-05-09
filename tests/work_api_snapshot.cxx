@@ -77,9 +77,12 @@ std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_value(root
 static_assert(
 std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_exception(EP{})),bool>);
 static_assert(std::is_same_v<
-decltype(std::declval<root::TaskSource<int>>().try_set_cancelled(root::CancelReason::requested)),
+decltype(std::declval<root::TaskSource<int>>().try_set_cancelled(root::work_errc::cancelled_requested)),
 bool>);
 static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_error(EC{})),bool>);
+static_assert(std::is_same_v<
+decltype(std::declval<root::TaskSource<int>>().try_set_error(EC{},SV{})),
+bool>);
 
 // E4: concept work_handle — satisfied by Task, Posted, Operation, *JoinHandle
 static_assert(root::work_handle<root::Task<int>>);
