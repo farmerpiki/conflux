@@ -290,6 +290,7 @@ target_sources(conflux_socket_io
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES
         src/socket_io/socket_io.cxx
+        src/socket_io/socket_io_coro.cxx
 )
 target_link_libraries(conflux_socket_io
     PRIVATE conflux_options
