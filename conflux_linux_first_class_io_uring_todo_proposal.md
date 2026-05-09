@@ -55,28 +55,17 @@ The highest-risk gaps are not missing SQE prep helpers. They are:
 ## [x] P0-01: Make recv bundle either correct or unavailable
 
 **Classification:** Keep, narrow.  
-**Current state:** Partial/unsafe.
-
-Evidence in current repo:
-
-- `src/socket_io/socket_io.cxx:292-309` exposes `submit_recv_multishot(..., bundle=true)` and sets `IORING_RECVSEND_BUNDLE`.
-- `src/net/http_server.cxx:3855-3856` enables server recv bundle when config requests it and `IORING_FEAT_RECVSEND_BUNDLE` is present.
-- `src/net/http_server.cxx:2898-2909` has an ad-hoc bundle loop over contiguous buffer IDs.
-- `src/socket_io/socket_io.cxx:145-167` exposes only simple `buffer_view(id,len)`, `recycle(id)`, and `recycle_batch(ids)`.
-
-The current server code is better than “only reads first buffer,” but the abstraction is still not first-class. Bundle semantics require processing the initial buffer and subsequent contiguous buffers until `cqe->res` bytes are consumed; the CQE gives the first buffer ID, but not the buffer-ring position. The manual recommends tracking a cached head index per buffer ring.
-
-**Decision:** Do not treat current bundle support as production-safe. Either hard-disable `recv_bundle` at config/runtime, or finish bundle support as an explicit `BufferRing` mode with tests.
+**Current state:** Done — `a2784c0`, `7aef873`, `7a539d8`, `6ead3e1`, `c40a37e`.
 
 **TODO:**
 
-- [ ] Add `BufferRingMode::classic_one_cqe_per_buffer`.
-- [ ] Add `BufferRingMode::recv_bundle`.
-- [ ] Track cached consume head for bundle rings.
-- [ ] Add `RecvBundle` decode API that returns all chunks for a CQE.
-- [ ] Make recycling bundle-aware; recycle exactly all consumed buffers, once.
-- [ ] Add tests for bundle crossing buffer boundaries, wraparound, short first buffer, and multishot end.
-- [ ] Until tests pass, force `recv_bundle=false` even if kernel advertises the feature.
+- [x] Add `BufferRingMode::classic_one_cqe_per_buffer`.
+- [x] Add `BufferRingMode::recv_bundle`.
+- [x] Track cached consume head for bundle rings.
+- [x] Add `RecvBundle` decode API that returns all chunks for a CQE.
+- [x] Make recycling bundle-aware; recycle exactly all consumed buffers, once.
+- [x] Add tests for bundle crossing buffer boundaries, wraparound, short first buffer, and multishot end.
+- [x] Until tests pass, force `recv_bundle=false` even if kernel advertises the feature.
 
 Suggested API:
 
@@ -107,22 +96,16 @@ expected<u32, Err> BufferRing::for_each_bundle_chunk(int res, u32 flags, Fn&& fn
 ## [x] P0-02: Remove hidden submit from `SocketRawRing::get_sqe()`
 
 **Classification:** Keep.  
-**Current state:** Not done.
-
-Evidence in current repo:
-
-- `src/socket_io/socket_io.cxx:45-51` calls `io_uring_submit()` inside `SocketRawRing::get_sqe()` if `io_uring_get_sqe()` returns null.
-
-This is surprising in the raw/batch API. Raw callers need control over batching, ordering, backpressure, latency, and linked-chain boundaries. Hidden submit also diverges from the direct-file-flow contract, which expects nonblocking acquisition and whole-chain reservation.
+**Current state:** Done — `a2784c0`.
 
 **TODO:**
 
-- [ ] Replace `get_sqe()` with `try_get_sqe() noexcept` that never submits.
-- [ ] Add `reserve_sqe_slots(u32 n) noexcept`.
-- [ ] Add `get_reserved_sqe() noexcept` for after reservation.
-- [ ] Update every raw helper to return `false`/`Err::sq_full` instead of submitting.
-- [ ] Audit helpers that need multiple SQEs (`submit_shutdown_close`, `submit_recvmsg_with_timeout`) for all-or-nothing reservation.
-- [ ] Keep `submit()` explicit on `SocketRawRing`.
+- [x] Replace `get_sqe()` with `try_get_sqe() noexcept` that never submits.
+- [x] Add `reserve_sqe_slots(u32 n) noexcept`.
+- [x] Add `get_reserved_sqe() noexcept` for after reservation.
+- [x] Update every raw helper to return `false`/`Err::sq_full` instead of submitting.
+- [x] Audit helpers that need multiple SQEs (`submit_shutdown_close`, `submit_recvmsg_with_timeout`) for all-or-nothing reservation.
+- [x] Keep `submit()` explicit on `SocketRawRing`.
 
 Suggested API:
 
@@ -172,25 +155,17 @@ RawZcToken submit_send_zc_borrowed(...);                  // caller dispatches n
 ## [x] P0-04: Add `DirectSlotPool` with poison state
 
 **Classification:** Keep.  
-**Current state:** Not done.
-
-Evidence in current repo:
-
-- `src/socket_io/socket_io.cxx:227-253` has `DirectFdTable`, but it is only sparse-table registration/install.
-- `src/file_io/file_io.cxx:136-190` has `FileHandle` direct-slot ownership warnings, but no shared lease state machine.
-- `src/uring/flow.cxx` implements direct-file flow mechanics but still depends on external slot ownership.
-
-The direct-file-flow design explicitly requires external direct-slot leasing and says close failure must poison/leak the slot rather than return it to the generic pool. Without a first-class pool, socket direct accepts, direct socket allocation, fixed-fd install, and direct-file flows can drift into incompatible ownership rules.
+**Current state:** Done — `05d41b9`, `4d85d74`, `e101826`, `312bca2`.
 
 **TODO:**
 
-- [ ] Introduce `DirectSlotPool` independent of `DirectFdTable`.
-- [ ] Model states: `free`, `leased_empty`, `populated`, `closing`, `poisoned`.
-- [ ] Return RAII `DirectSlotLease` for acquired slots.
-- [ ] Support “kernel allocated direct slot” adoption from `accept_direct` / `socket_direct_alloc`.
-- [ ] Mark slot poisoned on `close_direct` failure.
-- [ ] Ensure poisoned slots never re-enter generic free pool.
-- [ ] Wire into `uring.flow`, `socket_io`, WebSocket fixed-fd handoff, and direct-close paths.
+- [x] Introduce `DirectSlotPool` independent of `DirectFdTable`.
+- [x] Model states: `free`, `leased_empty`, `populated`, `closing`, `poisoned`.
+- [x] Return RAII `DirectSlotLease` for acquired slots.
+- [x] Support “kernel allocated direct slot” adoption from `accept_direct` / `socket_direct_alloc`.
+- [x] Mark slot poisoned on `close_direct` failure.
+- [x] Ensure poisoned slots never re-enter generic free pool.
+- [x] Wire into `uring.flow`, `socket_io`, WebSocket fixed-fd handoff, and direct-close paths.
 
 Suggested API:
 
@@ -219,12 +194,7 @@ public:
 **Classification:** Keep.  
 **Current state:** Done — `c1ea3a5` (policy + flush + RunStatus + stress tests), `66a4687` (FlowRuntime shutdown-abandon hook).
 
-Evidence in current repo:
-
-- `src/net/http_server.cxx:3235-3259` batches CQEs, but no explicit CQ overflow handling was found.
-- `src/uring/flow.cxx` has deferred close and CQE accounting tests, but the ring/framework still needs an overflow policy.
-
-Managed flows depend on seeing every CQE. A permanently lost CQE leaks slab state and may leak or poison direct slots. The direct-file-flow design already calls this out as an integration responsibility.
+Fatal-on-overflow policy implemented with NODROP branching, bounded flush, `RunStatus` propagation, recv-buf recycling in flush, and ring-level stress tests. `FlowRuntime::abandon_deferred_closes()` handles shutdown drain.
 
 **TODO:**
 
@@ -356,12 +326,12 @@ Do not make bundle and incremental consumption share the same simple API. They h
 
 **TODO:**
 
-- [ ] Add `BufferRingMode` to `BufferRingOptions`.
-- [ ] Keep classic mode as the default.
-- [ ] Add bundle mode with cached head tracking.
+- [x] Add `BufferRingMode` to `BufferRingOptions`.
+- [x] Keep classic mode as the default.
+- [x] Add bundle mode with cached head tracking.
 - [ ] Add incremental mode with per-buffer offset tracking and `IORING_CQE_F_BUF_MORE` handling.
-- [ ] Reject unsupported modes at construction with precise error.
-- [ ] Add mode-specific tests and benchmarks.
+- [x] Reject unsupported modes at construction with precise error.
+- [x] Add mode-specific tests and benchmarks.
 
 Suggested API:
 
@@ -575,7 +545,7 @@ Registered buffer cloning applies to registered fixed-buffer tables. Current HTT
 
 **TODO:**
 
-- [ ] Add `IoUringCaps::registered_buffer_clone`.
+- [x] Add `IoUringCaps::registered_buffer_clone`.
 - [ ] Document when it applies: registered fixed buffers, not classic provided-buffer-ring recycling.
 - [ ] Add wrapper only when a multi-ring fixed-buffer consumer exists.
 - [ ] Benchmark startup/registration cost before adding complexity.
@@ -589,7 +559,7 @@ io_uring ZC Rx is not a drop-in replacement for current provided-buffer recv. It
 
 **TODO:**
 
-- [ ] Add `IoUringCaps::zc_rx` only as reported capability/diagnostic.
+- [x] Add `IoUringCaps::zc_rx` only as reported capability/diagnostic.
 - [ ] Do not mix ZC Rx into current `BufferRing` API.
 - [ ] Write a separate design doc before implementation.
 - [ ] Prototype only after direct-slot/buffer/CQ ownership model is stable.
@@ -649,10 +619,10 @@ Do not start AF_ALG before socket ownership and Task-ring semantics are clean. A
 # Items to avoid for now
 
 - [ ] Do **not** chase ZC Rx before buffer/direct-slot/CQ ownership is airtight.
-- [ ] Do **not** promote current first-CQE ZC send as an ergonomic Task API.
+- [x] Do **not** promote current first-CQE ZC send as an ergonomic Task API. *(P0-03 done)*
 - [ ] Do **not** add registered buffer cloning just because the kernel supports it; current server recv path uses provided buffer rings.
 - [ ] Do **not** migrate more HTTP/DNS code onto the current FileReader-backed `socket_io.coro` shim.
-- [ ] Do **not** hide `io_uring_submit()` inside raw/batch helpers.
+- [x] Do **not** hide `io_uring_submit()` inside raw/batch helpers. *(P0-02 done)*
 
 ---
 
