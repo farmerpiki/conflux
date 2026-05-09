@@ -9,6 +9,7 @@
 //       curl http://localhost:9090/api/ping
 //       curl http://localhost:9090/api/defer-ping
 import conflux.net.http;
+import conflux.work;
 import conflux.work.root;
 import std;
 int main(){

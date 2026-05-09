@@ -8,6 +8,7 @@ export module conflux.net.csrf;
 import std;
 import conflux.types;
 import conflux.crypto;
+import conflux.net.http.types;
 import conflux.net.router;
 import conflux.utils;
 namespace csrf_detail{

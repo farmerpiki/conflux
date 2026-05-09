@@ -2,6 +2,7 @@ export module conflux.net.forwarded;
 import std;
 import conflux.types;
 import conflux.utils;
+import conflux.net.http.types;
 import conflux.net.router;
 export struct ForwardedOptions{
 // CIDRs trusted to set forwarding headers.

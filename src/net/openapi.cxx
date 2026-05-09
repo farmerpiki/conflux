@@ -6,6 +6,7 @@ export module conflux.net.openapi;
 import std;
 import conflux.types;
 import conflux.utils;
+import conflux.net.http.types;
 import conflux.net.router;
 // Generate an OpenAPI 3.0 JSON spec from the routes registered on `router`.
 // title and version are used for the info object.

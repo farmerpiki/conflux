@@ -29,6 +29,7 @@ import std;
 import conflux.types;
 import std.compat;
 
+import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.vhost;
 import conflux.net.config;

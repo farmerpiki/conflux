@@ -5,6 +5,7 @@
 export module conflux.net.tracing;
 import std;
 import conflux.types;
+import conflux.net.http.types;
 import conflux.net.router;
 import conflux.utils;
 

@@ -7,6 +7,7 @@ export module conflux.net.response_cache;
 import std;
 import conflux.types;
 import conflux.utils;
+import conflux.net.http.types;
 import conflux.net.router;
 export struct ResponseCacheOptions{
 // Maximum number of entries in the LRU cache.

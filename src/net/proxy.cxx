@@ -5,7 +5,7 @@ module;
 export module conflux.net.proxy;
 import std;
 import conflux.types;
-export import conflux.work;
+import conflux.work;
 import conflux.net.http.types;
 import conflux.net.http.request;
 import conflux.net.client;

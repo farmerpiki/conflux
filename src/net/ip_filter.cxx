@@ -2,6 +2,7 @@ export module conflux.net.ip_filter;
 import std;
 import conflux.types;
 import conflux.utils;
+import conflux.net.http.types;
 import conflux.net.router;
 
 export enum class IpFilterMode{

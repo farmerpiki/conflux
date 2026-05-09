@@ -1,6 +1,7 @@
 export module conflux.net.redirect;
 import std;
 import conflux.types;
+import conflux.net.http.types;
 import conflux.net.router;
 [[nodiscard]]inline bool is_safe_redirect_suffix(
 SV s)noexcept{

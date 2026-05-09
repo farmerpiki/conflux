@@ -2,6 +2,7 @@ export module conflux.net.auth;
 import std;
 import conflux.types;
 import conflux.crypto;
+import conflux.net.http.types;
 import conflux.net.router;
 import conflux.utils;
 namespace auth_detail{

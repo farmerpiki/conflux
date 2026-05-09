@@ -3,6 +3,7 @@ export module conflux.net.app;
 import std;
 import conflux.types;
 import conflux.net.config;
+import conflux.net.http.types;
 import conflux.net.router;
 import conflux.net.http_server;
 import conflux.work;

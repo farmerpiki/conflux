@@ -1,6 +1,7 @@
 export module conflux.net.request_id;
 import std;
 import conflux.types;
+import conflux.net.http.types;
 import conflux.net.router;
 import conflux.utils;
 export struct RequestIdOptions{

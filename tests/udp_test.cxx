@@ -9,8 +9,8 @@
 
 import std;
 import conflux.types;
-import conflux.work;
 import conflux.file_io;
+import conflux.work;
 import conflux.socket_io.coro;
 
 using namespace std;

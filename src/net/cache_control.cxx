@@ -1,6 +1,7 @@
 export module conflux.net.cache_control;
 import std;
 import conflux.types;
+import conflux.net.http.types;
 import conflux.net.router;
 export struct CacheRule{
 // MIME prefix to match (e.g. "image/", "text/css", "application/json").

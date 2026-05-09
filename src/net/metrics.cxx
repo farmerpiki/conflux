@@ -4,6 +4,7 @@ module;
 export module conflux.net.metrics;
 import std;
 import conflux.types;
+import conflux.net.http.types;
 import conflux.net.router;
 // ---------------------------------------------------------------------------
 // Public types

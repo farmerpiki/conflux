@@ -29,7 +29,7 @@ export module conflux.net.router;
 
 import std;
 import conflux.types;
-export import conflux.net.http.types;
+import conflux.net.http.types;
 import conflux.crypto;
 import conflux.work;
 import conflux.file_io;
@@ -1927,10 +1927,7 @@ Group&add(
 SV method,
 SV path,
 F&&handler){
-router_.add(
-method,
-prefix_+S{path},
-wrap(Router::make_handler(forward<F>(handler))));
+router_.add(method,prefix_+S{path},wrap(Router::make_handler(forward<F>(handler))));
 return*this;
 }
 template<typename F>
@@ -2773,9 +2770,7 @@ if(outcome.is_success())
 deferred->complete(move(outcome).success().value);
 else
 deferred->complete(HttpResponse::internal_error());
-}catch(exception const&ex){
-deferred->complete(HttpResponse::internal_error(ex.what()));
-}catch(...){
+}catch(exception const&ex){deferred->complete(HttpResponse::internal_error(ex.what()));}catch(...){
 deferred->complete(HttpResponse::internal_error());
 }
 });
@@ -2805,8 +2800,7 @@ auto owned=req.to_owned();
 return invoke(wrapped,owned);
 }};
 else if constexpr(same_as<Ret,conflux::work::root::Task<HttpResponse>>)
-return Handler{
-[wrapped=Fn(forward<F>(fn))](HttpRequestView const&req)mutable->HttpResponse{
+return Handler{[wrapped=Fn(forward<F>(fn))](HttpRequestView const&req)mutable->HttpResponse{
 auto owned=req.to_owned();
 return run_async_http_task(invoke(wrapped,owned));
 }};

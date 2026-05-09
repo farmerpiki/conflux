@@ -1,6 +1,7 @@
 export module conflux.net.security;
 import std;
 import conflux.types;
+import conflux.net.http.types;
 import conflux.net.router;
 export struct SecurityOptions{
 // Strict-Transport-Security max-age in seconds; 0 disables the header.

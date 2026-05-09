@@ -2,6 +2,7 @@ export module conflux.net.rate_limit;
 import std;
 import conflux.types;
 import conflux.utils;
+import conflux.net.http.types;
 import conflux.net.router;
 export struct RateLimitOptions{
 // Maximum requests allowed per window.

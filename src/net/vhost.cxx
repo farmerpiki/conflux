@@ -2,6 +2,7 @@
 export module conflux.net.vhost;
 import std;
 import conflux.types;
+import conflux.net.http.types;
 import conflux.net.router;
 import conflux.utils;
 import conflux.work;

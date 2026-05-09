@@ -23,6 +23,7 @@ import std;
 import conflux.types;
 import std.compat;
 import conflux.net.config;
+import conflux.net.http.types;
 import conflux.net.router;
 
 export inline SV const kH3Alpn="h3";

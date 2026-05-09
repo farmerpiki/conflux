@@ -10,6 +10,7 @@ module;
 export module conflux.net.etag;
 import std;
 import conflux.types;
+import conflux.net.http.types;
 import conflux.net.router;
 export struct ETagOptions{
 // Use weak ETags (W/"hash"). Weak ETags are semantically equivalent

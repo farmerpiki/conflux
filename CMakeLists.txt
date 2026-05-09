@@ -354,6 +354,7 @@ set(CONFLUX_MODULE_SOURCES
     src/net/http_types.cxx
     src/net/http_request.cxx
     src/net/client.cxx
+    src/net/client_async.cxx
     src/net/compress.cxx
     src/net/rate_limit.cxx
     src/net/cors.cxx

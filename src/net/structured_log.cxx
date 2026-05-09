@@ -12,6 +12,7 @@ module;
 export module conflux.net.structured_log;
 import std;
 import conflux.types;
+import conflux.net.http.types;
 import conflux.net.router;
 export struct StructuredLogOptions{
 // Path to the log file. Empty = write to stderr.

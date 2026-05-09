@@ -1,6 +1,7 @@
 export module conflux.net.trailing_slash;
 import std;
 import conflux.types;
+import conflux.net.http.types;
 import conflux.net.router;
 
 export enum class TrailingSlashMode{

@@ -21,6 +21,7 @@ import conflux.net.compress.backend.zlibng;
 #if CONFLUX_HAS_ISAL
 import conflux.net.compress.backend.isal;
 #endif
+import conflux.net.http.types;
 import conflux.net.router;
 import conflux.utils;
 export struct CompressOptions{
