@@ -2307,10 +2307,9 @@ if(!direct_slots_->adopt_kernel_allocated(static_cast<u32>(res))){
 eprintln(format("handle_accept: adopt_kernel_allocated failed slot={} — stopping fixed accept",res));
 fixed_accept_enabled=false;
 submit_cancel_by_ud(raw_,pack(Op::Accept,0,listen_fd),0);
-if(auto*sqe=get_sqe();sqe!=nullptr){
-io_uring_prep_close_direct(sqe,static_cast<unsigned>(res));
-io_uring_sqe_set_data64(sqe,pack(Op::Nop,0,0));
-}
+auto const ud=pack(Op::DirectSlotClose,0,res);
+if(!submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(res)),ud))
+defer_op([this,res,ud]{submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(res)),ud);});
 return;
 }
 }
@@ -2519,12 +2518,11 @@ bool const cancel_recv=conn.recv_armed;
 auto state=begin_ws_handoff(conn);
 if(!state.pool){
 if(fixed_files){
-if(auto*sqe=get_sqe();sqe!=nullptr){
 if(direct_slots_&&!direct_slots_->mark_closing(static_cast<u32>(fd)))
 eprintln(format("handoff_plain_ws: mark_closing failed slot={}",fd));
-io_uring_prep_close_direct(sqe,static_cast<unsigned>(fd));
-io_uring_sqe_set_data64(sqe,pack(Op::DirectSlotClose,0,fd));
-}
+auto const ud=pack(Op::DirectSlotClose,0,fd);
+if(!submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),ud))
+defer_op([this,fd,ud]{submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),ud);});
 }else{
 ::close(fd);
 }
@@ -2576,7 +2574,9 @@ orig_ssl.reset();
 if(fixed_files){
 if(direct_slots_&&!direct_slots_->mark_closing(static_cast<u32>(fd)))
 eprintln(format("handoff_tls_ws: mark_closing failed slot={}",fd));
-submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),pack(Op::DirectSlotClose,0,fd));
+auto const ud=pack(Op::DirectSlotClose,0,fd);
+if(!submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),ud))
+defer_op([this,fd,ud]{submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),ud);});
 }else{
 ::close(fd);
 }
