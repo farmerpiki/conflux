@@ -62,7 +62,9 @@ FileIo,
 WsCancel,
 FixedFdInstall,
 DirectSlotClose,
-Nop
+Nop,
+
+
 
 };
 
@@ -71,7 +73,9 @@ stopped_normally,
 fatal_cq_overflow,
 fatal_cq_overflow_no_nodrop,
 fatal_submit_wait_ebadr,
-fatal_internal_exception
+fatal_internal_exception,
+
+
 
 };
 
@@ -80,7 +84,9 @@ none,
 cq_overflow,
 cq_overflow_no_nodrop,
 submit_wait_ebadr,
-internal_exception
+internal_exception,
+
+
 
 };
 
@@ -277,7 +283,9 @@ SizeLine,
 Data,
 DataCrlf,
 Trailers,
-Complete
+Complete,
+
+
 
 };
 struct ChunkedDecodeState{
@@ -484,7 +492,9 @@ return false;
 enum class ExpectState:u8{
 none,
 continue_100,
-unsupported
+unsupported,
+
+
 
 };
 [[nodiscard]]ExpectState parse_expect_header(
@@ -2325,6 +2335,13 @@ int res,
 u32 flags)noexcept{
 if(!cqe_has_buffer(flags))
 return;
+if(buf_ring_->mode()==BufferRingMode::incremental){
+if(res<=0)
+return;
+auto slice=buffer_slice_from_incremental_cqe(*buf_ring_,res,flags);
+slice.recycle_if_final();
+return;
+}
 auto slices=buffer_slices_from_cqe(*buf_ring_,res,flags,use_recv_bundle);
 slices.recycle_all();
 }
@@ -3062,6 +3079,16 @@ template<typename Buf>
 void append_recv_buf_to(
 Buf&dst,
 RecvComp&rc){
+if(buf_ring_->mode()==BufferRingMode::incremental){
+auto slice=buffer_slice_from_incremental_cqe(*buf_ring_,rc.res,rc.flags);
+ScopeExit const recycle{[&]()noexcept{
+slice.recycle_if_final();
+if(!slice.more())
+rc.flags=0;
+}};
+dst.append(reinterpret_cast<char const*>(slice.bytes().data()),slice.bytes().size());
+return;
+}
 auto slices=buffer_slices_from_cqe(*buf_ring_,rc.res,rc.flags,use_recv_bundle);
 ScopeExit const recycle{[&]()noexcept{
 slices.recycle_all();
@@ -3401,7 +3428,10 @@ return;
 if(cqe->res<=0)
 return;
 auto const buf_id=static_cast<u16>(cqe->flags>>IORING_CQE_BUFFER_SHIFT);
-if(use_recv_bundle){
+if(buf_ring_->mode()==BufferRingMode::incremental){
+auto slice=buffer_slice_from_incremental_cqe(*buf_ring_,cqe->res,cqe->flags);
+slice.recycle_if_final();
+}else if(use_recv_bundle){
 SZ remaining=static_cast<SZ>(cqe->res);
 u16 cur=buf_id;
 u32 const bcount=buf_ring_->count();
@@ -3677,7 +3707,9 @@ enum class ParseError:u8{
 None,
 BadRequest,
 UriTooLong,
-HeaderFieldsTooLarge
+HeaderFieldsTooLarge,
+
+
 
 };
 void emit_parse_error(

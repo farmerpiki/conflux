@@ -1370,9 +1370,10 @@ io_uring_free_buf_ring(ring_,p_,count_,group_.v);
 [[nodiscard]]static expected<BufRing,int>setup(
 Ring&ring,
 unsigned count,
-BufGroupId group)noexcept{
+BufGroupId group,
+unsigned flags=0u)noexcept{
 int err{};
-auto*p=io_uring_setup_buf_ring(ring.raw(),count,group.v,0,&err);
+auto*p=io_uring_setup_buf_ring(ring.raw(),count,group.v,flags,&err);
 if(p==nullptr)
 return unexpected{err};
 BufRing br;
@@ -1386,9 +1387,10 @@ return br;
 [[nodiscard]]static expected<BufRing,int>setup(
 RingRef ring,
 unsigned count,
-BufGroupId group)noexcept{
+BufGroupId group,
+unsigned flags=0u)noexcept{
 int err{};
-auto*p=io_uring_setup_buf_ring(ring.raw(),count,group.v,0,&err);
+auto*p=io_uring_setup_buf_ring(ring.raw(),count,group.v,flags,&err);
 if(p==nullptr)
 return unexpected{err};
 BufRing br;
@@ -1456,6 +1458,19 @@ unsigned entries,
 SetupFlags flags)noexcept{
 return io_uring_mlock_size(entries,flags.raw());
 }
+// ── buf_ring_flags / feat_bits ────────────────────────────────────────────────
+
+namespace buf_ring_flags{
+inline constexpr bool has_inc{true};
+inline constexpr unsigned inc{static_cast<unsigned>(IOU_PBUF_RING_INC)};
+}// namespace buf_ring_flags
+namespace feat_bits{
+#ifdef IORING_FEAT_PBUF_RING_INC
+inline constexpr u32 pbuf_ring_inc{IORING_FEAT_PBUF_RING_INC};
+#else
+inline constexpr u32 pbuf_ring_inc{0u};
+#endif
+}// namespace feat_bits
 // ── IoUringCaps ───────────────────────────────────────────────────────────────
 
 struct IoUringCaps{

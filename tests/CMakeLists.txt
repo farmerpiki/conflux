@@ -145,6 +145,17 @@ add_executable(recv_bundle_assert_probe recv_bundle_assert_probe.cxx)
 target_link_libraries(recv_bundle_assert_probe
     PRIVATE conflux_socket_io conflux_options PkgConfig::LIBURING)
 
+add_executable(incremental_buf_ring_assert_probe incremental_buf_ring_assert_probe.cxx)
+target_link_libraries(incremental_buf_ring_assert_probe
+    PRIVATE conflux_socket_io conflux_options PkgConfig::LIBURING)
+
+add_executable(conflux_incremental_buf_ring_tests incremental_buf_ring_test.cxx)
+target_link_libraries(conflux_incremental_buf_ring_tests
+    PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain PkgConfig::LIBURING)
+target_compile_definitions(conflux_incremental_buf_ring_tests PRIVATE
+    "ASSERT_PROBE_BIN=\"$<TARGET_FILE:incremental_buf_ring_assert_probe>\"")
+conflux_discover_tests(conflux_incremental_buf_ring_tests)
+
 add_executable(conflux_recv_bundle_tests recv_bundle_test.cxx)
 target_link_libraries(conflux_recv_bundle_tests
     PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain PkgConfig::LIBURING)

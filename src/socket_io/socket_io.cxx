@@ -115,6 +115,8 @@ return id<static_cast<u32>(gens_.size())&&gens_[id]==gen;
 // ─── BufferRing ──────────────────────────────────────────────────────────────
 // Owns a kernel buffer ring group. Manages slab allocation and recycling.
 
+export class IncrementalRecvSlice;
+
 export enum class BufferRingMode:u8{
 classic_one_cqe_per_buffer,
 recv_bundle,
@@ -147,6 +149,21 @@ V<u16>ring_order_;
 u32 head_pos_{};
 u32 tail_pos_{};
 BufferRingMode mode_{BufferRingMode::classic_one_cqe_per_buffer};
+V<SZ>incremental_offsets_{};
+friend class IncrementalRecvSlice;
+IncrementalRecvSlice friend buffer_slice_from_incremental_cqe(BufferRing&,int,u32)noexcept;
+[[nodiscard]]SZ&incremental_offset_ref(
+u16 id)noexcept{
+assert(mode_==BufferRingMode::incremental);
+assert(id<count_);
+return incremental_offsets_[id];
+}
+[[nodiscard]]span<byte const>buffer_view_at_offset(
+u16 id,
+SZ offset,
+SZ len)const noexcept{
+return{slab_.get()+static_cast<SZ>(id)*buf_size_+offset,len};
+}
 public:
 BufferRing(
 io_uring*uring,
@@ -158,8 +175,7 @@ BufferRingOptions opts)
 :ring_{},uring_{uring},buf_size_{opts.buf_size},count_{opts.count},group_id_{opts.group_id},mode_{opts.mode}{
 if(count_==0||count_>65536U||(count_&(count_-1))!=0||buf_size_==0||buf_size_>static_cast<SZ>(NL<u16>::max())||count_>NL<SZ>::max()/buf_size_)
 throw RE{"BufferRing invalid options"};
-if(opts.mode==BufferRingMode::incremental)
-throw RE{"BufferRing: incremental mode not yet supported"};
+static_assert(conflux::uring::buf_ring_flags::has_inc,"IOU_PBUF_RING_INC required");
 slab_sz_=static_cast<SZ>(count_)*buf_size_;
 SZ const aligned_sz=(slab_sz_+4095)&~SZ{4095};
 if(aligned_sz<slab_sz_)
@@ -172,10 +188,12 @@ if(opts.huge_pages){
 ::madvise(raw,slab_sz_,MADV_HUGEPAGE);
 ::madvise(raw,slab_sz_,MADV_DONTFORK);
 }
+unsigned const ring_flags=mode_==BufferRingMode::incremental?conflux::uring::buf_ring_flags::inc:0u;
 auto built=conflux::uring::BufRing::setup(
 uring_,
 static_cast<unsigned>(count_),
-conflux::uring::BufGroupId{group_id_});
+conflux::uring::BufGroupId{group_id_},
+ring_flags);
 if(!built){
 slab_.reset();
 throw RE{format("io_uring_setup_buf_ring failed: {}",built.error())};
@@ -193,6 +211,8 @@ for(u32 i=0;i<count_;++i)
 ring_order_[i]=static_cast<u16>(i);
 head_pos_=0;
 tail_pos_=count_;
+if(mode_==BufferRingMode::incremental)
+incremental_offsets_.assign(count_,SZ{0});
 }
 ~BufferRing()=default;
 BufferRing(BufferRing const&)=delete;
@@ -414,6 +434,60 @@ ring_=nullptr;
 }
 void detach()noexcept{detached_=true;}
 };
+// ─── IncrementalRecvSlice ────────────────────────────────────────────────────
+// One CQE's worth of incremental buffer data. Recycles only on final CQE.
+
+export class IncrementalRecvSlice{
+BufferRing*ring_{};
+u16 id_{};
+SZ offset_{};
+SZ len_{};
+bool more_{};
+bool detached_{false};
+public:
+IncrementalRecvSlice()noexcept=default;
+IncrementalRecvSlice(
+BufferRing*ring,
+u16 id,
+SZ offset,
+SZ len,
+bool more)noexcept
+:ring_{ring},id_{id},offset_{offset},len_{len},more_{more}{}
+IncrementalRecvSlice(IncrementalRecvSlice const&)=delete;
+IncrementalRecvSlice&operator=(IncrementalRecvSlice const&)=delete;
+IncrementalRecvSlice(
+IncrementalRecvSlice&&o)noexcept
+:ring_{exchange(o.ring_,nullptr)},id_{o.id_},offset_{o.offset_},len_{o.len_},more_{o.more_},detached_{o.detached_}{}
+IncrementalRecvSlice&operator=(
+IncrementalRecvSlice&&o)noexcept{
+if(this!=&o){
+ring_=exchange(o.ring_,nullptr);
+id_=o.id_;
+offset_=o.offset_;
+len_=o.len_;
+more_=o.more_;
+detached_=o.detached_;
+}
+return*this;
+}
+[[nodiscard]]bool valid()const noexcept{return ring_!=nullptr&&len_>0;}
+[[nodiscard]]u16 id()const noexcept{return id_;}
+[[nodiscard]]SZ offset()const noexcept{return offset_;}
+[[nodiscard]]SZ size()const noexcept{return len_;}
+[[nodiscard]]bool more()const noexcept{return more_;}
+[[nodiscard]]span<byte const>bytes()const noexcept{
+if(ring_==nullptr)
+return{};
+return ring_->buffer_view_at_offset(id_,offset_,len_);
+}
+void recycle_if_final()noexcept{
+if(ring_==nullptr||detached_||more_)
+return;
+ring_->recycle(id_);
+ring_=nullptr;
+}
+void detach()noexcept{detached_=true;}
+};
 // ─── CQE helpers ─────────────────────────────────────────────────────────────
 
 export[[nodiscard]]inline u16 cqe_buffer_id(
@@ -427,6 +501,31 @@ return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::more);
 export[[nodiscard]]inline bool cqe_has_buffer(
 u32 cqe_flags)noexcept{
 return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::buffer);
+}
+export[[nodiscard]]inline bool cqe_has_buf_more(
+u32 cqe_flags)noexcept{
+return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::buf_more);
+}
+export[[nodiscard]]IncrementalRecvSlice buffer_slice_from_incremental_cqe(
+BufferRing&ring,
+int res,
+u32 flags)noexcept{
+assert(res>0);
+assert(cqe_has_buffer(flags));
+assert(ring.mode()==BufferRingMode::incremental);
+u16 const id=cqe_buffer_id(flags);
+assert(id<ring.count());
+SZ&off=ring.incremental_offset_ref(id);
+assert(off<=ring.buf_size());
+assert(static_cast<SZ>(res)<=ring.buf_size()-off);
+bool const more=cqe_has_buf_more(flags);
+IncrementalRecvSlice slice{&ring,id,off,static_cast<SZ>(res),more};
+off+=static_cast<SZ>(res);
+if(!more){
+off=0;
+ring.consume(1);
+}
+return slice;
 }
 export[[nodiscard]]RecvSlices buffer_slices_from_cqe(
 BufferRing&ring,
