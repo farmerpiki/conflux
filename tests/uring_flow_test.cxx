@@ -1424,3 +1424,158 @@ rig.rt.on_cqe(&cqe);
 }
 REQUIRE(rig.results.size()==1);
 }
+// ── Duplicate close CQE rejected via close_seen guard ────────────────────────
+
+TEST_CASE(
+"flow.cqe_validation: duplicate close CQE rejected after close_seen",
+"[flow][cqe_validation]"){
+// Mode A: submit open+read+write, complete all body CQEs, then close CQE (accepted).
+// Inject a second spurious close CQE → stale generation → silently dropped.
+// finish_flow must not be called twice.
+TestRig rig;
+char buf[4]={};
+auto b=rig.rt.batch();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
+(void)b.submit();
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::write,4);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,3,uf::FlowOpKind::close_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+// Slab cell released; generation will differ on next alloc.
+// A second spurious close with the same (idx,gen) tag must be silently dropped.
+{
+auto cqe=make_flow_cqe(idx,gen,3,uf::FlowOpKind::close_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+CHECK(rig.results.size()==1);// no second callback
+}
+// ── -EOVERFLOW verified through submit + rejected_flows() ────────────────────
+
+TEST_CASE(
+"flow.builder: len > INT32_MAX appears in rejected_flows() with -EOVERFLOW",
+"[flow][builder]"){
+TestRig rig;
+char buf[4]={};
+auto b=rig.rt.batch();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
+SZ big=static_cast<SZ>(NL<i32>::max())+1;
+f.then_read(buf,big,0);
+CHECK(f.last_error()==-EOVERFLOW);
+(void)b.submit();
+auto rej=b.rejected_flows();
+REQUIRE(rej.size()==1);
+CHECK(rej[0].err==-EOVERFLOW);
+}
+// ── -EAGAIN when SQ exhausted by prior flows in the same batch ────────────────
+
+TEST_CASE(
+"flow.submit: SQ-full mid-batch produces -EAGAIN in rejected_flows()",
+"[flow][submit]"){
+// Ring with 3 SQ slots. Flow A (mode A body): open+read+write = 3 SQEs.
+// After flow A fills the ring, flow B gets -EAGAIN.
+TestRig rig{3};
+char buf[4]={};
+auto b=rig.rt.batch();
+// Flow A fills all 3 SQ slots
+auto fa=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+fa.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
+// Flow B: ring full → -EAGAIN
+auto fb=b.open_direct(DirectSlot{1},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+fb.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
+(void)b.submit();
+auto rej=b.rejected_flows();
+bool found_eagain=false;
+for(auto const&r:rej)
+if(r.err==-EAGAIN)
+found_eagain=true;
+CHECK(found_eagain);
+// Flow A still completes normally
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::write,4);
+rig.rt.on_cqe(&cqe);
+}
+rig.ring.submit();
+rig.rt.drain_deferred_closes();
+{
+auto cqe=make_flow_cqe(idx,gen,3,uf::FlowOpKind::close_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+CHECK(rig.results[0].open_ok());
+CHECK(rig.results[0].cleanup_result()==0);
+}
+// ── with_direct_file scoped form ─────────────────────────────────────────────
+
+TEST_CASE(
+"flow.with_direct_file: scoped form auto-closes and delivers result",
+"[flow][scoped]"){
+// with_direct_file desugars to open_direct + build_ops(f) + f.close_if_opened().
+// Verify close is auto-injected: 1 then_ body → mode B.
+TestRig rig;
+char buf[4]={};
+auto b=rig.rt.batch();
+b.with_direct_file(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY,0,[&](uf::DirectFileFlow&f){
+f.then_read(buf,4,0);
+});
+(void)b.submit();
+CHECK(b.rejected_flows().empty());
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+CHECK(rig.results.empty());
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::close_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+CHECK(rig.results[0].open_ok());
+CHECK(rig.results[0].close_in_chain);
+CHECK(rig.results[0].cleanup_result()==0);
+}
+TEST_CASE(
+"flow.with_direct_file: invalid body → close_if_opened is no-op",
+"[flow][scoped]"){
+// If the lambda makes the flow invalid, close_if_opened() called by the
+// scoped wrapper must be a no-op.
+TestRig rig;
+char buf[4]={};
+auto b=rig.rt.batch();
+b.with_direct_file(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY,0,[&](uf::DirectFileFlow&f){
+f.hard_read(buf,1,0);
+});// hard as first body → invalid
+(void)b.submit();
+auto rej=b.rejected_flows();
+REQUIRE(rej.size()==1);
+CHECK(rej[0].err==-EINVAL);
+CHECK(rig.results.empty());
+}
