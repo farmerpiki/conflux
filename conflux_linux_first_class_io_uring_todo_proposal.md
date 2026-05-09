@@ -228,10 +228,10 @@ Managed flows depend on seeing every CQE. A permanently lost CQE leaks slab stat
 
 **TODO:**
 
-- [ ] Add ring-level `cq_has_overflow()` wrapper.
+- [x] Add ring-level `cq_has_overflow()` wrapper.
 - [ ] Add `cq_overflow_count()` / stats from ring overflow counters where available.
 - [ ] Call `io_uring_get_events()` when overflow entries are waiting and feature support exists.
-- [ ] Define policy: managed-flow CQE lost means fatal ring error or ring quarantine.
+- [x] Define policy: managed-flow CQE lost means fatal ring error or ring quarantine.
 - [ ] Export overflow metrics through server diagnostics.
 - [ ] Add stress tests that intentionally under-size CQ and verify policy.
 - [ ] Add shutdown path that drains/abandons pending direct-file-flow deferred closes before ring teardown.
