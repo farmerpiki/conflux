@@ -141,10 +141,27 @@ target_link_libraries(conflux_resource_tests
     PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain PkgConfig::LIBURING)
 conflux_discover_tests(conflux_resource_tests)
 
+add_executable(recv_bundle_assert_probe recv_bundle_assert_probe.cxx)
+target_link_libraries(recv_bundle_assert_probe
+    PRIVATE conflux_socket_io conflux_options PkgConfig::LIBURING)
+
 add_executable(conflux_recv_bundle_tests recv_bundle_test.cxx)
 target_link_libraries(conflux_recv_bundle_tests
     PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain PkgConfig::LIBURING)
+target_compile_definitions(conflux_recv_bundle_tests PRIVATE
+    "ASSERT_PROBE_BIN=\"$<TARGET_FILE:recv_bundle_assert_probe>\"")
 conflux_discover_tests(conflux_recv_bundle_tests)
+
+add_executable(conflux_recv_bundle_e2e_tests)
+target_sources(conflux_recv_bundle_e2e_tests
+    PRIVATE
+        recv_bundle_e2e_test.cxx
+    PRIVATE FILE_SET CXX_MODULES FILES
+        support.cxx
+)
+target_link_libraries(conflux_recv_bundle_e2e_tests
+    PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+conflux_discover_tests(conflux_recv_bundle_e2e_tests)
 
 add_executable(conflux_json_conformance_external json_conformance_external.cxx)
 target_link_libraries(conflux_json_conformance_external PRIVATE conflux conflux_options Catch2::Catch2WithMain)

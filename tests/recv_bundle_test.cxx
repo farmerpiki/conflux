@@ -1,11 +1,37 @@
 // Plain TU — not a module unit.
 #include<catch2/catch_test_macros.hpp>
 #include<liburing.h>
+#include<sys/wait.h>
+#include<unistd.h>
 
 import std;
 import conflux.types;
 import conflux.uring;
 import conflux.socket_io;
+
+// Path injected by CMake for the death-test probe binary.
+#ifndef ASSERT_PROBE_BIN
+#error "ASSERT_PROBE_BIN must be defined by CMake"
+#endif
+namespace{
+// Fork the assert probe binary.
+// Returns 42 if the named assert fired (probe installs SIGABRT→_exit(42)),
+// 0 if the probe exited normally (NDEBUG build), negative on fork/exec failure.
+int run_probe(char const*probe)noexcept{
+pid_t const pid=::fork();
+if(pid<0)return-1;
+if(pid==0){
+char*args[]={const_cast<char*>(ASSERT_PROBE_BIN),
+const_cast<char*>(probe),nullptr};
+::execv(ASSERT_PROBE_BIN,args);
+::_exit(3);// execv failed
+}
+int status{};
+::waitpid(pid,&status,0);
+if(WIFEXITED(status))return WEXITSTATUS(status);
+return-1;
+}
+}
 namespace{
 u32 recv_flags_for(u16 buf_id)noexcept{
 return IORING_CQE_F_BUFFER|(static_cast<u32>(buf_id)<<IORING_CQE_BUFFER_SHIFT);
@@ -262,4 +288,22 @@ auto sr=buffer_slices_from_cqe(rig.ring,2*64,head_flags(rig.ring),true);
 REQUIRE(sr.valid());
 REQUIRE(sr.count()==2u);
 sr.recycle_all();
+}
+// Test 6: assert fires when CQE buf_id does not match ring_order_[head_pos].
+// Requires debug build; LD_PRELOAD interceptor converts abort→exit(42).
+TEST_CASE("recv_bundle.assert: ID mismatch detected","[recv_bundle][death]"){
+#ifdef NDEBUG
+SKIP("assert inactive in release build");
+#else
+// ring_id_at(head_pos=0)==0, but probe passes buf_id=5 → mismatch.
+REQUIRE(run_probe("desync")==42);
+#endif
+}
+// Test 12: assert fires when res<0 but IORING_CQE_F_BUFFER is set (kernel invariant).
+TEST_CASE("recv_bundle.assert: negative res with buffer flag detected","[recv_bundle][death]"){
+#ifdef NDEBUG
+SKIP("assert inactive in release build");
+#else
+REQUIRE(run_probe("neg_res_buf_flag")==42);
+#endif
 }
