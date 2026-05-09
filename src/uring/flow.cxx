@@ -535,6 +535,20 @@ st->open_ok=direct_open_succeeded(cqe->res);
 if(st->seen_cqes==st->expected_cqes)
 on_chain_complete(*st);
 }
+// resume_deferred_close — spec's framework hook; idempotent if close already submitted.
+void resume_deferred_close(
+u32 flow_idx,
+u32 gen)noexcept{
+auto*st=slab_.try_get(flow_idx,gen);
+if(st==nullptr||!st->close_pending)
+return;
+auto sqe=ring_.get_sqe();
+if(!sqe)
+return;
+submit_close_sqe(sqe.raw(),*st);
+}
+// drain_deferred_closes — bulk wrapper: retries every pending deferred close;
+// removes entries that successfully submitted; leaves still-pending ones.
 void drain_deferred_closes()noexcept{
 u32 w=0;
 for(u32 r=0;r<deferred_count_;++r){
@@ -592,20 +606,12 @@ void submit_close_sqe(
 io_uring_sqe*sqe,
 DirectFileFlowState&st)noexcept{
 io_uring_prep_close_direct(sqe,st.slot.v);
+// io_uring_prep_close_direct calls io_uring_initialize_sqe which zeroes flags;
+// explicitly clear link bits anyway — defensive against future prep changes.
+sqe->flags&=static_cast<u8>(~link_mask);
 sqe->user_data=encode_tag(st.flow_index,st.generation,st.initial_op_count,FlowOpKind::close_direct);
 st.close_submitted=true;
 st.close_pending=false;
-}
-void resume_deferred_close(
-u32 flow_idx,
-u32 gen)noexcept{
-auto*st=slab_.try_get(flow_idx,gen);
-if(st==nullptr||!st->close_pending)
-return;
-auto sqe=ring_.get_sqe();
-if(!sqe)
-return;
-submit_close_sqe(sqe.raw(),*st);
 }
 };
 }// namespace conflux::uring::flow

@@ -1154,3 +1154,154 @@ if(r.err==-ENOBUFS)
 found_overflow=true;
 CHECK(found_overflow);
 }
+// ── Mode B: write fails, close still runs (body-fail tolerance) ───────────────
+
+TEST_CASE(
+"flow.mode_b: write fails, hard-linked close still runs",
+"[flow][mode_b]"){
+// open + then_read + hard_write: write→close boundary is hard (mode B auto-rule).
+// open ok, read ok, write -ENOSPC → close still runs via hard link.
+TestRig rig;
+char buf[4]={};
+auto b=rig.rt.batch();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+f.then_read(buf,4,0).hard_write(buf,4,0).close_if_opened();
+(void)b.submit();
+// mode B: expected_cqes==4 (open+read+write+close)
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::write,-ENOSPC);
+rig.rt.on_cqe(&cqe);
+}
+CHECK(rig.results.empty());
+{
+auto cqe=make_flow_cqe(idx,gen,3,uf::FlowOpKind::close_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+auto const&r=rig.results[0];
+CHECK(r.open_ok());
+CHECK(r.close_in_chain);
+CHECK(r.close_cqe_seen);
+// write failed but close ran: cleanup_result() reflects the close result
+CHECK(r.cleanup_result()==0);
+CHECK(r.ops[2].res==-ENOSPC);
+}
+// ── Mode A vs B observable equivalence on open failure ────────────────────────
+
+TEST_CASE(
+"flow.equiv: mode A and mode B both return cleanup_result==nullopt on open fail",
+"[flow][equiv]"){
+// Both shapes must satisfy cleanup_result()==nullopt when open fails.
+// raw_close_result() differs: mode A → nullopt (no CQE), mode B → -ECANCELED (in-chain).
+
+// Mode A shape: open + then_read + then_write → cascade reaches close → mode A
+{
+TestRig rig;
+char buf[4]={};
+auto b=rig.rt.batch();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
+(void)b.submit();
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,-ENOENT);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,-ECANCELED);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::write,-ECANCELED);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+auto const&r=rig.results[0];
+CHECK_FALSE(r.open_ok());
+CHECK(r.cleanup_result()==nullopt);// normalized: open failed
+// mode A: no close CQE was ever submitted (open_ok==false)
+CHECK(r.raw_close_result()==nullopt);
+CHECK_FALSE(r.close_cqe_seen);
+}
+
+// Mode B shape: open + then_read + hard_write → close in chain → mode B
+{
+TestRig rig;
+char buf[4]={};
+auto b=rig.rt.batch();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+f.then_read(buf,4,0).hard_write(buf,4,0).close_if_opened();
+(void)b.submit();
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,-ENOENT);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,-ECANCELED);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::write,-ECANCELED);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,3,uf::FlowOpKind::close_direct,-ECANCELED);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+auto const&r=rig.results[0];
+CHECK_FALSE(r.open_ok());
+CHECK(r.cleanup_result()==nullopt);// same normalization as mode A
+// mode B: close CQE arrived (cascade); raw result is -ECANCELED
+CHECK(r.close_cqe_seen);
+CHECK(r.raw_close_result()==-ECANCELED);
+}
+}
+// ── CQE tag: body op_index interior of [initial_op_count, max_initial_ops) ────
+
+TEST_CASE(
+"flow.cqe_validation: body op_index in (initial_op_count, max_initial_ops) rejected",
+"[flow][cqe_validation]"){
+// initial_op_count=2 (open+read); max_initial_ops=8.
+// op_index=5 is inside [2,8) — past the runtime bound but under the compile-time limit.
+// The body branch checks op_index < initial_op_count (not max_initial_ops), so both
+// the boundary (2) and interior values (3..7) must be rejected.
+TestRig rig;
+char buf[4]={};
+auto b=rig.rt.batch();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+f.then_read(buf,4,0).close_if_opened();// initial_op_count=2, mode B: expected_cqes=3
+(void)b.submit();
+u32 const idx=0,gen=1;
+// Interior: op_index=5 is in [initial_op_count=2, max_initial_ops=8) → rejected
+{
+auto cqe=make_flow_cqe(idx,gen,5,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+CHECK(rig.results.empty());// rejected; state unchanged
+// Correct CQEs still advance the flow
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+CHECK(rig.results.empty());// mode B: awaiting close
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::close_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+}
