@@ -461,7 +461,7 @@ Do not create duplicate benchmark infrastructure. Extend the existing gate with 
 ## [ ] P2-01: Add ring resize wrapper after CQ telemetry
 
 **Classification:** Keep, narrow.  
-**Current state:** Not done.
+**Current state:** Not done. Worktree `p2-ring-resize` at `~/conflux_dev/p2_ring_resize`; proposal `p2_01_ring_resize_proposal.md` in `~/conflux_dev/`.
 
 Ring resizing is useful for network CQ sizing, but it is not a substitute for overflow policy. The man page also places constraints on when resizing is legal: it cannot resize while in overflow, and support is limited by ring setup flags.
 
@@ -488,7 +488,7 @@ expected<void, Err> Ring::grow_cq_to(u32 entries) noexcept;
 ## [ ] P2-02: Add owned-path variants for direct-file flow
 
 **Classification:** Keep.  
-**Current state:** Not done.
+**Current state:** Not done. Worktree `p2-owned-path-flow` at `~/conflux_dev/p2_owned_path_flow`; proposal `p2_02_owned_path_flow_proposal.md` in `~/conflux_dev/`.
 
 Evidence in current repo:
 
@@ -508,7 +508,7 @@ This is safe but too limiting for SQPOLL and old/no-submit-stable environments. 
 ## [ ] P2-03: Add poll-first recv/send policy wrapper
 
 **Classification:** Keep.  
-**Current state:** `RecvArmPolicy` enum added (`default_`, `poll_first`); wired into `submit_recv_multishot` via `ioprio` (`9fcd9a4`). `auto_from_last_cqe` not yet implemented; benchmarks not yet run.
+**Current state:** `RecvArmPolicy` enum added (`default_`, `poll_first`); wired into `submit_recv_multishot` via `ioprio` (`9fcd9a4`). `auto_from_last_cqe` not yet implemented; benchmarks not yet run. Worktree `p2-poll-first-auto` at `~/conflux_dev/p2_poll_first_auto`; proposal `p2_03_poll_first_auto_proposal.md` in `~/conflux_dev/`.
 
 **TODO:**
 
