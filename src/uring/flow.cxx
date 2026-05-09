@@ -223,7 +223,9 @@ return&st;
 }
 // hack: test-only slab manipulation
 #ifdef CONFLUX_TESTING
-void test_hack_generation(u32 idx,u32 gen)noexcept{
+void test_hack_generation(
+u32 idx,
+u32 gen)noexcept{
 if(idx<kMaxFlows)
 cells_[idx].generation=gen;
 }
@@ -311,7 +313,13 @@ return;
 auto const&op=b.ops[i];
 switch(op.kind){
 case FlowOpKind::open_direct:
-io_uring_prep_openat_direct(sqe,op.open.dfd,op.open.path,op.open.open_flags,op.open.mode,op.open.slot.value);
+io_uring_prep_openat_direct(
+sqe,
+op.open.dfd,
+op.open.path,
+op.open.open_flags,
+op.open.mode,
+op.open.slot.value);
 break;
 case FlowOpKind::read:
 io_uring_prep_read(sqe,static_cast<int>(b.slot.value),op.read.buf,op.read.len,op.read.offset);
@@ -481,9 +489,12 @@ template<class Cb>
 FlowRuntime(
 Ring&ring,
 Cb&&cb)noexcept
-:ring_{ring},
-path_lifetime_stable_{ring.has_feature(IORING_FEAT_SUBMIT_STABLE)&&!ring.is_sqpoll()}{
+:ring_{ring},path_lifetime_stable_{ring.has_feature(IORING_FEAT_SUBMIT_STABLE)&&!ring.is_sqpoll()}{
 cb_.set(forward<Cb>(cb));
+}
+~FlowRuntime()noexcept{
+assert(
+deferred_count_==0&&"FlowRuntime destroyed with pending deferred closes; call abandon_deferred_closes() first");
 }
 [[nodiscard]]u32 invalid_cqe_count()const noexcept{return invalid_cqe_count_;}
 void on_cqe(
@@ -578,6 +589,41 @@ u32 r=deferred_count_;
 while(r-- >0)
 resume_deferred_close(deferred_[r].flow_index,deferred_[r].generation);
 }
+[[nodiscard]]u32 deferred_close_count()const noexcept{return deferred_count_;}
+[[nodiscard]]bool has_deferred_closes()const noexcept{return deferred_count_!=0;}
+struct AbandonedDeferredClose{
+DirectSlot slot;
+u32 flow_index;
+u32 generation;
+};
+// Abandons all pending deferred closes without submitting SQEs and without
+// invoking the normal FlowResult callback. Only for shutdown/fatal-exit cleanup.
+// Caller owns DirectSlotPool and must poison returned slots via on_abandon.
+template<class Fn>
+u32 abandon_deferred_closes(
+Fn&&on_abandon)noexcept{
+static_assert(
+std::is_nothrow_invocable_v<Fn&,AbandonedDeferredClose>,
+"FlowRuntime::abandon_deferred_closes callback must be noexcept");
+u32 n=0;
+for(u32 i=0;i<deferred_count_;++i){
+auto const e=deferred_[i];
+auto*st=slab_.try_get(e.flow_index,e.generation);
+if(st==nullptr||!st->close_pending)
+continue;
+on_abandon(
+AbandonedDeferredClose{
+.slot=st->slot,
+.flow_index=e.flow_index,
+.generation=e.generation,
+});
+st->close_pending=false;
+++n;
+slab_.release(*st);
+}
+deferred_count_=0;
+return n;
+}
 [[nodiscard]]FlowBuilder flow()noexcept{
 assert(builder_count_==0);
 builder_count_=0;
@@ -586,14 +632,18 @@ return FlowBuilder{ring_,*this};
 }
 // hack: test-only slab manipulation forwarded from FlowSlab
 #ifdef CONFLUX_TESTING
-void test_hack_slab_generation(u32 idx,u32 gen)noexcept{
+void test_hack_slab_generation(
+u32 idx,
+u32 gen)noexcept{
 slab_.test_hack_generation(idx,gen);
 }
 void test_hack_drain_slab_freelist()noexcept{slab_.test_hack_drain_freelist();}
 #endif
 private:
 void handle_invalid(
-io_uring_cqe*)noexcept{++invalid_cqe_count_;}
+io_uring_cqe*)noexcept{
+++invalid_cqe_count_;
+}
 void finish_flow(
 DirectFileFlowState&st)noexcept{
 FlowResult const r{

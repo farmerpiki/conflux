@@ -36,7 +36,9 @@ auto r=Ring::init(sq_size,{});
 REQUIRE(r);
 return move(*r);
 }()},
-rt{ring,[&](uf::FlowResult fr)noexcept{results.push_back(fr);}}{// NOLINT(bugprone-exception-escape) — reserve below prevents allocation
+rt{ring,[&](uf::FlowResult fr)noexcept{
+results.push_back(fr);
+}}{// NOLINT(bugprone-exception-escape) — reserve below prevents allocation
 results.reserve(64);
 }
 };
@@ -1738,4 +1740,61 @@ auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::close_direct,0);
 rig.rt.on_cqe(&cqe);
 }
 REQUIRE(rig.results.size()==1);
+}
+// ── abandon_deferred_closes ───────────────────────────────────────────────────
+
+TEST_CASE(
+"flow.abandon_deferred_closes: reports abandoned slots, clears queue, requires no submit",
+"[flow][deferred]"){
+// 4-slot ring (power-of-2 min); 4-SQE mode-A flow (open+read+write+read) fills
+// all slots so on_chain_complete cannot get the 5th SQE for close → deferred.
+TestRig rig{4};
+char buf[4]={};
+auto b=rig.rt.flow();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+f.then_read(buf,4,0).then_write(buf,4,0).then_read(buf,4,0).close_if_opened();
+(void)b.submit();// SQ now full (4/4); mode A → 4 body SQEs, close submitted separately
+REQUIRE(b.rejected_flows().empty());
+
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::write,4);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,3,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+// on_chain_complete fires: get_sqe() fails (SQ full) → close_pending=true, deferred
+CHECK(rig.results.empty());
+REQUIRE(rig.rt.deferred_close_count()==1);
+REQUIRE(rig.rt.has_deferred_closes());
+// Abandon without submitting — models fatal-exit path.
+struct Captured{
+u32 count=0;
+uf::FlowRuntime::AbandonedDeferredClose last{};
+};
+Captured cap;
+u32 const n=rig.rt.abandon_deferred_closes([&](auto e)noexcept{
+++cap.count;
+cap.last=e;
+});
+
+CHECK(n==1);
+CHECK(cap.count==1);
+CHECK(cap.last.slot.value==0);
+CHECK(cap.last.flow_index==idx);
+CHECK(cap.last.generation==gen);
+CHECK(rig.rt.deferred_close_count()==0);
+CHECK_FALSE(rig.rt.has_deferred_closes());
+CHECK(rig.results.empty());
+// ~FlowRuntime() destructor assertion must not fire (deferred_count_==0).
 }
