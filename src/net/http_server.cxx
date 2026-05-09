@@ -61,8 +61,8 @@ Timer,
 FileIo,
 WsCancel,
 FixedFdInstall,
+DirectSlotClose,
 Nop
-
 };
 
 constexpr u32 OP_SHIFT=56U;
@@ -82,6 +82,126 @@ static_cast<Op>(ud>>OP_SHIFT),
 static_cast<u32>((ud>>GEN_SHIFT)&GEN_MASK),
 static_cast<int>(ud&FD_MASK)};
 }
+enum class DirectSlotState:u8{
+free_slot,
+populated,
+closing,
+poisoned
+};
+enum class DirectSlotError:u8{
+not_registered,
+exhausted,
+out_of_range,
+bad_state,
+install_failed
+};
+struct DirectSlotPool{
+explicit DirectSlotPool(
+DirectFdTable const&table)
+:capacity_{table.capacity()}{
+state_.assign(capacity_,static_cast<u8>(DirectSlotState::free_slot));
+free_stack_.reserve(capacity_);
+free_pos_.assign(capacity_,UINT32_MAX);
+for(u32 i=0;i<capacity_;++i){
+free_pos_[i]=i;
+free_stack_.push_back(i);
+}
+}
+[[nodiscard]]expected<void,DirectSlotError>install_os_fd(
+u32 slot,
+int)noexcept{
+if(slot>=capacity_)
+return unexpected(DirectSlotError::out_of_range);
+if(slot_state(slot)!=DirectSlotState::free_slot)
+return unexpected(DirectSlotError::bad_state);
+remove_from_free(slot);
+set_state(slot,DirectSlotState::populated);
+return{};
+}
+[[nodiscard]]expected<void,DirectSlotError>adopt_kernel_allocated(
+u32 slot)noexcept{
+if(slot>=capacity_)
+return unexpected(DirectSlotError::out_of_range);
+if(slot_state(slot)!=DirectSlotState::free_slot)
+return unexpected(DirectSlotError::bad_state);
+remove_from_free(slot);
+set_state(slot,DirectSlotState::populated);
+return{};
+}
+[[nodiscard]]expected<void,DirectSlotError>mark_closing(
+u32 slot)noexcept{
+if(slot>=capacity_)
+return unexpected(DirectSlotError::out_of_range);
+if(slot_state(slot)!=DirectSlotState::populated)
+return unexpected(DirectSlotError::bad_state);
+set_state(slot,DirectSlotState::closing);
+return{};
+}
+[[nodiscard]]expected<void,DirectSlotError>release_closed(
+u32 slot){
+if(slot>=capacity_)
+return unexpected(DirectSlotError::out_of_range);
+if(slot_state(slot)!=DirectSlotState::closing)
+return unexpected(DirectSlotError::bad_state);
+push_to_free(slot);
+set_state(slot,DirectSlotState::free_slot);
+return{};
+}
+void poison(
+u32 slot,
+int close_res){
+if(slot>=capacity_){
+eprintln(format("DirectSlotPool::poison: slot={} out of range close_res={}",slot,close_res));
+return;
+}
+auto const prev=slot_state(slot);
+if(prev==DirectSlotState::free_slot){
+eprintln(format("DirectSlotPool::poison: slot={} state=free — corruption close_res={}",slot,close_res));
+return;
+}
+set_state(slot,DirectSlotState::poisoned);
+++poisoned_count_;
+eprintln(format(
+"DirectSlotPool::poison: slot={} close_res={} previous_state={}",
+slot,
+close_res,
+static_cast<u8>(prev)));
+}
+[[nodiscard]]u32 capacity()const noexcept{return capacity_;}
+[[nodiscard]]u32 free_count()const noexcept{return static_cast<u32>(free_stack_.size());}
+[[nodiscard]]u32 poisoned_count()const noexcept{return poisoned_count_;}
+private:
+[[nodiscard]]DirectSlotState slot_state(
+u32 slot)const noexcept{
+return static_cast<DirectSlotState>(state_[slot]);
+}
+void set_state(
+u32 slot,
+DirectSlotState s)noexcept{
+state_[slot]=static_cast<u8>(s);
+}
+void remove_from_free(
+u32 slot)noexcept{
+u32 const pos=free_pos_[slot];
+u32 const last=free_stack_.back();
+if(last!=slot){
+free_stack_[pos]=last;
+free_pos_[last]=pos;
+}
+free_stack_.pop_back();
+free_pos_[slot]=UINT32_MAX;
+}
+void push_to_free(
+u32 slot){
+free_pos_[slot]=static_cast<u32>(free_stack_.size());
+free_stack_.push_back(slot);
+}
+u32 capacity_{};
+u32 poisoned_count_{};
+V<u8>state_{};
+V<u32>free_stack_{};
+V<u32>free_pos_{};
+};
 SV http_date_now(){
 static thread_local S cached;
 static thread_local time_t cached_epoch=0;
@@ -882,9 +1002,11 @@ V<int>ws_cancel_ready{};
 
 UP<BufferRing>buf_ring_;
 UP<DirectFdTable>direct_fds_;
+UP<DirectSlotPool>direct_slots_;
 int tcp_opt_one_=1;// stable optval for cmd_sock SETSOCKOPT
 
 bool fixed_files=false;
+bool fixed_accept_enabled=true;
 bool shutting_down=false;
 bool use_recv_bundle=false;// IORING_RECVSEND_BUNDLE on multishot recv
 SZ max_body_size=SZ{1024}*1024;// set from Config before run_loop()
@@ -1579,8 +1701,14 @@ port_signal->notify_all();
 }
 
 direct_fds_=make_unique<DirectFdTable>(conflux::uring::RingRef{ring},MAX_FILES);
-if(direct_fds_->registered()&&direct_fds_->install(static_cast<u32>(listen_fd),listen_fd))
+if(direct_fds_->registered()&&direct_fds_->install(static_cast<u32>(listen_fd),listen_fd)){
 fixed_files=true;
+direct_slots_=make_unique<DirectSlotPool>(*direct_fds_);
+if(!direct_slots_->install_os_fd(static_cast<u32>(listen_fd),listen_fd)){
+direct_slots_.reset();
+fixed_files=false;
+}
+}
 
 // file_io pools: constructed here so register_buffers_sparse runs before
 // buf_ring setup (both touch io_uring internal state; ordering is
@@ -2044,6 +2172,10 @@ return;
 }
 if(ufd<fd_table.size())
 fd_table[ufd].closing=true;
+if(direct_slots_){
+if(!direct_slots_->mark_closing(static_cast<u32>(fd)))
+eprintln(format("queue_close: mark_closing failed slot={}",fd));
+}
 return;
 }
 
@@ -2170,6 +2302,18 @@ void handle_accept(
 int res,
 u32 flg){
 if(res>=0){
+if(fixed_files&&direct_slots_){
+if(!direct_slots_->adopt_kernel_allocated(static_cast<u32>(res))){
+eprintln(format("handle_accept: adopt_kernel_allocated failed slot={} — stopping fixed accept",res));
+fixed_accept_enabled=false;
+submit_cancel_by_ud(raw_,pack(Op::Accept,0,listen_fd),0);
+if(auto*sqe=get_sqe();sqe!=nullptr){
+io_uring_prep_close_direct(sqe,static_cast<unsigned>(res));
+io_uring_sqe_set_data64(sqe,pack(Op::Nop,0,0));
+}
+return;
+}
+}
 auto&conn=conn_for(res);
 ++conn.gen;
 conn.fd=res;
@@ -2376,8 +2520,10 @@ auto state=begin_ws_handoff(conn);
 if(!state.pool){
 if(fixed_files){
 if(auto*sqe=get_sqe();sqe!=nullptr){
+if(direct_slots_&&!direct_slots_->mark_closing(static_cast<u32>(fd)))
+eprintln(format("handoff_plain_ws: mark_closing failed slot={}",fd));
 io_uring_prep_close_direct(sqe,static_cast<unsigned>(fd));
-io_uring_sqe_set_data64(sqe,pack(Op::Nop,0,0));
+io_uring_sqe_set_data64(sqe,pack(Op::DirectSlotClose,0,fd));
 }
 }else{
 ::close(fd);
@@ -2427,10 +2573,13 @@ bool const cancel_recv=conn.recv_armed;
 auto state=begin_ws_handoff(conn);
 if(!state.pool){
 orig_ssl.reset();
-if(fixed_files)
-submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),pack(Op::Nop,0,0));
-else
+if(fixed_files){
+if(direct_slots_&&!direct_slots_->mark_closing(static_cast<u32>(fd)))
+eprintln(format("handoff_tls_ws: mark_closing failed slot={}",fd));
+submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),pack(Op::DirectSlotClose,0,fd));
+}else{
 ::close(fd);
+}
 return;
 }
 auto entry=WsInstallEntry{move(state),move(initial_buf),move(orig_ssl)};
@@ -2538,9 +2687,17 @@ auto entry=move(it->second);
 ws_installs.erase(it);
 
 auto free_slot=[this,slot_fd]{
-if(!submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(slot_fd)),pack(Op::Nop,0,0)))
+if(direct_slots_&&!direct_slots_->mark_closing(static_cast<u32>(slot_fd)))
+eprintln(format("free_slot: mark_closing failed slot={}",slot_fd));
+if(!submit_close(
+raw_,
+SocketHandle::from_direct(static_cast<u32>(slot_fd)),
+pack(Op::DirectSlotClose,0,slot_fd)))
 defer_op([this,slot_fd]{
-submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(slot_fd)),pack(Op::Nop,0,0));
+submit_close(
+raw_,
+SocketHandle::from_direct(static_cast<u32>(slot_fd)),
+pack(Op::DirectSlotClose,0,slot_fd));
 });
 };
 free_slot();
@@ -2883,6 +3040,34 @@ conn.written=0;
 conn.send_queued=true;
 queue_send(fd);
 }
+void handle_conn_close(
+int fd,
+int res,
+u32 gen){
+if(direct_slots_&&fixed_files){
+auto const slot=static_cast<u32>(fd);
+if(res>=0){
+if(!direct_slots_->release_closed(slot))
+eprintln(format("handle_conn_close: release_closed failed slot={}",slot));
+}else{
+direct_slots_->poison(slot,res);
+}
+}
+conn_erase(fd,gen);
+}
+void handle_direct_slot_close(
+int fd,
+int res){
+if(!direct_slots_)
+return;
+auto const slot=static_cast<u32>(fd);
+if(res>=0){
+if(!direct_slots_->release_closed(slot))
+eprintln(format("handle_direct_slot_close: release_closed failed slot={}",slot));
+}else{
+direct_slots_->poison(slot,res);
+}
+}
 void dispatch_cqe(
 Op op,
 int fd,
@@ -2893,7 +3078,7 @@ switch(op){
 case Op::Accept:handle_accept(res,flg);break;
 case Op::Recv:handle_recv_cqe(fd,res,flg,gen);break;
 case Op::Send:handle_send(fd,res,gen);break;
-case Op::Close:conn_erase(fd,gen);break;
+case Op::Close:handle_conn_close(fd,res,gen);break;
 case Op::SsePoll:handle_sse_poll(fd,res,gen);break;
 case Op::DeferredPoll:handle_deferred_poll(fd,res,gen);break;
 case Op::Shutdown:handle_shutdown();break;
@@ -2904,6 +3089,7 @@ file_completions->dispatch(static_cast<u32>(fd),gen,res,flg);
 break;
 case Op::WsCancel:handle_ws_cancel(fd);break;
 case Op::FixedFdInstall:handle_fixed_fd_install(fd,res);break;
+case Op::DirectSlotClose:handle_direct_slot_close(fd,res);break;
 case Op::Nop:break;
 }
 }
