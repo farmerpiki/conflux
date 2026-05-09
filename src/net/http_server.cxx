@@ -290,6 +290,29 @@ SZ max_body_size,
 bool http_redirect_to_https,
 V<S>const&https_redirect_hosts,
 ParserLimits const&limits);
+struct PartialBuf{
+S buf{};
+SZ pos{0};
+[[nodiscard]]inline bool empty()const noexcept{return pos>=buf.size();}
+[[nodiscard]]inline SZ size()const noexcept{return buf.size()-pos;}
+[[nodiscard]]inline char const*data()const noexcept{return buf.data()+pos;}
+[[nodiscard]]inline char front()const noexcept{return buf[pos];}
+[[nodiscard]]inline SV view()const noexcept{return{buf.data()+pos,buf.size()-pos};}
+inline void append(char const*p,SZ n){buf.append(p,n);}
+inline void consume(SZ n)noexcept{
+pos+=n;
+if(pos>=buf.size())clear();
+}
+inline void clear()noexcept{
+buf.clear();
+pos=0;
+}
+[[nodiscard]]inline S take(){
+if(pos>0)buf.erase(0,pos);
+pos=0;
+return move(buf);
+}
+};
 // NOLINTNEXTLINE(clang-analyzer-optin.performance.Padding): field order mirrors connection state-machine phases.
 struct alignas(
 64)Conn{
@@ -324,7 +347,7 @@ bool ktls_send=false;// kTLS send offload active; splice_to_fd usable for TLS fi
 #endif
 bool has_response=false;
 S own_response{};
-S partial{};
+PartialBuf partial{};
 SZ written=0;
 SZ request_bytes=0;// bytes consumed by current dispatched request
 chrono::steady_clock::time_point last_activity;// updated on accept and recv
@@ -2248,10 +2271,7 @@ conn.close_after_send=false;
 queue_close(fd);
 return;
 }
-if(conn.request_bytes<=conn.partial.size())
-conn.partial.erase(0,conn.request_bytes);
-else
-conn.partial.clear();
+conn.partial.consume(conn.request_bytes);
 if(conn.request_bytes>0){
 conn.expect_continue_sent=false;
 conn.chunked_decode.reset();
@@ -2264,7 +2284,7 @@ conn.request_started=chrono::steady_clock::now();
 if(!conn.partial.empty()){
 dispatch_request(
 conn,
-conn.partial,
+conn.partial.view(),
 *this,
 max_body_size,
 http_redirect_to_https,
@@ -2331,12 +2351,9 @@ launch_plain_ws_handler(pool,move(entry.state),fd,move(entry.initial_buf));
 void handoff_plain_ws(
 Conn&conn,
 int fd){
-if(conn.request_bytes<=conn.partial.size())
-conn.partial.erase(0,conn.request_bytes);
-else
-conn.partial.clear();
+conn.partial.consume(conn.request_bytes);
 conn.request_bytes=0;
-S initial_buf=move(conn.partial);
+S initial_buf=conn.partial.take();
 bool const cancel_recv=conn.recv_armed;
 auto state=begin_ws_handoff(conn);
 if(!state.pool){
@@ -2384,13 +2401,10 @@ Conn&conn,
 int fd){
 // Strip the HTTP request bytes — only post-header data belongs in the
 // WS initial buffer (pipelined WS data, if any).
-if(conn.request_bytes<=conn.partial.size())
-conn.partial.erase(0,conn.request_bytes);
-else
-conn.partial.clear();
+conn.partial.consume(conn.request_bytes);
 conn.request_bytes=0;
 
-S initial_buf=move(conn.partial);
+S initial_buf=conn.partial.take();
 auto orig_ssl=move(conn.ssl);// transfer ownership to the thread
 bool const cancel_recv=conn.recv_armed;
 auto state=begin_ws_handoff(conn);
@@ -2877,8 +2891,9 @@ case Op::Nop:break;
 }
 }
 // Phase 1: copy recv data out of provided buffers, return immediately.
+template<typename Buf>
 void append_recv_buf_to(
-S&dst,
+Buf&dst,
 RecvComp&rc){
 if(use_recv_bundle){
 SZ remaining=static_cast<SZ>(rc.res);
@@ -2959,7 +2974,7 @@ continue;
 // Protocol sniff: ssl==nullptr && tls_hs_done==true is the "undecided" sentinel
 // (set in handle_accept when ssl_ctx!=nullptr). Decide on the very first byte.
 if(!conn.ssl&&conn.tls_hs_done&&!conn.partial.empty()){
-if(static_cast<unsigned char>(conn.partial[0])==0x16U){
+if(static_cast<unsigned char>(conn.partial.front())==0x16U){
 // TLS ClientHello record type — create SSL and start handshake.
 conn.ssl.reset(SSL_new(ssl_ctx));
 if(conn.ssl){
@@ -3020,11 +3035,10 @@ RecvComp&rc){
 // pointing at tls_recv_buf.data() — avoids BIO_s_mem internal buffer and
 // the BIO_write memcpy.
 if(!conn.partial.empty()){
-if(conn.tls_recv_buf.empty()){
-conn.tls_recv_buf=move(conn.partial);
-conn.partial.clear();
-}else{
-conn.tls_recv_buf.append(conn.partial);
+if(conn.tls_recv_buf.empty())
+conn.tls_recv_buf=conn.partial.take();
+else{
+conn.tls_recv_buf.append(conn.partial.data(),conn.partial.size());
 conn.partial.clear();
 }
 }
@@ -3170,7 +3184,7 @@ continue;
 if(!conn.has_response&&!conn.is_sse&&!conn.is_ws)
 dispatch_request(
 conn,
-conn.partial,
+conn.partial.view(),
 *this,
 max_body_size,
 http_redirect_to_https,
