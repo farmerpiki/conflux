@@ -38,8 +38,10 @@ return HttpResponse::text("pong");
 auto cfg=tiny_ring_config();
 auto server=make_shared<HttpServer>(cfg,move(router));
 RunStatus result=RunStatus::stopped_normally;
+Atom<bool>srv_exited{false};
 jthread srv_thread([&]{
 result=server->run();
+srv_exited.store(true,memory_order_release);
 });
 
 u16 const port=server->port();
@@ -68,8 +70,7 @@ static constexpr int kPollMs=10;
 static constexpr int kTimeoutMs=3000;
 bool server_stopped=false;
 for(int elapsed=0;elapsed<kTimeoutMs;elapsed+=kPollMs){
-// jthread checks: if srv_thread has completed the server has exited.
-if(!srv_thread.joinable()||srv_thread.get_id()==jthread::id{}){
+if(srv_exited.load(memory_order_acquire)){
 server_stopped=true;
 break;
 }

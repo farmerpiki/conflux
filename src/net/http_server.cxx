@@ -3387,8 +3387,11 @@ case Op::SsePoll:
 case Op::DeferredPoll:
 case Op::Shutdown:
 case Op::WsCancel:
-case Op::FixedFdInstall:
 case Op::Nop:
+break;
+case Op::FixedFdInstall:
+if(cqe->res>=0)
+::close(cqe->res);
 break;
 default:
 // unknown op — future Op additions must be handled here
@@ -3418,6 +3421,10 @@ eprintln(format("ring_cq_overflow={}",overflow_now));
 if(fatal_cq_overflow_count_>0)
 eprintln(format("ring_cq_overflow_delta={}",overflow_now>fatal_cq_overflow_count_?overflow_now-fatal_cq_overflow_count_:0u));
 eprintln(format("ring_sq_busy={}",io_uring_sq_ready(&ring)));
+{
+u32 const v=ring.sq.kdropped!=nullptr?*ring.sq.kdropped:0u;
+eprintln(format("ring_sq_dropped={}",v));
+}
 // Parse fdinfo for CqOverflowList (overflow list depth, Linux 6.x+)
 int const rfd=ring.ring_fd;
 if(rfd>=0){
@@ -3493,16 +3500,21 @@ int const rc=io_uring_submit_and_wait(&ring,1);
 if(rc<0){
 if(rc==-EINTR)
 continue;
-if(rc==-EBADR||ring_integrity_suspect()){
+if(rc==-EBADR){
+enter_ring_fatal(ServerFatalReason::submit_wait_ebadr);
+flush_overflow_cqes_until_clear_or_limit();
+return RunStatus::fatal_submit_wait_ebadr;
+}
+if(ring_integrity_suspect()){
 if(!raw_.ring().has_feature(IORING_FEAT_NODROP)){
 enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
 emit_ring_diagnostics();
 close_tracked_fds_sync();
 return RunStatus::fatal_cq_overflow_no_nodrop;
 }
-enter_ring_fatal(ServerFatalReason::submit_wait_ebadr);
+enter_ring_fatal(ServerFatalReason::cq_overflow);
 flush_overflow_cqes_until_clear_or_limit();
-return RunStatus::fatal_submit_wait_ebadr;
+return RunStatus::fatal_cq_overflow;
 }
 continue;
 }
@@ -4145,6 +4157,26 @@ if(impl_->cfg.http3.enabled&&!impl_->use_vhost&&impl_->tls_ctx)
 r.alt_svc_header=http3_alt_svc_value(r.bound_port,impl_->cfg.http3.alt_svc_max_age_sec);
 #endif
 
+if(i==0){
+S feat_s;
+auto af=[&](char const*n,u32 b){if((r.ring.features&b)==0u)return;if(!feat_s.empty())feat_s+=',';feat_s+=n;};
+af("NODROP",IORING_FEAT_NODROP);
+af("FAST_POLL",IORING_FEAT_FAST_POLL);
+af("SUBMIT_STABLE",IORING_FEAT_SUBMIT_STABLE);
+af("RW_CUR_POS",IORING_FEAT_RW_CUR_POS);
+af("REG_REG_RING",IORING_FEAT_REG_REG_RING);
+af("RECVSEND_BUNDLE",IORING_FEAT_RECVSEND_BUNDLE);
+S sflg_s;
+auto as=[&](char const*n,u32 b){if((r.ring.flags&b)==0u)return;if(!sflg_s.empty())sflg_s+=',';sflg_s+=n;};
+as("SINGLE_ISSUER",IORING_SETUP_SINGLE_ISSUER);
+as("DEFER_TASKRUN",IORING_SETUP_DEFER_TASKRUN);
+as("COOP_TASKRUN",IORING_SETUP_COOP_TASKRUN);
+as("TASKRUN_FLAG",IORING_SETUP_TASKRUN_FLAG);
+as("SQPOLL",IORING_SETUP_SQPOLL);
+as("IOPOLL",IORING_SETUP_IOPOLL);
+eprintln(format("uring_features={}",feat_s.empty()?"none":feat_s));
+eprintln(format("uring_setup_flags={}",sflg_s.empty()?"none":sflg_s));
+}
 if(i==0&&impl_->cfg.startup_banner)
 eprintln(format(
 "listening on {}://0.0.0.0:{}  " "(rings={}, entries={}, flags={}, fixed_files={}, buf_ring=true)",
