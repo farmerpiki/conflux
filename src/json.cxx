@@ -1077,7 +1077,7 @@ append_utf8_to_sv(cp,[&](SV chunk){
 writer(chunk);
 total+=chunk.size();
 });
-(void)before;
+auto _=before;
 if(max_sz.exceeds(total,kDefaultMaxString))
 return unexpected(
 JsonError{
@@ -2015,7 +2015,7 @@ build_ok=(ht!=nullptr);
 if(!build_ok){
 // FI-1: cache the failure so subsequent lookups don't retry.
 ObjHashTable*expected_null=nullptr;// NOLINT(misc-const-correctness)
-(void)ref.compare_exchange_strong(
+auto _=ref.compare_exchange_strong(
 expected_null,
 kHashBuildFailedSentinel,
 memory_order_release,
@@ -2451,7 +2451,7 @@ JsonError{
 ObjHashTable*owned=nullptr;
 auto stash_failure_sentinel=[&]{
 ObjHashTable*expected_null=nullptr;// NOLINT(misc-const-correctness)
-(void)ref.compare_exchange_strong(
+auto _=ref.compare_exchange_strong(
 expected_null,
 kHashBuildFailedSentinel,
 memory_order_release,
@@ -6776,13 +6776,13 @@ void schema_insert_type(ObjectBuilder&obj){
 using Raw=std::remove_cvref_t<M>;
 if constexpr(is_optional<Raw>::value){
 using Inner=typename Raw::value_type;
-(void)obj.insert_string("type",json_type_name<Inner>());
+auto _=obj.insert_string("type",json_type_name<Inner>());
 }else if constexpr(is_nullable_type<Raw>::value){
 using Inner=nullable_inner_t<Raw>;
-(void)obj.insert_string("type",json_type_name<Inner>());
-(void)obj.insert_bool("nullable",true);
+auto _=obj.insert_string("type",json_type_name<Inner>());
+auto _=obj.insert_bool("nullable",true);
 }else{
-(void)obj.insert_string("type",json_type_name<Raw>());
+auto _=obj.insert_string("type",json_type_name<Raw>());
 }
 }
 }// namespace detail
@@ -6793,7 +6793,7 @@ ValueBuilder vb;
 auto obj_r=vb.begin_object();
 if(!obj_r)return unexpected(move(obj_r).error());
 auto&schema=*obj_r;
-(void)schema.insert_string("type","object");
+auto _=schema.insert_string("type","object");
 
 if constexpr(detail::has_members_spec<T>::value){
 auto props_r=schema.insert_object("properties");
@@ -6823,7 +6823,7 @@ apply(
 auto const&m=detail::jm_member(entry);
 using M=std::remove_reference_t<decltype(std::declval<T>().*m.pointer)>;
 if constexpr(!detail::is_optional<std::remove_cvref_t<M>>::value)
-(void)req.append_string(m.name);
+auto _=req.append_string(m.name);
 })(ms),
 ...);
 },

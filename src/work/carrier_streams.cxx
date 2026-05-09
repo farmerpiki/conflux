@@ -108,7 +108,7 @@ root::emit_carrier_diagnostic_fmt(
 "DroppableSlotAwaiter dtor raced commit's in-flight callback " "— best-effort abandon (awaiter=%p)",
 static_cast<void*>(this));
 #endif
-(void)root::try_abandon_to(move(state_->handle),root::drop_on_abandon{});
+auto _=root::try_abandon_to(move(state_->handle),root::drop_on_abandon{});
 return;
 }
 }

@@ -48,7 +48,7 @@ return;
 }
 lock.unlock();
 }
-(void)ctrl.request_cancel();
+auto _=ctrl.request_cancel();
 }
 void track(
 root::PostedControl ctrl){
@@ -64,7 +64,7 @@ return;
 }
 lock.unlock();
 }
-(void)ctrl.request_cancel();
+auto _=ctrl.request_cancel();
 }
 void track(
 root::OperationControl ctrl){
@@ -80,7 +80,7 @@ return;
 }
 lock.unlock();
 }
-(void)ctrl.request_cancel();
+auto _=ctrl.request_cancel();
 }
 void cancel(
 root::CancelReason reason)noexcept{
@@ -98,11 +98,11 @@ posted.swap(posted_ctrls_);
 op.swap(op_ctrls_);
 }
 for(auto&c:task)
-(void)c.request_cancel();
+auto _=c.request_cancel();
 for(auto&c:posted)
-(void)c.request_cancel();
+auto _=c.request_cancel();
 for(auto&c:op)
-(void)c.request_cancel();
+auto _=c.request_cancel();
 }
 [[nodiscard]]bool is_cancelled()const noexcept{
 std::lock_guard const lock{mu_};

@@ -427,7 +427,7 @@ run_inline(move(job));
 if(ran==budget){
 SL const lk{mtx_};
 if(!queue_.empty()&&!wake_pending_.test_and_set(memory_order_acq_rel))
-(void)wake_ring();
+auto _=wake_ring();
 }
 return ran;
 }
@@ -455,14 +455,14 @@ auto job=[shared_src,fn=fn_t{forward<Fn>(fn)}]()mutable{
 try{
 if constexpr(std::is_void_v<T>){
 fn();
-(void)shared_src->try_set_value(Success<T>{});
+auto _=shared_src->try_set_value(Success<T>{});
 }else{
-(void)shared_src->try_set_value(Success<T>{fn()});
+auto _=shared_src->try_set_value(Success<T>{fn()});
 }
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 };
 if(!target.enqueue(move(job)))
-(void)shared_src->try_set_cancelled(work_errc::cancelled_requested);
+auto _=shared_src->try_set_cancelled(work_errc::cancelled_requested);
 return move(task);
 }
 // Synchronous blocking wait for a root::Task<T> — no FileReader required.
@@ -534,26 +534,27 @@ conflux::work::root::TaskJoinHandle<Ts>...hs)
 :handles{move(hs)...},src{move(s)}{errors.reserve(sizeof...(Ts));}
 void cancel_all()noexcept{
 auto keepalive=this->shared_from_this();
-std::apply([](auto&...hs)noexcept{((void)hs.control().request_cancel(),...);},handles);
+auto cancel_one=[](auto&h)noexcept{auto _=h.control().request_cancel();};
+std::apply([&](auto&...hs)noexcept{(cancel_one(hs),...);},handles);
 }
 void commit()noexcept{
 using namespace conflux::work::root;
 if(any_cancelled){
-(void)src.try_set_cancelled(work_errc::cancelled_requested);
+auto _=src.try_set_cancelled(work_errc::cancelled_requested);
 return;
 }
 if(errors.size()==1){
-(void)src.try_set_exception(move(errors[0]));
+auto _=src.try_set_exception(move(errors[0]));
 return;
 }
 if(errors.size()>1){
-(void)src.try_set_exception(make_exception_ptr(AggregateError{move(errors)}));
+auto _=src.try_set_exception(make_exception_ptr(AggregateError{move(errors)}));
 return;
 }
 try{
 auto result=std::apply([](auto&...opts){return Result{move(*opts)...};},slots);
-(void)src.try_set_value(conflux::work::root::Success<Result>{move(result)});
-}catch(...){(void)src.try_set_exception(current_exception());}
+auto _=src.try_set_value(conflux::work::root::Success<Result>{move(result)});
+}catch(...){auto _=src.try_set_exception(current_exception());}
 }
 template<SZ I>
 void on_ready()noexcept{
@@ -591,7 +592,7 @@ using Result=std::tuple<std::conditional_t<std::is_void_v<Ts>,std::monostate,Ts>
 
 if constexpr(sizeof...(Ts)==0){
 auto[t,s]=make_task_source<Result>(SubmitOptions{.enable_cancellation=false});
-(void)s.try_set_value(Success<Result>{Result{}});
+auto _=s.try_set_value(Success<Result>{Result{}});
 return move(t);
 }
 

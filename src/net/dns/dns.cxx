@@ -965,8 +965,8 @@ tv.tv_sec=sec.count();
 tv.tv_usec=static_cast<suseconds_t>(usec);
 int const fd=stream.raw_fd();
 if(fd>=0){
-(void)::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&tv,sizeof(tv));
-(void)::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
+auto _=::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&tv,sizeof(tv));
+auto _=::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
 }
 }
 auto const sent=co_await stream.send(span<u8 const>{framed.data(),framed.size()},MSG_NOSIGNAL);
@@ -1060,7 +1060,7 @@ BatchFailReason::network;
 co_return EndpointBatch{.fail_reason=r,.was_queried=true};
 }
 }catch(...){co_return EndpointBatch{.fail_reason=BatchFailReason::network,.was_queried=true};}
-(void)needs_tcp_fallback;// always true here
+auto _=needs_tcp_fallback;// always true here
 // TCP fallback (co_await must be outside catch block):
 try{
 auto tcp_task=tcp_single_query(reader,ns,*wire_ptr,qid,lowercase_ascii(hostname),qtype,timeout);
@@ -1203,7 +1203,7 @@ if(de.kind!=DnsErrorKind::nxdomain||index+1>=candidates.size())
 throw;
 try_next=true;
 }
-(void)try_next;// always true here
+auto _=try_next;// always true here
 // recursive fallback outside catch block:
 auto next_task=build_native_udp_flow_with_candidates(
 reader,
@@ -1418,13 +1418,13 @@ if(auto ep=try_parse_ip_literal(host,port);ep.has_value()){
 auto[task,raw_src]=root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
 ResolveResult r;
 r.endpoints.push_back(*ep);
-(void)raw_src.try_set_value(root::Success<ResolveResult>{move(r)});
+auto _=raw_src.try_set_value(root::Success<ResolveResult>{move(r)});
 return move(task);
 }
 
 if(!is_valid_hostname(host)){
 auto[task,raw_src]=root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
-(void)raw_src.try_set_exception(
+auto _=raw_src.try_set_exception(
 make_exception_ptr(
 DnsError{DnsErrorKind::invalid_hostname,format("invalid hostname '{}'",host)}));
 return move(task);
@@ -1458,7 +1458,7 @@ root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=f
 ResolveResult r;
 r.endpoints=move(eps);
 r.from_hosts_file=true;
-(void)raw_src.try_set_value(root::Success<ResolveResult>{move(r)});
+auto _=raw_src.try_set_value(root::Success<ResolveResult>{move(r)});
 return move(task);
 }
 }
@@ -1476,12 +1476,12 @@ if(auto hit=impl_->cache->get(coalesce_key);hit.has_value()){
 auto[task,raw_src]=
 root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
 if(hit->is_negative){
-(void)raw_src.try_set_exception(
+auto _=raw_src.try_set_exception(
 make_exception_ptr(DnsError{DnsErrorKind::nxdomain,"dns: nxdomain (cached)"}));
 return move(task);
 }
 hit->from_cache=true;
-(void)raw_src.try_set_value(root::Success<ResolveResult>{move(*hit)});
+auto _=raw_src.try_set_value(root::Success<ResolveResult>{move(*hit)});
 return move(task);
 }
 }
@@ -1517,7 +1517,7 @@ addrinfo*res_raw=nullptr;
 string const p=to_string(port);
 int const gai=::getaddrinfo(h.c_str(),p.c_str(),&hints,&res_raw);
 if(gai!=0||res_raw==nullptr){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(
 DnsError{DnsErrorKind::nxdomain,format("getaddrinfo: {}",::gai_strerror(gai))}));
 return;
@@ -1540,20 +1540,20 @@ result.endpoints.push_back(ep);
 }
 }
 if(result.endpoints.empty()){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(
 DnsError{DnsErrorKind::nxdomain,format("no usable addresses for '{}'",h)}));
 return;
 }
 if(cache&&!cache_key.empty()&&!result.endpoints.empty())
 cache->put(cache_key,result,ttl);
-(void)shared_src->try_set_value(root::Success<ResolveResult>{move(result)});
+auto _=shared_src->try_set_value(root::Success<ResolveResult>{move(result)});
 }catch(...){
-(void)shared_src->try_set_exception(current_exception());
+auto _=shared_src->try_set_exception(current_exception());
 }// NOLINT(bugprone-empty-catch)
 });
 if(!ok)
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(DnsError{DnsErrorKind::cancelled,"nss_thread: work pool not accepting jobs"}));
 return move(task);
 }
@@ -1564,14 +1564,14 @@ auto const ns_list=nameservers_with_attempts(base_ns,impl_->attempts);
 
 if(ns_list.empty()){
 auto[task,raw_src]=root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
-(void)raw_src.try_set_exception(
+auto _=raw_src.try_set_exception(
 make_exception_ptr(DnsError{DnsErrorKind::no_servers,"resolve: no nameservers configured"}));
 return move(task);
 }
 
 if(impl_->in_flight.size()>=impl_->opts.max_in_flight_queries){
 auto[task,raw_src]=root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
-(void)raw_src.try_set_exception(
+auto _=raw_src.try_set_exception(
 make_exception_ptr(DnsError{DnsErrorKind::cancelled,"resolve: max in-flight queries exceeded"}));
 return move(task);
 }
@@ -1588,11 +1588,11 @@ auto out_src=make_shared<root::TaskSource<ResolveResult>>(move(out_raw_src));
 try{
 auto r=co_await move(wt);
 r.from_coalesced=true;
-(void)out_src->try_set_value(root::Success<ResolveResult>{move(r)});
+auto _=out_src->try_set_value(root::Success<ResolveResult>{move(r)});
 }catch(Cancelled const&){
-(void)out_src->try_set_exception(
+auto _=out_src->try_set_exception(
 make_exception_ptr(DnsError{DnsErrorKind::cancelled,"dns: query cancelled"}));
-}catch(...){(void)out_src->try_set_exception(current_exception());}
+}catch(...){auto _=out_src->try_set_exception(current_exception());}
 }(out_src,move(wtask))
 .detach();
 return move(out_task);
@@ -1621,7 +1621,7 @@ impl_keep->in_flight.erase(it);
 for(auto const&w:waiters){
 auto copy=r;
 copy.from_coalesced=true;
-(void)w->try_set_value(root::Success<ResolveResult>{move(copy)});
+auto _=w->try_set_value(root::Success<ResolveResult>{move(copy)});
 }
 return r;
 };
@@ -1638,7 +1638,7 @@ impl_keep->in_flight.erase(it);
 }
 }
 for(auto const&w:waiters)
-(void)w->try_set_exception(ep);
+auto _=w->try_set_exception(ep);
 // Negative caching: store NXDOMAIN entries so repeat lookups skip the wire.
 try{
 rethrow_exception(ep);
@@ -1670,7 +1670,7 @@ auto out=out_src;
 auto r=co_await move(inner);
 r=cache_insert(move(r));
 r=fanout_success(move(r));
-(void)out->try_set_value(root::Success<ResolveResult>{move(r)});
+auto _=out->try_set_value(root::Success<ResolveResult>{move(r)});
 }catch(Cancelled const&){
 auto out=out_src;
 auto key=coalesce_key;
@@ -1683,14 +1683,14 @@ impl->in_flight.erase(it);
 }
 auto cancelled=make_exception_ptr(DnsError{DnsErrorKind::cancelled,"dns: query cancelled"});
 for(auto const&w:waiters)
-(void)w->try_set_exception(cancelled);
-(void)out->try_set_exception(
+auto _=w->try_set_exception(cancelled);
+auto _=out->try_set_exception(
 make_exception_ptr(DnsError{DnsErrorKind::cancelled,"dns: query cancelled"}));
 }catch(...){
 auto out=out_src;
 try{
 fanout_error(current_exception());
-}catch(...){(void)out->try_set_exception(current_exception());}
+}catch(...){auto _=out->try_set_exception(current_exception());}
 }
 }(out_src,
 build_native_udp_flow_with_candidates(

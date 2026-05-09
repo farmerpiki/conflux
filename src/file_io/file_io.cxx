@@ -500,7 +500,7 @@ template<typename T>
 root::Task<T>fail_sq_full()const{
 auto[task,raw_src]=root::make_task_source<T>(root::SubmitOptions{.enable_cancellation=false});
 auto shared_src=make_shared<root::TaskSource<T>>(move(raw_src));
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 // Reserve a completion slot with a callback that bridges an IoResult into
@@ -513,16 +513,16 @@ Decode&&decode){
 return completions_->reserve([src,decode=forward<Decode>(decode)](IoResult r)mutable{
 try{
 if(r.res<0){
-(void)src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: cqe error"}));
+auto _=src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: cqe error"}));
 return;
 }
 if constexpr(std::is_void_v<T>){
 decode(r);
-(void)src->try_set_value(root::Success<void>{});
+auto _=src->try_set_value(root::Success<void>{});
 }else{
-(void)src->try_set_value(root::Success<T>{decode(r)});
+auto _=src->try_set_value(root::Success<T>{decode(r)});
 }
-}catch(...){(void)src->try_set_exception(current_exception());}
+}catch(...){auto _=src->try_set_exception(current_exception());}
 });
 }
 template<typename T,typename Decode>
@@ -532,16 +532,16 @@ Decode&&decode){
 return completions_->reserve_zc([src,decode=forward<Decode>(decode)](IoResult r)mutable{
 try{
 if(r.res<0){
-(void)src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: cqe error"}));
+auto _=src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: cqe error"}));
 return;
 }
 if constexpr(std::is_void_v<T>){
 decode(r);
-(void)src->try_set_value(root::Success<void>{});
+auto _=src->try_set_value(root::Success<void>{});
 }else{
-(void)src->try_set_value(root::Success<T>{decode(r)});
+auto _=src->try_set_value(root::Success<T>{decode(r)});
 }
-}catch(...){(void)src->try_set_exception(current_exception());}
+}catch(...){auto _=src->try_set_exception(current_exception());}
 });
 }
 public:
@@ -596,15 +596,15 @@ mode_t mode,
 unsigned file_index){
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return false;
 }
 io_uring_prep_openat(sqe,dir_fd,path_owner->c_str(),flags,mode);
 auto[slot,gen]=completions_->reserve([this,src,path_owner,file_index](IoResult r)mutable{
-(void)path_owner;// keep-alive until CQE
+auto _=path_owner;// keep-alive until CQE
 try{
 if(r.res<0){
-(void)src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: open_direct"}));
+auto _=src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: open_direct"}));
 return;
 }
 int const fd=r.res;
@@ -613,12 +613,12 @@ int const update_rc=::io_uring_register_files_update(ring_,file_index,&fd,1);
 if(update_rc<0){
 int const sparse=-1;
 ::io_uring_register_files_update(ring_,file_index,&sparse,1);
-(void)src->try_set_exception(make_exception_ptr(FileIoError{-update_rc,"file_io: open_direct"}));
+auto _=src->try_set_exception(make_exception_ptr(FileIoError{-update_rc,"file_io: open_direct"}));
 return;
 }
-(void)src->try_set_value(
+auto _=src->try_set_value(
 root::Success<FileHandle>{FileHandle::from_direct_slot(static_cast<int>(file_index))});
-}catch(...){(void)src->try_set_exception(current_exception());}
+}catch(...){auto _=src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return true;
@@ -637,20 +637,20 @@ auto[task,raw_src]=root::make_task_source<FileHandle>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto path_owner=make_shared<S>(move(path));
 io_uring_prep_openat(sqe,dir_fd,path_owner->c_str(),flags,mode);
 auto[slot,gen]=completions_->reserve([shared_src,path_owner](IoResult r)mutable{
-(void)path_owner;// keep-alive until CQE
+auto _=path_owner;// keep-alive until CQE
 try{
 if(r.res<0){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: open"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: open"}));
 return;
 }
-(void)shared_src->try_set_value({FileHandle::from_fd(r.res)});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value({FileHandle::from_fd(r.res)});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -674,28 +674,28 @@ auto[task,raw_src]=root::make_task_source<FileHandle>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto path_owner=make_shared<S>(move(path));
 io_uring_prep_openat_direct(sqe,dir_fd,path_owner->c_str(),flags,mode,file_index);
 auto[slot,gen]=
 completions_->reserve([this,shared_src,path_owner,dir_fd,flags,mode,file_index](IoResult r)mutable{
-(void)path_owner;// keep-alive until CQE
+auto _=path_owner;// keep-alive until CQE
 try{
 if(r.res<0){
 int const err=-r.res;
 if(err==EINVAL||err==EOPNOTSUPP||err==ENOSYS){
-(void)submit_open_direct_fallback(shared_src,path_owner,dir_fd,flags,mode,file_index);
+auto _=submit_open_direct_fallback(shared_src,path_owner,dir_fd,flags,mode,file_index);
 return;
 }
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{-r.res,"file_io: open_direct"}));
 return;
 }
-(void)shared_src->try_set_value(
+auto _=shared_src->try_set_value(
 {FileHandle::from_direct_slot(r.res==0?static_cast<int>(file_index):r.res)});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -719,7 +719,7 @@ auto[task,raw_src]=root::make_task_source<FileStat>(root::SubmitOptions{.enable_
 auto shared_src=make_shared<root::TaskSource<FileStat>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto path_owner=make_shared<S>(move(path));
@@ -728,10 +728,10 @@ io_uring_prep_statx(sqe,dir_fd,path_owner->c_str(),flags,mask,stx_owner.get());
 if(fixed_file)
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 auto[slot,gen]=completions_->reserve([shared_src,path_owner,stx_owner](IoResult r)mutable{
-(void)path_owner;
+auto _=path_owner;
 try{
 if(r.res<0){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: statx"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: statx"}));
 return;
 }
 auto const&s=*stx_owner;
@@ -741,8 +741,8 @@ FileStat const out{
 .dev=(static_cast<u64>(s.stx_dev_major)<<32U)|s.stx_dev_minor,
 .ino=s.stx_ino,
 .mode=s.stx_mode};
-(void)shared_src->try_set_value({out});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value({out});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -776,7 +776,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_read(
@@ -808,7 +808,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto iov_owner=make_shared<V<iovec>>(move(iovecs));
@@ -821,7 +821,7 @@ offset);
 if(fh.is_direct())
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 auto[slot,gen]=reserve_bridge<SZ>(shared_src,[iov_owner](IoResult r)mutable{
-(void)iov_owner;// keep-alive until CQE
+auto _=iov_owner;// keep-alive until CQE
 return static_cast<SZ>(r.res);
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
@@ -851,7 +851,7 @@ root::make_task_source<ReadFixedResult>(root::SubmitOptions{.enable_cancellation
 auto shared_src=make_shared<root::TaskSource<ReadFixedResult>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 unsigned const slot_idx=buf.slot();
@@ -869,11 +869,11 @@ io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 auto[slot,gen]=completions_->reserve([shared_src,holder](IoResult r)mutable{
 try{
 if(r.res<0){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: read_fixed"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: read_fixed"}));
 return;
 }
-(void)shared_src->try_set_value({ReadFixedResult{.buffer=move(*holder),.bytes=static_cast<SZ>(r.res)}});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value({ReadFixedResult{.buffer=move(*holder),.bytes=static_cast<SZ>(r.res)}});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -910,7 +910,7 @@ root::make_task_source<ReadFixedResult>(root::SubmitOptions{.enable_cancellation
 auto shared_src=make_shared<root::TaskSource<ReadFixedResult>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 unsigned const slot_idx=buf.slot();
@@ -927,13 +927,13 @@ io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 auto[slot,gen]=completions_->reserve([shared_src,holder,actual_cap](IoResult r)mutable{
 try{
 if(r.res<0){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{-r.res,"file_io: read_nocache_fixed"}));
 return;
 }
 SZ const bytes=min(static_cast<SZ>(r.res),actual_cap);
-(void)shared_src->try_set_value({ReadFixedResult{.buffer=move(*holder),.bytes=bytes}});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value({ReadFixedResult{.buffer=move(*holder),.bytes=bytes}});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -963,7 +963,7 @@ root::make_task_source<WriteFixedResult>(root::SubmitOptions{.enable_cancellatio
 auto shared_src=make_shared<root::TaskSource<WriteFixedResult>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 unsigned const slot_idx=buf.slot();
@@ -981,12 +981,12 @@ io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 auto[slot,gen]=completions_->reserve([shared_src,holder](IoResult r)mutable{
 try{
 if(r.res<0){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{-r.res,"file_io: write_fixed"}));
 return;
 }
-(void)shared_src->try_set_value({WriteFixedResult{.buffer=move(*holder),.bytes=static_cast<SZ>(r.res)}});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value({WriteFixedResult{.buffer=move(*holder),.bytes=static_cast<SZ>(r.res)}});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -1006,7 +1006,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_write(
@@ -1038,7 +1038,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto iov_owner=make_shared<V<iovec>>(move(iovecs));
@@ -1051,7 +1051,7 @@ offset);
 if(fh.is_direct())
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 auto[slot,gen]=reserve_bridge<SZ>(shared_src,[iov_owner](IoResult r)mutable{
-(void)iov_owner;// keep-alive until CQE
+auto _=iov_owner;// keep-alive until CQE
 return static_cast<SZ>(r.res);
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
@@ -1073,7 +1073,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto iov_owner=make_shared<V<iovec>>(move(iovecs));
@@ -1087,7 +1087,7 @@ rwf_flags);
 if(fh.is_direct())
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 auto[slot,gen]=reserve_bridge<SZ>(shared_src,[iov_owner](IoResult r)mutable{
-(void)iov_owner;
+auto _=iov_owner;
 return static_cast<SZ>(r.res);
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
@@ -1110,7 +1110,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto iov_owner=make_shared<V<iovec>>(move(iovecs));
@@ -1124,7 +1124,7 @@ rwf_flags);
 if(fh.is_direct())
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 auto[slot,gen]=reserve_bridge<SZ>(shared_src,[iov_owner](IoResult r)mutable{
-(void)iov_owner;
+auto _=iov_owner;
 return static_cast<SZ>(r.res);
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
@@ -1143,7 +1143,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_nop(sqe);
@@ -1159,7 +1159,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_fsync(sqe,fh.raw_fd(),data_only?IORING_FSYNC_DATASYNC:0U);
@@ -1181,7 +1181,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_fallocate(sqe,fh.raw_fd(),mode,offset,len);
@@ -1206,7 +1206,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -1232,7 +1232,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_madvise(sqe,addr,length,advice);
@@ -1254,12 +1254,12 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto path_owner=make_shared<S>(move(path));
 io_uring_prep_unlinkat(sqe,dir_fd,path_owner->c_str(),flags);
-auto[slot,gen]=reserve_bridge<void>(shared_src,[path_owner](IoResult)mutable{(void)path_owner;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[path_owner](IoResult)mutable{auto _=path_owner;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -1279,12 +1279,12 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto paths=make_shared<P<S,S>>(move(old_path),move(new_path));
 io_uring_prep_renameat(sqe,old_dir_fd,paths->first.c_str(),new_dir_fd,paths->second.c_str(),flags);
-auto[slot,gen]=reserve_bridge<void>(shared_src,[paths](IoResult)mutable{(void)paths;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[paths](IoResult)mutable{auto _=paths;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -1304,12 +1304,12 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto path_owner=make_shared<S>(move(path));
 io_uring_prep_mkdirat(sqe,dir_fd,path_owner->c_str(),mode);
-auto[slot,gen]=reserve_bridge<void>(shared_src,[path_owner](IoResult)mutable{(void)path_owner;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[path_owner](IoResult)mutable{auto _=path_owner;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -1327,12 +1327,12 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto paths=make_shared<P<S,S>>(move(target),move(link_path));
 io_uring_prep_symlinkat(sqe,paths->first.c_str(),new_dir_fd,paths->second.c_str());
-auto[slot,gen]=reserve_bridge<void>(shared_src,[paths](IoResult)mutable{(void)paths;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[paths](IoResult)mutable{auto _=paths;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -1349,7 +1349,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -1375,12 +1375,12 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto paths=make_shared<P<S,S>>(move(old_path),move(new_path));
 io_uring_prep_linkat(sqe,old_dir_fd,paths->first.c_str(),new_dir_fd,paths->second.c_str(),flags);
-auto[slot,gen]=reserve_bridge<void>(shared_src,[paths](IoResult)mutable{(void)paths;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[paths](IoResult)mutable{auto _=paths;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -1401,7 +1401,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -1427,7 +1427,7 @@ auto[task,raw_src]=root::make_task_source<FileHandle>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_socket(sqe,domain,type,protocol,0);
@@ -1451,7 +1451,7 @@ auto[task,raw_src]=root::make_task_source<FileHandle>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_socket_direct(sqe,domain,type,protocol,file_index,0);
@@ -1475,7 +1475,7 @@ auto[task,raw_src]=root::make_task_source<P<int,int>>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<P<int,int>>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto fds=make_shared<A<int,2>>(A<int,2>{-1,-1});
@@ -1483,11 +1483,11 @@ io_uring_prep_pipe(sqe,fds->data(),pipe_flags);
 auto[slot,gen]=completions_->reserve([shared_src,fds](IoResult r)mutable{
 try{
 if(r.res<0){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: pipe"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: pipe"}));
 return;
 }
-(void)shared_src->try_set_value({make_pair((*fds)[0],(*fds)[1])});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value({make_pair((*fds)[0],(*fds)[1])});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -1505,7 +1505,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -1513,7 +1513,7 @@ auto addr_owner=make_shared<sockaddr_storage>(addr);
 io_uring_prep_bind(sqe,fd,reinterpret_cast<sockaddr*>(addr_owner.get()),addrlen);
 if(fh.is_direct())
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
-auto[slot,gen]=reserve_bridge<void>(shared_src,[addr_owner](IoResult)mutable{(void)addr_owner;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[addr_owner](IoResult)mutable{auto _=addr_owner;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -1531,7 +1531,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -1554,7 +1554,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -1579,7 +1579,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_tee(sqe,fd_in,fd_out,static_cast<unsigned int>(len),flags);
@@ -1603,13 +1603,13 @@ unsigned flags=0){
 auto[task,raw_src]=root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation=false});
 auto shared_src=make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 if(!fh.is_direct()){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{EINVAL,"file_io: fixed_fd_install requires direct slot"}));
 return move(task);
 }
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_fixed_fd_install(sqe,fh.direct_slot(),flags);
@@ -1634,7 +1634,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -1643,7 +1643,7 @@ io_uring_prep_fgetxattr(sqe,fd,name_owner->c_str(),buf.data(),static_cast<unsign
 if(fh.is_direct())
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 auto[slot,gen]=reserve_bridge<SZ>(shared_src,[name_owner](IoResult r)mutable{
-(void)name_owner;
+auto _=name_owner;
 return static_cast<SZ>(r.res);
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
@@ -1665,7 +1665,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -1679,7 +1679,7 @@ flags,
 static_cast<unsigned>(kv->second.size()));
 if(fh.is_direct())
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
-auto[slot,gen]=reserve_bridge<void>(shared_src,[kv](IoResult)mutable{(void)kv;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[kv](IoResult)mutable{auto _=kv;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -1700,7 +1700,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto kp=make_shared<P<S,S>>(move(path),move(name));
@@ -1711,7 +1711,7 @@ buf.data(),
 kp->first.c_str(),
 static_cast<unsigned>(buf.size()));
 auto[slot,gen]=reserve_bridge<SZ>(shared_src,[kp](IoResult r)mutable{
-(void)kp;
+auto _=kp;
 return static_cast<SZ>(r.res);
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
@@ -1734,7 +1734,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 struct XattrState{
@@ -1750,7 +1750,7 @@ st->data.c_str(),
 st->path.c_str(),
 flags,
 static_cast<unsigned>(st->data.size()));
-auto[slot,gen]=reserve_bridge<void>(shared_src,[st](IoResult)mutable{(void)st;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[st](IoResult)mutable{auto _=st;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -1773,7 +1773,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_waitid(sqe,idtype,id,infop,options,flags);
@@ -1801,7 +1801,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_futex_wait(sqe,futex,val,mask,futex_flags,flags);
@@ -1828,7 +1828,7 @@ auto[task,raw_src]=root::make_task_source<u32>(root::SubmitOptions{.enable_cance
 auto shared_src=make_shared<root::TaskSource<u32>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_futex_wake(sqe,futex,val,mask,futex_flags,flags);
@@ -1855,7 +1855,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_msg_ring(sqe,target_ring_fd,len,data,flags);
@@ -1881,7 +1881,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto ts=make_shared<__kernel_timespec>();
@@ -1892,12 +1892,12 @@ io_uring_prep_timeout(sqe,ts.get(),count,flags);
 auto[slot,gen]=completions_->reserve([shared_src,ts](IoResult r)mutable{
 try{
 if(r.res<0&&r.res!=-ETIME&&r.res!=-ECANCELED){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: timeout"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: timeout"}));
 return;
 }
-(void)shared_src->try_set_value(root::Success<void>{});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
-(void)ts;
+auto _=shared_src->try_set_value(root::Success<void>{});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
+auto _=ts;
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -1916,19 +1916,19 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_timeout_remove(sqe,user_data,flags);
 auto[slot,gen]=completions_->reserve([shared_src](IoResult r)mutable{
 try{
 if(r.res<0&&r.res!=-ENOENT&&r.res!=-EALREADY){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{-r.res,"file_io: timeout_remove"}));
 return;
 }
-(void)shared_src->try_set_value(root::Success<void>{});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value(root::Success<void>{});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -1948,7 +1948,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto ts=make_shared<__kernel_timespec>();
@@ -1959,13 +1959,13 @@ io_uring_prep_timeout_update(sqe,ts.get(),user_data,flags);
 auto[slot,gen]=completions_->reserve([shared_src,ts](IoResult r)mutable{
 try{
 if(r.res<0&&r.res!=-ENOENT&&r.res!=-EALREADY){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{-r.res,"file_io: timeout_update"}));
 return;
 }
-(void)shared_src->try_set_value(root::Success<void>{});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
-(void)ts;
+auto _=shared_src->try_set_value(root::Success<void>{});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
+auto _=ts;
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -1986,7 +1986,7 @@ auto[task,raw_src]=root::make_task_source<u32>(root::SubmitOptions{.enable_cance
 auto shared_src=make_shared<root::TaskSource<u32>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_poll_add(sqe,fd,events);
@@ -2007,19 +2007,19 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_poll_remove(sqe,user_data);
 auto[slot,gen]=completions_->reserve([shared_src](IoResult r)mutable{
 try{
 if(r.res<0&&r.res!=-ENOENT&&r.res!=-EALREADY){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{-r.res,"file_io: poll_remove"}));
 return;
 }
-(void)shared_src->try_set_value(root::Success<void>{});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value(root::Success<void>{});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -2038,7 +2038,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_poll_update(sqe,user_data,0,new_events,flags);
@@ -2063,7 +2063,7 @@ auto[task,raw_src]=root::make_task_source<FileHandle>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -2094,7 +2094,7 @@ auto[task,raw_src]=root::make_task_source<FileHandle>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -2128,7 +2128,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_msg_ring_fd(sqe,target_ring_fd,source_fd,target_fd,data,flags);
@@ -2153,12 +2153,12 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto wv=make_shared<V<futex_waitv>>(move(waiters));
 io_uring_prep_futex_waitv(sqe,wv->data(),static_cast<u32>(wv->size()),flags);
-auto[slot,gen]=reserve_bridge<void>(shared_src,[wv](IoResult)mutable{(void)wv;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[wv](IoResult)mutable{auto _=wv;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -2177,18 +2177,18 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_cancel64(sqe,user_data,flags);
 auto[slot,gen]=completions_->reserve([shared_src](IoResult r)mutable{
 try{
 if(r.res<0&&r.res!=-ENOENT){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: cancel"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: cancel"}));
 return;
 }
-(void)shared_src->try_set_value(root::Success<void>{});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value(root::Success<void>{});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -2206,18 +2206,18 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_cancel_fd(sqe,fd,flags);
 auto[slot,gen]=completions_->reserve([shared_src](IoResult r)mutable{
 try{
 if(r.res<0&&r.res!=-ENOENT){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: cancel_fd"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: cancel_fd"}));
 return;
 }
-(void)shared_src->try_set_value(root::Success<void>{});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value(root::Success<void>{});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -2236,7 +2236,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -2244,7 +2244,7 @@ auto addr_owner=make_shared<sockaddr_storage>(addr);
 io_uring_prep_connect(sqe,fd,reinterpret_cast<sockaddr*>(addr_owner.get()),addrlen);
 if(fh.is_direct())
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
-auto[slot,gen]=reserve_bridge<void>(shared_src,[addr_owner](IoResult)mutable{(void)addr_owner;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[addr_owner](IoResult)mutable{auto _=addr_owner;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -2260,7 +2260,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 if(fh.is_direct())
@@ -2340,7 +2340,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -2368,7 +2368,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -2395,7 +2395,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -2421,7 +2421,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -2450,7 +2450,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_provide_buffers(sqe,addr,len,nr,bgid,bid);
@@ -2474,7 +2474,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_remove_buffers(sqe,nr,bgid);
@@ -2498,7 +2498,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_files_update(sqe,fds,nr_fds,offset);
@@ -2522,7 +2522,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_epoll_ctl(sqe,epfd,fd,op,ev);
@@ -2548,7 +2548,7 @@ auto[task,raw_src]=root::make_task_source<int>(root::SubmitOptions{.enable_cance
 auto shared_src=make_shared<root::TaskSource<int>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_epoll_wait(sqe,epfd,events,maxevents,flags);
@@ -2574,7 +2574,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto ts=make_shared<__kernel_timespec>();
@@ -2585,13 +2585,13 @@ io_uring_prep_link_timeout(sqe,ts.get(),flags);
 auto[slot,gen]=completions_->reserve([shared_src,ts](IoResult r)mutable{
 try{
 if(r.res<0&&r.res!=-ETIME&&r.res!=-ECANCELED&&r.res!=-ENOENT){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{-r.res,"file_io: link_timeout"}));
 return;
 }
-(void)shared_src->try_set_value(root::Success<void>{});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
-(void)ts;
+auto _=shared_src->try_set_value(root::Success<void>{});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
+auto _=ts;
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -2611,13 +2611,13 @@ auto[task,raw_src]=root::make_task_source<FileHandle>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto ctx=make_shared<P<S,open_how>>(move(path),how);
 io_uring_prep_openat2(sqe,dir_fd,ctx->first.c_str(),&ctx->second);
 auto[slot,gen]=reserve_bridge<FileHandle>(shared_src,[ctx](IoResult r)mutable{
-(void)ctx;
+auto _=ctx;
 return FileHandle::from_fd(r.res);
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
@@ -2642,7 +2642,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto sa=make_shared<sockaddr_storage>(addr);
@@ -2651,7 +2651,7 @@ io_uring_prep_sendto(sqe,fd,buf,len,flags,reinterpret_cast<sockaddr*>(sa.get()),
 if(fh.is_direct())
 io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 auto[slot,gen]=reserve_bridge<SZ>(shared_src,[sa](IoResult r)mutable{
-(void)sa;
+auto _=sa;
 return static_cast<SZ>(r.res);
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
@@ -2681,7 +2681,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -2713,7 +2713,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -2736,7 +2736,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -2765,12 +2765,12 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto p=make_shared<S>(move(path));
 io_uring_prep_unlinkat(sqe,dir_fd,p->c_str(),flags);
-auto[slot,gen]=reserve_bridge<void>(shared_src,[p](IoResult)mutable{(void)p;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[p](IoResult)mutable{auto _=p;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -2791,12 +2791,12 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto paths=make_shared<P<S,S>>(move(old_path),move(new_path));
 io_uring_prep_renameat(sqe,old_dir_fd,paths->first.c_str(),new_dir_fd,paths->second.c_str(),flags);
-auto[slot,gen]=reserve_bridge<void>(shared_src,[paths](IoResult)mutable{(void)paths;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[paths](IoResult)mutable{auto _=paths;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -2816,12 +2816,12 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto p=make_shared<S>(move(path));
 io_uring_prep_mkdir(sqe,p->c_str(),mode);
-auto[slot,gen]=reserve_bridge<void>(shared_src,[p](IoResult)mutable{(void)p;});
+auto[slot,gen]=reserve_bridge<void>(shared_src,[p](IoResult)mutable{auto _=p;});
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
@@ -2841,13 +2841,13 @@ auto[task,raw_src]=root::make_task_source<FileHandle>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto ctx=make_shared<P<S,open_how>>(move(path),how);
 io_uring_prep_openat2_direct(sqe,dir_fd,ctx->first.c_str(),&ctx->second,file_index);
 auto[slot,gen]=reserve_bridge<FileHandle>(shared_src,[ctx,file_index](IoResult)mutable{
-(void)ctx;
+auto _=ctx;
 return FileHandle::from_direct_slot(static_cast<int>(file_index));
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
@@ -2871,7 +2871,7 @@ auto[task,raw_src]=root::make_task_source<FileHandle>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_socket_direct_alloc(sqe,domain,type,protocol,flags);
@@ -2899,13 +2899,13 @@ auto[task,raw_src]=root::make_task_source<FileHandle>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<FileHandle>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto p=make_shared<S>(move(path));
 io_uring_prep_openat_direct(sqe,dir_fd,p->c_str(),flags,mode,file_index);
 auto[slot,gen]=reserve_bridge<FileHandle>(shared_src,[p,file_index](IoResult r)mutable{
-(void)p;
+auto _=p;
 // When IORING_FILE_INDEX_ALLOC: res carries the allocated slot.
 int const s=(file_index==IORING_FILE_INDEX_ALLOC)?r.res:static_cast<int>(file_index);
 return FileHandle::from_direct_slot(s);
@@ -2932,7 +2932,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_msg_ring_fd_alloc(sqe,target_ring_fd,source_fd,data,flags);
@@ -2957,7 +2957,7 @@ auto[task,raw_src]=root::make_task_source<P<int,int>>(root::SubmitOptions{.enabl
 auto shared_src=make_shared<root::TaskSource<P<int,int>>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 auto fds=make_shared<A<int,2>>(A<int,2>{-1,-1});
@@ -2965,12 +2965,12 @@ io_uring_prep_pipe_direct(sqe,fds->data(),pipe_flags,file_index);
 auto[slot,gen]=completions_->reserve([shared_src,fds](IoResult r)mutable{
 try{
 if(r.res<0){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{-r.res,"file_io: pipe_direct"}));
 return;
 }
-(void)shared_src->try_set_value({make_pair((*fds)[0],(*fds)[1])});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value({make_pair((*fds)[0],(*fds)[1])});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
@@ -2992,7 +2992,7 @@ auto[task,raw_src]=root::make_task_source<void>(root::SubmitOptions{.enable_canc
 auto shared_src=make_shared<root::TaskSource<void>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 io_uring_prep_msg_ring_cqe_flags(sqe,target_ring_fd,len,data,flags,cqe_flags);
@@ -3018,7 +3018,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -3044,7 +3044,7 @@ auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancel
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr){
-(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
 return move(task);
 }
 int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
@@ -3060,14 +3060,14 @@ template<typename StatePtr>
 static void step_splice(
 StatePtr const&st){
 if(st->remaining==0){
-(void)st->src->try_set_value(root::Success<SZ>{st->delivered});
+auto _=st->src->try_set_value(root::Success<SZ>{st->delivered});
 return;
 }
 SZ const chunk=min(st->remaining,st->pipe.capacity());
 auto*sqe_in=io_uring_get_sqe(st->ring);
 auto*sqe_out=io_uring_get_sqe(st->ring);
 if(sqe_in==nullptr||sqe_out==nullptr){
-(void)st->src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: splice SQ full"}));
+auto _=st->src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: splice SQ full"}));
 return;
 }
 
@@ -3082,7 +3082,7 @@ SPLICE_F_MOVE|SPLICE_F_MORE);
 sqe_in->flags|=IOSQE_IO_LINK;
 auto[slot_in,gen_in]=st->completions->reserve([st](IoResult r)mutable{
 if(r.res<0&&r.res!=-ECANCELED)
-(void)st->src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: splice in"}));
+auto _=st->src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: splice in"}));
 });
 io_uring_sqe_set_data64(sqe_in,st->encode_ud(slot_in,gen_in));
 
@@ -3098,7 +3098,7 @@ if(st->dst_fixed)
 sqe_out->flags|=IOSQE_FIXED_FILE;
 auto[slot_out,gen_out]=st->completions->reserve([st](IoResult r)mutable{
 if(r.res<0){
-(void)st->src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: splice out"}));
+auto _=st->src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: splice out"}));
 return;
 }
 auto const n=static_cast<SZ>(r.res);

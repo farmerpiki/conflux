@@ -161,7 +161,7 @@ return(q_codec<0.0F)?q_star:q_codec;
 S gzip_compress_with_backend(
 GzipBackend backend,
 SV input){
-(void)input;
+auto _=input;
 switch(backend){
 #if CONFLUX_HAS_LIBDEFLATE
 case GzipBackend::libdeflate:return conflux::compress_backends::libdeflate_gzip_compress(input);

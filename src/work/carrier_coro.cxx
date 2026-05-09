@@ -283,7 +283,7 @@ static_cast<void*>(this));
 #endif
 }
 }
-(void)root::try_abandon_to(move(handle_),root::drop_on_abandon{});
+auto _=root::try_abandon_to(move(handle_),root::drop_on_abandon{});
 #ifdef CONFLUX_WORK_CHECKED_BUILD
 root::emit_carrier_diagnostic("TaskHandleAwaiter destroyed unconsumed — defensive abandon");
 #endif
@@ -302,7 +302,7 @@ return false;
 }
 T await_resume(){
 if(error_==AwaiterError::already_installed){
-(void)root::try_abandon_to(move(handle_),root::drop_on_abandon{});
+auto _=root::try_abandon_to(move(handle_),root::drop_on_abandon{});
 handle_consumed_=true;
 throw root::JoinError{root::JoinError::reason::ready_callback_already_installed};
 }
@@ -352,7 +352,7 @@ static_cast<void*>(this));
 #endif
 }
 }
-(void)root::try_abandon_to(move(handle_),root::drop_on_abandon{});
+auto _=root::try_abandon_to(move(handle_),root::drop_on_abandon{});
 #ifdef CONFLUX_WORK_CHECKED_BUILD
 root::emit_carrier_diagnostic("TaskHandleChainAwaiter destroyed unconsumed — defensive abandon");
 #endif
@@ -371,7 +371,7 @@ return false;
 }
 Chain<T>await_resume(){
 if(error_==AwaiterError::already_installed){
-(void)root::try_abandon_to(move(handle_),root::drop_on_abandon{});
+auto _=root::try_abandon_to(move(handle_),root::drop_on_abandon{});
 handle_consumed_=true;
 auto ex=
 make_exception_ptr(root::JoinError{root::JoinError::reason::ready_callback_already_installed});

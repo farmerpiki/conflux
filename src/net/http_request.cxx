@@ -284,7 +284,7 @@ assert_single_body();
 // We don't have a NodeRef-specific dump in the json API; use Document dump and
 // slice if needed. For now, serialize the enclosing document root.
 // TODO(phase-2): add NodeRef::dump to json module.
-(void)node;
+auto _=node;
 return content_type("application/json");
 }
 Builder&body_json_raw(

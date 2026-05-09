@@ -149,7 +149,7 @@ SZ erase(
 SV key){
 SZ cursor=0;
 return erase_if(data_,[&](auto const&pair){
-(void)cursor++;
+auto _=cursor++;
 return key_eq(SV{pair.first},key);
 });
 }

@@ -985,7 +985,7 @@ return false;
 ready_=make_unique<HttpResponse>(HttpResponse::gateway_timeout());
 to_cancel=move(cancel_ctl_);
 }
-(void)to_cancel.request_cancel();
+auto _=to_cancel.request_cancel();
 u64 wake=1;
 if(::write(efd_,&wake,sizeof(wake))<0&&errno!=EAGAIN)
 eprintln(format("DeferredResponse::expire_if_past_deadline: eventfd write: {}",strerror(errno)));
@@ -1475,7 +1475,7 @@ while(is_open()){
 if(keepalive_cv_.wait_for(lk,st,chrono::milliseconds{interval_ms},[this]{return!is_open();}))
 break;
 lk.unlock();
-(void)send_ping();
+auto _=send_ping();
 lk.lock();
 }
 });
@@ -1684,7 +1684,7 @@ off+=static_cast<SZ>(n);
 }
 ::unlinkat(root_fd,relative,0);
 char proc_path[64];
-(void)std::snprintf(proc_path,sizeof(proc_path),"/proc/self/fd/%d",tmp_fd);
+auto _=std::snprintf(proc_path,sizeof(proc_path),"/proc/self/fd/%d",tmp_fd);
 int const rc=::linkat(AT_FDCWD,proc_path,root_fd,relative,AT_SYMLINK_FOLLOW);
 ::close(tmp_fd);
 return rc==0;

@@ -956,7 +956,7 @@ if(!cancel_requested_
 return false;
 
 if constexpr(EnableCancellation)
-(void)stop_source_.request_stop();
+auto _=stop_source_.request_stop();
 invoke_requested_hook_if_needed();
 return true;
 }
@@ -1278,7 +1278,7 @@ if(!cancel_requested_
 return false;
 
 if constexpr(EnableCancellation)
-(void)stop_source_.request_stop();
+auto _=stop_source_.request_stop();
 invoke_requested_hook_if_needed();
 return true;
 }
@@ -1583,7 +1583,7 @@ return BasicSource{std::move(state)};
 }
 ~BasicSource()noexcept{
 if(state_)
-(void)state_->try_set_cancelled(CancelReason::abandoned,true);
+auto _=state_->try_set_cancelled(CancelReason::abandoned,true);
 }
 [[nodiscard]]bool try_set_value(
 Success<T>value){
@@ -1643,7 +1643,7 @@ return BasicSource{std::move(state)};
 }
 ~BasicSource()noexcept{
 if(state_)
-(void)state_->try_set_cancelled(CancelReason::abandoned,true);
+auto _=state_->try_set_cancelled(CancelReason::abandoned,true);
 }
 [[nodiscard]]bool try_set_value(
 Success<void>value=Success<void>{})noexcept{
@@ -1739,12 +1739,12 @@ namespace detail{
 template<work_value T>
 struct TaskPromiseReturn{
 SP<ControlBlockInterface<T>>state_{make_shared<ControlBlockModel<T,false>>()};
-void return_value(T v){(void)state_->try_set_value(Success<T>{std::move(v)});}
+void return_value(T v){auto _=state_->try_set_value(Success<T>{std::move(v)});}
 };
 template<>
 struct TaskPromiseReturn<void>{
 SP<ControlBlockInterface<void>>state_{make_shared<ControlBlockModel<void,false>>()};
-void return_void(){(void)state_->try_set_value(Success<void>{});}
+void return_void(){auto _=state_->try_set_value(Success<void>{});}
 };
 template<work_value T>
 struct TaskAwaiter{
@@ -1897,7 +1897,7 @@ return typename control_handle_for<Category>::type{state_};
 }
 void cancel()noexcept{
 if(state_js_!=join_state::empty)
-(void)control().request_cancel();
+auto _=control().request_cancel();
 }
 void detach()&&noexcept{
 if(state_js_==join_state::joinable)
@@ -1925,7 +1925,7 @@ static_assert(Category==ControlCategory::task,
 [[nodiscard]]std::suspend_never initial_suspend()const noexcept{return{};}
 [[nodiscard]]std::suspend_never final_suspend()const noexcept{return{};}
 void unhandled_exception()noexcept{
-(void)this->state_->try_set_exception(current_exception());
+auto _=this->state_->try_set_exception(current_exception());
 }
 };
 };

@@ -141,7 +141,7 @@ void run(
 AppRunOptions opts={})&&{
 cfg_.port=opts.port;
 HttpServer srv{cfg_,move(router_)};
-(void)srv.run();
+auto _=srv.run();
 }
 private:
 Config cfg_;

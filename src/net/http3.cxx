@@ -185,7 +185,7 @@ void*user_data,
 void*/*stream_user_data*/){
 auto*c=static_cast<Http3Conn*>(user_data);
 if(c->h3conn.get()!=nullptr)
-(void)nghttp3_conn_add_ack_offset(c->h3conn.get(),stream_id,datalen);
+auto _=nghttp3_conn_add_ack_offset(c->h3conn.get(),stream_id,datalen);
 return 0;
 }
 int extend_max_local_streams_bidi_cb(
@@ -203,7 +203,7 @@ void*user_data,
 void*/*stream_user_data*/){
 auto*c=static_cast<Http3Conn*>(user_data);
 if(c->h3conn.get()!=nullptr)
-(void)nghttp3_conn_shutdown_stream_read(c->h3conn.get(),stream_id);
+auto _=nghttp3_conn_shutdown_stream_read(c->h3conn.get(),stream_id);
 return 0;
 }
 int stream_stop_sending_cb(
@@ -214,7 +214,7 @@ void*user_data,
 void*/*stream_user_data*/){
 auto*c=static_cast<Http3Conn*>(user_data);
 if(c->h3conn.get()!=nullptr)
-(void)nghttp3_conn_shutdown_stream_read(c->h3conn.get(),stream_id);
+auto _=nghttp3_conn_shutdown_stream_read(c->h3conn.get(),stream_id);
 return 0;
 }
 void dispatch_stream(Http3Conn*c,Http3Stream&s);
@@ -326,7 +326,7 @@ u64 app_error_code,
 void*conn_user_data,
 void*/*stream_user_data*/){
 auto*c=static_cast<Http3Conn*>(conn_user_data);
-(void)ngtcp2_conn_shutdown_stream_read(c->conn.get(),0,stream_id,app_error_code);
+auto _=ngtcp2_conn_shutdown_stream_read(c->conn.get(),0,stream_id,app_error_code);
 return 0;
 }
 int h3_reset_stream_cb(
@@ -336,7 +336,7 @@ u64 app_error_code,
 void*conn_user_data,
 void*/*stream_user_data*/){
 auto*c=static_cast<Http3Conn*>(conn_user_data);
-(void)ngtcp2_conn_shutdown_stream_write(c->conn.get(),0,stream_id,app_error_code);
+auto _=ngtcp2_conn_shutdown_stream_write(c->conn.get(),0,stream_id,app_error_code);
 return 0;
 }
 nghttp3_ssize h3_read_response_body_cb(
@@ -401,7 +401,7 @@ if(c->h3conn.get()!=nullptr){
 u64 code=app_error_code;
 if((flags&NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET)==0)
 code=NGHTTP3_H3_NO_ERROR;
-(void)nghttp3_conn_close_stream(c->h3conn.get(),stream_id,code);
+auto _=nghttp3_conn_close_stream(c->h3conn.get(),stream_id,code);
 }
 c->streams.erase(stream_id);
 return 0;
@@ -548,7 +548,7 @@ NGHTTP3_NV_FLAG_NO_COPY_NAME});
 }
 nghttp3_data_reader dr{};
 dr.read_data=h3_read_response_body_cb;
-(void)nghttp3_conn_submit_response(c->h3conn.get(),s.stream_id,nva.data(),nva.size(),&dr);
+auto _=nghttp3_conn_submit_response(c->h3conn.get(),s.stream_id,nva.data(),nva.size(),&dr);
 }
 struct CidHash{
 SZ operator()(
@@ -608,10 +608,10 @@ shutdown_efd_=-1;
 throw RE{"socket(AF_INET6 UDP) failed"};
 }
 int on=1;
-(void)setsockopt(udp_fd_,SOL_SOCKET,SO_REUSEADDR,&on,sizeof(on));
-(void)setsockopt(udp_fd_,SOL_SOCKET,SO_REUSEPORT,&on,sizeof(on));
+auto _=setsockopt(udp_fd_,SOL_SOCKET,SO_REUSEADDR,&on,sizeof(on));
+auto _=setsockopt(udp_fd_,SOL_SOCKET,SO_REUSEPORT,&on,sizeof(on));
 int off=0;
-(void)setsockopt(udp_fd_,IPPROTO_IPV6,IPV6_V6ONLY,&off,sizeof(off));
+auto _=setsockopt(udp_fd_,IPPROTO_IPV6,IPV6_V6ONLY,&off,sizeof(off));
 sockaddr_in6 bind_addr{};
 bind_addr.sin6_family=AF_INET6;
 bind_addr.sin6_port=htons(port_);
@@ -631,7 +631,7 @@ void stop(){
 SL const lk{stop_mu_};
 if(shutdown_efd_>=0&&!stopping_.test_and_set()){
 u64 v=1;
-(void)::write(shutdown_efd_,&v,sizeof(v));
+auto _=::write(shutdown_efd_,&v,sizeof(v));
 }
 if(thread_.joinable())
 thread_.join();
@@ -666,7 +666,7 @@ if((pfds[1].revents&POLLIN)!=0)
 break;
 if((pfds[2].revents&POLLIN)!=0){
 u64 expirations{};
-(void)::read(timer_fd_,&expirations,sizeof(expirations));
+auto _=::read(timer_fd_,&expirations,sizeof(expirations));
 }
 if((pfds[0].revents&POLLIN)!=0)
 drain_udp();
@@ -714,14 +714,14 @@ earliest=exp;
 }
 itimerspec ts{};
 if(earliest==UINT64_MAX){
-(void)timerfd_settime(timer_fd_,0,&ts,nullptr);
+auto _=timerfd_settime(timer_fd_,0,&ts,nullptr);
 return;
 }
 u64 const now=now_ns();
 u64 const delta=earliest>now?earliest-now:1;
 ts.it_value.tv_sec=static_cast<time_t>(delta/1000000000ULL);
 ts.it_value.tv_nsec=static_cast<long>(delta%1000000000ULL);
-(void)timerfd_settime(timer_fd_,0,&ts,nullptr);
+auto _=timerfd_settime(timer_fd_,0,&ts,nullptr);
 }
 void process_expirations(){
 u64 const now=now_ns();
@@ -1002,7 +1002,7 @@ now_ns());
 if(nwrite<0){
 if(nwrite==NGTCP2_ERR_WRITE_MORE){
 if(c->h3conn.get()!=nullptr&&ndatalen>=0)
-(void)nghttp3_conn_add_write_offset(c->h3conn.get(),stream_id,static_cast<SZ>(ndatalen));
+auto _=nghttp3_conn_add_write_offset(c->h3conn.get(),stream_id,static_cast<SZ>(ndatalen));
 continue;
 }
 if(nwrite==NGTCP2_ERR_STREAM_DATA_BLOCKED&&c->h3conn.get()!=nullptr){
@@ -1014,12 +1014,12 @@ return;
 }
 if(nwrite==0){
 if(ndatalen>=0&&c->h3conn.get()!=nullptr)
-(void)nghttp3_conn_add_write_offset(c->h3conn.get(),stream_id,static_cast<SZ>(ndatalen));
+auto _=nghttp3_conn_add_write_offset(c->h3conn.get(),stream_id,static_cast<SZ>(ndatalen));
 return;
 }
 if(ndatalen>=0&&c->h3conn.get()!=nullptr)
-(void)nghttp3_conn_add_write_offset(c->h3conn.get(),stream_id,static_cast<SZ>(ndatalen));
-(void)::sendto(
+auto _=nghttp3_conn_add_write_offset(c->h3conn.get(),stream_id,static_cast<SZ>(ndatalen));
+auto _=::sendto(
 udp_fd_,
 buf,
 static_cast<SZ>(nwrite),
@@ -1041,7 +1041,7 @@ ngtcp2_pkt_info pi{};
 ngtcp2_ssize const n=
 ngtcp2_conn_write_connection_close(c->conn.get(),&ps.path,&pi,buf,sizeof(buf),&ccerr,now_ns());
 if(n>0)
-(void)::sendto(
+auto _=::sendto(
 udp_fd_,
 buf,
 static_cast<SZ>(n),

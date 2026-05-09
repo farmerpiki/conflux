@@ -62,8 +62,7 @@ FileIo,
 WsCancel,
 FixedFdInstall,
 DirectSlotClose,
-Nop,
-
+Nop
 
 };
 
@@ -72,8 +71,7 @@ stopped_normally,
 fatal_cq_overflow,
 fatal_cq_overflow_no_nodrop,
 fatal_submit_wait_ebadr,
-fatal_internal_exception,
-
+fatal_internal_exception
 
 };
 
@@ -82,8 +80,7 @@ none,
 cq_overflow,
 cq_overflow_no_nodrop,
 submit_wait_ebadr,
-internal_exception,
-
+internal_exception
 
 };
 
@@ -280,9 +277,7 @@ SizeLine,
 Data,
 DataCrlf,
 Trailers,
-Complete,
-
-
+Complete
 
 };
 struct ChunkedDecodeState{
@@ -489,9 +484,7 @@ return false;
 enum class ExpectState:u8{
 none,
 continue_100,
-unsupported,
-
-
+unsupported
 
 };
 [[nodiscard]]ExpectState parse_expect_header(
@@ -1722,10 +1715,8 @@ nghttp2_session_del(conn.h2_session);
 conn.h2_session=nullptr;
 }
 conn.h2_ctx.reset();
-for(auto const&[stream_id,stream]:conn.h2_streams){
-(void)stream_id;
+for(auto const&[_,stream]:conn.h2_streams)
 clear_deferred_wait(stream.deferred_efd);
-}
 conn.h2_streams.clear();
 conn.h2_pending_send.clear();
 conn.is_h2=false;
@@ -3426,9 +3417,7 @@ buf_ring_->recycle(buf_id);
 }
 void dispatch_cqe_fatal(
 io_uring_cqe const*cqe)noexcept{
-auto const[op,cqe_gen_,fd_]=unpack(cqe->user_data);
-(void)cqe_gen_;
-(void)fd_;
+auto const[op,_,_]=unpack(cqe->user_data);
 switch(op){
 case Op::Recv:recycle_recv_buffer_direct(cqe);break;
 case Op::Accept:
@@ -3699,9 +3688,7 @@ enum class ParseError:u8{
 None,
 BadRequest,
 UriTooLong,
-HeaderFieldsTooLarge,
-
-
+HeaderFieldsTooLarge
 
 };
 void emit_parse_error(

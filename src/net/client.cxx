@@ -116,18 +116,18 @@ return::connect(fd,addr,addrlen)==0;
 int const flags=::fcntl(fd,F_GETFL,0);
 if(flags<0)
 return false;
-(void)::fcntl(fd,F_SETFL,flags|O_NONBLOCK);
+auto _=::fcntl(fd,F_SETFL,flags|O_NONBLOCK);
 int const rc=::connect(fd,addr,addrlen);
 if(rc==0){
-(void)::fcntl(fd,F_SETFL,flags);
+auto _=::fcntl(fd,F_SETFL,flags);
 return true;
 }
 if(errno!=EINPROGRESS){
-(void)::fcntl(fd,F_SETFL,flags);
+auto _=::fcntl(fd,F_SETFL,flags);
 return false;
 }
 bool const ready=wait_fd(fd,POLLOUT,timeout_sec);
-(void)::fcntl(fd,F_SETFL,flags);
+auto _=::fcntl(fd,F_SETFL,flags);
 if(!ready)
 return false;
 int so_error=0;
@@ -524,9 +524,9 @@ HttpError{
 tls_ctx->set_verify_peer(verify);
 if(verify){
 if(!opts.ca_bundle_path.empty())
-(void)SSL_CTX_load_verify_locations(tls_ctx->native_handle(),opts.ca_bundle_path.c_str(),nullptr);
+auto _=SSL_CTX_load_verify_locations(tls_ctx->native_handle(),opts.ca_bundle_path.c_str(),nullptr);
 else
-(void)tls_ctx->set_default_verify_paths();
+auto _=tls_ctx->set_default_verify_paths();
 }
 
 try{

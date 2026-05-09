@@ -196,7 +196,7 @@ if(closed_)
 return;
 closed_=true;
 for(auto&src:waiters_)
-(void)src->try_set_cancelled(root::work_errc::cancelled_requested);
+auto _=src->try_set_cancelled(root::work_errc::cancelled_requested);
 waiters_.clear();
 idle_.clear();
 }
@@ -204,11 +204,11 @@ root::Task<Pool::Lease>Pool::acquire(){
 auto[task,raw_src]=root::make_task_source<Lease>(root::SubmitOptions{.enable_cancellation=false});
 auto shared_src=make_shared<root::TaskSource<Lease>>(move(raw_src));
 if(closed_){
-(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pool closed"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pool closed"}));
 return move(task);
 }
 if(this_thread::get_id()!=owner_){
-(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pool acquire off owner thread"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pool acquire off owner thread"}));
 return move(task);
 }
 if(!idle_.empty()){
@@ -227,13 +227,13 @@ try{
 auto conn=co_await move(conn_task);
 if(self->closed_){
 --self->total_;
-(void)shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
+auto _=shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
 co_return;
 }
 self->dispatch_lease_(shared_src,move(conn));
 }catch(...){
 --self->total_;
-(void)shared_src->try_set_exception(current_exception());
+auto _=shared_src->try_set_exception(current_exception());
 }
 }(self,shared_src,Connection::connect(cfg_.conn))
 .detach();
@@ -246,7 +246,7 @@ auto self=shared_from_this();
 [](SP<root::TaskSource<Lease>>shared_src,root::Task<void>to_task)->root::Task<void>{
 try{
 co_await move(to_task);
-(void)shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
+auto _=shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
 }catch(...){}
 }(shared_src,reader->timeout_async(cfg_.acquire_timeout))
 .detach();
@@ -306,7 +306,7 @@ SP<root::TaskSource<Lease>>const&src,
 SP<Connection>conn)noexcept{
 if(!cfg_.on_acquire){
 // If commit fails (waiter timed out), ~Lease fires → return_ → try_dispatch_waiters_.
-(void)src->try_set_value(
+auto _=src->try_set_value(
 root::Success<Lease>{
 Lease{shared_from_this(),move(conn)}});
 return;
@@ -320,27 +320,27 @@ co_await move(on_acq_task);
 if(self->closed_){
 conn->close();
 --self->total_;
-(void)src->try_set_cancelled(root::work_errc::cancelled_requested);
+auto _=src->try_set_cancelled(root::work_errc::cancelled_requested);
 co_return;
 }
-(void)src->try_set_value(
+auto _=src->try_set_value(
 root::Success<Lease>{
 Lease{self,move(conn)}});
 }catch(Cancelled const&){
 conn->close();
 --self->total_;
-(void)src->try_set_cancelled(root::work_errc::cancelled_requested);
+auto _=src->try_set_cancelled(root::work_errc::cancelled_requested);
 }catch(...){
 conn->close();
 --self->total_;
-(void)src->try_set_exception(current_exception());
+auto _=src->try_set_exception(current_exception());
 }
 }(self,src,conn,cfg_.on_acquire(*conn))
 .detach();
 }catch(...){
 conn->close();
 --self->total_;
-(void)src->try_set_exception(current_exception());
+auto _=src->try_set_exception(current_exception());
 }
 }
 }// namespace conflux::db

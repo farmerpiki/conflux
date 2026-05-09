@@ -147,7 +147,7 @@ auto shared_src=make_shared<wroot::TaskSource<UdpRecvResult>>(move(raw_src));
 int const fd=fh_.is_direct()?fh_.direct_slot():fh_.raw_fd();
 auto*sqe=io_uring_get_sqe(reader_->ring());
 if(!sqe){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{ENOSPC,"udp: SQ full"}));
 return move(task);
 }
@@ -164,7 +164,7 @@ io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
 auto[slot,gen]=reader_->completions()->reserve([shared_src,h](IoResult r)mutable{
 try{
 if(r.res<0){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{-r.res,"udp: recvfrom failed"}));
 return;
 }
@@ -172,8 +172,8 @@ UdpRecvResult result;
 result.bytes=static_cast<SZ>(r.res);
 result.from=h->from;
 result.from_len=h->msg.msg_namelen;
-(void)shared_src->try_set_value(wroot::Success<UdpRecvResult>{move(result)});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value(wroot::Success<UdpRecvResult>{move(result)});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe,reader_->encode_ud(slot,gen));
 return move(task);
@@ -184,7 +184,7 @@ namespace wroot=conflux::work::root;
 auto[task,raw_src]=wroot::make_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation=false});
 auto shared_src=make_shared<wroot::TaskSource<UdpRecvResult>>(move(raw_src));
 if(io_uring_sq_space_left(reader_->ring())<2){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{ENOSPC,"udp: SQ full"}));
 return move(task);
 }
@@ -208,12 +208,12 @@ io_uring_sqe_set_flags(sqe_recv,recv_flags);
 auto[slot_recv,gen_recv]=reader_->completions()->reserve([shared_src,h](IoResult r)mutable{
 try{
 if(r.res==-ECANCELED){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{ETIMEDOUT,"udp: recv timed out"}));
 return;
 }
 if(r.res<0){
-(void)shared_src->try_set_exception(
+auto _=shared_src->try_set_exception(
 make_exception_ptr(FileIoError{-r.res,"udp: recvfrom failed"}));
 return;
 }
@@ -221,12 +221,12 @@ UdpRecvResult result;
 result.bytes=static_cast<SZ>(r.res);
 result.from=h->from;
 result.from_len=h->msg.msg_namelen;
-(void)shared_src->try_set_value(wroot::Success<UdpRecvResult>{move(result)});
-}catch(...){(void)shared_src->try_set_exception(current_exception());}
+auto _=shared_src->try_set_value(wroot::Success<UdpRecvResult>{move(result)});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 io_uring_sqe_set_data64(sqe_recv,reader_->encode_ud(slot_recv,gen_recv));
 io_uring_prep_link_timeout(sqe_to,ts.get(),0);
-auto[slot_to,gen_to]=reader_->completions()->reserve([ts](IoResult)mutable{(void)ts;});
+auto[slot_to,gen_to]=reader_->completions()->reserve([ts](IoResult)mutable{auto _=ts;});
 io_uring_sqe_set_data64(sqe_to,reader_->encode_ud(slot_to,gen_to));
 return move(task);
 }

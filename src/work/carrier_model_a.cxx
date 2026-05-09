@@ -191,7 +191,7 @@ if(!outcome_.is_cancelled())
 return Chain<T>{move(outcome_),kind_,bound_cap_};
 try{
 invoke(forward<Fn>(fn));
-}catch(...){(void)current_exception();}// side-effect only; discard throw
+}catch(...){auto _=current_exception();}// side-effect only; discard throw
 return Chain<T>{move(outcome_),kind_,bound_cap_};
 }
 // cancelled → f() → T or Chain<T> (becomes success); success/failure pass through
@@ -266,13 +266,13 @@ std::source_location loc=std::source_location::current())&&{
 auto[task,src]=root::make_task_source<T>(root::SubmitOptions{.enable_cancellation=false},loc);
 if(outcome_.is_success())
 if constexpr(same_as<T,void>)
-(void)src.try_set_value(root::Success<T>{});
+auto _=src.try_set_value(root::Success<T>{});
 else
-(void)src.try_set_value(root::Success<T>{move(outcome_).success().value});
+auto _=src.try_set_value(root::Success<T>{move(outcome_).success().value});
 else if(outcome_.is_failure())
-(void)src.try_set_exception(outcome_.failure().error);
+auto _=src.try_set_exception(outcome_.failure().error);
 else
-(void)src.try_set_cancelled(root::cancel_reason_errc(outcome_.cancelled().reason));
+auto _=src.try_set_cancelled(root::cancel_reason_errc(outcome_.cancelled().reason));
 return move(task);
 }
 };
@@ -346,13 +346,13 @@ auto[task,src]=root::make_task_source<T>(root::SubmitOptions{.enable_cancellatio
 auto out=move(chain).release_outcome();
 if(out.is_success())
 if constexpr(same_as<T,void>)
-(void)src.try_set_value(root::Success<void>{});
+auto _=src.try_set_value(root::Success<void>{});
 else
-(void)src.try_set_value(root::Success<T>{move(out).success().value});
+auto _=src.try_set_value(root::Success<T>{move(out).success().value});
 else if(out.is_failure())
-(void)src.try_set_exception(move(out).failure().error);
+auto _=src.try_set_exception(move(out).failure().error);
 else
-(void)src.try_set_cancelled(root::cancel_reason_errc(out.cancelled().reason));
+auto _=src.try_set_cancelled(root::cancel_reason_errc(out.cancelled().reason));
 return move(task);
 }
 template<root::progress_capability Cap,root::work_value T>
