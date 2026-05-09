@@ -287,6 +287,8 @@ CHECK(r.close_in_chain);
 CHECK(r.close_cqe_seen);
 CHECK(r.cleanup_result()==nullopt);// normalized: open failed
 CHECK(r.raw_close_result()==-ECANCELED);// debug visibility
+CHECK(r.ops[1].res==-ECANCELED);
+CHECK(r.ops[2].res==-ECANCELED);
 }
 TEST_CASE(
 "flow.mode_b: close CQE arrives before last body CQE",
@@ -1617,6 +1619,7 @@ CHECK((sqe_a_term.flags&lmask)==0);
 // Flow B terminal (close, index 5 from tail_before)
 auto const&sqe_b_term=ring_raw->sq.sqes[(tail_before+5)&mask];
 CHECK((sqe_b_term.flags&lmask)==0);
+CHECK((sqe_b_term.flags&IOSQE_FIXED_FILE)==0);// close_direct must not use fixed-file fd
 
 // Non-terminal SQEs must carry a link flag
 auto const&sqe_a_open=ring_raw->sq.sqes[(tail_before+0)&mask];
@@ -1660,4 +1663,79 @@ rig.rt.on_cqe(&cqe);
 }
 REQUIRE(rig.results.size()==1);
 CHECK(rig.results[0].open_ok());
+}
+// ── Slab: try_get with gen=0 on never-allocated cell ─────────────────────────
+
+TEST_CASE(
+"flow.slab: CQE with gen=0 on never-allocated cell rejected",
+"[flow][slab]"){
+TestRig rig;
+// No flow allocated; slab cell 0 has generation==0 (initial state).
+// A CQE with gen=0 must be rejected.
+auto cqe=make_flow_cqe(0,0,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+CHECK(rig.results.empty());
+}
+// ── Slab: slab full → -ENOSPC ────────────────────────────────────────────────
+
+TEST_CASE(
+"flow.slab: slab full → -ENOSPC in rejected_flows()",
+"[flow][slab]"){
+TestRig rig{16};
+rig.rt.test_hack_drain_slab_freelist();
+auto b=rig.rt.flow();
+(void)b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
+(void)b.submit();
+auto rej=b.rejected_flows();
+REQUIRE(rej.size()==1);
+CHECK(rej[0].err==-ENOSPC);
+}
+// ── rejected_flows: span stable after submit before next flow() ───────────────
+
+TEST_CASE(
+"flow.rejected_flows: span stable after submit before next flow()",
+"[flow][builder]"){
+TestRig rig;
+char buf[4]={};
+auto b=rig.rt.flow();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
+f.hard_read(buf,1,0);// force invalid → rejection
+(void)b.submit();
+auto rej=b.rejected_flows();// span into rt_.rejections_
+REQUIRE(rej.size()==1);
+CHECK(rej[0].err==-EINVAL);
+CHECK(rej[0].flow_local_index==0);
+// Re-read through the span: still valid (no flow() call yet)
+CHECK(rej.data()==b.rejected_flows().data());
+}
+// ── CQE tag: op_index=255 (max u8) rejected in body branch ───────────────────
+
+TEST_CASE(
+"flow.cqe_validation: body CQE with op_index=255 rejected",
+"[flow][cqe_validation]"){
+TestRig rig;
+char buf[4]={};
+auto b=rig.rt.flow();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+f.then_read(buf,4,0).close_if_opened();// initial_op_count=2, mode B: expected_cqes=3
+(void)b.submit();
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,255,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+CHECK(rig.results.empty());// rejected; state unchanged
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::close_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
 }

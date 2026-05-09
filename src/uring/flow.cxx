@@ -175,7 +175,7 @@ bool close_requested=false;
 int err=0;
 };
 // ── Slab with O(1) freelist ───────────────────────────────────────────────────
-// generation==0 is the dead/never-allocated sentinel; release() resets it to 0.
+// generation==0 is the never-allocated sentinel; release() leaves it intact.
 
 class FlowSlab{
 A<DirectFileFlowState,kMaxFlows>cells_{};
@@ -224,6 +224,7 @@ void test_hack_generation(u32 idx,u32 gen)noexcept{
 if(idx<kMaxFlows)
 cells_[idx].generation=gen;
 }
+void test_hack_drain_freelist()noexcept{free_top_=0;}
 };
 // ── SBO callback wrapper (internal, never heap-allocates) ─────────────────────
 // Capacity: 64 bytes of inline storage. Triggers static_assert at construction
@@ -479,6 +480,8 @@ cb_.set(forward<Cb>(cb));
 }
 void on_cqe(
 io_uring_cqe*cqe)noexcept{
+if(cqe->user_data==0)
+return;
 auto tag=decode_tag(cqe->user_data);
 auto*st=slab_.try_get(static_cast<u32>(tag.flow_index),static_cast<u32>(tag.generation));
 if(st==nullptr){
@@ -572,6 +575,7 @@ return FlowBuilder{ring_,*this};
 void test_hack_slab_generation(u32 idx,u32 gen)noexcept{
 slab_.test_hack_generation(idx,gen);
 }
+void test_hack_drain_slab_freelist()noexcept{slab_.test_hack_drain_freelist();}
 private:
 void handle_invalid(
 io_uring_cqe*)noexcept{}
@@ -634,7 +638,7 @@ int open_flags,
 mode_t mode)noexcept{
 if(rt_.builder_count_>=kMaxBatch){
 if(rt_.rejection_count_<kMaxBatch)
-rt_.rejections_[rt_.rejection_count_++]={rt_.builder_count_,-ENOBUFS};
+rt_.rejections_[rt_.rejection_count_++]={~u32{},-ENOBUFS};
 return DirectFileFlow{nullptr};
 }
 auto&b=rt_.builders_[rt_.builder_count_++];
