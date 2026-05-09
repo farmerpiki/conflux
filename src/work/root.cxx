@@ -1813,6 +1813,13 @@ throw JoinError{JoinError::reason::ready_callback_already_installed,loc_};
 return state_->wait_and_take_outcome();
 }
 };
+template<class A>using await_resume_t=decltype(std::declval<A&>().await_resume());
+template<class A>concept awaitable=requires(A&a,std::coroutine_handle<>h){
+{a.await_ready()}->std::convertible_to<bool>;
+a.await_suspend(h);
+a.await_resume();
+};
+template<class A,class T>concept awaits_outcome=awaitable<A>&&same_as<await_resume_t<A>,Outcome<T>>;
 }// namespace detail
 template<work_value T,ControlCategory Category>
 class BasicResult{
@@ -2079,6 +2086,7 @@ return typename control_handle_for<Category>::type{state_};
 // HACK: see matching note in BasicResult::consume_for_join.
 [[nodiscard]]SP<detail::ControlBlockInterface<T>>consume_for_join()noexcept{return consume();}
 [[nodiscard]]SP<detail::ControlBlockInterface<T>>consume_for_abandon()noexcept{return consume();}
+[[nodiscard]]auto outcome()&&noexcept->detail::OutcomeAwaiter<T>{return detail::OutcomeAwaiter<T>{consume()};}
 };
 template<work_value T>
 using TaskJoinHandle=BasicJoinHandle<T,ControlCategory::task>;
@@ -2089,7 +2097,12 @@ using PostedJoinHandle=BasicJoinHandle<T,ControlCategory::posted>;
 template<work_value T>
 using OperationJoinHandle=BasicJoinHandle<T,ControlCategory::operation>;
 
-template<class H>concept work_handle=work_value<typename H::value_type>&&requires(H const&h){h.control();};
+template<class H>concept work_handle=
+work_value<typename H::value_type>&&
+requires(H h,H const ch){
+ch.control();
+requires detail::awaits_outcome<decltype(move(h).outcome()),typename H::value_type>;
+};
 template<class Sink,work_value T>
 [[nodiscard]]detail::small_move_only_function<void(Outcome<T>const&)>make_abandon_dispatch_sink(
 Sink&&sink)noexcept{

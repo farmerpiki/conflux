@@ -509,6 +509,13 @@ using root::make_task_source;// NOLINT(misc-unused-using-decls)
 namespace join_all_detail{
 template<class T>
 using JoinResultT=std::conditional_t<std::is_void_v<T>,std::monostate,T>;
+class AggregateError:public exception{
+V<EP>causes_;
+public:
+explicit AggregateError(V<EP>causes)noexcept:causes_{move(causes)}{}
+char const*what()const noexcept override{return "join_all: multiple task failures";}
+[[nodiscard]]span<EP const>causes_view()const noexcept{return causes_;}
+};
 template<typename...Ts>
 struct JoinState:std::enable_shared_from_this<JoinState<Ts...>>{
 using Result=std::tuple<JoinResultT<Ts>...>;
@@ -516,7 +523,7 @@ using Slots=std::tuple<std::optional<JoinResultT<Ts>>...>;
 
 Atom<SZ>remaining{sizeof...(Ts)};
 mutex mtx;
-EP first_error;
+V<EP>errors;
 bool any_cancelled=false;
 Slots slots;
 Tup<conflux::work::root::TaskJoinHandle<Ts>...>handles;
@@ -524,7 +531,7 @@ conflux::work::root::TaskSource<Result>src;
 JoinState(
 conflux::work::root::TaskSource<Result>s,
 conflux::work::root::TaskJoinHandle<Ts>...hs)
-:handles{move(hs)...},src{move(s)}{}
+:handles{move(hs)...},src{move(s)}{errors.reserve(sizeof...(Ts));}
 void cancel_all()noexcept{
 auto keepalive=this->shared_from_this();
 std::apply([](auto&...hs)noexcept{((void)hs.control().request_cancel(),...);},handles);
@@ -535,8 +542,12 @@ if(any_cancelled){
 (void)src.try_set_cancelled(work_errc::cancelled_requested);
 return;
 }
-if(first_error){
-(void)src.try_set_exception(move(first_error));
+if(errors.size()==1){
+(void)src.try_set_exception(move(errors[0]));
+return;
+}
+if(errors.size()>1){
+(void)src.try_set_exception(make_exception_ptr(AggregateError{move(errors)}));
 return;
 }
 try{
@@ -557,8 +568,7 @@ else
 std::get<I>(slots)=move(outcome).success().value;
 }else if(outcome.is_failure()){
 SL lk{mtx};
-if(!first_error)
-first_error=move(outcome).failure().error;
+errors.push_back(move(outcome).failure().error);
 }else{
 SL lk{mtx};
 if(!any_cancelled){
