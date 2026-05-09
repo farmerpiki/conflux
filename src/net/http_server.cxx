@@ -3368,7 +3368,9 @@ buf_ring_->recycle(buf_id);
 }
 }
 void dispatch_cqe_fatal(io_uring_cqe const*cqe)noexcept{
-auto const[op,cqe_gen,fd]=unpack(cqe->user_data);
+auto const[op,cqe_gen_,fd_]=unpack(cqe->user_data);
+(void)cqe_gen_;
+(void)fd_;
 switch(op){
 case Op::Recv:
 recycle_recv_buffer_direct(cqe);
@@ -3415,17 +3417,18 @@ u32 const overflow_now=raw_.ring().cq_overflow_count();
 eprintln(format("ring_cq_overflow={}",overflow_now));
 if(fatal_cq_overflow_count_>0)
 eprintln(format("ring_cq_overflow_delta={}",overflow_now>fatal_cq_overflow_count_?overflow_now-fatal_cq_overflow_count_:0u));
-// Parse fdinfo for sq_dropped
+eprintln(format("ring_sq_busy={}",io_uring_sq_ready(&ring)));
+// Parse fdinfo for CqOverflowList (overflow list depth, Linux 6.x+)
 int const rfd=ring.ring_fd;
 if(rfd>=0){
 auto const path=format("/proc/self/fdinfo/{}",rfd);
 if(auto f=std::ifstream{path};f){
 S line;
 while(getline(f,line)){
-if(line.starts_with("SqDropped:")||line.starts_with("sq_dropped:")){
+if(line.starts_with("CqOverflowList:")){
 auto pos=line.find(':');
 if(pos!=S::npos)
-eprintln(format("ring_sq_dropped={}",line.substr(pos+1)));
+eprintln(format("ring_cq_overflow_list={}",line.substr(pos+1)));
 }
 }
 }
