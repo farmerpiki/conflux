@@ -62,9 +62,7 @@ FileIo,
 WsCancel,
 FixedFdInstall,
 DirectSlotClose,
-Nop,
-
-
+Nop
 
 };
 
@@ -73,9 +71,7 @@ stopped_normally,
 fatal_cq_overflow,
 fatal_cq_overflow_no_nodrop,
 fatal_submit_wait_ebadr,
-fatal_internal_exception,
-
-
+fatal_internal_exception
 
 };
 
@@ -84,9 +80,7 @@ none,
 cq_overflow,
 cq_overflow_no_nodrop,
 submit_wait_ebadr,
-internal_exception,
-
-
+internal_exception
 
 };
 
@@ -283,9 +277,7 @@ SizeLine,
 Data,
 DataCrlf,
 Trailers,
-Complete,
-
-
+Complete
 
 };
 struct ChunkedDecodeState{
@@ -492,9 +484,7 @@ return false;
 enum class ExpectState:u8{
 none,
 continue_100,
-unsupported,
-
-
+unsupported
 
 };
 [[nodiscard]]ExpectState parse_expect_header(
@@ -932,6 +922,7 @@ ServerFatalReason fatal_reason_{ServerFatalReason::none};
 u32 fatal_cq_overflow_count_{0};
 bool overflow_flush_limit_hit_{false};
 bool use_recv_bundle=false;// IORING_RECVSEND_BUNDLE on multishot recv
+bool use_recv_incremental_buf=false;// IOU_PBUF_RING_INC on buffer ring
 SZ max_body_size=SZ{1024}*1024;// set from Config before run_loop()
 u32 request_timeout_ms=30000;// set from Config before run_loop(); 0 = disabled
 u32 tls_sniff_timeout_ms=10000;// set from Config before run_loop(); 0 = disabled
@@ -1660,6 +1651,7 @@ BufferRingOptions{
 .buf_size=BUF_SIZE,
 .group_id=0,
 .huge_pages=true,
+.mode=use_recv_incremental_buf?BufferRingMode::incremental:BufferRingMode::classic_one_cqe_per_buffer,
 });
 
 fd_table.reserve(FD_TABLE_RESERVE);
@@ -3707,9 +3699,7 @@ enum class ParseError:u8{
 None,
 BadRequest,
 UriTooLong,
-HeaderFieldsTooLarge,
-
-
+HeaderFieldsTooLarge
 
 };
 void emit_parse_error(
@@ -4203,8 +4193,9 @@ int const parent=impl_->wq_ring_fd_.load(memory_order_acquire);
 if(parent>=0)
 wq_fd=static_cast<u32>(parent);
 }
+r.use_recv_incremental_buf=impl_->cfg.recv_incremental_buf;
 r.init(impl_->cfg.port,entries,impl_->uring_flags,wq_fd,impl_->cfg.no_mmap);
-if(impl_->cfg.recv_bundle&&r.caps.recvsend_bundle)
+if(!impl_->cfg.recv_incremental_buf&&impl_->cfg.recv_bundle&&r.caps.recvsend_bundle)
 r.use_recv_bundle=true;
 if(impl_->cfg.attach_wq&&i==0){
 impl_->wq_ring_fd_.store(r.ring.ring_fd,memory_order_release);

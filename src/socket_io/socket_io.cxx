@@ -659,6 +659,7 @@ BufferRing&bufs,
 u64 user_data,
 bool bundle=false,
 RecvArmPolicy arm=RecvArmPolicy::default_){
+assert(!(bundle&&bufs.mode()==BufferRingMode::incremental));
 auto sqe=ring.try_get_sqe();
 if(!sqe)
 return false;

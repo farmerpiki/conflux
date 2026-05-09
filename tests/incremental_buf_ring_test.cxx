@@ -176,3 +176,11 @@ SKIP("assert inactive in release build");
 REQUIRE(run_probe("inc_neg_res")==42);
 #endif
 }
+// Assert probe: res>0 but IORING_CQE_F_BUFFER absent → assert(cqe_has_buffer) fires.
+TEST_CASE("incremental.assert: missing buffer flag detected","[incremental][death]"){
+#ifdef NDEBUG
+SKIP("assert inactive in release build");
+#else
+REQUIRE(run_probe("inc_no_buf_flag")==42);
+#endif
+}

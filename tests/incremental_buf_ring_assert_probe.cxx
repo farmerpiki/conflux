@@ -38,5 +38,10 @@ Rig rig{};
 auto _=buffer_slice_from_incremental_cqe(rig.ring,-12,inc_flags(0,false));
 return 0;
 }
+if(probe=="inc_no_buf_flag"){
+Rig rig{};
+auto _=buffer_slice_from_incremental_cqe(rig.ring,8,0u);
+return 0;
+}
 return 1;
 }
