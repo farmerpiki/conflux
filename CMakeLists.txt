@@ -251,6 +251,7 @@ target_sources(conflux_uring
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES
         src/uring/uring.cxx
+        src/uring/flow.cxx
 )
 target_link_libraries(conflux_uring
     PRIVATE conflux_options

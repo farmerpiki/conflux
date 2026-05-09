@@ -1,0 +1,715 @@
+module;
+#include<cerrno>
+#include<climits>
+#include<cstring>
+#include<liburing.h>
+
+export module conflux.uring.flow;
+import std;
+import conflux.types;
+import conflux.uring;
+// ── Exported types ────────────────────────────────────────────────────────────
+
+export namespace conflux::uring::flow{
+enum class FlowOpKind:u8{
+open_direct,
+read,
+write,
+close_direct
+};
+struct BorrowedPath{
+char const*ptr;
+};
+struct OpResult{
+i32 res=0;
+u32 requested=0;
+FlowOpKind kind=FlowOpKind::open_direct;
+[[nodiscard]]bool ok()const noexcept{return res>=0;}
+[[nodiscard]]bool is_io()const noexcept{return kind==FlowOpKind::read||kind==FlowOpKind::write;}
+[[nodiscard]]bool short_io()const noexcept{return is_io()&&res>=0&&u32(res)<requested;}
+[[nodiscard]]bool full_io()const noexcept{return is_io()&&res>=0&&u32(res)==requested;}
+};
+struct FlowRejection{
+u32 flow_local_index;
+int err;
+};
+struct FlowResult{
+span<OpResult const>ops;
+bool close_needed;
+bool close_in_chain;
+bool close_cqe_seen;
+i32 close_raw_res;
+[[nodiscard]]bool open_ok()const noexcept{return!ops.empty()&&ops[0].res>=0;}
+[[nodiscard]]Opt<i32>cleanup_result()const noexcept{
+if(!close_needed||!close_cqe_seen)
+return nullopt;
+return close_raw_res;
+}
+[[nodiscard]]Opt<i32>raw_close_result()const noexcept{
+return close_cqe_seen?Opt<i32>{close_raw_res}:nullopt;
+}
+};
+// encode_tag / encode_tag_raw — exported so tests can craft CQEs without
+// duplicating the bitfield layout.
+[[nodiscard]]inline u64 encode_tag_raw(
+u32 idx,
+u32 gen,
+u8 op_idx,
+u8 raw_kind)noexcept{
+struct Tag{
+u64 flow_index:24;
+u64 generation:24;
+u64 op_index:8;
+u64 op_kind:8;
+};
+static_assert(sizeof(Tag)==8);
+Tag d{};
+d.flow_index=idx&0xFFFFFFu;
+d.generation=gen&0xFFFFFFu;
+d.op_index=op_idx;
+d.op_kind=raw_kind;
+u64 v{};
+std::memcpy(&v,&d,8);
+return v;
+}
+[[nodiscard]]inline u64 encode_tag(
+u32 idx,
+u32 gen,
+u8 op_idx,
+FlowOpKind kind)noexcept{
+return encode_tag_raw(idx,gen,op_idx,std::to_underlying(kind));
+}
+}// namespace conflux::uring::flow
+// ── Internal constants and types ──────────────────────────────────────────────
+
+namespace conflux::uring::flow{
+inline constexpr u8 max_initial_ops=8;
+inline constexpr u8 max_chain_cqes=max_initial_ops+1;
+inline constexpr u32 kMaxFlows=4096;
+inline constexpr u32 kMaxBatch=64;
+
+enum class LinkVariant:u8{
+then_,
+hard_
+};
+[[nodiscard]]constexpr bool is_valid_flow_op_kind(
+u8 v)noexcept{
+switch(static_cast<FlowOpKind>(v)){
+case FlowOpKind::open_direct:
+case FlowOpKind::read:
+case FlowOpKind::write:
+case FlowOpKind::close_direct:return true;
+}
+return false;
+}
+[[nodiscard]]constexpr bool direct_open_succeeded(
+i32 res)noexcept{
+return res>=0;
+}
+struct PendingRead{
+void*buf;
+u32 len;
+u64 offset;
+};
+struct PendingWrite{
+void const*buf;
+u32 len;
+u64 offset;
+};
+struct PendingOpenDirect{
+DirectSlot slot;
+int dfd;
+char const*path;
+int open_flags;
+mode_t mode;
+};
+struct PendingOp{
+FlowOpKind kind;
+LinkVariant variant=LinkVariant::then_;
+union{
+PendingOpenDirect open;
+PendingRead read;
+PendingWrite write;
+};
+};
+struct FlowUserData{
+u64 flow_index:24;
+u64 generation:24;
+u64 op_index:8;
+u64 op_kind:8;
+};
+static_assert(sizeof(FlowUserData)==8);
+[[nodiscard]]inline FlowUserData decode_tag(
+u64 v)noexcept{
+FlowUserData d{};
+std::memcpy(&d,&v,8);
+return d;
+}
+struct DirectFileFlowState{
+u32 flow_index;
+u32 generation;
+DirectSlot slot;
+u8 initial_op_count=0;
+u8 expected_cqes=0;
+u8 seen_cqes=0;
+bool open_seen=false;
+bool open_ok=false;
+i32 open_res=0;
+bool close_requested=false;
+bool close_in_chain=false;
+bool close_submitted=false;
+bool close_pending=false;
+bool close_seen=false;
+i32 close_res=0;
+A<OpResult,max_initial_ops>results{};
+};
+[[nodiscard]]inline bool close_needed_pred(
+DirectFileFlowState const&st)noexcept{
+return st.close_requested&&st.open_ok;
+}
+struct DirectFileBuilder{
+DirectSlot slot;
+A<PendingOp,max_initial_ops>ops{};
+u8 op_count=0;
+bool close_requested=false;
+int err=0;
+};
+// ── Slab with O(1) freelist ───────────────────────────────────────────────────
+// generation==0 is the dead/never-allocated sentinel; release() resets it to 0.
+
+class FlowSlab{
+A<DirectFileFlowState,kMaxFlows>cells_{};
+A<u32,kMaxFlows>free_{};
+u32 free_top_=0;// index into free_ (stack grows up)
+public:
+FlowSlab()noexcept{
+for(u32 i=0;i<kMaxFlows;++i){
+cells_[i].flow_index=i;
+cells_[i].generation=0;
+free_[i]=kMaxFlows-1-i;// reverse so first pop gives index 0
+}
+free_top_=kMaxFlows;
+}
+[[nodiscard]]DirectFileFlowState*try_allocate()noexcept{
+if(free_top_==0)
+return nullptr;
+u32 const i=free_[--free_top_];
+auto&cell=cells_[i];
+u32 g=(cell.generation+1)&0xFFFFFFu;
+if(g==0)
+g=1;
+cell.generation=g;
+return&cell;
+}
+void release(
+DirectFileFlowState&st)noexcept{
+// generation left intact; next try_allocate will bump it.
+// Safety: finish_flow is called only after all expected CQEs are observed,
+// so no live CQE for the released owner can arrive after this point.
+free_[free_top_++]=st.flow_index;
+}
+[[nodiscard]]DirectFileFlowState*try_get(
+u32 flow_idx,
+u32 gen)noexcept{
+if(flow_idx>=kMaxFlows)
+return nullptr;
+auto&st=cells_[flow_idx];
+if(st.generation==0)
+return nullptr;// never-allocated cell
+if(st.generation!=gen)
+return nullptr;// stale or reallocated
+return&st;
+}
+};
+// ── SBO callback wrapper (internal, never heap-allocates) ─────────────────────
+// Capacity: 64 bytes of inline storage. Triggers static_assert at construction
+// if the callable is larger.
+
+class FlowCb{
+static constexpr SZ kBufSize=64;
+alignas(std::max_align_t)char buf_[kBufSize]{};
+void(*call_)(char*,FlowResult)noexcept=nullptr;
+void(*dtor_)(char*)noexcept=nullptr;
+public:
+FlowCb()noexcept=default;
+FlowCb(FlowCb const&)=delete;
+FlowCb&operator=(FlowCb const&)=delete;
+FlowCb(FlowCb&&)=delete;
+FlowCb&operator=(FlowCb&&)=delete;
+~FlowCb()noexcept{
+if(dtor_!=nullptr)
+dtor_(buf_);
+}
+template<class F>
+void set(
+F&&f)noexcept{
+using T=std::decay_t<F>;
+static_assert(sizeof(T)<=kBufSize,"FlowCb: callable too large for SBO buffer");
+new(buf_)T(forward<F>(f));
+call_=[](char*p,FlowResult r)noexcept{(*reinterpret_cast<T*>(p))(r);};
+dtor_=[](char*p)noexcept{reinterpret_cast<T*>(p)->~T();};
+}
+void operator()(
+FlowResult r)noexcept{
+if(call_!=nullptr)
+call_(buf_,r);
+}
+explicit operator bool()const noexcept{return call_!=nullptr;}
+};
+// ── Link flag helpers ─────────────────────────────────────────────────────────
+
+[[nodiscard]]inline bool uses_fixed_file_fd(
+FlowOpKind k)noexcept{
+return k==FlowOpKind::read||k==FlowOpKind::write;
+}
+constexpr unsigned link_mask=IOSQE_IO_LINK|IOSQE_IO_HARDLINK;
+[[nodiscard]]unsigned link_flag_for_boundary(
+u8 /*from*/,
+u8 to,
+DirectFileBuilder const&b,
+bool mode_b)noexcept{
+if(mode_b&&to==b.op_count)
+return(b.op_count==1)?IOSQE_IO_LINK:IOSQE_IO_HARDLINK;
+return(b.ops[to].variant==LinkVariant::hard_)?IOSQE_IO_HARDLINK:IOSQE_IO_LINK;
+}
+// ── mode_b_eligible ───────────────────────────────────────────────────────────
+
+[[nodiscard]]bool mode_b_eligible(
+DirectFileBuilder const&b)noexcept{
+if(b.op_count<1)
+return false;
+if(b.op_count==1)
+return true;
+if(b.ops[1].variant!=LinkVariant::then_)
+return false;
+for(u8 i=2;i<b.op_count;++i)
+if(b.ops[i].variant!=LinkVariant::hard_)
+return false;
+return true;
+}
+// ── prep helpers ──────────────────────────────────────────────────────────────
+
+void prep_op(
+io_uring_sqe*sqe,
+u8 i,
+DirectFileBuilder const&b,
+bool is_close)noexcept{
+if(is_close){
+io_uring_prep_close_direct(sqe,b.slot.v);
+return;
+}
+auto const&op=b.ops[i];
+switch(op.kind){
+case FlowOpKind::open_direct:
+io_uring_prep_openat_direct(sqe,op.open.dfd,op.open.path,op.open.open_flags,op.open.mode,op.open.slot.v);
+break;
+case FlowOpKind::read:
+io_uring_prep_read(sqe,static_cast<int>(b.slot.v),op.read.buf,op.read.len,op.read.offset);
+break;
+case FlowOpKind::write:
+io_uring_prep_write(sqe,static_cast<int>(b.slot.v),op.write.buf,op.write.len,op.write.offset);
+break;
+case FlowOpKind::close_direct:break;
+}
+}
+[[nodiscard]]inline u32 byte_count_of(
+PendingOp const&op)noexcept{
+switch(op.kind){
+case FlowOpKind::read:return op.read.len;
+case FlowOpKind::write:return op.write.len;
+default:return 0;
+}
+}
+}// namespace conflux::uring::flow
+// ── Exported: DirectFileFlow (builder handle) ─────────────────────────────────
+
+export namespace conflux::uring::flow{
+class DirectFileFlow{
+DirectFileBuilder*b_;
+public:
+explicit DirectFileFlow(
+DirectFileBuilder*b)noexcept
+:b_{b}{}
+DirectFileFlow&then_read(
+void*buf,
+SZ len,
+u64 offset)noexcept{
+return append_read(LinkVariant::then_,buf,len,offset);
+}
+DirectFileFlow&hard_read(
+void*buf,
+SZ len,
+u64 offset)noexcept{
+return append_read(LinkVariant::hard_,buf,len,offset);
+}
+DirectFileFlow&then_write(
+void const*buf,
+SZ len,
+u64 offset)noexcept{
+return append_write(LinkVariant::then_,buf,len,offset);
+}
+DirectFileFlow&hard_write(
+void const*buf,
+SZ len,
+u64 offset)noexcept{
+return append_write(LinkVariant::hard_,buf,len,offset);
+}
+void close_if_opened()noexcept{
+if(b_!=nullptr&&b_->err==0)
+b_->close_requested=true;
+}
+[[nodiscard]]bool valid()const noexcept{return b_!=nullptr&&b_->err==0;}
+[[nodiscard]]int last_error()const noexcept{return b_!=nullptr?b_->err:-EINVAL;}
+[[nodiscard]]explicit operator bool()const noexcept{return valid();}
+private:
+[[nodiscard]]bool check_append(
+LinkVariant var,
+SZ len)noexcept{
+if(b_==nullptr||b_->err!=0)
+return false;
+if(b_->op_count==1&&var==LinkVariant::hard_){
+b_->err=-EINVAL;
+return false;
+}
+if(b_->op_count>=max_initial_ops){
+b_->err=-ENOBUFS;
+return false;
+}
+if(len>static_cast<SZ>(NL<i32>::max())){
+b_->err=-EOVERFLOW;
+return false;
+}
+return true;
+}
+DirectFileFlow&append_read(
+LinkVariant var,
+void*buf,
+SZ len,
+u64 off)noexcept{
+if(!check_append(var,len))
+return*this;
+auto&op=b_->ops[b_->op_count++];
+op.kind=FlowOpKind::read;
+op.variant=var;
+op.read=PendingRead{buf,static_cast<u32>(len),off};
+return*this;
+}
+DirectFileFlow&append_write(
+LinkVariant var,
+void const*buf,
+SZ len,
+u64 off)noexcept{
+if(!check_append(var,len))
+return*this;
+auto&op=b_->ops[b_->op_count++];
+op.kind=FlowOpKind::write;
+op.variant=var;
+op.write=PendingWrite{buf,static_cast<u32>(len),off};
+return*this;
+}
+};
+}// namespace conflux::uring::flow
+// ── FlowRuntime forward declaration ──────────────────────────────────────────
+
+export namespace conflux::uring::flow{
+class FlowRuntime;
+}// namespace conflux::uring::flow
+// ── Exported: FlowBatch ───────────────────────────────────────────────────────
+
+export namespace conflux::uring::flow{
+class FlowBatch{
+Ring&ring_;
+FlowRuntime&rt_;
+public:
+FlowBatch(
+Ring&ring,
+FlowRuntime&rt)noexcept
+:ring_{ring},rt_{rt}{}
+[[nodiscard]]DirectFileFlow
+open_direct(DirectSlot slot,int dfd,BorrowedPath path,int open_flags,mode_t mode=0)noexcept;
+template<class Fn>
+void with_direct_file(
+DirectSlot slot,
+int dfd,
+BorrowedPath path,
+int open_flags,
+mode_t mode,
+Fn&&build_ops)noexcept{
+auto f=open_direct(slot,dfd,path,open_flags,mode);
+forward<Fn>(build_ops)(f);
+f.close_if_opened();
+}
+[[nodiscard]]u32 submit()noexcept;
+
+[[nodiscard]]span<FlowRejection const>rejected_flows()const noexcept;
+};
+}// namespace conflux::uring::flow
+// ── Exported: FlowRuntime ─────────────────────────────────────────────────────
+
+export namespace conflux::uring::flow{
+class FlowRuntime{
+friend class FlowBatch;
+
+Ring&ring_;
+FlowSlab slab_;
+FlowCb cb_;
+
+A<DirectFileBuilder,kMaxBatch>builders_{};
+A<FlowRejection,kMaxBatch>rejections_{};
+u32 builder_count_=0;
+u32 rejection_count_=0;
+struct DeferredClose{
+u32 flow_index;
+u32 generation;
+};
+A<DeferredClose,kMaxFlows>deferred_{};
+u32 deferred_count_=0;
+public:
+template<class Cb>
+FlowRuntime(
+Ring&ring,
+Cb&&cb)noexcept
+:ring_{ring}{
+cb_.set(forward<Cb>(cb));
+}
+void on_cqe(
+io_uring_cqe*cqe)noexcept{
+auto tag=decode_tag(cqe->user_data);
+auto*st=slab_.try_get(static_cast<u32>(tag.flow_index),static_cast<u32>(tag.generation));
+if(st==nullptr){
+handle_invalid(cqe);
+return;
+}
+
+if(!is_valid_flow_op_kind(static_cast<u8>(tag.op_kind))){
+handle_invalid(cqe);
+return;
+}
+auto kind=static_cast<FlowOpKind>(tag.op_kind);
+
+if(kind==FlowOpKind::close_direct){
+bool const close_expected=st->close_in_chain||st->close_submitted;
+if(!close_expected){
+handle_invalid(cqe);
+return;
+}
+if(static_cast<u8>(tag.op_index)!=st->initial_op_count){
+handle_invalid(cqe);
+return;
+}
+if(st->close_seen){
+handle_invalid(cqe);
+return;
+}
+st->close_seen=true;
+st->close_res=cqe->res;
+if(st->close_in_chain){
+st->seen_cqes++;
+}else{
+finish_flow(*st);
+return;
+}
+}else{
+if(st->seen_cqes>=st->expected_cqes){
+handle_invalid(cqe);
+return;
+}
+if(static_cast<u8>(tag.op_index)>=st->initial_op_count){
+handle_invalid(cqe);
+return;
+}
+auto&r=st->results[tag.op_index];
+if(r.kind!=kind){
+handle_invalid(cqe);
+return;
+}
+st->seen_cqes++;
+r.res=cqe->res;
+if(kind==FlowOpKind::open_direct){
+st->open_seen=true;
+st->open_res=cqe->res;
+st->open_ok=direct_open_succeeded(cqe->res);
+}
+}
+
+if(st->seen_cqes==st->expected_cqes)
+on_chain_complete(*st);
+}
+void drain_deferred_closes()noexcept{
+u32 w=0;
+for(u32 r=0;r<deferred_count_;++r){
+resume_deferred_close(deferred_[r].flow_index,deferred_[r].generation);
+auto*st=slab_.try_get(deferred_[r].flow_index,deferred_[r].generation);
+if(st!=nullptr&&st->close_pending)
+deferred_[w++]=deferred_[r];
+}
+deferred_count_=w;
+}
+[[nodiscard]]FlowBatch batch()noexcept{
+builder_count_=0;
+rejection_count_=0;
+return FlowBatch{ring_,*this};
+}
+private:
+void handle_invalid(
+io_uring_cqe*)noexcept{}
+void finish_flow(
+DirectFileFlowState&st)noexcept{
+FlowResult const r{
+.ops=span<OpResult const>{st.results.data(),st.initial_op_count},
+.close_needed=close_needed_pred(st),
+.close_in_chain=st.close_in_chain,
+.close_cqe_seen=st.close_seen,
+.close_raw_res=st.close_res,
+};
+slab_.release(st);
+if(cb_)
+cb_(r);
+}
+void on_chain_complete(
+DirectFileFlowState&st)noexcept{
+if(st.close_in_chain){
+finish_flow(st);
+return;
+}
+if(!close_needed_pred(st)){
+finish_flow(st);
+return;
+}
+if(st.close_submitted)
+return;
+
+auto sqe=ring_.get_sqe();
+if(!sqe){
+st.close_pending=true;
+if(deferred_count_<kMaxFlows)
+deferred_[deferred_count_++]={st.flow_index,st.generation};
+return;
+}
+submit_close_sqe(sqe.raw(),st);
+}
+void submit_close_sqe(
+io_uring_sqe*sqe,
+DirectFileFlowState&st)noexcept{
+io_uring_prep_close_direct(sqe,st.slot.v);
+sqe->user_data=encode_tag(st.flow_index,st.generation,st.initial_op_count,FlowOpKind::close_direct);
+st.close_submitted=true;
+st.close_pending=false;
+}
+void resume_deferred_close(
+u32 flow_idx,
+u32 gen)noexcept{
+auto*st=slab_.try_get(flow_idx,gen);
+if(st==nullptr||!st->close_pending)
+return;
+auto sqe=ring_.get_sqe();
+if(!sqe)
+return;
+submit_close_sqe(sqe.raw(),*st);
+}
+};
+}// namespace conflux::uring::flow
+// ── FlowBatch method bodies ───────────────────────────────────────────────────
+
+namespace conflux::uring::flow{
+DirectFileFlow FlowBatch::open_direct(
+DirectSlot slot,
+int dfd,
+BorrowedPath path,
+int open_flags,
+mode_t mode)noexcept{
+if(rt_.builder_count_>=kMaxBatch)
+return DirectFileFlow{nullptr};
+auto&b=rt_.builders_[rt_.builder_count_++];
+b={};
+b.slot=slot;
+auto&op=b.ops[b.op_count++];
+op.kind=FlowOpKind::open_direct;
+op.open={slot,dfd,path.ptr,open_flags,mode};
+return DirectFileFlow{&b};
+}
+span<FlowRejection const>FlowBatch::rejected_flows()const noexcept{
+return{rt_.rejections_.data(),rt_.rejection_count_};
+}
+u32 FlowBatch::submit()noexcept{
+rt_.rejection_count_=0;
+u32 accepted=0;
+
+for(u32 local_idx=0;local_idx<rt_.builder_count_;++local_idx){
+auto&b=rt_.builders_[local_idx];
+
+auto reject=[&](int err){
+if(rt_.rejection_count_<kMaxBatch)
+rt_.rejections_[rt_.rejection_count_++]={local_idx,err};
+};
+
+if(b.err!=0){
+reject(b.err);
+continue;
+}
+
+bool const mode_b=b.close_requested&&mode_b_eligible(b);
+u8 const emitted=static_cast<u8>(b.op_count+(mode_b?1u:0u));
+
+auto*state_ptr=rt_.slab_.try_allocate();
+if(state_ptr==nullptr){
+reject(-ENOSPC);
+continue;
+}
+
+if(ring_.sq_space_left()<emitted){
+rt_.slab_.release(*state_ptr);
+reject(-EAGAIN);
+continue;
+}
+
+auto&state=*state_ptr;
+state.initial_op_count=b.op_count;
+state.expected_cqes=emitted;
+state.seen_cqes=0;
+state.slot=b.slot;
+state.open_seen=false;
+state.open_ok=false;
+state.open_res=0;
+state.close_requested=b.close_requested;
+state.close_in_chain=mode_b;
+state.close_submitted=false;
+state.close_pending=false;
+state.close_seen=false;
+state.close_res=0;
+
+for(u8 i=0;i<emitted;++i){
+bool const is_close=mode_b&&(i==b.op_count);
+FlowOpKind const kind=is_close?FlowOpKind::close_direct:b.ops[i].kind;
+
+auto sqe=ring_.get_sqe();
+if(!sqe)
+break;// sq_space_left was checked; breach = framework bug
+
+prep_op(sqe.raw(),i,b,is_close);
+// prep_op zeroes sqe->flags; layer our flags on top
+
+if(uses_fixed_file_fd(kind))
+sqe.raw()->flags|=IOSQE_FIXED_FILE;
+
+sqe.raw()->flags&=static_cast<u8>(~link_mask);
+if(i+1<emitted)
+sqe.raw()->flags|=static_cast<u8>(link_flag_for_boundary(i,u8(i+1),b,mode_b));
+
+sqe.raw()->user_data=encode_tag(state.flow_index,state.generation,i,kind);
+
+if(!is_close)
+state.results[i]=OpResult{
+.res=0,
+.requested=byte_count_of(b.ops[i]),
+.kind=kind,
+};
+}
+
+++accepted;
+}
+
+rt_.builder_count_=0;
+return accepted;
+}
+}// namespace conflux::uring::flow
