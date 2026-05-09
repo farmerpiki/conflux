@@ -22,6 +22,7 @@ struct BorrowedPath{
 char const*ptr;
 };
 struct OwnedInlinePath{
+// hack: cap = NAME_MAX (255). Not PATH_MAX. from_sv() rejects longer inputs with -ENAMETOOLONG.
 static constexpr SZ cap=255;
 A<char,cap+1>buf{};
 SZ len{};
@@ -337,7 +338,7 @@ case FlowOpKind::open_direct:
 io_uring_prep_openat_direct(
 sqe,
 op.open.dfd,
-(op.kind==FlowOpKind::open_direct&&open_path_override!=nullptr)?open_path_override:op.open.path,
+open_path_override!=nullptr?open_path_override:op.open.path,
 op.open.open_flags,
 op.open.mode,
 op.open.slot.value);

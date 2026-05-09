@@ -143,7 +143,74 @@ auto f=b.open_direct_owned(DirectSlot{1},AT_FDCWD,"/tmp",O_RDONLY);
 REQUIRE(f.valid());
 (void)b.submit();
 }
-// Runtime path for flow index 0 still holds the first path (flow index 1 gets /tmp).
+// FlowSlab freelist is initialized in reverse (flow.cxx: free_[i]=kMaxFlows-1-i),
+// so first try_allocate yields index 0 and second yields index 1 on a fresh slab.
+// CQEs are never delivered in this test, so slab slots are never released.
 CHECK(SV{rig.rt.test_owned_path_ptr(0)}=="/dev/null");
 CHECK(SV{rig.rt.test_owned_path_ptr(1)}=="/tmp");
+}
+// ── OwnedInlinePath overload called directly ─────────────────────────────────
+
+TEST_CASE(
+"owned_path: OwnedInlinePath overload accepted under !stable",
+"[owned_path][submit]"){
+TestRig rig{true};
+auto p=uf::OwnedInlinePath::from_sv("/dev/null");
+REQUIRE(p);
+auto b=rig.rt.flow();
+auto f=b.open_direct_owned(DirectSlot{0},AT_FDCWD,*p,O_RDONLY);
+REQUIRE(f.valid());
+auto n=b.submit();
+CHECK(n==1);
+CHECK(b.rejected_flows().empty());
+}
+// ── with_direct_file_owned ────────────────────────────────────────────────────
+
+TEST_CASE(
+"owned_path: with_direct_file_owned builds close-in-chain flow",
+"[owned_path][submit]"){
+TestRig rig{true};
+char buf[4]={};
+auto p=uf::OwnedInlinePath::from_sv("/dev/null");
+REQUIRE(p);
+auto b=rig.rt.flow();
+b.with_direct_file_owned(DirectSlot{0},AT_FDCWD,*p,O_RDONLY,0,
+[&](uf::DirectFileFlow f)noexcept{
+f.then_read(buf,4,0);
+});
+auto n=b.submit();
+CHECK(n==1);
+CHECK(b.rejected_flows().empty());
+}
+// ── Kernel round-trip ─────────────────────────────────────────────────────────
+
+TEST_CASE(
+"owned_path: kernel round-trip opens /dev/null via owned path",
+"[owned_path][kernel]"){
+// Uses stable caps (force_unstable=false); real submission to kernel.
+Ring ring{[]{auto r=Ring::init(8,{});REQUIRE(r);return move(*r);}()};
+REQUIRE(ring.register_files_sparse(4)==0);
+auto caps=detect_caps(ring.ref());
+V<uf::FlowResult>results;
+results.reserve(4);
+uf::FlowRuntime rt{ring,caps,[&](uf::FlowResult fr)noexcept{results.push_back(fr);}};
+
+auto b=rt.flow();
+auto f=b.open_direct_owned(DirectSlot{0},AT_FDCWD,"/dev/null",O_RDONLY);
+REQUIRE(f.valid());
+auto n=b.submit();
+REQUIRE(n==1);
+
+// Submit to kernel and wait for one CQE.
+ring.submit();
+io_uring_cqe*cqe=nullptr;
+int rc=ring.wait_cqe(&cqe);
+REQUIRE(rc==0);
+REQUIRE(cqe!=nullptr);
+rt.on_cqe(cqe);
+ring.cqe_seen(cqe);
+
+REQUIRE(results.size()==1);
+CHECK(results[0].open_ok());
+CHECK(results[0].ops[0].res>=0);
 }
