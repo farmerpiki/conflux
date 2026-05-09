@@ -148,7 +148,7 @@ cfg.cert_file=cert_path_;
 cfg.key_file=key_path_;
 
 server_=make_shared<HttpServer>(cfg,move(router));
-srv_thread_=thread([srv=server_]{srv->run();});
+srv_thread_=thread([srv=server_]{(void)srv->run();});
 
 port_=server_->port();
 wait_for_port(port_);
@@ -229,7 +229,7 @@ cfg.key_file=key_path_;
 cfg.http3.enabled=true;
 
 server_=make_shared<HttpServer>(cfg,move(router));
-srv_thread_=thread([srv=server_]{srv->run();});
+srv_thread_=thread([srv=server_]{(void)srv->run();});
 
 port_=server_->port();
 wait_for_port(port_);
