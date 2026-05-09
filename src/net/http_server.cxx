@@ -3558,8 +3558,11 @@ phase3_dispatch();
 
 if(shutting_down){
 bool const any_open=ranges::any_of(fd_table,[](Conn const&c){return c.fd>=0;});
-if(!any_open)
+if(!any_open){
+if(file_completions&&!file_completions->cancel_all())
+continue;
 return RunStatus::stopped_normally;
+}
 }
 }
 }

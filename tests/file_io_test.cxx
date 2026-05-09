@@ -118,10 +118,88 @@ auto r_a=table.reserve([&](IoResult r){res_a=r.res;});
 auto r_b=table.reserve([&](IoResult r){res_b=r.res;});
 (void)r_a;
 (void)r_b;
-table.cancel_all();
+CHECK(table.cancel_all());
 CHECK(res_a==-ECANCELED);
 CHECK(res_b==-ECANCELED);
 CHECK(table.pending()==0);
+}
+TEST_CASE(
+"file_io: CompletionTable zc_send waits for NOTIF CQE",
+"[file_io][unit]"){
+CompletionTable table;
+bool fired=false;
+int got_res=-1;
+auto[slot,gen]=table.reserve_zc([&](IoResult r)noexcept{fired=true;got_res=r.res;});
+table.dispatch(slot,gen,17,IORING_CQE_F_MORE);
+CHECK(!fired);
+CHECK(table.has_pending_zc_notifications());
+table.dispatch(slot,gen,0,IORING_CQE_F_NOTIF);
+CHECK(fired);
+CHECK(got_res==17);
+CHECK(!table.has_pending_zc_notifications());
+CHECK(table.pending()==0);
+}
+TEST_CASE(
+"file_io: CompletionTable zc_send first CQE error fires immediately",
+"[file_io][unit]"){
+CompletionTable table;
+bool fired=false;
+int got_res=0;
+auto[slot,gen]=table.reserve_zc([&](IoResult r)noexcept{fired=true;got_res=r.res;});
+table.dispatch(slot,gen,-EPERM,0);
+CHECK(fired);
+CHECK(got_res==-EPERM);
+CHECK(table.pending()==0);
+}
+TEST_CASE(
+"file_io: CompletionTable zc_send first CQE success without MORE fires immediately",
+"[file_io][unit]"){
+CompletionTable table;
+bool fired=false;
+int got_res=-1;
+auto[slot,gen]=table.reserve_zc([&](IoResult r)noexcept{fired=true;got_res=r.res;});
+table.dispatch(slot,gen,17,0);
+CHECK(fired);
+CHECK(got_res==17);
+CHECK(table.pending()==0);
+}
+TEST_CASE(
+"file_io: CompletionTable zc_send stale NOTIF after slot free is ignored",
+"[file_io][unit]"){
+CompletionTable table;
+int fire_count=0;
+auto[slot,gen]=table.reserve_zc([&](IoResult)noexcept{++fire_count;});
+table.dispatch(slot,gen,5,IORING_CQE_F_MORE);
+table.dispatch(slot,gen,0,IORING_CQE_F_NOTIF);
+CHECK(fire_count==1);
+table.dispatch(slot,gen,0,IORING_CQE_F_NOTIF);// stale gen
+CHECK(fire_count==1);
+}
+TEST_CASE(
+"file_io: CompletionTable has_pending_zc_notifications",
+"[file_io][unit]"){
+CompletionTable table;
+auto[slot,gen]=table.reserve_zc([](IoResult)noexcept{});
+CHECK(!table.has_pending_zc_notifications());
+table.dispatch(slot,gen,8,IORING_CQE_F_MORE);
+CHECK(table.has_pending_zc_notifications());
+table.dispatch(slot,gen,0,IORING_CQE_F_NOTIF);
+CHECK(!table.has_pending_zc_notifications());
+}
+TEST_CASE(
+"file_io: CompletionTable cancel_all refuses pending zc notification",
+"[file_io][unit]"){
+CompletionTable table;
+bool fired=false;
+auto[slot,gen]=table.reserve_zc([&](IoResult)noexcept{fired=true;});
+table.dispatch(slot,gen,17,IORING_CQE_F_MORE);
+CHECK(table.has_pending_zc_notifications());
+CHECK_FALSE(table.cancel_all());
+CHECK(!fired);
+CHECK(table.pending()==1);
+table.dispatch(slot,gen,0,IORING_CQE_F_NOTIF);
+CHECK(fired);
+CHECK(table.cancel_all());
 }
 TEST_CASE(
 "file_io: open + stat + read_into round trip",
@@ -1595,7 +1673,7 @@ REQUIRE(recvd==payload.size());
 CHECK(SV{buf.data(),recvd}==payload);
 }
 TEST_CASE(
-"send_zc_async sends data (or gracefully unsupported)"){
+"unsafe_send_zc_sent_async sends data (or gracefully unsupported)"){
 auto fx=RingFixture::make();
 if(!fx)
 SKIP("io_uring_queue_init failed");
@@ -1610,13 +1688,43 @@ bool ok{false};
 int err{0};
 try{
 SZ const n=
-block_on(fx->reader,fx->reader.send_zc_async(sender,payload.data(),payload.size()),chrono::seconds{5});
+block_on(fx->reader,fx->reader.unsafe_send_zc_sent_async(sender,payload.data(),payload.size()),chrono::seconds{5});
 ok=(n==payload.size());
 }catch(SE const&se){err=se.code().value();}catch(...){
 }
 
 bool const passed=ok||err==EOPNOTSUPP||err==EINVAL||err==ENOSYS;
 CHECK(passed);
+}
+TEST_CASE(
+"send_zc_async completes after notification and data received"){
+auto fx=RingFixture::make();
+if(!fx)
+SKIP("io_uring_queue_init failed");
+int sv[2];
+REQUIRE(::socketpair(AF_UNIX,SOCK_STREAM|SOCK_CLOEXEC,0,sv)==0);
+
+FileHandle const sender=FileHandle::from_fd(sv[0]);
+FileHandle const recver=FileHandle::from_fd(sv[1]);
+
+S const payload="send_zc_notif_data";
+bool ok{false};
+int err{0};
+try{
+SZ const n=
+block_on(fx->reader,fx->reader.send_zc_async(sender,payload.data(),payload.size()),chrono::seconds{5});
+ok=(n==payload.size());
+}catch(SE const&se){err=se.code().value();}catch(...){
+}
+
+bool const passed=ok||err==EOPNOTSUPP||err==EINVAL||err==ENOSYS;
+REQUIRE(passed);
+if(ok){
+A<char,64>buf{};
+SZ const recvd=static_cast<SZ>(::recv(sv[1],buf.data(),buf.size(),MSG_DONTWAIT));
+CHECK(recvd==payload.size());
+CHECK(SV{buf.data(),recvd}==payload);
+}
 }
 TEST_CASE(
 "unlinkat_async removes file relative to dirfd"){
@@ -1800,7 +1908,7 @@ bool const passed=ok||err==EINVAL||err==ENOSYS;
 CHECK(passed);
 }
 TEST_CASE(
-"sendmsg_zc_async sends data (or gracefully unsupported)"){
+"unsafe_sendmsg_zc_sent_async sends data (or gracefully unsupported)"){
 auto fx=RingFixture::make();
 if(!fx)
 SKIP("io_uring_queue_init failed");
@@ -1819,11 +1927,45 @@ hdr.msg_iovlen=1;
 bool ok{false};
 int err{0};
 try{
-SZ const n=block_on(fx->reader,fx->reader.sendmsg_zc_async(sender,&hdr),chrono::seconds{5});
+SZ const n=block_on(fx->reader,fx->reader.unsafe_sendmsg_zc_sent_async(sender,&hdr),chrono::seconds{5});
 ok=(n==payload.size());
 }catch(SE const&se){err=se.code().value();}catch(...){
 }
 
 bool const passed=ok||err==EOPNOTSUPP||err==EINVAL||err==ENOSYS;
 CHECK(passed);
+}
+TEST_CASE(
+"sendmsg_zc_async completes after notification and data received"){
+auto fx=RingFixture::make();
+if(!fx)
+SKIP("io_uring_queue_init failed");
+int sv[2];
+REQUIRE(::socketpair(AF_UNIX,SOCK_DGRAM|SOCK_CLOEXEC,0,sv)==0);
+
+FileHandle const sender=FileHandle::from_fd(sv[0]);
+FileHandle const recver=FileHandle::from_fd(sv[1]);
+
+S const payload="sendmsg_zc_notif";
+iovec iov{const_cast<char*>(payload.data()),payload.size()};
+msghdr hdr{};
+hdr.msg_iov=&iov;
+hdr.msg_iovlen=1;
+
+bool ok{false};
+int err{0};
+try{
+SZ const n=block_on(fx->reader,fx->reader.sendmsg_zc_async(sender,&hdr),chrono::seconds{5});
+ok=(n==payload.size());
+}catch(SE const&se){err=se.code().value();}catch(...){
+}
+
+bool const passed=ok||err==EOPNOTSUPP||err==EINVAL||err==ENOSYS;
+REQUIRE(passed);
+if(ok){
+A<char,64>buf{};
+SZ const recvd=static_cast<SZ>(::recvfrom(sv[1],buf.data(),buf.size(),MSG_DONTWAIT,nullptr,nullptr));
+CHECK(recvd==payload.size());
+CHECK(SV{buf.data(),recvd}==payload);
+}
 }

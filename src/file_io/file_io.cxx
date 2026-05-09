@@ -50,10 +50,15 @@ namespace root=conflux::work::root;
 // ---------------------------------------------------------------------------
 
 export class CompletionTable{
+enum class SlotMode:u8{single,
+multishot,
+zc_send};
 struct Slot{
 u32 gen{0};
 bool in_use{false};
-bool multishot{false};
+SlotMode mode{SlotMode::single};
+i32 zc_bytes{0};
+bool zc_seen_send{false};
 FileCompletionFn fn{};
 };
 V<Slot>slots_{};
@@ -80,14 +85,22 @@ slots_.emplace_back();
 }
 auto&s=slots_[slot];
 s.in_use=true;
-s.multishot=false;
+s.mode=SlotMode::single;
+s.zc_bytes=0;
+s.zc_seen_send=false;
 s.fn=move(fn);
 return{slot,s.gen};
 }
 [[nodiscard]]P<u32,u32>reserve_multishot(
 FileCompletionFn fn){
 auto[slot,gen]=reserve(move(fn));
-slots_[slot].multishot=true;
+slots_[slot].mode=SlotMode::multishot;
+return{slot,gen};
+}
+[[nodiscard]]P<u32,u32>reserve_zc(
+FileCompletionFn fn){
+auto[slot,gen]=reserve(move(fn));
+slots_[slot].mode=SlotMode::zc_send;
 return{slot,gen};
 }
 void dispatch(
@@ -101,21 +114,43 @@ return;
 auto&s=slots_[slot];
 if(!s.in_use||s.gen!=gen)
 return;
-if(s.multishot&&res>=0&&(flags&IORING_CQE_F_MORE)!=0U){
+if(s.mode==SlotMode::multishot&&res>=0&&(flags&IORING_CQE_F_MORE)!=0U){
 if(s.fn)
 s.fn(IoResult{.res=res,.flags=flags});
 return;
 }
+if(s.mode==SlotMode::zc_send){
+if((flags&IORING_CQE_F_NOTIF)==0U){
+if(res>=0&&(flags&IORING_CQE_F_MORE)!=0U){
+s.zc_bytes=res;
+s.zc_seen_send=true;
+return;
+}
+}else{
+res=s.zc_seen_send?s.zc_bytes:-EIO;
+}
+}
 auto fn=move(s.fn);
 s.fn={};
 s.in_use=false;
-s.multishot=false;
+s.mode=SlotMode::single;
+s.zc_bytes=0;
+s.zc_seen_send=false;
 ++s.gen;
 free_.push_back(slot);
 if(fn)
 fn(IoResult{.res=res,.flags=flags});
 }
-void cancel_all()noexcept{// NOLINT(bugprone-exception-escape) — callbacks are noexcept by contract
+[[nodiscard]]bool has_pending_zc_notifications()const noexcept{
+for(auto const&s:slots_)
+if(s.in_use&&s.mode==SlotMode::zc_send&&s.zc_seen_send)return true;
+return false;
+}
+// Returns false (and cancels nothing) if ZC notification slots are pending.
+// Caller must drain the CQ until has_pending_zc_notifications() returns false, then retry.
+[[nodiscard]]bool cancel_all()noexcept{// NOLINT(bugprone-exception-escape) — callbacks are noexcept by contract
+if(has_pending_zc_notifications())
+return false;
 for(u32 slot=0;slot<slots_.size();++slot){
 auto&s=slots_[slot];
 if(!s.in_use)
@@ -123,12 +158,15 @@ continue;
 auto fn=move(s.fn);
 s.fn={};
 s.in_use=false;
-s.multishot=false;
+s.mode=SlotMode::single;
+s.zc_bytes=0;
+s.zc_seen_send=false;
 ++s.gen;
 free_.push_back(slot);
 if(fn)
 fn(IoResult{.res=-ECANCELED,.flags=0});
 }
+return true;
 }
 [[nodiscard]]SZ pending()const noexcept{return slots_.size()-free_.size();}
 };
@@ -473,6 +511,25 @@ P<u32,u32>reserve_bridge(
 SP<root::TaskSource<T>>const&src,
 Decode&&decode){
 return completions_->reserve([src,decode=forward<Decode>(decode)](IoResult r)mutable{
+try{
+if(r.res<0){
+(void)src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: cqe error"}));
+return;
+}
+if constexpr(std::is_void_v<T>){
+decode(r);
+(void)src->try_set_value(root::Success<void>{});
+}else{
+(void)src->try_set_value(root::Success<T>{decode(r)});
+}
+}catch(...){(void)src->try_set_exception(current_exception());}
+});
+}
+template<typename T,typename Decode>
+P<u32,u32>reserve_zc_bridge(
+SP<root::TaskSource<T>>const&src,
+Decode&&decode){
+return completions_->reserve_zc([src,decode=forward<Decode>(decode)](IoResult r)mutable{
 try{
 if(r.res<0){
 (void)src->try_set_exception(make_exception_ptr(FileIoError{-r.res,"file_io: cqe error"}));
@@ -2609,16 +2666,17 @@ sockaddr_storage addr,
 socklen_t addrlen){
 return sendto_async(fh,buf,len,flags,addr,addrlen);
 }
-// Zero-copy send. `buf` must remain valid until the CQE with
-// IORING_CQE_F_NOTIF fires (the caller is notified via a second CQE).
-// For simplicity this Flow resolves when the first CQE arrives;
-// the notification CQE is discarded by the completion dispatch.
-[[nodiscard]]root::Task<SZ>send_zc_async(
+// hack: resolves on first send CQE only; this API does not expose buffer-release notification.
+// Caller must guarantee the buffer remains live by other means.
+[[nodiscard]]root::Task<SZ>unsafe_send_zc_sent_async(
 FileHandle const&fh,
 void const*buf,
 SZ len,
 int flags=0,
 unsigned zc_flags=0){
+#ifdef IORING_SEND_ZC_REPORT_USAGE
+zc_flags&=~IORING_SEND_ZC_REPORT_USAGE;
+#endif
 auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation=false});
 auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
 auto*sqe=io_uring_get_sqe(ring_);
@@ -2634,13 +2692,37 @@ auto[slot,gen]=reserve_bridge<SZ>(shared_src,[](IoResult r){return static_cast<S
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
-[[nodiscard]]conflux::work::root::Task<SZ>send_zc_task(
+[[nodiscard]]conflux::work::root::Task<SZ>unsafe_send_zc_sent_task(
 FileHandle const&fh,
 void const*buf,
 SZ len,
 int flags=0,
 unsigned zc_flags=0){
-return send_zc_async(fh,buf,len,flags,zc_flags);
+return unsafe_send_zc_sent_async(fh,buf,len,flags,zc_flags);
+}
+[[nodiscard]]root::Task<SZ>send_zc_async(
+FileHandle const&fh,
+void const*buf,
+SZ len,
+int flags=0,
+unsigned zc_flags=0){
+#ifdef IORING_SEND_ZC_REPORT_USAGE
+zc_flags&=~IORING_SEND_ZC_REPORT_USAGE;
+#endif
+auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation=false});
+auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
+auto*sqe=io_uring_get_sqe(ring_);
+if(sqe==nullptr){
+(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+return move(task);
+}
+int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
+io_uring_prep_send_zc(sqe,fd,buf,len,flags,zc_flags);
+if(fh.is_direct())
+io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
+auto[slot,gen]=reserve_zc_bridge<SZ>(shared_src,[](IoResult r){return static_cast<SZ>(r.res);});
+io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
+return move(task);
 }
 // Write using a pre-registered fixed buffer (IORING_OP_WRITE_FIXED).
 // `buf` pointer and `buf_index` must refer to the registered buffer in the pool.
@@ -2926,11 +3008,9 @@ unsigned flags=0,
 unsigned cqe_flags=0){
 return msg_ring_cqe_flags_async(target_ring_fd,len,data,flags,cqe_flags);
 }
-// Zero-copy vectored send via sendmsg(2). `msg` must remain valid until the
-// notification CQE fires (i.e., the kernel has finished reading the buffers).
-// The Flow resolves on the first CQE (send completion); the notification CQE
-// is a separate event that callers must handle via their completion dispatch.
-[[nodiscard]]root::Task<SZ>sendmsg_zc_async(
+// hack: resolves on first send CQE only; this API does not expose buffer-release notification.
+// Caller must guarantee msg, iovec array, and all pointed buffers remain live by other means.
+[[nodiscard]]root::Task<SZ>unsafe_sendmsg_zc_sent_async(
 FileHandle const&fh,
 msghdr const*msg,
 unsigned flags=0){
@@ -2949,11 +3029,31 @@ auto[slot,gen]=reserve_bridge<SZ>(shared_src,[](IoResult r){return static_cast<S
 io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
 return move(task);
 }
-[[nodiscard]]conflux::work::root::Task<SZ>sendmsg_zc_task(
+[[nodiscard]]conflux::work::root::Task<SZ>unsafe_sendmsg_zc_sent_task(
 FileHandle const&fh,
 msghdr const*msg,
 unsigned flags=0){
-return sendmsg_zc_async(fh,msg,flags);
+return unsafe_sendmsg_zc_sent_async(fh,msg,flags);
+}
+// msg, iovec array, and all pointed buffers must remain live until co_return.
+[[nodiscard]]root::Task<SZ>sendmsg_zc_async(
+FileHandle const&fh,
+msghdr const*msg,
+unsigned flags=0){
+auto[task,raw_src]=root::make_task_source<SZ>(root::SubmitOptions{.enable_cancellation=false});
+auto shared_src=make_shared<root::TaskSource<SZ>>(move(raw_src));
+auto*sqe=io_uring_get_sqe(ring_);
+if(sqe==nullptr){
+(void)shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC,"file_io: SQ full"}));
+return move(task);
+}
+int const fd=fh.is_direct()?fh.direct_slot():fh.raw_fd();
+io_uring_prep_sendmsg_zc(sqe,fd,msg,flags);
+if(fh.is_direct())
+io_uring_sqe_set_flags(sqe,IOSQE_FIXED_FILE);
+auto[slot,gen]=reserve_zc_bridge<SZ>(shared_src,[](IoResult r){return static_cast<SZ>(r.res);});
+io_uring_sqe_set_data64(sqe,encode_ud_(slot,gen));
+return move(task);
 }
 private:
 template<typename StatePtr>
