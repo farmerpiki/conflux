@@ -36,7 +36,9 @@ auto r=Ring::init(sq_size,{});
 REQUIRE(r);
 return move(*r);
 }()},
-rt{ring,[&](uf::FlowResult fr){results.push_back(fr);}}{}
+rt{ring,[&](uf::FlowResult fr)noexcept{results.push_back(fr);}}{// NOLINT(bugprone-exception-escape) — reserve below prevents allocation
+results.reserve(64);
+}
 };
 }// namespace
 // ── Auto-mode selection ───────────────────────────────────────────────────────
@@ -46,7 +48,7 @@ TEST_CASE(
 "[flow][mode]"){
 TestRig rig;
 char buf[16]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 REQUIRE(f.valid());
@@ -58,7 +60,7 @@ TEST_CASE(
 "[flow][mode]"){
 TestRig rig;
 char buf[16]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).hard_write(buf,4,0).close_if_opened();
 REQUIRE(f.valid());
@@ -69,7 +71,7 @@ TEST_CASE(
 "flow.mode_select: open alone → mode B",
 "[flow][mode]"){
 TestRig rig;
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 f.close_if_opened();
 REQUIRE(f.valid());
@@ -83,7 +85,7 @@ TEST_CASE(
 "[flow][builder]"){
 TestRig rig;
 char buf[16]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 f.hard_read(buf,4,0);
 CHECK_FALSE(f.valid());
@@ -99,7 +101,7 @@ TEST_CASE(
 "[flow][builder]"){
 TestRig rig;
 char buf[16]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 // max_initial_ops=8: open is op[0], so 7 body ops are the limit
 for(int i=0;i<7;++i)
@@ -117,7 +119,7 @@ TEST_CASE(
 "[flow][builder]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 SZ big=static_cast<SZ>(NL<i32>::max())+1;
 f.then_read(buf,big,0);
@@ -129,7 +131,7 @@ TEST_CASE(
 "[flow][builder]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 f.hard_read(buf,1,0);// invalidate
 CHECK_FALSE(f.valid());
@@ -143,7 +145,7 @@ TEST_CASE(
 "[flow][mode_a]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -188,7 +190,7 @@ TEST_CASE(
 "[flow][mode_a]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -221,7 +223,7 @@ TEST_CASE(
 // Regression: the duplicate-body guard must NOT fire for mode A close CQEs.
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -254,7 +256,7 @@ TEST_CASE(
 "[flow][mode_b]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).hard_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -291,7 +293,7 @@ TEST_CASE(
 "[flow][mode_b]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).hard_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -327,7 +329,7 @@ TEST_CASE(
 TestRig rig;
 // First flow: idx=0, gen=1; open-only mode B (initial_op_count=1, close op_index=1)
 {
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 f.close_if_opened();
 (void)b.submit();
@@ -343,7 +345,7 @@ rig.rt.on_cqe(&cqe);
 REQUIRE(rig.results.size()==1);
 // Second flow on same slot: idx=0, gen=2
 {
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 f.close_if_opened();
 (void)b.submit();
@@ -371,7 +373,7 @@ TEST_CASE(
 "flow.cqe_validation: unknown op_kind rejected",
 "[flow][cqe_validation]"){
 TestRig rig;
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 f.close_if_opened();
 (void)b.submit();
@@ -387,7 +389,7 @@ TEST_CASE(
 "[flow][cqe_validation]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -456,7 +458,7 @@ TEST_CASE(
 "[flow][mode]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 f.then_read(buf,4,0).close_if_opened();
 REQUIRE(f.valid());
@@ -486,7 +488,7 @@ TEST_CASE(
 "[flow][mode]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).hard_write(buf,4,0).hard_read(buf,4,0).close_if_opened();
 REQUIRE(f.valid());
@@ -523,7 +525,7 @@ TEST_CASE(
 "[flow][mode]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).hard_write(buf,4,0).then_read(buf,4,0).close_if_opened();
 REQUIRE(f.valid());
@@ -563,7 +565,7 @@ TEST_CASE(
 "[flow][mode_a]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -600,7 +602,7 @@ TEST_CASE(
 "[flow][mode_a]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -633,7 +635,7 @@ TEST_CASE(
 "[flow][mode_a]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -665,7 +667,7 @@ TEST_CASE(
 "[flow][mode_a]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -704,7 +706,7 @@ TEST_CASE(
 "[flow][mode_b]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).hard_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -741,7 +743,7 @@ TEST_CASE(
 "[flow][mode_b]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).hard_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -773,7 +775,7 @@ TEST_CASE(
 "[flow][no_close]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0);// no close_if_opened()
 (void)b.submit();
@@ -798,7 +800,7 @@ TEST_CASE(
 "[flow][no_close]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0);// no close_if_opened()
 (void)b.submit();
@@ -822,7 +824,7 @@ TEST_CASE(
 "[flow][cqe_validation]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -857,7 +859,7 @@ TEST_CASE(
 "[flow][cqe_validation]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -892,7 +894,7 @@ TEST_CASE(
 "[flow][cqe_validation]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0);// no close_if_opened()
 (void)b.submit();
@@ -921,7 +923,7 @@ TEST_CASE(
 "[flow][builder]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,0,0);
 CHECK(f.valid());
@@ -932,7 +934,7 @@ TEST_CASE(
 "[flow][builder]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,static_cast<SZ>(NL<i32>::max()),0);
 CHECK(f.valid());
@@ -945,7 +947,7 @@ TEST_CASE(
 "[flow][multi]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 // Flow 0: mode A (open+read+write, standalone close)
 auto f0=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f0.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
@@ -1005,7 +1007,7 @@ TEST_CASE(
 TestRig rig;
 // First flow: idx=0, gen=1
 {
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 f.close_if_opened();
 (void)b.submit();
@@ -1021,7 +1023,7 @@ rig.rt.on_cqe(&cqe);
 REQUIRE(rig.results.size()==1);
 // Second flow on same slot: must be gen=2 (try_allocate bumps from 1→2)
 {
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 f.close_if_opened();
 (void)b.submit();
@@ -1041,7 +1043,7 @@ TEST_CASE(
 "[flow][gen]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).close_if_opened();// initial_op_count=2
 (void)b.submit();
@@ -1077,7 +1079,7 @@ TEST_CASE(
 // on_chain_complete cannot get a SQE for the standalone close → close_pending=true.
 TestRig rig{3};
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();// mode A: 3 SQEs
 (void)b.submit();// SQ now full (3/3)
@@ -1127,7 +1129,7 @@ TEST_CASE(
 // First drain while SQ still full → stays deferred. Second drain after flush succeeds.
 TestRig rig{3};
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();// mode A
 (void)b.submit();// SQ full (3/3)
@@ -1169,7 +1171,7 @@ TEST_CASE(
 // Close CQE arrives with -EIO (not -ECANCELED). cleanup_result() == -EIO.
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 f.then_read(buf,4,0).close_if_opened();// mode B: 1 then_ body → close in chain
 (void)b.submit();
@@ -1204,7 +1206,7 @@ TEST_CASE(
 // a second call hits the close_pending guard and is a no-op.
 TestRig rig{3};
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -1251,7 +1253,7 @@ char buf[4]={};
 
 // Fill all 64 builder slots with invalid flows.
 constexpr u32 kMaxBatch=64;// matches flow.cxx internal constant
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 for(u32 i=0;i<kMaxBatch;++i){
 auto f=b.open_direct(DirectSlot{i},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 f.hard_read(buf,1,0);// force invalid so no SQ slots needed
@@ -1282,7 +1284,7 @@ TEST_CASE(
 // open ok, read ok, write -ENOSPC → close still runs via hard link.
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).hard_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -1326,7 +1328,7 @@ TEST_CASE(
 {
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -1356,7 +1358,7 @@ CHECK_FALSE(r.close_cqe_seen);
 {
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).hard_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -1397,7 +1399,7 @@ TEST_CASE(
 // the boundary (2) and interior values (3..7) must be rejected.
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).close_if_opened();// initial_op_count=2, mode B: expected_cqes=3
 (void)b.submit();
@@ -1434,7 +1436,7 @@ TEST_CASE(
 // finish_flow must not be called twice.
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
 (void)b.submit();
@@ -1471,7 +1473,7 @@ TEST_CASE(
 "[flow][builder]"){
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
 SZ big=static_cast<SZ>(NL<i32>::max())+1;
 f.then_read(buf,big,0);
@@ -1490,7 +1492,7 @@ TEST_CASE(
 // After flow A fills the ring, flow B gets -EAGAIN.
 TestRig rig{3};
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 // Flow A fills all 3 SQ slots
 auto fa=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
 fa.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
@@ -1537,7 +1539,7 @@ TEST_CASE(
 // Verify close is auto-injected: 1 then_ body → mode B.
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 b.with_direct_file(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY,0,[&](uf::DirectFileFlow&f){
 f.then_read(buf,4,0);
 });
@@ -1569,7 +1571,7 @@ TEST_CASE(
 // scoped wrapper must be a no-op.
 TestRig rig;
 char buf[4]={};
-auto b=rig.rt.batch();
+auto b=rig.rt.flow();
 b.with_direct_file(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY,0,[&](uf::DirectFileFlow&f){
 f.hard_read(buf,1,0);
 });// hard as first body → invalid
@@ -1578,4 +1580,84 @@ auto rej=b.rejected_flows();
 REQUIRE(rej.size()==1);
 CHECK(rej[0].err==-EINVAL);
 CHECK(rig.results.empty());
+}
+// ── Terminal SQE link-flag inspection ─────────────────────────────────────────
+
+TEST_CASE(
+"flow.sqe_flags: terminal SQE of each flow has both link flags cleared",
+"[flow][sqe_flags]"){
+// Two flows emitted in one submit; terminal SQE of each must have
+// IOSQE_IO_LINK and IOSQE_IO_HARDLINK cleared so flow A cannot chain into flow B.
+// Flow A: mode A (open+read+write = 3 SQEs), terminal = write.
+// Flow B: mode B (open+read+close = 3 SQEs), terminal = close.
+TestRig rig{16};
+char buf[4]={};
+auto b=rig.rt.flow();
+auto fa=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+fa.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
+auto fb=b.open_direct(DirectSlot{1},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
+fb.then_read(buf,4,0).close_if_opened();
+
+auto*ring_raw=rig.ring.raw();
+unsigned const tail_before=ring_raw->sq.sqe_tail;
+
+(void)b.submit();
+REQUIRE(b.rejected_flows().empty());
+
+unsigned const tail_after=ring_raw->sq.sqe_tail;
+CHECK(tail_after-tail_before==6);// 3+3 SQEs
+
+unsigned const mask=ring_raw->sq.ring_mask;
+constexpr unsigned lmask=IOSQE_IO_LINK|IOSQE_IO_HARDLINK;
+
+// Flow A terminal (write, index 2 from tail_before)
+auto const&sqe_a_term=ring_raw->sq.sqes[(tail_before+2)&mask];
+CHECK((sqe_a_term.flags&lmask)==0);
+
+// Flow B terminal (close, index 5 from tail_before)
+auto const&sqe_b_term=ring_raw->sq.sqes[(tail_before+5)&mask];
+CHECK((sqe_b_term.flags&lmask)==0);
+
+// Non-terminal SQEs must carry a link flag
+auto const&sqe_a_open=ring_raw->sq.sqes[(tail_before+0)&mask];
+CHECK((sqe_a_open.flags&lmask)!=0);// open → read
+auto const&sqe_b_open=ring_raw->sq.sqes[(tail_before+3)&mask];
+CHECK((sqe_b_open.flags&lmask)!=0);// open → read
+}
+// ── Generation wrap: skip-zero discipline ─────────────────────────────────────
+
+TEST_CASE(
+"flow.generation: wrap from 0xFFFFFF skips 0 and lands on 1",
+"[flow][gen]"){
+// Hack the slab cell's generation to 0xFFFFFF (the max 24-bit value).
+// The next try_allocate must increment to 0x1000000, mask to 0, detect zero, skip to 1.
+// Verified by observing that gen=0 CQEs are rejected and gen=1 CQEs are accepted.
+TestRig rig;
+rig.rt.test_hack_slab_generation(0,0xFFFFFFu);
+
+auto b=rig.rt.flow();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
+f.close_if_opened();// mode B: initial_op_count=1, expected_cqes=2
+(void)b.submit();
+REQUIRE(b.rejected_flows().empty());
+
+// CQE with gen=0 must be rejected (live SQEs never carry gen==0)
+{
+auto cqe=make_flow_cqe(0,0,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+CHECK(rig.results.empty());
+
+// CQE with gen=1 must be accepted
+{
+auto cqe=make_flow_cqe(0,1,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+CHECK(rig.results.empty());// mode B: awaiting close
+{
+auto cqe=make_flow_cqe(0,1,1,uf::FlowOpKind::close_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+CHECK(rig.results[0].open_ok());
 }

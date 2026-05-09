@@ -72,7 +72,7 @@ struct Fd{
 int v{-1};
 };
 struct DirectSlot{
-u32 v{};
+u32 value{};
 };
 struct BufGroupId{
 u16 v{};
@@ -271,7 +271,7 @@ io_uring_prep_read(p_,fd.v,buf,len,static_cast<__u64>(off));
 return*this;
 }
 inline Sqe&read(DirectSlot slot,void*buf,u32 len,u64 off)noexcept{
-io_uring_prep_read(p_,static_cast<int>(slot.v),buf,len,static_cast<__u64>(off));
+io_uring_prep_read(p_,static_cast<int>(slot.value),buf,len,static_cast<__u64>(off));
 io_uring_sqe_set_flags(p_,sqe_flags::fixed_file.raw());
 return*this;
 }
@@ -303,7 +303,7 @@ io_uring_prep_write(p_,fd.v,buf,len,static_cast<__u64>(off));
 return*this;
 }
 inline Sqe&write(DirectSlot slot,void const*buf,u32 len,u64 off)noexcept{
-io_uring_prep_write(p_,static_cast<int>(slot.v),buf,len,static_cast<__u64>(off));
+io_uring_prep_write(p_,static_cast<int>(slot.value),buf,len,static_cast<__u64>(off));
 io_uring_sqe_set_flags(p_,sqe_flags::fixed_file.raw());
 return*this;
 }
@@ -394,7 +394,7 @@ return*this;
 }
 inline Sqe&prep_accept_direct(Fd fd,sockaddr*addr,socklen_t*addrlen,
 int flags,DirectSlot slot)noexcept{
-io_uring_prep_accept_direct(p_,fd.v,addr,addrlen,flags,slot.v);
+io_uring_prep_accept_direct(p_,fd.v,addr,addrlen,flags,slot.value);
 return*this;
 }
 inline Sqe&prep_multishot_accept(Fd fd,sockaddr*addr,
@@ -431,7 +431,7 @@ return*this;
 }
 inline Sqe&prep_socket_direct(int domain,int type,int protocol,
 DirectSlot slot,unsigned flags)noexcept{
-io_uring_prep_socket_direct(p_,domain,type,protocol,slot.v,flags);
+io_uring_prep_socket_direct(p_,domain,type,protocol,slot.value,flags);
 return*this;
 }
 inline Sqe&prep_socket_direct_alloc(int domain,int type,int protocol,
@@ -447,12 +447,12 @@ return*this;
 }
 inline Sqe&prep_openat_direct(Fd dfd,char const*path,int flags,
 mode_t mode,DirectSlot slot)noexcept{
-io_uring_prep_openat_direct(p_,dfd.v,path,flags,mode,slot.v);
+io_uring_prep_openat_direct(p_,dfd.v,path,flags,mode,slot.value);
 return*this;
 }
 inline Sqe&open_direct(Fd dfd,char const*path,int flags,
 mode_t mode,DirectSlot slot)noexcept{
-io_uring_prep_openat_direct(p_,dfd.v,path,flags,mode,slot.v);
+io_uring_prep_openat_direct(p_,dfd.v,path,flags,mode,slot.value);
 return*this;
 }
 inline Sqe&prep_openat2(Fd dfd,char const*path,open_how*how)noexcept{
@@ -461,7 +461,7 @@ return*this;
 }
 inline Sqe&prep_openat2_direct(Fd dfd,char const*path,
 open_how*how,DirectSlot slot)noexcept{
-io_uring_prep_openat2_direct(p_,dfd.v,path,how,slot.v);
+io_uring_prep_openat2_direct(p_,dfd.v,path,how,slot.value);
 return*this;
 }
 inline Sqe&prep_close(Fd fd)noexcept{
@@ -469,15 +469,15 @@ io_uring_prep_close(p_,fd.v);
 return*this;
 }
 inline Sqe&prep_close_direct(DirectSlot slot)noexcept{
-io_uring_prep_close_direct(p_,slot.v);
+io_uring_prep_close_direct(p_,slot.value);
 return*this;
 }
 inline Sqe&close_direct(DirectSlot slot)noexcept{
-io_uring_prep_close_direct(p_,slot.v);
+io_uring_prep_close_direct(p_,slot.value);
 return*this;
 }
 inline Sqe&prep_fixed_fd_install(DirectSlot slot,InstallFdFlags flags)noexcept{
-io_uring_prep_fixed_fd_install(p_,static_cast<int>(slot.v),flags.raw());
+io_uring_prep_fixed_fd_install(p_,static_cast<int>(slot.value),flags.raw());
 return*this;
 }
 // ── File ops ────────────────────────────────────────────────────────────
@@ -648,7 +648,7 @@ return*this;
 }
 // slot = direct fd index for the write end; use IORING_FILE_INDEX_ALLOC for auto
 inline Sqe&prep_pipe_direct(int*fds,int pipe_flags,DirectSlot slot)noexcept{
-io_uring_prep_pipe_direct(p_,fds,pipe_flags,slot.v);
+io_uring_prep_pipe_direct(p_,fds,pipe_flags,slot.value);
 return*this;
 }
 // ── Msg ring ─────────────────────────────────────────────────────────────

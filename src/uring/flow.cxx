@@ -220,6 +220,10 @@ if(st.generation!=gen)
 return nullptr;// stale or reallocated
 return&st;
 }
+void test_hack_generation(u32 idx,u32 gen)noexcept{
+if(idx<kMaxFlows)
+cells_[idx].generation=gen;
+}
 };
 // ── SBO callback wrapper (internal, never heap-allocates) ─────────────────────
 // Capacity: 64 bytes of inline storage. Triggers static_assert at construction
@@ -245,6 +249,7 @@ void set(
 F&&f)noexcept{
 using T=std::decay_t<F>;
 static_assert(sizeof(T)<=kBufSize,"FlowCb: callable too large for SBO buffer");
+static_assert(noexcept(std::declval<T&>()(std::declval<FlowResult>())),"FlowCb: callable must be noexcept");
 new(buf_)T(forward<F>(f));
 call_=[](char*p,FlowResult r)noexcept{(*reinterpret_cast<T*>(p))(r);};
 dtor_=[](char*p)noexcept{reinterpret_cast<T*>(p)->~T();};
@@ -295,19 +300,19 @@ u8 i,
 DirectFileBuilder const&b,
 bool is_close)noexcept{
 if(is_close){
-io_uring_prep_close_direct(sqe,b.slot.v);
+io_uring_prep_close_direct(sqe,b.slot.value);
 return;
 }
 auto const&op=b.ops[i];
 switch(op.kind){
 case FlowOpKind::open_direct:
-io_uring_prep_openat_direct(sqe,op.open.dfd,op.open.path,op.open.open_flags,op.open.mode,op.open.slot.v);
+io_uring_prep_openat_direct(sqe,op.open.dfd,op.open.path,op.open.open_flags,op.open.mode,op.open.slot.value);
 break;
 case FlowOpKind::read:
-io_uring_prep_read(sqe,static_cast<int>(b.slot.v),op.read.buf,op.read.len,op.read.offset);
+io_uring_prep_read(sqe,static_cast<int>(b.slot.value),op.read.buf,op.read.len,op.read.offset);
 break;
 case FlowOpKind::write:
-io_uring_prep_write(sqe,static_cast<int>(b.slot.v),op.write.buf,op.write.len,op.write.offset);
+io_uring_prep_write(sqe,static_cast<int>(b.slot.value),op.write.buf,op.write.len,op.write.offset);
 break;
 case FlowOpKind::close_direct:break;
 }
@@ -559,10 +564,13 @@ deferred_[w++]=deferred_[r];
 }
 deferred_count_=w;
 }
-[[nodiscard]]FlowBuilder batch()noexcept{
+[[nodiscard]]FlowBuilder flow()noexcept{
 builder_count_=0;
 rejection_count_=0;
 return FlowBuilder{ring_,*this};
+}
+void test_hack_slab_generation(u32 idx,u32 gen)noexcept{
+slab_.test_hack_generation(idx,gen);
 }
 private:
 void handle_invalid(
@@ -605,7 +613,7 @@ submit_close_sqe(sqe.raw(),st);
 void submit_close_sqe(
 io_uring_sqe*sqe,
 DirectFileFlowState&st)noexcept{
-io_uring_prep_close_direct(sqe,st.slot.v);
+io_uring_prep_close_direct(sqe,st.slot.value);
 // io_uring_prep_close_direct calls io_uring_initialize_sqe which zeroes flags;
 // explicitly clear link bits anyway — defensive against future prep changes.
 sqe->flags&=static_cast<u8>(~link_mask);
