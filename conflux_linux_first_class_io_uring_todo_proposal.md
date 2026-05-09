@@ -463,69 +463,57 @@ Do not create duplicate benchmark infrastructure. Extend the existing gate with 
 **Classification:** Keep, narrow.  
 **Current state:** Not done. Worktree `p2-ring-resize` at `~/conflux_dev/p2_ring_resize`; proposal `p2_01_ring_resize_proposal.md` in `~/conflux_dev/`.
 
-Ring resizing is useful for network CQ sizing, but it is not a substitute for overflow policy. The man page also places constraints on when resizing is legal: it cannot resize while in overflow, and support is limited by ring setup flags.
+Ring resizing is useful for network CQ sizing, but it is not a substitute for overflow policy. Only `IORING_SETUP_DEFER_TASKRUN` rings are supported; `NO_MMAP` rings are not. `IORING_SETUP_CQSIZE` must be set in the params flags or the kernel ignores `cq_entries`. No server auto-grow in this PR — wrapper + tests only.
 
 **TODO:**
 
-- [ ] Add `Ring::resize(...)` wrapper gated by `IoUringCaps::resize_rings`.
-- [ ] Add `grow_cq_to(u32 entries)` convenience API.
-- [ ] Reject/return unsupported when ring flags are incompatible.
-- [ ] Refuse resizing while CQ overflow is active.
-- [ ] Add metrics-driven recommendation: “overflow seen; grow CQ to X next startup / now if legal.”
-
-Suggested API:
-
-```cpp
-struct RingSize {
-    u32 sq_entries{};
-    u32 cq_entries{};
-};
-
-expected<void, Err> Ring::resize(RingSize) noexcept;
-expected<void, Err> Ring::grow_cq_to(u32 entries) noexcept;
-```
+- [ ] CMake C++ link probe (`CONFLUX_HAVE_IO_URING_RESIZE_RINGS`) — prove symbol present and linkable; propagate as `PUBLIC` compile definition on `conflux_uring`; export `build_has_io_uring_resize_rings` constexpr from module.
+- [ ] `RingSize` struct — export alongside `IoUringCaps`.
+- [ ] `RingRef::sq_entries()` / `RingRef::cq_entries()` accessors.
+- [ ] `RingRef::resize(RingSize)` — check `!cq_has_overflow()`, `io_uring_sq_ready() == 0`, `DEFER_TASKRUN` flag, `!NO_MMAP`; set `IORING_SETUP_CQSIZE` in params; call `io_uring_resize_rings`; return `unexpected{-ENOSYS}` when link probe absent.
+- [ ] `RingRef::grow_cq_to(u32)` — read `cq_entries()`, no-op if already large enough, delegate to `resize({current_sq, entries})`.
+- [ ] `Ring::resize` / `Ring::grow_cq_to` — delegate to `ref()`.
+- [ ] Refuse resizing while CQ overflow is active (`-EBUSY`).
+- [ ] Tests — probe cap; grow small ring; verify overflow blocks resize; verify no-op path in `grow_cq_to`.
+- [ ] No server auto-grow in this PR. Future: track `saw_overflow_since_last_resize` locally and call `grow_cq_to` once after overflow clears.
 
 ## [ ] P2-02: Add owned-path variants for direct-file flow
 
 **Classification:** Keep.  
 **Current state:** Not done. Worktree `p2-owned-path-flow` at `~/conflux_dev/p2_owned_path_flow`; proposal `p2_02_owned_path_flow_proposal.md` in `~/conflux_dev/`.
 
-Evidence in current repo:
-
-- `src/uring/flow.cxx:674-680` rejects all flow submissions when the borrowed-path lifetime contract is not stable.
-- The public type is `BorrowedPath`; no owned-path variant was found.
-
-This is safe but too limiting for SQPOLL and old/no-submit-stable environments. A first-class API should let users pay one owned-path copy and still use the flow abstraction.
+`FlowBuilder::submit()` rejects all flows when `!path_lifetime_stable_` (SQPOLL or no `SUBMIT_STABLE`). Owned-path flows are immune — the path bytes are copied into runtime storage keyed by slab index before the SQE is prepared, not into the temporary builder. Storing path in the builder alone is unsafe: the builder array is reused on the next `rt.flow()` call, possibly before SQPOLL consumes the SQE.
 
 **TODO:**
 
-- [ ] Add `open_direct_owned_path(...)`.
-- [ ] Add `with_direct_file_owned_path(...)`.
-- [ ] Store owned path in fixed-capacity per-flow storage or cold allocation outside submit/CQE hot path.
-- [ ] Allow borrowed path only when `submit_stable && !sqpoll` or caller explicitly promises open-CQE lifetime.
-- [ ] Add tests for SQPOLL/no-submit-stable admission behavior.
+- [ ] `OwnedInlinePath` struct (cap = 255, `NAME_MAX`; reject `> cap` with `-ENAMETOOLONG`; reject embedded NUL with `-EINVAL`).
+- [ ] `A<OwnedInlinePath, kMaxFlows> owned_paths_{}` in `FlowRuntime` (1 MiB static; cold allocation path).
+- [ ] `owns_path` flag + `owned_path_buf` staging in `DirectFileBuilder` (256 bytes staging per builder; `kMaxBatch=64` → 16 KB).
+- [ ] `FlowBuilder::open_direct_owned(OwnedInlinePath)` and `open_direct_owned(string_view)` overload (sets `b.err` on path error).
+- [ ] `with_direct_file_owned` template wrapper.
+- [ ] `submit()` pre-pass: replace blanket `!path_lifetime_stable_` rejection with per-builder check; guard `b.err == 0` to preserve earlier path errors.
+- [ ] `submit()` copy: after slab allocation, copy staging bytes into `rt_.owned_paths_[state.flow_index]`; pass override pointer into `prep_op()`.
+- [ ] `prep_op()` — add `open_path_override` param; use override for open_direct ops when non-null.
+- [ ] Tests — `OwnedInlinePath` limits; mixed borrowed+owned submit under `!path_lifetime_stable_`; only borrowed flows rejected.
 
 ## [ ] P2-03: Add poll-first recv/send policy wrapper
 
 **Classification:** Keep.  
-**Current state:** `RecvArmPolicy` enum added (`default_`, `poll_first`); wired into `submit_recv_multishot` via `ioprio` (`9fcd9a4`). `auto_from_last_cqe` not yet implemented; benchmarks not yet run. Worktree `p2-poll-first-auto` at `~/conflux_dev/p2_poll_first_auto`; proposal `p2_03_poll_first_auto_proposal.md` in `~/conflux_dev/`.
+**Current state:** `RecvArmPolicy` enum added (`default_`, `poll_first`); wired into `submit_recv_multishot` via `ioprio` (`9fcd9a4`). Adaptive arm not yet implemented; benchmarks not yet run. Worktree `p2-poll-first-auto` at `~/conflux_dev/p2_poll_first_auto`; proposal `p2_03_poll_first_auto_proposal.md` in `~/conflux_dev/`.
+
+Do **not** add `auto_from_last_cqe` to `RecvArmPolicy` — a third value silently passed through to `submit_recv_multishot` would be treated as `default_`. Resolution stays in a free function before the call.
 
 **TODO:**
 
-- [x] Add `RecvArmPolicy` to `submit_recv_multishot`.
-- [ ] Track last CQE flags such as socket-nonempty to drive `auto_from_last_cqe`.
-- [ ] Benchmark idle-heavy vs busy sockets.
-- [ ] Keep default as current behavior until benchmark proves otherwise.
-
-Suggested shape:
-
-```cpp
-enum class RecvArmPolicy : u8 {
-    try_now,
-    poll_first_when_idle,
-    auto_from_last_cqe,
-};
-```
+- [x] Add `RecvArmPolicy` to `submit_recv_multishot` (`default_`, `poll_first` only — keep two values).
+- [ ] `IoUringCaps::recv_poll_first` — independent of `feat_recvsend_bundle` (available since 5.19, below kernel floor; set to `true` unconditionally or via kernel-floor assumption).
+- [ ] `Conn::last_recv_cqe_flags` + `Conn::have_last_recv_cqe_flags` — distinguish first-recv-after-accept from no-data last recv; reset both on accept and in `conn_erase()`.
+- [ ] Flag capture — centralized in `handle_recv_cqe()` after gen check and `res > 0`, before buffer ops; do not scatter next to each `queue_multishot_recv()` call.
+- [ ] `resolve_recv_arm_policy(bool auto_enabled, bool recv_poll_first, bool have_last_flags, u32 last_flags)` — free function exported from `conflux.socket_io`; thin member wrapper on `Ring`.
+- [ ] `queue_multishot_recv` — call `resolve_recv_arm_policy(conn)` and pass result to `submit_recv_multishot`.
+- [ ] Config knob `auto_recv_arm_policy` — default `false`; wire into `[io_uring]` config, `kBoolKeys`, `flags_str`, startup log.
+- [ ] `recv_poll_first` in `caps_to_log_string()`; update `caps_test.cxx`.
+- [ ] Tests — free function unit tests (no-flags, cap-off, nonempty-set, nonempty-clear); benchmark `default_` vs `poll_first` vs adaptive under idle/bulk traffic.
 
 ---
 
