@@ -1,4 +1,5 @@
 #pragma once
+#include <cassert>
 // Internal — do not include from public headers.
 // Requires: u8, u32, V, expected, unexpected, eprintln, format in scope.
 
@@ -64,7 +65,7 @@ struct DirectSlotPool {
 		return {};
 	}
 	[[nodiscard]] expected<void, DirectSlotError> release_closed(
-		u32 slot) {
+		u32 slot) noexcept {
 		if (slot >= capacity_) {
 			return unexpected(DirectSlotError::out_of_range);
 		}
@@ -87,8 +88,11 @@ struct DirectSlotPool {
 			eprintln(format("DirectSlotPool::poison: slot={} state=free — corruption close_res={}", slot, close_res));
 			return;
 		}
-		set_state(slot, DirectSlotState::poisoned);
-		++poisoned_count_;
+		assert(free_pos_[slot] == ~u32{});
+		if (prev != DirectSlotState::poisoned) {
+			set_state(slot, DirectSlotState::poisoned);
+			++poisoned_count_;
+		}
 		eprintln(format(
 			"DirectSlotPool::poison: slot={} close_res={} previous_state={}",
 			slot,
@@ -112,6 +116,8 @@ private:
 	void remove_from_free(
 		u32 slot) noexcept {
 		u32 const pos = free_pos_[slot];
+		assert(pos != ~u32{});
+		assert(free_stack_[pos] == slot);
 		u32 const last = free_stack_.back();
 		if (last != slot) {
 			free_stack_[pos] = last;
@@ -121,7 +127,8 @@ private:
 		free_pos_[slot] = ~u32{};
 	}
 	void push_to_free(
-		u32 slot) {
+		u32 slot) noexcept {
+		assert(free_pos_[slot] == ~u32{});
 		free_pos_[slot] = static_cast<u32>(free_stack_.size());
 		free_stack_.push_back(slot);
 	}
