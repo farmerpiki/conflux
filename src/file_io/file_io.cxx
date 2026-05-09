@@ -3012,15 +3012,15 @@ if(rc<0||cqe==nullptr)
 throw RE{format("conflux.file_io: submit_and_wait rc={}",rc)};
 A<::io_uring_cqe*,32>batch{};
 for(;;){
-int const n=::io_uring_peek_batch_cqe(ring,batch.data(),static_cast<unsigned>(batch.size()));
-if(n<=0)
+unsigned const n=::io_uring_peek_batch_cqe(ring,batch.data(),static_cast<unsigned>(batch.size()));
+if(n==0)
 break;
-for(int i=0;i<n;++i){
+for(unsigned i=0;i<n;++i){
 auto const*c=batch[static_cast<SZ>(i)];
 auto[slot,gen]=decode(c->user_data);
 completions->dispatch(slot,gen,c->res,c->flags);
 }
-::io_uring_cq_advance(ring,static_cast<unsigned>(n));
+::io_uring_cq_advance(ring,n);
 if(done.test(memory_order_acquire))
 break;
 }
