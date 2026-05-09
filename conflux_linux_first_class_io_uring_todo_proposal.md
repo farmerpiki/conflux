@@ -136,10 +136,10 @@ public:
 };
 ```
 
-## [ ] P0-03: Make zero-copy send notification-aware or mark it experimental/unsafe
+## [x] P0-03: Make zero-copy send notification-aware or mark it experimental/unsafe
 
 **Classification:** Keep, narrow.  
-**Current state:** Public API exists, but semantics are unsafe for normal Task use.
+**Current state:** Done — `800a004`.
 
 Evidence in current repo:
 
@@ -150,11 +150,11 @@ For a coroutine API, “task completed” should not imply “the user may free/
 
 **TODO:**
 
-- [ ] Do not add current `send_zc_async()` shape to `socket_io` Task API.
-- [ ] Rename existing first-CQE behavior to an explicit advanced form, e.g. `send_zc_submit_only_borrowed()`.
-- [ ] Add raw ZC API returning a token that owns/identifies the notification CQE.
-- [ ] Add safe Task API that completes only after the notification CQE.
-- [ ] Add tests that mutate/free the buffer after first CQE but before notification in debug/fault mode.
+- [x] Do not add current `send_zc_async()` shape to `socket_io` Task API.
+- [x] Rename existing first-CQE behavior to an explicit advanced form, e.g. `send_zc_submit_only_borrowed()`.
+- [x] Add raw ZC API returning a token that owns/identifies the notification CQE.
+- [x] Add safe Task API that completes only after the notification CQE.
+- [x] Add tests that mutate/free the buffer after first CQE but before notification in debug/fault mode.
 
 Suggested API split:
 
@@ -214,10 +214,10 @@ public:
 };
 ```
 
-## [~] P0-05: Add CQ overflow accounting and fatal/quarantine policy
+## [x] P0-05: Add CQ overflow accounting and fatal/quarantine policy
 
 **Classification:** Keep.  
-**Current state:** Not done at framework/server level.
+**Current state:** Done — `c1ea3a5` (policy + flush + RunStatus + stress tests), `66a4687` (FlowRuntime shutdown-abandon hook).
 
 Evidence in current repo:
 
@@ -229,12 +229,12 @@ Managed flows depend on seeing every CQE. A permanently lost CQE leaks slab stat
 **TODO:**
 
 - [x] Add ring-level `cq_has_overflow()` wrapper.
-- [ ] Add `cq_overflow_count()` / stats from ring overflow counters where available.
-- [ ] Call `io_uring_get_events()` when overflow entries are waiting and feature support exists.
+- [x] Add `cq_overflow_count()` / stats from ring overflow counters where available.
+- [x] Call `io_uring_get_events()` when overflow entries are waiting and feature support exists.
 - [x] Define policy: managed-flow CQE lost means fatal ring error or ring quarantine.
-- [ ] Export overflow metrics through server diagnostics.
-- [ ] Add stress tests that intentionally under-size CQ and verify policy.
-- [ ] Add shutdown path that drains/abandons pending direct-file-flow deferred closes before ring teardown.
+- [x] Export overflow metrics through server diagnostics.
+- [x] Add stress tests that intentionally under-size CQ and verify policy.
+- [x] Add shutdown path that drains/abandons pending direct-file-flow deferred closes before ring teardown.
 
 ---
 
@@ -381,10 +381,10 @@ struct BufferRingOptions {
 };
 ```
 
-## [ ] P1-06: Add runtime `IoUringCaps` matrix
+## [x] P1-06: Add runtime `IoUringCaps` matrix
 
 **Classification:** Keep.  
-**Current state:** Not done.
+**Current state:** Done — `73c3691`.
 
 Evidence in current repo:
 
@@ -394,11 +394,11 @@ A first-class library should expose one capability object and force each high-le
 
 **TODO:**
 
-- [ ] Add `IoUringCaps` construction from `io_uring_params`, kernel/liburing headers, and runtime probes where needed.
-- [ ] Include feature availability and setup constraints.
-- [ ] Pass caps into `socket_io`, `uring.flow`, server, DNS, and client setup.
-- [ ] Use caps to reject unsupported buffer modes and direct-flow modes.
-- [ ] Add debug dump of caps in server startup logs.
+- [x] Add `IoUringCaps` construction from `io_uring_params`, kernel/liburing headers, and runtime probes where needed.
+- [x] Include feature availability and setup constraints.
+- [x] Pass caps into `socket_io`, `uring.flow`, server, DNS, and client setup.
+- [x] Use caps to reject unsupported buffer modes and direct-flow modes.
+- [x] Add debug dump of caps in server startup logs.
 
 Suggested shape:
 
@@ -616,12 +616,12 @@ Do not start AF_ALG before socket ownership and Task-ring semantics are clean. A
 - [x] **P0-01** Disable or complete recv bundle decoding.
 - [x] **P0-02** Remove hidden submit from `SocketRawRing::get_sqe()`.
 - [x] **P0-04** Add `DirectSlotPool` with poison state.
-- [ ] **P0-05** Add CQ overflow accounting/policy and direct-flow shutdown drain.
-- [ ] **P0-03** Fix/demote zero-copy-send APIs.
+- [x] **P0-05** Add CQ overflow accounting/policy and direct-flow shutdown drain.
+- [x] **P0-03** Fix/demote zero-copy-send APIs.
 
 ## Phase 1 — coherent async socket layer
 
-- [ ] **P1-06** Add `IoUringCaps` matrix.
+- [x] **P1-06** Add `IoUringCaps` matrix.
 - [ ] **P1-01** Implement `SocketTaskRing`.
 - [ ] **P1-07** Normalize borrowed/owned lifetime contracts.
 - [ ] **P1-08** Add cancellation policy for connect/recv/DNS/HTTP.
