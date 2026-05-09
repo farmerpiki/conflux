@@ -130,6 +130,9 @@ SZ buf_size_{};
 u32 count_{};
 u16 group_id_{};
 SZ slab_sz_{};
+V<u16>ring_order_;
+u32 head_pos_{};
+u32 tail_pos_{};
 public:
 BufferRing(
 io_uring*uring,
@@ -163,6 +166,11 @@ ring_=move(*built);
 for(u32 i=0;i<count_;++i)
 ring_.add(raw+i*buf_size_,static_cast<u32>(buf_size_),conflux::uring::BufId{static_cast<u16>(i)},static_cast<int>(i));
 ring_.advance(static_cast<int>(count_));
+ring_order_.resize(count_);
+for(u32 i=0;i<count_;++i)
+ring_order_[i]=static_cast<u16>(i);
+head_pos_=0;
+tail_pos_=count_;
 }
 ~BufferRing(){
 }
@@ -201,17 +209,45 @@ return buffer_mut_checked(id);
 }
 void recycle(
 u16 id)noexcept{
+ring_order_[tail_pos_%count_]=id;
 ring_.add(slab_.get()+static_cast<SZ>(id)*buf_size_,
 static_cast<u32>(buf_size_),conflux::uring::BufId{id},0);
 ring_.advance(1);
+++tail_pos_;
 }
 void recycle_batch(
 span<u16 const>ids)noexcept{
-int off=0;
-for(auto id:ids)
+u32 i=0;
+for(auto id:ids){
+ring_order_[(tail_pos_+i)%count_]=id;
 ring_.add(slab_.get()+static_cast<SZ>(id)*buf_size_,
-static_cast<u32>(buf_size_),conflux::uring::BufId{id},off++);
+static_cast<u32>(buf_size_),conflux::uring::BufId{id},static_cast<int>(i));
+++i;
+}
 ring_.advance(static_cast<int>(ids.size()));
+tail_pos_+=static_cast<u32>(ids.size());
+}
+void recycle_range(
+u32 start_pos,
+u32 cnt)noexcept{
+for(u32 i=0;i<cnt;++i){
+u16 const id=ring_order_[(start_pos+i)%count_];
+ring_order_[(tail_pos_+i)%count_]=id;
+ring_.add(slab_.get()+static_cast<SZ>(id)*buf_size_,
+static_cast<u32>(buf_size_),conflux::uring::BufId{id},static_cast<int>(i));
+}
+ring_.advance(static_cast<int>(cnt));
+tail_pos_+=cnt;
+}
+u32 consume(
+u32 cnt)noexcept{
+u32 const old=head_pos_;
+head_pos_+=cnt;
+return old;
+}
+[[nodiscard]]u16 ring_id_at(
+u32 pos)const noexcept{
+return ring_order_[pos%count_];
 }
 [[nodiscard]]RecvBuffer lease(u16 id,SZ len)noexcept;
 [[nodiscard]]u16 group_id()const noexcept{return group_id_;}
@@ -268,6 +304,77 @@ inline RecvBuffer BufferRing::lease(
 u16 id,
 SZ len)noexcept{
 return RecvBuffer{this,id,len};
+}
+// ─── RecvSlice / RecvSlices ──────────────────────────────────────────────────
+// Zero-allocation view over one or more buffer-ring slots from a single CQE.
+// No auto-recycle — caller must call recycle_all() or detach().
+
+export struct RecvSlice{
+u16 id;
+span<byte const>bytes;
+};
+export class RecvSlices{
+BufferRing*ring_{};
+u32 start_pos_{};
+u32 count_{};
+SZ total_{};
+bool detached_{false};
+public:
+RecvSlices()noexcept=default;
+RecvSlices(BufferRing*ring,u32 start,u32 cnt,SZ total)noexcept
+:ring_{ring},start_pos_{start},count_{cnt},total_{total}{}
+RecvSlices(RecvSlices const&)=delete;
+RecvSlices&operator=(RecvSlices const&)=delete;
+RecvSlices(RecvSlices&&o)noexcept
+:ring_{exchange(o.ring_,nullptr)},start_pos_{o.start_pos_},
+count_{o.count_},total_{o.total_},detached_{o.detached_}{}
+RecvSlices&operator=(RecvSlices&&o)noexcept{
+if(this!=&o){
+ring_=exchange(o.ring_,nullptr);
+start_pos_=o.start_pos_;
+count_=o.count_;
+total_=o.total_;
+detached_=o.detached_;
+}
+return*this;
+}
+[[nodiscard]]bool valid()const noexcept{return ring_!=nullptr&&count_>0;}
+[[nodiscard]]SZ total_size()const noexcept{return total_;}
+[[nodiscard]]u32 count()const noexcept{return count_;}
+struct iterator{
+RecvSlices const*slices_;
+u32 idx_;
+[[nodiscard]]RecvSlice operator*()const noexcept{
+u16 const id=slices_->ring_->ring_id_at(slices_->start_pos_+idx_);
+SZ const off=static_cast<SZ>(idx_)*slices_->ring_->buf_size();
+SZ const len=(idx_+1<slices_->count_)?slices_->ring_->buf_size():slices_->total_-off;
+return{id,slices_->ring_->buffer_view_unchecked(id,len)};
+}
+iterator&operator++()noexcept{
+++idx_;
+return*this;
+}
+bool operator==(iterator const&o)const noexcept{return idx_==o.idx_;}
+bool operator!=(iterator const&o)const noexcept{return idx_!=o.idx_;}
+};
+[[nodiscard]]iterator begin()const noexcept{return{this,0};}
+[[nodiscard]]iterator end()const noexcept{return{this,count_};}
+void recycle_all()noexcept{
+if(!ring_||detached_)return;
+ring_->recycle_range(start_pos_,count_);
+ring_=nullptr;
+}
+void detach()noexcept{detached_=true;}
+};
+export[[nodiscard]]RecvSlices buffer_slices_from_cqe(
+BufferRing&ring,
+conflux::uring::Cqe cqe,
+bool bundle)noexcept{
+if(cqe.res<=0)return{};
+SZ const total=static_cast<SZ>(cqe.res);
+u32 const cnt=bundle?static_cast<u32>((total+ring.buf_size()-1)/ring.buf_size()):1u;
+u32 const start=ring.consume(cnt);
+return RecvSlices{&ring,start,cnt,total};
 }
 // ─── DirectFdTable ───────────────────────────────────────────────────────────
 // Registers a sparse fixed-file table with io_uring.
@@ -431,6 +538,48 @@ sqe.prep_close_direct(handle.direct_slot());
 else
 sqe.prep_close(handle.sqe_fd());
 sqe.user_data(conflux::uring::UserData{user_data});
+return true;
+}
+export struct SocketCloseOptions{
+bool shutdown_write{true};
+bool skip_shutdown_success_cqe{true};
+bool allow_async_shutdown_for_os_fd{false};
+};
+export[[nodiscard]]bool submit_close_fast(
+SocketRawRing&ring,
+SocketHandle handle,
+u64 shutdown_ud,
+u64 close_ud,
+SocketCloseOptions opts)noexcept{
+bool const needs_shutdown=handle.fixed?opts.shutdown_write:opts.allow_async_shutdown_for_os_fd;
+unsigned const needed=1U+(needs_shutdown?1U:0U);
+if(ring.sq_space_left()<needed)
+return false;
+if(needs_shutdown){
+auto shut_sqe=ring.try_get_sqe();
+if(!shut_sqe)return false;
+auto close_sqe=ring.try_get_sqe();
+if(!close_sqe)return false;
+shut_sqe.prep_shutdown(handle.sqe_fd(),SHUT_WR);
+shut_sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
+shut_sqe.add_flags(handle.sqe_fd_flags());
+if(opts.skip_shutdown_success_cqe)
+shut_sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
+shut_sqe.user_data(conflux::uring::UserData{shutdown_ud});
+if(handle.fixed)
+close_sqe.prep_close_direct(handle.direct_slot());
+else
+close_sqe.prep_close(handle.sqe_fd());
+close_sqe.user_data(conflux::uring::UserData{close_ud});
+}else{
+auto sqe=ring.try_get_sqe();
+if(!sqe)return false;
+if(handle.fixed)
+sqe.prep_close_direct(handle.direct_slot());
+else
+sqe.prep_close(handle.sqe_fd());
+sqe.user_data(conflux::uring::UserData{close_ud});
+}
 return true;
 }
 // ─── raw submission: setsockopt ──────────────────────────────────────────────
@@ -633,7 +782,7 @@ return true;
 // On timeout, recvmsg CQE arrives with res=-ECANCELED.
 // Returns false if SQ has fewer than 2 slots.
 
-export[[nodiscard]]bool submit_recvmsg_with_timeout(
+export[[nodiscard]]bool submit_recvmsg_timeout_borrowed(
 SocketRawRing&ring,
 SocketHandle handle,
 msghdr*msg,
