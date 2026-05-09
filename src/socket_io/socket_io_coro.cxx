@@ -24,13 +24,6 @@ using std::move;
 using std::span;
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
-namespace{
-[[nodiscard]]inline SocketHandle to_socket_handle(OwnedSocketHandle const&h)noexcept{
-if(h.is_direct())
-return SocketHandle::from_direct(static_cast<u32>(h.direct_slot()));
-return SocketHandle::from_os(h.raw_fd());
-}
-}// namespace
 // ─── TcpStreamState ───────────────────────────────────────────────────────────
 
 struct TcpStreamState{
@@ -56,7 +49,7 @@ co_return 0;
 }();
 auto[task,raw_src]=wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation=true});
 auto shared_src=make_shared<wroot::TaskSource<SZ>>(move(raw_src));
-SocketHandle const h=to_socket_handle(st.handle);
+SocketHandle const h=st.handle.get();
 auto[slot,gen]=st.ring->completions().reserve([shared_src,keeper](IoResult r)mutable{
 auto _=keeper;
 try{
@@ -73,12 +66,14 @@ st.ring->completions().dispatch(slot,gen,-ENOSPC,0);
 co_return co_await move(task);
 }
 auto ring_ptr=st.ring;
-auto _=shared_src->install_cancel_hook([ring_ptr,ud](wroot::CancelReason)noexcept{
-auto _=ring_ptr->submit_on_owner([ud](SocketTaskRing&ring){
+auto weak_src=weak_ptr<wroot::TaskSource<SZ>>{shared_src};
+auto _=shared_src->install_cancel_hook([ring_ptr,ud,weak_src=move(weak_src)](wroot::CancelReason)noexcept{
+auto _=ring_ptr->submit_on_owner([ud,weak_src](SocketTaskRing&ring){
 auto[cs,cg]=ring.completions().reserve([](IoResult)noexcept{});
 u64 const cud=ring.encode(cs,cg);
 if(!submit_cancel_by_ud(ring.raw(),ud,cud)){
 ring.completions().dispatch(cs,cg,-EBUSY,0);
+if(auto src=weak_src.lock())auto _=src->try_set_cancelled();
 return;
 }
 auto _=ring.raw().submit();
@@ -108,7 +103,7 @@ co_return 0;
 }();
 auto[task,raw_src]=wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation=true});
 auto shared_src=make_shared<wroot::TaskSource<SZ>>(move(raw_src));
-SocketHandle const h=to_socket_handle(st.handle);
+SocketHandle const h=st.handle.get();
 auto[slot,gen]=st.ring->completions().reserve([shared_src](IoResult r)mutable{
 try{
 if(r.res<0){
@@ -124,13 +119,15 @@ st.ring->completions().dispatch(slot,gen,-ENOSPC,0);
 co_return co_await move(task);
 }
 auto ring_ptr=st.ring;
+auto weak_src2=weak_ptr<wroot::TaskSource<SZ>>{shared_src};
 {
-auto _=shared_src->install_cancel_hook([ring_ptr,ud](wroot::CancelReason)noexcept{
-auto _=ring_ptr->submit_on_owner([ud](SocketTaskRing&ring){
+auto _=shared_src->install_cancel_hook([ring_ptr,ud,weak_src2=move(weak_src2)](wroot::CancelReason)noexcept{
+auto _=ring_ptr->submit_on_owner([ud,weak_src2](SocketTaskRing&ring){
 auto[cs,cg]=ring.completions().reserve([](IoResult)noexcept{});
 u64 const cud=ring.encode(cs,cg);
 if(!submit_cancel_by_ud(ring.raw(),ud,cud)){
 ring.completions().dispatch(cs,cg,-EBUSY,0);
+if(auto src=weak_src2.lock())auto _=src->try_set_cancelled();
 return;
 }
 auto _=ring.raw().submit();
@@ -156,7 +153,7 @@ if(!st.handle.valid())
 co_await[]()->wroot::Task<void>{throw IoError{EBADF,"tcp: stream closed"};}();
 auto[task,raw_src]=wroot::make_task_source<void>(wroot::SubmitOptions{.enable_cancellation=false});
 auto shared_src=make_shared<wroot::TaskSource<void>>(move(raw_src));
-SocketHandle const h=to_socket_handle(st.handle);
+SocketHandle const h=st.handle.get();
 auto[slot,gen]=st.ring->completions().reserve([shared_src](IoResult r)mutable{
 try{
 if(r.res<0){
@@ -176,8 +173,7 @@ auto&st=*state_;
 bool expected=false;
 if(!st.closing.compare_exchange_strong(expected,true,memory_order_acq_rel))
 co_return;
-SocketHandle const h=to_socket_handle(st.handle);
-auto _=st.handle.release();// disown; close via SQE or sync below
+SocketHandle const h=st.handle.get();
 auto[task,raw_src]=wroot::make_task_source<void>(wroot::SubmitOptions{.enable_cancellation=false});
 auto shared_src=make_shared<wroot::TaskSource<void>>(move(raw_src));
 auto[slot,gen]=st.ring->completions().reserve([shared_src](IoResult r)mutable{
@@ -191,11 +187,18 @@ auto _=shared_src->try_set_value(wroot::Success<void>{});
 });
 u64 const ud=st.ring->encode(slot,gen);
 if(!submit_close(st.ring->raw(),h,ud)){
-if(h.is_os_fd())
-::close(h.as_fd());// SQ full: sync close fallback for os_fd
-int const close_res=h.is_os_fd()?0:-ENOSPC;// direct slot cannot be closed sync
-st.ring->completions().dispatch(slot,gen,close_res,0);
+if(h.is_os_fd()){
+auto _=st.handle.release();
+::close(h.as_fd());
+st.ring->completions().dispatch(slot,gen,0,0);
+}else{
+// direct slot: can't close synchronously; keep handle alive, propagate error
+st.ring->completions().dispatch(slot,gen,-ENOSPC,0);
 }
+co_await move(task);
+co_return;
+}
+auto _=st.handle.release();// SQE submitted — kernel owns the fd now
 co_await move(task);
 }
 };
@@ -226,6 +229,18 @@ int family,
 sockaddr_storage addr,
 socklen_t len,
 ConnectOptions opts={}){
+if(opts.timeout.count()<0){
+auto[bt,brs]=wroot::make_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation=false});
+auto bs=make_shared<wroot::TaskSource<TcpStream>>(move(brs));
+auto _=bs->try_set_exception(make_exception_ptr(IoError{EINVAL,"tcp_connect: negative timeout"}));
+co_return co_await move(bt);
+}
+if(ring.opts().fd_mode==SocketFdMode::direct_required){
+auto[bt,brs]=wroot::make_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation=false});
+auto bs=make_shared<wroot::TaskSource<TcpStream>>(move(brs));
+auto _=bs->try_set_exception(make_exception_ptr(IoError{ENOTSUP,"tcp_connect: direct fd not yet supported"}));
+co_return co_await move(bt);
+}
 // Stage 1: create socket
 {
 auto[task,raw_src]=wroot::make_task_source<int>(wroot::SubmitOptions{.enable_cancellation=false});
@@ -245,7 +260,7 @@ ring.completions().dispatch(slot,gen,-ENOSPC,0);
 int const raw_fd=co_await move(task);
 // Stage 2: apply socket opts + connect
 auto owned=OwnedSocketHandle::from_fd(raw_fd);
-SocketHandle const h=to_socket_handle(owned);
+SocketHandle const h=owned.get();
 if(opts.tcp_nodelay&&h.is_os_fd()){
 int const one=1;
 ::setsockopt(h.as_fd(),IPPROTO_TCP,TCP_NODELAY,&one,sizeof(one));
@@ -295,13 +310,15 @@ ring.completions().dispatch(tslot,tgen,-EBUSY,0);
 }
 // Cancel hook: cancel the connect by fd
 auto ring_ptr=&ring;
+auto weak_csrc=weak_ptr<wroot::TaskSource<TcpStream>>{cshared_src};
 {
-auto _=cshared_src->install_cancel_hook([ring_ptr,h](wroot::CancelReason)noexcept{
-auto _=ring_ptr->submit_on_owner([h](SocketTaskRing&r){
+auto _=cshared_src->install_cancel_hook([ring_ptr,h,weak_csrc=move(weak_csrc)](wroot::CancelReason)noexcept{
+auto _=ring_ptr->submit_on_owner([h,weak_csrc](SocketTaskRing&r){
 auto[cs,cg]=r.completions().reserve([](IoResult)noexcept{});
 u64 const cud=r.encode(cs,cg);
 if(!submit_cancel_fd(r.raw(),h,cud)){
 r.completions().dispatch(cs,cg,-EBUSY,0);
+if(auto src=weak_csrc.lock())auto _=src->try_set_cancelled();
 return;
 }
 auto _=r.raw().submit();
@@ -379,7 +396,7 @@ sockaddr_storage addr,
 socklen_t addr_len){
 auto[task,raw_src]=wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation=false});
 auto shared_src=make_shared<wroot::TaskSource<SZ>>(move(raw_src));
-SocketHandle const h=to_socket_handle(handle_);
+SocketHandle const h=handle_.get();
 struct SendHolder{
 msghdr msg{};
 iovec iov{};
@@ -411,7 +428,7 @@ co_return co_await move(task);
 [[nodiscard]]wroot::Task<UdpRecvResult>UdpSocket::recv_from(span<u8>buf){
 auto[task,raw_src]=wroot::make_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation=false});
 auto shared_src=make_shared<wroot::TaskSource<UdpRecvResult>>(move(raw_src));
-SocketHandle const h=to_socket_handle(handle_);
+SocketHandle const h=handle_.get();
 auto holder=make_shared<MsgHolder>();
 holder->iov.iov_base=buf.data();
 holder->iov.iov_len=buf.size();
@@ -440,11 +457,15 @@ co_return co_await move(task);
 [[nodiscard]]wroot::Task<UdpRecvResult>UdpSocket::recv_from(span<u8>buf,chrono::milliseconds timeout){
 auto[task,raw_src]=wroot::make_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation=false});
 auto shared_src=make_shared<wroot::TaskSource<UdpRecvResult>>(move(raw_src));
+if(timeout.count()<0){
+auto _=shared_src->try_set_exception(make_exception_ptr(IoError{EINVAL,"udp: negative timeout"}));
+co_return co_await move(task);
+}
 if(ring_->raw().sq_space_left()<2){
 auto _=shared_src->try_set_exception(make_exception_ptr(IoError{ENOSPC,"udp: SQ full"}));
 co_return co_await move(task);
 }
-SocketHandle const h=to_socket_handle(handle_);
+SocketHandle const h=handle_.get();
 auto holder=make_shared<MsgHolder>();
 holder->iov.iov_base=buf.data();
 holder->iov.iov_len=buf.size();

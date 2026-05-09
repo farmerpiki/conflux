@@ -212,10 +212,10 @@ Bug fix (`9fcd9a4`): `http_server.cxx` was incorrectly calling `enter_ring_fatal
 
 # P1 — async ergonomics and ownership model
 
-## [ ] P1-01: Implement real `SocketTaskRing`
+## [x] P1-01: Implement real `SocketTaskRing`
 
 **Classification:** Keep.  
-**Current state:** Not done. Worktree `p1-socket-task-ring` at `~/conflux_dev/p1_socket_task_ring`; proposal `p1_01_socket_task_ring_proposal.md` in `~/conflux_dev/`.
+**Current state:** Done.
 
 Evidence in current repo:
 

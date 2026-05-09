@@ -23,35 +23,7 @@ import conflux.uring.handle;
 // ─── handle types ────────────────────────────────────────────────────────────
 
 export using OwnedSocketHandle=IoHandle;
-export struct OsFd{
-int value{-1};
-};
-export struct DirectSlot{
-u32 value{0};
-};
-export struct SocketHandle{
-u32 id{};
-bool fixed{};
-[[nodiscard]]static constexpr SocketHandle from_os(
-int fd)noexcept{
-return{.id=static_cast<u32>(fd),.fixed=false};
-}
-[[nodiscard]]static constexpr SocketHandle from_direct(
-u32 slot)noexcept{
-return{.id=slot,.fixed=true};
-}
-[[nodiscard]]constexpr bool is_direct()const noexcept{return fixed;}
-[[nodiscard]]constexpr bool is_os_fd()const noexcept{return!fixed;}
-[[nodiscard]]constexpr int sqe_fd_value()const noexcept{return static_cast<int>(id);}
-[[nodiscard]]constexpr conflux::uring::Fd sqe_fd()const noexcept{return conflux::uring::Fd{sqe_fd_value()};}
-[[nodiscard]]constexpr conflux::uring::DirectSlot direct_slot()const noexcept{
-return conflux::uring::DirectSlot{id};
-}
-[[nodiscard]]constexpr conflux::uring::SqeFlags sqe_fd_flags()const noexcept{
-return fixed?conflux::uring::sqe_flags::fixed_file:conflux::uring::SqeFlags{};
-}
-[[nodiscard]]constexpr int as_fd()const noexcept{return sqe_fd_value();}
-};
+export using SocketHandle=RingFd;
 // ─── SocketRawRing ───────────────────────────────────────────────────────────
 // Non-owning wrapper around io_uring* for raw SQE submission.
 // Does NOT own CompletionTable — raw callers dispatch CQEs themselves.
@@ -1293,6 +1265,7 @@ SocketRawRing raw_;
 CompletionTable*completions_{};
 UserDataFn encode_ud_{};
 SocketTaskRingOptions opts_{};
+thread::id owner_thread_{std::this_thread::get_id()};
 public:
 SocketTaskRing(
 SocketRawRing raw,
@@ -1311,6 +1284,7 @@ SocketTaskRing&operator=(SocketTaskRing&&)=delete;
 [[nodiscard]]bool submit_on_owner(RingOpFn fn){
 if(opts_.submit_on_ring_owner)
 return opts_.submit_on_ring_owner(move(fn));
+assert(std::this_thread::get_id()==owner_thread_);
 fn(*this);
 return true;
 }

@@ -9,7 +9,6 @@
 
 import std;
 import conflux.types;
-import conflux.file_io;
 import conflux.uring.completion;
 import conflux.work;
 import conflux.socket_io;
@@ -22,14 +21,70 @@ uint32_t slot,
 uint32_t gen)noexcept{
 return(static_cast<uint64_t>(gen)<<32U)|slot;
 }
+template<typename T>
+T block_on_ring(
+::io_uring*ring,
+CompletionTable&completions,
+conflux::work::root::Task<T>task,
+chrono::milliseconds budget=chrono::seconds{5}){
+using namespace conflux::work::root;
+struct Slot{
+atomic_flag done{};
+exception_ptr err{};
+[[no_unique_address]]conditional_t<is_void_v<T>,monostate,optional<T>>value{};
+};
+auto slot=make_shared<Slot>();
+auto jh=make_shared<TaskJoinHandle<T>>(into_join_handle(move(task)));
+jh->control().set_on_ready_or_run([slot,jh]()noexcept{
+try{
+auto outcome=join(move(*jh));
+if(outcome.is_failure())
+slot->err=move(outcome).failure().error;
+else if(outcome.is_cancelled())
+slot->err=make_exception_ptr(runtime_error{"task cancelled"});
+else if constexpr(!is_void_v<T>)
+slot->value.emplace(move(outcome).success().value);
+}catch(...){slot->err=current_exception();}
+slot->done.test_and_set(memory_order_release);
+});
+auto const deadline=chrono::steady_clock::now()+budget;
+while(!slot->done.test(memory_order_acquire)){
+::io_uring_cqe*cqe=nullptr;
+__kernel_timespec ts{.tv_sec=1,.tv_nsec=0};
+int const rc=::io_uring_submit_and_wait_timeout(ring,&cqe,1,&ts,nullptr);
+if(rc==-ETIME){
+if(chrono::steady_clock::now()>deadline)
+throw runtime_error{"block_on_ring: budget exhausted"};
+continue;
+}
+if(rc==-EINTR)continue;
+if(rc>=0&&cqe==nullptr)continue;
+array<::io_uring_cqe*,32>batch{};
+for(;;){
+unsigned const n=::io_uring_peek_batch_cqe(ring,batch.data(),32u);
+if(n==0)break;
+for(unsigned i=0;i<n;++i){
+auto const*c=batch[static_cast<size_t>(i)];
+auto ud=c->user_data;
+completions.dispatch(
+static_cast<uint32_t>(ud&0xFFFFFFFFU),
+static_cast<uint32_t>(ud>>32U),
+c->res,c->flags);
+}
+::io_uring_cq_advance(ring,n);
+if(slot->done.test(memory_order_acquire))break;
+}
+}
+if(slot->err)rethrow_exception(slot->err);
+if constexpr(!is_void_v<T>)return move(*slot->value);
+}
 struct RingFixture{
 ::io_uring ring{};
 CompletionTable completions{};
-FileReader reader;
 SocketTaskRing task_ring;
 bool ring_ok{false};
 RingFixture()
-:reader{&ring,&completions,[](uint32_t s,uint32_t g)noexcept->uint64_t{return pack_ud(s,g);}},task_ring{SocketRawRing{&ring},completions,[](uint32_t s,uint32_t g)noexcept->uint64_t{return pack_ud(s,g);}}{}
+:task_ring{SocketRawRing{&ring},completions,[](uint32_t s,uint32_t g)noexcept->uint64_t{return pack_ud(s,g);}}{}
 static unique_ptr<RingFixture>make(unsigned entries=64){
 auto fx=make_unique<RingFixture>();
 if(::io_uring_queue_init(entries,&fx->ring,0)<0)
@@ -46,7 +101,7 @@ RingFixture(RingFixture&&)=delete;
 RingFixture&operator=(RingFixture&&)=delete;
 template<typename T>
 T run(conflux::work::root::Task<T>task,chrono::milliseconds budget=chrono::seconds{5}){
-return block_on(reader,move(task),budget);
+return block_on_ring(&ring,completions,move(task),budget);
 }
 };
 unique_ptr<RingFixture>require_ring_fixture(unsigned entries=64){
@@ -406,4 +461,113 @@ fx2->run(stream.close());
 }catch(IoError const&e){err_code=e.code().value();}
 // Either succeeded (got=true) or got a real network error — not ENOSPC
 CHECK_FALSE(err_code==ENOSPC);
+}
+// ---------------------------------------------------------------------------
+// TcpStream — write_copy round-trip
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: write_copy round-trip",
+"[tcp][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+A<uint8_t,8>msg{1,2,3,4,5,6,7,8};
+fx->run(stream.write_all_copy(span<uint8_t const>{msg.data(),msg.size()}));
+A<uint8_t,8>rx{};
+SZ received=0;
+while(received<msg.size()){
+SZ const n=fx->run(stream.read_borrowed(
+span<uint8_t>{rx.data()+received,msg.size()-received}));
+REQUIRE(n>0);
+received+=n;
+}
+CHECK(memcmp(msg.data(),rx.data(),msg.size())==0);
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// TcpStream — close() makes valid() false
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: close() makes valid() return false",
+"[tcp][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+fx->run(stream.close());
+CHECK_FALSE(stream.valid());
+}
+// ---------------------------------------------------------------------------
+// SocketFdMode — direct_required throws ENOTSUP
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_connect: direct_required throws ENOTSUP",
+"[tcp][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+SocketTaskRingOptions ropts;
+ropts.fd_mode=SocketFdMode::direct_required;
+SocketTaskRing direct_ring{SocketRawRing{&fx->ring},fx->completions,
+[](uint32_t s,uint32_t g)noexcept->uint64_t{return pack_ud(s,g);},ropts};
+int err_code=0;
+bool got=false;
+try{
+fx->run(tcp_connect(direct_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+got=true;
+}catch(IoError const&e){err_code=e.code().value();}
+CHECK_FALSE(got);
+CHECK(err_code==ENOTSUP);
+}
+// ---------------------------------------------------------------------------
+// SocketFdMode — direct_if_available falls back to os_fd
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_connect: direct_if_available falls back to os_fd",
+"[tcp][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+SocketTaskRingOptions ropts;
+ropts.fd_mode=SocketFdMode::direct_if_available;
+SocketTaskRing direct_ring{SocketRawRing{&fx->ring},fx->completions,
+[](uint32_t s,uint32_t g)noexcept->uint64_t{return pack_ud(s,g);},ropts};
+auto stream=fx->run(tcp_connect(direct_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+CHECK(stream.valid());
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// tcp_connect — negative timeout
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_connect: negative timeout throws EINVAL",
+"[tcp][uring]"){
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(12345);
+int err_code=0;
+try{
+fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in)),
+ConnectOptions{.timeout=chrono::milliseconds{-1}}));
+}catch(IoError const&e){err_code=e.code().value();}
+CHECK(err_code==EINVAL);
 }

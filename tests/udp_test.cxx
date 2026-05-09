@@ -9,7 +9,7 @@
 
 import std;
 import conflux.types;
-import conflux.file_io;
+import conflux.uring.completion;
 import conflux.work;
 import conflux.socket_io;
 import conflux.socket_io.coro;
@@ -21,14 +21,70 @@ uint32_t slot,
 uint32_t gen)noexcept{
 return(static_cast<uint64_t>(gen)<<32U)|slot;
 }
+template<typename T>
+T block_on_ring(
+::io_uring*ring,
+CompletionTable&completions,
+conflux::work::root::Task<T>task,
+chrono::milliseconds budget=chrono::seconds{5}){
+using namespace conflux::work::root;
+struct Slot{
+atomic_flag done{};
+exception_ptr err{};
+[[no_unique_address]]conditional_t<is_void_v<T>,monostate,optional<T>>value{};
+};
+auto slot=make_shared<Slot>();
+auto jh=make_shared<TaskJoinHandle<T>>(into_join_handle(move(task)));
+jh->control().set_on_ready_or_run([slot,jh]()noexcept{
+try{
+auto outcome=join(move(*jh));
+if(outcome.is_failure())
+slot->err=move(outcome).failure().error;
+else if(outcome.is_cancelled())
+slot->err=make_exception_ptr(runtime_error{"task cancelled"});
+else if constexpr(!is_void_v<T>)
+slot->value.emplace(move(outcome).success().value);
+}catch(...){slot->err=current_exception();}
+slot->done.test_and_set(memory_order_release);
+});
+auto const deadline=chrono::steady_clock::now()+budget;
+while(!slot->done.test(memory_order_acquire)){
+::io_uring_cqe*cqe=nullptr;
+__kernel_timespec ts{.tv_sec=1,.tv_nsec=0};
+int const rc=::io_uring_submit_and_wait_timeout(ring,&cqe,1,&ts,nullptr);
+if(rc==-ETIME){
+if(chrono::steady_clock::now()>deadline)
+throw runtime_error{"block_on_ring: budget exhausted"};
+continue;
+}
+if(rc==-EINTR)continue;
+if(rc>=0&&cqe==nullptr)continue;
+array<::io_uring_cqe*,32>batch{};
+for(;;){
+unsigned const n=::io_uring_peek_batch_cqe(ring,batch.data(),32u);
+if(n==0)break;
+for(unsigned i=0;i<n;++i){
+auto const*c=batch[static_cast<size_t>(i)];
+auto ud=c->user_data;
+completions.dispatch(
+static_cast<uint32_t>(ud&0xFFFFFFFFU),
+static_cast<uint32_t>(ud>>32U),
+c->res,c->flags);
+}
+::io_uring_cq_advance(ring,n);
+if(slot->done.test(memory_order_acquire))break;
+}
+}
+if(slot->err)rethrow_exception(slot->err);
+if constexpr(!is_void_v<T>)return move(*slot->value);
+}
 struct RingFixture{
 ::io_uring ring{};
 CompletionTable completions{};
-FileReader reader;
 SocketTaskRing task_ring;
 bool ring_ok{false};
 RingFixture()
-:reader{&ring,&completions,[](uint32_t slot,uint32_t gen)noexcept->uint64_t{return pack_ud(slot,gen);}},task_ring{SocketRawRing{&ring},completions,[](uint32_t slot,uint32_t gen)noexcept->uint64_t{return pack_ud(slot,gen);}}{}
+:task_ring{SocketRawRing{&ring},completions,[](uint32_t slot,uint32_t gen)noexcept->uint64_t{return pack_ud(slot,gen);}}{}
 static unique_ptr<RingFixture>make(
 unsigned entries=64){
 auto fx=make_unique<RingFixture>();
@@ -49,7 +105,7 @@ template<typename T>
 T run(
 conflux::work::root::Task<T>task,
 chrono::milliseconds budget=chrono::seconds{5}){
-return block_on(reader,move(task),budget);
+return block_on_ring(&ring,completions,move(task),budget);
 }
 };
 unique_ptr<RingFixture>require_ring_fixture(
@@ -209,4 +265,58 @@ chrono::seconds{3});
 
 REQUIRE(rx.bytes==payload.size());
 CHECK(memcmp(rx_buf.data(),payload.data(),rx.bytes)==0);
+}
+// ---------------------------------------------------------------------------
+// IPv6 send + recv round-trip
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"udp: send and recv on loopback (AF_INET6)",
+"[udp][uring]"){
+auto fx=require_ring_fixture();
+int const probe=::socket(AF_INET6,SOCK_DGRAM|SOCK_CLOEXEC,IPPROTO_UDP);
+if(probe<0){
+WARN("AF_INET6 not available — skipping");
+return;
+}
+::close(probe);
+auto recv_sock=UdpSocket::ephemeral(fx->task_ring,AF_INET6);
+auto send_sock=UdpSocket::ephemeral(fx->task_ring,AF_INET6);
+sockaddr_storage ss{};
+socklen_t len=sizeof(ss);
+::getsockname(recv_sock.raw_fd(),reinterpret_cast<sockaddr*>(&ss),&len);
+uint16_t const recv_port=ntohs(reinterpret_cast<sockaddr_in6 const*>(&ss)->sin6_port);
+REQUIRE(recv_port>0);
+A<uint8_t,4>payload{0x01,0x02,0x03,0x04};
+sockaddr_in6 dest{};
+dest.sin6_family=AF_INET6;
+dest.sin6_port=htons(recv_port);
+dest.sin6_addr=in6addr_loopback;
+sockaddr_storage dest_ss{};
+memcpy(&dest_ss,&dest,sizeof(dest));
+fx->run(send_sock.send_to_borrowed(
+span<uint8_t const>{payload.data(),payload.size()},
+dest_ss,sizeof(dest)));
+A<uint8_t,256>rx_buf{};
+auto const rx=fx->run(recv_sock.recv_from(span<uint8_t>{rx_buf.data(),rx_buf.size()}));
+REQUIRE(rx.bytes==payload.size());
+CHECK(memcmp(rx_buf.data(),payload.data(),rx.bytes)==0);
+}
+// ---------------------------------------------------------------------------
+// recv_from negative timeout
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"udp: recv_from with negative timeout throws EINVAL",
+"[udp]"){
+auto fx=require_ring_fixture();
+auto sock=UdpSocket::ephemeral(fx->task_ring,AF_INET);
+A<uint8_t,256>rx_buf{};
+int err_code=0;
+try{
+fx->run(sock.recv_from(
+span<uint8_t>{rx_buf.data(),rx_buf.size()},
+chrono::milliseconds{-1}));
+}catch(IoError const&e){err_code=e.code().value();}
+CHECK(err_code==EINVAL);
 }
