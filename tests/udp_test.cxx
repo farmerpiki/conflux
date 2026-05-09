@@ -11,6 +11,7 @@ import std;
 import conflux.types;
 import conflux.file_io;
 import conflux.work;
+import conflux.socket_io;
 import conflux.socket_io.coro;
 
 using namespace std;
@@ -24,9 +25,10 @@ struct RingFixture{
 ::io_uring ring{};
 CompletionTable completions{};
 FileReader reader;
+SocketTaskRing task_ring;
 bool ring_ok{false};
 RingFixture()
-:reader{&ring,&completions,[](uint32_t slot,uint32_t gen)noexcept{return pack_ud(slot,gen);}}{}
+:reader{&ring,&completions,[](uint32_t slot,uint32_t gen)noexcept->uint64_t{return pack_ud(slot,gen);}},task_ring{SocketRawRing{&ring},completions,[](uint32_t slot,uint32_t gen)noexcept->uint64_t{return pack_ud(slot,gen);}}{}
 static unique_ptr<RingFixture>make(
 unsigned entries=64){
 auto fx=make_unique<RingFixture>();
@@ -77,16 +79,15 @@ return ss;
 }
 }// namespace
 // ---------------------------------------------------------------------------
-// UdpSocket — RAII / ephemeral / family / valid
+// UdpSocket — RAII / ephemeral / valid
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-"udp: ephemeral binds to non-zero local port",
+"udp: ephemeral binds to non-zero local port (AF_INET)",
 "[udp]"){
 auto fx=require_ring_fixture();
-auto sock=UdpSocket::ephemeral(fx->reader,AF_INET);
+auto sock=UdpSocket::ephemeral(fx->task_ring,AF_INET);
 CHECK(sock.valid());
-CHECK(sock.family()==AF_INET);
 CHECK(sock.raw_fd()>=0);
 CHECK(get_local_port(sock.raw_fd())>0);
 }
@@ -94,16 +95,15 @@ TEST_CASE(
 "udp: ephemeral works for AF_INET6",
 "[udp]"){
 auto fx=require_ring_fixture();
-auto sock=UdpSocket::ephemeral(fx->reader,AF_INET6);
+auto sock=UdpSocket::ephemeral(fx->task_ring,AF_INET6);
 CHECK(sock.valid());
-CHECK(sock.family()==AF_INET6);
 CHECK(get_local_port(sock.raw_fd())>0);
 }
 TEST_CASE(
 "udp: UdpSocket move-only — source becomes empty",
 "[udp]"){
 auto fx=require_ring_fixture();
-auto src=UdpSocket::ephemeral(fx->reader,AF_INET);
+auto src=UdpSocket::ephemeral(fx->task_ring,AF_INET);
 int const fd=src.raw_fd();
 REQUIRE(fd>=0);
 auto dst=move(src);
@@ -111,7 +111,7 @@ CHECK_FALSE(src.valid());
 CHECK(dst.raw_fd()==fd);
 }
 // ---------------------------------------------------------------------------
-// send_to + recv_from — loopback round-trip
+// send_to_borrowed + recv_from — loopback round-trip
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -119,8 +119,8 @@ TEST_CASE(
 "[udp][uring]"){
 auto fx=require_ring_fixture();
 
-auto recv_sock=UdpSocket::ephemeral(fx->reader,AF_INET);
-auto send_sock=UdpSocket::ephemeral(fx->reader,AF_INET);
+auto recv_sock=UdpSocket::ephemeral(fx->task_ring,AF_INET);
+auto send_sock=UdpSocket::ephemeral(fx->task_ring,AF_INET);
 
 uint16_t const recv_port=get_local_port(recv_sock.raw_fd());
 REQUIRE(recv_port>0);
@@ -132,13 +132,11 @@ dest.sin_port=htons(recv_port);
 dest.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
 socklen_t const dest_len=sizeof(dest);
 
-// Send first; kernel buffers the datagram.
-auto const bytes_sent=fx->run(send_sock.send_to(
+auto const bytes_sent=fx->run(send_sock.send_to_borrowed(
 span<uint8_t const>{payload.data(),payload.size()},
 to_storage(dest),dest_len));
 CHECK(bytes_sent==payload.size());
 
-// Recv now — packet is already in the kernel buffer.
 A<uint8_t,256>rx_buf{};
 auto const rx=fx->run(recv_sock.recv_from(span<uint8_t>{rx_buf.data(),rx_buf.size()}));
 
@@ -155,11 +153,11 @@ CHECK(ntohs(from.sin_port)==get_local_port(send_sock.raw_fd()));
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-"udp: recv_from with timeout fires FileIoError on idle socket",
+"udp: recv_from with timeout fires IoError on idle socket",
 "[udp][uring]"){
 auto fx=require_ring_fixture();
 
-auto sock=UdpSocket::ephemeral(fx->reader,AF_INET);
+auto sock=UdpSocket::ephemeral(fx->task_ring,AF_INET);
 
 A<uint8_t,256>rx_buf{};
 int err_code=0;
@@ -171,7 +169,7 @@ span<uint8_t>{rx_buf.data(),rx_buf.size()},
 chrono::milliseconds{50}),
 chrono::seconds{2});
 got_value=true;
-}catch(FileIoError const&e){err_code=e.code().value();}catch(...){
+}catch(IoError const&e){err_code=e.code().value();}catch(...){
 }
 
 CHECK_FALSE(got_value);
@@ -186,8 +184,8 @@ TEST_CASE(
 "[udp][uring]"){
 auto fx=require_ring_fixture();
 
-auto recv_sock=UdpSocket::ephemeral(fx->reader,AF_INET);
-auto send_sock=UdpSocket::ephemeral(fx->reader,AF_INET);
+auto recv_sock=UdpSocket::ephemeral(fx->task_ring,AF_INET);
+auto send_sock=UdpSocket::ephemeral(fx->task_ring,AF_INET);
 
 uint16_t const recv_port=get_local_port(recv_sock.raw_fd());
 
@@ -198,8 +196,7 @@ dest.sin_port=htons(recv_port);
 dest.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
 socklen_t const dest_len=sizeof(dest);
 
-// Send first; kernel buffers the datagram.
-fx->run(send_sock.send_to(
+fx->run(send_sock.send_to_borrowed(
 span<uint8_t const>{payload.data(),payload.size()},
 to_storage(dest),dest_len));
 

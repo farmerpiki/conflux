@@ -320,6 +320,18 @@ target_link_libraries(conflux_udp_tests
         conflux_work
         conflux_options
         Catch2::Catch2WithMain
+        PkgConfig::LIBURING
+)
+
+add_executable(conflux_socket_task_ring_tests socket_task_ring_test.cxx)
+target_link_libraries(conflux_socket_task_ring_tests
+    PRIVATE
+        conflux_socket_io
+        conflux_file_io
+        conflux_work
+        conflux_options
+        Catch2::Catch2WithMain
+        PkgConfig::LIBURING
 )
 
 if(CONFLUX_HAS_DB STREQUAL "true")
@@ -409,6 +421,7 @@ conflux_discover_tests(conflux_file_io_tests)
 conflux_discover_tests(conflux_dns_codec_tests)
 conflux_discover_tests(conflux_dns_resolver_tests)
 conflux_discover_tests(conflux_udp_tests)
+conflux_discover_tests(conflux_socket_task_ring_tests)
 conflux_discover_tests(conflux_file_io_http_e2e)
 conflux_discover_tests(conflux_http_overflow_stress_tests)
 if(CONFLUX_HAS_TLS STREQUAL "true")

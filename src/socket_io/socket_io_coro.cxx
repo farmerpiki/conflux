@@ -331,6 +331,7 @@ UdpSocket&operator=(UdpSocket const&)=delete;
 UdpSocket(UdpSocket&&)noexcept=default;
 UdpSocket&operator=(UdpSocket&&)noexcept=default;
 [[nodiscard]]bool valid()const noexcept{return ring_!=nullptr&&handle_.valid();}
+[[nodiscard]]int raw_fd()const noexcept{return handle_.raw_fd();}
 [[nodiscard]]static UdpSocket ephemeral(SocketTaskRing&ring,int family){
 int const fd=::socket(family,SOCK_DGRAM|SOCK_CLOEXEC,IPPROTO_UDP);
 if(fd<0)throw IoError{errno,"udp: socket"};
