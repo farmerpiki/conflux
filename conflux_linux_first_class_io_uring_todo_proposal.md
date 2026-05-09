@@ -155,7 +155,7 @@ RawZcToken submit_send_zc_borrowed(...);                  // caller dispatches n
 ## [x] P0-04: Add `DirectSlotPool` with poison state
 
 **Classification:** Keep.  
-**Current state:** Done — `05d41b9`, `4d85d74`, `e101826`, `312bca2`.
+**Current state:** Done — `05d41b9`, `4d85d74`, `e101826`, `312bca2`, `9fcd9a4` (leased_empty/acquire/release_empty/DirectSlotLease added).
 
 **TODO:**
 
@@ -196,6 +196,8 @@ public:
 
 Fatal-on-overflow policy implemented with NODROP branching, bounded flush, `RunStatus` propagation, recv-buf recycling in flush, and ring-level stress tests. `FlowRuntime::abandon_deferred_closes()` handles shutdown drain.
 
+Bug fix (`9fcd9a4`): `http_server.cxx` was incorrectly calling `enter_ring_fatal` + returning when `FEAT_NODROP` was set and overflow was detected. With NODROP, CQEs are buffered in the overflow list — not lost — and `io_uring_submit_and_wait` drains them on the next call. Fixed: NODROP overflow is no longer treated as a fatal condition; the run loop continues.
+
 **TODO:**
 
 - [x] Add ring-level `cq_has_overflow()` wrapper.
@@ -213,7 +215,7 @@ Fatal-on-overflow policy implemented with NODROP branching, bounded flush, `RunS
 ## [ ] P1-01: Implement real `SocketTaskRing`
 
 **Classification:** Keep.  
-**Current state:** Not done.
+**Current state:** Not done. Worktree `p1-socket-task-ring` at `~/conflux_dev/p1_socket_task_ring`; proposal `p1_01_socket_task_ring_proposal.md` in `~/conflux_dev/`.
 
 Evidence in current repo:
 
@@ -327,19 +329,12 @@ Evidence in current repo:
 ## [ ] P1-05: Add explicit buffer-ring modes
 
 **Classification:** Keep.  
-**Current state:** Not done.
-
-Evidence in current repo:
-
-- `src/socket_io/socket_io.cxx:126` calls `io_uring_setup_buf_ring(..., flags = 0)`.
-- Current `BufferRing` assumes one whole buffer per CQE.
-
-Do not make bundle and incremental consumption share the same simple API. They have different ownership and offset rules.
+**Current state:** Partial — `BufferRingMode` enum scaffolded (`classic_one_cqe_per_buffer`, `recv_bundle`, `incremental`); `incremental` rejected at ctor with precise error (`9fcd9a4`). Worktree `p1-incremental-buf` at `~/conflux_dev/p1_incremental_buf`; proposal `p1_05_incremental_buf_ring_proposal.md` in `~/conflux_dev/`.
 
 **TODO:**
 
 - [x] Add `BufferRingMode` to `BufferRingOptions`.
-- [x] Keep classic mode as the default.
+- [x] Keep classic mode as the default (`classic_one_cqe_per_buffer`).
 - [x] Add bundle mode with cached head tracking.
 - [ ] Add incremental mode with per-buffer offset tracking and `IORING_CQE_F_BUF_MORE` handling.
 - [x] Reject unsupported modes at construction with precise error.
@@ -401,13 +396,11 @@ struct IoUringCaps {
 ## [ ] P1-07: Make lifetime contracts consistent across raw and Task APIs
 
 **Classification:** Keep.  
-**Current state:** Partial.
-
-Raw `socket_io` has `_borrowed` on some functions, which is good. Task APIs still blur borrowed vs owned lifetime, especially where they wrap FileReader or raw buffer pointers.
+**Current state:** Partial. Raw layer `_borrowed` renames done (`9fcd9a4`): `submit_accept_multishot_borrowed`, `submit_setsockopt_borrowed`, `submit_timeout_borrowed`, `submit_link_timeout_borrowed`. Task APIs and any remaining raw helpers not yet audited.
 
 **TODO:**
 
-- [ ] Ensure all raw APIs with caller-owned memory use `_borrowed` suffix.
+- [x] Ensure all raw APIs with caller-owned memory use `_borrowed` suffix. *(raw layer done; Task layer pending)*
 - [ ] For Task APIs, prefer owned/copying semantics unless the function name says borrowed.
 - [ ] Add `send_owned(...)` or `send_all_owned(...)` where ergonomics matter.
 - [ ] Add `send_static(...)` only if useful for literal/static buffers.
@@ -417,16 +410,11 @@ Raw `socket_io` has `_borrowed` on some functions, which is good. Task APIs stil
 ## [ ] P1-08: Add first-class cancellation policy
 
 **Classification:** Keep.  
-**Current state:** Partial.
-
-Evidence in current repo:
-
-- Several current Task sources set `enable_cancellation=false`, including UDP recv paths in `socket_io_coro.cxx`.
-- Raw socket helpers already include `submit_cancel_fd` and `submit_cancel_by_ud`, but Task-level semantics are not unified.
+**Current state:** Partial. `CancelPolicy` enum scaffolded (`ignore`, `cancel_sqe_by_user_data`, `cancel_fd`, `close_fd`) in `socket_io.cxx` (`9fcd9a4`). Task-level wiring not yet done.
 
 **TODO:**
 
-- [ ] Define cancellation policy enum.
+- [x] Define cancellation policy enum.
 - [ ] Support cancel-by-user-data for connect/recv/send where safe.
 - [ ] Support cancel-by-fd/close-fd where user-data cancel is insufficient.
 - [ ] Apply to connect timeout, DNS timeout, HTTP request timeout, shutdown, and WebSocket handoff.
@@ -459,10 +447,10 @@ Do not create duplicate benchmark infrastructure. Extend the existing gate with 
 **TODO:**
 
 - [ ] Add raw helper overhead vs old inline server SQE prep comparison.
-- [ ] Add recv bundle decode benchmark.
+- [x] Add recv bundle decode benchmark (`run_buf_slices_from_cqe_classic` in `socket_raw_bench.cxx`, `9fcd9a4`).
 - [ ] Add incremental buffer mode benchmark.
 - [ ] Add `SocketTaskRing` vs current FileReader-backed coroutine wrapper benchmark.
-- [ ] Add direct slot pool acquire/release/poison benchmark.
+- [x] Add direct slot pool acquire/release/poison benchmark (`run_direct_slot_pool_acquire_release`, `run_direct_slot_pool_full_lifecycle` in `socket_raw_bench.cxx`, `9fcd9a4`).
 - [ ] Add close-direct under SQ-full/deferred-cleanup benchmark.
 - [ ] Require `--compare-bins` on server migration steps.
 
@@ -520,16 +508,11 @@ This is safe but too limiting for SQPOLL and old/no-submit-stable environments. 
 ## [ ] P2-03: Add poll-first recv/send policy wrapper
 
 **Classification:** Keep.  
-**Current state:** Low-level flags exist; socket policy does not.
-
-Evidence in current repo:
-
-- `src/uring/uring.cxx` exposes low-level `recvsend_poll_first` constants.
-- `socket_io` does not expose a recv-arm policy.
+**Current state:** `RecvArmPolicy` enum added (`default_`, `poll_first`); wired into `submit_recv_multishot` via `ioprio` (`9fcd9a4`). `auto_from_last_cqe` not yet implemented; benchmarks not yet run.
 
 **TODO:**
 
-- [ ] Add `RecvArmPolicy` to `submit_recv_multishot` or a higher-level arm options struct.
+- [x] Add `RecvArmPolicy` to `submit_recv_multishot`.
 - [ ] Track last CQE flags such as socket-nonempty to drive `auto_from_last_cqe`.
 - [ ] Benchmark idle-heavy vs busy sockets.
 - [ ] Keep default as current behavior until benchmark proves otherwise.
