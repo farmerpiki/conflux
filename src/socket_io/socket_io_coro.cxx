@@ -77,9 +77,11 @@ auto _=shared_src->install_cancel_hook([ring_ptr,ud](wroot::CancelReason)noexcep
 auto _=ring_ptr->submit_on_owner([ud](SocketTaskRing&ring){
 auto[cs,cg]=ring.completions().reserve([](IoResult)noexcept{});
 u64 const cud=ring.encode(cs,cg);
-if(!submit_cancel_by_ud(ring.raw(),ud,cud))
+if(!submit_cancel_by_ud(ring.raw(),ud,cud)){
 ring.completions().dispatch(cs,cg,-EBUSY,0);
-elseauto _=ring.raw().submit();
+return;
+}
+auto _=ring.raw().submit();
 });
 });
 co_return co_await move(task);
@@ -127,9 +129,11 @@ auto _=shared_src->install_cancel_hook([ring_ptr,ud](wroot::CancelReason)noexcep
 auto _=ring_ptr->submit_on_owner([ud](SocketTaskRing&ring){
 auto[cs,cg]=ring.completions().reserve([](IoResult)noexcept{});
 u64 const cud=ring.encode(cs,cg);
-if(!submit_cancel_by_ud(ring.raw(),ud,cud))
+if(!submit_cancel_by_ud(ring.raw(),ud,cud)){
 ring.completions().dispatch(cs,cg,-EBUSY,0);
-elseauto _=ring.raw().submit();
+return;
+}
+auto _=ring.raw().submit();
 });
 });
 }
@@ -296,9 +300,11 @@ auto _=cshared_src->install_cancel_hook([ring_ptr,h](wroot::CancelReason)noexcep
 auto _=ring_ptr->submit_on_owner([h](SocketTaskRing&r){
 auto[cs,cg]=r.completions().reserve([](IoResult)noexcept{});
 u64 const cud=r.encode(cs,cg);
-if(!submit_cancel_fd(r.raw(),h,cud))
+if(!submit_cancel_fd(r.raw(),h,cud)){
 r.completions().dispatch(cs,cg,-EBUSY,0);
-elseauto _=r.raw().submit();
+return;
+}
+auto _=r.raw().submit();
 });
 });
 }
