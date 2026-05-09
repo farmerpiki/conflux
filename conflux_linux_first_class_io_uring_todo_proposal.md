@@ -296,21 +296,33 @@ Evidence in current repo:
 - [ ] Ensure TCP DNS fallback uses `SocketTaskRing`.
 - [ ] Remove temp-ring allocation from per-query blocking DNS path.
 
-## [ ] P1-04: Add `TcpListener` as a real high-level abstraction
+## [x] P1-04: Add `TcpListener` as a real high-level abstraction
 
 **Classification:** Keep.  
-**Current state:** Not done.
+**Current state:** Phase 1 done (branch `p1-tcp-listener`, commits `5732b21`, `81ccee5`).
 
-Raw helpers exist, but users still need to copy server initialization and rearm patterns. `TcpListener` should not replace the server loop; it should package the reusable socket setup and accept mechanics.
+**Phase 1 — done:**
 
-**TODO:**
+- [x] `TcpBindAddress` enum (`loopback_v4`, `any_v4`, `loopback_v6`, `any_v6_dual`, `any_v6_only`).
+- [x] `TcpListenerOptions` struct: `port`, `bind`, `reuse_addr`, `reuse_port` (opt-in, default false), `backlog`, `accept_flags`.
+- [x] `TcpListener` RAII class: socket/setsockopt/bind/listen/getsockname in ctor; move-only; throws `std::system_error` on any failure.
+- [x] `arm_accept_multishot_borrowed` / `rearm_accept_multishot_borrowed` forwarding `IoUringCaps` and `accept_flags_`.
+- [x] `submit_accept_multishot_borrowed`: new overloads with explicit `accept_flags` param; old zero-flags signatures kept as `noexcept` compat wrappers.
+- [x] `DirectTcpAcceptSetup`: `tcp_nodelay_once{false}`, `tcp_quickack_once{false}`, `skip_sockopt_success_cqes{true}`; TCP_NODELAY SQE emitted when enabled.
+- [x] Tests: ephemeral port, loopback_v4/v6 getsockname, arm v4/v6 accept CQE, accept_flags forwarding (O_NONBLOCK/FD_CLOEXEC), reuse_port second bind, deterministic rearm via cancel.
 
-- [ ] Implement synchronous `TcpListener::bind(...)` first for compatibility.
-- [ ] Own listen socket creation, bind/listen, `SO_REUSEADDR`, `SO_REUSEPORT`, `IPV6_V6ONLY`.
-- [ ] Optionally install listen fd into a direct slot.
-- [ ] Provide `arm_accept_multishot()` / `rearm_accept_multishot()`.
-- [ ] Integrate accepted direct-slot bookkeeping with `DirectSlotPool`.
-- [ ] Later: add async bind/listen variants if native io_uring bind/listen support is worth exposing.
+**Phase 2 — deferred** (needs `DirectFdTable::clear(slot)` first):
+
+- [ ] `install_direct(DirectFdTable&, u32 slot)` — install listen fd into a registered-files slot.
+
+**Phase 3 — deferred** (user migration):
+
+- [ ] Migrate `benchmarks/socket_raw_bench.cxx::make_listen_socket()` to `TcpListener`.
+- [ ] Migrate `src/net/http_server.cxx` accept setup (after Phase 2 and direct-slot bookkeeping are solid).
+
+**Separate fix (implemented, callers opt-in):**
+
+- [x] `DirectTcpAcceptSetup::tcp_nodelay_once` — TCP_NODELAY on direct accepted sockets; previously missing from the direct-accept path.
 
 ## [ ] P1-05: Add explicit buffer-ring modes
 
@@ -601,7 +613,7 @@ Do not start AF_ALG before socket ownership and Task-ring semantics are clean. A
 
 ## Phase 2 — ergonomic server/library surface
 
-- [ ] **P1-04** Add `TcpListener` abstraction.
+- [x] **P1-04** Add `TcpListener` abstraction (Phase 1 done; Phase 2/3 deferred).
 - [ ] **P1-05** Add buffer-ring modes: classic, bundle, incremental.
 - [ ] **P1-09** Expand benchmark gates.
 - [ ] **P2-02** Add owned-path direct-flow variants.
