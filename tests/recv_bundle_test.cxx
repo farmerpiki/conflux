@@ -48,7 +48,7 @@ auto r=conflux::uring::Ring::init(32,{});
 REQUIRE(r);
 return move(*r);
 }()},
-ring{uring.ref(),BufferRingOptions{.count=count,.buf_size=buf_size,.group_id=gid,.huge_pages=false,.mode=BufferRingMode::classic}}{}
+ring{uring.ref(),BufferRingOptions{.count=count,.buf_size=buf_size,.group_id=gid,.huge_pages=false,.mode=BufferRingMode::classic_one_cqe_per_buffer}}{}
 };
 template<typename F>
 struct ScopeExit{

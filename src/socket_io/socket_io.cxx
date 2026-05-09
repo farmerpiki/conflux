@@ -71,6 +71,12 @@ return sqe?sqe.raw():nullptr;
 }
 [[nodiscard]]unsigned sq_space_left()const noexcept{return ring_.sq_space_left();}
 [[nodiscard]]int submit()const noexcept{return ring_.submit();}
+[[nodiscard]]bool reserve_sqe_slots(u32 n)const noexcept{return sq_space_left()>=n;}
+[[nodiscard]]conflux::uring::Sqe get_reserved_sqe()const noexcept{
+auto sqe=try_get_sqe();
+assert(sqe);
+return sqe;
+}
 };
 // ─── GenerationTable ─────────────────────────────────────────────────────────
 // Per-slot generation counters. Rejects stale CQEs from closed/reused sockets.
@@ -105,15 +111,16 @@ return id<static_cast<u32>(gens_.size())&&gens_[id]==gen;
 // Owns a kernel buffer ring group. Manages slab allocation and recycling.
 
 export enum class BufferRingMode:u8{
-classic,
-recv_bundle
+classic_one_cqe_per_buffer,
+recv_bundle,
+incremental
 };
 export struct BufferRingOptions{
 u32 count{4096};
 SZ buf_size{8192};
 u16 group_id{0};
 bool huge_pages{true};
-BufferRingMode mode{BufferRingMode::classic};
+BufferRingMode mode{BufferRingMode::classic_one_cqe_per_buffer};
 };
 
 export class RecvBuffer;
@@ -134,7 +141,7 @@ SZ slab_sz_{};
 V<u16>ring_order_;
 u32 head_pos_{};
 u32 tail_pos_{};
-BufferRingMode mode_{BufferRingMode::classic};
+BufferRingMode mode_{BufferRingMode::classic_one_cqe_per_buffer};
 public:
 BufferRing(
 io_uring*uring,
@@ -146,6 +153,8 @@ BufferRingOptions opts)
 :ring_{},uring_{uring},buf_size_{opts.buf_size},count_{opts.count},group_id_{opts.group_id},mode_{opts.mode}{
 if(count_==0||count_>65536U||(count_&(count_-1))!=0||buf_size_==0||buf_size_>static_cast<SZ>(NL<u16>::max())||count_>NL<SZ>::max()/buf_size_)
 throw RE{"BufferRing invalid options"};
+if(opts.mode==BufferRingMode::incremental)
+throw RE{"BufferRing: incremental mode not yet supported"};
 slab_sz_=static_cast<SZ>(count_)*buf_size_;
 SZ const aligned_sz=(slab_sz_+4095)&~SZ{4095};
 if(aligned_sz<slab_sz_)
@@ -456,7 +465,7 @@ registered_=true;
 }
 ~DirectFdTable(){
 if(registered_)
-ring_.unregister_files();
+auto _=ring_.unregister_files();
 }
 DirectFdTable(DirectFdTable const&)=delete;
 DirectFdTable&operator=(DirectFdTable const&)=delete;
@@ -476,7 +485,7 @@ return ring_.register_files_update(slot,span<int const>{&fd,1})==1;
 // ─── raw submission: accept ──────────────────────────────────────────────────
 // All borrowed data (buffers, iovecs) must remain valid until CQE completion.
 
-export bool submit_accept_multishot(
+export bool submit_accept_multishot_borrowed(
 SocketRawRing&ring,
 SocketHandle listen,
 sockaddr*addr,
@@ -494,7 +503,7 @@ sqe.add_flags(listen.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
 }
-export bool submit_accept_multishot(
+export bool submit_accept_multishot_borrowed(
 SocketRawRing&ring,
 SocketHandle listen,
 sockaddr*addr,
@@ -502,23 +511,33 @@ socklen_t*addrlen,
 u64 user_data,
 conflux::uring::IoUringCaps const&caps,
 bool direct){
-return submit_accept_multishot(ring,listen,addr,addrlen,user_data,direct&&caps.accept_direct_supported);
+return submit_accept_multishot_borrowed(ring,listen,addr,addrlen,user_data,direct&&caps.accept_direct_supported);
 }
 // ─── raw submission: recv ────────────────────────────────────────────────────
 
+export enum class RecvArmPolicy:u8{
+default_,
+poll_first
+};
 export bool submit_recv_multishot(
 SocketRawRing&ring,
 SocketHandle handle,
 BufferRing&bufs,
 u64 user_data,
-bool bundle=false){
+bool bundle=false,
+RecvArmPolicy arm=RecvArmPolicy::default_){
 auto sqe=ring.try_get_sqe();
 if(!sqe)
 return false;
 sqe.prep_recv_multishot(handle.sqe_fd(),nullptr,0,conflux::uring::MsgFlags{});
 sqe.buf_group(conflux::uring::BufGroupId{bufs.group_id()});
+conflux::uring::IoPrioFlags ioprio{};
 if(bundle&&bufs.mode()==BufferRingMode::recv_bundle)
-sqe.ioprio(conflux::uring::ioprio_flags::recvsend_bundle);
+ioprio=ioprio|conflux::uring::ioprio_flags::recvsend_bundle;
+if(arm==RecvArmPolicy::poll_first)
+ioprio=ioprio|conflux::uring::ioprio_flags::recvsend_poll_first;
+if(ioprio)
+sqe.ioprio(ioprio);
 sqe.add_flags(conflux::uring::sqe_flags::buffer_select);
 sqe.add_flags(handle.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
@@ -647,7 +666,7 @@ return true;
 // ─── raw submission: setsockopt ──────────────────────────────────────────────
 // Async socket option via io_uring cmd_sock. Only works with fixed fds.
 
-export bool submit_setsockopt(
+export bool submit_setsockopt_borrowed(
 SocketRawRing&ring,
 SocketHandle handle,
 int level,
@@ -743,9 +762,15 @@ sqe.prep_cancel64(conflux::uring::UserData{target_ud},conflux::uring::CancelFlag
 sqe.user_data(conflux::uring::UserData{cancel_ud});
 return true;
 }
+export enum class CancelPolicy:u8{
+ignore,
+cancel_sqe_by_user_data,
+cancel_fd,
+close_fd
+};
 // ─── raw submission: timeout ─────────────────────────────────────────────────
 
-export bool submit_timeout(
+export bool submit_timeout_borrowed(
 SocketRawRing&ring,
 __kernel_timespec*ts,
 u64 user_data){
@@ -756,7 +781,7 @@ sqe.prep_timeout(ts,0,conflux::uring::TimeoutFlags{});
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
 }
-export bool submit_link_timeout(
+export bool submit_link_timeout_borrowed(
 SocketRawRing&ring,
 __kernel_timespec*ts,
 u64 user_data){

@@ -1752,7 +1752,7 @@ op();
 void queue_multishot_accept(){
 auto listen_handle=
 listen_fixed?SocketHandle::from_direct(static_cast<u32>(listen_fd)):SocketHandle::from_os(listen_fd);
-if(!submit_accept_multishot(
+if(!submit_accept_multishot_borrowed(
 raw_,
 listen_handle,
 reinterpret_cast<sockaddr*>(&client_addr),
@@ -2174,7 +2174,7 @@ if(request_timeout_ms==0&&tls_sniff_timeout_ms==0)
 return;
 timer_ts.tv_sec=1;
 timer_ts.tv_nsec=0;
-if(!submit_timeout(raw_,&timer_ts,pack(Op::Timer,0,0)))
+if(!submit_timeout_borrowed(raw_,&timer_ts,pack(Op::Timer,0,0)))
 defer_op([this]{arm_timer();});
 }
 void handle_timer(){
@@ -3522,9 +3522,8 @@ emit_ring_diagnostics();
 close_tracked_fds_sync();
 return RunStatus::fatal_cq_overflow_no_nodrop;
 }
-enter_ring_fatal(ServerFatalReason::cq_overflow);
-flush_overflow_cqes_until_clear_or_limit();
-return RunStatus::fatal_cq_overflow;
+// NODROP: overflow list non-empty but CQEs are not lost.
+// io_uring_submit_and_wait drains overflow into the ring; continue.
 }
 
 drain_pending_ops();
@@ -3538,16 +3537,11 @@ enter_ring_fatal(ServerFatalReason::submit_wait_ebadr);
 flush_overflow_cqes_until_clear_or_limit();
 return RunStatus::fatal_submit_wait_ebadr;
 }
-if(ring_integrity_suspect()){
-if(!caps.feat_nodrop){
+if(ring_integrity_suspect()&&!caps.feat_nodrop){
 enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
 emit_ring_diagnostics();
 close_tracked_fds_sync();
 return RunStatus::fatal_cq_overflow_no_nodrop;
-}
-enter_ring_fatal(ServerFatalReason::cq_overflow);
-flush_overflow_cqes_until_clear_or_limit();
-return RunStatus::fatal_cq_overflow;
 }
 continue;
 }
@@ -3558,16 +3552,11 @@ unsigned const count=io_uring_peek_batch_cqe(&ring,cqes.data(),BATCH);
 bool const overflowed=ring_integrity_suspect();
 
 if(count==0){
-if(overflowed){
-if(!caps.feat_nodrop){
+if(overflowed&&!caps.feat_nodrop){
 enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
 emit_ring_diagnostics();
 close_tracked_fds_sync();
 return RunStatus::fatal_cq_overflow_no_nodrop;
-}
-enter_ring_fatal(ServerFatalReason::cq_overflow);
-flush_overflow_cqes_until_clear_or_limit();
-return RunStatus::fatal_cq_overflow;
 }
 continue;
 }

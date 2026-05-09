@@ -5,6 +5,7 @@
 
 enum class DirectSlotState : u8 {
 	free_slot,
+	leased_empty,
 	populated,
 	closing,
 	poisoned,
@@ -27,6 +28,27 @@ struct DirectSlotPool {
 			free_pos_[i] = i;
 			free_stack_.push_back(i);
 		}
+	}
+	[[nodiscard]] expected<u32, DirectSlotError> acquire() noexcept {
+		if (free_stack_.empty()) {
+			return unexpected(DirectSlotError::exhausted);
+		}
+		u32 const slot = free_stack_.back();
+		remove_from_free(slot);
+		set_state(slot, DirectSlotState::leased_empty);
+		return slot;
+	}
+	[[nodiscard]] expected<void, DirectSlotError> release_empty(
+		u32 slot) noexcept {
+		if (slot >= capacity_) {
+			return unexpected(DirectSlotError::out_of_range);
+		}
+		if (slot_state(slot) != DirectSlotState::leased_empty) {
+			return unexpected(DirectSlotError::bad_state);
+		}
+		set_state(slot, DirectSlotState::free_slot);
+		push_to_free(slot);
+		return {};
 	}
 	[[nodiscard]] expected<void, DirectSlotError> install_os_fd(
 		u32 slot,
@@ -137,4 +159,35 @@ private:
 	V<u8> state_{};
 	V<u32> free_stack_{};
 	V<u32> free_pos_{};
+};
+struct DirectSlotLease {
+	DirectSlotPool* pool_{};
+	u32 slot_{~u32{}};
+	DirectSlotLease() noexcept = default;
+	explicit DirectSlotLease(
+		DirectSlotPool& pool,
+		u32 slot) noexcept
+		: pool_{&pool}, slot_{slot} {}
+	~DirectSlotLease() noexcept {
+		if (pool_)
+			auto _ = pool_->release_empty(slot_);
+	}
+	DirectSlotLease(DirectSlotLease const&) = delete;
+	DirectSlotLease& operator=(DirectSlotLease const&) = delete;
+	DirectSlotLease(DirectSlotLease&& o) noexcept
+		: pool_{o.pool_}, slot_{o.slot_} {
+		o.pool_ = nullptr;
+	}
+	DirectSlotLease& operator=(DirectSlotLease&& o) noexcept {
+		if (this != &o) {
+			if (pool_)
+				auto _ = pool_->release_empty(slot_);
+			pool_ = o.pool_;
+			slot_ = o.slot_;
+			o.pool_ = nullptr;
+		}
+		return *this;
+	}
+	[[nodiscard]] u32 slot() const noexcept { return slot_; }
+	void detach() noexcept { pool_ = nullptr; }
 };

@@ -9,6 +9,7 @@ import std;
 import conflux.types;
 import conflux.socket_io;
 import bench_common;
+#include "../src/net/direct_slot_pool.hxx"
 
 using namespace std::literals;
 
@@ -881,7 +882,7 @@ auto*sqe=raw.get_sqe();
 io_uring_prep_recv(sqe,srv,recv_buf.data(),recv_buf.size(),0);
 io_uring_sqe_set_flags(sqe,IOSQE_IO_LINK);
 io_uring_sqe_set_data64(sqe,10);
-submit_link_timeout(raw,&ts,20);
+submit_link_timeout_borrowed(raw,&ts,20);
 raw.submit();
 io_uring_cqe*cqe{};
 for(int n=0;n<2;){
@@ -927,7 +928,7 @@ auto v=Variant{
 .name=variant_name,
 .run=
 [&]{
-submit_setsockopt(
+submit_setsockopt_borrowed(
 raw,
 SocketHandle::from_direct(0),
 level,
@@ -1210,6 +1211,70 @@ stop.store(true,memory_order_relaxed);
 sender.join();
 reader.join();
 }
+// buf_slices_from_cqe_classic: buffer_slices_from_cqe hot path, single-buffer CQE
+void run_buf_slices_from_cqe_classic(
+BenchArgs const&args,
+bool json,
+SV config_name){
+RingGuard rg{64};
+BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false}};
+
+auto v=Variant{
+.name="buf_slices_from_cqe_classic",
+.run=
+[&]{
+u16 const id=bufs.ring_id_at(bufs.debug_head_pos());
+u32 const flags=IORING_CQE_F_BUFFER|(static_cast<u32>(id)<<IORING_CQE_BUFFER_SHIFT);
+auto slices=buffer_slices_from_cqe(bufs,64,flags,false);
+slices.recycle_all();
+},
+};
+
+auto s=run_variant(v,args.iterations,args.warmup,config_name);
+bench_print(s,json,false);
+}
+// direct_slot_pool_acquire_release: acquire() + release_empty() cycle
+void run_direct_slot_pool_acquire_release(
+BenchArgs const&args,
+bool json,
+SV config_name){
+DirectSlotPool pool{256};
+
+auto v=Variant{
+.name="direct_slot_pool_acquire_release",
+.run=
+[&]{
+auto r=pool.acquire();
+if(r)
+auto _=pool.release_empty(*r);
+},
+};
+
+auto s=run_variant(v,args.iterations,args.warmup,config_name);
+bench_print(s,json,false);
+}
+// direct_slot_pool_full_lifecycle: adopt_kernel_allocated → mark_closing → release_closed
+void run_direct_slot_pool_full_lifecycle(
+BenchArgs const&args,
+bool json,
+SV config_name){
+DirectSlotPool pool{256};
+u32 slot=0;
+
+auto v=Variant{
+.name="direct_slot_pool_full_lifecycle",
+.run=
+[&]{
+auto _=pool.adopt_kernel_allocated(slot);
+auto _=pool.mark_closing(slot);
+auto _=pool.release_closed(slot);
+slot=(slot+1)%256;
+},
+};
+
+auto s=run_variant(v,args.iterations,args.warmup,config_name);
+bench_print(s,json,false);
+}
 }// namespace
 int main(
 int argc,
@@ -1280,4 +1345,11 @@ run_gen_table_bump_check(args,json,config_name);
 // ── submit batching ────
 run_batch_send_32(args,json,config_name);
 run_batch_recv_send_16(args,json,config_name);
+
+// ── buffer slices from cqe ────
+run_buf_slices_from_cqe_classic(args,json,config_name);
+
+// ── direct slot pool ────
+run_direct_slot_pool_acquire_release(args,json,config_name);
+run_direct_slot_pool_full_lifecycle(args,json,config_name);
 }

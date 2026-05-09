@@ -1477,6 +1477,10 @@ bool op_uring_cmd{};
 bool cmd_sock_setsockopt{};// op_uring_cmd
 bool send_zc{};
 bool recv_zc{};
+// proposal-name aliases
+bool resize_rings{};
+bool registered_buffer_clone{};
+bool zc_rx{};
 };
 [[nodiscard]]IoUringCaps detect_caps(
 RingRef ring)noexcept{
@@ -1495,6 +1499,8 @@ c.feat_reg_buf_clone=ring.has_feature(IORING_FEAT_REG_BUF_CLONE);
 #endif
 c.path_lifetime_stable=c.feat_submit_stable&&!ring.is_sqpoll();
 c.recvsend_bundle=c.feat_recvsend_bundle;
+c.resize_rings=c.feat_resize_rings;
+c.registered_buffer_clone=c.feat_reg_buf_clone;
 io_uring_probe*probe=io_uring_get_probe_ring(ring.raw());
 if(probe!=nullptr){
 #ifdef IORING_OP_SOCKET
@@ -1513,6 +1519,7 @@ c.recv_zc=io_uring_opcode_supported(probe,IORING_OP_RECV_ZC)!=0;
 #endif
 io_uring_free_probe(probe);
 }
+c.zc_rx=c.recv_zc;
 return c;
 }
 [[nodiscard]]IoUringCaps detect_caps(
