@@ -309,6 +309,7 @@ target_sources(conflux_socket_io
 target_link_libraries(conflux_socket_io
     PRIVATE conflux_options
     PUBLIC  conflux_types
+    PUBLIC  conflux_uring
     PUBLIC  conflux_file_io
     PUBLIC  conflux_work
     PUBLIC  PkgConfig::LIBURING

@@ -34,6 +34,7 @@ import conflux.net.router;
 import conflux.net.vhost;
 import conflux.net.config;
 import conflux.net.http1_parser;
+import conflux.uring;
 import conflux.work;
 import conflux.file_io;
 import conflux.socket_io;
@@ -864,7 +865,7 @@ static constexpr SZ BUF_SIZE=8192;
 static constexpr u32 MAX_FILES=65536;
 
 io_uring ring{};
-SocketRawRing raw_{&ring};
+SocketRawRing raw_{conflux::uring::RingRef{ring}};
 // Backing memory for the ring when no_mmap = true. Freed on destroy.
 UPD<byte[],void(*)(void*)>ring_mem{nullptr,::free};
 int listen_fd=-1;
@@ -1577,11 +1578,9 @@ port_signal->notify_all();
 }
 }
 
-direct_fds_=make_unique<DirectFdTable>(&ring,MAX_FILES);
-if(direct_fds_->registered()){
+direct_fds_=make_unique<DirectFdTable>(conflux::uring::RingRef{ring},MAX_FILES);
+if(direct_fds_->registered()&&direct_fds_->install(static_cast<u32>(listen_fd),listen_fd))
 fixed_files=true;
-direct_fds_->install(static_cast<u32>(listen_fd),listen_fd);
-}
 
 // file_io pools: constructed here so register_buffers_sparse runs before
 // buf_ring setup (both touch io_uring internal state; ordering is
@@ -1602,7 +1601,7 @@ return pack(Op::FileIo,gen,static_cast<int>(slot));
 }
 }
 
-buf_ring_=make_unique<BufferRing>(&ring,BufferRingOptions{
+buf_ring_=make_unique<BufferRing>(conflux::uring::RingRef{ring},BufferRingOptions{
 .count=entries*4,
 .buf_size=BUF_SIZE,
 .group_id=0,
@@ -1683,10 +1682,12 @@ conn.h2_sse_stream_id=-1;
 conn.h2_sse_pending_wait=false;
 #endif
 }
-// Submit any pending SQEs and retry once. Returns null only if the ring
-// is genuinely exhausted after flushing — callers must handle null via
-// defer_op() to avoid state-machine stalls.
-io_uring_sqe*get_sqe(){return raw_.get_sqe();}
+// Acquire a raw SQE without implicit submission. Returns null when the ring
+// is exhausted; callers handle that via defer_op() to avoid stalls.
+io_uring_sqe*get_sqe(){
+auto sqe=raw_.try_get_sqe();
+return sqe?sqe.raw():nullptr;
+}
 // Defer an op whose SQE allocation failed. Replayed from run_loop once
 // the CQE reap frees ring capacity.
 void defer_op(
@@ -1713,6 +1714,25 @@ auto&conn=conn_for(fd);
 auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
 if(!submit_recv_multishot(raw_,handle,*buf_ring_,pack(Op::Recv,conn.gen,fd),use_recv_bundle)){
 defer_op([this,fd]{queue_multishot_recv(fd);});
+return;
+}
+conn.recv_armed=true;
+}
+void queue_direct_accept_setup(
+int fd){
+auto&conn=conn_for(fd);
+auto handle=SocketHandle::from_direct(static_cast<u32>(fd));
+DirectTcpAcceptSetup setup{};
+setup.tcp_quickack_once=true;
+setup.skip_sockopt_success_cqes=true;
+if(!submit_direct_tcp_accept_setup_recv(
+raw_,
+handle,
+*buf_ring_,
+pack(Op::Nop,0,0),
+pack(Op::Recv,conn.gen,fd),
+setup)){
+defer_op([this,fd]{queue_direct_accept_setup(fd);});
 return;
 }
 conn.recv_armed=true;
@@ -2211,16 +2231,13 @@ conn.h2_sse_pending_wait=false;
 if(!fixed_files){
 ::setsockopt(res,IPPROTO_TCP,TCP_NODELAY,&tcp_opt_one_,sizeof tcp_opt_one_);
 ::setsockopt(res,IPPROTO_TCP,TCP_QUICKACK,&tcp_opt_one_,sizeof tcp_opt_one_);
-}else{
-for(int const opt:{TCP_NODELAY,TCP_QUICKACK}){
-auto handle=SocketHandle::from_direct(static_cast<u32>(res));
-submit_setsockopt(raw_,handle,IPPROTO_TCP,opt,&tcp_opt_one_,sizeof tcp_opt_one_,pack(Op::Nop,0,0));
-}
-}
 queue_multishot_recv(res);
+}else{
+queue_direct_accept_setup(res);
 }
 if(!cqe_has_more(flg))
 queue_multishot_accept();
+}
 }
 void handle_recv_cqe(
 int fd,

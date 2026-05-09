@@ -1,4 +1,5 @@
 module;
+#include<cassert>
 #include<liburing.h>
 #include<linux/futex.h>
 #include<linux/openat2.h>
@@ -211,6 +212,9 @@ inline constexpr NopFlags inject_result{IORING_NOP_INJECT_RESULT};
 namespace uring_cmd_flags{
 inline constexpr UringCmdFlags fixed{IORING_URING_CMD_FIXED};
 }
+namespace uring_cmd_op{
+inline constexpr int setsockopt{SOCKET_URING_OP_SETSOCKOPT};
+}
 // ── Cqe ──────────────────────────────────────────────────────────────────────
 
 struct Cqe{
@@ -238,9 +242,20 @@ explicit Sqe(io_uring_sqe*p)noexcept:p_{p}{}
 [[nodiscard]]io_uring_sqe*raw()const noexcept{return p_;}
 // ── SQE metadata setters ────────────────────────────────────────────────
 
-inline Sqe&sqe_flags(SqeFlags f)noexcept{
+inline Sqe&set_flags(SqeFlags f)noexcept{
 io_uring_sqe_set_flags(p_,f.raw());
 return*this;
+}
+inline Sqe&add_flags(SqeFlags f)noexcept{
+p_->flags=static_cast<decltype(p_->flags)>(p_->flags|f.raw());
+return*this;
+}
+inline Sqe&clear_flags(SqeFlags f)noexcept{
+p_->flags=static_cast<decltype(p_->flags)>(p_->flags&~f.raw());
+return*this;
+}
+inline Sqe&sqe_flags(SqeFlags f)noexcept{
+return set_flags(f);
 }
 inline Sqe&user_data(UserData ud)noexcept{
 io_uring_sqe_set_data64(p_,ud.v);
@@ -715,6 +730,44 @@ io_uring_prep_cmd_sock(p_,cmd_op,fd.v,level,optname,optval,optlen);
 return*this;
 }
 };
+// ── RingRef ──────────────────────────────────────────────────────────────────
+
+class RingRef{
+io_uring*ring_{};
+public:
+explicit RingRef(io_uring&r)noexcept:ring_{&r}{}
+explicit RingRef(io_uring*r)noexcept:ring_{r}{}
+[[nodiscard]]bool valid()const noexcept{return ring_!=nullptr;}
+[[nodiscard]]io_uring*raw()const noexcept{
+assert(ring_!=nullptr);
+return ring_;
+}
+[[nodiscard]]Sqe try_get_sqe()const noexcept{
+assert(ring_!=nullptr);
+return Sqe{io_uring_get_sqe(ring_)};
+}
+[[nodiscard]]unsigned sq_space_left()const noexcept{
+assert(ring_!=nullptr);
+return io_uring_sq_space_left(ring_);
+}
+int submit()const noexcept{
+assert(ring_!=nullptr);
+return io_uring_submit(ring_);
+}
+int register_files_sparse(unsigned nr)const noexcept{
+assert(ring_!=nullptr);
+return io_uring_register_files_sparse(ring_,nr);
+}
+int register_files_update(unsigned off,span<int const>fds)const noexcept{
+assert(ring_!=nullptr);
+return io_uring_register_files_update(ring_,off,fds.data(),
+static_cast<unsigned>(fds.size()));
+}
+int unregister_files()const noexcept{
+assert(ring_!=nullptr);
+return io_uring_unregister_files(ring_);
+}
+};
 
 // ── Ring ─────────────────────────────────────────────────────────────────────
 
@@ -769,6 +822,7 @@ return r;
 // ── SQE ────────────────────────────────────────────────────────────────
 
 [[nodiscard]]Sqe get_sqe()noexcept{return Sqe{io_uring_get_sqe(&ring_)};}
+[[nodiscard]]RingRef ref()noexcept{return RingRef{ring_};}
 [[nodiscard]]Linked linked()noexcept;
 [[nodiscard]]Sqe get_sqe_or_submit()noexcept{
 Sqe s{io_uring_get_sqe(&ring_)};
@@ -904,6 +958,19 @@ br.group_=group;
 br.mask_=static_cast<u32>(io_uring_buf_ring_mask(count));
 return br;
 }
+[[nodiscard]]static expected<BufRing,int>setup(RingRef ring,unsigned count,
+BufGroupId group)noexcept{
+int err{};
+auto*p=io_uring_setup_buf_ring(ring.raw(),count,group.v,0,&err);
+if(!p)return unexpected{err};
+BufRing br;
+br.p_=p;
+br.ring_=ring.raw();
+br.count_=count;
+br.group_=group;
+br.mask_=static_cast<u32>(io_uring_buf_ring_mask(count));
+return br;
+}
 [[nodiscard]]bool valid()const noexcept{return p_!=nullptr;}
 [[nodiscard]]BufGroupId group()const noexcept{return group_;}
 [[nodiscard]]u32 mask()const noexcept{return mask_;}
@@ -926,7 +993,7 @@ explicit Linked(Ring&r)noexcept:ring_{r}{}
 Linked(Linked const&)=delete;
 Linked&operator=(Linked const&)=delete;
 Sqe then()noexcept{
-if(pending_)io_uring_sqe_set_flags(pending_,sqe_flags::io_link.raw());
+if(pending_)pending_->flags=static_cast<decltype(pending_->flags)>(pending_->flags|sqe_flags::io_link.raw());
 auto s=ring_.get_sqe();
 pending_=s.raw();
 return s;
@@ -935,7 +1002,7 @@ return s;
 // It does not rescue cleanup if an earlier soft link cancelled the tail.
 // This is not a true finally.
 Sqe hard()noexcept{
-if(pending_)io_uring_sqe_set_flags(pending_,sqe_flags::io_hardlink.raw());
+if(pending_)pending_->flags=static_cast<decltype(pending_->flags)>(pending_->flags|sqe_flags::io_hardlink.raw());
 auto s=ring_.get_sqe();
 pending_=s.raw();
 return s;
