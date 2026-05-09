@@ -25,7 +25,7 @@ WorkPool pool{WorkPoolOptions{.threads=1}};
 auto do_iters=[&](SZ n){
 for(SZ i=0;i<n;++i){
 auto[task,source]=root::make_task_source<int>();
-pool.enqueue([s=move(source)]()mutable{(void)s.try_set_value(root::Success<int>{0});});
+auto _=pool.enqueue([s=move(source)]()mutable{auto _=s.try_set_value(root::Success<int>{0});});
 [[maybe_unused]]auto outcome=root::join(move(task));
 }
 };
@@ -51,8 +51,8 @@ for(SZ t=0;t<threads;++t)
 producers.emplace_back([&pool,n_per]{
 for(SZ i=0;i<n_per;++i){
 auto[task,source]=root::make_task_source<int>();
-pool.enqueue([s=move(source)]()mutable{(void)s.try_set_value(root::Success<int>{0});});
-(void)root::join(move(task));
+auto _=pool.enqueue([s=move(source)]()mutable{auto _=s.try_set_value(root::Success<int>{0});});
+auto _=root::join(move(task));
 }
 });
 for(auto&th:producers)

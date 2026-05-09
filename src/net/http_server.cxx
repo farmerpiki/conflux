@@ -3512,7 +3512,7 @@ CurrentFileReaderScope const file_reader_scope{files.get()};
 queue_multishot_accept();
 arm_shutdown_read();
 arm_timer();
-raw_.submit();
+auto _=raw_.submit();
 
 for(;;){
 if(ring_integrity_suspect()){

@@ -31,5 +31,5 @@ R"({"message":"JSON is also compressed when the client accepts gzip","items":[1,
 });
 
 HttpServer srv{cfg,move(router)};
-srv.run();
+auto _=srv.run();
 }

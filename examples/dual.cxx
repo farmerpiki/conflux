@@ -87,5 +87,5 @@ if(!cert_path.empty()){
 ::unlink(key_path.c_str());
 }
 
-srv.run();
+auto _=srv.run();
 }

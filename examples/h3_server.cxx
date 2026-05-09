@@ -39,5 +39,5 @@ router.get("/ping",[](HttpRequestView const&){return HttpResponse::json(R"({"tra
 
 HttpServer srv{cfg,move(router)};
 println(cerr,"HTTPS + HTTP/3 server listening on https://localhost:9443");
-srv.run();
+auto _=srv.run();
 }

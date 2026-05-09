@@ -2988,7 +2988,7 @@ erase_if(channels_,[&](weak_ptr<SseChannel>const&wch){
 auto ch=wch.lock();
 if(!ch||ch->is_closed())
 return true;
-ch->send(frame);
+auto _=ch->send(frame);
 return false;
 });
 }

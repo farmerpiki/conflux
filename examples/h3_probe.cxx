@@ -33,5 +33,5 @@ router.get("/ping",[](HttpRequestView const&){return HttpResponse::json(R"({"ok"
 
 HttpServer srv{cfg,move(router)};
 println(cerr,"h3 probe running on :9443");
-srv.run();
+auto _=srv.run();
 }

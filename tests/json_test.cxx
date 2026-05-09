@@ -3185,8 +3185,8 @@ REQUIRE(e1->has_value());
 CHECK(**e1==JsonReader::Event::begin_array);
 CHECK(r.depth()==2UZ);
 
-r.next();// 1
-r.next();// 2
+auto _=r.next();// 1
+auto _=r.next();// 2
 auto e_end=r.next();
 REQUIRE(e_end.has_value());
 REQUIRE(e_end->has_value());

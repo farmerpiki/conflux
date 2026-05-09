@@ -48,5 +48,5 @@ age.empty()?"(none)":age));
 });
 
 HttpServer srv{cfg,move(router)};
-srv.run();
+auto _=srv.run();
 }

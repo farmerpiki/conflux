@@ -11,7 +11,7 @@ auto app=http::App::default_server();
 // Raw frames, 200 ms apart.
 app.sse("/events",[](http::Request const&,SP<SseChannel>const&ch){
 for(int i=1;i<=5;++i){
-ch->send(format("data: event{}\n\n",i));
+auto _=ch->send(format("data: event{}\n\n",i));
 std::this_thread::sleep_for(chrono::milliseconds(200));
 }
 ch->close();
@@ -21,7 +21,7 @@ ch->close();
 app.sse("/events/{name}",[](http::Request const&req,SP<SseChannel>const&ch){
 auto name=req.params["name"];
 for(int i=1;i<=3;++i){
-ch->send_event("greet",format("hello {}, message {}",name,i));
+auto _=ch->send_event("greet",format("hello {}, message {}",name,i));
 std::this_thread::sleep_for(chrono::milliseconds(300));
 }
 ch->close();

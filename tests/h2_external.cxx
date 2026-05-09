@@ -563,9 +563,9 @@ TEST_CASE(
 Router r;
 r.get("/ping",[](HttpRequest const&){return HttpResponse::json(R"({"ok":true})");});
 r.sse("/events",[](HttpRequest const&,SP<SseChannel>const&ch){
-ch->send("data: alpha\n\n");
-ch->send("data: beta\n\n");
-ch->send("data: gamma\n\n");
+auto _=ch->send("data: alpha\n\n");
+auto _=ch->send("data: beta\n\n");
+auto _=ch->send("data: gamma\n\n");
 ch->close();
 });
 conflux::tests::HttpsServerFixture const fx{move(r)};
@@ -582,7 +582,7 @@ TEST_CASE(
 Router r;
 r.get("/ping",[](HttpRequest const&){return HttpResponse::json(R"({"ok":true})");});
 r.sse("/typed",[](HttpRequest const&,SP<SseChannel>const&ch){
-ch->send_event("update","payload42");
+auto _=ch->send_event("update","payload42");
 ch->close();
 });
 conflux::tests::HttpsServerFixture const fx{move(r)};

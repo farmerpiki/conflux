@@ -236,7 +236,7 @@ cfg.startup_banner=false;
 auto srv=make_shared<HttpServer>(cfg,move(router));
 thread t{[srv]{
 try{
-srv->run();
+auto _=srv->run();
 }catch(exception const&e){println(cerr,"bench server: {}",e.what());}
 }};
 auto p=srv->port();

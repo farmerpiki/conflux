@@ -176,14 +176,14 @@ return r;
 });
 // SSE endpoint: streams 3 events then closes.
 router.sse("/events",[](HttpRequest const&,SP<SseChannel>const&ch){
-ch->send("data: event1\n\n");
-ch->send("data: event2\n\n");
-ch->send("data: event3\n\n");
+auto _=ch->send("data: event1\n\n");
+auto _=ch->send("data: event2\n\n");
+auto _=ch->send("data: event3\n\n");
 ch->close();
 });
 // Named-param SSE endpoint.
 router.sse("/events/{name}",[](HttpRequest const&req,SP<SseChannel>const&ch){
-ch->send(format("data: hello {}\n\n",req.params["name"]));
+auto _=ch->send(format("data: hello {}\n\n",req.params["name"]));
 ch->close();
 });
 
