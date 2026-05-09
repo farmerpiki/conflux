@@ -1,4 +1,5 @@
 module;
+#include<cassert>
 #include<cerrno>
 #include<climits>
 #include<cstring>
@@ -220,11 +221,14 @@ if(st.generation!=gen)
 return nullptr;// stale or reallocated
 return&st;
 }
+// hack: test-only slab manipulation
+#ifdef CONFLUX_TESTING
 void test_hack_generation(u32 idx,u32 gen)noexcept{
 if(idx<kMaxFlows)
 cells_[idx].generation=gen;
 }
 void test_hack_drain_freelist()noexcept{free_top_=0;}
+#endif
 };
 // ── SBO callback wrapper (internal, never heap-allocates) ─────────────────────
 // Capacity: 64 bytes of inline storage. Triggers static_assert at construction
@@ -457,6 +461,7 @@ class FlowRuntime{
 friend class FlowBuilder;
 
 Ring&ring_;
+bool path_lifetime_stable_;
 FlowSlab slab_;
 FlowCb cb_;
 
@@ -464,6 +469,7 @@ A<DirectFileBuilder,kMaxBatch>builders_{};
 A<FlowRejection,kMaxBatch>rejections_{};
 u32 builder_count_=0;
 u32 rejection_count_=0;
+u32 invalid_cqe_count_=0;
 struct DeferredClose{
 u32 flow_index;
 u32 generation;
@@ -475,11 +481,14 @@ template<class Cb>
 FlowRuntime(
 Ring&ring,
 Cb&&cb)noexcept
-:ring_{ring}{
+:ring_{ring},
+path_lifetime_stable_{ring.has_feature(IORING_FEAT_SUBMIT_STABLE)&&!ring.is_sqpoll()}{
 cb_.set(forward<Cb>(cb));
 }
+[[nodiscard]]u32 invalid_cqe_count()const noexcept{return invalid_cqe_count_;}
 void on_cqe(
 io_uring_cqe*cqe)noexcept{
+// hack: user_data=0 sentinel for NOPs from the unreachable single-issuer fallback path
 if(cqe->user_data==0)
 return;
 auto tag=decode_tag(cqe->user_data);
@@ -554,6 +563,12 @@ auto sqe=ring_.get_sqe();
 if(!sqe)
 return;
 submit_close_sqe(sqe.raw(),*st);
+for(u32 i=0;i<deferred_count_;++i){
+if(deferred_[i].flow_index==flow_idx&&deferred_[i].generation==gen){
+deferred_[i]=deferred_[--deferred_count_];
+break;
+}
+}
 }
 // drain_deferred_closes — bulk wrapper: retries every pending deferred close;
 // removes entries that successfully submitted; leaves still-pending ones.
@@ -568,17 +583,21 @@ deferred_[w++]=deferred_[r];
 deferred_count_=w;
 }
 [[nodiscard]]FlowBuilder flow()noexcept{
+assert(builder_count_==0);
 builder_count_=0;
 rejection_count_=0;
 return FlowBuilder{ring_,*this};
 }
+// hack: test-only slab manipulation forwarded from FlowSlab
+#ifdef CONFLUX_TESTING
 void test_hack_slab_generation(u32 idx,u32 gen)noexcept{
 slab_.test_hack_generation(idx,gen);
 }
 void test_hack_drain_slab_freelist()noexcept{slab_.test_hack_drain_freelist();}
+#endif
 private:
 void handle_invalid(
-io_uring_cqe*)noexcept{}
+io_uring_cqe*)noexcept{++invalid_cqe_count_;}
 void finish_flow(
 DirectFileFlowState&st)noexcept{
 FlowResult const r{
@@ -608,7 +627,8 @@ return;
 auto sqe=ring_.get_sqe();
 if(!sqe){
 st.close_pending=true;
-if(deferred_count_<kMaxFlows)
+// invariant: deferred_count_ < kMaxFlows because deferred entries are 1:1 with slab cells
+assert(deferred_count_<kMaxFlows);
 deferred_[deferred_count_++]={st.flow_index,st.generation};
 return;
 }
@@ -638,7 +658,7 @@ int open_flags,
 mode_t mode)noexcept{
 if(rt_.builder_count_>=kMaxBatch){
 if(rt_.rejection_count_<kMaxBatch)
-rt_.rejections_[rt_.rejection_count_++]={~u32{},-ENOBUFS};
+rt_.rejections_[rt_.rejection_count_++]={rt_.builder_count_,-ENOBUFS};
 return DirectFileFlow{nullptr};
 }
 auto&b=rt_.builders_[rt_.builder_count_++];
@@ -654,6 +674,14 @@ return{rt_.rejections_.data(),rt_.rejection_count_};
 }
 u32 FlowBuilder::submit()noexcept{
 u32 accepted=0;
+
+if(!rt_.path_lifetime_stable_){
+for(u32 i=0;i<rt_.builder_count_;++i)
+if(rt_.rejection_count_<kMaxBatch)
+rt_.rejections_[rt_.rejection_count_++]={i,-EOPNOTSUPP};
+rt_.builder_count_=0;
+return 0;
+}
 
 for(u32 local_idx=0;local_idx<rt_.builder_count_;++local_idx){
 auto&b=rt_.builders_[local_idx];
@@ -685,15 +713,18 @@ continue;
 
 // Acquire all SQEs upfront so state is only initialized after full reservation.
 // Under single-issuer serialization the sq_space_left check above guarantees
-// these succeed; the NOP path below is a defensive last resort for framework bugs.
+// these succeed.
 A<io_uring_sqe*,max_chain_cqes>sqes{};
 {
 bool sq_ok=true;
 for(u8 n=0;n<emitted;++n){
 auto s=ring_.get_sqe();
 if(!s){
+// hack: emit NOPs for already-acquired slots; cannot un-get SQEs.
+// This path is unreachable under correct single-issuer usage.
+assert(false);
 for(u8 j=0;j<n;++j)
-io_uring_prep_nop(sqes[j]);// emit harmless NOPs for already-acquired slots
+io_uring_prep_nop(sqes[j]);
 rt_.slab_.release(*state_ptr);
 reject(-EAGAIN);
 sq_ok=false;

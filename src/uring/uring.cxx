@@ -779,6 +779,8 @@ return Sqe{io_uring_get_sqe(&ring_)};
 [[nodiscard]]unsigned sq_space_left()const noexcept{
 return io_uring_sq_space_left(&ring_);
 }
+[[nodiscard]]bool has_feature(u32 feat)const noexcept{return(ring_.features&feat)!=0u;}
+[[nodiscard]]bool is_sqpoll()const noexcept{return(ring_.flags&IORING_SETUP_SQPOLL)!=0u;}
 // ── Submit ──────────────────────────────────────────────────────────────
 
 int submit()noexcept{return io_uring_submit(&ring_);}

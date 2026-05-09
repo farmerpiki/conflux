@@ -675,6 +675,7 @@ endif()
 
 if(CONFLUX_BUILD_TESTS)
     enable_testing()
+    target_compile_definitions(conflux_uring PRIVATE CONFLUX_TESTING)
     add_subdirectory(tests)
 endif()
 

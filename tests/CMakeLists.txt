@@ -190,6 +190,7 @@ target_link_libraries(conflux_uring_flow_tests
         conflux_options
         Catch2::Catch2WithMain
 )
+target_compile_definitions(conflux_uring_flow_tests PRIVATE CONFLUX_TESTING)
 
 add_executable(conflux_file_io_tests file_io_test.cxx)
 target_link_libraries(conflux_file_io_tests
