@@ -497,7 +497,7 @@ sockaddr*addr,
 socklen_t*addrlen,
 u64 user_data,
 int accept_flags,
-bool direct=true){
+bool direct=true)noexcept{
 auto sqe=ring.try_get_sqe();
 if(!sqe)
 return false;
@@ -517,7 +517,7 @@ socklen_t*addrlen,
 u64 user_data,
 conflux::uring::IoUringCaps const&caps,
 int accept_flags,
-bool direct){
+bool direct)noexcept{
 return submit_accept_multishot_borrowed(
 ring,
 listen,
@@ -534,7 +534,7 @@ SocketHandle listen,
 sockaddr*addr,
 socklen_t*addrlen,
 u64 user_data,
-bool direct=true){
+bool direct=true)noexcept{
 return submit_accept_multishot_borrowed(ring,listen,addr,addrlen,user_data,0,direct);
 }
 export bool submit_accept_multishot_borrowed(
@@ -544,7 +544,7 @@ sockaddr*addr,
 socklen_t*addrlen,
 u64 user_data,
 conflux::uring::IoUringCaps const&caps,
-bool direct){
+bool direct)noexcept{
 return submit_accept_multishot_borrowed(ring,listen,addr,addrlen,user_data,caps,0,direct);
 }
 // ─── raw submission: recv ────────────────────────────────────────────────────
@@ -1077,14 +1077,14 @@ TcpListener(TcpListener const&)=delete;
 TcpListener&operator=(TcpListener const&)=delete;
 TcpListener(
 TcpListener&&o)noexcept
-:fd_{exchange(o.fd_,-1)},port_{o.port_},accept_flags_{o.accept_flags_}{}
+:fd_{exchange(o.fd_,-1)},port_{exchange(o.port_,u16{})},accept_flags_{o.accept_flags_}{}
 TcpListener&operator=(
 TcpListener&&o)noexcept{
 if(this!=&o){
 if(fd_>=0)
 ::close(fd_);
 fd_=exchange(o.fd_,-1);
-port_=o.port_;
+port_=exchange(o.port_,u16{});
 accept_flags_=o.accept_flags_;
 }
 return*this;

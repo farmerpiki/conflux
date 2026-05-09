@@ -1,5 +1,6 @@
 // Plain TU — not a module unit.
 #include<catch2/catch_test_macros.hpp>
+#include<fcntl.h>
 #include<liburing.h>
 #include<netinet/in.h>
 #include<sys/socket.h>
@@ -125,6 +126,31 @@ ring.cqe_seen(cqe);
 ::close(client);
 }
 TEST_CASE(
+"tcplisten.accept_flags: SOCK_NONBLOCK and SOCK_CLOEXEC propagate to accepted fd",
+"[tcp_listener]"){
+auto ring=make_ring();
+SocketRawRing srr{ring.ref()};
+auto const caps=conflux::uring::detect_caps(ring);
+TcpListener l{TcpListenerOptions{.bind=TcpBindAddress::loopback_v4}};
+sockaddr_storage peer{};
+socklen_t peerlen=sizeof(peer);
+constexpr u64 UD=0xACC4;
+REQUIRE(l.arm_accept_multishot_borrowed(srr,reinterpret_cast<sockaddr*>(&peer),&peerlen,UD,caps));
+ring.submit();
+int const client=connect_v4(l.port());
+io_uring_cqe*cqe=nullptr;
+REQUIRE(ring.wait_cqe(&cqe)==0);
+REQUIRE(cqe);
+REQUIRE(cqe->user_data==UD);
+REQUIRE(cqe->res>=0);
+int const accepted=cqe->res;
+ring.cqe_seen(cqe);
+CHECK((::fcntl(accepted,F_GETFL)&O_NONBLOCK)!=0);
+CHECK((::fcntl(accepted,F_GETFD)&FD_CLOEXEC)!=0);
+::close(accepted);
+::close(client);
+}
+TEST_CASE(
 "tcplisten.rearm: cancel forces terminal CQE, second client accepted",
 "[tcp_listener]"){
 auto ring=make_ring();
@@ -159,6 +185,8 @@ if(cqe->user_data==UD1&&((cqe->flags&IORING_CQE_F_MORE)==0u))
 terminal=true;
 else if(cqe->user_data==UD1&&cqe->res>=0)
 ::close(cqe->res);// accepted fd before cancel landed
+else if(cqe->user_data==UD_CANCEL)
+CHECK(cqe->res==0);
 ring.cqe_seen(cqe);
 }
 ::close(c1);
@@ -166,6 +194,8 @@ ring.cqe_seen(cqe);
 {
 io_uring_cqe*stray=nullptr;
 while(ring.peek_cqe(&stray)==0&&stray){
+if(stray->user_data==UD_CANCEL)
+CHECK(stray->res==0);
 ring.cqe_seen(stray);
 stray=nullptr;
 }
