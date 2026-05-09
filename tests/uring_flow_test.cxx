@@ -1117,6 +1117,125 @@ CHECK_FALSE(rig.results[0].close_in_chain);
 rig.rt.drain_deferred_closes();
 CHECK(rig.results.size()==1);
 }
+// ── Deferred close: drain retry while SQ still full keeps entry ───────────────
+
+TEST_CASE(
+"flow.deferred_close: drain while SQ still full keeps entry, succeeds on second drain",
+"[flow][deferred]"){
+// Ring with 3 slots: open+read+write fills it.
+// on_chain_complete defers close (SQ full).
+// First drain while SQ still full → stays deferred. Second drain after flush succeeds.
+TestRig rig{3};
+char buf[4]={};
+auto b=rig.rt.batch();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();// mode A
+(void)b.submit();// SQ full (3/3)
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::write,4);
+rig.rt.on_cqe(&cqe);
+}
+CHECK(rig.results.empty());
+// First drain: SQ still full → get_sqe() fails → entry stays
+rig.rt.drain_deferred_closes();
+CHECK(rig.results.empty());
+// Flush to kernel → free 3 SQ slots
+rig.ring.submit();
+// Second drain: succeeds
+rig.rt.drain_deferred_closes();
+{
+auto cqe=make_flow_cqe(idx,gen,3,uf::FlowOpKind::close_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+CHECK(rig.results[0].cleanup_result()==0);
+CHECK_FALSE(rig.results[0].close_in_chain);
+}
+// ── Mode B: close CQE carries non-zero result (actual close failure) ──────────
+
+TEST_CASE(
+"flow.mode_b: close fails with -EIO after successful chain",
+"[flow][mode_b]"){
+// open + then_read (1 body then_): mode B. All body ops succeed.
+// Close CQE arrives with -EIO (not -ECANCELED). cleanup_result() == -EIO.
+TestRig rig;
+char buf[4]={};
+auto b=rig.rt.batch();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
+f.then_read(buf,4,0).close_if_opened();// mode B: 1 then_ body → close in chain
+(void)b.submit();
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+CHECK(rig.results.empty());// awaiting close
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::close_direct,-EIO);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+auto const&r=rig.results[0];
+CHECK(r.open_ok());
+CHECK(r.close_in_chain);
+CHECK(r.close_cqe_seen);
+CHECK(r.cleanup_result()==-EIO);
+CHECK(r.raw_close_result()==-EIO);
+}
+// ── resume_deferred_close idempotency before close CQE ───────────────────────
+
+TEST_CASE(
+"flow.deferred_close: resume_deferred_close double-call before CQE is no-op",
+"[flow][deferred]"){
+// After first resume_deferred_close succeeds (close_pending cleared),
+// a second call hits the close_pending guard and is a no-op.
+TestRig rig{3};
+char buf[4]={};
+auto b=rig.rt.batch();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();
+(void)b.submit();
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::write,4);
+rig.rt.on_cqe(&cqe);
+}
+// close_pending=true; flush SQ to free slots
+rig.ring.submit();
+// First resume: submits close SQE, close_pending → false
+rig.rt.resume_deferred_close(idx,gen);
+CHECK(rig.results.empty());
+// Second resume before CQE: close_pending guard → no-op (no double submission)
+rig.rt.resume_deferred_close(idx,gen);
+CHECK(rig.results.empty());
+{
+auto cqe=make_flow_cqe(idx,gen,3,uf::FlowOpKind::close_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+CHECK(rig.results[0].cleanup_result()==0);
+}
 // ── Batch-full rejection recorded in rejected_flows() ─────────────────────────
 
 TEST_CASE(

@@ -414,14 +414,14 @@ return*this;
 export namespace conflux::uring::flow{
 class FlowRuntime;
 }// namespace conflux::uring::flow
-// ── Exported: FlowBatch ───────────────────────────────────────────────────────
+// ── Exported: FlowBuilder ───────────────────────────────────────────────────────
 
 export namespace conflux::uring::flow{
-class FlowBatch{
+class FlowBuilder{
 Ring&ring_;
 FlowRuntime&rt_;
 public:
-FlowBatch(
+FlowBuilder(
 Ring&ring,
 FlowRuntime&rt)noexcept
 :ring_{ring},rt_{rt}{}
@@ -448,7 +448,7 @@ f.close_if_opened();
 
 export namespace conflux::uring::flow{
 class FlowRuntime{
-friend class FlowBatch;
+friend class FlowBuilder;
 
 Ring&ring_;
 FlowSlab slab_;
@@ -559,10 +559,10 @@ deferred_[w++]=deferred_[r];
 }
 deferred_count_=w;
 }
-[[nodiscard]]FlowBatch batch()noexcept{
+[[nodiscard]]FlowBuilder batch()noexcept{
 builder_count_=0;
 rejection_count_=0;
-return FlowBatch{ring_,*this};
+return FlowBuilder{ring_,*this};
 }
 private:
 void handle_invalid(
@@ -576,9 +576,9 @@ FlowResult const r{
 .close_cqe_seen=st.close_seen,
 .close_raw_res=st.close_res,
 };
-slab_.release(st);
 if(cb_)
 cb_(r);
+slab_.release(st);
 }
 void on_chain_complete(
 DirectFileFlowState&st)noexcept{
@@ -615,10 +615,10 @@ st.close_pending=false;
 }
 };
 }// namespace conflux::uring::flow
-// ── FlowBatch method bodies ───────────────────────────────────────────────────
+// ── FlowBuilder method bodies ───────────────────────────────────────────────────
 
 namespace conflux::uring::flow{
-DirectFileFlow FlowBatch::open_direct(
+DirectFileFlow FlowBuilder::open_direct(
 DirectSlot slot,
 int dfd,
 BorrowedPath path,
@@ -637,10 +637,10 @@ op.kind=FlowOpKind::open_direct;
 op.open={slot,dfd,path.ptr,open_flags,mode};
 return DirectFileFlow{&b};
 }
-span<FlowRejection const>FlowBatch::rejected_flows()const noexcept{
+span<FlowRejection const>FlowBuilder::rejected_flows()const noexcept{
 return{rt_.rejections_.data(),rt_.rejection_count_};
 }
-u32 FlowBatch::submit()noexcept{
+u32 FlowBuilder::submit()noexcept{
 u32 accepted=0;
 
 for(u32 local_idx=0;local_idx<rt_.builder_count_;++local_idx){
