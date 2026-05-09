@@ -192,6 +192,16 @@ target_link_libraries(conflux_uring_flow_tests
 )
 target_compile_definitions(conflux_uring_flow_tests PRIVATE CONFLUX_TESTING)
 
+add_executable(conflux_direct_slot_pool_tests direct_slot_pool_test.cxx)
+target_link_libraries(conflux_direct_slot_pool_tests
+    PRIVATE
+        conflux_types
+        conflux_options
+        Catch2::Catch2WithMain
+)
+target_include_directories(conflux_direct_slot_pool_tests PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
+conflux_discover_tests(conflux_direct_slot_pool_tests)
+
 add_executable(conflux_file_io_tests file_io_test.cxx)
 target_link_libraries(conflux_file_io_tests
     PRIVATE
