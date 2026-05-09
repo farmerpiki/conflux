@@ -771,6 +771,15 @@ return io_uring_unregister_files(ring_);
 assert(ring_!=nullptr);
 return io_uring_cq_has_overflow(ring_)!=0;
 }
+[[nodiscard]]bool has_feature(u32 feature)const noexcept{
+assert(ring_!=nullptr);
+return(ring_->features&feature)!=0u;
+}
+[[nodiscard]]u32 cq_overflow_count()const noexcept{
+assert(ring_!=nullptr);
+auto*p=ring_->cq.koverflow;
+return p!=nullptr?*p:0u;
+}
 };
 
 // ── Ring ─────────────────────────────────────────────────────────────────────
@@ -840,6 +849,10 @@ return io_uring_sq_space_left(&ring_);
 [[nodiscard]]bool has_feature(u32 feat)const noexcept{return(ring_.features&feat)!=0u;}
 [[nodiscard]]bool is_sqpoll()const noexcept{return(ring_.flags&IORING_SETUP_SQPOLL)!=0u;}
 [[nodiscard]]bool cq_has_overflow()const noexcept{return io_uring_cq_has_overflow(&ring_)!=0;}
+[[nodiscard]]u32 cq_overflow_count()const noexcept{
+auto*p=ring_.cq.koverflow;
+return p!=nullptr?*p:0u;
+}
 // ── Submit ──────────────────────────────────────────────────────────────
 
 int submit()noexcept{return io_uring_submit(&ring_);}

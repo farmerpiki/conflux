@@ -231,11 +231,7 @@ auto srv=make_shared<HttpServer>(cfg,move(router));
 {
 std::lock_guard const lock{mu_};
 threads_.emplace_back([srv]{
-try{
-srv->run();
-}catch(exception const&ex){
-println(cerr,"HttpServer test thread failed: {}",ex.what());
-}catch(...){println(cerr,"HttpServer test thread failed: unknown exception");}
+(void)srv->run();
 });
 servers_.push_back(srv);
 }
@@ -251,11 +247,7 @@ auto srv=make_shared<HttpServer>(cfg,move(vhost_router));
 {
 std::lock_guard const lock{mu_};
 threads_.emplace_back([srv]{
-try{
-srv->run();
-}catch(exception const&ex){
-println(cerr,"HttpServer test thread failed: {}",ex.what());
-}catch(...){println(cerr,"HttpServer test thread failed: unknown exception");}
+(void)srv->run();
 });
 servers_.push_back(srv);
 }
@@ -288,11 +280,7 @@ local_cfg.startup_banner=false;
 return make_shared<HttpServer>(local_cfg,move(router));
 }()),
 thread_([srv=server_]{
-try{
-srv->run();
-}catch(exception const&ex){
-println(cerr,"HttpServer test thread failed: {}",ex.what());
-}catch(...){println(cerr,"HttpServer test thread failed: unknown exception");}
+(void)srv->run();
 }){
 wait_for_server(server_->port());
 }

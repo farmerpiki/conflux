@@ -65,6 +65,22 @@ DirectSlotClose,
 Nop
 };
 
+export enum class RunStatus:u8{
+stopped_normally,
+fatal_cq_overflow,
+fatal_cq_overflow_no_nodrop,
+fatal_submit_wait_ebadr,
+fatal_internal_exception
+};
+
+enum class ServerFatalReason:u8{
+none,
+cq_overflow,
+cq_overflow_no_nodrop,
+submit_wait_ebadr,
+internal_exception
+};
+
 constexpr u32 OP_SHIFT=56U;
 constexpr u32 GEN_SHIFT=24U;
 constexpr u64 GEN_MASK=0xFFFFFFFFULL;
@@ -889,6 +905,10 @@ int tcp_opt_one_=1;// stable optval for cmd_sock SETSOCKOPT
 bool fixed_files=false;
 bool fixed_accept_enabled=true;
 bool shutting_down=false;
+bool ring_fatal_{false};
+ServerFatalReason fatal_reason_{ServerFatalReason::none};
+u32 fatal_cq_overflow_count_{0};
+bool overflow_flush_limit_hit_{false};
 bool use_recv_bundle=false;// IORING_RECVSEND_BUNDLE on multishot recv
 SZ max_body_size=SZ{1024}*1024;// set from Config before run_loop()
 u32 request_timeout_ms=30000;// set from Config before run_loop(); 0 = disabled
@@ -1688,8 +1708,9 @@ conn.h2_sse_pending_wait=false;
 #endif
 }
 // Acquire a raw SQE without implicit submission. Returns null when the ring
-// is exhausted; callers handle that via defer_op() to avoid stalls.
+// is exhausted or fatal; callers handle that via defer_op() to avoid stalls.
 io_uring_sqe*get_sqe(){
+if(ring_fatal_)return nullptr;
 auto sqe=raw_.try_get_sqe();
 return sqe?sqe.raw():nullptr;
 }
@@ -1697,6 +1718,7 @@ return sqe?sqe.raw():nullptr;
 // the CQE reap frees ring capacity.
 void defer_op(
 conflux::work::root::detail::small_move_only_function<void()>op){
+if(ring_fatal_)return;
 pending_ops.push_back(move(op));
 }
 void drain_pending_ops(){
@@ -3309,7 +3331,137 @@ queue_multishot_recv(rc.fd);
 }
 }
 }
-void run_loop(){
+[[nodiscard]]bool ring_integrity_suspect()const noexcept{
+return raw_.ring().cq_has_overflow();
+}
+void enter_ring_fatal(ServerFatalReason reason)noexcept{
+ring_fatal_=true;
+shutting_down=true;
+pending_ops.clear();
+fatal_reason_=reason;
+fatal_cq_overflow_count_=raw_.ring().cq_overflow_count();
+}
+void close_tracked_fds_sync()noexcept{
+for(auto&conn:fd_table){
+if(conn.fd>=0){
+::close(conn.fd);
+conn.fd=-1;
+}
+}
+}
+void recycle_recv_buffer_direct(io_uring_cqe const*cqe)noexcept{
+if(!(cqe->flags&IORING_CQE_F_BUFFER))return;
+if(cqe->res<=0)return;
+auto const buf_id=static_cast<u16>(cqe->flags>>IORING_CQE_BUFFER_SHIFT);
+if(use_recv_bundle){
+SZ remaining=static_cast<SZ>(cqe->res);
+u16 cur=buf_id;
+u32 const bcount=buf_ring_->count();
+while(remaining>0){
+SZ const chunk=min(remaining,buf_ring_->buf_size());
+buf_ring_->recycle(cur);
+remaining-=chunk;
+cur=static_cast<u16>((cur+1U)%bcount);
+}
+}else{
+buf_ring_->recycle(buf_id);
+}
+}
+void dispatch_cqe_fatal(io_uring_cqe const*cqe)noexcept{
+auto const[op,cqe_gen,fd]=unpack(cqe->user_data);
+switch(op){
+case Op::Recv:
+recycle_recv_buffer_direct(cqe);
+break;
+case Op::Accept:
+if(!fixed_files&&cqe->res>=0)
+::close(cqe->res);
+break;
+case Op::Close:
+case Op::Send:
+case Op::Timer:
+case Op::FileIo:
+case Op::SsePoll:
+case Op::DeferredPoll:
+case Op::Shutdown:
+case Op::WsCancel:
+case Op::FixedFdInstall:
+case Op::Nop:
+break;
+default:
+// unknown op — future Op additions must be handled here
+eprintln(format("dispatch_cqe_fatal: unknown op={} ud={:#x}",
+static_cast<u8>(op),cqe->user_data));
+break;
+}
+}
+void emit_ring_diagnostics()noexcept{
+S features_str;
+auto app_feat=[&](char const*name,u32 bit){
+if((ring.features&bit)==0u)return;
+if(!features_str.empty())features_str+=',';
+features_str+=name;
+};
+app_feat("NODROP",IORING_FEAT_NODROP);
+app_feat("FAST_POLL",IORING_FEAT_FAST_POLL);
+app_feat("SUBMIT_STABLE",IORING_FEAT_SUBMIT_STABLE);
+app_feat("RW_CUR_POS",IORING_FEAT_RW_CUR_POS);
+app_feat("CUR_PERSONALITY",IORING_FEAT_CUR_PERSONALITY);
+app_feat("LINKED_FILE",IORING_FEAT_LINKED_FILE);
+app_feat("REG_REG_RING",IORING_FEAT_REG_REG_RING);
+app_feat("RECVSEND_BUNDLE",IORING_FEAT_RECVSEND_BUNDLE);
+eprintln(format("ring_features={}",features_str.empty()?"none":features_str));
+u32 const overflow_now=raw_.ring().cq_overflow_count();
+eprintln(format("ring_cq_overflow={}",overflow_now));
+if(fatal_cq_overflow_count_>0)
+eprintln(format("ring_cq_overflow_delta={}",overflow_now>fatal_cq_overflow_count_?overflow_now-fatal_cq_overflow_count_:0u));
+// Parse fdinfo for sq_dropped
+int const rfd=ring.ring_fd;
+if(rfd>=0){
+auto const path=format("/proc/self/fdinfo/{}",rfd);
+if(auto f=std::ifstream{path};f){
+S line;
+while(getline(f,line)){
+if(line.starts_with("SqDropped:")||line.starts_with("sq_dropped:")){
+auto pos=line.find(':');
+if(pos!=S::npos)
+eprintln(format("ring_sq_dropped={}",line.substr(pos+1)));
+}
+}
+}
+}
+if(fatal_reason_!=ServerFatalReason::none){
+SV reason_str;
+switch(fatal_reason_){
+case ServerFatalReason::cq_overflow:reason_str="cq_overflow";break;
+case ServerFatalReason::cq_overflow_no_nodrop:reason_str="cq_overflow_no_nodrop";break;
+case ServerFatalReason::submit_wait_ebadr:reason_str="submit_wait_ebadr";break;
+case ServerFatalReason::internal_exception:reason_str="internal_exception";break;
+default:reason_str="unknown";break;
+}
+eprintln(format("ring_fatal_reason={}",reason_str));
+}
+if(overflow_flush_limit_hit_)
+eprintln("ring_overflow_flush_limit_hit=1");
+}
+void flush_overflow_cqes_until_clear_or_limit()noexcept{
+static constexpr unsigned max_iters=16;
+static constexpr unsigned BATCH=256;
+for(unsigned i=0;i<max_iters&&ring_integrity_suspect();++i){
+io_uring_get_events(&ring);
+A<io_uring_cqe*,BATCH>cqes{};
+unsigned const n=io_uring_peek_batch_cqe(&ring,cqes.data(),BATCH);
+if(n==0)break;
+for(unsigned j=0;j<n;++j)
+dispatch_cqe_fatal(cqes[j]);// NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+io_uring_cq_advance(&ring,n);
+}
+if(ring_integrity_suspect())
+overflow_flush_limit_hit_=true;
+emit_ring_diagnostics();
+close_tracked_fds_sync();
+}
+RunStatus run_loop(){
 static constexpr unsigned BATCH=256;
 
 CurrentFileReaderScope const file_reader_scope{files.get()};
@@ -3320,19 +3472,57 @@ arm_timer();
 raw_.submit();
 
 for(;;){
+if(ring_integrity_suspect()){
+if(!raw_.ring().has_feature(IORING_FEAT_NODROP)){
+enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
+emit_ring_diagnostics();
+close_tracked_fds_sync();
+return RunStatus::fatal_cq_overflow_no_nodrop;
+}
+enter_ring_fatal(ServerFatalReason::cq_overflow);
+flush_overflow_cqes_until_clear_or_limit();
+return RunStatus::fatal_cq_overflow;
+}
+
 drain_pending_ops();
-if(io_uring_submit_and_wait(&ring,1)<0){
-if(errno==EINTR){
-struct timespec const ts{0,1000};
-nanosleep(&ts,nullptr);
+
+int const rc=io_uring_submit_and_wait(&ring,1);
+if(rc<0){
+if(rc==-EINTR)
+continue;
+if(rc==-EBADR||ring_integrity_suspect()){
+if(!raw_.ring().has_feature(IORING_FEAT_NODROP)){
+enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
+emit_ring_diagnostics();
+close_tracked_fds_sync();
+return RunStatus::fatal_cq_overflow_no_nodrop;
+}
+enter_ring_fatal(ServerFatalReason::submit_wait_ebadr);
+flush_overflow_cqes_until_clear_or_limit();
+return RunStatus::fatal_submit_wait_ebadr;
 }
 continue;
 }
 
 A<io_uring_cqe*,BATCH>cqes{};
 unsigned const count=io_uring_peek_batch_cqe(&ring,cqes.data(),BATCH);
-if(count==0)
+
+bool const overflowed=ring_integrity_suspect();
+
+if(count==0){
+if(overflowed){
+if(!raw_.ring().has_feature(IORING_FEAT_NODROP)){
+enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
+emit_ring_diagnostics();
+close_tracked_fds_sync();
+return RunStatus::fatal_cq_overflow_no_nodrop;
+}
+enter_ring_fatal(ServerFatalReason::cq_overflow);
+flush_overflow_cqes_until_clear_or_limit();
+return RunStatus::fatal_cq_overflow;
+}
 continue;
+}
 
 recvs.clear();
 
@@ -3354,7 +3544,7 @@ phase3_dispatch();
 if(shutting_down){
 bool const any_open=ranges::any_of(fd_table,[](Conn const&c){return c.fd>=0;});
 if(!any_open)
-return;
+return RunStatus::stopped_normally;
 }
 }
 }
@@ -3793,6 +3983,7 @@ Atom<u16>bound_port_;
 mutex startup_error_mu;
 EP startup_error{};
 std::atomic_bool startup_failed{false};
+Atom<u8>run_status_{static_cast<u8>(RunStatus::stopped_normally)};
 // Signalled by ring[0] after init when attach_wq=true. Ring[1..N] wait
 // here for the wq_fd before calling io_uring_queue_init_params. -2 = unset.
 Atom<int>wq_ring_fd_{-2};
@@ -3900,7 +4091,8 @@ if(to_stop)
 to_stop->stop();
 #endif
 }
-void run(){
+[[nodiscard]]RunStatus run()noexcept{
+try{
 unsigned const entries=impl_->cfg.ring_entries==0?DEFAULT_RING_ENTRIES:impl_->cfg.ring_entries;
 
 V<thread>threads;
@@ -3964,7 +4156,16 @@ entries,
 flags_str(impl_->cfg),
 r.fixed_files));
 
-r.run_loop();
+auto const status=r.run_loop();
+if(status!=RunStatus::stopped_normally){
+u8 expected=static_cast<u8>(RunStatus::stopped_normally);
+impl_->run_status_.compare_exchange_strong(
+expected,
+static_cast<u8>(status),
+memory_order_release,
+memory_order_relaxed);
+shutdown();
+}
 }catch(...){
 {
 SL const lk{impl_->startup_error_mu};
@@ -3972,6 +4173,14 @@ if(!impl_->startup_error)
 impl_->startup_error=current_exception();
 }
 impl_->startup_failed.store(true,memory_order_release);
+{
+u8 expected=static_cast<u8>(RunStatus::stopped_normally);
+impl_->run_status_.compare_exchange_strong(
+expected,
+static_cast<u8>(RunStatus::fatal_internal_exception),
+memory_order_release,
+memory_order_relaxed);
+}
 impl_->bound_port_.store(NL<u16>::max(),memory_order_release);
 impl_->bound_port_.notify_all();
 if(impl_->cfg.attach_wq&&i==0){
@@ -4001,12 +4210,6 @@ impl_->http3_listener=move(listener);
 
 for(auto&t:threads)
 t.join();
-if(impl_->startup_failed.load(memory_order_acquire)){
-SL const lk{impl_->startup_error_mu};
-if(impl_->startup_error)
-rethrow_exception(impl_->startup_error);
-throw RE{"HttpServer startup failed"};
-}
 #if CONFLUX_HAS_HTTP3
 UP<Http3Listener>to_reset;
 {
@@ -4016,6 +4219,10 @@ to_reset=move(impl_->http3_listener);
 if(to_reset)
 to_reset->stop();
 #endif
+return static_cast<RunStatus>(impl_->run_status_.load(memory_order_acquire));
+}catch(...){
+return RunStatus::fatal_internal_exception;
+}
 }
 // Blocks until ring 0 has bound and called listen(); returns the actual port.
 // Safe to call from any thread after run() has been dispatched.

@@ -224,6 +224,14 @@ target_link_libraries(conflux_direct_slot_pool_tests
 target_include_directories(conflux_direct_slot_pool_tests PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
 conflux_discover_tests(conflux_direct_slot_pool_tests)
 
+add_executable(conflux_cq_overflow_tests cq_overflow_test.cxx)
+target_link_libraries(conflux_cq_overflow_tests
+    PRIVATE
+        conflux_uring
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
 add_executable(conflux_file_io_tests file_io_test.cxx)
 target_link_libraries(conflux_file_io_tests
     PRIVATE
@@ -327,6 +335,7 @@ conflux_discover_tests(conflux_work_carrier_phase6_tests)
 conflux_discover_tests(conflux_work_carrier_streams_tests)
 conflux_discover_tests(conflux_work_carrier_timer_tests)
 conflux_discover_tests(conflux_uring_flow_tests)
+conflux_discover_tests(conflux_cq_overflow_tests)
 conflux_discover_tests(conflux_file_io_tests)
 conflux_discover_tests(conflux_dns_codec_tests)
 conflux_discover_tests(conflux_dns_resolver_tests)
