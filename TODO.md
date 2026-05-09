@@ -9,7 +9,7 @@ Items verified against source. PARTIAL = code exists but incomplete. NOT DONE = 
 | # | Item | State |
 |---|------|-------|
 | Task 1 | `format_response` close flag — H2/deferred error path now passes `close=true`; SSE headers now respect `conn.close_after_send` | DONE |
-| Task 4a | `resolve_timeouts()` in client.cxx defined but never called — dead code; per-request timeouts not merged with client defaults | NOT DONE |
+| Task 4a | `resolve_timeouts()` in client.cxx defined but never called — dead code; per-request timeouts not merged with client defaults | DONE |
 | Task 7 | proxy.cxx still calls `client.send_blocking`; Phase 2 async migration not started | NOT DONE |
 | Task 8 | `DeferredResponse` has no `TaskControl` ref; timeout → 504 but underlying task keeps running | NOT DONE |
 | Task 9 | `Op::RingLaneWake` absent from server event loop; `RingLane` not instantiated in http_server.cxx | NOT DONE |
@@ -84,10 +84,10 @@ Items verified against source. PARTIAL = code exists but incomplete. NOT DONE = 
 
 | Item | State |
 |------|-------|
-| E1.z — `into_task_unchecked()` still present; v7 B4 said to drop it | PARTIAL |
+| E1.z — `into_task_unchecked()` still present; v7 B4 said to drop it | DONE |
 | E2b.1 — `try_set_cancelled` public setter still takes internal `CancelReason` enum, not `work_errc` as required | PARTIAL |
 | E4 — `try_set_error(ec, string_view message) noexcept` overload missing from `BasicSource<T>` | NOT DONE |
 | E4 — `concept work_handle<H>` simplified; missing `awaits_outcome<>` requires-clause | PARTIAL |
 | E4 — `BasicResult` / `BasicJoinHandle` collapse not done (deferred; `// [REVISIT]` comment at root.cxx:1984) | NOT DONE |
-| P2b — Fix B (`alignas(64)` on Cold) used without a code comment explaining false-sharing rationale; plan mandated the comment on `hot_pad` member (which doesn't exist) | PARTIAL |
+| P2b — Fix B (`alignas(64)` on Cold) used without a code comment explaining false-sharing rationale; plan mandated the comment on `hot_pad` member (which doesn't exist) | DONE |
 | P9 — `join_all` only stores `first_error`; `AggregateError::causes_view()` for multiple-failure observability absent | PARTIAL |

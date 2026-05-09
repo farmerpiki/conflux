@@ -458,7 +458,17 @@ conflux::http::HttpRequest const&req,
 HttpClientOptions const&opts){
 auto const&url=req.url();
 bool const use_tls=(url.scheme=="https");
-auto const&timeouts=req.timeouts();
+constexpr HttpTimeouts kDef{};
+auto const&rt=req.timeouts();
+auto const&cd=opts.default_timeouts;
+HttpTimeouts const timeouts{
+.resolve=rt.resolve!=kDef.resolve?rt.resolve:cd.resolve,
+.connect=rt.connect!=kDef.connect?rt.connect:cd.connect,
+.tls=rt.tls!=kDef.tls?rt.tls:cd.tls,
+.write=rt.write!=kDef.write?rt.write:cd.write,
+.first_byte=rt.first_byte!=kDef.first_byte?rt.first_byte:cd.first_byte,
+.between_bytes=rt.between_bytes!=kDef.between_bytes?rt.between_bytes:cd.between_bytes,
+};
 HttpTelemetry tel{};
 
 // DNS + connect.
@@ -825,21 +835,6 @@ return decoded;
 export namespace conflux::http{
 class HttpClient{
 HttpClientOptions opts_;
-[[nodiscard]]static HttpTimeouts resolve_timeouts(
-HttpRequest const&req,
-HttpClientOptions const&opts){
-constexpr HttpTimeouts def{};
-auto const&rt=req.timeouts();
-auto const&ct=opts.default_timeouts;
-return{
-.resolve=rt.resolve!=def.resolve?rt.resolve:ct.resolve,
-.connect=rt.connect!=def.connect?rt.connect:ct.connect,
-.tls=rt.tls!=def.tls?rt.tls:ct.tls,
-.write=rt.write!=def.write?rt.write:ct.write,
-.first_byte=rt.first_byte!=def.first_byte?rt.first_byte:ct.first_byte,
-.between_bytes=rt.between_bytes!=def.between_bytes?rt.between_bytes:ct.between_bytes,
-};
-}
 public:
 explicit HttpClient(
 HttpClientOptions opts={})

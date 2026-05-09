@@ -275,11 +275,6 @@ else
 (void)src.try_set_cancelled(outcome_.cancelled().reason);
 return move(task);
 }
-// into_task without source_location capture; precondition check reserved for future lazy carrier
-[[nodiscard]]root::Task<T>into_task_unchecked(
-std::source_location loc=std::source_location::current())&&{
-return move(*this).into_task(loc);
-}
 };
 template<root::work_value T>
 struct ChainAwaiter{

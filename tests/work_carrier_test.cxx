@@ -594,11 +594,11 @@ auto out=root::join(move(t));
 CHECK(out.is_cancelled());
 }
 TEST_CASE(
-"chain.into_task_unchecked: same as into_task for eager chain",
+"chain.into_task: eager chain",
 "[chain.combinators]"){
 auto[task,src]=root::make_task_source<int>();
 REQUIRE(src.try_set_value(root::Success<int>{11}));
-auto t=carrier::from_task(move(task)).into_task_unchecked();
+auto t=carrier::from_task(move(task)).into_task();
 auto out=root::join(move(t));
 REQUIRE(out.is_success());
 CHECK(out.success().value==11);

@@ -408,14 +408,6 @@ auto t=move(chain).into_task();
 static_assert(same_as<decltype(t),root::Task<int>>);
 move(t).detach();
 }
-void _e1z_into_task_unchecked_check_(){
-auto[task,src]=root::make_task_source<int>();
-(void)src.try_set_value(root::Success<int>{1});
-auto chain=carrier::from_task(move(task));
-auto t=move(chain).into_task_unchecked();
-static_assert(same_as<decltype(t),root::Task<int>>);
-move(t).detach();
-}
 }// namespace snapshot_model_a
 // ---------------------------------------------------------------------------
 // conflux.net.io_buffer (E5 — moved from conflux.work)

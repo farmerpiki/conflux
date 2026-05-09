@@ -1134,6 +1134,8 @@ Atom<TerminalState>terminal_state_{TerminalState::none};
 Atom<ReadyHookState>ready_hook_state_{ReadyHookState::open};
 Atom<bool>cancel_requested_{false};
 Atom<bool>terminal_claimed_{false};
+// P2b false-sharing fix: hot atomics above land on one cache line;
+// alignas(64) on mtx_ starts cold lock/cv on a fresh line.
 alignas(64)mutable mutex mtx_{};
 std::condition_variable cv_{};
 Opt<Outcome<void>>outcome_{};
