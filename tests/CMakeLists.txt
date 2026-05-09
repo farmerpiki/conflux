@@ -248,6 +248,14 @@ target_link_libraries(conflux_cq_overflow_tests
         Catch2::Catch2WithMain
 )
 
+add_executable(conflux_ring_resize_tests ring_resize_test.cxx)
+target_link_libraries(conflux_ring_resize_tests
+    PRIVATE
+        conflux_uring
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
 add_executable(conflux_uring_caps_tests caps_test.cxx)
 target_link_libraries(conflux_uring_caps_tests
     PRIVATE
@@ -384,6 +392,7 @@ conflux_discover_tests(conflux_work_carrier_streams_tests)
 conflux_discover_tests(conflux_work_carrier_timer_tests)
 conflux_discover_tests(conflux_uring_flow_tests)
 conflux_discover_tests(conflux_cq_overflow_tests)
+conflux_discover_tests(conflux_ring_resize_tests)
 conflux_discover_tests(conflux_uring_caps_tests)
 conflux_discover_tests(conflux_poll_first_auto_tests)
 conflux_discover_tests(conflux_file_io_tests)

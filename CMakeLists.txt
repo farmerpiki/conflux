@@ -259,6 +259,22 @@ target_link_libraries(conflux_uring
     PUBLIC  PkgConfig::LIBURING
 )
 
+# Probe placed after include(Dependencies) so PkgConfig::LIBURING is available.
+include(CheckCXXSourceCompiles)
+set(CMAKE_REQUIRED_LIBRARIES PkgConfig::LIBURING)
+check_cxx_source_compiles("
+#include <liburing.h>
+int main() {
+    auto* fn = &io_uring_resize_rings;
+    (void)fn;
+    return 0;
+}
+" CONFLUX_HAVE_IO_URING_RESIZE_RINGS)
+unset(CMAKE_REQUIRED_LIBRARIES)
+target_compile_definitions(conflux_uring
+    PUBLIC CONFLUX_HAVE_IO_URING_RESIZE_RINGS=$<BOOL:${CONFLUX_HAVE_IO_URING_RESIZE_RINGS}>
+)
+
 add_library(conflux_work STATIC)
 target_sources(conflux_work
     PUBLIC FILE_SET CXX_MODULES

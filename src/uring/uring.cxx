@@ -1076,6 +1076,18 @@ io_uring_prep_cmd_sock(p_,cmd_op,fd.v,level,optname,optval,optlen);
 return*this;
 }
 };
+// ── RingSize / build cap ──────────────────────────────────────────────────────
+
+struct RingSize{
+u32 sq_entries{};
+u32 cq_entries{};
+};
+inline constexpr bool build_has_io_uring_resize_rings=
+#if defined(CONFLUX_HAVE_IO_URING_RESIZE_RINGS)&&CONFLUX_HAVE_IO_URING_RESIZE_RINGS
+true;
+#else
+false;
+#endif
 // ── RingRef ──────────────────────────────────────────────────────────────────
 
 class RingRef{
@@ -1136,6 +1148,49 @@ return p!=nullptr?*p:0u;
 [[nodiscard]]bool is_sqpoll()const noexcept{
 assert(ring_!=nullptr);
 return(ring_->flags&IORING_SETUP_SQPOLL)!=0u;
+}
+[[nodiscard]]u32 sq_entries()const noexcept{
+assert(ring_!=nullptr);
+return ring_->sq.ring_entries;
+}
+[[nodiscard]]u32 cq_entries()const noexcept{
+assert(ring_!=nullptr);
+return ring_->cq.ring_entries;
+}
+[[nodiscard]]expected<void,int>resize(RingSize sz)const noexcept{
+if(!valid())
+return unexpected{-EINVAL};
+if(sz.sq_entries==0||sz.cq_entries==0)
+return unexpected{-EINVAL};
+if(cq_has_overflow())
+return unexpected{-EBUSY};
+if(io_uring_sq_ready(ring_)!=0)
+return unexpected{-EBUSY};
+// no CQ-ready guard: kernel copies pending CQEs during resize; only CQ overflow is illegal
+#if defined(CONFLUX_HAVE_IO_URING_RESIZE_RINGS)&&CONFLUX_HAVE_IO_URING_RESIZE_RINGS
+if((ring_->flags&IORING_SETUP_DEFER_TASKRUN)==0)
+return unexpected{-EINVAL};
+if((ring_->flags&IORING_SETUP_NO_MMAP)!=0)
+return unexpected{-EOPNOTSUPP};
+io_uring_params p{};
+p.flags=IORING_SETUP_CQSIZE;
+p.sq_entries=sz.sq_entries;
+p.cq_entries=sz.cq_entries;
+if(int rc=io_uring_resize_rings(ring_,&p);rc<0)
+return unexpected{rc};
+return{};
+#else
+return unexpected{-ENOSYS};
+#endif
+}
+[[nodiscard]]expected<void,int>grow_cq_to(u32 entries)const noexcept{
+if(!valid())
+return unexpected{-EINVAL};
+u32 const cur_sq=ring_->sq.ring_entries;
+u32 const cur_cq=ring_->cq.ring_entries;
+if(entries<=cur_cq)
+return{};
+return resize({.sq_entries=cur_sq,.cq_entries=entries});
 }
 };
 
@@ -1225,6 +1280,8 @@ return static_cast<int>(io_uring_cq_has_overflow(&ring_))!=0;
 auto*p=ring_.cq.koverflow;
 return p!=nullptr?*p:0u;
 }
+[[nodiscard]]expected<void,int>resize(RingSize sz)noexcept{return ref().resize(sz);}
+[[nodiscard]]expected<void,int>grow_cq_to(u32 entries)noexcept{return ref().grow_cq_to(entries);}
 // ── Submit ──────────────────────────────────────────────────────────────
 
 int submit()noexcept{return io_uring_submit(&ring_);}
