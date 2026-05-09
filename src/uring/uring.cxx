@@ -767,6 +767,10 @@ int unregister_files()const noexcept{
 assert(ring_!=nullptr);
 return io_uring_unregister_files(ring_);
 }
+[[nodiscard]]bool cq_has_overflow()const noexcept{
+assert(ring_!=nullptr);
+return io_uring_cq_has_overflow(ring_)!=0;
+}
 };
 
 // ── Ring ─────────────────────────────────────────────────────────────────────
@@ -835,6 +839,7 @@ return io_uring_sq_space_left(&ring_);
 }
 [[nodiscard]]bool has_feature(u32 feat)const noexcept{return(ring_.features&feat)!=0u;}
 [[nodiscard]]bool is_sqpoll()const noexcept{return(ring_.flags&IORING_SETUP_SQPOLL)!=0u;}
+[[nodiscard]]bool cq_has_overflow()const noexcept{return io_uring_cq_has_overflow(&ring_)!=0;}
 // ── Submit ──────────────────────────────────────────────────────────────
 
 int submit()noexcept{return io_uring_submit(&ring_);}

@@ -111,11 +111,16 @@ return id<static_cast<u32>(gens_.size())&&gens_[id]==gen;
 // ─── BufferRing ──────────────────────────────────────────────────────────────
 // Owns a kernel buffer ring group. Manages slab allocation and recycling.
 
+export enum class BufferRingMode:u8{
+classic,
+recv_bundle
+};
 export struct BufferRingOptions{
 u32 count{4096};
 SZ buf_size{8192};
 u16 group_id{0};
 bool huge_pages{true};
+BufferRingMode mode{BufferRingMode::classic};
 };
 
 export class RecvBuffer;
@@ -133,6 +138,7 @@ SZ slab_sz_{};
 V<u16>ring_order_;
 u32 head_pos_{};
 u32 tail_pos_{};
+BufferRingMode mode_{BufferRingMode::classic};
 public:
 BufferRing(
 io_uring*uring,
@@ -141,7 +147,7 @@ BufferRingOptions opts)
 BufferRing(
 conflux::uring::RingRef uring,
 BufferRingOptions opts)
-:ring_{},uring_{uring},buf_size_{opts.buf_size},count_{opts.count},group_id_{opts.group_id}{
+:ring_{},uring_{uring},buf_size_{opts.buf_size},count_{opts.count},group_id_{opts.group_id},mode_{opts.mode}{
 if(count_==0||count_>65536U||(count_&(count_-1))!=0||buf_size_==0||
 buf_size_>static_cast<SZ>(NL<u16>::max())||
 count_>NL<SZ>::max()/buf_size_)
@@ -249,6 +255,7 @@ return old;
 u32 pos)const noexcept{
 return ring_order_[pos%count_];
 }
+[[nodiscard]]BufferRingMode mode()const noexcept{return mode_;}
 [[nodiscard]]RecvBuffer lease(u16 id,SZ len)noexcept;
 [[nodiscard]]u16 group_id()const noexcept{return group_id_;}
 [[nodiscard]]SZ buf_size()const noexcept{return buf_size_;}
@@ -463,7 +470,7 @@ auto sqe=ring.try_get_sqe();
 if(!sqe)return false;
 sqe.prep_recv_multishot(handle.sqe_fd(),nullptr,0,conflux::uring::MsgFlags{});
 sqe.buf_group(conflux::uring::BufGroupId{bufs.group_id()});
-if(bundle)
+if(bundle&&bufs.mode()==BufferRingMode::recv_bundle)
 sqe.ioprio(conflux::uring::ioprio_flags::recvsend_bundle);
 sqe.add_flags(conflux::uring::sqe_flags::buffer_select);
 sqe.add_flags(handle.sqe_fd_flags());
