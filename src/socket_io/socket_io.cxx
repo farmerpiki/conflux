@@ -1,5 +1,6 @@
 module;
 #include<cassert>
+#include<cerrno>
 #include<cstdlib>
 #include<cstring>
 #include<fcntl.h>
@@ -7,6 +8,7 @@ module;
 #include<netinet/tcp.h>
 #include<sys/mman.h>
 #include<sys/socket.h>
+#include<unistd.h>
 
 struct io_uring;
 struct io_uring_sqe;
@@ -71,7 +73,10 @@ return sqe?sqe.raw():nullptr;
 }
 [[nodiscard]]unsigned sq_space_left()const noexcept{return ring_.sq_space_left();}
 [[nodiscard]]int submit()const noexcept{return ring_.submit();}
-[[nodiscard]]bool reserve_sqe_slots(u32 n)const noexcept{return sq_space_left()>=n;}
+[[nodiscard]]bool reserve_sqe_slots(
+u32 n)const noexcept{
+return sq_space_left()>=n;
+}
 [[nodiscard]]conflux::uring::Sqe get_reserved_sqe()const noexcept{
 auto sqe=try_get_sqe();
 assert(sqe);
@@ -491,14 +496,15 @@ SocketHandle listen,
 sockaddr*addr,
 socklen_t*addrlen,
 u64 user_data,
+int accept_flags,
 bool direct=true){
 auto sqe=ring.try_get_sqe();
 if(!sqe)
 return false;
 if(direct)
-sqe.prep_multishot_accept_direct(listen.sqe_fd(),addr,addrlen,0);
+sqe.prep_multishot_accept_direct(listen.sqe_fd(),addr,addrlen,accept_flags);
 else
-sqe.prep_multishot_accept(listen.sqe_fd(),addr,addrlen,0);
+sqe.prep_multishot_accept(listen.sqe_fd(),addr,addrlen,accept_flags);
 sqe.add_flags(listen.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
@@ -510,8 +516,36 @@ sockaddr*addr,
 socklen_t*addrlen,
 u64 user_data,
 conflux::uring::IoUringCaps const&caps,
+int accept_flags,
 bool direct){
-return submit_accept_multishot_borrowed(ring,listen,addr,addrlen,user_data,direct&&caps.accept_direct_supported);
+return submit_accept_multishot_borrowed(
+ring,
+listen,
+addr,
+addrlen,
+user_data,
+accept_flags,
+direct&&caps.accept_direct_supported);
+}
+// compat wrappers — zero accept_flags
+export bool submit_accept_multishot_borrowed(
+SocketRawRing&ring,
+SocketHandle listen,
+sockaddr*addr,
+socklen_t*addrlen,
+u64 user_data,
+bool direct=true){
+return submit_accept_multishot_borrowed(ring,listen,addr,addrlen,user_data,0,direct);
+}
+export bool submit_accept_multishot_borrowed(
+SocketRawRing&ring,
+SocketHandle listen,
+sockaddr*addr,
+socklen_t*addrlen,
+u64 user_data,
+conflux::uring::IoUringCaps const&caps,
+bool direct){
+return submit_accept_multishot_borrowed(ring,listen,addr,addrlen,user_data,caps,0,direct);
 }
 // ─── raw submission: recv ────────────────────────────────────────────────────
 
@@ -691,40 +725,58 @@ sqe.user_data(conflux::uring::UserData{user_data});
 return true;
 }
 export struct DirectTcpAcceptSetup{
-bool tcp_quickack_once{false};
+bool tcp_nodelay_once{false};// opt-in; requires caps.cmd_sock_setsockopt
+bool tcp_quickack_once{false};// opt-in; requires caps.cmd_sock_setsockopt
 bool skip_sockopt_success_cqes{true};
 };
 namespace{
-static int k_socket_opt_on=1;
+static int const k_socket_opt_on=1;
 }// namespace
 export[[nodiscard]]bool submit_direct_tcp_accept_setup_recv(
 SocketRawRing&ring,
 SocketHandle direct_socket,
 BufferRing&buffers,
-u64 quickack_ud,
+u64 sockopt_ud,
 u64 recv_ud,
 DirectTcpAcceptSetup opts)noexcept{
 if(!direct_socket.is_direct())
 return false;
-unsigned const needed=1U+(opts.tcp_quickack_once?1U:0U);
+unsigned const needed=1U+(opts.tcp_nodelay_once?1U:0U)+(opts.tcp_quickack_once?1U:0U);
 if(ring.sq_space_left()<needed)
 return false;
-if(opts.tcp_quickack_once){
-auto quickack_sqe=ring.try_get_sqe();
-if(!quickack_sqe)
+if(opts.tcp_nodelay_once){
+auto sqe=ring.try_get_sqe();
+if(!sqe)
 return false;
-quickack_sqe.prep_cmd_sock(
+sqe.prep_cmd_sock(
+conflux::uring::uring_cmd_op::setsockopt,
+direct_socket.sqe_fd(),
+IPPROTO_TCP,
+TCP_NODELAY,
+const_cast<int*>(&k_socket_opt_on),
+static_cast<int>(sizeof(k_socket_opt_on)));
+sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
+sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
+if(opts.skip_sockopt_success_cqes)
+sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
+sqe.user_data(conflux::uring::UserData{sockopt_ud});
+}
+if(opts.tcp_quickack_once){
+auto sqe=ring.try_get_sqe();
+if(!sqe)
+return false;
+sqe.prep_cmd_sock(
 conflux::uring::uring_cmd_op::setsockopt,
 direct_socket.sqe_fd(),
 IPPROTO_TCP,
 TCP_QUICKACK,
-&k_socket_opt_on,
+const_cast<int*>(&k_socket_opt_on),
 static_cast<int>(sizeof(k_socket_opt_on)));
-quickack_sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
-quickack_sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
+sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
+sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
 if(opts.skip_sockopt_success_cqes)
-quickack_sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
-quickack_sqe.user_data(conflux::uring::UserData{quickack_ud});
+sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
+sqe.user_data(conflux::uring::UserData{sockopt_ud});
 }
 auto recv_sqe=ring.try_get_sqe();
 if(!recv_sqe)
@@ -937,3 +989,141 @@ sqe.prep_fixed_fd_install(conflux::uring::DirectSlot{direct_slot},conflux::uring
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
 }
+// ─── TcpListener ─────────────────────────────────────────────────────────────
+
+export enum class TcpBindAddress:u8{
+loopback_v4,
+any_v4,
+loopback_v6,
+any_v6_dual,
+any_v6_only
+};
+export struct TcpListenerOptions{
+u16 port{0};
+TcpBindAddress bind{TcpBindAddress::any_v6_dual};
+bool reuse_addr{true};
+bool reuse_port{false};
+int backlog{SOMAXCONN};
+int accept_flags{SOCK_CLOEXEC|SOCK_NONBLOCK};
+};
+namespace{
+struct FdGuard{
+int fd{-1};
+~FdGuard()noexcept{
+if(fd>=0)
+::close(fd);
+}
+};
+}// namespace
+export class TcpListener{
+int fd_{-1};
+u16 port_{};
+int accept_flags_{SOCK_CLOEXEC|SOCK_NONBLOCK};
+public:
+explicit TcpListener(
+TcpListenerOptions opts={}){
+bool const is_v6=
+(opts.bind==TcpBindAddress::loopback_v6||opts.bind==TcpBindAddress::any_v6_dual||opts.bind==TcpBindAddress::any_v6_only);
+int const domain=is_v6?AF_INET6:AF_INET;
+int const raw=::socket(domain,SOCK_STREAM|SOCK_CLOEXEC,IPPROTO_TCP);
+if(raw<0)
+throw SE(errno,system_category(),"socket");
+FdGuard guard{raw};
+int const on=1;
+if(opts.reuse_addr){
+if(::setsockopt(raw,SOL_SOCKET,SO_REUSEADDR,&on,sizeof(on))<0)
+throw SE(errno,system_category(),"SO_REUSEADDR");
+}
+if(opts.reuse_port){
+if(::setsockopt(raw,SOL_SOCKET,SO_REUSEPORT,&on,sizeof(on))<0)
+throw SE(errno,std::system_category(),"SO_REUSEPORT");
+}
+if(is_v6){
+int const v6only=
+(opts.bind==TcpBindAddress::loopback_v6||opts.bind==TcpBindAddress::any_v6_only)?1:0;
+if(::setsockopt(raw,IPPROTO_IPV6,IPV6_V6ONLY,&v6only,sizeof(v6only))<0)
+throw SE(errno,std::system_category(),"IPV6_V6ONLY");
+sockaddr_in6 addr{};
+addr.sin6_family=AF_INET6;
+addr.sin6_port=htons(opts.port);
+addr.sin6_addr=(opts.bind==TcpBindAddress::loopback_v6)?in6addr_loopback:in6addr_any;
+if(::bind(raw,reinterpret_cast<sockaddr*>(&addr),sizeof(addr))<0)
+throw SE(errno,std::system_category(),"bind");
+}else{
+sockaddr_in addr{};
+addr.sin_family=AF_INET;
+addr.sin_port=htons(opts.port);
+addr.sin_addr.s_addr=
+(opts.bind==TcpBindAddress::loopback_v4)?htonl(INADDR_LOOPBACK):htonl(INADDR_ANY);
+if(::bind(raw,reinterpret_cast<sockaddr*>(&addr),sizeof(addr))<0)
+throw SE(errno,std::system_category(),"bind");
+}
+if(::listen(raw,opts.backlog)<0)
+throw SE(errno,system_category(),"listen");
+sockaddr_storage ss{};
+socklen_t sslen=sizeof(ss);
+if(::getsockname(raw,reinterpret_cast<sockaddr*>(&ss),&sslen)<0)
+throw SE(errno,system_category(),"getsockname");
+port_=(ss.ss_family==AF_INET6)?ntohs(reinterpret_cast<sockaddr_in6 const*>(&ss)->sin6_port):
+ntohs(reinterpret_cast<sockaddr_in const*>(&ss)->sin_port);
+accept_flags_=opts.accept_flags;
+fd_=exchange(guard.fd,-1);
+}
+~TcpListener()noexcept{
+if(fd_>=0)
+::close(fd_);
+}
+TcpListener(TcpListener const&)=delete;
+TcpListener&operator=(TcpListener const&)=delete;
+TcpListener(
+TcpListener&&o)noexcept
+:fd_{exchange(o.fd_,-1)},port_{o.port_},accept_flags_{o.accept_flags_}{}
+TcpListener&operator=(
+TcpListener&&o)noexcept{
+if(this!=&o){
+if(fd_>=0)
+::close(fd_);
+fd_=exchange(o.fd_,-1);
+port_=o.port_;
+accept_flags_=o.accept_flags_;
+}
+return*this;
+}
+[[nodiscard]]u16 port()const noexcept{return port_;}
+[[nodiscard]]int raw_fd()const noexcept{return fd_;}
+[[nodiscard]]SocketHandle handle()const noexcept{return SocketHandle::from_os(fd_);}
+[[nodiscard]]bool arm_accept_multishot_borrowed(
+SocketRawRing&ring,
+sockaddr*addr,
+socklen_t*addrlen,
+u64 user_data,
+conflux::uring::IoUringCaps const&caps,
+bool accept_direct=false)noexcept{
+return submit_accept_multishot_borrowed(
+ring,
+handle(),
+addr,
+addrlen,
+user_data,
+caps,
+accept_flags_,
+accept_direct);
+}
+[[nodiscard]]bool rearm_accept_multishot_borrowed(
+SocketRawRing&ring,
+sockaddr*addr,
+socklen_t*addrlen,
+u64 user_data,
+conflux::uring::IoUringCaps const&caps,
+bool accept_direct=false)noexcept{
+return submit_accept_multishot_borrowed(
+ring,
+handle(),
+addr,
+addrlen,
+user_data,
+caps,
+accept_flags_,
+accept_direct);
+}
+};

@@ -152,6 +152,11 @@ target_compile_definitions(conflux_recv_bundle_tests PRIVATE
     "ASSERT_PROBE_BIN=\"$<TARGET_FILE:recv_bundle_assert_probe>\"")
 conflux_discover_tests(conflux_recv_bundle_tests)
 
+add_executable(conflux_tcp_listener_tests tcp_listener_test.cxx)
+target_link_libraries(conflux_tcp_listener_tests
+    PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain PkgConfig::LIBURING)
+conflux_discover_tests(conflux_tcp_listener_tests)
+
 add_executable(conflux_recv_bundle_e2e_tests)
 target_sources(conflux_recv_bundle_e2e_tests
     PRIVATE
