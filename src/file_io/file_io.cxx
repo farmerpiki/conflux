@@ -21,217 +21,12 @@ import std;
 import conflux.types;
 import std.compat;
 import conflux.work;
+export import conflux.uring.completion;
+export import conflux.uring.handle;
 
-// ---------------------------------------------------------------------------
-// User-data encoder.
-//
-// The caller controls the full io_uring user_data layout; the library only
-// knows how to address its own CompletionTable slots. The encoder packs a
-// (slot, gen) P into the 64 bits the caller owns — e.g. an HTTP server
-// packs pack(Op::FileIo, gen, slot) using its existing 8+24+32 layout.
-// ---------------------------------------------------------------------------
-
-export using UserDataFn=Fn<u64(u32 slot,u32 gen)>;
-// ---------------------------------------------------------------------------
-// Outcome of a single io_uring completion as seen by the library.
-// ---------------------------------------------------------------------------
-
-export struct IoResult{
-i32 res{};
-u32 flags{};
-};
-export using FileCompletionFn=Fn<void(IoResult)>;
+export using FileIoError=IoError;
 
 namespace root=conflux::work::root;
-// ---------------------------------------------------------------------------
-// CompletionTable: slot-indexed store of pending completion callbacks with
-// per-slot gen counter for stale-CQE rejection. Not thread-safe — pinned to
-// the ring's owner thread (SINGLE_ISSUER).
-// ---------------------------------------------------------------------------
-
-export class CompletionTable{
-enum class SlotMode:u8{single,
-multishot,
-zc_send};
-struct Slot{
-u32 gen{0};
-bool in_use{false};
-SlotMode mode{SlotMode::single};
-i32 zc_bytes{0};
-bool zc_seen_send{false};
-FileCompletionFn fn{};
-};
-V<Slot>slots_{};
-V<u32>free_{};
-public:
-explicit CompletionTable(
-SZ initial_capacity=64){
-slots_.reserve(initial_capacity);
-}
-CompletionTable(CompletionTable const&)=delete;
-CompletionTable&operator=(CompletionTable const&)=delete;
-CompletionTable(CompletionTable&&)=delete;
-CompletionTable&operator=(CompletionTable&&)=delete;
-~CompletionTable(){}// NOLINT(modernize-use-equals-default) — GCC module bug
-[[nodiscard]]P<u32,u32>reserve(
-FileCompletionFn fn){
-u32 slot=0;
-if(!free_.empty()){
-slot=free_.back();
-free_.pop_back();
-}else{
-slot=static_cast<u32>(slots_.size());
-slots_.emplace_back();
-}
-auto&s=slots_[slot];
-s.in_use=true;
-s.mode=SlotMode::single;
-s.zc_bytes=0;
-s.zc_seen_send=false;
-s.fn=move(fn);
-return{slot,s.gen};
-}
-[[nodiscard]]P<u32,u32>reserve_multishot(
-FileCompletionFn fn){
-auto[slot,gen]=reserve(move(fn));
-slots_[slot].mode=SlotMode::multishot;
-return{slot,gen};
-}
-[[nodiscard]]P<u32,u32>reserve_zc(
-FileCompletionFn fn){
-auto[slot,gen]=reserve(move(fn));
-slots_[slot].mode=SlotMode::zc_send;
-return{slot,gen};
-}
-void dispatch(
-// NOLINT(bugprone-exception-escape) — callbacks are noexcept by contract
-u32 slot,
-u32 gen,
-int res,
-u32 flags)noexcept{
-if(slot>=slots_.size())
-return;
-auto&s=slots_[slot];
-if(!s.in_use||s.gen!=gen)
-return;
-if(s.mode==SlotMode::multishot&&res>=0&&(flags&IORING_CQE_F_MORE)!=0U){
-if(s.fn)
-s.fn(IoResult{.res=res,.flags=flags});
-return;
-}
-if(s.mode==SlotMode::zc_send){
-if((flags&IORING_CQE_F_NOTIF)==0U){
-if(res>=0&&(flags&IORING_CQE_F_MORE)!=0U){
-s.zc_bytes=res;
-s.zc_seen_send=true;
-return;
-}
-}else{
-res=s.zc_seen_send?s.zc_bytes:-EIO;
-}
-}
-auto fn=move(s.fn);
-s.fn={};
-s.in_use=false;
-s.mode=SlotMode::single;
-s.zc_bytes=0;
-s.zc_seen_send=false;
-++s.gen;
-free_.push_back(slot);
-if(fn)
-fn(IoResult{.res=res,.flags=flags});
-}
-[[nodiscard]]bool has_pending_zc_notifications()const noexcept{
-for(auto const&s:slots_)
-if(s.in_use&&s.mode==SlotMode::zc_send&&s.zc_seen_send)return true;
-return false;
-}
-// Returns false (and cancels nothing) if ZC notification slots are pending.
-// Caller must drain the CQ until has_pending_zc_notifications() returns false, then retry.
-[[nodiscard]]bool cancel_all()noexcept{// NOLINT(bugprone-exception-escape) — callbacks are noexcept by contract
-if(has_pending_zc_notifications())
-return false;
-for(u32 slot=0;slot<slots_.size();++slot){
-auto&s=slots_[slot];
-if(!s.in_use)
-continue;
-auto fn=move(s.fn);
-s.fn={};
-s.in_use=false;
-s.mode=SlotMode::single;
-s.zc_bytes=0;
-s.zc_seen_send=false;
-++s.gen;
-free_.push_back(slot);
-if(fn)
-fn(IoResult{.res=-ECANCELED,.flags=0});
-}
-return true;
-}
-[[nodiscard]]SZ pending()const noexcept{return slots_.size()-free_.size();}
-};
-// ---------------------------------------------------------------------------
-// FileHandle: RAII owner of a direct-descriptor slot or a plain fd.
-// Direct slots MUST be released via FileReader::close_async before dropping
-// the handle, otherwise the slot leaks for the lifetime of the ring.
-// ---------------------------------------------------------------------------
-
-export class FileHandle{
-int fd_{-1};
-int direct_slot_{-1};
-public:
-FileHandle()noexcept{}// NOLINT(modernize-use-equals-default) — GCC module bug
-static FileHandle from_fd(
-int fd)noexcept{
-FileHandle h;
-h.fd_=fd;
-return h;
-}
-static FileHandle from_direct_slot(
-int slot)noexcept{
-FileHandle h;
-h.direct_slot_=slot;
-return h;
-}
-FileHandle(FileHandle const&)=delete;
-FileHandle&operator=(FileHandle const&)=delete;
-FileHandle(
-FileHandle&&o)noexcept
-:fd_{exchange(o.fd_,-1)},direct_slot_{exchange(o.direct_slot_,-1)}{}
-FileHandle&operator=(
-FileHandle&&o)noexcept{
-if(this!=&o){
-close_on_drop();
-fd_=exchange(o.fd_,-1);
-direct_slot_=exchange(o.direct_slot_,-1);
-}
-return*this;
-}
-~FileHandle(){close_on_drop();}
-[[nodiscard]]int raw_fd()const noexcept{return fd_;}
-[[nodiscard]]int direct_slot()const noexcept{return direct_slot_;}
-[[nodiscard]]bool is_direct()const noexcept{return direct_slot_>=0;}
-[[nodiscard]]bool valid()const noexcept{return fd_>=0||direct_slot_>=0;}
-int release_fd()noexcept{return exchange(fd_,-1);}
-int release_direct_slot()noexcept{return exchange(direct_slot_,-1);}
-private:
-void close_on_drop()noexcept{
-if(fd_>=0){
-::close(fd_);
-fd_=-1;
-}
-// Direct slot: can only be released via io_uring_prep_close_direct, which
-// requires a ring reference. If still set at drop, caller forgot to call
-// FileReader::close_async — we cannot recover the slot here.
-#ifndef NDEBUG
-if(direct_slot_>=0)
-std::fputs(
-"FileHandle dropped with live direct slot — " "FileReader::close_async was never called; slot will leak\n",
-stderr);
-#endif
-direct_slot_=-1;
-}
-};
 // ---------------------------------------------------------------------------
 // FileStat: subset of struct statx fields the HTTP/file serving code needs.
 // ---------------------------------------------------------------------------
@@ -472,16 +267,6 @@ if(pool_!=nullptr)
 pool_->release(slot_);
 }
 // ---------------------------------------------------------------------------
-// FileIoError: thrown on negative io_uring res inside Task<T> chains.
-// ---------------------------------------------------------------------------
-
-export struct FileIoError final:SE{
-FileIoError(
-int err,
-S const&what)
-:SE{err,generic_category(),what}{}
-};
-// ---------------------------------------------------------------------------
 // FileReader: all async file operations. The caller provides (a) the ring to
 // submit on, (b) the CompletionTable that owns library slots, (c) an encoder
 // that packs (slot, gen) into the full 64-bit user_data — the caller is free
@@ -565,7 +350,7 @@ return encode_ud_(slot,gen);
 [[nodiscard]]bool poll_add_multi(
 int fd,
 short poll_mask,
-FileCompletionFn on_event){
+CompletionFn on_event){
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr)
 return false;
@@ -577,7 +362,7 @@ return true;
 [[nodiscard]]bool poll_add_oneshot(
 int fd,
 short poll_mask,
-FileCompletionFn on_event){
+CompletionFn on_event){
 auto*sqe=io_uring_get_sqe(ring_);
 if(sqe==nullptr)
 return false;

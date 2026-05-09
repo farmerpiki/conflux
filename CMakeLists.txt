@@ -252,6 +252,8 @@ target_sources(conflux_uring
         FILES
         src/uring/uring.cxx
         src/uring/flow.cxx
+        src/uring/uring_completion.cxx
+        src/uring/uring_handle.cxx
 )
 target_link_libraries(conflux_uring
     PRIVATE conflux_options
@@ -310,6 +312,7 @@ target_sources(conflux_file_io
 )
 target_link_libraries(conflux_file_io
     PRIVATE conflux_options
+    PUBLIC  conflux_uring
     PUBLIC  conflux_work
     PUBLIC  PkgConfig::LIBURING
 )

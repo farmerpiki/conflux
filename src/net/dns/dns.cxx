@@ -6,13 +6,13 @@ module;
 #include<netdb.h>
 #include<netinet/in.h>
 #include<sys/socket.h>
-#include<sys/time.h>
 
 export module conflux.net.dns;
 
 import std;
 import conflux.types;
 import conflux.file_io;
+import conflux.socket_io;
 import conflux.work;
 import conflux.socket_io.coro;
 
@@ -911,7 +911,7 @@ co_return move(msg);
 // receive response with timeout, decode and validate. Maps UdpError →
 // DnsError so callers only see DnsError.
 [[nodiscard]]root::Task<codec::Message>udp_single_query(
-FileReader&reader,
+SocketTaskRing&ring,
 NameserverEndpoint ns,
 vector<u8>wire,
 u16 expected_id,
@@ -919,10 +919,10 @@ string expected_qname,
 codec::QType expected_qtype,
 chrono::milliseconds timeout){
 constexpr SZ kRxSize=4096;
-UdpSocket sock=UdpSocket::ephemeral(reader,static_cast<int>(ns.addr.ss_family));
+UdpSocket sock=UdpSocket::ephemeral(ring,static_cast<int>(ns.addr.ss_family));
 A<u8,kRxSize>rx_buf{};
 try{
-co_await sock.send_to(
+co_await sock.send_to_borrowed(
 span<u8 const>{wire.data(),wire.size()},
 ns.addr,ns.addr_len);
 co_return co_await recv_valid_udp_response(
@@ -933,7 +933,7 @@ expected_id,
 move(expected_qname),
 expected_qtype,
 chrono::steady_clock::now()+timeout);
-}catch(DnsError const&){throw;}catch(FileIoError const&e){
+}catch(DnsError const&){throw;}catch(IoError const&e){
 if(e.code().value()==ETIMEDOUT)
 throw DnsError{DnsErrorKind::timeout,"dns: query timed out"};
 throw DnsError{DnsErrorKind::network,format("dns: udp error: {}",e.what()),e.code().value()};
@@ -941,7 +941,7 @@ throw DnsError{DnsErrorKind::network,format("dns: udp error: {}",e.what()),e.cod
 }
 // TCP DNS query per RFC 1035 §4.2.2: 2-byte big-endian length prefix framing.
 [[nodiscard]]root::Task<codec::Message>tcp_single_query(
-FileReader&reader,
+SocketTaskRing&ring,
 NameserverEndpoint ns,
 vector<u8>wire,
 u16 expected_id,
@@ -956,34 +956,32 @@ framed.push_back(static_cast<u8>(wlen&0xFFU));
 framed.insert(framed.end(),wire.begin(),wire.end());
 int const family=static_cast<int>(ns.addr.ss_family);
 try{
-TcpStream stream=co_await tcp_connect(reader,family,ns.addr,ns.addr_len);
-if(timeout.count()>0){
-auto const sec=chrono::duration_cast<chrono::seconds>(timeout);
-auto const usec=chrono::duration_cast<chrono::microseconds>(timeout-sec).count();
-::timeval tv{};
-tv.tv_sec=sec.count();
-tv.tv_usec=static_cast<suseconds_t>(usec);
-int const fd=stream.raw_fd();
-if(fd>=0){
-auto _=::setsockopt(fd,SOL_SOCKET,SO_SNDTIMEO,&tv,sizeof(tv));
-auto _=::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
-}
-}
-auto const sent=co_await stream.send(span<u8 const>{framed.data(),framed.size()},MSG_NOSIGNAL);
-if(sent!=framed.size())
-throw DnsError{DnsErrorKind::network,"dns: tcp short send"};
+ConnectOptions copts{};
+if(timeout.count()>0)copts.timeout=timeout;
+TcpStream stream=co_await tcp_connect(ring,family,ns.addr,ns.addr_len,copts);
+co_await stream.write_all_borrowed(span<u8 const>{framed.data(),framed.size()});
 A<u8,2>len_buf{};
-auto const n=co_await stream.recv(span<u8>{len_buf.data(),2},MSG_WAITALL);
-if(n!=2)
-throw DnsError{DnsErrorKind::network,"dns: tcp short length prefix"};
+{
+SZ n=0;
+while(n<2){
+SZ got=co_await stream.read_borrowed(span<u8>{len_buf.data()+n,2-n});
+if(got==0)throw DnsError{DnsErrorKind::network,"dns: tcp short length prefix"};
+n+=got;
+}
+}
 u16 const resp_len=static_cast<u16>((static_cast<u16>(len_buf[0])<<8U)|static_cast<u16>(len_buf[1]));
 if(resp_len==0)
 throw DnsError{DnsErrorKind::malformed,"dns: tcp zero-length response"};
 vector<u8>resp_buf(resp_len);
-auto const resp_n=co_await stream.recv(span<u8>{resp_buf.data(),resp_len},MSG_WAITALL);
-if(resp_n!=resp_buf.size())
-throw DnsError{DnsErrorKind::network,"dns: tcp short response"};
-auto msg=codec::decode_message(span<u8 const>{resp_buf.data(),resp_n});
+{
+SZ resp_n=0;
+while(resp_n<static_cast<SZ>(resp_len)){
+SZ got=co_await stream.read_borrowed(span<u8>{resp_buf.data()+resp_n,static_cast<SZ>(resp_len)-resp_n});
+if(got==0)throw DnsError{DnsErrorKind::network,"dns: tcp short response"};
+resp_n+=got;
+}
+}
+auto msg=codec::decode_message(span<u8 const>{resp_buf.data(),static_cast<SZ>(resp_len)});
 if(!has_expected_question(msg,expected_id,expected_qname,expected_qtype))
 throw DnsError{DnsErrorKind::malformed,"dns: tcp response mismatch"};
 validate_accepted_response_status(msg);
@@ -1025,7 +1023,7 @@ bool was_queried{false};
 // into a BatchFailReason field so the parallel join (join_all) always completes.
 // Cancellation is the only exception that still propagates.
 [[nodiscard]]root::Task<EndpointBatch>build_family_flow(
-FileReader&reader,
+SocketTaskRing&ring,
 NameserverEndpoint ns,
 SV hostname,
 u16 port,
@@ -1039,7 +1037,7 @@ auto wire_ptr=make_shared<V<u8>>(wire);// copy for TCP fallback
 auto expected_qname=lowercase_ascii(hostname);
 bool needs_tcp_fallback=false;
 try{
-auto udp_task=udp_single_query(reader,ns,move(wire),qid,expected_qname,qtype,timeout);
+auto udp_task=udp_single_query(ring,ns,move(wire),qid,expected_qname,qtype,timeout);
 auto const msg=co_await move(udp_task);
 EndpointBatch batch;
 batch.was_queried=true;
@@ -1063,7 +1061,7 @@ co_return EndpointBatch{.fail_reason=r,.was_queried=true};
 auto _=needs_tcp_fallback;// always true here
 // TCP fallback (co_await must be outside catch block):
 try{
-auto tcp_task=tcp_single_query(reader,ns,*wire_ptr,qid,lowercase_ascii(hostname),qtype,timeout);
+auto tcp_task=tcp_single_query(ring,ns,*wire_ptr,qid,lowercase_ascii(hostname),qtype,timeout);
 auto const msg2=co_await move(tcp_task);
 EndpointBatch b;
 b.was_queried=true;
@@ -1081,7 +1079,7 @@ co_return EndpointBatch{};
 // Fire A and AAAA queries in parallel (RFC 8305 §3). Connection-attempt
 // staggering belongs in the caller's connect loop, not here.
 [[nodiscard]]root::Task<ResolveResult>build_native_udp_flow(
-FileReader&reader,
+SocketTaskRing&ring,
 NameserverEndpoint ns,
 string const&hostname,
 u16 port,
@@ -1095,10 +1093,10 @@ u16 const qid_a=static_cast<u16>(tl_rng()&0xFFFFU);
 u16 const qid_aaaa=static_cast<u16>((static_cast<u32>(qid_a)+1U)&0xFFFFU);
 auto[v4,v6]=co_await join_all(
 do_v4?
-build_family_flow(reader,ns,hostname,port,qid_a,codec::QType::a,AddressFamily::v4,timeout,edns):
+build_family_flow(ring,ns,hostname,port,qid_a,codec::QType::a,AddressFamily::v4,timeout,edns):
 make_empty_batch_task(),
 do_v6?build_family_flow(
-reader,
+ring,
 ns,
 hostname,
 port,
@@ -1138,7 +1136,7 @@ r.suggested_ttl=chrono::seconds{min_ttl};
 co_return r;
 }
 [[nodiscard]]root::Task<ResolveResult>build_native_udp_flow_with_nameservers(
-FileReader&reader,
+SocketTaskRing&ring,
 vector<NameserverEndpoint>nameservers,
 size_t index,
 string hostname,
@@ -1152,12 +1150,12 @@ if(index>=nameservers.size())
 throw DnsError{DnsErrorKind::no_servers,"dns: no nameservers configured"};
 auto const ns=nameservers[index];
 auto query_host=hostname;
-auto udp_task=build_native_udp_flow(reader,ns,query_host,port,do_v4,do_v6,prefer,timeout,edns);
+auto udp_task=build_native_udp_flow(ring,ns,query_host,port,do_v4,do_v6,prefer,timeout,edns);
 auto result=co_await move(udp_task);
 if(!result.endpoints.empty()||index+1>=nameservers.size())
 co_return move(result);
 auto next_task=build_native_udp_flow_with_nameservers(
-reader,
+ring,
 move(nameservers),
 index+1,
 move(hostname),
@@ -1170,7 +1168,7 @@ edns);
 co_return co_await move(next_task);
 }
 [[nodiscard]]root::Task<ResolveResult>build_native_udp_flow_with_candidates(
-FileReader&reader,
+SocketTaskRing&ring,
 vector<NameserverEndpoint>nameservers,
 vector<string>candidates,
 size_t index,
@@ -1187,7 +1185,7 @@ auto query_nameservers=nameservers;
 bool try_next=false;
 try{
 auto ns_task=build_native_udp_flow_with_nameservers(
-reader,
+ring,
 move(query_nameservers),
 0,
 candidate,
@@ -1206,7 +1204,7 @@ try_next=true;
 auto _=try_next;// always true here
 // recursive fallback outside catch block:
 auto next_task=build_native_udp_flow_with_candidates(
-reader,
+ring,
 move(nameservers),
 move(candidates),
 index+1,
@@ -1357,6 +1355,7 @@ vector<SP<root::TaskSource<ResolveResult>>>waiters;
 struct Resolver::Impl{
 ResolverBackend backend{};
 UP<FileReader>reader{};
+UP<SocketTaskRing>task_ring{};
 WorkPool*pool{nullptr};
 ResolverOptions opts;
 vector<NameserverEndpoint>nameservers;
@@ -1375,7 +1374,11 @@ UserDataFn encode_ud,
 ResolverOptions opts)
 :impl_{make_shared<Impl>()}{
 impl_->backend=ResolverBackend::native_udp;
-impl_->reader=make_unique<FileReader>(ring,completions,move(encode_ud));
+auto shared_ud=make_shared<UserDataFn>(move(encode_ud));
+impl_->reader=make_unique<FileReader>(ring,completions,
+[shared_ud](u32 s,u32 g)->u64{return(*shared_ud)(s,g);});
+impl_->task_ring=make_unique<SocketTaskRing>(SocketRawRing{ring},*completions,
+[shared_ud](u32 s,u32 g)->u64{return(*shared_ud)(s,g);});
 impl_->opts=move(opts);
 auto const resolv=parse_resolv_conf(impl_->opts.resolv_conf);
 impl_->nameservers=
@@ -1600,7 +1603,7 @@ return move(out_task);
 impl_->in_flight.emplace(coalesce_key,CoalescedBroadcast{});
 }
 
-FileReader*reader=impl_->reader.get();
+SocketTaskRing*task_ring=impl_->task_ring.get();
 auto const timeout=effective_native_timeout(effective_opts);
 codec::Edns0Options const edns{.udp_size=impl_->opts.edns0_udp_size};
 bool const do_v4=effective_opts.allow_v4;
@@ -1694,7 +1697,7 @@ fanout_error(current_exception());
 }
 }(out_src,
 build_native_udp_flow_with_candidates(
-*reader,
+*task_ring,
 ns_list,
 candidates,
 0,
@@ -1825,6 +1828,8 @@ struct RingGuard{
 ~RingGuard(){::io_uring_queue_exit(r);}
 }const guard{&tmp_ring};
 CompletionTable tmp_ct;
+SocketTaskRing tmp_str{SocketRawRing{&tmp_ring},tmp_ct,
+[](u32 slot,u32 gen)noexcept->u64{return(static_cast<u64>(gen)<<32U)|slot;}};
 FileReader tmp_reader{&tmp_ring,&tmp_ct,[](u32 slot,u32 gen)noexcept->u64{
 return(static_cast<u64>(gen)<<32U)|slot;
 }};
@@ -1849,7 +1854,7 @@ return move(*hit);
 }
 }
 auto flow=build_native_udp_flow_with_nameservers(
-tmp_reader,
+tmp_str,
 ns_list,
 0,
 candidate,

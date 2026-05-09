@@ -13,7 +13,8 @@ import conflux.net.http.types;
 import conflux.net.http.request;
 import conflux.utils;
 import conflux.work;
-import conflux.file_io;
+import conflux.uring.completion;
+import conflux.socket_io;
 import conflux.socket_io.coro;
 import conflux.net.client;
 namespace async_detail{
@@ -61,7 +62,7 @@ A<u8,4096>tmp{};
 while(buf.size()<max){
 SZ n;
 try{
-n=co_await stream.recv(span<u8>{tmp.data(),tmp.size()});
+n=co_await stream.read_borrowed(span<u8>{tmp.data(),tmp.size()});
 }catch(...){break;}
 if(n==0)break;
 buf.append(reinterpret_cast<char const*>(tmp.data()),n);
@@ -76,7 +77,7 @@ if(out.size()>=cap)co_return false;
 auto const want=min(tmp.size(),target-out.size());
 SZ n;
 try{
-n=co_await stream.recv(span<u8>{tmp.data(),want});
+n=co_await stream.read_borrowed(span<u8>{tmp.data(),want});
 }catch(...){co_return false;}
 if(n==0)co_return false;
 out.append(reinterpret_cast<char const*>(tmp.data()),n);
@@ -89,7 +90,7 @@ A<u8,4096>tmp{};
 for(;;){
 SZ n;
 try{
-n=co_await stream.recv(span<u8>{tmp.data(),tmp.size()});
+n=co_await stream.read_borrowed(span<u8>{tmp.data(),tmp.size()});
 }catch(...){break;}
 if(n==0)break;
 out.append(reinterpret_cast<char const*>(tmp.data()),n);
@@ -114,14 +115,14 @@ co_return false;
 }
 SZ n;
 try{
-n=co_await stream.recv(span<u8>{tmp.data(),tmp.size()});
+n=co_await stream.read_borrowed(span<u8>{tmp.data(),tmp.size()});
 }catch(...){co_return false;}
 if(n==0)co_return false;
 encoded.append(reinterpret_cast<char const*>(tmp.data()),n);
 }
 }
 wroot::Task<HttpResult>do_async_request(
-FileReader&reader,
+SocketTaskRing&ring,
 HttpRequest const&req,
 HttpClientOptions const&opts){
 auto const&url=req.url();
@@ -183,9 +184,9 @@ sockaddr_storage ss{};
 memcpy(&ss,ep.addr,ep.addr_len);
 int const fam=(ep.family==6)?AF_INET6:AF_INET;
 try{
-stream.emplace(co_await tcp_connect(reader,fam,ss,static_cast<socklen_t>(ep.addr_len)));
+stream.emplace(co_await tcp_connect(ring,fam,ss,static_cast<socklen_t>(ep.addr_len)));
 break;
-}catch(FileIoError const&e){
+}catch(IoError const&e){
 conn_err.os_errno=e.code().value();
 conn_err.message=format("connect to '{}:{}' failed: {}",url.host,url.port,e.what());
 }catch(...){
@@ -220,10 +221,10 @@ if(!req.body().empty())
 wire+=format("Content-Length: {}\r\n",req.body().size());
 wire+="\r\n";
 try{
-co_await stream->send_all(span<u8 const>{reinterpret_cast<u8 const*>(wire.data()),wire.size()});
+co_await stream->write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const*>(wire.data()),wire.size()});
 if(!req.body().empty())
-co_await stream->send_all(span<u8 const>{reinterpret_cast<u8 const*>(req.body().data()),req.body().size()});
-}catch(FileIoError const&e){
+co_await stream->write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const*>(req.body().data()),req.body().size()});
+}catch(IoError const&e){
 co_return unexpected(HttpError{.kind=HttpErrorKind::write,.phase=HttpPhase::write,.os_errno=e.code().value(),.message="failed to send request"});
 }
 tel.bytes_sent+=wire.size()+req.body().size();
@@ -321,8 +322,8 @@ co_return response;
 export namespace conflux::http{
 [[nodiscard]]conflux::work::root::Task<HttpResult>send_async(
 HttpClient const&client,
-FileReader&reader,
+SocketTaskRing&ring,
 HttpRequest const&req){
-return async_detail::do_async_request(reader,req,client.options());
+return async_detail::do_async_request(ring,req,client.options());
 }
 }

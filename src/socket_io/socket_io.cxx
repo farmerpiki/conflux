@@ -18,8 +18,11 @@ export module conflux.socket_io;
 import std;
 import conflux.types;
 import conflux.uring;
+import conflux.uring.completion;
+import conflux.uring.handle;
 // ─── handle types ────────────────────────────────────────────────────────────
 
+export using OwnedSocketHandle=IoHandle;
 export struct OsFd{
 int value{-1};
 };
@@ -1003,12 +1006,15 @@ SocketRawRing&ring,
 SocketHandle handle,
 sockaddr const*addr,
 socklen_t addrlen,
-u64 user_data){
+u64 user_data,
+bool link_next=false){
 auto sqe=ring.try_get_sqe();
 if(!sqe)
 return false;
 sqe.prep_connect(handle.sqe_fd(),addr,addrlen);
 sqe.add_flags(handle.sqe_fd_flags());
+if(link_next)
+sqe.add_flags(conflux::uring::sqe_flags::io_link);
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
 }
@@ -1237,5 +1243,75 @@ user_data,
 caps,
 accept_flags_,
 accept_direct);
+}
+};
+// ─── raw submission: standalone shutdown ──────────────────────────────────────
+
+export bool submit_shutdown(
+SocketRawRing&ring,
+SocketHandle handle,
+int how,
+u64 user_data){
+auto sqe=ring.try_get_sqe();
+if(!sqe)
+return false;
+sqe.prep_shutdown(handle.sqe_fd(),how);
+sqe.add_flags(handle.sqe_fd_flags());
+sqe.user_data(conflux::uring::UserData{user_data});
+return true;
+}
+// ─── SocketFdMode ─────────────────────────────────────────────────────────────
+
+export enum class SocketFdMode:u8{
+os_fd,
+direct_if_available,
+direct_required
+};
+// ─── ConnectOptions ───────────────────────────────────────────────────────────
+
+export struct ConnectOptions{
+chrono::milliseconds timeout{chrono::seconds{30}};
+CancelPolicy cancel{CancelPolicy::cancel_fd};
+bool tcp_nodelay{true};
+bool tcp_quickack{false};
+};
+// ─── SocketTaskRing ───────────────────────────────────────────────────────────
+// Thin wrapper: SocketRawRing + CompletionTable& + UserDataFn + options.
+// Does NOT own the ring — ring lifetime is managed by the HTTP server.
+// Does NOT own CompletionTable — owned by the caller.
+
+export class SocketTaskRing;// forward declare before RingOpFn alias
+
+export using RingOpFn=Fn<void(SocketTaskRing&)>;
+export struct SocketTaskRingOptions{
+SocketFdMode fd_mode{SocketFdMode::os_fd};// P1 safe default; direct_* is explicit opt-in until P1-04
+conflux::uring::IoUringCaps const*caps{};
+Fn<bool(RingOpFn)>submit_on_ring_owner{};
+};
+export class SocketTaskRing{
+SocketRawRing raw_;
+CompletionTable*completions_{};
+UserDataFn encode_ud_{};
+SocketTaskRingOptions opts_{};
+public:
+SocketTaskRing(
+SocketRawRing raw,
+CompletionTable&completions,
+UserDataFn encode_ud,
+SocketTaskRingOptions opts={})noexcept
+:raw_{raw},completions_{&completions},encode_ud_{std::move(encode_ud)},opts_{std::move(opts)}{}
+SocketTaskRing(SocketTaskRing const&)=delete;
+SocketTaskRing&operator=(SocketTaskRing const&)=delete;
+SocketTaskRing(SocketTaskRing&&)=delete;
+SocketTaskRing&operator=(SocketTaskRing&&)=delete;
+[[nodiscard]]SocketRawRing&raw()noexcept{return raw_;}
+[[nodiscard]]CompletionTable&completions()noexcept{return*completions_;}
+[[nodiscard]]SocketTaskRingOptions const&opts()const noexcept{return opts_;}
+[[nodiscard]]u64 encode(u32 slot,u32 gen)const{return encode_ud_(slot,gen);}
+[[nodiscard]]bool submit_on_owner(RingOpFn fn){
+if(opts_.submit_on_ring_owner)
+return opts_.submit_on_ring_owner(move(fn));
+fn(*this);
+return true;
 }
 };
