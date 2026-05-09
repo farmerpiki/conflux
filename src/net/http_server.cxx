@@ -828,7 +828,7 @@ struct RecvComp{
 int fd;
 int res;
 u32 gen;
-u16 buf_id;
+u32 flags;
 };
 constexpr SZ FD_TABLE_RESERVE=4096;
 constexpr unsigned DEFAULT_RING_ENTRIES=1024U;
@@ -989,10 +989,6 @@ auto buf=make_unique<u64>(0);
 io_uring_prep_read(sqe,deferred_efd,buf.get(),sizeof(u64),0);
 io_uring_sqe_set_data64(sqe,ud);
 in_flight_read_bufs[ud]=move(buf);
-}
-void return_buffer(
-u16 bid){
-buf_ring_->recycle(bid);
 }
 #if CONFLUX_HAS_TLS
 // Drain all encrypted bytes from wbio into conn.tls_send_buf.
@@ -2263,22 +2259,34 @@ if(!cqe_has_more(flg))
 queue_multishot_accept();
 }
 }
+void discard_recv_bufs(int res,u32 flags)noexcept{
+if(!cqe_has_buffer(flags))return;
+auto slices=buffer_slices_from_cqe(*buf_ring_,res,flags,use_recv_bundle);
+slices.recycle_all();
+}
+void discard_recv_bufs(RecvComp&rc)noexcept{
+discard_recv_bufs(rc.res,rc.flags);
+rc.flags=0;
+}
 void handle_recv_cqe(
 int fd,
 int res,
 u32 flg,
 u32 gen){
 auto const ufd=static_cast<SZ>(fd);
-if(ufd>=fd_table.size())
+if(ufd>=fd_table.size()){
+discard_recv_bufs(res,flg);
 return;
+}
 bool const gen_match=fd_table[ufd].gen==gen;
 bool const ws_pending=ws_cancel_handoffs.find(fd)!=ws_cancel_handoffs.end();
-if(!gen_match&&!ws_pending)
+if(!gen_match&&!ws_pending){
+discard_recv_bufs(res,flg);
 return;
+}
 if(!cqe_has_more(flg)&&gen_match)
 fd_table[ufd].recv_armed=false;
-u16 const buf_id=cqe_has_buffer(flg)?cqe_buffer_id(flg):UINT16_MAX;
-recvs.push_back({fd,res,gen,buf_id});
+recvs.push_back({fd,res,gen,flg});
 }
 bool handle_sse_send_complete(
 int fd,
@@ -2975,32 +2983,28 @@ case Op::Nop:break;
 }
 }
 // Phase 1: copy recv data out of provided buffers, return immediately.
+template<typename F>
+struct ScopeExit{
+F fn;
+~ScopeExit()noexcept{fn();}
+};
+template<typename F>
+ScopeExit(F)->ScopeExit<F>;
 template<typename Buf>
 void append_recv_buf_to(
 Buf&dst,
 RecvComp&rc){
-if(use_recv_bundle){
-SZ remaining=static_cast<SZ>(rc.res);
-u16 cur_buf=rc.buf_id;
-u32 const bcount=buf_ring_->count();
-while(remaining>0){
-SZ const chunk=min(remaining,buf_ring_->buf_size());
-auto const bv=buf_ring_->buffer_view(cur_buf,chunk);
-dst.append(reinterpret_cast<char const*>(bv.data()),bv.size());
-return_buffer(cur_buf);
-remaining-=chunk;
-cur_buf=static_cast<u16>((cur_buf+1U)%bcount);
-}
-}else{
-auto const bv=buf_ring_->buffer_view(rc.buf_id,static_cast<SZ>(rc.res));
-dst.append(reinterpret_cast<char const*>(bv.data()),bv.size());
-return_buffer(rc.buf_id);
-}
-rc.buf_id=UINT16_MAX;
+auto slices=buffer_slices_from_cqe(*buf_ring_,rc.res,rc.flags,use_recv_bundle);
+ScopeExit recycle{[&]()noexcept{
+slices.recycle_all();
+rc.flags=0;
+}};
+for(auto const&s:slices)
+dst.append(reinterpret_cast<char const*>(s.bytes.data()),s.bytes.size());
 }
 void phase1_copy_recv_bufs(){
 for(auto&rc:recvs){
-if(rc.buf_id==UINT16_MAX)
+if(!cqe_has_buffer(rc.flags))
 continue;
 auto const ufd=static_cast<SZ>(rc.fd);
 auto ws_it=ws_cancel_handoffs.find(rc.fd);
@@ -3010,8 +3014,7 @@ bool const ws_pending=ws_it!=ws_cancel_handoffs.end()
 #endif
 ;
 if(rc.res<=0||ufd>=fd_table.size()||(!ws_pending&&(fd_table[ufd].gen!=rc.gen||fd_table[ufd].fd<0))){
-return_buffer(rc.buf_id);
-rc.buf_id=UINT16_MAX;
+discard_recv_bufs(rc);
 continue;
 }
 if(ws_pending&&(fd_table[ufd].gen!=rc.gen||fd_table[ufd].fd<0)){
@@ -3279,8 +3282,8 @@ parser_limits);
 // Phase 3: return unconsumed buffers + dispatch send/close.
 void phase3_dispatch(){
 for(auto&rc:recvs){
-if(rc.buf_id!=UINT16_MAX)
-return_buffer(rc.buf_id);
+if(cqe_has_buffer(rc.flags))
+discard_recv_bufs(rc);
 
 auto const ufd=static_cast<SZ>(rc.fd);
 if(ufd>=fd_table.size()||fd_table[ufd].gen!=rc.gen)
@@ -3936,8 +3939,10 @@ if(parent>=0)
 wq_fd=static_cast<u32>(parent);
 }
 r.init(impl_->cfg.port,entries,impl_->uring_flags,wq_fd,impl_->cfg.no_mmap);
-if(impl_->cfg.recv_bundle&&((r.ring.features&IORING_FEAT_RECVSEND_BUNDLE)!=0U))
-r.use_recv_bundle=true;
+if(impl_->cfg.recv_bundle&&((r.ring.features&IORING_FEAT_RECVSEND_BUNDLE)!=0U)){
+r.use_recv_bundle=false;
+eprintln("recv_bundle disabled: awaiting P0-01 test sign-off");
+}
 if(impl_->cfg.attach_wq&&i==0){
 impl_->wq_ring_fd_.store(r.ring.ring_fd,memory_order_release);
 impl_->wq_ring_fd_.notify_all();

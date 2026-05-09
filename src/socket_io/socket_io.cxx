@@ -1,4 +1,5 @@
 module;
+#include<cassert>
 #include<cstdlib>
 #include<cstring>
 #include<fcntl.h>
@@ -260,6 +261,7 @@ return ring_order_[pos%count_];
 [[nodiscard]]u16 group_id()const noexcept{return group_id_;}
 [[nodiscard]]SZ buf_size()const noexcept{return buf_size_;}
 [[nodiscard]]u32 count()const noexcept{return count_;}
+[[nodiscard]]u32 debug_head_pos()const noexcept{return head_pos_;}
 };
 // ─── RecvBuffer ──────────────────────────────────────────────────────────────
 // RAII lease on a single buffer ring slot. Auto-recycles unless detached.
@@ -373,13 +375,35 @@ ring_=nullptr;
 }
 void detach()noexcept{detached_=true;}
 };
+// ─── CQE helpers ─────────────────────────────────────────────────────────────
+
+export[[nodiscard]]inline u16 cqe_buffer_id(
+u32 cqe_flags)noexcept{
+return conflux::uring::cqe_flags::buf_id(conflux::uring::CqeFlags{cqe_flags}).v;
+}
+export[[nodiscard]]inline bool cqe_has_more(
+u32 cqe_flags)noexcept{
+return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::more);
+}
+export[[nodiscard]]inline bool cqe_has_buffer(
+u32 cqe_flags)noexcept{
+return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::buffer);
+}
 export[[nodiscard]]RecvSlices buffer_slices_from_cqe(
 BufferRing&ring,
-conflux::uring::Cqe cqe,
+int res,
+u32 flags,
 bool bundle)noexcept{
-if(cqe.res<=0)return{};
-SZ const total=static_cast<SZ>(cqe.res);
+if(res<=0||!cqe_has_buffer(flags)){
+assert(!cqe_has_buffer(flags));
+return{};
+}
+SZ const total=static_cast<SZ>(res);
 u32 const cnt=bundle?static_cast<u32>((total+ring.buf_size()-1)/ring.buf_size()):1u;
+assert(cnt>0);
+assert(cnt<=ring.count());
+u16 const first_id=cqe_buffer_id(flags);
+assert(ring.ring_id_at(ring.debug_head_pos())==first_id);
 u32 const start=ring.consume(cnt);
 return RecvSlices{&ring,start,cnt,total};
 }
@@ -424,20 +448,6 @@ return ring_.register_files_update(slot,span<int const>{&fd,1})==1;
 [[nodiscard]]int error()const noexcept{return err_;}
 [[nodiscard]]u32 capacity()const noexcept{return capacity_;}
 };
-// ─── CQE helpers ─────────────────────────────────────────────────────────────
-
-export[[nodiscard]]inline u16 cqe_buffer_id(
-u32 cqe_flags)noexcept{
-return conflux::uring::cqe_flags::buf_id(conflux::uring::CqeFlags{cqe_flags}).v;
-}
-export[[nodiscard]]inline bool cqe_has_more(
-u32 cqe_flags)noexcept{
-return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::more);
-}
-export[[nodiscard]]inline bool cqe_has_buffer(
-u32 cqe_flags)noexcept{
-return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::buffer);
-}
 // ─── raw submission: accept ──────────────────────────────────────────────────
 // All borrowed data (buffers, iovecs) must remain valid until CQE completion.
 
