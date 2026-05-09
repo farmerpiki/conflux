@@ -245,6 +245,19 @@ target_link_libraries(conflux_types
     PRIVATE conflux_options
 )
 
+add_library(conflux_uring STATIC)
+target_sources(conflux_uring
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/uring/uring.cxx
+)
+target_link_libraries(conflux_uring
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  PkgConfig::LIBURING
+)
+
 add_library(conflux_work STATIC)
 target_sources(conflux_work
     PUBLIC FILE_SET CXX_MODULES
