@@ -348,6 +348,8 @@ struct alignas(
 int fd=-1;
 u32 gen=0;
 bool recv_armed=false;
+u32 last_recv_cqe_flags{};
+bool have_last_recv_cqe_flags{};
 bool send_queued=false;
 bool is_sse=false;
 bool sse_headers_sent=false;
@@ -923,6 +925,7 @@ u32 fatal_cq_overflow_count_{0};
 bool overflow_flush_limit_hit_{false};
 bool use_recv_bundle=false;// IORING_RECVSEND_BUNDLE on multishot recv
 bool use_recv_incremental_buf=false;// IOU_PBUF_RING_INC on buffer ring
+bool auto_recv_arm_policy=false;// adaptive poll_first via IORING_CQE_F_SOCK_NONEMPTY
 SZ max_body_size=SZ{1024}*1024;// set from Config before run_loop()
 u32 request_timeout_ms=30000;// set from Config before run_loop(); 0 = disabled
 u32 tls_sniff_timeout_ms=10000;// set from Config before run_loop(); 0 = disabled
@@ -1685,6 +1688,8 @@ conn.sse_channel->close();// notify handler thread
 ++conn.gen;// prevent a second Close CQE from erasing the next tenant
 conn.fd=-1;
 conn.recv_armed=false;
+conn.last_recv_cqe_flags=0;
+conn.have_last_recv_cqe_flags=false;
 conn.closing=false;
 conn.is_sse=false;
 conn.sse_headers_sent=false;
@@ -1764,12 +1769,20 @@ caps,
 accepted_sockets_direct))
 defer_op([this]{queue_multishot_accept();});
 }
+[[nodiscard]]RecvArmPolicy resolve_recv_arm_policy(Conn const&conn)const noexcept{
+return::resolve_recv_arm_policy(
+auto_recv_arm_policy,
+caps.recv_poll_first,
+conn.have_last_recv_cqe_flags,
+conn.last_recv_cqe_flags);
+}
 void queue_multishot_recv(
 int fd){
 auto&conn=conn_for(fd);
 auto handle=
 accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
-if(!submit_recv_multishot(raw_,handle,*buf_ring_,pack(Op::Recv,conn.gen,fd),use_recv_bundle)){
+auto const arm=resolve_recv_arm_policy(conn);
+if(!submit_recv_multishot(raw_,handle,*buf_ring_,pack(Op::Recv,conn.gen,fd),use_recv_bundle,arm)){
 defer_op([this,fd]{queue_multishot_recv(fd);});
 return;
 }
@@ -2257,6 +2270,8 @@ auto&conn=conn_for(res);
 ++conn.gen;
 conn.fd=res;
 conn.recv_armed=false;
+conn.last_recv_cqe_flags=0;
+conn.have_last_recv_cqe_flags=false;
 conn.send_queued=false;
 conn.closing=false;
 conn.has_response=false;
@@ -2360,6 +2375,11 @@ return;
 }
 if(!cqe_has_more(flg)&&gen_match)
 fd_table[ufd].recv_armed=false;
+if(res>0&&gen_match&&fd_table[ufd].fd>=0){
+auto&conn=fd_table[ufd];
+conn.last_recv_cqe_flags=flg;
+conn.have_last_recv_cqe_flags=true;
+}
 recvs.push_back({fd,res,gen,flg});
 }
 bool handle_sse_send_complete(
@@ -3692,6 +3712,8 @@ if(c.no_mmap)
 app("NO_MMAP");
 if(c.recv_bundle)
 app("RECV_BUNDLE");
+if(c.auto_recv_arm_policy)
+app("AUTO_RECV_ARM");
 return s.empty()?"none":s;
 }
 namespace{
@@ -4197,6 +4219,7 @@ r.use_recv_incremental_buf=impl_->cfg.recv_incremental_buf;
 r.init(impl_->cfg.port,entries,impl_->uring_flags,wq_fd,impl_->cfg.no_mmap);
 if(!impl_->cfg.recv_incremental_buf&&impl_->cfg.recv_bundle&&r.caps.recvsend_bundle)
 r.use_recv_bundle=true;
+r.auto_recv_arm_policy=impl_->cfg.auto_recv_arm_policy;
 if(impl_->cfg.attach_wq&&i==0){
 impl_->wq_ring_fd_.store(r.ring.ring_fd,memory_order_release);
 impl_->wq_ring_fd_.notify_all();

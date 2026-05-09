@@ -652,6 +652,18 @@ export enum class RecvArmPolicy:u8{
 default_,
 poll_first
 };
+export[[nodiscard]]RecvArmPolicy resolve_recv_arm_policy(
+bool auto_enabled,
+bool recv_poll_first,
+bool have_last_flags,
+u32 last_flags)noexcept{
+if(!auto_enabled||!recv_poll_first||!have_last_flags)
+return RecvArmPolicy::default_;
+bool const nonempty=
+conflux::uring::CqeFlags{last_flags}
+.any(conflux::uring::cqe_flags::sock_nonempty);
+return nonempty?RecvArmPolicy::default_:RecvArmPolicy::poll_first;
+}
 export bool submit_recv_multishot(
 SocketRawRing&ring,
 SocketHandle handle,

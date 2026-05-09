@@ -138,6 +138,7 @@ bool no_mmap=false;// IORING_SETUP_NO_MMAP
 // Reduces per-CQE overhead for large recv bursts.
 bool recv_bundle=false;// IORING_RECVSEND_BUNDLE
 bool recv_incremental_buf=false;// IOU_PBUF_RING_INC (kernel 6.10+)
+bool auto_recv_arm_policy=false;// adaptive poll_first via IORING_CQE_F_SOCK_NONEMPTY hint
 // Enable kernel TLS (kTLS) offload via SSL_OP_ENABLE_KTLS (OpenSSL 3+).
 // When active after handshake, the kernel handles TLS encryption; static file
 // responses use splice_to_fd (zero-copy) instead of read_fixed+SSL_write.
@@ -269,7 +270,7 @@ void apply_iouring_key(
 Config&cfg,
 SV key,
 SV val){
-static constexpr A<P<SV,bool Config::*>,13>kBoolKeys{
+static constexpr A<P<SV,bool Config::*>,14>kBoolKeys{
 {
 {"single_issuer",&Config::single_issuer},
 {"defer_taskrun",&Config::defer_taskrun},
@@ -284,6 +285,7 @@ static constexpr A<P<SV,bool Config::*>,13>kBoolKeys{
 {"recv_bundle",&Config::recv_bundle},
 {"recv_incremental_buf",&Config::recv_incremental_buf},
 {"ktls",&Config::ktls},
+{"auto_recv_arm_policy",&Config::auto_recv_arm_policy},
 }};
 for(auto const&[k,member]:kBoolKeys){
 if(key==k){

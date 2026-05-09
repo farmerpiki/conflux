@@ -1496,6 +1496,7 @@ bool recv_zc{};
 bool resize_rings{};
 bool registered_buffer_clone{};
 bool zc_rx{};
+bool recv_poll_first{};// IORING_RECV/SEND ioprio poll_first, available since 5.19
 };
 [[nodiscard]]IoUringCaps detect_caps(
 RingRef ring)noexcept{
@@ -1535,6 +1536,7 @@ c.recv_zc=io_uring_opcode_supported(probe,IORING_OP_RECV_ZC)!=0;
 io_uring_free_probe(probe);
 }
 c.zc_rx=c.recv_zc;
+c.recv_poll_first=true;// present since 5.19, below our kernel floor
 return c;
 }
 [[nodiscard]]IoUringCaps detect_caps(
@@ -1566,6 +1568,7 @@ app("op_uring_cmd",c.op_uring_cmd);
 app("cmd_sock_setsockopt",c.cmd_sock_setsockopt);
 app("send_zc",c.send_zc);
 app("recv_zc",c.recv_zc);
+app("recv_poll_first",c.recv_poll_first);
 return s;
 }
 }// namespace conflux::uring

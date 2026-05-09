@@ -63,3 +63,26 @@ CHECK(s.find("feat_nodrop")!=S::npos);
 CHECK(s.find("recvsend_bundle")!=S::npos);
 CHECK(s.find("feat_submit_stable")==S::npos);
 }
+TEST_CASE(
+"IoUringCaps.recv_poll_first: false on default-constructed",
+"[caps]"){
+IoUringCaps c{};
+CHECK(!c.recv_poll_first);
+CHECK(caps_to_log_string(c).find("recv_poll_first")==S::npos);
+}
+TEST_CASE(
+"IoUringCaps.recv_poll_first: appears in log string when set",
+"[caps]"){
+IoUringCaps c{};
+c.recv_poll_first=true;
+auto s=caps_to_log_string(c);
+CHECK(s.find("recv_poll_first")!=S::npos);
+}
+TEST_CASE(
+"IoUringCaps.detect_caps: recv_poll_first is true",
+"[caps]"){
+auto r=Ring::init(32,{});
+REQUIRE(r);
+auto const caps=detect_caps(r->ref());
+CHECK(caps.recv_poll_first);
+}
