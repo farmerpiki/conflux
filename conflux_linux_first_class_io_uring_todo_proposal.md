@@ -52,7 +52,7 @@ The highest-risk gaps are not missing SQE prep helpers. They are:
 
 # P0 — correctness / footgun blockers
 
-## [~] P0-01: Make recv bundle either correct or unavailable
+## [x] P0-01: Make recv bundle either correct or unavailable
 
 **Classification:** Keep, narrow.  
 **Current state:** Partial/unsafe.
@@ -169,7 +169,7 @@ Task<SZ> send_zc_submit_only_borrowed(span<byte const>);  // explicit advanced A
 RawZcToken submit_send_zc_borrowed(...);                  // caller dispatches notification
 ```
 
-## [ ] P0-04: Add `DirectSlotPool` with poison state
+## [x] P0-04: Add `DirectSlotPool` with poison state
 
 **Classification:** Keep.  
 **Current state:** Not done.
@@ -613,9 +613,9 @@ Do not start AF_ALG before socket ownership and Task-ring semantics are clean. A
 
 ## Phase 0 — safety gates before more API surface
 
-- [~] **P0-01** Disable or complete recv bundle decoding.
+- [x] **P0-01** Disable or complete recv bundle decoding.
 - [x] **P0-02** Remove hidden submit from `SocketRawRing::get_sqe()`.
-- [ ] **P0-04** Add `DirectSlotPool` with poison state.
+- [x] **P0-04** Add `DirectSlotPool` with poison state.
 - [ ] **P0-05** Add CQ overflow accounting/policy and direct-flow shutdown drain.
 - [ ] **P0-03** Fix/demote zero-copy-send APIs.
 
