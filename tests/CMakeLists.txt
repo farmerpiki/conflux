@@ -230,6 +230,15 @@ target_link_libraries(conflux_uring_flow_tests
 )
 target_compile_definitions(conflux_uring_flow_tests PRIVATE CONFLUX_TESTING)
 
+add_executable(conflux_owned_path_flow_tests owned_path_flow_test.cxx)
+target_link_libraries(conflux_owned_path_flow_tests
+    PRIVATE
+        conflux_uring
+        conflux_options
+        Catch2::Catch2WithMain
+)
+target_compile_definitions(conflux_owned_path_flow_tests PRIVATE CONFLUX_TESTING)
+
 add_executable(conflux_direct_slot_pool_tests direct_slot_pool_test.cxx)
 target_link_libraries(conflux_direct_slot_pool_tests
     PRIVATE
@@ -391,6 +400,7 @@ conflux_discover_tests(conflux_work_carrier_phase6_tests)
 conflux_discover_tests(conflux_work_carrier_streams_tests)
 conflux_discover_tests(conflux_work_carrier_timer_tests)
 conflux_discover_tests(conflux_uring_flow_tests)
+conflux_discover_tests(conflux_owned_path_flow_tests)
 conflux_discover_tests(conflux_cq_overflow_tests)
 conflux_discover_tests(conflux_ring_resize_tests)
 conflux_discover_tests(conflux_uring_caps_tests)

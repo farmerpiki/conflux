@@ -21,6 +21,24 @@ close_direct
 struct BorrowedPath{
 char const*ptr;
 };
+struct OwnedInlinePath{
+static constexpr SZ cap=255;
+A<char,cap+1>buf{};
+SZ len{};
+[[nodiscard]]static expected<OwnedInlinePath,int>
+from_sv(SV sv)noexcept{
+if(sv.size()>cap)
+return unexpected{-ENAMETOOLONG};
+if(sv.find('\0')!=SV::npos)
+return unexpected{-EINVAL};
+OwnedInlinePath p{};
+std::memcpy(p.buf.data(),sv.data(),sv.size());
+p.buf[sv.size()]='\0';
+p.len=sv.size();
+return p;
+}
+[[nodiscard]]char const*c_str()const noexcept{return buf.data();}
+};
 struct OpResult{
 i32 res=0;
 u32 requested=0;
@@ -173,6 +191,8 @@ DirectSlot slot;
 A<PendingOp,max_initial_ops>ops{};
 u8 op_count=0;
 bool close_requested=false;
+bool owns_path=false;
+OwnedInlinePath owned_path_buf{};
 int err=0;
 };
 // ── Slab with O(1) freelist ───────────────────────────────────────────────────
@@ -305,7 +325,8 @@ void prep_op(
 io_uring_sqe*sqe,
 u8 i,
 DirectFileBuilder const&b,
-bool is_close)noexcept{
+bool is_close,
+char const*open_path_override=nullptr)noexcept{
 if(is_close){
 io_uring_prep_close_direct(sqe,b.slot.value);
 return;
@@ -316,7 +337,7 @@ case FlowOpKind::open_direct:
 io_uring_prep_openat_direct(
 sqe,
 op.open.dfd,
-op.open.path,
+(op.kind==FlowOpKind::open_direct&&open_path_override!=nullptr)?open_path_override:op.open.path,
 op.open.open_flags,
 op.open.mode,
 op.open.slot.value);
@@ -445,6 +466,10 @@ FlowRuntime&rt)noexcept
 :ring_{ring},rt_{rt}{}
 [[nodiscard]]DirectFileFlow
 open_direct(DirectSlot slot,int dfd,BorrowedPath path,int open_flags,mode_t mode=0)noexcept;
+[[nodiscard]]DirectFileFlow
+open_direct_owned(DirectSlot slot,int dfd,OwnedInlinePath path,int open_flags,mode_t mode=0)noexcept;
+[[nodiscard]]DirectFileFlow
+open_direct_owned(DirectSlot slot,int dfd,SV path,int open_flags,mode_t mode=0)noexcept;
 template<class Fn>
 void with_direct_file(
 DirectSlot slot,
@@ -454,6 +479,18 @@ int open_flags,
 mode_t mode,
 Fn&&build_ops)noexcept{
 auto f=open_direct(slot,dfd,path,open_flags,mode);
+forward<Fn>(build_ops)(f);
+f.close_if_opened();
+}
+template<class Fn>
+void with_direct_file_owned(
+DirectSlot slot,
+int dfd,
+OwnedInlinePath path,
+int open_flags,
+mode_t mode,
+Fn&&build_ops)noexcept{
+auto f=open_direct_owned(slot,dfd,path,open_flags,mode);
 forward<Fn>(build_ops)(f);
 f.close_if_opened();
 }
@@ -475,6 +512,7 @@ FlowCb cb_;
 
 A<DirectFileBuilder,kMaxBatch>builders_{};
 A<FlowRejection,kMaxBatch>rejections_{};
+A<OwnedInlinePath,kMaxFlows>owned_paths_{};
 u32 builder_count_=0;
 u32 rejection_count_=0;
 u32 invalid_cqe_count_=0;
@@ -639,6 +677,11 @@ u32 gen)noexcept{
 slab_.test_hack_generation(idx,gen);
 }
 void test_hack_drain_slab_freelist()noexcept{slab_.test_hack_drain_freelist();}
+char const*test_owned_path_ptr(u32 flow_index)const noexcept{
+if(flow_index>=kMaxFlows)
+return nullptr;
+return owned_paths_[flow_index].c_str();
+}
 #endif
 private:
 void handle_invalid(
@@ -716,18 +759,60 @@ op.kind=FlowOpKind::open_direct;
 op.open={slot,dfd,path.ptr,open_flags,mode};
 return DirectFileFlow{&b};
 }
+DirectFileFlow FlowBuilder::open_direct_owned(
+DirectSlot slot,
+int dfd,
+OwnedInlinePath path,
+int open_flags,
+mode_t mode)noexcept{
+if(rt_.builder_count_>=kMaxBatch){
+if(rt_.rejection_count_<kMaxBatch)
+rt_.rejections_[rt_.rejection_count_++]={rt_.builder_count_,-ENOBUFS};
+return DirectFileFlow{nullptr};
+}
+auto&b=rt_.builders_[rt_.builder_count_++];
+b={};
+b.slot=slot;
+b.owns_path=true;
+b.owned_path_buf=path;
+auto&op=b.ops[b.op_count++];
+op.kind=FlowOpKind::open_direct;
+op.open={slot,dfd,b.owned_path_buf.c_str(),open_flags,mode};
+return DirectFileFlow{&b};
+}
+DirectFileFlow FlowBuilder::open_direct_owned(
+DirectSlot slot,
+int dfd,
+SV path,
+int open_flags,
+mode_t mode)noexcept{
+if(rt_.builder_count_>=kMaxBatch){
+if(rt_.rejection_count_<kMaxBatch)
+rt_.rejections_[rt_.rejection_count_++]={rt_.builder_count_,-ENOBUFS};
+return DirectFileFlow{nullptr};
+}
+auto p=OwnedInlinePath::from_sv(path);
+if(!p){
+auto&b=rt_.builders_[rt_.builder_count_++];
+b={};
+b.err=p.error();
+return DirectFileFlow{&b};
+}
+return open_direct_owned(slot,dfd,*p,open_flags,mode);
+}
 span<FlowRejection const>FlowBuilder::rejected_flows()const noexcept{
 return{rt_.rejections_.data(),rt_.rejection_count_};
 }
 u32 FlowBuilder::submit()noexcept{
 u32 accepted=0;
 
-if(!rt_.path_lifetime_stable_){
-for(u32 i=0;i<rt_.builder_count_;++i)
-if(rt_.rejection_count_<kMaxBatch)
-rt_.rejections_[rt_.rejection_count_++]={i,-EOPNOTSUPP};
-rt_.builder_count_=0;
-return 0;
+for(u32 local_idx=0;local_idx<rt_.builder_count_;++local_idx){
+auto&b=rt_.builders_[local_idx];
+// Preserve earlier builder errors such as -EINVAL, -ENOBUFS,
+// -EOVERFLOW, -ENAMETOOLONG. Only apply path-lifetime rejection
+// to otherwise-valid borrowed-path builders.
+if(b.err==0&&!rt_.path_lifetime_stable_&&!b.owns_path)
+b.err=-EOPNOTSUPP;
 }
 
 for(u32 local_idx=0;local_idx<rt_.builder_count_;++local_idx){
@@ -800,12 +885,18 @@ state.close_pending=false;
 state.close_seen=false;
 state.close_res=0;
 
+char const*open_path_override=nullptr;
+if(b.owns_path){
+rt_.owned_paths_[state.flow_index]=b.owned_path_buf;
+open_path_override=rt_.owned_paths_[state.flow_index].c_str();
+}
+
 for(u8 i=0;i<emitted;++i){
 bool const is_close=mode_b&&(i==b.op_count);
 FlowOpKind const kind=is_close?FlowOpKind::close_direct:b.ops[i].kind;
 io_uring_sqe*sqe=sqes[i];
 
-prep_op(sqe,i,b,is_close);
+prep_op(sqe,i,b,is_close,i==0?open_path_override:nullptr);
 // prep_op zeroes sqe->flags; layer our flags on top
 
 if(uses_fixed_file_fd(kind))
