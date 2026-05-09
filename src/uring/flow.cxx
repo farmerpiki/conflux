@@ -618,8 +618,11 @@ int dfd,
 BorrowedPath path,
 int open_flags,
 mode_t mode)noexcept{
-if(rt_.builder_count_>=kMaxBatch)
+if(rt_.builder_count_>=kMaxBatch){
+if(rt_.rejection_count_<kMaxBatch)
+rt_.rejections_[rt_.rejection_count_++]={rt_.builder_count_,-ENOBUFS};
 return DirectFileFlow{nullptr};
+}
 auto&b=rt_.builders_[rt_.builder_count_++];
 b={};
 b.slot=slot;
@@ -632,7 +635,6 @@ span<FlowRejection const>FlowBatch::rejected_flows()const noexcept{
 return{rt_.rejections_.data(),rt_.rejection_count_};
 }
 u32 FlowBatch::submit()noexcept{
-rt_.rejection_count_=0;
 u32 accepted=0;
 
 for(u32 local_idx=0;local_idx<rt_.builder_count_;++local_idx){
@@ -663,6 +665,28 @@ reject(-EAGAIN);
 continue;
 }
 
+// Acquire all SQEs upfront so state is only initialized after full reservation.
+// Under single-issuer serialization the sq_space_left check above guarantees
+// these succeed; the NOP path below is a defensive last resort for framework bugs.
+A<io_uring_sqe*,max_chain_cqes>sqes{};
+{
+bool sq_ok=true;
+for(u8 n=0;n<emitted;++n){
+auto s=ring_.get_sqe();
+if(!s){
+for(u8 j=0;j<n;++j)
+io_uring_prep_nop(sqes[j]);// emit harmless NOPs for already-acquired slots
+rt_.slab_.release(*state_ptr);
+reject(-EAGAIN);
+sq_ok=false;
+break;
+}
+sqes[n]=s.raw();
+}
+if(!sq_ok)
+continue;
+}
+
 auto&state=*state_ptr;
 state.initial_op_count=b.op_count;
 state.expected_cqes=emitted;
@@ -681,22 +705,19 @@ state.close_res=0;
 for(u8 i=0;i<emitted;++i){
 bool const is_close=mode_b&&(i==b.op_count);
 FlowOpKind const kind=is_close?FlowOpKind::close_direct:b.ops[i].kind;
+io_uring_sqe*sqe=sqes[i];
 
-auto sqe=ring_.get_sqe();
-if(!sqe)
-break;// sq_space_left was checked; breach = framework bug
-
-prep_op(sqe.raw(),i,b,is_close);
+prep_op(sqe,i,b,is_close);
 // prep_op zeroes sqe->flags; layer our flags on top
 
 if(uses_fixed_file_fd(kind))
-sqe.raw()->flags|=IOSQE_FIXED_FILE;
+sqe->flags|=IOSQE_FIXED_FILE;
 
-sqe.raw()->flags&=static_cast<u8>(~link_mask);
+sqe->flags&=static_cast<u8>(~link_mask);
 if(i+1<emitted)
-sqe.raw()->flags|=static_cast<u8>(link_flag_for_boundary(i,u8(i+1),b,mode_b));
+sqe->flags|=static_cast<u8>(link_flag_for_boundary(i,u8(i+1),b,mode_b));
 
-sqe.raw()->user_data=encode_tag(state.flow_index,state.generation,i,kind);
+sqe->user_data=encode_tag(state.flow_index,state.generation,i,kind);
 
 if(!is_close)
 state.results[i]=OpResult{

@@ -29,9 +29,10 @@ struct TestRig{
 Ring ring;
 V<uf::FlowResult>results;
 uf::FlowRuntime rt;
-TestRig()
-:ring{[]{
-auto r=Ring::init(16,{});
+explicit TestRig(
+unsigned sq_size=16)
+:ring{[sq_size]{
+auto r=Ring::init(sq_size,{});
 REQUIRE(r);
 return move(*r);
 }()},
@@ -1066,4 +1067,90 @@ auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::close_direct,0);
 rig.rt.on_cqe(&cqe);
 }
 REQUIRE(rig.results.size()==1);
+}
+// ── Deferred close (mode A SQ-full at on_chain_complete) ─────────────────────
+
+TEST_CASE(
+"flow.deferred_close: SQ-full defers close, drain re-submits",
+"[flow][deferred]"){
+// Ring with exactly 3 SQ slots: open+read+write fills it entirely.
+// on_chain_complete cannot get a SQE for the standalone close → close_pending=true.
+TestRig rig{3};
+char buf[4]={};
+auto b=rig.rt.batch();
+auto f=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDWR);
+f.then_read(buf,4,0).then_write(buf,4,0).close_if_opened();// mode A: 3 SQEs
+(void)b.submit();// SQ now full (3/3)
+REQUIRE(b.rejected_flows().empty());
+
+u32 const idx=0,gen=1;
+{
+auto cqe=make_flow_cqe(idx,gen,0,uf::FlowOpKind::open_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,1,uf::FlowOpKind::read,4);
+rig.rt.on_cqe(&cqe);
+}
+{
+auto cqe=make_flow_cqe(idx,gen,2,uf::FlowOpKind::write,4);
+rig.rt.on_cqe(&cqe);
+}
+// on_chain_complete fires: get_sqe() fails (SQ full) → close_pending=true
+CHECK(rig.results.empty());
+
+// Flush the SQ to the kernel to free the 3 slots, then drain deferred closes.
+rig.ring.submit();
+rig.rt.drain_deferred_closes();// retry → get_sqe() succeeds → close_submitted=true
+
+// Inject the close CQE
+{
+auto cqe=make_flow_cqe(idx,gen,3,uf::FlowOpKind::close_direct,0);
+rig.rt.on_cqe(&cqe);
+}
+REQUIRE(rig.results.size()==1);
+CHECK(rig.results[0].open_ok());
+CHECK(rig.results[0].cleanup_result()==0);
+CHECK_FALSE(rig.results[0].close_in_chain);
+
+// Double-call drain after success: idempotent, flow already done
+rig.rt.drain_deferred_closes();
+CHECK(rig.results.size()==1);
+}
+// ── Batch-full rejection recorded in rejected_flows() ─────────────────────────
+
+TEST_CASE(
+"flow.batch_full: open_direct past kMaxBatch records rejection",
+"[flow][builder]"){
+// Build kMaxBatch flows to fill the builder array, then try one more.
+// The overflow must appear in rejected_flows() after submit().
+// Use a large ring so SQ is never the bottleneck.
+TestRig rig{256};
+// We can't easily reach kMaxBatch (64) valid flows without a large fixed-file table.
+// Use invalid builders (hard_read as first body → -EINVAL) to fill builder slots cheaply.
+char buf[4]={};
+
+// Fill all 64 builder slots with invalid flows.
+constexpr u32 kMaxBatch=64;// matches flow.cxx internal constant
+auto b=rig.rt.batch();
+for(u32 i=0;i<kMaxBatch;++i){
+auto f=b.open_direct(DirectSlot{i},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
+f.hard_read(buf,1,0);// force invalid so no SQ slots needed
+}
+// One more open_direct: batch array full → must be rejected immediately
+auto overflow=b.open_direct(DirectSlot{0},AT_FDCWD,uf::BorrowedPath{"/dev/null"},O_RDONLY);
+CHECK_FALSE(overflow.valid());
+CHECK(overflow.last_error()==-EINVAL);// null handle → last_error returns -EINVAL
+
+(void)b.submit();
+
+// rejected_flows() must include an entry for the overflow
+// (plus kMaxBatch entries for the invalid hard_read builders)
+auto rej=b.rejected_flows();
+// Find the -ENOBUFS entry (batch-full overflow)
+bool found_overflow=false;
+for(auto const&r:rej)
+if(r.err==-ENOBUFS)
+found_overflow=true;
+CHECK(found_overflow);
 }
