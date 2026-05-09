@@ -3939,10 +3939,8 @@ if(parent>=0)
 wq_fd=static_cast<u32>(parent);
 }
 r.init(impl_->cfg.port,entries,impl_->uring_flags,wq_fd,impl_->cfg.no_mmap);
-if(impl_->cfg.recv_bundle&&((r.ring.features&IORING_FEAT_RECVSEND_BUNDLE)!=0U)){
-r.use_recv_bundle=false;
-eprintln("recv_bundle disabled: awaiting P0-01 test sign-off");
-}
+if(impl_->cfg.recv_bundle&&((r.ring.features&IORING_FEAT_RECVSEND_BUNDLE)!=0U))
+r.use_recv_bundle=true;
 if(impl_->cfg.attach_wq&&i==0){
 impl_->wq_ring_fd_.store(r.ring.ring_fd,memory_order_release);
 impl_->wq_ring_fd_.notify_all();
