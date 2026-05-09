@@ -488,8 +488,9 @@ public:
 template<class Cb>
 FlowRuntime(
 Ring&ring,
+conflux::uring::IoUringCaps const&caps,
 Cb&&cb)noexcept
-:ring_{ring},path_lifetime_stable_{ring.has_feature(IORING_FEAT_SUBMIT_STABLE)&&!ring.is_sqpoll()}{
+:ring_{ring},path_lifetime_stable_{caps.path_lifetime_stable}{
 cb_.set(forward<Cb>(cb));
 }
 ~FlowRuntime()noexcept{

@@ -36,7 +36,7 @@ auto r=Ring::init(sq_size,{});
 REQUIRE(r);
 return move(*r);
 }()},
-rt{ring,[&](uf::FlowResult fr)noexcept{
+rt{ring,detect_caps(ring.ref()),[&](uf::FlowResult fr)noexcept{
 results.push_back(fr);
 }}{// NOLINT(bugprone-exception-escape) — reserve below prevents allocation
 results.reserve(64);

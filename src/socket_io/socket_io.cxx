@@ -38,9 +38,7 @@ return{.id=slot,.fixed=true};
 [[nodiscard]]constexpr bool is_direct()const noexcept{return fixed;}
 [[nodiscard]]constexpr bool is_os_fd()const noexcept{return!fixed;}
 [[nodiscard]]constexpr int sqe_fd_value()const noexcept{return static_cast<int>(id);}
-[[nodiscard]]constexpr conflux::uring::Fd sqe_fd()const noexcept{
-return conflux::uring::Fd{sqe_fd_value()};
-}
+[[nodiscard]]constexpr conflux::uring::Fd sqe_fd()const noexcept{return conflux::uring::Fd{sqe_fd_value()};}
 [[nodiscard]]constexpr conflux::uring::DirectSlot direct_slot()const noexcept{
 return conflux::uring::DirectSlot{id};
 }
@@ -66,19 +64,13 @@ explicit SocketRawRing(
 conflux::uring::RingRef ring)noexcept
 :ring_{ring}{}
 [[nodiscard]]conflux::uring::RingRef ring()const noexcept{return ring_;}
-[[nodiscard]]conflux::uring::Sqe try_get_sqe()const noexcept{
-return ring_.try_get_sqe();
-}
+[[nodiscard]]conflux::uring::Sqe try_get_sqe()const noexcept{return ring_.try_get_sqe();}
 [[nodiscard]]io_uring_sqe*get_sqe()const noexcept{
 auto sqe=try_get_sqe();
 return sqe?sqe.raw():nullptr;
 }
-[[nodiscard]]unsigned sq_space_left()const noexcept{
-return ring_.sq_space_left();
-}
-int submit()const noexcept{
-return ring_.submit();
-}
+[[nodiscard]]unsigned sq_space_left()const noexcept{return ring_.sq_space_left();}
+[[nodiscard]]int submit()const noexcept{return ring_.submit();}
 };
 // ─── GenerationTable ─────────────────────────────────────────────────────────
 // Per-slot generation counters. Rejects stale CQEs from closed/reused sockets.
@@ -127,7 +119,10 @@ BufferRingMode mode{BufferRingMode::classic};
 export class RecvBuffer;
 export class BufferRing{
 struct SlabDeleter{
-void operator()(byte*p)const noexcept{::free(p);}
+void operator()(
+byte*p)const noexcept{
+::free(p);
+}
 };
 conflux::uring::BufRing ring_{};
 conflux::uring::RingRef uring_{static_cast<io_uring*>(nullptr)};
@@ -149,29 +144,35 @@ BufferRing(
 conflux::uring::RingRef uring,
 BufferRingOptions opts)
 :ring_{},uring_{uring},buf_size_{opts.buf_size},count_{opts.count},group_id_{opts.group_id},mode_{opts.mode}{
-if(count_==0||count_>65536U||(count_&(count_-1))!=0||buf_size_==0||
-buf_size_>static_cast<SZ>(NL<u16>::max())||
-count_>NL<SZ>::max()/buf_size_)
+if(count_==0||count_>65536U||(count_&(count_-1))!=0||buf_size_==0||buf_size_>static_cast<SZ>(NL<u16>::max())||count_>NL<SZ>::max()/buf_size_)
 throw RE{"BufferRing invalid options"};
 slab_sz_=static_cast<SZ>(count_)*buf_size_;
 SZ const aligned_sz=(slab_sz_+4095)&~SZ{4095};
 if(aligned_sz<slab_sz_)
 throw RE{"BufferRing allocation overflow"};
 auto*raw=static_cast<byte*>(::aligned_alloc(4096,aligned_sz));
-if(!raw)throw std::bad_alloc{};
+if(raw==nullptr)
+throw std::bad_alloc{};
 slab_.reset(raw);
 if(opts.huge_pages){
 ::madvise(raw,slab_sz_,MADV_HUGEPAGE);
 ::madvise(raw,slab_sz_,MADV_DONTFORK);
 }
-auto built=conflux::uring::BufRing::setup(uring_,static_cast<unsigned>(count_),conflux::uring::BufGroupId{group_id_});
+auto built=conflux::uring::BufRing::setup(
+uring_,
+static_cast<unsigned>(count_),
+conflux::uring::BufGroupId{group_id_});
 if(!built){
 slab_.reset();
 throw RE{format("io_uring_setup_buf_ring failed: {}",built.error())};
 }
 ring_=move(*built);
 for(u32 i=0;i<count_;++i)
-ring_.add(raw+i*buf_size_,static_cast<u32>(buf_size_),conflux::uring::BufId{static_cast<u16>(i)},static_cast<int>(i));
+ring_.add(
+raw+i*buf_size_,
+static_cast<u32>(buf_size_),
+conflux::uring::BufId{static_cast<u16>(i)},
+static_cast<int>(i));
 ring_.advance(static_cast<int>(count_));
 ring_order_.resize(count_);
 for(u32 i=0;i<count_;++i)
@@ -179,8 +180,7 @@ ring_order_[i]=static_cast<u16>(i);
 head_pos_=0;
 tail_pos_=count_;
 }
-~BufferRing(){
-}
+~BufferRing()=default;
 BufferRing(BufferRing const&)=delete;
 BufferRing&operator=(BufferRing const&)=delete;
 BufferRing(BufferRing&&)=delete;
@@ -188,7 +188,8 @@ BufferRing&operator=(BufferRing&&)=delete;
 [[nodiscard]]span<byte const>buffer_view_checked(
 u16 id,
 SZ len)const noexcept{
-if(id>=count_)return{};
+if(id>=count_)
+return{};
 return{slab_.get()+static_cast<SZ>(id)*buf_size_,min(len,buf_size_)};
 }
 [[nodiscard]]span<byte const>buffer_view_unchecked(
@@ -203,7 +204,8 @@ return buffer_view_checked(id,len);
 }
 [[nodiscard]]span<byte>buffer_mut_checked(
 u16 id)noexcept{
-if(id>=count_)return{};
+if(id>=count_)
+return{};
 return{slab_.get()+static_cast<SZ>(id)*buf_size_,buf_size_};
 }
 [[nodiscard]]span<byte>buffer_mut_unchecked(
@@ -217,8 +219,11 @@ return buffer_mut_checked(id);
 void recycle(
 u16 id)noexcept{
 ring_order_[tail_pos_%count_]=id;
-ring_.add(slab_.get()+static_cast<SZ>(id)*buf_size_,
-static_cast<u32>(buf_size_),conflux::uring::BufId{id},0);
+ring_.add(
+slab_.get()+static_cast<SZ>(id)*buf_size_,
+static_cast<u32>(buf_size_),
+conflux::uring::BufId{id},
+0);
 ring_.advance(1);
 ++tail_pos_;
 }
@@ -227,8 +232,11 @@ span<u16 const>ids)noexcept{
 u32 i=0;
 for(auto id:ids){
 ring_order_[(tail_pos_+i)%count_]=id;
-ring_.add(slab_.get()+static_cast<SZ>(id)*buf_size_,
-static_cast<u32>(buf_size_),conflux::uring::BufId{id},static_cast<int>(i));
+ring_.add(
+slab_.get()+static_cast<SZ>(id)*buf_size_,
+static_cast<u32>(buf_size_),
+conflux::uring::BufId{id},
+static_cast<int>(i));
 ++i;
 }
 ring_.advance(static_cast<int>(ids.size()));
@@ -240,8 +248,11 @@ u32 cnt)noexcept{
 for(u32 i=0;i<cnt;++i){
 u16 const id=ring_order_[(start_pos+i)%count_];
 ring_order_[(tail_pos_+i)%count_]=id;
-ring_.add(slab_.get()+static_cast<SZ>(id)*buf_size_,
-static_cast<u32>(buf_size_),conflux::uring::BufId{id},static_cast<int>(i));
+ring_.add(
+slab_.get()+static_cast<SZ>(id)*buf_size_,
+static_cast<u32>(buf_size_),
+conflux::uring::BufId{id},
+static_cast<int>(i));
 }
 ring_.advance(static_cast<int>(cnt));
 tail_pos_+=cnt;
@@ -285,7 +296,8 @@ RecvBuffer&&o)noexcept
 RecvBuffer&operator=(
 RecvBuffer&&o)noexcept{
 if(this!=&o){
-if(ring_&&armed_)ring_->recycle(id_);
+if((ring_!=nullptr)&&armed_)
+ring_->recycle(id_);
 ring_=exchange(o.ring_,nullptr);
 id_=o.id_;
 len_=o.len_;
@@ -294,15 +306,16 @@ armed_=exchange(o.armed_,false);
 return*this;
 }
 ~RecvBuffer(){
-if(ring_&&armed_)ring_->recycle(id_);
+if((ring_!=nullptr)&&armed_)
+ring_->recycle(id_);
 }
 [[nodiscard]]span<byte const>view()const noexcept{
-return ring_?ring_->buffer_view_checked(id_,len_):span<byte const>{};
+return(ring_!=nullptr)?ring_->buffer_view_checked(id_,len_):span<byte const>{};
 }
 [[nodiscard]]u16 id()const noexcept{return id_;}
 [[nodiscard]]SZ size()const noexcept{return len_;}
 void release()noexcept{
-if(ring_&&armed_){
+if((ring_!=nullptr)&&armed_){
 ring_->recycle(id_);
 armed_=false;
 }
@@ -330,14 +343,19 @@ SZ total_{};
 bool detached_{false};
 public:
 RecvSlices()noexcept=default;
-RecvSlices(BufferRing*ring,u32 start,u32 cnt,SZ total)noexcept
+RecvSlices(
+BufferRing*ring,
+u32 start,
+u32 cnt,
+SZ total)noexcept
 :ring_{ring},start_pos_{start},count_{cnt},total_{total}{}
 RecvSlices(RecvSlices const&)=delete;
 RecvSlices&operator=(RecvSlices const&)=delete;
-RecvSlices(RecvSlices&&o)noexcept
-:ring_{exchange(o.ring_,nullptr)},start_pos_{o.start_pos_},
-count_{o.count_},total_{o.total_},detached_{o.detached_}{}
-RecvSlices&operator=(RecvSlices&&o)noexcept{
+RecvSlices(
+RecvSlices&&o)noexcept
+:ring_{exchange(o.ring_,nullptr)},start_pos_{o.start_pos_},count_{o.count_},total_{o.total_},detached_{o.detached_}{}
+RecvSlices&operator=(
+RecvSlices&&o)noexcept{
 if(this!=&o){
 ring_=exchange(o.ring_,nullptr);
 start_pos_=o.start_pos_;
@@ -363,13 +381,20 @@ iterator&operator++()noexcept{
 ++idx_;
 return*this;
 }
-bool operator==(iterator const&o)const noexcept{return idx_==o.idx_;}
-bool operator!=(iterator const&o)const noexcept{return idx_!=o.idx_;}
+bool operator==(
+iterator const&o)const noexcept{
+return idx_==o.idx_;
+}
+bool operator!=(
+iterator const&o)const noexcept{
+return idx_!=o.idx_;
+}
 };
 [[nodiscard]]iterator begin()const noexcept{return{this,0};}
 [[nodiscard]]iterator end()const noexcept{return{this,count_};}
 void recycle_all()noexcept{
-if(!ring_||detached_)return;
+if((ring_==nullptr)||detached_)
+return;
 ring_->recycle_range(start_pos_,count_);
 ring_=nullptr;
 }
@@ -459,7 +484,8 @@ socklen_t*addrlen,
 u64 user_data,
 bool direct=true){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 if(direct)
 sqe.prep_multishot_accept_direct(listen.sqe_fd(),addr,addrlen,0);
 else
@@ -467,6 +493,16 @@ sqe.prep_multishot_accept(listen.sqe_fd(),addr,addrlen,0);
 sqe.add_flags(listen.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
+}
+export bool submit_accept_multishot(
+SocketRawRing&ring,
+SocketHandle listen,
+sockaddr*addr,
+socklen_t*addrlen,
+u64 user_data,
+conflux::uring::IoUringCaps const&caps,
+bool direct){
+return submit_accept_multishot(ring,listen,addr,addrlen,user_data,direct&&caps.accept_direct_supported);
 }
 // ─── raw submission: recv ────────────────────────────────────────────────────
 
@@ -477,7 +513,8 @@ BufferRing&bufs,
 u64 user_data,
 bool bundle=false){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_recv_multishot(handle.sqe_fd(),nullptr,0,conflux::uring::MsgFlags{});
 sqe.buf_group(conflux::uring::BufGroupId{bufs.group_id()});
 if(bundle&&bufs.mode()==BufferRingMode::recv_bundle)
@@ -497,7 +534,8 @@ SZ len,
 u64 user_data,
 int msg_flags=MSG_NOSIGNAL){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_send(handle.sqe_fd(),data,len,conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
 sqe.add_flags(handle.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
@@ -510,7 +548,8 @@ iovec const*iov,
 unsigned nr_vecs,
 u64 user_data){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_writev(handle.sqe_fd(),iov,nr_vecs,0);
 sqe.add_flags(handle.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
@@ -528,9 +567,11 @@ u64 close_ud){
 if(ring.sq_space_left()<2)
 return false;
 auto shutdown_sqe=ring.try_get_sqe();
-if(!shutdown_sqe)return false;
+if(!shutdown_sqe)
+return false;
 auto close_sqe=ring.try_get_sqe();
-if(!close_sqe)return false;
+if(!close_sqe)
+return false;
 shutdown_sqe.prep_shutdown(handle.sqe_fd(),SHUT_WR);
 shutdown_sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
 shutdown_sqe.add_flags(handle.sqe_fd_flags());
@@ -549,7 +590,8 @@ SocketRawRing&ring,
 SocketHandle handle,
 u64 user_data){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 if(handle.fixed)
 sqe.prep_close_direct(handle.direct_slot());
 else
@@ -574,9 +616,11 @@ if(ring.sq_space_left()<needed)
 return false;
 if(needs_shutdown){
 auto shut_sqe=ring.try_get_sqe();
-if(!shut_sqe)return false;
+if(!shut_sqe)
+return false;
 auto close_sqe=ring.try_get_sqe();
-if(!close_sqe)return false;
+if(!close_sqe)
+return false;
 shut_sqe.prep_shutdown(handle.sqe_fd(),SHUT_WR);
 shut_sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
 shut_sqe.add_flags(handle.sqe_fd_flags());
@@ -590,7 +634,8 @@ close_sqe.prep_close(handle.sqe_fd());
 close_sqe.user_data(conflux::uring::UserData{close_ud});
 }else{
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 if(handle.fixed)
 sqe.prep_close_direct(handle.direct_slot());
 else
@@ -613,10 +658,15 @@ u64 user_data){
 if(!handle.fixed)
 return false;
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
-sqe.prep_cmd_sock(conflux::uring::uring_cmd_op::setsockopt,
-handle.sqe_fd(),level,optname,
-const_cast<void*>(optval),static_cast<int>(optlen));
+if(!sqe)
+return false;
+sqe.prep_cmd_sock(
+conflux::uring::uring_cmd_op::setsockopt,
+handle.sqe_fd(),
+level,
+optname,
+const_cast<void*>(optval),
+static_cast<int>(optlen));
 sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
@@ -627,7 +677,7 @@ bool skip_sockopt_success_cqes{true};
 };
 namespace{
 static int k_socket_opt_on=1;
-}
+}// namespace
 export[[nodiscard]]bool submit_direct_tcp_accept_setup_recv(
 SocketRawRing&ring,
 SocketHandle direct_socket,
@@ -637,16 +687,20 @@ u64 recv_ud,
 DirectTcpAcceptSetup opts)noexcept{
 if(!direct_socket.is_direct())
 return false;
-unsigned needed=1U+(opts.tcp_quickack_once?1U:0U);
+unsigned const needed=1U+(opts.tcp_quickack_once?1U:0U);
 if(ring.sq_space_left()<needed)
 return false;
 if(opts.tcp_quickack_once){
 auto quickack_sqe=ring.try_get_sqe();
 if(!quickack_sqe)
 return false;
-quickack_sqe.prep_cmd_sock(conflux::uring::uring_cmd_op::setsockopt,
-direct_socket.sqe_fd(),IPPROTO_TCP,TCP_QUICKACK,
-&k_socket_opt_on,static_cast<int>(sizeof(k_socket_opt_on)));
+quickack_sqe.prep_cmd_sock(
+conflux::uring::uring_cmd_op::setsockopt,
+direct_socket.sqe_fd(),
+IPPROTO_TCP,
+TCP_QUICKACK,
+&k_socket_opt_on,
+static_cast<int>(sizeof(k_socket_opt_on)));
 quickack_sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
 quickack_sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
 if(opts.skip_sockopt_success_cqes)
@@ -670,8 +724,10 @@ SocketRawRing&ring,
 SocketHandle handle,
 u64 user_data){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
-sqe.prep_cancel_fd(handle.sqe_fd(),
+if(!sqe)
+return false;
+sqe.prep_cancel_fd(
+handle.sqe_fd(),
 handle.fixed?conflux::uring::cancel_flags::fd_fixed:conflux::uring::CancelFlags{});
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
@@ -681,7 +737,8 @@ SocketRawRing&ring,
 u64 target_ud,
 u64 cancel_ud){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_cancel64(conflux::uring::UserData{target_ud},conflux::uring::CancelFlags{});
 sqe.user_data(conflux::uring::UserData{cancel_ud});
 return true;
@@ -693,7 +750,8 @@ SocketRawRing&ring,
 __kernel_timespec*ts,
 u64 user_data){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_timeout(ts,0,conflux::uring::TimeoutFlags{});
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
@@ -703,7 +761,8 @@ SocketRawRing&ring,
 __kernel_timespec*ts,
 u64 user_data){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_link_timeout(ts,conflux::uring::TimeoutFlags{});
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
@@ -717,7 +776,8 @@ int type,
 int protocol,
 u64 user_data){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_socket(domain,type,protocol,0);
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
@@ -729,10 +789,22 @@ int type,
 int protocol,
 u64 user_data){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_socket_direct_alloc(domain,type,protocol,0);
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
+}
+export bool submit_socket_direct(
+SocketRawRing&ring,
+int domain,
+int type,
+int protocol,
+u64 user_data,
+conflux::uring::IoUringCaps const&caps){
+if(!caps.socket_direct_alloc)
+return false;
+return submit_socket_direct(ring,domain,type,protocol,user_data);
 }
 // ─── raw submission: connect ─────────────────────────────────────────────────
 // addr must remain valid until CQE. Caller owns lifetime.
@@ -744,7 +816,8 @@ sockaddr const*addr,
 socklen_t addrlen,
 u64 user_data){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_connect(handle.sqe_fd(),addr,addrlen);
 sqe.add_flags(handle.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
@@ -760,7 +833,8 @@ SZ len,
 u64 user_data,
 int msg_flags=0){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_recv(handle.sqe_fd(),buf,len,conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
 sqe.add_flags(handle.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
@@ -775,7 +849,8 @@ msghdr const*msg,
 u64 user_data,
 unsigned flags=0){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_sendmsg(handle.sqe_fd(),msg,conflux::uring::MsgFlags{flags});
 sqe.add_flags(handle.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
@@ -788,7 +863,8 @@ msghdr*msg,
 u64 user_data,
 unsigned flags=0){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_recvmsg(handle.sqe_fd(),msg,conflux::uring::MsgFlags{flags});
 sqe.add_flags(handle.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
@@ -810,9 +886,11 @@ unsigned recv_flags=0){
 if(ring.sq_space_left()<2)
 return false;
 auto recv_sqe=ring.try_get_sqe();
-if(!recv_sqe)return false;
+if(!recv_sqe)
+return false;
 auto timeout_sqe=ring.try_get_sqe();
-if(!timeout_sqe)return false;
+if(!timeout_sqe)
+return false;
 recv_sqe.prep_recvmsg(handle.sqe_fd(),msg,conflux::uring::MsgFlags{recv_flags});
 recv_sqe.add_flags(conflux::uring::sqe_flags::io_link);
 recv_sqe.add_flags(handle.sqe_fd_flags());
@@ -828,7 +906,8 @@ SocketRawRing&ring,
 u32 direct_slot,
 u64 user_data){
 auto sqe=ring.try_get_sqe();
-if(!sqe)return false;
+if(!sqe)
+return false;
 sqe.prep_fixed_fd_install(conflux::uring::DirectSlot{direct_slot},conflux::uring::InstallFdFlags{});
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;

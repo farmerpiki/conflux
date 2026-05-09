@@ -62,7 +62,9 @@ FileIo,
 WsCancel,
 FixedFdInstall,
 DirectSlotClose,
-Nop
+Nop,
+
+
 };
 
 export enum class RunStatus:u8{
@@ -70,7 +72,9 @@ stopped_normally,
 fatal_cq_overflow,
 fatal_cq_overflow_no_nodrop,
 fatal_submit_wait_ebadr,
-fatal_internal_exception
+fatal_internal_exception,
+
+
 };
 
 enum class ServerFatalReason:u8{
@@ -78,7 +82,9 @@ none,
 cq_overflow,
 cq_overflow_no_nodrop,
 submit_wait_ebadr,
-internal_exception
+internal_exception,
+
+
 };
 
 constexpr u32 OP_SHIFT=56U;
@@ -216,7 +222,8 @@ if(!suppress_body&&!r.is_mapped_file()&&!r.is_streamed_file())
 out+=r.text_body();
 return out;
 }
-SV format_sse_headers(bool close){
+SV format_sse_headers(
+bool close){
 static constexpr SV kKeepAlive=
 "HTTP/1.1 200 OK\r\n" "Content-Type: text/event-stream\r\n" "Cache-Control: no-cache\r\n" "Connection: keep-alive\r\n" "\r\n";
 static constexpr SV kClose=
@@ -273,7 +280,9 @@ SizeLine,
 Data,
 DataCrlf,
 Trailers,
-Complete
+Complete,
+
+
 
 };
 struct ChunkedDecodeState{
@@ -316,17 +325,24 @@ SZ pos{0};
 [[nodiscard]]inline char const*data()const noexcept{return buf.data()+pos;}
 [[nodiscard]]inline char front()const noexcept{return buf[pos];}
 [[nodiscard]]inline SV view()const noexcept{return{buf.data()+pos,buf.size()-pos};}
-inline void append(char const*p,SZ n){buf.append(p,n);}
-inline void consume(SZ n)noexcept{
+inline void append(
+char const*p,
+SZ n){
+buf.append(p,n);
+}
+inline void consume(
+SZ n)noexcept{
 pos+=n;
-if(pos>=buf.size())clear();
+if(pos>=buf.size())
+clear();
 }
 inline void clear()noexcept{
 buf.clear();
 pos=0;
 }
 [[nodiscard]]inline S take(){
-if(pos>0)buf.erase(0,pos);
+if(pos>0)
+buf.erase(0,pos);
 pos=0;
 return move(buf);
 }
@@ -473,7 +489,9 @@ return false;
 enum class ExpectState:u8{
 none,
 continue_100,
-unsupported
+unsupported,
+
+
 
 };
 [[nodiscard]]ExpectState parse_expect_header(
@@ -902,8 +920,9 @@ UP<DirectFdTable>direct_fds_;
 UP<DirectSlotPool>direct_slots_;
 int tcp_opt_one_=1;// stable optval for cmd_sock SETSOCKOPT
 
-bool fixed_files=false;
-bool fixed_accept_enabled=true;
+conflux::uring::IoUringCaps caps{};
+bool listen_fixed=false;
+bool accepted_sockets_direct=false;
 bool shutting_down=false;
 bool ring_fatal_{false};
 ServerFatalReason fatal_reason_{ServerFatalReason::none};
@@ -1025,7 +1044,8 @@ void tls_queue_send(
 Conn&conn){
 auto const off=conn.tls_send_off;
 auto const tls_view=span{conn.tls_send_buf}.subspan(off);
-auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(conn.fd)):SocketHandle::from_os(conn.fd);
+auto handle=accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(conn.fd)):
+SocketHandle::from_os(conn.fd);
 if(!submit_send_borrowed(raw_,handle,tls_view.data(),tls_view.size(),pack(Op::Send,conn.gen,conn.fd))){
 int const fd=conn.fd;
 defer_op([this,fd]{tls_queue_send(conn_for(fd));});
@@ -1562,6 +1582,7 @@ throw RE{"io_uring_queue_init_mem failed"};
 }else if(io_uring_queue_init_params(entries,&ring,&params)<0){
 throw RE{"io_uring_queue_init_params failed"};
 }
+caps=detect_caps(conflux::uring::RingRef{ring});
 
 listen_fd=::socket(AF_INET6,SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC,0);
 if(listen_fd<0)
@@ -1599,13 +1620,16 @@ port_signal->notify_all();
 
 direct_fds_=make_unique<DirectFdTable>(conflux::uring::RingRef{ring},MAX_FILES);
 if(direct_fds_->registered()&&direct_fds_->install(static_cast<u32>(listen_fd),listen_fd)){
-fixed_files=true;
+listen_fixed=true;
+caps.socket_direct_alloc=caps.op_socket&&direct_fds_->registered();
 direct_slots_=make_unique<DirectSlotPool>(direct_fds_->capacity());
 if(!direct_slots_->install_os_fd(static_cast<u32>(listen_fd),listen_fd)){
 direct_slots_.reset();
-fixed_files=false;
+listen_fixed=false;
+caps.socket_direct_alloc=false;
 }
 }
+accepted_sockets_direct=listen_fixed&&caps.accept_direct_supported;
 
 // file_io pools: constructed here so register_buffers_sparse runs before
 // buf_ring setup (both touch io_uring internal state; ordering is
@@ -1626,7 +1650,9 @@ return pack(Op::FileIo,gen,static_cast<int>(slot));
 }
 }
 
-buf_ring_=make_unique<BufferRing>(conflux::uring::RingRef{ring},BufferRingOptions{
+buf_ring_=make_unique<BufferRing>(
+conflux::uring::RingRef{ring},
+BufferRingOptions{
 .count=entries*4,
 .buf_size=BUF_SIZE,
 .group_id=0,
@@ -1710,7 +1736,8 @@ conn.h2_sse_pending_wait=false;
 // Acquire a raw SQE without implicit submission. Returns null when the ring
 // is exhausted or fatal; callers handle that via defer_op() to avoid stalls.
 io_uring_sqe*get_sqe(){
-if(ring_fatal_)return nullptr;
+if(ring_fatal_)
+return nullptr;
 auto sqe=raw_.try_get_sqe();
 return sqe?sqe.raw():nullptr;
 }
@@ -1718,7 +1745,8 @@ return sqe?sqe.raw():nullptr;
 // the CQE reap frees ring capacity.
 void defer_op(
 conflux::work::root::detail::small_move_only_function<void()>op){
-if(ring_fatal_)return;
+if(ring_fatal_)
+return;
 pending_ops.push_back(move(op));
 }
 void drain_pending_ops(){
@@ -1731,14 +1759,23 @@ op();
 }
 }
 void queue_multishot_accept(){
-auto listen_handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(listen_fd)):SocketHandle::from_os(listen_fd);
-if(!submit_accept_multishot(raw_,listen_handle,reinterpret_cast<sockaddr*>(&client_addr),&client_addr_len,pack(Op::Accept,0,listen_fd),fixed_files))
+auto listen_handle=
+listen_fixed?SocketHandle::from_direct(static_cast<u32>(listen_fd)):SocketHandle::from_os(listen_fd);
+if(!submit_accept_multishot(
+raw_,
+listen_handle,
+reinterpret_cast<sockaddr*>(&client_addr),
+&client_addr_len,
+pack(Op::Accept,0,listen_fd),
+caps,
+accepted_sockets_direct))
 defer_op([this]{queue_multishot_accept();});
 }
 void queue_multishot_recv(
 int fd){
 auto&conn=conn_for(fd);
-auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+auto handle=
+accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
 if(!submit_recv_multishot(raw_,handle,*buf_ring_,pack(Op::Recv,conn.gen,fd),use_recv_bundle)){
 defer_op([this,fd]{queue_multishot_recv(fd);});
 return;
@@ -1750,7 +1787,7 @@ int fd){
 auto&conn=conn_for(fd);
 auto handle=SocketHandle::from_direct(static_cast<u32>(fd));
 DirectTcpAcceptSetup setup{};
-setup.tcp_quickack_once=true;
+setup.tcp_quickack_once=caps.cmd_sock_setsockopt;
 setup.skip_sockopt_success_cqes=true;
 if(!submit_direct_tcp_accept_setup_recv(
 raw_,
@@ -1796,8 +1833,14 @@ conn.writev_iov[ni++]={
 
 if(ni==0)
 return;
-auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
-if(!submit_writev_borrowed(raw_,handle,conn.writev_iov.data(),static_cast<unsigned>(ni),pack(Op::Send,conn.gen,fd)))
+auto handle=
+accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+if(!submit_writev_borrowed(
+raw_,
+handle,
+conn.writev_iov.data(),
+static_cast<unsigned>(ni),
+pack(Op::Send,conn.gen,fd)))
 defer_op([this,fd]{queue_send_mapped(fd);});
 }
 // file_io streaming path. Phase 1: send headers via prep_send. Phase 2:
@@ -1814,7 +1857,8 @@ start_streamed_body(fd);
 return;
 }
 auto const hdr_view=span{conn.own_response}.subspan(conn.written);
-auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+auto handle=
+accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
 if(!submit_send_borrowed(raw_,handle,hdr_view.data(),hdr_view.size(),pack(Op::Send,conn.gen,fd)))
 defer_op([this,fd]{queue_send_streamed(fd);});
 }
@@ -1847,7 +1891,7 @@ off,
 static_cast<SZ>(remaining),
 fd,
 move(*pipe),
-fixed_files))
+accepted_sockets_direct))
 .detach();
 }
 #if CONFLUX_HAS_TLS
@@ -2041,7 +2085,8 @@ if(!conn.has_response)
 return;
 auto const&resp=conn.own_response;
 auto const resp_view=span{resp}.subspan(conn.written);
-auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+auto handle=
+accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
 if(!submit_send_borrowed(raw_,handle,resp_view.data(),resp_view.size(),pack(Op::Send,conn.gen,fd)))
 defer_op([this,fd]{queue_send(fd);});
 }
@@ -2055,7 +2100,7 @@ return;
 gen=fd_table[ufd].gen;
 }
 
-if(fixed_files){
+if(accepted_sockets_direct){
 if(ufd<fd_table.size()){
 if(fd_table[ufd].gen!=gen||fd_table[ufd].closing)
 return;
@@ -2201,14 +2246,17 @@ void handle_accept(
 int res,
 u32 flg){
 if(res>=0){
-if(fixed_files&&direct_slots_){
+if(accepted_sockets_direct&&direct_slots_){
 if(!direct_slots_->adopt_kernel_allocated(static_cast<u32>(res))){
-eprintln(format("handle_accept: adopt_kernel_allocated failed slot={} — stopping fixed accept",res));
-fixed_accept_enabled=false;
+eprintln(
+format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept",res));
+accepted_sockets_direct=false;
 submit_cancel_by_ud(raw_,pack(Op::Accept,0,listen_fd),0);
 auto const ud=pack(Op::DirectSlotClose,0,res);
 if(!submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(res)),ud))
-defer_op([this,res,ud]{submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(res)),ud);});
+defer_op([this,res,ud]{
+submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(res)),ud);
+});
 return;
 }
 }
@@ -2234,7 +2282,7 @@ conn.mapped_file.reset();
 conn.mapped_total=0;
 conn.mapped_delivered=0;
 conn.last_activity=chrono::steady_clock::now();
-if(!fixed_files){
+if(!accepted_sockets_direct){
 sockaddr_in6 peer_addr{};
 socklen_t peer_len=sizeof(peer_addr);
 if(::getpeername(res,reinterpret_cast<sockaddr*>(&peer_addr),&peer_len)==0)
@@ -2270,7 +2318,7 @@ conn.is_h2=false;
 conn.h2_sse_stream_id=-1;
 conn.h2_sse_pending_wait=false;
 #endif
-if(!fixed_files){
+if(!accepted_sockets_direct){
 ::setsockopt(res,IPPROTO_TCP,TCP_NODELAY,&tcp_opt_one_,sizeof tcp_opt_one_);
 ::setsockopt(res,IPPROTO_TCP,TCP_QUICKACK,&tcp_opt_one_,sizeof tcp_opt_one_);
 queue_multishot_recv(res);
@@ -2281,12 +2329,16 @@ if(!cqe_has_more(flg))
 queue_multishot_accept();
 }
 }
-void discard_recv_bufs(int res,u32 flags)noexcept{
-if(!cqe_has_buffer(flags))return;
+void discard_recv_bufs(
+int res,
+u32 flags)noexcept{
+if(!cqe_has_buffer(flags))
+return;
 auto slices=buffer_slices_from_cqe(*buf_ring_,res,flags,use_recv_bundle);
 slices.recycle_all();
 }
-void discard_recv_bufs(RecvComp&rc)noexcept{
+void discard_recv_bufs(
+RecvComp&rc)noexcept{
 discard_recv_bufs(rc.res,rc.flags);
 rc.flags=0;
 }
@@ -2408,7 +2460,7 @@ state.upgrade->handler(state.request,ws);
 void finish_plain_ws_handoff(
 int fd,
 WsInstallEntry entry){
-if(fixed_files){
+if(accepted_sockets_direct){
 queue_ws_fixed_install(fd,move(entry.state),move(entry.initial_buf));
 return;
 }
@@ -2428,12 +2480,13 @@ S initial_buf=conn.partial.take();
 bool const cancel_recv=conn.recv_armed;
 auto state=begin_ws_handoff(conn);
 if(!state.pool){
-if(fixed_files){
+if(accepted_sockets_direct){
 if(direct_slots_&&!direct_slots_->mark_closing(static_cast<u32>(fd)))
 eprintln(format("handoff_plain_ws: mark_closing failed slot={}",fd));
 auto const ud=pack(Op::DirectSlotClose,0,fd);
 if(!submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),ud))
-defer_op([this,fd,ud]{submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),ud);});
+defer_op(
+[this,fd,ud]{submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),ud);});
 }else{
 ::close(fd);
 }
@@ -2482,12 +2535,13 @@ bool const cancel_recv=conn.recv_armed;
 auto state=begin_ws_handoff(conn);
 if(!state.pool){
 orig_ssl.reset();
-if(fixed_files){
+if(accepted_sockets_direct){
 if(direct_slots_&&!direct_slots_->mark_closing(static_cast<u32>(fd)))
 eprintln(format("handoff_tls_ws: mark_closing failed slot={}",fd));
 auto const ud=pack(Op::DirectSlotClose,0,fd);
 if(!submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),ud))
-defer_op([this,fd,ud]{submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),ud);});
+defer_op(
+[this,fd,ud]{submit_close(raw_,SocketHandle::from_direct(static_cast<u32>(fd)),ud);});
 }else{
 ::close(fd);
 }
@@ -2510,7 +2564,8 @@ defer_op([this,fd,e=move(entry)]()mutable{queue_ws_cancel(fd,move(e));});
 return;
 }
 ws_cancel_handoffs.emplace(fd,move(entry));
-auto handle=fixed_files?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+auto handle=
+accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
 io_uring_prep_cancel_fd(sqe,handle.as_fd(),handle.fixed?IORING_ASYNC_CANCEL_FD_FIXED:0);
 io_uring_sqe_set_data64(sqe,pack(Op::WsCancel,0,fd));
 }
@@ -2518,7 +2573,7 @@ io_uring_sqe_set_data64(sqe,pack(Op::WsCancel,0,fd));
 void finish_tls_ws_handoff(
 int fd,
 WsInstallEntry entry){
-if(fixed_files){
+if(accepted_sockets_direct){
 queue_ws_fixed_install(fd,move(entry.state),move(entry.initial_buf),entry.ssl.release());
 return;
 }
@@ -2955,7 +3010,7 @@ void handle_conn_close(
 int fd,
 int res,
 u32 gen){
-if(direct_slots_&&fixed_files){
+if(direct_slots_&&accepted_sockets_direct){
 auto const slot=static_cast<u32>(fd);
 if(res>=0){
 if(!direct_slots_->release_closed(slot))
@@ -3017,7 +3072,7 @@ void append_recv_buf_to(
 Buf&dst,
 RecvComp&rc){
 auto slices=buffer_slices_from_cqe(*buf_ring_,rc.res,rc.flags,use_recv_bundle);
-ScopeExit recycle{[&]()noexcept{
+ScopeExit const recycle{[&]()noexcept{
 slices.recycle_all();
 rc.flags=0;
 }};
@@ -3144,9 +3199,9 @@ RecvComp&rc){
 // pointing at tls_recv_buf.data() — avoids BIO_s_mem internal buffer and
 // the BIO_write memcpy.
 if(!conn.partial.empty()){
-if(conn.tls_recv_buf.empty())
+if(conn.tls_recv_buf.empty()){
 conn.tls_recv_buf=conn.partial.take();
-else{
+}else{
 conn.tls_recv_buf.append(conn.partial.data(),conn.partial.size());
 conn.partial.clear();
 }
@@ -3331,10 +3386,9 @@ queue_multishot_recv(rc.fd);
 }
 }
 }
-[[nodiscard]]bool ring_integrity_suspect()const noexcept{
-return raw_.ring().cq_has_overflow();
-}
-void enter_ring_fatal(ServerFatalReason reason)noexcept{
+[[nodiscard]]bool ring_integrity_suspect()const noexcept{return raw_.ring().cq_has_overflow();}
+void enter_ring_fatal(
+ServerFatalReason reason)noexcept{
 ring_fatal_=true;
 shutting_down=true;
 pending_ops.clear();
@@ -3349,9 +3403,12 @@ conn.fd=-1;
 }
 }
 }
-void recycle_recv_buffer_direct(io_uring_cqe const*cqe)noexcept{
-if(!(cqe->flags&IORING_CQE_F_BUFFER))return;
-if(cqe->res<=0)return;
+void recycle_recv_buffer_direct(
+io_uring_cqe const*cqe)noexcept{
+if((cqe->flags&IORING_CQE_F_BUFFER)==0u)
+return;
+if(cqe->res<=0)
+return;
 auto const buf_id=static_cast<u16>(cqe->flags>>IORING_CQE_BUFFER_SHIFT);
 if(use_recv_bundle){
 SZ remaining=static_cast<SZ>(cqe->res);
@@ -3367,16 +3424,15 @@ cur=static_cast<u16>((cur+1U)%bcount);
 buf_ring_->recycle(buf_id);
 }
 }
-void dispatch_cqe_fatal(io_uring_cqe const*cqe)noexcept{
+void dispatch_cqe_fatal(
+io_uring_cqe const*cqe)noexcept{
 auto const[op,cqe_gen_,fd_]=unpack(cqe->user_data);
 (void)cqe_gen_;
 (void)fd_;
 switch(op){
-case Op::Recv:
-recycle_recv_buffer_direct(cqe);
-break;
+case Op::Recv:recycle_recv_buffer_direct(cqe);break;
 case Op::Accept:
-if(!fixed_files&&cqe->res>=0)
+if(!accepted_sockets_direct&&cqe->res>=0)
 ::close(cqe->res);
 break;
 case Op::Close:
@@ -3387,39 +3443,26 @@ case Op::SsePoll:
 case Op::DeferredPoll:
 case Op::Shutdown:
 case Op::WsCancel:
-case Op::Nop:
-break;
+case Op::Nop:break;
 case Op::FixedFdInstall:
 if(cqe->res>=0)
 ::close(cqe->res);
 break;
 default:
 // unknown op — future Op additions must be handled here
-eprintln(format("dispatch_cqe_fatal: unknown op={} ud={:#x}",
-static_cast<u8>(op),cqe->user_data));
+eprintln(format("dispatch_cqe_fatal: unknown op={} ud={:#x}",static_cast<u8>(op),cqe->user_data));
 break;
 }
 }
 void emit_ring_diagnostics()noexcept{
-S features_str;
-auto app_feat=[&](char const*name,u32 bit){
-if((ring.features&bit)==0u)return;
-if(!features_str.empty())features_str+=',';
-features_str+=name;
-};
-app_feat("NODROP",IORING_FEAT_NODROP);
-app_feat("FAST_POLL",IORING_FEAT_FAST_POLL);
-app_feat("SUBMIT_STABLE",IORING_FEAT_SUBMIT_STABLE);
-app_feat("RW_CUR_POS",IORING_FEAT_RW_CUR_POS);
-app_feat("CUR_PERSONALITY",IORING_FEAT_CUR_PERSONALITY);
-app_feat("LINKED_FILE",IORING_FEAT_LINKED_FILE);
-app_feat("REG_REG_RING",IORING_FEAT_REG_REG_RING);
-app_feat("RECVSEND_BUNDLE",IORING_FEAT_RECVSEND_BUNDLE);
+auto const features_str=caps_to_log_string(caps);
 eprintln(format("ring_features={}",features_str.empty()?"none":features_str));
 u32 const overflow_now=raw_.ring().cq_overflow_count();
 eprintln(format("ring_cq_overflow={}",overflow_now));
 if(fatal_cq_overflow_count_>0)
-eprintln(format("ring_cq_overflow_delta={}",overflow_now>fatal_cq_overflow_count_?overflow_now-fatal_cq_overflow_count_:0u));
+eprintln(format(
+"ring_cq_overflow_delta={}",
+overflow_now>fatal_cq_overflow_count_?overflow_now-fatal_cq_overflow_count_:0u));
 eprintln(format("ring_sq_busy={}",io_uring_sq_ready(&ring)));
 {
 u32 const v=ring.sq.kdropped!=nullptr?*ring.sq.kdropped:0u;
@@ -3461,7 +3504,8 @@ for(unsigned i=0;i<max_iters&&ring_integrity_suspect();++i){
 io_uring_get_events(&ring);
 A<io_uring_cqe*,BATCH>cqes{};
 unsigned const n=io_uring_peek_batch_cqe(&ring,cqes.data(),BATCH);
-if(n==0)break;
+if(n==0)
+break;
 for(unsigned j=0;j<n;++j)
 dispatch_cqe_fatal(cqes[j]);// NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 io_uring_cq_advance(&ring,n);
@@ -3483,7 +3527,7 @@ raw_.submit();
 
 for(;;){
 if(ring_integrity_suspect()){
-if(!raw_.ring().has_feature(IORING_FEAT_NODROP)){
+if(!caps.feat_nodrop){
 enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
 emit_ring_diagnostics();
 close_tracked_fds_sync();
@@ -3506,7 +3550,7 @@ flush_overflow_cqes_until_clear_or_limit();
 return RunStatus::fatal_submit_wait_ebadr;
 }
 if(ring_integrity_suspect()){
-if(!raw_.ring().has_feature(IORING_FEAT_NODROP)){
+if(!caps.feat_nodrop){
 enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
 emit_ring_diagnostics();
 close_tracked_fds_sync();
@@ -3526,7 +3570,7 @@ bool const overflowed=ring_integrity_suspect();
 
 if(count==0){
 if(overflowed){
-if(!raw_.ring().has_feature(IORING_FEAT_NODROP)){
+if(!caps.feat_nodrop){
 enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
 emit_ring_diagnostics();
 close_tracked_fds_sync();
@@ -3655,7 +3699,9 @@ enum class ParseError:u8{
 None,
 BadRequest,
 UriTooLong,
-HeaderFieldsTooLarge
+HeaderFieldsTooLarge,
+
+
 
 };
 void emit_parse_error(
@@ -3937,7 +3983,8 @@ if(resp.is_deferred()){
 if(conn.is_h2){
 conn.own_response=format_response(
 HttpResponse::internal_error("deferred responses unsupported over HTTP/2"),
-ring.alt_svc_header,true);
+ring.alt_svc_header,
+true);
 conn.has_response=true;
 return;
 }
@@ -4149,7 +4196,7 @@ if(parent>=0)
 wq_fd=static_cast<u32>(parent);
 }
 r.init(impl_->cfg.port,entries,impl_->uring_flags,wq_fd,impl_->cfg.no_mmap);
-if(impl_->cfg.recv_bundle&&((r.ring.features&IORING_FEAT_RECVSEND_BUNDLE)!=0U))
+if(impl_->cfg.recv_bundle&&r.caps.recvsend_bundle)
 r.use_recv_bundle=true;
 if(impl_->cfg.attach_wq&&i==0){
 impl_->wq_ring_fd_.store(r.ring.ring_fd,memory_order_release);
@@ -4161,16 +4208,15 @@ r.alt_svc_header=http3_alt_svc_value(r.bound_port,impl_->cfg.http3.alt_svc_max_a
 #endif
 
 if(i==0){
-S feat_s;
-auto af=[&](char const*n,u32 b){if((r.ring.features&b)==0u)return;if(!feat_s.empty())feat_s+=',';feat_s+=n;};
-af("NODROP",IORING_FEAT_NODROP);
-af("FAST_POLL",IORING_FEAT_FAST_POLL);
-af("SUBMIT_STABLE",IORING_FEAT_SUBMIT_STABLE);
-af("RW_CUR_POS",IORING_FEAT_RW_CUR_POS);
-af("REG_REG_RING",IORING_FEAT_REG_REG_RING);
-af("RECVSEND_BUNDLE",IORING_FEAT_RECVSEND_BUNDLE);
+auto const feat_s=caps_to_log_string(r.caps);
 S sflg_s;
-auto as=[&](char const*n,u32 b){if((r.ring.flags&b)==0u)return;if(!sflg_s.empty())sflg_s+=',';sflg_s+=n;};
+auto as=[&](char const*n,u32 b){
+if((r.ring.flags&b)==0u)
+return;
+if(!sflg_s.empty())
+sflg_s+=',';
+sflg_s+=n;
+};
 as("SINGLE_ISSUER",IORING_SETUP_SINGLE_ISSUER);
 as("DEFER_TASKRUN",IORING_SETUP_DEFER_TASKRUN);
 as("COOP_TASKRUN",IORING_SETUP_COOP_TASKRUN);
@@ -4182,7 +4228,7 @@ eprintln(format("uring_setup_flags={}",sflg_s.empty()?"none":sflg_s));
 }
 if(i==0&&impl_->cfg.startup_banner)
 eprintln(format(
-"listening on {}://0.0.0.0:{}  " "(rings={}, entries={}, flags={}, fixed_files={}, buf_ring=true)",
+"listening on {}://0.0.0.0:{}  " "(rings={}, entries={}, flags={}, listen_fixed={}, accepted_sockets_direct={}, " "buf_ring=true)",
 #if CONFLUX_HAS_TLS
 impl_->tls_ctx?"http/https":"http",
 #else
@@ -4192,7 +4238,8 @@ r.bound_port,
 impl_->rings,
 entries,
 flags_str(impl_->cfg),
-r.fixed_files));
+r.listen_fixed,
+r.accepted_sockets_direct));
 
 auto const status=r.run_loop();
 if(status!=RunStatus::stopped_normally){
@@ -4258,9 +4305,7 @@ if(to_reset)
 to_reset->stop();
 #endif
 return static_cast<RunStatus>(impl_->run_status_.load(memory_order_acquire));
-}catch(...){
-return RunStatus::fatal_internal_exception;
-}
+}catch(...){return RunStatus::fatal_internal_exception;}
 }
 // Blocks until ring 0 has bound and called listen(); returns the actual port.
 // Safe to call from any thread after run() has been dispatched.
