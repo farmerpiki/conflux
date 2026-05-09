@@ -1173,7 +1173,7 @@ return unexpected{-EINVAL};
 if((ring_->flags&IORING_SETUP_NO_MMAP)!=0)
 return unexpected{-EOPNOTSUPP};
 io_uring_params p{};
-p.flags=IORING_SETUP_CQSIZE;
+p.flags=IORING_SETUP_CQSIZE;// required: without it kernel ignores cq_entries and derives from sq_entries
 p.sq_entries=sz.sq_entries;
 p.cq_entries=sz.cq_entries;
 if(int rc=io_uring_resize_rings(ring_,&p);rc<0)

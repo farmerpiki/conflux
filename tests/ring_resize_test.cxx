@@ -162,18 +162,26 @@ TEST_CASE("uring.ring_resize: resize fails on NO_MMAP ring","[ring_resize]"){
 if constexpr(!build_has_io_uring_resize_rings)
 SKIP("built without io_uring_resize_rings");
 
-// NO_MMAP requires caller-supplied memory.
 static constexpr unsigned sq_sz=8;
-alignas(4096)static char buf[65536];
 io_uring_params p{};
-p.flags=IORING_SETUP_NO_MMAP|IORING_SETUP_DEFER_TASKRUN;
-auto r=Ring::init_mem(sq_sz,p,buf,sizeof(buf));
+p.flags=IORING_SETUP_NO_MMAP|IORING_SETUP_DEFER_TASKRUN|IORING_SETUP_SINGLE_ISSUER;
+ssize_t const needed=io_uring_memory_size_params(sq_sz,&p);
+if(needed<=0)
+SKIP("io_uring_memory_size_params failed — skipping");
+struct Free{
+void operator()(void*ptr)const noexcept{free(ptr);}
+};
+UPD<void,Free>buf{aligned_alloc(4096,static_cast<SZ>(needed))};
+if(!buf)
+SKIP("aligned_alloc failed — skipping");
+
+auto r=Ring::init_mem(sq_sz,p,buf.get(),static_cast<SZ>(needed));
 if(!r)
 SKIP("NO_MMAP ring init failed — skipping");
 
 auto rc=r->grow_cq_to(32);
 REQUIRE(!rc);
-// wrapper returns EOPNOTSUPP before calling liburing
+// wrapper preflights NO_MMAP before calling liburing
 CHECK(rc.error()==-EOPNOTSUPP);
 }
 TEST_CASE("uring.ring_resize: RingRef accessors match Ring entries","[ring_resize]"){
