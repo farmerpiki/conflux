@@ -198,10 +198,12 @@ if(!suppress_body&&!r.is_mapped_file()&&!r.is_streamed_file())
 out+=r.text_body();
 return out;
 }
-[[gnu::const]]SV format_sse_headers(){
-static constexpr SV kSseHeaders=
+SV format_sse_headers(bool close){
+static constexpr SV kKeepAlive=
 "HTTP/1.1 200 OK\r\n" "Content-Type: text/event-stream\r\n" "Cache-Control: no-cache\r\n" "Connection: keep-alive\r\n" "\r\n";
-return kSseHeaders;
+static constexpr SV kClose=
+"HTTP/1.1 200 OK\r\n" "Content-Type: text/event-stream\r\n" "Cache-Control: no-cache\r\n" "Connection: close\r\n" "\r\n";
+return close?kClose:kKeepAlive;
 }
 #if CONFLUX_HAS_HTTP2
 struct Ring;// forward-declared so H2ConnCtx can hold Ring* while Conn precedes Ring
@@ -3626,7 +3628,7 @@ if(resp.is_deferred()){
 if(conn.is_h2){
 conn.own_response=format_response(
 HttpResponse::internal_error("deferred responses unsupported over HTTP/2"),
-ring.alt_svc_header);
+ring.alt_svc_header,true);
 conn.has_response=true;
 return;
 }
@@ -3648,7 +3650,7 @@ conn.has_response=true;
 conn.is_sse=true;
 conn.sse_efd=resp.sse_channel_ptr()->eventfd_fd();
 conn.sse_channel=resp.take_sse_channel();
-conn.own_response=S{format_sse_headers()};
+conn.own_response=S{format_sse_headers(conn.close_after_send)};
 conn.has_response=true;
 }else if(resp.is_mapped_file()){
 conn.own_response=format_response(resp,ring.alt_svc_header,conn.close_after_send);

@@ -8,7 +8,7 @@ Items verified against source. PARTIAL = code exists but incomplete. NOT DONE = 
 
 | # | Item | State |
 |---|------|-------|
-| Task 1 | `format_response` close flag — 2 error paths (http_server.cxx:3627, 3645) still missing `close=true`; SSE path hardcodes `Connection: keep-alive` with no close propagation | PARTIAL |
+| Task 1 | `format_response` close flag — H2/deferred error path now passes `close=true`; SSE headers now respect `conn.close_after_send` | DONE |
 | Task 4a | `resolve_timeouts()` in client.cxx defined but never called — dead code; per-request timeouts not merged with client defaults | NOT DONE |
 | Task 7 | proxy.cxx still calls `client.send_blocking`; Phase 2 async migration not started | NOT DONE |
 | Task 8 | `DeferredResponse` has no `TaskControl` ref; timeout → 504 but underlying task keeps running | NOT DONE |
@@ -47,7 +47,7 @@ Items verified against source. PARTIAL = code exists but incomplete. NOT DONE = 
 | P7 — true libpq wire pipeline (`PQenterPipelineMode` / `PQpipelineSync` / `PQexitPipelineMode`); current impl is logical batching barrier only | NOT DONE |
 | P7 — live Postgres CI run with `PG_TEST_CONNINFO`; tests currently guarded by SKIP | NOT DONE |
 | P7 — stronger Pipeline teardown (blocking destructor, true pipeline close) | NOT DONE |
-| P7 — stale "Still open" bullet: `db_pipeline_bench.cxx` is already present at `benchmarks/db_pipeline_bench.cxx` — bullet should be struck | STALE |
+| P7 — ~~stale "Still open" bullet: `db_pipeline_bench.cxx` is already present at `benchmarks/db_pipeline_bench.cxx` — bullet should be struck~~ | DONE |
 | P6 — `Connection::copy_in` / `copy_out` (deferred until consumer appears) | NOT DONE |
 | P4 — single-row streaming (`query_stream` / `PQsetSingleRowMode`); blocked on `WorkStream<T>` framework primitive | NOT DONE |
 | P14 — namespace rename `conflux::db` → `conflux::pg` (decision pending) | NOT DONE |
@@ -59,7 +59,7 @@ Items verified against source. PARTIAL = code exists but incomplete. NOT DONE = 
 
 | Item | State |
 |------|-------|
-| Status table row "net (http_server) — pending E2a — UniqueFn not an E1.x type" is stale; `UniqueFn` already replaced with `small_move_only_function` in http_server.cxx | STALE |
+| Status table row "net (http_server) — pending E2a — UniqueFn not an E1.x type" is stale; `UniqueFn` already replaced with `small_move_only_function` in http_server.cxx | DONE |
 
 ---
 
@@ -67,7 +67,7 @@ Items verified against source. PARTIAL = code exists but incomplete. NOT DONE = 
 
 | Item | State |
 |------|-------|
-| Both docs use `JoinContextError` / `JoinContextReason` throughout; actual class in root.cxx is `JoinError` with inner `reason` enum — **docs are wrong** | DOC ERROR |
+| Both docs use `JoinContextError` / `JoinContextReason` throughout; actual class in root.cxx is `JoinError` with inner `reason` enum — **docs are wrong** | DONE |
 
 ---
 

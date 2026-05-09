@@ -110,7 +110,7 @@ and deleted, not callsites.
 |---|---|---|
 | examples | done — no legacy usage | — |
 | tests (model_b / work_carrier_test) | done E1.2 — model_b section removed | — |
-| net (http_server) | pending E2a — UniqueFn not an E1.x type | — |
+| net (http_server) | done E2a — UniqueFn replaced with small_move_only_function | — |
 | net (dns comment) | done E1.3 — FlowSource → TaskSource in comment | — |
 | file_io (comment) | done E1.3 — Flow<T> pipelines → Task<T> chains in comment | — |
 | db | done — no legacy usage | — |

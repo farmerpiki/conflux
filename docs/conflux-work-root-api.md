@@ -275,9 +275,9 @@ Capability query helpers:
 
 Contract behavior:
 
-- `join(...)` on moved-from/non-live object throws `JoinContextError`
+- `join(...)` on moved-from/non-live object throws `JoinError`
 - posted/operation joins validate capability identity and throw
-  `JoinContextError` on mismatch
+  `JoinError` on mismatch
 - root result and join-handle destructors terminate if still live
   (must be joined, converted, or abandoned explicitly)
 
@@ -405,7 +405,7 @@ does not cancel children.
 ## Exceptions
 
 - `WorkError` base class
-- `JoinContextError` for join context/liveness/capability issues
+- `JoinError` for join context/liveness/capability issues
 - `FailureError` and `CancelledError` for `value(...)` extraction
 
 ## Implementation Notes

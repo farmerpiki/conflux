@@ -232,15 +232,15 @@ on high-frequency chains.
 ### `HopCapabilityError`
 
 ```cpp
-class HopCapabilityError : public root::JoinContextError {
+class HopCapabilityError : public root::JoinError {
 public:
     HopCapabilityError();
 };
 ```
 
 Thrown by `verify_hop` on capability mismatch. Catchable as
-`root::JoinContextError`, `root::WorkError`, and `std::exception`.
-`reason()` returns `root::JoinContextReason::hop_capability_mismatch`.
+`root::JoinError`, `root::WorkError`, and `std::exception`.
+`reason_code()` returns `root::JoinError::reason::hop_capability_mismatch`.
 
 ### `AggregateError`
 
@@ -431,7 +431,7 @@ the caller wants to inspect the outcome before deciding whether to propagate.
 **Both awaiters** install `try_set_on_ready` on the control block. If the
 handle was already terminal at `await_suspend` time, they resume immediately
 (no suspension). If the handle was already consumed by another awaiter,
-`TaskHandleAwaiter` throws `JoinContextError`; `TaskHandleChainAwaiter` returns
+`TaskHandleAwaiter` throws `JoinError`; `TaskHandleChainAwaiter` returns
 a `Chain<T>` carrying the failure.
 
 **`co_await PostedJoinHandle<T>` and `co_await OperationJoinHandle<T>` are
@@ -623,9 +623,9 @@ limit and is not affected.
 
 ---
 
-## `JoinContextReason` Values
+## `JoinError::reason` Values
 
-`root::JoinContextReason` is used in `root::JoinContextError` and its subclasses:
+`root::JoinError::reason` is used in `root::JoinError` and its subclasses:
 
 | Value | Meaning |
 |---|---|

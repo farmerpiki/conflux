@@ -28,7 +28,6 @@ landed on the `db` branch.
   - `db: pipeline isolates per-query failures`
 
 **Still open for P7 close-out:**
-- benchmark target `db_pipeline_bench.cxx`
 - live Postgres integration run in CI/host with `PG_TEST_CONNINFO` set
 - stronger teardown semantics (current destructor is non-blocking and best-effort;
   unresolved queued flows are rejected as `pipeline closed`)
