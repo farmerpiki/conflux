@@ -419,15 +419,16 @@ struct IoUringCaps {
 ## [ ] P1-08: Add first-class cancellation policy
 
 **Classification:** Keep.  
-**Current state:** Partial. `CancelPolicy` enum scaffolded (`ignore`, `cancel_sqe_by_user_data`, `cancel_fd`, `close_fd`) in `socket_io.cxx` (`9fcd9a4`). Task-level wiring not yet done.
+**Current state:** Partial. `tcp_connect` fully cancellable via `ConnectOp` shared_ptr state machine with cancel hook, cross-thread-safe cancel dispatch (`submit_on_ring_owner`), linked-timeout support, and `StopCause` CAS stickiness (`87c3e3a`, `85dabec`). `read_borrowed`/`do_send` cancel-by-user-data wired. DNS/HTTP still on `FileReader`-backed paths.
 
 **TODO:**
 
 - [x] Define cancellation policy enum.
 - [x] Support cancel-by-user-data for connect/recv/send where safe.
 - [ ] Support cancel-by-fd/close-fd where user-data cancel is insufficient.
-- [ ] Apply to connect timeout, DNS timeout, HTTP request timeout, shutdown, and WebSocket handoff.
-- [ ] Define result normalization for timeout vs user cancel vs fd close.
+- [x] Apply cancellation to `tcp_connect` — `ConnectOp` state machine: cancel hook installed on inner task, `StopCause` CAS (none→timeout, user_cancel sticky), cross-thread `submit_on_ring_owner` dispatch, fd never leaked.
+- [ ] Apply to DNS timeout, HTTP request timeout, shutdown, and WebSocket handoff.
+- [x] Define result normalization for timeout vs user cancel vs fd close (`StopCause::none/user_cancel/timeout`; `on_connect_cqe` selects `ETIMEDOUT` vs `cancelled`).
 - [x] Add tests for cancellation racing with successful CQE.
 
 Suggested shape:
@@ -578,7 +579,7 @@ Do not start AF_ALG before socket ownership and Task-ring semantics are clean. A
 
 - [x] **P1-06** Add `IoUringCaps` matrix.
 - [x] **P1-01** Implement `SocketTaskRing`.
-- [ ] **P1-07** Normalize borrowed/owned lifetime contracts.
+- [x] **P1-07** Normalize borrowed/owned lifetime contracts.
 - [ ] **P1-08** Add cancellation policy for connect/recv/DNS/HTTP.
 - [ ] **P1-02** Migrate async plaintext HTTP client/proxy.
 - [ ] **P1-03** Migrate DNS transport.
@@ -588,7 +589,7 @@ Do not start AF_ALG before socket ownership and Task-ring semantics are clean. A
 
 - [x] **P1-04** Add `TcpListener` abstraction (Phase 1 done; Phase 2/3 deferred).
 - [ ] **P1-05** Add buffer-ring modes: classic, bundle, incremental.
-- [ ] **P1-09** Expand benchmark gates.
+- [x] **P1-09** Expand benchmark gates.
 - [ ] **P2-02** Add owned-path direct-flow variants.
 - [ ] **P2-01** Add ring resize wrapper after CQ telemetry.
 - [ ] **P2-03** Add poll-first recv policy.
