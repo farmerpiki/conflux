@@ -1,0 +1,89 @@
+# io_uring / Socket — Remaining Work
+
+_Collapsed from `conflux_linux_first_class_io_uring_todo_proposal.md`. Completed P0/P1/P2 items removed._
+
+---
+
+## Bugs
+
+### Bundle recycling in fatal-drain path (`http_server.cxx:3519-3528`)
+
+`recycle_recv_buffer_direct` uses arithmetic `(buf_id+1)%count` to walk successive buffer IDs in bundle mode. This assumes sequential allocation, which conflicts with the non-sequential ring-order fix applied elsewhere.
+
+- [ ] Fix to use ring-order consume head, not `(buf_id+1)%count`.
+
+---
+
+## P1 — Active
+
+### HTTP async client (P1-02)
+
+- [ ] HTTPS async path: currently `not implemented`.
+- [ ] Proxy plaintext path: still has blocking send (`proxy.cxx:88`).
+- [ ] Connect timeout with linked timeout or explicit cancel.
+- [ ] Cancellation-safe close path.
+- [ ] Happy Eyeballs connect staggering/racing.
+- [ ] Remove/deprecate `FileReader` socket methods after HTTP/DNS migration complete.
+
+### DNS transport cleanup (P1-03)
+
+TCP fallback already uses `SocketTaskRing`. Remaining:
+
+- [ ] Remove `FileReader` from blocking UDP DNS path — `dns.cxx:1833-1869` calls `block_on` with `tmp_reader`; replace with `SocketTaskRing`-based block_on.
+- [ ] Remove temp-ring allocation from per-query blocking DNS path (`dns.cxx:1822`).
+- [ ] Add caller-provided `SocketTaskRing` path for async DNS.
+- [ ] Add thread-local reusable `SocketTaskRing`/ring for blocking compatibility path.
+- [ ] Add cancellation-aware linked timeout for UDP queries.
+
+### Direct accept TCP_NODELAY (P1-04)
+
+`queue_direct_accept_setup` (`http_server.cxx:1794`) only sets `tcp_quickack_once`. Non-direct accepted sockets get `TCP_NODELAY` via raw `setsockopt` at line 2330; direct sockets silently skip it.
+
+- [ ] Enable `setup.tcp_nodelay_once = caps.cmd_sock_setsockopt` in `queue_direct_accept_setup`.
+
+### Cancellation above socket layer (P1-08)
+
+Connect/recv/send cancellation is done. Remaining:
+
+- [ ] Cancel-by-fd/close-fd where user-data cancel is insufficient.
+- [ ] DNS timeout, HTTP request timeout, shutdown, and WebSocket handoff cancellation.
+
+### Benchmarks (P1-09)
+
+- [ ] `SocketTaskRing` vs `FileReader` E2E benchmark — needs `block_on_socket_task()` helper, not via `FileReader::block_on`.
+- [ ] Close-direct deferred path benchmarks — requires `FlowRuntime` integration.
+
+---
+
+## P2 — Active
+
+### Poll-first recv benchmark (P2-03)
+
+Plumbing is complete (`RecvArmPolicy`, `resolve_recv_arm_policy`, server integration, `auto_recv_arm_policy` config knob, caps). Remaining:
+
+- [ ] Benchmark `default_` vs `poll_first` vs adaptive under idle/bulk traffic.
+
+### Ring resize — server auto-grow (P2-01 follow-up)
+
+- [ ] Track `saw_overflow_since_last_resize`; call `grow_cq_to` once after overflow clears (no server auto-grow in initial implementation).
+
+---
+
+## P3 — Deferred
+
+- **Registered buffer cloning (P3-01):** add wrapper only when a multi-ring fixed-buffer consumer exists; benchmark startup cost first.
+- **ZC recv (P3-02):** separate design doc required; prototype only after direct-slot/buffer/CQ ownership model is stable. Do not mix into current `BufferRing` API.
+- **AF_ALG (P3-03):** benchmark-gated; add only after benchmark proves value over AESNI for target payload sizes.
+
+### DNS v2 (deferred from DNS proposal)
+
+- inotify watch on `resolv.conf` — v2.
+- DoH/DoT — backend stub reserved; not implemented.
+- SRV/MX — separate `resolve_mx`/`resolve_srv` API; v2.
+- IDNA punycode — caller responsibility; v2 helper.
+
+---
+
+## Warning
+
+Do not claim perf wins without same-hardware measurements under realistic HTTP load. ZC recv, registered network send buffers, IOPOLL, busy-poll, and lock-free worker queues must be separate measured branches.
