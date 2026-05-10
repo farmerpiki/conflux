@@ -37,16 +37,18 @@ TcpStreamState(SocketTaskRing*r,OwnedSocketHandle h)noexcept
 
 export class TcpStream{
 SP<TcpStreamState>state_{};
+// Returns the inner task directly so callers can cancel via task.cancel().
 [[nodiscard]]wroot::Task<SZ>do_send(
 u8 const*data,
 SZ len,
 SP<void>keeper){
 auto&st=*state_;
-if(!st.handle.valid()||st.closing.load(memory_order_relaxed))
-co_await[]()->wroot::Task<SZ>{
-throw IoError{EBADF,"tcp: stream closed"};
-co_return 0;
-}();
+if(!st.handle.valid()||st.closing.load(memory_order_relaxed)){
+auto[t,s]=wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation=false});
+auto ss=make_shared<wroot::TaskSource<SZ>>(move(s));
+auto _=ss->try_set_exception(make_exception_ptr(IoError{EBADF,"tcp: stream closed"}));
+return move(t);
+}
 auto[task,raw_src]=wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation=true});
 auto shared_src=make_shared<wroot::TaskSource<SZ>>(move(raw_src));
 SocketHandle const h=st.handle.get();
@@ -63,12 +65,12 @@ auto _=shared_src->try_set_value(wroot::Success<SZ>{static_cast<SZ>(r.res)});
 u64 const ud=st.ring->encode(slot,gen);
 if(!submit_send_borrowed(st.ring->raw(),h,data,len,ud)){
 st.ring->completions().dispatch(slot,gen,-ENOSPC,0);
-co_return co_await move(task);
+return move(task);
 }
 auto ring_ptr=st.ring;
 auto weak_src=weak_ptr<wroot::TaskSource<SZ>>{shared_src};
 auto _=shared_src->install_cancel_hook([ring_ptr,ud,weak_src=move(weak_src)](wroot::CancelReason)noexcept{
-auto _=ring_ptr->submit_on_owner([ud,weak_src](SocketTaskRing&ring){
+if(!ring_ptr->submit_on_owner([ud,weak_src](SocketTaskRing&ring){
 auto[cs,cg]=ring.completions().reserve([](IoResult)noexcept{});
 u64 const cud=ring.encode(cs,cg);
 if(!submit_cancel_by_ud(ring.raw(),ud,cud)){
@@ -77,9 +79,10 @@ if(auto src=weak_src.lock())auto _=src->try_set_cancelled();
 return;
 }
 auto _=ring.raw().submit();
+}))
+if(auto src=weak_src.lock())auto _=src->try_set_cancelled();
 });
-});
-co_return co_await move(task);
+return move(task);
 }
 public:
 TcpStream()noexcept=default;
@@ -96,11 +99,12 @@ return state_?state_->handle.raw_fd():-1;
 }
 [[nodiscard]]wroot::Task<SZ>read_borrowed(span<u8>dst){
 auto&st=*state_;
-if(!st.handle.valid()||st.closing.load(memory_order_relaxed))
-co_await[]()->wroot::Task<SZ>{
-throw IoError{EBADF,"tcp: stream closed"};
-co_return 0;
-}();
+if(!st.handle.valid()||st.closing.load(memory_order_relaxed)){
+auto[t,s]=wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation=false});
+auto ss=make_shared<wroot::TaskSource<SZ>>(move(s));
+auto _=ss->try_set_exception(make_exception_ptr(IoError{EBADF,"tcp: stream closed"}));
+return move(t);
+}
 auto[task,raw_src]=wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation=true});
 auto shared_src=make_shared<wroot::TaskSource<SZ>>(move(raw_src));
 SocketHandle const h=st.handle.get();
@@ -116,13 +120,12 @@ auto _=shared_src->try_set_value(wroot::Success<SZ>{static_cast<SZ>(r.res)});
 u64 const ud=st.ring->encode(slot,gen);
 if(!submit_recv_borrowed(st.ring->raw(),h,dst.data(),dst.size(),ud)){
 st.ring->completions().dispatch(slot,gen,-ENOSPC,0);
-co_return co_await move(task);
+return move(task);
 }
 auto ring_ptr=st.ring;
 auto weak_src2=weak_ptr<wroot::TaskSource<SZ>>{shared_src};
-{
 auto _=shared_src->install_cancel_hook([ring_ptr,ud,weak_src2=move(weak_src2)](wroot::CancelReason)noexcept{
-auto _=ring_ptr->submit_on_owner([ud,weak_src2](SocketTaskRing&ring){
+if(!ring_ptr->submit_on_owner([ud,weak_src2](SocketTaskRing&ring){
 auto[cs,cg]=ring.completions().reserve([](IoResult)noexcept{});
 u64 const cud=ring.encode(cs,cg);
 if(!submit_cancel_by_ud(ring.raw(),ud,cud)){
@@ -131,10 +134,10 @@ if(auto src=weak_src2.lock())auto _=src->try_set_cancelled();
 return;
 }
 auto _=ring.raw().submit();
+}))
+if(auto src=weak_src2.lock())auto _=src->try_set_cancelled();
 });
-});
-}
-co_return co_await move(task);
+return move(task);
 }
 [[nodiscard]]wroot::Task<SZ>write_borrowed(span<u8 const>src){
 return do_send(src.data(),src.size(),{});
@@ -313,7 +316,7 @@ auto ring_ptr=&ring;
 auto weak_csrc=weak_ptr<wroot::TaskSource<TcpStream>>{cshared_src};
 {
 auto _=cshared_src->install_cancel_hook([ring_ptr,h,weak_csrc=move(weak_csrc)](wroot::CancelReason)noexcept{
-auto _=ring_ptr->submit_on_owner([h,weak_csrc](SocketTaskRing&r){
+if(!ring_ptr->submit_on_owner([h,weak_csrc](SocketTaskRing&r){
 auto[cs,cg]=r.completions().reserve([](IoResult)noexcept{});
 u64 const cud=r.encode(cs,cg);
 if(!submit_cancel_fd(r.raw(),h,cud)){
@@ -322,7 +325,8 @@ if(auto src=weak_csrc.lock())auto _=src->try_set_cancelled();
 return;
 }
 auto _=r.raw().submit();
-});
+}))
+if(auto src=weak_csrc.lock())auto _=src->try_set_cancelled();
 });
 }
 co_return co_await move(ctask);

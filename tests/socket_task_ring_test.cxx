@@ -2,6 +2,7 @@
 #include<arpa/inet.h>
 #include<liburing.h>
 #include<netinet/in.h>
+#include<netinet/tcp.h>
 #include<sys/socket.h>
 #include<unistd.h>
 
@@ -570,4 +571,203 @@ static_cast<socklen_t>(sizeof(sockaddr_in)),
 ConnectOptions{.timeout=chrono::milliseconds{-1}}));
 }catch(IoError const&e){err_code=e.code().value();}
 CHECK(err_code==EINVAL);
+}
+// ---------------------------------------------------------------------------
+// TcpStream — ops after close() throw EBADF
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: read_borrowed after close() throws EBADF",
+"[tcp][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+fx->run(stream.close());
+int err=0;
+array<uint8_t,16>buf{};
+try{
+fx->run(stream.read_borrowed(span<uint8_t>{buf.data(),buf.size()}));
+}catch(IoError const&e){err=e.code().value();}
+CHECK(err==EBADF);
+}
+// ---------------------------------------------------------------------------
+// Cancellation — cancel in-flight read by user_data
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"cancellation: cancel read by user_data",
+"[tcp][cancel][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+// echo server only sends when we send; no data pending → read will block
+array<uint8_t,64>buf{};
+// coroutine starts eagerly — SQE added to ring immediately
+auto read_task=stream.read_borrowed(span<uint8_t>{buf.data(),buf.size()});
+// cancel from ring owner thread (inline path): fires cancel hook →
+// submits read+cancel SQEs together via ring.raw().submit()
+read_task.cancel();
+bool got_cancel=false;
+int err=0;
+try{
+fx->run(move(read_task));
+}catch(IoError const&e){err=e.code().value();}catch(exception const&){
+got_cancel=true;
+}
+CHECK(got_cancel||err==ECANCELED);
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// Cancellation — submit_on_ring_owner false → try_set_cancelled
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"cancellation: submit_on_ring_owner false triggers try_set_cancelled",
+"[tcp][cancel]"){
+// Verifies Finding 9 fix: when submit_on_owner returns false,
+// try_set_cancelled is called rather than silently hanging.
+TcpEchoServer server;
+REQUIRE(server.ok());
+bool owner_called=false;
+SocketTaskRingOptions opts;
+// simulate cross-thread cancel handler that can't post (returns false)
+opts.submit_on_ring_owner=[&owner_called](RingOpFn)->bool{
+owner_called=true;
+return false;
+};
+auto fx=require_ring_fixture();
+SocketTaskRing ring2{SocketRawRing{&fx->ring},fx->completions,
+[](uint32_t s,uint32_t g)noexcept->uint64_t{return pack_ud(s,g);},opts};
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(ring2,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+array<uint8_t,64>buf{};
+auto read_task=stream.read_borrowed(span<uint8_t>{buf.data(),buf.size()});
+// cancel → cancel hook → submit_on_owner → lambda returns false
+// with fix: try_set_cancelled() fires immediately
+read_task.cancel();
+bool got_cancel=false;
+try{
+fx->run(move(read_task));
+}catch(exception const&){got_cancel=true;}
+CHECK(owner_called);
+CHECK(got_cancel);
+// close drains the unsubmitted read SQE
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// tcp_connect — linked timeout fires ETIMEDOUT
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_connect: connect timeout fires ETIMEDOUT",
+"[tcp][uring]"){
+// 192.0.2.1 is RFC 5737 TEST-NET-1 — non-routable; SYN is dropped.
+// The io_uring linked timeout fires at 300ms → ECANCELED → ETIMEDOUT.
+auto fx=require_ring_fixture();
+sockaddr_storage addr{};
+auto*sin=reinterpret_cast<sockaddr_in*>(&addr);
+sin->sin_family=AF_INET;
+sin->sin_addr.s_addr=htonl(0xC0000201U);// 192.0.2.1
+sin->sin_port=htons(1);
+int err=0;
+try{
+fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in)),
+ConnectOptions{.timeout=chrono::milliseconds{300}}),
+chrono::seconds{10});
+}catch(IoError const&e){err=e.code().value();}
+// ETIMEDOUT when linked timeout fires; EHOSTUNREACH/ENETUNREACH if unroutable
+CHECK(err==ETIMEDOUT||err==EHOSTUNREACH||err==ENETUNREACH);
+}
+// ---------------------------------------------------------------------------
+// TcpStream — write_copy safe after source span is destroyed
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: write_copy safe after source span destroyed",
+"[tcp][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+conflux::work::root::Task<void>copy_task{};
+{
+// source lives in this inner scope only
+array<uint8_t,8>msg{1,2,3,4,5,6,7,8};
+// write_all_copy copies into an internal holder immediately
+copy_task=stream.write_all_copy(span<uint8_t const>{msg.data(),msg.size()});
+// msg destroyed here
+}
+fx->run(move(copy_task));// must not UB — holder owns the data
+array<uint8_t,8>rx{};
+SZ received=0;
+while(received<8){
+SZ const n=fx->run(stream.read_borrowed(span<uint8_t>{rx.data()+received,8u-received}));
+REQUIRE(n>0);
+received+=n;
+}
+array<uint8_t,8>expected{1,2,3,4,5,6,7,8};
+CHECK(memcmp(rx.data(),expected.data(),8)==0);
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// TcpStream — TCP_NODELAY set by default
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: TCP_NODELAY set by default after connect",
+"[tcp][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+int nodelay=0;
+socklen_t optlen=sizeof(nodelay);
+int const rc=::getsockopt(stream.raw_fd(),IPPROTO_TCP,TCP_NODELAY,&nodelay,&optlen);
+CHECK(rc==0);
+CHECK(nodelay!=0);
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// TcpStream — shutdown(SHUT_WR) then read returns EOF
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: shutdown(SHUT_WR) then read returns EOF",
+"[tcp][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+// after SHUT_WR the server sees EOF, closes its side → our read returns 0
+fx->run(stream.shutdown(SHUT_WR));
+array<uint8_t,64>buf{};
+SZ const n=fx->run(stream.read_borrowed(span<uint8_t>{buf.data(),buf.size()}));
+CHECK(n==0);
+fx->run(stream.close());
 }
