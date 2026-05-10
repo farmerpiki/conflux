@@ -43,10 +43,14 @@ TCP fallback already uses `SocketTaskRing`. Remaining:
 
 ### Cancellation above socket layer (P1-08)
 
-Connect/recv/send cancellation is done. Remaining:
+PR A (server multishot cancel + shutdown) and PR B (DNS + HTTP client timeouts) complete.
+Benchmark gate passed (main vs db, release-clang-libcxx, 2026-05-10). Remaining:
 
-- [ ] Cancel-by-fd/close-fd where user-data cancel is insufficient.
-- [ ] DNS timeout, HTTP request timeout, shutdown, and WebSocket handoff cancellation.
+- [ ] Cancel-by-fd/close-fd for multishot recv where user-data cancel is insufficient — deferred; generation check mitigates, proper fix requires per-fd cancel slot tracking.
+- [ ] `HttpTimeouts::write` async path — currently ignored; add linked timeout to `do_send` write SQE.
+- [ ] HTTPS async cancellation path — `client_async.cxx` TLS connect/recv not yet cancellation-aware.
+- [ ] Shutdown explicit recv cancel for armed connections — follow-up after PR B merge.
+- [ ] WebSocket handoff cancel — already implemented (`ws_cancel_handoffs` / `queue_ws_cancel`); no action needed.
 
 ### Benchmarks (P1-09)
 
