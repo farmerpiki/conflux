@@ -415,6 +415,7 @@ static_assert(sizeof(ObjHashSlot)==8);
 struct ObjHashTable{
 u32 capacity;
 u32 member_count;
+std::pmr::memory_resource*mr;
 [[nodiscard]]ObjHashSlot*slots_data()noexcept{
 // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 return reinterpret_cast<ObjHashSlot*>(this+1);
@@ -435,12 +436,16 @@ return reinterpret_cast<char const*const*>(slots_data()+capacity);
 }
 static ObjHashTable*create(
 u32 capacity,
-u32 member_count)noexcept{
+u32 member_count,
+std::pmr::memory_resource*mr=std::pmr::new_delete_resource())noexcept{
 SZ const bytes=sizeof(ObjHashTable)+sizeof(ObjHashSlot)*capacity+sizeof(char const*)*member_count;
-void*mem=::operator new(bytes,std::nothrow);// NOLINT(misc-const-correctness)
+void*mem=nullptr;
+try{
+mem=mr->allocate(bytes,alignof(ObjHashTable));
+}catch(...){}
 if(mem==nullptr)
 return nullptr;
-auto*t=::new(mem)ObjHashTable{capacity,member_count};
+auto*t=::new(mem)ObjHashTable{capacity,member_count,mr};
 std::fill_n(t->slots_data(),capacity,ObjHashSlot{});
 return t;
 }
@@ -448,8 +453,10 @@ static void destroy(
 ObjHashTable*t)noexcept{
 if(t==nullptr)
 return;
+auto*mr=t->mr;
+SZ const bytes=sizeof(ObjHashTable)+sizeof(ObjHashSlot)*t->capacity+sizeof(char const*)*t->member_count;
 t->~ObjHashTable();
-::operator delete(t);
+mr->deallocate(t,bytes,alignof(ObjHashTable));
 }
 };
 constexpr u32 kHashThreshold=32;
@@ -613,10 +620,11 @@ SV input_view;
 u32 root_node{0};
 u32 bom_prefix_bytes{0};
 u64 hash_seed_{detail::make_hash_seed()};
+std::pmr::memory_resource*hash_mr_{std::pmr::new_delete_resource()};
 DocumentStorage()
 :nodes(std::pmr::new_delete_resource()),string_arena(std::pmr::new_delete_resource()),array_children(std::pmr::new_delete_resource()),object_members(std::pmr::new_delete_resource()){}
 explicit DocumentStorage(std::pmr::memory_resource*r)
-:nodes(r),string_arena(r),array_children(r),object_members(r){}
+:nodes(r),string_arena(r),array_children(r),object_members(r),hash_mr_(r){}
 DocumentStorage(DocumentStorage const&)=delete;
 DocumentStorage&operator=(DocumentStorage const&)=delete;
 DocumentStorage(DocumentStorage&&)noexcept=default;
@@ -1993,7 +2001,7 @@ u32 const cap=detail::clamped_capacity(static_cast<u32>(mem_count_));
 bool build_ok=false;
 ObjHashTable*owned=nullptr;
 if(cap>0){
-owned=ObjHashTable::create(cap,static_cast<u32>(mem_count_));
+owned=ObjHashTable::create(cap,static_cast<u32>(mem_count_),storage_->hash_mr_);
 if(owned!=nullptr){
 if(detail::build_table(*owned,storage_,mem_start_,mem_count_)){
 ObjHashTable*expected_null=nullptr;// NOLINT(misc-const-correctness)
@@ -2467,7 +2475,7 @@ JsonError{
 .code=JsonIssueCode::resource_exhausted,
 .message="object exceeds hash-index byte budget"});
 }
-owned=ObjHashTable::create(cap,static_cast<u32>(ov.mem_count_));
+owned=ObjHashTable::create(cap,static_cast<u32>(ov.mem_count_),storage_->hash_mr_);
 if(owned==nullptr){
 stash_failure_sentinel();
 return unexpected(
@@ -3861,7 +3869,7 @@ SZ const obj_node_idx=store.nodes.size()-1;
 if(opts.warm_threshold.has_value()&&len>=static_cast<SZ>(*opts.warm_threshold)&&len>=kHashThreshold){
 u32 const cap=detail::clamped_capacity(static_cast<u32>(len));
 if(cap>0){
-ObjHashTable*ht=ObjHashTable::create(cap,static_cast<u32>(len));
+ObjHashTable*ht=ObjHashTable::create(cap,static_cast<u32>(len),store.hash_mr_);
 if(ht!=nullptr){
 if(detail::build_table(*ht,&store,ms,len)){
 store.nodes[obj_node_idx].hash_idx_raw=ht;// NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
@@ -3898,7 +3906,7 @@ SZ const obj2=store.nodes.size()-1;
 if(opts.warm_threshold.has_value()&&len2>=static_cast<SZ>(*opts.warm_threshold)&&len2>=kHashThreshold){
 u32 const cap2=detail::clamped_capacity(static_cast<u32>(len2));
 if(cap2>0){
-ObjHashTable*ht2=ObjHashTable::create(cap2,static_cast<u32>(len2));
+ObjHashTable*ht2=ObjHashTable::create(cap2,static_cast<u32>(len2),store.hash_mr_);
 if(ht2!=nullptr){
 if(detail::build_table(*ht2,&store,ms2,len2)){
 store.nodes[obj2].hash_idx_raw=ht2;// NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
