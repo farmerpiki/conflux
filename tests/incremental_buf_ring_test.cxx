@@ -344,11 +344,8 @@ auto r=conflux::uring::Ring::init(32,{});
 REQUIRE(r);
 conflux::uring::IoUringCaps fake{};
 // feat_pbuf_ring_inc left false (zero-initialized)
-REQUIRE_THROWS_AS(
-BufferRing{r->ref(),
-BufferRingOptions{.count=8,.buf_size=64,.group_id=7,.huge_pages=false,.mode=BufferRingMode::incremental},
-fake},
-RE);
+auto make_bad=[&]{BufferRing{r->ref(),BufferRingOptions{.count=8,.buf_size=64,.group_id=7,.huge_pages=false,.mode=BufferRingMode::incremental},fake};};
+REQUIRE_THROWS_AS(make_bad(),RE);
 }
 // T7: Skip when kernel lacks IORING_FEAT_PBUF_RING_INC — Rig SKIP fires, this test
 //     also verifies the basic ring mode is reported correctly when supported.

@@ -604,7 +604,8 @@ fx->run(move(read_task));
 }catch(IoError const&e){err=e.code().value();}catch(exception const&){
 got_cancel=true;
 }
-CHECK(got_cancel||err==ECANCELED);
+bool const cancelled=got_cancel||err==ECANCELED;
+CHECK(cancelled);
 fx->run(stream.close());
 }
 // ---------------------------------------------------------------------------
@@ -670,7 +671,8 @@ ConnectOptions{.timeout=chrono::milliseconds{300}}),
 chrono::seconds{10});
 }catch(IoError const&e){err=e.code().value();}
 // ETIMEDOUT when linked timeout fires; EHOSTUNREACH/ENETUNREACH if unroutable
-CHECK(err==ETIMEDOUT||err==EHOSTUNREACH||err==ENETUNREACH);
+bool const timed_out=err==ETIMEDOUT||err==EHOSTUNREACH||err==ENETUNREACH;
+CHECK(timed_out);
 }
 // ---------------------------------------------------------------------------
 // TcpStream — write_copy safe after source span is destroyed
