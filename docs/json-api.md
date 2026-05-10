@@ -45,10 +45,21 @@ auto doc = parse_borrowed_unsafe(input);
 ### JsonParseOptions
 
 ```cpp
+enum class ParseMode : u8 { strict, json5 };
+
+enum class DuplicateKeyPolicy : u8 {
+    reject,      // RFC 8259 recommended; default
+    last_wins,   // keep last value; first occurrence's name position preserved
+    first_wins,  // keep first value; duplicate parsed for syntax, then discarded
+};
+
 struct JsonParseOptions {
-    LimitOption max_depth;       // default 128
-    LimitOption max_input_size;  // default 128 MiB
-    LimitOption max_string_size; // default 64 MiB
+    LimitOption        max_depth;        // default 128
+    LimitOption        max_input_size;   // default 128 MiB
+    LimitOption        max_string_size;  // default 64 MiB
+    ParseMode          mode{ParseMode::strict};
+    DuplicateKeyPolicy duplicate_key{DuplicateKeyPolicy::reject};
+    std::optional<u32> warm_threshold{}; // auto-warm object index when member count >= threshold
 };
 ```
 
@@ -58,6 +69,12 @@ struct JsonParseOptions {
 parse(input, { .max_depth = LimitOption{64} });
 parse(input, { .max_string_size = no_limit });
 ```
+
+**`ParseMode::json5`** accepts a subset of JSON5: single-line `//` and block `/* */` comments, trailing commas in objects and arrays, unquoted keys (identifier characters), and single-quoted strings. This is not full JSON5; the accepted subset matches what the test suite covers.
+
+**`DuplicateKeyPolicy`** controls parser behavior when an object has repeated member names. Default is `reject` (returns `duplicate_member` error). `last_wins` and `first_wins` allow lossy ingestion of non-conforming inputs. Security note: use `reject` for untrusted input — duplicate-key ambiguity has been exploited in JSON security bypasses.
+
+**`warm_threshold`** — if set and an object's member count is ≥ the threshold (and ≥ the internal `kHashThreshold`), the parser automatically builds a hash index for that object during parse rather than waiting for an explicit `warm_member_index` call.
 
 ---
 
@@ -556,8 +573,115 @@ struct NodeIdentityEqual { bool   operator()(NodeRef, NodeRef) const noexcept; }
 - Builder sub-builders (`ObjectBuilder`, `ArrayBuilder`) must be `commit()`'d
   before the parent or `ValueBuilder::finish()` is called. Dropping without
   commit is a logic error (debug assertion in debug builds).
-- Duplicate member names are rejected at insertion time (`duplicate_member`).
-  Detection uses decoded UTF-8 bytes compared byte-for-byte.
+- Duplicate member names in the **builder** are always rejected at insertion time (`duplicate_member`). Detection uses decoded UTF-8 bytes compared byte-for-byte.
+- Duplicate member names during **parsing** follow `JsonParseOptions::duplicate_key` (default: `reject`).
+
+---
+
+## Arena-backed parsing (`JsonArena`)
+
+`JsonArena` reuses a single monotonic allocation region across multiple parse calls. Useful for request-scoped JSON: parse, process, then `reset()` the arena rather than allocating and freeing `Document` per request.
+
+```cpp
+struct JsonArenaOptions {
+    size_t initial_slab_bytes; // pre-allocated slab size
+};
+
+class JsonArena {
+public:
+    explicit JsonArena(JsonArenaOptions const&);
+
+    expected<ArenaDocument, JsonError> parse_into      (string_view,  JsonParseOptions const& = {});
+    expected<ArenaDocument, JsonError> parse_borrowed_into(string_view, JsonParseOptions const& = {});
+    expected<ArenaDocument, JsonError> parse_moved_into(string&&,     JsonParseOptions const& = {});
+
+    void   reset();           // invalidates all ArenaDocuments; reuses memory
+    size_t slab_capacity() const;
+    size_t slab_used()     const;
+};
+```
+
+`ArenaDocument` is a handle into the arena's storage. **All `ArenaDocument` handles are invalidated by `reset()`** — do not hold them across a reset.
+
+```cpp
+JsonArena arena{JsonArenaOptions{.initial_slab_bytes = 1024 * 1024}};
+
+for (auto const& raw : requests) {
+    auto doc = arena.parse_into(raw);
+    if (doc) process(doc->root());
+    arena.reset();
+}
+```
+
+---
+
+## NDJSON / Streaming
+
+### `NdjsonRange`
+
+Streaming range over newline-delimited JSON. Each iteration parses one line and yields `expected<Document, JsonError>`.
+
+```cpp
+class NdjsonRange {
+public:
+    explicit NdjsonRange(string_view input, JsonParseOptions const& = {});
+
+    // range-for: yields expected<Document, JsonError> per line
+    auto begin() const;
+    default_sentinel_t end() const;
+};
+```
+
+The entire `input` buffer must remain alive and immutable while any iterator or document derived from it is alive (same borrowed-parse lifetime rule).
+
+```cpp
+for (auto& result : NdjsonRange{raw_ndjson}) {
+    if (!result) { /* result.error() */ continue; }
+    process(result->root());
+}
+```
+
+### `JsonAccumulator`
+
+Incremental buffer accumulator for streaming input where the full JSON value arrives in chunks.
+
+```cpp
+class JsonAccumulator {
+public:
+    explicit JsonAccumulator(JsonParseOptions const& = {});
+
+    expected<void, JsonError>     feed  (string_view chunk); // append chunk; validates size
+    expected<Document, JsonError> finish();                  // parse accumulated buffer
+    void                          reset();                   // clear buffer for reuse
+};
+```
+
+---
+
+## Schema validation
+
+Generate a JSON Schema (draft-07 subset) from a codec-registered type, then validate any `NodeRef` against it.
+
+```cpp
+template<class T>
+requires(has_members_spec<T> || has_codec_spec<T>)
+expected<Document, JsonError> schema_for();
+
+[[nodiscard]] expected<void, JsonError> validate(NodeRef root, NodeRef schema);
+```
+
+`schema_for<T>()` returns a `Document` containing the schema. Pass its root to `validate` along with the data node to check.
+
+```cpp
+auto schema_doc = schema_for<MyStruct>();
+// schema_doc->root() is the schema NodeRef
+
+auto data_doc = parse(raw_json);
+auto result = validate(data_doc->root(), schema_doc->root());
+if (!result) { /* result.error() describes the violation */ }
+```
+
+The schema reflects the same members and types that `decode<T>` would accept. Optional fields become non-required schema properties. Custom `JsonCodec<T>` specializations are not introspected — only `JsonMembers<T>` yields a meaningful schema.
 
 ---
 

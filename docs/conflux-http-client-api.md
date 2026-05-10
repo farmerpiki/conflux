@@ -2,7 +2,9 @@
 
 `conflux::http::HttpClient` — blocking HTTP/1.1 user agent. TLS via OpenSSL (`https://`). One module, no extra deps.
 
-Status: **Phase 1**. Blocking transport. New connection per request (no pool, no keep-alive). Async/pooled path is Phase 2.
+Also available: `send_async` — coroutine-based HTTP-only (no TLS) async transport backed by `SocketTaskRing`.
+
+Status: **Blocking transport stable.** New connection per request (no pool, no keep-alive). Async transport: HTTP-only, no TLS, no pooling.
 
 ## Module imports
 
@@ -12,6 +14,7 @@ import conflux.net.http;          // umbrella — exports everything below
 import conflux.net.http.types;    // HttpError, HttpTimeouts, HttpTelemetry, Url
 import conflux.net.http.request;  // HttpRequest, HttpRequest::Builder
 import conflux.net.client;        // HttpClient, HttpClientOptions, HttpResponse, HttpResult
+import conflux.net.async_client;  // send_async — NOT re-exported from conflux.net.http
 ```
 
 All public types live in namespace `conflux::http`.
@@ -329,12 +332,46 @@ Anything that depends on Phase 2:
 | connect/tls/resolve timeout | 5 s | option-controlled |
 | write/first-byte/between-bytes timeout | 30 s | option-controlled |
 
+## Async client (`send_async`)
+
+**Module:** `conflux.net.async_client` — not re-exported from `conflux.net.http`.
+
+```cpp
+import conflux.net.async_client;
+
+[[nodiscard]] conflux::work::root::Task<HttpResult>
+conflux::http::send_async(
+    HttpClient const& client,
+    SocketTaskRing&   ring,
+    HttpRequest const& req);
+```
+
+Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all outlive the coroutine — do not destroy them while the task is suspended.
+
+**Limitations vs `send_blocking`:**
+
+| Feature | `send_blocking` | `send_async` |
+|---|---|---|
+| HTTP/1.1 | Yes | Yes |
+| HTTPS / TLS | Yes | **No** — returns `HttpErrorKind::tls` |
+| Connection pool | No | No |
+| Redirect following | No (Phase 2) | No |
+| Content-encoding decode | No (Phase 2) | No |
+| Cancellation | N/A | Via `SocketTaskRing` cancel |
+
+HTTPS requests return `HttpError{.kind=tls, .message="async TLS not yet implemented; use send_blocking for HTTPS"}` immediately.
+
+Error kinds, `HttpResult`, and `HttpResponse` shapes are identical to `send_blocking`.
+
 ## Stability
 
-Phase 1 surface is **stable for blocking use**. Phase 2 will:
-- add a pooled / async transport with `send` returning `Future<HttpResult>`;
-- light up `pool_wait`, `reused_connection`, redirect following, content-encoding decode;
-- finish `body_json(NodeRef)`;
-- promote socket-level timeouts to a dedicated `HttpErrorKind::timeout`.
+Blocking surface stable. Async surface (`send_async`, HTTP-only) available but TLS not implemented.
+
+Still not in any transport:
+- pooled connections / keep-alive (`pool_wait` / `reused_connection` always false)
+- redirect following (`follow_redirects` compiles but has no effect)
+- content-coding decode (gzip/br/zstd bodies arrive raw)
+- `body_json(NodeRef)` (sets Content-Type only; use `body_json(Document)`)
+- socket-level timeouts promoted to `HttpErrorKind::timeout` (currently surfaces as `read`/`write`)
 
 Builder/Request/Response/Telemetry/Error shapes are not expected to change.
