@@ -105,6 +105,8 @@ for(SZ i=0;i<slab_count;++i){
 void*raw=::aligned_alloc(align,aligned_bytes);
 if(raw==nullptr)
 break;
+::madvise(raw,aligned_bytes,MADV_DONTFORK);
+::madvise(raw,aligned_bytes,MADV_HUGEPAGE);
 slabs_.emplace_back(static_cast<byte*>(raw),+[](void*p){::free(p);});
 iovec const iov{.iov_base=raw,.iov_len=aligned_bytes};
 if(io_uring_register_buffers_update_tag(ring_,static_cast<unsigned>(i),&iov,nullptr,1)<0)
