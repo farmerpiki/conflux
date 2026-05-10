@@ -3550,15 +3550,10 @@ if(buf_ring_->mode()==BufferRingMode::incremental){
 // slice dtor recycles if final; silent drop on malformed CQE during shutdown
 auto _=try_buffer_slice_from_incremental_cqe(*buf_ring_,cqe->res,cqe->flags);
 }else if(use_recv_bundle){
-SZ remaining=static_cast<SZ>(cqe->res);
-u16 cur=buf_id;
-u32 const bcount=buf_ring_->count();
-while(remaining>0){
-SZ const chunk=min(remaining,buf_ring_->buf_size());
-buf_ring_->recycle(cur);
-remaining-=chunk;
-cur=static_cast<u16>((cur+1U)%bcount);
-}
+SZ const total=static_cast<SZ>(cqe->res);
+u32 const cnt=static_cast<u32>((total+buf_ring_->buf_size()-1)/buf_ring_->buf_size());
+u32 const start=buf_ring_->consume(cnt);
+buf_ring_->recycle_range(start,cnt);
 }else{
 buf_ring_->recycle(buf_id);
 }

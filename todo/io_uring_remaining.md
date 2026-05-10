@@ -10,7 +10,7 @@ _Collapsed from `conflux_linux_first_class_io_uring_todo_proposal.md`. Completed
 
 `recycle_recv_buffer_direct` uses arithmetic `(buf_id+1)%count` to walk successive buffer IDs in bundle mode. This assumes sequential allocation, which conflicts with the non-sequential ring-order fix applied elsewhere.
 
-- [ ] Fix to use ring-order consume head, not `(buf_id+1)%count`.
+- [x] Fix to use ring-order consume head: `consume(cnt)` + `recycle_range(start, cnt)`.
 
 ---
 

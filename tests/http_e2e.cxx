@@ -7603,7 +7603,11 @@ srv.stop();
 int closed=0;
 for(int fd:fds){
 char buf{};
-if(::recv(fd,&buf,1,0)<=0)++closed;
+ssize_t r;
+do{
+r=::recv(fd,&buf,1,0);
+}while(r>0);
+if(r<=0)++closed;
 ::close(fd);
 }
 CHECK(closed==static_cast<int>(fds.size()));
