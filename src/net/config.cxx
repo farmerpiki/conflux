@@ -147,6 +147,11 @@ bool ktls=false;
 // Busy-poll per accepted socket. 0 = disabled. Both require kernel 4.5+.
 u32 busy_poll_us=0;// SO_BUSY_POLL microseconds per socket
 bool prefer_busy_poll=false;// SO_PREFER_BUSY_POLL
+// Thread / io-wq core pinning. -1 = disabled (default).
+// ring_core: base CPU for sched_setaffinity on ring threads (ring i → ring_core+i).
+// worker_core_base: base CPU for IORING_REGISTER_IOWQ_AFF (ring i → worker_core_base+i).
+int ring_core=-1;
+int worker_core_base=-1;
 };
 namespace{
 SV strip_inline_comment(
@@ -170,6 +175,16 @@ T parse_uint(
 SV v,
 SV key){
 T result{};
+auto const*end=ranges::next(v.data(),ssize(v));
+auto[ptr,ec]=from_chars(v.data(),end,result);
+if(ec!=errc{}||ptr!=end)
+throw RE{format("invalid integer for '{}': '{}'",key,v)};
+return result;
+}
+int parse_int(
+SV v,
+SV key){
+int result{};
 auto const*end=ranges::next(v.data(),ssize(v));
 auto[ptr,ec]=from_chars(v.data(),end,result);
 if(ec!=errc{}||ptr!=end)
@@ -222,6 +237,10 @@ else if(key=="splice_pipe_pairs")
 cfg.splice_pipe_pairs=parse_uint<SZ>(val,key);
 else if(key=="busy_poll_us")
 cfg.busy_poll_us=parse_uint<u32>(val,key);
+else if(key=="ring_core")
+cfg.ring_core=parse_int(val,key);
+else if(key=="worker_core_base")
+cfg.worker_core_base=parse_int(val,key);
 else if(key=="startup_banner")
 cfg.startup_banner=parse_bool(val,key);
 else if(key=="http_redirect_to_https")

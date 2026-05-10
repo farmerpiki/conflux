@@ -6,7 +6,7 @@
 - [x] JSON docs: sync `docs/json-api.md` field names with current `JsonError` / error-code names
 - [x] JSON arena: `JsonArena::parse_borrowed_into(string_view)` and `parse_moved_into(string&&)` landed
 - [ ] JSON hash index: allocate via PMR resource, not global `::operator new`
-- [ ] Ring thread affinity: add `ring_core` / `worker_core_base` config fields, default disabled
+- [x] Ring thread affinity: add `ring_core` / `worker_core_base` config fields, default disabled
 - [x] Busy poll: add `busy_poll_us` / `prefer_busy_poll` config fields, default disabled
 
 ## Medium
@@ -16,7 +16,7 @@
 - [ ] Root `Task<T>`: add alloc counters for frames/control-blocks, then pool `ControlBlockModel<T>`
 - [ ] JSON: true incremental `JsonStreamReader::feed(span<byte>)` / events API
 - [ ] Router: `HandlerResult` / `Middleware` concepts with readable static-assert messages
-- [ ] io_uring init: adaptive flag fallback on `EINVAL` (strip `CQE_MIXED` → `NO_SQARRAY` → `TASKRUN_FLAG` → `DEFER_TASKRUN` → `SINGLE_ISSUER`, log final set)
+- [x] io_uring init: adaptive flag fallback on `EINVAL` (strip `CQE_MIXED` → `NO_SQARRAY` → `TASKRUN_FLAG` → `DEFER_TASKRUN` → `SINGLE_ISSUER`, log final set)
 
 ## Architecture (dedicated branches)
 

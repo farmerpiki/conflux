@@ -12,6 +12,7 @@ module;
 #if CONFLUX_HAS_HTTP2
 #include<nghttp2/nghttp2.h>
 #endif
+#include<sched.h>
 #include<sys/eventfd.h>
 #include<sys/mman.h>
 #include<sys/socket.h>
@@ -925,6 +926,8 @@ bool use_recv_incremental_buf=false;// IOU_PBUF_RING_INC on buffer ring
 bool auto_recv_arm_policy=false;// adaptive poll_first via IORING_CQE_F_SOCK_NONEMPTY
 int busy_poll_us_=0;// SO_BUSY_POLL optval; 0=disabled
 bool prefer_busy_poll_=false;// SO_PREFER_BUSY_POLL
+int ring_core_=-1;// sched_setaffinity core for this ring thread; -1=disabled
+int worker_core_=-1;// IORING_REGISTER_IOWQ_AFF core for io-wq; -1=disabled
 SZ max_body_size=SZ{1024}*1024;// set from Config before run_loop()
 u32 request_timeout_ms=30000;// set from Config before run_loop(); 0 = disabled
 u32 tls_sniff_timeout_ms=10000;// set from Config before run_loop(); 0 = disabled
@@ -3682,7 +3685,18 @@ close_tracked_fds_sync();
 }
 RunStatus run_loop(){
 static constexpr unsigned BATCH=256;
-
+if(ring_core_>=0){
+cpu_set_t cs;
+CPU_ZERO(&cs);
+CPU_SET(static_cast<unsigned>(ring_core_),&cs);
+::sched_setaffinity(0,sizeof(cs),&cs);
+}
+if(worker_core_>=0){
+cpu_set_t cs;
+CPU_ZERO(&cs);
+CPU_SET(static_cast<unsigned>(worker_core_),&cs);
+::io_uring_register(ring.ring_fd,IORING_REGISTER_IOWQ_AFF,&cs,sizeof(cs));
+}
 CurrentFileReaderScope const file_reader_scope{files.get()};
 
 queue_multishot_accept();
@@ -4356,6 +4370,8 @@ r.use_recv_bundle=true;
 r.auto_recv_arm_policy=impl_->cfg.auto_recv_arm_policy;
 r.busy_poll_us_=static_cast<int>(impl_->cfg.busy_poll_us);
 r.prefer_busy_poll_=impl_->cfg.prefer_busy_poll;
+r.ring_core_=impl_->cfg.ring_core>=0?impl_->cfg.ring_core+static_cast<int>(i):-1;
+r.worker_core_=impl_->cfg.worker_core_base>=0?impl_->cfg.worker_core_base+static_cast<int>(i):-1;
 if(impl_->cfg.attach_wq&&i==0){
 impl_->wq_ring_fd_.store(r.ring.ring_fd,memory_order_release);
 impl_->wq_ring_fd_.notify_all();
