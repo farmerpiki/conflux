@@ -52,7 +52,7 @@ cfg.json_out=true;
 return cfg;
 }
 // ── server ────────────────────────────────────────────────────────────────
-// Accepts a single connection, echoes n → n+1 lines until close.
+// Accepts multiple connections in a loop; echoes n → n+1 per connection.
 template<class T,SZ N>
 void consume_prefix(A<T,N>&buf,SZ&held,SZ drop){
 if(drop>=held){
@@ -64,10 +64,7 @@ for(SZ i=0;i<rem;++i)
 buf[i]=buf[i+drop];
 held=rem;
 }
-void run_server(int lfd,atomic_flag&stop){
-int const cfd=::accept4(lfd,nullptr,nullptr,SOCK_CLOEXEC);
-::close(lfd);
-if(cfd<0)return;
+void serve_one(int cfd,atomic_flag&stop){
 int one=1;
 ::setsockopt(cfd,IPPROTO_TCP,TCP_NODELAY,&one,sizeof(one));
 A<char,64>buf{};
@@ -114,6 +111,19 @@ return;
 }
 }
 ::close(cfd);
+}
+void run_server(int lfd,atomic_flag&stop){
+timeval tv{.tv_sec=0,.tv_usec=100000};
+::setsockopt(lfd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
+while(!stop.test(memory_order_acquire)){
+int const cfd=::accept4(lfd,nullptr,nullptr,SOCK_CLOEXEC);
+if(cfd<0){
+if(errno==EAGAIN||errno==EWOULDBLOCK||errno==EINTR)continue;
+break;
+}
+serve_one(cfd,stop);
+}
+::close(lfd);
 }
 int start_listener(u16&port_out){
 int const fd=::socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0);
@@ -237,14 +247,15 @@ SocketTaskRing&task_ring,
 ::io_uring*raw,
 CompletionTable&ct,
 u16 port,
-SZ warmup,
-SZ iters){
+SZ iters,
+u64 start){
 auto ss=loopback_addr(port);
 TcpStream stream=block_on_ring(raw,ct,tcp_connect(task_ring,AF_INET,ss,sizeof(sockaddr_in)));
 SockLineReader reader{.stream=stream,.ring=raw,.ct=ct};
 A<char,24>out{};
-u64 n=0;
-auto round=[&]{
+u64 n=start;
+auto const t0=chrono::steady_clock::now();
+for(SZ i=0;i<iters;++i){
 SZ const len=encode_line(out,n);
 block_on_ring(raw,ct,stream.write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const*>(out.data()),len}));
 auto line=reader.read_line();
@@ -252,29 +263,23 @@ u64 const got=decode_line(line);
 reader.consume_line(line.size());
 if(got!=n+1)throw RE{format("expected {} got {}",n+1,got)};
 n=got;
-};
-for(SZ i=0;i<warmup;++i)
-round();
-auto const t0=chrono::steady_clock::now();
-for(SZ i=0;i<iters;++i)
-round();
+}
 auto const t1=chrono::steady_clock::now();
 return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1-t0).count());
 }
 // ── socket_coroutine variant ──────────────────────────────────────────────
-// Single coroutine: connect, warmup, measure.
 Task<u64>socket_coro_loop(
 SocketTaskRing&ring,
 u16 port,
-SZ warmup,
-SZ iters){
+SZ iters,
+u64 start){
 auto ss=loopback_addr(port);
 TcpStream stream=co_await tcp_connect(ring,AF_INET,ss,sizeof(sockaddr_in));
 A<u8,128>rbuf{};
 SZ held=0;
 A<char,24>out{};
-u64 n=0;
-auto round=[&]()->Task<void>{
+u64 n=start;
+for(SZ i=0;i<iters;++i){
 SZ const len=encode_line(out,n);
 co_await stream.write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const*>(out.data()),len});
 for(;;){
@@ -287,29 +292,26 @@ u64 const got=decode_line(line);
 consume_prefix(rbuf,held,end+1);
 if(got!=n+1)throw RE{format("expected {} got {}",n+1,got)};
 n=got;
-co_return;
+break;
 }
 SZ const r=co_await stream.recv_borrowed(span<u8>{rbuf.data()+held,rbuf.size()-held});
 if(r==0)throw RE{"eof"};
 held+=r;
 }
-};
-for(SZ i=0;i<warmup;++i)
-co_await round();
-auto const t0=chrono::steady_clock::now();
-for(SZ i=0;i<iters;++i)
-co_await round();
-auto const t1=chrono::steady_clock::now();
-co_return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1-t0).count());
+}
+co_return n;
 }
 u64 run_socket_coroutine(
 SocketTaskRing&task_ring,
 ::io_uring*raw,
 CompletionTable&ct,
 u16 port,
-SZ warmup,
-SZ iters){
-return block_on_ring(raw,ct,socket_coro_loop(task_ring,port,warmup,iters));
+SZ iters,
+u64 start){
+auto const t0=chrono::steady_clock::now();
+auto _=block_on_ring(raw,ct,socket_coro_loop(task_ring,port,iters,start));
+auto const t1=chrono::steady_clock::now();
+return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1-t0).count());
 }
 }// namespace
 int main(int argc,char**argv){
@@ -335,9 +337,13 @@ SocketTaskRing task_ring{
 SocketRawRing{&raw},ct,
 [](u32 s,u32 g)noexcept->u64{return pack_ud(s,g);}};
 try{
+if(which==0)
+(void)run_socket_callback(task_ring,&raw,ct,port,cfg.warmup,0);
+else
+(void)run_socket_coroutine(task_ring,&raw,ct,port,cfg.warmup,0);
 u64 const ns=(which==0)?
-run_socket_callback(task_ring,&raw,ct,port,cfg.warmup,cfg.iterations):
-run_socket_coroutine(task_ring,&raw,ct,port,cfg.warmup,cfg.iterations);
+run_socket_callback(task_ring,&raw,ct,port,cfg.iterations,cfg.warmup):
+run_socket_coroutine(task_ring,&raw,ct,port,cfg.iterations,cfg.warmup);
 double const per=static_cast<double>(ns)/static_cast<double>(cfg.iterations);
 SV const label=(which==0)?"socket_callback":"socket_coroutine";
 if(cfg.json_out){
