@@ -404,6 +404,9 @@ bool has_response=false;
 S own_response{};
 PartialBuf partial{};
 SZ written=0;
+FixedBuffer send_buf{};
+SZ send_buf_base_written{};
+SZ send_buf_len{};
 SZ request_bytes=0;// bytes consumed by current dispatched request
 chrono::steady_clock::time_point last_activity;// updated on accept and recv
 chrono::steady_clock::time_point request_started{};
@@ -974,14 +977,20 @@ u64 shutdown_buf=0;// read target for the shutdown eventfd SQE
 // file_io pools — constructed after io_uring_queue_init. Shared by
 // static-file serving and any other caller that grabs files.get().
 UP<CompletionTable>file_completions{};
+UP<RegisteredBufferTable>buf_table{};
 UP<FixedBufferPool>fixed_buffers{};
+UP<FixedBufferPool>send_buffers{};
 UP<PipePool>splice_pipes{};
 UP<FileReader>files{};
+bool send_fixed_buffers_supported{false};
 
 // pool sizing — set from Config before run_loop()
 SZ file_io_slabs=64;
 SZ file_io_slab_bytes=SZ{64}*1024;
 SZ file_io_pipe_pairs=16;
+SZ send_buffer_slabs=64;
+SZ send_buffer_bytes=SZ{4}*1024;
+bool send_fixed_buffers_enabled=false;
 
 __kernel_timespec timer_ts{};// reused for the periodic timeout SQE
 
@@ -1707,15 +1716,29 @@ accepted_sockets_direct=listen_fixed&&caps.accept_direct_supported;
 // falls back to the mmap path instead of selecting an async response that
 // cannot deliver its body.
 if(file_io_slabs>0&&file_io_pipe_pairs>0){
-auto buffers=make_unique<FixedBufferPool>(&ring,file_io_slabs,file_io_slab_bytes);
+auto const total_buf_slots=static_cast<unsigned>(file_io_slabs+(send_fixed_buffers_enabled?send_buffer_slabs:SZ{0}));
+auto table=make_unique<RegisteredBufferTable>(&ring,total_buf_slots);
+if(table->ok()){
+auto file_pool=make_unique<FixedBufferPool>(table.get(),0,file_io_slabs,file_io_slab_bytes);
 auto pipes=make_unique<PipePool>(file_io_pipe_pairs);
-if(buffers->ok()&&buffers->capacity()>0&&pipes->capacity()>0){
+if(file_pool->ok()&&file_pool->capacity()>0&&pipes->capacity()>0){
 file_completions=make_unique<CompletionTable>();
-fixed_buffers=move(buffers);
+buf_table=move(table);
+fixed_buffers=move(file_pool);
 splice_pipes=move(pipes);
 files=make_unique<FileReader>(&ring,file_completions.get(),[](u32 slot,u32 gen)noexcept{
 return pack(Op::FileIo,gen,static_cast<int>(slot));
 });
+if(send_fixed_buffers_enabled&&send_buffer_slabs>0){
+auto sp=make_unique<FixedBufferPool>(
+buf_table.get(),static_cast<unsigned>(file_io_slabs),
+send_buffer_slabs,send_buffer_bytes);
+if(sp->ok()&&sp->capacity()>0){
+send_buffers=move(sp);
+send_fixed_buffers_supported=true;
+}
+}
+}
 }
 }
 
@@ -1783,6 +1806,9 @@ conn.mapped_delivered=0;
 conn.zc_waiting_notif=false;
 conn.zc_after_notif=ZcAfterNotif::none;
 conn.zc_close_after_notif=false;
+conn.send_buf=FixedBuffer{};
+conn.send_buf_base_written=0;
+conn.send_buf_len=0;
 conn.is_tls=false;
 #if CONFLUX_HAS_TLS
 if(conn.ssl!=nullptr)
@@ -2183,22 +2209,62 @@ return;
 }
 if(!conn.has_response)
 return;
+auto const gen=conn.gen;
 auto const&resp=conn.own_response;
-auto const resp_view=span{resp}.subspan(conn.written);
+SZ const len=resp.size()-conn.written;
 auto handle=
 accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+if(conn.send_buf.valid()){
+assert(conn.written>=conn.send_buf_base_written);
+auto const local_off=conn.written-conn.send_buf_base_written;
+assert(local_off<=conn.send_buf_len);
+auto const remaining=conn.send_buf.view().subspan(local_off,conn.send_buf_len-local_off);
+if(!submit_send_fixed_borrowed(raw_,handle,conn.send_buf.slot(),
+remaining.data(),remaining.size(),pack(Op::Send,gen,fd)))
+defer_op([this,fd,gen]{
+auto const ufd=static_cast<SZ>(fd);
+if(ufd<fd_table.size()&&fd_table[ufd].gen==gen)queue_send(fd);
+});
+return;
+}
+auto const resp_view=span{resp}.subspan(conn.written);
 if(send_zc_enabled_&&resp_view.size()>=send_zc_threshold_){
 ++zc_counters_.attempts;
 zc_counters_.bytes_requested+=resp_view.size();
 if(submit_send_zc_borrowed(raw_,handle,resp_view.data(),resp_view.size(),
-pack(Op::SendZc,conn.gen,fd),send_zc_report_usage_))
+pack(Op::SendZc,gen,fd),send_zc_report_usage_))
 return;
 ++zc_counters_.fallback_regular_send;
-defer_op([this,fd,g=conn.gen]{if(conn_for(fd).gen==g)queue_send(fd);});
+defer_op([this,fd,gen]{
+auto const ufd=static_cast<SZ>(fd);
+if(ufd<fd_table.size()&&fd_table[ufd].gen==gen)queue_send(fd);
+});
 return;
 }
-if(!submit_send_borrowed(raw_,handle,resp_view.data(),resp_view.size(),pack(Op::Send,conn.gen,fd)))
-defer_op([this,fd]{queue_send(fd);});
+if(send_buffers&&send_fixed_buffers_supported&&len<=send_buffers->slab_bytes()){
+auto buf=send_buffers->try_acquire();
+if(buf){
+auto const view=buf->view().subspan(0,len);
+std::memcpy(view.data(),resp.data()+conn.written,len);
+if(submit_send_fixed_borrowed(raw_,handle,buf->slot(),
+view.data(),view.size(),pack(Op::Send,gen,fd))){
+conn.send_buf=move(*buf);
+conn.send_buf_base_written=conn.written;
+conn.send_buf_len=len;
+return;
+}
+defer_op([this,fd,gen]{
+auto const ufd=static_cast<SZ>(fd);
+if(ufd<fd_table.size()&&fd_table[ufd].gen==gen)queue_send(fd);
+});
+return;
+}
+}
+if(!submit_send_borrowed(raw_,handle,resp_view.data(),resp_view.size(),pack(Op::Send,gen,fd)))
+defer_op([this,fd,gen]{
+auto const ufd=static_cast<SZ>(fd);
+if(ufd<fd_table.size()&&fd_table[ufd].gen==gen)queue_send(fd);
+});
 }
 void invalidate_recv_if_armed(int fd){
 auto const ufd=static_cast<SZ>(fd);
@@ -3006,6 +3072,9 @@ conn.written=0;
 conn.send_queued=false;
 conn.has_response=false;
 conn.own_response.clear();
+conn.send_buf=FixedBuffer{};
+conn.send_buf_base_written=0;
+conn.send_buf_len=0;
 handle_send_complete(fd,conn);
 }
 void finish_mapped_send(int fd,Conn&conn){
@@ -3079,8 +3148,19 @@ start_streamed_body(fd);
 return;
 }
 
+if(res==-EINVAL&&conn.send_buf.valid()){
+send_fixed_buffers_supported=false;
+conn.send_buf=FixedBuffer{};
+conn.send_buf_base_written=0;
+conn.send_buf_len=0;
+queue_send(fd);
+return;
+}
 if(res>0){
 if(!conn.has_response){
+conn.send_buf=FixedBuffer{};
+conn.send_buf_base_written=0;
+conn.send_buf_len=0;
 conn.send_queued=false;
 if(!conn.recv_armed&&!conn.is_sse&&!conn.is_ws&&!conn.is_deferred)
 queue_multishot_recv(fd);
@@ -3093,6 +3173,9 @@ return;
 }
 finish_plain_send(fd,conn);
 }else{
+conn.send_buf=FixedBuffer{};
+conn.send_buf_base_written=0;
+conn.send_buf_len=0;
 queue_close(fd);
 }
 }
@@ -4533,6 +4616,9 @@ r.parser_limits=impl_->cfg.parser_limits;
 r.file_io_slabs=impl_->cfg.fixed_buffer_slabs;
 r.file_io_slab_bytes=impl_->cfg.fixed_buffer_bytes;
 r.file_io_pipe_pairs=impl_->cfg.splice_pipe_pairs;
+r.send_buffer_slabs=impl_->cfg.send_buffer_slabs;
+r.send_buffer_bytes=impl_->cfg.send_buffer_bytes;
+r.send_fixed_buffers_enabled=impl_->cfg.send_fixed_buffers;
 #if CONFLUX_HAS_TLS
 r.ssl_ctx=impl_->tls_ctx?impl_->tls_ctx->native_handle():nullptr;
 // vhost_ctxs on Ring is informational only; SNI callback is already

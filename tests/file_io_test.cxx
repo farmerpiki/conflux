@@ -226,9 +226,12 @@ TEST_CASE(
 "[file_io][uring]"){
 auto fx=require_ring_fixture();
 
-FixedBufferPool pool{&fx->ring,2,4096};
-if(!pool.ok())
+RegisteredBufferTable tbl{&fx->ring,2};
+if(!tbl.ok())
 SKIP("register_buffers_sparse unsupported");
+FixedBufferPool pool{&tbl,0,2,4096};
+if(!pool.ok())
+SKIP("fixed buffer pool init failed");
 auto buf=pool.try_acquire();
 REQUIRE(buf.has_value());
 
@@ -350,9 +353,12 @@ struct G{
 io_uring*r;
 ~G(){::io_uring_queue_exit(r);}
 }const g{&ring};
-FixedBufferPool pool{&ring,2,4096};
-if(!pool.ok())
+RegisteredBufferTable tbl{&ring,2};
+if(!tbl.ok())
 SKIP("register_buffers_sparse unsupported");
+FixedBufferPool pool{&tbl,0,2,4096};
+if(!pool.ok())
+SKIP("fixed buffer pool init failed");
 CHECK(pool.capacity()==2);
 CHECK(pool.available()==2);
 
@@ -372,9 +378,12 @@ TEST_CASE(
 "[file_io][uring]"){
 auto fx=require_ring_fixture();
 
-FixedBufferPool pool{&fx->ring,2,4096};
-if(!pool.ok())
+RegisteredBufferTable tbl{&fx->ring,2};
+if(!tbl.ok())
 SKIP("register_buffers_sparse unsupported");
+FixedBufferPool pool{&tbl,0,2,4096};
+if(!pool.ok())
+SKIP("fixed buffer pool init failed");
 
 auto tf=TempFile::create();
 
@@ -464,9 +473,12 @@ TEST_CASE(
 "[file_io][uring]"){
 auto fx=require_ring_fixture();
 
-FixedBufferPool pool{&fx->ring,2,4096};
-if(!pool.ok())
+RegisteredBufferTable tbl{&fx->ring,2};
+if(!tbl.ok())
 SKIP("register_buffers_sparse unsupported");
+FixedBufferPool pool{&tbl,0,2,4096};
+if(!pool.ok())
+SKIP("fixed buffer pool init failed");
 
 // Non-block-aligned content size to exercise the tail alignment logic.
 S const content(1500,'D');
@@ -516,9 +528,12 @@ TEST_CASE(
 "[file_io][uring]"){
 auto fx=require_ring_fixture();
 
-FixedBufferPool pool{&fx->ring,2,4096};
-if(!pool.ok())
+RegisteredBufferTable tbl{&fx->ring,2};
+if(!tbl.ok())
 SKIP("register_buffers_sparse unsupported");
+FixedBufferPool pool{&tbl,0,2,4096};
+if(!pool.ok())
+SKIP("fixed buffer pool init failed");
 
 // Write 4096 bytes but only request 512 to verify max_bytes capping.
 S const content(4096,'C');
@@ -1797,9 +1812,12 @@ TEST_CASE(
 auto fx=RingFixture::make();
 if(!fx)
 SKIP("io_uring_queue_init failed");
-FixedBufferPool pool{&fx->ring,2,4096};
-if(!pool.ok())
+RegisteredBufferTable tbl{&fx->ring,2};
+if(!tbl.ok())
 SKIP("register_buffers_sparse unsupported");
+FixedBufferPool pool{&tbl,0,2,4096};
+if(!pool.ok())
+SKIP("fixed buffer pool init failed");
 auto wbuf=pool.try_acquire();
 REQUIRE(wbuf.has_value());
 

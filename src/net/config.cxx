@@ -112,6 +112,9 @@ StaticFileCacheConfig static_file_cache{};
 SZ fixed_buffer_slabs=16;// IORING_OP_READ_FIXED slab count
 SZ fixed_buffer_bytes=SZ{16}*1024;// bytes per slab
 SZ splice_pipe_pairs=4;// pipe2(O_DIRECT) pairs for splice chains
+SZ send_buffer_slabs=64;// registered send-buffer slab count
+SZ send_buffer_bytes=SZ{4}*1024;// bytes per send slab
+bool send_fixed_buffers=false;// enable registered send buffers
 
 // io_uring setup flags
 bool single_issuer=true;// IORING_SETUP_SINGLE_ISSUER
@@ -242,6 +245,12 @@ else if(key=="fixed_buffer_bytes")
 cfg.fixed_buffer_bytes=parse_uint<SZ>(val,key);
 else if(key=="splice_pipe_pairs")
 cfg.splice_pipe_pairs=parse_uint<SZ>(val,key);
+else if(key=="send_buffer_slabs")
+cfg.send_buffer_slabs=parse_uint<SZ>(val,key);
+else if(key=="send_buffer_bytes")
+cfg.send_buffer_bytes=parse_uint<SZ>(val,key);
+else if(key=="send_fixed_buffers")
+cfg.send_fixed_buffers=parse_bool(val,key);
 else if(key=="busy_poll_us")
 cfg.busy_poll_us=parse_uint<u32>(val,key);
 else if(key=="ring_core")

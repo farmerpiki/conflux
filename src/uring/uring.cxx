@@ -300,6 +300,11 @@ BufGroupId g)noexcept{
 p_->buf_group=g.v;
 return*this;
 }
+inline Sqe&buf_index(
+FixedBufIdx idx)noexcept{
+p_->buf_index=static_cast<__u16>(idx.v);
+return*this;
+}
 inline Sqe&ioprio(
 IoPrioFlags f)noexcept{
 p_->ioprio=static_cast<__u16>(p_->ioprio|f.raw());

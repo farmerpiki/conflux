@@ -730,6 +730,24 @@ sqe.add_flags(handle.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
 }
+export bool submit_send_fixed_borrowed(
+SocketRawRing&ring,
+SocketHandle handle,
+u32 buf_idx,
+void const*data,
+SZ len,
+u64 user_data,
+int msg_flags=MSG_NOSIGNAL){
+auto sqe=ring.try_get_sqe();
+if(!sqe)
+return false;
+sqe.prep_send(handle.sqe_fd(),data,len,conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
+sqe.add_flags(handle.sqe_fd_flags());
+sqe.ioprio(conflux::uring::ioprio_flags::recvsend_fixed_buf);
+sqe.buf_index(conflux::uring::FixedBufIdx{static_cast<i32>(buf_idx)});
+sqe.user_data(conflux::uring::UserData{user_data});
+return true;
+}
 export bool submit_writev_borrowed(
 SocketRawRing&ring,
 SocketHandle handle,
