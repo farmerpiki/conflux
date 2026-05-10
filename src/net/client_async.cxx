@@ -23,6 +23,7 @@ import conflux.uring.completion;
 import conflux.socket_io;
 import conflux.socket_io.coro;
 import conflux.net.client;
+import conflux.net.cancel;
 #if CONFLUX_HAS_TLS
 import conflux.net.tls;
 #endif
@@ -50,18 +51,26 @@ return q.empty()||q=="TLS error"?S{e.what()}:q;
 #endif
 struct PlainStreamRef{
 TcpStream&s;
+SP<ActiveTaskCancelRelay>cancel;
 chrono::milliseconds per_recv;
 chrono::milliseconds per_write;
 [[nodiscard]]wroot::Task<SZ>recv(span<u8>buf){
-if(per_recv.count()<=0)return s.recv_borrowed(buf);
-return s.recv_borrowed(buf,per_recv);
+auto child=per_recv.count()<=0?s.recv_borrowed(buf):s.recv_borrowed(buf,per_recv);
+return cancel->await_child(move(child));
 }
 [[nodiscard]]wroot::Task<SZ>recv(span<u8>buf,chrono::milliseconds t){
-if(t.count()<=0)return s.recv_borrowed(buf);
-return s.recv_borrowed(buf,t);
+auto child=t.count()<=0?s.recv_borrowed(buf):s.recv_borrowed(buf,t);
+return cancel->await_child(move(child));
 }
 [[nodiscard]]wroot::Task<void>write(span<u8 const>buf){
-return s.write_all_borrowed(buf,per_write);
+SZ sent=0;
+while(sent<buf.size()){
+cancel->throw_if_cancelled();
+auto child=s.write_borrowed(span<u8 const>{buf.data()+sent,buf.size()-sent},per_write);
+SZ const n=co_await cancel->await_child(move(child));
+if(n==0)throw IoError{ECONNRESET,"tcp: connection closed"};
+sent+=n;
+}
 }
 };
 #if CONFLUX_HAS_TLS
@@ -69,15 +78,9 @@ struct TlsStreamRef{
 TcpTlsStream&s;
 chrono::milliseconds per_recv;
 chrono::milliseconds per_write;
-[[nodiscard]]wroot::Task<SZ>recv(span<u8>buf){
-return s.read_some(buf,per_recv);
-}
-[[nodiscard]]wroot::Task<SZ>recv(span<u8>buf,chrono::milliseconds t){
-return s.read_some(buf,t);
-}
-[[nodiscard]]wroot::Task<void>write(span<u8 const>buf){
-return s.write_all(buf,per_write);
-}
+[[nodiscard]]wroot::Task<SZ>recv(span<u8>buf){return s.read_some(buf,per_recv);}
+[[nodiscard]]wroot::Task<SZ>recv(span<u8>buf,chrono::milliseconds t){return s.read_some(buf,t);}
+[[nodiscard]]wroot::Task<void>write(span<u8 const>buf){return s.write_all(buf,per_write);}
 };
 #endif
 [[nodiscard]]S build_host_header(Url const&url){
@@ -202,7 +205,32 @@ encoded.append(reinterpret_cast<char const*>(tmp.data()),n);
 struct HappyConnectState{
 Atom<bool>won{false};
 Atom<bool>fast_fail{false};
+Atom<bool>cancelled{false};
 Atom<int>pending{0};
+mutex m;
+V<wroot::TaskControl>attempts;
+void register_attempt(wroot::TaskControl c){
+Opt<wroot::TaskControl>cancel_now;
+{
+lock_guard lk{m};
+if(cancelled.load(memory_order_acquire))
+cancel_now=c;
+else
+attempts.push_back(move(c));
+}
+if(cancel_now)
+auto _=cancel_now->request_cancel();
+}
+void cancel_all()noexcept{
+V<wroot::TaskControl>copy;
+{
+lock_guard lk{m};
+cancelled.store(true,memory_order_release);
+copy=attempts;
+}
+for(auto&c:copy)
+auto _=c.request_cancel();
+}
 };
 wroot::Task<void>happy_attempt(
 SocketTaskRing&ring,
@@ -213,15 +241,18 @@ ConnectOptions copts,
 SP<HappyConnectState>hs,
 SP<wroot::TaskSource<TcpStream>>winner_src){
 try{
-auto s=co_await tcp_connect(ring,fam,ss,addr_len,copts);
+auto connect_task=tcp_connect(ring,fam,ss,addr_len,copts);
+hs->register_attempt(connect_task.control());
+auto s=co_await move(connect_task);
 bool expected=false;
 if(hs->won.compare_exchange_strong(expected,true,memory_order_acq_rel))
 auto _=winner_src->try_set_value(wroot::Success<TcpStream>{move(s)});
+}catch(wroot::CancelledError const&){
 }catch(...){
 hs->fast_fail.store(true,memory_order_release);
 }
 int const left=hs->pending.fetch_sub(1,memory_order_acq_rel)-1;
-if(left==0&&!hs->won.load(memory_order_acquire))
+if(left==0&&!hs->won.load(memory_order_acquire)&&!hs->cancelled.load(memory_order_acquire))
 auto _=winner_src->try_set_exception(make_exception_ptr(IoError{ECONNREFUSED,"connect: all endpoints failed"}));
 }
 wroot::Task<TcpStream>staggered_parallel_connect(
@@ -231,9 +262,16 @@ ConnectOptions copts){
 constexpr chrono::milliseconds kStagger{250};
 auto hs=make_shared<HappyConnectState>();
 hs->pending.store(static_cast<int>(endpoints.size()),memory_order_relaxed);
-auto[task,raw_src]=wroot::make_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation=false});
+auto[task,raw_src]=wroot::make_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation=true});
 auto winner_src=make_shared<wroot::TaskSource<TcpStream>>(move(raw_src));
+weak_ptr<wroot::TaskSource<TcpStream>>weak_src{winner_src};
+auto _=winner_src->install_cancel_hook([hs,weak_src](wroot::CancelReason)noexcept{
+hs->cancel_all();
+if(auto src=weak_src.lock())
+auto _=src->try_set_cancelled();
+});
 for(SZ i=0;i<endpoints.size();++i){
+if(hs->cancelled.load(memory_order_acquire))break;
 auto const&ep=endpoints[i];
 sockaddr_storage ss{};
 memcpy(&ss,ep.addr,ep.addr_len);
@@ -242,13 +280,13 @@ happy_attempt(ring,fam,ss,static_cast<socklen_t>(ep.addr_len),copts,hs,winner_sr
 if(i+1<endpoints.size()){
 hs->fast_fail.store(false,memory_order_relaxed);
 auto const t_stagger=chrono::steady_clock::now()+kStagger;
-while(!hs->fast_fail.load(memory_order_acquire)&&!hs->won.load(memory_order_acquire)){
+while(!hs->fast_fail.load(memory_order_acquire)&&!hs->won.load(memory_order_acquire)&&!hs->cancelled.load(memory_order_acquire)){
 auto const now=chrono::steady_clock::now();
 if(now>=t_stagger)break;
 auto const rem=chrono::ceil<chrono::milliseconds>(t_stagger-now);
 co_await sleep_for(ring,min(chrono::milliseconds{10},rem));
 }
-if(hs->won.load(memory_order_acquire))break;
+if(hs->won.load(memory_order_acquire)||hs->cancelled.load(memory_order_acquire))break;
 }
 }
 co_return co_await move(task);
@@ -256,7 +294,8 @@ co_return co_await move(task);
 wroot::Task<HttpResult>do_async_request(
 SocketTaskRing&ring,
 HttpRequest const&req,
-HttpClientOptions const&opts){
+HttpClientOptions const&opts,
+SP<ActiveTaskCancelRelay>cancel){
 auto const&url=req.url();
 constexpr HttpTimeouts kDef{};
 auto const&rt=req.timeouts();
@@ -272,6 +311,7 @@ HttpTimeouts const timeouts{
 HttpTelemetry tel{};
 V<client_dns_bridge::Endpoint>endpoints;
 auto const t0=chrono::steady_clock::now();
+cancel->throw_if_cancelled();
 if(opts.resolver){
 A<char,256>errbuf{};
 auto*ctx=&endpoints;
@@ -308,6 +348,7 @@ endpoints.push_back(ep);
 }
 }
 tel.dns=chrono::steady_clock::now()-t0;
+cancel->throw_if_cancelled();
 if(endpoints.empty())
 co_return unexpected(HttpError{
 .kind=HttpErrorKind::dns,
@@ -315,15 +356,26 @@ co_return unexpected(HttpError{
 .message=format("failed to resolve '{}'",url.host)});
 ConnectOptions copts{};
 copts.timeout=timeouts.connect;
+cancel->throw_if_cancelled();
 auto const t1=chrono::steady_clock::now();
 TcpStream stream;
 try{
-stream=co_await staggered_parallel_connect(ring,endpoints,copts);
+auto connect_task=staggered_parallel_connect(ring,endpoints,copts);
+cancel->set_active(connect_task.control());
+stream=co_await move(connect_task);
+cancel->clear_active();
+cancel->throw_if_cancelled();
+}catch(wroot::CancelledError const&){
+cancel->clear_active();
+throw;
 }catch(IoError const&e){
+cancel->clear_active();
 co_return unexpected(HttpError{.kind=HttpErrorKind::connect,.phase=HttpPhase::connect,.os_errno=e.code().value(),.message=format("connect to '{}:{}' failed: {}",url.host,url.port,e.what())});
 }catch(...){
+cancel->clear_active();
 co_return unexpected(HttpError{.kind=HttpErrorKind::connect,.phase=HttpPhase::connect,.message=format("connect to '{}:{}' failed",url.host,url.port)});
 }
+cancel->throw_if_cancelled();
 tel.connect=chrono::steady_clock::now()-t1;
 bool const is_tls=(url.scheme=="https");
 #if CONFLUX_HAS_TLS
@@ -341,13 +393,16 @@ co_return unexpected(HttpError{.kind=HttpErrorKind::tls,.phase=HttpPhase::tls,.m
 tls_ctx.set_default_verify_paths();
 }
 }
-tls_stream.emplace(tls_ctx,move(stream));
+cancel->throw_if_cancelled();
+tls_stream.emplace(tls_ctx,move(stream),cancel);
 if(!tls_stream->set_server_name(sni_sv)||(verify&&!tls_stream->set_verify_hostname(sni_sv)))
 co_return unexpected(HttpError{.kind=HttpErrorKind::tls,.phase=HttpPhase::tls,.message="TLS SNI/hostname setup failed"});
 auto const t_tls=chrono::steady_clock::now();
 TP const tls_dl=timeouts.tls.count()>0?t_tls+timeouts.tls:TP::max();
 try{
 co_await tls_stream->handshake_connect(tls_dl);
+}catch(wroot::CancelledError const&){
+throw;
 }catch(TlsError const&e){
 co_return unexpected(HttpError{.kind=HttpErrorKind::tls,.phase=HttpPhase::tls,.message=tls_error_string(e)});
 }catch(IoError const&e){
@@ -395,6 +450,7 @@ wire+="Connection: close\r\n";
 if(!req.body().empty())
 wire+=format("Content-Length: {}\r\n",req.body().size());
 wire+="\r\n";
+cancel->throw_if_cancelled();
 try{
 #if CONFLUX_HAS_TLS
 if(tls_stream){
@@ -405,11 +461,13 @@ co_await tr.write(span<u8 const>{reinterpret_cast<u8 const*>(req.body().data()),
 }else
 #endif
 {
-PlainStreamRef pr{stream,timeouts.between_bytes,timeouts.write};
+PlainStreamRef pr{stream,cancel,timeouts.between_bytes,timeouts.write};
 co_await pr.write(span<u8 const>{reinterpret_cast<u8 const*>(wire.data()),wire.size()});
 if(!req.body().empty())
 co_await pr.write(span<u8 const>{reinterpret_cast<u8 const*>(req.body().data()),req.body().size()});
 }
+}catch(wroot::CancelledError const&){
+throw;
 }catch(IoError const&e){
 co_return unexpected(HttpError{.kind=HttpErrorKind::write,.phase=HttpPhase::write,.os_errno=e.code().value(),.message="failed to send request"});
 }
@@ -419,6 +477,7 @@ SZ const max_body_sz=opts.max_body_bytes;
 SZ const max_buf=opts.max_buffered_bytes;
 auto const t2=chrono::steady_clock::now();
 TP const first_byte_dl=timeouts.first_byte.count()>0?t2+timeouts.first_byte:TP::max();
+cancel->throw_if_cancelled();
 S raw;
 try{
 #if CONFLUX_HAS_TLS
@@ -428,9 +487,11 @@ raw=co_await async_recv_until(tr,"\r\n\r\n",max_hdr+4096,first_byte_dl);
 }else
 #endif
 {
-PlainStreamRef pr{stream,timeouts.between_bytes,timeouts.write};
+PlainStreamRef pr{stream,cancel,timeouts.between_bytes,timeouts.write};
 raw=co_await async_recv_until(pr,"\r\n\r\n",max_hdr+4096,first_byte_dl);
 }
+}catch(wroot::CancelledError const&){
+throw;
 }catch(IoError const&e){
 co_return unexpected(HttpError{
 .kind=HttpErrorKind::read,
@@ -537,7 +598,7 @@ co_return nullopt;
 }
 #endif
 {
-PlainStreamRef pr{stream,timeouts.between_bytes,timeouts.write};
+PlainStreamRef pr{stream,cancel,timeouts.between_bytes,timeouts.write};
 if(req.method()=="HEAD"){
 response.body.clear();
 }else if(chunked){
@@ -589,12 +650,36 @@ co_await stream.close();
 response.telemetry=tel;
 co_return response;
 }
+wroot::Task<void>run_async_request_driver(
+SocketTaskRing&ring,
+HttpRequest const&req,
+HttpClientOptions const&opts,
+SP<wroot::TaskSource<HttpResult>>src,
+SP<ActiveTaskCancelRelay>cancel){
+try{
+auto result=co_await do_async_request(ring,req,opts,cancel);
+auto _=src->try_set_value(wroot::Success<HttpResult>{move(result)});
+}catch(wroot::CancelledError const&){
+auto _=src->try_set_cancelled();
+}catch(...){
+auto _=src->try_set_exception(current_exception());
+}
+}
 }// namespace async_detail
 export namespace conflux::http{
 [[nodiscard]]conflux::work::root::Task<HttpResult>send_async(
 HttpClient const&client,
 SocketTaskRing&ring,
 HttpRequest const&req){
-return async_detail::do_async_request(ring,req,client.options());
+namespace wroot=conflux::work::root;
+auto[out,raw_src]=wroot::make_task_source<HttpResult>(wroot::SubmitOptions{.enable_cancellation=true});
+auto src=make_shared<wroot::TaskSource<HttpResult>>(move(raw_src));
+auto cancel=make_shared<ActiveTaskCancelRelay>();
+auto _=src->install_cancel_hook([cancel](wroot::CancelReason)noexcept{
+cancel->cancel();
+});
+auto driver=async_detail::run_async_request_driver(ring,req,client.options(),src,cancel);
+move(driver).detach();
+return move(out);
 }
 }
