@@ -131,14 +131,80 @@ r,
 _mm_xor_si128(_mm_slli_epi64(ov,1),_mm_xor_si128(_mm_slli_epi64(ov,2),_mm_slli_epi64(ov,7))));
 return r;
 }
-inline static __m128i gcm_inc32_sse(
-__m128i ctr){
-alignas(16)unsigned char buf[16];
-_mm_store_si128(reinterpret_cast<__m128i*>(buf),ctr);
-for(int i=15;i>=12;--i)
-if(++buf[i]!=0)
-break;
-return _mm_load_si128(reinterpret_cast<__m128i const*>(buf));
+// Register-only GCM counter increment (no memory round-trip).
+// Bytes [12..15] hold a big-endian 32-bit counter; byteswap to LE, add 1, byteswap back.
+inline static __m128i gcm_inc32_fast(__m128i ctr)noexcept{
+alignas(16)static constexpr uint8_t kBswap[16]={0,1,2,3,4,5,6,7,8,9,10,11,15,14,13,12};
+__m128i const shuf=_mm_load_si128(reinterpret_cast<__m128i const*>(kBswap));
+ctr=_mm_shuffle_epi8(ctr,shuf);
+ctr=_mm_add_epi32(ctr,_mm_setr_epi32(0,0,0,1));
+return _mm_shuffle_epi8(ctr,shuf);
+}
+// Encrypt 4 independent CTR blocks simultaneously, hiding AES-NI pipeline latency.
+// b0..b3 in: counter blocks. b0..b3 out: keystream blocks.
+inline static void aesni_encrypt_4x(
+AesniKey256 const&ek,
+__m128i&b0,__m128i&b1,__m128i&b2,__m128i&b3)noexcept{
+b0=_mm_xor_si128(b0,ek.rk[0]);
+b1=_mm_xor_si128(b1,ek.rk[0]);
+b2=_mm_xor_si128(b2,ek.rk[0]);
+b3=_mm_xor_si128(b3,ek.rk[0]);
+b0=_mm_aesenc_si128(b0,ek.rk[1]);
+b1=_mm_aesenc_si128(b1,ek.rk[1]);
+b2=_mm_aesenc_si128(b2,ek.rk[1]);
+b3=_mm_aesenc_si128(b3,ek.rk[1]);
+b0=_mm_aesenc_si128(b0,ek.rk[2]);
+b1=_mm_aesenc_si128(b1,ek.rk[2]);
+b2=_mm_aesenc_si128(b2,ek.rk[2]);
+b3=_mm_aesenc_si128(b3,ek.rk[2]);
+b0=_mm_aesenc_si128(b0,ek.rk[3]);
+b1=_mm_aesenc_si128(b1,ek.rk[3]);
+b2=_mm_aesenc_si128(b2,ek.rk[3]);
+b3=_mm_aesenc_si128(b3,ek.rk[3]);
+b0=_mm_aesenc_si128(b0,ek.rk[4]);
+b1=_mm_aesenc_si128(b1,ek.rk[4]);
+b2=_mm_aesenc_si128(b2,ek.rk[4]);
+b3=_mm_aesenc_si128(b3,ek.rk[4]);
+b0=_mm_aesenc_si128(b0,ek.rk[5]);
+b1=_mm_aesenc_si128(b1,ek.rk[5]);
+b2=_mm_aesenc_si128(b2,ek.rk[5]);
+b3=_mm_aesenc_si128(b3,ek.rk[5]);
+b0=_mm_aesenc_si128(b0,ek.rk[6]);
+b1=_mm_aesenc_si128(b1,ek.rk[6]);
+b2=_mm_aesenc_si128(b2,ek.rk[6]);
+b3=_mm_aesenc_si128(b3,ek.rk[6]);
+b0=_mm_aesenc_si128(b0,ek.rk[7]);
+b1=_mm_aesenc_si128(b1,ek.rk[7]);
+b2=_mm_aesenc_si128(b2,ek.rk[7]);
+b3=_mm_aesenc_si128(b3,ek.rk[7]);
+b0=_mm_aesenc_si128(b0,ek.rk[8]);
+b1=_mm_aesenc_si128(b1,ek.rk[8]);
+b2=_mm_aesenc_si128(b2,ek.rk[8]);
+b3=_mm_aesenc_si128(b3,ek.rk[8]);
+b0=_mm_aesenc_si128(b0,ek.rk[9]);
+b1=_mm_aesenc_si128(b1,ek.rk[9]);
+b2=_mm_aesenc_si128(b2,ek.rk[9]);
+b3=_mm_aesenc_si128(b3,ek.rk[9]);
+b0=_mm_aesenc_si128(b0,ek.rk[10]);
+b1=_mm_aesenc_si128(b1,ek.rk[10]);
+b2=_mm_aesenc_si128(b2,ek.rk[10]);
+b3=_mm_aesenc_si128(b3,ek.rk[10]);
+b0=_mm_aesenc_si128(b0,ek.rk[11]);
+b1=_mm_aesenc_si128(b1,ek.rk[11]);
+b2=_mm_aesenc_si128(b2,ek.rk[11]);
+b3=_mm_aesenc_si128(b3,ek.rk[11]);
+b0=_mm_aesenc_si128(b0,ek.rk[12]);
+b1=_mm_aesenc_si128(b1,ek.rk[12]);
+b2=_mm_aesenc_si128(b2,ek.rk[12]);
+b3=_mm_aesenc_si128(b3,ek.rk[12]);
+b0=_mm_aesenc_si128(b0,ek.rk[13]);
+b1=_mm_aesenc_si128(b1,ek.rk[13]);
+b2=_mm_aesenc_si128(b2,ek.rk[13]);
+b3=_mm_aesenc_si128(b3,ek.rk[13]);
+b0=_mm_aesenclast_si128(b0,ek.rk[14]);
+b1=_mm_aesenclast_si128(b1,ek.rk[14]);
+b2=_mm_aesenclast_si128(b2,ek.rk[14]);
+b3=_mm_aesenclast_si128(b3,ek.rk[14]);
 }
 // GHASH: state kept in byte_bitrev'd domain. h_br = byte_bitrev(H).
 static void ghash_update_clmul(
@@ -157,6 +223,43 @@ d=byte_bitrev(d);
 state_br=_mm_xor_si128(state_br,d);
 state_br=gf128_mul(state_br,h_br);
 pos+=16;
+}
+}
+static void ctr_xor(
+AesniKey256 const&ek,
+__m128i&ctr,
+unsigned char const*in,
+unsigned char*out,
+SZ len){
+SZ i=0;
+for(;i+64<=len;i+=64){
+__m128i b0=gcm_inc32_fast(ctr);
+__m128i b1=gcm_inc32_fast(b0);
+__m128i b2=gcm_inc32_fast(b1);
+__m128i b3=gcm_inc32_fast(b2);
+ctr=b3;
+aesni_encrypt_4x(ek,b0,b1,b2,b3);
+auto const*src=reinterpret_cast<__m128i const*>(in+i);
+auto*dst=reinterpret_cast<__m128i*>(out+i);
+_mm_storeu_si128(dst,_mm_xor_si128(b0,_mm_loadu_si128(src)));
+_mm_storeu_si128(dst+1,_mm_xor_si128(b1,_mm_loadu_si128(src+1)));
+_mm_storeu_si128(dst+2,_mm_xor_si128(b2,_mm_loadu_si128(src+2)));
+_mm_storeu_si128(dst+3,_mm_xor_si128(b3,_mm_loadu_si128(src+3)));
+}
+for(;i<len;i+=16){
+ctr=gcm_inc32_fast(ctr);
+__m128i ks=aesni_encrypt_block(ek,ctr);
+SZ const chunk=(len-i)<16?(len-i):16;
+if(chunk==16){
+_mm_storeu_si128(reinterpret_cast<__m128i*>(out+i),
+_mm_xor_si128(ks,_mm_loadu_si128(reinterpret_cast<__m128i const*>(in+i))));
+}else{
+alignas(16)unsigned char tmp[16]{};
+std::memcpy(tmp,in+i,chunk);
+__m128i t=_mm_xor_si128(ks,_mm_load_si128(reinterpret_cast<__m128i const*>(tmp)));
+_mm_store_si128(reinterpret_cast<__m128i*>(tmp),t);
+std::memcpy(out+i,tmp,chunk);
+}
 }
 }
 extern "C"{
@@ -179,15 +282,7 @@ j0_buf[15]=1;
 __m128i const j0=_mm_load_si128(reinterpret_cast<__m128i const*>(j0_buf));
 
 __m128i ctr=j0;
-for(SZ i=0;i<pt_len;i+=16){
-ctr=gcm_inc32_sse(ctr);
-__m128i const keystream=aesni_encrypt_block(ek,ctr);
-SZ const chunk=(pt_len-i)<16?(pt_len-i):16;
-alignas(16)unsigned char ks[16];
-_mm_store_si128(reinterpret_cast<__m128i*>(ks),keystream);
-for(SZ j=0;j<chunk;++j)
-out[i+j]=static_cast<unsigned char>(pt[i+j]^ks[j]);
-}
+ctr_xor(ek,ctr,pt,out,pt_len);
 
 __m128i ghash_br=_mm_setzero_si128();
 if(aad_len>0)
@@ -263,17 +358,8 @@ __m128i const diff=_mm_xor_si128(expected_tag,claimed);
 if(!_mm_test_all_zeros(diff,diff))
 return-1;
 
-// Decrypt CTR
 __m128i ctr=j0;
-for(SZ i=0;i<ct_len;i+=16){
-ctr=gcm_inc32_sse(ctr);
-__m128i const keystream=aesni_encrypt_block(ek,ctr);
-SZ const chunk=(ct_len-i)<16?(ct_len-i):16;
-alignas(16)unsigned char ks[16];
-_mm_store_si128(reinterpret_cast<__m128i*>(ks),keystream);
-for(SZ j=0;j<chunk;++j)
-out[i+j]=static_cast<unsigned char>(ct_tag[i+j]^ks[j]);
-}
+ctr_xor(ek,ctr,ct_tag,out,ct_len);
 
 return 0;
 }
