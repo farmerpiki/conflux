@@ -39,7 +39,7 @@ TCP fallback already uses `SocketTaskRing`. Remaining:
 
 `queue_direct_accept_setup` (`http_server.cxx:1794`) only sets `tcp_quickack_once`. Non-direct accepted sockets get `TCP_NODELAY` via raw `setsockopt` at line 2330; direct sockets silently skip it.
 
-- [ ] Enable `setup.tcp_nodelay_once = caps.cmd_sock_setsockopt` in `queue_direct_accept_setup`.
+- [x] Enable `setup.tcp_nodelay_once = caps.cmd_sock_setsockopt` in `queue_direct_accept_setup`.
 
 ### Cancellation above socket layer (P1-08)
 

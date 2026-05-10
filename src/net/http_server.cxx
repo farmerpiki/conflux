@@ -1792,6 +1792,7 @@ int fd){
 auto&conn=conn_for(fd);
 auto handle=SocketHandle::from_direct(static_cast<u32>(fd));
 DirectTcpAcceptSetup setup{};
+setup.tcp_nodelay_once=caps.cmd_sock_setsockopt;
 setup.tcp_quickack_once=caps.cmd_sock_setsockopt;
 setup.skip_sockopt_success_cqes=true;
 if(!submit_direct_tcp_accept_setup_recv(
