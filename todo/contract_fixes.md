@@ -14,8 +14,8 @@
 
 - [x] Direct-accept `TCP_NODELAY`: set `setup.tcp_nodelay_once = caps.cmd_sock_setsockopt` in `queue_direct_accept_setup()` (`http_server.cxx:1794-1796`)
 - [x] `MADV_DONTFORK` for `FixedBufferPool` slabs: add `madvise(MADV_DONTFORK)` + `MADV_HUGEPAGE` in `FixedBufferPool` ctor (`file_io.cxx:101-111`)
-- [ ] Setup-flag fallback: implement try-init/strip matrix for `DEFER_TASKRUN`, `SINGLE_ISSUER`, `NO_SQARRAY`, etc.; log requested vs active flags; current code hard-throws on `EINVAL` (`http_server.cxx:3728-3747`)
-- [ ] `NO_SQARRAY`: request by default, clear on unsupported kernel; currently config-off-by-default (`config.cxx:128`, `http_server.cxx:3743-3744`)
+- [x] Setup-flag fallback: implement try-init/strip matrix for `DEFER_TASKRUN`, `SINGLE_ISSUER`, `NO_SQARRAY`, etc.; log requested vs active flags; current code hard-throws on `EINVAL` (`http_server.cxx:3728-3747`)
+- [x] `NO_SQARRAY`: request by default, clear on unsupported kernel; currently config-off-by-default (`config.cxx:128`, `http_server.cxx:3743-3744`)
 - [ ] Coroutine frame pool: landed pool targets `EagerChainPromise`, not `root::Task<T>::promise_type` which is the HTTP handler hot path; add `operator new/delete` on `BasicResult<T,task>::promise_type` and pool `ControlBlockModel<T>` (`root.cxx:1920-1930`, `1740-1747`)
 
 ## Docs / API contract mismatches

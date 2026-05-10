@@ -1573,8 +1573,33 @@ throw std::bad_alloc{};
 ring_mem={raw,::free};
 if(io_uring_queue_init_mem(entries,&ring,&params,raw,static_cast<SZ>(sz))<0)
 throw RE{"io_uring_queue_init_mem failed"};
-}else if(io_uring_queue_init_params(entries,&ring,&params)<0){
-throw RE{"io_uring_queue_init_params failed"};
+}else{
+// Strip unsupported setup flags one at a time on EINVAL so the server
+// degrades gracefully on older kernels.
+static constexpr u32 kStripOrder[]={
+IORING_SETUP_CQE_MIXED,
+IORING_SETUP_NO_SQARRAY,
+IORING_SETUP_SUBMIT_ALL,
+IORING_SETUP_TASKRUN_FLAG,
+IORING_SETUP_DEFER_TASKRUN,
+IORING_SETUP_SINGLE_ISSUER,
+};
+for(;;){
+int const rc=::io_uring_queue_init_params(entries,&ring,&params);
+if(rc==0)break;
+if(rc!=-EINVAL)
+throw RE{format("io_uring_queue_init_params: {}",strerror(-rc))};
+bool stripped=false;
+for(u32 const f:kStripOrder){
+if((params.flags&f)!=0u){
+params.flags&=~f;
+stripped=true;
+break;
+}
+}
+if(!stripped)
+throw RE{"io_uring_queue_init_params: no supported flag combination"};
+}
 }
 caps=detect_caps(conflux::uring::RingRef{ring});
 

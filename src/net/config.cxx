@@ -125,7 +125,7 @@ bool submit_all=false;// IORING_SETUP_SUBMIT_ALL
 bool attach_wq=false;// IORING_SETUP_ATTACH_WQ
 // Remove the SQ index indirection A (kernel 6.4+). Slightly reduces
 // per-ring memory. Incompatible with SQPOLL.
-bool no_sqarray=false;// IORING_SETUP_NO_SQARRAY
+bool no_sqarray=true;// IORING_SETUP_NO_SQARRAY
 // Allow kernel to mix 16-byte and 32-byte CQEs on the same ring (kernel 6.5+).
 // CQEs that carry extra payload set IORING_CQE_F_32 in flags.
 bool cqe_mixed=false;// IORING_SETUP_CQE_MIXED
