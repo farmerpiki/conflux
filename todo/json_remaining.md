@@ -25,26 +25,27 @@ AVX2 code is in-tree, guarded by `CONFLUX_JSON_HAS_AVX2`. CMake preset `release-
 
 ---
 
-## Phase 6 — P2996 Reflection (toolchain-gated, P2)
+## Phase 6 — P2996 Reflection — DONE (424bbf0, modulo clang preset)
 
-Not in release compilers as of 2026-05. Guarded by `CONFLUX_JSON_REFLECT` + `__cpp_reflection`/`__has_feature(reflection)`.
+`src/json_reflect.cxx` (224 lines), `tests/json_reflection_test.cxx`, wired under `CONFLUX_JSON_REFLECT` in `tests/CMakeLists.txt`.
 
-- [ ] Implement `JsonCodec<T>` auto-derivation via P2996 (priority: explicit codec > explicit members > auto).
-- [ ] Annotations: `[[=conflux::json::name("id")]]`, `[[=conflux::json::skip]]`.
-- [ ] Tests in `tests/json_reflection_test.cxx` under `CONFLUX_JSON_REFLECT` guard.
-- [ ] CMake presets: `debug-p2996-clang` (Bloomberg fork), `debug-p2996-gcc` (gcc-16 trunk).
+- [x] Implement `JsonCodec<T>` auto-derivation via P2996 (priority: explicit codec > explicit members > auto).
+- [x] Annotations: `[[=conflux::json::name("id")]]`, `[[=conflux::json::skip]]`.
+- [x] Tests in `tests/json_reflection_test.cxx` under `CONFLUX_JSON_REFLECT` guard.
+- [x] CMake preset: `debug-p2996-gcc` (gcc-16 trunk).
+- [ ] CMake preset: `debug-p2996-clang` (Bloomberg fork) — missing; add only if Bloomberg clang is available on host.
 
 ---
 
 ## Phase 8 — Advanced Features (P2)
 
-### 8.1 JSON5 relaxed parse mode
+### 8.1 JSON5 relaxed parse mode — DONE (424bbf0)
 
-Subset: `//`/`/* */` comments, trailing commas, single-quoted strings, unquoted ASCII identifier keys. Mixed quoted/unquoted duplicate key detection required. Fuzz required before ship (`fuzz/fuzz_json5.cxx`).
+All subset items landed: `//`/`/* */` comments, trailing commas, single-quoted strings, unquoted ASCII identifier keys, mixed-key dedup (`DuplicateKeyPolicy::reject` on `{"a":1,a:2}` → `duplicate_member`), fuzz target.
 
-- [ ] Implement `ParseMode::json5` in `JsonParseOptions`.
-- [ ] Key normalization through `string_arena` for dedup.
-- [ ] Fuzz target `fuzz/fuzz_json5.cxx`.
+- [x] Implement `ParseMode::json5` in `JsonParseOptions`.
+- [x] Key normalization through `string_arena` for dedup.
+- [x] Fuzz target `fuzz/fuzz_json5.cxx`.
 
 ### 8.2 Compile-time JSON literal parsing (design not finalized)
 
@@ -54,20 +55,22 @@ Blocked by: `from_chars<double>` not constexpr, `DocumentStorage` needing `const
 - [ ] Design `decode<T>` integration (new ABI-visible overload required).
 - [ ] Implement subset: integers, booleans, null, no-escape strings, nested objects/arrays. No float literals.
 
-### 8.3 JSON Schema lite
+### 8.3 JSON Schema lite — DONE (424bbf0)
 
-- [ ] `Document schema_for<T>()` — dry-run `decode<T>()` with side effects suppressed; emits field names, types, required/optional.
-- [ ] `expected<void, JsonError> validate(NodeRef, Document const& schema)`.
-- [ ] Note: stateless fn-ptr constraints (Phase 2.2) are runtime-only and not reflected into schema.
+`schema_for<T>()` and `validate(NodeRef root, NodeRef schema)` in `json.cxx:6750+`. 6 test cases in `json_test.cxx` under `[phase8.3]`. Note: signature is `validate(NodeRef, NodeRef)` — caller passes `schema_doc.root()`.
+
+- [x] `Document schema_for<T>()` — emits field names, types, required/optional.
+- [x] `expected<void, JsonError> validate(NodeRef, NodeRef schema)`.
+- [x] Note: stateless fn-ptr constraints (Phase 2.2) are runtime-only and not reflected into schema.
 
 ---
 
 ## Fuzz gaps
 
-- [ ] `fuzz/fuzz_json_reader.cxx` — `JsonReader` pull parser.
-- [ ] `fuzz/fuzz_json_sax.cxx` — `parse_sax`.
-- [ ] `fuzz/fuzz_ndjson.cxx` — `NdjsonRange`.
-- [ ] `fuzz/fuzz_json5.cxx` — JSON5 (after 8.1).
+- [x] `fuzz/fuzz_json_reader.cxx` — `JsonReader` pull parser. (landed 424bbf0)
+- [x] `fuzz/fuzz_json_sax.cxx` — `parse_sax`. (landed 424bbf0)
+- [x] `fuzz/fuzz_ndjson.cxx` — `NdjsonRange`. (landed 424bbf0; error path `__builtin_trap` fixed)
+- [x] `fuzz/fuzz_json5.cxx` — JSON5. (landed 424bbf0)
 
 ---
 

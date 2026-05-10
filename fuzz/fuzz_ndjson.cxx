@@ -19,7 +19,8 @@ if(line_result.has_value()){
 NodeRef root=line_result->root();
 (void)root.kind();
 }else{
-(void)(!line_result.error().message.empty());
+if(line_result.error().message.empty())
+__builtin_trap();
 }
 }
 return 0;
