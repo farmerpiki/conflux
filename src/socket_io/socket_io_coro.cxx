@@ -16,12 +16,19 @@ import conflux.socket_io;
 import conflux.work;
 
 namespace wroot=conflux::work::root;
+using std::atomic;
 using std::atomic_bool;
 using std::current_exception;
+using std::enable_shared_from_this;
 using std::make_exception_ptr;
 using std::make_shared;
+using std::memory_order_acq_rel;
+using std::memory_order_acquire;
+using std::memory_order_release;
 using std::move;
 using std::span;
+using std::weak_ptr;
+template<class T>using WP=weak_ptr<T>;
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
 // Buffer lifetime contract for Task methods:
@@ -277,9 +284,186 @@ if(n==0)throw IoError{ECONNRESET,"tcp: connection closed"};
 sent+=n;
 }
 }
+// ─── make_error_task ─────────────────────────────────────────────────────────
+
+template<class T>
+[[nodiscard]]wroot::Task<T>make_error_task(IoError e){
+auto[t,s]=wroot::make_task_source<T>(wroot::SubmitOptions{.enable_cancellation=false});
+auto ss=make_shared<wroot::TaskSource<T>>(move(s));
+auto _=ss->try_set_exception(make_exception_ptr(move(e)));
+return move(t);
+}
+// ─── ConnectOp ───────────────────────────────────────────────────────────────
+
+struct ConnectOp:enable_shared_from_this<ConnectOp>{
+enum class Stage:u8{socket_pending,
+connect_pending,
+done};
+enum class StopCause:u8{none,
+user_cancel,
+timeout};
+
+SocketTaskRing*ring{};
+SP<wroot::TaskSource<TcpStream>>src{};
+SP<TcpStreamState>stream_state{};
+sockaddr_storage addr{};
+socklen_t addr_len{};
+ConnectOptions opts{};
+__kernel_timespec timeout_ts{};
+
+Stage stage{Stage::socket_pending};
+u64 socket_ud{};
+u64 connect_ud{};
+
+atomic_bool cancel_requested{false};
+atomic<StopCause>stop_cause{StopCause::none};
+atomic_bool finalized{false};
+[[nodiscard]]bool try_finalize()noexcept{
+return!finalized.exchange(true,memory_order_acq_rel);
+}
+void complete_exception(IoError e)noexcept{
+if(!try_finalize())return;
+auto _=src->try_set_exception(make_exception_ptr(move(e)));
+}
+void complete_cancelled()noexcept{
+if(!try_finalize())return;
+auto _=src->try_set_cancelled();
+}
+void complete_value(TcpStream v)noexcept{
+if(!try_finalize())return;
+auto _=src->try_set_value(wroot::Success<TcpStream>{move(v)});
+}
+void submit_cancel_ud_on_owner(SocketTaskRing&r,u64 target_ud)noexcept{
+auto self=shared_from_this();
+auto[cs,cg]=r.completions().reserve([self](IoResult)noexcept{});
+if(!submit_cancel_by_ud(r.raw(),target_ud,r.encode(cs,cg))){
+r.completions().dispatch(cs,cg,-EBUSY,0);
+complete_cancelled();
+return;
+}
+auto _=r.raw().submit();
+}
+void submit_cancel_fd_on_owner(SocketTaskRing&r,RingFd fd)noexcept{
+auto self=shared_from_this();
+auto[cs,cg]=r.completions().reserve([self](IoResult)noexcept{});
+if(!submit_cancel_fd(r.raw(),fd,r.encode(cs,cg))){
+r.completions().dispatch(cs,cg,-EBUSY,0);
+complete_cancelled();
+return;
+}
+auto _=r.raw().submit();
+}
+void cancel_on_owner(SocketTaskRing&r)noexcept{
+if(finalized.load(memory_order_acquire))return;
+switch(stage){
+case Stage::socket_pending:
+submit_cancel_ud_on_owner(r,socket_ud);
+break;
+case Stage::connect_pending:
+submit_cancel_fd_on_owner(r,stream_state->handle.get());
+break;
+case Stage::done:
+break;
+}
+}
+void request_cancel(wroot::CancelReason)noexcept{
+stop_cause.store(StopCause::user_cancel,memory_order_release);
+cancel_requested.store(true,memory_order_release);
+auto self=shared_from_this();
+if(!ring->submit_on_owner([self](SocketTaskRing&r){
+self->cancel_on_owner(r);
+}))
+complete_cancelled();// may run on cancelling thread; relies on TaskSource setter MT-safety
+}
+void on_timeout_cqe(IoResult r)noexcept{
+if(r.res!=-ETIME)return;
+StopCause expected=StopCause::none;
+stop_cause.compare_exchange_strong(
+expected,StopCause::timeout,
+memory_order_acq_rel,memory_order_acquire);
+}
+void on_connect_cqe(IoResult r)noexcept{
+stage=Stage::done;
+if(r.res>=0){
+complete_value(TcpStream{move(stream_state)});
+return;
+}
+stream_state.reset();
+if(r.res==-ECANCELED)
+if(cancel_requested.load(memory_order_acquire)||
+stop_cause.load(memory_order_acquire)==StopCause::user_cancel)
+complete_cancelled();
+else
+complete_exception(IoError{ETIMEDOUT,"tcp_connect: timeout"});
+else
+complete_exception(IoError{-r.res,"tcp_connect: connect"});
+}
+void on_socket_cqe(IoResult r)noexcept{
+if(r.res<0){
+if(cancel_requested.load(memory_order_acquire))
+complete_cancelled();
+else
+complete_exception(IoError{-r.res,"tcp_connect: socket"});
+return;
+}
+auto owned=OwnedSocketHandle::from_fd(r.res);
+if(cancel_requested.load(memory_order_acquire)){
+complete_cancelled();
+return;
+}
+SocketHandle const h=owned.get();
+if(opts.tcp_nodelay&&h.is_os_fd()){
+int const one=1;
+if(::setsockopt(h.as_fd(),IPPROTO_TCP,TCP_NODELAY,&one,sizeof(one))<0){
+complete_exception(IoError{errno,"tcp_connect: TCP_NODELAY"});
+return;
+}
+}
+if(opts.tcp_quickack&&h.is_os_fd()){
+int const one=1;
+if(::setsockopt(h.as_fd(),IPPROTO_TCP,TCP_QUICKACK,&one,sizeof(one))<0){
+complete_exception(IoError{errno,"tcp_connect: TCP_QUICKACK"});
+return;
+}
+}
+bool const use_timeout=opts.timeout>chrono::milliseconds{0};
+u32 const sqe_needed=use_timeout?2u:1u;
+if(!ring->raw().reserve_sqe_slots(sqe_needed)){
+complete_exception(IoError{ENOSPC,"tcp_connect: SQ full"});
+return;
+}
+stream_state=make_shared<TcpStreamState>(ring,move(owned));
+auto self=shared_from_this();
+auto[cslot,cgen]=ring->completions().reserve(
+[self](IoResult cr)noexcept{self->on_connect_cqe(cr);});
+connect_ud=ring->encode(cslot,cgen);
+u32 tslot{},tgen{};
+if(use_timeout){
+auto[ts,tg]=ring->completions().reserve(
+[self](IoResult tr)noexcept{self->on_timeout_cqe(tr);});
+tslot=ts;
+tgen=tg;
+}
+stage=Stage::connect_pending;
+sockaddr const*saddr=reinterpret_cast<sockaddr const*>(&addr);
+if(!submit_connect_borrowed(ring->raw(),h,saddr,addr_len,connect_ud,use_timeout)){
+if(use_timeout)ring->completions().dispatch(tslot,tgen,-EBUSY,0);
+ring->completions().dispatch(cslot,cgen,-ENOSPC,0);
+return;
+}
+if(use_timeout){
+auto const sec=chrono::duration_cast<chrono::seconds>(opts.timeout);
+timeout_ts.tv_sec=sec.count();
+timeout_ts.tv_nsec=(opts.timeout-sec).count()*1000000LL;
+if(!submit_link_timeout_borrowed(ring->raw(),&timeout_ts,ring->encode(tslot,tgen))){
+ring->completions().dispatch(tslot,tgen,-EBUSY,0);
+complete_exception(IoError{EBUSY,"tcp_connect: link timeout SQE unavailable"});
+return;
+}
+}
+}
+};
 // ─── tcp_connect ─────────────────────────────────────────────────────────────
-// Two-stage: (1) create socket, (2) connect + linked timeout.
-// addr is taken by value — lives in the coroutine frame until connect CQE.
 
 export[[nodiscard]]wroot::Task<TcpStream>tcp_connect(
 SocketTaskRing&ring,
@@ -287,105 +471,36 @@ int family,
 sockaddr_storage addr,
 socklen_t len,
 ConnectOptions opts={}){
-if(opts.timeout.count()<0){
-auto[bt,brs]=wroot::make_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation=false});
-auto bs=make_shared<wroot::TaskSource<TcpStream>>(move(brs));
-auto _=bs->try_set_exception(make_exception_ptr(IoError{EINVAL,"tcp_connect: negative timeout"}));
-co_return co_await move(bt);
-}
-if(ring.opts().fd_mode==SocketFdMode::direct_required){
-auto[bt,brs]=wroot::make_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation=false});
-auto bs=make_shared<wroot::TaskSource<TcpStream>>(move(brs));
-auto _=bs->try_set_exception(make_exception_ptr(IoError{ENOTSUP,"tcp_connect: direct fd not yet supported"}));
-co_return co_await move(bt);
-}
-// Stage 1: create socket
-{
-auto[task,raw_src]=wroot::make_task_source<int>(wroot::SubmitOptions{.enable_cancellation=false});
-auto shared_src=make_shared<wroot::TaskSource<int>>(move(raw_src));
-auto[slot,gen]=ring.completions().reserve([shared_src](IoResult r)mutable{
-try{
-if(r.res<0){
-auto _=shared_src->try_set_exception(make_exception_ptr(IoError{-r.res,"tcp_connect: socket"}));
-return;
-}
-auto _=shared_src->try_set_value(wroot::Success<int>{r.res});
-}catch(...){auto _=shared_src->try_set_exception(current_exception());}
-});
-u64 const ud=ring.encode(slot,gen);
-if(!submit_socket(ring.raw(),family,SOCK_STREAM|SOCK_CLOEXEC,IPPROTO_TCP,ud))
+if(opts.timeout.count()<0)
+return make_error_task<TcpStream>(IoError{EINVAL,"tcp_connect: negative timeout"});
+if(ring.opts().fd_mode==SocketFdMode::direct_required)
+return make_error_task<TcpStream>(IoError{ENOTSUP,"tcp_connect: direct fd not yet supported"});
+
+auto[task,raw_src]=wroot::make_task_source<TcpStream>(
+wroot::SubmitOptions{.enable_cancellation=true});
+auto src=make_shared<wroot::TaskSource<TcpStream>>(move(raw_src));
+
+auto op=make_shared<ConnectOp>();
+op->ring=&ring;
+op->src=src;
+op->addr=addr;
+op->addr_len=len;
+op->opts=opts;
+
+auto[slot,gen]=ring.completions().reserve(
+[op](IoResult r)noexcept{op->on_socket_cqe(r);});
+op->socket_ud=ring.encode(slot,gen);
+
+if(!submit_socket(ring.raw(),family,SOCK_STREAM|SOCK_CLOEXEC,IPPROTO_TCP,op->socket_ud))
 ring.completions().dispatch(slot,gen,-ENOSPC,0);
-int const raw_fd=co_await move(task);
-// Stage 2: apply socket opts + connect
-auto owned=OwnedSocketHandle::from_fd(raw_fd);
-SocketHandle const h=owned.get();
-if(opts.tcp_nodelay&&h.is_os_fd()){
-int const one=1;
-::setsockopt(h.as_fd(),IPPROTO_TCP,TCP_NODELAY,&one,sizeof(one));
-}
-if(opts.tcp_quickack&&h.is_os_fd()){
-int const one=1;
-::setsockopt(h.as_fd(),IPPROTO_TCP,TCP_QUICKACK,&one,sizeof(one));
-}
-bool const use_timeout=opts.timeout>chrono::milliseconds{0};
-if(use_timeout&&ring.raw().sq_space_left()<2){
-auto[bt,brs]=wroot::make_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation=false});
-auto bs=make_shared<wroot::TaskSource<TcpStream>>(move(brs));
-auto _=bs->try_set_exception(make_exception_ptr(IoError{ENOSPC,"tcp_connect: SQ full"}));
-co_return co_await move(bt);
-}
-auto[ctask,craw_src]=wroot::make_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation=true});
-auto cshared_src=make_shared<wroot::TaskSource<TcpStream>>(move(craw_src));
-auto state=make_shared<TcpStreamState>(&ring,move(owned));
-auto[cslot,cgen]=ring.completions().reserve([cshared_src,state](IoResult r)mutable{
-try{
-if(r.res<0){
-// handle is released back to TcpStream if error — let caller decide
-if(r.res==-ECANCELED)
-auto _=cshared_src->try_set_exception(make_exception_ptr(IoError{ETIMEDOUT,"tcp_connect: timeout"}));
-else
-auto _=cshared_src->try_set_exception(make_exception_ptr(IoError{-r.res,"tcp_connect: connect"}));
-return;
-}
-auto _=cshared_src->try_set_value(wroot::Success<TcpStream>{TcpStream{state}});
-}catch(...){auto _=cshared_src->try_set_exception(current_exception());}
+
+auto _=src->install_cancel_hook(
+[weak_op=WP<ConnectOp>{op}](wroot::CancelReason cr)noexcept{
+if(auto sop=weak_op.lock())
+sop->request_cancel(cr);
 });
-u64 const connect_ud=ring.encode(cslot,cgen);
-sockaddr const*saddr=reinterpret_cast<sockaddr const*>(&addr);
-if(!submit_connect_borrowed(ring.raw(),h,saddr,len,connect_ud,use_timeout)){
-ring.completions().dispatch(cslot,cgen,-ENOSPC,0);
-co_return co_await move(ctask);
-}
-if(use_timeout){
-auto ts_holder=make_shared<__kernel_timespec>();
-auto const sec=chrono::duration_cast<chrono::seconds>(opts.timeout);
-ts_holder->tv_sec=sec.count();
-ts_holder->tv_nsec=(opts.timeout-sec).count()*1000000LL;
-auto[tslot,tgen]=ring.completions().reserve([ts_holder](IoResult)mutable{auto _=ts_holder;});
-u64 const timeout_ud=ring.encode(tslot,tgen);
-if(!submit_link_timeout_borrowed(ring.raw(),ts_holder.get(),timeout_ud))
-ring.completions().dispatch(tslot,tgen,-EBUSY,0);
-}
-// Cancel hook: cancel the connect by fd
-auto ring_ptr=&ring;
-auto weak_csrc=weak_ptr<wroot::TaskSource<TcpStream>>{cshared_src};
-{
-auto _=cshared_src->install_cancel_hook([ring_ptr,h,weak_csrc=move(weak_csrc)](wroot::CancelReason)noexcept{
-if(!ring_ptr->submit_on_owner([h,weak_csrc](SocketTaskRing&r){
-auto[cs,cg]=r.completions().reserve([](IoResult)noexcept{});
-u64 const cud=r.encode(cs,cg);
-if(!submit_cancel_fd(r.raw(),h,cud)){
-r.completions().dispatch(cs,cg,-EBUSY,0);
-if(auto src=weak_csrc.lock())auto _=src->try_set_cancelled();
-return;
-}
-auto _=r.raw().submit();
-}))
-if(auto src=weak_csrc.lock())auto _=src->try_set_cancelled();
-});
-}
-co_return co_await move(ctask);
-}
+
+return move(task);
 }
 // ─── UdpRecvResult ───────────────────────────────────────────────────────────
 

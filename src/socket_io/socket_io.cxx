@@ -1258,6 +1258,10 @@ export using RingOpFn=Fn<void(SocketTaskRing&)>;
 export struct SocketTaskRingOptions{
 SocketFdMode fd_mode{SocketFdMode::os_fd};// P1 safe default; direct_* is explicit opt-in until P1-04
 conflux::uring::IoUringCaps const*caps{};
+// Must enqueue fn on ring-owner thread and return true, or return false.
+// Must NOT invoke fn inline from an arbitrary cancelling thread.
+// If null: ring is treated as single-threaded; submit_on_owner asserts caller==owner
+// and calls fn inline. Cross-thread cancel callers MUST provide submit_on_ring_owner.
 Fn<bool(RingOpFn)>submit_on_ring_owner{};
 };
 export class SocketTaskRing{

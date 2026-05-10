@@ -428,40 +428,20 @@ fx->run(stream.close());
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-"tcp_connect: SQ full with timeout → IoError ENOSPC",
+"tcp_connect: connect with timeout succeeds (happy path)",
 "[tcp][uring]"){
-// Ring with 1 entry: socket takes the only SQE, leaving 0 for the 2-SQE
-// connect+timeout pair → ENOSPC before submission.
-auto fx=RingFixture::make(1);
-REQUIRE(fx!=nullptr);
-
-// Submit the socket SQE first to fill the ring.
-// Actually with entries=1: after socket SQE, sq_space_left=0,
-// meaning submit_socket uses the slot and then sq_space_left<2 fires.
 TcpEchoServer server;
 REQUIRE(server.ok());
 sockaddr_storage addr=loopback_addr(server.port());
-int err_code=0;
-try{
-// timeout != 0 triggers the 2-slot pre-check; with entries=2 and socket
-// consuming 1, there's 1 left after socket → pre-check (sq_space_left<2)
-// fires. But entries=1 means after socket CQE, space restores. We can't
-// reliably fill the ring between stage1 and stage2. Use entries=2 with
-// a real connect to make the test deterministic.
-// Simpler: just use entries=32 and verify normal path works.
-// The SQ-full ENOSPC path is a defensive check; exercise it by inspection.
-// This test intentionally validates the happy-path with timeout instead.
-auto fx2=require_ring_fixture();
-auto stream=fx2->run(tcp_connect(
-fx2->task_ring,
+auto fx=require_ring_fixture();
+auto stream=fx->run(tcp_connect(
+fx->task_ring,
 AF_INET,
 addr,
 static_cast<socklen_t>(sizeof(sockaddr_in)),
 ConnectOptions{.timeout=chrono::milliseconds{500}}));
-fx2->run(stream.close());
-}catch(IoError const&e){err_code=e.code().value();}
-// Either succeeded (got=true) or got a real network error — not ENOSPC
-CHECK_FALSE(err_code==ENOSPC);
+CHECK(stream.valid());
+fx->run(stream.close());
 }
 // ---------------------------------------------------------------------------
 // TcpStream — write_copy round-trip
@@ -748,6 +728,162 @@ int const rc=::getsockopt(stream.raw_fd(),IPPROTO_TCP,TCP_NODELAY,&nodelay,&optl
 CHECK(rc==0);
 CHECK(nodelay!=0);
 fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// tcp_connect — cancel during socket_pending (before socket CQE)
+// ---------------------------------------------------------------------------
+
+static int count_proc_fds()noexcept{
+int n=0;
+namespace fs=std::filesystem;
+try{
+for([[maybe_unused]]auto const&_:fs::directory_iterator{"/proc/self/fd"})
+++n;
+}catch(...){}
+return n;
+}
+TEST_CASE(
+"tcp_connect: cancel during socket_pending completes cancelled",
+"[tcp][cancel][uring]"){
+auto fx=require_ring_fixture();
+// blackhole — SYN never answered; connect SQE stays pending indefinitely
+sockaddr_storage addr{};
+auto*sin=reinterpret_cast<sockaddr_in*>(&addr);
+sin->sin_family=AF_INET;
+sin->sin_addr.s_addr=htonl(0xC0000201U);// 192.0.2.1
+sin->sin_port=htons(1);
+
+int const fd_before=count_proc_fds();
+
+auto task=tcp_connect(fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in)));
+// cancel before any CQE pumped — fires cancel hook inline (single-thread ring)
+task.cancel();
+bool got_cancel=false;
+int err_code=0;
+try{
+fx->run(move(task),chrono::seconds{5});
+}catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
+got_cancel=true;
+}
+CHECK(got_cancel);
+CHECK(err_code==0);
+
+int const fd_after=count_proc_fds();
+// no permanent fd leak — allow small slack for test infra
+CHECK(fd_after<=fd_before+4);
+}
+// ---------------------------------------------------------------------------
+// tcp_connect — cancel during connect_pending (after socket CQE, before connect CQE)
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_connect: cancel during connect_pending completes cancelled",
+"[tcp][cancel][uring]"){
+auto fx=require_ring_fixture();
+// blackhole address — connect SQE stays pending until cancelled
+sockaddr_storage addr{};
+auto*sin=reinterpret_cast<sockaddr_in*>(&addr);
+sin->sin_family=AF_INET;
+sin->sin_addr.s_addr=htonl(0xC0000201U);
+sin->sin_port=htons(1);
+
+auto task=tcp_connect(fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in)));
+
+// Pump exactly one CQE (socket creation) so ConnectOp enters connect_pending.
+// SINGLE_ISSUER ring on ring-owner thread — safe to peek/submit here.
+{
+::io_uring_cqe*cqe=nullptr;
+__kernel_timespec ts{.tv_sec=5,.tv_nsec=0};
+::io_uring_submit_and_wait_timeout(&fx->ring,&cqe,1,&ts,nullptr);
+array<::io_uring_cqe*,1>batch{};
+unsigned const n=::io_uring_peek_batch_cqe(&fx->ring,batch.data(),1u);
+if(n>0){
+auto const*c=batch[0];
+fx->completions.dispatch(
+static_cast<uint32_t>(c->user_data&0xFFFFFFFFU),
+static_cast<uint32_t>(c->user_data>>32U),
+c->res,c->flags);
+::io_uring_cq_advance(&fx->ring,1);
+}
+}
+// Now in connect_pending — cancel fires cancel_on_owner inline (single-thread ring)
+task.cancel();
+bool got_cancel=false;
+int err_code=0;
+try{
+fx->run(move(task),chrono::seconds{5});
+}catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
+got_cancel=true;
+}
+CHECK(got_cancel);
+CHECK(err_code==0);
+}
+// ---------------------------------------------------------------------------
+// tcp_connect — submit_on_ring_owner false → immediate complete_cancelled
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_connect: submit_on_ring_owner false triggers complete_cancelled",
+"[tcp][cancel][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+bool owner_called=false;
+SocketTaskRingOptions opts;
+opts.submit_on_ring_owner=[&owner_called](RingOpFn)->bool{
+owner_called=true;
+return false;
+};
+auto fx=require_ring_fixture();
+SocketTaskRing ring2{SocketRawRing{&fx->ring},fx->completions,
+[](uint32_t s,uint32_t g)noexcept->uint64_t{return pack_ud(s,g);},opts};
+sockaddr_storage addr=loopback_addr(server.port());
+auto task=tcp_connect(ring2,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in)));
+// cancel → hook → submit_on_owner returns false → complete_cancelled
+task.cancel();
+bool got_cancel=false;
+int err_code=0;
+try{
+fx->run(move(task));
+}catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
+got_cancel=true;
+}
+CHECK(owner_called);
+CHECK(got_cancel);
+CHECK(err_code==0);
+}
+// ---------------------------------------------------------------------------
+// tcp_connect — cancel with timeout armed: cancel_requested beats stop_cause==timeout
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_connect: cancel with timeout armed reports cancelled not ETIMEDOUT",
+"[tcp][cancel][uring]"){
+// Verifies that cancel_requested==true in on_connect_cqe beats stop_cause==timeout.
+// With a 5s timeout armed and immediate cancel (ring-owner inline), connect CQE
+// arrives with -ECANCELED; cancel_requested is true → complete_cancelled, not ETIMEDOUT.
+auto fx=require_ring_fixture();
+sockaddr_storage addr{};
+auto*sin=reinterpret_cast<sockaddr_in*>(&addr);
+sin->sin_family=AF_INET;
+sin->sin_addr.s_addr=htonl(0xC0000201U);// 192.0.2.1 — blackhole
+sin->sin_port=htons(1);
+
+auto task=tcp_connect(fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in)),
+ConnectOptions{.timeout=chrono::seconds{5}});
+task.cancel();// fires inline on ring-owner; sets cancel_requested before any CQE
+bool got_cancel=false;
+int err_code=0;
+try{
+fx->run(move(task),chrono::seconds{10});
+}catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
+got_cancel=true;
+}
+CHECK(got_cancel);
+CHECK(err_code==0);
 }
 // ---------------------------------------------------------------------------
 // TcpStream — shutdown(SHUT_WR) then read returns EOF
