@@ -39,13 +39,13 @@ The highest-risk gaps are not missing SQE prep helpers. They are:
 | 9 | `TcpListener` abstraction | **Keep** | P1 | Ergonomic surface missing even though raw helpers exist. |
 | 10 | Buffer-ring modes: classic/bundle/incremental | **Keep** | P1 | Should absorb #1 and future incremental mode; avoid one misleading `buffer_view(id,len)` API. |
 | 11 | Registered buffer cloning | **Defer** | P3 | Useful capability, but not urgent for current provided-buffer server path. Track only. |
-| 12 | Ring resize hooks | **Keep, narrow** | P2 | Add after CQ telemetry; useful but has kernel/setup constraints. |
+| 12 | Ring resize hooks | **Keep, narrow** | P2 | **Done** — `RingSize`/`resize`/`grow_cq_to`/tests implemented; no server auto-grow. |
 | 13 | io_uring ZC Rx | **Defer** | P3 | Research/design tracker only; ownership model differs too much from provided buffers. |
-| 14 | Poll-first/send policy | **Keep** | P3 | Small performance policy layer after correctness work. |
+| 14 | Poll-first/send policy | **Keep** | P2 | **Plumbing done** — `RecvArmPolicy`, `resolve_recv_arm_policy`, server integration, config knob, caps; benchmark pending. |
 | 15 | Runtime capability matrix | **Keep** | P1 | Promote earlier; it gates #1/#10/#12/#13 cleanly. |
 | 16 | Lifetime-contract API split | **Keep** | P1 | Needed before Task APIs are ergonomic and safe. |
 | 17 | Cancellation semantics | **Keep** | P1 | Start with connect/DNS/HTTP timeout paths. |
-| 18 | Owned-path flow variants | **Keep** | P2 | Enables SQPOLL/no-submit-stable usability without unsafe borrowed paths. |
+| 18 | Owned-path flow variants | **Keep** | P2 | **Done** — `OwnedInlinePath`/`open_direct_owned`/`with_direct_file_owned`/tests implemented. |
 | 19 | Benchmark gates | **Keep, narrow** | P1 | Some benches already exist; extend gates to new ownership and feature paths. |
 
 ---
@@ -66,6 +66,10 @@ The highest-risk gaps are not missing SQE prep helpers. They are:
 - [x] Make recycling bundle-aware; recycle exactly all consumed buffers, once.
 - [x] Add tests for bundle crossing buffer boundaries, wraparound, short first buffer, and multishot end.
 - [x] Until tests pass, force `recv_bundle=false` even if kernel advertises the feature.
+
+**Known bug — fatal-drain path (`http_server.cxx:3519-3528`):** In `recycle_recv_buffer_direct`, bundle mode uses arithmetic `(buf_id+1)%count` to walk successive buffer IDs. This assumes sequential buffer allocation, which conflicts with the non-sequential ring-order fix applied elsewhere. Must use ring-order consume head, not arithmetic wrap, during fatal drain.
+
+- [ ] Fix `recycle_recv_buffer_direct` bundle branch to use ring-order buffer IDs, not `(buf_id+1)%count`.
 
 Suggested API:
 
@@ -282,12 +286,15 @@ Do not migrate more HTTP surface onto the current `FileReader`-backed coroutine 
 ## [ ] P1-03: Replace DNS temp-ring/FileReader transport with reusable socket transport
 
 **Classification:** Keep.  
-**Current state:** Partial.
+**Current state:** Partial — further along than original proposal, still not clean.
 
 Evidence in current repo:
 
-- `src/net/dns/dns.cxx:1810-1830` still creates a temporary io_uring ring and `FileReader` for blocking native UDP resolution.
-- `src/net/dns/dns.cxx:959` uses `tcp_connect(reader, ...)`, i.e. still via FileReader-backed `TcpStream`.
+- `src/net/dns/dns.cxx:1822-1823` still creates a temporary io_uring ring for blocking native UDP resolution.
+- `src/net/dns/dns.cxx:1831-1835` creates both a `SocketTaskRing` (`tmp_str`) and a `FileReader` (`tmp_reader`) alongside it; `block_on` at line 1869 uses `tmp_reader`, so the UDP blocking path still depends on `FileReader`.
+- `src/net/dns/dns.cxx:961` uses `tcp_connect(ring, ...)` with a `SocketTaskRing` — TCP fallback is no longer `FileReader`-backed.
+
+So: TCP DNS fallback is migrated; UDP blocking compat still creates temp ring + `FileReader` and cannot be called "clean/reusable".
 
 **TODO:**
 
@@ -295,7 +302,8 @@ Evidence in current repo:
 - [ ] Add thread-local reusable `SocketTaskRing`/ring for blocking compatibility path.
 - [ ] Move UDP send/recv timeout to `UdpSocket` backed by `socket_io`, not `FileReader`.
 - [ ] Add cancellation-aware linked timeout for UDP queries.
-- [ ] Ensure TCP DNS fallback uses `SocketTaskRing`.
+- [x] TCP DNS fallback uses `SocketTaskRing` (`tcp_connect(ring, ...)` at `dns.cxx:961`).
+- [ ] Remove `FileReader` from blocking UDP DNS path (`dns.cxx:1833-1869` uses `tmp_reader` for `block_on`; replace with `SocketTaskRing`-based block_on).
 - [ ] Remove temp-ring allocation from per-query blocking DNS path.
 
 ## [x] P1-04: Add `TcpListener` as a real high-level abstraction
@@ -321,6 +329,10 @@ Evidence in current repo:
 
 - [ ] Migrate `benchmarks/socket_raw_bench.cxx::make_listen_socket()` to `TcpListener`.
 - [ ] Migrate `src/net/http_server.cxx` accept setup (after Phase 2 and direct-slot bookkeeping are solid).
+
+**Known gap — HTTP server direct-accept does not enable `tcp_nodelay_once` (`http_server.cxx:1794-1796`):** `queue_direct_accept_setup` only sets `tcp_quickack_once=caps.cmd_sock_setsockopt`; `tcp_nodelay_once` is left `false`. Non-direct accepted sockets get both `TCP_NODELAY` and `TCP_QUICKACK` via raw `setsockopt` at `http_server.cxx:2330-2331`. Direct accepted sockets silently skip `TCP_NODELAY`.
+
+- [ ] Enable `setup.tcp_nodelay_once=caps.cmd_sock_setsockopt` in `queue_direct_accept_setup` (`http_server.cxx:1794`).
 
 **Separate fix (implemented, callers opt-in):**
 
@@ -458,62 +470,63 @@ enum class CancelPolicy : u8 {
 
 # P2 — capability and compatibility polish
 
-## [ ] P2-01: Add ring resize wrapper after CQ telemetry
+## [x] P2-01: Add ring resize wrapper after CQ telemetry
 
 **Classification:** Keep, narrow.  
-**Current state:** Not done. Worktree `p2-ring-resize` at `~/conflux_dev/p2_ring_resize`; proposal `p2_01_ring_resize_proposal.md` in `~/conflux_dev/`.
+**Current state:** Done — `RingSize`, `resize`, `grow_cq_to`, `build_has_io_uring_resize_rings`, CMake link probe, `feat_resize_rings` cap, and tests in `ring_resize_test.cxx` all implemented in `src/uring/uring.cxx`. No server auto-grow (intentional).
 
 Ring resizing is useful for network CQ sizing, but it is not a substitute for overflow policy. Only `IORING_SETUP_DEFER_TASKRUN` rings are supported; `NO_MMAP` rings are not. `IORING_SETUP_CQSIZE` must be set in the params flags or the kernel ignores `cq_entries`. No server auto-grow in this PR — wrapper + tests only.
 
 **TODO:**
 
-- [ ] CMake C++ link probe (`CONFLUX_HAVE_IO_URING_RESIZE_RINGS`) — prove symbol present and linkable; propagate as `PUBLIC` compile definition on `conflux_uring`; export `build_has_io_uring_resize_rings` constexpr from module.
-- [ ] `RingSize` struct — export alongside `IoUringCaps`.
-- [ ] `RingRef::sq_entries()` / `RingRef::cq_entries()` accessors.
-- [ ] `RingRef::resize(RingSize)` — check `!cq_has_overflow()`, `io_uring_sq_ready() == 0`, `DEFER_TASKRUN` flag, `!NO_MMAP`; set `IORING_SETUP_CQSIZE` in params; call `io_uring_resize_rings`; return `unexpected{-ENOSYS}` when link probe absent.
-- [ ] `RingRef::grow_cq_to(u32)` — read `cq_entries()`, no-op if already large enough, delegate to `resize({current_sq, entries})`.
-- [ ] `Ring::resize` / `Ring::grow_cq_to` — delegate to `ref()`.
-- [ ] Refuse resizing while CQ overflow is active (`-EBUSY`).
-- [ ] Tests — probe cap; grow small ring; verify overflow blocks resize; verify no-op path in `grow_cq_to`.
-- [ ] No server auto-grow in this PR. Future: track `saw_overflow_since_last_resize` locally and call `grow_cq_to` once after overflow clears.
+- [x] CMake C++ link probe (`CONFLUX_HAVE_IO_URING_RESIZE_RINGS`) — prove symbol present and linkable; propagate as `PUBLIC` compile definition on `conflux_uring`; export `build_has_io_uring_resize_rings` constexpr from module.
+- [x] `RingSize` struct — export alongside `IoUringCaps`.
+- [x] `RingRef::sq_entries()` / `RingRef::cq_entries()` accessors.
+- [x] `RingRef::resize(RingSize)` — check `!cq_has_overflow()`, `io_uring_sq_ready() == 0`, `DEFER_TASKRUN` flag, `!NO_MMAP`; set `IORING_SETUP_CQSIZE` in params; call `io_uring_resize_rings`; return `unexpected{-ENOSYS}` when link probe absent.
+- [x] `RingRef::grow_cq_to(u32)` — read `cq_entries()`, no-op if already large enough, delegate to `resize({current_sq, entries})`.
+- [x] `Ring::resize` / `Ring::grow_cq_to` — delegate to `ref()`.
+- [x] Refuse resizing while CQ overflow is active (`-EBUSY`).
+- [x] Tests — probe cap; grow small ring; verify overflow blocks resize; verify no-op path in `grow_cq_to`.
+- [ ] No server auto-grow yet. Future: track `saw_overflow_since_last_resize` locally and call `grow_cq_to` once after overflow clears.
 
-## [ ] P2-02: Add owned-path variants for direct-file flow
+## [x] P2-02: Add owned-path variants for direct-file flow
 
 **Classification:** Keep.  
-**Current state:** Not done. Worktree `p2-owned-path-flow` at `~/conflux_dev/p2_owned_path_flow`; proposal `p2_02_owned_path_flow_proposal.md` in `~/conflux_dev/`.
+**Current state:** Done — `OwnedInlinePath`, `owns_path`, `owned_path_buf`, `open_direct_owned`, `with_direct_file_owned`, `owned_paths_` slab, unstable-path per-builder check, and `owned_path_flow_test.cxx` all implemented in `src/uring/flow.cxx`.
 
 `FlowBuilder::submit()` rejects all flows when `!path_lifetime_stable_` (SQPOLL or no `SUBMIT_STABLE`). Owned-path flows are immune — the path bytes are copied into runtime storage keyed by slab index before the SQE is prepared, not into the temporary builder. Storing path in the builder alone is unsafe: the builder array is reused on the next `rt.flow()` call, possibly before SQPOLL consumes the SQE.
 
 **TODO:**
 
-- [ ] `OwnedInlinePath` struct (cap = 255, `NAME_MAX`; reject `> cap` with `-ENAMETOOLONG`; reject embedded NUL with `-EINVAL`).
-- [ ] `A<OwnedInlinePath, kMaxFlows> owned_paths_{}` in `FlowRuntime` (1 MiB static; cold allocation path).
-- [ ] `owns_path` flag + `owned_path_buf` staging in `DirectFileBuilder` (256 bytes staging per builder; `kMaxBatch=64` → 16 KB).
-- [ ] `FlowBuilder::open_direct_owned(OwnedInlinePath)` and `open_direct_owned(string_view)` overload (sets `b.err` on path error).
-- [ ] `with_direct_file_owned` template wrapper.
-- [ ] `submit()` pre-pass: replace blanket `!path_lifetime_stable_` rejection with per-builder check; guard `b.err == 0` to preserve earlier path errors.
-- [ ] `submit()` copy: after slab allocation, copy staging bytes into `rt_.owned_paths_[state.flow_index]`; pass override pointer into `prep_op()`.
-- [ ] `prep_op()` — add `open_path_override` param; use override for open_direct ops when non-null.
-- [ ] Tests — `OwnedInlinePath` limits; mixed borrowed+owned submit under `!path_lifetime_stable_`; only borrowed flows rejected.
+- [x] `OwnedInlinePath` struct (cap = 255, `NAME_MAX`; reject `> cap` with `-ENAMETOOLONG`; reject embedded NUL with `-EINVAL`).
+- [x] `A<OwnedInlinePath, kMaxFlows> owned_paths_{}` in `FlowRuntime` (1 MiB static; cold allocation path).
+- [x] `owns_path` flag + `owned_path_buf` staging in `DirectFileBuilder` (256 bytes staging per builder; `kMaxBatch=64` → 16 KB).
+- [x] `FlowBuilder::open_direct_owned(OwnedInlinePath)` and `open_direct_owned(string_view)` overload (sets `b.err` on path error).
+- [x] `with_direct_file_owned` template wrapper.
+- [x] `submit()` pre-pass: replace blanket `!path_lifetime_stable_` rejection with per-builder check; guard `b.err == 0` to preserve earlier path errors.
+- [x] `submit()` copy: after slab allocation, copy staging bytes into `rt_.owned_paths_[state.flow_index]`; pass override pointer into `prep_op()`.
+- [x] `prep_op()` — add `open_path_override` param; use override for open_direct ops when non-null.
+- [x] Tests — `OwnedInlinePath` limits; mixed borrowed+owned submit under `!path_lifetime_stable_`; only borrowed flows rejected.
 
 ## [ ] P2-03: Add poll-first recv/send policy wrapper
 
 **Classification:** Keep.  
-**Current state:** `RecvArmPolicy` enum added (`default_`, `poll_first`); wired into `submit_recv_multishot` via `ioprio` (`9fcd9a4`). Adaptive arm not yet implemented; benchmarks not yet run. Worktree `p2-poll-first-auto` at `~/conflux_dev/p2_poll_first_auto`; proposal `p2_03_poll_first_auto_proposal.md` in `~/conflux_dev/`.
+**Current state:** Plumbing implemented — `RecvArmPolicy` (`default_`, `poll_first`), `resolve_recv_arm_policy` free fn, `Conn::last_recv_cqe_flags`/`have_last_recv_cqe_flags`, server-side `resolve_recv_arm_policy(conn)` wrapper, `caps.recv_poll_first` (set unconditionally at kernel floor), `auto_recv_arm_policy` config knob wired in `config.cxx:288`, `caps_to_log_string` updated, `caps_test.cxx` updated. Remaining: benchmarks.
 
 Do **not** add `auto_from_last_cqe` to `RecvArmPolicy` — a third value silently passed through to `submit_recv_multishot` would be treated as `default_`. Resolution stays in a free function before the call.
 
 **TODO:**
 
 - [x] Add `RecvArmPolicy` to `submit_recv_multishot` (`default_`, `poll_first` only — keep two values).
-- [ ] `IoUringCaps::recv_poll_first` — independent of `feat_recvsend_bundle` (available since 5.19, below kernel floor; set to `true` unconditionally or via kernel-floor assumption).
-- [ ] `Conn::last_recv_cqe_flags` + `Conn::have_last_recv_cqe_flags` — distinguish first-recv-after-accept from no-data last recv; reset both on accept and in `conn_erase()`.
-- [ ] Flag capture — centralized in `handle_recv_cqe()` after gen check and `res > 0`, before buffer ops; do not scatter next to each `queue_multishot_recv()` call.
-- [ ] `resolve_recv_arm_policy(bool auto_enabled, bool recv_poll_first, bool have_last_flags, u32 last_flags)` — free function exported from `conflux.socket_io`; thin member wrapper on `Ring`.
-- [ ] `queue_multishot_recv` — call `resolve_recv_arm_policy(conn)` and pass result to `submit_recv_multishot`.
-- [ ] Config knob `auto_recv_arm_policy` — default `false`; wire into `[io_uring]` config, `kBoolKeys`, `flags_str`, startup log.
-- [ ] `recv_poll_first` in `caps_to_log_string()`; update `caps_test.cxx`.
-- [ ] Tests — free function unit tests (no-flags, cap-off, nonempty-set, nonempty-clear); benchmark `default_` vs `poll_first` vs adaptive under idle/bulk traffic.
+- [x] `IoUringCaps::recv_poll_first` — set `true` unconditionally at kernel floor (available since 5.19, `uring.cxx:1596`).
+- [x] `Conn::last_recv_cqe_flags` + `Conn::have_last_recv_cqe_flags` — reset on accept and `conn_erase()`.
+- [x] Flag capture — centralized in `handle_recv_cqe()`.
+- [x] `resolve_recv_arm_policy(bool auto_enabled, bool recv_poll_first, bool have_last_flags, u32 last_flags)` — free function; thin member wrapper on server ring.
+- [x] `queue_multishot_recv` — calls `resolve_recv_arm_policy(conn)` and passes result to `submit_recv_multishot`.
+- [x] Config knob `auto_recv_arm_policy` — default `false`; wired in `config.cxx:288`; logged in `flags_str`.
+- [x] `recv_poll_first` in `caps_to_log_string()`; `caps_test.cxx` updated.
+- [x] Free function unit tests (no-flags, cap-off, nonempty-set, nonempty-clear).
+- [ ] Benchmark `default_` vs `poll_first` vs adaptive under idle/bulk traffic.
 
 ---
 
@@ -587,9 +600,9 @@ Do not start AF_ALG before socket ownership and Task-ring semantics are clean. A
 - [x] **P1-04** Add `TcpListener` abstraction (Phase 1 done; Phase 2/3 deferred).
 - [x] **P1-05** Add buffer-ring modes: classic, bundle, incremental.
 - [x] **P1-09** Expand benchmark gates.
-- [ ] **P2-02** Add owned-path direct-flow variants.
-- [ ] **P2-01** Add ring resize wrapper after CQ telemetry.
-- [ ] **P2-03** Add poll-first recv policy.
+- [x] **P2-02** Add owned-path direct-flow variants.
+- [x] **P2-01** Add ring resize wrapper after CQ telemetry.
+- [ ] **P2-03** Add poll-first recv policy (plumbing done; benchmark pending).
 
 ## Phase 3 — opt-in performance tiers
 
