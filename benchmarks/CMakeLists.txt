@@ -35,9 +35,6 @@ add_executable(conflux_tcp_increment_coro_bench tcp_increment_coro_bench.cxx)
 target_link_libraries(conflux_tcp_increment_coro_bench
     PRIVATE bench_common conflux_file_io conflux_socket_io conflux_work conflux_options PkgConfig::LIBURING)
 
-add_executable(conflux_tcp_socket_task_bench tcp_socket_task_bench.cxx)
-target_link_libraries(conflux_tcp_socket_task_bench
-    PRIVATE bench_common conflux_socket_io conflux_work conflux_options PkgConfig::LIBURING)
 
 # TODO: co_spawn not yet implemented — re-enable when available
 # add_executable(conflux_tcp_parallel_coro_bench tcp_parallel_coro_bench.cxx)

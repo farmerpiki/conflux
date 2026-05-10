@@ -90,7 +90,23 @@ The `fr/*` variants are the existing code (renamed from `callback` /
 
 ## Implementation plan
 
-### Step 1 — async server using SocketTaskRing
+### Step 1 — SocketTaskRing client variants (DONE — e3f1038, 2026-05-10)
+
+`str/callback` and `str/coroutine` variants landed in `tcp_increment_coro_bench`.
+Uses production `block_on_socket_task` (not a custom event loop). compare-bins gate
+passed: callback +1.7%, coroutine -0.5% vs FileReader baseline — both within ±2%.
+
+`tcp_socket_task_bench` deleted: absorbed by `str/*` variants; used a custom
+`block_on_ring` event loop (not the production path) and had only 2 variants vs 4.
+`tcp_increment_coro_bench` is strictly more complete and tests the correct path.
+
+### Step 3 — rename existing FileReader variants (DONE — e3f1038, 2026-05-10)
+
+`callback` → `fr/callback`, `coroutine` → `fr/coroutine`.
+
+---
+
+### Step 2 — async server using SocketTaskRing
 
 ```
 Task<void> async_server_loop(SocketTaskRing& ring, u16 port, atomic_flag& stop)
@@ -102,7 +118,7 @@ Task<void> async_server_loop(SocketTaskRing& ring, u16 port, atomic_flag& stop)
 - Accept style: start with blocking accept wrapped in `co_await`, then
   add multishot accept variant once the async path is validated.
 
-### Step 2 — N parallel clients
+### Step 3 — N parallel clients
 
 ```
 Task<u64> parallel_coro_loop(SocketTaskRing& ring, u16 port,
@@ -112,11 +128,6 @@ Task<u64> parallel_coro_loop(SocketTaskRing& ring, u16 port,
 - Spawn `n_clients` coroutines, each with its own `TcpStream`.
 - Drive all N on the same ring via `join_all`.
 - Report total ns / (n_clients × iters) for per-round-trip comparison.
-
-### Step 3 — rename existing FileReader variants
-
-`callback` → `fr/callback`, `coroutine` → `fr/coroutine`.
-Update bench-info JSON. Update DB queries that reference the old names.
 
 ### Step 4 — compare gate
 
@@ -156,9 +167,8 @@ Record one run. Compare `fr/*` vs `str/*` rows in SQL directly.
    Confirm `bench_record.sh` handles multiple rows from one run
    correctly (it does — it reads all NDJSON lines).
 
-5. **`tcp_socket_task_bench` fate** — delete it once its variants are
-   absorbed into `tcp_increment_coro_bench`, or keep as a standalone
-   sanity check?
+5. **`tcp_socket_task_bench` fate** — ✅ deleted (2026-05-10). `tcp_increment_coro_bench`
+   covers all variants using the production `block_on_socket_task` path.
 
 ## Expected outcomes
 
