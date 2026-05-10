@@ -1199,6 +1199,35 @@ timeout_sqe.prep_link_timeout(ts,conflux::uring::TimeoutFlags{});
 timeout_sqe.user_data(conflux::uring::UserData{timeout_ud});
 return true;
 }
+// ─── raw submission: linked send + timeout ───────────────────────────────────
+// Requires 2 SQE slots. send is IO_LINK'd to a link_timeout.
+// On timeout: send CQE res=-ECANCELED.
+
+export[[nodiscard]]bool submit_send_timeout_borrowed(
+SocketRawRing&ring,
+SocketHandle handle,
+void const*data,
+SZ len,
+__kernel_timespec*ts,
+u64 send_ud,
+u64 timeout_ud,
+int msg_flags=MSG_NOSIGNAL){
+if(ring.sq_space_left()<2)
+return false;
+auto send_sqe=ring.try_get_sqe();
+if(!send_sqe)
+return false;
+auto timeout_sqe=ring.try_get_sqe();
+if(!timeout_sqe)
+return false;
+send_sqe.prep_send(handle.sqe_fd(),data,len,conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
+send_sqe.add_flags(conflux::uring::sqe_flags::io_link);
+send_sqe.add_flags(handle.sqe_fd_flags());
+send_sqe.user_data(conflux::uring::UserData{send_ud});
+timeout_sqe.prep_link_timeout(ts,conflux::uring::TimeoutFlags{});
+timeout_sqe.user_data(conflux::uring::UserData{timeout_ud});
+return true;
+}
 // ─── raw submission: fixed fd install ────────────────────────────────────────
 
 export bool submit_fixed_fd_install(

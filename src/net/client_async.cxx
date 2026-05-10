@@ -6,6 +6,11 @@ module;
 #include<netdb.h>
 #include<netinet/in.h>
 #include<sys/socket.h>
+#if CONFLUX_HAS_TLS
+#include<openssl/err.h>
+#include<openssl/ssl.h>
+#include<openssl/x509.h>
+#endif
 
 export module conflux.net.async_client;
 import std;
@@ -18,9 +23,63 @@ import conflux.uring.completion;
 import conflux.socket_io;
 import conflux.socket_io.coro;
 import conflux.net.client;
+#if CONFLUX_HAS_TLS
+import conflux.net.tls;
+#endif
 namespace async_detail{
 using namespace conflux::http;
 namespace wroot=conflux::work::root;
+using TP=chrono::steady_clock::time_point;
+
+#if CONFLUX_HAS_TLS
+[[nodiscard]]S tls_error_string(){
+S out;
+unsigned long e;
+while((e=ERR_get_error())!=0){
+A<char,256>buf{};
+ERR_error_string_n(e,buf.data(),buf.size());
+if(!out.empty())out+="; ";
+out+=buf.data();
+}
+return out.empty()?"TLS error":out;
+}
+[[nodiscard]]S tls_error_string(TlsError const&e){
+auto q=tls_error_string();
+return q.empty()||q=="TLS error"?S{e.what()}:q;
+}
+#endif
+struct PlainStreamRef{
+TcpStream&s;
+chrono::milliseconds per_recv;
+chrono::milliseconds per_write;
+[[nodiscard]]wroot::Task<SZ>recv(span<u8>buf){
+if(per_recv.count()<=0)return s.recv_borrowed(buf);
+return s.recv_borrowed(buf,per_recv);
+}
+[[nodiscard]]wroot::Task<SZ>recv(span<u8>buf,chrono::milliseconds t){
+if(t.count()<=0)return s.recv_borrowed(buf);
+return s.recv_borrowed(buf,t);
+}
+[[nodiscard]]wroot::Task<void>write(span<u8 const>buf){
+return s.write_all_borrowed(buf,per_write);
+}
+};
+#if CONFLUX_HAS_TLS
+struct TlsStreamRef{
+TcpTlsStream&s;
+chrono::milliseconds per_recv;
+chrono::milliseconds per_write;
+[[nodiscard]]wroot::Task<SZ>recv(span<u8>buf){
+return s.read_some(buf,per_recv);
+}
+[[nodiscard]]wroot::Task<SZ>recv(span<u8>buf,chrono::milliseconds t){
+return s.read_some(buf,t);
+}
+[[nodiscard]]wroot::Task<void>write(span<u8 const>buf){
+return s.write_all(buf,per_write);
+}
+};
+#endif
 [[nodiscard]]S build_host_header(Url const&url){
 bool const default_port=(url.scheme=="http"&&url.port==80)||(url.scheme=="https"&&url.port==443);
 return default_port?url.host:format("{}:{}",url.host,url.port);
@@ -56,21 +115,21 @@ if(encoded.substr(consumed,2)!="\r\n")return ChunkedDecodeStatus::invalid;
 consumed+=2;
 }
 }
-using TP=chrono::steady_clock::time_point;
-wroot::Task<S>async_recv_until(TcpStream&stream,SV delim,SZ max,TP deadline){
+template<typename T>
+wroot::Task<S>async_recv_until(T&t,SV delim,SZ max,TP deadline){
 S buf;
 buf.reserve(min<SZ>(4096,max));
 A<u8,4096>tmp{};
-auto get_task=[&](span<u8>b)->wroot::Task<SZ>{
-if(deadline==TP::max())return stream.recv_borrowed(b);
-auto const now=chrono::steady_clock::now();
-if(now>=deadline)throw IoError{ETIMEDOUT,"tcp: recv timed out"};
-return stream.recv_borrowed(b,chrono::ceil<chrono::milliseconds>(deadline-now));
-};
 while(buf.size()<max){
 SZ n;
 try{
-n=co_await get_task(span<u8>{tmp.data(),tmp.size()});
+if(deadline==TP::max()){
+n=co_await t.recv(span<u8>{tmp.data(),tmp.size()},chrono::milliseconds{0});
+}else{
+auto const now=chrono::steady_clock::now();
+if(now>=deadline)throw IoError{ETIMEDOUT,"tcp: recv timed out"};
+n=co_await t.recv(span<u8>{tmp.data(),tmp.size()},chrono::ceil<chrono::milliseconds>(deadline-now));
+}
 }catch(IoError const&){throw;}catch(...){
 break;
 }
@@ -80,18 +139,15 @@ if(buf.find(delim)!=S::npos)break;
 }
 co_return buf;
 }
-wroot::Task<bool>async_recv_exact(TcpStream&stream,S&out,SZ target,SZ cap,chrono::milliseconds per_recv){
+template<typename T>
+wroot::Task<bool>async_recv_exact(T&t,S&out,SZ target,SZ cap){
 A<u8,4096>tmp{};
-auto get_task=[&](span<u8>b)->wroot::Task<SZ>{
-if(per_recv.count()<=0)return stream.recv_borrowed(b);
-return stream.recv_borrowed(b,per_recv);
-};
 while(out.size()<target){
 if(out.size()>=cap)co_return false;
 auto const want=min(tmp.size(),target-out.size());
 SZ n;
 try{
-n=co_await get_task(span<u8>{tmp.data(),want});
+n=co_await t.recv(span<u8>{tmp.data(),want});
 }catch(IoError const&){throw;}catch(...){
 co_return false;
 }
@@ -100,17 +156,14 @@ out.append(reinterpret_cast<char const*>(tmp.data()),n);
 }
 co_return true;
 }
-wroot::Task<void>async_recv_to_eof(TcpStream&stream,S&out,SZ cap,bool&too_large,chrono::milliseconds per_recv){
+template<typename T>
+wroot::Task<void>async_recv_to_eof(T&t,S&out,SZ cap,bool&too_large){
 too_large=false;
 A<u8,4096>tmp{};
-auto get_task=[&](span<u8>b)->wroot::Task<SZ>{
-if(per_recv.count()<=0)return stream.recv_borrowed(b);
-return stream.recv_borrowed(b,per_recv);
-};
 for(;;){
 SZ n;
 try{
-n=co_await get_task(span<u8>{tmp.data(),tmp.size()});
+n=co_await t.recv(span<u8>{tmp.data(),tmp.size()});
 }catch(IoError const&){throw;}catch(...){
 break;
 }
@@ -122,15 +175,12 @@ co_return;
 }
 }
 }
-wroot::Task<bool>async_recv_chunked(TcpStream&stream,S&encoded,S&decoded,SZ cap,SZ buf_cap,bool&too_large,chrono::milliseconds per_recv){
+template<typename T>
+wroot::Task<bool>async_recv_chunked(T&t,S&encoded,S&decoded,SZ cap,SZ buf_cap,bool&too_large){
 too_large=false;
 decoded.clear();
 SZ consumed=0;
 A<u8,4096>tmp{};
-auto get_task=[&](span<u8>b)->wroot::Task<SZ>{
-if(per_recv.count()<=0)return stream.recv_borrowed(b);
-return stream.recv_borrowed(b,per_recv);
-};
 for(;;){
 auto const st=decode_chunked_prefix(encoded,decoded,consumed);
 if(st==ChunkedDecodeStatus::complete)co_return true;
@@ -141,7 +191,7 @@ co_return false;
 }
 SZ n;
 try{
-n=co_await get_task(span<u8>{tmp.data(),tmp.size()});
+n=co_await t.recv(span<u8>{tmp.data(),tmp.size()});
 }catch(IoError const&){throw;}catch(...){
 co_return false;
 }
@@ -149,16 +199,64 @@ if(n==0)co_return false;
 encoded.append(reinterpret_cast<char const*>(tmp.data()),n);
 }
 }
+struct HappyConnectState{
+Atom<bool>won{false};
+Atom<bool>fast_fail{false};
+Atom<int>pending{0};
+};
+wroot::Task<void>happy_attempt(
+SocketTaskRing&ring,
+int fam,
+sockaddr_storage ss,
+socklen_t addr_len,
+ConnectOptions copts,
+SP<HappyConnectState>hs,
+SP<wroot::TaskSource<TcpStream>>winner_src){
+try{
+auto s=co_await tcp_connect(ring,fam,ss,addr_len,copts);
+bool expected=false;
+if(hs->won.compare_exchange_strong(expected,true,memory_order_acq_rel))
+auto _=winner_src->try_set_value(wroot::Success<TcpStream>{move(s)});
+}catch(...){
+hs->fast_fail.store(true,memory_order_release);
+}
+int const left=hs->pending.fetch_sub(1,memory_order_acq_rel)-1;
+if(left==0&&!hs->won.load(memory_order_acquire))
+auto _=winner_src->try_set_exception(make_exception_ptr(IoError{ECONNREFUSED,"connect: all endpoints failed"}));
+}
+wroot::Task<TcpStream>staggered_parallel_connect(
+SocketTaskRing&ring,
+V<client_dns_bridge::Endpoint>const&endpoints,
+ConnectOptions copts){
+constexpr chrono::milliseconds kStagger{250};
+auto hs=make_shared<HappyConnectState>();
+hs->pending.store(static_cast<int>(endpoints.size()),memory_order_relaxed);
+auto[task,raw_src]=wroot::make_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation=false});
+auto winner_src=make_shared<wroot::TaskSource<TcpStream>>(move(raw_src));
+for(SZ i=0;i<endpoints.size();++i){
+auto const&ep=endpoints[i];
+sockaddr_storage ss{};
+memcpy(&ss,ep.addr,ep.addr_len);
+int const fam=(ep.family==6)?AF_INET6:AF_INET;
+happy_attempt(ring,fam,ss,static_cast<socklen_t>(ep.addr_len),copts,hs,winner_src).detach();
+if(i+1<endpoints.size()){
+auto const t_stagger=chrono::steady_clock::now()+kStagger;
+while(!hs->fast_fail.load(memory_order_acquire)&&!hs->won.load(memory_order_acquire)){
+auto const now=chrono::steady_clock::now();
+if(now>=t_stagger)break;
+auto const rem=chrono::ceil<chrono::milliseconds>(t_stagger-now);
+co_await sleep_for(ring,min(chrono::milliseconds{10},rem));
+}
+if(hs->won.load(memory_order_acquire))break;
+}
+}
+co_return co_await move(task);
+}
 wroot::Task<HttpResult>do_async_request(
 SocketTaskRing&ring,
 HttpRequest const&req,
 HttpClientOptions const&opts){
 auto const&url=req.url();
-if(url.scheme=="https")
-co_return unexpected(HttpError{
-.kind=HttpErrorKind::tls,
-.phase=HttpPhase::tls,
-.message="async TLS not yet implemented; use send_blocking for HTTPS"});
 constexpr HttpTimeouts kDef{};
 auto const&rt=req.timeouts();
 auto const&cd=opts.default_timeouts;
@@ -214,28 +312,41 @@ co_return unexpected(HttpError{
 .kind=HttpErrorKind::dns,
 .phase=HttpPhase::resolve,
 .message=format("failed to resolve '{}'",url.host)});
-Opt<TcpStream>stream;
-HttpError conn_err{.kind=HttpErrorKind::connect,.phase=HttpPhase::connect};
-auto const t1=chrono::steady_clock::now();
-for(auto const&ep:endpoints){
-sockaddr_storage ss{};
-memcpy(&ss,ep.addr,ep.addr_len);
-int const fam=(ep.family==6)?AF_INET6:AF_INET;
 ConnectOptions copts{};
 copts.timeout=timeouts.connect;
+auto const t1=chrono::steady_clock::now();
+TcpStream stream;
 try{
-stream.emplace(co_await tcp_connect(ring,fam,ss,static_cast<socklen_t>(ep.addr_len),copts));
-break;
+stream=co_await staggered_parallel_connect(ring,endpoints,copts);
 }catch(IoError const&e){
-conn_err.os_errno=e.code().value();
-conn_err.message=format("connect to '{}:{}' failed: {}",url.host,url.port,e.what());
+co_return unexpected(HttpError{.kind=HttpErrorKind::connect,.phase=HttpPhase::connect,.os_errno=e.code().value(),.message=format("connect to '{}:{}' failed: {}",url.host,url.port,e.what())});
 }catch(...){
-conn_err.message=format("connect to '{}:{}' failed",url.host,url.port);
-}
+co_return unexpected(HttpError{.kind=HttpErrorKind::connect,.phase=HttpPhase::connect,.message=format("connect to '{}:{}' failed",url.host,url.port)});
 }
 tel.connect=chrono::steady_clock::now()-t1;
-if(!stream)co_return unexpected(conn_err);
-S path=url.path;
+bool const is_tls=(url.scheme=="https");
+#if CONFLUX_HAS_TLS
+Opt<TcpTlsStream>tls_stream;
+if(is_tls){
+auto const t_tls=chrono::steady_clock::now();
+TP const tls_dl=timeouts.tls.count()>0?t_tls+timeouts.tls:TP::max();
+try{
+TlsContext tls_ctx;
+tls_stream.emplace(tls_ctx,move(stream));
+tls_stream->set_server_name(url.host);
+tls_stream->set_verify_hostname(url.host);
+co_await tls_stream->handshake_connect(tls_dl);
+}catch(TlsError const&e){
+co_return unexpected(HttpError{.kind=HttpErrorKind::tls,.phase=HttpPhase::tls,.message=tls_error_string(e)});
+}catch(IoError const&e){
+co_return unexpected(HttpError{.kind=HttpErrorKind::tls,.phase=HttpPhase::tls,.os_errno=e.code().value(),.message=format("TLS handshake failed: {}",e.what())});
+}
+}
+#else
+if(is_tls)
+co_return unexpected(HttpError{.kind=HttpErrorKind::tls,.phase=HttpPhase::tls,.message="TLS not compiled in"});
+#endif
+S path=url.path.empty()?S{"/"}:S{url.path};
 if(!url.query.empty()){
 path+='?';
 path+=url.query;
@@ -261,9 +372,20 @@ if(!req.body().empty())
 wire+=format("Content-Length: {}\r\n",req.body().size());
 wire+="\r\n";
 try{
-co_await stream->write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const*>(wire.data()),wire.size()});
+#if CONFLUX_HAS_TLS
+if(tls_stream){
+TlsStreamRef tr{*tls_stream,timeouts.between_bytes,timeouts.write};
+co_await tr.write(span<u8 const>{reinterpret_cast<u8 const*>(wire.data()),wire.size()});
 if(!req.body().empty())
-co_await stream->write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const*>(req.body().data()),req.body().size()});
+co_await tr.write(span<u8 const>{reinterpret_cast<u8 const*>(req.body().data()),req.body().size()});
+}else
+#endif
+{
+PlainStreamRef pr{stream,timeouts.between_bytes,timeouts.write};
+co_await pr.write(span<u8 const>{reinterpret_cast<u8 const*>(wire.data()),wire.size()});
+if(!req.body().empty())
+co_await pr.write(span<u8 const>{reinterpret_cast<u8 const*>(req.body().data()),req.body().size()});
+}
 }catch(IoError const&e){
 co_return unexpected(HttpError{.kind=HttpErrorKind::write,.phase=HttpPhase::write,.os_errno=e.code().value(),.message="failed to send request"});
 }
@@ -275,7 +397,16 @@ auto const t2=chrono::steady_clock::now();
 TP const first_byte_dl=timeouts.first_byte.count()>0?t2+timeouts.first_byte:TP::max();
 S raw;
 try{
-raw=co_await async_recv_until(*stream,"\r\n\r\n",max_hdr+4096,first_byte_dl);
+#if CONFLUX_HAS_TLS
+if(tls_stream){
+TlsStreamRef tr{*tls_stream,timeouts.between_bytes,timeouts.write};
+raw=co_await async_recv_until(tr,"\r\n\r\n",max_hdr+4096,first_byte_dl);
+}else
+#endif
+{
+PlainStreamRef pr{stream,timeouts.between_bytes,timeouts.write};
+raw=co_await async_recv_until(pr,"\r\n\r\n",max_hdr+4096,first_byte_dl);
+}
 }catch(IoError const&e){
 co_return unexpected(HttpError{
 .kind=HttpErrorKind::read,
@@ -339,45 +470,98 @@ pos=(end!=SV::npos)?end+2:headers_str.size();
 if(has_content_length&&content_length>max_body_sz)
 co_return unexpected(HttpError{.kind=HttpErrorKind::body_too_large,.message=format("Content-Length {} exceeds limit {}",content_length,max_body_sz)});
 response.body=raw.substr(header_end+4);
+auto do_body=[&]()->wroot::Task<Opt<HttpError>>{
+#if CONFLUX_HAS_TLS
+if(tls_stream){
+TlsStreamRef tr{*tls_stream,timeouts.between_bytes,timeouts.write};
 if(req.method()=="HEAD"){
 response.body.clear();
 }else if(chunked){
 S decoded;
 bool too_large=false;
 try{
-if(!co_await async_recv_chunked(*stream,response.body,decoded,max_body_sz,max_buf,too_large,timeouts.between_bytes)){
-if(too_large)
-co_return unexpected(HttpError{.kind=HttpErrorKind::body_too_large,.message=format("chunked body exceeds limit {}",max_body_sz)});
-co_return unexpected(HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.message="failed to receive chunked body"});
+if(!co_await async_recv_chunked(tr,response.body,decoded,max_body_sz,max_buf,too_large)){
+if(too_large)co_return HttpError{.kind=HttpErrorKind::body_too_large,.message=format("chunked body exceeds limit {}",max_body_sz)};
+co_return HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.message="failed to receive chunked body"};
 }
 }catch(IoError const&e){
-co_return unexpected(HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving chunked body"});
+co_return HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving chunked body"};
 }
 tel.bytes_received+=decoded.size();
 response.body=move(decoded);
 }else if(has_content_length&&content_length>response.body.size()){
 try{
-if(!co_await async_recv_exact(*stream,response.body,content_length,max_body_sz,timeouts.between_bytes)){
-if(response.body.size()>=max_body_sz)
-co_return unexpected(HttpError{.kind=HttpErrorKind::body_too_large,.message=format("body exceeds limit {}",max_body_sz)});
-co_return unexpected(HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.message="failed to receive body"});
+if(!co_await async_recv_exact(tr,response.body,content_length,max_body_sz)){
+if(response.body.size()>=max_body_sz)co_return HttpError{.kind=HttpErrorKind::body_too_large,.message=format("body exceeds limit {}",max_body_sz)};
+co_return HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.message="failed to receive body"};
 }
 }catch(IoError const&e){
-co_return unexpected(HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving body"});
+co_return HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving body"};
 }
 tel.bytes_received+=content_length-(raw.size()-(header_end+4));
 }else if(!has_content_length&&!chunked){
 bool too_large=false;
 try{
-co_await async_recv_to_eof(*stream,response.body,max_body_sz,too_large,timeouts.between_bytes);
+co_await async_recv_to_eof(tr,response.body,max_body_sz,too_large);
 }catch(IoError const&e){
-co_return unexpected(HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving body"});
+co_return HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving body"};
 }
-if(too_large)
-co_return unexpected(HttpError{.kind=HttpErrorKind::body_too_large,.message=format("EOF-delimited body exceeds limit {}",max_body_sz)});
+if(too_large)co_return HttpError{.kind=HttpErrorKind::body_too_large,.message=format("EOF-delimited body exceeds limit {}",max_body_sz)};
 tel.bytes_received+=response.body.size();
 }
-co_await stream->close();
+co_return nullopt;
+}
+#endif
+{
+PlainStreamRef pr{stream,timeouts.between_bytes,timeouts.write};
+if(req.method()=="HEAD"){
+response.body.clear();
+}else if(chunked){
+S decoded;
+bool too_large=false;
+try{
+if(!co_await async_recv_chunked(pr,response.body,decoded,max_body_sz,max_buf,too_large)){
+if(too_large)co_return HttpError{.kind=HttpErrorKind::body_too_large,.message=format("chunked body exceeds limit {}",max_body_sz)};
+co_return HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.message="failed to receive chunked body"};
+}
+}catch(IoError const&e){
+co_return HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving chunked body"};
+}
+tel.bytes_received+=decoded.size();
+response.body=move(decoded);
+}else if(has_content_length&&content_length>response.body.size()){
+try{
+if(!co_await async_recv_exact(pr,response.body,content_length,max_body_sz)){
+if(response.body.size()>=max_body_sz)co_return HttpError{.kind=HttpErrorKind::body_too_large,.message=format("body exceeds limit {}",max_body_sz)};
+co_return HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.message="failed to receive body"};
+}
+}catch(IoError const&e){
+co_return HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving body"};
+}
+tel.bytes_received+=content_length-(raw.size()-(header_end+4));
+}else if(!has_content_length&&!chunked){
+bool too_large=false;
+try{
+co_await async_recv_to_eof(pr,response.body,max_body_sz,too_large);
+}catch(IoError const&e){
+co_return HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving body"};
+}
+if(too_large)co_return HttpError{.kind=HttpErrorKind::body_too_large,.message=format("EOF-delimited body exceeds limit {}",max_body_sz)};
+tel.bytes_received+=response.body.size();
+}
+co_return nullopt;
+}
+};
+if(auto berr=co_await do_body();berr)
+co_return unexpected(move(*berr));
+#if CONFLUX_HAS_TLS
+if(tls_stream){
+try{
+co_await tls_stream->close(timeouts.between_bytes);
+}catch(...){}
+}else
+#endif
+co_await stream.close();
 response.telemetry=tel;
 co_return response;
 }

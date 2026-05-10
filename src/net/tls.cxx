@@ -9,6 +9,8 @@ import conflux.types;
 import conflux.utils;
 import conflux.work;
 import conflux.file_io;
+import conflux.socket_io.coro;
+namespace wroot=conflux::work::root;
 export struct TlsError:RE{
 using RE::runtime_error;
 };
@@ -409,4 +411,152 @@ if(got==0)
 throw TlsError{"TlsAsyncStream: socket EOF"};
 BIO_write(rbio_,reinterpret_cast<char const*>(scratch_.data()),static_cast<int>(got));
 }
+};
+// Async TLS client stream over TcpStream (io_uring). Uses memory BIOs.
+// All I/O operations take explicit deadline/timeout parameters.
+export class TcpTlsStream{
+UniqueSsl ssl_;
+BIO*rbio_{nullptr};
+BIO*wbio_{nullptr};
+TcpStream stream_;
+A<u8,16384>scratch_{};
+using TP=chrono::steady_clock::time_point;
+using ms=chrono::milliseconds;
+[[nodiscard]]wroot::Task<void>drain_wbio_until(TP deadline){
+for(;;){
+int const pend=BIO_pending(wbio_);
+if(pend<=0)co_return;
+int const want=static_cast<int>(min(scratch_.size(),static_cast<SZ>(pend)));
+int const got=BIO_read(wbio_,reinterpret_cast<char*>(scratch_.data()),want);
+if(got<=0)co_return;
+SZ off=0;
+while(off<static_cast<SZ>(got)){
+auto const now=chrono::steady_clock::now();
+if(now>=deadline)throw IoError{ETIMEDOUT,"tcp: send timed out"};
+auto remaining=chrono::ceil<ms>(deadline-now);
+co_await stream_.write_all_borrowed(
+span<u8 const>{scratch_.data()+off,static_cast<SZ>(got)-off},remaining);
+off=static_cast<SZ>(got);
+}
+}
+}
+[[nodiscard]]wroot::Task<void>drain_wbio_for(ms per_write){
+for(;;){
+int const pend=BIO_pending(wbio_);
+if(pend<=0)co_return;
+int const want=static_cast<int>(min(scratch_.size(),static_cast<SZ>(pend)));
+int const got=BIO_read(wbio_,reinterpret_cast<char*>(scratch_.data()),want);
+if(got<=0)co_return;
+co_await stream_.write_all_borrowed(span<u8 const>{scratch_.data(),static_cast<SZ>(got)},per_write);
+}
+}
+[[nodiscard]]wroot::Task<void>fill_rbio(TP deadline){
+auto const now=chrono::steady_clock::now();
+if(now>=deadline)throw IoError{ETIMEDOUT,"tcp: recv timed out"};
+auto remaining=chrono::ceil<ms>(deadline-now);
+auto const got=co_await stream_.recv_borrowed(span<u8>{scratch_},remaining);
+if(got==0)throw TlsError{"TcpTlsStream: socket EOF"};
+BIO_write(rbio_,reinterpret_cast<char const*>(scratch_.data()),static_cast<int>(got));
+}
+public:
+TcpTlsStream(TlsContext&ctx,TcpStream stream)
+:ssl_{SSL_new(ctx.native_handle())},stream_{move(stream)}{
+if(!ssl_)throw TlsError{"TcpTlsStream: SSL_new failed"};
+UniqueBio rbio{BIO_new(BIO_s_mem())};
+UniqueBio wbio{BIO_new(BIO_s_mem())};
+if(!rbio||!wbio)throw TlsError{"TcpTlsStream: BIO_new failed"};
+rbio_=rbio.get();
+wbio_=wbio.get();
+SSL_set_bio(ssl_.get(),rbio.release(),wbio.release());
+}
+TcpTlsStream(TcpTlsStream const&)=delete;
+TcpTlsStream&operator=(TcpTlsStream const&)=delete;
+TcpTlsStream(TcpTlsStream&&other)noexcept
+:ssl_{move(other.ssl_)},rbio_{exchange(other.rbio_,nullptr)},wbio_{exchange(other.wbio_,nullptr)},stream_{move(other.stream_)},scratch_{other.scratch_}{}
+TcpTlsStream&operator=(TcpTlsStream&&other)noexcept{
+if(this!=&other){
+ssl_=move(other.ssl_);
+rbio_=exchange(other.rbio_,nullptr);
+wbio_=exchange(other.wbio_,nullptr);
+stream_=move(other.stream_);
+scratch_=other.scratch_;
+}
+return*this;
+}
+bool set_server_name(SV sni){
+if(sni.empty())return true;
+S const s{sni};
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+return SSL_set_tlsext_host_name(ssl_.get(),s.c_str())==1;
+#pragma GCC diagnostic pop
+}
+bool set_verify_hostname(SV host){
+if(host.empty())return true;
+S const s{host};
+return SSL_set1_host(ssl_.get(),s.c_str())==1;
+}
+[[nodiscard]]wroot::Task<void>handshake_connect(TP deadline){
+SSL_set_connect_state(ssl_.get());
+for(;;){
+int const rc=SSL_do_handshake(ssl_.get());
+co_await drain_wbio_until(deadline);
+if(rc==1)co_return;
+int const err=SSL_get_error(ssl_.get(),rc);
+if(err==SSL_ERROR_WANT_READ){
+co_await fill_rbio(deadline);
+continue;
+}
+if(err==SSL_ERROR_WANT_WRITE)continue;
+throw TlsError{"TcpTlsStream: handshake failed"};
+}
+}
+[[nodiscard]]wroot::Task<SZ>read_some(span<u8>dst,ms per_recv){
+auto const deadline=chrono::steady_clock::now()+per_recv;
+for(;;){
+int const n=SSL_read(ssl_.get(),reinterpret_cast<char*>(dst.data()),static_cast<int>(dst.size()));
+if(n>0)co_return static_cast<SZ>(n);
+int const err=SSL_get_error(ssl_.get(),n);
+if(err==SSL_ERROR_ZERO_RETURN)co_return SZ{0};
+if(err==SSL_ERROR_WANT_READ){
+co_await fill_rbio(deadline);
+continue;
+}
+if(err==SSL_ERROR_WANT_WRITE){
+co_await drain_wbio_until(deadline);
+continue;
+}
+throw TlsError{"TcpTlsStream: read failed"};
+}
+}
+[[nodiscard]]wroot::Task<void>write_all(span<u8 const>src,ms per_write){
+SZ sent=0;
+while(sent<src.size()){
+int const n=SSL_write(ssl_.get(),reinterpret_cast<char const*>(src.data()+sent),static_cast<int>(src.size()-sent));
+if(n>0){
+sent+=static_cast<SZ>(n);
+co_await drain_wbio_for(per_write);
+continue;
+}
+int const err=SSL_get_error(ssl_.get(),n);
+if(err==SSL_ERROR_WANT_READ){
+// TODO(P1-02): TLS cancel not wired
+auto const deadline=chrono::steady_clock::now()+per_write;
+co_await fill_rbio(deadline);
+continue;
+}
+if(err==SSL_ERROR_WANT_WRITE){
+co_await drain_wbio_for(per_write);
+continue;
+}
+throw TlsError{"TcpTlsStream: write failed"};
+}
+}
+[[nodiscard]]wroot::Task<void>close(ms close_drain_timeout){
+if(!ssl_)co_return;
+SSL_shutdown(ssl_.get());
+co_await drain_wbio_for(close_drain_timeout);
+co_await stream_.close();
+}
+[[nodiscard]]SSL*native_handle()const noexcept{return ssl_.get();}
 };

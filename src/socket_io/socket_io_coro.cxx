@@ -47,7 +47,7 @@ template<class T>using WP=weak_ptr<T>;
 enum class StopCause:u8{none,
 user_cancel,
 timeout};
-struct RecvTimeoutState{
+struct IoTimeoutState{
 Atom<StopCause>stop_cause{StopCause::none};
 void mark_stop(StopCause cause)noexcept{
 StopCause expected=StopCause::none;
@@ -56,6 +56,10 @@ expected,cause,
 memory_order_acq_rel,
 memory_order_acquire);
 }
+};
+using RecvTimeoutState=IoTimeoutState;
+struct CloseState{
+atomic_bool cancel_requested{false};
 };
 // ─── TcpStreamState ───────────────────────────────────────────────────────────
 
@@ -182,6 +186,8 @@ return move(task);
 [[nodiscard]]wroot::Task<SZ>write_borrowed(span<u8 const>src){
 return do_send(src.data(),src.size(),{});
 }
+[[nodiscard]]wroot::Task<SZ>write_borrowed(span<u8 const>src,chrono::milliseconds timeout);
+[[nodiscard]]wroot::Task<void>write_all_borrowed(span<u8 const>src,chrono::milliseconds timeout);
 [[nodiscard]]wroot::Task<SZ>write_copy(span<u8 const>src){
 auto holder=make_shared<V<u8>>(src.begin(),src.end());
 u8*data=holder->data();
@@ -221,38 +227,117 @@ bool expected=false;
 if(!st.closing.compare_exchange_strong(expected,true,memory_order_acq_rel))
 co_return;
 SocketHandle const h=st.handle.get();
-auto[task,raw_src]=wroot::make_task_source<void>(wroot::SubmitOptions{.enable_cancellation=false});
+auto cs=make_shared<CloseState>();
+auto[task,raw_src]=wroot::make_task_source<void>(wroot::SubmitOptions{.enable_cancellation=true});
 auto shared_src=make_shared<wroot::TaskSource<void>>(move(raw_src));
-auto[slot,gen]=st.ring->completions().reserve([shared_src](IoResult r)mutable{
-try{
-if(r.res<0){
-auto _=shared_src->try_set_exception(make_exception_ptr(IoError{-r.res,"tcp: close"}));
-return;
-}
-auto _=shared_src->try_set_value(wroot::Success<void>{});
-}catch(...){auto _=shared_src->try_set_exception(current_exception());}
+[[maybe_unused]]auto _cancel=shared_src->install_cancel_hook([cs](wroot::CancelReason)noexcept{
+cs->cancel_requested.store(true,memory_order_relaxed);
+// No cancel SQE for close — fd released after submit; cancelling close = fd leak.
 });
-u64 const ud=st.ring->encode(slot,gen);
-if(!submit_close(st.ring->raw(),h,ud)){
+auto[slot,gen]=st.ring->completions().reserve([shared_src,cs](IoResult r)mutable{
+if(cs->cancel_requested.load(memory_order_relaxed))
+auto _=shared_src->try_set_cancelled();
+else if(r.res<0)
+auto _=shared_src->try_set_exception(make_exception_ptr(IoError{-r.res,"tcp: close"}));
+else
+auto _=shared_src->try_set_value(wroot::Success<void>{});
+});
+u64 const close_ud=st.ring->encode(slot,gen);
+if(!submit_close(st.ring->raw(),h,close_ud)){
 if(h.is_os_fd()){
 auto _=st.handle.release();
 ::close(h.as_fd());
 st.ring->completions().dispatch(slot,gen,0,0);
 }else{
-// direct slot: can't close synchronously; keep handle alive, propagate error
 st.ring->completions().dispatch(slot,gen,-ENOSPC,0);
 }
 co_await move(task);
 co_return;
 }
-auto _=st.handle.release();// SQE submitted — kernel owns the fd now
+auto _=st.handle.release();
 co_await move(task);
 }
 };
+template<class T>
+[[nodiscard]]wroot::Task<T>make_error_task(IoError e){
+auto[t,s]=wroot::make_task_source<T>(wroot::SubmitOptions{.enable_cancellation=false});
+auto ss=make_shared<wroot::TaskSource<T>>(move(s));
+auto _=ss->try_set_exception(make_exception_ptr(move(e)));
+return move(t);
+}
 [[nodiscard]]wroot::Task<void>TcpStream::write_all_borrowed(span<u8 const>src){
 SZ sent=0;
 while(sent<src.size()){
 SZ const n=co_await write_borrowed({src.data()+sent,src.size()-sent});
+if(n==0)throw IoError{ECONNRESET,"tcp: connection closed"};
+sent+=n;
+}
+}
+[[nodiscard]]wroot::Task<SZ>TcpStream::write_borrowed(span<u8 const>src,chrono::milliseconds timeout){
+if(timeout.count()==0)
+return write_borrowed(src);
+auto&st=*state_;
+if(!st.handle.valid()||st.closing.load(memory_order_relaxed))
+return make_error_task<SZ>(IoError{EBADF,"tcp: stream closed"});
+auto[task,raw_src]=wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation=true});
+auto shared_src=make_shared<wroot::TaskSource<SZ>>(move(raw_src));
+SocketHandle const h=st.handle.get();
+auto ts=make_shared<__kernel_timespec>();
+auto const sec=chrono::duration_cast<chrono::seconds>(timeout);
+ts->tv_sec=sec.count();
+ts->tv_nsec=(timeout-sec).count()*1000000LL;
+auto state=make_shared<IoTimeoutState>();
+auto[slot,gen]=st.ring->completions().reserve([shared_src,ts,state](IoResult r)mutable{
+try{
+if(r.res==-ECANCELED){
+auto cause=state->stop_cause.load(memory_order_acquire);
+if(cause==StopCause::user_cancel)
+auto _=shared_src->try_set_cancelled();
+else
+auto _=shared_src->try_set_exception(make_exception_ptr(IoError{ETIMEDOUT,"tcp: send timed out"}));
+return;
+}
+if(r.res<0){
+auto _=shared_src->try_set_exception(make_exception_ptr(IoError{-r.res,"tcp: send"}));
+return;
+}
+auto _=shared_src->try_set_value(wroot::Success<SZ>{static_cast<SZ>(r.res)});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
+});
+u64 const send_ud=st.ring->encode(slot,gen);
+auto[tslot,tgen]=st.ring->completions().reserve([ts,state](IoResult r)mutable{
+if(r.res==-ETIME)
+state->mark_stop(StopCause::timeout);
+auto _=ts;
+});
+u64 const timeout_ud=st.ring->encode(tslot,tgen);
+if(!submit_send_timeout_borrowed(st.ring->raw(),h,src.data(),src.size(),ts.get(),send_ud,timeout_ud)){
+st.ring->completions().dispatch(slot,gen,-ENOSPC,0);
+st.ring->completions().dispatch(tslot,tgen,-EBUSY,0);
+return move(task);
+}
+auto ring_ptr=st.ring;
+auto weak_src=weak_ptr<wroot::TaskSource<SZ>>{shared_src};
+auto _=shared_src->install_cancel_hook([ring_ptr,send_ud,weak_src,state](wroot::CancelReason)noexcept{
+state->mark_stop(StopCause::user_cancel);
+if(!ring_ptr->submit_on_owner([send_ud,weak_src](SocketTaskRing&ring_ref)noexcept{
+auto[cs,cg]=ring_ref.completions().reserve([](IoResult)noexcept{});
+u64 const cancel_ud=ring_ref.encode(cs,cg);
+if(!submit_cancel_by_ud(ring_ref.raw(),send_ud,cancel_ud)){
+ring_ref.completions().dispatch(cs,cg,-EBUSY,0);
+if(auto lsrc=weak_src.lock())auto _=lsrc->try_set_cancelled();
+return;
+}
+auto _=ring_ref.raw().submit();
+}))
+if(auto lsrc=weak_src.lock())auto _=lsrc->try_set_cancelled();
+});
+return move(task);
+}
+[[nodiscard]]wroot::Task<void>TcpStream::write_all_borrowed(span<u8 const>src,chrono::milliseconds timeout){
+SZ sent=0;
+while(sent<src.size()){
+SZ const n=co_await write_borrowed({src.data()+sent,src.size()-sent},timeout);
 if(n==0)throw IoError{ECONNRESET,"tcp: connection closed"};
 sent+=n;
 }
@@ -303,15 +388,6 @@ SZ const n=co_await do_send(ptr,holder->size()-sent,holder);
 if(n==0)throw IoError{ECONNRESET,"tcp: connection closed"};
 sent+=n;
 }
-}
-// ─── make_error_task ─────────────────────────────────────────────────────────
-
-template<class T>
-[[nodiscard]]wroot::Task<T>make_error_task(IoError e){
-auto[t,s]=wroot::make_task_source<T>(wroot::SubmitOptions{.enable_cancellation=false});
-auto ss=make_shared<wroot::TaskSource<T>>(move(s));
-auto _=ss->try_set_exception(make_exception_ptr(move(e)));
-return move(t);
 }
 [[nodiscard]]wroot::Task<SZ>TcpStream::recv_borrowed(span<u8>dst,chrono::milliseconds timeout){
 if(timeout.count()==0)
@@ -1087,6 +1163,42 @@ auto _=ring_ref.raw().submit();
 if(auto src=weak_src.lock())auto _=src->try_set_cancelled();
 });
 return move(task);
+}
+export[[nodiscard]]wroot::Task<void>sleep_for(SocketTaskRing&ring,chrono::milliseconds dur){
+if(dur.count()<=0)co_return;
+auto[task,raw_src]=wroot::make_task_source<void>(wroot::SubmitOptions{.enable_cancellation=true});
+auto shared_src=make_shared<wroot::TaskSource<void>>(move(raw_src));
+auto ts=make_shared<__kernel_timespec>();
+auto const sec=chrono::duration_cast<chrono::seconds>(dur);
+ts->tv_sec=sec.count();
+ts->tv_nsec=(dur-sec).count()*1000000LL;
+auto[slot,gen]=ring.completions().reserve([shared_src,ts](IoResult r)mutable{
+auto _=ts;
+if(r.res==-ECANCELED)auto _=shared_src->try_set_cancelled();
+else auto _=shared_src->try_set_value(wroot::Success<void>{});
+});
+u64 const ud=ring.encode(slot,gen);
+if(!submit_timeout_borrowed(ring.raw(),ts.get(),ud)){
+ring.completions().dispatch(slot,gen,-ENOSPC,0);
+co_await move(task);
+co_return;
+}
+auto ring_ptr=&ring;
+auto weak_src=weak_ptr<wroot::TaskSource<void>>{shared_src};
+auto _=shared_src->install_cancel_hook([ring_ptr,ud,weak_src](wroot::CancelReason)noexcept{
+if(!ring_ptr->submit_on_owner([ud,weak_src](SocketTaskRing&r)noexcept{
+auto[cs,cg]=r.completions().reserve([](IoResult)noexcept{});
+u64 const cud=r.encode(cs,cg);
+if(!submit_cancel_by_ud(r.raw(),ud,cud)){
+r.completions().dispatch(cs,cg,-EBUSY,0);
+if(auto src=weak_src.lock())auto _=src->try_set_cancelled();
+return;
+}
+auto _=r.raw().submit();
+}))
+if(auto src=weak_src.lock())auto _=src->try_set_cancelled();
+});
+co_await move(task);
 }
 export struct BlockOnSocketTaskTimeout final:RE{
 BlockOnSocketTaskTimeout():RE{"conflux.socket_io: block_on_socket_task budget exhausted"}{}
