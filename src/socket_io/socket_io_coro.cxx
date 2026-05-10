@@ -88,6 +88,10 @@ SocketHandle const h=st.handle.get();
 auto[slot,gen]=st.ring->completions().reserve([shared_src,keeper](IoResult r)mutable{
 auto _=keeper;
 try{
+if(r.res==-ECANCELED){
+auto _=shared_src->try_set_cancelled();
+return;
+}
 if(r.res<0){
 auto _=shared_src->try_set_exception(make_exception_ptr(IoError{-r.res,"tcp: send"}));
 return;

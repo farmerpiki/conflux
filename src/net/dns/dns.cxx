@@ -979,7 +979,10 @@ DnsError{DnsErrorKind::cancelled,"dns: query cancelled"}));
 }catch(DnsError const&){
 auto _=src->try_set_exception(current_exception());
 }catch(IoError const&e){
-if(e.code().value()==ETIMEDOUT)
+if(e.code().value()==ECANCELED)
+auto _=src->try_set_exception(make_exception_ptr(
+DnsError{DnsErrorKind::cancelled,"dns: query cancelled"}));
+else if(e.code().value()==ETIMEDOUT)
 auto _=src->try_set_exception(make_exception_ptr(
 DnsError{DnsErrorKind::timeout,"dns: query timed out"}));
 else
@@ -1024,12 +1027,16 @@ codec::QType expected_qtype,
 chrono::milliseconds timeout,
 SP<root::TaskSource<codec::Message>>src,
 SP<DnsQueryState>state){
-bool const has_timeout=timeout.count()>0;
 auto check_cancelled=[&]{
 if(state->cancelled())
 throw DnsError{DnsErrorKind::cancelled,"dns: tcp query cancelled"};
 };
 try{
+if(timeout.count()<=0){
+auto _=src->try_set_exception(make_exception_ptr(
+DnsError{DnsErrorKind::timeout,"dns: tcp query requires positive timeout"}));
+co_return;
+}
 check_cancelled();
 vector<u8>framed;
 framed.reserve(2+wire.size());
@@ -1038,7 +1045,7 @@ framed.push_back(static_cast<u8>(wlen>>8U));
 framed.push_back(static_cast<u8>(wlen&0xFFU));
 framed.insert(framed.end(),wire.begin(),wire.end());
 int const family=static_cast<int>(ns.addr.ss_family);
-auto const deadline=has_timeout?chrono::steady_clock::now()+timeout:chrono::steady_clock::time_point::max();
+auto const deadline=chrono::steady_clock::now()+timeout;
 auto remaining_or_throw=[&]()->chrono::milliseconds{
 auto const now=chrono::steady_clock::now();
 if(now>=deadline)
@@ -1070,7 +1077,7 @@ A<u8,2>len_buf{};
 {
 SZ n=0;
 while(n<2){
-root::Task<SZ>recv_task=has_timeout?stream.recv_borrowed(span<u8>{len_buf.data()+n,2-n},remaining_or_throw()):stream.recv_borrowed(span<u8>{len_buf.data()+n,2-n});
+root::Task<SZ>recv_task=stream.recv_borrowed(span<u8>{len_buf.data()+n,2-n},remaining_or_throw());
 ActiveTaskGuard g{*state,recv_task.control()};
 SZ const got=co_await move(recv_task);
 if(got==0)throw DnsError{DnsErrorKind::network,"dns: tcp short length prefix"};
@@ -1084,11 +1091,9 @@ vector<u8>resp_buf(resp_len);
 {
 SZ resp_n=0;
 while(resp_n<static_cast<SZ>(resp_len)){
-root::Task<SZ>recv_task=has_timeout?stream.recv_borrowed(
+root::Task<SZ>recv_task=stream.recv_borrowed(
 span<u8>{resp_buf.data()+resp_n,static_cast<SZ>(resp_len)-resp_n},
-remaining_or_throw()):
-stream.recv_borrowed(
-span<u8>{resp_buf.data()+resp_n,static_cast<SZ>(resp_len)-resp_n});
+remaining_or_throw());
 ActiveTaskGuard g{*state,recv_task.control()};
 SZ const got=co_await move(recv_task);
 if(got==0)throw DnsError{DnsErrorKind::network,"dns: tcp short response"};
@@ -1107,7 +1112,10 @@ DnsError{DnsErrorKind::cancelled,"dns: tcp query cancelled"}));
 }catch(DnsError const&){
 auto _=src->try_set_exception(current_exception());
 }catch(IoError const&e){
-if(e.code().value()==ETIMEDOUT)
+if(e.code().value()==ECANCELED)
+auto _=src->try_set_exception(make_exception_ptr(
+DnsError{DnsErrorKind::cancelled,"dns: tcp query cancelled"}));
+else if(e.code().value()==ETIMEDOUT)
 auto _=src->try_set_exception(make_exception_ptr(
 DnsError{DnsErrorKind::timeout,"dns: tcp query timed out"}));
 else
