@@ -29,11 +29,11 @@ _Collapsed from `conflux_linux_first_class_io_uring_todo_proposal.md`. Completed
 
 TCP fallback already uses `SocketTaskRing`. Remaining:
 
-- [ ] Remove `FileReader` from blocking UDP DNS path — `dns.cxx:1833-1869` calls `block_on` with `tmp_reader`; replace with `SocketTaskRing`-based block_on.
-- [ ] Remove temp-ring allocation from per-query blocking DNS path (`dns.cxx:1822`).
+- [x] Remove `FileReader` from blocking UDP DNS path — replaced with `block_on_socket_task(tmp_str, ...)`.
+- [x] Remove temp-ring allocation from per-query blocking DNS path — thread-local `TlsRingBase` + `SocketTaskRing` reused across calls.
+- [x] Add thread-local reusable `SocketTaskRing`/ring for blocking compatibility path.
+- [x] Add cancellation-aware linked timeout for UDP queries — already implemented via `UdpSocket::recv_from(buf, timeout)` using `submit_recvmsg_timeout_borrowed`.
 - [ ] Add caller-provided `SocketTaskRing` path for async DNS.
-- [ ] Add thread-local reusable `SocketTaskRing`/ring for blocking compatibility path.
-- [ ] Add cancellation-aware linked timeout for UDP queries.
 
 ### Direct accept TCP_NODELAY (P1-04)
 
@@ -54,7 +54,8 @@ Benchmark gate passed (main vs db, release-clang-libcxx, 2026-05-10). Remaining:
 
 ### Benchmarks (P1-09)
 
-- [ ] `SocketTaskRing` vs `FileReader` E2E benchmark — needs `block_on_socket_task()` helper, not via `FileReader::block_on`.
+- [x] `block_on_socket_task()` helper landed (`socket_io_coro.cxx`).
+- [ ] `SocketTaskRing` vs `FileReader` E2E benchmark — wire `block_on_socket_task` into a dns/socket benchmark.
 - [ ] Close-direct deferred path benchmarks — requires `FlowRuntime` integration.
 
 ---

@@ -27,7 +27,7 @@ auto r=conflux::uring::Ring::init(32,{});
 if(!r)::_exit(2);
 return move(*r);
 }()},
-ring{uring.ref(),BufferRingOptions{.count=8,.buf_size=64,.group_id=0,.huge_pages=false,.mode=BufferRingMode::classic_one_cqe_per_buffer}}{}
+ring{uring.ref(),BufferRingOptions{.count=8,.buf_size=64,.group_id=0,.huge_pages=false,.mode=BufferRingMode::classic_one_cqe_per_buffer},conflux::uring::detect_caps(uring.ref())}{}
 };
 }// namespace
 int main(int argc,char*argv[]){

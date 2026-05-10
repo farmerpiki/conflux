@@ -7,6 +7,7 @@
 
 import std;
 import conflux.types;
+import conflux.uring;
 import conflux.socket_io;
 import bench_common;
 #include "../src/net/direct_slot_pool.hxx"
@@ -90,6 +91,7 @@ throw RE{"io_uring_queue_init"};
 RingGuard(RingGuard const&)=delete;
 RingGuard&operator=(RingGuard const&)=delete;
 [[nodiscard]]io_uring*get()noexcept{return&ring;}
+[[nodiscard]]conflux::uring::IoUringCaps caps()const noexcept{return conflux::uring::detect_caps(conflux::uring::RingRef{const_cast<io_uring*>(&ring)});}
 };
 struct FdGuard{
 int fd=-1;
@@ -319,7 +321,7 @@ auto ls=make_listen_socket();
 FdGuard lsg{ls.fd};
 RingGuard rg{256};
 SocketRawRing raw{rg.get()};
-BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false}};
+BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false},rg.caps()};
 
 int cli=connect_one(ls.port);
 FdGuard cg{cli};
@@ -382,7 +384,7 @@ auto ls=make_listen_socket();
 FdGuard lsg{ls.fd};
 RingGuard rg{1024};
 SocketRawRing raw{rg.get()};
-BufferRing bufs{rg.get(),{.count=4096,.buf_size=4096,.group_id=0,.huge_pages=false}};
+BufferRing bufs{rg.get(),{.count=4096,.buf_size=4096,.group_id=0,.huge_pages=false},rg.caps()};
 
 V<FdGuard>clients;
 V<FdGuard>servers;
@@ -463,7 +465,7 @@ SocketRawRing raw{rg.get()};
 DirectFdTable dft{rg.get(),64};
 if(!dft.registered())
 return;
-BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false}};
+BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false},rg.caps()};
 
 int cli=connect_one(ls.port);
 FdGuard cg{cli};
@@ -790,7 +792,7 @@ auto ls=make_listen_socket();
 FdGuard lsg{ls.fd};
 RingGuard rg{256};
 SocketRawRing raw{rg.get()};
-BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false}};
+BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false},rg.caps()};
 
 int cli=connect_one(ls.port);
 FdGuard cg{cli};
@@ -828,7 +830,7 @@ auto ls=make_listen_socket();
 FdGuard lsg{ls.fd};
 RingGuard rg{256};
 SocketRawRing raw{rg.get()};
-BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false}};
+BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false},rg.caps()};
 
 int cli=connect_one(ls.port);
 FdGuard cg{cli};
@@ -954,7 +956,7 @@ BenchArgs const&args,
 bool json,
 SV config_name){
 RingGuard rg{64};
-BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false}};
+BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false},rg.caps()};
 
 u16 id=0;
 auto v=Variant{
@@ -976,7 +978,7 @@ BenchArgs const&args,
 bool json,
 SV config_name){
 RingGuard rg{64};
-BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false}};
+BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false},rg.caps()};
 
 A<u16,16>ids{};
 for(u16 i=0;i<16;++i)
@@ -1003,7 +1005,7 @@ FdGuard lsg{ls.fd};
 RingGuard rg{256};
 SocketRawRing raw{rg.get()};
 constexpr u32 kBufCount=64;
-BufferRing bufs{rg.get(),{.count=kBufCount,.buf_size=4096,.group_id=0,.huge_pages=false}};
+BufferRing bufs{rg.get(),{.count=kBufCount,.buf_size=4096,.group_id=0,.huge_pages=false},rg.caps()};
 
 int cli=connect_one(ls.port);
 FdGuard cg{cli};
@@ -1217,7 +1219,7 @@ BenchArgs const&args,
 bool json,
 SV config_name){
 RingGuard rg{64};
-BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false}};
+BufferRing bufs{rg.get(),{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false},rg.caps()};
 
 auto v=Variant{
 .name="buf_slices_from_cqe_classic",
@@ -1244,7 +1246,7 @@ SV variant_name,
 int res){
 RingGuard rg{64};
 constexpr SZ kBufSz=4096;
-BufferRing bufs{rg.get(),{.count=256,.buf_size=kBufSz,.group_id=0,.huge_pages=false,.mode=BufferRingMode::recv_bundle}};
+BufferRing bufs{rg.get(),{.count=256,.buf_size=kBufSz,.group_id=0,.huge_pages=false,.mode=BufferRingMode::recv_bundle},rg.caps()};
 
 auto v=Variant{
 .name=variant_name,
@@ -1275,7 +1277,7 @@ SV variant_name,
 int n){
 RingGuard rg{64};
 constexpr SZ kBufSz=4096;
-BufferRing bufs{rg.get(),{.count=256,.buf_size=kBufSz,.group_id=0,.huge_pages=false,.mode=BufferRingMode::incremental}};
+BufferRing bufs{rg.get(),{.count=256,.buf_size=kBufSz,.group_id=0,.huge_pages=false,.mode=BufferRingMode::incremental},rg.caps()};
 
 SZ const chunk=kBufSz/static_cast<SZ>(n);
 

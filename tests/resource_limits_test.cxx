@@ -11,6 +11,7 @@
 
 import std;
 import conflux.types;
+import conflux.uring;
 import conflux.socket_io;
 namespace{
 struct RingGuard{
@@ -205,7 +206,8 @@ io_uring ring{};
 if(::io_uring_queue_init(256,&ring,0)!=0)::_exit(0);// ring failed → skip
 SocketRawRing raw{&ring};
 try{
-BufferRing bufs{&ring,{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false}};
+auto const caps=conflux::uring::detect_caps(conflux::uring::RingRef{&ring});
+BufferRing bufs{&ring,{.count=256,.buf_size=4096,.group_id=0,.huge_pages=false},caps};
 (void)bufs;// success also fine — memlock may not apply to registered bufs
 }catch(...){
 // Exception on failure is acceptable.

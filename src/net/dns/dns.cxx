@@ -1880,6 +1880,17 @@ u16 port,
 ResolveOptions const&opts){
 return resolve_flow(host,port,opts);
 }
+namespace{
+struct TlsRingBase{
+::io_uring ring{};
+CompletionTable ct;
+bool initialized{false};
+~TlsRingBase()noexcept{
+if(initialized)::io_uring_queue_exit(&ring);
+}
+};
+thread_local TlsRingBase tls_rb_;
+}
 expected<ResolveResult,DnsError>Resolver::resolve_blocking(
 string_view host,
 u16 port,
@@ -1978,20 +1989,14 @@ if(ns_list.empty())
 return unexpected{
 DnsError{DnsErrorKind::no_servers,"resolve_blocking: no nameservers configured"}};
 
-::io_uring tmp_ring{};
-if(::io_uring_queue_init(32,&tmp_ring,0)<0)
+if(!tls_rb_.initialized){
+if(::io_uring_queue_init(32,&tls_rb_.ring,0)<0)
 return unexpected{
 DnsError{DnsErrorKind::no_ring,"resolve_blocking: io_uring_queue_init failed"}};
-struct RingGuard{
-::io_uring*r;
-~RingGuard(){::io_uring_queue_exit(r);}
-}const guard{&tmp_ring};
-CompletionTable tmp_ct;
-SocketTaskRing tmp_str{SocketRawRing{&tmp_ring},tmp_ct,
+tls_rb_.initialized=true;
+}
+SocketTaskRing tmp_str{SocketRawRing{&tls_rb_.ring},tls_rb_.ct,
 [](u32 slot,u32 gen)noexcept->u64{return(static_cast<u64>(gen)<<32U)|slot;}};
-FileReader tmp_reader{&tmp_ring,&tmp_ct,[](u32 slot,u32 gen)noexcept->u64{
-return(static_cast<u64>(gen)<<32U)|slot;
-}};
 codec::Edns0Options const edns{.udp_size=impl_->opts.edns0_udp_size};
 optional<DnsError>last_nxdomain;
 for(auto const&candidate:resolve_candidates(host,impl_->search_domains,impl_->ndots)){
@@ -2025,7 +2030,7 @@ effective_native_timeout(effective_opts),
 edns);
 try{
 auto budget=effective_native_timeout(effective_opts)+chrono::milliseconds{500};
-auto result=block_on<ResolveResult>(tmp_reader,move(flow),budget);
+auto result=block_on_socket_task(tmp_str,move(flow),budget);
 if(result.endpoints.empty())
 return result;
 if(impl_->cache&&!cache_key.empty()&&!result.endpoints.empty()){
@@ -2037,7 +2042,7 @@ impl_->cache->put(cache_key,result,ttl);
 }catch(...){}// NOLINT(bugprone-empty-catch)
 }
 return result;
-}catch(PumpTimeout const&){
+}catch(BlockOnSocketTaskTimeout const&){
 return unexpected{
 DnsError{DnsErrorKind::timeout,"resolve_blocking: pump timeout"}};
 }catch(DnsError const&e){
