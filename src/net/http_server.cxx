@@ -2115,7 +2115,7 @@ queue_close(fd);
 });
 else
 defer_op([this,fd,ufd,gen]{
-if(ufd<fd_table.size()&&fd_table[ufd].gen==gen)
+if(ufd<fd_table.size()&&fd_table[ufd].gen==gen&&!fd_table[ufd].closing)
 cancel_recv_if_armed(fd,false);
 });
 return RecvCancelState::deferred;

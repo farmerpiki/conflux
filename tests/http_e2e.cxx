@@ -7485,3 +7485,126 @@ REQUIRE(r.starts_with("HTTP/1.1 200"));
 }
 }
 }
+// ---------------------------------------------------------------------------
+// PR A — cancel_recv_if_armed: shutdown drains armed multishot recv connections
+// (proposal tests 1, 3, 4)
+// ---------------------------------------------------------------------------
+namespace{
+Config small_ring_cfg_pr_a(){
+Config cfg{};
+cfg.port=0;
+cfg.rings=1;
+cfg.ring_entries=64;
+cfg.single_issuer=true;
+cfg.defer_taskrun=true;
+cfg.coop_taskrun=true;
+cfg.taskrun_flag=true;
+cfg.startup_banner=false;
+cfg.request_timeout_ms=0;// disable to prevent timeout closing before srv.stop()
+return cfg;
+}
+int connect_to(u16 port){
+int fd=::socket(AF_INET,SOCK_STREAM,0);
+if(fd<0)return-1;
+sockaddr_in addr{};
+addr.sin_family=AF_INET;
+addr.sin_port=htons(port);
+::inet_pton(AF_INET,"127.0.0.1",&addr.sin_addr);
+if(::connect(fd,reinterpret_cast<sockaddr*>(&addr),sizeof(addr))<0){
+::close(fd);
+return-1;
+}
+timeval const tv{.tv_sec=5,.tv_usec=0};
+::setsockopt(fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
+return fd;
+}
+}// namespace
+TEST_CASE(
+"server shutdown: cleanly closes N connections with armed multishot recv"){
+// N idle connections holding TCP open without sending a request.
+// Server recv is armed on each. shutdown() must cancel every multishot
+// recv and close the sockets so the client sees EOF, not a hung recv.
+// Covers proposal tests 1 (recv cancel on close) and 3 (sweep N conns).
+static constexpr int N=20;
+Router router;
+router.get("/ping",[](HttpRequest const&){return HttpResponse::text("pong");});
+ScopedTestServer srv{small_ring_cfg_pr_a(),move(router)};
+V<int>fds;
+fds.reserve(N);
+for(int i=0;i<N;++i){
+int fd=connect_to(srv.port());
+REQUIRE(fd>=0);
+fds.push_back(fd);
+}
+// srv.stop() signals shutdown and joins the server thread; the thread only
+// exits once all connections are closed, so by the time stop() returns
+// every client fd must have received FIN.
+srv.stop();
+int closed=0;
+for(int fd:fds){
+char buf{};
+if(::recv(fd,&buf,1,0)<=0)++closed;
+::close(fd);
+}
+CHECK(closed==N);
+}
+TEST_CASE(
+"server shutdown: recv cancel fires for send_queued connections"){
+// A connection with a response in flight (send_queued=true) must also
+// have its multishot recv cancelled so it does not block server teardown.
+// This covers the handle_shutdown send_queued branch of PR A.
+Router router;
+router.get("/big",[](HttpRequest const&){
+// Large enough body that the send may still be in-flight when shutdown
+// fires, increasing the chance that send_queued=true at shutdown time.
+return HttpResponse::text(S(128*1024,'z'));
+});
+ScopedTestServer srv{small_ring_cfg_pr_a(),move(router)};
+int const fd=connect_to(srv.port());
+REQUIRE(fd>=0);
+SV const req="GET /big HTTP/1.1\r\nHost: localhost\r\n\r\n";
+::send(fd,req.data(),req.size(),MSG_NOSIGNAL);
+// Shutdown immediately — races with the large-body send completing.
+// The server must not deadlock regardless of which side wins the race.
+srv.stop();
+// Connection must be closed by server — recv returns <=0 (FIN or RST).
+char buf{};
+CHECK(::recv(fd,&buf,1,0)<=0);
+::close(fd);
+}
+TEST_CASE(
+"server shutdown: concurrent idle + send_queued connections all close"){
+// Mix: some connections idle (recv armed, no send), some with response
+// in flight. All must close after shutdown without deadlock.
+static constexpr int N_IDLE=10;
+Router router;
+router.get("/ping",[](HttpRequest const&){return HttpResponse::text("ok");});
+router.get("/big",[](HttpRequest const&){
+return HttpResponse::text(S(128*1024,'z'));
+});
+ScopedTestServer srv{small_ring_cfg_pr_a(),move(router)};
+V<int>fds;
+fds.reserve(N_IDLE+2);
+// Idle connections — no request sent
+for(int i=0;i<N_IDLE;++i){
+int fd=connect_to(srv.port());
+REQUIRE(fd>=0);
+fds.push_back(fd);
+}
+// Connections with response in-flight
+for(int i=0;i<2;++i){
+int fd=connect_to(srv.port());
+REQUIRE(fd>=0);
+SV const req="GET /big HTTP/1.1\r\nHost: localhost\r\n\r\n";
+::send(fd,req.data(),req.size(),MSG_NOSIGNAL);
+fds.push_back(fd);
+}
+srv.stop();
+int closed=0;
+for(int fd:fds){
+char buf{};
+if(::recv(fd,&buf,1,0)<=0)++closed;
+::close(fd);
+}
+CHECK(closed==static_cast<int>(fds.size()));
+}
