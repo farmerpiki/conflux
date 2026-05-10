@@ -162,6 +162,7 @@ export constexpr int kHttpRequestEntityTooLarge=413;
 export constexpr int kHttpUriTooLong=414;
 export constexpr int kHttpRangeNotSatisfiable=416;
 export constexpr int kHttpRequestHeaderFieldsTooLarge=431;
+export constexpr int kHttpBadGateway=502;
 export constexpr int kHttpGatewayTimeout=504;
 export constexpr int kHttpNoContent=204;
 export constexpr int kHttpPartialContent=206;

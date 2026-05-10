@@ -63,6 +63,7 @@ FileIo,
 WsCancel,
 FixedFdInstall,
 DirectSlotClose,
+ClientRing,
 Nop
 
 };
@@ -893,6 +894,8 @@ static constexpr u32 MAX_FILES=65536;
 
 io_uring ring{};
 SocketRawRing raw_{conflux::uring::RingRef{ring}};
+mutable CompletionTable client_ct_{64};
+mutable Opt<SocketTaskRing>client_task_ring_{};
 // Backing memory for the ring when no_mmap = true. Freed on destroy.
 UPD<byte[],void(*)(void*)>ring_mem{nullptr,::free};
 int listen_fd=-1;
@@ -989,6 +992,18 @@ HttpRequestView const&req)const{
 if(vhost_router!=nullptr)
 return vhost_router->dispatch(req);
 return router->dispatch(req);
+}
+[[nodiscard]]bool has_context_routes()const noexcept{
+if(vhost_router!=nullptr)return vhost_router->has_context_routes();
+return router&&router->has_context_routes();
+}
+[[nodiscard]]Opt<HttpResponse>try_dispatch_async(HttpRequestView const&req)const{
+if(!client_task_ring_)return nullopt;
+if(!has_context_routes())return nullopt;
+RequestContext ctx{*client_task_ring_};
+HttpRequest owned=req.to_owned();
+if(vhost_router!=nullptr)return vhost_router->dispatch_async(owned,ctx);
+return router->dispatch_async(owned,ctx);
 }
 [[nodiscard]]SP<WorkPool>resolve_ws_work_pool(
 HttpRequestView const&req)const{
@@ -1607,6 +1622,9 @@ throw RE{"io_uring_queue_init_params: no supported flag combination"};
 }
 }
 caps=detect_caps(conflux::uring::RingRef{ring});
+client_task_ring_.emplace(SocketRawRing{ring},client_ct_,UserDataFn{[](u32 slot,u32 gen)noexcept->u64{
+return pack(Op::ClientRing,gen,static_cast<int>(slot));
+}});
 
 listen_fd=::socket(AF_INET6,SOCK_STREAM|SOCK_NONBLOCK|SOCK_CLOEXEC,0);
 if(listen_fd<0)
@@ -3190,6 +3208,9 @@ case Op::FileIo:
 if(file_completions)
 file_completions->dispatch(static_cast<u32>(fd),gen,res,flg);
 break;
+case Op::ClientRing:
+client_ct_.dispatch(static_cast<u32>(fd),gen,res,flg);
+break;
 case Op::WsCancel:handle_ws_cancel(fd);break;
 case Op::FixedFdInstall:handle_fixed_fd_install(fd,res);break;
 case Op::DirectSlotClose:handle_direct_slot_close(fd,res);break;
@@ -3611,6 +3632,7 @@ case Op::SsePoll:
 case Op::DeferredPoll:
 case Op::Shutdown:
 case Op::WsCancel:
+case Op::ClientRing:
 case Op::Nop:break;
 case Op::FixedFdInstall:
 if(cqe->res>=0)
@@ -4132,6 +4154,9 @@ req{method,path,version,conn.remote_addr,conn.is_tls,params,headers,query,form,c
 auto const handler_started=chrono::steady_clock::now();
 HttpResponse resp;
 try{
+if(auto async=ring.try_dispatch_async(req))
+resp=move(*async);
+else
 resp=ring.dispatch(req);
 }catch(exception const&e){resp=HttpResponse::internal_error(e.what());}catch(...){
 resp=HttpResponse::internal_error();

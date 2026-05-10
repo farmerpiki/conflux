@@ -35,6 +35,7 @@ import conflux.work;
 import conflux.file_io;
 import conflux.utils;
 import conflux.net.config;
+import conflux.socket_io;
 #if CONFLUX_HAS_TLS
 import conflux.net.tls;
 #endif
@@ -837,6 +838,14 @@ r.status=kHttpRequestHeaderFieldsTooLarge;
 r.status_text="Request Header Fields Too Large";
 r.content_type="text/html; charset=utf-8";
 r.set_text_body("<html><body><h1>431 Request Header Fields Too Large</h1></body></html>");
+return r;
+}
+[[nodiscard]]static HttpResponse bad_gateway(SV detail={}){
+HttpResponse r;
+r.status=kHttpBadGateway;
+r.status_text="Bad Gateway";
+r.content_type="text/plain; charset=utf-8";
+r.set_text_body(detail.empty()?"Bad Gateway":S{detail});
 return r;
 }
 [[nodiscard]]static HttpResponse gateway_timeout(){
@@ -1777,9 +1786,14 @@ dr->complete(HttpResponse::no_content());
 dr->complete(e.code().value()==ENOENT?HttpResponse::not_found(*fp):HttpResponse::internal_error());
 }catch(...){dr->complete(HttpResponse::internal_error());}
 }
+export struct RequestContext{
+SocketTaskRing&ring;
+};
 export class Router{
 public:
 using Handler=CloneableFunction<HttpResponse(HttpRequestView const&)>;
+using ContextHandler=CloneableFunction<conflux::work::root::Task<HttpResponse>(HttpRequest const&,RequestContext const&)>;
+using ContextMiddleware=CloneableFunction<conflux::work::root::Task<HttpResponse>(HttpRequest const&,RequestContext const&,ContextHandler const&)>;
 using SseHandler=CloneableFunction<void(HttpRequestView const&,SP<SseChannel>)>;
 // next is the downstream handler (or next middleware); call it to continue the chain.
 using Middleware=CloneableFunction<HttpResponse(HttpRequestView const&,Handler const&)>;
@@ -1812,8 +1826,17 @@ F&&handler){
 impl_->routes.push_back({S{method},parse_pattern(path),make_handler(forward<F>(handler))});
 return*this;
 }
+template<typename F>
+Router&add_context(
+SV method,
+SV path,
+F&&handler)
+requires std::invocable<std::decay_t<F>&,HttpRequest const&,RequestContext const&>&&same_as<std::invoke_result_t<std::decay_t<F>&,HttpRequest const&,RequestContext const&>,conflux::work::root::Task<HttpResponse>>{
+impl_->context_routes.push_back({S{method},parse_pattern(path),ContextHandler{forward<F>(handler)}});
+return*this;
+}
 // NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
-
+[[nodiscard]]bool has_context_routes()const noexcept{return!impl_->context_routes.empty();}
 template<typename F>
 Router&get(
 SV path,
@@ -2766,6 +2789,25 @@ return HttpResponse::not_found(path_sv);
 
 return wrap_middlewares(move(inner))(req);
 }
+[[nodiscard]]Opt<HttpResponse>dispatch_async(HttpRequest const&req,RequestContext const&ctx)const{
+if(impl_->context_routes.empty())return nullopt;
+bool const is_head=(req.method=="HEAD");
+SV path_sv{req.path};
+if(auto q=path_sv.find('?');q!=SV::npos)path_sv=path_sv.substr(0,q);
+HttpFieldsView matched_params;
+for(auto const&route:impl_->context_routes){
+if(route.method!=req.method&&!(is_head&&route.method=="GET"))continue;
+matched_params.clear();
+if(match_segments(route.pattern,path_sv,matched_params)){
+HttpRequest call_req=req;
+for(auto const&[k,v]:matched_params)
+if(!call_req.params.get(k))
+call_req.params.emplace_back(S{k},S{v});
+return run_async_http_task(route.handler(call_req,ctx));
+}
+}
+return nullopt;
+}
 private:
 template<class>
 static constexpr bool kDependentFalse=false;
@@ -2898,8 +2940,14 @@ struct SseRoute{
 V<Segment>pattern{};
 SseHandler handler{};
 };
+struct ContextRoute{
+S method{};
+V<Segment>pattern{};
+ContextHandler handler{};
+};
 V<Route>routes{};
 V<SseRoute>sse_routes{};
+V<ContextRoute>context_routes{};
 V<Middleware>middlewares{};
 Handler not_found_handler{};
 ErrorHandler error_handler{};

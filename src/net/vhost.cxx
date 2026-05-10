@@ -70,6 +70,20 @@ return HttpResponse::not_found(req.path);
 HttpRequest const&req)const{
 return dispatch(HttpRequestView{req});
 }
+[[nodiscard]]bool has_context_routes()const noexcept{
+for(auto const&[h,r]:vhosts_)
+if(r.has_context_routes())return true;
+return default_&&default_->has_context_routes();
+}
+[[nodiscard]]Opt<HttpResponse>dispatch_async(HttpRequest const&req,RequestContext const&ctx)const{
+auto host=ascii_lower(normalized_host(req.headers["host"]));
+auto it=vhosts_.find(S{host});
+if(it!=vhosts_.end())
+return it->second.dispatch_async(req,ctx);
+if(default_)
+return default_->dispatch_async(req,ctx);
+return nullopt;
+}
 private:
 UM<S,Router>vhosts_;
 UP<Router>default_;

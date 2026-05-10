@@ -1,5 +1,3 @@
-// HTTP reverse proxy: forwards requests to an upstream server.
-// Uses HttpClient::send_blocking (Phase 1). Phase 2 will migrate to async.
 module;
 
 export module conflux.net.proxy;
@@ -9,13 +7,17 @@ import conflux.work;
 import conflux.net.http.types;
 import conflux.net.http.request;
 import conflux.net.client;
+import conflux.net.async_client;
 import conflux.net.router;
+import conflux.socket_io;
 import conflux.utils;
 
+namespace wroot=conflux::work::root;
 namespace http=conflux::http;
 using http::HttpClient;
 using http::HttpClientOptions;
 using http::HttpTimeouts;
+// async DNS not yet ring-safe; upstream_host must be a numeric IP or opts.work_pool must be set.
 export struct ProxyOptions{
 S upstream_host;
 u16 upstream_port{80};
@@ -23,84 +25,100 @@ S path_prefix{};
 bool preserve_host{false};
 bool upstream_tls{false};
 int timeout_sec{10};
-SP<WorkPool>work_pool{};
+SP<WorkPool>work_pool{};// deprecated — use proxy_context_handler() for async path
 };
 namespace proxy_detail{
-HttpResponse perform_proxy_request(
-HttpRequestView const&req,
-ProxyOptions const&opts){
-S up_path{req.path};
+[[nodiscard]]static S build_upstream_url(SV method,SV path,ProxyOptions const&opts){
+S up_path{path};
 if(!opts.path_prefix.empty()&&up_path.starts_with(opts.path_prefix))
 up_path.erase(0,opts.path_prefix.size());
-if(up_path.empty())
-up_path="/";
-
-S const scheme=opts.upstream_tls?"https":"http";
-S const url_str=format("{}://{}:{}{}",scheme,opts.upstream_host,opts.upstream_port,up_path);
-
-auto builder=http::HttpRequest::method(req.method,url_str);
-
-// Forward non-hop-by-hop headers.
+if(up_path.empty())up_path="/";
+SV const scheme=opts.upstream_tls?"https":"http";
+return format("{}://{}:{}{}",scheme,opts.upstream_host,opts.upstream_port,up_path);
+}
+[[nodiscard]]static HttpClientOptions make_client_opts(ProxyOptions const&opts){
+HttpTimeouts t{};
+t.connect=chrono::milliseconds{opts.timeout_sec*1000};
+t.first_byte=chrono::milliseconds{opts.timeout_sec*1000};
+t.between_bytes=chrono::milliseconds{opts.timeout_sec*1000};
+HttpClientOptions co{};
+co.default_timeouts=t;
+return co;
+}
+[[nodiscard]]static http::HttpRequest::Builder apply_headers(
+http::HttpRequest::Builder builder,
+HttpRequestView const&req,
+ProxyOptions const&opts){
 for(auto const&[name,value]:req.headers){
-if(name=="host")
-continue;
-if(conflux::http::is_hop_by_hop_header(name))
-continue;
+if(name=="host")continue;
+if(conflux::http::is_hop_by_hop_header(name))continue;
 builder.header(name,value);
 }
-
-// X-Forwarded-For.
 auto xff=S{req.headers["x-forwarded-for"]};
-if(xff.empty())
-builder.header("X-Forwarded-For",req.remote_addr);
-else
-builder.header("X-Forwarded-For",format("{}, {}",xff,req.remote_addr));
-
-// Host header.
-if(opts.preserve_host)
-builder.header("Host",req.headers["host"]);
-
-if(!req.body.empty())
-builder.body_view(req.body);
-
-HttpTimeouts timeouts{};
-timeouts.connect=chrono::milliseconds{opts.timeout_sec*1000};
-timeouts.first_byte=chrono::milliseconds{opts.timeout_sec*1000};
-timeouts.between_bytes=chrono::milliseconds{opts.timeout_sec*1000};
-builder.timeouts(timeouts);
-
-HttpClientOptions client_opts{};
-client_opts.default_timeouts=timeouts;
-HttpClient client{move(client_opts)};
-
-auto result=client.send_blocking(move(builder).build());
-if(!result)
-return HttpResponse::internal_error(
-format("proxy: {} ({})",result.error().message,static_cast<int>(result.error().kind)));
-
+if(xff.empty())builder.header("X-Forwarded-For",req.remote_addr);
+else builder.header("X-Forwarded-For",format("{}, {}",xff,req.remote_addr));
+if(opts.preserve_host)builder.header("Host",req.headers["host"]);
+if(!req.body.empty())builder.body_view(req.body);
+return builder;
+}
+[[nodiscard]]static HttpResponse build_response(http::HttpResponse&&r){
 HttpResponse out;
-out.status=result->head.status;
-out.status_text=move(result->head.status_text);
-out.headers=move(result->head.headers);
-out.set_cookies=move(result->head.set_cookies);
-// Propagate content-type from headers (it's now in headers, not a separate field).
+out.status=r.head.status;
+out.status_text=move(r.head.status_text);
+out.headers=move(r.head.headers);
+out.set_cookies=move(r.head.set_cookies);
 if(auto const ct=out.headers["content-type"];!ct.empty())
 out.content_type=S{ct};
-out.set_text_body(move(result->body));
+out.set_text_body(move(r.body));
 return out;
+}
+[[nodiscard]]HttpResponse perform_proxy_request(
+HttpRequestView const&req,
+ProxyOptions const&opts){
+auto co=make_client_opts(opts);
+co.default_timeouts.write=co.default_timeouts.connect;
+HttpClient client{move(co)};
+auto builder=apply_headers(
+http::HttpRequest::method(req.method,build_upstream_url(req.method,req.path,opts)),req,opts);
+builder.timeouts(client.options().default_timeouts);
+auto result=client.send_blocking(move(builder).build());
+if(!result)
+return HttpResponse::bad_gateway(format("proxy: {} ({})",result.error().message,static_cast<int>(result.error().kind)));
+return build_response(move(*result));
+}
+[[nodiscard]]wroot::Task<HttpResponse>perform_proxy_request_async(
+HttpRequest const&req,
+ProxyOptions const&opts,
+SocketTaskRing&ring){
+auto co=make_client_opts(opts);
+co.default_timeouts.write=co.default_timeouts.connect;
+HttpClient client{move(co)};
+auto builder=apply_headers(
+http::HttpRequest::method(req.method,build_upstream_url(req.method,req.path,opts)),HttpRequestView{req},opts);
+builder.timeouts(client.options().default_timeouts);
+auto result=co_await http::send_async(client,ring,move(builder).build());
+if(!result)
+co_return HttpResponse::bad_gateway(format("proxy: {} ({})",result.error().message,static_cast<int>(result.error().kind)));
+co_return build_response(move(*result));
 }
 }// namespace proxy_detail
 export Router::Handler proxy_handler(
 ProxyOptions opts){
 return[opts=move(opts)](HttpRequestView const&req)->HttpResponse{
 if(!opts.work_pool)
-return proxy_detail::perform_proxy_request(req,opts);
+return HttpResponse::bad_gateway("proxy: work_pool required; use proxy_context_handler() for async");
 auto deferred=make_shared<DeferredResponse>();
 auto owned=req.to_owned();
 if(!opts.work_pool->enqueue([deferred,opts,owned=move(owned)]()mutable{
 deferred->complete(proxy_detail::perform_proxy_request(HttpRequestView{owned},opts));
 }))
-return HttpResponse::internal_error("proxy: work pool");
+return HttpResponse::bad_gateway("proxy: work pool full");
 return HttpResponse::deferred(move(deferred));
+};
+}
+export Router::ContextHandler proxy_context_handler(
+ProxyOptions opts){
+return[opts=move(opts)](HttpRequest const&req,RequestContext const&ctx)->wroot::Task<HttpResponse>{
+co_return co_await proxy_detail::perform_proxy_request_async(req,opts,ctx.ring);
 };
 }
