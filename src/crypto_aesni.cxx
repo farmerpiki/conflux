@@ -139,8 +139,8 @@ __m128i h_br,h2_br,h3_br,h4_br;
 unsigned char key[32];
 bool valid{false};
 };
-thread_local KeyCtx tl_key_ctx;
 static KeyCtx const&get_key_ctx(unsigned char const*key){
+thread_local KeyCtx tl_key_ctx;
 if(tl_key_ctx.valid&&std::memcmp(tl_key_ctx.key,key,32)==0)
 return tl_key_ctx;
 tl_key_ctx.ek=aesni_expand_key(key);
