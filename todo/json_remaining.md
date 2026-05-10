@@ -10,7 +10,9 @@ _Collapsed from `JSON_PLAN.md`. Phases 0–4, 5.1/5.2/5.5, and 7 are complete._
 
 Gate: `twitter.json` ≥15% AND `github_events.json` ≥10% with bootstrap CI (≥1000 resamples, 95%), no regression on `canada.json`/`apache_builds.json` outside ±2%. **Gate failed 2026-05-02** (AVX2 string-scan only: 0%/+1.7% gains, −4% regression on canada).
 
-Full simdjson-style Stage-0 (scan all structural chars in 32-byte chunks, produce bitmask for state machine) is required to move the needle — not just widening the string scanner. Deferred until business need justifies the architectural change.
+**Stage-0 whitespace-skip tape: tested 2026-05-10, gate failed (neutral/no benefit).** Pre-scanned a `V<u32>` tape of token-start positions (AVX2 32B/iter) to make `skip_ws` O(1). Result: ws scanning is not the bottleneck (~0.06ms of 2.3ms for `pretty_ws`); tape heap allocation (~180KB) and cache pressure caused regression. Replaced with inline AVX2 `skip_ws` (no allocation); still neutral — confirms whitespace is not the bottleneck on this workload. Dropped: not worth maintenance cost for zero gain.
+
+Full simdjson-style Stage-0 (scan all structural chars in 32-byte chunks, produce bitmask for state machine) is required to move the needle — not just widening the string scanner or skipping whitespace. Deferred until business need justifies the architectural change.
 
 AVX2 code is in-tree, guarded by `CONFLUX_JSON_HAS_AVX2`. CMake preset `release-avx2-clang-libcxx` exists. Activate when implementing full Stage-0 tokenizer rewrite.
 

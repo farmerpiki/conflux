@@ -791,4 +791,37 @@ println("[json-bench]   parse >=500 MB/s on typical-config corpus");
 println("[json-bench]   find_member <=1000 ns median on 1024-member object");
 println("[json-bench]   dump >=1000 MB/s on plain path");
 }
+
+{
+namespace fs=std::filesystem;
+fs::path const corpus_dir=fs::path{__FILE__}.parent_path()/"corpus";
+auto load=[&](SV filename)->S{
+auto p=corpus_dir/filename;
+std::ifstream f{p,std::ios::binary};
+if(!f)return{};
+return{std::istreambuf_iterator<char>{f},{}};
+};
+struct{
+SV label;
+SV file;
+}const rw[]={
+{"canada.json (2.1MB geo)","canada.json"},
+{"citm_catalog.json (1.6MB catalog)","citm_catalog.json"},
+{"twitter.json (617KB social)","twitter.json"},
+{"apache_builds.json (406KB CI)","apache_builds.json"},
+{"github_events.json (333KB events)","github_events.json"},
+};
+bool printed_header=false;
+for(auto const&[label,file]:rw){
+auto corpus=load(file);
+if(corpus.empty())continue;
+if(!printed_header&&!g_csv){
+println("[json-bench]");
+println("[json-bench] -- real-world corpora --");
+printed_header=true;
+}
+bench_parse_named(format("parse/{}",label),corpus);
+bench_dump_named(format("dump/{}",label),corpus);
+}
+}
 }
