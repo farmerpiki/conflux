@@ -329,18 +329,26 @@ Evidence in current repo:
 ## [ ] P1-05: Add explicit buffer-ring modes
 
 **Classification:** Keep.  
-**Current state:** Partial — `BufferRingMode` enum scaffolded (`classic_one_cqe_per_buffer`, `recv_bundle`, `incremental`); `incremental` rejected at ctor with precise error (`9fcd9a4`). Worktree `p1-incremental-buf` at `~/conflux_dev/p1_incremental_buf`; proposal `p1_05_incremental_buf_ring_proposal.md` in `~/conflux_dev/`.
+**Current state:** Scaffold nearly complete — **NOT production-ready**. `BufferRingMode` enum, bundle mode, and incremental data structures (`IncrementalRecvSlice`, `buffer_slice_from_incremental_cqe()`) are in place. `phase3_dispatch()` has a confirmed double-advance bug that makes incremental mode unsafe to enable. Worktree `p1-05-incremental-buf` at `~/conflux_dev/p1_05_incremental_buf`; proposal `p1_05_incremental_buf_ring_proposal.md` in `~/conflux_dev/`.
+
+**P1 blocker — `phase3_dispatch()` double-advance:** `append_recv_buf_to()` returns without clearing `rc.flags` on incremental CQEs. The downstream `discard_recv_bufs()` path re-decodes the same CQE, advancing the head a second time and corrupting ring state. Fix: after a successful `append_recv_buf_to()` call, set `rc.flags = 0` for all incremental CQEs (both `BUF_MORE` and final) before the function returns.
+
+**Secondary gaps:** Mid-close partial buffer requires a tombstone table (`UM<u64, RetiredIncrementalBuf>`) and a `retire_incremental_partial()` helper to hand off partially-filled buffers to a retiring connection without triggering premature recycle. `IncrementalRecvSlice` is not true RAII — `recycle_if_final()` must be called explicitly; the type does not enforce this. `buffer_view_at_offset` is unchecked in release builds.
 
 **TODO:**
 
 - [x] Add `BufferRingMode` to `BufferRingOptions`.
 - [x] Keep classic mode as the default (`classic_one_cqe_per_buffer`).
 - [x] Add bundle mode with cached head tracking.
-- [ ] Add incremental mode with per-buffer offset tracking and `IORING_CQE_F_BUF_MORE` handling.
 - [x] Reject unsupported modes at construction with precise error.
-- [x] Add mode-specific tests and benchmarks.
+- [ ] Fix `phase3_dispatch()` double-advance (clear `rc.flags` after `append_recv_buf_to()`).
+- [ ] Add tombstone table + `retire_incremental_partial()` for mid-close partial buffer handoff.
+- [ ] Add `clear_retired_incremental_if_final()` + `reclaim_incremental_partial()` with full accounting.
+- [ ] Enable incremental mode at construction (currently rejected) after double-advance is fixed.
+- [ ] Add incremental mode tests (single CQE, multi-CQE, mid-close retire path).
+- [ ] Add incremental buffer mode benchmarks (see P1-09).
 
-Suggested API:
+API (already scaffolded):
 
 ```cpp
 enum class BufferRingMode : u8 {
@@ -393,19 +401,20 @@ struct IoUringCaps {
 };
 ```
 
-## [ ] P1-07: Make lifetime contracts consistent across raw and Task APIs
+## [x] P1-07: Make lifetime contracts consistent across raw and Task APIs
 
 **Classification:** Keep.  
-**Current state:** Partial. Raw layer `_borrowed` renames done (`9fcd9a4`): `submit_accept_multishot_borrowed`, `submit_setsockopt_borrowed`, `submit_timeout_borrowed`, `submit_link_timeout_borrowed`. Task APIs and any remaining raw helpers not yet audited.
+**Current state:** Done (`469e88a`). Proposal `p1_07_lifetime_contracts_proposal.md` in `~/conflux_dev/`.
 
-**TODO:**
-
-- [x] Ensure all raw APIs with caller-owned memory use `_borrowed` suffix. *(raw layer done; Task layer pending)*
-- [ ] For Task APIs, prefer owned/copying semantics unless the function name says borrowed.
-- [ ] Add `send_owned(...)` or `send_all_owned(...)` where ergonomics matter.
-- [ ] Add `send_static(...)` only if useful for literal/static buffers.
-- [ ] Document buffer lifetime through CQE for raw APIs and through task completion for safe Task APIs.
-- [ ] For ZC send, define task completion as notification completion, not first CQE.
+- [x] Ensure all raw APIs with caller-owned memory use `_borrowed` suffix.
+- [x] Add contract comment block before `TcpStream` documenting `_borrowed`/`_copy`/`_owned` suffixes.
+- [x] Rename `TcpStream::read_borrowed` → `recv_borrowed`; `[[deprecated]]` forwarding alias kept; call sites updated.
+- [x] Add `TcpStream::recv_owned(SZ max_bytes) → Task<V<u8>>`.
+- [x] Add `TcpStream::write_owned(V<u8>)` / `write_all_owned(V<u8>)` / `write_owned(S)` / `write_all_owned(S)`.
+- [x] Fix `write_all_copy` — single `SP<V<u8>>` holder, no double-copy per partial send.
+- [x] Add `UdpSocket::send_to_copy` with `SendCopyHolder`; `iov_base` assigned after vector finalized.
+- [x] Document `send_to_borrowed` payload-not-copied contract in comment.
+- [x] Defer ZC send Task API (separate PR — `IORING_CQE_F_NOTIF` second-CQE model not resolved).
 
 ## [ ] P1-08: Add first-class cancellation policy
 
@@ -432,27 +441,20 @@ enum class CancelPolicy : u8 {
 };
 ```
 
-## [ ] P1-09: Extend benchmark gates around ownership and feature paths
+## [x] P1-09: Extend benchmark gates around ownership and feature paths
 
 **Classification:** Keep, narrow.  
-**Current state:** Partial.
+**Current state:** Done (`998a8de` + `64948d2`). Proposal `p1_09_bench_gates_proposal.md` in `~/conflux_dev/`.
 
-Evidence in current repo:
-
-- `benchmarks/http_server_bench.cxx`, `benchmarks/http_server_concurrency_bench.cxx`, and `benchmarks/socket_raw_bench.cxx` already exist.
-- `scripts/bench_record.sh --compare-bins` and `bench_compare_summary` already exist.
-
-Do not create duplicate benchmark infrastructure. Extend the existing gate with targeted cases for the new risk areas.
-
-**TODO:**
-
-- [ ] Add raw helper overhead vs old inline server SQE prep comparison.
-- [x] Add recv bundle decode benchmark (`run_buf_slices_from_cqe_classic` in `socket_raw_bench.cxx`, `9fcd9a4`).
-- [ ] Add incremental buffer mode benchmark.
-- [ ] Add `SocketTaskRing` vs current FileReader-backed coroutine wrapper benchmark.
-- [x] Add direct slot pool acquire/release/poison benchmark (`run_direct_slot_pool_acquire_release`, `run_direct_slot_pool_full_lifecycle` in `socket_raw_bench.cxx`, `9fcd9a4`).
-- [ ] Add close-direct under SQ-full/deferred-cleanup benchmark.
-- [ ] Require `--compare-bins` on server migration steps.
+- [x] Add `conflux_socket_raw_bench` to `_record_targets` in CMake.
+- [x] Add `benchmarks/notes/migration_gates.md` with `--compare-bins` invocations and SQL threshold query (gate: merge blocked if any variant regresses > 5%).
+- [x] Add recv bundle decode benchmark (`run_buf_slices_from_cqe_classic`).
+- [x] Add bundle mode decode variants: `buf_slices_from_cqe_bundle_3_full`, `buf_slices_from_cqe_bundle_3_partial_tail`.
+- [x] Add incremental buffer mode benchmarks: `incremental_1_full`, `incremental_2_half`, `incremental_4_quarter`.
+- [x] Add direct slot pool acquire/release/poison benchmark.
+- [ ] Add `SocketTaskRing` vs FileReader end-to-end benchmark — deferred; needs `block_on_socket_task()` helper (not via `FileReader::block_on`); do after API stabilizes.
+- [ ] Add close-direct deferred path benchmarks — deferred; requires `FlowRuntime` integration.
+- [ ] Raw SQE helper overhead comparison — optional.
 
 ---
 
