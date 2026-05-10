@@ -2095,6 +2095,34 @@ accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHa
 if(!submit_send_borrowed(raw_,handle,resp_view.data(),resp_view.size(),pack(Op::Send,conn.gen,fd)))
 defer_op([this,fd]{queue_send(fd);});
 }
+enum class RecvCancelState:u8{
+not_armed,
+submitted,
+deferred
+};
+RecvCancelState cancel_recv_if_armed(int fd,bool retry_queue_close){
+auto const ufd=static_cast<SZ>(fd);
+if(ufd>=fd_table.size())return RecvCancelState::not_armed;
+auto&conn=fd_table[ufd];
+if(conn.fd<0||!conn.recv_armed)return RecvCancelState::not_armed;
+auto handle=accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(conn.fd);
+if(!submit_cancel_multishot_recv(raw_,handle,pack(Op::Nop,0,0))){
+u32 const gen=conn.gen;
+if(retry_queue_close)
+defer_op([this,fd,ufd,gen]{
+if(ufd<fd_table.size()&&fd_table[ufd].gen==gen)
+queue_close(fd);
+});
+else
+defer_op([this,fd,ufd,gen]{
+if(ufd<fd_table.size()&&fd_table[ufd].gen==gen)
+cancel_recv_if_armed(fd,false);
+});
+return RecvCancelState::deferred;
+}
+conn.recv_armed=false;
+return RecvCancelState::submitted;
+}
 void queue_close(
 int fd){
 u32 gen=0;
@@ -2104,6 +2132,8 @@ if(fd_table[ufd].closing)
 return;
 gen=fd_table[ufd].gen;
 }
+if(cancel_recv_if_armed(fd,true)==RecvCancelState::deferred)
+return;
 
 if(accepted_sockets_direct){
 if(ufd<fd_table.size()){
@@ -2241,10 +2271,12 @@ if(conn.fd<0)
 continue;
 if(conn.sse_channel)
 conn.sse_channel->close();
-if(conn.send_queued)
+if(conn.send_queued){
+cancel_recv_if_armed(static_cast<int>(i),false);
 conn.close_after_send=true;
-else
+}else{
 queue_close(static_cast<int>(i));
+}
 }
 }
 void handle_accept(

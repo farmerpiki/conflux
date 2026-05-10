@@ -950,6 +950,12 @@ sqe.prep_cancel64(conflux::uring::UserData{target_ud},conflux::uring::CancelFlag
 sqe.user_data(conflux::uring::UserData{cancel_ud});
 return true;
 }
+export bool submit_cancel_multishot_recv(
+SocketRawRing&ring,
+SocketHandle handle,
+u64 user_data){
+return submit_cancel_fd(ring,handle,user_data);
+}
 export enum class CancelPolicy:u8{
 ignore,
 cancel_sqe_by_user_data,
