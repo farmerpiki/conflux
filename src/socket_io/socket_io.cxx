@@ -863,6 +863,8 @@ return true;
 export struct DirectTcpAcceptSetup{
 bool tcp_nodelay_once{false};// opt-in; requires caps.cmd_sock_setsockopt
 bool tcp_quickack_once{false};// opt-in; requires caps.cmd_sock_setsockopt
+bool prefer_busy_poll_once{false};// opt-in; requires caps.cmd_sock_setsockopt
+int const*busy_poll_us_optval{nullptr};// non-null+>0 enables SO_BUSY_POLL
 bool skip_sockopt_success_cqes{true};
 };
 namespace{
@@ -877,7 +879,7 @@ u64 recv_ud,
 DirectTcpAcceptSetup opts)noexcept{
 if(!direct_socket.is_direct())
 return false;
-unsigned const needed=1U+(opts.tcp_nodelay_once?1U:0U)+(opts.tcp_quickack_once?1U:0U);
+unsigned const needed=1U+(opts.tcp_nodelay_once?1U:0U)+(opts.tcp_quickack_once?1U:0U)+(opts.prefer_busy_poll_once?1U:0U)+(opts.busy_poll_us_optval&&*opts.busy_poll_us_optval>0?1U:0U);
 if(ring.sq_space_left()<needed)
 return false;
 if(opts.tcp_nodelay_once){
@@ -908,6 +910,40 @@ IPPROTO_TCP,
 TCP_QUICKACK,
 const_cast<int*>(&k_socket_opt_on),
 static_cast<int>(sizeof(k_socket_opt_on)));
+sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
+sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
+if(opts.skip_sockopt_success_cqes)
+sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
+sqe.user_data(conflux::uring::UserData{sockopt_ud});
+}
+if(opts.prefer_busy_poll_once){
+auto sqe=ring.try_get_sqe();
+if(!sqe)
+return false;
+sqe.prep_cmd_sock(
+conflux::uring::uring_cmd_op::setsockopt,
+direct_socket.sqe_fd(),
+SOL_SOCKET,
+SO_PREFER_BUSY_POLL,
+const_cast<int*>(&k_socket_opt_on),
+static_cast<int>(sizeof(k_socket_opt_on)));
+sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
+sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
+if(opts.skip_sockopt_success_cqes)
+sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
+sqe.user_data(conflux::uring::UserData{sockopt_ud});
+}
+if(opts.busy_poll_us_optval&&*opts.busy_poll_us_optval>0){
+auto sqe=ring.try_get_sqe();
+if(!sqe)
+return false;
+sqe.prep_cmd_sock(
+conflux::uring::uring_cmd_op::setsockopt,
+direct_socket.sqe_fd(),
+SOL_SOCKET,
+SO_BUSY_POLL,
+const_cast<int*>(opts.busy_poll_us_optval),
+static_cast<int>(sizeof(*opts.busy_poll_us_optval)));
 sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
 sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
 if(opts.skip_sockopt_success_cqes)

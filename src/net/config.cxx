@@ -144,6 +144,9 @@ bool auto_recv_arm_policy=false;// adaptive poll_first via IORING_CQE_F_SOCK_NON
 // responses use splice_to_fd (zero-copy) instead of read_fixed+SSL_write.
 // Requires CONFIG_TLS=y in the running kernel.
 bool ktls=false;
+// Busy-poll per accepted socket. 0 = disabled. Both require kernel 4.5+.
+u32 busy_poll_us=0;// SO_BUSY_POLL microseconds per socket
+bool prefer_busy_poll=false;// SO_PREFER_BUSY_POLL
 };
 namespace{
 SV strip_inline_comment(
@@ -217,6 +220,8 @@ else if(key=="fixed_buffer_bytes")
 cfg.fixed_buffer_bytes=parse_uint<SZ>(val,key);
 else if(key=="splice_pipe_pairs")
 cfg.splice_pipe_pairs=parse_uint<SZ>(val,key);
+else if(key=="busy_poll_us")
+cfg.busy_poll_us=parse_uint<u32>(val,key);
 else if(key=="startup_banner")
 cfg.startup_banner=parse_bool(val,key);
 else if(key=="http_redirect_to_https")
@@ -270,7 +275,7 @@ void apply_iouring_key(
 Config&cfg,
 SV key,
 SV val){
-static constexpr A<P<SV,bool Config::*>,14>kBoolKeys{
+static constexpr A<P<SV,bool Config::*>,15>kBoolKeys{
 {
 {"single_issuer",&Config::single_issuer},
 {"defer_taskrun",&Config::defer_taskrun},
@@ -286,6 +291,7 @@ static constexpr A<P<SV,bool Config::*>,14>kBoolKeys{
 {"recv_incremental_buf",&Config::recv_incremental_buf},
 {"ktls",&Config::ktls},
 {"auto_recv_arm_policy",&Config::auto_recv_arm_policy},
+{"prefer_busy_poll",&Config::prefer_busy_poll},
 }};
 for(auto const&[k,member]:kBoolKeys){
 if(key==k){

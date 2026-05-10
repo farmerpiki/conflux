@@ -923,6 +923,8 @@ bool overflow_flush_limit_hit_{false};
 bool use_recv_bundle=false;// IORING_RECVSEND_BUNDLE on multishot recv
 bool use_recv_incremental_buf=false;// IOU_PBUF_RING_INC on buffer ring
 bool auto_recv_arm_policy=false;// adaptive poll_first via IORING_CQE_F_SOCK_NONEMPTY
+int busy_poll_us_=0;// SO_BUSY_POLL optval; 0=disabled
+bool prefer_busy_poll_=false;// SO_PREFER_BUSY_POLL
 SZ max_body_size=SZ{1024}*1024;// set from Config before run_loop()
 u32 request_timeout_ms=30000;// set from Config before run_loop(); 0 = disabled
 u32 tls_sniff_timeout_ms=10000;// set from Config before run_loop(); 0 = disabled
@@ -1819,6 +1821,8 @@ auto handle=SocketHandle::from_direct(static_cast<u32>(fd));
 DirectTcpAcceptSetup setup{};
 setup.tcp_nodelay_once=caps.cmd_sock_setsockopt;
 setup.tcp_quickack_once=caps.cmd_sock_setsockopt;
+setup.prefer_busy_poll_once=prefer_busy_poll_&&caps.cmd_sock_setsockopt;
+setup.busy_poll_us_optval=busy_poll_us_>0&&caps.cmd_sock_setsockopt?&busy_poll_us_:nullptr;
 setup.skip_sockopt_success_cqes=true;
 if(!submit_direct_tcp_accept_setup_recv(
 raw_,
@@ -2387,6 +2391,10 @@ conn.h2_sse_pending_wait=false;
 if(!accepted_sockets_direct){
 ::setsockopt(res,IPPROTO_TCP,TCP_NODELAY,&tcp_opt_one_,sizeof tcp_opt_one_);
 ::setsockopt(res,IPPROTO_TCP,TCP_QUICKACK,&tcp_opt_one_,sizeof tcp_opt_one_);
+if(busy_poll_us_>0)
+::setsockopt(res,SOL_SOCKET,SO_BUSY_POLL,&busy_poll_us_,sizeof busy_poll_us_);
+if(prefer_busy_poll_)
+::setsockopt(res,SOL_SOCKET,SO_PREFER_BUSY_POLL,&tcp_opt_one_,sizeof tcp_opt_one_);
 queue_multishot_recv(res);
 }else{
 queue_direct_accept_setup(res);
@@ -4346,6 +4354,8 @@ r.init(impl_->cfg.port,entries,impl_->uring_flags,wq_fd,impl_->cfg.no_mmap);
 if(!impl_->cfg.recv_incremental_buf&&impl_->cfg.recv_bundle&&r.caps.recvsend_bundle)
 r.use_recv_bundle=true;
 r.auto_recv_arm_policy=impl_->cfg.auto_recv_arm_policy;
+r.busy_poll_us_=static_cast<int>(impl_->cfg.busy_poll_us);
+r.prefer_busy_poll_=impl_->cfg.prefer_busy_poll;
 if(impl_->cfg.attach_wq&&i==0){
 impl_->wq_ring_fd_.store(r.ring.ring_fd,memory_order_release);
 impl_->wq_ring_fd_.notify_all();
