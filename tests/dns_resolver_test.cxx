@@ -11,6 +11,7 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.file_io;
+import conflux.socket_io;
 import conflux.net.dns;
 
 using namespace conflux::net::dns;
@@ -311,6 +312,81 @@ g->ok=(::io_uring_queue_init(entries,&g->ring,0)==0);
 return g;
 }
 };
+// SocketTaskRing-owning ring guard for caller-ring tests.
+struct StrRingGuard{
+::io_uring ring{};
+CompletionTable ct;
+SocketTaskRing str;
+bool ring_ok{false};
+StrRingGuard()
+:str{SocketRawRing{&ring},ct,[](u32 s,u32 g)noexcept->u64{return pack_ud(s,g);}}{}
+~StrRingGuard(){
+if(ring_ok)::io_uring_queue_exit(&ring);
+}
+StrRingGuard(StrRingGuard const&)=delete;
+StrRingGuard&operator=(StrRingGuard const&)=delete;
+static UP<StrRingGuard>make(unsigned entries=64){
+auto g=make_unique<StrRingGuard>();
+if(::io_uring_queue_init(entries,&g->ring,0)<0)return{};
+g->ring_ok=true;
+return g;
+}
+};
+template<typename T>
+T block_on_str(
+StrRingGuard&g,
+conflux::work::root::Task<T>task,
+chrono::milliseconds budget=chrono::milliseconds{5000}){
+using namespace conflux::work::root;
+struct Slot{
+atomic_flag done{};
+EP err{};
+[[no_unique_address]]std::conditional_t<std::is_void_v<T>,std::monostate,Opt<T>>value{};
+};
+auto slot=make_shared<Slot>();
+auto jh=make_shared<TaskJoinHandle<T>>(into_join_handle(move(task)));
+jh->control().set_on_ready_or_run([slot,jh]()noexcept{
+try{
+auto outcome=join(move(*jh));
+if(outcome.is_failure())
+slot->err=move(outcome).failure().error;
+else if(outcome.is_cancelled())
+slot->err=make_exception_ptr(RE{"task cancelled"});
+else if constexpr(!std::is_void_v<T>)
+slot->value.emplace(move(outcome).success().value);
+}catch(...){slot->err=current_exception();}
+slot->done.test_and_set(memory_order_release);
+});
+auto*raw=&g.ring;
+auto*ct=&g.ct;
+auto const deadline=chrono::steady_clock::now()+budget;
+while(!slot->done.test(memory_order_acquire)){
+::io_uring_cqe*cqe=nullptr;
+__kernel_timespec ts{.tv_sec=1,.tv_nsec=0};
+int const rc=::io_uring_submit_and_wait_timeout(raw,&cqe,1,&ts,nullptr);
+if(rc==-ETIME){
+if(chrono::steady_clock::now()>deadline)
+throw RE{"block_on_str: budget exhausted"};
+continue;
+}
+if(rc==-EINTR)continue;
+if(rc>=0&&cqe==nullptr)continue;
+A<::io_uring_cqe*,32>batch{};
+for(;;){
+unsigned const n=::io_uring_peek_batch_cqe(raw,batch.data(),static_cast<unsigned>(batch.size()));
+if(n==0)break;
+for(unsigned i=0;i<n;++i){
+auto const*c=batch[static_cast<SZ>(i)];
+auto const ud=c->user_data;
+ct->dispatch(static_cast<u32>(ud&0xFFFFFFFFU),static_cast<u32>(ud>>32U),c->res,c->flags);
+}
+::io_uring_cq_advance(raw,n);
+if(slot->done.test(memory_order_acquire))break;
+}
+}
+if(slot->err)rethrow_exception(slot->err);
+if constexpr(!std::is_void_v<T>)return move(*slot->value);
+}
 }// namespace
 // ---------------------------------------------------------------------------
 // Tests: native_udp backend via resolve_blocking (spins its own temp ring)
@@ -1017,4 +1093,162 @@ auto r1b=r.resolve_blocking("lru1.test",80,opts);
 REQUIRE(r1b.has_value());
 CHECK_FALSE(r1b->from_cache);
 CHECK(mock.queries().size()>queries_before);
+}
+// ---------------------------------------------------------------------------
+// Tests: resolve(SocketTaskRing&, ...) — caller-provided ring
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"dns: resolve(ring) drives query on caller-supplied ring, not resolver-owned ring",
+"[dns][resolver][native][async_ring]"){
+auto g=RingGuard::make();
+REQUIRE(g);
+REQUIRE(g->ok);
+Resolver r{&g->ring,&g->ct,pack_ud};
+
+DnsMockServer mock;
+mock.set_response("ext-ring.test",1,{
+.kind=DnsMockServer::RespKind::noerror,
+.records={{.rdata={10,1,2,3},.ttl=60}},
+});
+
+auto gb=StrRingGuard::make();
+REQUIRE(gb);
+REQUIRE(gb->ring_ok);
+
+ResolveOptions opts=mock_opts(mock);
+opts.allow_v6=false;
+auto result=block_on_str<ResolveResult>(
+*gb,
+r.resolve(gb->str,"ext-ring.test",80,opts),
+chrono::milliseconds{5000});
+
+REQUIRE_FALSE(result.endpoints.empty());
+CHECK(result.endpoints[0].family==AddressFamily::v4);
+CHECK(mock.query_count("ext-ring.test",1)==1);
+}
+TEST_CASE(
+"dns: resolve(ring) does not coalesce with in-flight query on a different ring",
+"[dns][resolver][native][async_ring][coalesce]"){
+auto g=RingGuard::make();
+REQUIRE(g);
+REQUIRE(g->ok);
+Resolver r{&g->ring,&g->ct,pack_ud};
+
+DnsMockServer mock;
+mock.set_response("anti-coalesce.test",1,{
+.kind=DnsMockServer::RespKind::noerror,
+.records={{.rdata={10,4,5,6},.ttl=60}},
+});
+
+auto gb=StrRingGuard::make();
+REQUIRE(gb);
+REQUIRE(gb->ring_ok);
+
+ResolveOptions opts=mock_opts(mock);
+opts.allow_v6=false;
+
+// Start a query on the resolver-owned ring (pumped later).
+auto first=r.resolve("anti-coalesce.test",80,opts);
+// Start a query on ring B — different InFlightKey, must not coalesce with first.
+auto second=block_on_str<ResolveResult>(
+*gb,
+r.resolve(gb->str,"anti-coalesce.test",80,opts),
+chrono::milliseconds{5000});
+
+REQUIRE_FALSE(second.endpoints.empty());
+CHECK_FALSE(second.from_coalesced);
+
+// Now pump the resolver-owned ring so first completes cleanly.
+auto first_result=block_on<ResolveResult>(
+*r.file_reader(),
+move(first),
+std::make_optional(chrono::milliseconds{5000}),
+PackUdDecode{});
+REQUIRE_FALSE(first_result.endpoints.empty());
+CHECK_FALSE(first_result.from_coalesced);
+
+// Both rings sent independent queries — mock received at least 2.
+CHECK(mock.query_count("anti-coalesce.test",1)>=2);
+}
+TEST_CASE(
+"dns: two resolve(ring) calls for same host coalesce on same ring",
+"[dns][resolver][native][async_ring][coalesce]"){
+auto g=RingGuard::make();
+REQUIRE(g);
+REQUIRE(g->ok);
+Resolver r{&g->ring,&g->ct,pack_ud};
+
+DnsMockServer mock;
+mock.set_response("coalesce-b.test",1,{
+.kind=DnsMockServer::RespKind::noerror,
+.records={{.rdata={10,7,8,9},.ttl=60}},
+});
+mock.set_response("coalesce-b.test",28,{.kind=DnsMockServer::RespKind::nxdomain});
+
+auto gb=StrRingGuard::make();
+REQUIRE(gb);
+REQUIRE(gb->ring_ok);
+
+ResolveOptions const opts=mock_opts(mock);
+
+// Both calls before ring B is pumped — second attaches as waiter.
+using RR=ResolveResult;
+auto first=r.resolve(gb->str,"coalesce-b.test",80,opts);
+auto second=r.resolve(gb->str,"coalesce-b.test",80,opts);
+auto[res1,res2]=block_on_str<Tup<RR,RR>>(
+*gb,
+join_all(move(first),move(second)),
+chrono::milliseconds{5000});
+
+CHECK_FALSE(res1.endpoints.empty());
+CHECK_FALSE(res2.endpoints.empty());
+CHECK_FALSE(res1.from_coalesced);
+CHECK(res2.from_coalesced);
+// Only one A and one AAAA query should have been sent.
+CHECK(mock.query_count("coalesce-b.test",1)==1);
+CHECK(mock.query_count("coalesce-b.test",28)==1);
+}
+TEST_CASE(
+"dns: resolve(ring) on nss_thread resolver rejects non-literal host, passes early exits",
+"[dns][resolver][nss_thread][async_ring]"){
+using namespace conflux;
+WorkPool pool{WorkPoolOptions{.threads=1}};
+
+TempTextFile const hosts{"hosts-ext-ring","127.0.0.1 hosts-hit.test\n"};
+ResolverOptions ropts;
+ropts.enable_etc_hosts=true;
+ropts.hosts_file=hosts.path();
+Resolver r{pool,move(ropts)};
+
+auto gb=StrRingGuard::make();
+REQUIRE(gb);
+REQUIRE(gb->ring_ok);
+
+// IP literal always succeeds regardless of backend.
+auto lit=block_on_str<ResolveResult>(
+*gb,
+r.resolve(gb->str,"192.168.0.1",80),
+chrono::milliseconds{1000});
+REQUIRE(lit.endpoints.size()==1);
+CHECK(lit.endpoints[0].family==AddressFamily::v4);
+
+// /etc/hosts hit succeeds without hitting the backend.
+auto hosts_hit=block_on_str<ResolveResult>(
+*gb,
+r.resolve(gb->str,"hosts-hit.test",80),
+chrono::milliseconds{1000});
+REQUIRE_FALSE(hosts_hit.endpoints.empty());
+CHECK(hosts_hit.from_hosts_file);
+
+// Non-literal, non-cached host must return not_implemented.
+try{
+block_on_str<ResolveResult>(
+*gb,
+r.resolve(gb->str,"example.test",80),
+chrono::milliseconds{1000});
+FAIL("expected DnsError");
+}catch(DnsError const&e){
+CHECK(e.kind==DnsErrorKind::not_implemented);
+}
 }

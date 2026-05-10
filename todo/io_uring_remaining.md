@@ -33,7 +33,7 @@ TCP fallback already uses `SocketTaskRing`. Remaining:
 - [x] Remove temp-ring allocation from per-query blocking DNS path — thread-local `TlsRingBase` + `SocketTaskRing` reused across calls.
 - [x] Add thread-local reusable `SocketTaskRing`/ring for blocking compatibility path.
 - [x] Add cancellation-aware linked timeout for UDP queries — already implemented via `UdpSocket::recv_from(buf, timeout)` using `submit_recvmsg_timeout_borrowed`.
-- [ ] Add caller-provided `SocketTaskRing` path for async DNS.
+- [x] Add caller-provided `SocketTaskRing` path for async DNS.
 
 ### Direct accept TCP_NODELAY (P1-04)
 

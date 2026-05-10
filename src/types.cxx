@@ -71,6 +71,7 @@ export namespace chrono=std::chrono;
 
 export using std::span;
 export using std::mutex;
+export using std::lock_guard;
 export using std::variant;
 export using std::expected;
 export using std::move;

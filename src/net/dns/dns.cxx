@@ -602,6 +602,10 @@ Resolver&operator=(Resolver&&)=delete;
 [[nodiscard]]conflux::work::root::Task<ResolveResult>
 resolve(string_view host,u16 port,ResolveOptions const&opts={});
 
+// ring must outlive the returned Task and any coalesced waiters sharing that ring
+[[nodiscard]]conflux::work::root::Task<ResolveResult>
+resolve(SocketTaskRing&ring,string_view host,u16 port,ResolveOptions const&opts={});
+
 [[nodiscard]]expected<ResolveResult,DnsError>
 resolve_blocking(string_view host,u16 port,ResolveOptions const&opts={});
 
@@ -614,7 +618,7 @@ void reload();
 // Exposed for tests that pump the ring directly (e.g. coalescing tests).
 [[nodiscard]]FileReader*file_reader()const noexcept;
 private:
-[[nodiscard]]root::Task<ResolveResult>resolve_flow(string_view host,u16 port,ResolveOptions const&opts={});
+[[nodiscard]]root::Task<ResolveResult>resolve_flow(SocketTaskRing*external_ring,string_view host,u16 port,ResolveOptions const&opts={});
 
 struct Impl;
 SP<Impl>impl_;
@@ -1511,6 +1515,22 @@ return out;
 struct CoalescedBroadcast{
 vector<SP<root::TaskSource<ResolveResult>>>waiters;
 };
+struct InFlightKey{
+string cache_key;
+SocketTaskRing*ring{};
+};
+struct InFlightKeyHash{
+size_t operator()(InFlightKey const&k)const noexcept{
+size_t h1=hash<string>{}(k.cache_key);
+size_t h2=hash<void const*>{}(k.ring);
+return h1^(h2+0x9e3779b97f4a7c15ULL+(h1<<6U)+(h1>>2U));
+}
+};
+struct InFlightKeyEq{
+bool operator()(InFlightKey const&a,InFlightKey const&b)const noexcept{
+return a.ring==b.ring&&a.cache_key==b.cache_key;
+}
+};
 struct Resolver::Impl{
 ResolverBackend backend{};
 UP<FileReader>reader{};
@@ -1524,7 +1544,8 @@ chrono::milliseconds resolv_query_timeout{0};
 size_t attempts{1};
 unordered_map<string,vector<Endpoint>>hosts_cache;
 SP<LruDnsCache>cache{};
-unordered_map<string,CoalescedBroadcast>in_flight;
+unordered_map<InFlightKey,CoalescedBroadcast,InFlightKeyHash,InFlightKeyEq>in_flight;
+mutex in_flight_mutex;
 };
 Resolver::Resolver(
 ::io_uring*ring,
@@ -1572,6 +1593,7 @@ impl_->cache=make_shared<LruDnsCache>(impl_->opts.cache_capacity);
 }
 Resolver::~Resolver()=default;
 root::Task<ResolveResult>Resolver::resolve_flow(
+SocketTaskRing*external_ring,
 string_view host,
 u16 port,
 ResolveOptions const&per_opts){
@@ -1626,15 +1648,15 @@ return move(task);
 }
 }
 
-// Unified key for LRU cache and in-flight coalescing (empty when bypass_cache)
-string const coalesce_key=
+string const cache_key=
 effective_opts.bypass_cache?
 string{}:
 make_cache_key(host,port,effective_opts.prefer,effective_opts.allow_v4,effective_opts.allow_v6);
+InFlightKey const inflight_key{cache_key,external_ring};
 
 // LRU cache lookup
-if(impl_->cache&&!coalesce_key.empty()){
-if(auto hit=impl_->cache->get(coalesce_key);hit.has_value()){
+if(impl_->cache&&!cache_key.empty()){
+if(auto hit=impl_->cache->get(cache_key);hit.has_value()){
 auto[task,raw_src]=
 root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
 if(hit->is_negative){
@@ -1648,7 +1670,7 @@ return move(task);
 }
 }
 
-auto cache_insert=[cache=impl_->cache,cache_key=coalesce_key,max_ttl=impl_->opts.cache_max_ttl](
+auto cache_insert=[cache=impl_->cache,cache_key=cache_key,max_ttl=impl_->opts.cache_max_ttl](
 ResolveResult r)->ResolveResult{// NOLINT(bugprone-exception-escape)
 try{
 if(cache&&!cache_key.empty()&&!r.endpoints.empty()){
@@ -1660,6 +1682,12 @@ return r;
 };
 
 if(impl_->backend==ResolverBackend::nss_thread){
+if(external_ring!=nullptr){
+auto[task,raw_src]=root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
+auto _=raw_src.try_set_exception(
+make_exception_ptr(DnsError{DnsErrorKind::not_implemented,"resolve: nss_thread resolver does not support caller-provided ring"}));
+return move(task);
+}
 auto[task,raw_src]=root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
 auto shared_src=make_shared<root::TaskSource<ResolveResult>>(move(raw_src));
 bool const ok=impl_->pool->enqueue([shared_src,// NOLINT(bugprone-exception-escape)
@@ -1668,7 +1696,7 @@ port,
 allow_v4=effective_opts.allow_v4,
 allow_v6=effective_opts.allow_v6,
 cache=impl_->cache,
-cache_key=coalesce_key,
+cache_key=cache_key,
 ttl=impl_->opts.cache_max_ttl]()mutable{
 try{
 addrinfo hints{};
@@ -1731,14 +1759,22 @@ make_exception_ptr(DnsError{DnsErrorKind::no_servers,"resolve: no nameservers co
 return move(task);
 }
 
-if(impl_->in_flight.size()>=impl_->opts.max_in_flight_queries){
+SocketTaskRing*task_ring=external_ring?external_ring:impl_->task_ring.get();
+if(task_ring==nullptr){
 auto[task,raw_src]=root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
 auto _=raw_src.try_set_exception(
-make_exception_ptr(DnsError{DnsErrorKind::cancelled,"resolve: max in-flight queries exceeded"}));
+make_exception_ptr(DnsError{DnsErrorKind::no_ring,"resolve: no ring available"}));
 return move(task);
 }
-if(!coalesce_key.empty()){
-if(auto it=impl_->in_flight.find(coalesce_key);it!=impl_->in_flight.end()){
+
+optional<root::Task<ResolveResult>>coalesced_out;
+bool max_inflight_exceeded=false;
+{
+lock_guard lock{impl_->in_flight_mutex};
+if(impl_->in_flight.size()>=impl_->opts.max_in_flight_queries){
+max_inflight_exceeded=true;
+}else if(!inflight_key.cache_key.empty()){
+if(auto it=impl_->in_flight.find(inflight_key);it!=impl_->in_flight.end()){
 auto[wtask,wraw_src]=
 root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
 auto shared_waiter=make_shared<root::TaskSource<ResolveResult>>(move(wraw_src));
@@ -1757,12 +1793,20 @@ make_exception_ptr(DnsError{DnsErrorKind::cancelled,"dns: query cancelled"}));
 }catch(...){auto _=out_src->try_set_exception(current_exception());}
 }(out_src,move(wtask))
 .detach();
-return move(out_task);
+coalesced_out=move(out_task);
+}else{
+impl_->in_flight.emplace(inflight_key,CoalescedBroadcast{});
 }
-impl_->in_flight.emplace(coalesce_key,CoalescedBroadcast{});
 }
-
-SocketTaskRing*task_ring=impl_->task_ring.get();
+}
+if(max_inflight_exceeded){
+auto[task,raw_src]=root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation=false});
+auto _=raw_src.try_set_exception(
+make_exception_ptr(DnsError{DnsErrorKind::cancelled,"resolve: max in-flight queries exceeded"}));
+return move(task);
+}
+if(coalesced_out.has_value())
+return move(*coalesced_out);
 auto const timeout=effective_native_timeout(effective_opts);
 codec::Edns0Options const edns{.udp_size=impl_->opts.edns0_udp_size};
 bool const do_v4=effective_opts.allow_v4;
@@ -1770,12 +1814,12 @@ bool const do_v6=effective_opts.allow_v6;
 auto const candidates=resolve_candidates(host,impl_->search_domains,impl_->ndots);
 
 auto fanout_success=// NOLINT(bugprone-exception-escape)
-[impl=impl_,coalesce_key](ResolveResult r)->ResolveResult{
+[impl=impl_,inflight_key](ResolveResult r)->ResolveResult{
 auto impl_keep=impl;
-auto key=coalesce_key;
 vector<SP<root::TaskSource<ResolveResult>>>waiters;
-if(!key.empty()){
-if(auto it=impl_keep->in_flight.find(key);it!=impl_keep->in_flight.end()){
+if(!inflight_key.cache_key.empty()){
+lock_guard lock{impl_keep->in_flight_mutex};
+if(auto it=impl_keep->in_flight.find(inflight_key);it!=impl_keep->in_flight.end()){
 waiters=move(it->second.waiters);
 impl_keep->in_flight.erase(it);
 }
@@ -1789,12 +1833,12 @@ return r;
 };
 
 auto fanout_error=// NOLINT(bugprone-exception-escape)
-[impl=impl_,coalesce_key](exception_ptr const&ep)->ResolveResult{
+[impl=impl_,inflight_key](exception_ptr const&ep)->ResolveResult{
 auto impl_keep=impl;
-auto key=coalesce_key;
 vector<SP<root::TaskSource<ResolveResult>>>waiters;
-if(!key.empty()){
-if(auto it=impl_keep->in_flight.find(key);it!=impl_keep->in_flight.end()){
+if(!inflight_key.cache_key.empty()){
+lock_guard lock{impl_keep->in_flight_mutex};
+if(auto it=impl_keep->in_flight.find(inflight_key);it!=impl_keep->in_flight.end()){
 waiters=move(it->second.waiters);
 impl_keep->in_flight.erase(it);
 }
@@ -1805,11 +1849,11 @@ auto _=w->try_set_exception(ep);
 try{
 rethrow_exception(ep);
 }catch(DnsError const&de){
-if(de.kind==DnsErrorKind::nxdomain&&impl_keep->cache&&!key.empty()){
+if(de.kind==DnsErrorKind::nxdomain&&impl_keep->cache&&!inflight_key.cache_key.empty()){
 ResolveResult neg;
 neg.is_negative=true;
 try{
-impl_keep->cache->put(key,neg,impl_keep->opts.cache_negative_ttl);
+impl_keep->cache->put(inflight_key.cache_key,neg,impl_keep->opts.cache_negative_ttl);
 }catch(...){}// NOLINT(bugprone-empty-catch)
 }
 throw;
@@ -1826,7 +1870,7 @@ auto cache_insert,
 auto fanout_success,
 auto fanout_error,
 SP<Resolver::Impl>impl,
-string coalesce_key)mutable->root::Task<void>{
+InFlightKey inflight_key)mutable->root::Task<void>{
 try{
 auto out=out_src;
 auto r=co_await move(inner);
@@ -1835,9 +1879,10 @@ r=fanout_success(move(r));
 auto _=out->try_set_value(root::Success<ResolveResult>{move(r)});
 }catch(Cancelled const&){
 auto out=out_src;
-auto key=coalesce_key;
+auto key=inflight_key;
 vector<SP<root::TaskSource<ResolveResult>>>waiters;
-if(!key.empty()){
+if(!key.cache_key.empty()){
+lock_guard lock{impl->in_flight_mutex};
 if(auto it=impl->in_flight.find(key);it!=impl->in_flight.end()){
 waiters=move(it->second.waiters);
 impl->in_flight.erase(it);
@@ -1870,7 +1915,7 @@ move(cache_insert),
 move(fanout_success),
 move(fanout_error),
 impl_,
-coalesce_key)
+inflight_key)
 .detach();
 return move(out_task);
 }
@@ -1878,7 +1923,14 @@ conflux::work::root::Task<ResolveResult>Resolver::resolve(
 string_view host,
 u16 port,
 ResolveOptions const&opts){
-return resolve_flow(host,port,opts);
+return resolve_flow(nullptr,host,port,opts);
+}
+conflux::work::root::Task<ResolveResult>Resolver::resolve(
+SocketTaskRing&ring,
+string_view host,
+u16 port,
+ResolveOptions const&opts){
+return resolve_flow(&ring,host,port,opts);
 }
 namespace{
 struct TlsRingBase{
