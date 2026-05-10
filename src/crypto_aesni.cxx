@@ -100,42 +100,43 @@ lo=_mm_shuffle_epi8(lut,lo);
 hi=_mm_shuffle_epi8(lut,hi);
 return _mm_or_si128(_mm_slli_epi16(lo,4),hi);
 }
-// PCLMULQDQ multiply + reduce mod P(x) = x^128+x^7+x^2+x+1
-// Inputs/outputs in byte-bitrev'd domain. Folds hi 128 bits into lo.
-inline static __m128i gf128_mul(
-__m128i a,
-__m128i b){
-__m128i t0=_mm_clmulepi64_si128(a,b,0x00);
-__m128i t1=_mm_clmulepi64_si128(a,b,0x11);
-__m128i const t2=_mm_xor_si128(_mm_clmulepi64_si128(a,b,0x01),_mm_clmulepi64_si128(a,b,0x10));
-t0=_mm_xor_si128(t0,_mm_slli_si128(t2,8));
-t1=_mm_xor_si128(t1,_mm_srli_si128(t2,8));
-
-// Full 128-bit left shifts of hi
+// Reduce 256-bit GF(2^128) product [t1:t0] mod P(x)=x^128+x^7+x^2+x+1.
+// t0 = low 128 bits, t1 = high 128 bits (byte-bitrev domain).
+inline static __m128i reduce256(__m128i t0,__m128i t1)noexcept{
 __m128i const hi1=_mm_or_si128(_mm_slli_epi64(t1,1),_mm_slli_si128(_mm_srli_epi64(t1,63),8));
 __m128i const hi2=_mm_or_si128(_mm_slli_epi64(t1,2),_mm_slli_si128(_mm_srli_epi64(t1,62),8));
 __m128i const hi7=_mm_or_si128(_mm_slli_epi64(t1,7),_mm_slli_si128(_mm_srli_epi64(t1,57),8));
-
-__m128i r=_mm_xor_si128(t0,t1);
-r=_mm_xor_si128(r,hi1);
-r=_mm_xor_si128(r,hi2);
-r=_mm_xor_si128(r,hi7);
-
-// Overflow from hi<<1 (1 bit), hi<<2 (2 bits), hi<<7 (7 bits)
+__m128i r=_mm_xor_si128(_mm_xor_si128(t0,t1),_mm_xor_si128(hi1,_mm_xor_si128(hi2,hi7)));
 __m128i const hi_hi=_mm_srli_si128(t1,8);
-__m128i const ov=
-_mm_xor_si128(_mm_srli_epi64(hi_hi,63),_mm_xor_si128(_mm_srli_epi64(hi_hi,62),_mm_srli_epi64(hi_hi,57)));
+__m128i const ov=_mm_xor_si128(_mm_srli_epi64(hi_hi,63),_mm_xor_si128(_mm_srli_epi64(hi_hi,62),_mm_srli_epi64(hi_hi,57)));
 r=_mm_xor_si128(r,ov);
-r=_mm_xor_si128(
-r,
-_mm_xor_si128(_mm_slli_epi64(ov,1),_mm_xor_si128(_mm_slli_epi64(ov,2),_mm_slli_epi64(ov,7))));
-return r;
+return _mm_xor_si128(r,_mm_xor_si128(_mm_slli_epi64(ov,1),_mm_xor_si128(_mm_slli_epi64(ov,2),_mm_slli_epi64(ov,7))));
+}
+// GF(2^128) multiply via Karatsuba: 3 PCLMULQDQ instead of 4.
+// a_m = [*:a_lo XOR a_hi] (low 64 bits are the Karatsuba mixed factor; high 64 bits ignored).
+// Pass precomputed a_m when available to avoid recomputing.
+inline static __m128i gf128_mul_m(
+__m128i a,__m128i b,__m128i a_m,__m128i b_m)noexcept{
+__m128i t0=_mm_clmulepi64_si128(a,b,0x00);
+__m128i t1=_mm_clmulepi64_si128(a,b,0x11);
+__m128i tm=_mm_clmulepi64_si128(a_m,b_m,0x00);
+tm=_mm_xor_si128(tm,_mm_xor_si128(t0,t1));
+t0=_mm_xor_si128(t0,_mm_slli_si128(tm,8));
+t1=_mm_xor_si128(t1,_mm_srli_si128(tm,8));
+return reduce256(t0,t1);
+}
+// Convenience wrapper — computes mixed factors inline (used for H-powers setup and tail).
+inline static __m128i gf128_mul(__m128i a,__m128i b)noexcept{
+__m128i const a_m=_mm_xor_si128(a,_mm_srli_si128(a,8));
+__m128i const b_m=_mm_xor_si128(b,_mm_srli_si128(b,8));
+return gf128_mul_m(a,b,a_m,b_m);
 }
 // Per-thread cache of the last-used key schedule and H powers.
 // Covers the common pattern: one key per thread, many operations.
 struct KeyCtx{
 AesniKey256 ek;
 __m128i h_br,h2_br,h3_br,h4_br;
+__m128i h_m,h2_m,h3_m,h4_m;// Karatsuba mixed factors: low64 = H[63:0] XOR H[127:64]
 unsigned char key[32];
 bool valid{false};
 };
@@ -149,6 +150,11 @@ tl_key_ctx.h_br=byte_bitrev(h);
 tl_key_ctx.h2_br=gf128_mul(tl_key_ctx.h_br,tl_key_ctx.h_br);
 tl_key_ctx.h3_br=gf128_mul(tl_key_ctx.h2_br,tl_key_ctx.h_br);
 tl_key_ctx.h4_br=gf128_mul(tl_key_ctx.h2_br,tl_key_ctx.h2_br);
+auto const km=[](__m128i v)noexcept{return _mm_xor_si128(v,_mm_srli_si128(v,8));};
+tl_key_ctx.h_m=km(tl_key_ctx.h_br);
+tl_key_ctx.h2_m=km(tl_key_ctx.h2_br);
+tl_key_ctx.h3_m=km(tl_key_ctx.h3_br);
+tl_key_ctx.h4_m=km(tl_key_ctx.h4_br);
 std::memcpy(tl_key_ctx.key,key,32);
 tl_key_ctx.valid=true;
 return tl_key_ctx;
@@ -228,13 +234,13 @@ b1=_mm_aesenclast_si128(b1,ek.rk[14]);
 b2=_mm_aesenclast_si128(b2,ek.rk[14]);
 b3=_mm_aesenclast_si128(b3,ek.rk[14]);
 }
-// GHASH: state kept in byte_bitrev'd domain. h_br = byte_bitrev(H).
-// 4-block bulk path: all four gf128_mul calls are independent; hardware OOO
-// pipelines the PCLMULQDQ operations (7-cycle latency, 1/cycle throughput).
-// Formula: state = (state⊕d0)×H⁴ ⊕ d1×H³ ⊕ d2×H² ⊕ d3×H
+// GHASH bulk: Karatsuba lazy reduction — 12 PCLMULQDQ + 1 reduce256 per 4 blocks
+// vs the naive 16 PCLMULQDQ + 4 reduce256. h_m = H[63:0] XOR H[127:64] (Karatsuba
+// mixed factor, precomputed). Accumulate lo/hi/mid products, reduce once.
 static void ghash_update_clmul(
 __m128i&state_br,
 __m128i h_br,__m128i h2_br,__m128i h3_br,__m128i h4_br,
+__m128i h_m,__m128i h2_m,__m128i h3_m,__m128i h4_m,
 unsigned char const*data,
 SZ len){
 SZ pos=0;
@@ -243,11 +249,24 @@ __m128i d0=byte_bitrev(_mm_loadu_si128(reinterpret_cast<__m128i const*>(data+pos
 __m128i d1=byte_bitrev(_mm_loadu_si128(reinterpret_cast<__m128i const*>(data+pos+16)));
 __m128i d2=byte_bitrev(_mm_loadu_si128(reinterpret_cast<__m128i const*>(data+pos+32)));
 __m128i d3=byte_bitrev(_mm_loadu_si128(reinterpret_cast<__m128i const*>(data+pos+48)));
-__m128i const s0=gf128_mul(_mm_xor_si128(state_br,d0),h4_br);
-__m128i const s1=gf128_mul(d1,h3_br);
-__m128i const s2=gf128_mul(d2,h2_br);
-__m128i const s3=gf128_mul(d3,h_br);
-state_br=_mm_xor_si128(_mm_xor_si128(s0,s1),_mm_xor_si128(s2,s3));
+d0=_mm_xor_si128(state_br,d0);
+__m128i const d0m=_mm_xor_si128(d0,_mm_srli_si128(d0,8));
+__m128i const d1m=_mm_xor_si128(d1,_mm_srli_si128(d1,8));
+__m128i const d2m=_mm_xor_si128(d2,_mm_srli_si128(d2,8));
+__m128i const d3m=_mm_xor_si128(d3,_mm_srli_si128(d3,8));
+__m128i acc_lo=_mm_xor_si128(
+_mm_xor_si128(_mm_clmulepi64_si128(d0,h4_br,0x00),_mm_clmulepi64_si128(d1,h3_br,0x00)),
+_mm_xor_si128(_mm_clmulepi64_si128(d2,h2_br,0x00),_mm_clmulepi64_si128(d3,h_br,0x00)));
+__m128i acc_hi=_mm_xor_si128(
+_mm_xor_si128(_mm_clmulepi64_si128(d0,h4_br,0x11),_mm_clmulepi64_si128(d1,h3_br,0x11)),
+_mm_xor_si128(_mm_clmulepi64_si128(d2,h2_br,0x11),_mm_clmulepi64_si128(d3,h_br,0x11)));
+__m128i acc_mid=_mm_xor_si128(
+_mm_xor_si128(_mm_clmulepi64_si128(d0m,h4_m,0x00),_mm_clmulepi64_si128(d1m,h3_m,0x00)),
+_mm_xor_si128(_mm_clmulepi64_si128(d2m,h2_m,0x00),_mm_clmulepi64_si128(d3m,h_m,0x00)));
+acc_mid=_mm_xor_si128(acc_mid,_mm_xor_si128(acc_lo,acc_hi));
+__m128i const t0=_mm_xor_si128(acc_lo,_mm_slli_si128(acc_mid,8));
+__m128i const t1=_mm_xor_si128(acc_hi,_mm_srli_si128(acc_mid,8));
+state_br=reduce256(t0,t1);
 pos+=64;
 }
 alignas(16)unsigned char block[16];
@@ -319,8 +338,8 @@ ctr_xor(kc.ek,ctr,pt,out,pt_len);
 
 __m128i ghash_br=_mm_setzero_si128();
 if(aad_len>0)
-ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,aad,aad_len);
-ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,out,pt_len);
+ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,kc.h_m,kc.h2_m,kc.h3_m,kc.h4_m,aad,aad_len);
+ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,kc.h_m,kc.h2_m,kc.h3_m,kc.h4_m,out,pt_len);
 
 alignas(16)unsigned char len_block[16]{};
 uint64_t const aad_bits=aad_len*8;
@@ -363,8 +382,8 @@ __m128i const j0=_mm_load_si128(reinterpret_cast<__m128i const*>(j0_buf));
 
 __m128i ghash_br=_mm_setzero_si128();
 if(aad_len>0)
-ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,aad,aad_len);
-ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,ct_tag,ct_len);
+ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,kc.h_m,kc.h2_m,kc.h3_m,kc.h4_m,aad,aad_len);
+ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,kc.h_m,kc.h2_m,kc.h3_m,kc.h4_m,ct_tag,ct_len);
 
 alignas(16)unsigned char len_block[16]{};
 uint64_t const aad_bits=aad_len*8;
