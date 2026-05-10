@@ -33,7 +33,7 @@ target_link_libraries(conflux_file_copy_coro_bench
 
 add_executable(conflux_tcp_increment_coro_bench tcp_increment_coro_bench.cxx)
 target_link_libraries(conflux_tcp_increment_coro_bench
-    PRIVATE bench_common conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
+    PRIVATE bench_common conflux_file_io conflux_socket_io conflux_work conflux_options PkgConfig::LIBURING)
 
 add_executable(conflux_tcp_socket_task_bench tcp_socket_task_bench.cxx)
 target_link_libraries(conflux_tcp_socket_task_bench
@@ -114,7 +114,6 @@ set(_record_targets
     conflux_work_benchmarks
     conflux_file_copy_coro_bench
     conflux_tcp_increment_coro_bench
-    conflux_tcp_socket_task_bench
     # conflux_tcp_parallel_coro_bench
     conflux_json_bench
     conflux_crypto_bench

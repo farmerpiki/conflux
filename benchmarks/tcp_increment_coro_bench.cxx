@@ -1,11 +1,6 @@
-// Benchmark: TCP round-trip loop (send N, expect N+1). Server uses blocking
-// syscalls + std::from_chars/std::to_chars. Client uses async io_uring I/O
-// via FileReader in two styles: block_on per op (callback) vs a single
-// Task<void> that co_awaits each op (coroutine).
-//
-// TLS variant not included here — async TLS needs memory BIOs shuttled
-// through the ring (the HTTP server does this internally); doing it
-// cleanly for a bench is substantial.
+// Benchmark: TCP round-trip (send N, expect N+1).
+// fr/* variants use FileReader; str/* variants use SocketTaskRing/TcpStream.
+// Phase 1: all four variants run against the same blocking single-connection server.
 #include<arpa/inet.h>
 #include<charconv>
 #include<liburing.h>
@@ -18,6 +13,8 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.file_io;
+import conflux.socket_io;
+import conflux.socket_io.coro;
 
 using conflux::work::root::Task;
 namespace{
@@ -72,18 +69,12 @@ std::exit(0);
 }
 return cfg;
 }
-// Each frame is variable-length ASCII digits terminated by '\n'.
-// Server reads until '\n', parses, increments, writes "N+1\n".
-void run_server(
-int listen_fd,
+// ── server ────────────────────────────────────────────────────────────────────
+void serve_one(
+int cfd,
 atomic_flag&stop){
-int const cfd=::accept4(listen_fd,nullptr,nullptr,SOCK_CLOEXEC);
-::close(listen_fd);
-if(cfd<0)
-return;
 int one=1;
 ::setsockopt(cfd,IPPROTO_TCP,TCP_NODELAY,&one,sizeof(one));
-
 A<char,64>buf{};
 SZ held=0;
 while(!stop.test(memory_order_acquire)){
@@ -99,8 +90,7 @@ if(it==view.end())
 break;
 SZ const msg_end=scan+static_cast<SZ>(it-view.begin());
 u64 n=0;
-auto const parsed=from_chars(buf.data()+scan,buf.data()+msg_end,n);
-if(parsed.ec!=errc{}){
+if(from_chars(buf.data()+scan,buf.data()+msg_end,n).ec!=errc{}){
 ::close(cfd);
 return;
 }
@@ -132,6 +122,21 @@ return;
 }
 }
 ::close(cfd);
+}
+void run_server(
+int listen_fd,
+atomic_flag&stop){
+timeval tv{.tv_sec=0,.tv_usec=100000};
+::setsockopt(listen_fd,SOL_SOCKET,SO_RCVTIMEO,&tv,sizeof(tv));
+while(!stop.test(memory_order_acquire)){
+int const cfd=::accept4(listen_fd,nullptr,nullptr,SOCK_CLOEXEC);
+if(cfd<0){
+if(errno==EAGAIN||errno==EINTR)continue;
+break;
+}
+serve_one(cfd,stop);
+}
+::close(listen_fd);
 }
 int start_listener(
 u16&port_out){
@@ -177,6 +182,15 @@ throw RE{"connect"};
 }
 return fd;
 }
+sockaddr_storage loopback_addr(
+u16 port)noexcept{
+sockaddr_storage ss{};
+auto*sin=reinterpret_cast<sockaddr_in*>(&ss);
+sin->sin_family=AF_INET;
+sin->sin_addr.s_addr=::htonl(INADDR_LOOPBACK);
+sin->sin_port=::htons(port);
+return ss;
+}
 SZ encode_line(
 span<char>out,
 u64 n){
@@ -189,12 +203,12 @@ return static_cast<SZ>(r.ptr-out.data())+1;
 u64 decode_line(
 SV line){
 u64 n=0;
-auto const r=from_chars(line.data(),line.data()+line.size(),n);
-if(r.ec!=errc{})
+if(from_chars(line.data(),line.data()+line.size(),n).ec!=errc{})
 throw RE{"from_chars"};
 return n;
 }
-struct AsyncLineReader{
+// ── fr/* (FileReader) variants ────────────────────────────────────────────────
+struct FrLineReader{
 FileReader&files;
 FileHandle const&handle;
 A<byte,128>buf{};
@@ -215,16 +229,15 @@ held+=got;
 }
 void consume_line(
 SZ line_len){
-SZ const drop=line_len+1;
-consume_prefix(buf,held,drop);
+consume_prefix(buf,held,line_len+1);
 }
 };
-u64 run_callback(
+u64 run_fr_callback(
 FileReader&files,
 FileHandle const&sock,
 SZ iters,
 u64 start){
-AsyncLineReader reader{.files=files,.handle=sock};
+FrLineReader reader{.files=files,.handle=sock};
 A<char,24>out{};
 u64 n=start;
 auto const t0=chrono::steady_clock::now();
@@ -241,12 +254,12 @@ n=got;
 auto const t1=chrono::steady_clock::now();
 return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1-t0).count());
 }
-Task<u64>coro_loop(
+Task<u64>fr_coro_loop(
 FileReader&files,
 FileHandle const&sock,
 SZ iters,
 u64 start){
-AsyncLineReader reader{.files=files,.handle=sock};
+FrLineReader reader{.files=files,.handle=sock};
 A<char,24>out{};
 u64 n=start;
 for(SZ i=0;i<iters;++i){
@@ -261,13 +274,99 @@ n=got;
 }
 co_return n;
 }
-u64 run_coroutine(
+u64 run_fr_coroutine(
 FileReader&files,
 FileHandle const&sock,
 SZ iters,
 u64 start){
 auto const t0=chrono::steady_clock::now();
-(void)block_on(files,coro_loop(files,sock,iters,start));
+auto _=block_on(files,fr_coro_loop(files,sock,iters,start));
+auto const t1=chrono::steady_clock::now();
+return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1-t0).count());
+}
+// ── str/* (SocketTaskRing) variants ───────────────────────────────────────────
+struct StrLineReader{
+TcpStream&stream;
+SocketTaskRing&ring;
+A<u8,128>buf{};
+SZ held=0;
+SV read_line(){
+for(;;){
+auto view=span{buf}.first(held);
+auto it=ranges::find(view,u8('\n'));
+if(it!=view.end()){
+SZ const end=static_cast<SZ>(it-view.begin());
+return SV{reinterpret_cast<char const*>(buf.data()),end};
+}
+SZ const got=block_on_socket_task(ring,stream.recv_borrowed(span<u8>{buf.data()+held,buf.size()-held}));
+if(got==0)throw RE{"eof"};
+held+=got;
+}
+}
+void consume_line(
+SZ line_len){
+consume_prefix(buf,held,line_len+1);
+}
+};
+u64 run_str_callback(
+SocketTaskRing&ring,
+TcpStream&stream,
+SZ iters,
+u64 start){
+StrLineReader reader{.stream=stream,.ring=ring};
+A<char,24>out{};
+u64 n=start;
+auto const t0=chrono::steady_clock::now();
+for(SZ i=0;i<iters;++i){
+SZ const len=encode_line(out,n);
+block_on_socket_task(ring,stream.write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const*>(out.data()),len}));
+auto line=reader.read_line();
+u64 const got=decode_line(line);
+reader.consume_line(line.size());
+if(got!=n+1)
+throw RE{format("expected {} got {}",n+1,got)};
+n=got;
+}
+auto const t1=chrono::steady_clock::now();
+return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1-t0).count());
+}
+Task<u64>str_coro_loop(
+TcpStream&stream,
+SZ iters,
+u64 start){
+A<u8,128>rbuf{};
+SZ held=0;
+A<char,24>out{};
+u64 n=start;
+for(SZ i=0;i<iters;++i){
+SZ const len=encode_line(out,n);
+co_await stream.write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const*>(out.data()),len});
+for(;;){
+auto view=span{rbuf}.first(held);
+auto it=ranges::find(view,u8('\n'));
+if(it!=view.end()){
+SZ const end=static_cast<SZ>(it-view.begin());
+SV const line{reinterpret_cast<char const*>(rbuf.data()),end};
+u64 const got=decode_line(line);
+consume_prefix(rbuf,held,end+1);
+if(got!=n+1)throw RE{format("expected {} got {}",n+1,got)};
+n=got;
+break;
+}
+SZ const r=co_await stream.recv_borrowed(span<u8>{rbuf.data()+held,rbuf.size()-held});
+if(r==0)throw RE{"eof"};
+held+=r;
+}
+}
+co_return n;
+}
+u64 run_str_coroutine(
+SocketTaskRing&ring,
+TcpStream&stream,
+SZ iters,
+u64 start){
+auto const t0=chrono::steady_clock::now();
+auto _=block_on_socket_task(ring,str_coro_loop(stream,iters,start));
 auto const t1=chrono::steady_clock::now();
 return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1-t0).count());
 }
@@ -278,51 +377,67 @@ char**argv){
 if(argc>=2&&SV{argv[1]}=="--bench-info"){
 std::print(
 "{}\n",
-R"({"name":"tcp_increment_coro","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","200","--warmup","50"]}]})");
+R"({"name":"tcp_increment","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","200","--warmup","50"]}]})");
 return 0;
 }
 auto cfg=parse_args(span{argv,static_cast<SZ>(argc)});
-
-for(int which=0;which<2;++which){
+// 0=fr/callback  1=fr/coroutine  2=str/callback  3=str/coroutine
+static constexpr A<SV,4>labels{"fr/callback","fr/coroutine","str/callback","str/coroutine"};
+auto const lbl=[&](int w)noexcept->SV{return labels[static_cast<SZ>(w)];};
+for(int which=0;which<4;++which){
 u16 port=0;
 int const lfd=start_listener(port);
 atomic_flag server_stop{};
 thread server{[lfd,&server_stop]{run_server(lfd,server_stop);}};
-
-int const csock=connect_to(port);
-
-::io_uring ring{};
-if(::io_uring_queue_init(64,&ring,0)<0){
-::close(csock);
+::io_uring raw{};
+if(::io_uring_queue_init(64,&raw,0)<0){
 server_stop.test_and_set(memory_order_release);
 server.join();
 println(cerr,"io_uring_queue_init failed");
 return 1;
 }
 CompletionTable ct;
-FileReader files{&ring,&ct,pack_ud};
-FileHandle sock=FileHandle::from_fd(csock);
-
 try{
-(void)run_callback(files,sock,cfg.warmup,0);
-u64 const ns=(which==0)?run_callback(files,sock,cfg.iterations,cfg.warmup):
-run_coroutine(files,sock,cfg.iterations,cfg.warmup);
+if(which<2){
+FileReader files{&raw,&ct,pack_ud};
+int const csock=connect_to(port);
+FileHandle sock=FileHandle::from_fd(csock);
+(void)run_fr_callback(files,sock,cfg.warmup,0);
+u64 const ns=(which==0)?
+run_fr_callback(files,sock,cfg.iterations,cfg.warmup):
+run_fr_coroutine(files,sock,cfg.iterations,cfg.warmup);
 double const per=static_cast<double>(ns)/static_cast<double>(cfg.iterations);
-SV const label=(which==0)?"callback":"coroutine";
 if(cfg.json_out){
-println("{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",label,cfg.iterations,ns,per);
+println("{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",lbl(which),cfg.iterations,ns,per);
 }else{
-if(which==0)
-println("iterations: {}, warmup: {}",cfg.iterations,cfg.warmup);
-println("  {:<10} {:>8.1f} ns/iter ({} ns total)",label,per,ns);
+if(which==0)println("iterations: {}, warmup: {}",cfg.iterations,cfg.warmup);
+println("  {:<18} {:>8.1f} ns/iter ({} ns total)",lbl(which),per,ns);
 }
-}catch(exception const&e){println(cerr,"error: {}",e.what());}
-
-::io_uring_queue_exit(&ring);
 server_stop.test_and_set(memory_order_release);
 ::shutdown(sock.raw_fd(),SHUT_RDWR);
 (void)sock.release_fd();
 ::close(csock);
+}else{
+SocketTaskRing task_ring{
+SocketRawRing{&raw},ct,
+[](u32 s,u32 g)noexcept->u64{return pack_ud(s,g);}};
+auto ss=loopback_addr(port);
+TcpStream stream=block_on_socket_task(task_ring,
+tcp_connect(task_ring,AF_INET,ss,sizeof(sockaddr_in)));
+(void)run_str_callback(task_ring,stream,cfg.warmup,0);
+u64 const ns=(which==2)?
+run_str_callback(task_ring,stream,cfg.iterations,cfg.warmup):
+run_str_coroutine(task_ring,stream,cfg.iterations,cfg.warmup);
+double const per=static_cast<double>(ns)/static_cast<double>(cfg.iterations);
+if(cfg.json_out)
+println("{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",lbl(which),cfg.iterations,ns,per);
+else
+println("  {:<18} {:>8.1f} ns/iter ({} ns total)",lbl(which),per,ns);
+server_stop.test_and_set(memory_order_release);
+// stream dtor closes fd → unblocks server's ::read → server sees stop flag
+}
+}catch(exception const&e){println(cerr,"error: {}",e.what());}
+::io_uring_queue_exit(&raw);
 server.join();
 }
 }
