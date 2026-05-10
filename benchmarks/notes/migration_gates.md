@@ -37,13 +37,23 @@ BENCH_REPS=7 scripts/bench_record.sh --compare-bins \
   cand:/tmp/conflux-cand/benchmarks/conflux_http_server_concurrency_bench
 ```
 
-The script prints the run IDs for each pair. Use those IDs in the query below.
+The script prints integer run IDs for each label:
+
+```
+  base → run_id=123
+  cand → run_id=124
+```
+
+Use those IDs in the query below.
 
 ## Threshold check
 
-Replace `:base_run_id` / `:cand_run_id` with the run IDs printed by `--compare-bins`:
+`bench_compare_summary.run_a` / `run_b` are the integer `id` values from the `runs` table
+(not the `name` column — all `--compare-bins` runs share name `"compare-bins"`).
+Substitute the printed integers directly (no quotes):
 
 ```sql
+-- Replace 123 / 124 with the run IDs printed by --compare-bins.
 SELECT
   variant,
   a_med_ns,
@@ -51,11 +61,13 @@ SELECT
   pct_change,
   reps
 FROM bench_compare_summary
-WHERE run_a = :'base_run_id'
-  AND run_b = :'cand_run_id'
+WHERE run_a = 123
+  AND run_b = 124
   AND pct_change > 5.0
 ORDER BY pct_change DESC;
 ```
+
+If unsure of the column types, verify first: `\d bench_compare_summary`
 
 **Gate rule: merge is blocked if this query returns any row**, unless the regression is
 explicitly accepted with a note in the PR description explaining why.

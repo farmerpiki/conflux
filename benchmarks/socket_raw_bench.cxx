@@ -1253,6 +1253,9 @@ auto v=Variant{
 u16 const id=bufs.ring_id_at(bufs.debug_head_pos());
 u32 const flags=IORING_CQE_F_BUFFER|(static_cast<u32>(id)<<IORING_CQE_BUFFER_SHIFT);
 auto slices=buffer_slices_from_cqe(bufs,res,flags,true);
+volatile SZ acc=0;
+for(auto s:slices)
+acc+=s.bytes.size();
 slices.recycle_all();
 },
 };
@@ -1276,6 +1279,7 @@ BufferRing bufs{rg.get(),{.count=256,.buf_size=kBufSz,.group_id=0,.huge_pages=fa
 
 SZ const chunk=kBufSz/static_cast<SZ>(n);
 
+volatile SZ acc=0;
 auto v=Variant{
 .name=variant_name,
 .run=
@@ -1288,6 +1292,7 @@ u32 flags=IORING_CQE_F_BUFFER|(static_cast<u32>(id)<<IORING_CQE_BUFFER_SHIFT);
 if(!is_last)
 flags|=IORING_CQE_F_BUF_MORE;
 auto slice=buffer_slice_from_incremental_cqe(bufs,static_cast<int>(res),flags);
+acc+=slice.size();
 slice.recycle_if_final();
 }
 },
