@@ -228,13 +228,13 @@ The original socket plan called for raw `SocketRawRing` plus future `SocketTaskR
 
 **TODO:**
 
-- [ ] Add `SocketTaskRing` wrapping `SocketRawRing`, `CompletionTable`, and user-data encoder.
-- [ ] Move `TcpStream` to `SocketTaskRing* + SocketHandle`.
-- [ ] Move `UdpSocket` to `SocketTaskRing* + SocketHandle`.
-- [ ] Reimplement `tcp_connect` through socket raw helpers and completion slots.
-- [ ] Reimplement UDP send/recv through socket raw helpers.
-- [ ] Preserve `_borrowed` naming for raw APIs; use safe Task names for owned/copying APIs.
-- [ ] Add tests proving no `FileReader` dependency remains in `conflux.socket_io.coro`.
+- [x] Add `SocketTaskRing` wrapping `SocketRawRing`, `CompletionTable`, and user-data encoder.
+- [x] Move `TcpStream` to `SocketTaskRing* + SocketHandle`.
+- [x] Move `UdpSocket` to `SocketTaskRing* + SocketHandle`.
+- [x] Reimplement `tcp_connect` through socket raw helpers and completion slots.
+- [x] Reimplement UDP send/recv through socket raw helpers.
+- [x] Preserve `_borrowed` naming for raw APIs; use safe Task names for owned/copying APIs.
+- [x] Add tests proving no `FileReader` dependency remains in `conflux.socket_io.coro`.
 
 Suggested shape:
 
@@ -415,11 +415,11 @@ struct IoUringCaps {
 **TODO:**
 
 - [x] Define cancellation policy enum.
-- [ ] Support cancel-by-user-data for connect/recv/send where safe.
+- [x] Support cancel-by-user-data for connect/recv/send where safe.
 - [ ] Support cancel-by-fd/close-fd where user-data cancel is insufficient.
 - [ ] Apply to connect timeout, DNS timeout, HTTP request timeout, shutdown, and WebSocket handoff.
 - [ ] Define result normalization for timeout vs user cancel vs fd close.
-- [ ] Add tests for cancellation racing with successful CQE.
+- [x] Add tests for cancellation racing with successful CQE.
 
 Suggested shape:
 
@@ -575,7 +575,7 @@ Do not start AF_ALG before socket ownership and Task-ring semantics are clean. A
 ## Phase 1 — coherent async socket layer
 
 - [x] **P1-06** Add `IoUringCaps` matrix.
-- [ ] **P1-01** Implement `SocketTaskRing`.
+- [x] **P1-01** Implement `SocketTaskRing`.
 - [ ] **P1-07** Normalize borrowed/owned lifetime contracts.
 - [ ] **P1-08** Add cancellation policy for connect/recv/DNS/HTTP.
 - [ ] **P1-02** Migrate async plaintext HTTP client/proxy.
