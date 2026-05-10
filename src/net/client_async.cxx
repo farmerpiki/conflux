@@ -131,7 +131,7 @@ if(now>=deadline)throw IoError{ETIMEDOUT,"tcp: recv timed out"};
 n=co_await t.recv(span<u8>{tmp.data(),tmp.size()},chrono::ceil<chrono::milliseconds>(deadline-now));
 }
 }catch(IoError const&){throw;}catch(...){
-break;
+throw;
 }
 if(n==0)break;
 buf.append(reinterpret_cast<char const*>(tmp.data()),n);
@@ -149,7 +149,7 @@ SZ n;
 try{
 n=co_await t.recv(span<u8>{tmp.data(),want});
 }catch(IoError const&){throw;}catch(...){
-co_return false;
+throw;
 }
 if(n==0)co_return false;
 out.append(reinterpret_cast<char const*>(tmp.data()),n);
@@ -165,7 +165,7 @@ SZ n;
 try{
 n=co_await t.recv(span<u8>{tmp.data(),tmp.size()});
 }catch(IoError const&){throw;}catch(...){
-break;
+throw;
 }
 if(n==0)break;
 out.append(reinterpret_cast<char const*>(tmp.data()),n);
@@ -193,7 +193,7 @@ SZ n;
 try{
 n=co_await t.recv(span<u8>{tmp.data(),tmp.size()});
 }catch(IoError const&){throw;}catch(...){
-co_return false;
+throw;
 }
 if(n==0)co_return false;
 encoded.append(reinterpret_cast<char const*>(tmp.data()),n);
@@ -240,6 +240,7 @@ memcpy(&ss,ep.addr,ep.addr_len);
 int const fam=(ep.family==6)?AF_INET6:AF_INET;
 happy_attempt(ring,fam,ss,static_cast<socklen_t>(ep.addr_len),copts,hs,winner_src).detach();
 if(i+1<endpoints.size()){
+hs->fast_fail.store(false,memory_order_relaxed);
 auto const t_stagger=chrono::steady_clock::now()+kStagger;
 while(!hs->fast_fail.load(memory_order_acquire)&&!hs->won.load(memory_order_acquire)){
 auto const now=chrono::steady_clock::now();
@@ -328,18 +329,41 @@ bool const is_tls=(url.scheme=="https");
 #if CONFLUX_HAS_TLS
 Opt<TcpTlsStream>tls_stream;
 if(is_tls){
+bool const verify=req.verify_peer()&&opts.verify_peer;
+auto const sni_sv=req.server_name().empty()?SV{url.host}:req.server_name();
+TlsContext tls_ctx;
+tls_ctx.set_verify_peer(verify);
+if(verify){
+if(!opts.ca_bundle_path.empty()){
+if(!SSL_CTX_load_verify_locations(tls_ctx.native_handle(),opts.ca_bundle_path.c_str(),nullptr))
+co_return unexpected(HttpError{.kind=HttpErrorKind::tls,.phase=HttpPhase::tls,.message=tls_error_string()});
+}else{
+tls_ctx.set_default_verify_paths();
+}
+}
+tls_stream.emplace(tls_ctx,move(stream));
+if(!tls_stream->set_server_name(sni_sv)||(verify&&!tls_stream->set_verify_hostname(sni_sv)))
+co_return unexpected(HttpError{.kind=HttpErrorKind::tls,.phase=HttpPhase::tls,.message="TLS SNI/hostname setup failed"});
 auto const t_tls=chrono::steady_clock::now();
 TP const tls_dl=timeouts.tls.count()>0?t_tls+timeouts.tls:TP::max();
 try{
-TlsContext tls_ctx;
-tls_stream.emplace(tls_ctx,move(stream));
-tls_stream->set_server_name(url.host);
-tls_stream->set_verify_hostname(url.host);
 co_await tls_stream->handshake_connect(tls_dl);
 }catch(TlsError const&e){
 co_return unexpected(HttpError{.kind=HttpErrorKind::tls,.phase=HttpPhase::tls,.message=tls_error_string(e)});
 }catch(IoError const&e){
 co_return unexpected(HttpError{.kind=HttpErrorKind::tls,.phase=HttpPhase::tls,.os_errno=e.code().value(),.message=format("TLS handshake failed: {}",e.what())});
+}
+if(verify){
+long const vr=SSL_get_verify_result(tls_stream->native_handle());
+if(vr!=X509_V_OK)
+co_return unexpected(HttpError{.kind=HttpErrorKind::tls,.phase=HttpPhase::tls,.message=X509_verify_cert_error_string(vr)});
+}
+tel.tls=chrono::steady_clock::now()-t_tls;
+tel.tls_verified=verify;
+tel.negotiated_protocol="https/1.1";
+if(auto const*cipher=SSL_get_current_cipher(tls_stream->native_handle())){
+tel.tls_cipher=SSL_CIPHER_get_name(cipher);
+tel.tls_version=SSL_CIPHER_get_version(cipher);
 }
 }
 #else
@@ -557,7 +581,7 @@ co_return unexpected(move(*berr));
 #if CONFLUX_HAS_TLS
 if(tls_stream){
 try{
-co_await tls_stream->close(timeouts.between_bytes);
+co_await tls_stream->close(timeouts.write);
 }catch(...){}
 }else
 #endif
