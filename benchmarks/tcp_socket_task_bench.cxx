@@ -345,7 +345,7 @@ u64 const ns=(which==0)?
 run_socket_callback(task_ring,&raw,ct,port,cfg.iterations,cfg.warmup):
 run_socket_coroutine(task_ring,&raw,ct,port,cfg.iterations,cfg.warmup);
 double const per=static_cast<double>(ns)/static_cast<double>(cfg.iterations);
-SV const label=(which==0)?"socket_callback":"socket_coroutine";
+SV const label=(which==0)?"callback":"coroutine";
 if(cfg.json_out){
 println("{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",label,cfg.iterations,ns,per);
 }else{
