@@ -21,7 +21,7 @@ auto r=conflux::uring::Ring::init(32,{});
 if(!r)::_exit(2);
 return move(*r);
 }()},
-ring{uring.ref(),BufferRingOptions{.count=8,.buf_size=64,.group_id=1,.huge_pages=false,.mode=BufferRingMode::incremental}}{}
+ring{uring.ref(),BufferRingOptions{.count=8,.buf_size=64,.group_id=1,.huge_pages=false,.mode=BufferRingMode::incremental},conflux::uring::detect_caps(uring.ref())}{}
 };
 u32 inc_flags(u16 buf_id,bool buf_more)noexcept{
 u32 f=IORING_CQE_F_BUFFER|(static_cast<u32>(buf_id)<<IORING_CQE_BUFFER_SHIFT);
@@ -32,6 +32,12 @@ return f;
 int main(int argc,char*argv[]){
 ::signal(SIGABRT,[](int){::_exit(42);});
 if(argc<2)return 1;
+// Early exit if kernel lacks incremental support (prevents false-positive SIGABRT).
+{
+auto r=conflux::uring::Ring::init(32,{});
+if(!r)return 1;
+if(!conflux::uring::detect_caps(r->ref()).feat_pbuf_ring_inc)return 1;
+}
 SV probe{argv[1]};
 if(probe=="inc_neg_res"){
 Rig rig{};

@@ -348,6 +348,8 @@ struct alignas(
 int fd=-1;
 u32 gen=0;
 bool recv_armed=false;
+u16 incremental_buf_id{};
+bool have_incremental_buf_id{};
 u32 last_recv_cqe_flags{};
 bool have_last_recv_cqe_flags{};
 bool send_queued=false;
@@ -878,6 +880,13 @@ S initial_buf{};
 UniqueSsl ssl{};
 #endif
 };
+struct RetiredIncrementalBuf{
+u16 id{};
+bool present{};
+};
+static u64 pack_fd_gen(int fd,u32 gen)noexcept{
+return(static_cast<u64>(static_cast<u32>(fd))<<32)|static_cast<u64>(gen);
+}
 static constexpr SZ BUF_SIZE=8192;
 static constexpr u32 MAX_FILES=65536;
 
@@ -895,6 +904,7 @@ UM<int,DeferredWait>deferred_waits{};
 UM<u64,UP<u64>>in_flight_read_bufs{};
 UM<int,WsInstallEntry>ws_cancel_handoffs{};
 UM<int,WsInstallEntry>ws_installs{};
+UM<u64,RetiredIncrementalBuf>retired_incremental_recv{};
 V<int>ws_cancel_ready{};
 
 UP<BufferRing>buf_ring_;
@@ -1642,7 +1652,8 @@ BufferRingOptions{
 .group_id=0,
 .huge_pages=true,
 .mode=use_recv_incremental_buf?BufferRingMode::incremental:BufferRingMode::classic_one_cqe_per_buffer,
-});
+},
+caps);
 
 fd_table.reserve(FD_TABLE_RESERVE);
 recvs.reserve(entries);
@@ -1672,6 +1683,7 @@ if(conn.gen!=gen)
 return;
 if(conn.is_sse&&conn.sse_channel)
 conn.sse_channel->close();// notify handler thread
+retire_incremental_partial(fd,gen,conn);
 ++conn.gen;// prevent a second Close CQE from erasing the next tenant
 conn.fd=-1;
 conn.recv_armed=false;
@@ -2332,8 +2344,8 @@ return;
 if(buf_ring_->mode()==BufferRingMode::incremental){
 if(res<=0)
 return;
-auto slice=buffer_slice_from_incremental_cqe(*buf_ring_,res,flags);
-slice.recycle_if_final();
+// slice dtor calls recycle_if_final()
+auto _=try_buffer_slice_from_incremental_cqe(*buf_ring_,res,flags);
 return;
 }
 auto slices=buffer_slices_from_cqe(*buf_ring_,res,flags,use_recv_bundle);
@@ -2343,6 +2355,45 @@ void discard_recv_bufs(
 RecvComp&rc)noexcept{
 discard_recv_bufs(rc.res,rc.flags);
 rc.flags=0;
+}
+void retire_incremental_partial(
+int fd,
+u32 gen,
+Conn&conn)noexcept{
+if(!conn.have_incremental_buf_id)
+return;
+retired_incremental_recv.insert_or_assign(
+pack_fd_gen(fd,gen),
+RetiredIncrementalBuf{conn.incremental_buf_id,true});
+conn.have_incremental_buf_id=false;
+}
+void reclaim_retired_incremental_recv(
+int fd,
+u32 gen)noexcept{
+if(buf_ring_->mode()!=BufferRingMode::incremental)
+return;
+auto it=retired_incremental_recv.find(pack_fd_gen(fd,gen));
+if(it==retired_incremental_recv.end()||!it->second.present)
+return;
+buf_ring_->reclaim_incremental_partial(it->second.id);
+retired_incremental_recv.erase(it);
+}
+void clear_retired_incremental_if_final(
+int fd,
+u32 gen,
+u32 flags)noexcept{
+if(buf_ring_->mode()!=BufferRingMode::incremental)
+return;
+if(!cqe_has_buffer(flags)||cqe_has_buf_more(flags))
+return;
+auto const key=pack_fd_gen(fd,gen);
+auto it=retired_incremental_recv.find(key);
+if(it==retired_incremental_recv.end())
+return;
+u16 const id=cqe_buffer_id(flags);
+if(it->second.id!=id)[[unlikely]]
+return;
+retired_incremental_recv.erase(it);
 }
 void handle_recv_cqe(
 int fd,
@@ -2357,6 +2408,13 @@ return;
 bool const gen_match=fd_table[ufd].gen==gen;
 bool const ws_pending=ws_cancel_handoffs.find(fd)!=ws_cancel_handoffs.end();
 if(!gen_match&&!ws_pending){
+if(res<=0&&!cqe_has_buffer(flg)){
+reclaim_retired_incremental_recv(fd,gen);
+}else if(res>0&&cqe_has_buffer(flg)){
+discard_recv_bufs(res,flg);
+clear_retired_incremental_if_final(fd,gen,flg);
+return;
+}
 discard_recv_bufs(res,flg);
 return;
 }
@@ -2485,6 +2543,7 @@ conn.partial.consume(conn.request_bytes);
 conn.request_bytes=0;
 S initial_buf=conn.partial.take();
 bool const cancel_recv=conn.recv_armed;
+retire_incremental_partial(fd,conn.gen,conn);
 auto state=begin_ws_handoff(conn);
 if(!state.pool){
 if(accepted_sockets_direct){
@@ -2539,6 +2598,7 @@ conn.request_bytes=0;
 S initial_buf=conn.partial.take();
 auto orig_ssl=move(conn.ssl);// transfer ownership to the thread
 bool const cancel_recv=conn.recv_armed;
+retire_incremental_partial(fd,conn.gen,conn);
 auto state=begin_ws_handoff(conn);
 if(!state.pool){
 orig_ssl.reset();
@@ -3079,13 +3139,12 @@ void append_recv_buf_to(
 Buf&dst,
 RecvComp&rc){
 if(buf_ring_->mode()==BufferRingMode::incremental){
-auto slice=buffer_slice_from_incremental_cqe(*buf_ring_,rc.res,rc.flags);
-ScopeExit const recycle{[&]()noexcept{
-slice.recycle_if_final();
-if(!slice.more())
+// slice dtor calls recycle_if_final()
+auto result=try_buffer_slice_from_incremental_cqe(*buf_ring_,rc.res,rc.flags);
 rc.flags=0;
-}};
-dst.append(reinterpret_cast<char const*>(slice.bytes().data()),slice.bytes().size());
+if(!result)[[unlikely]]
+return;
+dst.append(reinterpret_cast<char const*>(result->bytes().data()),result->bytes().size());
 return;
 }
 auto slices=buffer_slices_from_cqe(*buf_ring_,rc.res,rc.flags,use_recv_bundle);
@@ -3108,15 +3167,36 @@ bool const ws_pending=ws_it!=ws_cancel_handoffs.end()
 #endif
 ;
 if(rc.res<=0||ufd>=fd_table.size()||(!ws_pending&&(fd_table[ufd].gen!=rc.gen||fd_table[ufd].fd<0))){
+u32 const orig_flags=rc.flags;
 discard_recv_bufs(rc);
+if(rc.res<=0&&!cqe_has_buffer(orig_flags))
+reclaim_retired_incremental_recv(rc.fd,rc.gen);
+else if(rc.res>0&&cqe_has_buffer(orig_flags))
+clear_retired_incremental_if_final(rc.fd,rc.gen,orig_flags);
 continue;
 }
 if(ws_pending&&(fd_table[ufd].gen!=rc.gen||fd_table[ufd].fd<0)){
+u32 const orig_flags=rc.flags;
 append_recv_buf_to(ws_it->second.initial_buf,rc);
+clear_retired_incremental_if_final(rc.fd,rc.gen,orig_flags);
 continue;
 }
 auto&conn=fd_table[ufd];
+u32 const orig_flags=rc.flags;
 append_recv_buf_to(conn.partial,rc);
+if(buf_ring_->mode()==BufferRingMode::incremental&&cqe_has_buffer(orig_flags)){
+if(cqe_has_buf_more(orig_flags)){
+conn.incremental_buf_id=cqe_buffer_id(orig_flags);
+conn.have_incremental_buf_id=true;
+if(!cqe_has_more(orig_flags))[[unlikely]]{
+eprintln(format("incremental ring fault: fd={} !MORE+BUF_MORE; closing",static_cast<int>(ufd)));
+queue_close(static_cast<int>(ufd));
+continue;
+}
+}else{
+conn.have_incremental_buf_id=false;
+}
+}
 conn.last_activity=chrono::steady_clock::now();
 if(!conn.is_tls&&!conn.partial.empty()&&!conn.request_in_progress){
 conn.request_started=conn.last_activity;

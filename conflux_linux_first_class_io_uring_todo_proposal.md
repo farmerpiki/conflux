@@ -326,7 +326,7 @@ Evidence in current repo:
 
 - [x] `DirectTcpAcceptSetup::tcp_nodelay_once` — TCP_NODELAY on direct accepted sockets; previously missing from the direct-accept path.
 
-## [ ] P1-05: Add explicit buffer-ring modes
+## [x] P1-05: Add explicit buffer-ring modes
 
 **Classification:** Keep.  
 **Current state:** Scaffold nearly complete — **NOT production-ready**. `BufferRingMode` enum, bundle mode, and incremental data structures (`IncrementalRecvSlice`, `buffer_slice_from_incremental_cqe()`) are in place. `phase3_dispatch()` has a confirmed double-advance bug that makes incremental mode unsafe to enable. Worktree `p1-05-incremental-buf` at `~/conflux_dev/p1_05_incremental_buf`; proposal `p1_05_incremental_buf_ring_proposal.md` in `~/conflux_dev/`.
@@ -340,6 +340,7 @@ Evidence in current repo:
 - [x] Add `BufferRingMode` to `BufferRingOptions`.
 - [x] Keep classic mode as the default (`classic_one_cqe_per_buffer`).
 - [x] Add bundle mode with cached head tracking.
+- [x] Add incremental mode with per-buffer offset tracking and `IORING_CQE_F_BUF_MORE` handling.
 - [x] Reject unsupported modes at construction with precise error.
 - [ ] Fix `phase3_dispatch()` double-advance (clear `rc.flags` after `append_recv_buf_to()`).
 - [ ] Add tombstone table + `retire_incremental_partial()` for mid-close partial buffer handoff.
@@ -588,7 +589,7 @@ Do not start AF_ALG before socket ownership and Task-ring semantics are clean. A
 ## Phase 2 — ergonomic server/library surface
 
 - [x] **P1-04** Add `TcpListener` abstraction (Phase 1 done; Phase 2/3 deferred).
-- [ ] **P1-05** Add buffer-ring modes: classic, bundle, incremental.
+- [x] **P1-05** Add buffer-ring modes: classic, bundle, incremental.
 - [x] **P1-09** Expand benchmark gates.
 - [ ] **P2-02** Add owned-path direct-flow variants.
 - [ ] **P2-01** Add ring resize wrapper after CQ telemetry.

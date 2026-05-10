@@ -105,6 +105,11 @@ bool huge_pages{true};
 BufferRingMode mode{BufferRingMode::classic_one_cqe_per_buffer};
 };
 
+export enum class RecvDecodeError:u8{
+bad_cqe,
+bad_id,
+bad_bounds
+};
 export class RecvBuffer;
 export class BufferRing{
 struct SlabDeleter{
@@ -127,6 +132,7 @@ BufferRingMode mode_{BufferRingMode::classic_one_cqe_per_buffer};
 V<SZ>incremental_offsets_{};
 friend class IncrementalRecvSlice;
 IncrementalRecvSlice friend buffer_slice_from_incremental_cqe(BufferRing&,int,u32)noexcept;
+expected<IncrementalRecvSlice,RecvDecodeError>friendtry_buffer_slice_from_incremental_cqe(BufferRing&,int,u32)noexcept;
 [[nodiscard]]SZ&incremental_offset_ref(
 u16 id)noexcept{
 assert(mode_==BufferRingMode::incremental);
@@ -142,13 +148,17 @@ return{slab_.get()+static_cast<SZ>(id)*buf_size_+offset,len};
 public:
 BufferRing(
 io_uring*uring,
-BufferRingOptions opts)
-:BufferRing(conflux::uring::RingRef{uring},opts){}
+BufferRingOptions opts,
+conflux::uring::IoUringCaps const&caps)
+:BufferRing(conflux::uring::RingRef{uring},opts,caps){}
 BufferRing(
 conflux::uring::RingRef uring,
-BufferRingOptions opts)
+BufferRingOptions opts,
+conflux::uring::IoUringCaps const&caps)
 :ring_{},uring_{uring},buf_size_{opts.buf_size},count_{opts.count},group_id_{opts.group_id},mode_{opts.mode}{
-if(count_==0||count_>65536U||(count_&(count_-1))!=0||buf_size_==0||buf_size_>static_cast<SZ>(NL<u16>::max())||count_>NL<SZ>::max()/buf_size_)
+if(opts.mode==BufferRingMode::incremental&&!caps.feat_pbuf_ring_inc)
+throw RE{"BufferRingMode::incremental requires IORING_FEAT_PBUF_RING_INC (kernel 6.12+)"};
+if(count_==0||count_>32768U||(count_&(count_-1))!=0||buf_size_==0||buf_size_>static_cast<SZ>(NL<u16>::max())||count_>NL<SZ>::max()/buf_size_)
 throw RE{"BufferRing invalid options"};
 static_assert(conflux::uring::buf_ring_flags::has_inc,"IOU_PBUF_RING_INC required");
 slab_sz_=static_cast<SZ>(count_)*buf_size_;
@@ -171,6 +181,8 @@ conflux::uring::BufGroupId{group_id_},
 ring_flags);
 if(!built){
 slab_.reset();
+if(built.error()==EINVAL&&mode_==BufferRingMode::incremental)
+throw RE{"io_uring_setup_buf_ring: incremental mode requires kernel 6.12+ (IORING_FEAT_PBUF_RING_INC)"};
 throw RE{format("io_uring_setup_buf_ring failed: {}",built.error())};
 }
 ring_=move(*built);
@@ -271,6 +283,18 @@ u32 cnt)noexcept{
 u32 const old=head_pos_;
 head_pos_+=cnt;
 return old;
+}
+bool reclaim_incremental_partial(
+u16 id)noexcept{
+if(mode_!=BufferRingMode::incremental||id>=count_)
+return false;
+auto&off=incremental_offsets_[id];
+if(off==0)
+return false;
+off=0;
+consume(1);
+recycle(id);
+return true;
 }
 [[nodiscard]]u16 ring_id_at(
 u32 pos)const noexcept{
@@ -433,9 +457,11 @@ IncrementalRecvSlice&operator=(IncrementalRecvSlice const&)=delete;
 IncrementalRecvSlice(
 IncrementalRecvSlice&&o)noexcept
 :ring_{exchange(o.ring_,nullptr)},id_{o.id_},offset_{o.offset_},len_{o.len_},more_{o.more_},detached_{o.detached_}{}
+~IncrementalRecvSlice()noexcept{recycle_if_final();}
 IncrementalRecvSlice&operator=(
 IncrementalRecvSlice&&o)noexcept{
 if(this!=&o){
+recycle_if_final();
 ring_=exchange(o.ring_,nullptr);
 id_=o.id_;
 offset_=o.offset_;
@@ -496,6 +522,29 @@ assert(static_cast<SZ>(res)<=ring.buf_size()-off);
 bool const more=cqe_has_buf_more(flags);
 IncrementalRecvSlice slice{&ring,id,off,static_cast<SZ>(res),more};
 off+=static_cast<SZ>(res);
+if(!more){
+off=0;
+ring.consume(1);
+}
+return slice;
+}
+export[[nodiscard]]expected<IncrementalRecvSlice,RecvDecodeError>
+try_buffer_slice_from_incremental_cqe(
+BufferRing&ring,
+int res,
+u32 flags)noexcept{
+if(res<=0||!cqe_has_buffer(flags)||ring.mode()!=BufferRingMode::incremental)
+return unexpected(RecvDecodeError::bad_cqe);
+u16 const id=cqe_buffer_id(flags);
+if(id>=ring.count())
+return unexpected(RecvDecodeError::bad_id);
+SZ&off=ring.incremental_offset_ref(id);
+SZ const len=static_cast<SZ>(res);
+if(off>ring.buf_size()||len>ring.buf_size()-off)
+return unexpected(RecvDecodeError::bad_bounds);
+bool const more=cqe_has_buf_more(flags);
+IncrementalRecvSlice slice{&ring,id,off,len,more};
+off+=len;
 if(!more){
 off=0;
 ring.consume(1);
