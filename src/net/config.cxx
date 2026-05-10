@@ -152,6 +152,13 @@ bool prefer_busy_poll=false;// SO_PREFER_BUSY_POLL
 // worker_core_base: base CPU for IORING_REGISTER_IOWQ_AFF (ring i → worker_core_base+i).
 int ring_core=-1;
 int worker_core_base=-1;
+
+// SEND_ZC: zero-copy send for HTTP responses (kernel 6.0+)
+// off = never; auto = use if caps.send_zc, disable on repeated copies;
+// on = require at startup, fail if unsupported.
+S send_zc{"auto"};
+SZ send_zc_threshold=16384;
+bool send_zc_report_usage=true;
 };
 namespace{
 SV strip_inline_comment(
@@ -317,6 +324,19 @@ if(key==k){
 cfg.*member=parse_bool(val,key);
 return;
 }
+}
+if(key=="send_zc"){
+if(val=="off"||val=="auto"||val=="on")
+cfg.send_zc=val;
+return;
+}
+if(key=="send_zc_threshold"){
+cfg.send_zc_threshold=parse_uint<SZ>(val,key);
+return;
+}
+if(key=="send_zc_report_usage"){
+cfg.send_zc_report_usage=parse_bool(val,key);
+return;
 }
 }
 }// namespace

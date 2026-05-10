@@ -97,6 +97,10 @@ if(CONFLUX_HAS_TLS STREQUAL "true")
     target_compile_definitions(conflux_http_server_bench PRIVATE CONFLUX_BENCH_HAS_TLS=1)
 endif()
 
+add_executable(conflux_send_zc_bench send_zc_bench.cxx)
+target_link_libraries(conflux_send_zc_bench
+    PRIVATE bench_common conflux conflux_work conflux_options PkgConfig::LIBURING)
+
 add_executable(conflux_http_server_concurrency_bench http_server_concurrency_bench.cxx)
 target_link_libraries(conflux_http_server_concurrency_bench
     PRIVATE bench_common conflux conflux_work conflux_options PkgConfig::LIBURING)

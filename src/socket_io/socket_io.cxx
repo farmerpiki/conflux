@@ -744,6 +744,24 @@ sqe.add_flags(handle.sqe_fd_flags());
 sqe.user_data(conflux::uring::UserData{user_data});
 return true;
 }
+export bool submit_send_zc_borrowed(
+SocketRawRing&ring,
+SocketHandle handle,
+void const*data,
+SZ len,
+u64 user_data,
+bool report_usage=true,
+int msg_flags=MSG_NOSIGNAL){
+auto sqe=ring.try_get_sqe();
+if(!sqe)
+return false;
+sqe.prep_send_zc(handle.sqe_fd(),data,len,conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)},0);
+if(report_usage)
+sqe.ioprio(conflux::uring::ioprio_flags::send_zc_report_usage);
+sqe.add_flags(handle.sqe_fd_flags());
+sqe.user_data(conflux::uring::UserData{user_data});
+return true;
+}
 // ─── raw submission: shutdown + close ────────────────────────────────────────
 // Linked HARDLINK: shutdown(WR) then close. Requires 2 SQE slots.
 // Returns false if SQ has fewer than 2 slots (caller should submit and retry).

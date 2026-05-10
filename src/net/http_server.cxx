@@ -64,8 +64,28 @@ WsCancel,
 FixedFdInstall,
 DirectSlotClose,
 ClientRing,
-Nop
+Nop,
+SendZc
 
+};
+
+enum class ZcAfterNotif:u8{
+none,
+complete_response,
+resubmit_plain,
+resubmit_mapped,
+close_after_error
+};
+struct SendZcCounters{
+u64 attempts{};
+u64 bytes_requested{};
+u64 bytes_sent{};
+u64 notifs{};
+u64 copied_notifs{};
+u64 no_notif{};
+u64 errors_enomem{};
+u64 errors_other{};
+u64 fallback_regular_send{};
 };
 
 export enum class RunStatus:u8{
@@ -404,6 +424,9 @@ SP<StreamedFile>streamed_file{};
 bool streamed_headers_sent=false;
 u64 streamed_delivered=0;
 bool streamed_splice_in_flight=false;
+bool zc_waiting_notif=false;
+ZcAfterNotif zc_after_notif=ZcAfterNotif::none;
+bool zc_close_after_notif=false;
 #if CONFLUX_HAS_HTTP2
 bool is_h2{};
 nghttp2_session*h2_session=nullptr;
@@ -931,6 +954,10 @@ int busy_poll_us_=0;// SO_BUSY_POLL optval; 0=disabled
 bool prefer_busy_poll_=false;// SO_PREFER_BUSY_POLL
 int ring_core_=-1;// sched_setaffinity core for this ring thread; -1=disabled
 int worker_core_=-1;// IORING_REGISTER_IOWQ_AFF core for io-wq; -1=disabled
+bool send_zc_enabled_=false;
+SZ send_zc_threshold_=16384;
+bool send_zc_report_usage_=true;
+SendZcCounters zc_counters_{};
 SZ max_body_size=SZ{1024}*1024;// set from Config before run_loop()
 u32 request_timeout_ms=30000;// set from Config before run_loop(); 0 = disabled
 u32 tls_sniff_timeout_ms=10000;// set from Config before run_loop(); 0 = disabled
@@ -1753,6 +1780,9 @@ conn.chunked_decode.reset();
 conn.mapped_file.reset();
 conn.mapped_total=0;
 conn.mapped_delivered=0;
+conn.zc_waiting_notif=false;
+conn.zc_after_notif=ZcAfterNotif::none;
+conn.zc_close_after_notif=false;
 conn.is_tls=false;
 #if CONFLUX_HAS_TLS
 if(conn.ssl!=nullptr)
@@ -1891,6 +1921,20 @@ if(ni==0)
 return;
 auto handle=
 accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+if(send_zc_enabled_&&ni==1&&conn.written>=conn.own_response.size()){
+auto const body_len=conn.writev_iov[0].iov_len;
+if(body_len>=send_zc_threshold_){
+++zc_counters_.attempts;
+zc_counters_.bytes_requested+=body_len;
+if(submit_send_zc_borrowed(raw_,handle,
+conn.writev_iov[0].iov_base,body_len,
+pack(Op::SendZc,conn.gen,fd),send_zc_report_usage_))
+return;
+++zc_counters_.fallback_regular_send;
+defer_op([this,fd,g=conn.gen]{if(conn_for(fd).gen==g)queue_send_mapped(fd);});
+return;
+}
+}
 if(!submit_writev_borrowed(
 raw_,
 handle,
@@ -2143,6 +2187,16 @@ auto const&resp=conn.own_response;
 auto const resp_view=span{resp}.subspan(conn.written);
 auto handle=
 accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(fd);
+if(send_zc_enabled_&&resp_view.size()>=send_zc_threshold_){
+++zc_counters_.attempts;
+zc_counters_.bytes_requested+=resp_view.size();
+if(submit_send_zc_borrowed(raw_,handle,resp_view.data(),resp_view.size(),
+pack(Op::SendZc,conn.gen,fd),send_zc_report_usage_))
+return;
+++zc_counters_.fallback_regular_send;
+defer_op([this,fd,g=conn.gen]{if(conn_for(fd).gen==g)queue_send(fd);});
+return;
+}
 if(!submit_send_borrowed(raw_,handle,resp_view.data(),resp_view.size(),pack(Op::Send,conn.gen,fd)))
 defer_op([this,fd]{queue_send(fd);});
 }
@@ -2182,6 +2236,12 @@ if(ufd<fd_table.size()){
 if(fd_table[ufd].closing)
 return;
 gen=fd_table[ufd].gen;
+if(fd_table[ufd].zc_waiting_notif){
+fd_table[ufd].zc_close_after_notif=true;
+fd_table[ufd].closing=true;
+cancel_recv_if_armed(fd,false);
+return;
+}
 }
 if(cancel_recv_if_armed(fd,true)==RecvCancelState::deferred)
 return;
@@ -2943,6 +3003,29 @@ return;
 }
 handle_http_response_send_complete(fd,conn);
 }
+void finish_plain_send(int fd,Conn&conn){
+conn.written=0;
+conn.send_queued=false;
+conn.has_response=false;
+conn.own_response.clear();
+handle_send_complete(fd,conn);
+}
+void finish_mapped_send(int fd,Conn&conn){
+conn.mapped_file.reset();
+conn.mapped_total=0;
+conn.mapped_delivered=0;
+conn.written=0;
+conn.send_queued=false;
+conn.own_response.clear();
+handle_send_complete(fd,conn);
+}
+void fail_send(int fd,Conn&conn){
+if(conn.mapped_file)
+conn.mapped_file.reset();
+if(conn.streamed_file)
+conn.streamed_file.reset();
+queue_close(fd);
+}
 void handle_send(
 int fd,
 int res,
@@ -2969,32 +3052,22 @@ return;
 }
 #endif
 if(conn.mapped_file){
-// mmap/WRITEV path.
 if(res<=0){
-conn.mapped_file.reset();
-queue_close(fd);
+fail_send(fd,conn);
 return;
 }
 conn.written+=static_cast<SZ>(res);
 if(conn.written<conn.mapped_total){
-queue_send_mapped(fd);// partial — resubmit with adjusted iovecs
+queue_send_mapped(fd);
 return;
 }
-// Fully sent: release mmap region, clean up send state.
-conn.mapped_file.reset();
-conn.mapped_total=0;
-conn.mapped_delivered=0;
-conn.written=0;
-conn.send_queued=false;
-conn.own_response.clear();
-handle_send_complete(fd,conn);
+finish_mapped_send(fd,conn);
 return;
 }
 
 if(conn.streamed_file){
 if(res<=0){
-conn.streamed_file.reset();
-queue_close(fd);
+fail_send(fd,conn);
 return;
 }
 conn.written+=static_cast<SZ>(res);
@@ -3020,16 +3093,86 @@ if(conn.written<conn.own_response.size()){
 queue_send(fd);
 return;
 }
-// Response (or chunk) fully sent.
-conn.written=0;
-conn.send_queued=false;
-conn.has_response=false;
-conn.own_response.clear();
-
-handle_send_complete(fd,conn);
+finish_plain_send(fd,conn);
 }else{
 queue_close(fd);
 }
+}
+void handle_send_zc(
+int fd,
+int res,
+u32 flags,
+u32 gen){
+auto const ufd=static_cast<SZ>(fd);
+if(ufd>=fd_table.size()||fd_table[ufd].gen!=gen)
+return;
+auto&conn=fd_table[ufd];
+if(flags&IORING_CQE_F_NOTIF){
+++zc_counters_.notifs;
+if(static_cast<u32>(res)&IORING_NOTIF_USAGE_ZC_COPIED){
+++zc_counters_.copied_notifs;
+if(send_zc_enabled_&&zc_counters_.attempts>=1024&&zc_counters_.bytes_requested>=SZ{16}*1024*1024&&zc_counters_.copied_notifs*10>zc_counters_.notifs*9)
+send_zc_enabled_=false;
+}
+conn.zc_waiting_notif=false;
+if(conn.zc_close_after_notif){
+conn.zc_close_after_notif=false;
+conn.zc_after_notif=ZcAfterNotif::none;
+conn.own_response.clear();
+conn.mapped_file.reset();
+conn.closing=false;// queue_close early-returns when closing==true
+queue_close(fd);
+return;
+}
+auto action=exchange(conn.zc_after_notif,ZcAfterNotif::none);
+switch(action){
+case ZcAfterNotif::complete_response:
+if(conn.mapped_file)finish_mapped_send(fd,conn);
+else finish_plain_send(fd,conn);
+break;
+case ZcAfterNotif::resubmit_plain:queue_send(fd);break;
+case ZcAfterNotif::resubmit_mapped:queue_send_mapped(fd);break;
+case ZcAfterNotif::close_after_error:fail_send(fd,conn);break;
+default:break;
+}
+return;
+}
+auto const is_mapped=conn.mapped_file!=nullptr;
+auto const total=is_mapped?conn.mapped_total:conn.own_response.size();
+if(flags&IORING_CQE_F_MORE){
+conn.zc_waiting_notif=true;
+if(res<0){
+conn.zc_after_notif=ZcAfterNotif::close_after_error;
+if(res==-ENOMEM)++zc_counters_.errors_enomem;
+else++zc_counters_.errors_other;
+return;
+}
+auto const sent=static_cast<SZ>(res);
+zc_counters_.bytes_sent+=sent;
+conn.written+=sent;
+if(conn.written>=total)
+conn.zc_after_notif=ZcAfterNotif::complete_response;
+else
+conn.zc_after_notif=is_mapped?ZcAfterNotif::resubmit_mapped:ZcAfterNotif::resubmit_plain;
+return;
+}
+++zc_counters_.no_notif;
+if(res<0){
+if(res==-ENOMEM)++zc_counters_.errors_enomem;
+else++zc_counters_.errors_other;
+fail_send(fd,conn);
+return;
+}
+auto const sent=static_cast<SZ>(res);
+zc_counters_.bytes_sent+=sent;
+conn.written+=sent;
+if(conn.written<total){
+if(is_mapped)queue_send_mapped(fd);
+else queue_send(fd);
+return;
+}
+if(is_mapped)finish_mapped_send(fd,conn);
+else finish_plain_send(fd,conn);
 }
 void handle_sse_poll(
 int fd,
@@ -3214,6 +3357,7 @@ break;
 case Op::WsCancel:handle_ws_cancel(fd);break;
 case Op::FixedFdInstall:handle_fixed_fd_install(fd,res);break;
 case Op::DirectSlotClose:handle_direct_slot_close(fd,res);break;
+case Op::SendZc:handle_send_zc(fd,res,flg,gen);break;
 case Op::Nop:break;
 }
 }
@@ -3626,6 +3770,7 @@ if(!accepted_sockets_direct&&cqe->res>=0)
 break;
 case Op::Close:
 case Op::Send:
+case Op::SendZc:
 case Op::Timer:
 case Op::FileIo:
 case Op::SsePoll:
@@ -4397,6 +4542,15 @@ r.busy_poll_us_=static_cast<int>(impl_->cfg.busy_poll_us);
 r.prefer_busy_poll_=impl_->cfg.prefer_busy_poll;
 r.ring_core_=impl_->cfg.ring_core>=0?impl_->cfg.ring_core+static_cast<int>(i):-1;
 r.worker_core_=impl_->cfg.worker_core_base>=0?impl_->cfg.worker_core_base+static_cast<int>(i):-1;
+r.send_zc_threshold_=impl_->cfg.send_zc_threshold;
+r.send_zc_report_usage_=impl_->cfg.send_zc_report_usage;
+if(impl_->cfg.send_zc=="on"){
+if(!r.caps.send_zc)
+throw RE{"send_zc = on but kernel does not support IORING_OP_SEND_ZC"};
+r.send_zc_enabled_=true;
+}else if(impl_->cfg.send_zc=="auto"){
+r.send_zc_enabled_=r.caps.send_zc;
+}
 if(impl_->cfg.attach_wq&&i==0){
 impl_->wq_ring_fd_.store(r.ring.ring_fd,memory_order_release);
 impl_->wq_ring_fd_.notify_all();
