@@ -2584,6 +2584,14 @@ JsonArena&operator=(JsonArena&&)=delete;
 SV input,
 JsonParseOptions const&opts={});
 
+[[nodiscard]]expected<ArenaDocument,JsonError>parse_borrowed_into(
+SV input,
+JsonParseOptions const&opts={});
+
+[[nodiscard]]expected<ArenaDocument,JsonError>parse_moved_into(
+S input,
+JsonParseOptions const&opts={});
+
 void reset()noexcept;
 [[nodiscard]]SZ slab_capacity()const noexcept{return initial_slab_;}
 [[nodiscard]]SZ slab_used()const noexcept{return 0;}
@@ -4073,6 +4081,69 @@ storage_->root_node=0;
 storage_->bom_prefix_bytes=0;
 
 storage_->owned_input=make_unique<S>(input);
+SV src=*storage_->owned_input;
+constexpr SV kBOM="\xEF\xBB\xBF";
+if(src.starts_with(kBOM)){
+src.remove_prefix(kBOM.size());
+storage_->bom_prefix_bytes=static_cast<u32>(kBOM.size());
+}
+storage_->input_view=src;
+
+auto r=parse_inplace(*storage_,opts);
+if(!r)return unexpected(move(r).error());
+return ArenaDocument{storage_.get(),generation_,&generation_};
+}
+expected<ArenaDocument,JsonError>JsonArena::parse_borrowed_into(
+SV input,
+JsonParseOptions const&opts){
+if(auto ok=check_input_limits(input.size(),opts);!ok)
+return unexpected(move(ok).error());
+for(auto&n:storage_->nodes){
+if(n.kind==NodeKind::object&&n.hash_idx_raw!=nullptr&&n.hash_idx_raw!=kHashBuildFailedSentinel){
+ObjHashTable::destroy(n.hash_idx_raw);
+n.hash_idx_raw=nullptr;
+}
+}
+storage_->nodes.clear();
+storage_->string_arena.clear();
+storage_->array_children.clear();
+storage_->object_members.clear();
+storage_->owned_input.reset();
+storage_->root_node=0;
+storage_->bom_prefix_bytes=0;
+
+SV src=input;
+constexpr SV kBOM="\xEF\xBB\xBF";
+if(src.starts_with(kBOM)){
+src.remove_prefix(kBOM.size());
+storage_->bom_prefix_bytes=static_cast<u32>(kBOM.size());
+}
+storage_->input_view=src;
+
+auto r=parse_inplace(*storage_,opts);
+if(!r)return unexpected(move(r).error());
+return ArenaDocument{storage_.get(),generation_,&generation_};
+}
+expected<ArenaDocument,JsonError>JsonArena::parse_moved_into(
+S input,
+JsonParseOptions const&opts){
+if(auto ok=check_input_limits(input.size(),opts);!ok)
+return unexpected(move(ok).error());
+for(auto&n:storage_->nodes){
+if(n.kind==NodeKind::object&&n.hash_idx_raw!=nullptr&&n.hash_idx_raw!=kHashBuildFailedSentinel){
+ObjHashTable::destroy(n.hash_idx_raw);
+n.hash_idx_raw=nullptr;
+}
+}
+storage_->nodes.clear();
+storage_->string_arena.clear();
+storage_->array_children.clear();
+storage_->object_members.clear();
+storage_->owned_input.reset();
+storage_->root_node=0;
+storage_->bom_prefix_bytes=0;
+
+storage_->owned_input=make_unique<S>(move(input));
 SV src=*storage_->owned_input;
 constexpr SV kBOM="\xEF\xBB\xBF";
 if(src.starts_with(kBOM)){

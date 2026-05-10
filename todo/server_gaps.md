@@ -4,7 +4,7 @@
 
 - [x] Direct-accept: set `tcp_nodelay_once` in `http_server.cxx` `DirectTcpAcceptSetup` (normal-accept already sets it)
 - [x] JSON docs: sync `docs/json-api.md` field names with current `JsonError` / error-code names
-- [ ] JSON arena: add `JsonArena::parse_borrowed_into(string_view)` and `parse_moved_into(string&&)`
+- [x] JSON arena: `JsonArena::parse_borrowed_into(string_view)` and `parse_moved_into(string&&)` landed
 - [ ] JSON hash index: allocate via PMR resource, not global `::operator new`
 - [ ] Ring thread affinity: add `ring_core` / `worker_core_base` config fields, default disabled
 - [ ] Busy poll: add `busy_poll_us` / `prefer_busy_poll` config fields, default disabled

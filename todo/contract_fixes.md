@@ -6,7 +6,7 @@
 - [ ] Handler model: normalize all public handlers to one internal shape `Task<Response>(Request)`; sync lambdas auto-offload or require `nonblocking` annotation — never execute arbitrary user sync code on ring thread (`src/net/router.cxx:2792-2824`, `http_server.cxx:4055-4063`)
 - [ ] Public API: remove exported type aliases (`S`, `SV`, `SP`, `Opt`, etc. in `src/types.cxx:15-75`) from public signatures; use spelled-out std types at all public boundaries
 - [ ] JSON default path: rename `parse(string_view)` → `parse_copy`; promote `parse_borrowed` as the performance-default; document `parse_view`/`json::view_document` as the primary fast API (`src/json.cxx:4103-4111`)
-- [ ] JSON: add `JsonArena::parse_borrowed_into(string_view)` and `parse_moved_into(string&&)` — current `parse_into` always copies input (`src/json.cxx:4075-4076`)
+- [x] JSON: add `JsonArena::parse_borrowed_into(string_view)` and `parse_moved_into(string&&)` — both landed; `parse_borrowed_into` reuses caller's buffer without copy, `parse_moved_into` takes ownership.
 - [ ] xxhash: either vendor properly with `find_package`/FetchContent or replace with internal hash; resolve the dangling `CMakeLists.txt:492` link with no declared source
 - [ ] JSON global state: document `CLocaleHolder` singleton (`src/json.cxx:669-675`) as the only permitted process-lifetime singleton; add design note
 
