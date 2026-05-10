@@ -47,8 +47,8 @@ auto doc = parse_borrowed_unsafe(input);
 ```cpp
 struct JsonParseOptions {
     LimitOption max_depth;       // default 128
-    LimitOption max_input_size;  // default 4 GiB
-    LimitOption max_string_size; // default unlimited
+    LimitOption max_input_size;  // default 128 MiB
+    LimitOption max_string_size; // default 64 MiB
 };
 ```
 
