@@ -119,6 +119,7 @@ set(_record_targets
     conflux_task_cancellation_bench
     conflux_workpool_enqueue_dequeue_bench
     conflux_join_all_N_bench
+    conflux_socket_raw_bench
     conflux_http_server_bench
     conflux_http_server_concurrency_bench
 )

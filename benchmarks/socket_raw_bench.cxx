@@ -1233,6 +1233,69 @@ slices.recycle_all();
 auto s=run_variant(v,args.iterations,args.warmup,config_name);
 bench_print(s,json,false);
 }
+// buf_slices_from_cqe_bundle_3_full / _bundle_3_partial_tail
+// Simulate a 3-buffer bundle CQE using BufferRingMode::recv_bundle.
+// partial_tail variant: last buffer holds fewer bytes, exercising the length math.
+void run_buf_slices_from_cqe_bundle(
+BenchArgs const&args,
+bool json,
+SV config_name,
+SV variant_name,
+int res){
+RingGuard rg{64};
+constexpr SZ kBufSz=4096;
+BufferRing bufs{rg.get(),{.count=256,.buf_size=kBufSz,.group_id=0,.huge_pages=false,.mode=BufferRingMode::recv_bundle}};
+
+auto v=Variant{
+.name=variant_name,
+.run=
+[&]{
+u16 const id=bufs.ring_id_at(bufs.debug_head_pos());
+u32 const flags=IORING_CQE_F_BUFFER|(static_cast<u32>(id)<<IORING_CQE_BUFFER_SHIFT);
+auto slices=buffer_slices_from_cqe(bufs,res,flags,true);
+slices.recycle_all();
+},
+};
+
+auto s=run_variant(v,args.iterations,args.warmup,config_name);
+bench_print(s,json,false);
+}
+// buf_slice_from_incremental_cqe: N synthetic partial CQEs per buffer, final recycles
+// incremental_1_full: N=1 — exercises incremental_offsets_ + final-CQE consume + final recycle
+// incremental_2_half: N=2 — two half-fills, BUF_MORE on first
+// incremental_4_quarter: N=4 — four quarter-fills, BUF_MORE on first three
+void run_buf_slice_from_incremental_cqe(
+BenchArgs const&args,
+bool json,
+SV config_name,
+SV variant_name,
+int n){
+RingGuard rg{64};
+constexpr SZ kBufSz=4096;
+BufferRing bufs{rg.get(),{.count=256,.buf_size=kBufSz,.group_id=0,.huge_pages=false,.mode=BufferRingMode::incremental}};
+
+SZ const chunk=kBufSz/static_cast<SZ>(n);
+
+auto v=Variant{
+.name=variant_name,
+.run=
+[&]{
+u16 const id=bufs.ring_id_at(bufs.debug_head_pos());
+for(int i=0;i<n;++i){
+bool const is_last=(i==n-1);
+SZ const res=is_last?kBufSz-chunk*static_cast<SZ>(i):chunk;
+u32 flags=IORING_CQE_F_BUFFER|(static_cast<u32>(id)<<IORING_CQE_BUFFER_SHIFT);
+if(!is_last)
+flags|=IORING_CQE_F_BUF_MORE;
+auto slice=buffer_slice_from_incremental_cqe(bufs,static_cast<int>(res),flags);
+slice.recycle_if_final();
+}
+},
+};
+
+auto s=run_variant(v,args.iterations,args.warmup,config_name);
+bench_print(s,json,false);
+}
 // direct_slot_pool_acquire_release: acquire() + release_empty() cycle
 void run_direct_slot_pool_acquire_release(
 BenchArgs const&args,
@@ -1348,6 +1411,12 @@ run_batch_recv_send_16(args,json,config_name);
 
 // ── buffer slices from cqe ────
 run_buf_slices_from_cqe_classic(args,json,config_name);
+constexpr SZ kBufSz=4096;
+run_buf_slices_from_cqe_bundle(args,json,config_name,"buf_slices_from_cqe_bundle_3_full",static_cast<int>(3*kBufSz));
+run_buf_slices_from_cqe_bundle(args,json,config_name,"buf_slices_from_cqe_bundle_3_partial_tail",static_cast<int>(2*kBufSz+64));
+run_buf_slice_from_incremental_cqe(args,json,config_name,"incremental_1_full",1);
+run_buf_slice_from_incremental_cqe(args,json,config_name,"incremental_2_half",2);
+run_buf_slice_from_incremental_cqe(args,json,config_name,"incremental_4_quarter",4);
 
 // ── direct slot pool ────
 run_direct_slot_pool_acquire_release(args,json,config_name);
