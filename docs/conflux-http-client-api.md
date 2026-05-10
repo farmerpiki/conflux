@@ -2,9 +2,9 @@
 
 `conflux::http::HttpClient` — blocking HTTP/1.1 user agent. TLS via OpenSSL (`https://`). One module, no extra deps.
 
-Also available: `send_async` — coroutine-based HTTP-only (no TLS) async transport backed by `SocketTaskRing`.
+Also available: `send_async` — coroutine-based async transport backed by `SocketTaskRing`. HTTP and HTTPS (via `TcpTlsStream`). Happy Eyeballs (RFC 8305) staggered connect.
 
-Status: **Blocking transport stable.** New connection per request (no pool, no keep-alive). Async transport: HTTP-only, no TLS, no pooling.
+Status: **Blocking and async transports stable.** New connection per request (no pool, no keep-alive).
 
 ## Module imports
 
@@ -348,30 +348,55 @@ conflux::http::send_async(
 
 Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all outlive the coroutine — do not destroy them while the task is suspended.
 
+**Features:**
+
+- HTTP and HTTPS (async TLS via `TcpTlsStream` with memory BIOs, deadline-aware handshake/read/write)
+- Happy Eyeballs (RFC 8305 v1): `staggered_parallel_connect` with 250 ms stagger, 10 ms fast-fail poll
+- Write timeout: `submit_send_timeout_borrowed` (linked SQE + timeout)
+- Cancellation-safe close: `CloseState` shields close SQE from outer cancel
+
 **Limitations vs `send_blocking`:**
 
 | Feature | `send_blocking` | `send_async` |
 |---|---|---|
 | HTTP/1.1 | Yes | Yes |
-| HTTPS / TLS | Yes | **No** — returns `HttpErrorKind::tls` |
+| HTTPS / TLS | Yes | Yes (via `TcpTlsStream`) |
+| Happy Eyeballs | No (sequential) | Yes (RFC 8305 stagger) |
 | Connection pool | No | No |
-| Redirect following | No (Phase 2) | No |
-| Content-encoding decode | No (Phase 2) | No |
+| Redirect following | No | No |
+| Content-encoding decode | No | No |
+| Write timeout | Yes | Yes (linked SQE) |
 | Cancellation | N/A | Via `SocketTaskRing` cancel |
-
-HTTPS requests return `HttpError{.kind=tls, .message="async TLS not yet implemented; use send_blocking for HTTPS"}` immediately.
 
 Error kinds, `HttpResult`, and `HttpResponse` shapes are identical to `send_blocking`.
 
+### Router async dispatch (`ContextHandler`)
+
+**Module:** `conflux.net.http` (umbrella)
+
+```cpp
+struct RequestContext {
+    SocketTaskRing& ring;
+};
+
+using ContextHandler   = std::function<root::Task<HttpResponse>(HttpRequestView, RequestContext)>;
+using ContextMiddleware = std::function<root::Task<HttpResponse>(HttpRequestView, RequestContext, NextContextHandler)>;
+
+Router& Router::add_context(std::string_view method, std::string_view path, ContextHandler);
+bool    Router::has_context_routes() const;
+root::Task<HttpResponse> Router::dispatch_async(HttpRequestView, RequestContext);
+```
+
+Context routes are dispatched via `try_dispatch_async` in the server's ring loop — they receive the ring thread's `SocketTaskRing` and can call `send_async` without blocking. `proxy_context_handler()` in `proxy.cxx` uses this path.
+
 ## Stability
 
-Blocking surface stable. Async surface (`send_async`, HTTP-only) available but TLS not implemented.
+Blocking and async surfaces stable. Both support HTTP and HTTPS.
 
 Still not in any transport:
 - pooled connections / keep-alive (`pool_wait` / `reused_connection` always false)
 - redirect following (`follow_redirects` compiles but has no effect)
 - content-coding decode (gzip/br/zstd bodies arrive raw)
 - `body_json(NodeRef)` (sets Content-Type only; use `body_json(Document)`)
-- socket-level timeouts promoted to `HttpErrorKind::timeout` (currently surfaces as `read`/`write`)
 
 Builder/Request/Response/Telemetry/Error shapes are not expected to change.

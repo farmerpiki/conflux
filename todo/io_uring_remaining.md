@@ -18,12 +18,14 @@ _Collapsed from `conflux_linux_first_class_io_uring_todo_proposal.md`. Completed
 
 ### HTTP async client (P1-02)
 
-- [ ] HTTPS async path: currently `not implemented`.
-- [ ] Proxy plaintext path: still has blocking send (`proxy.cxx:88`).
-- [ ] Connect timeout with linked timeout or explicit cancel.
-- [ ] Cancellation-safe close path.
-- [ ] Happy Eyeballs connect staggering/racing.
+- [x] HTTPS async path — `TcpTlsStream` (memory BIO, async handshake/read/write/close) landed in `fbf7ffd`.
+- [x] Cancellation-safe close path — `CloseState` shielded close landed in `fbf7ffd`.
+- [x] Connect timeout with linked timeout or explicit cancel — linked SQE + staggered connect in `fbf7ffd`.
+- [x] Happy Eyeballs connect staggering/racing — `HappyConnectState`/`staggered_parallel_connect` (RFC 8305 v1, 250 ms stagger) landed in `fbf7ffd`.
+- [x] `HttpTimeouts::write` async path — `submit_send_timeout_borrowed` (linked SQE + timeout) landed in `fbf7ffd`.
+- [x] Proxy async migration — `proxy_context_handler()` / `ContextHandler` / `dispatch_async()` landed in `844b8dc`. `proxy_handler()` kept as deprecated `work_pool` fallback.
 - [ ] Remove/deprecate `FileReader` socket methods after HTTP/DNS migration complete.
+- [ ] HTTPS async cancellation — TLS connect/recv cancellation-aware path not confirmed.
 
 ### DNS transport cleanup (P1-03)
 
@@ -47,10 +49,10 @@ PR A (server multishot cancel + shutdown) and PR B (DNS + HTTP client timeouts) 
 Benchmark gate passed (main vs db, release-clang-libcxx, 2026-05-10). Remaining:
 
 - [ ] Cancel-by-fd/close-fd for multishot recv where user-data cancel is insufficient — deferred; generation check mitigates, proper fix requires per-fd cancel slot tracking.
-- [ ] `HttpTimeouts::write` async path — currently ignored; add linked timeout to `do_send` write SQE.
+- [x] `HttpTimeouts::write` async path — `submit_send_timeout_borrowed` landed in `fbf7ffd`.
 - [ ] HTTPS async cancellation path — `client_async.cxx` TLS connect/recv not yet cancellation-aware.
 - [ ] Shutdown explicit recv cancel for armed connections — follow-up after PR B merge.
-- [ ] WebSocket handoff cancel — already implemented (`ws_cancel_handoffs` / `queue_ws_cancel`); no action needed.
+- [x] WebSocket handoff cancel — already implemented (`ws_cancel_handoffs` / `queue_ws_cancel`).
 
 ### Benchmarks (P1-09)
 
@@ -60,8 +62,8 @@ Benchmark gate passed (main vs db, release-clang-libcxx, 2026-05-10). Remaining:
   - compare-bins gate passed 2026-05-10: `str/*` vs `fr/*` in `tcp_increment_coro_bench`,
     release-clang-libcxx — callback +1.7%, coroutine -0.5% (±2% pass).
 - [x] `SocketTaskRing` vs `FileReader` client variants — `str/callback` and `str/coroutine` landed in `tcp_increment_coro_bench` (e3f1038, 2026-05-10); compare-bins gate passed. `tcp_socket_task_bench` deleted (absorbed).
-- [ ] Async server variant (`str/async_callback`, `str/async_coroutine`) — requires `tcp_accept_multishot`-based server loop in `tcp_increment_coro_bench`.
-- [ ] N=4 parallel clients variant (`str/parallel_4`) — requires `join_all` of N `TcpStream` coroutines on one ring.
+- [x] Async server variant (`str/async_callback`, `str/async_coroutine`) — multishot-accept server + async client variants landed in `9851640`.
+- [x] N=4 parallel clients variant (`str/parallel_4`) — landed in `9851640`; `--clients`/`--config` args + parallel_4 config.
 - [ ] Close-direct deferred path benchmarks — requires `FlowRuntime` integration.
 
 ---

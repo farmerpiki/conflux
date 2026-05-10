@@ -15,6 +15,7 @@
 - [ ] HTTP send path: `SEND_ZC` integration with notification-CQE tracking, capability-gated
 - [ ] Root `Task<T>`: add alloc counters for frames/control-blocks, then pool `ControlBlockModel<T>`
 - [ ] JSON: true incremental `JsonStreamReader::feed(span<byte>)` / events API
+- [x] Router: `ContextHandler` / `ContextMiddleware` / `dispatch_async()` — landed in `844b8dc`
 - [ ] Router: `HandlerResult` / `Middleware` concepts with readable static-assert messages
 - [x] io_uring init: adaptive flag fallback on `EINVAL` (strip `CQE_MIXED` → `NO_SQARRAY` → `TASKRUN_FLAG` → `DEFER_TASKRUN` → `SINGLE_ISSUER`, log final set)
 
