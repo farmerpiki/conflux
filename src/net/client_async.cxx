@@ -62,7 +62,7 @@ A<u8,4096>tmp{};
 while(buf.size()<max){
 SZ n;
 try{
-n=co_await stream.read_borrowed(span<u8>{tmp.data(),tmp.size()});
+n=co_await stream.recv_borrowed(span<u8>{tmp.data(),tmp.size()});
 }catch(...){break;}
 if(n==0)break;
 buf.append(reinterpret_cast<char const*>(tmp.data()),n);
@@ -77,7 +77,7 @@ if(out.size()>=cap)co_return false;
 auto const want=min(tmp.size(),target-out.size());
 SZ n;
 try{
-n=co_await stream.read_borrowed(span<u8>{tmp.data(),want});
+n=co_await stream.recv_borrowed(span<u8>{tmp.data(),want});
 }catch(...){co_return false;}
 if(n==0)co_return false;
 out.append(reinterpret_cast<char const*>(tmp.data()),n);
@@ -90,7 +90,7 @@ A<u8,4096>tmp{};
 for(;;){
 SZ n;
 try{
-n=co_await stream.read_borrowed(span<u8>{tmp.data(),tmp.size()});
+n=co_await stream.recv_borrowed(span<u8>{tmp.data(),tmp.size()});
 }catch(...){break;}
 if(n==0)break;
 out.append(reinterpret_cast<char const*>(tmp.data()),n);
@@ -115,7 +115,7 @@ co_return false;
 }
 SZ n;
 try{
-n=co_await stream.read_borrowed(span<u8>{tmp.data(),tmp.size()});
+n=co_await stream.recv_borrowed(span<u8>{tmp.data(),tmp.size()});
 }catch(...){co_return false;}
 if(n==0)co_return false;
 encoded.append(reinterpret_cast<char const*>(tmp.data()),n);

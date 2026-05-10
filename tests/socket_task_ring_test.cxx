@@ -342,11 +342,11 @@ CHECK_FALSE(got);
 CHECK(err_code==ECONNREFUSED);
 }
 // ---------------------------------------------------------------------------
-// TcpStream — write_all_borrowed + read_borrowed echo
+// TcpStream — write_all_borrowed + recv_borrowed echo
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-"tcp: write_all_borrowed + read_borrowed echo round-trip",
+"tcp: write_all_borrowed + recv_borrowed echo round-trip",
 "[tcp][uring]"){
 TcpEchoServer server;
 REQUIRE(server.ok());
@@ -369,7 +369,7 @@ fx->run(stream.write_all_borrowed(span<uint8_t const>{msg.data(),msg.size()}));
 A<uint8_t,13>rx{};
 SZ received=0;
 while(received<msg.size()){
-SZ const n=fx->run(stream.read_borrowed(
+SZ const n=fx->run(stream.recv_borrowed(
 span<uint8_t>{rx.data()+received,msg.size()-received}));
 REQUIRE(n>0);
 received+=n;
@@ -383,7 +383,7 @@ fx->run(stream.close());
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-"tcp: read_borrowed returns 0 after server closes",
+"tcp: recv_borrowed returns 0 after server closes",
 "[tcp][uring]"){
 // Server that accepts and immediately closes.
 int listen_fd=::socket(AF_INET,SOCK_STREAM|SOCK_CLOEXEC,0);
@@ -419,7 +419,7 @@ closer.join();
 
 // read should return 0 (EOF)
 A<uint8_t,64>buf{};
-SZ const n=fx->run(stream.read_borrowed(span<uint8_t>{buf.data(),buf.size()}));
+SZ const n=fx->run(stream.recv_borrowed(span<uint8_t>{buf.data(),buf.size()}));
 CHECK(n==0);
 fx->run(stream.close());
 }
@@ -483,7 +483,7 @@ fx->run(stream.write_all_copy(span<uint8_t const>{msg.data(),msg.size()}));
 A<uint8_t,8>rx{};
 SZ received=0;
 while(received<msg.size()){
-SZ const n=fx->run(stream.read_borrowed(
+SZ const n=fx->run(stream.recv_borrowed(
 span<uint8_t>{rx.data()+received,msg.size()-received}));
 REQUIRE(n>0);
 received+=n;
@@ -577,7 +577,7 @@ CHECK(err_code==EINVAL);
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-"tcp: read_borrowed after close() throws EBADF",
+"tcp: recv_borrowed after close() throws EBADF",
 "[tcp][uring]"){
 TcpEchoServer server;
 REQUIRE(server.ok());
@@ -591,7 +591,7 @@ fx->run(stream.close());
 int err=0;
 array<uint8_t,16>buf{};
 try{
-fx->run(stream.read_borrowed(span<uint8_t>{buf.data(),buf.size()}));
+fx->run(stream.recv_borrowed(span<uint8_t>{buf.data(),buf.size()}));
 }catch(IoError const&e){err=e.code().value();}
 CHECK(err==EBADF);
 }
@@ -613,7 +613,7 @@ REQUIRE(stream.valid());
 // echo server only sends when we send; no data pending → read will block
 array<uint8_t,64>buf{};
 // coroutine starts eagerly — SQE added to ring immediately
-auto read_task=stream.read_borrowed(span<uint8_t>{buf.data(),buf.size()});
+auto read_task=stream.recv_borrowed(span<uint8_t>{buf.data(),buf.size()});
 // cancel from ring owner thread (inline path): fires cancel hook →
 // submits read+cancel SQEs together via ring.raw().submit()
 read_task.cancel();
@@ -653,7 +653,7 @@ auto stream=fx->run(tcp_connect(ring2,AF_INET,addr,
 static_cast<socklen_t>(sizeof(sockaddr_in))));
 REQUIRE(stream.valid());
 array<uint8_t,64>buf{};
-auto read_task=stream.read_borrowed(span<uint8_t>{buf.data(),buf.size()});
+auto read_task=stream.recv_borrowed(span<uint8_t>{buf.data(),buf.size()});
 // cancel → cancel hook → submit_on_owner → lambda returns false
 // with fix: try_set_cancelled() fires immediately
 read_task.cancel();
@@ -719,7 +719,7 @@ fx->run(move(copy_task));// must not UB — holder owns the data
 array<uint8_t,8>rx{};
 SZ received=0;
 while(received<8){
-SZ const n=fx->run(stream.read_borrowed(span<uint8_t>{rx.data()+received,8u-received}));
+SZ const n=fx->run(stream.recv_borrowed(span<uint8_t>{rx.data()+received,8u-received}));
 REQUIRE(n>0);
 received+=n;
 }
@@ -767,7 +767,217 @@ REQUIRE(stream.valid());
 // after SHUT_WR the server sees EOF, closes its side → our read returns 0
 fx->run(stream.shutdown(SHUT_WR));
 array<uint8_t,64>buf{};
-SZ const n=fx->run(stream.read_borrowed(span<uint8_t>{buf.data(),buf.size()}));
+SZ const n=fx->run(stream.recv_borrowed(span<uint8_t>{buf.data(),buf.size()}));
 CHECK(n==0);
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// TcpStream — write_all_copy copies once; safe after source mutated
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: write_all_copy safe after source mutated before run",
+"[tcp][lifetime][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+array<uint8_t,8>src{1,2,3,4,5,6,7,8};
+auto task=stream.write_all_copy(span<uint8_t const>{src.data(),src.size()});
+// mutate source — task must have copied it already
+src.fill(0xCC);
+fx->run(move(task));
+array<uint8_t,8>rx{};
+SZ received=0;
+while(received<8){
+SZ const n=fx->run(stream.recv_borrowed(span<uint8_t>{rx.data()+received,8u-received}));
+REQUIRE(n>0);
+received+=n;
+}
+array<uint8_t,8>const expected{1,2,3,4,5,6,7,8};
+CHECK(memcmp(rx.data(),expected.data(),8)==0);
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// TcpStream — write_all_owned(V<u8>) round-trip
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: write_all_owned vector round-trip",
+"[tcp][lifetime][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+V<uint8_t>payload{10,20,30,40,50,60};
+fx->run(stream.write_all_owned(move(payload)));
+array<uint8_t,6>rx{};
+SZ received=0;
+while(received<6){
+SZ const n=fx->run(stream.recv_borrowed(span<uint8_t>{rx.data()+received,6u-received}));
+REQUIRE(n>0);
+received+=n;
+}
+array<uint8_t,6>const expected{10,20,30,40,50,60};
+CHECK(memcmp(rx.data(),expected.data(),6)==0);
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// TcpStream — write_all_owned(S) round-trip
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: write_all_owned string round-trip",
+"[tcp][lifetime][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+S msg="hello";
+fx->run(stream.write_all_owned(move(msg)));
+array<uint8_t,5>rx{};
+SZ received=0;
+while(received<5){
+SZ const n=fx->run(stream.recv_borrowed(span<uint8_t>{rx.data()+received,5u-received}));
+REQUIRE(n>0);
+received+=n;
+}
+CHECK(memcmp(rx.data(),"hello",5)==0);
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// TcpStream — recv_owned round-trip
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: recv_owned returns owned buffer shrunk to actual bytes",
+"[tcp][lifetime][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+array<uint8_t,4>msg{0xDE,0xAD,0xBE,0xEF};
+fx->run(stream.write_all_borrowed(span<uint8_t const>{msg.data(),msg.size()}));
+// recv_owned with a generous max — result should be exactly what echo returned
+auto buf=fx->run(stream.recv_owned(256));
+REQUIRE(!buf.empty());
+CHECK(buf.size()==msg.size());// must shrink to actual bytes, not max_bytes
+CHECK(memcmp(buf.data(),msg.data(),msg.size())==0);
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// UdpSocket — send_to_copy safe after source mutated before run
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"udp: send_to_copy safe after source mutated before run",
+"[udp][lifetime][uring]"){
+auto fx=require_ring_fixture();
+// Bind a UDP echo server on loopback.
+int srv=::socket(AF_INET,SOCK_DGRAM|SOCK_CLOEXEC,IPPROTO_UDP);
+REQUIRE(srv>=0);
+sockaddr_in sa{};
+sa.sin_family=AF_INET;
+sa.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+sa.sin_port=0;
+::bind(srv,reinterpret_cast<sockaddr*>(&sa),sizeof(sa));
+socklen_t slen=sizeof(sa);
+::getsockname(srv,reinterpret_cast<sockaddr*>(&sa),&slen);
+uint16_t const srv_port=ntohs(sa.sin_port);
+
+sockaddr_storage dst{};
+auto*dsin=reinterpret_cast<sockaddr_in*>(&dst);
+dsin->sin_family=AF_INET;
+dsin->sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+dsin->sin_port=htons(srv_port);
+
+UdpSocket sock=UdpSocket::ephemeral(fx->task_ring,AF_INET);
+array<uint8_t,4>payload{1,2,3,4};
+auto task=sock.send_to_copy(
+span<uint8_t const>{payload.data(),payload.size()},
+dst,static_cast<socklen_t>(sizeof(sockaddr_in)));
+// mutate source — send_to_copy must have copied
+payload.fill(0xCC);
+SZ const sent=fx->run(move(task));
+CHECK(sent==4);
+// verify server received the original bytes, not the mutated 0xCC
+array<uint8_t,16>rbuf{};
+ssize_t const got=::recv(srv,rbuf.data(),rbuf.size(),0);
+REQUIRE(got==4);
+array<uint8_t,4>const orig{1,2,3,4};
+CHECK(memcmp(rbuf.data(),orig.data(),4)==0);
+::close(srv);
+}
+// ---------------------------------------------------------------------------
+// TcpStream — write_owned(V<u8>) single-shot round-trip
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: write_owned vector single-shot round-trip",
+"[tcp][lifetime][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+V<uint8_t>payload{0xAA,0xBB,0xCC};
+SZ const sent=fx->run(stream.write_owned(move(payload)));
+CHECK(sent==3);
+array<uint8_t,3>rx{};
+SZ received=0;
+while(received<3){
+SZ const n=fx->run(stream.recv_borrowed(span<uint8_t>{rx.data()+received,3u-received}));
+REQUIRE(n>0);
+received+=n;
+}
+array<uint8_t,3>const expected{0xAA,0xBB,0xCC};
+CHECK(memcmp(rx.data(),expected.data(),3)==0);
+fx->run(stream.close());
+}
+// ---------------------------------------------------------------------------
+// TcpStream — write_owned(S) single-shot round-trip
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp: write_owned string single-shot round-trip",
+"[tcp][lifetime][uring]"){
+TcpEchoServer server;
+REQUIRE(server.ok());
+auto fx=require_ring_fixture();
+sockaddr_storage addr=loopback_addr(server.port());
+auto stream=fx->run(tcp_connect(
+fx->task_ring,AF_INET,addr,
+static_cast<socklen_t>(sizeof(sockaddr_in))));
+REQUIRE(stream.valid());
+S msg="XY";
+SZ const sent=fx->run(stream.write_owned(move(msg)));
+CHECK(sent==2);
+array<uint8_t,2>rx{};
+SZ received=0;
+while(received<2){
+SZ const n=fx->run(stream.recv_borrowed(span<uint8_t>{rx.data()+received,2u-received}));
+REQUIRE(n>0);
+received+=n;
+}
+CHECK(memcmp(rx.data(),"XY",2)==0);
 fx->run(stream.close());
 }

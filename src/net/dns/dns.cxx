@@ -964,7 +964,7 @@ A<u8,2>len_buf{};
 {
 SZ n=0;
 while(n<2){
-SZ got=co_await stream.read_borrowed(span<u8>{len_buf.data()+n,2-n});
+SZ got=co_await stream.recv_borrowed(span<u8>{len_buf.data()+n,2-n});
 if(got==0)throw DnsError{DnsErrorKind::network,"dns: tcp short length prefix"};
 n+=got;
 }
@@ -976,7 +976,7 @@ vector<u8>resp_buf(resp_len);
 {
 SZ resp_n=0;
 while(resp_n<static_cast<SZ>(resp_len)){
-SZ got=co_await stream.read_borrowed(span<u8>{resp_buf.data()+resp_n,static_cast<SZ>(resp_len)-resp_n});
+SZ got=co_await stream.recv_borrowed(span<u8>{resp_buf.data()+resp_n,static_cast<SZ>(resp_len)-resp_n});
 if(got==0)throw DnsError{DnsErrorKind::network,"dns: tcp short response"};
 resp_n+=got;
 }

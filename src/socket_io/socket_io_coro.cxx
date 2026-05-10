@@ -24,6 +24,17 @@ using std::move;
 using std::span;
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
+// Buffer lifetime contract for Task methods:
+//   *_borrowed — caller storage is passed to the kernel. It must remain valid
+//                until the operation reaches its CQE-backed terminal completion.
+//                In normal awaited use, this means until co_await returns.
+//                Do not destroy/drop/cancel a borrowed task unless the borrowed
+//                storage outlives the underlying io_uring operation.
+//   *_copy     — implementation copies input before submission; caller may drop
+//                or mutate the source buffer after the call returns.
+//   *_owned    — implementation takes ownership by move; no source lifetime
+//                obligation remains after the call returns.
+
 // ─── TcpStreamState ───────────────────────────────────────────────────────────
 
 struct TcpStreamState{
@@ -97,7 +108,7 @@ return state_&&state_->handle.valid()&&!state_->closing.load(memory_order_relaxe
 [[nodiscard]]int raw_fd()const noexcept{
 return state_?state_->handle.raw_fd():-1;
 }
-[[nodiscard]]wroot::Task<SZ>read_borrowed(span<u8>dst){
+[[nodiscard]]wroot::Task<SZ>recv_borrowed(span<u8>dst){
 auto&st=*state_;
 if(!st.handle.valid()||st.closing.load(memory_order_relaxed)){
 auto[t,s]=wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation=false});
@@ -139,6 +150,8 @@ if(auto src=weak_src2.lock())auto _=src->try_set_cancelled();
 });
 return move(task);
 }
+[[deprecated("use recv_borrowed")]][[nodiscard]]wroot::Task<SZ>read_borrowed(span<u8>dst){return recv_borrowed(dst);}
+[[nodiscard]]wroot::Task<V<u8>>recv_owned(SZ max_bytes);
 [[nodiscard]]wroot::Task<SZ>write_borrowed(span<u8 const>src){
 return do_send(src.data(),src.size(),{});
 }
@@ -148,8 +161,12 @@ u8*data=holder->data();
 SZ const len=holder->size();
 return do_send(data,len,holder);
 }
+[[nodiscard]]wroot::Task<SZ>write_owned(V<u8>data);
+[[nodiscard]]wroot::Task<SZ>write_owned(S data);
 [[nodiscard]]wroot::Task<void>write_all_borrowed(span<u8 const>src);
 [[nodiscard]]wroot::Task<void>write_all_copy(span<u8 const>src);
+[[nodiscard]]wroot::Task<void>write_all_owned(V<u8>data);
+[[nodiscard]]wroot::Task<void>write_all_owned(S data);
 [[nodiscard]]wroot::Task<void>shutdown(int how=SHUT_WR){
 auto&st=*state_;
 if(!st.handle.valid())
@@ -217,7 +234,45 @@ sent+=n;
 auto holder=make_shared<V<u8>>(src.begin(),src.end());
 SZ sent=0;
 while(sent<holder->size()){
-SZ const n=co_await write_copy({holder->data()+sent,holder->size()-sent});
+SZ const n=co_await do_send(holder->data()+sent,holder->size()-sent,holder);
+if(n==0)throw IoError{ECONNRESET,"tcp: connection closed"};
+sent+=n;
+}
+}
+[[nodiscard]]wroot::Task<V<u8>>TcpStream::recv_owned(SZ max_bytes){
+V<u8>out(max_bytes);
+if(max_bytes==0)co_return out;
+SZ const n=co_await recv_borrowed(span<u8>{out.data(),out.size()});
+out.resize(n);
+co_return out;
+}
+[[nodiscard]]wroot::Task<SZ>TcpStream::write_owned(V<u8>data){
+auto holder=make_shared<V<u8>>(move(data));
+u8 const*ptr=holder->data();
+SZ const len=holder->size();
+return do_send(ptr,len,holder);
+}
+[[nodiscard]]wroot::Task<SZ>TcpStream::write_owned(S data){
+auto holder=make_shared<S>(move(data));
+auto const*ptr=reinterpret_cast<u8 const*>(holder->data());
+SZ const len=holder->size();
+return do_send(ptr,len,holder);
+}
+[[nodiscard]]wroot::Task<void>TcpStream::write_all_owned(V<u8>data){
+auto holder=make_shared<V<u8>>(move(data));
+SZ sent=0;
+while(sent<holder->size()){
+SZ const n=co_await do_send(holder->data()+sent,holder->size()-sent,holder);
+if(n==0)throw IoError{ECONNRESET,"tcp: connection closed"};
+sent+=n;
+}
+}
+[[nodiscard]]wroot::Task<void>TcpStream::write_all_owned(S data){
+auto holder=make_shared<S>(move(data));
+SZ sent=0;
+while(sent<holder->size()){
+auto const*ptr=reinterpret_cast<u8 const*>(holder->data()+sent);
+SZ const n=co_await do_send(ptr,holder->size()-sent,holder);
 if(n==0)throw IoError{ECONNRESET,"tcp: connection closed"};
 sent+=n;
 }
@@ -386,14 +441,27 @@ throw IoError{EAFNOSUPPORT,"udp: unsupported family"};
 }
 return UdpSocket{ring,OwnedSocketHandle::from_fd(fd)};
 }
+// payload (span<u8 const>) is NOT copied — caller must keep it valid until co_await returns;
+// if abandoned/detached/cancelled, storage must outlive the underlying io_uring op. Use send_to_copy otherwise.
 [[nodiscard]]wroot::Task<SZ>send_to_borrowed(
 span<u8 const>data,
 sockaddr_storage addr,// by value — copied into holder
 socklen_t addr_len);
 
+[[nodiscard]]wroot::Task<SZ>send_to_copy(
+span<u8 const>data,
+sockaddr_storage addr,
+socklen_t addr_len);
+
 [[nodiscard]]wroot::Task<UdpRecvResult>recv_from(span<u8>buf);
 [[nodiscard]]wroot::Task<UdpRecvResult>recv_from(span<u8>buf,chrono::milliseconds timeout);
 };
+// NOTE: msghdr, iovec, and address are copied into an internal keeper.
+// The payload data (span<u8 const>) is NOT copied.
+// In normal awaited use, keep it valid until co_await returns.
+// If the task is abandoned/detached/cancelled, the general *_borrowed rule applies:
+// storage must outlive the underlying io_uring operation.
+// Use send_to_copy if you cannot guarantee the payload lifetime.
 [[nodiscard]]wroot::Task<SZ>UdpSocket::send_to_borrowed(
 span<u8 const>data,
 sockaddr_storage addr,
@@ -410,6 +478,43 @@ auto holder=make_shared<SendHolder>();
 holder->to=addr;
 holder->iov.iov_base=const_cast<void*>(static_cast<void const*>(data.data()));
 holder->iov.iov_len=data.size();
+holder->msg.msg_name=&holder->to;
+holder->msg.msg_namelen=addr_len;
+holder->msg.msg_iov=&holder->iov;
+holder->msg.msg_iovlen=1;
+auto[slot,gen]=ring_->completions().reserve([shared_src,holder](IoResult r)mutable{
+auto _=holder;
+try{
+if(r.res<0){
+auto _=shared_src->try_set_exception(make_exception_ptr(IoError{-r.res,"udp: sendto"}));
+return;
+}
+auto _=shared_src->try_set_value(wroot::Success<SZ>{static_cast<SZ>(r.res)});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
+});
+u64 const ud=ring_->encode(slot,gen);
+if(!submit_sendmsg_borrowed(ring_->raw(),h,&holder->msg,ud))
+ring_->completions().dispatch(slot,gen,-ENOSPC,0);
+co_return co_await move(task);
+}
+[[nodiscard]]wroot::Task<SZ>UdpSocket::send_to_copy(
+span<u8 const>data,
+sockaddr_storage addr,
+socklen_t addr_len){
+auto[task,raw_src]=wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation=false});
+auto shared_src=make_shared<wroot::TaskSource<SZ>>(move(raw_src));
+SocketHandle const h=handle_.get();
+struct SendCopyHolder{
+V<u8>payload;
+msghdr msg{};
+iovec iov{};
+sockaddr_storage to{};
+};
+auto holder=make_shared<SendCopyHolder>();
+holder->payload.assign(data.begin(),data.end());
+holder->to=addr;
+holder->iov.iov_base=holder->payload.empty()?nullptr:holder->payload.data();
+holder->iov.iov_len=holder->payload.size();
 holder->msg.msg_name=&holder->to;
 holder->msg.msg_namelen=addr_len;
 holder->msg.msg_iov=&holder->iov;
