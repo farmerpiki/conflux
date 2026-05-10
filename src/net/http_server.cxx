@@ -2271,6 +2271,7 @@ conn.fd=res;
 conn.recv_armed=false;
 conn.last_recv_cqe_flags=0;
 conn.have_last_recv_cqe_flags=false;
+conn.have_incremental_buf_id=false;
 conn.send_queued=false;
 conn.closing=false;
 conn.has_response=false;
@@ -3135,7 +3136,7 @@ F fn;
 template<typename F>
 ScopeExit(F)->ScopeExit<F>;
 template<typename Buf>
-void append_recv_buf_to(
+bool append_recv_buf_to(
 Buf&dst,
 RecvComp&rc){
 if(buf_ring_->mode()==BufferRingMode::incremental){
@@ -3143,9 +3144,9 @@ if(buf_ring_->mode()==BufferRingMode::incremental){
 auto result=try_buffer_slice_from_incremental_cqe(*buf_ring_,rc.res,rc.flags);
 rc.flags=0;
 if(!result)[[unlikely]]
-return;
+return false;
 dst.append(reinterpret_cast<char const*>(result->bytes().data()),result->bytes().size());
-return;
+return true;
 }
 auto slices=buffer_slices_from_cqe(*buf_ring_,rc.res,rc.flags,use_recv_bundle);
 ScopeExit const recycle{[&]()noexcept{
@@ -3154,6 +3155,7 @@ rc.flags=0;
 }};
 for(auto const&s:slices)
 dst.append(reinterpret_cast<char const*>(s.bytes.data()),s.bytes.size());
+return true;
 }
 void phase1_copy_recv_bufs(){
 for(auto&rc:recvs){
@@ -3177,13 +3179,17 @@ continue;
 }
 if(ws_pending&&(fd_table[ufd].gen!=rc.gen||fd_table[ufd].fd<0)){
 u32 const orig_flags=rc.flags;
-append_recv_buf_to(ws_it->second.initial_buf,rc);
+if(!append_recv_buf_to(ws_it->second.initial_buf,rc))
+continue;
 clear_retired_incremental_if_final(rc.fd,rc.gen,orig_flags);
 continue;
 }
 auto&conn=fd_table[ufd];
 u32 const orig_flags=rc.flags;
-append_recv_buf_to(conn.partial,rc);
+if(!append_recv_buf_to(conn.partial,rc))[[unlikely]]{
+queue_close(static_cast<int>(ufd));
+continue;
+}
 if(buf_ring_->mode()==BufferRingMode::incremental&&cqe_has_buffer(orig_flags)){
 if(cqe_has_buf_more(orig_flags)){
 conn.incremental_buf_id=cqe_buffer_id(orig_flags);
@@ -3508,8 +3514,8 @@ if(cqe->res<=0)
 return;
 auto const buf_id=static_cast<u16>(cqe->flags>>IORING_CQE_BUFFER_SHIFT);
 if(buf_ring_->mode()==BufferRingMode::incremental){
-auto slice=buffer_slice_from_incremental_cqe(*buf_ring_,cqe->res,cqe->flags);
-slice.recycle_if_final();
+// slice dtor recycles if final; silent drop on malformed CQE during shutdown
+auto _=try_buffer_slice_from_incremental_cqe(*buf_ring_,cqe->res,cqe->flags);
 }else if(use_recv_bundle){
 SZ remaining=static_cast<SZ>(cqe->res);
 u16 cur=buf_id;

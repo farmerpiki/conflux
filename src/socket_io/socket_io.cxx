@@ -132,7 +132,7 @@ BufferRingMode mode_{BufferRingMode::classic_one_cqe_per_buffer};
 V<SZ>incremental_offsets_{};
 friend class IncrementalRecvSlice;
 IncrementalRecvSlice friend buffer_slice_from_incremental_cqe(BufferRing&,int,u32)noexcept;
-expected<IncrementalRecvSlice,RecvDecodeError>friendtry_buffer_slice_from_incremental_cqe(BufferRing&,int,u32)noexcept;
+expected<IncrementalRecvSlice,RecvDecodeError>friend try_buffer_slice_from_incremental_cqe(BufferRing&,int,u32)noexcept;
 [[nodiscard]]SZ&incremental_offset_ref(
 u16 id)noexcept{
 assert(mode_==BufferRingMode::incremental);

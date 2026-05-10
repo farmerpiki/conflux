@@ -204,6 +204,42 @@ SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
 REQUIRE(run_probe("inc_no_buf_flag")==42);
 #endif
 }
+// Assert probe: classic ring + incremental flags → assert(mode==incremental) fires.
+TEST_CASE("incremental.assert: wrong ring mode detected","[incremental][death]"){
+#ifdef NDEBUG
+SKIP("assert inactive in release build");
+#else
+REQUIRE(run_probe("inc_wrong_mode")==42);
+#endif
+}
+// Assert probe: buf_id >= count → assert(id < ring.count()) fires.
+TEST_CASE("incremental.assert: out-of-range buffer id detected","[incremental][death]"){
+#ifdef NDEBUG
+SKIP("assert inactive in release build");
+#else
+{
+auto r=conflux::uring::Ring::init(32,{});
+REQUIRE(r);
+if(!conflux::uring::detect_caps(r->ref()).feat_pbuf_ring_inc)
+SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
+}
+REQUIRE(run_probe("inc_bad_id")==42);
+#endif
+}
+// Assert probe: res > buf_size → assert(res <= buf_size - off) fires.
+TEST_CASE("incremental.assert: length overflow detected","[incremental][death]"){
+#ifdef NDEBUG
+SKIP("assert inactive in release build");
+#else
+{
+auto r=conflux::uring::Ring::init(32,{});
+REQUIRE(r);
+if(!conflux::uring::detect_caps(r->ref()).feat_pbuf_ring_inc)
+SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
+}
+REQUIRE(run_probe("inc_len_overflow")==42);
+#endif
+}
 // ─── New tests (proposal §Tests required) ────────────────────────────────────
 
 // T1: phase3 safety-net — cleared flags block re-decode, no double offset advance.
