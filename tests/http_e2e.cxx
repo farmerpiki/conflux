@@ -18,6 +18,7 @@ import conflux.types;
 
 import conflux.crypto;
 import conflux.net.http;
+import conflux.net.proxy;
 import conflux.net.http1_parser;
 import conflux.net.tls;
 import conflux.tests.support;

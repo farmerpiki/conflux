@@ -102,7 +102,7 @@ co_return HttpResponse::bad_gateway(format("proxy: {} ({})",result.error().messa
 co_return build_response(move(*result));
 }
 }// namespace proxy_detail
-export Router::Handler proxy_handler(
+export auto proxy_handler(
 ProxyOptions opts){
 return[opts=move(opts)](HttpRequestView const&req)->HttpResponse{
 if(!opts.work_pool)
@@ -116,7 +116,7 @@ return HttpResponse::bad_gateway("proxy: work pool full");
 return HttpResponse::deferred(move(deferred));
 };
 }
-export Router::ContextHandler proxy_context_handler(
+export auto proxy_context_handler(
 ProxyOptions opts){
 return[opts=move(opts)](HttpRequest const&req,RequestContext const&ctx)->wroot::Task<HttpResponse>{
 co_return co_await proxy_detail::perform_proxy_request_async(req,opts,ctx.ring);

@@ -34,5 +34,4 @@ export import conflux.net.response_cache;
 export import conflux.net.structured_log;
 export import conflux.net.tracing;
 export import conflux.net.vhost;
-export import conflux.net.proxy;
 export import conflux.net.openapi;
