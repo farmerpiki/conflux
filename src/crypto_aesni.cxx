@@ -131,6 +131,28 @@ r,
 _mm_xor_si128(_mm_slli_epi64(ov,1),_mm_xor_si128(_mm_slli_epi64(ov,2),_mm_slli_epi64(ov,7))));
 return r;
 }
+// Per-thread cache of the last-used key schedule and H powers.
+// Covers the common pattern: one key per thread, many operations.
+struct KeyCtx{
+AesniKey256 ek;
+__m128i h_br,h2_br,h3_br,h4_br;
+unsigned char key[32];
+bool valid{false};
+};
+thread_local KeyCtx tl_key_ctx;
+static KeyCtx const&get_key_ctx(unsigned char const*key){
+if(tl_key_ctx.valid&&std::memcmp(tl_key_ctx.key,key,32)==0)
+return tl_key_ctx;
+tl_key_ctx.ek=aesni_expand_key(key);
+__m128i const h=aesni_encrypt_block(tl_key_ctx.ek,_mm_setzero_si128());
+tl_key_ctx.h_br=byte_bitrev(h);
+tl_key_ctx.h2_br=gf128_mul(tl_key_ctx.h_br,tl_key_ctx.h_br);
+tl_key_ctx.h3_br=gf128_mul(tl_key_ctx.h2_br,tl_key_ctx.h_br);
+tl_key_ctx.h4_br=gf128_mul(tl_key_ctx.h2_br,tl_key_ctx.h2_br);
+std::memcpy(tl_key_ctx.key,key,32);
+tl_key_ctx.valid=true;
+return tl_key_ctx;
+}
 // Register-only GCM counter increment (no memory round-trip).
 // Bytes [12..15] hold a big-endian 32-bit counter; byteswap to LE, add 1, byteswap back.
 inline static __m128i gcm_inc32_fast(__m128i ctr)noexcept{
@@ -285,13 +307,7 @@ SZ pt_len,
 unsigned char const*aad,
 SZ aad_len,
 unsigned char*out){
-auto const ek=aesni_expand_key(key);
-
-__m128i const h=aesni_encrypt_block(ek,_mm_setzero_si128());
-__m128i const h_br=byte_bitrev(h);
-__m128i const h2_br=gf128_mul(h_br,h_br);
-__m128i const h3_br=gf128_mul(h2_br,h_br);
-__m128i const h4_br=gf128_mul(h2_br,h2_br);
+auto const&kc=get_key_ctx(key);
 
 alignas(16)unsigned char j0_buf[16]{};
 std::memcpy(j0_buf,iv,12);
@@ -299,12 +315,12 @@ j0_buf[15]=1;
 __m128i const j0=_mm_load_si128(reinterpret_cast<__m128i const*>(j0_buf));
 
 __m128i ctr=j0;
-ctr_xor(ek,ctr,pt,out,pt_len);
+ctr_xor(kc.ek,ctr,pt,out,pt_len);
 
 __m128i ghash_br=_mm_setzero_si128();
 if(aad_len>0)
-ghash_update_clmul(ghash_br,h_br,h2_br,h3_br,h4_br,aad,aad_len);
-ghash_update_clmul(ghash_br,h_br,h2_br,h3_br,h4_br,out,pt_len);
+ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,aad,aad_len);
+ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,out,pt_len);
 
 alignas(16)unsigned char len_block[16]{};
 uint64_t const aad_bits=aad_len*8;
@@ -316,11 +332,11 @@ len_block[i+8]=static_cast<unsigned char>(ct_bits>>(56-i*8));
 __m128i lb=_mm_load_si128(reinterpret_cast<__m128i const*>(len_block));
 lb=byte_bitrev(lb);
 ghash_br=_mm_xor_si128(ghash_br,lb);
-ghash_br=gf128_mul(ghash_br,h_br);
+ghash_br=gf128_mul(ghash_br,kc.h_br);
 
 __m128i const ghash_state=byte_bitrev(ghash_br);
 
-__m128i const j0_enc=aesni_encrypt_block(ek,j0);
+__m128i const j0_enc=aesni_encrypt_block(kc.ek,j0);
 __m128i const tag=_mm_xor_si128(j0_enc,ghash_state);
 _mm_storeu_si128(reinterpret_cast<__m128i*>(out+pt_len),tag);
 
@@ -338,13 +354,7 @@ if(ct_tag_len<16)
 return-1;
 SZ const ct_len=ct_tag_len-16;
 
-auto const ek=aesni_expand_key(key);
-
-__m128i const h=aesni_encrypt_block(ek,_mm_setzero_si128());
-__m128i const h_br=byte_bitrev(h);
-__m128i const h2_br=gf128_mul(h_br,h_br);
-__m128i const h3_br=gf128_mul(h2_br,h_br);
-__m128i const h4_br=gf128_mul(h2_br,h2_br);
+auto const&kc=get_key_ctx(key);
 
 alignas(16)unsigned char j0_buf[16]{};
 std::memcpy(j0_buf,iv,12);
@@ -353,8 +363,8 @@ __m128i const j0=_mm_load_si128(reinterpret_cast<__m128i const*>(j0_buf));
 
 __m128i ghash_br=_mm_setzero_si128();
 if(aad_len>0)
-ghash_update_clmul(ghash_br,h_br,h2_br,h3_br,h4_br,aad,aad_len);
-ghash_update_clmul(ghash_br,h_br,h2_br,h3_br,h4_br,ct_tag,ct_len);
+ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,aad,aad_len);
+ghash_update_clmul(ghash_br,kc.h_br,kc.h2_br,kc.h3_br,kc.h4_br,ct_tag,ct_len);
 
 alignas(16)unsigned char len_block[16]{};
 uint64_t const aad_bits=aad_len*8;
@@ -366,10 +376,10 @@ len_block[i+8]=static_cast<unsigned char>(ct_bits>>(56-i*8));
 __m128i lb=_mm_load_si128(reinterpret_cast<__m128i const*>(len_block));
 lb=byte_bitrev(lb);
 ghash_br=_mm_xor_si128(ghash_br,lb);
-ghash_br=gf128_mul(ghash_br,h_br);
+ghash_br=gf128_mul(ghash_br,kc.h_br);
 
 __m128i const ghash_state=byte_bitrev(ghash_br);
-__m128i const j0_enc=aesni_encrypt_block(ek,j0);
+__m128i const j0_enc=aesni_encrypt_block(kc.ek,j0);
 __m128i const expected_tag=_mm_xor_si128(j0_enc,ghash_state);
 
 // Constant-time tag comparison
@@ -379,7 +389,7 @@ if(!_mm_test_all_zeros(diff,diff))
 return-1;
 
 __m128i ctr=j0;
-ctr_xor(ek,ctr,ct_tag,out,ct_len);
+ctr_xor(kc.ek,ctr,ct_tag,out,ct_len);
 
 return 0;
 }
