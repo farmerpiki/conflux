@@ -42,6 +42,21 @@ template<class T>using WP=weak_ptr<T>;
 //   *_owned    — implementation takes ownership by move; no source lifetime
 //                obligation remains after the call returns.
 
+// ─── StopCause / RecvTimeoutState ────────────────────────────────────────────
+
+enum class StopCause:u8{none,
+user_cancel,
+timeout};
+struct RecvTimeoutState{
+Atom<StopCause>stop_cause{StopCause::none};
+void mark_stop(StopCause cause)noexcept{
+StopCause expected=StopCause::none;
+stop_cause.compare_exchange_strong(
+expected,cause,
+memory_order_acq_rel,
+memory_order_acquire);
+}
+};
 // ─── TcpStreamState ───────────────────────────────────────────────────────────
 
 struct TcpStreamState{
@@ -157,6 +172,7 @@ if(auto src=weak_src2.lock())auto _=src->try_set_cancelled();
 });
 return move(task);
 }
+[[nodiscard]]wroot::Task<SZ>recv_borrowed(span<u8>dst,chrono::milliseconds timeout);
 [[deprecated("use recv_borrowed")]][[nodiscard]]wroot::Task<SZ>read_borrowed(span<u8>dst){return recv_borrowed(dst);}
 [[nodiscard]]wroot::Task<V<u8>>recv_owned(SZ max_bytes);
 [[nodiscard]]wroot::Task<SZ>write_borrowed(span<u8 const>src){
@@ -293,15 +309,73 @@ auto ss=make_shared<wroot::TaskSource<T>>(move(s));
 auto _=ss->try_set_exception(make_exception_ptr(move(e)));
 return move(t);
 }
+[[nodiscard]]wroot::Task<SZ>TcpStream::recv_borrowed(span<u8>dst,chrono::milliseconds timeout){
+if(timeout.count()==0)
+return recv_borrowed(dst);
+auto&st=*state_;
+if(!st.handle.valid()||st.closing.load(memory_order_relaxed))
+return make_error_task<SZ>(IoError{EBADF,"tcp: stream closed"});
+auto[task,raw_src]=wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation=true});
+auto shared_src=make_shared<wroot::TaskSource<SZ>>(move(raw_src));
+SocketHandle const h=st.handle.get();
+auto ts=make_shared<__kernel_timespec>();
+auto const sec=chrono::duration_cast<chrono::seconds>(timeout);
+ts->tv_sec=sec.count();
+ts->tv_nsec=(timeout-sec).count()*1000000LL;
+auto state=make_shared<RecvTimeoutState>();
+auto[slot,gen]=st.ring->completions().reserve([shared_src,ts,state](IoResult r)mutable{
+try{
+if(r.res==-ECANCELED){
+auto cause=state->stop_cause.load(memory_order_acquire);
+if(cause==StopCause::user_cancel)
+auto _=shared_src->try_set_cancelled();
+else
+auto _=shared_src->try_set_exception(make_exception_ptr(IoError{ETIMEDOUT,"tcp: recv timed out"}));
+return;
+}
+if(r.res<0){
+auto _=shared_src->try_set_exception(make_exception_ptr(IoError{-r.res,"tcp: recv"}));
+return;
+}
+auto _=shared_src->try_set_value(wroot::Success<SZ>{static_cast<SZ>(r.res)});
+}catch(...){auto _=shared_src->try_set_exception(current_exception());}
+});
+u64 const recv_ud=st.ring->encode(slot,gen);
+auto[tslot,tgen]=st.ring->completions().reserve([ts,state](IoResult r)mutable{
+if(r.res==-ETIME)
+state->mark_stop(StopCause::timeout);
+auto _=ts;
+});
+u64 const timeout_ud=st.ring->encode(tslot,tgen);
+if(!submit_recv_timeout_borrowed(st.ring->raw(),h,dst.data(),dst.size(),ts.get(),recv_ud,timeout_ud)){
+st.ring->completions().dispatch(slot,gen,-ENOSPC,0);
+st.ring->completions().dispatch(tslot,tgen,-EBUSY,0);
+return move(task);
+}
+auto ring_ptr=st.ring;
+auto weak_src=weak_ptr<wroot::TaskSource<SZ>>{shared_src};
+auto _=shared_src->install_cancel_hook([ring_ptr,recv_ud,weak_src,state](wroot::CancelReason)noexcept{
+state->mark_stop(StopCause::user_cancel);
+if(!ring_ptr->submit_on_owner([recv_ud,weak_src](SocketTaskRing&ring_ref)noexcept{
+auto[cs,cg]=ring_ref.completions().reserve([](IoResult)noexcept{});
+u64 const cancel_ud=ring_ref.encode(cs,cg);
+if(!submit_cancel_by_ud(ring_ref.raw(),recv_ud,cancel_ud)){
+ring_ref.completions().dispatch(cs,cg,-EBUSY,0);
+if(auto src=weak_src.lock())auto _=src->try_set_cancelled();
+return;
+}
+auto _=ring_ref.raw().submit();
+}))
+if(auto src=weak_src.lock())auto _=src->try_set_cancelled();
+});
+return move(task);
+}
 // ─── ConnectOp ───────────────────────────────────────────────────────────────
 
 struct ConnectOp:enable_shared_from_this<ConnectOp>{
 enum class Stage:u8{socket_pending,
 connect_pending,
 done};
-enum class StopCause:u8{none,
-user_cancel,
-timeout};
 
 SocketTaskRing*ring{};
 SP<wroot::TaskSource<TcpStream>>src{};
@@ -679,16 +753,10 @@ ring_->completions().dispatch(slot,gen,-ENOSPC,0);
 co_return co_await move(task);
 }
 [[nodiscard]]wroot::Task<UdpRecvResult>UdpSocket::recv_from(span<u8>buf,chrono::milliseconds timeout){
-auto[task,raw_src]=wroot::make_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation=false});
+if(timeout.count()<0)
+return make_error_task<UdpRecvResult>(IoError{EINVAL,"udp: negative timeout"});
+auto[task,raw_src]=wroot::make_task_source<UdpRecvResult>(wroot::SubmitOptions{.enable_cancellation=true});
 auto shared_src=make_shared<wroot::TaskSource<UdpRecvResult>>(move(raw_src));
-if(timeout.count()<0){
-auto _=shared_src->try_set_exception(make_exception_ptr(IoError{EINVAL,"udp: negative timeout"}));
-co_return co_await move(task);
-}
-if(ring_->raw().sq_space_left()<2){
-auto _=shared_src->try_set_exception(make_exception_ptr(IoError{ENOSPC,"udp: SQ full"}));
-co_return co_await move(task);
-}
 SocketHandle const h=handle_.get();
 auto holder=make_shared<MsgHolder>();
 holder->iov.iov_base=buf.data();
@@ -701,9 +769,14 @@ auto ts=make_shared<__kernel_timespec>();
 auto const sec=chrono::duration_cast<chrono::seconds>(timeout);
 ts->tv_sec=sec.count();
 ts->tv_nsec=(timeout-sec).count()*1000000LL;
-auto[slot,gen]=ring_->completions().reserve([shared_src,holder](IoResult r)mutable{
+auto state=make_shared<RecvTimeoutState>();
+auto[slot,gen]=ring_->completions().reserve([shared_src,holder,state](IoResult r)mutable{
 try{
 if(r.res==-ECANCELED){
+auto cause=state->stop_cause.load(memory_order_acquire);
+if(cause==StopCause::user_cancel)
+auto _=shared_src->try_set_cancelled();
+else
 auto _=shared_src->try_set_exception(make_exception_ptr(IoError{ETIMEDOUT,"udp: recv timed out"}));
 return;
 }
@@ -719,11 +792,32 @@ auto _=shared_src->try_set_value(wroot::Success<UdpRecvResult>{move(result)});
 }catch(...){auto _=shared_src->try_set_exception(current_exception());}
 });
 u64 const recv_ud=ring_->encode(slot,gen);
-auto[tslot,tgen]=ring_->completions().reserve([ts](IoResult)mutable{auto _=ts;});
+auto[tslot,tgen]=ring_->completions().reserve([ts,state](IoResult r)mutable{
+if(r.res==-ETIME)
+state->mark_stop(StopCause::timeout);
+auto _=ts;
+});
 u64 const timeout_ud=ring_->encode(tslot,tgen);
 if(!submit_recvmsg_timeout_borrowed(ring_->raw(),h,&holder->msg,ts.get(),recv_ud,timeout_ud)){
 ring_->completions().dispatch(slot,gen,-ENOSPC,0);
 ring_->completions().dispatch(tslot,tgen,-EBUSY,0);
+return move(task);
 }
-co_return co_await move(task);
+auto ring_ptr=ring_;
+auto weak_src=weak_ptr<wroot::TaskSource<UdpRecvResult>>{shared_src};
+auto _=shared_src->install_cancel_hook([ring_ptr,recv_ud,weak_src,state](wroot::CancelReason)noexcept{
+state->mark_stop(StopCause::user_cancel);
+if(!ring_ptr->submit_on_owner([recv_ud,weak_src](SocketTaskRing&ring_ref)noexcept{
+auto[cs,cg]=ring_ref.completions().reserve([](IoResult)noexcept{});
+u64 const cancel_ud=ring_ref.encode(cs,cg);
+if(!submit_cancel_by_ud(ring_ref.raw(),recv_ud,cancel_ud)){
+ring_ref.completions().dispatch(cs,cg,-EBUSY,0);
+if(auto src=weak_src.lock())auto _=src->try_set_cancelled();
+return;
+}
+auto _=ring_ref.raw().submit();
+}))
+if(auto src=weak_src.lock())auto _=src->try_set_cancelled();
+});
+return move(task);
 }

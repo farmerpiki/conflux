@@ -1,6 +1,7 @@
 module;
 #include "client_dns_bridge.hxx"
 #include<arpa/inet.h>
+#include<cerrno>
 #include<cstring>
 #include<netdb.h>
 #include<netinet/in.h>
@@ -55,43 +56,68 @@ if(encoded.substr(consumed,2)!="\r\n")return ChunkedDecodeStatus::invalid;
 consumed+=2;
 }
 }
-wroot::Task<S>async_recv_until(TcpStream&stream,SV delim,SZ max){
+using TP=chrono::steady_clock::time_point;
+wroot::Task<S>async_recv_until(TcpStream&stream,SV delim,SZ max,TP deadline){
 S buf;
 buf.reserve(min<SZ>(4096,max));
 A<u8,4096>tmp{};
+auto get_task=[&](span<u8>b)->wroot::Task<SZ>{
+if(deadline==TP::max())return stream.recv_borrowed(b);
+auto const now=chrono::steady_clock::now();
+if(now>=deadline)throw IoError{ETIMEDOUT,"tcp: recv timed out"};
+return stream.recv_borrowed(b,chrono::ceil<chrono::milliseconds>(deadline-now));
+};
 while(buf.size()<max){
 SZ n;
 try{
-n=co_await stream.recv_borrowed(span<u8>{tmp.data(),tmp.size()});
-}catch(...){break;}
+n=co_await get_task(span<u8>{tmp.data(),tmp.size()});
+}catch(IoError const&){throw;}catch(...){
+break;
+}
 if(n==0)break;
 buf.append(reinterpret_cast<char const*>(tmp.data()),n);
 if(buf.find(delim)!=S::npos)break;
 }
 co_return buf;
 }
-wroot::Task<bool>async_recv_exact(TcpStream&stream,S&out,SZ target,SZ cap){
+wroot::Task<bool>async_recv_exact(TcpStream&stream,S&out,SZ target,SZ cap,TP deadline){
 A<u8,4096>tmp{};
+auto get_task=[&](span<u8>b)->wroot::Task<SZ>{
+if(deadline==TP::max())return stream.recv_borrowed(b);
+auto const now=chrono::steady_clock::now();
+if(now>=deadline)throw IoError{ETIMEDOUT,"tcp: recv timed out"};
+return stream.recv_borrowed(b,chrono::ceil<chrono::milliseconds>(deadline-now));
+};
 while(out.size()<target){
 if(out.size()>=cap)co_return false;
 auto const want=min(tmp.size(),target-out.size());
 SZ n;
 try{
-n=co_await stream.recv_borrowed(span<u8>{tmp.data(),want});
-}catch(...){co_return false;}
+n=co_await get_task(span<u8>{tmp.data(),want});
+}catch(IoError const&){throw;}catch(...){
+co_return false;
+}
 if(n==0)co_return false;
 out.append(reinterpret_cast<char const*>(tmp.data()),n);
 }
 co_return true;
 }
-wroot::Task<void>async_recv_to_eof(TcpStream&stream,S&out,SZ cap,bool&too_large){
+wroot::Task<void>async_recv_to_eof(TcpStream&stream,S&out,SZ cap,bool&too_large,TP deadline){
 too_large=false;
 A<u8,4096>tmp{};
+auto get_task=[&](span<u8>b)->wroot::Task<SZ>{
+if(deadline==TP::max())return stream.recv_borrowed(b);
+auto const now=chrono::steady_clock::now();
+if(now>=deadline)throw IoError{ETIMEDOUT,"tcp: recv timed out"};
+return stream.recv_borrowed(b,chrono::ceil<chrono::milliseconds>(deadline-now));
+};
 for(;;){
 SZ n;
 try{
-n=co_await stream.recv_borrowed(span<u8>{tmp.data(),tmp.size()});
-}catch(...){break;}
+n=co_await get_task(span<u8>{tmp.data(),tmp.size()});
+}catch(IoError const&){throw;}catch(...){
+break;
+}
 if(n==0)break;
 out.append(reinterpret_cast<char const*>(tmp.data()),n);
 if(out.size()>cap){
@@ -100,11 +126,17 @@ co_return;
 }
 }
 }
-wroot::Task<bool>async_recv_chunked(TcpStream&stream,S&encoded,S&decoded,SZ cap,SZ buf_cap,bool&too_large){
+wroot::Task<bool>async_recv_chunked(TcpStream&stream,S&encoded,S&decoded,SZ cap,SZ buf_cap,bool&too_large,TP deadline){
 too_large=false;
 decoded.clear();
 SZ consumed=0;
 A<u8,4096>tmp{};
+auto get_task=[&](span<u8>b)->wroot::Task<SZ>{
+if(deadline==TP::max())return stream.recv_borrowed(b);
+auto const now=chrono::steady_clock::now();
+if(now>=deadline)throw IoError{ETIMEDOUT,"tcp: recv timed out"};
+return stream.recv_borrowed(b,chrono::ceil<chrono::milliseconds>(deadline-now));
+};
 for(;;){
 auto const st=decode_chunked_prefix(encoded,decoded,consumed);
 if(st==ChunkedDecodeStatus::complete)co_return true;
@@ -115,8 +147,10 @@ co_return false;
 }
 SZ n;
 try{
-n=co_await stream.recv_borrowed(span<u8>{tmp.data(),tmp.size()});
-}catch(...){co_return false;}
+n=co_await get_task(span<u8>{tmp.data(),tmp.size()});
+}catch(IoError const&){throw;}catch(...){
+co_return false;
+}
 if(n==0)co_return false;
 encoded.append(reinterpret_cast<char const*>(tmp.data()),n);
 }
@@ -131,7 +165,17 @@ co_return unexpected(HttpError{
 .kind=HttpErrorKind::tls,
 .phase=HttpPhase::tls,
 .message="async TLS not yet implemented; use send_blocking for HTTPS"});
-auto const&timeouts=req.timeouts();
+constexpr HttpTimeouts kDef{};
+auto const&rt=req.timeouts();
+auto const&cd=opts.default_timeouts;
+HttpTimeouts const timeouts{
+.resolve=rt.resolve!=kDef.resolve?rt.resolve:cd.resolve,
+.connect=rt.connect!=kDef.connect?rt.connect:cd.connect,
+.tls=rt.tls!=kDef.tls?rt.tls:cd.tls,
+.write=rt.write!=kDef.write?rt.write:cd.write,
+.first_byte=rt.first_byte!=kDef.first_byte?rt.first_byte:cd.first_byte,
+.between_bytes=rt.between_bytes!=kDef.between_bytes?rt.between_bytes:cd.between_bytes,
+};
 HttpTelemetry tel{};
 V<client_dns_bridge::Endpoint>endpoints;
 auto const t0=chrono::steady_clock::now();
@@ -183,8 +227,10 @@ for(auto const&ep:endpoints){
 sockaddr_storage ss{};
 memcpy(&ss,ep.addr,ep.addr_len);
 int const fam=(ep.family==6)?AF_INET6:AF_INET;
+ConnectOptions copts{};
+copts.timeout=timeouts.connect;
 try{
-stream.emplace(co_await tcp_connect(ring,fam,ss,static_cast<socklen_t>(ep.addr_len)));
+stream.emplace(co_await tcp_connect(ring,fam,ss,static_cast<socklen_t>(ep.addr_len),copts));
 break;
 }catch(IoError const&e){
 conn_err.os_errno=e.code().value();
@@ -231,7 +277,19 @@ tel.bytes_sent+=wire.size()+req.body().size();
 SZ const max_hdr=opts.max_header_bytes;
 SZ const max_body_sz=opts.max_body_bytes;
 SZ const max_buf=opts.max_buffered_bytes;
-S raw=co_await async_recv_until(*stream,"\r\n\r\n",max_hdr+4096);
+auto const t2=chrono::steady_clock::now();
+TP const first_byte_dl=timeouts.first_byte.count()>0?t2+timeouts.first_byte:TP::max();
+TP const between_bytes_dl=timeouts.between_bytes.count()>0?t2+timeouts.between_bytes:TP::max();
+S raw;
+try{
+raw=co_await async_recv_until(*stream,"\r\n\r\n",max_hdr+4096,first_byte_dl);
+}catch(IoError const&e){
+co_return unexpected(HttpError{
+.kind=HttpErrorKind::read,
+.phase=HttpPhase::first_byte,
+.os_errno=e.code().value(),
+.message="timed out waiting for response headers"});
+}
 auto const header_end=raw.find("\r\n\r\n");
 if(header_end==S::npos){
 if(raw.size()>=max_hdr)
@@ -293,23 +351,35 @@ response.body.clear();
 }else if(chunked){
 S decoded;
 bool too_large=false;
-if(!co_await async_recv_chunked(*stream,response.body,decoded,max_body_sz,max_buf,too_large)){
+try{
+if(!co_await async_recv_chunked(*stream,response.body,decoded,max_body_sz,max_buf,too_large,between_bytes_dl)){
 if(too_large)
 co_return unexpected(HttpError{.kind=HttpErrorKind::body_too_large,.message=format("chunked body exceeds limit {}",max_body_sz)});
 co_return unexpected(HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.message="failed to receive chunked body"});
 }
+}catch(IoError const&e){
+co_return unexpected(HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving chunked body"});
+}
 tel.bytes_received+=decoded.size();
 response.body=move(decoded);
 }else if(has_content_length&&content_length>response.body.size()){
-if(!co_await async_recv_exact(*stream,response.body,content_length,max_body_sz)){
+try{
+if(!co_await async_recv_exact(*stream,response.body,content_length,max_body_sz,between_bytes_dl)){
 if(response.body.size()>=max_body_sz)
 co_return unexpected(HttpError{.kind=HttpErrorKind::body_too_large,.message=format("body exceeds limit {}",max_body_sz)});
 co_return unexpected(HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.message="failed to receive body"});
 }
+}catch(IoError const&e){
+co_return unexpected(HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving body"});
+}
 tel.bytes_received+=content_length-(raw.size()-(header_end+4));
 }else if(!has_content_length&&!chunked){
 bool too_large=false;
-co_await async_recv_to_eof(*stream,response.body,max_body_sz,too_large);
+try{
+co_await async_recv_to_eof(*stream,response.body,max_body_sz,too_large,between_bytes_dl);
+}catch(IoError const&e){
+co_return unexpected(HttpError{.kind=HttpErrorKind::read,.phase=HttpPhase::between_bytes,.os_errno=e.code().value(),.message="timed out receiving body"});
+}
 if(too_large)
 co_return unexpected(HttpError{.kind=HttpErrorKind::body_too_large,.message=format("EOF-delimited body exceeds limit {}",max_body_sz)});
 tel.bytes_received+=response.body.size();

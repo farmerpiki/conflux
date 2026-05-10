@@ -884,32 +884,114 @@ optional<u8>{static_cast<u8>(msg.header.rcode())}};
 if(msg.header.tc())
 throw DnsError{DnsErrorKind::truncated,"dns: response TC=1"};
 }
-[[nodiscard]]root::Task<codec::Message>recv_valid_udp_response(
-UdpSocket&sock,
-span<u8>rx_buf,
+struct DnsQueryState{
+mutex m;
+optional<root::TaskControl>active;
+Atom<bool>cancel_requested{false};
+void set_active(root::TaskControl c){
+optional<root::TaskControl>to_cancel;
+{
+SL lk{m};
+active.emplace(move(c));
+if(cancel_requested.load(memory_order_acquire))
+to_cancel=active;
+}
+if(to_cancel)
+auto _=to_cancel->request_cancel();
+}
+void clear_active(){
+SL lk{m};
+active.reset();
+}
+void cancel(){
+optional<root::TaskControl>to_cancel;
+{
+SL lk{m};
+cancel_requested.store(true,memory_order_release);
+to_cancel=active;
+}
+if(to_cancel)
+auto _=to_cancel->request_cancel();
+}
+[[nodiscard]]bool cancelled()const noexcept{
+return cancel_requested.load(memory_order_acquire);
+}
+};
+struct ActiveTaskGuard{
+DnsQueryState&state;
+explicit ActiveTaskGuard(DnsQueryState&s,root::TaskControl c):state{s}{
+state.set_active(move(c));
+}
+~ActiveTaskGuard(){
+try{
+state.clear_active();
+}catch(...){}
+}
+ActiveTaskGuard(ActiveTaskGuard const&)=delete;
+ActiveTaskGuard&operator=(ActiveTaskGuard const&)=delete;
+};
+[[nodiscard]]root::Task<void>run_udp_query_driver(
+SocketTaskRing&ring,
 NameserverEndpoint ns,
+vector<u8>wire,
 u16 expected_id,
 string expected_qname,
 codec::QType expected_qtype,
-chrono::steady_clock::time_point deadline){
+chrono::milliseconds timeout,
+SP<root::TaskSource<codec::Message>>src,
+SP<DnsQueryState>state){
+constexpr SZ kRxSize=4096;
+auto check_cancelled=[&]{
+if(state->cancelled())
+throw DnsError{DnsErrorKind::cancelled,"dns: query cancelled"};
+};
+try{
+check_cancelled();
+UdpSocket sock=UdpSocket::ephemeral(ring,static_cast<int>(ns.addr.ss_family));
+A<u8,kRxSize>rx_buf{};
+// P1-08: UDP send cancel not covered; cancellation detected on next recv
+co_await sock.send_to_borrowed(
+span<u8 const>{wire.data(),wire.size()},
+ns.addr,ns.addr_len);
+check_cancelled();
+auto const deadline=chrono::steady_clock::now()+timeout;
 for(;;){
 auto const now=chrono::steady_clock::now();
 if(now>=deadline)
 throw DnsError{DnsErrorKind::timeout,"dns: query timed out"};
-auto const remaining=chrono::duration_cast<chrono::milliseconds>(deadline-now);
-auto const result=co_await sock.recv_from(rx_buf,remaining);
+auto const remaining=chrono::ceil<chrono::milliseconds>(deadline-now);
+auto recv_task=sock.recv_from(span<u8>{rx_buf.data(),rx_buf.size()},remaining);
+ActiveTaskGuard g{*state,recv_task.control()};
+auto const result=co_await move(recv_task);
 auto msg=codec::decode_message(span<u8 const>{rx_buf.data(),result.bytes});
 if(!same_dns_peer(result.from,result.from_len,ns))
 continue;
 if(!has_expected_question(msg,expected_id,expected_qname,expected_qtype))
 continue;
 validate_accepted_response_status(msg);
-co_return move(msg);
+check_cancelled();
+auto _=src->try_set_value(root::Success<codec::Message>{move(msg)});
+co_return;
+}
+}catch(root::CancelledError const&){
+auto _=src->try_set_exception(make_exception_ptr(
+DnsError{DnsErrorKind::cancelled,"dns: query cancelled"}));
+}catch(DnsError const&){
+auto _=src->try_set_exception(current_exception());
+}catch(IoError const&e){
+if(e.code().value()==ETIMEDOUT)
+auto _=src->try_set_exception(make_exception_ptr(
+DnsError{DnsErrorKind::timeout,"dns: query timed out"}));
+else
+auto _=src->try_set_exception(make_exception_ptr(
+DnsError{DnsErrorKind::network,format("dns: udp error: {}",e.what()),e.code().value()}));
+}catch(...){
+auto _=src->try_set_exception(make_exception_ptr(
+DnsError{DnsErrorKind::network,"dns: udp query failed"}));
 }
 }
-// Single UDP DNS query: open ephemeral socket, send wire bytes to ns,
-// receive response with timeout, decode and validate. Maps UdpError →
-// DnsError so callers only see DnsError.
+// Single UDP DNS query: plain factory. Driver coroutine owns all buffers and
+// drives the send/recv loop; out_task has the cancel hook.
 [[nodiscard]]root::Task<codec::Message>udp_single_query(
 SocketTaskRing&ring,
 NameserverEndpoint ns,
@@ -918,36 +1000,37 @@ u16 expected_id,
 string expected_qname,
 codec::QType expected_qtype,
 chrono::milliseconds timeout){
-constexpr SZ kRxSize=4096;
-UdpSocket sock=UdpSocket::ephemeral(ring,static_cast<int>(ns.addr.ss_family));
-A<u8,kRxSize>rx_buf{};
+auto[out_task,raw_src]=root::make_task_source<codec::Message>(
+root::SubmitOptions{.enable_cancellation=true});
+auto src=make_shared<root::TaskSource<codec::Message>>(move(raw_src));
+auto state=make_shared<DnsQueryState>();
+auto _=src->install_cancel_hook([state](root::CancelReason)noexcept{
 try{
-co_await sock.send_to_borrowed(
-span<u8 const>{wire.data(),wire.size()},
-ns.addr,ns.addr_len);
-co_return co_await recv_valid_udp_response(
-sock,
-span<u8>{rx_buf.data(),rx_buf.size()},
-ns,
-expected_id,
-move(expected_qname),
-expected_qtype,
-chrono::steady_clock::now()+timeout);
-}catch(DnsError const&){throw;}catch(IoError const&e){
-if(e.code().value()==ETIMEDOUT)
-throw DnsError{DnsErrorKind::timeout,"dns: query timed out"};
-throw DnsError{DnsErrorKind::network,format("dns: udp error: {}",e.what()),e.code().value()};
+state->cancel();
+}catch(...){}
+});
+auto driver=run_udp_query_driver(
+ring,ns,move(wire),expected_id,move(expected_qname),expected_qtype,timeout,src,state);
+move(driver).detach();
+return move(out_task);
 }
-}
-// TCP DNS query per RFC 1035 §4.2.2: 2-byte big-endian length prefix framing.
-[[nodiscard]]root::Task<codec::Message>tcp_single_query(
+[[nodiscard]]root::Task<void>run_tcp_query_driver(
 SocketTaskRing&ring,
 NameserverEndpoint ns,
 vector<u8>wire,
 u16 expected_id,
-string const&expected_qname,
+string expected_qname,
 codec::QType expected_qtype,
-chrono::milliseconds timeout){
+chrono::milliseconds timeout,
+SP<root::TaskSource<codec::Message>>src,
+SP<DnsQueryState>state){
+bool const has_timeout=timeout.count()>0;
+auto check_cancelled=[&]{
+if(state->cancelled())
+throw DnsError{DnsErrorKind::cancelled,"dns: tcp query cancelled"};
+};
+try{
+check_cancelled();
 vector<u8>framed;
 framed.reserve(2+wire.size());
 auto const wlen=static_cast<u16>(wire.size());
@@ -955,16 +1038,41 @@ framed.push_back(static_cast<u8>(wlen>>8U));
 framed.push_back(static_cast<u8>(wlen&0xFFU));
 framed.insert(framed.end(),wire.begin(),wire.end());
 int const family=static_cast<int>(ns.addr.ss_family);
-try{
+auto const deadline=has_timeout?chrono::steady_clock::now()+timeout:chrono::steady_clock::time_point::max();
+auto remaining_or_throw=[&]()->chrono::milliseconds{
+auto const now=chrono::steady_clock::now();
+if(now>=deadline)
+throw DnsError{DnsErrorKind::timeout,"dns: tcp query timed out"};
+return chrono::ceil<chrono::milliseconds>(deadline-now);
+};
 ConnectOptions copts{};
-if(timeout.count()>0)copts.timeout=timeout;
-TcpStream stream=co_await tcp_connect(ring,family,ns.addr,ns.addr_len,copts);
-co_await stream.write_all_borrowed(span<u8 const>{framed.data(),framed.size()});
+copts.timeout=timeout;
+TcpStream stream{};
+{
+auto connect_task=tcp_connect(ring,family,ns.addr,ns.addr_len,copts);
+ActiveTaskGuard g{*state,connect_task.control()};
+stream=co_await move(connect_task);
+}
+check_cancelled();
+{
+SZ sent=0;
+while(sent<framed.size()){
+auto write_task=stream.write_borrowed(
+span<u8 const>{framed.data()+sent,framed.size()-sent});
+ActiveTaskGuard g{*state,write_task.control()};
+SZ const n=co_await move(write_task);
+if(n==0)throw DnsError{DnsErrorKind::network,"dns: tcp write failed"};
+sent+=n;
+}
+}
+check_cancelled();
 A<u8,2>len_buf{};
 {
 SZ n=0;
 while(n<2){
-SZ got=co_await stream.recv_borrowed(span<u8>{len_buf.data()+n,2-n});
+root::Task<SZ>recv_task=has_timeout?stream.recv_borrowed(span<u8>{len_buf.data()+n,2-n},remaining_or_throw()):stream.recv_borrowed(span<u8>{len_buf.data()+n,2-n});
+ActiveTaskGuard g{*state,recv_task.control()};
+SZ const got=co_await move(recv_task);
 if(got==0)throw DnsError{DnsErrorKind::network,"dns: tcp short length prefix"};
 n+=got;
 }
@@ -976,7 +1084,13 @@ vector<u8>resp_buf(resp_len);
 {
 SZ resp_n=0;
 while(resp_n<static_cast<SZ>(resp_len)){
-SZ got=co_await stream.recv_borrowed(span<u8>{resp_buf.data()+resp_n,static_cast<SZ>(resp_len)-resp_n});
+root::Task<SZ>recv_task=has_timeout?stream.recv_borrowed(
+span<u8>{resp_buf.data()+resp_n,static_cast<SZ>(resp_len)-resp_n},
+remaining_or_throw()):
+stream.recv_borrowed(
+span<u8>{resp_buf.data()+resp_n,static_cast<SZ>(resp_len)-resp_n});
+ActiveTaskGuard g{*state,recv_task.control()};
+SZ const got=co_await move(recv_task);
 if(got==0)throw DnsError{DnsErrorKind::network,"dns: tcp short response"};
 resp_n+=got;
 }
@@ -985,10 +1099,47 @@ auto msg=codec::decode_message(span<u8 const>{resp_buf.data(),static_cast<SZ>(re
 if(!has_expected_question(msg,expected_id,expected_qname,expected_qtype))
 throw DnsError{DnsErrorKind::malformed,"dns: tcp response mismatch"};
 validate_accepted_response_status(msg);
-co_return msg;
-}catch(DnsError const&){throw;}catch(...){
-throw DnsError{DnsErrorKind::network,"dns: tcp query failed"};
+check_cancelled();
+auto _=src->try_set_value(root::Success<codec::Message>{move(msg)});
+}catch(root::CancelledError const&){
+auto _=src->try_set_exception(make_exception_ptr(
+DnsError{DnsErrorKind::cancelled,"dns: tcp query cancelled"}));
+}catch(DnsError const&){
+auto _=src->try_set_exception(current_exception());
+}catch(IoError const&e){
+if(e.code().value()==ETIMEDOUT)
+auto _=src->try_set_exception(make_exception_ptr(
+DnsError{DnsErrorKind::timeout,"dns: tcp query timed out"}));
+else
+auto _=src->try_set_exception(make_exception_ptr(
+DnsError{DnsErrorKind::network,format("dns: tcp error: {}",e.what()),e.code().value()}));
+}catch(...){
+auto _=src->try_set_exception(make_exception_ptr(
+DnsError{DnsErrorKind::network,"dns: tcp query failed"}));
 }
+}
+// TCP DNS query per RFC 1035 §4.2.2: plain factory; driver owns all buffers.
+[[nodiscard]]root::Task<codec::Message>tcp_single_query(
+SocketTaskRing&ring,
+NameserverEndpoint ns,
+vector<u8>wire,
+u16 expected_id,
+string expected_qname,
+codec::QType expected_qtype,
+chrono::milliseconds timeout){
+auto[out_task,raw_src]=root::make_task_source<codec::Message>(
+root::SubmitOptions{.enable_cancellation=true});
+auto src=make_shared<root::TaskSource<codec::Message>>(move(raw_src));
+auto state=make_shared<DnsQueryState>();
+auto _=src->install_cancel_hook([state](root::CancelReason)noexcept{
+try{
+state->cancel();
+}catch(...){}
+});
+auto driver=run_tcp_query_driver(
+ring,ns,move(wire),expected_id,move(expected_qname),expected_qtype,timeout,src,state);
+move(driver).detach();
+return move(out_task);
 }
 // Minimum TTL across all answer RRs of the given family (UINT32_MAX if none).
 [[nodiscard]]u32 min_answer_ttl(

@@ -1121,6 +1121,33 @@ timeout_sqe.prep_link_timeout(ts,conflux::uring::TimeoutFlags{});
 timeout_sqe.user_data(conflux::uring::UserData{timeout_ud});
 return true;
 }
+// ─── raw submission: linked recv + timeout (TCP flat-buf pattern) ────────────
+// Requires 2 SQE slots. recv is IO_LINK'd to a link_timeout.
+// On timeout: recv CQE res=-ECANCELED.
+export[[nodiscard]]bool submit_recv_timeout_borrowed(
+SocketRawRing&ring,
+SocketHandle handle,
+void*buf,
+SZ len,
+__kernel_timespec*ts,
+u64 recv_ud,
+u64 timeout_ud){
+if(ring.sq_space_left()<2)
+return false;
+auto recv_sqe=ring.try_get_sqe();
+if(!recv_sqe)
+return false;
+auto timeout_sqe=ring.try_get_sqe();
+if(!timeout_sqe)
+return false;
+recv_sqe.prep_recv(handle.sqe_fd(),buf,len,conflux::uring::MsgFlags{});
+recv_sqe.add_flags(conflux::uring::sqe_flags::io_link);
+recv_sqe.add_flags(handle.sqe_fd_flags());
+recv_sqe.user_data(conflux::uring::UserData{recv_ud});
+timeout_sqe.prep_link_timeout(ts,conflux::uring::TimeoutFlags{});
+timeout_sqe.user_data(conflux::uring::UserData{timeout_ud});
+return true;
+}
 // ─── raw submission: fixed fd install ────────────────────────────────────────
 
 export bool submit_fixed_fd_install(
