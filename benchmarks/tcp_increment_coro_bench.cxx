@@ -26,6 +26,8 @@ return(static_cast<u64>(gen)<<32U)|slot;
 struct Config{
 SZ iterations=100000;
 SZ warmup=5000;
+SZ clients=4;
+SV config_name="default";
 bool json_out=false;
 };
 template<class T,SZ N>
@@ -60,10 +62,14 @@ if(a=="--iterations"&&i+1<args.size()){
 cfg.iterations=parse_u64(args[++i]);
 }else if(a=="--warmup"&&i+1<args.size()){
 cfg.warmup=parse_u64(args[++i]);
+}else if(a=="--clients"&&i+1<args.size()){
+cfg.clients=parse_u64(args[++i]);
+}else if(a=="--config"&&i+1<args.size()){
+cfg.config_name=args[++i];
 }else if(a=="--json"){
 cfg.json_out=true;
 }else if(a=="--help"||a=="-h"){
-println("Usage: conflux_tcp_increment_coro_bench [--iterations N] [--warmup N] [--json]");
+println("Usage: conflux_tcp_increment_coro_bench [--iterations N] [--warmup N] [--clients N] [--json]");
 std::exit(0);
 }
 }
@@ -370,6 +376,116 @@ auto _=block_on_socket_task(ring,str_coro_loop(stream,iters,start));
 auto const t1=chrono::steady_clock::now();
 return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1-t0).count());
 }
+// ── async server ──────────────────────────────────────────────────────────────
+Task<void>serve_one_async(TcpStream stream){
+A<u8,128>rbuf{};
+SZ held=0;
+for(;;){
+SZ const got=co_await stream.recv_borrowed(span<u8>{rbuf.data()+held,rbuf.size()-held});
+if(got==0)co_return;
+held+=got;
+SZ scan=0;
+while(scan<held){
+auto view=span<u8>{rbuf.data()+scan,held-scan};
+auto it=ranges::find(view,u8('\n'));
+if(it==view.end())break;
+SZ const msg_end=scan+static_cast<SZ>(it-view.begin());
+u64 n=0;
+if(from_chars(reinterpret_cast<char const*>(rbuf.data()+scan),
+reinterpret_cast<char const*>(rbuf.data()+msg_end),n)
+.ec!=errc{})
+co_return;
+++n;
+A<char,24>out{};
+auto const conv=to_chars(out.data(),out.data()+out.size()-1,n);
+if(conv.ec!=errc{})co_return;
+*conv.ptr='\n';
+SZ const out_len=static_cast<SZ>(conv.ptr-out.data())+1;
+co_await stream.write_all_borrowed(span<u8 const>{
+reinterpret_cast<u8 const*>(out.data()),out_len});
+scan=msg_end+1;
+}
+if(scan>0)consume_prefix(rbuf,held,scan);
+if(held==rbuf.size())co_return;
+}
+}
+void run_async_server(
+Atom<u16>&port_out,
+atomic_flag&port_ready,
+atomic_flag&stop){
+TcpListener listener{TcpListenerOptions{
+.port=0,.bind=TcpBindAddress::loopback_v4,.reuse_addr=true}};
+port_out.store(listener.port(),memory_order_release);
+port_ready.test_and_set(memory_order_release);
+::io_uring raw{};
+if(::io_uring_queue_init(64,&raw,0)<0)return;
+CompletionTable ct;
+SocketTaskRing ring{
+SocketRawRing{&raw},ct,
+[](u32 s,u32 g)noexcept->u64{return pack_ud(s,g);}};
+tcp_accept_multishot(listener,ring,{},[](TcpStream s)->Task<void>{
+return serve_one_async(move(s));
+})
+.detach();
+auto drain=[&]()noexcept{
+A<::io_uring_cqe*,32>batch{};
+for(;;){
+unsigned const n=::io_uring_peek_batch_cqe(
+&raw,batch.data(),static_cast<unsigned>(batch.size()));
+if(n==0)break;
+for(unsigned i=0;i<n;++i){
+u64 const ud=batch[i]->user_data;
+ct.dispatch(static_cast<u32>(ud&0xFFFFFFFFU),
+static_cast<u32>(ud>>32U),batch[i]->res,batch[i]->flags);
+}
+::io_uring_cq_advance(&raw,n);
+}
+};
+while(!stop.test(memory_order_acquire)){
+::io_uring_cqe*cqe{};
+__kernel_timespec ts{.tv_sec=0,.tv_nsec=50000000};
+int const rc=::io_uring_submit_and_wait_timeout(&raw,&cqe,1,&ts,nullptr);
+if(rc==-EINTR)continue;
+if(rc<0&&rc!=-ETIME)break;
+drain();
+}
+{auto _=move(listener);}
+for(int i=0;i<5;++i){
+::io_uring_cqe*cqe{};
+__kernel_timespec ts{.tv_sec=0,.tv_nsec=10000000};
+::io_uring_submit_and_wait_timeout(&raw,&cqe,1,&ts,nullptr);
+drain();
+}
+::io_uring_queue_exit(&raw);
+}
+// ── str/parallel_4 ────────────────────────────────────────────────────────────
+Task<void>str_parallel_inner(
+SocketTaskRing&ring,
+u16 port,
+SZ iters,
+u64 start){
+auto ss=loopback_addr(port);
+auto[s1,s2,s3,s4]=co_await join_all(
+tcp_connect(ring,AF_INET,ss,sizeof(sockaddr_in)),
+tcp_connect(ring,AF_INET,ss,sizeof(sockaddr_in)),
+tcp_connect(ring,AF_INET,ss,sizeof(sockaddr_in)),
+tcp_connect(ring,AF_INET,ss,sizeof(sockaddr_in)));
+co_await join_all(
+str_coro_loop(s1,iters,start),
+str_coro_loop(s2,iters,start),
+str_coro_loop(s3,iters,start),
+str_coro_loop(s4,iters,start));
+}
+u64 run_str_parallel(
+SocketTaskRing&ring,
+u16 port,
+SZ iters,
+u64 start){
+auto const t0=chrono::steady_clock::now();
+block_on_socket_task(ring,str_parallel_inner(ring,port,iters,start));
+auto const t1=chrono::steady_clock::now();
+return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1-t0).count());
+}
 }// namespace
 int main(
 int argc,
@@ -377,18 +493,36 @@ char**argv){
 if(argc>=2&&SV{argv[1]}=="--bench-info"){
 std::print(
 "{}\n",
-R"({"name":"tcp_increment","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","200","--warmup","50"]}]})");
+R"({"name":"tcp_increment","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","200","--warmup","50","--config","default"]},{"name":"parallel_4","extra":{},"args":["--iterations","200","--warmup","50","--clients","4","--config","parallel_4"]}]})");
 return 0;
 }
 auto cfg=parse_args(span{argv,static_cast<SZ>(argc)});
-// 0=fr/callback  1=fr/coroutine  2=str/callback  3=str/coroutine
-static constexpr A<SV,4>labels{"fr/callback","fr/coroutine","str/callback","str/coroutine"};
+// 0=fr/callback 1=fr/coroutine 2=str/callback 3=str/coroutine
+// 4=str/async_callback 5=str/async_coroutine 6=str/parallel_4
+static constexpr A<SV,7>labels{
+"fr/callback","fr/coroutine",
+"str/callback","str/coroutine",
+"str/async_callback","str/async_coroutine","str/parallel_4"};
 auto const lbl=[&](int w)noexcept->SV{return labels[static_cast<SZ>(w)];};
-for(int which=0;which<4;++which){
+for(int which=0;which<7;++which){
+bool const async_srv=which>=4;
 u16 port=0;
-int const lfd=start_listener(port);
+Atom<u16>async_port{0};
+atomic_flag port_ready{};
 atomic_flag server_stop{};
-thread server{[lfd,&server_stop]{run_server(lfd,server_stop);}};
+int lfd=-1;
+if(!async_srv)lfd=start_listener(port);
+thread server;
+if(async_srv){
+server=thread{[&async_port,&port_ready,&server_stop]{
+run_async_server(async_port,port_ready,server_stop);
+}};
+while(!port_ready.test(memory_order_acquire))
+std::this_thread::yield();
+port=async_port.load(memory_order_acquire);
+}else{
+server=thread{[lfd,&server_stop]{run_server(lfd,server_stop);}};
+}
 ::io_uring raw{};
 if(::io_uring_queue_init(64,&raw,0)<0){
 server_stop.test_and_set(memory_order_release);
@@ -408,7 +542,7 @@ run_fr_callback(files,sock,cfg.iterations,cfg.warmup):
 run_fr_coroutine(files,sock,cfg.iterations,cfg.warmup);
 double const per=static_cast<double>(ns)/static_cast<double>(cfg.iterations);
 if(cfg.json_out){
-println("{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",lbl(which),cfg.iterations,ns,per);
+println("{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",cfg.config_name,lbl(which),cfg.iterations,ns,per);
 }else{
 if(which==0)println("iterations: {}, warmup: {}",cfg.iterations,cfg.warmup);
 println("  {:<18} {:>8.1f} ns/iter ({} ns total)",lbl(which),per,ns);
@@ -417,7 +551,7 @@ server_stop.test_and_set(memory_order_release);
 ::shutdown(sock.raw_fd(),SHUT_RDWR);
 (void)sock.release_fd();
 ::close(csock);
-}else{
+}else if(which<4){
 SocketTaskRing task_ring{
 SocketRawRing{&raw},ct,
 [](u32 s,u32 g)noexcept->u64{return pack_ud(s,g);}};
@@ -430,11 +564,41 @@ run_str_callback(task_ring,stream,cfg.iterations,cfg.warmup):
 run_str_coroutine(task_ring,stream,cfg.iterations,cfg.warmup);
 double const per=static_cast<double>(ns)/static_cast<double>(cfg.iterations);
 if(cfg.json_out)
-println("{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",lbl(which),cfg.iterations,ns,per);
+println("{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",cfg.config_name,lbl(which),cfg.iterations,ns,per);
 else
 println("  {:<18} {:>8.1f} ns/iter ({} ns total)",lbl(which),per,ns);
 server_stop.test_and_set(memory_order_release);
 // stream dtor closes fd → unblocks server's ::read → server sees stop flag
+}else if(which<6){
+SocketTaskRing task_ring{
+SocketRawRing{&raw},ct,
+[](u32 s,u32 g)noexcept->u64{return pack_ud(s,g);}};
+auto ss=loopback_addr(port);
+TcpStream stream=block_on_socket_task(task_ring,
+tcp_connect(task_ring,AF_INET,ss,sizeof(sockaddr_in)));
+(void)run_str_callback(task_ring,stream,cfg.warmup,0);
+u64 const ns=(which==4)?
+run_str_callback(task_ring,stream,cfg.iterations,cfg.warmup):
+run_str_coroutine(task_ring,stream,cfg.iterations,cfg.warmup);
+double const per=static_cast<double>(ns)/static_cast<double>(cfg.iterations);
+if(cfg.json_out)
+println("{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",cfg.config_name,lbl(which),cfg.iterations,ns,per);
+else
+println("  {:<18} {:>8.1f} ns/iter ({} ns total)",lbl(which),per,ns);
+server_stop.test_and_set(memory_order_release);
+}else{
+SocketTaskRing task_ring{
+SocketRawRing{&raw},ct,
+[](u32 s,u32 g)noexcept->u64{return pack_ud(s,g);}};
+(void)run_str_parallel(task_ring,port,cfg.warmup,0);
+u64 const ns=run_str_parallel(task_ring,port,cfg.iterations,cfg.warmup);
+SZ const total_iters=cfg.iterations*cfg.clients;
+double const per=static_cast<double>(ns)/static_cast<double>(total_iters);
+if(cfg.json_out)
+println("{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",cfg.config_name,lbl(which),total_iters,ns,per);
+else
+println("  {:<18} {:>8.1f} ns/iter ({} ns total)",lbl(which),per,ns);
+server_stop.test_and_set(memory_order_release);
 }
 }catch(exception const&e){println(cerr,"error: {}",e.what());}
 ::io_uring_queue_exit(&raw);

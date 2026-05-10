@@ -1159,7 +1159,8 @@ fx->run(move(task),chrono::seconds{5});
 }catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
 got_cancel=true;
 }
-CHECK(got_cancel||err_code==ECANCELED);
+bool const cancelled=got_cancel||err_code==ECANCELED;
+CHECK(cancelled);
 int const fd_after=count_proc_fds();
 CHECK(fd_after<=fd_before+2);
 }
@@ -1274,7 +1275,8 @@ fx->run(move(task),chrono::seconds{10});
 }catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
 got_cancel=true;
 }
-CHECK(got_cancel||err_code==ECANCELED);
+bool const cancelled=got_cancel||err_code==ECANCELED;
+CHECK(cancelled);
 int const fd_after=count_proc_fds();
 CHECK(fd_after<=fd_before+2);
 }
@@ -1336,7 +1338,8 @@ fx->run(move(task),chrono::seconds{5});
 }catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
 got_cancel=true;
 }
-CHECK(got_cancel||err_code==ECANCELED);
+bool const cancelled=got_cancel||err_code==ECANCELED;
+CHECK(cancelled);
 // no CompletionTable leak
 CHECK(fx->completions.pending()==pending_before);
 int const fd_after=count_proc_fds();
@@ -1374,7 +1377,8 @@ fx->run(move(task),chrono::seconds{5});
 }catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
 got_cancel=true;
 }
-CHECK(got_cancel||err_code==ECANCELED);
+bool const cancelled=got_cancel||err_code==ECANCELED;
+CHECK(cancelled);
 if(client_fd>=0)::close(client_fd);
 int const fd_after=count_proc_fds();
 CHECK(fd_after<=fd_before+2);
@@ -1415,7 +1419,8 @@ got_cancel=true;
 }
 // accepted either as cancelled (cancel_requested=true→complete_cancelled)
 // or as error (listener destroyed → error CQE path)
-CHECK(got_cancel||err_code!=0);
+bool const cancelled=got_cancel||err_code!=0;
+CHECK(cancelled);
 int const fd_after=count_proc_fds();
 CHECK(fd_after<=fd_before+2);
 }
