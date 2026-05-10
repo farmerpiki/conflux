@@ -207,19 +207,33 @@ b2=_mm_aesenclast_si128(b2,ek.rk[14]);
 b3=_mm_aesenclast_si128(b3,ek.rk[14]);
 }
 // GHASH: state kept in byte_bitrev'd domain. h_br = byte_bitrev(H).
+// 4-block bulk path: all four gf128_mul calls are independent; hardware OOO
+// pipelines the PCLMULQDQ operations (7-cycle latency, 1/cycle throughput).
+// Formula: state = (state⊕d0)×H⁴ ⊕ d1×H³ ⊕ d2×H² ⊕ d3×H
 static void ghash_update_clmul(
 __m128i&state_br,
-__m128i h_br,
+__m128i h_br,__m128i h2_br,__m128i h3_br,__m128i h4_br,
 unsigned char const*data,
 SZ len){
-alignas(16)unsigned char block[16];
 SZ pos=0;
+while(pos+64<=len){
+__m128i d0=byte_bitrev(_mm_loadu_si128(reinterpret_cast<__m128i const*>(data+pos)));
+__m128i d1=byte_bitrev(_mm_loadu_si128(reinterpret_cast<__m128i const*>(data+pos+16)));
+__m128i d2=byte_bitrev(_mm_loadu_si128(reinterpret_cast<__m128i const*>(data+pos+32)));
+__m128i d3=byte_bitrev(_mm_loadu_si128(reinterpret_cast<__m128i const*>(data+pos+48)));
+__m128i const s0=gf128_mul(_mm_xor_si128(state_br,d0),h4_br);
+__m128i const s1=gf128_mul(d1,h3_br);
+__m128i const s2=gf128_mul(d2,h2_br);
+__m128i const s3=gf128_mul(d3,h_br);
+state_br=_mm_xor_si128(_mm_xor_si128(s0,s1),_mm_xor_si128(s2,s3));
+pos+=64;
+}
+alignas(16)unsigned char block[16];
 while(pos<len){
 SZ const chunk=(len-pos)<16?(len-pos):16;
 std::memset(block,0,16);
 std::memcpy(block,data+pos,chunk);
-__m128i d=_mm_load_si128(reinterpret_cast<__m128i const*>(block));
-d=byte_bitrev(d);
+__m128i d=byte_bitrev(_mm_load_si128(reinterpret_cast<__m128i const*>(block)));
 state_br=_mm_xor_si128(state_br,d);
 state_br=gf128_mul(state_br,h_br);
 pos+=16;
@@ -275,6 +289,9 @@ auto const ek=aesni_expand_key(key);
 
 __m128i const h=aesni_encrypt_block(ek,_mm_setzero_si128());
 __m128i const h_br=byte_bitrev(h);
+__m128i const h2_br=gf128_mul(h_br,h_br);
+__m128i const h3_br=gf128_mul(h2_br,h_br);
+__m128i const h4_br=gf128_mul(h2_br,h2_br);
 
 alignas(16)unsigned char j0_buf[16]{};
 std::memcpy(j0_buf,iv,12);
@@ -286,8 +303,8 @@ ctr_xor(ek,ctr,pt,out,pt_len);
 
 __m128i ghash_br=_mm_setzero_si128();
 if(aad_len>0)
-ghash_update_clmul(ghash_br,h_br,aad,aad_len);
-ghash_update_clmul(ghash_br,h_br,out,pt_len);
+ghash_update_clmul(ghash_br,h_br,h2_br,h3_br,h4_br,aad,aad_len);
+ghash_update_clmul(ghash_br,h_br,h2_br,h3_br,h4_br,out,pt_len);
 
 alignas(16)unsigned char len_block[16]{};
 uint64_t const aad_bits=aad_len*8;
@@ -325,6 +342,9 @@ auto const ek=aesni_expand_key(key);
 
 __m128i const h=aesni_encrypt_block(ek,_mm_setzero_si128());
 __m128i const h_br=byte_bitrev(h);
+__m128i const h2_br=gf128_mul(h_br,h_br);
+__m128i const h3_br=gf128_mul(h2_br,h_br);
+__m128i const h4_br=gf128_mul(h2_br,h2_br);
 
 alignas(16)unsigned char j0_buf[16]{};
 std::memcpy(j0_buf,iv,12);
@@ -333,8 +353,8 @@ __m128i const j0=_mm_load_si128(reinterpret_cast<__m128i const*>(j0_buf));
 
 __m128i ghash_br=_mm_setzero_si128();
 if(aad_len>0)
-ghash_update_clmul(ghash_br,h_br,aad,aad_len);
-ghash_update_clmul(ghash_br,h_br,ct_tag,ct_len);
+ghash_update_clmul(ghash_br,h_br,h2_br,h3_br,h4_br,aad,aad_len);
+ghash_update_clmul(ghash_br,h_br,h2_br,h3_br,h4_br,ct_tag,ct_len);
 
 alignas(16)unsigned char len_block[16]{};
 uint64_t const aad_bits=aad_len*8;
