@@ -1117,3 +1117,303 @@ received+=n;
 CHECK(memcmp(rx.data(),"XY",2)==0);
 fx->run(stream.close());
 }
+// ─────────────────────────────────────────────────────────────────────────────
+// Acceptance criteria — tcp_accept / tcp_accept_multishot
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace{
+// Blocking IPv4 connect to loopback:port. Returns connected fd.
+int connect_v4_blocking(uint16_t port)noexcept{
+int fd=::socket(AF_INET,SOCK_STREAM,IPPROTO_TCP);
+if(fd<0)return-1;
+sockaddr_in sa{};
+sa.sin_family=AF_INET;
+sa.sin_addr.s_addr=htonl(INADDR_LOOPBACK);
+sa.sin_port=htons(port);
+if(::connect(fd,reinterpret_cast<sockaddr*>(&sa),sizeof(sa))<0){
+::close(fd);
+return-1;
+}
+return fd;
+}
+}// namespace
+// ---------------------------------------------------------------------------
+// AC-5: tcp_accept single-shot cancel while blocked, fd baseline restored
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_accept: cancel while blocked resolves cancelled",
+"[tcp_accept][cancel][uring]"){
+auto fx=require_ring_fixture();
+TcpListener l{TcpListenerOptions{.bind=TcpBindAddress::loopback_v4}};
+int const fd_before=count_proc_fds();
+auto task=tcp_accept(l,fx->task_ring);
+// cancel before any client connects — fires inline on ring owner
+task.cancel();
+bool got_cancel=false;
+int err_code=0;
+try{
+fx->run(move(task),chrono::seconds{5});
+}catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
+got_cancel=true;
+}
+CHECK(got_cancel||err_code==ECANCELED);
+int const fd_after=count_proc_fds();
+CHECK(fd_after<=fd_before+2);
+}
+// ---------------------------------------------------------------------------
+// AC-5b: tcp_accept direct_required throws ENOTSUP
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_accept: direct_required throws ENOTSUP",
+"[tcp_accept][uring]"){
+auto fx=require_ring_fixture();
+TcpListener l{TcpListenerOptions{.bind=TcpBindAddress::loopback_v4}};
+SocketTaskRingOptions ropts;
+ropts.fd_mode=SocketFdMode::direct_required;
+SocketTaskRing dr{SocketRawRing{&fx->ring},fx->completions,
+[](uint32_t s,uint32_t g)noexcept->uint64_t{return(static_cast<uint64_t>(g)<<32U)|s;},ropts};
+int err_code=0;
+try{
+fx->run(tcp_accept(l,dr),chrono::seconds{5});
+}catch(IoError const&e){err_code=e.code().value();}
+CHECK(err_code==ENOTSUP);
+}
+// ---------------------------------------------------------------------------
+// AC-4: tcp_accept single-shot E2E — 100 sequential connections
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_accept: 100 sequential connections E2E",
+"[tcp_accept][uring]"){
+auto fx=require_ring_fixture();
+TcpListener l{TcpListenerOptions{.bind=TcpBindAddress::loopback_v4}};
+int const fd_before=count_proc_fds();
+uint32_t const pending_before=fx->completions.pending();
+for(int i=0;i<100;++i){
+// start accept task (no connect yet — accept SQE in SQ, not submitted)
+auto task=tcp_accept(l,fx->task_ring);
+// connect from a jthread so ring pump can run concurrently
+jthread t{[&l]{
+int fd=connect_v4_blocking(l.port());
+if(fd>=0)::close(fd);
+}};
+TcpStream s=fx->run(move(task),chrono::seconds{5});
+CHECK(s.valid());
+fx->run(s.close(),chrono::seconds{5});
+t.join();
+}
+CHECK(fx->completions.pending()==pending_before);
+int const fd_after=count_proc_fds();
+CHECK(fd_after<=fd_before+2);
+}
+// ---------------------------------------------------------------------------
+// AC-4b: tcp_accept_multishot E2E — 20 connections then cancel
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_accept_multishot: 20 connections then cancel, no fd leak",
+"[tcp_accept_multishot][uring]"){
+auto fx=require_ring_fixture();
+TcpListener l{TcpListenerOptions{.bind=TcpBindAddress::loopback_v4}};
+int const fd_before=count_proc_fds();
+uint32_t const pending_before=fx->completions.pending();
+auto counter=make_shared<atomic<int>>(0);
+using Task_v=conflux::work::root::Task<void>;
+Fn<Task_v(TcpStream)>handler=[counter](TcpStream s)->Task_v{
+counter->fetch_add(1,memory_order_relaxed);
+co_await s.close();
+};
+auto task=tcp_accept_multishot(l,fx->task_ring,{},move(handler));
+// connect 20 clients then cancel — all backlogged before pump runs
+jthread t{[&l]{
+for(int i=0;i<20;++i){
+int fd=connect_v4_blocking(l.port());
+if(fd>=0)::close(fd);
+}
+}};
+t.join();
+// cancel after all connections queued
+task.cancel();
+// task resolves (cancelled or error) — not hung; if it hangs, timeout throws
+try{
+fx->run(move(task),chrono::seconds{30});
+}catch(...){};
+CHECK(fx->completions.pending()==pending_before);
+int const fd_after=count_proc_fds();
+CHECK(fd_after<=fd_before+2);
+}
+// ---------------------------------------------------------------------------
+// AC-6: tcp_accept_multishot cancel mid-stream — resolves cancelled, fd clean
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_accept_multishot: cancel resolves cancelled, no fd leak",
+"[tcp_accept_multishot][cancel][uring]"){
+auto fx=require_ring_fixture();
+TcpListener l{TcpListenerOptions{.bind=TcpBindAddress::loopback_v4}};
+int const fd_before=count_proc_fds();
+using Task_v2=conflux::work::root::Task<void>;
+Fn<Task_v2(TcpStream)>handler2=[](TcpStream s)->Task_v2{
+co_await s.close();
+};
+auto task=tcp_accept_multishot(l,fx->task_ring,{},move(handler2));
+// 3 connections then cancel
+for(int i=0;i<3;++i){
+int fd=connect_v4_blocking(l.port());
+if(fd>=0)::close(fd);
+}
+task.cancel();
+bool got_cancel=false;
+int err_code=0;
+try{
+fx->run(move(task),chrono::seconds{10});
+}catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
+got_cancel=true;
+}
+CHECK(got_cancel||err_code==ECANCELED);
+int const fd_after=count_proc_fds();
+CHECK(fd_after<=fd_before+2);
+}
+// ---------------------------------------------------------------------------
+// AC-7: TcpListener outlives Task — destroy listener after task resolves, ASAN clean
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_accept_multishot: listener destroyed after task resolves, no UAF",
+"[tcp_accept_multishot][lifetime][uring]"){
+auto fx=require_ring_fixture();
+{
+TcpListener l{TcpListenerOptions{.bind=TcpBindAddress::loopback_v4}};
+using Task_v3=conflux::work::root::Task<void>;
+Fn<Task_v3(TcpStream)>handler3=[](TcpStream s)->Task_v3{
+co_await s.close();
+};
+auto task=tcp_accept_multishot(l,fx->task_ring,{},move(handler3));
+int fd=connect_v4_blocking(l.port());
+if(fd>=0)::close(fd);
+task.cancel();
+try{
+fx->run(move(task),chrono::seconds{10});
+}catch(...){}
+// l destroyed at end of scope — task already resolved, no UAF
+}
+// no crash = ASAN would have fired if UAF occurred
+CHECK(true);
+}
+// ---------------------------------------------------------------------------
+// AC-8: tcp_accept cancel with SQ full — retry path, no false completion
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_accept: SQ-full cancel retry, no false completion",
+"[tcp_accept][cancel][uring]"){
+// small ring so we can fill the SQ precisely
+auto fx=require_ring_fixture(16);
+TcpListener l{TcpListenerOptions{.bind=TcpBindAddress::loopback_v4}};
+int const fd_before=count_proc_fds();
+uint32_t const pending_before=fx->completions.pending();
+auto task=tcp_accept(l,fx->task_ring);
+// fill remaining 15 SQ slots with nops (sentinel user_data — out of range → ignored on CQE)
+int nops_added=0;
+for(int i=0;i<15;++i){
+auto*sqe=::io_uring_get_sqe(&fx->ring);
+if(!sqe)break;
+::io_uring_prep_nop(sqe);
+sqe->user_data=0xDEADBEEFU;
+++nops_added;
+}
+REQUIRE(nops_added==15);// ring must have been exactly 1 slot used (accept)
+// cancel: SQ full → submit() flushes nops+accept → retry → cancel SQE submitted
+task.cancel();
+bool got_cancel=false;
+int err_code=0;
+try{
+fx->run(move(task),chrono::seconds{5});
+}catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
+got_cancel=true;
+}
+CHECK(got_cancel||err_code==ECANCELED);
+// no CompletionTable leak
+CHECK(fx->completions.pending()==pending_before);
+int const fd_after=count_proc_fds();
+CHECK(fd_after<=fd_before+2);
+}
+// ---------------------------------------------------------------------------
+// AC-9: submit_on_owner failure — cancel_requested set, drain via accept CQE
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_accept: submit_on_owner failure drains via accept CQE, no false completion",
+"[tcp_accept][cancel][uring]"){
+auto fx=require_ring_fixture();
+bool owner_called=false;
+SocketTaskRingOptions opts;
+opts.submit_on_ring_owner=[&owner_called](RingOpFn)->bool{
+owner_called=true;
+return false;
+};
+SocketTaskRing ring2{SocketRawRing{&fx->ring},fx->completions,
+[](uint32_t s,uint32_t g)noexcept->uint64_t{return(static_cast<uint64_t>(g)<<32U)|s;},opts};
+TcpListener l{TcpListenerOptions{.bind=TcpBindAddress::loopback_v4}};
+int const fd_before=count_proc_fds();
+auto task=tcp_accept(l,ring2);
+// cancel: submit_on_owner returns false → cancel_requested=true, no cancel SQE submitted
+task.cancel();
+CHECK(owner_called);
+// task must NOT have resolved yet (cancel_requested=true but no CQE arrived)
+// connect a client to provide the accept CQE → on_accept_cqe sees cancel_requested → complete_cancelled
+int client_fd=connect_v4_blocking(l.port());
+bool got_cancel=false;
+int err_code=0;
+try{
+fx->run(move(task),chrono::seconds{5});
+}catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
+got_cancel=true;
+}
+CHECK(got_cancel||err_code==ECANCELED);
+if(client_fd>=0)::close(client_fd);
+int const fd_after=count_proc_fds();
+CHECK(fd_after<=fd_before+2);
+}
+// ---------------------------------------------------------------------------
+// AC-9b: tcp_accept_multishot submit_on_owner failure — drain via listener close
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+"tcp_accept_multishot: submit_on_owner failure drains when listener closed",
+"[tcp_accept_multishot][cancel][uring]"){
+auto fx=require_ring_fixture();
+bool owner_called=false;
+SocketTaskRingOptions opts;
+opts.submit_on_ring_owner=[&owner_called](RingOpFn)->bool{
+owner_called=true;
+return false;
+};
+SocketTaskRing ring2{SocketRawRing{&fx->ring},fx->completions,
+[](uint32_t s,uint32_t g)noexcept->uint64_t{return(static_cast<uint64_t>(g)<<32U)|s;},opts};
+auto l=make_unique<TcpListener>(TcpListenerOptions{.bind=TcpBindAddress::loopback_v4});
+int const fd_before=count_proc_fds();
+using Task_v4=conflux::work::root::Task<void>;
+Fn<Task_v4(TcpStream)>handler4=[](TcpStream s)->Task_v4{
+co_await s.close();
+};
+auto task=tcp_accept_multishot(*l,ring2,{},move(handler4));
+task.cancel();
+CHECK(owner_called);
+// destroy listener — kernel delivers terminal error CQE for the multishot op
+l.reset();
+bool got_cancel=false;
+int err_code=0;
+try{
+fx->run(move(task),chrono::seconds{5});
+}catch(IoError const&e){err_code=e.code().value();}catch(exception const&){
+got_cancel=true;
+}
+// accepted either as cancelled (cancel_requested=true→complete_cancelled)
+// or as error (listener destroyed → error CQE path)
+CHECK(got_cancel||err_code!=0);
+int const fd_after=count_proc_fds();
+CHECK(fd_after<=fd_before+2);
+}

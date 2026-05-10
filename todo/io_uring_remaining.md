@@ -55,7 +55,8 @@ Benchmark gate passed (main vs db, release-clang-libcxx, 2026-05-10). Remaining:
 ### Benchmarks (P1-09)
 
 - [x] `block_on_socket_task()` helper landed (`socket_io_coro.cxx`).
-- [ ] `SocketTaskRing` vs `FileReader` E2E benchmark — wire `block_on_socket_task` into a dns/socket benchmark.
+- [x] `tcp_accept` + `tcp_accept_multishot` async coroutine API landed (`socket_io_coro.cxx`) — P1-09a complete.
+- [ ] `SocketTaskRing` vs `FileReader` E2E benchmark — wire async server variant into `tcp_increment_coro_bench`.
 - [ ] Close-direct deferred path benchmarks — requires `FlowRuntime` integration.
 
 ---

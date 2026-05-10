@@ -580,6 +580,269 @@ sop->request_cancel(cr);
 
 return move(task);
 }
+// ─── AcceptOp ─────────────────────────────────────────────────────────────────
+
+struct AcceptOp:enable_shared_from_this<AcceptOp>{
+SocketTaskRing*ring{};
+SP<wroot::TaskSource<TcpStream>>src{};
+AcceptOptions opts{};
+int accept_flags{SOCK_CLOEXEC|SOCK_NONBLOCK};
+u64 accept_ud{};
+atomic_bool cancel_requested{false};
+atomic_bool finalized{false};
+[[nodiscard]]bool try_finalize()noexcept{
+return!finalized.exchange(true,memory_order_acq_rel);
+}
+void complete_exception(IoError e)noexcept{
+if(!try_finalize())return;
+auto _=src->try_set_exception(make_exception_ptr(move(e)));
+}
+void complete_cancelled()noexcept{
+if(!try_finalize())return;
+auto _=src->try_set_cancelled();
+}
+void complete_value(TcpStream v)noexcept{
+if(!try_finalize())return;
+auto _=src->try_set_value(wroot::Success<TcpStream>{move(v)});
+}
+void cancel_on_owner(SocketTaskRing&r)noexcept{
+if(finalized.load(memory_order_acquire))return;
+auto self=shared_from_this();
+auto[cs,cg]=r.completions().reserve([self](IoResult)noexcept{});
+if(!submit_cancel_by_ud(r.raw(),accept_ud,r.encode(cs,cg))){
+r.completions().dispatch(cs,cg,-EBUSY,0);
+// Flush pending SQEs to kernel to free SQ capacity, then retry.
+// ≤0: negative = ring error; 0 = nothing submitted (SQPOLL or race) → SQ still full.
+// Either way: do not retry inline or we risk unbounded recursion.
+if(r.raw().submit()<=0)return;
+auto _=r.submit_on_owner([self](SocketTaskRing&r2)noexcept{self->cancel_on_owner(r2);});
+return;
+}
+auto _=r.raw().submit();
+}
+void request_cancel(wroot::CancelReason)noexcept{
+cancel_requested.store(true,memory_order_release);
+auto self=shared_from_this();
+auto _=ring->submit_on_owner([self](SocketTaskRing&r)noexcept{self->cancel_on_owner(r);});
+// If enqueue fails: cancel_requested=true; on_accept_cqe drains/finalizes.
+}
+void on_accept_cqe(IoResult r)noexcept{
+if(r.res<0){
+if(cancel_requested.load(memory_order_acquire))
+complete_cancelled();
+else
+complete_exception(IoError{-r.res,"tcp_accept: accept"});
+return;
+}
+auto owned=OwnedSocketHandle::from_fd(r.res);
+if(cancel_requested.load(memory_order_acquire)){
+complete_cancelled();
+return;
+}
+SocketHandle const h=owned.get();
+if(opts.tcp_nodelay&&h.is_os_fd()){
+int const one=1;
+if(::setsockopt(h.as_fd(),IPPROTO_TCP,TCP_NODELAY,&one,sizeof(one))<0){
+complete_exception(IoError{errno,"tcp_accept: TCP_NODELAY"});
+return;
+}
+}
+if(opts.tcp_quickack&&h.is_os_fd()){
+int const one=1;
+if(::setsockopt(h.as_fd(),IPPROTO_TCP,TCP_QUICKACK,&one,sizeof(one))<0){
+complete_exception(IoError{errno,"tcp_accept: TCP_QUICKACK"});
+return;
+}
+}
+complete_value(TcpStream{make_shared<TcpStreamState>(ring,move(owned))});
+}
+};
+// ─── tcp_accept ───────────────────────────────────────────────────────────────
+// Precondition: listener and ring must outlive the returned Task until
+// completion or cancellation has fully drained.
+
+export[[nodiscard]]wroot::Task<TcpStream>tcp_accept(
+TcpListener&listener,
+SocketTaskRing&ring,
+AcceptOptions opts={}){
+if(ring.opts().fd_mode==SocketFdMode::direct_required)
+return make_error_task<TcpStream>(IoError{ENOTSUP,"tcp_accept: direct fd"});
+
+auto[task,raw_src]=wroot::make_task_source<TcpStream>(
+wroot::SubmitOptions{.enable_cancellation=true});
+auto src=make_shared<wroot::TaskSource<TcpStream>>(move(raw_src));
+
+auto op=make_shared<AcceptOp>();
+op->ring=&ring;
+op->src=src;
+op->opts=opts;
+op->accept_flags=listener.accept_flags();
+
+auto[slot,gen]=ring.completions().reserve(
+[op](IoResult r)noexcept{op->on_accept_cqe(r);});
+op->accept_ud=ring.encode(slot,gen);
+
+if(!submit_accept_borrowed(ring.raw(),listener.handle(),
+nullptr,nullptr,op->accept_ud,op->accept_flags))
+ring.completions().dispatch(slot,gen,-ENOSPC,0);
+
+auto _=src->install_cancel_hook(
+[weak_op=WP<AcceptOp>{op}](wroot::CancelReason cr)noexcept{
+if(auto sop=weak_op.lock())sop->request_cancel(cr);
+});
+
+return move(task);
+}
+// ─── MultishotAcceptOp ────────────────────────────────────────────────────────
+
+struct MultishotAcceptOp:enable_shared_from_this<MultishotAcceptOp>{
+SocketTaskRing*ring{};
+SP<wroot::TaskSource<void>>src{};
+AcceptOptions opts{};
+int accept_flags{SOCK_CLOEXEC|SOCK_NONBLOCK};
+SocketHandle listen_fd{};
+u64 accept_ud{};
+Fn<wroot::Task<void>(TcpStream)>handler{};
+atomic_bool cancel_requested{false};
+atomic_bool finalized{false};
+[[nodiscard]]bool try_finalize()noexcept{
+return!finalized.exchange(true,memory_order_acq_rel);
+}
+void complete_exception(IoError e)noexcept{
+if(!try_finalize())return;
+auto _=src->try_set_exception(make_exception_ptr(move(e)));
+}
+void complete_cancelled()noexcept{
+if(!try_finalize())return;
+auto _=src->try_set_cancelled();
+}
+void cancel_on_owner(SocketTaskRing&r)noexcept{
+if(finalized.load(memory_order_acquire))return;
+auto self=shared_from_this();
+auto[cs,cg]=r.completions().reserve([self](IoResult)noexcept{});
+if(!submit_cancel_fd(r.raw(),listen_fd,r.encode(cs,cg))){
+r.completions().dispatch(cs,cg,-EBUSY,0);
+// Flush pending SQEs to kernel to free SQ capacity, then retry.
+// ≤0: negative = ring error; 0 = nothing submitted (SQPOLL or race) → SQ still full.
+// Either way: do not retry inline or we risk unbounded recursion.
+if(r.raw().submit()<=0)return;
+auto _=r.submit_on_owner([self](SocketTaskRing&r2)noexcept{self->cancel_on_owner(r2);});
+return;
+}
+auto _=r.raw().submit();
+}
+void request_cancel(wroot::CancelReason)noexcept{
+cancel_requested.store(true,memory_order_release);
+auto self=shared_from_this();
+auto _=ring->submit_on_owner([self](SocketTaskRing&r)noexcept{self->cancel_on_owner(r);});
+// If enqueue fails: cancel_requested=true; on_accept_cqe drains/finalizes.
+}
+void on_accept_cqe(IoResult r)noexcept{
+bool const more=(r.flags&IORING_CQE_F_MORE)!=0;
+if(r.res<0){
+if(cancel_requested.load(memory_order_acquire)||r.res==-ECANCELED)
+complete_cancelled();
+else
+complete_exception(IoError{-r.res,"tcp_accept_multishot: accept"});
+return;
+}
+auto owned=OwnedSocketHandle::from_fd(r.res);
+if(cancel_requested.load(memory_order_acquire)){
+if(!more)
+complete_cancelled();
+return;
+}
+if(opts.tcp_nodelay&&owned.get().is_os_fd()){
+int const one=1;
+::setsockopt(owned.get().as_fd(),IPPROTO_TCP,TCP_NODELAY,&one,sizeof(one));
+}
+if(opts.tcp_quickack&&owned.get().is_os_fd()){
+int const one=1;
+::setsockopt(owned.get().as_fd(),IPPROTO_TCP,TCP_QUICKACK,&one,sizeof(one));
+}
+try{
+handler(TcpStream{make_shared<TcpStreamState>(ring,move(owned))}).detach();
+}catch(std::bad_alloc const&){
+complete_exception(IoError{ENOMEM,"tcp_accept_multishot: handler allocation"});
+cancel_requested.store(true,memory_order_release);
+if(more)try{
+auto[cs,cg]=ring->completions().reserve([](IoResult)noexcept{});
+if(!submit_cancel_fd(ring->raw(),listen_fd,ring->encode(cs,cg)))
+ring->completions().dispatch(cs,cg,-EBUSY,0);
+else
+auto _=ring->raw().submit();
+}catch(...){}
+return;
+}catch(...){
+complete_exception(IoError{EIO,"tcp_accept_multishot: handler threw"});
+cancel_requested.store(true,memory_order_release);
+if(more)try{
+auto[cs,cg]=ring->completions().reserve([](IoResult)noexcept{});
+if(!submit_cancel_fd(ring->raw(),listen_fd,ring->encode(cs,cg)))
+ring->completions().dispatch(cs,cg,-EBUSY,0);
+else
+auto _=ring->raw().submit();
+}catch(...){}
+return;
+}
+if(!more){
+if(cancel_requested.load(memory_order_acquire)){
+complete_cancelled();
+return;
+}
+auto[slot,gen]=ring->completions().reserve_multishot(
+[self=shared_from_this()](IoResult r2)noexcept{self->on_accept_cqe(r2);});
+accept_ud=ring->encode(slot,gen);
+if(!submit_accept_multishot_borrowed(ring->raw(),listen_fd,nullptr,nullptr,accept_ud,accept_flags,false))
+ring->completions().dispatch(slot,gen,-ENOSPC,0);
+}
+}
+};
+// ─── tcp_accept_multishot ─────────────────────────────────────────────────────
+// Preconditions:
+//   - listener must outlive the returned Task until co_await resolves.
+//   - ring.opts().submit_on_ring_owner must be set if Task::cancel() is called
+//     from any thread other than the ring owner (the normal case).
+//   - While bound to listener, no other io_uring op may target the same listener fd;
+//     cancel_on_owner uses IORING_ASYNC_CANCEL_FD which cancels all ops on the fd.
+
+export[[nodiscard]]wroot::Task<void>tcp_accept_multishot(
+TcpListener&listener,
+SocketTaskRing&ring,
+AcceptOptions opts,
+Fn<wroot::Task<void>(TcpStream)>handler){
+if(ring.opts().fd_mode==SocketFdMode::direct_required)
+return make_error_task<void>(IoError{ENOTSUP,"tcp_accept_multishot: direct fd"});
+if(!handler)
+return make_error_task<void>(IoError{EINVAL,"tcp_accept_multishot: empty handler"});
+
+auto[task,raw_src]=wroot::make_task_source<void>(
+wroot::SubmitOptions{.enable_cancellation=true});
+auto src=make_shared<wroot::TaskSource<void>>(move(raw_src));
+
+auto op=make_shared<MultishotAcceptOp>();
+op->ring=&ring;
+op->src=src;
+op->opts=opts;
+op->accept_flags=listener.accept_flags();
+op->listen_fd=listener.handle();
+op->handler=move(handler);
+
+auto[slot,gen]=ring.completions().reserve_multishot(
+[op](IoResult r)noexcept{op->on_accept_cqe(r);});
+op->accept_ud=ring.encode(slot,gen);
+
+if(!submit_accept_multishot_borrowed(ring.raw(),listener.handle(),
+nullptr,nullptr,op->accept_ud,op->accept_flags,false))
+ring.completions().dispatch(slot,gen,-ENOSPC,0);
+
+auto _=src->install_cancel_hook(
+[weak_op=WP<MultishotAcceptOp>{op}](wroot::CancelReason cr)noexcept{
+if(auto sop=weak_op.lock())sop->request_cancel(cr);
+});
+
+return move(task);
+}
 // ─── UdpRecvResult ───────────────────────────────────────────────────────────
 
 export struct UdpRecvResult{

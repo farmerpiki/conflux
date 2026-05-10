@@ -924,6 +924,21 @@ recv_sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
 recv_sqe.user_data(conflux::uring::UserData{recv_ud});
 return true;
 }
+export bool submit_accept_borrowed(
+SocketRawRing&ring,
+SocketHandle listen,
+sockaddr*addr,
+socklen_t*addrlen,
+u64 user_data,
+int accept_flags)noexcept{
+auto sqe=ring.try_get_sqe();
+if(!sqe)
+return false;
+sqe.prep_accept(listen.sqe_fd(),addr,addrlen,accept_flags);
+sqe.add_flags(listen.sqe_fd_flags());
+sqe.user_data(conflux::uring::UserData{user_data});
+return true;
+}
 // ─── raw submission: cancel ──────────────────────────────────────────────────
 
 export bool submit_cancel_fd(
@@ -1263,6 +1278,7 @@ return*this;
 }
 [[nodiscard]]u16 port()const noexcept{return port_;}
 [[nodiscard]]int raw_fd()const noexcept{return fd_;}
+[[nodiscard]]int accept_flags()const noexcept{return accept_flags_;}
 [[nodiscard]]SocketHandle handle()const noexcept{return SocketHandle::from_os(fd_);}
 [[nodiscard]]bool arm_accept_multishot_borrowed(
 SocketRawRing&ring,
@@ -1320,6 +1336,12 @@ export enum class SocketFdMode:u8{
 os_fd,
 direct_if_available,
 direct_required
+};
+// ─── AcceptOptions ────────────────────────────────────────────────────────────
+
+export struct AcceptOptions{
+bool tcp_nodelay{true};
+bool tcp_quickack{false};
 };
 // ─── ConnectOptions ───────────────────────────────────────────────────────────
 
