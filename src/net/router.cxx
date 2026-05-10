@@ -893,6 +893,34 @@ else
 set_cookies.push_back(format("{}={}; {}",name,cookie_value,attributes));
 return*this;
 }
+void append_vary(SV token){
+auto const current=SV{headers["Vary"]};
+if(current.empty()){
+headers["Vary"]=S{token};
+return;
+}
+auto is_ws=[](char c)noexcept{return c==' '||c=='\t'||c=='\r'||c=='\n';};
+auto trim_sv=[&](SV s)noexcept->SV{
+while(!s.empty()&&is_ws(s.front()))
+s.remove_prefix(1);
+while(!s.empty()&&is_ws(s.back()))
+s.remove_suffix(1);
+return s;
+};
+if(trim_sv(current)=="*")
+return;
+auto vary=current;
+while(!vary.empty()){
+auto const comma=vary.find(',');
+auto const part=trim_sv((comma==SV::npos)?vary:vary.substr(0,comma));
+if(conflux::http::ascii_iequals(part,token))
+return;
+if(comma==SV::npos)
+break;
+vary.remove_prefix(comma+1);
+}
+headers["Vary"]=format("{}, {}",current,token);
+}
 };
 export class DeferredResponse{
 int efd_{-1};
@@ -1005,33 +1033,6 @@ input+=kMagic;
 auto digest=sha1(to_unsigned_span(input));
 return base64_encode(span{digest.data(),digest.size()});
 }
-bool ascii_iequals(
-SV lhs,
-SV rhs)noexcept{
-if(lhs.size()!=rhs.size())
-return false;
-for(SZ i=0;i<lhs.size();++i){
-auto const l=static_cast<unsigned char>(lhs[i]);
-auto const r=static_cast<unsigned char>(rhs[i]);
-if((l|0x20U)!=(r|0x20U))
-return false;
-}
-return true;
-}
-bool header_token_contains(
-SV header,
-SV token)noexcept{
-while(!header.empty()){
-auto comma=header.find(',');
-auto part=trim((comma==SV::npos)?header:header.substr(0,comma));
-if(ascii_iequals(part,token))
-return true;
-if(comma==SV::npos)
-return false;
-header.remove_prefix(comma+1);
-}
-return false;
-}
 bool is_valid_client_key(
 SV key){
 if(key.size()!=24)
@@ -1041,7 +1042,7 @@ return decoded.size()==16&&base64_encode(to_unsigned_span(decoded))==key;
 }
 bool is_valid_handshake(
 HttpRequestView const&req){
-return header_token_contains(req.headers["upgrade"],"websocket")&&header_token_contains(req.headers["connection"],"upgrade")&&trim(req.headers["sec-websocket-version"])=="13"&&is_valid_client_key(trim(req.headers["sec-websocket-key"]));
+return conflux::http::header_token_contains(req.headers["upgrade"],"websocket")&&conflux::http::header_token_contains(req.headers["connection"],"upgrade")&&trim(req.headers["sec-websocket-version"])=="13"&&is_valid_client_key(trim(req.headers["sec-websocket-key"]));
 }
 // Build a complete WebSocket frame (server→client, unmasked) in one buffer so
 // the transport call below emits header+payload as a single TCP segment / TLS record.

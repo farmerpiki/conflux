@@ -98,19 +98,6 @@ UM<S,RespCacheEntry>map_;
 UM<S,V<S>>path_vary_;
 };
 namespace response_cache_detail{
-bool ascii_iequals(
-SV lhs,
-SV rhs)noexcept{
-if(lhs.size()!=rhs.size())
-return false;
-for(SZ i=0;i<lhs.size();++i){
-auto const l=static_cast<unsigned char>(lhs[i]);
-auto const r=static_cast<unsigned char>(rhs[i]);
-if((l|0x20U)!=(r|0x20U))
-return false;
-}
-return true;
-}
 bool cache_control_directive_contains(
 SV cc,
 SV directive){
@@ -119,7 +106,7 @@ auto comma=cc.find(',');
 auto part=trim((comma==SV::npos)?cc:cc.substr(0,comma));
 auto eq=part.find('=');
 auto name=trim((eq==SV::npos)?part:part.substr(0,eq));
-if(ascii_iequals(name,directive))
+if(conflux::http::ascii_iequals(name,directive))
 return true;
 if(comma==SV::npos)
 return false;
@@ -136,7 +123,7 @@ auto part=trim((comma==SV::npos)?cc:cc.substr(0,comma));
 auto eq=part.find('=');
 if(eq!=SV::npos){
 auto name=trim(part.substr(0,eq));
-if(ascii_iequals(name,"max-age")){
+if(conflux::http::ascii_iequals(name,"max-age")){
 auto val=trim(part.substr(eq+1));
 long v=0;
 auto[ptr,ec]=from_chars(val.data(),val.data()+val.size(),v);

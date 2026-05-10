@@ -70,20 +70,6 @@ Opt<TlsContext>tls_ctx;
 Opt<TlsStream>tls_stream;
 #endif
 };
-constexpr A<SV,8>kHopByHop{
-"connection",
-"keep-alive",
-"proxy-authenticate",
-"proxy-authorization",
-"te",
-"trailers",
-"transfer-encoding",
-"upgrade",
-};
-[[nodiscard]]bool is_hop_by_hop(
-SV name){
-return ranges::contains(kHopByHop,name);
-}
 // Convert chrono::milliseconds to seconds for wait_fd (ceiling, ≥1 if ms>0).
 [[nodiscard]]int to_sec(
 chrono::milliseconds ms)noexcept{
@@ -624,13 +610,13 @@ wire+=format("{} {} HTTP/1.1\r\nHost: {}\r\n",req.method(),path,host_hdr);
 HttpFields merged_headers=opts.default_headers;
 for(auto const&[k,v]:req.headers()){
 auto const lower=ascii_lower(k);
-if(lower=="host"||is_hop_by_hop(lower))
+if(lower=="host"||conflux::http::is_hop_by_hop_header(lower))
 continue;
 merged_headers.set(k,v);
 }
 for(auto const&[k,v]:merged_headers){
 auto const lower=ascii_lower(k);
-if(lower=="host"||is_hop_by_hop(lower))
+if(lower=="host"||conflux::http::is_hop_by_hop_header(lower))
 continue;
 wire+=format("{}: {}\r\n",k,v);
 }
@@ -741,7 +727,7 @@ has_content_length=true;
 chunked=true;
 }else if(kl=="set-cookie"){
 response.head.set_cookies.push_back(S{v});
-}else if(!is_hop_by_hop(kl)){
+}else if(!conflux::http::is_hop_by_hop_header(kl)){
 response.head.headers.set(S{k},S{v});
 }
 }

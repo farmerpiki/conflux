@@ -25,18 +25,6 @@ bool upstream_tls{false};
 int timeout_sec{10};
 SP<WorkPool>work_pool{};
 };
-namespace{
-constexpr A<SV,8>kHopByHop{
-"connection",
-"keep-alive",
-"proxy-authenticate",
-"proxy-authorization",
-"te",
-"trailers",
-"transfer-encoding",
-"upgrade",
-};
-}// namespace
 namespace proxy_detail{
 HttpResponse perform_proxy_request(
 HttpRequestView const&req,
@@ -56,7 +44,7 @@ auto builder=http::HttpRequest::method(req.method,url_str);
 for(auto const&[name,value]:req.headers){
 if(name=="host")
 continue;
-if(ranges::contains(kHopByHop,name))
+if(conflux::http::is_hop_by_hop_header(name))
 continue;
 builder.header(name,value);
 }

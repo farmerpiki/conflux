@@ -160,25 +160,12 @@ return diff==0;
 }
 }// namespace
 namespace jwt_detail{
-bool ascii_iequals(
-SV lhs,
-SV rhs)noexcept{
-if(lhs.size()!=rhs.size())
-return false;
-for(SZ i=0;i<lhs.size();++i){
-auto const l=static_cast<unsigned char>(lhs[i]);
-auto const r=static_cast<unsigned char>(rhs[i]);
-if((l|0x20U)!=(r|0x20U))
-return false;
-}
-return true;
-}
 Opt<SV>bearer_token(
 SV auth)noexcept{
 static constexpr SV kScheme="Bearer";
 if(auth.size()<=kScheme.size()||auth[kScheme.size()]!=' ')
 return nullopt;
-if(!ascii_iequals(auth.substr(0,kScheme.size()),kScheme))
+if(!conflux::http::ascii_iequals(auth.substr(0,kScheme.size()),kScheme))
 return nullopt;
 return auth.substr(kScheme.size()+1);
 }

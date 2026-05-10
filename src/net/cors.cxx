@@ -37,45 +37,6 @@ return opts.allow_credentials?S{request_origin}:S{"*"};
 }
 return ranges::contains(opts.allowed_origins,request_origin)?S{request_origin}:S{};
 }
-bool ascii_iequals(
-SV lhs,
-SV rhs)noexcept{
-if(lhs.size()!=rhs.size())
-return false;
-for(SZ i=0;i<lhs.size();++i){
-auto const l=static_cast<unsigned char>(lhs[i]);
-auto const r=static_cast<unsigned char>(rhs[i]);
-if((l|0x20U)!=(r|0x20U))
-return false;
-}
-return true;
-}
-bool vary_contains(
-SV vary,
-SV token)noexcept{
-while(!vary.empty()){
-auto comma=vary.find(',');
-auto part=trim((comma==SV::npos)?vary:vary.substr(0,comma));
-if(ascii_iequals(part,token))
-return true;
-if(comma==SV::npos)
-break;
-vary.remove_prefix(comma+1);
-}
-return false;
-}
-void append_vary(
-HttpResponse&resp,
-SV token){
-S const current{resp.headers["Vary"]};
-if(current.empty()){
-resp.headers["Vary"]=S{token};
-return;
-}
-if(trim(current)=="*"||vary_contains(current,token))
-return;
-resp.headers["Vary"]=format("{}, {}",current,token);
-}
 void inject_cors_headers(
 CorsOptions const&opts,
 SV request_origin,
@@ -88,7 +49,7 @@ if(opts.allow_credentials)
 resp.headers["Access-Control-Allow-Credentials"]="true";
 if(!opts.expose_headers.empty())
 resp.headers["Access-Control-Expose-Headers"]=join(opts.expose_headers);
-append_vary(resp,"Origin");
+resp.append_vary("Origin");
 }
 }// namespace cors_detail
 // Middleware factory: handle CORS preflight and inject CORS headers.

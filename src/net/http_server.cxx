@@ -453,19 +453,6 @@ break;
 pos=sep+1;
 }
 }
-[[nodiscard]]bool ascii_iequals(
-SV lhs,
-SV rhs)noexcept{
-if(lhs.size()!=rhs.size())
-return false;
-for(SZ i=0;i<lhs.size();++i){
-auto const l=static_cast<unsigned char>(lhs[i]);
-auto const r=static_cast<unsigned char>(rhs[i]);
-if((l|0x20U)!=(r|0x20U))
-return false;
-}
-return true;
-}
 [[nodiscard]]bool has_connection_token(
 HttpFieldsView const&headers,
 SV wanted){
@@ -474,7 +461,7 @@ SZ pos=0;
 while(pos<=header_value.size()){
 auto const comma=header_value.find(',',pos);
 auto token=trim(comma==SV::npos?header_value.substr(pos):header_value.substr(pos,comma-pos));
-if(!token.empty()&&ascii_iequals(token,wanted))
+if(!token.empty()&&conflux::http::ascii_iequals(token,wanted))
 return true;
 if(comma==SV::npos)
 break;
@@ -498,7 +485,7 @@ while(pos<=header_value.size()){
 auto const comma=header_value.find(',',pos);
 auto token=trim(comma==SV::npos?header_value.substr(pos):header_value.substr(pos,comma-pos));
 if(!token.empty()){
-if(!ascii_iequals(token,"100-continue"))
+if(!conflux::http::ascii_iequals(token,"100-continue"))
 return ExpectState::unsupported;
 saw_continue=true;
 }
@@ -520,7 +507,7 @@ auto token=trim(comma==SV::npos?header_value.substr(pos):header_value.substr(pos
 if(token.empty())
 return false;
 ++token_count;
-if(!ascii_iequals(token,"chunked"))
+if(!conflux::http::ascii_iequals(token,"chunked"))
 return false;
 if(comma==SV::npos)
 break;

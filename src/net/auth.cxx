@@ -6,25 +6,12 @@ import conflux.net.http.types;
 import conflux.net.router;
 import conflux.utils;
 namespace auth_detail{
-bool ascii_iequals(
-SV lhs,
-SV rhs)noexcept{
-if(lhs.size()!=rhs.size())
-return false;
-for(SZ i=0;i<lhs.size();++i){
-auto const l=static_cast<unsigned char>(lhs[i]);
-auto const r=static_cast<unsigned char>(rhs[i]);
-if((l|0x20U)!=(r|0x20U))
-return false;
-}
-return true;
-}
 Opt<SV>credentials_for_scheme(
 SV auth,
 SV scheme)noexcept{
 if(auth.size()<=scheme.size()||auth[scheme.size()]!=' ')
 return nullopt;
-if(!ascii_iequals(auth.substr(0,scheme.size()),scheme))
+if(!conflux::http::ascii_iequals(auth.substr(0,scheme.size()),scheme))
 return nullopt;
 return auth.substr(scheme.size()+1);
 }

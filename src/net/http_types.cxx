@@ -8,6 +8,13 @@ import conflux.types;
 unsigned char c)noexcept{
 return c>='A'&&c<='Z'?static_cast<unsigned char>(c+('a'-'A')):c;
 }
+[[nodiscard]]static SV http_trim(SV s)noexcept{
+while(!s.empty()&&(s.front()==' '||s.front()=='\t'||s.front()=='\r'||s.front()=='\n'))
+s.remove_prefix(1);
+while(!s.empty()&&(s.back()==' '||s.back()=='\t'||s.back()=='\r'||s.back()=='\n'))
+s.remove_suffix(1);
+return s;
+}
 export struct FieldHash{
 using is_transparent=void;
 bool ci{false};
@@ -461,5 +468,39 @@ url.query=S{path_and_query.substr(qmark+1)};
 }
 
 return url;
+}
+[[nodiscard]]bool ascii_iequals(
+SV lhs,
+SV rhs)noexcept{
+if(lhs.size()!=rhs.size())
+return false;
+return ranges::equal(lhs,rhs,[](unsigned char x,unsigned char y){return ascii_ci_fold(x)==ascii_ci_fold(y);});
+}
+constexpr A<SV,8>kHopByHopHeaders{
+"connection",
+"keep-alive",
+"proxy-authenticate",
+"proxy-authorization",
+"te",
+"trailers",
+"transfer-encoding",
+"upgrade",
+};
+[[nodiscard]]bool is_hop_by_hop_header(SV name)noexcept{
+return ranges::contains(kHopByHopHeaders,name);
+}
+[[nodiscard]]bool header_token_contains(
+SV header,
+SV token)noexcept{
+while(!header.empty()){
+auto const comma=header.find(',');
+auto const part=http_trim((comma==SV::npos)?header:header.substr(0,comma));
+if(ascii_iequals(part,token))
+return true;
+if(comma==SV::npos)
+return false;
+header.remove_prefix(comma+1);
+}
+return false;
 }
 }// namespace conflux::http
