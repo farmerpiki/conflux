@@ -415,7 +415,7 @@ bool expect_continue_sent=false;
 S remote_addr{};// peer IP, set on accept
 ChunkedDecodeState chunked_decode{};
 // mmap path: non-null when current response has a zero-copy file region
-SP<MappedFile>mapped_file{};
+SP<MappedBody>mapped_file{};
 SZ mapped_total{};// own_response.size() + mapped_file->size
 u64 mapped_delivered{};
 A<iovec,2>writev_iov{};// iovecs rebuilt per-send in queue_send_mapped
@@ -1932,15 +1932,13 @@ skip=0;
 }else{
 skip-=conn.own_response.size();
 }
-// iov[1]: remaining file bytes (honouring send_offset for range requests)
-if(conn.mapped_file&&skip<conn.mapped_file->send_size){
-span<char>const file_span{
-static_cast<char*>(conn.mapped_file->ptr),
-conn.mapped_file->send_offset+conn.mapped_file->send_size};
+// iov[1]: remaining file bytes (honouring offset for range requests)
+if(conn.mapped_file&&skip<conn.mapped_file->size){
+auto const win=conn.mapped_file->window();
 // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 conn.writev_iov[ni++]={
-.iov_base=file_span.subspan(conn.mapped_file->send_offset+skip).data(),
-.iov_len=conn.mapped_file->send_size-skip};
+.iov_base=const_cast<void*>(static_cast<void const*>(win.subspan(skip).data())),
+.iov_len=win.size()-skip};
 }
 
 if(ni==0)
@@ -2090,13 +2088,13 @@ if(!conn.mapped_file||conn.ssl==nullptr){
 queue_close(fd);
 return;
 }
-auto const remaining=conn.mapped_file->send_size-conn.mapped_delivered;
+auto const win=conn.mapped_file->window();
+auto const remaining=static_cast<u64>(win.size())-conn.mapped_delivered;
 if(remaining==0)
 return;
 static constexpr u64 kMappedTlsChunk=64U*1024U;
 auto const want=static_cast<SZ>(min<u64>(remaining,kMappedTlsChunk));
-auto const*data=
-static_cast<char const*>(conn.mapped_file->ptr)+conn.mapped_file->send_offset+conn.mapped_delivered;
+auto const*data=reinterpret_cast<char const*>(win.data())+conn.mapped_delivered;
 auto const w=SSL_write(conn.ssl.get(),data,static_cast<int>(want));
 if(w<=0){
 conn.mapped_file.reset();
@@ -3001,7 +2999,7 @@ return;
 
 if(conn.tls_sending_response){
 if(conn.mapped_file){
-if(conn.mapped_delivered<conn.mapped_file->send_size){
+if(conn.mapped_delivered<conn.mapped_file->size){
 write_mapped_tls_chunk(fd,conn);
 return;
 }
@@ -3362,7 +3360,7 @@ if(ready->head_only){
 conn.has_response=true;
 }else{
 conn.mapped_file=ready->take_mapped_file();
-conn.mapped_total=conn.own_response.size()+conn.mapped_file->send_size;
+conn.mapped_total=conn.own_response.size()+conn.mapped_file->size;
 conn.mapped_delivered=0;
 conn.has_response=false;
 }
@@ -4442,7 +4440,7 @@ if(resp.head_only){
 conn.has_response=true;
 }else{
 conn.mapped_file=resp.take_mapped_file();
-conn.mapped_total=conn.own_response.size()+conn.mapped_file->send_size;
+conn.mapped_total=conn.own_response.size()+conn.mapped_file->size;
 conn.mapped_delivered=0;
 conn.has_response=false;
 }

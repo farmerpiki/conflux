@@ -16,6 +16,18 @@ import std;
 import conflux.types;
 export import conflux.uring.completion;
 // ───────────────────────────────────────────────────────────────────────
+// FileStat — portable stat result for cache revalidation.
+// ───────────────────────────────────────────────────────────────────────
+
+export struct FileStat{
+u64 size{};
+u64 mtime_ns{};
+u64 ctime_ns{};
+u64 dev{};
+u64 ino{};
+u32 mode{};
+};
+// ───────────────────────────────────────────────────────────────────────
 // UniqueFd — RAII wrapper for raw POSIX fds (no io_uring coupling).
 // ───────────────────────────────────────────────────────────────────────
 
@@ -172,9 +184,7 @@ if(fd<0)
 return unexpected{FileIoSyncError{errno,"file_io_sync: open parent dir"}};
 return UniqueFd{fd};
 }
-
-enum class PathSplitResult:u8{ok,
-rejected};
+}// namespace
 struct PathParts{
 SV parent_dir;
 SV basename;
@@ -212,7 +222,6 @@ return PathParts{
 .parent_dir=path.substr(0,last_slash),
 .basename=path.substr(last_slash+1)};
 }
-}// namespace
 // ───────────────────────────────────────────────────────────────────────
 // Low-level: open_tmpfile_sync
 // ───────────────────────────────────────────────────────────────────────
@@ -353,4 +362,39 @@ TempFileOptions opts={},
 TempPublishMode mode=TempPublishMode::replace_existing)noexcept{
 return write_file_atomic_at_sync(root_fd,contained_relative_path,
 as_bytes(span{text.data(),text.size()}),opts,mode);
+}
+// ───────────────────────────────────────────────────────────────────────
+// fstat_sync / stat_at_sync — populate FileStat from kernel statx.
+// ───────────────────────────────────────────────────────────────────────
+
+export expected<FileStat,FileIoSyncError>fstat_sync(int fd)noexcept{
+struct statx stx{};
+int const rc=::statx(fd,"",AT_EMPTY_PATH,
+STATX_BASIC_STATS|STATX_MTIME|STATX_CTIME,&stx);
+if(rc<0)
+return unexpected{FileIoSyncError{errno,"file_io_sync: statx"}};
+return FileStat{
+.size=stx.stx_size,
+.mtime_ns=static_cast<u64>(stx.stx_mtime.tv_sec)*1000000000ULL+stx.stx_mtime.tv_nsec,
+.ctime_ns=static_cast<u64>(stx.stx_ctime.tv_sec)*1000000000ULL+stx.stx_ctime.tv_nsec,
+.dev=static_cast<u64>(stx.stx_dev_major)<<32U|stx.stx_dev_minor,
+.ino=stx.stx_ino,
+.mode=stx.stx_mode};
+}
+export expected<FileStat,FileIoSyncError>stat_at_sync(
+int dir_fd,
+SV path)noexcept{
+S p{path};
+struct statx stx{};
+int const rc=::statx(dir_fd,p.c_str(),0,
+STATX_BASIC_STATS|STATX_MTIME|STATX_CTIME,&stx);
+if(rc<0)
+return unexpected{FileIoSyncError{errno,"file_io_sync: statx"}};
+return FileStat{
+.size=stx.stx_size,
+.mtime_ns=static_cast<u64>(stx.stx_mtime.tv_sec)*1000000000ULL+stx.stx_mtime.tv_nsec,
+.ctime_ns=static_cast<u64>(stx.stx_ctime.tv_sec)*1000000000ULL+stx.stx_ctime.tv_nsec,
+.dev=static_cast<u64>(stx.stx_dev_major)<<32U|stx.stx_dev_minor,
+.ino=stx.stx_ino,
+.mode=stx.stx_mode};
 }

@@ -503,8 +503,8 @@ s.response_body_buf=s.response.take_text_body();
 }else if(s.response.is_mapped_file()){
 auto const&mf=s.response.mapped_file_ptr();
 if(mf){
-char const*base=static_cast<char const*>(mf->ptr)+mf->send_offset;
-s.response_body_buf.assign(base,mf->send_size);
+auto const win=mf->window();
+s.response_body_buf.assign(reinterpret_cast<char const*>(win.data()),win.size());
 }
 }else{
 s.response.status=501;

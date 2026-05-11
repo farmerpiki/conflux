@@ -366,44 +366,6 @@ return fn_->invoke(forward<Args>(args)...);
 
 export struct WsUpgrade;// defined after HttpResponse, before Router
 export class DeferredResponse;// defined after HttpResponse
-// RAII owner of an mmap'd file region.  munmap() called on destruction.
-export struct MappedFile{
-void*ptr{};
-SZ size{};// mmap extent for munmap
-SZ send_offset{};// byte offset within ptr for send start
-SZ send_size{};// bytes to send
-MappedFile(
-void*p,
-SZ s)
-:ptr{p},size{s},send_size{s}{}
-MappedFile(
-void*p,
-SZ mmap_sz,
-SZ offset,
-SZ len)
-:ptr{p},size{mmap_sz},send_offset{offset},send_size{len}{}
-~MappedFile(){
-if(ptr!=nullptr)
-::munmap(ptr,size);
-}
-MappedFile(MappedFile const&)=delete;
-MappedFile&operator=(MappedFile const&)=delete;
-MappedFile(
-MappedFile&&o)noexcept
-:ptr{exchange(o.ptr,nullptr)},size{o.size},send_offset{o.send_offset},send_size{o.send_size}{}
-MappedFile&operator=(
-MappedFile&&o)noexcept{
-if(this!=&o){
-if(ptr!=nullptr)
-::munmap(ptr,size);
-ptr=exchange(o.ptr,nullptr);
-size=o.size;
-send_offset=o.send_offset;
-send_size=o.send_size;
-}
-return*this;
-}
-};
 // Carrier for a file about to be streamed through io_uring (splice on plain,
 // fixed-buffer read on TLS). Owns a FileHandle — send dispatch consumes it and
 // issues a close_async on the owning ring when the stream finishes.
@@ -547,7 +509,7 @@ deferred
 };
 
 using BodyPayload=
-variant<S,SP<SseChannel>,SP<WsUpgrade>,SP<MappedFile>,SP<StreamedFile>,SP<DeferredResponse>>;
+variant<S,SP<SseChannel>,SP<WsUpgrade>,SP<MappedBody>,SP<StreamedFile>,SP<DeferredResponse>>;
 
 int status=kHttpOk;
 S status_text="OK";
@@ -594,9 +556,9 @@ if(auto const*up=get_if<SP<WsUpgrade>>(&body_payload))
 return*up;
 return empty;
 }
-[[nodiscard]]SP<MappedFile>const&mapped_file_ptr()const{
-static SP<MappedFile>const empty{};
-if(auto const*file=get_if<SP<MappedFile>>(&body_payload))
+[[nodiscard]]SP<MappedBody>const&mapped_file_ptr()const{
+static SP<MappedBody>const empty{};
+if(auto const*file=get_if<SP<MappedBody>>(&body_payload))
 return*file;
 return empty;
 }
@@ -622,10 +584,10 @@ if(!holds_alternative<SP<WsUpgrade>>(body_payload))
 return{};
 return move(get<SP<WsUpgrade>>(body_payload));
 }
-[[nodiscard]]SP<MappedFile>take_mapped_file(){
-if(!holds_alternative<SP<MappedFile>>(body_payload))
+[[nodiscard]]SP<MappedBody>take_mapped_file(){
+if(!holds_alternative<SP<MappedBody>>(body_payload))
 return{};
-return move(get<SP<MappedFile>>(body_payload));
+return move(get<SP<MappedBody>>(body_payload));
 }
 [[nodiscard]]SP<StreamedFile>take_streamed_file(){
 if(!holds_alternative<SP<StreamedFile>>(body_payload))
@@ -653,7 +615,7 @@ body_kind=BodyKind::ws_upgrade;
 body_payload=move(up);
 }
 void set_mapped_file(
-SP<MappedFile>file){
+SP<MappedBody>file){
 body_kind=BodyKind::mapped_file;
 body_payload=move(file);
 }
@@ -671,7 +633,7 @@ body_payload=move(deferred);
 if(content_length_hint!=0)
 return content_length_hint;
 if(is_mapped_file()&&mapped_file_ptr())
-return mapped_file_ptr()->send_size;
+return static_cast<SZ>(mapped_file_ptr()->size);
 if(is_streamed_file()&&streamed_file_ptr())
 return static_cast<SZ>(streamed_file_ptr()->send_size);
 return text_body().size();
@@ -2449,26 +2411,22 @@ open_how{
 return HttpResponse::deferred(move(dr));
 }
 
-// mmap the file.
-int const fd=contained_open(root_fd,rel_str.c_str(),O_RDONLY|O_CLOEXEC);
-if(fd<0)
-return HttpResponse::not_found(file_param);
-// NOLINTNEXTLINE(misc-const-correctness): pointee non-const required by munmap/MappedFile C API
-void*const ptr=::mmap(nullptr,file_size,PROT_READ,MAP_SHARED,fd,0);
-::close(fd);
-if(ptr==MAP_FAILED)
+auto lease=map_file_readonly_sync(root_fd,SV{rel_str});
+if(!lease)
 return HttpResponse::internal_error();
 
 if(is_range_request){
 auto send_sz=range_end-range_start+1;
 auto resp=base_response(kHttpPartialContent,"Partial Content");
 resp.headers["Content-Range"]=format("bytes {}-{}/{}",range_start,range_end,file_size);
-resp.set_mapped_file(make_shared<MappedFile>(ptr,file_size,range_start,send_sz));
+resp.set_mapped_file(make_shared<MappedBody>(MappedBody{
+.lease=move(*lease),.offset=range_start,.size=send_sz}));
 return resp;
 }
 
 auto resp=base_response(kHttpOk,"OK");
-resp.set_mapped_file(make_shared<MappedFile>(ptr,file_size));
+resp.set_mapped_file(make_shared<MappedBody>(MappedBody{
+.lease=move(*lease),.offset=0,.size=file_size}));
 return resp;
 }catch(...){return HttpResponse::internal_error();}
 };

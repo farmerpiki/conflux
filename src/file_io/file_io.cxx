@@ -25,6 +25,7 @@ import conflux.work;
 export import conflux.uring.completion;
 export import conflux.uring.handle;
 export import conflux.file_io_sync;
+export import conflux.file_map;
 
 export using FileIoError=IoError;
 
@@ -39,17 +40,6 @@ u32 rnd{};
 return format(".conflux.tmp.{}.{}.{:08x}",pid,seq,rnd);
 }
 }// namespace
-// ---------------------------------------------------------------------------
-// FileStat: subset of struct statx fields the HTTP/file serving code needs.
-// ---------------------------------------------------------------------------
-
-export struct FileStat{
-u64 size{};
-u64 mtime_ns{};
-u64 dev{};
-u64 ino{};
-u32 mode{};
-};
 // ---------------------------------------------------------------------------
 // RegisteredBufferTable: owns the io_uring registered-buffer table lifecycle.
 // One instance per ring. Pools carve slices from it.
@@ -575,6 +565,7 @@ auto const&s=*stx_owner;
 FileStat const out{
 .size=s.stx_size,
 .mtime_ns=static_cast<u64>(s.stx_mtime.tv_sec)*1000000000ULL+s.stx_mtime.tv_nsec,
+.ctime_ns=static_cast<u64>(s.stx_ctime.tv_sec)*1000000000ULL+s.stx_ctime.tv_nsec,
 .dev=(static_cast<u64>(s.stx_dev_major)<<32U)|s.stx_dev_minor,
 .ino=s.stx_ino,
 .mode=s.stx_mode};

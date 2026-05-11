@@ -316,6 +316,18 @@ target_link_libraries(conflux_file_io_sync
     PUBLIC  conflux_uring
 )
 
+add_library(conflux_file_map STATIC)
+target_sources(conflux_file_map
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/file_io/file_map.cxx
+)
+target_link_libraries(conflux_file_map
+    PRIVATE conflux_options
+    PUBLIC  conflux_file_io_sync
+)
+
 add_library(conflux_file_io STATIC)
 target_sources(conflux_file_io
     PUBLIC FILE_SET CXX_MODULES
@@ -326,6 +338,7 @@ target_sources(conflux_file_io
 target_link_libraries(conflux_file_io
     PRIVATE conflux_options
     PUBLIC  conflux_file_io_sync
+    PUBLIC  conflux_file_map
     PUBLIC  conflux_uring
     PUBLIC  conflux_work
     PUBLIC  PkgConfig::LIBURING
