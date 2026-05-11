@@ -6,38 +6,39 @@
 // Try:
 //   curl -k https://localhost:9443/ping
 //   curl -k --http3-only https://localhost:9443/ping
-#include<cstdlib>
+#include <cstdlib>
 
 import conflux.net.http;
 import std;
 import conflux.types;
-int main(){
-S cert_path="/tmp/conflux_h3_server_cert.pem";
-S key_path="/tmp/conflux_h3_server_key.pem";
-S const gen_cmd=format(
-"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} " "-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
-key_path,
-cert_path);
-if(std::system(gen_cmd.c_str())!=0){
-println(cerr,"openssl req failed");
-return 1;
-}
+int main() {
+	S cert_path = "/tmp/conflux_h3_server_cert.pem";
+	S key_path = "/tmp/conflux_h3_server_key.pem";
+	S const gen_cmd = format(
+		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
+		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
+		key_path,
+		cert_path);
+	if (std::system(gen_cmd.c_str()) != 0) {
+		println(cerr, "openssl req failed");
+		return 1;
+	}
 
-Config cfg{};
-cfg.port=9443;
-cfg.rings=1;
-cfg.ring_entries=256;
-cfg.cert_file=cert_path;
-cfg.key_file=key_path;
-cfg.http3.enabled=true;
+	Config cfg{};
+	cfg.port = 9443;
+	cfg.rings = 1;
+	cfg.ring_entries = 256;
+	cfg.cert_file = cert_path;
+	cfg.key_file = key_path;
+	cfg.http3.enabled = true;
 
-Router router;
-router.get("/",[](HttpRequestView const&){
-return HttpResponse::html("<h1>conflux HTTP/3</h1><p>Try /ping over h1, h2, or h3.</p>");
-});
-router.get("/ping",[](HttpRequestView const&){return HttpResponse::json(R"({"transport":"h3-ready"})");});
+	Router router;
+	router.get("/", [](HttpRequestView const &) {
+		return HttpResponse::html("<h1>conflux HTTP/3</h1><p>Try /ping over h1, h2, or h3.</p>");
+	});
+	router.get("/ping", [](HttpRequestView const &) { return HttpResponse::json(R"({"transport":"h3-ready"})"); });
 
-HttpServer srv{cfg,move(router)};
-println(cerr,"HTTPS + HTTP/3 server listening on https://localhost:9443");
-auto _=srv.run();
+	HttpServer srv{cfg, move(router)};
+	println(cerr, "HTTPS + HTTP/3 server listening on https://localhost:9443");
+	auto _ = srv.run();
 }

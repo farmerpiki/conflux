@@ -1,6 +1,6 @@
 // Benchmark: identical PG workload run two ways — callback-style Flow pipeline
 // vs coroutine (co_await). Requires PG_CONNINFO in the env; skipped otherwise.
-#include<liburing.h>
+#include <liburing.h>
 
 import std;
 import conflux.types;
@@ -12,125 +12,131 @@ import bench_common;
 using namespace conflux::db;
 using namespace std::string_view_literals;
 using conflux::work::root::Task;
-namespace{
-constexpr u64 pack_ud(
-u32 slot,
-u32 gen)noexcept{
-return(static_cast<u64>(gen)<<32U)|slot;
-}
-inline Atom<SZ>sink{};
+namespace {
 
-constexpr SV kSql="SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i";
-void consume(
-Result const&rs){
-SZ acc=0;
-for(auto row:rs){
-acc+=static_cast<SZ>(row.as<i64>(0));
-acc+=row.as<SV>(1).size();
+constexpr u64 pack_ud(
+	u32 slot,
+	u32 gen) noexcept {
+	return (static_cast<u64>(gen) << 32U) | slot;
 }
-sink.fetch_add(acc,memory_order_relaxed);
+inline Atom<SZ> sink{};
+
+constexpr SV kSql = "SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i";
+void consume(
+	Result const &rs) {
+	SZ acc = 0;
+	for (auto row: rs) {
+		acc += static_cast<SZ>(row.as<i64>(0));
+		acc += row.as<SV>(1).size();
+	}
+	sink.fetch_add(acc, memory_order_relaxed);
 }
 Params make_params(
-i64 n){
-Params p;
-p.add(n);
-return p;
+	i64 n) {
+	Params p;
+	p.add(n);
+	return p;
 }
 u64 run_callback(
-FileReader&reader,
-SP<Connection>const&conn,
-SZ iters,
-i64 rows){
-auto const t0=chrono::steady_clock::now();
-for(SZ i=0;i<iters;++i){
-auto rs=block_on(reader,conn->query(S{kSql},make_params(rows)));
-consume(rs);
+	FileReader &reader,
+	SP<Connection> const &conn,
+	SZ iters,
+	i64 rows) {
+	auto const t0 = chrono::steady_clock::now();
+	for (SZ i = 0; i < iters; ++i) {
+		auto rs = block_on(reader, conn->query(S{kSql}, make_params(rows)));
+		consume(rs);
+	}
+	auto const t1 = chrono::steady_clock::now();
+	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
-auto const t1=chrono::steady_clock::now();
-return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1-t0).count());
-}
-Task<void>coro_one(
-SP<Connection>const&conn,
-i64 rows){
-auto rs=co_await conn->query(S{kSql},make_params(rows));
-consume(rs);
-co_return;
+Task<void> coro_one(
+	SP<Connection> const &conn,
+	i64 rows) {
+	auto rs = co_await conn->query(S{kSql}, make_params(rows));
+	consume(rs);
+	co_return;
 }
 u64 run_coroutine(
-FileReader&reader,
-SP<Connection>const&conn,
-SZ iters,
-i64 rows){
-auto const t0=chrono::steady_clock::now();
-for(SZ i=0;i<iters;++i)
-block_on(reader,coro_one(conn,rows));
-auto const t1=chrono::steady_clock::now();
-return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1-t0).count());
+	FileReader &reader,
+	SP<Connection> const &conn,
+	SZ iters,
+	i64 rows) {
+	auto const t0 = chrono::steady_clock::now();
+	for (SZ i = 0; i < iters; ++i) {
+		block_on(reader, coro_one(conn, rows));
+	}
+	auto const t1 = chrono::steady_clock::now();
+	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
-}// namespace
+
+} // namespace
 int main(
-int argc,
-char**argv){
-bench_info_if_requested(argc,argv,
-R"({"name":"db_coro","parser":"standard","configs":[{"name":"rows_3","extra":{"rows":3},"args":["--rows","3","--config-name","rows_3","--iterations","5000","--warmup","500"]},{"name":"rows_100","extra":{"rows":100},"args":["--rows","100","--config-name","rows_100","--iterations","1000","--warmup","100"]}]})");
+	int argc,
+	char **argv) {
+	bench_info_if_requested(
+		argc,
+		argv,
+		R"({"name":"db_coro","parser":"standard","configs":[{"name":"rows_3","extra":{"rows":3},"args":["--rows","3","--config-name","rows_3","--iterations","5000","--warmup","500"]},{"name":"rows_100","extra":{"rows":100},"args":["--rows","100","--config-name","rows_100","--iterations","1000","--warmup","100"]}]})");
 
-auto cfg=bench_parse_args(span{argv,static_cast<SZ>(argc)});
-i64 rows=3;
-for(SZ i=1;i<static_cast<SZ>(argc);++i){
-SV const a=argv[i];
-if(a=="--rows"&&i+1<static_cast<SZ>(argc)){
-u64 v{};
-SV sv{argv[++i]};
-from_chars(sv.data(),sv.data()+sv.size(),v);
-rows=static_cast<i64>(v);
-if(cfg.config_name.empty())
-cfg.config_name=format("rows_{}",rows);
-}
-}
+	auto cfg = bench_parse_args(span{argv, static_cast<SZ>(argc)});
+	i64 rows = 3;
+	for (SZ i = 1; i < static_cast<SZ>(argc); ++i) {
+		SV const a = argv[i];
+		if (a == "--rows" && i + 1 < static_cast<SZ>(argc)) {
+			u64 v{};
+			SV sv{argv[++i]};
+			from_chars(sv.data(), sv.data() + sv.size(), v);
+			rows = static_cast<i64>(v);
+			if (cfg.config_name.empty()) {
+				cfg.config_name = format("rows_{}", rows);
+			}
+		}
+	}
 
-char const*raw=std::getenv("PG_CONNINFO");
-if(raw==nullptr||*raw=='\0'){
-println(cerr,"PG_CONNINFO not set — skipping bench");
-return 0;
-}
+	char const *raw = std::getenv("PG_CONNINFO");
+	if (raw == nullptr || *raw == '\0') {
+		println(cerr, "PG_CONNINFO not set — skipping bench");
+		return 0;
+	}
 
-::io_uring ring{};
-if(::io_uring_queue_init(64,&ring,0)<0){
-println(cerr,"io_uring_queue_init failed");
-return 1;
-}
-CompletionTable ct;
-FileReader reader{&ring,&ct,pack_ud};
-CurrentFileReaderScope const scope{&reader};
+	::io_uring ring{};
+	if (::io_uring_queue_init(64, &ring, 0) < 0) {
+		println(cerr, "io_uring_queue_init failed");
+		return 1;
+	}
+	CompletionTable ct;
+	FileReader reader{&ring, &ct, pack_ud};
+	CurrentFileReaderScope const scope{&reader};
 
-try{
-auto conn=block_on(reader,Connection::connect({.conninfo=raw}));
+	try {
+		auto conn = block_on(reader, Connection::connect({.conninfo = raw}));
 
-(void)run_callback(reader,conn,cfg.warmup,rows);
-(void)run_coroutine(reader,conn,cfg.warmup,rows);
+		(void)run_callback(reader, conn, cfg.warmup, rows);
+		(void)run_coroutine(reader, conn, cfg.warmup, rows);
 
-u64 const cb_ns=run_callback(reader,conn,cfg.iterations,rows);
-u64 const co_ns=run_coroutine(reader,conn,cfg.iterations,rows);
+		u64 const cb_ns = run_callback(reader, conn, cfg.iterations, rows);
+		u64 const co_ns = run_coroutine(reader, conn, cfg.iterations, rows);
 
-double const cb_per=static_cast<double>(cb_ns)/static_cast<double>(cfg.iterations);
-double const co_per=static_cast<double>(co_ns)/static_cast<double>(cfg.iterations);
+		double const cb_per = static_cast<double>(cb_ns) / static_cast<double>(cfg.iterations);
+		double const co_per = static_cast<double>(co_ns) / static_cast<double>(cfg.iterations);
 
-BenchStats cb_stats{cfg.config_name,"callback"sv,cfg.iterations,cb_ns,cb_per};
-BenchStats co_stats{cfg.config_name,"coroutine"sv,cfg.iterations,co_ns,co_per};
-bench_print(cb_stats,cfg.json_out,true);
-bench_print(co_stats,cfg.json_out,false);
-if(!cfg.json_out){
-double const delta_pct=100.0*(co_per-cb_per)/cb_per;
-println("  delta      {:+.2f}% (coro vs callback)",delta_pct);
-println("  sink       {}",sink.load(memory_order_relaxed));
-}
+		BenchStats cb_stats{cfg.config_name, "callback"sv, cfg.iterations, cb_ns, cb_per};
+		BenchStats co_stats{cfg.config_name, "coroutine"sv, cfg.iterations, co_ns, co_per};
+		bench_print(cb_stats, cfg.json_out, true);
+		bench_print(co_stats, cfg.json_out, false);
+		if (!cfg.json_out) {
+			double const delta_pct = 100.0 * (co_per - cb_per) / cb_per;
+			println("  delta      {:+.2f}% (coro vs callback)", delta_pct);
+			println("  sink       {}", sink.load(memory_order_relaxed));
+		}
 
-conn->close();
-}catch(exception const&e){
-println(cerr,"error: {}",e.what());
-::io_uring_queue_exit(&ring);
-return 1;
-}
+		conn->close();
+	} catch (exception const &e) {
+		println(cerr, "error: {}", e.what());
+		::io_uring_queue_exit(&ring);
+		return 1;
+	}
 
-::io_uring_queue_exit(&ring);
+	::io_uring_queue_exit(&ring);
 }

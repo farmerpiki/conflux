@@ -1,23 +1,27 @@
-#pragma once
+module;
 #include <cassert>
+#include <memory>
+
+export module conflux.net.direct_slot_pool;
+import conflux.types;
 // Internal — do not include from public headers.
 // Requires: u8, u32, V, expected, unexpected, eprintln, format in scope.
 
-enum class DirectSlotState : u8 {
+export enum class DirectSlotState : u8 {
 	free_slot,
 	leased_empty,
 	populated,
 	closing,
 	poisoned,
 };
-enum class DirectSlotError : u8 {
+export enum class DirectSlotError : u8 {
 	not_registered,
 	exhausted,
 	out_of_range,
 	bad_state,
 	install_failed,
 };
-struct DirectSlotPool {
+export struct DirectSlotPool {
 	explicit DirectSlotPool(
 		u32 capacity)
 		: capacity_{capacity} {
@@ -160,28 +164,34 @@ private:
 	V<u32> free_stack_{};
 	V<u32> free_pos_{};
 };
-struct DirectSlotLease {
-	DirectSlotPool* pool_{};
+export struct DirectSlotLease {
+	DirectSlotPool *pool_{};
 	u32 slot_{~u32{}};
 	DirectSlotLease() noexcept = default;
 	explicit DirectSlotLease(
-		DirectSlotPool& pool,
+		DirectSlotPool &pool,
 		u32 slot) noexcept
-		: pool_{&pool}, slot_{slot} {}
+		: pool_{&pool}
+		, slot_{slot} {}
 	~DirectSlotLease() noexcept {
-		if (pool_)
+		if (pool_) {
 			auto _ = pool_->release_empty(slot_);
+		}
 	}
-	DirectSlotLease(DirectSlotLease const&) = delete;
-	DirectSlotLease& operator=(DirectSlotLease const&) = delete;
-	DirectSlotLease(DirectSlotLease&& o) noexcept
-		: pool_{o.pool_}, slot_{o.slot_} {
+	DirectSlotLease(DirectSlotLease const &) = delete;
+	DirectSlotLease &operator =(DirectSlotLease const &) = delete;
+	DirectSlotLease(
+		DirectSlotLease &&o) noexcept
+		: pool_{o.pool_}
+		, slot_{o.slot_} {
 		o.pool_ = nullptr;
 	}
-	DirectSlotLease& operator=(DirectSlotLease&& o) noexcept {
+	DirectSlotLease &operator =(
+		DirectSlotLease &&o) noexcept {
 		if (this != &o) {
-			if (pool_)
+			if (pool_) {
 				auto _ = pool_->release_empty(slot_);
+			}
 			pool_ = o.pool_;
 			slot_ = o.slot_;
 			o.pool_ = nullptr;

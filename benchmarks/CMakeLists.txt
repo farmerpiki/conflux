@@ -107,7 +107,7 @@ target_link_libraries(conflux_http_server_concurrency_bench
 
 add_executable(conflux_socket_raw_bench socket_raw_bench.cxx)
 target_link_libraries(conflux_socket_raw_bench
-    PRIVATE bench_common conflux_socket_io conflux_options PkgConfig::LIBURING)
+    PRIVATE bench_common conflux_socket_io conflux_direct_slot_pool conflux_options PkgConfig::LIBURING)
 
 # Meta-target: build all benches that support --bench-info recording.
 set(_record_targets

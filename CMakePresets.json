@@ -22,7 +22,6 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_C_COMPILER": "clang",
         "CMAKE_CXX_FLAGS": "-stdlib=libc++ -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0",
         "CMAKE_EXE_LINKER_FLAGS": "-stdlib=libc++",
         "CMAKE_SHARED_LINKER_FLAGS": "-stdlib=libc++"
@@ -34,7 +33,6 @@
       "inherits": "base",
       "cacheVariables": {
         "CMAKE_CXX_COMPILER": "clang++",
-        "CMAKE_C_COMPILER": "clang",
         "CMAKE_CXX_FLAGS": "-U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=0",
         "CMAKE_EXE_LINKER_FLAGS": ""
       }
@@ -44,8 +42,7 @@
       "hidden": true,
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "g++",
-        "CMAKE_C_COMPILER": "gcc"
+        "CMAKE_CXX_COMPILER": "g++"
       }
     },
     {
@@ -53,8 +50,7 @@
       "hidden": true,
       "inherits": "base",
       "cacheVariables": {
-        "CMAKE_CXX_COMPILER": "g++-16",
-        "CMAKE_C_COMPILER": "gcc-16"
+        "CMAKE_CXX_COMPILER": "g++-16"
       }
     },
     {

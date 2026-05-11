@@ -11,41 +11,48 @@ import conflux.net.config;
 
 using namespace std;
 extern "C" int LLVMFuzzerTestOneInput(
-u8 const*data,
-SZ size){
-if(size<1)
-return 0;
+	u8 const *data,
+	SZ size) {
+	if (size < 1) {
+		return 0;
+	}
 
-ParserLimits limits;
-limits.max_request_line_size=1U<<((data[0]&0x0FU)+4U);// 16..512k
-limits.max_header_line_size=1U<<((data[0]>>4U)+4U);// 16..2M
-limits.max_headers=64;
-limits.max_header_block_size=16U*1024U;
+	ParserLimits limits;
+	limits.max_request_line_size = 1U << ((data[0] & 0x0FU) + 4U); // 16..512k
+	limits.max_header_line_size = 1U << ((data[0] >> 4U) + 4U); // 16..2M
+	limits.max_headers = 64;
+	limits.max_header_block_size = 16U * 1024U;
 
-SV input{reinterpret_cast<char const*>(data+1),size-1};
+	SV input{reinterpret_cast<char const *>(data + 1), size - 1};
 
-conflux::http1::ParsedRequest out;
-auto const st=conflux::http1::parse_request(input,limits,out);
-if(st!=conflux::http1::ParseStatus::Ok)
-return 0;
+	conflux::http1::ParsedRequest out;
+	auto const st = conflux::http1::parse_request(input, limits, out);
+	if (st != conflux::http1::ParseStatus::Ok) {
+		return 0;
+	}
 
-auto const*base=input.data();
-auto const*end=base+input.size();
-auto within=[&](SV sv){
-if(sv.empty())
-return true;
-return sv.data()>=base&&sv.data()+sv.size()<=end;
-};
+	auto const *base = input.data();
+	auto const *end = base + input.size();
+	auto within = [&](SV sv) {
+		if (sv.empty()) {
+			return true;
+		}
+		return sv.data() >= base && sv.data() + sv.size() <= end;
+	};
 
-if(!within(out.method)||!within(out.target)||!within(out.version))
-__builtin_trap();
-if(out.header_end_offset+4>input.size())
-__builtin_trap();
-for(auto const&[n,v]:out.headers){
-if(!within(n)||!within(v))
-__builtin_trap();
-if(n.empty())
-__builtin_trap();
-}
-return 0;
+	if (!within(out.method) || !within(out.target) || !within(out.version)) {
+		__builtin_trap();
+	}
+	if (out.header_end_offset + 4 > input.size()) {
+		__builtin_trap();
+	}
+	for (auto const &[n, v]: out.headers) {
+		if (!within(n) || !within(v)) {
+			__builtin_trap();
+		}
+		if (n.empty()) {
+			__builtin_trap();
+		}
+	}
+	return 0;
 }

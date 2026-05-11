@@ -522,6 +522,16 @@ if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
     message(STATUS "conflux: JSON P2996 reflection codec enabled (requires GCC 16+ -freflection)")
 endif()
 
+add_library(conflux_direct_slot_pool STATIC)
+target_sources(conflux_direct_slot_pool
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/net/direct_slot_pool.cxx
+)
+target_link_libraries(conflux_direct_slot_pool
+    PRIVATE conflux_types)
+
 # ---------------------------------------------------------------------------
 # Monolith target (HTTP server + all middleware)
 # ---------------------------------------------------------------------------
@@ -601,6 +611,9 @@ endif()
 if(CONFLUX_WANT_FILE_WATCH)
     list(APPEND CONFLUX_MODULE_SOURCES src/file_watch.cxx)
 endif()
+if(CONFLUX_WANT_DNS)
+    list(APPEND CONFLUX_MODULE_SOURCES src/net/client_dns_bridge.cxx)
+endif()
 
 target_sources(conflux
     PUBLIC FILE_SET CXX_MODULES
@@ -608,12 +621,6 @@ target_sources(conflux
         FILES
         ${CONFLUX_MODULE_SOURCES}
 )
-if(CONFLUX_WANT_DNS)
-    target_sources(conflux
-        PRIVATE
-            src/net/client_dns_bridge.cxx
-    )
-endif()
 target_sources(conflux
     PUBLIC FILE_SET generated_mods TYPE CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_BINARY_DIR}"
@@ -631,6 +638,7 @@ target_link_libraries(conflux
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
+    PRIVATE conflux_direct_slot_pool
     PUBLIC  PkgConfig::LIBURING
     PRIVATE xxhash
 )

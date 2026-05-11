@@ -138,7 +138,7 @@ target_link_libraries(conflux_process_tests PRIVATE conflux conflux_options Catc
 
 add_executable(conflux_resource_tests resource_limits_test.cxx)
 target_link_libraries(conflux_resource_tests
-    PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain PkgConfig::LIBURING)
+    PRIVATE conflux_socket_io conflux_options conflux_direct_slot_pool Catch2::Catch2WithMain PkgConfig::LIBURING)
 conflux_discover_tests(conflux_resource_tests)
 
 add_executable(recv_bundle_assert_probe recv_bundle_assert_probe.cxx)
@@ -244,6 +244,7 @@ target_link_libraries(conflux_direct_slot_pool_tests
     PRIVATE
         conflux_types
         conflux_options
+        conflux_direct_slot_pool
         Catch2::Catch2WithMain
 )
 target_include_directories(conflux_direct_slot_pool_tests PRIVATE "${CMAKE_SOURCE_DIR}/src/net")

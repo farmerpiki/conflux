@@ -45,6 +45,7 @@ function(conflux_apply_compiler_options target)
             -Wno-c++98-compat
             -Wno-c++98-compat-pedantic
             -Wno-unqualified-std-cast-call
+            -Wno-missing-designated-field-initializers
         )
     endif()
 
