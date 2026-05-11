@@ -329,7 +329,6 @@ target_link_libraries(conflux_socket_io
     PRIVATE conflux_options
     PUBLIC  conflux_types
     PUBLIC  conflux_uring
-    PUBLIC  conflux_file_io
     PUBLIC  conflux_work
     PUBLIC  PkgConfig::LIBURING
 )
@@ -375,7 +374,6 @@ add_library(conflux STATIC)
 
 # Core module sources (always compiled).
 set(CONFLUX_MODULE_SOURCES
-    src/json.cxx
     src/file_watch.cxx
     src/template.cxx
     src/process.cxx
@@ -444,22 +442,16 @@ if(CONFLUX_HAS_ISAL STREQUAL "true")
     list(APPEND CONFLUX_MODULE_SOURCES src/net/compress_backend_isal.cxx)
 endif()
 
-if(CONFLUX_JSON_REFLECT)
-    # Extract json.cxx into its own target so reflect consumers don't pull in all
-    # of conflux (which has modules with C headers that conflict with std BMI under
-    # GCC -freflection).
-    list(REMOVE_ITEM CONFLUX_MODULE_SOURCES src/json.cxx)
-    add_library(conflux_json STATIC)
-    target_sources(conflux_json
-        PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-            FILES src/json.cxx
-    )
-    target_link_libraries(conflux_json
-        PUBLIC  conflux_types
-        PRIVATE conflux_options xxhash
-    )
-endif()
+add_library(conflux_json STATIC)
+target_sources(conflux_json
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/json.cxx
+)
+target_link_libraries(conflux_json
+    PUBLIC  conflux_types
+    PRIVATE conflux_options xxhash
+)
 
 target_sources(conflux
     PUBLIC FILE_SET CXX_MODULES
@@ -485,6 +477,7 @@ target_sources(conflux
 target_link_libraries(conflux
     PRIVATE conflux_options
     PUBLIC  conflux_types
+    PUBLIC  conflux_json
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
@@ -585,8 +578,6 @@ if(CONFLUX_JSON_REFLECT)
         PUBLIC  conflux_json conflux_types
         PRIVATE conflux_options
     )
-    # conflux re-exports conflux.json for callers that link against the full library.
-    target_link_libraries(conflux PUBLIC conflux_json)
     message(STATUS "conflux: JSON P2996 reflection codec enabled (requires GCC 16+ -freflection)")
 endif()
 

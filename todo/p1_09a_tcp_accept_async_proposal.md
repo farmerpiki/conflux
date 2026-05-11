@@ -1,6 +1,7 @@
 # P1-09a Proposal: Async TcpListener::accept() Coroutine API
 
 Date: 2026-05-10
+**Status: implemented.** `tcp_accept`, `tcp_accept_multishot`, `submit_accept_borrowed`, `AcceptOp`, `MultishotAcceptOp` all landed. `str/*` bench variants landed. Open: AC#4 specifies 100 connections for multishot but current tests use 20 for multishot; either update AC or add the 100-connection test.
 
 ## Problem
 

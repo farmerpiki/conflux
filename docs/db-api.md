@@ -99,18 +99,26 @@ struct StatementCache {
 
 ## Pipeline
 
-Sends multiple queries to the server without waiting for each result. Call `sync()` to flush and collect all results.
+Batches multiple queries and executes them in order during `sync()`. Current implementation is a logical batching barrier (executes queued items sequentially through `Connection::query` machinery); true libpq wire-level pipeline mode (`PQenterPipelineMode` / `PQpipelineSync`) is a follow-up.
 
 ```cpp
 class Pipeline {
 public:
-    expected<void,   DbError> query      (std::string_view sql);
-    expected<void,   DbError> exec_cached(std::string_view sql, /* params... */);
-    expected<std::vector<Result>, DbError> sync();  // flush + collect all results in order
+    root::Task<Result> query(std::string_view sql, Params params = {});
+    root::Task<Result> exec_cached(std::shared_ptr<StatementCache::Entry const>, Params);
+    root::Task<void>   sync();
 };
+
+// Obtained from Connection:
+Flow<Pipeline> Connection::pipeline();
 ```
 
-`Pipeline` holds a `shared_ptr<Connection>` — the connection must remain valid until `sync()` returns.
+Contracts:
+- Owner-thread only (same lane/thread as `Connection`); one active pipeline per connection.
+- `query()` rejected while `sync()` is in progress.
+- `sync()` drains queued work in-order, resolves/rejects each flow exactly once.
+- Destructor rejects unresolved queued results as `pipeline closed`.
+- `Pool::acquire` returns a `Lease`; caller constructs `Pipeline` from `*lease`.
 
 ---
 

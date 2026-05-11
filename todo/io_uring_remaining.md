@@ -24,7 +24,8 @@ _Collapsed from `conflux_linux_first_class_io_uring_todo_proposal.md`. Completed
 - [x] Happy Eyeballs connect staggering/racing — `HappyConnectState`/`staggered_parallel_connect` (RFC 8305 v1, 250 ms stagger) landed in `fbf7ffd`.
 - [x] `HttpTimeouts::write` async path — `submit_send_timeout_borrowed` (linked SQE + timeout) landed in `fbf7ffd`.
 - [x] Proxy async migration — `proxy_context_handler()` / `ContextHandler` / `dispatch_async()` landed in `844b8dc`. `proxy_handler()` kept as deprecated `work_pool` fallback.
-- [ ] Remove/deprecate `FileReader` socket methods after HTTP/DNS migration complete.
+- [ ] Remove/deprecate `FileReader` socket methods after HTTP/DNS migration complete. Note: the stale `socket_io` → `file_io` CMake PUBLIC link is being removed as part of the modular target cleanup.
+- [ ] `FileReader::atomic_write_async()` needs replacement with staged publish protocol (link staging + rename, not unlink + link) — current O_TMPFILE path is not atomic.
 - [ ] HTTPS async cancellation — TLS connect/recv cancellation-aware path not confirmed.
 
 ### DNS transport cleanup (P1-03)

@@ -23,7 +23,6 @@ import conflux.net.http.types;
 import conflux.net.http.request;
 import conflux.utils;
 import conflux.work;
-import conflux.file_io;
 #if CONFLUX_HAS_TLS
 import conflux.net.tls;
 #endif

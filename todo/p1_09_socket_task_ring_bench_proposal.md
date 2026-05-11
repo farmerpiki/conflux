@@ -1,6 +1,7 @@
 # P1-09 Benchmark Proposal: FileReader → SocketTaskRing Migration
 
 Date: 2026-05-10
+**Status: mostly implemented.** Steps 1+3 landed (e3f1038). `tcp_socket_task_bench` deleted. Async server + parallel variants (Steps 2+3) remain open. `tcp_parallel_coro_bench` still disabled (needs `co_spawn` → `.detach()` port).
 
 ## Problem with current tcp_socket_task_bench
 

@@ -272,21 +272,6 @@ if(dumped)
 req_.body_=move(*dumped);
 return content_type("application/json");
 }
-Builder&body_json(
-NodeRef node)&{
-assert_single_body();
-// NodeRef::dump via the document — use the document's dump with the node as root.
-// We serialize by creating a temporary document builder path.
-// Simplest safe approach: borrow the node's enclosing document dump.
-// For Phase 1, serialize via Document::dump on the node's document.
-// This serializes the whole document; for a sub-node we'd need a targeted dump.
-// The plan says body_json(NodeRef) — treat as serialize the node's subtree.
-// We don't have a NodeRef-specific dump in the json API; use Document dump and
-// slice if needed. For now, serialize the enclosing document root.
-// TODO(phase-2): add NodeRef::dump to json module.
-auto _=node;
-return content_type("application/json");
-}
 Builder&body_json_raw(
 S already_serialized)&{
 assert_single_body();
@@ -336,10 +321,6 @@ return move(body_view(sv));
 Builder&&body_json(
 Document const&d)&&{
 return move(body_json(d));
-}
-Builder&&body_json(
-NodeRef n)&&{
-return move(body_json(n));
 }
 Builder&&body_json_raw(
 S s)&&{
