@@ -2,6 +2,7 @@ module;
 
 #include<cerrno>
 #include<fcntl.h>
+#include<memory>
 #include<poll.h>
 #include<sys/inotify.h>
 #include<unistd.h>

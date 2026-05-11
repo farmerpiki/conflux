@@ -1,4 +1,5 @@
 module;
+#include<memory>
 
 export module conflux.net.proxy;
 import std;
@@ -25,7 +26,6 @@ S path_prefix{};
 bool preserve_host{false};
 bool upstream_tls{false};
 int timeout_sec{10};
-SP<WorkPool>work_pool{};// deprecated — use proxy_context_handler() for async path
 };
 namespace proxy_detail{
 [[nodiscard]]static S build_upstream_url(
@@ -118,23 +118,14 @@ format("proxy: {} ({})",result.error().message,static_cast<int>(result.error().k
 co_return build_response(move(*result));
 }
 }// namespace proxy_detail
-export auto proxy_handler(
-ProxyOptions opts){
-return[opts=move(opts)](HttpRequestView const&req)->HttpResponse{
-if(!opts.work_pool)
-return HttpResponse::bad_gateway("proxy: work_pool required; use proxy_context_handler() for async");
-auto deferred=make_shared<DeferredResponse>();
-auto owned=req.to_owned();
-if(!opts.work_pool->enqueue([deferred,opts,owned=move(owned)]()mutable{
-deferred->complete(proxy_detail::perform_proxy_request(HttpRequestView{owned},opts));
-}))
-return HttpResponse::bad_gateway("proxy: work pool full");
-return HttpResponse::deferred(move(deferred));
-};
+export HttpResponse proxy_sync(
+HttpRequestView const&req,
+ProxyOptions const&opts){
+return proxy_detail::perform_proxy_request(req,opts);
 }
-export auto proxy_context_handler(
-ProxyOptions opts){
-return[opts=move(opts)](HttpRequest const&req,RequestContext const&ctx)->wroot::Task<HttpResponse>{
-co_return co_await proxy_detail::perform_proxy_request_async(req,opts,ctx.ring);
-};
+export wroot::Task<HttpResponse>proxy_async(
+HttpRequest const&req,
+ProxyOptions const&opts,
+SocketTaskRing&ring){
+co_return co_await proxy_detail::perform_proxy_request_async(req,opts,ring);
 }

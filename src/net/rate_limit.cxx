@@ -1,3 +1,6 @@
+module;
+#include<memory>
+
 export module conflux.net.rate_limit;
 import std;
 import conflux.types;

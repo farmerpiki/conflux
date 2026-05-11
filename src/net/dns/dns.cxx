@@ -3,6 +3,7 @@ module;
 #include<arpa/inet.h>
 #include<cstring>
 #include<liburing.h>
+#include<memory>
 #include<netdb.h>
 #include<netinet/in.h>
 #include<sys/socket.h>

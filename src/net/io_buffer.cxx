@@ -1,3 +1,6 @@
+module;
+#include<memory>
+
 export module conflux.net.io_buffer;
 
 import std;

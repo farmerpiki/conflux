@@ -1,3 +1,6 @@
+module;
+#include<memory>
+
 export module conflux.db.pool;
 
 import std;

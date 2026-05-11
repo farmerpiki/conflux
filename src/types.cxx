@@ -1,3 +1,7 @@
+module;
+#include<iostream>
+#include<memory>
+
 export module conflux.types;
 
 import std;

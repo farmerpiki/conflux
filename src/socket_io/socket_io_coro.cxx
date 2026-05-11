@@ -1,6 +1,7 @@
 module;
 #include<cerrno>
 #include<liburing.h>
+#include<memory>
 #include<netinet/in.h>
 #include<netinet/tcp.h>
 #include<sys/socket.h>

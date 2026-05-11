@@ -3,6 +3,9 @@
 // Cache key is the full request path (including query S).
 // TTL is taken from the response Cache-Control max-age if present; otherwise
 // falls back to ResponseCacheOptions::default_ttl.
+module;
+#include<memory>
+
 export module conflux.net.response_cache;
 import std;
 import conflux.types;

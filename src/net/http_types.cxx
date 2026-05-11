@@ -1,5 +1,6 @@
 module;
 #include<cctype>
+#include<memory>
 
 export module conflux.net.http.types;
 import std;

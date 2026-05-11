@@ -922,18 +922,17 @@ return resp;
 });
 g_proxy_upstream=make_shared<ScopedTestServer>(cfg,move(upstream));
 
-auto shared_pool=make_shared<WorkPool>();
 Router front;
-front.set_work_pool(shared_pool);
-front.get(
-"/proxy/ping",
-proxy_handler(
-ProxyOptions{
+auto popts=ProxyOptions{
 .upstream_host="127.0.0.1",
 .upstream_port=g_proxy_upstream->port(),
 .path_prefix="/proxy",
-.work_pool=shared_pool,
-}));
+};
+front.add_context("GET",
+"/proxy/ping",
+[popts=move(popts)](HttpRequest const&req,RequestContext const&ctx)->conflux::work::root::Task<HttpResponse>{
+co_return co_await proxy_async(req,popts,ctx.ring);
+});
 g_proxy_front=make_shared<ScopedTestServer>(cfg,move(front));
 g_proxy_port=g_proxy_front->port();
 });
@@ -4957,14 +4956,16 @@ Router upstream;
 upstream.get("/echo",[](HttpRequest const&req){return HttpResponse::text(S{req.headers["host"]});});
 s_upstream=make_shared<ScopedTestServer>(cfg,move(upstream));
 Router front;
-front.get(
-"/echo",
-proxy_handler(
-ProxyOptions{
+auto popts=ProxyOptions{
 .upstream_host="127.0.0.1",
 .upstream_port=s_upstream->port(),
 .preserve_host=true,
-}));
+};
+front.add_context("GET",
+"/echo",
+[popts=move(popts)](HttpRequest const&req,RequestContext const&ctx)->conflux::work::root::Task<HttpResponse>{
+co_return co_await proxy_async(req,popts,ctx.ring);
+});
 s_front=make_shared<ScopedTestServer>(cfg,move(front));
 });
 auto resp=http_get_on(s_front->port(),"/echo");
@@ -4983,14 +4984,16 @@ Router upstream;
 upstream.get("/echo",[](HttpRequest const&req){return HttpResponse::text(S{req.headers["host"]});});
 s_upstream=make_shared<ScopedTestServer>(cfg,move(upstream));
 Router front;
-front.get(
-"/echo",
-proxy_handler(
-ProxyOptions{
+auto popts=ProxyOptions{
 .upstream_host="127.0.0.1",
 .upstream_port=s_upstream->port(),
 .preserve_host=true,
-}));
+};
+front.add_context("GET",
+"/echo",
+[popts=move(popts)](HttpRequest const&req,RequestContext const&ctx)->conflux::work::root::Task<HttpResponse>{
+co_return co_await proxy_async(req,popts,ctx.ring);
+});
 s_front=make_shared<ScopedTestServer>(cfg,move(front));
 });
 // Send Host: localhost:9999 — proxy must connect to upstream, not myapp.example.com.
@@ -5011,13 +5014,15 @@ return HttpResponse::text(S{req.headers["x-forwarded-for"]});
 });
 s_upstream=make_shared<ScopedTestServer>(cfg,move(upstream));
 Router front;
-front.get(
-"/xff",
-proxy_handler(
-ProxyOptions{
+auto popts=ProxyOptions{
 .upstream_host="127.0.0.1",
 .upstream_port=s_upstream->port(),
-}));
+};
+front.add_context("GET",
+"/xff",
+[popts=move(popts)](HttpRequest const&req,RequestContext const&ctx)->conflux::work::root::Task<HttpResponse>{
+co_return co_await proxy_async(req,popts,ctx.ring);
+});
 s_front=make_shared<ScopedTestServer>(cfg,move(front));
 });
 // Client sends existing XFF; proxy appends remote_addr (127.0.0.1).

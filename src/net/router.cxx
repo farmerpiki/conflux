@@ -4,6 +4,7 @@ module;
 #include<dirent.h>
 #include<fcntl.h>
 #include<linux/openat2.h>
+#include<memory>
 #include<sys/eventfd.h>
 #include<sys/mman.h>
 #include<sys/socket.h>

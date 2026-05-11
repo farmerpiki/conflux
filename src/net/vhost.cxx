@@ -1,4 +1,7 @@
 // Virtual hosting: dispatch to different Routers based on the Host header.
+module;
+#include<memory>
+
 export module conflux.net.vhost;
 import std;
 import conflux.types;

@@ -2,6 +2,7 @@ module;
 
 #include<cassert>
 #include<liburing.h>
+#include<memory>
 #include<sys/timerfd.h>
 #include<unistd.h>
 

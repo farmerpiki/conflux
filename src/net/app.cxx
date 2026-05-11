@@ -1,3 +1,6 @@
+module;
+#include<memory>
+
 export module conflux.net.app;
 
 import std;

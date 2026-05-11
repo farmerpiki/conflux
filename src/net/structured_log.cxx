@@ -7,6 +7,7 @@ module;
 #include<cstring>
 #include<ctime>
 #include<fcntl.h>
+#include<memory>
 #include<unistd.h>
 
 export module conflux.net.structured_log;

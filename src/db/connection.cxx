@@ -3,6 +3,7 @@ module;
 #include<csignal>
 #include<fcntl.h>
 #include<libpq-fe.h>
+#include<memory>
 #include<poll.h>
 
 export module conflux.db.connection;

@@ -1,3 +1,6 @@
+module;
+#include<memory>
+
 export module conflux.templates;
 import conflux.types;
 import std.compat;
