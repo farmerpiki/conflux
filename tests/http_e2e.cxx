@@ -7613,3 +7613,141 @@ if(r<=0)++closed;
 }
 CHECK(closed==static_cast<int>(fds.size()));
 }
+// ---------------------------------------------------------------------------
+// P1-08b — recv-only gen invalidation + no-stall close
+// ---------------------------------------------------------------------------
+namespace{
+Config tiny_ring_cfg_p108b(){
+Config cfg{};
+cfg.port=0;
+cfg.rings=1;
+cfg.ring_entries=16;
+cfg.single_issuer=true;
+cfg.defer_taskrun=true;
+cfg.coop_taskrun=true;
+cfg.taskrun_flag=true;
+cfg.startup_banner=false;
+cfg.request_timeout_ms=0;
+return cfg;
+}
+}// namespace
+TEST_CASE(
+"P1-08b: SQ-pressure shutdown — 30 idle conns, ring_entries=16"){
+static constexpr int N=30;
+Router router;
+router.get("/ping",[](HttpRequest const&){return HttpResponse::text("pong");});
+ScopedTestServer srv{tiny_ring_cfg_p108b(),move(router)};
+V<int>fds;
+fds.reserve(N);
+for(int i=0;i<N;++i){
+int fd=connect_to(srv.port());
+REQUIRE(fd>=0);
+fds.push_back(fd);
+}
+srv.stop();
+int closed=0;
+for(int fd:fds){
+char buf{};
+if(::recv(fd,&buf,1,0)<=0)++closed;
+::close(fd);
+}
+CHECK(closed==N);
+}
+TEST_CASE(
+"P1-08b: SQ-pressure shutdown — mixed idle + send_queued, ring_entries=16"){
+static constexpr int N_IDLE=20;
+static constexpr int N_SEND=5;
+Router router;
+router.get("/ping",[](HttpRequest const&){return HttpResponse::text("ok");});
+router.get("/big",[](HttpRequest const&){
+return HttpResponse::text(S(256*1024,'z'));
+});
+ScopedTestServer srv{tiny_ring_cfg_p108b(),move(router)};
+V<int>fds;
+fds.reserve(N_IDLE+N_SEND);
+for(int i=0;i<N_IDLE;++i){
+int fd=connect_to(srv.port());
+REQUIRE(fd>=0);
+fds.push_back(fd);
+}
+for(int i=0;i<N_SEND;++i){
+int fd=connect_to(srv.port());
+REQUIRE(fd>=0);
+SV const req="GET /big HTTP/1.1\r\nHost: localhost\r\n\r\n";
+::send(fd,req.data(),req.size(),MSG_NOSIGNAL);
+fds.push_back(fd);
+}
+srv.stop();
+int closed=0;
+for(int fd:fds){
+char buf{};
+ssize_t r;
+do{
+r=::recv(fd,&buf,1,0);
+}while(r>0);
+if(r<=0)++closed;
+::close(fd);
+}
+CHECK(closed==static_cast<int>(fds.size()));
+}
+TEST_CASE(
+"P1-08b: recv data queued before close_after_send is discarded"){
+Router router;
+router.get("/big",[](HttpRequest const&){
+return HttpResponse::text(S(256*1024,'z'));
+});
+ScopedTestServer srv{small_ring_cfg_pr_a(),move(router)};
+V<int>fds;
+fds.reserve(4);
+for(int i=0;i<4;++i){
+int fd=connect_to(srv.port());
+REQUIRE(fd>=0);
+SV const req="GET /big HTTP/1.1\r\nHost: localhost\r\n\r\n";
+::send(fd,req.data(),req.size(),MSG_NOSIGNAL);
+SV const extra="GET /big HTTP/1.1\r\nHost: localhost\r\n\r\ngarbage";
+::send(fd,extra.data(),extra.size(),MSG_NOSIGNAL);
+fds.push_back(fd);
+}
+srv.stop();
+int closed=0;
+for(int fd:fds){
+char buf{};
+ssize_t r;
+do{
+r=::recv(fd,&buf,1,0);
+}while(r>0);
+if(r<=0)++closed;
+::close(fd);
+}
+CHECK(closed==static_cast<int>(fds.size()));
+}
+TEST_CASE(
+"P1-08b: final recv CQE before send completion — clean shutdown"){
+Router router;
+router.get("/slow",[](HttpRequest const&){
+return HttpResponse::text(S(16*1024,'x'));
+});
+ScopedTestServer srv{small_ring_cfg_pr_a(),move(router)};
+V<int>fds;
+fds.reserve(8);
+for(int i=0;i<8;++i){
+int fd=connect_to(srv.port());
+REQUIRE(fd>=0);
+SV const req="GET /slow HTTP/1.1\r\nHost: localhost\r\n\r\n";
+::send(fd,req.data(),req.size(),MSG_NOSIGNAL);
+fds.push_back(fd);
+}
+std::this_thread::sleep_for(chrono::milliseconds(5));
+srv.stop();
+int closed=0;
+for(int fd:fds){
+char buf[4096];
+ssize_t r;
+do{
+r=::recv(fd,buf,sizeof(buf),0);
+}while(r>0);
+if(r<=0)++closed;
+::close(fd);
+}
+CHECK(closed==static_cast<int>(fds.size()));
+}
