@@ -229,7 +229,7 @@ Router router){
 (void)::signal(SIGPIPE,SIG_IGN);
 auto srv=make_shared<HttpServer>(cfg,move(router));
 {
-std::lock_guard const lock{mu_};
+lock_guard const lock{mu_};
 threads_.emplace_back([srv]{
 (void)srv->run();
 });
@@ -245,7 +245,7 @@ VHostRouter vhost_router){
 (void)::signal(SIGPIPE,SIG_IGN);
 auto srv=make_shared<HttpServer>(cfg,move(vhost_router));
 {
-std::lock_guard const lock{mu_};
+lock_guard const lock{mu_};
 threads_.emplace_back([srv]{
 (void)srv->run();
 });

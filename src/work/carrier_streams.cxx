@@ -172,15 +172,15 @@ CoalescingSlot(CoalescingSlot const&)=delete;
 CoalescingSlot&operator=(CoalescingSlot const&)=delete;
 void commit(
 T value)noexcept{
-std::lock_guard const lock{mu_};
+lock_guard const lock{mu_};
 slot_=move(value);
 }
 [[nodiscard]]Opt<T>take()noexcept{
-std::lock_guard const lock{mu_};
+lock_guard const lock{mu_};
 return exchange(slot_,nullopt);
 }
 [[nodiscard]]bool available()const noexcept{
-std::lock_guard const lock{mu_};
+lock_guard const lock{mu_};
 return slot_.has_value();
 }
 };

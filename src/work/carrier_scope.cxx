@@ -88,7 +88,7 @@ V<root::TaskControl>task;
 V<root::PostedControl>posted;
 V<root::OperationControl>op;
 {
-std::lock_guard const lock{mu_};
+lock_guard const lock{mu_};
 if(cancelled_)
 return;
 cancelled_=true;
@@ -105,11 +105,11 @@ for(auto&c:op)
 auto _=c.request_cancel();
 }
 [[nodiscard]]bool is_cancelled()const noexcept{
-std::lock_guard const lock{mu_};
+lock_guard const lock{mu_};
 return cancelled_;
 }
 [[nodiscard]]root::CancelReason cancel_reason()const noexcept{
-std::lock_guard const lock{mu_};
+lock_guard const lock{mu_};
 return cancel_reason_;
 }
 // Track the join handle's control then join: cancel() fired concurrently

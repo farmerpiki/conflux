@@ -2200,51 +2200,39 @@ return;
 if(!submit_send_borrowed(raw_,handle,resp_view.data(),resp_view.size(),pack(Op::Send,conn.gen,fd)))
 defer_op([this,fd]{queue_send(fd);});
 }
-enum class RecvCancelState:u8{
-not_armed,
-submitted,
-deferred
-};
-RecvCancelState cancel_recv_if_armed(int fd,bool retry_queue_close){
+void invalidate_recv_if_armed(int fd){
 auto const ufd=static_cast<SZ>(fd);
-if(ufd>=fd_table.size())return RecvCancelState::not_armed;
+if(ufd>=fd_table.size())
+return;
 auto&conn=fd_table[ufd];
-if(conn.fd<0||!conn.recv_armed)return RecvCancelState::not_armed;
-auto handle=accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(conn.fd);
-if(!submit_cancel_multishot_recv(raw_,handle,pack(Op::Nop,0,0))){
-u32 const gen=conn.gen;
-if(retry_queue_close)
-defer_op([this,fd,ufd,gen]{
-if(ufd<fd_table.size()&&fd_table[ufd].gen==gen)
-queue_close(fd);
-});
-else
-defer_op([this,fd,ufd,gen]{
-if(ufd<fd_table.size()&&fd_table[ufd].gen==gen&&!fd_table[ufd].closing)
-cancel_recv_if_armed(fd,false);
-});
-return RecvCancelState::deferred;
-}
+if(conn.fd<0||!conn.recv_armed)
+return;
+u32 const old_gen=conn.gen;
+retire_incremental_partial(fd,old_gen,conn);
+++conn.gen;
 conn.recv_armed=false;
-return RecvCancelState::submitted;
+auto handle=accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(fd)):SocketHandle::from_os(conn.fd);
+(void)submit_cancel_multishot_recv(raw_,handle,pack(Op::Nop,0,0));
+}
+void cancel_accept_or_defer(){
+if(!submit_cancel_by_ud(raw_,pack(Op::Accept,0,listen_fd),0))
+defer_op([this]{cancel_accept_or_defer();});
 }
 void queue_close(
 int fd){
-u32 gen=0;
 auto const ufd=static_cast<SZ>(fd);
 if(ufd<fd_table.size()){
 if(fd_table[ufd].closing)
 return;
-gen=fd_table[ufd].gen;
 if(fd_table[ufd].zc_waiting_notif){
 fd_table[ufd].zc_close_after_notif=true;
 fd_table[ufd].closing=true;
-cancel_recv_if_armed(fd,false);
+invalidate_recv_if_armed(fd);
 return;
 }
 }
-if(cancel_recv_if_armed(fd,true)==RecvCancelState::deferred)
-return;
+invalidate_recv_if_armed(fd);
+u32 const gen=(ufd<fd_table.size())?fd_table[ufd].gen:u32{0};
 
 if(accepted_sockets_direct){
 if(ufd<fd_table.size()){
@@ -2373,9 +2361,7 @@ arm_timer();// re-arm for next tick
 }
 void handle_shutdown(){
 shutting_down=true;
-// Cancel the multishot accept — no new connections.
-submit_cancel_by_ud(raw_,pack(Op::Accept,0,listen_fd),0);
-// Close idle connections immediately; mark active ones to close after send.
+cancel_accept_or_defer();
 for(SZ i=0;i<fd_table.size();++i){
 auto&conn=fd_table[i];
 if(conn.fd<0)
@@ -2383,8 +2369,11 @@ continue;
 if(conn.sse_channel)
 conn.sse_channel->close();
 if(conn.send_queued){
-cancel_recv_if_armed(static_cast<int>(i),false);
 conn.close_after_send=true;
+if(conn.recv_armed){
+auto handle=accepted_sockets_direct?SocketHandle::from_direct(static_cast<u32>(i)):SocketHandle::from_os(conn.fd);
+(void)submit_cancel_multishot_recv(raw_,handle,pack(Op::Nop,0,0));
+}
 }else{
 queue_close(static_cast<int>(i));
 }
@@ -2563,6 +2552,15 @@ discard_recv_bufs(res,flg);
 clear_retired_incremental_if_final(fd,gen,flg);
 return;
 }
+discard_recv_bufs(res,flg);
+return;
+}
+if(gen_match&&fd_table[ufd].close_after_send)[[unlikely]]{
+if(!cqe_has_more(flg))
+fd_table[ufd].recv_armed=false;
+if(res<=0&&!cqe_has_buffer(flg))
+reclaim_retired_incremental_recv(fd,gen);
+else if(cqe_has_buffer(flg))
 discard_recv_bufs(res,flg);
 return;
 }
@@ -3419,6 +3417,15 @@ clear_retired_incremental_if_final(rc.fd,rc.gen,orig_flags);
 continue;
 }
 auto&conn=fd_table[ufd];
+if(conn.close_after_send)[[unlikely]]{
+u32 const orig_flags=rc.flags;
+discard_recv_bufs(rc);
+if(rc.res<=0&&!cqe_has_buffer(orig_flags))
+reclaim_retired_incremental_recv(rc.fd,rc.gen);
+else if(cqe_has_buffer(orig_flags))
+clear_retired_incremental_if_final(rc.fd,rc.gen,orig_flags);
+continue;
+}
 u32 const orig_flags=rc.flags;
 if(!append_recv_buf_to(conn.partial,rc))[[unlikely]]{
 queue_close(static_cast<int>(ufd));
@@ -4450,9 +4457,16 @@ impl_->ring_vec.reserve(impl_->rings);
 impl_->shutdown_efds.reserve(impl_->rings);
 for(unsigned i=0;i<impl_->rings;++i){
 impl_->ring_vec.emplace_back(make_unique<Ring>());
-int const efd=::eventfd(0,EFD_CLOEXEC);
+int efd=::eventfd(0,EFD_CLOEXEC);
 if(efd<0)
 throw SE{errno,system_category(),"eventfd (shutdown)"};
+if(efd<=2){
+int const dup=::fcntl(efd,F_DUPFD_CLOEXEC,3);
+::close(efd);
+if(dup<0)
+throw SE{errno,system_category(),"eventfd dup above stdio"};
+efd=dup;
+}
 impl_->shutdown_efds.push_back(efd);
 }
 }

@@ -214,7 +214,7 @@ bool cancel_seen=false;
 
 (void)src.install_cancel_hook([&](root::CancelReason){
 {
-std::lock_guard const lock{mu};
+lock_guard const lock{mu};
 cancel_seen=true;
 }
 cv.notify_one();

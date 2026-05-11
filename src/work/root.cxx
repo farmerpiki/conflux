@@ -753,7 +753,7 @@ EP const&cause)noexcept{
 auto&s=dropped_outcome_sink_store();
 if(!s.installed.load(memory_order_acquire))
 return;
-std::lock_guard const lk{s.mtx};
+lock_guard const lk{s.mtx};
 if(s.fn)
 s.fn(loc,kind,cause);
 }
@@ -2239,7 +2239,7 @@ requires std::is_invocable_v<Fn&,std::source_location,OutcomeKind,EP>
 inline void set_dropped_outcome_sink(
 Fn&&fn){
 auto&s=detail::dropped_outcome_sink_store();
-std::lock_guard const lk{s.mtx};
+lock_guard const lk{s.mtx};
 s.fn=detail::small_move_only_function<void(std::source_location,OutcomeKind,EP)>{
 forward<Fn>(fn)};
 s.installed.store(true,memory_order_release);
