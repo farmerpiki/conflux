@@ -19,6 +19,8 @@
 - [ ] Router: `HandlerResult` / `Middleware` concepts with readable static-assert messages
 - [x] io_uring init: adaptive flag fallback on `EINVAL` (strip `CQE_MIXED` → `NO_SQARRAY` → `TASKRUN_FLAG` → `DEFER_TASKRUN` → `SINGLE_ISSUER`, log final set)
 
+- [ ] Shutdown: force-close `close_after_send` connections that stall (send CQE never completes because peer stopped draining) — cancel in-flight send + immediate close after a shutdown timeout, rather than waiting indefinitely for send completion
+
 ## Architecture (dedicated branches)
 
 - [ ] Dedicated `IOPOLL` ring for O_DIRECT file I/O, separate from network ring
