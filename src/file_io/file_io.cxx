@@ -9,6 +9,7 @@ module;
 #include<poll.h>
 #include<sys/epoll.h>
 #include<sys/mman.h>
+#include<sys/random.h>
 #include<sys/socket.h>
 #include<sys/stat.h>
 #include<sys/uio.h>
@@ -23,10 +24,21 @@ import std.compat;
 import conflux.work;
 export import conflux.uring.completion;
 export import conflux.uring.handle;
+export import conflux.file_io_sync;
 
 export using FileIoError=IoError;
 
 namespace root=conflux::work::root;
+namespace{
+Atom<u64>g_async_staging_counter{0};
+inline S make_staging_name_async(){
+auto const pid=static_cast<u32>(::getpid());
+auto const seq=g_async_staging_counter.fetch_add(1,memory_order_relaxed);
+u32 rnd{};
+::getrandom(&rnd,sizeof(rnd),0);
+return format(".conflux.tmp.{}.{}.{:08x}",pid,seq,rnd);
+}
+}// namespace
 // ---------------------------------------------------------------------------
 // FileStat: subset of struct statx fields the HTTP/file serving code needs.
 // ---------------------------------------------------------------------------
@@ -2939,7 +2951,9 @@ public:
 int dir_fd,
 S rel_path,
 span<byte const>data,
-mode_t mode=0644){
+mode_t mode=0644,
+TempPublishMode pub_mode=TempPublishMode::replace_existing,
+TempDurability durability=TempDurability::file_and_directory){
 open_how how{};
 how.flags=O_TMPFILE|O_WRONLY;
 how.mode=static_cast<__u64>(mode);
@@ -2955,15 +2969,40 @@ throw FileIoError{EIO,"file_io: short write"};
 off+=wrote;
 }
 
-try{
-co_await unlink_async(dir_fd,S{rel_path});
-}catch(...){}// NOLINT(bugprone-empty-catch)
+if(durability>=TempDurability::file)
+co_await fsync_async(fh,true);
+
+auto staging=make_staging_name_async();
 co_await linkat_async(
 AT_FDCWD,
 format("/proc/self/fd/{}",fh.raw_fd()),
 dir_fd,
-move(rel_path),
+S{staging},
 AT_SYMLINK_FOLLOW);
+
+EP rename_err{};
+try{
+if(pub_mode==TempPublishMode::replace_existing)
+co_await renameat_async(dir_fd,S{staging},dir_fd,move(rel_path));
+else
+co_await renameat_async(dir_fd,S{staging},dir_fd,move(rel_path),RENAME_NOREPLACE);
+}catch(...){
+rename_err=current_exception();
+}
+if(rename_err){
+try{
+co_await unlinkat_async(dir_fd,S{staging});
+}catch(...){}// NOLINT(bugprone-empty-catch)
+rethrow_exception(rename_err);
+}
+
+if(durability>=TempDurability::file_and_directory){
+open_how dir_how{};
+dir_how.flags=O_RDONLY|O_DIRECTORY|O_CLOEXEC;
+dir_how.resolve=RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS;
+auto dir_fh=co_await openat2_async(dir_fd,S{"."},dir_how);
+co_await fsync_async(dir_fh);
+}
 }
 };
 // ---------------------------------------------------------------------------

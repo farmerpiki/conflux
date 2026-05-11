@@ -291,6 +291,14 @@ target_link_libraries(conflux_file_io_tests
         Catch2::Catch2WithMain
 )
 
+add_executable(conflux_file_io_sync_tests file_io_sync_test.cxx)
+target_link_libraries(conflux_file_io_sync_tests
+    PRIVATE
+        conflux_file_io_sync
+        conflux_options
+        Catch2::Catch2WithMain
+)
+
 add_executable(conflux_dns_codec_tests dns_codec_test.cxx)
 target_link_libraries(conflux_dns_codec_tests
     PRIVATE
@@ -418,6 +426,7 @@ conflux_discover_tests(conflux_ring_resize_tests)
 conflux_discover_tests(conflux_uring_caps_tests)
 conflux_discover_tests(conflux_poll_first_auto_tests)
 conflux_discover_tests(conflux_file_io_tests)
+conflux_discover_tests(conflux_file_io_sync_tests)
 conflux_discover_tests(conflux_dns_codec_tests)
 conflux_discover_tests(conflux_dns_resolver_tests)
 conflux_discover_tests(conflux_udp_tests)

@@ -1674,32 +1674,6 @@ how.mode=static_cast<__u64>(mode);
 how.resolve=RESOLVE_BENEATH|RESOLVE_NO_SYMLINKS|RESOLVE_NO_MAGICLINKS;
 return static_cast<int>(::syscall(SYS_openat2,root_fd,relative,&how,sizeof(how)));
 }
-bool contained_atomic_write(
-int root_fd,
-char const*relative,
-span<char const>data,
-mode_t mode=0644)noexcept{
-int const tmp_fd=contained_open(root_fd,".",O_TMPFILE|O_WRONLY,mode);
-if(tmp_fd<0)
-return false;
-SZ off=0;
-while(off<data.size()){
-ssize_t const n=::write(tmp_fd,data.data()+off,data.size()-off);
-if(n<0){
-if(errno==EINTR)
-continue;
-::close(tmp_fd);
-return false;
-}
-off+=static_cast<SZ>(n);
-}
-::unlinkat(root_fd,relative,0);
-char proc_path[64];
-auto _=std::snprintf(proc_path,sizeof(proc_path),"/proc/self/fd/%d",tmp_fd);
-int const rc=::linkat(AT_FDCWD,proc_path,root_fd,relative,AT_SYMLINK_FOLLOW);
-::close(tmp_fd);
-return rc==0;
-}
 struct RootDirFd{
 int fd{-1};
 explicit RootDirFd(
@@ -2618,8 +2592,8 @@ body_owned,
 existed,
 static_cache,
 dr]()mutable{
-auto const body=span<char const>{body_owned->data(),body_owned->size()};
-if(!contained_atomic_write(rfd,rel.c_str(),body)){
+auto r=write_text_file_atomic_at_sync(rfd,SV{rel},SV{*body_owned});
+if(!r){
 dr->complete(HttpResponse::internal_error());
 return;
 }
@@ -2634,8 +2608,7 @@ return HttpResponse::internal_error("offload queue full");
 return HttpResponse::deferred(move(dr));
 }
 
-auto const body=span<char const>{req.body.data(),req.body.size()};
-if(!contained_atomic_write(root_dir_fd->fd,rel.c_str(),body))
+if(!write_text_file_atomic_at_sync(root_dir_fd->fd,SV{rel},SV{req.body}))
 return HttpResponse::internal_error();
 static_cache->evict_all_encodings(full_path);
 HttpResponse resp;
