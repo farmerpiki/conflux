@@ -13,12 +13,6 @@ i32 res{};
 u32 flags{};
 };
 export using CompletionFn=Fn<void(IoResult)>;
-export struct IoError final:SE{
-IoError(
-int err,
-S const&what)
-:SE{err,generic_category(),what}{}
-};
 export class CompletionTable{
 enum class SlotMode:u8{single,
 multishot,

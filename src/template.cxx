@@ -5,7 +5,9 @@ export module conflux.templates;
 import conflux.types;
 import std.compat;
 import conflux.json;
+#if CONFLUX_HAS_FILE_WATCH
 import conflux.file_watch;
+#endif
 export namespace tmpl{
 struct Node;
 using NodePtr=SP<Node>;
@@ -508,8 +510,10 @@ S template_dir;
 EnvironmentOptions options;
 UM<S,Template>cache;
 mutable std::shared_mutex cache_mtx;
+#if CONFLUX_HAS_FILE_WATCH
 mutable UP<FileWatcher>watcher;
 mutable Atom<bool>watch_started{false};
+#endif
 
 Template parse(S const&name,S const&source)const;
 TmplValue eval_expr(S const&expr,TmplValue const&context)const;
@@ -530,7 +534,9 @@ UM<S,NodeList>const*child_blocks=nullptr,
 int depth=0)const;
 void reload_path(S const&path);
 void remove_path(S const&path);
+#if CONFLUX_HAS_FILE_WATCH
 void maybe_start_watcher()const;
+#endif
 bool extension_allowed(fs::path const&path)const;
 };
 // ---------------------------------------------------------------------------
@@ -1781,6 +1787,7 @@ auto name=p.filename().string();
 std::unique_lock const lk{cache_mtx};
 cache.erase(name);
 }
+#if CONFLUX_HAS_FILE_WATCH
 void Environment::Impl::maybe_start_watcher()const{
 if(!options.watch_enabled||watch_started.load(memory_order_acquire))
 return;
@@ -1812,6 +1819,7 @@ fw->start();
 watcher=move(fw);
 }catch(...){watch_started.store(false,memory_order_release);}
 }
+#endif
 Environment::Environment(
 S const&template_dir)
 :impl_(make_unique<Impl>()){
@@ -1853,7 +1861,9 @@ impl_->cache=move(parsed);
 S Environment::render(
 S const&name,
 S const&json_ctx)const{
+#if CONFLUX_HAS_FILE_WATCH
 impl_->maybe_start_watcher();
+#endif
 std::shared_lock const lk{impl_->cache_mtx};
 auto it=impl_->cache.find(name);
 if(it==impl_->cache.end())

@@ -6,7 +6,6 @@ export module conflux.net.http.request;
 import std;
 import conflux.types;
 import conflux.net.http.types;
-import conflux.json;
 export namespace conflux::http{
 // ─── HttpRequest ──────────────────────────────────────────────────────────────
 
@@ -264,14 +263,6 @@ assert_single_body();
 req_.body_=S{sv};
 return*this;
 }
-Builder&body_json(
-Document const&doc)&{
-assert_single_body();
-auto dumped=doc.dump();
-if(dumped)
-req_.body_=move(*dumped);
-return content_type("application/json");
-}
 Builder&body_json_raw(
 S already_serialized)&{
 assert_single_body();
@@ -317,10 +308,6 @@ return move(body(move(s)));
 Builder&&body_view(
 SV sv)&&{
 return move(body_view(sv));
-}
-Builder&&body_json(
-Document const&d)&&{
-return move(body_json(d));
 }
 Builder&&body_json_raw(
 S s)&&{

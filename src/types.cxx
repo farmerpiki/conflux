@@ -129,3 +129,9 @@ std::println(std::cerr,"{}",message);
 }
 export template<typename T>
 using US=std::unordered_set<T>;
+export struct IoError final:SE{
+IoError(
+int err,
+S const&what)
+:SE{err,generic_category(),what}{}
+};

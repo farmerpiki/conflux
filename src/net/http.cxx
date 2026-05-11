@@ -5,6 +5,7 @@ export import conflux.net.router;
 export import conflux.net.config;
 export import conflux.net.http.types;
 export import conflux.net.http.request;
+export import conflux.net.http.json;
 export import conflux.net.client;
 export import conflux.net.http_server;
 export import conflux.net.auth;

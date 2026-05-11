@@ -16,6 +16,7 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.file_io;
+import conflux.file_io_sync;
 
 namespace root=conflux::work::root;
 namespace{

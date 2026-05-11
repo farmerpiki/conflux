@@ -50,6 +50,8 @@ option(CONFLUX_WORK_CORO_FRAME_POOL "Enable per-thread monotonic bump arena for 
 set(CONFLUX_JSON_USE_STDSIMD "AUTO" CACHE STRING "Use std::experimental::simd for JSON SIMD paths (AUTO|ON|OFF)")
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+include(ConfluxPresets)
+conflux_apply_preset()
 include(CompilerOptions)
 include(Dependencies)
 
@@ -228,6 +230,27 @@ configure_file(
 )
 
 # ---------------------------------------------------------------------------
+# Hardware feature detection (needed before target definitions)
+# ---------------------------------------------------------------------------
+
+set(CMAKE_REQUIRED_FLAGS "-maes -mpclmul -mssse3 -msse4.1")
+set(_AESNI_TEST_CODE "
+#include <wmmintrin.h>
+#include <tmmintrin.h>
+#include <smmintrin.h>
+int main() {
+    __m128i a = _mm_setzero_si128();
+    __m128i b = _mm_aesenc_si128(a, a);
+    __m128i c = _mm_clmulepi64_si128(a, b, 0x00);
+    __m128i d = _mm_shuffle_epi8(c, a);
+    (void)_mm_test_all_zeros(d, d);
+    return 0;
+}")
+include(CheckCXXSourceCompiles)
+check_cxx_source_compiles("${_AESNI_TEST_CODE}" CONFLUX_HAS_AESNI)
+unset(CMAKE_REQUIRED_FLAGS)
+
+# ---------------------------------------------------------------------------
 # Library
 # ---------------------------------------------------------------------------
 
@@ -244,6 +267,43 @@ target_sources(conflux_types
 target_link_libraries(conflux_types
     PRIVATE conflux_options
 )
+
+if(CONFLUX_WANT_CRYPTO)
+add_library(conflux_crypto STATIC)
+target_sources(conflux_crypto
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/crypto.cxx
+)
+target_link_libraries(conflux_crypto
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+)
+if(CONFLUX_HAS_AESNI)
+    message(STATUS "conflux: AES-NI + PCLMUL + SSSE3 path enabled")
+    target_compile_definitions(conflux_crypto PRIVATE CONFLUX_CRYPTO_USE_AESNI=1)
+    target_sources(conflux_crypto PRIVATE src/crypto_aesni.cxx)
+    set_source_files_properties(src/crypto_aesni.cxx PROPERTIES
+        COMPILE_OPTIONS "-maes;-mpclmul;-mssse3;-msse4.1"
+    )
+endif()
+endif()
+
+if(CONFLUX_WANT_JSON)
+add_library(conflux_json STATIC)
+target_sources(conflux_json
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/json.cxx
+)
+target_link_libraries(conflux_json
+    PUBLIC  conflux_types
+    PRIVATE conflux_options xxhash
+)
+endif()
+
+if(CONFLUX_NEEDS_RUNTIME)
 
 add_library(conflux_uring STATIC)
 target_sources(conflux_uring
@@ -328,6 +388,9 @@ target_link_libraries(conflux_file_map
     PUBLIC  conflux_file_io_sync
 )
 
+endif() # CONFLUX_NEEDS_RUNTIME (uring + work)
+
+if(CONFLUX_WANT_FILE_IO)
 add_library(conflux_file_io STATIC)
 target_sources(conflux_file_io
     PUBLIC FILE_SET CXX_MODULES
@@ -344,6 +407,9 @@ target_link_libraries(conflux_file_io
     PUBLIC  PkgConfig::LIBURING
 )
 
+endif() # CONFLUX_WANT_FILE_IO
+
+if(CONFLUX_WANT_SOCKET_IO)
 add_library(conflux_socket_io STATIC)
 target_sources(conflux_socket_io
     PUBLIC FILE_SET CXX_MODULES
@@ -360,6 +426,9 @@ target_link_libraries(conflux_socket_io
     PUBLIC  PkgConfig::LIBURING
 )
 
+endif() # CONFLUX_WANT_SOCKET_IO
+
+if(CONFLUX_WANT_DNS)
 add_library(conflux_dns STATIC)
 target_sources(conflux_dns
     PUBLIC FILE_SET CXX_MODULES
@@ -375,7 +444,9 @@ target_link_libraries(conflux_dns
     PUBLIC  PkgConfig::LIBURING
 )
 
-if(CONFLUX_HAS_DB STREQUAL "true")
+endif() # CONFLUX_WANT_DNS
+
+if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
     add_library(conflux_db STATIC)
     target_sources(conflux_db
         PUBLIC FILE_SET CXX_MODULES
@@ -397,21 +468,80 @@ if(CONFLUX_HAS_DB STREQUAL "true")
     )
 endif()
 
+# ---------------------------------------------------------------------------
+# STDSIMD detection (before monolith, needed by conflux_json too)
+# ---------------------------------------------------------------------------
+
+if(CONFLUX_JSON_USE_STDSIMD STREQUAL "AUTO")
+    include(CheckCXXSourceCompiles)
+    set(_STDSIMD_TEST_CODE "
+#include <experimental/simd>
+#include <cstddef>
+namespace stdx = std::experimental::parallelism_v2;
+using vec_t = stdx::native_simd<signed char>;
+int main() {
+    vec_t a{};
+    vec_t b{};
+    auto mask = (a == b) | (a < b);
+    if (stdx::any_of(mask))
+        return static_cast<int>(stdx::find_first_set(mask));
+    return static_cast<int>(vec_t::size());
+}")
+    set(CMAKE_REQUIRED_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+        set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -fexperimental-library")
+    endif()
+    check_cxx_source_compiles("${_STDSIMD_TEST_CODE}" CONFLUX_HAS_STDSIMD)
+    unset(CMAKE_REQUIRED_FLAGS)
+    if(CONFLUX_HAS_STDSIMD)
+        set(CONFLUX_JSON_USE_STDSIMD ON)
+    else()
+        set(CONFLUX_JSON_USE_STDSIMD OFF)
+    endif()
+endif()
+if(CONFLUX_JSON_USE_STDSIMD AND TARGET conflux_json)
+    message(STATUS "conflux: JSON stdsimd path enabled (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
+    target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
+    target_sources(conflux_json PRIVATE src/json_simd_stdx.cxx)
+    set_source_files_properties(src/json_simd_stdx.cxx PROPERTIES
+        COMPILE_OPTIONS "-mavx2"
+    )
+endif()
+
+if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
+    add_library(conflux_json_reflect STATIC)
+    target_sources(conflux_json_reflect
+        PUBLIC FILE_SET CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/json_reflect.cxx
+    )
+    target_link_libraries(conflux_json_reflect
+        PUBLIC  conflux_json conflux_types
+        PRIVATE conflux_options
+    )
+    message(STATUS "conflux: JSON P2996 reflection codec enabled (requires GCC 16+ -freflection)")
+endif()
+
+# ---------------------------------------------------------------------------
+# Monolith target (HTTP server + all middleware)
+# ---------------------------------------------------------------------------
+
+if(CONFLUX_WANT_HTTP_SERVER)
+
 add_library(conflux STATIC)
 
-# Core module sources (always compiled).
+# Core module sources.
 set(CONFLUX_MODULE_SOURCES
-    src/file_watch.cxx
     src/template.cxx
     src/process.cxx
     src/utils.cxx
-    src/crypto.cxx
     src/net/config.cxx
     src/net/io_buffer.cxx
     src/conflux.cxx
     src/net/auth.cxx
     src/net/http_types.cxx
     src/net/http_request.cxx
+    src/net/http_json.cxx
     src/net/client.cxx
     src/net/client_async.cxx
     src/net/cancel.cxx
@@ -468,17 +598,9 @@ endif()
 if(CONFLUX_HAS_ISAL STREQUAL "true")
     list(APPEND CONFLUX_MODULE_SOURCES src/net/compress_backend_isal.cxx)
 endif()
-
-add_library(conflux_json STATIC)
-target_sources(conflux_json
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/json.cxx
-)
-target_link_libraries(conflux_json
-    PUBLIC  conflux_types
-    PRIVATE conflux_options xxhash
-)
+if(CONFLUX_WANT_FILE_WATCH)
+    list(APPEND CONFLUX_MODULE_SOURCES src/file_watch.cxx)
+endif()
 
 target_sources(conflux
     PUBLIC FILE_SET CXX_MODULES
@@ -486,10 +608,12 @@ target_sources(conflux
         FILES
         ${CONFLUX_MODULE_SOURCES}
 )
-target_sources(conflux
-    PRIVATE
-        src/net/client_dns_bridge.cxx
-)
+if(CONFLUX_WANT_DNS)
+    target_sources(conflux
+        PRIVATE
+            src/net/client_dns_bridge.cxx
+    )
+endif()
 target_sources(conflux
     PUBLIC FILE_SET generated_mods TYPE CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_BINARY_DIR}"
@@ -504,64 +628,32 @@ target_sources(conflux
 target_link_libraries(conflux
     PRIVATE conflux_options
     PUBLIC  conflux_types
-    PUBLIC  conflux_json
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
-    PUBLIC  conflux_dns
     PUBLIC  PkgConfig::LIBURING
     PRIVATE xxhash
 )
+if(TARGET conflux_json)
+    target_link_libraries(conflux PUBLIC conflux_json)
+endif()
+if(TARGET conflux_crypto)
+    target_link_libraries(conflux PUBLIC conflux_crypto)
+endif()
+if(TARGET conflux_file_map)
+    target_link_libraries(conflux PUBLIC conflux_file_map)
+endif()
+if(TARGET conflux_dns)
+    target_link_libraries(conflux PUBLIC conflux_dns)
+endif()
 
 if(CONFLUX_JSON_AVX2)
     target_compile_options(conflux PRIVATE -mavx2 -mbmi2)
 endif()
 
-if(CONFLUX_JSON_USE_STDSIMD STREQUAL "AUTO")
-    include(CheckCXXSourceCompiles)
-    set(_STDSIMD_TEST_CODE "
-#include <experimental/simd>
-#include <cstddef>
-namespace stdx = std::experimental::parallelism_v2;
-using vec_t = stdx::native_simd<signed char>;
-int main() {
-    vec_t a{};
-    vec_t b{};
-    auto mask = (a == b) | (a < b);
-    if (stdx::any_of(mask))
-        return static_cast<int>(stdx::find_first_set(mask));
-    return static_cast<int>(vec_t::size());
-}")
-    set(CMAKE_REQUIRED_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-        set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -fexperimental-library")
-    endif()
-    check_cxx_source_compiles("${_STDSIMD_TEST_CODE}" CONFLUX_HAS_STDSIMD)
-    unset(CMAKE_REQUIRED_FLAGS)
-    if(CONFLUX_HAS_STDSIMD)
-        set(CONFLUX_JSON_USE_STDSIMD ON)
-    else()
-        set(CONFLUX_JSON_USE_STDSIMD OFF)
-    endif()
-endif()
 if(CONFLUX_JSON_USE_STDSIMD)
-    message(STATUS "conflux: JSON stdsimd path enabled (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
     target_compile_definitions(conflux PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
     target_sources(conflux PRIVATE src/json_simd_stdx.cxx)
-    set_source_files_properties(src/json_simd_stdx.cxx PROPERTIES
-        COMPILE_OPTIONS "-mavx2"
-    )
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-        set_property(SOURCE src/json_simd_stdx.cxx APPEND_STRING PROPERTY
-            COMPILE_OPTIONS ";-fexperimental-library")
-    endif()
-    if(TARGET conflux_json)
-        target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
-        target_sources(conflux_json PRIVATE src/json_simd_stdx.cxx)
-    endif()
-endif()
-
-if(CONFLUX_JSON_USE_STDSIMD)
     target_compile_definitions(conflux PRIVATE CONFLUX_STDSIMD=1)
     target_sources(conflux PRIVATE src/simd_stdx.cxx)
     set_source_files_properties(src/simd_stdx.cxx PROPERTIES
@@ -569,43 +661,11 @@ if(CONFLUX_JSON_USE_STDSIMD)
     )
 endif()
 
-set(CMAKE_REQUIRED_FLAGS "-maes -mpclmul -mssse3 -msse4.1")
-set(_AESNI_TEST_CODE "
-#include <wmmintrin.h>
-#include <tmmintrin.h>
-#include <smmintrin.h>
-int main() {
-    __m128i a = _mm_setzero_si128();
-    __m128i b = _mm_aesenc_si128(a, a);
-    __m128i c = _mm_clmulepi64_si128(a, b, 0x00);
-    __m128i d = _mm_shuffle_epi8(c, a);
-    (void)_mm_test_all_zeros(d, d);
-    return 0;
-}")
-check_cxx_source_compiles("${_AESNI_TEST_CODE}" CONFLUX_HAS_AESNI)
-unset(CMAKE_REQUIRED_FLAGS)
-if(CONFLUX_HAS_AESNI)
-    message(STATUS "conflux: AES-NI + PCLMUL + SSSE3 path enabled")
-    target_compile_definitions(conflux PRIVATE CONFLUX_CRYPTO_USE_AESNI=1)
-    target_sources(conflux PRIVATE src/crypto_aesni.cxx)
-    set_source_files_properties(src/crypto_aesni.cxx PROPERTIES
-        COMPILE_OPTIONS "-maes;-mpclmul;-mssse3;-msse4.1"
-    )
-endif()
-
-if(CONFLUX_JSON_REFLECT)
-    # Consumers import conflux.json.reflect in addition to conflux.json.
-    add_library(conflux_json_reflect STATIC)
-    target_sources(conflux_json_reflect
-        PUBLIC FILE_SET CXX_MODULES
-            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-            FILES src/json_reflect.cxx
-    )
-    target_link_libraries(conflux_json_reflect
-        PUBLIC  conflux_json conflux_types
-        PRIVATE conflux_options
-    )
-    message(STATUS "conflux: JSON P2996 reflection codec enabled (requires GCC 16+ -freflection)")
+# File watch (template hot-reload)
+if(CONFLUX_WANT_FILE_WATCH)
+    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_FILE_WATCH=1)
+else()
+    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_FILE_WATCH=0)
 endif()
 
 # TLS
@@ -709,12 +769,14 @@ if(CONFLUX_BUILD_FUZZ)
 endif()
 
 # ---------------------------------------------------------------------------
-# Tests & examples
+# Tests & examples (monolith-dependent)
 # ---------------------------------------------------------------------------
 
 if(CONFLUX_BUILD_TESTS)
     enable_testing()
-    target_compile_definitions(conflux_uring PRIVATE CONFLUX_TESTING)
+    if(TARGET conflux_uring)
+        target_compile_definitions(conflux_uring PRIVATE CONFLUX_TESTING)
+    endif()
     add_subdirectory(tests)
 endif()
 
@@ -749,15 +811,8 @@ target_link_libraries(conflux_gzip PRIVATE conflux conflux_options)
 add_executable(conflux_http_client examples/http_client.cxx)
 target_link_libraries(conflux_http_client PRIVATE conflux conflux_options)
 
-# Advanced examples (explicit runtime placement / ring ownership / feature-specific setup)
 add_executable(conflux_dual examples/dual.cxx)
 target_link_libraries(conflux_dual PRIVATE conflux conflux_options)
-
-add_executable(conflux_file_io_example examples/file_io.cxx)
-target_link_libraries(conflux_file_io_example PRIVATE conflux_file_io conflux_work conflux_options)
-
-add_executable(conflux_coroutines examples/coroutines.cxx)
-target_link_libraries(conflux_coroutines PRIVATE conflux_file_io conflux_work conflux_options)
 
 if(CONFLUX_HAS_HTTP3 STREQUAL "true")
     add_executable(conflux_h3_probe examples/h3_probe.cxx)
@@ -766,7 +821,7 @@ if(CONFLUX_HAS_HTTP3 STREQUAL "true")
     target_link_libraries(conflux_h3_server PRIVATE conflux conflux_options)
 endif()
 
-if(CONFLUX_HAS_DB STREQUAL "true")
+if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
     add_executable(conflux_db_basic examples/db_basic.cxx)
     target_link_libraries(conflux_db_basic
         PRIVATE conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
@@ -776,11 +831,25 @@ if(CONFLUX_HAS_DB STREQUAL "true")
         PRIVATE conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
 endif()
 
-# JSON examples
+# JSON examples (use monolith for convenience)
 add_executable(conflux_json_example examples/json.cxx)
 target_link_libraries(conflux_json_example PRIVATE conflux conflux_options)
 
-if(CONFLUX_JSON_REFLECT)
+endif() # CONFLUX_WANT_HTTP_SERVER
+
+# ---------------------------------------------------------------------------
+# Standalone examples (don't require monolith)
+# ---------------------------------------------------------------------------
+
+if(CONFLUX_WANT_FILE_IO)
+    add_executable(conflux_file_io_example examples/file_io.cxx)
+    target_link_libraries(conflux_file_io_example PRIVATE conflux_file_io conflux_work conflux_options)
+
+    add_executable(conflux_coroutines examples/coroutines.cxx)
+    target_link_libraries(conflux_coroutines PRIVATE conflux_file_io conflux_work conflux_options)
+endif()
+
+if(CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect)
     add_executable(conflux_json_reflect_example examples/json_reflect.cxx)
     target_link_libraries(conflux_json_reflect_example
         PRIVATE conflux_json_reflect conflux_json conflux_types conflux_options)
