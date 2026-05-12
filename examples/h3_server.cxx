@@ -40,5 +40,6 @@ int main() {
 
 	HttpServer srv{cfg, move(router)};
 	println(cerr, "HTTPS + HTTP/3 server listening on https://localhost:9443");
-	auto _ = srv.run();
+	auto const status = srv.run();
+	return status == RunStatus::stopped_normally ? 0 : 1;
 }

@@ -47,5 +47,6 @@ int main() {
 		return http::defer(pool, [] { return http::Response::json(R"({"status":"ok","mode":"defer"})"); });
 	});
 
-	move(app).run({.port = 9090});
+	auto const status = move(app).run({.port = 9090});
+	return status == RunStatus::stopped_normally ? 0 : 1;
 }

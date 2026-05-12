@@ -69,7 +69,10 @@ inline PgError from_result(
 }
 inline void install_sigpipe_ignore() noexcept {
 	static once_flag flag;
-	call_once(flag, [] { auto _ = ::signal(SIGPIPE, SIG_IGN); });
+	call_once(flag, [] {
+		// Best effort: individual libpq calls still surface EPIPE/write failures.
+		[[maybe_unused]] auto previous_handler = ::signal(SIGPIPE, SIG_IGN);
+	});
 }
 inline bool valid_query_name(
 	string_view name) noexcept {

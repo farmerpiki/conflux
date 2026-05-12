@@ -97,5 +97,6 @@ int main() {
 		::unlink(key_path.c_str());
 	}
 
-	auto _ = srv.run();
+	auto const status = srv.run();
+	return status == RunStatus::stopped_normally ? 0 : 1;
 }

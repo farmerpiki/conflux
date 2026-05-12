@@ -179,7 +179,7 @@ public:
 		SV key) {
 		SZ cursor = 0;
 		return erase_if(data_, [&](auto const &pair) {
-			auto _ = cursor++;
+			++cursor;
 			return key_eq(SV{pair.first}, key);
 		});
 	}

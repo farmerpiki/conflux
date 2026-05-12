@@ -36,5 +36,6 @@ int main() {
 	});
 
 	HttpServer srv{cfg, move(router)};
-	auto _ = srv.run();
+	auto const status = srv.run();
+	return status == RunStatus::stopped_normally ? 0 : 1;
 }

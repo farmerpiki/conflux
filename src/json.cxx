@@ -1165,12 +1165,10 @@ template<class Writer>
 					cp = 0x10000U + ((cp - 0xD800U) << 10U) + (lo - 0xDC00U);
 				}
 				// NOLINTEND(readability-magic-numbers)
-				SZ before = total;
 				append_utf8_to_sv(cp, [&](SV chunk) {
 					writer(chunk);
 					total += chunk.size();
 				});
-				auto _ = before;
 				if (max_sz.exceeds(total, kDefaultMaxString)) {
 					return unexpected(
 						JsonError{
@@ -7597,18 +7595,20 @@ constexpr SV json_type_name() noexcept {
 	}
 }
 template<class M>
-void schema_insert_type(
+expected<void, JsonError> schema_insert_type(
 	ObjectBuilder &obj) {
 	using Raw = std::remove_cvref_t<M>;
 	if constexpr (is_optional<Raw>::value) {
 		using Inner = typename Raw::value_type;
-		auto _ = obj.insert_string("type", json_type_name<Inner>());
+		return obj.insert_string("type", json_type_name<Inner>());
 	} else if constexpr (is_nullable_type<Raw>::value) {
 		using Inner = nullable_inner_t<Raw>;
-		auto _ = obj.insert_string("type", json_type_name<Inner>());
-		auto _ = obj.insert_bool("nullable", true);
+		if (auto ok = obj.insert_string("type", json_type_name<Inner>()); !ok) {
+			return ok;
+		}
+		return obj.insert_bool("nullable", true);
 	} else {
-		auto _ = obj.insert_string("type", json_type_name<Raw>());
+		return obj.insert_string("type", json_type_name<Raw>());
 	}
 }
 
@@ -7622,26 +7622,38 @@ expected<Document, JsonError> schema_for() {
 		return unexpected(move(obj_r).error());
 	}
 	auto &schema = *obj_r;
-	auto _ = schema.insert_string("type", "object");
+	if (auto ok = schema.insert_string("type", "object"); !ok) {
+		return unexpected(move(ok).error());
+	}
 
 	if constexpr (detail::has_members_spec<T>::value) {
 		auto props_r = schema.insert_object("properties");
 		auto &props = *props_r;
 		auto const members = JsonMembers<T>::members();
+		Opt<JsonError> first_error;
 
 		apply(
 			[&](auto const &...ms) {
 				(([&](auto const &entry) {
+					 if (first_error) {
+						 return;
+					 }
 					 auto const &m = detail::jm_member(entry);
 					 using M = std::remove_reference_t<decltype(std::declval<T>().*m.pointer)>;
 					 auto field_r = props.insert_object(m.name);
 					 auto &field = *field_r;
-					 detail::schema_insert_type<M>(field);
+					 if (auto ok = detail::schema_insert_type<M>(field); !ok) {
+						 first_error = move(ok).error();
+						 return;
+					 }
 					 move(field).commit();
 				 })(ms),
 				 ...);
 			},
 			members);
+		if (first_error) {
+			return unexpected(move(*first_error));
+		}
 		move(props).commit();
 
 		auto req_r = schema.insert_array("required");
@@ -7649,15 +7661,23 @@ expected<Document, JsonError> schema_for() {
 		apply(
 			[&](auto const &...ms) {
 				(([&](auto const &entry) {
+					 if (first_error) {
+						 return;
+					 }
 					 auto const &m = detail::jm_member(entry);
 					 using M = std::remove_reference_t<decltype(std::declval<T>().*m.pointer)>;
 					 if constexpr (!detail::is_optional<std::remove_cvref_t<M>>::value) {
-						 auto _ = req.append_string(m.name);
+						 if (auto ok = req.append_string(m.name); !ok) {
+							 first_error = move(ok).error();
+						 }
 					 }
 				 })(ms),
 				 ...);
 			},
 			members);
+		if (first_error) {
+			return unexpected(move(*first_error));
+		}
 		move(req).commit();
 	}
 

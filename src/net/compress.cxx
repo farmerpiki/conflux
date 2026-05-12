@@ -167,8 +167,7 @@ float header_q_value(
 }
 S gzip_compress_with_backend(
 	GzipBackend backend,
-	SV input) {
-	auto _ = input;
+	[[maybe_unused]] SV input) {
 	switch (backend) {
 #if CONFLUX_HAS_LIBDEFLATE
 	case GzipBackend::libdeflate: return conflux::compress_backends::libdeflate_gzip_compress(input);

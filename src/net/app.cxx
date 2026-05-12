@@ -143,11 +143,11 @@ public:
 	[[nodiscard]] Config const &config() const { return cfg_; }
 	[[nodiscard]] Router &router() { return router_; }
 	[[nodiscard]] Router const &router() const { return router_; }
-	void run(
+	[[nodiscard]] RunStatus run(
 		AppRunOptions opts = {}) && {
 		cfg_.port = opts.port;
 		HttpServer srv{cfg_, move(router_)};
-		auto _ = srv.run();
+		return srv.run();
 	}
 
 private:

@@ -34,5 +34,6 @@ int main() {
 
 	HttpServer srv{cfg, move(router)};
 	println(cerr, "h3 probe running on :9443");
-	auto _ = srv.run();
+	auto const status = srv.run();
+	return status == RunStatus::stopped_normally ? 0 : 1;
 }

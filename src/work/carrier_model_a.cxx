@@ -205,7 +205,7 @@ public:
 		}
 		try {
 			invoke(forward<Fn>(fn));
-		} catch (...) { auto _ = current_exception(); } // side-effect only; discard throw
+		} catch (...) {} // ignore cancellation observer failures
 		return Chain<T>{move(outcome_), kind_, bound_cap_};
 	}
 	// cancelled → f() → T or Chain<T> (becomes success); success/failure pass through
