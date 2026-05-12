@@ -1072,6 +1072,9 @@ struct Ring {
 	int tcp_opt_one_ = 1; // stable optval for cmd_sock SETSOCKOPT
 
 	conflux::uring::IoUringCaps caps{};
+	u32 requested_setup_flags_ = 0; // flags requested before adaptive EINVAL fallback
+	u32 active_setup_flags_ = 0; // flags used by the successful io_uring setup call
+	u32 stripped_setup_flags_ = 0; // requested flags removed during adaptive EINVAL fallback
 	bool listen_fixed = false;
 	bool accepted_sockets_direct = false;
 	bool direct_accept_enabled_ = true;
@@ -1890,6 +1893,9 @@ struct Ring {
 			params.flags |= IORING_SETUP_ATTACH_WQ;
 			params.wq_fd = wq_fd;
 		}
+		requested_setup_flags_ = params.flags;
+		active_setup_flags_ = 0;
+		stripped_setup_flags_ = 0;
 		if (no_mmap) {
 			ssize_t const sz = io_uring_mlock_size(entries, params.flags);
 			if (sz <= 0) {
@@ -1904,6 +1910,7 @@ struct Ring {
 			if (io_uring_queue_init_mem(entries, &ring, &params, raw, static_cast<SZ>(sz)) < 0) {
 				throw RE{"io_uring_queue_init_mem failed"};
 			}
+			active_setup_flags_ = params.flags;
 		} else {
 			// Strip unsupported setup flags one at a time on EINVAL so the server
 			// degrades gracefully on older kernels.
@@ -1918,6 +1925,7 @@ struct Ring {
 			for (;;) {
 				int const rc = ::io_uring_queue_init_params(entries, &ring, &params);
 				if (rc == 0) {
+					active_setup_flags_ = params.flags;
 					break;
 				}
 				if (rc != -EINVAL) {
@@ -1927,6 +1935,7 @@ struct Ring {
 				for (u32 const f: kStripOrder) {
 					if ((params.flags & f) != 0u) {
 						params.flags &= ~f;
+						stripped_setup_flags_ |= f;
 						stripped = true;
 						break;
 					}
@@ -4696,6 +4705,46 @@ u32 wq_fd_for_ring(
 	}
 	return static_cast<u32>(parent_ring_fd);
 }
+S setup_flags_str(u32 flags) {
+	S s;
+	auto app = [&](char const *name) {
+		if (!s.empty()) {
+			s += ',';
+		}
+		s += name;
+	};
+	if ((flags & IORING_SETUP_SINGLE_ISSUER) != 0u) {
+		app("SINGLE_ISSUER");
+	}
+	if ((flags & IORING_SETUP_DEFER_TASKRUN) != 0u) {
+		app("DEFER_TASKRUN");
+	}
+	if ((flags & IORING_SETUP_SQPOLL) != 0u) {
+		app("SQPOLL");
+	}
+	if ((flags & IORING_SETUP_IOPOLL) != 0u) {
+		app("IOPOLL");
+	}
+	if ((flags & IORING_SETUP_COOP_TASKRUN) != 0u) {
+		app("COOP_TASKRUN");
+	}
+	if ((flags & IORING_SETUP_TASKRUN_FLAG) != 0u) {
+		app("TASKRUN_FLAG");
+	}
+	if ((flags & IORING_SETUP_SUBMIT_ALL) != 0u) {
+		app("SUBMIT_ALL");
+	}
+	if ((flags & IORING_SETUP_ATTACH_WQ) != 0u) {
+		app("ATTACH_WQ");
+	}
+	if ((flags & IORING_SETUP_NO_SQARRAY) != 0u) {
+		app("NO_SQARRAY");
+	}
+	if ((flags & IORING_SETUP_CQE_MIXED) != 0u) {
+		app("CQE_MIXED");
+	}
+	return s.empty() ? "none" : s;
+}
 S flags_str(
 	Config const &c) {
 	S s;
@@ -5314,22 +5363,10 @@ void HttpServer::shutdown() {
 
 						if (i == 0 && impl_->cfg.startup_banner) {
 							auto const feat_s = caps_to_log_string(r.caps);
-							S sflg_s;
-							auto as = [&](char const *n, u32 b) {
-								if ((r.ring.flags & b) == 0u)
-									return;
-								if (!sflg_s.empty())
-									sflg_s += ',';
-								sflg_s += n;
-							};
-							as("SINGLE_ISSUER", IORING_SETUP_SINGLE_ISSUER);
-							as("DEFER_TASKRUN", IORING_SETUP_DEFER_TASKRUN);
-							as("COOP_TASKRUN", IORING_SETUP_COOP_TASKRUN);
-							as("TASKRUN_FLAG", IORING_SETUP_TASKRUN_FLAG);
-							as("SQPOLL", IORING_SETUP_SQPOLL);
-							as("IOPOLL", IORING_SETUP_IOPOLL);
 							eprintln(format("uring_features={}", feat_s.empty() ? "none" : feat_s));
-							eprintln(format("uring_setup_flags={}", sflg_s.empty() ? "none" : sflg_s));
+							eprintln(format("uring_setup_flags_requested={}", setup_flags_str(r.requested_setup_flags_)));
+							eprintln(format("uring_setup_flags_active={}", setup_flags_str(r.active_setup_flags_)));
+							eprintln(format("uring_setup_flags_stripped={}", setup_flags_str(r.stripped_setup_flags_)));
 						}
 						if (i == 0 && impl_->cfg.startup_banner)
 							eprintln(format(

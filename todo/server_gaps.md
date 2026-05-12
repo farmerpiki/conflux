@@ -30,7 +30,7 @@
 - [ ] Local worker queues: profile mutex contention first, then Chase-Lev if warranted (global injection has MPMC ring; per-worker local queues + stealing still use `std::mutex`)
 - [ ] `admission_mtx_` in `work.cxx`: profile under high-RPS, replace with atomic if bottleneck
 - [ ] Ring metrics: expose `sq_dropped`, `cq_overflow`, `accepted_direct_failures`, `zc_notif_pending`, recv-bundle stats, SEND_ZC usage/copy/adaptive-disable counters as observable counters
-- [ ] io_uring startup log: make setup flag fallback stripping exact (log which of `NO_SQARRAY`, `SUBMIT_ALL`, `CQE_MIXED` were stripped; currently only feature capabilities are logged)
+- [x] io_uring startup log: make setup flag fallback stripping exact (log which of `NO_SQARRAY`, `SUBMIT_ALL`, `CQE_MIXED` were stripped; now logs requested/active/stripped setup-flag sets)
 
 ## Packaging / release blockers
 
