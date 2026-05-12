@@ -30,23 +30,26 @@ Config tiny_ring_config() {
 	return cfg;
 }
 
-static S http_get_on_timeout(u16 port, SV path) {
-    LocalTcpClient const client{port};
+static S http_get_on_timeout(
+	u16 port,
+	SV path) {
+	LocalTcpClient const client{port};
 
-    timeval tv{.tv_sec = 1, .tv_usec = 0};
-    ::setsockopt(client.fd(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    ::setsockopt(client.fd(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+	timeval tv{.tv_sec = 1, .tv_usec = 0};
+	::setsockopt(client.fd(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	::setsockopt(client.fd(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
-    auto request = format(
-        "GET {} HTTP/1.1\r\n"
-        "Host: localhost\r\n"
-        "Connection: close\r\n"
-        "\r\n",
-        path);
+	auto request = format(
+		"GET {} HTTP/1.1\r\n"
+		"Host: localhost\r\n"
+		"Connection: close\r\n"
+		"\r\n",
+		path);
 
-    (void)client.send(request);
-    return client.read_one_response();
+	(void)client.send(request);
+	return client.read_one_response();
 }
+
 } // namespace
 TEST_CASE(
 	"http.cq_overflow: non-UB shutdown under small-CQ flood",
@@ -74,14 +77,12 @@ TEST_CASE(
 	workers.reserve(kWorkers);
 	for (int w = 0; w < kWorkers; ++w) {
 		workers.emplace_back([port, &stop_flag] {
-    for (int i = 0; i < kIterations && !stop_flag.load(memory_order_relaxed); ++i) {
-        try {
-            (void)http_get_on_timeout(port, "/ping");
-        } catch (...) {
-            break;
-        }
-    }
-});
+			for (int i = 0; i < kIterations && !stop_flag.load(memory_order_relaxed); ++i) {
+				try {
+					(void)http_get_on_timeout(port, "/ping");
+				} catch (...) { break; }
+			}
+		});
 	}
 
 	// Wait up to 3 s for the server thread to exit (fatal or normal).

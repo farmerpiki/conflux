@@ -452,8 +452,9 @@ struct alignas(
 #if CONFLUX_HAS_TLS
 	// TLS state (null → plaintext connection)
 	UniqueSsl ssl;
-	S tls_send_buf{}; // encrypted bytes waiting to be sent via io_uring
-	SZ tls_send_off{}; // bytes of tls_send_buf already sent
+	S tls_send_pending{}; // encrypted bytes generated while no send can be submitted
+	S tls_send_inflight{}; // stable borrowed storage for in-flight io_uring SEND
+	SZ tls_send_off{}; // bytes of tls_send_inflight already sent
 	S tls_recv_buf{}; // unconsumed ciphertext; rbio (BIO_new_mem_buf) points here
 	bool tls_hs_done = false; // TLS handshake completed; also used as undecided sentinel
 	bool tls_sending_response = false; // true → current tls_send_buf carries HTTP response data
@@ -499,6 +500,7 @@ struct alignas(
 	bool h2_sse_pending_wait{}; // set by on_frame_recv_cb to trigger queue_sse_wait after h2_do_send
 #endif
 };
+
 // Extract a named parameter from a header value (e.g. boundary= from Content-Type).
 // Returns unquoted value, empty if not found.
 SV extract_param(
@@ -1223,26 +1225,49 @@ struct Ring {
 		in_flight_read_bufs[ud] = move(buf);
 	}
 #if CONFLUX_HAS_TLS
-	// Drain all encrypted bytes from wbio into conn.tls_send_buf.
 	static void tls_flush_wbio(
 		Conn &conn) {
 		A<char, 4096> buf{};
 		int n{};
 		while ((n = BIO_read(SSL_get_wbio(conn.ssl.get()), buf.data(), static_cast<int>(buf.size()))) > 0) {
-			conn.tls_send_buf.append(buf.data(), static_cast<SZ>(n));
+			conn.tls_send_pending.append(buf.data(), static_cast<SZ>(n));
 		}
 	}
-	// Submit an io_uring send for the next chunk of conn.tls_send_buf.
-	// Caller must set conn.send_queued = true before calling.
+	// Submit an io_uring send for pending/in-flight TLS bytes.
+	// Caller must NOT pre-set send_queued; this function owns the transition.
 	void tls_queue_send(
 		Conn &conn) {
-		auto const off = conn.tls_send_off;
-		auto const tls_view = span{conn.tls_send_buf}.subspan(off);
+		if (conn.send_queued) {
+			return;
+		}
+
+		if (conn.tls_send_inflight.empty()) {
+			conn.tls_send_inflight = move(conn.tls_send_pending);
+			conn.tls_send_pending.clear();
+			conn.tls_send_off = 0;
+		}
+
+		if (conn.tls_send_inflight.empty()) {
+			return;
+		}
+
+		auto const view = span{conn.tls_send_inflight}.subspan(conn.tls_send_off);
 		auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(conn.fd)) :
 												SocketHandle::from_os(conn.fd);
-		if (!submit_send_borrowed(raw_, handle, tls_view.data(), tls_view.size(), pack(Op::Send, conn.gen, conn.fd))) {
-			int const fd = conn.fd;
-			defer_op([this, fd] { tls_queue_send(conn_for(fd)); });
+
+		auto const fd = conn.fd;
+		auto const gen = conn.gen;
+
+		conn.send_queued = true;
+
+		if (!submit_send_borrowed(raw_, handle, view.data(), view.size(), pack(Op::Send, gen, fd))) {
+			conn.send_queued = false;
+			defer_op([this, fd, gen] {
+				auto const ufd = static_cast<SZ>(fd);
+				if (ufd < fd_table.size() && fd_table[ufd].gen == gen && fd_table[ufd].fd >= 0) {
+					tls_queue_send(fd_table[ufd]);
+				}
+			});
 		}
 	}
 #endif // CONFLUX_HAS_TLS
@@ -1723,10 +1748,7 @@ struct Ring {
 		}
 		conn.h2_pending_send.clear();
 		tls_flush_wbio(conn);
-		if (!conn.tls_send_buf.empty()) {
-			conn.send_queued = true;
-			tls_queue_send(conn);
-		}
+		tls_queue_send(conn);
 	}
 	// Drive nghttp2 output (all queued frames) and flush to io_uring.
 	void h2_do_send(
@@ -2021,7 +2043,8 @@ struct Ring {
 		if (conn.ssl != nullptr) {
 			conn.ssl.reset();
 		}
-		conn.tls_send_buf.clear();
+		conn.tls_send_pending.clear();
+		conn.tls_send_inflight.clear();
 		conn.tls_send_off = 0;
 		conn.tls_recv_buf.clear();
 		conn.tls_hs_done = false;
@@ -2304,7 +2327,6 @@ struct Ring {
 		conn.streamed_delivered += static_cast<u64>(w);
 		tls_flush_wbio(conn);
 		conn.tls_sending_response = true;
-		conn.send_queued = true;
 		tls_queue_send(conn);
 		// `buf` drops here → slab returned to pool.
 	}
@@ -2320,7 +2342,7 @@ struct Ring {
 		if (remaining == 0) {
 			return;
 		}
-		static constexpr u64 kMappedTlsChunk = 64U * 1024U;
+		static constexpr u64 kMappedTlsChunk{64UL * 1024U};
 		auto const want = static_cast<SZ>(min<u64>(remaining, kMappedTlsChunk));
 		auto const *data = reinterpret_cast<char const *>(win.data()) + conn.mapped_delivered;
 		auto const w = SSL_write(conn.ssl.get(), data, static_cast<int>(want));
@@ -2332,7 +2354,6 @@ struct Ring {
 		conn.mapped_delivered += static_cast<u64>(w);
 		tls_flush_wbio(conn);
 		conn.tls_sending_response = true;
-		conn.send_queued = true;
 		tls_queue_send(conn);
 	}
 #endif
@@ -2429,15 +2450,16 @@ struct Ring {
 			return;
 		}
 #endif
+		if (!conn.mapped_file && !conn.streamed_file && !conn.has_response) {
+			return;
+		}
+		conn.send_queued = true;
 		if (conn.mapped_file) {
 			queue_send_mapped(fd);
 			return;
 		}
 		if (conn.streamed_file) {
 			queue_send_streamed(fd);
-			return;
-		}
-		if (!conn.has_response) {
 			return;
 		}
 		auto const gen = conn.gen;
@@ -2523,6 +2545,19 @@ struct Ring {
 			});
 		}
 	}
+	[[nodiscard]] static bool response_send_ready(
+		Conn const &conn) noexcept {
+		return conn.has_response || conn.mapped_file != nullptr || conn.streamed_file != nullptr;
+	}
+	void start_response_send(
+		int fd,
+		Conn &conn) {
+		if (conn.send_queued || !response_send_ready(conn)) {
+			return;
+		}
+		queue_send(fd);
+	}
+
 	void invalidate_recv_if_armed(
 		int fd) {
 		auto const ufd = static_cast<SZ>(fd);
@@ -2787,7 +2822,8 @@ struct Ring {
 			if (conn.ssl != nullptr) {
 				conn.ssl.reset();
 			}
-			conn.tls_send_buf.clear();
+			conn.tls_send_pending.clear();
+			conn.tls_send_inflight.clear();
 			conn.tls_send_off = 0;
 			conn.tls_recv_buf.clear();
 			// Sentinel: ssl==nullptr && tls_hs_done==true means "waiting for first byte".
@@ -2954,7 +2990,6 @@ struct Ring {
 			conn.own_response = move(remaining);
 			conn.has_response = true;
 			conn.written = 0;
-			conn.send_queued = true;
 			queue_send(fd);
 		} else if (conn.sse_channel->is_closed()) {
 			queue_close(fd);
@@ -2991,9 +3026,10 @@ struct Ring {
 				http_redirect_to_https,
 				https_redirect_hosts,
 				parser_limits);
-			if (conn.has_response || conn.mapped_file) {
-				conn.send_queued = true;
-				queue_send(fd);
+			if (response_send_ready(conn)) {
+				if (!conn.send_queued) {
+					queue_send(fd);
+				}
 				return;
 			}
 			if (conn.is_deferred) {
@@ -3295,8 +3331,6 @@ struct Ring {
 	void handle_send_tls_complete(
 		int fd,
 		Conn &conn) {
-		conn.tls_send_buf.clear();
-		conn.tls_send_off = 0;
 		conn.send_queued = false;
 
 	#if CONFLUX_HAS_HTTP2
@@ -3363,12 +3397,22 @@ struct Ring {
 		} else {
 			// TLS handshake data was sent (or a post-handshake alert).
 			// If an HTTP response accumulated while we were busy, send it now.
-			if (conn.has_response) {
-				conn.send_queued = true;
-				queue_send(fd);
+			if (response_send_ready(conn)) {
+				if (!conn.send_queued) {
+					queue_send(fd);
+				}
 			} else if (!conn.recv_armed) {
 				queue_multishot_recv(fd);
 			}
+		}
+
+		// A response path above may have already encrypted bytes and queued the
+		// underlying TLS send. Do not immediately re-enter the send-start path.
+		if (conn.send_queued) {
+			return;
+		}
+		if (!conn.tls_send_pending.empty()) {
+			tls_queue_send(conn);
 		}
 	}
 #endif // CONFLUX_HAS_TLS
@@ -3437,11 +3481,19 @@ struct Ring {
 				queue_close(fd);
 				return;
 			}
+
 			conn.tls_send_off += static_cast<SZ>(res);
-			if (conn.tls_send_off < conn.tls_send_buf.size()) {
-				tls_queue_send(conn); // continue sending
+
+			if (conn.tls_send_off < conn.tls_send_inflight.size()) {
+				conn.send_queued = false;
+				tls_queue_send(conn);
 				return;
 			}
+
+			conn.tls_send_inflight.clear();
+			conn.tls_send_off = 0;
+			conn.send_queued = false;
+
 			handle_send_tls_complete(fd, conn);
 			return;
 		}
@@ -3647,8 +3699,7 @@ struct Ring {
 			conn.own_response = move(data);
 			conn.has_response = true;
 			conn.written = 0;
-			conn.send_queued = true;
-			queue_send(fd);
+			start_response_send(fd, conn);
 			// handle_send will re-arm wait or close after chunk is delivered.
 		} else if (conn.sse_channel->is_closed()) {
 			queue_close(fd);
@@ -3738,8 +3789,7 @@ struct Ring {
 			conn.has_response = true;
 		}
 		conn.written = 0;
-		conn.send_queued = true;
-		queue_send(fd);
+		start_response_send(fd, conn);
 	}
 	void handle_conn_close(
 		int fd,
@@ -3927,8 +3977,7 @@ struct Ring {
 					"HTTP/1.1 413 Content Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
 				conn.has_response = true;
 				conn.close_after_send = true;
-				conn.send_queued = true;
-				queue_send(static_cast<int>(ufd));
+				start_response_send(ufd, conn);
 				continue;
 			}
 #if CONFLUX_HAS_TLS
@@ -4053,8 +4102,7 @@ struct Ring {
 			} else {
 				int const err = SSL_get_error(conn.ssl.get(), r);
 				if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE) {
-					if (!conn.tls_send_buf.empty() && !conn.send_queued) {
-						conn.send_queued = true;
+					if (!conn.send_queued) {
 						tls_queue_send(conn);
 					}
 					compact_and_refresh_rbio();
@@ -4095,8 +4143,7 @@ struct Ring {
 		}
 
 		tls_flush_wbio(conn);
-		if (!conn.tls_send_buf.empty() && !conn.send_queued) {
-			conn.send_queued = true;
+		if (!conn.send_queued) {
 			tls_queue_send(conn);
 		}
 	}
@@ -4189,9 +4236,8 @@ struct Ring {
 			}
 			if (conn.fd < 0) {
 				queue_close(rc.fd);
-			} else if ((conn.has_response || conn.mapped_file) && !conn.send_queued) {
-				conn.send_queued = true;
-				queue_send(rc.fd);
+			} else if (response_send_ready(conn)) {
+				start_response_send(rc.fd, conn);
 			} else if (conn.is_deferred && !conn.send_queued) {
 				queue_deferred_wait(rc.fd);
 			} else if (
