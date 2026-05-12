@@ -51,13 +51,13 @@ u32 head_flags(
 struct Rig {
 	conflux::uring::Ring uring;
 	BufferRing ring;
-	Rig(u32 count,SZ buf_size,u16 gid=0)
+	Rig(u32 count,SZ buf_size,u16 gid=0,BufferRingMode mode=BufferRingMode::classic_one_cqe_per_buffer)
 :uring{[]{
 				  auto r = conflux::uring::Ring::init(32, {});
 				  REQUIRE(r);
 				  return move(*r);
 }()},
-ring{uring.ref(),BufferRingOptions{.count=count,.buf_size=buf_size,.group_id=gid,.huge_pages=false,.mode=BufferRingMode::classic_one_cqe_per_buffer},conflux::uring::detect_caps(uring.ref())}{}
+ring{uring.ref(),BufferRingOptions{.count=count,.buf_size=buf_size,.group_id=gid,.huge_pages=false,.mode=mode},conflux::uring::detect_caps(uring.ref())}{}
 };
 template<typename F>
 struct ScopeExit {
@@ -235,6 +235,39 @@ TEST_CASE(
 	REQUIRE(recycled.valid());
 	CHECK((*recycled.begin()).id == 0u);
 	recycled.recycle_all();
+}
+
+// Test 8b: real recv-bundle mode tolerates CQEs decoded out of buffer-ring head order.
+TEST_CASE(
+	"recv_bundle.bundle: out-of-order CQE decode in bundle mode",
+	"[recv_bundle]") {
+	Rig rig{8, 64, 0, BufferRingMode::recv_bundle};
+
+	// Kernel buffer selection is ring-ordered, but CQEs from different recv ops can
+	// be delivered later. Decode positions 2,3 before positions 0,1.
+	auto late = buffer_slices_from_cqe(rig.ring, 2 * 64, recv_flags_for(2), true);
+	REQUIRE(late.valid());
+	REQUIRE(late.count() == 2u);
+	auto late_it = late.begin();
+	CHECK((*late_it).id == 2u);
+	++late_it;
+	CHECK((*late_it).id == 3u);
+	late.recycle_all();
+
+	// Recycling the late CQE must be delayed; otherwise it would overwrite
+	// ring positions still needed by the earlier CQEs.
+	CHECK(rig.ring.ring_id_at(0) == 0u);
+	CHECK(rig.ring.ring_id_at(1) == 1u);
+
+	auto first = buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(0), true);
+	REQUIRE(first.valid());
+	CHECK((*first.begin()).id == 0u);
+	first.recycle_all();
+
+	auto second = buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(1), true);
+	REQUIRE(second.valid());
+	CHECK((*second.begin()).id == 1u);
+	second.recycle_all();
 }
 
 // Test 9: discard via recycle_all() advances head by cnt (not 1)

@@ -5212,7 +5212,7 @@ public:
 								wq_fd = static_cast<u32>(parent);
 						}
 						r.use_recv_incremental_buf = impl_->cfg.recv_incremental_buf;
-						r.use_recv_bundle = !impl_->cfg.recv_incremental_buf && impl_->cfg.recv_bundle;
+						r.use_recv_bundle = !impl_->cfg.recv_incremental_buf && impl_->cfg.recv_bundle && CONFLUX_ENABLE_RECV_BUNDLE;
 						r.init(impl_->cfg.port, entries, impl_->uring_flags, wq_fd, impl_->cfg.no_mmap);
 						r.auto_recv_arm_policy = impl_->cfg.auto_recv_arm_policy;
 						r.busy_poll_us_ = static_cast<int>(impl_->cfg.busy_poll_us);
