@@ -29,7 +29,7 @@
 - [ ] Dedicated `IOPOLL` ring for O_DIRECT file I/O, separate from network ring
 - [ ] Local worker queues: profile mutex contention first, then Chase-Lev if warranted (global injection has MPMC ring; per-worker local queues + stealing still use `std::mutex`)
 - [ ] `admission_mtx_` in `work.cxx`: profile under high-RPS, replace with atomic if bottleneck
-- [ ] Ring metrics: expose `sq_dropped`, `cq_overflow`, `accepted_direct_failures`, `zc_notif_pending`, recv-bundle stats, SEND_ZC usage/copy/adaptive-disable counters as observable counters
+- [ ] Ring metrics: expose `sq_dropped`, `cq_overflow`, `accepted_direct_failures`, `zc_notif_pending`, recv-bundle stats, SEND_ZC usage/copy/adaptive-disable counters as observable counters. Note: CQ overflow auto-grow is implemented separately in the ring loop; metrics still need public observation APIs.
 - [x] io_uring startup log: make setup flag fallback stripping exact (log which of `NO_SQARRAY`, `SUBMIT_ALL`, `CQE_MIXED` were stripped; now logs requested/active/stripped setup-flag sets)
 
 ## Packaging / release blockers

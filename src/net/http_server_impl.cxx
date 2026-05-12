@@ -1084,6 +1084,8 @@ struct Ring {
 	ServerFatalReason fatal_reason_{ServerFatalReason::none};
 	u32 fatal_cq_overflow_count_{0};
 	bool overflow_flush_limit_hit_{false};
+	bool saw_overflow_since_last_resize_{false};
+	bool cq_resize_unsupported_{false};
 	bool use_recv_bundle = false; // IORING_RECVSEND_BUNDLE on multishot recv
 	bool use_recv_incremental_buf = false; // IOU_PBUF_RING_INC on buffer ring
 	bool auto_recv_arm_policy = false; // adaptive poll_first via IORING_CQE_F_SOCK_NONEMPTY
@@ -4393,6 +4395,42 @@ struct Ring {
 		}
 	}
 	[[nodiscard]] bool ring_integrity_suspect() const noexcept { return raw_.ring().cq_has_overflow(); }
+	void note_cq_overflow() noexcept { saw_overflow_since_last_resize_ = true; }
+	void try_grow_cq_after_overflow() noexcept {
+		if (!saw_overflow_since_last_resize_ || cq_resize_unsupported_ || ring_integrity_suspect()) {
+			return;
+		}
+		auto const rr = raw_.ring();
+		u32 const cur = rr.cq_entries();
+		if (cur == 0 || cur >= (1u << 20)) {
+			cq_resize_unsupported_ = true;
+			saw_overflow_since_last_resize_ = false;
+			return;
+		}
+		u32 const target = min<u32>(cur * 2u, 1u << 20);
+		auto resized = rr.grow_cq_to(target);
+		if (resized) {
+			saw_overflow_since_last_resize_ = false;
+			if (cfg.startup_banner) {
+				eprintln(format("ring_cq_resized={}->{} after overflow", cur, target));
+			}
+			return;
+		}
+		int const err = resized.error();
+		if (err == -EBUSY) {
+			return;
+		}
+		// Ring resize requires kernel/liburing support and DEFER_TASKRUN, and is
+		// unavailable for NO_MMAP rings. Treat permanent unsupported cases as a
+		// capability miss; the existing NODROP drain path remains the fallback.
+		saw_overflow_since_last_resize_ = false;
+		if (err == -ENOSYS || err == -EINVAL || err == -EOPNOTSUPP) {
+			cq_resize_unsupported_ = true;
+		}
+		if (cfg.startup_banner) {
+			eprintln(format("ring_cq_resize_skipped={}->{} err={}", cur, target, err));
+		}
+	}
 	void enter_ring_fatal(
 		ServerFatalReason reason) noexcept {
 		ring_fatal_ = true;
@@ -4570,6 +4608,7 @@ struct Ring {
 
 		for (;;) {
 			if (ring_integrity_suspect()) {
+				note_cq_overflow();
 				if (!caps.feat_nodrop) {
 					enter_ring_fatal(ServerFatalReason::cq_overflow_no_nodrop);
 					emit_ring_diagnostics();
@@ -4578,6 +4617,8 @@ struct Ring {
 				}
 				// NODROP: overflow list non-empty but CQEs are not lost.
 				// io_uring_submit_and_wait drains overflow into the ring; continue.
+			} else {
+				try_grow_cq_after_overflow();
 			}
 
 			drain_pending_ops();
@@ -4605,6 +4646,11 @@ struct Ring {
 			unsigned const count = io_uring_peek_batch_cqe(&ring, cqes.data(), BATCH);
 
 			bool const overflowed = ring_integrity_suspect();
+			if (overflowed) {
+				note_cq_overflow();
+			} else {
+				try_grow_cq_after_overflow();
+			}
 
 			if (count == 0) {
 				if (overflowed && !caps.feat_nodrop) {

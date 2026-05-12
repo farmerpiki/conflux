@@ -79,7 +79,7 @@ Plumbing is complete (`RecvArmPolicy`, `resolve_recv_arm_policy`, server integra
 
 ### Ring resize — server auto-grow (P2-01 follow-up)
 
-- [ ] Track `saw_overflow_since_last_resize`; call `grow_cq_to` once after overflow clears (no server auto-grow in initial implementation).
+- [x] Track `saw_overflow_since_last_resize`; call `grow_cq_to` once after overflow clears (server now attempts CQ growth after NODROP overflow drains; unsupported kernels stay on the drain fallback).
 
 ---
 
