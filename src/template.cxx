@@ -401,7 +401,7 @@ static V<S> split_args(
 // Lexer
 // ---------------------------------------------------------------------------
 
-enum class TokenType {
+enum class TokenType : u8 {
 	Text,
 	Expr,
 	Tag,

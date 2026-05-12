@@ -434,7 +434,7 @@ export expected<Process, EC> spawn_clone(
 		}
 
 		// Pre-exec hook (async-signal-safe ops only: setrlimit, prctl, etc.).
-		if (opts.pre_exec_fn) {
+		if (opts.pre_exec_fn != nullptr) {
 			opts.pre_exec_fn();
 		}
 

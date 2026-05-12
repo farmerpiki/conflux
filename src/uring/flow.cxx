@@ -724,7 +724,7 @@ public:
 		slab_.test_hack_generation(idx, gen);
 	}
 	void test_hack_drain_slab_freelist() noexcept { slab_.test_hack_drain_freelist(); }
-	char const *test_owned_path_ptr(
+	[[nodiscard]] char const *test_owned_path_ptr(
 		u32 flow_index) const noexcept {
 		if (flow_index >= kMaxFlows) {
 			return nullptr;
