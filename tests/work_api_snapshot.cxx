@@ -305,10 +305,8 @@ using _join_result_int = decltype(root::join(std::declval<root::Task<int> &&>())
 // value(Outcome<T>&&) from root
 using _root_value_result = decltype(root::value(std::declval<root::Outcome<int> &&>()));
 
-// AbandonStatus values exist
-static_assert(
-	static_cast<int>(root::AbandonStatus::installed) >= 0
-	|| static_cast<int>(root::AbandonStatus::already_abandoned) >= 0);
+// AbandonStatus values exist and remain distinct enough for snapshot consumers.
+static_assert(root::AbandonStatus::installed != root::AbandonStatus::already_abandoned);
 
 } // namespace snapshot_root
 // ---------------------------------------------------------------------------

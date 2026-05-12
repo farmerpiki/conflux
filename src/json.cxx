@@ -630,7 +630,7 @@ namespace detail {
 [[nodiscard]] inline u64 make_hash_seed() noexcept {
 	u64 seed{};
 	if (::getrandom(&seed, sizeof(seed), 0) != static_cast<long>(sizeof(seed))) {
-		seed = static_cast<u64>(reinterpret_cast<uintptr_t>(&seed)) ^ UINT64_C(0x517cc1b727220a95);
+		seed = reinterpret_cast<uintptr_t>(&seed) ^ UINT64_C(0x517cc1b727220a95);
 	}
 	return seed;
 }
@@ -4128,7 +4128,7 @@ struct TreeBuilder {
 				SZ const cs = store.array_children.size();
 				store.array_children.insert(
 					store.array_children.end(),
-					std::next(staging.begin(), children_start),
+					staging.begin() + static_cast<std::ptrdiff_t>(children_start),
 					staging.end());
 				staging.resize(children_start);
 				store.nodes.push_back(detail::node_array(static_cast<u32>(cs), static_cast<u32>(len)));
@@ -4149,7 +4149,7 @@ struct TreeBuilder {
 					SZ const cs = store.array_children.size();
 					store.array_children.insert(
 						store.array_children.end(),
-						std::next(staging.begin(), children_start),
+						staging.begin() + static_cast<std::ptrdiff_t>(children_start),
 						staging.end());
 					staging.resize(children_start);
 					store.nodes.push_back(detail::node_array(static_cast<u32>(cs), static_cast<u32>(len)));
@@ -4327,7 +4327,7 @@ struct TreeBuilder {
 				SZ const ms = store.object_members.size();
 				store.object_members.insert(
 					store.object_members.end(),
-					std::next(staging_members.begin(), members_start),
+					staging_members.begin() + static_cast<std::ptrdiff_t>(members_start),
 					staging_members.end());
 				staging_members.resize(members_start);
 				store.nodes.push_back(detail::node_object(static_cast<u32>(ms), static_cast<u32>(len)));
@@ -4369,7 +4369,7 @@ struct TreeBuilder {
 					SZ const ms2 = store.object_members.size();
 					store.object_members.insert(
 						store.object_members.end(),
-						std::next(staging_members.begin(), members_start),
+						staging_members.begin() + static_cast<std::ptrdiff_t>(members_start),
 						staging_members.end());
 					staging_members.resize(members_start);
 					store.nodes.push_back(detail::node_object(static_cast<u32>(ms2), static_cast<u32>(len2)));

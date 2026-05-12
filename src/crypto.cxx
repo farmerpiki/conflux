@@ -371,6 +371,7 @@ export bool constant_time_eq(
 // ---------------------------------------------------------------------------
 
 namespace {
+#if !defined(CONFLUX_CRYPTO_USE_AESNI)
 
 constexpr A<unsigned char, 256> kAesSbox{
 	0x63, 0x7c, 0x77, 0x7b, 0xf2, 0x6b, 0x6f, 0xc5, 0x30, 0x01, 0x67, 0x2b, 0xfe, 0xd7, 0xab, 0x76, 0xca, 0x82, 0xc9,
@@ -409,6 +410,7 @@ constexpr u32 aes_rot_word(
 	u32 w) {
 	return (w << 8) | (w >> 24);
 }
+#if !defined(CONFLUX_CRYPTO_USE_AESNI)
 struct AesKey256 {
 	A<u32, 60> rk{};
 };
@@ -528,7 +530,9 @@ void gcm_inc32(
 		}
 	}
 }
+#endif
 
+#endif
 } // namespace
 export expected<V<unsigned char>, S> aes_gcm_encrypt(
 	span<unsigned char const> key,

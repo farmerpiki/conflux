@@ -2411,7 +2411,7 @@ struct Ring {
 			return;
 		}
 		auto const win = conn.mapped_file->window();
-		auto const remaining = static_cast<u64>(win.size()) - conn.mapped_delivered;
+		auto const remaining = win.size() - conn.mapped_delivered;
 		if (remaining == 0) {
 			return;
 		}
@@ -4360,9 +4360,9 @@ struct Ring {
 		} else {
 			buf_ring_->recycle(buf_id);
 		}
-			 	}
- 	void dispatch_cqe_fatal(
- 		io_uring_cqe const *cqe) noexcept {
+	}
+	void dispatch_cqe_fatal(
+		io_uring_cqe const *cqe) noexcept {
 		try {
 			auto const [op, _, _] = unpack(cqe->user_data);
 			switch (op) {
@@ -4396,14 +4396,12 @@ struct Ring {
 					static_cast<unsigned>(static_cast<u8>(op)),
 					static_cast<unsigned long long>(cqe->user_data));
 				break;
- 			}
+			}
 		} catch (exception const &e) {
 			(void)std::fprintf(stderr, "dispatch_cqe_fatal: suppressed exception: %s\n", e.what());
-		} catch (...) {
-			(void)std::fputs("dispatch_cqe_fatal: suppressed unknown exception\n", stderr);
- 		}
- 	}
- 	void emit_ring_diagnostics() noexcept {
+		} catch (...) { (void)std::fputs("dispatch_cqe_fatal: suppressed unknown exception\n", stderr); }
+	}
+	void emit_ring_diagnostics() noexcept {
 		try {
 			auto const features_str = caps_to_log_string(caps);
 			eprintln(format("ring_features={}", features_str.empty() ? "none" : features_str));
@@ -4431,10 +4429,10 @@ struct Ring {
 							if (pos != S::npos) {
 								eprintln(format("ring_cq_overflow_list={}", line.substr(pos + 1)));
 							}
- 						}
- 					}
- 				}
- 			}
+						}
+					}
+				}
+			}
 			if (fatal_reason_ != ServerFatalReason::none) {
 				SV reason_str;
 				switch (fatal_reason_) {
@@ -4451,9 +4449,7 @@ struct Ring {
 			}
 		} catch (exception const &e) {
 			(void)std::fprintf(stderr, "emit_ring_diagnostics: suppressed exception: %s\n", e.what());
-		} catch (...) {
-			(void)std::fputs("emit_ring_diagnostics: suppressed unknown exception\n", stderr);
-		}
+		} catch (...) { (void)std::fputs("emit_ring_diagnostics: suppressed unknown exception\n", stderr); }
 	}
 	void flush_overflow_cqes_until_clear_or_limit() noexcept {
 		static constexpr unsigned max_iters = 16;

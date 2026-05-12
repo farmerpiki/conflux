@@ -2169,6 +2169,7 @@ public:
 			S if_none_match;
 			S if_modified_since;
 			S range;
+			bool tls{};
 		};
 		auto static_cache = make_shared<StaticCacheStore>();
 
@@ -2596,7 +2597,7 @@ public:
 				// file via IORING_OP_OPENAT and return a deferred response that
 				// carries a StreamedFile once the open CQE fires. Otherwise
 				// fall back to the synchronous mmap path below.
-				if (auto *fr = current_file_reader(); fr != nullptr && content_encoding.empty()) {
+				if (auto *fr = current_file_reader(); fr != nullptr && !r.tls && content_encoding.empty()) {
 					auto dr = make_shared<DeferredResponse>();
 					auto base = is_range_request ? base_response(kHttpPartialContent, "Partial Content") :
 												   base_response(kHttpOk, "OK");
@@ -2703,6 +2704,7 @@ public:
 						.if_none_match = S{std::as_const(req.headers)["if-none-match"]},
 						.if_modified_since = S{std::as_const(req.headers)["if-modified-since"]},
 						.range = S{req.headers["range"]},
+						.tls = req.is_tls,
 					};
 
 					auto const rfd = root_dir_fd->fd;

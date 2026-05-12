@@ -1224,7 +1224,7 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
-	uint32_t const pending_before = fx->completions.pending();
+	SZ const pending_before = fx->completions.pending();
 	for (int i = 0; i < 100; ++i) {
 		// start accept task (no connect yet — accept SQE in SQ, not submitted)
 		auto task = tcp_accept(l, fx->task_ring);
@@ -1254,7 +1254,7 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
-	uint32_t const pending_before = fx->completions.pending();
+	SZ const pending_before = fx->completions.pending();
 	auto counter = make_shared<atomic<int>>(0);
 	using Task_v = conflux::work::root::Task<void>;
 	Fn<Task_v(TcpStream)> handler = [counter](TcpStream s) -> Task_v {
@@ -1352,7 +1352,7 @@ TEST_CASE(
 	auto fx = require_ring_fixture(16);
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
-	uint32_t const pending_before = fx->completions.pending();
+	SZ const pending_before = fx->completions.pending();
 	auto task = tcp_accept(l, fx->task_ring);
 	// fill remaining 15 SQ slots with nops (sentinel user_data — out of range → ignored on CQE)
 	int nops_added = 0;

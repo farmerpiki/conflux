@@ -2,8 +2,8 @@
 // Plain TU — libcurl is C-header heavy, and test files avoid module-interface
 // TU-local leakage.  See TRICKS.md #4.
 #include <catch2/catch_test_macros.hpp>
-#include <curl/curl.h>
 #include <cstdlib>
+#include <curl/curl.h>
 #include <unistd.h>
 
 import std;
@@ -144,7 +144,7 @@ void setopt_resolve(
 	}
 }
 
-void setopt_private(
+[[maybe_unused]] void setopt_private(
 	CURL *easy,
 	void *value) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_PRIVATE, value);
@@ -278,7 +278,7 @@ void require_ok(
 	REQUIRE(resp.body == body);
 }
 
-void require_contains(
+[[maybe_unused]] void require_contains(
 	CurlResponse const &resp,
 	long status,
 	SV needle) {
@@ -295,7 +295,7 @@ void require_contains(
 	REQUIRE(resp.body.find(needle) != S::npos);
 }
 
-void require_forced_http_version(
+[[maybe_unused]] void require_forced_http_version(
 	CurlResponse const &resp,
 	long expected) {
 	INFO(format("effective http_version={} expected={}", resp.http_version, expected));
@@ -312,7 +312,7 @@ void require_forced_http_version(
 	return r;
 }
 
-void run_basic_case_matrix(
+[[maybe_unused]] void run_basic_case_matrix(
 	CurlEasy &curl,
 	u16 port,
 	long http_version,
@@ -382,7 +382,7 @@ TEST_CASE(
 	require_forced_http_version(resp, CURL_HTTP_VERSION_1_1);
 }
 
-#if CONFLUX_HAS_HTTP2
+	#if CONFLUX_HAS_HTTP2
 TEST_CASE(
 	"ext/libcurl: TLS forced HTTP/2 compatibility matrix") {
 	if (!curl_has_http2()) {
@@ -396,9 +396,9 @@ TEST_CASE(
 	require_ok(resp, 200, R"({"ok":true})");
 	require_forced_http_version(resp, CURL_HTTP_VERSION_2_0);
 }
-#endif
+	#endif
 
-#if CONFLUX_HAS_HTTP3 && defined(CURL_HTTP_VERSION_3ONLY)
+	#if CONFLUX_HAS_HTTP3 && defined(CURL_HTTP_VERSION_3ONLY)
 TEST_CASE(
 	"ext/libcurl: H3 forced GET /ping") {
 	if (!curl_has_http3()) {
@@ -413,39 +413,37 @@ TEST_CASE(
 	req.resolve = localhost_resolve(fx.port());
 	auto resp = curl.perform(req);
 	require_ok(resp, 200, R"({"ok":true})");
-#if defined(CURL_HTTP_VERSION_3)
+		#if defined(CURL_HTTP_VERSION_3)
 	require_forced_http_version(resp, CURL_HTTP_VERSION_3);
-#else
+		#else
 	INFO("installed libcurl headers do not expose CURL_HTTP_VERSION_3");
-#endif
+		#endif
 }
-#endif
+	#endif
 
 TEST_CASE(
 	"ext/libcurl: TLS forced versions GET /ping") {
-#if !defined(CURL_SSLVERSION_MAX_TLSv1_2)
+	#if !defined(CURL_SSLVERSION_MAX_TLSv1_2)
 	WARN("installed libcurl headers do not expose TLS max-version controls");
 	return;
-#else
+	#else
 	conflux::tests::HttpsServerFixture const fx{make_matrix_router()};
 	CurlEasy curl;
 	CurlRequest req;
 	req.url = https_url(fx.port(), "/ping");
 	req.http_version = CURL_HTTP_VERSION_1_1;
-	req.ssl_version = static_cast<long>(CURL_SSLVERSION_TLSv1_2) |
-	                  static_cast<long>(CURL_SSLVERSION_MAX_TLSv1_2);
+	req.ssl_version = CURL_SSLVERSION_TLSv1_2 | CURL_SSLVERSION_MAX_TLSv1_2;
 	auto resp = curl.perform(req);
 	require_ok(resp, 200, R"({"ok":true})");
 
-#if defined(CURL_SSLVERSION_TLSv1_3) && defined(CURL_SSLVERSION_MAX_TLSv1_3)
-	req.ssl_version = static_cast<long>(CURL_SSLVERSION_TLSv1_3) |
-	                  static_cast<long>(CURL_SSLVERSION_MAX_TLSv1_3);
+		#if defined(CURL_SSLVERSION_TLSv1_3) && defined(CURL_SSLVERSION_MAX_TLSv1_3)
+	req.ssl_version = CURL_SSLVERSION_TLSv1_3 | CURL_SSLVERSION_MAX_TLSv1_3;
 	resp = curl.perform(req);
 	require_ok(resp, 200, R"({"ok":true})");
-#else
+		#else
 	WARN("installed libcurl headers do not expose TLS 1.3 controls");
-#endif
-#endif
+		#endif
+	#endif
 }
 
 TEST_CASE(
@@ -462,7 +460,8 @@ TEST_CASE(
 	"ext/libcurl: SSE short stream closes cleanly") {
 	conflux::tests::HttpsServerFixture const fx{make_matrix_router()};
 	CurlEasy curl;
-	auto resp = curl.perform(CurlRequest{.url = https_url(fx.port(), "/events"), .http_version = CURL_HTTP_VERSION_1_1});
+	auto resp =
+		curl.perform(CurlRequest{.url = https_url(fx.port(), "/events"), .http_version = CURL_HTTP_VERSION_1_1});
 	require_contains(resp, 200, "data: alpha\n\n");
 	REQUIRE(resp.body.find("data: beta\n\n") != S::npos);
 }
@@ -483,7 +482,8 @@ TEST_CASE(
 	router.serve_static("/static", dir);
 	conflux::tests::HttpsServerFixture const fx{move(router)};
 	CurlEasy curl;
-	auto resp = curl.perform(CurlRequest{.url = https_url(fx.port(), "/static/large.bin"), .http_version = CURL_HTTP_VERSION_1_1});
+	auto resp = curl.perform(
+		CurlRequest{.url = https_url(fx.port(), "/static/large.bin"), .http_version = CURL_HTTP_VERSION_1_1});
 	fs::remove_all(dir);
 	require_ok(resp, 200, body);
 }
@@ -559,10 +559,8 @@ struct ExpectedCurlRequest {
 	TortureVersion mode,
 	unsigned i) {
 	switch (mode) {
-	case TortureVersion::Http11:
-		return CURL_HTTP_VERSION_1_1;
-	case TortureVersion::Http2:
-		return CURL_HTTP_VERSION_2_0;
+	case TortureVersion::Http11: return CURL_HTTP_VERSION_1_1;
+	case TortureVersion::Http2 : return CURL_HTTP_VERSION_2_0;
 	case TortureVersion::Mixed:
 		if (i % 3U == 0U) {
 			return CURL_HTTP_VERSION_NONE;
@@ -571,10 +569,8 @@ struct ExpectedCurlRequest {
 			return CURL_HTTP_VERSION_1_1;
 		}
 		return CURL_HTTP_VERSION_2_0;
-	case TortureVersion::Default:
-		return CURL_HTTP_VERSION_1_1;
-	case TortureVersion::Http3:
-		return CURL_HTTP_VERSION_NONE;
+	case TortureVersion::Default: return CURL_HTTP_VERSION_1_1;
+	case TortureVersion::Http3  : return CURL_HTTP_VERSION_NONE;
 	}
 	return CURL_HTTP_VERSION_NONE;
 }
@@ -590,15 +586,15 @@ struct ExpectedCurlRequest {
 	out.request.forbid_reuse = fresh;
 
 	if (version == TortureVersion::Http3) {
-#ifdef CURL_HTTP_VERSION_3ONLY
+	#ifdef CURL_HTTP_VERSION_3ONLY
 		out.request.url = h3_url(port, "/ping");
 		out.request.http_version = CURL_HTTP_VERSION_3ONLY;
 		out.request.resolve = localhost_resolve(port);
 		out.expected_body = R"({"ok":true})";
-#else
+	#else
 		out.request.url = https_url(port, "/ping");
 		out.expected_body = R"({"ok":true})";
-#endif
+	#endif
 		return out;
 	}
 
@@ -623,6 +619,10 @@ struct ExpectedCurlRequest {
 		break;
 	default:
 		out.request.url = https_url(port, "/events");
+		// SSE deliberately closes the connection after the terminating chunk.
+		// Tell libcurl not to pool that easy handle afterwards so the next
+		// sequential stress iteration never races a peer-side TLS close_notify.
+		out.request.forbid_reuse = true;
 		out.expected_contains = "data: alpha\n\n";
 		break;
 	}
@@ -693,15 +693,15 @@ void setopt_abort_data(
 		return false;
 	}
 	if (version == TortureVersion::Http3) {
-#if !CONFLUX_HAS_HTTP3 || !defined(CURL_HTTP_VERSION_3ONLY)
+	#if !CONFLUX_HAS_HTTP3 || !defined(CURL_HTTP_VERSION_3ONLY)
 		WARN("CONFLUX_CURL_TORTURE_HTTP_VERSION=3 requested, but HTTP/3 is unavailable in this build");
 		return false;
-#else
+	#else
 		if (!curl_has_http3()) {
 			WARN("CONFLUX_CURL_TORTURE_HTTP_VERSION=3 requested, but libcurl lacks HTTP/3");
 			return false;
 		}
-#endif
+	#endif
 	}
 	return true;
 }
@@ -709,14 +709,14 @@ void setopt_abort_data(
 TEST_CASE(
 	"ext/libcurl/stress: sequential requests") {
 	unsigned const iters = env_uint("CONFLUX_CURL_TORTURE_ITERS", 1000U);
-	bool const fresh = env_bool("CONFLUX_CURL_TORTURE_FRESH_CONNECT", false);
+	bool const fresh = env_bool("CONFLUX_CURL_TORTURE_FRESH_CONNECT", true);
 	TortureVersion const version = env_version();
 	if (!torture_supported(version)) {
 		return;
 	}
 
 	Router router = make_stress_router();
-#if CONFLUX_HAS_HTTP3 && defined(CURL_HTTP_VERSION_3ONLY)
+	#if CONFLUX_HAS_HTTP3 && defined(CURL_HTTP_VERSION_3ONLY)
 	if (version == TortureVersion::Http3) {
 		conflux::tests::Http3ServerFixture const fx{move(router)};
 		CurlEasy curl;
@@ -726,7 +726,7 @@ TEST_CASE(
 		}
 		return;
 	}
-#endif
+	#endif
 	conflux::tests::HttpsServerFixture const fx{move(router)};
 	CurlEasy curl;
 	for (unsigned i = 0; i < iters; ++i) {
@@ -739,13 +739,18 @@ TEST_CASE(
 	"ext/libcurl/stress: parallel multi-interface mixed routes") {
 	unsigned const iters = env_uint("CONFLUX_CURL_TORTURE_ITERS", 1000U);
 	unsigned const concurrency = max(1U, env_uint("CONFLUX_CURL_TORTURE_CONCURRENCY", 32U));
-	bool const fresh = env_bool("CONFLUX_CURL_TORTURE_FRESH_CONNECT", false);
+	// Keep the default stress target on request handling/protocol behavior, not
+	// libcurl's TLS connection cache. Set the env var to 0 when explicitly
+	// probing keep-alive reuse behavior.
+	bool const fresh = env_bool("CONFLUX_CURL_TORTURE_FRESH_CONNECT", true);
 	TortureVersion const version = env_version();
 	if (!torture_supported(version)) {
 		return;
 	}
 	if (version == TortureVersion::Http3) {
-		WARN("multi-interface HTTP/3 stress is intentionally left to curl CLI smoke until local libcurl H3 support is stable");
+		WARN(
+			"multi-interface HTTP/3 stress is intentionally left to curl CLI smoke until local libcurl H3 support is "
+			"stable");
 		return;
 	}
 
@@ -822,9 +827,8 @@ TEST_CASE(
 			REQUIRE(remove_rc == CURLM_OK);
 			curl_easy_cleanup(msg->easy_handle);
 			active->easy = nullptr;
-			auto const found = ranges::find_if(owned, [&](UP<Active> const &candidate) {
-				return candidate.get() == active;
-			});
+			auto const found =
+				ranges::find_if(owned, [&](UP<Active> const &candidate) { return candidate.get() == active; });
 			REQUIRE(found != owned.end());
 			owned.erase(found);
 			++completed;

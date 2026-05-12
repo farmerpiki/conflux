@@ -343,7 +343,7 @@ void bench_builder() {
 			for (int i = 0; i < 64; ++i) {
 				(void)obj->insert_string(format("key_{}", i), format("value_{}", i));
 			}
-			(void)move(*obj).commit();
+			move(*obj).commit();
 			(void)move(b).finish();
 		},
 		50,
@@ -706,7 +706,7 @@ S make_reject_corpus(
 	return out;
 }
 void bench_reject_policy() {
-	for (SZ extra: {0, 10, 50, 100, 200}) {
+	for (SZ extra: A<SZ, 5>{0, 10, 50, 100, 200}) {
 		S const corpus = make_reject_corpus(extra);
 		auto doc_res = parse(corpus);
 		if (!doc_res) {

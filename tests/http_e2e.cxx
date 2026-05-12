@@ -4775,13 +4775,11 @@ TEST_CASE(
 TEST_CASE(
 	"metrics: 4xx response increments GET 4xx counter") {
 	static u16 port = 0;
-	static MetricsRegistry *reg_ptr = nullptr;
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Config const cfg{.port = 0, .rings = 1};
 		Router router;
 		static MetricsRegistry reg;
-		reg_ptr = &reg;
 		router.use(metrics_middleware(reg));
 		router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 		router.get("/metrics", metrics_handler(reg));

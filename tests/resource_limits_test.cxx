@@ -160,7 +160,7 @@ TEST_CASE(
 	constexpr int kIters = 1000;
 	for (int i = 0; i < kIters; ++i) {
 		submit_fixed_fd_install(raw, 0, static_cast<u64>(i));
-		raw.submit();
+		REQUIRE(raw.submit() >= 0);
 		io_uring_cqe *cqe{};
 		REQUIRE(::io_uring_wait_cqe(rg.get(), &cqe) == 0);
 		int const installed = cqe->res;

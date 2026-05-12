@@ -89,7 +89,7 @@ int main() {
 	// Test correctness: compare outputs for various sizes
 	std::printf("=== Correctness comparison ===\n");
 	bool all_ok = true;
-	for (SZ sz: {0, 1, 15, 16, 17, 64, 256, 1024, 4096, 65536}) {
+	for (SZ sz: A<SZ, 10>{0, 1, 15, 16, 17, 64, 256, 1024, 4096, 65536}) {
 		V<unsigned char> pt(sz);
 		getrandom(pt.data(), pt.size(), 0);
 

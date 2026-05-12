@@ -149,8 +149,8 @@ TEST_CASE(
 		ch->close();
 	});
 	conflux::tests::HttpsServerFixture const fx{move(r)};
-	auto [code, body] =
-		conflux::tests::run_cmd_retry(format("curl -sk --http1.1 -N --max-time 5 https://127.0.0.1:{}/events", fx.port()));
+	auto [code, body] = conflux::tests::run_cmd_retry(
+		format("curl -sk --http1.1 -N --max-time 5 https://127.0.0.1:{}/events", fx.port()));
 	INFO(format("code: {}, body: {}", code, body));
 	REQUIRE(code == 0);
 	REQUIRE(body.find("data: alpha\n\n") != S::npos);
@@ -164,8 +164,8 @@ TEST_CASE(
 		ch->close();
 	});
 	conflux::tests::HttpsServerFixture const fx{move(r)};
-	auto [code, body] =
-		conflux::tests::run_cmd_retry(format("curl -sk --http1.1 -N --max-time 5 https://127.0.0.1:{}/typed", fx.port()));
+	auto [code, body] = conflux::tests::run_cmd_retry(
+		format("curl -sk --http1.1 -N --max-time 5 https://127.0.0.1:{}/typed", fx.port()));
 	INFO(format("code: {}, body: {}", code, body));
 	REQUIRE(code == 0);
 	REQUIRE(body.find("event: update\n") != S::npos);
