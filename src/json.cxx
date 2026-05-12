@@ -722,6 +722,8 @@ struct CLocaleHolder {
 		return CLocaleHolder{l, l != static_cast<::locale_t>(0)}; // NOLINT(modernize-use-nullptr)
 	}();
 	// Intentional: process-lifetime singleton, never freelocale'd.
+	// This is the only permitted hidden process-lifetime state in conflux.json;
+	// see docs/json-design.md.
 	return h;
 }
 struct ClassifiedDouble {

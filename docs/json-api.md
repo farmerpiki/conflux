@@ -5,7 +5,8 @@
 **Import:** `import conflux.json;`
 
 All types live in namespace `conflux::json`. All fallible operations return
-`std::expected<T, JsonError>`.
+`std::expected<T, JsonError>`. Design-level invariants, including the single
+permitted process-lifetime locale holder, are documented in `docs/json-design.md`.
 
 ---
 
