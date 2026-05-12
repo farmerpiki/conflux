@@ -16,6 +16,7 @@ import conflux.work;
 import conflux.file_io;
 import conflux.socket_io;
 import conflux.socket_io.coro;
+import conflux.socket_io.blocking;
 
 namespace {
 

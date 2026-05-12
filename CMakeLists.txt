@@ -434,7 +434,13 @@ target_sources(conflux_socket_io
         FILES
         src/socket_io/socket_io.cxx
         src/socket_io/socket_io_coro.cxx
+        src/socket_io/socket_io_blocking.cxx
 )
+target_sources(conflux_socket_io
+    PRIVATE
+        src/socket_io/socket_io_coro_impl.cxx
+)
+
 target_link_libraries(conflux_socket_io
     PRIVATE conflux_options
     PUBLIC  conflux_types
@@ -452,6 +458,10 @@ target_sources(conflux_dns
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES
         src/net/dns/dns.cxx
+)
+target_sources(conflux_dns
+    PRIVATE
+        src/net/dns/dns_impl.cxx
 )
 target_link_libraries(conflux_dns
     PRIVATE conflux_options
@@ -638,6 +648,12 @@ target_sources(conflux
         FILES
         ${CONFLUX_MODULE_SOURCES}
 )
+
+target_sources(conflux
+    PRIVATE
+        src/net/cancel_impl.cxx
+)
+
 target_sources(conflux
     PUBLIC FILE_SET generated_mods TYPE CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_BINARY_DIR}"
