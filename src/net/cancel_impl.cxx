@@ -24,9 +24,6 @@ struct ActiveTaskCancelRelayState {
 	return static_cast<ActiveTaskCancelRelayState *>(p);
 }
 
-[[nodiscard]] ActiveTaskCancelRelayState const *relay_state(void const *p) noexcept {
-	return static_cast<ActiveTaskCancelRelayState const *>(p);
-}
 
 } // namespace
 

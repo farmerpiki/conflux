@@ -1364,6 +1364,7 @@ void run_buf_slices_from_cqe_bundle(
 				for (auto s: slices) {
 					acc += s.bytes.size();
 				}
+				auto _ = acc;
 				slices.recycle_all();
 			},
 	};

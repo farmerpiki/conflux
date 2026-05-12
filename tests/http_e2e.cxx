@@ -2708,7 +2708,7 @@ TEST_CASE(
 		auto path = S{tmpdir} + "/existing.txt";
 		int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(fd >= 0);
-		::write(fd, "old", 3);
+		REQUIRE(::write(fd, "old", 3) == 3);
 		::close(fd);
 
 		auto resp = raw_request("PUT", "/static/existing.txt", "new-content");
@@ -2765,7 +2765,7 @@ TEST_CASE(
 		auto path = S{tmpdir} + "/todelete.txt";
 		int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(fd >= 0);
-		::write(fd, "bye", 3);
+		REQUIRE(::write(fd, "bye", 3) == 3);
 		::close(fd);
 
 		auto resp = raw_request("DELETE", "/static/todelete.txt");
@@ -2800,7 +2800,7 @@ TEST_CASE(
 	int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(fd >= 0);
 	SV const content = "Hello, static!";
-	::write(fd, content.data(), content.size());
+	REQUIRE(::write(fd, content.data(), content.size()) == static_cast<ssize_t>(content.size()));
 	::close(fd);
 
 	Config cfg{};
@@ -2852,7 +2852,7 @@ TEST_CASE(
 	int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(fd >= 0);
 	SV const content = "0123456789";
-	::write(fd, content.data(), content.size());
+	REQUIRE(::write(fd, content.data(), content.size()) == static_cast<ssize_t>(content.size()));
 	::close(fd);
 
 	Config cfg{};
@@ -2896,7 +2896,7 @@ TEST_CASE(
 	int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(fd >= 0);
 	SV const content = "hi";
-	::write(fd, content.data(), content.size());
+	REQUIRE(::write(fd, content.data(), content.size()) == static_cast<ssize_t>(content.size()));
 	::close(fd);
 
 	Config cfg{};
@@ -2942,7 +2942,7 @@ TEST_CASE(
 	int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(fd >= 0);
 	SV const content = "0123456789";
-	::write(fd, content.data(), content.size());
+	REQUIRE(::write(fd, content.data(), content.size()) == static_cast<ssize_t>(content.size()));
 	::close(fd);
 
 	Config cfg{};
@@ -7115,7 +7115,7 @@ TEST_CASE(
 	int const wfd = ::open(fpath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(wfd >= 0);
 	SV const content{"space file"};
-	::write(wfd, content.data(), content.size());
+	REQUIRE(::write(wfd, content.data(), content.size()) == static_cast<ssize_t>(content.size()));
 	::close(wfd);
 
 	Router router;
@@ -7142,7 +7142,7 @@ TEST_CASE(
 	int const wfd = ::open(fpath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(wfd >= 0);
 	SV const content{"hello"};
-	::write(wfd, content.data(), content.size());
+	REQUIRE(::write(wfd, content.data(), content.size()) == static_cast<ssize_t>(content.size()));
 	::close(wfd);
 
 	Router router;
@@ -7433,7 +7433,7 @@ TEST_CASE(
 	auto fpath = S{tmpdir} + "/file.txt";
 	int const fd = ::open(fpath.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(fd >= 0);
-	::write(fd, "hi", 2);
+	REQUIRE(::write(fd, "hi", 2) == 2);
 	::close(fd);
 
 	Router router;
@@ -7457,7 +7457,7 @@ TEST_CASE(
 		auto path = S{tmpdir} + "/" + S{name};
 		int const wfd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(wfd >= 0);
-		::write(wfd, content.data(), content.size());
+		REQUIRE(::write(wfd, content.data(), content.size()) == static_cast<ssize_t>(content.size()));
 		::close(wfd);
 	};
 	write_file("alpha.txt", "a");
@@ -7535,7 +7535,7 @@ TEST_CASE(
 	int const wfd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 	REQUIRE(wfd >= 0);
 	auto content = SV{"<h1>Index</h1>"};
-	::write(wfd, content.data(), content.size());
+	REQUIRE(::write(wfd, content.data(), content.size()) == static_cast<ssize_t>(content.size()));
 	::close(wfd);
 
 	Router router;

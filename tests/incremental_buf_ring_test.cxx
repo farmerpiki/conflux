@@ -14,7 +14,7 @@ import conflux.socket_io;
 #endif
 namespace {
 
-int run_probe(
+[[maybe_unused]] int run_probe(
 	char const *probe) noexcept {
 	pid_t const pid = ::fork();
 	if (pid < 0) {

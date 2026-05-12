@@ -18,7 +18,7 @@ namespace {
 // Fork the assert probe binary.
 // Returns 42 if the named assert fired (probe installs SIGABRT→_exit(42)),
 // 0 if the probe exited normally (NDEBUG build), negative on fork/exec failure.
-int run_probe(
+[[maybe_unused]] int run_probe(
 	char const *probe) noexcept {
 	pid_t const pid = ::fork();
 	if (pid < 0) {

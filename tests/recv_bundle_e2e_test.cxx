@@ -49,7 +49,7 @@ void send_and_abort(
 	}
 	// Partial request — no terminal \r\n\r\n so the server cannot dispatch it.
 	char const partial[] = "GET /api/ping HTTP/1.1\r\nHost: 127.0.0.1\r\n";
-	(void)::write(fd, partial, sizeof(partial) - 1);
+	auto _ = ::write(fd, partial, sizeof(partial) - 1);
 	::close(fd);
 }
 

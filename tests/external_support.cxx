@@ -75,7 +75,10 @@ P<S, S> write_cached_cert_files() {
 		if (f < 0) {
 			throw RE{"mkstemps failed"};
 		}
-		::write(f, cert_pem.data(), cert_pem.size());
+		if (::write(f, cert_pem.data(), cert_pem.size()) != static_cast<ssize_t>(cert_pem.size())) {
+			::close(f);
+			throw RE{"cert write failed"};
+		}
 		::close(f);
 	}
 	{
@@ -83,7 +86,10 @@ P<S, S> write_cached_cert_files() {
 		if (f < 0) {
 			throw RE{"mkstemps failed"};
 		}
-		::write(f, key_pem.data(), key_pem.size());
+		if (::write(f, key_pem.data(), key_pem.size()) != static_cast<ssize_t>(key_pem.size())) {
+			::close(f);
+			throw RE{"key write failed"};
+		}
 		::close(f);
 	}
 	return {cert_tmp, key_tmp};

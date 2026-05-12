@@ -85,7 +85,7 @@ void seed_source(
 void drop_caches() noexcept {
 	int const fd = ::open("/proc/sys/vm/drop_caches", O_WRONLY);
 	if (fd >= 0) {
-		(void)::write(fd, "1\n", 2);
+		auto _ = ::write(fd, "1\n", 2);
 		::close(fd);
 	}
 }

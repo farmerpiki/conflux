@@ -37,7 +37,7 @@ inline S make_staging_name_async() {
 	auto const pid = static_cast<u32>(::getpid());
 	auto const seq = g_async_staging_counter.fetch_add(1, memory_order_relaxed);
 	u32 rnd{};
-	::getrandom(&rnd, sizeof(rnd), 0);
+	auto _ = ::getrandom(&rnd, sizeof(rnd), 0);
 	return format(".conflux.tmp.{}.{}.{:08x}", pid, seq, rnd);
 }
 
