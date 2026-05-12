@@ -18,7 +18,6 @@ function(conflux_apply_compiler_options target)
         -Woverloaded-virtual
         -Wpedantic
         -Wredundant-decls
-        -Wshadow
         -Wsign-conversion
         -Wunused
     )
@@ -36,6 +35,7 @@ function(conflux_apply_compiler_options target)
             -Wmissing-noreturn
             -Wmissing-format-attribute
             -Wno-global-module
+            -Wno-missing-field-initializers
         )
     endif()
 
