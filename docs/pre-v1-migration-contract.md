@@ -3,6 +3,8 @@
 This is the current project contract while Conflux HTTP/work APIs are still
 pre-v1.
 
+For release-level versioning, security disclosure, compiler, and kernel/runtime policy, see [`project-policy.md`](project-policy.md).
+
 - `liburing` is required for runtime, HTTP, and socket targets. After the modular target split lands, `conflux::core`, `conflux::json`, `conflux::file_io_sync`, and `conflux::file_map` will not require liburing. Conflux remains Linux/io_uring-first.
 - Breaking API changes are expected before v1 when they simplify the final
   public surface.

@@ -16,6 +16,10 @@ Optional protocol and storage features are enabled when their libraries are
 available, including OpenSSL, nghttp2, ngtcp2/nghttp3, libpq, and compression
 backends. These are feature-gated; `io_uring` and `liburing` are not.
 
+## Project Policy
+
+Versioning, security disclosure, supported compiler presets, and kernel/runtime support are documented in [`docs/project-policy.md`](docs/project-policy.md).
+
 ## Runtime Preflight
 
 Before running the server or the core test binaries on a new host, confirm that
