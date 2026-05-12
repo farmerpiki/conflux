@@ -1041,7 +1041,7 @@ export bool submit_recv_multishot(
 		ioprio = ioprio | conflux::uring::ioprio_flags::recvsend_bundle;
 	}
 #else
-	(void)bundle;
+	auto _ = bundle;
 #endif
 	if (arm == RecvArmPolicy::poll_first) {
 		ioprio = ioprio | conflux::uring::ioprio_flags::recvsend_poll_first;

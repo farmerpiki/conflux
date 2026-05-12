@@ -93,7 +93,11 @@ static void example_sax() {
 	println("\n--- parse_sax ---");
 	SV input = R"({"a":"hello","b":"world","c":42})";
 	CountHandler h;
-	(void)parse_sax(input, h);
+	auto sax = parse_sax(input, h);
+	if (!sax) {
+		println("parse_sax error: {}", sax.error().message);
+		return;
+	}
 	println("keys={} strings={}", h.keys, h.strings);
 }
 static void example_ndjson() {

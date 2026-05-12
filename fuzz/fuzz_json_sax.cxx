@@ -59,6 +59,6 @@ extern "C" int LLVMFuzzerTestOneInput(
 
 	JsonParseOptions opts{.max_depth = LimitOption::bound(256)};
 	FuzzHandler handler;
-	(void)parse_sax(input, handler, opts);
+	auto _ = parse_sax(input, handler, opts);
 	return 0;
 }

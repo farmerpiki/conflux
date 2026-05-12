@@ -73,7 +73,11 @@ static void example_roundtrip() {
 	Material orig{.name = "wood", .roughness = 0.8, .texture = "oak.jpg"};
 
 	ValueBuilder vb;
-	(void)JsonCodec<Material>::encode(vb, orig);
+	auto enc = JsonCodec<Material>::encode(vb, orig);
+	if (!enc) {
+		println("encode error: {}", enc.error().message);
+		return;
+	}
 	auto doc = *move(vb).finish();
 	auto json_str = *doc.dump();
 	println("encoded: {}", json_str);

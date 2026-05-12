@@ -36,12 +36,12 @@ extern "C" int LLVMFuzzerTestOneInput(
 	NodeRef const root = res->root();
 	if (auto arr = root.as_array()) {
 		for (NodeRef const e: arr->elements()) {
-			(void)e.kind();
+			auto _ = e.kind();
 		}
 	} else if (auto obj = root.as_object()) {
 		for (auto const &[k, v]: obj->members()) {
-			(void)k;
-			(void)v.kind();
+			auto _ = k;
+			auto _ = v.kind();
 		}
 	}
 

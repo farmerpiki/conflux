@@ -30,13 +30,18 @@ function(conflux_apply_compiler_options target)
             -Wduplicated-branches
             -Wlogical-op
             -Wuseless-cast
-            -Wsuggest-attribute=pure
-            -Wsuggest-attribute=const
             -Wmissing-noreturn
             -Wmissing-format-attribute
             -Wno-global-module
             -Wno-missing-field-initializers
         )
+
+        if(CONFLUX_GCC_SUGGEST_ATTRIBUTES)
+            target_compile_options(${target} INTERFACE
+                -Wsuggest-attribute=pure
+                -Wsuggest-attribute=const
+            )
+        endif()
 
         # GCC 16.1 can fail while lazily deserializing already-built project CMIs
         # with diagnostics such as "failed to read compiled module cluster" and

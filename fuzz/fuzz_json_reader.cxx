@@ -35,14 +35,18 @@ extern "C" int LLVMFuzzerTestOneInput(
 			{
 				S decoded;
 				auto tok = (ev == Ev::key) ? reader.key_token() : reader.string_token();
-				(void)tok.append_decoded_to(decoded);
+				auto _ = tok.append_decoded_to(decoded);
 				break;
 			}
 		case Ev::number_value:
-			(void)reader.number_val().to_i64();
-			(void)reader.number_val().to_f64();
+			auto _ = reader.number_val().to_i64();
+			auto _ = reader.number_val().to_f64();
 			break;
-		case Ev::bool_value: (void)reader.bool_val(); break;
+		case Ev::bool_value:
+			{
+				auto _ = reader.bool_val();
+				break;
+			}
 		default            : break;
 		}
 	}

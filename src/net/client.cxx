@@ -107,18 +107,24 @@ bool connect_with_timeout(
 	if (flags < 0) {
 		return false;
 	}
-	auto _ = ::fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+	if (::fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0) {
+		return false;
+	}
 	int const rc = ::connect(fd, addr, addrlen);
 	if (rc == 0) {
-		auto _ = ::fcntl(fd, F_SETFL, flags);
-		return true;
+		return ::fcntl(fd, F_SETFL, flags) == 0;
 	}
 	if (errno != EINPROGRESS) {
-		auto _ = ::fcntl(fd, F_SETFL, flags);
+		auto const restore_rc = ::fcntl(fd, F_SETFL, flags);
+		if (restore_rc < 0) {
+			return false;
+		}
 		return false;
 	}
 	bool const ready = wait_fd(fd, POLLOUT, timeout_sec);
-	auto _ = ::fcntl(fd, F_SETFL, flags);
+	if (::fcntl(fd, F_SETFL, flags) < 0) {
+		return false;
+	}
 	if (!ready) {
 		return false;
 	}
@@ -540,9 +546,21 @@ HttpResult do_blocking_request(
 		tls_ctx->set_verify_peer(verify);
 		if (verify) {
 			if (!opts.ca_bundle_path.empty()) {
-				auto _ = SSL_CTX_load_verify_locations(tls_ctx->native_handle(), opts.ca_bundle_path.c_str(), nullptr);
-			} else {
-				auto _ = tls_ctx->set_default_verify_paths();
+				if (SSL_CTX_load_verify_locations(tls_ctx->native_handle(), opts.ca_bundle_path.c_str(), nullptr) != 1) {
+					::close(fd);
+					return unexpected(HttpError{
+						.kind = HttpErrorKind::tls,
+						.phase = HttpPhase::tls,
+						.message = "TLS CA bundle load failed",
+					});
+				}
+			} else if (!tls_ctx->set_default_verify_paths()) {
+				::close(fd);
+				return unexpected(HttpError{
+					.kind = HttpErrorKind::tls,
+					.phase = HttpPhase::tls,
+					.message = "TLS default verify paths load failed",
+				});
 			}
 		}
 

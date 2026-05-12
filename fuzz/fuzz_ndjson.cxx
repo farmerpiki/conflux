@@ -18,7 +18,7 @@ extern "C" int LLVMFuzzerTestOneInput(
 	for (auto const &line_result: range) {
 		if (line_result.has_value()) {
 			NodeRef root = line_result->root();
-			(void)root.kind();
+			auto _ = root.kind();
 		} else {
 			if (line_result.error().message.empty()) {
 				__builtin_trap();

@@ -27,7 +27,11 @@ int main() {
 		return 1;
 	}
 	SV text = "hello from conflux.file_io\n";
-	(void)::write(seed, text.data(), text.size());
+	if (::write(seed, text.data(), text.size()) != static_cast<ssize_t>(text.size())) {
+		println(cerr, "seed write failed");
+		::close(seed);
+		return 1;
+	}
 	::close(seed);
 
 	io_uring ring{};

@@ -3,6 +3,7 @@ module;
 
 #include <arpa/inet.h>
 #include <cassert>
+#include <cerrno>
 #include <cstdio>
 #include <liburing.h>
 #include <netinet/in.h>
@@ -2143,6 +2144,12 @@ struct Ring {
 		}
 		pending_ops.push_back(move(op));
 	}
+	void cancel_multishot_recv_or_defer(
+		SocketHandle handle) {
+		if (!submit_cancel_multishot_recv(raw_, handle, pack(Op::Nop, 0, 0))) {
+			defer_op([this, handle] { cancel_multishot_recv_or_defer(handle); });
+		}
+	}
 	void drain_pending_ops() {
 		SZ remaining = pending_ops.size();
 		while (remaining > 0 && !pending_ops.empty()) {
@@ -2552,7 +2559,9 @@ struct Ring {
 			if (!conn.has_response) {
 				return;
 			}
-			(void)tls_write_plaintext(fd, conn, conn.own_response);
+			if (!tls_write_plaintext(fd, conn, conn.own_response)) {
+				return;
+			}
 			return;
 		}
 #endif
@@ -2680,7 +2689,7 @@ struct Ring {
 		conn.recv_armed = false;
 		auto handle =
 			accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(fd)) : SocketHandle::from_os(conn.fd);
-		(void)submit_cancel_multishot_recv(raw_, handle, pack(Op::Nop, 0, 0));
+		cancel_multishot_recv_or_defer(handle);
 	}
 	void cancel_accept_or_defer() {
 		if (!submit_cancel_by_ud(raw_, pack(Op::Accept, 0, listen_fd), 0)) {
@@ -2860,7 +2869,7 @@ struct Ring {
 				if (conn.recv_armed) {
 					auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(i)) :
 															SocketHandle::from_os(conn.fd);
-					(void)submit_cancel_multishot_recv(raw_, handle, pack(Op::Nop, 0, 0));
+					cancel_multishot_recv_or_defer(handle);
 				}
 			} else {
 				queue_close(static_cast<int>(i));
@@ -4412,17 +4421,19 @@ struct Ring {
 				}
 				break;
 			default:
-				// unknown op — future Op additions must be handled here
-				(void)std::fprintf(
-					stderr,
-					"dispatch_cqe_fatal: unknown op=%u ud=0x%llx\n",
-					static_cast<unsigned>(static_cast<u8>(op)),
-					static_cast<unsigned long long>(cqe->user_data));
-				break;
+				{
+					// unknown op — future Op additions must be handled here
+					auto _ = std::fprintf(
+						stderr,
+						"dispatch_cqe_fatal: unknown op=%u ud=0x%llx\n",
+						static_cast<unsigned>(static_cast<u8>(op)),
+						static_cast<unsigned long long>(cqe->user_data));
+					break;
+				}
 			}
 		} catch (exception const &e) {
-			(void)std::fprintf(stderr, "dispatch_cqe_fatal: suppressed exception: %s\n", e.what());
-		} catch (...) { (void)std::fputs("dispatch_cqe_fatal: suppressed unknown exception\n", stderr); }
+			auto _ = std::fprintf(stderr, "dispatch_cqe_fatal: suppressed exception: %s\n", e.what());
+		} catch (...) { auto _ = std::fputs("dispatch_cqe_fatal: suppressed unknown exception\n", stderr); }
 	}
 	void emit_ring_diagnostics() noexcept {
 		try {
@@ -4471,8 +4482,8 @@ struct Ring {
 				eprintln("ring_overflow_flush_limit_hit=1");
 			}
 		} catch (exception const &e) {
-			(void)std::fprintf(stderr, "emit_ring_diagnostics: suppressed exception: %s\n", e.what());
-		} catch (...) { (void)std::fputs("emit_ring_diagnostics: suppressed unknown exception\n", stderr); }
+			auto _ = std::fprintf(stderr, "emit_ring_diagnostics: suppressed exception: %s\n", e.what());
+		} catch (...) { auto _ = std::fputs("emit_ring_diagnostics: suppressed unknown exception\n", stderr); }
 	}
 	void flush_overflow_cqes_until_clear_or_limit() noexcept {
 		static constexpr unsigned max_iters = 16;
@@ -4501,17 +4512,22 @@ struct Ring {
 			cpu_set_t cs;
 			CPU_ZERO(&cs);
 			CPU_SET(static_cast<unsigned>(ring_core_), &cs);
-			(void)::sched_setaffinity(0, sizeof(cs), &cs);
+			if (::sched_setaffinity(0, sizeof(cs), &cs) < 0) {
+				eprintln(format("run_loop: sched_setaffinity ring_core={} failed errno={}", ring_core_, errno));
+			}
 		}
 		if (worker_core_ >= 0 && ring.ring_fd >= 0) {
 			cpu_set_t cs;
 			CPU_ZERO(&cs);
 			CPU_SET(static_cast<unsigned>(worker_core_), &cs);
-			(void)::io_uring_register(
+			auto const rc = ::io_uring_register(
 				static_cast<unsigned>(ring.ring_fd),
 				static_cast<unsigned>(IORING_REGISTER_IOWQ_AFF),
 				&cs,
 				static_cast<unsigned>(sizeof(cs)));
+			if (rc < 0) {
+				eprintln(format("run_loop: IORING_REGISTER_IOWQ_AFF worker_core={} failed rc={}", worker_core_, rc));
+			}
 		}
 		CurrentFileReaderScope const file_reader_scope{files.get()};
 

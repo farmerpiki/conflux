@@ -37,7 +37,7 @@ int main() {
 
 	app.get("/api/async-ping", [](HttpRequest const &) -> conflux::work::root::Task<http::Response> {
 		auto [task, source] = conflux::work::root::make_task_source<http::Response>();
-		(void)source.try_set_value(
+		auto _ = source.try_set_value(
 			conflux::work::root::Success<http::Response>{http::Response::json(R"({"status":"ok","mode":"async"})")});
 		return move(task);
 	});
