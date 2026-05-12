@@ -455,7 +455,6 @@ struct alignas(
 	S tls_send_pending{}; // encrypted bytes generated while no send can be submitted
 	S tls_send_inflight{}; // stable borrowed storage for in-flight io_uring SEND
 	SZ tls_send_off{}; // bytes of tls_send_inflight already sent
-	S tls_recv_buf{}; // unconsumed ciphertext; rbio (BIO_new_mem_buf) points here
 	bool tls_hs_done = false; // TLS handshake completed; also used as undecided sentinel
 	bool tls_sending_response = false; // true → current tls_send_buf carries HTTP response data
 	bool ktls_send = false; // kTLS send offload active; splice_to_fd usable for TLS file body
@@ -1233,6 +1232,28 @@ struct Ring {
 			conn.tls_send_pending.append(buf.data(), static_cast<SZ>(n));
 		}
 	}
+	static bool tls_feed_rbio(
+		Conn &conn) {
+		if (conn.partial.empty()) {
+			return true;
+		}
+		BIO *const rbio = SSL_get_rbio(conn.ssl.get());
+		if (rbio == nullptr) {
+			return false;
+		}
+		SV in = conn.partial.view();
+		SZ off{};
+		while (off < in.size()) {
+			auto const want = static_cast<int>(min<SZ>(in.size() - off, static_cast<SZ>(NL<int>::max())));
+			int const written = BIO_write(rbio, in.data() + off, want);
+			if (written <= 0) {
+				return false;
+			}
+			off += static_cast<SZ>(written);
+		}
+		conn.partial.clear();
+		return true;
+	}
 	// Submit an io_uring send for pending/in-flight TLS bytes.
 	// Caller must NOT pre-set send_queued; this function owns the transition.
 	void tls_queue_send(
@@ -1254,12 +1275,10 @@ struct Ring {
 		auto const view = span{conn.tls_send_inflight}.subspan(conn.tls_send_off);
 		auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(conn.fd)) :
 												SocketHandle::from_os(conn.fd);
-
 		auto const fd = conn.fd;
 		auto const gen = conn.gen;
 
 		conn.send_queued = true;
-
 		if (!submit_send_borrowed(raw_, handle, view.data(), view.size(), pack(Op::Send, gen, fd))) {
 			conn.send_queued = false;
 			defer_op([this, fd, gen] {
@@ -2046,7 +2065,6 @@ struct Ring {
 		conn.tls_send_pending.clear();
 		conn.tls_send_inflight.clear();
 		conn.tls_send_off = 0;
-		conn.tls_recv_buf.clear();
 		conn.tls_hs_done = false;
 		conn.tls_sending_response = false;
 #endif
@@ -2092,6 +2110,36 @@ struct Ring {
 			--remaining;
 			op();
 		}
+	}
+	void defer_queue_send_if_current(
+		int fd,
+		u32 gen) {
+		defer_op([this, fd, gen] {
+			auto const ufd = static_cast<SZ>(fd);
+			if (ufd < fd_table.size() && fd_table[ufd].gen == gen && fd_table[ufd].fd >= 0) {
+				start_response_send(fd, fd_table[ufd]);
+			}
+		});
+	}
+	void defer_handle_send_complete_if_current(
+		int fd,
+		u32 gen) {
+		defer_op([this, fd, gen] {
+			auto const ufd = static_cast<SZ>(fd);
+			if (ufd < fd_table.size() && fd_table[ufd].gen == gen && fd_table[ufd].fd >= 0) {
+				handle_send_complete(fd, fd_table[ufd]);
+			}
+		});
+	}
+	void defer_start_streamed_body_if_current(
+		int fd,
+		u32 gen) {
+		defer_op([this, fd, gen] {
+			auto const ufd = static_cast<SZ>(fd);
+			if (ufd < fd_table.size() && fd_table[ufd].gen == gen && fd_table[ufd].fd >= 0) {
+				start_streamed_body(fd);
+			}
+		});
 	}
 	void queue_multishot_accept() {
 		auto listen_handle =
@@ -2380,8 +2428,8 @@ struct Ring {
 		}
 		conn.streamed_delivered += delivered;
 		if (conn.streamed_delivered < conn.streamed_file->send_size) {
-			// Short splice — kick another leg.
-			start_streamed_body(fd);
+			// Short splice — kick another leg from the event queue.
+			defer_start_streamed_body_if_current(fd, conn.gen);
 			return;
 		}
 		// Fully streamed — release handle (ring will close via close_async
@@ -2398,7 +2446,7 @@ struct Ring {
 			conn.tls_sending_response = false;
 		}
 #endif
-		handle_send_complete(fd, conn);
+		defer_handle_send_complete_if_current(fd, conn.gen);
 	}
 	void queue_send(
 		int fd) {
@@ -2825,7 +2873,6 @@ struct Ring {
 			conn.tls_send_pending.clear();
 			conn.tls_send_inflight.clear();
 			conn.tls_send_off = 0;
-			conn.tls_recv_buf.clear();
 			// Sentinel: ssl==nullptr && tls_hs_done==true means "waiting for first byte".
 			// SSL_new() is deferred to phase1_copy_recv_bufs after the first-byte sniff.
 			// ssl_ctx==nullptr (plain-only server): tls_hs_done stays false — no sniff needed.
@@ -2990,7 +3037,7 @@ struct Ring {
 			conn.own_response = move(remaining);
 			conn.has_response = true;
 			conn.written = 0;
-			queue_send(fd);
+			defer_queue_send_if_current(fd, conn.gen);
 		} else if (conn.sse_channel->is_closed()) {
 			queue_close(fd);
 		} else {
@@ -3028,7 +3075,7 @@ struct Ring {
 				parser_limits);
 			if (response_send_ready(conn)) {
 				if (!conn.send_queued) {
-					queue_send(fd);
+					defer_queue_send_if_current(fd, conn.gen);
 				}
 				return;
 			}
@@ -3399,7 +3446,7 @@ struct Ring {
 			// If an HTTP response accumulated while we were busy, send it now.
 			if (response_send_ready(conn)) {
 				if (!conn.send_queued) {
-					queue_send(fd);
+					defer_queue_send_if_current(fd, conn.gen);
 				}
 			} else if (!conn.recv_armed) {
 				queue_multishot_recv(fd);
@@ -3988,7 +4035,7 @@ struct Ring {
 					// TLS ClientHello record type — create SSL and start handshake.
 					conn.ssl.reset(SSL_new(ssl_ctx));
 					if (conn.ssl) {
-						BIO *rbio = BIO_new_mem_buf("", 0);
+						BIO *rbio = BIO_new(BIO_s_mem());
 						if (rbio != nullptr) {
 							BIO_set_mem_eof_return(rbio, -1);
 						}
@@ -4044,50 +4091,11 @@ struct Ring {
 	void phase1b_tls_one(
 		Conn &conn,
 		RecvComp &rc) {
-		// Move fresh ciphertext from partial into tls_recv_buf (zero-copy via move
-		// when tls_recv_buf is empty; append otherwise). rbio is a BIO_new_mem_buf
-		// pointing at tls_recv_buf.data() — avoids BIO_s_mem internal buffer and
-		// the BIO_write memcpy.
-		if (!conn.partial.empty()) {
-			if (conn.tls_recv_buf.empty()) {
-				conn.tls_recv_buf = conn.partial.take();
-			} else {
-				conn.tls_recv_buf.append(conn.partial.data(), conn.partial.size());
-				conn.partial.clear();
-			}
+		if (!tls_feed_rbio(conn)) {
+			queue_close(conn.fd);
+			rc.res = -1;
+			return;
 		}
-		auto const recv_len_before = conn.tls_recv_buf.size();
-		if (recv_len_before > 0) {
-			BIO *const fresh = BIO_new_mem_buf(conn.tls_recv_buf.data(), static_cast<int>(recv_len_before));
-			if (fresh != nullptr) {
-				BIO_set_mem_eof_return(fresh, -1);
-				SSL_set0_rbio(conn.ssl.get(), fresh);
-			}
-		}
-
-		auto const compact_and_refresh_rbio = [&] {
-			if (recv_len_before == 0) {
-				return;
-			}
-			BIO *const rbio = SSL_get_rbio(conn.ssl.get());
-			long const remaining = rbio != nullptr ? BIO_pending(rbio) : 0;
-			if (remaining >= 0 && static_cast<SZ>(remaining) <= recv_len_before) {
-				SZ const consumed = recv_len_before - static_cast<SZ>(remaining);
-				if (consumed == conn.tls_recv_buf.size()) {
-					conn.tls_recv_buf.clear();
-				} else if (consumed > 0) {
-					conn.tls_recv_buf.erase(0, consumed);
-				}
-			}
-			BIO *const refreshed =
-				conn.tls_recv_buf.empty() ?
-					BIO_new_mem_buf("", 0) :
-					BIO_new_mem_buf(conn.tls_recv_buf.data(), static_cast<int>(conn.tls_recv_buf.size()));
-			if (refreshed != nullptr) {
-				BIO_set_mem_eof_return(refreshed, -1);
-				SSL_set0_rbio(conn.ssl.get(), refreshed);
-			}
-		};
 
 		// Drive the handshake until it completes or needs more data.
 		if (!conn.tls_hs_done) {
@@ -4105,14 +4113,12 @@ struct Ring {
 					if (!conn.send_queued) {
 						tls_queue_send(conn);
 					}
-					compact_and_refresh_rbio();
 					return; // wait for more handshake data from client
 				}
 				if (!conn.send_queued) {
 					queue_close(conn.fd);
 				}
 				rc.res = -1;
-				compact_and_refresh_rbio();
 				return;
 			}
 		}
@@ -4124,14 +4130,13 @@ struct Ring {
 			conn.partial.append(plain.data(), static_cast<SZ>(n));
 		}
 		int const ssl_err = SSL_get_error(conn.ssl.get(), n);
-		if (ssl_err == SSL_ERROR_ZERO_RETURN || (ssl_err != SSL_ERROR_WANT_READ && ssl_err != SSL_ERROR_NONE)) {
+		if (ssl_err == SSL_ERROR_ZERO_RETURN
+			|| (ssl_err != SSL_ERROR_WANT_READ && ssl_err != SSL_ERROR_WANT_WRITE && ssl_err != SSL_ERROR_NONE)) {
 			if (!conn.send_queued) {
 				queue_close(conn.fd);
 			}
 			rc.res = -1;
 		}
-
-		compact_and_refresh_rbio();
 
 	#if CONFLUX_HAS_HTTP2
 		if (!conn.is_h2 && !conn.partial.empty() && !conn.request_in_progress) {
