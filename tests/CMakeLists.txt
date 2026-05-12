@@ -1,5 +1,10 @@
 find_package(Catch2 3 REQUIRED)
+find_package(CURL QUIET)
 include(Catch)
+
+option(CONFLUX_BUILD_LIBCURL_EXTERNAL_TESTS
+       "Build libcurl-based external HTTP tests"
+       ${CURL_FOUND})
 
 set(CONFLUX_CATCH_RNG_SEED "" CACHE STRING "Optional Catch2 RNG seed used by discovered CTest tests")
 set(CONFLUX_PG_TEST_CONNINFO "" CACHE STRING "libpq conninfo for DB integration tests (e.g. host=localhost user=postgres dbname=conflux_test)")
@@ -13,6 +18,17 @@ function(conflux_discover_tests target)
         EXTRA_ARGS ${extra_args}
         PROPERTIES RUN_SERIAL TRUE
         TIMEOUT 10
+    )
+endfunction()
+
+function(conflux_discover_stress_tests target)
+    set(extra_args --order lex)
+    if(NOT CONFLUX_CATCH_RNG_SEED STREQUAL "")
+        list(APPEND extra_args --rng-seed ${CONFLUX_CATCH_RNG_SEED})
+    endif()
+    catch_discover_tests(${target}
+        EXTRA_ARGS ${extra_args}
+        PROPERTIES RUN_SERIAL TRUE LABELS stress TIMEOUT 120
     )
 endfunction()
 
@@ -66,6 +82,40 @@ if(CONFLUX_HAS_TLS STREQUAL "true")
     add_executable(conflux_smtp_tests smtp_test.cxx)
     target_link_libraries(conflux_smtp_tests
         PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+
+    if(CONFLUX_BUILD_LIBCURL_EXTERNAL_TESTS AND CURL_FOUND)
+        add_executable(conflux_libcurl_external)
+        target_sources(conflux_libcurl_external
+            PRIVATE
+                libcurl_external.cxx
+            PRIVATE FILE_SET CXX_MODULES FILES
+                external_support.cxx
+        )
+        target_link_libraries(conflux_libcurl_external
+            PRIVATE
+                conflux
+                conflux_options
+                Catch2::Catch2WithMain
+                CURL::libcurl
+        )
+
+        add_executable(conflux_libcurl_external_stress)
+        target_sources(conflux_libcurl_external_stress
+            PRIVATE
+                libcurl_external.cxx
+            PRIVATE FILE_SET CXX_MODULES FILES
+                external_support.cxx
+        )
+        target_compile_definitions(conflux_libcurl_external_stress
+            PRIVATE CONFLUX_LIBCURL_STRESS_ONLY=1)
+        target_link_libraries(conflux_libcurl_external_stress
+            PRIVATE
+                conflux
+                conflux_options
+                Catch2::Catch2WithMain
+                CURL::libcurl
+        )
+    endif()
 endif()
 
 if(CONFLUX_HAS_HTTP2 STREQUAL "true")
@@ -437,6 +487,12 @@ conflux_discover_tests(conflux_file_io_http_e2e)
 conflux_discover_tests(conflux_http_overflow_stress_tests)
 if(CONFLUX_HAS_TLS STREQUAL "true")
     conflux_discover_tests(conflux_smtp_tests)
+endif()
+if(TARGET conflux_libcurl_external)
+    conflux_discover_tests(conflux_libcurl_external)
+endif()
+if(TARGET conflux_libcurl_external_stress)
+    conflux_discover_stress_tests(conflux_libcurl_external_stress)
 endif()
 if(CONFLUX_HAS_HTTP2 STREQUAL "true")
     conflux_discover_tests(conflux_h2_external)
