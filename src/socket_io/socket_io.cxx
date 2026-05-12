@@ -129,7 +129,12 @@ export class BufferRing {
 	u16 group_id_{};
 	SZ slab_sz_{};
 	V<u16> ring_order_;
-	u32 head_pos_{};
+	V<u32> id_pos_;
+	V<u8> decoded_pos_;
+	V<u8> observed_pos_;
+	V<u8> recycle_ready_pos_;
+	u32 head_pos_{}; // first logical ring position not yet observed from a CQE
+	u32 recycle_head_pos_{}; // first logical ring position not yet returned to kernel
 	u32 tail_pos_{};
 	BufferRingMode mode_{BufferRingMode::classic_one_cqe_per_buffer};
 	V<SZ> incremental_offsets_{};
@@ -217,10 +222,16 @@ public:
 		}
 		ring_.advance(static_cast<int>(count_));
 		ring_order_.resize(count_);
+		id_pos_.resize(count_);
+		decoded_pos_.assign(count_, 0);
+		observed_pos_.assign(count_, 0);
+		recycle_ready_pos_.assign(count_, 0);
 		for (u32 i = 0; i < count_; ++i) {
 			ring_order_[i] = static_cast<u16>(i);
+			id_pos_[i] = i;
 		}
 		head_pos_ = 0;
+		recycle_head_pos_ = 0;
 		tail_pos_ = count_;
 		if (mode_ == BufferRingMode::incremental) {
 			incremental_offsets_.assign(count_, SZ{0});
@@ -266,7 +277,21 @@ public:
 	}
 	void recycle(
 		u16 id) noexcept {
-		ring_order_[tail_pos_ % count_] = id;
+		for (u32 pos = recycle_head_pos_; pos != tail_pos_; ++pos) {
+			u32 const idx = pos % count_;
+			if (observed_pos_[idx] != 0 && recycle_ready_pos_[idx] == 0 && ring_id_at(pos) == id) {
+				recycle_ready_pos_[idx] = 1;
+				flush_recycle_ready();
+				return;
+			}
+		}
+
+		u32 const idx = tail_pos_ % count_;
+		ring_order_[idx] = id;
+		id_pos_[id] = tail_pos_;
+		decoded_pos_[idx] = 0;
+		observed_pos_[idx] = 0;
+		recycle_ready_pos_[idx] = 0;
 		ring_.add(
 			slab_.get() + static_cast<SZ>(id) * buf_size_,
 			static_cast<u32>(buf_size_),
@@ -279,7 +304,12 @@ public:
 		span<u16 const> ids) noexcept {
 		u32 i = 0;
 		for (auto id: ids) {
-			ring_order_[(tail_pos_ + i) % count_] = id;
+			u32 const idx = (tail_pos_ + i) % count_;
+			ring_order_[idx] = id;
+			id_pos_[id] = tail_pos_ + i;
+			decoded_pos_[idx] = 0;
+			observed_pos_[idx] = 0;
+			recycle_ready_pos_[idx] = 0;
 			ring_.add(
 				slab_.get() + static_cast<SZ>(id) * buf_size_,
 				static_cast<u32>(buf_size_),
@@ -290,26 +320,77 @@ public:
 		ring_.advance(static_cast<int>(ids.size()));
 		tail_pos_ += static_cast<u32>(ids.size());
 	}
-	void recycle_range(
-		u32 start_pos,
-		u32 cnt) noexcept {
-		for (u32 i = 0; i < cnt; ++i) {
-			u16 const id = ring_order_[(start_pos + i) % count_];
-			ring_order_[(tail_pos_ + i) % count_] = id;
+	void flush_recycle_ready() noexcept {
+		u32 batch = 0;
+		while (recycle_head_pos_ != tail_pos_ && recycle_ready_pos_[recycle_head_pos_ % count_] != 0) {
+			u16 const id = ring_id_at(recycle_head_pos_);
+			u32 const old_idx = recycle_head_pos_ % count_;
+			u32 const idx = tail_pos_ % count_;
+			recycle_ready_pos_[old_idx] = 0;
+			observed_pos_[old_idx] = 0;
+			ring_order_[idx] = id;
+			id_pos_[id] = tail_pos_;
+			decoded_pos_[idx] = 0;
+			observed_pos_[idx] = 0;
+			recycle_ready_pos_[idx] = 0;
 			ring_.add(
 				slab_.get() + static_cast<SZ>(id) * buf_size_,
 				static_cast<u32>(buf_size_),
 				conflux::uring::BufId{id},
-				static_cast<int>(i));
+				static_cast<int>(batch));
+			++batch;
+			++recycle_head_pos_;
+			++tail_pos_;
 		}
-		ring_.advance(static_cast<int>(cnt));
-		tail_pos_ += cnt;
+		if (batch != 0) {
+			ring_.advance(static_cast<int>(batch));
+		}
+	}
+	void recycle_range(
+		u32 start_pos,
+		u32 cnt) noexcept {
+		if (cnt == 0) {
+			return;
+		}
+		assert(start_pos >= recycle_head_pos_);
+		assert(start_pos + cnt <= tail_pos_);
+		for (u32 i = 0; i < cnt; ++i) {
+			recycle_ready_pos_[(start_pos + i) % count_] = 1;
+		}
+		flush_recycle_ready();
+	}
+	void consume_at(
+		u32 start_pos,
+		u32 cnt) noexcept {
+		assert(start_pos >= recycle_head_pos_);
+		assert(start_pos + cnt <= tail_pos_);
+		for (u32 i = 0; i < cnt; ++i) {
+			u32 const idx = (start_pos + i) % count_;
+			decoded_pos_[idx] = 1;
+			observed_pos_[idx] = 1;
+		}
+		while (head_pos_ != tail_pos_ && decoded_pos_[head_pos_ % count_] != 0) {
+			decoded_pos_[head_pos_ % count_] = 0;
+			++head_pos_;
+		}
 	}
 	u32 consume(
 		u32 cnt) noexcept {
 		u32 const old = head_pos_;
-		head_pos_ += cnt;
+		consume_at(old, cnt);
 		return old;
+	}
+	[[nodiscard]] Opt<u32> find_start_pos(
+		u16 first_id,
+		u32 cnt) const noexcept {
+		if (cnt == 0 || cnt > count_ || first_id >= count_) {
+			return nullopt;
+		}
+		u32 const pos = id_pos_[first_id];
+		if (pos < recycle_head_pos_ || pos + cnt > tail_pos_ || ring_id_at(pos) != first_id) {
+			return nullopt;
+		}
+		return pos;
 	}
 	bool reclaim_incremental_partial(
 		u16 id) noexcept {
@@ -625,9 +706,13 @@ export [[nodiscard]] RecvSlices buffer_slices_from_cqe(
 	assert(cnt > 0);
 	assert(cnt <= ring.count());
 	u16 const first_id = cqe_buffer_id(flags);
-	assert(ring.ring_id_at(ring.debug_head_pos()) == first_id);
-	u32 const start = ring.consume(cnt);
-	return RecvSlices{&ring, start, cnt, total};
+	auto const start = ring.find_start_pos(first_id, cnt);
+	if (!start) [[unlikely]] {
+		assert(false && "CQE buffer id/range is not present in the userspace buffer-ring window");
+		return {};
+	}
+	ring.consume_at(*start, cnt);
+	return RecvSlices{&ring, *start, cnt, total};
 }
 // ─── DirectFdTable ───────────────────────────────────────────────────────────
 // Registers a sparse fixed-file table with io_uring.
@@ -769,9 +854,13 @@ export bool submit_recv_multishot(
 	sqe.prep_recv_multishot(handle.sqe_fd(), nullptr, 0, conflux::uring::MsgFlags{});
 	sqe.buf_group(conflux::uring::BufGroupId{bufs.group_id()});
 	conflux::uring::IoPrioFlags ioprio{};
+#if CONFLUX_ENABLE_RECV_BUNDLE
 	if (bundle && bufs.mode() == BufferRingMode::recv_bundle) {
 		ioprio = ioprio | conflux::uring::ioprio_flags::recvsend_bundle;
 	}
+#else
+	(void)bundle;
+#endif
 	if (arm == RecvArmPolicy::poll_first) {
 		ioprio = ioprio | conflux::uring::ioprio_flags::recvsend_poll_first;
 	}

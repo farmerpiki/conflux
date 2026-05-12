@@ -4,6 +4,7 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <memory>
 
 import std;
 import conflux.types;

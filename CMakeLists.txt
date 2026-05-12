@@ -40,6 +40,7 @@ option(CONFLUX_ENABLE_ISAL    "Build ISA-L gzip backend"                     ON)
 option(CONFLUX_ENABLE_BROTLI  "Build Brotli compression support"             ON)
 option(CONFLUX_ENABLE_ZSTD    "Build Zstandard compression support"          ON)
 option(CONFLUX_ENABLE_METRICS "Build Prometheus-compatible metrics support"  ON)
+option(CONFLUX_ENABLE_RECV_BUNDLE "Allow io_uring multishot recv bundling when configured and supported by the kernel" ON)
 option(CONFLUX_ENABLE_HTTP2   "Build HTTP/2 support (requires nghttp2+TLS)"  ON)
 option(CONFLUX_ENABLE_HTTP3   "Build HTTP/3 support (requires ngtcp2+nghttp3+OpenSSL 3.5+TLS)" ON)
 option(CONFLUX_ENABLE_DB      "Build PostgreSQL client support (requires libpq)" ON)
@@ -256,6 +257,14 @@ unset(CMAKE_REQUIRED_FLAGS)
 
 add_library(conflux_options INTERFACE)
 conflux_apply_compiler_options(conflux_options)
+target_compile_definitions(conflux_options INTERFACE
+    CONFLUX_ENABLE_RECV_BUNDLE=$<BOOL:${CONFLUX_ENABLE_RECV_BUNDLE}>
+)
+if(CONFLUX_ENABLE_RECV_BUNDLE)
+    message(STATUS "conflux: recv bundle build gate enabled")
+else()
+    message(STATUS "conflux: recv bundle build gate disabled")
+endif()
 
 add_library(conflux_types STATIC)
 target_sources(conflux_types

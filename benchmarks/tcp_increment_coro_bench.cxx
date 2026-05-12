@@ -8,6 +8,7 @@
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <memory>
 
 import std;
 import conflux.types;
@@ -16,7 +17,6 @@ import conflux.file_io;
 import conflux.socket_io;
 import conflux.socket_io.coro;
 
-using conflux::work::root::Task;
 namespace {
 
 constexpr u64 pack_ud(
@@ -232,7 +232,7 @@ struct FrLineReader {
 	FileHandle const &handle;
 	A<byte, 128> buf{};
 	SZ held = 0;
-	Task<SV> read_line() {
+	conflux::work::root::Task<SV> read_line() {
 		for (;;) {
 			auto view = span{buf}.first(held);
 			auto it = ranges::find(view, static_cast<byte>('\n'));
@@ -275,7 +275,7 @@ u64 run_fr_callback(
 	auto const t1 = chrono::steady_clock::now();
 	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
-Task<u64> fr_coro_loop(
+conflux::work::root::Task<u64> fr_coro_loop(
 	FileReader &files,
 	FileHandle const &sock,
 	SZ iters,
@@ -358,7 +358,7 @@ u64 run_str_callback(
 	auto const t1 = chrono::steady_clock::now();
 	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
-Task<u64> str_coro_loop(
+conflux::work::root::Task<u64> str_coro_loop(
 	TcpStream &stream,
 	SZ iters,
 	u64 start) {
@@ -403,7 +403,7 @@ u64 run_str_coroutine(
 	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
 // ── async server ──────────────────────────────────────────────────────────────
-Task<void> serve_one_async(
+conflux::work::root::Task<void> serve_one_async(
 	TcpStream stream) {
 	A<u8, 128> rbuf{};
 	SZ held = 0;
@@ -464,7 +464,7 @@ void run_async_server(
 	}
 	CompletionTable ct;
 	SocketTaskRing ring{SocketRawRing{&raw}, ct, [](u32 s, u32 g) noexcept -> u64 { return pack_ud(s, g); }};
-	tcp_accept_multishot(listener, ring, {}, [](TcpStream s) -> Task<void> {
+	tcp_accept_multishot(listener, ring, {}, [](TcpStream s) -> conflux::work::root::Task<void> {
 		return serve_one_async(move(s));
 	}).detach();
 	auto drain = [&]() noexcept {
@@ -507,7 +507,7 @@ void run_async_server(
 	::io_uring_queue_exit(&raw);
 }
 // ── str/parallel_4 ────────────────────────────────────────────────────────────
-Task<void> str_parallel_inner(
+conflux::work::root::Task<void> str_parallel_inner(
 	SocketTaskRing &ring,
 	u16 port,
 	SZ iters,

@@ -17,15 +17,6 @@ import conflux.socket_io;
 import conflux.work;
 import conflux.socket_io.coro;
 
-using std::exception_ptr;
-using std::expected;
-using std::optional;
-using std::span;
-using std::string;
-using std::string_view;
-using std::unexpected;
-using std::unordered_map;
-using std::vector;
 namespace conflux::net::dns {
 namespace root = conflux::work::root;
 
@@ -41,7 +32,7 @@ export struct Endpoint {
 	AddressFamily family{};
 };
 export struct ResolveResult {
-	vector<Endpoint> endpoints;
+	V<Endpoint> endpoints;
 	chrono::nanoseconds elapsed{};
 	chrono::seconds suggested_ttl{0};
 	bool from_cache{false};
@@ -71,16 +62,16 @@ export enum class DnsErrorKind : u8 {
 export struct DnsError final : RE {
 	DnsError(
 		DnsErrorKind k,
-		string const &msg,
+		S const &msg,
 		int err = 0,
-		optional<u8> r = {})
+		Opt<u8> r = {})
 		: RE{msg}
 		, kind{k}
 		, os_errno{err}
 		, rcode{r} {}
 	DnsErrorKind kind;
 	int os_errno{0};
-	optional<u8> rcode{};
+	Opt<u8> rcode{};
 };
 // ─── nameserver endpoint ────────────────────────────────────────────────────
 
@@ -92,29 +83,29 @@ export struct NameserverEndpoint {
 // Parse "ip", "ip:port", "[ipv6]:port", "[ipv6]". Returns endpoint with
 // AF_INET or AF_INET6 set in addr. On failure returns the unsupported
 // literal so callers can surface a useful diagnostic.
-export [[nodiscard]] expected<NameserverEndpoint, string> parse_nameserver(
-	string_view literal) {
+export [[nodiscard]] expected<NameserverEndpoint, S> parse_nameserver(
+	SV literal) {
 	if (literal.empty()) {
-		return unexpected{string{"empty nameserver literal"}};
+		return unexpected{S{"empty nameserver literal"}};
 	}
 
-	string host;
+	S host;
 	u16 port = 53;
 
 	if (literal.front() == '[') {
 		auto const close = literal.find(']');
-		if (close == string_view::npos) {
-			return unexpected{string{"unterminated '[' in nameserver literal"}};
+		if (close == SV::npos) {
+			return unexpected{S{"unterminated '[' in nameserver literal"}};
 		}
 		host.assign(literal.substr(1, close - 1));
 		auto rest = literal.substr(close + 1);
 		if (!rest.empty()) {
 			if (rest.front() != ':') {
-				return unexpected{string{"expected ':<port>' after ']' in nameserver literal"}};
+				return unexpected{S{"expected ':<port>' after ']' in nameserver literal"}};
 			}
 			rest.remove_prefix(1);
 			if (rest.empty()) {
-				return unexpected{string{"missing port after ':' in nameserver literal"}};
+				return unexpected{S{"missing port after ':' in nameserver literal"}};
 			}
 			u32 parsed = 0;
 			for (char const c: rest) {
@@ -133,13 +124,13 @@ export [[nodiscard]] expected<NameserverEndpoint, string> parse_nameserver(
 		// Distinguish: bare IPv6 contains ':', but so does "ipv4:port".
 		// IPv6 always has ≥ 2 colons or contains "::"; IPv4 has at most 1.
 		auto const colons = ranges::count(literal, ':');
-		bool const is_ipv6 = colons >= 2 || literal.find("::") != string_view::npos;
+		bool const is_ipv6 = colons >= 2 || literal.find("::") != SV::npos;
 		if (!is_ipv6 && colons == 1) {
 			auto const colon = literal.find(':');
 			host.assign(literal.substr(0, colon));
 			auto rest = literal.substr(colon + 1);
 			if (rest.empty()) {
-				return unexpected{string{"missing port after ':' in nameserver literal"}};
+				return unexpected{S{"missing port after ':' in nameserver literal"}};
 			}
 			u32 parsed = 0;
 			for (char const c: rest) {
@@ -184,12 +175,12 @@ export [[nodiscard]] expected<NameserverEndpoint, string> parse_nameserver(
 // dot-only / empty labels. Total length ≤ 253 bytes (excluding final '.'),
 // per-label ≤ 63 bytes.
 export [[nodiscard]] bool is_valid_hostname(
-	string_view name) noexcept {
+	SV name) noexcept {
 	if (name.empty()) {
 		return false;
 	}
 	// Strip optional trailing root dot for length accounting.
-	string_view trimmed = name;
+	SV trimmed = name;
 	if (trimmed.back() == '.') {
 		trimmed.remove_suffix(1);
 	}
@@ -219,8 +210,8 @@ export [[nodiscard]] bool is_valid_hostname(
 
 // Returns an Endpoint if `host` is an IPv4 or IPv6 literal, else nullopt.
 // `port` is written into the sockaddr in network order.
-export [[nodiscard]] optional<Endpoint> try_parse_ip_literal(
-	string_view host,
+export [[nodiscard]] Opt<Endpoint> try_parse_ip_literal(
+	SV host,
 	u16 port) noexcept {
 	// inet_pton needs a NUL-terminated string. Stack-buffer common case.
 	A<char, 64> buf{};
@@ -305,24 +296,24 @@ export struct Header {
 	[[nodiscard]] RCode rcode() const noexcept { return static_cast<RCode>(flags & kRCodeMask); }
 };
 export struct Question {
-	string name; // canonical lowercase, no trailing root, dot-separated
+	S name; // canonical lowercase, no trailing root, dot-separated
 	QType qtype{QType::a};
 	QClass qclass{QClass::in};
 };
 export struct ResourceRecord {
-	string name;
+	S name;
 	QType type{QType::a};
 	QClass rclass{QClass::in};
 	u32 ttl{0};
-	vector<u8> rdata; // raw RDATA (uncompressed for OPT; for compressed names,
+	V<u8> rdata; // raw RDATA (uncompressed for OPT; for compressed names,
 	// callers parse via decode helpers below)
 };
 export struct Message {
 	Header header{};
-	vector<Question> questions;
-	vector<ResourceRecord> answers;
-	vector<ResourceRecord> authority;
-	vector<ResourceRecord> additional;
+	V<Question> questions;
+	V<ResourceRecord> answers;
+	V<ResourceRecord> authority;
+	V<ResourceRecord> additional;
 };
 // EDNS0 OPT pseudo-RR.
 export struct Edns0Options {
@@ -333,12 +324,12 @@ export struct Edns0Options {
 };
 // Encode a query (header + single question + optional EDNS0 OPT in additional).
 // Returns the wire bytes. RD=1 set unconditionally.
-export [[nodiscard]] vector<u8> encode_query(
+export [[nodiscard]] V<u8> encode_query(
 	u16 id,
-	string_view qname,
+	SV qname,
 	QType qtype,
-	optional<Edns0Options> edns = Edns0Options{}) {
-	vector<u8> out;
+	Opt<Edns0Options> edns = Edns0Options{}) {
+	V<u8> out;
 	out.reserve(64);
 
 	auto write_u16 = [&](u16 v) {
@@ -366,7 +357,7 @@ export [[nodiscard]] vector<u8> encode_query(
 		size_t pos = 0;
 		while (pos < qname.size()) {
 			auto const dot = qname.find('.', pos);
-			auto const len = (dot == string_view::npos ? qname.size() : dot) - pos;
+			auto const len = (dot == SV::npos ? qname.size() : dot) - pos;
 			if (len == 0) {
 				// empty label (consecutive dots) — caller should have validated
 				break;
@@ -381,7 +372,7 @@ export [[nodiscard]] vector<u8> encode_query(
 				out.end(),
 				qname.begin() + static_cast<std::ptrdiff_t>(pos),
 				qname.begin() + static_cast<std::ptrdiff_t>(pos + len));
-			pos += len + (dot == string_view::npos ? 0 : 1);
+			pos += len + (dot == SV::npos ? 0 : 1);
 		}
 		out.push_back(0); // root
 	}
@@ -416,7 +407,7 @@ export [[nodiscard]] vector<u8> encode_query(
 export [[nodiscard]] size_t decode_name(
 	span<u8 const> wire,
 	size_t offset,
-	string &out) {
+	S &out) {
 	out.clear();
 	constexpr size_t kMaxDepth = 16;
 	size_t depth = 0;
@@ -560,7 +551,7 @@ export [[nodiscard]] Message decode_message(
 	return m;
 }
 // Convert an A or AAAA RR into an Endpoint. Returns nullopt for other types.
-export [[nodiscard]] optional<Endpoint> rdata_to_endpoint(
+export [[nodiscard]] Opt<Endpoint> rdata_to_endpoint(
 	ResourceRecord const &rr,
 	u16 port) {
 	Endpoint ep{};
@@ -585,7 +576,7 @@ export [[nodiscard]] optional<Endpoint> rdata_to_endpoint(
 	return nullopt;
 }
 // Map RCODE → DnsErrorKind. RCODE 0 = noerror returns nullopt.
-export [[nodiscard]] optional<DnsErrorKind> rcode_to_error(
+export [[nodiscard]] Opt<DnsErrorKind> rcode_to_error(
 	RCode r) noexcept {
 	switch (r) {
 	case RCode::noerror : return nullopt;
@@ -613,7 +604,7 @@ export struct ResolveOptions {
 	chrono::milliseconds query_timeout{2000};
 	chrono::milliseconds total_timeout{5000};
 	bool bypass_cache{false};
-	vector<NameserverEndpoint> override_nameservers{};
+	V<NameserverEndpoint> override_nameservers{};
 };
 export struct ResolverOptions {
 	size_t cache_capacity{1024};
@@ -624,7 +615,7 @@ export struct ResolverOptions {
 	bool enable_etc_hosts{true};
 	u16 edns0_udp_size{4096};
 	size_t max_in_flight_queries{4096};
-	vector<NameserverEndpoint> override_nameservers{};
+	V<NameserverEndpoint> override_nameservers{};
 };
 // ─── Resolver ───────────────────────────────────────────────────────────────
 
@@ -641,16 +632,16 @@ public:
 	Resolver &operator =(Resolver &&) = delete;
 
 	[[nodiscard]] conflux::work::root::Task<ResolveResult>
-	resolve(string_view host, u16 port, ResolveOptions const &opts = {});
+	resolve(SV host, u16 port, ResolveOptions const &opts = {});
 
 	// ring must outlive the returned Task and any coalesced waiters sharing that ring
 	[[nodiscard]] conflux::work::root::Task<ResolveResult>
-	resolve(SocketTaskRing &ring, string_view host, u16 port, ResolveOptions const &opts = {});
+	resolve(SocketTaskRing &ring, SV host, u16 port, ResolveOptions const &opts = {});
 
 	[[nodiscard]] expected<ResolveResult, DnsError>
-	resolve_blocking(string_view host, u16 port, ResolveOptions const &opts = {});
+	resolve_blocking(SV host, u16 port, ResolveOptions const &opts = {});
 
-	void invalidate(string_view host);
+	void invalidate(SV host);
 	void clear_cache();
 	void reload();
 
@@ -661,7 +652,7 @@ public:
 
 private:
 	[[nodiscard]] root::Task<ResolveResult>
-	resolve_flow(SocketTaskRing *external_ring, string_view host, u16 port, ResolveOptions const &opts = {});
+	resolve_flow(SocketTaskRing *external_ring, SV host, u16 port, ResolveOptions const &opts = {});
 
 	struct Impl;
 	SP<Impl> impl_;
@@ -706,24 +697,24 @@ public:
 // ─── file-local helpers ──────────────────────────────────────────────────────
 
 struct ResolvConfig {
-	vector<NameserverEndpoint> nameservers;
-	vector<string> search_domains;
+	V<NameserverEndpoint> nameservers;
+	V<S> search_domains;
 	size_t ndots{1};
 	chrono::milliseconds query_timeout{0};
 	size_t attempts{1};
 };
-[[nodiscard]] string trim_ascii_copy(
-	string_view sv) {
+[[nodiscard]] S trim_ascii_copy(
+	SV sv) {
 	while (!sv.empty() && (sv.front() == ' ' || sv.front() == '\t' || sv.front() == '\r')) {
 		sv.remove_prefix(1);
 	}
 	while (!sv.empty() && (sv.back() == ' ' || sv.back() == '\t' || sv.back() == '\r')) {
 		sv.remove_suffix(1);
 	}
-	return string{sv};
+	return S{sv};
 }
-[[nodiscard]] optional<size_t> parse_decimal_size(
-	string_view sv) noexcept {
+[[nodiscard]] Opt<size_t> parse_decimal_size(
+	SV sv) noexcept {
 	if (sv.empty()) {
 		return nullopt;
 	}
@@ -737,21 +728,21 @@ struct ResolvConfig {
 	return out;
 }
 void parse_resolv_options(
-	string_view rest,
+	SV rest,
 	ResolvConfig &cfg) {
 	while (!rest.empty()) {
 		while (!rest.empty() && (rest.front() == ' ' || rest.front() == '\t')) {
 			rest.remove_prefix(1);
 		}
 		auto const end = rest.find_first_of(" \t");
-		string_view const token = end == string_view::npos ? rest : rest.substr(0, end);
-		if (end == string_view::npos) {
+		SV const token = end == SV::npos ? rest : rest.substr(0, end);
+		if (end == SV::npos) {
 			rest = {};
 		} else {
 			rest.remove_prefix(end + 1);
 		}
 
-		auto parse_after_colon = [](string_view value, string_view prefix) -> optional<size_t> {
+		auto parse_after_colon = [](SV value, SV prefix) -> Opt<size_t> {
 			if (!value.starts_with(prefix)) {
 				return nullopt;
 			}
@@ -767,16 +758,16 @@ void parse_resolv_options(
 		}
 	}
 }
-[[nodiscard]] vector<string> parse_search_domains(
-	string_view rest) {
-	vector<string> out;
+[[nodiscard]] V<S> parse_search_domains(
+	SV rest) {
+	V<S> out;
 	while (!rest.empty()) {
 		while (!rest.empty() && (rest.front() == ' ' || rest.front() == '\t')) {
 			rest.remove_prefix(1);
 		}
 		auto const end = rest.find_first_of(" \t");
-		string token = trim_ascii_copy(end == string_view::npos ? rest : rest.substr(0, end));
-		if (end == string_view::npos) {
+		S token = trim_ascii_copy(end == SV::npos ? rest : rest.substr(0, end));
+		if (end == SV::npos) {
 			rest = {};
 		} else {
 			rest.remove_prefix(end + 1);
@@ -806,9 +797,9 @@ void parse_resolv_options(
 		if (!f.is_open()) {
 			return out;
 		}
-		string line;
+		S line;
 		while (std::getline(f, line)) {
-			if (auto comment = line.find_first_of("#;"); comment != string::npos) {
+			if (auto comment = line.find_first_of("#;"); comment != S::npos) {
 				line.resize(comment);
 			}
 			auto trimmed = trim_ascii_copy(line);
@@ -816,10 +807,10 @@ void parse_resolv_options(
 				continue;
 			}
 			auto const split = trimmed.find_first_of(" \t");
-			string_view const key{trimmed.data(), split == string::npos ? trimmed.size() : split};
-			string_view rest{};
-			if (split != string::npos) {
-				rest = string_view{trimmed.data() + split + 1, trimmed.size() - split - 1};
+			SV const key{trimmed.data(), split == S::npos ? trimmed.size() : split};
+			SV rest{};
+			if (split != S::npos) {
+				rest = SV{trimmed.data() + split + 1, trimmed.size() - split - 1};
 			}
 			if (key == "nameserver") {
 				auto const sv = trim_ascii_copy(rest);
@@ -840,17 +831,17 @@ void parse_resolv_options(
 	} catch (...) {} // NOLINT(bugprone-empty-catch)
 	return out;
 }
-[[nodiscard]] unordered_map<string, vector<Endpoint>> parse_hosts_file(
+[[nodiscard]] UM<S, V<Endpoint>> parse_hosts_file(
 	fs::path const &path) noexcept {
-	unordered_map<string, vector<Endpoint>> out;
+	UM<S, V<Endpoint>> out;
 	try {
 		std::ifstream f{path};
 		if (!f.is_open()) {
 			return out;
 		}
-		string line;
+		S line;
 		while (std::getline(f, line)) {
-			if (auto hash = line.find('#'); hash != string::npos) {
+			if (auto hash = line.find('#'); hash != S::npos) {
 				line.resize(hash);
 			}
 			size_t pos = 0;
@@ -859,7 +850,7 @@ void parse_resolv_options(
 					++pos;
 				}
 			};
-			auto next_token = [&]() -> string_view {
+			auto next_token = [&]() -> SV {
 				skip_ws();
 				if (pos == line.size()) {
 					return {};
@@ -879,7 +870,7 @@ void parse_resolv_options(
 			Endpoint ep{};
 			::in_addr v4{};
 			::in6_addr v6{};
-			string const ip_str{ip_sv};
+			S const ip_str{ip_sv};
 			if (::inet_pton(AF_INET, ip_str.c_str(), &v4) == 1) {
 				auto *sin = reinterpret_cast<::sockaddr_in *>(&ep.addr);
 				sin->sin_family = AF_INET;
@@ -903,7 +894,7 @@ void parse_resolv_options(
 				if (name_sv.empty()) {
 					break;
 				}
-				string name{name_sv};
+				S name{name_sv};
 				for (char &c: name) {
 					if (c >= 'A' && c <= 'Z') {
 						c += 'a' - 'A';
@@ -915,9 +906,9 @@ void parse_resolv_options(
 	} catch (...) {} // NOLINT(bugprone-empty-catch)
 	return out;
 }
-[[nodiscard]] string lowercase_ascii(
-	string_view value) {
-	string out{value};
+[[nodiscard]] S lowercase_ascii(
+	SV value) {
+	S out{value};
 	for (char &c: out) {
 		if (c >= 'A' && c <= 'Z') {
 			c = static_cast<char>(c + ('a' - 'A'));
@@ -957,7 +948,7 @@ void parse_resolv_options(
 [[nodiscard]] bool has_expected_question(
 	codec::Message const &msg,
 	u16 expected_id,
-	string_view expected_qname,
+	SV expected_qname,
 	codec::QType expected_qtype) noexcept {
 	if (msg.header.id != expected_id || msg.questions.empty()) {
 		return false;
@@ -975,7 +966,7 @@ void validate_accepted_response_status(
 			*k,
 			format("dns: RCODE {}", static_cast<u8>(msg.header.rcode())),
 			0,
-			optional<u8>{static_cast<u8>(msg.header.rcode())}};
+			Opt<u8>{static_cast<u8>(msg.header.rcode())}};
 	}
 	if (msg.header.tc()) {
 		throw DnsError{DnsErrorKind::truncated, "dns: response TC=1"};
@@ -983,11 +974,11 @@ void validate_accepted_response_status(
 }
 struct DnsQueryState {
 	mutex m;
-	optional<root::TaskControl> active;
+	Opt<root::TaskControl> active;
 	Atom<bool> cancel_requested{false};
 	void set_active(
 		root::TaskControl c) {
-		optional<root::TaskControl> to_cancel;
+		Opt<root::TaskControl> to_cancel;
 		{
 			SL lk{m};
 			active.emplace(move(c));
@@ -1004,7 +995,7 @@ struct DnsQueryState {
 		active.reset();
 	}
 	void cancel() {
-		optional<root::TaskControl> to_cancel;
+		Opt<root::TaskControl> to_cancel;
 		{
 			SL lk{m};
 			cancel_requested.store(true, memory_order_release);
@@ -1035,9 +1026,9 @@ struct ActiveTaskGuard {
 [[nodiscard]] root::Task<void> run_udp_query_driver(
 	SocketTaskRing &ring,
 	NameserverEndpoint ns,
-	vector<u8> wire,
+	V<u8> wire,
 	u16 expected_id,
-	string expected_qname,
+	S expected_qname,
 	codec::QType expected_qtype,
 	chrono::milliseconds timeout,
 	SP<root::TaskSource<codec::Message>> src,
@@ -1099,9 +1090,9 @@ struct ActiveTaskGuard {
 [[nodiscard]] root::Task<codec::Message> udp_single_query(
 	SocketTaskRing &ring,
 	NameserverEndpoint ns,
-	vector<u8> wire,
+	V<u8> wire,
 	u16 expected_id,
-	string expected_qname,
+	S expected_qname,
 	codec::QType expected_qtype,
 	chrono::milliseconds timeout) {
 	auto [out_task, raw_src] = root::make_task_source<codec::Message>(root::SubmitOptions{.enable_cancellation = true});
@@ -1128,9 +1119,9 @@ struct ActiveTaskGuard {
 [[nodiscard]] root::Task<void> run_tcp_query_driver(
 	SocketTaskRing &ring,
 	NameserverEndpoint ns,
-	vector<u8> wire,
+	V<u8> wire,
 	u16 expected_id,
-	string expected_qname,
+	S expected_qname,
 	codec::QType expected_qtype,
 	chrono::milliseconds timeout,
 	SP<root::TaskSource<codec::Message>> src,
@@ -1147,7 +1138,7 @@ struct ActiveTaskGuard {
 			co_return;
 		}
 		check_cancelled();
-		vector<u8> framed;
+		V<u8> framed;
 		framed.reserve(2 + wire.size());
 		auto const wlen = static_cast<u16>(wire.size());
 		framed.push_back(static_cast<u8>(wlen >> 8U));
@@ -1202,7 +1193,7 @@ struct ActiveTaskGuard {
 		if (resp_len == 0) {
 			throw DnsError{DnsErrorKind::malformed, "dns: tcp zero-length response"};
 		}
-		vector<u8> resp_buf(resp_len);
+		V<u8> resp_buf(resp_len);
 		{
 			SZ resp_n = 0;
 			while (resp_n < static_cast<SZ>(resp_len)) {
@@ -1246,9 +1237,9 @@ struct ActiveTaskGuard {
 [[nodiscard]] root::Task<codec::Message> tcp_single_query(
 	SocketTaskRing &ring,
 	NameserverEndpoint ns,
-	vector<u8> wire,
+	V<u8> wire,
 	u16 expected_id,
-	string expected_qname,
+	S expected_qname,
 	codec::QType expected_qtype,
 	chrono::milliseconds timeout) {
 	auto [out_task, raw_src] = root::make_task_source<codec::Message>(root::SubmitOptions{.enable_cancellation = true});
@@ -1296,7 +1287,7 @@ enum class BatchFailReason : u8 {
 	truncated = 4,
 };
 struct EndpointBatch {
-	vector<Endpoint> eps;
+	V<Endpoint> eps;
 	u32 min_ttl{NL<u32>::max()};
 	BatchFailReason fail_reason{BatchFailReason::none};
 	bool was_queried{false};
@@ -1370,7 +1361,7 @@ struct EndpointBatch {
 [[nodiscard]] root::Task<ResolveResult> build_native_udp_flow(
 	SocketTaskRing &ring,
 	NameserverEndpoint ns,
-	string const &hostname,
+	S const &hostname,
 	u16 port,
 	bool do_v4,
 	bool do_v6,
@@ -1405,9 +1396,9 @@ struct EndpointBatch {
 			throw DnsError{DnsErrorKind::nxdomain, "dns: name not found"};
 		}
 	}
-	vector<Endpoint> all;
+	V<Endpoint> all;
 	all.reserve(v6.eps.size() + v4.eps.size());
-	auto append_all = [&all](vector<Endpoint> const &eps) {
+	auto append_all = [&all](V<Endpoint> const &eps) {
 		for (auto const &ep: eps) {
 			all.push_back(ep);
 		}
@@ -1429,9 +1420,9 @@ struct EndpointBatch {
 }
 [[nodiscard]] root::Task<ResolveResult> build_native_udp_flow_with_nameservers(
 	SocketTaskRing &ring,
-	vector<NameserverEndpoint> nameservers,
+	V<NameserverEndpoint> nameservers,
 	size_t index,
-	string hostname,
+	S hostname,
 	u16 port,
 	bool do_v4,
 	bool do_v6,
@@ -1463,8 +1454,8 @@ struct EndpointBatch {
 }
 [[nodiscard]] root::Task<ResolveResult> build_native_udp_flow_with_candidates(
 	SocketTaskRing &ring,
-	vector<NameserverEndpoint> nameservers,
-	vector<string> candidates,
+	V<NameserverEndpoint> nameservers,
+	V<S> candidates,
 	size_t index,
 	u16 port,
 	bool do_v4,
@@ -1519,10 +1510,10 @@ struct DnsCacheEntry {
 	chrono::steady_clock::time_point expires;
 };
 class LruDnsCache {
-	using List = std::list<std::pair<string, DnsCacheEntry>>;
+	using List = std::list<std::pair<S, DnsCacheEntry>>;
 	size_t capacity_;
 	List order_;
-	unordered_map<string, List::iterator> index_;
+	UM<S, List::iterator> index_;
 	mutable mutex mtx_;
 
 public:
@@ -1530,7 +1521,7 @@ public:
 		size_t cap)
 		: capacity_{cap} {}
 	[[nodiscard]] Opt<ResolveResult> get(
-		string const &key) {
+		S const &key) {
 		std::scoped_lock const lk{mtx_};
 		auto it = index_.find(key);
 		if (it == index_.end()) {
@@ -1545,7 +1536,7 @@ public:
 		return it->second->second.result;
 	}
 	void put(
-		string const &key,
+		S const &key,
 		ResolveResult result,
 		chrono::seconds ttl) {
 		auto const expires = chrono::steady_clock::now() + ttl;
@@ -1568,8 +1559,8 @@ public:
 		index_[key] = order_.begin();
 	}
 	void invalidate_by_host(
-		string_view host) {
-		string const prefix = format("{}:", host);
+		SV host) {
+		S const prefix = format("{}:", host);
 		std::scoped_lock const lk{mtx_};
 		for (auto it = order_.begin(); it != order_.end();) {
 			if (it->first.starts_with(prefix)) {
@@ -1586,8 +1577,8 @@ public:
 		index_.clear();
 	}
 };
-[[nodiscard]] string make_cache_key(
-	string_view host,
+[[nodiscard]] S make_cache_key(
+	SV host,
 	u16 port,
 	AddressFamily prefer,
 	bool v4,
@@ -1613,10 +1604,10 @@ public:
 	}
 	return opts;
 }
-[[nodiscard]] vector<NameserverEndpoint> nameservers_with_attempts(
-	vector<NameserverEndpoint> const &base,
+[[nodiscard]] V<NameserverEndpoint> nameservers_with_attempts(
+	V<NameserverEndpoint> const &base,
 	size_t attempts) {
-	vector<NameserverEndpoint> out;
+	V<NameserverEndpoint> out;
 	if (base.empty()) {
 		return out;
 	}
@@ -1627,11 +1618,11 @@ public:
 	}
 	return out;
 }
-[[nodiscard]] vector<string> resolve_candidates(
-	string_view host,
-	vector<string> const &search_domains,
+[[nodiscard]] V<S> resolve_candidates(
+	SV host,
+	V<S> const &search_domains,
 	size_t ndots) {
-	string normalized{host};
+	S normalized{host};
 	if (!normalized.empty() && normalized.back() == '.') {
 		normalized.pop_back();
 		return {move(normalized)};
@@ -1640,7 +1631,7 @@ public:
 	if (search_domains.empty() || dot_count >= ndots) {
 		return {move(normalized)};
 	}
-	vector<string> out;
+	V<S> out;
 	out.reserve(search_domains.size() + 1);
 	for (auto const &domain: search_domains) {
 		out.push_back(format("{}.{}", normalized, domain));
@@ -1651,16 +1642,16 @@ public:
 // ─── Resolver::Impl ─────────────────────────────────────────────────────────
 
 struct CoalescedBroadcast {
-	vector<SP<root::TaskSource<ResolveResult>>> waiters;
+	V<SP<root::TaskSource<ResolveResult>>> waiters;
 };
 struct InFlightKey {
-	string cache_key;
+	S cache_key;
 	SocketTaskRing *ring{};
 };
 struct InFlightKeyHash {
 	size_t operator ()(
 		InFlightKey const &k) const noexcept {
-		size_t h1 = hash<string>{}(k.cache_key);
+		size_t h1 = hash<S>{}(k.cache_key);
 		size_t h2 = hash<void const *>{}(k.ring);
 		return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6U) + (h1 >> 2U));
 	}
@@ -1678,14 +1669,14 @@ struct Resolver::Impl {
 	UP<SocketTaskRing> task_ring{};
 	WorkPool *pool{nullptr};
 	ResolverOptions opts;
-	vector<NameserverEndpoint> nameservers;
-	vector<string> search_domains;
+	V<NameserverEndpoint> nameservers;
+	V<S> search_domains;
 	size_t ndots{1};
 	chrono::milliseconds resolv_query_timeout{0};
 	size_t attempts{1};
-	unordered_map<string, vector<Endpoint>> hosts_cache;
+	UM<S, V<Endpoint>> hosts_cache;
 	SP<LruDnsCache> cache{};
-	unordered_map<InFlightKey, CoalescedBroadcast, InFlightKeyHash, InFlightKeyEq> in_flight;
+	std::unordered_map<InFlightKey, CoalescedBroadcast, InFlightKeyHash, InFlightKeyEq> in_flight;
 	mutex in_flight_mutex;
 };
 Resolver::Resolver(
@@ -1693,7 +1684,7 @@ Resolver::Resolver(
 	CompletionTable *completions,
 	UserDataFn encode_ud,
 	ResolverOptions opts)
-	: impl_{make_shared<Impl>()} {
+	: impl_{std::make_shared<Impl>()} {
 	impl_->backend = ResolverBackend::native_udp;
 	auto shared_ud = make_shared<UserDataFn>(move(encode_ud));
 	impl_->reader =
@@ -1740,7 +1731,7 @@ Resolver::Resolver(
 Resolver::~Resolver() = default;
 root::Task<ResolveResult> Resolver::resolve_flow(
 	SocketTaskRing *external_ring,
-	string_view host,
+	SV host,
 	u16 port,
 	ResolveOptions const &per_opts) {
 	auto const effective_opts = apply_resolv_defaults(per_opts, impl_->resolv_query_timeout);
@@ -1761,7 +1752,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 
 	// /etc/hosts lookup
 	if (impl_->opts.enable_etc_hosts && !effective_opts.bypass_cache) {
-		string key{host};
+		S key{host};
 		for (char &c: key) {
 			if (c >= 'A' && c <= 'Z') {
 				c += 'a' - 'A';
@@ -1772,7 +1763,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		}
 		auto it = impl_->hosts_cache.find(key);
 		if (it != impl_->hosts_cache.end()) {
-			vector<Endpoint> eps;
+			V<Endpoint> eps;
 			for (auto const &ep: it->second) {
 				if (ep.family == AddressFamily::v4 && effective_opts.allow_v4) {
 					auto e = ep;
@@ -1796,9 +1787,9 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		}
 	}
 
-	string const cache_key =
+	S const cache_key =
 		effective_opts.bypass_cache ?
-			string{} :
+			S{} :
 			make_cache_key(host, port, effective_opts.prefer, effective_opts.allow_v4, effective_opts.allow_v6);
 	InFlightKey const inflight_key{cache_key, external_ring};
 
@@ -1842,7 +1833,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = make_shared<root::TaskSource<ResolveResult>>(move(raw_src));
 		bool const ok = impl_->pool->enqueue([shared_src, // NOLINT(bugprone-exception-escape)
-											  h = string{host},
+											  h = S{host},
 											  port,
 											  allow_v4 = effective_opts.allow_v4,
 											  allow_v6 = effective_opts.allow_v6,
@@ -1855,7 +1846,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				hints.ai_socktype = SOCK_STREAM;
 				hints.ai_flags = AI_ADDRCONFIG;
 				addrinfo *res_raw = nullptr;
-				string const p = to_string(port);
+				S const p = to_string(port);
 				int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res_raw);
 				if (gai != 0 || res_raw == nullptr) {
 					auto _ = shared_src->try_set_exception(make_exception_ptr(
@@ -1918,7 +1909,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		return move(task);
 	}
 
-	optional<root::Task<ResolveResult>> coalesced_out;
+	Opt<root::Task<ResolveResult>> coalesced_out;
 	bool max_inflight_exceeded = false;
 	{
 		lock_guard lock{impl_->in_flight_mutex};
@@ -1968,7 +1959,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	auto fanout_success = // NOLINT(bugprone-exception-escape)
 		[impl = impl_, inflight_key](ResolveResult r) -> ResolveResult {
 		auto impl_keep = impl;
-		vector<SP<root::TaskSource<ResolveResult>>> waiters;
+		V<SP<root::TaskSource<ResolveResult>>> waiters;
 		if (!inflight_key.cache_key.empty()) {
 			lock_guard lock{impl_keep->in_flight_mutex};
 			if (auto it = impl_keep->in_flight.find(inflight_key); it != impl_keep->in_flight.end()) {
@@ -1985,9 +1976,9 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	};
 
 	auto fanout_error = // NOLINT(bugprone-exception-escape)
-		[impl = impl_, inflight_key](exception_ptr const &ep) -> ResolveResult {
+		[impl = impl_, inflight_key](std::exception_ptr const &ep) -> ResolveResult {
 		auto impl_keep = impl;
-		vector<SP<root::TaskSource<ResolveResult>>> waiters;
+		V<SP<root::TaskSource<ResolveResult>>> waiters;
 		if (!inflight_key.cache_key.empty()) {
 			lock_guard lock{impl_keep->in_flight_mutex};
 			if (auto it = impl_keep->in_flight.find(inflight_key); it != impl_keep->in_flight.end()) {
@@ -2033,7 +2024,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		} catch (Cancelled const &) {
 			auto out = out_src;
 			auto key = inflight_key;
-			vector<SP<root::TaskSource<ResolveResult>>> waiters;
+			V<SP<root::TaskSource<ResolveResult>>> waiters;
 			if (!key.cache_key.empty()) {
 				lock_guard lock{impl->in_flight_mutex};
 				if (auto it = impl->in_flight.find(key); it != impl->in_flight.end()) {
@@ -2074,14 +2065,14 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	return move(out_task);
 }
 conflux::work::root::Task<ResolveResult> Resolver::resolve(
-	string_view host,
+	SV host,
 	u16 port,
 	ResolveOptions const &opts) {
 	return resolve_flow(nullptr, host, port, opts);
 }
 conflux::work::root::Task<ResolveResult> Resolver::resolve(
 	SocketTaskRing &ring,
-	string_view host,
+	SV host,
 	u16 port,
 	ResolveOptions const &opts) {
 	return resolve_flow(&ring, host, port, opts);
@@ -2102,7 +2093,7 @@ thread_local TlsRingBase tls_rb_;
 
 } // namespace
 expected<ResolveResult, DnsError> Resolver::resolve_blocking(
-	string_view host,
+	SV host,
 	u16 port,
 	ResolveOptions const &opts) {
 	if (current_resolver() == this && impl_->backend == ResolverBackend::native_udp) {
@@ -2127,7 +2118,7 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 	}
 
 	if (impl_->opts.enable_etc_hosts && !effective_opts.bypass_cache) {
-		string key{host};
+		S key{host};
 		for (char &c: key) {
 			if (c >= 'A' && c <= 'Z') {
 				c += 'a' - 'A';
@@ -2138,7 +2129,7 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 		}
 		auto it = impl_->hosts_cache.find(key);
 		if (it != impl_->hosts_cache.end()) {
-			vector<Endpoint> eps;
+			V<Endpoint> eps;
 			for (auto const &ep: it->second) {
 				if (ep.family == AddressFamily::v4 && effective_opts.allow_v4) {
 					auto e = ep;
@@ -2165,8 +2156,8 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 		hints.ai_socktype = SOCK_STREAM;
 		hints.ai_flags = AI_ADDRCONFIG;
 		addrinfo *res_raw = nullptr;
-		string const h{host};
-		string const p = to_string(port);
+		S const h{host};
+		S const p = to_string(port);
 		auto const t0 = chrono::steady_clock::now();
 		int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res_raw);
 		auto const elapsed = chrono::steady_clock::now() - t0;
@@ -2224,15 +2215,15 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 								   return (static_cast<u64>(gen) << 32U) | slot;
 							   }};
 		codec::Edns0Options const edns{.udp_size = impl_->opts.edns0_udp_size};
-		optional<DnsError> last_nxdomain;
+		Opt<DnsError> last_nxdomain;
 		for (auto const &candidate: resolve_candidates(host, impl_->search_domains, impl_->ndots)) {
-			string const cache_key = impl_->cache && !effective_opts.bypass_cache ? make_cache_key(
+			S const cache_key = impl_->cache && !effective_opts.bypass_cache ? make_cache_key(
 																						candidate,
 																						port,
 																						effective_opts.prefer,
 																						effective_opts.allow_v4,
 																						effective_opts.allow_v6) :
-																					string{};
+																					S{};
 			if (impl_->cache && !effective_opts.bypass_cache) {
 				if (auto hit = impl_->cache->get(cache_key); hit.has_value()) {
 					if (hit->is_negative) {
@@ -2295,7 +2286,7 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 	}
 }
 void Resolver::invalidate(
-	string_view host) {
+	SV host) {
 	if (impl_->cache) {
 		impl_->cache->invalidate_by_host(host);
 	}

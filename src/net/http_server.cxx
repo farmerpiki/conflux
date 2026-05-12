@@ -1919,6 +1919,7 @@ struct Ring {
 			}
 		}
 		caps = detect_caps(conflux::uring::RingRef{ring});
+		use_recv_bundle = use_recv_bundle && !use_recv_incremental_buf && caps.recvsend_bundle && CONFLUX_ENABLE_RECV_BUNDLE;
 		client_task_ring_.emplace(SocketRawRing{ring}, client_ct_, UserDataFn{[](u32 slot, u32 gen) noexcept -> u64 {
 									  return pack(Op::ClientRing, gen, static_cast<int>(slot));
 								  }});
@@ -2017,8 +2018,9 @@ struct Ring {
 				.buf_size = BUF_SIZE,
 				.group_id = 0,
 				.huge_pages = true,
-				.mode =
-					use_recv_incremental_buf ? BufferRingMode::incremental : BufferRingMode::classic_one_cqe_per_buffer,
+				.mode = use_recv_incremental_buf ? BufferRingMode::incremental
+					: use_recv_bundle                  ? BufferRingMode::recv_bundle
+					                                   : BufferRingMode::classic_one_cqe_per_buffer,
 			},
 			caps);
 
@@ -4348,17 +4350,12 @@ struct Ring {
 		if (cqe->res <= 0) {
 			return;
 		}
-		auto const buf_id = static_cast<u16>(cqe->flags >> IORING_CQE_BUFFER_SHIFT);
 		if (buf_ring_->mode() == BufferRingMode::incremental) {
 			// slice dtor recycles if final; silent drop on malformed CQE during shutdown
 			auto _ = try_buffer_slice_from_incremental_cqe(*buf_ring_, cqe->res, cqe->flags);
-		} else if (use_recv_bundle) {
-			SZ const total = static_cast<SZ>(cqe->res);
-			u32 const cnt = static_cast<u32>((total + buf_ring_->buf_size() - 1) / buf_ring_->buf_size());
-			u32 const start = buf_ring_->consume(cnt);
-			buf_ring_->recycle_range(start, cnt);
 		} else {
-			buf_ring_->recycle(buf_id);
+			auto slices = buffer_slices_from_cqe(*buf_ring_, cqe->res, cqe->flags, use_recv_bundle);
+			slices.recycle_all();
 		}
 	}
 	void dispatch_cqe_fatal(
@@ -4673,7 +4670,7 @@ S flags_str(
 	if (c.no_mmap) {
 		app("NO_MMAP");
 	}
-	if (c.recv_bundle) {
+	if (c.recv_bundle && CONFLUX_ENABLE_RECV_BUNDLE) {
 		app("RECV_BUNDLE");
 	}
 	if (c.auto_recv_arm_policy) {
@@ -5215,9 +5212,8 @@ public:
 								wq_fd = static_cast<u32>(parent);
 						}
 						r.use_recv_incremental_buf = impl_->cfg.recv_incremental_buf;
+						r.use_recv_bundle = !impl_->cfg.recv_incremental_buf && impl_->cfg.recv_bundle;
 						r.init(impl_->cfg.port, entries, impl_->uring_flags, wq_fd, impl_->cfg.no_mmap);
-						if (!impl_->cfg.recv_incremental_buf && impl_->cfg.recv_bundle && r.caps.recvsend_bundle)
-							r.use_recv_bundle = true;
 						r.auto_recv_arm_policy = impl_->cfg.auto_recv_arm_policy;
 						r.busy_poll_us_ = static_cast<int>(impl_->cfg.busy_poll_us);
 						r.prefer_busy_poll_ = impl_->cfg.prefer_busy_poll;

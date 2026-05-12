@@ -140,29 +140,20 @@ TEST_CASE(
 	"recv_bundle.bundle: ring wraparound",
 	"[recv_bundle]") {
 	Rig rig{4, 64};
-	// Consume positions 0,1,2 and recycle in non-sequential order so that
-	// the recycled ID at ring position 0 (after wrap) != first_id+1.
-	// After consume(0): recycle ID 2 to tail→pos 0; recycle ID 0 to tail→pos 1.
-	auto consume_one = [&] {
+
+	// Drain and recycle positions 0,1,2 so the next two-buffer bundle starts
+	// at logical position 3 and wraps to logical position 4 / ring index 0.
+	for (u32 i = 0; i < 3; ++i) {
 		auto s = buffer_slices_from_cqe(rig.ring, 64, head_flags(rig.ring), false);
 		REQUIRE(s.valid());
-		return s;
-	};
-	auto s0 = consume_one(); // consumes pos 0 (ID 0), head=1
-	auto s1 = consume_one(); // consumes pos 1 (ID 1), head=2
-	auto s2 = consume_one(); // consumes pos 2 (ID 2), head=3
-	// Recycle in order {2,0} so ring_order_[4%4=0]=2, ring_order_[5%4=1]=0.
-	rig.ring.recycle(2);
-	rig.ring.recycle(0);
-	s1.recycle_all(); // recycles ID 1 → ring_order_[6%4=2]=1
-	s2.detach(); // already manually recycled above via rig.ring.recycle
-	s0.detach(); // already manually recycled above via rig.ring.recycle
-	// ring_order_=[2,0,1,3], head=3.
-	// ring_id_at(3)=3, ring_id_at(4)=ring_order_[4%4=0]=2 ← wrap.
+		s.recycle_all();
+	}
+
 	u16 const id_at3 = rig.ring.ring_id_at(3);
-	u16 const id_at4 = rig.ring.ring_id_at(4); // crosses boundary
+	u16 const id_at4 = rig.ring.ring_id_at(4);
 	REQUIRE(id_at3 == 3u);
-	REQUIRE(id_at4 == 2u); // would be (3+1)%4=0 if using wrong algorithm
+	REQUIRE(id_at4 == 0u);
+
 	auto slices = buffer_slices_from_cqe(rig.ring, 2 * 64, recv_flags_for(id_at3), true);
 	REQUIRE(slices.valid());
 	REQUIRE(slices.count() == 2u);
@@ -173,6 +164,7 @@ TEST_CASE(
 	CHECK((*it).id == id_at4);
 	slices.recycle_all();
 }
+
 // Test 7: recycle_all() returns slots to the pool; ring remains operational
 TEST_CASE(
 	"recv_bundle.recycle_all: restores pool",
@@ -204,41 +196,47 @@ TEST_CASE(
 	CHECK((*sr1.begin()).id == expected_id1);
 	sr1.recycle_all();
 }
-// Test 8: non-sequential recycled IDs — exact failure mode of (buf_id+1)%count walk
+// Test 8: out-of-order CQEs — exact failure mode from parallel multishot recv.
 TEST_CASE(
-	"recv_bundle.bundle: non-sequential recycled IDs",
+	"recv_bundle.bundle: out-of-order CQE decode",
 	"[recv_bundle]") {
 	Rig rig{4, 64};
-	// Consume all 4 original buffers (IDs 0,1,2,3) without recycling.
-	// RecvSlices has no auto-recycle destructor; they are intentionally leaked here.
-	for (u32 i = 0; i < 4; ++i) {
-		auto s = buffer_slices_from_cqe(rig.ring, 64, head_flags(rig.ring), false);
-		REQUIRE(s.valid());
-	}
-	REQUIRE(rig.ring.debug_head_pos() == 4u);
-	// Recycle in order {3,1,2}: positions 0,1,2 of ring_order_ get {3,1,2}.
-	rig.ring.recycle(3);
-	rig.ring.recycle(1);
-	rig.ring.recycle(2);
-	// Verify placement.
-	CHECK(rig.ring.ring_id_at(4) == 3u); // ring_order_[4%4=0]=3
-	CHECK(rig.ring.ring_id_at(5) == 1u); // ring_order_[5%4=1]=1
-	CHECK(rig.ring.ring_id_at(6) == 2u); // ring_order_[6%4=2]=2
-	// 3-buffer bundle starting at ID 3.
-	auto slices = buffer_slices_from_cqe(rig.ring, 3 * 64, recv_flags_for(3), true);
-	REQUIRE(slices.valid());
-	REQUIRE(slices.count() == 3u);
-	REQUIRE(rig.ring.debug_head_pos() == 7u);
-	auto it = slices.begin();
-	// Correct ring_order traversal: {3,1,2}.
-	// Wrong (buf_id+1)%count walk: {3,0,1}.
-	CHECK((*it).id == 3u);
-	++it;
-	CHECK((*it).id == 1u);
-	++it; // wrong algo yields 0
-	CHECK((*it).id == 2u); // wrong algo yields 1
-	slices.recycle_all();
+
+	// Decode a later bundled CQE first. The bytes must still be read from
+	// positions 2,3, but the software head cannot pass the unresolved gap 0,1.
+	u16 const late_id = rig.ring.ring_id_at(2);
+	auto late = buffer_slices_from_cqe(rig.ring, 2 * 64, recv_flags_for(late_id), true);
+	REQUIRE(late.valid());
+	REQUIRE(late.count() == 2u);
+	CHECK(rig.ring.debug_head_pos() == 0u);
+	auto lit = late.begin();
+	CHECK((*lit).id == 2u);
+	++lit;
+	CHECK((*lit).id == 3u);
+
+	// Recycling the later CQE must be delayed; otherwise it would overwrite
+	// ring positions still needed by the earlier CQEs.
+	late.recycle_all();
+	CHECK(rig.ring.ring_id_at(0) == 0u);
+	CHECK(rig.ring.ring_id_at(1) == 1u);
+
+	auto first = buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(0), false);
+	REQUIRE(first.valid());
+	CHECK(rig.ring.debug_head_pos() == 1u);
+	first.recycle_all();
+
+	auto second = buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(1), false);
+	REQUIRE(second.valid());
+	CHECK(rig.ring.debug_head_pos() == 4u);
+	second.recycle_all();
+
+	// All four original buffers have now been returned in ring order.
+	auto recycled = buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(0), false);
+	REQUIRE(recycled.valid());
+	CHECK((*recycled.begin()).id == 0u);
+	recycled.recycle_all();
 }
+
 // Test 9: discard via recycle_all() advances head by cnt (not 1)
 TEST_CASE(
 	"recv_bundle.discard: bundle head advances by cnt",
