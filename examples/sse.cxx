@@ -27,5 +27,6 @@ int main() {
 		ch->close();
 	});
 
-	move(app).run({.port = 9091});
+	auto const status = move(app).run({.port = 9091});
+	return status == RunStatus::stopped_normally ? 0 : 1;
 }

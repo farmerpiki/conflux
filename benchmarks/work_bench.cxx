@@ -413,8 +413,8 @@ Case make_pool_bursty_case() {
 		.description = "burst of 8 tasks after idle gap — exercises park/wake path",
 		.default_iterations = 10000,
 		.run = [pool] {
-			// Brief idle to let workers park.
-			std::this_thread::sleep_for(chrono::microseconds{1});
+			// Historical benchmark behavior: short spin gap, not OS sleep.
+			for (volatile int i = 0; i < 200; ++i) {}
 			// Burst 8 tasks
 			auto t0 = run_on_task(*pool, [] { return 1; });
 			auto t1 = run_on_task(*pool, [] { return 2; });

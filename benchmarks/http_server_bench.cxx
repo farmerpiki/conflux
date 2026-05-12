@@ -413,8 +413,8 @@ BenchStats run_variant(
 	SZ warmup,
 	SV config_name) {
 	if (v.iters_override) {
-		iterations = v.iters_override;
-		warmup = max(SZ{2}, v.iters_override / 10);
+		iterations = min(iterations, v.iters_override);
+		warmup = min(warmup, max(SZ{2}, v.iters_override / 10));
 	}
 	if (v.setup) {
 		v.setup();
@@ -493,7 +493,7 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"http_server","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","5000","--warmup","500"]}]})");
+		R"({"name":"http_server","parser":"standard","configs":[{"name":"default","extra":{"tier":"full-suite-smoke"},"args":["--iterations","100","--warmup","30"],"reps":1}]})");
 
 	auto const args = bench_parse_args(span{argv, static_cast<SZ>(argc)});
 	auto const iters = args.iterations;

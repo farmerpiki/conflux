@@ -51,7 +51,7 @@ All `conflux_*bench` binaries implement a standard interface:
   "name":    "logical_bench_name",
   "parser":  "standard|strip1|tcp_parallel|file_copy",
   "configs": [
-    { "name": "cfg", "extra": {}, "args": ["--iterations", "N"] }
+    { "name": "cfg", "extra": {}, "args": ["--iterations", "N"], "reps": 2 }
   ]
 }
 ```

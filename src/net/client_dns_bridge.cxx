@@ -1,5 +1,11 @@
+module;
+#include <algorithm>
+#include <chrono>
+#include <cstring>
+#include <exception>
+#include <string_view>
+
 export module conflux.dns_bridge;
-import std;
 import conflux.types;
 import conflux.net.dns;
 
@@ -13,7 +19,7 @@ void set_error(
 		return;
 	}
 	SZ const n = min(dst_size - 1, message.size());
-	std::memcpy(dst, message.data(), n);
+	::memcpy(dst, message.data(), n);
 	dst[n] = '\0';
 }
 
@@ -51,7 +57,7 @@ bool resolve(
 		}
 		for (auto const &ep: result->endpoints) {
 			Endpoint out{};
-			std::memcpy(out.addr, &ep.addr, min(sizeof(out.addr), sizeof(ep.addr)));
+			::memcpy(out.addr, &ep.addr, min(sizeof(out.addr), sizeof(ep.addr)));
 			out.addr_len = static_cast<unsigned int>(ep.addr_len);
 			out.family = (ep.family == dns::AddressFamily::v4) ? 4 : 6;
 			if (!sink(sink_ctx, out)) {

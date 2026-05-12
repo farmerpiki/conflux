@@ -123,6 +123,28 @@ export S base64url_decode(
 	return b64_decode_impl(encoded, kB64UrlTable);
 }
 // ---------------------------------------------------------------------------
+// SHA padding helpers
+// ---------------------------------------------------------------------------
+
+[[nodiscard]] V<unsigned char> make_sha_padded(
+	span<unsigned char const> msg) {
+	SZ const with_marker = msg.size() + 1;
+	SZ const zero_pad = (56 + 64 - (with_marker % 64)) % 64;
+	SZ const total = with_marker + zero_pad + 8;
+	V<unsigned char> padded(total);
+	for (SZ i = 0; i < msg.size(); ++i) {
+		padded[i] = msg[i];
+	}
+	padded[msg.size()] = 0x80U;
+	u64 const bit_len = msg.size() * 8ULL;
+	SZ const len_pos = with_marker + zero_pad;
+	for (int s = 56; s >= 0; s -= 8) {
+		padded[len_pos + static_cast<SZ>((56 - s) / 8)] = static_cast<unsigned char>((bit_len >> s) & 0xFFU);
+	}
+	return padded;
+}
+
+// ---------------------------------------------------------------------------
 // SHA-1 (FIPS 180-4)
 // ---------------------------------------------------------------------------
 
@@ -130,17 +152,7 @@ export A<unsigned char, 20> sha1(
 	span<unsigned char const> msg) {
 	A<u32, 5> h{0x67452301U, 0xEFCDAB89U, 0x98BADCFEU, 0x10325476U, 0xC3D2E1F0U};
 
-	V<unsigned char> padded;
-	padded.reserve(msg.size() + 72);
-	padded.insert(padded.end(), msg.begin(), msg.end());
-	padded.push_back(0x80U);
-	while ((padded.size() % 64) != 56) {
-		padded.push_back(0);
-	}
-	u64 const bit_len = msg.size() * 8ULL;
-	for (int s = 56; s >= 0; s -= 8) {
-		padded.push_back(static_cast<unsigned char>((bit_len >> s) & 0xFF));
-	}
+	V<unsigned char> padded = make_sha_padded(msg);
 
 	auto rot32 = [](u32 v, unsigned n) -> u32 { return (v << n) | (v >> (32 - n)); };
 
@@ -253,17 +265,7 @@ export A<unsigned char, 32> sha256(
 		0x5be0cd19U,
 	};
 
-	V<unsigned char> padded;
-	padded.reserve(msg.size() + 72);
-	padded.insert(padded.end(), msg.begin(), msg.end());
-	padded.push_back(0x80U);
-	while ((padded.size() % 64) != 56) {
-		padded.push_back(0);
-	}
-	u64 const bit_len = msg.size() * 8ULL;
-	for (int s = 56; s >= 0; s -= 8) {
-		padded.push_back(static_cast<unsigned char>((bit_len >> s) & 0xFF));
-	}
+	V<unsigned char> padded = make_sha_padded(msg);
 
 	auto rotr = [](u32 v, unsigned n) -> u32 { return (v >> n) | (v << (32 - n)); };
 	auto ch = [](u32 e, u32 f, u32 g) { return (e & f) ^ (~e & g); };

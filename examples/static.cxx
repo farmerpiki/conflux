@@ -45,5 +45,6 @@ int main() {
 
 	router.serve_static("/assets", asset_dir.string(), {.directory_listing = true});
 
-	move(app).run({.port = 9095});
+	auto const status = move(app).run({.port = 9095});
+	return status == RunStatus::stopped_normally ? 0 : 1;
 }

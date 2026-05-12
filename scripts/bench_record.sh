@@ -15,7 +15,7 @@
 #     "name":    "logical_bench_name",          # used as runs.benchmark
 #     "parser":  "standard|tcp_parallel|file_copy",
 #     "configs": [
-#       { "name": "cfg", "extra": {}, "args": ["--iterations","N",...] }
+#       { "name": "cfg", "extra": {}, "args": ["--iterations","N",...], "reps": 2 }
 #     ]
 #   }
 #   Parsers:
@@ -33,7 +33,8 @@
 #   KEEP_BUILD=1       skip /tmp build-dir cleanup
 #   ONLY_BENCH         if set, run only that logical bench name (e.g. "task_creation")
 #   BENCH_PIN_CPUS     cpuset for taskset (e.g. "0-3"); wraps every bench launch
-#   BENCH_REPS         per-metric replications consumed by record_with_reps (default: 5)
+#   BENCH_REPS         default per-metric replications consumed by record_with_reps (default: 5)
+#                      per-config --bench-info .reps overrides this for expensive benches
 #   MACHINE_ID         overrides machine identity (default: /etc/machine-id)
 #   WAIVER_REASON      free-form waiver text, persisted to runs.waiver_reason
 #
@@ -175,12 +176,11 @@ insert_row() {
             $iters, $total_ns, $ns_pi, '$(sql_escape "$extra")'::jsonb);" >/dev/null
 }
 
-# record_with_reps: runs bench $BENCH_REPS times, inserts raw rows + summary row.
-# Args: run_id bench_name <bench_args_to_produce_ndjson>...
+# record_with_reps: runs bench several times, inserts raw rows + summary row.
+# Args: run_id bench_name reps <bench_args_to_produce_ndjson>...
 # Expects NDJSON: {"config":"","variant":"","iterations":N,"total_ns":N,"ns_per_iter":X,"min":X,"p10":X,"mad":X}
 record_with_reps() {
-  local run_id="$1" bench="$2"; shift 2
-  local reps="${BENCH_REPS:-5}"
+  local run_id="$1" bench="$2" reps="$3"; shift 3
   local tmpf
   tmpf=$(mktemp /tmp/bench_reps_XXXXXX.ndjson)
   trap 'rm -f "$tmpf"' RETURN
@@ -672,6 +672,12 @@ for PRESET in "${PRESET_LIST[@]}"; do
     while IFS= read -r cfg_json; do
       cfg_name=$(jq -r .name <<< "$cfg_json")
       extra=$(jq -c .extra <<< "$cfg_json")
+      cfg_reps=$(jq -r '.reps // empty' <<< "$cfg_json")
+      [[ -n "$cfg_reps" ]] || cfg_reps="$BENCH_REPS"
+      if ! [[ "$cfg_reps" =~ ^[1-9][0-9]*$ ]]; then
+        echo "invalid reps for $bench_name [$cfg_name]: $cfg_reps" >&2
+        exit 2
+      fi
       mapfile -t args < <(jq -r '.args[]' <<< "$cfg_json")
 
       if [[ "$parser" == "file_copy" ]]; then
@@ -683,7 +689,7 @@ for PRESET in "${PRESET_LIST[@]}"; do
       RID=$(new_run "$bench_name" "$cfg_name" "$extra")
       echo "+ $bench_name [$cfg_name] run_id=$RID"
 
-      record_with_reps "$RID" "$bench_name" \
+      record_with_reps "$RID" "$bench_name" "$cfg_reps" \
         run_bench "$binary" "${args[@]}" --json
       sleep 1
     done < <(jq -c '.configs[]' <<< "$info")

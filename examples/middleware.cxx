@@ -57,5 +57,6 @@ int main() {
 		});
 	});
 
-	move(app).run({.port = 9094});
+	auto const status = move(app).run({.port = 9094});
+	return status == RunStatus::stopped_normally ? 0 : 1;
 }

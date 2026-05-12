@@ -725,20 +725,20 @@ struct EndpointBatch {
 	static thread_local std::mt19937 tl_rng{std::random_device{}()};
 	u16 const qid_a = static_cast<u16>(tl_rng() & 0xFFFFU);
 	u16 const qid_aaaa = static_cast<u16>((static_cast<u32>(qid_a) + 1U) & 0xFFFFU);
-	auto [v4, v6] = co_await join_all(
-		do_v4 ? build_family_flow(ring, ns, hostname, port, qid_a, codec::QType::a, AddressFamily::v4, timeout, edns) :
-				make_empty_batch_task(),
-		do_v6 ? build_family_flow(
-					ring,
-					ns,
-					hostname,
-					port,
-					qid_aaaa,
-					codec::QType::aaaa,
-					AddressFamily::v6,
-					timeout,
-					edns) :
-				make_empty_batch_task());
+	auto v4_task = do_v4 ? build_family_flow(ring, ns, hostname, port, qid_a, codec::QType::a, AddressFamily::v4, timeout, edns) :
+			make_empty_batch_task();
+	auto v6_task = do_v6 ? build_family_flow(
+				ring,
+				ns,
+				hostname,
+				port,
+				qid_aaaa,
+				codec::QType::aaaa,
+				AddressFamily::v6,
+				timeout,
+				edns) :
+			make_empty_batch_task();
+	auto [v4, v6] = co_await join_all(move(v4_task), move(v6_task));
 	if (v4.eps.empty() && v6.eps.empty()) {
 		// Both families have no results. Propagate the dominant failure.
 		auto const w =

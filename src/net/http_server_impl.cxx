@@ -5281,7 +5281,7 @@ void HttpServer::shutdown() {
 							r.alt_svc_header = http3_alt_svc_value(r.bound_port, impl_->cfg.http3.alt_svc_max_age_sec);
 #endif
 
-						if (i == 0) {
+						if (i == 0 && impl_->cfg.startup_banner) {
 							auto const feat_s = caps_to_log_string(r.caps);
 							S sflg_s;
 							auto as = [&](char const *n, u32 b) {
