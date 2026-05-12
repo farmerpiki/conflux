@@ -296,15 +296,21 @@ SV format_sse_headers(
 		"HTTP/1.1 200 OK\r\n"
 		"Content-Type: text/event-stream\r\n"
 		"Cache-Control: no-cache\r\n"
+		"Transfer-Encoding: chunked\r\n"
 		"Connection: keep-alive\r\n"
 		"\r\n";
 	static constexpr SV kClose =
 		"HTTP/1.1 200 OK\r\n"
 		"Content-Type: text/event-stream\r\n"
 		"Cache-Control: no-cache\r\n"
+		"Transfer-Encoding: chunked\r\n"
 		"Connection: close\r\n"
 		"\r\n";
 	return close ? kClose : kKeepAlive;
+}
+[[nodiscard]] S format_http_chunk(
+	SV payload) {
+	return format("{:x}\r\n{}\r\n", payload.size(), payload);
 }
 #if CONFLUX_HAS_HTTP2
 struct Ring; // forward-declared so H2ConnCtx can hold Ring* while Conn precedes Ring
@@ -457,6 +463,7 @@ struct alignas(
 	SZ tls_send_off{}; // bytes of tls_send_inflight already sent
 	bool tls_hs_done = false; // TLS handshake completed; also used as undecided sentinel
 	bool tls_sending_response = false; // true → current tls_send_buf carries HTTP response data
+	bool tls_shutdown_after_send = false; // true → close after TLS close_notify bytes are sent
 	bool ktls_send = false; // kTLS send offload active; splice_to_fd usable for TLS file body
 #endif
 	bool has_response = false;
@@ -1289,6 +1296,23 @@ struct Ring {
 			});
 		}
 	}
+	void queue_tls_shutdown(
+		int fd,
+		Conn &conn) {
+		if (conn.ssl == nullptr) {
+			queue_close(fd);
+			return;
+		}
+		conn.tls_shutdown_after_send = true;
+		(void)SSL_shutdown(conn.ssl.get());
+		tls_flush_wbio(conn);
+		if (!conn.tls_send_pending.empty() || !conn.tls_send_inflight.empty()) {
+			tls_queue_send(conn);
+			return;
+		}
+		conn.tls_shutdown_after_send = false;
+		queue_close(fd);
+	}
 #endif // CONFLUX_HAS_TLS
 
 #if CONFLUX_HAS_HTTP2
@@ -2067,6 +2091,7 @@ struct Ring {
 		conn.tls_send_off = 0;
 		conn.tls_hs_done = false;
 		conn.tls_sending_response = false;
+		conn.tls_shutdown_after_send = false;
 #endif
 #if CONFLUX_HAS_HTTP2
 		if (conn.h2_session != nullptr) {
@@ -2873,6 +2898,7 @@ struct Ring {
 			// ssl_ctx==nullptr (plain-only server): tls_hs_done stays false — no sniff needed.
 			conn.tls_hs_done = (ssl_ctx != nullptr);
 			conn.tls_sending_response = false;
+			conn.tls_shutdown_after_send = false;
 #endif
 #if CONFLUX_HAS_HTTP2
 			if (conn.h2_session != nullptr) {
@@ -3029,12 +3055,17 @@ struct Ring {
 		}
 		auto remaining = conn.sse_channel->drain();
 		if (!remaining.empty()) {
-			conn.own_response = move(remaining);
+			conn.own_response = format_http_chunk(remaining);
 			conn.has_response = true;
 			conn.written = 0;
 			defer_queue_send_if_current(fd, conn.gen);
 		} else if (conn.sse_channel->is_closed()) {
-			queue_close(fd);
+			conn.own_response = "0\r\n\r\n";
+			conn.has_response = true;
+			conn.written = 0;
+			conn.is_sse = false;
+			conn.close_after_send = true;
+			defer_queue_send_if_current(fd, conn.gen);
 		} else {
 			queue_sse_wait(fd);
 		}
@@ -3045,6 +3076,12 @@ struct Ring {
 		Conn &conn) {
 		if (conn.close_after_send) {
 			conn.close_after_send = false;
+#if CONFLUX_HAS_TLS
+			if (conn.ssl != nullptr) {
+				queue_tls_shutdown(fd, conn);
+				return;
+			}
+#endif
 			queue_close(fd);
 			return;
 		}
@@ -3375,10 +3412,17 @@ struct Ring {
 		Conn &conn) {
 		conn.send_queued = false;
 
+		if (conn.tls_shutdown_after_send) {
+			conn.tls_shutdown_after_send = false;
+			queue_close(fd);
+			return;
+		}
+
 	#if CONFLUX_HAS_HTTP2
 		if (conn.is_h2) {
 			if (conn.close_after_send) {
-				queue_close(fd);
+				conn.close_after_send = false;
+				queue_tls_shutdown(fd, conn);
 				return;
 			}
 			// Drive any nghttp2 output queued while the previous send was in flight,
@@ -4936,6 +4980,7 @@ void dispatch_request(
 		conn.own_response = format_response(resp);
 		conn.has_response = true;
 	} else if (resp.is_sse()) {
+		conn.close_after_send = true;
 		conn.is_sse = true;
 		conn.sse_efd = resp.sse_channel_ptr()->eventfd_fd();
 		conn.sse_channel = resp.take_sse_channel();
