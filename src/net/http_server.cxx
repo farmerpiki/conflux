@@ -3050,8 +3050,6 @@ struct Ring {
 		}
 		if (!conn.sse_headers_sent) {
 			conn.sse_headers_sent = true;
-			queue_sse_wait(fd);
-			return true;
 		}
 		auto remaining = conn.sse_channel->drain();
 		if (!remaining.empty()) {
@@ -3782,13 +3780,18 @@ struct Ring {
 
 		auto data = conn.sse_channel->drain();
 		if (!data.empty()) {
-			conn.own_response = move(data);
+			conn.own_response = format_http_chunk(data);
 			conn.has_response = true;
 			conn.written = 0;
 			start_response_send(fd, conn);
 			// handle_send will re-arm wait or close after chunk is delivered.
 		} else if (conn.sse_channel->is_closed()) {
-			queue_close(fd);
+			conn.own_response = "0\r\n\r\n";
+			conn.has_response = true;
+			conn.written = 0;
+			conn.is_sse = false;
+			conn.close_after_send = true;
+			start_response_send(fd, conn);
 		} else {
 			queue_sse_wait(fd); // spurious wakeup, re-arm
 		}
