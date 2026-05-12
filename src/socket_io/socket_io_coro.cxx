@@ -94,8 +94,7 @@ export class TcpStream {
 		auto [task, raw_src] = wroot::make_task_source<SZ>(wroot::SubmitOptions{.enable_cancellation = true});
 		auto shared_src = make_shared<wroot::TaskSource<SZ>>(move(raw_src));
 		SocketHandle const h = st.handle.get();
-		auto [slot, gen] = st.ring->completions().reserve([shared_src, keeper](IoResult r) mutable {
-			auto _ = keeper;
+		auto [slot, gen] = st.ring->completions().reserve([shared_src, keeper = move(keeper)](IoResult r) mutable {
 			try {
 				if (r.res == -ECANCELED) {
 					auto _ = shared_src->try_set_cancelled();
@@ -1160,7 +1159,6 @@ public:
 	holder->msg.msg_iov = &holder->iov;
 	holder->msg.msg_iovlen = 1;
 	auto [slot, gen] = ring_->completions().reserve([shared_src, holder](IoResult r) mutable {
-		auto _ = holder;
 		try {
 			if (r.res < 0) {
 				auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, "udp: sendto"}));
@@ -1198,7 +1196,6 @@ public:
 	holder->msg.msg_iov = &holder->iov;
 	holder->msg.msg_iovlen = 1;
 	auto [slot, gen] = ring_->completions().reserve([shared_src, holder](IoResult r) mutable {
-		auto _ = holder;
 		try {
 			if (r.res < 0) {
 				auto _ = shared_src->try_set_exception(make_exception_ptr(IoError{-r.res, "udp: sendto"}));
