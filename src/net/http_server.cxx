@@ -2468,30 +2468,64 @@ struct Ring {
 #endif
 		defer_handle_send_complete_if_current(fd, conn.gen);
 	}
+#if CONFLUX_HAS_TLS
+	[[nodiscard]] bool tls_write_plaintext(
+		int fd,
+		Conn &conn,
+		SV bytes) {
+		char const *data = bytes.data();
+		auto remaining = static_cast<int>(bytes.size());
+		while (remaining > 0) {
+			auto const w = SSL_write(conn.ssl.get(), data, remaining);
+			if (w <= 0) {
+				queue_close(fd);
+				return false;
+			}
+			data += w;
+			remaining -= w;
+		}
+		tls_flush_wbio(conn);
+		conn.tls_sending_response = true;
+		tls_queue_send(conn);
+		return true;
+	}
+#endif
 	void queue_send(
 		int fd) {
 		auto &conn = conn_for(fd);
 #if CONFLUX_HAS_TLS
 		if (conn.ssl != nullptr) {
-			// TLS path: encrypt the response into tls_send_buf, then send.
+			// TLS path: encrypt plaintext into the memory BIO, then send the
+			// resulting TLS records through io_uring. Static streamed-file
+			// responses need an explicit header phase; the body is pulled from
+			// file_io only after the encrypted header batch is actually drained.
+			if (conn.streamed_file) {
+				if (!conn.streamed_headers_sent) {
+					auto const hdr = SV{conn.own_response}.substr(conn.written);
+					if (hdr.empty()) {
+						conn.streamed_headers_sent = true;
+						if (conn.ktls_send && splice_pipes) {
+							start_streamed_body(fd);
+						} else {
+							start_streamed_tls_chunk(fd);
+						}
+						return;
+					}
+					if (!tls_write_plaintext(fd, conn, hdr)) {
+						return;
+					}
+					conn.written = conn.own_response.size();
+					conn.streamed_headers_sent = true;
+				}
+				return;
+			}
 			if (conn.mapped_file && !conn.has_response) {
 				if (conn.written < conn.own_response.size()) {
-					auto const hdr = span{conn.own_response}.subspan(conn.written);
-					char const *data = hdr.data();
-					int remaining = static_cast<int>(hdr.size());
-					while (remaining > 0) {
-						auto const w = SSL_write(conn.ssl.get(), data, remaining);
-						if (w <= 0) {
-							queue_close(fd);
-							return;
-						}
-						data += w;
-						remaining -= w;
-						conn.written += static_cast<SZ>(w);
+					auto const hdr = SV{conn.own_response}.substr(conn.written);
+					if (!tls_write_plaintext(fd, conn, hdr)) {
+						return;
 					}
-					tls_flush_wbio(conn);
-					conn.tls_sending_response = true;
-					tls_queue_send(conn);
+					conn.written = conn.own_response.size();
 					return;
 				}
 				write_mapped_tls_chunk(fd, conn);
@@ -2500,21 +2534,7 @@ struct Ring {
 			if (!conn.has_response) {
 				return;
 			}
-			auto const &resp = conn.own_response;
-			char const *data = resp.data();
-			int remaining = static_cast<int>(resp.size());
-			while (remaining > 0) {
-				auto const w = SSL_write(conn.ssl.get(), data, remaining);
-				if (w <= 0) {
-					queue_close(fd);
-					return;
-				}
-				data += w;
-				remaining -= w;
-			}
-			tls_flush_wbio(conn);
-			conn.tls_sending_response = true;
-			tls_queue_send(conn);
+			(void)tls_write_plaintext(fd, conn, conn.own_response);
 			return;
 		}
 #endif
@@ -3449,6 +3469,9 @@ struct Ring {
 			// whole file is delivered. handle_send_tls_complete fires once per
 			// tls_send_buf drain, so this naturally interleaves with TLS sends.
 			if (conn.streamed_file) {
+				if (!conn.streamed_headers_sent) {
+					return;
+				}
 				if (conn.streamed_delivered < conn.streamed_file->send_size) {
 					if (!conn.streamed_splice_in_flight) {
 						if (conn.ktls_send && splice_pipes) {

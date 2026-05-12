@@ -262,10 +262,17 @@ void require_ok(
 	CurlResponse const &resp,
 	long status,
 	SV body) {
-	INFO("curl=" << static_cast<int>(resp.code) << " " << curl_error(resp.code)
-	             << " status=" << resp.status << " http_version=" << resp.http_version
-	             << " verify=" << resp.ssl_verify_result << " connects=" << resp.num_connects
-	             << " time=" << resp.total_time << " body=" << resp.body);
+	INFO(format(
+		"curl={} {} status={} http_version={} verify={} connects={} time={} body_size={} body={}",
+		static_cast<int>(resp.code),
+		curl_error(resp.code),
+		resp.status,
+		resp.http_version,
+		resp.ssl_verify_result,
+		resp.num_connects,
+		resp.total_time,
+		resp.body.size(),
+		resp.body));
 	REQUIRE(resp.code == CURLE_OK);
 	REQUIRE(resp.status == status);
 	REQUIRE(resp.body == body);
@@ -275,9 +282,14 @@ void require_contains(
 	CurlResponse const &resp,
 	long status,
 	SV needle) {
-	INFO("curl=" << static_cast<int>(resp.code) << " " << curl_error(resp.code)
-	             << " status=" << resp.status << " http_version=" << resp.http_version
-	             << " body=" << resp.body);
+	INFO(format(
+		"curl={} {} status={} http_version={} body_size={} body={}",
+		static_cast<int>(resp.code),
+		curl_error(resp.code),
+		resp.status,
+		resp.http_version,
+		resp.body.size(),
+		resp.body));
 	REQUIRE(resp.code == CURLE_OK);
 	REQUIRE(resp.status == status);
 	REQUIRE(resp.body.find(needle) != S::npos);
@@ -286,7 +298,7 @@ void require_contains(
 void require_forced_http_version(
 	CurlResponse const &resp,
 	long expected) {
-	INFO("effective http_version=" << resp.http_version << " expected=" << expected);
+	INFO(format("effective http_version={} expected={}", resp.http_version, expected));
 	REQUIRE(resp.http_version == expected);
 }
 
@@ -326,8 +338,13 @@ void run_basic_case_matrix(
 	req.body.clear();
 	req.url = url("/does-not-exist");
 	resp = curl.perform(req);
-	INFO("curl=" << static_cast<int>(resp.code) << " " << curl_error(resp.code)
-	             << " status=" << resp.status << " body=" << resp.body);
+	INFO(format(
+		"curl={} {} status={} body_size={} body={}",
+		static_cast<int>(resp.code),
+		curl_error(resp.code),
+		resp.status,
+		resp.body.size(),
+		resp.body));
 	REQUIRE(resp.code == CURLE_OK);
 	REQUIRE(resp.status == 404);
 }
@@ -474,7 +491,7 @@ TEST_CASE(
 #else // CONFLUX_LIBCURL_STRESS_ONLY
 
 enum class TortureVersion {
-	Default,
+	Default, // CTest-stable default: HTTP/1.1; opt into H2/H3/mixed with env.
 	Http11,
 	Http2,
 	Http3,
@@ -555,6 +572,7 @@ struct ExpectedCurlRequest {
 		}
 		return CURL_HTTP_VERSION_2_0;
 	case TortureVersion::Default:
+		return CURL_HTTP_VERSION_1_1;
 	case TortureVersion::Http3:
 		return CURL_HTTP_VERSION_NONE;
 	}
@@ -614,9 +632,15 @@ struct ExpectedCurlRequest {
 void require_expected(
 	CurlResponse const &resp,
 	ExpectedCurlRequest const &expected) {
-	INFO("curl=" << static_cast<int>(resp.code) << " " << curl_error(resp.code)
-	             << " status=" << resp.status << " http_version=" << resp.http_version
-	             << " body_size=" << resp.body.size());
+	INFO(format(
+		"curl={} {} status={} expected_status={} http_version={} body_size={} url={}",
+		static_cast<int>(resp.code),
+		curl_error(resp.code),
+		resp.status,
+		expected.status,
+		resp.http_version,
+		resp.body.size(),
+		expected.request.url));
 	REQUIRE(resp.code == CURLE_OK);
 	REQUIRE(resp.status == expected.status);
 	if (expected.expected_contains.has_value()) {
