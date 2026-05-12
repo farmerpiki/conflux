@@ -12,6 +12,7 @@ function(conflux_discover_tests target)
     catch_discover_tests(${target}
         EXTRA_ARGS ${extra_args}
         PROPERTIES RUN_SERIAL TRUE
+        TIMEOUT 10
     )
 endfunction()
 
