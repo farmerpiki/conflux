@@ -150,7 +150,7 @@ TEST_CASE(
 	});
 	conflux::tests::HttpsServerFixture const fx{move(r)};
 	auto [code, body] =
-		conflux::tests::run_cmd_retry(format("curl -sk -N --max-time 5 https://127.0.0.1:{}/events", fx.port()));
+		conflux::tests::run_cmd_retry(format("curl -sk --http1.1 -N --max-time 5 https://127.0.0.1:{}/events", fx.port()));
 	REQUIRE(code == 0);
 	REQUIRE(body.find("data: alpha\n\n") != S::npos);
 	REQUIRE(body.find("data: beta\n\n") != S::npos);
@@ -164,7 +164,7 @@ TEST_CASE(
 	});
 	conflux::tests::HttpsServerFixture const fx{move(r)};
 	auto [code, body] =
-		conflux::tests::run_cmd_retry(format("curl -sk -N --max-time 5 https://127.0.0.1:{}/typed", fx.port()));
+		conflux::tests::run_cmd_retry(format("curl -sk --http1.1 -N --max-time 5 https://127.0.0.1:{}/typed", fx.port()));
 	REQUIRE(code == 0);
 	REQUIRE(body.find("event: update\n") != S::npos);
 	REQUIRE(body.find("data: payload42\n") != S::npos);

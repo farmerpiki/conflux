@@ -676,7 +676,7 @@ TEST_CASE(
 TEST_CASE(
 	"h2: HTTP/1.1 client can still connect to h2-capable server") {
 	conflux::tests::HttpsServerFixture fx{make_router()};
-	// curl without --http2 negotiates http/1.1 via ALPN; must still get a 200.
+	// Force an HTTP/1.1 client against the h2-capable TLS listener; must still get a 200.
 	auto [status, body] = fx.curl_https("/ping");
 	REQUIRE(status == 0);
 	REQUIRE(body == R"({"ok":true})");

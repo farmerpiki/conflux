@@ -121,7 +121,7 @@ void wait_for_port(
 void wait_for_https(
 	u16 port) {
 	for (int i = 0; i < 50; ++i) {
-		auto [code, out] = run_cmd(format("curl -sk -o /dev/null --max-time 1 https://127.0.0.1:{}/", port));
+		auto [code, out] = run_cmd(format("curl -sk --http1.1 -o /dev/null --max-time 1 https://127.0.0.1:{}/", port));
 		(void)out;
 		if (code == 0) {
 			return;
@@ -179,7 +179,7 @@ public:
 	[[gnu::pure]] [[nodiscard]] u16 port() const noexcept { return port_; }
 	[[nodiscard]] P<int, S> curl_https(
 		SV path) const {
-		return run_cmd_retry(format("curl -sk --max-time 5 https://127.0.0.1:{}{}", port_, path));
+		return run_cmd_retry(format("curl -sk --http1.1 --max-time 5 https://127.0.0.1:{}{}", port_, path));
 	}
 	[[nodiscard]] P<int, S> curl_http(
 		SV path) const {
@@ -188,7 +188,7 @@ public:
 	[[nodiscard]] P<int, S> curl_https_status(
 		SV path) const {
 		return run_cmd_retry(format(
-			"curl -sk -o /dev/null -w '%{{http_code}}' --max-time 5 "
+			"curl -sk --http1.1 -o /dev/null -w '%{{http_code}}' --max-time 5 "
 			"https://127.0.0.1:{}{}",
 			port_,
 			path));

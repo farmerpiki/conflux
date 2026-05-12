@@ -3,6 +3,7 @@ module;
 
 #include <arpa/inet.h>
 #include <cassert>
+#include <cstdio>
 #include <liburing.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -135,10 +136,13 @@ SV http_date_now() {
 	if (now != cached_epoch) {
 		cached_epoch = now;
 		tm gmt{};
-		::gmtime_r(&now, &gmt);
+		if (::gmtime_r(&now, &gmt) == nullptr) {
+			cached = "Thu, 01 Jan 1970 00:00:00 GMT";
+			return cached;
+		}
 		A<char, 32> buf{};
-		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
-		cached = S{buf.data()};
+		SZ const n = ::strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
+		cached = n != 0 ? S{buf.data(), n} : S{"Thu, 01 Jan 1970 00:00:00 GMT"};
 	}
 	return cached;
 }
@@ -255,15 +259,11 @@ S format_response(
 	if (!r.content_type.empty()) {
 		out += format("Content-Type: {}\r\n", r.content_type);
 	}
-	if (r.status == 204) {
-		// 204 must not have Content-Length per RFC 9110 §15.3.5 (omit it).
-	} else if (r.status == 304) {
+	if (r.status == 304) {
 		if (r.content_length_hint != 0) {
 			out += format("Content-Length: {}\r\n", r.content_length_hint);
 		}
-	} else if (status_no_body) {
-		// 1xx: no Content-Length
-	} else {
+	} else if (!status_no_body) {
 		out += format("Content-Length: {}\r\n", r.content_length());
 	}
 	for (auto const &[k, v]: r.headers) {
@@ -308,7 +308,7 @@ SV format_sse_headers(
 }
 #if CONFLUX_HAS_HTTP2
 struct Ring; // forward-declared so H2ConnCtx can hold Ring* while Conn precedes Ring
-static constexpr SZ kH2PendingSendCap = 64U * 1024U;
+static constexpr SZ kH2PendingSendCap = SZ{64} * 1024;
 struct H2Stream {
 	S method{};
 	S path{};
@@ -668,7 +668,7 @@ void parse_multipart(
 	SZ pos = first->delim_pos;
 
 	static constexpr SZ kMaxMultipartParts = 1000;
-	static constexpr SZ kMaxPartHeaderBytes = 16U * 1024U;
+	static constexpr SZ kMaxPartHeaderBytes = SZ{16} * 1024;
 	SZ part_count = 0;
 	while (true) {
 		if (++part_count > kMaxMultipartParts) {
@@ -1165,7 +1165,7 @@ struct Ring {
 		if (vhost_router != nullptr) {
 			return vhost_router->has_context_routes();
 		}
-		return router && router->has_context_routes();
+		return router != nullptr && router->has_context_routes();
 	}
 	[[nodiscard]] Opt<HttpResponse> try_dispatch_async(
 		HttpRequestView const &req) const {
@@ -1175,8 +1175,8 @@ struct Ring {
 		if (!has_context_routes()) {
 			return nullopt;
 		}
-		RequestContext ctx{*client_task_ring_};
-		HttpRequest owned = req.to_owned();
+		RequestContext const ctx{*client_task_ring_};
+		HttpRequest const owned = req.to_owned();
 		if (vhost_router != nullptr) {
 			return vhost_router->dispatch_async(owned, ctx);
 		}
@@ -1241,7 +1241,7 @@ struct Ring {
 		if (rbio == nullptr) {
 			return false;
 		}
-		SV in = conn.partial.view();
+		SV const in = conn.partial.view();
 		SZ off{};
 		while (off < in.size()) {
 			auto const want = static_cast<int>(min<SZ>(in.size() - off, static_cast<SZ>(NL<int>::max())));
@@ -2417,11 +2417,6 @@ struct Ring {
 		auto &conn = fd_table[ufd];
 		conn.streamed_splice_in_flight = false;
 		if (err || !conn.streamed_file) {
-			try {
-				if (err) {
-					rethrow_exception(err);
-				}
-			} catch (...) {}
 			conn.streamed_file.reset();
 			queue_close(fd);
 			return;
@@ -3617,9 +3612,9 @@ struct Ring {
 			return;
 		}
 		auto &conn = fd_table[ufd];
-		if (flags & IORING_CQE_F_NOTIF) {
+		if ((flags & IORING_CQE_F_NOTIF) != 0) {
 			++zc_counters_.notifs;
-			if (static_cast<u32>(res) & IORING_NOTIF_USAGE_ZC_COPIED) {
+			if ((static_cast<u32>(res) & IORING_NOTIF_USAGE_ZC_COPIED) != 0) {
 				++zc_counters_.copied_notifs;
 				if (send_zc_enabled_
 					&& zc_counters_.attempts >= 1024
@@ -3656,7 +3651,7 @@ struct Ring {
 		}
 		auto const is_mapped = conn.mapped_file != nullptr;
 		auto const total = is_mapped ? conn.mapped_total : conn.own_response.size();
-		if (flags & IORING_CQE_F_MORE) {
+		if ((flags & IORING_CQE_F_MORE) != 0) {
 			conn.zc_waiting_notif = true;
 			if (res < 0) {
 				conn.zc_after_notif = ZcAfterNotif::close_after_error;
@@ -4024,7 +4019,7 @@ struct Ring {
 					"HTTP/1.1 413 Content Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
 				conn.has_response = true;
 				conn.close_after_send = true;
-				start_response_send(ufd, conn);
+				start_response_send(rc.fd, conn);
 				continue;
 			}
 #if CONFLUX_HAS_TLS
@@ -4295,83 +4290,99 @@ struct Ring {
 		} else {
 			buf_ring_->recycle(buf_id);
 		}
-	}
-	void dispatch_cqe_fatal(
-		io_uring_cqe const *cqe) noexcept {
-		auto const [op, _, _] = unpack(cqe->user_data);
-		switch (op) {
-		case Op::Recv: recycle_recv_buffer_direct(cqe); break;
-		case Op::Accept:
-			if (!accepted_sockets_direct && cqe->res >= 0) {
-				::close(cqe->res);
-			}
-			break;
-		case Op::Close:
-		case Op::Send:
-		case Op::SendZc:
-		case Op::Timer:
-		case Op::FileIo:
-		case Op::SsePoll:
-		case Op::DeferredPoll:
-		case Op::Shutdown:
-		case Op::WsCancel:
-		case Op::ClientRing:
-		case Op::Nop         : break;
-		case Op::FixedFdInstall:
-			if (cqe->res >= 0) {
-				::close(cqe->res);
-			}
-			break;
-		default:
-			// unknown op — future Op additions must be handled here
-			eprintln(format("dispatch_cqe_fatal: unknown op={} ud={:#x}", static_cast<u8>(op), cqe->user_data));
-			break;
-		}
-	}
-	void emit_ring_diagnostics() noexcept {
-		auto const features_str = caps_to_log_string(caps);
-		eprintln(format("ring_features={}", features_str.empty() ? "none" : features_str));
-		u32 const overflow_now = raw_.ring().cq_overflow_count();
-		eprintln(format("ring_cq_overflow={}", overflow_now));
-		if (fatal_cq_overflow_count_ > 0) {
-			eprintln(format(
-				"ring_cq_overflow_delta={}",
-				overflow_now > fatal_cq_overflow_count_ ? overflow_now - fatal_cq_overflow_count_ : 0u));
-		}
-		eprintln(format("ring_sq_busy={}", io_uring_sq_ready(&ring)));
-		{
-			u32 const v = ring.sq.kdropped != nullptr ? *ring.sq.kdropped : 0u;
-			eprintln(format("ring_sq_dropped={}", v));
-		}
-		// Parse fdinfo for CqOverflowList (overflow list depth, Linux 6.x+)
-		int const rfd = ring.ring_fd;
-		if (rfd >= 0) {
-			auto const path = format("/proc/self/fdinfo/{}", rfd);
-			if (auto f = std::ifstream{path}; f) {
-				S line;
-				while (getline(f, line)) {
-					if (line.starts_with("CqOverflowList:")) {
-						auto pos = line.find(':');
-						if (pos != S::npos) {
-							eprintln(format("ring_cq_overflow_list={}", line.substr(pos + 1)));
-						}
-					}
+			 	}
+ 	void dispatch_cqe_fatal(
+ 		io_uring_cqe const *cqe) noexcept {
+		try {
+			auto const [op, _, _] = unpack(cqe->user_data);
+			switch (op) {
+			case Op::Recv: recycle_recv_buffer_direct(cqe); break;
+			case Op::Accept:
+				if (!accepted_sockets_direct && cqe->res >= 0) {
+					::close(cqe->res);
 				}
+				break;
+			case Op::Close:
+			case Op::Send:
+			case Op::SendZc:
+			case Op::Timer:
+			case Op::FileIo:
+			case Op::SsePoll:
+			case Op::DeferredPoll:
+			case Op::Shutdown:
+			case Op::WsCancel:
+			case Op::ClientRing:
+			case Op::Nop         : break;
+			case Op::FixedFdInstall:
+				if (cqe->res >= 0) {
+					::close(cqe->res);
+				}
+				break;
+			default:
+				// unknown op — future Op additions must be handled here
+				(void)std::fprintf(
+					stderr,
+					"dispatch_cqe_fatal: unknown op=%u ud=0x%llx\n",
+					static_cast<unsigned>(static_cast<u8>(op)),
+					static_cast<unsigned long long>(cqe->user_data));
+				break;
+ 			}
+		} catch (exception const &e) {
+			(void)std::fprintf(stderr, "dispatch_cqe_fatal: suppressed exception: %s\n", e.what());
+		} catch (...) {
+			(void)std::fputs("dispatch_cqe_fatal: suppressed unknown exception\n", stderr);
+ 		}
+ 	}
+ 	void emit_ring_diagnostics() noexcept {
+		try {
+			auto const features_str = caps_to_log_string(caps);
+			eprintln(format("ring_features={}", features_str.empty() ? "none" : features_str));
+			u32 const overflow_now = raw_.ring().cq_overflow_count();
+			eprintln(format("ring_cq_overflow={}", overflow_now));
+			if (fatal_cq_overflow_count_ > 0) {
+				eprintln(format(
+					"ring_cq_overflow_delta={}",
+					overflow_now > fatal_cq_overflow_count_ ? overflow_now - fatal_cq_overflow_count_ : 0u));
 			}
-		}
-		if (fatal_reason_ != ServerFatalReason::none) {
-			SV reason_str;
-			switch (fatal_reason_) {
-			case ServerFatalReason::cq_overflow          : reason_str = "cq_overflow"; break;
-			case ServerFatalReason::cq_overflow_no_nodrop: reason_str = "cq_overflow_no_nodrop"; break;
-			case ServerFatalReason::submit_wait_ebadr    : reason_str = "submit_wait_ebadr"; break;
-			case ServerFatalReason::internal_exception   : reason_str = "internal_exception"; break;
-			default                                      : reason_str = "unknown"; break;
+			eprintln(format("ring_sq_busy={}", io_uring_sq_ready(&ring)));
+			{
+				u32 const v = ring.sq.kdropped != nullptr ? *ring.sq.kdropped : 0u;
+				eprintln(format("ring_sq_dropped={}", v));
 			}
-			eprintln(format("ring_fatal_reason={}", reason_str));
-		}
-		if (overflow_flush_limit_hit_) {
-			eprintln("ring_overflow_flush_limit_hit=1");
+			// Parse fdinfo for CqOverflowList (overflow list depth, Linux 6.x+)
+			int const rfd = ring.ring_fd;
+			if (rfd >= 0) {
+				auto const path = format("/proc/self/fdinfo/{}", rfd);
+				if (auto f = std::ifstream{path}; f) {
+					S line;
+					while (getline(f, line)) {
+						if (line.starts_with("CqOverflowList:")) {
+							auto pos = line.find(':');
+							if (pos != S::npos) {
+								eprintln(format("ring_cq_overflow_list={}", line.substr(pos + 1)));
+							}
+ 						}
+ 					}
+ 				}
+ 			}
+			if (fatal_reason_ != ServerFatalReason::none) {
+				SV reason_str;
+				switch (fatal_reason_) {
+				case ServerFatalReason::cq_overflow          : reason_str = "cq_overflow"; break;
+				case ServerFatalReason::cq_overflow_no_nodrop: reason_str = "cq_overflow_no_nodrop"; break;
+				case ServerFatalReason::submit_wait_ebadr    : reason_str = "submit_wait_ebadr"; break;
+				case ServerFatalReason::internal_exception   : reason_str = "internal_exception"; break;
+				default                                      : reason_str = "unknown"; break;
+				}
+				eprintln(format("ring_fatal_reason={}", reason_str));
+			}
+			if (overflow_flush_limit_hit_) {
+				eprintln("ring_overflow_flush_limit_hit=1");
+			}
+		} catch (exception const &e) {
+			(void)std::fprintf(stderr, "emit_ring_diagnostics: suppressed exception: %s\n", e.what());
+		} catch (...) {
+			(void)std::fputs("emit_ring_diagnostics: suppressed unknown exception\n", stderr);
 		}
 	}
 	void flush_overflow_cqes_until_clear_or_limit() noexcept {
@@ -4401,13 +4412,17 @@ struct Ring {
 			cpu_set_t cs;
 			CPU_ZERO(&cs);
 			CPU_SET(static_cast<unsigned>(ring_core_), &cs);
-			::sched_setaffinity(0, sizeof(cs), &cs);
+			(void)::sched_setaffinity(0, sizeof(cs), &cs);
 		}
-		if (worker_core_ >= 0) {
+		if (worker_core_ >= 0 && ring.ring_fd >= 0) {
 			cpu_set_t cs;
 			CPU_ZERO(&cs);
 			CPU_SET(static_cast<unsigned>(worker_core_), &cs);
-			::io_uring_register(ring.ring_fd, IORING_REGISTER_IOWQ_AFF, &cs, sizeof(cs));
+			(void)::io_uring_register(
+				static_cast<unsigned>(ring.ring_fd),
+				static_cast<unsigned>(IORING_REGISTER_IOWQ_AFF),
+				&cs,
+				static_cast<unsigned>(sizeof(cs)));
 		}
 		CurrentFileReaderScope const file_reader_scope{files.get()};
 
