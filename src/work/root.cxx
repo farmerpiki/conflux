@@ -872,7 +872,7 @@ struct detach_outcome_sink {
 	asm volatile("" ::: "memory");
 #endif
 }
-class ControlBlockBase : public std::enable_shared_from_this<ControlBlockBase> {
+class ControlBlockBase {
 	std::source_location spawn_loc_{};
 
 public:
@@ -954,7 +954,6 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 		if (terminal_claimed_.load(memory_order_acquire)) {
 			return;
 		}
-		auto keepalive = this->shared_from_this();
 		try {
 			fn(CancelReason::requested);
 		} catch (...) { std::terminate(); }
@@ -970,7 +969,6 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 			return;
 		}
 		if (prev == ReadyHookState::armed) {
-			auto keepalive = this->shared_from_this();
 			small_move_only_function<void()> fn{};
 			{
 				std::unique_lock lk{mtx_};
@@ -1012,7 +1010,6 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 			local.emplace(move(*outcome_));
 			outcome_.reset();
 		}
-		auto keepalive = this->shared_from_this();
 		try {
 			sink(*local);
 		} catch (...) { std::terminate(); }
@@ -1108,7 +1105,6 @@ public:
 			}
 		}
 		if (invoke_now && !terminal_claimed_.load(memory_order_acquire)) {
-			auto keepalive = this->shared_from_this();
 			try {
 				invoke_now(CancelReason::requested);
 			} catch (...) { std::terminate(); }
@@ -1315,7 +1311,6 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 		if (terminal_claimed_.load(memory_order_acquire)) {
 			return;
 		}
-		auto keepalive = this->shared_from_this();
 		try {
 			fn(CancelReason::requested);
 		} catch (...) { std::terminate(); }
@@ -1345,7 +1340,6 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 			return;
 		}
 		if (prev == ReadyHookState::armed) {
-			auto keepalive = this->shared_from_this();
 			small_move_only_function<void()> fn{};
 			{
 				std::unique_lock lk{mtx_};
@@ -1373,7 +1367,6 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 			local.emplace(move(*outcome_));
 			outcome_.reset();
 		}
-		auto keepalive = this->shared_from_this();
 		try {
 			sink(*local);
 		} catch (...) { std::terminate(); }
@@ -1469,7 +1462,6 @@ public:
 			}
 		}
 		if (invoke_now && !terminal_claimed_.load(memory_order_acquire)) {
-			auto keepalive = this->shared_from_this();
 			try {
 				invoke_now(CancelReason::requested);
 			} catch (...) { std::terminate(); }

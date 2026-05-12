@@ -20,7 +20,6 @@ namespace wroot = conflux::work::root;
 using std::atomic;
 using std::atomic_bool;
 using std::current_exception;
-using std::enable_shared_from_this;
 using std::make_exception_ptr;
 using std::make_shared;
 using std::memory_order_acq_rel;
@@ -526,7 +525,7 @@ template<class T>
 }
 // ─── ConnectOp ───────────────────────────────────────────────────────────────
 
-struct ConnectOp : enable_shared_from_this<ConnectOp> {
+struct ConnectOp {
 	enum class Stage : u8 {
 		socket_pending,
 		connect_pending,
@@ -571,8 +570,8 @@ struct ConnectOp : enable_shared_from_this<ConnectOp> {
 	}
 	void submit_cancel_ud_on_owner(
 		SocketTaskRing &r,
-		u64 target_ud) noexcept {
-		auto self = shared_from_this();
+		u64 target_ud,
+		SP<ConnectOp> self) noexcept {
 		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
 		if (!submit_cancel_by_ud(r.raw(), target_ud, r.encode(cs, cg))) {
 			r.completions().dispatch(cs, cg, -EBUSY, 0);
@@ -583,8 +582,8 @@ struct ConnectOp : enable_shared_from_this<ConnectOp> {
 	}
 	void submit_cancel_fd_on_owner(
 		SocketTaskRing &r,
-		RingFd fd) noexcept {
-		auto self = shared_from_this();
+		RingFd fd,
+		SP<ConnectOp> self) noexcept {
 		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
 		if (!submit_cancel_fd(r.raw(), fd, r.encode(cs, cg))) {
 			r.completions().dispatch(cs, cg, -EBUSY, 0);
@@ -594,22 +593,23 @@ struct ConnectOp : enable_shared_from_this<ConnectOp> {
 		auto _ = r.raw().submit();
 	}
 	void cancel_on_owner(
-		SocketTaskRing &r) noexcept {
+		SocketTaskRing &r,
+		SP<ConnectOp> self) noexcept {
 		if (finalized.load(memory_order_acquire)) {
 			return;
 		}
 		switch (stage) {
-		case Stage::socket_pending : submit_cancel_ud_on_owner(r, socket_ud); break;
-		case Stage::connect_pending: submit_cancel_fd_on_owner(r, stream_state->handle.get()); break;
+		case Stage::socket_pending : submit_cancel_ud_on_owner(r, socket_ud, move(self)); break;
+		case Stage::connect_pending: submit_cancel_fd_on_owner(r, stream_state->handle.get(), move(self)); break;
 		case Stage::done           : break;
 		}
 	}
 	void request_cancel(
-		wroot::CancelReason) noexcept {
+		wroot::CancelReason,
+		SP<ConnectOp> self) noexcept {
 		stop_cause.store(StopCause::user_cancel, memory_order_release);
 		cancel_requested.store(true, memory_order_release);
-		auto self = shared_from_this();
-		if (!ring->submit_on_owner([self](SocketTaskRing &r) { self->cancel_on_owner(r); })) {
+		if (!ring->submit_on_owner([self](SocketTaskRing &r) { self->cancel_on_owner(r, self); })) {
 			complete_cancelled(); // may run on cancelling thread; relies on TaskSource setter MT-safety
 		}
 	}
@@ -641,7 +641,8 @@ struct ConnectOp : enable_shared_from_this<ConnectOp> {
 		}
 	}
 	void on_socket_cqe(
-		IoResult r) noexcept {
+		IoResult r,
+		SP<ConnectOp> self) noexcept {
 		if (r.res < 0) {
 			if (cancel_requested.load(memory_order_acquire)) {
 				complete_cancelled();
@@ -677,7 +678,6 @@ struct ConnectOp : enable_shared_from_this<ConnectOp> {
 			return;
 		}
 		stream_state = make_shared<TcpStreamState>(ring, move(owned));
-		auto self = shared_from_this();
 		auto [cslot, cgen] = ring->completions().reserve([self](IoResult cr) noexcept { self->on_connect_cqe(cr); });
 		connect_ud = ring->encode(cslot, cgen);
 		u32 tslot{}, tgen{};
@@ -732,7 +732,7 @@ export [[nodiscard]] wroot::Task<TcpStream> tcp_connect(
 	op->addr_len = len;
 	op->opts = opts;
 
-	auto [slot, gen] = ring.completions().reserve([op](IoResult r) noexcept { op->on_socket_cqe(r); });
+	auto [slot, gen] = ring.completions().reserve([op](IoResult r) noexcept { op->on_socket_cqe(r, op); });
 	op->socket_ud = ring.encode(slot, gen);
 
 	if (!submit_socket(ring.raw(), family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP, op->socket_ud)) {
@@ -741,7 +741,7 @@ export [[nodiscard]] wroot::Task<TcpStream> tcp_connect(
 
 	auto _ = src->install_cancel_hook([weak_op = WP<ConnectOp>{op}](wroot::CancelReason cr) noexcept {
 		if (auto sop = weak_op.lock()) {
-			sop->request_cancel(cr);
+			sop->request_cancel(cr, sop);
 		}
 	});
 
@@ -749,7 +749,7 @@ export [[nodiscard]] wroot::Task<TcpStream> tcp_connect(
 }
 // ─── AcceptOp ─────────────────────────────────────────────────────────────────
 
-struct AcceptOp : enable_shared_from_this<AcceptOp> {
+struct AcceptOp {
 	SocketTaskRing *ring{};
 	SP<wroot::TaskSource<TcpStream>> src{};
 	AcceptOptions opts{};
@@ -779,11 +779,11 @@ struct AcceptOp : enable_shared_from_this<AcceptOp> {
 		auto _ = src->try_set_value(wroot::Success<TcpStream>{move(v)});
 	}
 	void cancel_on_owner(
-		SocketTaskRing &r) noexcept {
+		SocketTaskRing &r,
+		SP<AcceptOp> self) noexcept {
 		if (finalized.load(memory_order_acquire)) {
 			return;
 		}
-		auto self = shared_from_this();
 		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
 		if (!submit_cancel_by_ud(r.raw(), accept_ud, r.encode(cs, cg))) {
 			r.completions().dispatch(cs, cg, -EBUSY, 0);
@@ -793,16 +793,16 @@ struct AcceptOp : enable_shared_from_this<AcceptOp> {
 			if (r.raw().submit() <= 0) {
 				return;
 			}
-			auto _ = r.submit_on_owner([self](SocketTaskRing &r2) noexcept { self->cancel_on_owner(r2); });
+			auto _ = r.submit_on_owner([self](SocketTaskRing &r2) noexcept { self->cancel_on_owner(r2, self); });
 			return;
 		}
 		auto _ = r.raw().submit();
 	}
 	void request_cancel(
-		wroot::CancelReason) noexcept {
+		wroot::CancelReason,
+		SP<AcceptOp> self) noexcept {
 		cancel_requested.store(true, memory_order_release);
-		auto self = shared_from_this();
-		auto _ = ring->submit_on_owner([self](SocketTaskRing &r) noexcept { self->cancel_on_owner(r); });
+		auto _ = ring->submit_on_owner([self](SocketTaskRing &r) noexcept { self->cancel_on_owner(r, self); });
 		// If enqueue fails: cancel_requested=true; on_accept_cqe drains/finalizes.
 	}
 	void on_accept_cqe(
@@ -868,7 +868,7 @@ export [[nodiscard]] wroot::Task<TcpStream> tcp_accept(
 
 	auto _ = src->install_cancel_hook([weak_op = WP<AcceptOp>{op}](wroot::CancelReason cr) noexcept {
 		if (auto sop = weak_op.lock()) {
-			sop->request_cancel(cr);
+			sop->request_cancel(cr, sop);
 		}
 	});
 
@@ -876,7 +876,7 @@ export [[nodiscard]] wroot::Task<TcpStream> tcp_accept(
 }
 // ─── MultishotAcceptOp ────────────────────────────────────────────────────────
 
-struct MultishotAcceptOp : enable_shared_from_this<MultishotAcceptOp> {
+struct MultishotAcceptOp {
 	SocketTaskRing *ring{};
 	SP<wroot::TaskSource<void>> src{};
 	AcceptOptions opts{};
@@ -901,11 +901,11 @@ struct MultishotAcceptOp : enable_shared_from_this<MultishotAcceptOp> {
 		auto _ = src->try_set_cancelled();
 	}
 	void cancel_on_owner(
-		SocketTaskRing &r) noexcept {
+		SocketTaskRing &r,
+		SP<MultishotAcceptOp> self) noexcept {
 		if (finalized.load(memory_order_acquire)) {
 			return;
 		}
-		auto self = shared_from_this();
 		auto [cs, cg] = r.completions().reserve([self](IoResult) noexcept {});
 		if (!submit_cancel_fd(r.raw(), listen_fd, r.encode(cs, cg))) {
 			r.completions().dispatch(cs, cg, -EBUSY, 0);
@@ -915,20 +915,21 @@ struct MultishotAcceptOp : enable_shared_from_this<MultishotAcceptOp> {
 			if (r.raw().submit() <= 0) {
 				return;
 			}
-			auto _ = r.submit_on_owner([self](SocketTaskRing &r2) noexcept { self->cancel_on_owner(r2); });
+			auto _ = r.submit_on_owner([self](SocketTaskRing &r2) noexcept { self->cancel_on_owner(r2, self); });
 			return;
 		}
 		auto _ = r.raw().submit();
 	}
 	void request_cancel(
-		wroot::CancelReason) noexcept {
+		wroot::CancelReason,
+		SP<MultishotAcceptOp> self) noexcept {
 		cancel_requested.store(true, memory_order_release);
-		auto self = shared_from_this();
-		auto _ = ring->submit_on_owner([self](SocketTaskRing &r) noexcept { self->cancel_on_owner(r); });
+		auto _ = ring->submit_on_owner([self](SocketTaskRing &r) noexcept { self->cancel_on_owner(r, self); });
 		// If enqueue fails: cancel_requested=true; on_accept_cqe drains/finalizes.
 	}
 	void on_accept_cqe(
-		IoResult r) noexcept {
+		IoResult r,
+		SP<MultishotAcceptOp> self) noexcept {
 		bool const more = (r.flags & IORING_CQE_F_MORE) != 0;
 		if (r.res < 0) {
 			if (cancel_requested.load(memory_order_acquire) || r.res == -ECANCELED) {
@@ -990,7 +991,7 @@ struct MultishotAcceptOp : enable_shared_from_this<MultishotAcceptOp> {
 				return;
 			}
 			auto [slot, gen] = ring->completions().reserve_multishot(
-				[self = shared_from_this()](IoResult r2) noexcept { self->on_accept_cqe(r2); });
+				[self](IoResult r2) noexcept { self->on_accept_cqe(r2, self); });
 			accept_ud = ring->encode(slot, gen);
 			if (!submit_accept_multishot_borrowed(
 					ring->raw(),
@@ -1036,7 +1037,7 @@ export [[nodiscard]] wroot::Task<void> tcp_accept_multishot(
 	op->listen_fd = listener.handle();
 	op->handler = move(handler);
 
-	auto [slot, gen] = ring.completions().reserve_multishot([op](IoResult r) noexcept { op->on_accept_cqe(r); });
+	auto [slot, gen] = ring.completions().reserve_multishot([op](IoResult r) noexcept { op->on_accept_cqe(r, op); });
 	op->accept_ud = ring.encode(slot, gen);
 
 	if (!submit_accept_multishot_borrowed(
@@ -1052,7 +1053,7 @@ export [[nodiscard]] wroot::Task<void> tcp_accept_multishot(
 
 	auto _ = src->install_cancel_hook([weak_op = WP<MultishotAcceptOp>{op}](wroot::CancelReason cr) noexcept {
 		if (auto sop = weak_op.lock()) {
-			sop->request_cancel(cr);
+			sop->request_cancel(cr, sop);
 		}
 	});
 

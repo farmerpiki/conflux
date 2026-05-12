@@ -130,6 +130,13 @@ export class BufferRing {
 	SZ slab_sz_{};
 	V<u16> ring_order_;
 	V<u32> id_pos_;
+	V<u32> bundle_saved_pos_;
+	V<u8> bundle_has_saved_pos_;
+	V<u32> bundle_saved_keys_;
+	V<u16> bundle_saved_ids_;
+	V<u8> bundle_saved_used_;
+	u32 bundle_saved_mask_{};
+	u32 bundle_preserved_pos_{};
 	V<u8> decoded_pos_;
 	V<u8> observed_pos_;
 	V<u8> recycle_ready_pos_;
@@ -236,6 +243,16 @@ public:
 		if (mode_ == BufferRingMode::incremental) {
 			incremental_offsets_.assign(count_, SZ{0});
 		}
+		if (mode_ == BufferRingMode::recv_bundle) {
+			bundle_saved_pos_.resize(count_);
+			bundle_has_saved_pos_.assign(count_, 0);
+			u32 const saved_slots = count_ * 8;
+			bundle_saved_keys_.assign(saved_slots, 0);
+			bundle_saved_ids_.assign(saved_slots, 0);
+			bundle_saved_used_.assign(saved_slots, 0);
+			bundle_saved_mask_ = saved_slots - 1;
+			bundle_preserved_pos_ = 0;
+		}
 	}
 	~BufferRing() = default;
 	BufferRing(BufferRing const &) = delete;
@@ -277,6 +294,23 @@ public:
 	}
 	void recycle(
 		u16 id) noexcept {
+		if (mode_ == BufferRingMode::recv_bundle) {
+			u32 const idx = tail_pos_ % count_;
+			ring_order_[idx] = id;
+			id_pos_[id] = tail_pos_;
+			decoded_pos_[idx] = 0;
+			observed_pos_[idx] = 0;
+			recycle_ready_pos_[idx] = 0;
+			ring_.add(
+				slab_.get() + static_cast<SZ>(id) * buf_size_,
+				static_cast<u32>(buf_size_),
+				conflux::uring::BufId{id},
+				0);
+			ring_.advance(1);
+			++tail_pos_;
+			return;
+		}
+
 		for (u32 pos = recycle_head_pos_; pos != tail_pos_; ++pos) {
 			u32 const idx = pos % count_;
 			if (observed_pos_[idx] != 0 && recycle_ready_pos_[idx] == 0 && ring_id_at(pos) == id) {
@@ -303,6 +337,25 @@ public:
 	void recycle_batch(
 		span<u16 const> ids) noexcept {
 		u32 i = 0;
+		if (mode_ == BufferRingMode::recv_bundle) {
+			for (auto id: ids) {
+				u32 const idx = (tail_pos_ + i) % count_;
+				ring_order_[idx] = id;
+				id_pos_[id] = tail_pos_ + i;
+				decoded_pos_[idx] = 0;
+				observed_pos_[idx] = 0;
+				recycle_ready_pos_[idx] = 0;
+				ring_.add(
+					slab_.get() + static_cast<SZ>(id) * buf_size_,
+					static_cast<u32>(buf_size_),
+					conflux::uring::BufId{id},
+					static_cast<int>(i));
+				++i;
+			}
+			ring_.advance(static_cast<int>(ids.size()));
+			tail_pos_ += static_cast<u32>(ids.size());
+			return;
+		}
 		for (auto id: ids) {
 			u32 const idx = (tail_pos_ + i) % count_;
 			ring_order_[idx] = id;
@@ -352,6 +405,32 @@ public:
 		if (cnt == 0) {
 			return;
 		}
+		if (mode_ == BufferRingMode::recv_bundle) {
+			assert(start_pos + cnt >= start_pos);
+			assert(start_pos + cnt <= tail_pos_);
+			for (u32 i = 0; i < cnt; ++i) {
+				u32 const old_pos = start_pos + i;
+				u16 const id = ring_id_at(old_pos);
+				u32 const idx = (tail_pos_ + i) % count_;
+				ring_order_[idx] = id;
+				id_pos_[id] = tail_pos_ + i;
+				decoded_pos_[idx] = 0;
+				observed_pos_[idx] = 0;
+				recycle_ready_pos_[idx] = 0;
+				if (bundle_has_saved_pos_[id] != 0 && bundle_saved_pos_[id] == old_pos) {
+					bundle_has_saved_pos_[id] = 0;
+				}
+				bundle_saved_erase(old_pos);
+				ring_.add(
+					slab_.get() + static_cast<SZ>(id) * buf_size_,
+					static_cast<u32>(buf_size_),
+					conflux::uring::BufId{id},
+					static_cast<int>(i));
+			}
+			ring_.advance(static_cast<int>(cnt));
+			tail_pos_ += cnt;
+			return;
+		}
 		assert(start_pos >= recycle_head_pos_);
 		assert(start_pos + cnt <= tail_pos_);
 		for (u32 i = 0; i < cnt; ++i) {
@@ -359,9 +438,95 @@ public:
 		}
 		flush_recycle_ready();
 	}
+	void preserve_bundle_positions_until(
+		u32 end_pos) noexcept {
+		assert(mode_ == BufferRingMode::recv_bundle);
+		for (; bundle_preserved_pos_ < end_pos; ++bundle_preserved_pos_) {
+			u32 const pos = bundle_preserved_pos_;
+			u16 const id = ring_id_at(pos);
+			bundle_saved_insert_or_assign(pos, id);
+			bundle_saved_pos_[id] = pos;
+			bundle_has_saved_pos_[id] = 1;
+		}
+	}
+	[[nodiscard]] static u32 bundle_hash(
+		u32 pos) noexcept {
+		return pos * 2654435761u;
+	}
+	[[nodiscard]] Opt<u16> bundle_saved_find(
+		u32 pos) const noexcept {
+		if (bundle_saved_used_.empty()) {
+			return nullopt;
+		}
+		u32 i = bundle_hash(pos) & bundle_saved_mask_;
+		for (u32 n = 0, limit = static_cast<u32>(bundle_saved_used_.size()); n < limit; ++n) {
+			if (bundle_saved_used_[i] == 0) {
+				return nullopt;
+			}
+			if (bundle_saved_keys_[i] == pos) {
+				return bundle_saved_ids_[i];
+			}
+			i = (i + 1) & bundle_saved_mask_;
+		}
+		return nullopt;
+	}
+	void bundle_saved_insert_or_assign(
+		u32 pos,
+		u16 id) noexcept {
+		assert(!bundle_saved_used_.empty());
+		u32 i = bundle_hash(pos) & bundle_saved_mask_;
+		for (u32 n = 0, limit = static_cast<u32>(bundle_saved_used_.size()); n < limit; ++n) {
+			if (bundle_saved_used_[i] == 0 || bundle_saved_keys_[i] == pos) {
+				bundle_saved_used_[i] = 1;
+				bundle_saved_keys_[i] = pos;
+				bundle_saved_ids_[i] = id;
+				return;
+			}
+			i = (i + 1) & bundle_saved_mask_;
+		}
+		assert(false && "recv-bundle saved-order table exhausted");
+		std::abort();
+	}
+	void bundle_saved_erase(
+		u32 pos) noexcept {
+		if (bundle_saved_used_.empty()) {
+			return;
+		}
+		u32 i = bundle_hash(pos) & bundle_saved_mask_;
+		for (u32 n = 0, limit = static_cast<u32>(bundle_saved_used_.size()); n < limit; ++n) {
+			if (bundle_saved_used_[i] == 0) {
+				return;
+			}
+			if (bundle_saved_keys_[i] == pos) {
+				bundle_saved_used_[i] = 0;
+				for (u32 j = (i + 1) & bundle_saved_mask_; bundle_saved_used_[j] != 0;
+					j = (j + 1) & bundle_saved_mask_) {
+					u32 const key = bundle_saved_keys_[j];
+					u16 const val = bundle_saved_ids_[j];
+					bundle_saved_used_[j] = 0;
+					bundle_saved_insert_or_assign(key, val);
+				}
+				return;
+			}
+			i = (i + 1) & bundle_saved_mask_;
+		}
+	}
+
 	void consume_at(
 		u32 start_pos,
 		u32 cnt) noexcept {
+		if (mode_ == BufferRingMode::recv_bundle) {
+			assert(start_pos + cnt >= start_pos);
+			assert(start_pos + cnt <= tail_pos_);
+			for (u32 i = 0; i < cnt; ++i) {
+				decoded_pos_[(start_pos + i) % count_] = 1;
+			}
+			while (head_pos_ != tail_pos_ && decoded_pos_[head_pos_ % count_] != 0) {
+				decoded_pos_[head_pos_ % count_] = 0;
+				++head_pos_;
+			}
+			return;
+		}
 		assert(start_pos >= recycle_head_pos_);
 		assert(start_pos + cnt <= tail_pos_);
 		for (u32 i = 0; i < cnt; ++i) {
@@ -382,12 +547,23 @@ public:
 	}
 	[[nodiscard]] Opt<u32> find_start_pos(
 		u16 first_id,
-		u32 cnt) const noexcept {
+		u32 cnt) noexcept {
 		if (cnt == 0 || cnt > count_ || first_id >= count_) {
 			return nullopt;
 		}
-		u32 const pos = id_pos_[first_id];
-		if (pos < recycle_head_pos_ || pos + cnt > tail_pos_ || ring_id_at(pos) != first_id) {
+		u32 const pos = mode_ == BufferRingMode::recv_bundle && bundle_has_saved_pos_[first_id] != 0
+			? bundle_saved_pos_[first_id]
+			: id_pos_[first_id];
+		if (pos + cnt < pos || pos + cnt > tail_pos_) {
+			return nullopt;
+		}
+		if (mode_ != BufferRingMode::recv_bundle && pos < recycle_head_pos_) {
+			return nullopt;
+		}
+		if (mode_ == BufferRingMode::recv_bundle) {
+			preserve_bundle_positions_until(pos + cnt);
+		}
+		if (ring_id_at(pos) != first_id) {
 			return nullopt;
 		}
 		return pos;
@@ -408,6 +584,12 @@ public:
 	}
 	[[nodiscard]] u16 ring_id_at(
 		u32 pos) const noexcept {
+		if (mode_ == BufferRingMode::recv_bundle) {
+			auto const id = bundle_saved_find(pos);
+			if (id) {
+				return *id;
+			}
+		}
 		return ring_order_[pos % count_];
 	}
 	[[nodiscard]] BufferRingMode mode() const noexcept { return mode_; }

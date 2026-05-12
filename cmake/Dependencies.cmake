@@ -5,10 +5,33 @@
 find_package(PkgConfig REQUIRED)
 
 if(CONFLUX_BUILD_TESTS)
-    find_package(Catch2 3 QUIET)
-    if(Catch2_FOUND)
-        message(STATUS "conflux: tests using system Catch2")
-    elseif(CONFLUX_FETCH_TEST_DEPS)
+    string(TOUPPER "${CONFLUX_TEST_CATCH2_PROVIDER}" CONFLUX_TEST_CATCH2_PROVIDER_UPPER)
+    if(NOT CONFLUX_TEST_CATCH2_PROVIDER_UPPER MATCHES "^(FETCH|SYSTEM|AUTO)$")
+        message(FATAL_ERROR
+            "conflux: CONFLUX_TEST_CATCH2_PROVIDER must be FETCH, SYSTEM, or AUTO "
+            "(got '${CONFLUX_TEST_CATCH2_PROVIDER}')")
+    endif()
+
+    if(CONFLUX_CATCH2_SOURCE_DIR)
+        set(FETCHCONTENT_SOURCE_DIR_CATCH2 "${CONFLUX_CATCH2_SOURCE_DIR}" CACHE PATH
+            "Local Catch2 source tree" FORCE)
+    endif()
+
+    set(_conflux_catch2_local_source FALSE)
+    if(DEFINED FETCHCONTENT_SOURCE_DIR_CATCH2 AND NOT "${FETCHCONTENT_SOURCE_DIR_CATCH2}" STREQUAL "")
+        set(_conflux_catch2_local_source TRUE)
+    endif()
+
+    function(conflux_fetch_catch2)
+        if(NOT CONFLUX_FETCH_TEST_DEPS AND NOT _conflux_catch2_local_source)
+            message(FATAL_ERROR
+                "conflux: Catch2 provider FETCH needs either "
+                "-DCONFLUX_FETCH_TEST_DEPS=ON to download Catch2, "
+                "-DCONFLUX_CATCH2_SOURCE_DIR=<local Catch2 source dir>, or "
+                "-DFETCHCONTENT_SOURCE_DIR_CATCH2=<local Catch2 source dir>. "
+                "Alternatively use -DCONFLUX_TEST_CATCH2_PROVIDER=SYSTEM with a compatible Catch2 package.")
+        endif()
+
         include(FetchContent)
         FetchContent_Declare(
             Catch2
@@ -18,12 +41,30 @@ if(CONFLUX_BUILD_TESTS)
             OVERRIDE_FIND_PACKAGE
         )
         FetchContent_MakeAvailable(Catch2)
+        FetchContent_GetProperties(Catch2 SOURCE_DIR _conflux_catch2_source_dir)
+        set(CONFLUX_CATCH2_EXTRAS_DIR "${_conflux_catch2_source_dir}/extras" PARENT_SCOPE)
+        message(STATUS "conflux: tests using source-built Catch2")
+    endfunction()
+
+    if(CONFLUX_TEST_CATCH2_PROVIDER_UPPER STREQUAL "SYSTEM")
+        find_package(Catch2 3 REQUIRED)
+        message(STATUS "conflux: tests using system Catch2")
+    elseif(CONFLUX_TEST_CATCH2_PROVIDER_UPPER STREQUAL "AUTO")
+        find_package(Catch2 3 QUIET)
+        if(Catch2_FOUND)
+            message(STATUS "conflux: tests using system Catch2")
+        else()
+            conflux_fetch_catch2()
+        endif()
     else()
-        message(FATAL_ERROR
-            "conflux: CONFLUX_BUILD_TESTS=ON requires Catch2 3. "
-            "Install Catch2 and/or pass -DCMAKE_PREFIX_PATH=<prefix>, "
-            "enable -DCONFLUX_FETCH_TEST_DEPS=ON, or disable tests with "
-            "-DCONFLUX_BUILD_TESTS=OFF.")
+        conflux_fetch_catch2()
+    endif()
+
+    if(NOT CONFLUX_CATCH2_EXTRAS_DIR AND DEFINED Catch2_DIR)
+        set(CONFLUX_CATCH2_EXTRAS_DIR "${Catch2_DIR}")
+    endif()
+    if(CONFLUX_CATCH2_EXTRAS_DIR AND EXISTS "${CONFLUX_CATCH2_EXTRAS_DIR}/Catch.cmake")
+        list(APPEND CMAKE_MODULE_PATH "${CONFLUX_CATCH2_EXTRAS_DIR}")
     endif()
 
     set(CONFLUX_HAS_JSON_TESTSUITE FALSE)
