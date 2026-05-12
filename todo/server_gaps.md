@@ -19,7 +19,7 @@
 - [ ] JSON: true incremental `JsonStreamReader::feed(span<byte>)` / events API
 - [x] Router: `ContextHandler` / `ContextMiddleware` / `dispatch_async()` — landed in `844b8dc`
 - [x] Router: static-assert diagnostics for handler/middleware return types — landed (8+ static_asserts with clear error messages in router.cxx)
-- [ ] Router: formal named public concepts (`HandlerResult`, `Middleware`) — still split between sync `Handler` and async `ContextHandler`
+- [x] Router: formal named public concepts (`HandlerResult`, `RouteHandler`, `ContextHandlerFunction`, `Middleware`) — exported and wired into `add_context`
 - [x] io_uring init: adaptive flag fallback on `EINVAL` (strip `CQE_MIXED` → `NO_SQARRAY` → `TASKRUN_FLAG` → `DEFER_TASKRUN` → `SINGLE_ISSUER`, log final set)
 
 - [ ] Shutdown: force-close `close_after_send` connections that stall (send CQE never completes because peer stopped draining) — cancel in-flight send + immediate close after a shutdown timeout, rather than waiting indefinitely for send completion

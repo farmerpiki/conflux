@@ -1772,16 +1772,54 @@ export struct StaticOptions {
 export struct RequestContext {
 	SocketTaskRing &ring;
 };
+
+export using NextHandler = CloneableFunction<HttpResponse(HttpRequestView const &)>;
+export using MiddlewareFunction = CloneableFunction<HttpResponse(HttpRequestView const &, NextHandler const &)>;
+
+export template<class R>
+concept HandlerResult = same_as<R, HttpResponse> || same_as<R, conflux::work::root::Task<HttpResponse>>;
+
+export template<class F>
+concept ViewHandler = requires(std::decay_t<F> &fn, HttpRequestView const &req) {
+	{ std::invoke(fn, req) } -> same_as<HttpResponse>;
+};
+
+export template<class F>
+concept RequestHandler = requires(std::decay_t<F> &fn, HttpRequest const &req) {
+	{ std::invoke(fn, req) } -> HandlerResult;
+};
+
+export template<class F>
+concept RouteHandler = ViewHandler<F> || RequestHandler<F>;
+
+export template<class F>
+concept ContextHandlerFunction = requires(std::decay_t<F> &fn, HttpRequest const &req, RequestContext const &ctx) {
+	{ std::invoke(fn, req, ctx) } -> same_as<conflux::work::root::Task<HttpResponse>>;
+};
+
+export template<class F>
+concept ViewMiddleware = requires(std::decay_t<F> &fn, HttpRequestView const &req, NextHandler const &next) {
+	{ std::invoke(fn, req, next) } -> same_as<HttpResponse>;
+};
+
+export template<class F>
+concept RequestMiddleware = requires(std::decay_t<F> &fn, HttpRequest const &req, NextHandler const &next) {
+	{ std::invoke(fn, req, next) } -> same_as<HttpResponse>;
+};
+
+export template<class F>
+concept Middleware = ViewMiddleware<F> || RequestMiddleware<F>;
+
 export class Router {
 public:
-	using Handler = CloneableFunction<HttpResponse(HttpRequestView const &)>;
+	using Handler = NextHandler;
 	using ContextHandler =
 		CloneableFunction<conflux::work::root::Task<HttpResponse>(HttpRequest const &, RequestContext const &)>;
 	using ContextMiddleware = CloneableFunction<
 		conflux::work::root::Task<HttpResponse>(HttpRequest const &, RequestContext const &, ContextHandler const &)>;
 	using SseHandler = CloneableFunction<void(HttpRequestView const &, SP<SseChannel>)>;
 	// next is the downstream handler (or next middleware); call it to continue the chain.
-	using Middleware = CloneableFunction<HttpResponse(HttpRequestView const &, Handler const &)>;
+	using Middleware = MiddlewareFunction;
 	using WsHandler = CloneableFunction<void(HttpRequestView const &, WsConn &)>;
 	using ErrorHandler = CloneableFunction<HttpResponse(HttpRequestView const &, exception const &)>;
 	Router();
@@ -1801,15 +1839,11 @@ public:
 		return *this;
 	}
 	template<typename F>
+		requires ContextHandlerFunction<F>
 	Router &add_context(
 		SV method,
 		SV path,
-		F &&handler)
-		requires std::invocable<std::decay_t<F> &, HttpRequest const &, RequestContext const &>
-			  && same_as<
-					 std::invoke_result_t<std::decay_t<F> &, HttpRequest const &, RequestContext const &>,
-					 conflux::work::root::Task<HttpResponse>>
-	{
+		F &&handler) {
 		add_context_prepared(method, path, ContextHandler{forward<F>(handler)});
 		return *this;
 	}

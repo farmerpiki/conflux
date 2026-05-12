@@ -69,19 +69,60 @@ auto val    = params["name"];
 ## Router
 
 ```cpp
+using NextHandler = CloneableFunction<HttpResponse(HttpRequestView const&)>;
+using MiddlewareFunction = CloneableFunction<HttpResponse(HttpRequestView const&, NextHandler const&)>;
+
+template<class R>
+concept HandlerResult = std::same_as<R, HttpResponse>
+                     || std::same_as<R, root::Task<HttpResponse>>;
+
+template<class F>
+concept ViewHandler = requires(std::decay_t<F>& fn, HttpRequestView const& req) {
+    { std::invoke(fn, req) } -> std::same_as<HttpResponse>;
+};
+
+template<class F>
+concept RequestHandler = requires(std::decay_t<F>& fn, HttpRequest const& req) {
+    { std::invoke(fn, req) } -> HandlerResult;
+};
+
+template<class F> concept RouteHandler = ViewHandler<F> || RequestHandler<F>;
+
+template<class F>
+concept ContextHandlerFunction = requires(std::decay_t<F>& fn,
+                                          HttpRequest const& req,
+                                          RequestContext const& ctx) {
+    { std::invoke(fn, req, ctx) } -> std::same_as<root::Task<HttpResponse>>;
+};
+
+template<class F>
+concept ViewMiddleware = requires(std::decay_t<F>& fn,
+                                  HttpRequestView const& req,
+                                  NextHandler const& next) {
+    { std::invoke(fn, req, next) } -> std::same_as<HttpResponse>;
+};
+
+template<class F>
+concept RequestMiddleware = requires(std::decay_t<F>& fn,
+                                     HttpRequest const& req,
+                                     NextHandler const& next) {
+    { std::invoke(fn, req, next) } -> std::same_as<HttpResponse>;
+};
+
+template<class F> concept Middleware = ViewMiddleware<F> || RequestMiddleware<F>;
+
 class Router {
 public:
-    using Middleware = std::function<HttpResponse(HttpRequestView const&, NextHandler)>;
+    using Handler = NextHandler;
+    using Middleware = MiddlewareFunction;
 
     // Route registration
-    Router& get    (std::string_view path, Handler);
-    Router& post   (std::string_view path, Handler);
-    Router& put    (std::string_view path, Handler);
-    Router& patch  (std::string_view path, Handler);
-    Router& del    (std::string_view path, Handler);
-    Router& head   (std::string_view path, Handler);
-    Router& options(std::string_view path, Handler);
-    Router& any    (std::string_view path, Handler);
+    template<RouteHandler F> Router& get    (std::string_view path, F&&);
+    template<RouteHandler F> Router& post   (std::string_view path, F&&);
+    template<RouteHandler F> Router& put    (std::string_view path, F&&);
+    template<RouteHandler F> Router& patch  (std::string_view path, F&&);
+    template<RouteHandler F> Router& del    (std::string_view path, F&&);
+    template<RouteHandler F> Router& options(std::string_view path, F&&);
 
     // WebSocket upgrade
     template<typename F>
@@ -93,7 +134,8 @@ public:
                          StaticOptions const& = {});
 
     // Middleware (applied in registration order, outermost first)
-    Router& use(Middleware);
+    template<class F> requires ::Middleware<F>
+    Router& use(F&&);
 
     // Sub-routers
     Router& mount(std::string_view prefix, Router sub);
@@ -108,6 +150,8 @@ public:
 ```
 
 Path patterns support `:param` (single segment) and `*` (wildcard). Path parameters are accessible via `req.path_params["param"]`.
+
+The public concepts are intended for user helpers and diagnostics. `HttpRequestView` handlers are sync-only because a view may dangle after coroutine suspension. Async handlers must accept the owning `HttpRequest`.
 
 ---
 
