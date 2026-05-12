@@ -463,7 +463,8 @@ struct alignas(
 	SZ tls_send_off{}; // bytes of tls_send_inflight already sent
 	bool tls_hs_done = false; // TLS handshake completed; also used as undecided sentinel
 	bool tls_sending_response = false; // true → current tls_send_buf carries HTTP response data
-	bool tls_shutdown_after_send = false; // true → close after TLS close_notify bytes are sent
+	bool tls_shutdown_after_send = false; // true → send TLS close_notify after pending bytes drain
+	bool tls_wait_peer_shutdown = false; // true → drain peer close_notify/FIN after our close_notify is sent
 	bool ktls_send = false; // kTLS send offload active; splice_to_fd usable for TLS file body
 #endif
 	bool has_response = false;
@@ -1296,6 +1297,24 @@ struct Ring {
 			});
 		}
 	}
+	void begin_tls_peer_shutdown_wait(
+		int fd,
+		Conn &conn) {
+		conn.tls_shutdown_after_send = false;
+		conn.tls_wait_peer_shutdown = true;
+		conn.close_after_send = false;
+		conn.has_response = false;
+		conn.own_response.clear();
+		conn.written = 0;
+		conn.request_bytes = 0;
+		conn.partial.clear();
+		conn.chunked_decode.reset();
+		conn.request_in_progress = false;
+		conn.expect_continue_sent = false;
+		if (!conn.recv_armed) {
+			queue_multishot_recv(fd);
+		}
+	}
 	void queue_tls_shutdown(
 		int fd,
 		Conn &conn) {
@@ -1304,14 +1323,19 @@ struct Ring {
 			return;
 		}
 		conn.tls_shutdown_after_send = true;
-		(void)SSL_shutdown(conn.ssl.get());
+		auto const shutdown_rc = SSL_shutdown(conn.ssl.get());
+		conn.tls_wait_peer_shutdown = shutdown_rc != 1;
 		tls_flush_wbio(conn);
 		if (!conn.tls_send_pending.empty() || !conn.tls_send_inflight.empty()) {
 			tls_queue_send(conn);
 			return;
 		}
-		conn.tls_shutdown_after_send = false;
-		queue_close(fd);
+		if (!conn.tls_wait_peer_shutdown) {
+			conn.tls_shutdown_after_send = false;
+			queue_close(fd);
+			return;
+		}
+		begin_tls_peer_shutdown_wait(fd, conn);
 	}
 #endif // CONFLUX_HAS_TLS
 
@@ -2094,6 +2118,7 @@ struct Ring {
 		conn.tls_hs_done = false;
 		conn.tls_sending_response = false;
 		conn.tls_shutdown_after_send = false;
+		conn.tls_wait_peer_shutdown = false;
 #endif
 #if CONFLUX_HAS_HTTP2
 		if (conn.h2_session != nullptr) {
@@ -2211,6 +2236,8 @@ struct Ring {
 		setup.tcp_quickack_once = caps.cmd_sock_setsockopt;
 		setup.prefer_busy_poll_once = prefer_busy_poll_ && caps.cmd_sock_setsockopt;
 		setup.busy_poll_us_optval = busy_poll_us_ > 0 && caps.cmd_sock_setsockopt ? &busy_poll_us_ : nullptr;
+		setup.recv_bundle = use_recv_bundle;
+		setup.recv_arm_policy = resolve_recv_arm_policy(conn);
 		setup.skip_sockopt_success_cqes = true;
 		if (!submit_direct_tcp_accept_setup_recv(
 				raw_,
@@ -2921,6 +2948,7 @@ struct Ring {
 			conn.tls_hs_done = (ssl_ctx != nullptr);
 			conn.tls_sending_response = false;
 			conn.tls_shutdown_after_send = false;
+			conn.tls_wait_peer_shutdown = false;
 #endif
 #if CONFLUX_HAS_HTTP2
 			if (conn.h2_session != nullptr) {
@@ -3433,8 +3461,12 @@ struct Ring {
 		conn.send_queued = false;
 
 		if (conn.tls_shutdown_after_send) {
-			conn.tls_shutdown_after_send = false;
-			queue_close(fd);
+			if (conn.tls_wait_peer_shutdown) {
+				begin_tls_peer_shutdown_wait(fd, conn);
+			} else {
+				conn.tls_shutdown_after_send = false;
+				queue_close(fd);
+			}
 			return;
 		}
 
@@ -4250,6 +4282,11 @@ struct Ring {
 				continue;
 			}
 			auto &conn = fd_table[ufd];
+#if CONFLUX_HAS_TLS
+			if (conn.tls_wait_peer_shutdown) {
+				continue;
+			}
+#endif
 #if CONFLUX_HAS_HTTP2
 			if (conn.is_h2) {
 				if (conn.h2_session == nullptr) {

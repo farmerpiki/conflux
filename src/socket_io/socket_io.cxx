@@ -1262,6 +1262,8 @@ export struct DirectTcpAcceptSetup {
 	bool tcp_quickack_once{false}; // opt-in; requires caps.cmd_sock_setsockopt
 	bool prefer_busy_poll_once{false}; // opt-in; requires caps.cmd_sock_setsockopt
 	int const *busy_poll_us_optval{nullptr}; // non-null+>0 enables SO_BUSY_POLL
+	bool recv_bundle{false}; // mirrors normal recv re-arms for direct accepted sockets
+	RecvArmPolicy recv_arm_policy{RecvArmPolicy::default_};
 	bool skip_sockopt_success_cqes{true};
 };
 namespace {
@@ -1369,6 +1371,18 @@ export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv(
 	}
 	recv_sqe.prep_recv_multishot(direct_socket.sqe_fd(), nullptr, 0, conflux::uring::MsgFlags{});
 	recv_sqe.buf_group(conflux::uring::BufGroupId{buffers.group_id()});
+	conflux::uring::IoPrioFlags recv_ioprio{};
+#if CONFLUX_ENABLE_RECV_BUNDLE
+	if (opts.recv_bundle && buffers.mode() == BufferRingMode::recv_bundle) {
+		recv_ioprio = recv_ioprio | conflux::uring::ioprio_flags::recvsend_bundle;
+	}
+#endif
+	if (opts.recv_arm_policy == RecvArmPolicy::poll_first) {
+		recv_ioprio = recv_ioprio | conflux::uring::ioprio_flags::recvsend_poll_first;
+	}
+	if (recv_ioprio) {
+		recv_sqe.ioprio(recv_ioprio);
+	}
 	recv_sqe.add_flags(conflux::uring::sqe_flags::buffer_select);
 	recv_sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
 	recv_sqe.user_data(conflux::uring::UserData{recv_ud});
