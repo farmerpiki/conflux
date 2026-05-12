@@ -107,6 +107,25 @@ P<S, S> write_cached_cert_files() {
 	}
 	return result;
 }
+[[nodiscard]] bool env_bool(
+	char const *name,
+	bool fallback) {
+	char const *raw = std::getenv(name);
+	if (raw == nullptr || *raw == '\0') {
+		return fallback;
+	}
+	SV const value{raw};
+	if (value == "0" || value == "false" || value == "off" || value == "no") {
+		return false;
+	}
+	return value == "1" || value == "true" || value == "on" || value == "yes";
+}
+void apply_external_server_env(
+	Config &cfg) {
+	cfg.recv_bundle = env_bool("CONFLUX_TEST_RECV_BUNDLE", cfg.recv_bundle);
+	cfg.direct_accept = env_bool("CONFLUX_TEST_DIRECT_ACCEPT", cfg.direct_accept);
+	cfg.cmd_sock_setsockopt = env_bool("CONFLUX_TEST_CMD_SOCK_SOCKOPTS", cfg.cmd_sock_setsockopt);
+}
 void wait_for_port(
 	u16 port) {
 	for (int i = 0; i < 100; ++i) {
@@ -163,6 +182,7 @@ public:
 		cfg.startup_banner = false;
 		cfg.cert_file = cert_path_;
 		cfg.key_file = key_path_;
+		apply_external_server_env(cfg);
 
 		server_ = make_shared<HttpServer>(cfg, move(router));
 		srv_thread_ = thread([srv = server_] { (void)srv->run(); });

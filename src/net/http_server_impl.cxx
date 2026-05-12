@@ -448,6 +448,7 @@ struct alignas(
 #if CONFLUX_HAS_TLS
 	// TLS state (null → plaintext connection)
 	UniqueSsl ssl;
+	S tls_rx_cipher{}; // encrypted bytes received from the socket, before SSL_read()
 	S tls_send_pending{}; // encrypted bytes generated while no send can be submitted
 	S tls_send_inflight{}; // stable borrowed storage for in-flight io_uring SEND
 	SZ tls_send_off{}; // bytes of tls_send_inflight already sent
@@ -1073,6 +1074,8 @@ struct Ring {
 	conflux::uring::IoUringCaps caps{};
 	bool listen_fixed = false;
 	bool accepted_sockets_direct = false;
+	bool direct_accept_enabled_ = true;
+	bool cmd_sock_setsockopt_enabled_ = true;
 	bool shutting_down = false;
 	bool ring_fatal_{false};
 	ServerFatalReason fatal_reason_{ServerFatalReason::none};
@@ -1232,24 +1235,25 @@ struct Ring {
 	}
 	static bool tls_feed_rbio(
 		Conn &conn) {
-		if (conn.partial.empty()) {
+		if (conn.tls_rx_cipher.empty()) {
 			return true;
 		}
 		BIO *const rbio = SSL_get_rbio(conn.ssl.get());
 		if (rbio == nullptr) {
 			return false;
 		}
-		SV const in = conn.partial.view();
+		S in = move(conn.tls_rx_cipher);
+		conn.tls_rx_cipher.clear();
 		SZ off{};
 		while (off < in.size()) {
 			auto const want = static_cast<int>(min<SZ>(in.size() - off, static_cast<SZ>(NL<int>::max())));
 			int const written = BIO_write(rbio, in.data() + off, want);
 			if (written <= 0) {
+				conn.tls_rx_cipher.append(in.data() + off, in.size() - off);
 				return false;
 			}
 			off += static_cast<SZ>(written);
 		}
-		conn.partial.clear();
 		return true;
 	}
 	// Submit an io_uring send for pending/in-flight TLS bytes.
@@ -1987,7 +1991,7 @@ struct Ring {
 				caps.socket_direct_alloc = false;
 			}
 		}
-		accepted_sockets_direct = listen_fixed && caps.accept_direct_supported;
+		accepted_sockets_direct = direct_accept_enabled_ && listen_fixed && caps.accept_direct_supported;
 
 		// file_io pools: constructed here so register_buffers_sparse runs before
 		// buf_ring setup (both touch io_uring internal state; ordering is
@@ -2076,6 +2080,7 @@ struct Ring {
 		conn.last_recv_cqe_flags = 0;
 		conn.have_last_recv_cqe_flags = false;
 		conn.closing = false;
+		conn.close_after_send = false;
 		conn.is_sse = false;
 		conn.sse_headers_sent = false;
 		conn.is_ws = false;
@@ -2102,6 +2107,7 @@ struct Ring {
 		if (conn.ssl != nullptr) {
 			conn.ssl.reset();
 		}
+		conn.tls_rx_cipher.clear();
 		conn.tls_send_pending.clear();
 		conn.tls_send_inflight.clear();
 		conn.tls_send_off = 0;
@@ -2228,10 +2234,11 @@ struct Ring {
 		auto &conn = conn_for(fd);
 		auto handle = SocketHandle::from_direct(static_cast<u32>(fd));
 		DirectTcpAcceptSetup setup{};
-		setup.tcp_nodelay_once = caps.cmd_sock_setsockopt;
-		setup.tcp_quickack_once = caps.cmd_sock_setsockopt;
-		setup.prefer_busy_poll_once = prefer_busy_poll_ && caps.cmd_sock_setsockopt;
-		setup.busy_poll_us_optval = busy_poll_us_ > 0 && caps.cmd_sock_setsockopt ? &busy_poll_us_ : nullptr;
+		bool const cmd_sock_opts = cmd_sock_setsockopt_enabled_ && caps.cmd_sock_setsockopt;
+		setup.tcp_nodelay_once = cmd_sock_opts;
+		setup.tcp_quickack_once = cmd_sock_opts;
+		setup.prefer_busy_poll_once = prefer_busy_poll_ && cmd_sock_opts;
+		setup.busy_poll_us_optval = busy_poll_us_ > 0 && cmd_sock_opts ? &busy_poll_us_ : nullptr;
 		setup.recv_bundle = use_recv_bundle;
 		setup.recv_arm_policy = resolve_recv_arm_policy(conn);
 		setup.skip_sockopt_success_cqes = true;
@@ -2904,6 +2911,7 @@ struct Ring {
 			conn.have_incremental_buf_id = false;
 			conn.send_queued = false;
 			conn.closing = false;
+			conn.close_after_send = false;
 			conn.has_response = false;
 			conn.written = 0;
 			conn.is_sse = false;
@@ -2937,6 +2945,7 @@ struct Ring {
 			if (conn.ssl != nullptr) {
 				conn.ssl.reset();
 			}
+			conn.tls_rx_cipher.clear();
 			conn.tls_send_pending.clear();
 			conn.tls_send_inflight.clear();
 			conn.tls_send_off = 0;
@@ -4070,7 +4079,19 @@ struct Ring {
 				continue;
 			}
 			u32 const orig_flags = rc.flags;
-			if (!append_recv_buf_to(conn.partial, rc)) [[unlikely]] {
+			bool appended = false;
+			SZ recv_buffered = 0;
+#if CONFLUX_HAS_TLS
+			if (conn.ssl != nullptr) {
+				appended = append_recv_buf_to(conn.tls_rx_cipher, rc);
+				recv_buffered = conn.tls_rx_cipher.size();
+			} else
+#endif
+			{
+				appended = append_recv_buf_to(conn.partial, rc);
+				recv_buffered = conn.partial.size();
+			}
+			if (!appended) [[unlikely]] {
 				queue_close(static_cast<int>(ufd));
 				continue;
 			}
@@ -4115,7 +4136,7 @@ struct Ring {
 				bounded_add(raw_receive_cap, bounded_mul(parser_limits.max_chunks, kMaxChunkSizeLineBytes + 4));
 			raw_receive_cap = bounded_add(raw_receive_cap, kMaxChunkTrailerBytes);
 			raw_receive_cap = bounded_add(raw_receive_cap, 6);
-			if (conn.partial.size() > raw_receive_cap) {
+			if (recv_buffered > raw_receive_cap) {
 				conn.own_response.clear();
 				conn.own_response.append(
 					"HTTP/1.1 413 Content Too Large\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
@@ -4156,6 +4177,8 @@ struct Ring {
 					}
 					conn.is_tls = true;
 					conn.tls_hs_done = false; // handshake not yet complete
+					conn.tls_rx_cipher.append(conn.partial.data(), conn.partial.size());
+					conn.partial.clear();
 				} else {
 					// Plain HTTP on TLS-capable port — disable handshake sentinel.
 					conn.tls_hs_done = false;
@@ -4718,6 +4741,12 @@ S flags_str(
 	if (c.auto_recv_arm_policy) {
 		app("AUTO_RECV_ARM");
 	}
+	if (!c.direct_accept) {
+		app("DIRECT_ACCEPT_OFF");
+	}
+	if (!c.cmd_sock_setsockopt) {
+		app("CMD_SOCK_SOCKOPTS_OFF");
+	}
 	return s.empty() ? "none" : s;
 }
 namespace {
@@ -5240,6 +5269,8 @@ void HttpServer::shutdown() {
 						r.send_buffer_slabs = impl_->cfg.send_buffer_slabs;
 						r.send_buffer_bytes = impl_->cfg.send_buffer_bytes;
 						r.send_fixed_buffers_enabled = impl_->cfg.send_fixed_buffers;
+						r.direct_accept_enabled_ = impl_->cfg.direct_accept;
+						r.cmd_sock_setsockopt_enabled_ = impl_->cfg.cmd_sock_setsockopt;
 #if CONFLUX_HAS_TLS
 						r.ssl_ctx = impl_->tls_ctx ? impl_->tls_ctx->native_handle() : nullptr;
 // vhost_ctxs on Ring is informational only; SNI callback is already

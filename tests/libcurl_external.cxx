@@ -213,6 +213,27 @@ public:
 	}
 };
 
+class CurlMulti {
+	CURLM *multi_ = nullptr;
+
+public:
+	CurlMulti() {
+		(void)curl_global();
+		multi_ = curl_multi_init();
+		if (multi_ == nullptr) {
+			throw RE{"curl_multi_init failed"};
+		}
+	}
+	~CurlMulti() {
+		if (multi_ != nullptr) {
+			curl_multi_cleanup(multi_);
+		}
+	}
+	CurlMulti(CurlMulti const &) = delete;
+	CurlMulti &operator =(CurlMulti const &) = delete;
+	[[gnu::pure]] [[nodiscard]] CURLM *get() const noexcept { return multi_; }
+};
+
 [[nodiscard]] bool curl_feature(
 	int bit) {
 	auto const *info = curl_version_info(CURLVERSION_NOW);
@@ -755,18 +776,32 @@ TEST_CASE(
 	}
 
 	conflux::tests::HttpsServerFixture const fx{make_stress_router()};
-	(void)curl_global();
-	CURLM *multi = curl_multi_init();
-	REQUIRE(multi != nullptr);
+	CurlMulti multi;
 	struct Active {
+		CURLM *multi = nullptr;
 		CURL *easy = nullptr;
+		bool added = false;
 		UP<ExpectedCurlRequest> expected;
 		S body;
+
+		~Active() {
+			if (easy == nullptr) {
+				return;
+			}
+			if (added && multi != nullptr) {
+				(void)curl_multi_remove_handle(multi, easy);
+			}
+			curl_easy_cleanup(easy);
+		}
+		Active() = default;
+		Active(Active const &) = delete;
+		Active &operator =(Active const &) = delete;
 	};
 	V<UP<Active>> owned;
 	owned.reserve(concurrency);
 	auto add_one = [&](unsigned index) {
 		auto active = make_unique<Active>();
+		active->multi = multi.get();
 		active->easy = curl_easy_init();
 		REQUIRE(active->easy != nullptr);
 		active->expected = make_unique<ExpectedCurlRequest>(make_expected_request(fx.port(), index, version, fresh));
@@ -788,8 +823,9 @@ TEST_CASE(
 		setopt_write_cb(active->easy);
 		setopt_write_data(active->easy, &active->body);
 		setopt_private(active->easy, active.get());
-		CURLMcode const add_rc = curl_multi_add_handle(multi, active->easy);
+		CURLMcode const add_rc = curl_multi_add_handle(multi.get(), active->easy);
 		REQUIRE(add_rc == CURLM_OK);
+		active->added = true;
 		owned.push_back(move(active));
 	};
 
@@ -800,15 +836,15 @@ TEST_CASE(
 	}
 	int running = 0;
 	while (completed < iters) {
-		CURLMcode const perform_rc = curl_multi_perform(multi, &running);
+		CURLMcode const perform_rc = curl_multi_perform(multi.get(), &running);
 		REQUIRE(perform_rc == CURLM_OK);
 		int numfds = 0;
-		CURLMcode const wait_rc = curl_multi_poll(multi, nullptr, 0, 1000, &numfds);
+		CURLMcode const wait_rc = curl_multi_poll(multi.get(), nullptr, 0, 1000, &numfds);
 		(void)numfds;
 		REQUIRE(wait_rc == CURLM_OK);
 
 		int queued = 0;
-		while (CURLMsg *msg = curl_multi_info_read(multi, &queued)) {
+		while (CURLMsg *msg = curl_multi_info_read(multi.get(), &queued)) {
 			if (msg->msg != CURLMSG_DONE) {
 				continue;
 			}
@@ -823,8 +859,9 @@ TEST_CASE(
 			(void)curl_easy_getinfo(msg->easy_handle, CURLINFO_RESPONSE_CODE, &resp.status);
 			(void)curl_easy_getinfo(msg->easy_handle, CURLINFO_HTTP_VERSION, &resp.http_version);
 			require_expected(resp, *active->expected);
-			CURLMcode const remove_rc = curl_multi_remove_handle(multi, msg->easy_handle);
+			CURLMcode const remove_rc = curl_multi_remove_handle(multi.get(), msg->easy_handle);
 			REQUIRE(remove_rc == CURLM_OK);
+			active->added = false;
 			curl_easy_cleanup(msg->easy_handle);
 			active->easy = nullptr;
 			auto const found =
@@ -837,7 +874,6 @@ TEST_CASE(
 			}
 		}
 	}
-	curl_multi_cleanup(multi);
 }
 
 TEST_CASE(
@@ -852,9 +888,9 @@ TEST_CASE(
 	}
 
 	conflux::tests::HttpsServerFixture const fx{make_stress_router()};
-	(void)curl_global();
-	CURL *easy = curl_easy_init();
-	REQUIRE(easy != nullptr);
+	CurlEasy abort_curl;
+	CURL *easy = abort_curl.get();
+	curl_easy_reset(easy);
 	AbortAfter abort{.limit = 64, .seen = 0};
 	S const url = https_url(fx.port(), "/static/large.bin");
 	setopt(easy, CURLOPT_URL, url.c_str());
@@ -867,7 +903,6 @@ TEST_CASE(
 	setopt_abort_cb(easy);
 	setopt_abort_data(easy, &abort);
 	CURLcode const rc = curl_easy_perform(easy);
-	curl_easy_cleanup(easy);
 	REQUIRE(rc == CURLE_WRITE_ERROR);
 
 	CurlEasy curl;

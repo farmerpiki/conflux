@@ -142,6 +142,10 @@ export struct Config {
 	bool recv_bundle = false; // IORING_RECVSEND_BUNDLE
 	bool recv_incremental_buf = false; // IOU_PBUF_RING_INC (kernel 6.10+)
 	bool auto_recv_arm_policy = false; // adaptive poll_first via IORING_CQE_F_SOCK_NONEMPTY hint
+	// Diagnostic/perf isolation knobs. Defaults preserve the current fast path.
+	// They make external compatibility failures bisectable without rebuilding.
+	bool direct_accept = true;
+	bool cmd_sock_setsockopt = true;
 	// Enable kernel TLS (kTLS) offload via SSL_OP_ENABLE_KTLS (OpenSSL 3+).
 	// When active after handshake, the kernel handles TLS encryption; static file
 	// responses use splice_to_fd (zero-copy) instead of read_fixed+SSL_write.
@@ -323,7 +327,7 @@ void apply_iouring_key(
 	Config &cfg,
 	SV key,
 	SV val) {
-	static constexpr A<P<SV, bool Config::*>, 15> kBoolKeys{
+	static constexpr A<P<SV, bool Config::*>, 17> kBoolKeys{
 		{
          {"single_issuer", &Config::single_issuer},
          {"defer_taskrun", &Config::defer_taskrun},
@@ -340,6 +344,8 @@ void apply_iouring_key(
          {"ktls", &Config::ktls},
          {"auto_recv_arm_policy", &Config::auto_recv_arm_policy},
          {"prefer_busy_poll", &Config::prefer_busy_poll},
+         {"direct_accept", &Config::direct_accept},
+         {"cmd_sock_setsockopt", &Config::cmd_sock_setsockopt},
 		 }
     };
 	for (auto const &[k, member]: kBoolKeys) {
