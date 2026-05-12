@@ -652,6 +652,10 @@ target_sources(conflux
 target_sources(conflux
     PRIVATE
         src/net/cancel_impl.cxx
+        src/net/router_impl.cxx
+        src/net/http_server_impl.cxx
+        src/net/client_async_impl.cxx
+        src/net/proxy_impl.cxx
 )
 
 target_sources(conflux
