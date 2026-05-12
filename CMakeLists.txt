@@ -55,6 +55,7 @@ option(CONFLUX_WORK_CARRIER_MODEL_A "Enable experimental work carrier Model A pr
 option(CONFLUX_WORK_CARRIER_MODEL_B "Enable experimental work carrier Model B prototype surface" OFF)
 option(CONFLUX_SUPPRESS_DEPRECATION_WARNINGS "Temporarily suppress deprecated API warnings during pre-v1 migration" ON)
 option(CONFLUX_WORK_CORO_FRAME_POOL "Enable per-thread monotonic bump arena for EagerChain coroutine frames" OFF)
+option(CONFLUX_WORK_ALLOC_STATS "Enable relaxed allocation counters for work.root task/control-block diagnostics" OFF)
 option(CONFLUX_GCC_EAGER_MODULE_IMPORTS "Work around GCC module CMI lazy-load corruption by using -fno-module-lazy on GCC 16+" ON)
 option(CONFLUX_GCC_SUGGEST_ATTRIBUTES "Enable noisy GCC -Wsuggest-attribute=pure/const optimization hints" OFF)
 set(CONFLUX_JSON_USE_STDSIMD "AUTO" CACHE STRING "Use std::experimental::simd for JSON SIMD paths (AUTO|ON|OFF)")
@@ -374,6 +375,7 @@ target_compile_definitions(conflux_work
     PUBLIC CONFLUX_WORK_CARRIER_MODEL_A=$<BOOL:${CONFLUX_WORK_CARRIER_MODEL_A}>
     PUBLIC CONFLUX_WORK_CARRIER_MODEL_B=$<BOOL:${CONFLUX_WORK_CARRIER_MODEL_B}>
     PUBLIC CONFLUX_WORK_CORO_FRAME_POOL=$<BOOL:${CONFLUX_WORK_CORO_FRAME_POOL}>
+    PUBLIC CONFLUX_WORK_ALLOC_STATS=$<BOOL:${CONFLUX_WORK_ALLOC_STATS}>
 )
 target_link_libraries(conflux_work
     PRIVATE conflux_options

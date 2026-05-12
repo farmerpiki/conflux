@@ -19,7 +19,8 @@
 - [x] `NO_SQARRAY`: landed (default on, stripped on unsupported kernel)
 - [x] `alignas(64)` on `Conn` and `Worker`: landed (`struct alignas(64) Conn`, `struct alignas(64) Worker`)
 - [ ] `Ring` hot/cold field layout: `Ring` has no `alignas`; verify `Conn`/`Worker` field grouping with `perf c2c` before further padding
-- [ ] Coroutine frame pool: landed pool targets `EagerChainPromise`, not `root::Task<T>::promise_type` which is the HTTP handler hot path; add `operator new/delete` on `BasicResult<T,task>::promise_type` and pool `ControlBlockModel<T>`
+- [x] Root `Task<T>` allocation diagnostics: optional `CONFLUX_WORK_ALLOC_STATS` counters for control blocks and coroutine frames landed
+- [ ] Coroutine frame/control-block pool: landed pool targets `EagerChainPromise`, not `root::Task<T>::promise_type` which is the HTTP handler hot path; pool `BasicResult<T,task>::promise_type` frames and `ControlBlockModel<T>` after measuring allocation counters
 
 ## Docs / API contract mismatches
 

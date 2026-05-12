@@ -5,6 +5,11 @@ export module conflux.work.root;
 
 import std;
 import conflux.types;
+
+#ifndef CONFLUX_WORK_ALLOC_STATS
+#define CONFLUX_WORK_ALLOC_STATS 0
+#endif
+
 export namespace conflux::work::root {
 
 enum class CancelReason : u8 {
@@ -38,7 +43,53 @@ class WorkError : public RE {
 public:
 	using std::runtime_error::runtime_error;
 };
+struct TaskAllocationStats {
+	u64 control_block_allocations = 0;
+	u64 control_block_deallocations = 0;
+	u64 coroutine_frame_allocations = 0;
+	u64 coroutine_frame_deallocations = 0;
+};
 namespace detail {
+
+#if CONFLUX_WORK_ALLOC_STATS
+inline Atom<u64> g_control_block_allocations{0};
+inline Atom<u64> g_control_block_deallocations{0};
+inline Atom<u64> g_coroutine_frame_allocations{0};
+inline Atom<u64> g_coroutine_frame_deallocations{0};
+inline void note_control_block_allocation() noexcept {
+	g_control_block_allocations.fetch_add(1, memory_order_relaxed);
+}
+inline void note_control_block_deallocation() noexcept {
+	g_control_block_deallocations.fetch_add(1, memory_order_relaxed);
+}
+inline void note_coroutine_frame_allocation() noexcept {
+	g_coroutine_frame_allocations.fetch_add(1, memory_order_relaxed);
+}
+inline void note_coroutine_frame_deallocation() noexcept {
+	g_coroutine_frame_deallocations.fetch_add(1, memory_order_relaxed);
+}
+[[nodiscard]] inline TaskAllocationStats task_allocation_stats_impl() noexcept {
+	return {
+		.control_block_allocations = g_control_block_allocations.load(memory_order_relaxed),
+		.control_block_deallocations = g_control_block_deallocations.load(memory_order_relaxed),
+		.coroutine_frame_allocations = g_coroutine_frame_allocations.load(memory_order_relaxed),
+		.coroutine_frame_deallocations = g_coroutine_frame_deallocations.load(memory_order_relaxed),
+	};
+}
+inline void reset_task_allocation_stats_impl() noexcept {
+	g_control_block_allocations.store(0, memory_order_relaxed);
+	g_control_block_deallocations.store(0, memory_order_relaxed);
+	g_coroutine_frame_allocations.store(0, memory_order_relaxed);
+	g_coroutine_frame_deallocations.store(0, memory_order_relaxed);
+}
+#else
+inline void note_control_block_allocation() noexcept {}
+inline void note_control_block_deallocation() noexcept {}
+inline void note_coroutine_frame_allocation() noexcept {}
+inline void note_coroutine_frame_deallocation() noexcept {}
+[[nodiscard]] inline TaskAllocationStats task_allocation_stats_impl() noexcept { return {}; }
+inline void reset_task_allocation_stats_impl() noexcept {}
+#endif
 
 [[nodiscard]] inline EP normalize_failure_ptr(
 	EP const &ep) {
@@ -49,6 +100,12 @@ namespace detail {
 }
 
 } // namespace detail
+[[nodiscard]] inline TaskAllocationStats task_allocation_stats() noexcept {
+	return detail::task_allocation_stats_impl();
+}
+inline void reset_task_allocation_stats() noexcept {
+	detail::reset_task_allocation_stats_impl();
+}
 struct Failure {
 	EP error{};
 
@@ -876,12 +933,13 @@ class ControlBlockBase {
 	std::source_location spawn_loc_{};
 
 public:
+	ControlBlockBase() noexcept { detail::note_control_block_allocation(); }
 	void set_spawn_location(
 		std::source_location loc) noexcept {
 		spawn_loc_ = loc;
 	}
 	[[nodiscard]] std::source_location spawn_location() const noexcept { return spawn_loc_; }
-	virtual ~ControlBlockBase() = default;
+	virtual ~ControlBlockBase() noexcept { detail::note_control_block_deallocation(); }
 	virtual bool request_cancel() noexcept = 0;
 	[[nodiscard]] virtual std::stop_token stop_token() const noexcept = 0;
 	[[nodiscard]] virtual bool cancel_requested() const noexcept = 0;
@@ -2144,6 +2202,24 @@ public:
 	}
 	struct promise_type : detail::TaskPromiseReturn<T> {
 		static_assert(Category == ControlCategory::task, "promise_type only available on Task<T>");
+
+		static void *operator new(
+			SZ size) {
+			auto *p = ::operator new(size);
+			detail::note_coroutine_frame_allocation();
+			return p;
+		}
+		static void operator delete(
+			void *p) noexcept {
+			detail::note_coroutine_frame_deallocation();
+			::operator delete(p);
+		}
+		static void operator delete(
+			void *p,
+			SZ) noexcept {
+			detail::note_coroutine_frame_deallocation();
+			::operator delete(p);
+		}
 
 		[[nodiscard]] BasicResult get_return_object() noexcept;
 		[[nodiscard]] std::suspend_never initial_suspend() const noexcept { return {}; }

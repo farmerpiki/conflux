@@ -127,6 +127,30 @@ Options currently supported:
 When `enable_cancellation=false`, `stop_token()` is inert (`stop_possible()==false`),
 but `request_cancel()` still marks cancel-request state and runs installed hooks.
 
+## Optional Allocation Diagnostics
+
+The CMake option `CONFLUX_WORK_ALLOC_STATS` enables relaxed counters for
+`conflux.work.root` allocation diagnostics. It defaults to `OFF` so the hot path
+does not pay atomic counter cost in normal builds.
+
+```cpp
+struct TaskAllocationStats {
+    uint64_t control_block_allocations;
+    uint64_t control_block_deallocations;
+    uint64_t coroutine_frame_allocations;
+    uint64_t coroutine_frame_deallocations;
+};
+
+TaskAllocationStats task_allocation_stats() noexcept;
+void reset_task_allocation_stats() noexcept;
+```
+
+With the option disabled, both functions are still available but the snapshot is
+zeroed and reset is a no-op. The counters are intended for benchmarks and for
+validating future `ControlBlockModel<T>` pooling work; they are not a stable
+telemetry API. Coroutine frame counters report actual heap allocation calls, so
+compiler coroutine-allocation elision may legitimately keep them at zero.
+
 ## Source Contract
 
 `BasicSource<T, Category>` / `BasicSource<void, Category>` APIs:

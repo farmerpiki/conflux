@@ -17,6 +17,12 @@ root::Task<int> await_task_value(
 	co_return co_await move(task);
 }
 
+#if CONFLUX_WORK_ALLOC_STATS
+root::Task<int> stats_probe_task() {
+	co_return 7;
+}
+#endif
+
 } // namespace
 namespace conflux::work::root {
 
@@ -53,6 +59,38 @@ struct ThrowOnCopy {
 };
 
 } // namespace
+
+#if CONFLUX_WORK_ALLOC_STATS
+TEST_CASE(
+	"work.root: optional allocation stats count control blocks and coroutine frames",
+	"[work.root]") {
+	root::reset_task_allocation_stats();
+	{
+		auto [task, src] = root::make_task_source<int>();
+		auto stats = root::task_allocation_stats();
+		CHECK(stats.control_block_allocations == 1);
+		CHECK(stats.control_block_deallocations == 0);
+		REQUIRE(src.try_set_value(root::Success<int>{3}));
+		CHECK(root::value(move(task)) == 3);
+	}
+	{
+		auto stats = root::task_allocation_stats();
+		CHECK(stats.control_block_allocations == 1);
+		CHECK(stats.control_block_deallocations == 1);
+	}
+
+	root::reset_task_allocation_stats();
+	{
+		auto task = stats_probe_task();
+		CHECK(root::value(move(task)) == 7);
+	}
+	auto stats = root::task_allocation_stats();
+	CHECK(stats.control_block_allocations >= 1);
+	CHECK(stats.control_block_deallocations == stats.control_block_allocations);
+	CHECK(stats.coroutine_frame_deallocations == stats.coroutine_frame_allocations);
+}
+#endif
+
 TEST_CASE(
 	"work.root: Outcome copy assignment for copyable payload succeeds",
 	"[work.root]") {
