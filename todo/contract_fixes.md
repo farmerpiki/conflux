@@ -8,7 +8,7 @@
 - [ ] JSON default path: rename `parse(string_view)` → `parse_copy`; promote `parse_borrowed` as the performance-default; document `parse_view`/`json::view_document` as the primary fast API (`src/json.cxx:4103-4111`)
 - [x] JSON: add `JsonArena::parse_borrowed_into(string_view)` and `parse_moved_into(string&&)` — both landed; `parse_borrowed_into` reuses caller's buffer without copy, `parse_moved_into` takes ownership.
 - [ ] Core error type: `IoError` must move from `conflux.uring.completion` to `conflux::core` before `file_io_sync` can exist without depending on liburing
-- [ ] xxhash: either vendor properly with `find_package`/FetchContent or replace with internal hash; resolve the dangling `CMakeLists.txt:492` link with no declared source
+- [x] xxhash: resolve via `pkg_check_modules(XXHASH REQUIRED IMPORTED_TARGET libxxhash)` and link `PkgConfig::XXHASH` instead of a dangling raw `xxhash` target/name
 - [x] JSON global state: document `CLocaleHolder` singleton as the only permitted process-lifetime singleton; design note added in `docs/json-design.md`
 
 ## Incomplete perf quick-wins

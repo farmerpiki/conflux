@@ -317,7 +317,7 @@ target_sources(conflux_json
 )
 target_link_libraries(conflux_json
     PUBLIC  conflux_types
-    PRIVATE conflux_options xxhash
+    PRIVATE conflux_options PkgConfig::XXHASH
 )
 endif()
 
@@ -678,7 +678,6 @@ target_link_libraries(conflux
     PUBLIC  conflux_socket_io
     PRIVATE conflux_direct_slot_pool
     PUBLIC  PkgConfig::LIBURING
-    PRIVATE xxhash
 )
 if(TARGET conflux_json)
     target_link_libraries(conflux PUBLIC conflux_json)
