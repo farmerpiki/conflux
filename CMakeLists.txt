@@ -367,6 +367,37 @@ if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT TARGET conflux_j
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires CONFLUX_BUILD_JSON")
 endif()
 
+if((CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
+        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
+        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
+        OR CONFLUX_WANT_HTTP_VHOST) AND NOT CONFLUX_WANT_HTTP_CORE)
+    message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_HTTP_CORE")
+endif()
+if((CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
+        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
+        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
+        OR CONFLUX_WANT_HTTP_VHOST) AND NOT CONFLUX_WANT_RUNTIME)
+    message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_RUNTIME")
+endif()
+if((CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
+        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
+        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
+        OR CONFLUX_WANT_HTTP_VHOST) AND NOT CONFLUX_WANT_FILE_IO)
+    message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_FILE_IO")
+endif()
+if((CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
+        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
+        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
+        OR CONFLUX_WANT_HTTP_VHOST) AND NOT CONFLUX_WANT_SOCKET_IO)
+    message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_SOCKET_IO")
+endif()
+if((CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
+        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
+        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
+        OR CONFLUX_WANT_HTTP_VHOST) AND NOT CONFLUX_WANT_CRYPTO)
+    message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_CRYPTO")
+endif()
+
 if(CONFLUX_WANT_FILE_MAP AND NOT CONFLUX_WANT_FILE_IO_SYNC)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_FILE_MAP requires CONFLUX_BUILD_FILE_IO_SYNC")
 endif()
@@ -607,27 +638,6 @@ target_link_libraries(conflux_net_cancel
 )
 endif() # CONFLUX_NEEDS_RUNTIME (net cancel)
 
-if(CONFLUX_HAS_TLS STREQUAL "true" AND CONFLUX_WANT_HTTP_SERVER)
-add_library(conflux_net_tls STATIC)
-target_sources(conflux_net_tls
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/tls.cxx
-)
-target_link_libraries(conflux_net_tls
-    PRIVATE conflux_options
-    PUBLIC  conflux_types
-    PUBLIC  conflux_utils
-    PUBLIC  conflux_work
-    PUBLIC  conflux_file_io
-    PUBLIC  conflux_socket_io
-    PUBLIC  conflux_net_cancel
-    PUBLIC  OpenSSL::SSL
-    PUBLIC  OpenSSL::Crypto
-)
-target_compile_definitions(conflux_net_tls PUBLIC CONFLUX_HAS_TLS=1)
-endif() # CONFLUX_HAS_TLS && CONFLUX_WANT_HTTP_SERVER
-
 if(CONFLUX_WANT_DNS)
 add_library(conflux_dns STATIC)
 target_sources(conflux_dns
@@ -747,6 +757,32 @@ target_link_libraries(conflux_net_config
 # support component.
 target_link_libraries(conflux_core INTERFACE conflux_utils)
 
+if(CONFLUX_HAS_TLS STREQUAL "true"
+        AND (CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
+             OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
+             OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
+             OR CONFLUX_WANT_HTTP_VHOST))
+add_library(conflux_net_tls STATIC)
+target_sources(conflux_net_tls
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/tls.cxx
+)
+target_link_libraries(conflux_net_tls
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_utils
+    PUBLIC  conflux_work
+    PUBLIC  conflux_file_io
+    PUBLIC  conflux_socket_io
+    PUBLIC  conflux_net_cancel
+    PUBLIC  OpenSSL::SSL
+    PUBLIC  OpenSSL::Crypto
+)
+target_compile_definitions(conflux_net_tls PUBLIC CONFLUX_HAS_TLS=1)
+endif() # CONFLUX_HAS_TLS && HTTP/TLS consumer
+
+
 if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
     add_library(conflux_json_reflect STATIC)
     target_sources(conflux_json_reflect
@@ -771,6 +807,149 @@ target_sources(conflux_direct_slot_pool
 target_link_libraries(conflux_direct_slot_pool
     PRIVATE conflux_types)
 
+if(CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
+        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
+        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
+        OR CONFLUX_WANT_HTTP_VHOST)
+add_library(conflux_http_router STATIC)
+target_sources(conflux_http_router
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/router.cxx
+)
+target_sources(conflux_http_router
+    PRIVATE
+        src/net/router_impl.cxx
+)
+target_link_libraries(conflux_http_router
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_crypto
+    PUBLIC  conflux_work
+    PUBLIC  conflux_file_io
+    PUBLIC  conflux_utils
+    PUBLIC  conflux_net_config
+    PUBLIC  conflux_socket_io
+)
+if(TARGET conflux_net_tls)
+    target_compile_definitions(conflux_http_router PUBLIC CONFLUX_HAS_TLS=1)
+    target_link_libraries(conflux_http_router PUBLIC conflux_net_tls)
+else()
+    target_compile_definitions(conflux_http_router PUBLIC CONFLUX_HAS_TLS=0)
+endif()
+if(CONFLUX_JSON_USE_STDSIMD)
+    target_compile_definitions(conflux_http_router PRIVATE CONFLUX_STDSIMD=1)
+endif()
+endif() # HTTP router or router-dependent component
+
+if(CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_policy STATIC)
+target_sources(conflux_http_policy
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/net/cache_control.cxx
+        src/net/cors.cxx
+        src/net/etag.cxx
+        src/net/forwarded.cxx
+        src/net/ip_filter.cxx
+        src/net/rate_limit.cxx
+        src/net/redirect.cxx
+        src/net/response_cache.cxx
+        src/net/security.cxx
+        src/net/trailing_slash.cxx
+)
+target_link_libraries(conflux_http_policy
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_utils
+)
+endif() # CONFLUX_WANT_HTTP_POLICY || CONFLUX_WANT_HTTP_SERVER
+
+if(CONFLUX_WANT_HTTP_AUTH OR CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_auth STATIC)
+set(CONFLUX_HTTP_AUTH_SOURCES
+    src/net/auth.cxx
+    src/net/cookie_signing.cxx
+    src/net/csrf.cxx
+)
+if(CONFLUX_HAS_TLS STREQUAL "true")
+    list(APPEND CONFLUX_HTTP_AUTH_SOURCES src/net/jwt.cxx)
+endif()
+target_sources(conflux_http_auth
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES ${CONFLUX_HTTP_AUTH_SOURCES}
+)
+target_link_libraries(conflux_http_auth
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_crypto
+    PUBLIC  conflux_utils
+)
+if(CONFLUX_HAS_TLS STREQUAL "true")
+    target_compile_definitions(conflux_http_auth PUBLIC CONFLUX_HAS_TLS=1)
+else()
+    target_compile_definitions(conflux_http_auth PUBLIC CONFLUX_HAS_TLS=0)
+endif()
+endif() # CONFLUX_WANT_HTTP_AUTH || CONFLUX_WANT_HTTP_SERVER
+
+if(CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_observability STATIC)
+set(CONFLUX_HTTP_OBSERVABILITY_SOURCES
+    src/net/request_id.cxx
+    src/net/structured_log.cxx
+    src/net/tracing.cxx
+)
+if(CONFLUX_HAS_METRICS STREQUAL "true")
+    list(APPEND CONFLUX_HTTP_OBSERVABILITY_SOURCES src/net/metrics.cxx)
+endif()
+target_sources(conflux_http_observability
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES ${CONFLUX_HTTP_OBSERVABILITY_SOURCES}
+)
+target_link_libraries(conflux_http_observability
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_utils
+)
+if(CONFLUX_HAS_METRICS STREQUAL "true")
+    target_compile_definitions(conflux_http_observability PUBLIC CONFLUX_HAS_METRICS=1)
+else()
+    target_compile_definitions(conflux_http_observability PUBLIC CONFLUX_HAS_METRICS=0)
+endif()
+endif() # CONFLUX_WANT_HTTP_OBSERVABILITY || CONFLUX_WANT_HTTP_SERVER
+
+if(CONFLUX_WANT_HTTP_OPENAPI OR CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_openapi STATIC)
+target_sources(conflux_http_openapi
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/openapi.cxx
+)
+target_link_libraries(conflux_http_openapi
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_utils
+)
+endif() # CONFLUX_WANT_HTTP_OPENAPI || CONFLUX_WANT_HTTP_SERVER
+
+if(CONFLUX_WANT_HTTP_VHOST OR CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_vhost STATIC)
+target_sources(conflux_http_vhost
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/vhost.cxx
+)
+target_link_libraries(conflux_http_vhost
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_utils
+    PUBLIC  conflux_work
+)
+endif() # CONFLUX_WANT_HTTP_VHOST || CONFLUX_WANT_HTTP_SERVER
+
 # ---------------------------------------------------------------------------
 # Monolith target (HTTP server + all middleware)
 # ---------------------------------------------------------------------------
@@ -784,42 +963,19 @@ set(CONFLUX_MODULE_SOURCES
     src/process.cxx
     src/net/io_buffer.cxx
     src/conflux.cxx
-    src/net/auth.cxx
     src/net/client.cxx
     src/net/client_async.cxx
     src/net/compress.cxx
-    src/net/rate_limit.cxx
-    src/net/cors.cxx
-    src/net/security.cxx
-    src/net/forwarded.cxx
-    src/net/request_id.cxx
-    src/net/ip_filter.cxx
-    src/net/cache_control.cxx
-    src/net/trailing_slash.cxx
-    src/net/redirect.cxx
-    src/net/cookie_signing.cxx
-    src/net/csrf.cxx
-    src/net/etag.cxx
-    src/net/response_cache.cxx
-    src/net/structured_log.cxx
-    src/net/tracing.cxx
-    src/net/vhost.cxx
     src/net/proxy.cxx
-    src/net/openapi.cxx
     src/net/app.cxx
     src/net/http.cxx
     src/net/http1_parser.cxx
     src/net/http_server.cxx
-    src/net/router.cxx
 )
 
 # Optional module sources.
 if(CONFLUX_HAS_TLS STREQUAL "true")
     list(APPEND CONFLUX_MODULE_SOURCES src/net/smtp.cxx)
-    list(APPEND CONFLUX_MODULE_SOURCES src/net/jwt.cxx)
-endif()
-if(CONFLUX_HAS_METRICS STREQUAL "true")
-    list(APPEND CONFLUX_MODULE_SOURCES src/net/metrics.cxx)
 endif()
 if(CONFLUX_HAS_HTTP2 STREQUAL "true")
     list(APPEND CONFLUX_MODULE_SOURCES src/net/http2.cxx)
@@ -852,7 +1008,6 @@ target_sources(conflux
 
 target_sources(conflux
     PRIVATE
-        src/net/router_impl.cxx
         src/net/http_server_impl.cxx
         src/net/client_async_impl.cxx
         src/net/proxy_impl.cxx
@@ -876,6 +1031,12 @@ target_link_libraries(conflux
     PUBLIC  conflux_net_config
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_json
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_http_policy
+    PUBLIC  conflux_http_auth
+    PUBLIC  conflux_http_observability
+    PUBLIC  conflux_http_openapi
+    PUBLIC  conflux_http_vhost
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
@@ -1118,6 +1279,12 @@ conflux_public_component(conflux_json_reflect json_reflect)
 conflux_public_component(conflux_template template)
 conflux_public_component(conflux_file_watch template_watch)
 conflux_public_component(conflux_http_core http_core)
+conflux_public_component(conflux_http_router http_router)
+conflux_public_component(conflux_http_policy http_policy)
+conflux_public_component(conflux_http_auth http_auth)
+conflux_public_component(conflux_http_observability http_observability)
+conflux_public_component(conflux_http_openapi http_openapi)
+conflux_public_component(conflux_http_vhost http_vhost)
 conflux_public_component(conflux_http_json http_json)
 conflux_public_component(conflux_uring uring)
 conflux_public_component(conflux_work runtime)
@@ -1156,6 +1323,12 @@ foreach(_target IN ITEMS
         conflux_template
         conflux_file_watch
         conflux_http_core
+        conflux_http_router
+        conflux_http_policy
+        conflux_http_auth
+        conflux_http_observability
+        conflux_http_openapi
+        conflux_http_vhost
         conflux_http_json
         conflux_uring
         conflux_work

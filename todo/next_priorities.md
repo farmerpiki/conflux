@@ -29,9 +29,14 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - Completed prerequisite slice: `conflux::net_cancel` and `conflux::net_tls`
      are separate targets; router/server still import TLS, but no longer need TLS
      source compiled inside the monolith.
-   - Next concrete slice: split `conflux::http_router` from `router.cxx`/
-     `router_impl.cxx` if the response-body dependencies are sufficiently clean;
-     otherwise split `http_policy`/`http_auth` support modules first.
+   - Completed larger HTTP middleware slice: `conflux::http_router`,
+     `conflux::http_policy`, `conflux::http_auth`,
+     `conflux::http_observability`, `conflux::http_openapi`, and
+     `conflux::http_vhost` are separate module targets; the monolith links them
+     instead of compiling router/middleware modules directly.
+   - Next concrete slice: split `conflux::http_compression` and HTTP client/proxy
+     support modules, or go directly to `conflux::http_server` if the remaining
+     server implementation dependencies are cleaner after compression/client split.
 
 2. **Remove remaining stale dependency edges from proposal reviews.**
    - Re-check `conflux_socket_io -> file_io`, `net.client -> file_io`, and
@@ -60,8 +65,11 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - Cancel-by-fd only after per-fd cancel slot tracking is designed.
 
 7. **Split the next HTTP modular target.**
-   - `conflux::net_tls` exists; next try splitting `conflux::http_router` from
-     `router.cxx`/`router_impl.cxx`.
+   - `conflux::http_router` and the main router-dependent middleware buckets now
+     exist.
+   - Next try `conflux::http_compression` plus HTTP client/proxy support modules,
+     then split `conflux::http_server` once the remaining implementation imports
+     are mostly target-backed.
    - Prefer static-core/static-async only if a small no-liburing metadata/mmap slice
      is clearly separable from streamed file serving.
 
