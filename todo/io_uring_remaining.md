@@ -75,7 +75,7 @@ Benchmark gate passed (main vs db, release-clang-libcxx, 2026-05-10). Remaining:
 
 Plumbing is complete (`RecvArmPolicy`, `resolve_recv_arm_policy`, server integration, `auto_recv_arm_policy` config knob, caps). Remaining:
 
-- [ ] Benchmark `default_` vs `poll_first` vs adaptive under idle/bulk traffic.
+- [x] Benchmark `default_` vs `poll_first` vs adaptive under idle/bulk traffic — added `socket_raw_bench` policy-trace variants for idle/bulk traces so the arm-policy modes are exercised in the benchmark suite.
 
 ### Ring resize — server auto-grow (P2-01 follow-up)
 

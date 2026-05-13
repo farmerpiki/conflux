@@ -1183,6 +1183,54 @@ void run_gen_table_bump_check(
 	auto s = run_variant(v, args.iterations, args.warmup, config_name);
 	bench_print(s, json, false);
 }
+// recv_arm_policy_resolve: compare default_ / poll_first / adaptive policy selection
+// on idle-style and bulk-style CQE flag traces.
+void run_recv_arm_policy_resolve(
+	BenchArgs const &args,
+	bool json,
+	SV config_name) {
+	static constexpr u32 kSockNonempty = IORING_CQE_F_SOCK_NONEMPTY;
+	static constexpr A<u32, 256> kIdleFlags{};
+	static constexpr A<u32, 256> kBulkFlags = [] {
+		A<u32, 256> flags{};
+		flags.fill(kSockNonempty);
+		return flags;
+	}();
+
+	enum class PolicyMode : u8 {
+		default_,
+		poll_first,
+		adaptive,
+	};
+	auto run_case = [&](SV variant_name, span<u32 const> flags, PolicyMode mode) {
+		volatile u64 sink = 0;
+		auto v = Variant{
+			.name = variant_name,
+			.run =
+				[&] {
+					for (u32 flg: flags) {
+						RecvArmPolicy arm = RecvArmPolicy::default_;
+						switch (mode) {
+							case PolicyMode::default_  : arm = RecvArmPolicy::default_; break;
+							case PolicyMode::poll_first: arm = RecvArmPolicy::poll_first; break;
+							case PolicyMode::adaptive   : arm = resolve_recv_arm_policy(true, true, true, flg); break;
+						}
+						sink += static_cast<u64>(arm);
+					}
+				},
+		};
+		auto s = run_variant(v, args.iterations, args.warmup, config_name);
+		bench_print(s, json, false);
+		auto _ = sink;
+	};
+
+	run_case("recv_arm_idle_default_256"sv, kIdleFlags, PolicyMode::default_);
+	run_case("recv_arm_idle_poll_first_256"sv, kIdleFlags, PolicyMode::poll_first);
+	run_case("recv_arm_idle_adaptive_256"sv, kIdleFlags, PolicyMode::adaptive);
+	run_case("recv_arm_bulk_default_256"sv, kBulkFlags, PolicyMode::default_);
+	run_case("recv_arm_bulk_poll_first_256"sv, kBulkFlags, PolicyMode::poll_first);
+	run_case("recv_arm_bulk_adaptive_256"sv, kBulkFlags, PolicyMode::adaptive);
+}
 // ── submit batching variants ───────────────────────────────────────────────
 
 // raw_batch_send_32: submit 32 sends, wait for 32 CQEs
@@ -1525,6 +1573,7 @@ int main(
 	// ── generation table ────
 	run_gen_table_check(args, json, config_name);
 	run_gen_table_bump_check(args, json, config_name);
+	run_recv_arm_policy_resolve(args, json, config_name);
 
 	// ── submit batching ────
 	run_batch_send_32(args, json, config_name);
