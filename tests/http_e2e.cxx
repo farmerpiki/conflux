@@ -6285,6 +6285,37 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 400"));
 }
 TEST_CASE(
+	"parser: missing Host in HTTP/1.1 returns 400") {
+	S req = "GET /api/ping HTTP/1.1\r\nConnection: close\r\n\r\n";
+	auto resp = send_raw_bytes(req);
+	REQUIRE(resp.starts_with("HTTP/1.1 400"));
+}
+TEST_CASE(
+	"parser: duplicate Host in HTTP/1.1 returns 400") {
+	S req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nHost: attacker.example\r\nConnection: close\r\n\r\n";
+	auto resp = send_raw_bytes(req);
+	REQUIRE(resp.starts_with("HTTP/1.1 400"));
+}
+TEST_CASE(
+	"parser: Content-Length with Transfer-Encoding returns 400") {
+	S req =
+		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\nTransfer-Encoding: "
+		"chunked\r\nConnection: close\r\n\r\n0\r\n\r\n";
+	auto resp = send_raw_bytes(req);
+	REQUIRE(resp.starts_with("HTTP/1.1 400"));
+}
+TEST_CASE(
+	"parser: Content-Length plus Transfer-Encoding smuggling attempt closes before pipelined request") {
+	S req =
+		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Length: 4\r\nTransfer-Encoding: "
+		"chunked\r\n\r\n0\r\n\r\n"
+		"GET /api/ping HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+	auto resp = send_raw_bytes(req);
+	REQUIRE(resp.starts_with("HTTP/1.1 400"));
+	REQUIRE(resp.find("HTTP/1.1 200") == S::npos);
+	REQUIRE(resp.find(R"({"status":"ok"})") == S::npos);
+}
+TEST_CASE(
 	"parser: unsupported Transfer-Encoding returns 400") {
 	S req =
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: gzip, chunked\r\n"
@@ -6305,6 +6336,14 @@ TEST_CASE(
 	S req =
 		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n"
 		"Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n0\r\n\r\n";
+	auto resp = send_raw_bytes(req);
+	REQUIRE(resp.starts_with("HTTP/1.1 400"));
+}
+TEST_CASE(
+	"parser: empty Transfer-Encoding token returns 400") {
+	S req =
+		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked,\r\n"
+		"Connection: close\r\n\r\n0\r\n\r\n";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 400"));
 }

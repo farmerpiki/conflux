@@ -39,7 +39,7 @@
 - [ ] Split optional components: DB, TLS, HTTP/2, HTTP/3 as separate link targets
 - [ ] CI: all examples compile, fuzz smokes, JSONTestSuite, ASan/UBSan lane, bench regression budget
 - [x] Docs: versioning/semver policy, security disclosure, supported compiler+kernel matrix — added `docs/project-policy.md` and linked it from README/pre-v1 contract
-- [ ] HTTP security corpus: smuggling, duplicate Content-Length, TE ambiguity, slowloris, chunk edge cases
+- [x] HTTP security corpus: smuggling, duplicate Content-Length, TE ambiguity, Host ambiguity, chunk edge cases — documented in `docs/http-security-corpus.md`; raw-wire E2E cases added for Host and CL+TE smuggling
 
 ## Do not implement
 
