@@ -1372,6 +1372,7 @@ public:
 		int flags = 0) {
 		return sync_file_range_async(fh, offset, len, flags);
 	}
+	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
 	[[nodiscard]] root::Task<FileHandle> socket_async(
 		int domain,
 		int type,
@@ -1389,12 +1390,14 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
+	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
 	[[nodiscard]] conflux::work::root::Task<FileHandle> socket_task(
 		int domain,
 		int type,
 		int protocol) {
 		return socket_async(domain, type, protocol);
 	}
+	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
 	[[nodiscard]] root::Task<FileHandle> socket_direct_async(
 		int domain,
 		int type,
@@ -1414,6 +1417,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
+	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
 	[[nodiscard]] conflux::work::root::Task<FileHandle> socket_direct_task(
 		int domain,
 		int type,
@@ -2773,6 +2777,7 @@ public:
 	}
 	// Create a socket directly into the registered file table, with the kernel
 	// choosing the slot (IORING_FILE_INDEX_ALLOC). Returns the allocated slot.
+	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
 	[[nodiscard]] root::Task<FileHandle> socket_direct_alloc_async(
 		int domain,
 		int type,
@@ -2791,6 +2796,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
+	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
 	[[nodiscard]] conflux::work::root::Task<FileHandle> socket_direct_alloc_task(
 		int domain,
 		int type,
