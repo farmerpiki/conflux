@@ -330,7 +330,10 @@ WebSocket routing is implemented as a GET route that returns a `WsUpgrade` respo
 ## Static/realtime component modules
 
 `StaticOptions` is exported by `conflux.net.http.static_files` / `conflux::http_static`.
-SSE types (`SseOverflowPolicy`, `SseChannel`, `SseBroadcaster`) are exported by
+Server request vocabulary (`UploadedFile`, `HttpRequest`, `HttpRequestView`,
+`CloneableFunction`) is exported by `conflux.net.http.server_types`, which is
+part of `conflux::http_core`. SSE and WebSocket types/helpers (`SseOverflowPolicy`,
+`SseChannel`, `SseBroadcaster`, `WsConn`, `WsUpgrade`) are exported by
 `conflux.net.http.realtime` / `conflux::http_realtime`. `conflux.net.router`
 still re-exports those modules so existing router imports keep working while the
 implementation is split into smaller package targets.

@@ -395,6 +395,13 @@ if(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED AND NOT CONFLUX_WANT_RUNTIME)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_STATIC requires CONFLUX_BUILD_RUNTIME")
 endif()
 
+if(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED AND NOT CONFLUX_WANT_HTTP_CORE)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_REALTIME/HTTP router components require CONFLUX_BUILD_HTTP_CORE")
+endif()
+if(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED AND NOT CONFLUX_WANT_CRYPTO)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_REALTIME/HTTP router components require CONFLUX_BUILD_CRYPTO")
+endif()
+
 if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_HTTP_CORE)
     message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_HTTP_CORE")
 endif()
@@ -506,6 +513,7 @@ if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
             FILES
             src/net/http_types.cxx
             src/net/http_request.cxx
+            src/net/server_types.cxx
     )
     target_link_libraries(conflux_http_core
         PRIVATE conflux_options
@@ -892,7 +900,22 @@ target_sources(conflux_http_realtime
 target_link_libraries(conflux_http_realtime
     PRIVATE conflux_options
     PUBLIC  conflux_types
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_crypto
+    PUBLIC  conflux_utils
 )
+if(TARGET conflux_net_tls)
+    target_compile_definitions(conflux_http_realtime PUBLIC CONFLUX_HAS_TLS=1)
+    target_link_libraries(conflux_http_realtime PUBLIC conflux_net_tls)
+else()
+    target_compile_definitions(conflux_http_realtime PUBLIC CONFLUX_HAS_TLS=0)
+endif()
+if(CONFLUX_JSON_USE_STDSIMD)
+    target_compile_definitions(conflux_http_realtime PRIVATE CONFLUX_STDSIMD=1)
+endif()
+if(CONFLUX_BUILD_FUZZ)
+    target_compile_definitions(conflux_http_realtime PUBLIC CONFLUX_BUILD_FUZZ=1)
+endif()
 endif() # CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED
 
 if(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED)
@@ -926,22 +949,12 @@ target_link_libraries(conflux_http_router
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_realtime
     PUBLIC  conflux_http_static
-    PUBLIC  conflux_crypto
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
     PUBLIC  conflux_utils
     PUBLIC  conflux_net_config
     PUBLIC  conflux_socket_io
 )
-if(TARGET conflux_net_tls)
-    target_compile_definitions(conflux_http_router PUBLIC CONFLUX_HAS_TLS=1)
-    target_link_libraries(conflux_http_router PUBLIC conflux_net_tls)
-else()
-    target_compile_definitions(conflux_http_router PUBLIC CONFLUX_HAS_TLS=0)
-endif()
-if(CONFLUX_JSON_USE_STDSIMD)
-    target_compile_definitions(conflux_http_router PRIVATE CONFLUX_STDSIMD=1)
-endif()
 endif() # HTTP router or router-dependent component
 
 if(CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_SERVER)

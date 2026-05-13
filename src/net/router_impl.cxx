@@ -7,33 +7,21 @@ module;
 #include <memory>
 #include <sys/eventfd.h>
 #include <sys/mman.h>
-#include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-#if CONFLUX_HAS_TLS
-	#include <openssl/ssl.h>
-#endif
-#if defined(CONFLUX_STDSIMD)
-extern "C" {
-void conflux_ws_unmask_stdsimd(unsigned char *data, __SIZE_TYPE__ n, unsigned char const *mask4);
-}
-#endif
-
 module conflux.net.router;
 
 import std;
 import conflux.types;
 import conflux.net.http.types;
-import conflux.crypto;
+import conflux.net.http.server_types;
+import conflux.net.http.realtime;
 import conflux.work;
 import conflux.file_io;
 import conflux.utils;
 import conflux.net.config;
 import conflux.socket_io;
-#if CONFLUX_HAS_TLS
-import conflux.net.tls;
-#endif
 
 
 struct Router::Impl {

@@ -165,10 +165,11 @@ load_iteration_overrides() {
       ITERATIONS_FROM_DB["$bench|$cfg"]="$iters"
     done < <(
       psql "$PGURI" -At -q -c "
-        SELECT benchmark, config_name, iterations
-        FROM results
-        WHERE run_id = $run_id AND extra->>'kind' = 'summary'
-        ORDER BY benchmark, config_name;"
+        SELECT r.benchmark, runs.config_name, r.iterations
+        FROM results r
+        JOIN runs ON runs.id = r.run_id
+        WHERE r.run_id = $run_id AND r.extra->>'kind' = 'summary'
+        ORDER BY r.benchmark, runs.config_name;"
     )
     return 0
   fi
@@ -232,6 +233,27 @@ rewrite_args_for_iterations() {
   fi
 
   printf '%s\n' "${out[@]}"
+}
+
+COMPARE_BENCH_NAME=""
+COMPARE_CFG_NAME=""
+COMPARE_BIN_ARGS=()
+load_bench_info_args() {
+  local binary="$1"
+  local info cfg_json
+  info=$("$binary" --bench-info 2>/dev/null) || {
+    echo "binary does not support --bench-info: $binary" >&2
+    exit 2
+  }
+  COMPARE_BENCH_NAME=$(jq -r '.name' <<< "$info")
+  cfg_json=$(jq -c '.configs[0] // empty' <<< "$info")
+  if [[ -z "$cfg_json" ]]; then
+    COMPARE_CFG_NAME="default"
+    COMPARE_BIN_ARGS=()
+    return 0
+  fi
+  COMPARE_CFG_NAME=$(jq -r '.name // "default"' <<< "$cfg_json")
+  mapfile -t COMPARE_BIN_ARGS < <(jq -r '.args[]? // empty' <<< "$cfg_json")
 }
 
 # ---------------------------------------------------------------------------
@@ -487,7 +509,7 @@ run_compare() {
 #   Same 2s settle + load check before every execution as --compare.
 # ---------------------------------------------------------------------------
 _compare_bins_insert_row() {
-  local rid="$1" label="$2" round="$3" pos="$4"; shift 4
+  local rid="$1" bench="$2" label="$3" round="$4" pos="$5"; shift 5
   while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
     local ex
     ex=$(printf '{"round":%d,"position":%d,"label":"%s","min":%s,"p10":%s,"mad":%s}' \
@@ -497,7 +519,7 @@ _compare_bins_insert_row() {
         (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
          metric, value, unit, sample_count, extra)
       VALUES
-        ($rid, 'work', '$(sql_escape "$variant")',
+        ($rid, '$(sql_escape "$bench")', '$(sql_escape "$variant")',
          $iters, $total, $ns_pi,
          'ns_per_iter', $ns_pi, 'ns', 1, '$(sql_escape "$ex")'::jsonb);" >/dev/null
   done < <(run_bench "$@" --json 2>/dev/null \
@@ -505,7 +527,7 @@ _compare_bins_insert_row() {
 }
 
 _compare_bins_insert_summary() {
-  local rid="$1"
+  local rid="$1" bench="$2"
   psql "$PGURI" -At -q -c "
     WITH raw AS (
       SELECT variant,
@@ -535,7 +557,7 @@ _compare_bins_insert_summary() {
     INSERT INTO results
       (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
        metric, value, unit, sample_count, median, mad, p50, p99, best, p10, extra)
-    SELECT $rid, 'work', variant,
+    SELECT $rid, '$(sql_escape "$bench")', variant,
            avg_iters::bigint, 0, med,
            'ns_per_iter', med, 'ns', n::bigint,
            med, mad, p50, p99, best, p10,
@@ -548,10 +570,19 @@ run_compare_bins() {
   local n=$#
   [[ $n -ge 2 ]] || { echo "compare-bins requires at least 2 candidates" >&2; exit 1; }
 
-  local labels=() binaries=()
+  local labels=() binaries=() bench_name="" cfg_name=""
   for arg in "$@"; do
     local label="${arg%%:*}" bin="${arg#*:}"
     [[ -x "$bin" ]] || { echo "binary not found or not executable: $bin" >&2; exit 1; }
+    load_bench_info_args "$bin"
+    if [[ -z "$bench_name" ]]; then
+      bench_name="$COMPARE_BENCH_NAME"
+      cfg_name="$COMPARE_CFG_NAME"
+    elif [[ "$bench_name" != "$COMPARE_BENCH_NAME" || "$cfg_name" != "$COMPARE_CFG_NAME" ]]; then
+      echo "compare-bins candidates must agree on bench/config: got ${COMPARE_BENCH_NAME} [$COMPARE_CFG_NAME] from $bin" >&2
+      echo "expected ${bench_name} [$cfg_name]" >&2
+      exit 2
+    fi
     labels+=("$label")
     binaries+=("$bin")
   done
@@ -582,7 +613,7 @@ run_compare_bins() {
   for ((i=0; i<n; i++)); do
     PRESET="${labels[$i]}"
     local rid
-    rid=$(new_run "work" "compare-bins" "{\"compare\":true,\"label\":\"${labels[$i]}\"}")
+    rid=$(new_run "$bench_name" "compare-bins" "{\"compare\":true,\"label\":\"${labels[$i]}\"}")
     run_ids+=("$rid")
     echo "  ${labels[$i]} → run_id=$rid"
   done
@@ -602,12 +633,17 @@ run_compare_bins() {
       echo "  settle 2s before ${label} (round=$round pos=$pos)..."
       sleep 2
       echo "  running ${label}..."
-      _compare_bins_insert_row "$rid" "$label" "$round" "$pos" "$bin"
+      load_bench_info_args "$bin"
+      local -a args=("${COMPARE_BIN_ARGS[@]}")
+      if [[ -n "$BENCH_ITERATIONS_FROM_RUN_ID" ]]; then
+        mapfile -t args < <(rewrite_args_for_iterations "$COMPARE_BENCH_NAME" "$COMPARE_CFG_NAME" "${args[@]}")
+      fi
+      _compare_bins_insert_row "$rid" "$bench_name" "$label" "$round" "$pos" "$bin" "${args[@]}"
     done
   done
 
   for ((i=0; i<n; i++)); do
-    _compare_bins_insert_summary "${run_ids[$i]}"
+    _compare_bins_insert_summary "${run_ids[$i]}" "$bench_name"
     echo "summary inserted for ${labels[$i]} (run_id=${run_ids[$i]})"
   done
 

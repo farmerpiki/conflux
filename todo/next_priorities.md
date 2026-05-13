@@ -49,14 +49,14 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
      module and links the component graph.
    - Completed optional protocol split: `conflux::http1`, `conflux::http2`, and
      `conflux::http3` now sit under the thin `conflux::http_protocol` umbrella.
-   - Completed static/realtime type-boundary slice: `conflux::http_static` now
-     owns the exported `StaticOptions` module surface, and
-     `conflux::http_realtime` now owns the exported SSE channel/broadcaster
-     surface. `conflux.net.router` re-exports both for compatibility.
-   - Next concrete slice: finish the remaining WebSocket surface extraction from
-     `conflux.net.router` into `conflux::http_realtime`, then split static-file
-     implementation internals into core/async targets once the route API no
-     longer forces router ownership.
+   - Completed static/realtime surface slice: `conflux::http_static` owns the
+     exported `StaticOptions` module surface, `conflux::http_core` owns the
+     server request/view/callback vocabulary, and `conflux::http_realtime` owns
+     the exported SSE plus WebSocket surfaces. `conflux.net.router` re-exports
+     those modules for compatibility.
+   - Next concrete slice: split static-file implementation internals into
+     `http_static_core` / `http_static_async` targets now that route API types
+     no longer force router ownership.
 
 2. **Remove remaining stale dependency edges from proposal reviews.**
    - Re-check `conflux_socket_io -> file_io`, `net.client -> file_io`, and
@@ -91,10 +91,9 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
      `conflux::http2`, `conflux::http3`, `conflux::http_protocol`,
      `conflux::http_server`, `conflux::http_app`, and `conflux::http` now exist.
    - `conflux::http_static` and `conflux::http_realtime` now own the exported
-     `StaticOptions` and SSE channel/broadcaster surfaces. Remaining work:
-     move the WebSocket surface (`WsConn`, `WsUpgrade`, handshake/frame helpers)
-     out of `conflux.net.router`, then split static-file implementation internals
-     into `http_static_core` / `http_static_async` on a real boundary.
+     `StaticOptions`, SSE channel/broadcaster, and WebSocket surfaces. Remaining work:
+     split static-file implementation internals into `http_static_core` /
+     `http_static_async` on a real boundary.
 
 8. **Prototype compile-time JSON only after the return type is documented.**
    - Subset: integers, booleans, null, no-escape strings, nested objects/arrays.
