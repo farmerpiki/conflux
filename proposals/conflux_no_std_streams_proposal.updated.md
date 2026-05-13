@@ -23,9 +23,6 @@ src/types.cxx
 src/net/config.cxx
   std::ifstream + std::getline for INI config
 
-src/net/dns/dns.cxx
-  std::ifstream + std::getline for /etc/resolv.conf and /etc/hosts
-
 src/net/http_server.cxx
   std::ifstream for /proc/self/fdinfo/<ring> diagnostics
 
@@ -38,6 +35,8 @@ src/work/carrier_coro.cxx
 src/db/connection.cxx
   ifstream + istreambuf_iterator for SQL file loading
 ```
+
+This inventory is now one item smaller: `src/net/dns/dns_impl.cxx` no longer uses `std::ifstream` / `std::getline` for `/etc/resolv.conf` or `/etc/hosts`; it uses a bounded POSIX read helper plus an explicit line splitter instead.
 
 This matches the original proposal. Tests/examples/benchmarks may continue using `std::println` for human output.
 

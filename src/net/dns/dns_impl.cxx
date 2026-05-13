@@ -1,12 +1,15 @@
 module;
 
 #include <arpa/inet.h>
+#include <cerrno>
 #include <cstring>
+#include <fcntl.h>
 #include <liburing.h>
 #include <memory>
 #include <netdb.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
+#include <unistd.h>
 
 module conflux.net.dns;
 
@@ -143,22 +146,77 @@ void parse_resolv_options(
 	}
 	return out;
 }
+[[nodiscard]] Opt<S> read_small_text_file(
+	fs::path const &path,
+	SZ max_bytes = SZ{4} * 1024 * 1024) noexcept {
+	try {
+		S const native = path.string();
+		int const fd = ::open(native.c_str(), O_RDONLY | O_CLOEXEC);
+		if (fd < 0) {
+			return {};
+		}
+		struct CloseFd {
+			int fd;
+			~CloseFd() noexcept {
+				if (fd >= 0) {
+					::close(fd);
+				}
+			}
+		} close_fd{fd};
+
+		S out;
+		A<char, 4096> buf{};
+		for (;;) {
+			auto const n = ::read(fd, buf.data(), buf.size());
+			if (n < 0) {
+				if (errno == EINTR) {
+					continue;
+				}
+				return {};
+			}
+			if (n == 0) {
+				break;
+			}
+			if (out.size() + static_cast<SZ>(n) > max_bytes) {
+				return {};
+			}
+			out.append(buf.data(), static_cast<SZ>(n));
+		}
+		return out;
+	} catch (...) { return {}; }
+}
+template<class F>
+void for_each_line(
+	SV text,
+	F &&fn) {
+	while (!text.empty()) {
+		auto const eol = text.find('\n');
+		SV line = eol == SV::npos ? text : text.substr(0, eol);
+		if (!line.empty() && line.back() == '\r') {
+			line.remove_suffix(1);
+		}
+		fn(S{line});
+		if (eol == SV::npos) {
+			break;
+		}
+		text.remove_prefix(eol + 1);
+	}
+}
 [[nodiscard]] ResolvConfig parse_resolv_conf(
 	fs::path const &path) noexcept {
 	ResolvConfig out;
+	auto const contents = read_small_text_file(path);
+	if (!contents) {
+		return out;
+	}
 	try {
-		std::ifstream f{path};
-		if (!f.is_open()) {
-			return out;
-		}
-		S line;
-		while (std::getline(f, line)) {
+		for_each_line(*contents, [&](S line) {
 			if (auto comment = line.find_first_of("#;"); comment != S::npos) {
 				line.resize(comment);
 			}
 			auto trimmed = trim_ascii_copy(line);
 			if (trimmed.empty()) {
-				continue;
+				return;
 			}
 			auto const split = trimmed.find_first_of(" \t");
 			SV const key{trimmed.data(), split == S::npos ? trimmed.size() : split};
@@ -171,30 +229,29 @@ void parse_resolv_options(
 				if (auto ns = parse_nameserver(sv); ns.has_value()) {
 					out.nameservers.push_back(*ns);
 				}
-				continue;
+				return;
 			}
 			if (key == "options") {
 				parse_resolv_options(rest, out);
-				continue;
+				return;
 			}
 			if (key == "search") {
 				out.search_domains = parse_search_domains(rest);
-				continue;
+				return;
 			}
-		}
+		});
 	} catch (...) {} // NOLINT(bugprone-empty-catch)
 	return out;
 }
 [[nodiscard]] UM<S, V<Endpoint>> parse_hosts_file(
 	fs::path const &path) noexcept {
 	UM<S, V<Endpoint>> out;
+	auto const contents = read_small_text_file(path);
+	if (!contents) {
+		return out;
+	}
 	try {
-		std::ifstream f{path};
-		if (!f.is_open()) {
-			return out;
-		}
-		S line;
-		while (std::getline(f, line)) {
+		for_each_line(*contents, [&](S line) {
 			if (auto hash = line.find('#'); hash != S::npos) {
 				line.resize(hash);
 			}
@@ -218,7 +275,7 @@ void parse_resolv_options(
 
 			auto ip_sv = next_token();
 			if (ip_sv.empty()) {
-				continue;
+				return;
 			}
 
 			Endpoint ep{};
@@ -240,7 +297,7 @@ void parse_resolv_options(
 				ep.addr_len = sizeof(::sockaddr_in6);
 				ep.family = AddressFamily::v6;
 			} else {
-				continue;
+				return;
 			}
 
 			while (true) {
@@ -256,7 +313,7 @@ void parse_resolv_options(
 				}
 				out[name].push_back(ep);
 			}
-		}
+		});
 	} catch (...) {} // NOLINT(bugprone-empty-catch)
 	return out;
 }
