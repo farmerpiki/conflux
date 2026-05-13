@@ -11,6 +11,7 @@ import conflux.net.http.realtime;
 import conflux.net.http.static_files;
 import conflux.net.http.static_core;
 import conflux.net.http.static_async;
+import conflux.net.router_match;
 import conflux.net.router_static;
 import conflux.work;
 import conflux.net.config;
