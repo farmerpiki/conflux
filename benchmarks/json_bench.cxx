@@ -378,6 +378,38 @@ void bench_dump_sorted(
 	auto s = measure([&] { (void)doc->dump(opts); }, 20, 200, 1, json_str->size());
 	print_row("dump/sort_object_keys", s);
 }
+void bench_accumulate_chunked(
+	SV name,
+	S const &corpus,
+	SZ chunk_size) {
+	auto s = measure(
+		[&] {
+			JsonAccumulator acc;
+			auto const *ptr = corpus.data();
+			SZ remaining = corpus.size();
+			while (remaining > 0) {
+				SZ const n = std::min(chunk_size, remaining);
+				auto feed = acc.feed(span<byte const>{
+					reinterpret_cast<byte const *>(ptr),
+					n});
+				if (!feed) {
+					throw RE{"json accumulator feed failed"};
+				}
+				ptr += n;
+				remaining -= n;
+			}
+			auto doc = acc.finish();
+			if (!doc) {
+				throw RE{"json accumulator finish failed"};
+			}
+			(void)doc->root();
+		},
+		20,
+		100,
+		1,
+		corpus.size());
+	print_row(name, s);
+}
 // Item C — 1024-member object where every key has a \u escape → arena storage.
 // Decoded names are identical to make_lookup_corpus() ("member_N"), so the
 // same lookup keys can be used for apples-to-apples comparison.
@@ -805,6 +837,7 @@ int main(
 	bench_builder();
 	bench_dump_plain(config_corpus);
 	bench_dump_sorted(config_corpus);
+	bench_accumulate_chunked("accumulate/byte_span chunked (4KB config)", config_corpus, 4096);
 
 	if (!g_csv) {
 		println("[json-bench]");
@@ -819,6 +852,7 @@ int main(
 	bench_parse_named("parse/deep_nest (256 levels)", deep_nest_corpus, 50, 500);
 	bench_parse_named("parse/mixed_numbers (1MB)", mixed_numbers_corpus);
 	bench_dump_named("dump/mixed_numbers", mixed_numbers_corpus);
+	bench_accumulate_chunked("accumulate/byte_span chunked (4KB large)", large_corpus, 4096);
 
 	if (!g_csv) {
 		println("[json-bench]");
