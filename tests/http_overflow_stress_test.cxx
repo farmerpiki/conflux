@@ -100,7 +100,7 @@ TEST_CASE(
 	stop_flag.store(true, memory_order_relaxed);
 
 	if (!server_stopped) {
-		server->shutdown();
+		server->request_shutdown();
 	}
 
 	workers.clear();

@@ -270,7 +270,7 @@ public:
 	}
 	~TestServerRegistry() {
 		for (auto const &srv: servers_) {
-			srv->shutdown();
+			srv->request_shutdown();
 		}
 		for (auto &thread: threads_) {
 			if (thread.joinable()) {
@@ -302,7 +302,7 @@ public:
 	[[nodiscard]] u16 port() const { return server_->port(); }
 	void stop() {
 		if (thread_.joinable()) {
-			server_->shutdown();
+			server_->request_shutdown();
 			thread_.join();
 		}
 	}

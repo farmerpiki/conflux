@@ -2,7 +2,7 @@
 set -euo pipefail
 
 usage() {
-	printf 'usage: %s [NAME=VALUE ...] --test-dir build/{debug,release,tsan}-{clang-libcxx,gcc-stdcxx} [ctest args...]\n' "$0" >&2
+	printf 'usage: %s [NAME=VALUE ...] --test-dir {build,/tmp/<source-dir>}/{debug,release,tsan}-{clang-libcxx,gcc-stdcxx} [ctest args...]\n' "$0" >&2
 }
 
 valid_profile() {
@@ -44,6 +44,7 @@ shift 2
 
 case "$test_dir" in
 	./build/*|build/*) ;;
+	/tmp/"$(basename "$PWD")"/*) ;;
 	*)
 		printf 'refusing non-build test dir: %s\n' "$test_dir" >&2
 		exit 126
@@ -51,12 +52,19 @@ case "$test_dir" in
 esac
 
 test_dir=${test_dir#./}
-profile=${test_dir#build/}
-profile=${profile%%/*}
-
-if [[ "$test_dir" != "build/$profile" ]]; then
-	printf 'refusing nested test dir: %s\n' "$test_dir" >&2
-	exit 126
+if [[ "$test_dir" == build/* ]]; then
+	profile=${test_dir#build/}
+	profile=${profile%%/*}
+	if [[ "$test_dir" != "build/$profile" ]]; then
+		printf 'refusing nested test dir: %s\n' "$test_dir" >&2
+		exit 126
+	fi
+else
+	profile=${test_dir##*/}
+	if [[ "$test_dir" != "/tmp/$(basename "$PWD")/$profile" ]]; then
+		printf 'refusing nested test dir: %s\n' "$test_dir" >&2
+		exit 126
+	fi
 fi
 
 if ! valid_profile "$profile"; then

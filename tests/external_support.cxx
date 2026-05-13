@@ -196,7 +196,7 @@ public:
 	}
 	~HttpsServerFixture() {
 		if (server_ != nullptr) {
-			server_->shutdown();
+			server_->request_shutdown();
 		}
 		if (srv_thread_.joinable()) {
 			srv_thread_.join();
@@ -284,7 +284,7 @@ public:
 	}
 	~Http3ServerFixture() {
 		if (server_ != nullptr) {
-			server_->shutdown();
+			server_->request_shutdown();
 		}
 		if (srv_thread_.joinable()) {
 			srv_thread_.join();

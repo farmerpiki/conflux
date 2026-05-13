@@ -547,13 +547,14 @@ public:
 	}
 	[[nodiscard]] Opt<u32> find_start_pos(
 		u16 first_id,
-		u32 cnt) noexcept {
+		u32 cnt,
+		bool bundle) noexcept {
 		if (cnt == 0 || cnt > count_ || first_id >= count_) {
 			return nullopt;
 		}
 		u32 const pos = mode_ == BufferRingMode::recv_bundle && bundle_has_saved_pos_[first_id] != 0
 			? bundle_saved_pos_[first_id]
-			: id_pos_[first_id];
+			: (bundle ? id_pos_[first_id] : head_pos_);
 		if (pos + cnt < pos || pos + cnt > tail_pos_) {
 			return nullopt;
 		}
@@ -888,7 +889,7 @@ export [[nodiscard]] RecvSlices buffer_slices_from_cqe(
 	assert(cnt > 0);
 	assert(cnt <= ring.count());
 	u16 const first_id = cqe_buffer_id(flags);
-	auto const start = ring.find_start_pos(first_id, cnt);
+	auto const start = ring.find_start_pos(first_id, cnt, bundle);
 	if (!start) [[unlikely]] {
 		assert(false && "CQE buffer id/range is not present in the userspace buffer-ring window");
 		return {};

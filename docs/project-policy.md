@@ -104,3 +104,28 @@ Before v1, every release candidate should at minimum have:
 - HTTP parser/security corpus run when HTTP code changed;
 - benchmark comparison for claimed performance changes;
 - updated docs for public API, migration, and security-impacting behavior.
+
+## Test policy
+
+Tests are behavioral contracts, not implementation details.
+
+- Do not modify an existing test just to make a changed implementation pass.
+- If a public symbol is renamed but the behavior is intentionally unchanged,
+  update the affected test name or callsite to match the rename.
+- If behavior changes in a broader way, add a new test for the new behavior and
+  keep the old test around when it still describes the previous contract.
+- Use distinct test names to avoid comparing different behaviors as if they
+  were the same regression target.
+- Prefer source fixes over test edits when a historical behavior used to work
+  and still should work.
+
+## Execution policy
+
+Build artifacts, `ctest`, benchmarks, and examples should run outside the
+sandbox so results match the real runtime environment.
+
+- Use `./scripts/run-build-artifact.sh` for binaries and examples.
+- Use `./scripts/run-ctest.sh` for test suites.
+- Ask for wildcard approval once, then reuse it for the same script prefix.
+- Keep runs representative; do not rely on sandboxed execution for final
+  verification.

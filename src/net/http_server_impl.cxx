@@ -2548,6 +2548,44 @@ struct Ring {
 			defer_op([this] { cancel_accept_or_defer(); });
 		}
 	}
+	void submit_conn_close_or_defer(
+		int fd,
+		u32 gen) {
+		auto const ufd = static_cast<SZ>(fd);
+		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
+			return;
+		}
+		auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(fd)) :
+												SocketHandle::from_os(fd);
+		if (!submit_close(raw_, handle, pack(Op::Close, gen, fd))) {
+			HTTP_TRACE(format("conn_close_defer fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+			defer_op([this, fd, gen] { submit_conn_close_or_defer(fd, gen); });
+			return;
+		}
+		HTTP_TRACE(format("conn_close_queued fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+		fd_table[ufd].closing = true;
+		if (direct_slots_ && accepted_sockets_direct) {
+			if (!direct_slots_->mark_closing(static_cast<u32>(fd))) {
+				eprintln(format("submit_conn_close_or_defer: mark_closing failed slot={}", fd));
+			}
+		}
+	}
+	void submit_fd_shutdown_or_defer(
+		int fd,
+		u32 gen) {
+		auto const ufd = static_cast<SZ>(fd);
+		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
+			return;
+		}
+		auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(fd)) :
+												SocketHandle::from_os(fd);
+		if (!submit_shutdown(raw_, handle, SHUT_WR, pack(Op::FdShutdown, gen, fd))) {
+			HTTP_TRACE(format("fd_shutdown_defer fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+			defer_op([this, fd, gen] { submit_fd_shutdown_or_defer(fd, gen); });
+			return;
+		}
+		HTTP_TRACE(format("fd_shutdown_queued fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
+	}
 	void handle_fd_shutdown(
 		int fd,
 		int res,
@@ -2563,25 +2601,7 @@ struct Ring {
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 			return;
 		}
-		auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(fd)) :
-												SocketHandle::from_os(fd);
-		if (!submit_close(raw_, handle, pack(Op::Close, gen, fd))) {
-			defer_op([this, fd, gen] {
-				auto const ufd2 = static_cast<SZ>(fd);
-				if (ufd2 < fd_table.size() && fd_table[ufd2].gen == gen) {
-					handle_fd_shutdown(fd, 0, gen);
-				}
-			});
-			return;
-		}
-		if (ufd < fd_table.size()) {
-			fd_table[ufd].closing = true;
-		}
-		if (direct_slots_ && accepted_sockets_direct) {
-			if (!direct_slots_->mark_closing(static_cast<u32>(fd))) {
-				eprintln(format("handle_fd_shutdown: mark_closing failed slot={}", fd));
-			}
-		}
+		submit_conn_close_or_defer(fd, gen);
 		(void)res;
 	}
 	void queue_close(
@@ -2623,55 +2643,19 @@ struct Ring {
 					eprintln(format("queue_close: mark_closing failed slot={}", fd));
 				}
 			}
-			auto handle = SocketHandle::from_direct(static_cast<u32>(fd));
-			if (!submit_shutdown(raw_, handle, SHUT_WR, pack(Op::FdShutdown, direct_gen, fd))) {
-				defer_op([this, fd, ufd, direct_gen] {
-					if (ufd >= fd_table.size() || fd_table[ufd].gen != direct_gen) {
-						return;
-					}
-					auto retry_handle = SocketHandle::from_direct(static_cast<u32>(fd));
-					if (!submit_shutdown(raw_, retry_handle, SHUT_WR, pack(Op::FdShutdown, direct_gen, fd))) {
-						defer_op([this, fd, ufd, direct_gen] {
-							if (ufd < fd_table.size() && fd_table[ufd].gen == direct_gen) {
-								auto retry_handle2 = SocketHandle::from_direct(static_cast<u32>(fd));
-								(void)submit_shutdown(
-									raw_, retry_handle2, SHUT_WR, pack(Op::FdShutdown, direct_gen, fd));
-							}
-						});
-					}
-				});
-				return;
-			}
+			submit_fd_shutdown_or_defer(fd, direct_gen);
 			return;
 		}
 
+		invalidate_recv_if_armed(fd);
+		auto const close_gen = (ufd < fd_table.size()) ? fd_table[ufd].gen : gen;
 		if (ufd < fd_table.size()) {
-			if (fd_table[ufd].gen != gen || fd_table[ufd].closing) {
+			if (fd_table[ufd].gen != close_gen || fd_table[ufd].closing) {
 				return;
 			}
 			fd_table[ufd].closing = true;
 		}
-		// Non-direct sockets still need an explicit shutdown so the peer sees
-		// EOF and the in-flight multishot recv gets drained before the final close.
-		::shutdown(fd, SHUT_WR);
-		auto handle = SocketHandle::from_os(fd);
-		if (!submit_close(raw_, handle, pack(Op::Close, gen, fd))) {
-			defer_op([this, fd, ufd, gen] {
-				if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
-					return;
-				}
-				auto retry_handle = SocketHandle::from_os(fd);
-				if (!submit_close(raw_, retry_handle, pack(Op::Close, gen, fd))) {
-					defer_op([this, fd, ufd, gen] {
-						if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
-							auto retry_handle2 = SocketHandle::from_os(fd);
-							(void)submit_close(raw_, retry_handle2, pack(Op::Close, gen, fd));
-						}
-					});
-				}
-			});
-			return;
-		}
+		submit_fd_shutdown_or_defer(fd, close_gen);
 	}
 	void queue_sse_wait(
 		int fd) {
@@ -3887,6 +3871,7 @@ struct Ring {
 		int fd,
 		int res,
 		u32 gen) {
+		HTTP_TRACE(format("conn_close fd={} res={} gen={} direct={}", fd, res, gen, accepted_sockets_direct));
 		if (direct_slots_ && accepted_sockets_direct) {
 			auto const slot = static_cast<u32>(fd);
 			if (res >= 0) {
