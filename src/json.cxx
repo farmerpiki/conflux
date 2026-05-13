@@ -8282,6 +8282,10 @@ public:
 		: opts_{opts} {}
 	[[nodiscard]] expected<void, JsonError> feed(
 		SV chunk) {
+		return feed(span<byte const>{reinterpret_cast<byte const *>(chunk.data()), chunk.size()});
+	}
+	[[nodiscard]] expected<void, JsonError> feed(
+		span<byte const> chunk) {
 		constexpr SZ kU32Ceiling = (SZ{1} << 32) - 1;
 		SZ const hard_cap = kU32Ceiling - 1;
 		SZ const configured_cap = opts_.max_input_size.is_unlimited() ?
@@ -8294,7 +8298,7 @@ public:
 					.code = JsonIssueCode::input_too_large,
 					.message = "accumulated size exceeds max_input_size"});
 		}
-		buf_.append(chunk);
+		buf_.append(reinterpret_cast<char const *>(chunk.data()), chunk.size());
 		return {};
 	}
 	[[nodiscard]] expected<Document, JsonError> finish() { return conflux::json::parse_copy(move(buf_), opts_); }

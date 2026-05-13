@@ -4105,6 +4105,27 @@ TEST_CASE(
 	CHECK(*sv == "hello");
 }
 TEST_CASE(
+	"phase7: JsonAccumulator accepts byte-span feed",
+	"[phase7]") {
+	JsonAccumulator acc;
+	auto const json = std::string_view{R"({"a":[1,2,3],"b":true})"};
+	REQUIRE(
+		acc.feed(
+			span<byte const>{
+				reinterpret_cast<byte const *>(json.data()),
+				json.size()}).
+			has_value());
+	auto doc = acc.finish();
+	REQUIRE(doc.has_value());
+	auto obj = doc->root().as_object();
+	REQUIRE(obj.has_value());
+	auto a = obj->find_member("a");
+	REQUIRE(a.has_value());
+	auto arr = a->as_array();
+	REQUIRE(arr.has_value());
+	CHECK(arr->size() == 3);
+}
+TEST_CASE(
 	"phase7: JsonAccumulator finish with invalid JSON returns error",
 	"[phase7]") {
 	JsonAccumulator acc;
