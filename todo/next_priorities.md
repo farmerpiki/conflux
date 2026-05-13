@@ -22,6 +22,7 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - `file_map` stays read-only mapping only.
    - `file_io` stays the async/runtime-backed layer.
    - Make `conflux.uring.handle` and `conflux.uring.completion` explicit in `src/` consumers instead of relying on `file_io` re-exports.
+   - [x] `src/` consumers now import `conflux.uring.handle` / `conflux.uring.completion` directly where needed; remaining `file_io` imports are for `FileReader`, `current_file_reader()`, and file-pool types.
    - Leave the broader `file_io` re-export in place for tests/examples until the library split is farther along.
    - Timeout submission now lives in `conflux.uring.timeout`; keep moving other non-file runtime helpers out of `file_io` in the same style.
    - HTTP server parsing/formatting helpers now live in `conflux.net.http_server_helpers`; keep peeling `http_server_impl` toward smaller event-loop/state-machine units and move any remaining duplicated request parsing there.

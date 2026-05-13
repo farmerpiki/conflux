@@ -12,6 +12,7 @@ export module conflux.file_watch;
 import std;
 import conflux.types;
 import conflux.file_io;
+import conflux.uring.completion;
 
 export enum class FileEventKind : u8 {
 	created,
