@@ -19,12 +19,15 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
 
 1. **Finish modular CMake target slices.**
    - Current status: `core`, `json`, `file_io_sync`, `file_map`, `file_io`,
-     `socket_io`, `http_core`, `http_json`, `template`, and `template_watch`
-     have started splitting out.
+     `socket_io`, `utils`, `net_config`, `http_core`, `http_json`, `template`,
+     and `template_watch` have started splitting out.
    - Completed slice: `conflux::json_file` / `conflux.json.file` is now separate
      and depends only on `json + file_io_sync`.
-   - Next concrete slice: split router/server or static-core/static-async
-     depending on least collision with current HTTP code.
+   - Completed prerequisite slice: `conflux::utils` and `conflux::net_config`
+     are separate module targets instead of being compiled into the HTTP
+     monolith.
+   - Next concrete slice: split TLS support or router/server, because router
+     still conditionally imports `conflux.net.tls` when TLS is enabled.
 
 2. **Remove remaining stale dependency edges from proposal reviews.**
    - Re-check `conflux_socket_io -> file_io`, `net.client -> file_io`, and
@@ -53,7 +56,8 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - Cancel-by-fd only after per-fd cancel slot tracking is designed.
 
 7. **Split the next HTTP modular target.**
-   - Prefer router/server if the response body model is not in the way.
+   - Prefer a TLS target first if router still imports `conflux.net.tls`; otherwise
+     split `conflux::http_router` from `router.cxx`/`router_impl.cxx`.
    - Prefer static-core/static-async only if a small no-liburing metadata/mmap slice
      is clearly separable from streamed file serving.
 

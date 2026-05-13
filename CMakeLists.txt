@@ -673,6 +673,41 @@ if(CONFLUX_JSON_USE_STDSIMD AND TARGET conflux_json)
     )
 endif()
 
+add_library(conflux_utils STATIC)
+target_sources(conflux_utils
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/utils.cxx
+)
+target_link_libraries(conflux_utils
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+)
+if(CONFLUX_JSON_USE_STDSIMD)
+    target_compile_definitions(conflux_utils PRIVATE CONFLUX_STDSIMD=1)
+    target_sources(conflux_utils PRIVATE src/simd_stdx.cxx)
+    set_source_files_properties(src/simd_stdx.cxx PROPERTIES
+        COMPILE_OPTIONS "-mavx2"
+    )
+endif()
+
+add_library(conflux_net_config STATIC)
+target_sources(conflux_net_config
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/config.cxx
+)
+target_link_libraries(conflux_net_config
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_utils
+)
+
+# Keep the package-facing core anchor aligned with the documented
+# "types + utils" core surface while leaving HTTP configuration as a separate
+# support component.
+target_link_libraries(conflux_core INTERFACE conflux_utils)
+
 if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
     add_library(conflux_json_reflect STATIC)
     target_sources(conflux_json_reflect
@@ -708,8 +743,6 @@ add_library(conflux STATIC)
 # Core module sources.
 set(CONFLUX_MODULE_SOURCES
     src/process.cxx
-    src/utils.cxx
-    src/net/config.cxx
     src/net/io_buffer.cxx
     src/conflux.cxx
     src/net/auth.cxx
@@ -803,6 +836,8 @@ target_sources(conflux
 target_link_libraries(conflux
     PRIVATE conflux_options
     PUBLIC  conflux_types
+    PUBLIC  conflux_utils
+    PUBLIC  conflux_net_config
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_json
     PUBLIC  conflux_work
@@ -835,16 +870,6 @@ endif()
 
 if(CONFLUX_JSON_AVX2)
     target_compile_options(conflux PRIVATE -mavx2 -mbmi2)
-endif()
-
-if(CONFLUX_JSON_USE_STDSIMD)
-    target_compile_definitions(conflux PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
-    target_sources(conflux PRIVATE src/json_simd_stdx.cxx)
-    target_compile_definitions(conflux PRIVATE CONFLUX_STDSIMD=1)
-    target_sources(conflux PRIVATE src/simd_stdx.cxx)
-    set_source_files_properties(src/simd_stdx.cxx PROPERTIES
-        COMPILE_OPTIONS "-mavx2"
-    )
 endif()
 
 # Template engine / hot-reload surface. The file-watch module is now compiled
@@ -1041,6 +1066,8 @@ endfunction()
 
 conflux_public_component(conflux_core core)
 conflux_public_component(conflux_types types)
+conflux_public_component(conflux_utils utils)
+conflux_public_component(conflux_net_config net_config)
 conflux_public_component(conflux_crypto crypto)
 conflux_public_component(conflux_json json)
 conflux_public_component(conflux_json_file json_file)
@@ -1075,6 +1102,8 @@ endforeach()
 set(CONFLUX_INSTALL_MODULE_TARGETS)
 foreach(_target IN ITEMS
         conflux_types
+        conflux_utils
+        conflux_net_config
         conflux_crypto
         conflux_json
         conflux_json_file
