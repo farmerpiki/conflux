@@ -1003,8 +1003,22 @@ target_sources(conflux_http_router
     PRIVATE
         src/net/router_impl.cxx
 )
+add_library(conflux_http_router_static STATIC)
+target_sources(conflux_http_router_static
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/router_static.cxx
+)
+target_link_libraries(conflux_http_router_static
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_static_core
+    PUBLIC  conflux_http_static_async
+)
 target_link_libraries(conflux_http_router
     PRIVATE conflux_options
+    PRIVATE conflux_http_router_static
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_realtime
     PUBLIC  conflux_http_static
@@ -1736,6 +1750,7 @@ conflux_public_component(conflux_template template)
 conflux_public_component(conflux_file_watch template_watch)
 conflux_public_component(conflux_http_core http_core)
 conflux_public_component(conflux_http_router http_router)
+conflux_public_component(conflux_http_router_static router_static)
 conflux_public_component(conflux_http_static http_static)
 conflux_public_component(conflux_http_static_core http_static_core)
 conflux_public_component(conflux_http_static_async http_static_async)
@@ -1803,6 +1818,7 @@ foreach(_target IN ITEMS
         conflux_file_watch
         conflux_http_core
         conflux_http_router
+        conflux_http_router_static
         conflux_http_static
         conflux_http_static_core
         conflux_http_static_async

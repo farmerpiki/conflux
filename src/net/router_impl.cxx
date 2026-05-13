@@ -11,6 +11,7 @@ import conflux.net.http.realtime;
 import conflux.net.http.static_files;
 import conflux.net.http.static_core;
 import conflux.net.http.static_async;
+import conflux.net.router_static;
 import conflux.work;
 import conflux.net.config;
 import conflux.socket_io;
@@ -219,53 +220,18 @@ Router &Router::serve_static(
 	SV url_prefix,
 	S root_dir,
 	StaticOptions const &sopts) {
-	// Strip trailing slash from root_dir.
-	while (!root_dir.empty() && root_dir.back() == '/') {
-		root_dir.pop_back();
-	}
-
-	auto pattern = S{url_prefix} + "/{*file}";
-	auto effective_sopts = sopts;
-	if (!effective_sopts.file_cache.enabled) {
-		effective_sopts.file_cache = impl_->static_file_cache;
-	}
-	auto root_dir_fd = SP<int>{
-		new int(::open(root_dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)),
-		[](int *fd) {
-			if (fd != nullptr) {
-				if (*fd >= 0) {
-					::close(*fd);
-				}
-				delete fd;
-			}
-		}};
-	auto rd = move(root_dir);
-
-	// NOLINTNEXTLINE(bugprone-exception-escape): delegated static component handles failures as HTTP responses.
-	get(pattern,
-		[this, rd, root_dir_fd, sopts = effective_sopts](
-			HttpRequestView const &req) -> HttpResponse {
-			return handle_static_get_request(rd, *root_dir_fd, sopts, req, impl_->static_cache);
-		});
-
-	if (effective_sopts.allow_put) {
-		// NOLINTNEXTLINE(bugprone-exception-escape): delegated static component handles failures as HTTP responses.
-		put(pattern,
-			[this, rd, root_dir_fd, sopts = effective_sopts](
-				HttpRequestView const &req) -> HttpResponse {
-				return handle_static_put(rd, *root_dir_fd, sopts, req, impl_->static_cache);
-			});
-	}
-
-	if (effective_sopts.allow_delete) {
-		// NOLINTNEXTLINE(bugprone-exception-escape): delegated static component handles failures as HTTP responses.
-		del(pattern,
-			[this, rd, root_dir_fd, sopts = effective_sopts](
-				HttpRequestView const &req) -> HttpResponse {
-				return handle_static_delete(rd, *root_dir_fd, sopts, req, impl_->static_cache);
-			});
-	}
-
+	auto add_get = [this](SV pattern, auto handler) { get(pattern, move(handler)); };
+	auto add_put = [this](SV pattern, auto handler) { put(pattern, move(handler)); };
+	auto add_del = [this](SV pattern, auto handler) { del(pattern, move(handler)); };
+	serve_static_routes(
+		add_get,
+		add_put,
+		add_del,
+		move(url_prefix),
+		move(root_dir),
+		sopts,
+		impl_->static_file_cache,
+		impl_->static_cache);
 	return *this;
 }
 
