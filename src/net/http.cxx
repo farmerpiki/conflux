@@ -27,6 +27,9 @@ export import conflux.net.metrics;
 #if CONFLUX_HAS_HTTP2
 export import conflux.net.http2;
 #endif
+#if CONFLUX_HAS_HTTP3
+export import conflux.net.http3;
+#endif
 export import conflux.net.redirect;
 export import conflux.net.cookie_signing;
 export import conflux.net.csrf;

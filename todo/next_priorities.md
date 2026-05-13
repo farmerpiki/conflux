@@ -22,8 +22,8 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
      `socket_io`, `utils`, `net_config`, `net_cancel`, `net_tls`, `http_core`,
      `http_json`, `http_router`, `http_policy`, `http_auth`,
      `http_observability`, `http_openapi`, `http_vhost`, `http_client`,
-     `http_async_client`, `http_compression`, `http_proxy`, `smtp`,
-     `template`, and `template_watch` have started splitting out.
+     `http_async_client`, `http_compression`, `http_proxy`, `http1`, `http2`,
+     `http3`, `smtp`, `template`, and `template_watch` have started splitting out.
    - Completed slice: `conflux::json_file` / `conflux.json.file` is now separate
      and depends only on `json + file_io_sync`.
    - Completed prerequisite slice: `conflux::utils` and `conflux::net_config`
@@ -47,9 +47,11 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
      `conflux::http_app`, and `conflux::http` are separate module targets; the
      legacy aggregate `conflux` target now compiles only its top-level umbrella
      module and links the component graph.
-   - Next concrete slice: split static/realtime support (`conflux::http_static_core`,
-     `conflux::http_static_async`, `conflux::http_realtime`) and then split optional
-     HTTP/2/HTTP/3 protocol targets if their external dependencies are clean.
+   - Completed optional protocol split: `conflux::http1`, `conflux::http2`, and
+     `conflux::http3` now sit under the thin `conflux::http_protocol` umbrella.
+   - Next concrete slice: either extract static/realtime internals from
+     `conflux.net.router` after designing their exported type boundary, or move to the
+     next non-router task if that boundary is still too tangled.
 
 2. **Remove remaining stale dependency edges from proposal reviews.**
    - Re-check `conflux_socket_io -> file_io`, `net.client -> file_io`, and
@@ -80,12 +82,13 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
 7. **Split the next HTTP modular target.**
    - `conflux::http_router`, the main router-dependent middleware buckets,
      `conflux::http_compression`, `conflux::http_client`,
-     `conflux::http_async_client`, `conflux::http_proxy`, `conflux::http_protocol`,
+     `conflux::http_async_client`, `conflux::http_proxy`, `conflux::http1`,
+     `conflux::http2`, `conflux::http3`, `conflux::http_protocol`,
      `conflux::http_server`, `conflux::http_app`, and `conflux::http` now exist.
-   - Next split static/realtime support if a small static-core/static-async boundary
-     is separable from streamed file serving and websocket/SSE helpers.
-   - After that, split HTTP/2 and HTTP/3 into finer optional protocol targets only
-     if external-dependency propagation remains clean.
+   - Static/realtime should not be split as fake wrapper targets; first move the
+     exported `StaticOptions`, `SseChannel`, `SseBroadcaster`, and WebSocket
+     surface out of `conflux.net.router`, then split static core/async and
+     realtime targets on that real boundary.
 
 8. **Prototype compile-time JSON only after the return type is documented.**
    - Subset: integers, booleans, null, no-escape strings, nested objects/arrays.

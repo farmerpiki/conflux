@@ -35,6 +35,9 @@
 #   BENCH_PIN_CPUS     cpuset for taskset (e.g. "0-3"); wraps every bench launch
 #   BENCH_REPS         default per-metric replications consumed by record_with_reps (default: 5)
 #                      per-config --bench-info .reps overrides this for expensive benches
+#   BENCH_ITERATIONS_FROM_RUN_ID
+#                      if set, read per-benchmark/config iteration counts from this
+#                      prior run_id in the database and override launch args
 #   MACHINE_ID         overrides machine identity (default: /etc/machine-id)
 #   WAIVER_REASON      free-form waiver text, persisted to runs.waiver_reason
 #
@@ -55,6 +58,7 @@ BENCH_PRESETS="${BENCH_PRESET:-release-clang-libcxx release-gcc-stdcxx}"
 BENCH_REPS="${BENCH_REPS:-5}"
 MACHINE_ID="${MACHINE_ID:-$(cat /etc/machine-id 2>/dev/null || hostname)}"
 WAIVER_REASON="${WAIVER_REASON:-}"
+BENCH_ITERATIONS_FROM_RUN_ID="${BENCH_ITERATIONS_FROM_RUN_ID:-}"
 
 COMPARE_MODE=false
 COMPARE_BINS_MODE=false
@@ -143,6 +147,74 @@ run_bench() {
   else
     "$@"
   fi
+}
+
+declare -A ITERATIONS_FROM_DB=()
+load_iteration_overrides() {
+  local run_id="$1"
+  [[ -n "$run_id" ]] || return 0
+  [[ "$run_id" =~ ^[0-9]+$ ]] || {
+    echo "BENCH_ITERATIONS_FROM_RUN_ID must be numeric: $run_id" >&2
+    exit 2
+  }
+
+  while IFS=$'\t' read -r bench cfg iters; do
+    [[ -n "$bench" && -n "$cfg" && -n "$iters" ]] || continue
+    ITERATIONS_FROM_DB["$bench|$cfg"]="$iters"
+  done < <(
+    psql "$PGURI" -At -q -c "
+      SELECT benchmark, config_name, ROUND(AVG(iterations))::bigint
+      FROM results
+      WHERE run_id = $run_id
+      GROUP BY benchmark, config_name
+      ORDER BY benchmark, config_name;"
+  )
+}
+
+load_iteration_overrides "$BENCH_ITERATIONS_FROM_RUN_ID"
+
+rewrite_args_for_iterations() {
+  local bench="$1" cfg="$2"
+  shift 2
+  local -a args=("$@")
+  local key="$bench|$cfg"
+  local override="${ITERATIONS_FROM_DB[$key]-}"
+  if [[ -z "$override" ]]; then
+    printf '%s\n' "${args[@]}"
+    return 0
+  fi
+
+  local warmup=$(( override / 5 ))
+  (( warmup < 1 )) && warmup=1
+
+  local -a out=()
+  local saw_iters=false saw_warmup=false
+  for ((i=0; i<${#args[@]}; i++)); do
+    case "${args[$i]}" in
+      --iterations)
+        out+=(--iterations "$override")
+        saw_iters=true
+        ((i++))
+        ;;
+      --warmup)
+        out+=(--warmup "$warmup")
+        saw_warmup=true
+        ((i++))
+        ;;
+      *)
+        out+=("${args[$i]}")
+        ;;
+    esac
+  done
+
+  if ! $saw_iters; then
+    out+=(--iterations "$override")
+  fi
+  if ! $saw_warmup; then
+    out+=(--warmup "$warmup")
+  fi
+
+  printf '%s\n' "${out[@]}"
 }
 
 # ---------------------------------------------------------------------------
@@ -679,6 +751,9 @@ for PRESET in "${PRESET_LIST[@]}"; do
         exit 2
       fi
       mapfile -t args < <(jq -r '.args[]' <<< "$cfg_json")
+      if [[ -n "$BENCH_ITERATIONS_FROM_RUN_ID" ]]; then
+        mapfile -t args < <(rewrite_args_for_iterations "$bench_name" "$cfg_name" "${args[@]}")
+      fi
 
       if [[ "$parser" == "file_copy" ]]; then
         run_file_copy "$binary" "$bench_name" "$cfg_name" "$extra" "${args[@]}"
