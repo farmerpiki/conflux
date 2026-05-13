@@ -335,31 +335,6 @@ struct alignas(
 	#endif
 };
 
-// Extract a named parameter from a header value (e.g. boundary= from Content-Type).
-// Returns unquoted value, empty if not found.
-SV extract_param(
-	SV header,
-	SV param_name) {
-	auto pos = header.find(param_name);
-	if (pos == SV::npos) {
-		return {};
-	}
-	pos += param_name.size();
-	if (pos >= header.size() || header[pos] != '=') {
-		return {};
-	}
-	++pos;
-	if (pos >= header.size()) {
-		return {};
-	}
-	if (header[pos] == '"') {
-		++pos;
-		auto end = header.find('"', pos);
-		return end == SV::npos ? header.substr(pos) : header.substr(pos, end - pos);
-	}
-	auto end = header.find_first_of(";\r\n ", pos);
-	return end == SV::npos ? header.substr(pos) : header.substr(pos, end - pos);
-}
 #if 0
 // Parse Cookie header into out: "name1=val1; name2=val2".
 void parse_cookies(

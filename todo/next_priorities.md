@@ -24,7 +24,7 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - Make `conflux.uring.handle` and `conflux.uring.completion` explicit in `src/` consumers instead of relying on `file_io` re-exports.
    - Leave the broader `file_io` re-export in place for tests/examples until the library split is farther along.
    - Timeout submission now lives in `conflux.uring.timeout`; keep moving other non-file runtime helpers out of `file_io` in the same style.
-   - HTTP server parsing/formatting helpers now live in `conflux.net.http_server_helpers`; keep peeling `http_server_impl` toward smaller event-loop/state-machine units.
+   - HTTP server parsing/formatting helpers now live in `conflux.net.http_server_helpers`; keep peeling `http_server_impl` toward smaller event-loop/state-machine units and move any remaining duplicated request parsing there.
    - HTTP server ring/config helpers now live in `conflux.net.http_server_config`; keep peeling `http_server_impl` toward the send/recv and dispatch state machines.
    - Router route-pattern parsing/matching now lives in `conflux.net.router_match`; dispatch helpers now live in `conflux.net.router_dispatch`; keep peeling `router_impl` toward state ownership, and static-route registration still lives in `conflux.net.router_static`.
 

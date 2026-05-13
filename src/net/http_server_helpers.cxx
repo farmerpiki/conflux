@@ -197,7 +197,7 @@ export [[nodiscard]] S format_http_chunk(SV payload) {
 	return format("{:x}\r\n{}\r\n", payload.size(), payload);
 }
 
-[[nodiscard]] static SV extract_param(SV header, SV param_name) {
+export [[nodiscard]] SV extract_param(SV header, SV param_name) {
 	auto pos = header.find(param_name);
 	if (pos == SV::npos) {
 		return {};
