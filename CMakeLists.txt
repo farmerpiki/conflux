@@ -589,6 +589,45 @@ target_link_libraries(conflux_socket_io
 
 endif() # CONFLUX_WANT_SOCKET_IO
 
+if(CONFLUX_NEEDS_RUNTIME)
+add_library(conflux_net_cancel STATIC)
+target_sources(conflux_net_cancel
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/cancel.cxx
+)
+target_sources(conflux_net_cancel
+    PRIVATE
+        src/net/cancel_impl.cxx
+)
+target_link_libraries(conflux_net_cancel
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_work
+)
+endif() # CONFLUX_NEEDS_RUNTIME (net cancel)
+
+if(CONFLUX_HAS_TLS STREQUAL "true" AND CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_net_tls STATIC)
+target_sources(conflux_net_tls
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/tls.cxx
+)
+target_link_libraries(conflux_net_tls
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_utils
+    PUBLIC  conflux_work
+    PUBLIC  conflux_file_io
+    PUBLIC  conflux_socket_io
+    PUBLIC  conflux_net_cancel
+    PUBLIC  OpenSSL::SSL
+    PUBLIC  OpenSSL::Crypto
+)
+target_compile_definitions(conflux_net_tls PUBLIC CONFLUX_HAS_TLS=1)
+endif() # CONFLUX_HAS_TLS && CONFLUX_WANT_HTTP_SERVER
+
 if(CONFLUX_WANT_DNS)
 add_library(conflux_dns STATIC)
 target_sources(conflux_dns
@@ -748,7 +787,6 @@ set(CONFLUX_MODULE_SOURCES
     src/net/auth.cxx
     src/net/client.cxx
     src/net/client_async.cxx
-    src/net/cancel.cxx
     src/net/compress.cxx
     src/net/rate_limit.cxx
     src/net/cors.cxx
@@ -777,7 +815,6 @@ set(CONFLUX_MODULE_SOURCES
 
 # Optional module sources.
 if(CONFLUX_HAS_TLS STREQUAL "true")
-    list(APPEND CONFLUX_MODULE_SOURCES src/net/tls.cxx)
     list(APPEND CONFLUX_MODULE_SOURCES src/net/smtp.cxx)
     list(APPEND CONFLUX_MODULE_SOURCES src/net/jwt.cxx)
 endif()
@@ -815,7 +852,6 @@ target_sources(conflux
 
 target_sources(conflux
     PRIVATE
-        src/net/cancel_impl.cxx
         src/net/router_impl.cxx
         src/net/http_server_impl.cxx
         src/net/client_async_impl.cxx
@@ -867,6 +903,12 @@ endif()
 if(TARGET conflux_dns)
     target_link_libraries(conflux PUBLIC conflux_dns)
 endif()
+if(TARGET conflux_net_cancel)
+    target_link_libraries(conflux PUBLIC conflux_net_cancel)
+endif()
+if(TARGET conflux_net_tls)
+    target_link_libraries(conflux PUBLIC conflux_net_tls)
+endif()
 
 if(CONFLUX_JSON_AVX2)
     target_compile_options(conflux PRIVATE -mavx2 -mbmi2)
@@ -884,7 +926,6 @@ target_compile_definitions(conflux
 # TLS
 if(CONFLUX_HAS_TLS STREQUAL "true")
     target_compile_definitions(conflux PUBLIC CONFLUX_HAS_TLS=1)
-    target_link_libraries(conflux PUBLIC OpenSSL::SSL OpenSSL::Crypto)
 else()
     target_compile_definitions(conflux PUBLIC CONFLUX_HAS_TLS=0)
 endif()
@@ -1068,6 +1109,8 @@ conflux_public_component(conflux_core core)
 conflux_public_component(conflux_types types)
 conflux_public_component(conflux_utils utils)
 conflux_public_component(conflux_net_config net_config)
+conflux_public_component(conflux_net_cancel net_cancel)
+conflux_public_component(conflux_net_tls net_tls)
 conflux_public_component(conflux_crypto crypto)
 conflux_public_component(conflux_json json)
 conflux_public_component(conflux_json_file json_file)
@@ -1104,6 +1147,8 @@ foreach(_target IN ITEMS
         conflux_types
         conflux_utils
         conflux_net_config
+        conflux_net_cancel
+        conflux_net_tls
         conflux_crypto
         conflux_json
         conflux_json_file
@@ -1179,7 +1224,7 @@ endif()
 if(TARGET conflux_db)
     set(CONFLUX_INSTALL_NEEDS_LIBPQ TRUE)
 endif()
-if(TARGET conflux AND CONFLUX_HAS_TLS STREQUAL "true")
+if(TARGET conflux_net_tls OR (TARGET conflux AND CONFLUX_HAS_TLS STREQUAL "true"))
     set(CONFLUX_INSTALL_NEEDS_OPENSSL TRUE)
 endif()
 if(TARGET conflux AND CONFLUX_HAS_ZLIB STREQUAL "true")

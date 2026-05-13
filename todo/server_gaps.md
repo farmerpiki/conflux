@@ -41,6 +41,7 @@
   - [x] HTTP JSON/core split slice: export `conflux::http_core` (`http.types` + `http.request`) and `conflux::http_json`; remove those module sources from the HTTP monolith. Remaining work: split/export `json_file`, router/server/static/client and the other HTTP feature targets.
   - [x] Package export placement slice: install/export/package-config generation now lives outside `CONFLUX_WANT_HTTP_SERVER`, so core/json-only builds still expose `conflux::...` package targets instead of requiring the HTTP monolith.
   - [x] Support module split slice: `src/utils.cxx` and `src/net/config.cxx` now build as `conflux::utils` and `conflux::net_config`; the HTTP monolith links/imports them instead of compiling those module units directly. This is the prerequisite for a clean router/server split.
+  - [x] TLS prerequisite split slice: export `conflux::net_cancel` and `conflux::net_tls`; remove `cancel.cxx`, `cancel_impl.cxx`, and `tls.cxx` from direct HTTP monolith compilation. Remaining work: split/export router/server/static/client and decide public names for HTTP-facing TLS feature targets.
 - [ ] Split optional components: DB, TLS, HTTP/2, HTTP/3 as separate link targets
 - [ ] CI: all examples compile, fuzz smokes, JSONTestSuite, ASan/UBSan lane, bench regression budget
 - [x] Docs: versioning/semver policy, security disclosure, supported compiler+kernel matrix — added `docs/project-policy.md` and linked it from README/pre-v1 contract
