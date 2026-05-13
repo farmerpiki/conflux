@@ -354,6 +354,41 @@ endif()
 if(CONFLUX_WANT_TEMPLATES_WATCH AND NOT CONFLUX_WANT_FILE_WATCH)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_TEMPLATES_WATCH requires CONFLUX_BUILD_FILE_WATCH")
 endif()
+if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT CONFLUX_WANT_HTTP_CORE)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires CONFLUX_BUILD_HTTP_CORE")
+endif()
+if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT TARGET conflux_json)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires CONFLUX_BUILD_JSON")
+endif()
+
+if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
+    add_library(conflux_http_core STATIC)
+    target_sources(conflux_http_core
+        PUBLIC FILE_SET CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES
+            src/net/http_types.cxx
+            src/net/http_request.cxx
+    )
+    target_link_libraries(conflux_http_core
+        PRIVATE conflux_options
+        PUBLIC  conflux_types
+    )
+endif()
+
+if(CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
+    add_library(conflux_http_json STATIC)
+    target_sources(conflux_http_json
+        PUBLIC FILE_SET CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/net/http_json.cxx
+    )
+    target_link_libraries(conflux_http_json
+        PRIVATE conflux_options
+        PUBLIC  conflux_http_core
+        PUBLIC  conflux_json
+    )
+endif()
 
 if(CONFLUX_NEEDS_RUNTIME)
 
@@ -644,9 +679,6 @@ set(CONFLUX_MODULE_SOURCES
     src/net/io_buffer.cxx
     src/conflux.cxx
     src/net/auth.cxx
-    src/net/http_types.cxx
-    src/net/http_request.cxx
-    src/net/http_json.cxx
     src/net/client.cxx
     src/net/client_async.cxx
     src/net/cancel.cxx
@@ -737,6 +769,8 @@ target_sources(conflux
 target_link_libraries(conflux
     PRIVATE conflux_options
     PUBLIC  conflux_types
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_json
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
@@ -905,6 +939,8 @@ conflux_public_component(conflux_json json)
 conflux_public_component(conflux_json_reflect json_reflect)
 conflux_public_component(conflux_template template)
 conflux_public_component(conflux_file_watch template_watch)
+conflux_public_component(conflux_http_core http_core)
+conflux_public_component(conflux_http_json http_json)
 conflux_public_component(conflux_uring uring)
 conflux_public_component(conflux_work runtime)
 conflux_public_component(conflux_file_io_sync file_io_sync)
@@ -936,6 +972,8 @@ foreach(_target IN ITEMS
         conflux_json_reflect
         conflux_template
         conflux_file_watch
+        conflux_http_core
+        conflux_http_json
         conflux_uring
         conflux_work
         conflux_file_io_sync
