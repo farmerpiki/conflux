@@ -1,13 +1,5 @@
 module;
-#include <cerrno>
 #include <ctime>
-#include <dirent.h>
-#include <fcntl.h>
-#include <linux/openat2.h>
-#include <memory>
-#include <sys/stat.h>
-#include <sys/syscall.h>
-#include <unistd.h>
 export module conflux.net.router;
 
 
@@ -15,7 +7,6 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.work;
-import conflux.file_io;
 import conflux.utils;
 import conflux.net.config;
 import conflux.socket_io;
@@ -145,41 +136,6 @@ inline S segments_to_pattern(
 	}
 	return out;
 }
-int contained_open(
-	int root_fd,
-	char const *relative,
-	int flags,
-	mode_t mode = 0) noexcept {
-	open_how how{};
-	how.flags = static_cast<__u64>(flags);
-	how.mode = static_cast<__u64>(mode);
-	how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
-	return static_cast<int>(::syscall(SYS_openat2, root_fd, relative, &how, sizeof(how)));
-}
-struct RootDirFd {
-	int fd{-1};
-	explicit RootDirFd(
-		char const *path)
-		: fd(::open(path, O_RDONLY | O_DIRECTORY | O_CLOEXEC)) {}
-	~RootDirFd() noexcept {
-		if (fd >= 0) {
-			::close(fd);
-		}
-	}
-	RootDirFd(RootDirFd const &) = delete;
-	RootDirFd &operator =(RootDirFd const &) = delete;
-	RootDirFd(
-		RootDirFd &&o) noexcept
-		: fd(exchange(o.fd, -1)) {}
-	RootDirFd &operator =(
-		RootDirFd &&o) noexcept {
-		if (fd >= 0) {
-			::close(fd);
-		}
-		fd = exchange(o.fd, -1);
-		return *this;
-	}
-};
 export struct RequestContext {
 	SocketTaskRing &ring;
 };

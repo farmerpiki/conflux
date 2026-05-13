@@ -56,15 +56,22 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
      those modules for compatibility.
    - Completed static implementation split slice: `conflux::http_response`,
      `conflux::http_static_core`, and `conflux::http_static_async` now own the
-     response vocabulary, static request/cache/path helpers, static GET path, and
+     response vocabulary, static request/cache/path helpers, static root-dir
+     ownership, contained open/probe helpers, GET/PUT/DELETE execution paths, and
      async static file helper coroutines. Router keeps route registration only.
-   - Next concrete slice: remove remaining stale dependency edges and collapse
-     router-owned helper leftovers that no longer need to sit in `router.cxx`.
+   - Completed stale-edge cleanup slice: `conflux::http_router` no longer imports
+     or links `conflux.file_io` only to serve static PUT/DELETE internals; those
+     live behind `conflux::http_static_async`.
+   - Next concrete slice: inspect `conflux_socket_io -> file_io` and
+     `net.client -> file_io` proposal edges, then remove any stale direct target
+     links that are now covered by lower-level component targets.
 
 2. **Remove remaining stale dependency edges from proposal reviews.**
    - Re-check `conflux_socket_io -> file_io`, `net.client -> file_io`, and
      `HttpRequest::Builder::body_json(NodeRef)` before each modular patch; these
      have been moving and proposals can be stale.
+   - `http_router -> file_io` was removed after static GET/PUT/DELETE internals
+     moved behind `http_static_async`; continue checking for similar stale edges.
    - Keep `file_io_sync` and `file_map` usable without `liburing`.
 
 3. **Normalize the HTTP handler model.**

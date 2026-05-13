@@ -509,7 +509,6 @@ _compare_bins_insert_row() {
   local rid="$1" bench="$2" label="$3" round="$4" pos="$5"; shift 5
   local tmpf
   tmpf=$(mktemp /tmp/compare_bins_XXXXXX.ndjson)
-  trap 'rm -f "$tmpf"' RETURN
 
   run_bench "$@" --json 2>/dev/null >> "$tmpf"
 
@@ -519,6 +518,8 @@ _compare_bins_insert_row() {
       "$round" "$pos" "$label" "${min_v:-null}" "${p10_v:-null}" "${mad_v:-null}")
     insert_row "$rid" "$bench" "$variant" "$iters" "$total" "$ns_pi" "$ex"
   done < <(jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.min // "null"), (.p10 // "null"), (.mad // "null")] | @tsv)' "$tmpf")
+
+  rm -f "$tmpf"
 }
 
 _compare_bins_insert_summary() {

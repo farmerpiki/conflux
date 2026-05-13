@@ -1000,7 +1000,6 @@ target_link_libraries(conflux_http_router
     PUBLIC  conflux_http_static_core
     PUBLIC  conflux_http_static_async
     PUBLIC  conflux_work
-    PUBLIC  conflux_file_io
     PUBLIC  conflux_utils
     PUBLIC  conflux_net_config
     PUBLIC  conflux_socket_io

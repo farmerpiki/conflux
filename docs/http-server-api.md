@@ -338,11 +338,12 @@ part of `conflux::http_core`. SSE and WebSocket types/helpers (`SseOverflowPolic
 vocabulary (`HttpResponse`, `DeferredResponse`, mapped/streamed body carriers)
 is exported by `conflux.net.http.response` / `conflux::http_response`. Static
 path/cache helpers live in `conflux.net.http.static_core` /
-`conflux::http_static_core`; async file helper coroutines and the GET static-file
-execution path live in `conflux.net.http.static_async` /
-`conflux::http_static_async`. `conflux.net.router` still re-exports the public
-surface modules so existing router imports keep working while implementation
-bulk is split into smaller package targets.
+`conflux::http_static_core`. Static root-dir ownership, contained `openat2`
+probing, GET/PUT/DELETE execution paths, and async file helper coroutines live
+in `conflux.net.http.static_async` / `conflux::http_static_async`.
+`conflux.net.router` still re-exports the public surface modules so existing
+router imports keep working while implementation bulk is split into smaller
+package targets.
 
 ## Static file serving
 

@@ -1,15 +1,4 @@
 module;
-#include <cerrno>
-#include <ctime>
-#include <dirent.h>
-#include <fcntl.h>
-#include <linux/openat2.h>
-#include <memory>
-#include <sys/eventfd.h>
-#include <sys/mman.h>
-#include <sys/stat.h>
-#include <sys/syscall.h>
-#include <unistd.h>
 module conflux.net.router;
 
 import std;
@@ -20,7 +9,6 @@ import conflux.net.http.realtime;
 import conflux.net.http.static_core;
 import conflux.net.http.static_async;
 import conflux.work;
-import conflux.file_io;
 import conflux.utils;
 import conflux.net.config;
 import conflux.socket_io;
@@ -217,205 +205,47 @@ Router &Router::serve_static(
 	SV url_prefix,
 	S root_dir,
 	StaticOptions const &sopts) {
-		// Strip trailing slash from root_dir.
-		while (!root_dir.empty() && root_dir.back() == '/') {
-			root_dir.pop_back();
-		}
+	// Strip trailing slash from root_dir.
+	while (!root_dir.empty() && root_dir.back() == '/') {
+		root_dir.pop_back();
+	}
 
-		auto pattern = S{url_prefix} + "/{*file}";
-		auto effective_sopts = sopts;
-		if (!effective_sopts.file_cache.enabled) {
-			effective_sopts.file_cache = impl_->static_file_cache;
-		}
-		auto static_cache = make_shared<StaticCacheStore>();
+	auto pattern = S{url_prefix} + "/{*file}";
+	auto effective_sopts = sopts;
+	if (!effective_sopts.file_cache.enabled) {
+		effective_sopts.file_cache = impl_->static_file_cache;
+	}
+	auto static_cache = make_shared<StaticCacheStore>();
+	auto root_dir_fd = open_static_root_dir(root_dir);
+	auto rd = move(root_dir);
 
+	// NOLINTNEXTLINE(bugprone-exception-escape): delegated static component handles failures as HTTP responses.
+	get(pattern,
+		[rd, root_dir_fd, sopts = effective_sopts, static_cache](
+			HttpRequestView const &req) -> HttpResponse {
+			return handle_static_get_request(rd, *root_dir_fd, sopts, req, static_cache);
+		});
 
-
-		auto root_dir_fd = make_shared<RootDirFd>(root_dir.c_str());
-		auto rd = move(root_dir);
-				// NOLINTNEXTLINE(bugprone-exception-escape): lambda already handles failures via top-level try/catch.
-		get(pattern,
+	if (effective_sopts.allow_put) {
+		// NOLINTNEXTLINE(bugprone-exception-escape): delegated static component handles failures as HTTP responses.
+		put(pattern,
 			[rd, root_dir_fd, sopts = effective_sopts, static_cache](
 				HttpRequestView const &req) -> HttpResponse {
-				try {
-					auto norm = normalize_static_path(req.params["file"]);
-					if (!norm) {
-						return HttpResponse::html(
-							"<html><body><h1>403 Forbidden</h1></body></html>",
-							kHttpForbidden,
-							"Forbidden");
-					}
-
-					StaticRequest sreq{
-						.file_param = move(*norm),
-						.method = S{req.method},
-						.accept_encoding = S{req.headers["accept-encoding"]},
-						.if_none_match = S{std::as_const(req.headers)["if-none-match"]},
-						.if_modified_since = S{std::as_const(req.headers)["if-modified-since"]},
-						.range = S{req.headers["range"]},
-						.tls = req.is_tls,
-					};
-
-					auto const rfd = root_dir_fd->fd;
-					if (sopts.offload_pool) {
-						auto dr = make_shared<DeferredResponse>();
-						auto ok =
-							sopts.offload_pool->enqueue([rd, rfd, sopts, sreq = move(sreq), static_cache, dr]() mutable {
-								try {
-									dr->complete(handle_static_get(rd, rfd, sopts, sreq, static_cache));
-								} catch (...) { dr->complete(HttpResponse::internal_error()); }
-							});
-						if (!ok) {
-							return HttpResponse::internal_error("offload queue full");
-						}
-						return HttpResponse::deferred(move(dr));
-					}
-
-					return handle_static_get(rd, rfd, sopts, sreq, static_cache);
-				} catch (...) { return HttpResponse::internal_error(); }
+				return handle_static_put(rd, *root_dir_fd, sopts, req, static_cache);
 			});
-
-		if (effective_sopts.allow_put) {
-			// NOLINTNEXTLINE(bugprone-exception-escape)
-			put(pattern,
-				[rd, root_dir_fd, sopts = effective_sopts, static_cache](
-					HttpRequestView const &req) -> HttpResponse {
-					try {
-						auto norm = normalize_static_path(req.params["file"]);
-						if (!norm) {
-							return HttpResponse::html(
-								"<html><body><h1>403 Forbidden</h1></body></html>",
-								kHttpForbidden,
-								"Forbidden");
-						}
-						auto full_path = rd + *norm;
-						SV rel_sv = SV{*norm};
-						if (rel_sv.starts_with('/')) {
-							rel_sv.remove_prefix(1);
-						}
-						S rel{rel_sv};
-
-						int const probe = contained_open(root_dir_fd->fd, rel.c_str(), O_PATH | O_CLOEXEC);
-						bool const existed = probe >= 0;
-						if (probe >= 0) {
-							::close(probe);
-						}
-
-						if (auto *fr = current_file_reader(); fr != nullptr) {
-							auto body_owned = make_shared<S>(req.body);
-							auto dr = make_shared<DeferredResponse>();
-							auto fp = make_shared<S>(full_path);
-							do_save_static_file(fr, body_owned, fp, existed, static_cache, dr, root_dir_fd->fd, S{rel})
-								.detach();
-							return HttpResponse::deferred(move(dr));
-						}
-
-						if (sopts.offload_pool) {
-							auto dr = make_shared<DeferredResponse>();
-							auto body_owned = make_shared<S>(req.body);
-							auto rfd = root_dir_fd->fd;
-							auto ok = sopts.offload_pool->enqueue([full_path = move(full_path),
-																   rel = move(rel),
-																   rfd,
-																   body_owned,
-																   existed,
-																   static_cache,
-																   dr]() mutable {
-								auto r = write_text_file_atomic_at_sync(rfd, SV{rel}, SV{*body_owned});
-								if (!r) {
-									dr->complete(HttpResponse::internal_error());
-									return;
-								}
-								static_cache->evict_all_encodings(full_path);
-								HttpResponse resp;
-								resp.status = existed ? kHttpNoContent : kHttpCreated;
-								resp.status_text = existed ? "No Content" : "Created";
-								dr->complete(move(resp));
-							});
-							if (!ok) {
-								return HttpResponse::internal_error("offload queue full");
-							}
-							return HttpResponse::deferred(move(dr));
-						}
-
-						if (!write_text_file_atomic_at_sync(root_dir_fd->fd, SV{rel}, SV{req.body})) {
-							return HttpResponse::internal_error();
-						}
-						static_cache->evict_all_encodings(full_path);
-						HttpResponse resp;
-						resp.status = existed ? kHttpNoContent : kHttpCreated;
-						resp.status_text = existed ? "No Content" : "Created";
-						return resp;
-					} catch (...) { return HttpResponse::internal_error(); }
-				});
-		}
-
-		if (effective_sopts.allow_delete) {
-			// NOLINTNEXTLINE(bugprone-exception-escape)
-			del(pattern,
-				[rd, root_dir_fd, sopts = effective_sopts, static_cache](
-					HttpRequestView const &req) -> HttpResponse {
-					try {
-						auto norm = normalize_static_path(req.params["file"]);
-						if (!norm) {
-							return HttpResponse::html(
-								"<html><body><h1>403 Forbidden</h1></body></html>",
-								kHttpForbidden,
-								"Forbidden");
-						}
-						auto full_path = rd + *norm;
-						SV rel_sv = SV{*norm};
-						if (rel_sv.starts_with('/')) {
-							rel_sv.remove_prefix(1);
-						}
-						S rel{rel_sv};
-
-						int const probe = contained_open(root_dir_fd->fd, rel.c_str(), O_PATH | O_CLOEXEC);
-						if (probe < 0) {
-							return errno == ENOENT ? HttpResponse::not_found(*norm) : HttpResponse::forbidden();
-						}
-						::close(probe);
-
-						if (auto *fr = current_file_reader(); fr != nullptr) {
-							auto dr = make_shared<DeferredResponse>();
-							auto fp = make_shared<S>(full_path);
-							do_delete_static_file(dr, fp, static_cache, fr->unlink_async(root_dir_fd->fd, rel)).detach();
-							return HttpResponse::deferred(move(dr));
-						}
-
-						if (sopts.offload_pool) {
-							auto dr = make_shared<DeferredResponse>();
-							auto rfd = root_dir_fd->fd;
-							auto ok = sopts.offload_pool->enqueue(
-								[full_path = move(full_path), rel = move(rel), rfd, static_cache, dr]() mutable {
-									try {
-										if (::unlinkat(rfd, rel.c_str(), 0) != 0) {
-											dr->complete(
-												errno == ENOENT ? HttpResponse::not_found(full_path) :
-																  HttpResponse::internal_error());
-											return;
-										}
-										static_cache->evict_all_encodings(full_path);
-										dr->complete(HttpResponse::no_content());
-									} catch (...) { dr->complete(HttpResponse::internal_error()); }
-								});
-							if (!ok) {
-								return HttpResponse::internal_error("offload queue full");
-							}
-							return HttpResponse::deferred(move(dr));
-						}
-
-						if (::unlinkat(root_dir_fd->fd, rel.c_str(), 0) != 0) {
-							return errno == ENOENT ? HttpResponse::not_found(*norm) : HttpResponse::internal_error();
-						}
-						static_cache->evict_all_encodings(full_path);
-						return HttpResponse::no_content();
-					} catch (...) { return HttpResponse::internal_error(); }
-				});
-		}
-
-		return *this;
 	}
+
+	if (effective_sopts.allow_delete) {
+		// NOLINTNEXTLINE(bugprone-exception-escape): delegated static component handles failures as HTTP responses.
+		del(pattern,
+			[rd, root_dir_fd, sopts = effective_sopts, static_cache](
+				HttpRequestView const &req) -> HttpResponse {
+				return handle_static_delete(rd, *root_dir_fd, sopts, req, static_cache);
+			});
+	}
+
+	return *this;
+}
 
 [[nodiscard]] HttpResponse Router::dispatch(
 	HttpRequest const &req) const {
