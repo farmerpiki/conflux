@@ -28,6 +28,13 @@ Config small_ring_cfg() {
 	cfg.startup_banner = false;
 	cfg.fixed_buffer_slabs = 0;
 	cfg.splice_pipe_pairs = 0;
+	cfg.recv_bundle = true;
+	cfg.direct_accept = true;
+	return cfg;
+}
+Config small_ring_cfg_non_direct_accept() {
+	auto cfg = small_ring_cfg();
+	cfg.direct_accept = false;
 	return cfg;
 }
 // Open a raw TCP socket, send a partial HTTP request, then close immediately.
@@ -76,6 +83,26 @@ TEST_CASE(
 	std::this_thread::sleep_for(chrono::milliseconds(200));
 
 	// Ring must still be operational: 4 full round-trips succeed.
+	for (int i = 0; i < 4; ++i) {
+		S const resp = http_get_on(port, "/api/ping");
+		CHECK(resp.find("200 OK") != S::npos);
+		CHECK(resp.find("\"status\":\"ok\"") != S::npos);
+	}
+}
+TEST_CASE(
+	"recv_bundle.e2e: buf_ring survives abrupt-close flood without direct accept",
+	"[recv_bundle][e2e]") {
+	Router router;
+	router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
+	ScopedTestServer srv{small_ring_cfg_non_direct_accept(), move(router)};
+	u16 const port = srv.port();
+
+	for (int i = 0; i < 80; ++i) {
+		send_and_abort(port);
+	}
+
+	std::this_thread::sleep_for(chrono::milliseconds(200));
+
 	for (int i = 0; i < 4; ++i) {
 		S const resp = http_get_on(port, "/api/ping");
 		CHECK(resp.find("200 OK") != S::npos);

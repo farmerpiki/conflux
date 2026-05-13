@@ -64,6 +64,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CONFLUX_ENABLE_ASAN": "ON",
         "CONFLUX_ENABLE_UBSAN": "ON",
+        "CONFLUX_ENABLE_HTTP_TRACE": "ON",
         "CONFLUX_BUILD_TESTS": "ON",
         "CONFLUX_BUILD_BENCHMARKS": "ON"
       }
@@ -76,6 +77,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CONFLUX_ENABLE_ASAN": "ON",
         "CONFLUX_ENABLE_UBSAN": "ON",
+        "CONFLUX_ENABLE_HTTP_TRACE": "ON",
         "CONFLUX_BUILD_TESTS": "ON",
         "CONFLUX_BUILD_BENCHMARKS": "ON"
       }

@@ -60,6 +60,7 @@ enum class Op : u8 {
 	SsePoll,
 	DeferredPoll,
 	Shutdown,
+	FdShutdown,
 	Timer,
 	FileIo,
 	WsCancel,
@@ -818,6 +819,21 @@ struct RecvComp {
 };
 constexpr SZ FD_TABLE_RESERVE = 4096;
 constexpr unsigned DEFAULT_RING_ENTRIES = 1024U;
+
+#if CONFLUX_HTTP_TRACE
+[[nodiscard]] static char const *buffer_ring_mode_name(
+	BufferRingMode mode) noexcept {
+	switch (mode) {
+	case BufferRingMode::classic_one_cqe_per_buffer: return "classic";
+	case BufferRingMode::recv_bundle                      : return "recv_bundle";
+	case BufferRingMode::incremental                      : return "incremental";
+	}
+	return "unknown";
+}
+#define HTTP_TRACE(MSG) eprintln(format("http_trace {}", (MSG)))
+#else
+#define HTTP_TRACE(MSG) ((void)0)
+#endif
 
 struct Ring;
 
@@ -2532,9 +2548,55 @@ struct Ring {
 			defer_op([this] { cancel_accept_or_defer(); });
 		}
 	}
+	void handle_fd_shutdown(
+		int fd,
+		int res,
+		u32 gen) {
+		HTTP_TRACE(format(
+			"fd_shutdown fd={} res={} gen={} direct={} mode={}",
+			fd,
+			res,
+			gen,
+			accepted_sockets_direct,
+			buffer_ring_mode_name(buf_ring_->mode())));
+		auto const ufd = static_cast<SZ>(fd);
+		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
+			return;
+		}
+		auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(fd)) :
+												SocketHandle::from_os(fd);
+		if (!submit_close(raw_, handle, pack(Op::Close, gen, fd))) {
+			defer_op([this, fd, gen] {
+				auto const ufd2 = static_cast<SZ>(fd);
+				if (ufd2 < fd_table.size() && fd_table[ufd2].gen == gen) {
+					handle_fd_shutdown(fd, 0, gen);
+				}
+			});
+			return;
+		}
+		if (ufd < fd_table.size()) {
+			fd_table[ufd].closing = true;
+		}
+		if (direct_slots_ && accepted_sockets_direct) {
+			if (!direct_slots_->mark_closing(static_cast<u32>(fd))) {
+				eprintln(format("handle_fd_shutdown: mark_closing failed slot={}", fd));
+			}
+		}
+		(void)res;
+	}
 	void queue_close(
 		int fd) {
 		auto const ufd = static_cast<SZ>(fd);
+		auto const gen = (ufd < fd_table.size()) ? fd_table[ufd].gen : u32{0};
+		HTTP_TRACE(format(
+			"queue_close fd={} gen={} direct={} closing={} recv_armed={} zc_waiting={} mode={}",
+			fd,
+			gen,
+			accepted_sockets_direct,
+			ufd < fd_table.size() ? fd_table[ufd].closing : false,
+			ufd < fd_table.size() ? fd_table[ufd].recv_armed : false,
+			ufd < fd_table.size() ? fd_table[ufd].zc_waiting_notif : false,
+			buffer_ring_mode_name(buf_ring_->mode())));
 		if (ufd < fd_table.size()) {
 			if (fd_table[ufd].closing) {
 				return;
@@ -2547,7 +2609,6 @@ struct Ring {
 			}
 		}
 		invalidate_recv_if_armed(fd);
-		u32 const gen = (ufd < fd_table.size()) ? fd_table[ufd].gen : u32{0};
 
 		if (accepted_sockets_direct) {
 			if (ufd < fd_table.size()) {
@@ -2556,7 +2617,7 @@ struct Ring {
 				}
 			}
 			auto handle = SocketHandle::from_direct(static_cast<u32>(fd));
-			if (!submit_shutdown_close(raw_, handle, pack(Op::Nop, 0, 0), pack(Op::Close, gen, fd))) {
+			if (!submit_shutdown(raw_, handle, SHUT_WR, pack(Op::FdShutdown, gen, fd))) {
 				defer_op([this, fd, ufd, gen] {
 					if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 						return;
@@ -2576,17 +2637,14 @@ struct Ring {
 			return;
 		}
 
-		// Send FIN immediately so the peer sees EOF regardless of any
-		// in-flight io_uring operations (e.g. multishot recv) that hold
-		// a reference to the file description and would otherwise delay
-		// the actual socket close until those operations complete.
-		::shutdown(fd, SHUT_WR);
-
 		if (ufd < fd_table.size()) {
 			if (fd_table[ufd].gen != gen || fd_table[ufd].closing) {
 				return;
 			}
 		}
+		// Non-direct sockets still need an explicit shutdown so the peer sees
+		// EOF and the in-flight multishot recv gets drained before the final close.
+		::shutdown(fd, SHUT_WR);
 		auto handle = SocketHandle::from_os(fd);
 		if (!submit_close(raw_, handle, pack(Op::Close, gen, fd))) {
 			defer_op([this, fd, ufd, gen] {
@@ -2716,6 +2774,13 @@ struct Ring {
 		int res,
 		u32 flg) {
 		if (res >= 0) {
+			HTTP_TRACE(format(
+				"accept fd={} direct={} recv_bundle={} mode={} more={}",
+				res,
+				accepted_sockets_direct,
+				use_recv_bundle,
+				buffer_ring_mode_name(buf_ring_->mode()),
+				cqe_has_more(flg)));
 			if (accepted_sockets_direct && direct_slots_) {
 				if (!direct_slots_->adopt_kernel_allocated(static_cast<u32>(res))) {
 					++accepted_direct_failures_;
@@ -2820,13 +2885,22 @@ struct Ring {
 	void discard_recv_bufs(
 		int res,
 		u32 flags) noexcept {
+		HTTP_TRACE(format(
+			"discard_recv_bufs res={} flags=0x{:x} has_buf={} mode={}",
+			res,
+			flags,
+			cqe_has_buffer(flags),
+			buffer_ring_mode_name(buf_ring_->mode())));
 		if (!cqe_has_buffer(flags)) {
 			return;
 		}
-		if (buf_ring_->mode() == BufferRingMode::incremental) {
-			if (res <= 0) {
-				return;
+		if (res <= 0) {
+			if (buf_ring_->mode() != BufferRingMode::incremental) {
+				buf_ring_->recycle(cqe_buffer_id(flags));
 			}
+			return;
+		}
+		if (buf_ring_->mode() == BufferRingMode::incremental) {
 			// slice dtor calls recycle_if_final()
 			auto _ = try_buffer_slice_from_incremental_cqe(*buf_ring_, res, flags);
 			return;
@@ -2891,6 +2965,14 @@ struct Ring {
 		int res,
 		u32 flg,
 		u32 gen) {
+		HTTP_TRACE(format(
+			"recv_cqe fd={} res={} flg=0x{:x} gen={} mode={} direct={}",
+			fd,
+			res,
+			flg,
+			gen,
+			buffer_ring_mode_name(buf_ring_->mode()),
+			accepted_sockets_direct));
 		auto const ufd = static_cast<SZ>(fd);
 		if (ufd >= fd_table.size()) {
 			discard_recv_bufs(res, flg);
@@ -3821,6 +3903,7 @@ struct Ring {
 		case Op::SsePoll     : handle_sse_poll(fd, res, gen); break;
 		case Op::DeferredPoll: handle_deferred_poll(fd, res, gen); break;
 		case Op::Shutdown    : handle_shutdown(); break;
+		case Op::FdShutdown  : handle_fd_shutdown(fd, res, gen); break;
 		case Op::Timer       : handle_timer(); break;
 		case Op::FileIo:
 			if (file_completions) {
@@ -3869,10 +3952,8 @@ struct Ring {
 		return true;
 	}
 	void phase1_copy_recv_bufs() {
+		u32 missing_head_recoveries = 0;
 		for (auto &rc: recvs) {
-			if (!cqe_has_buffer(rc.flags)) {
-				continue;
-			}
 			auto const ufd = static_cast<SZ>(rc.fd);
 			auto ws_it = ws_cancel_handoffs.find(rc.fd);
 			bool const ws_pending = ws_it != ws_cancel_handoffs.end()
@@ -3880,6 +3961,17 @@ struct Ring {
 								 && ws_it->second.ssl == nullptr
 #endif
 				;
+			bool const has_buf = cqe_has_buffer(rc.flags);
+			if (!has_buf) {
+				if (rc.res <= 0 && !accepted_sockets_direct) {
+					if (buf_ring_->mode() == BufferRingMode::incremental) {
+						reclaim_retired_incremental_recv(rc.fd, rc.gen);
+					} else {
+						++missing_head_recoveries;
+					}
+				}
+				continue;
+			}
 			if (rc.res <= 0
 				|| ufd >= fd_table.size()
 				|| (!ws_pending && (fd_table[ufd].gen != rc.gen || fd_table[ufd].fd < 0))) {
@@ -4018,6 +4110,23 @@ struct Ring {
 				}
 			}
 #endif // CONFLUX_HAS_TLS
+		}
+		if (missing_head_recoveries != 0) {
+			for (u32 i = 0; i < missing_head_recoveries; ++i) {
+				u32 const head_pos = buf_ring_->debug_head_pos();
+				HTTP_TRACE(format(
+					"phase1_head_recover_deferred mode={} head={} id={}",
+					buffer_ring_mode_name(buf_ring_->mode()),
+					head_pos,
+					buf_ring_->ring_id_at(head_pos)));
+				buf_ring_->consume(1);
+				if (buf_ring_->mode() == BufferRingMode::recv_bundle) {
+					buf_ring_->recycle_range(head_pos, 1);
+				} else {
+					u16 const id = buf_ring_->ring_id_at(head_pos);
+					buf_ring_->recycle(id);
+				}
+			}
 		}
 	}
 	void finish_ready_ws_handoffs() {
@@ -4298,10 +4407,20 @@ struct Ring {
 	}
 	void recycle_recv_buffer_direct(
 		io_uring_cqe const *cqe) noexcept {
+		HTTP_TRACE(format(
+			"direct_recv_cqe fd={} res={} flags=0x{:x} has_buf={} mode={}",
+			std::get<2>(unpack(cqe->user_data)),
+			cqe->res,
+			cqe->flags,
+			(cqe->flags & IORING_CQE_F_BUFFER) != 0u,
+			buffer_ring_mode_name(buf_ring_->mode())));
 		if ((cqe->flags & IORING_CQE_F_BUFFER) == 0u) {
 			return;
 		}
 		if (cqe->res <= 0) {
+			if (buf_ring_->mode() != BufferRingMode::incremental) {
+				buf_ring_->recycle(cqe_buffer_id(cqe->flags));
+			}
 			return;
 		}
 		if (buf_ring_->mode() == BufferRingMode::incremental) {
@@ -4332,6 +4451,7 @@ struct Ring {
 			case Op::SsePoll:
 			case Op::DeferredPoll:
 			case Op::Shutdown:
+			case Op::FdShutdown:
 			case Op::WsCancel:
 			case Op::ClientRing:
 			case Op::Nop         : break;
@@ -5114,8 +5234,11 @@ void HttpServer::shutdown() {
 #endif
 						if (i == 0)
 							r.port_signal = &impl_->bound_port_;
-						impl_->wq_ring_fd_.wait(-2, memory_order_acquire);
-						int const parent = impl_->wq_ring_fd_.load(memory_order_acquire);
+						int parent = -1;
+						if (impl_->cfg.attach_wq && i > 0) {
+							impl_->wq_ring_fd_.wait(-2, memory_order_acquire);
+							parent = impl_->wq_ring_fd_.load(memory_order_acquire);
+						}
 						u32 const wq_fd = wq_fd_for_ring(impl_->cfg, i, parent);
 						r.use_recv_incremental_buf = impl_->cfg.recv_incremental_buf;
 						r.use_recv_bundle = !impl_->cfg.recv_incremental_buf && impl_->cfg.recv_bundle && CONFLUX_ENABLE_RECV_BUNDLE;
