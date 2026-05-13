@@ -26,7 +26,7 @@ _Collapsed from `conflux_linux_first_class_io_uring_todo_proposal.md`. Completed
 - [x] Proxy async migration — `proxy_context_handler()` / `ContextHandler` / `dispatch_async()` landed in `844b8dc`. `proxy_handler()` kept as deprecated `work_pool` fallback.
 - [x] Remove/deprecate `FileReader` socket methods after HTTP/DNS migration complete. The stale `socket_io` → `file_io` CMake PUBLIC link has been removed; remaining `FileReader` socket users are explicit compatibility/benchmark paths, and the methods are now deprecated in `FileReader` itself.
 - [x] `FileReader::atomic_write_async()` now mirrors the sync staged publish protocol: validate/split contained path, stage in final parent dir, O_TMPFILE with named-temp fallback, link staging + rename/renameat2, cleanup staging on failure, fsync final parent dir.
-- [ ] HTTPS async cancellation — TLS connect/recv cancellation-aware path not confirmed.
+- [x] HTTPS async cancellation — `client_async.cxx` now threads `ActiveTaskCancelRelay` through connect, TLS handshake, and TLS recv/write paths.
 
 ### DNS transport cleanup (P1-03)
 
@@ -51,7 +51,7 @@ Benchmark gate passed (main vs db, release-clang-libcxx, 2026-05-10). Remaining:
 
 - [ ] Cancel-by-fd/close-fd for multishot recv where user-data cancel is insufficient — deferred; generation check mitigates, proper fix requires per-fd cancel slot tracking.
 - [x] `HttpTimeouts::write` async path — `submit_send_timeout_borrowed` landed in `fbf7ffd`.
-- [ ] HTTPS async cancellation path — `client_async.cxx` TLS connect/recv not yet cancellation-aware.
+- [x] HTTPS async cancellation path — `client_async.cxx` TLS connect/recv is cancellation-aware via `ActiveTaskCancelRelay` and `TcpTlsStream`.
 - [x] Shutdown explicit recv cancel for armed connections — `handle_shutdown()` now cancels armed recv operations before queuing close, including deferred direct/socket handles.
 - [x] WebSocket handoff cancel — already implemented (`ws_cancel_handoffs` / `queue_ws_cancel`).
 
