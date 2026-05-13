@@ -1735,6 +1735,11 @@ public:
 		JsonParseOptions const &opts = {})
 		: input_{input}
 		, opts_{opts} {}
+	explicit JsonReader(
+		span<byte const> input,
+		JsonParseOptions const &opts = {})
+		: input_{reinterpret_cast<char const *>(input.data()), input.size()}
+		, opts_{opts} {}
 	[[nodiscard]] expected<Opt<Event>, JsonError> next() {
 		if (has_error_) {
 			return unexpected(last_error_);

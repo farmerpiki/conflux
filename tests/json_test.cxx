@@ -3100,6 +3100,28 @@ TEST_CASE(
 	}
 }
 TEST_CASE(
+	"phase4: JsonReader accepts byte-span input",
+	"[phase4]") {
+	auto const json = std::string_view{R"({"x":1,"y":2})"};
+	JsonReader r{
+		span<byte const>{
+			reinterpret_cast<byte const *>(json.data()),
+			json.size()}};
+
+	auto e0 = r.next();
+	REQUIRE(e0.has_value());
+	REQUIRE(e0->has_value());
+	CHECK(**e0 == JsonReader::Event::begin_object);
+
+	auto e1 = r.next();
+	REQUIRE(e1.has_value());
+	REQUIRE(e1->has_value());
+	CHECK(**e1 == JsonReader::Event::key);
+	auto key = r.key_token().unescaped_borrow();
+	REQUIRE(key.has_value());
+	CHECK(*key == "x");
+}
+TEST_CASE(
 	"phase4: JsonReader EOF returns nullopt",
 	"[phase4]") {
 	JsonReader r{"null"};
