@@ -19,6 +19,10 @@ export namespace conflux {
     inline constexpr bool HAS_BROTLI   = @CONFLUX_HAS_BROTLI@;
     // true when the library was built with zstd.
     inline constexpr bool HAS_ZSTD     = @CONFLUX_HAS_ZSTD@;
+    // true when inotify-backed file watch support is compiled in.
+    inline constexpr bool HAS_FILE_WATCH = @CONFLUX_HAS_FILE_WATCH@;
+    // true when the template engine module is compiled in.
+    inline constexpr bool HAS_TEMPLATES = @CONFLUX_HAS_TEMPLATES@;
     // true when Prometheus metrics support is compiled in.
     inline constexpr bool HAS_METRICS  = @CONFLUX_HAS_METRICS@;
     // true when HTTP/2 support is compiled in (requires nghttp2 + TLS).

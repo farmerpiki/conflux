@@ -235,6 +235,17 @@ else()
     endif()
 endif()
 
+if(CONFLUX_WANT_FILE_WATCH)
+    set(CONFLUX_HAS_FILE_WATCH "true")
+else()
+    set(CONFLUX_HAS_FILE_WATCH "false")
+endif()
+if(CONFLUX_WANT_TEMPLATES)
+    set(CONFLUX_HAS_TEMPLATES "true")
+else()
+    set(CONFLUX_HAS_TEMPLATES "false")
+endif()
+
 # Generate the conflux.features module from the template.
 configure_file(
     "${CMAKE_CURRENT_SOURCE_DIR}/cmake/conflux_features.cxx.in"
@@ -329,6 +340,19 @@ target_link_libraries(conflux_json
     PUBLIC  conflux_types
     PRIVATE conflux_options PkgConfig::XXHASH
 )
+endif()
+
+if(CONFLUX_WANT_FILE_WATCH AND NOT CONFLUX_WANT_FILE_IO)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_FILE_WATCH requires CONFLUX_BUILD_FILE_IO")
+endif()
+if(CONFLUX_WANT_TEMPLATES AND NOT TARGET conflux_json)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_TEMPLATES requires CONFLUX_BUILD_JSON")
+endif()
+if(CONFLUX_WANT_TEMPLATES_WATCH AND NOT CONFLUX_WANT_TEMPLATES)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_TEMPLATES_WATCH requires CONFLUX_BUILD_TEMPLATES")
+endif()
+if(CONFLUX_WANT_TEMPLATES_WATCH AND NOT CONFLUX_WANT_FILE_WATCH)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_TEMPLATES_WATCH requires CONFLUX_BUILD_FILE_WATCH")
 endif()
 
 if(CONFLUX_NEEDS_RUNTIME)
@@ -436,6 +460,40 @@ target_link_libraries(conflux_file_io
 )
 
 endif() # CONFLUX_WANT_FILE_IO
+
+if(CONFLUX_WANT_FILE_WATCH)
+add_library(conflux_file_watch STATIC)
+target_sources(conflux_file_watch
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/file_watch.cxx
+)
+target_link_libraries(conflux_file_watch
+    PRIVATE conflux_options
+    PUBLIC  conflux_file_io
+)
+endif() # CONFLUX_WANT_FILE_WATCH
+
+if(CONFLUX_WANT_TEMPLATES)
+add_library(conflux_template STATIC)
+target_sources(conflux_template
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/template.cxx
+)
+target_compile_definitions(conflux_template
+    PUBLIC CONFLUX_HAS_FILE_WATCH=$<BOOL:${CONFLUX_WANT_TEMPLATES_WATCH}>
+)
+target_link_libraries(conflux_template
+    PRIVATE conflux_options
+    PUBLIC  conflux_json
+)
+if(CONFLUX_WANT_TEMPLATES_WATCH)
+    target_link_libraries(conflux_template PUBLIC conflux_file_watch)
+endif()
+endif() # CONFLUX_WANT_TEMPLATES
 
 if(CONFLUX_WANT_SOCKET_IO)
 add_library(conflux_socket_io STATIC)
@@ -580,7 +638,6 @@ add_library(conflux STATIC)
 
 # Core module sources.
 set(CONFLUX_MODULE_SOURCES
-    src/template.cxx
     src/process.cxx
     src/utils.cxx
     src/net/config.cxx
@@ -646,9 +703,6 @@ endif()
 if(CONFLUX_HAS_ISAL STREQUAL "true")
     list(APPEND CONFLUX_MODULE_SOURCES src/net/compress_backend_isal.cxx)
 endif()
-if(CONFLUX_WANT_FILE_WATCH)
-    list(APPEND CONFLUX_MODULE_SOURCES src/file_watch.cxx)
-endif()
 if(CONFLUX_WANT_DNS)
     list(APPEND CONFLUX_MODULE_SOURCES src/net/client_dns_bridge.cxx)
 endif()
@@ -689,6 +743,12 @@ target_link_libraries(conflux
     PRIVATE conflux_direct_slot_pool
     PUBLIC  PkgConfig::LIBURING
 )
+if(TARGET conflux_template)
+    target_link_libraries(conflux PUBLIC conflux_template)
+endif()
+if(TARGET conflux_file_watch)
+    target_link_libraries(conflux PUBLIC conflux_file_watch)
+endif()
 if(TARGET conflux_json)
     target_link_libraries(conflux PUBLIC conflux_json)
 endif()
@@ -716,12 +776,13 @@ if(CONFLUX_JSON_USE_STDSIMD)
     )
 endif()
 
-# File watch (template hot-reload)
-if(CONFLUX_WANT_FILE_WATCH)
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_FILE_WATCH=1)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_FILE_WATCH=0)
-endif()
+# Template engine / hot-reload surface. The file-watch module is now compiled
+# by conflux_file_watch; the umbrella module only re-exports it when present.
+target_compile_definitions(conflux
+    PUBLIC
+        CONFLUX_HAS_TEMPLATES=$<BOOL:${CONFLUX_WANT_TEMPLATES}>
+        CONFLUX_HAS_FILE_WATCH=$<BOOL:${CONFLUX_WANT_FILE_WATCH}>
+)
 
 # TLS
 if(CONFLUX_HAS_TLS STREQUAL "true")
@@ -842,6 +903,8 @@ conflux_public_component(conflux_types types)
 conflux_public_component(conflux_crypto crypto)
 conflux_public_component(conflux_json json)
 conflux_public_component(conflux_json_reflect json_reflect)
+conflux_public_component(conflux_template template)
+conflux_public_component(conflux_file_watch template_watch)
 conflux_public_component(conflux_uring uring)
 conflux_public_component(conflux_work runtime)
 conflux_public_component(conflux_file_io_sync file_io_sync)
@@ -871,6 +934,8 @@ foreach(_target IN ITEMS
         conflux_crypto
         conflux_json
         conflux_json_reflect
+        conflux_template
+        conflux_file_watch
         conflux_uring
         conflux_work
         conflux_file_io_sync
@@ -929,7 +994,7 @@ set(CONFLUX_INSTALL_NEEDS_NGHTTP2 FALSE)
 set(CONFLUX_INSTALL_NEEDS_NGTCP2 FALSE)
 set(CONFLUX_INSTALL_NEEDS_NGHTTP3 FALSE)
 
-if(TARGET conflux_uring OR TARGET conflux_work OR TARGET conflux_file_io OR TARGET conflux_socket_io OR TARGET conflux_dns OR TARGET conflux_db OR TARGET conflux)
+if(TARGET conflux_uring OR TARGET conflux_work OR TARGET conflux_file_io OR TARGET conflux_file_watch OR TARGET conflux_socket_io OR TARGET conflux_dns OR TARGET conflux_db OR TARGET conflux)
     set(CONFLUX_INSTALL_NEEDS_LIBURING TRUE)
 endif()
 if(TARGET conflux_json)
