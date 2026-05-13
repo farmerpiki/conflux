@@ -9,6 +9,7 @@
 import std;
 import conflux.types;
 import conflux.uring;
+import conflux.uring.flow;
 import conflux.socket_io;
 import bench_common;
 import conflux.net.direct_slot_pool;
@@ -21,6 +22,8 @@ using namespace std::literals;
 	#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 namespace {
+namespace ur = conflux::uring;
+namespace uf = conflux::uring::flow;
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -148,6 +151,17 @@ void drain_cqes(
 	while (io_uring_peek_cqe(ring, &cqe) == 0) {
 		io_uring_cqe_seen(ring, cqe);
 	}
+}
+[[nodiscard]] io_uring_cqe make_flow_cqe(
+	u32 flow_idx,
+	u32 gen,
+	u8 op_index,
+	uf::FlowOpKind kind,
+	i32 res) {
+	return io_uring_cqe{
+		.user_data = uf::encode_tag(flow_idx, gen, op_index, kind),
+		.res = res,
+	};
 }
 // ── Variant definition ─────────────────────────────────────────────────────
 
@@ -1183,6 +1197,55 @@ void run_gen_table_bump_check(
 	auto s = run_variant(v, args.iterations, args.warmup, config_name);
 	bench_print(s, json, false);
 }
+// flow_deferred_close_abandon: force a deferred close and abandon it without
+// resubmitting, exercising the shutdown cleanup path.
+void run_flow_deferred_close_abandon(
+	BenchArgs const &args,
+	bool json,
+	SV config_name) {
+	struct State {
+		ur::Ring ring;
+		uf::FlowRuntime rt;
+		State()
+			: ring{[] {
+				auto r = ur::Ring::init(4, ur::SetupFlags{});
+				if (!r) {
+					throw RE{"Ring::init failed for flow deferred-close bench"};
+				}
+				return move(*r);
+			}()}
+			, rt{ring, ur::detect_caps(ring.ref()), [](uf::FlowResult) noexcept {}} {}
+	};
+	auto state = make_shared<State>();
+
+	auto v = Variant{
+		.name = "flow_deferred_close_abandon",
+		.run =
+			[&] {
+				char buf[4] = {};
+				auto b = state->rt.flow();
+				auto f = b.open_direct(ur::DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
+				f.then_read(buf, 4, 0).then_write(buf, 4, 0).then_read(buf, 4, 0).close_if_opened();
+				(void)b.submit();
+
+				u32 const idx = 0;
+				u32 const gen = 1;
+				auto cqe0 = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
+				auto cqe1 = make_flow_cqe(idx, gen, 1, uf::FlowOpKind::read, 4);
+				auto cqe2 = make_flow_cqe(idx, gen, 2, uf::FlowOpKind::write, 4);
+				auto cqe3 = make_flow_cqe(idx, gen, 3, uf::FlowOpKind::read, 4);
+				state->rt.on_cqe(&cqe0);
+				state->rt.on_cqe(&cqe1);
+				state->rt.on_cqe(&cqe2);
+				state->rt.on_cqe(&cqe3);
+
+				(void)state->rt.abandon_deferred_closes([](auto) noexcept {});
+			},
+	};
+
+	auto s = run_variant(v, args.iterations, args.warmup, config_name);
+	bench_print(s, json, false);
+}
 // recv_arm_policy_resolve: compare default_ / poll_first / adaptive policy selection
 // on idle-style and bulk-style CQE flag traces.
 void run_recv_arm_policy_resolve(
@@ -1573,6 +1636,7 @@ int main(
 	// ── generation table ────
 	run_gen_table_check(args, json, config_name);
 	run_gen_table_bump_check(args, json, config_name);
+	run_flow_deferred_close_abandon(args, json, config_name);
 	run_recv_arm_policy_resolve(args, json, config_name);
 
 	// ── submit batching ────

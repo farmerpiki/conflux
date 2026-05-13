@@ -65,7 +65,7 @@ Benchmark gate passed (main vs db, release-clang-libcxx, 2026-05-10). Remaining:
 - [x] `SocketTaskRing` vs `FileReader` client variants — `str/callback` and `str/coroutine` landed in `tcp_increment_coro_bench` (e3f1038, 2026-05-10); compare-bins gate passed. `tcp_socket_task_bench` deleted (absorbed).
 - [x] Async server variant (`str/async_callback`, `str/async_coroutine`) — multishot-accept server + async client variants landed in `9851640`.
 - [x] N=4 parallel clients variant (`str/parallel_4`) — landed in `9851640`; `--clients`/`--config` args + parallel_4 config.
-- [ ] Close-direct deferred path benchmarks — requires `FlowRuntime` integration.
+- [x] Close-direct deferred path benchmarks — `socket_raw_bench` now forces a deferred close and measures `abandon_deferred_closes()` on the shutdown cleanup path.
 
 ---
 
