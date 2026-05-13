@@ -367,35 +367,66 @@ if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT TARGET conflux_j
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires CONFLUX_BUILD_JSON")
 endif()
 
-if((CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
+set(CONFLUX_HTTP_ROUTER_STACK_REQUESTED FALSE)
+if(CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
         OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
+        OR CONFLUX_WANT_HTTP_COMPRESSION OR CONFLUX_WANT_HTTP_PROXY
         OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
-        OR CONFLUX_WANT_HTTP_VHOST) AND NOT CONFLUX_WANT_HTTP_CORE)
+        OR CONFLUX_WANT_HTTP_VHOST)
+    set(CONFLUX_HTTP_ROUTER_STACK_REQUESTED TRUE)
+endif()
+
+set(CONFLUX_HTTP_CLIENT_STACK_REQUESTED FALSE)
+if(CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_PROXY OR CONFLUX_WANT_HTTP_SERVER)
+    set(CONFLUX_HTTP_CLIENT_STACK_REQUESTED TRUE)
+endif()
+
+if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_HTTP_CORE)
     message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_HTTP_CORE")
 endif()
-if((CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
-        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
-        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
-        OR CONFLUX_WANT_HTTP_VHOST) AND NOT CONFLUX_WANT_RUNTIME)
+if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_RUNTIME)
     message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_RUNTIME")
 endif()
-if((CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
-        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
-        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
-        OR CONFLUX_WANT_HTTP_VHOST) AND NOT CONFLUX_WANT_FILE_IO)
+if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_FILE_IO)
     message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_FILE_IO")
 endif()
-if((CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
-        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
-        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
-        OR CONFLUX_WANT_HTTP_VHOST) AND NOT CONFLUX_WANT_SOCKET_IO)
+if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_SOCKET_IO)
     message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_SOCKET_IO")
 endif()
-if((CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
-        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
-        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
-        OR CONFLUX_WANT_HTTP_VHOST) AND NOT CONFLUX_WANT_CRYPTO)
+if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_CRYPTO)
     message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_CRYPTO")
+endif()
+
+if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED AND NOT CONFLUX_WANT_HTTP_CORE)
+    message(FATAL_ERROR "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_HTTP_CORE")
+endif()
+if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED AND NOT CONFLUX_WANT_RUNTIME)
+    message(FATAL_ERROR "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_RUNTIME")
+endif()
+if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED AND NOT CONFLUX_WANT_SOCKET_IO)
+    message(FATAL_ERROR "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_SOCKET_IO")
+endif()
+if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED AND NOT CONFLUX_WANT_DNS)
+    message(FATAL_ERROR "conflux: HTTP client/proxy component flags require CONFLUX_BUILD_DNS")
+endif()
+if(CONFLUX_HAS_TLS STREQUAL "true" AND (CONFLUX_HTTP_CLIENT_STACK_REQUESTED OR CONFLUX_WANT_SMTP)
+        AND NOT CONFLUX_WANT_FILE_IO)
+    message(FATAL_ERROR "conflux: TLS HTTP client/proxy/SMTP components require CONFLUX_BUILD_FILE_IO")
+endif()
+if(CONFLUX_WANT_SMTP AND NOT CONFLUX_WANT_RUNTIME)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_RUNTIME")
+endif()
+if(CONFLUX_WANT_SMTP AND NOT CONFLUX_WANT_DNS)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_DNS")
+endif()
+if(CONFLUX_WANT_SMTP AND NOT CONFLUX_WANT_CRYPTO)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_CRYPTO")
+endif()
+if(CONFLUX_WANT_SMTP AND NOT CONFLUX_WANT_SOCKET_IO)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_BUILD_SOCKET_IO")
+endif()
+if(CONFLUX_WANT_SMTP AND CONFLUX_HAS_TLS STREQUAL "false")
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_SMTP requires CONFLUX_ENABLE_TLS and OpenSSL")
 endif()
 
 if(CONFLUX_WANT_FILE_MAP AND NOT CONFLUX_WANT_FILE_IO_SYNC)
@@ -758,10 +789,8 @@ target_link_libraries(conflux_net_config
 target_link_libraries(conflux_core INTERFACE conflux_utils)
 
 if(CONFLUX_HAS_TLS STREQUAL "true"
-        AND (CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
-             OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
-             OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
-             OR CONFLUX_WANT_HTTP_VHOST))
+        AND (CONFLUX_HTTP_ROUTER_STACK_REQUESTED OR CONFLUX_HTTP_CLIENT_STACK_REQUESTED
+             OR CONFLUX_WANT_SMTP))
 add_library(conflux_net_tls STATIC)
 target_sources(conflux_net_tls
     PUBLIC FILE_SET CXX_MODULES
@@ -807,10 +836,7 @@ target_sources(conflux_direct_slot_pool
 target_link_libraries(conflux_direct_slot_pool
     PRIVATE conflux_types)
 
-if(CONFLUX_WANT_HTTP_ROUTER OR CONFLUX_WANT_HTTP_SERVER
-        OR CONFLUX_WANT_HTTP_POLICY OR CONFLUX_WANT_HTTP_AUTH
-        OR CONFLUX_WANT_HTTP_OBSERVABILITY OR CONFLUX_WANT_HTTP_OPENAPI
-        OR CONFLUX_WANT_HTTP_VHOST)
+if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
 add_library(conflux_http_router STATIC)
 target_sources(conflux_http_router
     PUBLIC FILE_SET CXX_MODULES
@@ -950,6 +976,162 @@ target_link_libraries(conflux_http_vhost
 )
 endif() # CONFLUX_WANT_HTTP_VHOST || CONFLUX_WANT_HTTP_SERVER
 
+if(CONFLUX_HTTP_CLIENT_STACK_REQUESTED)
+add_library(conflux_dns_bridge STATIC)
+target_sources(conflux_dns_bridge
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/client_dns_bridge.cxx
+)
+target_link_libraries(conflux_dns_bridge
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_dns
+)
+
+add_library(conflux_net_client STATIC)
+target_sources(conflux_net_client
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/client.cxx
+)
+target_link_libraries(conflux_net_client
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_utils
+    PUBLIC  conflux_work
+    PUBLIC  conflux_dns_bridge
+)
+if(TARGET conflux_net_tls)
+    target_compile_definitions(conflux_net_client PUBLIC CONFLUX_HAS_TLS=1)
+    target_link_libraries(conflux_net_client PUBLIC conflux_net_tls)
+else()
+    target_compile_definitions(conflux_net_client PUBLIC CONFLUX_HAS_TLS=0)
+endif()
+
+add_library(conflux_net_async_client STATIC)
+target_sources(conflux_net_async_client
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/client_async.cxx
+)
+target_sources(conflux_net_async_client
+    PRIVATE
+        src/net/client_async_impl.cxx
+)
+target_link_libraries(conflux_net_async_client
+    PRIVATE conflux_options
+    PUBLIC  conflux_net_client
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_work
+    PUBLIC  conflux_uring
+    PUBLIC  conflux_socket_io
+    PUBLIC  conflux_net_cancel
+    PUBLIC  conflux_dns_bridge
+)
+if(TARGET conflux_net_tls)
+    target_compile_definitions(conflux_net_async_client PUBLIC CONFLUX_HAS_TLS=1)
+    target_link_libraries(conflux_net_async_client PUBLIC conflux_net_tls)
+else()
+    target_compile_definitions(conflux_net_async_client PUBLIC CONFLUX_HAS_TLS=0)
+endif()
+endif() # CONFLUX_HTTP_CLIENT_STACK_REQUESTED
+
+if(CONFLUX_WANT_HTTP_COMPRESSION OR CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_compression STATIC)
+set(CONFLUX_HTTP_COMPRESSION_SOURCES src/net/compress.cxx)
+if(CONFLUX_HAS_ZLIB STREQUAL "true")
+    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES src/net/compress_backend_zlib.cxx)
+endif()
+if(CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
+    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES src/net/compress_backend_libdeflate.cxx)
+endif()
+if(CONFLUX_HAS_ZLIB_NG STREQUAL "true")
+    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES src/net/compress_backend_zlibng.cxx)
+endif()
+if(CONFLUX_HAS_ISAL STREQUAL "true")
+    list(APPEND CONFLUX_HTTP_COMPRESSION_SOURCES src/net/compress_backend_isal.cxx)
+endif()
+target_sources(conflux_http_compression
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES ${CONFLUX_HTTP_COMPRESSION_SOURCES}
+)
+target_link_libraries(conflux_http_compression
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_utils
+)
+target_compile_definitions(conflux_http_compression
+    PUBLIC
+        CONFLUX_HAS_COMPRESS=$<STREQUAL:${CONFLUX_HAS_COMPRESS},true>
+        CONFLUX_HAS_ZLIB=$<STREQUAL:${CONFLUX_HAS_ZLIB},true>
+        CONFLUX_HAS_LIBDEFLATE=$<STREQUAL:${CONFLUX_HAS_LIBDEFLATE},true>
+        CONFLUX_HAS_ZLIB_NG=$<STREQUAL:${CONFLUX_HAS_ZLIB_NG},true>
+        CONFLUX_HAS_ISAL=$<STREQUAL:${CONFLUX_HAS_ISAL},true>
+        CONFLUX_HAS_BROTLI=$<STREQUAL:${CONFLUX_HAS_BROTLI},true>
+        CONFLUX_HAS_ZSTD=$<STREQUAL:${CONFLUX_HAS_ZSTD},true>
+)
+if(CONFLUX_HAS_ZLIB STREQUAL "true")
+    target_link_libraries(conflux_http_compression PUBLIC ZLIB::ZLIB)
+endif()
+if(CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
+    target_link_libraries(conflux_http_compression PUBLIC PkgConfig::LIBDEFLATE)
+endif()
+if(CONFLUX_HAS_ZLIB_NG STREQUAL "true")
+    target_link_libraries(conflux_http_compression PUBLIC PkgConfig::ZLIB_NG)
+endif()
+if(CONFLUX_HAS_ISAL STREQUAL "true")
+    target_link_libraries(conflux_http_compression PUBLIC PkgConfig::LIBISAL)
+endif()
+if(CONFLUX_HAS_BROTLI STREQUAL "true")
+    target_link_libraries(conflux_http_compression PUBLIC PkgConfig::BROTLI)
+endif()
+if(CONFLUX_HAS_ZSTD STREQUAL "true")
+    target_link_libraries(conflux_http_compression PUBLIC PkgConfig::ZSTD)
+endif()
+endif() # CONFLUX_WANT_HTTP_COMPRESSION || CONFLUX_WANT_HTTP_SERVER
+
+if(CONFLUX_WANT_HTTP_PROXY OR CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_proxy STATIC)
+target_sources(conflux_http_proxy
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/proxy.cxx
+)
+target_sources(conflux_http_proxy
+    PRIVATE
+        src/net/proxy_impl.cxx
+)
+target_link_libraries(conflux_http_proxy
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_net_client
+    PUBLIC  conflux_net_async_client
+    PUBLIC  conflux_work
+    PUBLIC  conflux_socket_io
+    PUBLIC  conflux_utils
+)
+endif() # CONFLUX_WANT_HTTP_PROXY || CONFLUX_WANT_HTTP_SERVER
+
+if(CONFLUX_WANT_SMTP OR (CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_TLS STREQUAL "true"))
+add_library(conflux_net_smtp STATIC)
+target_sources(conflux_net_smtp
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/smtp.cxx
+)
+target_link_libraries(conflux_net_smtp
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_crypto
+    PUBLIC  conflux_utils
+    PUBLIC  conflux_dns
+    PUBLIC  conflux_work
+    PUBLIC  conflux_net_tls
+)
+endif() # CONFLUX_WANT_SMTP || TLS HTTP server
+
 # ---------------------------------------------------------------------------
 # Monolith target (HTTP server + all middleware)
 # ---------------------------------------------------------------------------
@@ -963,10 +1145,6 @@ set(CONFLUX_MODULE_SOURCES
     src/process.cxx
     src/net/io_buffer.cxx
     src/conflux.cxx
-    src/net/client.cxx
-    src/net/client_async.cxx
-    src/net/compress.cxx
-    src/net/proxy.cxx
     src/net/app.cxx
     src/net/http.cxx
     src/net/http1_parser.cxx
@@ -974,29 +1152,11 @@ set(CONFLUX_MODULE_SOURCES
 )
 
 # Optional module sources.
-if(CONFLUX_HAS_TLS STREQUAL "true")
-    list(APPEND CONFLUX_MODULE_SOURCES src/net/smtp.cxx)
-endif()
 if(CONFLUX_HAS_HTTP2 STREQUAL "true")
     list(APPEND CONFLUX_MODULE_SOURCES src/net/http2.cxx)
 endif()
 if(CONFLUX_HAS_HTTP3 STREQUAL "true")
     list(APPEND CONFLUX_MODULE_SOURCES src/net/http3.cxx)
-endif()
-if(CONFLUX_HAS_ZLIB STREQUAL "true")
-    list(APPEND CONFLUX_MODULE_SOURCES src/net/compress_backend_zlib.cxx)
-endif()
-if(CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
-    list(APPEND CONFLUX_MODULE_SOURCES src/net/compress_backend_libdeflate.cxx)
-endif()
-if(CONFLUX_HAS_ZLIB_NG STREQUAL "true")
-    list(APPEND CONFLUX_MODULE_SOURCES src/net/compress_backend_zlibng.cxx)
-endif()
-if(CONFLUX_HAS_ISAL STREQUAL "true")
-    list(APPEND CONFLUX_MODULE_SOURCES src/net/compress_backend_isal.cxx)
-endif()
-if(CONFLUX_WANT_DNS)
-    list(APPEND CONFLUX_MODULE_SOURCES src/net/client_dns_bridge.cxx)
 endif()
 
 target_sources(conflux
@@ -1009,8 +1169,6 @@ target_sources(conflux
 target_sources(conflux
     PRIVATE
         src/net/http_server_impl.cxx
-        src/net/client_async_impl.cxx
-        src/net/proxy_impl.cxx
 )
 
 target_sources(conflux
@@ -1069,6 +1227,24 @@ if(TARGET conflux_net_cancel)
 endif()
 if(TARGET conflux_net_tls)
     target_link_libraries(conflux PUBLIC conflux_net_tls)
+endif()
+if(TARGET conflux_dns_bridge)
+    target_link_libraries(conflux PUBLIC conflux_dns_bridge)
+endif()
+if(TARGET conflux_net_client)
+    target_link_libraries(conflux PUBLIC conflux_net_client)
+endif()
+if(TARGET conflux_net_async_client)
+    target_link_libraries(conflux PUBLIC conflux_net_async_client)
+endif()
+if(TARGET conflux_http_compression)
+    target_link_libraries(conflux PUBLIC conflux_http_compression)
+endif()
+if(TARGET conflux_http_proxy)
+    target_link_libraries(conflux PUBLIC conflux_http_proxy)
+endif()
+if(TARGET conflux_net_smtp)
+    target_link_libraries(conflux PUBLIC conflux_net_smtp)
 endif()
 
 if(CONFLUX_JSON_AVX2)
@@ -1282,6 +1458,12 @@ conflux_public_component(conflux_http_core http_core)
 conflux_public_component(conflux_http_router http_router)
 conflux_public_component(conflux_http_policy http_policy)
 conflux_public_component(conflux_http_auth http_auth)
+conflux_public_component(conflux_http_compression http_compression)
+conflux_public_component(conflux_net_client http_client)
+conflux_public_component(conflux_net_async_client http_async_client)
+conflux_public_component(conflux_http_proxy http_proxy)
+conflux_public_component(conflux_net_smtp smtp)
+conflux_public_component(conflux_dns_bridge _dns_bridge)
 conflux_public_component(conflux_http_observability http_observability)
 conflux_public_component(conflux_http_openapi http_openapi)
 conflux_public_component(conflux_http_vhost http_vhost)
@@ -1326,6 +1508,12 @@ foreach(_target IN ITEMS
         conflux_http_router
         conflux_http_policy
         conflux_http_auth
+        conflux_http_compression
+        conflux_net_client
+        conflux_net_async_client
+        conflux_http_proxy
+        conflux_net_smtp
+        conflux_dns_bridge
         conflux_http_observability
         conflux_http_openapi
         conflux_http_vhost
@@ -1400,22 +1588,22 @@ endif()
 if(TARGET conflux_net_tls OR (TARGET conflux AND CONFLUX_HAS_TLS STREQUAL "true"))
     set(CONFLUX_INSTALL_NEEDS_OPENSSL TRUE)
 endif()
-if(TARGET conflux AND CONFLUX_HAS_ZLIB STREQUAL "true")
+if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_ZLIB STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_ZLIB TRUE)
 endif()
-if(TARGET conflux AND CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
+if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_LIBDEFLATE TRUE)
 endif()
-if(TARGET conflux AND CONFLUX_HAS_ZLIB_NG STREQUAL "true")
+if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_ZLIB_NG STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_ZLIB_NG TRUE)
 endif()
-if(TARGET conflux AND CONFLUX_HAS_ISAL STREQUAL "true")
+if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_ISAL STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_ISAL TRUE)
 endif()
-if(TARGET conflux AND CONFLUX_HAS_BROTLI STREQUAL "true")
+if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_BROTLI STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_BROTLI TRUE)
 endif()
-if(TARGET conflux AND CONFLUX_HAS_ZSTD STREQUAL "true")
+if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_ZSTD STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_ZSTD TRUE)
 endif()
 if(TARGET conflux AND CONFLUX_HAS_HTTP2 STREQUAL "true")

@@ -9,7 +9,7 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
 1. Prefer contract-breaking modularity and API-boundary fixes before deeper perf
    work; this is still pre-v1, so API breakage is acceptable when it improves
    ergonomics or performance.
-2. Prefer small target-split and dependency-boundary patches over large rewrites.
+2. Prefer coherent target-split and dependency-boundary chunks over tiny one-target patches, while still avoiding large rewrites.
 3. Only implement benchmark-gated performance changes when the benchmark harness
    or measurement target already exists.
 4. Defer speculative architecture rewrites until allocation/benchmark data proves
@@ -20,7 +20,10 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
 1. **Finish modular CMake target slices.**
    - Current status: `core`, `json`, `file_io_sync`, `file_map`, `file_io`,
      `socket_io`, `utils`, `net_config`, `net_cancel`, `net_tls`, `http_core`,
-     `http_json`, `template`, and `template_watch` have started splitting out.
+     `http_json`, `http_router`, `http_policy`, `http_auth`,
+     `http_observability`, `http_openapi`, `http_vhost`, `http_client`,
+     `http_async_client`, `http_compression`, `http_proxy`, `smtp`,
+     `template`, and `template_watch` have started splitting out.
    - Completed slice: `conflux::json_file` / `conflux.json.file` is now separate
      and depends only on `json + file_io_sync`.
    - Completed prerequisite slice: `conflux::utils` and `conflux::net_config`
@@ -34,9 +37,14 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
      `conflux::http_observability`, `conflux::http_openapi`, and
      `conflux::http_vhost` are separate module targets; the monolith links them
      instead of compiling router/middleware modules directly.
-   - Next concrete slice: split `conflux::http_compression` and HTTP client/proxy
-     support modules, or go directly to `conflux::http_server` if the remaining
-     server implementation dependencies are cleaner after compression/client split.
+   - Completed larger HTTP client/compression/proxy slice: `conflux::http_client`,
+     `conflux::http_async_client`, `conflux::http_compression`,
+     `conflux::http_proxy`, `conflux::smtp`, and internal `conflux::_dns_bridge`
+     are separate module targets; the monolith links them instead of compiling
+     their module/interface/private implementation units directly.
+   - Next concrete slice: split protocol/server support (`conflux::http_protocol`,
+     `conflux::http_server`, and possibly `conflux::http_app`/umbrella) now that
+     router/client/compression/proxy imports are target-backed.
 
 2. **Remove remaining stale dependency edges from proposal reviews.**
    - Re-check `conflux_socket_io -> file_io`, `net.client -> file_io`, and
@@ -65,11 +73,11 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - Cancel-by-fd only after per-fd cancel slot tracking is designed.
 
 7. **Split the next HTTP modular target.**
-   - `conflux::http_router` and the main router-dependent middleware buckets now
-     exist.
-   - Next try `conflux::http_compression` plus HTTP client/proxy support modules,
-     then split `conflux::http_server` once the remaining implementation imports
-     are mostly target-backed.
+   - `conflux::http_router`, the main router-dependent middleware buckets,
+     `conflux::http_compression`, `conflux::http_client`,
+     `conflux::http_async_client`, and `conflux::http_proxy` now exist.
+   - Next split protocol/server support (`http1_parser` plus optional HTTP/2/3,
+     then `http_server.cxx`/`http_server_impl.cxx`) if its import graph is clean.
    - Prefer static-core/static-async only if a small no-liburing metadata/mmap slice
      is clearly separable from streamed file serving.
 
