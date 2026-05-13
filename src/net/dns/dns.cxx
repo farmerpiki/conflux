@@ -12,6 +12,7 @@ export module conflux.net.dns;
 
 import std;
 import conflux.types;
+import conflux.uring.completion;
 import conflux.file_io;
 import conflux.socket_io;
 import conflux.work;

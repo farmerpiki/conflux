@@ -9,6 +9,7 @@ import std;
 import conflux.types;
 import conflux.utils;
 import conflux.work;
+import conflux.uring.handle;
 import conflux.file_io;
 import conflux.socket_io.coro;
 import conflux.net.cancel;

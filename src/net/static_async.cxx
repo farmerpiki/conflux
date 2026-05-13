@@ -12,6 +12,7 @@ export module conflux.net.http.static_async;
 import std;
 import conflux.types;
 import conflux.work;
+import conflux.uring.handle;
 import conflux.file_io;
 import conflux.file_map;
 import conflux.net.http.types;
@@ -80,38 +81,6 @@ int contained_static_open(
 
 }
 
-export struct StaticRootDirFd {
-	int fd{-1};
-	explicit StaticRootDirFd(
-		SV path) {
-		S owned_path{path};
-		fd = ::open(owned_path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
-	}
-	~StaticRootDirFd() noexcept {
-		if (fd >= 0) {
-			::close(fd);
-		}
-	}
-	StaticRootDirFd(StaticRootDirFd const &) = delete;
-	StaticRootDirFd &operator =(StaticRootDirFd const &) = delete;
-	StaticRootDirFd(
-		StaticRootDirFd &&o) noexcept
-		: fd(exchange(o.fd, -1)) {}
-	StaticRootDirFd &operator =(
-		StaticRootDirFd &&o) noexcept {
-		if (fd >= 0) {
-			::close(fd);
-		}
-		fd = exchange(o.fd, -1);
-		return *this;
-	}
-};
-
-export [[nodiscard]] SP<StaticRootDirFd> open_static_root_dir(
-	SV root_dir) {
-	return make_shared<StaticRootDirFd>(root_dir);
-}
-
 export conflux::work::root::Task<void> do_serve_static_file(
 	SP<DeferredResponse> dr,
 	HttpResponse base,
@@ -119,19 +88,19 @@ export conflux::work::root::Task<void> do_serve_static_file(
 	SZ send_sz,
 	SZ total_size,
 	conflux::work::root::Task<FileHandle> open_task);
-export conflux::work::root::Task<void> do_save_static_file(
+conflux::work::root::Task<void> do_save_static_file(
 	FileReader *fr,
 	SP<S> body_owned,
 	SP<S> fp,
 	bool existed,
-	SP<StaticCacheStore> static_cache,
+	StaticCacheStore &static_cache,
 	SP<DeferredResponse> dr,
 	int dir_fd,
 	S rel_path);
-export conflux::work::root::Task<void> do_delete_static_file(
+conflux::work::root::Task<void> do_delete_static_file(
 	SP<DeferredResponse> dr,
 	SP<S> fp,
-	SP<StaticCacheStore> static_cache,
+	StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task);
 
 export HttpResponse handle_static_get(
@@ -139,14 +108,14 @@ export HttpResponse handle_static_get(
 	int root_fd,
 	StaticOptions const &static_options,
 	StaticRequest const &r,
-	SP<StaticCacheStore> const &static_cache);
+	StaticCacheStore &static_cache);
 
 export HttpResponse handle_static_get_request(
 	S const &rd,
-	StaticRootDirFd const &root_dir,
+	int root_fd,
 	StaticOptions const &sopts,
 	HttpRequestView const &req,
-	SP<StaticCacheStore> const &static_cache) {
+	StaticCacheStore &static_cache) {
 	try {
 		auto norm = normalize_static_path(req.params["file"]);
 		if (!norm) {
@@ -169,7 +138,7 @@ export HttpResponse handle_static_get_request(
 		if (sopts.offload_pool) {
 			auto dr = make_shared<DeferredResponse>();
 			auto ok =
-				sopts.offload_pool->enqueue([rd, root_fd = root_dir.fd, sopts, sreq = move(sreq), static_cache, dr]() mutable {
+				sopts.offload_pool->enqueue([rd, root_fd, sopts, sreq = move(sreq), &static_cache, dr]() mutable {
 					try {
 						dr->complete(handle_static_get(rd, root_fd, sopts, sreq, static_cache));
 					} catch (...) { dr->complete(HttpResponse::internal_error()); }
@@ -180,16 +149,16 @@ export HttpResponse handle_static_get_request(
 			return HttpResponse::deferred(move(dr));
 		}
 
-		return handle_static_get(rd, root_dir.fd, sopts, sreq, static_cache);
+		return handle_static_get(rd, root_fd, sopts, sreq, static_cache);
 	} catch (...) { return HttpResponse::internal_error(); }
 }
 
 export HttpResponse handle_static_put(
 	S const &rd,
-	StaticRootDirFd const &root_dir,
+	int root_fd,
 	StaticOptions const &sopts,
 	HttpRequestView const &req,
-	SP<StaticCacheStore> const &static_cache) {
+	StaticCacheStore &static_cache) {
 	try {
 		auto norm = normalize_static_path(req.params["file"]);
 		if (!norm) {
@@ -205,7 +174,7 @@ export HttpResponse handle_static_put(
 		}
 		S rel{rel_sv};
 
-		int const probe = contained_static_open(root_dir.fd, rel.c_str(), O_PATH | O_CLOEXEC);
+		int const probe = contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC);
 		bool const existed = probe >= 0;
 		if (probe >= 0) {
 			::close(probe);
@@ -215,27 +184,27 @@ export HttpResponse handle_static_put(
 			auto body_owned = make_shared<S>(req.body);
 			auto dr = make_shared<DeferredResponse>();
 			auto fp = make_shared<S>(full_path);
-			do_save_static_file(fr, body_owned, fp, existed, static_cache, dr, root_dir.fd, S{rel}).detach();
+			do_save_static_file(fr, body_owned, fp, existed, static_cache, dr, root_fd, S{rel}).detach();
 			return HttpResponse::deferred(move(dr));
 		}
 
 		if (sopts.offload_pool) {
 			auto dr = make_shared<DeferredResponse>();
 			auto body_owned = make_shared<S>(req.body);
-			auto rfd = root_dir.fd;
+			auto rfd = root_fd;
 			auto ok = sopts.offload_pool->enqueue([full_path = move(full_path),
 											   rel = move(rel),
 											   rfd,
 											   body_owned,
 											   existed,
-											   static_cache,
+											   &static_cache,
 											   dr]() mutable {
 				auto r = write_text_file_atomic_at_sync(rfd, SV{rel}, SV{*body_owned});
 				if (!r) {
 					dr->complete(HttpResponse::internal_error());
 					return;
 				}
-				static_cache->evict_all_encodings(full_path);
+				static_cache.evict_all_encodings(full_path);
 				HttpResponse resp;
 				resp.status = existed ? kHttpNoContent : kHttpCreated;
 				resp.status_text = existed ? "No Content" : "Created";
@@ -247,10 +216,10 @@ export HttpResponse handle_static_put(
 			return HttpResponse::deferred(move(dr));
 		}
 
-		if (!write_text_file_atomic_at_sync(root_dir.fd, SV{rel}, SV{req.body})) {
+		if (!write_text_file_atomic_at_sync(root_fd, SV{rel}, SV{req.body})) {
 			return HttpResponse::internal_error();
 		}
-		static_cache->evict_all_encodings(full_path);
+		static_cache.evict_all_encodings(full_path);
 		HttpResponse resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;
 		resp.status_text = existed ? "No Content" : "Created";
@@ -260,10 +229,10 @@ export HttpResponse handle_static_put(
 
 export HttpResponse handle_static_delete(
 	S const &rd,
-	StaticRootDirFd const &root_dir,
+	int root_fd,
 	StaticOptions const &sopts,
 	HttpRequestView const &req,
-	SP<StaticCacheStore> const &static_cache) {
+	StaticCacheStore &static_cache) {
 	try {
 		auto norm = normalize_static_path(req.params["file"]);
 		if (!norm) {
@@ -279,7 +248,7 @@ export HttpResponse handle_static_delete(
 		}
 		S rel{rel_sv};
 
-		int const probe = contained_static_open(root_dir.fd, rel.c_str(), O_PATH | O_CLOEXEC);
+		int const probe = contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC);
 		if (probe < 0) {
 			return errno == ENOENT ? HttpResponse::not_found(*norm) : HttpResponse::forbidden();
 		}
@@ -288,22 +257,22 @@ export HttpResponse handle_static_delete(
 		if (auto *fr = current_file_reader(); fr != nullptr) {
 			auto dr = make_shared<DeferredResponse>();
 			auto fp = make_shared<S>(full_path);
-			do_delete_static_file(dr, fp, static_cache, fr->unlink_async(root_dir.fd, rel)).detach();
+			do_delete_static_file(dr, fp, static_cache, fr->unlink_async(root_fd, rel)).detach();
 			return HttpResponse::deferred(move(dr));
 		}
 
 		if (sopts.offload_pool) {
 			auto dr = make_shared<DeferredResponse>();
-			auto rfd = root_dir.fd;
+			auto rfd = root_fd;
 			auto ok = sopts.offload_pool->enqueue(
-				[full_path = move(full_path), rel = move(rel), rfd, static_cache, dr]() mutable {
+				[full_path = move(full_path), rel = move(rel), rfd, &static_cache, dr]() mutable {
 					try {
 						if (::unlinkat(rfd, rel.c_str(), 0) != 0) {
 							dr->complete(
 								errno == ENOENT ? HttpResponse::not_found(full_path) : HttpResponse::internal_error());
 							return;
 						}
-						static_cache->evict_all_encodings(full_path);
+						static_cache.evict_all_encodings(full_path);
 						dr->complete(HttpResponse::no_content());
 					} catch (...) { dr->complete(HttpResponse::internal_error()); }
 				});
@@ -313,10 +282,10 @@ export HttpResponse handle_static_delete(
 			return HttpResponse::deferred(move(dr));
 		}
 
-		if (::unlinkat(root_dir.fd, rel.c_str(), 0) != 0) {
+		if (::unlinkat(root_fd, rel.c_str(), 0) != 0) {
 			return errno == ENOENT ? HttpResponse::not_found(*norm) : HttpResponse::internal_error();
 		}
-		static_cache->evict_all_encodings(full_path);
+		static_cache.evict_all_encodings(full_path);
 		return HttpResponse::no_content();
 	} catch (...) { return HttpResponse::internal_error(); }
 }
@@ -326,7 +295,7 @@ export HttpResponse handle_static_get(
 	int root_fd,
 	StaticOptions const &static_options,
 	StaticRequest const &r,
-	SP<StaticCacheStore> const &static_cache)
+	StaticCacheStore &static_cache)
 {
 			try {
 				S file_param = r.file_param;
@@ -702,7 +671,7 @@ export HttpResponse handle_static_get(
 						resp.set_text_body(entry.body);
 						return resp;
 					};
-					if (auto cached = static_cache->get(cache_key, st)) {
+					if (auto cached = static_cache.get(cache_key, st)) {
 						return make_cached_response(*cached);
 					}
 					int const fd = contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC);
@@ -740,7 +709,7 @@ export HttpResponse handle_static_get(
 						.dev = st.st_dev,
 						.ino = st.st_ino};
 					auto resp = make_cached_response(entry);
-					static_cache->put(cache_key, move(entry), static_options.file_cache.max_total_bytes);
+					static_cache.put(cache_key, move(entry), static_options.file_cache.max_total_bytes);
 					return resp;
 				}
 
@@ -821,13 +790,13 @@ conflux::work::root::Task<void> do_save_static_file(
 	SP<S> body_owned,
 	SP<S> fp,
 	bool existed,
-	SP<StaticCacheStore> static_cache,
+	StaticCacheStore &static_cache,
 	SP<DeferredResponse> dr,
 	int dir_fd,
 	S rel_path) {
 	try {
 		co_await fr->atomic_write_async(dir_fd, move(rel_path), as_bytes(span{*body_owned}));
-		static_cache->evict_all_encodings(*fp);
+		static_cache.evict_all_encodings(*fp);
 		HttpResponse resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;
 		resp.status_text = existed ? "No Content" : "Created";
@@ -837,11 +806,11 @@ conflux::work::root::Task<void> do_save_static_file(
 conflux::work::root::Task<void> do_delete_static_file(
 	SP<DeferredResponse> dr,
 	SP<S> fp,
-	SP<StaticCacheStore> static_cache,
+	StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task) {
 	try {
 		co_await move(unlink_task);
-		static_cache->evict_all_encodings(*fp);
+		static_cache.evict_all_encodings(*fp);
 		dr->complete(HttpResponse::no_content());
 	} catch (FileIoError const &e) {
 		dr->complete(e.code().value() == ENOENT ? HttpResponse::not_found(*fp) : HttpResponse::internal_error());

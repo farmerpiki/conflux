@@ -23,8 +23,6 @@ module;
 
 module conflux.net.http_server;
 
-#define CONFLUX_FUZZ_EXPORT
-
 import std;
 import conflux.types;
 import std.compat;
@@ -36,7 +34,9 @@ import conflux.net.direct_slot_pool;
 import conflux.net.vhost;
 import conflux.net.config;
 import conflux.net.http1_parser;
+import conflux.net.http_server_helpers;
 import conflux.uring;
+import conflux.uring.completion;
 import conflux.work;
 import conflux.file_io;
 import conflux.socket_io;
@@ -135,189 +135,6 @@ constexpr Tup<Op, u32, int> unpack(
 		static_cast<u32>((ud >> GEN_SHIFT) & GEN_MASK),
 		static_cast<int>(ud & FD_MASK)};
 }
-SV http_date_now() {
-	static thread_local S cached;
-	static thread_local time_t cached_epoch = 0;
-	auto const now = ::time(nullptr);
-	if (now != cached_epoch) {
-		cached_epoch = now;
-		tm gmt{};
-		if (::gmtime_r(&now, &gmt) == nullptr) {
-			cached = "Thu, 01 Jan 1970 00:00:00 GMT";
-			return cached;
-		}
-		A<char, 32> buf{};
-		SZ const n = ::strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
-		cached = n != 0 ? S{buf.data(), n} : S{"Thu, 01 Jan 1970 00:00:00 GMT"};
-	}
-	return cached;
-}
-bool is_valid_header_name(
-	SV name) noexcept {
-	if (name.empty()) {
-		return false;
-	}
-	for (auto c: name) {
-		auto const u = static_cast<unsigned char>(c);
-		if (u >= 0x80U) {
-			return false;
-		}
-		bool const ok = (c >= '0' && c <= '9')
-					 || (c >= 'a' && c <= 'z')
-					 || (c >= 'A' && c <= 'Z')
-					 || c == '!'
-					 || c == '#'
-					 || c == '$'
-					 || c == '%'
-					 || c == '&'
-					 || c == '\''
-					 || c == '*'
-					 || c == '+'
-					 || c == '-'
-					 || c == '.'
-					 || c == '^'
-					 || c == '_'
-					 || c == '`'
-					 || c == '|'
-					 || c == '~';
-		if (!ok) {
-			return false;
-		}
-	}
-	return true;
-}
-bool is_valid_header_value(
-	SV value) noexcept {
-	for (auto c: value) {
-		auto const u = static_cast<unsigned char>(c);
-		if (u < 0x20 && u != '\t') {
-			return false;
-		}
-		if (u == 0x7F) {
-			return false;
-		}
-	}
-	return true;
-}
-bool is_framing_header(
-	SV name) noexcept {
-	auto lower_eq = [](SV a, SV b) {
-		if (a.size() != b.size()) {
-			return false;
-		}
-		for (SZ i = 0; i < a.size(); ++i) {
-			auto ca = static_cast<unsigned char>(a[i]);
-			auto cb = static_cast<unsigned char>(b[i]);
-			if (ca >= 'A' && ca <= 'Z') {
-				ca += 32;
-			}
-			if (ca != cb) {
-				return false;
-			}
-		}
-		return true;
-	};
-	return lower_eq(name, "content-length")
-		|| lower_eq(name, "transfer-encoding")
-		|| lower_eq(name, "connection")
-		|| lower_eq(name, "upgrade")
-		|| lower_eq(name, "keep-alive")
-		|| lower_eq(name, "te")
-		|| lower_eq(name, "trailer");
-}
-bool must_not_have_body(
-	int status) noexcept {
-	return (status >= 100 && status < 200) || status == 204 || status == 304;
-}
-bool is_valid_reason_phrase(
-	SV value) noexcept {
-	for (auto c: value) {
-		auto const u = static_cast<unsigned char>(c);
-		if (u < 0x20 && u != '\t') {
-			return false;
-		}
-		if (u == 0x7F) {
-			return false;
-		}
-	}
-	return true;
-}
-S format_response(
-	HttpResponse const &r,
-	SV alt_svc = {},
-	bool close = false) {
-	if (r.is_ws_upgrade() && r.ws_upgrade_ptr()) {
-		return format(
-			"HTTP/1.1 101 Switching Protocols\r\n"
-			"Upgrade: websocket\r\n"
-			"Connection: Upgrade\r\n"
-			"Sec-WebSocket-Accept: {}\r\n\r\n",
-			r.ws_upgrade_ptr()->accept_key);
-	}
-	bool const status_no_body = must_not_have_body(r.status);
-	bool const suppress_body = status_no_body || r.head_only;
-	S out = format(
-		"HTTP/1.1 {} {}\r\n"
-		"Date: {}\r\n",
-		r.status,
-		is_valid_reason_phrase(r.status_text) ? SV{r.status_text} : SV{},
-		http_date_now());
-	if (!r.content_type.empty()) {
-		out += format("Content-Type: {}\r\n", r.content_type);
-	}
-	if (r.status == 304) {
-		if (r.content_length_hint != 0) {
-			out += format("Content-Length: {}\r\n", r.content_length_hint);
-		}
-	} else if (!status_no_body) {
-		out += format("Content-Length: {}\r\n", r.content_length());
-	}
-	for (auto const &[k, v]: r.headers) {
-		if (is_framing_header(k)) {
-			continue;
-		}
-		if (!is_valid_header_name(k) || !is_valid_header_value(v)) {
-			continue;
-		}
-		out += format("{}: {}\r\n", k, v);
-	}
-	for (auto const &sc: r.set_cookies) {
-		if (!is_valid_header_value(sc)) {
-			continue;
-		}
-		out += format("Set-Cookie: {}\r\n", sc);
-	}
-	if (!alt_svc.empty()) {
-		out += format("Alt-Svc: {}\r\n", alt_svc);
-	}
-	out += close ? "Connection: close\r\n\r\n" : "Connection: keep-alive\r\n\r\n";
-	if (!suppress_body && !r.is_mapped_file() && !r.is_streamed_file()) {
-		out += r.text_body();
-	}
-	return out;
-}
-SV format_sse_headers(
-	bool close) {
-	static constexpr SV kKeepAlive =
-		"HTTP/1.1 200 OK\r\n"
-		"Content-Type: text/event-stream\r\n"
-		"Cache-Control: no-cache\r\n"
-		"Transfer-Encoding: chunked\r\n"
-		"Connection: keep-alive\r\n"
-		"\r\n";
-	static constexpr SV kClose =
-		"HTTP/1.1 200 OK\r\n"
-		"Content-Type: text/event-stream\r\n"
-		"Cache-Control: no-cache\r\n"
-		"Transfer-Encoding: chunked\r\n"
-		"Connection: close\r\n"
-		"\r\n";
-	return close ? kClose : kKeepAlive;
-}
-[[nodiscard]] S format_http_chunk(
-	SV payload) {
-	return format("{:x}\r\n{}\r\n", payload.size(), payload);
-}
 #if CONFLUX_HAS_HTTP2
 struct Ring; // forward-declared so H2ConnCtx can hold Ring* while Conn precedes Ring
 static constexpr SZ kH2PendingSendCap = SZ{64} * 1024;
@@ -358,6 +175,7 @@ struct H2ConnCtx {
 struct Ring;
 struct Conn;
 
+#if 0
 static constexpr SZ kMaxChunkHexDigits = 16;
 static constexpr SZ kMaxChunkSizeLineBytes = 256;
 static constexpr SZ kMaxChunkTrailerLines = 64;
@@ -395,6 +213,7 @@ struct ChunkedDecodeState {
 		body.clear();
 	}
 };
+#endif
 void dispatch_request(
 	Conn &conn,
 	SV raw,
@@ -473,7 +292,7 @@ struct alignas(
 	bool tls_shutdown_after_send = false; // true → send TLS close_notify after pending bytes drain
 	bool tls_wait_peer_shutdown = false; // true → drain peer close_notify/FIN after our close_notify is sent
 	bool ktls_send = false; // kTLS send offload active; splice_to_fd usable for TLS file body
-#endif
+	#endif
 	bool has_response = false;
 	S own_response{};
 	PartialBuf partial{};
@@ -512,7 +331,7 @@ struct alignas(
 	S h2_pending_send{};
 	i32 h2_sse_stream_id{-1}; // stream_id of active H2 SSE stream (-1 = none)
 	bool h2_sse_pending_wait{}; // set by on_frame_recv_cb to trigger queue_sse_wait after h2_do_send
-#endif
+	#endif
 };
 
 // Extract a named parameter from a header value (e.g. boundary= from Content-Type).
@@ -540,6 +359,7 @@ SV extract_param(
 	auto end = header.find_first_of(";\r\n ", pos);
 	return end == SV::npos ? header.substr(pos) : header.substr(pos, end - pos);
 }
+#if 0
 // Parse Cookie header into out: "name1=val1; name2=val2".
 void parse_cookies(
 	SV cookie_header,
@@ -1013,6 +833,7 @@ CONFLUX_FUZZ_EXPORT i64 decode_chunked(
 		}
 	}
 }
+#endif
 struct RecvComp {
 	int fd;
 	int res;
@@ -1095,6 +916,7 @@ struct Ring {
 	bool accepted_sockets_direct = false;
 	bool direct_accept_enabled_ = true;
 	bool cmd_sock_setsockopt_enabled_ = true;
+	bool startup_banner = false;
 	bool shutting_down = false;
 	bool ring_fatal_{false};
 	ServerFatalReason fatal_reason_{ServerFatalReason::none};
@@ -4462,7 +4284,7 @@ struct Ring {
 		auto resized = rr.grow_cq_to(target);
 		if (resized) {
 			saw_overflow_since_last_resize_ = false;
-			if (cfg.startup_banner) {
+			if (startup_banner) {
 				eprintln(format("ring_cq_resized={}->{} after overflow", cur, target));
 			}
 			return;
@@ -4478,7 +4300,7 @@ struct Ring {
 		if (err == -ENOSYS || err == -EINVAL || err == -EOPNOTSUPP) {
 			cq_resize_unsupported_ = true;
 		}
-		if (cfg.startup_banner) {
+		if (startup_banner) {
 			eprintln(format("ring_cq_resize_skipped={}->{} err={}", cur, target, err));
 		}
 	}
@@ -5440,6 +5262,7 @@ void HttpServer::shutdown() {
 						r.send_fixed_buffers_enabled = impl_->cfg.send_fixed_buffers;
 						r.direct_accept_enabled_ = impl_->cfg.direct_accept;
 						r.cmd_sock_setsockopt_enabled_ = impl_->cfg.cmd_sock_setsockopt;
+						r.startup_banner = impl_->cfg.startup_banner;
 #if CONFLUX_HAS_TLS
 						r.ssl_ctx = impl_->tls_ctx ? impl_->tls_ctx->native_handle() : nullptr;
 // vhost_ctxs on Ring is informational only; SNI callback is already

@@ -553,6 +553,21 @@ target_link_libraries(conflux_uring
     PUBLIC  PkgConfig::LIBURING
 )
 
+add_library(conflux_uring_timeout STATIC)
+target_sources(conflux_uring_timeout
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/uring/uring_timeout.cxx
+)
+target_link_libraries(conflux_uring_timeout
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_work
+    PUBLIC  conflux_uring
+    PUBLIC  PkgConfig::LIBURING
+)
+
 # Probe placed after include(Dependencies) so PkgConfig::LIBURING is available.
 include(CheckCXXSourceCompiles)
 set(CMAKE_REQUIRED_LIBRARIES PkgConfig::LIBURING)
@@ -639,6 +654,7 @@ target_link_libraries(conflux_file_io
     PUBLIC  conflux_file_io_sync
     PUBLIC  conflux_file_map
     PUBLIC  conflux_uring
+    PUBLIC  conflux_uring_timeout
     PUBLIC  conflux_work
 )
 
@@ -1279,6 +1295,7 @@ target_link_libraries(conflux_http1
     PRIVATE conflux_options
     PUBLIC  conflux_types
     PUBLIC  conflux_http_core
+    PUBLIC  conflux_net_config
 )
 endif() # CONFLUX_WANT_HTTP_SERVER (HTTP/1 parser)
 
@@ -1348,6 +1365,19 @@ endif()
 endif() # CONFLUX_WANT_HTTP_SERVER (HTTP protocol umbrella)
 
 if(CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_server_helpers STATIC)
+target_sources(conflux_http_server_helpers
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/http_server_helpers.cxx
+)
+target_link_libraries(conflux_http_server_helpers
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_response
+    PUBLIC  conflux_utils
+)
+
 add_library(conflux_http_server STATIC)
 target_sources(conflux_http_server
     PUBLIC FILE_SET CXX_MODULES
@@ -1360,6 +1390,7 @@ target_sources(conflux_http_server
 )
 target_link_libraries(conflux_http_server
     PRIVATE conflux_options
+    PRIVATE conflux_http_server_helpers
     PUBLIC  conflux_types
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_router
@@ -1697,6 +1728,7 @@ conflux_public_component(conflux_http_static_core http_static_core)
 conflux_public_component(conflux_http_static_async http_static_async)
 conflux_public_component(conflux_http_realtime http_realtime)
 conflux_public_component(conflux_http_response http_response)
+conflux_public_component(conflux_http_server_helpers http_server_helpers)
 conflux_public_component(conflux_http_policy http_policy)
 conflux_public_component(conflux_http_auth http_auth)
 conflux_public_component(conflux_http_compression http_compression)
@@ -1717,6 +1749,7 @@ conflux_public_component(conflux_http_server http_server)
 conflux_public_component(conflux_http_app http_app)
 conflux_public_component(conflux_net_http http)
 conflux_public_component(conflux_uring uring)
+conflux_public_component(conflux_uring_timeout uring_timeout)
 conflux_public_component(conflux_work runtime)
 conflux_public_component(conflux_file_io_sync file_io_sync)
 conflux_public_component(conflux_file_map file_map)
@@ -1761,6 +1794,7 @@ foreach(_target IN ITEMS
         conflux_http_static_async
         conflux_http_realtime
         conflux_http_response
+        conflux_http_server_helpers
         conflux_http_policy
         conflux_http_auth
         conflux_http_compression
@@ -1781,6 +1815,7 @@ foreach(_target IN ITEMS
         conflux_http_app
         conflux_net_http
         conflux_uring
+        conflux_uring_timeout
         conflux_work
         conflux_file_io_sync
         conflux_file_map

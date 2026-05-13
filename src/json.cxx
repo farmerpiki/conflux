@@ -4768,10 +4768,18 @@ expected<Document, JsonError> parse(
 // Deleted std::string rvalue overloads (Correction T) — borrowing requires
 // caller-owned bytes. String literals and string_view temporaries still select
 // the string_view overloads; only owned string temporaries are rejected.
-expected<Document, JsonError> parse(S &&, JsonParseOptions const & = {}) = delete;
-expected<Document, JsonError> parse_borrowed(S &&, JsonParseOptions const & = {}) = delete;
-expected<Document, JsonError> parse_borrowed_unsafe(S &&, JsonParseOptions const & = {}) = delete;
-expected<Document, JsonError> parse_view(S &&, JsonParseOptions const & = {}) = delete;
+template<typename T>
+	requires (same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
+expected<Document, JsonError> parse(T &&, JsonParseOptions const & = {}) = delete;
+template<typename T>
+	requires (same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
+expected<Document, JsonError> parse_borrowed(T &&, JsonParseOptions const & = {}) = delete;
+template<typename T>
+	requires (same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
+expected<Document, JsonError> parse_borrowed_unsafe(T &&, JsonParseOptions const & = {}) = delete;
+template<typename T>
+	requires (same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
+expected<Document, JsonError> parse_view(T &&, JsonParseOptions const & = {}) = delete;
 // pmr-injecting overloads — caller supplies the memory resource.
 // The resource must outlive every Document (and NodeRef) derived from it.
 expected<Document, JsonError> parse_copy(
@@ -4830,7 +4838,9 @@ expected<Document, JsonError> parse(
 	return parse_borrowed(input, opts, resource);
 }
 
-expected<Document, JsonError> parse(S &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
+template<typename T>
+	requires (same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
+expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
 
 } // namespace conflux::json
 

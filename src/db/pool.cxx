@@ -9,6 +9,7 @@ import conflux.db.types;
 import conflux.db.result;
 import conflux.db.connection;
 import conflux.work;
+import conflux.uring.timeout;
 import conflux.file_io;
 
 using namespace std;
@@ -137,7 +138,11 @@ auto with_transaction(
 	for (int attempt = 0;; ++attempt) {
 		if (attempt > 0) {
 			if (auto *reader = current_file_reader(); reader != nullptr) {
-				co_await reader->timeout_async(detail::retry_backoff(attempt - 1));
+				co_await conflux::uring::timeout_async(
+					reader->ring(),
+					*reader->completions(),
+					[reader](u32 slot, u32 gen) noexcept { return reader->encode_ud(slot, gen); },
+					detail::retry_backoff(attempt - 1));
 			}
 		}
 		co_await c.query(begin_stmt);
@@ -266,7 +271,11 @@ root::Task<Pool::Lease> Pool::acquire() {
 					co_await move(to_task);
 					auto _ = shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
 				} catch (...) {}
-			}(shared_src, reader->timeout_async(cfg_.acquire_timeout))
+			}(shared_src, conflux::uring::timeout_async(
+						   reader->ring(),
+						   *reader->completions(),
+						   [reader](u32 slot, u32 gen) noexcept { return reader->encode_ud(slot, gen); },
+						   cfg_.acquire_timeout))
 																						.detach();
 		}
 	}

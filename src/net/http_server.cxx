@@ -38,11 +38,6 @@ export struct HttpServerMetrics {
 	SendZcMetrics send_zc{};
 };
 
-#ifdef CONFLUX_BUILD_FUZZ
-export void parse_urlencoded(SV data, HttpFieldsView &out);
-export i64 decode_chunked(SV data, SZ max_body_size, SZ max_chunks, S &body);
-#endif
-
 export class HttpServer {
 	struct Impl;
 	Impl *impl_{};

@@ -24,8 +24,8 @@ import std.compat;
 import conflux.work;
 export import conflux.uring.completion;
 export import conflux.uring.handle;
+import conflux.uring.timeout;
 export import conflux.file_io_sync;
-export import conflux.file_map;
 
 export using FileIoError = IoError;
 
@@ -1835,30 +1835,9 @@ public:
 		chrono::milliseconds ms,
 		unsigned count = 0,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
-		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return move(task);
-		}
-		auto ts = make_shared<__kernel_timespec>();
-		auto const sec = chrono::duration_cast<chrono::seconds>(ms);
-		ts->tv_sec = sec.count();
-		ts->tv_nsec = (ms - sec).count() * 1000000LL;
-		io_uring_prep_timeout(sqe, ts.get(), count, flags);
-		auto [slot, gen] = completions_->reserve([shared_src, ts](IoResult r) mutable {
-			try {
-				if (r.res < 0 && r.res != -ETIME && r.res != -ECANCELED) {
-					auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: timeout"}));
-					return;
-				}
-				auto _ = shared_src->try_set_value(root::Success<void>{});
-			} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
-			auto _ = ts;
-		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return move(task);
+		return conflux::uring::timeout_async(ring_, *completions_, [this](u32 slot, u32 gen) noexcept {
+			return encode_ud_(slot, gen);
+		}, ms, count, flags);
 	}
 	[[nodiscard]] conflux::work::root::Task<void> timeout_task(
 		chrono::milliseconds ms,
@@ -1870,26 +1849,9 @@ public:
 	[[nodiscard]] root::Task<void> timeout_remove_async(
 		u64 user_data,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
-		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return move(task);
-		}
-		io_uring_prep_timeout_remove(sqe, user_data, flags);
-		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
-			try {
-				if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {
-					auto _ = shared_src->try_set_exception(
-						make_exception_ptr(FileIoError{-r.res, "file_io: timeout_remove"}));
-					return;
-				}
-				auto _ = shared_src->try_set_value(root::Success<void>{});
-			} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
-		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return move(task);
+		return conflux::uring::timeout_remove_async(ring_, *completions_, [this](u32 slot, u32 gen) noexcept {
+			return encode_ud_(slot, gen);
+		}, user_data, flags);
 	}
 	[[nodiscard]] conflux::work::root::Task<void> timeout_remove_task(
 		u64 user_data,
@@ -2537,31 +2499,9 @@ public:
 	[[nodiscard]] root::Task<void> link_timeout_async(
 		chrono::milliseconds ms,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
-		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-			return move(task);
-		}
-		auto ts = make_shared<__kernel_timespec>();
-		auto const sec = chrono::duration_cast<chrono::seconds>(ms);
-		ts->tv_sec = sec.count();
-		ts->tv_nsec = (ms - sec).count() * 1000000LL;
-		io_uring_prep_link_timeout(sqe, ts.get(), flags);
-		auto [slot, gen] = completions_->reserve([shared_src, ts](IoResult r) mutable {
-			try {
-				if (r.res < 0 && r.res != -ETIME && r.res != -ECANCELED && r.res != -ENOENT) {
-					auto _ =
-						shared_src->try_set_exception(make_exception_ptr(FileIoError{-r.res, "file_io: link_timeout"}));
-					return;
-				}
-				auto _ = shared_src->try_set_value(root::Success<void>{});
-			} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
-			auto _ = ts;
-		});
-		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
-		return move(task);
+		return conflux::uring::link_timeout_async(ring_, *completions_, [this](u32 slot, u32 gen) noexcept {
+			return encode_ud_(slot, gen);
+		}, ms, flags);
 	}
 	[[nodiscard]] conflux::work::root::Task<void> link_timeout_task(
 		chrono::milliseconds ms,
@@ -3158,6 +3098,7 @@ public:
 		S staging = make_staging_name_async();
 		bool staging_entry_exists = false;
 
+		std::exception_ptr cleanup_error;
 		try {
 			auto fh = co_await open_atomic_payload_async(parent_fd, S{staging}, mode, staging_entry_exists);
 
@@ -3190,12 +3131,15 @@ public:
 				co_await fsync_async(parent_fh);
 			}
 		} catch (...) {
-			if (staging_entry_exists) {
-				try {
-					co_await unlinkat_async(parent_fd, S{staging});
-				} catch (...) {} // NOLINT(bugprone-empty-catch)
-			}
-			throw;
+			cleanup_error = current_exception();
+		}
+		if (staging_entry_exists) {
+			try {
+				co_await unlinkat_async(parent_fd, S{staging});
+			} catch (...) {} // NOLINT(bugprone-empty-catch)
+		}
+		if (cleanup_error) {
+			rethrow_exception(cleanup_error);
 		}
 	}
 };

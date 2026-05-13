@@ -226,7 +226,7 @@ export struct HttpRequestView {
 
 export template<typename>
 class CloneableFunction;
-export template<typename R, typename... Args>
+template<typename R, typename... Args>
 class CloneableFunction<R(Args...)> {
 	struct Concept {
 		virtual ~Concept() = default;

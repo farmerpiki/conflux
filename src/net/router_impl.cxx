@@ -1,4 +1,6 @@
 module;
+#include <fcntl.h>
+#include <unistd.h>
 module conflux.net.router;
 
 import std;
@@ -6,10 +8,10 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.server_types;
 import conflux.net.http.realtime;
+import conflux.net.http.static_files;
 import conflux.net.http.static_core;
 import conflux.net.http.static_async;
 import conflux.work;
-import conflux.utils;
 import conflux.net.config;
 import conflux.socket_io;
 
@@ -36,8 +38,20 @@ struct Router::Impl {
 		Handler not_found_handler{};
 		ErrorHandler error_handler{};
 		SP<WorkPool> work_pool{make_shared<WorkPool>()};
+		StaticCacheStore static_cache{};
 		StaticFileCacheConfig static_file_cache{};
 	};
+
+[[nodiscard]] SV trim_ascii_ws(
+	SV s) noexcept {
+	while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r' || s.front() == '\n')) {
+		s.remove_prefix(1);
+	}
+	while (!s.empty() && (s.back() == ' ' || s.back() == '\t' || s.back() == '\r' || s.back() == '\n')) {
+		s.remove_suffix(1);
+	}
+	return s;
+}
 
 
 
@@ -116,7 +130,7 @@ Router &Router::ws_prepared(
 		if (!ws_detail::is_valid_handshake(req)) {
 			return HttpResponse::bad_request();
 		}
-		auto key = trim(req.headers["sec-websocket-key"]);
+		auto key = trim_ascii_ws(req.headers["sec-websocket-key"]);
 		auto up = make_shared<WsUpgrade>();
 		up->accept_key = ws_detail::ws_accept_key(key);
 		up->handler = h;
@@ -186,7 +200,7 @@ void Router::launch_sse_handler(
 			struct Step {
 				Router::Impl const *impl_;
 				Handler const *h_;
-				size_t idx_{0};
+				SZ idx_{0};
 				HttpResponse call(
 					HttpRequestView const &r) {
 					if (idx_ == impl_->middlewares.size()) {
@@ -215,32 +229,40 @@ Router &Router::serve_static(
 	if (!effective_sopts.file_cache.enabled) {
 		effective_sopts.file_cache = impl_->static_file_cache;
 	}
-	auto static_cache = make_shared<StaticCacheStore>();
-	auto root_dir_fd = open_static_root_dir(root_dir);
+	auto root_dir_fd = SP<int>{
+		new int(::open(root_dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)),
+		[](int *fd) {
+			if (fd != nullptr) {
+				if (*fd >= 0) {
+					::close(*fd);
+				}
+				delete fd;
+			}
+		}};
 	auto rd = move(root_dir);
 
 	// NOLINTNEXTLINE(bugprone-exception-escape): delegated static component handles failures as HTTP responses.
 	get(pattern,
-		[rd, root_dir_fd, sopts = effective_sopts, static_cache](
+		[this, rd, root_dir_fd, sopts = effective_sopts](
 			HttpRequestView const &req) -> HttpResponse {
-			return handle_static_get_request(rd, *root_dir_fd, sopts, req, static_cache);
+			return handle_static_get_request(rd, *root_dir_fd, sopts, req, impl_->static_cache);
 		});
 
 	if (effective_sopts.allow_put) {
 		// NOLINTNEXTLINE(bugprone-exception-escape): delegated static component handles failures as HTTP responses.
 		put(pattern,
-			[rd, root_dir_fd, sopts = effective_sopts, static_cache](
+			[this, rd, root_dir_fd, sopts = effective_sopts](
 				HttpRequestView const &req) -> HttpResponse {
-				return handle_static_put(rd, *root_dir_fd, sopts, req, static_cache);
+				return handle_static_put(rd, *root_dir_fd, sopts, req, impl_->static_cache);
 			});
 	}
 
 	if (effective_sopts.allow_delete) {
 		// NOLINTNEXTLINE(bugprone-exception-escape): delegated static component handles failures as HTTP responses.
 		del(pattern,
-			[rd, root_dir_fd, sopts = effective_sopts, static_cache](
+			[this, rd, root_dir_fd, sopts = effective_sopts](
 				HttpRequestView const &req) -> HttpResponse {
-				return handle_static_delete(rd, *root_dir_fd, sopts, req, static_cache);
+				return handle_static_delete(rd, *root_dir_fd, sopts, req, impl_->static_cache);
 			});
 	}
 

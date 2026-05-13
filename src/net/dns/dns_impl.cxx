@@ -14,7 +14,7 @@ module;
 module conflux.net.dns;
 
 import std;
-import conflux.file_io;
+import conflux.file_io_sync;
 import conflux.socket_io;
 import conflux.socket_io.coro;
 import conflux.socket_io.blocking;
@@ -151,38 +151,11 @@ void parse_resolv_options(
 	SZ max_bytes = SZ{4} * 1024 * 1024) noexcept {
 	try {
 		S const native = path.string();
-		int const fd = ::open(native.c_str(), O_RDONLY | O_CLOEXEC);
-		if (fd < 0) {
+		auto bytes = read_file_at_sync(AT_FDCWD, native, max_bytes);
+		if (!bytes) {
 			return {};
 		}
-		struct CloseFd {
-			int fd;
-			~CloseFd() noexcept {
-				if (fd >= 0) {
-					::close(fd);
-				}
-			}
-		} close_fd{fd};
-
-		S out;
-		A<char, 4096> buf{};
-		for (;;) {
-			auto const n = ::read(fd, buf.data(), buf.size());
-			if (n < 0) {
-				if (errno == EINTR) {
-					continue;
-				}
-				return {};
-			}
-			if (n == 0) {
-				break;
-			}
-			if (out.size() + static_cast<SZ>(n) > max_bytes) {
-				return {};
-			}
-			out.append(buf.data(), static_cast<SZ>(n));
-		}
-		return out;
+		return S{move(*bytes)};
 	} catch (...) { return {}; }
 }
 template<class F>

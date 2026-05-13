@@ -12,6 +12,9 @@ import std;
 import std.compat;
 import conflux.types;
 import conflux.work;
+import conflux.uring.timeout;
+import conflux.uring.completion;
+import conflux.uring.handle;
 import conflux.file_io;
 import conflux.db.types;
 import conflux.db.params;
@@ -876,7 +879,11 @@ root::Task<Result> Connection::query(
 											 .detach();
 			}
 		} catch (...) {}
-	}(self, shared_src, reader->timeout_async(deadline))
+	}(self, shared_src, conflux::uring::timeout_async(
+						  reader->ring(),
+						  *reader->completions(),
+						  [reader](u32 slot, u32 gen) noexcept { return reader->encode_ud(slot, gen); },
+						  deadline))
 																					   .detach();
 	return move(task);
 }

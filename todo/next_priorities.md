@@ -17,115 +17,25 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
 
 ## Ordered list
 
-1. **Finish modular CMake target slices.**
-   - Current status: `core`, `json`, `file_io_sync`, `file_map`, `file_io`,
-     `socket_io`, `utils`, `net_config`, `net_cancel`, `net_tls`, `http_core`,
-     `http_json`, `http_router`, `http_policy`, `http_auth`,
-     `http_observability`, `http_openapi`, `http_vhost`, `http_client`,
-     `http_async_client`, `http_compression`, `http_proxy`, `http1`, `http2`,
-     `http3`, `smtp`, `template`, and `template_watch` have started splitting out.
-   - Completed slice: `conflux::json_file` / `conflux.json.file` is now separate
-     and depends only on `json + file_io_sync`.
-   - Completed prerequisite slice: `conflux::utils` and `conflux::net_config`
-     are separate module targets instead of being compiled into the HTTP
-     monolith.
-   - Completed prerequisite slice: `conflux::net_cancel` and `conflux::net_tls`
-     are separate targets; router/server still import TLS, but no longer need TLS
-     source compiled inside the monolith.
-   - Completed larger HTTP middleware slice: `conflux::http_router`,
-     `conflux::http_policy`, `conflux::http_auth`,
-     `conflux::http_observability`, `conflux::http_openapi`, and
-     `conflux::http_vhost` are separate module targets; the monolith links them
-     instead of compiling router/middleware modules directly.
-   - Completed larger HTTP client/compression/proxy slice: `conflux::http_client`,
-     `conflux::http_async_client`, `conflux::http_compression`,
-     `conflux::http_proxy`, `conflux::smtp`, and internal `conflux::_dns_bridge`
-     are separate module targets; the monolith links them instead of compiling
-     their module/interface/private implementation units directly.
-   - Completed larger HTTP protocol/server/app/umbrella slice: `conflux::process`,
-     `conflux::net_io_buffer`, `conflux::http_protocol`, `conflux::http_server`,
-     `conflux::http_app`, and `conflux::http` are separate module targets; the
-     legacy aggregate `conflux` target now compiles only its top-level umbrella
-     module and links the component graph.
-   - Completed optional protocol split: `conflux::http1`, `conflux::http2`, and
-     `conflux::http3` now sit under the thin `conflux::http_protocol` umbrella.
-   - Completed static/realtime surface slice: `conflux::http_static` owns the
-     exported `StaticOptions` module surface, `conflux::http_core` owns the
-     server request/view/callback vocabulary, and `conflux::http_realtime` owns
-     the exported SSE plus WebSocket surfaces. `conflux.net.router` re-exports
-     those modules for compatibility.
-   - Completed static implementation split slice: `conflux::http_response`,
-     `conflux::http_static_core`, and `conflux::http_static_async` now own the
-     response vocabulary, static request/cache/path helpers, static root-dir
-     ownership, contained open/probe helpers, GET/PUT/DELETE execution paths, and
-     async static file helper coroutines. Router keeps route registration only.
-   - Completed stale-edge cleanup slice: `conflux::http_router` no longer imports
-     or links `conflux.file_io` only to serve static PUT/DELETE internals; those
-     live behind `conflux::http_static_async`.
-   - Completed dependency-edge cleanup slice: rechecked stale proposal edges for
-     `conflux_socket_io -> file_io`, `net.client -> file_io`, and
-     `HttpRequest::Builder::body_json(NodeRef)`; those are already gone. Also
-     removed redundant direct `PkgConfig::LIBURING` links from higher-level
-     component/example/test/benchmark targets that already receive liburing usage
-     requirements through `conflux_uring`, `conflux_work`, `conflux_file_io`, or
-     `conflux_socket_io`.
-   - Next concrete slice: public API alias cleanup, then the larger
-     blocking/sync/async naming pass. Do not add hidden auto-offload for HTTP
-     handlers; handlers intentionally run on HTTP ring threads.
+1. **Keep file-layer boundaries honest.**
+   - `file_io_sync` stays POSIX-only.
+   - `file_map` stays read-only mapping only.
+   - `file_io` stays the async/runtime-backed layer.
+   - Make `conflux.uring.handle` and `conflux.uring.completion` explicit in `src/` consumers instead of relying on `file_io` re-exports.
+   - Leave the broader `file_io` re-export in place for tests/examples until the library split is farther along.
+   - Timeout submission now lives in `conflux.uring.timeout`; keep moving other non-file runtime helpers out of `file_io` in the same style.
+   - HTTP server parsing/formatting helpers now live in `conflux.net.http_server_helpers`; keep peeling `http_server_impl` toward smaller event-loop/state-machine units.
 
-2. **Clean public API aliases and align blocking/sync/async names.**
-   - Remove exported shorthand aliases such as `S`, `SV`, `SP`, and `Opt` from
-     public signatures; prefer spelled-out standard vocabulary types.
-   - Run the later API naming pass toward: `blocking_*` for raw blocking
-     syscall-style helpers, `sync_*` for executor-owned non-coroutine chains
-     that report success/failure, and `async_*` for coroutine/task APIs.
-   - Preserve the execution model: all tasks run on an executor; HTTP server
-     handlers run on io_uring ring threads; blocking work must be explicit
-     rather than hidden behind automatic handler offload.
+2. **Apply the blocking/sync/async naming pass.**
+   - `blocking_*` for raw syscall-style helpers.
+   - `sync_*` for executor-owned non-coroutine chains.
+   - `async_*` for coroutine/task APIs.
 
-3. **No-`std::stream` cleanup foundation.**
-   - Add/finish `UniqueFd`, raw POSIX blocking file helpers, `LineRange`, ASCII
-     trim/split helpers, and move `eprint/eprintln` into utils.
-   - Replace remaining reusable-source stream users after the foundation lands.
-   - Add the no-stream gate only once source cleanup is complete.
+3. **Defer larger refactors until a boundary slice proves itself.**
+   - No P2300 rewrite.
+   - No JSON over-splitting until there is a clear module consumer win.
+   - No hidden HTTP auto-offload.
 
-4. **Use allocation diagnostics before pooling more coroutine frames.**
-   - `CONFLUX_WORK_ALLOC_STATS` exists; use it to confirm `root::Task<T>` /
-     `ControlBlockModel<T>` pressure before adding the next pool.
-   - Avoid jumping straight to P2300.
-
-5. **Close benchmark gaps that unblock decisions.**
-   - Add/finish `default_` vs `poll_first` vs adaptive recv-arm benchmarks.
-   - Add the end-to-end `SocketTaskRing` vs `FileReader` JSON decode benchmark.
-   - Validate send-zc adaptive thresholds before changing defaults.
-
-6. **Finish async cancellation edges.**
-   - HTTPS async TLS connect/recv cancellation awareness.
-   - Explicit recv cancel for armed server connections.
-   - Cancel-by-fd only after per-fd cancel slot tracking is designed.
-
-7. **Split the next HTTP modular target.**
-   - `conflux::http_router`, the main router-dependent middleware buckets,
-     `conflux::http_compression`, `conflux::http_client`,
-     `conflux::http_async_client`, `conflux::http_proxy`, `conflux::http1`,
-     `conflux::http2`, `conflux::http3`, `conflux::http_protocol`,
-     `conflux::http_server`, `conflux::http_app`, and `conflux::http` now exist.
-   - `conflux::http_static`, `conflux::http_static_core`,
-     `conflux::http_static_async`, and `conflux::http_realtime` now own static,
-     response, SSE, and WebSocket surfaces/implementation helpers. Remaining work:
-     collapse router-owned helper leftovers only where doing so removes a real
-     dependency edge.
-
-8. **Prototype compile-time JSON only after the return type is documented.**
-   - Subset: integers, booleans, null, no-escape strings, nested objects/arrays.
-   - No float literals until constexpr number parsing constraints are resolved.
-
-9. **DB follow-ups after the HTTP/runtime contract slices.**
-   - COPY API first if benchmark scope is clear.
-   - True libpq wire-level pipeline mode remains larger/riskier.
-
-10. **Defer full simdjson-style Stage-0 and P2300 rewrites.**
-    - Stage-0 only after business need justifies it; previous whitespace/string
-      scan widening failed gates.
-    - P2300 is multi-week architecture work and should follow measured
-      root-task allocation results.
+4. **Only revisit public API aliases after the module splits settle.**
+   - Keep `conflux.types` as the working surface for now.
+   - Do not widen exports just to clean up signatures early.
