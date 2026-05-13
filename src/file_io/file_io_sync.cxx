@@ -14,7 +14,6 @@ export module conflux.file_io_sync;
 
 import std;
 import conflux.types;
-export import conflux.uring.completion;
 // ───────────────────────────────────────────────────────────────────────
 // FileStat — portable stat result for cache revalidation.
 // ───────────────────────────────────────────────────────────────────────
@@ -125,7 +124,7 @@ public:
 	UniqueFd take_fd() noexcept { return move(fd_); }
 	void disarm_staging() noexcept { staging_name_.clear(); }
 };
-using FileIoSyncError = IoError;
+export using FileIoSyncError = IoError;
 // ───────────────────────────────────────────────────────────────────────
 // Internals
 // ───────────────────────────────────────────────────────────────────────

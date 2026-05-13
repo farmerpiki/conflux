@@ -1,13 +1,13 @@
 # Remove standard stream dependencies — updated review pass
 
 Date: 2026-05-11  
-Status: **recommended, after adding core error + file_io_sync first**
+Status: **recommended; Phase 0 core-error/file_io_sync prerequisite is partially unblocked**
 
 ## Decision delta
 
-The stream cleanup proposal is correct, but the implementation order needs one extra prerequisite: a no-liburing `file_io_sync` target cannot currently reuse `FileIoError`, because `FileIoError` is tied to `conflux.uring.completion` through `conflux.file_io`.
+The stream cleanup proposal is correct, and the original core-error prerequisite is now partially unblocked: `file_io_sync` no longer depends on `conflux.uring.completion`. The remaining ordering constraint is the public component split, because the current CMake target is still created inside the runtime-gated block.
 
-Fix that before replacing streams.
+Finish the target split before replacing streams in components that must be usable without liburing.
 
 ## Current confirmed stream inventory
 
@@ -43,17 +43,9 @@ This matches the original proposal. Tests/examples/benchmarks may continue using
 
 ## Required Phase 0: make sync file errors independent from uring
 
-Current code:
+Status: `IoError` is now exported from `conflux.types`, and `file_io_sync` no longer imports or links `conflux.uring.completion` / `conflux_uring`. The remaining prerequisite for a true no-liburing `file_io_sync` package is the modular target split that moves `conflux_file_io_sync` out from the current runtime-gated CMake block.
 
-```cpp
-// src/file_io/file_io.cxx
-export using FileIoError = IoError;
-
-// src/uring/uring_completion.cxx
-export struct IoError final : std::system_error { ... };
-```
-
-A no-liburing module must not import `conflux.uring.completion`. Add one of:
+Historical options considered:
 
 ```text
 Option A, preferred:
@@ -66,7 +58,7 @@ Option B:
   conflux.file_io maps FileError to IoError at async boundaries
 ```
 
-Then `file_io_sync` can safely expose:
+With that dependency removed, `file_io_sync` can safely expose:
 
 ```cpp
 expected<string, FileIoError> read_text_file_sync(...);

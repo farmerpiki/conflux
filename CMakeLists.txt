@@ -393,7 +393,6 @@ target_sources(conflux_file_io_sync
 target_link_libraries(conflux_file_io_sync
     PRIVATE conflux_options
     PUBLIC  conflux_types
-    PUBLIC  conflux_uring
 )
 
 add_library(conflux_file_map STATIC)
