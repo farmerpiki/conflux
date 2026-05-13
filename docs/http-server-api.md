@@ -334,9 +334,15 @@ Server request vocabulary (`UploadedFile`, `HttpRequest`, `HttpRequestView`,
 `CloneableFunction`) is exported by `conflux.net.http.server_types`, which is
 part of `conflux::http_core`. SSE and WebSocket types/helpers (`SseOverflowPolicy`,
 `SseChannel`, `SseBroadcaster`, `WsConn`, `WsUpgrade`) are exported by
-`conflux.net.http.realtime` / `conflux::http_realtime`. `conflux.net.router`
-still re-exports those modules so existing router imports keep working while the
-implementation is split into smaller package targets.
+`conflux.net.http.realtime` / `conflux::http_realtime`. HTTP response
+vocabulary (`HttpResponse`, `DeferredResponse`, mapped/streamed body carriers)
+is exported by `conflux.net.http.response` / `conflux::http_response`. Static
+path/cache helpers live in `conflux.net.http.static_core` /
+`conflux::http_static_core`; async file helper coroutines and the GET static-file
+execution path live in `conflux.net.http.static_async` /
+`conflux::http_static_async`. `conflux.net.router` still re-exports the public
+surface modules so existing router imports keep working while implementation
+bulk is split into smaller package targets.
 
 ## Static file serving
 

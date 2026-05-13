@@ -54,9 +54,12 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
      server request/view/callback vocabulary, and `conflux::http_realtime` owns
      the exported SSE plus WebSocket surfaces. `conflux.net.router` re-exports
      those modules for compatibility.
-   - Next concrete slice: split static-file implementation internals into
-     `http_static_core` / `http_static_async` targets now that route API types
-     no longer force router ownership.
+   - Completed static implementation split slice: `conflux::http_response`,
+     `conflux::http_static_core`, and `conflux::http_static_async` now own the
+     response vocabulary, static request/cache/path helpers, static GET path, and
+     async static file helper coroutines. Router keeps route registration only.
+   - Next concrete slice: remove remaining stale dependency edges and collapse
+     router-owned helper leftovers that no longer need to sit in `router.cxx`.
 
 2. **Remove remaining stale dependency edges from proposal reviews.**
    - Re-check `conflux_socket_io -> file_io`, `net.client -> file_io`, and
@@ -90,10 +93,11 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
      `conflux::http_async_client`, `conflux::http_proxy`, `conflux::http1`,
      `conflux::http2`, `conflux::http3`, `conflux::http_protocol`,
      `conflux::http_server`, `conflux::http_app`, and `conflux::http` now exist.
-   - `conflux::http_static` and `conflux::http_realtime` now own the exported
-     `StaticOptions`, SSE channel/broadcaster, and WebSocket surfaces. Remaining work:
-     split static-file implementation internals into `http_static_core` /
-     `http_static_async` on a real boundary.
+   - `conflux::http_static`, `conflux::http_static_core`,
+     `conflux::http_static_async`, and `conflux::http_realtime` now own static,
+     response, SSE, and WebSocket surfaces/implementation helpers. Remaining work:
+     collapse router-owned helper leftovers only where doing so removes a real
+     dependency edge.
 
 8. **Prototype compile-time JSON only after the return type is documented.**
    - Subset: integers, booleans, null, no-escape strings, nested objects/arrays.

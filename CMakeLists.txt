@@ -918,7 +918,36 @@ if(CONFLUX_BUILD_FUZZ)
 endif()
 endif() # CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED
 
+if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
+add_library(conflux_http_response STATIC)
+target_sources(conflux_http_response
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/response.cxx
+)
+target_link_libraries(conflux_http_response
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_work
+    PUBLIC  conflux_file_io
+    PUBLIC  conflux_file_map
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_realtime
+)
+endif() # CONFLUX_HTTP_ROUTER_STACK_REQUESTED (HTTP response vocabulary)
+
 if(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED)
+add_library(conflux_http_static_core STATIC)
+target_sources(conflux_http_static_core
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/static_core.cxx
+)
+target_link_libraries(conflux_http_static_core
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+)
+
 add_library(conflux_http_static STATIC)
 target_sources(conflux_http_static
     PUBLIC FILE_SET CXX_MODULES
@@ -934,6 +963,24 @@ target_link_libraries(conflux_http_static
 endif() # CONFLUX_HTTP_STATIC_SURFACE_REQUESTED
 
 if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
+add_library(conflux_http_static_async STATIC)
+target_sources(conflux_http_static_async
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/static_async.cxx
+)
+target_link_libraries(conflux_http_static_async
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_work
+    PUBLIC  conflux_file_io
+    PUBLIC  conflux_file_map
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_static
+    PUBLIC  conflux_http_response
+    PUBLIC  conflux_http_static_core
+)
+
 add_library(conflux_http_router STATIC)
 target_sources(conflux_http_router
     PUBLIC FILE_SET CXX_MODULES
@@ -949,6 +996,9 @@ target_link_libraries(conflux_http_router
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_realtime
     PUBLIC  conflux_http_static
+    PUBLIC  conflux_http_response
+    PUBLIC  conflux_http_static_core
+    PUBLIC  conflux_http_static_async
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
     PUBLIC  conflux_utils
@@ -1453,7 +1503,10 @@ target_link_libraries(conflux
     PUBLIC  conflux_http_json
     PUBLIC  conflux_http_router
     PUBLIC  conflux_http_static
+    PUBLIC  conflux_http_static_core
+    PUBLIC  conflux_http_static_async
     PUBLIC  conflux_http_realtime
+    PUBLIC  conflux_http_response
     PUBLIC  conflux_http_policy
     PUBLIC  conflux_http_auth
     PUBLIC  conflux_http_observability
@@ -1647,7 +1700,10 @@ conflux_public_component(conflux_file_watch template_watch)
 conflux_public_component(conflux_http_core http_core)
 conflux_public_component(conflux_http_router http_router)
 conflux_public_component(conflux_http_static http_static)
+conflux_public_component(conflux_http_static_core http_static_core)
+conflux_public_component(conflux_http_static_async http_static_async)
 conflux_public_component(conflux_http_realtime http_realtime)
+conflux_public_component(conflux_http_response http_response)
 conflux_public_component(conflux_http_policy http_policy)
 conflux_public_component(conflux_http_auth http_auth)
 conflux_public_component(conflux_http_compression http_compression)
@@ -1708,7 +1764,10 @@ foreach(_target IN ITEMS
         conflux_http_core
         conflux_http_router
         conflux_http_static
+        conflux_http_static_core
+        conflux_http_static_async
         conflux_http_realtime
+        conflux_http_response
         conflux_http_policy
         conflux_http_auth
         conflux_http_compression

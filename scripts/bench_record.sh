@@ -228,9 +228,6 @@ rewrite_args_for_iterations() {
   if ! $saw_iters; then
     out+=(--iterations "$override")
   fi
-  if ! $saw_warmup; then
-    out+=(--warmup "$warmup")
-  fi
 
   printf '%s\n' "${out[@]}"
 }
@@ -510,20 +507,18 @@ run_compare() {
 # ---------------------------------------------------------------------------
 _compare_bins_insert_row() {
   local rid="$1" bench="$2" label="$3" round="$4" pos="$5"; shift 5
+  local tmpf
+  tmpf=$(mktemp /tmp/compare_bins_XXXXXX.ndjson)
+  trap 'rm -f "$tmpf"' RETURN
+
+  run_bench "$@" --json 2>/dev/null >> "$tmpf"
+
   while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
     local ex
     ex=$(printf '{"round":%d,"position":%d,"label":"%s","min":%s,"p10":%s,"mad":%s}' \
       "$round" "$pos" "$label" "${min_v:-null}" "${p10_v:-null}" "${mad_v:-null}")
-    psql "$PGURI" -At -q -c "
-      INSERT INTO results
-        (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
-         metric, value, unit, sample_count, extra)
-      VALUES
-        ($rid, '$(sql_escape "$bench")', '$(sql_escape "$variant")',
-         $iters, $total, $ns_pi,
-         'ns_per_iter', $ns_pi, 'ns', 1, '$(sql_escape "$ex")'::jsonb);" >/dev/null
-  done < <(run_bench "$@" --json 2>/dev/null \
-    | jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.min // "null"), (.p10 // "null"), (.mad // "null")] | @tsv)')
+    insert_row "$rid" "$bench" "$variant" "$iters" "$total" "$ns_pi" "$ex"
+  done < <(jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.min // "null"), (.p10 // "null"), (.mad // "null")] | @tsv)' "$tmpf")
 }
 
 _compare_bins_insert_summary() {
