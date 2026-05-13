@@ -91,6 +91,77 @@ struct TempFile {
 		, fd{exchange(o.fd, -1)} {}
 	TempFile &operator =(TempFile &&) = delete;
 };
+struct TempDir {
+	S path;
+	int fd{-1};
+	static TempDir create() {
+		TempDir t;
+		t.path = "/tmp/conflux_file_io_dir_XXXXXX";
+		auto *r = ::mkdtemp(t.path.data());
+		REQUIRE(r != nullptr);
+		t.fd = ::open(t.path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+		REQUIRE(t.fd >= 0);
+		return t;
+	}
+	~TempDir() {
+		if (fd >= 0) {
+			::close(fd);
+		}
+		if (!path.empty()) {
+			EC ec;
+			fs::remove_all(path, ec);
+		}
+	}
+	TempDir() = default;
+	TempDir(TempDir const &) = delete;
+	TempDir &operator =(TempDir const &) = delete;
+	TempDir(
+		TempDir &&o) noexcept
+		: path{move(o.path)}
+		, fd{exchange(o.fd, -1)} {}
+	TempDir &operator =(TempDir &&) = delete;
+	void mkdir_sub(
+		SV name) const {
+		auto full = format("{}/{}", path, name);
+		REQUIRE(::mkdir(full.c_str(), 0755) == 0);
+	}
+	void write_file(
+		SV name,
+		SV content) const {
+		auto full = format("{}/{}", path, name);
+		int const f = ::open(full.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+		REQUIRE(f >= 0);
+		auto const w = ::write(f, content.data(), content.size());
+		::close(f);
+		REQUIRE(w == static_cast<ssize_t>(content.size()));
+	}
+	[[nodiscard]] S read_file(
+		SV name) const {
+		auto full = format("{}/{}", path, name);
+		int const f = ::open(full.c_str(), O_RDONLY | O_CLOEXEC);
+		REQUIRE(f >= 0);
+		S out(4096, '\0');
+		auto const n = ::read(f, out.data(), out.size());
+		::close(f);
+		REQUIRE(n >= 0);
+		out.resize(static_cast<SZ>(n));
+		return out;
+	}
+	[[nodiscard]] bool has_staging_files(
+		SV subdir = {}) const {
+		fs::path p{path};
+		if (!subdir.empty()) {
+			p /= S{subdir};
+		}
+		for (auto const &entry : fs::directory_iterator{p}) {
+			auto const name = entry.path().filename().string();
+			if (name.starts_with(".conflux.tmp.")) {
+				return true;
+			}
+		}
+		return false;
+	}
+};
 
 } // namespace
 TEST_CASE(
@@ -1872,6 +1943,54 @@ TEST_CASE(
 		CHECK(::access(dst_path.c_str(), F_OK) == 0);
 		::unlink(dst_path.c_str());
 	}
+}
+TEST_CASE(
+	"atomic_write_async stages in nested parent and publishes atomically") {
+	auto fx = RingFixture::make();
+	if (!fx) {
+		SKIP("io_uring_queue_init failed");
+	}
+	auto dir = TempDir::create();
+	dir.mkdir_sub("sub");
+
+	S const payload = "async atomic nested content";
+	block_on(
+		fx->reader,
+		fx->reader.atomic_write_async(dir.fd, S{"sub/out.txt"}, as_bytes(span{payload})),
+		chrono::seconds{5});
+
+	CHECK(dir.read_file("sub/out.txt") == payload);
+	CHECK_FALSE(dir.has_staging_files());
+	CHECK_FALSE(dir.has_staging_files("sub"));
+}
+TEST_CASE(
+	"atomic_write_async create_new preserves existing target and removes staging") {
+	auto fx = RingFixture::make();
+	if (!fx) {
+		SKIP("io_uring_queue_init failed");
+	}
+	auto dir = TempDir::create();
+	dir.write_file("target.txt", "original");
+
+	S const replacement = "replacement";
+	int err = 0;
+	try {
+		block_on(
+			fx->reader,
+			fx->reader.atomic_write_async(
+				dir.fd,
+				S{"target.txt"},
+				as_bytes(span{replacement}),
+				0644,
+				TempPublishMode::create_new),
+			chrono::seconds{5});
+	} catch (SE const &se) {
+		err = se.code().value();
+	}
+
+	CHECK(err == EEXIST);
+	CHECK(dir.read_file("target.txt") == "original");
+	CHECK_FALSE(dir.has_staging_files());
 }
 TEST_CASE(
 	"mkdir_async creates a directory") {

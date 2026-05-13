@@ -14,7 +14,7 @@
 - [x] HTTP send path: registered send-buffer pool for headers/small bodies — landed (`FixedBufferPool` send buffers, `submit_send_fixed_borrowed` path for small plain responses)
 - [x] HTTP send path: `SEND_ZC` integration with notification-CQE tracking, capability-gated — landed (`queue_send_mapped` uses `submit_send_zc_borrowed` above threshold, `IORING_CQE_F_NOTIF` handling, send-zc counters)
 - [ ] HTTP send path edge cases: mapped-file header+body still falls back to `writev`; TLS path cannot use SEND_ZC directly; adaptive threshold needs benchmark validation. Note: mapped cache (when landed) removes repeated open/stat/mmap/close/munmap for hot static files but does not change the send path itself
-- [ ] O_TMPFILE atomic publish: both current implementations (router.cxx:1677-1702 and file_io.cxx:2938-2967) are not atomic — unlink before link loses the file on crash. Replace with staged link + rename protocol (link to staging name, fsync, rename to final path)
+- [x] O_TMPFILE atomic publish: sync path was already staged; async `FileReader::atomic_write_async()` now validates/splits contained paths, stages in the final parent dir, falls back to named temp when O_TMPFILE is unsupported, links staging + rename/renameat2, cleans staging on failure, and fsyncs the final parent dir.
 - [x] Root `Task<T>`: add optional alloc counters for frames/control-blocks (`CONFLUX_WORK_ALLOC_STATS`)
 - [ ] Root `Task<T>`: pool `ControlBlockModel<T>` after measuring allocation counters
 - [ ] JSON: true incremental `JsonStreamReader::feed(span<byte>)` / events API

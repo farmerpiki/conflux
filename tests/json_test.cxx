@@ -3864,10 +3864,10 @@ TEST_CASE(
 // ─── Phase 5 — Memory Model & Performance Hardening ─────────────────────────
 
 TEST_CASE(
-	"phase5: parse with pmr monotonic_buffer_resource",
+	"phase5: parse_copy with pmr monotonic_buffer_resource",
 	"[phase5]") {
 	std::pmr::monotonic_buffer_resource mbr{4096};
-	auto doc = parse("42", {}, &mbr);
+	auto doc = parse_copy("42", {}, &mbr);
 	REQUIRE(doc.has_value());
 	auto v = doc->root().as_i64();
 	REQUIRE(v.has_value());
@@ -3897,12 +3897,12 @@ TEST_CASE(
 	CHECK(*obj->member("name")->as_string() == "ada");
 }
 TEST_CASE(
-	"phase5: pmr parse returns same result as default parse",
+	"phase5: pmr parse_copy returns same result as default parse",
 	"[phase5]") {
 	SV input = R"([1,2,3,"hello"])";
 	std::pmr::monotonic_buffer_resource mbr{4096};
 	auto d1 = parse(input);
-	auto d2 = parse(input, {}, &mbr);
+	auto d2 = parse_copy(input, {}, &mbr);
 	REQUIRE(d1.has_value());
 	REQUIRE(d2.has_value());
 	auto v1 = d1->dump();

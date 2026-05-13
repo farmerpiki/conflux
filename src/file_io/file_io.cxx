@@ -40,6 +40,61 @@ inline S make_staging_name_async() {
 	auto _ = ::getrandom(&rnd, sizeof(rnd), 0);
 	return format(".conflux.tmp.{}.{}.{:08x}", pid, seq, rnd);
 }
+constexpr bool is_otmpfile_unsupported_errno_async(
+	int e) noexcept {
+	return e == EOPNOTSUPP || e == EISDIR || e == EINVAL || e == ENOSYS || e == EPERM;
+}
+struct AsyncAtomicPathParts {
+	S parent_dir;
+	S basename;
+};
+[[nodiscard]] expected<AsyncAtomicPathParts, FileIoError> split_contained_atomic_path_async(
+	SV path) noexcept {
+	if (path.empty()) {
+		return unexpected{
+			FileIoError{EINVAL, "file_io: empty atomic-write path"}
+        };
+	}
+	if (path.starts_with('/')) {
+		return unexpected{
+			FileIoError{EINVAL, "file_io: absolute atomic-write path"}
+        };
+	}
+	if (path.contains('\0')) {
+		return unexpected{
+			FileIoError{EINVAL, "file_io: NUL in atomic-write path"}
+        };
+	}
+	if (path == "." || path == ".." || path.ends_with('/')) {
+		return unexpected{
+			FileIoError{EINVAL, "file_io: invalid atomic-write path"}
+        };
+	}
+
+	SV remaining = path;
+	while (!remaining.empty()) {
+		auto const slash = remaining.find('/');
+		auto const component = remaining.substr(0, slash);
+		if (component.empty() || component == "..") {
+			return unexpected{
+				FileIoError{EINVAL, "file_io: invalid atomic-write path component"}
+            };
+		}
+		if (slash == SV::npos) {
+			break;
+		}
+		remaining = remaining.substr(slash + 1);
+	}
+
+	auto const last_slash = path.rfind('/');
+	if (last_slash == SV::npos) {
+		return AsyncAtomicPathParts{.parent_dir = S{"."}, .basename = S{path}};
+	}
+	return AsyncAtomicPathParts{
+		.parent_dir = S{path.substr(0, last_slash)},
+		.basename = S{path.substr(last_slash + 1)},
+	};
+}
 
 } // namespace
 // ---------------------------------------------------------------------------
@@ -2975,6 +3030,60 @@ public:
 	}
 
 private:
+	[[nodiscard]] root::Task<FileHandle> open_atomic_parent_dir_async(
+		int root_dir_fd,
+		S parent_dir) {
+		open_how how{};
+		how.flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC;
+		how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
+		co_return co_await openat2_async(root_dir_fd, move(parent_dir), how);
+	}
+	[[nodiscard]] root::Task<FileHandle> open_atomic_payload_async(
+		int parent_dir_fd,
+		S staging_name,
+		mode_t mode,
+		bool &staging_entry_exists) {
+		open_how how{};
+		how.flags = O_TMPFILE | O_WRONLY | O_CLOEXEC;
+		how.mode = static_cast<__u64>(mode);
+		how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
+
+		try {
+			co_return co_await openat2_async(parent_dir_fd, S{"."}, how);
+		} catch (FileIoError const &e) {
+			if (!is_otmpfile_unsupported_errno_async(e.code().value())) {
+				throw;
+			}
+		}
+
+		open_how fallback{};
+		fallback.flags = O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC;
+		fallback.mode = static_cast<__u64>(mode);
+		fallback.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
+		auto fh = co_await openat2_async(parent_dir_fd, move(staging_name), fallback);
+		staging_entry_exists = true;
+		co_return fh;
+	}
+	[[nodiscard]] root::Task<void> link_atomic_payload_async(
+		FileHandle const &fh,
+		int parent_dir_fd,
+		S staging_name) {
+		try {
+			co_await linkat_async(fh.raw_fd(), S{}, parent_dir_fd, S{staging_name}, AT_EMPTY_PATH);
+			co_return;
+		} catch (FileIoError const &e) {
+			int const code = e.code().value();
+			if (code != EPERM && code != EINVAL && code != ENOENT) {
+				throw;
+			}
+		}
+		co_await linkat_async(
+			AT_FDCWD,
+			format("/proc/self/fd/{}", fh.raw_fd()),
+			parent_dir_fd,
+			move(staging_name),
+			AT_SYMLINK_FOLLOW);
+	}
 	template<typename StatePtr>
 	static void step_splice(
 		StatePtr const &st) {
@@ -3039,50 +3148,54 @@ public:
 		mode_t mode = 0644,
 		TempPublishMode pub_mode = TempPublishMode::replace_existing,
 		TempDurability durability = TempDurability::file_and_directory) {
-		open_how how{};
-		how.flags = O_TMPFILE | O_WRONLY;
-		how.mode = static_cast<__u64>(mode);
-		how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
-
-		auto fh = co_await openat2_async(dir_fd, S{"."}, how);
-
-		SZ off = 0;
-		while (off < data.size()) {
-			auto wrote = co_await write_into(fh, off, data.subspan(off));
-			if (wrote == 0) {
-				throw FileIoError{EIO, "file_io: short write"};
-			}
-			off += wrote;
+		auto parts = split_contained_atomic_path_async(rel_path);
+		if (!parts) {
+			throw parts.error();
 		}
 
-		if (durability >= TempDurability::file) {
-			co_await fsync_async(fh, true);
-		}
+		auto parent_fh = co_await open_atomic_parent_dir_async(dir_fd, move(parts->parent_dir));
+		int const parent_fd = parent_fh.raw_fd();
+		S staging = make_staging_name_async();
+		bool staging_entry_exists = false;
 
-		auto staging = make_staging_name_async();
-		co_await linkat_async(AT_FDCWD, format("/proc/self/fd/{}", fh.raw_fd()), dir_fd, S{staging}, AT_SYMLINK_FOLLOW);
-
-		EP rename_err{};
 		try {
-			if (pub_mode == TempPublishMode::replace_existing) {
-				co_await renameat_async(dir_fd, S{staging}, dir_fd, move(rel_path));
-			} else {
-				co_await renameat_async(dir_fd, S{staging}, dir_fd, move(rel_path), RENAME_NOREPLACE);
-			}
-		} catch (...) { rename_err = current_exception(); }
-		if (rename_err) {
-			try {
-				co_await unlinkat_async(dir_fd, S{staging});
-			} catch (...) {} // NOLINT(bugprone-empty-catch)
-			rethrow_exception(rename_err);
-		}
+			auto fh = co_await open_atomic_payload_async(parent_fd, S{staging}, mode, staging_entry_exists);
 
-		if (durability >= TempDurability::file_and_directory) {
-			open_how dir_how{};
-			dir_how.flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC;
-			dir_how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
-			auto dir_fh = co_await openat2_async(dir_fd, S{"."}, dir_how);
-			co_await fsync_async(dir_fh);
+			SZ off = 0;
+			while (off < data.size()) {
+				auto wrote = co_await write_into(fh, off, data.subspan(off));
+				if (wrote == 0) {
+					throw FileIoError{EIO, "file_io: short write"};
+				}
+				off += wrote;
+			}
+
+			if (durability >= TempDurability::file) {
+				co_await fsync_async(fh, true);
+			}
+
+			if (!staging_entry_exists) {
+				co_await link_atomic_payload_async(fh, parent_fd, S{staging});
+				staging_entry_exists = true;
+			}
+
+			if (pub_mode == TempPublishMode::replace_existing) {
+				co_await renameat_async(parent_fd, S{staging}, parent_fd, move(parts->basename));
+			} else {
+				co_await renameat_async(parent_fd, S{staging}, parent_fd, move(parts->basename), RENAME_NOREPLACE);
+			}
+			staging_entry_exists = false;
+
+			if (durability >= TempDurability::file_and_directory) {
+				co_await fsync_async(parent_fh);
+			}
+		} catch (...) {
+			if (staging_entry_exists) {
+				try {
+					co_await unlinkat_async(parent_fd, S{staging});
+				} catch (...) {} // NOLINT(bugprone-empty-catch)
+			}
+			throw;
 		}
 	}
 };

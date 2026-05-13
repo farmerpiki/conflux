@@ -36,7 +36,7 @@ struct Point {
 CONFLUX_JSON_REFLECT(Point);
 
 // Now decode/encode work automatically
-auto doc = conflux::json::parse(R"({"x":3,"y":7})");
+auto doc = conflux::json::parse_view(R"({"x":3,"y":7})");
 auto pt  = conflux::json::decode<Point>(doc->root()); // expected<Point, JsonError>
 
 auto encoded = conflux::json::encode(Point{1, 2});    // expected<Document, JsonError>

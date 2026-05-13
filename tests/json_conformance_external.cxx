@@ -714,10 +714,10 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"phase1: parse(SV) copies input — original buffer can be freed",
+	"phase1: parse_copy(SV) copies input — original buffer can be freed",
 	"[conformance][phase1][input]") {
 	S transient = "[1, 2.5, 3]";
-	auto doc = json::parse(transient);
+	auto doc = json::parse_copy(transient);
 	REQUIRE(doc.has_value());
 	transient.clear();
 	transient.shrink_to_fit();
@@ -730,7 +730,7 @@ TEST_CASE(
 	CHECK(*arr.element(2)->as_number()->to_i64() == 3LL);
 }
 TEST_CASE(
-	"phase1: parse(S&&) moves input",
+	"phase1: parse_copy(S&&) moves input",
 	"[conformance][phase1][input]") {
 	// Long S forces heap allocation, ensuring move actually transfers
 	// rather than relying on SSO.
@@ -739,7 +739,7 @@ TEST_CASE(
 		c = '1';
 	}
 	s = "[" + s + "]";
-	auto doc = json::parse(move(s));
+	auto doc = json::parse_copy(move(s));
 	REQUIRE(doc.has_value());
 	auto arr = *doc->root().as_array();
 	CHECK(arr.size() == 1UZ);
@@ -778,6 +778,23 @@ constexpr bool kCanCallParseBorrowedRvalue<T, std::void_t<decltype(json::parse_b
 static_assert(kCanCallParseBorrowedRvalue<SV>);
 static_assert(kCanCallParseBorrowedRvalue<S &>);
 static_assert(!kCanCallParseBorrowedRvalue<S>);
+
+// parse is now also a borrowing/view API; use parse_copy for S rvalues.
+template<class T, class = void>
+constexpr bool kCanCallParseRvalue = false;
+template<class T>
+constexpr bool kCanCallParseRvalue<T, std::void_t<decltype(json::parse(std::declval<T>()))>> = true;
+static_assert(kCanCallParseRvalue<SV>);
+static_assert(kCanCallParseRvalue<S &>);
+static_assert(!kCanCallParseRvalue<S>);
+
+template<class T, class = void>
+constexpr bool kCanCallParseCopyRvalue = false;
+template<class T>
+constexpr bool kCanCallParseCopyRvalue<T, std::void_t<decltype(json::parse_copy(std::declval<T>()))>> = true;
+static_assert(kCanCallParseCopyRvalue<SV>);
+static_assert(kCanCallParseCopyRvalue<S &>);
+static_assert(kCanCallParseCopyRvalue<S>);
 // ---------------------------------------------------------------------------
 // v11 Phase 2 — zero-copy strings on parse side.
 // ---------------------------------------------------------------------------

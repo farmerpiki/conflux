@@ -16,7 +16,7 @@ using namespace conflux::json;
 `NodeRef` (possibly null-kind) when the key exists.
 
 ```cpp
-auto doc = *parse(R"({"a": null, "b": 1})");
+auto doc = *parse_view(R"({"a": null, "b": 1})");
 auto obj = *doc.root().as_object();
 
 // absent key
@@ -66,7 +66,7 @@ Objects with fewer than 32 members are skipped — warming them is a no-op.
 
 ```cpp
 JsonParseOptions opts{.warm_threshold = 8u};   // warm any object with ≥ 8 members
-auto doc = *parse(input, opts);
+auto doc = *parse_view(input, opts);
 // No explicit warm_member_index call needed.
 ```
 
@@ -104,7 +104,7 @@ struct JsonMembers<Config> {
 Decode from a parsed document:
 
 ```cpp
-auto doc = *parse(json_text);
+auto doc = *parse_view(json_text);
 auto cfg = decode<Config>(doc);   // expected<Config, JsonError>
 if (!cfg) { /* cfg.error() */ }
 ```
@@ -143,7 +143,7 @@ auto out_doc = *std::move(vb).finish();
 `NodeRef::at(path)` walks the document.
 
 ```cpp
-auto doc  = *parse(json_text);
+auto doc  = *parse_view(json_text);
 auto path = *JsonPath::from_pointer("/results/0/id");
 auto node = doc.root().at(path);   // expected<NodeRef, JsonError>
 if (node) {

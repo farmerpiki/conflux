@@ -14,33 +14,41 @@ permitted process-lifetime locale holder, are documented in `docs/json-design.md
 
 ```cpp
 expected<Document, JsonError> parse(string_view input, JsonParseOptions const& opts = {});
-expected<Document, JsonError> parse(string&&      input, JsonParseOptions const& opts = {});
 expected<Document, JsonError> parse_borrowed(string_view input, JsonParseOptions const& opts = {});
 expected<Document, JsonError> parse_borrowed_unsafe(string_view input, JsonParseOptions const& opts = {});
 expected<Document, JsonError> parse_view(string_view input, JsonParseOptions const& opts = {});
+expected<Document, JsonError> parse_copy(string_view input, JsonParseOptions const& opts = {});
+expected<Document, JsonError> parse_copy(string&&      input, JsonParseOptions const& opts = {});
 ```
 
-- `parse(string_view)` — copies input into the Document's owned buffer.
-- `parse(string&&)` — moves the string; no copy.
-- `parse_borrowed(string_view)` — zero-copy: string values borrow directly from
-  `input`. The caller must keep `input` alive for the Document's lifetime.
-  `parse_borrowed(string&&)` is `= delete` to prevent accidental dangling.
-- `parse_borrowed_unsafe(string_view)` / `parse_view(string_view)` — explicit
-  aliases for `parse_borrowed`. Prefer these names in new code when a review
-  should notice that the returned `Document` contains views into caller-owned
-  bytes. Their rvalue overloads are also deleted.
+- `parse(string_view)` / `parse_view(string_view)` — performance-default,
+  zero-copy view parse. String values borrow directly from `input`.
+- `parse_borrowed(string_view)` / `parse_borrowed_unsafe(string_view)` —
+  explicit aliases for `parse_view` when a review should notice that the
+  returned `Document` contains views into caller-owned bytes.
+- `parse_copy(string_view)` — copies input into the `Document`'s owned buffer.
+- `parse_copy(string&&)` — moves the input string into the `Document`; no copy.
+- `parse(string&&)`, `parse_view(string&&)`, and `parse_borrowed(string&&)` are
+  `= delete` to prevent accidental dangling. Use `parse_copy(std::move(s))` for
+  rvalue strings.
 
 ```cpp
-auto doc = parse(R"({"x": 1, "y": 2})");
+auto doc = parse_view(R"({"x": 1, "y": 2})");
 if (!doc) { /* doc.error() */ }
 ```
 
-Borrowed parsing is only valid when the backing bytes are stable:
+Borrowed/view parsing is only valid when the backing bytes are stable:
 
 ```cpp
 std::string input = load_config();
-auto doc = parse_borrowed_unsafe(input);
+auto doc = parse_view(input);
 // Do not mutate, clear, resize, or destroy input while doc is alive.
+```
+
+Use explicit owning parsing when the source buffer will not outlive the document:
+
+```cpp
+auto doc = parse_copy(load_config());
 ```
 
 ### JsonParseOptions
@@ -67,8 +75,8 @@ struct JsonParseOptions {
 `LimitOption` accepts a `size_t` bound or `no_limit` sentinel:
 
 ```cpp
-parse(input, { .max_depth = LimitOption{64} });
-parse(input, { .max_string_size = no_limit });
+parse_view(input, { .max_depth = LimitOption{64} });
+parse_view(input, { .max_string_size = no_limit });
 ```
 
 **`ParseMode::json5`** accepts a subset of JSON5: single-line `//` and block `/* */` comments, trailing commas in objects and arrays, unquoted keys (identifier characters), and single-quoted strings. This is not full JSON5; the accepted subset matches what the test suite covers.
@@ -384,7 +392,7 @@ struct JsonMembers<Point> {
     static constexpr string_view type_name() { return "Point"; }
 };
 
-auto doc = parse(R"({"x":3,"y":7})");
+auto doc = parse_view(R"({"x":3,"y":7})");
 auto pt  = decode<Point>(doc->root());  // expected<Point, JsonError>
 ```
 
@@ -555,14 +563,14 @@ struct NodeIdentityEqual { bool   operator()(NodeRef, NodeRef) const noexcept; }
 
 ## Contracts and Lifetime Rules
 
-- `Document` is immutable after `parse` or `ValueBuilder::finish` returns.
+- `Document` is immutable after `parse`, `parse_view`, `parse_copy`, or `ValueBuilder::finish` returns.
   The only internal mutation is lazy hash-index construction via atomic CAS.
 - All borrowed handles (`NodeRef`, `ObjectView`, `ArrayView`, etc.) are valid
   across moves of the same `Document`.
-- `parse_borrowed` string values point into the original `input` buffer.
+- `parse`, `parse_view`, `parse_borrowed`, and `parse_borrowed_unsafe` string values point into the original `input` buffer.
   Destroying or mutating that buffer after parse is undefined behaviour.
-- `parse_borrowed_unsafe` and `parse_view` are aliases for `parse_borrowed`;
-  they exist to make the lifetime contract visible at call sites.
+- `parse_copy` stores the bytes inside the returned `Document`; use it whenever
+  the source buffer cannot remain alive and immutable.
 - `NdjsonRange` returns per-line `Document` values that borrow from the original
   NDJSON buffer. The entire NDJSON input must remain alive and immutable while
   any iterator result is alive.
@@ -677,7 +685,7 @@ expected<Document, JsonError> schema_for();
 auto schema_doc = schema_for<MyStruct>();
 // schema_doc->root() is the schema NodeRef
 
-auto data_doc = parse(raw_json);
+auto data_doc = parse_view(raw_json);
 auto result = validate(data_doc->root(), schema_doc->root());
 if (!result) { /* result.error() describes the violation */ }
 ```

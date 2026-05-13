@@ -62,7 +62,7 @@ RingConfig load_ring_config(
 	}
 	std::stringstream ss;
 	ss << f.rdbuf();
-	auto parsed = conflux::json::parse(ss.str());
+	auto parsed = conflux::json::parse_copy(ss.str());
 	if (!parsed) {
 		throw RE{format("json parse failed: {}", path)};
 	}

@@ -22,7 +22,7 @@ struct JsonMembers<ApiResponse> {
 };
 static void example_parse_decode() {
 	println("--- parse + decode<T> ---");
-	auto doc = *parse(R"({"model":"gpt-4o","tokens":512})");
+	auto doc = *parse_view(R"({"model":"gpt-4o","tokens":512})");
 	auto resp = *decode<ApiResponse>(doc);
 	println("model={} tokens={} error={}", resp.model, resp.tokens, resp.error.value_or("(none)"));
 }
@@ -47,7 +47,7 @@ static void example_json5() {
 		"  timeout: 30000,\n"
 		"}";
 	JsonParseOptions opts{.mode = ParseMode::json5};
-	auto result = parse(input, opts);
+	auto result = parse_view(input, opts);
 	if (!result) {
 		println("  parse error: {}", result.error().message);
 		return;
@@ -130,8 +130,8 @@ static void example_schema_validate() {
 	auto schema_doc = *schema_for<ApiResponse>();
 	println("schema: {}", *schema_doc.dump(JsonDumpOptions{.pretty = true}));
 
-	auto good = *parse(R"({"model":"x","tokens":1})");
-	auto bad = *parse(R"({"model":123,"tokens":1})");
+	auto good = *parse_view(R"({"model":"x","tokens":1})");
+	auto bad = *parse_view(R"({"model":123,"tokens":1})");
 
 	auto r1 = validate(good.root(), schema_doc.root());
 	println("valid input:   {}", r1.has_value() ? "OK" : r1.error().message);

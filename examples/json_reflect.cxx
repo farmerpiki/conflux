@@ -52,7 +52,7 @@ static void example_decode() {
 "display_name":"Glass Sphere"
 })";
 
-	auto doc = *parse(input);
+	auto doc = *parse_view(input);
 	auto obj = decode<SceneObject>(doc);
 	if (!obj) {
 		println("decode error: {}", obj.error().message);
@@ -82,7 +82,7 @@ static void example_roundtrip() {
 	auto json_str = *doc.dump();
 	println("encoded: {}", json_str);
 
-	auto doc2 = *parse(json_str);
+	auto doc2 = *parse_view(json_str);
 	auto rt = *decode<Material>(doc2);
 	println("decoded: name={} roughness={} texture={}", rt.name, rt.roughness, rt.texture.value_or("(none)"));
 }

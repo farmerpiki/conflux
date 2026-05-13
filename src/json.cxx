@@ -4681,9 +4681,9 @@ void JsonArena::reset() noexcept {
 }
 export namespace conflux::json {
 
-// Copies the input into the Document's owned buffer. Number lexemes index
-// directly into that buffer (zero-copy on read paths).
-expected<Document, JsonError> parse(
+// Explicit owning parse: copies input into the Document's owned buffer.
+// Number lexemes index directly into that buffer (zero-copy on read paths).
+expected<Document, JsonError> parse_copy(
 	SV input,
 	JsonParseOptions const &opts = {}) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
@@ -4703,12 +4703,10 @@ expected<Document, JsonError> parse(
 	auto &storage_ref = *storage;
 	return parse_with_storage(storage_ref, move(storage), opts);
 }
-// Move-in overload: avoids the input copy. Constrained to actual S
-// rvalues so that const char[N] literals select the (SV) overload
-// without ambiguity.
-template<class S>
-	requires same_as<std::remove_cvref_t<S>, S> && (!std::is_lvalue_reference_v<S>)
-expected<Document, JsonError> parse(
+// Move-in owning overload: avoids the input copy. Keep this a concrete
+// std::string rvalue overload so unrelated string-like temporaries continue to
+// select parse_copy(string_view) instead of trying to become owned storage.
+expected<Document, JsonError> parse_copy(
 	S &&input,
 	JsonParseOptions const &opts = {}) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
@@ -4716,7 +4714,7 @@ expected<Document, JsonError> parse(
 	}
 
 	auto storage = make_unique<DocumentStorage>();
-	storage->owned_input = make_unique<S>(forward<S>(input));
+	storage->owned_input = make_unique<S>(move(input));
 	SV src = *storage->owned_input;
 	constexpr SV kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -4759,22 +4757,24 @@ expected<Document, JsonError> parse_view(
 	JsonParseOptions const &opts = {}) {
 	return parse_borrowed(input, opts);
 }
+// Performance-default parse: borrows/view-parses from stable caller-owned
+// storage. Use parse_copy(...) when the returned Document must own the bytes.
+expected<Document, JsonError> parse(
+	SV input,
+	JsonParseOptions const &opts = {}) {
+	return parse_borrowed(input, opts);
+}
 
-// Deleted rvalue overload (Correction T) — borrowing requires the caller to
-// own the bytes. Constrained the same way as the parse(S&&) overload
-// so const char[N] still selects parse_borrowed(SV).
-template<class S>
-	requires same_as<std::remove_cvref_t<S>, S> && (!std::is_lvalue_reference_v<S>)
+// Deleted std::string rvalue overloads (Correction T) — borrowing requires
+// caller-owned bytes. String literals and string_view temporaries still select
+// the string_view overloads; only owned string temporaries are rejected.
+expected<Document, JsonError> parse(S &&, JsonParseOptions const & = {}) = delete;
 expected<Document, JsonError> parse_borrowed(S &&, JsonParseOptions const & = {}) = delete;
-template<class S>
-	requires same_as<std::remove_cvref_t<S>, S> && (!std::is_lvalue_reference_v<S>)
 expected<Document, JsonError> parse_borrowed_unsafe(S &&, JsonParseOptions const & = {}) = delete;
-template<class S>
-	requires same_as<std::remove_cvref_t<S>, S> && (!std::is_lvalue_reference_v<S>)
 expected<Document, JsonError> parse_view(S &&, JsonParseOptions const & = {}) = delete;
 // pmr-injecting overloads — caller supplies the memory resource.
 // The resource must outlive every Document (and NodeRef) derived from it.
-expected<Document, JsonError> parse(
+expected<Document, JsonError> parse_copy(
 	SV input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
@@ -4823,6 +4823,14 @@ expected<Document, JsonError> parse_view(
 	std::pmr::memory_resource *resource) {
 	return parse_borrowed(input, opts, resource);
 }
+expected<Document, JsonError> parse(
+	SV input,
+	JsonParseOptions const &opts,
+	std::pmr::memory_resource *resource) {
+	return parse_borrowed(input, opts, resource);
+}
+
+expected<Document, JsonError> parse(S &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
 
 } // namespace conflux::json
 
@@ -8279,7 +8287,7 @@ public:
 		buf_.append(chunk);
 		return {};
 	}
-	[[nodiscard]] expected<Document, JsonError> finish() { return conflux::json::parse(move(buf_), opts_); }
+	[[nodiscard]] expected<Document, JsonError> finish() { return conflux::json::parse_copy(move(buf_), opts_); }
 	void reset() noexcept { buf_.clear(); }
 	[[nodiscard]] SZ buffered_bytes() const noexcept { return buf_.size(); }
 };
