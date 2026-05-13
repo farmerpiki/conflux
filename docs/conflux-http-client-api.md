@@ -222,9 +222,19 @@ Body (debug builds assert that body is set at most once unless `clear_body()` is
 .body_view(std::string_view)    // copies into request
 .body_form(HttpFields)          // sets Content-Type: application/x-www-form-urlencoded
 .body_json_raw(std::string)     // sets Content-Type: application/json
-.body_json(Document)            // serializes via conflux.json
-.body_json(NodeRef)             // Phase-2: currently a stub — ONLY sets Content-Type, does NOT serialize
 .clear_body()
+```
+
+JSON request-body serialization lives in the optional `conflux.net.http.json`
+module instead of `HttpRequest::Builder`, so `conflux.net.http.request` stays
+free of a JSON module dependency:
+
+```cpp
+import conflux.net.http.json;
+
+auto b = HttpRequest::post("https://example.test/submit");
+conflux::http::json::set_body(b, doc);
+auto req = std::move(b).build();
 ```
 
 Execution policy:
@@ -308,7 +318,6 @@ Anything that depends on Phase 2:
 - **No proxy support on the client itself** — `src/net/proxy.cxx` is a *server-side* reverse-proxy handler that uses `HttpClient` internally; it is not an HTTP-proxy client.
 - **No cookie jar** — `Set-Cookie` is captured in `head.set_cookies` for inspection only.
 - **No retry / backoff.**
-- `body_json(NodeRef)` is a stub: it sets `Content-Type` but does not serialize the node. Use `body_json(Document)` or `body_json_raw(...)` until Phase 2 lands.
 
 ## Threading
 
@@ -397,6 +406,6 @@ Still not in any transport:
 - pooled connections / keep-alive (`pool_wait` / `reused_connection` always false)
 - redirect following (`follow_redirects` compiles but has no effect)
 - content-coding decode (gzip/br/zstd bodies arrive raw)
-- `body_json(NodeRef)` (sets Content-Type only; use `body_json(Document)`)
+- JSON document request-body helpers are free functions in `conflux.net.http.json`; there is intentionally no `body_json(NodeRef)` member on `HttpRequest::Builder`.
 
 Builder/Request/Response/Telemetry/Error shapes are not expected to change.

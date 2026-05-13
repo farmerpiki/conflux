@@ -62,39 +62,38 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - Completed stale-edge cleanup slice: `conflux::http_router` no longer imports
      or links `conflux.file_io` only to serve static PUT/DELETE internals; those
      live behind `conflux::http_static_async`.
-   - Next concrete slice: inspect `conflux_socket_io -> file_io` and
-     `net.client -> file_io` proposal edges, then remove any stale direct target
-     links that are now covered by lower-level component targets.
+   - Completed dependency-edge cleanup slice: rechecked stale proposal edges for
+     `conflux_socket_io -> file_io`, `net.client -> file_io`, and
+     `HttpRequest::Builder::body_json(NodeRef)`; those are already gone. Also
+     removed redundant direct `PkgConfig::LIBURING` links from higher-level
+     component/example/test/benchmark targets that already receive liburing usage
+     requirements through `conflux_uring`, `conflux_work`, `conflux_file_io`, or
+     `conflux_socket_io`.
+   - Next concrete slice: start the HTTP handler-model normalization by moving
+     blocking user handler execution toward explicit work-pool dispatch instead
+     of running arbitrary sync handlers on the ring thread.
 
-2. **Remove remaining stale dependency edges from proposal reviews.**
-   - Re-check `conflux_socket_io -> file_io`, `net.client -> file_io`, and
-     `HttpRequest::Builder::body_json(NodeRef)` before each modular patch; these
-     have been moving and proposals can be stale.
-   - `http_router -> file_io` was removed after static GET/PUT/DELETE internals
-     moved behind `http_static_async`; continue checking for similar stale edges.
-   - Keep `file_io_sync` and `file_map` usable without `liburing`.
-
-3. **Normalize the HTTP handler model.**
+2. **Normalize the HTTP handler model.**
    - Target one internal shape: `root::Task<HttpResponse>(HttpRequestView)`.
    - Do not execute arbitrary sync user handlers on the ring thread unless they
      are explicitly marked nonblocking or routed through a work pool.
 
-4. **Use allocation diagnostics before pooling more coroutine frames.**
+3. **Use allocation diagnostics before pooling more coroutine frames.**
    - `CONFLUX_WORK_ALLOC_STATS` exists; use it to confirm `root::Task<T>` /
      `ControlBlockModel<T>` pressure before adding the next pool.
    - Avoid jumping straight to P2300.
 
-5. **Close benchmark gaps that unblock decisions.**
+4. **Close benchmark gaps that unblock decisions.**
    - Add/finish `default_` vs `poll_first` vs adaptive recv-arm benchmarks.
    - Add the end-to-end `SocketTaskRing` vs `FileReader` JSON decode benchmark.
    - Validate send-zc adaptive thresholds before changing defaults.
 
-6. **Finish async cancellation edges.**
+5. **Finish async cancellation edges.**
    - HTTPS async TLS connect/recv cancellation awareness.
    - Explicit recv cancel for armed server connections.
    - Cancel-by-fd only after per-fd cancel slot tracking is designed.
 
-7. **Split the next HTTP modular target.**
+6. **Split the next HTTP modular target.**
    - `conflux::http_router`, the main router-dependent middleware buckets,
      `conflux::http_compression`, `conflux::http_client`,
      `conflux::http_async_client`, `conflux::http_proxy`, `conflux::http1`,
@@ -106,15 +105,15 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
      collapse router-owned helper leftovers only where doing so removes a real
      dependency edge.
 
-8. **Prototype compile-time JSON only after the return type is documented.**
+7. **Prototype compile-time JSON only after the return type is documented.**
    - Subset: integers, booleans, null, no-escape strings, nested objects/arrays.
    - No float literals until constexpr number parsing constraints are resolved.
 
-9. **DB follow-ups after the HTTP/runtime contract slices.**
+8. **DB follow-ups after the HTTP/runtime contract slices.**
    - COPY API first if benchmark scope is clear.
    - True libpq wire-level pipeline mode remains larger/riskier.
 
-10. **Defer full simdjson-style Stage-0 and P2300 rewrites.**
+9. **Defer full simdjson-style Stage-0 and P2300 rewrites.**
     - Stage-0 only after business need justifies it; previous whitespace/string
       scan widening failed gates.
     - P2300 is multi-week architecture work and should follow measured

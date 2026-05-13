@@ -640,7 +640,6 @@ target_link_libraries(conflux_file_io
     PUBLIC  conflux_file_map
     PUBLIC  conflux_uring
     PUBLIC  conflux_work
-    PUBLIC  PkgConfig::LIBURING
 )
 
 endif() # CONFLUX_WANT_FILE_IO
@@ -699,7 +698,6 @@ target_link_libraries(conflux_socket_io
     PUBLIC  conflux_types
     PUBLIC  conflux_uring
     PUBLIC  conflux_work
-    PUBLIC  PkgConfig::LIBURING
 )
 
 endif() # CONFLUX_WANT_SOCKET_IO
@@ -739,7 +737,6 @@ target_link_libraries(conflux_dns
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
-    PUBLIC  PkgConfig::LIBURING
 )
 
 endif() # CONFLUX_WANT_DNS
@@ -761,7 +758,6 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
         PRIVATE conflux_options
         PUBLIC  conflux_work
         PUBLIC  conflux_file_io
-        PUBLIC  PkgConfig::LIBURING
         PUBLIC  PkgConfig::LIBPQ
     )
     target_compile_definitions(conflux_db PUBLIC CONFLUX_HAS_DB=1)
@@ -1379,7 +1375,6 @@ target_link_libraries(conflux_http_server
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
     PUBLIC  conflux_utils
-    PUBLIC  PkgConfig::LIBURING
 )
 if(TARGET conflux_net_tls)
     target_compile_definitions(conflux_http_server PUBLIC CONFLUX_HAS_TLS=1)
@@ -1519,7 +1514,6 @@ target_link_libraries(conflux
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
     PRIVATE conflux_direct_slot_pool
-    PUBLIC  PkgConfig::LIBURING
 )
 if(TARGET conflux_process)
     target_link_libraries(conflux PUBLIC conflux_process)
@@ -1656,11 +1650,11 @@ endif()
 if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
     add_executable(conflux_db_basic examples/db_basic.cxx)
     target_link_libraries(conflux_db_basic
-        PRIVATE conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
+        PRIVATE conflux_db conflux_file_io conflux_work conflux_options)
 
     add_executable(conflux_db_pool examples/db_pool.cxx)
     target_link_libraries(conflux_db_pool
-        PRIVATE conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
+        PRIVATE conflux_db conflux_file_io conflux_work conflux_options)
 endif()
 
 # JSON examples (use monolith for convenience)

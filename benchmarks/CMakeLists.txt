@@ -29,29 +29,29 @@ target_link_libraries(conflux_work_compile_bench PRIVATE bench_common conflux_wo
 
 add_executable(conflux_file_copy_coro_bench file_copy_coro_bench.cxx)
 target_link_libraries(conflux_file_copy_coro_bench
-    PRIVATE bench_common conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
+    PRIVATE bench_common conflux_file_io conflux_work conflux_options)
 
 add_executable(conflux_tcp_increment_coro_bench tcp_increment_coro_bench.cxx)
 target_link_libraries(conflux_tcp_increment_coro_bench
-    PRIVATE bench_common conflux_file_io conflux_socket_io conflux_work conflux_options PkgConfig::LIBURING)
+    PRIVATE bench_common conflux_file_io conflux_socket_io conflux_work conflux_options)
 
 
 # TODO: co_spawn not yet implemented — re-enable when available
 # add_executable(conflux_tcp_parallel_coro_bench tcp_parallel_coro_bench.cxx)
 # target_link_libraries(conflux_tcp_parallel_coro_bench
-#     PRIVATE conflux conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
+#     PRIVATE conflux conflux_file_io conflux_work conflux_options)
 
 if(CONFLUX_HAS_TLS STREQUAL "true")
     add_executable(conflux_tls_tcp_increment_coro_bench tls_tcp_increment_coro_bench.cxx)
     target_link_libraries(conflux_tls_tcp_increment_coro_bench
         PRIVATE bench_common conflux conflux_file_io conflux_work conflux_options
-                PkgConfig::LIBURING OpenSSL::SSL OpenSSL::Crypto)
+                OpenSSL::SSL OpenSSL::Crypto)
 endif()
 
 if(CONFLUX_HAS_DB STREQUAL "true")
     add_executable(conflux_db_coro_bench db_coro_bench.cxx)
     target_link_libraries(conflux_db_coro_bench
-        PRIVATE bench_common conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
+        PRIVATE bench_common conflux_db conflux_file_io conflux_work conflux_options)
 
     add_executable(conflux_db_params_bench db_params_bench.cxx)
     target_link_libraries(conflux_db_params_bench
@@ -59,7 +59,7 @@ if(CONFLUX_HAS_DB STREQUAL "true")
 
     add_executable(conflux_db_pipeline_bench db_pipeline_bench.cxx)
     target_link_libraries(conflux_db_pipeline_bench
-        PRIVATE bench_common conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
+        PRIVATE bench_common conflux_db conflux_file_io conflux_work conflux_options)
 endif()
 
 add_executable(conflux_json_bench json_bench.cxx)
@@ -91,7 +91,7 @@ target_link_libraries(conflux_join_all_N_bench PRIVATE bench_common conflux_work
 
 add_executable(conflux_http_server_bench http_server_bench.cxx)
 target_link_libraries(conflux_http_server_bench
-    PRIVATE bench_common conflux conflux_work conflux_options PkgConfig::LIBURING)
+    PRIVATE bench_common conflux conflux_work conflux_options)
 if(CONFLUX_HAS_TLS STREQUAL "true")
     target_link_libraries(conflux_http_server_bench PRIVATE OpenSSL::SSL OpenSSL::Crypto)
     target_compile_definitions(conflux_http_server_bench PRIVATE CONFLUX_BENCH_HAS_TLS=1)
@@ -99,15 +99,15 @@ endif()
 
 add_executable(conflux_send_zc_bench send_zc_bench.cxx)
 target_link_libraries(conflux_send_zc_bench
-    PRIVATE bench_common conflux conflux_work conflux_options PkgConfig::LIBURING)
+    PRIVATE bench_common conflux conflux_work conflux_options)
 
 add_executable(conflux_http_server_concurrency_bench http_server_concurrency_bench.cxx)
 target_link_libraries(conflux_http_server_concurrency_bench
-    PRIVATE bench_common conflux conflux_work conflux_options PkgConfig::LIBURING)
+    PRIVATE bench_common conflux conflux_work conflux_options)
 
 add_executable(conflux_socket_raw_bench socket_raw_bench.cxx)
 target_link_libraries(conflux_socket_raw_bench
-    PRIVATE bench_common conflux_socket_io conflux_direct_slot_pool conflux_options PkgConfig::LIBURING)
+    PRIVATE bench_common conflux_socket_io conflux_direct_slot_pool conflux_options)
 
 # Meta-target: build all benches that support --bench-info recording.
 set(_record_targets

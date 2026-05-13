@@ -241,17 +241,13 @@ public:
     static HttpResponse service_unavailable();
 };
 
-class HttpResponse::Builder {
-public:
-    Builder& header(std::string_view name, std::string_view value);
-    Builder& content_type(std::string_view);
-    Builder& body(std::string);
-    Builder& body(std::string_view);          // copies
-    Builder& body_json(Document const&);      // serializes; sets Content-Type
-    Builder& body_json_raw(std::string);      // sets Content-Type: application/json
-    Builder& cookie(std::string_view name, std::string_view value, CookieOptions const& = {});
-    HttpResponse build() &&;
-};
+// Current response helpers are value factories/mutators rather than a nested
+// builder class. JSON response bodies are explicit raw strings; structured JSON
+// serialization belongs at the call site or in conflux.net.http.json helpers.
+HttpResponse::html(std::string body);
+HttpResponse::json(std::string already_serialized_body);
+HttpResponse::text(std::string body);
+HttpResponse::not_found(std::string_view path = {});
 ```
 
 ---
@@ -434,11 +430,11 @@ In-flight requests are allowed to complete. New accepts stop immediately. A conf
 
 ```cpp
 router.not_found([](HttpRequestView req) -> HttpResponse {
-    return HttpResponse::not_found().body_json_raw(R"({"error":"not found"})").build();
+    return HttpResponse::json(R"({"error":"not found"})", 404, "Not Found");
 });
 
 router.error_handler([](HttpRequestView req, std::exception_ptr ep) -> HttpResponse {
     // log ep, return 500
-    return HttpResponse::internal_error().build();
+    return HttpResponse::internal_error();
 });
 ```

@@ -12,23 +12,18 @@ The current proposal correctly identifies the monolith problem and the core/http
 
 ## Immediate source-state fixes
 
-Implement these before large CMake work:
+Current source-state fixes already landed:
 
 ```text
-1. Remove PUBLIC conflux_file_io from conflux_socket_io.
-   Current CMake links socket_io -> file_io even though socket sources do not need it.
-
-2. Remove import conflux.file_io from src/net/client.cxx.
-   It is stale and makes the client look file_io-dependent.
-
-3. Remove or move HttpRequest::Builder::body_json(...).
-   src/net/http_request.cxx imports conflux.json and body_json(NodeRef) is currently broken.
-
-4. Make conflux_json always real.
-   Reflection should depend on json; json should not be hidden inside the monolith.
-
-5. Extract conflux_crypto early.
-   JWT/HMAC/WebSocket masking/auth need crypto without TLS coupling.
+1. conflux_socket_io no longer links conflux_file_io.
+2. src/net/client.cxx no longer imports conflux.file_io.
+3. HttpRequest::Builder no longer owns body_json(...) members; JSON request-body
+   helpers live in conflux.net.http.json.
+4. conflux_json is a real target when BUILD_JSON=ON; reflection depends on it.
+5. conflux_crypto is a split target used by JWT/HMAC/WebSocket/auth surfaces.
+6. Higher-level components/tests/benches no longer repeat direct
+   PkgConfig::LIBURING links when conflux_uring/conflux_work/conflux_file_io/
+   conflux_socket_io already propagate liburing usage requirements.
 ```
 
 ## Revised target graph

@@ -195,34 +195,34 @@ target_link_libraries(conflux_process_tests PRIVATE conflux conflux_options Catc
 
 add_executable(conflux_resource_tests resource_limits_test.cxx)
 target_link_libraries(conflux_resource_tests
-    PRIVATE conflux_socket_io conflux_options conflux_direct_slot_pool Catch2::Catch2WithMain PkgConfig::LIBURING)
+    PRIVATE conflux_socket_io conflux_options conflux_direct_slot_pool Catch2::Catch2WithMain)
 conflux_discover_tests(conflux_resource_tests)
 
 add_executable(recv_bundle_assert_probe recv_bundle_assert_probe.cxx)
 target_link_libraries(recv_bundle_assert_probe
-    PRIVATE conflux_socket_io conflux_options PkgConfig::LIBURING)
+    PRIVATE conflux_socket_io conflux_options)
 
 add_executable(incremental_buf_ring_assert_probe incremental_buf_ring_assert_probe.cxx)
 target_link_libraries(incremental_buf_ring_assert_probe
-    PRIVATE conflux_socket_io conflux_options PkgConfig::LIBURING)
+    PRIVATE conflux_socket_io conflux_options)
 
 add_executable(conflux_incremental_buf_ring_tests incremental_buf_ring_test.cxx)
 target_link_libraries(conflux_incremental_buf_ring_tests
-    PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain PkgConfig::LIBURING)
+    PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain)
 target_compile_definitions(conflux_incremental_buf_ring_tests PRIVATE
     "ASSERT_PROBE_BIN=\"$<TARGET_FILE:incremental_buf_ring_assert_probe>\"")
 conflux_discover_tests(conflux_incremental_buf_ring_tests)
 
 add_executable(conflux_recv_bundle_tests recv_bundle_test.cxx)
 target_link_libraries(conflux_recv_bundle_tests
-    PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain PkgConfig::LIBURING)
+    PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain)
 target_compile_definitions(conflux_recv_bundle_tests PRIVATE
     "ASSERT_PROBE_BIN=\"$<TARGET_FILE:recv_bundle_assert_probe>\"")
 conflux_discover_tests(conflux_recv_bundle_tests)
 
 add_executable(conflux_tcp_listener_tests tcp_listener_test.cxx)
 target_link_libraries(conflux_tcp_listener_tests
-    PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain PkgConfig::LIBURING)
+    PRIVATE conflux_socket_io conflux_options Catch2::Catch2WithMain)
 conflux_discover_tests(conflux_tcp_listener_tests)
 
 add_executable(conflux_recv_bundle_e2e_tests)
@@ -339,7 +339,6 @@ target_link_libraries(conflux_poll_first_auto_tests
         conflux_socket_io
         conflux_options
         Catch2::Catch2WithMain
-        PkgConfig::LIBURING
 )
 
 add_executable(conflux_file_io_tests file_io_test.cxx)
@@ -377,7 +376,6 @@ target_link_libraries(conflux_dns_resolver_tests
         conflux_work
         conflux_options
         Catch2::Catch2WithMain
-        PkgConfig::LIBURING
 )
 
 add_executable(conflux_udp_tests udp_test.cxx)
@@ -388,7 +386,6 @@ target_link_libraries(conflux_udp_tests
         conflux_work
         conflux_options
         Catch2::Catch2WithMain
-        PkgConfig::LIBURING
 )
 
 add_executable(conflux_socket_task_ring_tests socket_task_ring_test.cxx)
@@ -399,7 +396,6 @@ target_link_libraries(conflux_socket_task_ring_tests
         conflux_work
         conflux_options
         Catch2::Catch2WithMain
-        PkgConfig::LIBURING
 )
 
 if(CONFLUX_HAS_DB STREQUAL "true")
@@ -423,7 +419,6 @@ if(CONFLUX_HAS_DB STREQUAL "true")
             conflux_options
             Catch2::Catch2WithMain
             PkgConfig::LIBPQ
-            PkgConfig::LIBURING
     )
 endif()
 
