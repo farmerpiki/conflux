@@ -24,7 +24,7 @@
 - [x] Router: formal named public concepts (`HandlerResult`, `RouteHandler`, `ContextHandlerFunction`, `Middleware`) — exported and wired into `add_context`
 - [x] io_uring init: adaptive flag fallback on `EINVAL` (strip `CQE_MIXED` → `NO_SQARRAY` → `TASKRUN_FLAG` → `DEFER_TASKRUN` → `SINGLE_ISSUER`, log final set)
 
-- [ ] Shutdown: force-close `close_after_send` connections that stall (send CQE never completes because peer stopped draining) — cancel in-flight send + immediate close after a shutdown timeout, rather than waiting indefinitely for send completion
+- [x] Shutdown: force-close `close_after_send` connections that stall (send CQE never completes because peer stopped draining) — `handle_shutdown()` now stamps a shutdown deadline for queued sends and `handle_timer()` force-closes overdue connections instead of waiting indefinitely for send completion
 
 ## Architecture (dedicated branches)
 

@@ -274,6 +274,7 @@ struct alignas(
 	bool deferred_head_only = false; // HEAD on deferred route → strip body when ready
 	bool closing = false; // close SQE already submitted for this generation
 	bool close_after_send = false; // true → close instead of re-arming recv
+	chrono::steady_clock::time_point close_after_send_deadline{}; // force-close grace deadline during shutdown
 	int sse_efd = -1;
 	SP<SseChannel> sse_channel{};
 	int deferred_efd = -1;
@@ -963,6 +964,7 @@ struct Ring {
 	bool send_fixed_buffers_enabled = false;
 
 	__kernel_timespec timer_ts{}; // reused for the periodic timeout SQE
+	static constexpr chrono::milliseconds shutdown_close_after_send_timeout{5000};
 
 	// Software fallback queue for ops that could not obtain an SQE even after
 	// a flush. Drained at the top of each run_loop iteration (after CQE reap
@@ -2690,9 +2692,17 @@ struct Ring {
 	// Arm a one-shot periodic timer that fires every ~1 second for connection reaping.
 	void arm_timer() {
 		if (shutting_down) {
-			return;
-		}
-		if (request_timeout_ms == 0 && tls_sniff_timeout_ms == 0) {
+			bool pending_force_close = false;
+			for (auto const &conn: fd_table) {
+				if (conn.fd >= 0 && conn.send_queued && conn.close_after_send) {
+					pending_force_close = true;
+					break;
+				}
+			}
+			if (!pending_force_close && request_timeout_ms == 0 && tls_sniff_timeout_ms == 0) {
+				return;
+			}
+		} else if (request_timeout_ms == 0 && tls_sniff_timeout_ms == 0) {
 			return;
 		}
 		timer_ts.tv_sec = 1;
@@ -2710,6 +2720,10 @@ struct Ring {
 		auto sniff_limit = chrono::milliseconds{tls_sniff_timeout_ms};
 		for (auto &conn: fd_table) {
 			if (conn.fd < 0) {
+				continue;
+			}
+			if (shutting_down && conn.send_queued && conn.close_after_send && now >= conn.close_after_send_deadline) {
+				queue_close(conn.fd);
 				continue;
 			}
 			if (conn.is_sse) {
@@ -2748,6 +2762,7 @@ struct Ring {
 	void handle_shutdown() {
 		shutting_down = true;
 		cancel_accept_or_defer();
+		auto const now = chrono::steady_clock::now();
 		for (SZ i = 0; i < fd_table.size(); ++i) {
 			auto &conn = fd_table[i];
 			if (conn.fd < 0) {
@@ -2758,6 +2773,7 @@ struct Ring {
 			}
 			if (conn.send_queued) {
 				conn.close_after_send = true;
+				conn.close_after_send_deadline = now + shutdown_close_after_send_timeout;
 				if (conn.recv_armed) {
 					auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(i)) :
 															SocketHandle::from_os(conn.fd);
@@ -2767,6 +2783,7 @@ struct Ring {
 				queue_close(static_cast<int>(i));
 			}
 		}
+		arm_timer();
 	}
 	void handle_accept(
 		int res,
