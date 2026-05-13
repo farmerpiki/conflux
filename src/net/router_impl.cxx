@@ -11,6 +11,7 @@ import conflux.net.http.realtime;
 import conflux.net.http.static_files;
 import conflux.net.http.static_core;
 import conflux.net.http.static_async;
+import conflux.net.router_dispatch;
 import conflux.net.router_match;
 import conflux.net.router_static;
 import conflux.work;
@@ -163,38 +164,16 @@ Router &Router::ws_prepared(
 
 [[nodiscard]] HttpResponse Router::run_async_http_task(
 	conflux::work::root::Task<HttpResponse> task) {
-		auto deferred = make_shared<DeferredResponse>();
-		auto jh = make_shared<conflux::work::root::TaskJoinHandle<HttpResponse>>(
-			conflux::work::root::into_join_handle(move(task)));
-		deferred->attach_cancel(jh->control());
-		jh->control().set_on_ready_or_run([deferred, jh]() noexcept {
-			try {
-				auto outcome = conflux::work::root::join(move(*jh));
-				if (outcome.is_success()) {
-					deferred->complete(move(outcome).success().value);
-				} else {
-					deferred->complete(HttpResponse::internal_error());
-				}
-			} catch (exception const &ex) { deferred->complete(HttpResponse::internal_error(ex.what())); } catch (...) {
-				deferred->complete(HttpResponse::internal_error());
-			}
-		});
-		return HttpResponse::deferred(move(deferred));
-	}
+	return router_run_async_http_task(move(task));
+}
 
 void Router::launch_sse_handler(
 	SP<WorkPool> const &pool,
 	SseHandler handler,
 	HttpRequest matched,
 	SP<SseChannel> const &channel) {
-		if (!pool->enqueue([h = move(handler), matched = move(matched), channel]() mutable {
-				HttpRequestView const matched_view{matched};
-				h(matched_view, channel);
-				channel->close();
-			})) {
-			channel->close();
-		}
-	}
+	router_launch_sse_handler(pool, move(handler), move(matched), channel);
+}
 
 [[nodiscard]] Router::Handler Router::wrap_middlewares(
 	Handler h) const {
@@ -255,74 +234,15 @@ Router &Router::serve_static(
 
 		// Inner handler: performs route matching + 404. Middleware wraps this whole thing.
 		Handler inner = [this, path_sv, is_head](HttpRequestView const &r) -> HttpResponse {
-			try {
-				HttpFieldsView matched_params;
-
-				// Regular routes first.
-				for (auto const &route: impl_->routes) {
-					if (route.method != r.method && !(is_head && route.method == "GET")) {
-						continue;
-					}
-					matched_params.clear();
-					if (match_segments(route.pattern, path_sv, matched_params)) {
-						auto all_params = r.params;
-						for (auto const &[k, v]: matched_params) {
-							if (!all_params.get(k)) {
-								all_params.emplace_back(k, v);
-							}
-						}
-						// HEAD matched to a GET route: present as GET so handlers are HEAD-transparent.
-						SV const effective_method = (is_head && route.method == "GET") ? SV{"GET"} : r.method;
-						HttpRequestView const matched_view{
-							effective_method,
-							r.path,
-							r.version,
-							r.remote_addr,
-							r.is_tls,
-							move(all_params),
-							r.headers,
-							r.query,
-							r.form,
-							r.cookies,
-							r.files,
-							r.body};
-						try {
-							auto resp = route.handler(matched_view);
-							if (is_head) {
-								resp.head_only = true;
-							}
-							return resp;
-						} catch (exception const &ex) {
-							return impl_->error_handler ? impl_->error_handler(matched_view, ex) :
-														  HttpResponse::internal_error(ex.what());
-						} catch (...) {
-							return impl_->error_handler ? impl_->error_handler(matched_view, RE{"unknown exception"}) :
-														  HttpResponse::internal_error();
-						}
-					}
-				}
-
-				// SSE routes (GET only).
-				if (r.method == "GET") {
-					for (auto const &route: impl_->sse_routes) {
-						matched_params.clear();
-						if (match_segments(route.pattern, path_sv, matched_params)) {
-							auto channel = make_shared<SseChannel>();
-							HttpRequest matched = r.to_owned();
-							for (auto &[k, v]: matched_params) {
-								matched.params.emplace_back(S{k}, S{v});
-							}
-							launch_sse_handler(impl_->work_pool, route.handler, move(matched), channel);
-							return HttpResponse::sse(move(channel));
-						}
-					}
-				}
-
-				if (impl_->not_found_handler) {
-					return impl_->not_found_handler(r);
-				}
-				return HttpResponse::not_found(path_sv);
-			} catch (...) { return HttpResponse::internal_error(); }
+			return dispatch_sync_routes(
+				r,
+				path_sv,
+				is_head,
+				impl_->routes,
+				impl_->sse_routes,
+				impl_->not_found_handler,
+				impl_->error_handler,
+				impl_->work_pool);
 		};
 
 		return wrap_middlewares(move(inner))(req);
@@ -331,29 +251,10 @@ Router &Router::serve_static(
 [[nodiscard]] Opt<HttpResponse> Router::dispatch_async(
 	HttpRequest const &req,
 	RequestContext const &ctx) const {
-		if (impl_->context_routes.empty()) {
-			return nullopt;
-		}
 		bool const is_head = (req.method == "HEAD");
 		SV path_sv{req.path};
 		if (auto q = path_sv.find('?'); q != SV::npos) {
 			path_sv = path_sv.substr(0, q);
 		}
-		HttpFieldsView matched_params;
-		for (auto const &route: impl_->context_routes) {
-			if (route.method != req.method && !(is_head && route.method == "GET")) {
-				continue;
-			}
-			matched_params.clear();
-			if (match_segments(route.pattern, path_sv, matched_params)) {
-				HttpRequest call_req = req;
-				for (auto const &[k, v]: matched_params) {
-					if (!call_req.params.get(k)) {
-						call_req.params.emplace_back(S{k}, S{v});
-					}
-				}
-				return run_async_http_task(route.handler(call_req, ctx));
-			}
-		}
-		return nullopt;
+		return dispatch_async_routes(req, ctx, path_sv, is_head, impl_->context_routes);
 	}
