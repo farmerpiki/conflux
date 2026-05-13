@@ -2103,6 +2103,8 @@ struct Ring {
 	}
 	// Submit WRITEV for a mapped-file response.
 	// Adjusts iovecs to skip bytes already sent (conn.written).
+	// When the body is large enough for SEND_ZC, keep the header send separate so
+	// the body can use zero-copy after the header CQE drains.
 	void queue_send_mapped(
 		int fd) {
 		auto &conn = conn_for(fd);
@@ -2112,6 +2114,19 @@ struct Ring {
 		// iov[0]: remaining header bytes
 		if (skip < conn.own_response.size()) {
 			span<char> const hdr_span{conn.own_response};
+			if (send_zc_enabled_ && conn.mapped_file && conn.mapped_file->size >= send_zc_threshold_) {
+				auto handle =
+					accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(fd)) : SocketHandle::from_os(fd);
+				if (!submit_send_borrowed(
+						raw_,
+						handle,
+						hdr_span.subspan(skip).data(),
+						hdr_span.subspan(skip).size(),
+						pack(Op::Send, conn.gen, fd))) {
+					defer_op([this, fd] { queue_send_mapped(fd); });
+				}
+				return;
+			}
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 			conn.writev_iov[ni++] = {
 				.iov_base = static_cast<void *>(hdr_span.subspan(skip).data()),
