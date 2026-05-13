@@ -1378,6 +1378,18 @@ target_link_libraries(conflux_http_server_helpers
     PUBLIC  conflux_utils
 )
 
+add_library(conflux_http_server_config STATIC)
+target_sources(conflux_http_server_config
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/http_server_config.cxx
+)
+target_link_libraries(conflux_http_server_config
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_net_config
+)
+
 add_library(conflux_http_server STATIC)
 target_sources(conflux_http_server
     PUBLIC FILE_SET CXX_MODULES
@@ -1391,6 +1403,7 @@ target_sources(conflux_http_server
 target_link_libraries(conflux_http_server
     PRIVATE conflux_options
     PRIVATE conflux_http_server_helpers
+    PRIVATE conflux_http_server_config
     PUBLIC  conflux_types
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_router
@@ -1729,6 +1742,7 @@ conflux_public_component(conflux_http_static_async http_static_async)
 conflux_public_component(conflux_http_realtime http_realtime)
 conflux_public_component(conflux_http_response http_response)
 conflux_public_component(conflux_http_server_helpers http_server_helpers)
+conflux_public_component(conflux_http_server_config http_server_config)
 conflux_public_component(conflux_http_policy http_policy)
 conflux_public_component(conflux_http_auth http_auth)
 conflux_public_component(conflux_http_compression http_compression)
@@ -1795,6 +1809,7 @@ foreach(_target IN ITEMS
         conflux_http_realtime
         conflux_http_response
         conflux_http_server_helpers
+        conflux_http_server_config
         conflux_http_policy
         conflux_http_auth
         conflux_http_compression

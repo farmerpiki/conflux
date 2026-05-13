@@ -25,6 +25,7 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - Leave the broader `file_io` re-export in place for tests/examples until the library split is farther along.
    - Timeout submission now lives in `conflux.uring.timeout`; keep moving other non-file runtime helpers out of `file_io` in the same style.
    - HTTP server parsing/formatting helpers now live in `conflux.net.http_server_helpers`; keep peeling `http_server_impl` toward smaller event-loop/state-machine units.
+   - HTTP server ring/config helpers now live in `conflux.net.http_server_config`; keep peeling `http_server_impl` toward the send/recv and dispatch state machines.
 
 2. **Apply the blocking/sync/async naming pass.**
    - `blocking_*` for raw syscall-style helpers.
