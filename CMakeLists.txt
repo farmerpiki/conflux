@@ -920,6 +920,75 @@ endif()
 
 
 # ---------------------------------------------------------------------------
+# Tests & examples (monolith-dependent)
+# ---------------------------------------------------------------------------
+
+if(CONFLUX_BUILD_TESTS)
+    enable_testing()
+    if(TARGET conflux_uring)
+        target_compile_definitions(conflux_uring PRIVATE CONFLUX_TESTING)
+    endif()
+    add_subdirectory(tests)
+endif()
+
+if(CONFLUX_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
+
+if(CONFLUX_BUILD_FUZZ)
+    add_subdirectory(fuzz)
+endif()
+
+# Easy HTTP examples (first-contact / v1-facing)
+add_executable(conflux_hello examples/hello.cxx)
+target_link_libraries(conflux_hello PRIVATE conflux conflux_options)
+
+add_executable(conflux_middleware examples/middleware.cxx)
+target_link_libraries(conflux_middleware PRIVATE conflux conflux_options)
+
+add_executable(conflux_sse examples/sse.cxx)
+target_link_libraries(conflux_sse PRIVATE conflux conflux_options)
+
+add_executable(conflux_static examples/static.cxx)
+target_link_libraries(conflux_static PRIVATE conflux conflux_options)
+
+# Additional examples
+add_executable(conflux_forms examples/forms.cxx)
+target_link_libraries(conflux_forms PRIVATE conflux conflux_options)
+
+add_executable(conflux_gzip examples/gzip.cxx)
+target_link_libraries(conflux_gzip PRIVATE conflux conflux_options)
+
+add_executable(conflux_http_client examples/http_client.cxx)
+target_link_libraries(conflux_http_client PRIVATE conflux conflux_options)
+
+add_executable(conflux_dual examples/dual.cxx)
+target_link_libraries(conflux_dual PRIVATE conflux conflux_options)
+
+if(CONFLUX_HAS_HTTP3 STREQUAL "true")
+    add_executable(conflux_h3_probe examples/h3_probe.cxx)
+    target_link_libraries(conflux_h3_probe PRIVATE conflux conflux_options)
+    add_executable(conflux_h3_server examples/h3_server.cxx)
+    target_link_libraries(conflux_h3_server PRIVATE conflux conflux_options)
+endif()
+
+if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
+    add_executable(conflux_db_basic examples/db_basic.cxx)
+    target_link_libraries(conflux_db_basic
+        PRIVATE conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
+
+    add_executable(conflux_db_pool examples/db_pool.cxx)
+    target_link_libraries(conflux_db_pool
+        PRIVATE conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
+endif()
+
+# JSON examples (use monolith for convenience)
+add_executable(conflux_json_example examples/json.cxx)
+target_link_libraries(conflux_json_example PRIVATE conflux conflux_options)
+
+endif() # CONFLUX_WANT_HTTP_SERVER
+
+# ---------------------------------------------------------------------------
 # Public package targets / install-export
 # ---------------------------------------------------------------------------
 
@@ -1089,75 +1158,6 @@ install(EXPORT confluxTargets
     NAMESPACE conflux::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
 )
-
-# ---------------------------------------------------------------------------
-# Tests & examples (monolith-dependent)
-# ---------------------------------------------------------------------------
-
-if(CONFLUX_BUILD_TESTS)
-    enable_testing()
-    if(TARGET conflux_uring)
-        target_compile_definitions(conflux_uring PRIVATE CONFLUX_TESTING)
-    endif()
-    add_subdirectory(tests)
-endif()
-
-if(CONFLUX_BUILD_BENCHMARKS)
-    add_subdirectory(benchmarks)
-endif()
-
-if(CONFLUX_BUILD_FUZZ)
-    add_subdirectory(fuzz)
-endif()
-
-# Easy HTTP examples (first-contact / v1-facing)
-add_executable(conflux_hello examples/hello.cxx)
-target_link_libraries(conflux_hello PRIVATE conflux conflux_options)
-
-add_executable(conflux_middleware examples/middleware.cxx)
-target_link_libraries(conflux_middleware PRIVATE conflux conflux_options)
-
-add_executable(conflux_sse examples/sse.cxx)
-target_link_libraries(conflux_sse PRIVATE conflux conflux_options)
-
-add_executable(conflux_static examples/static.cxx)
-target_link_libraries(conflux_static PRIVATE conflux conflux_options)
-
-# Additional examples
-add_executable(conflux_forms examples/forms.cxx)
-target_link_libraries(conflux_forms PRIVATE conflux conflux_options)
-
-add_executable(conflux_gzip examples/gzip.cxx)
-target_link_libraries(conflux_gzip PRIVATE conflux conflux_options)
-
-add_executable(conflux_http_client examples/http_client.cxx)
-target_link_libraries(conflux_http_client PRIVATE conflux conflux_options)
-
-add_executable(conflux_dual examples/dual.cxx)
-target_link_libraries(conflux_dual PRIVATE conflux conflux_options)
-
-if(CONFLUX_HAS_HTTP3 STREQUAL "true")
-    add_executable(conflux_h3_probe examples/h3_probe.cxx)
-    target_link_libraries(conflux_h3_probe PRIVATE conflux conflux_options)
-    add_executable(conflux_h3_server examples/h3_server.cxx)
-    target_link_libraries(conflux_h3_server PRIVATE conflux conflux_options)
-endif()
-
-if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
-    add_executable(conflux_db_basic examples/db_basic.cxx)
-    target_link_libraries(conflux_db_basic
-        PRIVATE conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
-
-    add_executable(conflux_db_pool examples/db_pool.cxx)
-    target_link_libraries(conflux_db_pool
-        PRIVATE conflux_db conflux_file_io conflux_work conflux_options PkgConfig::LIBURING)
-endif()
-
-# JSON examples (use monolith for convenience)
-add_executable(conflux_json_example examples/json.cxx)
-target_link_libraries(conflux_json_example PRIVATE conflux conflux_options)
-
-endif() # CONFLUX_WANT_HTTP_SERVER
 
 # ---------------------------------------------------------------------------
 # Standalone examples (don't require monolith)

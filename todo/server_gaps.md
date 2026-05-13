@@ -39,6 +39,7 @@
   - [x] First install/export slice: export existing split targets with stable `conflux::...` names and generated `conflux-config.cmake`.
   - [x] Template split slice: export `conflux::template` and `conflux::template_watch` as real module targets; remove template/file-watch module sources from the HTTP monolith.
   - [x] HTTP JSON/core split slice: export `conflux::http_core` (`http.types` + `http.request`) and `conflux::http_json`; remove those module sources from the HTTP monolith. Remaining work: split/export `json_file`, router/server/static/client and the other HTTP feature targets.
+  - [x] Package export placement slice: install/export/package-config generation now lives outside `CONFLUX_WANT_HTTP_SERVER`, so core/json-only builds still expose `conflux::...` package targets instead of requiring the HTTP monolith.
 - [ ] Split optional components: DB, TLS, HTTP/2, HTTP/3 as separate link targets
 - [ ] CI: all examples compile, fuzz smokes, JSONTestSuite, ASan/UBSan lane, bench regression budget
 - [x] Docs: versioning/semver policy, security disclosure, supported compiler+kernel matrix — added `docs/project-policy.md` and linked it from README/pre-v1 contract
