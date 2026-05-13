@@ -1,4 +1,5 @@
 #include <catch2/catch_test_macros.hpp>
+#include <cerrno>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -230,4 +231,24 @@ TEST_CASE(
 	CHECK(static_cast<u8>(content[1]) == 0xAD);
 	CHECK(static_cast<u8>(content[2]) == 0xBE);
 	CHECK(static_cast<u8>(content[3]) == 0xEF);
+}
+
+TEST_CASE(
+	"file_io_sync: read_file_at_sync reads contained relative files",
+	"[file_io_sync][unit]") {
+	auto dir = TempDir::create();
+	dir.write_file("data.txt", "hello read");
+	auto content = read_file_at_sync(dir.fd, "data.txt");
+	REQUIRE(content.has_value());
+	CHECK(*content == "hello read");
+}
+
+TEST_CASE(
+	"file_io_sync: read_file_at_sync enforces byte limit",
+	"[file_io_sync][unit]") {
+	auto dir = TempDir::create();
+	dir.write_file("data.txt", "hello read");
+	auto content = read_file_at_sync(dir.fd, "data.txt", 4);
+	REQUIRE_FALSE(content.has_value());
+	CHECK(content.error().code().value() == EFBIG);
 }

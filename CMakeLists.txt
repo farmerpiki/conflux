@@ -348,6 +348,12 @@ endif()
 if(CONFLUX_WANT_TEMPLATES AND NOT TARGET conflux_json)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_TEMPLATES requires CONFLUX_BUILD_JSON")
 endif()
+if(CONFLUX_WANT_JSON_FILE AND NOT TARGET conflux_json)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_JSON_FILE requires CONFLUX_BUILD_JSON")
+endif()
+if(CONFLUX_WANT_JSON_FILE AND NOT CONFLUX_WANT_FILE_IO_SYNC)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_JSON_FILE requires CONFLUX_BUILD_FILE_IO_SYNC")
+endif()
 if(CONFLUX_WANT_TEMPLATES_WATCH AND NOT CONFLUX_WANT_TEMPLATES)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_TEMPLATES_WATCH requires CONFLUX_BUILD_TEMPLATES")
 endif()
@@ -398,6 +404,20 @@ target_link_libraries(conflux_file_map
     PUBLIC  conflux_file_io_sync
 )
 endif() # CONFLUX_WANT_FILE_MAP
+
+if(CONFLUX_WANT_JSON_FILE)
+add_library(conflux_json_file STATIC)
+target_sources(conflux_json_file
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/json_file.cxx
+)
+target_link_libraries(conflux_json_file
+    PRIVATE conflux_options
+    PUBLIC  conflux_json conflux_file_io_sync
+)
+endif() # CONFLUX_WANT_JSON_FILE
 
 if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
     add_library(conflux_http_core STATIC)
@@ -800,6 +820,9 @@ endif()
 if(TARGET conflux_json)
     target_link_libraries(conflux PUBLIC conflux_json)
 endif()
+if(TARGET conflux_json_file)
+    target_link_libraries(conflux PUBLIC conflux_json_file)
+endif()
 if(TARGET conflux_crypto)
     target_link_libraries(conflux PUBLIC conflux_crypto)
 endif()
@@ -828,6 +851,7 @@ endif()
 # by conflux_file_watch; the umbrella module only re-exports it when present.
 target_compile_definitions(conflux
     PUBLIC
+        CONFLUX_HAS_JSON_FILE=$<BOOL:${CONFLUX_WANT_JSON_FILE}>
         CONFLUX_HAS_TEMPLATES=$<BOOL:${CONFLUX_WANT_TEMPLATES}>
         CONFLUX_HAS_FILE_WATCH=$<BOOL:${CONFLUX_WANT_FILE_WATCH}>
 )
@@ -1019,6 +1043,7 @@ conflux_public_component(conflux_core core)
 conflux_public_component(conflux_types types)
 conflux_public_component(conflux_crypto crypto)
 conflux_public_component(conflux_json json)
+conflux_public_component(conflux_json_file json_file)
 conflux_public_component(conflux_json_reflect json_reflect)
 conflux_public_component(conflux_template template)
 conflux_public_component(conflux_file_watch template_watch)
@@ -1052,6 +1077,7 @@ foreach(_target IN ITEMS
         conflux_types
         conflux_crypto
         conflux_json
+        conflux_json_file
         conflux_json_reflect
         conflux_template
         conflux_file_watch

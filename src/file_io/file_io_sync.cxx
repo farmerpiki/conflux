@@ -506,3 +506,76 @@ export expected<FileStat, FileIoSyncError> stat_at_sync(
 		.ino = stx.stx_ino,
 		.mode = stx.stx_mode};
 }
+// ───────────────────────────────────────────────────────────────────────
+// Low-level: read_all_fd
+// ───────────────────────────────────────────────────────────────────────
+
+export std::expected<std::string, FileIoSyncError> read_all_fd(
+	int fd,
+	std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
+	auto st = fstat_sync(fd);
+	if (!st) {
+		return unexpected{st.error()};
+	}
+	if (st->size > max_bytes) {
+		return unexpected{
+			FileIoSyncError{EFBIG, "file_io_sync: file exceeds read limit"}
+		};
+	}
+
+	std::string out;
+	if (st->size > 0 && st->size <= out.max_size()) {
+		out.reserve(static_cast<std::size_t>(st->size));
+	}
+
+	std::array<char, 16 * 1024> buf{};
+	for (;;) {
+		auto const n = ::read(fd, buf.data(), buf.size());
+		if (n == 0) {
+			return out;
+		}
+		if (n < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			return unexpected{
+				FileIoSyncError{errno, "file_io_sync: read"}
+			};
+		}
+		auto const count = static_cast<std::size_t>(n);
+		if (count > max_bytes - out.size()) {
+			return unexpected{
+				FileIoSyncError{EFBIG, "file_io_sync: file exceeds read limit"}
+			};
+		}
+		out.append(buf.data(), count);
+	}
+}
+// ───────────────────────────────────────────────────────────────────────
+// High-level: read_file_at_sync
+// ───────────────────────────────────────────────────────────────────────
+
+export std::expected<std::string, FileIoSyncError> read_file_at_sync(
+	int root_fd,
+	std::string_view contained_relative_path,
+	std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
+	auto parts = split_contained_path(contained_relative_path);
+	if (!parts) {
+		return unexpected{parts.error()};
+	}
+
+	std::string path{contained_relative_path};
+	int fd = openat2_sync(
+		root_fd,
+		path.c_str(),
+		O_RDONLY | O_CLOEXEC,
+		0,
+		RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS);
+	if (fd < 0) {
+		return unexpected{
+			FileIoSyncError{errno, "file_io_sync: open file"}
+		};
+	}
+	UniqueFd file{fd};
+	return read_all_fd(file.fd(), max_bytes);
+}

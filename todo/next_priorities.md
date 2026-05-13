@@ -21,8 +21,10 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - Current status: `core`, `json`, `file_io_sync`, `file_map`, `file_io`,
      `socket_io`, `http_core`, `http_json`, `template`, and `template_watch`
      have started splitting out.
-   - Next concrete slice: add `conflux::json_file`, then split router/server or
-     static-core/static-async depending on least collision with current HTTP code.
+   - Completed slice: `conflux::json_file` / `conflux.json.file` is now separate
+     and depends only on `json + file_io_sync`.
+   - Next concrete slice: split router/server or static-core/static-async
+     depending on least collision with current HTTP code.
 
 2. **Remove remaining stale dependency edges from proposal reviews.**
    - Re-check `conflux_socket_io -> file_io`, `net.client -> file_io`, and
@@ -50,9 +52,10 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - Explicit recv cancel for armed server connections.
    - Cancel-by-fd only after per-fd cancel slot tracking is designed.
 
-7. **Add `json_file` as a convenience component, not a core JSON dependency.**
-   - Depends on `json + file_io_sync` only.
-   - Keep `conflux::json` free of file I/O, mmap, logging globals, and io_uring.
+7. **Split the next HTTP modular target.**
+   - Prefer router/server if the response body model is not in the way.
+   - Prefer static-core/static-async only if a small no-liburing metadata/mmap slice
+     is clearly separable from streamed file serving.
 
 8. **Prototype compile-time JSON only after the return type is documented.**
    - Subset: integers, booleans, null, no-escape strings, nested objects/arrays.

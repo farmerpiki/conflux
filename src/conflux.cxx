@@ -9,4 +9,7 @@ export import conflux.file_watch;
 export import conflux.templates;
 #endif
 export import conflux.json;
+#if CONFLUX_HAS_JSON_FILE
+export import conflux.json.file;
+#endif
 export import conflux.net.http;

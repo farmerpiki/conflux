@@ -51,6 +51,29 @@ Use explicit owning parsing when the source buffer will not outlive the document
 auto doc = parse_copy(load_config());
 ```
 
+### Optional sync file helpers
+
+File parsing is intentionally kept out of `conflux.json`. Import
+`conflux.json.file` and link `conflux::json_file` when the convenience boundary
+is useful:
+
+```cpp
+import conflux.json.file;
+
+expected<Document, JsonFileError> parse_file_at_sync(
+    int root_fd,
+    string_view contained_relative_path,
+    JsonParseOptions const& opts = {});
+expected<Document, JsonFileError> parse_file_sync(
+    string_view contained_relative_path,
+    JsonParseOptions const& opts = {});
+```
+
+`parse_file_at_sync` reads through `conflux.file_io_sync`, then calls
+`parse_copy(std::string&&)`, so the returned `Document` owns the bytes. The read
+limit mirrors `JsonParseOptions::max_input_size`: default 128 MiB, explicit bound
+when supplied, or unbounded only when `max_input_size = no_limit`.
+
 ### JsonParseOptions
 
 ```cpp

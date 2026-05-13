@@ -168,6 +168,12 @@ target_link_libraries(conflux_template_tests PRIVATE conflux conflux_options Cat
 add_executable(conflux_json_tests json_test.cxx)
 target_link_libraries(conflux_json_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
+if(TARGET conflux_json_file)
+    add_executable(conflux_json_file_tests json_file_test.cxx)
+    target_link_libraries(conflux_json_file_tests
+        PRIVATE conflux_json_file conflux_file_io_sync conflux_options Catch2::Catch2WithMain)
+endif()
+
 if(CONFLUX_JSON_REFLECT)
     # Under -freflection (GCC 16 P2996), including Catch2 headers in any TU that
     # also imports modules compiled with -freflection causes pthreadtypes conflicts.
@@ -462,6 +468,9 @@ conflux_discover_tests(conflux_utils_tests)
 conflux_discover_tests(conflux_jwt_tests)
 conflux_discover_tests(conflux_template_tests)
 conflux_discover_tests(conflux_json_tests)
+if(TARGET conflux_json_file_tests)
+    conflux_discover_tests(conflux_json_file_tests)
+endif()
 conflux_discover_tests(conflux_process_tests)
 conflux_discover_tests(conflux_work_tests)
 conflux_discover_tests(conflux_work_root_tests)
