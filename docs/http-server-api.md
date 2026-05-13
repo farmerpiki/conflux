@@ -427,7 +427,8 @@ CPU pinning: set `ring_core` and `worker_core_base` in `ServerConfig` (see `docs
 ## Graceful shutdown
 
 ```cpp
-server.shutdown(); // signals all rings to drain in-flight requests and stop accepting
+server.request_shutdown(); // async-signal-safe: wake rings via eventfd only
+server.shutdown();         // normal thread-side graceful shutdown
 server.join();     // waits for all ring threads to exit
 ```
 

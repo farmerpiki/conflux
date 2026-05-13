@@ -48,8 +48,10 @@ public:
 	explicit HttpServer(Config const &cfg, VHostRouter &&vhost_router);
 	~HttpServer();
 
-	// Thread-safe and async-signal-safe. Signals all rings to stop accepting,
-	// drain in-flight responses, and exit. run() returns once all rings stop.
+	// Thread-safe and async-signal-safe. Wakes every ring via its shutdown eventfd.
+	void request_shutdown() noexcept;
+	// Thread-safe normal shutdown. Wakes rings, stops HTTP/3 listener if present,
+	// and lets run() drain in-flight responses before exiting.
 	void shutdown();
 	[[nodiscard]] RunStatus run() noexcept;
 	// Snapshot counters accumulated by all rings. Intended after run() returns;

@@ -2608,31 +2608,39 @@ struct Ring {
 				return;
 			}
 		}
-		invalidate_recv_if_armed(fd);
 
 		if (accepted_sockets_direct) {
+			invalidate_recv_if_armed(fd);
+			auto const direct_gen = (ufd < fd_table.size()) ? fd_table[ufd].gen : u32{0};
 			if (ufd < fd_table.size()) {
-				if (fd_table[ufd].gen != gen || fd_table[ufd].closing) {
+				if (fd_table[ufd].gen != direct_gen || fd_table[ufd].closing) {
 					return;
 				}
-			}
-			auto handle = SocketHandle::from_direct(static_cast<u32>(fd));
-			if (!submit_shutdown(raw_, handle, SHUT_WR, pack(Op::FdShutdown, gen, fd))) {
-				defer_op([this, fd, ufd, gen] {
-					if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
-						return;
-					}
-					queue_close(fd);
-				});
-				return;
-			}
-			if (ufd < fd_table.size()) {
 				fd_table[ufd].closing = true;
 			}
 			if (direct_slots_) {
 				if (!direct_slots_->mark_closing(static_cast<u32>(fd))) {
 					eprintln(format("queue_close: mark_closing failed slot={}", fd));
 				}
+			}
+			auto handle = SocketHandle::from_direct(static_cast<u32>(fd));
+			if (!submit_shutdown(raw_, handle, SHUT_WR, pack(Op::FdShutdown, direct_gen, fd))) {
+				defer_op([this, fd, ufd, direct_gen] {
+					if (ufd >= fd_table.size() || fd_table[ufd].gen != direct_gen) {
+						return;
+					}
+					auto retry_handle = SocketHandle::from_direct(static_cast<u32>(fd));
+					if (!submit_shutdown(raw_, retry_handle, SHUT_WR, pack(Op::FdShutdown, direct_gen, fd))) {
+						defer_op([this, fd, ufd, direct_gen] {
+							if (ufd < fd_table.size() && fd_table[ufd].gen == direct_gen) {
+								auto retry_handle2 = SocketHandle::from_direct(static_cast<u32>(fd));
+								(void)submit_shutdown(
+									raw_, retry_handle2, SHUT_WR, pack(Op::FdShutdown, direct_gen, fd));
+							}
+						});
+					}
+				});
+				return;
 			}
 			return;
 		}
@@ -2641,6 +2649,7 @@ struct Ring {
 			if (fd_table[ufd].gen != gen || fd_table[ufd].closing) {
 				return;
 			}
+			fd_table[ufd].closing = true;
 		}
 		// Non-direct sockets still need an explicit shutdown so the peer sees
 		// EOF and the in-flight multishot recv gets drained before the final close.
@@ -2651,12 +2660,17 @@ struct Ring {
 				if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 					return;
 				}
-				queue_close(fd);
+				auto retry_handle = SocketHandle::from_os(fd);
+				if (!submit_close(raw_, retry_handle, pack(Op::Close, gen, fd))) {
+					defer_op([this, fd, ufd, gen] {
+						if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
+							auto retry_handle2 = SocketHandle::from_os(fd);
+							(void)submit_close(raw_, retry_handle2, pack(Op::Close, gen, fd));
+						}
+					});
+				}
 			});
 			return;
-		}
-		if (ufd < fd_table.size()) {
-			fd_table[ufd].closing = true;
 		}
 	}
 	void queue_sse_wait(
@@ -2773,113 +2787,124 @@ struct Ring {
 	void handle_accept(
 		int res,
 		u32 flg) {
-		if (res >= 0) {
+		if (res < 0) {
 			HTTP_TRACE(format(
-				"accept fd={} direct={} recv_bundle={} mode={} more={}",
+				"accept_err res={} direct={} recv_bundle={} mode={} more={}",
 				res,
 				accepted_sockets_direct,
 				use_recv_bundle,
 				buffer_ring_mode_name(buf_ring_->mode()),
 				cqe_has_more(flg)));
-			if (accepted_sockets_direct && direct_slots_) {
-				if (!direct_slots_->adopt_kernel_allocated(static_cast<u32>(res))) {
-					++accepted_direct_failures_;
-					eprintln(
-						format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept", res));
-					accepted_sockets_direct = false;
-					submit_cancel_by_ud(raw_, pack(Op::Accept, 0, listen_fd), 0);
-					auto const ud = pack(Op::DirectSlotClose, 0, res);
-					if (!submit_close(raw_, SocketHandle::from_direct(static_cast<u32>(res)), ud)) {
-						defer_op([this, res, ud] {
-							submit_close(raw_, SocketHandle::from_direct(static_cast<u32>(res)), ud);
-						});
-					}
-					return;
-				}
-			}
-			auto &conn = conn_for(res);
-			++conn.gen;
-			conn.fd = res;
-			conn.recv_armed = false;
-			conn.last_recv_cqe_flags = 0;
-			conn.have_last_recv_cqe_flags = false;
-			conn.have_incremental_buf_id = false;
-			conn.send_queued = false;
-			conn.closing = false;
-			conn.close_after_send = false;
-			conn.has_response = false;
-			conn.written = 0;
-			conn.is_sse = false;
-			conn.sse_headers_sent = false;
-			conn.is_deferred = false;
-			conn.sse_efd = -1;
-			conn.sse_channel.reset();
-			conn.deferred_efd = -1;
-			conn.deferred_response.reset();
-			conn.ws_upgrade.reset();
-			conn.partial.clear();
-			conn.chunked_decode.reset();
-			conn.mapped_file.reset();
-			conn.mapped_total = 0;
-			conn.mapped_delivered = 0;
-			conn.last_activity = chrono::steady_clock::now();
-			if (!accepted_sockets_direct) {
-				sockaddr_in6 peer_addr{};
-				socklen_t peer_len = sizeof(peer_addr);
-				if (::getpeername(res, reinterpret_cast<sockaddr *>(&peer_addr), &peer_len) == 0) {
-					conn.remote_addr = ip_to_string(peer_addr.sin6_addr);
-				} else {
-					conn.remote_addr.clear();
-				}
-			} else {
-				conn.remote_addr = ip_to_string(client_addr.sin6_addr);
-			}
-			conn.is_tls = false;
-#if CONFLUX_HAS_TLS
-			// Free any SSL left by a prior tenant on this fd slot.
-			if (conn.ssl != nullptr) {
-				conn.ssl.reset();
-			}
-			conn.tls_rx_cipher.clear();
-			conn.tls_send_pending.clear();
-			conn.tls_send_inflight.clear();
-			conn.tls_send_off = 0;
-			// Sentinel: ssl==nullptr && tls_hs_done==true means "waiting for first byte".
-			// SSL_new() is deferred to phase1_copy_recv_bufs after the first-byte sniff.
-			// ssl_ctx==nullptr (plain-only server): tls_hs_done stays false — no sniff needed.
-			conn.tls_hs_done = (ssl_ctx != nullptr);
-			conn.tls_sending_response = false;
-			conn.tls_shutdown_after_send = false;
-			conn.tls_wait_peer_shutdown = false;
-#endif
-#if CONFLUX_HAS_HTTP2
-			if (conn.h2_session != nullptr) {
-				nghttp2_session_del(conn.h2_session);
-				conn.h2_session = nullptr;
-			}
-			conn.h2_ctx.reset();
-			conn.h2_streams.clear();
-			conn.h2_pending_send.clear();
-			conn.is_h2 = false;
-			conn.h2_sse_stream_id = -1;
-			conn.h2_sse_pending_wait = false;
-#endif
-			if (!accepted_sockets_direct) {
-				::setsockopt(res, IPPROTO_TCP, TCP_NODELAY, &tcp_opt_one_, sizeof tcp_opt_one_);
-				::setsockopt(res, IPPROTO_TCP, TCP_QUICKACK, &tcp_opt_one_, sizeof tcp_opt_one_);
-				if (busy_poll_us_ > 0) {
-					::setsockopt(res, SOL_SOCKET, SO_BUSY_POLL, &busy_poll_us_, sizeof busy_poll_us_);
-				}
-				if (prefer_busy_poll_) {
-					::setsockopt(res, SOL_SOCKET, SO_PREFER_BUSY_POLL, &tcp_opt_one_, sizeof tcp_opt_one_);
-				}
-				queue_multishot_recv(res);
-			} else {
-				queue_direct_accept_setup(res);
-			}
-			if (!cqe_has_more(flg)) {
+			if (!shutting_down) {
 				queue_multishot_accept();
 			}
+			return;
+		}
+		HTTP_TRACE(format(
+			"accept fd={} direct={} recv_bundle={} mode={} more={}",
+			res,
+			accepted_sockets_direct,
+			use_recv_bundle,
+			buffer_ring_mode_name(buf_ring_->mode()),
+			cqe_has_more(flg)));
+		if (accepted_sockets_direct && direct_slots_) {
+			if (!direct_slots_->adopt_kernel_allocated(static_cast<u32>(res))) {
+				++accepted_direct_failures_;
+				eprintln(
+					format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept", res));
+				accepted_sockets_direct = false;
+				submit_cancel_by_ud(raw_, pack(Op::Accept, 0, listen_fd), 0);
+				auto const ud = pack(Op::DirectSlotClose, 0, res);
+				if (!submit_close(raw_, SocketHandle::from_direct(static_cast<u32>(res)), ud)) {
+					defer_op([this, res, ud] {
+						submit_close(raw_, SocketHandle::from_direct(static_cast<u32>(res)), ud);
+					});
+				}
+				return;
+			}
+		}
+		auto &conn = conn_for(res);
+		++conn.gen;
+		conn.fd = res;
+		conn.recv_armed = false;
+		conn.last_recv_cqe_flags = 0;
+		conn.have_last_recv_cqe_flags = false;
+		conn.have_incremental_buf_id = false;
+		conn.send_queued = false;
+		conn.closing = false;
+		conn.close_after_send = false;
+		conn.has_response = false;
+		conn.written = 0;
+		conn.is_sse = false;
+		conn.sse_headers_sent = false;
+		conn.is_deferred = false;
+		conn.sse_efd = -1;
+		conn.sse_channel.reset();
+		conn.deferred_efd = -1;
+		conn.deferred_response.reset();
+		conn.ws_upgrade.reset();
+		conn.partial.clear();
+		conn.chunked_decode.reset();
+		conn.mapped_file.reset();
+		conn.mapped_total = 0;
+		conn.mapped_delivered = 0;
+		conn.last_activity = chrono::steady_clock::now();
+		if (!accepted_sockets_direct) {
+			sockaddr_in6 peer_addr{};
+			socklen_t peer_len = sizeof(peer_addr);
+			if (::getpeername(res, reinterpret_cast<sockaddr *>(&peer_addr), &peer_len) == 0) {
+				conn.remote_addr = ip_to_string(peer_addr.sin6_addr);
+			} else {
+				conn.remote_addr.clear();
+			}
+		} else {
+			conn.remote_addr = ip_to_string(client_addr.sin6_addr);
+		}
+		conn.is_tls = false;
+#if CONFLUX_HAS_TLS
+		// Free any SSL left by a prior tenant on this fd slot.
+		if (conn.ssl != nullptr) {
+			conn.ssl.reset();
+		}
+		conn.tls_rx_cipher.clear();
+		conn.tls_send_pending.clear();
+		conn.tls_send_inflight.clear();
+		conn.tls_send_off = 0;
+		// Sentinel: ssl==nullptr && tls_hs_done==true means "waiting for first byte".
+		// SSL_new() is deferred to phase1_copy_recv_bufs after the first-byte sniff.
+		// ssl_ctx==nullptr (plain-only server): tls_hs_done stays false — no sniff needed.
+		conn.tls_hs_done = (ssl_ctx != nullptr);
+		conn.tls_sending_response = false;
+		conn.tls_shutdown_after_send = false;
+		conn.tls_wait_peer_shutdown = false;
+#endif
+#if CONFLUX_HAS_HTTP2
+		if (conn.h2_session != nullptr) {
+			nghttp2_session_del(conn.h2_session);
+			conn.h2_session = nullptr;
+		}
+		conn.h2_ctx.reset();
+		conn.h2_streams.clear();
+		conn.h2_pending_send.clear();
+		conn.is_h2 = false;
+		conn.h2_sse_stream_id = -1;
+		conn.h2_sse_pending_wait = false;
+#endif
+		if (!accepted_sockets_direct) {
+			::setsockopt(res, IPPROTO_TCP, TCP_NODELAY, &tcp_opt_one_, sizeof tcp_opt_one_);
+			::setsockopt(res, IPPROTO_TCP, TCP_QUICKACK, &tcp_opt_one_, sizeof tcp_opt_one_);
+			if (busy_poll_us_ > 0) {
+				::setsockopt(res, SOL_SOCKET, SO_BUSY_POLL, &busy_poll_us_, sizeof busy_poll_us_);
+			}
+			if (prefer_busy_poll_) {
+				::setsockopt(res, SOL_SOCKET, SO_PREFER_BUSY_POLL, &tcp_opt_one_, sizeof tcp_opt_one_);
+			}
+			queue_multishot_recv(res);
+		} else {
+			queue_direct_accept_setup(res);
+		}
+		if (!cqe_has_more(flg)) {
+			queue_multishot_accept();
 		}
 	}
 	void discard_recv_bufs(
@@ -3952,7 +3977,6 @@ struct Ring {
 		return true;
 	}
 	void phase1_copy_recv_bufs() {
-		u32 missing_head_recoveries = 0;
 		for (auto &rc: recvs) {
 			auto const ufd = static_cast<SZ>(rc.fd);
 			auto ws_it = ws_cancel_handoffs.find(rc.fd);
@@ -3961,17 +3985,6 @@ struct Ring {
 								 && ws_it->second.ssl == nullptr
 #endif
 				;
-			bool const has_buf = cqe_has_buffer(rc.flags);
-			if (!has_buf) {
-				if (rc.res <= 0 && !accepted_sockets_direct) {
-					if (buf_ring_->mode() == BufferRingMode::incremental) {
-						reclaim_retired_incremental_recv(rc.fd, rc.gen);
-					} else {
-						++missing_head_recoveries;
-					}
-				}
-				continue;
-			}
 			if (rc.res <= 0
 				|| ufd >= fd_table.size()
 				|| (!ws_pending && (fd_table[ufd].gen != rc.gen || fd_table[ufd].fd < 0))) {
@@ -4110,23 +4123,6 @@ struct Ring {
 				}
 			}
 #endif // CONFLUX_HAS_TLS
-		}
-		if (missing_head_recoveries != 0) {
-			for (u32 i = 0; i < missing_head_recoveries; ++i) {
-				u32 const head_pos = buf_ring_->debug_head_pos();
-				HTTP_TRACE(format(
-					"phase1_head_recover_deferred mode={} head={} id={}",
-					buffer_ring_mode_name(buf_ring_->mode()),
-					head_pos,
-					buf_ring_->ring_id_at(head_pos)));
-				buf_ring_->consume(1);
-				if (buf_ring_->mode() == BufferRingMode::recv_bundle) {
-					buf_ring_->recycle_range(head_pos, 1);
-				} else {
-					u16 const id = buf_ring_->ring_id_at(head_pos);
-					buf_ring_->recycle(id);
-				}
-			}
 		}
 	}
 	void finish_ready_ws_handoffs() {
@@ -5177,13 +5173,15 @@ HttpServer::~HttpServer() {
 	}
 }
 
+void HttpServer::request_shutdown() noexcept {
+	u64 const v = 1;
+	for (int const efd: impl_->shutdown_efds) {
+		(void)::write(efd, &v, sizeof(v));
+	}
+}
+
 void HttpServer::shutdown() {
-		u64 const v = 1;
-		for (int const efd: impl_->shutdown_efds) {
-			if (::write(efd, &v, sizeof(v)) < 0 && errno != EAGAIN) {
-				eprintln(format("HttpServer::shutdown: eventfd write: {}", strerror(errno)));
-			}
-		}
+		request_shutdown();
 #if CONFLUX_HAS_HTTP3
 		UP<Http3Listener> to_stop;
 		{
