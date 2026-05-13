@@ -1033,11 +1033,11 @@ TEST_CASE(
 	CHECK(*o.member("meta")->as_object()->member("created")->as_string() == "2026-04-17");
 	CHECK(*o.member("flag")->as_bool() == true);
 }
-TEST_CASE(
-	"builder: parsed document is self-contained after input corruption",
-	"[conformance][builder]") {
+	TEST_CASE(
+		"builder: parsed document is self-contained after input corruption",
+		"[conformance][builder]") {
 	S src{R"(["alpha","beta","gamma"])"};
-	auto doc = json::parse(src);
+	auto doc = json::parse_copy(src);
 	REQUIRE(doc.has_value());
 	src.assign(src.size(), 'X');
 

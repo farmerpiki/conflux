@@ -427,7 +427,7 @@ TEST_CASE(
 	"json: document is self-contained",
 	"[json]") {
 	S src{R"({"msg": "hello"})"};
-	auto doc = parse(src);
+	auto doc = parse_copy(src);
 	REQUIRE(doc.has_value());
 	src.clear();
 	src.shrink_to_fit();

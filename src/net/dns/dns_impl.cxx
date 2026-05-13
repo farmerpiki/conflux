@@ -151,7 +151,12 @@ void parse_resolv_options(
 	SZ max_bytes = SZ{4} * 1024 * 1024) noexcept {
 	try {
 		S const native = path.string();
-		auto bytes = read_file_at_sync(AT_FDCWD, native, max_bytes);
+		int const fd = ::open(native.c_str(), O_RDONLY | O_CLOEXEC);
+		if (fd < 0) {
+			return {};
+		}
+		UniqueFd file{fd};
+		auto bytes = read_all_fd(file.fd(), max_bytes);
 		if (!bytes) {
 			return {};
 		}
