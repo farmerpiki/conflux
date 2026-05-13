@@ -65,6 +65,8 @@ include(ConfluxPresets)
 conflux_apply_preset()
 include(CompilerOptions)
 include(Dependencies)
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 # ---------------------------------------------------------------------------
 # Optional dependencies
@@ -286,6 +288,13 @@ target_sources(conflux_types
 target_link_libraries(conflux_types
     PRIVATE conflux_options
 )
+
+# First slice of the public component model: a liburing-free core target.
+# `conflux_types` remains the concrete module carrier; `conflux_core` is the
+# stable package-facing dependency anchor for consumers that only need core
+# vocabulary/error types.
+add_library(conflux_core INTERFACE)
+target_link_libraries(conflux_core INTERFACE conflux_types)
 
 if(CONFLUX_WANT_CRYPTO)
 add_library(conflux_crypto STATIC)
@@ -813,6 +822,170 @@ endif()
 if(CONFLUX_BUILD_FUZZ)
     target_compile_definitions(conflux PUBLIC CONFLUX_BUILD_FUZZ=1)
 endif()
+
+
+# ---------------------------------------------------------------------------
+# Public package targets / install-export
+# ---------------------------------------------------------------------------
+
+function(conflux_public_component target export_name)
+    if(TARGET ${target})
+        set_target_properties(${target} PROPERTIES EXPORT_NAME ${export_name})
+        if(NOT TARGET conflux::${export_name})
+            add_library(conflux::${export_name} ALIAS ${target})
+        endif()
+    endif()
+endfunction()
+
+conflux_public_component(conflux_core core)
+conflux_public_component(conflux_types types)
+conflux_public_component(conflux_crypto crypto)
+conflux_public_component(conflux_json json)
+conflux_public_component(conflux_json_reflect json_reflect)
+conflux_public_component(conflux_uring uring)
+conflux_public_component(conflux_work runtime)
+conflux_public_component(conflux_file_io_sync file_io_sync)
+conflux_public_component(conflux_file_map file_map)
+conflux_public_component(conflux_file_io file_io)
+conflux_public_component(conflux_socket_io socket_io)
+conflux_public_component(conflux_dns dns)
+conflux_public_component(conflux_db db)
+conflux_public_component(conflux http_server)
+
+# Internal-but-exported support targets needed by static-library link interfaces.
+conflux_public_component(conflux_options _options)
+conflux_public_component(conflux_direct_slot_pool _direct_slot_pool)
+
+set(CONFLUX_INSTALL_INTERFACE_TARGETS)
+foreach(_target IN ITEMS
+        conflux_options
+        conflux_core)
+    if(TARGET ${_target})
+        list(APPEND CONFLUX_INSTALL_INTERFACE_TARGETS ${_target})
+    endif()
+endforeach()
+
+set(CONFLUX_INSTALL_MODULE_TARGETS)
+foreach(_target IN ITEMS
+        conflux_types
+        conflux_crypto
+        conflux_json
+        conflux_json_reflect
+        conflux_uring
+        conflux_work
+        conflux_file_io_sync
+        conflux_file_map
+        conflux_file_io
+        conflux_socket_io
+        conflux_dns
+        conflux_db
+        conflux_direct_slot_pool)
+    if(TARGET ${_target})
+        list(APPEND CONFLUX_INSTALL_MODULE_TARGETS ${_target})
+    endif()
+endforeach()
+
+if(CONFLUX_INSTALL_INTERFACE_TARGETS)
+    install(TARGETS ${CONFLUX_INSTALL_INTERFACE_TARGETS}
+        EXPORT confluxTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    )
+endif()
+
+if(CONFLUX_INSTALL_MODULE_TARGETS)
+    install(TARGETS ${CONFLUX_INSTALL_MODULE_TARGETS}
+        EXPORT confluxTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        FILE_SET CXX_MODULES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules
+    )
+endif()
+
+if(TARGET conflux)
+    install(TARGETS conflux
+        EXPORT confluxTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        FILE_SET CXX_MODULES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules
+        FILE_SET generated_mods DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/generated/modules
+    )
+endif()
+
+set(CONFLUX_INSTALL_NEEDS_LIBURING FALSE)
+set(CONFLUX_INSTALL_NEEDS_XXHASH FALSE)
+set(CONFLUX_INSTALL_NEEDS_LIBPQ FALSE)
+set(CONFLUX_INSTALL_NEEDS_OPENSSL FALSE)
+set(CONFLUX_INSTALL_NEEDS_ZLIB FALSE)
+set(CONFLUX_INSTALL_NEEDS_LIBDEFLATE FALSE)
+set(CONFLUX_INSTALL_NEEDS_ZLIB_NG FALSE)
+set(CONFLUX_INSTALL_NEEDS_ISAL FALSE)
+set(CONFLUX_INSTALL_NEEDS_BROTLI FALSE)
+set(CONFLUX_INSTALL_NEEDS_ZSTD FALSE)
+set(CONFLUX_INSTALL_NEEDS_NGHTTP2 FALSE)
+set(CONFLUX_INSTALL_NEEDS_NGTCP2 FALSE)
+set(CONFLUX_INSTALL_NEEDS_NGHTTP3 FALSE)
+
+if(TARGET conflux_uring OR TARGET conflux_work OR TARGET conflux_file_io OR TARGET conflux_socket_io OR TARGET conflux_dns OR TARGET conflux_db OR TARGET conflux)
+    set(CONFLUX_INSTALL_NEEDS_LIBURING TRUE)
+endif()
+if(TARGET conflux_json)
+    set(CONFLUX_INSTALL_NEEDS_XXHASH TRUE)
+endif()
+if(TARGET conflux_db)
+    set(CONFLUX_INSTALL_NEEDS_LIBPQ TRUE)
+endif()
+if(TARGET conflux AND CONFLUX_HAS_TLS STREQUAL "true")
+    set(CONFLUX_INSTALL_NEEDS_OPENSSL TRUE)
+endif()
+if(TARGET conflux AND CONFLUX_HAS_ZLIB STREQUAL "true")
+    set(CONFLUX_INSTALL_NEEDS_ZLIB TRUE)
+endif()
+if(TARGET conflux AND CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
+    set(CONFLUX_INSTALL_NEEDS_LIBDEFLATE TRUE)
+endif()
+if(TARGET conflux AND CONFLUX_HAS_ZLIB_NG STREQUAL "true")
+    set(CONFLUX_INSTALL_NEEDS_ZLIB_NG TRUE)
+endif()
+if(TARGET conflux AND CONFLUX_HAS_ISAL STREQUAL "true")
+    set(CONFLUX_INSTALL_NEEDS_ISAL TRUE)
+endif()
+if(TARGET conflux AND CONFLUX_HAS_BROTLI STREQUAL "true")
+    set(CONFLUX_INSTALL_NEEDS_BROTLI TRUE)
+endif()
+if(TARGET conflux AND CONFLUX_HAS_ZSTD STREQUAL "true")
+    set(CONFLUX_INSTALL_NEEDS_ZSTD TRUE)
+endif()
+if(TARGET conflux AND CONFLUX_HAS_HTTP2 STREQUAL "true")
+    set(CONFLUX_INSTALL_NEEDS_NGHTTP2 TRUE)
+endif()
+if(TARGET conflux AND CONFLUX_HAS_HTTP3 STREQUAL "true")
+    set(CONFLUX_INSTALL_NEEDS_NGTCP2 TRUE)
+    set(CONFLUX_INSTALL_NEEDS_NGHTTP3 TRUE)
+endif()
+
+configure_package_config_file(
+    "${CMAKE_CURRENT_SOURCE_DIR}/cmake/conflux-config.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/conflux-config.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
+)
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
+    VERSION 0.1.0
+    COMPATIBILITY SameMajorVersion
+)
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/conflux-config.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
+)
+install(EXPORT confluxTargets
+    NAMESPACE conflux::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
+)
 
 # ---------------------------------------------------------------------------
 # Tests & examples (monolith-dependent)

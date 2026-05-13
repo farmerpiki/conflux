@@ -36,6 +36,7 @@
 ## Packaging / release blockers
 
 - [ ] CMake install + exported package config + namespaced targets. Foundation: `conflux::core`, `conflux::file_io_sync`, `conflux::file_map`, `conflux::runtime`, `conflux::file_io`, `conflux::socket_io`, `conflux::dns`, `conflux::crypto`, `conflux::json`, `conflux::json_file`, `conflux::template`, `conflux::template_watch`. HTTP: `conflux::http_core`, `conflux::http_router`, `conflux::http_server`, `conflux::http_static_core`, `conflux::http_static_async`, `conflux::http_auth`, `conflux::http_json`, `conflux::http_policy`, `conflux::http_observability`, `conflux::http_openapi`, `conflux::http_realtime`, `conflux::http_vhost`, `conflux::http_client_sync`, `conflux::http_client_async`
+  - [x] First install/export slice: export existing split targets with stable `conflux::...` names and generated `conflux-config.cmake`. Remaining work: split/export the not-yet-separated component targets (`json_file`, templates, individual HTTP subtargets/client/static targets).
 - [ ] Split optional components: DB, TLS, HTTP/2, HTTP/3 as separate link targets
 - [ ] CI: all examples compile, fuzz smokes, JSONTestSuite, ASan/UBSan lane, bench regression budget
 - [x] Docs: versioning/semver policy, security disclosure, supported compiler+kernel matrix — added `docs/project-policy.md` and linked it from README/pre-v1 contract
