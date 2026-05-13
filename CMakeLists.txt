@@ -381,6 +381,20 @@ if(CONFLUX_WANT_HTTP_CLIENT OR CONFLUX_WANT_HTTP_PROXY OR CONFLUX_WANT_HTTP_SERV
     set(CONFLUX_HTTP_CLIENT_STACK_REQUESTED TRUE)
 endif()
 
+set(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED FALSE)
+if(CONFLUX_WANT_HTTP_STATIC OR CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
+    set(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED TRUE)
+endif()
+
+set(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED FALSE)
+if(CONFLUX_WANT_HTTP_REALTIME OR CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
+    set(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED TRUE)
+endif()
+
+if(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED AND NOT CONFLUX_WANT_RUNTIME)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_STATIC requires CONFLUX_BUILD_RUNTIME")
+endif()
+
 if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED AND NOT CONFLUX_WANT_HTTP_CORE)
     message(FATAL_ERROR "conflux: HTTP router/middleware component flags require CONFLUX_BUILD_HTTP_CORE")
 endif()
@@ -868,6 +882,34 @@ target_sources(conflux_direct_slot_pool
 target_link_libraries(conflux_direct_slot_pool
     PRIVATE conflux_types)
 
+if(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED)
+add_library(conflux_http_realtime STATIC)
+target_sources(conflux_http_realtime
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/realtime.cxx
+)
+target_link_libraries(conflux_http_realtime
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+)
+endif() # CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED
+
+if(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED)
+add_library(conflux_http_static STATIC)
+target_sources(conflux_http_static
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/static.cxx
+)
+target_link_libraries(conflux_http_static
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_work
+    PUBLIC  conflux_net_config
+)
+endif() # CONFLUX_HTTP_STATIC_SURFACE_REQUESTED
+
 if(CONFLUX_HTTP_ROUTER_STACK_REQUESTED)
 add_library(conflux_http_router STATIC)
 target_sources(conflux_http_router
@@ -882,6 +924,8 @@ target_sources(conflux_http_router
 target_link_libraries(conflux_http_router
     PRIVATE conflux_options
     PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_realtime
+    PUBLIC  conflux_http_static
     PUBLIC  conflux_crypto
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
@@ -1138,6 +1182,8 @@ target_sources(conflux_http_proxy
 target_link_libraries(conflux_http_proxy
     PRIVATE conflux_options
     PUBLIC  conflux_http_router
+    PUBLIC  conflux_http_static
+    PUBLIC  conflux_http_realtime
     PUBLIC  conflux_net_client
     PUBLIC  conflux_net_async_client
     PUBLIC  conflux_work
@@ -1259,6 +1305,8 @@ target_link_libraries(conflux_http_server
     PUBLIC  conflux_types
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_router
+    PUBLIC  conflux_http_static
+    PUBLIC  conflux_http_realtime
     PUBLIC  conflux_http_vhost
     PUBLIC  conflux_http_protocol
     PUBLIC  conflux_net_config
@@ -1391,6 +1439,8 @@ target_link_libraries(conflux
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_json
     PUBLIC  conflux_http_router
+    PUBLIC  conflux_http_static
+    PUBLIC  conflux_http_realtime
     PUBLIC  conflux_http_policy
     PUBLIC  conflux_http_auth
     PUBLIC  conflux_http_observability
@@ -1583,6 +1633,8 @@ conflux_public_component(conflux_template template)
 conflux_public_component(conflux_file_watch template_watch)
 conflux_public_component(conflux_http_core http_core)
 conflux_public_component(conflux_http_router http_router)
+conflux_public_component(conflux_http_static http_static)
+conflux_public_component(conflux_http_realtime http_realtime)
 conflux_public_component(conflux_http_policy http_policy)
 conflux_public_component(conflux_http_auth http_auth)
 conflux_public_component(conflux_http_compression http_compression)
@@ -1642,6 +1694,8 @@ foreach(_target IN ITEMS
         conflux_file_watch
         conflux_http_core
         conflux_http_router
+        conflux_http_static
+        conflux_http_realtime
         conflux_http_policy
         conflux_http_auth
         conflux_http_compression

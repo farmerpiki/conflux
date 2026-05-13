@@ -37,7 +37,9 @@
 #                      per-config --bench-info .reps overrides this for expensive benches
 #   BENCH_ITERATIONS_FROM_RUN_ID
 #                      if set, read per-benchmark/config iteration counts from this
-#                      prior run_id in the database and override launch args
+#                      prior run_id in the database and override launch args.
+#                      If unset, the script falls back to the latest summary rows
+#                      already present in the database.
 #   MACHINE_ID         overrides machine identity (default: /etc/machine-id)
 #   WAIVER_REASON      free-form waiver text, persisted to runs.waiver_reason
 #
@@ -152,22 +154,36 @@ run_bench() {
 declare -A ITERATIONS_FROM_DB=()
 load_iteration_overrides() {
   local run_id="$1"
-  [[ -n "$run_id" ]] || return 0
-  [[ "$run_id" =~ ^[0-9]+$ ]] || {
-    echo "BENCH_ITERATIONS_FROM_RUN_ID must be numeric: $run_id" >&2
-    exit 2
-  }
+  if [[ -n "$run_id" ]]; then
+    [[ "$run_id" =~ ^[0-9]+$ ]] || {
+      echo "BENCH_ITERATIONS_FROM_RUN_ID must be numeric: $run_id" >&2
+      exit 2
+    }
+
+    while IFS=$'\t' read -r bench cfg iters; do
+      [[ -n "$bench" && -n "$cfg" && -n "$iters" ]] || continue
+      ITERATIONS_FROM_DB["$bench|$cfg"]="$iters"
+    done < <(
+      psql "$PGURI" -At -q -c "
+        SELECT benchmark, config_name, iterations
+        FROM results
+        WHERE run_id = $run_id AND extra->>'kind' = 'summary'
+        ORDER BY benchmark, config_name;"
+    )
+    return 0
+  fi
 
   while IFS=$'\t' read -r bench cfg iters; do
     [[ -n "$bench" && -n "$cfg" && -n "$iters" ]] || continue
     ITERATIONS_FROM_DB["$bench|$cfg"]="$iters"
   done < <(
     psql "$PGURI" -At -q -c "
-      SELECT benchmark, config_name, ROUND(AVG(iterations))::bigint
-      FROM results
-      WHERE run_id = $run_id
-      GROUP BY benchmark, config_name
-      ORDER BY benchmark, config_name;"
+      SELECT DISTINCT ON (r.benchmark, runs.config_name)
+             r.benchmark, runs.config_name, r.iterations
+      FROM results r
+      JOIN runs ON runs.id = r.run_id
+      WHERE r.extra->>'kind' = 'summary'
+      ORDER BY r.benchmark, runs.config_name, runs.created_at DESC, r.run_id DESC;"
   )
 }
 
@@ -188,7 +204,8 @@ rewrite_args_for_iterations() {
   (( warmup < 1 )) && warmup=1
 
   local -a out=()
-  local saw_iters=false saw_warmup=false
+  local saw_iters=false
+  local saw_warmup=false
   for ((i=0; i<${#args[@]}; i++)); do
     case "${args[$i]}" in
       --iterations)
