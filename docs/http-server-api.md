@@ -23,6 +23,46 @@ server.run();
 
 ---
 
+## Server Metrics
+
+`HttpServer::metrics()` returns a passive snapshot of counters accumulated by all
+rings. It is intended to be called after `run()` returns; it is not synchronized
+against active ring threads.
+
+```cpp
+struct SendZcMetrics {
+    u64 attempts;
+    u64 bytes_requested;
+    u64 bytes_sent;
+    u64 notifications;
+    u64 copied_notifications;
+    u64 sends_without_notification;
+    u64 errors_enomem;
+    u64 errors_other;
+    u64 fallback_regular_send;
+    u64 adaptive_disable_count;
+};
+
+struct HttpServerMetrics {
+    u64 sq_dropped;
+    u64 cq_overflow;
+    u64 accepted_direct_failures;
+    u64 zc_notifications_pending;
+    u64 recv_bundle_cqes;
+    u64 recv_bundle_slices;
+    u64 recv_bundle_bytes;
+    SendZcMetrics send_zc;
+};
+
+HttpServerMetrics HttpServer::metrics() const noexcept;
+```
+
+The snapshot covers io_uring pressure (`sq_dropped`, `cq_overflow`), direct-accept
+fallbacks, pending SEND_ZC notifications, recv-bundle effectiveness, and SEND_ZC
+usage/copy/error/adaptive-disable counters.
+
+---
+
 ## `HttpRequest` / `HttpRequestView`
 
 `HttpRequestView` is the zero-copy view handed to handlers. `HttpRequest` is the owned variant (used when the handler must outlive the request coroutine).

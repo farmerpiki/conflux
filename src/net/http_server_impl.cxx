@@ -87,6 +87,22 @@ struct SendZcCounters {
 	u64 errors_enomem{};
 	u64 errors_other{};
 	u64 fallback_regular_send{};
+	u64 adaptive_disable_count{};
+
+	[[nodiscard]] SendZcMetrics snapshot() const noexcept {
+		return {
+			.attempts = attempts,
+			.bytes_requested = bytes_requested,
+			.bytes_sent = bytes_sent,
+			.notifications = notifs,
+			.copied_notifications = copied_notifs,
+			.sends_without_notification = no_notif,
+			.errors_enomem = errors_enomem,
+			.errors_other = errors_other,
+			.fallback_regular_send = fallback_regular_send,
+			.adaptive_disable_count = adaptive_disable_count,
+		};
+	}
 };
 
 
@@ -1097,6 +1113,10 @@ struct Ring {
 	SZ send_zc_threshold_ = 16384;
 	bool send_zc_report_usage_ = true;
 	SendZcCounters zc_counters_{};
+	u64 accepted_direct_failures_{};
+	u64 recv_bundle_cqes_{};
+	u64 recv_bundle_slices_{};
+	u64 recv_bundle_bytes_{};
 	SZ max_body_size = SZ{1024} * 1024; // set from Config before run_loop()
 	u32 request_timeout_ms = 30000; // set from Config before run_loop(); 0 = disabled
 	u32 tls_sniff_timeout_ms = 10000; // set from Config before run_loop(); 0 = disabled
@@ -2900,6 +2920,7 @@ struct Ring {
 		if (res >= 0) {
 			if (accepted_sockets_direct && direct_slots_) {
 				if (!direct_slots_->adopt_kernel_allocated(static_cast<u32>(res))) {
+					++accepted_direct_failures_;
 					eprintln(
 						format("handle_accept: adopt_kernel_allocated failed slot={} — stopping direct accept", res));
 					accepted_sockets_direct = false;
@@ -3013,6 +3034,7 @@ struct Ring {
 			return;
 		}
 		auto slices = buffer_slices_from_cqe(*buf_ring_, res, flags, use_recv_bundle);
+		note_recv_bundle_slices(slices);
 		slices.recycle_all();
 	}
 	void discard_recv_bufs(
@@ -3738,6 +3760,7 @@ struct Ring {
 					&& zc_counters_.bytes_requested >= SZ{16} * 1024 * 1024
 					&& zc_counters_.copied_notifs * 10 > zc_counters_.notifs * 9) {
 					send_zc_enabled_ = false;
+					++zc_counters_.adaptive_disable_count;
 				}
 			}
 			conn.zc_waiting_notif = false;
@@ -4037,6 +4060,7 @@ struct Ring {
 			return true;
 		}
 		auto slices = buffer_slices_from_cqe(*buf_ring_, rc.res, rc.flags, use_recv_bundle);
+		note_recv_bundle_slices(slices);
 		ScopeExit const recycle{[&]() noexcept {
 			slices.recycle_all();
 			rc.flags = 0;
@@ -4395,7 +4419,34 @@ struct Ring {
 		}
 	}
 	[[nodiscard]] bool ring_integrity_suspect() const noexcept { return raw_.ring().cq_has_overflow(); }
+	void note_recv_bundle_slices(
+		RecvSlices const &slices) noexcept {
+		if (!use_recv_bundle || !slices.valid()) {
+			return;
+		}
+		++recv_bundle_cqes_;
+		recv_bundle_slices_ += slices.count();
+		recv_bundle_bytes_ += slices.total_size();
+	}
 	void note_cq_overflow() noexcept { saw_overflow_since_last_resize_ = true; }
+	[[nodiscard]] HttpServerMetrics metrics_snapshot() const noexcept {
+		HttpServerMetrics m{};
+		if (ring.ring_fd >= 0) {
+			m.sq_dropped = ring.sq.kdropped != nullptr ? *ring.sq.kdropped : 0;
+			m.cq_overflow = ring.cq.koverflow != nullptr ? *ring.cq.koverflow : 0;
+		}
+		m.accepted_direct_failures = accepted_direct_failures_;
+		m.recv_bundle_cqes = recv_bundle_cqes_;
+		m.recv_bundle_slices = recv_bundle_slices_;
+		m.recv_bundle_bytes = recv_bundle_bytes_;
+		m.send_zc = zc_counters_.snapshot();
+		for (Conn const &conn: fd_table) {
+			if (conn.fd >= 0 && conn.zc_waiting_notif) {
+				++m.zc_notifications_pending;
+			}
+		}
+		return m;
+	}
 	void try_grow_cq_after_overflow() noexcept {
 		if (!saw_overflow_since_last_resize_ || cq_resize_unsupported_ || ring_integrity_suspect()) {
 			return;
@@ -4460,6 +4511,7 @@ struct Ring {
 			auto _ = try_buffer_slice_from_incremental_cqe(*buf_ring_, cqe->res, cqe->flags);
 		} else {
 			auto slices = buffer_slices_from_cqe(*buf_ring_, cqe->res, cqe->flags, use_recv_bundle);
+			note_recv_bundle_slices(slices);
 			slices.recycle_all();
 		}
 	}
@@ -5197,6 +5249,28 @@ void dispatch_request(
 		conn.has_response = true;
 	}
 }
+void add_metrics(
+	HttpServerMetrics &dst,
+	HttpServerMetrics const &src) noexcept {
+	dst.sq_dropped += src.sq_dropped;
+	dst.cq_overflow += src.cq_overflow;
+	dst.accepted_direct_failures += src.accepted_direct_failures;
+	dst.zc_notifications_pending += src.zc_notifications_pending;
+	dst.recv_bundle_cqes += src.recv_bundle_cqes;
+	dst.recv_bundle_slices += src.recv_bundle_slices;
+	dst.recv_bundle_bytes += src.recv_bundle_bytes;
+	dst.send_zc.attempts += src.send_zc.attempts;
+	dst.send_zc.bytes_requested += src.send_zc.bytes_requested;
+	dst.send_zc.bytes_sent += src.send_zc.bytes_sent;
+	dst.send_zc.notifications += src.send_zc.notifications;
+	dst.send_zc.copied_notifications += src.send_zc.copied_notifications;
+	dst.send_zc.sends_without_notification += src.send_zc.sends_without_notification;
+	dst.send_zc.errors_enomem += src.send_zc.errors_enomem;
+	dst.send_zc.errors_other += src.send_zc.errors_other;
+	dst.send_zc.fallback_regular_send += src.send_zc.fallback_regular_send;
+	dst.send_zc.adaptive_disable_count += src.send_zc.adaptive_disable_count;
+}
+
 struct HttpServer::Impl {
 		Config cfg{};
 		unsigned rings{};
@@ -5498,6 +5572,19 @@ void HttpServer::shutdown() {
 #endif
 			return static_cast<RunStatus>(impl_->run_status_.load(memory_order_acquire));
 		} catch (...) { return RunStatus::fatal_internal_exception; }
+	}
+
+[[nodiscard]] HttpServerMetrics HttpServer::metrics() const noexcept {
+		HttpServerMetrics out{};
+		if (impl_ == nullptr) {
+			return out;
+		}
+		for (auto const &ring: impl_->ring_vec) {
+			if (ring) {
+				add_metrics(out, ring->metrics_snapshot());
+			}
+		}
+		return out;
 	}
 
 [[nodiscard]] u16 HttpServer::port() const {
