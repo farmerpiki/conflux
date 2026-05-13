@@ -52,7 +52,7 @@ Benchmark gate passed (main vs db, release-clang-libcxx, 2026-05-10). Remaining:
 - [ ] Cancel-by-fd/close-fd for multishot recv where user-data cancel is insufficient — deferred; generation check mitigates, proper fix requires per-fd cancel slot tracking.
 - [x] `HttpTimeouts::write` async path — `submit_send_timeout_borrowed` landed in `fbf7ffd`.
 - [ ] HTTPS async cancellation path — `client_async.cxx` TLS connect/recv not yet cancellation-aware.
-- [ ] Shutdown explicit recv cancel for armed connections — follow-up after PR B merge.
+- [x] Shutdown explicit recv cancel for armed connections — `handle_shutdown()` now cancels armed recv operations before queuing close, including deferred direct/socket handles.
 - [x] WebSocket handoff cancel — already implemented (`ws_cancel_handoffs` / `queue_ws_cancel`).
 
 ### Benchmarks (P1-09)
