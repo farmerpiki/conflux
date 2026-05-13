@@ -4,7 +4,8 @@ This document describes the current public interface and behavior contract of
 `conflux.work.root` as implemented in this repository.
 
 For broader pre-v1 compatibility and breakage expectations across HTTP + work
-surfaces, see `docs/pre-v1-migration-contract.md`.
+surfaces, see `docs/pre-v1-migration-contract.md`. For executor placement rules,
+see `docs/execution-model.md`.
 
 ## Import
 
@@ -21,6 +22,11 @@ import conflux.work.root;
 - `run_on_task(pool, fn) -> Task<T>` — submit a callable to a pool
 - `join_all(tasks...) -> Task<std::tuple<Ts...>>` — wait for all tasks and
   return a tuple of successful values
+
+All task progress is executor-owned. There is no supported `Task<T>` model that
+runs outside an executor or falls back to ad-hoc caller-thread execution. The
+current executor backends are the work/uring combination: `WorkPool` and
+io_uring-coupled ring executors.
 
 All root async vocabulary (`Task<T>`, `Posted<T>`, `Operation<T>`, source/control
 types, `Outcome<T>`, join, abandon APIs) lives in `conflux.work.root`. Import

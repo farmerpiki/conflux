@@ -14,6 +14,7 @@ The original idea is sound, but it needs two important corrections:
 
 1. **Do not ban `std::println` everywhere.** It is fine in examples, tools, tests, CLI-style utilities, and cold human-facing output. What should go away is exporting `std::println`, `std::cerr`, or stream objects from foundational modules, and using stdout/stderr side effects in reusable internals where a fd/logger/buffer interface is clearer.
 2. **Do not make sync file helpers depend on io_uring.** JSON, config parsing, template loading, and other small cold-path consumers should not be forced to link the io_uring compiled unit. HTTP server code already depends on io_uring, so using io_uring-backed helpers there is acceptable, but shared helpers used by JSON/config/utils must have a POSIX-only base path.
+3. **Use the right prefix for the execution model.** Raw syscall-style helpers that can block the calling thread should move toward `blocking_*` public names. Executor-owned non-coroutine chains should use `sync_*`; coroutine APIs should use `async_*`. Existing `*_sync`/`*_async` names are transitional and will need a broader pre-v1 naming pass.
 
 Because `conflux` has not been released yet, this is not a production compatibility migration. It is a chance to make the public and internal boundaries cleaner before users depend on them.
 
@@ -27,7 +28,7 @@ Recommended policy:
 - allow `std::print`/`std::println` in examples, tests, benchmarks, tools, and intentionally human-facing programs;
 - remove stream aliases from foundational exports (Phase A);
 - decide separately whether `std::format` remains a global convenience alias or moves to cold helpers (Phase B — do not mix into the stream removal diff);
-- add small POSIX fd/file helpers independent of io_uring;
+- add small POSIX fd/file helpers independent of io_uring; use `blocking_*` for raw syscall-style wrappers that may block the calling thread;
 - keep io_uring-backed file/network work in the existing io_uring-dependent feature targets;
 - enforce with a script once source-tree cleanup lands.
 
@@ -91,7 +92,8 @@ Recommended target shape (aligned with [modular build targets proposal](modular_
 ```text
 conflux::core              // types + utils (LineRange, trim/split helpers, eprint/eprintln). No liburing.
                            // eprint/eprintln live in utils partition, not types — types stays vocabulary-only.
-conflux::file_io_sync      // POSIX sync fd/file helpers (read_text_file_sync, write_all_fd, etc.). No liburing.
+conflux::file_io_sync      // POSIX fd/file helpers. No liburing.
+                           // Raw syscall-style operations that may block should use `blocking_*` names as the API is cleaned up.
                            // Separate CMake target from conflux_file_io (which depends on uring/liburing).
 conflux::file_io           // existing async/high-throughput file I/O, depends on runtime (liburing)
 conflux::json              // parses caller-provided buffers/views, no file I/O dependency. Depends: core only.
@@ -129,7 +131,7 @@ Tests/examples/benchmarks can be cleaned after reusable sources. Since the proje
 
 ## Add POSIX sync helpers to `conflux::file_io_sync`
 
-Add these to the `file_io_sync` target (POSIX-only, no liburing):
+Add these to the `file_io_sync` target (POSIX-only, no liburing). During the later naming pass, direct syscall-style helpers that can block the caller should use `blocking_*` names; executor-owned chains should use `sync_*`:
 
 ```cpp
 export expected<string, FileIoError> read_text_file_sync(
@@ -193,7 +195,7 @@ no iostreams
 no locale-dependent parsing
 ```
 
-v1 of `write_all_fd` is **blocking-fd only**. If the fd is nonblocking and returns `EAGAIN/EWOULDBLOCK`, return a `would_block` error immediately. Do not spin, do not retry. Nonblocking write loops belong in the io_uring/socket_io layer.
+v1 of `blocking_write_all_fd` is **blocking-fd only**. If the fd is nonblocking and returns `EAGAIN/EWOULDBLOCK`, return a `would_block` error immediately. Do not spin, do not retry. Nonblocking write loops belong in the io_uring/socket_io layer.
 
 ### Avoid overgeneralizing too early
 
@@ -563,7 +565,7 @@ Use this pattern later for JSON/HTTP builders where formatting is genuinely hot.
 ## Recommended implementation order
 
 1. Add `LineRange`, `strip_cr`, `trim_ascii`, `split_once` to utils partition — mechanically smallest, gives immediate parser cleanup.
-2. Create separate `conflux_file_io_sync` CMake target (POSIX-only, no liburing). Add `read_text_file_sync`, `read_binary_file_sync`, `write_all_fd`, `read_text_file_nothrow`.
+2. Create separate `conflux_file_io_sync` CMake target (POSIX-only, no liburing). Add/rename direct syscall-style helpers with explicit names such as `blocking_read_text_file`, `blocking_read_binary_file`, `blocking_write_all_fd`; reserve `sync_*` for executor-owned non-coroutine chains and keep nonblocking write loops in io_uring/socket targets.
 3. Move `eprint/eprintln` from `types.cxx` to `utils.cxx`. Remove `export using std::println`, `export using std::cerr` from types. (Phase A — stream exports.)
 4. Migrate config/DNS/template/fdinfo/db-connection source usage to new primitives.
 5. Decide `carrier_coro.cxx` warning policy — keep `std::print(stderr,...)` if diagnostics layer adds unwanted baggage, or replace with `eprintln`.
@@ -615,6 +617,6 @@ Stream inventory verified against current tree. All proposal claims confirmed:
 2. **`eprint/eprintln` → `utils.cxx`, not `types.cxx`.** Types stays vocabulary-only. Current types.cxx has `#include<iostream>`, exports `std::println`/`std::cerr`/`std::format`, and defines `eprintln` — too heavy for a vocabulary module.
 3. **`std::format` export = separate Phase B decision.** Removing streams (Phase A) and deciding `std::format` fate should not be combined — different diff, different tradeoff.
 4. **`read_text_file_nothrow` naming kept.** `nothrow` suffix is well-known C++ convention (cf. `std::nothrow`). Intent is clear: tolerant probes only.
-5. **`write_all_fd` v1 = blocking-fd only.** Returns `would_block` error on `EAGAIN/EWOULDBLOCK`. No spin. Nonblocking write loops belong in io_uring/socket_io.
+5. **`blocking_write_all_fd` v1 = blocking-fd only.** Returns `would_block` error on `EAGAIN/EWOULDBLOCK`. No spin. Nonblocking write loops belong in io_uring/socket_io.
 6. **LineRange lands before file helpers.** Mechanically smaller, gives immediate parser cleanup for config/DNS/template/fdinfo/db.
 7. **`db/connection.cxx` added to inventory.** SQL file loading uses `ifstream` + `istreambuf_iterator` — same pattern as template loading.

@@ -4,6 +4,7 @@ This is the current project contract while Conflux HTTP/work APIs are still
 pre-v1.
 
 For release-level versioning, security disclosure, compiler, and kernel/runtime policy, see [`project-policy.md`](project-policy.md).
+For task/executor placement and HTTP ring-thread handler rules, see [`execution-model.md`](execution-model.md).
 
 - `liburing` is required for runtime, HTTP, and socket targets. After the modular target split lands, `conflux::core`, `conflux::json`, `conflux::file_io_sync`, and `conflux::file_map` will not require liburing. Conflux remains Linux/io_uring-first.
 - Breaking API changes are expected before v1 when they simplify the final
@@ -11,10 +12,16 @@ For release-level versioning, security disclosure, compiler, and kernel/runtime 
 - `conflux.work` legacy `Flow<T>` APIs are deprecated for new code and are
   scheduled for removal after transitional users migrate.
 - `conflux.work.root` is the future async base for public-facing async flows.
-- The HTTP easy layer (`conflux::http::App`) hides runtime placement details by
-  default.
-- Advanced users can still explicitly choose execution placement (ring-affine
-  work, work-pool work, and root-task-driven async handlers).
+- All task progress is executor-owned. There is no supported task model that
+  runs outside an executor; the current execution backends are the work/uring
+  combination (`WorkPool` and ring-thread executors).
+- HTTP server handlers run on io_uring ring threads. The easy layer may hide
+  setup details, but it does not silently move arbitrary synchronous handlers to
+  a worker pool.
+- Advanced users can still explicitly choose execution placement by returning
+  task-based async work, scheduling work on a chosen executor, or calling
+  raw syscall-style helpers whose `blocking_*` names make thread-blocking cost
+  explicit.
 - `http::App` is the preferred first-contact surface and includes core routing
   ergonomics (`get/post/put/patch/del/options`, `use`, `sse`, `group`,
   `on_not_found`, `on_error`), while still exposing `config()` and `router()`
@@ -22,9 +29,13 @@ For release-level versioning, security disclosure, compiler, and kernel/runtime 
 
 Current HTTP direction:
 
-- Keep synchronous handlers supported.
-- Prefer root-backed async handlers (`root::Task<HttpResponse>`) and helper
-  deferral APIs for long-running work.
+- Keep synchronous handlers supported, but they run on ring threads and must stay
+  short, bounded, and non-blocking.
+- Prefer root-backed async handlers (`root::Task<HttpResponse>`) when the work
+  has explicit suspension points.
+- Use explicit executor handoff for executor-owned chains. Reserve
+  `blocking_*` names for raw syscall-style helpers that can block the calling
+  thread; do not rely on hidden handler auto-offload.
 - Keep low-level controls available for expert use, without making them the
   first-contact API.
 
@@ -49,13 +60,16 @@ Advanced runtime/feature examples:
 
 ## Default vs Advanced Handler Shapes
 
-Use the simplest shape that matches the work:
+Use the simplest shape that matches the work, while preserving the placement
+contract from `docs/execution-model.md`:
 
-- Fast synchronous work: return `HttpResponse` directly.
+- Fast synchronous work: return `HttpResponse` directly. This code executes on
+  the HTTP ring thread.
 - Async workflow with coroutine-style composition: return
-  `conflux::work::root::Task<HttpResponse>`.
-- Offload blocking or heavy CPU work to a pool without exposing
-  `DeferredResponse`: use `conflux::http::defer(...)`.
+  `conflux::work::root::Task<HttpResponse>`. Task progress is executor-owned.
+- Blocking or heavy CPU work must be made explicit: schedule executor-owned
+  work through the chosen executor, or call a raw syscall-style helper whose
+  `blocking_*` name advertises calling-thread blocking behavior.
 
 Example:
 
@@ -93,17 +107,21 @@ Synchronous route handlers run on the HTTP server ring thread. They are intended
 for short, non-blocking work such as routing decisions, header/body inspection,
 small in-memory transformations, and immediate response construction. CPU-heavy
 work, disk I/O, DNS, blocking HTTP clients, database calls, and other operations
-that can stall should be moved off-ring.
+that can stall must not be hidden inside ordinary sync handlers.
 
-Preferred off-ring options:
+Preferred explicit options:
 
-- Return `conflux::work::root::Task<http::Response>` from a handler that takes
-  `http::Request const&`; the router adapts it to a deferred response and runs
-  the join on the router work pool.
-- Use `http::defer(pool, fn)` when the work is naturally a blocking callable
-  and a caller-owned `WorkPool` is available.
+- Return `conflux::work::root::Task<http::Response>` when the handler naturally
+  composes with coroutine/task suspension. The task still progresses through an
+  executor; there is no non-executor task path.
+- Use a caller-owned executor/work pool for blocking callables where that is the
+  intended placement.
+- Prefer `blocking_*` only for raw syscall-style helpers that may block the
+  calling thread, so ring-thread-unsuitable calls are visible at review time.
+  Executor-owned non-coroutine chains should use `sync_*`; coroutine APIs should
+  use `async_*`.
 
-Synchronous handlers are still supported, but ring-thread blocking can now be
+Synchronous handlers are supported on-ring, and ring-thread blocking can be
 surfaced with opt-in diagnostics:
 
 - `Config::slow_handler_diagnostics` (default `false`)

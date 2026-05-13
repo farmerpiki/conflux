@@ -348,7 +348,7 @@ struct StaticOptions {
     std::string              cache_control{"max-age=3600, public"};
     bool                     precompressed{true};      // serve .gz/.br sidecar if present
     bool                     directory_listing{false};
-    std::shared_ptr<WorkPool> offload_pool{};          // for blocking file reads
+    std::shared_ptr<WorkPool> offload_pool{};          // explicit worker placement for blocking file reads
     StaticFileCacheConfig    file_cache{};             // in-memory cache; disabled by default
     bool                     allow_put{false};
     bool                     allow_delete{false};
@@ -409,7 +409,16 @@ auto infos = router.route_infos();
 
 ## Concurrency model
 
-Each `SocketTaskRing` ring thread runs an independent io_uring loop. Handlers execute on the ring thread by default. Blocking handlers stall the ring — move blocking work to a `WorkPool` via `co_await pool.submit(...)`.
+Each `SocketTaskRing` ring thread runs an independent io_uring loop. HTTP
+handlers execute on the ring thread. This is the server execution contract, not a
+compatibility detail to hide with automatic offload.
+
+Synchronous handlers must be short, bounded, and non-blocking. Blocking disk I/O,
+DNS, blocking client calls, database calls, sleeps, and heavy CPU work stall the
+ring and must be made explicit through coroutine suspension, caller-visible
+executor/work-pool placement, or raw syscall-style helpers whose `blocking_*`
+names advertise calling-thread blocking behavior. See `docs/execution-model.md`
+for the shared task/executor and naming contract.
 
 CPU pinning: set `ring_core` and `worker_core_base` in `ServerConfig` (see `docs/conflux-http-client-api.md` and `perf_ideas.md`).
 

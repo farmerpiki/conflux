@@ -20,6 +20,7 @@
 - [ ] JSON: true incremental `JsonStreamReader::feed(span<byte>)` / events API
 - [x] Router: `ContextHandler` / `ContextMiddleware` / `dispatch_async()` — landed in `844b8dc`
 - [x] Router: static-assert diagnostics for handler/middleware return types — landed (8+ static_asserts with clear error messages in router.cxx)
+- [x] Execution model: HTTP handlers run on ring threads; all tasks run on an executor; hidden sync-handler auto-offload is not a planned fix. Public naming model is `blocking_*` for raw blocking syscall-style helpers, `sync_*` for executor-owned non-coroutine chains, and `async_*` for coroutine APIs.
 - [x] Router: formal named public concepts (`HandlerResult`, `RouteHandler`, `ContextHandlerFunction`, `Middleware`) — exported and wired into `add_context`
 - [x] io_uring init: adaptive flag fallback on `EINVAL` (strip `CQE_MIXED` → `NO_SQARRAY` → `TASKRUN_FLAG` → `DEFER_TASKRUN` → `SINGLE_ISSUER`, log final set)
 

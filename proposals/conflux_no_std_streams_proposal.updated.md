@@ -219,3 +219,12 @@ export using std::cerr
 ```
 
 Do not fail `std::format` in this pass. Treat it separately as cold-vs-hot diagnostic policy.
+
+
+## Follow-up clarification: blocking/sync/async names
+
+The execution model clarification changes the naming target for future public
+APIs: raw syscall-style helpers that may block the calling thread should move
+toward `blocking_*` public names; executor-owned non-coroutine chains should use
+`sync_*`; coroutine/task APIs should use `async_*`. Existing `*_sync` and
+`*_async` names are transitional until the broader pre-v1 renaming pass.

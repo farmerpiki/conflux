@@ -591,19 +591,17 @@ run_compare_bins() {
   # Create run_ids: use git commit of the REPO_ROOT (where script is invoked).
   COMPILER="clang++"  # best-effort; refine via label naming if needed
   SYS_COMPILER_VER=$(compiler_version)
-  METADATA=$(printf '{
-  "cpu": "%s",
-  "cores": %s,
-  "smt": "%s",
-  "kernel": "%s",
-  "libc": "%s",
-  "governor": "%s",
-  "compiler_version": "%s",
-  "pinned_cpus": "%s",
-  "reps": %s
-}' "$SYS_CPU" "$SYS_CORES" "$SYS_SMT" "$SYS_KERNEL" \
-     "$SYS_LIBC" "$SYS_GOVERNOR" "$SYS_COMPILER_VER" \
-     "$SYS_PINNED_CPUS" "$BENCH_REPS")
+  METADATA=$(jq -nc \
+    --arg cpu "$SYS_CPU" \
+    --argjson cores "$SYS_CORES" \
+    --arg smt "$SYS_SMT" \
+    --arg kernel "$SYS_KERNEL" \
+    --arg libc "$SYS_LIBC" \
+    --arg governor "$SYS_GOVERNOR" \
+    --arg compiler_version "$SYS_COMPILER_VER" \
+    --arg pinned_cpus "$SYS_PINNED_CPUS" \
+    --argjson reps "$BENCH_REPS" \
+    '{cpu:$cpu, cores:$cores, smt:$smt, kernel:$kernel, libc:$libc, governor:$governor, compiler_version:$compiler_version, pinned_cpus:$pinned_cpus, reps:$reps}')
 
   local run_ids=()
   for ((i=0; i<n; i++)); do
