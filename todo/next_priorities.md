@@ -42,9 +42,14 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
      `conflux::http_proxy`, `conflux::smtp`, and internal `conflux::_dns_bridge`
      are separate module targets; the monolith links them instead of compiling
      their module/interface/private implementation units directly.
-   - Next concrete slice: split protocol/server support (`conflux::http_protocol`,
-     `conflux::http_server`, and possibly `conflux::http_app`/umbrella) now that
-     router/client/compression/proxy imports are target-backed.
+   - Completed larger HTTP protocol/server/app/umbrella slice: `conflux::process`,
+     `conflux::net_io_buffer`, `conflux::http_protocol`, `conflux::http_server`,
+     `conflux::http_app`, and `conflux::http` are separate module targets; the
+     legacy aggregate `conflux` target now compiles only its top-level umbrella
+     module and links the component graph.
+   - Next concrete slice: split static/realtime support (`conflux::http_static_core`,
+     `conflux::http_static_async`, `conflux::http_realtime`) and then split optional
+     HTTP/2/HTTP/3 protocol targets if their external dependencies are clean.
 
 2. **Remove remaining stale dependency edges from proposal reviews.**
    - Re-check `conflux_socket_io -> file_io`, `net.client -> file_io`, and
@@ -75,11 +80,12 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
 7. **Split the next HTTP modular target.**
    - `conflux::http_router`, the main router-dependent middleware buckets,
      `conflux::http_compression`, `conflux::http_client`,
-     `conflux::http_async_client`, and `conflux::http_proxy` now exist.
-   - Next split protocol/server support (`http1_parser` plus optional HTTP/2/3,
-     then `http_server.cxx`/`http_server_impl.cxx`) if its import graph is clean.
-   - Prefer static-core/static-async only if a small no-liburing metadata/mmap slice
-     is clearly separable from streamed file serving.
+     `conflux::http_async_client`, `conflux::http_proxy`, `conflux::http_protocol`,
+     `conflux::http_server`, `conflux::http_app`, and `conflux::http` now exist.
+   - Next split static/realtime support if a small static-core/static-async boundary
+     is separable from streamed file serving and websocket/SSE helpers.
+   - After that, split HTTP/2 and HTTP/3 into finer optional protocol targets only
+     if external-dependency propagation remains clean.
 
 8. **Prototype compile-time JSON only after the return type is documented.**
    - Subset: integers, booleans, null, no-escape strings, nested objects/arrays.

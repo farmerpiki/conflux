@@ -438,6 +438,9 @@ endif()
 if(CONFLUX_WANT_FILE_IO AND NOT CONFLUX_WANT_FILE_MAP)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_FILE_IO requires CONFLUX_BUILD_FILE_MAP")
 endif()
+if(CONFLUX_WANT_PROCESS AND NOT CONFLUX_WANT_RUNTIME)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_PROCESS requires CONFLUX_BUILD_RUNTIME")
+endif()
 
 if(CONFLUX_WANT_FILE_IO_SYNC)
 add_library(conflux_file_io_sync STATIC)
@@ -572,6 +575,34 @@ target_link_libraries(conflux_work
 )
 
 endif() # CONFLUX_NEEDS_RUNTIME (uring + work)
+
+if(CONFLUX_WANT_PROCESS)
+add_library(conflux_process STATIC)
+target_sources(conflux_process
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/process.cxx
+)
+target_link_libraries(conflux_process
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_work
+)
+endif() # CONFLUX_WANT_PROCESS
+
+if(CONFLUX_NEEDS_RUNTIME)
+add_library(conflux_net_io_buffer STATIC)
+target_sources(conflux_net_io_buffer
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/io_buffer.cxx
+)
+target_link_libraries(conflux_net_io_buffer
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_work
+)
+endif() # CONFLUX_NEEDS_RUNTIME (net io buffer)
 
 if(CONFLUX_WANT_FILE_IO)
 add_library(conflux_file_io STATIC)
@@ -711,6 +742,7 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
         PUBLIC  PkgConfig::LIBURING
         PUBLIC  PkgConfig::LIBPQ
     )
+    target_compile_definitions(conflux_db PUBLIC CONFLUX_HAS_DB=1)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -1132,43 +1164,168 @@ target_link_libraries(conflux_net_smtp
 )
 endif() # CONFLUX_WANT_SMTP || TLS HTTP server
 
+if(CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_protocol STATIC)
+set(CONFLUX_HTTP_PROTOCOL_SOURCES src/net/http1_parser.cxx)
+if(CONFLUX_HAS_HTTP2 STREQUAL "true")
+    list(APPEND CONFLUX_HTTP_PROTOCOL_SOURCES src/net/http2.cxx)
+endif()
+if(CONFLUX_HAS_HTTP3 STREQUAL "true")
+    list(APPEND CONFLUX_HTTP_PROTOCOL_SOURCES src/net/http3.cxx)
+endif()
+target_sources(conflux_http_protocol
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES ${CONFLUX_HTTP_PROTOCOL_SOURCES}
+)
+target_link_libraries(conflux_http_protocol
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_net_config
+)
+if(CONFLUX_HAS_HTTP2 STREQUAL "true")
+    target_link_libraries(conflux_http_protocol PUBLIC OpenSSL::SSL OpenSSL::Crypto PkgConfig::NGHTTP2)
+    target_compile_definitions(conflux_http_protocol PUBLIC CONFLUX_HAS_HTTP2=1)
+else()
+    target_compile_definitions(conflux_http_protocol PUBLIC CONFLUX_HAS_HTTP2=0)
+endif()
+if(CONFLUX_HAS_HTTP3 STREQUAL "true")
+    target_link_libraries(conflux_http_protocol PUBLIC
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        PkgConfig::NGTCP2
+        PkgConfig::NGTCP2_CRYPTO_OSSL
+        PkgConfig::NGHTTP3)
+    target_compile_definitions(conflux_http_protocol PUBLIC CONFLUX_HAS_HTTP3=1)
+else()
+    target_compile_definitions(conflux_http_protocol PUBLIC CONFLUX_HAS_HTTP3=0)
+endif()
+endif() # CONFLUX_WANT_HTTP_SERVER (HTTP protocol helpers)
+
+if(CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_server STATIC)
+target_sources(conflux_http_server
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/http_server.cxx
+)
+target_sources(conflux_http_server
+    PRIVATE
+        src/net/http_server_impl.cxx
+)
+target_link_libraries(conflux_http_server
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_http_vhost
+    PUBLIC  conflux_http_protocol
+    PUBLIC  conflux_net_config
+    PUBLIC  conflux_file_map
+    PRIVATE conflux_direct_slot_pool
+    PUBLIC  conflux_uring
+    PUBLIC  conflux_work
+    PUBLIC  conflux_file_io
+    PUBLIC  conflux_socket_io
+    PUBLIC  conflux_utils
+    PUBLIC  PkgConfig::LIBURING
+)
+if(TARGET conflux_net_tls)
+    target_compile_definitions(conflux_http_server PUBLIC CONFLUX_HAS_TLS=1)
+    target_link_libraries(conflux_http_server PUBLIC conflux_net_tls)
+else()
+    target_compile_definitions(conflux_http_server PUBLIC CONFLUX_HAS_TLS=0)
+endif()
+if(CONFLUX_HAS_HTTP2 STREQUAL "true")
+    target_compile_definitions(conflux_http_server PUBLIC CONFLUX_HAS_HTTP2=1)
+else()
+    target_compile_definitions(conflux_http_server PUBLIC CONFLUX_HAS_HTTP2=0)
+endif()
+if(CONFLUX_HAS_HTTP3 STREQUAL "true")
+    target_compile_definitions(conflux_http_server PUBLIC CONFLUX_HAS_HTTP3=1)
+else()
+    target_compile_definitions(conflux_http_server PUBLIC CONFLUX_HAS_HTTP3=0)
+endif()
+if(CONFLUX_BUILD_FUZZ)
+    target_compile_definitions(conflux_http_server PUBLIC CONFLUX_BUILD_FUZZ=1)
+endif()
+endif() # CONFLUX_WANT_HTTP_SERVER (server loop)
+
+if(CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_app STATIC)
+target_sources(conflux_http_app
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/app.cxx
+)
+target_link_libraries(conflux_http_app
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_net_config
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_http_server
+    PUBLIC  conflux_work
+)
+endif() # CONFLUX_WANT_HTTP_SERVER (app facade)
+
+if(CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_net_http STATIC)
+target_sources(conflux_net_http
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/http.cxx
+)
+target_link_libraries(conflux_net_http
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_net_config
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_json
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_net_client
+    PUBLIC  conflux_http_server
+    PUBLIC  conflux_http_app
+    PUBLIC  conflux_http_auth
+    PUBLIC  conflux_http_compression
+    PUBLIC  conflux_http_policy
+    PUBLIC  conflux_http_observability
+    PUBLIC  conflux_http_openapi
+    PUBLIC  conflux_http_vhost
+)
+if(CONFLUX_HAS_TLS STREQUAL "true")
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_TLS=1)
+else()
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_TLS=0)
+endif()
+if(CONFLUX_HAS_METRICS STREQUAL "true")
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_METRICS=1)
+else()
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_METRICS=0)
+endif()
+if(CONFLUX_HAS_HTTP2 STREQUAL "true")
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_HTTP2=1)
+    target_link_libraries(conflux_net_http PUBLIC conflux_http_protocol)
+else()
+    target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_HTTP2=0)
+endif()
+endif() # CONFLUX_WANT_HTTP_SERVER (HTTP umbrella)
+
 # ---------------------------------------------------------------------------
-# Monolith target (HTTP server + all middleware)
+# Aggregate target (legacy convenience import surface)
 # ---------------------------------------------------------------------------
 
 if(CONFLUX_WANT_HTTP_SERVER)
 
 add_library(conflux STATIC)
 
-# Core module sources.
-set(CONFLUX_MODULE_SOURCES
-    src/process.cxx
-    src/net/io_buffer.cxx
-    src/conflux.cxx
-    src/net/app.cxx
-    src/net/http.cxx
-    src/net/http1_parser.cxx
-    src/net/http_server.cxx
-)
-
-# Optional module sources.
-if(CONFLUX_HAS_HTTP2 STREQUAL "true")
-    list(APPEND CONFLUX_MODULE_SOURCES src/net/http2.cxx)
-endif()
-if(CONFLUX_HAS_HTTP3 STREQUAL "true")
-    list(APPEND CONFLUX_MODULE_SOURCES src/net/http3.cxx)
-endif()
-
 target_sources(conflux
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES
-        ${CONFLUX_MODULE_SOURCES}
-)
-
-target_sources(conflux
-    PRIVATE
-        src/net/http_server_impl.cxx
+        src/conflux.cxx
 )
 
 target_sources(conflux
@@ -1195,12 +1352,22 @@ target_link_libraries(conflux
     PUBLIC  conflux_http_observability
     PUBLIC  conflux_http_openapi
     PUBLIC  conflux_http_vhost
+    PUBLIC  conflux_http_protocol
+    PUBLIC  conflux_http_server
+    PUBLIC  conflux_http_app
+    PUBLIC  conflux_net_http
     PUBLIC  conflux_work
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
     PRIVATE conflux_direct_slot_pool
     PUBLIC  PkgConfig::LIBURING
 )
+if(TARGET conflux_process)
+    target_link_libraries(conflux PUBLIC conflux_process)
+endif()
+if(TARGET conflux_net_io_buffer)
+    target_link_libraries(conflux PUBLIC conflux_net_io_buffer)
+endif()
 if(TARGET conflux_template)
     target_link_libraries(conflux PUBLIC conflux_template)
 endif()
@@ -1260,97 +1427,11 @@ target_compile_definitions(conflux
         CONFLUX_HAS_FILE_WATCH=$<BOOL:${CONFLUX_WANT_FILE_WATCH}>
 )
 
-# TLS
-if(CONFLUX_HAS_TLS STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_TLS=1)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_TLS=0)
-endif()
-
-# gzip
-if(CONFLUX_HAS_COMPRESS STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_COMPRESS=1)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_COMPRESS=0)
-endif()
-
-if(CONFLUX_HAS_ZLIB STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_ZLIB=1)
-    target_link_libraries(conflux PUBLIC ZLIB::ZLIB)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_ZLIB=0)
-endif()
-
-if(CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_LIBDEFLATE=1)
-    target_link_libraries(conflux PUBLIC PkgConfig::LIBDEFLATE)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_LIBDEFLATE=0)
-endif()
-
-if(CONFLUX_HAS_ZLIB_NG STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_ZLIB_NG=1)
-    target_link_libraries(conflux PUBLIC PkgConfig::ZLIB_NG)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_ZLIB_NG=0)
-endif()
-
-if(CONFLUX_HAS_ISAL STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_ISAL=1)
-    target_link_libraries(conflux PUBLIC PkgConfig::LIBISAL)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_ISAL=0)
-endif()
-
-# brotli
-if(CONFLUX_HAS_BROTLI STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_BROTLI=1)
-    target_link_libraries(conflux PUBLIC PkgConfig::BROTLI)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_BROTLI=0)
-endif()
-
-# zstd
-if(CONFLUX_HAS_ZSTD STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_ZSTD=1)
-    target_link_libraries(conflux PUBLIC PkgConfig::ZSTD)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_ZSTD=0)
-endif()
-
-# metrics (no external dep)
-if(CONFLUX_HAS_METRICS STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_METRICS=1)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_METRICS=0)
-endif()
-
-# HTTP/2
-if(CONFLUX_HAS_HTTP2 STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_HTTP2=1)
-    target_link_libraries(conflux PUBLIC PkgConfig::NGHTTP2)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_HTTP2=0)
-endif()
-
-# HTTP/3
-if(CONFLUX_HAS_HTTP3 STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_HTTP3=1)
-    target_link_libraries(conflux PUBLIC
-        PkgConfig::NGTCP2
-        PkgConfig::NGTCP2_CRYPTO_OSSL
-        PkgConfig::NGHTTP3)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_HTTP3=0)
-endif()
-
-# Postgres
-if(CONFLUX_HAS_DB STREQUAL "true")
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_DB=1)
-    target_link_libraries(conflux PUBLIC conflux_db)
-else()
-    target_compile_definitions(conflux PUBLIC CONFLUX_HAS_DB=0)
-endif()
+# Feature macros and external dependencies now propagate through the split
+# component targets (`conflux::net_tls`, `conflux::http_compression`,
+# `conflux::http_protocol`, `conflux::db`, ...). Keep the aggregate target
+# thin so optional packages are not pulled in just because the umbrella module
+# is built.
 
 # Fuzz harness: propagate the macro so CONFLUX_FUZZ_EXPORT expands to `export`
 # in module interfaces, making fuzzable internal helpers reachable from
@@ -1448,6 +1529,8 @@ conflux_public_component(conflux_utils utils)
 conflux_public_component(conflux_net_config net_config)
 conflux_public_component(conflux_net_cancel net_cancel)
 conflux_public_component(conflux_net_tls net_tls)
+conflux_public_component(conflux_process process)
+conflux_public_component(conflux_net_io_buffer net_io_buffer)
 conflux_public_component(conflux_crypto crypto)
 conflux_public_component(conflux_json json)
 conflux_public_component(conflux_json_file json_file)
@@ -1468,6 +1551,10 @@ conflux_public_component(conflux_http_observability http_observability)
 conflux_public_component(conflux_http_openapi http_openapi)
 conflux_public_component(conflux_http_vhost http_vhost)
 conflux_public_component(conflux_http_json http_json)
+conflux_public_component(conflux_http_protocol http_protocol)
+conflux_public_component(conflux_http_server http_server)
+conflux_public_component(conflux_http_app http_app)
+conflux_public_component(conflux_net_http http)
 conflux_public_component(conflux_uring uring)
 conflux_public_component(conflux_work runtime)
 conflux_public_component(conflux_file_io_sync file_io_sync)
@@ -1476,7 +1563,7 @@ conflux_public_component(conflux_file_io file_io)
 conflux_public_component(conflux_socket_io socket_io)
 conflux_public_component(conflux_dns dns)
 conflux_public_component(conflux_db db)
-conflux_public_component(conflux http_server)
+conflux_public_component(conflux umbrella)
 
 # Internal-but-exported support targets needed by static-library link interfaces.
 conflux_public_component(conflux_options _options)
@@ -1498,6 +1585,8 @@ foreach(_target IN ITEMS
         conflux_net_config
         conflux_net_cancel
         conflux_net_tls
+        conflux_process
+        conflux_net_io_buffer
         conflux_crypto
         conflux_json
         conflux_json_file
@@ -1518,6 +1607,10 @@ foreach(_target IN ITEMS
         conflux_http_openapi
         conflux_http_vhost
         conflux_http_json
+        conflux_http_protocol
+        conflux_http_server
+        conflux_http_app
+        conflux_net_http
         conflux_uring
         conflux_work
         conflux_file_io_sync
@@ -1576,7 +1669,7 @@ set(CONFLUX_INSTALL_NEEDS_NGHTTP2 FALSE)
 set(CONFLUX_INSTALL_NEEDS_NGTCP2 FALSE)
 set(CONFLUX_INSTALL_NEEDS_NGHTTP3 FALSE)
 
-if(TARGET conflux_uring OR TARGET conflux_work OR TARGET conflux_file_io OR TARGET conflux_file_watch OR TARGET conflux_socket_io OR TARGET conflux_dns OR TARGET conflux_db OR TARGET conflux)
+if(TARGET conflux_uring OR TARGET conflux_work OR TARGET conflux_process OR TARGET conflux_net_io_buffer OR TARGET conflux_file_io OR TARGET conflux_file_watch OR TARGET conflux_socket_io OR TARGET conflux_dns OR TARGET conflux_db OR TARGET conflux_http_server OR TARGET conflux_http_app OR TARGET conflux_net_http OR TARGET conflux)
     set(CONFLUX_INSTALL_NEEDS_LIBURING TRUE)
 endif()
 if(TARGET conflux_json)
@@ -1585,31 +1678,31 @@ endif()
 if(TARGET conflux_db)
     set(CONFLUX_INSTALL_NEEDS_LIBPQ TRUE)
 endif()
-if(TARGET conflux_net_tls OR (TARGET conflux AND CONFLUX_HAS_TLS STREQUAL "true"))
+if(TARGET conflux_net_tls OR (TARGET conflux_http_protocol AND CONFLUX_HAS_TLS STREQUAL "true") OR (TARGET conflux_http_server AND CONFLUX_HAS_TLS STREQUAL "true") OR (TARGET conflux_net_http AND CONFLUX_HAS_TLS STREQUAL "true") OR (TARGET conflux AND CONFLUX_HAS_TLS STREQUAL "true"))
     set(CONFLUX_INSTALL_NEEDS_OPENSSL TRUE)
 endif()
-if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_ZLIB STREQUAL "true")
+if(TARGET conflux_http_compression AND CONFLUX_HAS_ZLIB STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_ZLIB TRUE)
 endif()
-if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
+if(TARGET conflux_http_compression AND CONFLUX_HAS_LIBDEFLATE STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_LIBDEFLATE TRUE)
 endif()
-if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_ZLIB_NG STREQUAL "true")
+if(TARGET conflux_http_compression AND CONFLUX_HAS_ZLIB_NG STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_ZLIB_NG TRUE)
 endif()
-if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_ISAL STREQUAL "true")
+if(TARGET conflux_http_compression AND CONFLUX_HAS_ISAL STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_ISAL TRUE)
 endif()
-if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_BROTLI STREQUAL "true")
+if(TARGET conflux_http_compression AND CONFLUX_HAS_BROTLI STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_BROTLI TRUE)
 endif()
-if((TARGET conflux OR TARGET conflux_http_compression) AND CONFLUX_HAS_ZSTD STREQUAL "true")
+if(TARGET conflux_http_compression AND CONFLUX_HAS_ZSTD STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_ZSTD TRUE)
 endif()
-if(TARGET conflux AND CONFLUX_HAS_HTTP2 STREQUAL "true")
+if((TARGET conflux OR TARGET conflux_http_protocol OR TARGET conflux_http_server) AND CONFLUX_HAS_HTTP2 STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_NGHTTP2 TRUE)
 endif()
-if(TARGET conflux AND CONFLUX_HAS_HTTP3 STREQUAL "true")
+if((TARGET conflux OR TARGET conflux_http_protocol OR TARGET conflux_http_server) AND CONFLUX_HAS_HTTP3 STREQUAL "true")
     set(CONFLUX_INSTALL_NEEDS_NGTCP2 TRUE)
     set(CONFLUX_INSTALL_NEEDS_NGHTTP3 TRUE)
 endif()
