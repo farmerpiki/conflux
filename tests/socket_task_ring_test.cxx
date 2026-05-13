@@ -1245,11 +1245,11 @@ TEST_CASE(
 	CHECK(fd_after <= fd_before + 2);
 }
 // ---------------------------------------------------------------------------
-// AC-4b: tcp_accept_multishot E2E — 20 connections then cancel
+// AC-4b: tcp_accept_multishot E2E — 100 connections then cancel
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp_accept_multishot: 20 connections then cancel, no fd leak",
+	"tcp_accept_multishot: 100 connections then cancel, no fd leak",
 	"[tcp_accept_multishot][uring]") {
 	auto fx = require_ring_fixture();
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
@@ -1262,9 +1262,9 @@ TEST_CASE(
 		co_await s.close();
 	};
 	auto task = tcp_accept_multishot(l, fx->task_ring, {}, move(handler));
-	// connect 20 clients then cancel — all backlogged before pump runs
+	// connect 100 clients then cancel — all backlogged before pump runs
 	jthread t{[&l] {
-		for (int i = 0; i < 20; ++i) {
+		for (int i = 0; i < 100; ++i) {
 			int fd = connect_v4_blocking(l.port());
 			if (fd >= 0) {
 				::close(fd);
