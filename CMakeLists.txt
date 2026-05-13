@@ -361,6 +361,44 @@ if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT TARGET conflux_j
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires CONFLUX_BUILD_JSON")
 endif()
 
+if(CONFLUX_WANT_FILE_MAP AND NOT CONFLUX_WANT_FILE_IO_SYNC)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_FILE_MAP requires CONFLUX_BUILD_FILE_IO_SYNC")
+endif()
+if(CONFLUX_WANT_FILE_IO AND NOT CONFLUX_WANT_FILE_IO_SYNC)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_FILE_IO requires CONFLUX_BUILD_FILE_IO_SYNC")
+endif()
+if(CONFLUX_WANT_FILE_IO AND NOT CONFLUX_WANT_FILE_MAP)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_FILE_IO requires CONFLUX_BUILD_FILE_MAP")
+endif()
+
+if(CONFLUX_WANT_FILE_IO_SYNC)
+add_library(conflux_file_io_sync STATIC)
+target_sources(conflux_file_io_sync
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/file_io/file_io_sync.cxx
+)
+target_link_libraries(conflux_file_io_sync
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+)
+endif() # CONFLUX_WANT_FILE_IO_SYNC
+
+if(CONFLUX_WANT_FILE_MAP)
+add_library(conflux_file_map STATIC)
+target_sources(conflux_file_map
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/file_io/file_map.cxx
+)
+target_link_libraries(conflux_file_map
+    PRIVATE conflux_options
+    PUBLIC  conflux_file_io_sync
+)
+endif() # CONFLUX_WANT_FILE_MAP
+
 if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
     add_library(conflux_http_core STATIC)
     target_sources(conflux_http_core
@@ -449,30 +487,6 @@ target_link_libraries(conflux_work
     PRIVATE conflux_options
     PUBLIC  conflux_types
     PUBLIC  PkgConfig::LIBURING
-)
-
-add_library(conflux_file_io_sync STATIC)
-target_sources(conflux_file_io_sync
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES
-        src/file_io/file_io_sync.cxx
-)
-target_link_libraries(conflux_file_io_sync
-    PRIVATE conflux_options
-    PUBLIC  conflux_types
-)
-
-add_library(conflux_file_map STATIC)
-target_sources(conflux_file_map
-    PUBLIC FILE_SET CXX_MODULES
-        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES
-        src/file_io/file_map.cxx
-)
-target_link_libraries(conflux_file_map
-    PRIVATE conflux_options
-    PUBLIC  conflux_file_io_sync
 )
 
 endif() # CONFLUX_NEEDS_RUNTIME (uring + work)
