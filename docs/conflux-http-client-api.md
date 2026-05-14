@@ -117,7 +117,7 @@ struct HttpError {
 };
 ```
 
-`decompression` and `redirect_limit` are reserved for Phase 2 — Phase 1 does not auto-decode `Content-Encoding` and does not follow redirects (`max_redirects` is plumbed but ignored).
+`decompression` and `redirect_limit` are reserved for Phase 2 — Phase 1 does not auto-decode `Content-Encoding`, but redirect following is implemented and driven by `max_redirects`.
 
 ### `HttpTelemetry`
 
@@ -240,7 +240,7 @@ auto req = std::move(b).build();
 Execution policy:
 ```cpp
 .timeouts(HttpTimeouts)
-.follow_redirects(int max = 10) .disable_redirects()   // Phase 2 — currently no-op
+.follow_redirects(int max = 10) .disable_redirects()
 .verify_peer(bool)
 .server_name(sv)                 // SNI override; defaults to URL host
 ```
@@ -312,7 +312,7 @@ Anything that depends on Phase 2:
 - **No connection pool** — each call opens & closes a socket. `pool_wait` / `reused_connection` are wired but never set.
 - **No keep-alive** — request always emits `Connection: close`.
 - **No HTTP/2 or HTTP/3** — server-side modules exist but the client speaks HTTP/1.1 only. `negotiated_protocol` is hard-coded to `"https/1.1"` for TLS responses.
-- **No automatic redirect following** — `follow_redirects` / `disable_redirects` builder calls compile but have no effect.
+- **Automatic redirect following** — `follow_redirects` / `disable_redirects` control the maximum number of redirects followed by the client; redirects strip sensitive headers on host changes and report `redirect_limit` when exhausted.
 - **No content-coding decode** — `gzip`/`br`/`zstd` bodies arrive un-inflated. Caller must decode (the `conflux.net.compress` module is server-side).
 - **No request streaming / chunked send** — body is buffered in full; no `Transfer-Encoding` on the wire.
 - **No proxy support on the client itself** — `src/net/proxy.cxx` is a *server-side* reverse-proxy handler that uses `HttpClient` internally; it is not an HTTP-proxy client.
@@ -404,7 +404,7 @@ Blocking and async surfaces stable. Both support HTTP and HTTPS.
 
 Still not in any transport:
 - pooled connections / keep-alive (`pool_wait` / `reused_connection` always false)
-- redirect following (`follow_redirects` compiles but has no effect)
+- redirect following (`follow_redirects` follows redirects up to the configured limit)
 - content-coding decode (gzip/br/zstd bodies arrive raw)
 - JSON document request-body helpers are free functions in `conflux.net.http.json`; there is intentionally no `body_json(NodeRef)` member on `HttpRequest::Builder`.
 

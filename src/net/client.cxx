@@ -474,6 +474,137 @@ bool recv_chunked(
 	bool const default_port = (url.scheme == "http" && url.port == 80) || (url.scheme == "https" && url.port == 443);
 	return default_port ? url.host : format("{}:{}", url.host, url.port);
 }
+[[nodiscard]] bool is_redirect_status(
+	int status) noexcept {
+	return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+}
+[[nodiscard]] bool same_origin(
+	Url const &a,
+	Url const &b) noexcept {
+	return a.scheme == b.scheme && a.host == b.host && a.port == b.port;
+}
+[[nodiscard]] Opt<Url> resolve_redirect_target(
+	Url const &base,
+	SV location) {
+	if (location.empty() || location.find_first_of("\r\n") != SV::npos) {
+		return nullopt;
+	}
+	S loc{location};
+	auto const frag = loc.find('#');
+	if (frag != S::npos) {
+		loc.erase(frag);
+	}
+	if (loc.empty()) {
+		return nullopt;
+	}
+	if (loc.starts_with("//")) {
+		auto abs = Url::parse(format("{}:{}", base.scheme, loc));
+		return abs ? Opt<Url>{move(*abs)} : nullopt;
+	}
+	if (auto abs = Url::parse(loc); abs) {
+		return move(*abs);
+	}
+	Url next = base;
+	auto const q = loc.find('?');
+	if (q != S::npos) {
+		next.query = loc.substr(q + 1);
+		loc.erase(q);
+		if (loc.empty()) {
+			return next;
+		}
+	} else {
+		next.query.clear();
+	}
+	if (loc.starts_with('/')) {
+		next.path = move(loc);
+		return next;
+	}
+	S base_path = next.path.empty() ? S{"/"} : next.path;
+	auto const slash = base_path.rfind('/');
+	if (slash == S::npos) {
+		next.path = S{"/"} + loc;
+	} else {
+		next.path = S{base_path.substr(0, slash + 1)} + loc;
+	}
+	return next;
+}
+[[nodiscard]] expected<Opt<HttpRequest>, HttpError> follow_redirect(
+	HttpRequest const &req,
+	HttpResponse const &resp) {
+	if (!is_redirect_status(resp.head.status)) {
+		return nullopt;
+	}
+	auto const location = resp.head.headers["location"];
+	if (location.empty()) {
+		return nullopt;
+	}
+	if (req.max_redirects() <= 0) {
+		return unexpected(
+			HttpError{
+				.kind = HttpErrorKind::redirect_limit,
+				.message = "redirect limit exceeded"});
+	}
+	auto next_url = resolve_redirect_target(req.url(), location);
+	if (!next_url) {
+		return nullopt;
+	}
+	bool const cross_origin = !same_origin(req.url(), *next_url);
+	HttpFields next_headers{req.headers().case_insensitive()};
+	next_headers.clear();
+	for (auto const &[k, v]: req.headers()) {
+		auto const lower = ascii_lower(k);
+		if (lower == "host") {
+			continue;
+		}
+		if (cross_origin && (lower == "authorization" || lower == "cookie" || lower == "proxy-authorization")) {
+			continue;
+		}
+		next_headers.set(k, v);
+	}
+	auto builder = HttpRequest::method(req.method(), next_url->str())
+					   .headers(next_headers)
+					   .timeouts(req.timeouts())
+					   .verify_peer(req.verify_peer());
+	if (!req.body().empty()) {
+		builder.body(req.body());
+	}
+	if (!req.server_name().empty()) {
+		builder.server_name(req.server_name());
+	}
+	builder.follow_redirects(req.max_redirects() - 1);
+	return move(builder).build();
+}
+void accumulate_telemetry(
+	HttpTelemetry &total,
+	HttpTelemetry const &hop) {
+	total.dns += hop.dns;
+	total.connect += hop.connect;
+	total.tls += hop.tls;
+	total.ttfb += hop.ttfb;
+	total.body += hop.body;
+	if (hop.pool_wait) {
+		total.pool_wait = total.pool_wait ? *total.pool_wait + *hop.pool_wait : hop.pool_wait;
+	}
+	total.bytes_sent += hop.bytes_sent;
+	total.bytes_received += hop.bytes_received;
+	total.reused_connection = total.reused_connection || hop.reused_connection;
+	if (!hop.negotiated_protocol.empty()) {
+		total.negotiated_protocol = hop.negotiated_protocol;
+	}
+	if (!hop.tls_cipher.empty()) {
+		total.tls_cipher = hop.tls_cipher;
+	}
+	if (!hop.tls_version.empty()) {
+		total.tls_version = hop.tls_version;
+	}
+	total.tls_verified = total.tls_verified || hop.tls_verified;
+	if (!hop.peer_addr.empty()) {
+		total.peer_addr = hop.peer_addr;
+	}
+	if (hop.decoded_encoding) {
+		total.decoded_encoding = hop.decoded_encoding;
+	}
+}
 // Core blocking transport — returns HttpResult.
 HttpResult do_blocking_request(
 	conflux::http::HttpRequest const &req,
@@ -893,7 +1024,24 @@ public:
 	[[nodiscard]] HttpResult send_blocking(
 		HttpRequest const &req) const {
 		auto effective_opts = opts_;
-		return client_detail::do_blocking_request(req, effective_opts);
+		HttpRequest current = req;
+		HttpTelemetry total_tel{};
+		for (;;) {
+			auto result = client_detail::do_blocking_request(current, effective_opts);
+			if (!result) {
+				return result;
+			}
+			client_detail::accumulate_telemetry(total_tel, result->telemetry);
+			auto next = client_detail::follow_redirect(current, *result);
+			if (!next) {
+				return unexpected(next.error());
+			}
+			if (!next->has_value()) {
+				result->telemetry = move(total_tel);
+				return result;
+			}
+			current = move(**next);
+		}
 	}
 };
 

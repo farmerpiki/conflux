@@ -55,7 +55,7 @@ Implemented in this patch:
 
 Still implemented but not directly covered by deterministic tests after this pass:
 
-- [ ] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; builder knobs are covered, but network redirect behavior still needs a local two-server E2E.
+- [x] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; now covered by sync/async E2E tests in pass 7.
 - [ ] HTTP request body double-set debug assertion path; needs an assert-probe binary like the recv-bundle probes because release builds intentionally use last-wins behavior.
 
 ## Test coverage gap pass 3 (2026-05-14)
@@ -69,7 +69,7 @@ Implemented in this patch:
 Still implemented but not directly covered by deterministic tests after pass 3:
 
 - [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
-- [ ] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; builder knobs are covered, but network redirect behavior still needs a local two-server E2E.
+- [x] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; now covered by sync/async E2E tests in pass 7.
 - [ ] HTTP request body double-set debug assertion path; needs an assert-probe binary like the recv-bundle probes because release builds intentionally use last-wins behavior.
 
 ## Test coverage gap pass 4 (2026-05-14)
@@ -82,7 +82,7 @@ Implemented in this patch:
 Still implemented but not directly covered by deterministic tests after pass 4:
 
 - [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
-- [ ] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; builder knobs are covered, but network redirect behavior still needs a local two-server E2E.
+- [x] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; now covered by sync/async E2E tests in pass 7.
 
 ## Test coverage gap pass 5 (2026-05-14)
 
@@ -94,10 +94,6 @@ Still implemented but not directly covered by deterministic tests after pass 5:
 
 - [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
 
-Known feature/API gap, not a test-coverage gap:
-
-- [ ] HTTP client redirect following: `HttpRequest::Builder::follow_redirects()` stores `max_redirects`, but the sync/async clients do not consume it yet. Do not add tests that lock in the current no-op; implement redirect following first, then add E2E coverage for relative/absolute redirects, redirect-limit exhaustion, and sensitive-header handling across host changes.
-
 ## Test coverage gap pass 6 (2026-05-14)
 
 Implemented in this patch:
@@ -108,6 +104,12 @@ Implemented in this patch:
 Still implemented but not directly covered by deterministic tests after pass 6:
 
 - [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
+
+## Test coverage gap pass 7 (2026-05-14)
+
+Implemented in this patch:
+
+- [x] HTTP client redirect following: `HttpRequest::Builder::follow_redirects()` is now consumed by the sync and async clients. Relative and absolute redirects, redirect-limit exhaustion, and cross-origin sensitive-header stripping are covered by E2E tests.
 
 ## Architecture (dedicated branches)
 

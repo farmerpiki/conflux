@@ -17,6 +17,7 @@ import std;
 import conflux.types;
 
 import conflux.crypto;
+import conflux.net.async_client;
 import conflux.net.http;
 import conflux.net.proxy;
 import conflux.net.http1_parser;
@@ -34,6 +35,9 @@ using conflux::http::HttpTimeouts;
 
 // Actual port chosen by the OS; set once in ensure_server().
 u16 g_test_port = 0;
+u16 g_redirect_follow_source_port = 0;
+u16 g_redirect_follow_target_port = 0;
+u16 g_redirect_follow_async_port = 0;
 void ensure_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
@@ -193,6 +197,65 @@ void ensure_server() {
 		// Create server on heap so port() can be queried from this thread
 		// while run() blocks on the worker thread.
 		g_test_port = test_servers().start(cfg, move(router));
+	});
+}
+void ensure_redirect_follow_servers() {
+	static std::once_flag flag;
+	std::call_once(flag, [] {
+		Config cfg = mw_config();
+
+		Router target;
+		target.get("/echo-headers", [](HttpRequest const &req) {
+			return HttpResponse::text(
+				format(
+					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
+					S{req.headers["authorization"]},
+					S{req.headers["cookie"]},
+					S{req.headers["proxy-authorization"]},
+					S{req.headers["host"]}));
+		});
+		g_redirect_follow_target_port = test_servers().start(cfg, move(target));
+
+		Router source;
+		source.get("/echo-headers", [](HttpRequest const &req) {
+			return HttpResponse::text(
+				format(
+					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
+					S{req.headers["authorization"]},
+					S{req.headers["cookie"]},
+					S{req.headers["proxy-authorization"]},
+					S{req.headers["host"]}));
+		});
+		source.get("/same", [](HttpRequest const &) { return HttpResponse::redirect("/echo-headers"); });
+		source.get("/cross", [](HttpRequest const &) {
+			return HttpResponse::redirect(
+				format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
+		});
+		source.get("/loop", [](HttpRequest const &) { return HttpResponse::redirect("/loop"); });
+		source.get("/async-start", [](HttpRequest const &) { return HttpResponse::redirect("/async-final"); });
+		source.get("/async-final", [](HttpRequest const &) { return HttpResponse::text("async-ok"); });
+		g_redirect_follow_source_port = test_servers().start(cfg, move(source));
+
+		Router front;
+		auto popts = ProxyOptions{
+			.upstream_host = "127.0.0.1",
+			.upstream_port = g_redirect_follow_source_port,
+		};
+		front.add_context("GET", "/async-follow", [popts](HttpRequest const &, RequestContext const &ctx)
+								-> conflux::work::root::Task<HttpResponse> {
+			HttpClient client{};
+			auto result = co_await send_async(
+				client,
+				ctx.ring,
+				chttp::HttpRequest::get(
+					format("http://127.0.0.1:{}/async-start", popts.upstream_port)).follow_redirects(2));
+			if (!result) {
+				co_return HttpResponse::bad_gateway(
+					format("redirect follow failed: {} ({})", result.error().message, static_cast<int>(result.error().kind)));
+			}
+			co_return HttpResponse::text(move(result->body));
+		});
+		g_redirect_follow_async_port = test_servers().start(cfg, move(front));
 	});
 }
 // Connect, send a GET, parse Content-Length, return the full response.
@@ -1122,6 +1185,52 @@ TEST_CASE(
 	auto response = client.send_blocking(chttp::HttpRequest::get("http://127.0.0.1:9/"));
 	REQUIRE_FALSE(response);
 	CHECK(response.error().kind == HttpErrorKind::connect);
+}
+TEST_CASE(
+	"http client: follow_redirects follows same-origin relative redirects") {
+	ensure_redirect_follow_servers();
+	HttpClient client{};
+	auto response = client.send_blocking(
+		chttp::HttpRequest::get(format("http://127.0.0.1:{}/same", g_redirect_follow_source_port))
+			.header("Authorization", "Bearer secret")
+			.header("Cookie", "session=abc")
+			.header("Proxy-Authorization", "Basic proxy")
+			.follow_redirects(2));
+	REQUIRE(response);
+	CHECK(response->head.status == 200);
+	CHECK(response->body.find("auth=Bearer secret") != S::npos);
+	CHECK(response->body.find("cookie=session=abc") != S::npos);
+	CHECK(response->body.find("proxy-authorization=Basic proxy") == S::npos);
+	CHECK(response->body.find(format("host=127.0.0.1:{}", g_redirect_follow_source_port)) != S::npos);
+}
+TEST_CASE(
+	"http client: follow_redirects strips sensitive headers across host changes") {
+	ensure_redirect_follow_servers();
+	HttpClient client{};
+	auto response = client.send_blocking(
+		chttp::HttpRequest::get(format("http://127.0.0.1:{}/cross", g_redirect_follow_source_port))
+			.header("Authorization", "Bearer secret")
+			.header("Cookie", "session=abc")
+			.header("Proxy-Authorization", "Basic proxy")
+			.follow_redirects(2));
+	REQUIRE(response);
+	CHECK(response->head.status == 200);
+	CHECK(response->body.find("auth=") != S::npos);
+	CHECK(response->body.find("cookie=") != S::npos);
+	CHECK(response->body.find("proxy-authorization=") != S::npos);
+	CHECK(response->body.find("Bearer secret") == S::npos);
+	CHECK(response->body.find("session=abc") == S::npos);
+	CHECK(response->body.find("Basic proxy") == S::npos);
+	CHECK(response->body.find(format("host=127.0.0.1:{}", g_redirect_follow_target_port)) != S::npos);
+}
+TEST_CASE(
+	"http client: follow_redirects reports redirect limit exhaustion") {
+	ensure_redirect_follow_servers();
+	HttpClient client{};
+	auto response =
+		client.send_blocking(chttp::HttpRequest::get(format("http://127.0.0.1:{}/loop", g_redirect_follow_source_port)).follow_redirects(1));
+	REQUIRE_FALSE(response);
+	CHECK(response.error().kind == HttpErrorKind::redirect_limit);
 }
 TEST_CASE(
 	"GET /hello/{name} captures param") {
@@ -5167,6 +5276,13 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(resp.find("X-Upstream: yes\r\n") != S::npos);
 	REQUIRE(extract_body(resp) == "proxied-ok");
+}
+TEST_CASE(
+	"http client async: send_async follows relative redirects") {
+	ensure_redirect_follow_servers();
+	auto resp = http_get_on(g_redirect_follow_async_port, "/async-follow");
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	REQUIRE(extract_body(resp) == "async-ok");
 }
 TEST_CASE(
 	"proxy: preserve_host=true forwards original Host header") {
