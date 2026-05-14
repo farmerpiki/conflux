@@ -271,8 +271,8 @@ public:
 	// ETag based on size+mtime; Range requests (206 Partial Content) supported.
 	// Pre-compressed sidecar files (.gz, .br) served when client accepts them.
 	Router &serve_static(
-		SV url_prefix,
-		S root_dir,
+		std::string_view url_prefix,
+		std::string root_dir,
 		StaticOptions const &sopts = {});
 	[[nodiscard]] HttpResponse dispatch(HttpRequest const &req) const;
 	[[nodiscard]] HttpResponse dispatch(HttpRequestView const &req) const;

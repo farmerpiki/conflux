@@ -197,8 +197,8 @@ void Router::launch_sse_handler(
 	}
 
 Router &Router::serve_static(
-	SV url_prefix,
-	S root_dir,
+	std::string_view url_prefix,
+	std::string root_dir,
 	StaticOptions const &sopts) {
 	auto add_get = [this](SV pattern, auto handler) { get(pattern, move(handler)); };
 	auto add_put = [this](SV pattern, auto handler) { put(pattern, move(handler)); };

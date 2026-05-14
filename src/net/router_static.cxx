@@ -19,8 +19,8 @@ void serve_static_routes(
 	AddGet &&add_get,
 	AddPut &&add_put,
 	AddDel &&add_del,
-	SV url_prefix,
-	S root_dir,
+	std::string_view url_prefix,
+	std::string root_dir,
 	StaticOptions const &sopts,
 	StaticFileCacheConfig const &static_file_cache,
 	StaticCacheStore &static_cache) {
