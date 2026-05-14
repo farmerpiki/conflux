@@ -453,6 +453,34 @@ CPU pinning: set `ring_core` and `worker_core_base` in `ServerConfig` (see `docs
 
 ---
 
+## JSON route responses
+
+Raw serialized JSON can still use `HttpResponse::json(std::string)`. Structured
+values should go through the optional `conflux.net.http.response_json` module so
+route code depends on the provider boundary instead of one concrete DOM:
+
+```cpp
+import conflux.net.http.response_json;
+
+router.get("/api/count", [](HttpRequestView const &) {
+    return conflux::http::json::response_or_internal_error(static_cast<i64>(42));
+});
+
+router.post("/api/items", [](HttpRequestView const &) {
+    auto resp = conflux::http::json::try_response(
+        ItemCreated{.id = 7},
+        {.status = kHttpCreated, .status_text = "Created"});
+    return resp ? std::move(*resp) : HttpResponse::internal_error();
+});
+```
+
+`try_response` returns `std::expected<HttpResponse, json::boundary::Error>` and
+preserves provider-neutral serialization failures. `response_or_internal_error`
+is the route ergonomic helper for handlers that must return `HttpResponse`; it
+returns a fixed JSON 500 body when serialization fails.
+
+---
+
 ## Graceful shutdown
 
 ```cpp

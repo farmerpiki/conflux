@@ -989,6 +989,20 @@ target_link_libraries(conflux_http_response
 )
 endif() # CONFLUX_HTTP_ROUTER_STACK_REQUESTED (HTTP response vocabulary)
 
+if(TARGET conflux_http_response AND TARGET conflux_http_json)
+add_library(conflux_http_response_json STATIC)
+target_sources(conflux_http_response_json
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/http_response_json.cxx
+)
+target_link_libraries(conflux_http_response_json
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_json
+    PUBLIC  conflux_http_response
+)
+endif() # conflux_http_response && conflux_http_json
+
 if(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED)
 add_library(conflux_http_static_core STATIC)
 target_sources(conflux_http_static_core
@@ -1561,6 +1575,7 @@ target_link_libraries(conflux_net_http
     PUBLIC  conflux_net_config
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_json
+    PUBLIC  conflux_http_response_json
     PUBLIC  conflux_http_router
     PUBLIC  conflux_net_client
     PUBLIC  conflux_http_protocol
@@ -1628,6 +1643,7 @@ target_link_libraries(conflux
     PUBLIC  conflux_net_config
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_json
+    PUBLIC  conflux_http_response_json
     PUBLIC  conflux_http_router
     PUBLIC  conflux_http_static
     PUBLIC  conflux_http_static_core
@@ -1895,6 +1911,7 @@ conflux_public_component(conflux_http_observability http_observability)
 conflux_public_component(conflux_http_openapi http_openapi)
 conflux_public_component(conflux_http_vhost http_vhost)
 conflux_public_component(conflux_http_json http_json)
+conflux_public_component(conflux_http_response_json http_response_json)
 conflux_public_component(conflux_http1 http1)
 conflux_public_component(conflux_http2 http2)
 conflux_public_component(conflux_http3 http3)
@@ -1967,6 +1984,7 @@ foreach(_target IN ITEMS
         conflux_http_openapi
         conflux_http_vhost
         conflux_http_json
+        conflux_http_response_json
         conflux_http1
         conflux_http2
         conflux_http3

@@ -82,6 +82,20 @@ concept JsonDecodeProvider = requires(SV input, DecodeOptions const &opts) {
 	{ Provider::template decode_json<T>(input, opts) } -> same_as<expected<T, Error>>;
 };
 
+template<class Sink>
+concept JsonChunkSink = requires(Sink &&sink, SV chunk) {
+	{ std::invoke(std::forward<Sink>(sink), chunk) } -> same_as<void>;
+};
+
+template<class Provider, class T, class Sink>
+concept JsonDirectWriteProvider = JsonChunkSink<Sink> && requires(T const &value, DumpOptions const &opts) {
+	{ Provider::write_json(value, opts, std::declval<Sink>()) } -> same_as<expected<void, Error>>;
+};
+
+template<class Provider, class T, class Sink>
+concept JsonWritableProvider =
+	JsonDirectWriteProvider<Provider, T, Sink> || (JsonDumpProvider<Provider, T> && JsonChunkSink<Sink>);
+
 template<class Provider>
 concept JsonDocumentProvider = requires(SV input, DecodeOptions const &decode_opts, DumpOptions const &dump_opts) {
 	typename Provider::document_type;
@@ -106,6 +120,25 @@ struct SerdeTraits {
 	{
 		return Provider::template decode_json<T>(input, opts);
 	}
+
+	template<class Sink>
+	static expected<void, Error> write(
+		T const &value,
+		Sink &&sink,
+		DumpOptions const &opts = {})
+		requires JsonWritableProvider<Provider, T, Sink>
+	{
+		if constexpr (JsonDirectWriteProvider<Provider, T, Sink>) {
+			return Provider::write_json(value, opts, std::forward<Sink>(sink));
+		} else {
+			auto dumped = dump(value, opts);
+			if (!dumped) {
+				return unexpected(dumped.error());
+			}
+			std::invoke(std::forward<Sink>(sink), SV{*dumped});
+			return {};
+		}
+	}
 };
 
 template<class Provider, class T>
@@ -124,6 +157,16 @@ template<class Provider, class T>
 	requires JsonDecodeProvider<Provider, std::remove_cvref_t<T>>
 {
 	return SerdeTraits<Provider, std::remove_cvref_t<T>>::decode(input, opts);
+}
+
+template<class Provider, class T, class Sink>
+[[nodiscard]] expected<void, Error> write_with(
+	T const &value,
+	Sink &&sink,
+	DumpOptions const &opts = {})
+	requires JsonWritableProvider<Provider, std::remove_cvref_t<T>, Sink>
+{
+	return SerdeTraits<Provider, std::remove_cvref_t<T>>::write(value, std::forward<Sink>(sink), opts);
 }
 
 } // namespace conflux::json::boundary

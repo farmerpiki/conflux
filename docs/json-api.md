@@ -44,11 +44,23 @@ using Provider = conflux::json::boundary::NativeJsonProvider;
 auto doc  = Provider::parse_json_document(body, {.copy_input = true});
 auto json = conflux::json::boundary::dump_with<Provider>(*doc);
 auto id   = conflux::json::boundary::decode_with<Provider, i64>("42");
+
+std::string out;
+auto ok = conflux::json::boundary::write_with<Provider>(
+    *doc,
+    [&](std::string_view chunk) { out.append(chunk); });
 ```
+
+`write_with` is the route/transport-facing writer adaptor. Providers may expose
+a direct `write_json(value, opts, sink)` fast path; otherwise the boundary falls
+back to `dump_json` and forwards the single produced chunk. The fallback keeps
+the current native provider behavior explicit while allowing streaming providers
+to avoid an intermediate owning JSON string later.
 
 HTTP JSON helpers now depend on `conflux.json.native_provider` instead of
 serializing `Document` directly. Custom providers should implement the same
-static `dump_json` / `decode_json` / `parse_json_document` shape and return
+static `dump_json` / `decode_json` / `parse_json_document` shape, and may add
+`write_json(value, opts, sink)` for direct chunked output. Providers return
 `conflux::json::boundary::Error` rather than leaking provider-specific errors
 through framework boundaries.
 

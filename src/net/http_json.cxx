@@ -3,8 +3,8 @@ export module conflux.net.http.json;
 import std;
 import conflux.types;
 import conflux.net.http.types;
-import conflux.net.http.request;
-import conflux.json.native_provider;
+export import conflux.net.http.request;
+export import conflux.json.native_provider;
 export namespace conflux::http::json {
 
 using DefaultJsonProvider = conflux::json::boundary::NativeJsonProvider;
