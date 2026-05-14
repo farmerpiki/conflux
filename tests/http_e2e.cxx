@@ -7615,6 +7615,16 @@ TEST_CASE(
 	REQUIRE(out.headers.empty());
 }
 TEST_CASE(
+	"http1_parser: incomplete request line over limit returns UriTooLong") {
+	using namespace conflux::http1;
+	ParserLimits limits{};
+	limits.max_request_line_size = 12;
+	ParsedRequest out;
+	auto status = parse_request("GET /still-growing", limits, out);
+	REQUIRE(status == ParseStatus::UriTooLong);
+}
+
+TEST_CASE(
 	"http1_parser: URI too long returns UriTooLong") {
 	using namespace conflux::http1;
 	ParserLimits limits{};
@@ -7634,6 +7644,26 @@ TEST_CASE(
 	auto status = parse_request(raw, limits, out);
 	REQUIRE(status == ParseStatus::BadRequest);
 }
+TEST_CASE(
+	"http1_parser: incomplete header line over limit returns HeaderFieldsTooLarge") {
+	using namespace conflux::http1;
+	ParserLimits limits{};
+	limits.max_header_line_size = 8;
+	ParsedRequest out;
+	auto status = parse_request("GET / HTTP/1.1\r\nX-Long: still-growing", limits, out);
+	REQUIRE(status == ParseStatus::HeaderFieldsTooLarge);
+}
+
+TEST_CASE(
+	"http1_parser: incomplete header count over limit returns HeaderFieldsTooLarge") {
+	using namespace conflux::http1;
+	ParserLimits limits{};
+	limits.max_headers = 2;
+	ParsedRequest out;
+	auto status = parse_request("GET / HTTP/1.1\r\nA: 1\r\nB: 2\r\nC: 3\r\n", limits, out);
+	REQUIRE(status == ParseStatus::HeaderFieldsTooLarge);
+}
+
 TEST_CASE(
 	"http1_parser: too many headers returns HeaderFieldsTooLarge") {
 	using namespace conflux::http1;

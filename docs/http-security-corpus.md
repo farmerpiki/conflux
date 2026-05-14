@@ -9,9 +9,13 @@ server is web-facing and the parser accepts hostile input.
 ### Request line and headers
 
 - request target longer than the configured line limit returns `414`;
+- incomplete request lines are capped by the same configured line limit and return
+  `414` instead of waiting for the full header terminator;
 - malformed method token returns `400`;
 - empty request target returns `400`;
 - oversized single header line returns `431`;
+- incomplete header lines and incremental header counts are capped before the
+  final header terminator and return `431`;
 - excessive header count returns `431`;
 - obsolete folded header lines return `400`;
 - NUL bytes in headers return `400`;
@@ -39,6 +43,15 @@ server is web-facing and the parser accepts hostile input.
 - too many chunks return `400`;
 - oversized trailers return `400`;
 - huge declared chunks return `413`.
+
+### Configured defaults
+
+- the default server config exposes bounded request body, request-line,
+  header-line, header-count, aggregate-header, chunk-count, request-timeout,
+  and TLS-sniff-timeout knobs;
+- the INI parser accepts those knobs in `[server]`;
+- the HTTP/3 body cap is separately configurable as `[http3].max_body_size` and
+  defaults to the HTTP/1 body cap.
 
 ### Timeout hardening
 

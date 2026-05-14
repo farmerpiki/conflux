@@ -63,6 +63,33 @@ usage/copy/error/adaptive-disable counters.
 
 ---
 
+## Hardened request limits
+
+`Config` defaults are bounded for web-facing use: 1 MiB request bodies, 30 s
+request timeout, 10 s TLS/plain sniff timeout, 8 KiB request lines, 8 KiB
+single header lines, 100 headers, 64 KiB aggregate header blocks, and 100000
+chunked body chunks. The parser enforces request-line and header-line/count
+limits incrementally, before a client has to send the final `\r\n\r\n` header
+terminator.
+
+INI configuration exposes these knobs in `[server]`:
+
+```ini
+max_body_size = 1048576
+request_timeout_ms = 30000
+tls_sniff_timeout_ms = 10000
+max_request_line_size = 8192
+max_header_line_size = 8192
+max_headers = 100
+max_header_block_size = 65536
+max_chunks = 100000
+```
+
+HTTP/3 has a separate `[http3].max_body_size` knob; it defaults to the same
+1 MiB cap as HTTP/1 request bodies.
+
+---
+
 ## `HttpRequest` / `HttpRequestView`
 
 `HttpRequestView` is the zero-copy view handed to handlers. `HttpRequest` is the owned variant (used when the handler must outlive the request coroutine).

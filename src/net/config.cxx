@@ -248,6 +248,16 @@ void apply_server_key(
 		cfg.request_timeout_ms = parse_uint<u32>(val, key);
 	} else if (key == "tls_sniff_timeout_ms") {
 		cfg.tls_sniff_timeout_ms = parse_uint<u32>(val, key);
+	} else if (key == "max_request_line_size") {
+		cfg.parser_limits.max_request_line_size = parse_uint<SZ>(val, key);
+	} else if (key == "max_header_line_size") {
+		cfg.parser_limits.max_header_line_size = parse_uint<SZ>(val, key);
+	} else if (key == "max_headers") {
+		cfg.parser_limits.max_headers = parse_uint<SZ>(val, key);
+	} else if (key == "max_header_block_size") {
+		cfg.parser_limits.max_header_block_size = parse_uint<SZ>(val, key);
+	} else if (key == "max_chunks") {
+		cfg.parser_limits.max_chunks = parse_uint<SZ>(val, key);
 	} else if (key == "slow_handler_diagnostics") {
 		cfg.slow_handler_diagnostics = parse_bool(val, key);
 	} else if (key == "slow_handler_warn_ms") {
@@ -292,6 +302,8 @@ void apply_http3_key(
 		cfg.http3.max_conn_data = parse_uint<SZ>(val, key);
 	} else if (key == "alt_svc_max_age_sec") {
 		cfg.http3.alt_svc_max_age_sec = parse_uint<u32>(val, key);
+	} else if (key == "max_body_size") {
+		cfg.http3.max_body_size = parse_uint<SZ>(val, key);
 	}
 }
 void apply_static_cache_key(

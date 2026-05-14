@@ -61,20 +61,44 @@ ParseStatus parse_request(
 	out.headers.clear();
 
 	auto header_end = raw.find("\r\n\r\n");
-	if (header_end == SV::npos) {
-		if (raw.size() > limits.max_header_block_size + limits.max_request_line_size + 2) {
-			return ParseStatus::HeaderFieldsTooLarge;
+	auto eol = raw.find("\r\n");
+	if (eol == SV::npos) {
+		if (raw.size() > limits.max_request_line_size) {
+			return ParseStatus::UriTooLong;
 		}
 		return ParseStatus::Incomplete;
 	}
 
-	auto eol = raw.find("\r\n");
 	auto req_line = raw.substr(0, eol);
 	if (req_line.size() > limits.max_request_line_size) {
 		return ParseStatus::UriTooLong;
 	}
 
 	auto const post_req_line = eol + 2;
+	if (header_end == SV::npos) {
+		if (raw.size() > post_req_line && raw.size() - post_req_line > limits.max_header_block_size) {
+			return ParseStatus::HeaderFieldsTooLarge;
+		}
+
+		SZ header_count = 0;
+		SZ pos = post_req_line;
+		while (pos < raw.size()) {
+			auto const line_end = raw.find("\r\n", pos);
+			auto const line_size = line_end == SV::npos ? raw.size() - pos : line_end - pos;
+			if (line_size > limits.max_header_line_size) {
+				return ParseStatus::HeaderFieldsTooLarge;
+			}
+			if (line_end == SV::npos) {
+				return ParseStatus::Incomplete;
+			}
+			if (++header_count > limits.max_headers) {
+				return ParseStatus::HeaderFieldsTooLarge;
+			}
+			pos = line_end + 2;
+		}
+		return ParseStatus::Incomplete;
+	}
+
 	auto const header_block_size = (header_end > post_req_line) ? header_end - post_req_line : SZ{0};
 	if (header_block_size > limits.max_header_block_size) {
 		return ParseStatus::HeaderFieldsTooLarge;

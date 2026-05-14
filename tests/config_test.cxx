@@ -71,6 +71,37 @@ submit_all = true
 }
 
 TEST_CASE(
+	"net.config: ini parses HTTP limits and timeout hardening knobs",
+	"[net.config]") {
+	TempIni ini{R"ini(
+[server]
+max_body_size = 4096
+request_timeout_ms = 12000
+tls_sniff_timeout_ms = 3000
+max_request_line_size = 2048
+max_header_line_size = 1024
+max_headers = 32
+max_header_block_size = 8192
+max_chunks = 128
+
+[http3]
+max_body_size = 8192
+)ini"};
+
+	auto cfg = config_from_ini(ini.c_str());
+
+	CHECK(cfg.max_body_size == 4096);
+	CHECK(cfg.request_timeout_ms == 12000);
+	CHECK(cfg.tls_sniff_timeout_ms == 3000);
+	CHECK(cfg.parser_limits.max_request_line_size == 2048);
+	CHECK(cfg.parser_limits.max_header_line_size == 1024);
+	CHECK(cfg.parser_limits.max_headers == 32);
+	CHECK(cfg.parser_limits.max_header_block_size == 8192);
+	CHECK(cfg.parser_limits.max_chunks == 128);
+	CHECK(cfg.http3.max_body_size == 8192);
+}
+
+TEST_CASE(
 	"net.config: ini rejects invalid new unsigned knobs",
 	"[net.config]") {
 	TempIni ini{R"ini(

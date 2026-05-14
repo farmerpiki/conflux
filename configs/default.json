@@ -3,6 +3,16 @@
     "rings": 0,
     "workers": 1,
     "ring_entries": 1024,
+    "max_body_size": 1048576,
+    "request_timeout_ms": 30000,
+    "tls_sniff_timeout_ms": 10000,
+    "parser_limits": {
+        "max_request_line_size": 8192,
+        "max_header_line_size": 8192,
+        "max_headers": 100,
+        "max_header_block_size": 65536,
+        "max_chunks": 100000
+    },
     "io_uring_flags": {
         "single_issuer": true,
         "defer_taskrun": true,
