@@ -56,6 +56,24 @@ export [[gnu::pure]] u32 build_uring_flags(
 	return f;
 }
 
+export [[nodiscard]] std::optional<u32> next_uring_setup_flag_to_strip(
+	u32 flags) {
+	static constexpr u32 kStripOrder[] = {
+		IORING_SETUP_CQE_MIXED,
+		IORING_SETUP_NO_SQARRAY,
+		IORING_SETUP_SUBMIT_ALL,
+		IORING_SETUP_TASKRUN_FLAG,
+		IORING_SETUP_DEFER_TASKRUN,
+		IORING_SETUP_SINGLE_ISSUER,
+	};
+	for (u32 const f: kStripOrder) {
+		if ((flags & f) != 0u) {
+			return f;
+		}
+	}
+	return std::nullopt;
+}
+
 export [[nodiscard]] u32 wq_fd_for_ring(
 	Config const &c,
 	unsigned i,

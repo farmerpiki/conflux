@@ -1275,16 +1275,6 @@ struct Ring {
 			}
 			active_setup_flags_ = params.flags;
 		} else {
-			// Strip unsupported setup flags one at a time on EINVAL so the server
-			// degrades gracefully on older kernels.
-			static constexpr u32 kStripOrder[] = {
-				IORING_SETUP_CQE_MIXED,
-				IORING_SETUP_NO_SQARRAY,
-				IORING_SETUP_SUBMIT_ALL,
-				IORING_SETUP_TASKRUN_FLAG,
-				IORING_SETUP_DEFER_TASKRUN,
-				IORING_SETUP_SINGLE_ISSUER,
-			};
 			for (;;) {
 				int const rc = ::io_uring_queue_init_params(entries, &ring, &params);
 				if (rc == 0) {
@@ -1294,18 +1284,12 @@ struct Ring {
 				if (rc != -EINVAL) {
 					throw RE{format("io_uring_queue_init_params: {}", strerror(-rc))};
 				}
-				bool stripped = false;
-				for (u32 const f: kStripOrder) {
-					if ((params.flags & f) != 0u) {
-						params.flags &= ~f;
-						stripped_setup_flags_ |= f;
-						stripped = true;
-						break;
-					}
-				}
+				auto const stripped = next_uring_setup_flag_to_strip(params.flags);
 				if (!stripped) {
 					throw RE{"io_uring_queue_init_params: no supported flag combination"};
 				}
+				params.flags &= ~*stripped;
+				stripped_setup_flags_ |= *stripped;
 			}
 		}
 		caps = detect_caps(conflux::uring::RingRef{ring});

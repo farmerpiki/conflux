@@ -112,6 +112,32 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"net.http_server_config: EINVAL fallback strips setup flags in proposal order",
+	"[net.config]") {
+	u32 flags = IORING_SETUP_CQE_MIXED
+		| IORING_SETUP_NO_SQARRAY
+		| IORING_SETUP_SUBMIT_ALL
+		| IORING_SETUP_TASKRUN_FLAG
+		| IORING_SETUP_DEFER_TASKRUN
+		| IORING_SETUP_SINGLE_ISSUER;
+	V<u32> stripped;
+	while (auto const bit = next_uring_setup_flag_to_strip(flags)) {
+		stripped.push_back(*bit);
+		flags &= ~*bit;
+	}
+	CHECK(flags == 0U);
+	CHECK(stripped == V<u32>{
+		IORING_SETUP_CQE_MIXED,
+		IORING_SETUP_NO_SQARRAY,
+		IORING_SETUP_SUBMIT_ALL,
+		IORING_SETUP_TASKRUN_FLAG,
+		IORING_SETUP_DEFER_TASKRUN,
+		IORING_SETUP_SINGLE_ISSUER,
+	});
+	CHECK_FALSE(next_uring_setup_flag_to_strip(0).has_value());
+}
+
+TEST_CASE(
 	"net.http_server_config: public config flag text reports disabled compatibility knobs",
 	"[net.config]") {
 	Config cfg{};

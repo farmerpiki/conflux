@@ -40,7 +40,7 @@ Still implemented but not directly covered by deterministic tests:
 - [ ] Direct-accept `TCP_NODELAY` SQE emission from `queue_direct_accept_setup`; needs either SQE-inspection seam or kernel-capability-gated direct-accept E2E.
 - [ ] Direct-accept busy-poll / prefer-busy-poll SQE chain shape; same SQE-inspection seam as above.
 - [ ] Ring-thread `sched_setaffinity` and `IORING_REGISTER_IOWQ_AFF` application; needs syscall injection or observable thread/affinity capture.
-- [ ] Adaptive `io_uring_queue_init_params(EINVAL)` fallback strip order; implementation is inline in ring init and needs extraction to a pure helper or syscall seam before deterministic unit coverage.
+- [x] Adaptive `io_uring_queue_init_params(EINVAL)` fallback strip order; extracted to `next_uring_setup_flag_to_strip()` in `http_server_config.cxx` and covered by deterministic unit tests.
 - [ ] `SEND_ZC` notification-CQE lifecycle under a real kernel; benchmarks and metrics exist, but deterministic unit coverage still needs a CQE injection seam.
 - [x] `JsonArena` PMR hash-index allocation source; `JsonArenaOptions::hash_index_resource` now lets tests inject a counting resource, and `warm_member_index()` is covered without relying on global `new`.
 
