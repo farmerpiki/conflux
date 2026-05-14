@@ -167,7 +167,7 @@ inline constexpr SetupFlags strip_order[] = {
 
 } // namespace setup_flag_fallback
 
-export [[nodiscard]] std::optional<SetupFlags> next_setup_flag_to_strip(
+[[nodiscard]] std::optional<SetupFlags> next_setup_flag_to_strip(
 	SetupFlags flags) {
 	for (SetupFlags const f: setup_flag_fallback::strip_order) {
 		if (flags.any(f)) {
@@ -177,7 +177,7 @@ export [[nodiscard]] std::optional<SetupFlags> next_setup_flag_to_strip(
 	return std::nullopt;
 }
 
-namespace {
+namespace setup_flag_detail {
 
 template<typename Fn>
 std::string setup_flag_list(
@@ -193,11 +193,11 @@ std::string setup_flag_list(
 	return s.empty() ? "none" : s;
 }
 
-} // namespace
+} // namespace setup_flag_detail
 
-export [[nodiscard]] std::string setup_flags_str(
+[[nodiscard]] std::string setup_flags_str(
 	SetupFlags flags) {
-	return setup_flag_list([&](auto app) {
+	return setup_flag_detail::setup_flag_list([&](auto app) {
 		if (flags.any(setup_flags::single_issuer)) {
 			app("SINGLE_ISSUER");
 		}
