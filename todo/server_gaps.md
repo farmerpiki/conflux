@@ -57,8 +57,6 @@ Still implemented but not directly covered by deterministic tests after this pas
 
 - [ ] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; builder knobs are covered, but network redirect behavior still needs a local two-server E2E.
 - [ ] HTTP request body double-set debug assertion path; needs an assert-probe binary like the recv-bundle probes because release builds intentionally use last-wins behavior.
-- [ ] DeferredResponse eventfd wake-read behavior after `complete()` / `expire_if_past_deadline()`; E2E timeout exists, but deterministic unit coverage should read/drain the eventfd directly.
-- [ ] Response body-kind transitions for SSE/WS/mapped/streamed/deferred payloads; text body transitions are covered, non-text transitions still need lightweight object construction seams.
 
 ## Test coverage gap pass 3 (2026-05-14)
 
@@ -73,8 +71,19 @@ Still implemented but not directly covered by deterministic tests after pass 3:
 - [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
 - [ ] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; builder knobs are covered, but network redirect behavior still needs a local two-server E2E.
 - [ ] HTTP request body double-set debug assertion path; needs an assert-probe binary like the recv-bundle probes because release builds intentionally use last-wins behavior.
-- [ ] DeferredResponse eventfd wake-read behavior after `complete()` / `expire_if_past_deadline()`; E2E timeout exists, but deterministic unit coverage should read/drain the eventfd directly.
-- [ ] Response body-kind transitions for SSE/WS/mapped/streamed/deferred payloads; text body transitions are covered, non-text transitions still need lightweight object construction seams.
+
+## Test coverage gap pass 4 (2026-05-14)
+
+Implemented in this patch:
+
+- [x] HTTP response non-text body-kind transitions: direct tests now cover SSE, WebSocket upgrade, mapped-file, streamed-file, and deferred payload setters/accessors/take helpers, plus text reset through `text_body_mut()`.
+- [x] `DeferredResponse` eventfd wake-read behavior: direct tests now drain the eventfd after `complete()` and `expire_if_past_deadline()`, verify single-wake first-result semantics, and verify 504 materialization on expiry.
+
+Still implemented but not directly covered by deterministic tests after pass 4:
+
+- [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
+- [ ] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; builder knobs are covered, but network redirect behavior still needs a local two-server E2E.
+- [ ] HTTP request body double-set debug assertion path; needs an assert-probe binary like the recv-bundle probes because release builds intentionally use last-wins behavior.
 
 ## Architecture (dedicated branches)
 

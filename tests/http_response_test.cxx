@@ -1,9 +1,43 @@
+#include <cerrno>
+#include <fcntl.h>
+#include <sys/eventfd.h>
+#include <unistd.h>
+
 #include <catch2/catch_test_macros.hpp>
 
 import std;
 import conflux.types;
 import conflux.net.http.types;
+import conflux.file_map;
+import conflux.net.http.realtime;
 import conflux.net.http.response;
+
+
+namespace {
+
+[[nodiscard]] u64 read_eventfd_value(
+	int fd) {
+	u64 value{};
+	auto const n = ::read(fd, &value, sizeof(value));
+	REQUIRE(n == static_cast<ssize_t>(sizeof(value)));
+	return value;
+}
+
+void make_eventfd_nonblocking(
+	int fd) {
+	auto const flags = ::fcntl(fd, F_GETFL, 0);
+	REQUIRE(flags >= 0);
+	REQUIRE(::fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0);
+}
+
+[[nodiscard]] bool eventfd_would_block(
+	int fd) {
+	u64 value{};
+	auto const n = ::read(fd, &value, sizeof(value));
+	return n < 0 && errno == EAGAIN;
+}
+
+} // namespace
 
 TEST_CASE(
 	"http response: factories escape detail strings in generated HTML bodies",
@@ -82,4 +116,104 @@ TEST_CASE(
 		CHECK(resp.status == kHttpBadGateway);
 		CHECK(resp.text_body() == "upstream failed");
 	}
+}
+
+
+TEST_CASE(
+	"http response: non-text body setters, accessors, and take helpers preserve variant boundaries",
+	"[http.response]") {
+	HttpResponse resp;
+	CHECK(resp.is_text());
+	CHECK(resp.text_body().empty());
+
+	auto sse = make_shared<SseChannel>();
+	resp.set_sse_channel(sse);
+	CHECK(resp.is_sse());
+	CHECK_FALSE(resp.is_text());
+	CHECK(resp.sse_channel_ptr() == sse);
+	CHECK(resp.content_length() == 0);
+	CHECK(resp.take_sse_channel() == sse);
+	CHECK_FALSE(resp.sse_channel_ptr());
+
+	auto ws = make_shared<WsUpgrade>();
+	ws->accept_key = "accept";
+	resp.set_ws_upgrade(ws);
+	CHECK(resp.is_ws_upgrade());
+	CHECK(resp.ws_upgrade_ptr() == ws);
+	CHECK(resp.take_ws_upgrade() == ws);
+	CHECK_FALSE(resp.ws_upgrade_ptr());
+
+	auto mapped = make_shared<MappedBody>();
+	mapped->offset = 3;
+	mapped->size = 42;
+	resp.set_mapped_file(mapped);
+	CHECK(resp.is_mapped_file());
+	CHECK(resp.mapped_file_ptr() == mapped);
+	CHECK(resp.content_length() == 42);
+	CHECK(resp.take_mapped_file() == mapped);
+	CHECK_FALSE(resp.mapped_file_ptr());
+
+	auto streamed = make_shared<StreamedFile>();
+	streamed->send_offset = 5;
+	streamed->send_size = 77;
+	streamed->total_size = 100;
+	resp.set_streamed_file(streamed);
+	CHECK(resp.is_streamed_file());
+	CHECK(resp.streamed_file_ptr() == streamed);
+	CHECK(resp.content_length() == 77);
+	CHECK(resp.take_streamed_file() == streamed);
+	CHECK_FALSE(resp.streamed_file_ptr());
+
+	auto deferred = make_shared<DeferredResponse>(chrono::milliseconds{10000});
+	resp.set_deferred_response(deferred);
+	CHECK(resp.is_deferred());
+	CHECK(resp.deferred_response_ptr() == deferred);
+	CHECK(resp.take_deferred_response() == deferred);
+	CHECK_FALSE(resp.deferred_response_ptr());
+
+	resp.text_body_mut() = "reset to text";
+	CHECK(resp.is_text());
+	CHECK(resp.text_body() == "reset to text");
+}
+
+TEST_CASE(
+	"http response: DeferredResponse complete wakes eventfd once and stores first response",
+	"[http.response]") {
+	DeferredResponse deferred{chrono::milliseconds{10000}};
+	make_eventfd_nonblocking(deferred.eventfd_fd());
+
+	deferred.complete(HttpResponse::text("first"));
+	deferred.complete(HttpResponse::text("second"));
+
+	CHECK(deferred.is_ready());
+	CHECK(read_eventfd_value(deferred.eventfd_fd()) == 1);
+	CHECK(eventfd_would_block(deferred.eventfd_fd()));
+
+	auto ready = deferred.take_ready();
+	REQUIRE(ready.has_value());
+	CHECK(ready->text_body() == "first");
+	CHECK_FALSE(deferred.is_ready());
+	CHECK_FALSE(deferred.take_ready().has_value());
+}
+
+TEST_CASE(
+	"http response: DeferredResponse deadline expiry wakes eventfd and materializes gateway timeout",
+	"[http.response]") {
+	DeferredResponse deferred{chrono::milliseconds{10000}};
+	make_eventfd_nonblocking(deferred.eventfd_fd());
+
+	auto const now = chrono::steady_clock::now();
+	deferred.set_deadline(now + chrono::seconds{1});
+	CHECK_FALSE(deferred.expire_if_past_deadline(now));
+	CHECK(eventfd_would_block(deferred.eventfd_fd()));
+
+	deferred.set_deadline(now - chrono::milliseconds{1});
+	CHECK(deferred.expire_if_past_deadline(now));
+	CHECK(read_eventfd_value(deferred.eventfd_fd()) == 1);
+	CHECK(eventfd_would_block(deferred.eventfd_fd()));
+
+	auto ready = deferred.take_ready();
+	REQUIRE(ready.has_value());
+	CHECK(ready->status == kHttpGatewayTimeout);
+	CHECK(ready->status_text == "Gateway Timeout");
 }
