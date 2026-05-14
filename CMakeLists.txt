@@ -1755,6 +1755,12 @@ endif()
 add_executable(conflux_json_example examples/json.cxx)
 target_link_libraries(conflux_json_example PRIVATE conflux conflux_options)
 
+add_executable(conflux_json_config_example examples/json_config.cxx)
+target_link_libraries(conflux_json_config_example PRIVATE conflux conflux_options)
+
+add_executable(conflux_json_stream_ingest_example examples/json_stream_ingest.cxx)
+target_link_libraries(conflux_json_stream_ingest_example PRIVATE conflux conflux_options)
+
 endif() # CONFLUX_WANT_HTTP_SERVER
 
 # ---------------------------------------------------------------------------
