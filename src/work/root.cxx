@@ -1,6 +1,30 @@
 module;
 #include <memory>
 
+#ifndef CONFLUX_WORK_CORO_FRAME_POOL
+#define CONFLUX_WORK_CORO_FRAME_POOL 0
+#endif
+
+#if CONFLUX_WORK_CORO_FRAME_POOL
+	#if defined(__has_feature)
+		#if __has_feature(address_sanitizer) || __has_feature(thread_sanitizer) || __has_feature(memory_sanitizer)
+			#define CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE 0
+		#else
+			#define CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE 1
+		#endif
+	#elif defined(__SANITIZE_ADDRESS__) || defined(__SANITIZE_THREAD__)
+		#define CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE 0
+	#else
+		#define CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE 1
+	#endif
+#else
+	#define CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE 0
+#endif
+
+#if CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE
+	#include <sys/mman.h>
+#endif
+
 export module conflux.work.root;
 
 import std;
@@ -1731,14 +1755,118 @@ template<work_value T, bool EnableCancellation>
 	return std::allocate_shared<model_t>(alloc);
 }
 [[nodiscard]] inline std::pmr::memory_resource &task_coroutine_frame_resource() noexcept {
-	// Process-lifetime pool: coroutine frames can be destroyed from any thread,
-	// and the pool is intentionally leaked to avoid static-destruction ordering.
+	// Process-lifetime fallback pool: coroutine frames can be destroyed from any
+	// thread, and the pool is intentionally leaked to avoid static-destruction
+	// ordering. When CONFLUX_WORK_CORO_FRAME_POOL is enabled this is only the
+	// oversize / mmap-failure fallback.
 	static auto *resource = new std::pmr::synchronized_pool_resource{};
 	return *resource;
 }
+struct TaskFrameBucket;
 struct alignas(std::max_align_t) TaskFrameHeader {
 	SZ size = 0;
+	TaskFrameBucket *bucket = nullptr;
 };
+
+#if CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE
+struct TaskFrameFreeNode {
+	TaskFrameFreeNode *next = nullptr;
+};
+struct TaskFrameBucket {
+	SZ payload_size = 0;
+	mutex mtx{};
+	TaskFrameFreeNode *free = nullptr;
+};
+[[nodiscard]] constexpr SZ align_frame_bytes(
+	SZ n) noexcept {
+	constexpr SZ align = alignof(std::max_align_t);
+	return (n + align - 1u) & ~(align - 1u);
+}
+[[nodiscard]] inline TaskFrameBucket *task_frame_bucket_for(
+	SZ size) noexcept {
+	static TaskFrameBucket buckets[] = {
+		{.payload_size = 256},
+		{.payload_size = 512},
+		{.payload_size = 1024},
+		{.payload_size = 2048},
+		{.payload_size = 4096},
+		{.payload_size = 8192},
+	};
+	for (auto &bucket: buckets) {
+		if (size <= bucket.payload_size) {
+			return &bucket;
+		}
+	}
+	return nullptr;
+}
+[[nodiscard]] inline bool refill_task_frame_bucket_locked(
+	TaskFrameBucket &bucket) noexcept {
+	constexpr SZ slab_bytes = 1024u * 1024u;
+	SZ const block_bytes = align_frame_bytes(sizeof(TaskFrameHeader) + bucket.payload_size);
+	SZ const allocation_bytes = max(slab_bytes, block_bytes);
+	void *raw = mmap(nullptr, allocation_bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+	if (raw == MAP_FAILED) {
+		return false;
+	}
+	auto *cursor = static_cast<std::byte *>(raw);
+	SZ const count = allocation_bytes / block_bytes;
+	for (SZ i = 0; i < count; ++i) {
+		auto *node = reinterpret_cast<TaskFrameFreeNode *>(cursor + i * block_bytes);
+		node->next = bucket.free;
+		bucket.free = node;
+	}
+	return true;
+}
+[[nodiscard]] inline TaskFrameHeader *try_allocate_pooled_task_frame(
+	SZ size) noexcept {
+	auto *bucket = task_frame_bucket_for(size);
+	if (!bucket) {
+		return nullptr;
+	}
+	SL const lk{bucket->mtx};
+	if (!bucket->free && !refill_task_frame_bucket_locked(*bucket)) {
+		return nullptr;
+	}
+	auto *node = bucket->free;
+	bucket->free = node->next;
+	auto *hdr = reinterpret_cast<TaskFrameHeader *>(node);
+	::new (static_cast<void *>(hdr)) TaskFrameHeader{.size = size, .bucket = bucket};
+	return hdr;
+}
+inline void deallocate_pooled_task_frame(
+	TaskFrameHeader *hdr) noexcept {
+	auto *bucket = hdr->bucket;
+	hdr->~TaskFrameHeader();
+	auto *node = reinterpret_cast<TaskFrameFreeNode *>(hdr);
+	SL const lk{bucket->mtx};
+	node->next = bucket->free;
+	bucket->free = node;
+}
+#endif
+[[nodiscard]] inline TaskFrameHeader *allocate_task_coroutine_frame(
+	SZ size) {
+#if CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE
+	if (auto *hdr = try_allocate_pooled_task_frame(size)) {
+		return hdr;
+	}
+#endif
+	auto *raw = static_cast<std::byte *>(
+		task_coroutine_frame_resource().allocate(size + sizeof(TaskFrameHeader), alignof(std::max_align_t)));
+	return ::new (static_cast<void *>(raw)) TaskFrameHeader{.size = size, .bucket = nullptr};
+}
+inline void deallocate_task_coroutine_frame(
+	TaskFrameHeader *hdr) noexcept {
+#if CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE
+	if (hdr->bucket) {
+		deallocate_pooled_task_frame(hdr);
+		return;
+	}
+#endif
+	SZ const size = hdr->size;
+	hdr->~TaskFrameHeader();
+	task_coroutine_frame_resource().deallocate(
+		hdr, size + sizeof(TaskFrameHeader), alignof(std::max_align_t));
+}
 // P2b size guard: delta against P2a baseline (432B measured on clang-libcxx +
 // libstdc++ on x86_64). P2b padding must not exceed one additional cache line.
 #ifndef CONFLUX_WORK_RELAX_CONTROL_BLOCK_SIZE_GUARD
@@ -2270,27 +2398,20 @@ public:
 
 		static void *operator new(
 			SZ size) {
-			auto *raw = static_cast<std::byte *>(
-				detail::task_coroutine_frame_resource().allocate(
-					size + sizeof(detail::TaskFrameHeader), alignof(std::max_align_t)));
-			auto *hdr = ::new (static_cast<void *>(raw)) detail::TaskFrameHeader{.size = size};
+			auto *hdr = detail::allocate_task_coroutine_frame(size);
 			detail::note_coroutine_frame_allocation();
 			return hdr + 1;
 		}
 		static void operator delete(
 			void *p) noexcept {
 			detail::note_coroutine_frame_deallocation();
-			auto *hdr = static_cast<detail::TaskFrameHeader *>(p) - 1;
-			detail::task_coroutine_frame_resource().deallocate(
-				hdr, hdr->size + sizeof(detail::TaskFrameHeader), alignof(std::max_align_t));
+			detail::deallocate_task_coroutine_frame(static_cast<detail::TaskFrameHeader *>(p) - 1);
 		}
 		static void operator delete(
 			void *p,
 			SZ) noexcept {
 			detail::note_coroutine_frame_deallocation();
-			auto *hdr = static_cast<detail::TaskFrameHeader *>(p) - 1;
-			detail::task_coroutine_frame_resource().deallocate(
-				hdr, hdr->size + sizeof(detail::TaskFrameHeader), alignof(std::max_align_t));
+			detail::deallocate_task_coroutine_frame(static_cast<detail::TaskFrameHeader *>(p) - 1);
 		}
 
 		[[nodiscard]] BasicResult get_return_object() noexcept;

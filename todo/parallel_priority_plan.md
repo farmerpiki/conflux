@@ -46,8 +46,9 @@ parallel branches without repeatedly re-deciding global priority.
 
 ### Main gaps still worth implementing
 
-- Worker runtime: finish background ingestion runtime convergence; then continue
-  moving any remaining compatibility surface behind explicitly named
+- Worker runtime: finish background ingestion runtime convergence when that app surface is present;
+  the provided library tree currently has no background-ingestion implementation to migrate.
+  Continue moving any remaining compatibility surface behind explicitly named
   `sync_`/`blocking_` APIs.
 - Security: password-hash replacement is landed; finish secret-config cleanup and session/token audit before widening API work.
 - JSON boundary: isolate app/framework JSON usage behind traits/adapters before
@@ -151,11 +152,11 @@ Priorities:
 | DONE | `worker/no-wait-bridge` | Root blocking outcome wait isolated behind `blocking_join(...)`; legacy `join(...)` delegates as an alias. | Completed; avoid reopening outside release alias cleanup. | No direct blocking outcome wait calls outside `blocking_join_compatibility_adapter`; async task bodies use ready callbacks / `co_await`. |
 | DONE | `docs/concurrency-naming-model` | Added canonical concurrency/naming review guide and linked it from policy/API docs. | Docs-only. | Docs state HTTP handlers run on ring threads, no hidden offload normalization exists, and review guidance points to one document. |
 | P1 | `worker/background-ingestion-runtime` | Merge/migrate background ingestion runtime surface onto the worker runtime model. | Depends on `worker/no-wait-bridge`; should not touch auth/json. | Background ingestion uses the same runtime conventions as other worker tasks. |
-| P1 | `worker/taskpromise-frame-pool` | Extend coroutine frame pool coverage from `EagerChain` to `TaskPromise<T>` where safe. | May touch `work/root.cxx`; avoid overlapping with no-wait branch unless sequenced. | Hot request-path `Task<void>` no longer uses global `::operator new` in steady-state when the pool option is enabled; sanitizer behavior remains safe. |
+| DONE | `worker/taskpromise-frame-pool` | Extended `CONFLUX_WORK_CORO_FRAME_POOL` coverage to `Task<T>` promise frames with a process-lifetime mmap bucket pool; `EagerChain` keeps the thread-local LIFO arena because it never externally suspends. | Completed on top of `worker/no-wait-bridge`. | Small/medium `Task<void>` frames avoid global `::operator new` in steady-state when the pool option is enabled; sanitizer builds keep the safe PMR fallback. |
 | P2 | `worker/queue-contention-profile` | Profile local deque locks, steal path, `admission_mtx_`, and seq_cst fence pair under HTTP load. | Depends on `build/perf-harness-stabilize`; profiling branch can be independent. | Output profile notes and either a minimal lock-removal patch or a documented no-change decision. |
 | P3 | `worker/p2300-prototype` | Prototype P2300/io_uring scheduler behind an experimental target. | Do not mix with active V2 runtime migration. | Prototype compiles separately; no public API commitment. |
 
-Recommended next worker branch: `worker/background-ingestion-runtime`.
+Recommended next worker branch: `worker/background-ingestion-runtime` if the app ingestion surface is present; otherwise continue with `worker/queue-contention-profile` after the perf harness dependency.
 
 ### HTTP server / routing / handler API lane
 

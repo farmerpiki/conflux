@@ -155,8 +155,18 @@ void reset_task_allocation_stats() noexcept;
 With the option disabled, both functions are still available but the snapshot is
 zeroed and reset is a no-op. The counters are intended for benchmarks and for
 validating future `ControlBlockModel<T>` pooling work; they are not a stable
-telemetry API. Coroutine frame counters report actual heap allocation calls, so
-compiler coroutine-allocation elision may legitimately keep them at zero.
+telemetry API. Coroutine frame counters report actual allocation calls through
+the work-root promise allocator, so compiler coroutine-allocation elision may
+legitimately keep them at zero.
+
+`CONFLUX_WORK_CORO_FRAME_POOL` enables the worker coroutine-frame pool. For
+`Task<T>` promise frames, `conflux.work.root` uses process-lifetime mmap-backed
+size buckets for small/medium frames and falls back to the synchronized PMR pool
+for oversize frames or mmap failure. The bucket pool is deliberately
+process-lifetime and mutex-protected, rather than thread-local, because `Task<T>`
+coroutines may suspend and can be destroyed from a different worker thread than
+the one that allocated the frame. Sanitizer builds disable the mmap bucket path
+and keep the safe PMR fallback.
 
 ## Source Contract
 

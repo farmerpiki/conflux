@@ -61,7 +61,7 @@ option(CONFLUX_SUPPRESS_DEPRECATION_WARNINGS "Temporarily suppress deprecated AP
 set(CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER "AUTO" CACHE STRING
     "Argon2 backend for password hashing: AUTO uses system libargon2 when found, otherwise runtime dlopen; SYSTEM requires libargon2; RUNTIME uses dlopen only; OFF disables Argon2")
 set_property(CACHE CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER PROPERTY STRINGS AUTO SYSTEM RUNTIME OFF)
-option(CONFLUX_WORK_CORO_FRAME_POOL "Enable per-thread monotonic bump arena for EagerChain coroutine frames" OFF)
+option(CONFLUX_WORK_CORO_FRAME_POOL "Enable pooled coroutine frame allocation for work Task/EagerChain frames" OFF)
 option(CONFLUX_WORK_ALLOC_STATS "Enable relaxed allocation counters for work.root task/control-block diagnostics" OFF)
 option(CONFLUX_GCC_EAGER_MODULE_IMPORTS "Work around GCC module CMI lazy-load corruption by using -fno-module-lazy on GCC 16+" ON)
 option(CONFLUX_GCC_SUGGEST_ATTRIBUTES "Enable noisy GCC -Wsuggest-attribute=pure/const optimization hints" OFF)

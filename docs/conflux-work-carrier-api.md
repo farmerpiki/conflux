@@ -407,6 +407,11 @@ outcome with `"EagerChain suspended: ..."` as the error message.
 `EagerChain<T>` is move-only. Use `.chain()` to extract the `Chain<T>`, or
 `co_await` it inside another `EagerChain`.
 
+When `CONFLUX_WORK_CORO_FRAME_POOL` is enabled, `EagerChain<T>` keeps its
+thread-local LIFO bump arena because eager chains do not suspend across external
+events. `Task<T>` uses the separate process-lifetime bucket pool documented in
+`conflux.work.root`; do not reuse the eager-chain arena for suspending tasks.
+
 ### Async `TaskJoinHandle` Awaiters (Phase 5c)
 
 These enable `co_await` of `root::TaskJoinHandle<T>` inside any coroutine that
