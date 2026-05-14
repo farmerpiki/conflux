@@ -84,6 +84,39 @@ TEST_CASE(
 		slices.recycle_all();
 	}
 }
+TEST_CASE(
+	"recv_payload.classic: RAII recycles provided buffers",
+	"[recv_payload]") {
+	Rig rig{4, 64};
+	for (u32 i = 0; i < 5; ++i) {
+		auto payload = try_recv_payload_from_cqe(rig.ring, 8, head_flags(rig.ring), false);
+		REQUIRE(payload);
+		CHECK(payload->storage() == RecvPayloadStorage::provided_buffer_ring);
+		CHECK(payload->pinning() == RecvPayloadPinning::kernel_buffer_ring_slot);
+		CHECK_FALSE(payload->incremental());
+		CHECK_FALSE(payload->multi_buffer());
+		CHECK(payload->chunk_count() == 1u);
+		CHECK(payload->total_size() == 8u);
+	}
+}
+TEST_CASE(
+	"recv_payload.bundle: exposes multi-buffer ownership",
+	"[recv_payload]") {
+	Rig rig{4, 64, 0, BufferRingMode::recv_bundle};
+	auto payload = try_recv_payload_from_cqe(rig.ring, 2 * 64 + 7, head_flags(rig.ring), true);
+	REQUIRE(payload);
+	CHECK(payload->storage() == RecvPayloadStorage::provided_buffer_ring);
+	CHECK(payload->pinning() == RecvPayloadPinning::kernel_buffer_ring_slot);
+	CHECK_FALSE(payload->incremental());
+	CHECK(payload->multi_buffer());
+	CHECK(payload->chunk_count() == 3u);
+	CHECK(payload->total_size() == 2 * 64 + 7u);
+	SZ seen{};
+	for (auto const &chunk: *payload) {
+		seen += chunk.bytes.size();
+	}
+	CHECK(seen == 2 * 64 + 7u);
+}
 // Test 2: bundle fits in one buffer (res < buf_size)
 TEST_CASE(
 	"recv_bundle.bundle: single-buffer CQE",

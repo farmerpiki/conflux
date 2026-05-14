@@ -91,6 +91,7 @@ Plumbing is complete (`RecvArmPolicy`, `resolve_recv_arm_policy`, server integra
 
 - **Registered buffer cloning (P3-01):** add wrapper only when a multi-ring fixed-buffer consumer exists; benchmark startup cost first.
 - **ZC recv (P3-02):** separate design doc required; prototype only after direct-slot/buffer/CQ ownership model is stable. Do not mix into current `BufferRing` API.
+  - Pre-work done: `RecvPayload` now names recv CQE storage/pinning ownership and keeps the HTTP path off direct `BufferRingMode` branching.
 - **AF_ALG (P3-03):** benchmark-gated; add only after benchmark proves value over AESNI for target payload sizes.
 
 ### DNS v2 (deferred from DNS proposal)

@@ -114,6 +114,32 @@ export enum class RecvDecodeError : u8 {
 	bad_bounds,
 	bad_window,
 };
+export enum class RecvPayloadStorage : u8 {
+	none,
+	provided_buffer_ring,
+	recv_zc_reserved,
+};
+export enum class RecvPayloadPinning : u8 {
+	none,
+	kernel_buffer_ring_slot,
+	user_dma_pinned_buffer,
+};
+export struct RecvPayloadDescriptor {
+	RecvPayloadStorage storage{RecvPayloadStorage::none};
+	RecvPayloadPinning pinning{RecvPayloadPinning::none};
+	bool incremental{};
+	bool multi_buffer{};
+};
+export [[nodiscard]] constexpr RecvPayloadDescriptor recv_payload_descriptor(
+	BufferRingMode mode,
+	bool bundle) noexcept {
+	return {
+		.storage = RecvPayloadStorage::provided_buffer_ring,
+		.pinning = RecvPayloadPinning::kernel_buffer_ring_slot,
+		.incremental = mode == BufferRingMode::incremental,
+		.multi_buffer = bundle && mode == BufferRingMode::recv_bundle,
+	};
+}
 export class RecvBuffer;
 export class BufferRing {
 	struct SlabDeleter {
@@ -812,6 +838,136 @@ public:
 	}
 	void detach() noexcept { detached_ = true; }
 };
+// ─── RecvPayload ─────────────────────────────────────────────────────────────
+// RAII owner for bytes reported by one recv CQE.  Today this wraps provided
+// buffer-ring slots; the storage/pinning descriptor reserves the shape for a
+// later RECV_ZC backend without changing HTTP recv ownership again.
+
+export struct RecvPayloadChunk {
+	span<byte const> bytes;
+};
+export class RecvPayload {
+	enum class Variant : u8 {
+		none,
+		slices,
+		incremental,
+	};
+	Variant variant_{Variant::none};
+	RecvPayloadDescriptor descriptor_{};
+	RecvSlices slices_{};
+	IncrementalRecvSlice incremental_{};
+
+public:
+	RecvPayload() noexcept = default;
+	static RecvPayload from_slices(
+		RecvPayloadDescriptor descriptor,
+		RecvSlices slices) noexcept {
+		RecvPayload payload;
+		payload.variant_ = Variant::slices;
+		payload.descriptor_ = descriptor;
+		payload.slices_ = move(slices);
+		return payload;
+	}
+	static RecvPayload from_incremental(
+		RecvPayloadDescriptor descriptor,
+		IncrementalRecvSlice slice) noexcept {
+		RecvPayload payload;
+		payload.variant_ = Variant::incremental;
+		payload.descriptor_ = descriptor;
+		payload.incremental_ = move(slice);
+		return payload;
+	}
+	RecvPayload(RecvPayload const &) = delete;
+	RecvPayload &operator =(RecvPayload const &) = delete;
+	RecvPayload(
+		RecvPayload &&o) noexcept
+		: variant_{exchange(o.variant_, Variant::none)}
+		, descriptor_{o.descriptor_}
+		, slices_{move(o.slices_)}
+		, incremental_{move(o.incremental_)} {}
+	RecvPayload &operator =(
+		RecvPayload &&o) noexcept {
+		if (this != &o) {
+			recycle_all();
+			variant_ = exchange(o.variant_, Variant::none);
+			descriptor_ = o.descriptor_;
+			slices_ = move(o.slices_);
+			incremental_ = move(o.incremental_);
+		}
+		return *this;
+	}
+	~RecvPayload() noexcept { recycle_all(); }
+	[[nodiscard]] bool valid() const noexcept { return variant_ != Variant::none; }
+	[[nodiscard]] RecvPayloadDescriptor descriptor() const noexcept { return descriptor_; }
+	[[nodiscard]] RecvPayloadStorage storage() const noexcept { return descriptor_.storage; }
+	[[nodiscard]] RecvPayloadPinning pinning() const noexcept { return descriptor_.pinning; }
+	[[nodiscard]] bool incremental() const noexcept { return descriptor_.incremental; }
+	[[nodiscard]] bool multi_buffer() const noexcept { return descriptor_.multi_buffer; }
+	[[nodiscard]] SZ total_size() const noexcept {
+		switch (variant_) {
+		case Variant::slices     : return slices_.total_size();
+		case Variant::incremental: return incremental_.size();
+		case Variant::none       : return 0;
+		}
+		return 0;
+	}
+	[[nodiscard]] u32 chunk_count() const noexcept {
+		switch (variant_) {
+		case Variant::slices     : return slices_.count();
+		case Variant::incremental: return incremental_.valid() ? 1u : 0u;
+		case Variant::none       : return 0u;
+		}
+		return 0u;
+	}
+	struct iterator {
+		RecvPayload const *payload{};
+		u32 idx{};
+		[[nodiscard]] RecvPayloadChunk operator *() const noexcept {
+			if (payload == nullptr || payload->variant_ == Variant::none) {
+				return {};
+			}
+			if (payload->variant_ == Variant::incremental) {
+				return idx == 0 ? RecvPayloadChunk{payload->incremental_.bytes()} : RecvPayloadChunk{};
+			}
+			auto it = payload->slices_.begin();
+			for (u32 i = 0; i < idx; ++i) {
+				++it;
+			}
+			return {(*it).bytes};
+		}
+		iterator &operator ++() noexcept {
+			++idx;
+			return *this;
+		}
+		bool operator ==(
+			iterator const &o) const noexcept {
+			return payload == o.payload && idx == o.idx;
+		}
+		bool operator !=(
+			iterator const &o) const noexcept {
+			return !(*this == o);
+		}
+	};
+	[[nodiscard]] iterator begin() const noexcept { return {this, 0}; }
+	[[nodiscard]] iterator end() const noexcept { return {this, chunk_count()}; }
+	void recycle_all() noexcept {
+		if (variant_ == Variant::slices) {
+			slices_.recycle_all();
+		}
+		if (variant_ == Variant::incremental) {
+			incremental_.recycle_if_final();
+		}
+		variant_ = Variant::none;
+	}
+	void detach() noexcept {
+		if (variant_ == Variant::slices) {
+			slices_.detach();
+		}
+		if (variant_ == Variant::incremental) {
+			incremental_.detach();
+		}
+	}
+};
 // ─── CQE helpers ─────────────────────────────────────────────────────────────
 
 export [[nodiscard]] inline u16 cqe_buffer_id(
@@ -912,6 +1068,37 @@ export [[nodiscard]] RecvSlices buffer_slices_from_cqe(
 		return {};
 	}
 	return move(*slices);
+}
+export [[nodiscard]] expected<RecvPayload, RecvDecodeError> try_recv_payload_from_cqe(
+	BufferRing &ring,
+	int res,
+	u32 flags,
+	bool bundle) noexcept {
+	auto descriptor = recv_payload_descriptor(ring.mode(), bundle);
+	if (ring.mode() == BufferRingMode::incremental) {
+		auto slice = try_buffer_slice_from_incremental_cqe(ring, res, flags);
+		if (!slice) [[unlikely]] {
+			return unexpected(slice.error());
+		}
+		return RecvPayload::from_incremental(descriptor, move(*slice));
+	}
+	auto slices = try_buffer_slices_from_cqe(ring, res, flags, bundle);
+	if (!slices) [[unlikely]] {
+		return unexpected(slices.error());
+	}
+	return RecvPayload::from_slices(descriptor, move(*slices));
+}
+export [[nodiscard]] RecvPayload recv_payload_from_cqe(
+	BufferRing &ring,
+	int res,
+	u32 flags,
+	bool bundle) noexcept {
+	auto payload = try_recv_payload_from_cqe(ring, res, flags, bundle);
+	if (!payload) [[unlikely]] {
+		assert(false && "CQE recv payload is not present in the userspace ownership window");
+		return {};
+	}
+	return move(*payload);
 }
 // ─── DirectFdTable ───────────────────────────────────────────────────────────
 // Registers a sparse fixed-file table with io_uring.

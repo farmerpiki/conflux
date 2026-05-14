@@ -105,6 +105,33 @@ TEST_CASE(
 }
 // Final CQE after two BUF_MORE: offsets accumulate, head advances once at the end.
 TEST_CASE(
+	"recv_payload.incremental: exposes final-vs-partial ownership",
+	"[recv_payload][incremental]") {
+	Rig rig{8, 64};
+	u32 const h0 = rig.ring.debug_head_pos();
+	{
+		auto partial = try_recv_payload_from_cqe(rig.ring, 7, inc_flags(0, true), false);
+		REQUIRE(partial);
+		CHECK(partial->storage() == RecvPayloadStorage::provided_buffer_ring);
+		CHECK(partial->pinning() == RecvPayloadPinning::kernel_buffer_ring_slot);
+		CHECK(partial->incremental());
+		CHECK_FALSE(partial->multi_buffer());
+		CHECK(partial->chunk_count() == 1u);
+		CHECK(partial->total_size() == 7u);
+		CHECK(rig.ring.debug_head_pos() == h0);
+	}
+	CHECK(rig.ring.debug_head_pos() == h0);
+	{
+		auto final = try_recv_payload_from_cqe(rig.ring, 5, inc_flags(0, false), false);
+		REQUIRE(final);
+		CHECK(final->incremental());
+		CHECK(final->chunk_count() == 1u);
+		CHECK(final->total_size() == 5u);
+		CHECK(rig.ring.debug_head_pos() == h0 + 1u);
+	}
+}
+
+TEST_CASE(
 	"incremental: final CQE advances head by 1, offsets accumulate",
 	"[incremental]") {
 	Rig rig{8, 64};

@@ -2421,17 +2421,12 @@ struct Ring {
 			}
 			return;
 		}
-		if (buf_ring_->mode() == BufferRingMode::incremental) {
-			// slice dtor calls recycle_if_final()
-			auto _ = try_buffer_slice_from_incremental_cqe(*buf_ring_, res, flags);
+		auto payload = try_recv_payload_from_cqe(*buf_ring_, res, flags, use_recv_bundle);
+		if (!payload) [[unlikely]] {
 			return;
 		}
-		auto slices = try_buffer_slices_from_cqe(*buf_ring_, res, flags, use_recv_bundle);
-		if (!slices) [[unlikely]] {
-			return;
-		}
-		note_recv_bundle_slices(*slices);
-		slices->recycle_all();
+		note_recv_payload(*payload);
+		payload->recycle_all();
 	}
 	void discard_recv_bufs(
 		RecvComp &rc) noexcept {
@@ -3397,41 +3392,25 @@ struct Ring {
 		case Op::Nop            : break;
 		}
 	}
-	// Phase 1: copy recv data out of provided buffers, return immediately.
-	template<typename F>
-	struct ScopeExit {
-		F fn;
-		~ScopeExit() noexcept { fn(); }
-	};
-	template<typename F>
-	ScopeExit(F) -> ScopeExit<F>;
+	// Phase 1: copy recv data out of provided/pinned recv buffers, return
+	// ownership immediately.  RecvPayload keeps the HTTP path independent of the
+	// concrete buffer backend so a later RECV_ZC backend can preserve this flow.
 	template<typename Buf>
 	bool append_recv_buf_to(
 		Buf &dst,
 		RecvComp &rc) {
-		if (buf_ring_->mode() == BufferRingMode::incremental) {
-			// slice dtor calls recycle_if_final()
-			auto result = try_buffer_slice_from_incremental_cqe(*buf_ring_, rc.res, rc.flags);
-			rc.flags = 0;
-			if (!result) [[unlikely]] {
-				return false;
-			}
-			dst.append(reinterpret_cast<char const *>(result->bytes().data()), result->bytes().size());
-			return true;
-		}
-		auto slices = try_buffer_slices_from_cqe(*buf_ring_, rc.res, rc.flags, use_recv_bundle);
-		if (!slices) [[unlikely]] {
-			rc.flags = 0;
+		auto payload = try_recv_payload_from_cqe(*buf_ring_, rc.res, rc.flags, use_recv_bundle);
+		rc.flags = 0;
+		if (!payload) [[unlikely]] {
 			return false;
 		}
-		note_recv_bundle_slices(*slices);
-		ScopeExit const recycle{[&]() noexcept {
-			slices->recycle_all();
-			rc.flags = 0;
-		}};
-		for (auto const &s: *slices) {
-			dst.append(reinterpret_cast<char const *>(s.bytes.data()), s.bytes.size());
+		if (payload->multi_buffer()) {
+			note_recv_payload(*payload);
 		}
+		for (auto const &chunk: *payload) {
+			dst.append(reinterpret_cast<char const *>(chunk.bytes.data()), chunk.bytes.size());
+		}
+		payload->recycle_all();
 		return true;
 	}
 	void phase1_copy_recv_bufs() {
@@ -3789,6 +3768,15 @@ struct Ring {
 		recv_bundle_slices_ += slices.count();
 		recv_bundle_bytes_ += slices.total_size();
 	}
+	void note_recv_payload(
+		RecvPayload const &payload) noexcept {
+		if (!use_recv_bundle || !payload.valid() || !payload.multi_buffer()) {
+			return;
+		}
+		++recv_bundle_cqes_;
+		recv_bundle_slices_ += payload.chunk_count();
+		recv_bundle_bytes_ += payload.total_size();
+	}
 	void note_cq_overflow() noexcept { saw_overflow_since_last_resize_ = true; }
 	[[nodiscard]] HttpServerMetrics metrics_snapshot() const noexcept {
 		HttpServerMetrics m{};
@@ -3877,17 +3865,14 @@ struct Ring {
 			}
 			return;
 		}
-		if (buf_ring_->mode() == BufferRingMode::incremental) {
-			// slice dtor recycles if final; silent drop on malformed CQE during shutdown
-			auto _ = try_buffer_slice_from_incremental_cqe(*buf_ring_, cqe->res, cqe->flags);
-		} else {
-			auto slices = try_buffer_slices_from_cqe(*buf_ring_, cqe->res, cqe->flags, use_recv_bundle);
-			if (!slices) [[unlikely]] {
-				return;
-			}
-			note_recv_bundle_slices(*slices);
-			slices->recycle_all();
+		auto payload = try_recv_payload_from_cqe(*buf_ring_, cqe->res, cqe->flags, use_recv_bundle);
+		if (!payload) [[unlikely]] {
+			return;
 		}
+		if (payload->multi_buffer()) {
+			note_recv_payload(*payload);
+		}
+		payload->recycle_all();
 	}
 	void dispatch_cqe_fatal(
 		io_uring_cqe const *cqe) noexcept {
