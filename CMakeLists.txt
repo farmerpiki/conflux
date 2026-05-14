@@ -1743,6 +1743,23 @@ target_link_libraries(conflux_crypto_sealing_example PRIVATE conflux conflux_opt
 add_executable(conflux_http_observability_example examples/http_observability.cxx)
 target_link_libraries(conflux_http_observability_example PRIVATE conflux conflux_options)
 
+add_executable(conflux_http_policy_stack_example examples/http_policy_stack.cxx)
+target_link_libraries(conflux_http_policy_stack_example PRIVATE conflux conflux_options)
+
+add_executable(conflux_vhost_openapi_example examples/vhost_openapi.cxx)
+target_link_libraries(conflux_vhost_openapi_example PRIVATE conflux conflux_options)
+
+add_executable(conflux_http_client_builder_example examples/http_client_builder.cxx)
+target_link_libraries(conflux_http_client_builder_example PRIVATE conflux conflux_options)
+
+add_executable(conflux_work_join_all_example examples/work_join_all.cxx)
+target_link_libraries(conflux_work_join_all_example PRIVATE conflux conflux_options)
+
+if(CONFLUX_WANT_TEMPLATES AND TARGET conflux_template)
+    add_executable(conflux_template_pages_example examples/template_pages.cxx)
+    target_link_libraries(conflux_template_pages_example PRIVATE conflux conflux_template conflux_options)
+endif()
+
 if(CONFLUX_HAS_HTTP3 STREQUAL "true")
     add_executable(conflux_h3_probe examples/h3_probe.cxx)
     target_link_libraries(conflux_h3_probe PRIVATE conflux conflux_options)
