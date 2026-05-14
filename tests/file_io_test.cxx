@@ -470,6 +470,47 @@ TEST_CASE(
 	CHECK(pool.available() == 1);
 }
 TEST_CASE(
+	"file_io: iopoll storage ring exposes storage-only fixed read path",
+	"[file_io][uring][iopoll]") {
+	IopollStorageRingOptions options{};
+	options.entries = 32;
+	options.fixed_buffer_slots = 2;
+	options.fixed_buffer_bytes = 4096;
+	auto storage = IopollStorageRing::create(options);
+	if (!storage) {
+		INFO(format("iopoll storage ring unavailable: {}", storage.error().what()));
+		SKIP("iopoll storage ring unavailable");
+	}
+
+	S const content(4096, 'I');
+	auto tf = TempFile::create(content);
+	int const fd = ::open(tf.path.c_str(), O_RDONLY | O_DIRECT | O_CLOEXEC);
+	if (fd < 0) {
+		INFO(format("O_DIRECT unavailable for test file: {}", strerror(errno)));
+		SKIP("O_DIRECT unavailable for test file");
+	}
+	FileHandle handle = FileHandle::from_fd(fd);
+	auto buf = (*storage)->try_acquire_buffer();
+	REQUIRE(buf.has_value());
+
+	try {
+		auto got = block_on_iopoll(
+			(*storage)->reader(),
+			(*storage)->reader().read_nocache_fixed(handle, 0, move(*buf), content.size()),
+			chrono::seconds{5});
+		REQUIRE(got.bytes == content.size());
+		CHECK(memcmp(got.buffer.view().data(), content.data(), content.size()) == 0);
+	} catch (SE const &se) {
+		int const err = se.code().value();
+		if (err == EINVAL || err == EOPNOTSUPP || err == ENOSYS || err == ENOTSUP) {
+			INFO(format("IOPOLL/O_DIRECT read unsupported on this filesystem/device: {}", se.what()));
+			SKIP("IOPOLL/O_DIRECT read unsupported on this filesystem/device");
+		}
+		throw;
+	}
+}
+
+TEST_CASE(
 	"file_io: write_fixed round-trips content via registered buffer",
 	"[file_io][uring]") {
 	auto fx = require_ring_fixture();
