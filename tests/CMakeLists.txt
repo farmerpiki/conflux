@@ -174,9 +174,16 @@ if(TARGET conflux_http_server_config)
 endif()
 
 if(TARGET conflux_http_core)
+    add_executable(http_request_assert_probe http_request_assert_probe.cxx)
+    target_link_libraries(http_request_assert_probe
+        PRIVATE conflux_http_core conflux_options)
+
     add_executable(conflux_http_core_tests http_core_test.cxx)
     target_link_libraries(conflux_http_core_tests
         PRIVATE conflux_http_core conflux_options Catch2::Catch2WithMain)
+    target_compile_definitions(conflux_http_core_tests PRIVATE
+        "ASSERT_PROBE_BIN=\"$<TARGET_FILE:http_request_assert_probe>\"")
+    add_dependencies(conflux_http_core_tests http_request_assert_probe)
 endif()
 
 if(TARGET conflux_http_response)
