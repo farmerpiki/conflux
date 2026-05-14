@@ -519,7 +519,7 @@ int main(
 
 #if CONFLUX_BENCH_HAS_TLS
 	auto [tls_cert_path, tls_key_path] = make_self_signed_cert();
-	unique_ptr<SSL_CTX, SslCtxDeleter> ssl_ctx{[] {
+	std::unique_ptr<SSL_CTX, SslCtxDeleter> ssl_ctx{[] {
 		SSL_CTX *c = SSL_CTX_new(TLS_client_method());
 		if (c == nullptr) {
 			throw RE{"SSL_CTX_new failed"};
@@ -533,7 +533,7 @@ int main(
 		struct State {
 			UP<ServerHandle> server;
 			UP<BenchClient> client;
-			unique_ptr<SSL, SslDeleter> ssl;
+			std::unique_ptr<SSL, SslDeleter> ssl;
 			HttpServerMetrics metrics{};
 		};
 		auto st = make_shared<State>();
