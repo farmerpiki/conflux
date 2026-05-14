@@ -32,19 +32,25 @@ void consume(
 	sink.fetch_add(acc, memory_order_relaxed);
 }
 Params make_params(
-	i64 n) {
+	i64 n,
+	bool binary) {
 	Params p;
-	p.add(n);
+	if (binary) {
+		p.add_binary(n);
+	} else {
+		p.add(n);
+	}
 	return p;
 }
 u64 run_callback(
 	FileReader &reader,
 	SP<Connection> const &conn,
 	SZ iters,
-	i64 rows) {
+	i64 rows,
+	bool binary) {
 	auto const t0 = chrono::steady_clock::now();
 	for (SZ i = 0; i < iters; ++i) {
-		auto rs = block_on(reader, conn->query(S{kSql}, make_params(rows)));
+		auto rs = block_on(reader, conn->query(S{kSql}, make_params(rows, binary)));
 		consume(rs);
 	}
 	auto const t1 = chrono::steady_clock::now();
@@ -52,8 +58,9 @@ u64 run_callback(
 }
 Task<void> coro_one(
 	SP<Connection> const &conn,
-	i64 rows) {
-	auto rs = co_await conn->query(S{kSql}, make_params(rows));
+	i64 rows,
+	bool binary) {
+	auto rs = co_await conn->query(S{kSql}, make_params(rows, binary));
 	consume(rs);
 	co_return;
 }
@@ -61,10 +68,11 @@ u64 run_coroutine(
 	FileReader &reader,
 	SP<Connection> const &conn,
 	SZ iters,
-	i64 rows) {
+	i64 rows,
+	bool binary) {
 	auto const t0 = chrono::steady_clock::now();
 	for (SZ i = 0; i < iters; ++i) {
-		block_on(reader, coro_one(conn, rows));
+		block_on(reader, coro_one(conn, rows, binary));
 	}
 	auto const t1 = chrono::steady_clock::now();
 	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
@@ -77,10 +85,11 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"db_coro","parser":"standard","configs":[{"name":"rows_3","extra":{"rows":3},"args":["--rows","3","--config-name","rows_3","--iterations","5000","--warmup","500"]},{"name":"rows_100","extra":{"rows":100},"args":["--rows","100","--config-name","rows_100","--iterations","1000","--warmup","100"]}]})");
+		R"({"name":"db_coro","parser":"standard","configs":[{"name":"rows_3","extra":{"rows":3,"binary":false},"args":["--rows","3","--config-name","rows_3","--iterations","5000","--warmup","500"]},{"name":"rows_3_binary","extra":{"rows":3,"binary":true},"args":["--rows","3","--binary","--config-name","rows_3_binary","--iterations","5000","--warmup","500"]},{"name":"rows_100","extra":{"rows":100,"binary":false},"args":["--rows","100","--config-name","rows_100","--iterations","1000","--warmup","100"]},{"name":"rows_100_binary","extra":{"rows":100,"binary":true},"args":["--rows","100","--binary","--config-name","rows_100_binary","--iterations","1000","--warmup","100"]}]})");
 
 	auto cfg = bench_parse_args(span{argv, static_cast<SZ>(argc)});
 	i64 rows = 3;
+	bool binary = false;
 	for (SZ i = 1; i < static_cast<SZ>(argc); ++i) {
 		SV const a = argv[i];
 		if (a == "--rows" && i + 1 < static_cast<SZ>(argc)) {
@@ -91,7 +100,15 @@ int main(
 			if (cfg.config_name.empty()) {
 				cfg.config_name = format("rows_{}", rows);
 			}
+		} else if (a == "--binary") {
+			binary = true;
+			if (cfg.config_name.empty()) {
+				cfg.config_name = format("rows_{}_binary", rows);
+			}
 		}
+	}
+	if (cfg.config_name.empty()) {
+		cfg.config_name = binary ? format("rows_{}_binary", rows) : format("rows_{}", rows);
 	}
 
 	char const *raw = std::getenv("PG_CONNINFO");
@@ -110,13 +127,20 @@ int main(
 	CurrentFileReaderScope const scope{&reader};
 
 	try {
-		auto conn = block_on(reader, Connection::connect({.conninfo = raw}));
+		SP<Connection> conn{};
+		try {
+			conn = block_on(reader, Connection::connect({.conninfo = raw}));
+		} catch (PgError const &e) {
+			println(cerr, "PG_CONNINFO unavailable — skipping bench: {}", e.what());
+			::io_uring_queue_exit(&ring);
+			return 0;
+		}
 
-		(void)run_callback(reader, conn, cfg.warmup, rows);
-		(void)run_coroutine(reader, conn, cfg.warmup, rows);
+		(void)run_callback(reader, conn, cfg.warmup, rows, binary);
+		(void)run_coroutine(reader, conn, cfg.warmup, rows, binary);
 
-		u64 const cb_ns = run_callback(reader, conn, cfg.iterations, rows);
-		u64 const co_ns = run_coroutine(reader, conn, cfg.iterations, rows);
+		u64 const cb_ns = run_callback(reader, conn, cfg.iterations, rows, binary);
+		u64 const co_ns = run_coroutine(reader, conn, cfg.iterations, rows, binary);
 
 		double const cb_per = static_cast<double>(cb_ns) / static_cast<double>(cfg.iterations);
 		double const co_per = static_cast<double>(co_ns) / static_cast<double>(cfg.iterations);

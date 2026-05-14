@@ -187,7 +187,7 @@ No code change until a decision is made.
 | Bench file | Hypothesis | Status |
 |---|---|---|
 | `db_params_bench.cxx` | ≥3× at param=4 | **Done** (4.1× at param=1, 1.8× at param=4) |
-| `db_coro_bench.cxx --binary` | 10–25% reduction (decode-bound) | Not yet |
+| `db_coro_bench.cxx --binary` | 10–25% reduction (decode-bound) | Added binary-parameter variant (`--binary`) to compare against the text bind path |
 | `db_pipeline_bench.cxx` | 5–20× at N=100 INSERTs | **Added** (`benchmarks/db_pipeline_bench.cxx`) — currently measures stabilized logical-batching `Pipeline::sync()` path, not libpq wire-level pipeline mode |
 | `db_copy_bench.cxx` | ≥10× vs prepared loop | Needs P6 |
 | `db_stream_bench.cxx` | TTFB constant in N | Needs P4 (blocked) |
