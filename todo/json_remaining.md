@@ -89,5 +89,15 @@ Blocked by: `from_chars<double>` not constexpr, `DocumentStorage` needing `const
 `json/parser-dom-design` added `JsonDomPolicy` and `parse_dom(...)` wrappers in
 `conflux.json`, plus `docs/json-dom-prototype.md`. This names the intended
 view-first, caller-PMR, and reusable-arena DOM integration surface without
-starting a broad parser rewrite. Future tokenizer/DOM/reflection work should
+starting a broad parser rewrite. Future tokenizer/DOM work should
 use this facade and keep HTTP/app code on `conflux.json.boundary`.
+
+
+## Reflection serde provider boundary
+
+`json/reflection-serde` added `conflux.json.reflect_provider` and
+`NativeReflectJsonProvider`. Reflected aggregate serde is now usable through the
+provider-neutral boundary traits and app/router JSON helpers. Boundary
+`DecodeOptions::unknown_members` maps to native `JsonDecodeOptions`, and reflected
+codecs honor the same unknown-member policy as manual member codecs. Keep future
+reflection/PFR experiments behind this provider seam.

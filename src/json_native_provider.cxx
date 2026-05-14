@@ -77,6 +77,25 @@ namespace conflux::json::boundary::detail {
 	};
 }
 
+[[nodiscard]] inline conflux::json::UnknownMemberPolicy map_unknown_member_policy(
+	UnknownMemberPolicy policy) noexcept {
+	switch (policy) {
+	case UnknownMemberPolicy::reject: return conflux::json::UnknownMemberPolicy::reject;
+	case UnknownMemberPolicy::ignore: return conflux::json::UnknownMemberPolicy::ignore;
+	}
+	return conflux::json::UnknownMemberPolicy::reject;
+}
+
+[[nodiscard]] inline JsonDecodeOptions map_decode_options(
+	DecodeOptions const &opts) noexcept {
+	return JsonDecodeOptions{.unknown_members = map_unknown_member_policy(opts.unknown_members)};
+}
+
+[[nodiscard]] inline JsonDomPolicy map_dom_policy(
+	DecodeOptions const &opts) noexcept {
+	return opts.copy_input ? JsonDomPolicy::owning_document() : JsonDomPolicy::view_first();
+}
+
 } // namespace conflux::json::boundary::detail
 
 export namespace conflux::json::boundary {
@@ -87,7 +106,7 @@ struct NativeJsonProvider {
 	[[nodiscard]] static expected<Document, Error> parse_json_document(
 		SV input,
 		DecodeOptions const &opts = {}) {
-		auto doc = opts.copy_input ? parse_copy(input) : parse_view(input);
+		auto doc = parse_dom(input, detail::map_dom_policy(opts));
 		if (!doc) {
 			return unexpected(detail::map_error(doc.error()));
 		}
@@ -125,19 +144,20 @@ struct NativeJsonProvider {
 	[[nodiscard]] static expected<std::remove_cvref_t<T>, Error> decode_json(
 		SV input,
 		DecodeOptions const &opts = {}) {
+		auto const decode_opts = detail::map_decode_options(opts);
 		if (opts.copy_input) {
-			auto doc = parse_copy(input);
+			auto doc = parse_dom(input, detail::map_dom_policy(opts));
 			if (!doc) {
 				return unexpected(detail::map_error(doc.error()));
 			}
-			auto decoded = decode<std::remove_cvref_t<T>>(*doc);
+			auto decoded = decode<std::remove_cvref_t<T>>(*doc, decode_opts);
 			if (!decoded) {
 				return unexpected(detail::map_error(decoded.error()));
 			}
 			return move(*decoded);
 		}
-		JsonReader reader{input};
-		auto decoded = decode_full<std::remove_cvref_t<T>>(reader);
+		JsonReader reader{input, detail::map_dom_policy(opts).parse};
+		auto decoded = decode_full<std::remove_cvref_t<T>>(reader, decode_opts);
 		if (!decoded) {
 			return unexpected(detail::map_error(decoded.error()));
 		}

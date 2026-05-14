@@ -942,6 +942,17 @@ if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
         PUBLIC  conflux_json conflux_types
         PRIVATE conflux_options
     )
+
+    add_library(conflux_json_reflect_provider STATIC)
+    target_sources(conflux_json_reflect_provider
+        PUBLIC FILE_SET CXX_MODULES
+            BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+            FILES src/json_reflect_provider.cxx
+    )
+    target_link_libraries(conflux_json_reflect_provider
+        PUBLIC  conflux_json_reflect conflux_json_native_provider conflux_json_boundary
+        PRIVATE conflux_options
+    )
     message(STATUS "conflux: JSON P2996 reflection codec enabled (requires GCC 16+ -freflection)")
 endif()
 
@@ -1958,6 +1969,7 @@ conflux_public_component(conflux_json json)
 conflux_public_component(conflux_json_native_provider json_native_provider)
 conflux_public_component(conflux_json_file json_file)
 conflux_public_component(conflux_json_reflect json_reflect)
+conflux_public_component(conflux_json_reflect_provider json_reflect_provider)
 conflux_public_component(conflux_template template)
 conflux_public_component(conflux_file_watch template_watch)
 conflux_public_component(conflux_http_core http_core)
@@ -2033,6 +2045,7 @@ foreach(_target IN ITEMS
         conflux_json_native_provider
         conflux_json_file
         conflux_json_reflect
+        conflux_json_reflect_provider
         conflux_template
         conflux_file_watch
         conflux_http_core
@@ -2201,7 +2214,7 @@ endif()
 if(CONFLUX_BUILD_EXAMPLES AND CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect)
     add_executable(conflux_json_reflect_example examples/json_reflect.cxx)
     target_link_libraries(conflux_json_reflect_example
-        PRIVATE conflux_json_reflect conflux_json conflux_types conflux_options)
+        PRIVATE conflux_json_reflect_provider conflux_json_reflect conflux_json conflux_types conflux_options)
 endif()
 
 if(CONFLUX_BUILD_EXAMPLES)

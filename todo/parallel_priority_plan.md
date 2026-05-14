@@ -199,10 +199,10 @@ Recommended next uring branch: defer `uring/recv-zc` until target kernel support
 | DONE | `json/app-boundary-cleanup` | Added provider-explicit app/router typed JSON route helpers in `conflux.net.http.app_json`; request decode and response serialization now flow through boundary traits without importing the native provider. | Landed after boundary traits; parser internals untouched. | Reusable app/route helpers do not choose a concrete provider; native convenience remains isolated at `conflux.net.http.native_json`. |
 | DONE | `json/bench-fixtures` | Added JSON perf/correctness fixtures for route payloads and malformed inputs, plus generated invalid-UTF-8 coverage. | Landed after app-boundary cleanup; parser internals unchanged. | Benchmarks/tests cover strict UTF-8, large numbers, missing/out-of-order keys, duplicate keys, and deep nesting. |
 | DONE | `json/parser-dom-design` | Added a documented `JsonDomPolicy` / `parse_dom(...)` prototype facade for view-first, caller-PMR, and arena-backed DOM paths. | Parser internals unchanged; future parser work must stay behind this surface. | Memory model, error model, UTF policy, number policy, object-index policy, and integration API are named and tested. |
-| P3 | `json/reflection-serde` | C++26 reflection or PFR bridge under the stable trait shape. | Depends on trait and parser/DOM decision. | No macros, no hard JSON provider dependency, clear compile-time cost measurement. |
+| DONE | `json/reflection-serde` | Added optional reflected native boundary provider, mapped boundary decode options onto native DOM/decode policy, and made reflected codecs honor unknown-member policy. | Reflection remains opt-in under `CONFLUX_JSON_REFLECT`; route/app helpers still bind through provider traits. | No macros; no HTTP/app hard provider dependency; reflected provider has tests under the P2996 lane. |
 | P3 | `json/schema-pointer-patch` | JSON Pointer/Patch/schema support. | After core boundary/parser shape. | Feature targets separate from core hot path. |
 
-Recommended next JSON branch: `json/reflection-serde`.
+Recommended next JSON branch: `json/schema-pointer-patch`.
 
 ### Auth / security lane
 
@@ -261,9 +261,9 @@ These branches can start from the same base with low conflict risk:
    - Builds on the password-hash wrapper shape.
    - Move secrets/pepper/session config behind typed missing-config errors.
 
-3. `json/reflection-serde`
-   - Extend serde behind the boundary/provider shape and parser/DOM policy facade.
-   - Keep macro-free and measure compile-time cost; do not import native JSON into HTTP/app framework code.
+3. `json/schema-pointer-patch`
+   - Keep Pointer/Patch/schema as a feature layer above the stable JSON boundary.
+   - Do not pull native JSON or reflection provider details into HTTP/app framework code.
 
 5. `build/perf-harness-stabilize`
    - Enables measured HTTP/uring/worker perf changes.

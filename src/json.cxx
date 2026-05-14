@@ -6462,11 +6462,35 @@ constexpr JsonMember<T, M> json_member(
 namespace detail {
 
 template<class T>
-struct has_codec_spec<
-	T,
-	std::void_t<
-		decltype(JsonCodec<T>::decode(std::declval<NodeRef>())),
-		decltype(JsonCodec<T>::encode(std::declval<ValueBuilder &>(), std::declval<T const &>()))>> : std::true_type {};
+concept codec_decodes_node = requires(NodeRef root) {
+	{ JsonCodec<T>::decode(root) } -> same_as<expected<T, JsonError>>;
+};
+
+template<class T>
+concept codec_decodes_node_with_options = requires(NodeRef root, JsonDecodeOptions const &opts) {
+	{ JsonCodec<T>::decode(root, opts) } -> same_as<expected<T, JsonError>>;
+};
+
+template<class T>
+concept codec_encodes_value = requires(ValueBuilder &builder, T const &value) {
+	{ JsonCodec<T>::encode(builder, value) } -> same_as<expected<void, JsonError>>;
+};
+
+template<class T>
+struct has_codec_spec<T>
+	: std::bool_constant<
+		codec_encodes_value<T> && (codec_decodes_node<T> || codec_decodes_node_with_options<T>)> {};
+
+template<class T>
+expected<T, JsonError> decode_codec(
+	NodeRef root,
+	JsonDecodeOptions const &opts) {
+	if constexpr (codec_decodes_node_with_options<T>) {
+		return JsonCodec<T>::decode(root, opts);
+	} else {
+		return JsonCodec<T>::decode(root);
+	}
+}
 template<class T>
 struct has_members_spec<T, std::void_t<decltype(JsonMembers<T>::members())>>
 	: std::bool_constant<std::default_initializable<T>> {};
@@ -7555,7 +7579,7 @@ expected<T, JsonError> decode_from_event(
 		if (!doc) {
 			return unexpected(move(doc).error());
 		}
-		return JsonCodec<T>::decode(doc->root());
+		return decode_codec<T>(doc->root(), opts);
 	} else {
 		static_assert(!same_as<T, T>, "No JsonReader support for type T");
 	}
@@ -7612,7 +7636,7 @@ expected<T, JsonError> decode_with_frames(
 	V<PathFrame> &frames,
 	JsonDecodeOptions const &opts) {
 	if constexpr (has_codec_spec<T>::value) {
-		return JsonCodec<T>::decode(root);
+		return decode_codec<T>(root, opts);
 	} else if constexpr (has_members_spec<T>::value) {
 		auto obj = root.as_object();
 		if (!obj) {

@@ -14,6 +14,7 @@ while concrete parser/DOM modules stay behind provider adapters.
 | `conflux.net.http.response_json` | Response serialization helpers that require an explicit provider (`*_with`). | None beyond boundary |
 | `conflux.net.http.app_json` | App/router route helpers that decode typed request bodies and encode typed responses through an explicit provider. | None beyond boundary |
 | `conflux.net.http.native_json` | Native-provider convenience overloads and `DefaultJsonProvider`. | `conflux.json.native_provider` |
+| `conflux.json.reflect_provider` | Optional P2996 reflected native provider for aggregate serde. | `conflux.json.reflect` + `conflux.json.native_provider` |
 
 Use the `*_with<Provider>` APIs in framework code and reusable modules. Import
 `conflux.net.http.native_json` only at the application/default-integration edge
@@ -39,6 +40,20 @@ struct MyProvider {
 `write_json` is optional. If it exists, `write_with` streams chunks directly to
 the sink. Otherwise it falls back through `dump_json`. That keeps response code
 provider-neutral while allowing future providers to avoid an intermediate string.
+
+## Decode options
+
+`DecodeOptions` is intentionally small and provider-neutral:
+
+- `copy_input = true` means the provider may retain parsed views by owning/copying
+  input bytes.
+- `copy_input = false` means the caller keeps bytes alive for the decode operation
+  and allows view/reader paths.
+- `unknown_members = reject|ignore` controls typed-object decode behavior.
+
+Native providers map those fields onto `JsonDomPolicy` and `JsonDecodeOptions`;
+other providers should preserve the semantics even if their internal parser shape
+differs.
 
 ## HTTP usage
 
@@ -83,7 +98,9 @@ parser/DOM replacement remains local to adapter wiring.
 - Boundary-facing APIs use `conflux::json::boundary::Error`, `DumpOptions`, and
   `DecodeOptions`.
 - Parser/DOM/reflection work stays behind provider adapters until the app and
-  route boundaries no longer depend on concrete JSON types.
+  route boundaries no longer depend on concrete JSON types. For reflected native
+  serde, use `conflux::json::boundary::NativeReflectJsonProvider` from
+  `conflux.json.reflect_provider`.
 - App/router typed JSON helpers live in `conflux.net.http.app_json` and require
   an explicit provider parameter. Native-provider convenience remains outside
   that framework seam.

@@ -25,7 +25,7 @@ changing route/app JSON boundaries.
 
 - No simdjson-style Stage-0 tokenizer rewrite.
 - No new public DOM node representation.
-- No reflection serde expansion.
+- No parser/DOM rewrite for reflection serde; the reflected provider only maps through this facade.
 - No JSON Pointer/Patch/schema expansion.
 - No route/app code changes beyond using the existing boundary traits.
 

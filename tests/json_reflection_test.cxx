@@ -3,6 +3,7 @@ export module conflux.tests.json_reflect;
 
 import conflux.json;
 import conflux.json.reflect;
+import conflux.json.reflect_provider;
 import conflux.types;
 import std;
 
@@ -105,6 +106,34 @@ void test_decode_nested_aggregate() {
 	CHECK(n->id == "root");
 	CHECK(n->origin.x == 10);
 	CHECK(n->origin.y == 20);
+}
+
+void test_decode_unknown_member_ignore_policy() {
+	auto doc = *parse(R"({"x": 1, "y": 2, "z": 3})");
+	auto p = decode<Point>(doc, JsonDecodeOptions{.unknown_members = UnknownMemberPolicy::ignore});
+	REQUIRE(p.has_value());
+	CHECK(p->x == 1);
+	CHECK(p->y == 2);
+}
+void test_boundary_reflect_provider_decode_ignore_unknown() {
+	using Provider = conflux::json::boundary::NativeReflectJsonProvider;
+	static_assert(conflux::json::boundary::JsonDecodeProvider<Provider, Point>);
+	auto p = conflux::json::boundary::decode_with<Provider, Point>(
+		R"({"x": 4, "y": 8, "ignored": true})",
+		conflux::json::boundary::DecodeOptions{
+			.copy_input = false,
+			.unknown_members = conflux::json::boundary::UnknownMemberPolicy::ignore});
+	REQUIRE(p.has_value());
+	CHECK(p->x == 4);
+	CHECK(p->y == 8);
+}
+void test_boundary_reflect_provider_dump() {
+	using Provider = conflux::json::boundary::NativeReflectJsonProvider;
+	static_assert(conflux::json::boundary::JsonDumpProvider<Provider, Point>);
+	auto body = conflux::json::boundary::dump_with<Provider>(Point{9, 10});
+	REQUIRE(body.has_value());
+	CHECK(body->find(R"("x":9)") != string::npos);
+	CHECK(body->find(R"("y":10)") != string::npos);
 }
 // ---------------------------------------------------------------------------
 // Encode tests
@@ -225,6 +254,9 @@ export int run_tests() {
 		{test_decode_skip_field_present_rejected, "decode skip field present rejected"},
 		{       test_decode_skip_field_absent_ok,        "decode skip field absent ok"},
 		{		   test_decode_nested_aggregate,            "decode nested aggregate"},
+		{     test_decode_unknown_member_ignore_policy, "decode unknown member ignore policy"},
+		{test_boundary_reflect_provider_decode_ignore_unknown, "boundary reflect provider decode ignore unknown"},
+		{	       test_boundary_reflect_provider_dump,       "boundary reflect provider dump"},
 		{			test_encode_plain_aggregate,             "encode plain aggregate"},
 		{       test_encode_with_name_annotation,        "encode with name annotation"},
 		{		  test_encode_skip_field_absent,           "encode skip field absent"},

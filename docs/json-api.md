@@ -69,6 +69,17 @@ should implement the same static `dump_json` / `decode_json` /
 direct chunked output. Providers return `conflux::json::boundary::Error` rather
 than leaking provider-specific errors through framework boundaries.
 
+Boundary `DecodeOptions` includes `copy_input` and `unknown_members`. The native
+provider maps `copy_input` onto `JsonDomPolicy::owning_document()` or
+`JsonDomPolicy::view_first()`, and maps `unknown_members` onto native
+`JsonDecodeOptions`.
+
+Reflection serde remains an optional provider edge. Import
+`conflux.json.reflect_provider` and pass
+`conflux::json::boundary::NativeReflectJsonProvider` to boundary/app helpers when
+aggregate P2996 serde is desired. Framework modules should not import
+`conflux.json.reflect` directly.
+
 ---
 
 ## Parse

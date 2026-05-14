@@ -16,10 +16,19 @@ struct DumpOptions {
 	bool ascii_only{false};
 };
 
-// Provider-independent parse/decode boundary options. The native provider uses
-// parse_copy when copy_input is true and parse_view/JsonReader otherwise.
+// Provider-independent handling for object members not present in the
+// destination type. Providers that cannot stream-skip unknown values may still
+// materialize a temporary document, but should preserve the semantics.
+enum class UnknownMemberPolicy : u8 {
+	reject,
+	ignore,
+};
+
+// Provider-independent parse/decode boundary options. The native provider maps
+// copy_input onto JsonDomPolicy and maps unknown_members onto JsonDecodeOptions.
 struct DecodeOptions {
 	bool copy_input{true};
+	UnknownMemberPolicy unknown_members{UnknownMemberPolicy::reject};
 };
 
 // Keep the boundary error small and provider-neutral. Provider-specific error

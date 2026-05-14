@@ -249,7 +249,7 @@ if(CONFLUX_JSON_REFLECT)
         PRIVATE FILE_SET CXX_MODULES FILES
             json_reflection_test.cxx)
     target_link_libraries(conflux_json_reflect_tests
-        PRIVATE conflux_types conflux_json conflux_json_reflect conflux_options)
+        PRIVATE conflux_types conflux_json conflux_json_reflect conflux_json_reflect_provider conflux_options)
     add_test(NAME conflux_json_reflect_tests COMMAND conflux_json_reflect_tests)
     set_tests_properties(conflux_json_reflect_tests PROPERTIES RUN_SERIAL TRUE)
 endif()

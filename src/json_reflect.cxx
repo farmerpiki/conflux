@@ -19,6 +19,12 @@ consteval name_t name(
 }
 struct skip {};
 
+template<class T>
+concept ReflectJsonAggregate =
+	std::is_aggregate_v<T>
+	&& std::default_initializable<T>
+	&& (!requires { JsonMembers<T>::members(); });
+
 } // namespace conflux::json
 // ---------------------------------------------------------------------------
 // Reflection helpers (consteval — require -freflection)
@@ -63,9 +69,10 @@ struct is_opt_refl<Opt<T>> : std::true_type {};
 // Decode a NodeRef into M, handling non-codec integral/float types.
 template<class M>
 [[nodiscard]] expected<M, JsonError> decode_reflect_member(
-	NodeRef node) {
-	if constexpr (requires { JsonCodec<M>::decode(node); }) {
-		return JsonCodec<M>::decode(node);
+	NodeRef node,
+	JsonDecodeOptions const &opts) {
+	if constexpr (has_json_codec<M>) {
+		return ::decode<M>(node, opts);
 	} else if constexpr (std::is_signed_v<M> && std::integral<M>) {
 		auto r = JsonCodec<i64>::decode(node);
 		if (!r) {
@@ -99,7 +106,7 @@ template<class M>
 		}
 		return static_cast<M>(*r);
 	} else {
-		static_assert(false, "no decode support for reflected member type");
+		static_assert(!std::same_as<M, M>, "no decode support for reflected member type");
 	}
 }
 // Encode M into ObjectBuilder, handling non-codec integral/float types.
@@ -119,7 +126,7 @@ template<class M>
 	} else if constexpr (std::convertible_to<M, SV>) {
 		return obj.insert_string(name, static_cast<SV>(value));
 	} else {
-		static_assert(false, "no encode support for reflected member type");
+		static_assert(!std::same_as<M, M>, "no encode support for reflected member type");
 	}
 }
 
@@ -129,10 +136,16 @@ template<class M>
 // ---------------------------------------------------------------------------
 
 template<class T>
-	requires std::is_aggregate_v<T> && std::default_initializable<T> && (!requires { JsonMembers<T>::members(); })
+	requires ReflectJsonAggregate<T>
 struct JsonCodec<T> {
 	static expected<T, JsonError> decode(
 		NodeRef root) {
+		return decode(root, {});
+	}
+
+	static expected<T, JsonError> decode(
+		NodeRef root,
+		JsonDecodeOptions const &opts) {
 		auto obj_res = root.as_object();
 		if (!obj_res) {
 			return unexpected(move(obj_res).error());
@@ -172,7 +185,7 @@ struct JsonCodec<T> {
 						}
 						return;
 					}
-					auto decoded = detail::decode_reflect_member<M>(*node);
+					auto decoded = detail::decode_reflect_member<M>(*node, opts);
 					if (!decoded) {
 						ok = false;
 						first_err = move(decoded).error();
@@ -187,36 +200,39 @@ struct JsonCodec<T> {
 			return unexpected(move(first_err));
 		}
 
-		// Reject unknown JSON members (default policy: reject)
-		for (auto const &m: obj.members()) {
-			if (!ok) {
-				break;
-			}
-			bool found = false;
-			[&]<SZ... Is>(std::index_sequence<Is...>) {
-				(
-					[&]<SZ I>() {
-						if (found) {
-							return;
-						}
-						constexpr auto mem = detail::reflect_member_at<T, I>();
-						if constexpr (detail::reflect_has_skip<mem>()) {
-							return;
-						}
-						constexpr auto ni = detail::reflect_field_name<mem>();
-						if (SV{ni.p, ni.n} == m.name) {
-							found = true;
-						}
-					}.template operator ()<Is>(),
-					...);
-			}(std::make_index_sequence<N>{});
-			if (!found) {
-				ok = false;
-				first_err = JsonError{
-					.stage = JsonStage::decode,
-					.code = JsonIssueCode::invalid_value,
-					.member_name = S{m.name},
-					.message = format("unknown member: {}", m.name)};
+		// Unknown-member handling follows JsonDecodeOptions so reflected serde
+		// behaves like manual JsonMembers<T> codecs at app/provider boundaries.
+		if (opts.unknown_members == UnknownMemberPolicy::reject) {
+			for (auto const &m: obj.members()) {
+				if (!ok) {
+					break;
+				}
+				bool found = false;
+				[&]<SZ... Is>(std::index_sequence<Is...>) {
+					(
+						[&]<SZ I>() {
+							if (found) {
+								return;
+							}
+							constexpr auto mem = detail::reflect_member_at<T, I>();
+							if constexpr (detail::reflect_has_skip<mem>()) {
+								return;
+							}
+							constexpr auto ni = detail::reflect_field_name<mem>();
+							if (SV{ni.p, ni.n} == m.name) {
+								found = true;
+							}
+						}.template operator ()<Is>(),
+						...);
+				}(std::make_index_sequence<N>{});
+				if (!found) {
+					ok = false;
+					first_err = JsonError{
+						.stage = JsonStage::decode,
+						.code = JsonIssueCode::invalid_value,
+						.member_name = S{m.name},
+						.message = format("unknown member: {}", m.name)};
+				}
 			}
 		}
 
