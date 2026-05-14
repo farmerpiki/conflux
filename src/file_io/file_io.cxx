@@ -1232,12 +1232,6 @@ public:
 		return move(task);
 	}
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
-	[[nodiscard]] conflux::work::root::Task<FileHandle> socket_task(
-		int domain,
-		int type,
-		int protocol) {
-		return socket_async(domain, type, protocol);
-	}
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
 	[[nodiscard]] root::Task<FileHandle> socket_direct_async(
 		int domain,
@@ -1259,13 +1253,6 @@ public:
 		return move(task);
 	}
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
-	[[nodiscard]] conflux::work::root::Task<FileHandle> socket_direct_task(
-		int domain,
-		int type,
-		int protocol,
-		unsigned file_index) {
-		return socket_direct_async(domain, type, protocol, file_index);
-	}
 	// Create a pipe asynchronously. Returns (read_fd, write_fd) on success.
 	[[nodiscard]] root::Task<P<int, int>> pipe_async(
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
@@ -1290,10 +1277,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<P<int, int>> pipe_task(
-		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
-		return pipe_async(pipe_flags);
-	}
 	// Async bind. `addr` is copied and kept alive until CQE.
 	[[nodiscard]] root::Task<void> bind_async(
 		FileHandle const &fh,
@@ -1316,12 +1299,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> bind_task(
-		FileHandle const &fh,
-		sockaddr_storage addr,
-		socklen_t addrlen) {
-		return bind_async(fh, addr, addrlen);
-	}
 	// Async listen.
 	[[nodiscard]] root::Task<void> listen_async(
 		FileHandle const &fh,
@@ -1342,11 +1319,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> listen_task(
-		FileHandle const &fh,
-		int backlog = SOMAXCONN) {
-		return listen_async(fh, backlog);
-	}
 	[[nodiscard]] root::Task<void> shutdown_async(
 		FileHandle const &fh,
 		int how) {
@@ -1366,11 +1338,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> shutdown_task(
-		FileHandle const &fh,
-		int how) {
-		return shutdown_async(fh, how);
-	}
 	[[nodiscard]] root::Task<SZ> tee_async(
 		int fd_in,
 		int fd_out,
@@ -1387,13 +1354,6 @@ public:
 		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<SZ> tee_task(
-		int fd_in,
-		int fd_out,
-		SZ len,
-		unsigned flags = 0) {
-		return tee_async(fd_in, fd_out, len, flags);
 	}
 	// Installs a direct-slot fd into the process fd table. Returns a raw-fd
 	// FileHandle wrapping the installed fd. Caller must hold a registered-files
@@ -1418,11 +1378,6 @@ public:
 			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_fd(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<FileHandle> fixed_fd_install_task(
-		FileHandle const &fh,
-		unsigned flags = 0) {
-		return fixed_fd_install_async(fh, flags);
 	}
 	// Get extended attribute. `name` is moved and kept alive until CQE.
 	// `value` span must remain valid until the returned Flow resolves.
@@ -1450,12 +1405,6 @@ public:
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<SZ> fgetxattr_task(
-		FileHandle const &fh,
-		S name,
-		span<char> buf) {
-		return fgetxattr_async(fh, move(name), buf);
 	}
 	// Set extended attribute. Both `name` and `data` are moved/kept alive until CQE.
 	[[nodiscard]] root::Task<void> fsetxattr_async(
@@ -1486,13 +1435,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> fsetxattr_task(
-		FileHandle const &fh,
-		S name,
-		S data,
-		int flags = 0) {
-		return fsetxattr_async(fh, move(name), move(data), flags);
-	}
 	// Path-based get extended attribute. `name`, `path`, and `buf` must
 	// remain valid until the Flow resolves.
 	[[nodiscard]] root::Task<SZ> getxattr_async(
@@ -1519,12 +1461,6 @@ public:
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<SZ> getxattr_task(
-		S path,
-		S name,
-		span<char> buf) {
-		return getxattr_async(move(path), move(name), buf);
 	}
 	// Path-based set extended attribute. `name`, `data`, and `path` are moved
 	// and kept alive until CQE.
@@ -1557,13 +1493,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> setxattr_task(
-		S path,
-		S name,
-		S data,
-		int flags = 0) {
-		return setxattr_async(move(path), move(name), move(data), flags);
-	}
 	// Wait for process state change (IORING_OP_WAITID). `infop` must stay valid
 	// until the Flow resolves; on success it is filled with signal info.
 	[[nodiscard]] root::Task<void> waitid_async(
@@ -1583,14 +1512,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> waitid_task(
-		idtype_t idtype,
-		id_t id,
-		siginfo_t *infop,
-		int options = WEXITED,
-		unsigned flags = 0) {
-		return waitid_async(idtype, id, infop, options, flags);
 	}
 	// Futex wait — waits until *futex != val. The futex pointer must remain
 	// valid until the Flow resolves. Returns void on wakeup.
@@ -1612,14 +1533,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> futex_wait_task(
-		u32 *futex,
-		u64 val,
-		u64 mask = FUTEX_BITSET_MATCH_ANY,
-		u32 futex_flags = FUTEX2_SIZE_U32,
-		unsigned flags = 0) {
-		return futex_wait_async(futex, val, mask, futex_flags, flags);
-	}
 	// Futex wake — wakes up to `val` waiters. Returns the number woken.
 	[[nodiscard]] root::Task<u32> futex_wake_async(
 		u32 *futex,
@@ -1638,14 +1551,6 @@ public:
 		auto [slot, gen] = reserve_bridge<u32>(shared_src, [](IoResult r) { return static_cast<u32>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<u32> futex_wake_task(
-		u32 *futex,
-		u64 val,
-		u64 mask = FUTEX_BITSET_MATCH_ANY,
-		u32 futex_flags = FUTEX2_SIZE_U32,
-		unsigned flags = 0) {
-		return futex_wake_async(futex, val, mask, futex_flags, flags);
 	}
 	// Send a synthetic CQE to `target_ring_fd` (the target ring's ring_fd).
 	// The CQE on the target will have res=len, user_data=data.
@@ -1666,13 +1571,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> msg_ring_task(
-		int target_ring_fd,
-		unsigned len,
-		u64 data,
-		unsigned flags = 0) {
-		return msg_ring_async(target_ring_fd, len, data, flags);
-	}
 	// Arm a one-shot timeout. Resolves (with -ETIME mapped to void) when ms
 	// elapses. If count > 0, fires after count CQE completions OR ms, whichever
 	// is first (IORING_TIMEOUT_BOOTTIME etc. can be passed in flags).
@@ -1684,12 +1582,6 @@ public:
 			return encode_ud_(slot, gen);
 		}, ms, count, flags);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> timeout_task(
-		chrono::milliseconds ms,
-		unsigned count = 0,
-		unsigned flags = 0) {
-		return timeout_async(ms, count, flags);
-	}
 	// Cancel a running timeout by its user_data tag. -ENOENT → already fired.
 	[[nodiscard]] root::Task<void> timeout_remove_async(
 		u64 user_data,
@@ -1697,11 +1589,6 @@ public:
 		return conflux::uring::timeout_remove_async(ring_, *completions_, [this](u32 slot, u32 gen) noexcept {
 			return encode_ud_(slot, gen);
 		}, user_data, flags);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> timeout_remove_task(
-		u64 user_data,
-		unsigned flags = 0) {
-		return timeout_remove_async(user_data, flags);
 	}
 	// Update an armed timeout. New deadline `ms` replaces the existing one.
 	// `user_data` identifies the timeout SQE to update (its encoded user_data).
@@ -1735,12 +1622,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> timeout_update_task(
-		u64 user_data,
-		chrono::milliseconds ms,
-		unsigned flags = 0) {
-		return timeout_update_async(user_data, ms, flags);
-	}
 	// Register a one-shot poll on `fd` for `events` (POLLIN, POLLOUT, …).
 	// Resolves with the triggered poll mask when any event fires.
 	// -ENOENT on poll_remove before the event: treated as ECANCELED by caller.
@@ -1758,11 +1639,6 @@ public:
 		auto [slot, gen] = reserve_bridge<u32>(shared_src, [](IoResult r) { return static_cast<u32>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<u32> poll_add_task(
-		int fd,
-		u32 events) {
-		return poll_add_async(fd, events);
 	}
 	// Cancel a pending poll_add identified by `user_data`.
 	// -ENOENT means the poll already fired — treated as success.
@@ -1789,10 +1665,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> poll_remove_task(
-		u64 user_data) {
-		return poll_remove_async(user_data);
-	}
 	// Update an armed multishot poll's event mask in-place.
 	// `user_data` is the encoded user_data of the original poll SQE.
 	[[nodiscard]] root::Task<void> poll_update_async(
@@ -1810,12 +1682,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> poll_update_task(
-		u64 user_data,
-		u32 new_events,
-		unsigned flags = 0) {
-		return poll_update_async(user_data, new_events, flags);
 	}
 	// Accept one connection on a listening socket. Returns the accepted fd.
 	// `addr`/`addrlen` are Opt out-params for the peer address.
@@ -1840,13 +1706,6 @@ public:
 			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_fd(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<FileHandle> accept_task(
-		FileHandle const &fh,
-		sockaddr *addr = nullptr,
-		socklen_t *addrlen = nullptr,
-		int flags = SOCK_CLOEXEC) {
-		return accept_async(fh, addr, addrlen, flags);
 	}
 	// Accept one connection into a registered direct slot.
 	// `addr`/`addrlen` are Opt out-params for the peer address.
@@ -1874,14 +1733,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<FileHandle> accept_direct_task(
-		FileHandle const &fh,
-		unsigned file_index,
-		sockaddr *addr = nullptr,
-		socklen_t *addrlen = nullptr,
-		int flags = SOCK_CLOEXEC) {
-		return accept_direct_async(fh, file_index, addr, addrlen, flags);
-	}
 	// Send an fd to another ring's registered file table. `source_fd` is
 	// installed at `target_fd` slot in the target ring's file table.
 	// Pass IORING_FILE_INDEX_ALLOC for `target_fd` to auto-allocate.
@@ -1903,14 +1754,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> msg_ring_fd_task(
-		int target_ring_fd,
-		int source_fd,
-		int target_fd,
-		u64 data = 0,
-		unsigned flags = 0) {
-		return msg_ring_fd_async(target_ring_fd, source_fd, target_fd, data, flags);
-	}
 	// Wait on multiple futexes simultaneously. Resolves when any waiter
 	// condition is met. `waiters` is moved and kept alive until CQE.
 	[[nodiscard]] root::Task<void> futex_waitv_async(
@@ -1928,11 +1771,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [wv](IoResult) mutable { auto _ = wv; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> futex_waitv_task(
-		V<futex_waitv> waiters,
-		unsigned flags = 0) {
-		return futex_waitv_async(move(waiters), flags);
 	}
 	// Cancel a pending op by its user_data tag. Resolves when the cancel
 	// was submitted; the target op's CQE will still arrive (with -ECANCELED).
@@ -1960,11 +1798,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> cancel_task(
-		u64 user_data,
-		int flags = 0) {
-		return cancel_async(user_data, flags);
-	}
 	// Cancel all pending ops for `fd`. -ENOENT treated as success.
 	[[nodiscard]] root::Task<void> cancel_fd_async(
 		int fd,
@@ -1990,11 +1823,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> cancel_fd_task(
-		int fd,
-		unsigned flags = 0) {
-		return cancel_fd_async(fd, flags);
-	}
 	// Async connect. `addr` is copied into a shared buffer kept alive until CQE.
 	[[nodiscard]] root::Task<void> connect_async(
 		FileHandle const &fh,
@@ -2017,12 +1845,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> connect_task(
-		FileHandle const &fh,
-		sockaddr_storage addr,
-		socklen_t addrlen) {
-		return connect_async(fh, addr, addrlen);
-	}
 	[[nodiscard]] root::Task<void> close_async(
 		FileHandle fh) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
@@ -2040,10 +1862,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> close_task(
-		FileHandle fh) {
-		return close_async(move(fh));
 	}
 	// Splice `len` bytes from `file` at `off` into `dst_fd`, using `pipe` as
 	// the intermediate kernel buffer. `SPLICE_F_MOVE | SPLICE_F_MORE` — bytes
@@ -2091,15 +1909,6 @@ public:
 		step_splice(st);
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<SZ> splice_to_fd_task(
-		FileHandle const &file,
-		u64 off,
-		SZ len,
-		int dst_fd,
-		PipePair pipe,
-		bool dst_fixed = false) {
-		return splice_to_fd(file, off, len, dst_fd, move(pipe), dst_fixed);
-	}
 	// Send `len` bytes from `buf` on `fh`. Returns bytes sent.
 	[[nodiscard]] root::Task<SZ> send_async(
 		FileHandle const &fh,
@@ -2121,13 +1930,6 @@ public:
 		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<SZ> send_task(
-		FileHandle const &fh,
-		void const *buf,
-		SZ len,
-		int flags = 0) {
-		return send_async(fh, buf, len, flags);
 	}
 	// Receive up to `len` bytes into `buf` from `fh`. Returns bytes received.
 	[[nodiscard]] root::Task<SZ> recv_async(
@@ -2151,13 +1953,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<SZ> recv_task(
-		FileHandle const &fh,
-		void *buf,
-		SZ len,
-		int flags = 0) {
-		return recv_async(fh, buf, len, flags);
-	}
 	// Vectored send via sendmsg(2). `msg` must remain valid until the Flow resolves.
 	[[nodiscard]] root::Task<SZ> sendmsg_async(
 		FileHandle const &fh,
@@ -2178,12 +1973,6 @@ public:
 		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<SZ> sendmsg_task(
-		FileHandle const &fh,
-		msghdr const *msg,
-		unsigned flags = 0) {
-		return sendmsg_async(fh, msg, flags);
 	}
 	// Vectored recv via recvmsg(2). `msg` must remain valid until the Flow resolves.
 	[[nodiscard]] root::Task<SZ> recvmsg_async(
@@ -2206,12 +1995,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<SZ> recvmsg_task(
-		FileHandle const &fh,
-		msghdr *msg,
-		unsigned flags = 0) {
-		return recvmsg_async(fh, msg, flags);
-	}
 	// Register `nr` buffers of `len` bytes starting at `addr` into buffer group `bgid`.
 	// Kernel increments `bid` automatically for subsequent provides in the same group.
 	[[nodiscard]] root::Task<void> provide_buffers_async(
@@ -2232,14 +2015,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> provide_buffers_task(
-		void *addr,
-		int len,
-		int nr,
-		int bgid,
-		int bid = 0) {
-		return provide_buffers_async(addr, len, nr, bgid, bid);
-	}
 	// Remove `nr` buffers from buffer group `bgid`.
 	[[nodiscard]] root::Task<void> remove_buffers_async(
 		int nr,
@@ -2255,11 +2030,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> remove_buffers_task(
-		int nr,
-		int bgid) {
-		return remove_buffers_async(nr, bgid);
 	}
 	// Update the registered file table. `fds` is a span of `nr_fds` fds starting
 	// at `offset` in the kernel's registered file A. -1 entries remove a slot.
@@ -2280,12 +2050,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> files_update_task(
-		int *fds,
-		unsigned nr_fds,
-		int offset = 0) {
-		return files_update_async(fds, nr_fds, offset);
-	}
 	// Modify an epoll interest list entry. `ev` may be null for EPOLL_CTL_DEL.
 	[[nodiscard]] root::Task<void> epoll_ctl_async(
 		int epfd,
@@ -2303,13 +2067,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> epoll_ctl_task(
-		int epfd,
-		int fd,
-		int op,
-		epoll_event const *ev = nullptr) {
-		return epoll_ctl_async(epfd, fd, op, ev);
 	}
 	// Wait for epoll events. Resolves with the number of events returned.
 	// `events` must remain valid until the Flow resolves.
@@ -2330,13 +2087,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<int> epoll_wait_task(
-		int epfd,
-		epoll_event *events,
-		int maxevents,
-		unsigned flags = 0) {
-		return epoll_wait_async(epfd, events, maxevents, flags);
-	}
 	// Attach a timeout to the preceding SQE in the ring's submission chain.
 	// The preceding SQE must have been submitted with IOSQE_IO_LINK.
 	// Resolves when the link fires (either the linked op completed or the
@@ -2347,11 +2097,6 @@ public:
 		return conflux::uring::link_timeout_async(ring_, *completions_, [this](u32 slot, u32 gen) noexcept {
 			return encode_ud_(slot, gen);
 		}, ms, flags);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> link_timeout_task(
-		chrono::milliseconds ms,
-		unsigned flags = 0) {
-		return link_timeout_async(ms, flags);
 	}
 	// Open a file with full openat2(2) semantics (`open_how` struct).
 	// `how` is copied internally so the caller need not keep it alive.
@@ -2374,12 +2119,6 @@ public:
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<FileHandle> openat2_task(
-		int dir_fd,
-		S path,
-		open_how how) {
-		return openat2_async(dir_fd, move(path), how);
 	}
 	// Send with destination address — for SOCK_DGRAM sockets.
 	// `addr` is copied internally; `buf` must remain valid until the Flow resolves.
@@ -2410,15 +2149,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<SZ> sendto_task(
-		FileHandle const &fh,
-		void const *buf,
-		SZ len,
-		int flags,
-		sockaddr_storage addr,
-		socklen_t addrlen) {
-		return sendto_async(fh, buf, len, flags, addr, addrlen);
-	}
 	// hack: resolves on first send CQE only; this API does not expose buffer-release notification.
 	// Caller must guarantee the buffer remains live by other means.
 	[[nodiscard]] root::Task<SZ> unsafe_send_zc_sent_async(
@@ -2445,14 +2175,6 @@ public:
 		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<SZ> unsafe_send_zc_sent_task(
-		FileHandle const &fh,
-		void const *buf,
-		SZ len,
-		int flags = 0,
-		unsigned zc_flags = 0) {
-		return unsafe_send_zc_sent_async(fh, buf, len, flags, zc_flags);
 	}
 	[[nodiscard]] root::Task<SZ> send_zc_async(
 		FileHandle const &fh,
@@ -2503,14 +2225,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<SZ> write_fixed_task(
-		FileHandle const &fh,
-		u64 offset,
-		void const *buf,
-		unsigned nbytes,
-		int buf_index) {
-		return write_fixed_async(fh, offset, buf, nbytes, buf_index);
-	}
 	// Remove a file by name relative to `dir_fd`.
 	// `flags` = 0 for file; AT_REMOVEDIR for directory.
 	[[nodiscard]] root::Task<void> unlinkat_async(
@@ -2529,12 +2243,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable { auto _ = p; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> unlinkat_task(
-		int dir_fd,
-		S path,
-		int flags = 0) {
-		return unlinkat_async(dir_fd, move(path), flags);
 	}
 	// Rename with full dirfd control.
 	[[nodiscard]] root::Task<void> renameat_async(
@@ -2556,14 +2264,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> renameat_task(
-		int old_dir_fd,
-		S old_path,
-		int new_dir_fd,
-		S new_path,
-		unsigned flags = 0) {
-		return renameat_async(old_dir_fd, move(old_path), new_dir_fd, move(new_path), flags);
-	}
 	// Create a directory at `path` (relative to AT_FDCWD).
 	[[nodiscard]] root::Task<void> mkdir_async(
 		S path,
@@ -2580,11 +2280,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [p](IoResult) mutable { auto _ = p; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> mkdir_task(
-		S path,
-		mode_t mode = 0755) {
-		return mkdir_async(move(path), mode);
 	}
 	// Open directly into the registered file table with full openat2 semantics.
 	// IORING_FILE_INDEX_ALLOC for `file_index` auto-allocates.
@@ -2609,13 +2304,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<FileHandle> openat2_direct_task(
-		int dir_fd,
-		S path,
-		open_how how,
-		unsigned file_index) {
-		return openat2_direct_async(dir_fd, move(path), how, file_index);
-	}
 	// Create a socket directly into the registered file table, with the kernel
 	// choosing the slot (IORING_FILE_INDEX_ALLOC). Returns the allocated slot.
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
@@ -2636,14 +2324,6 @@ public:
 			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_direct_slot(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
-	[[nodiscard]] conflux::work::root::Task<FileHandle> socket_direct_alloc_task(
-		int domain,
-		int type,
-		int protocol,
-		unsigned flags = 0) {
-		return socket_direct_alloc_async(domain, type, protocol, flags);
 	}
 	// Open a file directly into the fixed file table (openat semantics).
 	// Use IORING_FILE_INDEX_ALLOC for `file_index` to let the kernel pick a slot.
@@ -2671,14 +2351,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<FileHandle> openat_direct_task(
-		int dir_fd,
-		S path,
-		int flags,
-		mode_t mode = 0,
-		unsigned file_index = IORING_FILE_INDEX_ALLOC) {
-		return openat_direct_async(dir_fd, move(path), flags, mode, file_index);
-	}
 	// Send a source fd to another ring, letting the kernel auto-allocate the slot.
 	// Returns the allocated slot index via the target ring's CQE.
 	[[nodiscard]] root::Task<void> msg_ring_fd_alloc_async(
@@ -2697,13 +2369,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> msg_ring_fd_alloc_task(
-		int target_ring_fd,
-		int source_fd,
-		u64 data = 0,
-		unsigned flags = 0) {
-		return msg_ring_fd_alloc_async(target_ring_fd, source_fd, data, flags);
 	}
 	// Create a pipe P directly into fixed file table slots.
 	// Use IORING_FILE_INDEX_ALLOC for `file_index` to let the kernel choose.
@@ -2733,11 +2398,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<P<int, int>> pipe_direct_task(
-		unsigned file_index = IORING_FILE_INDEX_ALLOC,
-		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
-		return pipe_direct_async(file_index, pipe_flags);
-	}
 	// Post a message to another ring, forwarding specific CQE flags in the payload.
 	// Useful for waking up a consumer ring with custom CQE flags set.
 	[[nodiscard]] root::Task<void> msg_ring_cqe_flags_async(
@@ -2757,14 +2417,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> msg_ring_cqe_flags_task(
-		int target_ring_fd,
-		unsigned len,
-		u64 data,
-		unsigned flags = 0,
-		unsigned cqe_flags = 0) {
-		return msg_ring_cqe_flags_async(target_ring_fd, len, data, flags, cqe_flags);
 	}
 	// hack: resolves on first send CQE only; this API does not expose buffer-release notification.
 	// Caller must guarantee msg, iovec array, and all pointed buffers remain live by other means.
@@ -2787,12 +2439,6 @@ public:
 		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<SZ> unsafe_sendmsg_zc_sent_task(
-		FileHandle const &fh,
-		msghdr const *msg,
-		unsigned flags = 0) {
-		return unsafe_sendmsg_zc_sent_async(fh, msg, flags);
 	}
 	// msg, iovec array, and all pointed buffers must remain live until co_return.
 	[[nodiscard]] root::Task<SZ> sendmsg_zc_async(
