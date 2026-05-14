@@ -20,8 +20,10 @@
 - [x] Execution model documentation: HTTP server handlers intentionally run on io_uring ring threads; all tasks run on an executor; do not add hidden auto-offload for arbitrary sync handlers. Public naming model documented: `blocking_*` for raw blocking syscall-style helpers, `sync_*` for executor-owned non-coroutine chains, and `async_*` for coroutine APIs.
 - [ ] Public API alias cleanup: remove exported shorthand aliases (`S`, `SV`, `SP`, `Opt`, etc. in `src/types.cxx:15-75`) from public signatures and use spelled-out standard vocabulary types at public boundaries.
   - Last before release. Lowest priority. Do not touch until the rest of the public surface work is complete.
+  - Doc/example string replacements for the renamed public surface stay until the very end of the release prep, after the code surface is settled.
   - [x] Net config boundary slice: exported `Config`/`VirtualHost` string fields now use `std::string` and `std::vector<std::string>` instead of `S`/`V<S>` at the public boundary.
 - [ ] API naming pass: align public APIs with `blocking_*` / `sync_*` / `async_*`; reserve `blocking_*` for raw syscall-style helpers such as direct fd/process operations, use `sync_*` for executor-owned non-coroutine chains, and use `async_*` for coroutine APIs.
+  - Keep doc/example replacement wording for this pass until the code rename lands; this is the final polish step, not the first change.
 - [x] JSON default path: `parse(string_view)` now aliases the borrowed/view path; explicit owning parse moved to `parse_copy(string_view|string&&)`; rvalue `parse(string&&)` is deleted; docs/examples promote `parse_view` as the primary fast API
 - [x] JSON: add `JsonArena::parse_borrowed_into(string_view)` and `parse_moved_into(string&&)` — both landed; `parse_borrowed_into` reuses caller's buffer without copy, `parse_moved_into` takes ownership.
 - [x] Core error type / `file_io_sync`: `IoError` is exported by `conflux.types`; `file_io_sync` no longer imports or links `conflux.uring.completion` / `conflux_uring`. Full `conflux::core` target split remains tracked separately.

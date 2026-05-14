@@ -586,13 +586,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<FileHandle> open_task(
-		int dir_fd,
-		S path,
-		int flags,
-		mode_t mode = 0) {
-		return open_async(dir_fd, move(path), flags, mode);
-	}
 	// Open a path directly into the ring's fixed-file table. The owner must
 	// have registered a sparse file table first.
 	[[nodiscard]] root::Task<FileHandle> open_direct_async(
@@ -630,14 +623,6 @@ public:
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<FileHandle> open_direct_task(
-		int dir_fd,
-		S path,
-		int flags,
-		mode_t mode,
-		unsigned file_index) {
-		return open_direct_async(dir_fd, move(path), flags, mode, file_index);
 	}
 	// statx on a path. `mask` follows statx(2) — STATX_BASIC_STATS by default.
 	[[nodiscard]] root::Task<FileStat> statx_async(
@@ -680,14 +665,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<FileStat> statx_task(
-		int dir_fd,
-		S path,
-		int flags = 0,
-		unsigned mask = STATX_BASIC_STATS,
-		bool fixed_file = false) {
-		return statx_async(dir_fd, move(path), flags, mask, fixed_file);
-	}
 	// fstat-equivalent via statx with AT_EMPTY_PATH — avoids a path lookup.
 	[[nodiscard]] root::Task<FileStat> stat_async(
 		FileHandle const &fh) {
@@ -695,10 +672,6 @@ public:
 			return statx_async(fh.direct_slot(), S{}, AT_EMPTY_PATH, STATX_BASIC_STATS, true);
 		}
 		return statx_async(fh.raw_fd(), S{}, AT_EMPTY_PATH);
-	}
-	[[nodiscard]] conflux::work::root::Task<FileStat> stat_task(
-		FileHandle const &fh) {
-		return stat_async(fh);
 	}
 	// Read into a caller-owned span. The caller must keep `dst` alive until the
 	// Flow resolves.
@@ -725,12 +698,6 @@ public:
 		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<SZ> read_into_task(
-		FileHandle const &fh,
-		u64 offset,
-		span<byte> dst) {
-		return read_into(fh, offset, dst);
 	}
 	// Scatter-gather read: fills `iovecs` segments in sequence. The V is
 	// moved into shared state and kept alive until the CQE fires.
@@ -762,12 +729,6 @@ public:
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<SZ> readv_into_task(
-		FileHandle const &fh,
-		u64 offset,
-		V<iovec> iovecs) {
-		return readv_into(fh, offset, move(iovecs));
 	}
 	// Read into a pre-registered fixed buffer. The pool slot is held by the
 	// buffer and returned on destruction — by placing the buffer inside the
@@ -817,13 +778,6 @@ public:
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<ReadFixedResult> read_fixed_task(
-		FileHandle const &fh,
-		u64 offset,
-		FixedBuffer buf,
-		SZ max_bytes = NL<SZ>::max()) {
-		return read_fixed(fh, offset, move(buf), max_bytes);
 	}
 	// Read into a pre-registered fixed buffer, bypassing the kernel page cache.
 	// The file must have been opened with O_DIRECT. `offset` must be a multiple
@@ -881,14 +835,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<ReadFixedResult> read_nocache_fixed_task(
-		FileHandle const &fh,
-		u64 offset,
-		FixedBuffer buf,
-		SZ max_bytes = NL<SZ>::max(),
-		SZ block_size = 4096) {
-		return read_nocache_fixed(fh, offset, move(buf), max_bytes, block_size);
-	}
 	// Write from a pre-registered fixed buffer. Symmetric to read_fixed.
 	// The buffer is held in shared state until the CQE fires, then returned
 	// to the caller (who decides when to release the slot back to the pool).
@@ -937,13 +883,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<WriteFixedResult> write_fixed_task(
-		FileHandle const &fh,
-		u64 offset,
-		FixedBuffer buf,
-		SZ max_bytes = NL<SZ>::max()) {
-		return write_fixed(fh, offset, move(buf), max_bytes);
-	}
 	[[nodiscard]] root::Task<SZ> write_into(
 		FileHandle const &fh,
 		u64 offset,
@@ -967,12 +906,6 @@ public:
 		auto [slot, gen] = reserve_bridge<SZ>(shared_src, [](IoResult r) { return static_cast<SZ>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<SZ> write_into_task(
-		FileHandle const &fh,
-		u64 offset,
-		span<byte const> src_view) {
-		return write_into(fh, offset, src_view);
 	}
 	// Scatter-gather write: sends `iovecs` segments to the file in sequence.
 	// The V is moved into shared state and kept alive until the CQE fires.
@@ -1005,12 +938,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<SZ> writev_into_task(
-		FileHandle const &fh,
-		u64 offset,
-		V<iovec> iovecs) {
-		return writev_into(fh, offset, move(iovecs));
-	}
 	// readv2_into: like readv_into but with RWF flags (e.g. RWF_NOWAIT, RWF_DSYNC).
 	[[nodiscard]] root::Task<SZ> readv2_into(
 		FileHandle const &fh,
@@ -1041,13 +968,6 @@ public:
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<SZ> readv2_into_task(
-		FileHandle const &fh,
-		u64 offset,
-		V<iovec> iovecs,
-		int rwf_flags = 0) {
-		return readv2_into(fh, offset, move(iovecs), rwf_flags);
 	}
 	// writev2_into: like writev_into but with RWF flags.
 	[[nodiscard]] root::Task<SZ> writev2_into(
@@ -1080,13 +1000,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<SZ> writev2_into_task(
-		FileHandle const &fh,
-		u64 offset,
-		V<iovec> iovecs,
-		int rwf_flags = 0) {
-		return writev2_into(fh, offset, move(iovecs), rwf_flags);
-	}
 	// No-op SQE — useful for latency measurement, wakeup, or pipeline flushing.
 	[[nodiscard]] root::Task<void> nop_async() {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
@@ -1101,7 +1014,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> nop_task() { return nop_async(); }
 	[[nodiscard]] root::Task<void> fsync_async(
 		FileHandle const &fh,
 		bool data_only = false) {
@@ -1116,11 +1028,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> fsync_task(
-		FileHandle const &fh,
-		bool data_only = false) {
-		return fsync_async(fh, data_only);
 	}
 	[[nodiscard]] root::Task<void> fallocate_async(
 		FileHandle const &fh,
@@ -1138,13 +1045,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> fallocate_task(
-		FileHandle const &fh,
-		int mode,
-		u64 offset,
-		u64 len) {
-		return fallocate_async(fh, mode, offset, len);
 	}
 	// Consumes the handle; the ring closes the fd via io_uring.
 	[[nodiscard]] root::Task<void> fadvise_async(
@@ -1168,13 +1068,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> fadvise_task(
-		FileHandle const &fh,
-		u64 offset,
-		u32 len,
-		int advice) {
-		return fadvise_async(fh, offset, len, advice);
-	}
 	[[nodiscard]] root::Task<void> madvise_async(
 		void *addr,
 		u32 length,
@@ -1190,12 +1083,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> madvise_task(
-		void *addr,
-		u32 length,
-		int advice) {
-		return madvise_async(addr, length, advice);
 	}
 	[[nodiscard]] root::Task<void> unlink_async(
 		int dir_fd,
@@ -1213,12 +1100,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [path_owner](IoResult) mutable { auto _ = path_owner; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> unlink_task(
-		int dir_fd,
-		S path,
-		int flags = 0) {
-		return unlink_async(dir_fd, move(path), flags);
 	}
 	[[nodiscard]] root::Task<void> rename_async(
 		int old_dir_fd,
@@ -1239,14 +1120,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> rename_task(
-		int old_dir_fd,
-		S old_path,
-		int new_dir_fd,
-		S new_path,
-		unsigned flags = 0) {
-		return rename_async(old_dir_fd, move(old_path), new_dir_fd, move(new_path), flags);
-	}
 	[[nodiscard]] root::Task<void> mkdirat_async(
 		int dir_fd,
 		S path,
@@ -1264,12 +1137,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> mkdirat_task(
-		int dir_fd,
-		S path,
-		mode_t mode = 0755) {
-		return mkdirat_async(dir_fd, move(path), mode);
-	}
 	[[nodiscard]] root::Task<void> symlinkat_async(
 		S target,
 		int new_dir_fd,
@@ -1286,12 +1153,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { auto _ = paths; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> symlinkat_task(
-		S target,
-		int new_dir_fd,
-		S link_path) {
-		return symlinkat_async(move(target), new_dir_fd, move(link_path));
 	}
 	[[nodiscard]] root::Task<void> ftruncate_async(
 		FileHandle const &fh,
@@ -1312,11 +1173,6 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] conflux::work::root::Task<void> ftruncate_task(
-		FileHandle const &fh,
-		u64 length) {
-		return ftruncate_async(fh, length);
-	}
 	[[nodiscard]] root::Task<void> linkat_async(
 		int old_dir_fd,
 		S old_path,
@@ -1335,14 +1191,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [paths](IoResult) mutable { auto _ = paths; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> linkat_task(
-		int old_dir_fd,
-		S old_path,
-		int new_dir_fd,
-		S new_path,
-		int flags = 0) {
-		return linkat_async(old_dir_fd, move(old_path), new_dir_fd, move(new_path), flags);
 	}
 	[[nodiscard]] root::Task<void> sync_file_range_async(
 		FileHandle const &fh,
@@ -1364,13 +1212,6 @@ public:
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
-	}
-	[[nodiscard]] conflux::work::root::Task<void> sync_file_range_task(
-		FileHandle const &fh,
-		u64 offset,
-		unsigned len,
-		int flags = 0) {
-		return sync_file_range_async(fh, offset, len, flags);
 	}
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
 	[[nodiscard]] root::Task<FileHandle> socket_async(
