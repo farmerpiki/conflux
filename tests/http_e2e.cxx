@@ -21,6 +21,7 @@ import conflux.net.async_client;
 import conflux.net.http;
 import conflux.net.compress;
 import conflux.net.proxy;
+import conflux.net.http.static_core;
 import conflux.net.http1_parser;
 import conflux.net.tls;
 import conflux.tests.support;
@@ -2939,6 +2940,13 @@ TEST_CASE(
 
 	srv.stop();
 	::rmdir(tmpdir);
+}
+TEST_CASE(
+	"static core: normalize_static_path resolves dot segments and rejects escapes") {
+	CHECK(normalize_static_path("foo/bar") == std::optional<std::string>{"/foo/bar"});
+	CHECK(normalize_static_path("./foo/../bar") == std::optional<std::string>{"/bar"});
+	CHECK_FALSE(normalize_static_path("../escape").has_value());
+	CHECK_FALSE(normalize_static_path(SV{"bad\0path", 8}).has_value());
 }
 TEST_CASE(
 	"static file serving: allow_delete removes files") {

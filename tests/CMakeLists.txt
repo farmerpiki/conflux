@@ -60,6 +60,7 @@ target_include_directories(conflux_tests PRIVATE "${CMAKE_SOURCE_DIR}/src/net")
 target_link_libraries(conflux_tests
     PRIVATE
         conflux
+        conflux_http_static_core
         conflux_options
         Catch2::Catch2WithMain
 )

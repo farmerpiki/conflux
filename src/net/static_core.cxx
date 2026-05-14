@@ -87,7 +87,7 @@ export struct StaticCacheStore {
 	}
 };
 
-export [[nodiscard]] Opt<S> normalize_static_path(
+export [[nodiscard]] Opt<std::string> normalize_static_path(
 	SV raw) {
 	S const fp{raw};
 	V<S> parts;
