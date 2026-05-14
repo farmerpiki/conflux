@@ -10,8 +10,8 @@ import conflux.net.http.types;
 import conflux.net.router;
 // Generate an OpenAPI 3.0 JSON spec from the routes registered on `router`.
 // title and version are used for the info object.
-// Returns a JSON S (not pretty-printed).
-export S openapi_spec(
+// Returns a JSON string (not pretty-printed).
+export std::string openapi_spec(
 	Router const &router,
 	SV title = "API",
 	SV version = "1.0.0") {
@@ -30,8 +30,8 @@ export S openapi_spec(
 	}
 
 	// Build JSON S manually (no deps).
-	auto json_str = [](SV s) -> S {
-		S out = "\"";
+	auto json_str = [](SV s) -> std::string {
+		std::string out = "\"";
 		for (auto const byte: s) {
 			auto const c = static_cast<unsigned char>(byte);
 			if (c == '"') {
@@ -58,7 +58,7 @@ export S openapi_spec(
 		return out;
 	};
 
-	S out;
+	std::string out;
 	out += R"({"openapi":"3.0.0","info":{"title":)";
 	out += json_str(title);
 	out += R"(,"version":)";

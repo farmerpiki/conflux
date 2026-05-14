@@ -6319,45 +6319,45 @@ TEST_CASE(
 	router.get("/hello/{name}", [](HttpRequest const &) { return HttpResponse::text(""); });
 	router.post("/items", [](HttpRequest const &) { return HttpResponse::text(""); });
 	auto spec = openapi_spec(router, "Test API", "0.1.0");
-	REQUIRE(spec.find(R"("openapi":"3.0.0")") != S::npos);
+	REQUIRE(spec.find(R"("openapi":"3.0.0")") != std::string::npos);
 }
 TEST_CASE(
 	"openapi: spec includes registered path with path parameter") {
 	Router router;
 	router.get("/hello/{name}", [](HttpRequest const &) { return HttpResponse::text(""); });
 	auto spec = openapi_spec(router, "Test API", "0.1.0");
-	REQUIRE(spec.find(R"("/hello/{name}")") != S::npos);
-	REQUIRE(spec.find(R"("name":"name")") != S::npos);
-	REQUIRE(spec.find(R"("in":"path")") != S::npos);
+	REQUIRE(spec.find(R"("/hello/{name}")") != std::string::npos);
+	REQUIRE(spec.find(R"("name":"name")") != std::string::npos);
+	REQUIRE(spec.find(R"("in":"path")") != std::string::npos);
 }
 TEST_CASE(
 	"openapi: spec includes title and version from arguments") {
 	Router router;
 	router.get("/", [](HttpRequest const &) { return HttpResponse::text(""); });
 	auto spec = openapi_spec(router, "My Service", "2.3.4");
-	REQUIRE(spec.find(R"("title":"My Service")") != S::npos);
-	REQUIRE(spec.find(R"("version":"2.3.4")") != S::npos);
+	REQUIRE(spec.find(R"("title":"My Service")") != std::string::npos);
+	REQUIRE(spec.find(R"("version":"2.3.4")") != std::string::npos);
 }
 TEST_CASE(
 	"openapi: spec includes method in lowercase") {
 	Router router;
 	router.post("/items", [](HttpRequest const &) { return HttpResponse::text(""); });
 	auto spec = openapi_spec(router);
-	REQUIRE(spec.find(R"("post":)") != S::npos);
+	REQUIRE(spec.find(R"("post":)") != std::string::npos);
 }
 TEST_CASE(
 	"openapi: title with special characters is properly JSON-escaped") {
 	Router router;
 	router.get("/", [](HttpRequest const &) { return HttpResponse::text(""); });
 	auto spec = openapi_spec(router, R"(My "API" & More)");
-	REQUIRE(spec.find(R"("title":"My \"API\" & More")") != S::npos);
+	REQUIRE(spec.find(R"("title":"My \"API\" & More")") != std::string::npos);
 }
 TEST_CASE(
 	"openapi: empty router produces valid paths object") {
 	Router router;
 	auto spec = openapi_spec(router, "Empty", "0.0.1");
-	REQUIRE(spec.find(R"("paths":{})") != S::npos);
-	REQUIRE(spec.find(R"("title":"Empty")") != S::npos);
+	REQUIRE(spec.find(R"("paths":{})") != std::string::npos);
+	REQUIRE(spec.find(R"("title":"Empty")") != std::string::npos);
 }
 TEST_CASE(
 	"openapi_handler_protected: wrong bearer token returns 401") {

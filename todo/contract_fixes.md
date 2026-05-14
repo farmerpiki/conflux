@@ -25,6 +25,8 @@
   - [x] HTTP server config helpers now return `std::string` instead of `S` at the public boundary.
   - [x] VHost router helpers now use `std::string`, `std::string_view`, `std::shared_ptr`, and `std::optional` at the public boundary.
   - [x] HTTP server helper exports now use spelled-out string types at the public boundary (`std::string`, `std::string_view`, `std::int64_t`).
+  - [x] OpenAPI spec generator now returns `std::string` at the public boundary.
+  - [x] HTTP/3 alt-svc helper now returns `std::string` at the public boundary.
 - [ ] API naming pass: align public APIs with `blocking_*` / `sync_*` / `async_*`; reserve `blocking_*` for raw syscall-style helpers such as direct fd/process operations, use `sync_*` for executor-owned non-coroutine chains, and use `async_*` for coroutine APIs.
   - Keep doc/example replacement wording for this pass until the code rename lands; this is the final polish step, not the first change.
   - [x] Process executor-targeted helpers now use explicit async names: `spawn_async_in`, `run_async_in`, and `wait_async_in`.

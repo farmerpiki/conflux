@@ -27,7 +27,7 @@ import conflux.net.http.types;
 import conflux.net.router;
 
 export inline SV const kH3Alpn = "h3";
-export S http3_alt_svc_value(
+export std::string http3_alt_svc_value(
 	u16 port,
 	u32 max_age_sec) {
 	return format(R"(h3=":{}"; ma={})", port, max_age_sec);
