@@ -12,7 +12,7 @@ else()
     message(WARNING "Your CMake version does not support experimental 'import std'.")
 endif()
 
-project(conflux LANGUAGES CXX)
+project(conflux VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -1946,12 +1946,23 @@ endif() # CONFLUX_WANT_HTTP_SERVER
 # Public package targets / install-export
 # ---------------------------------------------------------------------------
 
+set(CONFLUX_PACKAGE_COMPONENTS)
+set(CONFLUX_PACKAGE_TARGETS)
+
 function(conflux_public_component target export_name)
     if(TARGET ${target})
         set_target_properties(${target} PROPERTIES EXPORT_NAME ${export_name})
         if(NOT TARGET conflux::${export_name})
             add_library(conflux::${export_name} ALIAS ${target})
         endif()
+
+        set(_components ${CONFLUX_PACKAGE_COMPONENTS})
+        list(APPEND _components "${export_name}")
+        set(CONFLUX_PACKAGE_COMPONENTS "${_components}" PARENT_SCOPE)
+
+        set(_targets ${CONFLUX_PACKAGE_TARGETS})
+        list(APPEND _targets "conflux::${export_name}")
+        set(CONFLUX_PACKAGE_TARGETS "${_targets}" PARENT_SCOPE)
     endif()
 endfunction()
 
@@ -2020,6 +2031,12 @@ conflux_public_component(conflux umbrella)
 # Internal-but-exported support targets needed by static-library link interfaces.
 conflux_public_component(conflux_options _options)
 conflux_public_component(conflux_direct_slot_pool _direct_slot_pool)
+
+if(TARGET conflux AND NOT TARGET conflux::conflux)
+    add_library(conflux::conflux ALIAS conflux)
+    list(APPEND CONFLUX_PACKAGE_COMPONENTS conflux)
+    list(APPEND CONFLUX_PACKAGE_TARGETS conflux::conflux)
+endif()
 
 set(CONFLUX_INSTALL_INTERFACE_TARGETS)
 foreach(_target IN ITEMS
@@ -2186,7 +2203,7 @@ configure_package_config_file(
 )
 write_basic_package_version_file(
     "${CMAKE_CURRENT_BINARY_DIR}/conflux-config-version.cmake"
-    VERSION 0.1.0
+    VERSION ${PROJECT_VERSION}
     COMPATIBILITY SameMajorVersion
 )
 install(FILES
@@ -2198,6 +2215,28 @@ install(EXPORT confluxTargets
     NAMESPACE conflux::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
 )
+
+if(CONFLUX_BUILD_TESTS)
+    add_test(NAME build/package-config
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-package-config.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(build/package-config PROPERTIES
+        LABELS "build;package"
+    )
+endif()
+
+set(CONFLUX_PACKAGE_SMOKE_PREFIX "" CACHE PATH
+    "Optional installed conflux prefix to validate with the package smoke project")
+if(CONFLUX_BUILD_TESTS AND CONFLUX_PACKAGE_SMOKE_PREFIX)
+    add_test(NAME build/package-config-install-tree
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-package-config-smoke.sh"
+                --source "${CMAKE_CURRENT_SOURCE_DIR}"
+                --prefix "${CONFLUX_PACKAGE_SMOKE_PREFIX}"
+                --build-dir "${CMAKE_CURRENT_BINARY_DIR}/package-smoke")
+    set_tests_properties(build/package-config-install-tree PROPERTIES
+        LABELS "build;package;install"
+    )
+endif()
 
 # ---------------------------------------------------------------------------
 # Standalone examples (don't require monolith)

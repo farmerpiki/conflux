@@ -219,13 +219,13 @@ Recommended next auth branch: none in the current P0/P1 auth lane. If continuing
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
-| P0 | `build/perf-harness-stabilize` | Make perf harness reproducible: benchmark presets, symbols, fixed inputs, result artifact path, and docs. | Independent; unlocks several perf branches. | **Initial slice done:** HTTP/file/worker benchmark commands are documented; recorder emits manifest/bench-info/raw artifacts; perf presets provide symbolized non-sanitizer builds. |
-| P0 | `build/module-fragility-regression` | Add/keep regression docs/tests for thin-interface module pattern around coroutine-heavy modules. | Build/docs; low conflict. | Agents stop reintroducing heavy coroutine bodies into fragile module interfaces. |
-| P1 | `build/ci-sanitizer-perf-split` | Separate sanitizer correctness lanes from release/perf lanes. | CMake/CI only. | Perf numbers cannot accidentally come from sanitizer builds. |
-| P1 | `build/lto-pgo-presets` | Add LTO/PGO presets or docs once benchmarks are stable. | Depends on perf harness. | Presets do not disturb normal dev/debug builds. |
-| P2 | `build/package-config` | Improve install/export package shape. | Later; not a runtime blocker. | Namespaced target export works from install tree. |
+| DONE | `build/perf-harness-stabilize` | Make perf harness reproducible: benchmark presets, symbols, fixed inputs, result artifact path, and docs. | Independent; unlocks several perf branches. | Perf presets are benchmark-only `RelWithDebInfo`/no-sanitizer/no-LTO; perf matrix and recorder enforce preset shape; recorder stores manifest, bench-info, cache, logs, and raw NDJSON artifacts; empty/invalid benchmark output fails instead of producing empty DB runs; fixed iteration reuse also derives warmup. |
+| DONE | `build/module-fragility-regression` | Added source-shape regression checks and docs for fragile coroutine-adjacent module interfaces. | Build/docs; low conflict. | `build/module-fragility-regression` CTest guards `conflux.net.cancel` as a thin declarations-only interface, keeps private impl units private, and blocks `import std` from `conflux.socket_io.coro`. |
+| DONE | `build/ci-sanitizer-perf-split` | Separate sanitizer correctness lanes from release/perf lanes. | Landed as CMake/script/docs guardrail work. | `run-sanitizer-matrix.sh` asserts tests-on/benchmarks-off/LTO-off and the expected sanitizer mix per correctness preset; `bench_record.sh` rejects sanitizer/debug/non-perf recordings unless explicitly waived. |
+| DONE | `build/lto-pgo-presets` | Stabilized optimized release/PGO presets after perf harness work: Clang LTO uses ThinLTO, GCC 16 keeps GCC LTO coverage, GCC 15 remains no-LTO, PGO paths are deterministic, and a static CTest guard enforces optimized-preset shape. | Landed as CMake/preset/script/docs work. | `build/optimized-presets` checks release/PGO presets stay unsanitized, explicit, and separate from `perf-*` recording lanes. |
+| DONE | `build/package-config` | Install/export package shape now has explicit version ownership, component metadata, requested-component validation, a canonical `conflux::conflux` umbrella alias when available, and package smoke scripts. | Build/docs only. | `build/package-config` statically guards package CMake shape; `run-package-config-smoke.sh` validates installed namespaced component targets from a downstream project. |
 
-Recommended next build branch: `build/perf-harness-stabilize`.
+Recommended next build branch: none currently listed. Build lane follow-up should be a real install-tree configure/build smoke on the target toolchain after `build/package-config` lands.
 
 ### Docs / examples / API ergonomics lane
 

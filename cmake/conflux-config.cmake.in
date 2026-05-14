@@ -1,7 +1,24 @@
 @PACKAGE_INIT@
 
 include(CMakeFindDependencyMacro)
-find_dependency(PkgConfig REQUIRED)
+
+set(_conflux_needs_pkgconfig FALSE)
+if(@CONFLUX_INSTALL_NEEDS_LIBURING@
+        OR @CONFLUX_INSTALL_NEEDS_XXHASH@
+        OR @CONFLUX_INSTALL_NEEDS_LIBPQ@
+        OR @CONFLUX_INSTALL_NEEDS_LIBDEFLATE@
+        OR @CONFLUX_INSTALL_NEEDS_ZLIB_NG@
+        OR @CONFLUX_INSTALL_NEEDS_ISAL@
+        OR @CONFLUX_INSTALL_NEEDS_BROTLI@
+        OR @CONFLUX_INSTALL_NEEDS_ZSTD@
+        OR @CONFLUX_INSTALL_NEEDS_NGHTTP2@
+        OR @CONFLUX_INSTALL_NEEDS_NGTCP2@
+        OR @CONFLUX_INSTALL_NEEDS_NGHTTP3@)
+    set(_conflux_needs_pkgconfig TRUE)
+endif()
+if(_conflux_needs_pkgconfig)
+    find_dependency(PkgConfig REQUIRED)
+endif()
 
 if(@CONFLUX_INSTALL_NEEDS_LIBURING@)
     pkg_check_modules(LIBURING REQUIRED IMPORTED_TARGET liburing)
@@ -45,4 +62,41 @@ if(@CONFLUX_INSTALL_NEEDS_NGHTTP3@)
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/confluxTargets.cmake")
+
+set(conflux_VERSION "@PROJECT_VERSION@")
+set(conflux_AVAILABLE_COMPONENTS "@CONFLUX_PACKAGE_COMPONENTS@")
+set(conflux_AVAILABLE_TARGETS "@CONFLUX_PACKAGE_TARGETS@")
+
+if(TARGET conflux::umbrella AND NOT TARGET conflux::conflux)
+    add_library(conflux::conflux INTERFACE IMPORTED)
+    set_target_properties(conflux::conflux PROPERTIES
+        INTERFACE_LINK_LIBRARIES conflux::umbrella)
+    list(APPEND conflux_AVAILABLE_COMPONENTS conflux)
+    list(APPEND conflux_AVAILABLE_TARGETS conflux::conflux)
+endif()
+
+foreach(_conflux_component IN LISTS conflux_FIND_COMPONENTS)
+    if(_conflux_component STREQUAL "conflux")
+        set(_conflux_component_target conflux::conflux)
+    else()
+        set(_conflux_component_target "conflux::${_conflux_component}")
+    endif()
+
+    if(NOT _conflux_component IN_LIST conflux_AVAILABLE_COMPONENTS)
+        set(conflux_${_conflux_component}_FOUND FALSE)
+        if(NOT conflux_NOT_FOUND_MESSAGE)
+            set(conflux_NOT_FOUND_MESSAGE
+                "conflux component '${_conflux_component}' was requested but is not available in this install tree")
+        endif()
+    elseif(NOT TARGET ${_conflux_component_target})
+        set(conflux_${_conflux_component}_FOUND FALSE)
+        if(NOT conflux_NOT_FOUND_MESSAGE)
+            set(conflux_NOT_FOUND_MESSAGE
+                "conflux component '${_conflux_component}' is listed in this install tree but target '${_conflux_component_target}' is missing")
+        endif()
+    else()
+        set(conflux_${_conflux_component}_FOUND TRUE)
+    endif()
+endforeach()
+
 check_required_components(conflux)
