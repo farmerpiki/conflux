@@ -11,8 +11,10 @@ scripts/run-sanitizer-matrix.sh
 ```
 
 This lane configures, builds, and runs tests for sanitizer/debug correctness
-presets. Benchmark targets are disabled in these presets so instrumented binaries
-do not get mistaken for performance data.
+presets. It also asserts the preset shape before building: tests enabled,
+benchmarks disabled, LTO disabled, and exactly the expected sanitizer mix for
+each preset. Benchmark targets are disabled in these presets so instrumented
+binaries do not get mistaken for performance data.
 
 The default matrix is:
 
