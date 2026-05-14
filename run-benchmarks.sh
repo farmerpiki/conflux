@@ -1,6 +1,9 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# Compatibility wrapper for the dedicated perf lane.
+#
+# Builds benchmark binaries from perf-* presets only. For measured DB-backed
+# benchmark recording, call scripts/bench_record.sh directly.
+set -euo pipefail
 
-for preset in release-{gcc-stdcxx,clang-libcxx}
-do
-    (cmake --build build/${preset} || cmake --build build/${preset} --clean-first) && ./build/${preset}/benchmarks/conflux_benchmarks | tee benchmark-results/${preset}.txt
-done
+SOURCE_DIR="${SOURCE_DIR:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel)}"
+exec "$SOURCE_DIR/scripts/run-perf-matrix.sh" "$@"

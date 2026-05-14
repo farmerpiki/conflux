@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Sanitizer CI matrix: build + test all sanitizer presets.
+# Sanitizer CI matrix: build + test correctness presets only.
+#
+# Benchmark targets are intentionally disabled in these presets. Use
+# scripts/run-perf-matrix.sh or scripts/bench_record.sh for perf work.
 #
 # Presets covered:
 #   debug-clang-libcxx   — clang, ASan+UBSan, no-recover
@@ -8,7 +11,7 @@
 #   tsan-clang-libcxx    — clang, TSan, RelWithDebInfo
 #   tsan-gcc-stdcxx      — gcc,   TSan, RelWithDebInfo
 #
-# All four must be green before any Phase 1 item lands.
+# All four must be green before any correctness-sensitive item lands.
 #
 # Usage:
 #   ./scripts/run-sanitizer-matrix.sh [--only PRESET,...] [-- <ctest-args>]

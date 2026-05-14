@@ -10,9 +10,17 @@
   A hung bench is diagnosed after the fact; a timeout (`--timeout` or the `timeout(1)`
   wrapper) is the only safe intervention.
 
+## CI lane split
+
+Correctness and performance lanes are intentionally separate:
+
+- `scripts/run-sanitizer-matrix.sh` configures/builds/tests sanitizer and debug correctness presets. Benchmark targets stay disabled there.
+- `scripts/run-perf-matrix.sh` configures/builds benchmark targets from `perf-*` presets only. Sanitizers and tests stay disabled there.
+- `scripts/bench_record.sh` is the measured benchmark recorder for quiet hosts and DB-backed result capture.
+
 ## Standard record run
 
-Builds each preset, runs all discovered bench binaries, records to DB.
+Builds each perf preset, runs all discovered bench binaries, records to DB.
 
 ```sh
 PGURI=postgres://postgres@localhost/conflux_bench \
@@ -24,7 +32,7 @@ Env knobs:
 
 | var | default | meaning |
 |---|---|---|
-| `BENCH_PRESET` | `release-clang-libcxx release-gcc-stdcxx` | space-separated CMake presets |
+| `BENCH_PRESET` | `perf-clang-libcxx perf-gcc-stdcxx` | space-separated CMake presets |
 | `BENCH_REPS` | 5 | outer replications per variant |
 | `BENCH_PIN_CPUS` | (none) | `taskset -c` mask, e.g. `0-3` |
 | `KEEP_BUILD=1` | (off) | skip build-dir cleanup |
@@ -51,8 +59,8 @@ Use when comparing candidates from **different build trees** (different branches
 
 ```sh
 # from each worktree:
-cmake --preset release-clang-libcxx[-p5]
-cmake --build /tmp/<tree>/<preset> --target conflux_work_benchmarks -- -j$(nproc)
+cmake --preset perf-clang-libcxx
+cmake --build /tmp/<tree>/perf-clang-libcxx --target conflux_work_benchmarks -- -j$(nproc)
 ```
 
 ### Step 2 — interleaved compare

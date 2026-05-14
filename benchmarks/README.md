@@ -9,8 +9,10 @@ polluted by sandbox/kernel/io_uring variability.
 
 Use the `perf-*` presets for benchmark recording and profiling. They build only
 benchmarks, disable sanitizers, keep debug symbols via `RelWithDebInfo`, and do
-not enable LTO. Use the older `release-*` presets only when you explicitly want
-to compare production-style codegen.
+not enable LTO. Sanitizer/debug presets intentionally do not build benchmark
+targets; sanitizer binaries are correctness artifacts, not performance artifacts.
+Use the older `release-*` presets only when you explicitly want to compare
+production-style codegen.
 
 ```sh
 cmake --preset perf-clang-libcxx
@@ -26,6 +28,11 @@ cmake --build --preset perf-gcc-stdcxx --target conflux_record_benches -j1
 
 Focused debug builds are still available when you need instrumentation or a
 debugger, but do not use sanitizer/debug presets for performance conclusions.
+Build all perf-lane benchmark binaries with:
+
+```sh
+scripts/run-perf-matrix.sh
+```
 
 ## Running individual binaries
 

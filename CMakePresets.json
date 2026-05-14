@@ -66,7 +66,7 @@
         "CONFLUX_ENABLE_UBSAN": "ON",
         "CONFLUX_ENABLE_HTTP_TRACE": "ON",
         "CONFLUX_BUILD_TESTS": "ON",
-        "CONFLUX_BUILD_BENCHMARKS": "ON"
+        "CONFLUX_BUILD_BENCHMARKS": "OFF"
       }
     },
     {
@@ -79,7 +79,7 @@
         "CONFLUX_ENABLE_UBSAN": "ON",
         "CONFLUX_ENABLE_HTTP_TRACE": "ON",
         "CONFLUX_BUILD_TESTS": "ON",
-        "CONFLUX_BUILD_BENCHMARKS": "ON"
+        "CONFLUX_BUILD_BENCHMARKS": "OFF"
       }
     },
     {
@@ -91,7 +91,7 @@
         "CONFLUX_ENABLE_ASAN": "OFF",
         "CONFLUX_ENABLE_UBSAN": "OFF",
         "CONFLUX_BUILD_TESTS": "ON",
-        "CONFLUX_BUILD_BENCHMARKS": "ON"
+        "CONFLUX_BUILD_BENCHMARKS": "OFF"
       }
     },
     {
@@ -118,7 +118,7 @@
         "CONFLUX_ENABLE_ASAN": "OFF",
         "CONFLUX_ENABLE_UBSAN": "OFF",
         "CONFLUX_BUILD_TESTS": "ON",
-        "CONFLUX_BUILD_BENCHMARKS": "ON"
+        "CONFLUX_BUILD_BENCHMARKS": "OFF"
       }
     },
     {
@@ -276,7 +276,7 @@
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CONFLUX_ENABLE_TSAN": "ON",
         "CONFLUX_BUILD_TESTS": "ON",
-        "CONFLUX_BUILD_BENCHMARKS": "ON"
+        "CONFLUX_BUILD_BENCHMARKS": "OFF"
       }
     },
     {
@@ -303,7 +303,7 @@
         "CMAKE_BUILD_TYPE": "RelWithDebInfo",
         "CONFLUX_ENABLE_TSAN": "ON",
         "CONFLUX_BUILD_TESTS": "ON",
-        "CONFLUX_BUILD_BENCHMARKS": "ON"
+        "CONFLUX_BUILD_BENCHMARKS": "OFF"
       }
     }
   ],

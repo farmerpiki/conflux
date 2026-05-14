@@ -38,6 +38,8 @@ set(CONFLUX_CATCH2_SOURCE_DIR "" CACHE PATH "Path to a local Catch2 source tree 
 option(CONFLUX_ENABLE_JSON_TESTSUITE "Build nst/JSONTestSuite conformance gate when JSONTestSuite is available" OFF)
 set(JSONTESTSUITE_DIR "" CACHE PATH "Path to nst/JSONTestSuite/test_parsing, or repository root containing test_parsing")
 option(CONFLUX_BUILD_BENCHMARKS "Build benchmark targets"                    OFF)
+option(CONFLUX_ALLOW_SANITIZED_BENCHMARKS
+    "Allow benchmark targets in sanitizer builds for local instrumentation debugging only" OFF)
 option(CONFLUX_BUILD_FUZZ     "Build libFuzzer harness targets"              OFF)
 option(CONFLUX_ENABLE_TLS     "Build TLS support (requires OpenSSL)"         ON)
 option(CONFLUX_ENABLE_ZLIB    "Build classic zlib gzip backend"              ON)
@@ -60,6 +62,15 @@ option(CONFLUX_WORK_ALLOC_STATS "Enable relaxed allocation counters for work.roo
 option(CONFLUX_GCC_EAGER_MODULE_IMPORTS "Work around GCC module CMI lazy-load corruption by using -fno-module-lazy on GCC 16+" ON)
 option(CONFLUX_GCC_SUGGEST_ATTRIBUTES "Enable noisy GCC -Wsuggest-attribute=pure/const optimization hints" OFF)
 set(CONFLUX_JSON_USE_STDSIMD "AUTO" CACHE STRING "Use std::experimental::simd for JSON SIMD paths (AUTO|ON|OFF)")
+
+if(CONFLUX_BUILD_BENCHMARKS
+    AND (CONFLUX_ENABLE_ASAN OR CONFLUX_ENABLE_UBSAN OR CONFLUX_ENABLE_TSAN)
+    AND NOT CONFLUX_ALLOW_SANITIZED_BENCHMARKS)
+    message(FATAL_ERROR
+        "CONFLUX_BUILD_BENCHMARKS must stay OFF for sanitizer presets. "
+        "Use perf-* presets for performance lanes, or set "
+        "CONFLUX_ALLOW_SANITIZED_BENCHMARKS=ON for a local instrumented benchmark debug build.")
+endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(ConfluxPresets)
