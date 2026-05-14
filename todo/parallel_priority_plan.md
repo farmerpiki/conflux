@@ -177,12 +177,12 @@ Recommended next HTTP branch: `http/handler-execution-docs`, then `http/sendzc-m
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
 | Done | `uring/setup-flag-fallback-log` | Log requested-vs-active setup flags after EINVAL stripping. | Landed in the low-level `conflux.uring` setup-flag helpers and the HTTP startup banner delegates to that shared path. | Startup log makes `NO_SQARRAY`, `SUBMIT_ALL`, `CQE_MIXED`, etc. requested/active/stripped status visible. |
-| P1 | `uring/iopoll-storage-ring` | Add storage-only `IORING_SETUP_IOPOLL` support for O_DIRECT/NVMe file rings. | Touches file I/O/ring init; independent of HTTP send path. | IOPOLL cannot mix with sockets; config makes storage-only scope explicit; tests cover fallback. |
+| Done | `uring/iopoll-storage-ring` | Added storage-only `IORING_SETUP_IOPOLL` support for O_DIRECT file rings. | Touches file I/O/ring init; independent of HTTP send path. | IOPOLL cannot mix with sockets; config makes storage-only scope explicit; tests cover fallback and dedicated storage ring behavior. |
 | P1 | `uring/sendzc-edge-measurement` | Add focused benchmark/counters around SEND_ZC fallback paths. | Depends on perf harness; independent of auth/json. | Bench output can decide mapped-file/TLS fallback policy. |
 | P2 | `uring/recv-abstraction-for-zc` | Refactor recv buffer ownership so RECV_ZC can slot in later. | Can run before kernel support, but avoid changing behavior. | Existing recv behavior unchanged; abstraction names lifetime/pinning requirements. |
 | P3 | `uring/recv-zc` | Implement `IORING_OP_RECV_ZC`. | Wait for stable target kernel support and abstraction branch. | Feature-gated, runtime-probed, clear fallback. |
 
-Recommended next uring branch: `uring/iopoll-storage-ring`, after the current setup-flag fallback/log patch merges.
+Recommended next uring branch: `uring/sendzc-edge-measurement`, after the current setup-flag fallback/log patch and storage-ring work merge.
 
 ### JSON / serde / app boundary lane
 
@@ -202,12 +202,12 @@ Recommended next JSON branch: `json/boundary-traits`.
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
-| P0 | `auth/password-hash-replacement` | [x] Dedicated password-hash wrapper added: Argon2id modular format via runtime `libargon2` when available, PBKDF2-SHA256 compatibility fallback, explicit verify/rehash API. | Independent of worker/JSON unless login routes are touched; coordinate DB migration. | Hashes include algorithm/version/params; tests cover vector/verify/fail/upgrade and optional Argon2id runtime path. |
-| P1 | `auth/secret-config-cleanup` | Move auth secrets/pepper/session config into typed config with explicit missing-config errors. | Depends on password wrapper shape; mostly config/auth. | No silent default production secrets. |
+| P0 | `auth/password-hash-replacement` | [x] Dedicated password-hash wrapper hardened: Argon2id modular format, CMake-selected linked/runtime Argon2 provider, PBKDF2-SHA256 compatibility fallback, no-allocation PBKDF2 inner loop, verifier-secret `k=1` metadata, bounded KDF concurrency/queueing. | Independent of worker/JSON unless login routes are touched; coordinate DB migration and secret provisioning. | Hashes include algorithm/version/params/pepper flag; tests cover vector/verify/fail/upgrade/pepper/resource limits and optional Argon2id backend path. |
+| P1 | `auth/secret-config-cleanup` | Move `PasswordHashOptions::verifier_secret`, session/JWT/cookie secrets, and rotation policy into typed config with explicit missing-config errors. | Depends on password wrapper shape; mostly config/auth. | No silent default production secrets; pepper source is separate from password hash storage. |
 | P1 | `auth/session-token-audit` | Audit session/token creation, expiry, storage, revocation, and error surfaces. | Can run after password branch; avoid route ergonomics changes. | Threat model notes and tests for expiry/revocation. |
-| P2 | `auth/rate-limit-hooks` | Add hooks for login/API abuse controls without baking policy into core. | Can run parallel with HTTP limits if interfaces are stable. | Hook points exist; default remains safe/simple. |
+| P2 | `auth/rate-limit-hooks` | Extend abuse controls beyond the default Basic-auth failed-attempt limiter: login form/account throttles, API-token throttles, metrics, and policy hooks. | Can run parallel with HTTP limits if interfaces are stable. | Hook points exist; default remains safe/simple; route/account-level throttling is documented. |
 
-Recommended next auth branch: `auth/secret-config-cleanup`, then `auth/session-token-audit`.
+Recommended next auth branch: `auth/secret-config-cleanup`, then `auth/session-token-audit`; keep broader `auth/rate-limit-hooks` for account/API policies beyond Basic-auth defaults.
 
 ### Build / tests / perf / CI lane
 
@@ -267,7 +267,7 @@ These branches can start from the same base with low conflict risk:
    - Enables measured HTTP/uring/worker perf changes.
    - Avoids further unmeasured low-level tweaks.
 
-6. `uring/iopoll-storage-ring`
+6. `uring/sendzc-edge-measurement`
    - Independent from HTTP send path and worker runtime.
 
 ## Deferred work

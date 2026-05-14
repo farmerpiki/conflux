@@ -117,7 +117,7 @@ Implemented in this patch:
 
 ## Architecture (dedicated branches)
 
-- [ ] Dedicated `IOPOLL` ring for O_DIRECT file I/O, separate from network ring
+- [x] Dedicated `IOPOLL` ring for O_DIRECT file I/O, separate from network ring — landed as `IopollStorageRing` / `IopollFileReader` for storage-only O_DIRECT reads on a dedicated `IORING_SETUP_IOPOLL` ring.
 - [ ] Local worker queues: profile mutex contention first, then Chase-Lev if warranted (global injection has MPMC ring; per-worker local queues + stealing still use `std::mutex`)
 - [ ] `admission_mtx_` in `work.cxx`: profile under high-RPS, replace with atomic if bottleneck
 - [x] Ring metrics: expose `sq_dropped`, `cq_overflow`, `accepted_direct_failures`, `zc_notif_pending`, recv-bundle stats, SEND_ZC usage/copy/adaptive-disable counters as observable counters — added `HttpServer::metrics()` snapshot; CQ overflow auto-grow remains separate.
@@ -140,7 +140,6 @@ Implemented in this patch:
   - [x] Static implementation split slice: export `conflux::http_response`, `conflux::http_static_core`, and `conflux::http_static_async`; move HTTP response/deferred body vocabulary, static path normalization/cache store, static root-dir lifetime, contained open/probe helpers, static GET/PUT/DELETE execution, and async file helper coroutines out of router-owned module units.
   - [x] Dependency-edge cleanup slice: stale `socket_io -> file_io`, `net.client -> file_io`, and `body_json(NodeRef)` proposal edges are gone; higher-level targets/tests/benches no longer repeat direct `PkgConfig::LIBURING` links already propagated by lower-level runtime/file/socket targets.
   - [x] DB optional component export: `conflux_db` installs/exports as `conflux::db` when libpq support is enabled.
-- [ ] Split remaining static route registration internals. Static route construction now lives in `conflux.net.router_static` / `router_static_impl`; DB, TLS, HTTP/2, HTTP/3, static option/core/async targets, SSE realtime types, and WebSocket realtime types now have separate link targets.
 - [ ] CI: all examples compile gate exists; still need fuzz smokes, JSONTestSuite, ASan/UBSan lane, bench regression budget
 - [x] Docs: versioning/semver policy, security disclosure, supported compiler+kernel matrix — added `docs/project-policy.md` and linked it from README/pre-v1 contract
 - [x] HTTP security corpus: smuggling, duplicate Content-Length, TE ambiguity, Host ambiguity, chunk edge cases — documented in `docs/http-security-corpus.md`; raw-wire E2E cases added for Host and CL+TE smuggling
