@@ -186,6 +186,15 @@ BENCH_REPS=7 scripts/compare_bins_by_bench.sh --yes \
   --baseline-run-id 101 http_server
 ```
 
+## JSON corpus fixtures
+
+`conflux_json_bench` also consumes source-relative fixtures under
+`benchmarks/corpus/`. The root files are real-world parse/dump corpora;
+`route_payloads/` covers application-shaped request/response JSON; `edge/`
+contains valid adversarial inputs; and `malformed/` contains strict-JSON
+rejection inputs. Keep these fixtures deterministic so benchmark history remains
+comparable.
+
 ## Benchmark groups
 
 Current groups:

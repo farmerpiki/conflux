@@ -1,0 +1,7 @@
+{
+  "plain": "ascii fast path",
+  "escaped_ascii": "line\n tab\t quote\" slash\\",
+  "bmp": "Bucure\u0219ti \u2192 Cluj",
+  "surrogate_pair": "smile \uD83D\uDE00",
+  "mixed_array": ["a", "\u0061", "emoji \uD83D\uDE80", "control \b\f\r"]
+}

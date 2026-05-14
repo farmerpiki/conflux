@@ -856,6 +856,108 @@ void bench_dump_named(
 	auto s = measure([&] { (void)doc->dump(); }, warmup, iters, 1, json_str->size());
 	print_row(name, s);
 }
+
+struct CorpusFileSpec {
+	SV label;
+	SV file;
+	SZ warmup{5};
+	SZ iters{50};
+	bool dump{true};
+};
+
+[[nodiscard]] std::filesystem::path corpus_root() {
+	return std::filesystem::path{__FILE__}.parent_path() / "corpus";
+}
+[[nodiscard]] std::optional<S> load_corpus_file(
+	SV filename) {
+	std::filesystem::path const p = corpus_root() / std::filesystem::path{S{filename}};
+	std::ifstream f{p, std::ios::binary};
+	if (!f) {
+		return std::nullopt;
+	}
+	return S{std::istreambuf_iterator<char>{f}, {}};
+}
+void bench_parse_required_named(
+	SV name,
+	S const &corpus,
+	SZ warmup = 5,
+	SZ iters = 50,
+	JsonParseOptions const &opts = {}) {
+	auto s = measure(
+		[&] {
+			auto doc = parse(corpus, opts);
+			if (!doc) {
+				throw RE{"json benchmark fixture parse failed"};
+			}
+		},
+		warmup,
+		iters,
+		1,
+		corpus.size());
+	print_row(name, s);
+}
+void bench_parse_reject_named(
+	SV name,
+	S const &corpus,
+	SZ warmup = 10,
+	SZ iters = 100) {
+	auto s = measure(
+		[&] {
+			auto doc = parse(corpus);
+			if (doc) {
+				throw RE{"malformed JSON benchmark fixture parsed successfully"};
+			}
+		},
+		warmup,
+		iters,
+		1,
+		corpus.size());
+	print_row(name, s);
+}
+void bench_file_corpora(
+	SV title,
+	span<CorpusFileSpec const> specs) {
+	bool printed_header = false;
+	for (CorpusFileSpec const &spec: specs) {
+		auto corpus = load_corpus_file(spec.file);
+		if (!corpus) {
+			continue;
+		}
+		if (!printed_header && !g_csv) {
+			println("[json-bench]");
+			println("[json-bench] -- {} --", title);
+			printed_header = true;
+		}
+		bench_parse_required_named(format("parse/{}", spec.label), *corpus, spec.warmup, spec.iters);
+		if (spec.dump) {
+			bench_dump_named(format("dump/{}", spec.label), *corpus, spec.warmup, spec.iters);
+		}
+	}
+}
+void bench_reject_file_corpora(
+	SV title,
+	span<CorpusFileSpec const> specs) {
+	bool printed_header = false;
+	for (CorpusFileSpec const &spec: specs) {
+		auto corpus = load_corpus_file(spec.file);
+		if (!corpus) {
+			continue;
+		}
+		if (!printed_header && !g_csv) {
+			println("[json-bench]");
+			println("[json-bench] -- {} --", title);
+			printed_header = true;
+		}
+		bench_parse_reject_named(format("reject/{}", spec.label), *corpus, spec.warmup, spec.iters);
+	}
+}
+void bench_duplicate_policy_fixture(
+	S const &corpus) {
+	JsonParseOptions opts;
+	opts.duplicate_key = DuplicateKeyPolicy::last_wins;
+	bench_parse_required_named("parse/edge/duplicate_keys last_wins", corpus, 20, 200, opts);
+	bench_parse_reject_named("reject/edge/duplicate_keys default", corpus, 20, 200);
+}
 // FI-1 — measures two components that together show the value of the sentinel:
 //
 //   (A) linear-only lookup (7-member, below kHashThreshold=48) — this is the
@@ -1067,7 +1169,7 @@ int main(
 	bench_parse_named("parse/deep_nest (256 levels)", deep_nest_corpus, 50, 500);
 	bench_parse_named("parse/mixed_numbers (1MB)", mixed_numbers_corpus);
 	bench_dump_named("dump/mixed_numbers", mixed_numbers_corpus);
-	bench_accumulate_chunked("accumulate/byte_span chunked (4KB large)", large_corpus, 4096);
+	bench_accumulate_chunked("accumulate/byte_span chunked (1MB large)", large_corpus, 4096);
 	if (!g_csv) {
 		println("[json-bench]");
 		println("[json-bench] -- e2e JSON decode: FileReader vs SocketTaskRing --");
@@ -1107,39 +1209,47 @@ int main(
 	}
 
 	{
-		namespace fs = std::filesystem;
-		fs::path const corpus_dir = fs::path{__FILE__}.parent_path() / "corpus";
-		auto load = [&](SV filename) -> S {
-			auto p = corpus_dir / filename;
-			std::ifstream f{p, std::ios::binary};
-			if (!f) {
-				return {};
-			}
-			return {std::istreambuf_iterator<char>{f}, {}};
-		};
-		struct {
-			SV label;
-			SV file;
-		} const rw[] = {
-			{          "canada.json (2.1MB geo)",        "canada.json"},
-			{"citm_catalog.json (1.6MB catalog)",  "citm_catalog.json"},
-			{      "twitter.json (617KB social)",       "twitter.json"},
-			{    "apache_builds.json (406KB CI)", "apache_builds.json"},
-			{"github_events.json (333KB events)", "github_events.json"},
-		};
-		bool printed_header = false;
-		for (auto const &[label, file]: rw) {
-			auto corpus = load(file);
-			if (corpus.empty()) {
-				continue;
-			}
-			if (!printed_header && !g_csv) {
+		A<CorpusFileSpec, 5> const real_world{{
+			{          "file/canada geo",        "canada.json"},
+			{"file/citm_catalog catalog",  "citm_catalog.json"},
+			{      "file/twitter social",       "twitter.json"},
+			{    "file/apache_builds CI", "apache_builds.json"},
+			{"file/github_events events", "github_events.json"},
+		}};
+		bench_file_corpora("real-world corpora", real_world);
+	}
+	{
+		A<CorpusFileSpec, 4> const route_payloads{{
+			{"route/persona_create_request", "route_payloads/persona_create_request.json", 20, 200},
+			{"route/content_generation_response", "route_payloads/content_generation_response.json", 20, 200},
+			{"route/scheduled_publish_batch", "route_payloads/scheduled_publish_batch.json", 20, 200},
+			{"route/analytics_timeseries", "route_payloads/analytics_timeseries.json", 20, 200},
+		}};
+		bench_file_corpora("route payload fixtures", route_payloads);
+	}
+	{
+		A<CorpusFileSpec, 3> const edge_cases{{
+			{"edge/large_numbers", "edge/large_numbers.json", 20, 200},
+			{"edge/escaped_unicode", "edge/escaped_unicode.json", 20, 200},
+			{"edge/out_of_order_keys", "edge/out_of_order_keys.json", 20, 200},
+		}};
+		bench_file_corpora("edge-case valid fixtures", edge_cases);
+		if (auto duplicate_keys = load_corpus_file("edge/duplicate_keys.json")) {
+			if (!g_csv) {
 				println("[json-bench]");
-				println("[json-bench] -- real-world corpora --");
-				printed_header = true;
+				println("[json-bench] -- duplicate-key policy fixture --");
 			}
-			bench_parse_named(format("parse/{}", label), corpus);
-			bench_dump_named(format("dump/{}", label), corpus);
+			bench_duplicate_policy_fixture(*duplicate_keys);
 		}
+	}
+	{
+		A<CorpusFileSpec, 5> const malformed{{
+			{"malformed/trailing_comma", "malformed/trailing_comma.json", 20, 200, false},
+			{"malformed/bad_string_escape", "malformed/bad_string_escape.json", 20, 200, false},
+			{"malformed/leading_zero", "malformed/leading_zero.json", 20, 200, false},
+			{"malformed/unclosed_array", "malformed/unclosed_array.json", 20, 200, false},
+			{"malformed/garbage_suffix", "malformed/garbage_suffix.json", 20, 200, false},
+		}};
+		bench_reject_file_corpora("malformed rejection fixtures", malformed);
 	}
 }

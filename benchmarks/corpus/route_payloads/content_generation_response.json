@@ -1,0 +1,34 @@
+{
+  "id": "gen_01JZBENCH0000000000000001",
+  "status": "completed",
+  "usage": {
+    "input_tokens": 1824,
+    "output_tokens": 713,
+    "cached_input_tokens": 512
+  },
+  "outputs": [
+    {
+      "type": "post",
+      "channel": "facebook",
+      "title": "Curățenie practică pentru spații mici",
+      "body": "Servicii clare, programare simplă, fără promisiuni imposibile. Echipa confirmă disponibilitatea înainte de fiecare lucrare.",
+      "hashtags": ["curatenie", "local", "servicii"],
+      "review_required": true
+    },
+    {
+      "type": "short_script",
+      "channel": "instagram",
+      "scenes": [
+        {"start_ms": 0, "duration_ms": 1800, "caption": "Înainte"},
+        {"start_ms": 1800, "duration_ms": 2200, "caption": "Proces"},
+        {"start_ms": 4000, "duration_ms": 1800, "caption": "După"}
+      ],
+      "review_required": true
+    }
+  ],
+  "diagnostics": {
+    "policy_flags": [],
+    "latency_ms": 248,
+    "model": "bench-local"
+  }
+}

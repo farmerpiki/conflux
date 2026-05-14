@@ -1,0 +1,11 @@
+{
+  "zeta": 26,
+  "meta": {"updated_at": "2026-05-14T10:00:00Z", "version": 7},
+  "alpha": 1,
+  "items": [
+    {"score": 9.5, "id": 3, "name": "third", "active": true},
+    {"active": false, "name": "first", "id": 1, "score": 2.25},
+    {"name": "second", "score": 7.75, "active": true, "id": 2}
+  ],
+  "beta": 2
+}

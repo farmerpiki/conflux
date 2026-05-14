@@ -1,0 +1,28 @@
+{
+  "batch_id": "sched_2026_05_14_demo",
+  "timezone": "Europe/Bucharest",
+  "items": [
+    {
+      "content_id": "post_001",
+      "channel": "facebook",
+      "publish_at": "2026-05-15T09:30:00+03:00",
+      "state": "queued",
+      "assets": [
+        {"kind": "image", "sha256": "4c4f2d00f1d8e4a1e9d7f0b124e59c71", "bytes": 184221}
+      ]
+    },
+    {
+      "content_id": "post_002",
+      "channel": "instagram",
+      "publish_at": "2026-05-15T18:15:00+03:00",
+      "state": "queued",
+      "assets": [
+        {"kind": "video", "sha256": "8da271c092b0a37e21cd8131ff6e9972", "bytes": 3145728}
+      ]
+    }
+  ],
+  "retry_policy": {
+    "max_attempts": 4,
+    "backoff_seconds": [30, 120, 600]
+  }
+}

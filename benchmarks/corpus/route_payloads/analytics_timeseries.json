@@ -1,0 +1,20 @@
+{
+  "account_id": "acct_bench_001",
+  "window": {
+    "from": "2026-05-01T00:00:00+03:00",
+    "to": "2026-05-14T00:00:00+03:00",
+    "bucket": "day"
+  },
+  "series": [
+    {"date": "2026-05-01", "impressions": 1042, "clicks": 41, "leads": 3, "spend": 28.50},
+    {"date": "2026-05-02", "impressions": 1227, "clicks": 57, "leads": 5, "spend": 33.75},
+    {"date": "2026-05-03", "impressions": 1188, "clicks": 52, "leads": 4, "spend": 31.10},
+    {"date": "2026-05-04", "impressions": 1419, "clicks": 66, "leads": 6, "spend": 39.00}
+  ],
+  "totals": {
+    "impressions": 4876,
+    "clicks": 216,
+    "leads": 18,
+    "spend": 132.35
+  }
+}
