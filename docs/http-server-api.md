@@ -35,6 +35,8 @@ against active ring threads.
 ```cpp
 struct SendZcMetrics {
     u64 attempts;
+    u64 plain_attempts;
+    u64 mapped_attempts;
     u64 bytes_requested;
     u64 bytes_sent;
     u64 notifications;
@@ -43,6 +45,8 @@ struct SendZcMetrics {
     u64 errors_enomem;
     u64 errors_other;
     u64 fallback_regular_send;
+    u64 tls_bypass;
+    u64 tls_bypass_bytes;
     u64 adaptive_disable_count;
 };
 
@@ -62,7 +66,13 @@ HttpServerMetrics HttpServer::metrics() const noexcept;
 
 The snapshot covers io_uring pressure (`sq_dropped`, `cq_overflow`), direct-accept
 fallbacks, pending SEND_ZC notifications, recv-bundle effectiveness, and SEND_ZC
-usage/copy/error/adaptive-disable counters.
+usage/copy/error/adaptive-disable counters. `plain_attempts` and
+`mapped_attempts` split successful SEND_ZC submission attempts by response source.
+`fallback_regular_send` counts failed SEND_ZC submissions that fell back to the
+regular send path. `tls_bypass` / `tls_bypass_bytes` count large TLS responses
+that crossed the SEND_ZC threshold but intentionally used the TLS send path
+instead of SEND_ZC, so benchmark runs can separate copy-notification behavior
+from TLS-incompatible fallback policy.
 
 ---
 

@@ -213,5 +213,12 @@ Current groups:
 - `file_copy_coro`: file/runtime measurements.
 - `work`, `task_*`, `workpool_*`, and `join_all_N`: worker/runtime measurements.
 
+`conflux_send_zc_bench` emits per-variant SEND_ZC counter fields in its NDJSON
+(`zc_attempts`, `zc_plain_attempts`, `zc_mapped_attempts`, copied-notification
+counts, submit-fallback counts, and TLS-bypass counts). Raw recorder artifacts
+therefore preserve enough data to decide whether mapped-file bodies should keep
+using SEND_ZC and whether TLS paths should remain explicit regular-send
+bypasses.
+
 Network or io_uring transport benchmarks should remain separate cases rather
 than being mixed into the in-process logic suite.

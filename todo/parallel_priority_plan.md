@@ -271,7 +271,6 @@ These branches can start from the same base with low conflict risk:
 5. `build/perf-harness-stabilize`
    - Enables measured HTTP/uring/worker perf changes.
    - Avoids further unmeasured low-level tweaks.
-
 ## Deferred work
 
 - `worker/p2300-prototype`: worthwhile but too broad until V2 runtime migration is

@@ -1633,6 +1633,7 @@ struct Ring {
 			auto const body_len = conn.writev_iov[0].iov_len;
 			if (body_len >= send_zc_threshold_) {
 				++zc_counters_.attempts;
+				++zc_counters_.mapped_attempts;
 				zc_counters_.bytes_requested += body_len;
 				if (submit_send_zc_borrowed(
 						raw_,
@@ -1864,11 +1865,31 @@ struct Ring {
 		return true;
 	}
 #endif
+	void note_send_zc_tls_bypass_if_candidate(
+		Conn &conn) noexcept {
+		if (!send_zc_enabled_ || conn.zc_tls_bypass_counted) {
+			return;
+		}
+		SZ candidate_bytes{};
+		if (conn.mapped_file) {
+			candidate_bytes = static_cast<SZ>(conn.mapped_file->size);
+		} else if (conn.streamed_file) {
+			candidate_bytes = static_cast<SZ>(conn.streamed_file->send_size);
+		} else if (conn.has_response && conn.own_response.size() >= conn.written) {
+			candidate_bytes = conn.own_response.size() - conn.written;
+		}
+		if (candidate_bytes >= send_zc_threshold_) {
+			++zc_counters_.tls_bypass;
+			zc_counters_.tls_bypass_bytes += candidate_bytes;
+			conn.zc_tls_bypass_counted = true;
+		}
+	}
 	void queue_send(
 		int fd) {
 		auto &conn = conn_for(fd);
 #if CONFLUX_HAS_TLS
 		if (conn.ssl != nullptr) {
+			note_send_zc_tls_bypass_if_candidate(conn);
 			// TLS path: encrypt plaintext into the memory BIO, then send the
 			// resulting TLS records through io_uring. Static streamed-file
 			// responses need an explicit header phase; the body is pulled from
@@ -1955,6 +1976,7 @@ struct Ring {
 		auto const resp_view = span{resp}.subspan(conn.written);
 		if (send_zc_enabled_ && resp_view.size() >= send_zc_threshold_) {
 			++zc_counters_.attempts;
+			++zc_counters_.plain_attempts;
 			zc_counters_.bytes_requested += resp_view.size();
 			if (submit_send_zc_borrowed(
 					raw_,
@@ -3017,6 +3039,7 @@ struct Ring {
 		conn.send_queued = false;
 		conn.has_response = false;
 		conn.own_response.clear();
+		conn.zc_tls_bypass_counted = false;
 		conn.send_buf = FixedBuffer{};
 		conn.send_buf_base_written = 0;
 		conn.send_buf_len = 0;
@@ -3031,6 +3054,7 @@ struct Ring {
 		conn.written = 0;
 		conn.send_queued = false;
 		conn.own_response.clear();
+		conn.zc_tls_bypass_counted = false;
 		handle_send_complete(fd, conn);
 	}
 	void fail_send(
@@ -4165,6 +4189,7 @@ void dispatch_request(
 	conn.mapped_file.reset();
 	conn.mapped_total = 0;
 	conn.mapped_delivered = 0;
+	conn.zc_tls_bypass_counted = false;
 	conn.is_sse = false;
 	conn.sse_headers_sent = false;
 
@@ -4488,6 +4513,8 @@ void add_metrics(
 	dst.recv_bundle_slices += src.recv_bundle_slices;
 	dst.recv_bundle_bytes += src.recv_bundle_bytes;
 	dst.send_zc.attempts += src.send_zc.attempts;
+	dst.send_zc.plain_attempts += src.send_zc.plain_attempts;
+	dst.send_zc.mapped_attempts += src.send_zc.mapped_attempts;
 	dst.send_zc.bytes_requested += src.send_zc.bytes_requested;
 	dst.send_zc.bytes_sent += src.send_zc.bytes_sent;
 	dst.send_zc.notifications += src.send_zc.notifications;
@@ -4496,6 +4523,8 @@ void add_metrics(
 	dst.send_zc.errors_enomem += src.send_zc.errors_enomem;
 	dst.send_zc.errors_other += src.send_zc.errors_other;
 	dst.send_zc.fallback_regular_send += src.send_zc.fallback_regular_send;
+	dst.send_zc.tls_bypass += src.send_zc.tls_bypass;
+	dst.send_zc.tls_bypass_bytes += src.send_zc.tls_bypass_bytes;
 	dst.send_zc.adaptive_disable_count += src.send_zc.adaptive_disable_count;
 }
 

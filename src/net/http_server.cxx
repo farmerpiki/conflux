@@ -16,6 +16,8 @@ export enum class RunStatus : u8 {
 
 export struct SendZcMetrics {
 	u64 attempts{};
+	u64 plain_attempts{};
+	u64 mapped_attempts{};
 	u64 bytes_requested{};
 	u64 bytes_sent{};
 	u64 notifications{};
@@ -24,6 +26,8 @@ export struct SendZcMetrics {
 	u64 errors_enomem{};
 	u64 errors_other{};
 	u64 fallback_regular_send{};
+	u64 tls_bypass{};
+	u64 tls_bypass_bytes{};
 	u64 adaptive_disable_count{};
 };
 
