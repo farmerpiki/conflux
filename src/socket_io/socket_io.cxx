@@ -1288,22 +1288,58 @@ namespace {
 static int const k_socket_opt_on = 1;
 
 } // namespace
-export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv(
+export struct DirectTcpAcceptRecvTarget {
+	u16 buf_group{};
+	BufferRingMode buffer_mode{BufferRingMode::classic_one_cqe_per_buffer};
+};
+
+namespace {
+
+[[nodiscard]] unsigned direct_tcp_accept_setup_sqe_count(
+	DirectTcpAcceptSetup const &opts) noexcept {
+	return 1U
+		 + (opts.tcp_nodelay_once ? 1U : 0U)
+		 + (opts.tcp_quickack_once ? 1U : 0U)
+		 + (opts.prefer_busy_poll_once ? 1U : 0U)
+		 + (opts.busy_poll_us_optval && *opts.busy_poll_us_optval > 0 ? 1U : 0U);
+}
+void prepare_direct_accept_sockopt_sqe(
+	conflux::uring::Sqe sqe,
+	SocketHandle direct_socket,
+	int level,
+	int optname,
+	void const *optval,
+	int optlen,
+	u64 user_data,
+	bool skip_success_cqe) noexcept {
+	sqe.prep_cmd_sock(
+		conflux::uring::uring_cmd_op::setsockopt,
+		direct_socket.sqe_fd(),
+		level,
+		optname,
+		const_cast<void *>(optval),
+		optlen);
+	sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
+	sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
+	if (skip_success_cqe) {
+		sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
+	}
+	sqe.user_data(conflux::uring::UserData{user_data});
+}
+
+} // namespace
+
+export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv_to_group(
 	SocketRawRing &ring,
 	SocketHandle direct_socket,
-	BufferRing &buffers,
+	DirectTcpAcceptRecvTarget target,
 	u64 sockopt_ud,
 	u64 recv_ud,
 	DirectTcpAcceptSetup opts) noexcept {
 	if (!direct_socket.is_direct()) {
 		return false;
 	}
-	unsigned const needed = 1U
-						  + (opts.tcp_nodelay_once ? 1U : 0U)
-						  + (opts.tcp_quickack_once ? 1U : 0U)
-						  + (opts.prefer_busy_poll_once ? 1U : 0U)
-						  + (opts.busy_poll_us_optval && *opts.busy_poll_us_optval > 0 ? 1U : 0U);
-	if (ring.sq_space_left() < needed) {
+	if (ring.sq_space_left() < direct_tcp_accept_setup_sqe_count(opts)) {
 		return false;
 	}
 	if (opts.tcp_nodelay_once) {
@@ -1311,86 +1347,70 @@ export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv(
 		if (!sqe) {
 			return false;
 		}
-		sqe.prep_cmd_sock(
-			conflux::uring::uring_cmd_op::setsockopt,
-			direct_socket.sqe_fd(),
+		prepare_direct_accept_sockopt_sqe(
+			sqe,
+			direct_socket,
 			IPPROTO_TCP,
 			TCP_NODELAY,
-			const_cast<int *>(&k_socket_opt_on),
-			static_cast<int>(sizeof(k_socket_opt_on)));
-		sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
-		sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
-		if (opts.skip_sockopt_success_cqes) {
-			sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
-		}
-		sqe.user_data(conflux::uring::UserData{sockopt_ud});
+			&k_socket_opt_on,
+			static_cast<int>(sizeof(k_socket_opt_on)),
+			sockopt_ud,
+			opts.skip_sockopt_success_cqes);
 	}
 	if (opts.tcp_quickack_once) {
 		auto sqe = ring.try_get_sqe();
 		if (!sqe) {
 			return false;
 		}
-		sqe.prep_cmd_sock(
-			conflux::uring::uring_cmd_op::setsockopt,
-			direct_socket.sqe_fd(),
+		prepare_direct_accept_sockopt_sqe(
+			sqe,
+			direct_socket,
 			IPPROTO_TCP,
 			TCP_QUICKACK,
-			const_cast<int *>(&k_socket_opt_on),
-			static_cast<int>(sizeof(k_socket_opt_on)));
-		sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
-		sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
-		if (opts.skip_sockopt_success_cqes) {
-			sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
-		}
-		sqe.user_data(conflux::uring::UserData{sockopt_ud});
+			&k_socket_opt_on,
+			static_cast<int>(sizeof(k_socket_opt_on)),
+			sockopt_ud,
+			opts.skip_sockopt_success_cqes);
 	}
 	if (opts.prefer_busy_poll_once) {
 		auto sqe = ring.try_get_sqe();
 		if (!sqe) {
 			return false;
 		}
-		sqe.prep_cmd_sock(
-			conflux::uring::uring_cmd_op::setsockopt,
-			direct_socket.sqe_fd(),
+		prepare_direct_accept_sockopt_sqe(
+			sqe,
+			direct_socket,
 			SOL_SOCKET,
 			SO_PREFER_BUSY_POLL,
-			const_cast<int *>(&k_socket_opt_on),
-			static_cast<int>(sizeof(k_socket_opt_on)));
-		sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
-		sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
-		if (opts.skip_sockopt_success_cqes) {
-			sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
-		}
-		sqe.user_data(conflux::uring::UserData{sockopt_ud});
+			&k_socket_opt_on,
+			static_cast<int>(sizeof(k_socket_opt_on)),
+			sockopt_ud,
+			opts.skip_sockopt_success_cqes);
 	}
 	if (opts.busy_poll_us_optval && *opts.busy_poll_us_optval > 0) {
 		auto sqe = ring.try_get_sqe();
 		if (!sqe) {
 			return false;
 		}
-		sqe.prep_cmd_sock(
-			conflux::uring::uring_cmd_op::setsockopt,
-			direct_socket.sqe_fd(),
+		prepare_direct_accept_sockopt_sqe(
+			sqe,
+			direct_socket,
 			SOL_SOCKET,
 			SO_BUSY_POLL,
-			const_cast<int *>(opts.busy_poll_us_optval),
-			static_cast<int>(sizeof(*opts.busy_poll_us_optval)));
-		sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
-		sqe.add_flags(conflux::uring::sqe_flags::io_hardlink);
-		if (opts.skip_sockopt_success_cqes) {
-			sqe.add_flags(conflux::uring::sqe_flags::cqe_skip_success);
-		}
-		sqe.user_data(conflux::uring::UserData{sockopt_ud});
+			opts.busy_poll_us_optval,
+			static_cast<int>(sizeof(*opts.busy_poll_us_optval)),
+			sockopt_ud,
+			opts.skip_sockopt_success_cqes);
 	}
 	auto recv_sqe = ring.try_get_sqe();
 	if (!recv_sqe) {
 		return false;
 	}
 	recv_sqe.prep_recv_multishot(direct_socket.sqe_fd(), nullptr, 0, conflux::uring::MsgFlags{});
-	recv_sqe.buf_group(conflux::uring::BufGroupId{buffers.group_id()});
+	recv_sqe.buf_group(conflux::uring::BufGroupId{target.buf_group});
 	conflux::uring::IoPrioFlags recv_ioprio{};
 #if CONFLUX_ENABLE_RECV_BUNDLE
-	if (opts.recv_bundle && buffers.mode() == BufferRingMode::recv_bundle) {
+	if (opts.recv_bundle && target.buffer_mode == BufferRingMode::recv_bundle) {
 		recv_ioprio = recv_ioprio | conflux::uring::ioprio_flags::recvsend_bundle;
 	}
 #endif
@@ -1404,6 +1424,21 @@ export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv(
 	recv_sqe.add_flags(conflux::uring::sqe_flags::fixed_file);
 	recv_sqe.user_data(conflux::uring::UserData{recv_ud});
 	return true;
+}
+export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv(
+	SocketRawRing &ring,
+	SocketHandle direct_socket,
+	BufferRing &buffers,
+	u64 sockopt_ud,
+	u64 recv_ud,
+	DirectTcpAcceptSetup opts) noexcept {
+	return submit_direct_tcp_accept_setup_recv_to_group(
+		ring,
+		direct_socket,
+		DirectTcpAcceptRecvTarget{.buf_group = buffers.group_id(), .buffer_mode = buffers.mode()},
+		sockopt_ud,
+		recv_ud,
+		opts);
 }
 export bool submit_accept_borrowed(
 	SocketRawRing &ring,
