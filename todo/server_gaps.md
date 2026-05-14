@@ -44,6 +44,22 @@ Still implemented but not directly covered by deterministic tests:
 - [ ] `SEND_ZC` notification-CQE lifecycle under a real kernel; benchmarks and metrics exist, but deterministic unit coverage still needs a CQE injection seam.
 - [ ] `JsonArena` PMR hash-index allocation source; behavior is implemented, but proving “not global new” needs allocator instrumentation or a test-only resource hook.
 
+## Test coverage gap pass 2 (2026-05-14)
+
+Implemented in this patch:
+
+- [x] HTTP core URL parsing: direct tests now cover scheme normalization, default ports, bare query handling, IPv6 literals, `str()` reconstruction, query-param percent encoding, and distinct `UrlErrorKind` failures.
+- [x] HTTP request builder: direct tests now cover Basic/Bearer auth helpers, JSON/form body helpers, `clear_body()`, conditional request date formatting, redirect/verify/SNI knobs, and query encoding.
+- [x] HTTP server request/view ownership boundary: `HttpRequestView::to_owned()` now has a regression test proving borrowed uploaded-file metadata/data are copied before caller storage changes.
+- [x] HTTP response helpers: direct tests now cover HTML escaping in generated error bodies, `Set-Cookie` formatting, `append_vary()` de-dup/`*` semantics, explicit `content_length_hint`, body extraction, redirects, Allow, WWW-Authenticate, and gateway error helpers.
+
+Still implemented but not directly covered by deterministic tests after this pass:
+
+- [ ] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; builder knobs are covered, but network redirect behavior still needs a local two-server E2E.
+- [ ] HTTP request body double-set debug assertion path; needs an assert-probe binary like the recv-bundle probes because release builds intentionally use last-wins behavior.
+- [ ] DeferredResponse eventfd wake-read behavior after `complete()` / `expire_if_past_deadline()`; E2E timeout exists, but deterministic unit coverage should read/drain the eventfd directly.
+- [ ] Response body-kind transitions for SSE/WS/mapped/streamed/deferred payloads; text body transitions are covered, non-text transitions still need lightweight object construction seams.
+
 ## Architecture (dedicated branches)
 
 - [ ] Dedicated `IOPOLL` ring for O_DIRECT file I/O, separate from network ring
