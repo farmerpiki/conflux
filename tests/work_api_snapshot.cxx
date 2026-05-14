@@ -40,11 +40,11 @@ static_assert(std::is_same_v<conflux::work::Task<int>, conflux::work::root::Task
 static_assert(std::is_same_v<conflux::work::TaskSource<int>, conflux::work::root::TaskSource<int>>);
 static_assert(std::is_same_v<conflux::work::Outcome<int>, conflux::work::root::Outcome<int>>);
 static_assert(std::is_same_v<conflux::work::CancelReason, conflux::work::root::CancelReason>);
-// make_task_source and join accessible at conflux::work level.
+// make_task_source and blocking_join accessible at conflux::work level.
 void _check_facade_make_and_join() {
 	auto [task, source] = conflux::work::make_task_source<int>();
 	(void)source.try_set_value(conflux::work::root::Success<int>{42});
-	[[maybe_unused]] auto outcome = conflux::work::join(move(task));
+	[[maybe_unused]] auto outcome = conflux::work::blocking_join(move(task));
 }
 
 } // namespace snapshot_work_facade
@@ -299,7 +299,8 @@ void _check_make_posted_source() {
 	(void)posted;
 	(void)source;
 }
-// join(Task<T>&&) — unevaluated decltype
+// blocking_join(Task<T>&&) — unevaluated decltype; join remains a compatibility alias.
+using _blocking_join_result_int = decltype(root::blocking_join(std::declval<root::Task<int> &&>()));
 using _join_result_int = decltype(root::join(std::declval<root::Task<int> &&>()));
 using _try_join_ready_result_int = decltype(root::try_join_ready(std::declval<root::Task<int> &&>()));
 using _join_ready_result_int = decltype(root::join_ready(std::declval<root::Task<int> &&>()));

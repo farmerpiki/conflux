@@ -28,8 +28,8 @@ parallel branches without repeatedly re-deciding global priority.
 - App-level blocking HTTP bridge was removed from `app_http`; remaining publication
   compatibility is still a named sync publication seam.
 - Worker task bodies were moved substantially toward awaitable helpers. The full
-  pipeline path is mostly async, but the runtime still has a compatibility wait
-  seam that needs to be retired or isolated.
+  pipeline path is mostly async, and the remaining root blocking wait path is
+  isolated behind the explicitly named `blocking_join(...)` compatibility seam.
 - Module CMI fragility has a proven mitigation: thin exported interfaces plus
   coroutine-heavy implementation units, especially around cancellation/socket/coro
   surfaces.
@@ -46,9 +46,9 @@ parallel branches without repeatedly re-deciding global priority.
 
 ### Main gaps still worth implementing
 
-- Worker runtime: retire or isolate the remaining compatibility wait bridge; finish
-  background ingestion runtime convergence; then move the remaining compatibility
-  surface behind explicitly named `sync_`/`blocking_` APIs.
+- Worker runtime: finish background ingestion runtime convergence; then continue
+  moving any remaining compatibility surface behind explicitly named
+  `sync_`/`blocking_` APIs.
 - Security: password-hash replacement is landed; finish secret-config cleanup and session/token audit before widening API work.
 - JSON boundary: isolate app/framework JSON usage behind traits/adapters before
   designing a new parser/DOM. The parser work is important, but the boundary cleanup is
@@ -148,14 +148,14 @@ Priorities:
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
-| P0 | `worker/no-wait-bridge` | Retire or isolate the remaining compatibility wait bridge; leave at most one explicitly named compatibility seam. | Conflicts with worker task dispatch only; avoid JSON/auth changes. | No direct wait bridge calls outside the dedicated adapter; async worker task bodies remain awaitable; tests pass. |
+| DONE | `worker/no-wait-bridge` | Root blocking outcome wait isolated behind `blocking_join(...)`; legacy `join(...)` delegates as an alias. | Completed; avoid reopening outside release alias cleanup. | No direct blocking outcome wait calls outside `blocking_join_compatibility_adapter`; async task bodies use ready callbacks / `co_await`. |
 | DONE | `docs/concurrency-naming-model` | Added canonical concurrency/naming review guide and linked it from policy/API docs. | Docs-only. | Docs state HTTP handlers run on ring threads, no hidden offload normalization exists, and review guidance points to one document. |
 | P1 | `worker/background-ingestion-runtime` | Merge/migrate background ingestion runtime surface onto the worker runtime model. | Depends on `worker/no-wait-bridge`; should not touch auth/json. | Background ingestion uses the same runtime conventions as other worker tasks. |
 | P1 | `worker/taskpromise-frame-pool` | Extend coroutine frame pool coverage from `EagerChain` to `TaskPromise<T>` where safe. | May touch `work/root.cxx`; avoid overlapping with no-wait branch unless sequenced. | Hot request-path `Task<void>` no longer uses global `::operator new` in steady-state when the pool option is enabled; sanitizer behavior remains safe. |
 | P2 | `worker/queue-contention-profile` | Profile local deque locks, steal path, `admission_mtx_`, and seq_cst fence pair under HTTP load. | Depends on `build/perf-harness-stabilize`; profiling branch can be independent. | Output profile notes and either a minimal lock-removal patch or a documented no-change decision. |
 | P3 | `worker/p2300-prototype` | Prototype P2300/io_uring scheduler behind an experimental target. | Do not mix with active V2 runtime migration. | Prototype compiles separately; no public API commitment. |
 
-Recommended next worker branch: `worker/no-wait-bridge`.
+Recommended next worker branch: `worker/background-ingestion-runtime`.
 
 ### HTTP server / routing / handler API lane
 
@@ -246,24 +246,24 @@ Alias elimination is the last release-prep task, not a modernization task. The c
 
 These branches can start from the same base with low conflict risk:
 
-1. `worker/no-wait-bridge`
-   - Highest implementation priority.
-   - Serial gate for remaining worker runtime work.
+1. `worker/background-ingestion-runtime`
+   - Next worker implementation priority after the no-wait bridge isolation.
+   - Converges background ingestion onto the same runtime conventions.
 
 2. `auth/secret-config-cleanup`
    - Builds on the password-hash wrapper shape.
    - Move secrets/pepper/session config behind typed missing-config errors.
 
-3. `json/boundary-traits`
+3. `uring/sendzc-edge-measurement`
+   - Independent from HTTP send path and worker runtime.
+
+4. `json/boundary-traits`
    - Enables later JSON cleanup without choosing final parser.
    - Do before parser/DOM/reflection work.
 
-4. `build/perf-harness-stabilize`
+5. `build/perf-harness-stabilize`
    - Enables measured HTTP/uring/worker perf changes.
    - Avoids further unmeasured low-level tweaks.
-
-5. `uring/sendzc-edge-measurement`
-   - Independent from HTTP send path and worker runtime.
 
 ## Deferred work
 
@@ -279,8 +279,8 @@ These branches can start from the same base with low conflict risk:
 
 ## Release blockers snapshot
 
-- Worker runtime has no hidden compatibility wait path outside an explicitly named
-  adapter.
+- Worker runtime hidden compatibility wait path is isolated behind explicitly
+  named `blocking_join(...)`; final release cleanup can remove the legacy `join(...)` alias.
 - Password hashing is production-grade and migration-aware.
 - JSON provider usage is isolated enough that replacing the backend is not a route
   rewrite.

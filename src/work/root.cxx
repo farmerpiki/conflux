@@ -971,7 +971,7 @@ public:
 		} catch (...) { return try_set_error(ec); }
 	}
 	[[nodiscard]] virtual bool try_set_cancelled(CancelReason reason, bool allow_abandoned) noexcept = 0;
-	[[nodiscard]] virtual Outcome<T> wait_and_take_outcome() = 0;
+	[[nodiscard]] virtual Outcome<T> compatibility_blocking_take_outcome() = 0;
 	[[nodiscard]] virtual Opt<Outcome<T>> try_take_ready_outcome() = 0;
 	virtual void install_abandon_sink(small_move_only_function<void(Outcome<T> const &)> sink) noexcept = 0;
 	[[nodiscard]] virtual AbandonStatus
@@ -1281,7 +1281,7 @@ public:
 		ready_hook_state_.store(ReadyHookState::disarmed, memory_order_release);
 		return ClearOnReadyStatus::cleared;
 	}
-	[[nodiscard]] Outcome<T> wait_and_take_outcome() override {
+	[[nodiscard]] Outcome<T> compatibility_blocking_take_outcome() override {
 		auto const terminal = [&] { return terminal_state_.load(memory_order_acquire) != TerminalState::none; };
 		// Spin before blocking: avoids condvar futex pair for fast tasks.
 		// Release/acquire on terminal_state_ guarantees outcome_ is visible once true.
@@ -1653,7 +1653,7 @@ public:
 		ready_hook_state_.store(ReadyHookState::disarmed, memory_order_release);
 		return ClearOnReadyStatus::cleared;
 	}
-	[[nodiscard]] Outcome<void> wait_and_take_outcome() override {
+	[[nodiscard]] Outcome<void> compatibility_blocking_take_outcome() override {
 		auto const terminal = [&] { return terminal_state_.load(memory_order_acquire) != TerminalState::none; };
 		// Spin before blocking: avoids condvar futex pair for fast tasks.
 		// Release/acquire on terminal_state_ guarantees outcome_ is visible once true.
@@ -2757,6 +2757,19 @@ template<work_value T>
 	}
 	return move(*outcome);
 }
+template<work_value T>
+[[nodiscard]] Outcome<T> blocking_join_compatibility_adapter(
+	SP<ControlBlockInterface<T>> state,
+	Opt<CapabilityId> actual,
+	std::source_location loc) {
+	if (!state) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	if (actual && !state->can_join_with(*actual)) [[unlikely]] {
+		raise_join_capability_mismatch(state->required_capability(), *actual, loc);
+	}
+	return state->compatibility_blocking_take_outcome();
+}
 } // namespace detail
 
 template<work_value T>
@@ -2941,146 +2954,162 @@ template<progress_capability Driver, work_value T>
 }
 
 template<work_value T>
+[[nodiscard]] Outcome<T> blocking_join(
+	Task<T> &&task,
+	std::source_location loc = std::source_location::current()) {
+	return detail::blocking_join_compatibility_adapter(task.consume_for_join(), nullopt, loc);
+}
+template<progress_capability Owner, work_value T>
+[[nodiscard]] Outcome<T> blocking_join(
+	Owner &owner,
+	Posted<T> &&posted,
+	std::source_location loc = std::source_location::current()) {
+	return detail::blocking_join_compatibility_adapter(
+		posted.consume_for_join(),
+		Opt<CapabilityId>{capability_id(owner)},
+		loc);
+}
+template<progress_capability Driver, work_value T>
+[[nodiscard]] Outcome<T> blocking_join(
+	Driver &driver,
+	Operation<T> &&op,
+	std::source_location loc = std::source_location::current()) {
+	return detail::blocking_join_compatibility_adapter(
+		op.consume_for_join(),
+		Opt<CapabilityId>{capability_id(driver)},
+		loc);
+}
+template<work_value T>
+[[nodiscard]] Outcome<T> blocking_join(
+	TaskJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
+	return detail::blocking_join_compatibility_adapter(h.consume_for_join(), nullopt, loc);
+}
+template<progress_capability Owner, work_value T>
+[[nodiscard]] Outcome<T> blocking_join(
+	Owner &owner,
+	PostedJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
+	return detail::blocking_join_compatibility_adapter(
+		h.consume_for_join(),
+		Opt<CapabilityId>{capability_id(owner)},
+		loc);
+}
+template<progress_capability Driver, work_value T>
+[[nodiscard]] Outcome<T> blocking_join(
+	Driver &driver,
+	OperationJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
+	return detail::blocking_join_compatibility_adapter(
+		h.consume_for_join(),
+		Opt<CapabilityId>{capability_id(driver)},
+		loc);
+}
+template<work_value T>
 [[nodiscard]] Outcome<T> join(
 	Task<T> &&task,
 	std::source_location loc = std::source_location::current()) {
-	auto state = task.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	return state->wait_and_take_outcome();
+	return blocking_join(move(task), loc);
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] Outcome<T> join(
 	Owner &owner,
 	Posted<T> &&posted,
 	std::source_location loc = std::source_location::current()) {
-	auto state = posted.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	if (!state->can_join_with(capability_id(owner))) [[unlikely]] {
-		raise_join_capability_mismatch(state->required_capability(), capability_id(owner), loc);
-	}
-	return state->wait_and_take_outcome();
+	return blocking_join(owner, move(posted), loc);
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] Outcome<T> join(
 	Driver &driver,
 	Operation<T> &&op,
 	std::source_location loc = std::source_location::current()) {
-	auto state = op.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	if (!state->can_join_with(capability_id(driver))) [[unlikely]] {
-		raise_join_capability_mismatch(state->required_capability(), capability_id(driver), loc);
-	}
-	return state->wait_and_take_outcome();
+	return blocking_join(driver, move(op), loc);
 }
 template<work_value T>
 [[nodiscard]] Outcome<T> join(
 	TaskJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	auto state = h.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	return state->wait_and_take_outcome();
+	return blocking_join(move(h), loc);
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] Outcome<T> join(
 	Owner &owner,
 	PostedJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	auto state = h.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	if (!state->can_join_with(capability_id(owner))) [[unlikely]] {
-		raise_join_capability_mismatch(state->required_capability(), capability_id(owner), loc);
-	}
-	return state->wait_and_take_outcome();
+	return blocking_join(owner, move(h), loc);
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] Outcome<T> join(
 	Driver &driver,
 	OperationJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
-	auto state = h.consume_for_join();
-	if (!state) [[unlikely]] {
-		raise_join_lifetime_violation(loc);
-	}
-	if (!state->can_join_with(capability_id(driver))) [[unlikely]] {
-		raise_join_capability_mismatch(state->required_capability(), capability_id(driver), loc);
-	}
-	return state->wait_and_take_outcome();
+	return blocking_join(driver, move(h), loc);
 }
 template<work_value T>
 [[nodiscard]] T value(
 	Task<T> &&task) {
-	return root::value(join(move(task)));
+	return root::value(blocking_join(move(task)));
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] T value(
 	Owner &owner,
 	Posted<T> &&posted) {
-	return root::value(join(owner, move(posted)));
+	return root::value(blocking_join(owner, move(posted)));
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] T value(
 	Driver &driver,
 	Operation<T> &&op) {
-	return root::value(join(driver, move(op)));
+	return root::value(blocking_join(driver, move(op)));
 }
 template<work_value T>
 [[nodiscard]] T value(
 	TaskJoinHandle<T> &&h) {
-	return root::value(join(move(h)));
+	return root::value(blocking_join(move(h)));
 }
 template<progress_capability Owner, work_value T>
 [[nodiscard]] T value(
 	Owner &owner,
 	PostedJoinHandle<T> &&h) {
-	return root::value(join(owner, move(h)));
+	return root::value(blocking_join(owner, move(h)));
 }
 template<progress_capability Driver, work_value T>
 [[nodiscard]] T value(
 	Driver &driver,
 	OperationJoinHandle<T> &&h) {
-	return root::value(join(driver, move(h)));
+	return root::value(blocking_join(driver, move(h)));
 }
 inline void value(
 	Task<void> &&task) {
-	root::value(join(move(task)));
+	root::value(blocking_join(move(task)));
 }
 template<progress_capability Owner>
 inline void value(
 	Owner &owner,
 	Posted<void> &&posted) {
-	root::value(join(owner, move(posted)));
+	root::value(blocking_join(owner, move(posted)));
 }
 template<progress_capability Driver>
 inline void value(
 	Driver &driver,
 	Operation<void> &&op) {
-	root::value(join(driver, move(op)));
+	root::value(blocking_join(driver, move(op)));
 }
 inline void value(
 	TaskJoinHandle<void> &&h) {
-	root::value(join(move(h)));
+	root::value(blocking_join(move(h)));
 }
 template<progress_capability Owner>
 inline void value(
 	Owner &owner,
 	PostedJoinHandle<void> &&h) {
-	root::value(join(owner, move(h)));
+	root::value(blocking_join(owner, move(h)));
 }
 template<progress_capability Driver>
 inline void value(
 	Driver &driver,
 	OperationJoinHandle<void> &&h) {
-	root::value(join(driver, move(h)));
+	root::value(blocking_join(driver, move(h)));
 }
 template<work_value T>
 [[nodiscard]] P<TaskControl, TaskSource<T>> make_task_control_source() {

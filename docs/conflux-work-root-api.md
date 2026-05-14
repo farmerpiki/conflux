@@ -276,22 +276,23 @@ silently dropped.
 callback is already installed on the control block, awaiting the task fails
 deterministically with `JoinError::ready_callback_already_installed`. After
 resumption, they extract the result through the ready-only path, so they do not
-fall back to the blocking join bridge.
+fall back to the `blocking_join(...)` compatibility seam.
 
 ## Join, Value, and Join Handles
 
 Join and value APIs:
 
-- `join(Task<T>&&)` — blocking compatibility join; waits for terminal state
-- `join(Owner&, Posted<T>&&)` — blocking compatibility join; validates owner
-- `join(Driver&, Operation<T>&&)` — blocking compatibility join; validates driver
+- `blocking_join(Task<T>&&)` — explicit blocking compatibility join; waits for terminal state
+- `blocking_join(Owner&, Posted<T>&&)` — explicit blocking compatibility join; validates owner
+- `blocking_join(Driver&, Operation<T>&&)` — explicit blocking compatibility join; validates driver
+- `join(...)` — legacy compatibility alias over `blocking_join(...)`; retained until the final release-cleanup alias-removal pass
 - `try_join_ready(...)` — ready-only join over the same result/handle overload
   set; returns `nullopt` if the task is still pending and does not consume it
 - `join_ready(...)` — ready-only join over the same result/handle overload set;
   throws `JoinError::not_ready` if the task is still pending
 - same overload set for `TaskJoinHandle<T>`, `PostedJoinHandle<T>`,
   `OperationJoinHandle<T>`
-- `value(...)` overloads mirror `join(...)`
+- `value(...)` overloads use the explicit blocking compatibility seam
 
 Join handles are produced by:
 
@@ -311,7 +312,7 @@ Capability query helpers:
 
 Contract behavior:
 
-- `join(...)`, `try_join_ready(...)`, and `join_ready(...)` on a
+- `blocking_join(...)`, legacy `join(...)`, `try_join_ready(...)`, and `join_ready(...)` on a
   moved-from/non-live object throw `JoinError`
 - posted/operation joins validate capability identity and throw
   `JoinError` on mismatch before readiness checks

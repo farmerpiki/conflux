@@ -507,7 +507,7 @@ export template<typename T>
 T sync_wait(
 	conflux::work::root::Task<T> task) {
 	using namespace conflux::work::root;
-	auto outcome = join(into_join_handle(move(task)));
+	auto outcome = blocking_join(into_join_handle(move(task)));
 	if (outcome.is_failure()) {
 		rethrow_exception(move(outcome).failure().error);
 	}
@@ -533,7 +533,8 @@ using Outcome = root::Outcome<T>;
 
 using CancelReason = root::CancelReason;
 
-using root::join; // NOLINT(misc-unused-using-decls) — re-export for module consumers
+using root::blocking_join; // NOLINT(misc-unused-using-decls) — re-export for module consumers
+using root::join; // NOLINT(misc-unused-using-decls) — compatibility re-export for module consumers
 using root::join_ready; // NOLINT(misc-unused-using-decls) — re-export for module consumers
 using root::make_task_source; // NOLINT(misc-unused-using-decls)
 using root::try_join_ready; // NOLINT(misc-unused-using-decls) — re-export for module consumers
