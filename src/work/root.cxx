@@ -1688,6 +1688,15 @@ public:
 		return AbandonStatus::installed;
 	}
 };
+template<work_value T, bool EnableCancellation>
+[[nodiscard]] SP<ControlBlockInterface<T>> make_control_block_shared() {
+	using model_t = ControlBlockModel<T, EnableCancellation>;
+	// Process-lifetime pool: control blocks can be released from any thread,
+	// and the pool is intentionally leaked to avoid static-destruction ordering.
+	static auto *resource = new std::pmr::synchronized_pool_resource{};
+	std::pmr::polymorphic_allocator<model_t> alloc{resource};
+	return std::allocate_shared<model_t>(alloc);
+}
 // P2b size guard: delta against P2a baseline (432B measured on clang-libcxx +
 // libstdc++ on x86_64). P2b padding must not exceed one additional cache line.
 #ifndef CONFLUX_WORK_RELAX_CONTROL_BLOCK_SIZE_GUARD
@@ -1990,12 +1999,15 @@ struct drop_on_abandon {
 }
 namespace detail {
 
+template<work_value T, bool EnableCancellation>
+[[nodiscard]] SP<ControlBlockInterface<T>> make_control_block_shared();
+
 // Coroutine-backed Tasks use EnableCancellation=false: cancellation is cooperative
 // only (check stop_token in coroutine body). External request_cancel() requires
 // make_task_source(SubmitOptions{.enable_cancellation=true}).
 template<work_value T>
 struct TaskPromiseReturn {
-	SP<ControlBlockInterface<T>> state_{make_shared<ControlBlockModel<T, false>>()};
+	SP<ControlBlockInterface<T>> state_{make_control_block_shared<T, false>()};
 	void return_value(
 		T v) {
 		auto _ = state_->try_set_value(Success<T>{std::move(v)});
@@ -2003,7 +2015,7 @@ struct TaskPromiseReturn {
 };
 template<>
 struct TaskPromiseReturn<void> {
-	SP<ControlBlockInterface<void>> state_{make_shared<ControlBlockModel<void, false>>()};
+	SP<ControlBlockInterface<void>> state_{make_control_block_shared<void, false>()};
 	void return_void() { auto _ = state_->try_set_value(Success<void>{}); }
 };
 template<work_value T>
@@ -2611,9 +2623,9 @@ template<work_value T>
 	std::source_location loc = std::source_location::current()) {
 	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
-		state = make_shared<detail::ControlBlockModel<T, true>>();
+		state = detail::make_control_block_shared<T, true>();
 	} else {
-		state = make_shared<detail::ControlBlockModel<T, false>>();
+		state = detail::make_control_block_shared<T, false>();
 	}
 	return {Task<T>::from_state(state, loc), TaskSource<T>::from_state(std::move(state))};
 }
@@ -2624,9 +2636,9 @@ template<work_value T, progress_capability Owner>
 	std::source_location loc = std::source_location::current()) {
 	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
-		state = make_shared<detail::ControlBlockModel<T, true>>();
+		state = detail::make_control_block_shared<T, true>();
 	} else {
-		state = make_shared<detail::ControlBlockModel<T, false>>();
+		state = detail::make_control_block_shared<T, false>();
 	}
 	state->set_required_capability(capability_id(owner));
 	return {Posted<T>::from_state(state, loc), PostedSource<T>::from_state(move(state))};
@@ -2638,9 +2650,9 @@ template<work_value T, progress_capability Driver>
 	std::source_location loc = std::source_location::current()) {
 	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
-		state = make_shared<detail::ControlBlockModel<T, true>>();
+		state = detail::make_control_block_shared<T, true>();
 	} else {
-		state = make_shared<detail::ControlBlockModel<T, false>>();
+		state = detail::make_control_block_shared<T, false>();
 	}
 	state->set_required_capability(capability_id(driver));
 	return {Operation<T>::from_state(state, loc), OperationSource<T>::from_state(move(state))};
@@ -2818,7 +2830,7 @@ inline void value(
 }
 template<work_value T>
 [[nodiscard]] P<TaskControl, TaskSource<T>> make_task_control_source() {
-	auto state = make_shared<detail::ControlBlockModel<T, true>>();
+	auto state = detail::make_control_block_shared<T, true>();
 	return {TaskControl{state}, TaskSource<T>::from_state(std::move(state))};
 }
 template<work_value T>
@@ -2826,15 +2838,15 @@ template<work_value T>
 	SubmitOptions opts) {
 	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
-		state = make_shared<detail::ControlBlockModel<T, true>>();
+		state = detail::make_control_block_shared<T, true>();
 	} else {
-		state = make_shared<detail::ControlBlockModel<T, false>>();
+		state = detail::make_control_block_shared<T, false>();
 	}
 	return {TaskControl{state}, TaskSource<T>::from_state(std::move(state))};
 }
 template<work_value T>
 [[nodiscard]] P<PostedControl, PostedSource<T>> make_posted_control_source() {
-	auto state = make_shared<detail::ControlBlockModel<T, true>>();
+	auto state = detail::make_control_block_shared<T, true>();
 	return {PostedControl{state}, PostedSource<T>::from_state(std::move(state))};
 }
 template<work_value T>
@@ -2842,15 +2854,15 @@ template<work_value T>
 	PostOptions opts) {
 	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
-		state = make_shared<detail::ControlBlockModel<T, true>>();
+		state = detail::make_control_block_shared<T, true>();
 	} else {
-		state = make_shared<detail::ControlBlockModel<T, false>>();
+		state = detail::make_control_block_shared<T, false>();
 	}
 	return {PostedControl{state}, PostedSource<T>::from_state(std::move(state))};
 }
 template<work_value T>
 [[nodiscard]] P<OperationControl, OperationSource<T>> make_operation_control_source() {
-	auto state = make_shared<detail::ControlBlockModel<T, true>>();
+	auto state = detail::make_control_block_shared<T, true>();
 	return {OperationControl{state}, OperationSource<T>::from_state(std::move(state))};
 }
 template<work_value T>
@@ -2858,9 +2870,9 @@ template<work_value T>
 	OperationOptions opts) {
 	SP<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
-		state = make_shared<detail::ControlBlockModel<T, true>>();
+		state = detail::make_control_block_shared<T, true>();
 	} else {
-		state = make_shared<detail::ControlBlockModel<T, false>>();
+		state = detail::make_control_block_shared<T, false>();
 	}
 	return {OperationControl{state}, OperationSource<T>::from_state(std::move(state))};
 }

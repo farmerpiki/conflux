@@ -16,7 +16,7 @@
 - [x] HTTP send path edge cases: mapped-file header+body now splits header send from large-body SEND_ZC, and `send_zc_bench` covers the adaptive threshold across plain/mapped bodies at the boundary sizes. TLS path still cannot use SEND_ZC directly. Note: mapped cache (when landed) removes repeated open/stat/mmap/close/munmap for hot static files but does not change the send path itself
 - [x] O_TMPFILE atomic publish: sync path was already staged; async `FileReader::atomic_write_async()` now validates/splits contained paths, stages in the final parent dir, falls back to named temp when O_TMPFILE is unsupported, links staging + rename/renameat2, cleans staging on failure, and fsyncs the final parent dir.
 - [x] Root `Task<T>`: add optional alloc counters for frames/control-blocks (`CONFLUX_WORK_ALLOC_STATS`)
-- [ ] Root `Task<T>`: pool `ControlBlockModel<T>` after measuring allocation counters
+- [x] Root `Task<T>`: pool `ControlBlockModel<T>` after measuring allocation counters — `work.root` now uses a pooled `std::pmr::synchronized_pool_resource` for `ControlBlockModel<T>` allocations, while keeping the existing allocation counters and control-flow semantics intact
 - [ ] JSON: true incremental `JsonStreamReader::feed(span<byte>)` / events API
 - [x] Router: `ContextHandler` / `ContextMiddleware` / `dispatch_async()` — landed in `844b8dc`
 - [x] Router: static-assert diagnostics for handler/middleware return types — landed (8+ static_asserts with clear error messages in router.cxx)
