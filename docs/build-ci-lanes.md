@@ -22,6 +22,11 @@ The default matrix is:
 - `tsan-clang-libcxx` — TSan correctness.
 - `tsan-gcc-stdcxx` — TSan correctness.
 
+The correctness lane includes `build/module-fragility-regression`, a cheap
+source-shape check that keeps known fragile module interfaces from regrowing
+`import std`, coroutine bodies, or private implementation units in public module
+file sets. See `docs/module-fragility.md`.
+
 ## Performance build lane
 
 Use:
