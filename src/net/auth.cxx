@@ -212,6 +212,407 @@ void clear_basic_auth_failures(
 
 // Middleware factory: HTTP Basic Authentication guard.
 // validator(username, password) → true = allow, false = 401.
+
+export using AuthThrottleClock = chrono::steady_clock;
+
+export struct AuthThrottleOptions {
+	// Failed attempts allowed per subject during the window. 0 disables throttling.
+	unsigned max_failures{5};
+	chrono::seconds window{chrono::minutes{5}};
+	// Additional lockout after the threshold is reached. 0 blocks until the current
+	// window expires instead of starting a separate lockout period.
+	chrono::seconds lockout{chrono::minutes{5}};
+	// Maximum distinct subjects tracked simultaneously. Clamped to at least one.
+	SZ max_subjects{65536};
+};
+
+export struct AuthThrottleOutcome {
+	bool allowed{true};
+	chrono::seconds retry_after{0};
+	unsigned failures{0};
+	bool locked{false};
+};
+
+export struct AuthThrottleMetrics {
+	u64 allowed_attempts{};
+	u64 blocked_attempts{};
+	u64 failures_recorded{};
+	u64 successes_recorded{};
+	u64 subjects_evicted{};
+	SZ tracked_subjects{};
+};
+
+export class AuthFailureLimiter {
+public:
+	AuthFailureLimiter();
+	explicit AuthFailureLimiter(AuthThrottleOptions opts);
+
+	[[nodiscard]] AuthThrottleOutcome before_attempt(
+		SV subject,
+		AuthThrottleClock::time_point now = AuthThrottleClock::now());
+	[[nodiscard]] AuthThrottleOutcome record_failure(
+		SV subject,
+		AuthThrottleClock::time_point now = AuthThrottleClock::now());
+	void record_success(
+		SV subject);
+	void clear(
+		SV subject);
+	[[nodiscard]] AuthThrottleMetrics snapshot() const;
+	[[nodiscard]] AuthThrottleOptions options() const noexcept { return opts_; }
+
+private:
+	SP<void> state_{};
+	AuthThrottleOptions opts_{};
+};
+
+export struct AuthThrottleMiddlewareOptions {
+	V<unsigned> failure_statuses{401, 403};
+	bool clear_on_success{true};
+	unsigned success_status_min{200};
+	unsigned success_status_max{399};
+};
+
+namespace auth_detail {
+
+struct AuthThrottleBucket {
+	unsigned failures{};
+	AuthThrottleClock::time_point window_start{AuthThrottleClock::now()};
+	AuthThrottleClock::time_point locked_until{};
+};
+
+struct AuthThrottleState {
+	struct TransparentHash {
+		using is_transparent = void;
+		SZ operator ()(
+			SV s) const noexcept {
+			return hash<SV>{}(s);
+		}
+		SZ operator ()(
+			S const &s) const noexcept {
+			return hash<SV>{}(s);
+		}
+	};
+	struct Entry {
+		AuthThrottleBucket bucket{};
+		std::list<S>::iterator order_it;
+	};
+
+	mutex mtx;
+	SZ max_subjects{1};
+	std::list<S> order;
+	std::unordered_map<S, Entry, TransparentHash, std::equal_to<>> buckets;
+	AuthThrottleMetrics metrics{};
+
+	explicit AuthThrottleState(
+		SZ max)
+		: max_subjects(std::max<SZ>(max, 1)) {}
+
+	[[nodiscard]] AuthThrottleBucket *find(
+		SV subject) noexcept {
+		auto it = buckets.find(subject);
+		if (it == buckets.end()) {
+			return nullptr;
+		}
+		order.splice(order.end(), order, it->second.order_it);
+		return &it->second.bucket;
+	}
+
+	[[nodiscard]] AuthThrottleBucket &touch(
+		SV subject,
+		AuthThrottleClock::time_point now) {
+		if (auto *bucket = find(subject); bucket != nullptr) {
+			return *bucket;
+		}
+		if (buckets.size() >= max_subjects) {
+			buckets.erase(order.front());
+			order.pop_front();
+			++metrics.subjects_evicted;
+		}
+		auto owned = S{subject};
+		order.push_back(owned);
+		auto [it, _] = buckets.emplace(
+			move(owned),
+			Entry{
+				.bucket = AuthThrottleBucket{.failures = 0, .window_start = now},
+				.order_it = std::prev(order.end()),
+			});
+		return it->second.bucket;
+	}
+
+	void erase(
+		SV subject) noexcept {
+		auto it = buckets.find(subject);
+		if (it == buckets.end()) {
+			return;
+		}
+		order.erase(it->second.order_it);
+		buckets.erase(it);
+	}
+};
+
+[[nodiscard]] bool auth_throttle_enabled(
+	AuthThrottleOptions const &opts) noexcept {
+	return opts.max_failures != 0U && opts.window.count() > 0;
+}
+
+[[nodiscard]] chrono::seconds retry_after_until(
+	AuthThrottleClock::time_point deadline,
+	AuthThrottleClock::time_point now) {
+	if (deadline <= now) {
+		return chrono::seconds{1};
+	}
+	auto const remaining = chrono::ceil<chrono::seconds>(deadline - now);
+	return std::max(chrono::seconds{1}, remaining);
+}
+
+[[nodiscard]] AuthThrottleState &auth_throttle_state(
+	SP<void> const &state) noexcept {
+	return *std::static_pointer_cast<AuthThrottleState>(state);
+}
+
+void refresh_auth_bucket_window(
+	AuthThrottleBucket &bucket,
+	AuthThrottleOptions const &opts,
+	AuthThrottleClock::time_point now) {
+	if (bucket.locked_until != AuthThrottleClock::time_point{} && now >= bucket.locked_until) {
+		bucket.failures = 0;
+		bucket.window_start = now;
+		bucket.locked_until = {};
+		return;
+	}
+	auto const elapsed = chrono::duration_cast<chrono::seconds>(now - bucket.window_start);
+	if (elapsed >= opts.window) {
+		bucket.failures = 0;
+		bucket.window_start = now;
+		bucket.locked_until = {};
+	}
+}
+
+[[nodiscard]] AuthThrottleOutcome auth_bucket_outcome(
+	AuthThrottleBucket const &bucket,
+	AuthThrottleOptions const &opts,
+	AuthThrottleClock::time_point now) {
+	if (!auth_throttle_enabled(opts)) {
+		return {.allowed = true, .failures = bucket.failures};
+	}
+	if (bucket.locked_until != AuthThrottleClock::time_point{} && now < bucket.locked_until) {
+		return {
+			.allowed = false,
+			.retry_after = retry_after_until(bucket.locked_until, now),
+			.failures = bucket.failures,
+			.locked = true,
+		};
+	}
+	if (bucket.failures >= opts.max_failures) {
+		auto const deadline = bucket.window_start + opts.window;
+		return {
+			.allowed = false,
+			.retry_after = retry_after_until(deadline, now),
+			.failures = bucket.failures,
+			.locked = true,
+		};
+	}
+	return {.allowed = true, .failures = bucket.failures};
+}
+
+template<typename Key>
+[[nodiscard]] Opt<S> normalize_auth_throttle_key(
+	Key &&key) {
+	using K = std::remove_cvref_t<Key>;
+	if constexpr (same_as<K, Opt<S>>) {
+		return forward<Key>(key);
+	} else if constexpr (same_as<K, S>) {
+		if (key.empty()) {
+			return nullopt;
+		}
+		return S{forward<Key>(key)};
+	} else if constexpr (same_as<K, SV>) {
+		if (key.empty()) {
+			return nullopt;
+		}
+		return S{key};
+	} else {
+		if (!key || key->empty()) {
+			return nullopt;
+		}
+		return S{*key};
+	}
+}
+
+[[nodiscard]] bool auth_response_is_failure(
+	HttpResponse const &response,
+	AuthThrottleMiddlewareOptions const &opts) {
+	return ranges::find(opts.failure_statuses, response.status) != opts.failure_statuses.end();
+}
+
+[[nodiscard]] bool auth_response_is_success(
+	HttpResponse const &response,
+	AuthThrottleMiddlewareOptions const &opts) noexcept {
+	return response.status >= opts.success_status_min && response.status <= opts.success_status_max;
+}
+
+} // namespace auth_detail
+
+AuthFailureLimiter::AuthFailureLimiter()
+	: AuthFailureLimiter(AuthThrottleOptions{}) {}
+
+AuthFailureLimiter::AuthFailureLimiter(
+	AuthThrottleOptions opts)
+	: state_(make_shared<auth_detail::AuthThrottleState>(std::max<SZ>(opts.max_subjects, 1)))
+	, opts_(opts) {}
+
+AuthThrottleOutcome AuthFailureLimiter::before_attempt(
+	SV subject,
+	AuthThrottleClock::time_point now) {
+	if (subject.empty() || !auth_detail::auth_throttle_enabled(opts_)) {
+		return {.allowed = true};
+	}
+	auto &state = auth_detail::auth_throttle_state(state_);
+	SL const lock{state.mtx};
+	auto *bucket = state.find(subject);
+	if (bucket == nullptr) {
+		++state.metrics.allowed_attempts;
+		return {.allowed = true};
+	}
+	auth_detail::refresh_auth_bucket_window(*bucket, opts_, now);
+	auto out = auth_detail::auth_bucket_outcome(*bucket, opts_, now);
+	if (out.allowed) {
+		++state.metrics.allowed_attempts;
+	} else {
+		++state.metrics.blocked_attempts;
+	}
+	return out;
+}
+
+AuthThrottleOutcome AuthFailureLimiter::record_failure(
+	SV subject,
+	AuthThrottleClock::time_point now) {
+	if (subject.empty() || !auth_detail::auth_throttle_enabled(opts_)) {
+		return {.allowed = true};
+	}
+	auto &state = auth_detail::auth_throttle_state(state_);
+	SL const lock{state.mtx};
+	auto &bucket = state.touch(subject, now);
+	auth_detail::refresh_auth_bucket_window(bucket, opts_, now);
+	if (bucket.failures < std::numeric_limits<unsigned>::max()) {
+		++bucket.failures;
+	}
+	++state.metrics.failures_recorded;
+	if (bucket.failures >= opts_.max_failures && opts_.lockout.count() > 0) {
+		bucket.locked_until = now + opts_.lockout;
+	}
+	return auth_detail::auth_bucket_outcome(bucket, opts_, now);
+}
+
+void AuthFailureLimiter::record_success(
+	SV subject) {
+	if (subject.empty()) {
+		return;
+	}
+	auto &state = auth_detail::auth_throttle_state(state_);
+	SL const lock{state.mtx};
+	state.erase(subject);
+	++state.metrics.successes_recorded;
+}
+
+void AuthFailureLimiter::clear(
+	SV subject) {
+	if (subject.empty()) {
+		return;
+	}
+	auto &state = auth_detail::auth_throttle_state(state_);
+	SL const lock{state.mtx};
+	state.erase(subject);
+}
+
+AuthThrottleMetrics AuthFailureLimiter::snapshot() const {
+	auto &state = auth_detail::auth_throttle_state(state_);
+	SL const lock{state.mtx};
+	auto out = state.metrics;
+	out.tracked_subjects = state.buckets.size();
+	return out;
+}
+
+export [[nodiscard]] S auth_throttle_key(
+	SV scope,
+	SV subject) {
+	return format("{}:{}", scope, subject);
+}
+
+export [[nodiscard]] S auth_throttle_remote_key(
+	HttpRequestView const &req,
+	SV scope = "remote") {
+	auto subject = req.remote_addr.empty() ? S{"unknown"} :
+					   parse_ip(req.remote_addr).transform(ip_to_string).value_or(S{req.remote_addr});
+	return auth_throttle_key(scope, subject);
+}
+
+export [[nodiscard]] Opt<S> auth_throttle_form_key(
+	HttpRequestView const &req,
+	SV field,
+	SV scope = "account") {
+	auto value = req.form[field];
+	if (value.empty()) {
+		return nullopt;
+	}
+	return auth_throttle_key(scope, value);
+}
+
+export [[nodiscard]] Opt<S> auth_throttle_query_key(
+	HttpRequestView const &req,
+	SV field,
+	SV scope = "account") {
+	auto value = req.query[field];
+	if (value.empty()) {
+		return nullopt;
+	}
+	return auth_throttle_key(scope, value);
+}
+
+export [[nodiscard]] Opt<S> auth_throttle_bearer_key(
+	HttpRequestView const &req,
+	SV scope = "api-token") {
+	auto credentials = auth_detail::credentials_for_scheme(req.headers["authorization"], "Bearer");
+	if (!credentials) {
+		return nullopt;
+	}
+	auto token = trim(*credentials);
+	if (token.empty()) {
+		return nullopt;
+	}
+	auto digest = sha256(to_unsigned_span(token));
+	return auth_throttle_key(scope, base64url_encode(digest));
+}
+
+export inline HttpResponse auth_throttle_too_many_requests(
+	AuthThrottleOutcome const &outcome) {
+	return auth_detail::too_many_auth_attempts(outcome.retry_after);
+}
+
+export template<typename KeySelector>
+Router::Middleware auth_throttle_middleware(
+	AuthFailureLimiter limiter,
+	KeySelector &&selector,
+	AuthThrottleMiddlewareOptions opts = {}) {
+	return [limiter = move(limiter),
+			selector = std::decay_t<KeySelector>(forward<KeySelector>(selector)),
+			opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) mutable -> HttpResponse {
+		auto key = auth_detail::normalize_auth_throttle_key(selector(req));
+		if (!key) {
+			return next(req);
+		}
+		if (auto gate = limiter.before_attempt(*key); !gate.allowed) {
+			return auth_throttle_too_many_requests(gate);
+		}
+		auto response = next(req);
+		if (auth_detail::auth_response_is_failure(response, opts)) {
+			(void)limiter.record_failure(*key);
+		} else if (opts.clear_on_success && auth_detail::auth_response_is_success(response, opts)) {
+			limiter.record_success(*key);
+		}
+		return response;
+	};
+}
 export template<typename Validator>
 Router::Middleware basic_auth_middleware(
 	Validator &&validator,

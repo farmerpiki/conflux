@@ -128,8 +128,9 @@ router.use(basic_auth_middleware(
 ```
 
 Set `failed_attempts = 0` only when another layer already enforces failed-login
-rate limiting. For login forms or API-token endpoints, also compose the generic
-`rate_limit_middleware` or app-specific account/IP throttling around the route.
+rate limiting. For login forms or API-token endpoints, use `AuthFailureLimiter`
+and the helpers documented in `docs/auth-rate-limit-hooks.md` to throttle by
+account, API-token digest, remote address, or a composed application key.
 
 ## Basic Auth integration
 
