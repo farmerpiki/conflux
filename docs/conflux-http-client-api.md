@@ -382,7 +382,7 @@ Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all 
 
 Error kinds, `HttpResult`, and `HttpResponse` shapes are identical to `send_blocking`.
 
-### Router async dispatch (`ContextHandler`)
+### Router context-route dispatch (`ContextHandlerFunction`)
 
 **Module:** `conflux.net.http` (umbrella)
 
@@ -396,10 +396,12 @@ using ContextMiddleware = std::function<root::Task<HttpResponse>(HttpRequestView
 
 Router& Router::add_context(std::string_view method, std::string_view path, ContextHandler);
 bool    Router::has_context_routes() const;
-root::Task<HttpResponse> Router::dispatch_async(HttpRequestView, RequestContext);
+std::optional<HttpResponse> Router::dispatch_async(HttpRequest const&, RequestContext const&); // transitional name
 ```
 
-Context routes are dispatched via `try_dispatch_async` in the server's ring loop — they receive the ring thread's `SocketTaskRing` and can call `send_async` without blocking. `proxy_context_handler()` in `proxy.cxx` uses this path.
+Context routes are probed from the server's ring loop. They receive an owning `HttpRequest` plus the ring thread's `SocketTaskRing`, so coroutine suspension cannot dangle request views and `send_async` can be used without blocking. `proxy_context_handler()` in `proxy.cxx` uses this path. Prefer this surface when a route needs the ring context directly; ordinary coroutine route handlers can accept owning `HttpRequest` and return `root::Task<HttpResponse>` without a `RequestContext`.
+
+The exported dispatcher is still named `dispatch_async(...)` in this branch for compatibility. Treat that name as transitional: semantically it is context-route/deferred-response dispatch, not a general `async_*` coroutine API. `docs/naming-audit.md` owns the final-name inventory and release-cleanup order.
 
 ## Stability
 

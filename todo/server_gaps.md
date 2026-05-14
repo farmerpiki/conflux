@@ -19,7 +19,7 @@
 - [x] Root `Task<T>`: add optional alloc counters for frames/control-blocks (`CONFLUX_WORK_ALLOC_STATS`)
 - [x] Root `Task<T>`: pool `ControlBlockModel<T>` after measuring allocation counters — `work.root` now uses a pooled `std::pmr::synchronized_pool_resource` for `ControlBlockModel<T>` allocations, while keeping the existing allocation counters and control-flow semantics intact
 - [ ] JSON: true incremental `JsonStreamReader::feed(span<byte>)` / events API
-- [x] Router: `ContextHandler` / `ContextMiddleware` / `dispatch_async()` — landed in `844b8dc`
+- [x] Router: `ContextHandler` / `ContextMiddleware` context-route dispatch — landed in `844b8dc`; the transitional dispatcher name is tracked in `docs/naming-audit.md`
 - [x] Router: static-assert diagnostics for handler/middleware return types — landed (8+ static_asserts with clear error messages in router.cxx)
 - [x] Execution model: HTTP handlers run on ring threads; all tasks run on an executor; hidden sync-handler auto-offload is not a planned fix. Public naming model is `blocking_*` for raw blocking syscall-style helpers, `sync_*` for executor-owned non-coroutine chains, and `async_*` for coroutine APIs.
 - [x] Router: formal named public concepts (`HandlerResult`, `RouteHandler`, `ContextHandlerFunction`, `Middleware`) — exported and wired into `add_context`

@@ -27,7 +27,7 @@ _Collapsed from `conflux_linux_first_class_io_uring_todo_proposal.md`. Completed
 - [x] Connect timeout with linked timeout or explicit cancel — linked SQE + staggered connect in `fbf7ffd`.
 - [x] Happy Eyeballs connect staggering/racing — `HappyConnectState`/`staggered_parallel_connect` (RFC 8305 v1, 250 ms stagger) landed in `fbf7ffd`.
 - [x] `HttpTimeouts::write` async path — `submit_send_timeout_borrowed` (linked SQE + timeout) landed in `fbf7ffd`.
-- [x] Proxy async migration — `proxy_context_handler()` / `ContextHandler` / `dispatch_async()` landed in `844b8dc`. `proxy_handler()` kept as deprecated `work_pool` fallback.
+- [x] Proxy context-route migration — `proxy_context_handler()` and context-route dispatch landed in `844b8dc`. The public dispatcher still uses transitional `dispatch_async()` naming; `docs/naming-audit.md` tracks the final context/deferred name. `proxy_handler()` kept as deprecated `work_pool` fallback.
 - [x] Remove/deprecate `FileReader` socket methods after HTTP/DNS migration complete. The stale `socket_io` → `file_io` CMake PUBLIC link has been removed; remaining `FileReader` socket users are explicit compatibility/benchmark paths, and the methods are now deprecated in `FileReader` itself.
 - [x] `FileReader::atomic_write_async()` now mirrors the sync staged publish protocol: validate/split contained path, stage in final parent dir, O_TMPFILE with named-temp fallback, link staging + rename/renameat2, cleanup staging on failure, fsync final parent dir.
 - [x] HTTPS async cancellation — `client_async.cxx` now threads `ActiveTaskCancelRelay` through connect, TLS handshake, and TLS recv/write paths.
