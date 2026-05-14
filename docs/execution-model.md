@@ -54,7 +54,8 @@ executor-owned chains that present a synchronous/non-coroutine user surface.
 `async_*` is for coroutine APIs.
 
 Current code still contains older names such as `*_sync` or `*_async`. Those are
-pre-v1 transition names. A later heavy renaming pass should align public APIs to
+pre-v1 transition names. `docs/naming-audit.md` records the known inventory and
+rename order for the later heavy renaming pass that should align public APIs to
 `blocking_*`, `sync_*`, and `async_*` consistently.
 
 ## Component-boundary implications

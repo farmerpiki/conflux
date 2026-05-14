@@ -1,3 +1,9 @@
+> Status: superseded by `docs/execution-model.md` and `docs/naming-audit.md`.
+> This file is historical planning material. Do not use it to justify broad
+> high-level `blocking_*` names; current policy reserves `blocking_*` for raw
+> blocking syscall-style helpers unless an explicit later design decision widens
+> that family.
+
 ## Public execution API families
 
 Conflux uses execution prefixes to describe both dependency shape and caller-thread behavior.

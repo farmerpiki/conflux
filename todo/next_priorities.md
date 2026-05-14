@@ -30,9 +30,11 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - Router route-pattern parsing/matching now lives in `conflux.net.router_match`; dispatch helpers now live in `conflux.net.router_dispatch`; keep peeling `router_impl` toward state ownership, and static-route registration still lives in `conflux.net.router_static`.
 
 2. **Apply the blocking/sync/async naming pass.**
+   - Inventory is documented in `docs/naming-audit.md`.
    - `blocking_*` for raw syscall-style helpers.
    - `sync_*` for executor-owned non-coroutine chains.
    - `async_*` for coroutine/task APIs.
+   - Add aliases component-by-component; remove compatibility names only in the final release cleanup branch.
 
 3. **Defer larger refactors until a boundary slice proves itself.**
    - No P2300 rewrite.

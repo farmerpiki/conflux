@@ -237,11 +237,11 @@ Recommended next docs branch: `docs/concurrency-naming-model`.
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
-| P1 | `docs/naming-audit` | Document old names that should eventually become `blocking_`, `sync_`, or `async_`. | Docs-only; no renames. | Audit exists without code churn. |
+| P1 | `docs/naming-audit` | [x] Document old names that should eventually become `blocking_`, `sync_`, or `async_`. | Docs-only; no renames. | Audit exists in `docs/naming-audit.md` without code churn. |
 | P2 | Component-local rename branches | When already editing a component, add clearer names and keep aliases. | Only inside the active component branch. | New call sites use new names; aliases remain. |
 | R | `release/remove-aliases` | Remove compatibility aliases and stale names. | Must be last pre-release cleanup. | All code/tests/docs use final names; no feature branches depend on aliases. |
 
-Alias elimination is the last release-prep task, not a modernization task.
+Alias elimination is the last release-prep task, not a modernization task. The current inventory lives in `docs/naming-audit.md`.
 
 ## Suggested immediate branch fan-out
 
