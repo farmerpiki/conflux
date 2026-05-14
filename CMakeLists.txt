@@ -1761,6 +1761,12 @@ target_link_libraries(conflux_json_config_example PRIVATE conflux conflux_option
 add_executable(conflux_json_stream_ingest_example examples/json_stream_ingest.cxx)
 target_link_libraries(conflux_json_stream_ingest_example PRIVATE conflux conflux_options)
 
+add_executable(conflux_json_diagnostics_example examples/json_diagnostics.cxx)
+target_link_libraries(conflux_json_diagnostics_example PRIVATE conflux conflux_options)
+
+add_executable(conflux_json_transform_example examples/json_transform.cxx)
+target_link_libraries(conflux_json_transform_example PRIVATE conflux conflux_options)
+
 endif() # CONFLUX_WANT_HTTP_SERVER
 
 # ---------------------------------------------------------------------------

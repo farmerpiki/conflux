@@ -27,7 +27,8 @@ valid_root_example() {
 	case "$1" in
 		conflux_coroutines|conflux_db_basic|conflux_db_pool|conflux_dual|conflux_file_io_example|\
 			conflux_forms|conflux_gzip|conflux_h3_probe|conflux_h3_server|conflux_hello|\
-			conflux_http_client|conflux_json_example|conflux_middleware|conflux_sse|conflux_static)
+			conflux_http_client|conflux_json_diagnostics_example|conflux_json_example|\
+			conflux_json_transform_example|conflux_middleware|conflux_sse|conflux_static)
 			return 0
 			;;
 		*)
