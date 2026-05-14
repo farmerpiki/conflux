@@ -1734,6 +1734,15 @@ target_link_libraries(conflux_http_client PRIVATE conflux conflux_options)
 add_executable(conflux_dual examples/dual.cxx)
 target_link_libraries(conflux_dual PRIVATE conflux conflux_options)
 
+add_executable(conflux_process_run_example examples/process_run.cxx)
+target_link_libraries(conflux_process_run_example PRIVATE conflux conflux_options)
+
+add_executable(conflux_crypto_sealing_example examples/crypto_sealing.cxx)
+target_link_libraries(conflux_crypto_sealing_example PRIVATE conflux conflux_options)
+
+add_executable(conflux_http_observability_example examples/http_observability.cxx)
+target_link_libraries(conflux_http_observability_example PRIVATE conflux conflux_options)
+
 if(CONFLUX_HAS_HTTP3 STREQUAL "true")
     add_executable(conflux_h3_probe examples/h3_probe.cxx)
     target_link_libraries(conflux_h3_probe PRIVATE conflux conflux_options)
