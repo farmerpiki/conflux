@@ -225,7 +225,7 @@ private:
 namespace ws_detail {
 
 // Compute Sec-WebSocket-Accept from Sec-WebSocket-Key.
-export S ws_accept_key(
+export std::string ws_accept_key(
 	SV client_key) {
 	static constexpr SV kMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 	S input{client_key};

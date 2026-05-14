@@ -22,13 +22,13 @@ S mac_b64(
 
 } // namespace
 // Sign a cookie value. Returns "value.BASE64URL(HMAC-SHA256(secret, value))".
-export S sign_cookie(
+export std::string sign_cookie(
 	SV value,
 	SV secret) {
 	return S{value} + '.' + mac_b64(value, secret);
 }
 // Verify a signed cookie. Returns the original value on success, std::nullopt on failure.
-export Opt<S> verify_cookie(
+export Opt<std::string> verify_cookie(
 	SV signed_value,
 	SV secret) {
 	auto dot = signed_value.rfind('.');
@@ -40,7 +40,7 @@ export Opt<S> verify_cookie(
 	if (!constant_time_eq(sig, mac_b64(value, secret))) {
 		return nullopt;
 	}
-	return S{value};
+	return std::string{value};
 }
 export struct CookieSigningOptions {
 	S secret;

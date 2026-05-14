@@ -58,7 +58,7 @@ struct HttpClientOptions {
 } // namespace conflux::http
 // ─── legacy free function (kept for existing test compatibility) ──────────────
 
-export [[nodiscard]] Opt<S> decode_chunked_body(SV encoded);
+export [[nodiscard]] Opt<std::string> decode_chunked_body(SV encoded);
 // ─── internal transport ───────────────────────────────────────────────────────
 
 namespace client_detail {
@@ -996,7 +996,7 @@ HttpResult do_blocking_request(
 } // namespace client_detail
 // ─── decode_chunked_body (legacy free function) ───────────────────────────────
 
-Opt<S> decode_chunked_body(
+Opt<std::string> decode_chunked_body(
 	SV encoded) {
 	S decoded;
 	SZ consumed = 0;
