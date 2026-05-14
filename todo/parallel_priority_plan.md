@@ -227,7 +227,7 @@ Recommended next build branch: `build/perf-harness-stabilize`.
 |---|---|---|---|---|
 | P0 | `docs/concurrency-naming-model` | Canonicalize execution model and `blocking_`/`sync_`/`async_` semantics. | Docs-only; should merge first. | New code review guidance points to one document. |
 | P0 | `docs/parallel-priority-plan` | Add this file. | Done by this patch. | Future branches can pick component queues without central replanning. |
-| P1 | `docs/examples-compile-ci` | Ensure examples compile in CI. | Can run with build branch. | Every documented example is built/tested. |
+| Done | `docs/examples-compile-ci` | Added `CONFLUX_BUILD_EXAMPLES`, `conflux_examples`, and `examples/compile` CTest build gate. | Build/docs only. | Server examples compile without being executed. |
 | P1 | `docs/json-boundary-guide` | Explain JSON provider trait boundary and why parser work is later. | Depends on JSON boundary branch shape. | Route authors know where JSON dependencies are allowed. |
 | P2 | `docs/release-blockers` | Maintain release-blocker checklist. | Later, after P0/P1 branches settle. | Checklist includes security, docs, perf harness, fuzzing, alias removal. |
 

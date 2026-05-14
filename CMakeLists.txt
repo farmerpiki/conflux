@@ -38,6 +38,7 @@ set(CONFLUX_CATCH2_SOURCE_DIR "" CACHE PATH "Path to a local Catch2 source tree 
 option(CONFLUX_ENABLE_JSON_TESTSUITE "Build nst/JSONTestSuite conformance gate when JSONTestSuite is available" OFF)
 set(JSONTESTSUITE_DIR "" CACHE PATH "Path to nst/JSONTestSuite/test_parsing, or repository root containing test_parsing")
 option(CONFLUX_BUILD_BENCHMARKS "Build benchmark targets"                    OFF)
+option(CONFLUX_BUILD_EXAMPLES "Build example targets"                        ON)
 option(CONFLUX_ALLOW_SANITIZED_BENCHMARKS
     "Allow benchmark targets in sanitizer builds for local instrumentation debugging only" OFF)
 option(CONFLUX_BUILD_FUZZ     "Build libFuzzer harness targets"              OFF)
@@ -1752,90 +1753,92 @@ if(CONFLUX_BUILD_FUZZ)
     add_subdirectory(fuzz)
 endif()
 
-# Easy HTTP examples (first-contact / v1-facing)
-add_executable(conflux_hello examples/hello.cxx)
-target_link_libraries(conflux_hello PRIVATE conflux conflux_options)
+if(CONFLUX_BUILD_EXAMPLES)
+    # Easy HTTP examples (first-contact / v1-facing)
+    add_executable(conflux_hello examples/hello.cxx)
+    target_link_libraries(conflux_hello PRIVATE conflux conflux_options)
 
-add_executable(conflux_middleware examples/middleware.cxx)
-target_link_libraries(conflux_middleware PRIVATE conflux conflux_options)
+    add_executable(conflux_middleware examples/middleware.cxx)
+    target_link_libraries(conflux_middleware PRIVATE conflux conflux_options)
 
-add_executable(conflux_sse examples/sse.cxx)
-target_link_libraries(conflux_sse PRIVATE conflux conflux_options)
+    add_executable(conflux_sse examples/sse.cxx)
+    target_link_libraries(conflux_sse PRIVATE conflux conflux_options)
 
-add_executable(conflux_static examples/static.cxx)
-target_link_libraries(conflux_static PRIVATE conflux conflux_options)
+    add_executable(conflux_static examples/static.cxx)
+    target_link_libraries(conflux_static PRIVATE conflux conflux_options)
 
-# Additional examples
-add_executable(conflux_forms examples/forms.cxx)
-target_link_libraries(conflux_forms PRIVATE conflux conflux_options)
+    # Additional examples
+    add_executable(conflux_forms examples/forms.cxx)
+    target_link_libraries(conflux_forms PRIVATE conflux conflux_options)
 
-add_executable(conflux_gzip examples/gzip.cxx)
-target_link_libraries(conflux_gzip PRIVATE conflux conflux_options)
+    add_executable(conflux_gzip examples/gzip.cxx)
+    target_link_libraries(conflux_gzip PRIVATE conflux conflux_options)
 
-add_executable(conflux_http_client examples/http_client.cxx)
-target_link_libraries(conflux_http_client PRIVATE conflux conflux_options)
+    add_executable(conflux_http_client examples/http_client.cxx)
+    target_link_libraries(conflux_http_client PRIVATE conflux conflux_options)
 
-add_executable(conflux_dual examples/dual.cxx)
-target_link_libraries(conflux_dual PRIVATE conflux conflux_options)
+    add_executable(conflux_dual examples/dual.cxx)
+    target_link_libraries(conflux_dual PRIVATE conflux conflux_options)
 
-add_executable(conflux_process_run_example examples/process_run.cxx)
-target_link_libraries(conflux_process_run_example PRIVATE conflux conflux_options)
+    add_executable(conflux_process_run_example examples/process_run.cxx)
+    target_link_libraries(conflux_process_run_example PRIVATE conflux conflux_options)
 
-add_executable(conflux_crypto_sealing_example examples/crypto_sealing.cxx)
-target_link_libraries(conflux_crypto_sealing_example PRIVATE conflux conflux_options)
+    add_executable(conflux_crypto_sealing_example examples/crypto_sealing.cxx)
+    target_link_libraries(conflux_crypto_sealing_example PRIVATE conflux conflux_options)
 
-add_executable(conflux_http_observability_example examples/http_observability.cxx)
-target_link_libraries(conflux_http_observability_example PRIVATE conflux conflux_options)
+    add_executable(conflux_http_observability_example examples/http_observability.cxx)
+    target_link_libraries(conflux_http_observability_example PRIVATE conflux conflux_options)
 
-add_executable(conflux_http_policy_stack_example examples/http_policy_stack.cxx)
-target_link_libraries(conflux_http_policy_stack_example PRIVATE conflux conflux_options)
+    add_executable(conflux_http_policy_stack_example examples/http_policy_stack.cxx)
+    target_link_libraries(conflux_http_policy_stack_example PRIVATE conflux conflux_options)
 
-add_executable(conflux_vhost_openapi_example examples/vhost_openapi.cxx)
-target_link_libraries(conflux_vhost_openapi_example PRIVATE conflux conflux_options)
+    add_executable(conflux_vhost_openapi_example examples/vhost_openapi.cxx)
+    target_link_libraries(conflux_vhost_openapi_example PRIVATE conflux conflux_options)
 
-add_executable(conflux_http_client_builder_example examples/http_client_builder.cxx)
-target_link_libraries(conflux_http_client_builder_example PRIVATE conflux conflux_options)
+    add_executable(conflux_http_client_builder_example examples/http_client_builder.cxx)
+    target_link_libraries(conflux_http_client_builder_example PRIVATE conflux conflux_options)
 
-add_executable(conflux_work_join_all_example examples/work_join_all.cxx)
-target_link_libraries(conflux_work_join_all_example PRIVATE conflux conflux_options)
+    add_executable(conflux_work_join_all_example examples/work_join_all.cxx)
+    target_link_libraries(conflux_work_join_all_example PRIVATE conflux conflux_options)
 
-if(CONFLUX_WANT_TEMPLATES AND TARGET conflux_template)
-    add_executable(conflux_template_pages_example examples/template_pages.cxx)
-    target_link_libraries(conflux_template_pages_example PRIVATE conflux conflux_template conflux_options)
-endif()
+    if(CONFLUX_WANT_TEMPLATES AND TARGET conflux_template)
+        add_executable(conflux_template_pages_example examples/template_pages.cxx)
+        target_link_libraries(conflux_template_pages_example PRIVATE conflux conflux_template conflux_options)
+    endif()
 
-if(CONFLUX_HAS_HTTP3 STREQUAL "true")
-    add_executable(conflux_h3_probe examples/h3_probe.cxx)
-    target_link_libraries(conflux_h3_probe PRIVATE conflux conflux_options)
-    add_executable(conflux_h3_server examples/h3_server.cxx)
-    target_link_libraries(conflux_h3_server PRIVATE conflux conflux_options)
-endif()
+    if(CONFLUX_HAS_HTTP3 STREQUAL "true")
+        add_executable(conflux_h3_probe examples/h3_probe.cxx)
+        target_link_libraries(conflux_h3_probe PRIVATE conflux conflux_options)
+        add_executable(conflux_h3_server examples/h3_server.cxx)
+        target_link_libraries(conflux_h3_server PRIVATE conflux conflux_options)
+    endif()
 
-if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
-    add_executable(conflux_db_basic examples/db_basic.cxx)
-    target_link_libraries(conflux_db_basic
-        PRIVATE conflux_db conflux_file_io conflux_work conflux_options)
+    if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
+        add_executable(conflux_db_basic examples/db_basic.cxx)
+        target_link_libraries(conflux_db_basic
+            PRIVATE conflux_db conflux_file_io conflux_work conflux_options)
 
-    add_executable(conflux_db_pool examples/db_pool.cxx)
-    target_link_libraries(conflux_db_pool
-        PRIVATE conflux_db conflux_file_io conflux_work conflux_options)
-endif()
+        add_executable(conflux_db_pool examples/db_pool.cxx)
+        target_link_libraries(conflux_db_pool
+            PRIVATE conflux_db conflux_file_io conflux_work conflux_options)
+    endif()
 
-# JSON examples (use monolith for convenience)
-add_executable(conflux_json_example examples/json.cxx)
-target_link_libraries(conflux_json_example PRIVATE conflux conflux_options)
+    # JSON examples (use monolith for convenience)
+    add_executable(conflux_json_example examples/json.cxx)
+    target_link_libraries(conflux_json_example PRIVATE conflux conflux_options)
 
-add_executable(conflux_json_config_example examples/json_config.cxx)
-target_link_libraries(conflux_json_config_example PRIVATE conflux conflux_options)
+    add_executable(conflux_json_config_example examples/json_config.cxx)
+    target_link_libraries(conflux_json_config_example PRIVATE conflux conflux_options)
 
-add_executable(conflux_json_stream_ingest_example examples/json_stream_ingest.cxx)
-target_link_libraries(conflux_json_stream_ingest_example PRIVATE conflux conflux_options)
+    add_executable(conflux_json_stream_ingest_example examples/json_stream_ingest.cxx)
+    target_link_libraries(conflux_json_stream_ingest_example PRIVATE conflux conflux_options)
 
-add_executable(conflux_json_diagnostics_example examples/json_diagnostics.cxx)
-target_link_libraries(conflux_json_diagnostics_example PRIVATE conflux conflux_options)
+    add_executable(conflux_json_diagnostics_example examples/json_diagnostics.cxx)
+    target_link_libraries(conflux_json_diagnostics_example PRIVATE conflux conflux_options)
 
-add_executable(conflux_json_transform_example examples/json_transform.cxx)
-target_link_libraries(conflux_json_transform_example PRIVATE conflux conflux_options)
+    add_executable(conflux_json_transform_example examples/json_transform.cxx)
+    target_link_libraries(conflux_json_transform_example PRIVATE conflux conflux_options)
+endif() # CONFLUX_BUILD_EXAMPLES
 
 endif() # CONFLUX_WANT_HTTP_SERVER
 
@@ -2092,7 +2095,7 @@ install(EXPORT confluxTargets
 # Standalone examples (don't require monolith)
 # ---------------------------------------------------------------------------
 
-if(CONFLUX_WANT_FILE_IO)
+if(CONFLUX_BUILD_EXAMPLES AND CONFLUX_WANT_FILE_IO)
     add_executable(conflux_file_io_example examples/file_io.cxx)
     target_link_libraries(conflux_file_io_example PRIVATE conflux_file_io conflux_work conflux_options)
 
@@ -2100,8 +2103,63 @@ if(CONFLUX_WANT_FILE_IO)
     target_link_libraries(conflux_coroutines PRIVATE conflux_file_io conflux_work conflux_options)
 endif()
 
-if(CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect)
+if(CONFLUX_BUILD_EXAMPLES AND CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect)
     add_executable(conflux_json_reflect_example examples/json_reflect.cxx)
     target_link_libraries(conflux_json_reflect_example
         PRIVATE conflux_json_reflect conflux_json conflux_types conflux_options)
+endif()
+
+if(CONFLUX_BUILD_EXAMPLES)
+    set(CONFLUX_EXAMPLE_TARGETS
+        conflux_hello
+        conflux_middleware
+        conflux_sse
+        conflux_static
+        conflux_forms
+        conflux_gzip
+        conflux_http_client
+        conflux_dual
+        conflux_process_run_example
+        conflux_crypto_sealing_example
+        conflux_http_observability_example
+        conflux_http_policy_stack_example
+        conflux_vhost_openapi_example
+        conflux_http_client_builder_example
+        conflux_work_join_all_example
+        conflux_template_pages_example
+        conflux_h3_probe
+        conflux_h3_server
+        conflux_db_basic
+        conflux_db_pool
+        conflux_json_example
+        conflux_json_config_example
+        conflux_json_stream_ingest_example
+        conflux_json_diagnostics_example
+        conflux_json_transform_example
+        conflux_file_io_example
+        conflux_coroutines
+        conflux_json_reflect_example
+    )
+    set(CONFLUX_AVAILABLE_EXAMPLE_TARGETS)
+    foreach(_conflux_example_target IN LISTS CONFLUX_EXAMPLE_TARGETS)
+        if(TARGET ${_conflux_example_target})
+            list(APPEND CONFLUX_AVAILABLE_EXAMPLE_TARGETS ${_conflux_example_target})
+        endif()
+    endforeach()
+
+    add_custom_target(conflux_examples)
+    if(CONFLUX_AVAILABLE_EXAMPLE_TARGETS)
+        add_dependencies(conflux_examples ${CONFLUX_AVAILABLE_EXAMPLE_TARGETS})
+    endif()
+
+    if(CONFLUX_BUILD_TESTS)
+        add_test(NAME examples/compile
+            COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}"
+                    --target conflux_examples --config "$<CONFIG>"
+        )
+        set_tests_properties(examples/compile PROPERTIES
+            LABELS "examples;build"
+            RUN_SERIAL TRUE
+        )
+    endif()
 endif()

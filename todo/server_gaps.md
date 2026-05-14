@@ -138,7 +138,7 @@ Implemented in this patch:
   - [x] Dependency-edge cleanup slice: stale `socket_io -> file_io`, `net.client -> file_io`, and `body_json(NodeRef)` proposal edges are gone; higher-level targets/tests/benches no longer repeat direct `PkgConfig::LIBURING` links already propagated by lower-level runtime/file/socket targets.
   - [x] DB optional component export: `conflux_db` installs/exports as `conflux::db` when libpq support is enabled.
 - [ ] Split remaining static route registration internals. DB, TLS, HTTP/2, HTTP/3, static option/core/async targets, SSE realtime types, and WebSocket realtime types now have separate link targets.
-- [ ] CI: all examples compile, fuzz smokes, JSONTestSuite, ASan/UBSan lane, bench regression budget
+- [ ] CI: all examples compile gate exists; still need fuzz smokes, JSONTestSuite, ASan/UBSan lane, bench regression budget
 - [x] Docs: versioning/semver policy, security disclosure, supported compiler+kernel matrix — added `docs/project-policy.md` and linked it from README/pre-v1 contract
 - [x] HTTP security corpus: smuggling, duplicate Content-Length, TE ambiguity, Host ambiguity, chunk edge cases — documented in `docs/http-security-corpus.md`; raw-wire E2E cases added for Host and CL+TE smuggling
 
