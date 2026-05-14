@@ -56,7 +56,7 @@ Implemented in this patch:
 Still implemented but not directly covered by deterministic tests after this pass:
 
 - [x] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; now covered by sync/async E2E tests in pass 7.
-- [ ] HTTP request body double-set debug assertion path; needs an assert-probe binary like the recv-bundle probes because release builds intentionally use last-wins behavior.
+- [x] HTTP request body double-set debug assertion path; covered in pass 5 by `http_request_assert_probe` + `conflux_http_core_tests`.
 
 ## Test coverage gap pass 3 (2026-05-14)
 
@@ -70,7 +70,7 @@ Still implemented but not directly covered by deterministic tests after pass 3:
 
 - [x] HTTP parser/helper duplicate implementation drift: the legacy `#if 0` local copies in `http_server_impl.cxx` were removed, leaving the exported `conflux.net.http_server_helpers` module as the single source of truth for request/body parsing helpers.
 - [x] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; now covered by sync/async E2E tests in pass 7.
-- [ ] HTTP request body double-set debug assertion path; needs an assert-probe binary like the recv-bundle probes because release builds intentionally use last-wins behavior.
+- [x] HTTP request body double-set debug assertion path; covered in pass 5 by `http_request_assert_probe` + `conflux_http_core_tests`.
 
 ## Test coverage gap pass 4 (2026-05-14)
 
@@ -135,7 +135,8 @@ Implemented in this patch:
   - [x] Static/realtime surface slice: export `conflux::http_static` (`StaticOptions`), move server request/view/callback vocabulary into `conflux::http_core`, and export `conflux::http_realtime` (SSE + WebSocket surfaces); `conflux.net.router` re-exports these for source compatibility while static implementation internals remain queued for a later split.
   - [x] Static implementation split slice: export `conflux::http_response`, `conflux::http_static_core`, and `conflux::http_static_async`; move HTTP response/deferred body vocabulary, static path normalization/cache store, static root-dir lifetime, contained open/probe helpers, static GET/PUT/DELETE execution, and async file helper coroutines out of router-owned module units.
   - [x] Dependency-edge cleanup slice: stale `socket_io -> file_io`, `net.client -> file_io`, and `body_json(NodeRef)` proposal edges are gone; higher-level targets/tests/benches no longer repeat direct `PkgConfig::LIBURING` links already propagated by lower-level runtime/file/socket targets.
-- [ ] Split optional components: DB and any remaining static route registration internals. TLS, HTTP/2, HTTP/3, static option/core/async targets, SSE realtime types, and WebSocket realtime types now have separate link targets.
+  - [x] DB optional component export: `conflux_db` installs/exports as `conflux::db` when libpq support is enabled.
+- [ ] Split remaining static route registration internals. DB, TLS, HTTP/2, HTTP/3, static option/core/async targets, SSE realtime types, and WebSocket realtime types now have separate link targets.
 - [ ] CI: all examples compile, fuzz smokes, JSONTestSuite, ASan/UBSan lane, bench regression budget
 - [x] Docs: versioning/semver policy, security disclosure, supported compiler+kernel matrix — added `docs/project-policy.md` and linked it from README/pre-v1 contract
 - [x] HTTP security corpus: smuggling, duplicate Content-Length, TE ambiguity, Host ambiguity, chunk edge cases — documented in `docs/http-security-corpus.md`; raw-wire E2E cases added for Host and CL+TE smuggling

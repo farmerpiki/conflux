@@ -1,7 +1,7 @@
 # P1-09 Benchmark Proposal: FileReader → SocketTaskRing Migration
 
 Date: 2026-05-10
-**Status: mostly implemented.** Steps 1+3 landed (e3f1038). `tcp_socket_task_bench` deleted. Async server + parallel variants (Steps 2+3) remain open. `tcp_parallel_coro_bench` still disabled (needs `co_spawn` → `.detach()` port).
+**Status: implemented for `tcp_increment_coro_bench`.** Steps 1+3 landed in e3f1038; async server + `str/parallel_4` landed in 9851640. `tcp_socket_task_bench` was deleted. The legacy standalone `tcp_parallel_coro_bench` remains disabled, but the planned N=4 benchmark coverage now lives in `str/parallel_4`.
 
 ## Problem with current tcp_socket_task_bench
 
@@ -107,7 +107,9 @@ passed: callback +1.7%, coroutine -0.5% vs FileReader baseline — both within �
 
 ---
 
-### Step 2 — async server using SocketTaskRing
+### Step 2 — async server using SocketTaskRing (DONE — 9851640)
+
+Implemented as `str/async_callback` and `str/async_coroutine` variants in `tcp_increment_coro_bench` using the `SocketTaskRing` accept/server path.
 
 ```
 Task<void> async_server_loop(SocketTaskRing& ring, u16 port, atomic_flag& stop)
@@ -119,7 +121,9 @@ Task<void> async_server_loop(SocketTaskRing& ring, u16 port, atomic_flag& stop)
 - Accept style: start with blocking accept wrapped in `co_await`, then
   add multishot accept variant once the async path is validated.
 
-### Step 3 — N parallel clients
+### Step 3 — N parallel clients (DONE — 9851640)
+
+Implemented as `str/parallel_4` plus the `parallel_4` benchmark config (`--clients 4`).
 
 ```
 Task<u64> parallel_coro_loop(SocketTaskRing& ring, u16 port,
@@ -130,7 +134,7 @@ Task<u64> parallel_coro_loop(SocketTaskRing& ring, u16 port,
 - Drive all N on the same ring via `join_all`.
 - Report total ns / (n_clients × iters) for per-round-trip comparison.
 
-### Step 4 — compare gate
+### Step 4 — compare gate (still measurement work, not missing implementation)
 
 ```sh
 PGURI=... BENCH_REPS=10 scripts/bench_record.sh --compare-bins \

@@ -17,7 +17,7 @@ Based on three independent ecosystem reviews of C++26 + io_uring best practices,
 | `IORING_RECVSEND_BUNDLE` | Done (config-gated) |
 | Multishot accept + recv | Done |
 | Splice for file serving | Done |
-| Zero-copy send (`SEND_ZC`) | Done for HTTP send path (`queue_send_mapped` → `submit_send_zc_borrowed` above threshold, `IORING_CQE_F_NOTIF` handling, send-zc counters); edge cases remain: mapped-file header+body falls back to `writev`, TLS cannot use SEND_ZC directly, adaptive threshold needs benchmark validation. Note: mapped cache proposal (when landed) will reduce per-request open/stat/mmap/close/munmap syscalls for hot static files but does not change the send path |
+| Zero-copy send (`SEND_ZC`) | Done for HTTP plain and mapped-file send paths (`queue_send` / `queue_send_mapped` → `submit_send_zc_borrowed` above threshold, `IORING_CQE_F_NOTIF` handling, send-zc counters); mapped headers are sent normally before ZC body send; TLS cannot use SEND_ZC directly |
 | Zero-copy recv (`RECV_ZC`) | Missing |
 | `SO_BUSY_POLL` / `SO_PREFER_BUSY_POLL` | Done — `busy_poll_us` / `prefer_busy_poll` config fields; applied per accepted socket (`http_server.cxx:2397-2400`) |
 | `TCP_QUICKACK` | Done — set unconditionally per accepted socket (`http_server.cxx:2396`) |
@@ -40,7 +40,7 @@ Based on three independent ecosystem reviews of C++26 + io_uring best practices,
 ### Tier 1 — Structural (weeks; 2×+ potential)
 
 **T1-A: Zero-copy network send via `IORING_OP_SEND_ZC`** — **Mostly done**
-Core path landed: `queue_send_mapped` → `submit_send_zc_borrowed` above configured threshold, `IORING_CQE_F_NOTIF` handling, send-zc counters. Remaining edge cases: mapped-file header+body path still falls back to `writev`; TLS path cannot use SEND_ZC directly; adaptive thresholds need benchmark validation.
+Core path landed for plain and mapped responses: `queue_send` / `queue_send_mapped` use `submit_send_zc_borrowed` above configured threshold, with `IORING_CQE_F_NOTIF` handling, send-zc counters, normal-header/mapped-body sequencing, and fallback regular sends. TLS path intentionally cannot use SEND_ZC directly.
 
 **T1-B: Zero-copy recv via `IORING_OP_RECV_ZC`**
 Provided buffer rings already remove the copy on the ring side; `RECV_ZC` goes further — DMA directly into user buffers. Kernel 6.20/7.0 improves large-buffer support. Hold off until 6.20 is stable; design the recv buffer abstraction now so it's swappable.
@@ -96,7 +96,7 @@ HTTP server buffer ring uses `huge_pages=true` → `MADV_HUGEPAGE` on the slab. 
 **T3-F: `madvise(MADV_DONTFORK)` on ring buffers** — **Done** (`file_io.cxx:108`, `socket_io.cxx:174`)
 Applied after slab allocation in both file I/O and socket recv paths.
 
-**T3-G: `IORING_FEAT_*` capability probing at startup** — **Done** (`detect_caps` in `uring.cxx` uses `io_uring_get_probe_ring`; `caps_to_log_string` logs all feature/op bits at ring 0 startup). **Gap**: setup flag fallback stripping is not logged — `NO_SQARRAY`, `SUBMIT_ALL`, `CQE_MIXED` are configured and stripped on EINVAL but the stripped-vs-active set is not included in the capability log output
+**T3-G: `IORING_FEAT_*` capability probing at startup** — **Done** (`detect_caps` in `uring.cxx` uses `io_uring_get_probe_ring`; `caps_to_log_string` logs all feature/op bits at ring 0 startup; HTTP server config logging now reports requested/active/stripped setup-flag sets after EINVAL fallback).
 
 ---
 
@@ -106,10 +106,10 @@ All original Tier 3 quick wins are implemented. Remaining open items:
 
 | ID | What | Where | Effort |
 |----|------|--------|--------|
-| ~~T3-G~~ | ~~`io_uring_get_probe()` capability log~~ | ~~Done~~ (`detect_caps` + `caps_to_log_string`); setup flag fallback log still missing | — |
+| ~~T3-G~~ | ~~`io_uring_get_probe()` capability log~~ | ~~Done~~ (`detect_caps` + `caps_to_log_string` + requested/active/stripped setup-flag log) | — |
 | ~~T2-F~~ | ~~`alignas(64)` on `Conn` + `Worker`~~ | ~~Done~~; `Ring` hot/cold layout remains | — |
 | ~~T2-G~~ | ~~Registered buffers for network send~~ | ~~Done~~ (`FixedBufferPool` send buffers) | — |
-| ~~T1-A~~ | ~~Zero-copy HTTP response send (`SEND_ZC`)~~ | ~~Mostly done~~; edge cases: mapped-file writev fallback, TLS, adaptive thresholds | 1–2 days |
+| ~~T1-A~~ | ~~Zero-copy HTTP response send (`SEND_ZC`)~~ | ~~Done for plain + mapped responses~~; TLS remains intentionally excluded | — |
 | ~~T1-D~~ | ~~Lock-free global injection~~ | ~~Done~~ (MPMC ring); local queues/stealing/admission_mtx_ still mutex-based | — |
 | T3-E (gap) | Coroutine frame pool for `TaskPromise<T>` | `work/root.cxx` | 1–2 days |
 | T2-C | `IORING_SETUP_IOPOLL` for storage rings | `file_io.cxx`, ring init | 1–2 days |

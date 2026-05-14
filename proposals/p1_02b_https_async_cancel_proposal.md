@@ -1,7 +1,7 @@
 # P1-02b: HTTP/HTTPS Async Cancellation
 
 Date: 2026-05-10
-Status: IMPLEMENT — GREENLIT
+Status: IMPLEMENTED
 Effort: 3–5 days (includes connect-stage cancellation)
 Prerequisite: P1-02 (async HTTPS via TcpTlsStream, complete)
 
@@ -25,16 +25,18 @@ The socket layer (`TcpStream`) is fully cancellation-aware:
 The gap is in the TLS wrapper layer. Plain HTTP has the same
 parent-to-child cancellation gap.
 
-Code marker: `tls.cxx:543` — `// TODO(P1-02): TLS cancel not wired`
+Implementation marker: `client_async_impl.cxx` threads `ActiveTaskCancelRelay` through connect/TLS operations; `tls.cxx` accepts the relay and awaits cancellable socket children. The old `// TODO(P1-02): TLS cancel not wired` marker is gone.
 
 ## Current State
 
+Implemented. `ActiveTaskCancelRelay` is a standalone `conflux.net.cancel` module, `HappyConnectState` keeps `pending` and cancels active attempts without calling cancellation while holding its mutex, and `TcpTlsStream` receives the relay so handshake/read/write await cancellable socket children.
+
 | Operation | TcpStream | TcpTlsStream | Gap |
 |---|---|---|---|
-| recv | `enable_cancellation=true` + cancel hook | Deadline only via `fill_rbio(deadline)` | No cancel propagation |
-| write | `enable_cancellation=true` + cancel hook | Deadline only via `drain_wbio_until(deadline)` | No cancel propagation |
-| handshake | N/A | Deadline only | No cancel propagation |
-| close | Cancel hook (sets flag, no cancel SQE) | Timeout via `drain_wbio_for(timeout)` | Partial |
+| recv | `enable_cancellation=true` + cancel hook | Relay-aware child recv | Closed |
+| write | `enable_cancellation=true` + cancel hook | Relay-aware child write | Closed |
+| handshake | N/A | Relay-aware socket children | Closed |
+| close | Cancel hook / shielded close path | Timeout close path retained | Acceptable close semantics |
 
 ## Design History
 

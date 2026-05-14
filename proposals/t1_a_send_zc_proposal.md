@@ -1,7 +1,7 @@
 # T1-A: Zero-Copy HTTP Response Send (SEND_ZC)
 
 Date: 2026-05-10
-Status: IN PROGRESS (steps 1–7 landed; steps 8–10 remain)
+Status: IMPLEMENTED (plain + mapped path; TLS intentionally unchanged)
 Effort: 5–8 days (3–5 plain responses, +2–3 mapped-file correctness)
 Prerequisite: P2-G (registered send buffers) recommended but not required
 Kernel: 6.0+ (`IORING_OP_SEND_ZC`)
@@ -37,11 +37,11 @@ Dual-CQE protocol is handled:
 
 `IoUringCaps::send_zc` is probed via `io_uring_get_probe_ring()` at startup.
 
-### HTTP response send path (not wired)
+### HTTP response send path (wired)
 
-Three send paths, all using regular SEND/WRITEV:
-- **Plain**: `queue_send()` → `submit_send_borrowed()` → `prep_send()`
-- **Mapped file**: `queue_send_mapped()` → `submit_writev_borrowed()` → `prep_writev()`
+Three send paths now have the intended split:
+- **Plain**: `queue_send()` uses `submit_send_zc_borrowed()` above the configured threshold, with regular send fallback.
+- **Mapped file**: `queue_send_mapped()` sends headers normally, then uses `submit_send_zc_borrowed()` for threshold-sized mapped bodies, with regular `writev`/send fallback.
   Note: `MappedFile` will become `MappedBody` (lease + offset + size) per mapped cache proposal; `SP<MappedFile>` becomes `SP<MappedBody>` in the response variant; `queue_send_mapped` will use `body.lease.bytes().subspan(body.offset, body.size)`.
 - **Streamed file**: `queue_send_streamed()` → `submit_send_borrowed()` for headers,
   then `splice_to_fd()` for body (already zero-copy via splice)
@@ -312,9 +312,9 @@ zerocopy depends on NIC capabilities (scatter-gather TX, checksum offload).
 5. Per-connection ZC state.
 6. Wire **plain non-TLS responses only**.
 7. Close/timeout deferral at top of `queue_close()`.
-8. Benchmark plain responses.
-9. Mapped sequential path: regular-send headers, ZC body when body ≥ threshold.
-10. Leave TLS and streamed-file body paths alone.
+8. Benchmark plain responses — done via `send_zc_bench`.
+9. Mapped sequential path: regular-send headers, ZC body when body ≥ threshold — done.
+10. Leave TLS and streamed-file body paths alone — done by design.
 
 ## Implementation Guardrails
 

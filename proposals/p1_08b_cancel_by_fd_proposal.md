@@ -1,7 +1,7 @@
 # P1-08b: Recv-Only Generation Invalidation and No-Stall Close
 
 Date: 2026-05-10
-Status: APPROVED
+Status: IMPLEMENTED
 Effort: 1–2 days
 Prerequisite: P1-08 (PR A + PR B complete)
 
@@ -211,6 +211,10 @@ void cancel_accept_or_defer() {
 
 `submit_cancel_by_ud()` only returns false on SQE acquisition failure.
 Self-redeferring retries until SQ has space.
+
+## Implementation Status
+
+Implemented in `src/net/http_server_impl.cxx`: `invalidate_recv_if_armed()`, `cancel_accept_or_defer()`, post-bump close generation handling, `close_after_send` discard guards in both `handle_recv_cqe()` and `phase1_copy_recv_bufs()`, and no-stall shutdown tests in `tests/http_e2e.cxx`.
 
 ## Changes
 

@@ -1,7 +1,7 @@
 # P2-G: Registered Send-Buffer Pool for HTTP Responses
 
 Date: 2026-05-10
-Status: EXPERIMENTAL — implement on branch only, benchmark before merge
+Status: IMPLEMENTED
 Effort: 2–3 days
 Prerequisite: none (independent of SEND_ZC)
 Expected payoff: marginal for copy-based path, plausible for direct-format short responses
@@ -35,12 +35,18 @@ heap buffers for headers.
 
 | Component | File | Status |
 |---|---|---|
-| `FixedBufferPool` (alloc/free/register) | `file_io.cxx:74-139` | Done (read-side only) |
+| `FixedBufferPool` (alloc/free/register) | `file_io.cxx:74-139` | Done for file I/O and HTTP send-buffer slices |
 | `FixedBuffer` RAII wrapper | `file_io.cxx:49-73` | Done |
-| `sqe.prep_send_zc_fixed()` | `uring.cxx:488-504` | Done (unused by server) |
+| `sqe.prep_send_zc_fixed()` | `uring.cxx:488-504` | Done; separate from the copy-based send-buffer path |
 | `io_uring_register_buffers_sparse` | `file_io.cxx:101` | Done (read pool) |
 | `IoUringCaps::send_zc` detection | `uring.cxx:1587-1589` | Done |
 | `ioprio_flags::recvsend_fixed_buf` | `uring.cxx` | Done |
+
+## Implementation Status
+
+Implemented in the current tree: `RegisteredBufferTable` owns registration, `FixedBufferPool` can carve separate file/send slices, `submit_send_fixed_borrowed()` submits `IORING_RECVSEND_FIXED_BUF`, config exposes `send_buffer_slabs`, `send_buffer_bytes`, and `send_fixed_buffers`, and `queue_send()` uses the fixed-send path for small plain responses with clean fallback.
+
+Direct formatting into the slab remains a future optimization; the copy-based registered send path itself has landed.
 
 ## Design
 
