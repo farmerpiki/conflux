@@ -356,6 +356,28 @@ TEST_CASE(
 	REQUIRE(sr.count() == 2u);
 	sr.recycle_all();
 }
+
+TEST_CASE(
+	"recv_bundle.try: stale classic CQE reports bad_window",
+	"[recv_bundle]") {
+	Rig rig{4, 64};
+
+	auto first = try_buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(0), false);
+	REQUIRE(first);
+	first->recycle_all();
+
+	auto second = try_buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(1), false);
+	REQUIRE(second);
+	second->recycle_all();
+
+	// Simulates a delayed/stale CQE observed after the userspace buffer-ring
+	// window already advanced and recycled that id. Recovery paths must not hit
+	// the assertion-only decoder variant.
+	auto stale = try_buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(0), false);
+	REQUIRE_FALSE(stale);
+	CHECK(stale.error() == RecvDecodeError::bad_window);
+}
+
 // Test 6: assert fires when CQE buf_id does not match ring_order_[head_pos].
 // Requires debug build; LD_PRELOAD interceptor converts abort→exit(42).
 TEST_CASE(

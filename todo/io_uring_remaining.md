@@ -14,7 +14,7 @@ _Collapsed from `conflux_linux_first_class_io_uring_todo_proposal.md`. Completed
 
 ### Current debug-clang-libcxx regression
 
-- [ ] `http.cq_overflow: non-UB shutdown under small-CQ flood` aborts in `tests/http_overflow_stress_tests` during the full `debug-clang-libcxx` preset run; the failure reproduces in `src/net/io_buffer.cxx:894`.
+- [x] `http.cq_overflow: non-UB shutdown under small-CQ flood` aborts in `tests/http_overflow_stress_tests` during the full `debug-clang-libcxx` preset run; fixed by using the non-asserting buffer-ring CQE decoder on HTTP recovery/append discard paths.
 
 ---
 

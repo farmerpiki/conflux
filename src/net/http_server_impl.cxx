@@ -2455,9 +2455,12 @@ struct Ring {
 			auto _ = try_buffer_slice_from_incremental_cqe(*buf_ring_, res, flags);
 			return;
 		}
-		auto slices = buffer_slices_from_cqe(*buf_ring_, res, flags, use_recv_bundle);
-		note_recv_bundle_slices(slices);
-		slices.recycle_all();
+		auto slices = try_buffer_slices_from_cqe(*buf_ring_, res, flags, use_recv_bundle);
+		if (!slices) [[unlikely]] {
+			return;
+		}
+		note_recv_bundle_slices(*slices);
+		slices->recycle_all();
 	}
 	void discard_recv_bufs(
 		RecvComp &rc) noexcept {
@@ -3491,13 +3494,17 @@ struct Ring {
 			dst.append(reinterpret_cast<char const *>(result->bytes().data()), result->bytes().size());
 			return true;
 		}
-		auto slices = buffer_slices_from_cqe(*buf_ring_, rc.res, rc.flags, use_recv_bundle);
-		note_recv_bundle_slices(slices);
+		auto slices = try_buffer_slices_from_cqe(*buf_ring_, rc.res, rc.flags, use_recv_bundle);
+		if (!slices) [[unlikely]] {
+			rc.flags = 0;
+			return false;
+		}
+		note_recv_bundle_slices(*slices);
 		ScopeExit const recycle{[&]() noexcept {
-			slices.recycle_all();
+			slices->recycle_all();
 			rc.flags = 0;
 		}};
-		for (auto const &s: slices) {
+		for (auto const &s: *slices) {
 			dst.append(reinterpret_cast<char const *>(s.bytes.data()), s.bytes.size());
 		}
 		return true;
@@ -3949,9 +3956,12 @@ struct Ring {
 			// slice dtor recycles if final; silent drop on malformed CQE during shutdown
 			auto _ = try_buffer_slice_from_incremental_cqe(*buf_ring_, cqe->res, cqe->flags);
 		} else {
-			auto slices = buffer_slices_from_cqe(*buf_ring_, cqe->res, cqe->flags, use_recv_bundle);
-			note_recv_bundle_slices(slices);
-			slices.recycle_all();
+			auto slices = try_buffer_slices_from_cqe(*buf_ring_, cqe->res, cqe->flags, use_recv_bundle);
+			if (!slices) [[unlikely]] {
+				return;
+			}
+			note_recv_bundle_slices(*slices);
+			slices->recycle_all();
 		}
 	}
 	void dispatch_cqe_fatal(

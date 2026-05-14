@@ -112,6 +112,7 @@ export enum class RecvDecodeError : u8 {
 	bad_cqe,
 	bad_id,
 	bad_bounds,
+	bad_window,
 };
 export class RecvBuffer;
 export class BufferRing {
@@ -875,6 +876,27 @@ export [[nodiscard]] expected<IncrementalRecvSlice, RecvDecodeError> try_buffer_
 	}
 	return slice;
 }
+export [[nodiscard]] expected<RecvSlices, RecvDecodeError> try_buffer_slices_from_cqe(
+	BufferRing &ring,
+	int res,
+	u32 flags,
+	bool bundle) noexcept {
+	if (res <= 0 || !cqe_has_buffer(flags)) {
+		return unexpected(RecvDecodeError::bad_cqe);
+	}
+	SZ const total = static_cast<SZ>(res);
+	u32 const cnt = bundle ? static_cast<u32>((total + ring.buf_size() - 1) / ring.buf_size()) : 1u;
+	if (cnt == 0 || cnt > ring.count()) {
+		return unexpected(RecvDecodeError::bad_bounds);
+	}
+	u16 const first_id = cqe_buffer_id(flags);
+	auto const start = ring.find_start_pos(first_id, cnt, bundle);
+	if (!start) [[unlikely]] {
+		return unexpected(RecvDecodeError::bad_window);
+	}
+	ring.consume_at(*start, cnt);
+	return RecvSlices{&ring, *start, cnt, total};
+}
 export [[nodiscard]] RecvSlices buffer_slices_from_cqe(
 	BufferRing &ring,
 	int res,
@@ -884,18 +906,12 @@ export [[nodiscard]] RecvSlices buffer_slices_from_cqe(
 		assert(!cqe_has_buffer(flags));
 		return {};
 	}
-	SZ const total = static_cast<SZ>(res);
-	u32 const cnt = bundle ? static_cast<u32>((total + ring.buf_size() - 1) / ring.buf_size()) : 1u;
-	assert(cnt > 0);
-	assert(cnt <= ring.count());
-	u16 const first_id = cqe_buffer_id(flags);
-	auto const start = ring.find_start_pos(first_id, cnt, bundle);
-	if (!start) [[unlikely]] {
+	auto slices = try_buffer_slices_from_cqe(ring, res, flags, bundle);
+	if (!slices) [[unlikely]] {
 		assert(false && "CQE buffer id/range is not present in the userspace buffer-ring window");
 		return {};
 	}
-	ring.consume_at(*start, cnt);
-	return RecvSlices{&ring, *start, cnt, total};
+	return move(*slices);
 }
 // ─── DirectFdTable ───────────────────────────────────────────────────────────
 // Registers a sparse fixed-file table with io_uring.
