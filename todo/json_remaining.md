@@ -78,4 +78,4 @@ Blocked by: `from_chars<double>` not constexpr, `DocumentStorage` needing `const
 
 ## Benchmark gap
 
-- [ ] Add `SocketTaskRing` vs `FileReader` end-to-end JSON decode benchmark (deferred from JSON bench corpus — see `benchmarks/json_bench.cxx`).
+- [x] Add `SocketTaskRing` vs `FileReader` end-to-end JSON decode benchmark (deferred from JSON bench corpus — see `benchmarks/json_bench.cxx`). The benchmark now runs `JsonAccumulator` against the same large corpus via a temp file and a loopback socket source.

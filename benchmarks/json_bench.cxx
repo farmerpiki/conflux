@@ -1,5 +1,20 @@
+#include <fcntl.h>
+#include <atomic>
+#include <cerrno>
+#include <filesystem>
+#include <fstream>
+#include <liburing.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 import std;
 import conflux.types;
+import conflux.work;
+import conflux.file_io;
+import conflux.socket_io;
+import conflux.socket_io.coro;
+import conflux.socket_io.blocking;
 import conflux.json;
 import bench_common;
 
@@ -409,6 +424,206 @@ void bench_accumulate_chunked(
 		1,
 		corpus.size());
 	print_row(name, s);
+}
+[[nodiscard]] int start_listener(
+	u16 &port_out) {
+	int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
+	if (fd < 0) {
+		throw RE{"socket"};
+	}
+	int one = 1;
+	::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
+	sockaddr_in addr{};
+	addr.sin_family = AF_INET;
+	addr.sin_addr.s_addr = ::htonl(INADDR_LOOPBACK);
+	addr.sin_port = 0;
+	if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
+		::close(fd);
+		throw RE{"bind"};
+	}
+	socklen_t slen = sizeof(addr);
+	if (::getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &slen) < 0) {
+		::close(fd);
+		throw RE{"getsockname"};
+	}
+	port_out = ::ntohs(addr.sin_port);
+	if (::listen(fd, 16) < 0) {
+		::close(fd);
+		throw RE{"listen"};
+	}
+	return fd;
+}
+[[nodiscard]] sockaddr_storage loopback_addr(
+	u16 port) noexcept {
+	sockaddr_storage ss{};
+	auto *sin = reinterpret_cast<sockaddr_in *>(&ss);
+	sin->sin_family = AF_INET;
+	sin->sin_addr.s_addr = ::htonl(INADDR_LOOPBACK);
+	sin->sin_port = ::htons(port);
+	return ss;
+}
+void send_all(
+	int fd,
+	SV data) {
+	auto const *ptr = data.data();
+	SZ remaining = data.size();
+	while (remaining > 0) {
+		ssize_t const n = ::send(fd, ptr, remaining, MSG_NOSIGNAL);
+		if (n < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			throw RE{"send"};
+		}
+		ptr += static_cast<SZ>(n);
+		remaining -= static_cast<SZ>(n);
+	}
+}
+void serve_json_corpus(
+	int listener_fd,
+	std::atomic_flag &stop,
+	SV corpus) {
+	timeval tv{.tv_sec = 0, .tv_usec = 100000};
+	(void)::setsockopt(listener_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+	while (!stop.test(std::memory_order_acquire)) {
+		int const cfd = ::accept4(listener_fd, nullptr, nullptr, SOCK_CLOEXEC);
+		if (cfd < 0) {
+			if (errno == EAGAIN || errno == EINTR) {
+				continue;
+			}
+			break;
+		}
+		try {
+			send_all(cfd, corpus);
+			::shutdown(cfd, SHUT_WR);
+		} catch (...) {
+			::close(cfd);
+			break;
+		}
+		::close(cfd);
+	}
+	::close(listener_fd);
+}
+struct TempCorpusFile {
+	std::filesystem::path path;
+	explicit TempCorpusFile(SV corpus) {
+		path = std::filesystem::temp_directory_path() / "conflux_json_bench_e2e.json";
+		std::ofstream out{path, std::ios::binary | std::ios::trunc};
+		if (!out) {
+			throw RE{format("cannot open {}", path.string())};
+		}
+		out.write(corpus.data(), static_cast<std::streamsize>(corpus.size()));
+		if (!out) {
+			throw RE{format("cannot write {}", path.string())};
+		}
+	}
+	~TempCorpusFile() {
+		std::error_code ec;
+		(void)std::filesystem::remove(path, ec);
+	}
+};
+conflux::work::root::Task<void> decode_file_once(
+	FileReader &files,
+	S path) {
+	auto handle = co_await files.open_async(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
+	JsonAccumulator acc;
+	A<u8, 8192> buf{};
+	u64 off = 0;
+	for (;;) {
+		auto got = co_await files.read_into(handle, off, as_writable_bytes(span{buf}));
+		if (got == 0) {
+			break;
+		}
+		off += got;
+		auto feed = acc.feed(span<byte const>{reinterpret_cast<byte const *>(buf.data()), got});
+		if (!feed) {
+			throw RE{"json accumulator feed failed"};
+		}
+	}
+	auto doc = acc.finish();
+	if (!doc) {
+		throw RE{"json accumulator finish failed"};
+	}
+	(void)doc->root();
+}
+conflux::work::root::Task<void> decode_socket_once(
+	SocketTaskRing &ring,
+	u16 port) {
+	auto ss = loopback_addr(port);
+	auto stream = co_await tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in));
+	JsonAccumulator acc;
+	A<u8, 8192> buf{};
+	for (;;) {
+		auto got = co_await stream.recv_borrowed(span<u8>{buf.data(), buf.size()});
+		if (got == 0) {
+			break;
+		}
+		auto feed = acc.feed(span<byte const>{reinterpret_cast<byte const *>(buf.data()), got});
+		if (!feed) {
+			throw RE{"json accumulator feed failed"};
+		}
+	}
+	auto doc = acc.finish();
+	if (!doc) {
+		throw RE{"json accumulator finish failed"};
+	}
+	(void)doc->root();
+}
+void bench_e2e_decode(
+	SV name,
+	S const &corpus) {
+	TempCorpusFile const temp{corpus};
+	S const file_path = temp.path.string();
+	::io_uring raw{};
+	if (::io_uring_queue_init(64, &raw, 0) < 0) {
+		throw RE{"io_uring_queue_init"};
+	}
+	CompletionTable ct;
+	auto const pack_ud = [](u32 s, u32 g) noexcept -> u64 {
+		return (static_cast<u64>(g) << 32U) | s;
+	};
+	FileReader files{&raw, &ct, pack_ud};
+	SocketTaskRing ring{SocketRawRing{&raw}, ct, pack_ud};
+	try {
+		auto file_stats = measure(
+			[&] { block_on(files, decode_file_once(files, file_path)); },
+			5,
+			20,
+			1,
+			corpus.size());
+		print_row(format("{}/file_reader", name), file_stats);
+		{
+			u16 port = 0;
+			int listener_fd = start_listener(port);
+			std::atomic_flag stop{};
+			std::thread server{[&] { serve_json_corpus(listener_fd, stop, corpus); }};
+			try {
+				auto socket_stats = measure(
+					[&] { block_on_socket_task(ring, decode_socket_once(ring, port)); },
+					5,
+					20,
+					1,
+					corpus.size());
+				print_row(format("{}/socket_task_ring", name), socket_stats);
+			} catch (...) {
+				stop.test_and_set(std::memory_order_release);
+				(void)::shutdown(listener_fd, SHUT_RDWR);
+				if (server.joinable()) {
+					server.join();
+				}
+				throw;
+			}
+			stop.test_and_set(std::memory_order_release);
+			(void)::shutdown(listener_fd, SHUT_RDWR);
+			if (server.joinable()) {
+				server.join();
+			}
+		}
+	} catch (...) {
+		::io_uring_queue_exit(&raw);
+		throw;
+	}
+	::io_uring_queue_exit(&raw);
 }
 // Item C — 1024-member object where every key has a \u escape → arena storage.
 // Decoded names are identical to make_lookup_corpus() ("member_N"), so the
@@ -853,6 +1068,11 @@ int main(
 	bench_parse_named("parse/mixed_numbers (1MB)", mixed_numbers_corpus);
 	bench_dump_named("dump/mixed_numbers", mixed_numbers_corpus);
 	bench_accumulate_chunked("accumulate/byte_span chunked (4KB large)", large_corpus, 4096);
+	if (!g_csv) {
+		println("[json-bench]");
+		println("[json-bench] -- e2e JSON decode: FileReader vs SocketTaskRing --");
+	}
+	bench_e2e_decode("e2e/large_json_decode", large_corpus);
 
 	if (!g_csv) {
 		println("[json-bench]");
