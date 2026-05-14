@@ -4,6 +4,7 @@ import std;
 import conflux.types;
 import conflux.json.boundary;
 import conflux.net.http.response_json;
+import conflux.net.http.native_json;
 
 namespace jb = conflux::json::boundary;
 namespace hj = conflux::http::json;
@@ -58,7 +59,7 @@ TEST_CASE(
 TEST_CASE(
 	"http json: response writer accepts direct chunk providers",
 	"[http.json]") {
-	auto resp = hj::try_response<StreamingOnlyProvider>(StreamingPayload{.value = 7});
+	auto resp = hj::try_response_with<StreamingOnlyProvider>(StreamingPayload{.value = 7});
 	REQUIRE(resp.has_value());
 	CHECK(resp->status == kHttpOk);
 	CHECK(resp->content_type == "application/json");
@@ -68,14 +69,28 @@ TEST_CASE(
 TEST_CASE(
 	"http json: explicit error path preserves provider-neutral dump errors",
 	"[http.json]") {
-	auto failed = hj::try_response<FailingProvider>(FailingPayload{});
+	auto failed = hj::try_response_with<FailingProvider>(FailingPayload{});
 	REQUIRE_FALSE(failed.has_value());
 	CHECK(failed.error().stage == jb::ErrorStage::dump);
 	CHECK(failed.error().code == jb::ErrorCode::provider_failure);
 	CHECK(failed.error().message == "forced failure");
 
-	auto fallback = hj::response_or_internal_error<FailingProvider>(FailingPayload{});
+	auto fallback = hj::response_or_internal_error_with<FailingProvider>(FailingPayload{});
 	CHECK(fallback.status == kHttpInternalServerError);
 	CHECK(fallback.content_type == "application/json");
 	CHECK(fallback.text_body() == R"({"error":"json serialization failed"})");
+}
+
+TEST_CASE(
+	"http json: native convenience can encode and decode request bodies",
+	"[http.json]") {
+	auto req = HttpRequest::post("https://example.test/api");
+	hj::set_body(req, static_cast<i64>(99));
+	auto built = move(req).build();
+	CHECK(built.headers().value_or("Content-Type") == jb::kContentType);
+	CHECK(built.body() == "99");
+
+	auto decoded = hj::decode_body<i64>(built, {.copy_input = false});
+	REQUIRE(decoded.has_value());
+	CHECK(*decoded == 99);
 }

@@ -194,7 +194,7 @@ Recommended next uring branch: defer `uring/recv-zc` until target kernel support
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
-| P0 | `json/boundary-traits` | Introduce a thin JSON provider/serde trait boundary without changing parser implementation. | Touches JSON-facing app/route modules; should merge before route JSON cleanup. | App/framework code stops directly depending on one concrete JSON representation at major boundaries. |
+| DONE | `json/boundary-traits` | Introduced provider-neutral JSON dump/decode/write traits and split HTTP JSON helpers into boundary-first `*_with<Provider>` APIs plus an isolated native convenience module. | Landed as JSON/HTTP boundary slice; parser internals unchanged. | HTTP JSON request/response helpers no longer require the native provider at the framework seam; direct providers can stream response chunks. |
 | DONE | `json/route-response-writer` | Added provider-neutral `write_with` plus HTTP route response helpers in `conflux.net.http.response_json`. Native provider currently falls back through `dump_json`; direct providers can stream chunks through `write_json(value, opts, sink)`. | Landed as isolated JSON/HTTP helper slice; parser internals untouched. | Response path serializes through adapter; direct writer providers avoid forced intermediate strings. |
 | P1 | `json/app-boundary-cleanup` | Clean remaining app-level JSON usage behind the trait. | Depends on boundary traits; can split by route group. | No new JSON provider lock-in in app code. |
 | P2 | `json/parser-dom-design` | Produce design/prototype for view-first parser + arena-backed DOM + reflection serde. | Do not implement broad parser while app boundaries are still concrete. | Prototype/design names memory model, error model, UTF/number policy, and integration API. |
@@ -202,7 +202,7 @@ Recommended next uring branch: defer `uring/recv-zc` until target kernel support
 | P3 | `json/reflection-serde` | C++26 reflection or PFR bridge under the stable trait shape. | Depends on trait and parser/DOM decision. | No macros, no hard JSON provider dependency, clear compile-time cost measurement. |
 | P3 | `json/schema-pointer-patch` | JSON Pointer/Patch/schema support. | After core boundary/parser shape. | Feature targets separate from core hot path. |
 
-Recommended next JSON branch: `json/boundary-traits`.
+Recommended next JSON branch: `json/app-boundary-cleanup`.
 
 ### Auth / security lane
 
@@ -234,7 +234,7 @@ Recommended next build branch: `build/perf-harness-stabilize`.
 | DONE | `docs/concurrency-naming-model` | Canonicalized execution model and `blocking_`/`sync_`/`async_` semantics in `docs/concurrency-naming-model.md`. | Docs-only. | New code review guidance points to one document. |
 | P0 | `docs/parallel-priority-plan` | Add this file. | Done by this patch. | Future branches can pick component queues without central replanning. |
 | Done | `docs/examples-compile-ci` | Added `CONFLUX_BUILD_EXAMPLES`, `conflux_examples`, and `examples/compile` CTest build gate. | Build/docs only. | Server examples compile without being executed. |
-| P1 | `docs/json-boundary-guide` | Explain JSON provider trait boundary and why parser work is later. | Depends on JSON boundary branch shape. | Route authors know where JSON dependencies are allowed. |
+| DONE | `docs/json-boundary-guide` | Documented provider-neutral modules, native convenience edge, provider shape, and rules for HTTP/app framework code. | Landed with boundary traits. | Route authors know where JSON dependencies are allowed. |
 | P2 | `docs/release-blockers` | Maintain release-blocker checklist. | Later, after P0/P1 branches settle. | Checklist includes security, docs, perf harness, fuzzing, alias removal. |
 
 Recommended next docs branch: `docs/json-boundary-guide`, after `json/boundary-traits` lands.

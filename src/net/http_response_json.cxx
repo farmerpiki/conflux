@@ -27,8 +27,8 @@ struct ResponseBodySink {
 
 } // namespace detail
 
-template<class Provider = DefaultJsonProvider, class T>
-[[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response(
+template<class Provider, class T>
+[[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response_with(
 	T const &value,
 	ResponseOptions const &opts = {})
 	requires conflux::json::boundary::JsonWritableProvider<
@@ -45,7 +45,73 @@ template<class Provider = DefaultJsonProvider, class T>
 	return HttpResponse::json(move(body), opts.status, S{opts.status_text});
 }
 
-template<class Provider = DefaultJsonProvider, class T>
+template<class Provider, class T>
+[[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response_with(
+	T const &value,
+	int status,
+	SV status_text,
+	conflux::json::boundary::DumpOptions const &opts = {})
+	requires conflux::json::boundary::JsonWritableProvider<
+		Provider,
+		std::remove_cvref_t<T>,
+		detail::ResponseBodySink &>
+{
+	return try_response_with<Provider>(
+		value,
+		ResponseOptions{.status = status, .status_text = status_text, .dump = opts});
+}
+
+[[nodiscard]] inline HttpResponse serialization_error_response() {
+	return HttpResponse::json(R"({"error":"json serialization failed"})", kHttpInternalServerError, "Internal Server Error");
+}
+
+template<class Provider, class T>
+[[nodiscard]] HttpResponse response_or_internal_error_with(
+	T const &value,
+	ResponseOptions const &opts = {})
+	requires conflux::json::boundary::JsonWritableProvider<
+		Provider,
+		std::remove_cvref_t<T>,
+		detail::ResponseBodySink &>
+{
+	auto resp = try_response_with<Provider>(value, opts);
+	if (resp) {
+		return move(*resp);
+	}
+	return serialization_error_response();
+}
+
+template<class Provider, class T>
+[[nodiscard]] HttpResponse response_or_internal_error_with(
+	T const &value,
+	int status,
+	SV status_text,
+	conflux::json::boundary::DumpOptions const &opts = {})
+	requires conflux::json::boundary::JsonWritableProvider<
+		Provider,
+		std::remove_cvref_t<T>,
+		detail::ResponseBodySink &>
+{
+	return response_or_internal_error_with<Provider>(
+		value,
+		ResponseOptions{.status = status, .status_text = status_text, .dump = opts});
+}
+
+// Pre-release compatibility aliases. New boundary-first code should call the
+// *_with form so provider selection is explicit at the HTTP layer.
+template<class Provider, class T>
+[[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response(
+	T const &value,
+	ResponseOptions const &opts = {})
+	requires conflux::json::boundary::JsonWritableProvider<
+		Provider,
+		std::remove_cvref_t<T>,
+		detail::ResponseBodySink &>
+{
+	return try_response_with<Provider>(value, opts);
+}
+
+template<class Provider, class T>
 [[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response(
 	T const &value,
 	int status,
@@ -56,14 +122,10 @@ template<class Provider = DefaultJsonProvider, class T>
 		std::remove_cvref_t<T>,
 		detail::ResponseBodySink &>
 {
-	return try_response<Provider>(value, ResponseOptions{.status = status, .status_text = status_text, .dump = opts});
+	return try_response_with<Provider>(value, status, status_text, opts);
 }
 
-[[nodiscard]] inline HttpResponse serialization_error_response() {
-	return HttpResponse::json(R"({"error":"json serialization failed"})", kHttpInternalServerError, "Internal Server Error");
-}
-
-template<class Provider = DefaultJsonProvider, class T>
+template<class Provider, class T>
 [[nodiscard]] HttpResponse response_or_internal_error(
 	T const &value,
 	ResponseOptions const &opts = {})
@@ -72,14 +134,10 @@ template<class Provider = DefaultJsonProvider, class T>
 		std::remove_cvref_t<T>,
 		detail::ResponseBodySink &>
 {
-	auto resp = try_response<Provider>(value, opts);
-	if (resp) {
-		return move(*resp);
-	}
-	return serialization_error_response();
+	return response_or_internal_error_with<Provider>(value, opts);
 }
 
-template<class Provider = DefaultJsonProvider, class T>
+template<class Provider, class T>
 [[nodiscard]] HttpResponse response_or_internal_error(
 	T const &value,
 	int status,
@@ -90,9 +148,7 @@ template<class Provider = DefaultJsonProvider, class T>
 		std::remove_cvref_t<T>,
 		detail::ResponseBodySink &>
 {
-	return response_or_internal_error<Provider>(
-		value,
-		ResponseOptions{.status = status, .status_text = status_text, .dump = opts});
+	return response_or_internal_error_with<Provider>(value, status, status_text, opts);
 }
 
 } // namespace conflux::http::json

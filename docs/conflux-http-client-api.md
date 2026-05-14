@@ -225,18 +225,25 @@ Body (debug builds assert that body is set at most once unless `clear_body()` is
 .clear_body()
 ```
 
-JSON request-body serialization lives in the optional `conflux.net.http.json`
-module instead of `HttpRequest::Builder`, so `conflux.net.http.request` stays
-free of a JSON module dependency. The helper serializes through the JSON provider
-boundary (`conflux.json.boundary`); the default provider is the native
-`conflux.json` adapter:
+JSON request-body serialization lives in optional HTTP JSON modules instead of
+`HttpRequest::Builder`, so `conflux.net.http.request` stays free of a JSON
+module dependency. Reusable/framework code should use the provider-explicit
+`conflux.net.http.json` helpers; app code can import the native convenience edge
+when it intentionally chooses the current `conflux.json` adapter:
 
 ```cpp
 import conflux.net.http.json;
 
 auto b = HttpRequest::post("https://example.test/submit");
+conflux::http::json::set_body_with<CustomProvider>(b, value);
+auto req = std::move(b).build();
+```
+
+```cpp
+import conflux.net.http.native_json;
+
+auto b = HttpRequest::post("https://example.test/submit");
 conflux::http::json::set_body(b, doc);
-conflux::http::json::set_body<CustomProvider>(b, value);
 auto req = std::move(b).build();
 ```
 

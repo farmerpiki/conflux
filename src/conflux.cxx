@@ -9,9 +9,14 @@ export import conflux.file_watch;
 export import conflux.templates;
 #endif
 export import conflux.json.boundary;
+#if CONFLUX_HAS_JSON
 export import conflux.json;
 export import conflux.json.native_provider;
 #if CONFLUX_HAS_JSON_FILE
 export import conflux.json.file;
 #endif
+#endif
 export import conflux.net.http;
+#if CONFLUX_HAS_JSON
+export import conflux.net.http.native_json;
+#endif

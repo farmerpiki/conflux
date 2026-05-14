@@ -57,12 +57,15 @@ back to `dump_json` and forwards the single produced chunk. The fallback keeps
 the current native provider behavior explicit while allowing streaming providers
 to avoid an intermediate owning JSON string later.
 
-HTTP JSON helpers now depend on `conflux.json.native_provider` instead of
-serializing `Document` directly. Custom providers should implement the same
-static `dump_json` / `decode_json` / `parse_json_document` shape, and may add
-`write_json(value, opts, sink)` for direct chunked output. Providers return
-`conflux::json::boundary::Error` rather than leaking provider-specific errors
-through framework boundaries.
+HTTP JSON framework helpers depend on `conflux.json.boundary`, not the native
+provider. Provider-explicit APIs use the `*_with<Provider>` suffix. The native
+convenience edge lives in `conflux.net.http.native_json`, which imports
+`conflux.json.native_provider` and restores default-provider overloads for app
+code that intentionally chooses the current native adapter. Custom providers
+should implement the same static `dump_json` / `decode_json` /
+`parse_json_document` shape, and may add `write_json(value, opts, sink)` for
+direct chunked output. Providers return `conflux::json::boundary::Error` rather
+than leaking provider-specific errors through framework boundaries.
 
 ---
 

@@ -19,6 +19,8 @@ export namespace conflux {
     inline constexpr bool HAS_BROTLI   = @CONFLUX_HAS_BROTLI@;
     // true when the library was built with zstd.
     inline constexpr bool HAS_ZSTD     = @CONFLUX_HAS_ZSTD@;
+    // true when the native JSON parser/DOM provider is compiled in.
+    inline constexpr bool HAS_JSON = @CONFLUX_HAS_JSON@;
     // true when inotify-backed file watch support is compiled in.
     inline constexpr bool HAS_FILE_WATCH = @CONFLUX_HAS_FILE_WATCH@;
     // true when the template engine module is compiled in.

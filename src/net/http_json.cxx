@@ -4,13 +4,12 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 export import conflux.net.http.request;
-export import conflux.json.native_provider;
+export import conflux.json.boundary;
+
 export namespace conflux::http::json {
 
-using DefaultJsonProvider = conflux::json::boundary::NativeJsonProvider;
-
-template<class Provider = DefaultJsonProvider, class T>
-inline HttpRequest::Builder &set_body(
+template<class Provider, class T>
+inline HttpRequest::Builder &set_body_with(
 	HttpRequest::Builder &b,
 	T const &value,
 	conflux::json::boundary::DumpOptions const &opts = {})
@@ -23,14 +22,23 @@ inline HttpRequest::Builder &set_body(
 	return b.content_type(conflux::json::boundary::kContentType);
 }
 
-template<class Provider = DefaultJsonProvider, class T>
-inline HttpRequest::Builder &&set_body(
+template<class Provider, class T>
+inline HttpRequest::Builder &&set_body_with(
 	HttpRequest::Builder &&b,
 	T const &value,
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonDumpProvider<Provider, T>
 {
-	return move(set_body<Provider>(b, value, opts));
+	return move(set_body_with<Provider>(b, value, opts));
+}
+
+template<class Provider, class T>
+[[nodiscard]] expected<std::remove_cvref_t<T>, conflux::json::boundary::Error> decode_body_with(
+	HttpRequest const &req,
+	conflux::json::boundary::DecodeOptions const &opts = {})
+	requires conflux::json::boundary::JsonDecodeProvider<Provider, std::remove_cvref_t<T>>
+{
+	return conflux::json::boundary::decode_with<Provider, std::remove_cvref_t<T>>(SV{req.body()}, opts);
 }
 
 } // namespace conflux::http::json

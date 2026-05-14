@@ -262,6 +262,11 @@ if(CONFLUX_WANT_TEMPLATES)
 else()
     set(CONFLUX_HAS_TEMPLATES "false")
 endif()
+if(CONFLUX_WANT_JSON)
+    set(CONFLUX_HAS_JSON "true")
+else()
+    set(CONFLUX_HAS_JSON "false")
+endif()
 
 # Generate the conflux.features module from the template.
 configure_file(
@@ -352,7 +357,7 @@ if(CONFLUX_HAS_AESNI)
 endif()
 endif()
 
-if(CONFLUX_WANT_JSON)
+if(CONFLUX_WANT_JSON OR CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_json_boundary STATIC)
 target_sources(conflux_json_boundary
     PUBLIC FILE_SET CXX_MODULES
@@ -363,7 +368,9 @@ target_link_libraries(conflux_json_boundary
     PUBLIC  conflux_types
     PRIVATE conflux_options
 )
+endif()
 
+if(CONFLUX_WANT_JSON)
 add_library(conflux_json STATIC)
 target_sources(conflux_json
     PUBLIC FILE_SET CXX_MODULES
@@ -408,8 +415,8 @@ endif()
 if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT CONFLUX_WANT_HTTP_CORE)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires CONFLUX_BUILD_HTTP_CORE")
 endif()
-if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT TARGET conflux_json_native_provider)
-    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires CONFLUX_BUILD_JSON")
+if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT TARGET conflux_json_boundary)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires conflux_json_boundary")
 endif()
 
 set(CONFLUX_HTTP_ROUTER_STACK_REQUESTED FALSE)
@@ -576,7 +583,7 @@ if(CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
     target_link_libraries(conflux_http_json
         PRIVATE conflux_options
         PUBLIC  conflux_http_core
-        PUBLIC  conflux_json_native_provider
+        PUBLIC  conflux_json_boundary
     )
 endif()
 
@@ -1007,6 +1014,20 @@ target_link_libraries(conflux_http_response_json
     PUBLIC  conflux_http_response
 )
 endif() # conflux_http_response && conflux_http_json
+
+if(TARGET conflux_http_response_json AND TARGET conflux_json_native_provider)
+add_library(conflux_http_native_json STATIC)
+target_sources(conflux_http_native_json
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/http_native_json.cxx
+)
+target_link_libraries(conflux_http_native_json
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_response_json
+    PUBLIC  conflux_json_native_provider
+)
+endif() # conflux_http_response_json && conflux_json_native_provider
 
 if(CONFLUX_HTTP_STATIC_SURFACE_REQUESTED)
 add_library(conflux_http_static_core STATIC)
@@ -1716,6 +1737,9 @@ endif()
 if(TARGET conflux_json_native_provider)
     target_link_libraries(conflux PUBLIC conflux_json_native_provider)
 endif()
+if(TARGET conflux_http_native_json)
+    target_link_libraries(conflux PUBLIC conflux_http_native_json)
+endif()
 if(TARGET conflux_json_file)
     target_link_libraries(conflux PUBLIC conflux_json_file)
 endif()
@@ -1761,6 +1785,7 @@ endif()
 # by conflux_file_watch; the umbrella module only re-exports it when present.
 target_compile_definitions(conflux
     PUBLIC
+        CONFLUX_HAS_JSON=$<BOOL:${CONFLUX_WANT_JSON}>
         CONFLUX_HAS_JSON_FILE=$<BOOL:${CONFLUX_WANT_JSON_FILE}>
         CONFLUX_HAS_TEMPLATES=$<BOOL:${CONFLUX_WANT_TEMPLATES}>
         CONFLUX_HAS_FILE_WATCH=$<BOOL:${CONFLUX_WANT_FILE_WATCH}>
@@ -1943,6 +1968,7 @@ conflux_public_component(conflux_http_openapi http_openapi)
 conflux_public_component(conflux_http_vhost http_vhost)
 conflux_public_component(conflux_http_json http_json)
 conflux_public_component(conflux_http_response_json http_response_json)
+conflux_public_component(conflux_http_native_json http_native_json)
 conflux_public_component(conflux_http1 http1)
 conflux_public_component(conflux_http2 http2)
 conflux_public_component(conflux_http3 http3)
@@ -2016,6 +2042,7 @@ foreach(_target IN ITEMS
         conflux_http_vhost
         conflux_http_json
         conflux_http_response_json
+        conflux_http_native_json
         conflux_http1
         conflux_http2
         conflux_http3
