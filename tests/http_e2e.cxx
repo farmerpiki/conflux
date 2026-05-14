@@ -2565,6 +2565,78 @@ TEST_CASE(
 	::rmdir(tmpdir);
 }
 TEST_CASE(
+	"static file serving: trailing slash root_dir works for put and delete") {
+	char tmpdir[] = "/tmp/conflux_static_slash_rw_XXXXXX";
+	REQUIRE(::mkdtemp(tmpdir) != nullptr);
+
+	Config cfg{};
+	cfg.port = 0;
+	cfg.rings = 1;
+	cfg.ring_entries = 256;
+	cfg.single_issuer = true;
+	cfg.defer_taskrun = true;
+	cfg.coop_taskrun = true;
+	cfg.taskrun_flag = true;
+
+	Router router;
+	StaticOptions sopts{};
+	sopts.allow_put = true;
+	sopts.allow_delete = true;
+	router.serve_static("/static", S{tmpdir} + "/", sopts);
+
+	ScopedTestServer srv{cfg, move(router)};
+	u16 const port = srv.port();
+
+	auto raw_request = [&](SV method, SV path, SV body = "") {
+		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
+		REQUIRE(fd >= 0);
+		sockaddr_in addr{};
+		addr.sin_family = AF_INET;
+		addr.sin_port = htons(port);
+		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+		REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
+		auto req = format(
+			"{} {} HTTP/1.1\r\nHost: localhost\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+			method,
+			path,
+			body.size(),
+			body);
+		REQUIRE(::send(fd, req.data(), req.size(), 0) == static_cast<ssize_t>(req.size()));
+		auto resp = read_one_response(fd);
+		::close(fd);
+		return resp;
+	};
+
+	SECTION("PUT works with trailing-slash root_dir") {
+		auto resp = raw_request("PUT", "/static/new.txt", "hello");
+		REQUIRE(resp.starts_with("HTTP/1.1 201 Created"));
+		auto path = S{tmpdir} + "/new.txt";
+		int const fd = ::open(path.c_str(), O_RDONLY);
+		REQUIRE(fd >= 0);
+		char buf[16]{};
+		auto n = ::read(fd, buf, sizeof(buf));
+		::close(fd);
+		REQUIRE(n == 5);
+		CHECK(SV{buf, static_cast<SZ>(n)} == "hello");
+		::unlink(path.c_str());
+	}
+
+	SECTION("DELETE works with trailing-slash root_dir") {
+		auto path = S{tmpdir} + "/gone.txt";
+		int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+		REQUIRE(fd >= 0);
+		REQUIRE(::write(fd, "bye", 3) == 3);
+		::close(fd);
+
+		auto resp = raw_request("DELETE", "/static/gone.txt");
+		REQUIRE(resp.starts_with("HTTP/1.1 204 No Content"));
+		CHECK(::access(path.c_str(), F_OK) != 0);
+	}
+
+	srv.stop();
+	::rmdir(tmpdir);
+}
+TEST_CASE(
 	"static file serving: offload_pool parity") {
 	char tmpdir[] = "/tmp/conflux_static_off_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
