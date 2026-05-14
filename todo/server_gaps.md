@@ -68,7 +68,7 @@ Implemented in this patch:
 
 Still implemented but not directly covered by deterministic tests after pass 3:
 
-- [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
+- [x] HTTP parser/helper duplicate implementation drift: the legacy `#if 0` local copies in `http_server_impl.cxx` were removed, leaving the exported `conflux.net.http_server_helpers` module as the single source of truth for request/body parsing helpers.
 - [x] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; now covered by sync/async E2E tests in pass 7.
 - [ ] HTTP request body double-set debug assertion path; needs an assert-probe binary like the recv-bundle probes because release builds intentionally use last-wins behavior.
 
@@ -81,7 +81,7 @@ Implemented in this patch:
 
 Still implemented but not directly covered by deterministic tests after pass 4:
 
-- [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
+- [x] HTTP parser/helper duplicate implementation drift: the legacy `#if 0` local copies in `http_server_impl.cxx` were removed, leaving the exported `conflux.net.http_server_helpers` module as the single source of truth for request/body parsing helpers.
 - [x] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; now covered by sync/async E2E tests in pass 7.
 
 ## Test coverage gap pass 5 (2026-05-14)
@@ -92,7 +92,7 @@ Implemented in this patch:
 
 Still implemented but not directly covered by deterministic tests after pass 5:
 
-- [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
+- [x] HTTP parser/helper duplicate implementation drift: the legacy `#if 0` local copies in `http_server_impl.cxx` were removed, leaving the exported `conflux.net.http_server_helpers` module as the single source of truth for request/body parsing helpers.
 
 ## Test coverage gap pass 6 (2026-05-14)
 
@@ -103,7 +103,7 @@ Implemented in this patch:
 
 Still implemented but not directly covered by deterministic tests after pass 6:
 
-- [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
+- [x] HTTP parser/helper duplicate implementation drift: the legacy `#if 0` local copies in `http_server_impl.cxx` were removed, leaving the exported `conflux.net.http_server_helpers` module as the single source of truth for request/body parsing helpers.
 
 ## Test coverage gap pass 7 (2026-05-14)
 
