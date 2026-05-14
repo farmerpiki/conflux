@@ -19,6 +19,7 @@ import conflux.types;
 import conflux.crypto;
 import conflux.net.async_client;
 import conflux.net.http;
+import conflux.net.compress;
 import conflux.net.proxy;
 import conflux.net.http1_parser;
 import conflux.net.tls;
@@ -5120,6 +5121,14 @@ TEST_CASE(
 #else
 	REQUIRE(resp.find("Content-Encoding:") == S::npos);
 #endif
+}
+TEST_CASE(
+	"compress: backend names expose stable labels") {
+	CHECK(gzip_backend_name(GzipBackend::auto_select) == "auto");
+	CHECK(gzip_backend_name(GzipBackend::zlib) == "zlib");
+	CHECK(gzip_backend_name(GzipBackend::libdeflate) == "libdeflate");
+	CHECK(gzip_backend_name(GzipBackend::zlib_ng) == "zlib-ng");
+	CHECK(gzip_backend_name(GzipBackend::isa_l) == "isa-l");
 }
 TEST_CASE(
 	"compress: wildcard * selects preferred dynamic codec") {

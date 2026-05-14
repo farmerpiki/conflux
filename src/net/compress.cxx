@@ -36,7 +36,7 @@ export enum class GzipBackend : u8 {
 	zlib_ng,
 	isa_l,
 };
-export [[nodiscard]] SV gzip_backend_name(
+export [[nodiscard]] std::string_view gzip_backend_name(
 	GzipBackend backend) noexcept {
 	switch (backend) {
 	case GzipBackend::auto_select: return "auto";
