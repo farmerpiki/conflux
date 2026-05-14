@@ -4651,3 +4651,64 @@ TEST_CASE(
 	CHECK(result.error().code == JsonIssueCode::wrong_kind);
 	CHECK(result.error().member_name == "x");
 }
+
+TEST_CASE(
+	"json dom prototype: policy factories name storage and validation model",
+	"[json][dom]") {
+	constexpr JsonDomPolicy view = JsonDomPolicy::view_first();
+	static_assert(view.input == JsonDomInputOwnership::borrowed_view);
+	static_assert(view.storage == JsonDomStorageModel::standalone_document);
+	static_assert(view.strings == JsonDomStringModel::view_unescaped_copy_decoded);
+	static_assert(view.numbers == JsonDomNumberModel::preserve_lexeme_parse_on_access);
+	static_assert(view.utf8 == JsonDomUtf8Model::strict_validate_on_parse);
+	static_assert(view.errors == JsonDomErrorModel::expected_json_error);
+	static_assert(view.object_index == JsonDomObjectIndexModel::preserve_order_warm_hash_on_demand);
+
+	constexpr JsonDomPolicy arena = JsonDomPolicy::arena_reuse();
+	static_assert(arena.storage == JsonDomStorageModel::reusable_arena);
+	static_assert(arena.input == JsonDomInputOwnership::owned_copy);
+}
+
+TEST_CASE(
+	"json dom prototype: standalone parse facade preserves view and copy choices",
+	"[json][dom]") {
+	S stable = R"({"name":"view","n":7})";
+	auto view_doc = parse_dom(SV{stable}, JsonDomPolicy::view_first());
+	REQUIRE(view_doc.has_value());
+	CHECK(*view_doc->root().as_object()->member("name")->as_string() == "view");
+
+	auto copy_doc = parse_dom(SV{stable}, JsonDomPolicy::owning_document());
+	REQUIRE(copy_doc.has_value());
+	CHECK(*copy_doc->root().as_object()->member("n")->as_number()->to_i64() == 7LL);
+
+	auto moved_doc = parse_dom(S{R"({"name":"moved"})"});
+	REQUIRE(moved_doc.has_value());
+	CHECK(*moved_doc->root().as_object()->member("name")->as_string() == "moved");
+}
+
+TEST_CASE(
+	"json dom prototype: arena facade names reusable storage path",
+	"[json][dom]") {
+	JsonArena arena;
+	auto doc = parse_dom(arena, SV{R"({"ok":true})"}, JsonDomPolicy::arena_reuse());
+	REQUIRE(doc.has_value());
+	CHECK(*doc->root().as_object()->member("ok")->as_bool());
+
+	arena.reset();
+	auto borrowed = parse_dom(arena, SV{R"([1,2,3])"}, JsonDomPolicy::arena_borrowed());
+	REQUIRE(borrowed.has_value());
+	CHECK(borrowed->root().as_array()->size() == 3UZ);
+}
+
+TEST_CASE(
+	"json dom prototype: policy mismatches fail through JsonError",
+	"[json][dom]") {
+	auto wrong_storage = parse_dom(SV{"{}"}, JsonDomPolicy::arena_reuse());
+	REQUIRE_FALSE(wrong_storage.has_value());
+	CHECK(wrong_storage.error().stage == JsonStage::parse);
+	CHECK(wrong_storage.error().code == JsonIssueCode::constraint_violation);
+
+	auto unsafe_borrow = parse_dom(S{"{}"}, JsonDomPolicy::view_first());
+	REQUIRE_FALSE(unsafe_borrow.has_value());
+	CHECK(unsafe_borrow.error().code == JsonIssueCode::constraint_violation);
+}

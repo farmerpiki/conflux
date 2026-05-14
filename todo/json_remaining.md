@@ -79,3 +79,15 @@ Blocked by: `from_chars<double>` not constexpr, `DocumentStorage` needing `const
 ## Benchmark gap
 
 - [x] Add `SocketTaskRing` vs `FileReader` end-to-end JSON decode benchmark (deferred from JSON bench corpus — see `benchmarks/json_bench.cxx`). The benchmark now runs `JsonAccumulator` against the same large corpus via a temp file and a loopback socket source.
+
+---
+
+## Parallel JSON lane additions
+
+### Parser/DOM policy facade — DONE
+
+`json/parser-dom-design` added `JsonDomPolicy` and `parse_dom(...)` wrappers in
+`conflux.json`, plus `docs/json-dom-prototype.md`. This names the intended
+view-first, caller-PMR, and reusable-arena DOM integration surface without
+starting a broad parser rewrite. Future tokenizer/DOM/reflection work should
+use this facade and keep HTTP/app code on `conflux.json.boundary`.

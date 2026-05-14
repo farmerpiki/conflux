@@ -197,12 +197,12 @@ Recommended next uring branch: defer `uring/recv-zc` until target kernel support
 | DONE | `json/boundary-traits` | Introduced provider-neutral JSON dump/decode/write traits and split HTTP JSON helpers into boundary-first `*_with<Provider>` APIs plus an isolated native convenience module. | Landed as JSON/HTTP boundary slice; parser internals unchanged. | HTTP JSON request/response helpers no longer require the native provider at the framework seam; direct providers can stream response chunks. |
 | DONE | `json/route-response-writer` | Added provider-neutral `write_with` plus HTTP route response helpers in `conflux.net.http.response_json`. Native provider currently falls back through `dump_json`; direct providers can stream chunks through `write_json(value, opts, sink)`. | Landed as isolated JSON/HTTP helper slice; parser internals untouched. | Response path serializes through adapter; direct writer providers avoid forced intermediate strings. |
 | DONE | `json/app-boundary-cleanup` | Added provider-explicit app/router typed JSON route helpers in `conflux.net.http.app_json`; request decode and response serialization now flow through boundary traits without importing the native provider. | Landed after boundary traits; parser internals untouched. | Reusable app/route helpers do not choose a concrete provider; native convenience remains isolated at `conflux.net.http.native_json`. |
-| P1 | `json/bench-fixtures` | Add JSON perf/correctness fixtures for route payloads and malformed inputs. | Can run parallel with design; low conflict. | Benchmarks include strict UTF-8, large numbers, missing/out-of-order keys, duplicate keys, deep nesting. |
-| P2 | `json/parser-dom-design` | Produce design/prototype for view-first parser + arena-backed DOM + reflection serde. | Do not implement broad parser before fixtures and boundary checks. | Prototype/design names memory model, error model, UTF/number policy, and integration API. |
+| DONE | `json/bench-fixtures` | Added JSON perf/correctness fixtures for route payloads and malformed inputs, plus generated invalid-UTF-8 coverage. | Landed after app-boundary cleanup; parser internals unchanged. | Benchmarks/tests cover strict UTF-8, large numbers, missing/out-of-order keys, duplicate keys, and deep nesting. |
+| DONE | `json/parser-dom-design` | Added a documented `JsonDomPolicy` / `parse_dom(...)` prototype facade for view-first, caller-PMR, and arena-backed DOM paths. | Parser internals unchanged; future parser work must stay behind this surface. | Memory model, error model, UTF policy, number policy, object-index policy, and integration API are named and tested. |
 | P3 | `json/reflection-serde` | C++26 reflection or PFR bridge under the stable trait shape. | Depends on trait and parser/DOM decision. | No macros, no hard JSON provider dependency, clear compile-time cost measurement. |
 | P3 | `json/schema-pointer-patch` | JSON Pointer/Patch/schema support. | After core boundary/parser shape. | Feature targets separate from core hot path. |
 
-Recommended next JSON branch: `json/bench-fixtures`, then `json/parser-dom-design`.
+Recommended next JSON branch: `json/reflection-serde`.
 
 ### Auth / security lane
 
@@ -261,9 +261,9 @@ These branches can start from the same base with low conflict risk:
    - Builds on the password-hash wrapper shape.
    - Move secrets/pepper/session config behind typed missing-config errors.
 
-3. `json/bench-fixtures`
-   - Adds route-payload and malformed-input coverage before parser/DOM work.
-   - Can run after the provider-neutral boundary/app-route helpers.
+3. `json/reflection-serde`
+   - Extend serde behind the boundary/provider shape and parser/DOM policy facade.
+   - Keep macro-free and measure compile-time cost; do not import native JSON into HTTP/app framework code.
 
 5. `build/perf-harness-stabilize`
    - Enables measured HTTP/uring/worker perf changes.
@@ -274,8 +274,9 @@ These branches can start from the same base with low conflict risk:
   finished and benchmark harness is stable.
 - `uring/recv-zc`: defer implementation until target kernels are stable; prepare the
   abstraction earlier.
-- Full JSON parser/arena DOM/reflection serde: important, but do not start until
-  JSON bench/correctness fixtures are in place and provider replacement stays local.
+- Full JSON parser/arena DOM rewrite: important, but do not start until
+  reflection/provider experiments and benchmark gates show the current facade is
+  too limiting.
 - HTTP/2/HTTP/3: not before handler/runtime semantics stabilize.
 - Broad public API rename: not before component internals settle.
 - Alias removal: final release cleanup only.

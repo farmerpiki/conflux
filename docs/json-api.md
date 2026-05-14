@@ -112,6 +112,31 @@ Use explicit owning parsing when the source buffer will not outlive the document
 auto doc = parse_copy(load_config());
 ```
 
+### Parser/DOM prototype facade
+
+`JsonDomPolicy` names the planned parser/DOM architecture without replacing the
+current parser yet. It is useful for code and tests that need to choose the
+memory model explicitly while preserving one future-compatible API.
+
+```cpp
+JsonDomPolicy view   = JsonDomPolicy::view_first();       // borrowed bytes
+JsonDomPolicy owned  = JsonDomPolicy::owning_document();  // copy/move bytes
+JsonDomPolicy pmr    = JsonDomPolicy::caller_pmr();       // caller resource
+JsonDomPolicy arena  = JsonDomPolicy::arena_reuse();      // JsonArena storage
+
+auto a = parse_dom(body, view);
+auto b = parse_dom(std::string{body}, owned);
+auto c = parse_dom(body, resource, pmr);
+auto d = parse_dom(json_arena, body, arena);
+```
+
+The facade fixes these design choices for future parser work: strings use
+`view_unescaped_copy_decoded`, numbers use `preserve_lexeme_parse_on_access`,
+UTF-8 is `strict_validate_on_parse`, errors are `expected_json_error`, and object
+lookup preserves order with on-demand hash warming. Policy/storage mismatches
+return `JsonIssueCode::constraint_violation`. See `docs/json-dom-prototype.md`
+for the branch design notes.
+
 ### Optional sync file helpers
 
 File parsing is intentionally kept out of `conflux.json`. Import
@@ -677,7 +702,7 @@ struct NodeIdentityEqual { bool   operator()(NodeRef, NodeRef) const noexcept; }
 
 ```cpp
 struct JsonArenaOptions {
-    size_t initial_slab_bytes; // pre-allocated slab size
+    size_t initial_slab; // pre-allocated slab size
 };
 
 class JsonArena {
@@ -697,7 +722,7 @@ public:
 `ArenaDocument` is a handle into the arena's storage. **All `ArenaDocument` handles are invalidated by `reset()`** — do not hold them across a reset.
 
 ```cpp
-JsonArena arena{JsonArenaOptions{.initial_slab_bytes = 1024 * 1024}};
+JsonArena arena{JsonArenaOptions{.initial_slab = 1024 * 1024}};
 
 for (auto const& raw : requests) {
     auto doc = arena.parse_into(raw);

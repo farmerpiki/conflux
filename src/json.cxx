@@ -374,6 +374,96 @@ export enum class UnknownMemberPolicy : u8 {
 export struct JsonDecodeOptions {
 	UnknownMemberPolicy unknown_members{UnknownMemberPolicy::reject};
 };
+
+// The parser/DOM prototype policy makes the intended replacement architecture
+// explicit without starting a broad parser rewrite. The current implementation
+// below already provides the three storage routes we want to preserve: borrowed
+// view documents, PMR-backed owned/caller-resource documents, and reusable arena
+// documents. Future tokenizer/DOM work should keep these policy names stable and
+// replace implementations behind them.
+export enum class JsonDomInputOwnership : u8 {
+	borrowed_view,
+	owned_copy,
+	owned_move,
+};
+
+export enum class JsonDomStorageModel : u8 {
+	standalone_document,
+	caller_pmr_document,
+	reusable_arena,
+};
+
+export enum class JsonDomStringModel : u8 {
+	view_unescaped_copy_decoded,
+};
+
+export enum class JsonDomNumberModel : u8 {
+	preserve_lexeme_parse_on_access,
+};
+
+export enum class JsonDomUtf8Model : u8 {
+	strict_validate_on_parse,
+};
+
+export enum class JsonDomErrorModel : u8 {
+	expected_json_error,
+};
+
+export enum class JsonDomObjectIndexModel : u8 {
+	preserve_order_warm_hash_on_demand,
+};
+
+export struct JsonDomPolicy {
+	JsonDomInputOwnership input{JsonDomInputOwnership::borrowed_view};
+	JsonDomStorageModel storage{JsonDomStorageModel::standalone_document};
+	JsonDomStringModel strings{JsonDomStringModel::view_unescaped_copy_decoded};
+	JsonDomNumberModel numbers{JsonDomNumberModel::preserve_lexeme_parse_on_access};
+	JsonDomUtf8Model utf8{JsonDomUtf8Model::strict_validate_on_parse};
+	JsonDomErrorModel errors{JsonDomErrorModel::expected_json_error};
+	JsonDomObjectIndexModel object_index{JsonDomObjectIndexModel::preserve_order_warm_hash_on_demand};
+	JsonParseOptions parse{};
+
+	[[nodiscard]] static constexpr JsonDomPolicy view_first(
+		JsonParseOptions parse_opts = {}) noexcept {
+		return JsonDomPolicy{
+			.input = JsonDomInputOwnership::borrowed_view,
+			.storage = JsonDomStorageModel::standalone_document,
+			.parse = parse_opts};
+	}
+
+	[[nodiscard]] static constexpr JsonDomPolicy owning_document(
+		JsonParseOptions parse_opts = {}) noexcept {
+		return JsonDomPolicy{
+			.input = JsonDomInputOwnership::owned_copy,
+			.storage = JsonDomStorageModel::standalone_document,
+			.parse = parse_opts};
+	}
+
+	[[nodiscard]] static constexpr JsonDomPolicy caller_pmr(
+		JsonParseOptions parse_opts = {}) noexcept {
+		return JsonDomPolicy{
+			.input = JsonDomInputOwnership::owned_copy,
+			.storage = JsonDomStorageModel::caller_pmr_document,
+			.parse = parse_opts};
+	}
+
+	[[nodiscard]] static constexpr JsonDomPolicy arena_reuse(
+		JsonParseOptions parse_opts = {}) noexcept {
+		return JsonDomPolicy{
+			.input = JsonDomInputOwnership::owned_copy,
+			.storage = JsonDomStorageModel::reusable_arena,
+			.parse = parse_opts};
+	}
+
+	[[nodiscard]] static constexpr JsonDomPolicy arena_borrowed(
+		JsonParseOptions parse_opts = {}) noexcept {
+		return JsonDomPolicy{
+			.input = JsonDomInputOwnership::borrowed_view,
+			.storage = JsonDomStorageModel::reusable_arena,
+			.parse = parse_opts};
+	}
+};
+
 export struct JsonByteRange {
 	SZ start;
 	SZ end;
@@ -4868,6 +4958,118 @@ expected<Document, JsonError> parse(
 template<typename T>
 	requires (same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
 expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
+
+} // namespace conflux::json
+
+namespace conflux::json::detail {
+
+[[nodiscard]] inline JsonError dom_policy_error(
+	SV message) {
+	return JsonError{
+		.stage = JsonStage::parse,
+		.code = JsonIssueCode::constraint_violation,
+		.message = S{message}};
+}
+
+[[nodiscard]] inline expected<void, JsonError> require_dom_storage(
+	JsonDomPolicy const &policy,
+	JsonDomStorageModel expected,
+	SV api_name) {
+	if (policy.storage == expected) {
+		return {};
+	}
+	return unexpected(
+		dom_policy_error(format(
+			"{} called with incompatible JsonDomPolicy storage model",
+			api_name)));
+}
+
+} // namespace conflux::json::detail
+
+export namespace conflux::json {
+
+[[nodiscard]] expected<Document, JsonError> parse_dom(
+	SV input,
+	JsonDomPolicy const &policy = JsonDomPolicy::view_first()) {
+	if (policy.storage == JsonDomStorageModel::caller_pmr_document) {
+		return unexpected(detail::dom_policy_error("parse_dom(string_view) needs the memory_resource overload for caller_pmr_document"));
+	}
+	if (auto ok = detail::require_dom_storage(policy, JsonDomStorageModel::standalone_document, "parse_dom(string_view)"); !ok) {
+		return unexpected(move(ok).error());
+	}
+	switch (policy.input) {
+	case JsonDomInputOwnership::borrowed_view: return parse_view(input, policy.parse);
+	case JsonDomInputOwnership::owned_copy: return parse_copy(input, policy.parse);
+	case JsonDomInputOwnership::owned_move:
+		return unexpected(detail::dom_policy_error("owned_move requires parse_dom(std::string&&)"));
+	}
+	return unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
+}
+
+[[nodiscard]] expected<Document, JsonError> parse_dom(
+	S &&input,
+	JsonDomPolicy const &policy = JsonDomPolicy::owning_document()) {
+	if (policy.storage == JsonDomStorageModel::caller_pmr_document) {
+		return unexpected(detail::dom_policy_error("parse_dom(std::string&&) needs the memory_resource overload for caller_pmr_document"));
+	}
+	if (auto ok = detail::require_dom_storage(policy, JsonDomStorageModel::standalone_document, "parse_dom(std::string&&)"); !ok) {
+		return unexpected(move(ok).error());
+	}
+	if (policy.input == JsonDomInputOwnership::borrowed_view) {
+		return unexpected(detail::dom_policy_error("borrowed_view is unsafe for parse_dom(std::string&&)"));
+	}
+	return parse_copy(move(input), policy.parse);
+}
+
+[[nodiscard]] expected<Document, JsonError> parse_dom(
+	SV input,
+	std::pmr::memory_resource *resource,
+	JsonDomPolicy const &policy = JsonDomPolicy::caller_pmr()) {
+	if (resource == nullptr) {
+		return unexpected(detail::dom_policy_error("parse_dom(memory_resource*) requires a non-null resource"));
+	}
+	if (auto ok = detail::require_dom_storage(policy, JsonDomStorageModel::caller_pmr_document, "parse_dom(memory_resource*)"); !ok) {
+		return unexpected(move(ok).error());
+	}
+	switch (policy.input) {
+	case JsonDomInputOwnership::borrowed_view: return parse_view(input, policy.parse, resource);
+	case JsonDomInputOwnership::owned_copy: return parse_copy(input, policy.parse, resource);
+	case JsonDomInputOwnership::owned_move:
+		return unexpected(detail::dom_policy_error("owned_move requires a std::string&& overload; caller_pmr cannot move-own input today"));
+	}
+	return unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
+}
+
+[[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
+	JsonArena &arena,
+	SV input,
+	JsonDomPolicy const &policy = JsonDomPolicy::arena_reuse()) {
+	if (auto ok = detail::require_dom_storage(policy, JsonDomStorageModel::reusable_arena, "parse_dom(JsonArena&, string_view)"); !ok) {
+		return unexpected(move(ok).error());
+	}
+	switch (policy.input) {
+	case JsonDomInputOwnership::borrowed_view: return arena.parse_borrowed_into(input, policy.parse);
+	case JsonDomInputOwnership::owned_copy: return arena.parse_into(input, policy.parse);
+	case JsonDomInputOwnership::owned_move:
+		return unexpected(detail::dom_policy_error("owned_move requires parse_dom(JsonArena&, std::string&&)"));
+	}
+	return unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
+}
+
+[[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
+	JsonArena &arena,
+	S &&input,
+	JsonDomPolicy const &policy = JsonDomPolicy{
+		.input = JsonDomInputOwnership::owned_move,
+		.storage = JsonDomStorageModel::reusable_arena}) {
+	if (auto ok = detail::require_dom_storage(policy, JsonDomStorageModel::reusable_arena, "parse_dom(JsonArena&, std::string&&)"); !ok) {
+		return unexpected(move(ok).error());
+	}
+	if (policy.input == JsonDomInputOwnership::borrowed_view) {
+		return unexpected(detail::dom_policy_error("borrowed_view is unsafe for parse_dom(JsonArena&, std::string&&)"));
+	}
+	return arena.parse_moved_into(move(input), policy.parse);
+}
 
 } // namespace conflux::json
 
