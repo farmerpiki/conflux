@@ -8,6 +8,7 @@
 - [x] JSON hash index: allocate via PMR resource, not global `::operator new` — landed in `4105bb2`
 - [x] Ring thread affinity: add `ring_core` / `worker_core_base` config fields, default disabled
 - [x] Busy poll: add `busy_poll_us` / `prefer_busy_poll` config fields, default disabled
+- [ ] Current regression: `http.cq_overflow: non-UB shutdown under small-CQ flood` aborts in `tests/http_overflow_stress_tests` on `debug-clang-libcxx`; investigate the `src/net/io_buffer.cxx:894` recovery path.
 
 ## Medium
 
