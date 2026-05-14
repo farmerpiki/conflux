@@ -72,3 +72,92 @@ TEST_CASE(
 	auto result = jwt_decode(token, opts);
 	CHECK(!result.has_value());
 }
+
+namespace {
+
+i64 jwt_test_now() {
+	return chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
+}
+
+} // namespace
+
+TEST_CASE(
+	"jwt: strict session policy requires lifetime claims and supports revocation",
+	"[jwt][auth]") {
+	S const secret = "session-jwt-secret-32bytes";
+	auto const now = jwt_test_now();
+
+	JwtOptions opts;
+	opts.secrets = single_secret_rotation(secret);
+	opts.require_exp = true;
+	opts.require_iat = true;
+	opts.require_jti = true;
+	opts.max_token_lifetime = chrono::minutes{5};
+
+	auto missing_claims = jwt_decode(jwt_sign(R"({"sub":"u"})", secret), opts);
+	REQUIRE_FALSE(missing_claims.has_value());
+	CHECK(missing_claims.error() == "missing exp claim");
+
+	auto valid = jwt_decode(
+		jwt_sign(format(R"({{"sub":"u","jti":"active","iat":{},"exp":{}}})", now, now + 120), secret),
+		opts);
+	REQUIRE(valid.has_value());
+	CHECK(valid->jti == "active");
+
+	auto too_long = jwt_decode(
+		jwt_sign(format(R"({{"sub":"u","jti":"long","iat":{},"exp":{}}})", now, now + 600), secret),
+		opts);
+	REQUIRE_FALSE(too_long.has_value());
+	CHECK(too_long.error() == "token lifetime too long");
+
+	opts.revoked_jti = [](SV jti) { return jti == "revoked"; };
+	auto revoked = jwt_decode(
+		jwt_sign(format(R"({{"sub":"u","jti":"revoked","iat":{},"exp":{}}})", now, now + 120), secret),
+		opts);
+	REQUIRE_FALSE(revoked.has_value());
+	CHECK(revoked.error() == "token revoked");
+}
+
+TEST_CASE(
+	"jwt: clock skew applies to exp and nbf boundaries",
+	"[jwt][auth]") {
+	S const secret = "session-jwt-secret-32bytes";
+	auto const now = jwt_test_now();
+	auto token = jwt_sign(format(R"({{"sub":"u","iat":{},"exp":{},"nbf":{}}})", now - 60, now - 5, now + 5), secret);
+
+	JwtOptions strict;
+	strict.secrets = single_secret_rotation(secret);
+	strict.require_exp = true;
+	strict.require_iat = true;
+	auto rejected = jwt_decode(token, strict);
+	REQUIRE_FALSE(rejected.has_value());
+	CHECK(rejected.error() == "token expired");
+
+	JwtOptions skewed = strict;
+	skewed.clock_skew = chrono::seconds{60};
+	auto accepted = jwt_decode(token, skewed);
+	REQUIRE(accepted.has_value());
+	CHECK(accepted->sub == "u");
+}
+
+TEST_CASE(
+	"jwt: negative registered time claims are rejected",
+	"[jwt][auth]") {
+	S const secret = "session-jwt-secret-32bytes";
+	JwtOptions opts;
+	opts.secrets = single_secret_rotation(secret);
+	opts.verify_exp = false;
+	opts.verify_nbf = false;
+
+	auto exp = jwt_decode(jwt_sign(R"({"sub":"u","exp":-1})", secret), opts);
+	REQUIRE_FALSE(exp.has_value());
+	CHECK(exp.error() == "invalid exp claim");
+
+	auto nbf = jwt_decode(jwt_sign(R"({"sub":"u","nbf":-1})", secret), opts);
+	REQUIRE_FALSE(nbf.has_value());
+	CHECK(nbf.error() == "invalid nbf claim");
+
+	auto iat = jwt_decode(jwt_sign(R"({"sub":"u","iat":-1})", secret), opts);
+	REQUIRE_FALSE(iat.has_value());
+	CHECK(iat.error() == "invalid iat claim");
+}

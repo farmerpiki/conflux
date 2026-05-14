@@ -26,8 +26,14 @@ export struct JwtOptions {
 	S secret{}; // HMAC-SHA256 signing secret (required)
 	S issuer{}; // expected iss claim; "" = skip check
 	S audience{}; // expected aud claim; "" = skip check
-	bool verify_exp{true}; // reject expired tokens
-	bool verify_nbf{true}; // reject not-yet-valid tokens
+	bool verify_exp{true}; // reject expired tokens when an exp claim is present
+	bool verify_nbf{true}; // reject not-yet-valid tokens when an nbf claim is present
+	bool require_exp{false}; // reject tokens without an exp claim
+	bool require_iat{false}; // reject tokens without an iat claim
+	bool require_jti{false}; // reject tokens without a jti claim
+	chrono::seconds clock_skew{}; // tolerance for exp/nbf comparisons
+	chrono::seconds max_token_lifetime{}; // 0 = disabled; otherwise requires exp+iat and caps exp-iat
+	std::function<bool(SV)> revoked_jti{}; // optional revocation lookup; true = reject token
 };
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -177,6 +183,24 @@ bool ct_equal(
 	}
 	return diff == 0;
 }
+[[nodiscard]] bool token_expired(
+	i64 exp,
+	i64 now,
+	i64 skew) noexcept {
+	if (skew >= now) {
+		return false;
+	}
+	return exp <= now - skew;
+}
+[[nodiscard]] bool token_not_yet_valid(
+	i64 nbf,
+	i64 now,
+	i64 skew) noexcept {
+	if (skew > std::numeric_limits<i64>::max() - now) {
+		return false;
+	}
+	return nbf > now + skew;
+}
 
 } // namespace
 namespace jwt_detail {
@@ -257,13 +281,13 @@ export expected<JwtClaims, std::string> jwt_decode(
 	auto exp = json_int_at(payload, exp_pos);
 	auto nbf = json_int_at(payload, nbf_pos);
 	auto iat = json_int_at(payload, iat_pos);
-	if (exp_pos != SV::npos && !exp) {
+	if (exp_pos != SV::npos && (!exp || *exp < 0)) {
 		return unexpected{"invalid exp claim"};
 	}
-	if (nbf_pos != SV::npos && !nbf) {
+	if (nbf_pos != SV::npos && (!nbf || *nbf < 0)) {
 		return unexpected{"invalid nbf claim"};
 	}
-	if (iat_pos != SV::npos && !iat) {
+	if (iat_pos != SV::npos && (!iat || *iat < 0)) {
 		return unexpected{"invalid iat claim"};
 	}
 	claims.exp = exp.value_or(0);
@@ -271,13 +295,41 @@ export expected<JwtClaims, std::string> jwt_decode(
 	claims.iat = iat.value_or(0);
 
 	// Validate claims.
-	auto now = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
+	auto const now = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
+	auto const skew = max<i64>(0, chrono::duration_cast<chrono::seconds>(opts.clock_skew).count());
+	auto const max_lifetime = chrono::duration_cast<chrono::seconds>(opts.max_token_lifetime).count();
 
-	if (opts.verify_exp && claims.exp != 0 && now >= claims.exp) {
+	if (opts.require_exp && claims.exp == 0) {
+		return unexpected{"missing exp claim"};
+	}
+	if (opts.require_iat && claims.iat == 0) {
+		return unexpected{"missing iat claim"};
+	}
+	if (opts.require_jti && claims.jti.empty()) {
+		return unexpected{"missing jti claim"};
+	}
+	if (opts.verify_exp && claims.exp != 0 && token_expired(claims.exp, now, skew)) {
 		return unexpected{"token expired"};
 	}
-	if (opts.verify_nbf && claims.nbf != 0 && now < claims.nbf) {
+	if (opts.verify_nbf && claims.nbf != 0 && token_not_yet_valid(claims.nbf, now, skew)) {
 		return unexpected{"token not yet valid"};
+	}
+	if (max_lifetime > 0) {
+		if (claims.exp == 0) {
+			return unexpected{"missing exp claim"};
+		}
+		if (claims.iat == 0) {
+			return unexpected{"missing iat claim"};
+		}
+		if (claims.exp < claims.iat) {
+			return unexpected{"invalid token lifetime"};
+		}
+		if (claims.exp - claims.iat > max_lifetime) {
+			return unexpected{"token lifetime too long"};
+		}
+	}
+	if (opts.revoked_jti && !claims.jti.empty() && opts.revoked_jti(claims.jti)) {
+		return unexpected{"token revoked"};
 	}
 	if (!opts.issuer.empty() && claims.iss != opts.issuer) {
 		return unexpected{format("issuer mismatch: got '{}', want '{}'", claims.iss, opts.issuer)};

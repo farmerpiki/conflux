@@ -96,6 +96,8 @@ config, not in the user table. Rotating it requires either accepting legacy
 unpeppered rows during migration or supporting a multi-secret verification policy
 at the application/config layer.
 
+See `docs/auth-session-token-audit.md` for JWT/session expiry and revocation policy.
+
 ## Resource and abuse controls
 
 Password hashing is intentionally expensive. Configure KDF admission limits during
