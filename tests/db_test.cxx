@@ -4,9 +4,11 @@
 
 import std;
 import conflux.types;
+import conflux.work;
 import conflux.db;
 
 using namespace conflux::db;
+namespace root = conflux::work::root;
 namespace {
 
 struct TempDir {
@@ -246,6 +248,18 @@ TEST_CASE(
 		CHECK_FALSE(e.is_unique_violation());
 		CHECK_FALSE(e.is_connection_lost());
 	}
+}
+TEST_CASE(
+	"db: pipeline closed state rejects queued work",
+	"[db][unit]") {
+	Pipeline pipeline;
+	auto query = pipeline.query("SELECT 1::int8");
+	auto out = root::join(move(query));
+	REQUIRE(out.is_failure());
+
+	auto sync = pipeline.sync();
+	auto sync_out = root::join(move(sync));
+	REQUIRE(sync_out.is_failure());
 }
 TEST_CASE(
 	"db: QueryCache load + cache + miss + clear",
