@@ -83,10 +83,10 @@ export struct NameserverEndpoint {
 // Parse "ip", "ip:port", "[ipv6]:port", "[ipv6]". Returns endpoint with
 // AF_INET or AF_INET6 set in addr. On failure returns the unsupported
 // literal so callers can surface a useful diagnostic.
-export [[nodiscard]] expected<NameserverEndpoint, S> parse_nameserver(
+export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
 	SV literal) {
 	if (literal.empty()) {
-		return unexpected{S{"empty nameserver literal"}};
+		return unexpected{std::string{"empty nameserver literal"}};
 	}
 
 	S host;
@@ -95,17 +95,17 @@ export [[nodiscard]] expected<NameserverEndpoint, S> parse_nameserver(
 	if (literal.front() == '[') {
 		auto const close = literal.find(']');
 		if (close == SV::npos) {
-			return unexpected{S{"unterminated '[' in nameserver literal"}};
+			return unexpected{std::string{"unterminated '[' in nameserver literal"}};
 		}
 		host.assign(literal.substr(1, close - 1));
 		auto rest = literal.substr(close + 1);
 		if (!rest.empty()) {
 			if (rest.front() != ':') {
-				return unexpected{S{"expected ':<port>' after ']' in nameserver literal"}};
+				return unexpected{std::string{"expected ':<port>' after ']' in nameserver literal"}};
 			}
 			rest.remove_prefix(1);
 			if (rest.empty()) {
-				return unexpected{S{"missing port after ':' in nameserver literal"}};
+				return unexpected{std::string{"missing port after ':' in nameserver literal"}};
 			}
 			u32 parsed = 0;
 			for (char const c: rest) {
@@ -130,7 +130,7 @@ export [[nodiscard]] expected<NameserverEndpoint, S> parse_nameserver(
 			host.assign(literal.substr(0, colon));
 			auto rest = literal.substr(colon + 1);
 			if (rest.empty()) {
-				return unexpected{S{"missing port after ':' in nameserver literal"}};
+				return unexpected{std::string{"missing port after ':' in nameserver literal"}};
 			}
 			u32 parsed = 0;
 			for (char const c: rest) {
