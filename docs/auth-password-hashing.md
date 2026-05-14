@@ -1,8 +1,8 @@
 # Auth password hashing
 
 `conflux.net.password_hash` is the password-storage boundary for HTTP/auth code.
-It replaces ad-hoc password digests and plaintext validator comparisons with a
-single encoded hash format plus an explicit rehash path.
+It keeps stored password rows in a single encoded format, exposes an explicit
+verify/rehash path, and centralizes expensive KDF admission control.
 
 ## Public surface
 
@@ -21,8 +21,10 @@ Primary APIs:
 - `password_verify(password, encoded, current_opts)` verifies a stored hash and
   reports whether it should be replaced with the current algorithm/parameters.
 - `password_needs_rehash(encoded, current_opts)` checks only the encoded metadata.
-- `password_hash_argon2id_available()` reports whether the runtime `libargon2`
-  backend was found.
+- `password_hash_argon2id_available()` reports whether the configured Argon2id
+  backend is usable.
+- `password_hash_configure_resource_limits(limits)` bounds simultaneous KDF work
+  and queued hash callers.
 
 ## Format
 
@@ -31,8 +33,15 @@ beside the salt and derived key:
 
 ```text
 $argon2id$v=19$m=65536,t=3,p=1$<salt-b64url>$<hash-b64url>
+$argon2id$v=19$m=65536,t=3,p=1,k=1$<salt-b64url>$<hash-b64url>
 $pbkdf2-sha256$v=1$i=600000,l=32$<salt-b64url>$<hash-b64url>
+$pbkdf2-sha256$v=1$i=600000,l=32,k=1$<salt-b64url>$<hash-b64url>
 ```
+
+`k=1` means the stored hash was post-processed with the verifier-only secret from
+`PasswordHashOptions::verifier_secret`. A `k=1` row fails closed if verification
+is attempted without that secret. Rows without `k=1` still verify with current
+options and then report `needs_rehash` when a verifier secret is now configured.
 
 The metadata is deliberately part of the stored value so DB rows can be upgraded
 without a separate schema flag. On login:
@@ -45,14 +54,82 @@ without a separate schema flag. On login:
 ## Algorithm policy
 
 Default creation uses Argon2id parameters: 64 MiB memory, 3 iterations, 1 lane,
-16-byte salt, 32-byte output. The implementation dynamically loads `libargon2` on
-Linux so the module does not need Argon2 headers at compile time. If `libargon2`
-is not available, Argon2id hashing returns a clear error instead of silently
-falling back to a weaker algorithm.
+16-byte salt, 32-byte output. This stays above the OWASP floor while keeping the
+cost bounded enough for a small server when paired with admission control.
 
-`pbkdf2_sha256_password_hash_options()` remains available as a portable
-compatibility/migration fallback and for test fixtures. Do not use it for new
-production password rows when Argon2id is available.
+Argon2 provider selection is controlled at configure time:
+
+```text
+-DCONFLUX_PASSWORD_HASH_ARGON2_PROVIDER=AUTO     # default: link libargon2 if found, else runtime loader
+-DCONFLUX_PASSWORD_HASH_ARGON2_PROVIDER=SYSTEM   # require pkg-config libargon2 and link it
+-DCONFLUX_PASSWORD_HASH_ARGON2_PROVIDER=RUNTIME  # use dlopen only
+-DCONFLUX_PASSWORD_HASH_ARGON2_PROVIDER=OFF      # disable Argon2id backend
+```
+
+`SYSTEM` is preferred for release packaging because deployment failures are found
+at configure/link time. `RUNTIME` remains available for draft/demo builds that
+want to run on systems where `libargon2` may or may not be installed. Missing
+Argon2id support fails closed; it never silently falls back to PBKDF2 for a new
+Argon2id hash.
+
+`pbkdf2_sha256_password_hash_options()` remains a compatibility/FIPS migration
+fallback and for test fixtures. The PBKDF2 path uses a no-allocation streaming
+SHA-256/HMAC implementation for the 600k-iteration inner loop. Do not use PBKDF2
+for new production password rows when Argon2id is available.
+
+## Verifier secret / pepper
+
+Configure a verifier-only secret outside the password-hash storage table and pass
+it in the current options:
+
+```cpp
+PasswordHashOptions opts;
+opts.verifier_secret = read_required_secret("CONFLUX_AUTH_PASSWORD_PEPPER");
+
+auto encoded = password_hash(password, opts);
+auto verified = password_verify(password, encoded, opts);
+```
+
+The secret must be stable across restarts and deployments that need to verify old
+rows. Store it separately from DB password hashes: env/secret manager/KMS-backed
+config, not in the user table. Rotating it requires either accepting legacy
+unpeppered rows during migration or supporting a multi-secret verification policy
+at the application/config layer.
+
+## Resource and abuse controls
+
+Password hashing is intentionally expensive. Configure KDF admission limits during
+server startup:
+
+```cpp
+auto ok = password_hash_configure_resource_limits({
+    .max_concurrent_hashes = 2,
+    .max_waiting_hashes = 64,
+});
+```
+
+`max_concurrent_hashes == 0` uses the library default
+`min(max(hardware_concurrency / 2, 1), 4)`. `max_waiting_hashes == 0` makes excess
+hash callers fail fast with `password hash: concurrency limit reached`. This gate
+protects CPU/RAM from concurrent Argon2id/PBKDF2 work; it is not a substitute for
+request-level throttling.
+
+Basic auth now has a failed-attempt limiter enabled by default:
+
+```cpp
+router.use(basic_auth_middleware(
+    [&](SV user, SV password) { return verify_user_password(user, password); },
+    BasicAuthOptions{
+        .realm = "Restricted",
+        .failed_attempts = 10,
+        .failed_window = chrono::minutes{5},
+        .max_failed_clients = 65536,
+    }));
+```
+
+Set `failed_attempts = 0` only when another layer already enforces failed-login
+rate limiting. For login forms or API-token endpoints, also compose the generic
+`rate_limit_middleware` or app-specific account/IP throttling around the route.
 
 ## Basic Auth integration
 
@@ -60,17 +137,22 @@ production password rows when Argon2id is available.
 must not own user storage. Use the password hash API inside that callback:
 
 ```cpp
+PasswordHashOptions current = current_password_hash_options();
+
 router.use(basic_auth_middleware([&](SV user, SV password) {
     auto stored = lookup_password_hash(user);
     if (!stored) {
         return false;
     }
-    auto verified = password_verify(password, *stored);
+    auto verified = password_verify(password, *stored, current);
     if (!verified || !verified->ok) {
         return false;
     }
     if (verified->needs_rehash) {
-        replace_password_hash(user, *password_hash(password));
+        auto replacement = password_hash(password, current);
+        if (replacement) {
+            replace_password_hash(user, *replacement);
+        }
     }
     return true;
 }));

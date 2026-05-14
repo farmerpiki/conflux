@@ -61,6 +61,53 @@ TEST_CASE(
 	CHECK(*needs);
 }
 
+
+TEST_CASE(
+	"password_hash: verifier secret marks new hashes and allows legacy migration",
+	"[auth][password_hash]") {
+	auto opts = pbkdf2_sha256_password_hash_options(1);
+	opts.salt_bytes = 8;
+	opts.hash_bytes = 32;
+	opts.verifier_secret = "server-side pepper";
+
+	auto encoded = password_hash_with_salt("secret", "abcdefgh", opts);
+	REQUIRE(encoded.has_value());
+	CHECK(encoded->starts_with("$pbkdf2-sha256$v=1$i=1,l=32,k=1$"));
+
+	auto ok = password_verify("secret", *encoded, opts);
+	REQUIRE(ok.has_value());
+	CHECK(ok->ok);
+	CHECK_FALSE(ok->needs_rehash);
+
+	auto missing_secret = pbkdf2_sha256_password_hash_options(1);
+	missing_secret.salt_bytes = 8;
+	missing_secret.hash_bytes = 32;
+	auto rejected = password_verify("secret", *encoded, missing_secret);
+	CHECK_FALSE(rejected.has_value());
+
+	auto legacy = password_hash_with_salt("secret", "abcdefgh", missing_secret);
+	REQUIRE(legacy.has_value());
+	auto migrated = password_verify("secret", *legacy, opts);
+	REQUIRE(migrated.has_value());
+	CHECK(migrated->ok);
+	CHECK(migrated->needs_rehash);
+}
+
+TEST_CASE(
+	"password_hash: resource limits are configurable",
+	"[auth][password_hash]") {
+	auto configured = password_hash_configure_resource_limits(
+		{.max_concurrent_hashes = 1, .max_waiting_hashes = 0});
+	REQUIRE(configured.has_value());
+	auto current = password_hash_resource_limits();
+	CHECK(current.max_concurrent_hashes == 1);
+	CHECK(current.max_waiting_hashes == 0);
+
+	auto reset = password_hash_configure_resource_limits({});
+	REQUIRE(reset.has_value());
+	CHECK(password_hash_resource_limits().max_concurrent_hashes >= 1);
+}
+
 TEST_CASE(
 	"password_hash: malformed encoded hashes are rejected",
 	"[auth][password_hash]") {
@@ -73,10 +120,10 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"password_hash: Argon2id runtime path verifies when libargon2 is present",
+	"password_hash: Argon2id path verifies when libargon2 is present",
 	"[auth][password_hash]") {
 	if (!password_hash_argon2id_available()) {
-		SUCCEED("libargon2 runtime library is not available");
+		SUCCEED("libargon2 backend is not available");
 		return;
 	}
 

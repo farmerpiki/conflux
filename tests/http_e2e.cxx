@@ -3739,6 +3739,38 @@ TEST_CASE(
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
 	REQUIRE(resp.find(R"(WWW-Authenticate: Basic realm="My Realm")") != S::npos);
 }
+
+TEST_CASE(
+	"basic_auth: failed-attempt limit returns 429 before validator",
+	"[auth][security]") {
+	static u16 port = 0;
+	static std::once_flag flag;
+	static std::atomic<unsigned> calls{0};
+	std::call_once(flag, [] {
+		Router router;
+		router.use(basic_auth_middleware(
+			[](SV, SV) {
+				++calls;
+				return false;
+			},
+			BasicAuthOptions{
+				.realm = "Limited",
+				.failed_attempts = 1,
+				.failed_window = chrono::seconds{60},
+				.max_failed_clients = 8,
+			}));
+		router.get("/", [](HttpRequest const &) { return HttpResponse::text("x"); });
+		port = start_mw_server(mw_config(), move(router));
+	});
+
+	auto first = http_get_on(port, "/", "Authorization: Basic YmFkOmNyZWRz\r\n");
+	REQUIRE(first.starts_with("HTTP/1.1 401"));
+	auto const before = calls.load();
+	auto second = http_get_on(port, "/", "Authorization: Basic YmFkOmNyZWRz\r\n");
+	REQUIRE(second.starts_with("HTTP/1.1 429"));
+	CHECK(calls.load() == before);
+}
+
 TEST_CASE(
 	"basic_auth: lowercase scheme returns 200") {
 	ensure_auth_server();

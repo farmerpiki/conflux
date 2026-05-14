@@ -22,6 +22,7 @@ import std;
 import conflux.types;
 import std.compat;
 import conflux.work;
+import conflux.uring;
 export import conflux.uring.completion;
 export import conflux.uring.handle;
 import conflux.uring.timeout;

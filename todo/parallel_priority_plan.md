@@ -49,11 +49,11 @@ parallel branches without repeatedly re-deciding global priority.
 - Worker runtime: retire or isolate the remaining compatibility wait bridge; finish
   background ingestion runtime convergence; then move the remaining compatibility
   surface behind explicitly named `sync_`/`blocking_` APIs.
-- Security: replace the current password-hash mechanism before widening API work.
+- Security: password-hash replacement is landed; finish secret-config cleanup and session/token audit before widening API work.
 - JSON boundary: isolate app/framework JSON usage behind traits/adapters before
   designing a new parser/DOM. The parser work is important, but the boundary cleanup is
   the prerequisite that keeps it branchable.
-- HTTP/io_uring: finish SEND_ZC edge cases and measurement; add storage-ring IOPOLL;
+- HTTP/io_uring: finish SEND_ZC edge cases and measurement; IOPOLL is landed;
   defer RECV_ZC implementation until kernel support is stable, but prepare the recv
   abstraction so the later branch is narrow.
 - Perf/CI: make the benchmark/profiling harness first-class before accepting further
@@ -127,7 +127,6 @@ auth/password-hash-replacement
 
 build/perf-harness-stabilize
   -> uring/sendzc-edge-measurement
-  -> uring/iopoll-storage-ring
   -> worker/queue-contention-profile
   -> http/ring-layout-c2c-verify
 
