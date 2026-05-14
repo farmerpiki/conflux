@@ -93,8 +93,22 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http response: status factories set expected status, text, and headers",
+	"http response: status factories set expected status, text, headers, and body kinds",
 	"[http.response]") {
+	{
+		auto resp = HttpResponse::html("<p>ok</p>", 201, "Created");
+		CHECK(resp.status == 201);
+		CHECK(resp.status_text == "Created");
+		CHECK(resp.content_type == "text/html; charset=utf-8");
+		CHECK(resp.text_body() == "<p>ok</p>");
+	}
+	{
+		auto resp = HttpResponse::json("{\"ok\":true}", 202, "Accepted");
+		CHECK(resp.status == 202);
+		CHECK(resp.status_text == "Accepted");
+		CHECK(resp.content_type == "application/json");
+		CHECK(resp.text_body() == "{\"ok\":true}");
+	}
 	{
 		auto resp = HttpResponse::redirect("/next", kHttpPermanentRedirect);
 		CHECK(resp.status == kHttpPermanentRedirect);
@@ -112,9 +126,55 @@ TEST_CASE(
 		CHECK(resp.headers["www-authenticate"] == "Basic realm=\"test\"");
 	}
 	{
+		auto resp = HttpResponse::forbidden("<no>");
+		CHECK(resp.status == kHttpForbidden);
+		CHECK(resp.status_text == "Forbidden");
+		CHECK(resp.text_body().find("&lt;no&gt;") != SV::npos);
+	}
+	{
+		auto resp = HttpResponse::unprocessable_entity("bad field");
+		CHECK(resp.status == kHttpUnprocessableEntity);
+		CHECK(resp.status_text == "Unprocessable Entity");
+		CHECK(resp.text_body().find("bad field") != SV::npos);
+	}
+	{
+		auto resp = HttpResponse::uri_too_long();
+		CHECK(resp.status == kHttpUriTooLong);
+		CHECK(resp.status_text == "URI Too Long");
+	}
+	{
+		auto resp = HttpResponse::header_fields_too_large();
+		CHECK(resp.status == kHttpRequestHeaderFieldsTooLarge);
+		CHECK(resp.status_text == "Request Header Fields Too Large");
+	}
+	{
 		auto resp = HttpResponse::bad_gateway("upstream failed");
 		CHECK(resp.status == kHttpBadGateway);
 		CHECK(resp.text_body() == "upstream failed");
+	}
+	{
+		auto resp = HttpResponse::content_too_large();
+		CHECK(resp.status == kHttpRequestEntityTooLarge);
+		CHECK(resp.status_text == "Content Too Large");
+	}
+	{
+		auto resp = HttpResponse::no_content();
+		CHECK(resp.status == kHttpNoContent);
+		CHECK(resp.status_text == "No Content");
+	}
+	{
+		auto ch = make_shared<SseChannel>();
+		auto resp = HttpResponse::sse(ch);
+		CHECK(resp.status == kHttpOk);
+		CHECK(resp.content_type == "text/event-stream");
+		CHECK(resp.is_sse());
+		CHECK(resp.sse_channel_ptr() == ch);
+	}
+	{
+		auto deferred = make_shared<DeferredResponse>(chrono::milliseconds{10000});
+		auto resp = HttpResponse::deferred(deferred);
+		CHECK(resp.is_deferred());
+		CHECK(resp.deferred_response_ptr() == deferred);
 	}
 }
 

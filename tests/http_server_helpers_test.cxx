@@ -48,6 +48,26 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http_server_helpers: format_response emits WebSocket upgrade handshake",
+	"[http_server_helpers]") {
+	auto up = make_shared<WsUpgrade>();
+	up->accept_key = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=";
+
+	HttpResponse resp;
+	resp.set_ws_upgrade(up);
+	resp.headers["X-Ignored"] = "must not be serialized";
+	resp.set_text_body("body ignored by upgrade");
+	resp.set_ws_upgrade(up);
+
+	auto wire = format_response(resp, "h3=\":443\"", true);
+	CHECK(wire ==
+		"HTTP/1.1 101 Switching Protocols\r\n"
+		"Upgrade: websocket\r\n"
+		"Connection: Upgrade\r\n"
+		"Sec-WebSocket-Accept: s3pPLMBiTxaQ9kYGzzhZRbK+xOo=\r\n\r\n");
+}
+
+TEST_CASE(
 	"http_server_helpers: format_response suppresses bodies where HTTP forbids them",
 	"[http_server_helpers]") {
 	HttpResponse no_content = HttpResponse::text("body");

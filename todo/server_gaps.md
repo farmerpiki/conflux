@@ -93,7 +93,21 @@ Implemented in this patch:
 Still implemented but not directly covered by deterministic tests after pass 5:
 
 - [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
-- [ ] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; builder knobs are covered, but network redirect behavior still needs a local two-server E2E.
+
+Known feature/API gap, not a test-coverage gap:
+
+- [ ] HTTP client redirect following: `HttpRequest::Builder::follow_redirects()` stores `max_redirects`, but the sync/async clients do not consume it yet. Do not add tests that lock in the current no-op; implement redirect following first, then add E2E coverage for relative/absolute redirects, redirect-limit exhaustion, and sensitive-header handling across host changes.
+
+## Test coverage gap pass 6 (2026-05-14)
+
+Implemented in this patch:
+
+- [x] HTTP response factory matrix: `conflux_http_response_tests` now covers the implemented `html`, `json`, `forbidden`, `unprocessable_entity`, `uri_too_long`, `header_fields_too_large`, `content_too_large`, `no_content`, `sse`, and `deferred` factories instead of only the smaller redirect/auth/gateway subset.
+- [x] WebSocket upgrade wire formatting: `conflux_http_server_helpers_tests` now verifies `format_response()` emits the implemented 101 handshake fast path and does not serialize unrelated normal response headers/body.
+
+Still implemented but not directly covered by deterministic tests after pass 6:
+
+- [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
 
 ## Architecture (dedicated branches)
 
