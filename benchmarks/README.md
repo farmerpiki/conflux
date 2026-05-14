@@ -130,6 +130,13 @@ ONLY_BENCH=workpool_enqueue_dequeue BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh workpool-local
 ```
 
+For worker queue contention profiling, configure the perf preset with
+`-DCONFLUX_WORK_QUEUE_STATS=ON` before recording `workpool_enqueue_dequeue`. The
+benchmark still emits the standard `config`/`variant`/`iterations`/`total_ns`/
+`ns_per_iter` fields, and appends a `queue` object in raw NDJSON with enqueue,
+local/inject queue, steal, park, and futex wake counters. Normal perf presets
+leave this option off so instrumentation does not contaminate default history.
+
 ## Comparing runs
 
 Two views are provided for comparing recorded runs.

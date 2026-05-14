@@ -7,6 +7,10 @@ module;
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#ifndef CONFLUX_WORK_QUEUE_STATS
+#define CONFLUX_WORK_QUEUE_STATS 0
+#endif
+
 export module conflux.work;
 
 import std;
@@ -15,6 +19,32 @@ export import conflux.work.root;
 export struct Cancelled final : RE {
 	Cancelled()
 		: RE{"work cancelled"} {}
+};
+export struct WorkPoolQueueStats {
+	u64 enqueue_attempts = 0;
+	u64 enqueue_stopped_rejections = 0;
+	u64 enqueue_full_rejections = 0;
+	u64 admission_lock_acquisitions = 0;
+	u64 local_pushes = 0;
+	u64 local_push_full = 0;
+	u64 inject_pushes = 0;
+	u64 inject_push_full = 0;
+	u64 local_pop_attempts = 0;
+	u64 local_pop_hits = 0;
+	u64 inject_pop_attempts = 0;
+	u64 inject_pop_hits = 0;
+	u64 steal_rounds = 0;
+	u64 steal_victim_checks = 0;
+	u64 steal_hits = 0;
+	u64 jobs_run = 0;
+	u64 wake_one_calls = 0;
+	u64 wake_one_futex_wakes = 0;
+	u64 wake_one_elided_no_parked = 0;
+	u64 wake_all_calls = 0;
+	u64 wake_all_futex_wakes = 0;
+	u64 park_attempts = 0;
+	u64 park_recheck_skips = 0;
+	u64 futex_waits = 0;
 };
 namespace work_detail {
 
@@ -113,6 +143,156 @@ public:
 	}
 };
 
+class WorkPoolQueueCounters {
+#if CONFLUX_WORK_QUEUE_STATS
+	Atom<u64> enqueue_attempts_{0};
+	Atom<u64> enqueue_stopped_rejections_{0};
+	Atom<u64> enqueue_full_rejections_{0};
+	Atom<u64> admission_lock_acquisitions_{0};
+	Atom<u64> local_pushes_{0};
+	Atom<u64> local_push_full_{0};
+	Atom<u64> inject_pushes_{0};
+	Atom<u64> inject_push_full_{0};
+	Atom<u64> local_pop_attempts_{0};
+	Atom<u64> local_pop_hits_{0};
+	Atom<u64> inject_pop_attempts_{0};
+	Atom<u64> inject_pop_hits_{0};
+	Atom<u64> steal_rounds_{0};
+	Atom<u64> steal_victim_checks_{0};
+	Atom<u64> steal_hits_{0};
+	Atom<u64> jobs_run_{0};
+	Atom<u64> wake_one_calls_{0};
+	Atom<u64> wake_one_futex_wakes_{0};
+	Atom<u64> wake_one_elided_no_parked_{0};
+	Atom<u64> wake_all_calls_{0};
+	Atom<u64> wake_all_futex_wakes_{0};
+	Atom<u64> park_attempts_{0};
+	Atom<u64> park_recheck_skips_{0};
+	Atom<u64> futex_waits_{0};
+
+	static void add(
+		Atom<u64> &counter) noexcept {
+		counter.fetch_add(1, memory_order_relaxed);
+	}
+	static void clear(
+		Atom<u64> &counter) noexcept {
+		counter.store(0, memory_order_relaxed);
+	}
+	[[nodiscard]] static u64 get(
+		Atom<u64> const &counter) noexcept {
+		return counter.load(memory_order_relaxed);
+	}
+
+public:
+	void note_enqueue_attempt() noexcept { add(enqueue_attempts_); }
+	void note_enqueue_stopped_rejection() noexcept { add(enqueue_stopped_rejections_); }
+	void note_enqueue_full_rejection() noexcept { add(enqueue_full_rejections_); }
+	void note_admission_lock_acquisition() noexcept { add(admission_lock_acquisitions_); }
+	void note_local_push() noexcept { add(local_pushes_); }
+	void note_local_push_full() noexcept { add(local_push_full_); }
+	void note_inject_push() noexcept { add(inject_pushes_); }
+	void note_inject_push_full() noexcept { add(inject_push_full_); }
+	void note_local_pop_attempt() noexcept { add(local_pop_attempts_); }
+	void note_local_pop_hit() noexcept { add(local_pop_hits_); }
+	void note_inject_pop_attempt() noexcept { add(inject_pop_attempts_); }
+	void note_inject_pop_hit() noexcept { add(inject_pop_hits_); }
+	void note_steal_round() noexcept { add(steal_rounds_); }
+	void note_steal_victim_check() noexcept { add(steal_victim_checks_); }
+	void note_steal_hit() noexcept { add(steal_hits_); }
+	void note_job_run() noexcept { add(jobs_run_); }
+	void note_wake_one() noexcept { add(wake_one_calls_); }
+	void note_wake_one_futex() noexcept { add(wake_one_futex_wakes_); }
+	void note_wake_one_elided() noexcept { add(wake_one_elided_no_parked_); }
+	void note_wake_all() noexcept { add(wake_all_calls_); }
+	void note_wake_all_futex() noexcept { add(wake_all_futex_wakes_); }
+	void note_park_attempt() noexcept { add(park_attempts_); }
+	void note_park_recheck_skip() noexcept { add(park_recheck_skips_); }
+	void note_futex_wait() noexcept { add(futex_waits_); }
+	[[nodiscard]] WorkPoolQueueStats snapshot() const noexcept {
+		return WorkPoolQueueStats{
+			.enqueue_attempts = get(enqueue_attempts_),
+			.enqueue_stopped_rejections = get(enqueue_stopped_rejections_),
+			.enqueue_full_rejections = get(enqueue_full_rejections_),
+			.admission_lock_acquisitions = get(admission_lock_acquisitions_),
+			.local_pushes = get(local_pushes_),
+			.local_push_full = get(local_push_full_),
+			.inject_pushes = get(inject_pushes_),
+			.inject_push_full = get(inject_push_full_),
+			.local_pop_attempts = get(local_pop_attempts_),
+			.local_pop_hits = get(local_pop_hits_),
+			.inject_pop_attempts = get(inject_pop_attempts_),
+			.inject_pop_hits = get(inject_pop_hits_),
+			.steal_rounds = get(steal_rounds_),
+			.steal_victim_checks = get(steal_victim_checks_),
+			.steal_hits = get(steal_hits_),
+			.jobs_run = get(jobs_run_),
+			.wake_one_calls = get(wake_one_calls_),
+			.wake_one_futex_wakes = get(wake_one_futex_wakes_),
+			.wake_one_elided_no_parked = get(wake_one_elided_no_parked_),
+			.wake_all_calls = get(wake_all_calls_),
+			.wake_all_futex_wakes = get(wake_all_futex_wakes_),
+			.park_attempts = get(park_attempts_),
+			.park_recheck_skips = get(park_recheck_skips_),
+			.futex_waits = get(futex_waits_),
+		};
+	}
+	void reset() noexcept {
+		clear(enqueue_attempts_);
+		clear(enqueue_stopped_rejections_);
+		clear(enqueue_full_rejections_);
+		clear(admission_lock_acquisitions_);
+		clear(local_pushes_);
+		clear(local_push_full_);
+		clear(inject_pushes_);
+		clear(inject_push_full_);
+		clear(local_pop_attempts_);
+		clear(local_pop_hits_);
+		clear(inject_pop_attempts_);
+		clear(inject_pop_hits_);
+		clear(steal_rounds_);
+		clear(steal_victim_checks_);
+		clear(steal_hits_);
+		clear(jobs_run_);
+		clear(wake_one_calls_);
+		clear(wake_one_futex_wakes_);
+		clear(wake_one_elided_no_parked_);
+		clear(wake_all_calls_);
+		clear(wake_all_futex_wakes_);
+		clear(park_attempts_);
+		clear(park_recheck_skips_);
+		clear(futex_waits_);
+	}
+#else
+public:
+	void note_enqueue_attempt() noexcept {}
+	void note_enqueue_stopped_rejection() noexcept {}
+	void note_enqueue_full_rejection() noexcept {}
+	void note_admission_lock_acquisition() noexcept {}
+	void note_local_push() noexcept {}
+	void note_local_push_full() noexcept {}
+	void note_inject_push() noexcept {}
+	void note_inject_push_full() noexcept {}
+	void note_local_pop_attempt() noexcept {}
+	void note_local_pop_hit() noexcept {}
+	void note_inject_pop_attempt() noexcept {}
+	void note_inject_pop_hit() noexcept {}
+	void note_steal_round() noexcept {}
+	void note_steal_victim_check() noexcept {}
+	void note_steal_hit() noexcept {}
+	void note_job_run() noexcept {}
+	void note_wake_one() noexcept {}
+	void note_wake_one_futex() noexcept {}
+	void note_wake_one_elided() noexcept {}
+	void note_wake_all() noexcept {}
+	void note_wake_all_futex() noexcept {}
+	void note_park_attempt() noexcept {}
+	void note_park_recheck_skip() noexcept {}
+	void note_futex_wait() noexcept {}
+	[[nodiscard]] WorkPoolQueueStats snapshot() const noexcept { return {}; }
+	void reset() noexcept {}
+#endif
+};
+
 } // namespace work_detail
 export struct WorkPoolOptions {
 	SZ threads = 0;
@@ -158,6 +338,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 	atomic_flag accepting_stopped_{};
 	atomic_flag stopping_{};
 	mutex admission_mtx_{};
+	work_detail::WorkPoolQueueCounters queue_counters_{};
 
 	inline static thread_local WorkPool *tls_pool_ = nullptr;
 	inline static thread_local SZ tls_worker_ = work_detail::kNoWorker;
@@ -165,6 +346,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		return tls_pool_ == this && tls_worker_ != work_detail::kNoWorker;
 	}
 	void wake_one() noexcept {
+		queue_counters_.note_wake_one();
 		// P6 candidate (b) — fence-between: release store on wake_epoch_ +
 		// SC fence forms one half of the SC fence pair with the worker's
 		// parked_++ + SC fence. Guarantees: if any worker is parked (parked_>0)
@@ -172,12 +354,17 @@ export class WorkPool final : public work_detail::QueueTarget {
 		wake_epoch_.fetch_add(1, memory_order_release);
 		std::atomic_thread_fence(memory_order_seq_cst);
 		if (parked_.load(memory_order_acquire) > 0) {
+			queue_counters_.note_wake_one_futex();
 			work_detail::futex_wake_private(wake_epoch_, 1);
+		} else {
+			queue_counters_.note_wake_one_elided();
 		}
 	}
 	void wake_all() noexcept {
+		queue_counters_.note_wake_all();
 		// Unconditional: shutdown must guarantee all parked workers exit.
 		wake_epoch_.fetch_add(1, memory_order_release);
+		queue_counters_.note_wake_all_futex();
 		work_detail::futex_wake_private(wake_epoch_, static_cast<int>(workers_.size()));
 	}
 	[[nodiscard]] bool push_local(
@@ -185,8 +372,10 @@ export class WorkPool final : public work_detail::QueueTarget {
 		auto &worker = *workers_[tls_worker_];
 		SL const lk{worker.mtx};
 		if (worker.local.size() >= options_.local_queue_capacity) {
+			queue_counters_.note_local_push_full();
 			return false;
 		}
+		queue_counters_.note_local_push();
 		worker.local.push_back(move(job));
 		pending_.fetch_add(1, memory_order_release);
 		return true;
@@ -194,32 +383,46 @@ export class WorkPool final : public work_detail::QueueTarget {
 	[[nodiscard]] bool push_inject(
 		work_detail::Fn job) noexcept {
 		if (!inject_ring_.try_push(move(job))) {
+			queue_counters_.note_inject_push_full();
 			return false;
 		}
+		queue_counters_.note_inject_push();
 		pending_.fetch_add(1, memory_order_release);
 		return true;
 	}
 	[[nodiscard]] Opt<conflux::work::root::detail::small_move_only_function<void()>> pop_local(
 		SZ index) {
+		queue_counters_.note_local_pop_attempt();
 		auto &worker = *workers_[index];
 		SL const lk{worker.mtx};
 		if (worker.local.empty()) {
 			return nullopt;
 		}
+		queue_counters_.note_local_pop_hit();
 		auto job = move(worker.local.back());
 		worker.local.pop_back();
 		return job;
 	}
-	[[nodiscard]] Opt<work_detail::Fn> pop_inject() noexcept { return inject_ring_.try_pop(); }
+	[[nodiscard]] Opt<work_detail::Fn> pop_inject() noexcept {
+		queue_counters_.note_inject_pop_attempt();
+		auto job = inject_ring_.try_pop();
+		if (job) {
+			queue_counters_.note_inject_pop_hit();
+		}
+		return job;
+	}
 	[[nodiscard]] Opt<conflux::work::root::detail::small_move_only_function<void()>> steal_work(
 		SZ thief) {
+		queue_counters_.note_steal_round();
 		for (SZ offset = 1; offset < workers_.size(); ++offset) {
 			SZ const victim_index = (thief + offset) % workers_.size();
 			auto &victim = *workers_[victim_index];
+			queue_counters_.note_steal_victim_check();
 			SL const lk{victim.mtx};
 			if (victim.local.empty()) {
 				continue;
 			}
+			queue_counters_.note_steal_hit();
 			auto job = move(victim.local.front());
 			victim.local.pop_front();
 			return job;
@@ -265,6 +468,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 				job = steal_work(index);
 			}
 			if (job) {
+				queue_counters_.note_job_run();
 				try {
 					(*job)();
 				} catch (...) {
@@ -284,6 +488,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 				spun = has_pending();
 			}
 			if (!spun) {
+				queue_counters_.note_park_attempt();
 				// P6 candidate (b) park protocol:
 				// 1. Announce parked before the re-check so a concurrent push
 				//    that lands after our spin loop sees us parked and wakes us.
@@ -296,9 +501,11 @@ export class WorkPool final : public work_detail::QueueTarget {
 				//    producer saw parked_>0 and issued a wake (→ futex_wait
 				//    returns EAGAIN immediately on the stale epoch).
 				if (pending_.load(memory_order_acquire) > 0 || stopping_.test(memory_order_acquire)) {
+					queue_counters_.note_park_recheck_skip();
 					parked_.fetch_sub(1, memory_order_acq_rel);
 				} else {
 					u32 const epoch = wake_epoch_.load(memory_order_acquire);
+					queue_counters_.note_futex_wait();
 					work_detail::futex_wait_private(wake_epoch_, epoch);
 					parked_.fetch_sub(1, memory_order_acq_rel);
 				}
@@ -334,12 +541,16 @@ public:
 	WorkPool &operator =(WorkPool &&) = delete;
 	[[nodiscard]] bool enqueue(
 		conflux::work::root::detail::small_move_only_function<void()> job) override {
+		queue_counters_.note_enqueue_attempt();
 		std::unique_lock admission{admission_mtx_};
+		queue_counters_.note_admission_lock_acquisition();
 		if (accepting_stopped_.test(memory_order_acquire) || stopping_.test(memory_order_acquire)) {
+			queue_counters_.note_enqueue_stopped_rejection();
 			return false;
 		}
 		bool const queued = is_local_worker() ? push_local(move(job)) : push_inject(move(job));
 		if (!queued) {
+			queue_counters_.note_enqueue_full_rejection();
 			return false;
 		}
 		admission.unlock();
@@ -376,6 +587,8 @@ public:
 		}
 	}
 	[[nodiscard]] bool stopped() const noexcept { return accepting_stopped_.test(memory_order_acquire); }
+	[[nodiscard]] WorkPoolQueueStats queue_stats() const noexcept { return queue_counters_.snapshot(); }
+	void reset_queue_stats() noexcept { queue_counters_.reset(); }
 };
 // io_uring-coupled executor: requires a live ring (ring_fd from RingLaneOptions).
 // Each non-inline enqueue into an empty queue issues exactly one

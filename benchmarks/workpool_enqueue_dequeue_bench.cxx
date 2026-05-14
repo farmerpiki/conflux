@@ -5,7 +5,7 @@
 //   single_thread — single-producer, single-worker, no cross-thread contention
 //   contended     — N producer threads, WorkPool workers; N from --threads
 //
-// CSV output (--json): config,variant,iterations,total_ns,ns_per_iter
+// NDJSON output (--json): standard timing fields plus optional queue counters.
 
 import std;
 import conflux.types;
@@ -18,7 +18,72 @@ using namespace std::string_view_literals;
 namespace root = conflux::work::root;
 namespace {
 
-BenchStats bench_single_thread(
+struct WorkPoolBenchStats {
+	BenchStats timing;
+	WorkPoolQueueStats queue;
+};
+void print_workpool_stats(
+	WorkPoolBenchStats const &s,
+	bool json_out,
+	bool first) {
+	if (!json_out) {
+		bench_print(s.timing, false, first);
+		if (s.queue.enqueue_attempts != 0 || s.queue.jobs_run != 0) {
+			println(
+				"  queue: enqueue={} local_push={} inject_push={} jobs={} steal_hits={} futex_waits={} wake_futex={}",
+				s.queue.enqueue_attempts,
+				s.queue.local_pushes,
+				s.queue.inject_pushes,
+				s.queue.jobs_run,
+				s.queue.steal_hits,
+				s.queue.futex_waits,
+				s.queue.wake_one_futex_wakes + s.queue.wake_all_futex_wakes);
+		}
+		return;
+	}
+	println(
+		"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},"
+		"\"ns_per_iter\":{:.2f},\"queue\":{{\"enqueue_attempts\":{},\"stopped_rejections\":{},"
+		"\"full_rejections\":{},\"admission_lock_acquisitions\":{},\"local_pushes\":{},"
+		"\"local_push_full\":{},\"inject_pushes\":{},\"inject_push_full\":{},"
+		"\"local_pop_attempts\":{},\"local_pop_hits\":{},\"inject_pop_attempts\":{},"
+		"\"inject_pop_hits\":{},\"steal_rounds\":{},\"steal_victim_checks\":{},"
+		"\"steal_hits\":{},\"jobs_run\":{},\"wake_one_calls\":{},"
+		"\"wake_one_futex_wakes\":{},\"wake_one_elided_no_parked\":{},\"wake_all_calls\":{},"
+		"\"wake_all_futex_wakes\":{},\"park_attempts\":{},\"park_recheck_skips\":{},"
+		"\"futex_waits\":{}}}}}",
+		s.timing.config,
+		s.timing.variant,
+		s.timing.iterations,
+		s.timing.total_ns,
+		s.timing.ns_per_iter,
+		s.queue.enqueue_attempts,
+		s.queue.enqueue_stopped_rejections,
+		s.queue.enqueue_full_rejections,
+		s.queue.admission_lock_acquisitions,
+		s.queue.local_pushes,
+		s.queue.local_push_full,
+		s.queue.inject_pushes,
+		s.queue.inject_push_full,
+		s.queue.local_pop_attempts,
+		s.queue.local_pop_hits,
+		s.queue.inject_pop_attempts,
+		s.queue.inject_pop_hits,
+		s.queue.steal_rounds,
+		s.queue.steal_victim_checks,
+		s.queue.steal_hits,
+		s.queue.jobs_run,
+		s.queue.wake_one_calls,
+		s.queue.wake_one_futex_wakes,
+		s.queue.wake_one_elided_no_parked,
+		s.queue.wake_all_calls,
+		s.queue.wake_all_futex_wakes,
+		s.queue.park_attempts,
+		s.queue.park_recheck_skips,
+		s.queue.futex_waits);
+}
+
+WorkPoolBenchStats bench_single_thread(
 	SV cfg_name,
 	SZ iters,
 	SZ warmup) {
@@ -31,13 +96,14 @@ BenchStats bench_single_thread(
 		}
 	};
 	do_iters(warmup);
+	pool.reset_queue_stats();
 	u64 const t0 = bench_now_ns();
 	do_iters(iters);
 	u64 const elapsed = bench_now_ns() - t0;
 	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(iters);
-	return {cfg_name, "single_thread"sv, iters, elapsed, ns_pi, 1e9 / ns_pi};
+	return {{cfg_name, "single_thread"sv, iters, elapsed, ns_pi, 1e9 / ns_pi}, pool.queue_stats()};
 }
-BenchStats bench_contended(
+WorkPoolBenchStats bench_contended(
 	SV cfg_name,
 	SZ threads,
 	SZ iters,
@@ -63,12 +129,13 @@ BenchStats bench_contended(
 		}
 	};
 	do_wave(warmup / threads + 1);
+	pool.reset_queue_stats();
 	u64 const t0 = bench_now_ns();
 	do_wave(per_thread);
 	u64 const elapsed = bench_now_ns() - t0;
 	SZ const total_iters = per_thread * threads;
 	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(total_iters);
-	return {cfg_name, "contended"sv, total_iters, elapsed, ns_pi, 1e9 / ns_pi};
+	return {{cfg_name, "contended"sv, total_iters, elapsed, ns_pi, 1e9 / ns_pi}, pool.queue_stats()};
 }
 
 } // namespace
@@ -92,7 +159,7 @@ int main(
 				"\"--config-name\",\"threads_{0}\",\"--iterations\",\"5000\",\"--warmup\",\"500\"]}}",
 				ts[i]);
 		}
-		println("{{\"name\":\"workpool_enqueue_dequeue\",\"parser\":\"strip1\",\"configs\":[{}]}}", cfgs);
+		println("{{\"name\":\"workpool_enqueue_dequeue\",\"parser\":\"standard\",\"configs\":[{}]}}", cfgs);
 		return 0;
 	}
 
@@ -108,11 +175,11 @@ int main(
 		}
 	}
 
-	BenchStats stats[] = {
+	WorkPoolBenchStats stats[] = {
 		bench_single_thread(cfg.config_name, cfg.iterations, cfg.warmup),
 		bench_contended(cfg.config_name, threads, cfg.iterations, cfg.warmup),
 	};
 	for (SZ i = 0; i < std::size(stats); ++i) {
-		bench_print(stats[i], cfg.json_out, i == 0);
+		print_workpool_stats(stats[i], cfg.json_out, i == 0);
 	}
 }

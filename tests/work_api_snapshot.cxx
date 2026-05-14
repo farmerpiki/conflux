@@ -48,6 +48,21 @@ void _check_facade_make_and_join() {
 }
 
 } // namespace snapshot_work_facade
+
+namespace snapshot_work_pool_api {
+
+using _WorkPool = ::WorkPool;
+using _WorkPoolOptions = ::WorkPoolOptions;
+using _WorkPoolQueueStats = ::WorkPoolQueueStats;
+using _RingLane = ::RingLane;
+using _RingLaneOptions = ::RingLaneOptions;
+
+static_assert(same_as<decltype(std::declval<::WorkPool &>().queue_stats()), ::WorkPoolQueueStats>);
+static_assert(same_as<decltype(std::declval<::WorkPool &>().reset_queue_stats()), void>);
+static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().enqueue_attempts), u64>);
+static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().futex_waits), u64>);
+
+} // namespace snapshot_work_pool_api
 // ---------------------------------------------------------------------------
 // conflux.work.root — canonical types
 // ---------------------------------------------------------------------------

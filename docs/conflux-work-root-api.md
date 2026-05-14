@@ -168,6 +168,47 @@ coroutines may suspend and can be destroyed from a different worker thread than
 the one that allocated the frame. Sanitizer builds disable the mmap bucket path
 and keep the safe PMR fallback.
 
+The CMake option `CONFLUX_WORK_QUEUE_STATS` enables relaxed `WorkPool` queue,
+steal, park, and wake counters for contention profiling. It defaults to `OFF` so
+normal builds keep the existing hot path. The API is always present:
+
+```cpp
+struct WorkPoolQueueStats {
+    uint64_t enqueue_attempts;
+    uint64_t enqueue_stopped_rejections;
+    uint64_t enqueue_full_rejections;
+    uint64_t admission_lock_acquisitions;
+    uint64_t local_pushes;
+    uint64_t local_push_full;
+    uint64_t inject_pushes;
+    uint64_t inject_push_full;
+    uint64_t local_pop_attempts;
+    uint64_t local_pop_hits;
+    uint64_t inject_pop_attempts;
+    uint64_t inject_pop_hits;
+    uint64_t steal_rounds;
+    uint64_t steal_victim_checks;
+    uint64_t steal_hits;
+    uint64_t jobs_run;
+    uint64_t wake_one_calls;
+    uint64_t wake_one_futex_wakes;
+    uint64_t wake_one_elided_no_parked;
+    uint64_t wake_all_calls;
+    uint64_t wake_all_futex_wakes;
+    uint64_t park_attempts;
+    uint64_t park_recheck_skips;
+    uint64_t futex_waits;
+};
+
+WorkPoolQueueStats WorkPool::queue_stats() const noexcept;
+void WorkPool::reset_queue_stats() noexcept;
+```
+
+With the option disabled, snapshots are zeroed and reset is a no-op. With the
+option enabled, counters use relaxed atomics and are intended for benchmark and
+profiling runs only. They are not a stable telemetry surface and should not be
+used for correctness decisions.
+
 ## Source Contract
 
 `BasicSource<T, Category>` / `BasicSource<void, Category>` APIs:
