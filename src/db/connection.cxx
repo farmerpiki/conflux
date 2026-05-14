@@ -169,7 +169,9 @@ public:
 	Pipeline() = default;
 	Pipeline(
 		shared_ptr<Connection> conn) noexcept
-		: conn_{move(conn)} {}
+		: state_{make_shared<State>()} {
+		state_->conn = move(conn);
+	}
 	Pipeline(Pipeline const &) = delete;
 	Pipeline &operator =(Pipeline const &) = delete;
 	Pipeline(Pipeline &&) noexcept = default;
@@ -185,18 +187,24 @@ private:
 		string sql;
 		Params params;
 	};
+	struct SyncState;
+	struct State {
+		shared_ptr<Connection> conn{};
+		bool closed{false};
+		bool syncing{false};
+		deque<PendingQuery> pending{};
+		shared_ptr<SyncState> active_sync{};
+	};
 	struct SyncState {
 		deque<PendingQuery> batch;
 		shared_ptr<root::TaskSource<void>> done;
+		shared_ptr<State> pipe;
 	};
 	void close_() noexcept;
-	void sync_next_(shared_ptr<SyncState> const &st);
-	void finish_sync_(bool success) noexcept;
+	static void sync_next_(shared_ptr<SyncState> const &st);
+	static void finish_sync_(shared_ptr<State> const &pipe, bool success) noexcept;
 
-	shared_ptr<Connection> conn_{};
-	bool closed_{false};
-	deque<PendingQuery> pending_{};
-	bool syncing_{false};
+	shared_ptr<State> state_{};
 };
 export class Connection : public enable_shared_from_this<Connection> {
 public:
@@ -911,19 +919,20 @@ root::Task<Result> Pipeline::query(
 	Params params) {
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
-	if (closed_ || !conn_ || !conn_->conn_) {
+	auto const st = state_;
+	if (!st || st->closed || !st->conn || !st->conn->conn_) {
 		auto _ = shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
 		return move(task);
 	}
-	if (this_thread::get_id() != conn_->owner_) {
+	if (this_thread::get_id() != st->conn->owner_) {
 		auto _ = shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: query off owner thread"}));
 		return move(task);
 	}
-	if (syncing_) {
+	if (st->syncing) {
 		auto _ = shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: query while sync in progress"}));
 		return move(task);
 	}
-	pending_.push_back(
+	st->pending.push_back(
 		PendingQuery{
 			.dst = shared_src,
 			.sql = string{sql},
@@ -945,50 +954,53 @@ root::Task<Result> Pipeline::exec_cached(
 root::Task<void> Pipeline::sync() {
 	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-	if (closed_ || !conn_ || !conn_->conn_) {
+	auto const st = state_;
+	if (!st || st->closed || !st->conn || !st->conn->conn_) {
 		auto _ = shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
 		return move(task);
 	}
-	if (this_thread::get_id() != conn_->owner_) {
+	if (this_thread::get_id() != st->conn->owner_) {
 		auto _ = shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: sync off owner thread"}));
 		return move(task);
 	}
-	if (syncing_) {
+	if (st->syncing) {
 		auto _ = shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: sync already in progress"}));
 		return move(task);
 	}
-	if (pending_.empty()) {
+	if (st->pending.empty()) {
 		auto _ = shared_src->try_set_value(root::Success<void>{});
 		return move(task);
 	}
-	syncing_ = true;
-	auto st = make_shared<SyncState>();
-	st->batch = move(pending_);
-	st->done = shared_src;
-	pending_.clear();
-	sync_next_(st);
+	st->syncing = true;
+	auto sync_state = make_shared<SyncState>();
+	sync_state->batch = move(st->pending);
+	sync_state->done = shared_src;
+	sync_state->pipe = st;
+	st->active_sync = sync_state;
+	state_->pending.clear();
+	sync_next_(sync_state);
 	return move(task);
 }
 // NOLINTNEXTLINE(misc-no-recursion) — mutual indirect recursion through async on Connection::query boundary; no stack
 // cycle.
 void Pipeline::sync_next_(
 	shared_ptr<SyncState> const &st) {
+	auto const pipe = st->pipe;
 	if (st->batch.empty()) {
 		auto _ = st->done->try_set_value(root::Success<void>{});
-		finish_sync_(true);
+		finish_sync_(pipe, true);
 		return;
 	}
 	auto item = move(st->batch.front());
 	st->batch.pop_front();
 	auto shared_src = item.dst;
-	[](Pipeline *self,
-	   SP<SyncState> st,
+	[](SP<SyncState> st,
 	   SP<root::TaskSource<Result>> shared_src,
 	   root::Task<Result> qt) -> root::Task<void> {
 		try {
 			auto r = co_await move(qt);
 			auto _ = shared_src->try_set_value(root::Success<Result>{move(r)});
-			self->sync_next_(st);
+			Pipeline::sync_next_(st);
 		} catch (Cancelled const &) {
 			auto _ = shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
 			while (!st->batch.empty()) {
@@ -997,7 +1009,7 @@ void Pipeline::sync_next_(
 				auto _ = rem.dst->try_set_cancelled(root::work_errc::cancelled_requested);
 			}
 			auto _ = st->done->try_set_cancelled(root::work_errc::cancelled_requested);
-			self->finish_sync_(false);
+			Pipeline::finish_sync_(st->pipe, false);
 		} catch (...) {
 			auto _ = shared_src->try_set_exception(current_exception());
 			while (!st->batch.empty()) {
@@ -1006,36 +1018,50 @@ void Pipeline::sync_next_(
 				auto _ = rem.dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline query"}));
 			}
 			auto _ = st->done->try_set_value(root::Success<void>{});
-			self->finish_sync_(true);
+			Pipeline::finish_sync_(st->pipe, true);
 		}
-	}(this, st, shared_src, conn_->query(item.sql, move(item.params)))
+	}(st, shared_src, pipe->conn->query(item.sql, move(item.params)))
 									 .detach();
 }
 void Pipeline::finish_sync_(
+	shared_ptr<State> const &pipe,
 	bool success) noexcept {
-	syncing_ = false;
+	if (!pipe) {
+		return;
+	}
+	pipe->syncing = false;
+	pipe->active_sync.reset();
 	if (!success) {
-		while (!pending_.empty()) {
-			auto dst = move(pending_.front().dst);
-			pending_.pop_front();
+		while (!pipe->pending.empty()) {
+			auto dst = move(pipe->pending.front().dst);
+			pipe->pending.pop_front();
 			auto _ = dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline sync failed"}));
 		}
 	}
 }
 void Pipeline::close_() noexcept {
-	if (closed_) {
+	auto const st = state_;
+	if (!st || st->closed) {
 		return;
 	}
-	closed_ = true;
-	while (!pending_.empty()) {
-		auto dst = move(pending_.front().dst);
-		pending_.pop_front();
+	st->closed = true;
+	while (!st->pending.empty()) {
+		auto dst = move(st->pending.front().dst);
+		st->pending.pop_front();
 		auto _ = dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
 	}
-	if (!conn_ || !conn_->conn_) {
+	if (st->active_sync) {
+		while (!st->active_sync->batch.empty()) {
+			auto rem = move(st->active_sync->batch.front());
+			st->active_sync->batch.pop_front();
+			auto _ = rem.dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+		}
+		auto _ = st->active_sync->done->try_set_exception(make_exception_ptr(PgError{"conflux.db: pipeline closed"}));
+	}
+	if (!st->conn || !st->conn->conn_) {
 		return;
 	}
-	conn_->pipeline_mode_ = false;
+	st->conn->pipeline_mode_ = false;
 }
 root::Task<shared_ptr<string const>> QueryCache::load_async(
 	string_view name) {

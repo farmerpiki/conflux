@@ -266,6 +266,25 @@ TEST_CASE(
 	CHECK_THROWS_AS(block_on(fx->reader, move(after), chrono::seconds{30}), PgError);
 }
 TEST_CASE(
+	"db: pipeline teardown rejects queued work",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+	Opt<Task<Result>> pending{};
+	{
+		auto pipeline = block_on(fx->reader, conn->pipeline(), chrono::seconds{30});
+		pending.emplace(pipeline.query("SELECT 123::int8"));
+	}
+	REQUIRE(pending);
+	CHECK_THROWS_AS(block_on(fx->reader, move(*pending), chrono::seconds{30}), PgError);
+}
+TEST_CASE(
 	"db: server-side disconnect surfaces as connection_lost",
 	"[db][integration]") {
 	auto ci = conninfo();
