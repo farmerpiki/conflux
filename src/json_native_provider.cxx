@@ -77,13 +77,14 @@ namespace conflux::json::boundary::detail {
 	};
 }
 
-[[nodiscard]] inline conflux::json::UnknownMemberPolicy map_unknown_member_policy(
+[[nodiscard]] inline decltype(JsonDecodeOptions{}.unknown_members) map_unknown_member_policy(
 	UnknownMemberPolicy policy) noexcept {
+	using DecodePolicy = decltype(JsonDecodeOptions{}.unknown_members);
 	switch (policy) {
-	case UnknownMemberPolicy::reject: return conflux::json::UnknownMemberPolicy::reject;
-	case UnknownMemberPolicy::ignore: return conflux::json::UnknownMemberPolicy::ignore;
+	case UnknownMemberPolicy::reject: return DecodePolicy::reject;
+	case UnknownMemberPolicy::ignore: return DecodePolicy::ignore;
 	}
-	return conflux::json::UnknownMemberPolicy::reject;
+	return DecodePolicy::reject;
 }
 
 [[nodiscard]] inline JsonDecodeOptions map_decode_options(

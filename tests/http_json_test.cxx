@@ -118,7 +118,7 @@ TEST_CASE(
 TEST_CASE(
 	"http json: native convenience can encode and decode request bodies",
 	"[http.json]") {
-	auto req = HttpRequest::post("https://example.test/api");
+	auto req = conflux::http::HttpRequest::post("https://example.test/api");
 	hj::set_body(req, static_cast<i64>(99));
 	auto built = move(req).build();
 	CHECK(built.headers().value_or("Content-Type") == jb::kContentType);
