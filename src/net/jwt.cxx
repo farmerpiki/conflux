@@ -198,8 +198,8 @@ Opt<SV> bearer_token(
 // Public API
 // ---------------------------------------------------------------------------
 
-// Decode and verify a JWT.  Returns JwtClaims on success, error S on failure.
-export expected<JwtClaims, S> jwt_decode(
+// Decode and verify a JWT.  Returns JwtClaims on success, error string on failure.
+export expected<JwtClaims, std::string> jwt_decode(
 	SV token,
 	JwtOptions const &opts) {
 	// Split header.payload.signature
@@ -297,7 +297,7 @@ export expected<JwtClaims, S> jwt_decode(
 }
 // Sign a payload JSON S and return a complete JWT.
 // payload_json must be a valid JSON object S, e.g. R"({"sub":"user1","exp":9999999999})".
-export S jwt_sign(
+export std::string jwt_sign(
 	SV payload_json,
 	SV secret) {
 	// Header: {"alg":"HS256","typ":"JWT"}
@@ -311,7 +311,7 @@ export S jwt_sign(
 
 	return signing_input + '.' + sig_b64;
 }
-export S jwt_sign(
+export std::string jwt_sign(
 	SV header_json,
 	SV payload_json,
 	SV secret) {
