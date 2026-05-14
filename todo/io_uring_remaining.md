@@ -49,7 +49,7 @@ TCP fallback already uses `SocketTaskRing`. Remaining:
 PR A (server multishot cancel + shutdown) and PR B (DNS + HTTP client timeouts) complete.
 Benchmark gate passed (main vs db, release-clang-libcxx, 2026-05-10). Remaining:
 
-- [ ] Cancel-by-fd/close-fd for multishot recv where user-data cancel is insufficient — deferred; generation check mitigates, proper fix requires per-fd cancel slot tracking.
+- [x] Cancel-by-fd/close-fd for multishot recv where user-data cancel is insufficient — the server now tears down armed multishot recv connections via fd-cancel on shutdown, and the shutdown e2e covers the no-stall close path.
 - [x] `HttpTimeouts::write` async path — `submit_send_timeout_borrowed` landed in `fbf7ffd`.
 - [x] HTTPS async cancellation path — `client_async.cxx` TLS connect/recv is cancellation-aware via `ActiveTaskCancelRelay` and `TcpTlsStream`.
 - [x] Shutdown explicit recv cancel for armed connections — `handle_shutdown()` now cancels armed recv operations before queuing close, including deferred direct/socket handles.
