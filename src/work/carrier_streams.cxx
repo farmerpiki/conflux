@@ -23,14 +23,14 @@ class DroppableSlot {
 	void drain_() noexcept {
 		auto ctrl = state_->handle.control();
 		if (ctrl.ready()) {
-			auto out = root::join(move(state_->handle));
+			auto out = root::join_ready(move(state_->handle));
 			if (state_->on_drop_fn) {
 				state_->on_drop_fn(move(out));
 			}
 			return;
 		}
 		auto result = ctrl.try_set_on_ready([s = move(state_)]() mutable noexcept {
-			auto out = root::join(move(s->handle));
+			auto out = root::join_ready(move(s->handle));
 			if (s->on_drop_fn) {
 				s->on_drop_fn(move(out));
 			}
@@ -76,10 +76,13 @@ public:
 	}
 	[[nodiscard]] bool ready() const noexcept { return state_ && state_->handle.control().ready(); }
 	[[nodiscard]] Opt<root::Outcome<T>> try_get() && {
-		if (!state_ || !state_->handle.control().ready()) {
+		if (!state_) {
 			return nullopt;
 		}
-		auto out = root::join(move(state_->handle));
+		auto out = root::try_join_ready(move(state_->handle));
+		if (!out) {
+			return nullopt;
+		}
 		consumed_ = true;
 		return out;
 	}
@@ -125,7 +128,7 @@ public:
 			}
 		}
 		auto result = control_.try_set_on_ready([s = move(state_)]() mutable noexcept {
-			auto out = root::join(move(s->handle));
+			auto out = root::join_ready(move(s->handle));
 			if (s->on_drop_fn) {
 				s->on_drop_fn(move(out));
 			}
@@ -161,7 +164,7 @@ public:
 	}
 	[[nodiscard]] Chain<T> await_resume() {
 		callback_installed_ = false;
-		auto out = root::join(move(state_->handle));
+		auto out = root::join_ready(move(state_->handle));
 		consumed_ = true;
 		return Chain<T>{move(out), CarrierKind::task};
 	}

@@ -10,6 +10,50 @@ permitted process-lifetime locale holder, are documented in `docs/json-design.md
 
 ---
 
+## Provider boundary traits
+
+`conflux.json.boundary` is the provider-neutral JSON serde boundary used by
+framework/app-facing components. It intentionally does not pick a parser or DOM.
+Provider modules satisfy the concepts and can be swapped without changing route
+helpers.
+
+```cpp
+import conflux.json.boundary;
+
+namespace jb = conflux::json::boundary;
+
+template<class Provider, class T>
+concept JsonDumpProvider = requires(T const& value, jb::DumpOptions const& opts) {
+    { Provider::dump_json(value, opts) } -> same_as<expected<string, jb::Error>>;
+};
+
+template<class Provider, class T>
+concept JsonDecodeProvider = requires(string_view input, jb::DecodeOptions const& opts) {
+    { Provider::template decode_json<T>(input, opts) } -> same_as<expected<T, jb::Error>>;
+};
+```
+
+`conflux.json.native_provider` adapts the current `conflux.json` parser/DOM to
+that boundary:
+
+```cpp
+import conflux.json.native_provider;
+
+using Provider = conflux::json::boundary::NativeJsonProvider;
+
+auto doc  = Provider::parse_json_document(body, {.copy_input = true});
+auto json = conflux::json::boundary::dump_with<Provider>(*doc);
+auto id   = conflux::json::boundary::decode_with<Provider, i64>("42");
+```
+
+HTTP JSON helpers now depend on `conflux.json.native_provider` instead of
+serializing `Document` directly. Custom providers should implement the same
+static `dump_json` / `decode_json` / `parse_json_document` shape and return
+`conflux::json::boundary::Error` rather than leaking provider-specific errors
+through framework boundaries.
+
+---
+
 ## Parse
 
 ```cpp

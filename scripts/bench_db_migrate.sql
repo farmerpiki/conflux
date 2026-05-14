@@ -51,6 +51,8 @@ ALTER TABLE results ADD COLUMN IF NOT EXISTS median       double precision;
 ALTER TABLE results ADD COLUMN IF NOT EXISTS mad          double precision;
 ALTER TABLE results ADD COLUMN IF NOT EXISTS p50          double precision;
 ALTER TABLE results ADD COLUMN IF NOT EXISTS p99          double precision;
+ALTER TABLE results ADD COLUMN IF NOT EXISTS best         double precision;
+ALTER TABLE results ADD COLUMN IF NOT EXISTS p10          double precision;
 
 -- ---------------------------------------------------------------------------
 -- build_facts — static per-run facts (sizeof, ABI hashes, fallback alloc pct, …)
@@ -71,3 +73,115 @@ CREATE TABLE IF NOT EXISTS build_facts (
 CREATE INDEX IF NOT EXISTS runs_commit_bench   ON runs    (commit_sha, benchmark);
 CREATE INDEX IF NOT EXISTS results_run_variant ON results (run_id, variant);
 CREATE INDEX IF NOT EXISTS build_facts_run     ON build_facts (run_id, fact);
+
+-- ---------------------------------------------------------------------------
+-- Views used by benchmarks/README.md and migration gate notes
+-- ---------------------------------------------------------------------------
+CREATE OR REPLACE VIEW bench_compare_summary AS
+SELECT
+    a.run_id AS run_a,
+    b.run_id AS run_b,
+    ra.name  AS name_a,
+    rb.name  AS name_b,
+    a.benchmark,
+    ra.config_name,
+    a.variant,
+    a.ns_per_iter AS a_med_ns,
+    b.ns_per_iter AS b_med_ns,
+    a.mad AS a_mad,
+    b.mad AS b_mad,
+    CASE
+        WHEN a.ns_per_iter = 0 THEN NULL
+        ELSE ((b.ns_per_iter - a.ns_per_iter) / a.ns_per_iter) * 100.0
+    END AS pct_change,
+    LEAST(COALESCE(a.sample_count, 0), COALESCE(b.sample_count, 0)) AS reps
+FROM results a
+JOIN results b
+  ON b.benchmark = a.benchmark
+ AND b.variant = a.variant
+ AND b.run_id <> a.run_id
+JOIN runs ra ON ra.id = a.run_id
+JOIN runs rb ON rb.id = b.run_id
+ AND rb.config_name = ra.config_name
+WHERE a.extra->>'kind' = 'summary'
+  AND b.extra->>'kind' = 'summary';
+
+CREATE OR REPLACE VIEW bench_raw AS
+WITH raw AS (
+    SELECT
+        r.run_id,
+        runs.name,
+        runs.config_name,
+        r.benchmark,
+        r.variant,
+        r.iterations,
+        r.total_ns,
+        r.ns_per_iter,
+        r.extra,
+        ROW_NUMBER() OVER (
+            PARTITION BY r.run_id, r.benchmark, runs.config_name, r.variant
+            ORDER BY r.ns_per_iter, r.id
+        ) AS rep_rank
+    FROM results r
+    JOIN runs ON runs.id = r.run_id
+    WHERE COALESCE(r.extra->>'kind', '') <> 'summary'
+), summary AS (
+    SELECT
+        r.run_id,
+        runs.config_name,
+        r.benchmark,
+        r.variant,
+        r.ns_per_iter AS med_ns,
+        r.mad,
+        r.p50,
+        r.p99,
+        r.best,
+        r.p10
+    FROM results r
+    JOIN runs ON runs.id = r.run_id
+    WHERE r.extra->>'kind' = 'summary'
+)
+SELECT
+    a.run_id AS run_a,
+    b.run_id AS run_b,
+    a.name AS name_a,
+    b.name AS name_b,
+    a.benchmark,
+    a.config_name,
+    a.variant,
+    a.rep_rank,
+    a.ns_per_iter AS a_ns,
+    b.ns_per_iter AS b_ns,
+    sa.med_ns AS a_med_ns,
+    sb.med_ns AS b_med_ns,
+    sa.mad AS a_mad,
+    sb.mad AS b_mad,
+    sa.p50 AS a_p50,
+    sb.p50 AS b_p50,
+    sa.p99 AS a_p99,
+    sb.p99 AS b_p99,
+    sa.best AS a_best,
+    sb.best AS b_best,
+    sa.p10 AS a_p10,
+    sb.p10 AS b_p10,
+    CASE
+        WHEN sa.med_ns = 0 THEN NULL
+        ELSE ((sb.med_ns - sa.med_ns) / sa.med_ns) * 100.0
+    END AS pct_change
+FROM raw a
+JOIN raw b
+  ON b.benchmark = a.benchmark
+ AND b.config_name = a.config_name
+ AND b.variant = a.variant
+ AND b.rep_rank = a.rep_rank
+ AND b.run_id <> a.run_id
+LEFT JOIN summary sa
+  ON sa.run_id = a.run_id
+ AND sa.benchmark = a.benchmark
+ AND sa.config_name = a.config_name
+ AND sa.variant = a.variant
+LEFT JOIN summary sb
+  ON sb.run_id = b.run_id
+ AND sb.benchmark = b.benchmark
+ AND sb.config_name = b.config_name
+ AND sb.variant = b.variant;

@@ -137,6 +137,28 @@ TEST_CASE(
 	CHECK(val == 42);
 }
 TEST_CASE(
+	"work.root: try_join_ready leaves pending task joinable",
+	"[work.root]") {
+	auto [task, src] = root::make_task_source<int>();
+	auto pending = root::try_join_ready(move(task));
+	CHECK_FALSE(pending.has_value());
+	REQUIRE(src.try_set_value(root::Success<int>{5}));
+	auto ready = root::try_join_ready(move(task));
+	REQUIRE(ready.has_value());
+	REQUIRE(ready->is_success());
+	CHECK(ready->success().value == 5);
+}
+TEST_CASE(
+	"work.root: join_ready rejects pending task without consuming it",
+	"[work.root]") {
+	auto [task, src] = root::make_task_source<int>();
+	CHECK_THROWS_AS(root::join_ready(move(task)), root::JoinError);
+	REQUIRE(src.try_set_value(root::Success<int>{6}));
+	auto out = root::join(move(task));
+	REQUIRE(out.is_success());
+	CHECK(out.success().value == 6);
+}
+TEST_CASE(
 	"work.root: source destructor fallback commits abandoned cancel",
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();

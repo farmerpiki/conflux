@@ -11,6 +11,7 @@ export import conflux.net.http.json;
 export import conflux.net.client;
 export import conflux.net.http_server;
 export import conflux.net.auth;
+export import conflux.net.password_hash;
 export import conflux.net.compress;
 export import conflux.net.cors;
 export import conflux.net.rate_limit;

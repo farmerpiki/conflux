@@ -11,6 +11,7 @@ valid_profile() {
 	case "$1" in
 		debug-clang-libcxx|debug-clang-stdcxx|debug-gcc-stdcxx|debug-gcc16-stdcxx|\
 			release-clang-libcxx|release-clang-stdcxx|release-gcc-stdcxx|release-gcc16-stdcxx|\
+			perf-clang-libcxx|perf-gcc-stdcxx|\
 			release-clang-libcxx-p5|release-gcc-stdcxx-p5|release-gcc16-stdcxx-p5|\
 			pgo-gen-clang-libcxx|pgo-use-clang-libcxx|pgo-gen-gcc-stdcxx|pgo-use-gcc-stdcxx|\
 			pgo-gen-gcc16-stdcxx|pgo-use-gcc16-stdcxx|\

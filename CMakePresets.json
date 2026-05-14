@@ -165,6 +165,35 @@
         "CONFLUX_BUILD_BENCHMARKS": "ON"
       }
     },
+
+    {
+      "name": "perf-clang-libcxx",
+      "displayName": "Perf · clang++ · libc++ · symbols",
+      "inherits": "clang-libcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CONFLUX_ENABLE_ASAN": "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
+        "CONFLUX_ENABLE_TSAN": "OFF",
+        "CONFLUX_ENABLE_LTO": "OFF",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
+      }
+    },
+    {
+      "name": "perf-gcc-stdcxx",
+      "displayName": "Perf · g++ · libstdc++ · symbols",
+      "inherits": "gcc-stdcxx",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "RelWithDebInfo",
+        "CONFLUX_ENABLE_ASAN": "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
+        "CONFLUX_ENABLE_TSAN": "OFF",
+        "CONFLUX_ENABLE_LTO": "OFF",
+        "CONFLUX_BUILD_TESTS": "OFF",
+        "CONFLUX_BUILD_BENCHMARKS": "ON"
+      }
+    },
     {
       "name": "release-clang-libcxx-p5",
       "displayName": "Release · clang++ · libc++ · P5 coro pool",
@@ -302,6 +331,14 @@
     {
       "name": "release-gcc16-stdcxx",
       "configurePreset": "release-gcc16-stdcxx"
+    },
+    {
+      "name": "perf-clang-libcxx",
+      "configurePreset": "perf-clang-libcxx"
+    },
+    {
+      "name": "perf-gcc-stdcxx",
+      "configurePreset": "perf-gcc-stdcxx"
     },
     {
       "name": "release-clang-libcxx-p5",

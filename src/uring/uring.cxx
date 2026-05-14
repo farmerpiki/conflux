@@ -153,6 +153,116 @@ inline constexpr SetupFlags sqe_mixed{IORING_SETUP_SQE_MIXED};
 inline constexpr SetupFlags sq_rewind{IORING_SETUP_SQ_REWIND};
 
 } // namespace setup_flags
+
+namespace setup_flag_fallback {
+
+inline constexpr SetupFlags strip_order[] = {
+	setup_flags::cqe_mixed,
+	setup_flags::no_sqarray,
+	setup_flags::submit_all,
+	setup_flags::taskrun_flag,
+	setup_flags::defer_taskrun,
+	setup_flags::single_issuer,
+};
+
+} // namespace setup_flag_fallback
+
+export [[nodiscard]] std::optional<SetupFlags> next_setup_flag_to_strip(
+	SetupFlags flags) {
+	for (SetupFlags const f: setup_flag_fallback::strip_order) {
+		if (flags.any(f)) {
+			return f;
+		}
+	}
+	return std::nullopt;
+}
+
+namespace {
+
+template<typename Fn>
+std::string setup_flag_list(
+	Fn &&fn) {
+	std::string s;
+	auto app = [&](char const *name) {
+		if (!s.empty()) {
+			s += ',';
+		}
+		s += name;
+	};
+	fn(app);
+	return s.empty() ? "none" : s;
+}
+
+} // namespace
+
+export [[nodiscard]] std::string setup_flags_str(
+	SetupFlags flags) {
+	return setup_flag_list([&](auto app) {
+		if (flags.any(setup_flags::single_issuer)) {
+			app("SINGLE_ISSUER");
+		}
+		if (flags.any(setup_flags::defer_taskrun)) {
+			app("DEFER_TASKRUN");
+		}
+		if (flags.any(setup_flags::sqpoll)) {
+			app("SQPOLL");
+		}
+		if (flags.any(setup_flags::sq_aff)) {
+			app("SQ_AFF");
+		}
+		if (flags.any(setup_flags::iopoll)) {
+			app("IOPOLL");
+		}
+		if (flags.any(setup_flags::cqsize)) {
+			app("CQSIZE");
+		}
+		if (flags.any(setup_flags::clamp)) {
+			app("CLAMP");
+		}
+		if (flags.any(setup_flags::coop_taskrun)) {
+			app("COOP_TASKRUN");
+		}
+		if (flags.any(setup_flags::taskrun_flag)) {
+			app("TASKRUN_FLAG");
+		}
+		if (flags.any(setup_flags::submit_all)) {
+			app("SUBMIT_ALL");
+		}
+		if (flags.any(setup_flags::attach_wq)) {
+			app("ATTACH_WQ");
+		}
+		if (flags.any(setup_flags::r_disabled)) {
+			app("R_DISABLED");
+		}
+		if (flags.any(setup_flags::sqe128)) {
+			app("SQE128");
+		}
+		if (flags.any(setup_flags::cqe32)) {
+			app("CQE32");
+		}
+		if (flags.any(setup_flags::no_mmap)) {
+			app("NO_MMAP");
+		}
+		if (flags.any(setup_flags::registered_fd_only)) {
+			app("REGISTERED_FD_ONLY");
+		}
+		if (flags.any(setup_flags::no_sqarray)) {
+			app("NO_SQARRAY");
+		}
+		if (flags.any(setup_flags::hybrid_iopoll)) {
+			app("HYBRID_IOPOLL");
+		}
+		if (flags.any(setup_flags::cqe_mixed)) {
+			app("CQE_MIXED");
+		}
+		if (flags.any(setup_flags::sqe_mixed)) {
+			app("SQE_MIXED");
+		}
+		if (flags.any(setup_flags::sq_rewind)) {
+			app("SQ_REWIND");
+		}
+	});
+}
 // ── CQE flag constants ────────────────────────────────────────────────────────
 
 namespace cqe_flags {

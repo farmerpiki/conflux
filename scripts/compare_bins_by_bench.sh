@@ -84,6 +84,7 @@ normalize_tree() {
 normalize_preset() {
   local preset="$1"
   preset="${preset#release-}"
+  preset="${preset#perf-}"
   case "$preset" in
     clang*) printf '%s\n' clang ;;
     gcc16*) printf '%s\n' gcc16 ;;
@@ -104,7 +105,12 @@ discover_candidates() {
     preset=$(normalize_preset "$(basename "$(dirname "$bin")")")
     label="${tree}-${preset}"
     out+=("$label:$bin")
-  done < <(find /tmp -path "*/release-*/benchmarks/conflux_${bench}_bench*" -type f -executable -print0 2>/dev/null | sort -z)
+  done < <(
+    find /tmp \
+      \( -path "*/release-*/benchmarks/conflux_${bench}_bench*" \
+         -o -path "*/perf-*/benchmarks/conflux_${bench}_bench*" \) \
+      -type f -executable -print0 2>/dev/null | sort -z
+  )
   printf '%s\n' "${out[@]}"
 }
 
@@ -160,7 +166,10 @@ run_one() {
 
 if [[ "$BENCH_NAME" == "all" ]]; then
   mapfile -t benches < <(
-    find /tmp -path '*/release-*/benchmarks/conflux_*_bench*' -type f -executable -print0 2>/dev/null \
+    find /tmp \
+      \( -path '*/release-*/benchmarks/conflux_*_bench*' \
+         -o -path '*/perf-*/benchmarks/conflux_*_bench*' \) \
+      -type f -executable -print0 2>/dev/null \
       | xargs -0 -n1 basename \
       | sed -n 's/^conflux_\(.*\)_bench$/\1/p' \
       | sort -u

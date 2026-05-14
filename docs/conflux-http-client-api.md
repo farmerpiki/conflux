@@ -227,13 +227,16 @@ Body (debug builds assert that body is set at most once unless `clear_body()` is
 
 JSON request-body serialization lives in the optional `conflux.net.http.json`
 module instead of `HttpRequest::Builder`, so `conflux.net.http.request` stays
-free of a JSON module dependency:
+free of a JSON module dependency. The helper serializes through the JSON provider
+boundary (`conflux.json.boundary`); the default provider is the native
+`conflux.json` adapter:
 
 ```cpp
 import conflux.net.http.json;
 
 auto b = HttpRequest::post("https://example.test/submit");
 conflux::http::json::set_body(b, doc);
+conflux::http::json::set_body<CustomProvider>(b, value);
 auto req = std::move(b).build();
 ```
 
@@ -406,6 +409,6 @@ Still not in any transport:
 - pooled connections / keep-alive (`pool_wait` / `reused_connection` always false)
 - redirect following (`follow_redirects` follows redirects up to the configured limit)
 - content-coding decode (gzip/br/zstd bodies arrive raw)
-- JSON document request-body helpers are free functions in `conflux.net.http.json`; there is intentionally no `body_json(NodeRef)` member on `HttpRequest::Builder`.
+- JSON document request-body helpers are free functions in `conflux.net.http.json`; there is intentionally no `body_json(NodeRef)` member on `HttpRequest::Builder`. The helpers are provider-boundary based, so framework-facing code should not call `Document::dump()` directly.
 
 Builder/Request/Response/Telemetry/Error shapes are not expected to change.

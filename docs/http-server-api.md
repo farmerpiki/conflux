@@ -368,6 +368,8 @@ Precompressed serving: if `Accept-Encoding: gzip` is present and `file.gz` exist
 
 ## Middleware
 
+Password storage uses the dedicated `conflux.net.password_hash` boundary; see `docs/auth-password-hashing.md` for Argon2id/PBKDF2 formats and login-time rehash migration.
+
 Middleware wraps every matched route. Applied outermost-first in registration order.
 
 ```cpp

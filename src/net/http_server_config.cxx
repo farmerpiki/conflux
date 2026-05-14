@@ -5,6 +5,7 @@ export module conflux.net.http_server_config;
 
 import std;
 import conflux.types;
+import conflux.uring;
 import conflux.net.config;
 
 namespace {
@@ -58,20 +59,11 @@ export [[gnu::pure]] u32 build_uring_flags(
 
 export [[nodiscard]] std::optional<u32> next_uring_setup_flag_to_strip(
 	u32 flags) {
-	static constexpr u32 kStripOrder[] = {
-		IORING_SETUP_CQE_MIXED,
-		IORING_SETUP_NO_SQARRAY,
-		IORING_SETUP_SUBMIT_ALL,
-		IORING_SETUP_TASKRUN_FLAG,
-		IORING_SETUP_DEFER_TASKRUN,
-		IORING_SETUP_SINGLE_ISSUER,
-	};
-	for (u32 const f: kStripOrder) {
-		if ((flags & f) != 0u) {
-			return f;
-		}
+	auto const stripped = conflux::uring::next_setup_flag_to_strip(conflux::uring::SetupFlags{flags});
+	if (!stripped) {
+		return std::nullopt;
 	}
-	return std::nullopt;
+	return stripped->raw();
 }
 
 export [[nodiscard]] u32 wq_fd_for_ring(
@@ -85,38 +77,7 @@ export [[nodiscard]] u32 wq_fd_for_ring(
 }
 
 export [[nodiscard]] std::string setup_flags_str(u32 flags) {
-	return format_flag_list(',', [&](auto app) {
-		if ((flags & IORING_SETUP_SINGLE_ISSUER) != 0u) {
-			app("SINGLE_ISSUER");
-		}
-		if ((flags & IORING_SETUP_DEFER_TASKRUN) != 0u) {
-			app("DEFER_TASKRUN");
-		}
-		if ((flags & IORING_SETUP_SQPOLL) != 0u) {
-			app("SQPOLL");
-		}
-		if ((flags & IORING_SETUP_IOPOLL) != 0u) {
-			app("IOPOLL");
-		}
-		if ((flags & IORING_SETUP_COOP_TASKRUN) != 0u) {
-			app("COOP_TASKRUN");
-		}
-		if ((flags & IORING_SETUP_TASKRUN_FLAG) != 0u) {
-			app("TASKRUN_FLAG");
-		}
-		if ((flags & IORING_SETUP_SUBMIT_ALL) != 0u) {
-			app("SUBMIT_ALL");
-		}
-		if ((flags & IORING_SETUP_ATTACH_WQ) != 0u) {
-			app("ATTACH_WQ");
-		}
-		if ((flags & IORING_SETUP_NO_SQARRAY) != 0u) {
-			app("NO_SQARRAY");
-		}
-		if ((flags & IORING_SETUP_CQE_MIXED) != 0u) {
-			app("CQE_MIXED");
-		}
-	});
+	return conflux::uring::setup_flags_str(conflux::uring::SetupFlags{flags});
 }
 
 export [[nodiscard]] std::string flags_str(

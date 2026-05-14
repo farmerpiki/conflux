@@ -39,6 +39,10 @@ parallel branches without repeatedly re-deciding global priority.
   - `sync_`: executor/task APIs that run on the task/executor model but expose a
     non-coroutine success/failure surface.
   - `async_`: coroutine APIs.
+- Perf harness initial stabilization is in place: dedicated symbolized `perf-*`
+  presets build recordable benchmarks without sanitizers/LTO, the recorder keeps
+  manifest/bench-info/raw NDJSON artifacts, and HTTP/file/worker benchmark
+  commands are documented.
 
 ### Main gaps still worth implementing
 
@@ -172,13 +176,13 @@ Recommended next HTTP branch: `http/handler-execution-docs`, then `http/sendzc-m
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
-| P0 | `uring/setup-flag-fallback-log` | Log requested-vs-active setup flags after EINVAL stripping. | Low conflict; touches ring init/logging. | Startup log makes `NO_SQARRAY`, `SUBMIT_ALL`, `CQE_MIXED`, etc. requested/active/stripped status visible. |
+| Done | `uring/setup-flag-fallback-log` | Log requested-vs-active setup flags after EINVAL stripping. | Landed in the low-level `conflux.uring` setup-flag helpers and the HTTP startup banner delegates to that shared path. | Startup log makes `NO_SQARRAY`, `SUBMIT_ALL`, `CQE_MIXED`, etc. requested/active/stripped status visible. |
 | P1 | `uring/iopoll-storage-ring` | Add storage-only `IORING_SETUP_IOPOLL` support for O_DIRECT/NVMe file rings. | Touches file I/O/ring init; independent of HTTP send path. | IOPOLL cannot mix with sockets; config makes storage-only scope explicit; tests cover fallback. |
 | P1 | `uring/sendzc-edge-measurement` | Add focused benchmark/counters around SEND_ZC fallback paths. | Depends on perf harness; independent of auth/json. | Bench output can decide mapped-file/TLS fallback policy. |
 | P2 | `uring/recv-abstraction-for-zc` | Refactor recv buffer ownership so RECV_ZC can slot in later. | Can run before kernel support, but avoid changing behavior. | Existing recv behavior unchanged; abstraction names lifetime/pinning requirements. |
 | P3 | `uring/recv-zc` | Implement `IORING_OP_RECV_ZC`. | Wait for stable target kernel support and abstraction branch. | Feature-gated, runtime-probed, clear fallback. |
 
-Recommended next uring branch: `uring/setup-flag-fallback-log` or `uring/iopoll-storage-ring`.
+Recommended next uring branch: `uring/iopoll-storage-ring`, after the current setup-flag fallback/log patch merges.
 
 ### JSON / serde / app boundary lane
 
@@ -198,18 +202,18 @@ Recommended next JSON branch: `json/boundary-traits`.
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
-| P0 | `auth/password-hash-replacement` | Replace current password hashing with a dedicated password-hash implementation/wrapper. Prefer a proven Argon2id/libsodium-style dependency if the current code has no equivalent primitive. | Independent of worker/JSON unless login routes are touched; coordinate DB migration. | New hashes include algorithm/version/params; existing users have a migration/rehash path; tests cover verify/fail/upgrade. |
+| P0 | `auth/password-hash-replacement` | [x] Dedicated password-hash wrapper added: Argon2id modular format via runtime `libargon2` when available, PBKDF2-SHA256 compatibility fallback, explicit verify/rehash API. | Independent of worker/JSON unless login routes are touched; coordinate DB migration. | Hashes include algorithm/version/params; tests cover vector/verify/fail/upgrade and optional Argon2id runtime path. |
 | P1 | `auth/secret-config-cleanup` | Move auth secrets/pepper/session config into typed config with explicit missing-config errors. | Depends on password wrapper shape; mostly config/auth. | No silent default production secrets. |
 | P1 | `auth/session-token-audit` | Audit session/token creation, expiry, storage, revocation, and error surfaces. | Can run after password branch; avoid route ergonomics changes. | Threat model notes and tests for expiry/revocation. |
 | P2 | `auth/rate-limit-hooks` | Add hooks for login/API abuse controls without baking policy into core. | Can run parallel with HTTP limits if interfaces are stable. | Hook points exist; default remains safe/simple. |
 
-Recommended next auth branch: `auth/password-hash-replacement`.
+Recommended next auth branch: `auth/secret-config-cleanup`, then `auth/session-token-audit`.
 
 ### Build / tests / perf / CI lane
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
-| P0 | `build/perf-harness-stabilize` | Make perf harness reproducible: benchmark presets, symbols, fixed inputs, result artifact path, and docs. | Independent; unlocks several perf branches. | HTTP/file/worker benchmark commands are documented and runnable. |
+| P0 | `build/perf-harness-stabilize` | Make perf harness reproducible: benchmark presets, symbols, fixed inputs, result artifact path, and docs. | Independent; unlocks several perf branches. | **Initial slice done:** HTTP/file/worker benchmark commands are documented; recorder emits manifest/bench-info/raw artifacts; perf presets provide symbolized non-sanitizer builds. |
 | P0 | `build/module-fragility-regression` | Add/keep regression docs/tests for thin-interface module pattern around coroutine-heavy modules. | Build/docs; low conflict. | Agents stop reintroducing heavy coroutine bodies into fragile module interfaces. |
 | P1 | `build/ci-sanitizer-perf-split` | Separate sanitizer correctness lanes from release/perf lanes. | CMake/CI only. | Perf numbers cannot accidentally come from sanitizer builds. |
 | P1 | `build/lto-pgo-presets` | Add LTO/PGO presets or docs once benchmarks are stable. | Depends on perf harness. | Presets do not disturb normal dev/debug builds. |
@@ -251,9 +255,9 @@ These branches can start from the same base with low conflict risk:
    - Highest implementation priority.
    - Serial gate for remaining worker runtime work.
 
-3. `auth/password-hash-replacement`
-   - Security-critical and mostly independent.
-   - Coordinate only where login routes or DB migrations are touched.
+3. `auth/secret-config-cleanup`
+   - Builds on the password-hash wrapper shape.
+   - Move secrets/pepper/session config behind typed missing-config errors.
 
 4. `json/boundary-traits`
    - Enables later JSON cleanup without choosing final parser.
@@ -263,10 +267,7 @@ These branches can start from the same base with low conflict risk:
    - Enables measured HTTP/uring/worker perf changes.
    - Avoids further unmeasured low-level tweaks.
 
-6. `uring/setup-flag-fallback-log`
-   - Small low-conflict correctness/observability improvement.
-
-7. `uring/iopoll-storage-ring`
+6. `uring/iopoll-storage-ring`
    - Independent from HTTP send path and worker runtime.
 
 ## Deferred work

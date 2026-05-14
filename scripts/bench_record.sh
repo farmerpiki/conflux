@@ -28,13 +28,18 @@
 #
 # Env knobs:
 #   PGURI              postgres URI (default: postgres://postgres@localhost/conflux_bench)
-#   BENCH_PRESET       space-separated cmake preset(s) (default: release-clang-libcxx release-gcc-stdcxx)
+#   BENCH_PRESET       space-separated cmake preset(s) (default: perf-clang-libcxx perf-gcc-stdcxx)
 #                      each preset is built, run, and deleted before the next one starts
 #   KEEP_BUILD=1       skip /tmp build-dir cleanup
 #   ONLY_BENCH         if set, run only that logical bench name (e.g. "task_creation")
 #   BENCH_PIN_CPUS     cpuset for taskset (e.g. "0-3"); wraps every bench launch
 #   BENCH_REPS         default per-metric replications consumed by record_with_reps (default: 5)
 #                      per-config --bench-info .reps overrides this for expensive benches
+#   BENCH_ARTIFACT_DIR directory for manifest, bench-info, and raw NDJSON artifacts
+#                      (default: /tmp/<repo>/bench-artifacts/<timestamp>-<run-name>)
+#   BENCH_LOAD_FACTOR  abort when 1-min load exceeds nproc * factor (default: 1.5)
+#   BENCH_SETTLE_AFTER_BUILD_SEC  post-build settle delay (default: 20)
+#   BENCH_SETTLE_BETWEEN_SEC      inter-candidate settle delay in compare modes (default: 2)
 #   BENCH_ITERATIONS_FROM_RUN_ID
 #                      if set, read per-benchmark/config iteration counts from this
 #                      prior run_id in the database and override launch args.
@@ -56,11 +61,14 @@ set -euo pipefail
 
 PGURI="${PGURI:-postgres://postgres@localhost/conflux_bench}"
 export PG_CONNINFO="${PG_CONNINFO:-host=localhost dbname=conflux_bench user=postgres}"
-BENCH_PRESETS="${BENCH_PRESET:-release-clang-libcxx release-gcc-stdcxx}"
+BENCH_PRESETS="${BENCH_PRESET:-perf-clang-libcxx perf-gcc-stdcxx}"
 BENCH_REPS="${BENCH_REPS:-5}"
 MACHINE_ID="${MACHINE_ID:-$(cat /etc/machine-id 2>/dev/null || hostname)}"
 WAIVER_REASON="${WAIVER_REASON:-}"
 BENCH_ITERATIONS_FROM_RUN_ID="${BENCH_ITERATIONS_FROM_RUN_ID:-}"
+BENCH_LOAD_FACTOR="${BENCH_LOAD_FACTOR:-1.5}"
+BENCH_SETTLE_AFTER_BUILD_SEC="${BENCH_SETTLE_AFTER_BUILD_SEC:-20}"
+BENCH_SETTLE_BETWEEN_SEC="${BENCH_SETTLE_BETWEEN_SEC:-2}"
 
 COMPARE_MODE=false
 COMPARE_BINS_MODE=false
@@ -80,26 +88,39 @@ else
   NAME="${1:-manual}"
 fi
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
+script_repo_root() {
+  local script_dir
+  script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  cd "$script_dir/.." && pwd
+}
+
+REPO_ROOT="${SOURCE_DIR:-$(git rev-parse --show-toplevel 2>/dev/null || script_repo_root)}"
 cd "$REPO_ROOT"
+
+RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
+safe_run_name="$(printf '%s' "$NAME" | tr -c 'A-Za-z0-9_.-' '_')"
+BENCH_ARTIFACT_DIR="${BENCH_ARTIFACT_DIR:-/tmp/$(basename "$REPO_ROOT")/bench-artifacts/${RUN_STAMP}-${safe_run_name}}"
+mkdir -p "$BENCH_ARTIFACT_DIR" "$BENCH_ARTIFACT_DIR/info" "$BENCH_ARTIFACT_DIR/raw" "$BENCH_ARTIFACT_DIR/logs"
 
 # ---------------------------------------------------------------------------
 # Pre-flight: abort if any core is already saturated
 # ---------------------------------------------------------------------------
 cores=$(nproc)
 load1=$(awk '{print $1}' /proc/loadavg)
-threshold=$(awk "BEGIN {printf \"%.1f\", $cores * 1.5}")
+threshold=$(awk "BEGIN {printf \"%.1f\", $cores * $BENCH_LOAD_FACTOR}")
 if awk "BEGIN {exit !($load1 > $threshold)}"; then
-  echo "ERROR: 1-min load average $load1 exceeds threshold $threshold (${cores} cores × 1.5)." >&2
+  echo "ERROR: 1-min load average $load1 exceeds threshold $threshold (${cores} cores × ${BENCH_LOAD_FACTOR})." >&2
   echo "       Wait for background work to finish before recording benchmarks." >&2
   exit 3
 fi
 echo "load check passed: load=$load1 threshold=$threshold"
 
-COMMIT="$(git rev-parse HEAD)"
-BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+COMMIT="$(git rev-parse HEAD 2>/dev/null || echo unknown)"
+BRANCH="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
 DIRTY=false
-if ! git diff --quiet || ! git diff --cached --quiet; then DIRTY=true; fi
+if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+  if ! git diff --quiet || ! git diff --cached --quiet; then DIRTY=true; fi
+fi
 
 HOST="$(hostname)"
 SYS_PINNED_CPUS="${BENCH_PIN_CPUS:-}"
@@ -121,12 +142,75 @@ compiler_version() {
   esac
 }
 
+artifact_slug() {
+  printf '%s' "$1" | tr -c 'A-Za-z0-9_.-' '_'
+}
+
 SYS_CPU=$(cpu_model)
 SYS_CORES=$(cpu_cores)
 SYS_SMT=$(cpu_smt)
 SYS_KERNEL=$(kernel_ver)
 SYS_LIBC=$(libc_ver)
 SYS_GOVERNOR=$(governor)
+
+make_metadata() {
+  local mode="$1" preset="${2:-}"
+  jq -nc \
+    --arg cpu "$SYS_CPU" \
+    --argjson cores "$SYS_CORES" \
+    --arg smt "$SYS_SMT" \
+    --arg kernel "$SYS_KERNEL" \
+    --arg libc "$SYS_LIBC" \
+    --arg governor "$SYS_GOVERNOR" \
+    --arg compiler_version "$SYS_COMPILER_VER" \
+    --arg pinned_cpus "$SYS_PINNED_CPUS" \
+    --arg artifact_dir "$BENCH_ARTIFACT_DIR" \
+    --arg mode "$mode" \
+    --arg preset "$preset" \
+    --argjson reps "$BENCH_REPS" \
+    '{cpu:$cpu, cores:$cores, smt:$smt, kernel:$kernel, libc:$libc,
+      governor:$governor, compiler_version:$compiler_version,
+      pinned_cpus:$pinned_cpus, artifact_dir:$artifact_dir,
+      mode:$mode, preset:$preset, reps:$reps}'
+}
+
+write_manifest() {
+  local mode="record" preset_words="$BENCH_PRESETS" presets_json
+  if $COMPARE_MODE; then
+    mode="compare"
+    preset_words="${COMPARE_PRESETS[*]}"
+  elif $COMPARE_BINS_MODE; then
+    mode="compare-bins"
+    preset_words=""
+  fi
+  read -r -a manifest_presets <<< "$preset_words"
+  if ((${#manifest_presets[@]} > 0)); then
+    presets_json=$(printf '%s\n' "${manifest_presets[@]}" | jq -R . | jq -s .)
+  else
+    presets_json='[]'
+  fi
+  jq -nc \
+    --arg name "$NAME" \
+    --arg mode "$mode" \
+    --arg repo_root "$REPO_ROOT" \
+    --arg commit "$COMMIT" \
+    --arg branch "$BRANCH" \
+    --argjson dirty "$DIRTY" \
+    --arg host "$HOST" \
+    --arg machine_id "$MACHINE_ID" \
+    --arg created_utc "$RUN_STAMP" \
+    --arg artifact_dir "$BENCH_ARTIFACT_DIR" \
+    --argjson presets "$presets_json" \
+    --argjson reps "$BENCH_REPS" \
+    '{name:$name, repo_root:$repo_root, commit_sha:$commit, branch:$branch,
+      mode:$mode, dirty:$dirty, host:$host, machine_id:$machine_id,
+      created_utc:$created_utc, artifact_dir:$artifact_dir,
+      presets:$presets, reps:$reps}' \
+    > "$BENCH_ARTIFACT_DIR/manifest.json"
+  echo "artifact dir: $BENCH_ARTIFACT_DIR"
+}
+
+write_manifest
 
 # ---------------------------------------------------------------------------
 # Pre-bench cleanup: remove debug trees to free tmpfs RAM before any builds
@@ -235,6 +319,7 @@ rewrite_args_for_iterations() {
 COMPARE_BENCH_NAME=""
 COMPARE_CFG_NAME=""
 COMPARE_BIN_ARGS=()
+COMPARE_BENCH_INFO=""
 load_bench_info_args() {
   local binary="$1"
   local info cfg_json
@@ -242,6 +327,7 @@ load_bench_info_args() {
     echo "binary does not support --bench-info: $binary" >&2
     exit 2
   }
+  COMPARE_BENCH_INFO="$info"
   COMPARE_BENCH_NAME=$(jq -r '.name' <<< "$info")
   cfg_json=$(jq -c '.configs[0] // empty' <<< "$info")
   if [[ -z "$cfg_json" ]]; then
@@ -289,13 +375,15 @@ insert_row() {
 # Expects NDJSON: {"config":"","variant":"","iterations":N,"total_ns":N,"ns_per_iter":X,"min":X,"p10":X,"mad":X}
 record_with_reps() {
   local run_id="$1" bench="$2" reps="$3"; shift 3
-  local tmpf
+  local tmpf rawf
   tmpf=$(mktemp /tmp/bench_reps_XXXXXX.ndjson)
   trap 'rm -f "$tmpf"' RETURN
+  rawf="$BENCH_ARTIFACT_DIR/raw/run_${run_id}_$(artifact_slug "$bench").ndjson"
 
   local i; for i in $(seq 1 "$reps"); do
     "$@" 2>/dev/null >> "$tmpf"
   done
+  cp "$tmpf" "$rawf"
 
   while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
     local ex
@@ -366,7 +454,7 @@ load_check_or_abort() {
   local cores thr load
   cores=$(nproc)
   load=$(awk '{print $1}' /proc/loadavg)
-  thr=$(awk "BEGIN {printf \"%.1f\", $cores * 1.5}")
+  thr=$(awk "BEGIN {printf \"%.1f\", $cores * $BENCH_LOAD_FACTOR}")
   if awk "BEGIN {exit !($load > $thr)}"; then
     echo "ERROR: load $load > threshold $thr before bench run — aborting compare" >&2
     exit 3
@@ -386,35 +474,30 @@ run_compare() {
     COMPILER="clang++"
     case "$p" in *gcc*) COMPILER="g++" ;; esac
     SYS_COMPILER_VER=$(compiler_version)
-    METADATA=$(printf '{
-  "cpu": "%s",
-  "cores": %s,
-  "smt": "%s",
-  "kernel": "%s",
-  "libc": "%s",
-  "governor": "%s",
-  "compiler_version": "%s",
-  "pinned_cpus": "%s",
-  "reps": %s
-}' "$SYS_CPU" "$SYS_CORES" "$SYS_SMT" "$SYS_KERNEL" \
-       "$SYS_LIBC" "$SYS_GOVERNOR" "$SYS_COMPILER_VER" \
-       "$SYS_PINNED_CPUS" "$BENCH_REPS")
+    METADATA=$(make_metadata compare "$p")
     local cfg_log bdir
     cfg_log=$(cmake --preset "$p" 2>&1)
+    printf '%s\n' "$cfg_log" > "$BENCH_ARTIFACT_DIR/logs/$(artifact_slug "$p")-configure.log"
     bdir=$(printf '%s\n' "$cfg_log" | sed -n 's/^-- Build files have been written to: //p' | tail -1)
     if [[ -z "$bdir" || ! -d "$bdir" ]]; then
       echo "configure failed for preset $p" >&2
       printf '%s\n' "$cfg_log" | tail -20 >&2
       exit 2
     fi
-    cmake --build "$bdir" --target conflux_work_benchmarks -- -j"$(nproc)" >/dev/null
+    local build_log="$BENCH_ARTIFACT_DIR/logs/$(artifact_slug "$p")-build.log"
+    if ! cmake --build "$bdir" --target conflux_work_benchmarks -- -j"$(nproc)" \
+        > "$build_log" 2>&1; then
+      echo "build failed for preset $p; log=$build_log" >&2
+      tail -40 "$build_log" >&2
+      exit 2
+    fi
     build_dirs[$p]="$bdir"
     run_ids[$p]=$(new_run "work" "compare" "{\"compare\":true,\"preset\":\"$p\"}")
     echo "  run_id=${run_ids[$p]}"
   done
 
-  echo "all presets built — settling 20s before compare rounds..."
-  sleep 20
+  echo "all presets built — settling ${BENCH_SETTLE_AFTER_BUILD_SEC}s before compare rounds..."
+  sleep "$BENCH_SETTLE_AFTER_BUILD_SEC"
 
   local reps="${BENCH_REPS:-5}"
   for round in $(seq 1 "$reps"); do
@@ -427,8 +510,8 @@ run_compare() {
       pos=$((j + 1))
 
       load_check_or_abort
-      echo "  settle 2s before $p (round=$round pos=$pos)..."
-      sleep 2
+      echo "  settle ${BENCH_SETTLE_BETWEEN_SEC}s before $p (round=$round pos=$pos)..."
+      sleep "$BENCH_SETTLE_BETWEEN_SEC"
 
       local binary="${build_dirs[$p]}/benchmarks/conflux_work_benchmarks"
       local rid="${run_ids[$p]}"
@@ -507,10 +590,12 @@ run_compare() {
 # ---------------------------------------------------------------------------
 _compare_bins_insert_row() {
   local rid="$1" bench="$2" label="$3" round="$4" pos="$5"; shift 5
-  local tmpf
+  local tmpf rawf
   tmpf=$(mktemp /tmp/compare_bins_XXXXXX.ndjson)
+  rawf="$BENCH_ARTIFACT_DIR/raw/run_${rid}_$(artifact_slug "$bench")_$(artifact_slug "$label")_r${round}.ndjson"
 
   run_bench "$@" --json 2>/dev/null >> "$tmpf"
+  cp "$tmpf" "$rawf"
 
   while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
     local ex
@@ -571,6 +656,7 @@ run_compare_bins() {
     local label="${arg%%:*}" bin="${arg#*:}"
     [[ -x "$bin" ]] || { echo "binary not found or not executable: $bin" >&2; exit 1; }
     load_bench_info_args "$bin"
+    printf '%s\n' "$COMPARE_BENCH_INFO" > "$BENCH_ARTIFACT_DIR/info/compare-bins_$(artifact_slug "$label").json"
     if [[ -z "$bench_name" ]]; then
       bench_name="$COMPARE_BENCH_NAME"
       cfg_name="$COMPARE_CFG_NAME"
@@ -591,17 +677,7 @@ run_compare_bins() {
   # Create run_ids: use git commit of the REPO_ROOT (where script is invoked).
   COMPILER="clang++"  # best-effort; refine via label naming if needed
   SYS_COMPILER_VER=$(compiler_version)
-  METADATA=$(jq -nc \
-    --arg cpu "$SYS_CPU" \
-    --argjson cores "$SYS_CORES" \
-    --arg smt "$SYS_SMT" \
-    --arg kernel "$SYS_KERNEL" \
-    --arg libc "$SYS_LIBC" \
-    --arg governor "$SYS_GOVERNOR" \
-    --arg compiler_version "$SYS_COMPILER_VER" \
-    --arg pinned_cpus "$SYS_PINNED_CPUS" \
-    --argjson reps "$BENCH_REPS" \
-    '{cpu:$cpu, cores:$cores, smt:$smt, kernel:$kernel, libc:$libc, governor:$governor, compiler_version:$compiler_version, pinned_cpus:$pinned_cpus, reps:$reps}')
+  METADATA=$(make_metadata compare-bins)
 
   local run_ids=()
   for ((i=0; i<n; i++)); do
@@ -624,8 +700,8 @@ run_compare_bins() {
       local rid="${run_ids[$idx]}"
 
       load_check_or_abort
-      echo "  settle 2s before ${label} (round=$round pos=$pos)..."
-      sleep 2
+      echo "  settle ${BENCH_SETTLE_BETWEEN_SEC}s before ${label} (round=$round pos=$pos)..."
+      sleep "$BENCH_SETTLE_BETWEEN_SEC"
       echo "  running ${label}..."
       load_bench_info_args "$bin"
       local -a args=("${COMPARE_BIN_ARGS[@]}")
@@ -664,8 +740,10 @@ run_tcp_parallel() {
     extra=$(cat "$path")
     RID=$(new_run "$bench" "$cfgfile" "$extra")
     echo "+ $bench [$cfgfile] run_id=$RID"
+    local rawf="$BENCH_ARTIFACT_DIR/raw/run_${RID}_$(artifact_slug "$bench")_$(artifact_slug "$cfgfile").ndjson"
     run_bench "$binary" \
         --iterations 200 --warmup 50 --parallel 1,2,4,8 --config "$path" --json 2>/dev/null \
+      | tee "$rawf" \
       | jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.flags // ""), (.ring_entries // 0), (.throughput_iter_per_s // 0)] | @tsv)' \
       | while IFS=$'\t' read -r variant iters total_ns ns_pi flags ring tput; do
           local ex
@@ -683,7 +761,9 @@ run_file_copy() {
   local RID
   RID=$(new_run "$bench" "$cfg_name" "$extra")
   echo "+ $bench [$cfg_name] run_id=$RID"
+  local rawf="$BENCH_ARTIFACT_DIR/raw/run_${RID}_$(artifact_slug "$bench")_$(artifact_slug "$cfg_name").ndjson"
   run_bench "$binary" "${args[@]}" --json 2>/dev/null \
+    | tee "$rawf" \
     | jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.avg_mib_per_s // 0), (.best_mib_per_s // 0), (.best_ns // 0)] | @tsv)' \
     | while IFS=$'\t' read -r variant iters total_ns ns_pi avg_mibs best_mibs best_ns; do
         local ex
@@ -728,23 +808,11 @@ for PRESET in "${PRESET_LIST[@]}"; do
   case "$PRESET" in *gcc*) COMPILER="g++" ;; esac
   SYS_COMPILER_VER=$(compiler_version)
 
-  METADATA=$(printf '{
-  "cpu": "%s",
-  "cores": %s,
-  "smt": "%s",
-  "kernel": "%s",
-  "libc": "%s",
-  "governor": "%s",
-  "compiler_version": "%s",
-  "pinned_cpus": "%s",
-  "reps": %s
-}' \
-    "$SYS_CPU" "$SYS_CORES" "$SYS_SMT" "$SYS_KERNEL" \
-    "$SYS_LIBC" "$SYS_GOVERNOR" "$SYS_COMPILER_VER" \
-    "$SYS_PINNED_CPUS" "$BENCH_REPS")
+  METADATA=$(make_metadata record "$PRESET")
 
   # Build
   CONFIGURE_LOG=$(cmake --preset "$PRESET" 2>&1)
+  printf '%s\n' "$CONFIGURE_LOG" > "$BENCH_ARTIFACT_DIR/logs/$(artifact_slug "$PRESET")-configure.log"
   BUILD_DIR=$(printf '%s\n' "$CONFIGURE_LOG" | sed -n 's/^-- Build files have been written to: //p' | tail -1)
   if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
     echo "configure failed; preset=$PRESET" >&2
@@ -753,11 +821,17 @@ for PRESET in "${PRESET_LIST[@]}"; do
   fi
 
   CURRENT_BUILD_DIR="$BUILD_DIR"
-  cmake --build "$BUILD_DIR" --target conflux_record_benches -- -j"$(nproc)" >/dev/null
+  BUILD_LOG="$BENCH_ARTIFACT_DIR/logs/$(artifact_slug "$PRESET")-build.log"
+  if ! cmake --build "$BUILD_DIR" --target conflux_record_benches -- -j"$(nproc)" \
+      > "$BUILD_LOG" 2>&1; then
+    echo "build failed; preset=$PRESET log=$BUILD_LOG" >&2
+    tail -40 "$BUILD_LOG" >&2
+    exit 2
+  fi
 
   # Let CPU caches and frequency scaling settle after a full-core build.
-  echo "build done — settling 20s before benchmarks..."
-  sleep 20
+  echo "build done — settling ${BENCH_SETTLE_AFTER_BUILD_SEC}s before benchmarks..."
+  sleep "$BENCH_SETTLE_AFTER_BUILD_SEC"
 
   BENCHDIR="$BUILD_DIR/benchmarks"
   CONFIGS_DIR="${BENCH_CONFIGS_DIR:-$REPO_ROOT/benchmarks/configs}"
@@ -771,6 +845,7 @@ for PRESET in "${PRESET_LIST[@]}"; do
       echo "skip $(basename "$binary"): no --bench-info support" >&2
       continue
     }
+    printf '%s\n' "$info" > "$BENCH_ARTIFACT_DIR/info/${PRESET}_$(basename "$binary").json"
 
     bench_name=$(jq -r .name <<< "$info" 2>/dev/null || true)
     if [[ -z "$bench_name" || "$bench_name" == "null" ]]; then
@@ -824,8 +899,8 @@ for PRESET in "${PRESET_LIST[@]}"; do
   CURRENT_BUILD_DIR=""
 
   if (( preset_idx < preset_count )); then
-    echo "settling 5s before next preset..."
-    sleep 5
+    echo "settling ${BENCH_SETTLE_BETWEEN_SEC}s before next preset..."
+    sleep "$BENCH_SETTLE_BETWEEN_SEC"
   fi
 done
 

@@ -163,11 +163,15 @@ target_link_libraries(conflux_utils_tests PRIVATE conflux conflux_options Catch2
 add_executable(conflux_jwt_tests jwt_test.cxx)
 target_link_libraries(conflux_jwt_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
+add_executable(conflux_password_hash_tests password_hash_test.cxx)
+target_link_libraries(conflux_password_hash_tests PRIVATE conflux_http_auth conflux_options Catch2::Catch2WithMain)
+
 if(TARGET conflux_http_server_config)
     add_executable(conflux_config_tests config_test.cxx)
     target_link_libraries(conflux_config_tests
         PRIVATE
             conflux_net_config
+            conflux_uring
             conflux_http_server_config
             conflux_options
             Catch2::Catch2WithMain
@@ -204,6 +208,12 @@ target_link_libraries(conflux_template_tests PRIVATE conflux conflux_options Cat
 
 add_executable(conflux_json_tests json_test.cxx)
 target_link_libraries(conflux_json_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
+
+if(TARGET conflux_json_native_provider)
+    add_executable(conflux_json_boundary_tests json_boundary_test.cxx)
+    target_link_libraries(conflux_json_boundary_tests
+        PRIVATE conflux_json_native_provider conflux_options Catch2::Catch2WithMain)
+endif()
 
 if(TARGET conflux_json_file)
     add_executable(conflux_json_file_tests json_file_test.cxx)
@@ -498,6 +508,7 @@ endif()
 conflux_discover_tests(conflux_crypto_tests)
 conflux_discover_tests(conflux_utils_tests)
 conflux_discover_tests(conflux_jwt_tests)
+conflux_discover_tests(conflux_password_hash_tests)
 if(TARGET conflux_config_tests)
     conflux_discover_tests(conflux_config_tests)
 endif()

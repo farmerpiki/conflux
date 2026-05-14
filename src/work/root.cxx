@@ -643,6 +643,7 @@ public:
 		hop_capability_mismatch,
 		ready_callback_already_installed,
 		lifetime_violation,
+		not_ready,
 	};
 	explicit JoinError(
 		reason r,
@@ -681,6 +682,7 @@ private:
 		case hop_capability_mismatch         : return "PROGRAMMER ERROR (JoinError): hop capability mismatch";
 		case ready_callback_already_installed: return "PROGRAMMER ERROR (JoinError): ready callback already installed";
 		case lifetime_violation              : return "PROGRAMMER ERROR (JoinError): handle not live";
+		case not_ready                       : return "PROGRAMMER ERROR (JoinError): ready-only join called before terminal state";
 		}
 		return "PROGRAMMER ERROR (JoinError): unknown";
 	}
@@ -970,6 +972,7 @@ public:
 	}
 	[[nodiscard]] virtual bool try_set_cancelled(CancelReason reason, bool allow_abandoned) noexcept = 0;
 	[[nodiscard]] virtual Outcome<T> wait_and_take_outcome() = 0;
+	[[nodiscard]] virtual Opt<Outcome<T>> try_take_ready_outcome() = 0;
 	virtual void install_abandon_sink(small_move_only_function<void(Outcome<T> const &)> sink) noexcept = 0;
 	[[nodiscard]] virtual AbandonStatus
 	try_install_abandon_sink(small_move_only_function<void(Outcome<T> const &)> sink) noexcept = 0;
@@ -1298,6 +1301,21 @@ public:
 		Outcome<T> out = move(*outcome_);
 		outcome_.reset();
 		return out;
+	}
+	[[nodiscard]] Opt<Outcome<T>> try_take_ready_outcome() override {
+		if (terminal_state_.load(memory_order_acquire) == TerminalState::none) {
+			return nullopt;
+		}
+		std::unique_lock lk{mtx_};
+		if (terminal_state_.load(memory_order_acquire) == TerminalState::none) {
+			return nullopt;
+		}
+		if (!outcome_) {
+			throw LE{"conflux.work.root: missing terminal outcome"};
+		}
+		Outcome<T> out = move(*outcome_);
+		outcome_.reset();
+		return Opt<Outcome<T>>{move(out)};
 	}
 	void install_abandon_sink(
 		small_move_only_function<void(Outcome<T> const &)> sink) noexcept override {
@@ -1656,6 +1674,21 @@ public:
 		outcome_.reset();
 		return out;
 	}
+	[[nodiscard]] Opt<Outcome<void>> try_take_ready_outcome() override {
+		if (terminal_state_.load(memory_order_acquire) == TerminalState::none) {
+			return nullopt;
+		}
+		std::unique_lock lk{mtx_};
+		if (terminal_state_.load(memory_order_acquire) == TerminalState::none) {
+			return nullopt;
+		}
+		if (!outcome_) {
+			throw LE{"conflux.work.root: missing terminal outcome"};
+		}
+		Outcome<void> out = move(*outcome_);
+		outcome_.reset();
+		return Opt<Outcome<void>>{move(out)};
+	}
 	void install_abandon_sink(
 		small_move_only_function<void(Outcome<void> const &)> sink) noexcept override {
 		if (!sink) {
@@ -2006,6 +2039,10 @@ struct drop_on_abandon {
 	std::source_location loc) {
 	throw JoinError{JoinError::reason::capability_mismatch, expected, actual, loc};
 }
+[[noreturn]] [[gnu::cold]] [[gnu::noinline]] void raise_join_not_ready(
+	std::source_location loc) {
+	throw JoinError{JoinError::reason::not_ready, loc};
+}
 namespace detail {
 
 template<work_value T, bool EnableCancellation>
@@ -2053,8 +2090,11 @@ struct TaskAwaiter {
 		}
 		// Rethrow original exception on Failure (not FailureError wrapper) so
 		// existing catch sites work. E2b.2 migrates to FailureError uniformly.
-		return move(state_->wait_and_take_outcome())
-			.visit([](auto &&arm) -> std::conditional_t<std::is_void_v<T>, void, T> {
+		auto outcome = state_->try_take_ready_outcome();
+		if (!outcome) [[unlikely]] {
+			raise_join_not_ready(loc_);
+		}
+		return move(*outcome).visit([](auto &&arm) -> std::conditional_t<std::is_void_v<T>, void, T> {
 				using arm_t = std::remove_cvref_t<decltype(arm)>;
 				if constexpr (same_as<arm_t, Success<T>>) {
 					if constexpr (!std::is_void_v<T>) {
@@ -2092,7 +2132,11 @@ struct OutcomeAwaiter {
 		if (ready_callback_already_installed_) [[unlikely]] {
 			throw JoinError{JoinError::reason::ready_callback_already_installed, loc_};
 		}
-		return state_->wait_and_take_outcome();
+		auto outcome = state_->try_take_ready_outcome();
+		if (!outcome) [[unlikely]] {
+			raise_join_not_ready(loc_);
+		}
+		return move(*outcome);
 	}
 };
 template<class A>
@@ -2702,6 +2746,200 @@ template<progress_capability Cap, work_value T>
 	OperationJoinHandle<T> const &h) noexcept {
 	return h.control().can_join_with(capability_id(cap));
 }
+namespace detail {
+template<work_value T>
+[[nodiscard]] Outcome<T> take_ready_outcome_or_throw(
+	SP<ControlBlockInterface<T>> state,
+	std::source_location loc) {
+	auto outcome = state->try_take_ready_outcome();
+	if (!outcome) [[unlikely]] {
+		raise_join_not_ready(loc);
+	}
+	return move(*outcome);
+}
+} // namespace detail
+
+template<work_value T>
+[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+	Task<T> &&task,
+	std::source_location loc = std::source_location::current()) {
+	if (task.state() != join_state::joinable) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	if (!task.control().ready()) {
+		return nullopt;
+	}
+	auto state = task.consume_for_join();
+	if (!state) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+}
+template<progress_capability Owner, work_value T>
+[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+	Owner &owner,
+	Posted<T> &&posted,
+	std::source_location loc = std::source_location::current()) {
+	if (posted.state() != join_state::joinable) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	auto control = posted.control();
+	if (!control.can_join_with(capability_id(owner))) [[unlikely]] {
+		raise_join_capability_mismatch(control.required_capability(), capability_id(owner), loc);
+	}
+	if (!control.ready()) {
+		return nullopt;
+	}
+	auto state = posted.consume_for_join();
+	if (!state) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+}
+template<progress_capability Driver, work_value T>
+[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+	Driver &driver,
+	Operation<T> &&op,
+	std::source_location loc = std::source_location::current()) {
+	if (op.state() != join_state::joinable) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	auto control = op.control();
+	if (!control.can_join_with(capability_id(driver))) [[unlikely]] {
+		raise_join_capability_mismatch(control.required_capability(), capability_id(driver), loc);
+	}
+	if (!control.ready()) {
+		return nullopt;
+	}
+	auto state = op.consume_for_join();
+	if (!state) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+}
+template<work_value T>
+[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+	TaskJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
+	if (!h) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	if (!h.control().ready()) {
+		return nullopt;
+	}
+	auto state = h.consume_for_join();
+	if (!state) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+}
+template<progress_capability Owner, work_value T>
+[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+	Owner &owner,
+	PostedJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
+	if (!h) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	auto control = h.control();
+	if (!control.can_join_with(capability_id(owner))) [[unlikely]] {
+		raise_join_capability_mismatch(control.required_capability(), capability_id(owner), loc);
+	}
+	if (!control.ready()) {
+		return nullopt;
+	}
+	auto state = h.consume_for_join();
+	if (!state) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+}
+template<progress_capability Driver, work_value T>
+[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+	Driver &driver,
+	OperationJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
+	if (!h) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	auto control = h.control();
+	if (!control.can_join_with(capability_id(driver))) [[unlikely]] {
+		raise_join_capability_mismatch(control.required_capability(), capability_id(driver), loc);
+	}
+	if (!control.ready()) {
+		return nullopt;
+	}
+	auto state = h.consume_for_join();
+	if (!state) [[unlikely]] {
+		raise_join_lifetime_violation(loc);
+	}
+	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+}
+template<work_value T>
+[[nodiscard]] Outcome<T> join_ready(
+	Task<T> &&task,
+	std::source_location loc = std::source_location::current()) {
+	auto outcome = try_join_ready(move(task), loc);
+	if (!outcome) [[unlikely]] {
+		raise_join_not_ready(loc);
+	}
+	return move(*outcome);
+}
+template<progress_capability Owner, work_value T>
+[[nodiscard]] Outcome<T> join_ready(
+	Owner &owner,
+	Posted<T> &&posted,
+	std::source_location loc = std::source_location::current()) {
+	auto outcome = try_join_ready(owner, move(posted), loc);
+	if (!outcome) [[unlikely]] {
+		raise_join_not_ready(loc);
+	}
+	return move(*outcome);
+}
+template<progress_capability Driver, work_value T>
+[[nodiscard]] Outcome<T> join_ready(
+	Driver &driver,
+	Operation<T> &&op,
+	std::source_location loc = std::source_location::current()) {
+	auto outcome = try_join_ready(driver, move(op), loc);
+	if (!outcome) [[unlikely]] {
+		raise_join_not_ready(loc);
+	}
+	return move(*outcome);
+}
+template<work_value T>
+[[nodiscard]] Outcome<T> join_ready(
+	TaskJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
+	auto outcome = try_join_ready(move(h), loc);
+	if (!outcome) [[unlikely]] {
+		raise_join_not_ready(loc);
+	}
+	return move(*outcome);
+}
+template<progress_capability Owner, work_value T>
+[[nodiscard]] Outcome<T> join_ready(
+	Owner &owner,
+	PostedJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
+	auto outcome = try_join_ready(owner, move(h), loc);
+	if (!outcome) [[unlikely]] {
+		raise_join_not_ready(loc);
+	}
+	return move(*outcome);
+}
+template<progress_capability Driver, work_value T>
+[[nodiscard]] Outcome<T> join_ready(
+	Driver &driver,
+	OperationJoinHandle<T> &&h,
+	std::source_location loc = std::source_location::current()) {
+	auto outcome = try_join_ready(driver, move(h), loc);
+	if (!outcome) [[unlikely]] {
+		raise_join_not_ready(loc);
+	}
+	return move(*outcome);
+}
+
 template<work_value T>
 [[nodiscard]] Outcome<T> join(
 	Task<T> &&task,

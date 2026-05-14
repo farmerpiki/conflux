@@ -4,6 +4,7 @@
 
 import std;
 import conflux.types;
+import conflux.uring;
 import conflux.net.config;
 import conflux.net.http_server_config;
 
@@ -135,6 +136,33 @@ TEST_CASE(
 		IORING_SETUP_SINGLE_ISSUER,
 	});
 	CHECK_FALSE(next_uring_setup_flag_to_strip(0).has_value());
+}
+
+TEST_CASE(
+	"uring: setup flag fallback helpers expose exact requested active stripped text",
+	"[uring]") {
+	auto flags = conflux::uring::setup_flags::cqe_mixed
+		| conflux::uring::setup_flags::no_sqarray
+		| conflux::uring::setup_flags::submit_all
+		| conflux::uring::setup_flags::taskrun_flag
+		| conflux::uring::setup_flags::defer_taskrun
+		| conflux::uring::setup_flags::single_issuer;
+	V<u32> stripped;
+	while (auto const bit = conflux::uring::next_setup_flag_to_strip(flags)) {
+		stripped.push_back(bit->raw());
+		flags &= ~*bit;
+	}
+	CHECK(flags.raw() == 0U);
+	CHECK(stripped == V<u32>{
+		IORING_SETUP_CQE_MIXED,
+		IORING_SETUP_NO_SQARRAY,
+		IORING_SETUP_SUBMIT_ALL,
+		IORING_SETUP_TASKRUN_FLAG,
+		IORING_SETUP_DEFER_TASKRUN,
+		IORING_SETUP_SINGLE_ISSUER,
+	});
+	CHECK(conflux::uring::setup_flags_str(conflux::uring::SetupFlags{}) == "none");
+	CHECK(conflux::uring::setup_flags_str(conflux::uring::setup_flags::cqe_mixed) == "CQE_MIXED");
 }
 
 TEST_CASE(

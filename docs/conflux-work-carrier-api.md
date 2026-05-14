@@ -430,9 +430,10 @@ the caller wants to inspect the outcome before deciding whether to propagate.
 
 **Both awaiters** install `try_set_on_ready` on the control block. If the
 handle was already terminal at `await_suspend` time, they resume immediately
-(no suspension). If the handle was already consumed by another awaiter,
-`TaskHandleAwaiter` throws `JoinError`; `TaskHandleChainAwaiter` returns
-a `Chain<T>` carrying the failure.
+(no suspension). `await_resume` extracts through `root::join_ready(...)`, so
+the coroutine path has no blocking join fallback. If the handle was already
+consumed by another awaiter, `TaskHandleAwaiter` throws `JoinError`;
+`TaskHandleChainAwaiter` returns a `Chain<T>` carrying the failure.
 
 **`co_await PostedJoinHandle<T>` and `co_await OperationJoinHandle<T>` are
 explicitly deleted.** Owner-affine and driver-affine resumption is not yet
@@ -549,24 +550,27 @@ public:
 
 `DroppableSlot<T>` wraps a `TaskJoinHandle<T>` with a drain-on-drop contract.
 If the slot is destroyed without being consumed (`try_get`, `wait`, or
-`co_await`), the destructor installs an `on_ready` callback that joins the
-handle and calls the registered `on_drop` function when the task completes.
-If the task is already terminal at destruction time, the drain runs synchronously.
+`co_await`), the destructor installs an `on_ready` callback that extracts the
+ready handle and calls the registered `on_drop` function when the task
+completes. If the task is already terminal at destruction time, the drain runs
+synchronously without using the blocking join bridge.
 
 **`on_drop(F&&)`** — registers a noexcept callback to receive the outcome when
 the slot is drained by the destructor. Must be noexcept-invocable with
 `root::Outcome<T>`. Ignored if the slot was already consumed.
 
-**`try_get() &&`** — non-blocking. Returns `nullopt` if not yet terminal.
-Consuming via `try_get`, `wait`, or `co_await` marks the slot consumed;
-the destructor then skips the drain.
+**`try_get() &&`** — non-blocking. Uses `root::try_join_ready(...)` and
+returns `nullopt` if not yet terminal without consuming the handle. Consuming
+via `try_get`, `wait`, or `co_await` marks the slot consumed; the destructor
+then skips the drain.
 
 **`wait() &&`** — blocking join. Returns a `Chain<T>` with `kind() == task`.
 
 **`co_await` (via `DroppableSlotAwaiter<T>`)** — async path. Suspends the
-coroutine until the task is terminal, then resumes with `Chain<T>`. If the
-awaiter is destroyed before resumption (e.g., coroutine cancelled), the
-awaiter destructor performs the drain with the registered `on_drop` callback.
+coroutine until the task is terminal, then resumes with `Chain<T>` via
+`root::join_ready(...)`. If the awaiter is destroyed before resumption (e.g.,
+coroutine cancelled), the awaiter destructor performs the drain with the
+registered `on_drop` callback.
 
 **Single-consumer invariant:** only one consumer may co_await or call `wait`/
 `try_get` on a given slot. A second `try_set_on_ready` attempt terminates.
@@ -629,9 +633,11 @@ limit and is not affected.
 
 | Value | Meaning |
 |---|---|
-| `unspecified` | Default; existing throw sites not yet updated |
+| `consumed_handle` | Await/outcome attempted on an empty or consumed handle |
 | `capability_mismatch` | Wrong capability passed to `join` |
 | `thread_precondition` | Thread affinity precondition violated |
 | `reentrant_pump` | Reentrant pump detected |
 | `hop_capability_mismatch` | `verify_hop` / `HopCapabilityError` |
 | `ready_callback_already_installed` | Second consumer tried to install `on_ready` hook |
+| `lifetime_violation` | Join attempted on a moved-from or non-live object |
+| `not_ready` | Ready-only join attempted before terminal state |

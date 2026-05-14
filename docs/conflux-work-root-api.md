@@ -273,16 +273,21 @@ silently dropped.
 
 `co_await` and `outcome()` use this same one-shot ready callback. If another
 callback is already installed on the control block, awaiting the task fails
-deterministically with `JoinError::ready_callback_already_installed`; it does
-not block waiting for the outcome.
+deterministically with `JoinError::ready_callback_already_installed`. After
+resumption, they extract the result through the ready-only path, so they do not
+fall back to the blocking join bridge.
 
 ## Join, Value, and Join Handles
 
 Join and value APIs:
 
-- `join(Task<T>&&)`
-- `join(Owner&, Posted<T>&&)`
-- `join(Driver&, Operation<T>&&)`
+- `join(Task<T>&&)` — blocking compatibility join; waits for terminal state
+- `join(Owner&, Posted<T>&&)` — blocking compatibility join; validates owner
+- `join(Driver&, Operation<T>&&)` — blocking compatibility join; validates driver
+- `try_join_ready(...)` — ready-only join over the same result/handle overload
+  set; returns `nullopt` if the task is still pending and does not consume it
+- `join_ready(...)` — ready-only join over the same result/handle overload set;
+  throws `JoinError::not_ready` if the task is still pending
 - same overload set for `TaskJoinHandle<T>`, `PostedJoinHandle<T>`,
   `OperationJoinHandle<T>`
 - `value(...)` overloads mirror `join(...)`
@@ -305,9 +310,12 @@ Capability query helpers:
 
 Contract behavior:
 
-- `join(...)` on moved-from/non-live object throws `JoinError`
+- `join(...)`, `try_join_ready(...)`, and `join_ready(...)` on a
+  moved-from/non-live object throw `JoinError`
 - posted/operation joins validate capability identity and throw
-  `JoinError` on mismatch
+  `JoinError` on mismatch before readiness checks
+- `try_join_ready(...)` never blocks and never consumes pending work
+- `join_ready(...)` never blocks; pending work throws `JoinError::not_ready`
 - root result and join-handle destructors terminate if still live
   (must be joined, converted, or abandoned explicitly)
 
@@ -423,7 +431,8 @@ failures because it reports them through the returned task.
 Blocking waits are not assisted by `WorkPool`. A job running on a pool worker
 must not synchronously wait for other work that is queued only to the same pool,
 especially with `threads == 1`; doing so can deadlock. Use continuations,
-separate capacity, or wait from a non-worker thread.
+`try_join_ready(...)`/`join_ready(...)` after readiness is known, separate
+capacity, or wait from a non-worker thread.
 
 `join_all(tasks...)` has wait-all semantics. It completes only after every input
 task is terminal. The returned task preserves the first observed failure and

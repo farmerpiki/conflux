@@ -333,7 +333,7 @@ public:
 			handle_consumed_ = true;
 			throw root::JoinError{root::JoinError::reason::consumed_handle};
 		}
-		auto out = root::join(move(handle_));
+		auto out = root::join_ready(move(handle_));
 		handle_consumed_ = true;
 		if (out.is_success()) {
 			if constexpr (same_as<T, void>) {
@@ -410,7 +410,7 @@ public:
 			auto ex = make_exception_ptr(root::JoinError{root::JoinError::reason::consumed_handle});
 			return Chain<T>{root::Outcome<T>{root::Failure{ex}}, CarrierKind::task};
 		}
-		auto out = root::join(move(handle_));
+		auto out = root::join_ready(move(handle_));
 		handle_consumed_ = true;
 		return Chain<T>{move(out), CarrierKind::task};
 	}

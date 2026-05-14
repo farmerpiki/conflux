@@ -301,6 +301,8 @@ void _check_make_posted_source() {
 }
 // join(Task<T>&&) — unevaluated decltype
 using _join_result_int = decltype(root::join(std::declval<root::Task<int> &&>()));
+using _try_join_ready_result_int = decltype(root::try_join_ready(std::declval<root::Task<int> &&>()));
+using _join_ready_result_int = decltype(root::join_ready(std::declval<root::Task<int> &&>()));
 
 // value(Outcome<T>&&) from root
 using _root_value_result = decltype(root::value(std::declval<root::Outcome<int> &&>()));

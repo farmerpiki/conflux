@@ -337,6 +337,17 @@ endif()
 endif()
 
 if(CONFLUX_WANT_JSON)
+add_library(conflux_json_boundary STATIC)
+target_sources(conflux_json_boundary
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/json_boundary.cxx
+)
+target_link_libraries(conflux_json_boundary
+    PUBLIC  conflux_types
+    PRIVATE conflux_options
+)
+
 add_library(conflux_json STATIC)
 target_sources(conflux_json
     PUBLIC FILE_SET CXX_MODULES
@@ -346,6 +357,17 @@ target_sources(conflux_json
 target_link_libraries(conflux_json
     PUBLIC  conflux_types
     PRIVATE conflux_options PkgConfig::XXHASH
+)
+
+add_library(conflux_json_native_provider STATIC)
+target_sources(conflux_json_native_provider
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/json_native_provider.cxx
+)
+target_link_libraries(conflux_json_native_provider
+    PRIVATE conflux_options
+    PUBLIC  conflux_json_boundary conflux_json
 )
 endif()
 
@@ -370,7 +392,7 @@ endif()
 if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT CONFLUX_WANT_HTTP_CORE)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires CONFLUX_BUILD_HTTP_CORE")
 endif()
-if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT TARGET conflux_json)
+if((CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER) AND NOT TARGET conflux_json_native_provider)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_HTTP_JSON/CONFLUX_BUILD_HTTP_SERVER requires CONFLUX_BUILD_JSON")
 endif()
 
@@ -538,7 +560,7 @@ if(CONFLUX_WANT_HTTP_JSON OR CONFLUX_WANT_HTTP_SERVER)
     target_link_libraries(conflux_http_json
         PRIVATE conflux_options
         PUBLIC  conflux_http_core
-        PUBLIC  conflux_json
+        PUBLIC  conflux_json_native_provider
     )
 endif()
 
@@ -1096,6 +1118,7 @@ if(CONFLUX_WANT_HTTP_AUTH OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http_auth STATIC)
 set(CONFLUX_HTTP_AUTH_SOURCES
     src/net/auth.cxx
+    src/net/password_hash.cxx
     src/net/cookie_signing.cxx
     src/net/csrf.cxx
 )
@@ -1113,6 +1136,9 @@ target_link_libraries(conflux_http_auth
     PUBLIC  conflux_crypto
     PUBLIC  conflux_utils
 )
+if(CMAKE_DL_LIBS)
+    target_link_libraries(conflux_http_auth PRIVATE ${CMAKE_DL_LIBS})
+endif()
 if(CONFLUX_HAS_TLS STREQUAL "true")
     target_compile_definitions(conflux_http_auth PUBLIC CONFLUX_HAS_TLS=1)
 else()
@@ -1437,6 +1463,7 @@ target_sources(conflux_http_server_config
 target_link_libraries(conflux_http_server_config
     PRIVATE conflux_options
     PUBLIC  conflux_types
+    PUBLIC  conflux_uring
     PUBLIC  conflux_net_config
 )
 
@@ -1621,8 +1648,14 @@ endif()
 if(TARGET conflux_file_watch)
     target_link_libraries(conflux PUBLIC conflux_file_watch)
 endif()
+if(TARGET conflux_json_boundary)
+    target_link_libraries(conflux PUBLIC conflux_json_boundary)
+endif()
 if(TARGET conflux_json)
     target_link_libraries(conflux PUBLIC conflux_json)
+endif()
+if(TARGET conflux_json_native_provider)
+    target_link_libraries(conflux PUBLIC conflux_json_native_provider)
 endif()
 if(TARGET conflux_json_file)
     target_link_libraries(conflux PUBLIC conflux_json_file)
@@ -1817,7 +1850,9 @@ conflux_public_component(conflux_net_tls net_tls)
 conflux_public_component(conflux_process process)
 conflux_public_component(conflux_net_io_buffer net_io_buffer)
 conflux_public_component(conflux_crypto crypto)
+conflux_public_component(conflux_json_boundary json_boundary)
 conflux_public_component(conflux_json json)
+conflux_public_component(conflux_json_native_provider json_native_provider)
 conflux_public_component(conflux_json_file json_file)
 conflux_public_component(conflux_json_reflect json_reflect)
 conflux_public_component(conflux_template template)
@@ -1887,7 +1922,9 @@ foreach(_target IN ITEMS
         conflux_process
         conflux_net_io_buffer
         conflux_crypto
+        conflux_json_boundary
         conflux_json
+        conflux_json_native_provider
         conflux_json_file
         conflux_json_reflect
         conflux_template

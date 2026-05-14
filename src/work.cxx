@@ -534,7 +534,9 @@ using Outcome = root::Outcome<T>;
 using CancelReason = root::CancelReason;
 
 using root::join; // NOLINT(misc-unused-using-decls) — re-export for module consumers
+using root::join_ready; // NOLINT(misc-unused-using-decls) — re-export for module consumers
 using root::make_task_source; // NOLINT(misc-unused-using-decls)
+using root::try_join_ready; // NOLINT(misc-unused-using-decls) — re-export for module consumers
 
 } // namespace conflux::work
 // P9 join_all: single-allocation implementation.
@@ -542,7 +544,7 @@ using root::make_task_source; // NOLINT(misc-unused-using-decls)
 // make_shared<JoinState> (slots, handles, and join state in one block).
 // Each input handle stored in JoinState — no per-task shared_ptr.
 // The ready callback for slot I fires after the control block lock is dropped,
-// calls join() (non-blocking at that point) to extract the rvalue outcome,
+// calls join_ready() to extract the rvalue outcome without a blocking bridge,
 // then decrements remaining. When remaining reaches 0, commits the result.
 // Cancel-cascade: first cancellation calls request_cancel() on all sibling
 // controls; shared_from_this keepalive prevents JoinState destruction during
@@ -608,7 +610,7 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 	void on_ready() noexcept {
 		using namespace conflux::work::root;
 		using T = std::tuple_element_t<I, std::tuple<Ts...>>;
-		auto outcome = join(move(std::get<I>(handles)));
+		auto outcome = join_ready(move(std::get<I>(handles)));
 		bool should_cancel = false;
 		if (outcome.is_success()) {
 			if constexpr (std::is_void_v<T>) {
