@@ -102,12 +102,12 @@ TEST_CASE(
 	CHECK((flags & IORING_SETUP_COOP_TASKRUN) == 0U);
 
 	auto text = setup_flags_str(flags);
-	CHECK(text.find("SINGLE_ISSUER") != S::npos);
-	CHECK(text.find("DEFER_TASKRUN") != S::npos);
-	CHECK(text.find("TASKRUN_FLAG") != S::npos);
-	CHECK(text.find("SUBMIT_ALL") != S::npos);
-	CHECK(text.find("NO_SQARRAY") != S::npos);
-	CHECK(text.find("CQE_MIXED") != S::npos);
+	CHECK(text.find("SINGLE_ISSUER") != std::string::npos);
+	CHECK(text.find("DEFER_TASKRUN") != std::string::npos);
+	CHECK(text.find("TASKRUN_FLAG") != std::string::npos);
+	CHECK(text.find("SUBMIT_ALL") != std::string::npos);
+	CHECK(text.find("NO_SQARRAY") != std::string::npos);
+	CHECK(text.find("CQE_MIXED") != std::string::npos);
 	CHECK(setup_flags_str(0) == "none");
 }
 
@@ -146,9 +146,9 @@ TEST_CASE(
 	cfg.cmd_sock_setsockopt = false;
 
 	auto text = flags_str(cfg);
-	CHECK(text.find("AUTO_RECV_ARM") != S::npos);
-	CHECK(text.find("DIRECT_ACCEPT_OFF") != S::npos);
-	CHECK(text.find("CMD_SOCK_SOCKOPTS_OFF") != S::npos);
+	CHECK(text.find("AUTO_RECV_ARM") != std::string::npos);
+	CHECK(text.find("DIRECT_ACCEPT_OFF") != std::string::npos);
+	CHECK(text.find("CMD_SOCK_SOCKOPTS_OFF") != std::string::npos);
 	CHECK(flags_str(Config{}) != "none");
 }
 

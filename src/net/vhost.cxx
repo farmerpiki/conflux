@@ -13,8 +13,8 @@ import conflux.work;
 // The Host port (":port") is stripped before matching.
 // A default Router handles requests for unknown hosts.
 export class VHostRouter {
-	[[nodiscard]] static SV normalized_host(
-		SV host_header) {
+	[[nodiscard]] static std::string_view normalized_host(
+		std::string_view host_header) {
 		if (host_header.starts_with('[')) {
 			auto bracket = host_header.find(']');
 			if (bracket == SV::npos) {
@@ -30,7 +30,7 @@ export class VHostRouter {
 public:
 	// Register a Router for an exact host name (e.g. "api.example.com").
 	VHostRouter &add(
-		S host,
+		std::string host,
 		Router router) {
 		router.set_work_pool(work_pool_);
 		vhosts_.emplace(ascii_lower(host), move(router));
@@ -44,7 +44,7 @@ public:
 		return *this;
 	}
 	VHostRouter &set_work_pool(
-		SP<WorkPool> pool) {
+		std::shared_ptr<WorkPool> pool) {
 		work_pool_ = move(pool);
 		for (auto &[host, router]: vhosts_) {
 			router.set_work_pool(work_pool_);
@@ -54,9 +54,9 @@ public:
 		}
 		return *this;
 	}
-	[[nodiscard]] SP<WorkPool> work_pool() const { return work_pool_; }
-	[[nodiscard]] SP<WorkPool> resolved_work_pool(
-		SV host_header) const {
+	[[nodiscard]] std::shared_ptr<WorkPool> work_pool() const { return work_pool_; }
+	[[nodiscard]] std::shared_ptr<WorkPool> resolved_work_pool(
+		std::string_view host_header) const {
 		auto host = ascii_lower(normalized_host(host_header));
 		auto it = vhosts_.find(S{host});
 		if (it != vhosts_.end()) {
@@ -88,7 +88,7 @@ public:
 		}
 		return default_ && default_->has_context_routes();
 	}
-	[[nodiscard]] Opt<HttpResponse> dispatch_async(
+	[[nodiscard]] std::optional<HttpResponse> dispatch_async(
 		HttpRequest const &req,
 		RequestContext const &ctx) const {
 		auto host = ascii_lower(normalized_host(req.headers["host"]));

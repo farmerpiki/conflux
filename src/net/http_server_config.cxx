@@ -10,10 +10,10 @@ import conflux.net.config;
 namespace {
 
 template<typename Fn>
-S format_flag_list(
+std::string format_flag_list(
 	char sep,
 	Fn &&fn) {
-	S s;
+	std::string s;
 	auto app = [&](char const *name) {
 		if (!s.empty()) {
 			s += sep;
@@ -84,7 +84,7 @@ export [[nodiscard]] u32 wq_fd_for_ring(
 	return static_cast<u32>(parent_ring_fd);
 }
 
-export [[nodiscard]] S setup_flags_str(u32 flags) {
+export [[nodiscard]] std::string setup_flags_str(u32 flags) {
 	return format_flag_list(',', [&](auto app) {
 		if ((flags & IORING_SETUP_SINGLE_ISSUER) != 0u) {
 			app("SINGLE_ISSUER");
@@ -119,7 +119,7 @@ export [[nodiscard]] S setup_flags_str(u32 flags) {
 	});
 }
 
-export [[nodiscard]] S flags_str(
+export [[nodiscard]] std::string flags_str(
 	Config const &c) {
 	return format_flag_list('|', [&](auto app) {
 		if (c.single_issuer) {

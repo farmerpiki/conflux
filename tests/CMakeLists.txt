@@ -195,7 +195,7 @@ endif()
 if(TARGET conflux_http_server_helpers)
     add_executable(conflux_http_server_helpers_tests http_server_helpers_test.cxx)
     target_link_libraries(conflux_http_server_helpers_tests
-        PRIVATE conflux_http_server_helpers conflux_options Catch2::Catch2WithMain)
+        PRIVATE conflux_http_server_helpers conflux_http_realtime conflux_options Catch2::Catch2WithMain)
 endif()
 
 add_executable(conflux_template_tests template_test.cxx)

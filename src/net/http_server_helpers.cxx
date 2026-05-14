@@ -49,7 +49,7 @@ export [[nodiscard]] bool is_valid_header_name(SV name) noexcept {
 	return true;
 }
 
-export SV http_date_now() {
+export std::string_view http_date_now() {
 	static thread_local S cached;
 	static thread_local time_t cached_epoch = 0;
 	auto const now = ::time(nullptr);
@@ -123,7 +123,7 @@ export SV http_date_now() {
 	return true;
 }
 
-export S format_response(HttpResponse const &r, SV alt_svc = {}, bool close = false) {
+export std::string format_response(HttpResponse const &r, SV alt_svc = {}, bool close = false) {
 	if (r.is_ws_upgrade() && r.ws_upgrade_ptr()) {
 		return format(
 			"HTTP/1.1 101 Switching Protocols\r\n"
@@ -175,7 +175,7 @@ export S format_response(HttpResponse const &r, SV alt_svc = {}, bool close = fa
 	return out;
 }
 
-export SV format_sse_headers(bool close) {
+export std::string format_sse_headers(bool close) {
 	static constexpr SV kKeepAlive =
 		"HTTP/1.1 200 OK\r\n"
 		"Content-Type: text/event-stream\r\n"
@@ -190,14 +190,14 @@ export SV format_sse_headers(bool close) {
 		"Transfer-Encoding: chunked\r\n"
 		"Connection: close\r\n"
 		"\r\n";
-	return close ? kClose : kKeepAlive;
+	return std::string{close ? kClose : kKeepAlive};
 }
 
-export [[nodiscard]] S format_http_chunk(SV payload) {
+export [[nodiscard]] std::string format_http_chunk(SV payload) {
 	return format("{:x}\r\n{}\r\n", payload.size(), payload);
 }
 
-export [[nodiscard]] SV extract_param(SV header, SV param_name) {
+export [[nodiscard]] std::string_view extract_param(SV header, SV param_name) {
 	auto pos = header.find(param_name);
 	if (pos == SV::npos) {
 		return {};
@@ -459,7 +459,7 @@ export void parse_urlencoded(SV data, HttpFieldsView &out) {
 	}
 }
 
-export i64 decode_chunked(SV data, SZ max_body_size, SZ max_chunks, S &body) {
+export std::int64_t decode_chunked(SV data, SZ max_body_size, SZ max_chunks, S &body) {
 	body.clear();
 	SZ pos = 0;
 	SZ chunks_seen = 0;
@@ -575,7 +575,7 @@ export struct ChunkedDecodeState {
 	}
 };
 
-export [[nodiscard]] i64 decode_chunked_incremental(
+export [[nodiscard]] std::int64_t decode_chunked_incremental(
 	SV raw,
 	SZ body_start,
 	SZ max_body_size,

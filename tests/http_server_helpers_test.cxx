@@ -6,6 +6,7 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.server_types;
 import conflux.net.http.response;
+import conflux.net.http.realtime;
 import conflux.net.http_server_helpers;
 
 TEST_CASE(
@@ -34,17 +35,17 @@ TEST_CASE(
 
 	auto wire = format_response(resp, "h3=\":443\"", true);
 	CHECK(wire.find("HTTP/1.1 200 \r\n") == 0);
-	CHECK(wire.find("Content-Length: 5\r\n") != S::npos);
-	CHECK(wire.find("X-Good: yes\r\n") != S::npos);
-	CHECK(wire.find("Set-Cookie: sid=1; Path=/\r\n") != S::npos);
-	CHECK(wire.find("Alt-Svc: h3=\":443\"\r\n") != S::npos);
-	CHECK(wire.find("Connection: close\r\n\r\nhello") != S::npos);
-	CHECK(wire.find("Bad Header") == S::npos);
-	CHECK(wire.find("X-Bad-Value") == S::npos);
-	CHECK(wire.find("Content-Length: 999") == S::npos);
-	CHECK(wire.find("Connection: upgrade") == S::npos);
-	CHECK(wire.find("bad=1") == S::npos);
-	CHECK(wire.find("Injected") == S::npos);
+	CHECK(wire.find("Content-Length: 5\r\n") != std::string::npos);
+	CHECK(wire.find("X-Good: yes\r\n") != std::string::npos);
+	CHECK(wire.find("Set-Cookie: sid=1; Path=/\r\n") != std::string::npos);
+	CHECK(wire.find("Alt-Svc: h3=\":443\"\r\n") != std::string::npos);
+	CHECK(wire.find("Connection: close\r\n\r\nhello") != std::string::npos);
+	CHECK(wire.find("Bad Header") == std::string::npos);
+	CHECK(wire.find("X-Bad-Value") == std::string::npos);
+	CHECK(wire.find("Content-Length: 999") == std::string::npos);
+	CHECK(wire.find("Connection: upgrade") == std::string::npos);
+	CHECK(wire.find("bad=1") == std::string::npos);
+	CHECK(wire.find("Injected") == std::string::npos);
 }
 
 TEST_CASE(
@@ -73,27 +74,27 @@ TEST_CASE(
 	HttpResponse no_content = HttpResponse::text("body");
 	no_content.status = 204;
 	no_content.status_text = "No Content";
-	CHECK(format_response(no_content).find("body") == S::npos);
-	CHECK(format_response(no_content).find("Content-Length") == S::npos);
+	CHECK(format_response(no_content).find("body") == std::string::npos);
+	CHECK(format_response(no_content).find("Content-Length") == std::string::npos);
 
 	HttpResponse not_modified;
 	not_modified.status = 304;
 	not_modified.status_text = "Not Modified";
 	not_modified.content_length_hint = 123;
-	CHECK(format_response(not_modified).find("Content-Length: 123\r\n") != S::npos);
+	CHECK(format_response(not_modified).find("Content-Length: 123\r\n") != std::string::npos);
 
 	HttpResponse head = HttpResponse::text("body");
 	head.head_only = true;
 	auto wire = format_response(head);
-	CHECK(wire.find("Content-Length: 4\r\n") != S::npos);
+	CHECK(wire.find("Content-Length: 4\r\n") != std::string::npos);
 	CHECK(wire.ends_with("\r\n\r\n"));
 }
 
 TEST_CASE(
 	"http_server_helpers: small formatting helpers are deterministic",
 	"[http_server_helpers]") {
-	CHECK(format_sse_headers(false).find("Connection: keep-alive\r\n") != SV::npos);
-	CHECK(format_sse_headers(true).find("Connection: close\r\n") != SV::npos);
+	CHECK(format_sse_headers(false).find("Connection: keep-alive\r\n") != std::string::npos);
+	CHECK(format_sse_headers(true).find("Connection: close\r\n") != std::string::npos);
 	CHECK(format_http_chunk("hello") == "5\r\nhello\r\n");
 	CHECK(format_http_chunk("") == "0\r\n\r\n");
 }
@@ -216,7 +217,7 @@ TEST_CASE(
 
 	S raw = "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n";
 	SZ const start = raw.find("4\r\n");
-	REQUIRE(start != S::npos);
+	REQUIRE(start != std::string::npos);
 	ChunkedDecodeState st;
 	CHECK(decode_chunked_incremental(raw, start, 64, 8, st) == 0);
 	CHECK(st.body == "Wiki");

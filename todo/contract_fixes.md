@@ -22,8 +22,12 @@
   - Last before release. Lowest priority. Do not touch until the rest of the public surface work is complete.
   - Doc/example string replacements for the renamed public surface stay until the very end of the release prep, after the code surface is settled.
   - [x] Net config boundary slice: exported `Config`/`VirtualHost` string fields now use `std::string` and `std::vector<std::string>` instead of `S`/`V<S>` at the public boundary.
+  - [x] HTTP server config helpers now return `std::string` instead of `S` at the public boundary.
+  - [x] VHost router helpers now use `std::string`, `std::string_view`, `std::shared_ptr`, and `std::optional` at the public boundary.
+  - [x] HTTP server helper exports now use spelled-out string types at the public boundary (`std::string`, `std::string_view`, `std::int64_t`).
 - [ ] API naming pass: align public APIs with `blocking_*` / `sync_*` / `async_*`; reserve `blocking_*` for raw syscall-style helpers such as direct fd/process operations, use `sync_*` for executor-owned non-coroutine chains, and use `async_*` for coroutine APIs.
   - Keep doc/example replacement wording for this pass until the code rename lands; this is the final polish step, not the first change.
+  - [x] Process executor-targeted helpers now use explicit async names: `spawn_async_in`, `run_async_in`, and `wait_async_in`.
 - [x] JSON default path: `parse(string_view)` now aliases the borrowed/view path; explicit owning parse moved to `parse_copy(string_view|string&&)`; rvalue `parse(string&&)` is deleted; docs/examples promote `parse_view` as the primary fast API
 - [x] JSON: add `JsonArena::parse_borrowed_into(string_view)` and `parse_moved_into(string&&)` — both landed; `parse_borrowed_into` reuses caller's buffer without copy, `parse_moved_into` takes ownership.
 - [x] Core error type / `file_io_sync`: `IoError` is exported by `conflux.types`; `file_io_sync` no longer imports or links `conflux.uring.completion` / `conflux_uring`. Full `conflux::core` target split remains tracked separately.

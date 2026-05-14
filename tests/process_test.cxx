@@ -220,7 +220,7 @@ TEST_CASE(
 	"process: run_in uses work pool",
 	"[process]") {
 	WorkPool pool;
-	auto result = sync_wait(run_in(pool, "/bin/echo", {"hello from pool"}));
+	auto result = sync_wait(run_async_in(pool, "/bin/echo", {"hello from pool"}));
 	REQUIRE(result.has_value());
 	CHECK(result->exit_code == 0);
 	CHECK(result->stdout_out == "hello from pool\n");
@@ -230,10 +230,10 @@ TEST_CASE(
 	"process: spawn_in and wait_in use work pool",
 	"[process]") {
 	WorkPool pool;
-	auto proc = sync_wait(spawn_in(pool, "/bin/sleep", {"0"}));
+	auto proc = sync_wait(spawn_async_in(pool, "/bin/sleep", {"0"}));
 	REQUIRE(proc.has_value());
 	CHECK(proc->pid() > 0);
-	CHECK(sync_wait(wait_in(pool, move(*proc))) == 0);
+	CHECK(sync_wait(wait_async_in(pool, move(*proc))) == 0);
 }
 TEST_CASE(
 	"process: pid returns positive for live process",
