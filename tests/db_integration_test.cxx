@@ -240,6 +240,58 @@ TEST_CASE(
 	CHECK(r3[0].as<i64>(0) == 33);
 }
 TEST_CASE(
+	"db: pipeline exec_cached prepares and executes on the wire",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+	StatementCache sc;
+	auto stmt = sc.get("SELECT $1::int8 + $2::int8");
+
+	auto pipeline = block_on(fx->reader, conn->pipeline(), chrono::seconds{30});
+	Params p1;
+	p1.add(i64{20}).add(i64{22});
+	Params p2;
+	p2.add(i64{100}).add(i64{23});
+	auto f1 = pipeline.exec_cached(stmt, move(p1));
+	auto f2 = pipeline.exec_cached(stmt, move(p2));
+
+	block_on(fx->reader, pipeline.sync(), chrono::seconds{30});
+
+	auto r1 = block_on(fx->reader, move(f1), chrono::seconds{30});
+	auto r2 = block_on(fx->reader, move(f2), chrono::seconds{30});
+
+	REQUIRE(r1.rows() == 1);
+	REQUIRE(r2.rows() == 1);
+	CHECK(r1[0].as<i64>(0) == 42);
+	CHECK(r2[0].as<i64>(0) == 123);
+}
+TEST_CASE(
+	"db: pipeline owns connection until teardown",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+	{
+		auto pipeline = block_on(fx->reader, conn->pipeline(), chrono::seconds{30});
+		CHECK_THROWS_AS(block_on(fx->reader, conn->query("SELECT 1::int8"), chrono::seconds{30}), PgError);
+	}
+
+	auto r = block_on(fx->reader, conn->query("SELECT 2::int8"), chrono::seconds{30});
+	REQUIRE(r.rows() == 1);
+	CHECK(r[0].as<i64>(0) == 2);
+}
+TEST_CASE(
 	"db: pipeline isolates per-query failures",
 	"[db][integration]") {
 	auto ci = conninfo();

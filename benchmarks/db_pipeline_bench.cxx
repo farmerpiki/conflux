@@ -143,7 +143,7 @@ int main(
 		if (!cfg.json_out) {
 			double const speedup = ns_per_plain / ns_per_pipe;
 			println("  speedup    {:.2f}x", speedup);
-			println("  note       logical batching Pipeline::sync() (not wire-level libpq pipeline mode)");
+			println("  note       libpq wire-level Pipeline::sync() with PQpipelineSync");
 		}
 
 		conn->close();

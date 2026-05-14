@@ -99,7 +99,7 @@ struct StatementCache {
 
 ## Pipeline
 
-Batches multiple queries and executes them in order during `sync()`. Current implementation is a logical batching barrier (executes queued items sequentially through `Connection::query` machinery); true libpq wire-level pipeline mode (`PQenterPipelineMode` / `PQpipelineSync`) is a follow-up.
+Batches multiple queries and sends them through libpq wire-level pipeline mode during `sync()` (`PQenterPipelineMode` / `PQpipelineSync`). Results are demultiplexed in wire order back to the tasks returned by `query()` / `exec_cached()`.
 
 ```cpp
 class Pipeline {
@@ -110,14 +110,16 @@ public:
 };
 
 // Obtained from Connection:
-Flow<Pipeline> Connection::pipeline();
+root::Task<Pipeline> Connection::pipeline();
 ```
 
 Contracts:
 - Owner-thread only (same lane/thread as `Connection`); one active pipeline per connection.
 - `query()` rejected while `sync()` is in progress.
-- `sync()` drains queued work in-order, resolves/rejects each flow exactly once.
-- Destructor rejects unresolved queued results as `pipeline closed`.
+- `sync()` enters libpq pipeline mode, sends queued work without per-query round trips, then drains results until `PGRES_PIPELINE_SYNC`.
+- `exec_cached()` sends a `PQsendPrepare` message before the first pipelined `PQsendQueryPrepared` for a statement name that is not yet prepared on the connection.
+- Results are resolved/rejected in wire order; a server-side pipeline abort rejects the affected query tasks.
+- Destructor rejects unresolved queued results as `pipeline closed`; active wire drains are allowed to finish enough to release libpq pipeline mode.
 - `Pool::acquire` returns a `Lease`; caller constructs `Pipeline` from `*lease`.
 
 ---

@@ -15,91 +15,27 @@ landed on the `db` branch.
 
 ### P7 — Pipeline mode
 
-**Prerequisite:** P2 + P3 stable (both landed). Ready to implement.
+**Status:** implemented on `db/pipeline-wire-mode`.
 
-**Status update (2026-04-29):** baseline implementation landed in
-`src/db/connection.cxx`:
-- `Connection::pipeline()`
-- `Pipeline::query(...)`
-- `Pipeline::exec_cached(...)` (currently delegates to SQL text path)
-- `Pipeline::sync()`
-- integration coverage added in `tests/db_integration_test.cxx`:
-  - `db: pipeline query ordering`
-  - `db: pipeline isolates per-query failures`
+The shipped pipeline now uses libpq wire-level pipeline mode:
 
-**Still open for P7 close-out:**
-- live Postgres integration run in CI/host with `PG_TEST_CONNINFO` set
-- stronger teardown semantics (current destructor is non-blocking and best-effort;
-  unresolved queued flows are rejected as `pipeline closed`)
-- finalize pipeline implementation details from 2026-04-29 discoveries
-  (see contracts below)
+- `Pipeline::sync()` owns one connection job, enters `PQenterPipelineMode`, sends all queued work, issues `PQpipelineSync`, flushes once, then drains until `PGRES_PIPELINE_SYNC`.
+- `Pipeline::query(...)` sends `PQsendQueryParams`, so parameterized queries are pipeline-compatible.
+- `Pipeline::exec_cached(...)` sends `PQsendPrepare` once per not-yet-prepared statement name in a batch, followed by `PQsendQueryPrepared`; result demux accounts for both prepare ACKs and execution results.
+- Result demux is insertion/wire-order based and treats `PGRES_PIPELINE_SYNC` as the completion sentinel; `PQgetResult()==nullptr` is not treated as sync completion.
+- Per-query failures reject that query; later commands rejected by PostgreSQL as `PGRES_PIPELINE_ABORTED` reject their own tasks; `sync()` itself succeeds once the sync marker is reached and libpq exits pipeline mode.
+- One active pipeline per connection is still enforced. While a `Pipeline` object is alive, ordinary `Connection::query` / `prepare` / `exec_prepared` calls reject instead of interleaving with the pipeline.
 
-**P7 discoveries (2026-04-29):**
-- `PQsendQuery` is rejected in pipeline mode by libpq; pipeline send path must
-  use pipeline-compatible calls (`PQsendQueryParams`, `PQsendPrepare`,
-  `PQsendQueryPrepared`, etc.).
-- For pipeline sync loops, `PQgetResult()==nullptr` is not a completion signal;
-  completion must key off `PGRES_PIPELINE_SYNC`.
-- Result demux must account for each wire message in order. If a query send path
-  emits both prepare-ack and execution result, sync demux must consume and map
-  both correctly.
-- Given sanitizer-stable correctness requirements, the current shipped `Pipeline`
-  implementation is a **logical batching barrier** that executes queued items
-  in-order through existing `Connection::query` machinery during `sync()`.
-  This preserves API/ordering/error contracts and integration-test coverage,
-  while true libpq wire-level pipeline mode remains open follow-up work.
+**Validation added:**
 
-**Pipeline contracts (implementation-level):**
-- `Connection::pipeline()`:
-  - owner-thread only (same lane/thread as `Connection`)
-  - only one active pipeline per `Connection` (`pipeline_mode_` guard)
-- `Pipeline::query(...)`:
-  - owner-thread only
-  - rejected while `sync()` is in progress (`query while sync in progress`)
-  - enqueues one result promise that is fulfilled/rejected during `sync()`
-- `Pipeline::sync()`:
-  - owner-thread only
-  - non-reentrant (`syncing_` guard)
-  - drains queued work in-order and resolves/rejects each queued flow exactly once
-  - on sync failure, unresolved queued results are rejected with
-    `pipeline sync failed`
-- `Pipeline` teardown:
-  - destructor is best-effort, non-blocking (`PQexitPipelineMode`)
-  - rejects unresolved queued result promises as `pipeline closed`
+- `db: pipeline query ordering` continues to cover ordered demux.
+- `db: pipeline isolates per-query failures` now exercises libpq abort demux.
+- `db: pipeline exec_cached prepares and executes on the wire` covers prepare ACK + execution result demux and same-batch prepared reuse.
 
-**Concepts / `requires` constraints status:**
-- Pipeline APIs are concrete (non-template), so constraints are primarily
-  runtime contracts (thread/phase/state guards).
-- Existing generic transaction helpers already enforce compile-time constraints
-  via `requires` in `src/db/pool.cxx` (`with_transaction` overloads).
+**Still recommended before release:**
 
-**What:** `PQenterPipelineMode` / `PQpipelineSync` / `PQexitPipelineMode`.
-Exposes a `Pipeline` object from `Connection::pipeline()` that batches sends
-and demultiplexes results in order.
-
-**Implemented API (as of 2026-04-30):**
-
-```cpp
-class Pipeline {
-public:
-    conflux::work::root::Task<Result> query(string_view sql, Params params = {});
-    conflux::work::root::Task<Result> exec_cached(shared_ptr<StatementCache::Entry const>, Params);
-    conflux::work::root::Task<void>   sync();
-};
-
-// Connection::pipeline() still returns Flow<Pipeline> — migration pending
-Flow<Pipeline> Connection::pipeline();
-```
-
-- Destructor rejects all pending queries as `pipeline closed`.
-- Logical batching barrier: queries enqueued via `query()`, executed in-order during `sync()`.
-- True libpq wire pipeline mode (`PQpipelineSync`) is a follow-up.
-- Results demultiplexed by insertion order.
-- Errors in one sub-query reject that query; remaining queries continue (unless sync fails).
-- `Pool::acquire` returns a `Lease`; caller constructs `Pipeline` from `*lease`.
-
-**Performance target:** 5–20× ops/sec for N=100 small INSERTs vs non-pipeline
-(benchmark: `db_pipeline_bench.cxx`).
+- Run live PostgreSQL integration in CI/host with `PG_TEST_CONNINFO` set.
+- Re-run `db_pipeline_bench.cxx` with `PG_CONNINFO` to replace the old logical-batching baseline numbers.
 
 ---
 
@@ -188,6 +124,6 @@ No code change until a decision is made.
 |---|---|---|
 | `db_params_bench.cxx` | ≥3× at param=4 | **Done** (4.1× at param=1, 1.8× at param=4) |
 | `db_coro_bench.cxx --binary` | 10–25% reduction (decode-bound) | Added binary-parameter variant (`--binary`) to compare against the text bind path |
-| `db_pipeline_bench.cxx` | 5–20× at N=100 INSERTs | **Added** (`benchmarks/db_pipeline_bench.cxx`) — currently measures stabilized logical-batching `Pipeline::sync()` path, not libpq wire-level pipeline mode |
+| `db_pipeline_bench.cxx` | 5–20× at N=100 INSERTs | **Needs rerun** after `db/pipeline-wire-mode`; benchmark now exercises libpq wire-level pipeline mode |
 | `db_copy_bench.cxx` | ≥10× vs prepared loop | Needs P6 |
 | `db_stream_bench.cxx` | TTFB constant in N | Needs P4 (blocked) |
