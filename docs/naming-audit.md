@@ -5,7 +5,9 @@ one later pre-v1 naming pass. It intentionally makes no code changes and should
 not be used as permission to rename symbols opportunistically across component
 boundaries.
 
-Canonical execution-name families are defined in `docs/execution-model.md`:
+Canonical execution-name families are defined in `docs/execution-model.md`; review
+rules and component-boundary semantics are consolidated in
+`docs/concurrency-naming-model.md`:
 
 - `blocking_*` — raw blocking syscall-style helpers that may block the caller
   thread directly;

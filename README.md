@@ -19,8 +19,10 @@ backends. These are feature-gated; `io_uring` and `liburing` are not.
 ## Project Policy
 
 Versioning, security disclosure, supported compiler presets, and kernel/runtime support are documented in [`docs/project-policy.md`](docs/project-policy.md).
-The task/HTTP placement contract is documented in [`docs/execution-model.md`](docs/execution-model.md).
-The pre-v1 execution-name cleanup inventory is documented in [`docs/naming-audit.md`](docs/naming-audit.md).
+The task/HTTP placement contract is documented in [`docs/execution-model.md`](docs/execution-model.md),
+and the code-review guide for concurrency/naming decisions is
+[`docs/concurrency-naming-model.md`](docs/concurrency-naming-model.md). The pre-v1
+execution-name cleanup inventory is documented in [`docs/naming-audit.md`](docs/naming-audit.md).
 
 ## Runtime Preflight
 

@@ -5,7 +5,8 @@ This document describes the current public interface and behavior contract of
 
 For broader pre-v1 compatibility and breakage expectations across HTTP + work
 surfaces, see `docs/pre-v1-migration-contract.md`. For executor placement rules,
-see `docs/execution-model.md`.
+see `docs/execution-model.md`; for code-review guidance on placement and
+execution-name prefixes, see `docs/concurrency-naming-model.md`.
 
 ## Import
 

@@ -12,7 +12,11 @@ import conflux.net.http_server;
 import conflux.work;
 export namespace conflux::http {
 
-using Request = ::HttpRequestView;
+using RequestView = ::HttpRequestView;
+using OwnedRequest = ::HttpRequest;
+// First-contact alias stays view-backed for sync handlers. Coroutine handlers
+// that may suspend should accept OwnedRequest/HttpRequest instead.
+using Request = RequestView;
 using Response = ::HttpResponse;
 template<typename Fn>
 	requires(std::invocable<Fn &> && same_as<std::invoke_result_t<Fn &>, Response>)

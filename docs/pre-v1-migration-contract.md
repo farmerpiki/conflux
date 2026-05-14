@@ -5,6 +5,8 @@ pre-v1.
 
 For release-level versioning, security disclosure, compiler, and kernel/runtime policy, see [`project-policy.md`](project-policy.md).
 For task/executor placement and HTTP ring-thread handler rules, see [`execution-model.md`](execution-model.md).
+For code-review rules around handler placement and `blocking_`/`sync_`/`async_` naming, see
+[`concurrency-naming-model.md`](concurrency-naming-model.md).
 
 - `liburing` is required for runtime, HTTP, and socket targets. After the modular target split lands, `conflux::core`, `conflux::json`, `conflux::file_io_sync`, and `conflux::file_map` will not require liburing. Conflux remains Linux/io_uring-first.
 - Breaking API changes are expected before v1 when they simplify the final
@@ -61,12 +63,16 @@ Advanced runtime/feature examples:
 ## Default vs Advanced Handler Shapes
 
 Use the simplest shape that matches the work, while preserving the placement
-contract from `docs/execution-model.md`:
+contract from `docs/execution-model.md` and the review checklist in
+`docs/concurrency-naming-model.md`:
 
-- Fast synchronous work: return `HttpResponse` directly. This code executes on
-  the HTTP ring thread.
-- Async workflow with coroutine-style composition: return
-  `conflux::work::root::Task<HttpResponse>`. Task progress is executor-owned.
+- Fast synchronous work: accept `http::Request` / `HttpRequestView` and return
+  `HttpResponse` directly. `http::Request` is currently a view alias for
+  first-contact sync ergonomics. This code executes on the HTTP ring thread.
+- Async workflow with coroutine-style composition: accept `http::OwnedRequest` /
+  `HttpRequest` and return `conflux::work::root::Task<HttpResponse>`.
+  `http::OwnedRequest` is the owning request alias. Task progress is
+  executor-owned; borrowed request views must not cross suspension.
 - Blocking or heavy CPU work must be made explicit: schedule executor-owned
   work through the chosen executor, or call a raw syscall-style helper whose
   `blocking_*` name advertises calling-thread blocking behavior.
@@ -86,7 +92,7 @@ int main() {
 		return http::Response::text("ok");
 	});
 
-	app.get("/task", [](http::Request const &) -> conflux::work::root::Task<http::Response> {
+	app.get("/task", [](http::OwnedRequest const &) -> conflux::work::root::Task<http::Response> {
 		auto [task, source] = conflux::work::root::make_task_source<http::Response>();
 		(void)source.commit_success(conflux::work::root::Success<http::Response>{http::Response::text("task-ok")});
 		return std::move(task);

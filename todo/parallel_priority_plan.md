@@ -149,7 +149,7 @@ Priorities:
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
 | P0 | `worker/no-wait-bridge` | Retire or isolate the remaining compatibility wait bridge; leave at most one explicitly named compatibility seam. | Conflicts with worker task dispatch only; avoid JSON/auth changes. | No direct wait bridge calls outside the dedicated adapter; async worker task bodies remain awaitable; tests pass. |
-| P0 | `docs/concurrency-naming-model` | Document executor-only task model and `blocking_`/`sync_`/`async_` names. | Docs-only; can merge immediately. | Docs state HTTP handlers run on ring threads and no hidden offload normalization exists. |
+| DONE | `docs/concurrency-naming-model` | Added canonical concurrency/naming review guide and linked it from policy/API docs. | Docs-only. | Docs state HTTP handlers run on ring threads, no hidden offload normalization exists, and review guidance points to one document. |
 | P1 | `worker/background-ingestion-runtime` | Merge/migrate background ingestion runtime surface onto the worker runtime model. | Depends on `worker/no-wait-bridge`; should not touch auth/json. | Background ingestion uses the same runtime conventions as other worker tasks. |
 | P1 | `worker/taskpromise-frame-pool` | Extend coroutine frame pool coverage from `EagerChain` to `TaskPromise<T>` where safe. | May touch `work/root.cxx`; avoid overlapping with no-wait branch unless sequenced. | Hot request-path `Task<void>` no longer uses global `::operator new` in steady-state when the pool option is enabled; sanitizer behavior remains safe. |
 | P2 | `worker/queue-contention-profile` | Profile local deque locks, steal path, `admission_mtx_`, and seq_cst fence pair under HTTP load. | Depends on `build/perf-harness-stabilize`; profiling branch can be independent. | Output profile notes and either a minimal lock-removal patch or a documented no-change decision. |
@@ -161,7 +161,7 @@ Recommended next worker branch: `worker/no-wait-bridge`.
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
-| P0 | `http/handler-execution-docs` | Update docs/examples to match ring-thread execution and naming policy. | Docs/examples only; can merge with `docs/concurrency-naming-model`. | No docs imply arbitrary sync handlers are offloaded automatically. |
+| DONE | `http/handler-execution-docs` | Updated HTTP docs/examples wording to match ring-thread execution and naming policy while landing `docs/concurrency-naming-model`. | Docs/examples only. | No docs imply arbitrary sync handlers are offloaded automatically; async examples use owning request types. |
 | P1 | `http/sendzc-mapped-edge` | Finish mapped-file header+body SEND_ZC edge case or document why fallback remains. | Touches HTTP send path; avoid concurrent send-buffer refactors. | Mapped-file send path has explicit measured behavior and fallback rationale. |
 | P1 | `http/send-threshold-bench` | Validate/adapt SEND_ZC thresholds under realistic HTTP load. | Depends on perf harness. | Threshold defaults are backed by benchmark notes; counters remain exposed. |
 | DONE | `http/limits-defaults` | Hardened HTTP limits/defaults audit landed: INI/default config exposes body, request-line, header-line, header-count, aggregate-header, chunk-count, request-timeout, TLS-sniff-timeout, and HTTP/3 body caps; HTTP/1 parser now enforces incomplete request-line/header-line/count caps before the final header terminator. | Completed; avoid reopening unless defaults policy changes. | Config/parser docs and tests cover the limits. |
@@ -169,7 +169,7 @@ Recommended next worker branch: `worker/no-wait-bridge`.
 | P2 | `http/examples-route-minimal` | Add/keep a minimal route/JSON response example that stays under the target ceremony budget. | Examples/docs; can run parallel after JSON boundary shape is stable. | Example compiles in CI. |
 | P3 | `http2/core-prototype` | HTTP/2 core exploration. | Start only after handler/runtime model stops moving. | Separate target or feature flag; no core churn. |
 
-Recommended next HTTP branch: `http/handler-execution-docs`, then `http/sendzc-mapped-edge`.
+Recommended next HTTP branch: `http/sendzc-mapped-edge`, then `http/send-threshold-bench`.
 
 ### Low-level io_uring / socket / file I/O lane
 
@@ -224,13 +224,13 @@ Recommended next build branch: `build/perf-harness-stabilize`.
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
-| P0 | `docs/concurrency-naming-model` | Canonicalize execution model and `blocking_`/`sync_`/`async_` semantics. | Docs-only; should merge first. | New code review guidance points to one document. |
+| DONE | `docs/concurrency-naming-model` | Canonicalized execution model and `blocking_`/`sync_`/`async_` semantics in `docs/concurrency-naming-model.md`. | Docs-only. | New code review guidance points to one document. |
 | P0 | `docs/parallel-priority-plan` | Add this file. | Done by this patch. | Future branches can pick component queues without central replanning. |
 | Done | `docs/examples-compile-ci` | Added `CONFLUX_BUILD_EXAMPLES`, `conflux_examples`, and `examples/compile` CTest build gate. | Build/docs only. | Server examples compile without being executed. |
 | P1 | `docs/json-boundary-guide` | Explain JSON provider trait boundary and why parser work is later. | Depends on JSON boundary branch shape. | Route authors know where JSON dependencies are allowed. |
 | P2 | `docs/release-blockers` | Maintain release-blocker checklist. | Later, after P0/P1 branches settle. | Checklist includes security, docs, perf harness, fuzzing, alias removal. |
 
-Recommended next docs branch: `docs/concurrency-naming-model`.
+Recommended next docs branch: `docs/json-boundary-guide`, after `json/boundary-traits` lands.
 
 ### API naming / alias cleanup lane
 
@@ -246,27 +246,23 @@ Alias elimination is the last release-prep task, not a modernization task. The c
 
 These branches can start from the same base with low conflict risk:
 
-1. `docs/concurrency-naming-model`
-   - Touches docs only.
-   - Clarifies ring-thread handler execution and naming model.
-
-2. `worker/no-wait-bridge`
+1. `worker/no-wait-bridge`
    - Highest implementation priority.
    - Serial gate for remaining worker runtime work.
 
-3. `auth/secret-config-cleanup`
+2. `auth/secret-config-cleanup`
    - Builds on the password-hash wrapper shape.
    - Move secrets/pepper/session config behind typed missing-config errors.
 
-4. `json/boundary-traits`
+3. `json/boundary-traits`
    - Enables later JSON cleanup without choosing final parser.
    - Do before parser/DOM/reflection work.
 
-5. `build/perf-harness-stabilize`
+4. `build/perf-harness-stabilize`
    - Enables measured HTTP/uring/worker perf changes.
    - Avoids further unmeasured low-level tweaks.
 
-6. `uring/sendzc-edge-measurement`
+5. `uring/sendzc-edge-measurement`
    - Independent from HTTP send path and worker runtime.
 
 ## Deferred work

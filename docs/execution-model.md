@@ -1,8 +1,10 @@
 # Execution Model Contract
 
 This document records the current pre-v1 execution contract for work, HTTP, and
-API naming. It is intentionally explicit because the public names will still go
-through a larger cleanup before v1.
+API naming. The canonical code-review guide for these rules is
+[`concurrency-naming-model.md`](concurrency-naming-model.md). It is intentionally
+explicit because the public names will still go through a larger cleanup before
+v1.
 
 ## Core rule
 

@@ -391,10 +391,13 @@ struct RequestContext {
     SocketTaskRing& ring;
 };
 
-using ContextHandler   = std::function<root::Task<HttpResponse>(HttpRequestView, RequestContext)>;
-using ContextMiddleware = std::function<root::Task<HttpResponse>(HttpRequestView, RequestContext, NextContextHandler)>;
+using ContextHandler =
+    CloneableFunction<root::Task<HttpResponse>(HttpRequest const&, RequestContext const&)>;
+using ContextMiddleware =
+    CloneableFunction<root::Task<HttpResponse>(HttpRequest const&, RequestContext const&, ContextHandler const&)>;
 
-Router& Router::add_context(std::string_view method, std::string_view path, ContextHandler);
+template<ContextHandlerFunction F>
+Router& Router::add_context(std::string_view method, std::string_view path, F&& handler);
 bool    Router::has_context_routes() const;
 std::optional<HttpResponse> Router::dispatch_async(HttpRequest const&, RequestContext const&); // transitional name
 ```
@@ -402,6 +405,8 @@ std::optional<HttpResponse> Router::dispatch_async(HttpRequest const&, RequestCo
 Context routes are probed from the server's ring loop. They receive an owning `HttpRequest` plus the ring thread's `SocketTaskRing`, so coroutine suspension cannot dangle request views and `send_async` can be used without blocking. `proxy_context_handler()` in `proxy.cxx` uses this path. Prefer this surface when a route needs the ring context directly; ordinary coroutine route handlers can accept owning `HttpRequest` and return `root::Task<HttpResponse>` without a `RequestContext`.
 
 The exported dispatcher is still named `dispatch_async(...)` in this branch for compatibility. Treat that name as transitional: semantically it is context-route/deferred-response dispatch, not a general `async_*` coroutine API. `docs/naming-audit.md` owns the final-name inventory and release-cleanup order.
+
+Context routes are dispatched via `try_dispatch_async` in the server's ring loop. They receive an owning `HttpRequest` plus the ring thread's `SocketTaskRing`, so coroutine suspension cannot dangle request views and `send_async` can be used without blocking. `proxy_context_handler()` in `proxy.cxx` uses this path. Prefer this surface when a route needs the ring context directly; ordinary coroutine route handlers can accept owning `HttpRequest` and return `root::Task<HttpResponse>` without a `RequestContext`.
 
 ## Stability
 

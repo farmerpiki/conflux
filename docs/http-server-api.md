@@ -10,14 +10,17 @@
 ```cpp
 import conflux.net.http;
 
-auto router = conflux::http::Router{};
-router.get("/hello", [](HttpRequestView req) -> HttpResponse {
-    return HttpResponse::ok().body("hello world").build();
+using namespace conflux;
+using namespace conflux::http;
+
+auto router = Router{};
+router.get("/hello", [](HttpRequestView const&) -> HttpResponse {
+    return HttpResponse::text("hello world");
 });
 
-conflux::http::ServerConfig cfg{};
+ServerConfig cfg{};
 cfg.bind = "0.0.0.0:8080";
-auto server = conflux::http::HttpServer{cfg, std::move(router)};
+auto server = HttpServer{cfg, std::move(router)};
 server.run();
 ```
 
@@ -92,19 +95,54 @@ HTTP/3 has a separate `[http3].max_body_size` knob; it defaults to the same
 
 ## `HttpRequest` / `HttpRequestView`
 
-`HttpRequestView` is the zero-copy view handed to handlers. `HttpRequest` is the owned variant (used when the handler must outlive the request coroutine).
+`HttpRequestView` is the zero-copy view handed to synchronous handlers.
+`HttpRequest` is the owned variant used when request data may cross coroutine
+suspension or escape the ring-thread handler call.
+
+The `conflux::http` first-contact aliases are:
 
 ```cpp
-struct HttpRequestView {
-    std::string_view       method;
-    std::string_view       path;
-    std::string_view       raw_query;
-    HttpFields             headers;     // case-insensitive
-    std::string_view       body;
+using RequestView  = ::HttpRequestView;
+using OwnedRequest = ::HttpRequest;
+using Request      = RequestView;  // sync-handler default; borrowed view
+using Response     = ::HttpResponse;
+```
 
-    HttpFields             form;        // parsed from application/x-www-form-urlencoded body
-    HttpFields             cookies;     // parsed from Cookie header
-    std::vector<UploadedFile> files;    // parsed from multipart/form-data body
+Use `http::Request` / `HttpRequestView` for short synchronous handlers, and
+`http::OwnedRequest` / `HttpRequest` for coroutine handlers or escaped request
+data.
+
+```cpp
+struct HttpRequest {
+    std::string method;
+    std::string path;
+    std::string version;
+    std::string remote_addr;
+    bool        is_tls;
+    HttpFields  params;
+    HttpFields  headers;  // case-insensitive
+    HttpFields  query;
+    HttpFields  form;
+    HttpFields  cookies;
+    std::vector<UploadedFile> files;
+    std::string body;
+};
+
+struct HttpRequestView {
+    std::string_view method;
+    std::string_view path;
+    std::string_view version;
+    std::string_view remote_addr;
+    bool             is_tls;
+    HttpFieldsView   params;
+    HttpFieldsView   headers;
+    HttpFieldsView   query;
+    HttpFieldsView   form;
+    HttpFieldsView   cookies;
+    std::span<UploadedFile const> files;
+    std::string_view body;
+
+    HttpRequest to_owned() const;
 };
 ```
 
@@ -123,12 +161,14 @@ struct UploadedFile {
 
 `data` and `filename` borrow from the request body. They are valid only for the handler's lifetime. Call `to_owned()` if you need them beyond the handler return.
 
-### Query string
+### Query string and path parameters
+
+Parsed query parameters live in `req.query`. Matched path captures live in
+`req.params`.
 
 ```cpp
-// Parse query params on demand:
-auto params = req.parse_query();   // returns HttpFields
-auto val    = params["name"];
+auto name = req.params["name"];
+auto page = req.query["page"];
 ```
 
 ---
@@ -191,60 +231,64 @@ public:
     template<RouteHandler F> Router& del    (std::string_view path, F&&);
     template<RouteHandler F> Router& options(std::string_view path, F&&);
 
-    // WebSocket upgrade
-    template<typename F>
-    Router& ws(std::string_view path, F&& handler);
+    // Context/coroutine routes with access to the ring context.
+    template<ContextHandlerFunction F>
+    Router& add_context(std::string_view method, std::string_view path, F&& handler);
 
-    // Static file serving
-    Router& static_files(std::string_view path_prefix,
-                         std::filesystem::path root,
+    // WebSocket upgrade and SSE.
+    template<typename F> Router& ws (std::string_view path, F&& handler);
+    template<typename F> Router& sse(std::string_view path, F&& handler);
+
+    // Static file serving.
+    Router& serve_static(std::string_view url_prefix,
+                         std::string root_dir,
                          StaticOptions const& = {});
 
-    // Middleware (applied in registration order, outermost first)
+    // Middleware (applied in registration order, outermost first).
     template<class F> requires ::Middleware<F>
     Router& use(F&&);
 
-    // Sub-routers
-    Router& mount(std::string_view prefix, Router sub);
+    // Route groups.
+    template<typename F> Router& group(std::string_view prefix, F&& fn);
 
-    // Error/not-found handlers
-    Router& not_found(Handler);
-    Router& error_handler(std::function<HttpResponse(HttpRequestView const&, std::exception_ptr)>);
+    // Error/not-found handlers.
+    template<typename F> Router& on_not_found(F&& handler);
+    template<typename F> Router& on_error(F&& handler);
 
-    // Route introspection
+    // Route introspection.
     std::vector<RouteInfo> route_infos() const;
 };
 ```
 
-Path patterns support `:param` (single segment) and `*` (wildcard). Path parameters are accessible via `req.path_params["param"]`.
+Path patterns support `{param}` segment captures and `*` wildcards. Captures are
+accessible through `req.params["param"]`.
 
-The public concepts are intended for user helpers and diagnostics. `HttpRequestView` handlers are sync-only because a view may dangle after coroutine suspension. Async handlers must accept the owning `HttpRequest`.
+The public concepts are intended for user helpers and diagnostics. `HttpRequestView` handlers are sync-only because a view may dangle after coroutine suspension. Async handlers must accept the owning `HttpRequest`. A synchronous handler may also accept `HttpRequest const&`; that deliberately materializes an owned request before the call, so prefer `HttpRequestView const&` unless ownership is needed.
 
 ---
 
 ## Handlers
 
-Handlers can be synchronous or coroutine-based:
+Handlers can be synchronous or coroutine-based. View handlers are sync-only.
+Coroutine handlers must accept the owning request type.
 
 ```cpp
-// Sync handler
-router.get("/ping", [](HttpRequestView req) -> HttpResponse {
-    return HttpResponse::ok().body("pong").build();
+// Sync handler: runs inline on the HTTP ring thread and borrows the request.
+router.get("/ping", [](HttpRequestView const& req) -> HttpResponse {
+    return HttpResponse::text("pong");
 });
 
-// Async handler (coroutine)
-router.post("/echo", [](HttpRequestView req) -> root::Task<HttpResponse> {
-    co_return HttpResponse::ok().body(req.body).build();
+// Async handler: the request is owned before the task can suspend.
+router.post("/echo", [](HttpRequest const& req) -> root::Task<HttpResponse> {
+    co_return HttpResponse::text(req.body);
 });
 
-// Deferred / streaming response
-router.get("/slow", [](HttpRequestView req) -> DeferredResponse {
-    return [](ResponseWriter& w) -> root::Task<void> {
-        co_await w.send_headers(200, {});
-        co_await w.send_chunk("chunk 1");
-        co_await w.send_chunk("chunk 2");
-        co_await w.finish();
-    };
+// Explicit worker placement for blocking/heavy work.
+auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
+router.get("/slow", [pool](HttpRequestView const&) -> HttpResponse {
+    return conflux::http::defer(pool, [] {
+        return HttpResponse::text("done");
+    });
 });
 ```
 
@@ -255,27 +299,34 @@ router.get("/slow", [](HttpRequestView req) -> DeferredResponse {
 ```cpp
 class HttpResponse {
 public:
-    static Builder ok();           // 200
-    static Builder created();      // 201
-    static Builder no_content();   // 204
-    static Builder bad_request();  // 400
-    static Builder not_found();    // 404
-    static Builder internal_error(); // 500
-    static Builder status(int code);
-
-    // Shorthand helpers
-    static HttpResponse bad_gateway();
-    static HttpResponse service_unavailable();
+    static HttpResponse text(std::string body);
+    static HttpResponse text(std::string body, int status, std::string status_text);
+    static HttpResponse html(std::string body);
+    static HttpResponse html(std::string body, int status, std::string status_text);
+    static HttpResponse json(std::string already_serialized_body);
+    static HttpResponse json(std::string already_serialized_body, int status, std::string status_text);
+    static HttpResponse redirect(std::string_view location, int status = 302);
+    static HttpResponse not_found(std::string_view path = {});
+    static HttpResponse bad_request(std::string_view detail = {});
+    static HttpResponse unauthorized(std::string_view www_authenticate = {});
+    static HttpResponse forbidden(std::string_view detail = {});
+    static HttpResponse method_not_allowed(std::initializer_list<std::string_view> allowed = {});
+    static HttpResponse unprocessable_entity(std::string_view detail = {});
+    static HttpResponse uri_too_long();
+    static HttpResponse header_fields_too_large();
+    static HttpResponse content_too_large();
+    static HttpResponse bad_gateway(std::string_view detail = {});
+    static HttpResponse gateway_timeout();
+    static HttpResponse no_content();
+    static HttpResponse sse(std::shared_ptr<SseChannel>);
+    static HttpResponse deferred(std::shared_ptr<DeferredResponse>);
+    static HttpResponse internal_error(std::string_view detail = {});
 };
-
-// Current response helpers are value factories/mutators rather than a nested
-// builder class. JSON response bodies are explicit raw strings; structured JSON
-// serialization belongs at the call site or in conflux.net.http.json helpers.
-HttpResponse::html(std::string body);
-HttpResponse::json(std::string already_serialized_body);
-HttpResponse::text(std::string body);
-HttpResponse::not_found(std::string_view path = {});
 ```
+
+JSON response bodies are explicit raw strings at this layer. Structured JSON
+serialization belongs at the call site or in `conflux.net.http.response_json`
+helpers.
 
 ---
 
@@ -284,14 +335,10 @@ HttpResponse::not_found(std::string_view path = {});
 ### SSE route handler
 
 ```cpp
-// SSE handler receives an SseWriter
-router.get("/events", [&broadcaster](HttpRequestView req, SseWriter sse) -> root::Task<void> {
-    auto sub = broadcaster.subscribe();
-    while (true) {
-        auto event = co_await sub.next();
-        if (!event) break;
-        co_await sse.send(*event);
-    }
+// SSE handlers are registered with router.sse(), not router.get().
+router.sse("/events", [](HttpRequestView const& req, std::shared_ptr<SseChannel> const& ch) {
+    ch->send("data: hello\n\n");
+    ch->close();
 });
 ```
 
@@ -304,24 +351,18 @@ enum class SseOverflowPolicy { DropNewest, DropOldest, Disconnect };
 ### `SseBroadcaster`
 
 ```cpp
+class SseChannel {
+public:
+    bool send(std::string frame);
+    bool send_view(std::string_view frame);
+    bool send_event(std::string_view type, std::string_view data);
+    void close();
+};
+
 class SseBroadcaster {
 public:
-    explicit SseBroadcaster(SseBroadcasterOptions const&);
-
-    void broadcast(SseEvent const&);   // non-blocking; applies overflow policy
-    Subscription subscribe();
-};
-
-struct SseBroadcasterOptions {
-    size_t          queue_depth{64};
-    SseOverflowPolicy overflow{SseOverflowPolicy::DropOldest};
-};
-
-struct SseEvent {
-    std::optional<std::string> id;
-    std::optional<std::string> event;
-    std::string                data;
-    std::optional<std::chrono::milliseconds> retry;
+    std::shared_ptr<SseChannel> subscribe();
+    void broadcast(std::string frame);
 };
 ```
 
@@ -330,23 +371,28 @@ struct SseEvent {
 ## WebSocket
 
 ```cpp
-router.ws("/ws", [](WsStream ws) -> root::Task<void> {
-    while (true) {
-        auto frame = co_await ws.recv();
-        if (!frame || frame->is_close()) break;
-        co_await ws.send(WsFrame::text(frame->payload()));
+router.ws("/ws", [](HttpRequestView const& req, WsConn& ws) {
+    while (auto frame = ws.recv()) {
+        if (frame->opcode == WsConn::Opcode::Text) {
+            ws.send_text(frame->payload);
+        }
     }
 });
 ```
 
-`WsStream` provides:
+`WsConn` provides blocking connection-local operations on the worker that owns the
+upgraded connection:
+
 ```cpp
-root::Task<std::optional<WsFrame>> recv();
-root::Task<void>                   send(WsFrame);
-root::Task<void>                   close(uint16_t code = 1000, std::string_view reason = {});
+std::optional<WsConn::Frame> recv();
+bool send_text(std::string_view);
+bool send_binary(std::span<std::byte const>);
+bool send_ping(std::string_view = {});
+void close(uint16_t code = 1000, std::string_view reason = {});
 ```
 
-WebSocket routing is implemented as a GET route that returns a `WsUpgrade` response. The router handles the Upgrade/101 handshake transparently.
+WebSocket routing is implemented as a GET route that returns a `WsUpgrade`
+response. The router handles the Upgrade/101 handshake transparently.
 
 ---
 
@@ -383,7 +429,7 @@ struct StaticOptions {
     bool                     allow_delete{false};
 };
 
-router.static_files("/assets", "./public", StaticOptions{
+router.serve_static("/assets", "./public", StaticOptions{
     .precompressed = true,
     .cache_control = "max-age=86400, public",
 });
@@ -448,8 +494,8 @@ Synchronous handlers must be short, bounded, and non-blocking. Blocking disk I/O
 DNS, blocking client calls, database calls, sleeps, and heavy CPU work stall the
 ring and must be made explicit through coroutine suspension, caller-visible
 executor/work-pool placement, or raw syscall-style helpers whose `blocking_*`
-names advertise calling-thread blocking behavior. See `docs/execution-model.md`
-for the shared task/executor and naming contract.
+names advertise calling-thread blocking behavior. See `docs/execution-model.md` for the shared task/executor contract and
+`docs/concurrency-naming-model.md` for the code-review naming/placement guide.
 
 CPU pinning: set `ring_core` and `worker_core_base` in `ServerConfig` (see `docs/conflux-http-client-api.md` and `perf_ideas.md`).
 
@@ -498,12 +544,12 @@ In-flight requests are allowed to complete. New accepts stop immediately. A conf
 ## Error handlers
 
 ```cpp
-router.not_found([](HttpRequestView req) -> HttpResponse {
+router.on_not_found([](HttpRequestView const& req) -> HttpResponse {
     return HttpResponse::json(R"({"error":"not found"})", 404, "Not Found");
 });
 
-router.error_handler([](HttpRequestView req, std::exception_ptr ep) -> HttpResponse {
-    // log ep, return 500
-    return HttpResponse::internal_error();
+router.on_error([](HttpRequestView const& req, std::exception const& ex) -> HttpResponse {
+    // log ex, return 500
+    return HttpResponse::internal_error(ex.what());
 });
 ```

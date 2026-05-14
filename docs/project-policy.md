@@ -103,7 +103,9 @@ Before v1, every release candidate should at minimum have:
 - ASan/UBSan or fuzz smoke coverage for parser-facing code;
 - HTTP parser/security corpus run when HTTP code changed;
 - benchmark comparison for claimed performance changes;
-- updated docs for public API, migration, and security-impacting behavior.
+- updated docs for public API, migration, and security-impacting behavior;
+- execution/concurrency-sensitive changes reviewed against
+  `docs/concurrency-naming-model.md`.
 
 ## Test policy
 
