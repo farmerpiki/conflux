@@ -7,6 +7,38 @@ import conflux.types;
 import conflux.json;
 
 using namespace conflux::json;
+
+namespace {
+
+struct CountingResource : std::pmr::memory_resource {
+	std::pmr::memory_resource *upstream{std::pmr::new_delete_resource()};
+	SZ alloc_count{0};
+	SZ dealloc_count{0};
+	SZ alloc_bytes{0};
+
+private:
+	void *do_allocate(
+		SZ bytes,
+		SZ align) override {
+		++alloc_count;
+		alloc_bytes += bytes;
+		return upstream->allocate(bytes, align);
+	}
+	void do_deallocate(
+		void *p,
+		SZ bytes,
+		SZ align) override {
+		++dealloc_count;
+		upstream->deallocate(p, bytes, align);
+	}
+	bool do_is_equal(
+		std::pmr::memory_resource const &other) const noexcept override {
+		return this == &other;
+	}
+};
+
+} // namespace
+
 // ---------------------------------------------------------------------------
 // Parse — scalars
 // ---------------------------------------------------------------------------
@@ -3980,6 +4012,24 @@ TEST_CASE(
 	"[phase5]") {
 	JsonArena arena{JsonArenaOptions{.initial_slab = 128 * 1024}};
 	CHECK(arena.slab_capacity() == 128 * 1024UZ);
+}
+TEST_CASE(
+	"phase5: JsonArena hash index allocations use the injected resource",
+	"[phase5]") {
+	CountingResource hash_resource{};
+	JsonArena arena{JsonArenaOptions{.initial_slab = 128 * 1024, .hash_index_resource = &hash_resource}};
+	auto doc = arena.parse_into(
+		R"({"k00":0,"k01":1,"k02":2,"k03":3,"k04":4,"k05":5,"k06":6,"k07":7,"k08":8,"k09":9,"k10":10,"k11":11,"k12":12,"k13":13,"k14":14,"k15":15,"k16":16,"k17":17,"k18":18,"k19":19,"k20":20,"k21":21,"k22":22,"k23":23,"k24":24,"k25":25,"k26":26,"k27":27,"k28":28,"k29":29,"k30":30,"k31":31,"k32":32,"k33":33,"k34":34,"k35":35,"k36":36,"k37":37,"k38":38,"k39":39})");
+	REQUIRE(doc.has_value());
+	hash_resource.alloc_count = 0;
+	hash_resource.dealloc_count = 0;
+	hash_resource.alloc_bytes = 0;
+
+	auto warm = doc->warm_member_index(doc->root());
+	REQUIRE(warm.has_value());
+	CHECK(hash_resource.alloc_count > 0);
+	CHECK(hash_resource.alloc_bytes > 0);
+	CHECK(hash_resource.dealloc_count == 0);
 }
 TEST_CASE(
 	"phase5: ArenaDocument dump produces correct JSON",

@@ -42,7 +42,7 @@ Still implemented but not directly covered by deterministic tests:
 - [ ] Ring-thread `sched_setaffinity` and `IORING_REGISTER_IOWQ_AFF` application; needs syscall injection or observable thread/affinity capture.
 - [ ] Adaptive `io_uring_queue_init_params(EINVAL)` fallback strip order; implementation is inline in ring init and needs extraction to a pure helper or syscall seam before deterministic unit coverage.
 - [ ] `SEND_ZC` notification-CQE lifecycle under a real kernel; benchmarks and metrics exist, but deterministic unit coverage still needs a CQE injection seam.
-- [ ] `JsonArena` PMR hash-index allocation source; behavior is implemented, but proving “not global new” needs allocator instrumentation or a test-only resource hook.
+- [x] `JsonArena` PMR hash-index allocation source; `JsonArenaOptions::hash_index_resource` now lets tests inject a counting resource, and `warm_member_index()` is covered without relying on global `new`.
 
 ## Test coverage gap pass 2 (2026-05-14)
 

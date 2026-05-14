@@ -660,6 +660,14 @@ struct DocumentStorage {
 		, array_children(r)
 		, object_members(r)
 		, hash_mr_(r) {}
+	DocumentStorage(
+		std::pmr::memory_resource *storage_resource,
+		std::pmr::memory_resource *hash_resource)
+		: nodes(storage_resource)
+		, string_arena(storage_resource)
+		, array_children(storage_resource)
+		, object_members(storage_resource)
+		, hash_mr_(hash_resource) {}
 	DocumentStorage(DocumentStorage const &) = delete;
 	DocumentStorage &operator =(DocumentStorage const &) = delete;
 	DocumentStorage(DocumentStorage &&) noexcept = default;
@@ -2195,6 +2203,7 @@ export class ObjectView {
 
 	friend class NodeRef;
 	friend class Document;
+	friend expected<void, JsonError> warm_member_index_impl(DocumentStorage *, NodeRef);
 	bool friend is_value_equal(NodeRef, NodeRef);
 	bool friend is_value_equal_exact(NodeRef, NodeRef);
 	ObjectView(
@@ -2705,6 +2714,91 @@ export struct WarmIndexOptions {
 	SZ max_objects{SIZE_MAX};
 	SZ max_extra_bytes{SIZE_MAX};
 };
+[[nodiscard]] expected<void, JsonError> warm_member_index_impl(
+	DocumentStorage *storage,
+	NodeRef node) {
+	auto obj_or = node.as_object();
+	if (!obj_or) {
+		return unexpected(move(obj_or).error());
+	}
+	auto const &ov = *obj_or;
+	if (ov.mem_count_ < kHashThreshold) {
+		return {};
+	}
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
+	auto &slot = storage->nodes[ov.node_idx_].hash_idx_raw;
+	auto ref = std::atomic_ref<ObjHashTable *>{slot};
+	auto *prior = ref.load(memory_order_acquire);
+	if (prior != nullptr && prior != kHashBuildFailedSentinel) {
+		return {}; // already built
+	}
+	if (prior == kHashBuildFailedSentinel) {
+		// Cached prior failure — surface the same error.
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::resource_exhausted,
+				.message = "object hash index unavailable (cached failure)"});
+	}
+	ObjHashTable *owned = nullptr;
+	auto stash_failure_sentinel = [&] {
+		ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
+		auto _ = ref.compare_exchange_strong(
+			expected_null,
+			kHashBuildFailedSentinel,
+			memory_order_release,
+			memory_order_acquire);
+	};
+	try {
+		u32 const cap = detail::clamped_capacity(static_cast<u32>(ov.mem_count_));
+		if (cap == 0) {
+			stash_failure_sentinel();
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::resource_exhausted,
+					.message = "object exceeds hash-index byte budget"});
+		}
+		owned = ObjHashTable::create(cap, static_cast<u32>(ov.mem_count_), storage->hash_mr_);
+		if (owned == nullptr) {
+			stash_failure_sentinel();
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::resource_exhausted,
+					.message = "OOM building object hash index"});
+		}
+		if (!detail::build_table(*owned, storage, ov.mem_start_, ov.mem_count_)) {
+			ObjHashTable::destroy(owned);
+			stash_failure_sentinel();
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::resource_exhausted,
+					.message = "object hash build exceeded probe-chain cap"});
+		}
+		ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
+		if (!ref.compare_exchange_strong(expected_null, owned, memory_order_release, memory_order_acquire)) {
+			ObjHashTable::destroy(owned); // lost race — other thread published first
+		}
+		return {};
+	} catch (std::bad_alloc const &) {
+		ObjHashTable::destroy(owned);
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::resource_exhausted,
+				.message = "OOM building object hash index"});
+	} catch (...) {
+		ObjHashTable::destroy(owned);
+		assert(false && "warm_member_index: unexpected exception from no-user-code build path");
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::constraint_violation,
+				.message = "unexpected exception building object hash index"});
+	}
+}
 export class Document {
 	UP<DocumentStorage> storage_;
 
@@ -2728,87 +2822,7 @@ public:
 	// Pre-build hash index for the given object node (idempotent, thread-safe).
 	[[nodiscard]] expected<void, JsonError> warm_member_index(
 		NodeRef node) const {
-		auto obj_or = node.as_object();
-		if (!obj_or) {
-			return unexpected(move(obj_or).error());
-		}
-		auto const &ov = *obj_or;
-		if (ov.mem_count_ < kHashThreshold) {
-			return {};
-		}
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-		auto &slot = storage_->nodes[ov.node_idx_].hash_idx_raw;
-		auto ref = std::atomic_ref<ObjHashTable *>{slot};
-		auto *prior = ref.load(memory_order_acquire);
-		if (prior != nullptr && prior != kHashBuildFailedSentinel) {
-			return {}; // already built
-		}
-		if (prior == kHashBuildFailedSentinel) {
-			// Cached prior failure — surface the same error.
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::resource_exhausted,
-					.message = "object hash index unavailable (cached failure)"});
-		}
-		ObjHashTable *owned = nullptr;
-		auto stash_failure_sentinel = [&] {
-			ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
-			auto _ = ref.compare_exchange_strong(
-				expected_null,
-				kHashBuildFailedSentinel,
-				memory_order_release,
-				memory_order_acquire);
-		};
-		try {
-			u32 const cap = detail::clamped_capacity(static_cast<u32>(ov.mem_count_));
-			if (cap == 0) {
-				stash_failure_sentinel();
-				return unexpected(
-					JsonError{
-						.stage = JsonStage::lookup,
-						.code = JsonIssueCode::resource_exhausted,
-						.message = "object exceeds hash-index byte budget"});
-			}
-			owned = ObjHashTable::create(cap, static_cast<u32>(ov.mem_count_), storage_->hash_mr_);
-			if (owned == nullptr) {
-				stash_failure_sentinel();
-				return unexpected(
-					JsonError{
-						.stage = JsonStage::lookup,
-						.code = JsonIssueCode::resource_exhausted,
-						.message = "OOM building object hash index"});
-			}
-			if (!detail::build_table(*owned, storage_.get(), ov.mem_start_, ov.mem_count_)) {
-				ObjHashTable::destroy(owned);
-				stash_failure_sentinel();
-				return unexpected(
-					JsonError{
-						.stage = JsonStage::lookup,
-						.code = JsonIssueCode::resource_exhausted,
-						.message = "object hash build exceeded probe-chain cap"});
-			}
-			ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
-			if (!ref.compare_exchange_strong(expected_null, owned, memory_order_release, memory_order_acquire)) {
-				ObjHashTable::destroy(owned); // lost race — other thread published first
-			}
-			return {};
-		} catch (std::bad_alloc const &) {
-			ObjHashTable::destroy(owned);
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::resource_exhausted,
-					.message = "OOM building object hash index"});
-		} catch (...) {
-			ObjHashTable::destroy(owned);
-			assert(false && "warm_member_index: unexpected exception from no-user-code build path");
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::constraint_violation,
-					.message = "unexpected exception building object hash index"});
-		}
+		return warm_member_index_impl(storage_.get(), node);
 	}
 	// Pre-build hash indices for every object node in the document.
 	[[nodiscard]] expected<void, JsonError> warm_member_indices(
@@ -2856,6 +2870,7 @@ Document make_document(
 
 export struct JsonArenaOptions {
 	SZ initial_slab{64 * 1024};
+	std::pmr::memory_resource *hash_index_resource{nullptr};
 };
 export class ArenaDocument {
 	DocumentStorage const *storage_{};
@@ -2878,6 +2893,13 @@ public:
 		check_live();
 		return NodeRef{storage_, storage_->root_node};
 	}
+	[[nodiscard]] expected<void, JsonError> warm_member_index(
+		NodeRef node) const {
+		check_live();
+		// Arena documents own their storage; this forwards to the same hash-index
+		// builder used by Document without transferring ownership.
+		return warm_member_index_impl(const_cast<DocumentStorage *>(storage_), node);
+	}
 	[[nodiscard]] expected<S, JsonError> dump(JsonDumpOptions const &opts = {}) const;
 };
 export class JsonArena {
@@ -2891,7 +2913,7 @@ public:
 		JsonArenaOptions const &opts = {})
 		: initial_slab_{opts.initial_slab}
 		, mbr_{opts.initial_slab}
-		, storage_{make_unique<DocumentStorage>(&mbr_)} {}
+		, storage_{make_unique<DocumentStorage>(&mbr_, opts.hash_index_resource ? opts.hash_index_resource : &mbr_)} {}
 	JsonArena(JsonArena const &) = delete;
 	JsonArena &operator =(JsonArena const &) = delete;
 	JsonArena(JsonArena &&) = delete;
