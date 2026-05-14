@@ -1697,6 +1697,15 @@ template<work_value T, bool EnableCancellation>
 	std::pmr::polymorphic_allocator<model_t> alloc{resource};
 	return std::allocate_shared<model_t>(alloc);
 }
+[[nodiscard]] inline std::pmr::memory_resource &task_coroutine_frame_resource() noexcept {
+	// Process-lifetime pool: coroutine frames can be destroyed from any thread,
+	// and the pool is intentionally leaked to avoid static-destruction ordering.
+	static auto *resource = new std::pmr::synchronized_pool_resource{};
+	return *resource;
+}
+struct alignas(std::max_align_t) TaskFrameHeader {
+	SZ size = 0;
+};
 // P2b size guard: delta against P2a baseline (432B measured on clang-libcxx +
 // libstdc++ on x86_64). P2b padding must not exceed one additional cache line.
 #ifndef CONFLUX_WORK_RELAX_CONTROL_BLOCK_SIZE_GUARD
@@ -2217,20 +2226,27 @@ public:
 
 		static void *operator new(
 			SZ size) {
-			auto *p = ::operator new(size);
+			auto *raw = static_cast<std::byte *>(
+				detail::task_coroutine_frame_resource().allocate(
+					size + sizeof(detail::TaskFrameHeader), alignof(std::max_align_t)));
+			auto *hdr = ::new (static_cast<void *>(raw)) detail::TaskFrameHeader{.size = size};
 			detail::note_coroutine_frame_allocation();
-			return p;
+			return hdr + 1;
 		}
 		static void operator delete(
 			void *p) noexcept {
 			detail::note_coroutine_frame_deallocation();
-			::operator delete(p);
+			auto *hdr = static_cast<detail::TaskFrameHeader *>(p) - 1;
+			detail::task_coroutine_frame_resource().deallocate(
+				hdr, hdr->size + sizeof(detail::TaskFrameHeader), alignof(std::max_align_t));
 		}
 		static void operator delete(
 			void *p,
 			SZ) noexcept {
 			detail::note_coroutine_frame_deallocation();
-			::operator delete(p);
+			auto *hdr = static_cast<detail::TaskFrameHeader *>(p) - 1;
+			detail::task_coroutine_frame_resource().deallocate(
+				hdr, hdr->size + sizeof(detail::TaskFrameHeader), alignof(std::max_align_t));
 		}
 
 		[[nodiscard]] BasicResult get_return_object() noexcept;

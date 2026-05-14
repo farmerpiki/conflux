@@ -35,7 +35,7 @@
 - [x] `alignas(64)` on `Conn` and `Worker`: landed (`struct alignas(64) Conn`, `struct alignas(64) Worker`)
 - [ ] `Ring` hot/cold field layout: `Ring` has no `alignas`; verify `Conn`/`Worker` field grouping with `perf c2c` before further padding
 - [x] Root `Task<T>` allocation diagnostics: optional `CONFLUX_WORK_ALLOC_STATS` counters for control blocks and coroutine frames landed
-- [ ] Coroutine frame/control-block pool: landed pool targets `EagerChainPromise`, not `root::Task<T>::promise_type` which is the HTTP handler hot path; pool `BasicResult<T,task>::promise_type` frames and `ControlBlockModel<T>` after measuring allocation counters
+- [x] Coroutine frame/control-block pool: landed pool targets `EagerChainPromise`, and `root::Task<T>::promise_type` / `ControlBlockModel<T>` now use process-lifetime synchronized pool resources while keeping allocation counters and task/control semantics intact
 
 ## Docs / API contract mismatches
 
