@@ -39,6 +39,50 @@ The default matrix is:
 - `perf-clang-libcxx`
 - `perf-gcc-stdcxx`
 
+## Optimized release / LTO / PGO lane
+
+Optimized presets are intentionally separate from `perf-*` presets. Use them for
+ship-shape builds, LTO smoke coverage, and profile-guided optimization; do not
+record benchmark evidence from them unless the run is explicitly marked as an
+experiment.
+
+CTest includes a cheap static guard:
+
+```sh
+ctest --test-dir <build-dir> -R build/optimized-presets --output-on-failure
+```
+
+The guard checks that release/PGO presets stay unsanitized, keep tests and
+benchmarks enabled for smoke coverage, use explicit LTO mode where LTO is on,
+and use deterministic PGO profile paths. Clang release presets use ThinLTO
+because `-flto=auto` is GCC-specific and because ThinLTO keeps module-heavy
+optimized builds more tractable. GCC 15 remains the no-LTO release baseline;
+GCC 16 carries the GCC LTO coverage preset.
+
+PGO workflow:
+
+```sh
+# Clang: generate raw profiles, run representative tests/workloads, merge, use.
+rm -rf /tmp/conflux-pgo/clang
+mkdir -p /tmp/conflux-pgo/clang
+cmake --preset pgo-gen-clang-libcxx
+cmake --build --preset pgo-gen-clang-libcxx -j "$(nproc)"
+ctest --test-dir /tmp/conflux/pgo-gen-clang-libcxx --output-on-failure
+llvm-profdata merge -output=/tmp/conflux-pgo/clang/merged.profdata \
+    /tmp/conflux-pgo/clang/*.profraw
+cmake --preset pgo-use-clang-libcxx
+cmake --build --preset pgo-use-clang-libcxx -j "$(nproc)"
+
+# GCC: generated profile data lives in the profile directory directly.
+rm -rf /tmp/conflux-pgo/gcc16
+mkdir -p /tmp/conflux-pgo/gcc16
+cmake --preset pgo-gen-gcc16-stdcxx
+cmake --build --preset pgo-gen-gcc16-stdcxx -j "$(nproc)"
+ctest --test-dir /tmp/conflux/pgo-gen-gcc16-stdcxx --output-on-failure
+cmake --preset pgo-use-gcc16-stdcxx
+cmake --build --preset pgo-use-gcc16-stdcxx -j "$(nproc)"
+```
+
 ## Measured benchmark recording
 
 Use `scripts/bench_record.sh` for DB-backed benchmark recording on a quiet host:

@@ -95,15 +95,38 @@ function(conflux_apply_compiler_options target)
 
     # ── LTO ──────────────────────────────────────────────────────────────────
     if(CONFLUX_ENABLE_LTO)
-        target_compile_options(${target} INTERFACE -flto=auto)
-        target_link_options(${target}    INTERFACE -flto=auto)
+        string(TOUPPER "${CONFLUX_LTO_MODE}" _conflux_lto_mode)
+        if(NOT _conflux_lto_mode MATCHES "^(AUTO|THIN|FULL)$")
+            message(FATAL_ERROR
+                "conflux: CONFLUX_LTO_MODE must be AUTO, THIN, or FULL "
+                "(got '${CONFLUX_LTO_MODE}')")
+        endif()
+
+        set(_conflux_lto_flag "-flto=auto")
+        if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+            if(_conflux_lto_mode STREQUAL "FULL")
+                set(_conflux_lto_flag "-flto")
+            else()
+                # Clang does not support GCC's -flto=auto spelling.  ThinLTO
+                # keeps optimized builds usable for large module-heavy targets.
+                set(_conflux_lto_flag "-flto=thin")
+            endif()
+        elseif(_conflux_lto_mode STREQUAL "FULL")
+            set(_conflux_lto_flag "-flto")
+        elseif(_conflux_lto_mode STREQUAL "THIN")
+            message(FATAL_ERROR
+                "conflux: CONFLUX_LTO_MODE=THIN is only supported for Clang presets")
+        endif()
+
+        target_compile_options(${target} INTERFACE ${_conflux_lto_flag})
+        target_link_options(${target}    INTERFACE ${_conflux_lto_flag})
     endif()
 
     # ── PGO ──────────────────────────────────────────────────────────────────
     if(CONFLUX_PGO_GENERATE)
         if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-            target_compile_options(${target} INTERFACE -fprofile-instr-generate)
-            target_link_options(${target}    INTERFACE -fprofile-instr-generate)
+            target_compile_options(${target} INTERFACE -fprofile-instr-generate=${CONFLUX_PGO_PROFILE_DIR})
+            target_link_options(${target}    INTERFACE -fprofile-instr-generate=${CONFLUX_PGO_PROFILE_DIR})
         else()
             target_compile_options(${target} INTERFACE -fprofile-generate=${CONFLUX_PGO_PROFILE_DIR})
             target_link_options(${target}    INTERFACE -fprofile-generate=${CONFLUX_PGO_PROFILE_DIR})

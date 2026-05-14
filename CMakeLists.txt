@@ -26,6 +26,8 @@ option(CONFLUX_ENABLE_ASAN    "Build with AddressSanitizer"                  OFF
 option(CONFLUX_ENABLE_UBSAN   "Build with UBSanitizer"                       OFF)
 option(CONFLUX_ENABLE_TSAN    "Build with ThreadSanitizer"                   OFF)
 option(CONFLUX_ENABLE_LTO     "Enable link-time optimisation"                OFF)
+set(CONFLUX_LTO_MODE "AUTO" CACHE STRING "LTO mode when CONFLUX_ENABLE_LTO=ON: AUTO, THIN, or FULL")
+set_property(CACHE CONFLUX_LTO_MODE PROPERTY STRINGS AUTO THIN FULL)
 option(CONFLUX_JSON_REFLECT   "Enable P2996 reflection codec (GCC 16+ only)" OFF)
 option(CONFLUX_PGO_GENERATE  "Instrument build for PGO profile collection"  OFF)
 set(CONFLUX_PGO_PROFILE_DIR  "" CACHE STRING "Profile data path for PGO use phase")
@@ -75,6 +77,20 @@ if(CONFLUX_BUILD_BENCHMARKS
         "CONFLUX_BUILD_BENCHMARKS must stay OFF for sanitizer presets. "
         "Use perf-* presets for performance lanes, or set "
         "CONFLUX_ALLOW_SANITIZED_BENCHMARKS=ON for a local instrumented benchmark debug build.")
+endif()
+
+if(CONFLUX_PGO_GENERATE AND CONFLUX_PGO_PROFILE_DIR STREQUAL "")
+    message(FATAL_ERROR
+        "CONFLUX_PGO_GENERATE requires CONFLUX_PGO_PROFILE_DIR. "
+        "Use a file pattern for Clang, e.g. /tmp/conflux-pgo/clang/%m-%p.profraw, "
+        "or a directory for GCC, e.g. /tmp/conflux-pgo/gcc16.")
+endif()
+
+if((CONFLUX_PGO_GENERATE OR NOT CONFLUX_PGO_PROFILE_DIR STREQUAL "")
+    AND (CONFLUX_ENABLE_ASAN OR CONFLUX_ENABLE_UBSAN OR CONFLUX_ENABLE_TSAN))
+    message(FATAL_ERROR
+        "PGO presets must not enable ASan/UBSan/TSan. Generate profiles from "
+        "optimized, unsanitized builds and keep sanitizer coverage in the correctness lane.")
 endif()
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")

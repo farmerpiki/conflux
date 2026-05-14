@@ -128,6 +128,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CONFLUX_ENABLE_LTO": "ON",
+        "CONFLUX_LTO_MODE": "THIN",
         "CONFLUX_BUILD_TESTS": "ON",
         "CONFLUX_BUILD_BENCHMARKS": "ON"
       }
@@ -139,6 +140,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CONFLUX_ENABLE_LTO": "ON",
+        "CONFLUX_LTO_MODE": "THIN",
         "CONFLUX_BUILD_TESTS": "ON",
         "CONFLUX_BUILD_BENCHMARKS": "ON"
       }
@@ -161,6 +163,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "CONFLUX_ENABLE_LTO": "ON",
+        "CONFLUX_LTO_MODE": "AUTO",
         "CONFLUX_BUILD_TESTS": "ON",
         "CONFLUX_BUILD_BENCHMARKS": "ON"
       }
@@ -223,7 +226,11 @@
       "displayName": "PGO gen · clang++ · libc++",
       "inherits": "release-clang-libcxx",
       "cacheVariables": {
-        "CONFLUX_PGO_GENERATE": "ON"
+        "CONFLUX_ENABLE_ASAN": "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
+        "CONFLUX_ENABLE_TSAN": "OFF",
+        "CONFLUX_PGO_GENERATE": "ON",
+        "CONFLUX_PGO_PROFILE_DIR": "/tmp/conflux-pgo/clang/%m-%p.profraw"
       }
     },
     {
@@ -231,7 +238,10 @@
       "displayName": "PGO use · clang++ · libc++",
       "inherits": "release-clang-libcxx",
       "cacheVariables": {
-        "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/clang/work.profdata"
+        "CONFLUX_ENABLE_ASAN": "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
+        "CONFLUX_ENABLE_TSAN": "OFF",
+        "CONFLUX_PGO_PROFILE_DIR": "/tmp/conflux-pgo/clang/merged.profdata"
       }
     },
     {
@@ -239,8 +249,11 @@
       "displayName": "PGO gen · g++ · libstdc++",
       "inherits": "release-gcc-stdcxx",
       "cacheVariables": {
+        "CONFLUX_ENABLE_ASAN": "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
+        "CONFLUX_ENABLE_TSAN": "OFF",
         "CONFLUX_PGO_GENERATE": "ON",
-        "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/gcc15"
+        "CONFLUX_PGO_PROFILE_DIR": "/tmp/conflux-pgo/gcc15"
       }
     },
     {
@@ -248,7 +261,10 @@
       "displayName": "PGO use · g++ · libstdc++",
       "inherits": "release-gcc-stdcxx",
       "cacheVariables": {
-        "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/gcc15"
+        "CONFLUX_ENABLE_ASAN": "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
+        "CONFLUX_ENABLE_TSAN": "OFF",
+        "CONFLUX_PGO_PROFILE_DIR": "/tmp/conflux-pgo/gcc15"
       }
     },
     {
@@ -256,8 +272,11 @@
       "displayName": "PGO gen · g++-16 · libstdc++",
       "inherits": "release-gcc16-stdcxx",
       "cacheVariables": {
+        "CONFLUX_ENABLE_ASAN": "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
+        "CONFLUX_ENABLE_TSAN": "OFF",
         "CONFLUX_PGO_GENERATE": "ON",
-        "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/gcc16"
+        "CONFLUX_PGO_PROFILE_DIR": "/tmp/conflux-pgo/gcc16"
       }
     },
     {
@@ -265,7 +284,10 @@
       "displayName": "PGO use · g++-16 · libstdc++",
       "inherits": "release-gcc16-stdcxx",
       "cacheVariables": {
-        "CONFLUX_PGO_PROFILE_DIR": "/tmp/work/pgo-profiles/gcc16"
+        "CONFLUX_ENABLE_ASAN": "OFF",
+        "CONFLUX_ENABLE_UBSAN": "OFF",
+        "CONFLUX_ENABLE_TSAN": "OFF",
+        "CONFLUX_PGO_PROFILE_DIR": "/tmp/conflux-pgo/gcc16"
       }
     },
     {
@@ -323,6 +345,10 @@
     {
       "name": "release-clang-libcxx",
       "configurePreset": "release-clang-libcxx"
+    },
+    {
+      "name": "release-clang-stdcxx",
+      "configurePreset": "release-clang-stdcxx"
     },
     {
       "name": "release-gcc-stdcxx",

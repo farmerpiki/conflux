@@ -47,6 +47,21 @@ function(conflux_discover_db_integration_tests target)
     )
 endfunction()
 
+add_test(NAME build/module-fragility-regression
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-module-interface-regressions.sh"
+            "${CMAKE_SOURCE_DIR}")
+set_tests_properties(build/module-fragility-regression PROPERTIES
+    LABELS "build;modules"
+    RUN_SERIAL TRUE
+)
+
+add_test(NAME build/optimized-presets
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-optimized-presets.sh"
+            "${CMAKE_SOURCE_DIR}")
+set_tests_properties(build/optimized-presets PROPERTIES
+    LABELS "build;presets"
+    RUN_SERIAL TRUE
+)
 add_executable(conflux_tests)
 target_sources(conflux_tests
     PRIVATE
@@ -171,6 +186,14 @@ target_link_libraries(conflux_auth_secret_config_tests PRIVATE conflux_http_auth
 
 add_executable(conflux_auth_rate_limit_tests auth_rate_limit_test.cxx)
 target_link_libraries(conflux_auth_rate_limit_tests PRIVATE conflux_http_auth conflux_options Catch2::Catch2WithMain)
+
+add_test(NAME build/optimized-presets
+    COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-optimized-presets.sh"
+            "${CMAKE_SOURCE_DIR}")
+set_tests_properties(build/optimized-presets PROPERTIES
+    LABELS "build;presets"
+    RUN_SERIAL TRUE
+)
 if(TARGET conflux_http_server_config)
     add_executable(conflux_config_tests config_test.cxx)
     target_link_libraries(conflux_config_tests
