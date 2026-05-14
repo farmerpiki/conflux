@@ -87,7 +87,7 @@ public:
 		return out;
 	}
 	[[nodiscard]] Chain<T> wait() && {
-		auto out = root::join(move(state_->handle));
+		auto out = root::blocking_join(move(state_->handle));
 		consumed_ = true;
 		return Chain<T>{move(out), CarrierKind::task};
 	}

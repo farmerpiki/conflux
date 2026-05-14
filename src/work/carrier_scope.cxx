@@ -15,7 +15,7 @@ export namespace conflux::work::carrier {
 // request_cancel() on all tracked controls concurrently with any blocking join.
 //
 // Thread-safe: track(), cancel(), and admit() may be called from any thread.
-// The mutex is not held during root::join() to avoid blocking cancel() callers.
+// The mutex is not held during root::blocking_join() to avoid blocking cancel() callers.
 class Scope {
 	mutable mutex mu_;
 	V<root::TaskControl> task_ctrls_;
@@ -127,35 +127,35 @@ public:
 	[[nodiscard]] Chain<T> admit(
 		root::TaskJoinHandle<T> &&jh) {
 		track(jh.control());
-		return Chain<T>{root::join(move(jh)), CarrierKind::task};
+		return Chain<T>{root::blocking_join(move(jh)), CarrierKind::task};
 	}
 	template<root::work_value T, root::progress_capability Owner>
 	[[nodiscard]] Chain<T> admit(
 		Owner &owner,
 		root::PostedJoinHandle<T> &&jh) {
 		track(jh.control());
-		return Chain<T>{root::join(owner, move(jh)), CarrierKind::posted, root::capability_id(owner)};
+		return Chain<T>{root::blocking_join(owner, move(jh)), CarrierKind::posted, root::capability_id(owner)};
 	}
 	template<root::work_value T, root::progress_capability Owner>
 	[[nodiscard]] Chain<T> admit_unbound(
 		Owner &owner,
 		root::PostedJoinHandle<T> &&jh) {
 		track(jh.control());
-		return Chain<T>{root::join(owner, move(jh)), CarrierKind::posted};
+		return Chain<T>{root::blocking_join(owner, move(jh)), CarrierKind::posted};
 	}
 	template<root::work_value T, root::progress_capability Driver>
 	[[nodiscard]] Chain<T> admit(
 		Driver &driver,
 		root::OperationJoinHandle<T> &&jh) {
 		track(jh.control());
-		return Chain<T>{root::join(driver, move(jh)), CarrierKind::operation, root::capability_id(driver)};
+		return Chain<T>{root::blocking_join(driver, move(jh)), CarrierKind::operation, root::capability_id(driver)};
 	}
 	template<root::work_value T, root::progress_capability Driver>
 	[[nodiscard]] Chain<T> admit_unbound(
 		Driver &driver,
 		root::OperationJoinHandle<T> &&jh) {
 		track(jh.control());
-		return Chain<T>{root::join(driver, move(jh)), CarrierKind::operation};
+		return Chain<T>{root::blocking_join(driver, move(jh)), CarrierKind::operation};
 	}
 };
 

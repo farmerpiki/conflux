@@ -28,10 +28,14 @@ All carrier types live in `conflux::work::carrier`.
 | `from_*(root_type) → Chain<T>` | Construct carrier from root type |
 | `into_*(Chain<T>) → root_type` | Convert carrier back to root type |
 | `hop_to_*(cap, chain)` | Re-bind and/or change `CarrierKind` |
-| `admit(jh) → Chain<T>` | Track-then-join via a `Scope` |
+| `admit(jh) → Chain<T>` | Track, then join through the explicit blocking seam |
 
 Do not invent new patterns outside this table. Naming divergence is a review
-blocker.
+blocker. The carrier layer is eager: `from_*`, `Scope::admit`, and
+`DroppableSlot::wait` are blocking surfaces and route through
+`root::blocking_join(...)` internally. Keep legacy public names until the final
+release alias-removal pass; do not reintroduce `root::join(...)` in carrier
+implementation code.
 
 ---
 
@@ -94,7 +98,7 @@ Chain<T> from_operation(Driver&, root::Operation<T>&&);
 **Precondition:** the root value must be live (not moved-from, not already
 joined). Violating this terminates.
 
-**Semantics:** calls `root::join(...)` synchronously on the calling thread.
+**Semantics:** calls `root::blocking_join(...)` synchronously on the calling thread.
 `from_task` joins the task inline (blocks until the task reaches a terminal
 commit). `from_posted` and `from_operation` additionally validate capability
 identity before joining.
@@ -333,7 +337,7 @@ recorded `cancel_reason()`.
 ### `admit`
 
 Calls `track(jh.control())` then joins the handle synchronously
-(`root::join(...)` blocks). Returns the completed `Chain<T>`.
+(`root::blocking_join(...)` blocks). Returns the completed `Chain<T>`.
 
 `admit` overloads for `Posted` and `Operation` automatically bind the output
 chain to the provided capability (`kind() = posted/operation`,
@@ -569,7 +573,7 @@ returns `nullopt` if not yet terminal without consuming the handle. Consuming
 via `try_get`, `wait`, or `co_await` marks the slot consumed; the destructor
 then skips the drain.
 
-**`wait() &&`** — blocking join. Returns a `Chain<T>` with `kind() == task`.
+**`wait() &&`** — blocking join through `root::blocking_join(...)`. Returns a `Chain<T>` with `kind() == task`.
 
 **`co_await` (via `DroppableSlotAwaiter<T>`)** — async path. Suspends the
 coroutine until the task is terminal, then resumes with `Chain<T>` via

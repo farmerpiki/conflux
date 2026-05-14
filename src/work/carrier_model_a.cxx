@@ -327,19 +327,19 @@ ChainAwaiter<T> Chain<T>::operator co_await() && noexcept {
 template<root::work_value T>
 [[nodiscard]] Chain<T> from_task(
 	root::Task<T> &&task) {
-	return Chain<T>{root::join(move(task)), CarrierKind::task};
+	return Chain<T>{root::blocking_join(move(task)), CarrierKind::task};
 }
 template<root::work_value T, root::progress_capability Owner>
 [[nodiscard]] Chain<T> from_posted(
 	Owner &owner,
 	root::Posted<T> &&posted) {
-	return Chain<T>{root::join(owner, move(posted)), CarrierKind::posted};
+	return Chain<T>{root::blocking_join(owner, move(posted)), CarrierKind::posted};
 }
 template<root::work_value T, root::progress_capability Driver>
 [[nodiscard]] Chain<T> from_operation(
 	Driver &driver,
 	root::Operation<T> &&op) {
-	return Chain<T>{root::join(driver, move(op)), CarrierKind::operation};
+	return Chain<T>{root::blocking_join(driver, move(op)), CarrierKind::operation};
 }
 template<root::work_value T, root::progress_capability Owner>
 [[nodiscard]] Chain<T> hop_to_posted(

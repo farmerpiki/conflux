@@ -30,6 +30,8 @@ parallel branches without repeatedly re-deciding global priority.
 - Worker task bodies were moved substantially toward awaitable helpers. The full
   pipeline path is mostly async, and the remaining root blocking wait path is
   isolated behind the explicitly named `blocking_join(...)` compatibility seam.
+  Carrier blocking joins now call that explicit seam directly; legacy `join(...)`
+  remains only as a public compatibility alias until release cleanup.
 - Module CMI fragility has a proven mitigation: thin exported interfaces plus
   coroutine-heavy implementation units, especially around cancellation/socket/coro
   surfaces.
@@ -49,8 +51,9 @@ parallel branches without repeatedly re-deciding global priority.
 - Worker runtime: finish background ingestion runtime convergence when that app surface is present;
   the provided library tree currently has no background-ingestion implementation to migrate.
   `WorkPool` now has opt-in queue/park/wake counters for contention profiling; use them before changing admission/local-deque locking.
-  Continue moving any remaining compatibility surface behind explicitly named
-  `sync_`/`blocking_` APIs.
+  Carrier internals now use `blocking_join(...)` instead of the legacy `join(...)`
+  alias for blocking conversion/admission/drain paths. Continue moving any remaining
+  compatibility surface behind explicitly named `sync_`/`blocking_` APIs.
 - Security: password-hash replacement is landed; finish secret-config cleanup and session/token audit before widening API work.
 - JSON boundary: isolate app/framework JSON usage behind traits/adapters before
   designing a new parser/DOM. The parser work is important, but the boundary cleanup is
@@ -155,9 +158,10 @@ Priorities:
 | P1 | `worker/background-ingestion-runtime` | Merge/migrate background ingestion runtime surface onto the worker runtime model. | Depends on `worker/no-wait-bridge`; should not touch auth/json. | Background ingestion uses the same runtime conventions as other worker tasks. |
 | DONE | `worker/taskpromise-frame-pool` | Extended `CONFLUX_WORK_CORO_FRAME_POOL` coverage to `Task<T>` promise frames with a process-lifetime mmap bucket pool; `EagerChain` keeps the thread-local LIFO arena because it never externally suspends. | Completed on top of `worker/no-wait-bridge`. | Small/medium `Task<void>` frames avoid global `::operator new` in steady-state when the pool option is enabled; sanitizer builds keep the safe PMR fallback. |
 | DONE | `worker/queue-contention-profile` | Added opt-in `CONFLUX_WORK_QUEUE_STATS` counters for admission, local/inject queues, steal scans, wake/park/futex paths, plus raw NDJSON queue counters in `workpool_enqueue_dequeue`. | Completed on top of worker frame-pool slice; instrumentation is disabled by default. | `benchmarks/notes/worker_queue_contention_profile.md` documents the no-lock-removal decision and profiling command. |
+| DONE | `worker/carrier-blocking-join-surface` | Carrier blocking conversion/admission/drain paths call `root::blocking_join(...)` directly instead of the legacy `root::join(...)` alias. | Completed on top of `worker/no-wait-bridge`; source/docs only. | `src/work/carrier_*` has no `root::join(...)` call sites; docs identify carrier `from_*`, `Scope::admit`, and `DroppableSlot::wait` as blocking-join surfaces. |
 | P3 | `worker/p2300-prototype` | Prototype P2300/io_uring scheduler behind an experimental target. | Do not mix with active V2 runtime migration. | Prototype compiles separately; no public API commitment. |
 
-Recommended next worker branch: `worker/background-ingestion-runtime` if the app ingestion surface is present; otherwise leave the worker lane idle until measured queue contention justifies a follow-up locking/scheduling patch.
+Recommended next worker branch: `worker/background-ingestion-runtime` if the app ingestion surface is present; otherwise leave the worker lane idle until measured queue contention justifies a follow-up locking/scheduling patch. Any further carrier blocking-name cleanup should be additive alias work only, not release alias removal.
 
 ### HTTP server / routing / handler API lane
 
