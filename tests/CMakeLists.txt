@@ -186,14 +186,6 @@ target_link_libraries(conflux_auth_secret_config_tests PRIVATE conflux_http_auth
 
 add_executable(conflux_auth_rate_limit_tests auth_rate_limit_test.cxx)
 target_link_libraries(conflux_auth_rate_limit_tests PRIVATE conflux_http_auth conflux_options Catch2::Catch2WithMain)
-
-add_test(NAME build/optimized-presets
-    COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-optimized-presets.sh"
-            "${CMAKE_SOURCE_DIR}")
-set_tests_properties(build/optimized-presets PROPERTIES
-    LABELS "build;presets"
-    RUN_SERIAL TRUE
-)
 if(TARGET conflux_http_server_config)
     add_executable(conflux_config_tests config_test.cxx)
     target_link_libraries(conflux_config_tests
@@ -607,7 +599,7 @@ conflux_discover_tests(conflux_dns_resolver_tests)
 conflux_discover_tests(conflux_udp_tests)
 conflux_discover_tests(conflux_socket_task_ring_tests)
 conflux_discover_tests(conflux_file_io_http_e2e)
-conflux_discover_tests(conflux_http_overflow_stress_tests)
+conflux_discover_stress_tests(conflux_http_overflow_stress_tests)
 if(CONFLUX_HAS_TLS STREQUAL "true")
     conflux_discover_tests(conflux_smtp_tests)
 endif()

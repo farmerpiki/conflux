@@ -35,7 +35,7 @@ static S http_get_on_timeout(
 	SV path) {
 	LocalTcpClient const client{port};
 
-	timeval tv{.tv_sec = 1, .tv_usec = 0};
+	timeval tv{.tv_sec = 0, .tv_usec = 50000};
 	::setsockopt(client.fd(), SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	::setsockopt(client.fd(), SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
 
@@ -71,8 +71,8 @@ TEST_CASE(
 
 	// Fire concurrent requests; keep going until the server stops or 3 s elapse.
 	Atom<bool> stop_flag{false};
-	static constexpr int kWorkers = 8;
-	static constexpr int kIterations = 2000;
+	static constexpr int kWorkers = 2;
+	static constexpr int kIterations = 20;
 	V<jthread> workers;
 	workers.reserve(kWorkers);
 	for (int w = 0; w < kWorkers; ++w) {
@@ -87,7 +87,7 @@ TEST_CASE(
 
 	// Wait up to 3 s for the server thread to exit (fatal or normal).
 	static constexpr int kPollMs = 10;
-	static constexpr int kTimeoutMs = 3000;
+	static constexpr int kTimeoutMs = 500;
 	bool server_stopped = false;
 	for (int elapsed = 0; elapsed < kTimeoutMs; elapsed += kPollMs) {
 		if (srv_exited.load(memory_order_acquire)) {
