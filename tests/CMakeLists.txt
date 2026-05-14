@@ -202,10 +202,10 @@ if(TARGET conflux_http_response)
         PRIVATE conflux_http_response conflux_options Catch2::Catch2WithMain)
 endif()
 
-if(TARGET conflux_http_response_json AND TARGET conflux_http_native_json)
+if(TARGET conflux_http_response_json AND TARGET conflux_http_app_json AND TARGET conflux_http_native_json)
     add_executable(conflux_http_json_tests http_json_test.cxx)
     target_link_libraries(conflux_http_json_tests
-        PRIVATE conflux_http_native_json conflux_options Catch2::Catch2WithMain)
+        PRIVATE conflux_http_app_json conflux_http_native_json conflux_options Catch2::Catch2WithMain)
 endif()
 
 if(TARGET conflux_http_server_helpers)

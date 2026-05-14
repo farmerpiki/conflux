@@ -12,6 +12,7 @@ while concrete parser/DOM modules stay behind provider adapters.
 | `conflux.json.native_provider` | Adapter from the current `conflux.json` parser/DOM/codecs to the boundary. | `conflux.json` |
 | `conflux.net.http.json` | Request body helpers that require an explicit provider (`*_with`). | None beyond boundary |
 | `conflux.net.http.response_json` | Response serialization helpers that require an explicit provider (`*_with`). | None beyond boundary |
+| `conflux.net.http.app_json` | App/router route helpers that decode typed request bodies and encode typed responses through an explicit provider. | None beyond boundary |
 | `conflux.net.http.native_json` | Native-provider convenience overloads and `DefaultJsonProvider`. | `conflux.json.native_provider` |
 
 Use the `*_with<Provider>` APIs in framework code and reusable modules. Import
@@ -41,12 +42,24 @@ provider-neutral while allowing future providers to avoid an intermediate string
 
 ## HTTP usage
 
-Provider-neutral code:
+Provider-neutral response code:
 
 ```cpp
 import conflux.net.http.response_json;
 
 auto r = conflux::http::json::try_response_with<MyProvider>(payload);
+```
+
+Provider-neutral app/router code:
+
+```cpp
+import conflux.net.http.app_json;
+
+conflux::http::json::routes<MyProvider>(app)
+    .get("/status", [] { return StatusDto{.ok = true}; })
+    .post_body<CreateUserDto>("/users", [](CreateUserDto const& body) {
+        return CreatedUserDto{.id = body.name};
+    });
 ```
 
 Native convenience edge:
@@ -71,3 +84,6 @@ parser/DOM replacement remains local to adapter wiring.
   `DecodeOptions`.
 - Parser/DOM/reflection work stays behind provider adapters until the app and
   route boundaries no longer depend on concrete JSON types.
+- App/router typed JSON helpers live in `conflux.net.http.app_json` and require
+  an explicit provider parameter. Native-provider convenience remains outside
+  that framework seam.

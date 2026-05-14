@@ -1614,6 +1614,21 @@ target_link_libraries(conflux_http_app
 )
 endif() # CONFLUX_WANT_HTTP_SERVER (app facade)
 
+if(TARGET conflux_http_response_json AND TARGET conflux_http_app AND TARGET conflux_http_router)
+add_library(conflux_http_app_json STATIC)
+target_sources(conflux_http_app_json
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/http_app_json.cxx
+)
+target_link_libraries(conflux_http_app_json
+    PRIVATE conflux_options
+    PUBLIC  conflux_http_app
+    PUBLIC  conflux_http_router
+    PUBLIC  conflux_http_response_json
+)
+endif() # conflux_http_response_json && conflux_http_app && conflux_http_router
+
 if(CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_net_http STATIC)
 target_sources(conflux_net_http
@@ -1628,6 +1643,7 @@ target_link_libraries(conflux_net_http
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_json
     PUBLIC  conflux_http_response_json
+    PUBLIC  conflux_http_app_json
     PUBLIC  conflux_http_router
     PUBLIC  conflux_net_client
     PUBLIC  conflux_http_protocol
@@ -1696,6 +1712,7 @@ target_link_libraries(conflux
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_json
     PUBLIC  conflux_http_response_json
+    PUBLIC  conflux_http_app_json
     PUBLIC  conflux_http_router
     PUBLIC  conflux_http_static
     PUBLIC  conflux_http_static_core
@@ -1968,6 +1985,7 @@ conflux_public_component(conflux_http_openapi http_openapi)
 conflux_public_component(conflux_http_vhost http_vhost)
 conflux_public_component(conflux_http_json http_json)
 conflux_public_component(conflux_http_response_json http_response_json)
+conflux_public_component(conflux_http_app_json http_app_json)
 conflux_public_component(conflux_http_native_json http_native_json)
 conflux_public_component(conflux_http1 http1)
 conflux_public_component(conflux_http2 http2)
@@ -2042,6 +2060,7 @@ foreach(_target IN ITEMS
         conflux_http_vhost
         conflux_http_json
         conflux_http_response_json
+        conflux_http_app_json
         conflux_http_native_json
         conflux_http1
         conflux_http2

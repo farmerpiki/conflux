@@ -9,6 +9,7 @@ export import conflux.net.http.types;
 export import conflux.net.http.request;
 export import conflux.net.http.json;
 export import conflux.net.http.response_json;
+export import conflux.net.http.app_json;
 export import conflux.net.client;
 export import conflux.net.http_server;
 export import conflux.net.auth;

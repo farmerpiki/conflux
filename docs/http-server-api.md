@@ -514,9 +514,10 @@ CPU pinning: set `ring_core` and `worker_core_base` in `ServerConfig` (see `docs
 ## JSON route responses
 
 Raw serialized JSON can still use `HttpResponse::json(std::string)`. Structured
-values should go through the optional `conflux.net.http.response_json` module so
-route code depends on the provider boundary instead of one concrete DOM.
-Framework/reusable code should select the provider explicitly:
+values should go through the optional `conflux.net.http.response_json` or
+`conflux.net.http.app_json` modules so route code depends on the provider
+boundary instead of one concrete DOM. Framework/reusable code should select the
+provider explicitly:
 
 ```cpp
 import conflux.net.http.response_json;
@@ -532,6 +533,19 @@ router.post("/api/items", [](HttpRequestView const &) {
         {.status = kHttpCreated, .status_text = "Created"});
     return resp ? std::move(*resp) : HttpResponse::internal_error();
 });
+```
+
+For typed route registration, `conflux.net.http.app_json` keeps both request-body
+decode and response serialization provider-explicit:
+
+```cpp
+import conflux.net.http.app_json;
+
+conflux::http::json::routes<MyProvider>(app)
+    .get("/api/count", [] { return Count{.value = 42}; })
+    .post_body<CreateItem>("/api/items", [](CreateItem const& body) {
+        return ItemCreated{.id = body.name};
+    }, {.status = kHttpCreated, .status_text = "Created"});
 ```
 
 Application code that intentionally uses the current native provider can import

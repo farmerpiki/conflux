@@ -58,7 +58,9 @@ the current native provider behavior explicit while allowing streaming providers
 to avoid an intermediate owning JSON string later.
 
 HTTP JSON framework helpers depend on `conflux.json.boundary`, not the native
-provider. Provider-explicit APIs use the `*_with<Provider>` suffix. The native
+provider. Provider-explicit APIs use the `*_with<Provider>` suffix. Typed
+app/router helpers live in `conflux.net.http.app_json` and require an explicit
+provider for both request-body decode and response serialization. The native
 convenience edge lives in `conflux.net.http.native_json`, which imports
 `conflux.json.native_provider` and restores default-provider overloads for app
 code that intentionally chooses the current native adapter. Custom providers
