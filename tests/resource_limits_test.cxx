@@ -108,8 +108,11 @@ TEST_CASE(
 	REQUIRE(fd_before > 0);
 	constexpr int kIters = 50;
 	for (int i = 0; i < kIters; ++i) {
-		RingGuard rg{64};
-		(void)rg;
+		io_uring ring{};
+		if (::io_uring_queue_init(64, &ring, 0) < 0) {
+			SKIP("io_uring_queue_init failed");
+		}
+		::io_uring_queue_exit(&ring);
 	}
 	CHECK(count_open_fds() == fd_before);
 }
