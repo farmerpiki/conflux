@@ -2,6 +2,7 @@
 // case-insensitive fields, request-builder ergonomics, timeouts, and chunked
 // body decoding without performing network I/O.
 import conflux.net.http;
+import conflux.net.http_server_helpers;
 import conflux.types;
 import std;
 
@@ -57,6 +58,7 @@ int main() {
 	println("body: {}", req.body());
 	println("redirect limit: {} verify_peer={}", req.max_redirects(), req.verify_peer());
 
-	auto decoded = decode_chunked_body("4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n");
-	println("chunked decode: {}", decoded.value_or("<invalid>"));
+	S body;
+	auto consumed = decode_chunked("4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n", 64, 8, body);
+	println("chunked decode: {}", consumed > 0 ? body : "<invalid>");
 }

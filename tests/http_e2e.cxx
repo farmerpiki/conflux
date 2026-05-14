@@ -5243,28 +5243,6 @@ TEST_CASE(
 	REQUIRE(resp.find("Location: /y\r\n") != S::npos);
 }
 TEST_CASE(
-	"proxy: decode_chunked_body handles trailers and extensions") {
-	auto decoded = decode_chunked_body(
-		"a;foo=bar\r\n1234567890\r\n"
-		"3\r\nxyz\r\n"
-		"0\r\nX-Trailer: done\r\n\r\n");
-	REQUIRE(decoded.has_value());
-	REQUIRE(*decoded == "1234567890xyz");
-}
-TEST_CASE(
-	"proxy: decode_chunked_body no trailers") {
-	auto decoded = decode_chunked_body("5\r\nhello\r\n0\r\n\r\n");
-	REQUIRE(decoded.has_value());
-	REQUIRE(*decoded == "hello");
-}
-TEST_CASE(
-	"proxy: decode_chunked_body rejects incomplete input") {
-	auto decoded = decode_chunked_body(
-		"5\r\nhello\r\n"
-		"4\r\nwor");
-	REQUIRE(!decoded.has_value());
-}
-TEST_CASE(
 	"http client: chunked response without trailers is decoded correctly") {
 	// Build a mock server that sends a chunked response (no trailers).
 	u16 port = 0;

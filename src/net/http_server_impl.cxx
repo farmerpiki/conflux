@@ -147,46 +147,6 @@ struct H2ConnCtx {
 
 struct Ring;
 struct Conn;
-
-#if 0
-static constexpr SZ kMaxChunkHexDigits = 16;
-static constexpr SZ kMaxChunkSizeLineBytes = 256;
-static constexpr SZ kMaxChunkTrailerLines = 64;
-static constexpr SZ kMaxChunkTrailerBytes = 8192;
-
-enum class ChunkedDecodePhase : u8 {
-	SizeLine,
-	Data,
-	DataCrlf,
-	Trailers,
-	Complete,
-
-};
-struct ChunkedDecodeState {
-	bool active{};
-	SZ body_start{};
-	SZ pos{};
-	SZ chunks_seen{};
-	SZ current_chunk_size{};
-	SZ remaining{};
-	SZ trailer_lines{};
-	SZ trailer_bytes{};
-	ChunkedDecodePhase phase{ChunkedDecodePhase::SizeLine};
-	S body{};
-	void reset() {
-		active = false;
-		body_start = 0;
-		pos = 0;
-		chunks_seen = 0;
-		current_chunk_size = 0;
-		remaining = 0;
-		trailer_lines = 0;
-		trailer_bytes = 0;
-		phase = ChunkedDecodePhase::SizeLine;
-		body.clear();
-	}
-};
-#endif
 void dispatch_request(
 	Conn &conn,
 	SV raw,

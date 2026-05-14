@@ -54,11 +54,11 @@ parallel branches without repeatedly re-deciding global priority.
   Carrier internals now use `blocking_join(...)` instead of the legacy `join(...)`
   alias for blocking conversion/admission/drain paths. Continue moving any remaining
   compatibility surface behind explicitly named `sync_`/`blocking_` APIs.
-- Security: password-hash replacement is landed; finish secret-config cleanup and session/token audit before widening API work.
+- Security: password-hash replacement, secret-config cleanup, and session/token audit are landed; any further auth work is now follow-up only.
 - JSON boundary: provider-neutral request/response/app route helper seams are now
   in place. Remaining JSON work should add fixtures/design/prototypes without
   reintroducing concrete provider dependencies into HTTP/app framework code.
-- HTTP/io_uring: finish SEND_ZC edge cases and measurement; IOPOLL is landed;
+- HTTP/io_uring: SEND_ZC edge measurement is landed; validate remaining threshold tuning; IOPOLL is landed;
   defer RECV_ZC implementation until kernel support is stable, but prepare the recv
   abstraction so the later branch is narrow.
 - Perf/CI: make the benchmark/profiling harness first-class before accepting further
@@ -168,14 +168,14 @@ Recommended next worker branch: `worker/background-ingestion-runtime` if the app
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
 | DONE | `http/handler-execution-docs` | Updated HTTP docs/examples wording to match ring-thread execution and naming policy while landing `docs/concurrency-naming-model`. | Docs/examples only. | No docs imply arbitrary sync handlers are offloaded automatically; async examples use owning request types. |
-| P1 | `http/sendzc-mapped-edge` | Finish mapped-file header+body SEND_ZC edge case or document why fallback remains. | Touches HTTP send path; avoid concurrent send-buffer refactors. | Mapped-file send path has explicit measured behavior and fallback rationale. |
+| DONE | `http/sendzc-mapped-edge` | Mapped-file header+body SEND_ZC edge case is covered; header send is split from large-body SEND_ZC and the bench covers the adaptive threshold across plain/mapped bodies at the boundary sizes. | Landed on the HTTP send path; avoid reopening unless the send-path measurement changes again. | Mapped-file send path has explicit measured behavior and fallback rationale. |
 | P1 | `http/send-threshold-bench` | Validate/adapt SEND_ZC thresholds under realistic HTTP load. | Depends on perf harness. | Threshold defaults are backed by benchmark notes; counters remain exposed. |
 | DONE | `http/limits-defaults` | Hardened HTTP limits/defaults audit landed: INI/default config exposes body, request-line, header-line, header-count, aggregate-header, chunk-count, request-timeout, TLS-sniff-timeout, and HTTP/3 body caps; HTTP/1 parser now enforces incomplete request-line/header-line/count caps before the final header terminator. | Completed; avoid reopening unless defaults policy changes. | Config/parser docs and tests cover the limits. |
 | P2 | `http/ring-layout-c2c-verify` | Verify `Ring` hot/cold field grouping with `perf c2c`; pad only if measured. | Depends on perf harness; low conflict. | Either measured padding patch or no-change note. |
 | P2 | `http/examples-route-minimal` | Add/keep a minimal route/JSON response example that stays under the target ceremony budget. | Examples/docs; can run parallel after JSON boundary shape is stable. | Example compiles in CI. |
 | P3 | `http2/core-prototype` | HTTP/2 core exploration. | Start only after handler/runtime model stops moving. | Separate target or feature flag; no core churn. |
 
-Recommended next HTTP branch: `http/sendzc-mapped-edge`, then `http/send-threshold-bench`.
+Recommended next HTTP branch: `http/send-threshold-bench`.
 
 ### Low-level io_uring / socket / file I/O lane
 
@@ -257,17 +257,13 @@ These branches can start from the same base with low conflict risk:
    - Next worker implementation priority after the no-wait bridge isolation.
    - Converges background ingestion onto the same runtime conventions.
 
-2. `auth/secret-config-cleanup`
-   - Builds on the password-hash wrapper shape.
-   - Move secrets/pepper/session config behind typed missing-config errors.
+2. `http/send-threshold-bench`
+   - Validate and tune the SEND_ZC threshold under realistic HTTP load now that the mapped-edge coverage is landed.
+   - Keeps perf work isolated from auth/json/runtime churn.
 
 3. `json/schema-pointer-patch`
    - Keep Pointer/Patch/schema as a feature layer above the stable JSON boundary.
    - Do not pull native JSON or reflection provider details into HTTP/app framework code.
-
-4. `build/perf-harness-stabilize`
-   - Done: perf presets and recorder now reject accidental debug/sanitizer/LTO inputs, keep cache/log/raw artifacts, and fail on empty benchmark output.
-   - This enables measured HTTP/uring/worker perf changes.
 ## Deferred work
 
 - `worker/p2300-prototype`: worthwhile but too broad until V2 runtime migration is

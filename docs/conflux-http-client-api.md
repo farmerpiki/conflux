@@ -307,14 +307,10 @@ Method-specific:
 
 A `poll` timeout currently surfaces as `read` / `write` (whichever phase was waiting), with `os_errno == 0`. There is no distinct `timeout` kind in Phase 1 even though the enum reserves one.
 
-## Free functions
+## Chunked decoding
 
-```cpp
-[[nodiscard]] std::optional<std::string>
-conflux::http::decode_chunked_body(std::string_view encoded);
-```
-
-Pure-function chunked decoder for callers that have already received an entire chunked body. Returns `nullopt` if encoding is invalid, incomplete, or has trailing bytes after the final chunk.
+Standalone chunked-body parsing now lives in `conflux.net.http_server_helpers`.
+Import that module and call `decode_chunked(...)` or `decode_chunked_incremental(...)` when you need to process already-received chunked data outside the client transport.
 
 ## What this client does NOT do (yet)
 

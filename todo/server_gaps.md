@@ -72,7 +72,7 @@ Implemented in this patch:
 
 Still implemented but not directly covered by deterministic tests after pass 3:
 
-- [x] HTTP parser/helper duplicate implementation drift: the legacy `#if 0` local copies in `http_server_impl.cxx` were removed, leaving the exported `conflux.net.http_server_helpers` module as the single source of truth for request/body parsing helpers.
+- [x] HTTP parser/helper duplicate implementation drift: the exported `conflux.net.http_server_helpers` module is the source of truth for request/body parsing helpers, and the dead `#if 0` chunked-decode block in `src/net/http_server_impl.cxx` has been removed.
 - [x] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; now covered by sync/async E2E tests in pass 7.
 - [x] HTTP request body double-set debug assertion path; covered in pass 5 by `http_request_assert_probe` + `conflux_http_core_tests`.
 
@@ -85,7 +85,7 @@ Implemented in this patch:
 
 Still implemented but not directly covered by deterministic tests after pass 4:
 
-- [x] HTTP parser/helper duplicate implementation drift: the legacy `#if 0` local copies in `http_server_impl.cxx` were removed, leaving the exported `conflux.net.http_server_helpers` module as the single source of truth for request/body parsing helpers.
+- [x] HTTP parser/helper duplicate implementation drift: the exported `conflux.net.http_server_helpers` module is the source of truth for request/body parsing helpers, and the dead `#if 0` chunked-decode block in `src/net/http_server_impl.cxx` has been removed.
 - [x] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; now covered by sync/async E2E tests in pass 7.
 
 ## Test coverage gap pass 5 (2026-05-14)
@@ -96,7 +96,7 @@ Implemented in this patch:
 
 Still implemented but not directly covered by deterministic tests after pass 5:
 
-- [x] HTTP parser/helper duplicate implementation drift: the legacy `#if 0` local copies in `http_server_impl.cxx` were removed, leaving the exported `conflux.net.http_server_helpers` module as the single source of truth for request/body parsing helpers.
+- [x] HTTP parser/helper duplicate implementation drift: the exported `conflux.net.http_server_helpers` module is the source of truth for request/body parsing helpers, and the dead `#if 0` chunked-decode block in `src/net/http_server_impl.cxx` has been removed.
 
 ## Test coverage gap pass 6 (2026-05-14)
 
@@ -107,7 +107,7 @@ Implemented in this patch:
 
 Still implemented but not directly covered by deterministic tests after pass 6:
 
-- [x] HTTP parser/helper duplicate implementation drift: the legacy `#if 0` local copies in `http_server_impl.cxx` were removed, leaving the exported `conflux.net.http_server_helpers` module as the single source of truth for request/body parsing helpers.
+- [x] HTTP parser/helper duplicate implementation drift: the exported `conflux.net.http_server_helpers` module is the source of truth for request/body parsing helpers, and the dead `#if 0` chunked-decode block in `src/net/http_server_impl.cxx` has been removed.
 
 ## Test coverage gap pass 7 (2026-05-14)
 
@@ -125,7 +125,7 @@ Implemented in this patch:
 
 ## Packaging / release blockers
 
-- [ ] CMake install + exported package config + namespaced targets. Foundation: `conflux::core`, `conflux::utils`, `conflux::net_config`, `conflux::file_io_sync`, `conflux::file_map`, `conflux::runtime`, `conflux::file_io`, `conflux::socket_io`, `conflux::dns`, `conflux::crypto`, `conflux::json`, `conflux::json_file`, `conflux::template`, `conflux::template_watch`. HTTP: `conflux::http_core`, `conflux::http_router`, `conflux::http_server`, `conflux::http_static_core`, `conflux::http_static_async`, `conflux::http_auth`, `conflux::http_json`, `conflux::http_response_json`, `conflux::http_app_json`, `conflux::http_native_json`, `conflux::http_policy`, `conflux::http_observability`, `conflux::http_openapi`, `conflux::http_realtime`, `conflux::http_vhost`, `conflux::http_client_sync`, `conflux::http_client_async`
+- [x] CMake install + exported package config + namespaced targets. Foundation: `conflux::core`, `conflux::utils`, `conflux::net_config`, `conflux::file_io_sync`, `conflux::file_map`, `conflux::runtime`, `conflux::file_io`, `conflux::socket_io`, `conflux::dns`, `conflux::crypto`, `conflux::json`, `conflux::json_file`, `conflux::template`, `conflux::template_watch`. HTTP: `conflux::http_core`, `conflux::http_router`, `conflux::http_server`, `conflux::http_static_core`, `conflux::http_static_async`, `conflux::http_auth`, `conflux::http_json`, `conflux::http_response_json`, `conflux::http_app_json`, `conflux::http_native_json`, `conflux::http_policy`, `conflux::http_observability`, `conflux::http_openapi`, `conflux::http_realtime`, `conflux::http_vhost`, `conflux::http_client_sync`, `conflux::http_client_async`
   - [x] First install/export slice: export existing split targets with stable `conflux::...` names and generated `conflux-config.cmake`.
   - [x] Template split slice: export `conflux::template` and `conflux::template_watch` as real module targets; remove template/file-watch module sources from the HTTP monolith.
   - [x] HTTP JSON/core split slice: export `conflux::http_core` (`http.types` + `http.request`), `conflux::http_json`, `conflux::http_response_json`, `conflux::http_app_json`, and `conflux::http_native_json`; remove those module sources from the HTTP monolith. Remaining work: split/export `json_file`, router/server/static/client and the other HTTP feature targets.
