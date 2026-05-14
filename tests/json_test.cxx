@@ -3999,6 +3999,54 @@ TEST_CASE(
 	CHECK_FALSE(doc.has_value());
 }
 TEST_CASE(
+	"phase5: JsonArena parse_borrowed_into preserves borrowed string views",
+	"[phase5]") {
+	JsonArena arena;
+	S input = R"({"name":"Alice","age":30})";
+	auto doc = arena.parse_borrowed_into(input);
+	REQUIRE(doc.has_value());
+
+	auto root = doc->root().as_object();
+	REQUIRE(root.has_value());
+	auto name = root->find_member("name");
+	REQUIRE(name.has_value());
+	auto before = name->as_string();
+	REQUIRE(before.has_value());
+	CHECK(*before == "Alice");
+
+	auto const pos = input.find("Alice");
+	REQUIRE(pos != S::npos);
+	input.replace(pos, 5, "Marta");
+
+	auto after = name->as_string();
+	REQUIRE(after.has_value());
+	CHECK(*after == "Marta");
+}
+
+TEST_CASE(
+	"phase5: JsonArena parse_moved_into owns moved input",
+	"[phase5]") {
+	JsonArena arena;
+	auto doc = [&] {
+		S input = S{"\xEF\xBB\xBF"} + R"({"name":"Bob","age":41})";
+		return arena.parse_moved_into(move(input));
+	}();
+	REQUIRE(doc.has_value());
+
+	auto root = doc->root().as_object();
+	REQUIRE(root.has_value());
+	auto name = root->find_member("name");
+	REQUIRE(name.has_value());
+	auto sv = name->as_string();
+	REQUIRE(sv.has_value());
+	CHECK(*sv == "Bob");
+	auto age = root->find_member("age");
+	REQUIRE(age.has_value());
+	auto age_i64 = age->as_i64();
+	REQUIRE(age_i64.has_value());
+	CHECK(*age_i64 == 41LL);
+}
+TEST_CASE(
 	"phase5: from_chars deferred overflow returns error",
 	"[phase5]") {
 	auto doc = parse("1e999");

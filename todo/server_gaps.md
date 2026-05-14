@@ -26,6 +26,24 @@
 
 - [x] Shutdown: force-close `close_after_send` connections that stall (send CQE never completes because peer stopped draining) — `handle_shutdown()` now stamps a shutdown deadline for queued sends and `handle_timer()` force-closes overdue connections instead of waiting indefinitely for send completion
 
+## Test coverage gap pass (2026-05-14)
+
+Implemented in this patch:
+
+- [x] JSON arena borrowed-input semantics: `parse_borrowed_into(string_view)` now has a regression test proving unescaped strings remain borrowed views into caller storage.
+- [x] JSON arena moved-input semantics: `parse_moved_into(string&&)` now has a regression test proving the arena-owned input survives caller-scope exit and BOM stripping.
+- [x] Config parser coverage for implemented perf/isolation knobs: `busy_poll_us`, `ring_core`, `worker_core_base`, `prefer_busy_poll`, `direct_accept`, `cmd_sock_setsockopt`, `auto_recv_arm_policy`, `cqe_mixed`, and `submit_all`.
+- [x] Config helper coverage for implemented observability text: `build_uring_flags`, `setup_flags_str`, `flags_str`, and `wq_fd_for_ring`.
+
+Still implemented but not directly covered by deterministic tests:
+
+- [ ] Direct-accept `TCP_NODELAY` SQE emission from `queue_direct_accept_setup`; needs either SQE-inspection seam or kernel-capability-gated direct-accept E2E.
+- [ ] Direct-accept busy-poll / prefer-busy-poll SQE chain shape; same SQE-inspection seam as above.
+- [ ] Ring-thread `sched_setaffinity` and `IORING_REGISTER_IOWQ_AFF` application; needs syscall injection or observable thread/affinity capture.
+- [ ] Adaptive `io_uring_queue_init_params(EINVAL)` fallback strip order; implementation is inline in ring init and needs extraction to a pure helper or syscall seam before deterministic unit coverage.
+- [ ] `SEND_ZC` notification-CQE lifecycle under a real kernel; benchmarks and metrics exist, but deterministic unit coverage still needs a CQE injection seam.
+- [ ] `JsonArena` PMR hash-index allocation source; behavior is implemented, but proving “not global new” needs allocator instrumentation or a test-only resource hook.
+
 ## Architecture (dedicated branches)
 
 - [ ] Dedicated `IOPOLL` ring for O_DIRECT file I/O, separate from network ring
