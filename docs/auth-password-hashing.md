@@ -15,12 +15,14 @@ auto verified = password_verify(password, encoded);  // ok + needs_rehash
 
 Primary APIs:
 
-- `password_hash(password, opts)` creates a new encoded hash with a random salt.
-- `password_hash_with_salt(password, salt, opts)` exists for tests, fixtures, and
-  controlled migrations.
-- `password_verify(password, encoded, current_opts)` verifies a stored hash and
-  reports whether it should be replaced with the current algorithm/parameters.
-- `password_needs_rehash(encoded, current_opts)` checks only the encoded metadata.
+- `password_hash(password, opts, secrets)` creates a new encoded hash with a random salt.
+- `password_hash_with_salt(password, salt, opts, secrets)` exists for tests,
+  fixtures, and controlled migrations.
+- `password_verify(password, encoded, current_opts, secrets)` verifies a stored
+  hash and reports whether it should be replaced with the current algorithm,
+  parameters, or pepper policy.
+- `password_needs_rehash(encoded, current_opts, secrets)` checks only the encoded
+  metadata.
 - `password_hash_argon2id_available()` reports whether the configured Argon2id
   backend is usable.
 - `password_hash_configure_resource_limits(limits)` bounds simultaneous KDF work
@@ -38,17 +40,19 @@ $pbkdf2-sha256$v=1$i=600000,l=32$<salt-b64url>$<hash-b64url>
 $pbkdf2-sha256$v=1$i=600000,l=32,k=1$<salt-b64url>$<hash-b64url>
 ```
 
-`k=1` means the stored hash was post-processed with the verifier-only secret from
-`PasswordHashOptions::verifier_secret`. A `k=1` row fails closed if verification
-is attempted without that secret. Rows without `k=1` still verify with current
-options and then report `needs_rehash` when a verifier secret is now configured.
+`k=1` means the stored hash was post-processed with the verifier-only secret
+carried in `PasswordHashSecrets`, not in the stored password row and not in
+`PasswordHashOptions`. A `k=1` row fails closed if verification is attempted
+without that secret. Rows without `k=1` still verify with current options and
+then report `needs_rehash` when a verifier secret is now configured.
 
 The metadata is deliberately part of the stored value so DB rows can be upgraded
 without a separate schema flag. On login:
 
 1. Load the stored hash.
-2. Call `password_verify(password, stored, current_opts)`.
-3. If `ok && needs_rehash`, call `password_hash(password, current_opts)` and store
+2. Resolve `PasswordHashSecrets` from typed auth config.
+3. Call `password_verify(password, stored, current_opts, secrets)`.
+4. If `ok && needs_rehash`, call `password_hash(password, current_opts, secrets)` and store
    the replacement in the same transaction/session flow.
 
 ## Algorithm policy
@@ -80,21 +84,28 @@ for new production password rows when Argon2id is available.
 ## Verifier secret / pepper
 
 Configure a verifier-only secret outside the password-hash storage table and pass
-it in the current options:
+it separately from the algorithm parameters:
 
 ```cpp
-PasswordHashOptions opts;
-opts.verifier_secret = read_required_secret("CONFLUX_AUTH_PASSWORD_PEPPER");
+auto cfg = config_from_ini("/etc/conflux.ini");
+auto secrets = password_hash_secrets_from_config(cfg);
+if (!secrets) {
+    return unexpected{secrets.error()}; // explicit missing/short secret error
+}
 
-auto encoded = password_hash(password, opts);
-auto verified = password_verify(password, encoded, opts);
+PasswordHashOptions opts;
+auto encoded = password_hash(password, opts, *secrets);
+auto verified = password_verify(password, encoded, opts, *secrets);
 ```
 
 The secret must be stable across restarts and deployments that need to verify old
 rows. Store it separately from DB password hashes: env/secret manager/KMS-backed
-config, not in the user table. Rotating it requires either accepting legacy
-unpeppered rows during migration or supporting a multi-secret verification policy
-at the application/config layer.
+config, not in the user table. The default config has no production secret;
+helpers such as `password_hash_secrets_from_config`, `jwt_options_from_config`,
+and `cookie_signing_options_from_config` return explicit missing-secret errors
+until a source is configured. JWT, cookie, and session secrets use typed rotation
+config: one active source plus optional previous sources for verification-only
+rollover.
 
 See `docs/auth-session-token-audit.md` for JWT/session expiry and revocation policy.
 

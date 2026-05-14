@@ -24,6 +24,7 @@ import std;
 import conflux.types;
 import conflux.crypto;
 import conflux.utils;
+import conflux.net.config;
 
 export enum class PasswordHashAlgorithm {
 	argon2id,
@@ -37,6 +38,9 @@ export struct PasswordHashOptions {
 	u32 parallelism{1U};
 	u32 salt_bytes{16U};
 	u32 hash_bytes{32U};
+};
+
+export struct PasswordHashSecrets {
 	S verifier_secret{};
 };
 
@@ -382,9 +386,6 @@ struct Argon2Api {
 	if (opts.hash_bytes == 0U || opts.hash_bytes > kMaxHashBytes) {
 		return unexpected{"password hash: invalid hash byte count"};
 	}
-	if (opts.verifier_secret.size() > kMaxVerifierSecretBytes) {
-		return unexpected{"password hash: verifier secret too large"};
-	}
 	if (opts.algorithm == PasswordHashAlgorithm::argon2id) {
 		if (opts.memory_kib == 0U || opts.memory_kib > kMaxArgon2MemoryKiB) {
 			return unexpected{"password hash: invalid argon2id memory cost"};
@@ -638,7 +639,8 @@ struct HmacSha256Key { A<unsigned char, 64> inner{}; A<unsigned char, 64> outer{
 [[nodiscard]] expected<S, S> derive_hash(
 	SV password,
 	SV salt,
-	PasswordHashOptions const &opts) {
+	PasswordHashOptions const &opts,
+	PasswordHashSecrets const &secrets) {
 	if (auto valid = validate_options(opts); !valid) {
 		return unexpected{valid.error()};
 	}
@@ -654,14 +656,17 @@ struct HmacSha256Key { A<unsigned char, 64> inner{}; A<unsigned char, 64> outer{
 	if (!raw) {
 		return unexpected{raw.error()};
 	}
-	return apply_verifier_secret(move(*raw), opts.verifier_secret, opts.hash_bytes);
+	if (secrets.verifier_secret.size() > kMaxVerifierSecretBytes) {
+		return unexpected{"password hash: verifier secret too large"};
+	}
+	return apply_verifier_secret(move(*raw), secrets.verifier_secret, opts.hash_bytes);
 }
 
 [[nodiscard]] expected<S, S> derive_hash(
 	SV password,
 	ParsedHash const &parsed,
-	SV verifier_secret) {
-	if (parsed.uses_verifier_secret && verifier_secret.empty()) {
+	PasswordHashSecrets const &secrets) {
+	if (parsed.uses_verifier_secret && secrets.verifier_secret.empty()) {
 		return unexpected{"password hash: verifier secret required"};
 	}
 	PasswordHashOptions opts;
@@ -671,18 +676,16 @@ struct HmacSha256Key { A<unsigned char, 64> inner{}; A<unsigned char, 64> outer{
 	opts.parallelism = parsed.parallelism;
 	opts.salt_bytes = static_cast<u32>(parsed.salt.size());
 	opts.hash_bytes = static_cast<u32>(parsed.hash.size());
-	if (parsed.uses_verifier_secret) {
-		opts.verifier_secret = S{verifier_secret};
-	}
-	return derive_hash(password, parsed.salt, opts);
+	return derive_hash(password, parsed.salt, opts, secrets);
 }
 
 [[nodiscard]] bool parameters_match(
 	ParsedHash const &parsed,
-	PasswordHashOptions const &opts) noexcept {
+	PasswordHashOptions const &opts,
+	PasswordHashSecrets const &secrets) noexcept {
 	if (parsed.algorithm != opts.algorithm
 		|| parsed.hash.size() != opts.hash_bytes
-		|| parsed.uses_verifier_secret != !opts.verifier_secret.empty()) {
+		|| parsed.uses_verifier_secret != !secrets.verifier_secret.empty()) {
 		return false;
 	}
 	if (parsed.algorithm == PasswordHashAlgorithm::argon2id) {
@@ -721,10 +724,38 @@ export [[nodiscard]] PasswordHashOptions pbkdf2_sha256_password_hash_options(
 	return opts;
 }
 
+
+export [[nodiscard]] expected<PasswordHashSecrets, S> password_hash_secrets_from_config(
+	AuthSecretsConfig const &cfg,
+	bool required = true) {
+	auto secret = resolve_secret_source(cfg.password_verifier_secret, "password_verifier_secret", required);
+	if (!secret) {
+		return unexpected{secret.error()};
+	}
+	PasswordHashSecrets out{.verifier_secret = move(*secret)};
+	if (!out.verifier_secret.empty()) {
+		if (auto valid = validate_secret_bytes(
+				out.verifier_secret,
+				"password_verifier_secret",
+				cfg.password_verifier_min_secret_bytes);
+			!valid) {
+			return unexpected{valid.error()};
+		}
+	}
+	return out;
+}
+
+export [[nodiscard]] expected<PasswordHashSecrets, S> password_hash_secrets_from_config(
+	Config const &cfg,
+	bool required = true) {
+	return password_hash_secrets_from_config(cfg.auth_secrets, required);
+}
+
 export [[nodiscard]] expected<S, S> password_hash_with_salt(
 	SV password,
 	SV salt,
-	PasswordHashOptions const &opts = {}) {
+	PasswordHashOptions const &opts = {},
+	PasswordHashSecrets const &secrets = {}) {
 	if (auto valid = password_hash_detail::validate_options(opts); !valid) {
 		return unexpected{valid.error()};
 	}
@@ -735,13 +766,13 @@ export [[nodiscard]] expected<S, S> password_hash_with_salt(
 	if (!permit) {
 		return unexpected{permit.error()};
 	}
-	auto raw = password_hash_detail::derive_hash(password, salt, opts);
+	auto raw = password_hash_detail::derive_hash(password, salt, opts, secrets);
 	if (!raw) {
 		return unexpected{raw.error()};
 	}
 	auto salt_b64 = password_hash_detail::encode_b64url(password_hash_detail::bytes_view(salt));
 	auto hash_b64 = password_hash_detail::encode_b64url(password_hash_detail::bytes_view(*raw));
-	SV const key_flag = opts.verifier_secret.empty() ? SV{} : SV{",k=1"};
+	SV const key_flag = secrets.verifier_secret.empty() ? SV{} : SV{",k=1"};
 	if (opts.algorithm == PasswordHashAlgorithm::argon2id) {
 		return format(
 			"$argon2id$v={}$m={},t={},p={}{}${}${}",
@@ -764,20 +795,22 @@ export [[nodiscard]] expected<S, S> password_hash_with_salt(
 
 export [[nodiscard]] expected<S, S> password_hash(
 	SV password,
-	PasswordHashOptions const &opts = {}) {
+	PasswordHashOptions const &opts = {},
+	PasswordHashSecrets const &secrets = {}) {
 	if (auto valid = password_hash_detail::validate_options(opts); !valid) {
 		return unexpected{valid.error()};
 	}
 	V<unsigned char> salt(opts.salt_bytes);
 	crypto_random_bytes(salt);
 	SV const salt_view{reinterpret_cast<char const *>(salt.data()), salt.size()};
-	return password_hash_with_salt(password, salt_view, opts);
+	return password_hash_with_salt(password, salt_view, opts, secrets);
 }
 
 export [[nodiscard]] expected<PasswordVerifyResult, S> password_verify(
 	SV password,
 	SV encoded,
-	PasswordHashOptions const &current = {}) {
+	PasswordHashOptions const &current = {},
+	PasswordHashSecrets const &secrets = {}) {
 	auto parsed = password_hash_detail::parse_hash(encoded);
 	if (!parsed) {
 		return unexpected{parsed.error()};
@@ -786,22 +819,23 @@ export [[nodiscard]] expected<PasswordVerifyResult, S> password_verify(
 	if (!permit) {
 		return unexpected{permit.error()};
 	}
-	auto raw = password_hash_detail::derive_hash(password, *parsed, current.verifier_secret);
+	auto raw = password_hash_detail::derive_hash(password, *parsed, secrets);
 	if (!raw) {
 		return unexpected{raw.error()};
 	}
 	PasswordVerifyResult result;
 	result.ok = constant_time_eq(parsed->hash, *raw);
-	result.needs_rehash = result.ok && !password_hash_detail::parameters_match(*parsed, current);
+	result.needs_rehash = result.ok && !password_hash_detail::parameters_match(*parsed, current, secrets);
 	return result;
 }
 
 export [[nodiscard]] expected<bool, S> password_needs_rehash(
 	SV encoded,
-	PasswordHashOptions const &current = {}) {
+	PasswordHashOptions const &current = {},
+	PasswordHashSecrets const &secrets = {}) {
 	auto parsed = password_hash_detail::parse_hash(encoded);
 	if (!parsed) {
 		return unexpected{parsed.error()};
 	}
-	return !password_hash_detail::parameters_match(*parsed, current);
+	return !password_hash_detail::parameters_match(*parsed, current, secrets);
 }

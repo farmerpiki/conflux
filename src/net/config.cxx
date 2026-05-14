@@ -1,3 +1,6 @@
+module;
+#include <cstdlib>
+
 export module conflux.net.config;
 
 import std;
@@ -38,6 +41,34 @@ export struct StaticFileCacheConfig {
 	bool enabled = false;
 	SZ small_file_max_bytes = SZ{64} * 1024;
 	SZ max_total_bytes = SZ{16} * 1024 * 1024;
+};
+
+export enum class SecretSourceKind {
+	unset,
+	literal,
+	environment,
+	file,
+};
+export struct SecretSource {
+	SecretSourceKind kind{SecretSourceKind::unset};
+	S value{};
+};
+export struct SecretRotationConfig {
+	SecretSource active{};
+	V<SecretSource> previous{};
+	SZ min_secret_bytes{16};
+};
+export struct AuthSecretsConfig {
+	SecretSource password_verifier_secret{};
+	SZ password_verifier_min_secret_bytes{16};
+	SecretRotationConfig jwt{};
+	SecretRotationConfig cookie{};
+	SecretRotationConfig session{};
+};
+export struct ResolvedSecretRotation {
+	S active{};
+	V<S> previous{};
+	SZ min_secret_bytes{16};
 };
 // Per-hostname TLS credentials for SNI virtual hosting.
 // When the client's TLS ClientHello SNI matches VirtualHost::hostname case-insensitively, the
@@ -105,6 +136,10 @@ export struct Config {
 	// StaticOptions when registering static mounts.
 	StaticFileCacheConfig static_file_cache{};
 
+	// Authentication secret sources. Empty by default: production auth helpers
+	// return explicit missing-secret errors until deployments configure env/file/literal sources.
+	AuthSecretsConfig auth_secrets{};
+
 	// file_io pool sizing (per ring). Zero disables the corresponding feature
 	// and callers fall back to non-zero-copy paths. Defaults kept small so the
 	// common RLIMIT_MEMLOCK (8 MiB on many distros) survives several rings;
@@ -167,6 +202,100 @@ export struct Config {
 	SZ send_zc_threshold = 16384;
 	bool send_zc_report_usage = true;
 };
+
+
+export [[nodiscard]] ResolvedSecretRotation single_secret_rotation(
+	SV active,
+	SZ min_secret_bytes = 16) {
+	return {.active = S{active}, .previous = {}, .min_secret_bytes = min_secret_bytes};
+}
+
+export [[nodiscard]] bool secret_source_configured(
+	SecretSource const &src) noexcept {
+	return src.kind != SecretSourceKind::unset;
+}
+
+export [[nodiscard]] expected<S, S> resolve_secret_source(
+	SecretSource const &src,
+	SV name,
+	bool required = true) {
+	if (src.kind == SecretSourceKind::unset) {
+		if (required) {
+			return unexpected{format("auth secret '{}': missing required source", name)};
+		}
+		return S{};
+	}
+	if (src.value.empty()) {
+		return unexpected{format("auth secret '{}': empty source value", name)};
+	}
+	if (src.kind == SecretSourceKind::literal) {
+		return src.value;
+	}
+	if (src.kind == SecretSourceKind::environment) {
+		auto const *value = std::getenv(src.value.c_str());
+		if (value == nullptr || value[0] == '\0') {
+			return unexpected{format("auth secret '{}': environment variable '{}' is unset or empty", name, src.value)};
+		}
+		return S{value};
+	}
+	if (src.kind == SecretSourceKind::file) {
+		std::ifstream file{src.value};
+		if (!file) {
+			return unexpected{format("auth secret '{}': cannot open secret file '{}'", name, src.value)};
+		}
+		S value{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
+		while (!value.empty() && (value.back() == '\n' || value.back() == '\r')) {
+			value.pop_back();
+		}
+		if (value.empty()) {
+			return unexpected{format("auth secret '{}': secret file '{}' is empty", name, src.value)};
+		}
+		return value;
+	}
+	return unexpected{format("auth secret '{}': unsupported source kind", name)};
+}
+
+export [[nodiscard]] expected<void, S> validate_secret_bytes(
+	SV secret,
+	SV name,
+	SZ min_bytes) {
+	if (secret.empty()) {
+		return unexpected{format("auth secret '{}': resolved secret is empty", name)};
+	}
+	if (secret.size() < min_bytes) {
+		return unexpected{format("auth secret '{}': resolved secret must be at least {} bytes", name, min_bytes)};
+	}
+	return {};
+}
+
+export [[nodiscard]] expected<ResolvedSecretRotation, S> resolve_secret_rotation(
+	SecretRotationConfig const &cfg,
+	SV name,
+	bool required = true) {
+	ResolvedSecretRotation out{.min_secret_bytes = cfg.min_secret_bytes};
+	auto active = resolve_secret_source(cfg.active, name, required);
+	if (!active) {
+		return unexpected{active.error()};
+	}
+	out.active = move(*active);
+	if (!out.active.empty()) {
+		if (auto valid = validate_secret_bytes(out.active, name, cfg.min_secret_bytes); !valid) {
+			return unexpected{valid.error()};
+		}
+	}
+	for (SZ i = 0; i < cfg.previous.size(); ++i) {
+		auto previous = resolve_secret_source(cfg.previous[i], format("{}.previous[{}]", name, i), true);
+		if (!previous) {
+			return unexpected{previous.error()};
+		}
+		if (auto valid = validate_secret_bytes(*previous, format("{}.previous[{}]", name, i), cfg.min_secret_bytes); !valid) {
+			return unexpected{valid.error()};
+		}
+		out.previous.push_back(move(*previous));
+	}
+	return out;
+}
+
 namespace {
 
 SV strip_inline_comment(
@@ -318,6 +447,63 @@ void apply_static_cache_key(
 		cfg.static_file_cache.max_total_bytes = parse_uint<SZ>(val, key);
 	}
 }
+
+[[nodiscard]] SecretSource literal_secret_source(
+	SV val) {
+	return {.kind = SecretSourceKind::literal, .value = S{val}};
+}
+[[nodiscard]] SecretSource env_secret_source(
+	SV val) {
+	return {.kind = SecretSourceKind::environment, .value = S{val}};
+}
+[[nodiscard]] SecretSource file_secret_source(
+	SV val) {
+	return {.kind = SecretSourceKind::file, .value = S{val}};
+}
+void apply_secret_rotation_key(
+	SecretRotationConfig &cfg,
+	SV prefix,
+	SV key,
+	SV val) {
+	auto matches = [&](SV suffix) noexcept {
+		return key.size() == prefix.size() + suffix.size()
+			&& key.substr(0, prefix.size()) == prefix
+			&& key.substr(prefix.size()) == suffix;
+	};
+	if (matches("_secret")) {
+		cfg.active = literal_secret_source(val);
+	} else if (matches("_secret_env")) {
+		cfg.active = env_secret_source(val);
+	} else if (matches("_secret_file")) {
+		cfg.active = file_secret_source(val);
+	} else if (matches("_previous_secret")) {
+		cfg.previous.push_back(literal_secret_source(val));
+	} else if (matches("_previous_secret_env")) {
+		cfg.previous.push_back(env_secret_source(val));
+	} else if (matches("_previous_secret_file")) {
+		cfg.previous.push_back(file_secret_source(val));
+	} else if (matches("_min_secret_bytes")) {
+		cfg.min_secret_bytes = parse_uint<SZ>(val, key);
+	}
+}
+void apply_auth_key(
+	Config &cfg,
+	SV key,
+	SV val) {
+	if (key == "password_verifier_secret") {
+		cfg.auth_secrets.password_verifier_secret = literal_secret_source(val);
+	} else if (key == "password_verifier_secret_env") {
+		cfg.auth_secrets.password_verifier_secret = env_secret_source(val);
+	} else if (key == "password_verifier_secret_file") {
+		cfg.auth_secrets.password_verifier_secret = file_secret_source(val);
+	} else if (key == "password_verifier_min_secret_bytes") {
+		cfg.auth_secrets.password_verifier_min_secret_bytes = parse_uint<SZ>(val, key);
+	} else {
+		apply_secret_rotation_key(cfg.auth_secrets.jwt, "jwt", key, val);
+		apply_secret_rotation_key(cfg.auth_secrets.cookie, "cookie", key, val);
+		apply_secret_rotation_key(cfg.auth_secrets.session, "session", key, val);
+	}
+}
 void apply_tls_key(
 	Config &cfg,
 	SV key,
@@ -427,6 +613,8 @@ export Config config_from_ini(
 			apply_http3_key(cfg, key, val);
 		} else if (section == "static_cache") {
 			apply_static_cache_key(cfg, key, val);
+		} else if (section == "auth") {
+			apply_auth_key(cfg, key, val);
 		}
 		// unknown sections/keys silently ignored — forward-compatible
 	}

@@ -20,5 +20,19 @@
         "coop_taskrun": true,
         "taskrun_flag": true,
         "submit_all": false
+    },
+    "auth": {
+        "password_verifier_secret_env": "CONFLUX_AUTH_PASSWORD_PEPPER",
+        "password_verifier_min_secret_bytes": 16,
+        "jwt_secret_env": "CONFLUX_AUTH_JWT_SECRET",
+        "jwt_previous_secret_env": "CONFLUX_AUTH_JWT_PREVIOUS_SECRET",
+        "jwt_min_secret_bytes": 16,
+        "cookie_secret_env": "CONFLUX_AUTH_COOKIE_SECRET",
+        "cookie_previous_secret_env": "CONFLUX_AUTH_COOKIE_PREVIOUS_SECRET",
+        "cookie_min_secret_bytes": 16,
+        "session_secret_env": "CONFLUX_AUTH_SESSION_SECRET",
+        "session_previous_secret_env": "CONFLUX_AUTH_SESSION_PREVIOUS_SECRET",
+        "session_min_secret_bytes": 16,
+        "comment": "Unset secrets fail closed; prefer env/file secret injection over literal values."
     }
 }

@@ -7,6 +7,7 @@ export module conflux.net.cookie_signing;
 import std;
 import conflux.types;
 import conflux.crypto;
+import conflux.net.config;
 import conflux.net.http.types;
 import conflux.net.router;
 import conflux.utils;
@@ -20,12 +21,27 @@ S mac_b64(
 	return base64url_encode(hmac_sha256(key, msg));
 }
 
+[[nodiscard]] bool signed_value_matches(
+	SV value,
+	SV sig,
+	SV secret) {
+	return constant_time_eq(sig, mac_b64(value, secret));
+}
+
 } // namespace
 // Sign a cookie value. Returns "value.BASE64URL(HMAC-SHA256(secret, value))".
 export std::string sign_cookie(
 	SV value,
 	SV secret) {
 	return S{value} + '.' + mac_b64(value, secret);
+}
+export expected<std::string, S> sign_cookie(
+	SV value,
+	ResolvedSecretRotation const &secrets) {
+	if (auto valid = validate_secret_bytes(secrets.active, "cookie", secrets.min_secret_bytes); !valid) {
+		return unexpected{valid.error()};
+	}
+	return sign_cookie(value, secrets.active);
 }
 // Verify a signed cookie. Returns the original value on success, std::nullopt on failure.
 export Opt<std::string> verify_cookie(
@@ -37,24 +53,63 @@ export Opt<std::string> verify_cookie(
 	}
 	auto value = signed_value.substr(0, dot);
 	auto sig = signed_value.substr(dot + 1);
-	if (!constant_time_eq(sig, mac_b64(value, secret))) {
+	if (!signed_value_matches(value, sig, secret)) {
 		return nullopt;
 	}
 	return std::string{value};
 }
+export Opt<std::string> verify_cookie(
+	SV signed_value,
+	ResolvedSecretRotation const &secrets) {
+	auto dot = signed_value.rfind('.');
+	if (dot == SV::npos) {
+		return nullopt;
+	}
+	auto value = signed_value.substr(0, dot);
+	auto sig = signed_value.substr(dot + 1);
+	if (signed_value_matches(value, sig, secrets.active)) {
+		return std::string{value};
+	}
+	for (auto const &previous: secrets.previous) {
+		if (signed_value_matches(value, sig, previous)) {
+			return std::string{value};
+		}
+	}
+	return nullopt;
+}
 export struct CookieSigningOptions {
-	S secret;
+	ResolvedSecretRotation secrets{};
 	// When true, cookies arriving with invalid signatures are stripped (set to empty).
 	bool strip_invalid{true};
 };
+
+export [[nodiscard]] expected<CookieSigningOptions, S> cookie_signing_options_from_config(
+	AuthSecretsConfig const &cfg,
+	CookieSigningOptions base = {},
+	bool required = true) {
+	auto secrets = resolve_secret_rotation(cfg.cookie, "cookie", required);
+	if (!secrets) {
+		return unexpected{secrets.error()};
+	}
+	base.secrets = move(*secrets);
+	return base;
+}
+
+export [[nodiscard]] expected<CookieSigningOptions, S> cookie_signing_options_from_config(
+	Config const &cfg,
+	CookieSigningOptions base = {},
+	bool required = true) {
+	return cookie_signing_options_from_config(cfg.auth_secrets, move(base), required);
+}
+
 // Middleware: for every incoming cookie, attempt to verify its signature.
 // Cookies in "value.SIG" format are verified; on success the plain value is injected back.
 // Cookies without a "." are passed through unchanged (not all cookies are signed).
 // On failure: if strip_invalid=true the cookie is cleared; otherwise it is passed as-is.
 export Router::Middleware cookie_signing_middleware(
-	CookieSigningOptions opts = {}) {
-	if (opts.secret.size() < 16) {
-		throw std::invalid_argument{"cookie_signing_middleware: secret must be at least 16 bytes"};
+	CookieSigningOptions opts) {
+	if (auto valid = validate_secret_bytes(opts.secrets.active, "cookie", opts.secrets.min_secret_bytes); !valid) {
+		throw std::invalid_argument{valid.error()};
 	}
 	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto modified = req.to_owned();
@@ -62,7 +117,7 @@ export Router::Middleware cookie_signing_middleware(
 			if (value.find('.') == S::npos) {
 				continue;
 			} // unsigned cookie
-			auto plain = verify_cookie(value, opts.secret);
+			auto plain = verify_cookie(value, opts.secrets);
 			if (plain) {
 				value = move(*plain);
 			} else if (opts.strip_invalid) {

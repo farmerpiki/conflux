@@ -5,6 +5,7 @@ import std;
 import conflux.types;
 import conflux.crypto;
 import conflux.net.jwt;
+import conflux.net.config;
 // ---------------------------------------------------------------------------
 // jwt_sign (2-arg: default header)
 // ---------------------------------------------------------------------------
@@ -12,12 +13,12 @@ import conflux.net.jwt;
 TEST_CASE(
 	"jwt: sign and decode round-trip",
 	"[jwt]") {
-	S const secret = "test-secret-key";
+	S const secret = "test-secret-key-32bytes";
 	S const payload = R"({"sub":"user1","iss":"test"})";
 	auto token = jwt_sign(payload, secret);
 
 	JwtOptions opts;
-	opts.secret = secret;
+	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
 	auto result = jwt_decode(token, opts);
@@ -32,13 +33,13 @@ TEST_CASE(
 TEST_CASE(
 	"jwt: sign with custom header round-trip",
 	"[jwt]") {
-	S const secret = "my-secret";
+	S const secret = "my-secret-key-32bytes";
 	S const header = R"({"alg":"HS256","typ":"JWT","kid":"key-42"})";
 	S const payload = R"({"sub":"admin","iss":"ghost"})";
 	auto token = jwt_sign(header, payload, secret);
 
 	JwtOptions opts;
-	opts.secret = secret;
+	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;
 	opts.verify_nbf = false;
 	auto result = jwt_decode(token, opts);
@@ -49,7 +50,7 @@ TEST_CASE(
 TEST_CASE(
 	"jwt: custom header preserves kid in base64url-decoded header",
 	"[jwt]") {
-	S const secret = "secret";
+	S const secret = "secret-key-32bytes";
 	S const header = R"({"alg":"HS256","typ":"JWT","kid":"key-99"})";
 	S const payload = R"({"sub":"x"})";
 	auto token = jwt_sign(header, payload, secret);
@@ -64,10 +65,10 @@ TEST_CASE(
 	"jwt: wrong secret fails verification",
 	"[jwt]") {
 	S const payload = R"({"sub":"u"})";
-	auto token = jwt_sign(payload, "correct-secret");
+	auto token = jwt_sign(payload, "correct-secret-32bytes");
 
 	JwtOptions opts;
-	opts.secret = "wrong-secret";
+	opts.secrets = single_secret_rotation("wrong-secret-32bytes");
 	opts.verify_exp = false;
 	auto result = jwt_decode(token, opts);
 	CHECK(!result.has_value());

@@ -68,13 +68,13 @@ TEST_CASE(
 	auto opts = pbkdf2_sha256_password_hash_options(1);
 	opts.salt_bytes = 8;
 	opts.hash_bytes = 32;
-	opts.verifier_secret = "server-side pepper";
+	PasswordHashSecrets secrets{.verifier_secret = "server-side pepper"};
 
-	auto encoded = password_hash_with_salt("secret", "abcdefgh", opts);
+	auto encoded = password_hash_with_salt("secret", "abcdefgh", opts, secrets);
 	REQUIRE(encoded.has_value());
 	CHECK(encoded->starts_with("$pbkdf2-sha256$v=1$i=1,l=32,k=1$"));
 
-	auto ok = password_verify("secret", *encoded, opts);
+	auto ok = password_verify("secret", *encoded, opts, secrets);
 	REQUIRE(ok.has_value());
 	CHECK(ok->ok);
 	CHECK_FALSE(ok->needs_rehash);
@@ -87,7 +87,7 @@ TEST_CASE(
 
 	auto legacy = password_hash_with_salt("secret", "abcdefgh", missing_secret);
 	REQUIRE(legacy.has_value());
-	auto migrated = password_verify("secret", *legacy, opts);
+	auto migrated = password_verify("secret", *legacy, opts, secrets);
 	REQUIRE(migrated.has_value());
 	CHECK(migrated->ok);
 	CHECK(migrated->needs_rehash);

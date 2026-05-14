@@ -4660,13 +4660,13 @@ namespace {
 
 // Shared JWT test server (single instance, lazy-init).
 u16 g_jwt_port = 0;
-S g_jwt_secret = "test-secret-key";
+S g_jwt_secret = "test-secret-key-32bytes";
 void ensure_jwt_server() {
 	static std::once_flag once;
 	std::call_once(once, [] {
 		Config const cfg{.port = 0, .rings = 1};
 		Router router;
-		router.use(jwt_middleware(JwtOptions{.secret = g_jwt_secret}));
+		router.use(jwt_middleware(JwtOptions{.secrets = single_secret_rotation(g_jwt_secret)}));
 		router.get("/api/protected", [](HttpRequest const &req) {
 			auto sub = req.params["jwt_sub"];
 			return HttpResponse::json(format(R"({{"sub":"{}"}})", sub));
@@ -4743,7 +4743,7 @@ TEST_CASE(
 	"jwt_middleware: injected claim params override route params") {
 	Config const cfg{.port = 0, .rings = 1};
 	Router router;
-	router.use(jwt_middleware(JwtOptions{.secret = "sec", .verify_exp = false}));
+	router.use(jwt_middleware(JwtOptions{.secrets = single_secret_rotation("sec", 3), .verify_exp = false}));
 	router.get("/api/protected/{jwt_sub}", [](HttpRequest const &req) {
 		return HttpResponse::json(format(R"({{"sub":"{}"}})", req.params["jwt_sub"]));
 	});
@@ -4757,7 +4757,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: valid token with no exp returns claims") {
-	JwtOptions const opts{.secret = "sec", .verify_exp = false};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false};
 	auto token = jwt_sign(R"({"sub":"alice","iss":"test"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(result.has_value());
@@ -4766,7 +4766,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: issuer mismatch returns error") {
-	JwtOptions const opts{.secret = "sec", .issuer = "expected", .verify_exp = false};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .issuer = "expected", .verify_exp = false};
 	auto token = jwt_sign(R"({"sub":"x","iss":"other"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -4774,14 +4774,14 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: audience S match") {
-	JwtOptions opts{.secret = "sec", .audience = "myapp", .verify_exp = false};
+	JwtOptions opts{.secrets = single_secret_rotation("sec", 3), .audience = "myapp", .verify_exp = false};
 	auto token = jwt_sign(R"({"sub":"u","aud":"myapp"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 }
 TEST_CASE(
 	"jwt_decode: audience mismatch returns error") {
-	JwtOptions opts{.secret = "sec", .audience = "myapp", .verify_exp = false};
+	JwtOptions opts{.secrets = single_secret_rotation("sec", 3), .audience = "myapp", .verify_exp = false};
 	auto token = jwt_sign(R"({"sub":"u","aud":"other"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -4789,14 +4789,14 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: audience A match") {
-	JwtOptions opts{.secret = "sec", .audience = "myapp", .verify_exp = false};
+	JwtOptions opts{.secrets = single_secret_rotation("sec", 3), .audience = "myapp", .verify_exp = false};
 	auto token = jwt_sign(R"({"sub":"u","aud":["svc","myapp"]})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 }
 TEST_CASE(
 	"jwt_decode: accepts JSON whitespace around claim separators") {
-	JwtOptions const opts{.secret = "sec", .audience = "myapp", .verify_exp = false};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .audience = "myapp", .verify_exp = false};
 	auto token = jwt_sign("{\n\t\"sub\"\t:\t\"u\",\r\n\t\"aud\"\n:\n[\n\t\"svc\",\r\n\t\"myapp\"\n]\n}", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(result.has_value());
@@ -4804,7 +4804,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: audience A matches only aud claim") {
-	JwtOptions const opts{.secret = "sec", .audience = "expected", .verify_exp = false};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .audience = "expected", .verify_exp = false};
 	auto good = jwt_sign(R"({"sub":"x","aud":["other","expected"]})", "sec");
 	auto bad = jwt_sign(R"({"sub":"expected","aud":["other"]})", "sec");
 	REQUIRE(jwt_decode(good, opts).has_value());
@@ -4814,7 +4814,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: malformed audience A with leading comma does not match") {
-	JwtOptions const opts{.secret = "sec", .audience = "expected", .verify_exp = false};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .audience = "expected", .verify_exp = false};
 	auto token = jwt_sign(R"({"sub":"x","aud":[,"expected"]})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -4822,7 +4822,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: unterminated alg S is rejected") {
-	JwtOptions const opts{.secret = "sec", .verify_exp = false};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false};
 	auto token = make_jwt_with_header(R"({"alg":"HS256)", R"({"sub":"x"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -4830,7 +4830,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: malformed numeric claims are rejected") {
-	JwtOptions const opts{.secret = "sec"};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3)};
 	auto token = jwt_sign(R"({"sub":"x","exp":"soon"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -4838,7 +4838,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: malformed nbf claim is rejected") {
-	JwtOptions const opts{.secret = "sec", .verify_exp = false, .verify_nbf = false};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false, .verify_nbf = false};
 	auto token = jwt_sign(R"({"sub":"x","nbf":"later"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -4846,7 +4846,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: malformed iat claim is rejected") {
-	JwtOptions const opts{.secret = "sec", .verify_exp = false, .verify_nbf = false};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false, .verify_nbf = false};
 	auto token = jwt_sign(R"({"sub":"x","iat":"earlier"})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -4855,7 +4855,7 @@ TEST_CASE(
 TEST_CASE(
 	"jwt_decode: exp equal to now is expired") {
 	auto now = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
-	JwtOptions const opts{.secret = "sec"};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3)};
 	auto token = jwt_sign(format(R"({{"sub":"x","exp":{}}})", now), "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -4865,7 +4865,7 @@ TEST_CASE(
 	"jwt_decode: nbf in future returns not-yet-valid error") {
 	auto far_future =
 		chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count() + 9999;
-	JwtOptions const opts{.secret = "sec", .verify_exp = false, .verify_nbf = true};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false, .verify_nbf = true};
 	auto token = jwt_sign(format(R"({{"sub":"x","nbf":{}}})", far_future), "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
@@ -4873,14 +4873,14 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: nbf in past is accepted") {
-	JwtOptions const opts{.secret = "sec", .verify_exp = false, .verify_nbf = true};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false, .verify_nbf = true};
 	auto token = jwt_sign(R"({"sub":"x","nbf":1})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(result.has_value());
 }
 TEST_CASE(
 	"jwt_decode: verify_exp=false allows expired token") {
-	JwtOptions const opts{.secret = "sec", .verify_exp = false};
+	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false};
 	auto token = jwt_sign(R"({"sub":"x","exp":1})", "sec");
 	auto result = jwt_decode(token, opts);
 	REQUIRE(result.has_value());
@@ -4892,7 +4892,7 @@ TEST_CASE(
 	// {"alg":"RS256","typ":"JWT"} → eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9
 	// {"sub":"x"}                 → eyJzdWIiOiJ4In0
 	SV token = "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ4In0.ZmFrZXNpZw";
-	JwtOptions opts{.secret = "sec"};
+	JwtOptions opts{.secrets = single_secret_rotation("sec", 3)};
 	auto result = jwt_decode(token, opts);
 	REQUIRE(!result.has_value());
 	REQUIRE(result.error().find("HS256") != S::npos);
@@ -5462,7 +5462,7 @@ TEST_CASE(
 }
 TEST_CASE(
 	"cookie_signing_middleware: short secret throws std::invalid_argument") {
-	REQUIRE_THROWS_AS(cookie_signing_middleware({.secret = "tooshort"}), std::invalid_argument);
+	REQUIRE_THROWS_AS(cookie_signing_middleware({.secrets = single_secret_rotation("tooshort")}), std::invalid_argument);
 }
 // ---------------------------------------------------------------------------
 // cookie_signing middleware
@@ -5477,7 +5477,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(cookie_signing_middleware({.secret = S{kCookieMiddlewareSecret}}));
+		router.use(cookie_signing_middleware({.secrets = single_secret_rotation(S{kCookieMiddlewareSecret})}));
 		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(S{req.cookies["session"]}); });
 		port = start_mw_server(mw_config(), move(router));
 	});
@@ -5492,7 +5492,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(cookie_signing_middleware({.secret = S{kCookieMiddlewareSecret}, .strip_invalid = true}));
+		router.use(cookie_signing_middleware({.secrets = single_secret_rotation(S{kCookieMiddlewareSecret}), .strip_invalid = true}));
 		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(S{req.cookies["session"]}); });
 		port = start_mw_server(mw_config(), move(router));
 	});
@@ -5509,7 +5509,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(cookie_signing_middleware({.secret = S{kCookieMiddlewareSecret}}));
+		router.use(cookie_signing_middleware({.secrets = single_secret_rotation(S{kCookieMiddlewareSecret})}));
 		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(S{req.cookies["plain"]}); });
 		port = start_mw_server(mw_config(), move(router));
 	});
@@ -5523,7 +5523,7 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(cookie_signing_middleware({.secret = "srv-secret-key-1234", .strip_invalid = false}));
+		router.use(cookie_signing_middleware({.secrets = single_secret_rotation("srv-secret-key-1234"), .strip_invalid = false}));
 		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(S{req.cookies["session"]}); });
 		port = start_mw_server(mw_config(), move(router));
 	});

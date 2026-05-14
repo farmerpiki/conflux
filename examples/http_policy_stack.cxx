@@ -51,7 +51,7 @@ int main() {
 		},
 	}));
 	app.use(trailing_slash_middleware({.mode = TrailingSlashMode::remove, .redirect_status = 308}));
-	app.use(cookie_signing_middleware({.secret = "0123456789abcdef"}));
+	app.use(cookie_signing_middleware({.secrets = single_secret_rotation("0123456789abcdef")}));
 	app.use(csrf_middleware({.cookie_attrs = "Path=/; SameSite=Strict"}));
 	app.use(etag_middleware({.weak = true}));
 	app.use(response_cache_middleware({
