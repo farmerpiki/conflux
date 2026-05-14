@@ -265,9 +265,9 @@ These branches can start from the same base with low conflict risk:
    - Keep Pointer/Patch/schema as a feature layer above the stable JSON boundary.
    - Do not pull native JSON or reflection provider details into HTTP/app framework code.
 
-5. `build/perf-harness-stabilize`
-   - Enables measured HTTP/uring/worker perf changes.
-   - Avoids further unmeasured low-level tweaks.
+4. `build/perf-harness-stabilize`
+   - Done: perf presets and recorder now reject accidental debug/sanitizer/LTO inputs, keep cache/log/raw artifacts, and fail on empty benchmark output.
+   - This enables measured HTTP/uring/worker perf changes.
 ## Deferred work
 
 - `worker/p2300-prototype`: worthwhile but too broad until V2 runtime migration is
@@ -288,7 +288,7 @@ These branches can start from the same base with low conflict risk:
 - Password hashing is production-grade and migration-aware.
 - JSON provider usage is isolated enough that replacing the backend is not a route
   rewrite.
-- Perf harness exists and no perf claim lands without same-machine benchmark notes.
+- Perf harness exists, records preset/cache/log/raw artifacts, rejects accidental non-perf inputs, and no perf claim lands without same-machine benchmark notes.
 - Public docs state concurrency, handler execution, and naming semantics correctly.
 - Examples compile in CI.
 - Hardened defaults are documented and tested.

@@ -45,6 +45,13 @@
 #                      prior run_id in the database and override launch args.
 #                      If unset, the script falls back to the latest summary rows
 #                      already present in the database.
+#   ALLOW_NON_PERF_BENCH_PRESET=1
+#                      allow non-perf presets for explicit experiments. The normal
+#                      recording path requires perf-* presets, RelWithDebInfo,
+#                      benchmark-only builds, no LTO, and no sanitizers.
+#   CONFLUX_ALLOW_SANITIZED_BENCHMARKS=ON
+#                      allow sanitizer-instrumented local benchmark debugging.
+#                      Never use such runs for performance conclusions.
 #   MACHINE_ID         overrides machine identity (default: /etc/machine-id)
 #   WAIVER_REASON      free-form waiver text, persisted to runs.waiver_reason
 #
@@ -59,6 +66,20 @@
 
 set -euo pipefail
 
+require_tool() {
+  command -v "$1" >/dev/null 2>&1 || {
+    echo "required tool not found in PATH: $1" >&2
+    exit 2
+  }
+}
+
+for tool in cmake jq psql; do
+  require_tool "$tool"
+done
+if [[ -n "${BENCH_PIN_CPUS:-}" ]]; then
+  require_tool taskset
+fi
+
 PGURI="${PGURI:-postgres://postgres@localhost/conflux_bench}"
 export PG_CONNINFO="${PG_CONNINFO:-host=localhost dbname=conflux_bench user=postgres}"
 BENCH_PRESETS="${BENCH_PRESET:-perf-clang-libcxx perf-gcc-stdcxx}"
@@ -66,6 +87,8 @@ BENCH_REPS="${BENCH_REPS:-5}"
 MACHINE_ID="${MACHINE_ID:-$(cat /etc/machine-id 2>/dev/null || hostname)}"
 WAIVER_REASON="${WAIVER_REASON:-}"
 BENCH_ITERATIONS_FROM_RUN_ID="${BENCH_ITERATIONS_FROM_RUN_ID:-}"
+ALLOW_NON_PERF_BENCH_PRESET="${ALLOW_NON_PERF_BENCH_PRESET:-0}"
+CONFLUX_ALLOW_SANITIZED_BENCHMARKS="${CONFLUX_ALLOW_SANITIZED_BENCHMARKS:-OFF}"
 BENCH_LOAD_FACTOR="${BENCH_LOAD_FACTOR:-1.5}"
 BENCH_SETTLE_AFTER_BUILD_SEC="${BENCH_SETTLE_AFTER_BUILD_SEC:-20}"
 BENCH_SETTLE_BETWEEN_SEC="${BENCH_SETTLE_BETWEEN_SEC:-2}"
@@ -235,6 +258,79 @@ run_bench() {
   fi
 }
 
+cache_value() {
+  local build_dir="$1" key="$2"
+  sed -n "s/^${key}:[A-Z_]*=//p" "$build_dir/CMakeCache.txt" | tail -1
+}
+
+copy_build_cache_artifact() {
+  local preset="$1" build_dir="$2"
+  mkdir -p "$BENCH_ARTIFACT_DIR/cache"
+  cp "$build_dir/CMakeCache.txt" "$BENCH_ARTIFACT_DIR/cache/$(artifact_slug "$preset")-CMakeCache.txt"
+}
+
+assert_recording_cache() {
+  local preset="$1" build_dir="$2"
+  local asan ubsan tsan benches tests lto build_type
+  asan="$(cache_value "$build_dir" CONFLUX_ENABLE_ASAN)"
+  ubsan="$(cache_value "$build_dir" CONFLUX_ENABLE_UBSAN)"
+  tsan="$(cache_value "$build_dir" CONFLUX_ENABLE_TSAN)"
+  benches="$(cache_value "$build_dir" CONFLUX_BUILD_BENCHMARKS)"
+  tests="$(cache_value "$build_dir" CONFLUX_BUILD_TESTS)"
+  lto="$(cache_value "$build_dir" CONFLUX_ENABLE_LTO)"
+  build_type="$(cache_value "$build_dir" CMAKE_BUILD_TYPE)"
+
+  if [[ "$asan" != OFF || "$ubsan" != OFF || "$tsan" != OFF ]]; then
+    if [[ "$CONFLUX_ALLOW_SANITIZED_BENCHMARKS" != ON ]]; then
+      echo "$preset enables sanitizers; set CONFLUX_ALLOW_SANITIZED_BENCHMARKS=ON only for local benchmark debugging." >&2
+      return 1
+    fi
+  fi
+
+  if [[ "$benches" != ON ]]; then
+    echo "$preset does not build benchmark targets." >&2
+    return 1
+  fi
+
+  if [[ "$ALLOW_NON_PERF_BENCH_PRESET" == 1 ]]; then
+    echo "warning: ALLOW_NON_PERF_BENCH_PRESET=1 accepts $preset as an explicit experiment." >&2
+    return 0
+  fi
+
+  if [[ "$preset" != perf-* ]]; then
+    echo "$preset is not a perf-* preset; set ALLOW_NON_PERF_BENCH_PRESET=1 for explicit experiments." >&2
+    return 1
+  fi
+  if [[ "$tests" != OFF ]]; then
+    echo "$preset builds test targets; perf recordings must stay benchmark-only." >&2
+    return 1
+  fi
+  if [[ "$lto" != OFF ]]; then
+    echo "$preset enables LTO; perf recordings must stay symbolized/profile-friendly." >&2
+    return 1
+  fi
+  if [[ "$build_type" != RelWithDebInfo ]]; then
+    echo "$preset uses CMAKE_BUILD_TYPE=$build_type; perf recordings require RelWithDebInfo." >&2
+    return 1
+  fi
+}
+
+result_row_count() {
+  jq -Rsc '[split("\n")[] | select(length > 0) | try fromjson catch empty
+           | select((.variant != null) and (.iterations != null)
+                    and (.total_ns != null) and (.ns_per_iter != null))] | length' "$1"
+}
+
+require_result_rows() {
+  local file="$1" bench="$2"
+  local rows
+  rows="$(result_row_count "$file")"
+  if [[ "$rows" == 0 ]]; then
+    echo "benchmark $bench produced no valid NDJSON result rows; raw artifact: $file" >&2
+    return 1
+  fi
+}
+
 declare -A ITERATIONS_FROM_DB=()
 load_iteration_overrides() {
   local run_id="$1"
@@ -312,6 +408,9 @@ rewrite_args_for_iterations() {
   if ! $saw_iters; then
     out+=(--iterations "$override")
   fi
+  if ! $saw_warmup; then
+    out+=(--warmup "$warmup")
+  fi
 
   printf '%s\n' "${out[@]}"
 }
@@ -383,6 +482,7 @@ record_with_reps() {
   local i; for i in $(seq 1 "$reps"); do
     "$@" 2>/dev/null >> "$tmpf"
   done
+  require_result_rows "$tmpf" "$bench"
   cp "$tmpf" "$rawf"
 
   while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
@@ -484,6 +584,8 @@ run_compare() {
       printf '%s\n' "$cfg_log" | tail -20 >&2
       exit 2
     fi
+    assert_recording_cache "$p" "$bdir"
+    copy_build_cache_artifact "$p" "$bdir"
     local build_log="$BENCH_ARTIFACT_DIR/logs/$(artifact_slug "$p")-build.log"
     if ! cmake --build "$bdir" --target conflux_work_benchmarks -- -j"$(nproc)" \
         > "$build_log" 2>&1; then
@@ -517,6 +619,12 @@ run_compare() {
       local rid="${run_ids[$p]}"
       echo "  running $p (round=$round pos=$pos)..."
 
+      local tmpf rawf
+      tmpf=$(mktemp /tmp/compare_work_XXXXXX.ndjson)
+      rawf="$BENCH_ARTIFACT_DIR/raw/run_${rid}_work_$(artifact_slug "$p")_r${round}.ndjson"
+      run_bench "$binary" --json 2>/dev/null > "$tmpf"
+      require_result_rows "$tmpf" work
+      cp "$tmpf" "$rawf"
       while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
         local ex
         ex=$(printf '{"round":%d,"position":%d,"min":%s,"p10":%s,"mad":%s}' \
@@ -529,8 +637,8 @@ run_compare() {
             ($rid, 'work', '$(sql_escape "$variant")',
              $iters, $total, $ns_pi,
              'ns_per_iter', $ns_pi, 'ns', 1, '$(sql_escape "$ex")'::jsonb);" >/dev/null
-      done < <(run_bench "$binary" --json 2>/dev/null \
-        | jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.min // "null"), (.p10 // "null"), (.mad // "null")] | @tsv)')
+      done < <(jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.min // "null"), (.p10 // "null"), (.mad // "null")] | @tsv)' "$tmpf")
+      rm -f "$tmpf"
     done
   done
 
@@ -595,6 +703,7 @@ _compare_bins_insert_row() {
   rawf="$BENCH_ARTIFACT_DIR/raw/run_${rid}_$(artifact_slug "$bench")_$(artifact_slug "$label")_r${round}.ndjson"
 
   run_bench "$@" --json 2>/dev/null >> "$tmpf"
+  require_result_rows "$tmpf" "$bench"
   cp "$tmpf" "$rawf"
 
   while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
@@ -735,21 +844,25 @@ run_tcp_parallel() {
     return
   fi
   for path in "${cfg_paths[@]}"; do
-    local cfgfile extra RID
+    local cfgfile extra RID tmpf rawf
     cfgfile="$(basename "$path" .json)"
     extra=$(cat "$path")
     RID=$(new_run "$bench" "$cfgfile" "$extra")
     echo "+ $bench [$cfgfile] run_id=$RID"
-    local rawf="$BENCH_ARTIFACT_DIR/raw/run_${RID}_$(artifact_slug "$bench")_$(artifact_slug "$cfgfile").ndjson"
+    tmpf=$(mktemp /tmp/tcp_parallel_XXXXXX.ndjson)
+    rawf="$BENCH_ARTIFACT_DIR/raw/run_${RID}_$(artifact_slug "$bench")_$(artifact_slug "$cfgfile").ndjson"
     run_bench "$binary" \
         --iterations 200 --warmup 50 --parallel 1,2,4,8 --config "$path" --json 2>/dev/null \
-      | tee "$rawf" \
-      | jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.flags // ""), (.ring_entries // 0), (.throughput_iter_per_s // 0)] | @tsv)' \
+      > "$tmpf"
+    require_result_rows "$tmpf" "$bench"
+    cp "$tmpf" "$rawf"
+    jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.flags // ""), (.ring_entries // 0), (.throughput_iter_per_s // 0)] | @tsv)' "$tmpf" \
       | while IFS=$'\t' read -r variant iters total_ns ns_pi flags ring tput; do
           local ex
           ex=$(printf '{"flags":"%s","ring_entries":%s,"throughput_iter_per_s":%s}' "$flags" "$ring" "$tput")
           insert_row "$RID" "$bench" "$variant" "$iters" "$total_ns" "$ns_pi" "$ex"
         done
+    rm -f "$tmpf"
   done
 }
 
@@ -758,18 +871,21 @@ run_file_copy() {
   local binary="$1" bench="$2" cfg_name="$3" extra="$4"
   shift 4
   local args=("$@")
-  local RID
+  local RID tmpf rawf
   RID=$(new_run "$bench" "$cfg_name" "$extra")
   echo "+ $bench [$cfg_name] run_id=$RID"
-  local rawf="$BENCH_ARTIFACT_DIR/raw/run_${RID}_$(artifact_slug "$bench")_$(artifact_slug "$cfg_name").ndjson"
-  run_bench "$binary" "${args[@]}" --json 2>/dev/null \
-    | tee "$rawf" \
-    | jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.avg_mib_per_s // 0), (.best_mib_per_s // 0), (.best_ns // 0)] | @tsv)' \
+  tmpf=$(mktemp /tmp/file_copy_XXXXXX.ndjson)
+  rawf="$BENCH_ARTIFACT_DIR/raw/run_${RID}_$(artifact_slug "$bench")_$(artifact_slug "$cfg_name").ndjson"
+  run_bench "$binary" "${args[@]}" --json 2>/dev/null > "$tmpf"
+  require_result_rows "$tmpf" "$bench"
+  cp "$tmpf" "$rawf"
+  jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.avg_mib_per_s // 0), (.best_mib_per_s // 0), (.best_ns // 0)] | @tsv)' "$tmpf" \
     | while IFS=$'\t' read -r variant iters total_ns ns_pi avg_mibs best_mibs best_ns; do
         local ex
         ex=$(printf '{"avg_mib_per_s":%s,"best_mib_per_s":%s,"best_ns":%s}' "$avg_mibs" "$best_mibs" "$best_ns")
         insert_row "$RID" "$bench" "$variant" "$iters" "$total_ns" "$ns_pi" "$ex"
       done
+  rm -f "$tmpf"
 }
 
 # ---------------------------------------------------------------------------
@@ -820,6 +936,9 @@ for PRESET in "${PRESET_LIST[@]}"; do
     exit 2
   fi
 
+  assert_recording_cache "$PRESET" "$BUILD_DIR"
+  copy_build_cache_artifact "$PRESET" "$BUILD_DIR"
+
   CURRENT_BUILD_DIR="$BUILD_DIR"
   BUILD_LOG="$BENCH_ARTIFACT_DIR/logs/$(artifact_slug "$PRESET")-build.log"
   if ! cmake --build "$BUILD_DIR" --target conflux_record_benches -- -j"$(nproc)" \
@@ -865,14 +984,14 @@ for PRESET in "${PRESET_LIST[@]}"; do
     # Iterate configs from --bench-info JSON
     while IFS= read -r cfg_json; do
       cfg_name=$(jq -r .name <<< "$cfg_json")
-      extra=$(jq -c .extra <<< "$cfg_json")
+      extra=$(jq -c '.extra // {}' <<< "$cfg_json")
       cfg_reps=$(jq -r '.reps // empty' <<< "$cfg_json")
       [[ -n "$cfg_reps" ]] || cfg_reps="$BENCH_REPS"
       if ! [[ "$cfg_reps" =~ ^[1-9][0-9]*$ ]]; then
         echo "invalid reps for $bench_name [$cfg_name]: $cfg_reps" >&2
         exit 2
       fi
-      mapfile -t args < <(jq -r '.args[]' <<< "$cfg_json")
+      mapfile -t args < <(jq -r '.args[]?' <<< "$cfg_json")
       if [[ -n "$BENCH_ITERATIONS_FROM_RUN_ID" ]]; then
         mapfile -t args < <(rewrite_args_for_iterations "$bench_name" "$cfg_name" "${args[@]}")
       fi

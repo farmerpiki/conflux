@@ -38,8 +38,9 @@ scripts/run-perf-matrix.sh
 ```
 
 This lane configures and builds benchmark binaries from `perf-*` presets only.
-It asserts that the preset shape is benchmark-only, `RelWithDebInfo`, and has
-ASan/UBSan/TSan disabled.
+It asserts that the preset shape is benchmark-only, `RelWithDebInfo`, has
+ASan/UBSan/TSan disabled, and keeps LTO disabled so profiles remain
+symbolized and easy to attribute.
 
 The default matrix is:
 
@@ -102,12 +103,12 @@ scripts/bench_record.sh manual-run-name
 
 Do not use sanitizer or debug presets for performance conclusions. `bench_record.sh`
 now enforces this by default: normal DB recordings require `perf-*` presets,
-`RelWithDebInfo`, benchmark-only builds, no LTO, and no sanitizers.
-`scripts/run-sanitizer-matrix.sh` independently rejects benchmark-enabled
-correctness presets. For explicit experiments with release/PGO presets, set
-`ALLOW_NON_PERF_BENCH_PRESET=1`; for local sanitizer benchmark debugging, also
-set `CONFLUX_ALLOW_SANITIZED_BENCHMARKS=ON`. Treat either setting as a waiver,
-not as valid perf evidence.
+`RelWithDebInfo`, benchmark-only builds, no LTO, and no sanitizers. For explicit
+experiments with release/PGO presets, set `ALLOW_NON_PERF_BENCH_PRESET=1`; for
+local sanitizer benchmark debugging, also set
+`CONFLUX_ALLOW_SANITIZED_BENCHMARKS=ON`. Treat either setting as a waiver, not as
+valid perf evidence.
+
 ## Install/package lane
 
 The install export is guarded by a cheap source-tree check:

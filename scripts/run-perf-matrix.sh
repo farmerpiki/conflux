@@ -45,8 +45,14 @@ while (($# > 0)); do
     esac
 done
 
+script_repo_root() {
+    local script_dir
+    script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cd "$script_dir/.." && pwd
+}
+
 if [[ -z "${SOURCE_DIR:-}" ]]; then
-    SOURCE_DIR="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+    SOURCE_DIR="$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || script_repo_root)"
 fi
 SOURCE_DIR="$(realpath "$SOURCE_DIR")"
 JOBS="${JOBS:-$(nproc)}"
@@ -70,12 +76,13 @@ cache_value() {
 
 assert_perf_cache() {
     local preset="$1" build_dir="$2"
-    local asan ubsan tsan benches tests build_type
+    local asan ubsan tsan benches tests lto build_type
     asan="$(cache_value "$build_dir" CONFLUX_ENABLE_ASAN)"
     ubsan="$(cache_value "$build_dir" CONFLUX_ENABLE_UBSAN)"
     tsan="$(cache_value "$build_dir" CONFLUX_ENABLE_TSAN)"
     benches="$(cache_value "$build_dir" CONFLUX_BUILD_BENCHMARKS)"
     tests="$(cache_value "$build_dir" CONFLUX_BUILD_TESTS)"
+    lto="$(cache_value "$build_dir" CONFLUX_ENABLE_LTO)"
     build_type="$(cache_value "$build_dir" CMAKE_BUILD_TYPE)"
 
     if [[ "$asan" != OFF || "$ubsan" != OFF || "$tsan" != OFF ]]; then
@@ -90,6 +97,10 @@ assert_perf_cache() {
         printf '%s builds test targets; perf presets should stay benchmark-only.\n' "$preset" >&2
         return 1
     fi
+    if [[ "$lto" != OFF ]]; then
+        printf '%s enables LTO; perf presets should stay recordable/profile-friendly.\n' "$preset" >&2
+        return 1
+    fi
     if [[ "$build_type" != RelWithDebInfo ]]; then
         printf '%s uses CMAKE_BUILD_TYPE=%s; perf presets use RelWithDebInfo.\n' "$preset" "$build_type" >&2
         return 1
@@ -97,9 +108,11 @@ assert_perf_cache() {
 }
 
 declare -A RESULTS=()
+selected=0
 
 for preset in "${MATRIX[@]}"; do
     in_only "$preset" || continue
+    selected=$((selected + 1))
 
     printf '\n━━━ %s ━━━\n' "$preset"
     build_dir="/tmp/$(basename "$SOURCE_DIR")/$preset"
@@ -123,6 +136,11 @@ for preset in "${MATRIX[@]}"; do
 
     RESULTS[$preset]=$status
 done
+
+if ((selected == 0)); then
+    printf 'no perf presets selected by --only filter.\n' >&2
+    exit 2
+fi
 
 printf '\n━━━ Perf Matrix Results ━━━\n'
 overall=0

@@ -100,13 +100,20 @@ Default recorder behavior:
 - `BENCH_PRESET="perf-clang-libcxx perf-gcc-stdcxx"`.
 - Every preset is built, recorded, and deleted before the next preset unless
   `KEEP_BUILD=1` is set.
-- Every run writes a `manifest.json`, captured `--bench-info` descriptors, and
-  raw NDJSON under `BENCH_ARTIFACT_DIR`.
+- Every run writes a `manifest.json`, captured `--bench-info` descriptors, copied
+  `CMakeCache.txt` files, configure/build logs, and raw NDJSON under
+  `BENCH_ARTIFACT_DIR`.
+- Recorder preflight rejects wrong preset shapes unless an explicit waiver env is
+  set. Required normal shape: `perf-*`, `RelWithDebInfo`, benchmark-only, no LTO,
+  no sanitizers.
+- The recorder fails when a benchmark produces zero valid NDJSON result rows,
+  instead of inserting an empty run.
 - `BENCH_REPS=N` controls default repetitions; per-config `--bench-info` `reps`
   overrides it for expensive benches.
 - `BENCH_PIN_CPUS=0-3` wraps each benchmark launch in `taskset -c 0-3`.
 - `BENCH_ITERATIONS_FROM_RUN_ID=ID` reuses prior stable iteration counts so
-  candidate-vs-baseline runs keep fixed inputs.
+  candidate-vs-baseline runs keep fixed inputs, including a derived warmup when
+  the benchmark config did not specify one.
 
 Focused component commands:
 
