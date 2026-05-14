@@ -27,6 +27,117 @@ export struct SendZcMetrics {
 	u64 adaptive_disable_count{};
 };
 
+export enum class SendZcPendingAction : u8 {
+	none,
+	complete_response,
+	resubmit_response,
+	close_after_error,
+};
+
+export enum class SendZcCqeAction : u8 {
+	none,
+	complete_response,
+	resubmit_response,
+	close_after_error,
+	close_after_notification,
+};
+
+export struct SendZcCqeState {
+	bool waiting_notification{};
+	bool close_after_notification{};
+	SendZcPendingAction after_notification{SendZcPendingAction::none};
+};
+
+export struct SendZcCqeInput {
+	int result{};
+	bool notification{};
+	bool more{};
+	bool copied{};
+	bool enomem_error{};
+	SZ written_before{};
+	SZ response_total{};
+};
+
+export struct SendZcCqeOutcome {
+	SendZcCqeAction action{SendZcCqeAction::none};
+	SZ bytes_sent{};
+	bool adaptive_disabled{};
+};
+
+export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
+	SendZcCqeState &state,
+	SendZcMetrics &metrics,
+	SendZcCqeInput input,
+	bool &send_zc_enabled) noexcept {
+	SendZcCqeOutcome out{};
+	if (input.notification) {
+		++metrics.notifications;
+		if (input.copied) {
+			++metrics.copied_notifications;
+			if (send_zc_enabled
+				&& metrics.attempts >= 1024
+				&& metrics.bytes_requested >= SZ{16} * 1024 * 1024
+				&& metrics.copied_notifications * 10 > metrics.notifications * 9) {
+				send_zc_enabled = false;
+				++metrics.adaptive_disable_count;
+				out.adaptive_disabled = true;
+			}
+		}
+		state.waiting_notification = false;
+		if (state.close_after_notification) {
+			state.close_after_notification = false;
+			state.after_notification = SendZcPendingAction::none;
+			out.action = SendZcCqeAction::close_after_notification;
+			return out;
+		}
+		auto const action = state.after_notification;
+		state.after_notification = SendZcPendingAction::none;
+		switch (action) {
+		case SendZcPendingAction::complete_response: out.action = SendZcCqeAction::complete_response; break;
+		case SendZcPendingAction::resubmit_response: out.action = SendZcCqeAction::resubmit_response; break;
+		case SendZcPendingAction::close_after_error: out.action = SendZcCqeAction::close_after_error; break;
+		default: break;
+		}
+		return out;
+	}
+
+	auto const note_error = [&] {
+		if (input.enomem_error) {
+			++metrics.errors_enomem;
+		} else {
+			++metrics.errors_other;
+		}
+	};
+
+	if (input.more) {
+		state.waiting_notification = true;
+		if (input.result < 0) {
+			note_error();
+			state.after_notification = SendZcPendingAction::close_after_error;
+			return out;
+		}
+		out.bytes_sent = static_cast<SZ>(input.result);
+		metrics.bytes_sent += out.bytes_sent;
+		state.after_notification = input.written_before + out.bytes_sent >= input.response_total
+			? SendZcPendingAction::complete_response
+			: SendZcPendingAction::resubmit_response;
+		return out;
+	}
+
+	++metrics.sends_without_notification;
+	if (input.result < 0) {
+		note_error();
+		out.action = SendZcCqeAction::close_after_error;
+		return out;
+	}
+	out.bytes_sent = static_cast<SZ>(input.result);
+	metrics.bytes_sent += out.bytes_sent;
+	out.action = input.written_before + out.bytes_sent < input.response_total
+		? SendZcCqeAction::resubmit_response
+		: SendZcCqeAction::complete_response;
+	return out;
+}
+
 export struct HttpServerMetrics {
 	u64 sq_dropped{};
 	u64 cq_overflow{};

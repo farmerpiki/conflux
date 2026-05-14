@@ -45,7 +45,7 @@ Still implemented but not directly covered by deterministic tests:
 
 - [ ] Ring-thread `sched_setaffinity` and `IORING_REGISTER_IOWQ_AFF` application; needs syscall injection or observable thread/affinity capture.
 - [x] Adaptive `io_uring_queue_init_params(EINVAL)` fallback strip order; extracted to `next_uring_setup_flag_to_strip()` in `http_server_config.cxx` and covered by deterministic unit tests.
-- [ ] `SEND_ZC` notification-CQE lifecycle under a real kernel; benchmarks and metrics exist, but deterministic unit coverage still needs a CQE injection seam.
+- [x] `SEND_ZC` notification-CQE lifecycle: `observe_send_zc_cqe(...)` provides a deterministic CQE transition seam, and `conflux_send_zc_lifecycle_tests` covers data+notification, no-notification, copied-notification adaptive disable, ENOMEM, and close-after-notification paths.
 - [x] `JsonArena` PMR hash-index allocation source; `JsonArenaOptions::hash_index_resource` now lets tests inject a counting resource, and `warm_member_index()` is covered without relying on global `new`.
 
 ## Test coverage gap pass 2 (2026-05-14)

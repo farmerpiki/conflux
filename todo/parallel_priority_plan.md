@@ -183,11 +183,12 @@ Recommended next HTTP branch: `http/sendzc-mapped-edge`, then `http/send-thresho
 |---|---|---|---|---|
 | Done | `uring/setup-flag-fallback-log` | Log requested-vs-active setup flags after EINVAL stripping. | Landed in the low-level `conflux.uring` setup-flag helpers and the HTTP startup banner delegates to that shared path. | Startup log makes `NO_SQARRAY`, `SUBMIT_ALL`, `CQE_MIXED`, etc. requested/active/stripped status visible. |
 | Done | `uring/iopoll-storage-ring` | Added storage-only `IORING_SETUP_IOPOLL` support for O_DIRECT file rings. | Touches file I/O/ring init; independent of HTTP send path. | IOPOLL cannot mix with sockets; config makes storage-only scope explicit; tests cover fallback and dedicated storage ring behavior. |
-| P1 | `uring/sendzc-edge-measurement` | Add focused benchmark/counters around SEND_ZC fallback paths. | Depends on perf harness; independent of auth/json. | Bench output can decide mapped-file/TLS fallback policy. |
-| P2 | `uring/recv-abstraction-for-zc` | Refactor recv buffer ownership so RECV_ZC can slot in later. | Can run before kernel support, but avoid changing behavior. | Existing recv behavior unchanged; abstraction names lifetime/pinning requirements. |
+| DONE | `uring/sendzc-edge-measurement` | Added focused SEND_ZC counter splits and benchmark output around plain, mapped-file, submit-fallback, copied-notification, adaptive-disable, and TLS-bypass paths. | Depends on perf harness; independent of auth/json. | `conflux_send_zc_bench` is recorder-discoverable and emits per-variant SEND_ZC/TLS fallback counters in NDJSON. |
+| DONE | `uring/recv-abstraction-for-zc` | Added `RecvPayload` as the CQE recv ownership boundary with explicit storage/pinning descriptors and HTTP/server adoption. | Landed after SEND_ZC measurement; behavior stays on provided buffer rings. | Existing classic, recv-bundle, and incremental behavior remains unchanged; RECV_ZC has a named future backend slot. |
+| DONE | `uring/sendzc-cqe-lifecycle-test` | Extracted SEND_ZC data/notification CQE transition accounting into a deterministic helper and added direct tests. | Adjacent to HTTP send path; no kernel behavior change. | Partial, complete, copied-notification, no-notification, ENOMEM, and close-after-notification transitions are covered without a live ring. |
 | P3 | `uring/recv-zc` | Implement `IORING_OP_RECV_ZC`. | Wait for stable target kernel support and abstraction branch. | Feature-gated, runtime-probed, clear fallback. |
 
-Recommended next uring branch: `uring/sendzc-edge-measurement`, after the current setup-flag fallback/log patch and storage-ring work merge.
+Recommended next uring branch: defer `uring/recv-zc` until target kernel support is stable; use `http/send-threshold-bench` for adjacent measured send-path work.
 
 ### JSON / serde / app boundary lane
 

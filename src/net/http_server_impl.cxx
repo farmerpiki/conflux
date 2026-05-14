@@ -72,38 +72,9 @@ enum class Op : u8 {
 
 };
 
-enum class ZcAfterNotif : u8 {
-	none,
-	complete_response,
-	resubmit_plain,
-	resubmit_mapped,
-	close_after_error,
-};
-struct SendZcCounters {
-	u64 attempts{};
-	u64 bytes_requested{};
-	u64 bytes_sent{};
-	u64 notifs{};
-	u64 copied_notifs{};
-	u64 no_notif{};
-	u64 errors_enomem{};
-	u64 errors_other{};
-	u64 fallback_regular_send{};
-	u64 adaptive_disable_count{};
-
+struct SendZcCounters : SendZcMetrics {
 	[[nodiscard]] SendZcMetrics snapshot() const noexcept {
-		return {
-			.attempts = attempts,
-			.bytes_requested = bytes_requested,
-			.bytes_sent = bytes_sent,
-			.notifications = notifs,
-			.copied_notifications = copied_notifs,
-			.sends_without_notification = no_notif,
-			.errors_enomem = errors_enomem,
-			.errors_other = errors_other,
-			.fallback_regular_send = fallback_regular_send,
-			.adaptive_disable_count = adaptive_disable_count,
-		};
+		return static_cast<SendZcMetrics const &>(*this);
 	}
 };
 
@@ -323,9 +294,8 @@ struct alignas(
 	bool streamed_headers_sent = false;
 	u64 streamed_delivered = 0;
 	bool streamed_splice_in_flight = false;
-	bool zc_waiting_notif = false;
-	ZcAfterNotif zc_after_notif = ZcAfterNotif::none;
-	bool zc_close_after_notif = false;
+	SendZcCqeState zc_state{};
+	bool zc_tls_bypass_counted = false;
 #if CONFLUX_HAS_HTTP2
 	bool is_h2{};
 	nghttp2_session *h2_session = nullptr;
@@ -1452,9 +1422,10 @@ struct Ring {
 		conn.mapped_file.reset();
 		conn.mapped_total = 0;
 		conn.mapped_delivered = 0;
-		conn.zc_waiting_notif = false;
-		conn.zc_after_notif = ZcAfterNotif::none;
-		conn.zc_close_after_notif = false;
+		conn.zc_state.waiting_notification = false;
+		conn.zc_state.after_notification = SendZcPendingAction::none;
+		conn.zc_state.close_after_notification = false;
+		conn.zc_tls_bypass_counted = false;
 		conn.send_buf = FixedBuffer{};
 		conn.send_buf_base_written = 0;
 		conn.send_buf_len = 0;
@@ -2141,14 +2112,14 @@ struct Ring {
 			accepted_sockets_direct,
 			ufd < fd_table.size() ? fd_table[ufd].closing : false,
 			ufd < fd_table.size() ? fd_table[ufd].recv_armed : false,
-			ufd < fd_table.size() ? fd_table[ufd].zc_waiting_notif : false,
+			ufd < fd_table.size() ? fd_table[ufd].zc_state.waiting_notification : false,
 			buffer_ring_mode_name(buf_ring_->mode())));
 		if (ufd < fd_table.size()) {
 			if (fd_table[ufd].closing) {
 				return;
 			}
-			if (fd_table[ufd].zc_waiting_notif) {
-				fd_table[ufd].zc_close_after_notif = true;
+			if (fd_table[ufd].zc_state.waiting_notification) {
+				fd_table[ufd].zc_state.close_after_notification = true;
 				fd_table[ufd].closing = true;
 				invalidate_recv_if_armed(fd);
 				return;
@@ -3184,94 +3155,48 @@ struct Ring {
 			return;
 		}
 		auto &conn = fd_table[ufd];
-		if ((flags & IORING_CQE_F_NOTIF) != 0) {
-			++zc_counters_.notifs;
-			if ((static_cast<u32>(res) & IORING_NOTIF_USAGE_ZC_COPIED) != 0) {
-				++zc_counters_.copied_notifs;
-				if (send_zc_enabled_
-					&& zc_counters_.attempts >= 1024
-					&& zc_counters_.bytes_requested >= SZ{16} * 1024 * 1024
-					&& zc_counters_.copied_notifs * 10 > zc_counters_.notifs * 9) {
-					send_zc_enabled_ = false;
-					++zc_counters_.adaptive_disable_count;
-				}
-			}
-			conn.zc_waiting_notif = false;
-			if (conn.zc_close_after_notif) {
-				conn.zc_close_after_notif = false;
-				conn.zc_after_notif = ZcAfterNotif::none;
-				conn.own_response.clear();
-				conn.mapped_file.reset();
-				conn.closing = false; // queue_close early-returns when closing==true
-				queue_close(fd);
-				return;
-			}
-			auto action = exchange(conn.zc_after_notif, ZcAfterNotif::none);
-			switch (action) {
-			case ZcAfterNotif::complete_response:
-				if (conn.mapped_file) {
-					finish_mapped_send(fd, conn);
-				} else {
-					finish_plain_send(fd, conn);
-				}
-				break;
-			case ZcAfterNotif::resubmit_plain   : queue_send(fd); break;
-			case ZcAfterNotif::resubmit_mapped  : queue_send_mapped(fd); break;
-			case ZcAfterNotif::close_after_error: fail_send(fd, conn); break;
-			default                             : break;
-			}
-			return;
-		}
 		auto const is_mapped = conn.mapped_file != nullptr;
 		auto const total = is_mapped ? conn.mapped_total : conn.own_response.size();
-		if ((flags & IORING_CQE_F_MORE) != 0) {
-			conn.zc_waiting_notif = true;
-			if (res < 0) {
-				conn.zc_after_notif = ZcAfterNotif::close_after_error;
-				if (res == -ENOMEM) {
-					++zc_counters_.errors_enomem;
-				} else {
-					++zc_counters_.errors_other;
-				}
-				return;
-			}
-			auto const sent = static_cast<SZ>(res);
-			zc_counters_.bytes_sent += sent;
-			conn.written += sent;
-			if (conn.written >= total) {
-				conn.zc_after_notif = ZcAfterNotif::complete_response;
+		auto const outcome = observe_send_zc_cqe(
+			conn.zc_state,
+			zc_counters_,
+			SendZcCqeInput{
+				.result = res,
+				.notification = (flags & IORING_CQE_F_NOTIF) != 0,
+				.more = (flags & IORING_CQE_F_MORE) != 0,
+				.copied = (static_cast<u32>(res) & IORING_NOTIF_USAGE_ZC_COPIED) != 0,
+				.enomem_error = res == -ENOMEM,
+				.written_before = conn.written,
+				.response_total = total,
+			},
+			send_zc_enabled_);
+		conn.written += outcome.bytes_sent;
+		switch (outcome.action) {
+		case SendZcCqeAction::complete_response:
+			if (is_mapped) {
+				finish_mapped_send(fd, conn);
 			} else {
-				conn.zc_after_notif = is_mapped ? ZcAfterNotif::resubmit_mapped : ZcAfterNotif::resubmit_plain;
+				finish_plain_send(fd, conn);
 			}
-			return;
-		}
-		++zc_counters_.no_notif;
-		if (res < 0) {
-			if (res == -ENOMEM) {
-				++zc_counters_.errors_enomem;
-			} else {
-				++zc_counters_.errors_other;
-			}
-			fail_send(fd, conn);
-			return;
-		}
-		auto const sent = static_cast<SZ>(res);
-		zc_counters_.bytes_sent += sent;
-		conn.written += sent;
-		if (conn.written < total) {
+			break;
+		case SendZcCqeAction::resubmit_response:
 			if (is_mapped) {
 				queue_send_mapped(fd);
 			} else {
 				queue_send(fd);
 			}
-			return;
-		}
-		if (is_mapped) {
-			finish_mapped_send(fd, conn);
-		} else {
-			finish_plain_send(fd, conn);
+			break;
+		case SendZcCqeAction::close_after_error: fail_send(fd, conn); break;
+		case SendZcCqeAction::close_after_notification:
+			conn.own_response.clear();
+			conn.mapped_file.reset();
+			conn.closing = false; // queue_close early-returns when closing==true
+			queue_close(fd);
+			break;
+		default: break;
 		}
 	}
+
 	void handle_sse_poll(
 		int fd,
 		int res,
@@ -3877,7 +3802,7 @@ struct Ring {
 		m.recv_bundle_bytes = recv_bundle_bytes_;
 		m.send_zc = zc_counters_.snapshot();
 		for (Conn const &conn: fd_table) {
-			if (conn.fd >= 0 && conn.zc_waiting_notif) {
+			if (conn.fd >= 0 && conn.zc_state.waiting_notification) {
 				++m.zc_notifications_pending;
 			}
 		}
