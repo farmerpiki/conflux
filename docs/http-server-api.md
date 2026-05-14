@@ -363,10 +363,12 @@ is exported by `conflux.net.http.response` / `conflux::http_response`. Static
 path/cache helpers live in `conflux.net.http.static_core` /
 `conflux::http_static_core`. Static root-dir ownership, contained `openat2`
 probing, GET/PUT/DELETE execution paths, and async file helper coroutines live
-in `conflux.net.http.static_async` / `conflux::http_static_async`.
-`conflux.net.router` still re-exports the public surface modules so existing
-router imports keep working while implementation bulk is split into smaller
-package targets.
+in `conflux.net.http.static_async` / `conflux::http_static_async`. Static
+route-registration internals live in `conflux.net.router_static`: the module
+exports a concrete handler bundle, while `router_impl` only installs prepared
+GET/PUT/DELETE routes. `conflux.net.router` still re-exports the public surface
+modules so existing router imports keep working while implementation bulk is
+split into smaller package targets.
 
 ## Static file serving
 

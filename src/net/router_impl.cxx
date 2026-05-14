@@ -1,6 +1,3 @@
-module;
-#include <fcntl.h>
-#include <unistd.h>
 module conflux.net.router;
 
 import std;
@@ -10,7 +7,6 @@ import conflux.net.http.server_types;
 import conflux.net.http.realtime;
 import conflux.net.http.static_files;
 import conflux.net.http.static_core;
-import conflux.net.http.static_async;
 import conflux.net.router_dispatch;
 import conflux.net.router_match;
 import conflux.net.router_static;
@@ -200,18 +196,19 @@ Router &Router::serve_static(
 	std::string_view url_prefix,
 	std::string root_dir,
 	StaticOptions const &sopts) {
-	auto add_get = [this](SV pattern, auto handler) { get(pattern, move(handler)); };
-	auto add_put = [this](SV pattern, auto handler) { put(pattern, move(handler)); };
-	auto add_del = [this](SV pattern, auto handler) { del(pattern, move(handler)); };
-	serve_static_routes(
-		add_get,
-		add_put,
-		add_del,
-		move(url_prefix),
+	auto routes = make_static_route_registration(
+		url_prefix,
 		move(root_dir),
 		sopts,
 		impl_->static_file_cache,
 		impl_->static_cache);
+	add_prepared("GET", routes.pattern, move(routes.get));
+	if (routes.put) {
+		add_prepared("PUT", routes.pattern, move(*routes.put));
+	}
+	if (routes.del) {
+		add_prepared("DELETE", routes.pattern, move(*routes.del));
+	}
 	return *this;
 }
 

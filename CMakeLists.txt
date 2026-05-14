@@ -1090,13 +1090,18 @@ target_sources(conflux_http_router_static
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES src/net/router_static.cxx
+    PRIVATE
+        src/net/router_static_impl.cxx
 )
 target_link_libraries(conflux_http_router_static
     PRIVATE conflux_options
+    PRIVATE conflux_http_static_async
     PUBLIC  conflux_types
     PUBLIC  conflux_http_core
+    PUBLIC  conflux_http_response
+    PUBLIC  conflux_http_static
     PUBLIC  conflux_http_static_core
-    PUBLIC  conflux_http_static_async
+    PUBLIC  conflux_net_config
 )
 target_link_libraries(conflux_http_router
     PRIVATE conflux_options
@@ -1107,8 +1112,8 @@ target_link_libraries(conflux_http_router
     PUBLIC  conflux_http_realtime
     PUBLIC  conflux_http_static
     PUBLIC  conflux_http_response
-    PUBLIC  conflux_http_static_core
-    PUBLIC  conflux_http_static_async
+    PRIVATE conflux_http_static_core
+    PRIVATE conflux_http_static_async
     PUBLIC  conflux_work
     PUBLIC  conflux_utils
     PUBLIC  conflux_net_config

@@ -27,7 +27,7 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
    - Timeout submission now lives in `conflux.uring.timeout`; keep moving other non-file runtime helpers out of `file_io` in the same style.
    - HTTP server parsing/formatting helpers now live in `conflux.net.http_server_helpers`; keep peeling `http_server_impl` toward smaller event-loop/state-machine units and move any remaining duplicated request parsing there.
    - HTTP server ring/config helpers now live in `conflux.net.http_server_config`; keep peeling `http_server_impl` toward the send/recv and dispatch state machines.
-   - Router route-pattern parsing/matching now lives in `conflux.net.router_match`; dispatch helpers now live in `conflux.net.router_dispatch`; keep peeling `router_impl` toward state ownership, and static-route registration still lives in `conflux.net.router_static`.
+   - Router route-pattern parsing/matching now lives in `conflux.net.router_match`; dispatch helpers now live in `conflux.net.router_dispatch`; keep peeling `router_impl` toward state ownership, and static-route registration now lives in `conflux.net.router_static` / `router_static_impl`.
 
 2. **Apply the blocking/sync/async naming pass.**
    - Inventory is documented in `docs/naming-audit.md`.
