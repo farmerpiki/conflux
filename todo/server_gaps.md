@@ -60,6 +60,22 @@ Still implemented but not directly covered by deterministic tests after this pas
 - [ ] DeferredResponse eventfd wake-read behavior after `complete()` / `expire_if_past_deadline()`; E2E timeout exists, but deterministic unit coverage should read/drain the eventfd directly.
 - [ ] Response body-kind transitions for SSE/WS/mapped/streamed/deferred payloads; text body transitions are covered, non-text transitions still need lightweight object construction seams.
 
+## Test coverage gap pass 3 (2026-05-14)
+
+Implemented in this patch:
+
+- [x] HTTP server helper response formatting: deterministic tests now cover invalid reason/header/cookie filtering, framing-header suppression, `Alt-Svc`, close/keep-alive emission, and body suppression for 204/304/HEAD responses.
+- [x] HTTP server helper parsing primitives: deterministic tests now cover header-token validation, parameter extraction, cookie parsing, `Connection` token matching, `Expect` parsing, and strict `Transfer-Encoding: chunked` validation.
+- [x] HTTP request body helper parsing: deterministic tests now cover URL-encoded form decoding, multipart text/file extraction, complete chunked decoding, incremental chunked decoding, incomplete input, malformed chunks, and too-large bodies.
+
+Still implemented but not directly covered by deterministic tests after pass 3:
+
+- [ ] HTTP parser/helper duplicate implementation drift: `http_server_impl.cxx` still has local copies of helper logic next to the exported `conflux.net.http_server_helpers` module; tests cover the exported helper API, but not that the legacy local copies stay byte-for-byte behavior-compatible until removed.
+- [ ] HTTP client redirect execution path for relative vs absolute redirects, redirect-limit exhaustion, and sensitive header handling across host changes; builder knobs are covered, but network redirect behavior still needs a local two-server E2E.
+- [ ] HTTP request body double-set debug assertion path; needs an assert-probe binary like the recv-bundle probes because release builds intentionally use last-wins behavior.
+- [ ] DeferredResponse eventfd wake-read behavior after `complete()` / `expire_if_past_deadline()`; E2E timeout exists, but deterministic unit coverage should read/drain the eventfd directly.
+- [ ] Response body-kind transitions for SSE/WS/mapped/streamed/deferred payloads; text body transitions are covered, non-text transitions still need lightweight object construction seams.
+
 ## Architecture (dedicated branches)
 
 - [ ] Dedicated `IOPOLL` ring for O_DIRECT file I/O, separate from network ring

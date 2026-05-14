@@ -185,6 +185,12 @@ if(TARGET conflux_http_response)
         PRIVATE conflux_http_response conflux_options Catch2::Catch2WithMain)
 endif()
 
+if(TARGET conflux_http_server_helpers)
+    add_executable(conflux_http_server_helpers_tests http_server_helpers_test.cxx)
+    target_link_libraries(conflux_http_server_helpers_tests
+        PRIVATE conflux_http_server_helpers conflux_options Catch2::Catch2WithMain)
+endif()
+
 add_executable(conflux_template_tests template_test.cxx)
 target_link_libraries(conflux_template_tests PRIVATE conflux conflux_options Catch2::Catch2WithMain)
 
@@ -492,6 +498,9 @@ if(TARGET conflux_http_core_tests)
 endif()
 if(TARGET conflux_http_response_tests)
     conflux_discover_tests(conflux_http_response_tests)
+endif()
+if(TARGET conflux_http_server_helpers_tests)
+    conflux_discover_tests(conflux_http_server_helpers_tests)
 endif()
 conflux_discover_tests(conflux_template_tests)
 conflux_discover_tests(conflux_json_tests)
