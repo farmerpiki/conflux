@@ -3,6 +3,10 @@
 Process gate for server migration steps. Run before merging any migration PR.
 Not in CI — bench DB is local only.
 
+Known-good baseline for comparisons in this worktree: `c3453a3`.
+Use it as the reference commit for perf and migration checks unless a newer
+baseline is called out explicitly.
+
 ## How to run
 
 Build base and candidate binaries into separate paths, then compare:

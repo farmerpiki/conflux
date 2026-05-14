@@ -2531,6 +2531,40 @@ TEST_CASE(
 	::rmdir(tmpdir);
 }
 TEST_CASE(
+	"static file serving: root_dir with trailing slash works") {
+	char tmpdir[] = "/tmp/conflux_static_slash_XXXXXX";
+	REQUIRE(::mkdtemp(tmpdir) != nullptr);
+
+	auto path = S{tmpdir} + "/hello.txt";
+	int const fd = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+	REQUIRE(fd >= 0);
+	REQUIRE(::write(fd, "Hello, slash!", 13) == 13);
+	::close(fd);
+
+	Config cfg{};
+	cfg.port = 0;
+	cfg.rings = 1;
+	cfg.ring_entries = 256;
+	cfg.single_issuer = true;
+	cfg.defer_taskrun = true;
+	cfg.coop_taskrun = true;
+	cfg.taskrun_flag = true;
+
+	Router router;
+	router.serve_static("/static", S{tmpdir} + "/");
+
+	ScopedTestServer srv{cfg, move(router)};
+	auto resp = conflux::tests::http_get_on(srv.port(), "/static/hello.txt");
+	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
+	auto hdr_end = resp.find("\r\n\r\n");
+	REQUIRE(hdr_end != S::npos);
+	CHECK(resp.substr(hdr_end + 4) == "Hello, slash!");
+
+	srv.stop();
+	::unlink(path.c_str());
+	::rmdir(tmpdir);
+}
+TEST_CASE(
 	"static file serving: offload_pool parity") {
 	char tmpdir[] = "/tmp/conflux_static_off_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
