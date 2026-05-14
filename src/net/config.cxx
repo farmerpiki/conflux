@@ -43,9 +43,9 @@ export struct StaticFileCacheConfig {
 // When the client's TLS ClientHello SNI matches VirtualHost::hostname case-insensitively, the
 // server switches to the certificate/key P from this struct.
 export struct VirtualHost {
-	S hostname{}; // SNI hostname to match
-	S cert_file{}; // PEM certificate chain for this host
-	S key_file{}; // PEM private key for this host
+	std::string hostname{}; // SNI hostname to match
+	std::string cert_file{}; // PEM certificate chain for this host
+	std::string key_file{}; // PEM private key for this host
 	StaticFileCacheConfig static_file_cache{}; // Opt per-host router default
 };
 export struct Config {
@@ -79,8 +79,8 @@ export struct Config {
 	bool startup_banner = true;
 
 	// TLS (enabled when both cert_file and key_file are non-empty)
-	S cert_file{}; // path to PEM certificate chain
-	S key_file{}; // path to PEM private key
+	std::string cert_file{}; // path to PEM certificate chain
+	std::string key_file{}; // path to PEM private key
 	// When true, plain HTTP connections receive a 301 redirect to the same URL on https://.
 	// Only meaningful when TLS is configured (cert_file + key_file set).
 	bool http_redirect_to_https = false;
@@ -89,14 +89,14 @@ export struct Config {
 	// "example.com:8080", "127.0.0.1").  Requests whose Host header is not in this list
 	// are rejected with 400 Bad Request instead of being redirected.
 	// Required when http_redirect_to_https is true; an empty list rejects all redirects.
-	V<S> https_redirect_hosts{};
+	std::vector<std::string> https_redirect_hosts{};
 	// SNI virtual hosting: each entry provides an alternate cert/key for a hostname.
 	// Matched by case-insensitive SNI hostname; the primary cert_file/key_file is the default.
 	V<VirtualHost> virtual_hosts{};
 	// TLS 1.2 cipher list (OpenSSL SSL_CTX_set_cipher_list format); empty = built-in default.
-	S tls_cipher_list{};
+	std::string tls_cipher_list{};
 	// TLS 1.3 ciphersuites (OpenSSL SSL_CTX_set_ciphersuites format); empty = built-in default.
-	S tls_ciphersuites{};
+	std::string tls_ciphersuites{};
 
 	// HTTP/3: disabled by default. Only meaningful when TLS is configured.
 	Http3Config http3{};
@@ -163,7 +163,7 @@ export struct Config {
 	// SEND_ZC: zero-copy send for HTTP responses (kernel 6.0+)
 	// off = never; auto = use if caps.send_zc, disable on repeated copies;
 	// on = require at startup, fail if unsupported.
-	S send_zc{"auto"};
+	std::string send_zc{"auto"};
 	SZ send_zc_threshold = 16384;
 	bool send_zc_report_usage = true;
 };
@@ -228,7 +228,7 @@ void apply_server_key(
 			return;
 		}
 	}
-	static constexpr A<P<SV, S Config::*>, 2> kStringKeys{
+	static constexpr A<P<SV, std::string Config::*>, 2> kStringKeys{
 		{
          {"cert_file", &Config::cert_file},
          {"key_file", &Config::key_file},
@@ -236,7 +236,7 @@ void apply_server_key(
     };
 	for (auto const &[k, member]: kStringKeys) {
 		if (key == k) {
-			cfg.*member = S{val};
+			cfg.*member = std::string{val};
 			return;
 		}
 	}
@@ -310,7 +310,7 @@ void apply_tls_key(
 	Config &cfg,
 	SV key,
 	SV val) {
-	static constexpr A<P<SV, S Config::*>, 2> kStringKeys{
+	static constexpr A<P<SV, std::string Config::*>, 2> kStringKeys{
 		{
          {"cipher_list", &Config::tls_cipher_list},
          {"ciphersuites", &Config::tls_ciphersuites},
@@ -318,7 +318,7 @@ void apply_tls_key(
     };
 	for (auto const &[k, member]: kStringKeys) {
 		if (key == k) {
-			cfg.*member = S{val};
+			cfg.*member = std::string{val};
 			return;
 		}
 	}
