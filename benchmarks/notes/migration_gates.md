@@ -3,7 +3,7 @@
 Process gate for server migration steps. Run before merging any migration PR.
 Not in CI — bench DB is local only.
 
-Known-good baseline for comparisons in this worktree: `c3453a3`.
+Known-good baseline for comparisons in this worktree: `7e11e0a816909d5804b28082dad9e7211059baeb`.
 Use it as the reference commit for perf and migration checks unless a newer
 baseline is called out explicitly.
 
