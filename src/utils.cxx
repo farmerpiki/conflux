@@ -7,6 +7,7 @@ module;
 #include <netinet/in.h>
 #include <poll.h>
 #include <sys/random.h>
+#include <unistd.h>
 #if defined(CONFLUX_CRYPTO_USE_AESNI)
 extern "C" {
 void conflux_hex_encode_ssse3(unsigned char const *in, __SIZE_TYPE__ len, char *out);
@@ -54,6 +55,40 @@ public:
 };
 
 } // namespace utils_detail
+namespace {
+
+mutex &stderr_mutex_() noexcept {
+	static mutex mu;
+	return mu;
+}
+void write_stderr_unlocked_(
+	SV message) noexcept {
+	while (!message.empty()) {
+		auto const n = ::write(STDERR_FILENO, message.data(), message.size());
+		if (n > 0) {
+			message.remove_prefix(static_cast<SZ>(n));
+			continue;
+		}
+		if (n < 0 && errno == EINTR) {
+			continue;
+		}
+		break;
+	}
+}
+
+} // namespace
+export void eprint(
+	SV message) noexcept {
+	SL const lk{stderr_mutex_()};
+	write_stderr_unlocked_(message);
+}
+export void eprintln(
+	SV message) noexcept {
+	SL const lk{stderr_mutex_()};
+	write_stderr_unlocked_(message);
+	write_stderr_unlocked_("\n");
+}
+
 export void crypto_random_bytes(
 	span<unsigned char> out) {
 	SZ total = 0;
@@ -457,6 +492,82 @@ export SV trim(
 	}
 	return s;
 }
+
+export SV strip_cr(
+	SV s) noexcept {
+	if (!s.empty() && s.back() == '\r') {
+		s.remove_suffix(1);
+	}
+	return s;
+}
+export Opt<P<SV, SV>> split_once(
+	SV s,
+	char delim) noexcept {
+	auto const pos = s.find(delim);
+	if (pos == SV::npos) {
+		return nullopt;
+	}
+	return P<SV, SV>{s.substr(0, pos), s.substr(pos + 1)};
+}
+export struct LineView {
+	SV text;
+	SZ line_no{};
+};
+export class LineRange {
+	SV text_{};
+
+public:
+	constexpr explicit LineRange(
+		SV text) noexcept
+		: text_{text} {}
+	class iterator {
+		SV rest_{};
+		LineView current_{};
+		SZ next_line_no_{1};
+		bool done_{true};
+
+		void advance_() noexcept {
+			if (rest_.empty()) {
+				done_ = true;
+				current_ = {};
+				return;
+			}
+			auto const eol = rest_.find('\n');
+			SV line = eol == SV::npos ? rest_ : rest_.substr(0, eol);
+			current_ = LineView{.text = strip_cr(line), .line_no = next_line_no_++};
+			if (eol == SV::npos) {
+				rest_ = {};
+			} else {
+				rest_.remove_prefix(eol + 1);
+			}
+			done_ = false;
+		}
+
+	public:
+		using value_type = LineView;
+		using difference_type = std::ptrdiff_t;
+		iterator() noexcept = default;
+		explicit iterator(
+			SV text) noexcept
+			: rest_{text}
+			, done_{false} {
+			advance_();
+		}
+		[[nodiscard]] LineView const &operator *() const noexcept { return current_; }
+		[[nodiscard]] LineView const *operator ->() const noexcept { return &current_; }
+		iterator &operator ++() noexcept {
+			advance_();
+			return *this;
+		}
+		void operator ++(int) noexcept { advance_(); }
+		[[nodiscard]] bool operator ==(
+			std::default_sentinel_t) const noexcept {
+			return done_;
+		}
+	};
+	[[nodiscard]] iterator begin() const noexcept { return iterator{text_}; }
+	[[nodiscard]] std::default_sentinel_t end() const noexcept { return {}; }
+};
 // Format an IpAddr as a S. IPv4-mapped addresses render as bare IPv4.
 export S ip_to_string(
 	IpAddr const &ip) {
@@ -476,7 +587,7 @@ export V<IpCidr> parse_cidr_list(
 		if (auto c = parse_cidr(s)) {
 			result.push_back(*c);
 		} else {
-			println(stderr, "parse_cidr_list: invalid CIDR '{}' ignored", s);
+			std::println(stderr, "parse_cidr_list: invalid CIDR '{}' ignored", s);
 		}
 	}
 	return result;

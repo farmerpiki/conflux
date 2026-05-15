@@ -32,8 +32,8 @@ root::Task<void> demo(
 	S path) {
 	auto first = co_await read_file(files, path);
 	auto second = co_await read_file(files, path);
-	println("first  read: {}", first);
-	println("second read: {}", second);
+	std::println("first  read: {}", first);
+	std::println("second read: {}", second);
 	co_return;
 }
 
@@ -42,12 +42,12 @@ int main() {
 	S const path = "/tmp/conflux_coroutine_example.txt";
 	int const seed = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 	if (seed < 0) {
-		println(cerr, "open seed failed");
+		std::println(std::cerr, "open seed failed");
 		return 1;
 	}
 	SV const text = "hello from a coroutine!\n";
 	if (::write(seed, text.data(), text.size()) != static_cast<ssize_t>(text.size())) {
-		println(cerr, "seed write failed");
+		std::println(std::cerr, "seed write failed");
 		::close(seed);
 		return 1;
 	}
@@ -55,7 +55,7 @@ int main() {
 
 	io_uring ring{};
 	if (::io_uring_queue_init(64, &ring, 0) < 0) {
-		println(cerr, "io_uring_queue_init failed");
+		std::println(std::cerr, "io_uring_queue_init failed");
 		return 1;
 	}
 	CompletionTable completions;
@@ -64,7 +64,7 @@ int main() {
 	try {
 		block_on(files, demo(files, path));
 	} catch (exception const &e) {
-		println(cerr, "error: {}", e.what());
+		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);
 		::unlink(path.c_str());
 		return 1;

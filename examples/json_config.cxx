@@ -59,7 +59,7 @@ static void print_json_error(
 	JsonError const &e) {
 	S const path = display_path(e);
 	if (e.source) {
-		println(
+		std::println(
 			"{}: {} at {} (line {}, column {}, byte {})",
 			context,
 			e.message,
@@ -69,7 +69,7 @@ static void print_json_error(
 			e.source->offset);
 		return;
 	}
-	println("{}: {} at {}", context, e.message, path);
+	std::println("{}: {} at {}", context, e.message, path);
 }
 
 static expected<ServiceConfig, JsonError> load_config(
@@ -102,7 +102,7 @@ static expected<ServiceConfig, JsonError> load_config(
 }
 
 static void example_valid_config() {
-	println("--- JSON config boundary ---");
+	std::println("--- JSON config boundary ---");
 	constexpr SV input = R"({
 		// JSON5 subset: comments, unquoted keys, single quotes, trailing comma.
 		host: '127.0.0.1',
@@ -121,7 +121,7 @@ static void example_valid_config() {
 		return;
 	}
 
-	println(
+	std::println(
 		"listen {}:{} tls={} rpm={} burst={} log_level={}",
 		cfg->host,
 		cfg->port,
@@ -132,7 +132,7 @@ static void example_valid_config() {
 }
 
 static void example_invalid_config() {
-	println("\n--- config error path ---");
+	std::println("\n--- config error path ---");
 	constexpr SV input = R"({
 		host: '127.0.0.1',
 		port: '8080',

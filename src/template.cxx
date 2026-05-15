@@ -5,6 +5,8 @@ export module conflux.templates;
 import conflux.types;
 import std.compat;
 import conflux.json;
+import conflux.utils;
+import conflux.file_io_sync;
 #if CONFLUX_HAS_FILE_WATCH
 import conflux.file_watch;
 #endif
@@ -1935,13 +1937,12 @@ void Environment::Impl::reload_path(
 	if (!extension_allowed(p)) {
 		return;
 	}
-	std::ifstream f(p);
-	if (!f) {
+	auto buf = read_text_file_nothrow(p.string());
+	if (!buf) {
 		return;
 	}
-	S const buf(std::istreambuf_iterator<char>(f), {});
 	auto name = p.filename().string();
-	auto parsed = parse(name, buf);
+	auto parsed = parse(name, *buf);
 	std::unique_lock const lk{cache_mtx};
 	cache[name] = move(parsed);
 }
@@ -2021,14 +2022,13 @@ void Environment::load_all() {
 			continue;
 		}
 
-		std::ifstream f(entry.path());
-		if (!f) {
+		auto buf = read_text_file_nothrow(entry.path().string());
+		if (!buf) {
 			continue;
 		}
-		S const buf(std::istreambuf_iterator<char>(f), {});
 
 		auto name = entry.path().filename().string();
-		parsed[name] = impl_->parse(name, buf);
+		parsed[name] = impl_->parse(name, *buf);
 	}
 
 	std::unique_lock const lk{impl_->cache_mtx};

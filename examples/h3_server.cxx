@@ -20,7 +20,7 @@ int main() {
 		key_path,
 		cert_path);
 	if (std::system(gen_cmd.c_str()) != 0) {
-		println(cerr, "openssl req failed");
+		std::println(std::cerr, "openssl req failed");
 		return 1;
 	}
 
@@ -39,7 +39,7 @@ int main() {
 	router.get("/ping", [](HttpRequestView const &) { return HttpResponse::json(R"({"transport":"h3-ready"})"); });
 
 	HttpServer srv{cfg, move(router)};
-	println(cerr, "HTTPS + HTTP/3 server listening on https://localhost:9443");
+	std::println(std::cerr, "HTTPS + HTTP/3 server listening on https://localhost:9443");
 	auto const status = srv.run();
 	return status == RunStatus::stopped_normally ? 0 : 1;
 }

@@ -1,13 +1,13 @@
 # Remove standard stream dependencies — updated review pass
 
 Date: 2026-05-11  
-Status: **recommended; Phase 0 core-error/file_io_sync prerequisite is partially unblocked**
+Status: **recommended; Phase 0 core-error/file_io_sync/component prerequisite is unblocked**
 
 ## Decision delta
 
-The stream cleanup proposal is correct, and the original core-error prerequisite is now partially unblocked: `file_io_sync` no longer depends on `conflux.uring.completion`. The remaining ordering constraint is the public component split, because the current CMake target is still created inside the runtime-gated block.
+The stream cleanup proposal is correct, and the original core-error/file-layer prerequisite is now unblocked: `file_io_sync` no longer depends on `conflux.uring.completion`, and `conflux_file_io_sync` is created/exported outside the runtime-gated target block.
 
-Finish the target split before replacing streams in components that must be usable without liburing.
+The next implementation branch can replace streams in components that must be usable without liburing.
 
 ## Current confirmed stream inventory
 
@@ -42,7 +42,7 @@ This matches the original proposal. Tests/examples/benchmarks may continue using
 
 ## Required Phase 0: make sync file errors independent from uring
 
-Status: `IoError` is now exported from `conflux.types`, and `file_io_sync` no longer imports or links `conflux.uring.completion` / `conflux_uring`. The remaining prerequisite for a true no-liburing `file_io_sync` package is the modular target split that moves `conflux_file_io_sync` out from the current runtime-gated CMake block.
+Status: `IoError` is now exported from `conflux.types`, `file_io_sync` no longer imports or links `conflux.uring.completion` / `conflux_uring`, and `conflux_file_io_sync` is created/exported as a true no-liburing package component outside the runtime-gated CMake block.
 
 Historical options considered:
 

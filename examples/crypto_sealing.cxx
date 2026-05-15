@@ -54,31 +54,31 @@ int main() {
 	auto digest = sha256(to_unsigned_span(payload));
 	auto mac = hmac_sha256(to_unsigned_span("example signing key"), to_unsigned_span(payload));
 
-	println("sha256     {}", hex(bytes(digest)));
-	println("hmac       {}", hex(bytes(mac)));
-	println("b64url(mac) {}", base64url_encode(bytes(mac)));
-	println("constant-time self check: {}", constant_time_eq(hex(bytes(mac)), hex(bytes(mac))));
+	std::println("sha256     {}", hex(bytes(digest)));
+	std::println("hmac       {}", hex(bytes(mac)));
+	std::println("b64url(mac) {}", base64url_encode(bytes(mac)));
+	std::println("constant-time self check: {}", constant_time_eq(hex(bytes(mac)), hex(bytes(mac))));
 
 	auto key = fixed_key();
 	auto iv = fixed_iv();
 	auto sealed = aes_gcm_encrypt(bytes(key), bytes(iv), to_unsigned_span(payload), to_unsigned_span(aad));
 	if (!sealed) {
-		println(cerr, "seal failed: {}", sealed.error());
+		std::println(std::cerr, "seal failed: {}", sealed.error());
 		return 1;
 	}
-	println("sealed bytes: {}", sealed->size());
+	std::println("sealed bytes: {}", sealed->size());
 
 	auto opened = aes_gcm_decrypt(bytes(key), bytes(iv), bytes(*sealed), to_unsigned_span(aad));
 	if (!opened) {
-		println(cerr, "open failed: {}", opened.error());
+		std::println(std::cerr, "open failed: {}", opened.error());
 		return 1;
 	}
-	println("opened: {}", SV{reinterpret_cast<char const *>(opened->data()), opened->size()});
+	std::println("opened: {}", SV{reinterpret_cast<char const *>(opened->data()), opened->size()});
 
 	auto tampered = *sealed;
 	tampered[0] = static_cast<unsigned char>(tampered[0] ^ 0x01U);
 	auto rejected = aes_gcm_decrypt(bytes(key), bytes(iv), bytes(tampered), to_unsigned_span(aad));
 	if (!rejected) {
-		println("tamper rejected: {}", rejected.error());
+		std::println("tamper rejected: {}", rejected.error());
 	}
 }

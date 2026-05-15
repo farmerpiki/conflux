@@ -58,7 +58,7 @@ Config parse_args(
 		} else if (a == "--json") {
 			cfg.json_out = true;
 		} else if (a == "--help" || a == "-h") {
-			println("Usage: conflux_tls_tcp_increment_coro_bench [--iterations N] [--warmup N] [--json]");
+			std::println("Usage: conflux_tls_tcp_increment_coro_bench [--iterations N] [--warmup N] [--json]");
 			std::exit(0);
 		}
 	}
@@ -359,7 +359,7 @@ int main(
 
 	UniqueSslCtx const sctx{SSL_CTX_new(TLS_server_method())};
 	if (!sctx) {
-		println(cerr, "SSL_CTX_new server failed");
+		std::println(std::cerr, "SSL_CTX_new server failed");
 		return 1;
 	}
 	SSL_CTX_use_certificate(sctx.get(), kc.cert);
@@ -378,7 +378,7 @@ int main(
 			::close(csock);
 			server_stop.test_and_set(memory_order_release);
 			server.join();
-			println(cerr, "io_uring_queue_init failed");
+			std::println(std::cerr, "io_uring_queue_init failed");
 			return 1;
 		}
 		CompletionTable ct;
@@ -399,7 +399,7 @@ int main(
 			double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 			SV const label = (which == 0) ? "callback" : "coroutine";
 			if (cfg.json_out) {
-				println(
+				std::println(
 					"{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."
 					"2f}}}",
 					label,
@@ -408,11 +408,11 @@ int main(
 					per);
 			} else {
 				if (which == 0) {
-					println("iterations: {}, warmup: {}", cfg.iterations, cfg.warmup);
+					std::println("iterations: {}, warmup: {}", cfg.iterations, cfg.warmup);
 				}
-				println("  {:<10} {:>8.1f} ns/iter ({} ns total)", label, per, ns);
+				std::println("  {:<10} {:>8.1f} ns/iter ({} ns total)", label, per, ns);
 			}
-		} catch (exception const &e) { println(cerr, "error: {}", e.what()); }
+		} catch (exception const &e) { std::println(std::cerr, "error: {}", e.what()); }
 
 		::io_uring_queue_exit(&ring);
 		server_stop.test_and_set(memory_order_release);
@@ -421,6 +421,6 @@ int main(
 		server.join();
 	}
 } catch (exception const &e) {
-	println(cerr, "fatal: {}", e.what());
+	std::println(std::cerr, "fatal: {}", e.what());
 	return 1;
 }

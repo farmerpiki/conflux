@@ -66,6 +66,6 @@ int main(
 	auto stats = bench_params(cfg.config_name, n_params, cfg.iterations, cfg.warmup);
 	bench_print(stats, cfg.json_out, true);
 	if (!cfg.json_out) {
-		println("(sink={})", sink.load());
+		std::println("(sink={})", sink.load());
 	}
 }

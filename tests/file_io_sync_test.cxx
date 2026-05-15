@@ -255,6 +255,38 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"file_io_sync: openat_contained_sync opens files below root only",
+	"[file_io_sync][unit]") {
+	auto dir = TempDir::create();
+	dir.write_file("safe.txt", "safe");
+	auto fd = openat_contained_sync(dir.fd, "safe.txt", O_RDONLY);
+	REQUIRE(fd.has_value());
+	auto content = read_all_fd(fd->fd());
+	REQUIRE(content.has_value());
+	CHECK(*content == "safe");
+
+	auto escaped = openat_contained_sync(dir.fd, "../safe.txt", O_RDONLY);
+	REQUIRE_FALSE(escaped.has_value());
+	CHECK(escaped.error().code().value() == EINVAL);
+}
+
+TEST_CASE(
+	"file_io_sync: read_text_file_sync reads absolute paths with limit",
+	"[file_io_sync][unit]") {
+	auto dir = TempDir::create();
+	dir.write_file("text.txt", "hello text");
+	auto path = format("{}/{}", dir.path, "text.txt");
+	auto content = read_text_file_sync(path);
+	REQUIRE(content.has_value());
+	CHECK(*content == "hello text");
+
+	auto too_small = read_text_file_sync(path, 4);
+	REQUIRE_FALSE(too_small.has_value());
+	CHECK(too_small.error().code().value() == EFBIG);
+	CHECK(read_text_file_nothrow("/tmp/conflux_missing_no_std_streams_file").has_value() == false);
+}
+
+TEST_CASE(
 	"file_io_sync: blocking aliases forward to legacy sync helpers",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();

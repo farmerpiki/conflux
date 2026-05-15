@@ -1,5 +1,8 @@
 module;
+#include <cerrno>
 #include <cstdlib>
+#include <fcntl.h>
+#include <unistd.h>
 
 export module conflux.net.config;
 
@@ -215,6 +218,14 @@ export [[nodiscard]] bool secret_source_configured(
 	return src.kind != SecretSourceKind::unset;
 }
 
+namespace {
+
+expected<S, int> read_text_file_local(
+	SV path,
+	SZ max_bytes = SZ{16} * 1024 * 1024);
+
+} // namespace
+
 export [[nodiscard]] expected<S, S> resolve_secret_source(
 	SecretSource const &src,
 	SV name,
@@ -239,11 +250,11 @@ export [[nodiscard]] expected<S, S> resolve_secret_source(
 		return S{value};
 	}
 	if (src.kind == SecretSourceKind::file) {
-		std::ifstream file{src.value};
-		if (!file) {
+		auto bytes = read_text_file_local(src.value, SZ{1024} * 1024);
+		if (!bytes) {
 			return unexpected{format("auth secret '{}': cannot open secret file '{}'", name, src.value)};
 		}
-		S value{std::istreambuf_iterator<char>{file}, std::istreambuf_iterator<char>{}};
+		S value{move(*bytes)};
 		while (!value.empty() && (value.back() == '\n' || value.back() == '\r')) {
 			value.pop_back();
 		}
@@ -297,6 +308,51 @@ export [[nodiscard]] expected<ResolvedSecretRotation, S> resolve_secret_rotation
 }
 
 namespace {
+struct LocalFd {
+	int fd{-1};
+	LocalFd() noexcept = default;
+	explicit LocalFd(
+		int f) noexcept
+		: fd{f} {}
+	LocalFd(LocalFd const &) = delete;
+	LocalFd &operator =(LocalFd const &) = delete;
+	LocalFd(LocalFd &&o) noexcept
+		: fd{exchange(o.fd, -1)} {}
+	LocalFd &operator =(LocalFd &&) = delete;
+	~LocalFd() {
+		if (fd >= 0) {
+			::close(fd);
+		}
+	}
+};
+expected<S, int> read_text_file_local(
+	SV path,
+	SZ max_bytes) {
+	S native{path};
+	LocalFd file{::open(native.c_str(), O_RDONLY | O_CLOEXEC)};
+	if (file.fd < 0) {
+		return unexpected{errno};
+	}
+	S out;
+	A<char, 16 * 1024> buf{};
+	for (;;) {
+		auto const n = ::read(file.fd, buf.data(), buf.size());
+		if (n == 0) {
+			return out;
+		}
+		if (n < 0) {
+			if (errno == EINTR) {
+				continue;
+			}
+			return unexpected{errno};
+		}
+		auto const count = static_cast<SZ>(n);
+		if (count > max_bytes - out.size()) {
+			return unexpected{EFBIG};
+		}
+		out.append(buf.data(), count);
+	}
+}
 
 SV strip_inline_comment(
 	SV s) {
@@ -572,17 +628,16 @@ void apply_iouring_key(
 // Throws RE on parse / IO failure.
 export Config config_from_ini(
 	char const *path) {
-	std::ifstream file{path};
-	if (!file) {
+	auto contents = read_text_file_local(SV{path});
+	if (!contents) {
 		throw RE{format("cannot open config: {}", path)};
 	}
 
 	Config cfg{};
 	S section;
-	S line;
 
-	while (std::getline(file, line)) {
-		auto s = trim(SV{line});
+	for (auto const line: LineRange{*contents}) {
+		auto s = trim(line.text);
 		if (s.empty() || s[0] == '#' || s[0] == ';') {
 			continue;
 		}

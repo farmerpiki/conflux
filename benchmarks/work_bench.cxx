@@ -51,7 +51,7 @@ struct Case {
 	BenchFn run;
 };
 void print_usage() {
-	println("Usage: conflux_work_benchmarks [--list] [--filter SUBSTR] [--iterations N] [--format table|json]");
+	std::println("Usage: conflux_work_benchmarks [--list] [--filter SUBSTR] [--iterations N] [--format table|json]");
 }
 Config parse_args(
 	span<char *> args) {
@@ -165,7 +165,7 @@ Stats measure_case(
 void print_header(
 	Config::Format format) {
 	if (format == Config::Format::table) {
-		println(
+		std::println(
 			"{:48} {:>12} {:>10} {:>10} {:>10} {:>10}",
 			"Benchmark",
 			"Iterations",
@@ -179,7 +179,7 @@ void print_stats(
 	Stats const &stats,
 	Config::Format format) {
 	if (format == Config::Format::table) {
-		println(
+		std::println(
 			"{:48} {:>12} {:>10.1f} {:>10.1f} {:>10.1f} {:>10.1f}",
 			stats.name,
 			stats.iterations,
@@ -188,7 +188,7 @@ void print_stats(
 			stats.p10_ns,
 			stats.mad_ns);
 	} else {
-		println(
+		std::println(
 			"{{\"config\":\"\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"min\":{:."
 			"2f},\"p10\":{:.2f},\"mad\":{:.2f}}}",
 			stats.name,
@@ -571,7 +571,7 @@ int main(
 		auto cases = make_cases();
 		if (cfg.list_only) {
 			for (auto const &bench: cases) {
-				println("{:48} {}", bench.name, bench.description);
+				std::println("{:48} {}", bench.name, bench.description);
 			}
 			return 0;
 		}
@@ -583,10 +583,10 @@ int main(
 			auto const iterations = cfg.iterations_override.value_or(bench.default_iterations);
 			print_stats(measure_case(bench, iterations), cfg.format);
 		}
-		println(cerr, "sink={}", sink.load(memory_order_relaxed));
+		std::println(std::cerr, "sink={}", sink.load(memory_order_relaxed));
 		return 0;
 	} catch (exception const &ex) {
-		println(cerr, "conflux_work_benchmarks: {}", ex.what());
+		std::println(std::cerr, "conflux_work_benchmarks: {}", ex.what());
 		return 1;
 	}
 }

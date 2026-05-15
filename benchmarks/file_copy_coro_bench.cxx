@@ -51,7 +51,7 @@ Config parse_args(
 		} else if (a == "--json") {
 			cfg.json_out = true;
 		} else if (a == "--help" || a == "-h") {
-			println("Usage: conflux_file_copy_coro_bench [--size-mib N] [--chunk-kib N] [--runs N] [--json]");
+			std::println("Usage: conflux_file_copy_coro_bench [--size-mib N] [--chunk-kib N] [--runs N] [--json]");
 			std::exit(0);
 		}
 	}
@@ -169,12 +169,12 @@ int main(
 	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
 	SZ const bytes = cfg.size_mib << 20U;
 
-	println(cerr, "seeding {} MiB into {}", cfg.size_mib, cfg.src_path);
+	std::println(std::cerr, "seeding {} MiB into {}", cfg.size_mib, cfg.src_path);
 	seed_source(cfg.src_path, bytes);
 
 	::io_uring ring{};
 	if (::io_uring_queue_init(256, &ring, 0) < 0) {
-		println(cerr, "io_uring_queue_init failed");
+		std::println(std::cerr, "io_uring_queue_init failed");
 		return 1;
 	}
 	CompletionTable ct;
@@ -201,7 +201,7 @@ int main(
 		double const delta = 100.0 * (co_avg - cb_avg) / cb_avg;
 
 		if (cfg.json_out) {
-			println(
+			std::println(
 				"{{\"config\":\"default\",\"variant\":\"callback\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:"
 				".2f},\"avg_mib_per_s\":{:.1f},\"best_mib_per_s\":{:.1f},\"best_ns\":{}}}",
 				cfg.runs,
@@ -210,7 +210,7 @@ int main(
 				mib_per_sec(bytes, static_cast<u64>(cb_avg)),
 				mib_per_sec(bytes, cb.best_ns),
 				cb.best_ns);
-			println(
+			std::println(
 				"{{\"config\":\"default\",\"variant\":\"coroutine\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{"
 				":.2f},\"avg_mib_per_s\":{:.1f},\"best_mib_per_s\":{:.1f},\"best_ns\":{}}}",
 				cfg.runs,
@@ -220,23 +220,23 @@ int main(
 				mib_per_sec(bytes, co.best_ns),
 				co.best_ns);
 		} else {
-			println("size: {} MiB, chunk: {} KiB, runs: {} (+1 warmup each)", cfg.size_mib, cfg.chunk_kib, cfg.runs);
-			println(
+			std::println("size: {} MiB, chunk: {} KiB, runs: {} (+1 warmup each)", cfg.size_mib, cfg.chunk_kib, cfg.runs);
+			std::println(
 				"  callback   avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
 				cb_avg / 1e6,
 				static_cast<double>(cb.best_ns) / 1e6,
 				mib_per_sec(bytes, static_cast<u64>(cb_avg)),
 				mib_per_sec(bytes, cb.best_ns));
-			println(
+			std::println(
 				"  coroutine  avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
 				co_avg / 1e6,
 				static_cast<double>(co.best_ns) / 1e6,
 				mib_per_sec(bytes, static_cast<u64>(co_avg)),
 				mib_per_sec(bytes, co.best_ns));
-			println("  delta      {:+.2f}% avg (coro vs callback)", delta);
+			std::println("  delta      {:+.2f}% avg (coro vs callback)", delta);
 		}
 	} catch (exception const &e) {
-		println(cerr, "error: {}", e.what());
+		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);
 		::unlink(cfg.dst_path.c_str());
 		::unlink(cfg.src_path.c_str());

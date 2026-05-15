@@ -47,7 +47,7 @@ void check_impl(
 	++g_checks;
 	if (!cond) {
 		++g_failures;
-		println(cerr, "  FAIL [{}]: {}", test, msg);
+		std::println(std::cerr, "  FAIL [{}]: {}", test, msg);
 	}
 }
 #define CHECK(cond)check_impl(!!(cond),__func__,#cond)
@@ -271,13 +271,13 @@ export int run_tests() {
 		int before = g_failures;
 		t.fn();
 		if (g_failures == before) {
-			println("PASS: {}", t.name);
+			std::println("PASS: {}", t.name);
 		} else {
-			println("FAIL: {}", t.name);
+			std::println("FAIL: {}", t.name);
 		}
 	}
 	int total_failed = g_failures - saved;
-	println(
+	std::println(
 		"{}/{} tests passed.",
 		static_cast<int>(std::size(tests)) - total_failed,
 		static_cast<int>(std::size(tests)));

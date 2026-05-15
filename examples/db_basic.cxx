@@ -23,13 +23,13 @@ constexpr u64 pack_ud(
 int main() {
 	char const *raw = std::getenv("PG_CONNINFO");
 	if (raw == nullptr || *raw == '\0') {
-		println(cerr, "set PG_CONNINFO, e.g. host=/var/run/postgresql user=postgres dbname=postgres");
+		std::println(std::cerr, "set PG_CONNINFO, e.g. host=/var/run/postgresql user=postgres dbname=postgres");
 		return 2;
 	}
 
 	::io_uring ring{};
 	if (::io_uring_queue_init(64, &ring, 0) < 0) {
-		println(cerr, "io_uring_queue_init failed");
+		std::println(std::cerr, "io_uring_queue_init failed");
 		return 1;
 	}
 	CompletionTable ct;
@@ -38,19 +38,19 @@ int main() {
 
 	try {
 		auto conn = block_on(reader, Connection::connect({.conninfo = raw}));
-		println("connected — backend pid {}, server {}", conn->backend_pid(), conn->server_version());
+		std::println("connected — backend pid {}, server {}", conn->backend_pid(), conn->server_version());
 
 		Params p;
 		p.add(i64{3});
 		auto rs =
 			block_on(reader, conn->query("SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i", move(p)));
-		println("rows: {} cols: {}", rs.rows(), rs.cols());
+		std::println("rows: {} cols: {}", rs.rows(), rs.cols());
 		for (auto row: rs) {
-			println("  {} = {}", row.as<i64>(0), row.as<SV>(1));
+			std::println("  {} = {}", row.as<i64>(0), row.as<SV>(1));
 		}
 		conn->close();
 	} catch (exception const &e) {
-		println(cerr, "error: {}", e.what());
+		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);
 		return 1;
 	}

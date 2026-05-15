@@ -47,7 +47,7 @@ static void print_json_error(
 	JsonError const &e) {
 	S const path = display_path(e);
 	if (e.source) {
-		println(
+		std::println(
 			"{}: {} at {} (line {}, column {}, byte {})",
 			context,
 			e.message,
@@ -57,7 +57,7 @@ static void print_json_error(
 			e.source->offset);
 		return;
 	}
-	println("{}: {} at {}", context, e.message, path);
+	std::println("{}: {} at {}", context, e.message, path);
 }
 
 static expected<IngestStats, JsonError> ingest_ndjson(
@@ -91,7 +91,7 @@ static expected<IngestStats, JsonError> ingest_ndjson(
 }
 
 static void example_ndjson_ingest() {
-	println("--- NDJSON ingest ---");
+	std::println("--- NDJSON ingest ---");
 	constexpr SV input =
 		R"({"id":1,"type":"completion","tokens":312})"
 		"\n"
@@ -105,11 +105,11 @@ static void example_ndjson_ingest() {
 		print_json_error("ingest failed", stats.error());
 		return;
 	}
-	println("rows={} tokens={} errored_rows={}", stats->rows, stats->token_total, stats->errors);
+	std::println("rows={} tokens={} errored_rows={}", stats->rows, stats->token_total, stats->errors);
 }
 
 static void example_reader_sequence() {
-	println("\n--- JsonReader typed sequence ---");
+	std::println("\n--- JsonReader typed sequence ---");
 	JsonReader reader{
 		R"({"id":10,"type":"completion","tokens":7})"
 		R"({"id":11,"type":"completion","tokens":9,"error":null})"};
@@ -124,7 +124,7 @@ static void example_reader_sequence() {
 		print_json_error("second event", second.error());
 		return;
 	}
-	println("event {} + event {} -> {} tokens", first->id, second->id, first->tokens + second->tokens);
+	std::println("event {} + event {} -> {} tokens", first->id, second->id, first->tokens + second->tokens);
 }
 
 int main() {

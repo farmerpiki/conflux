@@ -34,12 +34,12 @@ int main() {
 		run_on_task(pool, [] { return count_primes(75'000, 100'000); }));
 
 	auto [a, b, c, d] = sync_wait(move(counts));
-	println("primes below 100000: {}", a + b + c + d);
+	std::println("primes below 100000: {}", a + b + c + d);
 
 	try {
 		(void)sync_wait(run_on_task(pool, []() -> i64 { throw RE{"worker-side failure"}; }));
 	} catch (exception const &e) {
-		println("failure propagated through task outcome: {}", e.what());
+		std::println("failure propagated through task outcome: {}", e.what());
 	}
 
 	pool.drain_and_stop();

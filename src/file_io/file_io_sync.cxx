@@ -296,6 +296,33 @@ inline expected<PathParts, FileIoSyncError> split_contained_path(
 	return PathParts{.parent_dir = path.substr(0, last_slash), .basename = path.substr(last_slash + 1)};
 }
 // ───────────────────────────────────────────────────────────────────────
+// Low-level: openat_contained_sync
+// ───────────────────────────────────────────────────────────────────────
+
+export expected<UniqueFd, FileIoSyncError> openat_contained_sync(
+	int root_fd,
+	SV contained_relative_path,
+	int flags,
+	mode_t mode = 0) noexcept {
+	auto parts = split_contained_path(contained_relative_path);
+	if (!parts) {
+		return unexpected{parts.error()};
+	}
+	S path{contained_relative_path};
+	int const fd = openat2_sync(
+		root_fd,
+		path.c_str(),
+		static_cast<u64>(flags | O_CLOEXEC),
+		mode,
+		RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS);
+	if (fd < 0) {
+		return unexpected{
+			FileIoSyncError{errno, "file_io_sync: open contained file"}
+        };
+	}
+	return UniqueFd{fd};
+}
+// ───────────────────────────────────────────────────────────────────────
 // Low-level: open_tmpfile_sync
 // ───────────────────────────────────────────────────────────────────────
 
@@ -489,10 +516,12 @@ export expected<FileStat, FileIoSyncError> fstat_sync(
 }
 export expected<FileStat, FileIoSyncError> stat_at_sync(
 	int dir_fd,
-	SV path) noexcept {
+	SV path,
+	int flags = 0,
+	unsigned mask = STATX_BASIC_STATS | STATX_MTIME | STATX_CTIME) noexcept {
 	S p{path};
 	struct statx stx{};
-	int const rc = ::statx(dir_fd, p.c_str(), 0, STATX_BASIC_STATS | STATX_MTIME | STATX_CTIME, &stx);
+	int const rc = ::statx(dir_fd, p.c_str(), flags, mask, &stx);
 	if (rc < 0) {
 		return unexpected{
 			FileIoSyncError{errno, "file_io_sync: statx"}
@@ -552,6 +581,39 @@ export std::expected<std::string, FileIoSyncError> read_all_fd(
 	}
 }
 // ───────────────────────────────────────────────────────────────────────
+// High-level: read_text_file_sync / read_text_file_nothrow
+// ───────────────────────────────────────────────────────────────────────
+
+export expected<S, FileIoSyncError> read_text_file_sync(
+	SV path,
+	SZ max_bytes = SZ{16} * 1024 * 1024) {
+	S native{path};
+	int const fd = ::open(native.c_str(), O_RDONLY | O_CLOEXEC);
+	if (fd < 0) {
+		return unexpected{
+			FileIoSyncError{errno, "file_io_sync: open text file"}
+        };
+	}
+	UniqueFd file{fd};
+	auto bytes = read_all_fd(file.fd(), max_bytes);
+	if (!bytes) {
+		return unexpected{bytes.error()};
+	}
+	return S{move(*bytes)};
+}
+export Opt<S> read_text_file_nothrow(
+	SV path,
+	SZ max_bytes = SZ{16} * 1024 * 1024) noexcept {
+	try {
+		auto bytes = read_text_file_sync(path, max_bytes);
+		if (!bytes) {
+			return nullopt;
+		}
+		return S{move(*bytes)};
+	} catch (...) { return nullopt; }
+}
+
+// ───────────────────────────────────────────────────────────────────────
 // High-level: read_file_at_sync
 // ───────────────────────────────────────────────────────────────────────
 
@@ -564,20 +626,11 @@ export std::expected<std::string, FileIoSyncError> read_file_at_sync(
 		return unexpected{parts.error()};
 	}
 
-	std::string path{contained_relative_path};
-	int fd = openat2_sync(
-		root_fd,
-		path.c_str(),
-		O_RDONLY | O_CLOEXEC,
-		0,
-		RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS);
-	if (fd < 0) {
-		return unexpected{
-			FileIoSyncError{errno, "file_io_sync: open file"}
-        };
+	auto file = openat_contained_sync(root_fd, contained_relative_path, O_RDONLY);
+	if (!file) {
+		return unexpected{file.error()};
 	}
-	UniqueFd file{fd};
-	return read_all_fd(file.fd(), max_bytes);
+	return read_all_fd(file->fd(), max_bytes);
 }
 
 // ───────────────────────────────────────────────────────────────────────
@@ -590,6 +643,14 @@ export inline expected<TemporaryFileSync, FileIoSyncError> blocking_open_tmpfile
 	int parent_dir_fd,
 	TempFileOptions opts = {}) noexcept {
 	return open_tmpfile_sync(parent_dir_fd, opts);
+}
+
+export inline expected<UniqueFd, FileIoSyncError> blocking_openat_contained(
+	int root_fd,
+	SV contained_relative_path,
+	int flags,
+	mode_t mode = 0) noexcept {
+	return openat_contained_sync(root_fd, contained_relative_path, flags, mode);
 }
 
 export inline expected<void, FileIoSyncError> blocking_write_all_fd(
@@ -632,8 +693,10 @@ export inline expected<FileStat, FileIoSyncError> blocking_fstat(
 
 export inline expected<FileStat, FileIoSyncError> blocking_stat_at(
 	int dir_fd,
-	SV path) noexcept {
-	return stat_at_sync(dir_fd, path);
+	SV path,
+	int flags = 0,
+	unsigned mask = STATX_BASIC_STATS | STATX_MTIME | STATX_CTIME) noexcept {
+	return stat_at_sync(dir_fd, path, flags, mask);
 }
 
 export inline std::expected<std::string, FileIoSyncError> blocking_read_all_fd(
@@ -647,4 +710,16 @@ export inline std::expected<std::string, FileIoSyncError> blocking_read_file_at(
 	std::string_view contained_relative_path,
 	std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
 	return read_file_at_sync(root_fd, contained_relative_path, max_bytes);
+}
+
+export inline expected<S, FileIoSyncError> blocking_read_text_file(
+	SV path,
+	SZ max_bytes = SZ{16} * 1024 * 1024) {
+	return read_text_file_sync(path, max_bytes);
+}
+
+export inline Opt<S> blocking_read_text_file_nothrow(
+	SV path,
+	SZ max_bytes = SZ{16} * 1024 * 1024) noexcept {
+	return read_text_file_nothrow(path, max_bytes);
 }

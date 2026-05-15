@@ -25,7 +25,7 @@ struct SceneObject {
 	[[= conflux::json::name("display_name")]] string label;
 };
 static void example_encode() {
-	println("--- reflect encode ---");
+	std::println("--- reflect encode ---");
 	SceneObject obj{
 		.id = "cube_01",
 		.position = {            1.0,              2.5,                  -3.0},
@@ -37,14 +37,14 @@ static void example_encode() {
 	ValueBuilder vb;
 	auto enc = JsonCodec<SceneObject>::encode(vb, obj);
 	if (!enc) {
-		println("encode error: {}", enc.error().message);
+		std::println("encode error: {}", enc.error().message);
 		return;
 	}
 	auto doc = *move(vb).finish();
-	println("{}", *doc.dump(JsonDumpOptions{.pretty = true, .indent = 2}));
+	std::println("{}", *doc.dump(JsonDumpOptions{.pretty = true, .indent = 2}));
 }
 static void example_decode() {
-	println("\n--- reflect decode ---");
+	std::println("\n--- reflect decode ---");
 	constexpr SV input = R"({
 "id":"sphere_07",
 "position":{"x":0,"y":10,"z":0},
@@ -55,10 +55,10 @@ static void example_decode() {
 	auto doc = *parse_view(input);
 	auto obj = decode<SceneObject>(doc);
 	if (!obj) {
-		println("decode error: {}", obj.error().message);
+		std::println("decode error: {}", obj.error().message);
 		return;
 	}
-	println(
+	std::println(
 		"id={} pos=({},{},{}) mat={} label={}",
 		obj->id,
 		obj->position.x,
@@ -66,36 +66,36 @@ static void example_decode() {
 		obj->position.z,
 		obj->material.name,
 		obj->label);
-	println("internal_gen={} (preserved default, skip annotation)", obj->internal_gen);
+	std::println("internal_gen={} (preserved default, skip annotation)", obj->internal_gen);
 }
 static void example_roundtrip() {
-	println("\n--- reflect round-trip ---");
+	std::println("\n--- reflect round-trip ---");
 	Material orig{.name = "wood", .roughness = 0.8, .texture = "oak.jpg"};
 
 	ValueBuilder vb;
 	auto enc = JsonCodec<Material>::encode(vb, orig);
 	if (!enc) {
-		println("encode error: {}", enc.error().message);
+		std::println("encode error: {}", enc.error().message);
 		return;
 	}
 	auto doc = *move(vb).finish();
 	auto json_str = *doc.dump();
-	println("encoded: {}", json_str);
+	std::println("encoded: {}", json_str);
 
 	auto doc2 = *parse_view(json_str);
 	auto rt = *decode<Material>(doc2);
-	println("decoded: name={} roughness={} texture={}", rt.name, rt.roughness, rt.texture.value_or("(none)"));
+	std::println("decoded: name={} roughness={} texture={}", rt.name, rt.roughness, rt.texture.value_or("(none)"));
 }
 static void example_reader_path() {
-	println("\n--- reflect decode from JsonReader ---");
+	std::println("\n--- reflect decode from JsonReader ---");
 	SV input = R"({"x": 1.5, "y": -2.0, "z": 0.0})";
 	JsonReader reader{input};
 	auto v = decode<Vec3>(reader);
 	if (!v) {
-		println("error: {}", v.error().message);
+		std::println("error: {}", v.error().message);
 		return;
 	}
-	println("Vec3 from reader: ({}, {}, {})", v->x, v->y, v->z);
+	std::println("Vec3 from reader: ({}, {}, {})", v->x, v->y, v->z);
 }
 int main() {
 	example_encode();

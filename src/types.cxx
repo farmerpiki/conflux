@@ -1,5 +1,4 @@
 module;
-#include <iostream>
 #include <memory>
 
 export module conflux.types;
@@ -85,8 +84,6 @@ export using std::make_shared;
 export using std::make_unique;
 export using std::nullopt;
 export using std::to_string;
-export using std::println;
-export using std::cerr;
 export using std::exception;
 export using std::same_as;
 export using std::byte;
@@ -121,12 +118,6 @@ export using std::hash;
 export using std::system_category;
 export using std::generic_category;
 export using std::weak_ptr;
-export void eprintln(
-	SV message) {
-	static mutex mu;
-	SL const lk{mu};
-	std::println(std::cerr, "{}", message);
-}
 export template<typename T>
 using US = std::unordered_set<T>;
 export struct IoError final : SE {

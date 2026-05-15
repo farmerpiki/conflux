@@ -170,7 +170,7 @@ Config parse_args(
 		} else if (a == "--config" && i + 1 < args.size()) {
 			cfg.config_path = args[++i];
 		} else if (a == "--help" || a == "-h") {
-			println(
+			std::println(
 				"Usage: conflux_tcp_parallel_coro_bench [--iterations N] [--warmup N] "
 				"[--parallel 1,2,4,8,16] [--config path.json] [--json]");
 			std::exit(0);
@@ -424,14 +424,14 @@ int main(
 	params.flags = rc.flags;
 	if (::io_uring_queue_init_params(rc.entries, &ring, &params) < 0) {
 		::close(lfd);
-		println(cerr, "io_uring_queue_init_params failed (flags={})", flags_str(rc.flags));
+		std::println(std::cerr, "io_uring_queue_init_params failed (flags={})", flags_str(rc.flags));
 		return 1;
 	}
 	CompletionTable ct;
 	FileReader files{&ring, &ct, pack_ud};
 
 	if (!cfg.json_out) {
-		println(
+		std::println(
 			"config: {}, flags: {}, ring_entries: {}, iterations/conn: {}, warmup: {}",
 			rc.label,
 			flags_str(rc.flags),
@@ -448,7 +448,7 @@ int main(
 		double const per = static_cast<double>(r.ns) / static_cast<double>(r.total_iters);
 		double const tput = static_cast<double>(r.total_iters) / (static_cast<double>(r.ns) / 1e9);
 		if (cfg.json_out) {
-			println(
+			std::println(
 				"{{\"config\":\"{}\",\"variant\":\"P{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
 				"\"flags\":\"{}\",\"ring_entries\":{},\"iters_per_conn\":{},\"throughput_iter_per_s\":{:.0f}}}",
 				rc.label,
@@ -461,7 +461,7 @@ int main(
 				cfg.iterations,
 				tput);
 		} else {
-			println(
+			std::println(
 				"  P={:<3}  {:>8.1f} ns/iter  {:>10.0f} iter/s  ({:>6.1f} ms total, {} iters)",
 				p,
 				per,
@@ -477,6 +477,6 @@ int main(
 	::io_uring_queue_exit(&ring);
 	return 0;
 } catch (exception const &e) {
-	println(cerr, "fatal: {}", e.what());
+	std::println(std::cerr, "fatal: {}", e.what());
 	return 1;
 }

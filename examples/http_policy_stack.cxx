@@ -133,8 +133,8 @@ int main() {
 		"0.1.0",
 		move(openapi_auth)));
 
-	println("policy stack listening on http://localhost:9100/");
-	println("structured logs: {}", log_path);
+	std::println("policy stack listening on http://localhost:9100/");
+	std::println("structured logs: {}", log_path);
 	auto const status = move(app).run({.port = 9100});
 	return status == RunStatus::stopped_normally ? 0 : 1;
 }

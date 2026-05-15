@@ -51,7 +51,7 @@ int main() {
 
 	Config cfg = Config::low_latency();
 	cfg.port = 9101;
-	println("virtual-host server listening on http://localhost:9101/");
+	std::println("virtual-host server listening on http://localhost:9101/");
 	HttpServer srv{cfg, move(hosts)};
 	auto const status = srv.run();
 	return status == RunStatus::stopped_normally ? 0 : 1;

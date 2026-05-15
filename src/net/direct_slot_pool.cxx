@@ -4,6 +4,7 @@ module;
 
 export module conflux.net.direct_slot_pool;
 import conflux.types;
+import conflux.utils;
 // Internal — do not include from public headers.
 // Requires: u8, u32, V, expected, unexpected, eprintln, format in scope.
 

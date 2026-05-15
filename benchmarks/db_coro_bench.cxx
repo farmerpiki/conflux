@@ -113,13 +113,13 @@ int main(
 
 	char const *raw = std::getenv("PG_CONNINFO");
 	if (raw == nullptr || *raw == '\0') {
-		println(cerr, "PG_CONNINFO not set — skipping bench");
+		std::println(std::cerr, "PG_CONNINFO not set — skipping bench");
 		return 0;
 	}
 
 	::io_uring ring{};
 	if (::io_uring_queue_init(64, &ring, 0) < 0) {
-		println(cerr, "io_uring_queue_init failed");
+		std::println(std::cerr, "io_uring_queue_init failed");
 		return 1;
 	}
 	CompletionTable ct;
@@ -131,7 +131,7 @@ int main(
 		try {
 			conn = block_on(reader, Connection::connect({.conninfo = raw}));
 		} catch (PgError const &e) {
-			println(cerr, "PG_CONNINFO unavailable — skipping bench: {}", e.what());
+			std::println(std::cerr, "PG_CONNINFO unavailable — skipping bench: {}", e.what());
 			::io_uring_queue_exit(&ring);
 			return 0;
 		}
@@ -151,13 +151,13 @@ int main(
 		bench_print(co_stats, cfg.json_out, false);
 		if (!cfg.json_out) {
 			double const delta_pct = 100.0 * (co_per - cb_per) / cb_per;
-			println("  delta      {:+.2f}% (coro vs callback)", delta_pct);
-			println("  sink       {}", sink.load(memory_order_relaxed));
+			std::println("  delta      {:+.2f}% (coro vs callback)", delta_pct);
+			std::println("  sink       {}", sink.load(memory_order_relaxed));
 		}
 
 		conn->close();
 	} catch (exception const &e) {
-		println(cerr, "error: {}", e.what());
+		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);
 		return 1;
 	}

@@ -1,6 +1,6 @@
 # Parallel Implementation Priority Plan
 
-Date: 2026-05-14
+Date: 2026-05-15
 
 This document converts the current code/doc state into branchable work lanes. It is
 intentionally not a single linear backlog: the project is still pre-release, but
@@ -14,7 +14,8 @@ parallel branches without repeatedly re-deciding global priority.
    reference, but apply the project-specific clarifications in this file first
    where they differ.
 3. Use this file for branch selection and merge sequencing.
-4. Do not start alias elimination until the release-cleanup lane says so.
+4. Treat TODO/proposal files as potentially stale unless this file or code state confirms them.
+5. Do not start alias elimination until the release-cleanup lane says so.
 
 ## Current state assessment
 
@@ -48,12 +49,16 @@ parallel branches without repeatedly re-deciding global priority.
 
 ### Main gaps still worth implementing
 
-- Worker runtime: finish background ingestion runtime convergence when that app surface is present;
-  the provided library tree currently has no background-ingestion implementation to migrate.
-  `WorkPool` now has opt-in queue/park/wake counters plus admission/local/steal lock-contention probes for profiling; use them before changing admission/local-deque locking.
-  Carrier internals now use `blocking_join(...)` instead of the legacy `join(...)`
-  alias for blocking conversion/admission/drain paths. Continue moving any remaining
-  compatibility surface behind explicitly named `sync_`/`blocking_` APIs.
+- Correctness: keep the active `recv_bundle.e2e` failure on a single owner branch.
+  Avoid unrelated changes to recv arming, provided buffer rings, server close/recycle,
+  or connection lifetime until that red lane is green.
+- Worker runtime: no background-ingestion surface exists in this tree, so do not start
+  `worker/background-ingestion-runtime` from this snapshot. `WorkPool` now has opt-in
+  queue/park/wake counters plus admission/local/steal lock-contention probes for profiling;
+  use them before changing admission/local-deque locking. Carrier internals now use
+  `blocking_join(...)` instead of the legacy `join(...)` alias for blocking
+  conversion/admission/drain paths. Continue moving any remaining compatibility surface
+  behind explicitly named `sync_`/`blocking_` APIs.
 - Security: password-hash replacement, secret-config cleanup, and session/token audit are landed; any further auth work is now follow-up only.
 - JSON boundary: provider-neutral request/response/app route helper seams are now
   in place. Remaining JSON work should add fixtures/design/prototypes without
@@ -117,8 +122,8 @@ Use one component prefix per branch:
 ```text
 docs/concurrency-naming-model
   -> worker/no-wait-bridge
-      -> worker/background-ingestion-runtime
       -> worker/taskpromise-frame-pool
+      -> worker/background-ingestion-runtime [deferred until app ingestion surface exists]
       -> http/sync-async-handler-docs
 
 json/boundary-traits
@@ -156,14 +161,14 @@ Priorities:
 |---|---|---|---|---|
 | DONE | `worker/no-wait-bridge` | Root blocking outcome wait isolated behind `blocking_join(...)`; legacy `join(...)` delegates as an alias. | Completed; avoid reopening outside release alias cleanup. | No direct blocking outcome wait calls outside `blocking_join_compatibility_adapter`; async task bodies use ready callbacks / `co_await`. |
 | DONE | `docs/concurrency-naming-model` | Added canonical concurrency/naming review guide and linked it from policy/API docs. | Docs-only. | Docs state HTTP handlers run on ring threads, no hidden offload normalization exists, and review guidance points to one document. |
-| P1 | `worker/background-ingestion-runtime` | Merge/migrate background ingestion runtime surface onto the worker runtime model. | Depends on `worker/no-wait-bridge`; should not touch auth/json. | Background ingestion uses the same runtime conventions as other worker tasks. |
+| DEFER | `worker/background-ingestion-runtime` | Merge/migrate background ingestion runtime surface onto the worker runtime model. | Do not start from this snapshot; no background-ingestion implementation exists to migrate. | Background ingestion uses the same runtime conventions as other worker tasks once a surface exists. |
 | DONE | `worker/taskpromise-frame-pool` | Extended `CONFLUX_WORK_CORO_FRAME_POOL` coverage to `Task<T>` promise frames with a process-lifetime mmap bucket pool; `EagerChain` keeps the thread-local LIFO arena because it never externally suspends. | Completed on top of `worker/no-wait-bridge`. | Small/medium `Task<void>` frames avoid global `::operator new` in steady-state when the pool option is enabled; sanitizer builds keep the safe PMR fallback. |
 | DONE | `worker/queue-contention-profile` | Added opt-in `CONFLUX_WORK_QUEUE_STATS` counters for admission, local/inject queues, steal scans, wake/park/futex paths, plus raw NDJSON queue counters in `workpool_enqueue_dequeue`. | Completed on top of worker frame-pool slice; instrumentation is disabled by default. | `benchmarks/notes/worker_queue_contention_profile.md` documents the no-lock-removal decision and profiling command. |
 | DONE | `worker/queue-contention-followup` | Added admission/local/steal mutex contention probes and burst/local-fanout benchmark variants so queue activity can be separated from actual lock blocking. | Completed on top of `worker/queue-contention-profile`; no scheduler semantics changed. | `workpool_enqueue_dequeue` emits `external_burst` and `local_fanout` variants plus `*_lock_contentions` counters in the raw queue object. |
 | DONE | `worker/carrier-blocking-join-surface` | Carrier blocking conversion/admission/drain paths call `root::blocking_join(...)` directly instead of the legacy `root::join(...)` alias. | Completed on top of `worker/no-wait-bridge`; source/docs only. | `src/work/carrier_*` has no `root::join(...)` call sites; docs identify carrier `from_*`, `Scope::admit`, and `DroppableSlot::wait` as blocking-join surfaces. |
 | P3 | `worker/p2300-prototype` | Prototype P2300/io_uring scheduler behind an experimental target. | Do not mix with active V2 runtime migration. | Prototype compiles separately; no public API commitment. |
 
-Recommended next worker branch: `worker/background-ingestion-runtime` if the app ingestion surface is present; otherwise leave the worker lane idle until recorded queue-contention data justifies a locking/scheduling patch. Any further carrier blocking-name cleanup should be additive alias work only, not release alias removal.
+Recommended next worker branch: none unless queue-contention measurements show a real bottleneck. If continuing worker work anyway, use `worker/queue-contention-measurement`; do not start background-ingestion migration until that app surface exists.
 
 ### HTTP server / routing / handler API lane
 
@@ -215,7 +220,7 @@ Recommended next JSON branch: `json/schema-pointer-patch`.
 | DONE | `auth/session-token-audit` | Added JWT session-token policy knobs for required `exp`/`iat`/`jti`, clock skew, max lifetime, negative timestamp rejection, and `jti` revocation hook; documented cookie/session storage boundaries. | Completed on auth lane; no route ergonomics changes. | Tests cover expiry/skew/lifetime/revocation surfaces and docs capture current non-goals. |
 | DONE | `auth/rate-limit-hooks` | Added reusable `AuthFailureLimiter`, per-account/query/remote/bearer-token key helpers, metrics snapshots, and a middleware adapter for downstream auth-failure hooks. | Completed on auth lane; no route rewrite required. | Hook points exist; default remains safe/simple; route/account/API-token throttling is documented. |
 
-Recommended next auth branch: none in the current P0/P1 auth lane. If continuing security work, plan a separate `auth/session-store-revocation` branch for persistent session storage / cluster-wide revocation; otherwise return to the global queue (`worker/no-wait-bridge`, `json/boundary-traits`, or `build/perf-harness-stabilize`).
+Recommended next auth branch: none in the current P0/P1 auth lane. If continuing security work, plan a separate `auth/session-store-revocation` branch for persistent session storage / cluster-wide revocation; otherwise return to the global queue (`build/fuzz-smoke-lane`, `http/send-threshold-bench`, or `db/pipeline-live-evidence`).
 
 ### Build / tests / perf / CI lane
 
@@ -228,19 +233,20 @@ Recommended next auth branch: none in the current P0/P1 auth lane. If continuing
 | DONE | `build/package-config` | Install/export package shape now has explicit version ownership, component metadata, requested-component validation, a canonical `conflux::conflux` umbrella alias when available, and package smoke scripts. | Build/docs only. | `build/package-config` statically guards package CMake shape; package smoke validates installed namespaced component targets from a downstream project. |
 | DONE | `build/install-tree-smoke` | Added a real downstream install-tree smoke: configure/build/install a fresh dependency-light tree, consume the installed prefix with `find_package(conflux)`, compile/link a module-importing executable, and run it. | Build/docs only; keep separate from CI/fuzz budget changes. | `run-install-tree-smoke.sh` drives the full build/install/consume flow; `run-package-config-smoke.sh` now builds and runs the downstream consumer; opt-in CTest gates exist for both preinstalled and freshly installed prefixes. |
 
-Recommended next build branch: `build/ci-fuzz-sanitizer-budget` if continuing build/CI work; otherwise return to component measurement branches (`http/send-threshold-bench`, `worker/queue-contention-followup`).
+Recommended next build branch: `build/fuzz-smoke-lane`. Sanitizer/perf split is already landed; the remaining stale CI item is making fuzz smokes runnable from the fuzz preset instead of only documenting fuzz targets.
 
 ### Docs / examples / API ergonomics lane
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
 | DONE | `docs/concurrency-naming-model` | Canonicalized execution model and `blocking_`/`sync_`/`async_` semantics in `docs/concurrency-naming-model.md`. | Docs-only. | New code review guidance points to one document. |
-| P0 | `docs/parallel-priority-plan` | Add this file. | Done by this patch. | Future branches can pick component queues without central replanning. |
-| Done | `docs/examples-compile-ci` | Added `CONFLUX_BUILD_EXAMPLES`, `conflux_examples`, and `examples/compile` CTest build gate. | Build/docs only. | Server examples compile without being executed. |
+| DONE | `docs/parallel-priority-plan` | Add and maintain this file. | Docs-only. | Future branches can pick component queues without central replanning. |
+| DONE | `docs/todo-state-prune` | Prune stale TODO/proposal state against code before opening more branches. | Docs-only. | Completed items are marked done; active next branches are current. |
+| DONE | `docs/examples-compile-ci` | Added `CONFLUX_BUILD_EXAMPLES`, `conflux_examples`, and `examples/compile` CTest build gate. | Build/docs only. | Server examples compile without being executed. |
 | DONE | `docs/json-boundary-guide` | Documented provider-neutral modules, native convenience edge, provider shape, and rules for HTTP/app framework code. | Landed with boundary traits. | Route authors know where JSON dependencies are allowed. |
 | P2 | `docs/release-blockers` | Maintain release-blocker checklist. | Later, after P0/P1 branches settle. | Checklist includes security, docs, perf harness, fuzzing, alias removal. |
 
-Recommended next docs branch: `docs/json-boundary-guide`, after `json/boundary-traits` lands.
+Recommended next docs branch: `docs/release-blockers` after `recv_bundle.e2e` is green and the CI/fuzz budget branch lands.
 
 ### API naming / alias cleanup lane
 
@@ -255,19 +261,34 @@ Alias elimination is the last release-prep task, not a modernization task. The c
 
 ## Suggested immediate branch fan-out
 
-These branches can start from the same base with low conflict risk:
+These branches can start from the same base with low conflict risk. Keep
+`recv_bundle.e2e` on a single correctness branch and avoid recv/server lifetime
+churn elsewhere until it is green.
 
-1. `worker/background-ingestion-runtime`
-   - Next worker implementation priority after the no-wait bridge isolation.
-   - Converges background ingestion onto the same runtime conventions.
+1. `build/fuzz-smoke-lane`
+   - Make fuzz smoke tests runnable from the fuzz preset and CI docs.
+   - Does not touch recv/server hot paths.
 
-2. `http/send-threshold-bench`
-   - Validate and tune the SEND_ZC threshold under realistic HTTP load now that the mapped-edge coverage is landed.
-   - Keeps perf work isolated from auth/json/runtime churn.
+2. `file/no-std-streams-phase-a`
+   - Replace reusable-library stream usage now that `file_io_sync` is a no-liburing
+     package component.
+   - Defer HTTP fdinfo diagnostics if they would touch server internals.
 
-3. `json/schema-pointer-patch`
+3. `db/pipeline-live-evidence`
+   - Run live PostgreSQL integration and refresh `db_pipeline_bench.cxx` evidence.
+   - DB-only; no overlap with recv/server.
+
+4. `http/send-threshold-bench`
+   - Validate and tune SEND_ZC thresholds under realistic HTTP load.
+   - Measurement/config only unless the benchmark proves a default change.
+
+5. `json/schema-pointer-patch`
    - Keep Pointer/Patch/schema as a feature layer above the stable JSON boundary.
-   - Do not pull native JSON or reflection provider details into HTTP/app framework code.
+   - No HTTP/app provider coupling.
+
+6. `worker/queue-contention-measurement`
+   - Produce contention evidence before changing local queues or admission locking.
+   - Instrumentation/bench notes only unless counters prove a bottleneck.
 ## Deferred work
 
 - `worker/p2300-prototype`: worthwhile but too broad until V2 runtime migration is

@@ -58,7 +58,7 @@ int main() {
 			R"({"items":["alpha","beta","gamma"]})"));
 	});
 
-	println("template pages listening on http://localhost:9102/");
+	std::println("template pages listening on http://localhost:9102/");
 	auto const status = move(app).run({.port = 9102});
 	return status == RunStatus::stopped_normally ? 0 : 1;
 }

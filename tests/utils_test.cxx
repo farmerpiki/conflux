@@ -110,6 +110,34 @@ TEST_CASE(
 	"[utils]") {
 	CHECK(trim("   ").empty());
 }
+
+TEST_CASE(
+	"utils: line helpers split text without allocation",
+	"[utils]") {
+	CHECK(strip_cr("abc\r") == "abc");
+	CHECK(strip_cr("abc") == "abc");
+
+	auto kv = split_once("alpha=beta", '=');
+	REQUIRE(kv.has_value());
+	CHECK(kv->first == "alpha");
+	CHECK(kv->second == "beta");
+	CHECK_FALSE(split_once("alpha", '=').has_value());
+
+	V<S> lines;
+	V<SZ> line_nos;
+	for (auto const line: LineRange{"one\r\ntwo\nthree"}) {
+		lines.push_back(S{line.text});
+		line_nos.push_back(line.line_no);
+	}
+	REQUIRE(lines.size() == 3);
+	CHECK(lines[0] == "one");
+	CHECK(lines[1] == "two");
+	CHECK(lines[2] == "three");
+	CHECK(line_nos[0] == 1);
+	CHECK(line_nos[1] == 2);
+	CHECK(line_nos[2] == 3);
+}
+
 // ---------------------------------------------------------------------------
 // parse_ip / ip_to_string
 // ---------------------------------------------------------------------------

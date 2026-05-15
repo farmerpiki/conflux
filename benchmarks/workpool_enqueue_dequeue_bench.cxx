@@ -31,7 +31,7 @@ void print_workpool_stats(
 	if (!json_out) {
 		bench_print(s.timing, false, first);
 		if (s.queue.enqueue_attempts != 0 || s.queue.jobs_run != 0) {
-			println(
+			std::println(
 				"  queue: enqueue={} admission_contention={} local_contention={} steal_contention={} "
 				"local_push={} inject_push={} jobs={} steal_hits={} futex_waits={} wake_futex={}",
 				s.queue.enqueue_attempts,
@@ -47,7 +47,7 @@ void print_workpool_stats(
 		}
 		return;
 	}
-	println(
+	std::println(
 		"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},"
 		"\"ns_per_iter\":{:.2f},\"queue\":{{\"enqueue_attempts\":{},\"stopped_rejections\":{},"
 		"\"full_rejections\":{},\"admission_lock_acquisitions\":{},"
@@ -278,7 +278,7 @@ int main(
 				"\"--config-name\",\"threads_{0}\",\"--iterations\",\"5000\",\"--warmup\",\"500\"]}}",
 				ts[i]);
 		}
-		println("{{\"name\":\"workpool_enqueue_dequeue\",\"parser\":\"standard\",\"configs\":[{}]}}", cfgs);
+		std::println("{{\"name\":\"workpool_enqueue_dequeue\",\"parser\":\"standard\",\"configs\":[{}]}}", cfgs);
 		return 0;
 	}
 

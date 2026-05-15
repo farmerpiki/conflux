@@ -21,22 +21,22 @@ struct JsonMembers<ApiResponse> {
 	}
 };
 static void example_parse_decode() {
-	println("--- parse + decode<T> ---");
+	std::println("--- parse + decode<T> ---");
 	auto doc = *parse_view(R"({"model":"gpt-4o","tokens":512})");
 	auto resp = *decode<ApiResponse>(doc);
-	println("model={} tokens={} error={}", resp.model, resp.tokens, resp.error.value_or("(none)"));
+	std::println("model={} tokens={} error={}", resp.model, resp.tokens, resp.error.value_or("(none)"));
 }
 static void example_make_object() {
-	println("\n--- make_object / make_array ---");
+	std::println("\n--- make_object / make_array ---");
 	auto doc = *make_object(
 		pair{"model", "gpt-4o"sv},
 		pair{"temperature", 0.7},
 		pair{"max_tokens", 4096},
 		pair{"stream", true});
-	println("{}", *doc.dump(JsonDumpOptions{.pretty = true}));
+	std::println("{}", *doc.dump(JsonDumpOptions{.pretty = true}));
 }
 static void example_json5() {
-	println("\n--- JSON5 ---");
+	std::println("\n--- JSON5 ---");
 	SV input =
 		"{\n"
 		"  // server config\n"
@@ -49,11 +49,11 @@ static void example_json5() {
 	JsonParseOptions opts{.mode = ParseMode::json5};
 	auto result = parse_view(input, opts);
 	if (!result) {
-		println("  parse error: {}", result.error().message);
+		std::println("  parse error: {}", result.error().message);
 		return;
 	}
 	auto obj = *result->root().as_object();
-	println(
+	std::println(
 		"  host={} port={} tls={} timeout={}",
 		*obj.member("host")->as_string(),
 		*obj.member("port")->as_i64(),
@@ -61,7 +61,7 @@ static void example_json5() {
 		*obj.member("timeout")->as_i64());
 }
 static void example_pull_parser() {
-	println("\n--- JsonReader (pull parser) ---");
+	std::println("\n--- JsonReader (pull parser) ---");
 	SV input = R"([{"id":1,"name":"alice"},{"id":2,"name":"bob"}])";
 	JsonReader reader{input};
 	SZ count{};
@@ -73,7 +73,7 @@ static void example_pull_parser() {
 			++count;
 		}
 	}
-	println("found {} string values", count);
+	std::println("found {} string values", count);
 }
 struct CountHandler : JsonDefaultHandler {
 	SZ keys{};
@@ -90,18 +90,18 @@ struct CountHandler : JsonDefaultHandler {
 	}
 };
 static void example_sax() {
-	println("\n--- parse_sax ---");
+	std::println("\n--- parse_sax ---");
 	SV input = R"({"a":"hello","b":"world","c":42})";
 	CountHandler h;
 	auto sax = parse_sax(input, h);
 	if (!sax) {
-		println("parse_sax error: {}", sax.error().message);
+		std::println("parse_sax error: {}", sax.error().message);
 		return;
 	}
-	println("keys={} strings={}", h.keys, h.strings);
+	std::println("keys={} strings={}", h.keys, h.strings);
 }
 static void example_ndjson() {
-	println("\n--- NdjsonRange ---");
+	std::println("\n--- NdjsonRange ---");
 	SV input = "{\"line\":1}\n{\"line\":2}\n{\"line\":3}\n";
 	NdjsonRange range{input};
 	SZ count{};
@@ -110,34 +110,34 @@ static void example_ndjson() {
 			++count;
 		}
 	}
-	println("parsed {} NDJSON lines", count);
+	std::println("parsed {} NDJSON lines", count);
 }
 static void example_arena() {
-	println("\n--- JsonArena (cross-parse reuse) ---");
+	std::println("\n--- JsonArena (cross-parse reuse) ---");
 	JsonArena arena{JsonArenaOptions{.initial_slab = 4096}};
 	for (auto i: {1, 2, 3}) {
 		auto input = format(R"({{"n":{}}})", i);
 		auto doc = *arena.parse_into(input);
 		auto obj = *doc.root().as_object();
-		println("  n={}", *obj.member("n")->as_i64());
+		std::println("  n={}", *obj.member("n")->as_i64());
 	}
-	println("  slab used: {} / {} bytes", arena.slab_used(), arena.slab_capacity());
+	std::println("  slab used: {} / {} bytes", arena.slab_used(), arena.slab_capacity());
 	arena.reset();
-	println("  after reset: {} used", arena.slab_used());
+	std::println("  after reset: {} used", arena.slab_used());
 }
 static void example_schema_validate() {
-	println("\n--- schema_for + validate ---");
+	std::println("\n--- schema_for + validate ---");
 	auto schema_doc = *schema_for<ApiResponse>();
-	println("schema: {}", *schema_doc.dump(JsonDumpOptions{.pretty = true}));
+	std::println("schema: {}", *schema_doc.dump(JsonDumpOptions{.pretty = true}));
 
 	auto good = *parse_view(R"({"model":"x","tokens":1})");
 	auto bad = *parse_view(R"({"model":123,"tokens":1})");
 
 	auto r1 = validate(good.root(), schema_doc.root());
-	println("valid input:   {}", r1.has_value() ? "OK" : r1.error().message);
+	std::println("valid input:   {}", r1.has_value() ? "OK" : r1.error().message);
 
 	auto r2 = validate(bad.root(), schema_doc.root());
-	println("invalid input: {}", r2.has_value() ? "OK" : r2.error().message);
+	std::println("invalid input: {}", r2.has_value() ? "OK" : r2.error().message);
 }
 int main() {
 	example_parse_decode();

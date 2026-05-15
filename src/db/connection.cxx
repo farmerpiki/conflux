@@ -17,6 +17,7 @@ import conflux.uring.timeout;
 import conflux.uring.completion;
 import conflux.uring.handle;
 import conflux.file_io;
+import conflux.file_io_sync;
 import conflux.db.types;
 import conflux.db.params;
 import conflux.db.result;
@@ -347,15 +348,15 @@ public:
 			}
 		}
 		auto path = root_ / (string{name} + ".psql");
-		ifstream in{path};
-		if (!in) {
+		auto bytes = read_text_file_sync(path.string());
+		if (!bytes) {
 			throw filesystem::filesystem_error{
 				"query file open failed",
 				path,
-				error_code{errno, generic_category()}
+				bytes.error().code()
             };
 		}
-		string contents{istreambuf_iterator<char>{in}, istreambuf_iterator<char>{}};
+		string contents{move(*bytes)};
 		auto sp = make_shared<string const>(move(contents));
 		scoped_lock const lk{mtx_};
 		auto [it, _] = cache_.try_emplace(string{name}, sp);

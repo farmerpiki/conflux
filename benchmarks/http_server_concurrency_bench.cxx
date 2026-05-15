@@ -175,7 +175,7 @@ ServerHandle start_server(
 	thread t{[srv] {
 		try {
 			auto _ = srv->run();
-		} catch (exception const &e) { println(cerr, "bench server: {}", e.what()); }
+		} catch (exception const &e) { std::println(std::cerr, "bench server: {}", e.what()); }
 	}};
 	auto p = srv->port();
 	wait_for_server(p);
@@ -387,9 +387,9 @@ void emit_result(
 				rss_end);
 		}
 		line += "}";
-		println("{}", line);
+		std::println("{}", line);
 	} else {
-		println(
+		std::println(
 			"{:<36} {:>8} reqs  {:>10.0f} req/s  p50={:>7}  p99={:>7}  p999={:>7}  max={:>7} ns",
 			variant,
 			total_requests,
@@ -399,7 +399,7 @@ void emit_result(
 			lat.p999,
 			lat.max);
 		if (fd_start >= 0) {
-			println("  fd: {}→{}  rss: {}→{} KB", fd_start, fd_end, rss_start, rss_end);
+			std::println("  fd: {}→{}  rss: {}→{} KB", fd_start, fd_end, rss_start, rss_end);
 		}
 	}
 }
@@ -491,7 +491,7 @@ int main(
     };
 
 	if (!json) {
-		println("http_server_concurrency_bench: duration={}s, pinned={}\n", duration_s, can_pin);
+		std::println("http_server_concurrency_bench: duration={}s, pinned={}\n", duration_s, can_pin);
 	}
 
 	for (auto const &cfg: configs) {

@@ -289,7 +289,7 @@ ServerHandle start_server(
 	thread t{[srv] {
 		try {
 			auto _ = srv->run();
-		} catch (exception const &e) { println(cerr, "bench server: {}", e.what()); }
+		} catch (exception const &e) { std::println(std::cerr, "bench server: {}", e.what()); }
 	}};
 	auto p = srv->port();
 	wait_for_server(p);
@@ -452,7 +452,7 @@ void print_variant(
 		if (ops_per_iter > 1) {
 			auto const total_ops = s.iterations * ops_per_iter;
 			auto const ns_per_op = s.ns_per_iter / static_cast<double>(ops_per_iter);
-			println(
+			std::println(
 				"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},\"ops_"
 				"per_iter\":{},\"total_ops\":{},\"ns_per_op\":{:.2f}}}",
 				s.config,
@@ -464,7 +464,7 @@ void print_variant(
 				total_ops,
 				ns_per_op);
 		} else {
-			println(
+			std::println(
 				"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",
 				s.config,
 				s.variant,
@@ -474,7 +474,7 @@ void print_variant(
 		}
 	} else if (ops_per_iter > 1) {
 		auto const ns_per_op = s.ns_per_iter / static_cast<double>(ops_per_iter);
-		println(
+		std::println(
 			"{:<32} {:>8} iters  {:>10.2f} ns/iter  {:>10.2f} ns/op (x{})",
 			s.variant,
 			s.iterations,
@@ -482,7 +482,7 @@ void print_variant(
 			ns_per_op,
 			ops_per_iter);
 	} else {
-		println("{:<32} {:>8} iters  {:>10.2f} ns/iter", s.variant, s.iterations, s.ns_per_iter);
+		std::println("{:<32} {:>8} iters  {:>10.2f} ns/iter", s.variant, s.iterations, s.ns_per_iter);
 	}
 }
 
@@ -1736,7 +1736,7 @@ int main(
 	// ── Run all variants ────────────────────────────────────────────────
 
 	if (!json) {
-		println("http_server_bench: {} iterations, {} warmup\n", iters, warmup);
+		std::println("http_server_bench: {} iterations, {} warmup\n", iters, warmup);
 	}
 
 	for (auto const &v: variants) {
@@ -1745,9 +1745,9 @@ int main(
 			print_variant(stats, json, v.ops_per_iter);
 		} catch (exception const &e) {
 			if (json) {
-				println(cerr, "error in {}: {}", v.name, e.what());
+				std::println(std::cerr, "error in {}: {}", v.name, e.what());
 			} else {
-				println("  {:<32} ERROR: {}", v.name, e.what());
+				std::println("  {:<32} ERROR: {}", v.name, e.what());
 			}
 		}
 	}

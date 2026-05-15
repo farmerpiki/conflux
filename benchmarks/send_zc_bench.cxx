@@ -157,7 +157,7 @@ ServerHandle start_server(
 	thread t{[srv] {
 		try {
 			auto _ = srv->run();
-		} catch (exception const &e) { println(cerr, "bench server: {}", e.what()); }
+		} catch (exception const &e) { std::println(std::cerr, "bench server: {}", e.what()); }
 	}};
 	auto p = srv->port();
 	wait_for_server(p);
@@ -262,7 +262,7 @@ void print_variant(
 	if (json) {
 		auto const total_ops = s.iterations * ops_per_iter;
 		auto const ns_per_op = s.ns_per_iter / static_cast<double>(ops_per_iter);
-		println(
+		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
 			"\"ops_per_iter\":{},\"total_ops\":{},\"ns_per_op\":{:.2f},"
 			"\"zc_attempts\":{},\"zc_plain_attempts\":{},\"zc_mapped_attempts\":{},"
@@ -296,7 +296,7 @@ void print_variant(
 			s.metrics.zc_notifications_pending);
 	} else if (ops_per_iter > 1) {
 		auto const ns_per_op = s.ns_per_iter / static_cast<double>(ops_per_iter);
-		println(
+		std::println(
 			"{:<40} {:>8} iters  {:>10.2f} ns/iter  {:>10.2f} ns/op (x{})  zc={}/{} map={} tls_bypass={}",
 			s.variant,
 			s.iterations,
@@ -308,7 +308,7 @@ void print_variant(
 			zc.mapped_attempts,
 			zc.tls_bypass);
 	} else {
-		println(
+		std::println(
 			"{:<40} {:>8} iters  {:>10.2f} ns/iter  zc={}/{} map={} tls_bypass={}",
 			s.variant,
 			s.iterations,
@@ -595,7 +595,7 @@ int main(
 #endif
 
 	if (!json_out) {
-		println("send_zc_bench: {} iterations, {} warmup\n", iters, warmup);
+		std::println("send_zc_bench: {} iterations, {} warmup\n", iters, warmup);
 	}
 
 	for (auto const &v: variants) {

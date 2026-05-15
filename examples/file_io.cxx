@@ -23,12 +23,12 @@ int main() {
 	S path = "/tmp/conflux_file_io_example.txt";
 	int const seed = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 	if (seed < 0) {
-		println(cerr, "open seed file failed");
+		std::println(std::cerr, "open seed file failed");
 		return 1;
 	}
 	SV text = "hello from conflux.file_io\n";
 	if (::write(seed, text.data(), text.size()) != static_cast<ssize_t>(text.size())) {
-		println(cerr, "seed write failed");
+		std::println(std::cerr, "seed write failed");
 		::close(seed);
 		return 1;
 	}
@@ -36,7 +36,7 @@ int main() {
 
 	io_uring ring{};
 	if (::io_uring_queue_init(64, &ring, 0) < 0) {
-		println(cerr, "io_uring_queue_init failed");
+		std::println(std::cerr, "io_uring_queue_init failed");
 		return 1;
 	}
 
@@ -46,16 +46,16 @@ int main() {
 	try {
 		auto handle = block_on(files, files.open_async(AT_FDCWD, path, O_RDONLY | O_CLOEXEC));
 		if (!handle.valid()) {
-			println(cerr, "open_async returned invalid handle");
+			std::println(std::cerr, "open_async returned invalid handle");
 			::io_uring_queue_exit(&ring);
 			return 1;
 		}
 
 		A<byte, 128> buf{};
 		auto got = block_on(files, files.read_into(handle, 0, span<byte>{buf.data(), buf.size()}));
-		println("read {} bytes: {}", got, SV{reinterpret_cast<char const *>(buf.data()), got});
+		std::println("read {} bytes: {}", got, SV{reinterpret_cast<char const *>(buf.data()), got});
 	} catch (exception const &e) {
-		println(cerr, "error: {}", e.what());
+		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);
 		::unlink(path.c_str());
 		return 1;

@@ -43,7 +43,7 @@ function(conflux_discover_db_integration_tests target)
     endif()
     catch_discover_tests(${target}
         EXTRA_ARGS ${extra_args}
-        PROPERTIES RUN_SERIAL TRUE ${env_props}
+        PROPERTIES RUN_SERIAL TRUE LABELS "db;integration" ${env_props}
     )
 endfunction()
 

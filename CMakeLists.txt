@@ -44,6 +44,8 @@ option(CONFLUX_BUILD_EXAMPLES "Build example targets"                        ON)
 option(CONFLUX_ALLOW_SANITIZED_BENCHMARKS
     "Allow benchmark targets in sanitizer builds for local instrumentation debugging only" OFF)
 option(CONFLUX_BUILD_FUZZ     "Build libFuzzer harness targets"              OFF)
+option(CONFLUX_BUILD_FUZZ_SMOKE_TESTS
+    "Register bounded CTest smoke tests for libFuzzer harnesses" ON)
 option(CONFLUX_ENABLE_TLS     "Build TLS support (requires OpenSSL)"         ON)
 option(CONFLUX_ENABLE_ZLIB    "Build classic zlib gzip backend"              ON)
 option(CONFLUX_ENABLE_LIBDEFLATE "Build libdeflate gzip backend"             ON)
@@ -527,6 +529,9 @@ endif()
 if(CONFLUX_WANT_FILE_IO AND NOT CONFLUX_WANT_FILE_MAP)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_FILE_IO requires CONFLUX_BUILD_FILE_MAP")
 endif()
+if(CONFLUX_WANT_TEMPLATES AND NOT CONFLUX_WANT_FILE_IO_SYNC)
+    message(FATAL_ERROR "conflux: CONFLUX_BUILD_TEMPLATES requires CONFLUX_BUILD_FILE_IO_SYNC")
+endif()
 if(CONFLUX_WANT_PROCESS AND NOT CONFLUX_WANT_RUNTIME)
     message(FATAL_ERROR "conflux: CONFLUX_BUILD_PROCESS requires CONFLUX_BUILD_RUNTIME")
 endif()
@@ -757,6 +762,8 @@ target_compile_definitions(conflux_template
 target_link_libraries(conflux_template
     PRIVATE conflux_options
     PUBLIC  conflux_json
+    PUBLIC  conflux_utils
+    PUBLIC  conflux_file_io_sync
 )
 if(CONFLUX_WANT_TEMPLATES_WATCH)
     target_link_libraries(conflux_template PUBLIC conflux_file_watch)
@@ -980,7 +987,8 @@ target_sources(conflux_direct_slot_pool
         src/net/direct_slot_pool.cxx
 )
 target_link_libraries(conflux_direct_slot_pool
-    PRIVATE conflux_types)
+    PRIVATE conflux_types
+    PRIVATE conflux_utils)
 
 if(CONFLUX_HTTP_REALTIME_SURFACE_REQUESTED)
 add_library(conflux_http_realtime STATIC)
@@ -1025,6 +1033,7 @@ target_link_libraries(conflux_http_response
     PUBLIC  conflux_file_map
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_realtime
+    PUBLIC  conflux_utils
 )
 endif() # CONFLUX_HTTP_ROUTER_STACK_REQUESTED (HTTP response vocabulary)
 
@@ -1853,8 +1862,11 @@ endif()
 # Tests & examples (monolith-dependent)
 # ---------------------------------------------------------------------------
 
-if(CONFLUX_BUILD_TESTS)
+if(CONFLUX_BUILD_TESTS OR (CONFLUX_BUILD_FUZZ AND CONFLUX_BUILD_FUZZ_SMOKE_TESTS))
     enable_testing()
+endif()
+
+if(CONFLUX_BUILD_TESTS)
     if(TARGET conflux_uring)
         target_compile_definitions(conflux_uring PRIVATE CONFLUX_TESTING)
     endif()
@@ -2233,6 +2245,12 @@ install(EXPORT confluxTargets
 )
 
 if(CONFLUX_BUILD_TESTS)
+    add_test(NAME build/no-std-streams
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_no_std_streams.py")
+    set_tests_properties(build/no-std-streams PROPERTIES
+        LABELS "build;lint"
+    )
+
     add_test(NAME build/package-config
         COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-package-config.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}")

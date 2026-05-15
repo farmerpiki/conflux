@@ -64,7 +64,7 @@ export void bench_print(
 	bool json_out,
 	bool first) {
 	if (json_out) {
-		println(
+		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",
 			s.config,
 			s.variant,
@@ -77,14 +77,14 @@ export void bench_print(
 			std::print("[{}] ", s.config);
 		}
 		if (s.throughput > 0.0) {
-			println(
+			std::println(
 				"{:<24} {:>10} iters  {:>9.2f} ns/iter  {:>12.0f} ops/s",
 				s.variant,
 				s.iterations,
 				s.ns_per_iter,
 				s.throughput);
 		} else {
-			println("{:<24} {:>10} iters  {:>9.2f} ns/iter", s.variant, s.iterations, s.ns_per_iter);
+			std::println("{:<24} {:>10} iters  {:>9.2f} ns/iter", s.variant, s.iterations, s.ns_per_iter);
 		}
 	}
 }
@@ -97,7 +97,7 @@ export void bench_info_if_requested(
 	char **argv,
 	SV json) {
 	if (argc >= 2 && SV{argv[1]} == "--bench-info") {
-		println("{}", json);
+		std::println("{}", json);
 		std::exit(0);
 	}
 }

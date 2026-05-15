@@ -21,7 +21,7 @@ static void print_json_error(
 	JsonError const &e) {
 	S const path = display_path(e);
 	if (e.source) {
-		println(
+		std::println(
 			"{}: {} at {} (line {}, column {}, byte {})",
 			context,
 			e.message,
@@ -31,7 +31,7 @@ static void print_json_error(
 			e.source->offset);
 		return;
 	}
-	println("{}: {} at {}", context, e.message, path);
+	std::println("{}: {} at {}", context, e.message, path);
 }
 
 static expected<S, JsonError> first_role_for_second_user(
@@ -62,7 +62,7 @@ static expected<S, JsonError> first_role_for_second_user(
 }
 
 static void example_pointer_lookup() {
-	println("--- JSON Pointer boundary lookup ---");
+	std::println("--- JSON Pointer boundary lookup ---");
 	constexpr SV input = R"({
 		"users": [
 			{"id": 1, "roles": ["admin", "ops"]},
@@ -75,11 +75,11 @@ static void example_pointer_lookup() {
 		print_json_error("lookup failed", role.error());
 		return;
 	}
-	println("second user first role: {}", *role);
+	std::println("second user first role: {}", *role);
 }
 
 static void example_duplicate_policy() {
-	println("\n--- duplicate key policy ---");
+	std::println("\n--- duplicate key policy ---");
 	constexpr SV input = R"({"id":1,"id":2})";
 
 	if (auto strict = parse_view(input); !strict) {
@@ -94,11 +94,11 @@ static void example_duplicate_policy() {
 	}
 
 	auto obj = *doc->root().as_object();
-	println("last-wins id={}", *obj.member("id")->as_i64());
+	std::println("last-wins id={}", *obj.member("id")->as_i64());
 }
 
 static void example_limits() {
-	println("\n--- parse limits ---");
+	std::println("\n--- parse limits ---");
 	JsonParseOptions limited{.max_depth = LimitOption::bound(2)};
 	auto doc = parse_view(R"({"a":{"b":{"c":1}}})", limited);
 	if (!doc) {

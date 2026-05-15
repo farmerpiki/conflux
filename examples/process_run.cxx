@@ -12,16 +12,16 @@ static void print_result(
 	SV label,
 	expected<RunResult, EC> const &result) {
 	if (!result) {
-		println("{}: spawn failed: {}", label, result.error().message());
+		std::println("{}: spawn failed: {}", label, result.error().message());
 		return;
 	}
 
-	println("{}: exit={}", label, result->exit_code);
+	std::println("{}: exit={}", label, result->exit_code);
 	if (!result->stdout_out.empty()) {
-		println("stdout:\n{}", result->stdout_out);
+		std::println("stdout:\n{}", result->stdout_out);
 	}
 	if (!result->stderr_out.empty()) {
-		println("stderr:\n{}", result->stderr_out);
+		std::println("stderr:\n{}", result->stderr_out);
 	}
 }
 

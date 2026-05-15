@@ -1,14 +1,14 @@
 # Modular Build Targets & Feature Presets — updated review pass
 
 Date: 2026-05-11  
-Status: **recommended after boundary fixes**  
-Scope: replacement patch-notes for the current modular-build proposal
+Status: **implemented target graph; keep as historical target-boundary reference**
+Scope: replacement patch-notes for the modular-build proposal
 
 ## Decision delta
 
-Keep the modular target direction. Before implementing the full preset resolver, add the missing file-adjacent boundaries and fix stale current dependencies.
+The modular target graph has landed. Keep this document as the target-boundary rationale and use it for future preset-resolver work, not as an open implementation checklist.
 
-The current proposal correctly identifies the monolith problem and the core/http split, but it is missing the sync file layer required by the no-stream and O_TMPFILE work. It also still assumes `http_static` depends directly on async `file_io`, which is only true for streamed file serving, not for metadata, mmap leases, or atomic sync writes.
+The missing sync file layer and stale `http_static` dependency assumptions called out in this review have since been resolved: `file_io_sync` and `file_map` are standalone package components, `json_file` sits above `json + file_io_sync`, and static HTTP is split into static surface/core/async targets.
 
 ## Immediate source-state fixes
 

@@ -46,7 +46,7 @@ static void print_json_error(
 	JsonError const &e) {
 	S const path = display_path(e);
 	if (e.source) {
-		println(
+		std::println(
 			"{}: {} at {} (line {}, column {}, byte {})",
 			context,
 			e.message,
@@ -56,7 +56,7 @@ static void print_json_error(
 			e.source->offset);
 		return;
 	}
-	println("{}: {} at {}", context, e.message, path);
+	std::println("{}: {} at {}", context, e.message, path);
 }
 
 static expected<std::map<S, RouteStats>, JsonError> aggregate_routes(
@@ -148,7 +148,7 @@ static expected<Document, JsonError> build_summary(
 }
 
 static void example_transform() {
-	println("--- NDJSON aggregate + builder output ---");
+	std::println("--- NDJSON aggregate + builder output ---");
 	constexpr SV input =
 		R"({"route":"/v1/chat","latency_us":7100,"ok":true})"
 		"\n"
@@ -168,7 +168,7 @@ static void example_transform() {
 		print_json_error("summary build failed", summary.error());
 		return;
 	}
-	println("{}", *summary->dump(JsonDumpOptions{.pretty = true}));
+	std::println("{}", *summary->dump(JsonDumpOptions{.pretty = true}));
 }
 
 int main() {

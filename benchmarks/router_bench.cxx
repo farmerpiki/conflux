@@ -47,7 +47,7 @@ bool force_gzip_backend(
 	return set_gzip_backend(backend);
 }
 void print_usage() {
-	println("Usage: conflux_benchmarks [--list] [--filter SUBSTR] [--iterations N] [--format table|json]");
+	std::println("Usage: conflux_benchmarks [--list] [--filter SUBSTR] [--iterations N] [--format table|json]");
 }
 Config parse_args(
 	span<char *> args) {
@@ -135,13 +135,13 @@ Stats measure_case(
 void print_list(
 	V<Case> const &cases) {
 	for (auto const &bench: cases) {
-		println("{:32} {}", bench.name, bench.description);
+		std::println("{:32} {}", bench.name, bench.description);
 	}
 }
 void print_header(
 	Config::Format format) {
 	if (format == Config::Format::table) {
-		println("{:32} {:>12} {:>14} {:>14}", "Benchmark", "Iterations", "Total (ms)", "ns/iter");
+		std::println("{:32} {:>12} {:>14} {:>14}", "Benchmark", "Iterations", "Total (ms)", "ns/iter");
 	}
 }
 void print_stats(
@@ -149,9 +149,9 @@ void print_stats(
 	Config::Format format) {
 	if (format == Config::Format::table) {
 		auto const total_ms = static_cast<double>(stats.total_ns) / 1'000'000.0;
-		println("{:32} {:>12} {:>14.3f} {:>14.1f}", stats.name, stats.iterations, total_ms, stats.ns_per_iter);
+		std::println("{:32} {:>12} {:>14.3f} {:>14.1f}", stats.name, stats.iterations, total_ms, stats.ns_per_iter);
 	} else {
-		println(
+		std::println(
 			"{{\"config\":\"\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}}}",
 			stats.name,
 			stats.iterations,
@@ -579,10 +579,10 @@ int main(
 			auto const stats = benchmark_detail::measure_case(*bench, iterations);
 			benchmark_detail::print_stats(stats, cfg.format);
 		}
-		println(cerr, "sink={}", benchmark_detail::sink.load(memory_order_relaxed));
+		std::println(std::cerr, "sink={}", benchmark_detail::sink.load(memory_order_relaxed));
 		return 0;
 	} catch (exception const &ex) {
-		println(cerr, "conflux_benchmarks: {}", ex.what());
+		std::println(std::cerr, "conflux_benchmarks: {}", ex.what());
 		benchmark_detail::print_usage();
 		return 1;
 	}

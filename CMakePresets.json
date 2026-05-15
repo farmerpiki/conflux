@@ -313,8 +313,10 @@
         "CONFLUX_ENABLE_ASAN": "ON",
         "CONFLUX_ENABLE_UBSAN": "ON",
         "CONFLUX_BUILD_FUZZ": "ON",
+        "CONFLUX_BUILD_FUZZ_SMOKE_TESTS": "ON",
         "CONFLUX_BUILD_TESTS": "OFF",
-        "CONFLUX_BUILD_BENCHMARKS": "OFF"
+        "CONFLUX_BUILD_BENCHMARKS": "OFF",
+        "CONFLUX_BUILD_EXAMPLES": "OFF"
       }
     },
     {
@@ -412,7 +414,27 @@
     },
     {
       "name": "fuzz-clang-stdcxx",
-      "configurePreset": "fuzz-clang-stdcxx"
+      "configurePreset": "fuzz-clang-stdcxx",
+      "targets": [
+        "conflux_fuzz"
+      ]
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "fuzz-clang-stdcxx",
+      "configurePreset": "fuzz-clang-stdcxx",
+      "output": {
+        "outputOnFailure": true
+      },
+      "filter": {
+        "include": {
+          "label": "fuzz-smoke"
+        }
+      },
+      "execution": {
+        "noTestsAction": "error"
+      }
     }
   ]
 }

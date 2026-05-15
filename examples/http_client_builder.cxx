@@ -11,10 +11,10 @@ namespace http = conflux::http;
 static void print_url_parse(SV raw) {
 	auto parsed = http::Url::parse(raw);
 	if (!parsed) {
-		println("url parse failed for '{}': {}", raw, parsed.error().message);
+		std::println("url parse failed for '{}': {}", raw, parsed.error().message);
 		return;
 	}
-	println("url parsed: scheme={} host={} port={} path={} query={}", parsed->scheme, parsed->host, parsed->port, parsed->path, parsed->query);
+	std::println("url parsed: scheme={} host={} port={} path={} query={}", parsed->scheme, parsed->host, parsed->port, parsed->path, parsed->query);
 }
 
 int main() {
@@ -29,7 +29,7 @@ int main() {
 	defaults.set("User-Agent", "conflux-example/1");
 	defaults.append("Accept", "application/json");
 	defaults.append("Accept", "text/plain");
-	println("accept values: {}", defaults.values("accept").size());
+	std::println("accept values: {}", defaults.values("accept").size());
 
 	HttpFields form;
 	form.set("name", "Ada Lovelace");
@@ -52,13 +52,13 @@ int main() {
 		.body_form(form)
 		.build();
 
-	println("{} {}", req.method(), req.url().str());
-	println("content-type: {}", req.headers()["content-type"]);
-	println("authorization: {}", req.headers()["authorization"]);
-	println("body: {}", req.body());
-	println("redirect limit: {} verify_peer={}", req.max_redirects(), req.verify_peer());
+	std::println("{} {}", req.method(), req.url().str());
+	std::println("content-type: {}", req.headers()["content-type"]);
+	std::println("authorization: {}", req.headers()["authorization"]);
+	std::println("body: {}", req.body());
+	std::println("redirect limit: {} verify_peer={}", req.max_redirects(), req.verify_peer());
 
 	S body;
 	auto consumed = decode_chunked("4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n", 64, 8, body);
-	println("chunked decode: {}", consumed > 0 ? body : "<invalid>");
+	std::println("chunked decode: {}", consumed > 0 ? body : "<invalid>");
 }

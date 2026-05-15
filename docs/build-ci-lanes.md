@@ -29,6 +29,28 @@ source-shape check that keeps known fragile module interfaces from regrowing
 `import std`, coroutine bodies, or private implementation units in public module
 file sets. See `docs/module-fragility.md`.
 
+
+## Fuzz smoke lane
+
+Use:
+
+```sh
+scripts/run-fuzz-smoke.sh
+```
+
+This lane configures `fuzz-clang-stdcxx`, builds the libFuzzer harnesses, and
+runs only bounded seed-corpus CTest entries labeled `fuzz-smoke`. Normal tests
+and benchmarks stay disabled in the fuzz preset, so this lane validates harness
+reachability without turning fuzz builds into another full correctness matrix.
+
+Equivalent direct CTest invocation after configuring/building the preset:
+
+```sh
+ctest --preset fuzz-clang-stdcxx
+# or
+ctest --test-dir /tmp/conflux/fuzz-clang-stdcxx -L fuzz-smoke --output-on-failure
+```
+
 ## Performance build lane
 
 Use:

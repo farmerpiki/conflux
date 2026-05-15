@@ -505,14 +505,14 @@ record_with_reps() {
              PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ns_per_iter) AS med,
              PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY ns_per_iter) AS p50,
              PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY ns_per_iter) AS p99,
-             MIN((extra->>'min')::double precision) AS best,
+             MIN(COALESCE((extra->>'min')::double precision, ns_per_iter)) AS best,
              PERCENTILE_CONT(0.5) WITHIN GROUP (
-               ORDER BY (extra->>'p10')::double precision) AS p10,
+               ORDER BY COALESCE((extra->>'p10')::double precision, ns_per_iter)) AS p10,
              COUNT(*) AS n,
              AVG(iterations) AS avg_iters
       FROM results
       WHERE run_id = $run_id AND benchmark = '$(sql_escape "$bench")'
-        AND (extra->>'min') IS NOT NULL
+        AND COALESCE(extra->>'kind', '') <> 'summary'
       GROUP BY variant
     ),
     mad_raw AS (
@@ -523,7 +523,7 @@ record_with_reps() {
       FROM results r
       JOIN raw ON raw.variant = r.variant
       WHERE r.run_id = $run_id AND r.benchmark = '$(sql_escape "$bench")'
-        AND (r.extra->>'min') IS NOT NULL
+        AND COALESCE(r.extra->>'kind', '') <> 'summary'
       GROUP BY r.variant, raw.med, raw.p50, raw.p99, raw.best, raw.p10,
                raw.avg_iters, raw.n
     )

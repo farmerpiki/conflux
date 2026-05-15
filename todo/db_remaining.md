@@ -34,8 +34,8 @@ The shipped pipeline now uses libpq wire-level pipeline mode:
 
 **Still recommended before release:**
 
-- Run live PostgreSQL integration in CI/host with `PG_TEST_CONNINFO` set.
-- Re-run `db_pipeline_bench.cxx` with `PG_CONNINFO` to replace the old logical-batching baseline numbers.
+- Run `scripts/db_pipeline_live_evidence.sh` on a host with live PostgreSQL to capture `PG_TEST_CONNINFO` integration output plus repeated `db_pipeline_bench` raw/summary artifacts.
+- For benchmark-DB recordings, run `ONLY_BENCH=db_pipeline scripts/bench_record.sh ...`; the recorder now emits summary rows for the standard NDJSON output produced by `db_pipeline_bench.cxx`.
 
 ---
 
@@ -124,6 +124,6 @@ No code change until a decision is made.
 |---|---|---|
 | `db_params_bench.cxx` | ≥3× at param=4 | **Done** (4.1× at param=1, 1.8× at param=4) |
 | `db_coro_bench.cxx --binary` | 10–25% reduction (decode-bound) | Added binary-parameter variant (`--binary`) to compare against the text bind path |
-| `db_pipeline_bench.cxx` | 5–20× at N=100 INSERTs | **Needs rerun** after `db/pipeline-wire-mode`; benchmark now exercises libpq wire-level pipeline mode |
+| `db_pipeline_bench.cxx` | 5–20× at N=100 INSERTs | Evidence lane added in `benchmarks/notes/db_pipeline_live_evidence.md`; still needs host run with `PG_CONNINFO` |
 | `db_copy_bench.cxx` | ≥10× vs prepared loop | Needs P6 |
 | `db_stream_bench.cxx` | TTFB constant in N | Needs P4 (blocked) |

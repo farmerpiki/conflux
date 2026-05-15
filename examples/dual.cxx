@@ -45,7 +45,7 @@ int main() {
 		cert_path);
 
 	if (std::system(gen_cmd.c_str()) != 0) {
-		println(cerr, "openssl req failed — TLS disabled");
+		std::println(std::cerr, "openssl req failed — TLS disabled");
 		cert_path.clear();
 		key_path.clear();
 	}
@@ -83,10 +83,10 @@ int main() {
 		return HttpResponse::html(format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 	});
 
-	println(cerr, "dual-mode server starting on port {}", cfg.port);
-	println(cerr, "  http://localhost:{}/api/ping", cfg.port);
+	std::println(std::cerr, "dual-mode server starting on port {}", cfg.port);
+	std::println(std::cerr, "  http://localhost:{}/api/ping", cfg.port);
 	if (!cert_path.empty()) {
-		println(cerr, "  https://localhost:{}/api/ping  (self-signed, use -k)", cfg.port);
+		std::println(std::cerr, "  https://localhost:{}/api/ping  (self-signed, use -k)", cfg.port);
 	}
 
 	HttpServer srv{cfg, move(router)};

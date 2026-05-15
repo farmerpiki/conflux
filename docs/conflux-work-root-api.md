@@ -154,7 +154,7 @@ void reset_task_allocation_stats() noexcept;
 
 With the option disabled, both functions are still available but the snapshot is
 zeroed and reset is a no-op. The counters are intended for benchmarks and for
-validating future `ControlBlockModel<T>` pooling work; they are not a stable
+validating current `ControlBlockModel<T>` pooling behavior; they are not a stable
 telemetry API. Coroutine frame counters report actual allocation calls through
 the work-root promise allocator, so compiler coroutine-allocation elision may
 legitimately keep them at zero.

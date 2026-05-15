@@ -2,12 +2,12 @@
 set -euo pipefail
 
 usage() {
-	printf 'usage: %s [NAME=VALUE ...] --test-dir {build,/tmp/<source-dir>}/{debug,release,tsan}-{clang-libcxx,gcc-stdcxx} [ctest args...]\n' "$0" >&2
+	printf 'usage: %s [NAME=VALUE ...] --test-dir {build,/tmp/<source-dir>}/<supported-preset> [ctest args...]\n' "$0" >&2
 }
 
 valid_profile() {
 	case "$1" in
-		debug-clang-libcxx|debug-gcc-stdcxx|release-clang-libcxx|release-gcc-stdcxx|tsan-clang-libcxx|tsan-gcc-stdcxx)
+		debug-clang-libcxx|debug-gcc-stdcxx|release-clang-libcxx|release-gcc-stdcxx|tsan-clang-libcxx|tsan-gcc-stdcxx|fuzz-clang-stdcxx)
 			return 0
 			;;
 		*)

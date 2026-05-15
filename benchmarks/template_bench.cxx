@@ -35,9 +35,9 @@ void report(
 	SV name,
 	Stats const &s) {
 	if (g_csv) {
-		println("{},{},{},{:.2f}", name, s.iters, static_cast<u64>(s.total_ns), s.median_ns);
+		std::println("{},{},{},{:.2f}", name, s.iters, static_cast<u64>(s.total_ns), s.median_ns);
 	} else {
-		println("[tmpl-bench] {:<50} {:>10.1f} ns", name, s.median_ns);
+		std::println("[tmpl-bench] {:<50} {:>10.1f} ns", name, s.median_ns);
 	}
 }
 // ---------------------------------------------------------------------------
@@ -140,10 +140,10 @@ int main(
 		}
 	}
 	if (g_csv) {
-		println("variant,iterations,total_ns,ns_per_iter");
+		std::println("variant,iterations,total_ns,ns_per_iter");
 	} else {
-		println("[tmpl-bench] Template engine benchmarks");
-		println("[tmpl-bench] {}", S(60, '-'));
+		std::println("[tmpl-bench] Template engine benchmarks");
+		std::println("[tmpl-bench] {}", S(60, '-'));
 	}
 
 	// Each sub-bench creates its own Environment to also measure cold-path
@@ -230,7 +230,7 @@ int main(
 	}
 
 	if (!g_csv) {
-		println("[tmpl-bench] {}", S(60, '-'));
+		std::println("[tmpl-bench] {}", S(60, '-'));
 	}
 
 	// --- render-only (hot path: template pre-parsed, context varies) ---
@@ -274,7 +274,7 @@ int main(
 	}
 
 	if (!g_csv) {
-		println("[tmpl-bench] {}", S(60, '-'));
-		println("[tmpl-bench] Done.");
+		std::println("[tmpl-bench] {}", S(60, '-'));
+		std::println("[tmpl-bench] Done.");
 	}
 }

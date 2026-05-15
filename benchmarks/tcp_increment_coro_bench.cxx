@@ -74,7 +74,7 @@ Config parse_args(
 		} else if (a == "--json") {
 			cfg.json_out = true;
 		} else if (a == "--help" || a == "-h") {
-			println("Usage: conflux_tcp_increment_coro_bench [--iterations N] [--warmup N] [--clients N] [--json]");
+			std::println("Usage: conflux_tcp_increment_coro_bench [--iterations N] [--warmup N] [--clients N] [--json]");
 			std::exit(0);
 		}
 	}
@@ -583,7 +583,7 @@ int main(
 		if (::io_uring_queue_init(64, &raw, 0) < 0) {
 			server_stop.test_and_set(memory_order_release);
 			server.join();
-			println(cerr, "io_uring_queue_init failed");
+			std::println(std::cerr, "io_uring_queue_init failed");
 			return 1;
 		}
 		CompletionTable ct;
@@ -597,7 +597,7 @@ int main(
 											  run_fr_coroutine(files, sock, cfg.iterations, cfg.warmup);
 				double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 				if (cfg.json_out) {
-					println(
+					std::println(
 						"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."
 						"2f}}}",
 						cfg.config_name,
@@ -607,9 +607,9 @@ int main(
 						per);
 				} else {
 					if (which == 0) {
-						println("iterations: {}, warmup: {}", cfg.iterations, cfg.warmup);
+						std::println("iterations: {}, warmup: {}", cfg.iterations, cfg.warmup);
 					}
-					println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
+					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
 				}
 				server_stop.test_and_set(memory_order_release);
 				::shutdown(sock.raw_fd(), SHUT_RDWR);
@@ -627,7 +627,7 @@ int main(
 											  run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);
 				double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 				if (cfg.json_out) {
-					println(
+					std::println(
 						"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."
 						"2f}}}",
 						cfg.config_name,
@@ -636,7 +636,7 @@ int main(
 						ns,
 						per);
 				} else {
-					println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
+					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
 				}
 				server_stop.test_and_set(memory_order_release);
 				// stream dtor closes fd → unblocks server's ::read → server sees stop flag
@@ -652,7 +652,7 @@ int main(
 											  run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);
 				double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 				if (cfg.json_out) {
-					println(
+					std::println(
 						"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."
 						"2f}}}",
 						cfg.config_name,
@@ -661,7 +661,7 @@ int main(
 						ns,
 						per);
 				} else {
-					println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
+					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
 				}
 				server_stop.test_and_set(memory_order_release);
 			} else {
@@ -673,7 +673,7 @@ int main(
 				SZ const total_iters = cfg.iterations * cfg.clients;
 				double const per = static_cast<double>(ns) / static_cast<double>(total_iters);
 				if (cfg.json_out) {
-					println(
+					std::println(
 						"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."
 						"2f}}}",
 						cfg.config_name,
@@ -682,11 +682,11 @@ int main(
 						ns,
 						per);
 				} else {
-					println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
+					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
 				}
 				server_stop.test_and_set(memory_order_release);
 			}
-		} catch (exception const &e) { println(cerr, "error: {}", e.what()); }
+		} catch (exception const &e) { std::println(std::cerr, "error: {}", e.what()); }
 		::io_uring_queue_exit(&raw);
 		server.join();
 	}
