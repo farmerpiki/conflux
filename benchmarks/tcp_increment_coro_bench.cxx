@@ -322,7 +322,7 @@ struct StrLineReader {
 				return SV{reinterpret_cast<char const *>(buf.data()), end};
 			}
 			SZ const got =
-				block_on_socket_task(ring, stream.recv_borrowed(span<u8>{buf.data() + held, buf.size() - held}));
+				sync_wait_socket_task(ring, stream.recv_borrowed(span<u8>{buf.data() + held, buf.size() - held}));
 			if (got == 0) {
 				throw RE{"eof"};
 			}
@@ -345,7 +345,7 @@ u64 run_str_callback(
 	auto const t0 = chrono::steady_clock::now();
 	for (SZ i = 0; i < iters; ++i) {
 		SZ const len = encode_line(out, n);
-		block_on_socket_task(
+		sync_wait_socket_task(
 			ring,
 			stream.write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const *>(out.data()), len}));
 		auto line = reader.read_line();
@@ -399,7 +399,7 @@ u64 run_str_coroutine(
 	SZ iters,
 	u64 start) {
 	auto const t0 = chrono::steady_clock::now();
-	auto _ = block_on_socket_task(ring, str_coro_loop(stream, iters, start));
+	auto _ = sync_wait_socket_task(ring, str_coro_loop(stream, iters, start));
 	auto const t1 = chrono::steady_clock::now();
 	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
@@ -531,7 +531,7 @@ u64 run_str_parallel(
 	SZ iters,
 	u64 start) {
 	auto const t0 = chrono::steady_clock::now();
-	block_on_socket_task(ring, str_parallel_inner(ring, port, iters, start));
+	sync_wait_socket_task(ring, str_parallel_inner(ring, port, iters, start));
 	auto const t1 = chrono::steady_clock::now();
 	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
@@ -621,7 +621,7 @@ int main(
 										 }};
 				auto ss = loopback_addr(port);
 				TcpStream stream =
-					block_on_socket_task(task_ring, tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
+					sync_wait_socket_task(task_ring, tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
 				(void)run_str_callback(task_ring, stream, cfg.warmup, 0);
 				u64 const ns = (which == 2) ? run_str_callback(task_ring, stream, cfg.iterations, cfg.warmup) :
 											  run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);
@@ -646,7 +646,7 @@ int main(
 										 }};
 				auto ss = loopback_addr(port);
 				TcpStream stream =
-					block_on_socket_task(task_ring, tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
+					sync_wait_socket_task(task_ring, tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
 				(void)run_str_callback(task_ring, stream, cfg.warmup, 0);
 				u64 const ns = (which == 4) ? run_str_callback(task_ring, stream, cfg.iterations, cfg.warmup) :
 											  run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);

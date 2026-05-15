@@ -464,7 +464,7 @@ struct Ring {
 		}
 		return router != nullptr && router->has_context_routes();
 	}
-	[[nodiscard]] Opt<HttpResponse> try_dispatch_async(
+	[[nodiscard]] Opt<HttpResponse> try_dispatch_context(
 		HttpRequestView const &req) const {
 		if (!client_task_ring_) {
 			return nullopt;
@@ -475,9 +475,9 @@ struct Ring {
 		RequestContext const ctx{*client_task_ring_};
 		HttpRequest const owned = req.to_owned();
 		if (vhost_router != nullptr) {
-			return vhost_router->dispatch_async(owned, ctx);
+			return vhost_router->dispatch_context(owned, ctx);
 		}
-		return router->dispatch_async(owned, ctx);
+		return router->dispatch_context(owned, ctx);
 	}
 	[[nodiscard]] SP<WorkPool> resolve_ws_work_pool(
 		HttpRequestView const &req) const {
@@ -4385,7 +4385,7 @@ void dispatch_request(
 	auto const handler_started = chrono::steady_clock::now();
 	HttpResponse resp;
 	try {
-		if (auto async = ring.try_dispatch_async(req)) {
+		if (auto async = ring.try_dispatch_context(req)) {
 			resp = move(*async);
 		} else {
 			resp = ring.dispatch(req);

@@ -2,7 +2,7 @@
 
 `conflux::http::HttpClient` — blocking HTTP/1.1 user agent. TLS via OpenSSL (`https://`). One module, no extra deps.
 
-Also available: `send_async` — coroutine-based async transport backed by `SocketTaskRing`. HTTP and HTTPS (via `TcpTlsStream`). Happy Eyeballs (RFC 8305) staggered connect.
+Also available: `async_send` — coroutine-based async transport backed by `SocketTaskRing`. `send_async` remains as a compatibility alias. HTTP and HTTPS (via `TcpTlsStream`). Happy Eyeballs (RFC 8305) staggered connect.
 
 Status: **Blocking and async transports stable.** New connection per request (no pool, no keep-alive).
 
@@ -14,7 +14,7 @@ import conflux.net.http;          // umbrella — exports everything below
 import conflux.net.http.types;    // HttpError, HttpTimeouts, HttpTelemetry, Url
 import conflux.net.http.request;  // HttpRequest, HttpRequest::Builder
 import conflux.net.client;        // HttpClient, HttpClientOptions, HttpResponse, HttpResult
-import conflux.net.async_client;  // send_async — NOT re-exported from conflux.net.http
+import conflux.net.async_client;  // async_send/send_async — NOT re-exported from conflux.net.http
 ```
 
 All public types live in namespace `conflux::http`.
@@ -117,7 +117,7 @@ struct HttpError {
 };
 ```
 
-`decompression` and `redirect_limit` are reserved for Phase 2 — Phase 1 does not auto-decode `Content-Encoding`, but redirect following is implemented and driven by `max_redirects`.
+`decompression` is reserved for Phase 2 — Phase 1 does not auto-decode `Content-Encoding`. `redirect_limit` is used when redirect following exhausts `max_redirects`.
 
 ### `HttpTelemetry`
 
@@ -318,7 +318,6 @@ Anything that depends on Phase 2:
 - **No connection pool** — each call opens & closes a socket. `pool_wait` / `reused_connection` are wired but never set.
 - **No keep-alive** — request always emits `Connection: close`.
 - **No HTTP/2 or HTTP/3** — server-side modules exist but the client speaks HTTP/1.1 only. `negotiated_protocol` is hard-coded to `"https/1.1"` for TLS responses.
-- **Automatic redirect following** — `follow_redirects` / `disable_redirects` control the maximum number of redirects followed by the client; redirects strip sensitive headers on host changes and report `redirect_limit` when exhausted.
 - **No content-coding decode** — `gzip`/`br`/`zstd` bodies arrive un-inflated. Caller must decode (the `conflux.net.compress` module is server-side).
 - **No request streaming / chunked send** — body is buffered in full; no `Transfer-Encoding` on the wire.
 - **No proxy support on the client itself** — `src/net/proxy.cxx` is a *server-side* reverse-proxy handler that uses `HttpClient` internally; it is not an HTTP-proxy client.
@@ -347,7 +346,7 @@ Anything that depends on Phase 2:
 | connect/tls/resolve timeout | 5 s | option-controlled |
 | write/first-byte/between-bytes timeout | 30 s | option-controlled |
 
-## Async client (`send_async`)
+## Async client (`async_send`)
 
 **Module:** `conflux.net.async_client` — not re-exported from `conflux.net.http`.
 
@@ -355,13 +354,13 @@ Anything that depends on Phase 2:
 import conflux.net.async_client;
 
 [[nodiscard]] conflux::work::root::Task<HttpResult>
-conflux::http::send_async(
+conflux::http::async_send(
     HttpClient const& client,
     SocketTaskRing&   ring,
     HttpRequest const& req);
 ```
 
-Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all outlive the coroutine — do not destroy them while the task is suspended.
+Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all outlive the coroutine — do not destroy them while the task is suspended. `send_async(...)` is still exported as a compatibility alias.
 
 **Features:**
 
@@ -372,13 +371,13 @@ Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all 
 
 **Limitations vs `send_blocking`:**
 
-| Feature | `send_blocking` | `send_async` |
+| Feature | `send_blocking` | `async_send` |
 |---|---|---|
 | HTTP/1.1 | Yes | Yes |
 | HTTPS / TLS | Yes | Yes (via `TcpTlsStream`) |
 | Happy Eyeballs | No (sequential) | Yes (RFC 8305 stagger) |
 | Connection pool | No | No |
-| Redirect following | No | No |
+| Redirect following | Yes | Yes |
 | Content-encoding decode | No | No |
 | Write timeout | Yes | Yes (linked SQE) |
 | Cancellation | N/A | Via `SocketTaskRing` cancel |
@@ -402,14 +401,13 @@ using ContextMiddleware =
 template<ContextHandlerFunction F>
 Router& Router::add_context(std::string_view method, std::string_view path, F&& handler);
 bool    Router::has_context_routes() const;
-std::optional<HttpResponse> Router::dispatch_async(HttpRequest const&, RequestContext const&); // transitional name
+std::optional<HttpResponse> Router::dispatch_context(HttpRequest const&, RequestContext const&);
+std::optional<HttpResponse> Router::dispatch_async(HttpRequest const&, RequestContext const&); // compatibility alias
 ```
 
-Context routes are probed from the server's ring loop. They receive an owning `HttpRequest` plus the ring thread's `SocketTaskRing`, so coroutine suspension cannot dangle request views and `send_async` can be used without blocking. `proxy_context_handler()` in `proxy.cxx` uses this path. Prefer this surface when a route needs the ring context directly; ordinary coroutine route handlers can accept owning `HttpRequest` and return `root::Task<HttpResponse>` without a `RequestContext`.
+Context routes are probed from the server's ring loop. They receive an owning `HttpRequest` plus the ring thread's `SocketTaskRing`, so coroutine suspension cannot dangle request views and `async_send` can be used without blocking. `proxy_context_handler()` in `proxy.cxx` uses this path. Prefer this surface when a route needs the ring context directly; ordinary coroutine route handlers can accept owning `HttpRequest` and return `root::Task<HttpResponse>` without a `RequestContext`.
 
-The exported dispatcher is still named `dispatch_async(...)` in this branch for compatibility. Treat that name as transitional: semantically it is context-route/deferred-response dispatch, not a general `async_*` coroutine API. `docs/naming-audit.md` owns the final-name inventory and release-cleanup order.
-
-Context routes are dispatched via `try_dispatch_async` in the server's ring loop. They receive an owning `HttpRequest` plus the ring thread's `SocketTaskRing`, so coroutine suspension cannot dangle request views and `send_async` can be used without blocking. `proxy_context_handler()` in `proxy.cxx` uses this path. Prefer this surface when a route needs the ring context directly; ordinary coroutine route handlers can accept owning `HttpRequest` and return `root::Task<HttpResponse>` without a `RequestContext`.
+`dispatch_async(...)` remains exported as a compatibility alias, but new code should call `dispatch_context(...)` because the function returns an optional response immediately and represents context/deferred route probing, not an awaitable async operation.
 
 ## Stability
 
@@ -417,7 +415,6 @@ Blocking and async surfaces stable. Both support HTTP and HTTPS.
 
 Still not in any transport:
 - pooled connections / keep-alive (`pool_wait` / `reused_connection` always false)
-- redirect following (`follow_redirects` follows redirects up to the configured limit)
 - content-coding decode (gzip/br/zstd bodies arrive raw)
 - JSON document request-body helpers are free functions in `conflux.net.http.json`; there is intentionally no `body_json(NodeRef)` member on `HttpRequest::Builder`. The helpers are provider-boundary based, so framework-facing code should not call `Document::dump()` directly.
 

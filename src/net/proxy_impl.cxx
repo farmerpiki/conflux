@@ -112,7 +112,7 @@ namespace proxy_detail {
 		HttpRequestView{req},
 		opts);
 	builder.timeouts(client.options().default_timeouts);
-	auto result = co_await http::send_async(client, ring, move(builder).build());
+	auto result = co_await http::async_send(client, ring, move(builder).build());
 	if (!result) {
 		co_return HttpResponse::bad_gateway(
 			format("proxy: {} ({})", result.error().message, static_cast<int>(result.error().kind)));
@@ -128,9 +128,16 @@ HttpResponse proxy_sync(
 	return proxy_detail::perform_proxy_request(req, opts);
 }
 
-wroot::Task<HttpResponse> proxy_async(
+wroot::Task<HttpResponse> async_proxy(
 	HttpRequest const &req,
 	ProxyOptions const &opts,
 	SocketTaskRing &ring) {
 	co_return co_await proxy_detail::perform_proxy_request_async(req, opts, ring);
+}
+
+wroot::Task<HttpResponse> proxy_async(
+	HttpRequest const &req,
+	ProxyOptions const &opts,
+	SocketTaskRing &ring) {
+	co_return co_await async_proxy(req, opts, ring);
 }

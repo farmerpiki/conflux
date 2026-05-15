@@ -21,6 +21,11 @@ export HttpResponse proxy_sync(
 	HttpRequestView const &req,
 	ProxyOptions const &opts);
 
+export wroot::Task<HttpResponse> async_proxy(
+	HttpRequest const &req,
+	ProxyOptions const &opts,
+	SocketTaskRing &ring);
+
 export wroot::Task<HttpResponse> proxy_async(
 	HttpRequest const &req,
 	ProxyOptions const &opts,

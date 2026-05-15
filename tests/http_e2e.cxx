@@ -246,7 +246,7 @@ void ensure_redirect_follow_servers() {
 		front.add_context("GET", "/async-follow", [popts](HttpRequest const &, RequestContext const &ctx)
 								-> conflux::work::root::Task<HttpResponse> {
 			HttpClient client{};
-			auto result = co_await send_async(
+			auto result = co_await async_send(
 				client,
 				ctx.ring,
 				chttp::HttpRequest::get(
@@ -1006,7 +1006,7 @@ void ensure_proxy_server() {
 			"GET",
 			"/proxy/ping",
 			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
-				-> conflux::work::root::Task<HttpResponse> { co_return co_await proxy_async(req, popts, ctx.ring); });
+				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		g_proxy_front = make_shared<ScopedTestServer>(cfg, move(front));
 		g_proxy_port = g_proxy_front->port();
 	});
@@ -5305,7 +5305,7 @@ TEST_CASE(
 	REQUIRE(extract_body(resp) == "proxied-ok");
 }
 TEST_CASE(
-	"http client async: send_async follows relative redirects") {
+	"http client async: async_send follows relative redirects") {
 	ensure_redirect_follow_servers();
 	auto resp = http_get_on(g_redirect_follow_async_port, "/async-follow");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -5331,7 +5331,7 @@ TEST_CASE(
 			"GET",
 			"/echo",
 			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
-				-> conflux::work::root::Task<HttpResponse> { co_return co_await proxy_async(req, popts, ctx.ring); });
+				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		s_front = make_shared<ScopedTestServer>(cfg, move(front));
 	});
 	auto resp = http_get_on(s_front->port(), "/echo");
@@ -5359,7 +5359,7 @@ TEST_CASE(
 			"GET",
 			"/echo",
 			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
-				-> conflux::work::root::Task<HttpResponse> { co_return co_await proxy_async(req, popts, ctx.ring); });
+				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		s_front = make_shared<ScopedTestServer>(cfg, move(front));
 	});
 	// Send Host: localhost:9999 — proxy must connect to upstream, not myapp.example.com.
@@ -5388,7 +5388,7 @@ TEST_CASE(
 			"GET",
 			"/xff",
 			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
-				-> conflux::work::root::Task<HttpResponse> { co_return co_await proxy_async(req, popts, ctx.ring); });
+				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		s_front = make_shared<ScopedTestServer>(cfg, move(front));
 	});
 	// Client sends existing XFF; proxy appends remote_addr (127.0.0.1).

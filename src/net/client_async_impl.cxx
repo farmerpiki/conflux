@@ -1026,7 +1026,7 @@ wroot::Task<void> run_async_request_driver(
 } // namespace async_detail
 namespace conflux::http {
 
-[[nodiscard]] conflux::work::root::Task<HttpResult> send_async(
+[[nodiscard]] conflux::work::root::Task<HttpResult> async_send(
 	HttpClient const &client,
 	SocketTaskRing &ring,
 	HttpRequest const &req) {
@@ -1038,6 +1038,13 @@ namespace conflux::http {
 	auto driver = async_detail::run_async_request_driver(ring, req, client.options(), src, cancel);
 	move(driver).detach();
 	return move(out);
+}
+
+[[nodiscard]] conflux::work::root::Task<HttpResult> send_async(
+	HttpClient const &client,
+	SocketTaskRing &ring,
+	HttpRequest const &req) {
+	return async_send(client, ring, req);
 }
 
 } // namespace conflux::http

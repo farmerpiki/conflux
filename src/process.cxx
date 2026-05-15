@@ -499,7 +499,7 @@ export expected<Process, EC> spawn(
 	return spawn_clone(exe, args, opts, 0);
 }
 export template<typename Target>
-[[nodiscard]] auto spawn_async_in(
+[[nodiscard]] auto async_spawn_in(
 	Target &target,
 	fs::path exe,
 	V<S> args,
@@ -512,6 +512,15 @@ export template<typename Target>
 		}
 		return spawn(exe, views, opts);
 	});
+}
+
+export template<typename Target>
+[[nodiscard]] auto spawn_async_in(
+	Target &target,
+	fs::path exe,
+	V<S> args,
+	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<Process, EC>> {
+	return async_spawn_in(target, move(exe), move(args), move(opts));
 }
 // ---------------------------------------------------------------------------
 // run — spawn + drain stdout/stderr + wait
@@ -602,7 +611,7 @@ export expected<RunResult, EC> run(
 	return result;
 }
 export template<typename Target>
-[[nodiscard]] auto run_async_in(
+[[nodiscard]] auto async_run_in(
 	Target &target,
 	fs::path exe,
 	V<S> args,
@@ -616,9 +625,26 @@ export template<typename Target>
 		return run(exe, views, move(opts));
 	});
 }
+
+export template<typename Target>
+[[nodiscard]] auto run_async_in(
+	Target &target,
+	fs::path exe,
+	V<S> args,
+	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<RunResult, EC>> {
+	return async_run_in(target, move(exe), move(args), move(opts));
+}
+
+export template<typename Target>
+[[nodiscard]] auto async_wait_in(
+	Target &target,
+	Process proc) -> conflux::work::root::Task<int> {
+	return run_on_task(target, [proc = move(proc)]() mutable { return proc.wait(); });
+}
+
 export template<typename Target>
 [[nodiscard]] auto wait_async_in(
 	Target &target,
 	Process proc) -> conflux::work::root::Task<int> {
-	return run_on_task(target, [proc = move(proc)]() mutable { return proc.wait(); });
+	return async_wait_in(target, move(proc));
 }

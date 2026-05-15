@@ -26,7 +26,7 @@ void router_launch_sse_handler(
 	}
 }
 
-export HttpResponse router_run_async_http_task(
+export HttpResponse router_defer_http_task(
 	conflux::work::root::Task<HttpResponse> task) {
 	auto deferred = make_shared<DeferredResponse>();
 	auto jh = make_shared<conflux::work::root::TaskJoinHandle<HttpResponse>>(
@@ -45,6 +45,12 @@ export HttpResponse router_run_async_http_task(
 		}
 	});
 	return HttpResponse::deferred(move(deferred));
+}
+
+
+export HttpResponse router_run_async_http_task(
+	conflux::work::root::Task<HttpResponse> task) {
+	return router_defer_http_task(move(task));
 }
 
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
@@ -128,7 +134,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 }
 
 export template<typename ContextRouteRange, typename Ctx>
-[[nodiscard]] Opt<HttpResponse> dispatch_async_routes(
+[[nodiscard]] Opt<HttpResponse> dispatch_context_routes(
 	HttpRequest const &req,
 	Ctx const &ctx,
 	SV path_sv,
@@ -150,8 +156,18 @@ export template<typename ContextRouteRange, typename Ctx>
 					call_req.params.emplace_back(S{k}, S{v});
 				}
 			}
-			return router_run_async_http_task(route.handler(call_req, ctx));
+			return router_defer_http_task(route.handler(call_req, ctx));
 		}
 	}
 	return nullopt;
+}
+
+export template<typename ContextRouteRange, typename Ctx>
+[[nodiscard]] Opt<HttpResponse> dispatch_async_routes(
+	HttpRequest const &req,
+	Ctx const &ctx,
+	SV path_sv,
+	bool is_head,
+	ContextRouteRange const &context_routes) {
+	return dispatch_context_routes(req, ctx, path_sv, is_head, context_routes);
 }

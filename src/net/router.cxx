@@ -276,6 +276,9 @@ public:
 		StaticOptions const &sopts = {});
 	[[nodiscard]] HttpResponse dispatch(HttpRequest const &req) const;
 	[[nodiscard]] HttpResponse dispatch(HttpRequestView const &req) const;
+	[[nodiscard]] Opt<HttpResponse> dispatch_context(
+		HttpRequest const &req,
+		RequestContext const &ctx) const;
 	[[nodiscard]] Opt<HttpResponse> dispatch_async(
 		HttpRequest const &req,
 		RequestContext const &ctx) const;
@@ -296,6 +299,8 @@ private:
 		HttpRequest matched,
 		SP<SseChannel> const &channel);
 	[[nodiscard]] Handler wrap_middlewares(Handler h) const;
+	[[nodiscard]] static HttpResponse defer_http_task(
+		conflux::work::root::Task<HttpResponse> task);
 	[[nodiscard]] static HttpResponse run_async_http_task(
 		conflux::work::root::Task<HttpResponse> task);
 	template<class>
@@ -328,7 +333,7 @@ private:
 			} else if constexpr (same_as<Ret, conflux::work::root::Task<HttpResponse>>) {
 				return Handler{[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req) mutable -> HttpResponse {
 					auto owned = req.to_owned();
-					return run_async_http_task(invoke(wrapped, owned));
+					return defer_http_task(invoke(wrapped, owned));
 				}};
 			} else {
 				static_assert(

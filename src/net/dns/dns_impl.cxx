@@ -1605,7 +1605,7 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 				edns);
 			try {
 				auto budget = effective_native_timeout(effective_opts) + chrono::milliseconds{500};
-				auto result = block_on_socket_task(tmp_str, move(flow), budget);
+				auto result = sync_wait_socket_task(tmp_str, move(flow), budget);
 				if (result.endpoints.empty()) {
 					return result;
 				}

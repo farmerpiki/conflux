@@ -599,7 +599,7 @@ void bench_e2e_decode(
 			std::thread server{[&] { serve_json_corpus(listener_fd, stop, corpus); }};
 			try {
 				auto socket_stats = measure(
-					[&] { block_on_socket_task(ring, decode_socket_once(ring, port)); },
+					[&] { sync_wait_socket_task(ring, decode_socket_once(ring, port)); },
 					5,
 					20,
 					1,
