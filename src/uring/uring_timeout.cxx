@@ -67,7 +67,7 @@ namespace detail {
 
 } // namespace detail
 
-export [[nodiscard]] root::Task<void> timeout_async(
+export [[nodiscard]] root::Task<void> async_timeout(
 	io_uring *ring,
 	CompletionTable &completions,
 	Fn<u64(u32, u32)> encode_ud,
@@ -77,7 +77,17 @@ export [[nodiscard]] root::Task<void> timeout_async(
 	return detail::submit_timeout_(ring, completions, move(encode_ud), ms, count, flags, false);
 }
 
-export [[nodiscard]] root::Task<void> timeout_remove_async(
+export [[nodiscard]] root::Task<void> timeout_async(
+	io_uring *ring,
+	CompletionTable &completions,
+	Fn<u64(u32, u32)> encode_ud,
+	chrono::milliseconds ms,
+	unsigned count = 0,
+	unsigned flags = 0) {
+	return async_timeout(ring, completions, move(encode_ud), ms, count, flags);
+}
+
+export [[nodiscard]] root::Task<void> async_timeout_remove(
 	io_uring *ring,
 	CompletionTable &completions,
 	Fn<u64(u32, u32)> encode_ud,
@@ -106,13 +116,31 @@ export [[nodiscard]] root::Task<void> timeout_remove_async(
 	return move(task);
 }
 
-export [[nodiscard]] root::Task<void> link_timeout_async(
+export [[nodiscard]] root::Task<void> timeout_remove_async(
+	io_uring *ring,
+	CompletionTable &completions,
+	Fn<u64(u32, u32)> encode_ud,
+	u64 user_data,
+	unsigned flags = 0) {
+	return async_timeout_remove(ring, completions, move(encode_ud), user_data, flags);
+}
+
+export [[nodiscard]] root::Task<void> async_link_timeout(
 	io_uring *ring,
 	CompletionTable &completions,
 	Fn<u64(u32, u32)> encode_ud,
 	chrono::milliseconds ms,
 	unsigned flags = 0) {
 	return detail::submit_timeout_(ring, completions, move(encode_ud), ms, 0, flags, true);
+}
+
+export [[nodiscard]] root::Task<void> link_timeout_async(
+	io_uring *ring,
+	CompletionTable &completions,
+	Fn<u64(u32, u32)> encode_ud,
+	chrono::milliseconds ms,
+	unsigned flags = 0) {
+	return async_link_timeout(ring, completions, move(encode_ud), ms, flags);
 }
 
 } // namespace conflux::uring

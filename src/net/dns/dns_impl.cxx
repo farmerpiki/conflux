@@ -150,7 +150,7 @@ void parse_resolv_options(
 [[nodiscard]] ResolvConfig parse_resolv_conf(
 	fs::path const &path) noexcept {
 	ResolvConfig out;
-	auto const contents = read_text_file_nothrow(path.string(), SZ{4} * 1024 * 1024);
+	auto const contents = blocking_read_text_file_nothrow(path.string(), SZ{4} * 1024 * 1024);
 	if (!contents) {
 		return out;
 	}
@@ -192,7 +192,7 @@ void parse_resolv_options(
 [[nodiscard]] UM<S, V<Endpoint>> parse_hosts_file(
 	fs::path const &path) noexcept {
 	UM<S, V<Endpoint>> out;
-	auto const contents = read_text_file_nothrow(path.string(), SZ{4} * 1024 * 1024);
+	auto const contents = blocking_read_text_file_nothrow(path.string(), SZ{4} * 1024 * 1024);
 	if (!contents) {
 		return out;
 	}
@@ -402,7 +402,7 @@ struct ActiveTaskGuard {
 		UdpSocket sock = UdpSocket::ephemeral(ring, static_cast<int>(ns.addr.ss_family));
 		A<u8, kRxSize> rx_buf{};
 		// P1-08: UDP send cancel not covered; cancellation detected on next recv
-		co_await sock.send_to_borrowed(span<u8 const>{wire.data(), wire.size()}, ns.addr, ns.addr_len);
+		co_await sock.async_send_to_borrowed(span<u8 const>{wire.data(), wire.size()}, ns.addr, ns.addr_len);
 		check_cancelled();
 		auto const deadline = chrono::steady_clock::now() + timeout;
 		for (;;) {
@@ -411,7 +411,7 @@ struct ActiveTaskGuard {
 				throw DnsError{DnsErrorKind::timeout, "dns: query timed out"};
 			}
 			auto const remaining = chrono::ceil<chrono::milliseconds>(deadline - now);
-			auto recv_task = sock.recv_from(span<u8>{rx_buf.data(), rx_buf.size()}, remaining);
+			auto recv_task = sock.async_recv_from(span<u8>{rx_buf.data(), rx_buf.size()}, remaining);
 			ActiveTaskGuard g{*state, recv_task.control()};
 			auto const result = co_await move(recv_task);
 			auto msg = codec::decode_message(span<u8 const>{rx_buf.data(), result.bytes});
@@ -515,7 +515,7 @@ struct ActiveTaskGuard {
 		copts.timeout = timeout;
 		TcpStream stream{};
 		{
-			auto connect_task = tcp_connect(ring, family, ns.addr, ns.addr_len, copts);
+			auto connect_task = async_tcp_connect(ring, family, ns.addr, ns.addr_len, copts);
 			ActiveTaskGuard g{*state, connect_task.control()};
 			stream = co_await move(connect_task);
 		}
@@ -523,7 +523,7 @@ struct ActiveTaskGuard {
 		{
 			SZ sent = 0;
 			while (sent < framed.size()) {
-				auto write_task = stream.write_borrowed(span<u8 const>{framed.data() + sent, framed.size() - sent});
+				auto write_task = stream.async_write_borrowed(span<u8 const>{framed.data() + sent, framed.size() - sent});
 				ActiveTaskGuard g{*state, write_task.control()};
 				SZ const n = co_await move(write_task);
 				if (n == 0) {
@@ -538,7 +538,7 @@ struct ActiveTaskGuard {
 			SZ n = 0;
 			while (n < 2) {
 				root::Task<SZ> recv_task =
-					stream.recv_borrowed(span<u8>{len_buf.data() + n, 2 - n}, remaining_or_throw());
+					stream.async_recv_borrowed(span<u8>{len_buf.data() + n, 2 - n}, remaining_or_throw());
 				ActiveTaskGuard g{*state, recv_task.control()};
 				SZ const got = co_await move(recv_task);
 				if (got == 0) {
@@ -555,7 +555,7 @@ struct ActiveTaskGuard {
 		{
 			SZ resp_n = 0;
 			while (resp_n < static_cast<SZ>(resp_len)) {
-				root::Task<SZ> recv_task = stream.recv_borrowed(
+				root::Task<SZ> recv_task = stream.async_recv_borrowed(
 					span<u8>{resp_buf.data() + resp_n, static_cast<SZ>(resp_len) - resp_n},
 					remaining_or_throw());
 				ActiveTaskGuard g{*state, recv_task.control()};
@@ -1605,7 +1605,7 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 				edns);
 			try {
 				auto budget = effective_native_timeout(effective_opts) + chrono::milliseconds{500};
-				auto result = block_on_socket_task(tmp_str, move(flow), budget);
+				auto result = sync_wait_socket_task(tmp_str, move(flow), budget);
 				if (result.endpoints.empty()) {
 					return result;
 				}

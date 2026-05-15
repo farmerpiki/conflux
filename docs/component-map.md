@@ -86,7 +86,8 @@ scripts/run-package-config-smoke.sh \
 | `socket_io` | `conflux::socket_io` | `conflux.socket_io`, `conflux.socket_io.coro`, `conflux.socket_io.blocking` | `tests/socket_task_ring_test.cxx`, `tests/tcp_listener_test.cxx` |
 | `dns` | `conflux::dns` | `conflux.net.dns` | `tests/dns_codec_test.cxx`, `tests/dns_resolver_test.cxx` |
 | `process` | `conflux::process` | `conflux.process` | `examples/process_run.cxx`, `tests/process_test.cxx` |
-| `db` | `conflux::db` | `conflux.db` and granular `conflux.db.*` modules | `docs/db-api.md`, `examples/db_basic.cxx`, `examples/db_pool.cxx` |
+| `pg` | `conflux::pg` | `conflux.pg` alias module over PostgreSQL DB API | `docs/db-api.md`, `examples/db_basic.cxx`, `examples/db_pool.cxx` |
+| `db` | `conflux::db` | `conflux.db` and granular `conflux.db.*` modules; compatibility spelling for PostgreSQL API | `docs/db-api.md`, `examples/db_basic.cxx`, `examples/db_pool.cxx` |
 | `smtp` | `conflux::smtp` | `conflux.net.smtp` | `tests/smtp_test.cxx` |
 | `umbrella` | `conflux::umbrella` | `conflux` | `README.md` |
 

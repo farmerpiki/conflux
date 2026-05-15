@@ -19,7 +19,7 @@ constexpr u64 pack_ud(
 root::Task<S> read_file(
 	FileReader &files,
 	S path) {
-	auto handle = co_await files.open_async(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
+	auto handle = co_await files.async_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
 	if (!handle.valid()) {
 		throw RE{format("open {} failed", path)};
 	}

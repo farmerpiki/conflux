@@ -158,9 +158,14 @@ Router &Router::ws_prepared(
 		return result;
 	}
 
+[[nodiscard]] HttpResponse Router::defer_http_task(
+	conflux::work::root::Task<HttpResponse> task) {
+	return router_defer_http_task(move(task));
+}
+
 [[nodiscard]] HttpResponse Router::run_async_http_task(
 	conflux::work::root::Task<HttpResponse> task) {
-	return router_run_async_http_task(move(task));
+	return defer_http_task(move(task));
 }
 
 void Router::launch_sse_handler(
@@ -231,7 +236,7 @@ Router &Router::serve_static(
 
 		// Inner handler: performs route matching + 404. Middleware wraps this whole thing.
 		Handler inner = [this, path_sv, is_head](HttpRequestView const &r) -> HttpResponse {
-			return dispatch_sync_routes(
+			return dispatch_immediate_routes(
 				r,
 				path_sv,
 				is_head,
@@ -245,7 +250,7 @@ Router &Router::serve_static(
 		return wrap_middlewares(move(inner))(req);
 	}
 
-[[nodiscard]] Opt<HttpResponse> Router::dispatch_async(
+[[nodiscard]] Opt<HttpResponse> Router::dispatch_context(
 	HttpRequest const &req,
 	RequestContext const &ctx) const {
 		bool const is_head = (req.method == "HEAD");
@@ -253,5 +258,11 @@ Router &Router::serve_static(
 		if (auto q = path_sv.find('?'); q != SV::npos) {
 			path_sv = path_sv.substr(0, q);
 		}
-		return dispatch_async_routes(req, ctx, path_sv, is_head, impl_->context_routes);
+		return dispatch_context_routes(req, ctx, path_sv, is_head, impl_->context_routes);
 	}
+
+[[nodiscard]] Opt<HttpResponse> Router::dispatch_async(
+	HttpRequest const &req,
+	RequestContext const &ctx) const {
+	return dispatch_context(req, ctx);
+}

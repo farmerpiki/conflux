@@ -1003,7 +1003,7 @@ public:
 		HttpClientOptions opts = {})
 		: opts_{move(opts)} {}
 	[[nodiscard]] HttpClientOptions const &options() const noexcept { return opts_; }
-	[[nodiscard]] HttpResult send_blocking(
+	[[nodiscard]] HttpResult blocking_send(
 		HttpRequest const &req) const {
 		auto effective_opts = opts_;
 		HttpRequest current = req;
@@ -1024,6 +1024,10 @@ public:
 			}
 			current = move(**next);
 		}
+	}
+	[[nodiscard]] HttpResult send_blocking(
+		HttpRequest const &req) const {
+		return blocking_send(req);
 	}
 };
 

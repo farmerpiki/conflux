@@ -186,7 +186,7 @@ HttpResponse handle_static_put(
 											   existed,
 											   &static_cache,
 											   dr]() mutable {
-				auto r = write_text_file_atomic_at_sync(rfd, SV{rel}, SV{*body_owned});
+				auto r = blocking_write_text_file_atomic_at(rfd, SV{rel}, SV{*body_owned});
 				if (!r) {
 					dr->complete(HttpResponse::internal_error());
 					return;
@@ -203,7 +203,7 @@ HttpResponse handle_static_put(
 			return HttpResponse::deferred(move(dr));
 		}
 
-		if (!write_text_file_atomic_at_sync(root_fd, SV{rel}, SV{req.body})) {
+		if (!blocking_write_text_file_atomic_at(root_fd, SV{rel}, SV{req.body})) {
 			return HttpResponse::internal_error();
 		}
 		static_cache.evict_all_encodings(full_path);
@@ -244,7 +244,7 @@ HttpResponse handle_static_delete(
 		if (auto *fr = current_file_reader(); fr != nullptr) {
 			auto dr = make_shared<DeferredResponse>();
 			auto fp = make_shared<S>(full_path);
-			do_delete_static_file(dr, fp, static_cache, fr->unlink_async(root_fd, rel)).detach();
+			do_delete_static_file(dr, fp, static_cache, fr->async_unlink(root_fd, rel)).detach();
 			return HttpResponse::deferred(move(dr));
 		}
 
@@ -585,28 +585,37 @@ HttpResponse handle_static_get(
 							SZ rs = 0;
 							SZ re = file_size - 1;
 							bool ok = true;
-							if (!start_sv.empty()) {
-								auto [p, ec] =
-									from_chars(start_sv.data(), ranges::next(start_sv.data(), ssize(start_sv)), rs);
-								if (ec != errc{}) {
-									ok = false;
+							bool satisfiable = false;
+							auto parse_size = [](SV s, SZ &out) {
+								if (s.empty()) {
+									return false;
+								}
+								auto const *first = s.data();
+								auto const *last = ranges::next(s.data(), ssize(s));
+								auto [p, ec] = from_chars(first, last, out);
+								return ec == errc{} && p == last;
+							};
+
+							if (start_sv.empty()) {
+								SZ suffix_len = 0;
+								ok = parse_size(end_sv, suffix_len);
+								if (ok && suffix_len > 0) {
+									rs = suffix_len >= file_size ? 0 : file_size - suffix_len;
+									re = file_size - 1;
+									satisfiable = true;
+								}
+							} else {
+								ok = parse_size(start_sv, rs);
+								if (ok && !end_sv.empty()) {
+									ok = parse_size(end_sv, re);
+								}
+								if (ok) {
+									re = min(re, file_size - 1);
+									satisfiable = rs < file_size && rs <= re;
 								}
 							}
-							if (!end_sv.empty()) {
-								if (start_sv.empty()) {
-									// suffix range: "-N" = last N bytes; not implemented
-									ok = false;
-								} else {
-									auto [p, ec] =
-										from_chars(end_sv.data(), ranges::next(end_sv.data(), ssize(end_sv)), re);
-									if (ec != errc{}) {
-										ok = false;
-									}
-								}
-							} else if (start_sv.empty()) {
-								ok = false; // both empty: malformed
-							}
-							if (ok && rs <= re && re < file_size) {
+
+							if (ok && satisfiable) {
 								range_start = rs;
 								range_end = re;
 								is_range_request = true;
@@ -721,7 +730,7 @@ HttpResponse handle_static_get(
 						send_off,
 						send_sz,
 						file_size,
-						fr->openat2_async(
+						fr->async_openat2(
 							root_fd,
 							S{rel_str},
 							open_how{
@@ -732,7 +741,7 @@ HttpResponse handle_static_get(
 					return HttpResponse::deferred(move(dr));
 				}
 
-				auto lease = map_file_readonly_sync(root_fd, SV{rel_str});
+				auto lease = blocking_map_file_readonly(root_fd, SV{rel_str});
 				if (!lease) {
 					return HttpResponse::internal_error();
 				}
@@ -782,7 +791,7 @@ conflux::work::root::Task<void> do_save_static_file(
 	int dir_fd,
 	S rel_path) {
 	try {
-		co_await fr->atomic_write_async(dir_fd, move(rel_path), as_bytes(span{*body_owned}));
+		co_await fr->async_atomic_write(dir_fd, move(rel_path), as_bytes(span{*body_owned}));
 		static_cache.evict_all_encodings(*fp);
 		HttpResponse resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;

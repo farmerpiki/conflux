@@ -1,4 +1,4 @@
-// conflux.db basic example.
+// conflux.pg basic example.
 //
 // Connects to PostgreSQL via PG_CONNINFO, runs a SELECT, prints rows.
 // Uses file_io's block_on helper to drive a single-thread io_uring.
@@ -8,9 +8,9 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.file_io;
-import conflux.db;
+import conflux.pg;
 
-using namespace conflux::db;
+using namespace conflux::pg;
 namespace {
 
 constexpr u64 pack_ud(

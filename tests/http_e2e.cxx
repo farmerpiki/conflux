@@ -246,7 +246,7 @@ void ensure_redirect_follow_servers() {
 		front.add_context("GET", "/async-follow", [popts](HttpRequest const &, RequestContext const &ctx)
 								-> conflux::work::root::Task<HttpResponse> {
 			HttpClient client{};
-			auto result = co_await send_async(
+			auto result = co_await async_send(
 				client,
 				ctx.ring,
 				chttp::HttpRequest::get(
@@ -1006,7 +1006,7 @@ void ensure_proxy_server() {
 			"GET",
 			"/proxy/ping",
 			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
-				-> conflux::work::root::Task<HttpResponse> { co_return co_await proxy_async(req, popts, ctx.ring); });
+				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		g_proxy_front = make_shared<ScopedTestServer>(cfg, move(front));
 		g_proxy_port = g_proxy_front->port();
 	});
@@ -1068,7 +1068,7 @@ TEST_CASE(
 	"http client: GET /api/ping returns parsed response") {
 	ensure_server();
 	auto response =
-		HttpClient{}.send_blocking(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+		HttpClient{}.blocking_send(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(S{response->head.headers["content-type"]} == "application/json");
@@ -1169,10 +1169,10 @@ TEST_CASE(
 	CHECK(response->body.empty());
 }
 TEST_CASE(
-	"http client: send_blocking works without pool") {
+	"http client: blocking_send works without pool") {
 	ensure_server();
 	HttpClient client{};
-	auto response = client.send_blocking(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+	auto response = client.blocking_send(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body == R"({"status":"ok"})");
@@ -3158,7 +3158,7 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"static file: suffix Range (bytes=-N) falls through to full 200 response") {
+	"static file: suffix Range (bytes=-N) returns last N bytes") {
 	char tmpdir[] = "/tmp/conflux_suffix_range_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
@@ -3182,7 +3182,7 @@ TEST_CASE(
 	router.serve_static("/f", S{tmpdir});
 	ScopedTestServer srv{cfg, move(router)};
 
-	// bytes=-5: last 5 bytes not implemented → must NOT return first 5 bytes (old bug)
+	// bytes=-5: last 5 bytes.
 	int const s = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
@@ -3194,16 +3194,9 @@ TEST_CASE(
 	auto resp = read_one_response(s);
 	::close(s);
 
-	// Full file (suffix-range unimplemented → 200 with full body) or 206 with correct last 5 bytes.
-	// Must not return first 5 bytes as a 206.
-	if (resp.starts_with("HTTP/1.1 206")) {
-		// If we ever implement suffix ranges, verify correctness.
-		REQUIRE(extract_body(resp) == "56789");
-	} else {
-		// Currently expected: fall through to full 200 response.
-		REQUIRE(resp.starts_with("HTTP/1.1 200"));
-		REQUIRE(extract_body(resp) == "0123456789");
-	}
+	REQUIRE(resp.starts_with("HTTP/1.1 206 Partial Content"));
+	REQUIRE(resp.find("Content-Range: bytes 5-9/10") != S::npos);
+	REQUIRE(extract_body(resp) == "56789");
 
 	::unlink(path.c_str());
 	::rmdir(tmpdir);
@@ -5305,7 +5298,7 @@ TEST_CASE(
 	REQUIRE(extract_body(resp) == "proxied-ok");
 }
 TEST_CASE(
-	"http client async: send_async follows relative redirects") {
+	"http client async: async_send follows relative redirects") {
 	ensure_redirect_follow_servers();
 	auto resp = http_get_on(g_redirect_follow_async_port, "/async-follow");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -5331,7 +5324,7 @@ TEST_CASE(
 			"GET",
 			"/echo",
 			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
-				-> conflux::work::root::Task<HttpResponse> { co_return co_await proxy_async(req, popts, ctx.ring); });
+				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		s_front = make_shared<ScopedTestServer>(cfg, move(front));
 	});
 	auto resp = http_get_on(s_front->port(), "/echo");
@@ -5359,7 +5352,7 @@ TEST_CASE(
 			"GET",
 			"/echo",
 			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
-				-> conflux::work::root::Task<HttpResponse> { co_return co_await proxy_async(req, popts, ctx.ring); });
+				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		s_front = make_shared<ScopedTestServer>(cfg, move(front));
 	});
 	// Send Host: localhost:9999 — proxy must connect to upstream, not myapp.example.com.
@@ -5388,7 +5381,7 @@ TEST_CASE(
 			"GET",
 			"/xff",
 			[popts = move(popts)](HttpRequest const &req, RequestContext const &ctx)
-				-> conflux::work::root::Task<HttpResponse> { co_return co_await proxy_async(req, popts, ctx.ring); });
+				-> conflux::work::root::Task<HttpResponse> { co_return co_await async_proxy(req, popts, ctx.ring); });
 		s_front = make_shared<ScopedTestServer>(cfg, move(front));
 	});
 	// Client sends existing XFF; proxy appends remote_addr (127.0.0.1).

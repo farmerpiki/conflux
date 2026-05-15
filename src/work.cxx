@@ -765,7 +765,7 @@ inline constexpr bool enable_address_capability_v<RingLane> = true;
 
 } // namespace conflux::work::root
 export template<typename Target, typename Fn>
-[[nodiscard]] auto run_on_task(
+[[nodiscard]] auto async_run_on(
 	Target &target,
 	Fn &&fn) {
 	using fn_t = std::decay_t<Fn>;
@@ -787,6 +787,14 @@ export template<typename Target, typename Fn>
 		auto _ = shared_src->try_set_cancelled(work_errc::cancelled_requested);
 	}
 	return move(task);
+}
+// Compatibility alias: run_on_task returns a root::Task<T>, so new code should
+// use the async_* spelling until the final release alias-removal pass.
+export template<typename Target, typename Fn>
+[[nodiscard]] auto run_on_task(
+	Target &target,
+	Fn &&fn) {
+	return async_run_on(target, forward<Fn>(fn));
 }
 // Synchronous blocking wait for a root::Task<T> — no FileReader required.
 // Useful when the task completes on a thread pool (not io_uring).

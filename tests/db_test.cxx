@@ -6,9 +6,17 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.db;
+import conflux.pg;
 
 using namespace conflux::db;
 namespace root = conflux::work::root;
+
+static_assert(std::same_as<conflux::pg::ConnectParams, conflux::db::ConnectParams>);
+static_assert(std::same_as<conflux::pg::Connection, conflux::db::Connection>);
+static_assert(std::same_as<conflux::pg::Pool, conflux::db::Pool>);
+static_assert(std::same_as<conflux::pg::Result, conflux::db::Result>);
+static_assert(std::same_as<conflux::pg::PgError, conflux::db::PgError>);
+
 namespace {
 
 struct TempDir {

@@ -54,13 +54,13 @@ struct TempDir {
 } // namespace
 
 TEST_CASE(
-	"json_file: parse_file_at_sync reads and parses via explicit component",
+	"json_file: blocking_parse_file_at reads and parses via explicit component",
 	"[json_file][unit]") {
 	auto dir = TempDir::create();
-	auto wr = write_text_file_atomic_at_sync(dir.fd, "config.json", R"({"answer":42,"name":"ok"})");
+	auto wr = blocking_write_text_file_atomic_at(dir.fd, "config.json", R"({"answer":42,"name":"ok"})");
 	REQUIRE(wr.has_value());
 
-	auto doc = parse_file_at_sync(dir.fd, "config.json");
+	auto doc = blocking_parse_file_at(dir.fd, "config.json");
 	REQUIRE(doc.has_value());
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
@@ -69,13 +69,13 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json_file: parse_file_at_sync reports parse failures separately from read failures",
+	"json_file: blocking_parse_file_at reports parse failures separately from read failures",
 	"[json_file][unit]") {
 	auto dir = TempDir::create();
-	auto wr = write_text_file_atomic_at_sync(dir.fd, "bad.json", R"({"broken": )");
+	auto wr = blocking_write_text_file_atomic_at(dir.fd, "bad.json", R"({"broken": )");
 	REQUIRE(wr.has_value());
 
-	auto doc = parse_file_at_sync(dir.fd, "bad.json");
+	auto doc = blocking_parse_file_at(dir.fd, "bad.json");
 	REQUIRE_FALSE(doc.has_value());
 	CHECK(doc.error().is_parse_error());
 	REQUIRE(doc.error().json.has_value());
@@ -83,15 +83,15 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"json_file: parse_file_at_sync uses parse max_input_size as read limit",
+	"json_file: blocking_parse_file_at uses parse max_input_size as read limit",
 	"[json_file][unit]") {
 	auto dir = TempDir::create();
-	auto wr = write_text_file_atomic_at_sync(dir.fd, "config.json", R"({"answer":42})");
+	auto wr = blocking_write_text_file_atomic_at(dir.fd, "config.json", R"({"answer":42})");
 	REQUIRE(wr.has_value());
 
 	JsonParseOptions opts{};
 	opts.max_input_size = LimitOption::bound(4);
-	auto doc = parse_file_at_sync(dir.fd, "config.json", opts);
+	auto doc = blocking_parse_file_at(dir.fd, "config.json", opts);
 	REQUIRE_FALSE(doc.has_value());
 	CHECK(doc.error().is_file_error());
 	CHECK(doc.error().file_errno == EFBIG);

@@ -138,7 +138,7 @@ auto with_transaction(
 	for (int attempt = 0;; ++attempt) {
 		if (attempt > 0) {
 			if (auto *reader = current_file_reader(); reader != nullptr) {
-				co_await conflux::uring::timeout_async(
+				co_await conflux::uring::async_timeout(
 					reader->ring(),
 					*reader->completions(),
 					[reader](u32 slot, u32 gen) noexcept { return reader->encode_ud(slot, gen); },
@@ -272,7 +272,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 					auto _ = shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
 				} catch (...) {}
 			}(shared_src,
-			  conflux::uring::timeout_async(
+			  conflux::uring::async_timeout(
 				  reader->ring(),
 				  *reader->completions(),
 				  [reader](u32 slot, u32 gen) noexcept { return reader->encode_ud(slot, gen); },

@@ -1,4 +1,4 @@
-// conflux.db pool example.
+// conflux.pg pool example.
 //
 // Acquires two leases from a Pool, runs a parametrised query on each.
 #include <liburing.h>
@@ -7,9 +7,9 @@ import std;
 import conflux.types;
 import conflux.work;
 import conflux.file_io;
-import conflux.db;
+import conflux.pg;
 
-using namespace conflux::db;
+using namespace conflux::pg;
 namespace {
 
 constexpr u64 pack_ud(

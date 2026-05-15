@@ -28,15 +28,17 @@ using std::memory_order_release;
 using std::move;
 using std::rethrow_exception;
 
-export struct BlockOnSocketTaskTimeout final : RE {
-	BlockOnSocketTaskTimeout()
-		: RE{"conflux.socket_io: block_on_socket_task budget exhausted"} {}
+export struct SyncWaitSocketTaskTimeout final : RE {
+	SyncWaitSocketTaskTimeout()
+		: RE{"conflux.socket_io: sync_wait_socket_task budget exhausted"} {}
 };
+
+export using BlockOnSocketTaskTimeout = SyncWaitSocketTaskTimeout;
 
 // Single-thread io_uring driver for SocketTaskRing.
 // Encoding: low-32 = slot, high-32 = gen.
 export template<typename T>
-T block_on_socket_task(
+T sync_wait_socket_task(
 	SocketTaskRing &ring,
 	wroot::Task<T> task,
 	Opt<chrono::milliseconds> budget = nullopt) {
@@ -72,7 +74,7 @@ T block_on_socket_task(
 			rc = ::io_uring_submit_and_wait_timeout(raw, &cqe, 1, &ts, nullptr);
 			if (rc == -ETIME) {
 				if (chrono::steady_clock::now() > *deadline) {
-					throw BlockOnSocketTaskTimeout{};
+					throw SyncWaitSocketTaskTimeout{};
 				}
 				continue;
 			}
@@ -89,7 +91,7 @@ T block_on_socket_task(
 			continue;
 		}
 		if (rc < 0 || cqe == nullptr) {
-			throw RE{format("conflux.socket_io: block_on_socket_task rc={}", rc)};
+			throw RE{format("conflux.socket_io: sync_wait_socket_task rc={}", rc)};
 		}
 		A<::io_uring_cqe *, 32> batch{};
 		for (;;) {
@@ -113,5 +115,17 @@ T block_on_socket_task(
 	}
 	if constexpr (!std::is_void_v<T>) {
 		return move(*slot->value);
+	}
+}
+
+export template<typename T>
+T block_on_socket_task(
+	SocketTaskRing &ring,
+	wroot::Task<T> task,
+	Opt<chrono::milliseconds> budget = nullopt) {
+	if constexpr (std::is_void_v<T>) {
+		sync_wait_socket_task(ring, move(task), budget);
+	} else {
+		return sync_wait_socket_task(ring, move(task), budget);
 	}
 }

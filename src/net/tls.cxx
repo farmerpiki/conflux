@@ -524,7 +524,7 @@ export class TcpTlsStream {
 					throw IoError{ETIMEDOUT, "tcp: send timed out"};
 				}
 				auto remaining = chrono::ceil<ms>(deadline - now);
-				auto child = stream_.write_borrowed(
+				auto child = stream_.async_write_borrowed(
 					span<u8 const>{scratch_.data() + off, static_cast<SZ>(got) - off},
 					remaining);
 				try {
@@ -562,7 +562,7 @@ export class TcpTlsStream {
 				} else if (cancel_->is_cancelled()) {
 					co_return;
 				}
-				auto child = stream_.write_borrowed(
+				auto child = stream_.async_write_borrowed(
 					span<u8 const>{scratch_.data() + off, static_cast<SZ>(got) - off},
 					per_write);
 				try {
@@ -588,7 +588,7 @@ export class TcpTlsStream {
 			throw IoError{ETIMEDOUT, "tcp: recv timed out"};
 		}
 		auto remaining = chrono::ceil<ms>(deadline - now);
-		auto child = stream_.recv_borrowed(span<u8>{scratch_}, remaining);
+		auto child = stream_.async_recv_borrowed(span<u8>{scratch_}, remaining);
 		auto const got = co_await cancel_->await_child(move(child));
 		if (got == 0) {
 			throw TlsError{"TcpTlsStream: socket EOF"};
@@ -738,7 +738,7 @@ public:
 		}
 		SSL_shutdown(ssl_.get());
 		co_await drain_wbio_for(close_drain_timeout, CancelMode::return_early);
-		co_await stream_.close();
+		co_await stream_.async_close();
 	}
 	[[nodiscard]] SSL *native_handle() const noexcept { return ssl_.get(); }
 };

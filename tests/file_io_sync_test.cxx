@@ -82,29 +82,29 @@ struct TempDir {
 
 } // namespace
 TEST_CASE(
-	"file_io_sync: open_tmpfile_sync creates writable unnamed temp",
+	"file_io_sync: blocking_open_tmpfile creates writable unnamed temp",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto result = open_tmpfile_sync(dir.fd);
+	auto result = blocking_open_tmpfile(dir.fd);
 	REQUIRE(result.has_value());
 	CHECK(result->fd() >= 0);
 	CHECK(result->unnamed());
 }
 TEST_CASE(
-	"file_io_sync: write_file_atomic_at_sync creates new file",
+	"file_io_sync: blocking_write_file_atomic_at creates new file",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	SV text = "hello atomic world";
-	auto r = write_text_file_atomic_at_sync(dir.fd, SV{"newfile.txt"}, text);
+	auto r = blocking_write_text_file_atomic_at(dir.fd, SV{"newfile.txt"}, text);
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("newfile.txt") == text);
 }
 TEST_CASE(
-	"file_io_sync: write_file_atomic_at_sync replaces existing file",
+	"file_io_sync: blocking_write_file_atomic_at replaces existing file",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("target.txt", "old content");
-	auto r = write_text_file_atomic_at_sync(dir.fd, SV{"target.txt"}, SV{"new content"});
+	auto r = blocking_write_text_file_atomic_at(dir.fd, SV{"target.txt"}, SV{"new content"});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("target.txt") == "new content");
 }
@@ -113,7 +113,7 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("keep.txt", "original");
-	auto r = write_text_file_atomic_at_sync(
+	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
 		SV{"keep.txt"},
 		SV{"overwrite"},
@@ -127,7 +127,7 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.mkdir_sub("sub");
-	auto r = write_text_file_atomic_at_sync(dir.fd, SV{"sub/nested.txt"}, SV{"deep"});
+	auto r = blocking_write_text_file_atomic_at(dir.fd, SV{"sub/nested.txt"}, SV{"deep"});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("sub/nested.txt") == "deep");
 }
@@ -135,7 +135,7 @@ TEST_CASE(
 	"file_io_sync: absolute path rejected",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = write_text_file_atomic_at_sync(dir.fd, SV{"/etc/passwd"}, SV{"nope"});
+	auto r = blocking_write_text_file_atomic_at(dir.fd, SV{"/etc/passwd"}, SV{"nope"});
 	CHECK(!r.has_value());
 	CHECK(r.error().code().value() == EINVAL);
 }
@@ -143,7 +143,7 @@ TEST_CASE(
 	"file_io_sync: .. path rejected",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = write_text_file_atomic_at_sync(dir.fd, SV{"../escape.txt"}, SV{"nope"});
+	auto r = blocking_write_text_file_atomic_at(dir.fd, SV{"../escape.txt"}, SV{"nope"});
 	CHECK(!r.has_value());
 	CHECK(r.error().code().value() == EINVAL);
 }
@@ -151,7 +151,7 @@ TEST_CASE(
 	"file_io_sync: named-temp fallback works when O_TMPFILE disabled",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = write_text_file_atomic_at_sync(
+	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
 		SV{"fallback.txt"},
 		SV{"via named"},
@@ -163,7 +163,7 @@ TEST_CASE(
 	"file_io_sync: file_and_directory durability path runs without error",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = write_text_file_atomic_at_sync(
+	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
 		SV{"durable.txt"},
 		SV{"synced"},
@@ -176,7 +176,7 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("exists.txt", "present");
-	auto r = write_text_file_atomic_at_sync(
+	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
 		SV{"exists.txt"},
 		SV{"replace"},
@@ -190,7 +190,7 @@ TEST_CASE(
 	"file_io_sync: create_new succeeds for new file",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = write_text_file_atomic_at_sync(
+	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
 		SV{"brand_new.txt"},
 		SV{"fresh"},
@@ -203,7 +203,7 @@ TEST_CASE(
 	"file_io_sync: durability none skips fsync",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = write_text_file_atomic_at_sync(
+	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
 		SV{"fast.txt"},
 		SV{"no sync"},
@@ -215,16 +215,16 @@ TEST_CASE(
 	"file_io_sync: empty and dot paths rejected",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	CHECK(!write_text_file_atomic_at_sync(dir.fd, SV{""}, SV{"data"}).has_value());
-	CHECK(!write_text_file_atomic_at_sync(dir.fd, SV{"."}, SV{"data"}).has_value());
-	CHECK(!write_text_file_atomic_at_sync(dir.fd, SV{".."}, SV{"data"}).has_value());
+	CHECK(!blocking_write_text_file_atomic_at(dir.fd, SV{""}, SV{"data"}).has_value());
+	CHECK(!blocking_write_text_file_atomic_at(dir.fd, SV{"."}, SV{"data"}).has_value());
+	CHECK(!blocking_write_text_file_atomic_at(dir.fd, SV{".."}, SV{"data"}).has_value());
 }
 TEST_CASE(
-	"file_io_sync: binary write_file_atomic_at_sync round-trips bytes",
+	"file_io_sync: binary blocking_write_file_atomic_at round-trips bytes",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	A<byte, 4> bytes{byte{0xDE}, byte{0xAD}, byte{0xBE}, byte{0xEF}};
-	auto r = write_file_atomic_at_sync(dir.fd, SV{"binary.bin"}, span{bytes});
+	auto r = blocking_write_file_atomic_at(dir.fd, SV{"binary.bin"}, span{bytes});
 	REQUIRE(r.has_value());
 	auto content = dir.read_file("binary.bin");
 	REQUIRE(content.size() == 4);
@@ -235,59 +235,79 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"file_io_sync: read_file_at_sync reads contained relative files",
+	"file_io_sync: blocking_read_file_at reads contained relative files",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("data.txt", "hello read");
-	auto content = read_file_at_sync(dir.fd, "data.txt");
+	auto content = blocking_read_file_at(dir.fd, "data.txt");
 	REQUIRE(content.has_value());
 	CHECK(*content == "hello read");
 }
 
 TEST_CASE(
-	"file_io_sync: read_file_at_sync enforces byte limit",
+	"file_io_sync: blocking_read_file_at enforces byte limit",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("data.txt", "hello read");
-	auto content = read_file_at_sync(dir.fd, "data.txt", 4);
+	auto content = blocking_read_file_at(dir.fd, "data.txt", 4);
 	REQUIRE_FALSE(content.has_value());
 	CHECK(content.error().code().value() == EFBIG);
 }
 
 TEST_CASE(
-	"file_io_sync: openat_contained_sync opens files below root only",
+	"file_io_sync: blocking_openat_contained opens files below root only",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("safe.txt", "safe");
-	auto fd = openat_contained_sync(dir.fd, "safe.txt", O_RDONLY);
+	auto fd = blocking_openat_contained(dir.fd, "safe.txt", O_RDONLY);
 	REQUIRE(fd.has_value());
-	auto content = read_all_fd(fd->fd());
+	auto content = blocking_read_all_fd(fd->fd());
 	REQUIRE(content.has_value());
 	CHECK(*content == "safe");
 
-	auto escaped = openat_contained_sync(dir.fd, "../safe.txt", O_RDONLY);
+	auto escaped = blocking_openat_contained(dir.fd, "../safe.txt", O_RDONLY);
 	REQUIRE_FALSE(escaped.has_value());
 	CHECK(escaped.error().code().value() == EINVAL);
 }
 
 TEST_CASE(
-	"file_io_sync: read_text_file_sync reads absolute paths with limit",
+	"file_io_sync: blocking_read_text_file reads absolute paths with limit",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("text.txt", "hello text");
 	auto path = format("{}/{}", dir.path, "text.txt");
-	auto content = read_text_file_sync(path);
+	auto content = blocking_read_text_file(path);
 	REQUIRE(content.has_value());
 	CHECK(*content == "hello text");
 
-	auto too_small = read_text_file_sync(path, 4);
+	auto too_small = blocking_read_text_file(path, 4);
 	REQUIRE_FALSE(too_small.has_value());
 	CHECK(too_small.error().code().value() == EFBIG);
-	CHECK(read_text_file_nothrow("/tmp/conflux_missing_no_std_streams_file").has_value() == false);
+	CHECK(blocking_read_text_file_nothrow("/tmp/conflux_missing_no_std_streams_file").has_value() == false);
 }
 
 TEST_CASE(
-	"file_io_sync: blocking aliases forward to legacy sync helpers",
+	"file_io_sync: legacy sync spellings remain available",
+	"[file_io_sync][unit]") {
+	auto dir = TempDir::create();
+	SV text = "legacy sync aliases";
+	auto tmp = open_tmpfile_sync(dir.fd, TempFileOptions{.prefer_otmpfile = false});
+	REQUIRE(tmp.has_value());
+
+	auto wr = write_all_fd(tmp->fd(), as_bytes(span{text.data(), text.size()}));
+	REQUIRE(wr.has_value());
+	auto pub = publish_tmpfile_sync(move(*tmp), dir.fd, SV{"legacy.txt"});
+	REQUIRE(pub.has_value());
+
+	auto file = openat_contained_sync(dir.fd, "legacy.txt", O_RDONLY);
+	REQUIRE(file.has_value());
+	auto bytes = read_all_fd(file->fd());
+	REQUIRE(bytes.has_value());
+	CHECK(*bytes == text);
+}
+
+TEST_CASE(
+	"file_io_sync: blocking low-level aliases round-trip through contained file",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	SV text = "blocking aliases";

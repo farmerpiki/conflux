@@ -1937,7 +1937,7 @@ void Environment::Impl::reload_path(
 	if (!extension_allowed(p)) {
 		return;
 	}
-	auto buf = read_text_file_nothrow(p.string());
+	auto buf = blocking_read_text_file_nothrow(p.string());
 	if (!buf) {
 		return;
 	}
@@ -2022,7 +2022,7 @@ void Environment::load_all() {
 			continue;
 		}
 
-		auto buf = read_text_file_nothrow(entry.path().string());
+		auto buf = blocking_read_text_file_nothrow(entry.path().string());
 		if (!buf) {
 			continue;
 		}

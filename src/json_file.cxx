@@ -67,7 +67,7 @@ export namespace conflux::json {
 	int root_fd,
 	std::string_view contained_relative_path,
 	JsonParseOptions const &opts = {}) {
-	auto bytes = read_file_at_sync(root_fd, contained_relative_path, json_file_read_limit(opts));
+	auto bytes = blocking_read_file_at(root_fd, contained_relative_path, json_file_read_limit(opts));
 	if (!bytes) {
 		return unexpected{make_file_error(bytes.error())};
 	}

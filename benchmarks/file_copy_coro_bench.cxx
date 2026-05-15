@@ -96,9 +96,9 @@ u64 run_callback(
 	::unlink(cfg.dst_path.c_str());
 	auto const t0 = chrono::steady_clock::now();
 
-	auto src = block_on(files, files.open_async(AT_FDCWD, cfg.src_path, O_RDONLY | O_CLOEXEC));
+	auto src = block_on(files, files.async_open(AT_FDCWD, cfg.src_path, O_RDONLY | O_CLOEXEC));
 	auto dst =
-		block_on(files, files.open_async(AT_FDCWD, cfg.dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644));
+		block_on(files, files.async_open(AT_FDCWD, cfg.dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644));
 
 	V<byte> buf(cfg.chunk_kib << 10U);
 	u64 off = 0;
@@ -110,7 +110,7 @@ u64 run_callback(
 		block_on(files, files.write_into(dst, off, span<byte const>{buf.data(), got}));
 		off += got;
 	}
-	block_on(files, files.fsync_async(dst));
+	block_on(files, files.async_fsync(dst));
 
 	auto const t1 = chrono::steady_clock::now();
 	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
@@ -120,8 +120,8 @@ Task<void> coro_copy(
 	S src_path,
 	S dst_path,
 	SZ chunk) {
-	auto src = co_await files.open_async(AT_FDCWD, src_path, O_RDONLY | O_CLOEXEC);
-	auto dst = co_await files.open_async(AT_FDCWD, dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+	auto src = co_await files.async_open(AT_FDCWD, src_path, O_RDONLY | O_CLOEXEC);
+	auto dst = co_await files.async_open(AT_FDCWD, dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 
 	V<byte> buf(chunk);
 	u64 off = 0;
@@ -133,7 +133,7 @@ Task<void> coro_copy(
 		co_await files.write_into(dst, off, span<byte const>{buf.data(), got});
 		off += got;
 	}
-	co_await files.fsync_async(dst);
+	co_await files.async_fsync(dst);
 	co_return;
 }
 u64 run_coroutine(

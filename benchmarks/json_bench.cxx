@@ -525,7 +525,7 @@ struct TempCorpusFile {
 conflux::work::root::Task<void> decode_file_once(
 	FileReader &files,
 	S path) {
-	auto handle = co_await files.open_async(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
+	auto handle = co_await files.async_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
 	JsonAccumulator acc;
 	A<u8, 8192> buf{};
 	u64 off = 0;
@@ -599,7 +599,7 @@ void bench_e2e_decode(
 			std::thread server{[&] { serve_json_corpus(listener_fd, stop, corpus); }};
 			try {
 				auto socket_stats = measure(
-					[&] { block_on_socket_task(ring, decode_socket_once(ring, port)); },
+					[&] { sync_wait_socket_task(ring, decode_socket_once(ring, port)); },
 					5,
 					20,
 					1,

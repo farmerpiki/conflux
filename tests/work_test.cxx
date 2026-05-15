@@ -16,33 +16,33 @@ TEST_CASE(
 	CHECK(result == 42);
 }
 TEST_CASE(
-	"work: run_on_task high-iteration roundtrip remains live",
+	"work: async_run_on high-iteration roundtrip remains live",
 	"[work]") {
 	WorkPool pool;
 	constexpr SZ kIters = 50001;
 	for (SZ i = 0; i < kIters; ++i) {
-		auto const v = root::value(run_on_task(pool, [] { return 7; }));
+		auto const v = root::value(async_run_on(pool, [] { return 7; }));
 		REQUIRE(v == 7);
 	}
 }
 TEST_CASE(
-	"work: run_on_task propagates exception",
+	"work: async_run_on propagates exception",
 	"[work]") {
 	WorkPool pool;
 	bool caught = false;
 	try {
-		sync_wait(run_on_task(pool, []() -> int { throw RE{"boom"}; }));
+		sync_wait(async_run_on(pool, []() -> int { throw RE{"boom"}; }));
 	} catch (RE const &e) { caught = SV{e.what()} == "boom"; }
 	CHECK(caught);
 }
 TEST_CASE(
-	"work: run_on_task cancelled when pool stopped",
+	"work: async_run_on cancelled when pool stopped",
 	"[work]") {
 	WorkPool pool;
 	pool.stop();
 	bool cancelled = false;
 	try {
-		sync_wait(run_on_task(pool, [] { return 99; }));
+		sync_wait(async_run_on(pool, [] { return 99; }));
 	} catch (Cancelled const &) { cancelled = true; }
 	CHECK(cancelled);
 }
@@ -181,7 +181,7 @@ TEST_CASE(
 	"[work]") {
 	WorkPool pool;
 	auto [a, b, c] = sync_wait(
-		join_all(run_on_task(pool, [] { return 1; }), run_on_task(pool, [] { return 2; }), run_on_task(pool, [] {
+		join_all(async_run_on(pool, [] { return 1; }), async_run_on(pool, [] { return 2; }), async_run_on(pool, [] {
 					 return 3;
 				 })));
 	CHECK(a == 1);
@@ -192,7 +192,7 @@ TEST_CASE(
 	"work: join_all maps void tasks to monostate",
 	"[work]") {
 	WorkPool pool;
-	auto [v, i] = sync_wait(join_all(run_on_task(pool, [] {}), run_on_task(pool, [] { return 7; })));
+	auto [v, i] = sync_wait(join_all(async_run_on(pool, [] {}), async_run_on(pool, [] { return 7; })));
 	CHECK(i == 7);
 	static_assert(std::is_same_v<decltype(v), std::monostate>);
 }
@@ -206,7 +206,7 @@ TEST_CASE(
 	WorkPool pool;
 	for (int i = 0; i < 2000; ++i) {
 		auto [a, b, c] = sync_wait(
-			join_all(run_on_task(pool, [] { return 1; }), run_on_task(pool, [] { return 2; }), run_on_task(pool, [] {
+			join_all(async_run_on(pool, [] { return 1; }), async_run_on(pool, [] { return 2; }), async_run_on(pool, [] {
 						 return 3;
 					 })));
 		REQUIRE(a == 1);
@@ -278,7 +278,7 @@ TEST_CASE(
 	auto gate = make_shared<barrier<>>(2);
 	[](SP<barrier<>>, auto t) -> root::Task<void> {
 		co_await move(t);
-	}(gate, run_on_task(pool, [gate, &counter] {
+	}(gate, async_run_on(pool, [gate, &counter] {
 									 counter.fetch_add(1, memory_order_release);
 									 gate->arrive_and_wait();
 								 })).detach();

@@ -20,7 +20,8 @@ import conflux.work.root;
 
 - `WorkPool` — thread-pool executor with a lock-free MPMC inject queue
 - `RingLane` — io_uring-coupled single-threaded executor
-- `run_on_task(pool, fn) -> Task<T>` — submit a callable to a pool
+- `async_run_on(pool, fn) -> Task<T>` — submit a callable to a pool
+- `run_on_task(pool, fn) -> Task<T>` — compatibility alias for `async_run_on`
 - `join_all(tasks...) -> Task<std::tuple<Ts...>>` — wait for all tasks and
   return a tuple of successful values
 
@@ -489,8 +490,9 @@ indefinitely.
 Raw jobs submitted through `enqueue()` must not throw unless
 `raw_exception_sink` is configured. If a raw job throws and a sink is present,
 the sink receives the `std::exception_ptr`; exceptions thrown by the sink are
-suppressed. `run_on_task(pool, fn)` does not use this sink for normal callable
-failures because it reports them through the returned task.
+suppressed. `async_run_on(pool, fn)` does not use this sink for normal callable
+failures because it reports them through the returned task. `run_on_task(...)` is a
+compatibility alias over the same implementation.
 
 Blocking waits are not assisted by `WorkPool`. A job running on a pool worker
 must not synchronously wait for other work that is queued only to the same pool,
