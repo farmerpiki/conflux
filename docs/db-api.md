@@ -1,9 +1,11 @@
 # conflux DB API Reference
 
-**Module:** `conflux.db`  
-**Namespace:** `conflux::db`  
-**Backend:** libpq (PostgreSQL)  
-**CMake feature gate:** `CONFLUX_HAS_DB`
+- **Primary module:** `conflux.pg`
+- **Compatibility module:** `conflux.db`
+- **Primary namespace:** `conflux::pg`
+- **Compatibility namespace:** `conflux::db`
+- **Backend:** libpq (PostgreSQL)
+- **CMake feature gate:** `CONFLUX_HAS_DB`
 
 See also: `examples/db_basic.cxx`, `examples/db_pool.cxx`.
 
@@ -12,10 +14,12 @@ See also: `examples/db_basic.cxx`, `examples/db_pool.cxx`.
 ## Build
 
 ```cmake
-target_link_libraries(mytarget PRIVATE conflux::db)
+target_link_libraries(mytarget PRIVATE conflux::pg)
 ```
 
-Requires libpq. Configure must find `libpq` or the build fails — no silent degradation.
+Requires libpq. Configure must find `libpq` or the DB component is unavailable.
+
+`conflux.pg` re-exports `conflux.db`; `conflux::pg` is a namespace alias to `conflux::db`. Existing `conflux.db` imports keep working until the final pre-v1 alias cleanup decision. New PostgreSQL-specific code should prefer `conflux.pg` / `conflux::pg`.
 
 ---
 
@@ -35,7 +39,7 @@ struct ConnectParams {
 ```cpp
 class Connection {
 public:
-    static expected<Connection, DbError> connect(ConnectParams const&);
+    static root::Task<std::shared_ptr<Connection>> connect(ConnectParams const&);
 
     // Single query — returns result directly
     expected<Result, DbError> query(std::string_view sql);
@@ -63,7 +67,7 @@ public:
 };
 ```
 
-`connect` is blocking. For async-compatible connection use a thread pool or pre-connect before entering the io_uring loop.
+`connect` is an io_uring-backed coroutine task. It must run with a current `FileReader` on the owning ring lane.
 
 ### `QueryOptions`
 

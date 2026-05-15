@@ -846,6 +846,7 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
             src/db/connection.cxx
             src/db/pool.cxx
             src/db/db.cxx
+            src/db/pg.cxx
     )
     target_link_libraries(conflux_db
         PRIVATE conflux_options
@@ -854,6 +855,9 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
         PUBLIC  PkgConfig::LIBPQ
     )
     target_compile_definitions(conflux_db PUBLIC CONFLUX_HAS_DB=1)
+
+    add_library(conflux_pg INTERFACE)
+    target_link_libraries(conflux_pg INTERFACE conflux_db)
 endif()
 
 # ---------------------------------------------------------------------------
@@ -1944,11 +1948,11 @@ if(CONFLUX_BUILD_EXAMPLES)
     if(CONFLUX_HAS_DB STREQUAL "true" AND TARGET conflux_db)
         add_executable(conflux_db_basic examples/db_basic.cxx)
         target_link_libraries(conflux_db_basic
-            PRIVATE conflux_db conflux_file_io conflux_work conflux_options)
+            PRIVATE conflux_pg conflux_file_io conflux_work conflux_options)
 
         add_executable(conflux_db_pool examples/db_pool.cxx)
         target_link_libraries(conflux_db_pool
-            PRIVATE conflux_db conflux_file_io conflux_work conflux_options)
+            PRIVATE conflux_pg conflux_file_io conflux_work conflux_options)
     endif()
 
     # JSON examples (use monolith for convenience)
@@ -2078,6 +2082,7 @@ conflux_public_component(conflux_file_io file_io)
 conflux_public_component(conflux_socket_io socket_io)
 conflux_public_component(conflux_dns dns)
 conflux_public_component(conflux_db db)
+conflux_public_component(conflux_pg pg)
 conflux_public_component(conflux umbrella)
 
 # Internal-but-exported support targets needed by static-library link interfaces.
@@ -2093,7 +2098,8 @@ endif()
 set(CONFLUX_INSTALL_INTERFACE_TARGETS)
 foreach(_target IN ITEMS
         conflux_options
-        conflux_core)
+        conflux_core
+        conflux_pg)
     if(TARGET ${_target})
         list(APPEND CONFLUX_INSTALL_INTERFACE_TARGETS ${_target})
     endif()
