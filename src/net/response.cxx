@@ -10,7 +10,7 @@ import conflux.types;
 import conflux.work;
 import conflux.file_map;
 import conflux.uring.handle;
-import conflux.utils;
+export import conflux.utils;
 import conflux.net.http.types;
 import conflux.net.http.realtime;
 

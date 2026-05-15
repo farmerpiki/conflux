@@ -7,7 +7,7 @@ module;
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
-export module conflux.net.http.static_async;
+module conflux.net.http.static_async;
 
 import std;
 import conflux.types;
@@ -82,13 +82,6 @@ int contained_static_open(
 
 }
 
-export conflux::work::root::Task<void> do_serve_static_file(
-	SP<DeferredResponse> dr,
-	HttpResponse base,
-	SZ send_off,
-	SZ send_sz,
-	SZ total_size,
-	conflux::work::root::Task<FileHandle> open_task);
 conflux::work::root::Task<void> do_save_static_file(
 	FileReader *fr,
 	SP<S> body_owned,
@@ -104,14 +97,7 @@ conflux::work::root::Task<void> do_delete_static_file(
 	StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task);
 
-export HttpResponse handle_static_get(
-	S const &rd,
-	int root_fd,
-	StaticOptions const &static_options,
-	StaticRequest const &r,
-	StaticCacheStore &static_cache);
-
-export HttpResponse handle_static_get_request(
+HttpResponse handle_static_get_request(
 	S const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
@@ -154,7 +140,7 @@ export HttpResponse handle_static_get_request(
 	} catch (...) { return HttpResponse::internal_error(); }
 }
 
-export HttpResponse handle_static_put(
+HttpResponse handle_static_put(
 	S const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
@@ -228,7 +214,7 @@ export HttpResponse handle_static_put(
 	} catch (...) { return HttpResponse::internal_error(); }
 }
 
-export HttpResponse handle_static_delete(
+HttpResponse handle_static_delete(
 	S const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
@@ -291,7 +277,7 @@ export HttpResponse handle_static_delete(
 	} catch (...) { return HttpResponse::internal_error(); }
 }
 
-export HttpResponse handle_static_get(
+HttpResponse handle_static_get(
 	S const &rd,
 	int root_fd,
 	StaticOptions const &static_options,

@@ -1113,7 +1113,9 @@ add_library(conflux_http_static_async STATIC)
 target_sources(conflux_http_static_async
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/static_async.cxx
+        FILES src/net/static_async_iface.cxx
+    PRIVATE
+        src/net/static_async.cxx
 )
 target_link_libraries(conflux_http_static_async
     PRIVATE conflux_options
@@ -2268,8 +2270,10 @@ install(EXPORT confluxTargets
 )
 
 if(CONFLUX_BUILD_TESTS)
+    find_package(Python3 REQUIRED COMPONENTS Interpreter)
+
     add_test(NAME build/no-std-streams
-        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_no_std_streams.py")
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check_no_std_streams.py")
     set_tests_properties(build/no-std-streams PROPERTIES
         LABELS "build;lint"
     )
