@@ -173,6 +173,72 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	return state_ ? tcp_state(state_).handle.raw_fd() : -1;
 }
 
+[[nodiscard]] wroot::Task<SZ> TcpStream::async_recv_borrowed(span<u8> dst) {
+	return recv_borrowed(dst);
+}
+
+[[nodiscard]] wroot::Task<SZ> TcpStream::async_recv_borrowed(
+	span<u8> dst,
+	chrono::milliseconds timeout) {
+	return recv_borrowed(dst, timeout);
+}
+
+[[nodiscard]] wroot::Task<V<u8>> TcpStream::async_recv_owned(SZ max_bytes) {
+	return recv_owned(max_bytes);
+}
+
+[[nodiscard]] wroot::Task<SZ> TcpStream::async_write_borrowed(span<u8 const> src) {
+	return write_borrowed(src);
+}
+
+[[nodiscard]] wroot::Task<SZ> TcpStream::async_write_borrowed(
+	span<u8 const> src,
+	chrono::milliseconds timeout) {
+	return write_borrowed(src, timeout);
+}
+
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(
+	span<u8 const> src,
+	chrono::milliseconds timeout) {
+	return write_all_borrowed(src, timeout);
+}
+
+[[nodiscard]] wroot::Task<SZ> TcpStream::async_write_copy(span<u8 const> src) {
+	return write_copy(src);
+}
+
+[[nodiscard]] wroot::Task<SZ> TcpStream::async_write_owned(V<u8> data) {
+	return write_owned(move(data));
+}
+
+[[nodiscard]] wroot::Task<SZ> TcpStream::async_write_owned(S data) {
+	return write_owned(move(data));
+}
+
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(span<u8 const> src) {
+	return write_all_borrowed(src);
+}
+
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_copy(span<u8 const> src) {
+	return write_all_copy(src);
+}
+
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_owned(V<u8> data) {
+	return write_all_owned(move(data));
+}
+
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_owned(S data) {
+	return write_all_owned(move(data));
+}
+
+[[nodiscard]] wroot::Task<void> TcpStream::async_shutdown(int how) {
+	return shutdown(how);
+}
+
+[[nodiscard]] wroot::Task<void> TcpStream::async_close() {
+	return close();
+}
+
 [[nodiscard]] wroot::Task<SZ> TcpStream::recv_borrowed(span<u8> dst) {
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(memory_order_relaxed)) {
@@ -728,6 +794,15 @@ struct ConnectOp {
 };
 // ─── tcp_connect ─────────────────────────────────────────────────────────────
 
+[[nodiscard]] wroot::Task<TcpStream> async_tcp_connect(
+	SocketTaskRing &ring,
+	int family,
+	sockaddr_storage addr,
+	socklen_t len,
+	ConnectOptions opts) {
+	return tcp_connect(ring, family, addr, len, opts);
+}
+
 [[nodiscard]] wroot::Task<TcpStream> tcp_connect(
 	SocketTaskRing &ring,
 	int family,
@@ -861,6 +936,13 @@ struct AcceptOp {
 // ─── tcp_accept ───────────────────────────────────────────────────────────────
 // Precondition: listener and ring must outlive the returned Task until
 // completion or cancellation has fully drained.
+
+[[nodiscard]] wroot::Task<TcpStream> async_tcp_accept(
+	TcpListener &listener,
+	SocketTaskRing &ring,
+	AcceptOptions opts) {
+	return tcp_accept(listener, ring, opts);
+}
 
 [[nodiscard]] wroot::Task<TcpStream> tcp_accept(
 	TcpListener &listener,
@@ -1035,6 +1117,14 @@ struct MultishotAcceptOp {
 //   - While bound to listener, no other io_uring op may target the same listener fd;
 //     cancel_on_owner uses IORING_ASYNC_CANCEL_FD which cancels all ops on the fd.
 
+[[nodiscard]] wroot::Task<void> async_tcp_accept_multishot(
+	TcpListener &listener,
+	SocketTaskRing &ring,
+	AcceptOptions opts,
+	Fn<wroot::Task<void>(TcpStream)> handler) {
+	return tcp_accept_multishot(listener, ring, opts, move(handler));
+}
+
 [[nodiscard]] wroot::Task<void> tcp_accept_multishot(
 	TcpListener &listener,
 	SocketTaskRing &ring,
@@ -1137,6 +1227,30 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	}
 	return UdpSocket{ring, OwnedSocketHandle::from_fd(fd)};
 }
+[[nodiscard]] wroot::Task<SZ> UdpSocket::async_send_to_borrowed(
+	span<u8 const> data,
+	sockaddr_storage addr,
+	socklen_t addr_len) {
+	return send_to_borrowed(data, addr, addr_len);
+}
+
+[[nodiscard]] wroot::Task<SZ> UdpSocket::async_send_to_copy(
+	span<u8 const> data,
+	sockaddr_storage addr,
+	socklen_t addr_len) {
+	return send_to_copy(data, addr, addr_len);
+}
+
+[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::async_recv_from(span<u8> buf) {
+	return recv_from(buf);
+}
+
+[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::async_recv_from(
+	span<u8> buf,
+	chrono::milliseconds timeout) {
+	return recv_from(buf, timeout);
+}
+
 [[nodiscard]] wroot::Task<SZ> UdpSocket::send_to_borrowed(
 	span<u8 const> data,
 	sockaddr_storage addr,
@@ -1324,6 +1438,12 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	});
 	return task;
 }
+[[nodiscard]] wroot::Task<void> async_sleep_for(
+	SocketTaskRing &ring,
+	chrono::milliseconds dur) {
+	return sleep_for(ring, dur);
+}
+
 [[nodiscard]] wroot::Task<void> sleep_for(
 	SocketTaskRing &ring,
 	chrono::milliseconds dur) {

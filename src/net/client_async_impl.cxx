@@ -61,13 +61,13 @@ struct PlainStreamRef {
 	chrono::milliseconds per_write;
 	[[nodiscard]] wroot::Task<SZ> recv(
 		span<u8> buf) {
-		auto child = per_recv.count() <= 0 ? s.recv_borrowed(buf) : s.recv_borrowed(buf, per_recv);
+		auto child = per_recv.count() <= 0 ? s.async_recv_borrowed(buf) : s.async_recv_borrowed(buf, per_recv);
 		return cancel->await_child(move(child));
 	}
 	[[nodiscard]] wroot::Task<SZ> recv(
 		span<u8> buf,
 		chrono::milliseconds t) {
-		auto child = t.count() <= 0 ? s.recv_borrowed(buf) : s.recv_borrowed(buf, t);
+		auto child = t.count() <= 0 ? s.async_recv_borrowed(buf) : s.async_recv_borrowed(buf, t);
 		return cancel->await_child(move(child));
 	}
 	[[nodiscard]] wroot::Task<void> write(
@@ -75,7 +75,7 @@ struct PlainStreamRef {
 		SZ sent = 0;
 		while (sent < buf.size()) {
 			cancel->throw_if_cancelled();
-			auto child = s.write_borrowed(span<u8 const>{buf.data() + sent, buf.size() - sent}, per_write);
+			auto child = s.async_write_borrowed(span<u8 const>{buf.data() + sent, buf.size() - sent}, per_write);
 			SZ const n = co_await cancel->await_child(move(child));
 			if (n == 0) {
 				throw IoError{ECONNRESET, "tcp: connection closed"};
@@ -457,7 +457,7 @@ wroot::Task<void> happy_attempt(
 	SP<HappyConnectState> hs,
 	SP<wroot::TaskSource<TcpStream>> winner_src) {
 	try {
-		auto connect_task = tcp_connect(ring, fam, ss, addr_len, copts);
+		auto connect_task = async_tcp_connect(ring, fam, ss, addr_len, copts);
 		hs->register_attempt(connect_task.control());
 		auto s = co_await move(connect_task);
 		bool expected = false;
@@ -508,7 +508,7 @@ wroot::Task<TcpStream> staggered_parallel_connect(
 					break;
 				}
 				auto const rem = chrono::ceil<chrono::milliseconds>(t_stagger - now);
-				co_await sleep_for(ring, min(chrono::milliseconds{10}, rem));
+				co_await async_sleep_for(ring, min(chrono::milliseconds{10}, rem));
 			}
 			if (hs->won.load(memory_order_acquire) || hs->cancelled.load(memory_order_acquire)) {
 				break;
@@ -986,7 +986,7 @@ wroot::Task<HttpResult> do_async_request(
 		} catch (...) {}
 	} else
 #endif
-		co_await stream.close();
+		co_await stream.async_close();
 	response.telemetry = tel;
 	co_return response;
 }
