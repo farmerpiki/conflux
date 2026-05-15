@@ -585,28 +585,37 @@ HttpResponse handle_static_get(
 							SZ rs = 0;
 							SZ re = file_size - 1;
 							bool ok = true;
-							if (!start_sv.empty()) {
-								auto [p, ec] =
-									from_chars(start_sv.data(), ranges::next(start_sv.data(), ssize(start_sv)), rs);
-								if (ec != errc{}) {
-									ok = false;
+							bool satisfiable = false;
+							auto parse_size = [](SV s, SZ &out) {
+								if (s.empty()) {
+									return false;
+								}
+								auto const *first = s.data();
+								auto const *last = ranges::next(s.data(), ssize(s));
+								auto [p, ec] = from_chars(first, last, out);
+								return ec == errc{} && p == last;
+							};
+
+							if (start_sv.empty()) {
+								SZ suffix_len = 0;
+								ok = parse_size(end_sv, suffix_len);
+								if (ok && suffix_len > 0) {
+									rs = suffix_len >= file_size ? 0 : file_size - suffix_len;
+									re = file_size - 1;
+									satisfiable = true;
+								}
+							} else {
+								ok = parse_size(start_sv, rs);
+								if (ok && !end_sv.empty()) {
+									ok = parse_size(end_sv, re);
+								}
+								if (ok) {
+									re = min(re, file_size - 1);
+									satisfiable = rs < file_size && rs <= re;
 								}
 							}
-							if (!end_sv.empty()) {
-								if (start_sv.empty()) {
-									// suffix range: "-N" = last N bytes; not implemented
-									ok = false;
-								} else {
-									auto [p, ec] =
-										from_chars(end_sv.data(), ranges::next(end_sv.data(), ssize(end_sv)), re);
-									if (ec != errc{}) {
-										ok = false;
-									}
-								}
-							} else if (start_sv.empty()) {
-								ok = false; // both empty: malformed
-							}
-							if (ok && rs <= re && re < file_size) {
+
+							if (ok && satisfiable) {
 								range_start = rs;
 								range_end = re;
 								is_range_request = true;

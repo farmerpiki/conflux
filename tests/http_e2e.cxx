@@ -3158,7 +3158,7 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"static file: suffix Range (bytes=-N) falls through to full 200 response") {
+	"static file: suffix Range (bytes=-N) returns last N bytes") {
 	char tmpdir[] = "/tmp/conflux_suffix_range_XXXXXX";
 	REQUIRE(::mkdtemp(tmpdir) != nullptr);
 
@@ -3182,7 +3182,7 @@ TEST_CASE(
 	router.serve_static("/f", S{tmpdir});
 	ScopedTestServer srv{cfg, move(router)};
 
-	// bytes=-5: last 5 bytes not implemented → must NOT return first 5 bytes (old bug)
+	// bytes=-5: last 5 bytes.
 	int const s = ::socket(AF_INET, SOCK_STREAM, 0);
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
@@ -3194,16 +3194,9 @@ TEST_CASE(
 	auto resp = read_one_response(s);
 	::close(s);
 
-	// Full file (suffix-range unimplemented → 200 with full body) or 206 with correct last 5 bytes.
-	// Must not return first 5 bytes as a 206.
-	if (resp.starts_with("HTTP/1.1 206")) {
-		// If we ever implement suffix ranges, verify correctness.
-		REQUIRE(extract_body(resp) == "56789");
-	} else {
-		// Currently expected: fall through to full 200 response.
-		REQUIRE(resp.starts_with("HTTP/1.1 200"));
-		REQUIRE(extract_body(resp) == "0123456789");
-	}
+	REQUIRE(resp.starts_with("HTTP/1.1 206 Partial Content"));
+	REQUIRE(resp.find("Content-Range: bytes 5-9/10") != S::npos);
+	REQUIRE(extract_body(resp) == "56789");
 
 	::unlink(path.c_str());
 	::rmdir(tmpdir);
