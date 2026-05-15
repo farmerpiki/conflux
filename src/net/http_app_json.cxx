@@ -2,6 +2,7 @@ export module conflux.net.http.app_json;
 
 import std;
 import conflux.types;
+import conflux.utils;
 import conflux.net.app;
 import conflux.net.router;
 import conflux.net.http.response_json;
