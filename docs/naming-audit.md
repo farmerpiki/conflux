@@ -122,9 +122,9 @@ raw-syscall `blocking_*` definition. Do not rename them blindly.
 
 | Current name | Current location | Options | Notes |
 |---|---|---|---|
-| `HttpClient::send_blocking` | `conflux.net.client` | keep as legacy; or add `blocking_send`; or later replace with `sync_send` if executor-backed | Current implementation uses blocking socket/poll/TLS code directly. It is not executor-owned, so `sync_send` would be wrong unless implementation changes. |
+| `HttpClient::send_blocking` | `conflux.net.client` | `blocking_send` | Preferred name landed; old method remains as a compatibility alias. Current implementation uses blocking socket/poll/TLS code directly, so `sync_send` would be wrong unless implementation changes. |
 | `client_detail::do_blocking_request` | `src/net/client.cxx` | internal `blocking_request` or keep internal | Internal helper; rename only if public method changes. |
-| `proxy_sync` | `conflux.net.proxy` | `blocking_proxy`, `sync_proxy`, or remove from ring-handler examples | It currently calls `send_blocking`; this is unsafe on HTTP ring threads unless explicitly offloaded. Prefer async proxy in context routes. |
+| `proxy_sync` | `conflux.net.proxy` | `blocking_proxy` | Preferred name landed; old function remains as a compatibility alias. It calls `HttpClient::blocking_send`, so avoid using it on HTTP ring threads unless explicitly offloaded. Prefer `async_proxy` in context routes. |
 
 The old `todo/final syntax before release.md` text allowed broad high-level
 `blocking_*` convenience APIs. Current policy is narrower. Treat the execution

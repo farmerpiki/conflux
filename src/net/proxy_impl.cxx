@@ -92,7 +92,7 @@ namespace proxy_detail {
 	HttpClient client{move(co)};
 	auto builder = apply_headers(http::HttpRequest::method(req.method, build_upstream_url(req.path, opts)), req, opts);
 	builder.timeouts(client.options().default_timeouts);
-	auto result = client.send_blocking(move(builder).build());
+	auto result = client.blocking_send(move(builder).build());
 	if (!result) {
 		return HttpResponse::bad_gateway(
 			format("proxy: {} ({})", result.error().message, static_cast<int>(result.error().kind)));
@@ -122,10 +122,16 @@ namespace proxy_detail {
 
 } // namespace proxy_detail
 
-HttpResponse proxy_sync(
+HttpResponse blocking_proxy(
 	HttpRequestView const &req,
 	ProxyOptions const &opts) {
 	return proxy_detail::perform_proxy_request(req, opts);
+}
+
+HttpResponse proxy_sync(
+	HttpRequestView const &req,
+	ProxyOptions const &opts) {
+	return blocking_proxy(req, opts);
 }
 
 wroot::Task<HttpResponse> async_proxy(

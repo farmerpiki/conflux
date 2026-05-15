@@ -25,7 +25,7 @@ All public types live in namespace `conflux::http`.
 using namespace conflux::http;
 
 HttpClient client{};
-auto result = client.send_blocking(
+auto result = client.blocking_send(
     HttpRequest::get("https://api.example.com/v1/ping")
         .accept_json()
         .bearer("eyJhbGc...")
@@ -272,11 +272,12 @@ class HttpClient {
 public:
     explicit HttpClient(HttpClientOptions opts = {});
     HttpClientOptions const &options() const noexcept;
-    HttpResult send_blocking(HttpRequest req) const;
+    HttpResult blocking_send(HttpRequest req) const;
+    HttpResult send_blocking(HttpRequest req) const; // compatibility alias
 };
 ```
 
-### `send_blocking` contract
+### `blocking_send` contract
 
 Sequence:
 1. **DNS** — `getaddrinfo(AF_UNSPEC, SOCK_STREAM)`. Tries every address until one connects.
@@ -290,6 +291,8 @@ Sequence:
 
 Method-specific:
 - `HEAD` skips body recv; final `body` is empty.
+
+`send_blocking(...)` remains exported as a compatibility alias. New code should call `blocking_send(...)`, because the implementation performs caller-thread socket/poll/TLS I/O and is not executor-backed.
 
 ### Error mapping
 
@@ -326,7 +329,7 @@ Anything that depends on Phase 2:
 
 ## Threading
 
-`HttpClient` is cheap, copyable, and stateless (apart from `HttpClientOptions`). `send_blocking` is reentrant — call from any thread. There is no shared state between concurrent calls. `do_blocking_request` blocks the caller thread on `poll`/socket I/O.
+`HttpClient` is cheap, copyable, and stateless (apart from `HttpClientOptions`). `blocking_send` is reentrant — call from any thread. There is no shared state between concurrent calls. `do_blocking_request` blocks the caller thread on `poll`/socket I/O.
 
 ## TLS contract
 
@@ -369,9 +372,9 @@ Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all 
 - Write timeout: `submit_send_timeout_borrowed` (linked SQE + timeout)
 - Cancellation-safe close: `CloseState` shields close SQE from outer cancel
 
-**Limitations vs `send_blocking`:**
+**Limitations vs `blocking_send`:**
 
-| Feature | `send_blocking` | `async_send` |
+| Feature | `blocking_send` | `async_send` |
 |---|---|---|
 | HTTP/1.1 | Yes | Yes |
 | HTTPS / TLS | Yes | Yes (via `TcpTlsStream`) |
@@ -382,7 +385,7 @@ Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all 
 | Write timeout | Yes | Yes (linked SQE) |
 | Cancellation | N/A | Via `SocketTaskRing` cancel |
 
-Error kinds, `HttpResult`, and `HttpResponse` shapes are identical to `send_blocking`.
+Error kinds, `HttpResult`, and `HttpResponse` shapes are identical to `blocking_send`.
 
 ### Router context-route dispatch (`ContextHandlerFunction`)
 

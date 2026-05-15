@@ -1068,7 +1068,7 @@ TEST_CASE(
 	"http client: GET /api/ping returns parsed response") {
 	ensure_server();
 	auto response =
-		HttpClient{}.send_blocking(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+		HttpClient{}.blocking_send(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(S{response->head.headers["content-type"]} == "application/json");
@@ -1169,10 +1169,10 @@ TEST_CASE(
 	CHECK(response->body.empty());
 }
 TEST_CASE(
-	"http client: send_blocking works without pool") {
+	"http client: blocking_send works without pool") {
 	ensure_server();
 	HttpClient client{};
-	auto response = client.send_blocking(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+	auto response = client.blocking_send(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body == R"({"status":"ok"})");

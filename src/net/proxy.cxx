@@ -17,6 +17,10 @@ export struct ProxyOptions {
 	int timeout_sec{10};
 };
 
+export HttpResponse blocking_proxy(
+	HttpRequestView const &req,
+	ProxyOptions const &opts);
+
 export HttpResponse proxy_sync(
 	HttpRequestView const &req,
 	ProxyOptions const &opts);
