@@ -167,23 +167,27 @@ public:
 	void set(
 		S key,
 		S field_value) {
-		SZ keep_idx = SZ(-1);
-		for (SZ i = 0; i < data_.size(); ++i) {
-			if (key_eq(data_[i].first, key) && keep_idx == SZ(-1)) {
-				keep_idx = i;
+		bool found = false;
+		SZ write = 0;
+		for (SZ read = 0; read < data_.size(); ++read) {
+			auto &field = data_[read];
+			if (key_eq(field.first, key)) {
+				if (found) {
+					continue;
+				}
+				found = true;
+				field.second = move(field_value);
 			}
+			if (write != read) {
+				data_[write] = move(field);
+			}
+			++write;
 		}
-		if (keep_idx == SZ(-1)) {
+		if (!found) {
 			data_.emplace_back(move(key), move(field_value));
 			return;
 		}
-		data_[keep_idx].second = move(field_value);
-		S const keep_key = data_[keep_idx].first;
-		SZ cursor = 0;
-		erase_if(data_, [&](auto const &pair) {
-			SZ const i = cursor++;
-			return i != keep_idx && key_eq(SV{pair.first}, SV{keep_key});
-		});
+		data_.resize(write);
 	}
 	SZ erase(
 		SV key) {
