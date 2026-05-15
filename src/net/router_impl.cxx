@@ -171,25 +171,33 @@ void Router::launch_sse_handler(
 	router_launch_sse_handler(pool, move(handler), move(matched), channel);
 }
 
-[[nodiscard]] Router::Handler Router::wrap_middlewares(
-	Handler h) const {
-		return [this, h = move(h)](HttpRequestView const &req) -> HttpResponse {
-			struct Step {
-				Router::Impl const *impl_;
-				Handler const *h_;
-				SZ idx_{0};
-				HttpResponse call(
-					HttpRequestView const &r) {
-					if (idx_ == impl_->middlewares.size()) {
-						return (*h_)(r);
-					}
-					auto const &mw = impl_->middlewares[idx_++];
-					return mw(r, [this](HttpRequestView const &rr) -> HttpResponse { return call(rr); });
+[[nodiscard]] HttpResponse Router::run_middlewares(
+	HttpRequestView const &req,
+	Handler const &inner) const {
+		struct Step {
+			Router::Impl const *impl_;
+			Handler const *inner_;
+			SZ idx_{0};
+			Handler next_;
+
+			Step(
+				Router::Impl const *impl,
+				Handler const *inner)
+				: impl_(impl)
+				, inner_(inner)
+				, next_([this](HttpRequestView const &r) -> HttpResponse { return call(r); }) {}
+
+			HttpResponse call(
+				HttpRequestView const &r) {
+				if (idx_ == impl_->middlewares.size()) {
+					return (*inner_)(r);
 				}
-			};
-			Step s{impl_.get(), &h};
-			return s.call(req);
+				auto const &mw = impl_->middlewares[idx_++];
+				return mw(r, next_);
+			}
 		};
+		Step s{impl_.get(), &inner};
+		return s.call(req);
 	}
 
 Router &Router::serve_static(
@@ -229,6 +237,18 @@ Router &Router::serve_static(
 			path_sv = path_sv.substr(0, q);
 		}
 
+		if (impl_->middlewares.empty()) {
+			return dispatch_sync_routes(
+				req,
+				path_sv,
+				is_head,
+				impl_->routes,
+				impl_->sse_routes,
+				impl_->not_found_handler,
+				impl_->error_handler,
+				impl_->work_pool);
+		}
+
 		// Inner handler: performs route matching + 404. Middleware wraps this whole thing.
 		Handler inner = [this, path_sv, is_head](HttpRequestView const &r) -> HttpResponse {
 			return dispatch_sync_routes(
@@ -242,7 +262,7 @@ Router &Router::serve_static(
 				impl_->work_pool);
 		};
 
-		return wrap_middlewares(move(inner))(req);
+		return run_middlewares(req, inner);
 	}
 
 [[nodiscard]] Opt<HttpResponse> Router::dispatch_async(

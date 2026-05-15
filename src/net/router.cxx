@@ -295,7 +295,7 @@ private:
 		SseHandler handler,
 		HttpRequest matched,
 		SP<SseChannel> const &channel);
-	[[nodiscard]] Handler wrap_middlewares(Handler h) const;
+	[[nodiscard]] HttpResponse run_middlewares(HttpRequestView const &req, Handler const &inner) const;
 	[[nodiscard]] static HttpResponse run_async_http_task(
 		conflux::work::root::Task<HttpResponse> task);
 	template<class>
