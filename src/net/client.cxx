@@ -549,11 +549,13 @@ bool recv_chunked(
 	HttpFields next_headers{req.headers().case_insensitive()};
 	next_headers.clear();
 	for (auto const &[k, v]: req.headers()) {
-		auto const lower = ascii_lower(k);
-		if (lower == "host") {
+		if (ascii_iequals(k, "host")) {
 			continue;
 		}
-		if (cross_origin && (lower == "authorization" || lower == "cookie" || lower == "proxy-authorization")) {
+		if (cross_origin
+			&& (ascii_iequals(k, "authorization")
+				|| ascii_iequals(k, "cookie")
+				|| ascii_iequals(k, "proxy-authorization"))) {
 			continue;
 		}
 		next_headers.set(k, v);
@@ -787,15 +789,13 @@ HttpResult do_blocking_request(
 	// Merge default headers first, then per-request headers override.
 	HttpFields merged_headers = opts.default_headers;
 	for (auto const &[k, v]: req.headers()) {
-		auto const lower = ascii_lower(k);
-		if (lower == "host" || conflux::http::is_hop_by_hop_header(lower)) {
+		if (ascii_iequals(k, "host") || conflux::http::is_hop_by_hop_header(k)) {
 			continue;
 		}
 		merged_headers.set(k, v);
 	}
 	for (auto const &[k, v]: merged_headers) {
-		auto const lower = ascii_lower(k);
-		if (lower == "host" || conflux::http::is_hop_by_hop_header(lower)) {
+		if (ascii_iequals(k, "host") || conflux::http::is_hop_by_hop_header(k)) {
 			continue;
 		}
 		wire += format("{}: {}\r\n", k, v);
@@ -902,16 +902,14 @@ HttpResult do_blocking_request(
 			while (!v.empty() && (v[0] == ' ' || v[0] == '\t')) {
 				v.remove_prefix(1);
 			}
-			auto const kl = ascii_lower(k);
-			auto const vl = ascii_lower(v);
-			if (kl == "content-length") {
+			if (ascii_iequals(k, "content-length")) {
 				from_chars(v.data(), v.data() + v.size(), content_length);
 				has_content_length = true;
-			} else if (kl == "transfer-encoding" && vl.find("chunked") != S::npos) {
+			} else if (ascii_iequals(k, "transfer-encoding") && header_token_contains(v, "chunked")) {
 				chunked = true;
-			} else if (kl == "set-cookie") {
+			} else if (ascii_iequals(k, "set-cookie")) {
 				response.head.set_cookies.push_back(S{v});
-			} else if (!conflux::http::is_hop_by_hop_header(kl)) {
+			} else if (!conflux::http::is_hop_by_hop_header(k)) {
 				response.head.headers.set(S{k}, S{v});
 			}
 		}

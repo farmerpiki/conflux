@@ -355,6 +355,11 @@ public:
 		S v) {
 		data_.emplace_back(store_owned(move(k)), store_owned(move(v)));
 	}
+	void emplace_back_owned_value(
+		SV k,
+		S v) {
+		data_.emplace_back(k, store_owned(move(v)));
+	}
 	void clear() noexcept {
 		data_.clear();
 		release(owned_storage_);
@@ -640,7 +645,9 @@ constexpr A<SV, 8> kHopByHopHeaders{
 };
 [[nodiscard]] bool is_hop_by_hop_header(
 	SV name) noexcept {
-	return ranges::contains(kHopByHopHeaders, name);
+	return ranges::any_of(kHopByHopHeaders, [&](SV candidate) {
+		return ascii_iequals(name, candidate);
+	});
 }
 [[nodiscard]] bool header_token_contains(
 	SV header,

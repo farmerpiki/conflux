@@ -38,6 +38,21 @@ export V<Segment> parse_pattern(
 	return segs;
 }
 
+namespace {
+
+void add_path_param(
+	HttpFieldsView &params,
+	SV name,
+	SV raw_value) {
+	if (raw_value.find('%') == SV::npos) {
+		params.emplace_back(name, raw_value);
+		return;
+	}
+	params.emplace_back_owned_value(name, url_decode_path(raw_value));
+}
+
+} // namespace
+
 export bool match_segments(
 	V<Segment> const &pattern,
 	SV path,
@@ -58,14 +73,14 @@ export bool match_segments(
 				return false;
 			}
 			if (pattern[i].is_param) {
-				tmp.emplace_back_owned(S{pattern[i].value}, url_decode_path(part));
+				add_path_param(tmp, pattern[i].value, part);
 			} else if (pattern[i].value != part) {
 				return false;
 			}
 			pos = (next == SV::npos) ? path.size() : next + 1;
 		}
 		// Capture the remainder (may be empty for trailing slash).
-		tmp.emplace_back_owned(S{pattern.back().value}, url_decode_path(path.substr(pos)));
+		add_path_param(tmp, pattern.back().value, path.substr(pos));
 		out_params = move(tmp);
 		return true;
 	}
@@ -80,7 +95,7 @@ export bool match_segments(
 		auto next = path.find('/', pos);
 		auto part = (next == SV::npos) ? path.substr(pos) : path.substr(pos, next - pos);
 		if (pattern[i].is_param) {
-			tmp.emplace_back_owned(S{pattern[i].value}, url_decode_path(part));
+			add_path_param(tmp, pattern[i].value, part);
 		} else if (pattern[i].value != part) {
 			return false;
 		}
