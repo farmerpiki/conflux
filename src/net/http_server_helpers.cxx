@@ -120,32 +120,90 @@ export std::string_view http_date_now() {
 	return true;
 }
 
+static void append_sv(S &out, SV value) {
+	out.append(value.data(), value.size());
+}
+
+static void append_dec(S &out, auto value) {
+	A<char, 32> buf{};
+	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value);
+	if (ec == errc{}) {
+		out.append(buf.data(), static_cast<SZ>(ptr - buf.data()));
+	}
+}
+
+static void append_hex(S &out, SZ value) {
+	A<char, 2 * sizeof(SZ)> buf{};
+	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value, 16);
+	if (ec == errc{}) {
+		out.append(buf.data(), static_cast<SZ>(ptr - buf.data()));
+	}
+}
+
+[[nodiscard]] static SZ response_reserve_hint(
+	HttpResponse const &r,
+	SV alt_svc,
+	bool include_body) {
+	SZ n = 128 + r.status_text.size() + r.content_type.size() + alt_svc.size();
+	if (include_body) {
+		n += r.text_body().size();
+	}
+	for (auto const &[k, v]: r.headers) {
+		n += k.size() + v.size() + 4;
+	}
+	for (auto const &sc: r.set_cookies) {
+		n += sc.size() + 14;
+	}
+	return n;
+}
+
 export std::string format_response(HttpResponse const &r, SV alt_svc = {}, bool close = false) {
 	if (r.is_ws_upgrade() && r.ws_upgrade_ptr()) {
-		return format(
-			"HTTP/1.1 101 Switching Protocols\r\n"
-			"Upgrade: websocket\r\n"
-			"Connection: Upgrade\r\n"
-			"Sec-WebSocket-Accept: {}\r\n\r\n",
-			r.ws_upgrade_ptr()->accept_key);
+		auto const &accept = r.ws_upgrade_ptr()->accept_key;
+		S out;
+		out.reserve(
+			sizeof("HTTP/1.1 101 Switching Protocols\r\n"
+				   "Upgrade: websocket\r\n"
+				   "Connection: Upgrade\r\n"
+				   "Sec-WebSocket-Accept: ")
+			+ accept.size() + 4);
+		out += "HTTP/1.1 101 Switching Protocols\r\n";
+		out += "Upgrade: websocket\r\n";
+		out += "Connection: Upgrade\r\n";
+		out += "Sec-WebSocket-Accept: ";
+		out += accept;
+		out += "\r\n\r\n";
+		return out;
 	}
 	bool const status_no_body = must_not_have_body(r.status);
 	bool const suppress_body = status_no_body || r.head_only;
-	S out = format(
-		"HTTP/1.1 {} {}\r\n"
-		"Date: {}\r\n",
-		r.status,
-		is_valid_reason_phrase(r.status_text) ? SV{r.status_text} : SV{},
-		http_date_now());
+	bool const include_body = !suppress_body && !r.is_mapped_file() && !r.is_streamed_file();
+	S out;
+	out.reserve(response_reserve_hint(r, alt_svc, include_body));
+	out += "HTTP/1.1 ";
+	append_dec(out, r.status);
+	out += ' ';
+	if (is_valid_reason_phrase(r.status_text)) {
+		out += r.status_text;
+	}
+	out += "\r\nDate: ";
+	append_sv(out, http_date_now());
+	out += "\r\n";
 	if (!r.content_type.empty()) {
-		out += format("Content-Type: {}\r\n", r.content_type);
+		out += "Content-Type: ";
+		out += r.content_type;
+		out += "\r\n";
 	}
 	if (r.status == 304) {
 		if (r.content_length_hint != 0) {
-			out += format("Content-Length: {}\r\n", r.content_length_hint);
+			out += "Content-Length: ";
+			append_dec(out, r.content_length_hint);
+			out += "\r\n";
 		}
 	} else if (!status_no_body) {
-		out += format("Content-Length: {}\r\n", r.content_length());
+		out += "Content-Length: ";
+		append_dec(out, r.content_length());
+		out += "\r\n";
 	}
 	for (auto const &[k, v]: r.headers) {
 		if (is_framing_header(k)) {
@@ -154,20 +212,27 @@ export std::string format_response(HttpResponse const &r, SV alt_svc = {}, bool 
 		if (!is_valid_header_name(k) || !is_valid_header_value(v)) {
 			continue;
 		}
-		out += format("{}: {}\r\n", k, v);
+		out += k;
+		out += ": ";
+		out += v;
+		out += "\r\n";
 	}
 	for (auto const &sc: r.set_cookies) {
 		if (!is_valid_header_value(sc)) {
 			continue;
 		}
-		out += format("Set-Cookie: {}\r\n", sc);
+		out += "Set-Cookie: ";
+		out += sc;
+		out += "\r\n";
 	}
 	if (!alt_svc.empty()) {
-		out += format("Alt-Svc: {}\r\n", alt_svc);
+		out += "Alt-Svc: ";
+		append_sv(out, alt_svc);
+		out += "\r\n";
 	}
 	out += close ? "Connection: close\r\n\r\n" : "Connection: keep-alive\r\n\r\n";
-	if (!suppress_body && !r.is_mapped_file() && !r.is_streamed_file()) {
-		out += r.text_body();
+	if (include_body) {
+		append_sv(out, r.text_body());
 	}
 	return out;
 }
@@ -191,7 +256,13 @@ export std::string format_sse_headers(bool close) {
 }
 
 export [[nodiscard]] std::string format_http_chunk(SV payload) {
-	return format("{:x}\r\n{}\r\n", payload.size(), payload);
+	S out;
+	out.reserve(2 * sizeof(SZ) + 4 + payload.size());
+	append_hex(out, payload.size());
+	out += "\r\n";
+	append_sv(out, payload);
+	out += "\r\n";
+	return out;
 }
 
 export [[nodiscard]] std::string_view extract_param(SV header, SV param_name) {
