@@ -3452,6 +3452,17 @@ inline void dump_str_raw(
 	out.append(sv.data(), sv.size());
 	out += '"';
 }
+inline void append_u_escape(
+	S &out,
+	u32 cp) {
+	static constexpr A<char, 16> kHex = {'0', '1', '2', '3', '4', '5', '6', '7',
+		'8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+	out += "\\u";
+	out += kHex[(cp >> 12U) & 0x0FU];
+	out += kHex[(cp >> 8U) & 0x0FU];
+	out += kHex[(cp >> 4U) & 0x0FU];
+	out += kHex[cp & 0x0FU];
+}
 // R3 — find the next byte in [p, n) that needs escaping in a JSON string body.
 // ascii_only=false: stops at '"', '\\', or ctrl chars [0x00,0x1F].
 // ascii_only=true:  also stops at high-bit bytes [0x80,0xFF].
@@ -3585,7 +3596,7 @@ void dump_str(
 			break;
 		default:
 			if (cc < 0x20U) {
-				out += format("\\u{:04x}", static_cast<unsigned>(cc));
+				append_u_escape(out, cc);
 				++i;
 			} else if (ascii_only && cc >= 0x80U) {
 				// Decode UTF-8 to get code point, then emit \uXXXX or surrogate P.
@@ -3606,11 +3617,11 @@ void dump_str(
 				}
 				i += seq;
 				if (cp < 0x10000U) {
-					out += format("\\u{:04x}", cp);
+					append_u_escape(out, cp);
 				} else {
 					cp -= 0x10000U;
-					out += format("\\u{:04x}", 0xD800U | (cp >> 10U));
-					out += format("\\u{:04x}", 0xDC00U | (cp & 0x3FFU));
+					append_u_escape(out, 0xD800U | (cp >> 10U));
+					append_u_escape(out, 0xDC00U | (cp & 0x3FFU));
 				}
 			} else {
 				out += static_cast<char>(cc);

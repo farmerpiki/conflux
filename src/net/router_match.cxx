@@ -16,6 +16,7 @@ export struct Segment {
 export V<Segment> parse_pattern(
 	SV pattern) {
 	V<Segment> segs;
+	segs.reserve(ranges::count(pattern, '/') + 1);
 	SZ pos = 0;
 	while (true) {
 		auto next = pattern.find('/', pos);
@@ -69,28 +70,29 @@ export bool match_segments(
 		return true;
 	}
 
-	V<SV> parts;
 	SZ pos = 0;
+	SZ i = 0;
+	HttpFieldsView tmp;
 	while (true) {
+		if (i >= pattern.size()) {
+			return false;
+		}
 		auto next = path.find('/', pos);
-		parts.push_back((next == SV::npos) ? path.substr(pos) : path.substr(pos, next - pos));
+		auto part = (next == SV::npos) ? path.substr(pos) : path.substr(pos, next - pos);
+		if (pattern[i].is_param) {
+			tmp.emplace_back_owned(S{pattern[i].value}, url_decode_path(part));
+		} else if (pattern[i].value != part) {
+			return false;
+		}
+		++i;
 		if (next == SV::npos) {
 			break;
 		}
 		pos = next + 1;
 	}
 
-	if (parts.size() != pattern.size()) {
+	if (i != pattern.size()) {
 		return false;
-	}
-
-	HttpFieldsView tmp;
-	for (SZ i = 0; i < pattern.size(); ++i) {
-		if (pattern[i].is_param) {
-			tmp.emplace_back_owned(S{pattern[i].value}, url_decode_path(parts[i]));
-		} else if (pattern[i].value != parts[i]) {
-			return false;
-		}
 	}
 	out_params = move(tmp);
 	return true;

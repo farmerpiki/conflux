@@ -239,7 +239,10 @@ export void parse_cookies(SV cookie_header, HttpFieldsView &out) {
 	}
 }
 export [[nodiscard]] bool has_connection_token(HttpFieldsView const &headers, SV wanted) {
-	for (auto const header_value: headers.values("connection")) {
+	for (auto const &[name, header_value]: headers) {
+		if (!conflux::http::ascii_iequals(name, "connection")) {
+			continue;
+		}
 		SZ pos = 0;
 		while (pos <= header_value.size()) {
 			auto const comma = header_value.find(',', pos);
@@ -264,7 +267,10 @@ export enum class ExpectState : u8 {
 
 export [[nodiscard]] ExpectState parse_expect_header(HttpFieldsView const &headers) {
 	bool saw_continue = false;
-	for (auto const header_value: headers.values("expect")) {
+	for (auto const &[name, header_value]: headers) {
+		if (!conflux::http::ascii_iequals(name, "expect")) {
+			continue;
+		}
 		SZ pos = 0;
 		while (pos <= header_value.size()) {
 			auto const comma = header_value.find(',', pos);
@@ -286,7 +292,10 @@ export [[nodiscard]] ExpectState parse_expect_header(HttpFieldsView const &heade
 
 export [[nodiscard]] bool has_valid_chunked_transfer_encoding(HttpFieldsView const &headers) {
 	SZ token_count = 0;
-	for (auto const header_value: headers.values("transfer-encoding")) {
+	for (auto const &[name, header_value]: headers) {
+		if (!conflux::http::ascii_iequals(name, "transfer-encoding")) {
+			continue;
+		}
 		SZ pos = 0;
 		while (pos <= header_value.size()) {
 			auto const comma = header_value.find(',', pos);
