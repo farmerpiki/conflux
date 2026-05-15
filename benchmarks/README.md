@@ -123,6 +123,8 @@ ONLY_BENCH=http_server BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh http-server-local
 ONLY_BENCH=http_server_concurrency BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh http-server-concurrency-local
+ONLY_BENCH=send_zc BENCH_PRESET=perf-clang-libcxx \
+  scripts/bench_record.sh send-zc-threshold-local
 
 # File/runtime path
 ONLY_BENCH=file_copy_coro BENCH_PRESET=perf-clang-libcxx \
@@ -136,6 +138,11 @@ ONLY_BENCH=task_chain_composition BENCH_PRESET=perf-clang-libcxx \
 ONLY_BENCH=workpool_enqueue_dequeue BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh workpool-local
 ```
+
+`send_zc` records threshold sweep configs (`threshold_4k`, `threshold_16k`,
+`threshold_64k`) across plain and mapped response sizes. Use emitted `zc_*`
+counters to reject thresholds that mostly copy, fall back, or bypass TLS; do not
+use RPS alone as SEND_ZC evidence.
 
 For worker queue contention profiling, configure the perf preset with
 `-DCONFLUX_WORK_QUEUE_STATS=ON` before recording `workpool_enqueue_dequeue`. The

@@ -175,7 +175,8 @@ HttpServerMetrics stop_server(
 	return h.server->metrics();
 }
 Config bench_config_zc(
-	SV mode) {
+	SV mode,
+	SZ threshold) {
 	Config cfg{};
 	cfg.port = 0;
 	cfg.rings = 1;
@@ -188,9 +189,20 @@ Config bench_config_zc(
 	cfg.fixed_buffer_slabs = 0;
 	cfg.splice_pipe_pairs = 0;
 	cfg.send_zc = S{mode};
-	cfg.send_zc_threshold = 16384;
+	cfg.send_zc_threshold = threshold;
 	cfg.send_zc_report_usage = true;
 	return cfg;
+}
+SZ parse_send_zc_threshold(
+	span<char *> args) {
+	SZ threshold = 16384;
+	for (SZ i = 1; i < args.size(); ++i) {
+		SV const arg = args[i];
+		if ((arg == "--send-zc-threshold" || arg == "--zc-threshold") && i + 1 < args.size()) {
+			threshold = bench_parse_sz(args[++i]);
+		}
+	}
+	return threshold;
 }
 using RunFn = Fn<void()>;
 struct Variant {
@@ -425,13 +437,15 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"send_zc","parser":"standard","configs":[{"name":"default","extra":{"captures_send_zc_counters":true},"args":["--iterations","2000","--warmup","200"]}]})");
+		R"({"name":"send_zc","parser":"standard","configs":[{"name":"threshold_4k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096},"args":["--send-zc-threshold","4096","--config-name","threshold_4k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_16k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384},"args":["--send-zc-threshold","16384","--config-name","threshold_16k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_64k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536},"args":["--send-zc-threshold","65536","--config-name","threshold_64k","--iterations","1000","--warmup","100"],"reps":1}]})");
 
 	auto const args = bench_parse_args(span{argv, static_cast<SZ>(argc)});
 	auto const iters = args.iterations;
 	auto const warmup = args.warmup;
 	auto const json_out = args.json_out;
-	auto const config_name = args.config_name.empty() ? "default"sv : SV{args.config_name};
+	SZ const send_zc_threshold = parse_send_zc_threshold(span{argv, static_cast<SZ>(argc)});
+	S const inferred_config_name = format("threshold_{}", send_zc_threshold);
+	SV const config_name = args.config_name.empty() ? SV{inferred_config_name} : SV{args.config_name};
 	struct BodySpec {
 		SV label;
 		SZ size;
@@ -481,9 +495,9 @@ int main(
 		auto st = make_shared<State>();
 		return Variant{
 			.name = move(name),
-			.setup = [st, mode = S{mode}, router_factory = move(router_factory)] {
+			.setup = [st, mode = S{mode}, router_factory = move(router_factory), send_zc_threshold] {
 				st->metrics = {};
-				st->server = make_unique<ServerHandle>(start_server(bench_config_zc(SV{mode}), router_factory()));
+				st->server = make_unique<ServerHandle>(start_server(bench_config_zc(SV{mode}, send_zc_threshold), router_factory()));
 				st->client = make_unique<BenchClient>(st->server->port);
 			},
 			.run = [st, request = move(request), rb] {
@@ -539,9 +553,9 @@ int main(
 		auto st = make_shared<State>();
 		return Variant{
 			.name = move(name),
-			.setup = [&, st, mode = S{mode}, router_factory = move(router_factory)] {
+			.setup = [&, st, mode = S{mode}, router_factory = move(router_factory), send_zc_threshold] {
 				st->metrics = {};
-				auto cfg = bench_config_zc(SV{mode});
+				auto cfg = bench_config_zc(SV{mode}, send_zc_threshold);
 				cfg.cert_file = tls_cert_path;
 				cfg.key_file = tls_key_path;
 				st->server = make_unique<ServerHandle>(start_server(cfg, router_factory()));
@@ -595,7 +609,7 @@ int main(
 #endif
 
 	if (!json_out) {
-		std::println("send_zc_bench: {} iterations, {} warmup\n", iters, warmup);
+		std::println("send_zc_bench: {} iterations, {} warmup, threshold={} bytes\n", iters, warmup, send_zc_threshold);
 	}
 
 	for (auto const &v: variants) {
