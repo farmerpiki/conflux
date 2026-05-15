@@ -47,7 +47,7 @@ cache_value() {
 }
 
 assert_fuzz_cache() {
-    local asan ubsan tsan benches examples tests fuzz fuzz_smoke lto build_type
+    local asan ubsan tsan benches examples tests fuzz fuzz_smoke lto build_type feature_set runtime http_core http_realtime crypto tls http2 http3 db
     asan="$(cache_value CONFLUX_ENABLE_ASAN)"
     ubsan="$(cache_value CONFLUX_ENABLE_UBSAN)"
     tsan="$(cache_value CONFLUX_ENABLE_TSAN)"
@@ -58,6 +58,15 @@ assert_fuzz_cache() {
     fuzz_smoke="$(cache_value CONFLUX_BUILD_FUZZ_SMOKE_TESTS)"
     lto="$(cache_value CONFLUX_ENABLE_LTO)"
     build_type="$(cache_value CMAKE_BUILD_TYPE)"
+    feature_set="$(cache_value CONFLUX_FEATURE_SET)"
+    runtime="$(cache_value CONFLUX_BUILD_RUNTIME)"
+    http_core="$(cache_value CONFLUX_BUILD_HTTP_CORE)"
+    http_realtime="$(cache_value CONFLUX_BUILD_HTTP_REALTIME)"
+    crypto="$(cache_value CONFLUX_BUILD_CRYPTO)"
+    tls="$(cache_value CONFLUX_ENABLE_TLS)"
+    http2="$(cache_value CONFLUX_ENABLE_HTTP2)"
+    http3="$(cache_value CONFLUX_ENABLE_HTTP3)"
+    db="$(cache_value CONFLUX_ENABLE_DB)"
 
     [[ "$build_type" == RelWithDebInfo ]] || {
         printf '%s expected RelWithDebInfo, got %s.\n' "$PRESET" "$build_type" >&2
@@ -71,6 +80,21 @@ assert_fuzz_cache() {
     [[ "$fuzz" == ON && "$fuzz_smoke" == ON ]] || {
         printf '%s expected fuzz and fuzz smoke enabled, got fuzz=%s fuzz_smoke=%s.\n' \
             "$PRESET" "$fuzz" "$fuzz_smoke" >&2
+        return 1
+    }
+    [[ "$feature_set" == json && "$runtime" == AUTO ]] || {
+        printf '%s expected dependency-minimal json feature set with runtime AUTO, got feature_set=%s runtime=%s.\n' \
+            "$PRESET" "$feature_set" "$runtime" >&2
+        return 1
+    }
+    [[ "$http_core" == ON && "$http_realtime" == ON && "$crypto" == ON ]] || {
+        printf '%s expected HTTP parser/realtime fuzz helpers enabled, got http_core=%s http_realtime=%s crypto=%s.\n' \
+            "$PRESET" "$http_core" "$http_realtime" "$crypto" >&2
+        return 1
+    }
+    [[ "$tls" == OFF && "$http2" == OFF && "$http3" == OFF && "$db" == OFF ]] || {
+        printf '%s expected network/protocol/database integrations disabled, got tls=%s http2=%s http3=%s db=%s.\n' \
+            "$PRESET" "$tls" "$http2" "$http3" "$db" >&2
         return 1
     }
     [[ "$tests" == OFF && "$benches" == OFF && "$examples" == OFF ]] || {

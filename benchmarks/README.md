@@ -140,19 +140,27 @@ ONLY_BENCH=workpool_enqueue_dequeue BENCH_PRESET=perf-clang-libcxx \
 ```
 
 `send_zc` records threshold sweep configs (`threshold_4k`, `threshold_16k`,
-`threshold_64k`) across plain and mapped response sizes. Use emitted `zc_*`
-counters to reject thresholds that mostly copy, fall back, or bypass TLS; do not
-use RPS alone as SEND_ZC evidence.
+`threshold_64k`) across plain and mapped response sizes, plus concurrent HTTP
+load configs (`threshold_4k_load`, `threshold_16k_load`, `threshold_64k_load`)
+that run 64 keep-alive clients for 2 seconds against 64 KiB and 1 MiB bodies.
+Use emitted `zc_*` counters to reject thresholds that mostly copy, fall back, or
+bypass TLS; do not use RPS alone as SEND_ZC evidence. The `_load` rows also
+include `connections`, `duration_s`, `requests_per_sec`, and `errors`, so the
+default threshold can be judged under pressure before changing
+`Config::send_zc_threshold`.
 
 For worker queue contention profiling, configure the perf preset with
 `-DCONFLUX_WORK_QUEUE_STATS=ON` before recording `workpool_enqueue_dequeue`. The
 benchmark still emits the standard `config`/`variant`/`iterations`/`total_ns`/
 `ns_per_iter` fields, and appends a `queue` object in raw NDJSON with enqueue,
 local/inject queue, admission/local/steal lock-contention, steal, park, and
-futex wake counters. The benchmark includes the original per-task-join variants
-plus `external_burst` for admission/inject pressure and `local_fanout` for
-local-deque/steal pressure. Normal perf presets leave this option off so
-instrumentation does not contaminate default history.
+futex wake counters. `scripts/bench_record.sh` preserves optional standard-parser
+fields in `results.extra`, so these counters are queryable as `extra->'queue'`
+for non-summary rows while remaining available verbatim in raw artifacts. The
+benchmark includes the original per-task-join variants plus `external_burst` for
+admission/inject pressure and `local_fanout` for local-deque/steal pressure.
+Normal perf presets leave this option off so instrumentation does not
+contaminate default history.
 
 ## Comparing runs
 
@@ -232,10 +240,12 @@ Current groups:
 
 `conflux_send_zc_bench` emits per-variant SEND_ZC counter fields in its NDJSON
 (`zc_attempts`, `zc_plain_attempts`, `zc_mapped_attempts`, copied-notification
-counts, submit-fallback counts, and TLS-bypass counts). Raw recorder artifacts
-therefore preserve enough data to decide whether mapped-file bodies should keep
-using SEND_ZC and whether TLS paths should remain explicit regular-send
-bypasses.
+counts, submit-fallback counts, and TLS-bypass counts). Its `--concurrent` mode
+adds duration-based keep-alive load rows with request rate and error counters.
+Raw recorder artifacts therefore preserve enough data to decide whether
+mapped-file bodies should keep using SEND_ZC, whether TLS paths should remain
+explicit regular-send bypasses, and whether the default threshold should stay at
+16 KiB or move to the 4 KiB/64 KiB alternatives.
 
 Network or io_uring transport benchmarks should remain separate cases rather
 than being mixed into the in-process logic suite.

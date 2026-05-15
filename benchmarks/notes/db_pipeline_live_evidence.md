@@ -15,8 +15,8 @@ without touching the DB runtime or `recv_bundle.e2e`-adjacent HTTP/socket paths.
   rows but no `kind=summary` rows.
 - `scripts/db_pipeline_live_evidence.sh` provides a no-benchmark-DB evidence path:
   it builds the DB integration target and `conflux_db_pipeline_bench`, runs the
-  integration label, then writes repeated raw pipeline benchmark rows and a small
-  summary JSON artifact.
+  DB-labeled integration tests, validates the repeated raw pipeline benchmark rows,
+  then writes a small summary JSON artifact.
 
 ## Run direct evidence without the benchmark DB
 
@@ -42,7 +42,9 @@ Expected files:
 
 - `ctest-db-integration.log` — live DB integration result.
 - `db_pipeline.raw.ndjson` — repeated `plain` and `pipeline` rows.
-- `db_pipeline.summary.json` — median/best per variant plus median speedup.
+- `db_pipeline.summary.json` — median/best per variant plus median speedup. The
+  script refuses to write this if the raw NDJSON is missing either `plain` or
+  `pipeline` rows for any repetition.
 - `manifest.json` — build dir, preset, commit/branch where available.
 
 ## Run recorded evidence through `conflux_bench`

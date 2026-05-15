@@ -55,10 +55,18 @@ RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 ARTIFACT_DIR="${DB_PIPELINE_ARTIFACT_DIR:-/tmp/$(basename "$REPO_ROOT")/db-pipeline-evidence/$RUN_STAMP}"
 mkdir -p "$ARTIFACT_DIR"
 
-if ! [[ "$REPS" =~ ^[1-9][0-9]*$ ]]; then
-	printf 'DB_PIPELINE_REPS must be a positive integer: %s\n' "$REPS" >&2
-	exit 2
-fi
+require_positive_int() {
+	local name=$1 value=$2
+	if ! [[ "$value" =~ ^[1-9][0-9]*$ ]]; then
+		printf '%s must be a positive integer: %s\n' "$name" "$value" >&2
+		exit 2
+	fi
+}
+
+require_positive_int DB_PIPELINE_BATCHES "$BATCHES"
+require_positive_int DB_PIPELINE_BATCH_N "$BATCH_N"
+require_positive_int DB_PIPELINE_WARMUP_BATCHES "$WARMUP_BATCHES"
+require_positive_int DB_PIPELINE_REPS "$REPS"
 
 configure_log="$ARTIFACT_DIR/configure.log"
 build_log="$ARTIFACT_DIR/build.log"
@@ -86,7 +94,7 @@ if ! cmake --build "$BUILD_DIR" --target conflux_db_integration conflux_db_pipel
 fi
 
 printf 'running DB integration tests\n'
-PG_TEST_CONNINFO="$PG_TEST_CONNINFO" ctest --test-dir "$BUILD_DIR" -L '^integration$' --output-on-failure \
+PG_TEST_CONNINFO="$PG_TEST_CONNINFO" ctest --test-dir "$BUILD_DIR" -L '^db$' --output-on-failure \
 	> "$ctest_log" 2>&1 || {
 		printf 'DB integration tests failed; log=%s\n' "$ctest_log" >&2
 		tail -80 "$ctest_log" >&2
@@ -104,6 +112,31 @@ for rep in $(seq 1 "$REPS"); do
 		--config-name "b${BATCHES}_n${BATCH_N}" \
 		--json >> "$raw_ndjson"
 done
+
+validate_pipeline_rows() {
+	local raw=$1 expected=$2
+	jq -s -e --argjson expected "$expected" '
+	  def valid_row:
+	    (.variant == "plain" or .variant == "pipeline")
+	    and (.iterations | type == "number")
+	    and (.total_ns | type == "number")
+	    and (.ns_per_iter | type == "number")
+	    and (.iterations > 0)
+	    and (.total_ns >= 0)
+	    and (.ns_per_iter >= 0);
+	  . as $rows
+	  | ($rows | length) == ($expected * 2)
+	    and all($rows[]; valid_row)
+	    and (($rows | map(select(.variant == "plain")) | length) == $expected)
+	    and (($rows | map(select(.variant == "pipeline")) | length) == $expected)
+	' "$raw" >/dev/null
+}
+
+if ! validate_pipeline_rows "$raw_ndjson" "$REPS"; then
+	printf 'db_pipeline_bench produced invalid/partial NDJSON; raw=%s\n' "$raw_ndjson" >&2
+	jq -r -R 'try fromjson catch "invalid-json"' "$raw_ndjson" >&2 || true
+	exit 1
+fi
 
 jq -n \
 	--slurpfile rows <(jq -s '.' "$raw_ndjson") \

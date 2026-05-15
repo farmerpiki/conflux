@@ -45,6 +45,25 @@ ONLY_BENCH=workpool_enqueue_dequeue BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh workpool-queue-profile
 ```
 
+The recorder keeps optional fields from standard-parser NDJSON in raw
+`results.extra`. Queue counters are therefore available both in the saved raw
+artifact and in SQL for non-summary rows:
+
+```sql
+SELECT variant,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY ns_per_iter) AS med_ns,
+       sum((extra->'queue'->>'admission_lock_contentions')::bigint) AS admission_contentions,
+       sum((extra->'queue'->>'local_lock_contentions')::bigint) AS local_contentions,
+       sum((extra->'queue'->>'steal_lock_contentions')::bigint) AS steal_contentions,
+       sum((extra->'queue'->>'futex_waits')::bigint) AS futex_waits
+FROM results
+WHERE run_id = :run_id
+  AND benchmark = 'workpool_enqueue_dequeue'
+  AND COALESCE(extra->>'kind', '') <> 'summary'
+GROUP BY variant
+ORDER BY variant;
+```
+
 ## No-change decision for locks in these slices
 
 No lock removal is included here. `admission_mtx_` is still the correctness gate

@@ -29,9 +29,7 @@ struct BenchClient {
 		connect_to(port);
 	}
 	~BenchClient() {
-		if (fd >= 0) {
-			::close(fd);
-		}
+		close();
 	}
 	BenchClient(BenchClient const &) = delete;
 	BenchClient &operator =(
@@ -42,9 +40,7 @@ struct BenchClient {
 	BenchClient &operator =(
 		BenchClient &&o) noexcept {
 		if (this != &o) {
-			if (fd >= 0) {
-				::close(fd);
-			}
+			close();
 			fd = exchange(o.fd, -1);
 		}
 		return *this;
@@ -67,6 +63,17 @@ struct BenchClient {
 			fd = -1;
 			throw RE{"connect failed"};
 		}
+	}
+	void close() noexcept {
+		if (fd >= 0) {
+			::close(fd);
+			fd = -1;
+		}
+	}
+	void reconnect(
+		u16 port) {
+		close();
+		connect_to(port);
 	}
 	void send_all(
 		SV data) const {
@@ -204,6 +211,27 @@ SZ parse_send_zc_threshold(
 	}
 	return threshold;
 }
+bool has_flag(
+	span<char *> args,
+	SV flag) {
+	for (SZ i = 1; i < args.size(); ++i) {
+		if (SV{args[i]} == flag) {
+			return true;
+		}
+	}
+	return false;
+}
+SZ parse_sz_arg(
+	span<char *> args,
+	SV name,
+	SZ fallback) {
+	for (SZ i = 1; i < args.size(); ++i) {
+		if (SV{args[i]} == name && i + 1 < args.size()) {
+			return bench_parse_sz(args[++i]);
+		}
+	}
+	return fallback;
+}
 using RunFn = Fn<void()>;
 struct Variant {
 	S name;
@@ -221,6 +249,10 @@ struct BenchStats {
 	u64 total_ns{};
 	double ns_per_iter{};
 	HttpServerMetrics metrics{};
+	SZ connections{};
+	SZ duration_s{};
+	double requests_per_sec{};
+	u64 errors{};
 };
 BenchStats run_variant(
 	Variant const &v,
@@ -274,6 +306,15 @@ void print_variant(
 	if (json) {
 		auto const total_ops = s.iterations * ops_per_iter;
 		auto const ns_per_op = s.ns_per_iter / static_cast<double>(ops_per_iter);
+		S extra;
+		if (s.connections != 0) {
+			extra = format(
+				",\"connections\":{},\"duration_s\":{},\"requests_per_sec\":{:.1f},\"errors\":{}",
+				s.connections,
+				s.duration_s,
+				s.requests_per_sec,
+				s.errors);
+		}
 		std::println(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f},"
 			"\"ops_per_iter\":{},\"total_ops\":{},\"ns_per_op\":{:.2f},"
@@ -282,7 +323,7 @@ void print_variant(
 			"\"zc_copied_notifications\":{},\"zc_sends_without_notification\":{},"
 			"\"zc_errors_enomem\":{},\"zc_errors_other\":{},\"zc_fallback_regular_send\":{},"
 			"\"zc_tls_bypass\":{},\"zc_tls_bypass_bytes\":{},\"zc_adaptive_disable_count\":{},"
-			"\"zc_notifications_pending\":{}}}",
+			"\"zc_notifications_pending\":{}{}}}",
 			s.config,
 			s.variant,
 			s.iterations,
@@ -305,7 +346,19 @@ void print_variant(
 			zc.tls_bypass,
 			zc.tls_bypass_bytes,
 			zc.adaptive_disable_count,
-			s.metrics.zc_notifications_pending);
+			s.metrics.zc_notifications_pending,
+			extra);
+	} else if (s.connections != 0) {
+		std::println(
+			"{:<40} {:>8} reqs  {:>10.0f} req/s  {:>10.2f} ns/req  zc={}/{} map={} errors={}",
+			s.variant,
+			s.iterations,
+			s.requests_per_sec,
+			s.ns_per_iter,
+			zc.attempts,
+			zc.copied_notifications,
+			zc.mapped_attempts,
+			s.errors);
 	} else if (ops_per_iter > 1) {
 		auto const ns_per_op = s.ns_per_iter / static_cast<double>(ops_per_iter);
 		std::println(
@@ -331,6 +384,121 @@ void print_variant(
 			zc.tls_bypass);
 	}
 }
+struct ConcurrentWorkerResult {
+	u64 requests{};
+	u64 errors{};
+};
+ConcurrentWorkerResult run_concurrent_worker(
+	u16 port,
+	SV request,
+	SZ response_bytes,
+	int connection_count,
+	Atom<bool> const &start,
+	Atom<bool> const &stop,
+	Atom<int> &ready) {
+	ConcurrentWorkerResult result;
+	V<BenchClient> clients;
+	clients.reserve(static_cast<SZ>(connection_count));
+	for (int i = 0; i < connection_count; ++i) {
+		clients.emplace_back(port);
+	}
+	ready.fetch_add(1, memory_order_release);
+	while (!start.load(memory_order_acquire)) {
+		std::this_thread::yield();
+	}
+	V<char> recv_buf(max<SZ>(response_bytes + 4096, 8192));
+	auto rb = span<char>{recv_buf};
+	while (!stop.load(memory_order_relaxed)) {
+		for (auto &client: clients) {
+			if (stop.load(memory_order_relaxed)) {
+				break;
+			}
+			try {
+				client.send_all(request);
+				(void)client.recv_response(rb);
+				++result.requests;
+			} catch (...) {
+				++result.errors;
+				try {
+					client.reconnect(port);
+				} catch (...) {}
+			}
+		}
+	}
+	return result;
+}
+BenchStats run_concurrent_variant(
+	SV config_name,
+	S name,
+	SV mode,
+	Fn<Router()> router_factory,
+	S request,
+	SZ response_bytes,
+	SZ send_zc_threshold,
+	SZ connections,
+	SZ duration_s) {
+	struct State {
+		ServerHandle server;
+		HttpServerMetrics metrics{};
+	};
+	State st{.server = start_server(bench_config_zc(mode, send_zc_threshold), router_factory())};
+	auto const hw = max(1u, thread::hardware_concurrency());
+	auto const thread_count = static_cast<int>(min<SZ>(connections, static_cast<SZ>(hw)));
+	auto const base = static_cast<int>(connections / static_cast<SZ>(thread_count));
+	auto const rem = static_cast<int>(connections % static_cast<SZ>(thread_count));
+	Atom<bool> start{false};
+	Atom<bool> stop{false};
+	Atom<int> ready{0};
+	V<thread> workers;
+	V<ConcurrentWorkerResult> results(static_cast<SZ>(thread_count));
+	for (int i = 0; i < thread_count; ++i) {
+		auto const worker_connections = base + (i < rem ? 1 : 0);
+		workers.emplace_back([&, i, worker_connections] {
+			results[static_cast<SZ>(i)] = run_concurrent_worker(
+				st.server.port,
+				SV{request},
+				response_bytes,
+				worker_connections,
+				start,
+				stop,
+				ready);
+		});
+	}
+	while (ready.load(memory_order_acquire) != thread_count) {
+		std::this_thread::sleep_for(chrono::milliseconds{1});
+	}
+	auto const t0 = bench_now_ns();
+	start.store(true, memory_order_release);
+	std::this_thread::sleep_for(chrono::seconds{static_cast<int>(duration_s)});
+	stop.store(true, memory_order_release);
+	for (auto &worker: workers) {
+		worker.join();
+	}
+	auto const t1 = bench_now_ns();
+	st.metrics = stop_server(st.server);
+	u64 requests = 0;
+	u64 errors = 0;
+	for (auto const &r: results) {
+		requests += r.requests;
+		errors += r.errors;
+	}
+	auto const total_ns = t1 - t0;
+	auto const ns_per_iter = requests == 0 ? 0.0 : static_cast<double>(total_ns) / static_cast<double>(requests);
+	auto const rps = static_cast<double>(requests) / (static_cast<double>(total_ns) / 1e9);
+	return BenchStats{
+		.config = S{config_name},
+		.variant = move(name),
+		.iterations = static_cast<SZ>(requests),
+		.total_ns = total_ns,
+		.ns_per_iter = ns_per_iter,
+		.metrics = st.metrics,
+		.connections = connections,
+		.duration_s = duration_s,
+		.requests_per_sec = rps,
+		.errors = errors,
+	};
+}
+
 
 #if CONFLUX_BENCH_HAS_TLS
 struct SslCtxDeleter {
@@ -437,13 +605,17 @@ int main(
 	bench_info_if_requested(
 		argc,
 		argv,
-		R"({"name":"send_zc","parser":"standard","configs":[{"name":"threshold_4k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096},"args":["--send-zc-threshold","4096","--config-name","threshold_4k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_16k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384},"args":["--send-zc-threshold","16384","--config-name","threshold_16k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_64k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536},"args":["--send-zc-threshold","65536","--config-name","threshold_64k","--iterations","1000","--warmup","100"],"reps":1}]})");
+		R"({"name":"send_zc","parser":"standard","configs":[{"name":"threshold_4k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096},"args":["--send-zc-threshold","4096","--config-name","threshold_4k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_16k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384},"args":["--send-zc-threshold","16384","--config-name","threshold_16k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_64k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536},"args":["--send-zc-threshold","65536","--config-name","threshold_64k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_4k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","4096","--config-name","threshold_4k_load"],"reps":1},{"name":"threshold_16k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","16384","--config-name","threshold_16k_load"],"reps":1},{"name":"threshold_64k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","65536","--config-name","threshold_64k_load"],"reps":1}]})");
 
 	auto const args = bench_parse_args(span{argv, static_cast<SZ>(argc)});
 	auto const iters = args.iterations;
 	auto const warmup = args.warmup;
 	auto const json_out = args.json_out;
-	SZ const send_zc_threshold = parse_send_zc_threshold(span{argv, static_cast<SZ>(argc)});
+	auto const raw_args = span{argv, static_cast<SZ>(argc)};
+	bool const concurrent = has_flag(raw_args, "--concurrent"sv);
+	SZ const concurrent_connections = max<SZ>(1, parse_sz_arg(raw_args, "--connections"sv, 64));
+	SZ const concurrent_duration_s = max<SZ>(1, parse_sz_arg(raw_args, "--duration"sv, 2));
+	SZ const send_zc_threshold = parse_send_zc_threshold(raw_args);
 	S const inferred_config_name = format("threshold_{}", send_zc_threshold);
 	SV const config_name = args.config_name.empty() ? SV{inferred_config_name} : SV{args.config_name};
 	struct BodySpec {
@@ -516,6 +688,70 @@ int main(
 			.iters_override = iters_override,
 		};
 	};
+
+	if (concurrent) {
+		if (!json_out) {
+			std::println(
+				"send_zc_bench concurrent: {} connections, {}s, threshold={} bytes\n",
+				concurrent_connections,
+				concurrent_duration_s,
+				send_zc_threshold);
+		}
+		for (auto const &[label, size]: kBodies) {
+			if (size != 65536 && size != 1048576) {
+				continue;
+			}
+			auto const label_s = S{label};
+			auto const body_req = S{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+			auto const mapped_req = S{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+			auto plain_off = run_concurrent_variant(
+				config_name,
+				format("load/plain/{}/off", label_s),
+				"off"sv,
+				make_body_router,
+				body_req,
+				size,
+				send_zc_threshold,
+				concurrent_connections,
+				concurrent_duration_s);
+			print_variant(plain_off, json_out, 1);
+			auto plain_zc = run_concurrent_variant(
+				config_name,
+				format("load/plain/{}/zc_auto", label_s),
+				"auto"sv,
+				make_body_router,
+				body_req,
+				size,
+				send_zc_threshold,
+				concurrent_connections,
+				concurrent_duration_s);
+			print_variant(plain_zc, json_out, 1);
+			auto mapped_off = run_concurrent_variant(
+				config_name,
+				format("load/mapped/{}/off", label_s),
+				"off"sv,
+				make_static_router,
+				mapped_req,
+				size,
+				send_zc_threshold,
+				concurrent_connections,
+				concurrent_duration_s);
+			print_variant(mapped_off, json_out, 1);
+			auto mapped_zc = run_concurrent_variant(
+				config_name,
+				format("load/mapped/{}/zc_auto", label_s),
+				"auto"sv,
+				make_static_router,
+				mapped_req,
+				size,
+				send_zc_threshold,
+				concurrent_connections,
+				concurrent_duration_s);
+			print_variant(mapped_zc, json_out, 1);
+		}
+		fs::remove_all(static_dir);
+		return 0;
+	}
 
 	for (auto const &[label, size]: kBodies) {
 		auto const req = S{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};

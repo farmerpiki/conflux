@@ -9,6 +9,7 @@
 # Bench binary contract:
 #   --bench-info   print JSON descriptor (see below) and exit 0
 #   --json         output NDJSON: one {"config":"","variant":"","iterations":N,"total_ns":N,"ns_per_iter":X} per line
+#                  optional fields are preserved in results.extra for standard-parser raw rows
 #
 # --bench-info JSON:
 #   {
@@ -469,9 +470,15 @@ insert_row() {
             $iters, $total_ns, $ns_pi, '$(sql_escape "$extra")'::jsonb);" >/dev/null
 }
 
+standard_extra_jq='del(.config, .variant, .iterations, .total_ns, .ns_per_iter) | if . == {} then {} else . end'
+standard_rows_jq='try (fromjson
+  | [.variant, .iterations, .total_ns, .ns_per_iter, (('$standard_extra_jq') | @json)]
+  | @tsv)'
+
 # record_with_reps: runs bench several times, inserts raw rows + summary row.
 # Args: run_id bench_name reps <bench_args_to_produce_ndjson>...
-# Expects NDJSON: {"config":"","variant":"","iterations":N,"total_ns":N,"ns_per_iter":X,"min":X,"p10":X,"mad":X}
+# Expects NDJSON: {"config":"","variant":"","iterations":N,"total_ns":N,"ns_per_iter":X}
+# Optional fields are preserved into raw results.extra; summary rows still use min/p10/mad when present.
 record_with_reps() {
   local run_id="$1" bench="$2" reps="$3"; shift 3
   local tmpf rawf
@@ -485,10 +492,7 @@ record_with_reps() {
   require_result_rows "$tmpf" "$bench"
   cp "$tmpf" "$rawf"
 
-  while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
-    local ex
-    ex=$(printf '{"min":%s,"p10":%s,"mad":%s}' \
-      "${min_v:-null}" "${p10_v:-null}" "${mad_v:-null}")
+  while IFS=$'\t' read -r variant iters total ns_pi ex; do
     psql "$PGURI" -At -q -c "
       INSERT INTO results
         (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
@@ -497,7 +501,7 @@ record_with_reps() {
         ($run_id, '$(sql_escape "$bench")', '$(sql_escape "$variant")',
          $iters, $total, $ns_pi,
          'ns_per_iter', $ns_pi, 'ns', 1, '$(sql_escape "$ex")'::jsonb);" >/dev/null
-  done < <(jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.min // "null"), (.p10 // "null"), (.mad // "null")] | @tsv)' "$tmpf")
+  done < <(jq -r -R "$standard_rows_jq" "$tmpf")
 
   psql "$PGURI" -At -q -c "
     WITH raw AS (
@@ -625,10 +629,10 @@ run_compare() {
       run_bench "$binary" --json 2>/dev/null > "$tmpf"
       require_result_rows "$tmpf" work
       cp "$tmpf" "$rawf"
-      while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
+      while IFS=$'\t' read -r variant iters total ns_pi raw_ex; do
         local ex
-        ex=$(printf '{"round":%d,"position":%d,"min":%s,"p10":%s,"mad":%s}' \
-          "$round" "$pos" "${min_v:-null}" "${p10_v:-null}" "${mad_v:-null}")
+        ex=$(jq -c --argjson raw "$raw_ex" --argjson round "$round" --argjson pos "$pos" \
+          '$raw + {round:$round, position:$pos}' <<< '{}')
         psql "$PGURI" -At -q -c "
           INSERT INTO results
             (run_id, benchmark, variant, iterations, total_ns, ns_per_iter,
@@ -637,7 +641,7 @@ run_compare() {
             ($rid, 'work', '$(sql_escape "$variant")',
              $iters, $total, $ns_pi,
              'ns_per_iter', $ns_pi, 'ns', 1, '$(sql_escape "$ex")'::jsonb);" >/dev/null
-      done < <(jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.min // "null"), (.p10 // "null"), (.mad // "null")] | @tsv)' "$tmpf")
+      done < <(jq -r -R "$standard_rows_jq" "$tmpf")
       rm -f "$tmpf"
     done
   done
@@ -706,12 +710,12 @@ _compare_bins_insert_row() {
   require_result_rows "$tmpf" "$bench"
   cp "$tmpf" "$rawf"
 
-  while IFS=$'\t' read -r variant iters total ns_pi min_v p10_v mad_v; do
+  while IFS=$'\t' read -r variant iters total ns_pi raw_ex; do
     local ex
-    ex=$(printf '{"round":%d,"position":%d,"label":"%s","min":%s,"p10":%s,"mad":%s}' \
-      "$round" "$pos" "$label" "${min_v:-null}" "${p10_v:-null}" "${mad_v:-null}")
+    ex=$(jq -c --argjson raw "$raw_ex" --arg label "$label" --argjson round "$round" --argjson pos "$pos" \
+      '$raw + {round:$round, position:$pos, label:$label}' <<< '{}')
     insert_row "$rid" "$bench" "$variant" "$iters" "$total" "$ns_pi" "$ex"
-  done < <(jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.min // "null"), (.p10 // "null"), (.mad // "null")] | @tsv)' "$tmpf")
+  done < <(jq -r -R "$standard_rows_jq" "$tmpf")
 
   rm -f "$tmpf"
 }

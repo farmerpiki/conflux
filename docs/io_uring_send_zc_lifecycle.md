@@ -22,4 +22,7 @@ This keeps the kernel-dependent CQE handling testable without a live ring.  The 
 - queued close while a notification is still pending.
 
 The send path still uses live-kernel benchmarks for throughput/threshold decisions.  The helper only
-covers control-flow correctness and counter accounting.
+covers control-flow correctness and counter accounting.  `conflux_send_zc_bench` now has both
+request-at-a-time threshold sweeps and `--concurrent` keep-alive load sweeps, and both paths emit the
+SEND_ZC counters needed to reject thresholds that produce copied notifications, submit fallback, or
+adaptive disable events.
