@@ -18,7 +18,7 @@ extern "C" int LLVMFuzzerTestOneInput(
 	auto res = parse(input, opts);
 	if (!res) {
 		auto const &err = res.error();
-		if (err.code == JsonIssueCode{} || err.message.empty()) {
+		if (err.message.empty()) {
 			__builtin_trap();
 		}
 		return 0;

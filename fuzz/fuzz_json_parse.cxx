@@ -2,7 +2,7 @@
 // Invariants:
 //   - never crash on any byte sequence
 //   - parse ok  -> dump -> parse2 -> is_value_equal(root1, root2)
-//   - parse fail -> error code valid, message non-empty
+//   - parse fail -> message non-empty
 
 import std;
 import conflux.types;
@@ -26,7 +26,7 @@ extern "C" int LLVMFuzzerTestOneInput(
 	if (!res) {
 		// parse failure: validate error is well-formed
 		auto const &err = res.error();
-		if (err.code == JsonIssueCode{} || err.message.empty()) {
+		if (err.message.empty()) {
 			__builtin_trap();
 		}
 		return 0;

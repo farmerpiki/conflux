@@ -3,8 +3,7 @@
 
 import std;
 import conflux.types;
-import conflux.net.router;
-import conflux.net.http_server;
+import conflux.net.http.parse_helpers;
 
 using namespace std;
 extern "C" int LLVMFuzzerTestOneInput(

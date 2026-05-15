@@ -1,6 +1,5 @@
 module;
 #include <cctype>
-#include <memory>
 
 export module conflux.net.http.types;
 import std;
@@ -193,9 +192,25 @@ public:
 	[[nodiscard]] auto end() const { return data_.end(); }
 };
 export class HttpFieldsView {
+	struct OwnedStorage {
+		Atom<SZ> refs{1};
+		deque<S> values;
+	};
 	V<P<SV, SV>> data_;
-	SP<deque<S>> owned_storage_{};
+	OwnedStorage *owned_storage_{};
 	bool case_insensitive_{false};
+	static void retain(
+		OwnedStorage *storage) noexcept {
+		if (storage != nullptr) {
+			storage->refs.fetch_add(1, memory_order_relaxed);
+		}
+	}
+	static void release(
+		OwnedStorage *storage) noexcept {
+		if (storage != nullptr && storage->refs.fetch_sub(1, memory_order_acq_rel) == 1) {
+			delete storage;
+		}
+	}
 	[[nodiscard]] bool key_eq(
 		SV a,
 		SV b) const noexcept {
@@ -211,11 +226,11 @@ export class HttpFieldsView {
 	}
 	[[nodiscard]] SV store_owned(
 		S owned_value) {
-		if (!owned_storage_) {
-			owned_storage_ = make_shared<deque<S>>();
+		if (owned_storage_ == nullptr) {
+			owned_storage_ = new OwnedStorage;
 		}
-		owned_storage_->push_back(move(owned_value));
-		return owned_storage_->back();
+		owned_storage_->values.push_back(move(owned_value));
+		return owned_storage_->values.back();
 	}
 
 public:
@@ -228,6 +243,42 @@ public:
 		for (auto const &[k, v]: fields) {
 			emplace_back(k, v);
 		}
+	}
+	HttpFieldsView(
+		HttpFieldsView const &other)
+		: data_(other.data_)
+		, owned_storage_(other.owned_storage_)
+		, case_insensitive_(other.case_insensitive_) {
+		retain(owned_storage_);
+	}
+	HttpFieldsView(
+		HttpFieldsView &&other) noexcept
+		: data_(move(other.data_))
+		, owned_storage_(exchange(other.owned_storage_, nullptr))
+		, case_insensitive_(exchange(other.case_insensitive_, false)) {}
+	~HttpFieldsView() { release(owned_storage_); }
+	HttpFieldsView &operator =(
+		HttpFieldsView const &other) {
+		if (this == &other) {
+			return *this;
+		}
+		retain(other.owned_storage_);
+		release(owned_storage_);
+		data_ = other.data_;
+		owned_storage_ = other.owned_storage_;
+		case_insensitive_ = other.case_insensitive_;
+		return *this;
+	}
+	HttpFieldsView &operator =(
+		HttpFieldsView &&other) noexcept {
+		if (this == &other) {
+			return *this;
+		}
+		release(owned_storage_);
+		data_ = move(other.data_);
+		owned_storage_ = exchange(other.owned_storage_, nullptr);
+		case_insensitive_ = exchange(other.case_insensitive_, false);
+		return *this;
 	}
 	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
 	SV operator [](
@@ -279,7 +330,8 @@ public:
 	}
 	void clear() noexcept {
 		data_.clear();
-		owned_storage_.reset();
+		release(owned_storage_);
+		owned_storage_ = nullptr;
 	}
 	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
 	[[nodiscard]] SZ size() const noexcept { return data_.size(); }

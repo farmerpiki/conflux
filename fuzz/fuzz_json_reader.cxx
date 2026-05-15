@@ -39,9 +39,13 @@ extern "C" int LLVMFuzzerTestOneInput(
 				break;
 			}
 		case Ev::number_value:
-			auto _ = reader.number_val().to_i64();
-			auto _ = reader.number_val().to_f64();
-			break;
+			{
+				auto i = reader.number_val().to_i64();
+				auto d = reader.number_val().to_f64();
+				(void)i;
+				(void)d;
+				break;
+			}
 		case Ev::bool_value:
 			{
 				auto _ = reader.bool_val();

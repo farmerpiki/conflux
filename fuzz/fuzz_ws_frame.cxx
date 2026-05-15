@@ -5,7 +5,7 @@
 
 import std;
 import conflux.types;
-import conflux.net.router;
+import conflux.net.http.realtime;
 
 using namespace std;
 extern "C" int LLVMFuzzerTestOneInput(

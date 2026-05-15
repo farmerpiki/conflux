@@ -931,6 +931,21 @@ target_link_libraries(conflux_net_config
 # support component.
 target_link_libraries(conflux_core INTERFACE conflux_utils)
 
+if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_SERVER)
+add_library(conflux_http_parse_helpers STATIC)
+target_sources(conflux_http_parse_helpers
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES src/net/http_parse_helpers.cxx
+)
+target_link_libraries(conflux_http_parse_helpers
+    PRIVATE conflux_options
+    PUBLIC  conflux_types
+    PUBLIC  conflux_http_core
+    PUBLIC  conflux_utils
+)
+endif() # CONFLUX_WANT_HTTP_CORE || CONFLUX_WANT_HTTP_SERVER
+
 if(CONFLUX_HAS_TLS STREQUAL "true"
         AND (CONFLUX_HTTP_ROUTER_STACK_REQUESTED OR CONFLUX_HTTP_CLIENT_STACK_REQUESTED
              OR CONFLUX_WANT_SMTP))
@@ -1477,7 +1492,7 @@ target_link_libraries(conflux_net_smtp
 )
 endif() # CONFLUX_WANT_SMTP || TLS HTTP server
 
-if(CONFLUX_WANT_HTTP_SERVER)
+if(CONFLUX_WANT_HTTP_CORE OR CONFLUX_WANT_HTTP_SERVER)
 add_library(conflux_http1 STATIC)
 target_sources(conflux_http1
     PUBLIC FILE_SET CXX_MODULES
@@ -1490,7 +1505,7 @@ target_link_libraries(conflux_http1
     PUBLIC  conflux_http_core
     PUBLIC  conflux_net_config
 )
-endif() # CONFLUX_WANT_HTTP_SERVER (HTTP/1 parser)
+endif() # CONFLUX_WANT_HTTP_CORE || CONFLUX_WANT_HTTP_SERVER (HTTP/1 parser)
 
 if(CONFLUX_WANT_HTTP_SERVER AND CONFLUX_HAS_HTTP2 STREQUAL "true")
 add_library(conflux_http2 STATIC)
@@ -1569,6 +1584,7 @@ target_link_libraries(conflux_http_server_helpers
     PUBLIC  conflux_http_core
     PUBLIC  conflux_http_response
     PUBLIC  conflux_utils
+    PUBLIC  conflux_http_parse_helpers
 )
 
 add_library(conflux_http_server_config STATIC)
@@ -1787,6 +1803,9 @@ endif()
 if(TARGET conflux_json_boundary)
     target_link_libraries(conflux PUBLIC conflux_json_boundary)
 endif()
+if(TARGET conflux_http_parse_helpers)
+    target_link_libraries(conflux PUBLIC conflux_http_parse_helpers)
+endif()
 if(TARGET conflux_json)
     target_link_libraries(conflux PUBLIC conflux_json)
 endif()
@@ -1858,30 +1877,6 @@ target_compile_definitions(conflux
 # fuzz drivers. Otherwise stays empty and LTO/inlining are free to optimize.
 if(CONFLUX_BUILD_FUZZ)
     target_compile_definitions(conflux PUBLIC CONFLUX_BUILD_FUZZ=1)
-endif()
-
-
-# ---------------------------------------------------------------------------
-# Tests & examples (monolith-dependent)
-# ---------------------------------------------------------------------------
-
-if(CONFLUX_BUILD_TESTS OR (CONFLUX_BUILD_FUZZ AND CONFLUX_BUILD_FUZZ_SMOKE_TESTS))
-    enable_testing()
-endif()
-
-if(CONFLUX_BUILD_TESTS)
-    if(TARGET conflux_uring)
-        target_compile_definitions(conflux_uring PRIVATE CONFLUX_TESTING)
-    endif()
-    add_subdirectory(tests)
-endif()
-
-if(CONFLUX_BUILD_BENCHMARKS)
-    add_subdirectory(benchmarks)
-endif()
-
-if(CONFLUX_BUILD_FUZZ)
-    add_subdirectory(fuzz)
 endif()
 
 if(CONFLUX_BUILD_EXAMPLES)
@@ -1974,6 +1969,29 @@ endif() # CONFLUX_BUILD_EXAMPLES
 endif() # CONFLUX_WANT_HTTP_SERVER
 
 # ---------------------------------------------------------------------------
+# Tests, benchmarks, and fuzzing
+# ---------------------------------------------------------------------------
+
+if(CONFLUX_BUILD_TESTS OR (CONFLUX_BUILD_FUZZ AND CONFLUX_BUILD_FUZZ_SMOKE_TESTS))
+    enable_testing()
+endif()
+
+if(CONFLUX_BUILD_TESTS)
+    if(TARGET conflux_uring)
+        target_compile_definitions(conflux_uring PRIVATE CONFLUX_TESTING)
+    endif()
+    add_subdirectory(tests)
+endif()
+
+if(CONFLUX_BUILD_BENCHMARKS)
+    add_subdirectory(benchmarks)
+endif()
+
+if(CONFLUX_BUILD_FUZZ)
+    add_subdirectory(fuzz)
+endif()
+
+# ---------------------------------------------------------------------------
 # Public package targets / install-export
 # ---------------------------------------------------------------------------
 
@@ -2014,6 +2032,7 @@ conflux_public_component(conflux_json_reflect json_reflect)
 conflux_public_component(conflux_json_reflect_provider json_reflect_provider)
 conflux_public_component(conflux_template template)
 conflux_public_component(conflux_file_watch template_watch)
+conflux_public_component(conflux_http_parse_helpers http_parse_helpers)
 conflux_public_component(conflux_http_core http_core)
 conflux_public_component(conflux_http_router http_router)
 conflux_public_component(conflux_http_router_dispatch router_dispatch)
@@ -2096,6 +2115,7 @@ foreach(_target IN ITEMS
         conflux_json_reflect_provider
         conflux_template
         conflux_file_watch
+        conflux_http_parse_helpers
         conflux_http_core
         conflux_http_router
         conflux_http_router_dispatch
