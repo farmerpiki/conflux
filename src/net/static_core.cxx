@@ -89,38 +89,33 @@ export struct StaticCacheStore {
 
 export [[nodiscard]] Opt<std::string> normalize_static_path(
 	SV raw) {
-	S const fp{raw};
-	V<S> parts;
+	S result;
+	result.reserve(raw.size() + 1);
 	SZ pos = 0;
-	bool bad = false;
-	while (pos < fp.size()) {
-		auto next = fp.find('/', pos);
-		auto seg = (next == S::npos) ? SV{fp}.substr(pos) : SV{fp}.substr(pos, next - pos);
+	while (pos < raw.size()) {
+		auto const next = raw.find('/', pos);
+		SV const seg = next == SV::npos ? raw.substr(pos) : raw.substr(pos, next - pos);
 		if (seg.find('\0') != SV::npos) {
-			bad = true;
-			break;
+			return nullopt;
 		}
 		if (seg == "..") {
-			if (parts.empty()) {
-				bad = true;
-				break;
+			if (result.empty()) {
+				return nullopt;
 			}
-			parts.pop_back();
+			auto const slash = result.rfind('/');
+			if (slash == 0) {
+				result.clear();
+			} else {
+				result.erase(slash);
+			}
 		} else if (!seg.empty() && seg != ".") {
-			parts.emplace_back(seg);
+			result.push_back('/');
+			result += seg;
 		}
-		if (next == S::npos) {
+		if (next == SV::npos) {
 			break;
 		}
 		pos = next + 1;
-	}
-	if (bad) {
-		return nullopt;
-	}
-	S result;
-	for (auto const &part: parts) {
-		result += '/';
-		result += part;
 	}
 	return result;
 }
