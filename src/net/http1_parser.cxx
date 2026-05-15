@@ -60,7 +60,6 @@ ParseStatus parse_request(
 	ParsedRequest &out) {
 	out.headers.clear();
 
-	auto header_end = raw.find("\r\n\r\n");
 	auto eol = raw.find("\r\n");
 	if (eol == SV::npos) {
 		if (raw.size() > limits.max_request_line_size) {
@@ -75,6 +74,7 @@ ParseStatus parse_request(
 	}
 
 	auto const post_req_line = eol + 2;
+	auto header_end = raw.find("\r\n\r\n", eol);
 	if (header_end == SV::npos) {
 		if (raw.size() > post_req_line && raw.size() - post_req_line > limits.max_header_block_size) {
 			return ParseStatus::HeaderFieldsTooLarge;
@@ -103,6 +103,7 @@ ParseStatus parse_request(
 	if (header_block_size > limits.max_header_block_size) {
 		return ParseStatus::HeaderFieldsTooLarge;
 	}
+	out.headers.reserve(std::min(limits.max_headers, SZ{16}));
 
 	auto sp1 = req_line.find(' ');
 	if (sp1 == SV::npos) {

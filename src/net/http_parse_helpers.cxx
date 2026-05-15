@@ -18,6 +18,15 @@ export constexpr SZ kMaxChunkTrailerBytes = 8192;
 }
 
 export void parse_urlencoded(SV data, HttpFieldsView &out) {
+	if (!data.empty()) {
+		SZ fields = 1;
+		for (auto const c: data) {
+			if (c == '&') {
+				++fields;
+			}
+		}
+		out.reserve(out.size() + fields);
+	}
 	SZ pos = 0;
 	while (pos <= data.size()) {
 		auto amp = data.find('&', pos);

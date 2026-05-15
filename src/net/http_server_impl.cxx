@@ -4186,6 +4186,7 @@ void dispatch_request(
 		path = path.substr(0, q);
 	}
 
+	headers.reserve(parsed.headers.size());
 	for (auto const &[name, field_value]: parsed.headers) {
 		headers.emplace_back(name, field_value);
 	}
@@ -4201,8 +4202,7 @@ void dispatch_request(
 	redirect_target += redirect_query;
 
 	if (version == "HTTP/1.1") {
-		auto const hosts = headers.values("host");
-		if (hosts.empty() || hosts.size() > 1) {
+		if (headers.count("host") != 1) {
 			emit_parse_error(conn, raw, ParseError::BadRequest, ring.alt_svc_header);
 			return;
 		}
@@ -4261,17 +4261,17 @@ void dispatch_request(
 	auto body_start = header_end + 4;
 	SZ body_stream_bytes = 0;
 
-	auto const content_lengths = headers.values("content-length");
-	auto const transfer_encodings = headers.values("transfer-encoding");
-	if (!content_lengths.empty() && !transfer_encodings.empty()) {
+	auto const content_length_count = headers.count("content-length");
+	auto const transfer_encoding_count = headers.count("transfer-encoding");
+	if (content_length_count != 0 && transfer_encoding_count != 0) {
 		emit_parse_error(conn, raw, ParseError::BadRequest, ring.alt_svc_header);
 		return;
 	}
-	if (content_lengths.size() > 1) {
+	if (content_length_count > 1) {
 		emit_parse_error(conn, raw, ParseError::BadRequest, ring.alt_svc_header);
 		return;
 	}
-	if (!transfer_encodings.empty() && !has_valid_chunked_transfer_encoding(headers)) {
+	if (transfer_encoding_count != 0 && !has_valid_chunked_transfer_encoding(headers)) {
 		emit_parse_error(conn, raw, ParseError::BadRequest, ring.alt_svc_header);
 		return;
 	}
@@ -4297,8 +4297,8 @@ void dispatch_request(
 		conn.expect_continue_sent = true;
 	};
 
-	if (!content_lengths.empty()) {
-		auto cl = content_lengths.front();
+	if (content_length_count != 0) {
+		auto cl = headers.get("content-length").value_or(SV{});
 		SZ content_length{};
 		auto const *cl_end = ranges::next(cl.data(), ssize(cl));
 		auto [ptr, ec] = from_chars(cl.data(), cl_end, content_length);
@@ -4324,7 +4324,7 @@ void dispatch_request(
 		}
 		body = raw.substr(body_start, content_length);
 		body_stream_bytes = content_length;
-	} else if (!transfer_encodings.empty()) {
+	} else if (transfer_encoding_count != 0) {
 		auto rc = decode_chunked_incremental(raw, body_start, max_body_size, limits.max_chunks, conn.chunked_decode);
 		if (rc == 0) {
 			if (expect_state == ExpectState::continue_100 && !conn.expect_continue_sent) {

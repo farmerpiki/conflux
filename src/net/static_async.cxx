@@ -37,10 +37,9 @@ int contained_static_open(
 	return static_cast<int>(::syscall(SYS_openat2, root_fd, relative, &how, sizeof(how)));
 }
 
-[[nodiscard]] S static_html_escape(
+void append_static_html_escape(
+	S &out,
 	SV s) {
-	S out;
-	out.reserve(s.size());
 	for (char const c: s) {
 		switch (c) {
 		case '&' : out += "&amp;"; break;
@@ -51,13 +50,11 @@ int contained_static_open(
 		default  : out += c; break;
 		}
 	}
-	return out;
 }
 
-[[nodiscard]] S static_path_percent_encode(
+void append_static_path_percent_encode(
+	S &out,
 	SV s) {
-	S out;
-	out.reserve(s.size());
 	static constexpr char kHex[] = "0123456789ABCDEF";
 	for (char const ch: s) {
 		auto const c = static_cast<unsigned char>(ch);
@@ -77,6 +74,144 @@ int contained_static_open(
 			out.push_back(kHex[c & 0x0FU]);
 		}
 	}
+}
+
+template<typename T>
+void append_static_hex(
+	S &out,
+	T value) {
+	using U = std::make_unsigned_t<T>;
+	A<char, sizeof(U) * 2> buf{};
+	auto const v = static_cast<U>(value);
+	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), v, 16);
+	if (ec == errc{}) {
+		out.append(buf.data(), ptr);
+	}
+}
+
+void append_static_decimal(
+	S &out,
+	SZ value) {
+	A<char, 32> buf{};
+	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value);
+	if (ec == errc{}) {
+		out.append(buf.data(), ptr);
+	}
+}
+
+
+[[nodiscard]] bool static_ascii_iequals(
+	SV a,
+	SV b) {
+	if (a.size() != b.size()) {
+		return false;
+	}
+	for (SZ i = 0; i < a.size(); ++i) {
+		auto const ca = static_cast<unsigned char>(a[i]);
+		auto const cb = static_cast<unsigned char>(b[i]);
+		if ((ca | 0x20U) != (cb | 0x20U)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+[[nodiscard]] bool static_accept_encoding_q_allows(
+	SV entry,
+	SZ semi) {
+	if (semi == SV::npos) {
+		return true;
+	}
+	auto params = entry.substr(semi + 1);
+	auto q_pos = params.find("q=");
+	if (q_pos == SV::npos) {
+		q_pos = params.find("Q=");
+	}
+	if (q_pos == SV::npos) {
+		return true;
+	}
+	auto qval = params.substr(q_pos + 2);
+	auto qend = qval.find_first_of(", ;");
+	if (qend != SV::npos) {
+		qval = qval.substr(0, qend);
+	}
+	return qval != "0" && qval != "0." && qval != "0.0" && qval != "0.00" && qval != "0.000";
+}
+
+struct StaticAcceptedEncodings {
+	bool br{};
+	bool gzip{};
+};
+
+[[nodiscard]] StaticAcceptedEncodings parse_static_accept_encoding(
+	SV ae) {
+	StaticAcceptedEncodings out{};
+	bool seen_br = false;
+	bool seen_gzip = false;
+	SZ pos = 0;
+	while (pos < ae.size()) {
+		auto comma = ae.find(',', pos);
+		SV entry = ae.substr(pos, comma == SV::npos ? SV::npos : comma - pos);
+		pos = comma == SV::npos ? ae.size() : comma + 1;
+		while (!entry.empty() && entry.front() == ' ') {
+			entry.remove_prefix(1);
+		}
+		while (!entry.empty() && entry.back() == ' ') {
+			entry.remove_suffix(1);
+		}
+		auto const semi = entry.find(';');
+		SV coding = entry.substr(0, semi);
+		while (!coding.empty() && coding.back() == ' ') {
+			coding.remove_suffix(1);
+		}
+		if (!seen_br && static_ascii_iequals(coding, "br")) {
+			out.br = static_accept_encoding_q_allows(entry, semi);
+			seen_br = true;
+		} else if (!seen_gzip && static_ascii_iequals(coding, "gzip")) {
+			out.gzip = static_accept_encoding_q_allows(entry, semi);
+			seen_gzip = true;
+		}
+		if (seen_br && seen_gzip) {
+			break;
+		}
+	}
+	return out;
+}
+
+[[nodiscard]] S static_file_etag(
+	off_t size,
+	time_t mtime) {
+	S out;
+	out.reserve(2 + sizeof(off_t) * 2 + 1 + sizeof(time_t) * 2);
+	out.push_back('"');
+	append_static_hex(out, size);
+	out.push_back('-');
+	append_static_hex(out, mtime);
+	out.push_back('"');
+	return out;
+}
+
+[[nodiscard]] S static_content_range(
+	SZ first,
+	SZ last,
+	SZ total) {
+	S out;
+	out.reserve(32 + 3 * 20);
+	out += "bytes ";
+	append_static_decimal(out, first);
+	out.push_back('-');
+	append_static_decimal(out, last);
+	out.push_back('/');
+	append_static_decimal(out, total);
+	return out;
+}
+
+[[nodiscard]] S static_unsatisfied_content_range(
+	SZ total) {
+	S out;
+	out.reserve(16 + 20);
+	out += "bytes */";
+	append_static_decimal(out, total);
 	return out;
 }
 
@@ -333,11 +468,13 @@ HttpResponse handle_static_get(
 								kHttpForbidden,
 								"Forbidden");
 						}
-						S html = format(
-							"<html><head><title>Index of {}</title></head>"
-							"<body><h1>Index of {}</h1><ul>",
-							static_html_escape(file_param),
-							static_html_escape(file_param));
+						S html;
+						html.reserve(128 + file_param.size() * 2);
+						html += "<html><head><title>Index of ";
+						append_static_html_escape(html, file_param);
+						html += "</title></head><body><h1>Index of ";
+						append_static_html_escape(html, file_param);
+						html += "</h1><ul>";
 						if (!file_param.empty() && file_param != "/") {
 							html += "<li><a href=\"../\">..</a></li>";
 						}
@@ -354,8 +491,11 @@ HttpResponse handle_static_get(
 						::closedir(dir);
 						ranges::sort(names);
 						for (auto const &name: names) {
-							html +=
-								format("<li><a href=\"{}\">{}</a></li>", static_path_percent_encode(name), static_html_escape(name));
+							html += "<li><a href=\"";
+							append_static_path_percent_encode(html, name);
+							html += "\">";
+							append_static_html_escape(html, name);
+							html += "</a></li>";
 						}
 						html += "</ul></body></html>";
 						return HttpResponse::html(move(html));
@@ -370,54 +510,8 @@ HttpResponse handle_static_get(
 				// Pre-compressed sidecar: try .br then .gz.
 				S content_encoding;
 				if (static_options.precompressed) {
-					auto const &accept_enc = r.accept_encoding;
-					auto encoding_accepted = [&](SV token) -> bool {
-						SV const ae{accept_enc};
-						SZ pos = 0;
-						while (pos < ae.size()) {
-							auto comma = ae.find(',', pos);
-							SV entry = ae.substr(pos, comma == SV::npos ? SV::npos : comma - pos);
-							pos = comma == SV::npos ? ae.size() : comma + 1;
-							while (!entry.empty() && entry.front() == ' ') {
-								entry.remove_prefix(1);
-							}
-							while (!entry.empty() && entry.back() == ' ') {
-								entry.remove_suffix(1);
-							}
-							auto semi = entry.find(';');
-							SV coding = entry.substr(0, semi);
-							while (!coding.empty() && coding.back() == ' ') {
-								coding.remove_suffix(1);
-							}
-							bool const match =
-								coding.size() == token.size() && ranges::equal(coding, token, [](char a, char b) {
-									return (static_cast<unsigned char>(a) | 0x20)
-										== (static_cast<unsigned char>(b) | 0x20);
-								});
-							if (!match) {
-								continue;
-							}
-							if (semi == SV::npos) {
-								return true;
-							}
-							auto params = entry.substr(semi + 1);
-							auto q_pos = params.find("q=");
-							if (q_pos == SV::npos) {
-								q_pos = params.find("Q=");
-							}
-							if (q_pos == SV::npos) {
-								return true;
-							}
-							auto qval = params.substr(q_pos + 2);
-							auto qend = qval.find_first_of(", ;");
-							if (qend != SV::npos) {
-								qval = qval.substr(0, qend);
-							}
-							return qval != "0" && qval != "0." && qval != "0.0" && qval != "0.00" && qval != "0.000";
-						}
-						return false;
-					};
-					if (encoding_accepted("br")) {
+					auto const accepted = parse_static_accept_encoding(r.accept_encoding);
+					if (accepted.br) {
 						auto br_rel = rel_str + ".br";
 						int const br_fd = contained_static_open(root_fd, br_rel.c_str(), O_PATH | O_CLOEXEC);
 						if (br_fd >= 0) {
@@ -431,7 +525,7 @@ HttpResponse handle_static_get(
 							::close(br_fd);
 						}
 					}
-					if (content_encoding.empty() && encoding_accepted("gzip")) {
+					if (content_encoding.empty() && accepted.gzip) {
 						auto gz_rel = rel_str + ".gz";
 						int const gz_fd = contained_static_open(root_fd, gz_rel.c_str(), O_PATH | O_CLOEXEC);
 						if (gz_fd >= 0) {
@@ -448,7 +542,7 @@ HttpResponse handle_static_get(
 				}
 
 				// Build ETag from size + mtime.
-				auto etag = format("\"{:x}-{:x}\"", st.st_size, st.st_mtime);
+				auto etag = static_file_etag(st.st_size, st.st_mtime);
 
 				// Format Last-Modified. Thread-local cache keyed on mtime — a hot
 				// directory typically serves many files sharing a handful of mtimes,
@@ -625,7 +719,7 @@ HttpResponse handle_static_get(
 								resp.status = kHttpRangeNotSatisfiable;
 								resp.status_text = "Range Not Satisfiable";
 								resp.content_type = "text/plain; charset=utf-8";
-								resp.headers["Content-Range"] = format("bytes */{}", file_size);
+								resp.headers["Content-Range"] = static_unsatisfied_content_range(file_size);
 								return resp;
 							}
 						}
@@ -633,7 +727,6 @@ HttpResponse handle_static_get(
 				}
 
 				if (static_options.file_cache.enabled && file_size <= static_options.file_cache.small_file_max_bytes) {
-					auto const cache_key = full_path + "|" + content_encoding;
 					auto make_cached_response = [&](StaticCacheEntry const &entry) {
 						if (is_range_request) {
 							auto send_sz = range_end - range_start + 1;
@@ -644,7 +737,7 @@ HttpResponse handle_static_get(
 							resp.headers["ETag"] = entry.etag;
 							resp.headers["Last-Modified"] = entry.last_modified;
 							resp.headers["Accept-Ranges"] = "bytes";
-							resp.headers["Content-Range"] = format("bytes {}-{}/{}", range_start, range_end, file_size);
+							resp.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
 							if (!entry.content_encoding.empty()) {
 								resp.headers["Content-Encoding"] = entry.content_encoding;
 							}
@@ -667,7 +760,7 @@ HttpResponse handle_static_get(
 						resp.set_text_body(entry.body);
 						return resp;
 					};
-					if (auto cached = static_cache.get(cache_key, st)) {
+					if (auto cached = static_cache.get(full_path, content_encoding, st)) {
 						return make_cached_response(*cached);
 					}
 					int const fd = contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC);
@@ -705,7 +798,11 @@ HttpResponse handle_static_get(
 						.dev = st.st_dev,
 						.ino = st.st_ino};
 					auto resp = make_cached_response(entry);
-					static_cache.put(cache_key, move(entry), static_options.file_cache.max_total_bytes);
+					static_cache.put(
+						S{full_path},
+						S{content_encoding},
+						move(entry),
+						static_options.file_cache.max_total_bytes);
 					return resp;
 				}
 
@@ -720,7 +817,7 @@ HttpResponse handle_static_get(
 					auto base = is_range_request ? base_response(kHttpPartialContent, "Partial Content") :
 												   base_response(kHttpOk, "OK");
 					if (is_range_request) {
-						base.headers["Content-Range"] = format("bytes {}-{}/{}", range_start, range_end, file_size);
+						base.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
 					}
 					auto const send_off = is_range_request ? range_start : SZ{0};
 					auto const send_sz = is_range_request ? (range_end - range_start + 1) : file_size;
@@ -749,7 +846,7 @@ HttpResponse handle_static_get(
 				if (is_range_request) {
 					auto send_sz = range_end - range_start + 1;
 					auto resp = base_response(kHttpPartialContent, "Partial Content");
-					resp.headers["Content-Range"] = format("bytes {}-{}/{}", range_start, range_end, file_size);
+					resp.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
 					resp.set_mapped_file(
 						make_shared<MappedBody>(
 							MappedBody{.lease = move(*lease), .offset = range_start, .size = send_sz}));

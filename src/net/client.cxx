@@ -20,6 +20,7 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.request;
+import conflux.net.client_wire;
 import conflux.utils;
 import conflux.work;
 import conflux.dns_bridge;
@@ -466,11 +467,6 @@ bool recv_chunked(
 		}
 	}
 }
-[[nodiscard]] S build_host_header(
-	Url const &url) {
-	bool const default_port = (url.scheme == "http" && url.port == 80) || (url.scheme == "https" && url.port == 443);
-	return default_port ? url.host : format("{}:{}", url.host, url.port);
-}
 [[nodiscard]] bool is_redirect_status(
 	int status) noexcept {
 	return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
@@ -549,11 +545,13 @@ bool recv_chunked(
 	HttpFields next_headers{req.headers().case_insensitive()};
 	next_headers.clear();
 	for (auto const &[k, v]: req.headers()) {
-		auto const lower = ascii_lower(k);
-		if (lower == "host") {
+		if (ascii_iequals(k, "host")) {
 			continue;
 		}
-		if (cross_origin && (lower == "authorization" || lower == "cookie" || lower == "proxy-authorization")) {
+		if (cross_origin
+			&& (ascii_iequals(k, "authorization")
+				|| ascii_iequals(k, "cookie")
+				|| ascii_iequals(k, "proxy-authorization"))) {
 			continue;
 		}
 		next_headers.set(k, v);
@@ -772,39 +770,7 @@ HttpResult do_blocking_request(
 #endif
 
 	// Build request line + headers.
-	S path = url.path;
-	if (!url.query.empty()) {
-		path += '?';
-		path += url.query;
-	}
-	S wire;
-	wire.reserve(256);
-	// Caller-supplied Host overrides URL-derived value (needed for preserve_host).
-	auto const caller_host = req.headers()["host"];
-	S const host_hdr = caller_host.empty() ? build_host_header(url) : S{caller_host};
-	wire += format("{} {} HTTP/1.1\r\nHost: {}\r\n", req.method(), path, host_hdr);
-
-	// Merge default headers first, then per-request headers override.
-	HttpFields merged_headers = opts.default_headers;
-	for (auto const &[k, v]: req.headers()) {
-		auto const lower = ascii_lower(k);
-		if (lower == "host" || conflux::http::is_hop_by_hop_header(lower)) {
-			continue;
-		}
-		merged_headers.set(k, v);
-	}
-	for (auto const &[k, v]: merged_headers) {
-		auto const lower = ascii_lower(k);
-		if (lower == "host" || conflux::http::is_hop_by_hop_header(lower)) {
-			continue;
-		}
-		wire += format("{}: {}\r\n", k, v);
-	}
-	wire += "Connection: close\r\n";
-	if (!req.body().empty()) {
-		wire += format("Content-Length: {}\r\n", req.body().size());
-	}
-	wire += "\r\n";
+	S const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
 
 	// Send headers.
 	int const write_sec = to_sec(timeouts.write);
@@ -902,16 +868,14 @@ HttpResult do_blocking_request(
 			while (!v.empty() && (v[0] == ' ' || v[0] == '\t')) {
 				v.remove_prefix(1);
 			}
-			auto const kl = ascii_lower(k);
-			auto const vl = ascii_lower(v);
-			if (kl == "content-length") {
+			if (ascii_iequals(k, "content-length")) {
 				from_chars(v.data(), v.data() + v.size(), content_length);
 				has_content_length = true;
-			} else if (kl == "transfer-encoding" && vl.find("chunked") != S::npos) {
+			} else if (ascii_iequals(k, "transfer-encoding") && header_token_contains(v, "chunked")) {
 				chunked = true;
-			} else if (kl == "set-cookie") {
+			} else if (ascii_iequals(k, "set-cookie")) {
 				response.head.set_cookies.push_back(S{v});
-			} else if (!conflux::http::is_hop_by_hop_header(kl)) {
+			} else if (!conflux::http::is_hop_by_hop_header(k)) {
 				response.head.headers.set(S{k}, S{v});
 			}
 		}

@@ -119,6 +119,17 @@ public:
 		}
 		return nullopt;
 	}
+	[[nodiscard]] SZ count(
+		SV key) const noexcept {
+		SZ n = 0;
+		for (auto const &[k, v]: data_) {
+			(void)v;
+			if (key_eq(k, key)) {
+				++n;
+			}
+		}
+		return n;
+	}
 	[[nodiscard]] V<SV> values(
 		SV key) const {
 		V<SV> out;
@@ -156,23 +167,27 @@ public:
 	void set(
 		S key,
 		S field_value) {
-		SZ keep_idx = SZ(-1);
-		for (SZ i = 0; i < data_.size(); ++i) {
-			if (key_eq(data_[i].first, key) && keep_idx == SZ(-1)) {
-				keep_idx = i;
+		bool found = false;
+		SZ write = 0;
+		for (SZ read = 0; read < data_.size(); ++read) {
+			auto &field = data_[read];
+			if (key_eq(field.first, key)) {
+				if (found) {
+					continue;
+				}
+				found = true;
+				field.second = move(field_value);
 			}
+			if (write != read) {
+				data_[write] = move(field);
+			}
+			++write;
 		}
-		if (keep_idx == SZ(-1)) {
+		if (!found) {
 			data_.emplace_back(move(key), move(field_value));
 			return;
 		}
-		data_[keep_idx].second = move(field_value);
-		S const keep_key = data_[keep_idx].first;
-		SZ cursor = 0;
-		erase_if(data_, [&](auto const &pair) {
-			SZ const i = cursor++;
-			return i != keep_idx && key_eq(SV{pair.first}, SV{keep_key});
-		});
+		data_.resize(write);
 	}
 	SZ erase(
 		SV key) {
@@ -183,6 +198,10 @@ public:
 		});
 	}
 	void clear() noexcept { data_.clear(); }
+	void reserve(
+		SZ n) {
+		data_.reserve(n);
+	}
 	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
 	[[nodiscard]] SZ size() const noexcept { return data_.size(); }
 	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
@@ -240,6 +259,7 @@ public:
 	HttpFieldsView(
 		HttpFields const &fields)
 		: case_insensitive_(fields.case_insensitive()) {
+		data_.reserve(fields.size());
 		for (auto const &[k, v]: fields) {
 			emplace_back(k, v);
 		}
@@ -294,6 +314,17 @@ public:
 		}
 		return nullopt;
 	}
+	[[nodiscard]] SZ count(
+		SV key) const noexcept {
+		SZ n = 0;
+		for (auto const &[k, v]: data_) {
+			(void)v;
+			if (key_eq(k, key)) {
+				++n;
+			}
+		}
+		return n;
+	}
 	[[nodiscard]] V<SV> values(
 		SV key) const {
 		V<SV> out;
@@ -328,15 +359,25 @@ public:
 		S v) {
 		data_.emplace_back(store_owned(move(k)), store_owned(move(v)));
 	}
+	void emplace_back_owned_value(
+		SV k,
+		S v) {
+		data_.emplace_back(k, store_owned(move(v)));
+	}
 	void clear() noexcept {
 		data_.clear();
 		release(owned_storage_);
 		owned_storage_ = nullptr;
 	}
+	void reserve(
+		SZ n) {
+		data_.reserve(n);
+	}
 	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
 	[[nodiscard]] SZ size() const noexcept { return data_.size(); }
 	[[nodiscard]] HttpFields to_owned() const {
 		HttpFields out{case_insensitive_};
+		out.reserve(data_.size());
 		for (auto const &[k, v]: data_) {
 			out.emplace_back(S{k}, S{v});
 		}
@@ -458,6 +499,8 @@ struct Url {
 		SV name,
 		SV value) {
 		auto encode = [](SV s) {
+			static constexpr A<char, 16> kHex = {'0', '1', '2', '3', '4', '5', '6', '7',
+				'8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 			S out;
 			out.reserve(s.size());
 			for (auto const raw_c: s) {
@@ -471,7 +514,9 @@ struct Url {
 					|| c == '~') {
 					out += static_cast<char>(c);
 				} else {
-					out += format("%{:02X}", c);
+					out += '%';
+					out += kHex[c >> 4U];
+					out += kHex[c & 0x0FU];
 				}
 			}
 			return out;
@@ -604,7 +649,9 @@ constexpr A<SV, 8> kHopByHopHeaders{
 };
 [[nodiscard]] bool is_hop_by_hop_header(
 	SV name) noexcept {
-	return ranges::contains(kHopByHopHeaders, name);
+	return ranges::any_of(kHopByHopHeaders, [&](SV candidate) {
+		return ascii_iequals(name, candidate);
+	});
 }
 [[nodiscard]] bool header_token_contains(
 	SV header,
