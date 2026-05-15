@@ -4789,6 +4789,99 @@ TEST_CASE(
 	CHECK(result.error().member_name == "x");
 }
 
+// ---------------------------------------------------------------------------
+// JSON Pointer ergonomics + RFC 7396 merge patch
+// ---------------------------------------------------------------------------
+
+TEST_CASE(
+	"json: at_pointer parses and resolves in one call",
+	"[json][pointer]") {
+	auto doc = parse(R"({"users":[{"name":"Ada"}]})");
+	REQUIRE(doc.has_value());
+
+	auto name = doc->root().at_pointer("/users/0/name");
+	REQUIRE(name.has_value());
+	CHECK(*name->as_string() == "Ada");
+
+	auto bad = doc->root().at_pointer("users/0/name");
+	REQUIRE(!bad.has_value());
+	CHECK(bad.error().code == JsonIssueCode::invalid_pointer);
+}
+
+TEST_CASE(
+	"json: merge_patch applies RFC 7396 object changes",
+	"[json][merge_patch]") {
+	auto target = parse(R"({
+		"title": "Goodbye!",
+		"author": {"givenName": "John", "familyName": "Doe"},
+		"tags": ["example", "sample"],
+		"content": "This will be unchanged"
+	})");
+	auto patch = parse(R"({
+		"title": "Hello!",
+		"phoneNumber": "+01-123-456-7890",
+		"author": {"familyName": null},
+		"tags": ["example"]
+	})");
+	REQUIRE(target.has_value());
+	REQUIRE(patch.has_value());
+
+	auto merged = merge_patch(*target, *patch);
+	REQUIRE(merged.has_value());
+
+	CHECK(*merged->root().at_pointer("/title")->as_string() == "Hello!");
+	CHECK(*merged->root().at_pointer("/content")->as_string() == "This will be unchanged");
+	CHECK(*merged->root().at_pointer("/phoneNumber")->as_string() == "+01-123-456-7890");
+	CHECK(*merged->root().at_pointer("/author/givenName")->as_string() == "John");
+	CHECK_FALSE(merged->root().at_pointer("/author/familyName").has_value());
+	auto tags = merged->root().at_pointer("/tags")->as_array();
+	REQUIRE(tags.has_value());
+	REQUIRE(tags->size() == 1UZ);
+	CHECK(*tags->element(0)->as_string() == "example");
+
+	CHECK(*target->root().at_pointer("/author/familyName")->as_string() == "Doe");
+}
+
+TEST_CASE(
+	"json: merge_patch replaces root with non-object patch",
+	"[json][merge_patch]") {
+	auto target = parse(R"({"a":1})");
+	auto patch = parse(R"([1,2,3])");
+	REQUIRE(target.has_value());
+	REQUIRE(patch.has_value());
+
+	auto merged = merge_patch(target->root(), patch->root());
+	REQUIRE(merged.has_value());
+	auto arr = merged->root().as_array();
+	REQUIRE(arr.has_value());
+	CHECK(arr->size() == 3UZ);
+	CHECK(*arr->element(2)->as_i64() == 3);
+}
+
+TEST_CASE(
+	"json: merge_patch null patch replaces root but deletes object members inside objects",
+	"[json][merge_patch]") {
+	{
+		auto target = parse(R"({"a":1})");
+		auto patch = parse("null");
+		REQUIRE(target.has_value());
+		REQUIRE(patch.has_value());
+		auto merged = merge_patch(*target, *patch);
+		REQUIRE(merged.has_value());
+		CHECK(merged->root().is_null());
+	}
+	{
+		auto target = parse(R"({"a":1,"b":2})");
+		auto patch = parse(R"({"a":null})");
+		REQUIRE(target.has_value());
+		REQUIRE(patch.has_value());
+		auto merged = merge_patch(*target, *patch);
+		REQUIRE(merged.has_value());
+		CHECK_FALSE(merged->root().at_pointer("/a").has_value());
+		CHECK(*merged->root().at_pointer("/b")->as_i64() == 2);
+	}
+}
+
 TEST_CASE(
 	"json dom prototype: policy factories name storage and validation model",
 	"[json][dom]") {

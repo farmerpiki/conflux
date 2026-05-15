@@ -360,7 +360,22 @@ auto node = doc->root().at(JsonPath::from_pointer("/users/0/name").value());
 
 `JsonPath` is a sequence of `JsonPathSegment`. `from_pointer` parses a JSON
 Pointer (RFC 6901). `at()` walks the tree and returns `missing_member` or
-`index_out_of_range` on failure.
+`index_out_of_range` on failure. `NodeRef::at_pointer(string_view)` is the
+convenience form when the caller already has an RFC 6901 string.
+
+### JSON Merge Patch
+
+```cpp
+expected<Document, JsonError> merge_patch(NodeRef target, NodeRef patch);
+expected<Document, JsonError> merge_patch(Document const& target, Document const& patch);
+```
+
+`merge_patch` implements RFC 7396 semantics against the immutable DOM by
+building a new owning `Document`: non-object patches replace the target, object
+patch members with `null` delete target members, object/object pairs merge
+recursively, and arrays are replaced as whole values. Target member order is
+preserved for unchanged/replaced members; new patch members are appended in patch
+order.
 
 ---
 
