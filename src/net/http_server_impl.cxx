@@ -2399,7 +2399,7 @@ struct Ring {
 		}
 		if (res <= 0) {
 			if (buf_ring_->mode() != BufferRingMode::incremental) {
-				buf_ring_->recycle(cqe_buffer_id(flags));
+				(void)buf_ring_->recycle_selected_buffer(cqe_buffer_id(flags));
 			}
 			return;
 		}
@@ -3845,7 +3845,7 @@ struct Ring {
 		}
 		if (cqe->res <= 0) {
 			if (buf_ring_->mode() != BufferRingMode::incremental) {
-				buf_ring_->recycle(cqe_buffer_id(cqe->flags));
+				(void)buf_ring_->recycle_selected_buffer(cqe_buffer_id(cqe->flags));
 			}
 			return;
 		}
@@ -3921,13 +3921,12 @@ struct Ring {
 			int const rfd = ring.ring_fd;
 			if (rfd >= 0) {
 				auto const path = format("/proc/self/fdinfo/{}", rfd);
-				if (auto f = std::ifstream{path}; f) {
-					S line;
-					while (getline(f, line)) {
-						if (line.starts_with("CqOverflowList:")) {
-							auto pos = line.find(':');
-							if (pos != S::npos) {
-								eprintln(format("ring_cq_overflow_list={}", line.substr(pos + 1)));
+				if (auto fdinfo = read_text_file_nothrow(path, SZ{64} * 1024)) {
+					for (auto const line: LineRange{*fdinfo}) {
+						if (line.text.starts_with("CqOverflowList:")) {
+							auto pos = line.text.find(':');
+							if (pos != SV::npos) {
+								eprintln(format("ring_cq_overflow_list={}", line.text.substr(pos + 1)));
 							}
 						}
 					}

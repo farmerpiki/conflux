@@ -11,6 +11,7 @@ export module conflux.net.http.static_async;
 
 import std;
 import conflux.types;
+import conflux.utils;
 import conflux.work;
 import conflux.uring.handle;
 import conflux.file_io;

@@ -426,6 +426,19 @@ public:
 			ring_.advance(static_cast<int>(batch));
 		}
 	}
+	[[nodiscard]] bool recycle_selected_buffer(
+		u16 id) noexcept {
+		if (id >= count_ || mode_ == BufferRingMode::incremental) {
+			return false;
+		}
+		auto const start = find_start_pos(id, 1, mode_ == BufferRingMode::recv_bundle);
+		if (!start) [[unlikely]] {
+			return false;
+		}
+		consume_at(*start, 1);
+		recycle_range(*start, 1);
+		return true;
+	}
 	void recycle_range(
 		u32 start_pos,
 		u32 cnt) noexcept {

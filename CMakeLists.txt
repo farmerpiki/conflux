@@ -827,6 +827,7 @@ target_sources(conflux_dns
 target_link_libraries(conflux_dns
     PRIVATE conflux_options
     PUBLIC  conflux_work
+    PRIVATE conflux_utils
     PUBLIC  conflux_file_io
     PUBLIC  conflux_socket_io
 )
@@ -1048,6 +1049,7 @@ target_link_libraries(conflux_http_response_json
     PRIVATE conflux_options
     PUBLIC  conflux_http_json
     PUBLIC  conflux_http_response
+    PUBLIC  conflux_utils
 )
 endif() # conflux_http_response && conflux_http_json
 
@@ -1108,6 +1110,7 @@ target_link_libraries(conflux_http_static_async
     PUBLIC  conflux_http_static
     PUBLIC  conflux_http_response
     PUBLIC  conflux_http_static_core
+    PUBLIC  conflux_utils
 )
 
 add_library(conflux_http_router STATIC)
