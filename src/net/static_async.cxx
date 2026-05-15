@@ -718,7 +718,6 @@ HttpResponse handle_static_get(
 				}
 
 				if (static_options.file_cache.enabled && file_size <= static_options.file_cache.small_file_max_bytes) {
-					auto const cache_key = full_path + "|" + content_encoding;
 					auto make_cached_response = [&](StaticCacheEntry const &entry) {
 						if (is_range_request) {
 							auto send_sz = range_end - range_start + 1;
@@ -752,7 +751,7 @@ HttpResponse handle_static_get(
 						resp.set_text_body(entry.body);
 						return resp;
 					};
-					if (auto cached = static_cache.get(cache_key, st)) {
+					if (auto cached = static_cache.get(full_path, content_encoding, st)) {
 						return make_cached_response(*cached);
 					}
 					int const fd = contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC);
@@ -790,7 +789,11 @@ HttpResponse handle_static_get(
 						.dev = st.st_dev,
 						.ino = st.st_ino};
 					auto resp = make_cached_response(entry);
-					static_cache.put(cache_key, move(entry), static_options.file_cache.max_total_bytes);
+					static_cache.put(
+						S{full_path},
+						S{content_encoding},
+						move(entry),
+						static_options.file_cache.max_total_bytes);
 					return resp;
 				}
 

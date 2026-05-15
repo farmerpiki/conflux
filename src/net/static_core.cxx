@@ -28,16 +28,61 @@ export struct StaticCacheEntry {
 	ino_t ino{};
 	u64 tick{};
 };
+
+export struct StaticCacheKey {
+	S path;
+	S content_encoding;
+};
+
+export struct StaticCacheKeyView {
+	SV path;
+	SV content_encoding;
+};
+
+export struct StaticCacheKeyHash {
+	using is_transparent = void;
+	[[nodiscard]] SZ operator()(
+		StaticCacheKey const &key) const noexcept {
+		return (*this)(StaticCacheKeyView{key.path, key.content_encoding});
+	}
+	[[nodiscard]] SZ operator()(
+		StaticCacheKeyView key) const noexcept {
+		auto const h1 = hash<SV>{}(key.path);
+		auto const h2 = hash<SV>{}(key.content_encoding);
+		return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6U) + (h1 >> 2U));
+	}
+};
+
+export struct StaticCacheKeyEqual {
+	using is_transparent = void;
+	[[nodiscard]] bool operator()(
+		StaticCacheKey const &a,
+		StaticCacheKey const &b) const noexcept {
+		return a.path == b.path && a.content_encoding == b.content_encoding;
+	}
+	[[nodiscard]] bool operator()(
+		StaticCacheKey const &a,
+		StaticCacheKeyView b) const noexcept {
+		return a.path == b.path && a.content_encoding == b.content_encoding;
+	}
+	[[nodiscard]] bool operator()(
+		StaticCacheKeyView a,
+		StaticCacheKey const &b) const noexcept {
+		return a.path == b.path && a.content_encoding == b.content_encoding;
+	}
+};
+
 export struct StaticCacheStore {
 	mutex mtx;
-	UM<S, StaticCacheEntry> entries;
+	std::unordered_map<StaticCacheKey, StaticCacheEntry, StaticCacheKeyHash, StaticCacheKeyEqual> entries;
 	SZ total_bytes{};
 	u64 tick{};
 	[[nodiscard]] Opt<StaticCacheEntry> get(
-		S const &key,
+		SV path,
+		SV content_encoding,
 		struct ::stat const &st) {
 		SL const lk{mtx};
-		auto it = entries.find(key);
+		auto it = entries.find(StaticCacheKeyView{path, content_encoding});
 		if (it == entries.end()) {
 			return nullopt;
 		}
@@ -51,14 +96,15 @@ export struct StaticCacheStore {
 		return e;
 	}
 	void put(
-		S key,
+		S path,
+		S content_encoding,
 		StaticCacheEntry entry,
 		SZ max_total_bytes) {
 		SL const lk{mtx};
 		if (entry.body.size() > max_total_bytes) {
 			return;
 		}
-		if (auto it = entries.find(key); it != entries.end()) {
+		if (auto it = entries.find(StaticCacheKeyView{path, content_encoding}); it != entries.end()) {
 			total_bytes -= it->second.body.size();
 			entries.erase(it);
 		}
@@ -69,21 +115,22 @@ export struct StaticCacheStore {
 		}
 		entry.tick = ++tick;
 		total_bytes += entry.body.size();
-		entries.emplace(move(key), move(entry));
+		entries.emplace(StaticCacheKey{move(path), move(content_encoding)}, move(entry));
 	}
 	void evict(
-		S const &key) {
+		SV path,
+		SV content_encoding) {
 		SL const lk{mtx};
-		if (auto it = entries.find(key); it != entries.end()) {
+		if (auto it = entries.find(StaticCacheKeyView{path, content_encoding}); it != entries.end()) {
 			total_bytes -= it->second.body.size();
 			entries.erase(it);
 		}
 	}
 	void evict_all_encodings(
 		S const &path) {
-		evict(path + "|");
-		evict(path + "|br");
-		evict(path + "|gzip");
+		evict(path, {});
+		evict(path, "br");
+		evict(path, "gzip");
 	}
 };
 
