@@ -348,7 +348,7 @@ public:
 			}
 		}
 		auto path = root_ / (string{name} + ".psql");
-		auto bytes = read_text_file_sync(path.string());
+		auto bytes = blocking_read_text_file(path.string());
 		if (!bytes) {
 			throw filesystem::filesystem_error{
 				"query file open failed",

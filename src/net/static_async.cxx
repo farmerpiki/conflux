@@ -186,7 +186,7 @@ HttpResponse handle_static_put(
 											   existed,
 											   &static_cache,
 											   dr]() mutable {
-				auto r = write_text_file_atomic_at_sync(rfd, SV{rel}, SV{*body_owned});
+				auto r = blocking_write_text_file_atomic_at(rfd, SV{rel}, SV{*body_owned});
 				if (!r) {
 					dr->complete(HttpResponse::internal_error());
 					return;
@@ -203,7 +203,7 @@ HttpResponse handle_static_put(
 			return HttpResponse::deferred(move(dr));
 		}
 
-		if (!write_text_file_atomic_at_sync(root_fd, SV{rel}, SV{req.body})) {
+		if (!blocking_write_text_file_atomic_at(root_fd, SV{rel}, SV{req.body})) {
 			return HttpResponse::internal_error();
 		}
 		static_cache.evict_all_encodings(full_path);
@@ -741,7 +741,7 @@ HttpResponse handle_static_get(
 					return HttpResponse::deferred(move(dr));
 				}
 
-				auto lease = map_file_readonly_sync(root_fd, SV{rel_str});
+				auto lease = blocking_map_file_readonly(root_fd, SV{rel_str});
 				if (!lease) {
 					return HttpResponse::internal_error();
 				}

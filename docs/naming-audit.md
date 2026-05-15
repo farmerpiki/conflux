@@ -58,8 +58,10 @@ mainly suffix order and a few unprefixed helpers.
 
 Status: `file/blocking-name-aliases` adds these `blocking_*` function aliases
 for `conflux.file_io_sync`, `conflux.file_map`, and the file-backed
-`conflux.json.file` helpers while keeping the legacy spellings. Type/module
-renames remain deferred to the release alias-removal pass.
+`conflux.json.file` helpers while keeping the legacy spellings. Internal
+call sites and tests now prefer the `blocking_*` names except one compatibility
+coverage path for legacy sync spellings. Type/module renames remain deferred to
+the release alias-removal pass.
 
 ## Coroutine/task APIs with suffix-style async names
 

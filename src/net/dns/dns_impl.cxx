@@ -150,7 +150,7 @@ void parse_resolv_options(
 [[nodiscard]] ResolvConfig parse_resolv_conf(
 	fs::path const &path) noexcept {
 	ResolvConfig out;
-	auto const contents = read_text_file_nothrow(path.string(), SZ{4} * 1024 * 1024);
+	auto const contents = blocking_read_text_file_nothrow(path.string(), SZ{4} * 1024 * 1024);
 	if (!contents) {
 		return out;
 	}
@@ -192,7 +192,7 @@ void parse_resolv_options(
 [[nodiscard]] UM<S, V<Endpoint>> parse_hosts_file(
 	fs::path const &path) noexcept {
 	UM<S, V<Endpoint>> out;
-	auto const contents = read_text_file_nothrow(path.string(), SZ{4} * 1024 * 1024);
+	auto const contents = blocking_read_text_file_nothrow(path.string(), SZ{4} * 1024 * 1024);
 	if (!contents) {
 		return out;
 	}
