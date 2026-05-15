@@ -244,7 +244,7 @@ HttpResponse handle_static_delete(
 		if (auto *fr = current_file_reader(); fr != nullptr) {
 			auto dr = make_shared<DeferredResponse>();
 			auto fp = make_shared<S>(full_path);
-			do_delete_static_file(dr, fp, static_cache, fr->unlink_async(root_fd, rel)).detach();
+			do_delete_static_file(dr, fp, static_cache, fr->async_unlink(root_fd, rel)).detach();
 			return HttpResponse::deferred(move(dr));
 		}
 
@@ -730,7 +730,7 @@ HttpResponse handle_static_get(
 						send_off,
 						send_sz,
 						file_size,
-						fr->openat2_async(
+						fr->async_openat2(
 							root_fd,
 							S{rel_str},
 							open_how{
@@ -791,7 +791,7 @@ conflux::work::root::Task<void> do_save_static_file(
 	int dir_fd,
 	S rel_path) {
 	try {
-		co_await fr->atomic_write_async(dir_fd, move(rel_path), as_bytes(span{*body_owned}));
+		co_await fr->async_atomic_write(dir_fd, move(rel_path), as_bytes(span{*body_owned}));
 		static_cache.evict_all_encodings(*fp);
 		HttpResponse resp;
 		resp.status = existed ? kHttpNoContent : kHttpCreated;

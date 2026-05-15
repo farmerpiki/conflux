@@ -309,10 +309,10 @@ TEST_CASE(
 	auto tf = TempFile::create("hello file_io");
 
 	FileHandle const handle =
-		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
-	FileStat const st = block_on(fx->reader, fx->reader.stat_async(handle), chrono::seconds{5});
+	FileStat const st = block_on(fx->reader, fx->reader.async_stat(handle), chrono::seconds{5});
 	CHECK(st.size == SV{"hello file_io"}.size());
 
 	A<byte, 32> buf{};
@@ -341,7 +341,7 @@ TEST_CASE(
 	auto tf = TempFile::create(content);
 
 	FileHandle const handle =
-		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	FileReader::ReadFixedResult const got =
@@ -370,7 +370,7 @@ TEST_CASE(
 	::fcntl(sink_pipe[1], F_SETPIPE_SZ, 1 << 20);
 
 	FileHandle const handle =
-		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	SZ const delivered = block_on(
@@ -394,7 +394,7 @@ TEST_CASE(
 	CHECK(drained == content);
 }
 TEST_CASE(
-	"file_io: open_direct_async returns a fixed-file handle",
+	"file_io: async_open_direct returns a fixed-file handle",
 	"[file_io][uring]") {
 	auto fx = require_ring_fixture();
 	if (::io_uring_register_files_sparse(&fx->ring, 4) < 0) {
@@ -408,7 +408,7 @@ TEST_CASE(
 	try {
 		handle = block_on(
 			fx->reader,
-			fx->reader.open_direct_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 2),
+			fx->reader.async_open_direct(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 2),
 			chrono::seconds{5});
 	} catch (SE const &se) {
 		open_error = se.code().value();
@@ -428,11 +428,11 @@ TEST_CASE(
 	REQUIRE(got == SV{"direct file"}.size());
 	CHECK(memcmp(buf.data(), "direct file", got) == 0);
 
-	block_on(fx->reader, fx->reader.close_async(move(handle)), chrono::seconds{5});
+	block_on(fx->reader, fx->reader.async_close(move(handle)), chrono::seconds{5});
 	::io_uring_unregister_files(&fx->ring);
 }
 TEST_CASE(
-	"file_io: open_async rejects missing path with ENOENT",
+	"file_io: async_open rejects missing path with ENOENT",
 	"[file_io][uring]") {
 	auto fx = require_ring_fixture();
 
@@ -440,7 +440,7 @@ TEST_CASE(
 	try {
 		(void)block_on(
 			fx->reader,
-			fx->reader.open_async(AT_FDCWD, "/definitely/not/a/real/path.xyz", O_RDONLY | O_CLOEXEC),
+			fx->reader.async_open(AT_FDCWD, "/definitely/not/a/real/path.xyz", O_RDONLY | O_CLOEXEC),
 			chrono::seconds{5});
 	} catch (SE const &se) {
 		captured = se.code().value();
@@ -539,7 +539,7 @@ TEST_CASE(
 	auto tf = TempFile::create();
 
 	FileHandle const wh =
-		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(wh.valid());
 
 	// Fill a fixed buffer with known content and write it.
@@ -572,7 +572,7 @@ TEST_CASE(
 	auto tf = TempFile::create(content);
 
 	FileHandle const handle =
-		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	A<byte, 64> buf_a{};
@@ -600,7 +600,7 @@ TEST_CASE(
 	auto tf = TempFile::create();
 
 	FileHandle const handle =
-		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	S const seg_a(48, 'X');
@@ -646,7 +646,7 @@ TEST_CASE(
 	try {
 		handle = block_on(
 			fx->reader,
-			fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC),
+			fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC),
 			chrono::seconds{5});
 	} catch (SE const &se) {
 		open_err = se.code().value();
@@ -703,7 +703,7 @@ TEST_CASE(
 	try {
 		handle = block_on(
 			fx->reader,
-			fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC),
+			fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_DIRECT | O_CLOEXEC),
 			chrono::seconds{5});
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -768,7 +768,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.unlink_async(AT_FDCWD, path), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_unlink(AT_FDCWD, path), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -789,7 +789,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.rename_async(AT_FDCWD, src.path, AT_FDCWD, dst_path), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_rename(AT_FDCWD, src.path, AT_FDCWD, dst_path), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -811,7 +811,7 @@ TEST_CASE(
 	int err = 0;
 	FileHandle const handle = FileHandle::from_fd(::dup(tmp.fd));
 	try {
-		block_on(fx->reader, fx->reader.fadvise_async(handle, 0, 4096, POSIX_FADV_SEQUENTIAL), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_fadvise(handle, 0, 4096, POSIX_FADV_SEQUENTIAL), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -835,7 +835,7 @@ TEST_CASE(
 	try {
 		block_on(
 			fx->reader,
-			fx->reader.madvise_async(addr, static_cast<u32>(kSize), MADV_SEQUENTIAL),
+			fx->reader.async_madvise(addr, static_cast<u32>(kSize), MADV_SEQUENTIAL),
 			chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
@@ -859,7 +859,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.mkdirat_async(AT_FDCWD, dir_path, 0755), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_mkdirat(AT_FDCWD, dir_path, 0755), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -882,7 +882,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.symlinkat_async(src.path, AT_FDCWD, link_path), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_symlinkat(src.path, AT_FDCWD, link_path), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -905,7 +905,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.ftruncate_async(handle, 1024), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_ftruncate(handle, 1024), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -932,7 +932,7 @@ TEST_CASE(
 	S const xattr_name = "user.test_key";
 	S const xattr_val = "hello_xattr";
 	try {
-		block_on(fx->reader, fx->reader.fsetxattr_async(handle, xattr_name, xattr_val), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_fsetxattr(handle, xattr_name, xattr_val), chrono::seconds{5});
 		set_ok = true;
 	} catch (SE const &se) { set_err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -950,7 +950,7 @@ TEST_CASE(
 	try {
 		got = block_on(
 			fx->reader,
-			fx->reader.fgetxattr_async(handle, xattr_name, span<char>{buf.data(), buf.size()}),
+			fx->reader.async_fgetxattr(handle, xattr_name, span<char>{buf.data(), buf.size()}),
 			chrono::seconds{5});
 	} catch (SE const &se) { get_err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -972,7 +972,7 @@ TEST_CASE(
 
 	int err = 0;
 	try {
-		(void)block_on(fx->reader, fx->reader.fixed_fd_install_async(handle), chrono::seconds{5});
+		(void)block_on(fx->reader, fx->reader.async_fixed_fd_install(handle), chrono::seconds{5});
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
 
@@ -992,7 +992,7 @@ TEST_CASE(
 	try {
 		handle = block_on(
 			fx->reader,
-			fx->reader.socket_async(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0),
+			fx->reader.async_socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0),
 			chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
@@ -1022,7 +1022,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.shutdown_async(handle, SHUT_WR), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_shutdown(handle, SHUT_WR), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1065,7 +1065,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		got = block_on(fx->reader, fx->reader.tee_async(src_pipe[0], dst_pipe[1], payload.size()), chrono::seconds{5});
+		got = block_on(fx->reader, fx->reader.async_tee(src_pipe[0], dst_pipe[1], payload.size()), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1095,7 +1095,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.linkat_async(AT_FDCWD, src.path, AT_FDCWD, dst_path), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_linkat(AT_FDCWD, src.path, AT_FDCWD, dst_path), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1127,7 +1127,7 @@ TEST_CASE(
 	try {
 		block_on(
 			fx->reader,
-			fx->reader.sync_file_range_async(handle, 0, 4096, SYNC_FILE_RANGE_WRITE),
+			fx->reader.async_sync_file_range(handle, 0, 4096, SYNC_FILE_RANGE_WRITE),
 			chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
@@ -1148,7 +1148,7 @@ TEST_CASE(
 	int err = 0;
 	// user_data 0xDEADBEEF has no pending op — should resolve (ENOENT → ok path).
 	try {
-		block_on(fx->reader, fx->reader.cancel_async(0xDEADBEEFULL), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_cancel(0xDEADBEEFULL), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1169,7 +1169,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.cancel_fd_async(tmp.fd), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_cancel_fd(tmp.fd), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1199,7 +1199,7 @@ TEST_CASE(
 
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.connect_async(handle, addr, sizeof(sockaddr_in)), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_connect(handle, addr, sizeof(sockaddr_in)), chrono::seconds{5});
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
 
@@ -1218,7 +1218,7 @@ TEST_CASE(
 	u32 woken = 42;
 	int err = 0;
 	try {
-		woken = block_on(fx->reader, fx->reader.futex_wake_async(&futex_word, UINT64_MAX), chrono::seconds{5});
+		woken = block_on(fx->reader, fx->reader.async_futex_wake(&futex_word, UINT64_MAX), chrono::seconds{5});
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
 
@@ -1238,7 +1238,7 @@ TEST_CASE(
 	int err = 0;
 	// val=0 but *futex=1 — condition already met, returns immediately.
 	try {
-		block_on(fx->reader, fx->reader.futex_wait_async(&futex_word, 0), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_futex_wait(&futex_word, 0), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1257,7 +1257,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.msg_ring_async(fx->ring.ring_fd, 42, 0xCAFEBABEULL), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_msg_ring(fx->ring.ring_fd, 42, 0xCAFEBABEULL), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1279,7 +1279,7 @@ TEST_CASE(
 	int set_err = 0;
 	S const xattr_val = "path_xattr_val";
 	try {
-		block_on(fx->reader, fx->reader.setxattr_async(tmp.path, "user.path_test_key", xattr_val), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_setxattr(tmp.path, "user.path_test_key", xattr_val), chrono::seconds{5});
 		set_ok = true;
 	} catch (SE const &se) { set_err = se.code().value(); } catch (...) {
 	}
@@ -1297,7 +1297,7 @@ TEST_CASE(
 	try {
 		got = block_on(
 			fx->reader,
-			fx->reader.getxattr_async(tmp.path, "user.path_test_key", span<char>{buf.data(), buf.size()}),
+			fx->reader.async_getxattr(tmp.path, "user.path_test_key", span<char>{buf.data(), buf.size()}),
 			chrono::seconds{5});
 	} catch (SE const &se) { get_err = se.code().value(); } catch (...) {
 	}
@@ -1317,7 +1317,7 @@ TEST_CASE(
 	siginfo_t info{};
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.waitid_async(P_PID, static_cast<id_t>(99999999), &info), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_waitid(P_PID, static_cast<id_t>(99999999), &info), chrono::seconds{5});
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
 
@@ -1336,7 +1336,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		fds = block_on(fx->reader, fx->reader.pipe_async(O_CLOEXEC), chrono::seconds{5});
+		fds = block_on(fx->reader, fx->reader.async_pipe(O_CLOEXEC), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1382,7 +1382,7 @@ TEST_CASE(
 	bool bind_ok = false;
 	int bind_err = 0;
 	try {
-		block_on(fx->reader, fx->reader.bind_async(handle, addr, sizeof(sockaddr_in)), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_bind(handle, addr, sizeof(sockaddr_in)), chrono::seconds{5});
 		bind_ok = true;
 	} catch (SE const &se) { bind_err = se.code().value(); } catch (...) {
 	}
@@ -1396,7 +1396,7 @@ TEST_CASE(
 	bool listen_ok = false;
 	int listen_err = 0;
 	try {
-		block_on(fx->reader, fx->reader.listen_async(handle), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_listen(handle), chrono::seconds{5});
 		listen_ok = true;
 	} catch (SE const &se) { listen_err = se.code().value(); } catch (...) {
 	}
@@ -1414,7 +1414,7 @@ TEST_CASE(
 
 	bool ok = false;
 	try {
-		block_on(fx->reader, fx->reader.nop_async(), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_nop(), chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1433,7 +1433,7 @@ TEST_CASE(
 	TempFile const tf = TempFile::create(content);
 
 	FileHandle const handle =
-		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	A<byte, 64> buf{};
@@ -1464,7 +1464,7 @@ TEST_CASE(
 
 	TempFile const tf = TempFile::create();
 	FileHandle const handle =
-		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_WRONLY | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	S const payload(32, 'W');
@@ -1487,7 +1487,7 @@ TEST_CASE(
 	CHECK(verify == payload);
 }
 TEST_CASE(
-	"file_io: timeout_async fires after delay",
+	"file_io: async_timeout fires after delay",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1497,7 +1497,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.timeout_async(chrono::milliseconds{10}), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_timeout(chrono::milliseconds{10}), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1525,7 +1525,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.futex_waitv_async(move(waiters)), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_futex_waitv(move(waiters)), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1548,7 +1548,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.msg_ring_fd_async(fx->ring.ring_fd, dup_fd, -1, 0xABCDULL), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_msg_ring_fd(fx->ring.ring_fd, dup_fd, -1, 0xABCDULL), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1569,7 +1569,7 @@ TEST_CASE(
 	int err = 0;
 	// Remove a timeout tag that was never armed — should resolve (ENOENT→ok).
 	try {
-		block_on(fx->reader, fx->reader.timeout_remove_async(0xDEADULL), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_timeout_remove(0xDEADULL), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1588,7 +1588,7 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.timeout_update_async(0xBEEFULL, chrono::milliseconds{100}), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_timeout_update(0xBEEFULL, chrono::milliseconds{100}), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1613,7 +1613,7 @@ TEST_CASE(
 	u32 mask{0};
 	bool ok{false};
 	try {
-		mask = block_on(fx->reader, fx->reader.poll_add_async(pfd[0], POLLIN), chrono::seconds{5});
+		mask = block_on(fx->reader, fx->reader.async_poll_add(pfd[0], POLLIN), chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1637,7 +1637,7 @@ TEST_CASE(
 	REQUIRE(::socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC | SOCK_NONBLOCK, 0, sv) == 0);
 
 	// Submit poll_add (won't fire because nothing writes to sv[0]).
-	auto poll_flow = fx->reader.poll_add_async(sv[0], POLLIN);
+	auto poll_flow = fx->reader.async_poll_add(sv[0], POLLIN);
 	io_uring_submit(fx->reader.ring());
 
 	// Now cancel it: we need the user_data of the poll SQE.
@@ -1645,7 +1645,7 @@ TEST_CASE(
 	// reserved slot 0 gen 1 (first reservation after construction).
 	// Use cancel_fd_async instead — simpler to test.
 	try {
-		block_on(fx->reader, fx->reader.cancel_fd_async(sv[0], 0), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_cancel_fd(sv[0], 0), chrono::seconds{5});
 		remove_ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1694,7 +1694,7 @@ TEST_CASE(
 
 	FileHandle const listen_handle = FileHandle::from_fd(dup(listen_fd));
 	try {
-		FileHandle fh = block_on(fx->reader, fx->reader.accept_async(listen_handle), chrono::seconds{5});
+		FileHandle fh = block_on(fx->reader, fx->reader.async_accept(listen_handle), chrono::seconds{5});
 		accepted_fd = fh.release_fd();
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1708,7 +1708,7 @@ TEST_CASE(
 	}
 }
 TEST_CASE(
-	"send_async + recv_async round-trip over socketpair") {
+	"async_send + async_recv round-trip over socketpair") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1721,11 +1721,11 @@ TEST_CASE(
 
 	S const payload = "send_recv_test";
 	SZ const sent =
-		block_on(fx->reader, fx->reader.send_async(sender, payload.data(), payload.size()), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_send(sender, payload.data(), payload.size()), chrono::seconds{5});
 	REQUIRE(sent == payload.size());
 
 	A<char, 64> buf{};
-	SZ const recvd = block_on(fx->reader, fx->reader.recv_async(recver, buf.data(), buf.size()), chrono::seconds{5});
+	SZ const recvd = block_on(fx->reader, fx->reader.async_recv(recver, buf.data(), buf.size()), chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(SV{buf.data(), recvd} == payload);
 }
@@ -1747,7 +1747,7 @@ TEST_CASE(
 	send_hdr.msg_iov = &send_iov;
 	send_hdr.msg_iovlen = 1;
 
-	SZ const sent = block_on(fx->reader, fx->reader.sendmsg_async(sender, &send_hdr), chrono::seconds{5});
+	SZ const sent = block_on(fx->reader, fx->reader.async_sendmsg(sender, &send_hdr), chrono::seconds{5});
 	REQUIRE(sent == payload.size());
 
 	A<char, 64> buf{};
@@ -1756,7 +1756,7 @@ TEST_CASE(
 	recv_hdr.msg_iov = &recv_iov;
 	recv_hdr.msg_iovlen = 1;
 
-	SZ const recvd = block_on(fx->reader, fx->reader.recvmsg_async(recver, &recv_hdr), chrono::seconds{5});
+	SZ const recvd = block_on(fx->reader, fx->reader.async_recvmsg(recver, &recv_hdr), chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(SV{buf.data(), recvd} == payload);
 }
@@ -1779,7 +1779,7 @@ TEST_CASE(
 	ev.data.fd = pfd[0];
 	bool ctl_ok{false};
 	try {
-		block_on(fx->reader, fx->reader.epoll_ctl_async(epfd, pfd[0], EPOLL_CTL_ADD, &ev), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_epoll_ctl(epfd, pfd[0], EPOLL_CTL_ADD, &ev), chrono::seconds{5});
 		ctl_ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1794,7 +1794,7 @@ TEST_CASE(
 	try {
 		n_events = block_on(
 			fx->reader,
-			fx->reader.epoll_wait_async(epfd, events.data(), static_cast<int>(events.size())),
+			fx->reader.async_epoll_wait(epfd, events.data(), static_cast<int>(events.size())),
 			chrono::seconds{5});
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1821,7 +1821,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		block_on(fx->reader, fx->reader.provide_buffers_async(region->data(), kBufLen, kNr, kBgid), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_provide_buffers(region->data(), kBufLen, kNr, kBgid), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1832,7 +1832,7 @@ TEST_CASE(
 	if (ok) {
 		bool rm_ok{false};
 		try {
-			block_on(fx->reader, fx->reader.remove_buffers_async(kNr, kBgid), chrono::seconds{5});
+			block_on(fx->reader, fx->reader.async_remove_buffers(kNr, kBgid), chrono::seconds{5});
 			rm_ok = true;
 		} catch (...) { // NOLINT(bugprone-empty-catch)
 		}
@@ -1853,7 +1853,7 @@ TEST_CASE(
 	FileHandle handle;
 	bool ok{false};
 	try {
-		handle = block_on(fx->reader, fx->reader.openat2_async(AT_FDCWD, tf.path, how), chrono::seconds{5});
+		handle = block_on(fx->reader, fx->reader.async_openat2(AT_FDCWD, tf.path, how), chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1861,7 +1861,7 @@ TEST_CASE(
 	CHECK(handle.valid());
 }
 TEST_CASE(
-	"sendto_async + recv_async round-trip over UDP loopback") {
+	"async_sendto + async_recv round-trip over UDP loopback") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1887,13 +1887,13 @@ TEST_CASE(
 	S const payload = "sendto_udp_test";
 	SZ const sent = block_on(
 		fx->reader,
-		fx->reader.sendto_async(sender, payload.data(), payload.size(), 0, dest, sizeof(ra)),
+		fx->reader.async_sendto(sender, payload.data(), payload.size(), 0, dest, sizeof(ra)),
 		chrono::seconds{5});
 	REQUIRE(sent == payload.size());
 
 	FileHandle const recver = FileHandle::from_fd(recv_fd);
 	A<char, 64> buf{};
-	SZ const recvd = block_on(fx->reader, fx->reader.recv_async(recver, buf.data(), buf.size()), chrono::seconds{5});
+	SZ const recvd = block_on(fx->reader, fx->reader.async_recv(recver, buf.data(), buf.size()), chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(SV{buf.data(), recvd} == payload);
 }
@@ -1915,7 +1915,7 @@ TEST_CASE(
 	try {
 		SZ const n = block_on(
 			fx->reader,
-			fx->reader.unsafe_send_zc_sent_async(sender, payload.data(), payload.size()),
+			fx->reader.async_unsafe_send_zc_sent(sender, payload.data(), payload.size()),
 			chrono::seconds{5});
 		ok = (n == payload.size());
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
@@ -1941,7 +1941,7 @@ TEST_CASE(
 	int err{0};
 	try {
 		SZ const n =
-			block_on(fx->reader, fx->reader.send_zc_async(sender, payload.data(), payload.size()), chrono::seconds{5});
+			block_on(fx->reader, fx->reader.async_send_zc(sender, payload.data(), payload.size()), chrono::seconds{5});
 		ok = (n == payload.size());
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1968,7 +1968,7 @@ TEST_CASE(
 
 	bool ok{false};
 	try {
-		block_on(fx->reader, fx->reader.unlinkat_async(AT_FDCWD, path), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_unlinkat(AT_FDCWD, path), chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1987,7 +1987,7 @@ TEST_CASE(
 
 	bool ok{false};
 	try {
-		block_on(fx->reader, fx->reader.renameat_async(AT_FDCWD, src_path, AT_FDCWD, dst_path), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_renameat(AT_FDCWD, src_path, AT_FDCWD, dst_path), chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1998,7 +1998,7 @@ TEST_CASE(
 	}
 }
 TEST_CASE(
-	"atomic_write_async stages in nested parent and publishes atomically") {
+	"async_atomic_write stages in nested parent and publishes atomically") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -2009,7 +2009,7 @@ TEST_CASE(
 	S const payload = "async atomic nested content";
 	block_on(
 		fx->reader,
-		fx->reader.atomic_write_async(dir.fd, S{"sub/out.txt"}, as_bytes(span{payload})),
+		fx->reader.async_atomic_write(dir.fd, S{"sub/out.txt"}, as_bytes(span{payload})),
 		chrono::seconds{5});
 
 	CHECK(dir.read_file("sub/out.txt") == payload);
@@ -2017,7 +2017,7 @@ TEST_CASE(
 	CHECK_FALSE(dir.has_staging_files("sub"));
 }
 TEST_CASE(
-	"atomic_write_async create_new preserves existing target and removes staging") {
+	"async_atomic_write create_new preserves existing target and removes staging") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -2030,7 +2030,7 @@ TEST_CASE(
 	try {
 		block_on(
 			fx->reader,
-			fx->reader.atomic_write_async(
+			fx->reader.async_atomic_write(
 				dir.fd,
 				S{"target.txt"},
 				as_bytes(span{replacement}),
@@ -2060,7 +2060,7 @@ TEST_CASE(
 
 	bool ok{false};
 	try {
-		block_on(fx->reader, fx->reader.mkdir_async(path), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_mkdir(path), chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -2097,12 +2097,12 @@ TEST_CASE(
 	memcpy(view.data(), content.data(), content.size());
 
 	FileHandle const handle =
-		block_on(fx->reader, fx->reader.open_async(AT_FDCWD, tf.path, O_RDWR | O_CLOEXEC), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_open(AT_FDCWD, tf.path, O_RDWR | O_CLOEXEC), chrono::seconds{5});
 	REQUIRE(handle.valid());
 
 	SZ const written = block_on(
 		fx->reader,
-		fx->reader.write_fixed_async(
+		fx->reader.async_write_fixed(
 			handle,
 			0,
 			view.data(),
@@ -2121,7 +2121,7 @@ TEST_CASE(
 	CHECK(memcmp(rview.data(), content.data(), content.size()) == 0);
 }
 TEST_CASE(
-	"openat_direct_async opens file into registered slot") {
+	"async_openat_direct opens file into registered slot") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -2142,7 +2142,7 @@ TEST_CASE(
 	try {
 		handle = block_on(
 			fx->reader,
-			fx->reader.openat_direct_async(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 0),
+			fx->reader.async_openat_direct(AT_FDCWD, tf.path, O_RDONLY | O_CLOEXEC, 0, 0),
 			chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
@@ -2151,12 +2151,12 @@ TEST_CASE(
 	bool const passed = ok || err == EINVAL || err == ENOSYS || err == ENFILE;
 	CHECK(passed);
 	if (handle.valid()) {
-		block_on(fx->reader, fx->reader.close_async(move(handle)), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_close(move(handle)), chrono::seconds{5});
 	}
 	::io_uring_unregister_files(&fx->ring);
 }
 TEST_CASE(
-	"pipe_direct_async creates pipe into fixed file table (or graceful skip)") {
+	"async_pipe_direct creates pipe into fixed file table (or graceful skip)") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -2171,7 +2171,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		P<int, int> const p = block_on(fx->reader, fx->reader.pipe_direct_async(0), chrono::seconds{5});
+		P<int, int> const p = block_on(fx->reader, fx->reader.async_pipe_direct(0), chrono::seconds{5});
 		ok = (p.first >= 0 || p.second >= 0);
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -2191,7 +2191,7 @@ TEST_CASE(
 	int err{0};
 	int const ring_fd = fx->ring.ring_fd;
 	try {
-		block_on(fx->reader, fx->reader.msg_ring_cqe_flags_async(ring_fd, 42, 0xBEEFULL, 0, 0), chrono::seconds{5});
+		block_on(fx->reader, fx->reader.async_msg_ring_cqe_flags(ring_fd, 42, 0xBEEFULL, 0, 0), chrono::seconds{5});
 		ok = true;
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -2220,7 +2220,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		SZ const n = block_on(fx->reader, fx->reader.unsafe_sendmsg_zc_sent_async(sender, &hdr), chrono::seconds{5});
+		SZ const n = block_on(fx->reader, fx->reader.async_unsafe_sendmsg_zc_sent(sender, &hdr), chrono::seconds{5});
 		ok = (n == payload.size());
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -2249,7 +2249,7 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		SZ const n = block_on(fx->reader, fx->reader.sendmsg_zc_async(sender, &hdr), chrono::seconds{5});
+		SZ const n = block_on(fx->reader, fx->reader.async_sendmsg_zc(sender, &hdr), chrono::seconds{5});
 		ok = (n == payload.size());
 	} catch (SE const &se) { err = se.code().value(); } catch (...) {
 	}

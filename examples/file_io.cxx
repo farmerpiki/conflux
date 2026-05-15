@@ -44,9 +44,9 @@ int main() {
 	FileReader files{&ring, &completions, pack_ud};
 
 	try {
-		auto handle = block_on(files, files.open_async(AT_FDCWD, path, O_RDONLY | O_CLOEXEC));
+		auto handle = block_on(files, files.async_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC));
 		if (!handle.valid()) {
-			std::println(std::cerr, "open_async returned invalid handle");
+			std::println(std::cerr, "async_open returned invalid handle");
 			::io_uring_queue_exit(&ring);
 			return 1;
 		}

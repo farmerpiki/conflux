@@ -70,8 +70,8 @@ coroutine behavior obvious.
 
 | Current family/name | Current location | Final-shape candidate | Notes |
 |---|---|---|---|
-| `FileReader::*_async` | `src/file_io/file_io.cxx` | `FileReader::async_*` | Large family: `open_async`, `statx_async`, `send_async`, `recv_async`, `send_zc_async`, `atomic_write_async`, etc. Rename only after file/runtime split is quiet. |
-| `conflux.uring.timeout::{timeout_async, timeout_remove_async, timeout_update_async, link_timeout_async}` | `src/uring/uring_timeout.cxx` and forwarding methods in `FileReader` | `async_timeout`, `async_timeout_remove`, `async_timeout_update`, `async_link_timeout` | Coordinate with `FileReader` timeout wrappers. |
+| `FileReader::*_async` | `src/file_io/file_io.cxx` | `FileReader::async_*` | Preferred aliases landed for the full exported `FileReader` suffix family; old names remain compatibility aliases until release cleanup. |
+| `conflux.uring.timeout::{timeout_async, timeout_remove_async, link_timeout_async}` | `src/uring/uring_timeout.cxx` and forwarding methods in `FileReader` | `async_timeout`, `async_timeout_remove`, `async_link_timeout` | Preferred aliases landed; `FileReader::async_timeout_update` covers the update SQE wrapper. |
 | `conflux::http::send_async` | `conflux.net.async_client` | `async_send` | `async_send` alias landed; keep `send_async` as compatibility until release alias cleanup. |
 | `conflux.net.async_client` | module name | maybe `conflux.net.http.client_async` or keep | Module names do not have to follow function-prefix order; only rename if HTTP client modules are reorganized. |
 | `proxy_async` | `conflux.net.proxy` | `async_proxy` | `async_proxy` alias landed; keep `proxy_async` as compatibility until release alias cleanup. |
@@ -80,8 +80,7 @@ coroutine behavior obvious.
 | `TcpStream::{recv_borrowed, recv_owned, write_borrowed, write_copy, write_owned, write_all_* , shutdown, close}` | `conflux.socket_io.coro` | `async_recv_borrowed`, `async_recv_owned`, `async_write_*`, `async_shutdown`, `async_close` | Preferred names landed; old names remain compatibility aliases until release alias cleanup. |
 | `UdpSocket::{send_to_borrowed, send_to_copy, recv_from}` | `conflux.socket_io.coro` | `async_send_to_*`, `async_recv_from` | Preferred names landed; old names remain compatibility aliases until release alias cleanup. |
 
-Do not mix the `FileReader` suffix-to-prefix rename with io_uring IOPOLL or HTTP
-send-path work. Those branches touch the same runtime surfaces and will collide.
+Keep final removal of legacy `FileReader::*_async` names in the release alias-cleanup branch; the preferred aliases are now available and call sites have been migrated.
 
 ## Executor-owned synchronous surfaces
 

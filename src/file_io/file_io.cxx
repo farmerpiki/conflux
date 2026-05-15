@@ -416,6 +416,17 @@ inline PipePair::~PipePair() {
 // immediately with ENOSPC.
 // ---------------------------------------------------------------------------
 
+#define CONFLUX_FILE_READER_ASYNC_ALIAS(NewName, OldName) \
+	template<typename... Args> \
+	[[nodiscard]] decltype(auto) NewName(Args &&...args) { \
+		return OldName(forward<Args>(args)...); \
+	}
+#define CONFLUX_FILE_READER_DEPRECATED_ASYNC_ALIAS(NewName, OldName, Message) \
+	template<typename... Args> \
+	[[deprecated(Message)]] [[nodiscard]] decltype(auto) NewName(Args &&...args) { \
+		return OldName(forward<Args>(args)...); \
+	}
+
 export class FileReader {
 	io_uring *ring_;
 	CompletionTable *completions_;
@@ -1579,7 +1590,7 @@ public:
 		chrono::milliseconds ms,
 		unsigned count = 0,
 		unsigned flags = 0) {
-		return conflux::uring::timeout_async(
+		return conflux::uring::async_timeout(
 			ring_,
 			*completions_,
 			[this](u32 slot, u32 gen) noexcept { return encode_ud_(slot, gen); },
@@ -2102,7 +2113,7 @@ public:
 	[[nodiscard]] root::Task<void> link_timeout_async(
 		chrono::milliseconds ms,
 		unsigned flags = 0) {
-		return conflux::uring::link_timeout_async(
+		return conflux::uring::async_link_timeout(
 			ring_,
 			*completions_,
 			[this](u32 slot, u32 gen) noexcept { return encode_ud_(slot, gen); },
@@ -2644,7 +2655,95 @@ public:
 			rethrow_exception(cleanup_error);
 		}
 	}
+
+	// Preferred async_* aliases. The original *_async spellings remain exported
+	// as compatibility aliases until the final release cleanup.
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_open, open_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_open_direct, open_direct_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_statx, statx_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_stat, stat_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_nop, nop_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fsync, fsync_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fallocate, fallocate_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fadvise, fadvise_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_madvise, madvise_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_unlink, unlink_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_rename, rename_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_mkdirat, mkdirat_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_symlinkat, symlinkat_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_ftruncate, ftruncate_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_linkat, linkat_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_sync_file_range, sync_file_range_async)
+	CONFLUX_FILE_READER_DEPRECATED_ASYNC_ALIAS(
+		async_socket, socket_async, "use socket_io::async_tcp_connect/async_tcp_accept paths instead")
+	CONFLUX_FILE_READER_DEPRECATED_ASYNC_ALIAS(
+		async_socket_direct, socket_direct_async, "use socket_io::async_tcp_connect/async_tcp_accept paths instead")
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_pipe, pipe_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_bind, bind_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_listen, listen_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_shutdown, shutdown_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_tee, tee_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fixed_fd_install, fixed_fd_install_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fgetxattr, fgetxattr_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fsetxattr, fsetxattr_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_getxattr, getxattr_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_setxattr, setxattr_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_waitid, waitid_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_futex_wait, futex_wait_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_futex_wake, futex_wake_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_msg_ring, msg_ring_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_timeout, timeout_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_timeout_remove, timeout_remove_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_timeout_update, timeout_update_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_poll_add, poll_add_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_poll_remove, poll_remove_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_poll_update, poll_update_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_accept, accept_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_accept_direct, accept_direct_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_msg_ring_fd, msg_ring_fd_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_futex_waitv, futex_waitv_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_cancel, cancel_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_cancel_fd, cancel_fd_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_connect, connect_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_close, close_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_send, send_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_recv, recv_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_sendmsg, sendmsg_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_recvmsg, recvmsg_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_provide_buffers, provide_buffers_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_remove_buffers, remove_buffers_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_files_update, files_update_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_epoll_ctl, epoll_ctl_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_epoll_wait, epoll_wait_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_link_timeout, link_timeout_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_openat2, openat2_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_sendto, sendto_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_unsafe_send_zc_sent, unsafe_send_zc_sent_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_send_zc, send_zc_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_write_fixed, write_fixed_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_unlinkat, unlinkat_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_renameat, renameat_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_mkdir, mkdir_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_openat2_direct, openat2_direct_async)
+	CONFLUX_FILE_READER_DEPRECATED_ASYNC_ALIAS(
+		async_socket_direct_alloc,
+		socket_direct_alloc_async,
+		"use socket_io::async_tcp_connect/async_tcp_accept paths instead")
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_openat_direct, openat_direct_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_msg_ring_fd_alloc, msg_ring_fd_alloc_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_pipe_direct, pipe_direct_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_msg_ring_cqe_flags, msg_ring_cqe_flags_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_unsafe_sendmsg_zc_sent, unsafe_sendmsg_zc_sent_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_sendmsg_zc, sendmsg_zc_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_open_atomic_parent_dir, open_atomic_parent_dir_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_open_atomic_payload, open_atomic_payload_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_link_atomic_payload, link_atomic_payload_async)
+	CONFLUX_FILE_READER_ASYNC_ALIAS(async_atomic_write, atomic_write_async)
+
 };
+
+#undef CONFLUX_FILE_READER_DEPRECATED_ASYNC_ALIAS
+#undef CONFLUX_FILE_READER_ASYNC_ALIAS
 
 // ---------------------------------------------------------------------------
 // IopollFileReader / IopollStorageRing: storage-only fixed-buffer reads on a

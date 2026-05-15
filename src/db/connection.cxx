@@ -956,7 +956,7 @@ root::Task<Result> Connection::query(
 		} catch (...) {}
 	}(self,
 	  shared_src,
-	  conflux::uring::timeout_async(
+	  conflux::uring::async_timeout(
 		  reader->ring(),
 		  *reader->completions(),
 		  [reader](u32 slot, u32 gen) noexcept { return reader->encode_ud(slot, gen); },
@@ -1477,7 +1477,7 @@ root::Task<shared_ptr<string const>> QueryCache::load_async(
 		try {
 			auto fh = co_await move(open_task);
 			auto fh_sp = make_shared<FileHandle>(move(fh));
-			auto const st = co_await reader->stat_async(*fh_sp);
+			auto const st = co_await reader->async_stat(*fh_sp);
 			if (st.size == 0) {
 				auto sp = make_shared<string const>();
 				scoped_lock const lk{self->mtx_};
@@ -1496,7 +1496,7 @@ root::Task<shared_ptr<string const>> QueryCache::load_async(
 		} catch (Cancelled const &) {
 			auto _ = shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
 		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
-	}(reader, shared_src, name_owned, this, reader->open_async(AT_FDCWD, move(path), O_RDONLY))
+	}(reader, shared_src, name_owned, this, reader->async_open(AT_FDCWD, move(path), O_RDONLY))
 														.detach();
 	return move(task);
 }
