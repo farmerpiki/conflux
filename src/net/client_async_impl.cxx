@@ -17,6 +17,7 @@ import std;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.request;
+import conflux.net.client_wire;
 import conflux.utils;
 import conflux.work;
 import conflux.uring.completion;
@@ -104,11 +105,6 @@ struct TlsStreamRef {
 	}
 };
 #endif
-[[nodiscard]] S build_host_header(
-	Url const &url) {
-	bool const default_port = (url.scheme == "http" && url.port == 80) || (url.scheme == "https" && url.port == 443);
-	return default_port ? url.host : format("{}:{}", url.host, url.port);
-}
 [[nodiscard]] bool is_redirect_status(
 	int status) noexcept {
 	return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
@@ -684,34 +680,7 @@ wroot::Task<HttpResult> do_async_request(
 			HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = "TLS not compiled in"});
 	}
 #endif
-	S path = url.path.empty() ? S{"/"} : S{url.path};
-	if (!url.query.empty()) {
-		path += '?';
-		path += url.query;
-	}
-	S wire;
-	wire.reserve(256);
-	auto const caller_host = req.headers()["host"];
-	S const host_hdr = caller_host.empty() ? build_host_header(url) : S{caller_host};
-	wire += format("{} {} HTTP/1.1\r\nHost: {}\r\n", req.method(), path, host_hdr);
-	HttpFields merged = opts.default_headers;
-	for (auto const &[k, v]: req.headers()) {
-		if (ascii_iequals(k, "host") || conflux::http::is_hop_by_hop_header(k)) {
-			continue;
-		}
-		merged.set(k, v);
-	}
-	for (auto const &[k, v]: merged) {
-		if (ascii_iequals(k, "host") || conflux::http::is_hop_by_hop_header(k)) {
-			continue;
-		}
-		wire += format("{}: {}\r\n", k, v);
-	}
-	wire += "Connection: close\r\n";
-	if (!req.body().empty()) {
-		wire += format("Content-Length: {}\r\n", req.body().size());
-	}
-	wire += "\r\n";
+	S const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
 	cancel->throw_if_cancelled();
 	try {
 #if CONFLUX_HAS_TLS

@@ -1353,7 +1353,9 @@ add_library(conflux_net_client STATIC)
 target_sources(conflux_net_client
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/client.cxx
+        FILES
+            src/net/client_wire.cxx
+            src/net/client.cxx
 )
 target_link_libraries(conflux_net_client
     PRIVATE conflux_options
