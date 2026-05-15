@@ -1040,6 +1040,34 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
+	"router dispatch preserves generic route priority before literal index hits") {
+	Router router;
+	router.get("/{id}", [](HttpRequestView const &req) { return HttpResponse::text(S{"generic:"} + S{req.params["id"]}); });
+	router.get("/health", [](HttpRequestView const &) { return HttpResponse::text("literal"); });
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/health";
+	req.version = "HTTP/1.1";
+
+	CHECK(router.dispatch(req).text_body() == "generic:health");
+}
+
+TEST_CASE(
+	"router dispatch uses method-scoped literal lookup") {
+	Router router;
+	router.post("/health", [](HttpRequestView const &) { return HttpResponse::text("post"); });
+	router.get("/health", [](HttpRequestView const &) { return HttpResponse::text("get"); });
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/health";
+	req.version = "HTTP/1.1";
+
+	CHECK(router.dispatch(req).text_body() == "get");
+}
+
+TEST_CASE(
 	"GET /api/ping returns JSON") {
 	auto resp = http_get("/api/ping");
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));

@@ -15,6 +15,48 @@ import conflux.net.config;
 import conflux.socket_io;
 
 
+struct TransparentSvHash {
+	using is_transparent = void;
+
+	[[nodiscard]] SZ operator ()(SV value) const noexcept {
+		return hash<SV>{}(value);
+	}
+
+	[[nodiscard]] SZ operator ()(S const &value) const noexcept {
+		return hash<SV>{}(value);
+	}
+};
+
+struct TransparentSvEqual {
+	using is_transparent = void;
+
+	[[nodiscard]] bool operator ()(SV lhs, SV rhs) const noexcept {
+		return lhs == rhs;
+	}
+
+	[[nodiscard]] bool operator ()(S const &lhs, SV rhs) const noexcept {
+		return SV{lhs} == rhs;
+	}
+
+	[[nodiscard]] bool operator ()(SV lhs, S const &rhs) const noexcept {
+		return lhs == SV{rhs};
+	}
+
+	[[nodiscard]] bool operator ()(S const &lhs, S const &rhs) const noexcept {
+		return lhs == rhs;
+	}
+};
+
+struct RouteLookupIndex {
+	V<SZ> generic{};
+	std::unordered_map<S, V<SZ>, TransparentSvHash, TransparentSvEqual> by_first_literal{};
+};
+
+struct MethodRouteLookupIndex {
+	S method{};
+	RouteLookupIndex routes{};
+};
+
 struct Router::Impl {
 		struct Route {
 			S method{};
@@ -33,6 +75,9 @@ struct Router::Impl {
 		V<Route> routes{};
 		V<SseRoute> sse_routes{};
 		V<ContextRoute> context_routes{};
+		V<MethodRouteLookupIndex> route_indexes{};
+		RouteLookupIndex sse_index{};
+		V<MethodRouteLookupIndex> context_route_indexes{};
 		V<Middleware> middlewares{};
 		Handler not_found_handler{};
 		ErrorHandler error_handler{};
@@ -40,6 +85,224 @@ struct Router::Impl {
 		StaticCacheStore static_cache{};
 		StaticFileCacheConfig static_file_cache{};
 	};
+
+
+namespace {
+
+[[nodiscard]] V<SZ> const &empty_route_indices() noexcept {
+	static V<SZ> const empty{};
+	return empty;
+}
+
+[[nodiscard]] Opt<SV> first_literal_key(
+	V<Segment> const &pattern) noexcept {
+	SZ index = 0;
+	if (pattern.size() > 1 && !pattern[0].is_param && !pattern[0].is_wildcard && pattern[0].value.empty()) {
+		index = 1;
+	}
+	if (index >= pattern.size()) {
+		return nullopt;
+	}
+	auto const &segment = pattern[index];
+	if (segment.is_param || segment.is_wildcard) {
+		return nullopt;
+	}
+	return SV{segment.value};
+}
+
+[[nodiscard]] Opt<SV> first_path_key(
+	SV path) noexcept {
+	if (path.empty()) {
+		return nullopt;
+	}
+	SZ pos = (path.front() == '/') ? SZ{1} : SZ{0};
+	auto const next = path.find('/', pos);
+	return (next == SV::npos) ? path.substr(pos) : path.substr(pos, next - pos);
+}
+
+void index_route_pattern(
+	RouteLookupIndex &index,
+	V<Segment> const &pattern,
+	SZ route_index) {
+	if (auto key = first_literal_key(pattern)) {
+		index.by_first_literal[*key].push_back(route_index);
+		return;
+	}
+	index.generic.push_back(route_index);
+}
+
+[[nodiscard]] MethodRouteLookupIndex &find_or_add_method_index(
+	V<MethodRouteLookupIndex> &indexes,
+	SV method) {
+	for (auto &index: indexes) {
+		if (index.method == method) {
+			return index;
+		}
+	}
+	MethodRouteLookupIndex added;
+	added.method = S{method};
+	indexes.push_back(move(added));
+	return indexes.back();
+}
+
+[[nodiscard]] MethodRouteLookupIndex const *find_method_index(
+	V<MethodRouteLookupIndex> const &indexes,
+	SV method) noexcept {
+	for (auto const &index: indexes) {
+		if (index.method == method) {
+			return &index;
+		}
+	}
+	return nullptr;
+}
+
+struct RouteLookupSelection {
+	V<SZ> const *literal{&empty_route_indices()};
+	V<SZ> const *generic{&empty_route_indices()};
+};
+
+[[nodiscard]] RouteLookupSelection select_routes_for_path(
+	RouteLookupIndex const &index,
+	SV path) noexcept {
+	RouteLookupSelection selected;
+	selected.generic = &index.generic;
+	if (auto key = first_path_key(path)) {
+		if (auto found = index.by_first_literal.find(*key); found != index.by_first_literal.end()) {
+			selected.literal = &found->second;
+		}
+	}
+	return selected;
+}
+
+template<typename RouteT>
+struct IndexedRouteRange {
+	V<RouteT> const *routes{};
+	V<SZ> const *literal_indices{&empty_route_indices()};
+	V<SZ> const *generic_indices{&empty_route_indices()};
+
+	struct Iterator {
+		V<RouteT> const *routes{};
+		V<SZ> const *literal_indices{};
+		V<SZ> const *generic_indices{};
+		SZ literal_pos{};
+		SZ generic_pos{};
+
+		[[nodiscard]] bool done() const noexcept {
+			return literal_pos >= literal_indices->size() && generic_pos >= generic_indices->size();
+		}
+
+		[[nodiscard]] SZ current_index() const noexcept {
+			if (literal_pos >= literal_indices->size()) {
+				return (*generic_indices)[generic_pos];
+			}
+			if (generic_pos >= generic_indices->size()) {
+				return (*literal_indices)[literal_pos];
+			}
+			return min((*literal_indices)[literal_pos], (*generic_indices)[generic_pos]);
+		}
+
+		[[nodiscard]] RouteT const &operator *() const noexcept {
+			return (*routes)[current_index()];
+		}
+
+		Iterator &operator ++() noexcept {
+			auto const current = current_index();
+			if (literal_pos < literal_indices->size() && (*literal_indices)[literal_pos] == current) {
+				++literal_pos;
+			}
+			if (generic_pos < generic_indices->size() && (*generic_indices)[generic_pos] == current) {
+				++generic_pos;
+			}
+			return *this;
+		}
+
+		[[nodiscard]] bool operator !=(std::default_sentinel_t) const noexcept {
+			return !done();
+		}
+	};
+
+	[[nodiscard]] Iterator begin() const noexcept {
+		return Iterator{
+			.routes = routes,
+			.literal_indices = literal_indices,
+			.generic_indices = generic_indices,
+		};
+	}
+
+	[[nodiscard]] std::default_sentinel_t end() const noexcept {
+		return {};
+	}
+};
+
+template<typename RouteT>
+[[nodiscard]] IndexedRouteRange<RouteT> indexed_route_range(
+	V<RouteT> const &routes,
+	RouteLookupSelection selected) noexcept {
+	return IndexedRouteRange<RouteT>{
+		.routes = &routes,
+		.literal_indices = selected.literal,
+		.generic_indices = selected.generic,
+	};
+}
+
+[[nodiscard]] RouteLookupSelection select_method_routes(
+	V<MethodRouteLookupIndex> const &indexes,
+	SV method,
+	SV path) noexcept {
+	auto const *index = find_method_index(indexes, method);
+	if (!index) {
+		return {};
+	}
+	return select_routes_for_path(index->routes, path);
+}
+
+template<typename ImplT>
+[[nodiscard]] HttpResponse dispatch_router_sync(
+	ImplT const &impl,
+	HttpRequestView const &req,
+	SV path_sv,
+	bool is_head) {
+	if (is_head) {
+		return dispatch_sync_routes(
+			req,
+			path_sv,
+			is_head,
+			impl.routes,
+			impl.sse_routes,
+			impl.not_found_handler,
+			impl.error_handler,
+			impl.work_pool);
+	}
+	auto routes = indexed_route_range(impl.routes, select_method_routes(impl.route_indexes, req.method, path_sv));
+	auto sse_routes = indexed_route_range(impl.sse_routes, select_routes_for_path(impl.sse_index, path_sv));
+	return dispatch_sync_routes(
+		req,
+		path_sv,
+		is_head,
+		routes,
+		sse_routes,
+		impl.not_found_handler,
+		impl.error_handler,
+		impl.work_pool);
+}
+
+template<typename ImplT>
+[[nodiscard]] Opt<HttpResponse> dispatch_router_async(
+	ImplT const &impl,
+	HttpRequest const &req,
+	RequestContext const &ctx,
+	SV path_sv,
+	bool is_head) {
+	if (is_head) {
+		return dispatch_async_routes(req, ctx, path_sv, is_head, impl.context_routes);
+	}
+	auto routes = indexed_route_range(
+		impl.context_routes,
+		select_method_routes(impl.context_route_indexes, req.method, path_sv));
+	return dispatch_async_routes(req, ctx, path_sv, is_head, routes);
+}
+
+} // namespace
 
 [[nodiscard]] SV trim_ascii_ws(
 	SV s) noexcept {
@@ -76,14 +339,20 @@ void Router::add_prepared(
 	SV method,
 	SV path,
 	Handler handler) {
-	impl_->routes.push_back({S{method}, parse_pattern(path), move(handler)});
+	auto pattern = parse_pattern(path);
+	auto const route_index = impl_->routes.size();
+	index_route_pattern(find_or_add_method_index(impl_->route_indexes, method).routes, pattern, route_index);
+	impl_->routes.push_back({S{method}, move(pattern), move(handler)});
 }
 
 void Router::add_context_prepared(
 	SV method,
 	SV path,
 	ContextHandler handler) {
-	impl_->context_routes.push_back({S{method}, parse_pattern(path), move(handler)});
+	auto pattern = parse_pattern(path);
+	auto const route_index = impl_->context_routes.size();
+	index_route_pattern(find_or_add_method_index(impl_->context_route_indexes, method).routes, pattern, route_index);
+	impl_->context_routes.push_back({S{method}, move(pattern), move(handler)});
 }
 
 void Router::use_prepared(Middleware mw) {
@@ -101,7 +370,10 @@ void Router::set_error_handler(ErrorHandler handler) {
 void Router::sse_prepared(
 	SV path,
 	SseHandler handler) {
-	impl_->sse_routes.push_back({parse_pattern(path), move(handler)});
+	auto pattern = parse_pattern(path);
+	auto const route_index = impl_->sse_routes.size();
+	index_route_pattern(impl_->sse_index, pattern, route_index);
+	impl_->sse_routes.push_back({move(pattern), move(handler)});
 }
 
 [[nodiscard]] bool Router::has_context_routes() const noexcept {
@@ -238,28 +510,12 @@ Router &Router::serve_static(
 		}
 
 		if (impl_->middlewares.empty()) {
-			return dispatch_sync_routes(
-				req,
-				path_sv,
-				is_head,
-				impl_->routes,
-				impl_->sse_routes,
-				impl_->not_found_handler,
-				impl_->error_handler,
-				impl_->work_pool);
+			return dispatch_router_sync(*impl_, req, path_sv, is_head);
 		}
 
 		// Inner handler: performs route matching + 404. Middleware wraps this whole thing.
 		Handler inner = [this, path_sv, is_head](HttpRequestView const &r) -> HttpResponse {
-			return dispatch_sync_routes(
-				r,
-				path_sv,
-				is_head,
-				impl_->routes,
-				impl_->sse_routes,
-				impl_->not_found_handler,
-				impl_->error_handler,
-				impl_->work_pool);
+			return dispatch_router_sync(*impl_, r, path_sv, is_head);
 		};
 
 		return run_middlewares(req, inner);
@@ -273,5 +529,5 @@ Router &Router::serve_static(
 		if (auto q = path_sv.find('?'); q != SV::npos) {
 			path_sv = path_sv.substr(0, q);
 		}
-		return dispatch_async_routes(req, ctx, path_sv, is_head, impl_->context_routes);
+		return dispatch_router_async(*impl_, req, ctx, path_sv, is_head);
 	}
