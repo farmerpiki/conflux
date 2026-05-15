@@ -92,7 +92,7 @@ Conflux task/executor machinery.
 | Current name | Current location | Final-shape candidate | Notes |
 |---|---|---|---|
 | `sync_wait` | `conflux.work` | keep | Already prefix-style and matches familiar async ecosystem terminology. |
-| `run_on_task` | `conflux.work` | `async_run_on` or `schedule_task` | Returns `Task<T>`, so it is not sync despite executing a callable on a pool. Consider with work-root API cleanup. |
+| `run_on_task` | `conflux.work` | `async_run_on` | Preferred name landed; old name remains as a compatibility alias. It returns `Task<T>`, so new call sites should use the coroutine/task spelling. |
 | `block_on_socket_task` | `conflux.socket_io.blocking` | `sync_wait_socket_task` | Preferred name landed; old name remains as a compatibility alias. |
 | `dispatch_sync_routes` | `conflux.net.router_dispatch` | `dispatch_plain_routes` or `dispatch_immediate_routes` | Internal exported helper; not executor-owned sync API, just immediate route dispatch on current ring thread. Avoid `sync_*` here unless semantics change. |
 | `Router::dispatch` | `conflux.net.router` | keep | Immediate in-process dispatch; ordinary method name is clear. |

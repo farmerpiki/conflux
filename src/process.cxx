@@ -504,7 +504,7 @@ export template<typename Target>
 	fs::path exe,
 	V<S> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<Process, EC>> {
-	return run_on_task(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
+	return async_run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
 		V<SV> views;
 		views.reserve(args.size());
 		for (auto const &a: args) {
@@ -616,7 +616,7 @@ export template<typename Target>
 	fs::path exe,
 	V<S> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<RunResult, EC>> {
-	return run_on_task(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
+	return async_run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
 		V<SV> views;
 		views.reserve(args.size());
 		for (auto const &a: args) {
@@ -639,7 +639,7 @@ export template<typename Target>
 [[nodiscard]] auto async_wait_in(
 	Target &target,
 	Process proc) -> conflux::work::root::Task<int> {
-	return run_on_task(target, [proc = move(proc)]() mutable { return proc.wait(); });
+	return async_run_on(target, [proc = move(proc)]() mutable { return proc.wait(); });
 }
 
 export template<typename Target>
