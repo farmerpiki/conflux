@@ -54,7 +54,7 @@ export HttpResponse router_run_async_http_task(
 }
 
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
-[[nodiscard]] HttpResponse dispatch_sync_routes(
+[[nodiscard]] HttpResponse dispatch_immediate_routes(
 	HttpRequestView const &req,
 	SV path_sv,
 	bool is_head,
@@ -131,6 +131,28 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 		}
 		return HttpResponse::not_found(path_sv);
 	} catch (...) { return HttpResponse::internal_error(); }
+}
+
+
+export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
+[[nodiscard]] HttpResponse dispatch_sync_routes(
+	HttpRequestView const &req,
+	SV path_sv,
+	bool is_head,
+	RouteRange const &routes,
+	SseRange const &sse_routes,
+	NotFoundHandler const &not_found_handler,
+	ErrorHandler const &error_handler,
+	Pool const &work_pool) {
+	return dispatch_immediate_routes(
+		req,
+		path_sv,
+		is_head,
+		routes,
+		sse_routes,
+		not_found_handler,
+		error_handler,
+		work_pool);
 }
 
 export template<typename ContextRouteRange, typename Ctx>

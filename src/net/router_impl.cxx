@@ -236,7 +236,7 @@ Router &Router::serve_static(
 
 		// Inner handler: performs route matching + 404. Middleware wraps this whole thing.
 		Handler inner = [this, path_sv, is_head](HttpRequestView const &r) -> HttpResponse {
-			return dispatch_sync_routes(
+			return dispatch_immediate_routes(
 				r,
 				path_sv,
 				is_head,
