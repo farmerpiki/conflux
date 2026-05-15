@@ -39,5 +39,8 @@ BasicResult-based, `model_a::Chain<T>`) are consolidated into one:
 - **Removed at E1.4**: `work_detail::Flow<T>`, `FlowSource<T>`, `task_as_flow`,
   `model_b::*`, pipe operator `|`, step types
 
-See the full rationale in `api_traps.md` traps 1.20 (fragmentation), 1.7
-(async fragmentation), and the attack plan §1 (Status quo).
+Repository-owned rationale now lives in [`../execution-model.md`](../execution-model.md),
+[`../concurrency-naming-model.md`](../concurrency-naming-model.md), and
+[`../pre-v1-migration-contract.md`](../pre-v1-migration-contract.md). Historical
+external notes about API fragmentation should be treated as background, not as an
+in-repo contract.

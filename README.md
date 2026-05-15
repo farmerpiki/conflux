@@ -23,6 +23,9 @@ The task/HTTP placement contract is documented in [`docs/execution-model.md`](do
 and the code-review guide for concurrency/naming decisions is
 [`docs/concurrency-naming-model.md`](docs/concurrency-naming-model.md). The pre-v1
 execution-name cleanup inventory is documented in [`docs/naming-audit.md`](docs/naming-audit.md).
+Component bundles, package targets, primary module imports, and API/doc ownership
+are indexed in [`docs/component-map.md`](docs/component-map.md). The pre-v1
+release evidence checklist lives in [`docs/release-checklist.md`](docs/release-checklist.md).
 
 ## Runtime Preflight
 
@@ -44,3 +47,10 @@ setup.
 cmake --preset debug-gcc-stdcxx
 cmake --build --preset debug-gcc-stdcxx
 ```
+
+## Component and package usage
+
+Use `CONFLUX_FEATURE_SET` to select a bundle and `find_package(conflux REQUIRED
+COMPONENTS ...)` to consume installed targets. The current component/target map
+lives in [`docs/component-map.md`](docs/component-map.md); CI/package validation
+commands live in [`docs/build-ci-lanes.md`](docs/build-ci-lanes.md).

@@ -111,7 +111,9 @@ valid perf evidence.
 
 ## Install/package lane
 
-The install export is guarded by a cheap source-tree check:
+The public component and package-target map is indexed in
+`docs/component-map.md`. The install export is guarded by a cheap source-tree
+check:
 
 ```sh
 ctest --test-dir <build-dir> -R build/package-config --output-on-failure

@@ -96,7 +96,8 @@ must not become silent hard requirements.
 
 ## Release gates
 
-Before v1, every release candidate should at minimum have:
+`docs/release-checklist.md` is the operational checklist for collecting release
+evidence. Before v1, every release candidate should at minimum have:
 
 - full test pass on the primary Clang and GCC preset families available to the
   maintainer;

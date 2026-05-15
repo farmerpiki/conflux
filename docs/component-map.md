@@ -1,0 +1,139 @@
+# Component, package, and documentation map
+
+This map gives downstream users and future implementation branches one place to
+answer three questions:
+
+1. which feature bundle to configure;
+2. which CMake package component/target to link;
+3. which API document or example owns the public contract.
+
+The CMake source remains authoritative. Keep this file synchronized with
+`cmake/ConfluxPresets.cmake` and the `conflux_public_component(...)` calls in
+`CMakeLists.txt` whenever components are split, renamed, or removed.
+
+## Feature bundles
+
+`CONFLUX_FEATURE_SET` selects defaults for the `CONFLUX_BUILD_*` component flags.
+Explicit `CONFLUX_BUILD_*=ON/OFF` cache values override the bundle defaults.
+
+| Bundle | Intended use | Notable defaults |
+|---|---|---|
+| `core` | liburing-free vocabulary-only consumer | core/types only |
+| `runtime` | io_uring/work/socket runtime experiments | runtime + socket I/O |
+| `json` | JSON parser/DOM/SAX/NDJSON only | JSON without HTTP/runtime |
+| `http-minimal` | smallest HTTP server app shape | runtime, file I/O, DNS, crypto, JSON, HTTP core/router/server/JSON |
+| `http-api` | HTTP API service with policy/auth | `http-minimal` + policy + auth |
+| `http-api-full` | API service with observability/spec output | `http-api` + observability + OpenAPI |
+| `web-server` | static/template/realtime web serving | HTTP server, static files, compression, realtime, templates |
+| `http-server-complete` | full HTTP stack without DB/SMTP/process/file-watch extras | HTTP server/client/proxy/vhost/policy/auth/observability/OpenAPI |
+| `complete` | all preset-controlled public components | HTTP, runtime, JSON, DB, SMTP, process, file-watch; JSON file/reflection remain opt-in |
+| `current` | development default mirroring the historical monolith | most runtime/HTTP/DB/SMTP components on; JSON file/reflection remain opt-in |
+
+Use narrow bundles when measuring build time or component boundaries. Use
+`current` only when intentionally testing the aggregate development surface.
+
+## Downstream CMake usage
+
+Install a build, then consume the exported package by component:
+
+```cmake
+find_package(conflux REQUIRED COMPONENTS core json http_server)
+
+target_link_libraries(my_app PRIVATE
+    conflux::core
+    conflux::json
+    conflux::http_server)
+```
+
+`conflux::conflux` is the public umbrella target when the aggregate was built and
+installed. Prefer narrow component targets for new examples and docs so optional
+protocol/storage dependencies stay visible.
+
+Validate an install tree with:
+
+```sh
+scripts/run-package-config-smoke.sh \
+  --prefix /tmp/conflux-install \
+  --components 'core;json;http_server'
+```
+
+## Public component map
+
+| Component | CMake target | Primary imports | Contract docs / examples |
+|---|---|---|---|
+| `core` | `conflux::core` | `conflux.types` via `conflux::types` | `docs/project-policy.md` |
+| `types` | `conflux::types` | `conflux.types` | `tests/caps_test.cxx`, `tests/smoke.cxx` |
+| `utils` | `conflux::utils` | `conflux.utils` | `tests/utils_test.cxx` |
+| `net_config` | `conflux::net_config` | `conflux.net.config` | `docs/http-server-api.md`, `tests/config_test.cxx` |
+| `net_cancel` | `conflux::net_cancel` | `conflux.net.cancel` | `docs/execution-model.md`, `tests/socket_task_ring_test.cxx` |
+| `net_tls` | `conflux::net_tls` | `conflux.net.tls` | `tests/tls_external.cxx` |
+| `net_io_buffer` | `conflux::net_io_buffer` | `conflux.net.io_buffer` | `tests/http_core_test.cxx` |
+| `crypto` | `conflux::crypto` | `conflux.crypto` | `examples/crypto_sealing.cxx`, `tests/crypto_test.cxx` |
+| `json_boundary` | `conflux::json_boundary` | `conflux.json.boundary` | `docs/json-boundary-guide.md` |
+| `json` | `conflux::json` | `conflux.json` | `docs/json-api.md`, `docs/json-cookbook.md`, `examples/json.cxx` |
+| `json_native_provider` | `conflux::json_native_provider` | `conflux.json.native_provider` | `docs/json-boundary-guide.md` |
+| `json_file` | `conflux::json_file` | `conflux.json.file` | `docs/json-api.md`, `tests/json_file_test.cxx` |
+| `json_reflect` | `conflux::json_reflect` | `conflux.json.reflect` | `docs/json-reflect.md` |
+| `json_reflect_provider` | `conflux::json_reflect_provider` | `conflux.json.reflect_provider` | `docs/json-reflect.md` |
+| `runtime` | `conflux::runtime` | `conflux.work`, `conflux.work.root`, `conflux.work.carrier.*` | `docs/conflux-work-root-api.md`, `docs/conflux-work-carrier-api.md` |
+| `uring` | `conflux::uring` | `conflux.uring`, `conflux.uring.flow`, `conflux.uring.completion`, `conflux.uring.handle` | `docs/io_uring_direct_file_flow_design.md` |
+| `uring_timeout` | `conflux::uring_timeout` | `conflux.uring.timeout` | `tests/uring_flow_test.cxx` |
+| `file_io_sync` | `conflux::file_io_sync` | `conflux.file_io_sync` | `examples/file_io.cxx`, `tests/file_io_sync_test.cxx` |
+| `file_map` | `conflux::file_map` | `conflux.file_map` | `tests/file_io_sync_test.cxx` |
+| `file_io` | `conflux::file_io` | `conflux.file_io` | `examples/file_io.cxx`, `tests/file_io_test.cxx` |
+| `template` | `conflux::template` | `conflux.templates` | `examples/template_pages.cxx`, `tests/template_test.cxx` |
+| `template_watch` | `conflux::template_watch` | `conflux.file_watch` | `examples/template_pages.cxx` |
+| `socket_io` | `conflux::socket_io` | `conflux.socket_io`, `conflux.socket_io.coro`, `conflux.socket_io.blocking` | `tests/socket_task_ring_test.cxx`, `tests/tcp_listener_test.cxx` |
+| `dns` | `conflux::dns` | `conflux.net.dns` | `tests/dns_codec_test.cxx`, `tests/dns_resolver_test.cxx` |
+| `process` | `conflux::process` | `conflux.process` | `examples/process_run.cxx`, `tests/process_test.cxx` |
+| `db` | `conflux::db` | `conflux.db` and granular `conflux.db.*` modules | `docs/db-api.md`, `examples/db_basic.cxx`, `examples/db_pool.cxx` |
+| `smtp` | `conflux::smtp` | `conflux.net.smtp` | `tests/smtp_test.cxx` |
+| `umbrella` | `conflux::umbrella` | `conflux` | `README.md` |
+
+## HTTP component map
+
+| Component | CMake target | Primary imports | Contract docs / examples |
+|---|---|---|---|
+| `http_core` | `conflux::http_core` | `conflux.net.http.types`, `conflux.net.http.request`, `conflux.net.http.server_types` | `docs/http-server-api.md` |
+| `http_response` | `conflux::http_response` | `conflux.net.http.response` | `tests/http_response_test.cxx` |
+| `http_json` | `conflux::http_json` | `conflux.net.http.json` | `docs/json-boundary-guide.md`, `tests/http_json_test.cxx` |
+| `http_response_json` | `conflux::http_response_json` | `conflux.net.http.response_json` | `docs/json-boundary-guide.md` |
+| `http_app_json` | `conflux::http_app_json` | `conflux.net.http.app_json` | `docs/json-boundary-guide.md` |
+| `http_native_json` | `conflux::http_native_json` | `conflux.net.http.native_json` | `docs/json-boundary-guide.md` |
+| `http_router` | `conflux::http_router` | `conflux.net.router` | `docs/http-server-api.md`, `examples/hello.cxx` |
+| `router_match` | `conflux::router_match` | `conflux.net.router_match` | `tests/http_core_test.cxx` |
+| `router_dispatch` | `conflux::router_dispatch` | `conflux.net.router_dispatch` | `docs/naming-audit.md` |
+| `router_static` | `conflux::router_static` | `conflux.net.router_static` | `tests/http_core_test.cxx` |
+| `http_server_helpers` | `conflux::http_server_helpers` | `conflux.net.http_server_helpers` | `tests/http_server_helpers_test.cxx` |
+| `http_server_config` | `conflux::http_server_config` | `conflux.net.http_server_config` | `docs/http-server-api.md`, `tests/config_test.cxx` |
+| `http_server` | `conflux::http_server` | `conflux.net.http_server` | `docs/http-server-api.md`, `examples/hello.cxx` |
+| `http_app` | `conflux::http_app` | `conflux.net.app` | `docs/http-server-api.md` |
+| `http` | `conflux::http` | `conflux.net.http` umbrella | `docs/http-server-api.md`, `docs/conflux-http-client-api.md` |
+| `http_static_core` | `conflux::http_static_core` | `conflux.net.http.static_core` | `examples/static.cxx`, `tests/file_io_http_e2e.cxx` |
+| `http_static` | `conflux::http_static` | `conflux.net.http.static_files` | `examples/static.cxx` |
+| `http_static_async` | `conflux::http_static_async` | `conflux.net.http.static_async` | `examples/static.cxx` |
+| `http_realtime` | `conflux::http_realtime` | `conflux.net.http.realtime` | `examples/sse.cxx` |
+| `http_policy` | `conflux::http_policy` | `conflux.net.cors`, `conflux.net.rate_limit`, `conflux.net.security`, policy helpers | `docs/auth-rate-limit-hooks.md`, `docs/http-security-corpus.md` |
+| `http_auth` | `conflux::http_auth` | `conflux.net.auth`, `conflux.net.jwt`, `conflux.net.csrf`, `conflux.net.cookie_signing`, `conflux.net.password_hash` | `docs/auth-password-hashing.md`, `docs/auth-session-token-audit.md` |
+| `http_observability` | `conflux::http_observability` | `conflux.net.metrics`, `conflux.net.structured_log`, `conflux.net.tracing`, `conflux.net.request_id` | `examples/http_observability.cxx` |
+| `http_compression` | `conflux::http_compression` | `conflux.net.compress` and enabled backend modules | `examples/gzip.cxx` |
+| `http_openapi` | `conflux::http_openapi` | `conflux.net.openapi` | `examples/vhost_openapi.cxx` |
+| `http_vhost` | `conflux::http_vhost` | `conflux.net.vhost` | `examples/vhost_openapi.cxx` |
+| `http_client` | `conflux::http_client` | `conflux.net.client` | `docs/conflux-http-client-api.md`, `examples/http_client.cxx` |
+| `http_async_client` | `conflux::http_async_client` | `conflux.net.async_client` | `docs/conflux-http-client-api.md`, `examples/http_client_builder.cxx` |
+| `http_proxy` | `conflux::http_proxy` | `conflux.net.proxy` | `tests/http_e2e.cxx` |
+| `http1` | `conflux::http1` | `conflux.net.http1_parser` | `docs/http-security-corpus.md`, `fuzz/fuzz_http1_parser.cxx` |
+| `http2` | `conflux::http2` | `conflux.net.http2` | `tests/h2_external.cxx` |
+| `http3` | `conflux::http3` | `conflux.net.http3` | `examples/h3_server.cxx`, `examples/h3_probe.cxx` |
+| `http_protocol` | `conflux::http_protocol` | `conflux.net.http.protocol` | `tests/http_core_test.cxx` |
+
+## Exported support targets
+
+Targets whose component names start with `_` are exported because static-library
+link interfaces may need them. They are not intended as public starting points:
+
+| Component | Target | Purpose |
+|---|---|---|
+| `_options` | `conflux::_options` | propagated compile options/definitions |
+| `_direct_slot_pool` | `conflux::_direct_slot_pool` | HTTP/runtime direct-slot helper |
+| `_dns_bridge` | `conflux::_dns_bridge` | internal HTTP-client DNS bridge |
