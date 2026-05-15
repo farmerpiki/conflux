@@ -2284,6 +2284,12 @@ if(CONFLUX_BUILD_TESTS)
         LABELS "build;lint"
     )
 
+    add_test(NAME build/cmake-source-files
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-cmake-source-files.py")
+    set_tests_properties(build/cmake-source-files PROPERTIES
+        LABELS "build;lint"
+    )
+
     add_test(NAME build/package-config
         COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-package-config.sh"
                 "${CMAKE_CURRENT_SOURCE_DIR}")

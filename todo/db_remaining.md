@@ -104,17 +104,13 @@ pagination or `DECLARE CURSOR` at the SQL level.
 
 ### P14 — Namespace rename `conflux::db` → `conflux::pg`
 
-**Status: decision pending.**
+**Status: done as an alias-first migration.**
 
-If the Postgres-only commitment holds until a SQLite backend is concretely
-planned, rename now frees `conflux::db` as the future abstract surface. Cost
-is purely textual but touches every call site.
-
-**Options:**
-1. Rename to `conflux::pg` now. Clean future abstraction boundary.
-2. Stay `conflux::db`, plan backend abstraction when SQLite is scoped.
-
-No code change until a decision is made.
+`conflux.pg` and `conflux::pg` are now the preferred PostgreSQL-specific
+spellings. They re-export / alias the existing `conflux.db` implementation so
+current DB code keeps working while new examples and docs use the future-proof
+PostgreSQL name. Keep the compatibility `conflux.db` surface until the final
+pre-v1 alias-removal branch.
 
 ---
 
