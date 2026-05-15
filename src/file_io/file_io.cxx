@@ -45,6 +45,8 @@ constexpr bool is_otmpfile_unsupported_errno_async(
 	int e) noexcept {
 	return e == EOPNOTSUPP || e == EISDIR || e == EINVAL || e == ENOSYS || e == EPERM;
 }
+
+} // namespace
 struct AsyncAtomicPathParts {
 	S parent_dir;
 	S basename;
@@ -96,8 +98,6 @@ struct AsyncAtomicPathParts {
 		.basename = S{path.substr(last_slash + 1)},
 	};
 }
-
-} // namespace
 // ---------------------------------------------------------------------------
 // RegisteredBufferTable: owns the io_uring registered-buffer table lifecycle.
 // One instance per ring. Pools carve slices from it.
@@ -1214,8 +1214,8 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
-	[[nodiscard]] root::Task<FileHandle> socket_async(
+	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]] [[nodiscard]] root::Task<FileHandle>
+	socket_async(
 		int domain,
 		int type,
 		int protocol) {
@@ -1232,9 +1232,9 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
-	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
-	[[nodiscard]] root::Task<FileHandle> socket_direct_async(
+	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]] [[deprecated(
+		"use socket_io::tcp_connect/tcp_accept paths instead")]] [[nodiscard]] root::Task<FileHandle>
+	socket_direct_async(
 		int domain,
 		int type,
 		int protocol,
@@ -1579,17 +1579,24 @@ public:
 		chrono::milliseconds ms,
 		unsigned count = 0,
 		unsigned flags = 0) {
-		return conflux::uring::timeout_async(ring_, *completions_, [this](u32 slot, u32 gen) noexcept {
-			return encode_ud_(slot, gen);
-		}, ms, count, flags);
+		return conflux::uring::timeout_async(
+			ring_,
+			*completions_,
+			[this](u32 slot, u32 gen) noexcept { return encode_ud_(slot, gen); },
+			ms,
+			count,
+			flags);
 	}
 	// Cancel a running timeout by its user_data tag. -ENOENT → already fired.
 	[[nodiscard]] root::Task<void> timeout_remove_async(
 		u64 user_data,
 		unsigned flags = 0) {
-		return conflux::uring::timeout_remove_async(ring_, *completions_, [this](u32 slot, u32 gen) noexcept {
-			return encode_ud_(slot, gen);
-		}, user_data, flags);
+		return conflux::uring::timeout_remove_async(
+			ring_,
+			*completions_,
+			[this](u32 slot, u32 gen) noexcept { return encode_ud_(slot, gen); },
+			user_data,
+			flags);
 	}
 	// Update an armed timeout. New deadline `ms` replaces the existing one.
 	// `user_data` identifies the timeout SQE to update (its encoded user_data).
@@ -2095,9 +2102,12 @@ public:
 	[[nodiscard]] root::Task<void> link_timeout_async(
 		chrono::milliseconds ms,
 		unsigned flags = 0) {
-		return conflux::uring::link_timeout_async(ring_, *completions_, [this](u32 slot, u32 gen) noexcept {
-			return encode_ud_(slot, gen);
-		}, ms, flags);
+		return conflux::uring::link_timeout_async(
+			ring_,
+			*completions_,
+			[this](u32 slot, u32 gen) noexcept { return encode_ud_(slot, gen); },
+			ms,
+			flags);
 	}
 	// Open a file with full openat2(2) semantics (`open_how` struct).
 	// `how` is copied internally so the caller need not keep it alive.
@@ -2307,8 +2317,8 @@ public:
 	}
 	// Create a socket directly into the registered file table, with the kernel
 	// choosing the slot (IORING_FILE_INDEX_ALLOC). Returns the allocated slot.
-	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
-	[[nodiscard]] root::Task<FileHandle> socket_direct_alloc_async(
+	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]] [[nodiscard]] root::Task<FileHandle>
+	socket_direct_alloc_async(
 		int domain,
 		int type,
 		int protocol,
@@ -2624,9 +2634,7 @@ public:
 			if (durability >= TempDurability::file_and_directory) {
 				co_await fsync_async(parent_fh);
 			}
-		} catch (...) {
-			cleanup_error = current_exception();
-		}
+		} catch (...) { cleanup_error = current_exception(); }
 		if (staging_entry_exists) {
 			try {
 				co_await unlinkat_async(parent_fd, S{staging});
@@ -2676,7 +2684,9 @@ export class IopollFileReader {
 		auto [task, raw_src] =
 			root::make_task_source<FileReader::ReadFixedResult>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = make_shared<root::TaskSource<FileReader::ReadFixedResult>>(move(raw_src));
-		auto _ = shared_src->try_set_value({FileReader::ReadFixedResult{.buffer = move(buf), .bytes = bytes}});
+		auto _ = shared_src->try_set_value({
+			FileReader::ReadFixedResult{.buffer = move(buf), .bytes = bytes}
+        });
 		return move(task);
 	}
 
@@ -2758,7 +2768,7 @@ public:
 				SZ const bytes = min(static_cast<SZ>(r.res), actual_cap);
 				auto _ = shared_src->try_set_value({
 					FileReader::ReadFixedResult{.buffer = move(*holder), .bytes = bytes}
-				});
+                });
 			} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
 		});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -2803,10 +2813,14 @@ public:
 	[[nodiscard]] static expected<UP<IopollStorageRing>, FileIoError> create(
 		IopollStorageRingOptions options = {}) {
 		if (options.entries == 0) {
-			return unexpected{FileIoError{EINVAL, "file_io: iopoll entries must be non-zero"}};
+			return unexpected{
+				FileIoError{EINVAL, "file_io: iopoll entries must be non-zero"}
+            };
 		}
 		if (options.fixed_buffer_slots == 0 || options.fixed_buffer_bytes == 0) {
-			return unexpected{FileIoError{EINVAL, "file_io: iopoll fixed buffers must be non-empty"}};
+			return unexpected{
+				FileIoError{EINVAL, "file_io: iopoll fixed buffers must be non-empty"}
+            };
 		}
 		auto out = UP<IopollStorageRing>{new IopollStorageRing{}};
 		out->options_ = options;
@@ -2814,16 +2828,23 @@ public:
 		params.flags = iopoll_storage_setup_flags(options).raw();
 		int const rc = io_uring_queue_init_params(options.entries, &out->ring_, &params);
 		if (rc < 0) {
-			return unexpected{FileIoError{-rc, "file_io: iopoll ring init"}};
+			return unexpected{
+				FileIoError{-rc, "file_io: iopoll ring init"}
+            };
 		}
 		out->ring_valid_ = true;
 		auto table = make_unique<RegisteredBufferTable>(&out->ring_, options.fixed_buffer_slots);
 		if (!table->ok()) {
-			return unexpected{FileIoError{ENOTSUP, "file_io: iopoll fixed-buffer table unsupported"}};
+			return unexpected{
+				FileIoError{ENOTSUP, "file_io: iopoll fixed-buffer table unsupported"}
+            };
 		}
-		auto buffers = make_unique<FixedBufferPool>(table.get(), 0, options.fixed_buffer_slots, options.fixed_buffer_bytes);
+		auto buffers =
+			make_unique<FixedBufferPool>(table.get(), 0, options.fixed_buffer_slots, options.fixed_buffer_bytes);
 		if (!buffers->ok() || buffers->capacity() == 0) {
-			return unexpected{FileIoError{ENOTSUP, "file_io: iopoll fixed-buffer pool init"}};
+			return unexpected{
+				FileIoError{ENOTSUP, "file_io: iopoll fixed-buffer pool init"}
+            };
 		}
 		out->buffer_table_ = move(table);
 		out->buffers_ = move(buffers);

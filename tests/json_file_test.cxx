@@ -96,3 +96,17 @@ TEST_CASE(
 	CHECK(doc.error().is_file_error());
 	CHECK(doc.error().file_errno == EFBIG);
 }
+
+TEST_CASE(
+	"json_file: blocking parse aliases read and parse via explicit component",
+	"[json_file][unit]") {
+	auto dir = TempDir::create();
+	auto wr = blocking_write_text_file_atomic_at(dir.fd, "config.json", R"({"answer":43})");
+	REQUIRE(wr.has_value());
+
+	auto doc = blocking_parse_file_at(dir.fd, "config.json");
+	REQUIRE(doc.has_value());
+	auto obj = doc->root().as_object();
+	REQUIRE(obj.has_value());
+	CHECK(*obj->member("answer")->as_number()->to_i64() == 43LL);
+}

@@ -50,7 +50,7 @@ parallel branches without repeatedly re-deciding global priority.
 
 - Worker runtime: finish background ingestion runtime convergence when that app surface is present;
   the provided library tree currently has no background-ingestion implementation to migrate.
-  `WorkPool` now has opt-in queue/park/wake counters for contention profiling; use them before changing admission/local-deque locking.
+  `WorkPool` now has opt-in queue/park/wake counters plus admission/local/steal lock-contention probes for profiling; use them before changing admission/local-deque locking.
   Carrier internals now use `blocking_join(...)` instead of the legacy `join(...)`
   alias for blocking conversion/admission/drain paths. Continue moving any remaining
   compatibility surface behind explicitly named `sync_`/`blocking_` APIs.
@@ -133,6 +133,7 @@ auth/password-hash-replacement
 build/perf-harness-stabilize
   -> uring/sendzc-edge-measurement
   -> worker/queue-contention-profile
+      -> worker/queue-contention-followup
   -> http/ring-layout-c2c-verify
 
 release/alias-removal
@@ -158,10 +159,11 @@ Priorities:
 | P1 | `worker/background-ingestion-runtime` | Merge/migrate background ingestion runtime surface onto the worker runtime model. | Depends on `worker/no-wait-bridge`; should not touch auth/json. | Background ingestion uses the same runtime conventions as other worker tasks. |
 | DONE | `worker/taskpromise-frame-pool` | Extended `CONFLUX_WORK_CORO_FRAME_POOL` coverage to `Task<T>` promise frames with a process-lifetime mmap bucket pool; `EagerChain` keeps the thread-local LIFO arena because it never externally suspends. | Completed on top of `worker/no-wait-bridge`. | Small/medium `Task<void>` frames avoid global `::operator new` in steady-state when the pool option is enabled; sanitizer builds keep the safe PMR fallback. |
 | DONE | `worker/queue-contention-profile` | Added opt-in `CONFLUX_WORK_QUEUE_STATS` counters for admission, local/inject queues, steal scans, wake/park/futex paths, plus raw NDJSON queue counters in `workpool_enqueue_dequeue`. | Completed on top of worker frame-pool slice; instrumentation is disabled by default. | `benchmarks/notes/worker_queue_contention_profile.md` documents the no-lock-removal decision and profiling command. |
+| DONE | `worker/queue-contention-followup` | Added admission/local/steal mutex contention probes and burst/local-fanout benchmark variants so queue activity can be separated from actual lock blocking. | Completed on top of `worker/queue-contention-profile`; no scheduler semantics changed. | `workpool_enqueue_dequeue` emits `external_burst` and `local_fanout` variants plus `*_lock_contentions` counters in the raw queue object. |
 | DONE | `worker/carrier-blocking-join-surface` | Carrier blocking conversion/admission/drain paths call `root::blocking_join(...)` directly instead of the legacy `root::join(...)` alias. | Completed on top of `worker/no-wait-bridge`; source/docs only. | `src/work/carrier_*` has no `root::join(...)` call sites; docs identify carrier `from_*`, `Scope::admit`, and `DroppableSlot::wait` as blocking-join surfaces. |
 | P3 | `worker/p2300-prototype` | Prototype P2300/io_uring scheduler behind an experimental target. | Do not mix with active V2 runtime migration. | Prototype compiles separately; no public API commitment. |
 
-Recommended next worker branch: `worker/background-ingestion-runtime` if the app ingestion surface is present; otherwise leave the worker lane idle until measured queue contention justifies a follow-up locking/scheduling patch. Any further carrier blocking-name cleanup should be additive alias work only, not release alias removal.
+Recommended next worker branch: `worker/background-ingestion-runtime` if the app ingestion surface is present; otherwise leave the worker lane idle until recorded queue-contention data justifies a locking/scheduling patch. Any further carrier blocking-name cleanup should be additive alias work only, not release alias removal.
 
 ### HTTP server / routing / handler API lane
 
@@ -223,9 +225,10 @@ Recommended next auth branch: none in the current P0/P1 auth lane. If continuing
 | DONE | `build/module-fragility-regression` | Added source-shape regression checks and docs for fragile coroutine-adjacent module interfaces. | Build/docs; low conflict. | `build/module-fragility-regression` CTest guards `conflux.net.cancel` as a thin declarations-only interface, keeps private impl units private, and blocks `import std` from `conflux.socket_io.coro`. |
 | DONE | `build/ci-sanitizer-perf-split` | Separate sanitizer correctness lanes from release/perf lanes. | Landed as CMake/script/docs guardrail work. | `run-sanitizer-matrix.sh` asserts tests-on/benchmarks-off/LTO-off and the expected sanitizer mix per correctness preset; `bench_record.sh` rejects sanitizer/debug/non-perf recordings unless explicitly waived. |
 | DONE | `build/lto-pgo-presets` | Stabilized optimized release/PGO presets after perf harness work: Clang LTO uses ThinLTO, GCC 16 keeps GCC LTO coverage, GCC 15 remains no-LTO, PGO paths are deterministic, and a static CTest guard enforces optimized-preset shape. | Landed as CMake/preset/script/docs work. | `build/optimized-presets` checks release/PGO presets stay unsanitized, explicit, and separate from `perf-*` recording lanes. |
-| DONE | `build/package-config` | Install/export package shape now has explicit version ownership, component metadata, requested-component validation, a canonical `conflux::conflux` umbrella alias when available, and package smoke scripts. | Build/docs only. | `build/package-config` statically guards package CMake shape; `run-package-config-smoke.sh` validates installed namespaced component targets from a downstream project. |
+| DONE | `build/package-config` | Install/export package shape now has explicit version ownership, component metadata, requested-component validation, a canonical `conflux::conflux` umbrella alias when available, and package smoke scripts. | Build/docs only. | `build/package-config` statically guards package CMake shape; package smoke validates installed namespaced component targets from a downstream project. |
+| DONE | `build/install-tree-smoke` | Added a real downstream install-tree smoke: configure/build/install a fresh dependency-light tree, consume the installed prefix with `find_package(conflux)`, compile/link a module-importing executable, and run it. | Build/docs only; keep separate from CI/fuzz budget changes. | `run-install-tree-smoke.sh` drives the full build/install/consume flow; `run-package-config-smoke.sh` now builds and runs the downstream consumer; opt-in CTest gates exist for both preinstalled and freshly installed prefixes. |
 
-Recommended next build branch: none currently listed. Build lane follow-up should be a real install-tree configure/build smoke on the target toolchain after `build/package-config` lands.
+Recommended next build branch: `build/ci-fuzz-sanitizer-budget` if continuing build/CI work; otherwise return to component measurement branches (`http/send-threshold-bench`, `worker/queue-contention-followup`).
 
 ### Docs / examples / API ergonomics lane
 
@@ -244,6 +247,7 @@ Recommended next docs branch: `docs/json-boundary-guide`, after `json/boundary-t
 | Priority | Branch | Scope | Parallel safety | Acceptance |
 |---|---|---|---|---|
 | P1 | `docs/naming-audit` | [x] Document old names that should eventually become `blocking_`, `sync_`, or `async_`. | Docs-only; no renames. | Audit exists in `docs/naming-audit.md` without code churn. |
+| DONE | `file/blocking-name-aliases` | Added `blocking_*` aliases for direct caller-thread file I/O, mmap setup, and file-backed JSON parsing. | File/json-file docs/tests/source only; legacy spellings retained. | New alias tests cover `conflux.file_io_sync`, `conflux.file_map`, and `conflux.json.file`; docs identify old names as compatibility spellings. |
 | P2 | Component-local rename branches | When already editing a component, add clearer names and keep aliases. | Only inside the active component branch. | New call sites use new names; aliases remain. |
 | R | `release/remove-aliases` | Remove compatibility aliases and stale names. | Must be last pre-release cleanup. | All code/tests/docs use final names; no feature branches depend on aliases. |
 

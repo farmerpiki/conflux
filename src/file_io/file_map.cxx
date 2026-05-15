@@ -109,3 +109,22 @@ export expected<MappedFileLease, FileMapError> map_file_readonly_sync(
 	}
 	return map_fd_readonly_sync(fd, *st);
 }
+
+// ───────────────────────────────────────────────────────────────────────
+// blocking_* aliases — final naming model for direct caller-thread mmap setup.
+// Keep *_sync names as pre-release compatibility aliases until the release
+// cleanup pass removes legacy spellings project-wide.
+// ───────────────────────────────────────────────────────────────────────
+
+export inline expected<MappedFileLease, FileMapError> blocking_map_fd_readonly(
+	int fd,
+	FileStat const &st) noexcept {
+	return map_fd_readonly_sync(fd, st);
+}
+
+export inline expected<MappedFileLease, FileMapError> blocking_map_file_readonly(
+	int dir_fd,
+	SV relative,
+	SZ max_bytes = NL<SZ>::max()) noexcept {
+	return map_file_readonly_sync(dir_fd, relative, max_bytes);
+}

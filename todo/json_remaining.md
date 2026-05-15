@@ -93,6 +93,16 @@ starting a broad parser rewrite. Future tokenizer/DOM work should
 use this facade and keep HTTP/app code on `conflux.json.boundary`.
 
 
+## Incremental reader events
+
+`json/incremental-reader-events` added `JsonStreamReader`: a feed/close/next
+event API for chunked byte streams. It owns fed bytes, reuses `JsonReader`
+events/accessors, rolls back recoverable EOF/incomplete-token errors, and waits
+for delimiter or `close()` before emitting a terminal number. The first
+implementation intentionally does not compact consumed bytes;
+`max_input_size` therefore applies to total bytes fed into the stream.
+
+
 ## Reflection serde provider boundary
 
 `json/reflection-serde` added `conflux.json.reflect_provider` and

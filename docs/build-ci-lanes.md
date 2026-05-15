@@ -133,10 +133,30 @@ scripts/run-package-config-smoke.sh \
 ```
 
 The smoke project configures a downstream consumer with `find_package(conflux
-REQUIRED COMPONENTS ...)` and verifies that each requested `conflux::<component>`
-target exists. The umbrella target is available as `conflux::conflux` when the
-HTTP-server aggregate was installed; the exported aggregate target also remains
-available as `conflux::umbrella`.
+REQUIRED COMPONENTS ...)`, verifies that each requested `conflux::<component>`
+target exists, compiles an executable that imports the installed `conflux.types`
+module through `conflux::core`, links the requested installed targets, and runs
+the executable with CTest. The umbrella target is available as
+`conflux::conflux` when the HTTP-server aggregate was installed; the exported
+aggregate target also remains available as `conflux::umbrella`.
 
-For CI, set `-DCONFLUX_PACKAGE_SMOKE_PREFIX=<install-prefix>` on a test build to
-add `build/package-config-install-tree` as an install-tree smoke test.
+For a full one-command install-tree check, use:
+
+```sh
+scripts/run-install-tree-smoke.sh \
+  --feature-set core \
+  --components core
+```
+
+This configures a fresh dependency-light build, installs it into a temporary
+prefix, then runs the downstream package smoke against that installed prefix. Use
+`--feature-set json --components 'core;json'` or a larger feature preset when the
+CI host has the required system dependencies and you want broader component
+coverage.
+
+For CI with a separately installed prefix, set
+`-DCONFLUX_PACKAGE_SMOKE_PREFIX=<install-prefix>` on a test build to add
+`build/package-config-install-tree` as an installed-prefix smoke test. For CI that
+should perform the fresh configure/build/install/consume flow from CTest, set
+`-DCONFLUX_RUN_INSTALL_TREE_SMOKE=ON`; the default smoke feature set remains
+`core` so it stays cheap and liburing-free.

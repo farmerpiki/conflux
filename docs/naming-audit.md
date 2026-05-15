@@ -56,9 +56,10 @@ mainly suffix order and a few unprefixed helpers.
 | `parse_file_at_sync` | `conflux.json.file` | `blocking_parse_file_at` | Keep separate from pure `json::parse*`; this one performs blocking file I/O. |
 | `parse_file_sync` | `conflux.json.file` | `blocking_parse_file` | Same batch as `parse_file_at_sync`. |
 
-Suggested branch shape: one `file/blocking-prefix-aliases` branch for
-`conflux.file_io_sync` and `conflux.file_map`, followed by one
-`json/blocking-file-aliases` branch for `conflux.json.file` docs/examples/tests.
+Status: `file/blocking-name-aliases` adds these `blocking_*` function aliases
+for `conflux.file_io_sync`, `conflux.file_map`, and the file-backed
+`conflux.json.file` helpers while keeping the legacy spellings. Type/module
+renames remain deferred to the release alias-removal pass.
 
 ## Coroutine/task APIs with suffix-style async names
 

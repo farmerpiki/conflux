@@ -82,7 +82,7 @@ export struct VirtualHost {
 export struct Config {
 	[[nodiscard]] static Config low_latency() {
 		Config cfg{};
-		cfg.rings = 1;
+		cfg.rings = 4;
 		cfg.ring_entries = 256;
 		cfg.single_issuer = true;
 		cfg.defer_taskrun = true;

@@ -2241,6 +2241,8 @@ if(CONFLUX_BUILD_TESTS)
     )
 endif()
 
+set(CONFLUX_PACKAGE_SMOKE_COMPONENTS "core" CACHE STRING
+    "Semicolon-separated installed conflux components to validate with package smoke tests")
 set(CONFLUX_PACKAGE_SMOKE_PREFIX "" CACHE PATH
     "Optional installed conflux prefix to validate with the package smoke project")
 if(CONFLUX_BUILD_TESTS AND CONFLUX_PACKAGE_SMOKE_PREFIX)
@@ -2248,8 +2250,36 @@ if(CONFLUX_BUILD_TESTS AND CONFLUX_PACKAGE_SMOKE_PREFIX)
         COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-package-config-smoke.sh"
                 --source "${CMAKE_CURRENT_SOURCE_DIR}"
                 --prefix "${CONFLUX_PACKAGE_SMOKE_PREFIX}"
-                --build-dir "${CMAKE_CURRENT_BINARY_DIR}/package-smoke")
+                --build-dir "${CMAKE_CURRENT_BINARY_DIR}/package-smoke"
+                --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}")
     set_tests_properties(build/package-config-install-tree PROPERTIES
+        LABELS "build;package;install"
+    )
+endif()
+
+option(CONFLUX_RUN_INSTALL_TREE_SMOKE
+    "Add an opt-in CTest that builds, installs, and consumes a fresh conflux install tree" OFF)
+set(CONFLUX_INSTALL_TREE_SMOKE_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/install-tree-smoke-build" CACHE PATH
+    "Build directory used by the opt-in install-tree smoke test")
+set(CONFLUX_INSTALL_TREE_SMOKE_PREFIX "${CMAKE_CURRENT_BINARY_DIR}/install-tree-smoke-prefix" CACHE PATH
+    "Install prefix used by the opt-in install-tree smoke test")
+set(CONFLUX_INSTALL_TREE_SMOKE_CONSUMER_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}/install-tree-smoke-consumer" CACHE PATH
+    "Downstream consumer build directory used by the opt-in install-tree smoke test")
+set(CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET "core" CACHE STRING
+    "Feature preset used by the opt-in install-tree smoke test")
+set(CONFLUX_INSTALL_TREE_SMOKE_BUILD_TYPE "Release" CACHE STRING
+    "CMake build type used by the opt-in install-tree smoke test")
+if(CONFLUX_BUILD_TESTS AND CONFLUX_RUN_INSTALL_TREE_SMOKE)
+    add_test(NAME build/install-tree-smoke
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/run-install-tree-smoke.sh"
+                --source "${CMAKE_CURRENT_SOURCE_DIR}"
+                --build-dir "${CONFLUX_INSTALL_TREE_SMOKE_BUILD_DIR}"
+                --prefix "${CONFLUX_INSTALL_TREE_SMOKE_PREFIX}"
+                --smoke-build-dir "${CONFLUX_INSTALL_TREE_SMOKE_CONSUMER_BUILD_DIR}"
+                --feature-set "${CONFLUX_INSTALL_TREE_SMOKE_FEATURE_SET}"
+                --build-type "${CONFLUX_INSTALL_TREE_SMOKE_BUILD_TYPE}"
+                --components "${CONFLUX_PACKAGE_SMOKE_COMPONENTS}")
+    set_tests_properties(build/install-tree-smoke PROPERTIES
         LABELS "build;package;install"
     )
 endif()

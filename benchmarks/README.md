@@ -141,8 +141,11 @@ For worker queue contention profiling, configure the perf preset with
 `-DCONFLUX_WORK_QUEUE_STATS=ON` before recording `workpool_enqueue_dequeue`. The
 benchmark still emits the standard `config`/`variant`/`iterations`/`total_ns`/
 `ns_per_iter` fields, and appends a `queue` object in raw NDJSON with enqueue,
-local/inject queue, steal, park, and futex wake counters. Normal perf presets
-leave this option off so instrumentation does not contaminate default history.
+local/inject queue, admission/local/steal lock-contention, steal, park, and
+futex wake counters. The benchmark includes the original per-task-join variants
+plus `external_burst` for admission/inject pressure and `local_fanout` for
+local-deque/steal pressure. Normal perf presets leave this option off so
+instrumentation does not contaminate default history.
 
 ## Comparing runs
 

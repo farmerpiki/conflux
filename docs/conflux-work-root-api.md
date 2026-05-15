@@ -178,6 +178,11 @@ struct WorkPoolQueueStats {
     uint64_t enqueue_stopped_rejections;
     uint64_t enqueue_full_rejections;
     uint64_t admission_lock_acquisitions;
+    uint64_t admission_lock_contentions;
+    uint64_t local_lock_acquisitions;
+    uint64_t local_lock_contentions;
+    uint64_t steal_lock_acquisitions;
+    uint64_t steal_lock_contentions;
     uint64_t local_pushes;
     uint64_t local_push_full;
     uint64_t inject_pushes;
@@ -208,6 +213,12 @@ With the option disabled, snapshots are zeroed and reset is a no-op. With the
 option enabled, counters use relaxed atomics and are intended for benchmark and
 profiling runs only. They are not a stable telemetry surface and should not be
 used for correctness decisions.
+
+The `*_lock_contentions` fields count a failed first `try_lock()` probe before
+falling back to the normal blocking mutex acquisition. They are deliberately
+coarse: they identify whether admission, owner-local deque, or steal-victim
+locks are contended enough to justify a deeper redesign, without timing critical
+sections or changing scheduling semantics in default builds.
 
 ## Source Contract
 

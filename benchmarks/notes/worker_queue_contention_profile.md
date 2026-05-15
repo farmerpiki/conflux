@@ -1,18 +1,33 @@
-# Worker queue contention profile slice
+# Worker queue contention profile/follow-up slice
 
-Branch: `worker/queue-contention-profile`
+Branches: `worker/queue-contention-profile`, `worker/queue-contention-followup`
 
-This slice adds an opt-in counter surface for profiling `WorkPool` contention
+These slices add an opt-in counter surface for profiling `WorkPool` contention
 without changing scheduling semantics.
 
 ## Instrumented points
 
-- producer admission: enqueue attempts, stopped/full rejections, admission lock acquisitions
-- local queue path: push/full, pop attempts/hits
+- producer admission: enqueue attempts, stopped/full rejections, admission lock acquisitions/contentions
+- local queue path: local mutex acquisitions/contentions, push/full, pop attempts/hits
 - inject queue path: push/full, pop attempts/hits
-- steal path: steal rounds, victim mutex checks, successful steals
+- steal path: steal rounds, victim mutex checks, victim mutex acquisitions/contentions, successful steals
 - wake/park path: `wake_one`, `wake_all`, futex wakes, park attempts, recheck skips, futex waits
 - execution: jobs run
+
+The `*_lock_contentions` counters are intentionally cheap probes: with
+`CONFLUX_WORK_QUEUE_STATS=ON`, each profiled mutex path first attempts a single
+`try_lock()`. A miss increments the corresponding contention counter and then
+falls back to normal blocking `lock()`. With queue stats disabled, the paths use
+plain blocking mutex acquisition and avoid the profiling `try_lock()` probe.
+
+## Benchmark variants
+
+`workpool_enqueue_dequeue` now reports four variants per config:
+
+- `single_thread` — one external producer, one worker, one blocking join per job
+- `contended` — N external producers, N workers, one blocking join per job
+- `external_burst` — N external producers enqueue a synchronized burst of counted jobs; stresses admission/inject without per-job join throttling
+- `local_fanout` — one worker enqueues a fanout batch onto its local deque; stresses local deque locking and steal-victim probing
 
 ## Profiling command
 
@@ -30,7 +45,7 @@ ONLY_BENCH=workpool_enqueue_dequeue BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh workpool-queue-profile
 ```
 
-## No-change decision for locks in this slice
+## No-change decision for locks in these slices
 
 No lock removal is included here. `admission_mtx_` is still the correctness gate
 that prevents `drain_and_stop()` from observing `pending_ == 0` while a racing
@@ -39,6 +54,7 @@ Removing it safely needs either an admission-state protocol or a producer epoch,
 and should be justified by measured contention first.
 
 The local deque mutexes also remain unchanged. They are required for local push,
-owner pop, and cross-worker steal. The new counters distinguish local queue hits
-from steal victim checks so a later patch can decide whether to change deque
-layout, batching, or steal policy instead of speculatively replacing locks.
+owner pop, and cross-worker steal. The follow-up counters distinguish actual
+mutex contention from ordinary queue activity, so later patches can decide
+between batching, steal-policy changes, per-worker queue layout changes, or no
+scheduler change at all.

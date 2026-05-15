@@ -157,19 +157,22 @@ is useful:
 ```cpp
 import conflux.json.file;
 
-expected<Document, JsonFileError> parse_file_at_sync(
+expected<Document, JsonFileError> blocking_parse_file_at(
     int root_fd,
     string_view contained_relative_path,
     JsonParseOptions const& opts = {});
-expected<Document, JsonFileError> parse_file_sync(
+expected<Document, JsonFileError> blocking_parse_file(
     string_view contained_relative_path,
     JsonParseOptions const& opts = {});
 ```
 
-`parse_file_at_sync` reads through `conflux.file_io_sync`, then calls
+`blocking_parse_file_at` reads through `conflux.file_io_sync`, then calls
 `parse_copy(std::string&&)`, so the returned `Document` owns the bytes. The read
 limit mirrors `JsonParseOptions::max_input_size`: default 128 MiB, explicit bound
 when supplied, or unbounded only when `max_input_size = no_limit`.
+
+The older `parse_file_at_sync` and `parse_file_sync` spellings remain available
+as pre-release compatibility aliases until the final public API cleanup.
 
 ### JsonParseOptions
 
@@ -745,6 +748,66 @@ for (auto const& raw : requests) {
 ---
 
 ## NDJSON / Streaming
+
+### `JsonStreamReader`
+
+Incremental event reader for byte streams that arrive in chunks. It owns the
+fed bytes, reuses the existing `JsonReader` event grammar, and rolls back when a
+partial token reaches the current end of the buffer. `next()` returns
+`nullopt` when no complete event is available yet; call `close()` when the input
+source reaches EOF so a terminal number can be emitted and unterminated
+containers/strings become parse errors.
+
+```cpp
+class JsonStreamReader {
+public:
+    using Event = JsonReader::Event;
+
+    explicit JsonStreamReader(JsonParseOptions const& = {});
+
+    expected<void, JsonError> feed(string_view chunk);
+    expected<void, JsonError> feed(span<byte const> chunk);
+    expected<void, JsonError> close();
+
+    expected<optional<Event>, JsonError> next();
+
+    JsonStringToken key_token() const;
+    JsonStringToken string_token() const;
+    JsonNumberView  number_val() const;
+    bool            bool_val() const;
+
+    string_view input() const;
+    size_t      buffered_bytes() const;
+    bool        closed() const;
+    void        reset();
+};
+```
+
+Example:
+
+```cpp
+JsonStreamReader reader;
+reader.feed(R"({"items":[1)");
+
+while (auto ev = reader.next()) {
+    if (!*ev) break; // need more bytes or closed EOF
+    handle(**ev, reader);
+}
+
+reader.feed(R"(,2,3]})");
+reader.close();
+
+while (auto ev = reader.next()) {
+    if (!*ev) break;
+    handle(**ev, reader);
+}
+```
+
+String tokens and key tokens are views into the stream reader's internal buffer
+when they do not require unescaping. Treat token views as valid until the next
+`feed()` or `reset()` call; copy/append decoded strings if they must outlive the
+stream buffer. The current implementation does not compact consumed bytes, so
+`max_input_size` applies to the total fed stream, not just unread bytes.
 
 ### `NdjsonRange`
 

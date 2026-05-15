@@ -8,7 +8,7 @@ module;
 #include <unistd.h>
 
 #ifndef CONFLUX_WORK_QUEUE_STATS
-#define CONFLUX_WORK_QUEUE_STATS 0
+	#define CONFLUX_WORK_QUEUE_STATS 0
 #endif
 
 export module conflux.work;
@@ -25,6 +25,11 @@ export struct WorkPoolQueueStats {
 	u64 enqueue_stopped_rejections = 0;
 	u64 enqueue_full_rejections = 0;
 	u64 admission_lock_acquisitions = 0;
+	u64 admission_lock_contentions = 0;
+	u64 local_lock_acquisitions = 0;
+	u64 local_lock_contentions = 0;
+	u64 steal_lock_acquisitions = 0;
+	u64 steal_lock_contentions = 0;
 	u64 local_pushes = 0;
 	u64 local_push_full = 0;
 	u64 inject_pushes = 0;
@@ -149,6 +154,11 @@ class WorkPoolQueueCounters {
 	Atom<u64> enqueue_stopped_rejections_{0};
 	Atom<u64> enqueue_full_rejections_{0};
 	Atom<u64> admission_lock_acquisitions_{0};
+	Atom<u64> admission_lock_contentions_{0};
+	Atom<u64> local_lock_acquisitions_{0};
+	Atom<u64> local_lock_contentions_{0};
+	Atom<u64> steal_lock_acquisitions_{0};
+	Atom<u64> steal_lock_contentions_{0};
 	Atom<u64> local_pushes_{0};
 	Atom<u64> local_push_full_{0};
 	Atom<u64> inject_pushes_{0};
@@ -188,6 +198,11 @@ public:
 	void note_enqueue_stopped_rejection() noexcept { add(enqueue_stopped_rejections_); }
 	void note_enqueue_full_rejection() noexcept { add(enqueue_full_rejections_); }
 	void note_admission_lock_acquisition() noexcept { add(admission_lock_acquisitions_); }
+	void note_admission_lock_contention() noexcept { add(admission_lock_contentions_); }
+	void note_local_lock_acquisition() noexcept { add(local_lock_acquisitions_); }
+	void note_local_lock_contention() noexcept { add(local_lock_contentions_); }
+	void note_steal_lock_acquisition() noexcept { add(steal_lock_acquisitions_); }
+	void note_steal_lock_contention() noexcept { add(steal_lock_contentions_); }
 	void note_local_push() noexcept { add(local_pushes_); }
 	void note_local_push_full() noexcept { add(local_push_full_); }
 	void note_inject_push() noexcept { add(inject_pushes_); }
@@ -208,12 +223,50 @@ public:
 	void note_park_attempt() noexcept { add(park_attempts_); }
 	void note_park_recheck_skip() noexcept { add(park_recheck_skips_); }
 	void note_futex_wait() noexcept { add(futex_waits_); }
+	[[nodiscard]] std::unique_lock<std::mutex> lock_admission(
+		std::mutex &mtx) {
+		if (mtx.try_lock()) {
+			note_admission_lock_acquisition();
+			return std::unique_lock<std::mutex>{mtx, std::adopt_lock};
+		}
+		note_admission_lock_contention();
+		mtx.lock();
+		note_admission_lock_acquisition();
+		return std::unique_lock<std::mutex>{mtx, std::adopt_lock};
+	}
+	[[nodiscard]] std::unique_lock<std::mutex> lock_local(
+		std::mutex &mtx) {
+		if (mtx.try_lock()) {
+			note_local_lock_acquisition();
+			return std::unique_lock<std::mutex>{mtx, std::adopt_lock};
+		}
+		note_local_lock_contention();
+		mtx.lock();
+		note_local_lock_acquisition();
+		return std::unique_lock<std::mutex>{mtx, std::adopt_lock};
+	}
+	[[nodiscard]] std::unique_lock<std::mutex> lock_steal_victim(
+		std::mutex &mtx) {
+		if (mtx.try_lock()) {
+			note_steal_lock_acquisition();
+			return std::unique_lock<std::mutex>{mtx, std::adopt_lock};
+		}
+		note_steal_lock_contention();
+		mtx.lock();
+		note_steal_lock_acquisition();
+		return std::unique_lock<std::mutex>{mtx, std::adopt_lock};
+	}
 	[[nodiscard]] WorkPoolQueueStats snapshot() const noexcept {
 		return WorkPoolQueueStats{
 			.enqueue_attempts = get(enqueue_attempts_),
 			.enqueue_stopped_rejections = get(enqueue_stopped_rejections_),
 			.enqueue_full_rejections = get(enqueue_full_rejections_),
 			.admission_lock_acquisitions = get(admission_lock_acquisitions_),
+			.admission_lock_contentions = get(admission_lock_contentions_),
+			.local_lock_acquisitions = get(local_lock_acquisitions_),
+			.local_lock_contentions = get(local_lock_contentions_),
+			.steal_lock_acquisitions = get(steal_lock_acquisitions_),
+			.steal_lock_contentions = get(steal_lock_contentions_),
 			.local_pushes = get(local_pushes_),
 			.local_push_full = get(local_push_full_),
 			.inject_pushes = get(inject_pushes_),
@@ -241,6 +294,11 @@ public:
 		clear(enqueue_stopped_rejections_);
 		clear(enqueue_full_rejections_);
 		clear(admission_lock_acquisitions_);
+		clear(admission_lock_contentions_);
+		clear(local_lock_acquisitions_);
+		clear(local_lock_contentions_);
+		clear(steal_lock_acquisitions_);
+		clear(steal_lock_contentions_);
 		clear(local_pushes_);
 		clear(local_push_full_);
 		clear(inject_pushes_);
@@ -268,6 +326,11 @@ public:
 	void note_enqueue_stopped_rejection() noexcept {}
 	void note_enqueue_full_rejection() noexcept {}
 	void note_admission_lock_acquisition() noexcept {}
+	void note_admission_lock_contention() noexcept {}
+	void note_local_lock_acquisition() noexcept {}
+	void note_local_lock_contention() noexcept {}
+	void note_steal_lock_acquisition() noexcept {}
+	void note_steal_lock_contention() noexcept {}
 	void note_local_push() noexcept {}
 	void note_local_push_full() noexcept {}
 	void note_inject_push() noexcept {}
@@ -288,6 +351,18 @@ public:
 	void note_park_attempt() noexcept {}
 	void note_park_recheck_skip() noexcept {}
 	void note_futex_wait() noexcept {}
+	[[nodiscard]] std::unique_lock<std::mutex> lock_admission(
+		std::mutex &mtx) {
+		return std::unique_lock<std::mutex>{mtx};
+	}
+	[[nodiscard]] std::unique_lock<std::mutex> lock_local(
+		std::mutex &mtx) {
+		return std::unique_lock<std::mutex>{mtx};
+	}
+	[[nodiscard]] std::unique_lock<std::mutex> lock_steal_victim(
+		std::mutex &mtx) {
+		return std::unique_lock<std::mutex>{mtx};
+	}
 	[[nodiscard]] WorkPoolQueueStats snapshot() const noexcept { return {}; }
 	void reset() noexcept {}
 #endif
@@ -370,7 +445,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 	[[nodiscard]] bool push_local(
 		conflux::work::root::detail::small_move_only_function<void()> job) {
 		auto &worker = *workers_[tls_worker_];
-		SL const lk{worker.mtx};
+		auto lk = queue_counters_.lock_local(worker.mtx);
 		if (worker.local.size() >= options_.local_queue_capacity) {
 			queue_counters_.note_local_push_full();
 			return false;
@@ -394,7 +469,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		SZ index) {
 		queue_counters_.note_local_pop_attempt();
 		auto &worker = *workers_[index];
-		SL const lk{worker.mtx};
+		auto lk = queue_counters_.lock_local(worker.mtx);
 		if (worker.local.empty()) {
 			return nullopt;
 		}
@@ -418,7 +493,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 			SZ const victim_index = (thief + offset) % workers_.size();
 			auto &victim = *workers_[victim_index];
 			queue_counters_.note_steal_victim_check();
-			SL const lk{victim.mtx};
+			auto lk = queue_counters_.lock_steal_victim(victim.mtx);
 			if (victim.local.empty()) {
 				continue;
 			}
@@ -542,8 +617,7 @@ public:
 	[[nodiscard]] bool enqueue(
 		conflux::work::root::detail::small_move_only_function<void()> job) override {
 		queue_counters_.note_enqueue_attempt();
-		std::unique_lock admission{admission_mtx_};
-		queue_counters_.note_admission_lock_acquisition();
+		auto admission = queue_counters_.lock_admission(admission_mtx_);
 		if (accepting_stopped_.test(memory_order_acquire) || stopping_.test(memory_order_acquire)) {
 			queue_counters_.note_enqueue_stopped_rejection();
 			return false;
@@ -558,7 +632,7 @@ public:
 		return true;
 	}
 	void stop() noexcept {
-		SL const admission{admission_mtx_};
+		auto admission = queue_counters_.lock_admission(admission_mtx_);
 		accepting_stopped_.test_and_set(memory_order_acq_rel);
 		if (!stopping_.test_and_set(memory_order_acq_rel)) {
 			for (auto &worker: workers_) {
@@ -569,7 +643,7 @@ public:
 	}
 	void drain_and_stop() noexcept {
 		{
-			SL const admission{admission_mtx_};
+			auto admission = queue_counters_.lock_admission(admission_mtx_);
 			accepting_stopped_.test_and_set(memory_order_acq_rel);
 		}
 		while (pending_.load(memory_order_acquire) > 0) {

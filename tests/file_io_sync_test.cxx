@@ -7,6 +7,7 @@
 import std;
 import conflux.types;
 import conflux.file_io_sync;
+import conflux.file_map;
 namespace {
 
 struct TempDir {
@@ -251,4 +252,57 @@ TEST_CASE(
 	auto content = read_file_at_sync(dir.fd, "data.txt", 4);
 	REQUIRE_FALSE(content.has_value());
 	CHECK(content.error().code().value() == EFBIG);
+}
+
+TEST_CASE(
+	"file_io_sync: blocking aliases forward to legacy sync helpers",
+	"[file_io_sync][unit]") {
+	auto dir = TempDir::create();
+	SV text = "blocking aliases";
+	auto tmp = blocking_open_tmpfile(dir.fd, TempFileOptions{.prefer_otmpfile = false});
+	REQUIRE(tmp.has_value());
+
+	auto wr = blocking_write_all_fd(tmp->fd(), as_bytes(span{text.data(), text.size()}));
+	REQUIRE(wr.has_value());
+	auto pub = blocking_publish_tmpfile(move(*tmp), dir.fd, SV{"alias.txt"});
+	REQUIRE(pub.has_value());
+
+	auto stat = blocking_stat_at(dir.fd, SV{"alias.txt"});
+	REQUIRE(stat.has_value());
+	CHECK(stat->size == text.size());
+
+	auto content = blocking_read_file_at(dir.fd, "alias.txt");
+	REQUIRE(content.has_value());
+	CHECK(*content == text);
+
+	auto full = format("{}/{}", dir.path, "alias.txt");
+	UniqueFd fd{::open(full.c_str(), O_RDONLY | O_CLOEXEC)};
+	REQUIRE(fd.valid());
+	auto fd_stat = blocking_fstat(fd.fd());
+	REQUIRE(fd_stat.has_value());
+	auto fd_content = blocking_read_all_fd(fd.fd());
+	REQUIRE(fd_content.has_value());
+	CHECK(*fd_content == text);
+
+	auto by_path = blocking_map_file_readonly(dir.fd, SV{"alias.txt"});
+	REQUIRE(by_path.has_value());
+	CHECK(SV{reinterpret_cast<char const *>(by_path->bytes().data()), by_path->bytes().size()} == text);
+
+	auto by_fd = blocking_map_fd_readonly(fd.fd(), *fd_stat);
+	REQUIRE(by_fd.has_value());
+	CHECK(SV{reinterpret_cast<char const *>(by_fd->bytes().data()), by_fd->bytes().size()} == text);
+}
+
+TEST_CASE(
+	"file_io_sync: blocking atomic write aliases round-trip text and bytes",
+	"[file_io_sync][unit]") {
+	auto dir = TempDir::create();
+	auto text = blocking_write_text_file_atomic_at(dir.fd, SV{"text.txt"}, SV{"new name"});
+	REQUIRE(text.has_value());
+	CHECK(dir.read_file("text.txt") == "new name");
+
+	A<byte, 3> bytes{byte{0x41}, byte{0x42}, byte{0x43}};
+	auto binary = blocking_write_file_atomic_at(dir.fd, SV{"bytes.bin"}, span{bytes});
+	REQUIRE(binary.has_value());
+	CHECK(dir.read_file("bytes.bin") == "ABC");
 }

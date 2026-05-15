@@ -441,6 +441,7 @@ add_executable(conflux_file_io_sync_tests file_io_sync_test.cxx)
 target_link_libraries(conflux_file_io_sync_tests
     PRIVATE
         conflux_file_io_sync
+        conflux_file_map
         conflux_options
         Catch2::Catch2WithMain
 )

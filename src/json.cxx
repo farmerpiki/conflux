@@ -56,6 +56,7 @@ export template<class T>
 class Nullable;
 export class JsonStringToken;
 export class JsonReader;
+export class JsonStreamReader;
 export struct JsonArenaOptions;
 export class ArenaDocument;
 export class JsonArena;
@@ -1408,6 +1409,7 @@ public:
 	};
 
 private:
+	friend class JsonStreamReader;
 	struct StateFrame {
 		enum class Kind : u8 {
 			object,
@@ -1415,6 +1417,19 @@ private:
 		} kind;
 		bool first{true};
 		bool awaiting_value{false};
+	};
+	struct Checkpoint {
+		SZ pos{};
+		SZ line{1};
+		SZ col{1};
+		V<StateFrame> stack{};
+		JsonStringToken key_token{};
+		JsonStringToken str_token{};
+		JsonNumberView num_val{SV{}, 0, 0};
+		bool bool_val{false};
+		bool has_error{false};
+		JsonError last_error{};
+		SZ value_start{};
 	};
 	SV input_;
 	JsonParseOptions opts_;
@@ -1826,6 +1841,39 @@ next_reader_ws:;
 		}
 		return unexpected(mk_err(JsonIssueCode::syntax_error, format("unexpected character '{}'", c)));
 	}
+	[[nodiscard]] Checkpoint checkpoint() const {
+		return Checkpoint{
+			.pos = pos_,
+			.line = line_,
+			.col = col_,
+			.stack = stack_,
+			.key_token = key_token_,
+			.str_token = str_token_,
+			.num_val = num_val_,
+			.bool_val = bool_val_,
+			.has_error = has_error_,
+			.last_error = last_error_,
+			.value_start = value_start_,
+		};
+	}
+	void restore(
+		Checkpoint checkpoint) {
+		pos_ = checkpoint.pos;
+		line_ = checkpoint.line;
+		col_ = checkpoint.col;
+		stack_ = move(checkpoint.stack);
+		key_token_ = checkpoint.key_token;
+		str_token_ = checkpoint.str_token;
+		num_val_ = checkpoint.num_val;
+		bool_val_ = checkpoint.bool_val;
+		has_error_ = checkpoint.has_error;
+		last_error_ = move(checkpoint.last_error);
+		value_start_ = checkpoint.value_start;
+	}
+	void replace_input(
+		SV input) noexcept {
+		input_ = input;
+	}
 
 public:
 	explicit JsonReader(
@@ -2069,6 +2117,171 @@ public:
 			}
 		}
 		return JsonByteRange{start, pos_};
+	}
+};
+export class JsonStreamReader {
+public:
+	using Event = JsonReader::Event;
+
+private:
+	S buf_{};
+	JsonParseOptions opts_{};
+	JsonReader reader_{SV{}};
+	bool closed_{false};
+	bool has_error_{false};
+	JsonError last_error_{};
+
+	void refresh_reader_input() noexcept { reader_.replace_input(SV{buf_.data(), buf_.size()}); }
+	void set_error(
+		JsonError e) noexcept {
+		has_error_ = true;
+		last_error_ = move(e);
+	}
+	[[nodiscard]] SZ configured_cap() const noexcept {
+		constexpr SZ kU32Ceiling = (SZ{1} << 32) - 1;
+		SZ const hard_cap = kU32Ceiling - 1;
+		if (opts_.max_input_size.is_unlimited()) {
+			return hard_cap;
+		}
+		return min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput), hard_cap);
+	}
+	[[nodiscard]] JsonError make_stream_error(
+		JsonIssueCode code,
+		S message) const {
+		return JsonError{
+			.stage = JsonStage::parse,
+			.code = code,
+			.source = JsonSourceLocation{.offset = reader_.pos_, .line = reader_.line_, .column = reader_.col_},
+			.message = move(message),
+		};
+	}
+	[[nodiscard]] bool tail_is_prefix_of_literal(
+		SZ start) const noexcept {
+		SV const tail{buf_.data() + start, buf_.size() - start};
+		return (tail.size() < SV{"true"}.size() && SV{"true"}.starts_with(tail))
+			|| (tail.size() < SV{"false"}.size() && SV{"false"}.starts_with(tail))
+			|| (tail.size() < SV{"null"}.size() && SV{"null"}.starts_with(tail));
+	}
+	[[nodiscard]] bool trailing_utf8_prefix_needs_more() const noexcept {
+		if (reader_.pos_ >= buf_.size()) {
+			return false;
+		}
+		auto const c = static_cast<unsigned char>(buf_[reader_.pos_]);
+		SZ const seq = utf8_seq_len(c);
+		return seq != 0 && reader_.pos_ + seq > buf_.size();
+	}
+	[[nodiscard]] bool recoverable_need_more(
+		SZ checkpoint_pos,
+		JsonError const &error) const noexcept {
+		if (closed_) {
+			return false;
+		}
+		if (error.code == JsonIssueCode::unexpected_eof) {
+			return true;
+		}
+		if (checkpoint_pos > buf_.size()) {
+			return false;
+		}
+		if (error.code == JsonIssueCode::syntax_error) {
+			if (checkpoint_pos < buf_.size() && tail_is_prefix_of_literal(checkpoint_pos)) {
+				return true;
+			}
+			if (reader_.pos_ >= buf_.size()) {
+				return true;
+			}
+		}
+		if (error.code == JsonIssueCode::invalid_unicode_escape) {
+			return reader_.pos_ + 4 > buf_.size();
+		}
+		if (error.code == JsonIssueCode::invalid_utf8) {
+			return trailing_utf8_prefix_needs_more();
+		}
+		return false;
+	}
+	[[nodiscard]] bool event_needs_more_before_emit(
+		Event event) const noexcept {
+		return !closed_ && event == Event::number_value && reader_.pos_ == buf_.size();
+	}
+
+public:
+	explicit JsonStreamReader(
+		JsonParseOptions const &opts =
+			{
+    })
+		: opts_{opts}
+		, reader_{SV{buf_.data(), buf_.size()}, opts} {}
+	[[nodiscard]] expected<void, JsonError> feed(
+		SV chunk) {
+		return feed(span<byte const>{reinterpret_cast<byte const *>(chunk.data()), chunk.size()});
+	}
+	[[nodiscard]] expected<void, JsonError> feed(
+		span<byte const> chunk) {
+		if (has_error_) {
+			return unexpected(last_error_);
+		}
+		if (closed_) {
+			return unexpected(make_stream_error(JsonIssueCode::invalid_value, "cannot feed after close"));
+		}
+		SZ const cap = configured_cap();
+		if (buf_.size() > cap || chunk.size() > cap - buf_.size()) {
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::parse,
+					.code = JsonIssueCode::input_too_large,
+					.message = "stream buffer exceeds max_input_size"});
+		}
+		buf_.append(reinterpret_cast<char const *>(chunk.data()), chunk.size());
+		refresh_reader_input();
+		return {};
+	}
+	[[nodiscard]] expected<void, JsonError> close() {
+		if (has_error_) {
+			return unexpected(last_error_);
+		}
+		closed_ = true;
+		refresh_reader_input();
+		return {};
+	}
+	[[nodiscard]] expected<Opt<Event>, JsonError> next() {
+		if (has_error_) {
+			return unexpected(last_error_);
+		}
+		refresh_reader_input();
+		auto checkpoint = reader_.checkpoint();
+		auto ev = reader_.next();
+		if (!ev) {
+			auto error = move(ev).error();
+			if (recoverable_need_more(checkpoint.pos, error)) {
+				reader_.restore(move(checkpoint));
+				return Opt<Event>{};
+			}
+			set_error(move(error));
+			return unexpected(last_error_);
+		}
+		if (*ev && event_needs_more_before_emit(**ev)) {
+			reader_.restore(move(checkpoint));
+			return Opt<Event>{};
+		}
+		return ev;
+	}
+	[[nodiscard]] JsonStringToken key_token() const noexcept { return reader_.key_token(); }
+	[[nodiscard]] JsonStringToken string_token() const noexcept { return reader_.string_token(); }
+	[[nodiscard]] JsonNumberView number_val() const noexcept { return reader_.number_val(); }
+	[[nodiscard]] bool bool_val() const noexcept { return reader_.bool_val(); }
+	[[nodiscard]] SV input() const noexcept { return SV{buf_.data(), buf_.size()}; }
+	[[nodiscard]] SZ depth() const noexcept { return reader_.depth(); }
+	[[nodiscard]] bool has_error() const noexcept { return has_error_ || reader_.has_error(); }
+	[[nodiscard]] bool closed() const noexcept { return closed_; }
+	[[nodiscard]] SZ pos() const noexcept { return reader_.pos(); }
+	[[nodiscard]] SZ value_start_pos() const noexcept { return reader_.value_start_pos(); }
+	[[nodiscard]] SZ buffered_bytes() const noexcept { return buf_.size(); }
+	void reset() noexcept {
+		buf_.clear();
+		closed_ = false;
+		has_error_ = false;
+		last_error_ = {};
+		reader_.reset();
+		refresh_reader_input();
 	}
 };
 // ---------------------------------------------------------------------------
@@ -4886,16 +5099,16 @@ expected<Document, JsonError> parse(
 // caller-owned bytes. String literals and string_view temporaries still select
 // the string_view overloads; only owned string temporaries are rejected.
 template<typename T>
-	requires (same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
+	requires(same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
 expected<Document, JsonError> parse(T &&, JsonParseOptions const & = {}) = delete;
 template<typename T>
-	requires (same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
+	requires(same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
 expected<Document, JsonError> parse_borrowed(T &&, JsonParseOptions const & = {}) = delete;
 template<typename T>
-	requires (same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
+	requires(same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
 expected<Document, JsonError> parse_borrowed_unsafe(T &&, JsonParseOptions const & = {}) = delete;
 template<typename T>
-	requires (same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
+	requires(same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
 expected<Document, JsonError> parse_view(T &&, JsonParseOptions const & = {}) = delete;
 // pmr-injecting overloads — caller supplies the memory resource.
 // The resource must outlive every Document (and NodeRef) derived from it.
@@ -4956,7 +5169,7 @@ expected<Document, JsonError> parse(
 }
 
 template<typename T>
-	requires (same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
+	requires(same_as<std::remove_cvref_t<T>, S> && !std::is_lvalue_reference_v<T>)
 expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::memory_resource *) = delete;
 
 } // namespace conflux::json
@@ -4965,10 +5178,7 @@ namespace conflux::json::detail {
 
 [[nodiscard]] inline JsonError dom_policy_error(
 	SV message) {
-	return JsonError{
-		.stage = JsonStage::parse,
-		.code = JsonIssueCode::constraint_violation,
-		.message = S{message}};
+	return JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::constraint_violation, .message = S{message}};
 }
 
 [[nodiscard]] inline expected<void, JsonError> require_dom_storage(
@@ -4978,10 +5188,7 @@ namespace conflux::json::detail {
 	if (policy.storage == expected) {
 		return {};
 	}
-	return unexpected(
-		dom_policy_error(format(
-			"{} called with incompatible JsonDomPolicy storage model",
-			api_name)));
+	return unexpected(dom_policy_error(format("{} called with incompatible JsonDomPolicy storage model", api_name)));
 }
 
 } // namespace conflux::json::detail
@@ -4992,14 +5199,18 @@ export namespace conflux::json {
 	SV input,
 	JsonDomPolicy const &policy = JsonDomPolicy::view_first()) {
 	if (policy.storage == JsonDomStorageModel::caller_pmr_document) {
-		return unexpected(detail::dom_policy_error("parse_dom(string_view) needs the memory_resource overload for caller_pmr_document"));
+		return unexpected(
+			detail::dom_policy_error(
+				"parse_dom(string_view) needs the memory_resource overload for caller_pmr_document"));
 	}
-	if (auto ok = detail::require_dom_storage(policy, JsonDomStorageModel::standalone_document, "parse_dom(string_view)"); !ok) {
+	if (auto ok =
+			detail::require_dom_storage(policy, JsonDomStorageModel::standalone_document, "parse_dom(string_view)");
+		!ok) {
 		return unexpected(move(ok).error());
 	}
 	switch (policy.input) {
 	case JsonDomInputOwnership::borrowed_view: return parse_view(input, policy.parse);
-	case JsonDomInputOwnership::owned_copy: return parse_copy(input, policy.parse);
+	case JsonDomInputOwnership::owned_copy   : return parse_copy(input, policy.parse);
 	case JsonDomInputOwnership::owned_move:
 		return unexpected(detail::dom_policy_error("owned_move requires parse_dom(std::string&&)"));
 	}
@@ -5010,9 +5221,13 @@ export namespace conflux::json {
 	S &&input,
 	JsonDomPolicy const &policy = JsonDomPolicy::owning_document()) {
 	if (policy.storage == JsonDomStorageModel::caller_pmr_document) {
-		return unexpected(detail::dom_policy_error("parse_dom(std::string&&) needs the memory_resource overload for caller_pmr_document"));
+		return unexpected(
+			detail::dom_policy_error(
+				"parse_dom(std::string&&) needs the memory_resource overload for caller_pmr_document"));
 	}
-	if (auto ok = detail::require_dom_storage(policy, JsonDomStorageModel::standalone_document, "parse_dom(std::string&&)"); !ok) {
+	if (auto ok =
+			detail::require_dom_storage(policy, JsonDomStorageModel::standalone_document, "parse_dom(std::string&&)");
+		!ok) {
 		return unexpected(move(ok).error());
 	}
 	if (policy.input == JsonDomInputOwnership::borrowed_view) {
@@ -5028,14 +5243,20 @@ export namespace conflux::json {
 	if (resource == nullptr) {
 		return unexpected(detail::dom_policy_error("parse_dom(memory_resource*) requires a non-null resource"));
 	}
-	if (auto ok = detail::require_dom_storage(policy, JsonDomStorageModel::caller_pmr_document, "parse_dom(memory_resource*)"); !ok) {
+	if (auto ok = detail::require_dom_storage(
+			policy,
+			JsonDomStorageModel::caller_pmr_document,
+			"parse_dom(memory_resource*)");
+		!ok) {
 		return unexpected(move(ok).error());
 	}
 	switch (policy.input) {
 	case JsonDomInputOwnership::borrowed_view: return parse_view(input, policy.parse, resource);
-	case JsonDomInputOwnership::owned_copy: return parse_copy(input, policy.parse, resource);
+	case JsonDomInputOwnership::owned_copy   : return parse_copy(input, policy.parse, resource);
 	case JsonDomInputOwnership::owned_move:
-		return unexpected(detail::dom_policy_error("owned_move requires a std::string&& overload; caller_pmr cannot move-own input today"));
+		return unexpected(
+			detail::dom_policy_error(
+				"owned_move requires a std::string&& overload; caller_pmr cannot move-own input today"));
 	}
 	return unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
 }
@@ -5044,12 +5265,16 @@ export namespace conflux::json {
 	JsonArena &arena,
 	SV input,
 	JsonDomPolicy const &policy = JsonDomPolicy::arena_reuse()) {
-	if (auto ok = detail::require_dom_storage(policy, JsonDomStorageModel::reusable_arena, "parse_dom(JsonArena&, string_view)"); !ok) {
+	if (auto ok = detail::require_dom_storage(
+			policy,
+			JsonDomStorageModel::reusable_arena,
+			"parse_dom(JsonArena&, string_view)");
+		!ok) {
 		return unexpected(move(ok).error());
 	}
 	switch (policy.input) {
 	case JsonDomInputOwnership::borrowed_view: return arena.parse_borrowed_into(input, policy.parse);
-	case JsonDomInputOwnership::owned_copy: return arena.parse_into(input, policy.parse);
+	case JsonDomInputOwnership::owned_copy   : return arena.parse_into(input, policy.parse);
 	case JsonDomInputOwnership::owned_move:
 		return unexpected(detail::dom_policy_error("owned_move requires parse_dom(JsonArena&, std::string&&)"));
 	}
@@ -5059,10 +5284,13 @@ export namespace conflux::json {
 [[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
 	JsonArena &arena,
 	S &&input,
-	JsonDomPolicy const &policy = JsonDomPolicy{
-		.input = JsonDomInputOwnership::owned_move,
-		.storage = JsonDomStorageModel::reusable_arena}) {
-	if (auto ok = detail::require_dom_storage(policy, JsonDomStorageModel::reusable_arena, "parse_dom(JsonArena&, std::string&&)"); !ok) {
+	JsonDomPolicy const &policy =
+		JsonDomPolicy{.input = JsonDomInputOwnership::owned_move, .storage = JsonDomStorageModel::reusable_arena}) {
+	if (auto ok = detail::require_dom_storage(
+			policy,
+			JsonDomStorageModel::reusable_arena,
+			"parse_dom(JsonArena&, std::string&&)");
+		!ok) {
 		return unexpected(move(ok).error());
 	}
 	if (policy.input == JsonDomInputOwnership::borrowed_view) {
@@ -6478,8 +6706,7 @@ concept codec_encodes_value = requires(ValueBuilder &builder, T const &value) {
 
 template<class T>
 struct has_codec_spec<T>
-	: std::bool_constant<
-		codec_encodes_value<T> && (codec_decodes_node<T> || codec_decodes_node_with_options<T>)> {};
+	: std::bool_constant<codec_encodes_value<T> && (codec_decodes_node<T> || codec_decodes_node_with_options<T>)> {};
 
 template<class T>
 expected<T, JsonError> decode_codec(

@@ -3136,9 +3136,8 @@ TEST_CASE(
 	"[phase4]") {
 	auto const json = std::string_view{R"({"x":1,"y":2})"};
 	JsonReader r{
-		span<byte const>{
-			reinterpret_cast<byte const *>(json.data()),
-			json.size()}};
+		span<byte const>{reinterpret_cast<byte const *>(json.data()), json.size()}
+    };
 
 	auto e0 = r.next();
 	REQUIRE(e0.has_value());
@@ -4017,7 +4016,9 @@ TEST_CASE(
 	"phase5: JsonArena hash index allocations use the injected resource",
 	"[phase5]") {
 	CountingResource hash_resource{};
-	JsonArena arena{JsonArenaOptions{.initial_slab = 128 * 1024, .hash_index_resource = &hash_resource}};
+	JsonArena arena{
+		JsonArenaOptions{.initial_slab = 128 * 1024, .hash_index_resource = &hash_resource}
+    };
 	auto doc = arena.parse_into(
 		R"({"k00":0,"k01":1,"k02":2,"k03":3,"k04":4,"k05":5,"k06":6,"k07":7,"k08":8,"k09":9,"k10":10,"k11":11,"k12":12,"k13":13,"k14":14,"k15":15,"k16":16,"k17":17,"k18":18,"k19":19,"k20":20,"k21":21,"k22":22,"k23":23,"k24":24,"k25":25,"k26":26,"k27":27,"k28":28,"k29":29,"k30":30,"k31":31,"k32":32,"k33":33,"k34":34,"k35":35,"k36":36,"k37":37,"k38":38,"k39":39})");
 	REQUIRE(doc.has_value());
@@ -4229,12 +4230,7 @@ TEST_CASE(
 	"[phase7]") {
 	JsonAccumulator acc;
 	auto const json = std::string_view{R"({"a":[1,2,3],"b":true})"};
-	REQUIRE(
-		acc.feed(
-			span<byte const>{
-				reinterpret_cast<byte const *>(json.data()),
-				json.size()}).
-			has_value());
+	REQUIRE(acc.feed(span<byte const>{reinterpret_cast<byte const *>(json.data()), json.size()}).has_value());
 	auto doc = acc.finish();
 	REQUIRE(doc.has_value());
 	auto obj = doc->root().as_object();
@@ -4300,6 +4296,147 @@ TEST_CASE(
 	REQUIRE(acc.feed("def").has_value());
 	CHECK(acc.buffered_bytes() == 6);
 }
+TEST_CASE(
+	"phase7: JsonStreamReader emits events across fragmented feeds",
+	"[phase7]") {
+	JsonStreamReader r;
+	using Ev = JsonReader::Event;
+
+	REQUIRE(r.feed(R"({"a")").has_value());
+
+	auto e0 = r.next();
+	REQUIRE(e0.has_value());
+	REQUIRE(e0->has_value());
+	CHECK(**e0 == Ev::begin_object);
+
+	auto pending_key = r.next();
+	REQUIRE(pending_key.has_value());
+	CHECK_FALSE(pending_key->has_value());
+	CHECK(r.pos() == 1UZ);
+
+	REQUIRE(r.feed(R"(:[1)").has_value());
+
+	auto e1 = r.next();
+	REQUIRE(e1.has_value());
+	REQUIRE(e1->has_value());
+	CHECK(**e1 == Ev::key);
+	auto key = r.key_token().unescaped_borrow();
+	REQUIRE(key.has_value());
+	CHECK(*key == "a");
+
+	auto e2 = r.next();
+	REQUIRE(e2.has_value());
+	REQUIRE(e2->has_value());
+	CHECK(**e2 == Ev::begin_array);
+
+	auto pending_number = r.next();
+	REQUIRE(pending_number.has_value());
+	CHECK_FALSE(pending_number->has_value());
+
+	REQUIRE(r.feed(R"(,2]} true)").has_value());
+
+	auto e3 = r.next();
+	REQUIRE(e3.has_value());
+	REQUIRE(e3->has_value());
+	CHECK(**e3 == Ev::number_value);
+	REQUIRE(r.number_val().to_i64().has_value());
+	CHECK(*r.number_val().to_i64() == 1LL);
+
+	auto e4 = r.next();
+	REQUIRE(e4.has_value());
+	REQUIRE(e4->has_value());
+	CHECK(**e4 == Ev::number_value);
+	REQUIRE(r.number_val().to_i64().has_value());
+	CHECK(*r.number_val().to_i64() == 2LL);
+
+	auto e5 = r.next();
+	REQUIRE(e5.has_value());
+	REQUIRE(e5->has_value());
+	CHECK(**e5 == Ev::end_array);
+
+	auto e6 = r.next();
+	REQUIRE(e6.has_value());
+	REQUIRE(e6->has_value());
+	CHECK(**e6 == Ev::end_object);
+
+	auto e7 = r.next();
+	REQUIRE(e7.has_value());
+	REQUIRE(e7->has_value());
+	CHECK(**e7 == Ev::bool_value);
+	CHECK(r.bool_val() == true);
+
+	REQUIRE(r.close().has_value());
+	auto eof = r.next();
+	REQUIRE(eof.has_value());
+	CHECK_FALSE(eof->has_value());
+}
+TEST_CASE(
+	"phase7: JsonStreamReader waits for delimiter or close before terminal number",
+	"[phase7]") {
+	JsonStreamReader r;
+	using Ev = JsonReader::Event;
+
+	REQUIRE(r.feed("42").has_value());
+	auto pending = r.next();
+	REQUIRE(pending.has_value());
+	CHECK_FALSE(pending->has_value());
+
+	REQUIRE(r.close().has_value());
+	auto ev = r.next();
+	REQUIRE(ev.has_value());
+	REQUIRE(ev->has_value());
+	CHECK(**ev == Ev::number_value);
+	REQUIRE(r.number_val().to_i64().has_value());
+	CHECK(*r.number_val().to_i64() == 42LL);
+}
+TEST_CASE(
+	"phase7: JsonStreamReader resumes fragmented string escape",
+	"[phase7]") {
+	JsonStreamReader r;
+	using Ev = JsonReader::Event;
+
+	REQUIRE(r.feed(R"("x\u00)").has_value());
+	auto pending = r.next();
+	REQUIRE(pending.has_value());
+	CHECK_FALSE(pending->has_value());
+
+	REQUIRE(r.feed(R"(61")").has_value());
+	auto ev = r.next();
+	REQUIRE(ev.has_value());
+	REQUIRE(ev->has_value());
+	CHECK(**ev == Ev::string_value);
+
+	S decoded;
+	REQUIRE(r.string_token().append_decoded_to(decoded).has_value());
+	CHECK(decoded == "xa");
+}
+TEST_CASE(
+	"phase7: JsonStreamReader close turns incomplete input into parse error",
+	"[phase7]") {
+	JsonStreamReader r;
+	using Ev = JsonReader::Event;
+
+	REQUIRE(r.feed("[1").has_value());
+	auto begin = r.next();
+	REQUIRE(begin.has_value());
+	REQUIRE(begin->has_value());
+	CHECK(**begin == Ev::begin_array);
+
+	auto pending = r.next();
+	REQUIRE(pending.has_value());
+	CHECK_FALSE(pending->has_value());
+
+	REQUIRE(r.close().has_value());
+	auto number = r.next();
+	REQUIRE(number.has_value());
+	REQUIRE(number->has_value());
+	CHECK(**number == Ev::number_value);
+
+	auto err = r.next();
+	REQUIRE_FALSE(err.has_value());
+	CHECK(err.error().code == JsonIssueCode::syntax_error);
+}
+
 TEST_CASE(
 	"phase7: NdjsonRange with parse options",
 	"[phase7]") {

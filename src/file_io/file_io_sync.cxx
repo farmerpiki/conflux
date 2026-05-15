@@ -520,7 +520,7 @@ export std::expected<std::string, FileIoSyncError> read_all_fd(
 	if (st->size > max_bytes) {
 		return unexpected{
 			FileIoSyncError{EFBIG, "file_io_sync: file exceeds read limit"}
-		};
+        };
 	}
 
 	std::string out;
@@ -540,13 +540,13 @@ export std::expected<std::string, FileIoSyncError> read_all_fd(
 			}
 			return unexpected{
 				FileIoSyncError{errno, "file_io_sync: read"}
-			};
+            };
 		}
 		auto const count = static_cast<std::size_t>(n);
 		if (count > max_bytes - out.size()) {
 			return unexpected{
 				FileIoSyncError{EFBIG, "file_io_sync: file exceeds read limit"}
-			};
+            };
 		}
 		out.append(buf.data(), count);
 	}
@@ -574,8 +574,77 @@ export std::expected<std::string, FileIoSyncError> read_file_at_sync(
 	if (fd < 0) {
 		return unexpected{
 			FileIoSyncError{errno, "file_io_sync: open file"}
-		};
+        };
 	}
 	UniqueFd file{fd};
 	return read_all_fd(file.fd(), max_bytes);
+}
+
+// ───────────────────────────────────────────────────────────────────────
+// blocking_* aliases — final naming model for direct caller-thread I/O.
+// Keep *_sync names as pre-release compatibility aliases until the release
+// cleanup pass removes legacy spellings project-wide.
+// ───────────────────────────────────────────────────────────────────────
+
+export inline expected<TemporaryFileSync, FileIoSyncError> blocking_open_tmpfile(
+	int parent_dir_fd,
+	TempFileOptions opts = {}) noexcept {
+	return open_tmpfile_sync(parent_dir_fd, opts);
+}
+
+export inline expected<void, FileIoSyncError> blocking_write_all_fd(
+	int fd,
+	span<byte const> bytes) noexcept {
+	return write_all_fd(fd, bytes);
+}
+
+export inline expected<void, FileIoSyncError> blocking_publish_tmpfile(
+	TemporaryFileSync &&tmp,
+	int parent_dir_fd,
+	SV final_name,
+	TempPublishMode mode = TempPublishMode::replace_existing,
+	TempDurability durability = TempDurability::file_and_directory) noexcept {
+	return publish_tmpfile_sync(move(tmp), parent_dir_fd, final_name, mode, durability);
+}
+
+export inline expected<void, FileIoSyncError> blocking_write_file_atomic_at(
+	int root_fd,
+	SV contained_relative_path,
+	span<byte const> bytes,
+	TempFileOptions opts = {},
+	TempPublishMode mode = TempPublishMode::replace_existing) noexcept {
+	return write_file_atomic_at_sync(root_fd, contained_relative_path, bytes, opts, mode);
+}
+
+export inline expected<void, FileIoSyncError> blocking_write_text_file_atomic_at(
+	int root_fd,
+	SV contained_relative_path,
+	SV text,
+	TempFileOptions opts = {},
+	TempPublishMode mode = TempPublishMode::replace_existing) noexcept {
+	return write_text_file_atomic_at_sync(root_fd, contained_relative_path, text, opts, mode);
+}
+
+export inline expected<FileStat, FileIoSyncError> blocking_fstat(
+	int fd) noexcept {
+	return fstat_sync(fd);
+}
+
+export inline expected<FileStat, FileIoSyncError> blocking_stat_at(
+	int dir_fd,
+	SV path) noexcept {
+	return stat_at_sync(dir_fd, path);
+}
+
+export inline std::expected<std::string, FileIoSyncError> blocking_read_all_fd(
+	int fd,
+	std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
+	return read_all_fd(fd, max_bytes);
+}
+
+export inline std::expected<std::string, FileIoSyncError> blocking_read_file_at(
+	int root_fd,
+	std::string_view contained_relative_path,
+	std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
+	return read_file_at_sync(root_fd, contained_relative_path, max_bytes);
 }
