@@ -99,6 +99,85 @@ void append_static_decimal(
 	}
 }
 
+
+[[nodiscard]] bool static_ascii_iequals(
+	SV a,
+	SV b) {
+	if (a.size() != b.size()) {
+		return false;
+	}
+	for (SZ i = 0; i < a.size(); ++i) {
+		auto const ca = static_cast<unsigned char>(a[i]);
+		auto const cb = static_cast<unsigned char>(b[i]);
+		if ((ca | 0x20U) != (cb | 0x20U)) {
+			return false;
+		}
+	}
+	return true;
+}
+
+[[nodiscard]] bool static_accept_encoding_q_allows(
+	SV entry,
+	SZ semi) {
+	if (semi == SV::npos) {
+		return true;
+	}
+	auto params = entry.substr(semi + 1);
+	auto q_pos = params.find("q=");
+	if (q_pos == SV::npos) {
+		q_pos = params.find("Q=");
+	}
+	if (q_pos == SV::npos) {
+		return true;
+	}
+	auto qval = params.substr(q_pos + 2);
+	auto qend = qval.find_first_of(", ;");
+	if (qend != SV::npos) {
+		qval = qval.substr(0, qend);
+	}
+	return qval != "0" && qval != "0." && qval != "0.0" && qval != "0.00" && qval != "0.000";
+}
+
+struct StaticAcceptedEncodings {
+	bool br{};
+	bool gzip{};
+};
+
+[[nodiscard]] StaticAcceptedEncodings parse_static_accept_encoding(
+	SV ae) {
+	StaticAcceptedEncodings out{};
+	bool seen_br = false;
+	bool seen_gzip = false;
+	SZ pos = 0;
+	while (pos < ae.size()) {
+		auto comma = ae.find(',', pos);
+		SV entry = ae.substr(pos, comma == SV::npos ? SV::npos : comma - pos);
+		pos = comma == SV::npos ? ae.size() : comma + 1;
+		while (!entry.empty() && entry.front() == ' ') {
+			entry.remove_prefix(1);
+		}
+		while (!entry.empty() && entry.back() == ' ') {
+			entry.remove_suffix(1);
+		}
+		auto const semi = entry.find(';');
+		SV coding = entry.substr(0, semi);
+		while (!coding.empty() && coding.back() == ' ') {
+			coding.remove_suffix(1);
+		}
+		if (!seen_br && static_ascii_iequals(coding, "br")) {
+			out.br = static_accept_encoding_q_allows(entry, semi);
+			seen_br = true;
+		} else if (!seen_gzip && static_ascii_iequals(coding, "gzip")) {
+			out.gzip = static_accept_encoding_q_allows(entry, semi);
+			seen_gzip = true;
+		}
+		if (seen_br && seen_gzip) {
+			break;
+		}
+	}
+	return out;
+}
+
 [[nodiscard]] S static_file_etag(
 	off_t size,
 	time_t mtime) {
@@ -431,54 +510,8 @@ HttpResponse handle_static_get(
 				// Pre-compressed sidecar: try .br then .gz.
 				S content_encoding;
 				if (static_options.precompressed) {
-					auto const &accept_enc = r.accept_encoding;
-					auto encoding_accepted = [&](SV token) -> bool {
-						SV const ae{accept_enc};
-						SZ pos = 0;
-						while (pos < ae.size()) {
-							auto comma = ae.find(',', pos);
-							SV entry = ae.substr(pos, comma == SV::npos ? SV::npos : comma - pos);
-							pos = comma == SV::npos ? ae.size() : comma + 1;
-							while (!entry.empty() && entry.front() == ' ') {
-								entry.remove_prefix(1);
-							}
-							while (!entry.empty() && entry.back() == ' ') {
-								entry.remove_suffix(1);
-							}
-							auto semi = entry.find(';');
-							SV coding = entry.substr(0, semi);
-							while (!coding.empty() && coding.back() == ' ') {
-								coding.remove_suffix(1);
-							}
-							bool const match =
-								coding.size() == token.size() && ranges::equal(coding, token, [](char a, char b) {
-									return (static_cast<unsigned char>(a) | 0x20)
-										== (static_cast<unsigned char>(b) | 0x20);
-								});
-							if (!match) {
-								continue;
-							}
-							if (semi == SV::npos) {
-								return true;
-							}
-							auto params = entry.substr(semi + 1);
-							auto q_pos = params.find("q=");
-							if (q_pos == SV::npos) {
-								q_pos = params.find("Q=");
-							}
-							if (q_pos == SV::npos) {
-								return true;
-							}
-							auto qval = params.substr(q_pos + 2);
-							auto qend = qval.find_first_of(", ;");
-							if (qend != SV::npos) {
-								qval = qval.substr(0, qend);
-							}
-							return qval != "0" && qval != "0." && qval != "0.0" && qval != "0.00" && qval != "0.000";
-						}
-						return false;
-					};
-					if (encoding_accepted("br")) {
+					auto const accepted = parse_static_accept_encoding(r.accept_encoding);
+					if (accepted.br) {
 						auto br_rel = rel_str + ".br";
 						int const br_fd = contained_static_open(root_fd, br_rel.c_str(), O_PATH | O_CLOEXEC);
 						if (br_fd >= 0) {
@@ -492,7 +525,7 @@ HttpResponse handle_static_get(
 							::close(br_fd);
 						}
 					}
-					if (content_encoding.empty() && encoding_accepted("gzip")) {
+					if (content_encoding.empty() && accepted.gzip) {
 						auto gz_rel = rel_str + ".gz";
 						int const gz_fd = contained_static_open(root_fd, gz_rel.c_str(), O_PATH | O_CLOEXEC);
 						if (gz_fd >= 0) {
