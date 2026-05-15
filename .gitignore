@@ -3,3 +3,4 @@
 build
 benchmark-results
 AGENTS.md
+__pycache__/
