@@ -1,6 +1,7 @@
 // Plain TU — not a module unit. std::thread lambda → module TU-local rule.
 #include <arpa/inet.h>
 #include <catch2/catch_test_macros.hpp>
+#include <cstdlib>
 #include <fcntl.h>
 #include <liburing.h>
 #include <linux/futex.h>
@@ -20,6 +21,15 @@ import conflux.file_io_sync;
 
 namespace root = conflux::work::root;
 namespace {
+
+[[nodiscard]] S temp_file_root() {
+	// Set CONFLUX_FILE_IO_TMPDIR to run file-backed tests on a real filesystem
+	// instead of the default /tmp tmpfs.
+	if (char const *env = std::getenv("CONFLUX_FILE_IO_TMPDIR"); env != nullptr && env[0] != '\0') {
+		return S{env};
+	}
+	return "/tmp";
+}
 
 constexpr u64 pack_ud(
 	u32 slot,
@@ -59,13 +69,14 @@ UP<RingFixture> require_ring_fixture(
 	REQUIRE(fx != nullptr);
 	return fx;
 }
+
 struct TempFile {
 	S path;
 	int fd{-1};
 	static TempFile create(
 		SV content = {}) {
 		TempFile t;
-		t.path = "/tmp/conflux_file_io_test_XXXXXX";
+		t.path = format("{}/conflux_file_io_test_XXXXXX", temp_file_root());
 		t.fd = ::mkstemp(t.path.data());
 		REQUIRE(t.fd >= 0);
 		if (!content.empty()) {
@@ -91,12 +102,13 @@ struct TempFile {
 		, fd{exchange(o.fd, -1)} {}
 	TempFile &operator =(TempFile &&) = delete;
 };
+
 struct TempDir {
 	S path;
 	int fd{-1};
 	static TempDir create() {
 		TempDir t;
-		t.path = "/tmp/conflux_file_io_dir_XXXXXX";
+		t.path = format("{}/conflux_file_io_dir_XXXXXX", temp_file_root());
 		auto *r = ::mkdtemp(t.path.data());
 		REQUIRE(r != nullptr);
 		t.fd = ::open(t.path.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);

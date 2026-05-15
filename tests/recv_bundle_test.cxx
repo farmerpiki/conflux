@@ -303,6 +303,28 @@ TEST_CASE(
 	second.recycle_all();
 }
 
+
+TEST_CASE(
+	"recv_bundle.discard: selected zero-byte CQE advances window",
+	"[recv_bundle]") {
+	Rig rig{4, 64, 0, BufferRingMode::recv_bundle};
+
+	REQUIRE(rig.ring.recycle_selected_buffer(0));
+	CHECK(rig.ring.debug_head_pos() == 1u);
+
+	for (u16 id = 1; id < 4; ++id) {
+		auto slices = buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(id), true);
+		REQUIRE(slices.valid());
+		CHECK((*slices.begin()).id == id);
+		slices.recycle_all();
+	}
+
+	auto recycled = buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(0), true);
+	REQUIRE(recycled.valid());
+	CHECK((*recycled.begin()).id == 0u);
+	recycled.recycle_all();
+}
+
 // Test 9: discard via recycle_all() advances head by cnt (not 1)
 TEST_CASE(
 	"recv_bundle.discard: bundle head advances by cnt",
