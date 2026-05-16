@@ -3762,6 +3762,39 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"basic_auth: zero max_failed_clients clamps instead of corrupting limiter state",
+	"[auth][security]") {
+	Router router;
+	unsigned calls = 0;
+	router.use(basic_auth_middleware(
+		[&calls](SV, SV) {
+			++calls;
+			return false;
+		},
+		BasicAuthOptions{
+			.realm = "Clamp",
+			.failed_attempts = 1,
+			.failed_window = chrono::seconds{60},
+			.max_failed_clients = 0,
+		}));
+	router.get("/", [](HttpRequest const &) { return HttpResponse::text("x"); });
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/";
+	req.remote_addr = "127.0.0.1";
+	req.headers.emplace_back("Authorization", "Basic YmFkOmNyZWRz");
+
+	auto first = router.dispatch(req);
+	REQUIRE(first.status == 401);
+	CHECK(calls == 1);
+
+	auto second = router.dispatch(req);
+	REQUIRE(second.status == 429);
+	CHECK(calls == 1);
+}
+
+TEST_CASE(
 	"basic_auth: failed-attempt limit returns 429 before validator",
 	"[auth][security]") {
 	static u16 port = 0;
@@ -7534,6 +7567,17 @@ TEST_CASE(
 	REQUIRE(resp.status == 200);
 	REQUIRE(resp.text_body() == "hello world");
 }
+TEST_CASE(
+	"router: wildcard route_info preserves star notation") {
+	Router router;
+	router.get("/files/{*path}", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+	auto infos = router.route_infos();
+	REQUIRE(infos.size() == 1);
+	CHECK(infos[0].path_pattern == "/files/{*path}");
+	REQUIRE(infos[0].path_params.size() == 1);
+	CHECK(infos[0].path_params[0] == "path");
+}
+
 TEST_CASE(
 	"router: wildcard tail with percent-encoded segment is URL-decoded") {
 	Router router;

@@ -124,7 +124,11 @@ export S segments_to_pattern(
 		}
 		first = false;
 		out += '/';
-		if (seg.is_wildcard || seg.is_param) {
+		if (seg.is_wildcard) {
+			out += "{*";
+			out += seg.value;
+			out += '}';
+		} else if (seg.is_param) {
 			out += '{';
 			out += seg.value;
 			out += '}';

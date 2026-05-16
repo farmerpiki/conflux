@@ -101,7 +101,7 @@ struct FailedAuthState {
 
 	explicit FailedAuthState(
 		SZ max)
-		: store(max) {}
+		: store(std::max<SZ>(max, 1)) {}
 };
 
 Opt<SV> credentials_for_scheme(

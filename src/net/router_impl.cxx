@@ -266,19 +266,11 @@ template<typename ImplT>
 	HttpRequestView const &req,
 	SV path_sv,
 	bool is_head) {
-	if (is_head) {
-		return dispatch_sync_routes(
-			req,
-			path_sv,
-			is_head,
-			impl.routes,
-			impl.sse_routes,
-			impl.not_found_handler,
-			impl.error_handler,
-			impl.work_pool);
-	}
-	auto routes = indexed_route_range(impl.routes, select_method_routes(impl.route_indexes, req.method, path_sv));
-	auto sse_routes = indexed_route_range(impl.sse_routes, select_routes_for_path(impl.sse_index, path_sv));
+	auto const route_method = is_head ? SV{"GET"} : req.method;
+	auto routes = indexed_route_range(impl.routes, select_method_routes(impl.route_indexes, route_method, path_sv));
+	auto sse_routes = indexed_route_range(
+		impl.sse_routes,
+		is_head ? RouteLookupSelection{} : select_routes_for_path(impl.sse_index, path_sv));
 	return dispatch_sync_routes(
 		req,
 		path_sv,
@@ -297,12 +289,10 @@ template<typename ImplT>
 	RequestContext const &ctx,
 	SV path_sv,
 	bool is_head) {
-	if (is_head) {
-		return dispatch_async_routes(req, ctx, path_sv, is_head, impl.context_routes);
-	}
+	auto const route_method = is_head ? SV{"GET"} : req.method;
 	auto routes = indexed_route_range(
 		impl.context_routes,
-		select_method_routes(impl.context_route_indexes, req.method, path_sv));
+		select_method_routes(impl.context_route_indexes, route_method, path_sv));
 	return dispatch_async_routes(req, ctx, path_sv, is_head, routes);
 }
 
