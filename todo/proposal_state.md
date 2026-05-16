@@ -17,7 +17,7 @@ checked against this index before implementation starts.
 | P1 | `http/send-threshold-bench` | `proposals/t1_a_send_zc_proposal.md`, `todo/parallel_priority_plan.md` | Benchmark/tune only if data justifies defaults. | SEND_ZC mechanics and counters are present; threshold policy lacks realistic HTTP evidence. |
 | P2 | `http/server-impl-split` | `proposals/http_server_impl_split_proposal.md` | Worth implementing as private implementation-unit split. | Improves review/build ergonomics; avoid while recv/server lifetime work is red or unverified. |
 | P2 | `json/impl-unit-split` | `proposals/json_module_split_proposal.md` | Worth implementing as zero-behavior source split. | Large primary BMI; do after public alias/API churn settles, or on a branch with no API rename work. |
-| P2 | `worker/queue-contention-measurement` | `todo/parallel_priority_plan.md`, `todo/server_gaps.md` | Measure only; no lock replacement without evidence. | Queue/lock probes already exist; Chase-Lev/admission rewrites remain unproven. |
+| P2 | `worker/queue-contention-measurement` | `todo/parallel_priority_plan.md`, `todo/server_gaps.md` | Tooling done; run evidence before changing locks. | Queue/lock probes and a one-command evidence wrapper exist; Chase-Lev/admission rewrites remain unproven until host artifacts show contention. |
 
 ## Historical / implemented proposals
 

@@ -31,6 +31,35 @@ plain blocking mutex acquisition and avoid the profiling `try_lock()` probe.
 
 ## Profiling command
 
+Use the evidence wrapper for host-local measurements that do not need the
+benchmark database:
+
+```sh
+WORK_QUEUE_PRESET=perf-clang-libcxx \
+WORK_QUEUE_THREADS=16 \
+WORK_QUEUE_ITERATIONS=5000 \
+WORK_QUEUE_WARMUP=500 \
+WORK_QUEUE_REPS=5 \
+  scripts/work_queue_contention_evidence.sh
+```
+
+Artifacts are written under:
+
+```text
+/tmp/conflux/work-queue-evidence/<UTC-stamp>/
+```
+
+Expected files:
+
+- `configure.log` and `build.log` — queue-stats build evidence.
+- `workpool_enqueue_dequeue.raw.ndjson` — repeated raw benchmark rows.
+- `workpool_enqueue_dequeue.summary.json` — per-config/variant timing medians,
+  aggregate queue counters, and admission/local/steal/futex rates per 1k jobs.
+- `manifest.json` — build dir, preset, thread/rep counts, commit/branch where
+  available.
+
+Manual equivalent:
+
 ```sh
 cmake --preset perf-clang-libcxx -DCONFLUX_WORK_QUEUE_STATS=ON
 cmake --build --preset perf-clang-libcxx --target conflux_workpool_enqueue_dequeue_bench -j1

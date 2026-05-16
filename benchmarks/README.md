@@ -161,6 +161,26 @@ admission/inject pressure and `local_fanout` for local-deque/steal pressure.
 Normal perf presets leave this option off so instrumentation does not
 contaminate default history.
 
+For a DB-independent evidence artifact, use the wrapper below. It enables queue
+stats for the selected build preset, runs repeated `workpool_enqueue_dequeue`
+JSON reps, validates that each config has all four queue-profile variants, and
+writes a summary JSON with aggregate contention and futex-wait rates per 1k jobs.
+
+```sh
+WORK_QUEUE_PRESET=perf-clang-libcxx \
+WORK_QUEUE_THREADS=16 \
+WORK_QUEUE_REPS=5 \
+  scripts/work_queue_contention_evidence.sh
+```
+
+To summarize an existing raw artifact without rebuilding, run:
+
+```sh
+python3 scripts/work_queue_contention_summary.py \
+  /tmp/conflux/work-queue-evidence/<stamp>/workpool_enqueue_dequeue.raw.ndjson \
+  --output /tmp/conflux/work-queue-evidence/<stamp>/workpool_enqueue_dequeue.summary.json
+```
+
 ## Comparing runs
 
 Two views are provided for comparing recorded runs.
