@@ -5,7 +5,7 @@
 > `SocketTaskRing` API surface.
 
 Date: 2026-05-10
-**Status: implemented for `tcp_increment_coro_bench`.** Steps 1+3 landed in e3f1038; async server + `str/parallel_4` landed in 9851640. `tcp_socket_task_bench` was deleted. The legacy standalone `tcp_parallel_coro_bench` remains disabled, but the planned N=4 benchmark coverage now lives in `str/parallel_4`.
+**Status: implemented for `tcp_increment_coro_bench`.** Steps 1+3 landed in e3f1038; async server + `str/parallel_4` landed in 9851640. `tcp_socket_task_bench` was deleted. The legacy standalone `tcp_parallel_coro_bench` was deleted; the planned N=4 benchmark coverage lives in `str/parallel_4`.
 
 ## Problem with current tcp_socket_task_bench
 
@@ -58,7 +58,7 @@ differential.
    interleaved on one ring (coroutine style only — callback doesn't
    compose). Measures ring contention overhead.
 
-4. **Standalone `tcp_parallel_coro_bench` remains disabled.** The planned N-parallel coverage now lives in `str/parallel_4`, so this is no longer required for P1-09 acceptance.
+4. **Standalone `tcp_parallel_coro_bench` was deleted.** The planned N-parallel coverage now lives in `str/parallel_4`, so there is no separate benchmark to re-enable for P1-09 acceptance.
 
 5. **compare-bins / recorded benchmark gate**: run before/after on the same binary with
    `--compare` (same tree, two presets, or via config flag). This
@@ -163,7 +163,7 @@ Record one run. Compare `fr/*` vs `str/*` rows in SQL directly.
 
 2. **Multishot accept wrapper** — resolved; socket coroutine tests cover the multishot accept path, including a 100-connection case.
 
-3. **N-parallel benchmark coverage** — resolved inside `tcp_increment_coro_bench` as `str/parallel_4`; standalone `tcp_parallel_coro_bench` remains disabled and is not needed for this proposal.
+3. **N-parallel benchmark coverage** — resolved inside `tcp_increment_coro_bench` as `str/parallel_4`; standalone `tcp_parallel_coro_bench` was deleted and is not needed for this proposal.
 
 4. **bench-info JSON** — `bench_record.sh` reads all NDJSON rows from one run; `parallel_4` coverage lives in the normal recorder path.
 

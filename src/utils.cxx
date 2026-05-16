@@ -587,7 +587,7 @@ export std::vector<IpCidr> parse_cidr_list(
 		if (auto c = parse_cidr(s)) {
 			result.push_back(*c);
 		} else {
-			std::println(stderr, "parse_cidr_list: invalid CIDR '{}' ignored", s);
+			eprintln(format("parse_cidr_list: invalid CIDR '{}' ignored", s));
 		}
 	}
 	return result;

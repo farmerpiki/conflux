@@ -185,3 +185,98 @@ LEFT JOIN summary sb
  AND sb.benchmark = b.benchmark
  AND sb.config_name = b.config_name
  AND sb.variant = b.variant;
+
+-- ---------------------------------------------------------------------------
+-- bench_budgets — merge-gate regression budgets.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS bench_budgets (
+    id                 serial  PRIMARY KEY,
+    benchmark          text    NOT NULL,
+    config_name        text    NOT NULL DEFAULT '*',
+    variant            text    NOT NULL DEFAULT '*',
+    max_regression_pct double precision NOT NULL,
+    min_samples        integer NOT NULL DEFAULT 5,
+    max_mad_pct        double precision NOT NULL DEFAULT 15.0,
+    enabled            boolean NOT NULL DEFAULT true,
+    note               text    NOT NULL DEFAULT ''
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS bench_budgets_key
+    ON bench_budgets (benchmark, config_name, variant);
+
+INSERT INTO bench_budgets
+    (benchmark, config_name, variant, max_regression_pct, min_samples, max_mad_pct, note)
+VALUES
+    ('crypto', '*', '*', 6.0, 5, 15.0, 'CPU-bound microbenchmark'),
+    ('db_coro', '*', '*', 12.0, 5, 20.0, 'local PostgreSQL coroutine path'),
+    ('db_params', '*', '*', 7.5, 5, 15.0, 'CPU-bound DB parameter marshalling'),
+    ('db_pipeline', '*', '*', 12.0, 5, 20.0, 'local PostgreSQL pipeline path'),
+    ('file_copy_coro', '*', '*', 15.0, 2, 25.0, 'filesystem/runtime benchmark'),
+    ('http_server', '*', '*', 20.0, 1, 100.0, 'full server smoke has one expensive rep'),
+    ('http_server_concurrency', '*', '*', 20.0, 1, 100.0, 'duration-based server load row'),
+    ('join_all_N', '*', '*', 10.0, 5, 20.0, 'worker fan-in variants'),
+    ('json', '*', '*', 6.0, 5, 15.0, 'CPU-bound parser/dom benchmark'),
+    ('router', '*', '*', 5.0, 5, 12.0, 'hot-path route lookup'),
+    ('send_zc', '*', '*', 20.0, 1, 100.0, 'transport threshold sweep has expensive rows'),
+    ('socket_raw', '*', '*', 15.0, 5, 25.0, 'local socket/io_uring transport path'),
+    ('task_cancellation', '*', '*', 7.5, 5, 15.0, 'worker cancellation microbenchmark'),
+    ('task_chain_composition', '*', '*', 8.0, 5, 15.0, 'worker chain composition'),
+    ('task_creation', '*', '*', 7.5, 5, 15.0, 'worker task creation microbenchmark'),
+    ('tcp_increment', '*', '*', 15.0, 5, 25.0, 'local TCP coroutine transport path'),
+    ('template', '*', '*', 5.0, 5, 12.0, 'CPU-bound template rendering'),
+    ('tls_tcp_increment_coro', '*', '*', 20.0, 5, 30.0, 'TLS local TCP coroutine path'),
+    ('work', '*', '*', 10.0, 5, 20.0, 'worker scheduler benchmark'),
+    ('workpool_enqueue_dequeue', '*', '*', 12.0, 5, 25.0, 'worker queue benchmark')
+ON CONFLICT (benchmark, config_name, variant) DO NOTHING;
+
+CREATE OR REPLACE VIEW bench_budget_eval AS
+SELECT
+    c.run_a,
+    c.run_b,
+    c.name_a,
+    c.name_b,
+    c.benchmark,
+    c.config_name,
+    c.variant,
+    c.a_med_ns,
+    c.b_med_ns,
+    c.a_mad,
+    c.b_mad,
+    CASE
+        WHEN c.a_med_ns = 0 OR c.a_mad IS NULL THEN NULL
+        ELSE (c.a_mad / c.a_med_ns) * 100.0
+    END AS a_mad_pct,
+    CASE
+        WHEN c.b_med_ns = 0 OR c.b_mad IS NULL THEN NULL
+        ELSE (c.b_mad / c.b_med_ns) * 100.0
+    END AS b_mad_pct,
+    c.pct_change,
+    c.reps,
+    b.max_regression_pct,
+    b.min_samples,
+    b.max_mad_pct,
+    CASE
+        WHEN b.id IS NULL THEN 'unbudgeted'
+        WHEN c.pct_change IS NULL THEN 'noisy'
+        WHEN c.reps < b.min_samples THEN 'noisy'
+        WHEN c.a_med_ns <> 0 AND c.a_mad IS NOT NULL
+             AND (c.a_mad / c.a_med_ns) * 100.0 > b.max_mad_pct THEN 'noisy'
+        WHEN c.b_med_ns <> 0 AND c.b_mad IS NOT NULL
+             AND (c.b_mad / c.b_med_ns) * 100.0 > b.max_mad_pct THEN 'noisy'
+        WHEN c.pct_change > b.max_regression_pct THEN 'fail'
+        WHEN c.pct_change <= 0 THEN 'improved'
+        ELSE 'pass'
+    END AS status
+FROM bench_compare_summary c
+LEFT JOIN LATERAL (
+    SELECT budget.*
+    FROM bench_budgets budget
+    WHERE budget.enabled
+      AND budget.benchmark = c.benchmark
+      AND (budget.config_name = c.config_name OR budget.config_name = '*')
+      AND (budget.variant = c.variant OR budget.variant = '*')
+    ORDER BY
+      (budget.config_name = c.config_name) DESC,
+      (budget.variant = c.variant) DESC
+    LIMIT 1
+) b ON true;

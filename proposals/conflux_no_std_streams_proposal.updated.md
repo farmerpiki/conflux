@@ -1,13 +1,13 @@
 # Remove standard stream dependencies — updated review pass
 
 Date: 2026-05-11  
-Status: **implemented for stream-vocabulary removal; keep only cold diagnostic-output follow-up**
+Status: **implemented for reusable-source stream-vocabulary and stderr-print removal**
 
 ## Decision delta
 
 The stream cleanup proposal has landed for standard stream vocabulary in reusable sources: `src/` no longer contains `<iostream>`, `<fstream>`, `<sstream>`, standard stream objects/types, `std::istreambuf_iterator`, or `export using std::println` / `std::cerr`. The `build/no-std-streams` CTest gate now enforces that state through `scripts/check_no_std_streams.py`.
 
-Keep one narrower follow-up separate from the stream-removal work: decide whether cold stderr diagnostics in reusable sources should stay as `std::print/std::println(stderr, ...)` or move behind `eprint/eprintln`.
+Cold stderr diagnostics in reusable sources should not call `std::print/std::println(stderr, ...)` directly. Use `eprint/eprintln` when the source already imports `conflux.utils`; otherwise keep the diagnostic local with a tiny `write(2)` sink so low-level modules do not gain a `conflux_utils` dependency only for logging.
 
 ## Current confirmed source state
 
@@ -33,14 +33,14 @@ src/db/connection.cxx
   SQL file loading uses blocking_read_text_file
 ```
 
-Remaining allowed-by-current-guard diagnostic output in reusable sources:
+Reusable library sources also no longer call `std::print/std::println(stderr, ...)` directly. Diagnostics now use:
 
 ```text
-src/work/carrier_coro.cxx
-  std::print(stderr, ...) cold coroutine-frame-pool fallback-rate warning
-
 src/utils.cxx
-  std::println(stderr, ...) parse_cidr_list warning
+  eprintln(format(...)) for parse_cidr_list warnings
+
+src/work/carrier_coro.cxx
+  local write(2)-based sink for the cold coroutine-frame-pool fallback-rate warning
 ```
 
 Tests/examples/benchmarks may continue using `std::println` for human output.
@@ -158,7 +158,7 @@ This removes `<iostream>`, `std::println`, and `std::cerr` from `conflux.types`.
 [x] Replace DB SQL file loader.
 [x] Replace HTTP fdinfo diagnostics.
 [x] Add scripts/check_no_std_streams.py gate after sources are clean.
-[ ] Decide whether carrier_coro/stdout-style cold stderr diagnostics should move to eprintln.
+[x] Disallow direct `std::print/std::println(stderr, ...)` diagnostics in reusable sources.
 ```
 
 ## Enforcement update
@@ -181,9 +181,10 @@ std::istreambuf_iterator
 std::cin/cout/cerr/clog
 export using std::println
 export using std::cerr
+std::print/std::println(stderr, ...)
 ```
 
-Do not fail `std::format` in this pass. Treat it separately as cold-vs-hot diagnostic policy.
+Do not fail `std::format` in this pass. Formatted diagnostics may build strings first, then emit through `eprint/eprintln` or an equivalent local `write(2)` sink.
 
 
 ## Follow-up clarification: blocking/sync/async names

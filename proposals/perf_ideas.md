@@ -122,7 +122,7 @@ Item T1-C (P2300 scheduler) is intentionally deferred — multi-week architectur
 ## Measurement Plan
 
 Do not implement T1/T2 items without a benchmark harness first:
-- Baseline: `benchmarks/tcp_increment_coro_bench` (incl. `fr/*`, `str/*`, `parallel_4` variants) for latency/throughput. (`tcp_parallel_coro_bench` disabled — needs `co_spawn` → `.detach()` port.)
+- Baseline: `benchmarks/tcp_increment_coro_bench` (incl. `fr/*`, `str/*`, `parallel_4` variants) for latency/throughput. (`tcp_parallel_coro_bench` was deleted; `str/parallel_4` is the N=4 coverage.)
 - Storage: `benchmarks/file_copy_coro_bench` for registered-buffer gains.
 - Profiling: `perf stat -e cache-misses,LLC-load-misses,dTLB-load-misses,cs` on the server process under `wrk`/`h2load` load.
 - io_uring counters: `/proc/self/fdinfo/<ring_fd>` fields `sq_dropped`, `cq_overflow`, `sq_busy` for tuning batch size and ring depth.

@@ -56,9 +56,9 @@ This is a prerequisite for:
    Called from a `noexcept` callback — the handler factory and `Task::detach()` must not
    throw. `bad_alloc` in handler construction terminates; this is an explicit contract.
 
-10. **`tcp_parallel_coro_bench`** is disabled (CMakeLists.txt lines 42-44) and still
-    calls `co_spawn`. It remains disabled for this PR; porting it to `.detach()` is a
-    separate task.
+10. **`tcp_parallel_coro_bench`** was deleted after `tcp_increment_coro_bench` gained
+    the intended N=4 coverage via `str/parallel_4`; there is no remaining `.detach()`
+    port task.
 
 11. **`Fn<T> = std::function<T>`** (types.cxx:47). `std::function` requires its target
     to be CopyConstructible. All existing socket_io callbacks use `Fn<>` with this same
@@ -92,7 +92,7 @@ This is a prerequisite for:
 - `direct_if_available` / `direct_required` fd mode for accepted sockets
 - `cmd_sock_setsockopt` for TCP_NODELAY on direct fds
 - per-accept timeout (server loops cancel by stopping the outer Task)
-- `tcp_parallel_coro_bench` `.detach()` port (separate task)
+- historical `tcp_parallel_coro_bench` resurrection; `str/parallel_4` is the maintained coverage
 
 ## AcceptOptions
 
@@ -519,7 +519,7 @@ Task<void> tcp_accept_multishot(
 | `benchmarks/CMakeLists.txt` | add `conflux_socket_io` to `conflux_tcp_increment_coro_bench` link deps (currently only has `conflux_file_io`) |
 
 No changes to `socket_io.hxx`, `TcpListenerOptions`, `ConnectOptions`, or any existing
-API. `tcp_parallel_coro_bench` remains disabled.
+API. The obsolete standalone `tcp_parallel_coro_bench` has been pruned.
 
 ## Acceptance criteria
 

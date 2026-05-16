@@ -59,7 +59,7 @@ All recordable `conflux_*bench*` binaries implement a standard interface:
 ```json
 {
   "name":    "logical_bench_name",
-  "parser":  "standard|tcp_parallel|file_copy",
+  "parser":  "standard|file_copy",
   "configs": [
     { "name": "cfg", "extra": {}, "args": ["--iterations", "N"], "reps": 2 }
   ]
@@ -70,7 +70,6 @@ Parsers:
 
 - `standard` — NDJSON `variant,iterations,total_ns,ns_per_iter`; recorded via
   `record_with_reps`.
-- `tcp_parallel` — custom parser; configs sourced from `benchmarks/configs/*.json`.
 - `file_copy` — custom parser; configs come from `--bench-info` JSON.
 
 To add a new bench:
@@ -198,6 +197,32 @@ ORDER BY variant, a_ns;
 Columns: `a_ns`/`b_ns` (individual rep), `a_med_ns`/`b_med_ns`,
 `a_mad`/`b_mad`, `pct_change` (median-based). Useful for spotting bimodal
 distributions or outlier reps that inflate the summary median.
+
+## Regression budgets
+
+`scripts/bench_db_migrate.sql` seeds explicit per-benchmark budget rules in
+`bench_budgets`. Override a budget by inserting a more specific
+`(benchmark, config_name, variant)` row; `*` is the wildcard. The merge gate uses
+`bench_budget_eval`, which classifies each matched summary row as:
+
+- `fail` — candidate median is slower than the configured regression budget.
+- `noisy` — sample count or median absolute deviation is outside the rule.
+- `unbudgeted` — no enabled rule matched the benchmark/config/variant.
+- `pass` / `improved` — within budget.
+
+Check a same-machine baseline/candidate pair:
+
+```sh
+scripts/bench_check_budget.py \
+  --baseline-run-id 101 \
+  --candidate-run-id 102 \
+  --json-out /tmp/conflux-bench/budget-101-102.json
+```
+
+The checker exits non-zero for regressions, noisy rows that should be rerun,
+unbudgeted rows, missing summaries, or machine mismatches. Its text report prints
+both run artifact directories so CI logs point back to the recorded manifest,
+bench-info, raw NDJSON, cache, and build logs.
 
 ## Comparing pre-built binaries
 

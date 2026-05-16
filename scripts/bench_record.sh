@@ -14,14 +14,13 @@
 # --bench-info JSON:
 #   {
 #     "name":    "logical_bench_name",          # used as runs.benchmark
-#     "parser":  "standard|tcp_parallel|file_copy",
+#     "parser":  "standard|file_copy",
 #     "configs": [
 #       { "name": "cfg", "extra": {}, "args": ["--iterations","N",...], "reps": 2 }
 #     ]
 #   }
 #   Parsers:
 #     standard    — NDJSON variant,iterations,total_ns,ns_per_iter; uses record_with_reps
-#     tcp_parallel — custom parser; configs read from $CONFIGS_DIR/*.json (args/extra ignored)
 #     file_copy   — custom parser; configs come from --bench-info JSON
 #
 # Usage:
@@ -837,39 +836,6 @@ run_compare_bins() {
 # Custom parsers (for benches with non-standard output fields)
 # ---------------------------------------------------------------------------
 
-# tcp_parallel_coro — per-parallelism NDJSON with extra fields; configs from CONFIGS_DIR/*.json
-run_tcp_parallel() {
-  local binary="$1" bench="$2"
-  shopt -s nullglob
-  local cfg_paths=("$CONFIGS_DIR"/*.json)
-  shopt -u nullglob
-  if (( ${#cfg_paths[@]} == 0 )); then
-    echo "skip $bench: no configs in $CONFIGS_DIR"
-    return
-  fi
-  for path in "${cfg_paths[@]}"; do
-    local cfgfile extra RID tmpf rawf
-    cfgfile="$(basename "$path" .json)"
-    extra=$(cat "$path")
-    RID=$(new_run "$bench" "$cfgfile" "$extra")
-    echo "+ $bench [$cfgfile] run_id=$RID"
-    tmpf=$(mktemp /tmp/tcp_parallel_XXXXXX.ndjson)
-    rawf="$BENCH_ARTIFACT_DIR/raw/run_${RID}_$(artifact_slug "$bench")_$(artifact_slug "$cfgfile").ndjson"
-    run_bench "$binary" \
-        --iterations 200 --warmup 50 --parallel 1,2,4,8 --config "$path" --json 2>/dev/null \
-      > "$tmpf"
-    require_result_rows "$tmpf" "$bench"
-    cp "$tmpf" "$rawf"
-    jq -r -R 'try (fromjson | [.variant, .iterations, .total_ns, .ns_per_iter, (.flags // ""), (.ring_entries // 0), (.throughput_iter_per_s // 0)] | @tsv)' "$tmpf" \
-      | while IFS=$'\t' read -r variant iters total_ns ns_pi flags ring tput; do
-          local ex
-          ex=$(printf '{"flags":"%s","ring_entries":%s,"throughput_iter_per_s":%s}' "$flags" "$ring" "$tput")
-          insert_row "$RID" "$bench" "$variant" "$iters" "$total_ns" "$ns_pi" "$ex"
-        done
-    rm -f "$tmpf"
-  done
-}
-
 # file_copy_coro — NDJSON with extra mib/best fields; configs from --bench-info JSON
 run_file_copy() {
   local binary="$1" bench="$2" cfg_name="$3" extra="$4"
@@ -957,9 +923,6 @@ for PRESET in "${PRESET_LIST[@]}"; do
   sleep "$BENCH_SETTLE_AFTER_BUILD_SEC"
 
   BENCHDIR="$BUILD_DIR/benchmarks"
-  CONFIGS_DIR="${BENCH_CONFIGS_DIR:-$REPO_ROOT/benchmarks/configs}"
-  [[ -d "$CONFIGS_DIR" ]] || CONFIGS_DIR="$REPO_ROOT/configs"
-
   # Auto-discovery loop for this preset
   for binary in "$BENCHDIR"/conflux_*bench*; do
     [[ -x "$binary" ]] || continue
@@ -979,11 +942,13 @@ for PRESET in "${PRESET_LIST[@]}"; do
 
     want "$bench_name" || continue
 
-    if [[ "$parser" == "tcp_parallel" ]]; then
-      run_tcp_parallel "$binary" "$bench_name"
-      sleep 1
-      continue
-    fi
+    case "$parser" in
+      standard|file_copy) ;;
+      *)
+        echo "unsupported parser from $(basename "$binary"): '$parser'" >&2
+        exit 2
+        ;;
+    esac
 
     # Iterate configs from --bench-info JSON
     while IFS= read -r cfg_json; do

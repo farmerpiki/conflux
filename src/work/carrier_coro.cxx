@@ -17,8 +17,9 @@ module;
 	#define CONFLUX_WORK_CFP_ACTIVE 0
 #endif
 #if CONFLUX_WORK_CFP_ACTIVE
-	#include <cstdio>
+	#include <cerrno>
 	#include <sys/mman.h>
+	#include <unistd.h>
 #endif
 
 export module conflux.work.carrier.coro;
@@ -36,6 +37,21 @@ import conflux.work.carrier;
 // ---------------------------------------------------------------------------
 #if CONFLUX_WORK_CFP_ACTIVE
 namespace conflux::work::carrier::pool {
+
+inline void write_stderr(
+	SV message) noexcept {
+	while (!message.empty()) {
+		auto const n = ::write(STDERR_FILENO, message.data(), message.size());
+		if (n > 0) {
+			message.remove_prefix(static_cast<SZ>(n));
+			continue;
+		}
+		if (n < 0 && errno == EINTR) {
+			continue;
+		}
+		break;
+	}
+}
 
 struct FrameArena {
 	static constexpr SZ kCap = 8u * 1024u * 1024u;
@@ -60,14 +76,14 @@ struct FrameArena {
 		auto total = pool_alloc_count_ + fallback_count_;
 		if (total > 0 && fallback_count_ * 100u > total) {
 			try {
-				std::print(
-					stderr,
+				auto message = format(
 					"conflux work: coro frame pool fallback rate {:.1f}% "
 					"({}/{} allocs, largest frame {} B)\n",
 					100.0 * static_cast<double>(fallback_count_) / static_cast<double>(total),
 					fallback_count_,
 					total,
 					largest_frame_);
+				write_stderr(message);
 			} catch (...) {}
 		}
 		munmap(base_, kCap);
