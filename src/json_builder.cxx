@@ -4,54 +4,6 @@ import std;
 import std.compat;
 import conflux.types;
 
-// ---------------------------------------------------------------------------
-// Builder number lexeme validation
-// ---------------------------------------------------------------------------
-
-bool validate_number_lexeme(
-	SV lex) noexcept {
-	if (lex.empty()) {
-		return false;
-	}
-	SZ i = 0;
-	if (lex[i] == '-') {
-		++i;
-		if (i >= lex.size()) {
-			return false;
-		}
-	}
-	if (lex[i] == '0') {
-		++i;
-	} else if (lex[i] >= '1' && lex[i] <= '9') {
-		while (i < lex.size() && lex[i] >= '0' && lex[i] <= '9') {
-			++i;
-		}
-	} else {
-		return false;
-	}
-	if (i < lex.size() && lex[i] == '.') {
-		++i;
-		if (i >= lex.size() || lex[i] < '0' || lex[i] > '9') {
-			return false;
-		}
-		while (i < lex.size() && lex[i] >= '0' && lex[i] <= '9') {
-			++i;
-		}
-	}
-	if (i < lex.size() && (lex[i] == 'e' || lex[i] == 'E')) {
-		++i;
-		if (i < lex.size() && (lex[i] == '+' || lex[i] == '-')) {
-			++i;
-		}
-		if (i >= lex.size() || lex[i] < '0' || lex[i] > '9') {
-			return false;
-		}
-		while (i < lex.size() && lex[i] >= '0' && lex[i] <= '9') {
-			++i;
-		}
-	}
-	return i == lex.size();
-}
 expected<void, JsonError> ValueBuilder::set_number(
 	SV lexeme) {
 	if (!validate_number_lexeme(lexeme)) {
@@ -632,4 +584,295 @@ expected<ArrayBuilder, JsonError> ArrayBuilder::append_array() {
 	ArrayBuilder child{st, parent};
 	child.frame_.depth = child_depth;
 	return child;
+}
+
+ValueBuilder value_builder() {
+	return {};
+}
+// RFC 7396 JSON Merge Patch. The DOM stays immutable; this builds a new
+// owning Document while preserving target-member order for unchanged members and
+// appending new patch members in patch order.
+namespace detail {
+
+expected<void, JsonError> copy_node_into(ValueBuilder &out, NodeRef node);
+expected<void, JsonError> copy_node_into(
+	ObjectBuilder &out,
+	SV name,
+	NodeRef node);
+expected<void, JsonError> copy_node_into(ArrayBuilder &out, NodeRef node);
+expected<void, JsonError> merge_patch_into(
+	ValueBuilder &out,
+	NodeRef target,
+	NodeRef patch);
+expected<void, JsonError> merge_patch_into(
+	ObjectBuilder &out,
+	SV name,
+	NodeRef target,
+	NodeRef patch);
+
+[[nodiscard]] JsonError merge_patch_wrong_kind(JsonKind actual) {
+	return JsonError{
+		.stage = JsonStage::build,
+		.code = JsonIssueCode::wrong_kind,
+		.expected_kind = JsonKind::object,
+		.actual_kind = actual,
+		.message = "expected object while applying JSON merge patch"};
+}
+
+expected<void, JsonError> copy_members_into(ObjectBuilder &out, ObjectView obj) {
+	for (auto const &[name, value]: obj.members()) {
+		if (auto ok = copy_node_into(out, name, value); !ok) {
+			return ok;
+		}
+	}
+	return {};
+}
+
+expected<void, JsonError> copy_elements_into(ArrayBuilder &out, ArrayView arr) {
+	for (auto value: arr.elements()) {
+		if (auto ok = copy_node_into(out, value); !ok) {
+			return ok;
+		}
+	}
+	return {};
+}
+
+expected<void, JsonError> copy_node_into(ValueBuilder &out, NodeRef node) {
+	switch (node.kind()) {
+	case JsonKind::null   : return out.set_null();
+	case JsonKind::boolean: return out.set_bool(*node.as_bool());
+	case JsonKind::string : return out.set_string(*node.as_string());
+	case JsonKind::number : return out.set_number(node.as_number()->lexeme());
+	case JsonKind::array  :
+		{
+			auto arr = node.as_array();
+			if (!arr) {
+				return unexpected(move(arr).error());
+			}
+			auto child = out.begin_array();
+			if (!child) {
+				return unexpected(move(child).error());
+			}
+			if (auto ok = copy_elements_into(*child, *arr); !ok) {
+				return ok;
+			}
+			move(*child).commit();
+			return {};
+		}
+	case JsonKind::object:
+		{
+			auto obj = node.as_object();
+			if (!obj) {
+				return unexpected(move(obj).error());
+			}
+			auto child = out.begin_object();
+			if (!child) {
+				return unexpected(move(child).error());
+			}
+			if (auto ok = copy_members_into(*child, *obj); !ok) {
+				return ok;
+			}
+			move(*child).commit();
+			return {};
+		}
+	}
+	return unexpected(merge_patch_wrong_kind(node.kind()));
+}
+
+expected<void, JsonError> copy_node_into(
+	ObjectBuilder &out,
+	SV name,
+	NodeRef node) {
+	switch (node.kind()) {
+	case JsonKind::null   : return out.insert_null(name);
+	case JsonKind::boolean: return out.insert_bool(name, *node.as_bool());
+	case JsonKind::string : return out.insert_string(name, *node.as_string());
+	case JsonKind::number : return out.insert_number(name, node.as_number()->lexeme());
+	case JsonKind::array  :
+		{
+			auto arr = node.as_array();
+			if (!arr) {
+				return unexpected(move(arr).error());
+			}
+			auto child = out.insert_array(name);
+			if (!child) {
+				return unexpected(move(child).error());
+			}
+			if (auto ok = copy_elements_into(*child, *arr); !ok) {
+				return ok;
+			}
+			move(*child).commit();
+			return {};
+		}
+	case JsonKind::object:
+		{
+			auto obj = node.as_object();
+			if (!obj) {
+				return unexpected(move(obj).error());
+			}
+			auto child = out.insert_object(name);
+			if (!child) {
+				return unexpected(move(child).error());
+			}
+			if (auto ok = copy_members_into(*child, *obj); !ok) {
+				return ok;
+			}
+			move(*child).commit();
+			return {};
+		}
+	}
+	return unexpected(merge_patch_wrong_kind(node.kind()));
+}
+
+expected<void, JsonError> copy_node_into(ArrayBuilder &out, NodeRef node) {
+	switch (node.kind()) {
+	case JsonKind::null   : return out.append_null();
+	case JsonKind::boolean: return out.append_bool(*node.as_bool());
+	case JsonKind::string : return out.append_string(*node.as_string());
+	case JsonKind::number : return out.append_number(node.as_number()->lexeme());
+	case JsonKind::array  :
+		{
+			auto arr = node.as_array();
+			if (!arr) {
+				return unexpected(move(arr).error());
+			}
+			auto child = out.append_array();
+			if (!child) {
+				return unexpected(move(child).error());
+			}
+			if (auto ok = copy_elements_into(*child, *arr); !ok) {
+				return ok;
+			}
+			move(*child).commit();
+			return {};
+		}
+	case JsonKind::object:
+		{
+			auto obj = node.as_object();
+			if (!obj) {
+				return unexpected(move(obj).error());
+			}
+			auto child = out.append_object();
+			if (!child) {
+				return unexpected(move(child).error());
+			}
+			if (auto ok = copy_members_into(*child, *obj); !ok) {
+				return ok;
+			}
+			move(*child).commit();
+			return {};
+		}
+	}
+	return unexpected(merge_patch_wrong_kind(node.kind()));
+}
+
+expected<void, JsonError> merge_object_members_into(
+	ObjectBuilder &out,
+	Opt<ObjectView> target,
+	ObjectView patch) {
+	if (target) {
+		for (auto const &[name, target_value]: target->members()) {
+			auto patch_value = patch.find_member(name);
+			if (!patch_value) {
+				if (auto ok = copy_node_into(out, name, target_value); !ok) {
+					return ok;
+				}
+				continue;
+			}
+			if (patch_value->is_null()) {
+				continue;
+			}
+			if (auto ok = merge_patch_into(out, name, target_value, *patch_value); !ok) {
+				return ok;
+			}
+		}
+	}
+	for (auto const &[name, patch_value]: patch.members()) {
+		if (patch_value.is_null() || (target && target->find_member(name))) {
+			continue;
+		}
+		if (auto ok = copy_node_into(out, name, patch_value); !ok) {
+			return ok;
+		}
+	}
+	return {};
+}
+
+expected<void, JsonError> merge_patch_into(
+	ValueBuilder &out,
+	NodeRef target,
+	NodeRef patch) {
+	if (patch.kind() != JsonKind::object) {
+		return copy_node_into(out, patch);
+	}
+	auto patch_obj = patch.as_object();
+	if (!patch_obj) {
+		return unexpected(move(patch_obj).error());
+	}
+	Opt<ObjectView> target_obj;
+	if (target.kind() == JsonKind::object) {
+		auto obj = target.as_object();
+		if (!obj) {
+			return unexpected(move(obj).error());
+		}
+		target_obj.emplace(*obj);
+	}
+	auto child = out.begin_object();
+	if (!child) {
+		return unexpected(move(child).error());
+	}
+	if (auto ok = merge_object_members_into(*child, target_obj, *patch_obj); !ok) {
+		return ok;
+	}
+	move(*child).commit();
+	return {};
+}
+
+expected<void, JsonError> merge_patch_into(
+	ObjectBuilder &out,
+	SV name,
+	NodeRef target,
+	NodeRef patch) {
+	if (patch.kind() != JsonKind::object) {
+		return copy_node_into(out, name, patch);
+	}
+	auto patch_obj = patch.as_object();
+	if (!patch_obj) {
+		return unexpected(move(patch_obj).error());
+	}
+	Opt<ObjectView> target_obj;
+	if (target.kind() == JsonKind::object) {
+		auto obj = target.as_object();
+		if (!obj) {
+			return unexpected(move(obj).error());
+		}
+		target_obj.emplace(*obj);
+	}
+	auto child = out.insert_object(name);
+	if (!child) {
+		return unexpected(move(child).error());
+	}
+	if (auto ok = merge_object_members_into(*child, target_obj, *patch_obj); !ok) {
+		return ok;
+	}
+	move(*child).commit();
+	return {};
+}
+
+} // namespace detail
+
+expected<Document, JsonError> merge_patch(
+	NodeRef target,
+	NodeRef patch) {
+	auto out = value_builder();
+	if (auto ok = detail::merge_patch_into(out, target, patch); !ok) {
+		return unexpected(move(ok).error());
+	}
+	return move(out).finish();
+}
+
+expected<Document, JsonError> merge_patch(
+	Document const &target,
+	Document const &patch) {
+	return merge_patch(target.root(), patch.root());
 }

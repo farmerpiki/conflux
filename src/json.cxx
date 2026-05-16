@@ -494,30 +494,8 @@ struct ObjHashTable {
 	static ObjHashTable *create(
 		u32 capacity,
 		u32 member_count,
-		std::pmr::memory_resource *mr = std::pmr::new_delete_resource()) noexcept {
-		SZ const bytes = sizeof(ObjHashTable) + sizeof(ObjHashSlot) * capacity + sizeof(char const *) * member_count;
-		void *mem = nullptr;
-		try {
-			mem = mr->allocate(bytes, alignof(ObjHashTable));
-		} catch (...) {}
-		if (mem == nullptr) {
-			return nullptr;
-		}
-		auto *t = ::new (mem) ObjHashTable{capacity, member_count, mr};
-		std::fill_n(t->slots_data(), capacity, ObjHashSlot{});
-		return t;
-	}
-	static void destroy(
-		ObjHashTable *t) noexcept {
-		if (t == nullptr) {
-			return;
-		}
-		auto *mr = t->mr;
-		SZ const bytes =
-			sizeof(ObjHashTable) + sizeof(ObjHashSlot) * t->capacity + sizeof(char const *) * t->member_count;
-		t->~ObjHashTable();
-		mr->deallocate(t, bytes, alignof(ObjHashTable));
-	}
+		std::pmr::memory_resource *mr = std::pmr::new_delete_resource()) noexcept;
+	static void destroy(ObjHashTable *t) noexcept;
 };
 constexpr u32 kHashThreshold = 32;
 constexpr u32 kProbeChainMax = 64;
@@ -931,88 +909,9 @@ public:
 	[[nodiscard]] JsonNumberForm form() const noexcept {
 		return (flags_ & kLexIntForm) != 0 ? JsonNumberForm::integer : JsonNumberForm::non_integer;
 	}
-	[[nodiscard]] expected<i64, JsonError> to_i64() const {
-		if ((flags_ & kLexIntForm) == 0) {
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::invalid_number,
-					.message = "to_i64 requires integer-form number"});
-		}
-		if ((flags_ & kValKindInt) != 0) {
-			return std::bit_cast<i64>(raw_payload_);
-		}
-		// kValKindUint, kValKindF64, or no kValKind* (overflow): integer-form
-		// lexeme outside i64 range → number_out_of_range (Correction K).
-		return unexpected(
-			JsonError{
-				.stage = JsonStage::lookup,
-				.code = JsonIssueCode::number_out_of_range,
-				.message = format("value out of i64 range: {}", lexeme_)});
-	}
-	[[nodiscard]] expected<u64, JsonError> to_u64() const {
-		if ((flags_ & kLexIntForm) == 0) {
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::invalid_number,
-					.message = "to_u64 requires integer-form number"});
-		}
-		if (!lexeme_.empty() && lexeme_[0] == '-') {
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::sign_mismatch,
-					.message = format("negative integer passed to to_u64: {}", lexeme_)});
-		}
-		if ((flags_ & kValKindUint) != 0) {
-			return raw_payload_;
-		}
-		if ((flags_ & kValKindInt) != 0) {
-			auto const v = std::bit_cast<i64>(raw_payload_);
-			if (v >= 0) {
-				return static_cast<u64>(v);
-			}
-		}
-		return unexpected(
-			JsonError{
-				.stage = JsonStage::lookup,
-				.code = JsonIssueCode::number_out_of_range,
-				.message = format("value out of u64 range: {}", lexeme_)});
-	}
-	[[nodiscard]] expected<double, JsonError> to_f64() const {
-		if ((flags_ & kValKindF64) != 0) {
-			return std::bit_cast<double>(raw_payload_);
-		}
-		if ((flags_ & kValKindInt) != 0) {
-			return static_cast<double>(std::bit_cast<i64>(raw_payload_));
-		}
-		if ((flags_ & kValKindUint) != 0) {
-			return static_cast<double>(raw_payload_);
-		}
-		if ((flags_ & kValKindDeferred) != 0) {
-			auto res = detail::classify_range_error_slow(lexeme_.data(), lexeme_.data() + lexeme_.size());
-			if (!res) {
-				auto err = move(res).error();
-				err.stage = JsonStage::lookup;
-				return unexpected(move(err));
-			}
-			if (res->kind == detail::ClassifiedDouble::Kind::underflow_finite) {
-				return res->value;
-			}
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::lookup,
-					.code = JsonIssueCode::number_out_of_range,
-					.message = format("f64 conversion overflows: {}", lexeme_)});
-		}
-		// No kValKind* set → f64-overflow (Correction K).
-		return unexpected(
-			JsonError{
-				.stage = JsonStage::lookup,
-				.code = JsonIssueCode::number_out_of_range,
-				.message = format("f64 conversion overflows: {}", lexeme_)});
-	}
+	[[nodiscard]] expected<i64, JsonError> to_i64() const;
+	[[nodiscard]] expected<u64, JsonError> to_u64() const;
+	[[nodiscard]] expected<double, JsonError> to_f64() const;
 	template<class T>
 		requires((std::integral<T> && !same_as<T, bool>) || std::floating_point<T>)
 	[[nodiscard]] expected<T, JsonError> get_as() const {
@@ -1051,6 +950,8 @@ public:
 		}
 	}
 };
+
+[[nodiscard]] bool validate_number_lexeme(SV lex) noexcept;
 // Forward declarations for parser helpers used by JsonStringToken/JsonReader.
 SZ utf8_seq_len(unsigned char lead) noexcept;
 bool is_cont(unsigned char c) noexcept;
@@ -2076,158 +1977,33 @@ private:
 	bool has_error_{false};
 	JsonError last_error_{};
 
-	void refresh_reader_input() noexcept { reader_.replace_input(SV{buf_.data(), buf_.size()}); }
-	void set_error(
-		JsonError e) noexcept {
-		has_error_ = true;
-		last_error_ = move(e);
-	}
-	[[nodiscard]] SZ configured_cap() const noexcept {
-		constexpr SZ kU32Ceiling = (SZ{1} << 32) - 1;
-		SZ const hard_cap = kU32Ceiling - 1;
-		if (opts_.max_input_size.is_unlimited()) {
-			return hard_cap;
-		}
-		return min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput), hard_cap);
-	}
-	[[nodiscard]] JsonError make_stream_error(
-		JsonIssueCode code,
-		S message) const {
-		return JsonError{
-			.stage = JsonStage::parse,
-			.code = code,
-			.source = JsonSourceLocation{.offset = reader_.pos_, .line = reader_.line_, .column = reader_.col_},
-			.message = move(message),
-		};
-	}
-	[[nodiscard]] bool tail_is_prefix_of_literal(
-		SZ start) const noexcept {
-		SV const tail{buf_.data() + start, buf_.size() - start};
-		return (tail.size() < SV{"true"}.size() && SV{"true"}.starts_with(tail))
-			|| (tail.size() < SV{"false"}.size() && SV{"false"}.starts_with(tail))
-			|| (tail.size() < SV{"null"}.size() && SV{"null"}.starts_with(tail));
-	}
-	[[nodiscard]] bool trailing_utf8_prefix_needs_more() const noexcept {
-		if (reader_.pos_ >= buf_.size()) {
-			return false;
-		}
-		auto const c = static_cast<unsigned char>(buf_[reader_.pos_]);
-		SZ const seq = utf8_seq_len(c);
-		return seq != 0 && reader_.pos_ + seq > buf_.size();
-	}
-	[[nodiscard]] bool recoverable_need_more(
-		SZ checkpoint_pos,
-		JsonError const &error) const noexcept {
-		if (closed_) {
-			return false;
-		}
-		if (error.code == JsonIssueCode::unexpected_eof) {
-			return true;
-		}
-		if (checkpoint_pos > buf_.size()) {
-			return false;
-		}
-		if (error.code == JsonIssueCode::syntax_error) {
-			if (checkpoint_pos < buf_.size() && tail_is_prefix_of_literal(checkpoint_pos)) {
-				return true;
-			}
-			if (reader_.pos_ >= buf_.size()) {
-				return true;
-			}
-		}
-		if (error.code == JsonIssueCode::invalid_unicode_escape) {
-			return reader_.pos_ + 4 > buf_.size();
-		}
-		if (error.code == JsonIssueCode::invalid_utf8) {
-			return trailing_utf8_prefix_needs_more();
-		}
-		return false;
-	}
-	[[nodiscard]] bool event_needs_more_before_emit(
-		Event event) const noexcept {
-		return !closed_ && event == Event::number_value && reader_.pos_ == buf_.size();
-	}
+	void refresh_reader_input() noexcept;
+	void set_error(JsonError e) noexcept;
+	[[nodiscard]] SZ configured_cap() const noexcept;
+	[[nodiscard]] JsonError make_stream_error(JsonIssueCode code, S message) const;
+	[[nodiscard]] bool tail_is_prefix_of_literal(SZ start) const noexcept;
+	[[nodiscard]] bool trailing_utf8_prefix_needs_more() const noexcept;
+	[[nodiscard]] bool recoverable_need_more(SZ checkpoint_pos, JsonError const &error) const noexcept;
+	[[nodiscard]] bool event_needs_more_before_emit(Event event) const noexcept;
 
 public:
-	explicit JsonStreamReader(
-		JsonParseOptions const &opts =
-			{
-    })
-		: opts_{opts}
-		, reader_{SV{buf_.data(), buf_.size()}, opts} {}
-	[[nodiscard]] expected<void, JsonError> feed(
-		SV chunk) {
-		return feed(span<byte const>{reinterpret_cast<byte const *>(chunk.data()), chunk.size()});
-	}
-	[[nodiscard]] expected<void, JsonError> feed(
-		span<byte const> chunk) {
-		if (has_error_) {
-			return unexpected(last_error_);
-		}
-		if (closed_) {
-			return unexpected(make_stream_error(JsonIssueCode::invalid_value, "cannot feed after close"));
-		}
-		SZ const cap = configured_cap();
-		if (buf_.size() > cap || chunk.size() > cap - buf_.size()) {
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::parse,
-					.code = JsonIssueCode::input_too_large,
-					.message = "stream buffer exceeds max_input_size"});
-		}
-		buf_.append(reinterpret_cast<char const *>(chunk.data()), chunk.size());
-		refresh_reader_input();
-		return {};
-	}
-	[[nodiscard]] expected<void, JsonError> close() {
-		if (has_error_) {
-			return unexpected(last_error_);
-		}
-		closed_ = true;
-		refresh_reader_input();
-		return {};
-	}
-	[[nodiscard]] expected<Opt<Event>, JsonError> next() {
-		if (has_error_) {
-			return unexpected(last_error_);
-		}
-		refresh_reader_input();
-		auto checkpoint = reader_.checkpoint();
-		auto ev = reader_.next();
-		if (!ev) {
-			auto error = move(ev).error();
-			if (recoverable_need_more(checkpoint.pos, error)) {
-				reader_.restore(move(checkpoint));
-				return Opt<Event>{};
-			}
-			set_error(move(error));
-			return unexpected(last_error_);
-		}
-		if (*ev && event_needs_more_before_emit(**ev)) {
-			reader_.restore(move(checkpoint));
-			return Opt<Event>{};
-		}
-		return ev;
-	}
-	[[nodiscard]] JsonStringToken key_token() const noexcept { return reader_.key_token(); }
-	[[nodiscard]] JsonStringToken string_token() const noexcept { return reader_.string_token(); }
-	[[nodiscard]] JsonNumberView number_val() const noexcept { return reader_.number_val(); }
-	[[nodiscard]] bool bool_val() const noexcept { return reader_.bool_val(); }
-	[[nodiscard]] SV input() const noexcept { return SV{buf_.data(), buf_.size()}; }
-	[[nodiscard]] SZ depth() const noexcept { return reader_.depth(); }
-	[[nodiscard]] bool has_error() const noexcept { return has_error_ || reader_.has_error(); }
-	[[nodiscard]] bool closed() const noexcept { return closed_; }
-	[[nodiscard]] SZ pos() const noexcept { return reader_.pos(); }
-	[[nodiscard]] SZ value_start_pos() const noexcept { return reader_.value_start_pos(); }
-	[[nodiscard]] SZ buffered_bytes() const noexcept { return buf_.size(); }
-	void reset() noexcept {
-		buf_.clear();
-		closed_ = false;
-		has_error_ = false;
-		last_error_ = {};
-		reader_.reset();
-		refresh_reader_input();
-	}
+	explicit JsonStreamReader(JsonParseOptions const &opts = {});
+	[[nodiscard]] expected<void, JsonError> feed(SV chunk);
+	[[nodiscard]] expected<void, JsonError> feed(span<byte const> chunk);
+	[[nodiscard]] expected<void, JsonError> close();
+	[[nodiscard]] expected<Opt<Event>, JsonError> next();
+	[[nodiscard]] JsonStringToken key_token() const noexcept;
+	[[nodiscard]] JsonStringToken string_token() const noexcept;
+	[[nodiscard]] JsonNumberView number_val() const noexcept;
+	[[nodiscard]] bool bool_val() const noexcept;
+	[[nodiscard]] SV input() const noexcept;
+	[[nodiscard]] SZ depth() const noexcept;
+	[[nodiscard]] bool has_error() const noexcept;
+	[[nodiscard]] bool closed() const noexcept;
+	[[nodiscard]] SZ pos() const noexcept;
+	[[nodiscard]] SZ value_start_pos() const noexcept;
+	[[nodiscard]] SZ buffered_bytes() const noexcept;
+	void reset() noexcept;
 };
 // ---------------------------------------------------------------------------
 // NodeRef
@@ -3264,339 +3040,9 @@ export [[nodiscard]] expected<Opt<bool>, JsonError> optional_bool(
 	return Opt<bool>{*v};
 }
 // ---------------------------------------------------------------------------
-// Dump implementation
-// ---------------------------------------------------------------------------
-
-// NOLINTBEGIN(readability-magic-numbers)
-// Fast-path dump for bytes already known to be a raw JSON S body
-// (kRawJsonSlice set on parse-side unescaped strings/numbers): no scan,
-// just bracket the slice with quotes. Caller must guarantee `flags &
-// kRawJsonSlice` and !ascii_only (the latter would still need a
-// byte-by-byte non-ASCII rewrite).
-inline void dump_str_raw(
-	SV sv,
-	S &out) {
-	out += '"';
-	out.append(sv.data(), sv.size());
-	out += '"';
-}
-inline void append_u_escape(
-	S &out,
-	u32 cp) {
-	static constexpr A<char, 16> kHex = {'0', '1', '2', '3', '4', '5', '6', '7',
-		'8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
-	out += "\\u";
-	out += kHex[(cp >> 12U) & 0x0FU];
-	out += kHex[(cp >> 8U) & 0x0FU];
-	out += kHex[(cp >> 4U) & 0x0FU];
-	out += kHex[cp & 0x0FU];
-}
-// R3 — find the next byte in [p, n) that needs escaping in a JSON string body.
-// ascii_only=false: stops at '"', '\\', or ctrl chars [0x00,0x1F].
-// ascii_only=true:  also stops at high-bit bytes [0x80,0xFF].
-[[nodiscard]] inline SZ scan_dump_safe_run(
-	char const *p,
-	SZ n,
-	bool ascii_only) noexcept {
-	SZ i = 0;
-#if defined(CONFLUX_JSON_HAS_STDSIMD)
-	return conflux_json_scan_dump_safe_run_stdsimd(p, n, ascii_only ? 1 : 0);
-#elif defined(CONFLUX_JSON_HAS_AVX2)
-	__m256i const v_quote = _mm256_set1_epi8('"');
-	__m256i const v_back = _mm256_set1_epi8('\\');
-	__m256i const v_lim = _mm256_set1_epi8(0x20);
-	__m256i const v_1f = _mm256_set1_epi8(0x1F);
-	while (i + 32 <= n) {
-		__m256i const v = _mm256_loadu_si256(reinterpret_cast<__m256i const *>(p + i));
-		__m256i const eq_q = _mm256_cmpeq_epi8(v, v_quote);
-		__m256i const eq_b = _mm256_cmpeq_epi8(v, v_back);
-		__m256i mix = _mm256_or_si256(eq_q, eq_b);
-		if (ascii_only) {
-			mix = _mm256_or_si256(mix, _mm256_cmpgt_epi8(v_lim, v));
-		} else {
-			mix = _mm256_or_si256(mix, _mm256_cmpeq_epi8(_mm256_min_epu8(v, v_1f), v));
-		}
-		auto const mask = static_cast<unsigned>(_mm256_movemask_epi8(mix));
-		if (mask != 0U) {
-			return i + static_cast<SZ>(__builtin_ctz(mask));
-		}
-		i += 32;
-	}
-	if (i + 16 <= n) {
-		__m128i const v128 = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
-		__m128i const eq_q = _mm_cmpeq_epi8(v128, _mm256_castsi256_si128(v_quote));
-		__m128i const eq_b = _mm_cmpeq_epi8(v128, _mm256_castsi256_si128(v_back));
-		__m128i mix16 = _mm_or_si128(eq_q, eq_b);
-		if (ascii_only) {
-			mix16 = _mm_or_si128(mix16, _mm_cmplt_epi8(v128, _mm256_castsi256_si128(v_lim)));
-		} else {
-			mix16 = _mm_or_si128(mix16, _mm_cmpeq_epi8(_mm_min_epu8(v128, _mm256_castsi256_si128(v_1f)), v128));
-		}
-		auto const mask16 = static_cast<unsigned>(_mm_movemask_epi8(mix16));
-		if (mask16 != 0U) {
-			return i + static_cast<SZ>(__builtin_ctz(mask16));
-		}
-		i += 16;
-	}
-#elif defined(CONFLUX_JSON_HAS_SSE2)
-	__m128i const v_quote = _mm_set1_epi8('"');
-	__m128i const v_back = _mm_set1_epi8('\\');
-	__m128i const v_lim = _mm_set1_epi8(0x20);
-	__m128i const v_1f = _mm_set1_epi8(0x1F);
-	while (i + 16 <= n) {
-		__m128i const v = _mm_loadu_si128(reinterpret_cast<__m128i const *>(p + i));
-		__m128i const eq_q = _mm_cmpeq_epi8(v, v_quote);
-		__m128i const eq_b = _mm_cmpeq_epi8(v, v_back);
-		__m128i mix = _mm_or_si128(eq_q, eq_b);
-		if (ascii_only) {
-			mix = _mm_or_si128(mix, _mm_cmplt_epi8(v, v_lim));
-		} else {
-			mix = _mm_or_si128(mix, _mm_cmpeq_epi8(_mm_min_epu8(v, v_1f), v));
-		}
-		auto const mask = static_cast<unsigned>(_mm_movemask_epi8(mix));
-		if (mask != 0U) {
-			return i + static_cast<SZ>(__builtin_ctz(mask));
-		}
-		i += 16;
-	}
-#endif
-	for (; i < n; ++i) {
-		auto const c = static_cast<unsigned char>(p[i]);
-		if (c == '"' || c == '\\' || c < 0x20U) {
-			return i;
-		}
-		if (ascii_only && c >= 0x80U) {
-			return i;
-		}
-	}
-	return n;
-}
-void dump_str(
-	SV sv,
-	S &out,
-	bool ascii_only) {
-	out += '"';
-	SZ i = 0;
-	while (i < sv.size()) {
-		auto const c = static_cast<unsigned char>(sv[i]);
-		// Scalar pre-check: when the very next byte already needs escaping,
-		// skip the SIMD chunk setup entirely. Avoids paying SIMD cost on
-		// escape-dense payloads where every other byte is an escape.
-		bool const needs_escape = (c == '"' || c == '\\' || c < 0x20U || (ascii_only && c >= 0x80U));
-		if (!needs_escape) {
-			// R3 — fast-forward over the safe-ASCII run.
-			SZ const run = scan_dump_safe_run(sv.data() + i, sv.size() - i, ascii_only);
-			out.append(sv.data() + i, run);
-			i += run;
-			if (i >= sv.size()) {
-				break;
-			}
-		}
-		auto const cc = static_cast<unsigned char>(sv[i]);
-		switch (cc) {
-		case '"':
-			out += "\\\"";
-			++i;
-			break;
-		case '\\':
-			out += "\\\\";
-			++i;
-			break;
-		case '\b':
-			out += "\\b";
-			++i;
-			break;
-		case '\f':
-			out += "\\f";
-			++i;
-			break;
-		case '\n':
-			out += "\\n";
-			++i;
-			break;
-		case '\r':
-			out += "\\r";
-			++i;
-			break;
-		case '\t':
-			out += "\\t";
-			++i;
-			break;
-		default:
-			if (cc < 0x20U) {
-				append_u_escape(out, cc);
-				++i;
-			} else if (ascii_only && cc >= 0x80U) {
-				// Decode UTF-8 to get code point, then emit \uXXXX or surrogate P.
-				u32 cp = 0;
-				SZ seq = 0;
-				if (cc < 0xE0U) {
-					cp = cc & 0x1FU;
-					seq = 2;
-				} else if (cc < 0xF0U) {
-					cp = cc & 0x0FU;
-					seq = 3;
-				} else {
-					cp = cc & 0x07U;
-					seq = 4;
-				}
-				for (SZ k = 1; k < seq && i + k < sv.size(); ++k) {
-					cp = (cp << 6U) | (static_cast<unsigned char>(sv[i + k]) & 0x3FU);
-				}
-				i += seq;
-				if (cp < 0x10000U) {
-					append_u_escape(out, cp);
-				} else {
-					cp -= 0x10000U;
-					append_u_escape(out, 0xD800U | (cp >> 10U));
-					append_u_escape(out, 0xDC00U | (cp & 0x3FFU));
-				}
-			} else {
-				out += static_cast<char>(cc);
-				++i;
-			}
-		}
-	}
-	out += '"';
-}
-// NOLINTEND(readability-magic-numbers)
-
-// NOLINTNEXTLINE(misc-no-recursion)
-void dump_node(
-	DocumentStorage const &store,
-	SZ node_idx,
-	JsonDumpOptions const &opts,
-	unsigned depth,
-	S &out) {
-	if (opts.truncate_depth.has_value() && static_cast<SZ>(depth) > *opts.truncate_depth) {
-		out += "null";
-		return;
-	}
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-	auto const &n = store.nodes[node_idx];
-	auto indent = [&](unsigned d) {
-		if (!opts.pretty) {
-			return;
-		}
-		out += '\n';
-		out.append(static_cast<SZ>(d) * opts.indent, opts.indent_char);
-	};
-
-	switch (n.kind) {
-	case NodeKind::null_  : out += "null"; break;
-	case NodeKind::boolean: out += n.bool_val ? "true" : "false"; break;
-	case NodeKind::string_:
-		{
-			auto const bytes = store.bytes_at(n.off, n.len, n.flags);
-			if ((n.flags & kRawJsonSlice) != 0 && !opts.ascii_only) {
-				dump_str_raw(bytes, out);
-			} else {
-				dump_str(bytes, out, opts.ascii_only);
-			}
-			break;
-		}
-	case NodeKind::number: out += store.bytes_at(n.off, n.len, n.flags); break;
-	case NodeKind::array_:
-		{
-			out += '[';
-			if (n.len > 0) {
-				for (SZ i = 0; i < n.len; ++i) {
-					if (i > 0) {
-						out += ',';
-					}
-					indent(depth + 1);
-					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-					dump_node(store, store.array_children[n.off + i], opts, depth + 1, out);
-				}
-				indent(depth);
-			}
-			out += ']';
-			break;
-		}
-	case NodeKind::object:
-		{
-			out += '{';
-			if (n.len > 0) {
-				// R3 — only allocate the order V when sorting; the
-				// unsorted path iterates members in source order directly.
-				if (opts.sort_object_keys) {
-					V<SZ> order(n.len);
-					iota(order.begin(), order.end(), 0);
-					sort(order.begin(), order.end(), [&](SZ x, SZ y) {
-						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-						auto const &mx = store.object_members[n.off + x];
-						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-						auto const &my = store.object_members[n.off + y];
-						return store.member_name(mx) < store.member_name(my);
-					});
-					for (SZ i = 0; i < n.len; ++i) {
-						if (i > 0) {
-							out += ',';
-						}
-						indent(depth + 1);
-						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-						auto const &m = store.object_members[n.off + order[i]];
-						if ((m.name_flags & kRawJsonSlice) != 0 && !opts.ascii_only) {
-							dump_str_raw(store.member_name(m), out);
-						} else {
-							dump_str(store.member_name(m), out, opts.ascii_only);
-						}
-						out += opts.pretty ? ": " : ":";
-						dump_node(store, m.val_node, opts, depth + 1, out);
-					}
-				} else {
-					for (SZ i = 0; i < n.len; ++i) {
-						if (i > 0) {
-							out += ',';
-						}
-						indent(depth + 1);
-						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-						auto const &m = store.object_members[n.off + i];
-						if ((m.name_flags & kRawJsonSlice) != 0 && !opts.ascii_only) {
-							dump_str_raw(store.member_name(m), out);
-						} else {
-							dump_str(store.member_name(m), out, opts.ascii_only);
-						}
-						out += opts.pretty ? ": " : ":";
-						dump_node(store, m.val_node, opts, depth + 1, out);
-					}
-				}
-				indent(depth);
-			}
-			out += '}';
-			break;
-		}
-	}
-}
-// ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
 
-SZ utf8_seq_len(
-	unsigned char lead) noexcept {
-	// NOLINTBEGIN(readability-magic-numbers)
-	if (lead < 0x80U) {
-		return 1;
-	}
-	if (lead < 0xC2U) {
-		return 0;
-	}
-	if (lead < 0xE0U) {
-		return 2;
-	}
-	if (lead < 0xF0U) {
-		return 3;
-	}
-	if (lead < 0xF5U) {
-		return 4;
-	}
-	return 0;
-	// NOLINTEND(readability-magic-numbers)
-}
-bool is_cont(
-	unsigned char c) noexcept {
-	return (c & 0xC0U) == 0x80U;
-}
 // ---------------------------------------------------------------------------
 // Phase 8 — SIMD scan for the Tokenizer hot path via std::experimental::simd.
 // ---------------------------------------------------------------------------
@@ -5004,130 +4450,27 @@ expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::me
 
 } // namespace conflux::json
 
-namespace conflux::json::detail {
-
-[[nodiscard]] inline JsonError dom_policy_error(
-	SV message) {
-	return JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::constraint_violation, .message = S{message}};
-}
-
-[[nodiscard]] inline expected<void, JsonError> require_dom_storage(
-	JsonDomPolicy const &policy,
-	JsonDomStorageModel expected,
-	SV api_name) {
-	if (policy.storage == expected) {
-		return {};
-	}
-	return unexpected(dom_policy_error(format("{} called with incompatible JsonDomPolicy storage model", api_name)));
-}
-
-} // namespace conflux::json::detail
-
 export namespace conflux::json {
 
 [[nodiscard]] expected<Document, JsonError> parse_dom(
 	SV input,
-	JsonDomPolicy const &policy = JsonDomPolicy::view_first()) {
-	if (policy.storage == JsonDomStorageModel::caller_pmr_document) {
-		return unexpected(
-			detail::dom_policy_error(
-				"parse_dom(string_view) needs the memory_resource overload for caller_pmr_document"));
-	}
-	if (auto ok =
-			detail::require_dom_storage(policy, JsonDomStorageModel::standalone_document, "parse_dom(string_view)");
-		!ok) {
-		return unexpected(move(ok).error());
-	}
-	switch (policy.input) {
-	case JsonDomInputOwnership::borrowed_view: return parse_view(input, policy.parse);
-	case JsonDomInputOwnership::owned_copy   : return parse_copy(input, policy.parse);
-	case JsonDomInputOwnership::owned_move:
-		return unexpected(detail::dom_policy_error("owned_move requires parse_dom(std::string&&)"));
-	}
-	return unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
-}
-
+	JsonDomPolicy const &policy = JsonDomPolicy::view_first());
 [[nodiscard]] expected<Document, JsonError> parse_dom(
 	S &&input,
-	JsonDomPolicy const &policy = JsonDomPolicy::owning_document()) {
-	if (policy.storage == JsonDomStorageModel::caller_pmr_document) {
-		return unexpected(
-			detail::dom_policy_error(
-				"parse_dom(std::string&&) needs the memory_resource overload for caller_pmr_document"));
-	}
-	if (auto ok =
-			detail::require_dom_storage(policy, JsonDomStorageModel::standalone_document, "parse_dom(std::string&&)");
-		!ok) {
-		return unexpected(move(ok).error());
-	}
-	if (policy.input == JsonDomInputOwnership::borrowed_view) {
-		return unexpected(detail::dom_policy_error("borrowed_view is unsafe for parse_dom(std::string&&)"));
-	}
-	return parse_copy(move(input), policy.parse);
-}
-
+	JsonDomPolicy const &policy = JsonDomPolicy::owning_document());
 [[nodiscard]] expected<Document, JsonError> parse_dom(
 	SV input,
 	std::pmr::memory_resource *resource,
-	JsonDomPolicy const &policy = JsonDomPolicy::caller_pmr()) {
-	if (resource == nullptr) {
-		return unexpected(detail::dom_policy_error("parse_dom(memory_resource*) requires a non-null resource"));
-	}
-	if (auto ok = detail::require_dom_storage(
-			policy,
-			JsonDomStorageModel::caller_pmr_document,
-			"parse_dom(memory_resource*)");
-		!ok) {
-		return unexpected(move(ok).error());
-	}
-	switch (policy.input) {
-	case JsonDomInputOwnership::borrowed_view: return parse_view(input, policy.parse, resource);
-	case JsonDomInputOwnership::owned_copy   : return parse_copy(input, policy.parse, resource);
-	case JsonDomInputOwnership::owned_move:
-		return unexpected(
-			detail::dom_policy_error(
-				"owned_move requires a std::string&& overload; caller_pmr cannot move-own input today"));
-	}
-	return unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
-}
-
+	JsonDomPolicy const &policy = JsonDomPolicy::caller_pmr());
 [[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
 	JsonArena &arena,
 	SV input,
-	JsonDomPolicy const &policy = JsonDomPolicy::arena_reuse()) {
-	if (auto ok = detail::require_dom_storage(
-			policy,
-			JsonDomStorageModel::reusable_arena,
-			"parse_dom(JsonArena&, string_view)");
-		!ok) {
-		return unexpected(move(ok).error());
-	}
-	switch (policy.input) {
-	case JsonDomInputOwnership::borrowed_view: return arena.parse_borrowed_into(input, policy.parse);
-	case JsonDomInputOwnership::owned_copy   : return arena.parse_into(input, policy.parse);
-	case JsonDomInputOwnership::owned_move:
-		return unexpected(detail::dom_policy_error("owned_move requires parse_dom(JsonArena&, std::string&&)"));
-	}
-	return unexpected(detail::dom_policy_error("unknown JsonDomInputOwnership"));
-}
-
+	JsonDomPolicy const &policy = JsonDomPolicy::arena_reuse());
 [[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
 	JsonArena &arena,
 	S &&input,
 	JsonDomPolicy const &policy =
-		JsonDomPolicy{.input = JsonDomInputOwnership::owned_move, .storage = JsonDomStorageModel::reusable_arena}) {
-	if (auto ok = detail::require_dom_storage(
-			policy,
-			JsonDomStorageModel::reusable_arena,
-			"parse_dom(JsonArena&, std::string&&)");
-		!ok) {
-		return unexpected(move(ok).error());
-	}
-	if (policy.input == JsonDomInputOwnership::borrowed_view) {
-		return unexpected(detail::dom_policy_error("borrowed_view is unsafe for parse_dom(JsonArena&, std::string&&)"));
-	}
-	return arena.parse_moved_into(move(input), policy.parse);
-}
+		JsonDomPolicy{.input = JsonDomInputOwnership::owned_move, .storage = JsonDomStorageModel::reusable_arena});
 
 } // namespace conflux::json
 
@@ -5762,296 +5105,9 @@ public:
 		return ::make_document(move(storage));
 	}
 };
-export ValueBuilder value_builder() {
-	return {};
-}
-// RFC 7396 JSON Merge Patch. The DOM stays immutable; this builds a new
-// owning Document while preserving target-member order for unchanged members and
-// appending new patch members in patch order.
-namespace detail {
-
-expected<void, JsonError> copy_node_into(ValueBuilder &out, NodeRef node);
-expected<void, JsonError> copy_node_into(
-	ObjectBuilder &out,
-	SV name,
-	NodeRef node);
-expected<void, JsonError> copy_node_into(ArrayBuilder &out, NodeRef node);
-expected<void, JsonError> merge_patch_into(
-	ValueBuilder &out,
-	NodeRef target,
-	NodeRef patch);
-expected<void, JsonError> merge_patch_into(
-	ObjectBuilder &out,
-	SV name,
-	NodeRef target,
-	NodeRef patch);
-
-[[nodiscard]] JsonError merge_patch_wrong_kind(JsonKind actual) {
-	return JsonError{
-		.stage = JsonStage::build,
-		.code = JsonIssueCode::wrong_kind,
-		.expected_kind = JsonKind::object,
-		.actual_kind = actual,
-		.message = "expected object while applying JSON merge patch"};
-}
-
-expected<void, JsonError> copy_members_into(ObjectBuilder &out, ObjectView obj) {
-	for (auto const &[name, value]: obj.members()) {
-		if (auto ok = copy_node_into(out, name, value); !ok) {
-			return ok;
-		}
-	}
-	return {};
-}
-
-expected<void, JsonError> copy_elements_into(ArrayBuilder &out, ArrayView arr) {
-	for (auto value: arr.elements()) {
-		if (auto ok = copy_node_into(out, value); !ok) {
-			return ok;
-		}
-	}
-	return {};
-}
-
-expected<void, JsonError> copy_node_into(ValueBuilder &out, NodeRef node) {
-	switch (node.kind()) {
-	case JsonKind::null   : return out.set_null();
-	case JsonKind::boolean: return out.set_bool(*node.as_bool());
-	case JsonKind::string : return out.set_string(*node.as_string());
-	case JsonKind::number : return out.set_number(node.as_number()->lexeme());
-	case JsonKind::array  :
-		{
-			auto arr = node.as_array();
-			if (!arr) {
-				return unexpected(move(arr).error());
-			}
-			auto child = out.begin_array();
-			if (!child) {
-				return unexpected(move(child).error());
-			}
-			if (auto ok = copy_elements_into(*child, *arr); !ok) {
-				return ok;
-			}
-			move(*child).commit();
-			return {};
-		}
-	case JsonKind::object:
-		{
-			auto obj = node.as_object();
-			if (!obj) {
-				return unexpected(move(obj).error());
-			}
-			auto child = out.begin_object();
-			if (!child) {
-				return unexpected(move(child).error());
-			}
-			if (auto ok = copy_members_into(*child, *obj); !ok) {
-				return ok;
-			}
-			move(*child).commit();
-			return {};
-		}
-	}
-	return unexpected(merge_patch_wrong_kind(node.kind()));
-}
-
-expected<void, JsonError> copy_node_into(
-	ObjectBuilder &out,
-	SV name,
-	NodeRef node) {
-	switch (node.kind()) {
-	case JsonKind::null   : return out.insert_null(name);
-	case JsonKind::boolean: return out.insert_bool(name, *node.as_bool());
-	case JsonKind::string : return out.insert_string(name, *node.as_string());
-	case JsonKind::number : return out.insert_number(name, node.as_number()->lexeme());
-	case JsonKind::array  :
-		{
-			auto arr = node.as_array();
-			if (!arr) {
-				return unexpected(move(arr).error());
-			}
-			auto child = out.insert_array(name);
-			if (!child) {
-				return unexpected(move(child).error());
-			}
-			if (auto ok = copy_elements_into(*child, *arr); !ok) {
-				return ok;
-			}
-			move(*child).commit();
-			return {};
-		}
-	case JsonKind::object:
-		{
-			auto obj = node.as_object();
-			if (!obj) {
-				return unexpected(move(obj).error());
-			}
-			auto child = out.insert_object(name);
-			if (!child) {
-				return unexpected(move(child).error());
-			}
-			if (auto ok = copy_members_into(*child, *obj); !ok) {
-				return ok;
-			}
-			move(*child).commit();
-			return {};
-		}
-	}
-	return unexpected(merge_patch_wrong_kind(node.kind()));
-}
-
-expected<void, JsonError> copy_node_into(ArrayBuilder &out, NodeRef node) {
-	switch (node.kind()) {
-	case JsonKind::null   : return out.append_null();
-	case JsonKind::boolean: return out.append_bool(*node.as_bool());
-	case JsonKind::string : return out.append_string(*node.as_string());
-	case JsonKind::number : return out.append_number(node.as_number()->lexeme());
-	case JsonKind::array  :
-		{
-			auto arr = node.as_array();
-			if (!arr) {
-				return unexpected(move(arr).error());
-			}
-			auto child = out.append_array();
-			if (!child) {
-				return unexpected(move(child).error());
-			}
-			if (auto ok = copy_elements_into(*child, *arr); !ok) {
-				return ok;
-			}
-			move(*child).commit();
-			return {};
-		}
-	case JsonKind::object:
-		{
-			auto obj = node.as_object();
-			if (!obj) {
-				return unexpected(move(obj).error());
-			}
-			auto child = out.append_object();
-			if (!child) {
-				return unexpected(move(child).error());
-			}
-			if (auto ok = copy_members_into(*child, *obj); !ok) {
-				return ok;
-			}
-			move(*child).commit();
-			return {};
-		}
-	}
-	return unexpected(merge_patch_wrong_kind(node.kind()));
-}
-
-expected<void, JsonError> merge_object_members_into(
-	ObjectBuilder &out,
-	Opt<ObjectView> target,
-	ObjectView patch) {
-	if (target) {
-		for (auto const &[name, target_value]: target->members()) {
-			auto patch_value = patch.find_member(name);
-			if (!patch_value) {
-				if (auto ok = copy_node_into(out, name, target_value); !ok) {
-					return ok;
-				}
-				continue;
-			}
-			if (patch_value->is_null()) {
-				continue;
-			}
-			if (auto ok = merge_patch_into(out, name, target_value, *patch_value); !ok) {
-				return ok;
-			}
-		}
-	}
-	for (auto const &[name, patch_value]: patch.members()) {
-		if (patch_value.is_null() || (target && target->find_member(name))) {
-			continue;
-		}
-		if (auto ok = copy_node_into(out, name, patch_value); !ok) {
-			return ok;
-		}
-	}
-	return {};
-}
-
-expected<void, JsonError> merge_patch_into(
-	ValueBuilder &out,
-	NodeRef target,
-	NodeRef patch) {
-	if (patch.kind() != JsonKind::object) {
-		return copy_node_into(out, patch);
-	}
-	auto patch_obj = patch.as_object();
-	if (!patch_obj) {
-		return unexpected(move(patch_obj).error());
-	}
-	Opt<ObjectView> target_obj;
-	if (target.kind() == JsonKind::object) {
-		auto obj = target.as_object();
-		if (!obj) {
-			return unexpected(move(obj).error());
-		}
-		target_obj.emplace(*obj);
-	}
-	auto child = out.begin_object();
-	if (!child) {
-		return unexpected(move(child).error());
-	}
-	if (auto ok = merge_object_members_into(*child, target_obj, *patch_obj); !ok) {
-		return ok;
-	}
-	move(*child).commit();
-	return {};
-}
-
-expected<void, JsonError> merge_patch_into(
-	ObjectBuilder &out,
-	SV name,
-	NodeRef target,
-	NodeRef patch) {
-	if (patch.kind() != JsonKind::object) {
-		return copy_node_into(out, name, patch);
-	}
-	auto patch_obj = patch.as_object();
-	if (!patch_obj) {
-		return unexpected(move(patch_obj).error());
-	}
-	Opt<ObjectView> target_obj;
-	if (target.kind() == JsonKind::object) {
-		auto obj = target.as_object();
-		if (!obj) {
-			return unexpected(move(obj).error());
-		}
-		target_obj.emplace(*obj);
-	}
-	auto child = out.insert_object(name);
-	if (!child) {
-		return unexpected(move(child).error());
-	}
-	if (auto ok = merge_object_members_into(*child, target_obj, *patch_obj); !ok) {
-		return ok;
-	}
-	move(*child).commit();
-	return {};
-}
-
-} // namespace detail
-
-export [[nodiscard]] expected<Document, JsonError> merge_patch(
-	NodeRef target,
-	NodeRef patch) {
-	auto out = value_builder();
-	if (auto ok = detail::merge_patch_into(out, target, patch); !ok) {
-		return unexpected(move(ok).error());
-	}
-	return move(out).finish();
-}
-
-export [[nodiscard]] expected<Document, JsonError> merge_patch(
-	Document const &target,
-	Document const &patch) {
-	return merge_patch(target.root(), patch.root());
-}
+export ValueBuilder value_builder();
+export [[nodiscard]] expected<Document, JsonError> merge_patch(NodeRef target, NodeRef patch);
+export [[nodiscard]] expected<Document, JsonError> merge_patch(Document const &target, Document const &patch);
 // Internal helpers: encode a value of type T into a shared BuilderState,
 // returning the resulting node index. Rolls back on failure.
 // Used by ArrayBuilder::append<T> and ObjectBuilder::insert<T>.
@@ -8172,11 +7228,7 @@ export class NdjsonRange {
 	JsonParseOptions opts_;
 
 public:
-	explicit NdjsonRange(
-		SV input,
-		JsonParseOptions const &opts = {}) noexcept
-		: input_{input}
-		, opts_{opts} {}
+	explicit NdjsonRange(SV input, JsonParseOptions const &opts = {}) noexcept;
 	struct Iterator {
 		using iterator_category = std::input_iterator_tag;
 		using value_type = expected<Document, JsonError>;
@@ -8188,89 +7240,31 @@ public:
 		SV remaining_;
 		JsonParseOptions opts_;
 		Opt<value_type> cache_;
-		void advance_one() noexcept {
-			cache_.reset();
-			while (!remaining_.empty()) {
-				auto pos = remaining_.find('\n');
-				SV line;
-				if (pos == SV::npos) {
-					line = remaining_;
-					remaining_ = {};
-				} else {
-					line = remaining_.substr(0, pos);
-					remaining_.remove_prefix(pos + 1);
-				}
-				// strip trailing CR
-				if (!line.empty() && line.back() == '\r') {
-					line.remove_suffix(1);
-				}
-				if (line.empty()) {
-					continue;
-				}
-				cache_ = conflux::json::parse_borrowed_unsafe(line, opts_);
-				return;
-			}
-		}
+		void advance_one() noexcept;
 
 		friend class NdjsonRange;
-		Iterator(
-			SV remaining,
-			JsonParseOptions const &opts) noexcept
-			: remaining_{remaining}
-			, opts_{opts} {
-			advance_one();
-		}
+		Iterator(SV remaining, JsonParseOptions const &opts) noexcept;
 
 	public:
-		[[nodiscard]] reference operator *() const noexcept { return *cache_; }
-		[[nodiscard]] pointer operator ->() const noexcept { return &*cache_; }
-		Iterator &operator ++() noexcept {
-			advance_one();
-			return *this;
-		}
-		void operator ++(
-			int) noexcept {
-			++*this;
-		}
-		[[nodiscard]] bool operator ==(
-			std::default_sentinel_t) const noexcept {
-			return !cache_.has_value();
-		}
+		[[nodiscard]] reference operator *() const noexcept;
+		[[nodiscard]] pointer operator ->() const noexcept;
+		Iterator &operator ++() noexcept;
+		void operator ++(int) noexcept;
+		[[nodiscard]] bool operator ==(std::default_sentinel_t) const noexcept;
 	};
-	[[nodiscard]] Iterator begin() const noexcept { return {input_, opts_}; }
-	[[nodiscard]] std::default_sentinel_t end() const noexcept { return {}; }
+	[[nodiscard]] Iterator begin() const noexcept;
+	[[nodiscard]] std::default_sentinel_t end() const noexcept;
 };
 export class JsonAccumulator {
 	S buf_;
 	JsonParseOptions opts_;
 
 public:
-	explicit JsonAccumulator(
-		JsonParseOptions const &opts = {}) noexcept
-		: opts_{opts} {}
-	[[nodiscard]] expected<void, JsonError> feed(
-		SV chunk) {
-		return feed(span<byte const>{reinterpret_cast<byte const *>(chunk.data()), chunk.size()});
-	}
-	[[nodiscard]] expected<void, JsonError> feed(
-		span<byte const> chunk) {
-		constexpr SZ kU32Ceiling = (SZ{1} << 32) - 1;
-		SZ const hard_cap = kU32Ceiling - 1;
-		SZ const configured_cap = opts_.max_input_size.is_unlimited() ?
-									  hard_cap :
-									  min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput), hard_cap);
-		if (buf_.size() > configured_cap || chunk.size() > configured_cap - buf_.size()) {
-			return unexpected(
-				JsonError{
-					.stage = JsonStage::parse,
-					.code = JsonIssueCode::input_too_large,
-					.message = "accumulated size exceeds max_input_size"});
-		}
-		buf_.append(reinterpret_cast<char const *>(chunk.data()), chunk.size());
-		return {};
-	}
-	[[nodiscard]] expected<Document, JsonError> finish() { return conflux::json::parse_copy(move(buf_), opts_); }
-	void reset() noexcept { buf_.clear(); }
-	[[nodiscard]] SZ buffered_bytes() const noexcept { return buf_.size(); }
+	explicit JsonAccumulator(JsonParseOptions const &opts = {}) noexcept;
+	[[nodiscard]] expected<void, JsonError> feed(SV chunk);
+	[[nodiscard]] expected<void, JsonError> feed(span<byte const> chunk);
+	[[nodiscard]] expected<Document, JsonError> finish();
+	void reset() noexcept;
+	[[nodiscard]] SZ buffered_bytes() const noexcept;
 };
 // (reflect codec moved to src/json_reflect.cxx — separate module conflux.json.reflect)

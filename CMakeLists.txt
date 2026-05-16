@@ -397,9 +397,14 @@ target_sources(conflux_json
 )
 target_sources(conflux_json
     PRIVATE
+        src/json_storage.cxx
+        src/json_number.cxx
+        src/json_reader.cxx
         src/json_dom.cxx
         src/json_dump.cxx
+        src/json_parse.cxx
         src/json_builder.cxx
+        src/json_stream.cxx
 )
 target_link_libraries(conflux_json
     PUBLIC  conflux_types
