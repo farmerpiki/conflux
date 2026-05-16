@@ -1630,6 +1630,15 @@ target_sources(conflux_http_server
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES
             src/net/http_server_state.cxx
+            src/net/http_server_h2.cxx
+            src/net/http_server_tls.cxx
+            src/net/http_server_send.cxx
+            src/net/http_server_ws.cxx
+            src/net/http_server_recv.cxx
+            src/net/http_server_cqe.cxx
+            src/net/http_server_diag.cxx
+            src/net/http_server_loop.cxx
+            src/net/http_server_dispatch.cxx
 )
 target_sources(conflux_http_server
     PRIVATE
