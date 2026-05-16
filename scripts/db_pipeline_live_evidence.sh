@@ -105,12 +105,15 @@ bench_bin="$BUILD_DIR/benchmarks/conflux_db_pipeline_bench"
 : > "$raw_ndjson"
 for rep in $(seq 1 "$REPS"); do
 	printf 'running db_pipeline bench rep %s/%s\n' "$rep" "$REPS"
+	rep_ndjson="$ARTIFACT_DIR/db_pipeline.rep${rep}.tmp.ndjson"
 	PG_CONNINFO="$PG_CONNINFO" "$bench_bin" \
 		--batches "$BATCHES" \
 		--batch-n "$BATCH_N" \
 		--warmup-batches "$WARMUP_BATCHES" \
 		--config-name "b${BATCHES}_n${BATCH_N}" \
-		--json >> "$raw_ndjson"
+		--json > "$rep_ndjson"
+	jq -c --argjson rep "$rep" '. + {rep: $rep}' "$rep_ndjson" >> "$raw_ndjson"
+	rm -f "$rep_ndjson"
 done
 
 validate_pipeline_rows() {
@@ -118,17 +121,21 @@ validate_pipeline_rows() {
 	jq -s -e --argjson expected "$expected" '
 	  def valid_row:
 	    (.variant == "plain" or .variant == "pipeline")
+	    and (.rep | type == "number")
+	    and (.rep >= 1 and .rep <= $expected)
 	    and (.iterations | type == "number")
 	    and (.total_ns | type == "number")
 	    and (.ns_per_iter | type == "number")
 	    and (.iterations > 0)
 	    and (.total_ns >= 0)
-	    and (.ns_per_iter >= 0);
+	    and (.ns_per_iter > 0);
 	  . as $rows
 	  | ($rows | length) == ($expected * 2)
 	    and all($rows[]; valid_row)
-	    and (($rows | map(select(.variant == "plain")) | length) == $expected)
-	    and (($rows | map(select(.variant == "pipeline")) | length) == $expected)
+	    and all(range(1; $expected + 1);
+	      . as $rep
+	      | (($rows | map(select(.rep == $rep and .variant == "plain")) | length) == 1)
+	        and (($rows | map(select(.rep == $rep and .variant == "pipeline")) | length) == 1))
 	' "$raw" >/dev/null
 }
 
@@ -147,17 +154,27 @@ jq -n \
 	--argjson batches "$BATCHES" \
 	--argjson batch_n "$BATCH_N" \
 	--argjson warmup_batches "$WARMUP_BATCHES" \
-	'{preset:$preset, build_dir:$build_dir, artifact_dir:$artifact_dir,
-	  reps:$reps, batches:$batches, batch_n:$batch_n, warmup_batches:$warmup_batches,
-	  variants: ($rows[0]
-	    | group_by(.variant)
-	    | map({variant: .[0].variant,
-	           samples: length,
-	           median_ns_per_iter: (map(.ns_per_iter) | sort | .[(length / 2 | floor)]),
-	           best_ns_per_iter: (map(.ns_per_iter) | min)})),
-	  speedup_median:
-	    (($rows[0] | map(select(.variant == "plain") | .ns_per_iter) | sort | .[(length / 2 | floor)]) /
-	     ($rows[0] | map(select(.variant == "pipeline") | .ns_per_iter) | sort | .[(length / 2 | floor)]))}' \
+	'
+	  def median: sort | .[(length / 2 | floor)];
+	  $rows[0] as $raw
+	  | ($raw
+	     | group_by(.variant)
+	     | map({variant: .[0].variant,
+	            samples: length,
+	            median_ns_per_iter: (map(.ns_per_iter) | median),
+	            best_ns_per_iter: (map(.ns_per_iter) | min)})) as $variants
+	  | ($raw
+	     | group_by(.rep)
+	     | map({rep: .[0].rep,
+	            plain_ns_per_iter: (map(select(.variant == "plain"))[0].ns_per_iter),
+	            pipeline_ns_per_iter: (map(select(.variant == "pipeline"))[0].ns_per_iter)})
+	     | map(. + {speedup: (.plain_ns_per_iter / .pipeline_ns_per_iter)})) as $paired
+	  | {preset:$preset, build_dir:$build_dir, artifact_dir:$artifact_dir,
+	     reps:$reps, batches:$batches, batch_n:$batch_n, warmup_batches:$warmup_batches,
+	     variants:$variants,
+	     paired_speedups:$paired,
+	     speedup_median: ($paired | map(.speedup) | median),
+	     speedup_best: ($paired | map(.speedup) | max)}' \
 	> "$summary_json"
 
 jq -n \

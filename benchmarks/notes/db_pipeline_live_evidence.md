@@ -41,10 +41,12 @@ Artifacts are written under:
 Expected files:
 
 - `ctest-db-integration.log` — live DB integration result.
-- `db_pipeline.raw.ndjson` — repeated `plain` and `pipeline` rows.
-- `db_pipeline.summary.json` — median/best per variant plus median speedup. The
-  script refuses to write this if the raw NDJSON is missing either `plain` or
-  `pipeline` rows for any repetition.
+- `db_pipeline.raw.ndjson` — repeated `plain` and `pipeline` rows annotated with
+  `rep`, so each launch can be paired in later analysis.
+- `db_pipeline.summary.json` — median/best per variant plus paired per-rep
+  speedups, `speedup_median`, and `speedup_best`. The script refuses to write
+  this if the raw NDJSON is missing either `plain` or `pipeline` rows for any
+  repetition.
 - `manifest.json` — build dir, preset, commit/branch where available.
 
 ## Run recorded evidence through `conflux_bench`
@@ -98,6 +100,7 @@ ORDER BY p.run_id DESC;
 ## Evidence status in this environment
 
 Not captured here: the available container has libpq headers/libraries but no
-PostgreSQL server or `psql`/`pg_isready` client tools. I verified the script syntax
-and JSON summarizer locally; live numbers must be produced on a host with
-PostgreSQL reachable through `PG_TEST_CONNINFO` and `PG_CONNINFO`.
+PostgreSQL server or `psql`/`pg_isready` client tools. I verified the script
+syntax, raw-row validation, and JSON summarizer locally; live numbers must be
+produced on a host with PostgreSQL reachable through `PG_TEST_CONNINFO` and
+`PG_CONNINFO`.
