@@ -595,9 +595,9 @@ That gives the project cleaner build boundaries, better API hygiene, and fewer a
 
 Classification: **API/dependency-boundary cleanup**, not a performance feature. Direct runtime gain small unless streams are on hot path. Real wins: cleaner feature split, smaller low-level surface, fewer hidden globals/locale state, clearer buffer/fd APIs.
 
-### Code verification (2026-05-11)
+### Code verification (2026-05-11 historical snapshot)
 
-Stream inventory verified against current tree. All proposal claims confirmed:
+Stream inventory verified against the 2026-05-11 tree. This table is retained as historical context; it no longer describes the current source tree:
 
 | File | Verified usage |
 |------|---------------|
@@ -609,14 +609,21 @@ Stream inventory verified against current tree. All proposal claims confirmed:
 | `src/work/carrier_coro.cxx` | `std::print(stderr,...)` for coro frame pool stats (L60) |
 | **`src/db/connection.cxx`** | **MISSED by proposal.** `ifstream` + `istreambuf_iterator` for SQL file loading (L289,295) |
 
-`conflux_file_io` confirmed to depend on `conflux_uring` + `conflux_work` + `PkgConfig::LIBURING` (all PUBLIC). This validates the core argument: sync file helpers must be a separate target.
+`conflux_file_io` was confirmed to depend on `conflux_uring` + `conflux_work` + `PkgConfig::LIBURING` (all PUBLIC) in that snapshot. This validated the core argument: sync file helpers needed a separate target.
+
+
+### Source-state update (2026-05-15)
+
+The stream-vocabulary cleanup described above has landed. Current `src/` has no banned standard stream headers/types/objects, no `std::istreambuf_iterator`, and no `export using std::println` / `std::cerr`. `file_io_sync`, `LineRange`, `eprint/eprintln`, config/DNS/template/DB/fdinfo migrations, and `scripts/check_no_std_streams.py` are in place.
+
+Remaining follow-up is narrower than this original proposal: decide whether cold reusable-source diagnostics that call `std::print/std::println(stderr, ...)` should stay allowed or move behind `eprint/eprintln`.
 
 ### Key decisions applied
 
-1. **`file_io_sync` = separate CMake target.** Not inside `conflux_file_io`. Otherwise dependency-boundary goal fails even if code looks correct.
-2. **`eprint/eprintln` → `utils.cxx`, not `types.cxx`.** Types stays vocabulary-only. Current types.cxx has `#include<iostream>`, exports `std::println`/`std::cerr`/`std::format`, and defines `eprintln` — too heavy for a vocabulary module.
-3. **`std::format` export = separate Phase B decision.** Removing streams (Phase A) and deciding `std::format` fate should not be combined — different diff, different tradeoff.
+1. **`file_io_sync` = separate CMake target.** Landed outside `conflux_file_io`, preserving the no-liburing sync-file boundary.
+2. **`eprint/eprintln` → `utils.cxx`, not `types.cxx`.** Landed; `types.cxx` no longer carries stream exports or diagnostic output helpers.
+3. **`std::format` export = separate Phase B decision.** Removing streams and deciding final formatting-vocabulary policy are separate concerns.
 4. **`read_text_file_nothrow` naming kept.** `nothrow` suffix is well-known C++ convention (cf. `std::nothrow`). Intent is clear: tolerant probes only.
-5. **`blocking_write_all_fd` v1 = blocking-fd only.** Returns `would_block` error on `EAGAIN/EWOULDBLOCK`. No spin. Nonblocking write loops belong in io_uring/socket_io.
-6. **LineRange lands before file helpers.** Mechanically smaller, gives immediate parser cleanup for config/DNS/template/fdinfo/db.
-7. **`db/connection.cxx` added to inventory.** SQL file loading uses `ifstream` + `istreambuf_iterator` — same pattern as template loading.
+5. **`write_all_fd` / `blocking_write_all_fd` v1 = blocking-fd only.** Returns an error on `EAGAIN/EWOULDBLOCK`; no spin. Nonblocking write loops belong in io_uring/socket_io.
+6. **LineRange landed before parser migrations.** Config/DNS/template/fdinfo/db parsing now uses explicit buffer + line-view helpers instead of streams.
+7. **`db/connection.cxx` was added to the historical inventory and has since been migrated.** SQL file loading now uses the sync file helper path.

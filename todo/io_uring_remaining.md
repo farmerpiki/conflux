@@ -105,4 +105,4 @@ Plumbing is complete (`RecvArmPolicy`, `resolve_recv_arm_policy`, server integra
 
 ## Warning
 
-Do not claim perf wins without same-hardware measurements under realistic HTTP load. ZC recv, registered network send buffers, IOPOLL, busy-poll, and lock-free worker queues must be separate measured branches.
+Do not claim perf wins without same-hardware measurements under realistic HTTP load. Remaining ZC recv work, HTTP SEND_ZC threshold changes, IOPOLL HTTP/static adoption, and any worker queue lock-removal follow-up must be separate measured branches.

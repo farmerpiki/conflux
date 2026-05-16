@@ -1,44 +1,49 @@
 # Remove standard stream dependencies — updated review pass
 
 Date: 2026-05-11  
-Status: **recommended; Phase 0 core-error/file_io_sync/component prerequisite is unblocked**
+Status: **implemented for stream-vocabulary removal; keep only cold diagnostic-output follow-up**
 
 ## Decision delta
 
-The stream cleanup proposal is correct, and the original core-error/file-layer prerequisite is now unblocked: `file_io_sync` no longer depends on `conflux.uring.completion`, and `conflux_file_io_sync` is created/exported outside the runtime-gated target block.
+The stream cleanup proposal has landed for standard stream vocabulary in reusable sources: `src/` no longer contains `<iostream>`, `<fstream>`, `<sstream>`, standard stream objects/types, `std::istreambuf_iterator`, or `export using std::println` / `std::cerr`. The `build/no-std-streams` CTest gate now enforces that state through `scripts/check_no_std_streams.py`.
 
-The next implementation branch can replace streams in components that must be usable without liburing.
+Keep one narrower follow-up separate from the stream-removal work: decide whether cold stderr diagnostics in reusable sources should stay as `std::print/std::println(stderr, ...)` or move behind `eprint/eprintln`.
 
-## Current confirmed stream inventory
+## Current confirmed source state
 
-Reusable library sources still using stream vocabulary:
+Reusable library sources no longer using banned stream vocabulary:
 
 ```text
 src/types.cxx
-  #include <iostream>
-  export using std::println
-  export using std::cerr
-  eprintln() implemented via std::println(std::cerr, ...)
+  no <iostream>, std::println export, std::cerr export, or eprintln implementation
 
 src/net/config.cxx
-  std::ifstream + std::getline for INI config
+  config/secret file reads use POSIX helpers plus LineRange parsing
 
-src/net/http_server.cxx
-  std::ifstream for /proc/self/fdinfo/<ring> diagnostics
+src/net/dns/dns_impl.cxx
+  resolv.conf and hosts parsing use read_text_file_nothrow + explicit line parsing
+
+src/net/http_server_impl.cxx
+  /proc/self/fdinfo diagnostics use read_text_file_nothrow + LineRange parsing
 
 src/template.cxx
-  std::ifstream + std::istreambuf_iterator for template load/reload
-
-src/work/carrier_coro.cxx
-  std::print(stderr, ...) cold warning
+  template load/reload uses blocking_read_text_file_nothrow
 
 src/db/connection.cxx
-  ifstream + istreambuf_iterator for SQL file loading
+  SQL file loading uses blocking_read_text_file
 ```
 
-This inventory is now one item smaller: `src/net/dns/dns_impl.cxx` no longer uses `std::ifstream` / `std::getline` for `/etc/resolv.conf` or `/etc/hosts`; it uses a bounded POSIX read helper plus an explicit line splitter instead.
+Remaining allowed-by-current-guard diagnostic output in reusable sources:
 
-This matches the original proposal. Tests/examples/benchmarks may continue using `std::println` for human output.
+```text
+src/work/carrier_coro.cxx
+  std::print(stderr, ...) cold coroutine-frame-pool fallback-rate warning
+
+src/utils.cxx
+  std::println(stderr, ...) parse_cidr_list warning
+```
+
+Tests/examples/benchmarks may continue using `std::println` for human output.
 
 ## Required Phase 0: make sync file errors independent from uring
 
@@ -57,76 +62,38 @@ Option B:
   conflux.file_io maps FileError to IoError at async boundaries
 ```
 
-With that dependency removed, `file_io_sync` can safely expose:
+With that dependency removed, `file_io_sync` now exposes the needed POSIX-only pieces, including `UniqueFd`, contained open/stat/temp-file helpers, `read_text_file_sync`, `read_file_at_sync`, `read_text_file_nothrow`, and `blocking_*` aliases for direct caller-thread file I/O.
+
+## `UniqueFd` placement
+
+Implemented as proposed: `UniqueFd` lives in `conflux.file_io_sync`, not in the async `FileReader`/`FileHandle` layer. Async `FileReader` still uses uring-aware handles internally.
+
+## Implemented helper set
+
+`conflux.file_io_sync` now provides:
 
 ```cpp
-expected<string, FileIoError> read_text_file_sync(...);
-expected<vector<byte>, FileIoError> read_binary_file_sync(...);
-expected<void, FileIoError> write_all_fd(...);
-expected<FileStat, FileIoError> stat_at_sync(...);
-expected<void, FileIoError> fsync_fd_sync(int fd) noexcept;
-expected<void, FileIoError> fsync_dir_sync(int dir_fd) noexcept;
-```
+export struct FileStat { ... };
 
-## Add `UniqueFd` to file_io_sync, not FileHandle
-
-Do not reuse `FileHandle` in `file_io_sync`. Current `FileHandle` is an alias for `IoHandle` from `conflux.uring.handle`, and that target imports uring vocabulary and direct-slot semantics.
-
-Add a minimal POSIX-only type:
-
-```cpp
-export class UniqueFd {
-public:
-    UniqueFd() noexcept;
-    explicit UniqueFd(int fd) noexcept;
-    ~UniqueFd() noexcept;
-    UniqueFd(UniqueFd&&) noexcept;
-    UniqueFd& operator=(UniqueFd&&) noexcept;
-
-    [[nodiscard]] int get() const noexcept;
-    [[nodiscard]] int release() noexcept;
-    [[nodiscard]] explicit operator bool() const noexcept;
-};
-```
-
-Async `FileReader` can still use `FileHandle` internally.
-
-## Updated helper set
-
-Add to `conflux::file_io_sync`:
-
-```cpp
-export struct FileStat {
-    uint64_t size{};
-    uint64_t mtime_ns{};
-    uint64_t ctime_ns{};
-    uint64_t dev{};
-    uint64_t ino{};
-    uint32_t mode{};
-};
-
-export expected<UniqueFd, FileIoError> openat_contained_sync(
+export expected<UniqueFd, FileIoSyncError> openat_contained_sync(
     int root_fd,
     string_view relative,
     int flags,
     mode_t mode = 0
 ) noexcept;
 
-export expected<FileStat, FileIoError> stat_at_sync(
+export expected<FileStat, FileIoSyncError> stat_at_sync(
     int dir_fd,
     string_view path,
     int flags = 0,
     unsigned mask = STATX_BASIC_STATS
 ) noexcept;
 
-export expected<FileStat, FileIoError> fstat_sync(int fd) noexcept;
+export expected<FileStat, FileIoSyncError> fstat_sync(int fd) noexcept;
 
-export expected<void, FileIoError> write_all_fd(
-    int fd,
-    span<byte const> bytes
-) noexcept;
+export expected<void, FileIoSyncError> write_all_fd(int fd, span<byte const> bytes) noexcept;
 
-export expected<string, FileIoError> read_text_file_sync(
+export expected<string, FileIoSyncError> read_text_file_sync(
     string_view path,
     size_t max_bytes = 16 * 1024 * 1024
 );
@@ -137,11 +104,11 @@ export optional<string> read_text_file_nothrow(
 ) noexcept;
 ```
 
-`write_all_fd` remains blocking-fd-only. On `EAGAIN`/`EWOULDBLOCK`, return `would_block`; do not spin.
+`write_all_fd` remains blocking-fd-only. On `EAGAIN`/`EWOULDBLOCK`, return an error; do not spin.
 
-## Updated LineRange placement
+## Implemented LineRange placement
 
-Place line-view helpers in `conflux.utils`, but keep them independent from file I/O:
+Line-view helpers live in `conflux.utils` and remain independent from file I/O:
 
 ```cpp
 export struct LineView {
@@ -157,11 +124,9 @@ export optional<pair<string_view, string_view>> split_once(string_view, char) no
 
 Consumers own/read the buffer through `file_io_sync`, then parse views through `LineRange`.
 
-## Updated eprint/eprintln implementation
+## Implemented eprint/eprintln placement
 
-Move diagnostics from `types.cxx` to `utils.cxx`.
-
-Preferred once `file_io_sync` exists:
+Diagnostics moved from `types.cxx` to `utils.cxx`:
 
 ```cpp
 export void eprint(string_view message) noexcept;
@@ -181,19 +146,19 @@ append newline via stack buffer or second write
 
 This removes `<iostream>`, `std::println`, and `std::cerr` from `conflux.types`.
 
-## Migration order
+## Migration status
 
 ```text
-0. Move/add core error type; add file_io_sync UniqueFd and POSIX helpers.
-1. Add LineRange and trim/split helpers to utils.
-2. Move eprint/eprintln to utils and remove stream exports from types.
-3. Replace config_from_ini ifstream path.
-4. Replace DNS tolerant parsers with read_text_file_nothrow.
-5. Replace template load/reload whole-file reads.
-6. Replace DB SQL file loader.
-7. Replace HTTP fdinfo diagnostics.
-8. Decide whether carrier_coro std::print(stderr, ...) stays as cold output or moves to eprintln.
-9. Add scripts/check_no_std_streams.py gate after sources are clean.
+[x] Move/add core error type; add file_io_sync UniqueFd and POSIX helpers.
+[x] Add LineRange and trim/split helpers to utils.
+[x] Move eprint/eprintln to utils and remove stream exports from types.
+[x] Replace config_from_ini ifstream path.
+[x] Replace DNS tolerant parsers with read_text_file_nothrow.
+[x] Replace template load/reload whole-file reads.
+[x] Replace DB SQL file loader.
+[x] Replace HTTP fdinfo diagnostics.
+[x] Add scripts/check_no_std_streams.py gate after sources are clean.
+[ ] Decide whether carrier_coro/stdout-style cold stderr diagnostics should move to eprintln.
 ```
 
 ## Enforcement update

@@ -54,10 +54,9 @@ differential.
    interleaved on one ring (coroutine style only — callback doesn't
    compose). Measures ring contention overhead.
 
-4. **Re-enable `tcp_parallel_coro_bench`** once `co_spawn` is available.
-   Until then, implement the N-parallel case manually with join_all.
+4. **Standalone `tcp_parallel_coro_bench` remains disabled.** The planned N-parallel coverage now lives in `str/parallel_4`, so this is no longer required for P1-09 acceptance.
 
-5. **compare-bins gate**: run before/after on the same binary with
+5. **compare-bins / recorded benchmark gate**: run before/after on the same binary with
    `--compare` (same tree, two presets, or via config flag). This
    avoids variant-name aliasing hack.
 
@@ -111,15 +110,17 @@ passed: callback +1.7%, coroutine -0.5% vs FileReader baseline — both within �
 
 Implemented as `str/async_callback` and `str/async_coroutine` variants in `tcp_increment_coro_bench` using the `SocketTaskRing` accept/server path.
 
-```
-Task<void> async_server_loop(SocketTaskRing& ring, u16 port, atomic_flag& stop)
+Current implementation shape:
+
+```text
+TcpListener listener{TcpListenerOptions{...}}
+SocketTaskRing ring{SocketRawRing{&raw}, completion_table, pack_user_data}
+tcp_accept_multishot(listener, ring, {}, handler).detach()
 ```
 
-- `tcp_listen(ring, port)` → `ListenSocket`
-- Loop: `co_await listen.accept()` → `TcpStream` → `serve_one_async`
-- `serve_one_async`: read line, parse, increment, write — same protocol.
-- Accept style: start with blocking accept wrapped in `co_await`, then
-  add multishot accept variant once the async path is validated.
+- Accepted streams run through `serve_one_async`.
+- Protocol stays the same: read line, parse, increment, write.
+- Accept style uses the landed `tcp_accept` / `tcp_accept_multishot` coroutine API.
 
 ### Step 3 — N parallel clients (DONE — 9851640)
 
@@ -152,28 +153,17 @@ PGURI=... BENCH_REPS=10 ONLY_BENCH=tcp_increment \
 
 Record one run. Compare `fr/*` vs `str/*` rows in SQL directly.
 
-## Questions before implementation
+## Source-state answers
 
-1. **`tcp_listen` / `ListenSocket`** — does this exist in
-   `conflux.socket_io.coro`, or does it need to be added?
-   (Grep: only `tcp_connect` is exported. `ListenSocket` is not.)
-   → Need to add `tcp_listen` + `TcpListener::accept()`.
+1. **`tcp_listen` / listener accept API** — resolved by P1-09a: `tcp_accept` and `tcp_accept_multishot` landed.
 
-2. **multishot accept** — `IORING_OP_ACCEPT` with multishot flag. Does
-   `socket_io.cxx` export `submit_multishot_accept`? (HTTP server uses
-   it directly.) → Need to expose or wrap for bench use.
+2. **Multishot accept wrapper** — resolved; socket coroutine tests cover the multishot accept path, including a 100-connection case.
 
-3. **join_all for N coroutines** — `conflux.work` exports `join_all_n`.
-   Confirm it works with `SocketTaskRing`-driven tasks on the same ring
-   without `submit_on_owner` complications.
+3. **N-parallel benchmark coverage** — resolved inside `tcp_increment_coro_bench` as `str/parallel_4`; standalone `tcp_parallel_coro_bench` remains disabled and is not needed for this proposal.
 
-4. **bench-info JSON** — adding a `parallel_4` config with `--clients 4`
-   requires the bench binary to output 7 variant rows per invocation.
-   Confirm `bench_record.sh` handles multiple rows from one run
-   correctly (it does — it reads all NDJSON lines).
+4. **bench-info JSON** — `bench_record.sh` reads all NDJSON rows from one run; `parallel_4` coverage lives in the normal recorder path.
 
-5. **`tcp_socket_task_bench` fate** — ✅ deleted (2026-05-10). `tcp_increment_coro_bench`
-   covers all variants using the production `block_on_socket_task` path.
+5. **`tcp_socket_task_bench` fate** — deleted (2026-05-10). `tcp_increment_coro_bench` covers all variants using the production `block_on_socket_task` path.
 
 ## Expected outcomes
 
@@ -191,10 +181,8 @@ investigation before declaring the migration safe.
 
 - `benchmarks/tcp_increment_coro_bench.cxx` — add SocketTaskRing client
   variants, async server variant, parallel variant; rename `fr/*`
-- `src/socket_io/socket_io_coro.cxx` — add `tcp_listen` / `TcpListener`
-  if not already present
-- `src/socket_io/socket_io.cxx` — export `submit_multishot_accept`
-  wrapper if needed by bench
+- `src/socket_io/socket_io_coro.cxx` — `tcp_accept` / `tcp_accept_multishot` landed via P1-09a
+- `src/socket_io/socket_io.cxx` — accept submission helpers landed via P1-09a
 - `benchmarks/CMakeLists.txt` — update link deps for
   `conflux_tcp_increment_coro_bench` (add `conflux_socket_io`)
 - `benchmarks/tcp_socket_task_bench.cxx` — delete or demote to

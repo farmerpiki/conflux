@@ -10,7 +10,7 @@ Based on three independent ecosystem reviews of C++26 + io_uring best practices,
 |------|--------|
 | `SINGLE_ISSUER` + `DEFER_TASKRUN` + `COOP_TASKRUN` | Done (config-gated) |
 | `SQPOLL` | Done (config-gated, off by default) |
-| `IORING_SETUP_IOPOLL` | Missing |
+| `IORING_SETUP_IOPOLL` | Done for storage-only O_DIRECT file rings (`IopollStorageRing` / `IopollFileReader`); HTTP static path integration remains separate and benchmark-gated |
 | Registered files (sparse) | Done |
 | Registered buffers (sparse, `FixedBufferPool`) | Done for file I/O + HTTP send (plain small responses via `FixedBufferPool` send buffers; `submit_send_fixed_borrowed`) |
 | Provided buffer rings for recv | Done |
@@ -29,7 +29,7 @@ Based on three independent ecosystem reviews of C++26 + io_uring best practices,
 | Huge pages / `MADV_HUGEPAGE` | Done — file I/O slabs (`file_io.cxx:109`), socket recv slab when `huge_pages=true` (`socket_io.cxx:173`), HTTP server buffer ring (`http_server.cxx:1683`) |
 | `MADV_DONTFORK` on ring buffers | Done — file I/O (`file_io.cxx:108`), socket recv slab (`socket_io.cxx:174`) |
 | `alignas(64)` on hot structs | Done for `Conn` (`alignas(64)`), `Worker` (`alignas(64)`), MPMC ring `head_`/`tail_`; `Ring` has no alignas — verify field grouping with `perf c2c` before further padding |
-| Coroutine frame custom allocator | Done (`CONFLUX_WORK_CORO_FRAME_POOL` CMake flag) — 8 MiB per-thread bump arena for `EagerChain` frames; off by default; disabled under sanitizers (`carrier_coro.cxx:37-114`) |
+| Coroutine frame custom allocator | Done (`CONFLUX_WORK_CORO_FRAME_POOL` CMake flag) — `EagerChain` uses a thread-local bump arena; `Task<T>` promise frames use pooled mmap-backed buckets with PMR fallback; off by default and sanitizer-safe |
 | Work-stealing pool | Global injection via lock-free MPMC ring (`inject_ring_`); per-worker local queues + stealing still use `std::mutex`; `admission_mtx_` gates enqueue/admission |
 | `memory_order_seq_cst` in hot paths | Present in WorkPool wake/park protocol (two `atomic_thread_fence(seq_cst)` forming a fence pair for `parked_` visibility before `pending_` check); verify necessity with correctness reasoning before weakening |
 
@@ -61,8 +61,8 @@ Set unconditionally per accepted socket. No longer a gap.
 **T2-B: `SO_BUSY_POLL` + `SO_PREFER_BUSY_POLL` per accepted socket** — **Done** (`http_server.cxx:2397-2400`)
 `busy_poll_us` and `prefer_busy_poll` config fields; applied via `setsockopt` after each accept. Off by default. Pair with `IORING_SETUP_SQPOLL` for the full zero-syscall path.
 
-**T2-C: `IORING_SETUP_IOPOLL` for storage rings**
-When `FileReader` is used with `O_DIRECT` files on NVMe, `IOPOLL` mode eliminates interrupt overhead by polling the device CQ directly. Currently `IOPOLL` is never set. Requires a separate ring (can't mix with sockets — `IOPOLL` only works with storage ops). Add an `iopoll` flag to `FileReader`'s ring init path, separate from the network ring. Note: `FileReader` stays in `conflux::file_io` (depends runtime + liburing); the IOPOLL ring is a `file_io` concern, not `file_io_sync`.
+**T2-C: `IORING_SETUP_IOPOLL` for storage rings** — **Primitive done**
+`IopollStorageRing` / `IopollFileReader` landed as a storage-only O_DIRECT read surface using a dedicated `IORING_SETUP_IOPOLL` ring. `FileReader` remains on the general ring for poll/timer/socket/DB/file-watch work. Remaining work is not the primitive; it is benchmark-gated HTTP/static-path adoption and any per-device fallback policy.
 
 **T2-D: `file_io.cxx` drain loop — batch `peek_batch_cqe`** — **Done** (`file_io.cxx:3015-3025`)
 32-CQE batch via `io_uring_peek_batch_cqe` + single `io_uring_cq_advance` per burst. No longer suboptimal.
@@ -90,8 +90,8 @@ Set unconditionally after accept. Note: Linux resets `TCP_QUICKACK` per-send; th
 **T3-D: Hugepage backing for provided recv buffers** — **Done** (`http_server.cxx:1683`, `socket_io.cxx:173`)
 HTTP server buffer ring uses `huge_pages=true` → `MADV_HUGEPAGE` on the slab. Socket recv slab also supports hugepage via `BufferRingOptions.huge_pages`. File I/O slabs similarly (`file_io.cxx:109`).
 
-**T3-E: Coroutine frame pool** — **Done for EagerChain** (`carrier_coro.cxx:37-114`, CMake flag `CONFLUX_WORK_CORO_FRAME_POOL`)
-8 MiB per-thread monotonic bump arena. Disabled under sanitizers. `TaskPromise<T>` (the request-path type) is **not** yet covered — only `EagerChain` promises use the pool. That gap remains.
+**T3-E: Coroutine frame pool** — **Done** (`CONFLUX_WORK_CORO_FRAME_POOL`)
+`EagerChain` keeps the per-thread monotonic bump arena. `Task<T>` promise frames now allocate through size-bucketed mmap-backed pools with a process-lifetime PMR fallback, so the request-path `TaskPromise<T>` gap is closed when the option is enabled. Sanitizer builds keep the safe fallback path.
 
 **T3-F: `madvise(MADV_DONTFORK)` on ring buffers** — **Done** (`file_io.cxx:108`, `socket_io.cxx:174`)
 Applied after slab allocation in both file I/O and socket recv paths.
@@ -111,11 +111,11 @@ All original Tier 3 quick wins are implemented. Remaining open items:
 | ~~T2-G~~ | ~~Registered buffers for network send~~ | ~~Done~~ (`FixedBufferPool` send buffers) | — |
 | ~~T1-A~~ | ~~Zero-copy HTTP response send (`SEND_ZC`)~~ | ~~Done for plain + mapped responses~~; TLS remains intentionally excluded | — |
 | ~~T1-D~~ | ~~Lock-free global injection~~ | ~~Done~~ (MPMC ring); local queues/stealing/admission_mtx_ still mutex-based | — |
-| T3-E (gap) | Coroutine frame pool for `TaskPromise<T>` | `work/root.cxx` | 1–2 days |
-| T2-C | `IORING_SETUP_IOPOLL` for storage rings | `file_io.cxx`, ring init | 1–2 days |
+| ~~T3-E~~ | ~~Coroutine frame pool for `TaskPromise<T>`~~ | ~~Done~~ (`work/root.cxx`) | — |
+| ~~T2-C~~ | ~~`IORING_SETUP_IOPOLL` for storage rings~~ | ~~Done~~ (`IopollStorageRing` / `IopollFileReader`); HTTP adoption still needs benchmark evidence | — |
 | T1-B | Zero-copy recv (`RECV_ZC`) | `socket_io.cxx`, recv path | wait for kernel ≥ 6.20 |
 
-Item T1-C (P2300 scheduler) is intentionally deferred — multi-week architectural change. T1-D partially landed (MPMC injection ring); remaining local queue/steal lock removal deferred pending contention profiling.
+Item T1-C (P2300 scheduler) is intentionally deferred — multi-week architectural change. T1-D partially landed (MPMC injection ring); remaining local queue/steal lock removal is deferred pending contention profiling. T2-C is no longer a missing primitive; only measured consumers remain.
 
 ---
 

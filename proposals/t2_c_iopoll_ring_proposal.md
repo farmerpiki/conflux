@@ -1,9 +1,9 @@
 # T2-C: Dedicated IOPOLL Ring for Storage I/O
 
 Date: 2026-05-10
-Status: BLOCKED — needs storage_read_bench + buffer ownership design
-Effort: 3–5 days
-Prerequisite: benchmark proving storage-read bottleneck under HTTP load
+Status: PARTIALLY IMPLEMENTED — storage-only primitive landed; HTTP/static integration remains benchmark-gated
+Effort: primitive landed; remaining consumer work depends on storage/static benchmark evidence
+Prerequisite for remaining work: benchmark proving storage-read bottleneck under HTTP/static load
 Kernel: 5.1+ (IOPOLL exists since initial io_uring; 5.11 adds some `io_uring_enter` extensions)
 Device: filesystem and block device must support polling; NVMe needs `poll_queues` configured ([man7.org][1])
 
@@ -16,34 +16,27 @@ by polling the device CQ directly — but it can only be set on a ring that
 does NOT service socket operations. Kernel returns EINVAL for socket ops
 on an IOPOLL ring.
 
-## Current Architecture
+## Current Source State
 
+The key architectural constraint was handled correctly: `FileReader` was not moved wholesale to an IOPOLL ring. Current source has a separate storage-only surface in `src/file_io/file_io.cxx`:
+
+```text
+IopollStorageRingOptions
+IopollFileReader::read_nocache_fixed(...)
+iopoll_storage_setup_flags(...)
+IopollStorageRing::create(...)
+pump_iopoll_until(...)
+block_on_iopoll(...)
 ```
-Ring 0 (per thread)
-├── Flags: SINGLE_ISSUER, DEFER_TASKRUN, COOP_TASKRUN, ...
-├── Socket ops: accept, recv, send, close
-├── File ops: read_fixed, splice_to_fd
-├── FixedBufferPool (read-side)
-├── PipePool (splice pairs)
-└── FileReader (uses same ring)
-```
 
-`Ring::init()` (`http_server.cxx:1573`) creates a single ring. `FileReader`
-is constructed with `&ring` at line 1689. All operations share one SQ/CQ.
-
-**Key constraint:** `FileReader` is not storage-only. It also contains
-`poll_add_oneshot`, `poll_add_multi`, timers/timeouts, socket helpers,
-send/recv helpers, DB-related wait support, and file-watch support via
-`current_file_reader()`. Moving `FileReader` wholesale to an IOPOLL ring
-would submit illegal non-storage ops → EINVAL / API-shape bug.
+Tests in `tests/file_io_test.cxx` cover creation/fallback and O_DIRECT `read_nocache_fixed` behavior. The HTTP static serving path has not adopted this ring; that remains benchmark-gated.
 
 ## Design
 
-### New `IopollFileReader` — storage-only API
+### `IopollFileReader` — storage-only API
 
 Do **not** move `FileReader` to the IOPOLL ring. Keep `FileReader` on the
-main ring for poll/timer/socket/DB/file-watch ops. Add a separate narrow
-object with v1 surface:
+main ring for poll/timer/socket/DB/file-watch ops. The landed separate narrow object keeps the intended v1 surface:
 
 ```cpp
 struct IopollFileReader {
@@ -98,7 +91,7 @@ struct CurrentIoContext {
 };
 ```
 
-### Ring Creation
+### Ring Creation (implemented in file_io primitive)
 
 ```cpp
 if (cfg.iopoll) {
@@ -252,23 +245,21 @@ iopoll_min_file_bytes = 65536   # files below this skip IOPOLL (use mmap/splice)
 
 ## Acceptance Criteria
 
-1. When `iopoll=true`, storage reads use a separate `IopollFileReader` on
-   a ring with `IORING_SETUP_IOPOLL`.
-2. `FileReader` stays on the main ring — poll/timer/socket/DB ops unaffected.
-3. `IopollFileReader` v1 exposes only `read_nocache_fixed`. No open, stat,
-   close, poll, socket, timeout, splice, or fsync on the IOPOLL ring.
-4. Graceful fallback if IOPOLL ring creation fails.
-5. `read_nocache_fixed` used for storage reads, not plain `read_fixed`.
-6. IOPOLL disabled per-device on `EINVAL`/`EOPNOTSUPP` with diagnostic log
-   and negative cache to avoid hot-path retry tax.
-7. File-ring pumping cannot stall behind `submit_and_wait(&socket_ring, 1)`.
-8. IOPOLL completions delivered back to the owning socket/general ring
-   before resuming any HTTP/server coroutine or mutating Conn/router/server
-   state. The file thread must not resume continuations directly.
-9. Client disconnect/cancellation before IOPOLL completion must not
-   use-after-free Conn, fd, coroutine frame, or FixedBuffer. Late
-   completions dropped by `conn_gen` / owner token mismatch.
-10. No regression in `tcp_increment_coro_bench` (--compare-bins, release).
+Implemented primitive criteria:
+
+1. [x] Storage reads use a separate `IopollFileReader` on a ring with `IORING_SETUP_IOPOLL`.
+2. [x] `FileReader` stays on the main ring — poll/timer/socket/DB ops unaffected.
+3. [x] `IopollFileReader` v1 exposes only `read_nocache_fixed`. No open, stat, close, poll, socket, timeout, splice, or fsync on the IOPOLL ring.
+4. [x] Graceful fallback if IOPOLL ring creation or fixed-buffer setup fails.
+5. [x] `read_nocache_fixed` used for storage reads, not plain `read_fixed`.
+
+Still open for HTTP/static consumer integration:
+
+6. [ ] Per-device `EINVAL`/`EOPNOTSUPP` negative cache and diagnostic policy.
+7. [ ] File-ring pumping model that cannot stall behind `submit_and_wait(&socket_ring, 1)` when used by HTTP/server code.
+8. [ ] IOPOLL completions delivered back to the owning socket/general ring before resuming any HTTP/server coroutine or mutating Conn/router/server state.
+9. [ ] Client disconnect/cancellation before IOPOLL completion cannot use-after-free Conn, fd, coroutine frame, or FixedBuffer.
+10. [ ] No regression in relevant HTTP/static benchmarks.
 
 ## Benchmark Gate
 
@@ -291,25 +282,21 @@ Benchmark must prove the file ring was exercised:
 Hypothesis: 10–30% throughput improvement for direct-read storage workloads
 on NVMe. Must pass --compare-bins non-regression.
 
-## Implementation Order
+## Remaining Implementation Order
 
-1. Add `storage_read_bench` proving `O_DIRECT + read_nocache_fixed` bottleneck.
-2. Design buffer ownership/release across file thread and socket ring thread.
+1. Add a storage/static benchmark that proves `O_DIRECT + read_nocache_fixed` is the bottleneck on target hardware.
+2. Design buffer ownership/release across file thread and socket ring thread for HTTP consumers.
 3. Design cancellation/late-completion rules (conn_gen token, fd lifetime).
-4. Add `IopollFileReader` as storage-only (no open/stat/poll/close/fsync).
-5. Add file-ring thread with coalesced eventfd wakeup.
-6. Add cross-thread completion delivery back to owner ring.
-7. Add direct-read static path after standalone storage benchmark wins.
-8. Test TLS static serving without kTLS.
+4. Add file-ring thread or explicit pump integration with coalesced owner-ring wakeup.
+5. Add cross-thread completion delivery back to owner ring.
+6. Add direct-read static path only after standalone storage benchmark wins.
+7. Test TLS static serving without kTLS.
+
+Already implemented: storage-only `IopollFileReader`, `IopollStorageRing`, setup flags, fixed-buffer table creation, pumping helpers, and primitive tests.
 
 ## Priority
 
-Implement **T2-G registered network send buffers** or **T1-A SEND_ZC
-response path** before this if targeting HTTP static-file throughput.
-HTTP response path still uses `writev`; zero-copy send only partially
-present in primitives. Those directly affect the socket side.
-
-Implement IOPOLL only after a benchmark proves storage-read bottleneck
+Registered network send buffers and the main SEND_ZC response path have already landed. Do not add HTTP/static IOPOLL consumers until a benchmark proves storage-read bottleneck
 under realistic HTTP load — not socket send, TLS encryption, splice,
 page-cache, or response scheduling.
 

@@ -1,14 +1,14 @@
 # Modular Build Targets & Feature Presets — updated review pass
 
 Date: 2026-05-11  
-Status: **implemented target graph; keep as historical target-boundary reference**
+Status: **implemented component/preset graph; keep as historical target-boundary reference with noted remaining couplings**
 Scope: replacement patch-notes for the modular-build proposal
 
 ## Decision delta
 
-The modular target graph has landed. Keep this document as the target-boundary rationale and use it for future preset-resolver work, not as an open implementation checklist.
+The modular target graph and preset resolver have landed. Keep this document as target-boundary rationale and source-state notes, not as an open implementation checklist.
 
-The missing sync file layer and stale `http_static` dependency assumptions called out in this review have since been resolved: `file_io_sync` and `file_map` are standalone package components, `json_file` sits above `json + file_io_sync`, and static HTTP is split into static surface/core/async targets.
+The missing sync file layer and stale `http_static` dependency assumptions called out in this review have since been resolved: `file_io_sync` and `file_map` are standalone package components, `json_file` sits above `json + file_io_sync`, static HTTP is split into static surface/core/async targets, and `cmake/ConfluxPresets.cmake` resolves `CONFLUX_FEATURE_SET` plus `CONFLUX_BUILD_*` component flags.
 
 ## Immediate source-state fixes
 
@@ -96,26 +96,40 @@ conflux::http_json
   request/response JSON helpers as free functions.
   Depends: http_core + json.
 
+conflux::http_router_match
+  route-pattern matching helpers.
+  Depends: http_core + utils.
+
+conflux::http_router_dispatch
+  route dispatch helpers.
+  Depends: http_core + http_response + http_realtime + work.
+
 conflux::http_router
-  route matching, params, middleware chain.
-  Depends: http_core.
+  public router surface and static/realtime compatibility exports.
+  Depends today: http_core + http_response + http_realtime + http_static +
+  work + utils + net_config + socket_io. This is a real split from the
+  monolith, but not yet a pure http_core-only router target.
 
 conflux::http_server
   server loop, app dispatch, network runtime.
-  Depends: http_router + runtime + socket_io.
+  Depends: http_router + runtime + socket_io + related HTTP feature targets.
 
 conflux::http_static_core
-  static path normalization, etag, range, precompressed metadata,
-  mapped-body factories, sync atomic PUT helper.
-  Depends: http_core + file_io_sync + file_map.
+  static path normalization/cache internals.
+  Depends: types only in current CMake.
+
+conflux::http_static
+  StaticOptions/static surface.
+  Depends: types + work + net_config.
 
 conflux::http_static_async
-  streamed/splice file response integration.
-  Depends: http_static_core + file_io.
+  static root-dir lifetime, contained open/probe helpers, GET/PUT/DELETE paths,
+  and async file helper coroutines.
+  Depends: http_static_core + http_static + http_response + file_io + file_map.
 
 conflux::http_realtime
-  SSE + WebSocket factories for the current pre-v1 pass.
-  Depends: http_server + crypto.
+  SSE + WebSocket surfaces.
+  Depends: http_core + crypto; links net_tls when TLS is enabled.
 ```
 
 If splitting `http_static_core`/`http_static_async` is too much for the first patch, keep a single `http_static` target but be honest: it depends on `file_io` because streamed file serving is included. Do not describe it as sync/mmap-only.
@@ -123,43 +137,36 @@ If splitting `http_static_core`/`http_static_async` is too much for the first pa
 ## Preset changes
 
 ```text
+current:
+  transitional monolith-compatible default; most component flags resolve ON.
+
 core:
-  BUILD_CORE=ON
+  BUILD_CORE=ON only; no runtime/liburing.
 
 runtime:
-  core + BUILD_RUNTIME
-  optional BUILD_SOCKET_IO=AUTO if preset wants network runtime
-  no file_io
+  runtime + socket_io; no file_io.
 
 json:
-  core + BUILD_JSON
-  optional BUILD_JSON_FILE=OFF by default
+  core + json; json_file remains OFF unless explicitly requested.
 
 http-minimal:
-  runtime + socket_io + http_core + http_router + http_server
-  no json, no static, no file_io
+  current source still resolves a richer server stack than the ideal minimal
+  shape: runtime + file_io_sync + file_map + file_io + socket_io + dns + crypto
+  + json + http_core + http_router + http_server + http_json. This is a known
+  remaining coupling, not a documentation target to claim as already solved.
 
 web-server:
-  http-minimal + file_io_sync + file_map + file_io + http_static_async
-  + template + compression + http_realtime + TLS/HTTP2 AUTO
+  http-minimal + static + compression + realtime + template.
 
 http-api:
-  http-minimal + json + http_json + crypto + http_policy + http_auth
+  http-minimal + policy + auth.
 ```
 
-Add component flags:
-
-```cmake
-CONFLUX_BUILD_FILE_IO_SYNC=AUTO
-CONFLUX_BUILD_FILE_MAP=AUTO
-CONFLUX_BUILD_JSON_FILE=OFF
-CONFLUX_BUILD_HTTP_STATIC_CORE=AUTO
-CONFLUX_BUILD_HTTP_STATIC_ASYNC=AUTO
-```
+Implemented component flags include `CONFLUX_BUILD_FILE_IO_SYNC`, `CONFLUX_BUILD_FILE_MAP`, `CONFLUX_BUILD_JSON_FILE`, and the current HTTP feature flags (`CONFLUX_BUILD_HTTP_STATIC`, `CONFLUX_BUILD_HTTP_REALTIME`, `CONFLUX_BUILD_HTTP_POLICY`, etc.). Static core/async are separate CMake targets under the current `HTTP_STATIC`/router stack rather than separate public `CONFLUX_BUILD_HTTP_STATIC_CORE` and `CONFLUX_BUILD_HTTP_STATIC_ASYNC` flags.
 
 ## Core error prerequisite
 
-Current async file I/O uses:
+Resolved. `IoError` is exported from `conflux.types`, and `file_io_sync` no longer imports or links `conflux.uring.completion` / `conflux_uring`. Historical problem statement:
 
 ```cpp
 export using FileIoError = IoError;
@@ -180,11 +187,11 @@ Acceptable:
   async file_io converts FileError <-> IoError at boundaries
 ```
 
-Do not make `file_io_sync` depend on `conflux_uring` just to reuse `IoError`.
+Implemented via the preferred direction: the shared error vocabulary lives at the core/types layer, and `file_io_sync` remains no-liburing.
 
 ## Response body split prerequisite
 
-The current response variant names every optional body feature:
+Partially resolved. `conflux::http_response`, `conflux::http_static(_core/_async)`, and `conflux::http_realtime` are separate targets, but the current response/router stack still has concrete dependencies on file/realtime/static response surfaces. Historical problem statement:
 
 ```cpp
 variant<S, SP<SseChannel>, SP<WsUpgrade>, SP<MappedFile>, SP<StreamedFile>, SP<DeferredResponse>>
@@ -206,19 +213,19 @@ Phase 2b: router split
   - http_realtime
 ```
 
-## Updated implementation order
+## Updated implementation status
 
 ```text
-0. Core error and file_io_sync primitives.
-1. Stale dependency cleanup: socket_io CMake, client import, broken body_json(NodeRef).
-2. Always-real json and crypto targets.
-3. O_TMPFILE temp-file sync + async publish redesign.
-4. Stream cleanup in reusable sources.
-5. file_map lease extraction.
-6. Response body model split.
-7. Router/static/realtime split.
-8. Preset resolver and aggregate targets.
-9. Tests/examples/benchmarks link smallest targets.
+[x] Core error and file_io_sync primitives.
+[x] Stale dependency cleanup: socket_io CMake, client import, broken body_json(NodeRef).
+[x] Always-real json and crypto targets.
+[x] O_TMPFILE temp-file sync + async publish redesign.
+[x] Stream cleanup in reusable sources.
+[x] file_map lease extraction.
+[x] Router/static/realtime target split.
+[x] Preset resolver and aggregate/component flags.
+[~] Response/body/router decoupling: split targets exist, but router/response still carry static/realtime/file couplings.
+[~] Tests/examples/benchmarks mostly use component targets; keep tightening when touching each binary.
 ```
 
 ## Acceptance gates
@@ -230,5 +237,5 @@ conflux_socket_io no longer links conflux_file_io
 conflux_json is always a real target when BUILD_JSON=ON
 json_file is optional and is the only JSON target using file_io_sync
 static sync/mmap helpers do not import conflux.file_io
-HTTP minimal target does not compile static serving, JSON, templates, OpenAPI, or compression
+HTTP minimal target remains richer than the ideal no-JSON/no-file-IO shape until router/response/server couplings are reduced
 ```

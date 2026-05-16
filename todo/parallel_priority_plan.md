@@ -66,8 +66,7 @@ parallel branches without repeatedly re-deciding global priority.
 - HTTP/io_uring: SEND_ZC edge measurement is landed; validate remaining threshold tuning; IOPOLL is landed;
   defer RECV_ZC implementation until kernel support is stable, but prepare the recv
   abstraction so the later branch is narrow.
-- Perf/CI: make the benchmark/profiling harness first-class before accepting further
-  low-level perf claims.
+- Perf/CI: fuzz-smoke and benchmark/profiling harnesses exist; next CI gap is an explicit benchmark regression budget/policy before accepting more low-level perf claims.
 - Docs/examples: update concurrency, naming, and handler-execution docs so coding
   agents stop reintroducing the old hidden-offload/sync-handler model.
 
@@ -220,7 +219,7 @@ Recommended next JSON branch: `json/schema-pointer-patch`.
 | DONE | `auth/session-token-audit` | Added JWT session-token policy knobs for required `exp`/`iat`/`jti`, clock skew, max lifetime, negative timestamp rejection, and `jti` revocation hook; documented cookie/session storage boundaries. | Completed on auth lane; no route ergonomics changes. | Tests cover expiry/skew/lifetime/revocation surfaces and docs capture current non-goals. |
 | DONE | `auth/rate-limit-hooks` | Added reusable `AuthFailureLimiter`, per-account/query/remote/bearer-token key helpers, metrics snapshots, and a middleware adapter for downstream auth-failure hooks. | Completed on auth lane; no route rewrite required. | Hook points exist; default remains safe/simple; route/account/API-token throttling is documented. |
 
-Recommended next auth branch: none in the current P0/P1 auth lane. If continuing security work, plan a separate `auth/session-store-revocation` branch for persistent session storage / cluster-wide revocation; otherwise return to the global queue (`build/fuzz-smoke-lane`, `http/send-threshold-bench`, or `db/pipeline-live-evidence`).
+Recommended next auth branch: none in the current P0/P1 auth lane. If continuing security work, plan a separate `auth/session-store-revocation` branch for persistent session storage / cluster-wide revocation; otherwise return to the global queue (`build/bench-regression-budget`, `http/send-threshold-bench`, or `db/pipeline-live-evidence`).
 
 ### Build / tests / perf / CI lane
 
@@ -233,7 +232,7 @@ Recommended next auth branch: none in the current P0/P1 auth lane. If continuing
 | DONE | `build/package-config` | Install/export package shape now has explicit version ownership, component metadata, requested-component validation, a canonical `conflux::conflux` umbrella alias when available, and package smoke scripts. | Build/docs only. | `build/package-config` statically guards package CMake shape; package smoke validates installed namespaced component targets from a downstream project. |
 | DONE | `build/install-tree-smoke` | Added a real downstream install-tree smoke: configure/build/install a fresh dependency-light tree, consume the installed prefix with `find_package(conflux)`, compile/link a module-importing executable, and run it. | Build/docs only; keep separate from CI/fuzz budget changes. | `run-install-tree-smoke.sh` drives the full build/install/consume flow; `run-package-config-smoke.sh` now builds and runs the downstream consumer; opt-in CTest gates exist for both preinstalled and freshly installed prefixes. |
 
-Recommended next build branch: `build/fuzz-smoke-lane`. Sanitizer/perf split is already landed; the remaining stale CI item is making fuzz smokes runnable from the fuzz preset instead of only documenting fuzz targets.
+Recommended next build branch: `build/bench-regression-budget`. Sanitizer/perf split, fuzz-smoke, package smoke, and install-tree smoke are already landed; the remaining CI/perf gap is defining which benchmark deltas block merges and how those gates run.
 
 ### Docs / examples / API ergonomics lane
 
@@ -244,9 +243,9 @@ Recommended next build branch: `build/fuzz-smoke-lane`. Sanitizer/perf split is 
 | DONE | `docs/todo-state-prune` | Prune stale TODO/proposal state against code before opening more branches. | Docs-only. | Completed items are marked done; active next branches are current. |
 | DONE | `docs/examples-compile-ci` | Added `CONFLUX_BUILD_EXAMPLES`, `conflux_examples`, and `examples/compile` CTest build gate. | Build/docs only. | Server examples compile without being executed. |
 | DONE | `docs/json-boundary-guide` | Documented provider-neutral modules, native convenience edge, provider shape, and rules for HTTP/app framework code. | Landed with boundary traits. | Route authors know where JSON dependencies are allowed. |
-| P2 | `docs/release-blockers` | Maintain release-blocker checklist. | Later, after P0/P1 branches settle. | Checklist includes security, docs, perf harness, fuzzing, alias removal. |
+| P2 | `docs/release-blockers` | Maintain release-blocker checklist. | Later, after P0/P1 branches settle. | Checklist includes security, docs, perf harness, fuzz-smoke/JSONTestSuite status, benchmark budget, alias removal. |
 
-Recommended next docs branch: `docs/release-blockers` after `recv_bundle.e2e` is green and the CI/fuzz budget branch lands.
+Recommended next docs branch: `docs/release-blockers` after `recv_bundle.e2e` is green and the benchmark-budget branch lands.
 
 ### API naming / alias cleanup lane
 
@@ -265,14 +264,13 @@ These branches can start from the same base with low conflict risk. Keep
 `recv_bundle.e2e` on a single correctness branch and avoid recv/server lifetime
 churn elsewhere until it is green.
 
-1. `build/fuzz-smoke-lane`
-   - Make fuzz smoke tests runnable from the fuzz preset and CI docs.
+1. `build/bench-regression-budget`
+   - Define merge-blocking benchmark deltas and how perf evidence is recorded/enforced.
    - Does not touch recv/server hot paths.
 
-2. `file/no-std-streams-phase-a`
-   - Replace reusable-library stream usage now that `file_io_sync` is a no-liburing
-     package component.
-   - Defer HTTP fdinfo diagnostics if they would touch server internals.
+2. `docs/src-diagnostic-print-policy`
+   - Decide whether remaining reusable-source `std::print/std::println(stderr, ...)` diagnostics stay allowed or move behind `eprint/eprintln`.
+   - Docs/script-only unless policy chooses a small source cleanup.
 
 3. `db/pipeline-live-evidence`
    - Run live PostgreSQL integration and refresh `db_pipeline_bench.cxx` evidence.
@@ -309,7 +307,7 @@ churn elsewhere until it is green.
 - Password hashing is production-grade and migration-aware.
 - JSON provider usage is isolated enough that replacing the backend is not a route
   rewrite.
-- Perf harness exists, records preset/cache/log/raw artifacts, rejects accidental non-perf inputs, and no perf claim lands without same-machine benchmark notes.
+- Perf harness exists, records preset/cache/log/raw artifacts, rejects accidental non-perf inputs, and no perf claim lands without same-machine benchmark notes; explicit regression budgets still need policy.
 - Public docs state concurrency, handler execution, and naming semantics correctly.
 - Examples compile in CI.
 - Hardened defaults are documented and tested.

@@ -140,7 +140,7 @@ Implemented in this patch:
   - [x] Static implementation split slice: export `conflux::http_response`, `conflux::http_static_core`, and `conflux::http_static_async`; move HTTP response/deferred body vocabulary, static path normalization/cache store, static root-dir lifetime, contained open/probe helpers, static GET/PUT/DELETE execution, and async file helper coroutines out of router-owned module units.
   - [x] Dependency-edge cleanup slice: stale `socket_io -> file_io`, `net.client -> file_io`, and `body_json(NodeRef)` proposal edges are gone; higher-level targets/tests/benches no longer repeat direct `PkgConfig::LIBURING` links already propagated by lower-level runtime/file/socket targets.
   - [x] DB optional component export: `conflux_db` installs/exports as `conflux::db` when libpq support is enabled.
-- [ ] CI: examples compile gate and ASan/UBSan correctness lane exist; still need a runnable fuzz-smoke lane, JSONTestSuite integration, and bench regression budget.
+- [ ] CI: examples compile gate, sanitizer correctness lane, runnable fuzz-smoke lane, and optional JSONTestSuite gate exist; still need an explicit bench regression budget.
 - [x] Docs: versioning/semver policy, security disclosure, supported compiler+kernel matrix — added `docs/project-policy.md` and linked it from README/pre-v1 contract
 - [x] HTTP security corpus: smuggling, duplicate Content-Length, TE ambiguity, Host ambiguity, chunk edge cases — documented in `docs/http-security-corpus.md`; raw-wire E2E cases added for Host and CL+TE smuggling
 
