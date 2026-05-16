@@ -64,7 +64,14 @@ correctness, or naming patches.
 
 Do these one branch at a time. Each branch needs its own build/perf baseline,
 source-list patch, module-interface guard run, and focused regression tests.
+Use `todo/proposal_state.md` for current priority.
 
+- [ ] Split `src/file_io/file_io.cxx` into leaf module units inside the existing
+  `conflux_file_io` target.
+  - Candidate seams: fixed-buffer table/leases, pipe-pair pool, `FileReader`,
+    storage-only IOPOLL reader/ring, and driver/current-reader helpers.
+  - Keep `conflux.file_io` as an umbrella and do not create new package
+    components in the first branch.
 - [ ] Split `src/json.cxx` into smaller implementation units only when the split
   produces a clear consumer/build/test boundary.
   - Candidate seams: tokenizer/parser, DOM/node storage, streaming reader,

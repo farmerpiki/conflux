@@ -1,5 +1,9 @@
 # P1-09 Benchmark Proposal: FileReader → SocketTaskRing Migration
 
+> State note (2026-05-16): implementation coverage landed. Keep this as
+> benchmark rationale only; remaining work is evidence/measurement, not missing
+> `SocketTaskRing` API surface.
+
 Date: 2026-05-10
 **Status: implemented for `tcp_increment_coro_bench`.** Steps 1+3 landed in e3f1038; async server + `str/parallel_4` landed in 9851640. `tcp_socket_task_bench` was deleted. The legacy standalone `tcp_parallel_coro_bench` remains disabled, but the planned N=4 benchmark coverage now lives in `str/parallel_4`.
 

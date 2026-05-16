@@ -1,4 +1,4 @@
-// Advanced runtime example: direct conflux.file_io with caller-owned io_uring.
+// Advanced runtime example: direct conflux.file_io.driver with caller-owned io_uring.
 //
 // Demonstrates using FileReader with a caller-owned io_uring and completion
 // table. The block_on helper drives the ring until each Flow resolves.
@@ -6,7 +6,7 @@
 #include <liburing.h>
 #include <unistd.h>
 
-import conflux.file_io;
+import conflux.file_io.driver;
 import conflux.work;
 import std;
 import conflux.types;

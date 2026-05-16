@@ -395,6 +395,12 @@ target_sources(conflux_json
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES src/json.cxx
 )
+target_sources(conflux_json
+    PRIVATE
+        src/json_dom.cxx
+        src/json_dump.cxx
+        src/json_builder.cxx
+)
 target_link_libraries(conflux_json
     PUBLIC  conflux_types
     PRIVATE conflux_options PkgConfig::XXHASH
@@ -721,6 +727,11 @@ target_sources(conflux_file_io
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES
+        src/file_io/buffers.cxx
+        src/file_io/pipe_pool.cxx
+        src/file_io/reader.cxx
+        src/file_io/iopoll.cxx
+        src/file_io/driver.cxx
         src/file_io/file_io.cxx
 )
 target_link_libraries(conflux_file_io
@@ -1613,6 +1624,12 @@ target_sources(conflux_http_server
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES src/net/http_server.cxx
+)
+target_sources(conflux_http_server
+    PRIVATE FILE_SET private_http_server_partitions TYPE CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+            src/net/http_server_state.cxx
 )
 target_sources(conflux_http_server
     PRIVATE

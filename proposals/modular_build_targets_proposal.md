@@ -1,5 +1,10 @@
 # Modular Build Targets & Feature Presets
 
+> State note (2026-05-16): superseded by
+> `proposals/modular_build_targets_proposal.updated.md` and
+> `todo/proposal_state.md`. The component/preset graph has landed; this file is
+> retained as historical design rationale, not an open implementation checklist.
+
 Date: 2026-05-11
 Status: PROPOSAL
 Effort: phased, 3–5 weeks across normal dev

@@ -9,13 +9,17 @@ parallel branches without repeatedly re-deciding global priority.
 
 ## Reading order
 
-1. Keep `proposals/perf_ideas.md` as the current io_uring/perf inventory.
-2. Keep `/home/claudiu/conflux_dev/api_traps.md` as the migration-trap
+1. Use `todo/proposal_state.md` to decide whether a TODO/proposal is still open,
+   implemented, deferred, or historical.
+2. Keep `proposals/perf_ideas.md` as the current io_uring/perf inventory.
+3. Keep `/home/claudiu/conflux_dev/api_traps.md` as the migration-trap
    reference, but apply the project-specific clarifications in this file first
    where they differ.
-3. Use this file for branch selection and merge sequencing.
-4. Treat TODO/proposal files as potentially stale unless this file or code state confirms them.
-5. Do not start alias elimination until the release-cleanup lane says so.
+4. Use this file for branch selection and merge sequencing after checking the
+   proposal-state index.
+5. Treat TODO/proposal files as potentially stale unless this file,
+   `todo/proposal_state.md`, or code state confirms them.
+6. Do not start alias elimination until the release-cleanup lane says so.
 
 ## Current state assessment
 
@@ -49,9 +53,10 @@ parallel branches without repeatedly re-deciding global priority.
 
 ### Main gaps still worth implementing
 
-- Correctness: keep the active `recv_bundle.e2e` failure on a single owner branch.
-  Avoid unrelated changes to recv arming, provided buffer rings, server close/recycle,
-  or connection lifetime until that red lane is green.
+- Correctness: keep recv-bundle/server-lifetime churn on a single owner branch
+  until the current E2E lane is verified green. The bundle recycling bug is marked
+  fixed in `todo/io_uring_remaining.md`, but future recv arming, provided-buffer
+  ring, close/recycle, or connection-lifetime changes still need one owner.
 - Worker runtime: no background-ingestion surface exists in this tree, so do not start
   `worker/background-ingestion-runtime` from this snapshot. `WorkPool` now has opt-in
   queue/park/wake counters plus admission/local/steal lock-contention probes for profiling;
@@ -66,7 +71,7 @@ parallel branches without repeatedly re-deciding global priority.
 - HTTP/io_uring: SEND_ZC edge measurement is landed; validate remaining threshold tuning; IOPOLL is landed;
   defer RECV_ZC implementation until kernel support is stable, but prepare the recv
   abstraction so the later branch is narrow.
-- Perf/CI: fuzz-smoke and benchmark/profiling harnesses exist; next CI gap is an explicit benchmark regression budget/policy before accepting more low-level perf claims.
+- Perf/CI: fuzz-smoke and benchmark/profiling harnesses exist; next CI gap is an explicit benchmark regression budget/policy before accepting more low-level perf claims. `todo/proposal_state.md` records which perf proposals are implementation-complete vs measurement-only.
 - Docs/examples: update concurrency, naming, and handler-execution docs so coding
   agents stop reintroducing the old hidden-offload/sync-handler model.
 
@@ -206,9 +211,10 @@ Recommended next uring branch: defer `uring/recv-zc` until target kernel support
 | DONE | `json/bench-fixtures` | Added JSON perf/correctness fixtures for route payloads and malformed inputs, plus generated invalid-UTF-8 coverage. | Landed after app-boundary cleanup; parser internals unchanged. | Benchmarks/tests cover strict UTF-8, large numbers, missing/out-of-order keys, duplicate keys, and deep nesting. |
 | DONE | `json/parser-dom-design` | Added a documented `JsonDomPolicy` / `parse_dom(...)` prototype facade for view-first, caller-PMR, and arena-backed DOM paths. | Parser internals unchanged; future parser work must stay behind this surface. | Memory model, error model, UTF policy, number policy, object-index policy, and integration API are named and tested. |
 | DONE | `json/reflection-serde` | Added optional reflected native boundary provider, mapped boundary decode options onto native DOM/decode policy, and made reflected codecs honor unknown-member policy. | Reflection remains opt-in under `CONFLUX_JSON_REFLECT`; route/app helpers still bind through provider traits. | No macros; no HTTP/app hard provider dependency; reflected provider has tests under the P2996 lane. |
+| P2 | `json/impl-unit-split` | Split `src/json.cxx` into private implementation units while preserving `conflux::json` and `import conflux.json`. | Source-shape branch; avoid public API renames and JSON feature work in the same branch. | Parser/dump/builder edits stop churning one giant primary module; package/import shape unchanged; build evidence recorded. |
 | P3 | `json/schema-pointer-patch` | JSON Pointer/Patch/schema support. | After core boundary/parser shape. | Feature targets separate from core hot path. |
 
-Recommended next JSON branch: `json/schema-pointer-patch`.
+Recommended next JSON branch: `json/impl-unit-split` if doing JSON ergonomics/build-locality work; otherwise defer JSON feature work until P0/P1 gates land.
 
 ### Auth / security lane
 
@@ -245,7 +251,7 @@ Recommended next build branch: `build/bench-regression-budget`. Sanitizer/perf s
 | DONE | `docs/json-boundary-guide` | Documented provider-neutral modules, native convenience edge, provider shape, and rules for HTTP/app framework code. | Landed with boundary traits. | Route authors know where JSON dependencies are allowed. |
 | P2 | `docs/release-blockers` | Maintain release-blocker checklist. | Later, after P0/P1 branches settle. | Checklist includes security, docs, perf harness, fuzz-smoke/JSONTestSuite status, benchmark budget, alias removal. |
 
-Recommended next docs branch: `docs/release-blockers` after `recv_bundle.e2e` is green and the benchmark-budget branch lands.
+Recommended next docs branch: `docs/release-blockers` after recv-bundle/server-lifetime verification is green and the benchmark-budget branch lands.
 
 ### API naming / alias cleanup lane
 
@@ -261,8 +267,9 @@ Alias elimination is the last release-prep task, not a modernization task. The c
 ## Suggested immediate branch fan-out
 
 These branches can start from the same base with low conflict risk. Keep
-`recv_bundle.e2e` on a single correctness branch and avoid recv/server lifetime
-churn elsewhere until it is green.
+recv-bundle/server-lifetime verification on a single correctness branch and
+avoid recv/server lifetime churn elsewhere until it is green. Check
+`todo/proposal_state.md` before treating any older proposal as open work.
 
 1. `build/bench-regression-budget`
    - Define merge-blocking benchmark deltas and how perf evidence is recorded/enforced.
@@ -280,11 +287,20 @@ churn elsewhere until it is green.
    - Validate and tune SEND_ZC thresholds under realistic HTTP load.
    - Measurement/config only unless the benchmark proves a default change.
 
-5. `json/schema-pointer-patch`
-   - Keep Pointer/Patch/schema as a feature layer above the stable JSON boundary.
-   - No HTTP/app provider coupling.
+5. `file/file-io-module-split`
+   - Source-shape split inside the existing `conflux_file_io` target.
+   - Do not create new package components in the first branch.
 
-6. `worker/queue-contention-measurement`
+6. `http/server-impl-split`
+   - Private implementation-unit split of `http_server_impl`.
+   - Start only when no recv/server lifetime branch is red.
+
+7. `json/impl-unit-split`
+   - Private implementation-unit split of `src/json.cxx`; keep one public JSON
+     target/import and record compile-time evidence.
+   - Do not combine with Pointer/Patch/schema feature work.
+
+8. `worker/queue-contention-measurement`
    - Produce contention evidence before changing local queues or admission locking.
    - Instrumentation/bench notes only unless counters prove a bottleneck.
 ## Deferred work
@@ -293,11 +309,15 @@ churn elsewhere until it is green.
   finished and benchmark harness is stable.
 - `uring/recv-zc`: defer implementation until target kernels are stable; prepare the
   abstraction earlier.
-- Full JSON parser/arena DOM rewrite: important, but do not start until
-  reflection/provider experiments and benchmark gates show the current facade is
-  too limiting.
+- Full JSON parser/arena DOM rewrite and JSON Pointer/Patch/schema feature work:
+  defer until reflection/provider experiments and benchmark gates show the
+  current facade is too limiting. A source-only JSON implementation-unit split
+  is separate P2 ergonomics work and must preserve the public target/import
+  shape.
 - HTTP/2/HTTP/3: not before handler/runtime semantics stabilize.
 - Broad public API rename: not before component internals settle.
+- Original modular-build and stream-removal proposals: historical unless their
+  `.updated.md` files or `todo/proposal_state.md` list a remaining branch.
 - Alias removal: final release cleanup only.
 
 ## Release blockers snapshot

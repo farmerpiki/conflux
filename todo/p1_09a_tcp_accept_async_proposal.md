@@ -1,5 +1,8 @@
 # P1-09a Proposal: Async TcpListener::accept() Coroutine API
 
+> State note (2026-05-16): implemented. Keep this as design rationale only;
+> `todo/proposal_state.md` records that async accept is not open work.
+
 Date: 2026-05-10
 **Status: implemented.** `tcp_accept`, `tcp_accept_multishot`, `submit_accept_borrowed`, `AcceptOp`, `MultishotAcceptOp` all landed. `str/*` bench variants landed. AC#4 is now covered by the 100-connection multishot test in `tests/socket_task_ring_test.cxx`.
 

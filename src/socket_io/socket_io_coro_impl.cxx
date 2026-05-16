@@ -9,6 +9,7 @@ module;
 #include <coroutine>
 #include <exception>
 #include <format>
+#include <functional>
 #include <liburing.h>
 #include <memory>
 #include <netinet/in.h>

@@ -1,5 +1,10 @@
 # Proposal: Remove standard stream dependencies from reusable `conflux` sources
 
+> State note (2026-05-16): superseded for source-state decisions by
+> `proposals/conflux_no_std_streams_proposal.updated.md` and
+> `todo/proposal_state.md`. Stream-vocabulary removal from reusable sources is
+> implemented; only cold diagnostic-output policy remains open.
+
 Status: **recommended, with narrower enforcement than the original draft**  
 Scope: source-tree cleanup before first release, feature-boundary hygiene, and API direction  
 Non-goal: claiming a major runtime win from removing streams alone

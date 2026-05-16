@@ -1,5 +1,9 @@
 # Next Implementation Priorities
 
+> Status: superseded for branch ordering by `todo/proposal_state.md` plus
+> `todo/parallel_priority_plan.md`. Keep this file as older rationale for
+> boundary/naming policy, not as the first source for selecting the next branch.
+
 This list is intentionally ordered so future patch work can pick the first open
 item instead of re-deciding from scratch. It is based on the current `todo/`,
 `proposals/`, and top-level design documents in this source snapshot.
@@ -17,10 +21,11 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
 
 ## Ordered list
 
-0. **Track code-quality review follow-ups in one place.**
-   - See `todo/code_quality_findings.md` for the correctness fixes, API-polish
-     backlog, verification gates, and dedicated-branch module-split candidates
-     from the review pass.
+0. **Use the current proposal-state index first.**
+   - `todo/proposal_state.md` classifies open, implemented, deferred, and
+     historical proposals. Do not start work from an older proposal header alone.
+   - `todo/parallel_priority_plan.md` remains the branch fan-out document after
+     proposal state is known.
 
 1. **Keep file-layer boundaries honest.**
    - `file_io_sync` stays POSIX-only.
@@ -44,8 +49,11 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
 
 3. **Defer larger refactors until a boundary slice proves itself.**
    - No P2300 rewrite.
-   - No JSON over-splitting until there is a clear module consumer win.
+   - No JSON public-target over-splitting. A private JSON implementation-unit
+     split is acceptable only as zero-behavior source-shape work.
    - No hidden HTTP auto-offload.
+   - No HTTP/static IOPOLL adoption, worker lock replacement, or SEND_ZC
+     threshold changes without benchmark evidence.
 
 4. **Only revisit public API aliases after the module splits settle.**
    - Keep `conflux.types` as the working surface for now.
