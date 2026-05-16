@@ -78,19 +78,19 @@ void write_stderr_unlocked_(
 
 } // namespace
 export void eprint(
-	SV message) noexcept {
+	std::string_view message) noexcept {
 	SL const lk{stderr_mutex_()};
 	write_stderr_unlocked_(message);
 }
 export void eprintln(
-	SV message) noexcept {
+	std::string_view message) noexcept {
 	SL const lk{stderr_mutex_()};
 	write_stderr_unlocked_(message);
 	write_stderr_unlocked_("\n");
 }
 
 export void crypto_random_bytes(
-	span<unsigned char> out) {
+	std::span<unsigned char> out) {
 	SZ total = 0;
 	while (total < out.size()) {
 		auto n = ::getrandom(out.data() + total, out.size() - total, 0);
@@ -104,7 +104,7 @@ export void crypto_random_bytes(
 	}
 }
 export void random_bytes(
-	span<unsigned char> out) {
+	std::span<unsigned char> out) {
 	static thread_local utils_detail::Xoshiro256ss rng{};
 	SZ i = 0;
 	while (i + sizeof(u64) <= out.size()) {
@@ -121,8 +121,8 @@ export void random_bytes(
 // RFC 3986 percent-encoding
 // ---------------------------------------------------------------------------
 
-export S percent_encode(
-	SV in) {
+export std::string percent_encode(
+	std::string_view in) {
 	S out;
 	out.reserve(in.size());
 	static constexpr char kHex[] = "0123456789ABCDEF";
@@ -148,8 +148,8 @@ export S percent_encode(
 // Hex encode / decode
 // ---------------------------------------------------------------------------
 
-export S hex_encode(
-	span<unsigned char const> in) {
+export std::string hex_encode(
+	std::span<unsigned char const> in) {
 	S out;
 	out.resize(in.size() * 2);
 #if defined(CONFLUX_CRYPTO_USE_AESNI)
@@ -176,8 +176,8 @@ constexpr int hex_nibble_(
 	}
 	return -1;
 }
-export expected<V<unsigned char>, S> hex_decode(
-	SV in) {
+export std::expected<std::vector<unsigned char>, std::string> hex_decode(
+	std::string_view in) {
 	if (in.size() % 2 != 0) {
 		return unexpected(S{"hex_decode: odd-length input"});
 	}
@@ -262,8 +262,8 @@ SZ scan_url_plain_run_(
 }
 
 } // namespace
-export S url_decode(
-	SV s) {
+export std::string url_decode(
+	std::string_view s) {
 	S out;
 	out.reserve(s.size());
 	SZ i = 0;
@@ -292,8 +292,8 @@ export S url_decode(
 	}
 	return out;
 }
-export S url_decode_path(
-	SV s) {
+export std::string url_decode_path(
+	std::string_view s) {
 	S out;
 	out.reserve(s.size());
 	SZ i = 0;
@@ -329,7 +329,7 @@ export S url_decode_path(
 export using IpAddr = in6_addr;
 export struct IpCidr {
 	in6_addr network{};
-	u8 prefix{0};
+	std::uint8_t prefix{0};
 };
 namespace {
 
@@ -394,15 +394,15 @@ SV strip_ip_decorators(
 
 } // namespace
 // Parse a dotted-decimal IPv4 address into host byte order.
-export Opt<u32> parse_ipv4(
-	SV s) noexcept {
+export std::optional<std::uint32_t> parse_ipv4(
+	std::string_view s) noexcept {
 	auto v4 = try_pton<in_addr>(AF_INET, s);
 	return v4 ? Opt{ntohl(v4->s_addr)} : nullopt;
 }
 // Parse an IPv4 or IPv6 address. IPv4 → IPv4-mapped in6_addr.
 // Strips zone IDs and surrounding brackets. Returns std::nullopt on failure.
-export Opt<IpAddr> parse_ip(
-	SV s) noexcept {
+export std::optional<IpAddr> parse_ip(
+	std::string_view s) noexcept {
 	s = strip_ip_decorators(s);
 	if (auto v4 = try_pton<in_addr>(AF_INET, s)) {
 		return ipv4_mapped(*v4);
@@ -412,8 +412,8 @@ export Opt<IpAddr> parse_ip(
 // Parse "addr/prefix" or bare "addr" (defaults to /32 for IPv4, /128 for IPv6).
 // IPv4 CIDR prefix is stored as 96+N to match IPv4-mapped addresses uniformly.
 // Returns std::nullopt if the address or prefix is invalid.
-export Opt<IpCidr> parse_cidr(
-	SV s) noexcept {
+export std::optional<IpCidr> parse_cidr(
+	std::string_view s) noexcept {
 	auto slash = s.find('/');
 	auto ip_stripped = strip_ip_decorators(slash == SV::npos ? s : s.substr(0, slash));
 	auto v4 = try_pton<in_addr>(AF_INET, ip_stripped);
@@ -439,7 +439,7 @@ export Opt<IpCidr> parse_cidr(
 	in6_addr net = v4 ? ipv4_mapped(*v4) : *v6;
 	unsigned const final_prefix = v4 ? 96U + prefix : prefix;
 	apply_prefix(net, final_prefix);
-	return IpCidr{.network = net, .prefix = static_cast<u8>(final_prefix)};
+	return IpCidr{.network = net, .prefix = static_cast<std::uint8_t>(final_prefix)};
 }
 // Match ip against cidr. Both IPv4 and IPv6 use 128-bit prefix comparison.
 export bool cidr_match(
@@ -463,7 +463,7 @@ export bool cidr_match(
 // Lowercase ASCII bytes A-Z in place. Leaves non-ASCII and already-lowercase
 // bytes untouched; branch-free via the ASCII case bit.
 export void ascii_lower_inplace(
-	span<char> s) noexcept {
+	std::span<char> s) noexcept {
 #if defined(CONFLUX_STDSIMD)
 	conflux_ascii_lower_inplace_stdsimd(s.data(), s.size());
 #else
@@ -474,15 +474,15 @@ export void ascii_lower_inplace(
 #endif
 }
 // Allocate a lowercase copy of `s`.
-export S ascii_lower(
-	SV s) {
+export std::string ascii_lower(
+	std::string_view s) {
 	S out{s};
 	ascii_lower_inplace(out);
 	return out;
 }
 // Trim leading/trailing ASCII whitespace (space, tab, CR, LF).
-export SV trim(
-	SV s) noexcept {
+export std::string_view trim(
+	std::string_view s) noexcept {
 	auto is_ws = [](char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n'; };
 	while (!s.empty() && is_ws(s.front())) {
 		s.remove_prefix(1);
@@ -493,15 +493,15 @@ export SV trim(
 	return s;
 }
 
-export SV strip_cr(
-	SV s) noexcept {
+export std::string_view strip_cr(
+	std::string_view s) noexcept {
 	if (!s.empty() && s.back() == '\r') {
 		s.remove_suffix(1);
 	}
 	return s;
 }
-export Opt<P<SV, SV>> split_once(
-	SV s,
+export std::optional<std::pair<std::string_view, std::string_view>> split_once(
+	std::string_view s,
 	char delim) noexcept {
 	auto const pos = s.find(delim);
 	if (pos == SV::npos) {
@@ -510,15 +510,15 @@ export Opt<P<SV, SV>> split_once(
 	return P<SV, SV>{s.substr(0, pos), s.substr(pos + 1)};
 }
 export struct LineView {
-	SV text;
-	SZ line_no{};
+	std::string_view text;
+	std::size_t line_no{};
 };
 export class LineRange {
-	SV text_{};
+	std::string_view text_{};
 
 public:
 	constexpr explicit LineRange(
-		SV text) noexcept
+		std::string_view text) noexcept
 		: text_{text} {}
 	class iterator {
 		SV rest_{};
@@ -568,8 +568,8 @@ public:
 	[[nodiscard]] iterator begin() const noexcept { return iterator{text_}; }
 	[[nodiscard]] std::default_sentinel_t end() const noexcept { return {}; }
 };
-// Format an IpAddr as a S. IPv4-mapped addresses render as bare IPv4.
-export S ip_to_string(
+// Format an IpAddr as a string. IPv4-mapped addresses render as bare IPv4.
+export std::string ip_to_string(
 	IpAddr const &ip) {
 	if (IN6_IS_ADDR_V4MAPPED(&ip)) {
 		in_addr v4{};
@@ -579,8 +579,8 @@ export S ip_to_string(
 	return ntop(AF_INET6, ip);
 }
 // Parse a list of CIDR strings. Invalid entries emit a warning to stderr and are skipped.
-export V<IpCidr> parse_cidr_list(
-	V<S> const &cidr_strings) {
+export std::vector<IpCidr> parse_cidr_list(
+	std::vector<std::string> const &cidr_strings) {
 	V<IpCidr> result;
 	result.reserve(cidr_strings.size());
 	for (auto const &s: cidr_strings) {

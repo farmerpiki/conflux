@@ -100,26 +100,26 @@ S b64_decode_impl(
 }
 
 } // namespace
-export [[gnu::always_inline]] inline span<unsigned char const> to_unsigned_span(
-	SV s) noexcept {
+export [[gnu::always_inline]] inline std::span<unsigned char const> to_unsigned_span(
+	std::string_view s) noexcept {
 	return {
 		reinterpret_cast<unsigned char const *>(s.data()),
 		s.size()}; // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 }
-export S base64_encode(
-	span<unsigned char const> in) {
+export std::string base64_encode(
+	std::span<unsigned char const> in) {
 	return b64_encode_impl(in, kB64Alphabet, true);
 }
-export S base64_decode(
-	SV encoded) {
+export std::string base64_decode(
+	std::string_view encoded) {
 	return b64_decode_impl(encoded, kB64Table);
 }
-export S base64url_encode(
-	span<unsigned char const> in) {
+export std::string base64url_encode(
+	std::span<unsigned char const> in) {
 	return b64_encode_impl(in, kB64UrlAlphabet, false);
 }
-export S base64url_decode(
-	SV encoded) {
+export std::string base64url_decode(
+	std::string_view encoded) {
 	return b64_decode_impl(encoded, kB64UrlTable);
 }
 // ---------------------------------------------------------------------------
@@ -148,8 +148,8 @@ export S base64url_decode(
 // SHA-1 (FIPS 180-4)
 // ---------------------------------------------------------------------------
 
-export A<unsigned char, 20> sha1(
-	span<unsigned char const> msg) {
+export std::array<unsigned char, 20> sha1(
+	std::span<unsigned char const> msg) {
 	A<u32, 5> h{0x67452301U, 0xEFCDAB89U, 0x98BADCFEU, 0x10325476U, 0xC3D2E1F0U};
 
 	V<unsigned char> padded = make_sha_padded(msg);
@@ -212,9 +212,9 @@ export A<unsigned char, 20> sha1(
 // HMAC-SHA1 (RFC 2104)
 // ---------------------------------------------------------------------------
 
-export A<unsigned char, 20> hmac_sha1(
-	span<unsigned char const> key,
-	span<unsigned char const> msg) {
+export std::array<unsigned char, 20> hmac_sha1(
+	std::span<unsigned char const> key,
+	std::span<unsigned char const> msg) {
 	A<unsigned char, 64> k_pad{};
 	if (key.size() > 64) {
 		auto kh = sha1(key);
@@ -241,8 +241,8 @@ export A<unsigned char, 20> hmac_sha1(
 // SHA-256 (FIPS 180-4)
 // ---------------------------------------------------------------------------
 
-export A<unsigned char, 32> sha256(
-	span<unsigned char const> msg) {
+export std::array<unsigned char, 32> sha256(
+	std::span<unsigned char const> msg) {
 	static constexpr A<u32, 64> K{
 		0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U, 0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
 		0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U, 0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U,
@@ -320,9 +320,9 @@ export A<unsigned char, 32> sha256(
 // HMAC-SHA256 (RFC 2104)
 // ---------------------------------------------------------------------------
 
-export A<unsigned char, 32> hmac_sha256(
-	span<unsigned char const> key,
-	span<unsigned char const> msg) {
+export std::array<unsigned char, 32> hmac_sha256(
+	std::span<unsigned char const> key,
+	std::span<unsigned char const> msg) {
 	A<unsigned char, 64> k_pad{};
 	if (key.size() > 64) {
 		auto kh = sha256(key);
@@ -349,8 +349,8 @@ export A<unsigned char, 32> hmac_sha256(
 	return sha256(outer_input);
 }
 export bool constant_time_eq(
-	SV a,
-	SV b) {
+	std::string_view a,
+	std::string_view b) {
 	if (a.size() != b.size()) {
 		return false;
 	}
@@ -536,11 +536,11 @@ void gcm_inc32(
 
 #endif
 } // namespace
-export expected<V<unsigned char>, S> aes_gcm_encrypt(
-	span<unsigned char const> key,
-	span<unsigned char const> iv,
-	span<unsigned char const> plaintext,
-	span<unsigned char const> aad) {
+export std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
+	std::span<unsigned char const> key,
+	std::span<unsigned char const> iv,
+	std::span<unsigned char const> plaintext,
+	std::span<unsigned char const> aad) {
 	if (key.size() != 32) {
 		return unexpected(S{"aes_gcm_encrypt: key must be 32 bytes"});
 	}
@@ -615,11 +615,11 @@ export expected<V<unsigned char>, S> aes_gcm_encrypt(
 	return out;
 #endif
 }
-export expected<V<unsigned char>, S> aes_gcm_decrypt(
-	span<unsigned char const> key,
-	span<unsigned char const> iv,
-	span<unsigned char const> ciphertext_and_tag,
-	span<unsigned char const> aad) {
+export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
+	std::span<unsigned char const> key,
+	std::span<unsigned char const> iv,
+	std::span<unsigned char const> ciphertext_and_tag,
+	std::span<unsigned char const> aad) {
 	if (key.size() != 32) {
 		return unexpected(S{"aes_gcm_decrypt: key must be 32 bytes"});
 	}

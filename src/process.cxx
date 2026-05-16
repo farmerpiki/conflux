@@ -24,7 +24,7 @@ import conflux.work;
 
 export struct Stdio {
 	// NOLINTNEXTLINE(performance-enum-size)
-	enum class Kind : u8 {
+	enum class Kind : std::uint8_t {
 		Inherit,
 		Piped,
 		Null,
@@ -44,8 +44,8 @@ export struct Stdio {
 // ---------------------------------------------------------------------------
 
 export struct SpawnOptions {
-	fs::path working_dir{};
-	V<S> extra_env{}; // "KEY=VALUE" entries; add or override
+	std::filesystem::path working_dir{};
+	std::vector<std::string> extra_env{}; // "KEY=VALUE" entries; add or override
 	bool clear_env{false};
 	Stdio stdin_{Stdio::inherit()};
 	Stdio stdout_{Stdio::inherit()};
@@ -55,7 +55,7 @@ export struct SpawnOptions {
 	int dup3_flags{0}; // flags passed to dup3() (e.g. O_CLOEXEC)
 	// Extra fd mappings: {parent_fd, child_fd}. Applied after stdio, before close_range.
 	// close_range will close parent_fd originals if close_other_fds=true.
-	V<P<int, int>> fd_map{};
+	std::vector<std::pair<int, int>> fd_map{};
 	// Called in child after fd setup but before exec. Must use only async-signal-safe
 	// functions (setrlimit, setsockopt, etc.). Not called if null.
 	void (*pre_exec_fn)() = nullptr;
@@ -138,7 +138,7 @@ public:
 		return -1;
 	}
 	// Non-blocking wait.  Returns std::nullopt if still running.
-	[[nodiscard]] Opt<int> try_wait() noexcept {
+	[[nodiscard]] std::optional<int> try_wait() noexcept {
 		if (pid_ < 0) {
 			return nullopt;
 		}
@@ -182,8 +182,8 @@ public:
 };
 export struct RunResult {
 	int exit_code{};
-	S stdout_out{};
-	S stderr_out{};
+	std::string stdout_out{};
+	std::string stderr_out{};
 };
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -288,11 +288,11 @@ constexpr int kExecFailed = 127;
 // ---------------------------------------------------------------------------
 
 // NOLINTNEXTLINE(readability-function-cognitive-complexity)
-export expected<Process, EC> spawn_clone(
-	fs::path const &exe,
-	V<SV> const &args,
+export std::expected<Process, std::error_code> spawn_clone(
+	std::filesystem::path const &exe,
+	std::vector<std::string_view> const &args,
 	SpawnOptions const &opts,
-	u64 clone_flags) {
+	std::uint64_t clone_flags) {
 	// Copy SV args → V<S> before fork (views may be into caller's stack).
 	V<S> arg_strs;
 	arg_strs.reserve(args.size() + 1);
@@ -492,18 +492,18 @@ export expected<Process, EC> spawn_clone(
 // spawn — convenience wrapper with default clone flags
 // ---------------------------------------------------------------------------
 
-export expected<Process, EC> spawn(
-	fs::path const &exe,
-	V<SV> const &args,
+export std::expected<Process, std::error_code> spawn(
+	std::filesystem::path const &exe,
+	std::vector<std::string_view> const &args,
 	SpawnOptions const &opts = {}) {
 	return spawn_clone(exe, args, opts, 0);
 }
 export template<typename Target>
 [[nodiscard]] auto async_spawn_in(
 	Target &target,
-	fs::path exe,
-	V<S> args,
-	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<Process, EC>> {
+	std::filesystem::path exe,
+	std::vector<std::string> args,
+	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<Process, std::error_code>> {
 	return async_run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
 		V<SV> views;
 		views.reserve(args.size());
@@ -517,18 +517,18 @@ export template<typename Target>
 export template<typename Target>
 [[nodiscard]] auto spawn_async_in(
 	Target &target,
-	fs::path exe,
-	V<S> args,
-	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<Process, EC>> {
+	std::filesystem::path exe,
+	std::vector<std::string> args,
+	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<Process, std::error_code>> {
 	return async_spawn_in(target, move(exe), move(args), move(opts));
 }
 // ---------------------------------------------------------------------------
 // run — spawn + drain stdout/stderr + wait
 // ---------------------------------------------------------------------------
 
-export expected<RunResult, EC> run(
-	fs::path const &exe,
-	V<SV> const &args,
+export std::expected<RunResult, std::error_code> run(
+	std::filesystem::path const &exe,
+	std::vector<std::string_view> const &args,
 	SpawnOptions opts = {}) {
 	opts.stdout_ = Stdio::piped();
 	opts.stderr_ = Stdio::piped();
@@ -613,9 +613,9 @@ export expected<RunResult, EC> run(
 export template<typename Target>
 [[nodiscard]] auto async_run_in(
 	Target &target,
-	fs::path exe,
-	V<S> args,
-	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<RunResult, EC>> {
+	std::filesystem::path exe,
+	std::vector<std::string> args,
+	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<RunResult, std::error_code>> {
 	return async_run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
 		V<SV> views;
 		views.reserve(args.size());
@@ -629,9 +629,9 @@ export template<typename Target>
 export template<typename Target>
 [[nodiscard]] auto run_async_in(
 	Target &target,
-	fs::path exe,
-	V<S> args,
-	SpawnOptions opts = {}) -> conflux::work::root::Task<expected<RunResult, EC>> {
+	std::filesystem::path exe,
+	std::vector<std::string> args,
+	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<RunResult, std::error_code>> {
 	return async_run_in(target, move(exe), move(args), move(opts));
 }
 

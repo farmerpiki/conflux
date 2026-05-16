@@ -3,11 +3,14 @@ module;
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <format>
 #include <liburing.h>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <type_traits>
 #include <variant>
 
@@ -28,9 +31,9 @@ using std::memory_order_release;
 using std::move;
 using std::rethrow_exception;
 
-export struct SyncWaitSocketTaskTimeout final : RE {
+export struct SyncWaitSocketTaskTimeout final : std::runtime_error {
 	SyncWaitSocketTaskTimeout()
-		: RE{"conflux.socket_io: sync_wait_socket_task budget exhausted"} {}
+		: std::runtime_error{"conflux.socket_io: sync_wait_socket_task budget exhausted"} {}
 };
 
 export using BlockOnSocketTaskTimeout = SyncWaitSocketTaskTimeout;
@@ -41,12 +44,12 @@ export template<typename T>
 T sync_wait_socket_task(
 	SocketTaskRing &ring,
 	wroot::Task<T> task,
-	Opt<chrono::milliseconds> budget = nullopt) {
+	std::optional<std::chrono::milliseconds> budget = std::nullopt) {
 	using namespace conflux::work::root;
 	struct Slot {
 		atomic_flag done{};
 		EP err{};
-		[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, Opt<T>> value{};
+		[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, std::optional<T>> value{};
 	};
 	auto slot = make_shared<Slot>();
 	auto jh = make_shared<TaskJoinHandle<T>>(into_join_handle(move(task)));
@@ -65,7 +68,7 @@ T sync_wait_socket_task(
 	});
 	auto *raw = ring.raw().ring().raw();
 	auto *ct = &ring.completions();
-	auto const deadline = budget ? std::make_optional(chrono::steady_clock::now() + *budget) : nullopt;
+	auto const deadline = budget ? std::make_optional(std::chrono::steady_clock::now() + *budget) : std::nullopt;
 	while (!slot->done.test(memory_order_acquire)) {
 		::io_uring_cqe *cqe = nullptr;
 		int rc = 0;
@@ -73,7 +76,7 @@ T sync_wait_socket_task(
 			__kernel_timespec ts{.tv_sec = 1, .tv_nsec = 0};
 			rc = ::io_uring_submit_and_wait_timeout(raw, &cqe, 1, &ts, nullptr);
 			if (rc == -ETIME) {
-				if (chrono::steady_clock::now() > *deadline) {
+				if (std::chrono::steady_clock::now() > *deadline) {
 					throw SyncWaitSocketTaskTimeout{};
 				}
 				continue;
@@ -93,16 +96,16 @@ T sync_wait_socket_task(
 		if (rc < 0 || cqe == nullptr) {
 			throw RE{format("conflux.socket_io: sync_wait_socket_task rc={}", rc)};
 		}
-		A<::io_uring_cqe *, 32> batch{};
+		std::array<::io_uring_cqe *, 32> batch{};
 		for (;;) {
 			unsigned const n = ::io_uring_peek_batch_cqe(raw, batch.data(), static_cast<unsigned>(batch.size()));
 			if (n == 0) {
 				break;
 			}
 			for (unsigned i = 0; i < n; ++i) {
-				auto const *c = batch[static_cast<SZ>(i)];
+				auto const *c = batch[static_cast<std::size_t>(i)];
 				auto const ud = c->user_data;
-				ct->dispatch(static_cast<u32>(ud & 0xFFFFFFFFU), static_cast<u32>(ud >> 32U), c->res, c->flags);
+				ct->dispatch(static_cast<std::uint32_t>(ud & 0xFFFFFFFFU), static_cast<std::uint32_t>(ud >> 32U), c->res, c->flags);
 			}
 			::io_uring_cq_advance(raw, n);
 			if (slot->done.test(memory_order_acquire)) {
@@ -122,7 +125,7 @@ export template<typename T>
 T block_on_socket_task(
 	SocketTaskRing &ring,
 	wroot::Task<T> task,
-	Opt<chrono::milliseconds> budget = nullopt) {
+	std::optional<std::chrono::milliseconds> budget = std::nullopt) {
 	if constexpr (std::is_void_v<T>) {
 		sync_wait_socket_task(ring, move(task), budget);
 	} else {

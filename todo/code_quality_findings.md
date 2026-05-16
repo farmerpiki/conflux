@@ -27,6 +27,10 @@ correctness, or naming patches.
 
 - [ ] Public API alias cleanup: remove exported shorthand aliases from public
   signatures and docs after the rest of the public surface settles.
+  - Progress: crypto, utils, process, file sync/map, async file I/O, socket I/O,
+    net config, selected HTTP helper surfaces, VHost, OpenAPI,
+    cookie/JWT/WebSocket/static helpers now use spelled-out standard vocabulary
+    at public boundaries.
   - Existing tracker: `todo/contract_fixes.md`.
   - Keep local implementation aliases where they materially improve readability;
     the release blocker is public-boundary leakage, not private shorthand.

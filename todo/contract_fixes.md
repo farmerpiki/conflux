@@ -32,6 +32,12 @@
   - [x] Gzip backend-name helper now returns `std::string_view` at the public boundary.
   - [x] JWT sign/decode helpers now use `std::string` at the public boundary.
   - [x] Static path normalization now returns `std::optional<std::string>` at the public boundary.
+  - [x] Crypto helper exports now use spelled-out `std::string`, `std::string_view`, `std::span`, `std::array`, `std::vector`, and `std::expected` at the public boundary.
+  - [x] Utility helper exports now use spelled-out string/view/span/optional/vector/pair/integer vocabulary at the public boundary.
+  - [x] Process options/results and spawn/run helpers now use `std::filesystem::path`, `std::vector`, `std::string`, `std::string_view`, `std::optional`, `std::expected`, and `std::error_code` at the public boundary.
+  - [x] File sync/map exported APIs now use spelled-out `std::uint*_t`, `std::string`, `std::string_view`, `std::span`, `std::optional`, and `std::expected` vocabulary at the public boundary.
+  - [x] Async file I/O exported APIs now use spelled-out `std::uint*_t`, `std::size_t`, `std::string`, `std::span`, `std::vector`, `std::array`, `std::pair`, `std::optional`, `std::expected`, and `std::chrono` vocabulary at the public boundary.
+  - [x] Socket I/O exported APIs now use spelled-out `std::uint*_t`, `std::size_t`, `std::string`, `std::span`, `std::vector`, `std::array`, `std::pair`, `std::optional`, `std::expected`, `std::function`, and `std::chrono` vocabulary at the public boundary.
 - [ ] API naming pass: align public APIs with `blocking_*` / `sync_*` / `async_*`; reserve `blocking_*` for raw syscall-style helpers such as direct fd/process operations, use `sync_*` for executor-owned non-coroutine chains, and use `async_*` for coroutine APIs.
   - Keep doc/example replacement wording for this pass until the code rename lands; this is the final polish step, not the first change.
   - [x] Process executor-targeted helpers now use explicit async names: `spawn_async_in`, `run_async_in`, and `wait_async_in`.

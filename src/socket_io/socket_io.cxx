@@ -50,7 +50,7 @@ public:
 	[[nodiscard]] unsigned sq_space_left() const noexcept { return ring_.sq_space_left(); }
 	[[nodiscard]] int submit() const noexcept { return ring_.submit(); }
 	[[nodiscard]] bool reserve_sqe_slots(
-		u32 n) const noexcept {
+		std::uint32_t n) const noexcept {
 		return sq_space_left() >= n;
 	}
 	[[nodiscard]] conflux::uring::Sqe get_reserved_sqe() const noexcept {
@@ -63,31 +63,31 @@ public:
 // Per-slot generation counters. Rejects stale CQEs from closed/reused sockets.
 
 export class GenerationTable {
-	V<u32> gens_;
+	std::vector<std::uint32_t> gens_;
 
 public:
 	explicit GenerationTable(
-		u32 capacity)
+		std::uint32_t capacity)
 		: gens_(capacity, 0) {}
 	void ensure_capacity(
-		u32 id) {
+		std::uint32_t id) {
 		if (id >= gens_.size()) {
 			gens_.resize(id + 1, 0);
 		}
 	}
-	[[nodiscard]] u32 current(
-		u32 id) const noexcept {
-		return id < static_cast<u32>(gens_.size()) ? gens_[id] : 0;
+	[[nodiscard]] std::uint32_t current(
+		std::uint32_t id) const noexcept {
+		return id < static_cast<std::uint32_t>(gens_.size()) ? gens_[id] : 0;
 	}
-	u32 advance(
-		u32 id) noexcept {
+	std::uint32_t advance(
+		std::uint32_t id) noexcept {
 		ensure_capacity(id);
 		return ++gens_[id];
 	}
 	[[nodiscard]] bool alive(
-		u32 id,
-		u32 gen) const noexcept {
-		return id < static_cast<u32>(gens_.size()) && gens_[id] == gen;
+		std::uint32_t id,
+		std::uint32_t gen) const noexcept {
+		return id < static_cast<std::uint32_t>(gens_.size()) && gens_[id] == gen;
 	}
 };
 // ─── BufferRing ──────────────────────────────────────────────────────────────
@@ -95,31 +95,31 @@ public:
 
 export class IncrementalRecvSlice;
 
-export enum class BufferRingMode : u8 {
+export enum class BufferRingMode : std::uint8_t {
 	classic_one_cqe_per_buffer,
 	recv_bundle,
 	incremental,
 };
 export struct BufferRingOptions {
-	u32 count{4096};
-	SZ buf_size{8192};
-	u16 group_id{0};
+	std::uint32_t count{4096};
+	std::size_t buf_size{8192};
+	std::uint16_t group_id{0};
 	bool huge_pages{true};
 	BufferRingMode mode{BufferRingMode::classic_one_cqe_per_buffer};
 };
 
-export enum class RecvDecodeError : u8 {
+export enum class RecvDecodeError : std::uint8_t {
 	bad_cqe,
 	bad_id,
 	bad_bounds,
 	bad_window,
 };
-export enum class RecvPayloadStorage : u8 {
+export enum class RecvPayloadStorage : std::uint8_t {
 	none,
 	provided_buffer_ring,
 	recv_zc_reserved,
 };
-export enum class RecvPayloadPinning : u8 {
+export enum class RecvPayloadPinning : std::uint8_t {
 	none,
 	kernel_buffer_ring_slot,
 	user_dma_pinned_buffer,
@@ -144,51 +144,51 @@ export class RecvBuffer;
 export class BufferRing {
 	struct SlabDeleter {
 		void operator ()(
-			byte *p) const noexcept {
+			std::byte *p) const noexcept {
 			::free(p);
 		}
 	};
 	conflux::uring::BufRing ring_{};
 	conflux::uring::RingRef uring_{static_cast<io_uring *>(nullptr)};
-	UPD<byte[], SlabDeleter> slab_;
-	SZ buf_size_{};
-	u32 count_{};
-	u16 group_id_{};
-	SZ slab_sz_{};
-	V<u16> ring_order_;
-	V<u32> id_pos_;
-	V<u32> bundle_saved_pos_;
-	V<u8> bundle_has_saved_pos_;
-	V<u32> bundle_saved_keys_;
-	V<u16> bundle_saved_ids_;
-	V<u8> bundle_saved_used_;
-	u32 bundle_saved_mask_{};
-	u32 bundle_preserved_pos_{};
-	V<u8> decoded_pos_;
-	V<u8> observed_pos_;
-	V<u8> recycle_ready_pos_;
-	u32 head_pos_{}; // first logical ring position not yet observed from a CQE
-	u32 recycle_head_pos_{}; // first logical ring position not yet returned to kernel
-	u32 tail_pos_{};
+	std::unique_ptr<std::byte[], SlabDeleter> slab_;
+	std::size_t buf_size_{};
+	std::uint32_t count_{};
+	std::uint16_t group_id_{};
+	std::size_t slab_sz_{};
+	std::vector<std::uint16_t> ring_order_;
+	std::vector<std::uint32_t> id_pos_;
+	std::vector<std::uint32_t> bundle_saved_pos_;
+	std::vector<std::uint8_t> bundle_has_saved_pos_;
+	std::vector<std::uint32_t> bundle_saved_keys_;
+	std::vector<std::uint16_t> bundle_saved_ids_;
+	std::vector<std::uint8_t> bundle_saved_used_;
+	std::uint32_t bundle_saved_mask_{};
+	std::uint32_t bundle_preserved_pos_{};
+	std::vector<std::uint8_t> decoded_pos_;
+	std::vector<std::uint8_t> observed_pos_;
+	std::vector<std::uint8_t> recycle_ready_pos_;
+	std::uint32_t head_pos_{}; // first logical ring position not yet observed from a CQE
+	std::uint32_t recycle_head_pos_{}; // first logical ring position not yet returned to kernel
+	std::uint32_t tail_pos_{};
 	BufferRingMode mode_{BufferRingMode::classic_one_cqe_per_buffer};
-	V<SZ> incremental_offsets_{};
+	std::vector<std::size_t> incremental_offsets_{};
 	friend class IncrementalRecvSlice;
-	IncrementalRecvSlice friend buffer_slice_from_incremental_cqe(BufferRing &, int, u32) noexcept;
-	expected<IncrementalRecvSlice, RecvDecodeError> friend try_buffer_slice_from_incremental_cqe(
+	IncrementalRecvSlice friend buffer_slice_from_incremental_cqe(BufferRing &, int, std::uint32_t) noexcept;
+	std::expected<IncrementalRecvSlice, RecvDecodeError> friend try_buffer_slice_from_incremental_cqe(
 		BufferRing &,
 		int,
-		u32) noexcept;
-	[[nodiscard]] SZ &incremental_offset_ref(
-		u16 id) noexcept {
+		std::uint32_t) noexcept;
+	[[nodiscard]] std::size_t &incremental_offset_ref(
+		std::uint16_t id) noexcept {
 		assert(mode_ == BufferRingMode::incremental);
 		assert(id < count_);
 		return incremental_offsets_[id];
 	}
-	[[nodiscard]] span<byte const> buffer_view_at_offset(
-		u16 id,
-		SZ offset,
-		SZ len) const noexcept {
-		return {slab_.get() + static_cast<SZ>(id) * buf_size_ + offset, len};
+	[[nodiscard]] std::span<std::byte const> buffer_view_at_offset(
+		std::uint16_t id,
+		std::size_t offset,
+		std::size_t len) const noexcept {
+		return {slab_.get() + static_cast<std::size_t>(id) * buf_size_ + offset, len};
 	}
 
 public:
@@ -214,17 +214,17 @@ public:
 			|| count_ > 32768U
 			|| (count_ & (count_ - 1)) != 0
 			|| buf_size_ == 0
-			|| buf_size_ > static_cast<SZ>(NL<u16>::max())
-			|| count_ > NL<SZ>::max() / buf_size_) {
+			|| buf_size_ > static_cast<std::size_t>(NL<std::uint16_t>::max())
+			|| count_ > NL<std::size_t>::max() / buf_size_) {
 			throw RE{"BufferRing invalid options"};
 		}
 		static_assert(conflux::uring::buf_ring_flags::has_inc, "IOU_PBUF_RING_INC required");
-		slab_sz_ = static_cast<SZ>(count_) * buf_size_;
-		SZ const aligned_sz = (slab_sz_ + 4095) & ~SZ{4095};
+		slab_sz_ = static_cast<std::size_t>(count_) * buf_size_;
+		std::size_t const aligned_sz = (slab_sz_ + 4095) & ~std::size_t{4095};
 		if (aligned_sz < slab_sz_) {
 			throw RE{"BufferRing allocation overflow"};
 		}
-		auto *raw = static_cast<byte *>(::aligned_alloc(4096, aligned_sz));
+		auto *raw = static_cast<std::byte *>(::aligned_alloc(4096, aligned_sz));
 		if (raw == nullptr) {
 			throw std::bad_alloc{};
 		}
@@ -247,11 +247,11 @@ public:
 			throw RE{format("io_uring_setup_buf_ring failed: {}", built.error())};
 		}
 		ring_ = move(*built);
-		for (u32 i = 0; i < count_; ++i) {
+		for (std::uint32_t i = 0; i < count_; ++i) {
 			ring_.add(
 				raw + i * buf_size_,
-				static_cast<u32>(buf_size_),
-				conflux::uring::BufId{static_cast<u16>(i)},
+				static_cast<std::uint32_t>(buf_size_),
+				conflux::uring::BufId{static_cast<std::uint16_t>(i)},
 				static_cast<int>(i));
 		}
 		ring_.advance(static_cast<int>(count_));
@@ -260,20 +260,20 @@ public:
 		decoded_pos_.assign(count_, 0);
 		observed_pos_.assign(count_, 0);
 		recycle_ready_pos_.assign(count_, 0);
-		for (u32 i = 0; i < count_; ++i) {
-			ring_order_[i] = static_cast<u16>(i);
+		for (std::uint32_t i = 0; i < count_; ++i) {
+			ring_order_[i] = static_cast<std::uint16_t>(i);
 			id_pos_[i] = i;
 		}
 		head_pos_ = 0;
 		recycle_head_pos_ = 0;
 		tail_pos_ = count_;
 		if (mode_ == BufferRingMode::incremental) {
-			incremental_offsets_.assign(count_, SZ{0});
+			incremental_offsets_.assign(count_, std::size_t{0});
 		}
 		if (mode_ == BufferRingMode::recv_bundle) {
 			bundle_saved_pos_.resize(count_);
 			bundle_has_saved_pos_.assign(count_, 0);
-			u32 const saved_slots = count_ * 8;
+			std::uint32_t const saved_slots = count_ * 8;
 			bundle_saved_keys_.assign(saved_slots, 0);
 			bundle_saved_ids_.assign(saved_slots, 0);
 			bundle_saved_used_.assign(saved_slots, 0);
@@ -286,51 +286,51 @@ public:
 	BufferRing &operator =(BufferRing const &) = delete;
 	BufferRing(BufferRing &&) = delete;
 	BufferRing &operator =(BufferRing &&) = delete;
-	[[nodiscard]] span<byte const> buffer_view_checked(
-		u16 id,
-		SZ len) const noexcept {
+	[[nodiscard]] std::span<std::byte const> buffer_view_checked(
+		std::uint16_t id,
+		std::size_t len) const noexcept {
 		if (id >= count_) {
 			return {};
 		}
-		return {slab_.get() + static_cast<SZ>(id) * buf_size_, min(len, buf_size_)};
+		return {slab_.get() + static_cast<std::size_t>(id) * buf_size_, min(len, buf_size_)};
 	}
-	[[nodiscard]] span<byte const> buffer_view_unchecked(
-		u16 id,
-		SZ len) const noexcept {
-		return {slab_.get() + static_cast<SZ>(id) * buf_size_, min(len, buf_size_)};
+	[[nodiscard]] std::span<std::byte const> buffer_view_unchecked(
+		std::uint16_t id,
+		std::size_t len) const noexcept {
+		return {slab_.get() + static_cast<std::size_t>(id) * buf_size_, min(len, buf_size_)};
 	}
-	[[nodiscard]] span<byte const> buffer_view(
-		u16 id,
-		SZ len) const noexcept {
+	[[nodiscard]] std::span<std::byte const> buffer_view(
+		std::uint16_t id,
+		std::size_t len) const noexcept {
 		return buffer_view_checked(id, len);
 	}
-	[[nodiscard]] span<byte> buffer_mut_checked(
-		u16 id) noexcept {
+	[[nodiscard]] std::span<std::byte> buffer_mut_checked(
+		std::uint16_t id) noexcept {
 		if (id >= count_) {
 			return {};
 		}
-		return {slab_.get() + static_cast<SZ>(id) * buf_size_, buf_size_};
+		return {slab_.get() + static_cast<std::size_t>(id) * buf_size_, buf_size_};
 	}
-	[[nodiscard]] span<byte> buffer_mut_unchecked(
-		u16 id) noexcept {
-		return {slab_.get() + static_cast<SZ>(id) * buf_size_, buf_size_};
+	[[nodiscard]] std::span<std::byte> buffer_mut_unchecked(
+		std::uint16_t id) noexcept {
+		return {slab_.get() + static_cast<std::size_t>(id) * buf_size_, buf_size_};
 	}
-	[[nodiscard]] span<byte> buffer_mut(
-		u16 id) noexcept {
+	[[nodiscard]] std::span<std::byte> buffer_mut(
+		std::uint16_t id) noexcept {
 		return buffer_mut_checked(id);
 	}
 	void recycle(
-		u16 id) noexcept {
+		std::uint16_t id) noexcept {
 		if (mode_ == BufferRingMode::recv_bundle) {
-			u32 const idx = tail_pos_ % count_;
+			std::uint32_t const idx = tail_pos_ % count_;
 			ring_order_[idx] = id;
 			id_pos_[id] = tail_pos_;
 			decoded_pos_[idx] = 0;
 			observed_pos_[idx] = 0;
 			recycle_ready_pos_[idx] = 0;
 			ring_.add(
-				slab_.get() + static_cast<SZ>(id) * buf_size_,
-				static_cast<u32>(buf_size_),
+				slab_.get() + static_cast<std::size_t>(id) * buf_size_,
+				static_cast<std::uint32_t>(buf_size_),
 				conflux::uring::BufId{id},
 				0);
 			ring_.advance(1);
@@ -338,8 +338,8 @@ public:
 			return;
 		}
 
-		for (u32 pos = recycle_head_pos_; pos != tail_pos_; ++pos) {
-			u32 const idx = pos % count_;
+		for (std::uint32_t pos = recycle_head_pos_; pos != tail_pos_; ++pos) {
+			std::uint32_t const idx = pos % count_;
 			if (observed_pos_[idx] != 0 && recycle_ready_pos_[idx] == 0 && ring_id_at(pos) == id) {
 				recycle_ready_pos_[idx] = 1;
 				flush_recycle_ready();
@@ -347,65 +347,65 @@ public:
 			}
 		}
 
-		u32 const idx = tail_pos_ % count_;
+		std::uint32_t const idx = tail_pos_ % count_;
 		ring_order_[idx] = id;
 		id_pos_[id] = tail_pos_;
 		decoded_pos_[idx] = 0;
 		observed_pos_[idx] = 0;
 		recycle_ready_pos_[idx] = 0;
 		ring_.add(
-			slab_.get() + static_cast<SZ>(id) * buf_size_,
-			static_cast<u32>(buf_size_),
+			slab_.get() + static_cast<std::size_t>(id) * buf_size_,
+			static_cast<std::uint32_t>(buf_size_),
 			conflux::uring::BufId{id},
 			0);
 		ring_.advance(1);
 		++tail_pos_;
 	}
 	void recycle_batch(
-		span<u16 const> ids) noexcept {
-		u32 i = 0;
+		std::span<std::uint16_t const> ids) noexcept {
+		std::uint32_t i = 0;
 		if (mode_ == BufferRingMode::recv_bundle) {
 			for (auto id: ids) {
-				u32 const idx = (tail_pos_ + i) % count_;
+				std::uint32_t const idx = (tail_pos_ + i) % count_;
 				ring_order_[idx] = id;
 				id_pos_[id] = tail_pos_ + i;
 				decoded_pos_[idx] = 0;
 				observed_pos_[idx] = 0;
 				recycle_ready_pos_[idx] = 0;
 				ring_.add(
-					slab_.get() + static_cast<SZ>(id) * buf_size_,
-					static_cast<u32>(buf_size_),
+					slab_.get() + static_cast<std::size_t>(id) * buf_size_,
+					static_cast<std::uint32_t>(buf_size_),
 					conflux::uring::BufId{id},
 					static_cast<int>(i));
 				++i;
 			}
 			ring_.advance(static_cast<int>(ids.size()));
-			tail_pos_ += static_cast<u32>(ids.size());
+			tail_pos_ += static_cast<std::uint32_t>(ids.size());
 			return;
 		}
 		for (auto id: ids) {
-			u32 const idx = (tail_pos_ + i) % count_;
+			std::uint32_t const idx = (tail_pos_ + i) % count_;
 			ring_order_[idx] = id;
 			id_pos_[id] = tail_pos_ + i;
 			decoded_pos_[idx] = 0;
 			observed_pos_[idx] = 0;
 			recycle_ready_pos_[idx] = 0;
 			ring_.add(
-				slab_.get() + static_cast<SZ>(id) * buf_size_,
-				static_cast<u32>(buf_size_),
+				slab_.get() + static_cast<std::size_t>(id) * buf_size_,
+				static_cast<std::uint32_t>(buf_size_),
 				conflux::uring::BufId{id},
 				static_cast<int>(i));
 			++i;
 		}
 		ring_.advance(static_cast<int>(ids.size()));
-		tail_pos_ += static_cast<u32>(ids.size());
+		tail_pos_ += static_cast<std::uint32_t>(ids.size());
 	}
 	void flush_recycle_ready() noexcept {
-		u32 batch = 0;
+		std::uint32_t batch = 0;
 		while (recycle_head_pos_ != tail_pos_ && recycle_ready_pos_[recycle_head_pos_ % count_] != 0) {
-			u16 const id = ring_id_at(recycle_head_pos_);
-			u32 const old_idx = recycle_head_pos_ % count_;
-			u32 const idx = tail_pos_ % count_;
+			std::uint16_t const id = ring_id_at(recycle_head_pos_);
+			std::uint32_t const old_idx = recycle_head_pos_ % count_;
+			std::uint32_t const idx = tail_pos_ % count_;
 			recycle_ready_pos_[old_idx] = 0;
 			observed_pos_[old_idx] = 0;
 			ring_order_[idx] = id;
@@ -414,8 +414,8 @@ public:
 			observed_pos_[idx] = 0;
 			recycle_ready_pos_[idx] = 0;
 			ring_.add(
-				slab_.get() + static_cast<SZ>(id) * buf_size_,
-				static_cast<u32>(buf_size_),
+				slab_.get() + static_cast<std::size_t>(id) * buf_size_,
+				static_cast<std::uint32_t>(buf_size_),
 				conflux::uring::BufId{id},
 				static_cast<int>(batch));
 			++batch;
@@ -427,7 +427,7 @@ public:
 		}
 	}
 	[[nodiscard]] bool recycle_selected_buffer(
-		u16 id) noexcept {
+		std::uint16_t id) noexcept {
 		if (id >= count_ || mode_ == BufferRingMode::incremental) {
 			return false;
 		}
@@ -440,18 +440,18 @@ public:
 		return true;
 	}
 	void recycle_range(
-		u32 start_pos,
-		u32 cnt) noexcept {
+		std::uint32_t start_pos,
+		std::uint32_t cnt) noexcept {
 		if (cnt == 0) {
 			return;
 		}
 		if (mode_ == BufferRingMode::recv_bundle) {
 			assert(start_pos + cnt >= start_pos);
 			assert(start_pos + cnt <= tail_pos_);
-			for (u32 i = 0; i < cnt; ++i) {
-				u32 const old_pos = start_pos + i;
-				u16 const id = ring_id_at(old_pos);
-				u32 const idx = (tail_pos_ + i) % count_;
+			for (std::uint32_t i = 0; i < cnt; ++i) {
+				std::uint32_t const old_pos = start_pos + i;
+				std::uint16_t const id = ring_id_at(old_pos);
+				std::uint32_t const idx = (tail_pos_ + i) % count_;
 				ring_order_[idx] = id;
 				id_pos_[id] = tail_pos_ + i;
 				decoded_pos_[idx] = 0;
@@ -462,8 +462,8 @@ public:
 				}
 				bundle_saved_erase(old_pos);
 				ring_.add(
-					slab_.get() + static_cast<SZ>(id) * buf_size_,
-					static_cast<u32>(buf_size_),
+					slab_.get() + static_cast<std::size_t>(id) * buf_size_,
+					static_cast<std::uint32_t>(buf_size_),
 					conflux::uring::BufId{id},
 					static_cast<int>(i));
 			}
@@ -473,49 +473,49 @@ public:
 		}
 		assert(start_pos >= recycle_head_pos_);
 		assert(start_pos + cnt <= tail_pos_);
-		for (u32 i = 0; i < cnt; ++i) {
+		for (std::uint32_t i = 0; i < cnt; ++i) {
 			recycle_ready_pos_[(start_pos + i) % count_] = 1;
 		}
 		flush_recycle_ready();
 	}
 	void preserve_bundle_positions_until(
-		u32 end_pos) noexcept {
+		std::uint32_t end_pos) noexcept {
 		assert(mode_ == BufferRingMode::recv_bundle);
 		for (; bundle_preserved_pos_ < end_pos; ++bundle_preserved_pos_) {
-			u32 const pos = bundle_preserved_pos_;
-			u16 const id = ring_id_at(pos);
+			std::uint32_t const pos = bundle_preserved_pos_;
+			std::uint16_t const id = ring_id_at(pos);
 			bundle_saved_insert_or_assign(pos, id);
 			bundle_saved_pos_[id] = pos;
 			bundle_has_saved_pos_[id] = 1;
 		}
 	}
-	[[nodiscard]] static u32 bundle_hash(
-		u32 pos) noexcept {
+	[[nodiscard]] static std::uint32_t bundle_hash(
+		std::uint32_t pos) noexcept {
 		return pos * 2654435761u;
 	}
-	[[nodiscard]] Opt<u16> bundle_saved_find(
-		u32 pos) const noexcept {
+	[[nodiscard]] std::optional<std::uint16_t> bundle_saved_find(
+		std::uint32_t pos) const noexcept {
 		if (bundle_saved_used_.empty()) {
-			return nullopt;
+			return std::nullopt;
 		}
-		u32 i = bundle_hash(pos) & bundle_saved_mask_;
-		for (u32 n = 0, limit = static_cast<u32>(bundle_saved_used_.size()); n < limit; ++n) {
+		std::uint32_t i = bundle_hash(pos) & bundle_saved_mask_;
+		for (std::uint32_t n = 0, limit = static_cast<std::uint32_t>(bundle_saved_used_.size()); n < limit; ++n) {
 			if (bundle_saved_used_[i] == 0) {
-				return nullopt;
+				return std::nullopt;
 			}
 			if (bundle_saved_keys_[i] == pos) {
 				return bundle_saved_ids_[i];
 			}
 			i = (i + 1) & bundle_saved_mask_;
 		}
-		return nullopt;
+		return std::nullopt;
 	}
 	void bundle_saved_insert_or_assign(
-		u32 pos,
-		u16 id) noexcept {
+		std::uint32_t pos,
+		std::uint16_t id) noexcept {
 		assert(!bundle_saved_used_.empty());
-		u32 i = bundle_hash(pos) & bundle_saved_mask_;
-		for (u32 n = 0, limit = static_cast<u32>(bundle_saved_used_.size()); n < limit; ++n) {
+		std::uint32_t i = bundle_hash(pos) & bundle_saved_mask_;
+		for (std::uint32_t n = 0, limit = static_cast<std::uint32_t>(bundle_saved_used_.size()); n < limit; ++n) {
 			if (bundle_saved_used_[i] == 0 || bundle_saved_keys_[i] == pos) {
 				bundle_saved_used_[i] = 1;
 				bundle_saved_keys_[i] = pos;
@@ -528,21 +528,21 @@ public:
 		std::abort();
 	}
 	void bundle_saved_erase(
-		u32 pos) noexcept {
+		std::uint32_t pos) noexcept {
 		if (bundle_saved_used_.empty()) {
 			return;
 		}
-		u32 i = bundle_hash(pos) & bundle_saved_mask_;
-		for (u32 n = 0, limit = static_cast<u32>(bundle_saved_used_.size()); n < limit; ++n) {
+		std::uint32_t i = bundle_hash(pos) & bundle_saved_mask_;
+		for (std::uint32_t n = 0, limit = static_cast<std::uint32_t>(bundle_saved_used_.size()); n < limit; ++n) {
 			if (bundle_saved_used_[i] == 0) {
 				return;
 			}
 			if (bundle_saved_keys_[i] == pos) {
 				bundle_saved_used_[i] = 0;
-				for (u32 j = (i + 1) & bundle_saved_mask_; bundle_saved_used_[j] != 0;
+				for (std::uint32_t j = (i + 1) & bundle_saved_mask_; bundle_saved_used_[j] != 0;
 					j = (j + 1) & bundle_saved_mask_) {
-					u32 const key = bundle_saved_keys_[j];
-					u16 const val = bundle_saved_ids_[j];
+					std::uint32_t const key = bundle_saved_keys_[j];
+					std::uint16_t const val = bundle_saved_ids_[j];
 					bundle_saved_used_[j] = 0;
 					bundle_saved_insert_or_assign(key, val);
 				}
@@ -553,12 +553,12 @@ public:
 	}
 
 	void consume_at(
-		u32 start_pos,
-		u32 cnt) noexcept {
+		std::uint32_t start_pos,
+		std::uint32_t cnt) noexcept {
 		if (mode_ == BufferRingMode::recv_bundle) {
 			assert(start_pos + cnt >= start_pos);
 			assert(start_pos + cnt <= tail_pos_);
-			for (u32 i = 0; i < cnt; ++i) {
+			for (std::uint32_t i = 0; i < cnt; ++i) {
 				decoded_pos_[(start_pos + i) % count_] = 1;
 			}
 			while (head_pos_ != tail_pos_ && decoded_pos_[head_pos_ % count_] != 0) {
@@ -569,8 +569,8 @@ public:
 		}
 		assert(start_pos >= recycle_head_pos_);
 		assert(start_pos + cnt <= tail_pos_);
-		for (u32 i = 0; i < cnt; ++i) {
-			u32 const idx = (start_pos + i) % count_;
+		for (std::uint32_t i = 0; i < cnt; ++i) {
+			std::uint32_t const idx = (start_pos + i) % count_;
 			decoded_pos_[idx] = 1;
 			observed_pos_[idx] = 1;
 		}
@@ -579,38 +579,38 @@ public:
 			++head_pos_;
 		}
 	}
-	u32 consume(
-		u32 cnt) noexcept {
-		u32 const old = head_pos_;
+	std::uint32_t consume(
+		std::uint32_t cnt) noexcept {
+		std::uint32_t const old = head_pos_;
 		consume_at(old, cnt);
 		return old;
 	}
-	[[nodiscard]] Opt<u32> find_start_pos(
-		u16 first_id,
-		u32 cnt,
+	[[nodiscard]] std::optional<std::uint32_t> find_start_pos(
+		std::uint16_t first_id,
+		std::uint32_t cnt,
 		bool bundle) noexcept {
 		if (cnt == 0 || cnt > count_ || first_id >= count_) {
-			return nullopt;
+			return std::nullopt;
 		}
-		u32 const pos = mode_ == BufferRingMode::recv_bundle && bundle_has_saved_pos_[first_id] != 0
+		std::uint32_t const pos = mode_ == BufferRingMode::recv_bundle && bundle_has_saved_pos_[first_id] != 0
 			? bundle_saved_pos_[first_id]
 			: (bundle ? id_pos_[first_id] : head_pos_);
 		if (pos + cnt < pos || pos + cnt > tail_pos_) {
-			return nullopt;
+			return std::nullopt;
 		}
 		if (mode_ != BufferRingMode::recv_bundle && pos < recycle_head_pos_) {
-			return nullopt;
+			return std::nullopt;
 		}
 		if (mode_ == BufferRingMode::recv_bundle) {
 			preserve_bundle_positions_until(pos + cnt);
 		}
 		if (ring_id_at(pos) != first_id) {
-			return nullopt;
+			return std::nullopt;
 		}
 		return pos;
 	}
 	bool reclaim_incremental_partial(
-		u16 id) noexcept {
+		std::uint16_t id) noexcept {
 		if (mode_ != BufferRingMode::incremental || id >= count_) {
 			return false;
 		}
@@ -623,8 +623,8 @@ public:
 		recycle(id);
 		return true;
 	}
-	[[nodiscard]] u16 ring_id_at(
-		u32 pos) const noexcept {
+	[[nodiscard]] std::uint16_t ring_id_at(
+		std::uint32_t pos) const noexcept {
 		if (mode_ == BufferRingMode::recv_bundle) {
 			auto const id = bundle_saved_find(pos);
 			if (id) {
@@ -634,26 +634,26 @@ public:
 		return ring_order_[pos % count_];
 	}
 	[[nodiscard]] BufferRingMode mode() const noexcept { return mode_; }
-	[[nodiscard]] RecvBuffer lease(u16 id, SZ len) noexcept;
-	[[nodiscard]] u16 group_id() const noexcept { return group_id_; }
-	[[nodiscard]] SZ buf_size() const noexcept { return buf_size_; }
-	[[nodiscard]] u32 count() const noexcept { return count_; }
-	[[nodiscard]] u32 debug_head_pos() const noexcept { return head_pos_; }
+	[[nodiscard]] RecvBuffer lease(std::uint16_t id, std::size_t len) noexcept;
+	[[nodiscard]] std::uint16_t group_id() const noexcept { return group_id_; }
+	[[nodiscard]] std::size_t buf_size() const noexcept { return buf_size_; }
+	[[nodiscard]] std::uint32_t count() const noexcept { return count_; }
+	[[nodiscard]] std::uint32_t debug_head_pos() const noexcept { return head_pos_; }
 };
 // ─── RecvBuffer ──────────────────────────────────────────────────────────────
 // RAII lease on a single buffer ring slot. Auto-recycles unless detached.
 
 export class RecvBuffer {
 	BufferRing *ring_{nullptr};
-	u16 id_{};
-	SZ len_{};
+	std::uint16_t id_{};
+	std::size_t len_{};
 	bool armed_{true};
 
 public:
 	RecvBuffer(
 		BufferRing *ring,
-		u16 id,
-		SZ len) noexcept
+		std::uint16_t id,
+		std::size_t len) noexcept
 		: ring_{ring}
 		, id_{id}
 		, len_{len} {}
@@ -683,11 +683,11 @@ public:
 			ring_->recycle(id_);
 		}
 	}
-	[[nodiscard]] span<byte const> view() const noexcept {
-		return (ring_ != nullptr) ? ring_->buffer_view_checked(id_, len_) : span<byte const>{};
+	[[nodiscard]] std::span<std::byte const> view() const noexcept {
+		return (ring_ != nullptr) ? ring_->buffer_view_checked(id_, len_) : std::span<std::byte const>{};
 	}
-	[[nodiscard]] u16 id() const noexcept { return id_; }
-	[[nodiscard]] SZ size() const noexcept { return len_; }
+	[[nodiscard]] std::uint16_t id() const noexcept { return id_; }
+	[[nodiscard]] std::size_t size() const noexcept { return len_; }
 	void release() noexcept {
 		if ((ring_ != nullptr) && armed_) {
 			ring_->recycle(id_);
@@ -697,8 +697,8 @@ public:
 	void detach() noexcept { armed_ = false; }
 };
 inline RecvBuffer BufferRing::lease(
-	u16 id,
-	SZ len) noexcept {
+	std::uint16_t id,
+	std::size_t len) noexcept {
 	return RecvBuffer{this, id, len};
 }
 // ─── RecvSlice / RecvSlices ──────────────────────────────────────────────────
@@ -706,23 +706,23 @@ inline RecvBuffer BufferRing::lease(
 // No auto-recycle — caller must call recycle_all() or detach().
 
 export struct RecvSlice {
-	u16 id;
-	span<byte const> bytes;
+	std::uint16_t id;
+	std::span<std::byte const> bytes;
 };
 export class RecvSlices {
 	BufferRing *ring_{};
-	u32 start_pos_{};
-	u32 count_{};
-	SZ total_{};
+	std::uint32_t start_pos_{};
+	std::uint32_t count_{};
+	std::size_t total_{};
 	bool detached_{false};
 
 public:
 	RecvSlices() noexcept = default;
 	RecvSlices(
 		BufferRing *ring,
-		u32 start,
-		u32 cnt,
-		SZ total) noexcept
+		std::uint32_t start,
+		std::uint32_t cnt,
+		std::size_t total) noexcept
 		: ring_{ring}
 		, start_pos_{start}
 		, count_{cnt}
@@ -748,15 +748,15 @@ public:
 		return *this;
 	}
 	[[nodiscard]] bool valid() const noexcept { return ring_ != nullptr && count_ > 0; }
-	[[nodiscard]] SZ total_size() const noexcept { return total_; }
-	[[nodiscard]] u32 count() const noexcept { return count_; }
+	[[nodiscard]] std::size_t total_size() const noexcept { return total_; }
+	[[nodiscard]] std::uint32_t count() const noexcept { return count_; }
 	struct iterator {
 		RecvSlices const *slices_;
-		u32 idx_;
+		std::uint32_t idx_;
 		[[nodiscard]] RecvSlice operator *() const noexcept {
-			u16 const id = slices_->ring_->ring_id_at(slices_->start_pos_ + idx_);
-			SZ const off = static_cast<SZ>(idx_) * slices_->ring_->buf_size();
-			SZ const len = (idx_ + 1 < slices_->count_) ? slices_->ring_->buf_size() : slices_->total_ - off;
+			std::uint16_t const id = slices_->ring_->ring_id_at(slices_->start_pos_ + idx_);
+			std::size_t const off = static_cast<std::size_t>(idx_) * slices_->ring_->buf_size();
+			std::size_t const len = (idx_ + 1 < slices_->count_) ? slices_->ring_->buf_size() : slices_->total_ - off;
 			return {id, slices_->ring_->buffer_view_unchecked(id, len)};
 		}
 		iterator &operator ++() noexcept {
@@ -788,9 +788,9 @@ public:
 
 export class IncrementalRecvSlice {
 	BufferRing *ring_{};
-	u16 id_{};
-	SZ offset_{};
-	SZ len_{};
+	std::uint16_t id_{};
+	std::size_t offset_{};
+	std::size_t len_{};
 	bool more_{};
 	bool detached_{false};
 
@@ -798,9 +798,9 @@ public:
 	IncrementalRecvSlice() noexcept = default;
 	IncrementalRecvSlice(
 		BufferRing *ring,
-		u16 id,
-		SZ offset,
-		SZ len,
+		std::uint16_t id,
+		std::size_t offset,
+		std::size_t len,
 		bool more) noexcept
 		: ring_{ring}
 		, id_{id}
@@ -832,11 +832,11 @@ public:
 		return *this;
 	}
 	[[nodiscard]] bool valid() const noexcept { return ring_ != nullptr && len_ > 0; }
-	[[nodiscard]] u16 id() const noexcept { return id_; }
-	[[nodiscard]] SZ offset() const noexcept { return offset_; }
-	[[nodiscard]] SZ size() const noexcept { return len_; }
+	[[nodiscard]] std::uint16_t id() const noexcept { return id_; }
+	[[nodiscard]] std::size_t offset() const noexcept { return offset_; }
+	[[nodiscard]] std::size_t size() const noexcept { return len_; }
 	[[nodiscard]] bool more() const noexcept { return more_; }
-	[[nodiscard]] span<byte const> bytes() const noexcept {
+	[[nodiscard]] std::span<std::byte const> bytes() const noexcept {
 		if (ring_ == nullptr) {
 			return {};
 		}
@@ -857,10 +857,10 @@ public:
 // later RECV_ZC backend without changing HTTP recv ownership again.
 
 export struct RecvPayloadChunk {
-	span<byte const> bytes;
+	std::span<std::byte const> bytes;
 };
 export class RecvPayload {
-	enum class Variant : u8 {
+	enum class Variant : std::uint8_t {
 		none,
 		slices,
 		incremental,
@@ -916,7 +916,7 @@ public:
 	[[nodiscard]] RecvPayloadPinning pinning() const noexcept { return descriptor_.pinning; }
 	[[nodiscard]] bool incremental() const noexcept { return descriptor_.incremental; }
 	[[nodiscard]] bool multi_buffer() const noexcept { return descriptor_.multi_buffer; }
-	[[nodiscard]] SZ total_size() const noexcept {
+	[[nodiscard]] std::size_t total_size() const noexcept {
 		switch (variant_) {
 		case Variant::slices     : return slices_.total_size();
 		case Variant::incremental: return incremental_.size();
@@ -924,7 +924,7 @@ public:
 		}
 		return 0;
 	}
-	[[nodiscard]] u32 chunk_count() const noexcept {
+	[[nodiscard]] std::uint32_t chunk_count() const noexcept {
 		switch (variant_) {
 		case Variant::slices     : return slices_.count();
 		case Variant::incremental: return incremental_.valid() ? 1u : 0u;
@@ -934,7 +934,7 @@ public:
 	}
 	struct iterator {
 		RecvPayload const *payload{};
-		u32 idx{};
+		std::uint32_t idx{};
 		[[nodiscard]] RecvPayloadChunk operator *() const noexcept {
 			if (payload == nullptr || payload->variant_ == Variant::none) {
 				return {};
@@ -943,7 +943,7 @@ public:
 				return idx == 0 ? RecvPayloadChunk{payload->incremental_.bytes()} : RecvPayloadChunk{};
 			}
 			auto it = payload->slices_.begin();
-			for (u32 i = 0; i < idx; ++i) {
+			for (std::uint32_t i = 0; i < idx; ++i) {
 				++it;
 			}
 			return {(*it).bytes};
@@ -983,58 +983,58 @@ public:
 };
 // ─── CQE helpers ─────────────────────────────────────────────────────────────
 
-export [[nodiscard]] inline u16 cqe_buffer_id(
-	u32 cqe_flags) noexcept {
+export [[nodiscard]] inline std::uint16_t cqe_buffer_id(
+	std::uint32_t cqe_flags) noexcept {
 	return conflux::uring::cqe_flags::buf_id(conflux::uring::CqeFlags{cqe_flags}).v;
 }
 export [[nodiscard]] inline bool cqe_has_more(
-	u32 cqe_flags) noexcept {
+	std::uint32_t cqe_flags) noexcept {
 	return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::more);
 }
 export [[nodiscard]] inline bool cqe_has_buffer(
-	u32 cqe_flags) noexcept {
+	std::uint32_t cqe_flags) noexcept {
 	return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::buffer);
 }
 export [[nodiscard]] inline bool cqe_has_buf_more(
-	u32 cqe_flags) noexcept {
+	std::uint32_t cqe_flags) noexcept {
 	return conflux::uring::CqeFlags{cqe_flags}.any(conflux::uring::cqe_flags::buf_more);
 }
 export [[nodiscard]] IncrementalRecvSlice buffer_slice_from_incremental_cqe(
 	BufferRing &ring,
 	int res,
-	u32 flags) noexcept {
+	std::uint32_t flags) noexcept {
 	assert(res > 0);
 	assert(cqe_has_buffer(flags));
 	assert(ring.mode() == BufferRingMode::incremental);
-	u16 const id = cqe_buffer_id(flags);
+	std::uint16_t const id = cqe_buffer_id(flags);
 	assert(id < ring.count());
-	SZ &off = ring.incremental_offset_ref(id);
+	std::size_t &off = ring.incremental_offset_ref(id);
 	assert(off <= ring.buf_size());
-	assert(static_cast<SZ>(res) <= ring.buf_size() - off);
+	assert(static_cast<std::size_t>(res) <= ring.buf_size() - off);
 	bool const more = cqe_has_buf_more(flags);
-	IncrementalRecvSlice slice{&ring, id, off, static_cast<SZ>(res), more};
-	off += static_cast<SZ>(res);
+	IncrementalRecvSlice slice{&ring, id, off, static_cast<std::size_t>(res), more};
+	off += static_cast<std::size_t>(res);
 	if (!more) {
 		off = 0;
 		ring.consume(1);
 	}
 	return slice;
 }
-export [[nodiscard]] expected<IncrementalRecvSlice, RecvDecodeError> try_buffer_slice_from_incremental_cqe(
+export [[nodiscard]] std::expected<IncrementalRecvSlice, RecvDecodeError> try_buffer_slice_from_incremental_cqe(
 	BufferRing &ring,
 	int res,
-	u32 flags) noexcept {
+	std::uint32_t flags) noexcept {
 	if (res <= 0 || !cqe_has_buffer(flags) || ring.mode() != BufferRingMode::incremental) {
-		return unexpected(RecvDecodeError::bad_cqe);
+		return std::unexpected(RecvDecodeError::bad_cqe);
 	}
-	u16 const id = cqe_buffer_id(flags);
+	std::uint16_t const id = cqe_buffer_id(flags);
 	if (id >= ring.count()) {
-		return unexpected(RecvDecodeError::bad_id);
+		return std::unexpected(RecvDecodeError::bad_id);
 	}
-	SZ &off = ring.incremental_offset_ref(id);
-	SZ const len = static_cast<SZ>(res);
+	std::size_t &off = ring.incremental_offset_ref(id);
+	std::size_t const len = static_cast<std::size_t>(res);
 	if (off > ring.buf_size() || len > ring.buf_size() - off) {
-		return unexpected(RecvDecodeError::bad_bounds);
+		return std::unexpected(RecvDecodeError::bad_bounds);
 	}
 	bool const more = cqe_has_buf_more(flags);
 	IncrementalRecvSlice slice{&ring, id, off, len, more};
@@ -1045,23 +1045,23 @@ export [[nodiscard]] expected<IncrementalRecvSlice, RecvDecodeError> try_buffer_
 	}
 	return slice;
 }
-export [[nodiscard]] expected<RecvSlices, RecvDecodeError> try_buffer_slices_from_cqe(
+export [[nodiscard]] std::expected<RecvSlices, RecvDecodeError> try_buffer_slices_from_cqe(
 	BufferRing &ring,
 	int res,
-	u32 flags,
+	std::uint32_t flags,
 	bool bundle) noexcept {
 	if (res <= 0 || !cqe_has_buffer(flags)) {
-		return unexpected(RecvDecodeError::bad_cqe);
+		return std::unexpected(RecvDecodeError::bad_cqe);
 	}
-	SZ const total = static_cast<SZ>(res);
-	u32 const cnt = bundle ? static_cast<u32>((total + ring.buf_size() - 1) / ring.buf_size()) : 1u;
+	std::size_t const total = static_cast<std::size_t>(res);
+	std::uint32_t const cnt = bundle ? static_cast<std::uint32_t>((total + ring.buf_size() - 1) / ring.buf_size()) : 1u;
 	if (cnt == 0 || cnt > ring.count()) {
-		return unexpected(RecvDecodeError::bad_bounds);
+		return std::unexpected(RecvDecodeError::bad_bounds);
 	}
-	u16 const first_id = cqe_buffer_id(flags);
+	std::uint16_t const first_id = cqe_buffer_id(flags);
 	auto const start = ring.find_start_pos(first_id, cnt, bundle);
 	if (!start) [[unlikely]] {
-		return unexpected(RecvDecodeError::bad_window);
+		return std::unexpected(RecvDecodeError::bad_window);
 	}
 	ring.consume_at(*start, cnt);
 	return RecvSlices{&ring, *start, cnt, total};
@@ -1069,7 +1069,7 @@ export [[nodiscard]] expected<RecvSlices, RecvDecodeError> try_buffer_slices_fro
 export [[nodiscard]] RecvSlices buffer_slices_from_cqe(
 	BufferRing &ring,
 	int res,
-	u32 flags,
+	std::uint32_t flags,
 	bool bundle) noexcept {
 	if (res <= 0 || !cqe_has_buffer(flags)) {
 		assert(!cqe_has_buffer(flags));
@@ -1082,29 +1082,29 @@ export [[nodiscard]] RecvSlices buffer_slices_from_cqe(
 	}
 	return move(*slices);
 }
-export [[nodiscard]] expected<RecvPayload, RecvDecodeError> try_recv_payload_from_cqe(
+export [[nodiscard]] std::expected<RecvPayload, RecvDecodeError> try_recv_payload_from_cqe(
 	BufferRing &ring,
 	int res,
-	u32 flags,
+	std::uint32_t flags,
 	bool bundle) noexcept {
 	auto descriptor = recv_payload_descriptor(ring.mode(), bundle);
 	if (ring.mode() == BufferRingMode::incremental) {
 		auto slice = try_buffer_slice_from_incremental_cqe(ring, res, flags);
 		if (!slice) [[unlikely]] {
-			return unexpected(slice.error());
+			return std::unexpected(slice.error());
 		}
 		return RecvPayload::from_incremental(descriptor, move(*slice));
 	}
 	auto slices = try_buffer_slices_from_cqe(ring, res, flags, bundle);
 	if (!slices) [[unlikely]] {
-		return unexpected(slices.error());
+		return std::unexpected(slices.error());
 	}
 	return RecvPayload::from_slices(descriptor, move(*slices));
 }
 export [[nodiscard]] RecvPayload recv_payload_from_cqe(
 	BufferRing &ring,
 	int res,
-	u32 flags,
+	std::uint32_t flags,
 	bool bundle) noexcept {
 	auto payload = try_recv_payload_from_cqe(ring, res, flags, bundle);
 	if (!payload) [[unlikely]] {
@@ -1119,18 +1119,18 @@ export [[nodiscard]] RecvPayload recv_payload_from_cqe(
 
 export class DirectFdTable {
 	conflux::uring::RingRef ring_;
-	u32 capacity_{};
+	std::uint32_t capacity_{};
 	int err_{0};
 	bool registered_{false};
 
 public:
 	DirectFdTable(
 		io_uring *ring,
-		u32 max_slots)
+		std::uint32_t max_slots)
 		: DirectFdTable(conflux::uring::RingRef{ring}, max_slots) {}
 	DirectFdTable(
 		conflux::uring::RingRef ring,
-		u32 max_slots)
+		std::uint32_t max_slots)
 		: ring_{ring}
 		, capacity_{max_slots} {
 		err_ = ring_.register_files_sparse(capacity_);
@@ -1148,16 +1148,16 @@ public:
 	DirectFdTable(DirectFdTable &&) = delete;
 	DirectFdTable &operator =(DirectFdTable &&) = delete;
 	[[nodiscard]] bool install(
-		u32 slot,
+		std::uint32_t slot,
 		int fd) {
 		if (!registered_ || slot >= capacity_) {
 			return false;
 		}
-		return ring_.register_files_update(slot, span<int const>{&fd, 1}) == 1;
+		return ring_.register_files_update(slot, std::span<int const>{&fd, 1}) == 1;
 	}
 	[[nodiscard]] bool registered() const noexcept { return registered_; }
 	[[nodiscard]] int error() const noexcept { return err_; }
-	[[nodiscard]] u32 capacity() const noexcept { return capacity_; }
+	[[nodiscard]] std::uint32_t capacity() const noexcept { return capacity_; }
 };
 // ─── raw submission: accept ──────────────────────────────────────────────────
 // All borrowed data (buffers, iovecs) must remain valid until CQE completion.
@@ -1167,7 +1167,7 @@ export bool submit_accept_multishot_borrowed(
 	SocketHandle listen,
 	sockaddr *addr,
 	socklen_t *addrlen,
-	u64 user_data,
+	std::uint64_t user_data,
 	int accept_flags,
 	bool direct = true) noexcept {
 	auto sqe = ring.try_get_sqe();
@@ -1188,7 +1188,7 @@ export bool submit_accept_multishot_borrowed(
 	SocketHandle listen,
 	sockaddr *addr,
 	socklen_t *addrlen,
-	u64 user_data,
+	std::uint64_t user_data,
 	conflux::uring::IoUringCaps const &caps,
 	int accept_flags,
 	bool direct) noexcept {
@@ -1207,7 +1207,7 @@ export bool submit_accept_multishot_borrowed(
 	SocketHandle listen,
 	sockaddr *addr,
 	socklen_t *addrlen,
-	u64 user_data,
+	std::uint64_t user_data,
 	bool direct = true) noexcept {
 	return submit_accept_multishot_borrowed(ring, listen, addr, addrlen, user_data, 0, direct);
 }
@@ -1216,14 +1216,14 @@ export bool submit_accept_multishot_borrowed(
 	SocketHandle listen,
 	sockaddr *addr,
 	socklen_t *addrlen,
-	u64 user_data,
+	std::uint64_t user_data,
 	conflux::uring::IoUringCaps const &caps,
 	bool direct) noexcept {
 	return submit_accept_multishot_borrowed(ring, listen, addr, addrlen, user_data, caps, 0, direct);
 }
 // ─── raw submission: recv ────────────────────────────────────────────────────
 
-export enum class RecvArmPolicy : u8 {
+export enum class RecvArmPolicy : std::uint8_t {
 	default_,
 	poll_first,
 };
@@ -1231,7 +1231,7 @@ export [[nodiscard]] RecvArmPolicy resolve_recv_arm_policy(
 	bool auto_enabled,
 	bool recv_poll_first,
 	bool have_last_flags,
-	u32 last_flags) noexcept {
+	std::uint32_t last_flags) noexcept {
 	if (!auto_enabled || !recv_poll_first || !have_last_flags) {
 		return RecvArmPolicy::default_;
 	}
@@ -1242,7 +1242,7 @@ export bool submit_recv_multishot(
 	SocketRawRing &ring,
 	SocketHandle handle,
 	BufferRing &bufs,
-	u64 user_data,
+	std::uint64_t user_data,
 	bool bundle = false,
 	RecvArmPolicy arm = RecvArmPolicy::default_) {
 	assert(!(bundle && bufs.mode() == BufferRingMode::incremental));
@@ -1277,8 +1277,8 @@ export bool submit_send_borrowed(
 	SocketRawRing &ring,
 	SocketHandle handle,
 	void const *data,
-	SZ len,
-	u64 user_data,
+	std::size_t len,
+	std::uint64_t user_data,
 	int msg_flags = MSG_NOSIGNAL) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
@@ -1292,10 +1292,10 @@ export bool submit_send_borrowed(
 export bool submit_send_fixed_borrowed(
 	SocketRawRing &ring,
 	SocketHandle handle,
-	u32 buf_idx,
+	std::uint32_t buf_idx,
 	void const *data,
-	SZ len,
-	u64 user_data,
+	std::size_t len,
+	std::uint64_t user_data,
 	int msg_flags = MSG_NOSIGNAL) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
@@ -1304,7 +1304,7 @@ export bool submit_send_fixed_borrowed(
 	sqe.prep_send(handle.sqe_fd(), data, len, conflux::uring::MsgFlags{static_cast<unsigned>(msg_flags)});
 	sqe.add_flags(handle.sqe_fd_flags());
 	sqe.ioprio(conflux::uring::ioprio_flags::recvsend_fixed_buf);
-	sqe.buf_index(conflux::uring::FixedBufIdx{static_cast<i32>(buf_idx)});
+	sqe.buf_index(conflux::uring::FixedBufIdx{static_cast<std::int32_t>(buf_idx)});
 	sqe.user_data(conflux::uring::UserData{user_data});
 	return true;
 }
@@ -1313,7 +1313,7 @@ export bool submit_writev_borrowed(
 	SocketHandle handle,
 	iovec const *iov,
 	unsigned nr_vecs,
-	u64 user_data) {
+	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
@@ -1327,8 +1327,8 @@ export bool submit_send_zc_borrowed(
 	SocketRawRing &ring,
 	SocketHandle handle,
 	void const *data,
-	SZ len,
-	u64 user_data,
+	std::size_t len,
+	std::uint64_t user_data,
 	bool report_usage = true,
 	int msg_flags = MSG_NOSIGNAL) {
 	auto sqe = ring.try_get_sqe();
@@ -1350,8 +1350,8 @@ export bool submit_send_zc_borrowed(
 export [[nodiscard]] bool submit_shutdown_close(
 	SocketRawRing &ring,
 	SocketHandle handle,
-	u64 shutdown_ud,
-	u64 close_ud) {
+	std::uint64_t shutdown_ud,
+	std::uint64_t close_ud) {
 	if (ring.sq_space_left() < 2) {
 		return false;
 	}
@@ -1380,7 +1380,7 @@ export [[nodiscard]] bool submit_shutdown_close(
 export bool submit_close(
 	SocketRawRing &ring,
 	SocketHandle handle,
-	u64 user_data) {
+	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
@@ -1401,8 +1401,8 @@ export struct SocketCloseOptions {
 export [[nodiscard]] bool submit_close_fast(
 	SocketRawRing &ring,
 	SocketHandle handle,
-	u64 shutdown_ud,
-	u64 close_ud,
+	std::uint64_t shutdown_ud,
+	std::uint64_t close_ud,
 	SocketCloseOptions opts) noexcept {
 	bool const needs_shutdown = handle.fixed ? opts.shutdown_write : opts.allow_async_shutdown_for_os_fd;
 	unsigned const needed = 1U + (needs_shutdown ? 1U : 0U);
@@ -1455,7 +1455,7 @@ export bool submit_setsockopt_borrowed(
 	int optname,
 	void const *optval,
 	socklen_t optlen,
-	u64 user_data) {
+	std::uint64_t user_data) {
 	if (!handle.fixed) {
 		return false;
 	}
@@ -1489,7 +1489,7 @@ static int const k_socket_opt_on = 1;
 
 } // namespace
 export struct DirectTcpAcceptRecvTarget {
-	u16 buf_group{};
+	std::uint16_t buf_group{};
 	BufferRingMode buffer_mode{BufferRingMode::classic_one_cqe_per_buffer};
 };
 
@@ -1510,7 +1510,7 @@ void prepare_direct_accept_sockopt_sqe(
 	int optname,
 	void const *optval,
 	int optlen,
-	u64 user_data,
+	std::uint64_t user_data,
 	bool skip_success_cqe) noexcept {
 	sqe.prep_cmd_sock(
 		conflux::uring::uring_cmd_op::setsockopt,
@@ -1533,8 +1533,8 @@ export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv_to_group(
 	SocketRawRing &ring,
 	SocketHandle direct_socket,
 	DirectTcpAcceptRecvTarget target,
-	u64 sockopt_ud,
-	u64 recv_ud,
+	std::uint64_t sockopt_ud,
+	std::uint64_t recv_ud,
 	DirectTcpAcceptSetup opts) noexcept {
 	if (!direct_socket.is_direct()) {
 		return false;
@@ -1629,8 +1629,8 @@ export [[nodiscard]] bool submit_direct_tcp_accept_setup_recv(
 	SocketRawRing &ring,
 	SocketHandle direct_socket,
 	BufferRing &buffers,
-	u64 sockopt_ud,
-	u64 recv_ud,
+	std::uint64_t sockopt_ud,
+	std::uint64_t recv_ud,
 	DirectTcpAcceptSetup opts) noexcept {
 	return submit_direct_tcp_accept_setup_recv_to_group(
 		ring,
@@ -1645,7 +1645,7 @@ export bool submit_accept_borrowed(
 	SocketHandle listen,
 	sockaddr *addr,
 	socklen_t *addrlen,
-	u64 user_data,
+	std::uint64_t user_data,
 	int accept_flags) noexcept {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
@@ -1661,7 +1661,7 @@ export bool submit_accept_borrowed(
 export bool submit_cancel_fd(
 	SocketRawRing &ring,
 	SocketHandle handle,
-	u64 user_data) {
+	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
@@ -1674,8 +1674,8 @@ export bool submit_cancel_fd(
 }
 export bool submit_cancel_by_ud(
 	SocketRawRing &ring,
-	u64 target_ud,
-	u64 cancel_ud) {
+	std::uint64_t target_ud,
+	std::uint64_t cancel_ud) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
@@ -1687,10 +1687,10 @@ export bool submit_cancel_by_ud(
 export bool submit_cancel_multishot_recv(
 	SocketRawRing &ring,
 	SocketHandle handle,
-	u64 user_data) {
+	std::uint64_t user_data) {
 	return submit_cancel_fd(ring, handle, user_data);
 }
-export enum class CancelPolicy : u8 {
+export enum class CancelPolicy : std::uint8_t {
 	ignore,
 	cancel_sqe_by_user_data,
 	cancel_fd,
@@ -1701,7 +1701,7 @@ export enum class CancelPolicy : u8 {
 export bool submit_timeout_borrowed(
 	SocketRawRing &ring,
 	__kernel_timespec *ts,
-	u64 user_data) {
+	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
@@ -1713,7 +1713,7 @@ export bool submit_timeout_borrowed(
 export bool submit_link_timeout_borrowed(
 	SocketRawRing &ring,
 	__kernel_timespec *ts,
-	u64 user_data) {
+	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
@@ -1729,7 +1729,7 @@ export bool submit_socket(
 	int domain,
 	int type,
 	int protocol,
-	u64 user_data) {
+	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
@@ -1743,7 +1743,7 @@ export bool submit_socket_direct(
 	int domain,
 	int type,
 	int protocol,
-	u64 user_data) {
+	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
@@ -1757,7 +1757,7 @@ export bool submit_socket_direct(
 	int domain,
 	int type,
 	int protocol,
-	u64 user_data,
+	std::uint64_t user_data,
 	conflux::uring::IoUringCaps const &caps) {
 	if (!caps.socket_direct_alloc) {
 		return false;
@@ -1772,7 +1772,7 @@ export bool submit_connect_borrowed(
 	SocketHandle handle,
 	sockaddr const *addr,
 	socklen_t addrlen,
-	u64 user_data,
+	std::uint64_t user_data,
 	bool link_next = false) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
@@ -1792,8 +1792,8 @@ export bool submit_recv_borrowed(
 	SocketRawRing &ring,
 	SocketHandle handle,
 	void *buf,
-	SZ len,
-	u64 user_data,
+	std::size_t len,
+	std::uint64_t user_data,
 	int msg_flags = 0) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
@@ -1810,7 +1810,7 @@ export bool submit_sendmsg_borrowed(
 	SocketRawRing &ring,
 	SocketHandle handle,
 	msghdr const *msg,
-	u64 user_data,
+	std::uint64_t user_data,
 	unsigned flags = 0) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
@@ -1825,7 +1825,7 @@ export bool submit_recvmsg_borrowed(
 	SocketRawRing &ring,
 	SocketHandle handle,
 	msghdr *msg,
-	u64 user_data,
+	std::uint64_t user_data,
 	unsigned flags = 0) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
@@ -1846,8 +1846,8 @@ export [[nodiscard]] bool submit_recvmsg_timeout_borrowed(
 	SocketHandle handle,
 	msghdr *msg,
 	__kernel_timespec *ts,
-	u64 recv_ud,
-	u64 timeout_ud,
+	std::uint64_t recv_ud,
+	std::uint64_t timeout_ud,
 	unsigned recv_flags = 0) {
 	if (ring.sq_space_left() < 2) {
 		return false;
@@ -1875,10 +1875,10 @@ export [[nodiscard]] bool submit_recv_timeout_borrowed(
 	SocketRawRing &ring,
 	SocketHandle handle,
 	void *buf,
-	SZ len,
+	std::size_t len,
 	__kernel_timespec *ts,
-	u64 recv_ud,
-	u64 timeout_ud) {
+	std::uint64_t recv_ud,
+	std::uint64_t timeout_ud) {
 	if (ring.sq_space_left() < 2) {
 		return false;
 	}
@@ -1906,10 +1906,10 @@ export [[nodiscard]] bool submit_send_timeout_borrowed(
 	SocketRawRing &ring,
 	SocketHandle handle,
 	void const *data,
-	SZ len,
+	std::size_t len,
 	__kernel_timespec *ts,
-	u64 send_ud,
-	u64 timeout_ud,
+	std::uint64_t send_ud,
+	std::uint64_t timeout_ud,
 	int msg_flags = MSG_NOSIGNAL) {
 	if (ring.sq_space_left() < 2) {
 		return false;
@@ -1934,8 +1934,8 @@ export [[nodiscard]] bool submit_send_timeout_borrowed(
 
 export bool submit_fixed_fd_install(
 	SocketRawRing &ring,
-	u32 direct_slot,
-	u64 user_data) {
+	std::uint32_t direct_slot,
+	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
@@ -1946,7 +1946,7 @@ export bool submit_fixed_fd_install(
 }
 // ─── TcpListener ─────────────────────────────────────────────────────────────
 
-export enum class TcpBindAddress : u8 {
+export enum class TcpBindAddress : std::uint8_t {
 	loopback_v4,
 	any_v4,
 	loopback_v6,
@@ -1954,7 +1954,7 @@ export enum class TcpBindAddress : u8 {
 	any_v6_only,
 };
 export struct TcpListenerOptions {
-	u16 port{0};
+	std::uint16_t port{0};
 	TcpBindAddress bind{TcpBindAddress::any_v6_dual};
 	bool reuse_addr{true};
 	bool reuse_port{false};
@@ -1975,7 +1975,7 @@ struct FdGuard {
 } // namespace
 export class TcpListener {
 	int fd_{-1};
-	u16 port_{};
+	std::uint16_t port_{};
 	int accept_flags_{SOCK_CLOEXEC | SOCK_NONBLOCK};
 
 public:
@@ -2048,7 +2048,7 @@ public:
 	TcpListener(
 		TcpListener &&o) noexcept
 		: fd_{exchange(o.fd_, -1)}
-		, port_{exchange(o.port_, u16{})}
+		, port_{exchange(o.port_, std::uint16_t{})}
 		, accept_flags_{o.accept_flags_} {}
 	TcpListener &operator =(
 		TcpListener &&o) noexcept {
@@ -2057,12 +2057,12 @@ public:
 				::close(fd_);
 			}
 			fd_ = exchange(o.fd_, -1);
-			port_ = exchange(o.port_, u16{});
+			port_ = exchange(o.port_, std::uint16_t{});
 			accept_flags_ = o.accept_flags_;
 		}
 		return *this;
 	}
-	[[nodiscard]] u16 port() const noexcept { return port_; }
+	[[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 	[[nodiscard]] int raw_fd() const noexcept { return fd_; }
 	[[nodiscard]] int accept_flags() const noexcept { return accept_flags_; }
 	[[nodiscard]] SocketHandle handle() const noexcept { return SocketHandle::from_os(fd_); }
@@ -2070,7 +2070,7 @@ public:
 		SocketRawRing &ring,
 		sockaddr *addr,
 		socklen_t *addrlen,
-		u64 user_data,
+		std::uint64_t user_data,
 		conflux::uring::IoUringCaps const &caps,
 		bool accept_direct = false) noexcept {
 		return submit_accept_multishot_borrowed(
@@ -2087,7 +2087,7 @@ public:
 		SocketRawRing &ring,
 		sockaddr *addr,
 		socklen_t *addrlen,
-		u64 user_data,
+		std::uint64_t user_data,
 		conflux::uring::IoUringCaps const &caps,
 		bool accept_direct = false) noexcept {
 		return submit_accept_multishot_borrowed(
@@ -2107,7 +2107,7 @@ export bool submit_shutdown(
 	SocketRawRing &ring,
 	SocketHandle handle,
 	int how,
-	u64 user_data) {
+	std::uint64_t user_data) {
 	auto sqe = ring.try_get_sqe();
 	if (!sqe) {
 		return false;
@@ -2119,7 +2119,7 @@ export bool submit_shutdown(
 }
 // ─── SocketFdMode ─────────────────────────────────────────────────────────────
 
-export enum class SocketFdMode : u8 {
+export enum class SocketFdMode : std::uint8_t {
 	os_fd,
 	direct_if_available,
 	direct_required,
@@ -2133,7 +2133,7 @@ export struct AcceptOptions {
 // ─── ConnectOptions ───────────────────────────────────────────────────────────
 
 export struct ConnectOptions {
-	chrono::milliseconds timeout{chrono::seconds{30}};
+	std::chrono::milliseconds timeout{std::chrono::seconds{30}};
 	CancelPolicy cancel{CancelPolicy::cancel_fd};
 	bool tcp_nodelay{true};
 	bool tcp_quickack{false};
@@ -2145,7 +2145,7 @@ export struct ConnectOptions {
 
 export class SocketTaskRing; // forward declare before RingOpFn alias
 
-export using RingOpFn = Fn<void(SocketTaskRing &)>;
+export using RingOpFn = std::function<void(SocketTaskRing &)>;
 export struct SocketTaskRingOptions {
 	SocketFdMode fd_mode{SocketFdMode::os_fd}; // P1 safe default; direct_* is explicit opt-in until P1-04
 	conflux::uring::IoUringCaps const *caps{};
@@ -2153,7 +2153,7 @@ export struct SocketTaskRingOptions {
 	// Must NOT invoke fn inline from an arbitrary cancelling thread.
 	// If null: ring is treated as single-threaded; submit_on_owner asserts caller==owner
 	// and calls fn inline. Cross-thread cancel callers MUST provide submit_on_ring_owner.
-	Fn<bool(RingOpFn)> submit_on_ring_owner{};
+	std::function<bool(RingOpFn)> submit_on_ring_owner{};
 };
 export class SocketTaskRing {
 	SocketRawRing raw_;
@@ -2179,9 +2179,9 @@ public:
 	[[nodiscard]] SocketRawRing &raw() noexcept { return raw_; }
 	[[nodiscard]] CompletionTable &completions() noexcept { return *completions_; }
 	[[nodiscard]] SocketTaskRingOptions const &opts() const noexcept { return opts_; }
-	[[nodiscard]] u64 encode(
-		u32 slot,
-		u32 gen) const {
+	[[nodiscard]] std::uint64_t encode(
+		std::uint32_t slot,
+		std::uint32_t gen) const {
 		return encode_ud_(slot, gen);
 	}
 	[[nodiscard]] bool submit_on_owner(
