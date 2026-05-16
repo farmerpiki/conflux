@@ -47,6 +47,10 @@
 - [x] xxhash: resolve via `pkg_check_modules(XXHASH REQUIRED IMPORTED_TARGET libxxhash)` and link `PkgConfig::XXHASH` instead of a dangling raw `xxhash` target/name
 - [x] JSON global state: document `CLocaleHolder` singleton as the only permitted process-lifetime singleton; design note added in `docs/json-design.md`
 
+## Module split proposals
+
+- [ ] `conflux.json` implementation-unit split: keep public `conflux::json` / `import conflux.json;`, move parser/dump/builder/reader/storage bodies into private module implementation units, and record BMI/incremental-build evidence. See `proposals/json_module_split_proposal.md`.
+
 ## Incomplete perf quick-wins
 
 - [x] Direct-accept `TCP_NODELAY`: landed
