@@ -40,3 +40,15 @@ the `blocking_*` names when the operation directly blocks the calling thread.
 `conflux.json.file` follows the same rule for file-backed parsing via
 `blocking_parse_file_at` and `blocking_parse_file`; pure JSON parsing APIs stay
 unprefixed because they do not perform I/O.
+
+## Async module split
+
+`conflux.file_io` is now a compatibility umbrella over narrower leaf modules:
+
+- `conflux.file_io.buffers` owns registered fixed-buffer table/pool leases.
+- `conflux.file_io.pipe_pool` owns splice pipe-pair pooling.
+- `conflux.file_io.reader` owns `FileReader` and async file-operation helpers.
+- `conflux.file_io.iopoll` owns storage-only IOPOLL reader/ring helpers.
+- `conflux.file_io.driver` owns thread-local current-reader scope plus test/example `pump_until` / `block_on` helpers.
+
+Existing code can continue to import `conflux.file_io`. New focused tests, examples, and internal callers should import the narrow leaf module they use while the package still exposes one `conflux::file_io` component.

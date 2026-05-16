@@ -80,7 +80,7 @@ scripts/run-package-config-smoke.sh \
 | `uring_timeout` | `conflux::uring_timeout` | `conflux.uring.timeout` | `tests/uring_flow_test.cxx` |
 | `file_io_sync` | `conflux::file_io_sync` | `conflux.file_io_sync` | `examples/file_io.cxx`, `tests/file_io_sync_test.cxx` |
 | `file_map` | `conflux::file_map` | `conflux.file_map` | `tests/file_io_sync_test.cxx` |
-| `file_io` | `conflux::file_io` | `conflux.file_io` | `examples/file_io.cxx`, `tests/file_io_test.cxx` |
+| `file_io` | `conflux::file_io` | `conflux.file_io` umbrella plus `conflux.file_io.buffers`, `.pipe_pool`, `.reader`, `.iopoll`, `.driver` leaf modules | `examples/file_io.cxx`, `tests/file_io_test.cxx` |
 | `template` | `conflux::template` | `conflux.templates` | `examples/template_pages.cxx`, `tests/template_test.cxx` |
 | `template_watch` | `conflux::template_watch` | `conflux.file_watch` | `examples/template_pages.cxx` |
 | `socket_io` | `conflux::socket_io` | `conflux.socket_io`, `conflux.socket_io.coro`, `conflux.socket_io.blocking` | `tests/socket_task_ring_test.cxx`, `tests/tcp_listener_test.cxx` |

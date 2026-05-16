@@ -16,7 +16,11 @@
 import std;
 import conflux.types;
 import conflux.work;
-import conflux.file_io;
+import conflux.file_io.buffers;
+import conflux.file_io.pipe_pool;
+import conflux.file_io.reader;
+import conflux.file_io.iopoll;
+import conflux.file_io.driver;
 import conflux.file_io_sync;
 
 namespace root = conflux::work::root;
