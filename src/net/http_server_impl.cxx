@@ -54,7 +54,6 @@ import conflux.net.tls;
 import :state;
 
 import :loop;
-import :dispatch;
 
 void add_metrics(
 	HttpServerMetrics &dst,

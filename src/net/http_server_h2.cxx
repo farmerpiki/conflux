@@ -60,6 +60,7 @@ import :state;
 #endif
 
 #if CONFLUX_HAS_HTTP2
+static constexpr SZ kH2PendingSendCap = SZ{64} * 1024;
 // ---------------------------------------------------------------------------
 void Ring::h2_reject_stream(
 	nghttp2_session *session,

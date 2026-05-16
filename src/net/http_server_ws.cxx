@@ -72,9 +72,9 @@ import :state;
 	}
 
 
-[[nodiscard]] WsHandoffState Ring::begin_ws_handoff(
+[[nodiscard]] Ring::WsHandoffState Ring::begin_ws_handoff(
 	Conn &conn) {
-		auto state = WsHandoffState{move(conn.ws_upgrade), move(conn.ws_work_pool), move(conn.saved_req)};
+		auto state = Ring::WsHandoffState{move(conn.ws_upgrade), move(conn.ws_work_pool), move(conn.saved_req)};
 		++conn.gen;
 		conn.fd = -1;
 		conn.is_ws = false;
@@ -86,7 +86,7 @@ import :state;
 
 void Ring::launch_plain_ws_handler(
 	WorkPool &pool,
-	WsHandoffState state,
+	Ring::WsHandoffState state,
 	int fd,
 	S initial_buf) {
 		if (!pool.enqueue([state = move(state), fd, ibuf = move(initial_buf)]() mutable {
@@ -101,7 +101,7 @@ void Ring::launch_plain_ws_handler(
 
 void Ring::finish_plain_ws_handoff(
 	int fd,
-	WsInstallEntry entry) {
+	Ring::WsInstallEntry entry) {
 		if (accepted_sockets_direct) {
 			queue_ws_fixed_install(fd, move(entry.state), move(entry.initial_buf));
 			return;
@@ -139,7 +139,7 @@ void Ring::handoff_plain_ws(
 			}
 			return;
 		}
-		auto entry = WsInstallEntry{
+		auto entry = Ring::WsInstallEntry{
 			move(state),
 			move(initial_buf)
 #if CONFLUX_HAS_TLS
@@ -158,7 +158,7 @@ void Ring::handoff_plain_ws(
 #if CONFLUX_HAS_TLS
 void Ring::launch_tls_ws_handler(
 	WorkPool &pool,
-	WsHandoffState state,
+	Ring::WsHandoffState state,
 	int fd,
 	SSL *ssl,
 	S initial_buf) {
@@ -202,7 +202,7 @@ void Ring::handoff_tls_ws(
 			}
 			return;
 		}
-		auto entry = WsInstallEntry{move(state), move(initial_buf), move(orig_ssl)};
+		auto entry = Ring::WsInstallEntry{move(state), move(initial_buf), move(orig_ssl)};
 		if (cancel_recv) {
 			queue_ws_cancel(fd, move(entry));
 			return;
@@ -214,7 +214,7 @@ void Ring::handoff_tls_ws(
 #endif
 void Ring::queue_ws_cancel(
 	int fd,
-	WsInstallEntry entry) {
+	Ring::WsInstallEntry entry) {
 		auto *sqe = get_sqe();
 		if (sqe == nullptr) {
 			defer_op([this, fd, e = move(entry)]() mutable { queue_ws_cancel(fd, move(e)); });
@@ -231,7 +231,7 @@ void Ring::queue_ws_cancel(
 #if CONFLUX_HAS_TLS
 void Ring::finish_tls_ws_handoff(
 	int fd,
-	WsInstallEntry entry) {
+	Ring::WsInstallEntry entry) {
 		if (accepted_sockets_direct) {
 			queue_ws_fixed_install(fd, move(entry.state), move(entry.initial_buf), entry.ssl.release());
 			return;
@@ -263,7 +263,7 @@ void Ring::handle_ws_cancel(
 
 void Ring::queue_ws_fixed_install(
 	int slot_fd,
-	WsHandoffState state,
+	Ring::WsHandoffState state,
 	S initial_buf
 #if CONFLUX_HAS_TLS
 	,
@@ -272,7 +272,7 @@ void Ring::queue_ws_fixed_install(
 ) {
 		ws_installs.emplace(
 			slot_fd,
-			WsInstallEntry{
+			Ring::WsInstallEntry{
 				move(state),
 				move(initial_buf)
 #if CONFLUX_HAS_TLS

@@ -102,7 +102,7 @@ void Ring::retire_incremental_partial(
 		}
 		retired_incremental_recv.insert_or_assign(
 			pack_fd_gen(fd, gen),
-			RetiredIncrementalBuf{conn.incremental_buf_id, true});
+			Ring::RetiredIncrementalBuf{conn.incremental_buf_id, true});
 		conn.have_incremental_buf_id = false;
 	}
 

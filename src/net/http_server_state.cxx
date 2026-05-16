@@ -27,6 +27,8 @@ module conflux.net.http_server:state;
 import std;
 import conflux.types;
 import std.compat;
+import conflux.net.http.server_types;
+import conflux.net.http.parse_helpers;
 
 import conflux.net.http.types;
 import conflux.net.router;
@@ -149,7 +151,6 @@ inline constexpr SZ FD_TABLE_RESERVE = 4096;
 inline constexpr unsigned DEFAULT_RING_ENTRIES = 1024U;
 #if CONFLUX_HAS_HTTP2
 struct Ring; // forward-declared so H2ConnCtx can hold Ring* while Conn precedes Ring
-static constexpr SZ kH2PendingSendCap = SZ{64} * 1024;
 struct H2Stream {
 	S method{};
 	S path{};

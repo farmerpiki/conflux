@@ -82,7 +82,9 @@ bool JsonStreamReader::recoverable_need_more(
 
 bool JsonStreamReader::event_needs_more_before_emit(
 	Event event) const noexcept {
-	return !closed_ && event == Event::number_value && reader_.pos_ == buf_.size();
+	// GCC 16's module lookup can be fragile here; keep the check on the stable
+	// underlying event ordinal instead of relying on the scoped enumerator lookup.
+	return !closed_ && static_cast<unsigned>(event) == 6U && reader_.pos_ == buf_.size();
 }
 
 JsonStreamReader::JsonStreamReader(
