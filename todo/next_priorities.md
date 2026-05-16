@@ -17,6 +17,11 @@ item instead of re-deciding from scratch. It is based on the current `todo/`,
 
 ## Ordered list
 
+0. **Track code-quality review follow-ups in one place.**
+   - See `todo/code_quality_findings.md` for the correctness fixes, API-polish
+     backlog, verification gates, and dedicated-branch module-split candidates
+     from the review pass.
+
 1. **Keep file-layer boundaries honest.**
    - `file_io_sync` stays POSIX-only.
    - `file_map` stays read-only mapping only.
