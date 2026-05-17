@@ -373,6 +373,14 @@ Capability query helpers:
 - `joinable(Cap const&, PostedJoinHandle<T> const&) -> bool`
 - `joinable(Cap const&, OperationJoinHandle<T> const&) -> bool`
 
+Strict join and dropped-outcome helpers:
+
+- `require_join(Task<T>&&) -> JoinTask<T>` wraps a task in the strict RAII variant
+- `spawn(fn, loc = current) -> Task<T>` calls a `fn` that returns `Task<T>` and records the spawn location; dropped tasks auto-detach
+- `spawn_strict(fn, loc = current) -> JoinTask<T>` records the spawn location and terminates on dropped live strict task
+- `JoinTask<T>::detach_to_task() && -> Task<T>` downgrades strict ownership to auto-detach task ownership
+- `set_dropped_outcome_sink(fn)` installs a process-wide sink called as `fn(std::source_location, OutcomeKind, std::exception_ptr)` for dropped failure/cancelled outcomes
+
 Contract behavior:
 
 - `blocking_join(...)`, legacy `join(...)`, `try_join_ready(...)`, and `join_ready(...)` on a
@@ -381,8 +389,8 @@ Contract behavior:
   `JoinError` on mismatch before readiness checks
 - `try_join_ready(...)` never blocks and never consumes pending work
 - `join_ready(...)` never blocks; pending work throws `JoinError::not_ready`
-- root result and join-handle destructors terminate if still live
-  (must be joined, converted, or abandoned explicitly)
+- dropping live `Task<T>`, `Posted<T>`, or `Operation<T>` auto-detaches; success is discarded, failure/cancelled outcomes are reported to the dropped-outcome sink when installed
+- live `TaskJoinHandle<T>`, `PostedJoinHandle<T>`, `OperationJoinHandle<T>`, and `JoinTask<T>` destructors terminate; consume, join, convert back to `Task<T>`, or abandon explicitly
 
 ## Capability Identity Contract
 

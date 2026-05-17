@@ -92,7 +92,7 @@ struct HttpTimeouts {
 };
 ```
 
-`<= 0` means indefinite. Resolution is whole seconds (ceiling). `resolve` is currently advisory — DNS uses `getaddrinfo`, which honors only the global resolver timeout, not this field.
+`<= 0` means indefinite. Resolution is whole seconds (ceiling). `resolve` is advisory for the blocking client when it falls back to `getaddrinfo`, which honors only the global resolver timeout, not this field.
 
 ### `HttpError` & `HttpErrorKind`
 
@@ -266,6 +266,7 @@ struct HttpClientOptions {
     std::size_t  max_body_bytes     {16 * 1024 * 1024};
     std::size_t  max_buffered_bytes {4 * 1024 * 1024}; // Phase 2 — unused now
     HttpFields   default_headers;                // merged into every request, request wins
+    void*        resolver{nullptr};              // conflux::net::dns::Resolver*, optional
 };
 
 class HttpClient {
@@ -280,7 +281,7 @@ public:
 ### `blocking_send` contract
 
 Sequence:
-1. **DNS** — `getaddrinfo(AF_UNSPEC, SOCK_STREAM)`. Tries every address until one connects.
+1. **DNS** — uses `opts.resolver` (`conflux::net::dns::Resolver*`) when provided; otherwise uses `getaddrinfo(AF_UNSPEC, SOCK_STREAM)`. Tries every address until one connects.
 2. **Connect** — non-blocking + `poll(POLLOUT)` honoring `timeouts.connect`. Records `peer_addr` in telemetry.
 3. **TLS handshake** (https only) — `SSL_connect` honoring `timeouts.tls`. SNI from `.server_name()` else URL host. Hostname verification on when `verify_peer && opts.verify_peer`. Builds a fresh `TlsContext` per request — no session cache.
 4. **Send** — request line + merged headers (`opts.default_headers` first, then request, request wins). Skips any caller-supplied hop-by-hop headers and any `Host` (regenerated from URL unless caller explicitly set one — that's what `proxy.cxx` uses for `preserve_host`). Always emits `Connection: close`, plus `Content-Length` if `body` is non-empty. No `Transfer-Encoding: chunked` is ever sent — chunked request bodies are out of scope for Phase 1.
@@ -298,7 +299,7 @@ Method-specific:
 
 | Failure | `kind` | `phase` | populated |
 |---|---|---|---|
-| `getaddrinfo` returns nonzero or no addresses | `dns` | `resolve` | — |
+| configured resolver / `getaddrinfo` returns an error or no addresses | `dns` | `resolve` | — |
 | All addresses fail to `connect` | `connect` | `connect` | `os_errno` |
 | TLS context construction fails | `tls` | `tls` | `message` |
 | TLS handshake fails | `tls` | `tls` | `tls_alert`, `verify_reason` (when verify failed) |
