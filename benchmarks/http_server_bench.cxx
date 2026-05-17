@@ -30,6 +30,7 @@ struct BenchClient {
 		static constexpr int one = 1;
 		::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
 		::setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &one, sizeof one);
+		set_recv_timeout(chrono::seconds{5});
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(port);
@@ -166,6 +167,9 @@ struct BenchClient {
 				search_from = resp_end;
 			}
 		}
+		if (got < count) {
+			throw RE{format("recv_n_responses expected {} responses, got {}", count, got)};
+		}
 		return total;
 	}
 	SZ recv_until_close(
@@ -240,6 +244,7 @@ struct BenchClient {
 		static constexpr int one = 1;
 		::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
 		::setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &one, sizeof one);
+		set_recv_timeout(chrono::seconds{5});
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(port);
@@ -420,15 +425,24 @@ BenchStats run_variant(
 		v.setup();
 	}
 
-	for (SZ i = 0; i < warmup; ++i) {
-		v.run();
-	}
+	u64 t0{};
+	u64 t1{};
+	try {
+		for (SZ i = 0; i < warmup; ++i) {
+			v.run();
+		}
 
-	auto const t0 = bench_now_ns();
-	for (SZ i = 0; i < iterations; ++i) {
-		v.run();
+		t0 = bench_now_ns();
+		for (SZ i = 0; i < iterations; ++i) {
+			v.run();
+		}
+		t1 = bench_now_ns();
+	} catch (...) {
+		if (v.teardown) {
+			v.teardown();
+		}
+		throw;
 	}
-	auto const t1 = bench_now_ns();
 
 	if (v.teardown) {
 		v.teardown();
