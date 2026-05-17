@@ -225,7 +225,7 @@ Recommended next JSON branch: `json/impl-unit-split` if doing JSON ergonomics/bu
 | DONE | `auth/session-token-audit` | Added JWT session-token policy knobs for required `exp`/`iat`/`jti`, clock skew, max lifetime, negative timestamp rejection, and `jti` revocation hook; documented cookie/session storage boundaries. | Completed on auth lane; no route ergonomics changes. | Tests cover expiry/skew/lifetime/revocation surfaces and docs capture current non-goals. |
 | DONE | `auth/rate-limit-hooks` | Added reusable `AuthFailureLimiter`, per-account/query/remote/bearer-token key helpers, metrics snapshots, and a middleware adapter for downstream auth-failure hooks. | Completed on auth lane; no route rewrite required. | Hook points exist; default remains safe/simple; route/account/API-token throttling is documented. |
 
-Recommended next auth branch: none in the current P0/P1 auth lane. If continuing security work, plan a separate `auth/session-store-revocation` branch for persistent session storage / cluster-wide revocation; otherwise return to the global queue (`build/bench-regression-budget`, `http/send-threshold-bench`, or `db/pipeline-live-evidence`).
+Recommended next auth branch: none in the current P0/P1 auth lane. If continuing security work, plan a separate `auth/session-store-revocation` branch for persistent session storage / cluster-wide revocation; otherwise return to the global queue (`http/send-threshold-bench` or host execution of `db/pipeline-live-evidence`).
 
 ### Build / tests / perf / CI lane
 
@@ -237,8 +237,9 @@ Recommended next auth branch: none in the current P0/P1 auth lane. If continuing
 | DONE | `build/lto-pgo-presets` | Stabilized optimized release/PGO presets after perf harness work: Clang LTO uses ThinLTO, GCC 16 keeps GCC LTO coverage, GCC 15 remains no-LTO, PGO paths are deterministic, and a static CTest guard enforces optimized-preset shape. | Landed as CMake/preset/script/docs work. | `build/optimized-presets` checks release/PGO presets stay unsanitized, explicit, and separate from `perf-*` recording lanes. |
 | DONE | `build/package-config` | Install/export package shape now has explicit version ownership, component metadata, requested-component validation, a canonical `conflux::conflux` umbrella alias when available, and package smoke scripts. | Build/docs only. | `build/package-config` statically guards package CMake shape; package smoke validates installed namespaced component targets from a downstream project. |
 | DONE | `build/install-tree-smoke` | Added a real downstream install-tree smoke: configure/build/install a fresh dependency-light tree, consume the installed prefix with `find_package(conflux)`, compile/link a module-importing executable, and run it. | Build/docs only; keep separate from CI/fuzz budget changes. | `run-install-tree-smoke.sh` drives the full build/install/consume flow; `run-package-config-smoke.sh` now builds and runs the downstream consumer; opt-in CTest gates exist for both preinstalled and freshly installed prefixes. |
+| DONE | `build/bench-regression-budget` | Added DB-backed per-benchmark budgets, `bench_budget_eval`, and `scripts/bench_check_budget.py` for merge-blocking perf comparisons. | Build/scripts/docs; no runtime overlap. | Same-machine baseline/candidate comparisons classify pass/noisy/regression/unbudgeted rows and point failures at recorded artifacts. |
 
-Recommended next build branch: `build/bench-regression-budget`. Sanitizer/perf split, fuzz-smoke, package smoke, and install-tree smoke are already landed; the remaining CI/perf gap is defining which benchmark deltas block merges and how those gates run.
+Recommended next build branch: none in the current P0/P1 build lane. Tune benchmark budgets only when host perf artifacts justify changed thresholds.
 
 ### Docs / examples / API ergonomics lane
 
@@ -271,36 +272,28 @@ recv-bundle/server-lifetime verification on a single correctness branch and
 avoid recv/server lifetime churn elsewhere until it is green. Check
 `todo/proposal_state.md` before treating any older proposal as open work.
 
-1. `build/bench-regression-budget`
-   - Define merge-blocking benchmark deltas and how perf evidence is recorded/enforced.
-   - Does not touch recv/server hot paths.
-
-2. `docs/src-diagnostic-print-policy`
-   - Decide whether remaining reusable-source `std::print/std::println(stderr, ...)` diagnostics stay allowed or move behind `eprint/eprintln`.
-   - Docs/script-only unless policy chooses a small source cleanup.
-
-3. `db/pipeline-live-evidence`
+1. `db/pipeline-live-evidence`
    - Run live PostgreSQL integration and refresh `db_pipeline_bench.cxx` evidence.
    - DB-only; no overlap with recv/server.
 
-4. `http/send-threshold-bench`
+2. `http/send-threshold-bench`
    - Validate and tune SEND_ZC thresholds under realistic HTTP load.
    - Measurement/config only unless the benchmark proves a default change.
 
-5. `file/file-io-module-split`
+3. `file/file-io-module-split`
    - Source-shape split inside the existing `conflux_file_io` target.
    - Do not create new package components in the first branch.
 
-6. `http/server-impl-split`
+4. `http/server-impl-split`
    - Private implementation-unit split of `http_server_impl`.
    - Start only when no recv/server lifetime branch is red.
 
-7. `json/impl-unit-split`
+5. `json/impl-unit-split`
    - Private implementation-unit split of `src/json.cxx`; keep one public JSON
      target/import and record compile-time evidence.
    - Do not combine with Pointer/Patch/schema feature work.
 
-8. `worker/queue-contention-measurement`
+6. `worker/queue-contention-measurement`
    - Produce contention evidence before changing local queues or admission locking.
    - Instrumentation/bench notes only unless counters prove a bottleneck.
 ## Deferred work
@@ -327,7 +320,7 @@ avoid recv/server lifetime churn elsewhere until it is green. Check
 - Password hashing is production-grade and migration-aware.
 - JSON provider usage is isolated enough that replacing the backend is not a route
   rewrite.
-- Perf harness exists, records preset/cache/log/raw artifacts, rejects accidental non-perf inputs, and no perf claim lands without same-machine benchmark notes; explicit regression budgets still need policy.
+- Perf harness exists, records preset/cache/log/raw artifacts, rejects accidental non-perf inputs, and benchmark regression budgets gate same-machine perf comparisons; thresholds still need periodic host-data tuning.
 - Public docs state concurrency, handler execution, and naming semantics correctly.
 - Examples compile in CI.
 - Hardened defaults are documented and tested.

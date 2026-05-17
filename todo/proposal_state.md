@@ -11,9 +11,7 @@ checked against this index before implementation starts.
 
 | Priority | Branch | Source doc | Current decision | Why now / why not |
 |---|---|---|---|---|
-| P0 | `build/bench-regression-budget` | `todo/parallel_priority_plan.md`, `todo/server_gaps.md` | Start next. | CI/perf harness exists, but benchmark deltas are not yet merge-blocking. This is the highest-leverage gap before more perf claims. |
-| P1 | `docs/src-diagnostic-print-policy` | `proposals/conflux_no_std_streams_proposal.updated.md` | Decide policy, then optionally small source cleanup. | Stream vocabulary removal is done; only cold reusable-source `std::print/std::println(stderr, ...)` policy remains. |
-| P1 | `db/pipeline-live-evidence` | `todo/db_remaining.md`, `benchmarks/notes/db_pipeline_live_evidence.md` | Run/record evidence, no API redesign. | DB pipeline path needs host-local PostgreSQL evidence before promotion. |
+| P1 | `db/pipeline-live-evidence` | `todo/db_remaining.md`, `benchmarks/notes/db_pipeline_live_evidence.md` | Wrapper/summary shape done; run host evidence next. | DB pipeline path still needs real PostgreSQL artifacts before promotion claims. |
 | P1 | `http/send-threshold-bench` | `proposals/t1_a_send_zc_proposal.md`, `todo/parallel_priority_plan.md` | Benchmark/tune only if data justifies defaults. | SEND_ZC mechanics and counters are present; threshold policy lacks realistic HTTP evidence. |
 | P2 | `http/server-impl-split` | `proposals/http_server_impl_split_proposal.md` | Worth implementing as private implementation-unit split. | Improves review/build ergonomics; avoid while recv/server lifetime work is red or unverified. |
 | P2 | `json/impl-unit-split` | `proposals/json_module_split_proposal.md` | Worth implementing as zero-behavior source split. | Large primary BMI; do after public alias/API churn settles, or on a branch with no API rename work. |
@@ -23,11 +21,12 @@ checked against this index before implementation starts.
 
 | Doc | Current state | Implementation guidance |
 |---|---|---|
+| `build/bench-regression-budget` | Implemented. | DB-backed per-benchmark budgets, `bench_budget_eval`, and `scripts/bench_check_budget.py` are the merge-gate shape; future work should tune budgets from host data, not rework the gate. |
 | `proposals/file_io_module_split_proposal.md` | Implemented as a source-shape split inside the existing `conflux_file_io` target. | Leaf modules are `conflux.file_io.buffers`, `.pipe_pool`, `.reader`, `.iopoll`, and `.driver`; keep `conflux.file_io` as umbrella until consumers have migrated. |
 | `proposals/modular_build_targets_proposal.md` | Superseded by `.updated.md` and implemented target graph. | Do not follow old monolith/problem text as open work. Use package/component docs and `CMakeLists.txt`. |
 | `proposals/modular_build_targets_proposal.updated.md` | Implemented graph plus remaining coupling notes. | Historical target-boundary rationale. New work should be specific component polish, not another broad graph rewrite. |
 | `proposals/conflux_no_std_streams_proposal.md` | Superseded by `.updated.md` for source state. | Keep as rationale only; stream-vocabulary removal is complete. |
-| `proposals/conflux_no_std_streams_proposal.updated.md` | Implemented except diagnostic-print policy. | Only remaining branch is `docs/src-diagnostic-print-policy`. |
+| `proposals/conflux_no_std_streams_proposal.updated.md` | Implemented, including diagnostic-print policy. | Direct reusable-source `std::print/std::println(stderr, ...)` is disallowed; the guard enforces source cleanliness while tests/examples/benchmarks keep human-facing `std::println`. |
 | `proposals/p1_02b_https_async_cancel_proposal.md` | Implemented. | Keep for cancellation design rationale/tests. |
 | `proposals/p1_08b_cancel_by_fd_proposal.md` | Implemented. | Keep for recv-close generation rationale/tests. |
 | `todo/p1_09a_tcp_accept_async_proposal.md` | Implemented. | Keep historical; async accept API is not open work. |
@@ -48,8 +47,9 @@ checked against this index before implementation starts.
    immediate branch fan-out.
 3. **Remaining module-split proposals are worthwhile but not blockers.**
    `http_server_impl` and `json` splits improve ergonomics/build locality, but
-   neither should preempt benchmark-budget, SEND_ZC threshold evidence, DB
-   pipeline evidence, or recv/server correctness verification. The `file_io`
+   neither should preempt SEND_ZC threshold evidence, DB host pipeline evidence,
+   benchmark-budget threshold tuning from real artifacts, or recv/server
+   correctness verification. The `file_io`
    source-shape split is already landed inside the existing component.
 4. **Perf changes still need evidence.** SEND_ZC thresholds, IOPOLL static-path
    adoption, worker queue lock replacement, and ring layout padding must remain
