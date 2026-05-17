@@ -98,6 +98,8 @@ void Ring::note_recv_payload(
 			m.cq_overflow = ring.cq.koverflow != nullptr ? *ring.cq.koverflow : 0;
 		}
 		m.accepted_direct_failures = accepted_direct_failures_;
+		m.zc_capable_rings = caps.send_zc ? 1 : 0;
+		m.zc_enabled_rings = send_zc_enabled_ ? 1 : 0;
 		m.recv_bundle_cqes = recv_bundle_cqes_;
 		m.recv_bundle_slices = recv_bundle_slices_;
 		m.recv_bundle_bytes = recv_bundle_bytes_;

@@ -42,10 +42,13 @@ paired `/off` and `/zc_auto` rows, then emits:
 
 - `variants[]` — per config/variant sample count, median/best `ns_per_iter`,
   optional median/best `requests_per_sec`, aggregate `zc_*` counters,
-  copied-notification rate, and submit-fallback rate.
+  `zc_capable_rings` / `zc_enabled_rings` when emitted by the benchmark,
+  copied-notification rate, submit-fallback rate, parsed `body_bytes`, and
+  `zero_copy_candidate` when the body size is at or above the tested threshold.
 - `pairs[]` — off-vs-`zc_auto` comparison for each response class, including
   median and best speedup. Concurrent rows additionally include RPS speedup,
-  connection count, duration, and errors.
+  connection count, duration, errors, parsed `body_bytes`, and
+  `zero_copy_candidate`.
 - `threshold_rollups[]` — per-threshold counts of usable pairs plus median/best
   speedups for rows whose counters are classified as `ok`.
 
@@ -53,7 +56,16 @@ Pair status is deliberately conservative:
 
 - `ok` — SEND_ZC was attempted, no submit fallback/errors, no TLS bypass, copied
   notifications did not dominate.
-- `no_zc_attempts` — response stayed below the tested threshold.
+- `below_threshold` — parsed response body size stayed below the tested threshold.
+- `zc_unsupported` — parsed body size crossed the threshold, but benchmark
+  telemetry reported zero SEND_ZC-capable rings.
+- `zc_disabled` — parsed body size crossed the threshold, capability was present,
+  but telemetry reported zero SEND_ZC-enabled rings.
+- `zc_inactive_candidate` — parsed body size crossed the threshold but no
+  SEND_ZC attempt was recorded; older raw rows without ring-capability fields use
+  this status when they cannot prove whether capability or activation was missing.
+- `no_zc_attempts` — retained only for rows whose response size could not be
+  parsed, so the summary cannot decide whether the row was below threshold.
 - `mostly_copied` — notification CQEs show the kernel mostly copied payloads.
 - `submit_fallback` / `zc_errors` — submission or CQE errors made the result
   unsuitable for a threshold-default change.
@@ -81,3 +93,14 @@ ONLY_BENCH=send_zc BENCH_PRESET=perf-clang-libcxx \
 ```
 
 The recorder preserves the same `zc_*` counters in `results.extra` for raw rows.
+
+## Host evidence note: 2026-05-17 upload
+
+Uploaded `send_zc_threshold.summary.json` contained 720 rows across
+`threshold_4k`, `threshold_16k`, `threshold_64k`, and their load variants. The
+summary reported zero `zc_attempts` for every `/zc_auto` pair. That includes 36
+non-TLS pairs where parsed body size was at or above the tested threshold, plus
+18 TLS above-threshold pairs. Treat this artifact as an environment/path
+diagnostic only: it does not justify lowering or raising `Config::send_zc_threshold`.
+Re-run after confirming the host exposes `IORING_OP_SEND_ZC` and the new
+`zc_capable_rings` / `zc_enabled_rings` fields are nonzero for candidate rows.

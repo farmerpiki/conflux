@@ -323,7 +323,7 @@ void print_variant(
 			"\"zc_copied_notifications\":{},\"zc_sends_without_notification\":{},"
 			"\"zc_errors_enomem\":{},\"zc_errors_other\":{},\"zc_fallback_regular_send\":{},"
 			"\"zc_tls_bypass\":{},\"zc_tls_bypass_bytes\":{},\"zc_adaptive_disable_count\":{},"
-			"\"zc_notifications_pending\":{}{}}}",
+			"\"zc_notifications_pending\":{},\"zc_capable_rings\":{},\"zc_enabled_rings\":{}{}}}",
 			s.config,
 			s.variant,
 			s.iterations,
@@ -347,6 +347,8 @@ void print_variant(
 			zc.tls_bypass_bytes,
 			zc.adaptive_disable_count,
 			s.metrics.zc_notifications_pending,
+			s.metrics.zc_capable_rings,
+			s.metrics.zc_enabled_rings,
 			extra);
 	} else if (s.connections != 0) {
 		std::println(

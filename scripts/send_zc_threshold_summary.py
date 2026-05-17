@@ -32,8 +32,10 @@ COUNTER_KEYS = (
 )
 
 TIMING_KEYS = ("iterations", "total_ns", "ns_per_iter")
+RING_KEYS = ("zc_capable_rings", "zc_enabled_rings")
 MODE_RE = re.compile(r"^(?P<stem>.+)/(?P<mode>off|zc_auto)$")
 THRESHOLD_RE = re.compile(r"^threshold_(?P<num>[0-9]+)(?P<unit>[kKmM]?)(?:_load)?$")
+BODY_RE = re.compile(r"^(?P<num>[0-9]+)(?P<unit>[bBkKmM]?)$")
 
 
 def fail(message: str) -> None:
@@ -43,6 +45,19 @@ def fail(message: str) -> None:
 
 def parse_threshold_config(config: str) -> int | None:
     match = THRESHOLD_RE.match(config)
+    if not match:
+        return None
+    value = int(match.group("num"))
+    unit = match.group("unit").lower()
+    if unit == "k":
+        return value * 1024
+    if unit == "m":
+        return value * 1024 * 1024
+    return value
+
+
+def parse_size_label(label: str) -> int | None:
+    match = BODY_RE.match(label)
     if not match:
         return None
     value = int(match.group("num"))
@@ -108,6 +123,9 @@ def read_rows(path: Path) -> list[dict[str, Any]]:
                 fail(f"line {line_no}: timing fields must be non-negative and iterations > 0")
             for key in COUNTER_KEYS:
                 as_non_negative_int(row, key, line_no)
+            for key in RING_KEYS:
+                if key in row:
+                    as_non_negative_int(row, key, line_no)
             if "requests_per_sec" in row:
                 as_number(row, "requests_per_sec", line_no)
                 as_non_negative_int(row, "errors", line_no)
@@ -140,7 +158,18 @@ def classify_pair(pair_key: str) -> dict[str, Any]:
     tls = bool(parts and parts[0] == "tls")
     body_label = parts[-1] if parts else pair_key
     family = "/".join(parts[:-1]) if len(parts) > 1 else pair_key
-    return {"family": family, "body": body_label, "load": load, "tls": tls}
+    info: dict[str, Any] = {"family": family, "body": body_label, "load": load, "tls": tls}
+    body_bytes = parse_size_label(body_label)
+    if body_bytes is not None:
+        info["body_bytes"] = body_bytes
+    return info
+
+
+def annotate_candidate(entry: dict[str, Any]) -> None:
+    body_bytes = entry.get("body_bytes")
+    threshold = entry.get("send_zc_threshold")
+    if isinstance(body_bytes, int) and isinstance(threshold, int):
+        entry["zero_copy_candidate"] = body_bytes >= threshold
 
 
 def summarize_bucket(rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -160,6 +189,9 @@ def summarize_bucket(rows: list[dict[str, Any]]) -> dict[str, Any]:
         out["duration_s"] = int(median([float(row["duration_s"]) for row in rows]))
     counters = {key: sum(int(row[key]) for row in rows) for key in COUNTER_KEYS}
     out["counters"] = counters
+    for key in RING_KEYS:
+        if all(key in row for row in rows):
+            out[key] = int(median([float(row[key]) for row in rows]))
     out["copied_notification_rate"] = ratio(
         float(counters["zc_copied_notifications"]), float(counters["zc_notifications"])
     )
@@ -169,11 +201,22 @@ def summarize_bucket(rows: list[dict[str, Any]]) -> dict[str, Any]:
     return out
 
 
-def pair_status(zc: dict[str, Any]) -> str:
+def pair_status(zc: dict[str, Any], pair_info: dict[str, Any]) -> str:
     counters = zc["counters"]
-    if counters["zc_tls_bypass"] > 0:
+    candidate = pair_info.get("zero_copy_candidate") is True
+    if counters["zc_tls_bypass"] > 0 or (pair_info.get("tls") is True and candidate):
         return "tls_bypass"
     if counters["zc_attempts"] == 0:
+        if candidate:
+            capable_rings = zc.get("zc_capable_rings")
+            enabled_rings = zc.get("zc_enabled_rings")
+            if capable_rings == 0:
+                return "zc_unsupported"
+            if enabled_rings == 0:
+                return "zc_disabled"
+            return "zc_inactive_candidate"
+        if candidate is False:
+            return "below_threshold"
         return "no_zc_attempts"
     if counters["zc_errors_enomem"] > 0 or counters["zc_errors_other"] > 0:
         return "zc_errors"
@@ -206,6 +249,7 @@ def summarize(rows: list[dict[str, Any]], raw_path: Path, expected_configs: set[
         }
         entry.update(classify_pair(pair_key))
         entry.update(summarize_bucket(bucket))
+        annotate_candidate(entry)
         variants.append(entry)
 
     by_config_pair: dict[tuple[str, str], dict[str, dict[str, Any]]] = defaultdict(dict)
@@ -220,18 +264,19 @@ def summarize(rows: list[dict[str, Any]], raw_path: Path, expected_configs: set[
             continue
         off = modes["off"]
         zc = modes["zc_auto"]
+        pair_info = {"send_zc_threshold": zc.get("send_zc_threshold"), **classify_pair(pair_key)}
+        annotate_candidate(pair_info)
         pair = {
             "config": config,
             "pair_key": pair_key,
-            "send_zc_threshold": zc.get("send_zc_threshold"),
-            **classify_pair(pair_key),
+            **pair_info,
             "off_median_ns_per_iter": off["median_ns_per_iter"],
             "zc_median_ns_per_iter": zc["median_ns_per_iter"],
             "ns_speedup": ratio(off["median_ns_per_iter"], zc["median_ns_per_iter"]),
             "off_best_ns_per_iter": off["best_ns_per_iter"],
             "zc_best_ns_per_iter": zc["best_ns_per_iter"],
             "best_ns_speedup": ratio(off["best_ns_per_iter"], zc["best_ns_per_iter"]),
-            "status": pair_status(zc),
+            "status": pair_status(zc, pair_info),
             "zc_counters": zc["counters"],
             "copied_notification_rate": zc["copied_notification_rate"],
             "fallback_rate_per_attempt": zc["fallback_rate_per_attempt"],

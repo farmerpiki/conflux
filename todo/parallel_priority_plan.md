@@ -180,7 +180,7 @@ Recommended next worker branch: none unless queue-contention measurements show a
 |---|---|---|---|---|
 | DONE | `http/handler-execution-docs` | Updated HTTP docs/examples wording to match ring-thread execution and naming policy while landing `docs/concurrency-naming-model`. | Docs/examples only. | No docs imply arbitrary sync handlers are offloaded automatically; async examples use owning request types. |
 | DONE | `http/sendzc-mapped-edge` | Mapped-file header+body SEND_ZC edge case is covered; header send is split from large-body SEND_ZC and the bench covers the adaptive threshold across plain/mapped bodies at the boundary sizes. | Landed on the HTTP send path; avoid reopening unless the send-path measurement changes again. | Mapped-file send path has explicit measured behavior and fallback rationale. |
-| P1 | `http/send-threshold-bench` | Tooling done; run SEND_ZC threshold evidence under realistic HTTP load before adapting defaults. | Depends on perf harness and host kernel/NIC behavior. | Threshold artifacts include raw repeated NDJSON, manifest, summary JSON, off-vs-ZC speedups, load RPS, and copied/fallback counters. |
+| P1 | `http/send-threshold-bench` | Tooling plus first host summary reviewed; no default change. Re-run after confirming SEND_ZC capability/activation. | Depends on perf harness and host kernel/NIC behavior. | Threshold artifacts include raw repeated NDJSON, manifest, summary JSON, off-vs-ZC speedups, load RPS, copied/fallback counters, and `zc_capable_rings` / `zc_enabled_rings`. |
 | DONE | `http/limits-defaults` | Hardened HTTP limits/defaults audit landed: INI/default config exposes body, request-line, header-line, header-count, aggregate-header, chunk-count, request-timeout, TLS-sniff-timeout, and HTTP/3 body caps; HTTP/1 parser now enforces incomplete request-line/header-line/count caps before the final header terminator. | Completed; avoid reopening unless defaults policy changes. | Config/parser docs and tests cover the limits. |
 | P2 | `http/ring-layout-c2c-verify` | Verify `Ring` hot/cold field grouping with `perf c2c`; pad only if measured. | Depends on perf harness; low conflict. | Either measured padding patch or no-change note. |
 | P2 | `http/examples-route-minimal` | Add/keep a minimal route/JSON response example that stays under the target ceremony budget. | Examples/docs; can run parallel after JSON boundary shape is stable. | Example compiles in CI. |
@@ -277,8 +277,11 @@ avoid recv/server lifetime churn elsewhere until it is green. Check
    - DB-only; no overlap with recv/server.
 
 2. `http/send-threshold-bench`
-   - Tooling exists; run SEND_ZC threshold evidence under realistic HTTP load.
-   - Keep code defaults unchanged unless the benchmark proves a default change.
+   - Tooling exists and first host summary was reviewed. It produced zero SEND_ZC
+     attempts for above-threshold non-TLS rows, so treat it as an
+     environment/path diagnostic.
+   - Re-run after confirming nonzero `zc_capable_rings` / `zc_enabled_rings`;
+     keep code defaults unchanged unless the benchmark proves a default change.
 
 3. DONE: `file/file-io-module-split`
    - Source-shape split inside the existing `conflux_file_io` target is already
@@ -321,7 +324,7 @@ avoid recv/server lifetime churn elsewhere until it is green. Check
 - Password hashing is production-grade and migration-aware.
 - JSON provider usage is isolated enough that replacing the backend is not a route
   rewrite.
-- Perf harness exists, records preset/cache/log/raw artifacts, rejects accidental non-perf inputs, benchmark regression budgets gate same-machine perf comparisons, and SEND_ZC threshold evidence tooling exists; thresholds still need periodic host-data tuning.
+- Perf harness exists, records preset/cache/log/raw artifacts, rejects accidental non-perf inputs, benchmark regression budgets gate same-machine perf comparisons, and SEND_ZC threshold evidence tooling exists; the first uploaded threshold summary had no SEND_ZC attempts on candidate rows, so thresholds still need a capability-positive host run before tuning.
 - Public docs state concurrency, handler execution, and naming semantics correctly.
 - Examples compile in CI.
 - Hardened defaults are documented and tested.

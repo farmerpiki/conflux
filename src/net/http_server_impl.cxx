@@ -62,6 +62,8 @@ void add_metrics(
 	dst.cq_overflow += src.cq_overflow;
 	dst.accepted_direct_failures += src.accepted_direct_failures;
 	dst.zc_notifications_pending += src.zc_notifications_pending;
+	dst.zc_capable_rings += src.zc_capable_rings;
+	dst.zc_enabled_rings += src.zc_enabled_rings;
 	dst.recv_bundle_cqes += src.recv_bundle_cqes;
 	dst.recv_bundle_slices += src.recv_bundle_slices;
 	dst.recv_bundle_bytes += src.recv_bundle_bytes;

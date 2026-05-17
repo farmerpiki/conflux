@@ -157,9 +157,10 @@ SEND_ZC_PRESET=perf-clang-libcxx SEND_ZC_REPS=5 \
 
 The wrapper writes configure/build logs, raw repeated NDJSON, a manifest, and a
 summary JSON with off-vs-`zc_auto` median/best speedups, concurrent-load RPS
-speedups, copied-notification rates, submit fallback rates, and per-threshold
-rollups. See `benchmarks/notes/send_zc_threshold_evidence.md` for the decision
-shape.
+speedups, copied-notification rates, submit fallback rates, per-threshold
+rollups, candidate-body classification, and SEND_ZC ring capability/enabled
+telemetry when emitted by the benchmark. See
+`benchmarks/notes/send_zc_threshold_evidence.md` for the decision shape.
 
 For worker queue contention profiling, configure the perf preset with
 `-DCONFLUX_WORK_QUEUE_STATS=ON` before recording `workpool_enqueue_dequeue`. The
@@ -298,12 +299,14 @@ Current groups:
 
 `conflux_send_zc_bench` emits per-variant SEND_ZC counter fields in its NDJSON
 (`zc_attempts`, `zc_plain_attempts`, `zc_mapped_attempts`, copied-notification
-counts, submit-fallback counts, and TLS-bypass counts). Its `--concurrent` mode
-adds duration-based keep-alive load rows with request rate and error counters.
-Raw recorder artifacts therefore preserve enough data to decide whether
-mapped-file bodies should keep using SEND_ZC, whether TLS paths should remain
-explicit regular-send bypasses, and whether the default threshold should stay at
-16 KiB or move to the 4 KiB/64 KiB alternatives.
+counts, submit-fallback counts, pending notifications, and TLS-bypass counts)
+plus `zc_capable_rings` and `zc_enabled_rings`. Its `--concurrent` mode adds
+duration-based keep-alive load rows with request rate and error counters. Raw
+recorder artifacts therefore preserve enough data to decide whether mapped-file
+bodies should keep using SEND_ZC, whether TLS paths should remain explicit
+regular-send bypasses, whether the host actually exposes/enables SEND_ZC, and
+whether the default threshold should stay at 16 KiB or move to the 4 KiB/64 KiB
+alternatives.
 
 Network or io_uring transport benchmarks should remain separate cases rather
 than being mixed into the in-process logic suite.

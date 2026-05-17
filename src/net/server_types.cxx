@@ -153,6 +153,8 @@ export struct HttpServerMetrics {
 	u64 cq_overflow{};
 	u64 accepted_direct_failures{};
 	u64 zc_notifications_pending{};
+	u64 zc_capable_rings{};
+	u64 zc_enabled_rings{};
 	u64 recv_bundle_cqes{};
 	u64 recv_bundle_slices{};
 	u64 recv_bundle_bytes{};
