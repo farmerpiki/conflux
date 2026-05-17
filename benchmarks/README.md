@@ -148,6 +148,19 @@ include `connections`, `duration_s`, `requests_per_sec`, and `errors`, so the
 default threshold can be judged under pressure before changing
 `Config::send_zc_threshold`.
 
+For a DB-independent threshold artifact, use:
+
+```sh
+SEND_ZC_PRESET=perf-clang-libcxx SEND_ZC_REPS=5 \
+  scripts/send_zc_threshold_evidence.sh
+```
+
+The wrapper writes configure/build logs, raw repeated NDJSON, a manifest, and a
+summary JSON with off-vs-`zc_auto` median/best speedups, concurrent-load RPS
+speedups, copied-notification rates, submit fallback rates, and per-threshold
+rollups. See `benchmarks/notes/send_zc_threshold_evidence.md` for the decision
+shape.
+
 For worker queue contention profiling, configure the perf preset with
 `-DCONFLUX_WORK_QUEUE_STATS=ON` before recording `workpool_enqueue_dequeue`. The
 benchmark still emits the standard `config`/`variant`/`iterations`/`total_ns`/

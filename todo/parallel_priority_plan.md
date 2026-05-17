@@ -180,13 +180,13 @@ Recommended next worker branch: none unless queue-contention measurements show a
 |---|---|---|---|---|
 | DONE | `http/handler-execution-docs` | Updated HTTP docs/examples wording to match ring-thread execution and naming policy while landing `docs/concurrency-naming-model`. | Docs/examples only. | No docs imply arbitrary sync handlers are offloaded automatically; async examples use owning request types. |
 | DONE | `http/sendzc-mapped-edge` | Mapped-file header+body SEND_ZC edge case is covered; header send is split from large-body SEND_ZC and the bench covers the adaptive threshold across plain/mapped bodies at the boundary sizes. | Landed on the HTTP send path; avoid reopening unless the send-path measurement changes again. | Mapped-file send path has explicit measured behavior and fallback rationale. |
-| P1 | `http/send-threshold-bench` | Validate/adapt SEND_ZC thresholds under realistic HTTP load. | Depends on perf harness. | Threshold defaults are backed by benchmark notes; counters remain exposed. |
+| P1 | `http/send-threshold-bench` | Tooling done; run SEND_ZC threshold evidence under realistic HTTP load before adapting defaults. | Depends on perf harness and host kernel/NIC behavior. | Threshold artifacts include raw repeated NDJSON, manifest, summary JSON, off-vs-ZC speedups, load RPS, and copied/fallback counters. |
 | DONE | `http/limits-defaults` | Hardened HTTP limits/defaults audit landed: INI/default config exposes body, request-line, header-line, header-count, aggregate-header, chunk-count, request-timeout, TLS-sniff-timeout, and HTTP/3 body caps; HTTP/1 parser now enforces incomplete request-line/header-line/count caps before the final header terminator. | Completed; avoid reopening unless defaults policy changes. | Config/parser docs and tests cover the limits. |
 | P2 | `http/ring-layout-c2c-verify` | Verify `Ring` hot/cold field grouping with `perf c2c`; pad only if measured. | Depends on perf harness; low conflict. | Either measured padding patch or no-change note. |
 | P2 | `http/examples-route-minimal` | Add/keep a minimal route/JSON response example that stays under the target ceremony budget. | Examples/docs; can run parallel after JSON boundary shape is stable. | Example compiles in CI. |
 | P3 | `http2/core-prototype` | HTTP/2 core exploration. | Start only after handler/runtime model stops moving. | Separate target or feature flag; no core churn. |
 
-Recommended next HTTP branch: `http/send-threshold-bench`.
+Recommended next HTTP branch: host-run `http/send-threshold-bench` evidence; code defaults stay unchanged until artifacts justify tuning.
 
 ### Low-level io_uring / socket / file I/O lane
 
@@ -277,8 +277,8 @@ avoid recv/server lifetime churn elsewhere until it is green. Check
    - DB-only; no overlap with recv/server.
 
 2. `http/send-threshold-bench`
-   - Validate and tune SEND_ZC thresholds under realistic HTTP load.
-   - Measurement/config only unless the benchmark proves a default change.
+   - Tooling exists; run SEND_ZC threshold evidence under realistic HTTP load.
+   - Keep code defaults unchanged unless the benchmark proves a default change.
 
 3. `file/file-io-module-split`
    - Source-shape split inside the existing `conflux_file_io` target.
@@ -320,7 +320,7 @@ avoid recv/server lifetime churn elsewhere until it is green. Check
 - Password hashing is production-grade and migration-aware.
 - JSON provider usage is isolated enough that replacing the backend is not a route
   rewrite.
-- Perf harness exists, records preset/cache/log/raw artifacts, rejects accidental non-perf inputs, and benchmark regression budgets gate same-machine perf comparisons; thresholds still need periodic host-data tuning.
+- Perf harness exists, records preset/cache/log/raw artifacts, rejects accidental non-perf inputs, benchmark regression budgets gate same-machine perf comparisons, and SEND_ZC threshold evidence tooling exists; thresholds still need periodic host-data tuning.
 - Public docs state concurrency, handler execution, and naming semantics correctly.
 - Examples compile in CI.
 - Hardened defaults are documented and tested.
