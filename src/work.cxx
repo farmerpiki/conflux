@@ -369,10 +369,15 @@ public:
 };
 
 } // namespace work_detail
+export enum class WorkPoolQueueMode : u8 {
+	work_stealing,
+	fast,
+};
 export struct WorkPoolOptions {
 	SZ threads = 0;
 	SZ max_inject_queue = 4096;
 	SZ local_queue_capacity = 1024;
+	WorkPoolQueueMode queue_mode = WorkPoolQueueMode::work_stealing;
 	u32 spin_before_park = 256;
 	int numa_node = -1;
 	bool pin_workers = false;
@@ -397,8 +402,13 @@ export enum class WorkError : u8 {
 export class WorkPool final : public work_detail::QueueTarget {
 	struct alignas(
 		64) Worker {
+		explicit Worker(
+			SZ local_capacity)
+			: fast_local{local_capacity} {}
+
 		mutex mtx;
-		deque<conflux::work::root::detail::small_move_only_function<void()>> local{};
+		deque<work_detail::Fn> local{};
+		work_detail::MpmcRing fast_local;
 		jthread thread{};
 	};
 	WorkPoolOptions options_{};
@@ -413,12 +423,44 @@ export class WorkPool final : public work_detail::QueueTarget {
 	atomic_flag accepting_stopped_{};
 	atomic_flag stopping_{};
 	mutex admission_mtx_{};
+	Atom<u64> fast_admission_{0};
 	work_detail::WorkPoolQueueCounters queue_counters_{};
+
+	static constexpr u64 kFastAdmissionClosed = u64{1} << 63;
+	static constexpr u64 kFastAdmissionCountMask = ~kFastAdmissionClosed;
 
 	inline static thread_local WorkPool *tls_pool_ = nullptr;
 	inline static thread_local SZ tls_worker_ = work_detail::kNoWorker;
 	[[nodiscard]] bool is_local_worker() const noexcept {
 		return tls_pool_ == this && tls_worker_ != work_detail::kNoWorker;
+	}
+	[[nodiscard]] bool fast_mode() const noexcept { return options_.queue_mode == WorkPoolQueueMode::fast; }
+	[[nodiscard]] bool begin_fast_admission() noexcept {
+		auto state = fast_admission_.load(memory_order_acquire);
+		for (;;) {
+			if ((state & kFastAdmissionClosed) != 0 || accepting_stopped_.test(memory_order_acquire)
+				|| stopping_.test(memory_order_acquire)) {
+				return false;
+			}
+			if (fast_admission_.compare_exchange_weak(
+					state,
+					state + 1,
+					memory_order_acq_rel,
+					memory_order_acquire)) {
+				if (accepting_stopped_.test(memory_order_acquire) || stopping_.test(memory_order_acquire)) {
+					end_fast_admission();
+					return false;
+				}
+				return true;
+			}
+		}
+	}
+	void end_fast_admission() noexcept { fast_admission_.fetch_sub(1, memory_order_release); }
+	void close_fast_admission() noexcept { fast_admission_.fetch_or(kFastAdmissionClosed, memory_order_acq_rel); }
+	void wait_fast_admission_idle() const noexcept {
+		while ((fast_admission_.load(memory_order_acquire) & kFastAdmissionCountMask) != 0) {
+			conflux::work::root::detail::cpu_pause();
+		}
 	}
 	void wake_one() noexcept {
 		queue_counters_.note_wake_one();
@@ -443,7 +485,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		work_detail::futex_wake_private(wake_epoch_, static_cast<int>(workers_.size()));
 	}
 	[[nodiscard]] bool push_local(
-		conflux::work::root::detail::small_move_only_function<void()> job) {
+		work_detail::Fn job) {
 		auto &worker = *workers_[tls_worker_];
 		auto lk = queue_counters_.lock_local(worker.mtx);
 		if (worker.local.size() >= options_.local_queue_capacity) {
@@ -452,6 +494,21 @@ export class WorkPool final : public work_detail::QueueTarget {
 		}
 		queue_counters_.note_local_push();
 		worker.local.push_back(move(job));
+		pending_.fetch_add(1, memory_order_release);
+		return true;
+	}
+	[[nodiscard]] bool push_fast_local(
+		work_detail::Fn job) noexcept {
+		if (options_.local_queue_capacity == 0) {
+			queue_counters_.note_local_push_full();
+			return false;
+		}
+		auto &worker = *workers_[tls_worker_];
+		if (!worker.fast_local.try_push(move(job))) {
+			queue_counters_.note_local_push_full();
+			return false;
+		}
+		queue_counters_.note_local_push();
 		pending_.fetch_add(1, memory_order_release);
 		return true;
 	}
@@ -465,7 +522,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		pending_.fetch_add(1, memory_order_release);
 		return true;
 	}
-	[[nodiscard]] Opt<conflux::work::root::detail::small_move_only_function<void()>> pop_local(
+	[[nodiscard]] Opt<work_detail::Fn> pop_local(
 		SZ index) {
 		queue_counters_.note_local_pop_attempt();
 		auto &worker = *workers_[index];
@@ -478,6 +535,15 @@ export class WorkPool final : public work_detail::QueueTarget {
 		worker.local.pop_back();
 		return job;
 	}
+	[[nodiscard]] Opt<work_detail::Fn> pop_fast_local(
+		SZ index) noexcept {
+		queue_counters_.note_local_pop_attempt();
+		auto job = workers_[index]->fast_local.try_pop();
+		if (job) {
+			queue_counters_.note_local_pop_hit();
+		}
+		return job;
+	}
 	[[nodiscard]] Opt<work_detail::Fn> pop_inject() noexcept {
 		queue_counters_.note_inject_pop_attempt();
 		auto job = inject_ring_.try_pop();
@@ -486,7 +552,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		}
 		return job;
 	}
-	[[nodiscard]] Opt<conflux::work::root::detail::small_move_only_function<void()>> steal_work(
+	[[nodiscard]] Opt<work_detail::Fn> steal_work(
 		SZ thief) {
 		queue_counters_.note_steal_round();
 		for (SZ offset = 1; offset < workers_.size(); ++offset) {
@@ -535,11 +601,11 @@ export class WorkPool final : public work_detail::QueueTarget {
 		maybe_set_name(options_.worker_name_prefix, index);
 		maybe_pin_worker(index);
 		while (!st.stop_requested() && !stopping_.test(memory_order_acquire)) {
-			auto job = pop_local(index);
+			auto job = fast_mode() ? pop_fast_local(index) : pop_local(index);
 			if (!job) {
 				job = pop_inject();
 			}
-			if (!job) {
+			if (!job && !fast_mode()) {
 				job = steal_work(index);
 			}
 			if (job) {
@@ -589,34 +655,8 @@ export class WorkPool final : public work_detail::QueueTarget {
 		tls_pool_ = nullptr;
 		tls_worker_ = work_detail::kNoWorker;
 	}
-
-public:
-	explicit WorkPool(
-		WorkPoolOptions options = {})
-		: options_{move(options)}
-		, inject_ring_{options_.max_inject_queue} {
-		if (options_.threads == 0) {
-			options_.threads = max(1U, thread::hardware_concurrency());
-		}
-		workers_.reserve(options_.threads);
-		for (SZ i = 0; i < options_.threads; ++i) {
-			workers_.push_back(make_unique<Worker>());
-		}
-		for (SZ i = 0; i < workers_.size(); ++i) {
-			workers_[i]->thread = jthread([this, i](std::stop_token const &st) { worker_loop(st, i); });
-		}
-	}
-	~WorkPool() override {
-		stop();
-		wait();
-	}
-	WorkPool(WorkPool const &) = delete;
-	WorkPool &operator =(WorkPool const &) = delete;
-	WorkPool(WorkPool &&) = delete;
-	WorkPool &operator =(WorkPool &&) = delete;
-	[[nodiscard]] bool enqueue(
-		conflux::work::root::detail::small_move_only_function<void()> job) override {
-		queue_counters_.note_enqueue_attempt();
+	[[nodiscard]] bool enqueue_work_stealing(
+		work_detail::Fn job) {
 		auto admission = queue_counters_.lock_admission(admission_mtx_);
 		if (accepting_stopped_.test(memory_order_acquire) || stopping_.test(memory_order_acquire)) {
 			queue_counters_.note_enqueue_stopped_rejection();
@@ -631,7 +671,81 @@ public:
 		wake_one();
 		return true;
 	}
+	[[nodiscard]] bool enqueue_fast(
+		work_detail::Fn job) noexcept {
+		if (!begin_fast_admission()) {
+			queue_counters_.note_enqueue_stopped_rejection();
+			return false;
+		}
+		bool const queued = is_local_worker() ? push_fast_local(move(job)) : push_inject(move(job));
+		end_fast_admission();
+		if (!queued) {
+			queue_counters_.note_enqueue_full_rejection();
+			return false;
+		}
+		wake_one();
+		return true;
+	}
+	void stop_fast() noexcept {
+		accepting_stopped_.test_and_set(memory_order_acq_rel);
+		close_fast_admission();
+		wait_fast_admission_idle();
+		if (!stopping_.test_and_set(memory_order_acq_rel)) {
+			for (auto &worker: workers_) {
+				worker->thread.request_stop();
+			}
+			wake_all();
+		}
+	}
+	void drain_and_stop_fast() noexcept {
+		accepting_stopped_.test_and_set(memory_order_acq_rel);
+		close_fast_admission();
+		wait_fast_admission_idle();
+		while (pending_.load(memory_order_acquire) > 0) {
+			wake_all();
+			std::this_thread::yield();
+		}
+		stop_fast();
+		wait();
+	}
+
+public:
+	explicit WorkPool(
+		WorkPoolOptions options = {})
+		: options_{move(options)}
+		, inject_ring_{options_.max_inject_queue} {
+		if (options_.threads == 0) {
+			options_.threads = max(1U, thread::hardware_concurrency());
+		}
+		workers_.reserve(options_.threads);
+		for (SZ i = 0; i < options_.threads; ++i) {
+			workers_.push_back(make_unique<Worker>(options_.local_queue_capacity));
+		}
+		for (SZ i = 0; i < workers_.size(); ++i) {
+			workers_[i]->thread = jthread([this, i](std::stop_token const &st) { worker_loop(st, i); });
+		}
+	}
+	~WorkPool() override {
+		stop();
+		wait();
+	}
+	WorkPool(WorkPool const &) = delete;
+	WorkPool &operator =(WorkPool const &) = delete;
+	WorkPool(WorkPool &&) = delete;
+	WorkPool &operator =(WorkPool &&) = delete;
+	[[nodiscard]] bool enqueue(
+		work_detail::Fn job) override {
+		queue_counters_.note_enqueue_attempt();
+		if (fast_mode()) {
+			return enqueue_fast(move(job));
+		}
+		return enqueue_work_stealing(move(job));
+	}
 	void stop() noexcept {
+		if (fast_mode()) {
+			stop_fast();
+			return;
+		}
 		auto admission = queue_counters_.lock_admission(admission_mtx_);
 		accepting_stopped_.test_and_set(memory_order_acq_rel);
 		if (!stopping_.test_and_set(memory_order_acq_rel)) {
@@ -642,6 +756,10 @@ public:
 		}
 	}
 	void drain_and_stop() noexcept {
+		if (fast_mode()) {
+			drain_and_stop_fast();
+			return;
+		}
 		{
 			auto admission = queue_counters_.lock_admission(admission_mtx_);
 			accepting_stopped_.test_and_set(memory_order_acq_rel);

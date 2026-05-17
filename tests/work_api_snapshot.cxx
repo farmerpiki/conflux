@@ -53,10 +53,13 @@ namespace snapshot_work_pool_api {
 
 using _WorkPool = ::WorkPool;
 using _WorkPoolOptions = ::WorkPoolOptions;
+using _WorkPoolQueueMode = ::WorkPoolQueueMode;
 using _WorkPoolQueueStats = ::WorkPoolQueueStats;
 using _RingLane = ::RingLane;
 using _RingLaneOptions = ::RingLaneOptions;
 
+static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().queue_mode), ::WorkPoolQueueMode>);
+static_assert(::WorkPoolQueueMode::work_stealing != ::WorkPoolQueueMode::fast);
 static_assert(same_as<decltype(std::declval<::WorkPool &>().queue_stats()), ::WorkPoolQueueStats>);
 static_assert(same_as<decltype(std::declval<::WorkPool &>().reset_queue_stats()), void>);
 static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().enqueue_attempts), u64>);

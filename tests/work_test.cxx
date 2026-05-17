@@ -146,6 +146,44 @@ TEST_CASE(
 	CHECK(pool.stopped());
 }
 TEST_CASE(
+	"work: WorkPool fast queue executes async work",
+	"[work]") {
+	WorkPool pool{WorkPoolOptions{.threads = 2, .queue_mode = WorkPoolQueueMode::fast}};
+	auto result = sync_wait(async_run_on(pool, [] { return 42; }));
+	CHECK(result == 42);
+}
+TEST_CASE(
+	"work: WorkPool fast queue drain_and_stop accounts for concurrent enqueue",
+	"[work][stress]") {
+	for (int round = 0; round < 100; ++round) {
+		WorkPool pool{
+			WorkPoolOptions{.threads = 2, .max_inject_queue = 4096, .queue_mode = WorkPoolQueueMode::fast}
+		};
+		Atom<bool> start{false};
+		Atom<int> accepted{0};
+		Atom<int> ran{0};
+		V<jthread> producers;
+		for (int i = 0; i < 16; ++i) {
+			producers.emplace_back([&] {
+				while (!start.load(memory_order_acquire)) {
+					conflux::work::root::detail::cpu_pause();
+				}
+				if (pool.enqueue([&] { ran.fetch_add(1, memory_order_release); })) {
+					accepted.fetch_add(1, memory_order_release);
+				}
+			});
+		}
+		start.store(true, memory_order_release);
+		pool.drain_and_stop();
+		for (auto &p: producers) {
+			if (p.joinable()) {
+				p.join();
+			}
+		}
+		CHECK(ran.load(memory_order_acquire) == accepted.load(memory_order_acquire));
+	}
+}
+TEST_CASE(
 	"work: WorkPool drain_and_stop accounts for concurrent enqueue",
 	"[work][stress]") {
 	for (int round = 0; round < 100; ++round) {

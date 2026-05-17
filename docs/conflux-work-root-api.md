@@ -18,7 +18,7 @@ import conflux.work.root;
 
 `conflux.work` re-exports `conflux.work.root` and adds the executor layer:
 
-- `WorkPool` — thread-pool executor with a lock-free MPMC inject queue
+- `WorkPool` — thread-pool executor with a lock-free MPMC inject queue, plus an opt-in non-stealing fast queue mode
 - `RingLane` — io_uring-coupled single-threaded executor
 - `async_run_on(pool, fn) -> Task<T>` — submit a callable to a pool
 - `run_on_task(pool, fn) -> Task<T>` — compatibility alias for `async_run_on`
@@ -469,10 +469,16 @@ commit thread; a throwing sink terminates the process.
 `WorkPoolOptions`:
 
 ```cpp
+enum class WorkPoolQueueMode {
+    work_stealing, // mutex-protected per-worker deque + victim stealing
+    fast,          // atomics-only local/inject rings, no stealing
+};
+
 struct WorkPoolOptions {
     size_t threads = 0;                // 0 => hardware_concurrency, at least 1
     size_t max_inject_queue = 4096;    // external producer queue bound
-    size_t local_queue_capacity = 1024;// per-worker local queue bound
+    size_t local_queue_capacity = 1024;// per-worker local queue/ring bound
+    WorkPoolQueueMode queue_mode = WorkPoolQueueMode::work_stealing;
     uint32_t spin_before_park = 256;
     int numa_node = -1;
     bool pin_workers = false;
@@ -484,6 +490,12 @@ struct WorkPoolOptions {
 `enqueue(job)` returns `false` if the pool is stopped or the relevant queue is
 full. Jobs submitted from a worker in the same pool first use that worker's
 bounded local queue; other producers use the bounded inject queue.
+
+Default `work_stealing` mode keeps the existing mutex-protected local deque and
+victim stealing behavior. `fast` mode uses bounded atomics-based rings for both
+local worker submissions and external injection, removes victim stealing, and
+uses an atomic admission gate instead of the admission mutex for stop/drain
+coordination.
 
 `stop()` is a hard stop: it rejects new work, requests worker shutdown, and may
 abandon queued jobs that have not started. This is also the destructor behavior.
