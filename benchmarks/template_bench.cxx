@@ -31,10 +31,19 @@ Stats measure(
 	return {samples[iters / 2], iters, total_ns};
 }
 bool g_csv = false;
+bool g_json = false;
 void report(
 	SV name,
 	Stats const &s) {
-	if (g_csv) {
+	if (g_json) {
+		auto const ns_per_iter = s.total_ns / static_cast<double>(s.iters);
+		std::println(
+			R"({{"config":"default","variant":"{}","iterations":{},"total_ns":{},"ns_per_iter":{:.2f}}})",
+			name,
+			s.iters,
+			static_cast<u64>(s.total_ns),
+			ns_per_iter);
+	} else if (g_csv) {
 		std::println("{},{},{},{:.2f}", name, s.iters, static_cast<u64>(s.total_ns), s.median_ns);
 	} else {
 		std::println("[tmpl-bench] {:<50} {:>10.1f} ns", name, s.median_ns);
@@ -138,8 +147,13 @@ int main(
 		if (a == "--csv") {
 			g_csv = true;
 		}
+		if (a == "--json") {
+			g_json = true;
+		}
 	}
-	if (g_csv) {
+	if (g_json) {
+		// NDJSON mode is consumed by scripts/bench_record.sh.
+	} else if (g_csv) {
 		std::println("variant,iterations,total_ns,ns_per_iter");
 	} else {
 		std::println("[tmpl-bench] Template engine benchmarks");
@@ -229,7 +243,7 @@ int main(
 		report("parse+render: macro define+call x3", s);
 	}
 
-	if (!g_csv) {
+	if (!g_csv && !g_json) {
 		std::println("[tmpl-bench] {}", S(60, '-'));
 	}
 
@@ -273,7 +287,7 @@ int main(
 		report("render_string: page fragment (2000 iters)", s);
 	}
 
-	if (!g_csv) {
+	if (!g_csv && !g_json) {
 		std::println("[tmpl-bench] {}", S(60, '-'));
 		std::println("[tmpl-bench] Done.");
 	}
