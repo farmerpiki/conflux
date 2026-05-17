@@ -490,7 +490,7 @@ auto infos = router.route_infos();
 // Use with conflux.net.openapi to generate an OpenAPI spec document
 ```
 
-`conflux.net.openapi` module consumes `route_infos()` and produces an OpenAPI 3.x JSON document. Import separately — not included in the `conflux.net.http` umbrella by default.
+`conflux.net.openapi` consumes `route_infos()` and produces an OpenAPI 3.x JSON document. Import the narrow module directly when linking `conflux::http_openapi`; the complete `conflux.net.http` umbrella also re-exports it.
 
 ---
 

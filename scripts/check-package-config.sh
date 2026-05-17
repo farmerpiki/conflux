@@ -15,6 +15,7 @@ fail() {
 [[ -f scripts/run-package-config-smoke.sh ]] || fail "missing package smoke runner"
 [[ -f scripts/run-install-tree-smoke.sh ]] || fail "missing install-tree smoke runner"
 [[ -f scripts/check-cmake-source-files.py ]] || fail "missing CMake source-file guard"
+[[ -f scripts/check-component-map.py ]] || fail "missing component-map guard"
 
 grep -Eq '^project\(conflux VERSION [0-9]+\.[0-9]+\.[0-9]+ LANGUAGES CXX\)' CMakeLists.txt \
     || fail "project() must declare the package version"
@@ -31,6 +32,8 @@ grep -q 'NAMESPACE conflux::' CMakeLists.txt \
     || fail "export namespace must stay conflux::"
 grep -q 'add_test(NAME build/cmake-source-files' CMakeLists.txt \
     || fail "missing CMake source-file CTest guard"
+grep -q 'add_test(NAME build/component-map' CMakeLists.txt \
+    || fail "missing component-map CTest guard"
 grep -q 'add_test(NAME build/package-config' CMakeLists.txt \
     || fail "missing package-config CTest guard"
 grep -q 'CONFLUX_PACKAGE_SMOKE_COMPONENTS' CMakeLists.txt \
