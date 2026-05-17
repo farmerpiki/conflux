@@ -211,10 +211,10 @@ Recommended next uring branch: defer `uring/recv-zc` until target kernel support
 | DONE | `json/bench-fixtures` | Added JSON perf/correctness fixtures for route payloads and malformed inputs, plus generated invalid-UTF-8 coverage. | Landed after app-boundary cleanup; parser internals unchanged. | Benchmarks/tests cover strict UTF-8, large numbers, missing/out-of-order keys, duplicate keys, and deep nesting. |
 | DONE | `json/parser-dom-design` | Added a documented `JsonDomPolicy` / `parse_dom(...)` prototype facade for view-first, caller-PMR, and arena-backed DOM paths. | Parser internals unchanged; future parser work must stay behind this surface. | Memory model, error model, UTF policy, number policy, object-index policy, and integration API are named and tested. |
 | DONE | `json/reflection-serde` | Added optional reflected native boundary provider, mapped boundary decode options onto native DOM/decode policy, and made reflected codecs honor unknown-member policy. | Reflection remains opt-in under `CONFLUX_JSON_REFLECT`; route/app helpers still bind through provider traits. | No macros; no HTTP/app hard provider dependency; reflected provider has tests under the P2996 lane. |
-| P2 | `json/impl-unit-split` | Split `src/json.cxx` into private implementation units while preserving `conflux::json` and `import conflux.json`. | Source-shape branch; avoid public API renames and JSON feature work in the same branch. | Parser/dump/builder edits stop churning one giant primary module; package/import shape unchanged; build evidence recorded. |
+| P2 | `json/impl-unit-split` | Continue splitting `src/json.cxx` into private implementation units while preserving `conflux::json` and `import conflux.json`. | Parser/arena extraction landed; avoid public API renames and JSON feature work in the same branch. | Parser edits now live in `json_parse.cxx`; continue with builder/dump/stream cold bodies and record build evidence on a capable modules toolchain. |
 | P3 | `json/schema-pointer-patch` | JSON Pointer/Patch/schema support. | After core boundary/parser shape. | Feature targets separate from core hot path. |
 
-Recommended next JSON branch: `json/impl-unit-split` if doing JSON ergonomics/build-locality work; otherwise defer JSON feature work until P0/P1 gates land.
+Recommended next JSON branch: continue `json/impl-unit-split` with builder/dump/stream extraction and compile-time evidence; otherwise defer JSON feature work until P0/P1 gates land.
 
 ### Auth / security lane
 
@@ -280,22 +280,23 @@ avoid recv/server lifetime churn elsewhere until it is green. Check
    - Tooling exists; run SEND_ZC threshold evidence under realistic HTTP load.
    - Keep code defaults unchanged unless the benchmark proves a default change.
 
-3. `file/file-io-module-split`
-   - Source-shape split inside the existing `conflux_file_io` target.
-   - Do not create new package components in the first branch.
+3. DONE: `file/file-io-module-split`
+   - Source-shape split inside the existing `conflux_file_io` target is already
+     landed; do not reopen it as a broad component split.
 
-4. `http/server-impl-split`
-   - Private implementation-unit split of `http_server_impl`.
-   - Start only when no recv/server lifetime branch is red.
+4. DONE: `http/server-impl-split`
+   - Private HTTP server implementation units are already present; do not reopen
+     this as broad split work.
 
 5. `json/impl-unit-split`
-   - Private implementation-unit split of `src/json.cxx`; keep one public JSON
-     target/import and record compile-time evidence.
+   - Parser/arena extraction landed; continue private implementation-unit cleanup
+     in `src/json.cxx`; keep one public JSON target/import and record compile-time evidence.
    - Do not combine with Pointer/Patch/schema feature work.
 
 6. `worker/queue-contention-measurement`
    - Produce contention evidence before changing local queues or admission locking.
    - Instrumentation/bench notes only unless counters prove a bottleneck.
+
 ## Deferred work
 
 - `worker/p2300-prototype`: worthwhile but too broad until V2 runtime migration is

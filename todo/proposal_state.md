@@ -13,8 +13,7 @@ checked against this index before implementation starts.
 |---|---|---|---|---|
 | P1 | `db/pipeline-live-evidence` | `todo/db_remaining.md`, `benchmarks/notes/db_pipeline_live_evidence.md` | Wrapper/summary shape done; run host evidence next. | DB pipeline path still needs real PostgreSQL artifacts before promotion claims. |
 | P1 | `http/send-threshold-bench` | `proposals/t1_a_send_zc_proposal.md`, `todo/parallel_priority_plan.md` | Tooling done; run host evidence before tuning defaults. | One-command threshold evidence wrapper and summary exist; threshold policy still needs realistic host artifacts before any default change. |
-| P2 | `http/server-impl-split` | `proposals/http_server_impl_split_proposal.md` | Worth implementing as private implementation-unit split. | Improves review/build ergonomics; avoid while recv/server lifetime work is red or unverified. |
-| P2 | `json/impl-unit-split` | `proposals/json_module_split_proposal.md` | Worth implementing as zero-behavior source split. | Large primary BMI; do after public alias/API churn settles, or on a branch with no API rename work. |
+| P2 | `json/impl-unit-split` | `proposals/json_module_split_proposal.md` | Parser/arena extraction landed; continue builder/dump/stream cold-body extraction. | Primary `src/json.cxx` now keeps parser declarations while parser state machines live in `src/json_parse.cxx`; remaining work is source-shape cleanup plus compile-time evidence on a capable modules toolchain. |
 | P2 | `worker/queue-contention-measurement` | `todo/parallel_priority_plan.md`, `todo/server_gaps.md` | Tooling done; run evidence before changing locks. | Queue/lock probes and a one-command evidence wrapper exist; Chase-Lev/admission rewrites remain unproven until host artifacts show contention. |
 
 ## Historical / implemented proposals
@@ -23,6 +22,7 @@ checked against this index before implementation starts.
 |---|---|---|
 | `build/bench-regression-budget` | Implemented. | DB-backed per-benchmark budgets, `bench_budget_eval`, and `scripts/bench_check_budget.py` are the merge-gate shape; future work should tune budgets from host data, not rework the gate. |
 | `proposals/file_io_module_split_proposal.md` | Implemented as a source-shape split inside the existing `conflux_file_io` target. | Leaf modules are `conflux.file_io.buffers`, `.pipe_pool`, `.reader`, `.iopoll`, and `.driver`; keep `conflux.file_io` as umbrella until consumers have migrated. |
+| `proposals/http_server_impl_split_proposal.md` | Implemented as private HTTP server module units. | `http_server_impl.cxx` is now facade glue over private state/recv/send/CQE/loop/dispatch/TLS/H2/WS units; treat further HTTP server work as targeted behavior/evidence, not another broad split. |
 | `proposals/modular_build_targets_proposal.md` | Superseded by `.updated.md` and implemented target graph. | Do not follow old monolith/problem text as open work. Use package/component docs and `CMakeLists.txt`. |
 | `proposals/modular_build_targets_proposal.updated.md` | Implemented graph plus remaining coupling notes. | Historical target-boundary rationale. New work should be specific component polish, not another broad graph rewrite. |
 | `proposals/conflux_no_std_streams_proposal.md` | Superseded by `.updated.md` for source state. | Keep as rationale only; stream-vocabulary removal is complete. |
@@ -45,12 +45,11 @@ checked against this index before implementation starts.
    stream-removal, P1-09, P1-09a, P2-G, and cancellation docs have useful design
    detail but stale problem statements. Fix: add state notes and keep them out of
    immediate branch fan-out.
-3. **Remaining module-split proposals are worthwhile but not blockers.**
-   `http_server_impl` and `json` splits improve ergonomics/build locality, but
-   neither should preempt SEND_ZC threshold evidence, DB host pipeline evidence,
-   benchmark-budget threshold tuning from real artifacts, or recv/server
-   correctness verification. The `file_io`
-   source-shape split is already landed inside the existing component.
+3. **Remaining module-split work is worthwhile but not blocker-class.**
+   `json/impl-unit-split` improves ergonomics/build locality, but it should not
+   preempt SEND_ZC threshold evidence, DB host pipeline evidence, benchmark-budget
+   threshold tuning from real artifacts, or recv/server correctness verification.
+   The `file_io` and `http_server_impl` source-shape splits are already landed.
 4. **Perf changes still need evidence.** SEND_ZC thresholds, IOPOLL static-path
    adoption, worker queue lock replacement, and ring layout padding must remain
    measurement branches first.

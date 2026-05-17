@@ -1,7 +1,7 @@
 # `conflux.json` implementation-unit split proposal
 
-Date: 2026-05-15  
-Status: **recommended, dedicated branch**  
+Date: 2026-05-15
+Status: **in progress; parser/arena implementation extracted**
 Scope: split `src/json.cxx` while preserving the public `conflux::json` target and `import conflux.json;` API.
 
 ## Decision
@@ -75,6 +75,10 @@ src/json_stream.cxx
 ```
 
 The split can use private module partitions where multiple implementation units need shared internal layout. If compiler/toolchain behavior is fragile, prefer normal module implementation units plus a single private `json_storage` partition over exporting extra public modules.
+
+## 2026-05-17 implementation note
+
+First implementation slice moved the tokenizer, tree builder, standalone parse overload bodies, and `JsonArena` parse/reset bodies into `src/json_parse.cxx`. The primary `src/json.cxx` now keeps the parser SIMD scanner plus exported parser declarations, preserving the single public `conflux.json` import while reducing parser edit churn in the primary module text. Continue with builder/dump/stream cold-body extraction before marking this proposal complete.
 
 ## Public API and package graph
 
