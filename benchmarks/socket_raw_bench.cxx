@@ -1494,6 +1494,9 @@ void run_buf_slice_from_incremental_cqe(
 	SV variant_name,
 	int n) {
 	RingGuard rg{64};
+	if (!rg.caps().feat_pbuf_ring_inc) {
+		return;
+	}
 	constexpr SZ kBufSz = 4096;
 	BufferRing bufs{
 		rg.get(),
