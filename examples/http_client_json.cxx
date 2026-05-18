@@ -45,7 +45,7 @@ struct JsonMembers<Item> {
 };
 
 static void print_bad_url() {
-	auto bad = http::try_post_client_request("ftp://example.test/items");
+	auto bad = http::try_post("ftp://example.test/items");
 	if (!bad) {
 		std::println("bad url rejected: {}", bad.error().message);
 	}
@@ -54,7 +54,7 @@ static void print_bad_url() {
 int main() {
 	print_bad_url();
 
-	auto builder = http::try_post_client_request("https://api.example.test/v1/items");
+	auto builder = http::try_post("https://api.example.test/v1/items");
 	if (!builder) {
 		std::println("url parse failed: {}", builder.error().message);
 		return 1;

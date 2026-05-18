@@ -115,16 +115,21 @@ TEST_CASE(
 TEST_CASE(
 	"http core: fallible request builders report URL errors without throwing",
 	"[http.core]") {
-	auto bad = chttp::try_get_client_request("example.com/path");
+	auto bad = chttp::try_get("example.com/path");
 	REQUIRE_FALSE(bad.has_value());
 	CHECK(bad.error().kind == chttp::UrlErrorKind::missing_scheme);
 
-	auto builder = chttp::try_post_client_request("https://example.com/submit");
+	auto builder = chttp::try_post("https://example.com/submit");
 	REQUIRE(builder.has_value());
 	auto req = move(*builder).body_view("payload").build();
 	CHECK(req.method() == "POST");
 	CHECK(req.url().host == "example.com");
 	CHECK(req.body() == "payload");
+
+	auto dynamic = chttp::try_request("PROPFIND", "https://example.com/root");
+	REQUIRE(dynamic.has_value());
+	CHECK(dynamic->method() == "PROPFIND");
+	CHECK(dynamic->url().path == "/root");
 
 	auto mutable_builder = chttp::ClientRequest::get("https://example.com/");
 	auto changed = mutable_builder.try_url("http://example.org/next");

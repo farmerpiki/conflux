@@ -429,7 +429,7 @@ ClientRequest::Builder ClientRequest::method(
 	std::string_view url) {
 	return Builder{m, url};
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_client_request_builder(
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_method(
 	std::string_view method,
 	std::string_view url) {
 	auto parsed = Url::parse(url);
@@ -438,38 +438,38 @@ ClientRequest::Builder ClientRequest::method(
 	}
 	return ClientRequest::Builder{method, move(*parsed)};
 }
-[[nodiscard]] expected<ClientRequest, UrlError> try_client_request(
+[[nodiscard]] expected<ClientRequest, UrlError> try_request(
 	std::string_view method,
 	std::string_view url) {
-	auto builder = try_client_request_builder(method, url);
+	auto builder = try_method(method, url);
 	if (!builder) {
 		return unexpected{move(builder.error())};
 	}
 	return move(*builder).build();
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_get_client_request(
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_get(
 	std::string_view url) {
-	return try_client_request_builder("GET", url);
+	return try_method("GET", url);
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_post_client_request(
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_post(
 	std::string_view url) {
-	return try_client_request_builder("POST", url);
+	return try_method("POST", url);
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_put_client_request(
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_put(
 	std::string_view url) {
-	return try_client_request_builder("PUT", url);
+	return try_method("PUT", url);
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_patch_client_request(
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_patch(
 	std::string_view url) {
-	return try_client_request_builder("PATCH", url);
+	return try_method("PATCH", url);
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_del_client_request(
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_del(
 	std::string_view url) {
-	return try_client_request_builder("DELETE", url);
+	return try_method("DELETE", url);
 }
-[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_head_client_request(
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_head(
 	std::string_view url) {
-	return try_client_request_builder("HEAD", url);
+	return try_method("HEAD", url);
 }
 
 } // namespace conflux::http

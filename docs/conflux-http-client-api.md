@@ -46,10 +46,10 @@ The `.build()` is optional — `Builder &&` converts implicitly to `ClientReques
 
 ### Fallible request setup
 
-Use the free `try_*_client_request` helpers when URLs come from config or user input and setup should not throw. They parse the URL once, return the same fluent builder on success, and expose `UrlError` directly on failure.
+Use the free `try_get` / `try_post` / `try_put` / `try_patch` / `try_del` / `try_head` helpers when URLs come from config or user input and setup should not throw. They parse the URL once, return the same fluent builder on success, and expose `UrlError` directly on failure.
 
 ```cpp
-auto req_builder = try_get_client_request(configured_url);
+auto req_builder = try_get(configured_url);
 if (!req_builder) {
     std::println(stderr, "bad URL: {}", req_builder.error().message);
     return 1;
@@ -58,7 +58,7 @@ if (!req_builder) {
 auto req = std::move(*req_builder).accept_json().build();
 ```
 
-For method strings computed at runtime, use `try_client_request_builder(method, url)` or `try_client_request(method, url)`. Existing `ClientRequest::get/post/...` factories keep the throwing behavior for literal URLs and compact examples.
+For method strings computed at runtime, use `try_method(method, url)` for the builder or `try_request(method, url)` for the final request value. Existing `ClientRequest::get/post/...` factories keep the throwing behavior for literal URLs and compact examples.
 
 ## Public types
 
@@ -195,6 +195,9 @@ public:
     static Builder del   (std::string_view url);
     static Builder head  (std::string_view url);
     static Builder method(std::string_view m, std::string_view url);
+
+    // Fallible free-function equivalents in namespace conflux::http:
+    // try_get/try_post/try_put/try_patch/try_del/try_head/try_method/try_request
 
     std::string_view method()    const noexcept;
     Url const &      url()       const noexcept;
