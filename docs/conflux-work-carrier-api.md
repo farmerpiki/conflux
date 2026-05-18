@@ -157,7 +157,7 @@ path (Phase 5c) that does not yet exist.
 
 **Consumers MUST NOT** depend on sibling-cancellation behaviour. This combinator
 is safe to use; it simply does not yet deliver the promised fast-fail
-optimization. The TODO at `carrier.cxx` marks this gap.
+optimization. The TODO in `src/work/carrier_model_a.cxx` marks this gap.
 
 ### `race`
 

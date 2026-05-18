@@ -33,7 +33,8 @@ bundle, or security-sensitive surface is added.
 ### Runtime / io_uring / worker
 
 - Runtime docs still state that `io_uring` is a hard requirement for runtime,
-  HTTP server, async file I/O, socket I/O, tests, and benchmarks.
+  HTTP server/client components, async file I/O, socket I/O, and tests or
+  benchmarks that exercise those surfaces.
 - New optional fast paths are capability-gated and have a fallback or clear
   startup diagnostic.
 - Blocking wait or raw syscall-style surfaces use `blocking_*`; executor-owned

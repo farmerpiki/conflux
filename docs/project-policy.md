@@ -67,13 +67,16 @@ set, and pass the matching tests for that lane.
 
 ## Supported kernel/runtime matrix
 
-Conflux is Linux-only and `io_uring`-first. The monolithic/current feature set
-requires:
+Conflux is Linux-only and `io_uring`-first. Runtime-facing feature sets require:
 
 - a Linux kernel with `io_uring` enabled and usable by the current user or
   container;
 - `liburing` headers and library discoverable through `pkg-config`;
 - no seccomp/container policy that blocks ring setup or required opcodes.
+
+Liburing-free component surfaces, including `core`, `json`, `file_io_sync`, and
+`file_map`, may build without runtime support when selected through the matching
+feature bundle or explicit component flags.
 
 Runtime support is capability-driven rather than kernel-version-string-driven.
 Startup probes and adaptive fallbacks decide which optional setup flags and

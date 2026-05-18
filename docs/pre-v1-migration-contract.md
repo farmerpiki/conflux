@@ -8,12 +8,16 @@ For task/executor placement and HTTP ring-thread handler rules, see [`execution-
 For code-review rules around handler placement and `blocking_`/`sync_`/`async_` naming, see
 [`concurrency-naming-model.md`](concurrency-naming-model.md).
 
-- `liburing` is required for runtime, HTTP, and socket targets. After the modular target split lands, `conflux::core`, `conflux::json`, `conflux::file_io_sync`, and `conflux::file_map` will not require liburing. Conflux remains Linux/io_uring-first.
+- `liburing` is required for runtime-facing components, including HTTP
+  server/client transport components, async file I/O, socket I/O, and tests or
+  benchmarks that exercise those surfaces. `conflux::core`, `conflux::json`,
+  `conflux::file_io_sync`, and `conflux::file_map` do not require liburing.
+  Conflux remains Linux/io_uring-first.
 - Breaking API changes are expected before v1 when they simplify the final
   public surface.
-- `conflux.work` legacy `Flow<T>` APIs are deprecated for new code and are
-  scheduled for removal after transitional users migrate.
-- `conflux.work.root` is the future async base for public-facing async flows.
+- `conflux.work` legacy `Flow<T>` APIs have been removed from the current source;
+  migration docs retain historical spellings only as before-state examples.
+- `conflux.work.root` is the async base for public-facing async flows.
 - All task progress is executor-owned. There is no supported task model that
   runs outside an executor; the current execution backends are the work/uring
   combination (`WorkPool` and ring-thread executors).

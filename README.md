@@ -10,14 +10,18 @@ compatibility clutter or fixes an incorrect contract.
 
 ## Requirements
 
-- Linux with `io_uring` enabled and available to the current user/container.
-- `liburing` development headers and library discoverable through `pkg-config`.
+- Linux. Runtime-facing components also need `io_uring` enabled and available
+  to the current user/container.
+- `pkg-config`; `liburing` development headers and library are required only
+  when building runtime-facing components.
 - CMake 4.2 or newer and Ninja.
 - A C++26-capable compiler matching one of the provided CMake presets.
 
-Optional protocol and storage features are enabled when their libraries are
-available, including OpenSSL, nghttp2, ngtcp2/nghttp3, libpq, and compression
-backends. These are feature-gated; `io_uring` and `liburing` are not.
+Optional protocol, storage, and runtime-facing features are enabled when their
+libraries are available or selected by the feature bundle, including `liburing`,
+OpenSSL, nghttp2, ngtcp2/nghttp3, libpq, and compression backends. The
+`core`, `json`, `file_io_sync`, and `file_map` component surfaces remain
+liburing-free.
 
 ## Build from source
 
@@ -89,8 +93,8 @@ release evidence checklist lives in [`docs/release-checklist.md`](docs/release-c
 
 ## Runtime Preflight
 
-Before running the server or the core test binaries on a new host, confirm that
-the environment permits `io_uring`:
+Before running the server or runtime-facing test binaries on a new host, confirm
+that the environment permits `io_uring`:
 
 ```sh
 ./build/debug-gcc-stdcxx/tests/conflux_work_tests
@@ -103,8 +107,8 @@ setup.
 
 ## Known limitations
 
-- Linux and `io_uring` are hard requirements.
-- `liburing` is required for runtime-facing components.
+- Linux is a hard requirement.
+- `io_uring` and `liburing` are required for runtime-facing components.
 - Containers or seccomp policy can block runtime setup.
 - Optional protocol/storage dependencies are feature-gated.
 - C++26 modules support is toolchain-sensitive.

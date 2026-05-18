@@ -99,7 +99,7 @@ scripts/run-package-config-smoke.sh \
 | Component | CMake target | Primary imports | Contract docs / examples |
 |---|---|---|---|
 | `http_parse_helpers` | `conflux::http_parse_helpers` | `conflux.net.http.parse_helpers` | `tests/http_server_helpers_test.cxx` |
-| `http_core` | `conflux::http_core` | `conflux.net.http.types`, `conflux.net.http.request` (`ClientRequest`), `conflux.net.http.server_types` (`http::Request`/`http::OwnedRequest`/`http::RequestView`) | `docs/http-server-api.md` |
+| `http_core` | `conflux::http_core` | `conflux.net.http.types`, `conflux.net.http.request` (`ClientRequest`), `conflux.net.http.server_types` (`http::Request`/`http::OwnedRequest`/`http::RequestView`) | `docs/conflux-http-client-api.md`, `docs/http-server-api.md` |
 | `http_response` | `conflux::http_response` | `conflux.net.http.response` | `tests/http_response_test.cxx` |
 | `http_json` | `conflux::http_json` | `conflux.net.http.json` | `docs/json-boundary-guide.md`, `tests/http_json_test.cxx` |
 | `http_response_json` | `conflux::http_response_json` | `conflux.net.http.response_json` | `docs/json-boundary-guide.md` |
@@ -113,15 +113,15 @@ scripts/run-package-config-smoke.sh \
 | `http_server_config` | `conflux::http_server_config` | `conflux.net.http_server_config` | `docs/http-server-api.md`, `tests/config_test.cxx` |
 | `http_server` | `conflux::http_server` | `conflux.net.http_server` | `docs/http-server-api.md`, `examples/hello.cxx` |
 | `http_app` | `conflux::http_app` | `conflux.net.app` | `docs/http-server-api.md` |
-| `http_client` | `conflux::http_client` | `conflux.net.http.client`, `conflux.net.client` | `docs/conflux-http-client-api.md`, `examples/http_client.cxx`, `examples/http_client_json.cxx` |
-| `http` | `conflux::http` | `conflux.net.http` umbrella plus first-contact `conflux.net.http.server` | `docs/http-server-api.md`, `docs/conflux-http-client-api.md` |
+| `http_client` | `conflux::http_client` | first-contact `conflux.net.http.client`, lower-level `conflux.net.client`, and HTTP/1 wire helpers in `conflux.net.client_wire` | `docs/conflux-http-client-api.md`, `examples/http_client.cxx`, `examples/http_client_json.cxx` |
+| `http` | `conflux::http` | `conflux.net.http` umbrella plus first-contact `conflux.net.http.server` and `conflux.net.http.client` | `docs/http-server-api.md`, `docs/conflux-http-client-api.md` |
 | `http_static_core` | `conflux::http_static_core` | `conflux.net.http.static_core` | `examples/static.cxx`, `tests/file_io_http_e2e.cxx` |
 | `http_static` | `conflux::http_static` | `conflux.net.http.static_files` | `examples/static.cxx` |
 | `http_static_async` | `conflux::http_static_async` | `conflux.net.http.static_async` | `examples/static.cxx` |
 | `http_realtime` | `conflux::http_realtime` | `conflux.net.http.realtime` | `examples/sse.cxx` |
-| `http_policy` | `conflux::http_policy` | `conflux.net.cors`, `conflux.net.rate_limit`, `conflux.net.security`, policy helpers | `docs/auth-rate-limit-hooks.md`, `docs/http-security-corpus.md` |
-| `http_auth` | `conflux::http_auth` | `conflux.net.auth`, `conflux.net.jwt`, `conflux.net.csrf`, `conflux.net.cookie_signing`, `conflux.net.password_hash` | `docs/auth-password-hashing.md`, `docs/auth-session-token-audit.md` |
-| `http_observability` | `conflux::http_observability` | `conflux.net.metrics`, `conflux.net.structured_log`, `conflux.net.tracing`, `conflux.net.request_id` | `examples/http_observability.cxx` |
+| `http_policy` | `conflux::http_policy` | `conflux.net.cache_control`, `conflux.net.cors`, `conflux.net.etag`, `conflux.net.forwarded`, `conflux.net.ip_filter`, `conflux.net.rate_limit`, `conflux.net.redirect`, `conflux.net.response_cache`, `conflux.net.security`, `conflux.net.trailing_slash` | `docs/auth-rate-limit-hooks.md`, `docs/http-security-corpus.md` |
+| `http_auth` | `conflux::http_auth` | `conflux.net.auth`, `conflux.net.csrf`, `conflux.net.cookie_signing`, `conflux.net.password_hash`; `conflux.net.jwt` when TLS is built | `docs/auth-password-hashing.md`, `docs/auth-session-token-audit.md` |
+| `http_observability` | `conflux::http_observability` | `conflux.net.structured_log`, `conflux.net.tracing`, `conflux.net.request_id`; `conflux.net.metrics` when metrics are enabled | `examples/http_observability.cxx` |
 | `http_compression` | `conflux::http_compression` | `conflux.net.compress` and enabled backend modules | `examples/gzip.cxx` |
 | `http_openapi` | `conflux::http_openapi` | `conflux.net.openapi` | `examples/vhost_openapi.cxx` |
 | `http_vhost` | `conflux::http_vhost` | `conflux.net.vhost` | `examples/vhost_openapi.cxx` |
@@ -141,4 +141,4 @@ link interfaces may need them. They are not intended as public starting points:
 |---|---|---|
 | `_options` | `conflux::_options` | propagated compile options/definitions |
 | `_direct_slot_pool` | `conflux::_direct_slot_pool` | HTTP/runtime direct-slot helper |
-| `_dns_bridge` | `conflux::_dns_bridge` | internal HTTP-client DNS bridge |
+| `_dns_bridge` | `conflux::_dns_bridge` | internal HTTP-client DNS bridge module `conflux.dns_bridge` |

@@ -1,6 +1,6 @@
 # Conflux HTTP Client — API & Contract
 
-`conflux::http::HttpClient` — blocking HTTP/1.1 user agent. TLS via OpenSSL (`https://`). One module, no extra deps.
+`conflux::http::HttpClient` — blocking HTTP/1.1 user agent. TLS via OpenSSL (`https://`) when the build has TLS support. Link the `conflux::http_client` component and import the first-contact `conflux.net.http.client` module; the component carries the lower-level client/wire modules plus runtime and DNS dependencies.
 
 Also available: `async_send` — coroutine-based async transport backed by `SocketTaskRing`. HTTP and HTTPS (via `TcpTlsStream`). Happy Eyeballs (RFC 8305) staggered connect.
 
@@ -348,11 +348,11 @@ Anything that depends on Phase 2:
 
 ## Threading
 
-`HttpClient` is cheap, copyable, and stateless (apart from `HttpClientOptions`). `blocking_send` is reentrant — call from any thread. There is no shared state between concurrent calls. `do_blocking_request` blocks the caller thread on `poll`/socket I/O.
+`HttpClient` is cheap, copyable, and stateless (apart from `HttpClientOptions`). `blocking_send` is reentrant — call from any thread. There is no shared state between concurrent calls. The blocking transport waits on the caller thread for `poll`/socket/TLS I/O.
 
 ## TLS contract
 
-- Built only when `CONFLUX_HAS_TLS` is set at compile time. Otherwise any `https://` request fails with `kind == tls`, `message == "TLS not available (built without TLS)"`.
+- HTTPS support is enabled only when `CONFLUX_HAS_TLS=1` for the client target. In builds without TLS support, the HTTP client still builds and plain `http://` requests work, but any `https://` request fails with `kind == tls`, `message == "TLS not available (built without TLS)"`.
 - `verify_peer == true` is the default. Verification uses either `opts.ca_bundle_path` or OpenSSL's default trust store.
 - SNI and hostname verification both target `request.server_name()` if set, else `url.host`. To talk to a server whose certificate names a host that differs from the IP you're dialing, set both `.url("https://10.0.0.5/...")` and `.server_name("api.internal")`.
 - `tls_cipher` / `tls_version` / `tls_verified` in telemetry reflect the established session.
