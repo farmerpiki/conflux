@@ -106,7 +106,7 @@ export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 		case SendZcPendingAction::complete_response: out.action = SendZcCqeAction::complete_response; break;
 		case SendZcPendingAction::resubmit_response: out.action = SendZcCqeAction::resubmit_response; break;
 		case SendZcPendingAction::close_after_error: out.action = SendZcCqeAction::close_after_error; break;
-		default: break;
+		default                                    : break;
 		}
 		return out;
 	}
@@ -128,9 +128,9 @@ export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 		}
 		out.bytes_sent = static_cast<std::size_t>(input.result);
 		metrics.bytes_sent += out.bytes_sent;
-		state.after_notification = input.written_before + out.bytes_sent >= input.response_total
-			? SendZcPendingAction::complete_response
-			: SendZcPendingAction::resubmit_response;
+		state.after_notification = input.written_before + out.bytes_sent >= input.response_total ?
+									   SendZcPendingAction::complete_response :
+									   SendZcPendingAction::resubmit_response;
 		return out;
 	}
 
@@ -142,9 +142,8 @@ export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 	}
 	out.bytes_sent = static_cast<std::size_t>(input.result);
 	metrics.bytes_sent += out.bytes_sent;
-	out.action = input.written_before + out.bytes_sent < input.response_total
-		? SendZcCqeAction::resubmit_response
-		: SendZcCqeAction::complete_response;
+	out.action = input.written_before + out.bytes_sent < input.response_total ? SendZcCqeAction::resubmit_response :
+																				SendZcCqeAction::complete_response;
 	return out;
 }
 
@@ -288,7 +287,11 @@ export struct UploadedFile {
 		if (owns_metadata && owns_data) {
 			return *this;
 		}
-		return UploadedFile::owned(std::string{name}, std::string{filename}, std::string{content_type}, std::string{data});
+		return UploadedFile::owned(
+			std::string{name},
+			std::string{filename},
+			std::string{content_type},
+			std::string{data});
 	}
 };
 
@@ -318,10 +321,10 @@ export struct HttpFieldError {
 export [[nodiscard]] std::string_view http_field_source_name(
 	HttpFieldSource source) noexcept {
 	switch (source) {
-	case HttpFieldSource::params: return "params";
+	case HttpFieldSource::params : return "params";
 	case HttpFieldSource::headers: return "headers";
-	case HttpFieldSource::query: return "query";
-	case HttpFieldSource::form: return "form";
+	case HttpFieldSource::query  : return "query";
+	case HttpFieldSource::form   : return "form";
 	case HttpFieldSource::cookies: return "cookies";
 	}
 	return "field";
@@ -336,9 +339,7 @@ export [[nodiscard]] std::string_view http_field_source_name(
 	auto fold = [](unsigned char c) noexcept {
 		return c >= 'A' && c <= 'Z' ? static_cast<unsigned char>(c + ('a' - 'A')) : c;
 	};
-	return ranges::equal(a, b, [fold](unsigned char x, unsigned char y) {
-		return fold(x) == fold(y);
-	});
+	return ranges::equal(a, b, [fold](unsigned char x, unsigned char y) { return fold(x) == fold(y); });
 }
 
 [[nodiscard]] inline HttpFieldError http_field_error(
@@ -373,11 +374,15 @@ export template<typename T>
 		if (value.empty()) {
 			return unexpected{http_field_error(HttpFieldErrorKind::empty, source, name, value, "is empty")};
 		}
-		if (http_field_token_eq_ci(value, "true") || value == "1" || http_field_token_eq_ci(value, "yes")
+		if (http_field_token_eq_ci(value, "true")
+			|| value == "1"
+			|| http_field_token_eq_ci(value, "yes")
 			|| http_field_token_eq_ci(value, "on")) {
 			return true;
 		}
-		if (http_field_token_eq_ci(value, "false") || value == "0" || http_field_token_eq_ci(value, "no")
+		if (http_field_token_eq_ci(value, "false")
+			|| value == "0"
+			|| http_field_token_eq_ci(value, "no")
 			|| http_field_token_eq_ci(value, "off")) {
 			return false;
 		}
@@ -391,7 +396,8 @@ export template<typename T>
 		auto const *last = value.data() + value.size();
 		auto const [ptr, ec] = from_chars(first, last, parsed);
 		if (ec == errc::result_out_of_range) {
-			return unexpected{http_field_error(HttpFieldErrorKind::out_of_range, source, name, value, "is out of range")};
+			return unexpected{
+				http_field_error(HttpFieldErrorKind::out_of_range, source, name, value, "is out of range")};
 		}
 		if (ec != errc{} || ptr != last) {
 			return unexpected{http_field_error(HttpFieldErrorKind::invalid, source, name, value, "is not an integer")};
@@ -406,10 +412,12 @@ export template<typename T>
 		auto const *last = value.data() + value.size();
 		auto const [ptr, ec] = from_chars(first, last, parsed, std::chars_format::general);
 		if (ec == errc::result_out_of_range) {
-			return unexpected{http_field_error(HttpFieldErrorKind::out_of_range, source, name, value, "is out of range")};
+			return unexpected{
+				http_field_error(HttpFieldErrorKind::out_of_range, source, name, value, "is out of range")};
 		}
 		if (ec != errc{} || ptr != last || !isfinite(parsed)) {
-			return unexpected{http_field_error(HttpFieldErrorKind::invalid, source, name, value, "is not a finite number")};
+			return unexpected{
+				http_field_error(HttpFieldErrorKind::invalid, source, name, value, "is not a finite number")};
 		}
 		return parsed;
 	} else {
@@ -477,7 +485,70 @@ export template<typename T>
 	return http_field_optional_as_impl<HttpFieldsView, T>(fields, source, name);
 }
 
-export struct HttpRequest {
+struct HttpRequestFieldAccessors {
+	template<typename T, typename Self>
+	[[nodiscard]] expected<T, HttpFieldError> param_as(
+		this Self const &self,
+		std::string_view name) {
+		return http_field_as<T>(self.params, HttpFieldSource::params, name);
+	}
+	template<typename T, typename Self>
+	[[nodiscard]] expected<T, HttpFieldError> header_as(
+		this Self const &self,
+		std::string_view name) {
+		return http_field_as<T>(self.headers, HttpFieldSource::headers, name);
+	}
+	template<typename T, typename Self>
+	[[nodiscard]] expected<T, HttpFieldError> query_as(
+		this Self const &self,
+		std::string_view name) {
+		return http_field_as<T>(self.query, HttpFieldSource::query, name);
+	}
+	template<typename T, typename Self>
+	[[nodiscard]] expected<T, HttpFieldError> form_as(
+		this Self const &self,
+		std::string_view name) {
+		return http_field_as<T>(self.form, HttpFieldSource::form, name);
+	}
+	template<typename T, typename Self>
+	[[nodiscard]] expected<T, HttpFieldError> cookie_as(
+		this Self const &self,
+		std::string_view name) {
+		return http_field_as<T>(self.cookies, HttpFieldSource::cookies, name);
+	}
+	template<typename T, typename Self>
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_param_as(
+		this Self const &self,
+		std::string_view name) {
+		return http_field_optional_as<T>(self.params, HttpFieldSource::params, name);
+	}
+	template<typename T, typename Self>
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_header_as(
+		this Self const &self,
+		std::string_view name) {
+		return http_field_optional_as<T>(self.headers, HttpFieldSource::headers, name);
+	}
+	template<typename T, typename Self>
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_query_as(
+		this Self const &self,
+		std::string_view name) {
+		return http_field_optional_as<T>(self.query, HttpFieldSource::query, name);
+	}
+	template<typename T, typename Self>
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_form_as(
+		this Self const &self,
+		std::string_view name) {
+		return http_field_optional_as<T>(self.form, HttpFieldSource::form, name);
+	}
+	template<typename T, typename Self>
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_cookie_as(
+		this Self const &self,
+		std::string_view name) {
+		return http_field_optional_as<T>(self.cookies, HttpFieldSource::cookies, name);
+	}
+};
+
+export struct HttpRequest : HttpRequestFieldAccessors {
 	std::string method;
 	std::string path; // path only, no query std::string
 	std::string version;
@@ -490,59 +561,9 @@ export struct HttpRequest {
 	HttpFields cookies; // parsed from Cookie: header
 	std::vector<UploadedFile> files; // parsed from multipart/form-data body
 	std::string body;
-	template<typename T>
-	[[nodiscard]] expected<T, HttpFieldError> param_as(
-		std::string_view name) const {
-		return http_field_as<T>(params, HttpFieldSource::params, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<T, HttpFieldError> header_as(
-		std::string_view name) const {
-		return http_field_as<T>(headers, HttpFieldSource::headers, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<T, HttpFieldError> query_as(
-		std::string_view name) const {
-		return http_field_as<T>(query, HttpFieldSource::query, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<T, HttpFieldError> form_as(
-		std::string_view name) const {
-		return http_field_as<T>(form, HttpFieldSource::form, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<T, HttpFieldError> cookie_as(
-		std::string_view name) const {
-		return http_field_as<T>(cookies, HttpFieldSource::cookies, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_param_as(
-		std::string_view name) const {
-		return http_field_optional_as<T>(params, HttpFieldSource::params, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_header_as(
-		std::string_view name) const {
-		return http_field_optional_as<T>(headers, HttpFieldSource::headers, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_query_as(
-		std::string_view name) const {
-		return http_field_optional_as<T>(query, HttpFieldSource::query, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_form_as(
-		std::string_view name) const {
-		return http_field_optional_as<T>(form, HttpFieldSource::form, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_cookie_as(
-		std::string_view name) const {
-		return http_field_optional_as<T>(cookies, HttpFieldSource::cookies, name);
-	}
 	[[nodiscard]] HttpRequest to_owned() const { return *this; }
 };
-export struct HttpRequestView {
+export struct HttpRequestView : HttpRequestFieldAccessors {
 	std::string_view method;
 	std::string_view path;
 	std::string_view version;
@@ -555,56 +576,6 @@ export struct HttpRequestView {
 	HttpFieldsView cookies;
 	span<UploadedFile const> files;
 	std::string_view body;
-	template<typename T>
-	[[nodiscard]] expected<T, HttpFieldError> param_as(
-		std::string_view name) const {
-		return http_field_as<T>(params, HttpFieldSource::params, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<T, HttpFieldError> header_as(
-		std::string_view name) const {
-		return http_field_as<T>(headers, HttpFieldSource::headers, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<T, HttpFieldError> query_as(
-		std::string_view name) const {
-		return http_field_as<T>(query, HttpFieldSource::query, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<T, HttpFieldError> form_as(
-		std::string_view name) const {
-		return http_field_as<T>(form, HttpFieldSource::form, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<T, HttpFieldError> cookie_as(
-		std::string_view name) const {
-		return http_field_as<T>(cookies, HttpFieldSource::cookies, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_param_as(
-		std::string_view name) const {
-		return http_field_optional_as<T>(params, HttpFieldSource::params, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_header_as(
-		std::string_view name) const {
-		return http_field_optional_as<T>(headers, HttpFieldSource::headers, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_query_as(
-		std::string_view name) const {
-		return http_field_optional_as<T>(query, HttpFieldSource::query, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_form_as(
-		std::string_view name) const {
-		return http_field_optional_as<T>(form, HttpFieldSource::form, name);
-	}
-	template<typename T>
-	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_cookie_as(
-		std::string_view name) const {
-		return http_field_optional_as<T>(cookies, HttpFieldSource::cookies, name);
-	}
 	HttpRequestView(
 		std::string_view method_,
 		std::string_view path_,

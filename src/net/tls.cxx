@@ -129,6 +129,31 @@ inline int sni_callback(
 	}
 	return SSL_TLSEXT_ERR_OK;
 }
+struct ClientNameAccessors {
+	template<typename Self>
+	bool set_server_name(
+		this Self &self,
+		std::string_view sni) {
+		if (sni.empty()) {
+			return true;
+		}
+		std::string const s{sni};
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+		return SSL_set_tlsext_host_name(self.native_handle(), s.c_str()) == 1;
+#pragma GCC diagnostic pop
+	}
+	template<typename Self>
+	bool set_verify_hostname(
+		this Self &self,
+		std::string_view host) {
+		if (host.empty()) {
+			return true;
+		}
+		std::string const s{host};
+		return SSL_set1_host(self.native_handle(), s.c_str()) == 1;
+	}
+};
 
 } // namespace tls_detail
 // Owns a primary server SSL_CTX plus optional per-SNI vhost contexts.
@@ -186,7 +211,7 @@ public:
 	}
 	[[nodiscard]] SSL_CTX *native_handle() const noexcept { return ctx_.get(); }
 };
-export class TlsStream {
+export class TlsStream : public tls_detail::ClientNameAccessors {
 	UniqueSsl ssl_;
 	int fd_{-1};
 
@@ -216,25 +241,6 @@ public:
 			fd_ = exchange(other.fd_, -1);
 		}
 		return *this;
-	}
-	bool set_server_name(
-		std::string_view sni) {
-		if (sni.empty()) {
-			return true;
-		}
-		std::string const s{sni};
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wold-style-cast"
-		return SSL_set_tlsext_host_name(ssl_.get(), s.c_str()) == 1;
-#pragma GCC diagnostic pop
-	}
-	bool set_verify_hostname(
-		std::string_view host) {
-		if (host.empty()) {
-			return true;
-		}
-		std::string const s{host};
-		return SSL_set1_host(ssl_.get(), s.c_str()) == 1;
 	}
 	// Blocking client handshake. `timeout_sec <= 0` disables timeout.
 	bool handshake_connect(
@@ -318,7 +324,7 @@ public:
 };
 // Async client TLS over a FileReader-driven socket. SSL is attached to memory
 // BIOs; ciphertext is shuttled to/from the socket via io_uring.
-export class TlsAsyncStream {
+export class TlsAsyncStream : public tls_detail::ClientNameAccessors {
 	UniqueSsl ssl_;
 	BIO *rbio_{nullptr}; // owned by ssl_ after SSL_set_bio
 	BIO *wbio_{nullptr}; // owned by ssl_ after SSL_set_bio
@@ -367,25 +373,6 @@ public:
 			scratch_ = other.scratch_;
 		}
 		return *this;
-	}
-	bool set_server_name(
-		std::string_view sni) {
-		if (sni.empty()) {
-			return true;
-		}
-		std::string const s{sni};
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wold-style-cast"
-		return SSL_set_tlsext_host_name(ssl_.get(), s.c_str()) == 1;
-#pragma GCC diagnostic pop
-	}
-	bool set_verify_hostname(
-		std::string_view host) {
-		if (host.empty()) {
-			return true;
-		}
-		std::string const s{host};
-		return SSL_set1_host(ssl_.get(), s.c_str()) == 1;
 	}
 	conflux::work::root::Task<void> handshake_connect() {
 		SSL_set_connect_state(ssl_.get());
@@ -490,7 +477,7 @@ enum class CancelMode : std::uint8_t {
 	throw_cancelled,
 	return_early,
 };
-export class TcpTlsStream {
+export class TcpTlsStream : public tls_detail::ClientNameAccessors {
 	UniqueSsl ssl_;
 	BIO *rbio_{nullptr};
 	BIO *wbio_{nullptr};
@@ -637,25 +624,6 @@ public:
 			scratch_ = other.scratch_;
 		}
 		return *this;
-	}
-	bool set_server_name(
-		std::string_view sni) {
-		if (sni.empty()) {
-			return true;
-		}
-		std::string const s{sni};
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wold-style-cast"
-		return SSL_set_tlsext_host_name(ssl_.get(), s.c_str()) == 1;
-#pragma GCC diagnostic pop
-	}
-	bool set_verify_hostname(
-		std::string_view host) {
-		if (host.empty()) {
-			return true;
-		}
-		std::string const s{host};
-		return SSL_set1_host(ssl_.get(), s.c_str()) == 1;
 	}
 	[[nodiscard]] wroot::Task<void> handshake_connect(
 		TP deadline) {

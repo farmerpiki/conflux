@@ -114,12 +114,32 @@ export class FileReader {
 	io_uring *ring_;
 	CompletionTable *completions_;
 	UserDataFn encode_ud_;
+	[[nodiscard]] static int fd_for_io(
+		FileHandle const &fh) noexcept {
+		return fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+	}
+	static void set_fixed_file_if_direct(
+		io_uring_sqe *sqe,
+		FileHandle const &fh) noexcept {
+		if (fh.is_direct()) {
+			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
+		}
+	}
 	template<typename T>
-	root::Task<T> fail_sq_full() const {
+	struct PreparedSqe {
+		root::Task<T> task;
+		std::shared_ptr<root::TaskSource<T>> src;
+		io_uring_sqe *sqe{};
+	};
+	template<typename T>
+	[[nodiscard]] PreparedSqe<T> prepare_sqe() const {
 		auto [task, raw_src] = root::make_task_source<T>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = make_shared<root::TaskSource<T>>(move(raw_src));
-		auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
-		return move(task);
+		auto *sqe = io_uring_get_sqe(ring_);
+		if (sqe == nullptr) {
+			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
+		}
+		return PreparedSqe<T>{.task = move(task), .src = move(shared_src), .sqe = sqe};
 	}
 	// Reserve a completion slot with a callback that bridges an IoResult into
 	// a root::TaskSource<T>. `decode` turns a non-negative res into a T; negative
@@ -259,11 +279,8 @@ public:
 		std::string path,
 		int flags,
 		mode_t mode = 0) {
-		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto path_owner = make_shared<std::string>(move(path));
@@ -289,11 +306,8 @@ public:
 		int flags,
 		mode_t mode,
 		unsigned file_index) {
-		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto path_owner = make_shared<std::string>(move(path));
@@ -326,11 +340,8 @@ public:
 		int flags = 0,
 		unsigned mask = STATX_BASIC_STATS,
 		bool fixed_file = false) {
-		auto [task, raw_src] = root::make_task_source<FileStat>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<FileStat>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<FileStat>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto path_owner = make_shared<std::string>(move(path));
@@ -374,23 +385,14 @@ public:
 		FileHandle const &fh,
 		std::uint64_t offset,
 		std::span<std::byte> dst) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		io_uring_prep_read(
-			sqe,
-			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
-			dst.data(),
-			static_cast<unsigned>(dst.size()),
-			offset);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		io_uring_prep_read(sqe, fd_for_io(fh), dst.data(), static_cast<unsigned>(dst.size()), offset);
+		set_fixed_file_if_direct(sqe, fh);
+		auto [slot, gen] =
+			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -401,23 +403,13 @@ public:
 		FileHandle const &fh,
 		std::uint64_t offset,
 		std::vector<iovec> iovecs) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto iov_owner = make_shared<std::vector<iovec>>(move(iovecs));
-		io_uring_prep_readv(
-			sqe,
-			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
-			iov_owner->data(),
-			static_cast<unsigned>(iov_owner->size()),
-			offset);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		io_uring_prep_readv(sqe, fd_for_io(fh), iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner; // keep-alive until CQE
 			return static_cast<std::size_t>(r.res);
@@ -438,12 +430,8 @@ public:
 		std::uint64_t offset,
 		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
-		auto [task, raw_src] =
-			root::make_task_source<ReadFixedResult>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<ReadFixedResult>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<ReadFixedResult>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		unsigned const slot_idx = buf.slot();
@@ -451,14 +439,12 @@ public:
 		std::size_t const bytes = min(holder->view().size(), max_bytes);
 		io_uring_prep_read_fixed(
 			sqe,
-			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
+			fd_for_io(fh),
 			holder->view().data(),
 			static_cast<unsigned>(bytes),
 			offset,
 			static_cast<int>(slot_idx));
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -494,26 +480,20 @@ public:
 			aligned_bytes = ((actual_cap + block_size - 1) / block_size) * block_size;
 			aligned_bytes = min(aligned_bytes, buf.size());
 		}
-		auto [task, raw_src] =
-			root::make_task_source<ReadFixedResult>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<ReadFixedResult>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<ReadFixedResult>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		unsigned const slot_idx = buf.slot();
 		auto holder = make_shared<FixedBuffer>(move(buf));
 		io_uring_prep_read_fixed(
 			sqe,
-			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
+			fd_for_io(fh),
 			holder->view().data(),
 			static_cast<unsigned>(aligned_bytes),
 			offset,
 			static_cast<int>(slot_idx));
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = completions_->reserve([shared_src, holder, actual_cap](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -542,12 +522,8 @@ public:
 		std::uint64_t offset,
 		FixedBuffer buf,
 		std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) {
-		auto [task, raw_src] =
-			root::make_task_source<WriteFixedResult>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<WriteFixedResult>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<WriteFixedResult>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		unsigned const slot_idx = buf.slot();
@@ -555,14 +531,12 @@ public:
 		std::size_t const bytes = min(holder->view().size(), max_bytes);
 		io_uring_prep_write_fixed(
 			sqe,
-			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
+			fd_for_io(fh),
 			holder->view().data(),
 			static_cast<unsigned>(bytes),
 			offset,
 			static_cast<int>(slot_idx));
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
@@ -582,23 +556,14 @@ public:
 		FileHandle const &fh,
 		std::uint64_t offset,
 		std::span<std::byte const> src_view) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		io_uring_prep_write(
-			sqe,
-			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
-			src_view.data(),
-			static_cast<unsigned>(src_view.size()),
-			offset);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		io_uring_prep_write(sqe, fd_for_io(fh), src_view.data(), static_cast<unsigned>(src_view.size()), offset);
+		set_fixed_file_if_direct(sqe, fh);
+		auto [slot, gen] =
+			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -609,23 +574,13 @@ public:
 		FileHandle const &fh,
 		std::uint64_t offset,
 		std::vector<iovec> iovecs) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto iov_owner = make_shared<std::vector<iovec>>(move(iovecs));
-		io_uring_prep_writev(
-			sqe,
-			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
-			iov_owner->data(),
-			static_cast<unsigned>(iov_owner->size()),
-			offset);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		io_uring_prep_writev(sqe, fd_for_io(fh), iov_owner->data(), static_cast<unsigned>(iov_owner->size()), offset);
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner; // keep-alive until CQE
 			return static_cast<std::size_t>(r.res);
@@ -639,24 +594,19 @@ public:
 		std::uint64_t offset,
 		std::vector<iovec> iovecs,
 		int rwf_flags = 0) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto iov_owner = make_shared<std::vector<iovec>>(move(iovecs));
 		io_uring_prep_readv2(
 			sqe,
-			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
+			fd_for_io(fh),
 			iov_owner->data(),
 			static_cast<unsigned>(iov_owner->size()),
 			offset,
 			rwf_flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner;
 			return static_cast<std::size_t>(r.res);
@@ -670,24 +620,19 @@ public:
 		std::uint64_t offset,
 		std::vector<iovec> iovecs,
 		int rwf_flags = 0) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto iov_owner = make_shared<std::vector<iovec>>(move(iovecs));
 		io_uring_prep_writev2(
 			sqe,
-			fh.is_direct() ? fh.direct_slot() : fh.raw_fd(),
+			fd_for_io(fh),
 			iov_owner->data(),
 			static_cast<unsigned>(iov_owner->size()),
 			offset,
 			rwf_flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [iov_owner](IoResult r) mutable {
 			auto _ = iov_owner;
 			return static_cast<std::size_t>(r.res);
@@ -697,11 +642,8 @@ public:
 	}
 	// No-op SQE — useful for latency measurement, wakeup, or pipeline flushing.
 	[[nodiscard]] root::Task<void> async_nop() {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_nop(sqe);
@@ -712,11 +654,8 @@ public:
 	[[nodiscard]] root::Task<void> async_fsync(
 		FileHandle const &fh,
 		bool data_only = false) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_fsync(sqe, fh.raw_fd(), data_only ? IORING_FSYNC_DATASYNC : 0U);
@@ -729,11 +668,8 @@ public:
 		int mode,
 		std::uint64_t offset,
 		std::uint64_t len) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_fallocate(sqe, fh.raw_fd(), mode, offset, len);
@@ -747,18 +683,13 @@ public:
 		std::uint64_t offset,
 		std::uint32_t len,
 		int advice) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_fadvise(sqe, fd, offset, len, advice);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -767,11 +698,8 @@ public:
 		void *addr,
 		std::uint32_t length,
 		int advice) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_madvise(sqe, addr, length, advice);
@@ -783,11 +711,8 @@ public:
 		int dir_fd,
 		std::string path,
 		int flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto path_owner = make_shared<std::string>(move(path));
@@ -802,11 +727,8 @@ public:
 		int new_dir_fd,
 		std::string new_path,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto paths = make_shared<std::pair<std::string, std::string>>(move(old_path), move(new_path));
@@ -819,11 +741,8 @@ public:
 		int dir_fd,
 		std::string path,
 		mode_t mode = 0755) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto path_owner = make_shared<std::string>(move(path));
@@ -836,11 +755,8 @@ public:
 		std::string target,
 		int new_dir_fd,
 		std::string link_path) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto paths = make_shared<std::pair<std::string, std::string>>(move(target), move(link_path));
@@ -852,18 +768,13 @@ public:
 	[[nodiscard]] root::Task<void> async_ftruncate(
 		FileHandle const &fh,
 		std::uint64_t length) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_ftruncate(sqe, fd, static_cast<loff_t>(length));
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -874,11 +785,8 @@ public:
 		int new_dir_fd,
 		std::string new_path,
 		int flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto paths = make_shared<std::pair<std::string, std::string>>(move(old_path), move(new_path));
@@ -892,18 +800,13 @@ public:
 		std::uint64_t offset,
 		unsigned len,
 		int flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_sync_file_range(sqe, fd, len, offset, flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -913,11 +816,8 @@ public:
 		int domain,
 		int type,
 		int protocol) {
-		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_socket(sqe, domain, type, protocol, 0);
@@ -933,11 +833,8 @@ public:
 		int type,
 		int protocol,
 		unsigned file_index) {
-		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_socket_direct(sqe, domain, type, protocol, file_index, 0);
@@ -951,11 +848,8 @@ public:
 	// Create a pipe asynchronously. Returns (read_fd, write_fd) on success.
 	[[nodiscard]] root::Task<std::pair<int, int>> async_pipe(
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
-		auto [task, raw_src] = root::make_task_source<std::pair<int, int>>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::pair<int, int>>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::pair<int, int>>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto fds = make_shared<std::array<int, 2>>(std::array<int, 2>{-1, -1});
@@ -977,19 +871,14 @@ public:
 		FileHandle const &fh,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		auto addr_owner = make_shared<sockaddr_storage>(addr);
 		io_uring_prep_bind(sqe, fd, reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable { auto _ = addr_owner; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -998,18 +887,13 @@ public:
 	[[nodiscard]] root::Task<void> async_listen(
 		FileHandle const &fh,
 		int backlog = SOMAXCONN) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_listen(sqe, fd, backlog);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -1017,18 +901,13 @@ public:
 	[[nodiscard]] root::Task<void> async_shutdown(
 		FileHandle const &fh,
 		int how) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_shutdown(sqe, fd, how);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [](IoResult) {});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -1038,15 +917,13 @@ public:
 		int fd_out,
 		std::size_t len,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_tee(sqe, fd_in, fd_out, static_cast<unsigned int>(len), flags);
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		auto [slot, gen] =
+			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -1081,19 +958,14 @@ public:
 		FileHandle const &fh,
 		std::string name,
 		std::span<char> buf) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		auto name_owner = make_shared<std::string>(move(name));
 		io_uring_prep_fgetxattr(sqe, fd, name_owner->c_str(), buf.data(), static_cast<unsigned>(buf.size()));
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [name_owner](IoResult r) mutable {
 			auto _ = name_owner;
 			return static_cast<std::size_t>(r.res);
@@ -1107,14 +979,11 @@ public:
 		std::string name,
 		std::string data,
 		int flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		auto kv = make_shared<std::pair<std::string, std::string>>(move(name), move(data));
 		io_uring_prep_fsetxattr(
 			sqe,
@@ -1123,9 +992,7 @@ public:
 			kv->second.c_str(),
 			flags,
 			static_cast<unsigned>(kv->second.size()));
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [kv](IoResult) mutable { auto _ = kv; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
@@ -1136,11 +1003,8 @@ public:
 		std::string path,
 		std::string name,
 		std::span<char> buf) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto kp = make_shared<std::pair<std::string, std::string>>(move(path), move(name));
@@ -1164,11 +1028,8 @@ public:
 		std::string name,
 		std::string data,
 		int flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		struct XattrState {
@@ -1196,11 +1057,8 @@ public:
 		siginfo_t *infop,
 		int options = WEXITED,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_waitid(sqe, idtype, id, infop, options, flags);
@@ -1216,11 +1074,8 @@ public:
 		std::uint64_t mask = FUTEX_BITSET_MATCH_ANY,
 		std::uint32_t futex_flags = FUTEX2_SIZE_U32,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_futex_wait(sqe, futex, val, mask, futex_flags, flags);
@@ -1235,15 +1090,13 @@ public:
 		std::uint64_t mask = FUTEX_BITSET_MATCH_ANY,
 		std::uint32_t futex_flags = FUTEX2_SIZE_U32,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<std::uint32_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::uint32_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::uint32_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_futex_wake(sqe, futex, val, mask, futex_flags, flags);
-		auto [slot, gen] = reserve_bridge<std::uint32_t>(shared_src, [](IoResult r) { return static_cast<std::uint32_t>(r.res); });
+		auto [slot, gen] =
+			reserve_bridge<std::uint32_t>(shared_src, [](IoResult r) { return static_cast<std::uint32_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -1254,11 +1107,8 @@ public:
 		unsigned len,
 		std::uint64_t data,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_msg_ring(sqe, target_ring_fd, len, data, flags);
@@ -1298,11 +1148,8 @@ public:
 		std::uint64_t user_data,
 		std::chrono::milliseconds ms,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto ts = make_shared<__kernel_timespec>();
@@ -1330,15 +1177,13 @@ public:
 	[[nodiscard]] root::Task<std::uint32_t> async_poll_add(
 		int fd,
 		std::uint32_t events) {
-		auto [task, raw_src] = root::make_task_source<std::uint32_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::uint32_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::uint32_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_poll_add(sqe, fd, events);
-		auto [slot, gen] = reserve_bridge<std::uint32_t>(shared_src, [](IoResult r) { return static_cast<std::uint32_t>(r.res); });
+		auto [slot, gen] =
+			reserve_bridge<std::uint32_t>(shared_src, [](IoResult r) { return static_cast<std::uint32_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -1346,11 +1191,8 @@ public:
 	// -ENOENT means the poll already fired — treated as success.
 	[[nodiscard]] root::Task<void> async_poll_remove(
 		std::uint64_t user_data) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_poll_remove(sqe, user_data);
@@ -1373,11 +1215,8 @@ public:
 		std::uint64_t user_data,
 		std::uint32_t new_events,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_poll_update(sqe, user_data, 0, new_events, flags);
@@ -1392,18 +1231,13 @@ public:
 		sockaddr *addr = nullptr,
 		socklen_t *addrlen = nullptr,
 		int flags = SOCK_CLOEXEC) {
-		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_accept(sqe, fd, addr, addrlen, flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] =
 			reserve_bridge<FileHandle>(shared_src, [](IoResult r) { return FileHandle::from_fd(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
@@ -1417,18 +1251,13 @@ public:
 		sockaddr *addr = nullptr,
 		socklen_t *addrlen = nullptr,
 		int flags = SOCK_CLOEXEC) {
-		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_accept_direct(sqe, fd, addr, addrlen, flags, file_index);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<FileHandle>(shared_src, [file_index](IoResult) {
 			return FileHandle::from_direct_slot(static_cast<int>(file_index));
 		});
@@ -1444,11 +1273,8 @@ public:
 		int target_fd,
 		std::uint64_t data = 0,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_msg_ring_fd(sqe, target_ring_fd, source_fd, target_fd, data, flags);
@@ -1461,11 +1287,8 @@ public:
 	[[nodiscard]] root::Task<void> async_futex_waitv(
 		std::vector<futex_waitv> waiters,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto wv = make_shared<std::vector<futex_waitv>>(move(waiters));
@@ -1480,11 +1303,8 @@ public:
 	[[nodiscard]] root::Task<void> async_cancel(
 		std::uint64_t user_data,
 		int flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_cancel64(sqe, user_data, flags);
@@ -1504,11 +1324,8 @@ public:
 	[[nodiscard]] root::Task<void> async_cancel_fd(
 		int fd,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_cancel_fd(sqe, fd, flags);
@@ -1530,30 +1347,22 @@ public:
 		FileHandle const &fh,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		auto addr_owner = make_shared<sockaddr_storage>(addr);
 		io_uring_prep_connect(sqe, fd, reinterpret_cast<sockaddr *>(addr_owner.get()), addrlen);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<void>(shared_src, [addr_owner](IoResult) mutable { auto _ = addr_owner; });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
 	[[nodiscard]] root::Task<void> async_close(
 		FileHandle fh) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		if (fh.is_direct()) {
@@ -1617,19 +1426,15 @@ public:
 		void const *buf,
 		std::size_t len,
 		int flags = 0) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_send(sqe, fd, buf, len, flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		set_fixed_file_if_direct(sqe, fh);
+		auto [slot, gen] =
+			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -1639,19 +1444,15 @@ public:
 		void *buf,
 		std::size_t len,
 		int flags = 0) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_recv(sqe, fd, buf, len, flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		set_fixed_file_if_direct(sqe, fh);
+		auto [slot, gen] =
+			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -1660,19 +1461,15 @@ public:
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_sendmsg(sqe, fd, msg, flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		set_fixed_file_if_direct(sqe, fh);
+		auto [slot, gen] =
+			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -1681,19 +1478,15 @@ public:
 		FileHandle const &fh,
 		msghdr *msg,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_recvmsg(sqe, fd, msg, flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		set_fixed_file_if_direct(sqe, fh);
+		auto [slot, gen] =
+			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -1705,11 +1498,8 @@ public:
 		int nr,
 		int bgid,
 		int bid = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_provide_buffers(sqe, addr, len, nr, bgid, bid);
@@ -1721,11 +1511,8 @@ public:
 	[[nodiscard]] root::Task<void> async_remove_buffers(
 		int nr,
 		int bgid) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_remove_buffers(sqe, nr, bgid);
@@ -1740,11 +1527,8 @@ public:
 		int *fds,
 		unsigned nr_fds,
 		int offset = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_files_update(sqe, fds, nr_fds, offset);
@@ -1758,11 +1542,8 @@ public:
 		int fd,
 		int op,
 		epoll_event const *ev = nullptr) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_epoll_ctl(sqe, epfd, fd, op, ev);
@@ -1777,11 +1558,8 @@ public:
 		epoll_event *events,
 		int maxevents,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<int>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<int>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<int>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_epoll_wait(sqe, epfd, events, maxevents, flags);
@@ -1809,11 +1587,8 @@ public:
 		int dir_fd,
 		std::string path,
 		open_how how) {
-		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto ctx = make_shared<std::pair<std::string, open_how>>(move(path), how);
@@ -1834,19 +1609,14 @@ public:
 		int flags,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto sa = make_shared<sockaddr_storage>(addr);
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_sendto(sqe, fd, buf, len, flags, reinterpret_cast<sockaddr *>(sa.get()), addrlen);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
+		set_fixed_file_if_direct(sqe, fh);
 		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [sa](IoResult r) mutable {
 			auto _ = sa;
 			return static_cast<std::size_t>(r.res);
@@ -1865,19 +1635,15 @@ public:
 #ifdef IORING_SEND_ZC_REPORT_USAGE
 		zc_flags &= ~IORING_SEND_ZC_REPORT_USAGE;
 #endif
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_send_zc(sqe, fd, buf, len, flags, zc_flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		set_fixed_file_if_direct(sqe, fh);
+		auto [slot, gen] =
+			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -1890,19 +1656,15 @@ public:
 #ifdef IORING_SEND_ZC_REPORT_USAGE
 		zc_flags &= ~IORING_SEND_ZC_REPORT_USAGE;
 #endif
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_send_zc(sqe, fd, buf, len, flags, zc_flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
-		auto [slot, gen] = reserve_zc_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		set_fixed_file_if_direct(sqe, fh);
+		auto [slot, gen] =
+			reserve_zc_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -1914,19 +1676,15 @@ public:
 		void const *buf,
 		unsigned nbytes,
 		int buf_index) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_write_fixed(sqe, fd, buf, nbytes, offset, buf_index);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		set_fixed_file_if_direct(sqe, fh);
+		auto [slot, gen] =
+			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -1936,11 +1694,8 @@ public:
 		int dir_fd,
 		std::string path,
 		int flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto p = make_shared<std::string>(move(path));
@@ -1956,11 +1711,8 @@ public:
 		int new_dir_fd,
 		std::string new_path,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto paths = make_shared<std::pair<std::string, std::string>>(move(old_path), move(new_path));
@@ -1973,11 +1725,8 @@ public:
 	[[nodiscard]] root::Task<void> async_mkdir(
 		std::string path,
 		mode_t mode = 0755) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto p = make_shared<std::string>(move(path));
@@ -1993,11 +1742,8 @@ public:
 		std::string path,
 		open_how how,
 		unsigned file_index) {
-		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto ctx = make_shared<std::pair<std::string, open_how>>(move(path), how);
@@ -2017,11 +1763,8 @@ public:
 		int type,
 		int protocol,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_socket_direct_alloc(sqe, domain, type, protocol, flags);
@@ -2038,11 +1781,8 @@ public:
 		int flags,
 		mode_t mode = 0,
 		unsigned file_index = IORING_FILE_INDEX_ALLOC) {
-		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<FileHandle>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<FileHandle>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto p = make_shared<std::string>(move(path));
@@ -2063,11 +1803,8 @@ public:
 		int source_fd,
 		std::uint64_t data = 0,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_msg_ring_fd_alloc(sqe, target_ring_fd, source_fd, data, flags);
@@ -2081,11 +1818,8 @@ public:
 	[[nodiscard]] root::Task<std::pair<int, int>> async_pipe_direct(
 		unsigned file_index = IORING_FILE_INDEX_ALLOC,
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
-		auto [task, raw_src] = root::make_task_source<std::pair<int, int>>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::pair<int, int>>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::pair<int, int>>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		auto fds = make_shared<std::array<int, 2>>(std::array<int, 2>{-1, -1});
@@ -2111,11 +1845,8 @@ public:
 		std::uint64_t data,
 		unsigned flags = 0,
 		unsigned cqe_flags = 0) {
-		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<void>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
 		io_uring_prep_msg_ring_cqe_flags(sqe, target_ring_fd, len, data, flags, cqe_flags);
@@ -2129,19 +1860,15 @@ public:
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_sendmsg_zc(sqe, fd, msg, flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
-		auto [slot, gen] = reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		set_fixed_file_if_direct(sqe, fh);
+		auto [slot, gen] =
+			reserve_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -2150,19 +1877,15 @@ public:
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
-		auto [task, raw_src] = root::make_task_source<std::size_t>(root::SubmitOptions{.enable_cancellation = false});
-		auto shared_src = make_shared<root::TaskSource<std::size_t>>(move(raw_src));
-		auto *sqe = io_uring_get_sqe(ring_);
+		auto [task, shared_src, sqe] = prepare_sqe<std::size_t>();
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(make_exception_ptr(FileIoError{ENOSPC, "file_io: SQ full"}));
 			return move(task);
 		}
-		int const fd = fh.is_direct() ? fh.direct_slot() : fh.raw_fd();
+		int const fd = fd_for_io(fh);
 		io_uring_prep_sendmsg_zc(sqe, fd, msg, flags);
-		if (fh.is_direct()) {
-			io_uring_sqe_set_flags(sqe, IOSQE_FIXED_FILE);
-		}
-		auto [slot, gen] = reserve_zc_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
+		set_fixed_file_if_direct(sqe, fh);
+		auto [slot, gen] =
+			reserve_zc_bridge<std::size_t>(shared_src, [](IoResult r) { return static_cast<std::size_t>(r.res); });
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
@@ -2321,7 +2044,12 @@ public:
 			if (pub_mode == TempPublishMode::replace_existing) {
 				co_await async_renameat(parent_fd, std::string{staging}, parent_fd, move(parts->basename));
 			} else {
-				co_await async_renameat(parent_fd, std::string{staging}, parent_fd, move(parts->basename), RENAME_NOREPLACE);
+				co_await async_renameat(
+					parent_fd,
+					std::string{staging},
+					parent_fd,
+					move(parts->basename),
+					RENAME_NOREPLACE);
 			}
 			staging_entry_exists = false;
 
@@ -2338,5 +2066,4 @@ public:
 			rethrow_exception(cleanup_error);
 		}
 	}
-
 };

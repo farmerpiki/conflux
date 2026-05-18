@@ -2,7 +2,6 @@ module;
 #include <ctime>
 export module conflux.net.router;
 
-
 import std;
 import conflux.types;
 import conflux.net.http.types;
@@ -65,7 +64,52 @@ concept RequestMiddleware = requires(std::decay_t<F> &fn, HttpRequest const &req
 export template<class F>
 concept Middleware = ViewMiddleware<F> || RequestMiddleware<F>;
 
-export class Router {
+struct RouteVerbAccessors {
+	template<typename Self, typename F>
+	Self &get(
+		this Self &self,
+		std::string_view path,
+		F &&handler) {
+		return self.add("GET", path, forward<F>(handler));
+	}
+	template<typename Self, typename F>
+	Self &post(
+		this Self &self,
+		std::string_view path,
+		F &&handler) {
+		return self.add("POST", path, forward<F>(handler));
+	}
+	template<typename Self, typename F>
+	Self &put(
+		this Self &self,
+		std::string_view path,
+		F &&handler) {
+		return self.add("PUT", path, forward<F>(handler));
+	}
+	template<typename Self, typename F>
+	Self &patch(
+		this Self &self,
+		std::string_view path,
+		F &&handler) {
+		return self.add("PATCH", path, forward<F>(handler));
+	}
+	template<typename Self, typename F>
+	Self &del(
+		this Self &self,
+		std::string_view path,
+		F &&handler) {
+		return self.add("DELETE", path, forward<F>(handler));
+	}
+	template<typename Self, typename F>
+	Self &options(
+		this Self &self,
+		std::string_view path,
+		F &&handler) {
+		return self.add("OPTIONS", path, forward<F>(handler));
+	}
+};
+
+export class Router : public RouteVerbAccessors {
 public:
 	using Handler = NextHandler;
 	using ContextHandler =
@@ -94,7 +138,7 @@ public:
 		return *this;
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	Router &add_context(
 		std::string_view method,
 		std::string_view path,
@@ -103,42 +147,42 @@ public:
 		return *this;
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	Router &get_context(
 		std::string_view path,
 		F &&handler) {
 		return add_context("GET", path, forward<F>(handler));
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	Router &post_context(
 		std::string_view path,
 		F &&handler) {
 		return add_context("POST", path, forward<F>(handler));
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	Router &put_context(
 		std::string_view path,
 		F &&handler) {
 		return add_context("PUT", path, forward<F>(handler));
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	Router &patch_context(
 		std::string_view path,
 		F &&handler) {
 		return add_context("PATCH", path, forward<F>(handler));
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	Router &del_context(
 		std::string_view path,
 		F &&handler) {
 		return add_context("DELETE", path, forward<F>(handler));
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	Router &options_context(
 		std::string_view path,
 		F &&handler) {
@@ -146,42 +190,6 @@ public:
 	}
 	// NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
 	[[nodiscard]] bool has_context_routes() const noexcept;
-	template<typename F>
-	Router &get(
-		std::string_view path,
-		F &&handler) {
-		return add("GET", path, forward<F>(handler));
-	}
-	template<typename F>
-	Router &post(
-		std::string_view path,
-		F &&handler) {
-		return add("POST", path, forward<F>(handler));
-	}
-	template<typename F>
-	Router &put(
-		std::string_view path,
-		F &&handler) {
-		return add("PUT", path, forward<F>(handler));
-	}
-	template<typename F>
-	Router &patch(
-		std::string_view path,
-		F &&handler) {
-		return add("PATCH", path, forward<F>(handler));
-	}
-	template<typename F>
-	Router &del(
-		std::string_view path,
-		F &&handler) {
-		return add("DELETE", path, forward<F>(handler));
-	}
-	template<typename F>
-	Router &options(
-		std::string_view path,
-		F &&handler) {
-		return add("OPTIONS", path, forward<F>(handler));
-	}
 	template<typename F>
 	Router &use(
 		F &&mw) {
@@ -223,7 +231,7 @@ public:
 	// Route group: scopes a set of routes under a path prefix with Opt group-local middleware.
 	// Group middleware wraps only the routes registered inside the group callback;
 	// it does NOT affect routes registered outside. The group callback receives a Group&.
-	class Group {
+	class Group : public RouteVerbAccessors {
 	public:
 		template<typename F>
 		Group &use(
@@ -238,42 +246,6 @@ public:
 			F &&handler) {
 			router_.add(method, prefix_ + std::string{path}, wrap(Router::make_handler(forward<F>(handler))));
 			return *this;
-		}
-		template<typename F>
-		Group &get(
-			std::string_view path,
-			F &&handler) {
-			return add("GET", path, forward<F>(handler));
-		}
-		template<typename F>
-		Group &post(
-			std::string_view path,
-			F &&handler) {
-			return add("POST", path, forward<F>(handler));
-		}
-		template<typename F>
-		Group &put(
-			std::string_view path,
-			F &&handler) {
-			return add("PUT", path, forward<F>(handler));
-		}
-		template<typename F>
-		Group &patch(
-			std::string_view path,
-			F &&handler) {
-			return add("PATCH", path, forward<F>(handler));
-		}
-		template<typename F>
-		Group &del(
-			std::string_view path,
-			F &&handler) {
-			return add("DELETE", path, forward<F>(handler));
-		}
-		template<typename F>
-		Group &options(
-			std::string_view path,
-			F &&handler) {
-			return add("OPTIONS", path, forward<F>(handler));
 		}
 
 	private:
@@ -312,15 +284,10 @@ public:
 	// Path traversal ("..") is rejected with 403.
 	// ETag based on size+mtime; Range requests (206 Partial Content) supported.
 	// Pre-compressed sidecar files (.gz, .br) served when client accepts them.
-	Router &serve_static(
-		std::string_view url_prefix,
-		std::string root_dir,
-		StaticOptions const &sopts = {});
+	Router &serve_static(std::string_view url_prefix, std::string root_dir, StaticOptions const &sopts = {});
 	[[nodiscard]] HttpResponse dispatch(HttpRequest const &req) const;
 	[[nodiscard]] HttpResponse dispatch(HttpRequestView const &req) const;
-	[[nodiscard]] std::optional<HttpResponse> dispatch_context(
-		HttpRequest const &req,
-		RequestContext const &ctx) const;
+	[[nodiscard]] std::optional<HttpResponse> dispatch_context(HttpRequest const &req, RequestContext const &ctx) const;
 
 private:
 	struct Impl;
@@ -337,11 +304,9 @@ private:
 		SseHandler handler,
 		HttpRequest matched,
 		std::shared_ptr<SseChannel> const &channel);
-	[[nodiscard]] static HttpResponse defer_http_task(
-		conflux::work::root::Task<HttpResponse> task);
+	[[nodiscard]] static HttpResponse defer_http_task(conflux::work::root::Task<HttpResponse> task);
 	[[nodiscard]] HttpResponse run_middlewares(HttpRequestView const &req, Handler const &inner) const;
-	[[nodiscard]] static HttpResponse run_async_http_task(
-		conflux::work::root::Task<HttpResponse> task);
+	[[nodiscard]] static HttpResponse run_async_http_task(conflux::work::root::Task<HttpResponse> task);
 	template<class>
 	static constexpr bool kDependentFalse = false;
 	template<typename F>
@@ -407,10 +372,11 @@ private:
 		if constexpr (std::invocable<Fn &, HttpRequestView const &, std::shared_ptr<SseChannel>>) {
 			return SseHandler{forward<F>(fn)};
 		} else if constexpr (std::invocable<Fn &, HttpRequest const &, std::shared_ptr<SseChannel>>) {
-			return SseHandler{[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req, std::shared_ptr<SseChannel> ch) mutable {
-				auto owned = req.to_owned();
-				invoke(wrapped, owned, move(ch));
-			}};
+			return SseHandler{
+				[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req, std::shared_ptr<SseChannel> ch) mutable {
+					auto owned = req.to_owned();
+					invoke(wrapped, owned, move(ch));
+				}};
 		} else {
 			static_assert(kDependentFalse<Fn>, "SSE handler must accept HttpRequestView const& or HttpRequest const&");
 		}
@@ -461,7 +427,8 @@ export Router::Middleware make_access_log_middleware(
 	return [sink = move(sink)](HttpRequestView const &req, Router::Handler const &next) {
 		auto const t0 = std::chrono::steady_clock::now();
 		auto resp = next(req);
-		auto const elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+		auto const elapsed =
+			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
 
 		auto const now = std::chrono::system_clock::now();
 		auto const tt = std::chrono::system_clock::to_time_t(now);

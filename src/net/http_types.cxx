@@ -69,17 +69,17 @@ export struct FieldEq {
 		return operator ()(std::string_view{a}, std::string_view{b});
 	}
 };
-// Vector-backed string map. Linear scan — sufficient for HTTP header counts (<100).
-export class HttpFields {
-	std::vector<std::pair<std::string, std::string>> data_;
-	bool case_insensitive_{false};
+struct HttpFieldsLookupAccessors {
+protected:
+	template<typename Self>
 	[[nodiscard]] bool key_eq(
+		this Self const &self,
 		std::string_view a,
-		std::string_view b) const noexcept {
+		std::string_view b) noexcept {
 		if (a.size() != b.size()) {
 			return false;
 		}
-		if (!case_insensitive_) {
+		if (!self.case_insensitive_) {
 			return a == b;
 		}
 		return ranges::equal(a, b, [](unsigned char x, unsigned char y) {
@@ -88,17 +88,125 @@ export class HttpFields {
 	}
 
 public:
+	template<typename Self>
+	[[nodiscard]] bool case_insensitive(
+		this Self const &self) noexcept {
+		return self.case_insensitive_;
+	}
+	// NOLINTNEXTLINE(fuchsia-overloaded-operator)
+	template<typename Self>
+	[[nodiscard]] std::string_view operator [](
+		this Self const &self,
+		std::string_view key) noexcept {
+		return self.get(key).value_or(std::string_view{});
+	}
+	template<typename Self>
+	[[nodiscard]] std::optional<std::string_view> get(
+		this Self const &self,
+		std::string_view key) noexcept {
+		for (auto const &[k, v]: self.data_) {
+			if (self.key_eq(k, key)) {
+				return std::string_view{v};
+			}
+		}
+		return nullopt;
+	}
+	template<typename Self>
+	[[nodiscard]] std::size_t count(
+		this Self const &self,
+		std::string_view key) noexcept {
+		std::size_t n = 0;
+		for (auto const &[k, v]: self.data_) {
+			(void)v;
+			if (self.key_eq(k, key)) {
+				++n;
+			}
+		}
+		return n;
+	}
+	template<typename Self>
+	[[nodiscard]] std::vector<std::string_view> values(
+		this Self const &self,
+		std::string_view key) {
+		std::vector<std::string_view> out;
+		for (auto const &[k, v]: self.data_) {
+			if (self.key_eq(k, key)) {
+				out.push_back(v);
+			}
+		}
+		return out;
+	}
+	template<typename Self>
+	[[nodiscard]] bool contains(
+		this Self const &self,
+		std::string_view key) noexcept {
+		for (auto const &[k, v]: self.data_) {
+			if (self.key_eq(k, key)) {
+				return true;
+			}
+		}
+		return false;
+	}
+	template<typename Self>
+	[[nodiscard]] std::string_view value_or(
+		this Self const &self,
+		std::string_view key,
+		std::string_view def = {}) noexcept {
+		return self.get(key).value_or(def);
+	}
+	template<typename Self>
+	void reserve(
+		this Self &self,
+		std::size_t n) {
+		self.data_.reserve(n);
+	}
+	template<typename Self>
+	[[nodiscard]] bool empty(
+		this Self const &self) noexcept {
+		return self.data_.empty();
+	}
+	template<typename Self>
+	[[nodiscard]] std::size_t size(
+		this Self const &self) noexcept {
+		return self.data_.size();
+	}
+	template<typename Self>
+	[[nodiscard]] auto begin(
+		this Self &self) {
+		return self.data_.begin();
+	}
+	template<typename Self>
+	[[nodiscard]] auto end(
+		this Self &self) {
+		return self.data_.end();
+	}
+	template<typename Self>
+	[[nodiscard]] auto begin(
+		this Self const &self) {
+		return self.data_.begin();
+	}
+	template<typename Self>
+	[[nodiscard]] auto end(
+		this Self const &self) {
+		return self.data_.end();
+	}
+};
+
+// Vector-backed string map. Linear scan — sufficient for HTTP header counts (<100).
+export class HttpFields : public HttpFieldsLookupAccessors {
+	friend struct HttpFieldsLookupAccessors;
+	std::vector<std::pair<std::string, std::string>> data_;
+	bool case_insensitive_{false};
+
+public:
+	using HttpFieldsLookupAccessors::operator [];
+
 	HttpFields(
 		bool case_insensitive = false)
 		: case_insensitive_(case_insensitive) {}
 	HttpFields(
 		std::initializer_list<std::pair<std::string, std::string>> init)
 		: data_(init) {}
-	// NOLINTNEXTLINE(fuchsia-overloaded-operator)
-	std::string_view operator [](
-		std::string_view key) const noexcept {
-		return get(key).value_or(std::string_view{});
-	}
 	// NOLINTNEXTLINE(fuchsia-overloaded-operator)
 	std::string &operator [](
 		std::string_view key) {
@@ -109,50 +217,6 @@ public:
 		}
 		data_.emplace_back(std::string{key}, std::string{});
 		return data_.back().second;
-	}
-	[[nodiscard]] std::optional<std::string_view> get(
-		std::string_view key) const noexcept {
-		for (auto const &[k, v]: data_) {
-			if (key_eq(k, key)) {
-				return std::string_view{v};
-			}
-		}
-		return nullopt;
-	}
-	[[nodiscard]] std::size_t count(
-		std::string_view key) const noexcept {
-		std::size_t n = 0;
-		for (auto const &[k, v]: data_) {
-			(void)v;
-			if (key_eq(k, key)) {
-				++n;
-			}
-		}
-		return n;
-	}
-	[[nodiscard]] std::vector<std::string_view> values(
-		std::string_view key) const {
-		std::vector<std::string_view> out;
-		for (auto const &[k, v]: data_) {
-			if (key_eq(k, key)) {
-				out.push_back(v);
-			}
-		}
-		return out;
-	}
-	[[nodiscard]] bool contains(
-		std::string_view key) const noexcept {
-		for (auto const &[k, v]: data_) {
-			if (key_eq(k, key)) {
-				return true;
-			}
-		}
-		return false;
-	}
-	[[nodiscard]] std::string_view value_or(
-		std::string_view key,
-		std::string_view def = {}) const noexcept {
-		return get(key).value_or(def);
 	}
 	void emplace_back(
 		std::string k,
@@ -198,19 +262,9 @@ public:
 		});
 	}
 	void clear() noexcept { data_.clear(); }
-	void reserve(
-		std::size_t n) {
-		data_.reserve(n);
-	}
-	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
-	[[nodiscard]] std::size_t size() const noexcept { return data_.size(); }
-	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
-	auto begin() { return data_.begin(); }
-	auto end() { return data_.end(); }
-	[[nodiscard]] auto begin() const { return data_.begin(); }
-	[[nodiscard]] auto end() const { return data_.end(); }
 };
-export class HttpFieldsView {
+export class HttpFieldsView : public HttpFieldsLookupAccessors {
+	friend struct HttpFieldsLookupAccessors;
 	struct OwnedStorage {
 		std::atomic<std::size_t> refs{1};
 		deque<std::string> values;
@@ -229,19 +283,6 @@ export class HttpFieldsView {
 		if (storage != nullptr && storage->refs.fetch_sub(1, memory_order_acq_rel) == 1) {
 			delete storage;
 		}
-	}
-	[[nodiscard]] bool key_eq(
-		std::string_view a,
-		std::string_view b) const noexcept {
-		if (a.size() != b.size()) {
-			return false;
-		}
-		if (!case_insensitive_) {
-			return a == b;
-		}
-		return ranges::equal(a, b, [](unsigned char x, unsigned char y) {
-			return ascii_ci_fold(x) == ascii_ci_fold(y);
-		});
 	}
 	[[nodiscard]] std::string_view store_owned(
 		std::string owned_value) {
@@ -300,55 +341,6 @@ public:
 		case_insensitive_ = exchange(other.case_insensitive_, false);
 		return *this;
 	}
-	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
-	std::string_view operator [](
-		std::string_view key) const noexcept {
-		return get(key).value_or(std::string_view{});
-	}
-	[[nodiscard]] std::optional<std::string_view> get(
-		std::string_view key) const noexcept {
-		for (auto const &[k, v]: data_) {
-			if (key_eq(k, key)) {
-				return v;
-			}
-		}
-		return nullopt;
-	}
-	[[nodiscard]] std::size_t count(
-		std::string_view key) const noexcept {
-		std::size_t n = 0;
-		for (auto const &[k, v]: data_) {
-			(void)v;
-			if (key_eq(k, key)) {
-				++n;
-			}
-		}
-		return n;
-	}
-	[[nodiscard]] std::vector<std::string_view> values(
-		std::string_view key) const {
-		std::vector<std::string_view> out;
-		for (auto const &[k, v]: data_) {
-			if (key_eq(k, key)) {
-				out.push_back(v);
-			}
-		}
-		return out;
-	}
-	[[nodiscard]] bool contains(
-		std::string_view key) const noexcept {
-		for (auto const &[k, v]: data_) {
-			if (key_eq(k, key)) {
-				return true;
-			}
-		}
-		return false;
-	}
-	[[nodiscard]] std::string_view value_or(
-		std::string_view key,
-		std::string_view def = {}) const noexcept {
-		return get(key).value_or(def);
-	}
 	void emplace_back(
 		std::string_view k,
 		std::string_view v) {
@@ -369,12 +361,6 @@ public:
 		release(owned_storage_);
 		owned_storage_ = nullptr;
 	}
-	void reserve(
-		std::size_t n) {
-		data_.reserve(n);
-	}
-	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
-	[[nodiscard]] std::size_t size() const noexcept { return data_.size(); }
 	[[nodiscard]] HttpFields to_owned() const {
 		HttpFields out{case_insensitive_};
 		out.reserve(data_.size());
@@ -383,10 +369,6 @@ public:
 		}
 		return out;
 	}
-	auto begin() { return data_.begin(); }
-	auto end() { return data_.end(); }
-	[[nodiscard]] auto begin() const { return data_.begin(); }
-	[[nodiscard]] auto end() const { return data_.end(); }
 };
 export namespace conflux::http {
 
@@ -499,8 +481,8 @@ struct Url {
 		std::string_view name,
 		std::string_view value) {
 		auto encode = [](std::string_view s) {
-			static constexpr std::array<char, 16> kHex = {'0', '1', '2', '3', '4', '5', '6', '7',
-				'8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+			static constexpr std::array<char, 16> kHex =
+				{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 			std::string out;
 			out.reserve(s.size());
 			for (auto const raw_c: s) {
@@ -649,9 +631,7 @@ constexpr std::array<std::string_view, 8> kHopByHopHeaders{
 };
 [[nodiscard]] bool is_hop_by_hop_header(
 	std::string_view name) noexcept {
-	return ranges::any_of(kHopByHopHeaders, [&](std::string_view candidate) {
-		return ascii_iequals(name, candidate);
-	});
+	return ranges::any_of(kHopByHopHeaders, [&](std::string_view candidate) { return ascii_iequals(name, candidate); });
 }
 [[nodiscard]] bool header_token_contains(
 	std::string_view header,
