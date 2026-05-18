@@ -1984,6 +1984,22 @@ if(CONFLUX_BUILD_EXAMPLES)
     add_executable(conflux_http_client_builder_example examples/http_client_builder.cxx)
     target_link_libraries(conflux_http_client_builder_example PRIVATE conflux conflux_options)
 
+    if(TARGET conflux_http_app_json AND TARGET conflux_http_native_json AND TARGET conflux_json)
+        add_executable(conflux_api_typed_json_example examples/api_typed_json.cxx)
+        target_link_libraries(conflux_api_typed_json_example
+            PRIVATE conflux_http_app_json conflux_http_native_json conflux_json conflux_options)
+
+        add_executable(conflux_http_explicit_offload_example examples/http_explicit_offload.cxx)
+        target_link_libraries(conflux_http_explicit_offload_example
+            PRIVATE conflux_http_app_json conflux_http_native_json conflux_json conflux_work conflux_options)
+    endif()
+
+    if(TARGET conflux_http_native_json AND TARGET conflux_json)
+        add_executable(conflux_http_client_json_example examples/http_client_json.cxx)
+        target_link_libraries(conflux_http_client_json_example
+            PRIVATE conflux_http_native_json conflux_json conflux_options)
+    endif()
+
     add_executable(conflux_work_join_all_example examples/work_join_all.cxx)
     target_link_libraries(conflux_work_join_all_example PRIVATE conflux conflux_options)
 
@@ -2437,6 +2453,9 @@ if(CONFLUX_BUILD_EXAMPLES)
         conflux_http_policy_stack_example
         conflux_vhost_openapi_example
         conflux_http_client_builder_example
+        conflux_api_typed_json_example
+        conflux_http_client_json_example
+        conflux_http_explicit_offload_example
         conflux_work_join_all_example
         conflux_template_pages_example
         conflux_h3_probe

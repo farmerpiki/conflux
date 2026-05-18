@@ -101,8 +101,8 @@ scripts/run-package-config-smoke.sh \
 | `http_response` | `conflux::http_response` | `conflux.net.http.response` | `tests/http_response_test.cxx` |
 | `http_json` | `conflux::http_json` | `conflux.net.http.json` | `docs/json-boundary-guide.md`, `tests/http_json_test.cxx` |
 | `http_response_json` | `conflux::http_response_json` | `conflux.net.http.response_json` | `docs/json-boundary-guide.md` |
-| `http_app_json` | `conflux::http_app_json` | `conflux.net.http.app_json` | `docs/json-boundary-guide.md` |
-| `http_native_json` | `conflux::http_native_json` | `conflux.net.http.native_json` | `docs/json-boundary-guide.md` |
+| `http_app_json` | `conflux::http_app_json` | `conflux.net.http.app_json` | `docs/json-boundary-guide.md`, `examples/api_typed_json.cxx`, `examples/http_explicit_offload.cxx` |
+| `http_native_json` | `conflux::http_native_json` | `conflux.net.http.native_json` | `docs/json-boundary-guide.md`, `examples/api_typed_json.cxx`, `examples/http_client_json.cxx` |
 | `http_router` | `conflux::http_router` | `conflux.net.router` | `docs/http-server-api.md`, `examples/hello.cxx` |
 | `router_match` | `conflux::router_match` | `conflux.net.router_match` | `tests/http_core_test.cxx` |
 | `router_dispatch` | `conflux::router_dispatch` | `conflux.net.router_dispatch` | `docs/naming-audit.md` |
@@ -111,7 +111,7 @@ scripts/run-package-config-smoke.sh \
 | `http_server_config` | `conflux::http_server_config` | `conflux.net.http_server_config` | `docs/http-server-api.md`, `tests/config_test.cxx` |
 | `http_server` | `conflux::http_server` | `conflux.net.http_server` | `docs/http-server-api.md`, `examples/hello.cxx` |
 | `http_app` | `conflux::http_app` | `conflux.net.app` | `docs/http-server-api.md` |
-| `http_client` | `conflux::http_client` | `conflux.net.http.client`, `conflux.net.client` | `docs/conflux-http-client-api.md`, `examples/http_client.cxx` |
+| `http_client` | `conflux::http_client` | `conflux.net.http.client`, `conflux.net.client` | `docs/conflux-http-client-api.md`, `examples/http_client.cxx`, `examples/http_client_json.cxx` |
 | `http` | `conflux::http` | `conflux.net.http` umbrella plus first-contact `conflux.net.http.server` | `docs/http-server-api.md`, `docs/conflux-http-client-api.md` |
 | `http_static_core` | `conflux::http_static_core` | `conflux.net.http.static_core` | `examples/static.cxx`, `tests/file_io_http_e2e.cxx` |
 | `http_static` | `conflux::http_static` | `conflux.net.http.static_files` | `examples/static.cxx` |
