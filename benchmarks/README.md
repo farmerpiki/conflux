@@ -167,7 +167,9 @@ For worker queue contention profiling, configure the perf preset with
 benchmarks emit the standard `config`/`variant`/`iterations`/`total_ns`/
 `ns_per_iter` fields, and append a `queue` object in raw NDJSON with enqueue,
 local/inject queue, admission/local/steal lock-contention, steal, park, futex wake,
-and queue discard counters. `scripts/bench_record.sh` preserves optional standard-parser
+and queue discard counters. Queue-mode comparison rows also include a `fairness`
+object; the `local_backlog_redistribution` profile uses it to report runner-thread
+count and max-runner share for work-conservation checks. `scripts/bench_record.sh` preserves optional standard-parser
 fields in `results.extra`, so these counters are queryable as `extra->'queue'`
 for non-summary rows while remaining available verbatim in raw artifacts.
 `workpool_enqueue_dequeue` keeps its historical variant names for baseline
@@ -181,14 +183,15 @@ default history.
 
 For a DB-independent evidence artifact, use the wrapper below. It enables queue
 stats for the selected build preset, runs repeated `workpool_queue_mode_compare`
-JSON reps, validates that each config has both queue modes for all four
+JSON reps, validates that each config has both queue modes for all five
 queue-profile variants, and writes a summary JSON with no-stealing-vs-stealing
-median deltas plus aggregate contention and futex-wait rates per 1k jobs for
-each mode-prefixed variant.
+median deltas plus aggregate contention, fairness, and futex-wait rates per 1k
+jobs for each mode-prefixed variant.
 
 ```sh
 WORK_QUEUE_PRESET=perf-clang-libcxx \
 WORK_QUEUE_THREADS=16 \
+WORK_QUEUE_WORK=2048 \
 WORK_QUEUE_REPS=5 \
   scripts/work_queue_contention_evidence.sh
 ```

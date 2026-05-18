@@ -6,6 +6,7 @@
 #   WORK_QUEUE_THREADS         producer/worker count passed to the benchmark; default nproc
 #   WORK_QUEUE_ITERATIONS      measured iterations per rep; default 5000
 #   WORK_QUEUE_WARMUP          warmup iterations per rep; default 500
+#   WORK_QUEUE_WORK            CPU work units per redistribution child job; default 2048
 #   WORK_QUEUE_REPS            repeated benchmark launches; default 5
 #   WORK_QUEUE_ARTIFACT_DIR    output dir; default /tmp/<repo>/work-queue-evidence/<stamp>
 set -euo pipefail
@@ -18,7 +19,7 @@ Runs:
   1. configure with -DCONFLUX_WORK_QUEUE_STATS=ON
   2. build conflux_workpool_queue_mode_compare_bench
   3. run repeated --json benchmark reps into NDJSON
-  4. summarize queue contention counters into JSON
+  4. summarize queue contention/fairness counters into JSON
 USAGE
 }
 
@@ -63,6 +64,7 @@ PRESET="${WORK_QUEUE_PRESET:-perf-clang-libcxx}"
 THREADS="${WORK_QUEUE_THREADS:-$(nproc)}"
 ITERATIONS="${WORK_QUEUE_ITERATIONS:-5000}"
 WARMUP="${WORK_QUEUE_WARMUP:-500}"
+WORK_UNITS="${WORK_QUEUE_WORK:-2048}"
 REPS="${WORK_QUEUE_REPS:-5}"
 RUN_STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 ARTIFACT_DIR="${WORK_QUEUE_ARTIFACT_DIR:-/tmp/$(basename "$REPO_ROOT")/work-queue-evidence/$RUN_STAMP}"
@@ -70,6 +72,7 @@ ARTIFACT_DIR="${WORK_QUEUE_ARTIFACT_DIR:-/tmp/$(basename "$REPO_ROOT")/work-queu
 require_positive_int WORK_QUEUE_THREADS "$THREADS"
 require_positive_int WORK_QUEUE_ITERATIONS "$ITERATIONS"
 require_positive_int WORK_QUEUE_WARMUP "$WARMUP"
+require_positive_int WORK_QUEUE_WORK "$WORK_UNITS"
 require_positive_int WORK_QUEUE_REPS "$REPS"
 
 mkdir -p "$ARTIFACT_DIR"
@@ -105,6 +108,7 @@ for rep in $(seq 1 "$REPS"); do
 		--threads "$THREADS" \
 		--iterations "$ITERATIONS" \
 		--warmup "$WARMUP" \
+		--work "$WORK_UNITS" \
 		--config-name "$config_name" \
 		--json >> "$raw_ndjson"
 done
@@ -121,6 +125,7 @@ python3 - \
 	"$THREADS" \
 	"$ITERATIONS" \
 	"$WARMUP" \
+	"$WORK_UNITS" \
 	"$REPS" <<'PY'
 import json
 import pathlib
@@ -137,6 +142,7 @@ import sys
     threads,
     iterations,
     warmup,
+    work_units,
     reps,
 ) = sys.argv[1:]
 
@@ -155,6 +161,7 @@ manifest = {
     "threads": int(threads),
     "iterations": int(iterations),
     "warmup": int(warmup),
+    "work_units": int(work_units),
     "reps": int(reps),
     "commit": git_value("rev-parse", "HEAD"),
     "branch": git_value("rev-parse", "--abbrev-ref", "HEAD"),

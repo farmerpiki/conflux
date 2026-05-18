@@ -21,8 +21,10 @@ REQUIRED_VARIANTS = (
     "no_stealing/external_burst",
     "stealing/local_fanout",
     "no_stealing/local_fanout",
+    "stealing/local_backlog_redistribution",
+    "no_stealing/local_backlog_redistribution",
 )
-PROFILE_VARIANTS = ("single_thread", "contended", "external_burst", "local_fanout")
+PROFILE_VARIANTS = ("single_thread", "contended", "external_burst", "local_fanout", "local_backlog_redistribution")
 
 REQUIRED_QUEUE_KEYS = (
     "enqueue_attempts",
@@ -72,6 +74,13 @@ def rate_per_1k(numerator: int, denominator: int) -> float:
     return round((float(numerator) * 1000.0) / float(denominator), 6)
 
 
+def median_numeric(values: list[Any]) -> float:
+    nums = [float(value) for value in values if isinstance(value, (int, float)) and not isinstance(value, bool)]
+    if not nums:
+        return 0.0
+    return median(nums)
+
+
 def read_rows(path: Path) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as src:
@@ -101,6 +110,9 @@ def read_rows(path: Path) -> list[dict[str, Any]]:
                 fail(f"line {line_no}: missing queue object; rebuild with CONFLUX_WORK_QUEUE_STATS=ON")
             for key in REQUIRED_QUEUE_KEYS:
                 queue[key] = as_non_negative_int(queue.get(key), key, line_no)
+            fairness = row.get("fairness")
+            if fairness is not None and not isinstance(fairness, dict):
+                fail(f"line {line_no}: fairness must be an object when present")
             rows.append(row)
     if not rows:
         fail(f"no NDJSON rows found in {path}")
@@ -135,6 +147,15 @@ def summarize(rows: list[dict[str, Any]], raw_path: Path, required_variants: set
                     total_queue[key] += value
 
         jobs = queue_sums["jobs_run"]
+        fairness_rows = [row.get("fairness") for row in bucket if isinstance(row.get("fairness"), dict)]
+        fairness = {
+            "runner_threads_median": median_numeric([row.get("runner_threads") for row in fairness_rows]),
+            "child_jobs_median": median_numeric([row.get("child_jobs") for row in fairness_rows]),
+            "min_runner_jobs_median": median_numeric([row.get("min_runner_jobs") for row in fairness_rows]),
+            "max_runner_jobs_median": median_numeric([row.get("max_runner_jobs") for row in fairness_rows]),
+            "min_runner_share_median": median_numeric([row.get("min_runner_share") for row in fairness_rows]),
+            "max_runner_share_median": median_numeric([row.get("max_runner_share") for row in fairness_rows]),
+        }
         variants.append(
             {
                 "config": config,
@@ -143,6 +164,7 @@ def summarize(rows: list[dict[str, Any]], raw_path: Path, required_variants: set
                 "median_ns_per_iter": median(timing),
                 "best_ns_per_iter": min(timing),
                 "queue": dict(sorted(queue_sums.items())),
+                "fairness": fairness,
                 "rates_per_1k_jobs": {
                     "admission_lock_contentions": rate_per_1k(queue_sums["admission_lock_contentions"], jobs),
                     "local_lock_contentions": rate_per_1k(queue_sums["local_lock_contentions"], jobs),
@@ -161,6 +183,10 @@ def summarize(rows: list[dict[str, Any]], raw_path: Path, required_variants: set
                 continue
             stealing_med = median(stealing_timing)
             no_stealing_med = median(no_stealing_timing)
+            stealing_rows = by_config_variant[(config, f"stealing/{profile}")]
+            no_stealing_rows = by_config_variant[(config, f"no_stealing/{profile}")]
+            stealing_fairness = [row.get("fairness") for row in stealing_rows if isinstance(row.get("fairness"), dict)]
+            no_stealing_fairness = [row.get("fairness") for row in no_stealing_rows if isinstance(row.get("fairness"), dict)]
             mode_comparisons.append(
                 {
                     "config": config,
@@ -171,6 +197,18 @@ def summarize(rows: list[dict[str, Any]], raw_path: Path, required_variants: set
                     if stealing_med > 0
                     else 0.0,
                     "no_stealing_speedup": round(stealing_med / no_stealing_med, 6) if no_stealing_med > 0 else 0.0,
+                    "stealing_runner_threads_median": median_numeric(
+                        [row.get("runner_threads") for row in stealing_fairness]
+                    ),
+                    "no_stealing_runner_threads_median": median_numeric(
+                        [row.get("runner_threads") for row in no_stealing_fairness]
+                    ),
+                    "stealing_max_runner_share_median": median_numeric(
+                        [row.get("max_runner_share") for row in stealing_fairness]
+                    ),
+                    "no_stealing_max_runner_share_median": median_numeric(
+                        [row.get("max_runner_share") for row in no_stealing_fairness]
+                    ),
                 }
             )
 

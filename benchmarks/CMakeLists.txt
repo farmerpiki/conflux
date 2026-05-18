@@ -96,12 +96,14 @@ if(CONFLUX_HAS_TLS STREQUAL "true")
     target_compile_definitions(conflux_http_server_bench PRIVATE CONFLUX_BENCH_HAS_TLS=1)
 endif()
 
-add_executable(conflux_send_zc_bench send_zc_bench.cxx)
-target_link_libraries(conflux_send_zc_bench
-    PRIVATE bench_common conflux conflux_work conflux_options)
-if(CONFLUX_HAS_TLS STREQUAL "true")
-    target_link_libraries(conflux_send_zc_bench PRIVATE OpenSSL::SSL OpenSSL::Crypto)
-    target_compile_definitions(conflux_send_zc_bench PRIVATE CONFLUX_BENCH_HAS_TLS=1)
+if(CONFLUX_EXPERIMENTAL_SEND_ZC)
+    add_executable(conflux_send_zc_bench send_zc_bench.cxx)
+    target_link_libraries(conflux_send_zc_bench
+        PRIVATE bench_common conflux conflux_work conflux_options)
+    if(CONFLUX_HAS_TLS STREQUAL "true")
+        target_link_libraries(conflux_send_zc_bench PRIVATE OpenSSL::SSL OpenSSL::Crypto)
+        target_compile_definitions(conflux_send_zc_bench PRIVATE CONFLUX_BENCH_HAS_TLS=1)
+    endif()
 endif()
 
 add_executable(conflux_http_server_concurrency_bench http_server_concurrency_bench.cxx)
@@ -129,9 +131,11 @@ set(_record_targets
     conflux_join_all_N_bench
     conflux_socket_raw_bench
     conflux_http_server_bench
-    conflux_send_zc_bench
     conflux_http_server_concurrency_bench
 )
+if(TARGET conflux_send_zc_bench)
+    list(APPEND _record_targets conflux_send_zc_bench)
+endif()
 if(CONFLUX_HAS_TLS STREQUAL "true")
     list(APPEND _record_targets conflux_tls_tcp_increment_coro_bench)
 endif()

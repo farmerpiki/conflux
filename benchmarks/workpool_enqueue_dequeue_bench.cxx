@@ -6,11 +6,15 @@
 //   contended       — N producer threads, N workers, per-job blocking join
 //   external_burst  — N producers enqueue a synchronized burst without per-job joins
 //   local_fanout    — one worker enqueues a local-deque fanout batch
+//   local_backlog_redistribution
+//                  — one worker creates expensive local backlog, measuring
+//                    whether peer workers help drain it
 //
 // When compiled with CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE, this emits a separate
 // benchmark that compares both queue modes with mode-prefixed variant names.
 //
-// NDJSON output (--json): standard timing fields plus optional queue counters.
+// NDJSON output (--json): standard timing fields plus queue counters and
+// fairness fields for redistribution profiles.
 
 import std;
 import conflux.types;
@@ -67,9 +71,31 @@ enum class BenchQueueMode : std::uint8_t {
 	return "local_fanout"sv;
 #endif
 }
+[[nodiscard]] std::string_view local_backlog_redistribution_variant(
+	BenchQueueMode mode) noexcept {
+#ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
+	if (mode == BenchQueueMode::no_stealing) {
+		return "no_stealing/local_backlog_redistribution"sv;
+	}
+	return "stealing/local_backlog_redistribution"sv;
+#else
+	(void)mode;
+	return "local_backlog_redistribution"sv;
+#endif
+}
+struct WorkPoolFairnessStats {
+	std::size_t runner_threads{};
+	std::size_t child_jobs{};
+	std::size_t min_runner_jobs{};
+	std::size_t max_runner_jobs{};
+	double min_runner_share{};
+	double max_runner_share{};
+	std::uint64_t checksum{};
+};
 struct WorkPoolBenchStats {
 	BenchStats timing;
 	WorkPoolQueueStats queue;
+	WorkPoolFairnessStats fairness{};
 };
 void print_workpool_stats(
 	WorkPoolBenchStats const &s,
@@ -99,11 +125,26 @@ void print_workpool_stats(
 				s.queue.remote_free_pushes,
 				s.queue.remote_free_fallbacks);
 		}
+		if (s.fairness.child_jobs != 0) {
+			std::println(
+				"  fairness: runner_threads={} child_jobs={} min_runner_jobs={} max_runner_jobs={} "
+				"min_runner_share={:.3f} max_runner_share={:.3f} checksum={}",
+				s.fairness.runner_threads,
+				s.fairness.child_jobs,
+				s.fairness.min_runner_jobs,
+				s.fairness.max_runner_jobs,
+				s.fairness.min_runner_share,
+				s.fairness.max_runner_share,
+				s.fairness.checksum);
+		}
 		return;
 	}
 	std::println(
 		"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},"
-		"\"ns_per_iter\":{:.2f},\"queue\":{{\"enqueue_attempts\":{},\"stopped_rejections\":{},"
+		"\"ns_per_iter\":{:.2f},\"fairness\":{{\"runner_threads\":{},\"child_jobs\":{},"
+		"\"min_runner_jobs\":{},\"max_runner_jobs\":{},\"min_runner_share\":{:.6f},"
+		"\"max_runner_share\":{:.6f},\"checksum\":{}}},\"queue\":{{\"enqueue_attempts\":{},"
+		"\"stopped_rejections\":{},"
 		"\"full_rejections\":{},\"admission_lock_acquisitions\":{},"
 		"\"admission_lock_contentions\":{},\"local_lock_acquisitions\":{},"
 		"\"local_lock_contentions\":{},\"steal_lock_acquisitions\":{},"
@@ -123,6 +164,13 @@ void print_workpool_stats(
 		s.timing.iterations,
 		s.timing.total_ns,
 		s.timing.ns_per_iter,
+		s.fairness.runner_threads,
+		s.fairness.child_jobs,
+		s.fairness.min_runner_jobs,
+		s.fairness.max_runner_jobs,
+		s.fairness.min_runner_share,
+		s.fairness.max_runner_share,
+		s.fairness.checksum,
 		s.queue.enqueue_attempts,
 		s.queue.enqueue_stopped_rejections,
 		s.queue.enqueue_full_rejections,
@@ -240,6 +288,71 @@ void enqueue_counted_job(
 		std::this_thread::yield();
 	}
 }
+class RunnerRecorder {
+	mutable mutex mtx_{};
+	std::vector<std::pair<std::thread::id, std::size_t>> counts_{};
+
+public:
+	void note_child() {
+		auto const id = std::this_thread::get_id();
+		std::scoped_lock lk{mtx_};
+		for (auto &[thread_id, count]: counts_) {
+			if (thread_id == id) {
+				++count;
+				return;
+			}
+		}
+		counts_.push_back({id, 1});
+	}
+	[[nodiscard]] WorkPoolFairnessStats snapshot(std::uint64_t checksum) const {
+		std::scoped_lock lk{mtx_};
+		WorkPoolFairnessStats out{.runner_threads = counts_.size(), .checksum = checksum};
+		if (counts_.empty()) {
+			return out;
+		}
+		out.min_runner_jobs = counts_.front().second;
+		out.max_runner_jobs = counts_.front().second;
+		for (auto const &[_, count]: counts_) {
+			out.child_jobs += count;
+			out.min_runner_jobs = min(out.min_runner_jobs, count);
+			out.max_runner_jobs = max(out.max_runner_jobs, count);
+		}
+		if (out.child_jobs != 0) {
+			auto const total = static_cast<double>(out.child_jobs);
+			out.min_runner_share = static_cast<double>(out.min_runner_jobs) / total;
+			out.max_runner_share = static_cast<double>(out.max_runner_jobs) / total;
+		}
+		return out;
+	}
+};
+[[nodiscard]] std::uint64_t burn_cpu_work(
+	std::size_t units,
+	std::uint64_t seed) noexcept {
+	auto x = seed + 0x9E3779B97F4A7C15ULL;
+	for (std::size_t i = 0; i < units; ++i) {
+		x ^= x >> 12U;
+		x ^= x << 25U;
+		x ^= x >> 27U;
+		x *= 0x2545F4914F6CDD1DULL;
+	}
+	return x;
+}
+void enqueue_counted_work_job(
+	WorkPool &pool,
+	RunnerRecorder &recorder,
+	std::atomic<std::size_t> &done,
+	std::atomic<std::uint64_t> &checksum,
+	std::size_t work_units,
+	std::uint64_t seed) {
+	while (!pool.enqueue([&recorder, &done, &checksum, work_units, seed] {
+		auto const value = burn_cpu_work(work_units, seed);
+		checksum.fetch_xor(value, memory_order_relaxed);
+		recorder.note_child();
+		done.fetch_add(1, memory_order_release);
+	})) {
+		std::this_thread::yield();
+	}
+}
 WorkPoolBenchStats bench_external_burst(
 	std::string_view cfg_name,
 	BenchQueueMode mode,
@@ -332,6 +445,56 @@ WorkPoolBenchStats bench_local_fanout(
 		pool.queue_stats()
     };
 }
+WorkPoolBenchStats bench_local_backlog_redistribution(
+	std::string_view cfg_name,
+	BenchQueueMode mode,
+	std::size_t threads,
+	std::size_t iters,
+	std::size_t warmup,
+	std::size_t work_units) {
+	std::size_t const worker_count = max(std::size_t{2}, threads);
+	std::size_t const local_capacity = max(max(std::size_t{1024}, iters + 2), warmup + 2);
+	WorkPool pool{
+		WorkPoolOptions{
+			.threads = worker_count,
+			.max_inject_queue = max(std::size_t{4096}, worker_count + 1),
+			.local_queue_capacity = local_capacity,
+			.queue_mode = pool_queue_mode(mode),
+		}
+    };
+	auto do_wave = [&](std::size_t n, bool record) -> WorkPoolFairnessStats {
+		std::atomic<std::size_t> done{0};
+		std::atomic<std::uint64_t> checksum{0};
+		RunnerRecorder recorder{};
+		auto [task, source] = root::make_task_source<int>();
+		auto queued = pool.enqueue([&pool, &done, &checksum, &recorder, n, work_units, s = move(source)]() mutable {
+			for (std::size_t i = 0; i < n; ++i) {
+				enqueue_counted_work_job(pool, recorder, done, checksum, work_units, i + 1);
+			}
+			auto _ = s.try_set_value(root::Success<int>{0});
+		});
+		if (!queued) {
+			return {};
+		}
+		auto _ = root::blocking_join(move(task));
+		wait_for_count(done, n);
+		if (!record) {
+			return {};
+		}
+		return recorder.snapshot(checksum.load(memory_order_relaxed));
+	};
+	do_wave(warmup + 1, false);
+	pool.reset_queue_stats();
+	std::uint64_t const t0 = bench_now_ns();
+	WorkPoolFairnessStats fairness = do_wave(iters, true);
+	std::uint64_t const elapsed = bench_now_ns() - t0;
+	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(iters);
+	return {
+		{cfg_name, local_backlog_redistribution_variant(mode), iters, elapsed, ns_pi, 1e9 / ns_pi},
+		pool.queue_stats(),
+		fairness
+    };
+}
 
 } // namespace
 int main(
@@ -350,12 +513,13 @@ int main(
 				cfgs += ',';
 			}
 			cfgs += format(
-				"{{\"name\":\"threads_{0}\",\"extra\":{{\"threads\":{0}"
+				"{{\"name\":\"threads_{0}\",\"extra\":{{\"threads\":{0},\"work_units\":2048"
 #ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
 				",\"queue_modes\":[\"stealing\",\"no_stealing\"]"
 #endif
 				"}},\"args\":[\"--threads\",\"{0}\","
-				"\"--config-name\",\"threads_{0}\",\"--iterations\",\"5000\",\"--warmup\",\"500\"]}}",
+				"\"--config-name\",\"threads_{0}\",\"--iterations\",\"5000\",\"--warmup\",\"500\","
+				"\"--work\",\"2048\"]}}",
 				ts[i]);
 		}
 		std::println(
@@ -371,6 +535,7 @@ int main(
 
 	auto cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
 	std::size_t threads = 1;
+	std::size_t work_units = 2048;
 	for (std::size_t i = 1; i < static_cast<std::size_t>(argc); ++i) {
 		std::string_view a = argv[i];
 		if (a == "--threads" && i + 1 < static_cast<std::size_t>(argc)) {
@@ -378,10 +543,13 @@ int main(
 			if (cfg.config_name.empty()) {
 				cfg.config_name = format("threads_{}", threads);
 			}
+		} else if (a == "--work" && i + 1 < static_cast<std::size_t>(argc)) {
+			work_units = bench_parse_sz(argv[++i]);
 		}
 	}
 
 	threads = max(std::size_t{1}, threads);
+	work_units = max(std::size_t{1}, work_units);
 #ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
 	WorkPoolBenchStats stats[] = {
 		bench_single_thread(cfg.config_name, BenchQueueMode::stealing, cfg.iterations, cfg.warmup),
@@ -392,6 +560,10 @@ int main(
 		bench_external_burst(cfg.config_name, BenchQueueMode::no_stealing, threads, cfg.iterations, cfg.warmup),
 		bench_local_fanout(cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup),
 		bench_local_fanout(cfg.config_name, BenchQueueMode::no_stealing, threads, cfg.iterations, cfg.warmup),
+		bench_local_backlog_redistribution(
+			cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup, work_units),
+		bench_local_backlog_redistribution(
+			cfg.config_name, BenchQueueMode::no_stealing, threads, cfg.iterations, cfg.warmup, work_units),
 	};
 #else
 	WorkPoolBenchStats stats[] = {
@@ -399,6 +571,8 @@ int main(
 		bench_contended(cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup),
 		bench_external_burst(cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup),
 		bench_local_fanout(cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup),
+		bench_local_backlog_redistribution(
+			cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup, work_units),
 	};
 #endif
 	for (std::size_t i = 0; i < std::size(stats); ++i) {

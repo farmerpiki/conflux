@@ -488,6 +488,9 @@ TEST_CASE(
 TEST_CASE(
 	"file_io: iopoll storage ring exposes storage-only fixed read path",
 	"[file_io][uring][iopoll]") {
+#if !CONFLUX_ENABLE_IOPOLL_STORAGE_TEST
+	SKIP("experimental IOPOLL/O_DIRECT storage-ring test disabled at build time");
+#else
 	IopollStorageRingOptions options{};
 	options.entries = 32;
 	options.fixed_buffer_slots = 2;
@@ -524,6 +527,7 @@ TEST_CASE(
 		}
 		throw;
 	}
+#endif
 }
 
 TEST_CASE(
@@ -1903,6 +1907,9 @@ TEST_CASE(
 }
 TEST_CASE(
 	"async_unsafe_send_zc_sent sends data (or gracefully unsupported)") {
+#if !CONFLUX_ENABLE_SEND_ZC
+	SKIP("experimental SEND_ZC disabled at build time");
+#else
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1927,9 +1934,13 @@ TEST_CASE(
 
 	bool const passed = ok || err == EOPNOTSUPP || err == EINVAL || err == ENOSYS;
 	CHECK(passed);
+#endif
 }
 TEST_CASE(
 	"async_send_zc completes after notification and data received") {
+#if !CONFLUX_ENABLE_SEND_ZC
+	SKIP("experimental SEND_ZC disabled at build time");
+#else
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1958,6 +1969,7 @@ TEST_CASE(
 		CHECK(recvd == payload.size());
 		CHECK(std::string_view{buf.data(), recvd} == payload);
 	}
+#endif
 }
 TEST_CASE(
 	"async_unlinkat removes file relative to dirfd") {

@@ -116,6 +116,12 @@ export [[nodiscard]] std::string flags_str(
 		if (c.recv_bundle && CONFLUX_ENABLE_RECV_BUNDLE) {
 			app("RECV_BUNDLE");
 		}
+		if (c.recv_incremental_buf && CONFLUX_ENABLE_RECV_INCREMENTAL_BUF) {
+			app("RECV_INCREMENTAL_BUF");
+		}
+		if (c.send_zc != "off" && CONFLUX_ENABLE_SEND_ZC) {
+			app("SEND_ZC");
+		}
 		if (c.auto_recv_arm_policy) {
 			app("AUTO_RECV_ARM");
 		}

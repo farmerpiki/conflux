@@ -22,12 +22,13 @@ plain blocking mutex acquisition and avoid the profiling `try_lock()` probe.
 
 ## Benchmark variants
 
-`workpool_queue_mode_compare` reports four queue-profile variants per config and per queue mode:
+`workpool_queue_mode_compare` reports five queue-profile variants per config and per queue mode:
 
 - `single_thread` — one external producer, one worker, one blocking join per job
 - `contended` — N external producers, N workers, one blocking join per job
 - `external_burst` — N external producers enqueue a synchronized burst of counted jobs; stresses admission/inject without per-job join throttling
 - `local_fanout` — one worker enqueues a fanout batch onto its local deque; stresses local deque locking and steal-victim probing
+- `local_backlog_redistribution` — one worker creates CPU-heavy local backlog, then measures whether peer workers help drain it; reports runner-thread count and max-runner share in `fairness`
 
 ## Profiling command
 
@@ -39,6 +40,7 @@ WORK_QUEUE_PRESET=perf-clang-libcxx \
 WORK_QUEUE_THREADS=16 \
 WORK_QUEUE_ITERATIONS=5000 \
 WORK_QUEUE_WARMUP=500 \
+WORK_QUEUE_WORK=2048 \
 WORK_QUEUE_REPS=5 \
   scripts/work_queue_contention_evidence.sh
 ```
@@ -54,7 +56,8 @@ Expected files:
 - `configure.log` and `build.log` — queue-stats build evidence.
 - `workpool_queue_mode_compare.raw.ndjson` — repeated raw benchmark rows.
 - `workpool_queue_mode_compare.summary.json` — per-config/variant timing medians,
-  aggregate queue counters, and admission/local/steal/futex rates per 1k jobs.
+  aggregate queue counters, fairness medians, and admission/local/steal/futex
+  rates per 1k jobs.
 - `manifest.json` — build dir, preset, thread/rep counts, commit/branch where
   available.
 
@@ -64,7 +67,7 @@ Manual equivalent:
 cmake --preset perf-clang-libcxx -DCONFLUX_WORK_QUEUE_STATS=ON
 cmake --build --preset perf-clang-libcxx --target conflux_workpool_queue_mode_compare_bench -j1
 /tmp/conflux/perf-clang-libcxx/benchmarks/conflux_workpool_queue_mode_compare_bench \
-  --threads 16 --iterations 5000 --warmup 500 --json
+  --threads 16 --iterations 5000 --warmup 500 --work 2048 --json
 ```
 
 For recorded runs:
@@ -84,7 +87,9 @@ SELECT variant,
        sum((extra->'queue'->>'admission_lock_contentions')::bigint) AS admission_contentions,
        sum((extra->'queue'->>'local_lock_contentions')::bigint) AS local_contentions,
        sum((extra->'queue'->>'steal_lock_contentions')::bigint) AS steal_contentions,
-       sum((extra->'queue'->>'futex_waits')::bigint) AS futex_waits
+       sum((extra->'queue'->>'futex_waits')::bigint) AS futex_waits,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY (extra->'fairness'->>'runner_threads')::double precision) AS med_runner_threads,
+       percentile_cont(0.5) WITHIN GROUP (ORDER BY (extra->'fairness'->>'max_runner_share')::double precision) AS med_max_runner_share
 FROM results
 WHERE run_id = :run_id
   AND benchmark = 'workpool_queue_mode_compare'
@@ -112,13 +117,12 @@ iterations showed `no_stealing` ahead on every current microprofile:
 | `local_fanout` | 1419.90 | 693.22 | 2.05x |
 
 No default queue-mode change is made from this evidence alone. The current
-`local_fanout` profile measures cheap queued-job throughput after one worker
-produces a local batch; it does not measure latency/fairness under expensive
-fanout, blocked workers, or uneven producer workers where victim stealing is the
-work-conserving mechanism. Treat `no_stealing` as the throughput-preferred mode
-for bounded independent offload work, and keep default `stealing` for general
-executor semantics until those redistribution profiles exist and support a
-default flip.
+post-gate run predates `local_backlog_redistribution`; rerun the wrapper before
+using the post-gate table to justify a default flip. Treat `no_stealing` as the
+throughput-preferred mode for bounded independent offload work, and keep default
+`stealing` for general executor semantics until the redistribution profile shows
+that losing victim stealing does not hurt work conservation under skewed local
+backlog.
 
 `admission_mtx_` remains the correctness gate for default stealing mode: it
 prevents `drain_and_stop()` from observing `pending_ == 0` while a racing enqueue

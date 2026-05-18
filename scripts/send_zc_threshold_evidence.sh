@@ -116,8 +116,8 @@ raw_ndjson="$ARTIFACT_DIR/send_zc_threshold.raw.ndjson"
 summary_json="$ARTIFACT_DIR/send_zc_threshold.summary.json"
 manifest_json="$ARTIFACT_DIR/manifest.json"
 
-printf 'configuring preset %s\n' "$PRESET"
-cmake --preset "$PRESET" > "$configure_log" 2>&1
+printf 'configuring preset %s with CONFLUX_ENABLE_EXPERIMENTAL=ON\n' "$PRESET"
+cmake --preset "$PRESET" -DCONFLUX_ENABLE_EXPERIMENTAL=ON > "$configure_log" 2>&1
 BUILD_DIR="$(sed -n 's/^-- Build files have been written to: //p' "$configure_log" | tail -1)"
 if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
 	printf 'configure failed; log=%s\n' "$configure_log" >&2

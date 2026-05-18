@@ -292,8 +292,8 @@ void HttpServer::shutdown() {
 							parent = impl_->wq_ring_fd_.load(memory_order_acquire);
 						}
 						std::uint32_t const wq_fd = wq_fd_for_ring(impl_->cfg, i, parent);
-						r.use_recv_incremental_buf = impl_->cfg.recv_incremental_buf;
-						r.use_recv_bundle = !impl_->cfg.recv_incremental_buf && impl_->cfg.recv_bundle && CONFLUX_ENABLE_RECV_BUNDLE;
+						r.use_recv_incremental_buf = impl_->cfg.recv_incremental_buf && CONFLUX_ENABLE_RECV_INCREMENTAL_BUF;
+						r.use_recv_bundle = !r.use_recv_incremental_buf && impl_->cfg.recv_bundle && CONFLUX_ENABLE_RECV_BUNDLE;
 						r.init(impl_->cfg.port, entries, impl_->uring_flags, wq_fd, impl_->cfg.no_mmap);
 						r.auto_recv_arm_policy = impl_->cfg.auto_recv_arm_policy;
 						r.busy_poll_us_ = static_cast<int>(impl_->cfg.busy_poll_us);
@@ -304,11 +304,15 @@ void HttpServer::shutdown() {
 						r.send_zc_threshold_ = impl_->cfg.send_zc_threshold;
 						r.send_zc_report_usage_ = impl_->cfg.send_zc_report_usage;
 						if (impl_->cfg.send_zc == "on") {
+#if !CONFLUX_ENABLE_SEND_ZC
+							throw std::runtime_error{"send_zc = on but experimental SEND_ZC is disabled at build time"};
+#else
 							if (!r.caps.send_zc)
 								throw std::runtime_error{"send_zc = on but kernel does not support IORING_OP_SEND_ZC"};
 							r.send_zc_enabled_ = true;
+#endif
 						} else if (impl_->cfg.send_zc == "auto") {
-							r.send_zc_enabled_ = r.caps.send_zc;
+							r.send_zc_enabled_ = CONFLUX_ENABLE_SEND_ZC && r.caps.send_zc;
 						}
 						if (impl_->cfg.attach_wq && i == 0) {
 							impl_->wq_ring_fd_.store(r.ring.ring_fd, memory_order_release);
