@@ -67,7 +67,15 @@ set_property(CACHE CONFLUX_PASSWORD_HASH_ARGON2_PROVIDER PROPERTY STRINGS AUTO S
 option(CONFLUX_WORK_CORO_FRAME_POOL "Enable pooled coroutine frame allocation for work Task/EagerChain frames" OFF)
 option(CONFLUX_WORK_ALLOC_STATS "Enable relaxed allocation counters for work.root task/control-block diagnostics" OFF)
 option(CONFLUX_WORK_QUEUE_STATS "Enable relaxed WorkPool queue/wake contention counters for profiling" OFF)
-option(CONFLUX_GCC_EAGER_MODULE_IMPORTS "Work around GCC module CMI lazy-load corruption by using -fno-module-lazy on GCC 16+" ON)
+option(CONFLUX_GCC_EAGER_MODULE_IMPORTS "Work around GCC module CMI lazy-load corruption by using -fno-module-lazy on GCC 15+" ON)
+
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+        AND CONFLUX_GCC_EAGER_MODULE_IMPORTS
+        AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "15")
+    if(NOT CMAKE_CXX_FLAGS MATCHES "(^| )-fno-module-lazy( |$)")
+        string(APPEND CMAKE_CXX_FLAGS " -fno-module-lazy")
+    endif()
+endif()
 option(CONFLUX_GCC_SUGGEST_ATTRIBUTES "Enable noisy GCC -Wsuggest-attribute=pure/const optimization hints" OFF)
 set(CONFLUX_JSON_USE_STDSIMD "AUTO" CACHE STRING "Use std::experimental::simd for JSON SIMD paths (AUTO|ON|OFF)")
 
@@ -687,6 +695,10 @@ target_sources(conflux_work
         src/work/carrier_timer.cxx
         src/work/root.cxx
         src/work.cxx
+)
+target_sources(conflux_work
+    PRIVATE
+        src/work_impl.cxx
 )
 target_compile_definitions(conflux_work
     PUBLIC CONFLUX_WORK_CARRIER_MODEL_A=$<BOOL:${CONFLUX_WORK_CARRIER_MODEL_A}>

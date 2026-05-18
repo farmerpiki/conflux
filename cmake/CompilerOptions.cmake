@@ -43,16 +43,6 @@ function(conflux_apply_compiler_options target)
             )
         endif()
 
-        # GCC 16.1 can fail while lazily deserializing already-built project CMIs
-        # with diagnostics such as "failed to read compiled module cluster" and
-        # "failed to load pendings".  Eager module import keeps the same module
-        # graph, but avoids the lazy CMI path that is failing here.  Keep this as
-        # a cache toggle so later GCC point releases can re-enable lazy imports
-        # without touching source.
-        if(CONFLUX_GCC_EAGER_MODULE_IMPORTS
-                AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL "16")
-            target_compile_options(${target} INTERFACE -fno-module-lazy)
-        endif()
     endif()
 
     # ── Clang 18 extras ──────────────────────────────────────────────────────
