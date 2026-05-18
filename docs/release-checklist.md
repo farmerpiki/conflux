@@ -75,3 +75,18 @@ Every release candidate note should include:
 - migration notes for renamed or removed public symbols;
 - security-impacting changes and mitigations;
 - benchmark artifact references for any performance claim.
+
+## Public preview cleanup
+
+Before tagging the first public preview:
+
+- compatibility alias cleanup is complete, or remaining aliases are explicitly
+  internal and not advertised;
+- public examples use final preview names only;
+- README can onboard a new user without sending them to TODO files;
+- release notes exist under `docs/releases/`;
+- Apache-2.0 license metadata, `SECURITY.md`, and contribution expectations are
+  present;
+- package components match the advertised preview scope in
+  `docs/component-map.md`;
+- proof/evidence artifacts are attached separately for the advertised scope.

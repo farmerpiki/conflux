@@ -20,8 +20,7 @@ import conflux.work.root;
 
 - `WorkPool` — thread-pool executor with direct stealing queues, direct inject/no_stealing rings, and selectable stealing/no_stealing queue modes
 - `RingLane` — io_uring-coupled single-threaded executor
-- `async_run_on(pool, fn) -> Task<T>` — submit a callable to a pool
-- `run_on_task(pool, fn) -> Task<T>` — compatibility alias for `async_run_on`
+- `async_run_on(pool, fn) -> Task<T>` — schedule work on a pool or lane
 - `join_all(tasks...) -> Task<std::tuple<Ts...>>` — wait for all tasks and
   return a tuple of successful values
 
@@ -355,17 +354,17 @@ fall back to the `blocking_join(...)` compatibility seam.
 
 Join and value APIs:
 
-- `blocking_join(Task<T>&&)` — explicit blocking compatibility join; waits for terminal state
-- `blocking_join(Owner&, Posted<T>&&)` — explicit blocking compatibility join; validates owner
-- `blocking_join(Driver&, Operation<T>&&)` — explicit blocking compatibility join; validates driver
-- `join(...)` — legacy compatibility alias over `blocking_join(...)`; retained until the final release-cleanup alias-removal pass
+- `blocking_join(Task<T>&&)` — explicit blocking join; waits for terminal state
+- `blocking_join(Owner&, Posted<T>&&)` — explicit blocking join; validates owner
+- `blocking_join(Driver&, Operation<T>&&)` — explicit blocking join; validates driver
+- `blocking_join(...)` — blocking wait for a task or join handle
 - `try_join_ready(...)` — ready-only join over the same result/handle overload
   set; returns `nullopt` if the task is still pending and does not consume it
 - `join_ready(...)` — ready-only join over the same result/handle overload set;
   throws `JoinError::not_ready` if the task is still pending
 - same overload set for `TaskJoinHandle<T>`, `PostedJoinHandle<T>`,
   `OperationJoinHandle<T>`
-- `value(...)` overloads use the explicit blocking compatibility seam
+- `value(...)` overloads use the explicit blocking join path
 
 Join handles are produced by:
 
@@ -526,8 +525,7 @@ Raw jobs submitted through `enqueue()` must not throw unless
 `raw_exception_sink` is configured. If a raw job throws and a sink is present,
 the sink receives the `std::exception_ptr`; exceptions thrown by the sink are
 suppressed. `async_run_on(pool, fn)` does not use this sink for normal callable
-failures because it reports them through the returned task. `run_on_task(...)` is a
-compatibility alias over the same implementation.
+failures because it reports them through the returned task.
 
 Blocking waits are not assisted by `WorkPool`. A job running on a pool worker
 must not synchronously wait for other work that is queued only to the same pool,

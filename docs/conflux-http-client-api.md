@@ -2,7 +2,7 @@
 
 `conflux::http::HttpClient` — blocking HTTP/1.1 user agent. TLS via OpenSSL (`https://`). One module, no extra deps.
 
-Also available: `async_send` — coroutine-based async transport backed by `SocketTaskRing`. `send_async` remains as a compatibility alias. HTTP and HTTPS (via `TcpTlsStream`). Happy Eyeballs (RFC 8305) staggered connect.
+Also available: `async_send` — coroutine-based async transport backed by `SocketTaskRing`. HTTP and HTTPS (via `TcpTlsStream`). Happy Eyeballs (RFC 8305) staggered connect.
 
 Status: **Blocking and async transports stable.** New connection per request (no pool, no keep-alive).
 
@@ -14,7 +14,7 @@ import conflux.net.http.client;   // first-contact client surface
 import conflux.net.http.types;    // HttpError, HttpTimeouts, HttpTelemetry, Url
 import conflux.net.http.request;  // ClientRequest, ClientRequest::Builder
 import conflux.net.client;        // HttpClient, HttpClientOptions, ClientResponse, ClientResult
-import conflux.net.async_client;  // async_send/send_async
+import conflux.net.async_client;  // async_send
 ```
 
 All public types live in namespace `conflux::http`.
@@ -290,7 +290,6 @@ public:
     explicit HttpClient(HttpClientOptions opts = {});
     HttpClientOptions const &options() const noexcept;
     ClientResult blocking_send(ClientRequest req) const;
-    ClientResult send_blocking(ClientRequest req) const; // compatibility alias
 };
 ```
 
@@ -309,7 +308,7 @@ Sequence:
 Method-specific:
 - `HEAD` skips body recv; final `body` is empty.
 
-`send_blocking(...)` remains exported as a compatibility alias. New code should call `blocking_send(...)`, because the implementation performs caller-thread socket/poll/TLS I/O and is not executor-backed.
+Use `blocking_send(...)` for caller-thread socket/poll/TLS I/O.
 
 ### Error mapping
 
@@ -380,7 +379,7 @@ conflux::http::async_send(
     ClientRequest const& req);
 ```
 
-Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all outlive the coroutine — do not destroy them while the task is suspended. `send_async(...)` is still exported as a compatibility alias.
+Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all outlive the coroutine; do not destroy them while the task is suspended.
 
 **Features:**
 
@@ -423,8 +422,7 @@ std::optional<http::ServerResponse>
 Router::dispatch_context(http::ServerRequest const&, RequestContext const&);
 ```
 
-`dispatch_async(...)` remains exported as a compatibility alias, but new code should call
-`dispatch_context(...)` because the function returns an optional response immediately and
+Use `dispatch_context(...)` because the function returns an optional response immediately and
 represents context/deferred route probing, not an awaitable async operation.
 
 ## Stability

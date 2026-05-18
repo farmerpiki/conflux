@@ -128,10 +128,9 @@ raw-syscall `blocking_*` definition. Do not rename them blindly.
 | `client_detail::do_blocking_request` | `src/net/client.cxx` | internal `blocking_request` or keep internal | Internal helper; rename only if public method changes. |
 | `proxy_sync` | `conflux.net.proxy` | `blocking_proxy` | Preferred name landed; old function remains as a compatibility alias. It calls `HttpClient::blocking_send`, so avoid using it on HTTP ring threads unless explicitly offloaded. Prefer `async_proxy` in context routes. |
 
-The old `todo/final syntax before release.md` text allowed broad high-level
-`blocking_*` convenience APIs. Current policy is narrower. Treat the execution
-model and this audit as canonical until that todo file is either rewritten or
-removed.
+The archived `docs/archive/final-syntax-before-release.md` text allowed broad
+high-level `blocking_*` convenience APIs. Current policy is narrower. Treat the
+execution model and this audit as canonical.
 
 ## Ordinary names that should stay ordinary
 

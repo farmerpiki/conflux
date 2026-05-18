@@ -65,10 +65,6 @@ function(conflux_apply_compiler_options target)
         )
     endif()
 
-    if(CONFLUX_SUPPRESS_DEPRECATION_WARNINGS)
-        target_compile_options(${target} INTERFACE -Wno-deprecated-declarations)
-    endif()
-
     # ── Sanitisers ────────────────────────────────────────────────────────────
     # hack: GCC 15.x ICE in tree_node (cp/module.cc:10037) when ASan or UBSan
     # is enabled alongside C++26 modules. CONFLUX_ENABLE_ASAN/UBSAN must be

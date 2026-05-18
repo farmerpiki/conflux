@@ -26,11 +26,13 @@ Explicit `CONFLUX_BUILD_*=ON/OFF` cache values override the bundle defaults.
 | `http-api-full` | API service with observability/spec output | `http-api` + observability + OpenAPI |
 | `web-server` | static/template/realtime web serving | HTTP server, static files, compression, realtime, templates |
 | `http-server-complete` | full HTTP stack without DB/SMTP/process/file-watch extras | HTTP server/client/proxy/vhost/policy/auth/observability/OpenAPI |
-| `complete` | all preset-controlled public components | HTTP, runtime, JSON, DB, SMTP, process, file-watch; JSON file/reflection remain opt-in |
+| `complete` | aggregate validation and local experimentation | HTTP, runtime, JSON, DB, SMTP, process, file-watch; JSON file/reflection remain opt-in |
 | `current` | development default mirroring the historical monolith | most runtime/HTTP/DB/SMTP components on; JSON file/reflection remain opt-in |
 
-Use narrow bundles when measuring build time or component boundaries. Use
-`current` only when intentionally testing the aggregate development surface.
+For first-contact public use, prefer `core`, `json`, `http-minimal`, `http-api`,
+and `pg` when PostgreSQL support is included in the release evidence. Use
+`complete` and `current` only when intentionally testing aggregate development
+surface area.
 
 ## Downstream CMake usage
 
@@ -87,8 +89,8 @@ scripts/run-package-config-smoke.sh \
 | `socket_io` | `conflux::socket_io` | `conflux.socket_io`, `conflux.socket_io.coro`, `conflux.socket_io.blocking` | `tests/socket_task_ring_test.cxx`, `tests/tcp_listener_test.cxx` |
 | `dns` | `conflux::dns` | `conflux.net.dns` | `tests/dns_codec_test.cxx`, `tests/dns_resolver_test.cxx` |
 | `process` | `conflux::process` | `conflux.process` | `examples/process_run.cxx`, `tests/process_test.cxx` |
-| `pg` | `conflux::pg` | `conflux.pg` alias module over PostgreSQL DB API | `docs/db-api.md`, `examples/db_basic.cxx`, `examples/db_pool.cxx` |
-| `db` | `conflux::db` | `conflux.db` and granular `conflux.db.*` modules; compatibility spelling for PostgreSQL API | `docs/db-api.md`, `examples/db_basic.cxx`, `examples/db_pool.cxx` |
+| `pg` | `conflux::pg` | `conflux.pg` PostgreSQL API | `docs/db-api.md`, `examples/db_basic.cxx`, `examples/db_pool.cxx` |
+| `db` | `conflux::db` | internal/compatibility implementation spelling for PostgreSQL API; not advertised for new public code | `docs/db-api.md` |
 | `smtp` | `conflux::smtp` | `conflux.net.smtp` | `tests/smtp_test.cxx` |
 | `umbrella` | `conflux::umbrella` | `conflux` | `README.md` |
 

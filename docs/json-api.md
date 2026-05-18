@@ -171,8 +171,8 @@ expected<Document, JsonFileError> blocking_parse_file(
 limit mirrors `JsonParseOptions::max_input_size`: default 128 MiB, explicit bound
 when supplied, or unbounded only when `max_input_size = no_limit`.
 
-The older `parse_file_at_sync` and `parse_file_sync` spellings remain available
-as pre-release compatibility aliases until the final public API cleanup.
+The preview API advertises `blocking_parse_file_at` and
+`blocking_parse_file` for file-backed parsing.
 
 ### JsonParseOptions
 

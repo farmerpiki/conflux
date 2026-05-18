@@ -1,9 +1,7 @@
 # Conflux DB API Reference
 
 - **Primary module:** `conflux.pg`
-- **Compatibility module:** `conflux.db`
 - **Primary namespace:** `conflux::pg`
-- **Compatibility namespace:** `conflux::db`
 - **Backend:** libpq (PostgreSQL)
 - **Configure/build gates:** `CONFLUX_ENABLE_DB` and `CONFLUX_BUILD_DB_POSTGRES`
 - **Compiled feature macro:** `CONFLUX_HAS_DB`
@@ -20,7 +18,9 @@ target_link_libraries(mytarget PRIVATE conflux::pg)
 
 Requires libpq. Configure must find `libpq`, `CONFLUX_ENABLE_DB` must be `ON`, and `CONFLUX_BUILD_DB_POSTGRES` must resolve enabled or the DB component is unavailable. When compiled, targets that link the DB component receive `CONFLUX_HAS_DB=1`.
 
-`conflux.pg` re-exports `conflux.db`; `conflux::pg` is a namespace alias to `conflux::db`. Existing `conflux.db` imports keep working until the final pre-v1 alias cleanup decision. New PostgreSQL-specific code should prefer `conflux.pg` / `conflux::pg`.
+Use `conflux.pg` / `conflux::pg` for public PostgreSQL code. The older
+`conflux.db` implementation spelling may remain internally while rename churn is
+evaluated, but it is not the advertised preview API.
 
 ---
 
