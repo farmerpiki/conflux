@@ -20,14 +20,18 @@ without touching the DB runtime or `recv_bundle.e2e`-adjacent HTTP/socket paths.
 
 ## Run direct evidence without the benchmark DB
 
-Use a disposable PostgreSQL database or schema. The benchmark creates a temporary
-`conflux_pipeline_bench` table on its connection, but integration tests create and
-mutate ordinary test tables, so keep this pointed at a test-only database.
+Use a disposable PostgreSQL database or schema that is separate from
+`conflux_bench`. The direct evidence lane does not need the benchmark recording
+schema, and keeping it on `conflux_db_evidence` prevents proof runs from sharing
+state with recorded benchmark results.
 
 ```sh
-PG_TEST_CONNINFO='host=localhost user=postgres dbname=conflux_test' \
-PG_CONNINFO='host=localhost user=postgres dbname=conflux_bench' \
+createdb -U postgres conflux_db_evidence
+
+PG_TEST_CONNINFO='host=localhost user=postgres dbname=conflux_db_evidence' \
+PG_CONNINFO='host=localhost user=postgres dbname=conflux_db_evidence' \
 DB_PIPELINE_PRESET=release-gcc-stdcxx \
+DB_PIPELINE_ARTIFACT_DIR=../evidence/db-pipeline \
 DB_PIPELINE_REPS=5 \
 scripts/db_pipeline_live_evidence.sh
 ```

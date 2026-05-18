@@ -75,7 +75,7 @@ TEST_CASE(
 	REQUIRE(r);
 	auto caps = detect_caps(*r);
 	if (!caps.resize_rings) {
-		SKIP("kernel lacks IORING_FEAT_RESIZE_RINGS");
+		SKIP("runtime io_uring_resize_rings probe failed");
 	}
 
 	std::uint32_t const before = r->ref().cq_entries();
@@ -95,7 +95,7 @@ TEST_CASE(
 	REQUIRE(r);
 	auto caps = detect_caps(*r);
 	if (!caps.resize_rings) {
-		SKIP("kernel lacks IORING_FEAT_RESIZE_RINGS");
+		SKIP("runtime io_uring_resize_rings probe failed");
 	}
 
 	std::uint32_t const sq = r->ref().sq_entries();
@@ -116,7 +116,7 @@ TEST_CASE(
 	REQUIRE(r);
 	auto caps = detect_caps(*r);
 	if (!caps.resize_rings) {
-		SKIP("kernel lacks IORING_FEAT_RESIZE_RINGS");
+		SKIP("runtime io_uring_resize_rings probe failed");
 	}
 
 	std::uint32_t const cq = r->ref().cq_entries();
@@ -135,7 +135,7 @@ TEST_CASE(
 	REQUIRE(r);
 	auto caps = detect_caps(*r);
 	if (!caps.resize_rings) {
-		SKIP("kernel lacks IORING_FEAT_RESIZE_RINGS");
+		SKIP("runtime io_uring_resize_rings probe failed");
 	}
 
 	std::uint32_t const cq = r->ref().cq_entries();
@@ -156,7 +156,7 @@ TEST_CASE(
 	REQUIRE(r);
 	auto caps = detect_caps(*r);
 	if (!caps.resize_rings) {
-		SKIP("kernel lacks IORING_FEAT_RESIZE_RINGS");
+		SKIP("runtime io_uring_resize_rings probe failed");
 	}
 	if (!caps.feat_nodrop) {
 		SKIP("overflow test requires NODROP to guarantee overflow list exists");

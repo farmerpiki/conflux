@@ -134,6 +134,25 @@ local sanitizer benchmark debugging, also set
 `CONFLUX_ALLOW_SANITIZED_BENCHMARKS=ON`. Treat either setting as a waiver, not as
 valid perf evidence.
 
+## DB pipeline evidence
+
+Use a separate PostgreSQL database for DB pipeline evidence so proof runs do not
+share state with the benchmark-recording database:
+
+```sh
+createdb -U postgres conflux_db_evidence
+
+PG_TEST_CONNINFO=postgresql:///postgres?user=postgres \
+PG_CONNINFO=postgresql:///conflux_db_evidence?user=postgres \
+DB_PIPELINE_PRESET=release-gcc-stdcxx \
+DB_PIPELINE_ARTIFACT_DIR=../evidence/db-pipeline \
+scripts/db_pipeline_live_evidence.sh
+```
+
+Keep `conflux_bench` for `scripts/bench_record.sh` result storage. The DB
+pipeline evidence script creates and drops its own measurement tables in the
+database named by `PG_CONNINFO`.
+
 ## Install/package lane
 
 The public component and package-target map is indexed in

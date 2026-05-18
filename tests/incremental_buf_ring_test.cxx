@@ -38,7 +38,7 @@ struct Rig {
 		, caps{conflux::uring::detect_caps(uring.ref())}
 		, ring{[&]() -> BufferRing {
 			if (!caps.feat_pbuf_ring_inc) {
-				SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
+				SKIP("kernel lacks IOU_PBUF_RING_INC");
 			}
 			return {
 				uring.ref(),
@@ -225,7 +225,7 @@ TEST_CASE(
 		auto r = conflux::uring::Ring::init(32, {});
 		REQUIRE(r);
 		if (!conflux::uring::detect_caps(r->ref()).feat_pbuf_ring_inc) {
-			SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
+			SKIP("kernel lacks IOU_PBUF_RING_INC");
 		}
 	}
 	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "inc_neg_res") == 42);
@@ -242,7 +242,7 @@ TEST_CASE(
 		auto r = conflux::uring::Ring::init(32, {});
 		REQUIRE(r);
 		if (!conflux::uring::detect_caps(r->ref()).feat_pbuf_ring_inc) {
-			SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
+			SKIP("kernel lacks IOU_PBUF_RING_INC");
 		}
 	}
 	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "inc_no_buf_flag") == 42);
@@ -269,7 +269,7 @@ TEST_CASE(
 		auto r = conflux::uring::Ring::init(32, {});
 		REQUIRE(r);
 		if (!conflux::uring::detect_caps(r->ref()).feat_pbuf_ring_inc) {
-			SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
+			SKIP("kernel lacks IOU_PBUF_RING_INC");
 		}
 	}
 	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "inc_bad_id") == 42);
@@ -286,7 +286,7 @@ TEST_CASE(
 		auto r = conflux::uring::Ring::init(32, {});
 		REQUIRE(r);
 		if (!conflux::uring::detect_caps(r->ref()).feat_pbuf_ring_inc) {
-			SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
+			SKIP("kernel lacks IOU_PBUF_RING_INC");
 		}
 	}
 	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "inc_len_overflow") == 42);
@@ -422,10 +422,10 @@ TEST_CASE(
 	};
 	REQUIRE_THROWS_AS(make_bad(), std::runtime_error);
 }
-// T7: Skip when kernel lacks IORING_FEAT_PBUF_RING_INC — Rig SKIP fires, this test
+// T7: Skip when kernel lacks IOU_PBUF_RING_INC — Rig SKIP fires, this test
 //     also verifies the basic ring mode is reported correctly when supported.
 TEST_CASE(
-	"incremental: skip when kernel lacks IORING_FEAT_PBUF_RING_INC",
+	"incremental: skip when kernel lacks IOU_PBUF_RING_INC",
 	"[incremental]") {
 	Rig rig{4, 32};
 	CHECK(rig.ring.mode() == BufferRingMode::incremental);

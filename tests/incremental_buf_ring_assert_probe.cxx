@@ -68,7 +68,7 @@ int main(
 		auto _ = buffer_slice_from_incremental_cqe(classic, 8, inc_flags(0, false));
 		return 0;
 	}
-	// Remaining probes need IORING_FEAT_PBUF_RING_INC.
+	// Remaining probes need IOU_PBUF_RING_INC.
 	{
 		auto r = conflux::uring::Ring::init(32, {});
 		if (!r) {

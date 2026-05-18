@@ -1706,15 +1706,6 @@ inline constexpr bool has_inc{true};
 inline constexpr unsigned inc{static_cast<unsigned>(IOU_PBUF_RING_INC)};
 
 } // namespace buf_ring_flags
-namespace feat_bits {
-
-#ifdef IORING_FEAT_PBUF_RING_INC
-inline constexpr std::uint32_t pbuf_ring_inc{IORING_FEAT_PBUF_RING_INC};
-#else
-inline constexpr std::uint32_t pbuf_ring_inc{0u};
-#endif
-
-} // namespace feat_bits
 // ── IoUringCaps ───────────────────────────────────────────────────────────────
 
 struct IoUringCaps {
@@ -1748,15 +1739,9 @@ struct IoUringCaps {
 	c.feat_nodrop = ring.has_feature(IORING_FEAT_NODROP);
 	c.feat_submit_stable = ring.has_feature(IORING_FEAT_SUBMIT_STABLE);
 	c.feat_recvsend_bundle = ring.has_feature(IORING_FEAT_RECVSEND_BUNDLE);
-#ifdef IORING_FEAT_PBUF_RING_INC
-	c.feat_pbuf_ring_inc = ring.has_feature(IORING_FEAT_PBUF_RING_INC);
-#endif
-#ifdef IORING_FEAT_RESIZE_RINGS
-	c.feat_resize_rings = ring.has_feature(IORING_FEAT_RESIZE_RINGS);
-#endif
-#ifdef IORING_FEAT_REG_BUF_CLONE
-	c.feat_reg_buf_clone = ring.has_feature(IORING_FEAT_REG_BUF_CLONE);
-#endif
+	c.feat_pbuf_ring_inc = CONFLUX_RUNTIME_HAS_IOU_PBUF_RING_INC != 0;
+	c.feat_resize_rings = CONFLUX_RUNTIME_HAS_IO_URING_RESIZE_RINGS != 0;
+	c.feat_reg_buf_clone = CONFLUX_RUNTIME_HAS_IO_URING_CLONE_BUFFERS != 0;
 	c.path_lifetime_stable = c.feat_submit_stable && !ring.is_sqpoll();
 	c.recvsend_bundle = c.feat_recvsend_bundle;
 	c.resize_rings = c.feat_resize_rings;

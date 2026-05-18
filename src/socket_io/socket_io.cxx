@@ -208,7 +208,7 @@ public:
 		, group_id_{opts.group_id}
 		, mode_{opts.mode} {
 		if (opts.mode == BufferRingMode::incremental && !caps.feat_pbuf_ring_inc) {
-			throw std::runtime_error{"BufferRingMode::incremental requires IORING_FEAT_PBUF_RING_INC (kernel 6.12+)"};
+			throw std::runtime_error{"BufferRingMode::incremental requires IOU_PBUF_RING_INC (kernel 6.12+)"};
 		}
 		if (count_ == 0
 			|| count_ > 32768U
@@ -242,7 +242,7 @@ public:
 		if (!built) {
 			slab_.reset();
 			if (built.error() == EINVAL && mode_ == BufferRingMode::incremental) {
-				throw std::runtime_error{"io_uring_setup_buf_ring: incremental mode requires kernel 6.12+ (IORING_FEAT_PBUF_RING_INC)"};
+				throw std::runtime_error{"io_uring_setup_buf_ring: incremental mode requires kernel 6.12+ (IOU_PBUF_RING_INC)"};
 			}
 			throw std::runtime_error{format("io_uring_setup_buf_ring failed: {}", built.error())};
 		}
