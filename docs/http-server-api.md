@@ -8,21 +8,25 @@
 ## Quick start
 
 ```cpp
+import std;
 import conflux.net.http.server;
 
-using namespace conflux;
-using namespace conflux::http;
+namespace http = conflux::http;
 
-auto router = Router{};
-router.get("/hello", [](HttpRequestView const&) -> HttpResponse {
-    return HttpResponse::text("hello world");
-});
+int main() {
+    auto app = http::App::default_server();
+    app.get("/hello", [](http::Request const&) {
+        return http::Response::text("hello world");
+    });
 
-ServerConfig cfg{};
-cfg.bind = "0.0.0.0:8080";
-auto server = HttpServer{cfg, std::move(router)};
-server.run();
+    auto const status = std::move(app).run({.port = 8080});
+    return status == http::RunStatus::stopped_normally ? 0 : 1;
+}
 ```
+
+Use `Router` + `HttpServer` directly when you need lower-level server ownership;
+use `http::App` for first-contact routes, middleware, WebSocket/SSE, and static
+file registration.
 
 ---
 
@@ -50,7 +54,7 @@ if (!status) {
 return static_cast<int>(*status);
 ```
 
-`config_from_ini_checked(path)` provides the same value-returning style for config load/parse errors. The existing `config_from_ini(path)` API remains available and throws `std::runtime_error` on failure.
+`try_config_from_ini(path)` provides the same value-returning style for config load/parse errors. `config_from_ini_checked(path)` remains as the older expected-returning spelling, and `config_from_ini(path)` throws `std::runtime_error` on failure.
 
 ---
 
@@ -131,14 +135,18 @@ HTTP/3 has a separate `[http3].max_body_size` knob; it defaults to the same
 
 ---
 
-## `HttpRequest` / `HttpRequestView`
+## Server request and response aliases
 
-`HttpRequestView` is the zero-copy view handed to synchronous handlers.
-`HttpRequest` is the owned variant used when request data may cross coroutine
-suspension or escape the ring-thread handler call.
+The first-contact server namespace exposes canonical aliases:
 
-Use `HttpRequestView` for synchronous handlers and `HttpRequest` for coroutine
-handlers or escaped request data.
+- `http::Request` / `http::RequestView`: zero-copy request view for synchronous handlers;
+- `http::OwnedRequest`: owned request for coroutine handlers or escaped request data;
+- `http::Response`: server response builder/factory type;
+- `http::RunStatus` / `http::ServerMetrics`: server run result and metric snapshot types.
+
+The underlying exported structs remain `HttpRequestView`, `HttpRequest`, and
+`HttpResponse` while the pre-v1 cleanup is still in progress. Prefer the
+`http::*` names in new docs and examples.
 
 ```cpp
 struct HttpRequest {
@@ -199,23 +207,23 @@ auto name = req.params["name"];
 auto page = req.query["page"];
 ```
 
-For parsed scalar access, use the typed helpers on `HttpRequestView` or
-`HttpRequest`. They return `std::expected<T, HttpFieldError>` and allocate error
+For parsed scalar access, use the typed helpers on `http::RequestView` or
+`http::OwnedRequest`. They return `std::expected<T, HttpFieldError>` and allocate error
 strings only on failure; successful numeric/bool parsing stays borrowed and
 `std::from_chars`-based.
 
 ```cpp
-router.get("/items/{id}", [](HttpRequestView const& req) -> HttpResponse {
+router.get("/items/{id}", [](http::Request const& req) -> http::Response {
     auto id = req.param_as<std::uint64_t>("id");
-    if (!id) return HttpResponse::text("bad id", 400, "Bad Request");
+    if (!id) return http::Response::text("bad id", 400);
 
     auto page = req.optional_query_as<std::uint32_t>("page");
-    if (!page) return HttpResponse::text(page.error().message, 400, "Bad Request");
+    if (!page) return http::Response::text(page.error().message, 400);
 
     auto debug = req.optional_header_as<bool>("x-debug");
-    if (!debug) return HttpResponse::text(debug.error().message, 400, "Bad Request");
+    if (!debug) return http::Response::text(debug.error().message, 400);
 
-    return HttpResponse::text(std::format("id={} page={} debug={}",
+    return http::Response::text(std::format("id={} page={} debug={}",
         *id,
         page->value_or(1),
         debug->value_or(false)));
@@ -335,7 +343,7 @@ public:
 Path patterns support `{param}` segment captures and `*` wildcards. Captures are
 accessible through `req.params["param"]`.
 
-The public concepts are intended for user helpers and diagnostics. `HttpRequestView` handlers are sync-only because a view may dangle after coroutine suspension. Async handlers must accept the owning `HttpRequest`. A synchronous handler may also accept `HttpRequest const&`; that deliberately materializes an owned request before the call, so prefer `HttpRequestView const&` unless ownership is needed.
+The public concepts are intended for user helpers and diagnostics. `http::Request` / `http::RequestView` handlers are sync-only because a view may dangle after coroutine suspension. Async handlers must accept `http::OwnedRequest`. A synchronous handler may also accept `http::OwnedRequest const&`; that deliberately materializes an owned request before the call, so prefer `http::Request const&` unless ownership is needed.
 
 ---
 
@@ -346,36 +354,43 @@ Coroutine handlers must accept the owning request type.
 
 ```cpp
 // Sync handler: runs inline on the HTTP ring thread and borrows the request.
-router.get("/ping", [](HttpRequestView const& req) -> HttpResponse {
-    return HttpResponse::text("pong");
+router.get("/ping", [](http::Request const& req) -> http::Response {
+    return http::Response::text("pong");
 });
 
 // Async handler: the request is owned before the task can suspend.
-router.post("/echo", [](HttpRequest const& req) -> root::Task<HttpResponse> {
-    co_return HttpResponse::text(req.body);
+router.post("/echo", [](http::OwnedRequest const& req) -> root::Task<http::Response> {
+    co_return http::Response::text(req.body);
 });
 
 // Explicit worker placement for blocking/heavy work.
 auto pool = std::make_shared<WorkPool>(WorkPoolOptions{.threads = 2});
-router.get("/slow", [pool](HttpRequestView const&) -> HttpResponse {
-    return conflux::http::defer(pool, [] {
-        return HttpResponse::text("done");
+router.get("/slow", [pool](http::Request const&) -> http::Response {
+    return http::defer(pool, [] {
+        return http::Response::text("done");
     });
 });
 ```
 
 ---
 
-## `HttpResponse`
+## `http::Response`
 
 ```cpp
 class HttpResponse {
 public:
+    static std::string_view status_text_for(int status) noexcept;
+    static HttpResponse with_body(std::string body, std::string content_type);
+    static HttpResponse with_body(std::string body, std::string content_type, int status);
+    static HttpResponse with_body(std::string body, std::string content_type, int status, std::string status_text);
     static HttpResponse text(std::string body);
+    static HttpResponse text(std::string body, int status);
     static HttpResponse text(std::string body, int status, std::string status_text);
     static HttpResponse html(std::string body);
+    static HttpResponse html(std::string body, int status);
     static HttpResponse html(std::string body, int status, std::string status_text);
     static HttpResponse json(std::string already_serialized_body);
+    static HttpResponse json(std::string already_serialized_body, int status);
     static HttpResponse json(std::string already_serialized_body, int status, std::string status_text);
     static HttpResponse redirect(std::string_view location, int status = 302);
     static HttpResponse not_found(std::string_view path = {});
@@ -395,6 +410,10 @@ public:
     static HttpResponse internal_error(std::string_view detail = {});
 };
 ```
+
+`http::Response::text/html/json(body, status)` fills the standard reason phrase
+for known status codes, so `text("bad", 400)` is enough for ordinary errors.
+Use the three-argument overload when a custom reason phrase is required.
 
 JSON response bodies are explicit raw strings at this layer. Structured JSON
 serialization belongs at the call site or in `conflux.net.http.response_json`
@@ -443,7 +462,7 @@ public:
 ## WebSocket
 
 ```cpp
-router.ws("/ws", [](HttpRequestView const& req, WsConn& ws) {
+app.ws("/ws", [](HttpRequestView const& req, WsConn& ws) {
     while (auto frame = ws.recv()) {
         if (frame->opcode == WsConn::Opcode::Text) {
             ws.send_text(frame->payload);
@@ -501,7 +520,7 @@ struct StaticOptions {
     bool                     allow_delete{false};
 };
 
-router.serve_static("/assets", "./public", StaticOptions{
+app.serve_static("/assets", "./public", StaticOptions{
     .precompressed = true,
     .cache_control = "max-age=86400, public",
 });
@@ -569,7 +588,7 @@ executor/work-pool placement, or raw syscall-style helpers whose `blocking_*`
 names advertise calling-thread blocking behavior. See `docs/execution-model.md` for the shared task/executor contract and
 `docs/concurrency-naming-model.md` for the code-review naming/placement guide.
 
-CPU pinning: set `ring_core` and `worker_core_base` in `ServerConfig`; benchmark context is tracked in [`../proposals/perf_ideas.md`](../proposals/perf_ideas.md).
+CPU pinning: set `ring_core` and `worker_core_base` in `Config`; benchmark context is tracked in [`../proposals/perf_ideas.md`](../proposals/perf_ideas.md).
 
 ---
 
@@ -644,12 +663,12 @@ In-flight requests are allowed to complete. New accepts stop immediately. A conf
 ## Error handlers
 
 ```cpp
-router.on_not_found([](HttpRequestView const& req) -> HttpResponse {
-    return HttpResponse::json(R"({"error":"not found"})", 404, "Not Found");
+router.on_not_found([](http::Request const& req) -> http::Response {
+    return http::Response::json(R"({"error":"not found"})", 404);
 });
 
-router.on_error([](HttpRequestView const& req, std::exception const& ex) -> HttpResponse {
+router.on_error([](http::Request const& req, std::exception const& ex) -> http::Response {
     // log ex, return 500
-    return HttpResponse::internal_error(ex.what());
+    return http::Response::internal_error(ex.what());
 });
 ```

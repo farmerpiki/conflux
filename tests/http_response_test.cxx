@@ -12,6 +12,7 @@ import conflux.file_map;
 import conflux.net.http.realtime;
 import conflux.net.http.response;
 
+namespace chttp = conflux::http;
 
 namespace {
 
@@ -38,6 +39,30 @@ void make_eventfd_nonblocking(
 }
 
 } // namespace
+
+TEST_CASE(
+	"http response: first-contact alias and status-code overloads are available",
+	"[http.response]") {
+	static_assert(std::same_as<chttp::Response, HttpResponse>);
+
+	CHECK(HttpResponse::status_text_for(kHttpBadRequest) == "Bad Request");
+	CHECK(HttpResponse::status_text_for(599).empty());
+
+	auto text = chttp::Response::text("bad", kHttpBadRequest);
+	CHECK(text.status == kHttpBadRequest);
+	CHECK(text.status_text == "Bad Request");
+	CHECK(text.text_body() == "bad");
+
+	auto json = chttp::Response::json("{}", kHttpCreated);
+	CHECK(json.status == kHttpCreated);
+	CHECK(json.status_text == "Created");
+	CHECK(json.content_type == "application/json");
+
+	auto custom = chttp::Response::with_body("x", "application/problem+json", 599);
+	CHECK(custom.status == 599);
+	CHECK(custom.status_text.empty());
+	CHECK(custom.content_type == "application/problem+json");
+}
 
 TEST_CASE(
 	"http response: factories escape detail strings in generated HTML bodies",
@@ -177,7 +202,6 @@ TEST_CASE(
 		CHECK(resp.deferred_response_ptr() == deferred);
 	}
 }
-
 
 TEST_CASE(
 	"http response: non-text body setters, accessors, and take helpers preserve variant boundaries",

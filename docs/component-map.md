@@ -99,7 +99,7 @@ scripts/run-package-config-smoke.sh \
 | Component | CMake target | Primary imports | Contract docs / examples |
 |---|---|---|---|
 | `http_parse_helpers` | `conflux::http_parse_helpers` | `conflux.net.http.parse_helpers` | `tests/http_server_helpers_test.cxx` |
-| `http_core` | `conflux::http_core` | `conflux.net.http.types`, `conflux.net.http.request` (`ClientRequest`), `conflux.net.http.server_types` (`HttpRequest`/`HttpRequestView`) | `docs/http-server-api.md` |
+| `http_core` | `conflux::http_core` | `conflux.net.http.types`, `conflux.net.http.request` (`ClientRequest`), `conflux.net.http.server_types` (`http::Request`/`http::OwnedRequest`/`http::RequestView`) | `docs/http-server-api.md` |
 | `http_response` | `conflux::http_response` | `conflux.net.http.response` | `tests/http_response_test.cxx` |
 | `http_json` | `conflux::http_json` | `conflux.net.http.json` | `docs/json-boundary-guide.md`, `tests/http_json_test.cxx` |
 | `http_response_json` | `conflux::http_response_json` | `conflux.net.http.response_json` | `docs/json-boundary-guide.md` |

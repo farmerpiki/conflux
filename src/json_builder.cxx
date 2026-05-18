@@ -87,7 +87,8 @@ expected<void, JsonError> ValueBuilder::set_string(
 	}
 	std::size_t const off = state_->built_input.size();
 	state_->built_input.append(sv.data(), sv.size());
-	return set_node(detail::make_string(static_cast<std::uint32_t>(off), static_cast<std::uint32_t>(sv.size()), kStorageInputView));
+	return set_node(
+		detail::make_string(static_cast<std::uint32_t>(off), static_cast<std::uint32_t>(sv.size()), kStorageInputView));
 }
 
 expected<void, JsonError> ValueBuilder::set_number(
@@ -251,7 +252,7 @@ expected<Document, JsonError> ValueBuilder::finish() && {
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::constraint_violation,
 				.message = (state_ != nullptr) && state_->child_active ? "child builder still active" :
-														 "root value was never set"});
+																		 "root value was never set"});
 	}
 	// Phase 1.5: transfer built_input → owned_input; node off/len with
 	// kStorageInputView point into the heap-stable buffer body. The
@@ -294,7 +295,10 @@ expected<void, JsonError> ObjectBuilder::do_insert_node(
 	std::size_t const name_off = st->built_input.size();
 	st->built_input.append(name.data(), name.size());
 	frame_.local_members.push_back(
-		{static_cast<std::uint32_t>(name_off), static_cast<std::uint32_t>(name.size()), static_cast<std::uint32_t>(node_idx), kStorageInputView});
+		{static_cast<std::uint32_t>(name_off),
+		 static_cast<std::uint32_t>(name.size()),
+		 static_cast<std::uint32_t>(node_idx),
+		 kStorageInputView});
 	return {};
 }
 expected<void, JsonError> ObjectBuilder::do_insert_node_view(
@@ -347,7 +351,10 @@ expected<void, JsonError> ObjectBuilder::insert_string(
 	std::size_t const off = st->built_input.size();
 	st->built_input.append(value.data(), value.size());
 	st->store.nodes.push_back(
-		detail::make_string(static_cast<std::uint32_t>(off), static_cast<std::uint32_t>(value.size()), kStorageInputView));
+		detail::make_string(
+			static_cast<std::uint32_t>(off),
+			static_cast<std::uint32_t>(value.size()),
+			kStorageInputView));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_string_checked(
@@ -393,7 +400,10 @@ expected<void, JsonError> ObjectBuilder::insert_string_borrowed_name(
 	std::size_t const off = st->built_input.size();
 	st->built_input.append(value.data(), value.size());
 	st->store.nodes.push_back(
-		detail::make_string(static_cast<std::uint32_t>(off), static_cast<std::uint32_t>(value.size()), kStorageInputView));
+		detail::make_string(
+			static_cast<std::uint32_t>(off),
+			static_cast<std::uint32_t>(value.size()),
+			kStorageInputView));
 	return do_insert_node_view(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_string_borrowed(
@@ -405,7 +415,8 @@ expected<void, JsonError> ObjectBuilder::insert_string_borrowed(
 	auto *st = frame_.state;
 	std::uint32_t const val_ptr_idx = static_cast<std::uint32_t>(st->store.external_ptrs_.size());
 	st->store.external_ptrs_.push_back(value.data());
-	st->store.nodes.push_back(detail::make_string(val_ptr_idx, static_cast<std::uint32_t>(value.size()), kValueExternalView));
+	st->store.nodes.push_back(
+		detail::make_string(val_ptr_idx, static_cast<std::uint32_t>(value.size()), kValueExternalView));
 	return do_insert_node_view(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_number(
@@ -449,7 +460,11 @@ expected<void, JsonError> ObjectBuilder::insert_i64(
 	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
 	std::size_t const len = st->built_input.size() - off;
 	st->store.nodes.push_back(
-		detail::make_number_int(static_cast<std::uint32_t>(off), static_cast<std::uint32_t>(len), kStorageInputView | kRawJsonSlice, v));
+		detail::make_number_int(
+			static_cast<std::uint32_t>(off),
+			static_cast<std::uint32_t>(len),
+			kStorageInputView | kRawJsonSlice,
+			v));
 	return do_insert_node(name, st->store.nodes.size() - 1);
 }
 expected<void, JsonError> ObjectBuilder::insert_u64(
@@ -519,7 +534,7 @@ expected<ObjectBuilder, JsonError> ObjectBuilder::insert_object(
 		return unexpected(move(ok).error());
 	}
 	// Duplicate check before any work (O(1) amortized via hash).
-	if (frame_.dup_check.contains(std::string{name})) {
+	if (frame_.dup_check.contains(name)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
@@ -550,7 +565,7 @@ expected<ArrayBuilder, JsonError> ObjectBuilder::insert_array(
 		return unexpected(move(ok).error());
 	}
 	// Duplicate check before any work (O(1) amortized via hash).
-	if (frame_.dup_check.contains(std::string{name})) {
+	if (frame_.dup_check.contains(name)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
@@ -619,7 +634,10 @@ expected<void, JsonError> ArrayBuilder::append_string(
 	std::size_t const off = st->built_input.size();
 	st->built_input.append(value.data(), value.size());
 	st->store.nodes.push_back(
-		detail::make_string(static_cast<std::uint32_t>(off), static_cast<std::uint32_t>(value.size()), kStorageInputView));
+		detail::make_string(
+			static_cast<std::uint32_t>(off),
+			static_cast<std::uint32_t>(value.size()),
+			kStorageInputView));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -667,7 +685,8 @@ expected<void, JsonError> ArrayBuilder::append_string_borrowed(
 	auto *st = frame_.state;
 	std::uint32_t const val_ptr_idx = static_cast<std::uint32_t>(st->store.external_ptrs_.size());
 	st->store.external_ptrs_.push_back(value.data());
-	st->store.nodes.push_back(detail::make_string(val_ptr_idx, static_cast<std::uint32_t>(value.size()), kValueExternalView));
+	st->store.nodes.push_back(
+		detail::make_string(val_ptr_idx, static_cast<std::uint32_t>(value.size()), kValueExternalView));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -719,7 +738,11 @@ expected<void, JsonError> ArrayBuilder::append_i64(
 	st->built_input.append(buf.data(), static_cast<std::size_t>(p - buf.data()));
 	std::size_t const len = st->built_input.size() - off;
 	st->store.nodes.push_back(
-		detail::make_number_int(static_cast<std::uint32_t>(off), static_cast<std::uint32_t>(len), kStorageInputView | kRawJsonSlice, v));
+		detail::make_number_int(
+			static_cast<std::uint32_t>(off),
+			static_cast<std::uint32_t>(len),
+			kStorageInputView | kRawJsonSlice,
+			v));
 	frame_.local_children.push_back(st->store.nodes.size() - 1);
 	return {};
 }
@@ -840,22 +863,13 @@ ValueBuilder value_builder() {
 namespace detail {
 
 expected<void, JsonError> copy_node_into(ValueBuilder &out, NodeRef node);
-expected<void, JsonError> copy_node_into(
-	ObjectBuilder &out,
-	std::string_view name,
-	NodeRef node);
+expected<void, JsonError> copy_node_into(ObjectBuilder &out, std::string_view name, NodeRef node);
 expected<void, JsonError> copy_node_into(ArrayBuilder &out, NodeRef node);
-expected<void, JsonError> merge_patch_into(
-	ValueBuilder &out,
-	NodeRef target,
-	NodeRef patch);
-expected<void, JsonError> merge_patch_into(
-	ObjectBuilder &out,
-	std::string_view name,
-	NodeRef target,
-	NodeRef patch);
+expected<void, JsonError> merge_patch_into(ValueBuilder &out, NodeRef target, NodeRef patch);
+expected<void, JsonError> merge_patch_into(ObjectBuilder &out, std::string_view name, NodeRef target, NodeRef patch);
 
-[[nodiscard]] JsonError merge_patch_wrong_kind(JsonKind actual) {
+[[nodiscard]] JsonError merge_patch_wrong_kind(
+	JsonKind actual) {
 	return JsonError{
 		.stage = JsonStage::build,
 		.code = JsonIssueCode::wrong_kind,
@@ -864,7 +878,9 @@ expected<void, JsonError> merge_patch_into(
 		.message = "expected object while applying JSON merge patch"};
 }
 
-expected<void, JsonError> copy_members_into(ObjectBuilder &out, ObjectView obj) {
+expected<void, JsonError> copy_members_into(
+	ObjectBuilder &out,
+	ObjectView obj) {
 	for (auto const &[name, value]: obj.members()) {
 		if (auto ok = copy_node_into(out, name, value); !ok) {
 			return ok;
@@ -873,7 +889,9 @@ expected<void, JsonError> copy_members_into(ObjectBuilder &out, ObjectView obj) 
 	return {};
 }
 
-expected<void, JsonError> copy_elements_into(ArrayBuilder &out, ArrayView arr) {
+expected<void, JsonError> copy_elements_into(
+	ArrayBuilder &out,
+	ArrayView arr) {
 	for (auto value: arr.elements()) {
 		if (auto ok = copy_node_into(out, value); !ok) {
 			return ok;
@@ -882,13 +900,15 @@ expected<void, JsonError> copy_elements_into(ArrayBuilder &out, ArrayView arr) {
 	return {};
 }
 
-expected<void, JsonError> copy_node_into(ValueBuilder &out, NodeRef node) {
+expected<void, JsonError> copy_node_into(
+	ValueBuilder &out,
+	NodeRef node) {
 	switch (node.kind()) {
 	case JsonKind::null   : return out.set_null();
 	case JsonKind::boolean: return out.set_bool(*node.as_bool());
 	case JsonKind::string : return out.set_string(*node.as_string());
 	case JsonKind::number : return out.set_number(node.as_number()->lexeme());
-	case JsonKind::array  :
+	case JsonKind::array:
 		{
 			auto arr = node.as_array();
 			if (!arr) {
@@ -933,7 +953,7 @@ expected<void, JsonError> copy_node_into(
 	case JsonKind::boolean: return out.insert_bool(name, *node.as_bool());
 	case JsonKind::string : return out.insert_string(name, *node.as_string());
 	case JsonKind::number : return out.insert_number(name, node.as_number()->lexeme());
-	case JsonKind::array  :
+	case JsonKind::array:
 		{
 			auto arr = node.as_array();
 			if (!arr) {
@@ -969,13 +989,15 @@ expected<void, JsonError> copy_node_into(
 	return unexpected(merge_patch_wrong_kind(node.kind()));
 }
 
-expected<void, JsonError> copy_node_into(ArrayBuilder &out, NodeRef node) {
+expected<void, JsonError> copy_node_into(
+	ArrayBuilder &out,
+	NodeRef node) {
 	switch (node.kind()) {
 	case JsonKind::null   : return out.append_null();
 	case JsonKind::boolean: return out.append_bool(*node.as_bool());
 	case JsonKind::string : return out.append_string(*node.as_string());
 	case JsonKind::number : return out.append_number(node.as_number()->lexeme());
-	case JsonKind::array  :
+	case JsonKind::array:
 		{
 			auto arr = node.as_array();
 			if (!arr) {

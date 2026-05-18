@@ -41,11 +41,11 @@ export struct StaticCacheKeyView {
 
 export struct StaticCacheKeyHash {
 	using is_transparent = void;
-	[[nodiscard]] std::size_t operator()(
+	[[nodiscard]] std::size_t operator ()(
 		StaticCacheKey const &key) const noexcept {
 		return (*this)(StaticCacheKeyView{key.path, key.content_encoding});
 	}
-	[[nodiscard]] std::size_t operator()(
+	[[nodiscard]] std::size_t operator ()(
 		StaticCacheKeyView key) const noexcept {
 		auto const h1 = hash<std::string_view>{}(key.path);
 		auto const h2 = hash<std::string_view>{}(key.content_encoding);
@@ -55,17 +55,17 @@ export struct StaticCacheKeyHash {
 
 export struct StaticCacheKeyEqual {
 	using is_transparent = void;
-	[[nodiscard]] bool operator()(
+	[[nodiscard]] bool operator ()(
 		StaticCacheKey const &a,
 		StaticCacheKey const &b) const noexcept {
 		return a.path == b.path && a.content_encoding == b.content_encoding;
 	}
-	[[nodiscard]] bool operator()(
+	[[nodiscard]] bool operator ()(
 		StaticCacheKey const &a,
 		StaticCacheKeyView b) const noexcept {
 		return a.path == b.path && a.content_encoding == b.content_encoding;
 	}
-	[[nodiscard]] bool operator()(
+	[[nodiscard]] bool operator ()(
 		StaticCacheKeyView a,
 		StaticCacheKey const &b) const noexcept {
 		return a.path == b.path && a.content_encoding == b.content_encoding;
@@ -77,23 +77,32 @@ export struct StaticCacheStore {
 	std::unordered_map<StaticCacheKey, StaticCacheEntry, StaticCacheKeyHash, StaticCacheKeyEqual> entries;
 	std::size_t total_bytes{};
 	std::uint64_t tick{};
-	[[nodiscard]] std::optional<StaticCacheEntry> get(
+	template<class F>
+	[[nodiscard]] auto with_cached(
 		std::string_view path,
 		std::string_view content_encoding,
-		struct ::stat const &st) {
+		struct ::stat const &st,
+		F &&fn) {
+		using Result = std::remove_cvref_t<std::invoke_result_t<F, StaticCacheEntry const &>>;
 		std::scoped_lock const lk{mtx};
 		auto it = entries.find(StaticCacheKeyView{path, content_encoding});
 		if (it == entries.end()) {
-			return nullopt;
+			return std::optional<Result>{};
 		}
 		auto &e = it->second;
 		if (e.size != st.st_size || e.mtime != st.st_mtime || e.dev != st.st_dev || e.ino != st.st_ino) {
 			total_bytes -= e.body.size();
 			entries.erase(it);
-			return nullopt;
+			return std::optional<Result>{};
 		}
 		e.tick = ++tick;
-		return e;
+		return std::optional<Result>{std::in_place, std::forward<F>(fn)(e)};
+	}
+	[[nodiscard]] std::optional<StaticCacheEntry> get(
+		std::string_view path,
+		std::string_view content_encoding,
+		struct ::stat const &st) {
+		return with_cached(path, content_encoding, st, [](StaticCacheEntry const &entry) { return entry; });
 	}
 	void put(
 		std::string path,

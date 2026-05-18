@@ -27,6 +27,42 @@ struct RespCacheEntry {
 	HttpResponse resp;
 	std::chrono::steady_clock::time_point expires;
 };
+
+struct TransparentStringHash {
+	using is_transparent = void;
+	[[nodiscard]] std::size_t operator ()(
+		std::string_view value) const noexcept {
+		return hash<std::string_view>{}(value);
+	}
+	[[nodiscard]] std::size_t operator ()(
+		std::string const &value) const noexcept {
+		return operator ()(std::string_view{value});
+	}
+};
+
+struct TransparentStringEqual {
+	using is_transparent = void;
+	[[nodiscard]] bool operator ()(
+		std::string_view lhs,
+		std::string_view rhs) const noexcept {
+		return lhs == rhs;
+	}
+	[[nodiscard]] bool operator ()(
+		std::string const &lhs,
+		std::string_view rhs) const noexcept {
+		return std::string_view{lhs} == rhs;
+	}
+	[[nodiscard]] bool operator ()(
+		std::string_view lhs,
+		std::string const &rhs) const noexcept {
+		return lhs == std::string_view{rhs};
+	}
+	[[nodiscard]] bool operator ()(
+		std::string const &lhs,
+		std::string const &rhs) const noexcept {
+		return lhs == rhs;
+	}
+};
 // LRU cache: module-scope (not exported, not anonymous-namespace).
 class RespLruCache {
 public:
@@ -74,7 +110,7 @@ public:
 			if (order_.empty()) {
 				return;
 			}
-		auto const &lru = order_.back();
+			auto const &lru = order_.back();
 			total_bytes_ -= map_.at(lru).resp.text_body().size();
 			map_.erase(lru);
 			iters_.erase(lru);
@@ -86,14 +122,14 @@ public:
 		map_.emplace(key, move(entry));
 	}
 	[[nodiscard]] std::vector<std::string> const *vary_for(
-		std::string const &path) const {
+		std::string_view path) const {
 		auto it = path_vary_.find(path);
 		return it == path_vary_.end() ? nullptr : &it->second;
 	}
 	void set_vary(
-		std::string const &path,
+		std::string_view path,
 		std::vector<std::string> headers) {
-		path_vary_[path] = move(headers);
+		path_vary_[std::string{path}] = move(headers);
 	}
 
 private:
@@ -103,7 +139,7 @@ private:
 	std::list<std::string> order_;
 	std::unordered_map<std::string, std::list<std::string>::iterator> iters_;
 	std::unordered_map<std::string, RespCacheEntry> map_;
-	std::unordered_map<std::string, std::vector<std::string>> path_vary_;
+	std::unordered_map<std::string, std::vector<std::string>, TransparentStringHash, TransparentStringEqual> path_vary_;
 };
 namespace response_cache_detail {
 
@@ -179,29 +215,49 @@ std::vector<std::string> parse_vary(
 	out.erase(dup.begin(), dup.end());
 	return out;
 }
+void append_len_field(
+	std::string &out,
+	std::size_t value) {
+	std::array<char, 20> buf{};
+	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value);
+	(void)ec;
+	out.append(buf.data(), static_cast<std::size_t>(ptr - buf.data()));
+	out.push_back(':');
+}
 std::string build_cache_key(
 	std::string_view path,
 	HttpFieldsView const &query,
-	std::vector<std::string> const &vary,
+	std::span<std::string const> vary,
 	HttpFieldsView const &req_headers) {
-	std::string key{path};
+	std::size_t capacity = path.size();
+	if (!query.empty()) {
+		capacity += 3;
+		for (auto const &[name, value]: query) {
+			capacity += name.size() + value.size() + 42;
+		}
+	}
+	for (auto const &h: vary) {
+		capacity += h.size() + req_headers[h].size() + 2;
+	}
+
+	std::string key;
+	key.reserve(capacity);
+	key.append(path.data(), path.size());
 	if (!query.empty()) {
 		key += "|q:";
 		for (auto const &[name, value]: query) {
-			key += format("{}:", name.size());
-			key += name;
-			key += format("{}:", value.size());
-			key += value;
+			append_len_field(key, name.size());
+			key.append(name.data(), name.size());
+			append_len_field(key, value.size());
+			key.append(value.data(), value.size());
 		}
 	}
-	if (vary.empty()) {
-		return key;
-	}
 	for (auto const &h: vary) {
-		key += '|';
+		key.push_back('|');
 		key += h;
-		key += '=';
-		key += req_headers[h];
+		key.push_back('=');
+		auto const header = req_headers[h];
+		key.append(header.data(), header.size());
 	}
 	return key;
 }
@@ -218,13 +274,14 @@ export Router::Middleware response_cache_middleware(
 			return next(req);
 		}
 
-		std::string const path{req.path};
+		std::string_view const path{req.path};
 
 		{
 			std::scoped_lock const lk{*mtx};
 			auto const *vary = cache->vary_for(path);
-			auto const lookup_key =
-				response_cache_detail::build_cache_key(path, req.query, vary ? *vary : std::vector<std::string>{}, req.headers);
+			std::span<std::string const> const vary_headers =
+				vary ? std::span<std::string const>{*vary} : std::span<std::string const>{};
+			auto const lookup_key = response_cache_detail::build_cache_key(path, req.query, vary_headers, req.headers);
 			auto const *entry = cache->get(lookup_key);
 			if (entry != nullptr) {
 				auto resp = entry->resp;

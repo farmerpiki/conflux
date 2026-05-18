@@ -11,6 +11,7 @@ import conflux.net.router;
 import conflux.net.http_server;
 import conflux.work;
 export namespace conflux::http {
+
 template<typename Fn>
 	requires(std::invocable<Fn &> && same_as<std::invoke_result_t<Fn &>, HttpResponse>)
 [[nodiscard]] HttpResponse defer(
@@ -105,7 +106,7 @@ public:
 		return *this;
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	App &get_context(
 		std::string_view path,
 		F &&handler) {
@@ -113,7 +114,7 @@ public:
 		return *this;
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	App &post_context(
 		std::string_view path,
 		F &&handler) {
@@ -121,7 +122,7 @@ public:
 		return *this;
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	App &put_context(
 		std::string_view path,
 		F &&handler) {
@@ -129,7 +130,7 @@ public:
 		return *this;
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	App &patch_context(
 		std::string_view path,
 		F &&handler) {
@@ -137,7 +138,7 @@ public:
 		return *this;
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	App &del_context(
 		std::string_view path,
 		F &&handler) {
@@ -145,7 +146,7 @@ public:
 		return *this;
 	}
 	template<typename F>
-	requires ContextHandlerFunction<F>
+		requires ContextHandlerFunction<F>
 	App &options_context(
 		std::string_view path,
 		F &&handler) {
@@ -163,6 +164,20 @@ public:
 		std::string_view path,
 		F &&handler) {
 		router_.sse(path, forward<F>(handler));
+		return *this;
+	}
+	template<typename F>
+	App &ws(
+		std::string_view path,
+		F &&handler) {
+		router_.ws(path, forward<F>(handler));
+		return *this;
+	}
+	App &serve_static(
+		std::string_view url_prefix,
+		std::string root_dir,
+		StaticOptions const &sopts = {}) {
+		router_.serve_static(url_prefix, move(root_dir), sopts);
 		return *this;
 	}
 	template<typename F>

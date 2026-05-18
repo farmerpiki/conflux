@@ -53,8 +53,13 @@ export struct HttpResponse {
 		deferred,
 	};
 
-	using BodyPayload =
-		variant<std::string, std::shared_ptr<SseChannel>, std::shared_ptr<WsUpgrade>, std::shared_ptr<MappedBody>, std::shared_ptr<StreamedFile>, std::shared_ptr<DeferredResponse>>;
+	using BodyPayload = variant<
+		std::string,
+		std::shared_ptr<SseChannel>,
+		std::shared_ptr<WsUpgrade>,
+		std::shared_ptr<MappedBody>,
+		std::shared_ptr<StreamedFile>,
+		std::shared_ptr<DeferredResponse>>;
 
 	int status = kHttpOk;
 	std::string status_text = "OK";
@@ -198,65 +203,101 @@ export struct HttpResponse {
 		}
 		return text_body().size();
 	}
-	[[nodiscard]] static HttpResponse html(
-		std::string body) {
-		HttpResponse r;
-		r.status = kHttpOk;
-		r.status_text = "OK";
-		r.content_type = "text/html; charset=utf-8";
-		r.set_text_body(move(body));
-		return r;
+	[[nodiscard]] static std::string_view status_text_for(
+		int status) noexcept {
+		switch (status) {
+		case kHttpOk                         : return "OK";
+		case kHttpCreated                    : return "Created";
+		case kHttpNoContent                  : return "No Content";
+		case kHttpPartialContent             : return "Partial Content";
+		case kHttpMovedPermanently           : return "Moved Permanently";
+		case kHttpFound                      : return "Found";
+		case kHttpNotModified                : return "Not Modified";
+		case kHttpTemporaryRedirect          : return "Temporary Redirect";
+		case kHttpPermanentRedirect          : return "Permanent Redirect";
+		case kHttpBadRequest                 : return "Bad Request";
+		case kHttpUnauthorized               : return "Unauthorized";
+		case kHttpForbidden                  : return "Forbidden";
+		case kHttpNotFound                   : return "Not Found";
+		case kHttpMethodNotAllowed           : return "Method Not Allowed";
+		case kHttpRequestEntityTooLarge      : return "Content Too Large";
+		case kHttpUriTooLong                 : return "URI Too Long";
+		case kHttpRangeNotSatisfiable        : return "Range Not Satisfiable";
+		case kHttpUnprocessableEntity        : return "Unprocessable Entity";
+		case kHttpRequestHeaderFieldsTooLarge: return "Request Header Fields Too Large";
+		case kHttpInternalServerError        : return "Internal Server Error";
+		case kHttpBadGateway                 : return "Bad Gateway";
+		case kHttpGatewayTimeout             : return "Gateway Timeout";
+		default                              : return {};
+		}
 	}
-	[[nodiscard]] static HttpResponse html(
+	[[nodiscard]] static HttpResponse with_body(
 		std::string body,
+		std::string content_type) {
+		return with_body(move(body), move(content_type), kHttpOk);
+	}
+	[[nodiscard]] static HttpResponse with_body(
+		std::string body,
+		std::string content_type,
+		int status) {
+		return with_body(move(body), move(content_type), status, std::string{status_text_for(status)});
+	}
+	[[nodiscard]] static HttpResponse with_body(
+		std::string body,
+		std::string content_type,
 		int status,
 		std::string status_text) {
 		HttpResponse r;
 		r.status = status;
 		r.status_text = move(status_text);
-		r.content_type = "text/html; charset=utf-8";
+		r.content_type = move(content_type);
 		r.set_text_body(move(body));
 		return r;
+	}
+	[[nodiscard]] static HttpResponse html(
+		std::string body) {
+		return html(move(body), kHttpOk);
+	}
+	[[nodiscard]] static HttpResponse html(
+		std::string body,
+		int status) {
+		return html(move(body), status, std::string{status_text_for(status)});
+	}
+	[[nodiscard]] static HttpResponse html(
+		std::string body,
+		int status,
+		std::string status_text) {
+		return with_body(move(body), "text/html; charset=utf-8", status, move(status_text));
 	}
 	[[nodiscard]] static HttpResponse json(
 		std::string body) {
-		HttpResponse r;
-		r.status = kHttpOk;
-		r.status_text = "OK";
-		r.content_type = "application/json";
-		r.set_text_body(move(body));
-		return r;
+		return json(move(body), kHttpOk);
+	}
+	[[nodiscard]] static HttpResponse json(
+		std::string body,
+		int status) {
+		return json(move(body), status, std::string{status_text_for(status)});
 	}
 	[[nodiscard]] static HttpResponse json(
 		std::string body,
 		int status,
 		std::string status_text) {
-		HttpResponse r;
-		r.status = status;
-		r.status_text = move(status_text);
-		r.content_type = "application/json";
-		r.set_text_body(move(body));
-		return r;
+		return with_body(move(body), "application/json", status, move(status_text));
 	}
 	[[nodiscard]] static HttpResponse text(
 		std::string body) {
-		HttpResponse r;
-		r.status = kHttpOk;
-		r.status_text = "OK";
-		r.content_type = "text/plain; charset=utf-8";
-		r.set_text_body(move(body));
-		return r;
+		return text(move(body), kHttpOk);
+	}
+	[[nodiscard]] static HttpResponse text(
+		std::string body,
+		int status) {
+		return text(move(body), status, std::string{status_text_for(status)});
 	}
 	[[nodiscard]] static HttpResponse text(
 		std::string body,
 		int status,
 		std::string status_text) {
-		HttpResponse r;
-		r.status = status;
-		r.status_text = move(status_text);
-		r.content_type = "text/plain; charset=utf-8";
-		r.set_text_body(move(body));
-		return r;
+		return with_body(move(body), "text/plain; charset=utf-8", status, move(status_text));
 	}
 	[[nodiscard]] static HttpResponse redirect(
 		std::string_view location,
@@ -278,14 +319,16 @@ export struct HttpResponse {
 		r.status = kHttpNotFound;
 		r.status_text = "Not Found";
 		r.content_type = "text/html; charset=utf-8";
-		r.set_text_body(format("<html><body><h1>404 Not Found</h1><p>{}</p></body></html>", response_html_escape(path)));
+		r.set_text_body(
+			format("<html><body><h1>404 Not Found</h1><p>{}</p></body></html>", response_html_escape(path)));
 		return r;
 	}
 	[[nodiscard]] static HttpResponse bad_request(
 		std::string_view detail = {}) {
-		auto body = detail.empty() ?
-						std::string{"<html><body><h1>400 Bad Request</h1></body></html>"} :
-						format("<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>", response_html_escape(detail));
+		auto body =
+			detail.empty() ?
+				std::string{"<html><body><h1>400 Bad Request</h1></body></html>"} :
+				format("<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>", response_html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpBadRequest;
 		r.status_text = "Bad Request";
@@ -307,9 +350,10 @@ export struct HttpResponse {
 	}
 	[[nodiscard]] static HttpResponse forbidden(
 		std::string_view detail = {}) {
-		auto body = detail.empty() ?
-						std::string{"<html><body><h1>403 Forbidden</h1></body></html>"} :
-						format("<html><body><h1>403 Forbidden</h1><p>{}</p></body></html>", response_html_escape(detail));
+		auto body =
+			detail.empty() ?
+				std::string{"<html><body><h1>403 Forbidden</h1></body></html>"} :
+				format("<html><body><h1>403 Forbidden</h1><p>{}</p></body></html>", response_html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpForbidden;
 		r.status_text = "Forbidden";
@@ -338,10 +382,10 @@ export struct HttpResponse {
 	}
 	[[nodiscard]] static HttpResponse unprocessable_entity(
 		std::string_view detail = {}) {
-		auto body =
-			detail.empty() ?
-				std::string{"<html><body><h1>422 Unprocessable Entity</h1></body></html>"} :
-				format("<html><body><h1>422 Unprocessable Entity</h1><p>{}</p></body></html>", response_html_escape(detail));
+		auto body = detail.empty() ? std::string{"<html><body><h1>422 Unprocessable Entity</h1></body></html>"} :
+									 format(
+										 "<html><body><h1>422 Unprocessable Entity</h1><p>{}</p></body></html>",
+										 response_html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpUnprocessableEntity;
 		r.status_text = "Unprocessable Entity";
@@ -396,10 +440,10 @@ export struct HttpResponse {
 	}
 	[[nodiscard]] static HttpResponse internal_error(
 		std::string_view detail = {}) {
-		auto body =
-			detail.empty() ?
-				std::string{"<html><body><h1>500 Internal Server Error</h1></body></html>"} :
-				format("<html><body><h1>500 Internal Server Error</h1><p>{}</p></body></html>", response_html_escape(detail));
+		auto body = detail.empty() ? std::string{"<html><body><h1>500 Internal Server Error</h1></body></html>"} :
+									 format(
+										 "<html><body><h1>500 Internal Server Error</h1><p>{}</p></body></html>",
+										 response_html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpInternalServerError;
 		r.status_text = "Internal Server Error";
@@ -464,6 +508,13 @@ export struct HttpResponse {
 		headers["Vary"] = format("{}, {}", current, token);
 	}
 };
+
+export namespace conflux::http {
+
+using Response = ::HttpResponse;
+
+} // namespace conflux::http
+
 export class DeferredResponse {
 	int efd_{-1};
 	mutable mutex mtx_{};
@@ -484,7 +535,7 @@ public:
 	[[nodiscard]] int eventfd_fd() const noexcept;
 	void complete(HttpResponse response);
 	[[nodiscard]] bool is_ready() const;
-		[[nodiscard]] std::optional<HttpResponse> take_ready();
+	[[nodiscard]] std::optional<HttpResponse> take_ready();
 	[[nodiscard]] std::chrono::steady_clock::time_point deadline() const;
 	void set_deadline(std::chrono::steady_clock::time_point deadline);
 	void attach_cancel(conflux::work::root::TaskControl ctl) noexcept;

@@ -206,7 +206,6 @@ export struct Config {
 	bool send_zc_report_usage = true;
 };
 
-
 export [[nodiscard]] ResolvedSecretRotation single_secret_rotation(
 	std::string_view active,
 	std::size_t min_secret_bytes = 16) {
@@ -220,9 +219,8 @@ export [[nodiscard]] bool secret_source_configured(
 
 namespace {
 
-expected<std::string, int> read_text_file_local(
-	std::string_view path,
-	std::size_t max_bytes = std::size_t{16} * 1024 * 1024);
+expected<std::string, int>
+read_text_file_local(std::string_view path, std::size_t max_bytes = std::size_t{16} * 1024 * 1024);
 
 } // namespace
 
@@ -299,7 +297,8 @@ export [[nodiscard]] expected<ResolvedSecretRotation, std::string> resolve_secre
 		if (!previous) {
 			return unexpected{previous.error()};
 		}
-		if (auto valid = validate_secret_bytes(*previous, format("{}.previous[{}]", name, i), cfg.min_secret_bytes); !valid) {
+		if (auto valid = validate_secret_bytes(*previous, format("{}.previous[{}]", name, i), cfg.min_secret_bytes);
+			!valid) {
 			return unexpected{valid.error()};
 		}
 		out.previous.push_back(move(*previous));
@@ -308,6 +307,7 @@ export [[nodiscard]] expected<ResolvedSecretRotation, std::string> resolve_secre
 }
 
 namespace {
+
 struct LocalFd {
 	int fd{-1};
 	LocalFd() noexcept = default;
@@ -316,7 +316,8 @@ struct LocalFd {
 		: fd{f} {}
 	LocalFd(LocalFd const &) = delete;
 	LocalFd &operator =(LocalFd const &) = delete;
-	LocalFd(LocalFd &&o) noexcept
+	LocalFd(
+		LocalFd &&o) noexcept
 		: fd{exchange(o.fd, -1)} {}
 	LocalFd &operator =(LocalFd &&) = delete;
 	~LocalFd() {
@@ -686,11 +687,14 @@ export [[nodiscard]] expected<Config, std::string> config_from_ini_checked(
 	}
 	try {
 		return parse_ini_contents(*contents);
-	} catch (exception const &ex) {
-		return unexpected{std::string{ex.what()}};
-	} catch (...) {
+	} catch (exception const &ex) { return unexpected{std::string{ex.what()}}; } catch (...) {
 		return unexpected{std::string{"unknown config parse error"}};
 	}
+}
+
+export [[nodiscard]] expected<Config, std::string> try_config_from_ini(
+	char const *path) {
+	return config_from_ini_checked(path);
 }
 
 // Throws std::runtime_error on parse / IO failure.

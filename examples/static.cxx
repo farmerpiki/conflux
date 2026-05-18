@@ -34,17 +34,15 @@ int main() {
 		"<p>Try <a href='/api/info'>/api/info</a> or <a href='/assets/hello.txt'>/assets/hello.txt</a>.</p>"
 		"</body></html>");
 
-	auto &router = app.router();
+	app.get("/", [](http::Request const &) { return http::Response::redirect("/assets/"); });
 
-	router.get("/", [](HttpRequest const &) { return HttpResponse::redirect("/assets/"); });
-
-	router.get("/api/info", [asset_dir = asset_dir.string()](HttpRequest const &) {
-		return HttpResponse::json(
+	app.get("/api/info", [asset_dir = asset_dir.string()](http::Request const &) {
+		return http::Response::json(
 			format(R"({{"status":"ok","assets":"{}","routes":["/","/api/info","/assets/{{*file}}"]}})", asset_dir));
 	});
 
-	router.serve_static("/assets", asset_dir.string(), {.directory_listing = true});
+	app.serve_static("/assets", asset_dir.string(), {.directory_listing = true});
 
 	auto const status = move(app).run({.port = 9095});
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }

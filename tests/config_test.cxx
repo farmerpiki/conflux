@@ -27,7 +27,10 @@ public:
 		}
 		out << body;
 	}
-	~TempIni() { std::error_code ec; std::filesystem::remove(path_, ec); }
+	~TempIni() {
+		std::error_code ec;
+		std::filesystem::remove(path_, ec);
+	}
 	TempIni(TempIni const &) = delete;
 	TempIni &operator =(TempIni const &) = delete;
 	[[nodiscard]] char const *c_str() const noexcept { return path_.c_str(); }
@@ -101,7 +104,6 @@ max_body_size = 8192
 	CHECK(cfg.http3.max_body_size == 8192);
 }
 
-
 TEST_CASE(
 	"net.config: checked ini loader returns expected errors",
 	"[net.config]") {
@@ -110,16 +112,20 @@ TEST_CASE(
 port = 8088
 startup_banner = false
 )ini"};
-	auto cfg = config_from_ini_checked(ok.c_str());
+	auto cfg = try_config_from_ini(ok.c_str());
 	REQUIRE(cfg.has_value());
 	CHECK(cfg->port == 8088);
 	CHECK_FALSE(cfg->startup_banner);
+
+	auto checked = config_from_ini_checked(ok.c_str());
+	REQUIRE(checked.has_value());
+	CHECK(checked->port == cfg->port);
 
 	TempIni bad{R"ini(
 [server]
 port = nope
 )ini"};
-	auto invalid = config_from_ini_checked(bad.c_str());
+	auto invalid = try_config_from_ini(bad.c_str());
 	REQUIRE_FALSE(invalid.has_value());
 	CHECK(invalid.error().find("invalid integer") != std::string::npos);
 }
@@ -170,25 +176,27 @@ TEST_CASE(
 	"net.http_server_config: EINVAL fallback strips setup flags in proposal order",
 	"[net.config]") {
 	std::uint32_t flags = IORING_SETUP_CQE_MIXED
-		| IORING_SETUP_NO_SQARRAY
-		| IORING_SETUP_SUBMIT_ALL
-		| IORING_SETUP_TASKRUN_FLAG
-		| IORING_SETUP_DEFER_TASKRUN
-		| IORING_SETUP_SINGLE_ISSUER;
+						| IORING_SETUP_NO_SQARRAY
+						| IORING_SETUP_SUBMIT_ALL
+						| IORING_SETUP_TASKRUN_FLAG
+						| IORING_SETUP_DEFER_TASKRUN
+						| IORING_SETUP_SINGLE_ISSUER;
 	std::vector<std::uint32_t> stripped;
 	while (auto const bit = next_uring_setup_flag_to_strip(flags)) {
 		stripped.push_back(*bit);
 		flags &= ~*bit;
 	}
 	CHECK(flags == 0U);
-	CHECK(stripped == std::vector<std::uint32_t>{
-		IORING_SETUP_CQE_MIXED,
-		IORING_SETUP_NO_SQARRAY,
-		IORING_SETUP_SUBMIT_ALL,
-		IORING_SETUP_TASKRUN_FLAG,
-		IORING_SETUP_DEFER_TASKRUN,
-		IORING_SETUP_SINGLE_ISSUER,
-	});
+	CHECK(
+		stripped
+		== std::vector<std::uint32_t>{
+			IORING_SETUP_CQE_MIXED,
+			IORING_SETUP_NO_SQARRAY,
+			IORING_SETUP_SUBMIT_ALL,
+			IORING_SETUP_TASKRUN_FLAG,
+			IORING_SETUP_DEFER_TASKRUN,
+			IORING_SETUP_SINGLE_ISSUER,
+		});
 	CHECK_FALSE(next_uring_setup_flag_to_strip(0).has_value());
 }
 
@@ -196,25 +204,27 @@ TEST_CASE(
 	"uring: setup flag fallback helpers expose exact requested active stripped text",
 	"[uring]") {
 	auto flags = conflux::uring::setup_flags::cqe_mixed
-		| conflux::uring::setup_flags::no_sqarray
-		| conflux::uring::setup_flags::submit_all
-		| conflux::uring::setup_flags::taskrun_flag
-		| conflux::uring::setup_flags::defer_taskrun
-		| conflux::uring::setup_flags::single_issuer;
+			   | conflux::uring::setup_flags::no_sqarray
+			   | conflux::uring::setup_flags::submit_all
+			   | conflux::uring::setup_flags::taskrun_flag
+			   | conflux::uring::setup_flags::defer_taskrun
+			   | conflux::uring::setup_flags::single_issuer;
 	std::vector<std::uint32_t> stripped;
 	while (auto const bit = conflux::uring::next_setup_flag_to_strip(flags)) {
 		stripped.push_back(bit->raw());
 		flags &= ~*bit;
 	}
 	CHECK(flags.raw() == 0U);
-	CHECK(stripped == std::vector<std::uint32_t>{
-		IORING_SETUP_CQE_MIXED,
-		IORING_SETUP_NO_SQARRAY,
-		IORING_SETUP_SUBMIT_ALL,
-		IORING_SETUP_TASKRUN_FLAG,
-		IORING_SETUP_DEFER_TASKRUN,
-		IORING_SETUP_SINGLE_ISSUER,
-	});
+	CHECK(
+		stripped
+		== std::vector<std::uint32_t>{
+			IORING_SETUP_CQE_MIXED,
+			IORING_SETUP_NO_SQARRAY,
+			IORING_SETUP_SUBMIT_ALL,
+			IORING_SETUP_TASKRUN_FLAG,
+			IORING_SETUP_DEFER_TASKRUN,
+			IORING_SETUP_SINGLE_ISSUER,
+		});
 	CHECK(conflux::uring::setup_flags_str(conflux::uring::SetupFlags{}) == "none");
 	CHECK(conflux::uring::setup_flags_str(conflux::uring::setup_flags::cqe_mixed) == "CQE_MIXED");
 }

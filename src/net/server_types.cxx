@@ -636,6 +636,21 @@ export struct HttpRequestView : HttpRequestFieldAccessors {
 	}
 };
 
+export namespace conflux::http {
+
+using RunStatus = ::RunStatus;
+using SendZcMetrics = ::SendZcMetrics;
+using ServerMetrics = ::HttpServerMetrics;
+using RequestView = ::HttpRequestView;
+using Request = RequestView;
+using OwnedRequest = ::HttpRequest;
+using UploadedFile = ::UploadedFile;
+using FieldSource = ::HttpFieldSource;
+using FieldErrorKind = ::HttpFieldErrorKind;
+using FieldError = ::HttpFieldError;
+
+} // namespace conflux::http
+
 export template<typename>
 class CloneableFunction;
 template<typename R, typename... Args>

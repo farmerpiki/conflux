@@ -199,8 +199,9 @@ struct std::hash<JsonPath> {
 		JsonPath const &p) const noexcept {
 		std::size_t h = 0;
 		for (auto const &seg: p) {
-			std::size_t const sh = holds_alternative<JsonPathMember>(seg) ? hash<std::string>{}(get<JsonPathMember>(seg).name) :
-																   hash<std::size_t>{}(get<JsonPathIndex>(seg).index);
+			std::size_t const sh = holds_alternative<JsonPathMember>(seg) ?
+									   hash<std::string>{}(get<JsonPathMember>(seg).name) :
+									   hash<std::size_t>{}(get<JsonPathIndex>(seg).index);
 			h ^= sh + 0x9e3779b9U + (h << 6U) + (h >> 2U);
 		}
 		return h;
@@ -437,7 +438,8 @@ enum class NodeKind : std::uint8_t {
 
 constexpr std::uint8_t kStorageInputView = 0x01; // off,len index into input_view
 constexpr std::uint8_t kRawJsonSlice = 0x02; // bytes are raw JSON content (dump-safe memcpy)
-constexpr std::uint8_t kValueExternalView = 0x80; // off indexes external_ptrs_, value is caller-owned (string nodes only)
+constexpr std::uint8_t kValueExternalView =
+	0x80; // off indexes external_ptrs_, value is caller-owned (string nodes only)
 
 // Number value-kind flags (at most one of kValKind* set on a number node).
 constexpr std::uint8_t kLexIntForm = 0x08; // lexeme matches -?(0|[1-9][0-9]*)
@@ -923,7 +925,8 @@ public:
 				return unexpected(move(v).error());
 			}
 			if constexpr (sizeof(T) < sizeof(std::int64_t)) {
-				if (*v < static_cast<std::int64_t>(std::numeric_limits<T>::min()) || *v > static_cast<std::int64_t>(std::numeric_limits<T>::max())) {
+				if (*v < static_cast<std::int64_t>(std::numeric_limits<T>::min())
+					|| *v > static_cast<std::int64_t>(std::numeric_limits<T>::max())) {
 					return unexpected(
 						JsonError{
 							.stage = JsonStage::lookup,
@@ -1201,8 +1204,10 @@ public:
 			out.append(body.data(), body.size());
 			return {};
 		}
-		auto res =
-			detail::decode_str_body(body, [&](std::string_view chunk) { out.append(chunk.data(), chunk.size()); }, max_string_size_);
+		auto res = detail::decode_str_body(
+			body,
+			[&](std::string_view chunk) { out.append(chunk.data(), chunk.size()); },
+			max_string_size_);
 		if (!res) {
 			return unexpected(move(res).error());
 		}
@@ -1985,9 +1990,7 @@ export struct WarmIndexOptions {
 	std::size_t max_objects{SIZE_MAX};
 	std::size_t max_extra_bytes{SIZE_MAX};
 };
-[[nodiscard]] expected<void, JsonError> warm_member_index_impl(
-	DocumentStorage *storage,
-	NodeRef node);
+[[nodiscard]] expected<void, JsonError> warm_member_index_impl(DocumentStorage *storage, NodeRef node);
 export class Document {
 	std::unique_ptr<DocumentStorage> storage_;
 
@@ -2062,11 +2065,14 @@ public:
 	JsonArena(JsonArena &&) = delete;
 	JsonArena &operator =(JsonArena &&) = delete;
 
-	[[nodiscard]] expected<ArenaDocument, JsonError> parse_into(std::string_view input, JsonParseOptions const &opts = {});
+	[[nodiscard]] expected<ArenaDocument, JsonError>
+	parse_into(std::string_view input, JsonParseOptions const &opts = {});
 
-	[[nodiscard]] expected<ArenaDocument, JsonError> parse_borrowed_into(std::string_view input, JsonParseOptions const &opts = {});
+	[[nodiscard]] expected<ArenaDocument, JsonError>
+	parse_borrowed_into(std::string_view input, JsonParseOptions const &opts = {});
 
-	[[nodiscard]] expected<ArenaDocument, JsonError> parse_moved_into(std::string input, JsonParseOptions const &opts = {});
+	[[nodiscard]] expected<ArenaDocument, JsonError>
+	parse_moved_into(std::string input, JsonParseOptions const &opts = {});
 
 	void reset() noexcept;
 	[[nodiscard]] std::size_t slab_capacity() const noexcept { return initial_slab_; }
@@ -2081,11 +2087,16 @@ export [[nodiscard]] expected<std::int64_t, JsonError> require_int(ObjectView co
 export [[nodiscard]] expected<std::uint64_t, JsonError> require_uint(ObjectView const &obj, std::string_view name);
 export [[nodiscard]] expected<double, JsonError> require_double(ObjectView const &obj, std::string_view name);
 export [[nodiscard]] expected<bool, JsonError> require_bool(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<std::string>, JsonError> optional_string(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<std::int64_t>, JsonError> optional_int(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<std::uint64_t>, JsonError> optional_uint(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<double>, JsonError> optional_double(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<bool>, JsonError> optional_bool(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] expected<std::optional<std::string>, JsonError>
+optional_string(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] expected<std::optional<std::int64_t>, JsonError>
+optional_int(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] expected<std::optional<std::uint64_t>, JsonError>
+optional_uint(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] expected<std::optional<double>, JsonError>
+optional_double(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] expected<std::optional<bool>, JsonError>
+optional_bool(ObjectView const &obj, std::string_view name);
 // ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
@@ -2195,26 +2206,16 @@ expected<Document, JsonError> parse_view(T &&, JsonParseOptions const & = {}) = 
 
 // pmr-injecting overloads — caller supplies the memory resource.
 // The resource must outlive every Document (and NodeRef) derived from it.
-expected<Document, JsonError> parse_copy(
-	std::string_view input,
-	JsonParseOptions const &opts,
-	std::pmr::memory_resource *resource);
-expected<Document, JsonError> parse_borrowed(
-	std::string_view input,
-	JsonParseOptions const &opts,
-	std::pmr::memory_resource *resource);
-expected<Document, JsonError> parse_borrowed_unsafe(
-	std::string_view input,
-	JsonParseOptions const &opts,
-	std::pmr::memory_resource *resource);
-expected<Document, JsonError> parse_view(
-	std::string_view input,
-	JsonParseOptions const &opts,
-	std::pmr::memory_resource *resource);
-expected<Document, JsonError> parse(
-	std::string_view input,
-	JsonParseOptions const &opts,
-	std::pmr::memory_resource *resource);
+expected<Document, JsonError>
+parse_copy(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
+expected<Document, JsonError>
+parse_borrowed(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
+expected<Document, JsonError>
+parse_borrowed_unsafe(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
+expected<Document, JsonError>
+parse_view(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
+expected<Document, JsonError>
+parse(std::string_view input, JsonParseOptions const &opts, std::pmr::memory_resource *resource);
 
 template<typename T>
 	requires(same_as<std::remove_cvref_t<T>, std::string> && !std::is_lvalue_reference_v<T>)
@@ -2224,20 +2225,16 @@ expected<Document, JsonError> parse(T &&, JsonParseOptions const &, std::pmr::me
 
 export namespace conflux::json {
 
-[[nodiscard]] expected<Document, JsonError> parse_dom(
-	std::string_view input,
-	JsonDomPolicy const &policy = JsonDomPolicy::view_first());
-[[nodiscard]] expected<Document, JsonError> parse_dom(
-	std::string &&input,
-	JsonDomPolicy const &policy = JsonDomPolicy::owning_document());
+[[nodiscard]] expected<Document, JsonError>
+parse_dom(std::string_view input, JsonDomPolicy const &policy = JsonDomPolicy::view_first());
+[[nodiscard]] expected<Document, JsonError>
+parse_dom(std::string &&input, JsonDomPolicy const &policy = JsonDomPolicy::owning_document());
 [[nodiscard]] expected<Document, JsonError> parse_dom(
 	std::string_view input,
 	std::pmr::memory_resource *resource,
 	JsonDomPolicy const &policy = JsonDomPolicy::caller_pmr());
-[[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
-	JsonArena &arena,
-	std::string_view input,
-	JsonDomPolicy const &policy = JsonDomPolicy::arena_reuse());
+[[nodiscard]] expected<ArenaDocument, JsonError>
+parse_dom(JsonArena &arena, std::string_view input, JsonDomPolicy const &policy = JsonDomPolicy::arena_reuse());
 [[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
 	JsonArena &arena,
 	std::string &&input,
@@ -2379,6 +2376,40 @@ struct ParentSlot {
 	std::vector<std::size_t> *parent_local_children{}; // append_child only: parent's staging V
 	std::vector<MemberEntry> *parent_local_members{}; // insert_member only: parent's staging V
 };
+struct TransparentStringHash {
+	using is_transparent = void;
+	[[nodiscard]] std::size_t operator ()(
+		std::string_view value) const noexcept {
+		return hash<std::string_view>{}(value);
+	}
+	[[nodiscard]] std::size_t operator ()(
+		std::string const &value) const noexcept {
+		return operator ()(std::string_view{value});
+	}
+};
+struct TransparentStringEqual {
+	using is_transparent = void;
+	[[nodiscard]] bool operator ()(
+		std::string_view lhs,
+		std::string_view rhs) const noexcept {
+		return lhs == rhs;
+	}
+	[[nodiscard]] bool operator ()(
+		std::string const &lhs,
+		std::string_view rhs) const noexcept {
+		return std::string_view{lhs} == rhs;
+	}
+	[[nodiscard]] bool operator ()(
+		std::string_view lhs,
+		std::string const &rhs) const noexcept {
+		return lhs == std::string_view{rhs};
+	}
+	[[nodiscard]] bool operator ()(
+		std::string const &lhs,
+		std::string const &rhs) const noexcept {
+		return lhs == rhs;
+	}
+};
 // Holds the active object/A being built:
 struct ChildFrame {
 	// NOLINTNEXTLINE(performance-enum-size)
@@ -2393,9 +2424,10 @@ struct ChildFrame {
 	ParentSlot parent; // parent.arena_start is the rollback point for string_arena
 	std::vector<std::size_t> local_children; // staged A child node indices (A builders only)
 	std::vector<MemberEntry> local_members; // staged object members (object builders only)
-	std::vector<char const *> local_external_ptrs_; // parallel to local_members; non-null only for kMemberExternalView entries
+	std::vector<char const *>
+		local_external_ptrs_; // parallel to local_members; non-null only for kMemberExternalView entries
 	// Per-session duplicate detection for ObjectBuilder (kind==object only).
-	std::unordered_map<std::string, std::size_t> dup_check;
+	std::unordered_map<std::string, std::size_t, TransparentStringHash, TransparentStringEqual> dup_check;
 };
 export class ObjectBuilder {
 	ChildFrame frame_;
@@ -2501,7 +2533,8 @@ public:
 			st->store.object_members.push_back(m);
 		}
 		std::size_t const cnt = frame_.local_members.size();
-		st->store.nodes.push_back(detail::node_object(static_cast<std::uint32_t>(mem_start), static_cast<std::uint32_t>(cnt)));
+		st->store.nodes.push_back(
+			detail::node_object(static_cast<std::uint32_t>(mem_start), static_cast<std::uint32_t>(cnt)));
 		std::size_t const node_idx = st->store.nodes.size() - 1;
 		switch (frame_.parent.kind) {
 		case ParentSlot::Kind::set_root:
@@ -2604,7 +2637,8 @@ public:
 			st->store.array_children.push_back(static_cast<std::uint32_t>(idx));
 		}
 		std::size_t const cnt = frame_.local_children.size();
-		st->store.nodes.push_back(detail::node_array(static_cast<std::uint32_t>(child_start), static_cast<std::uint32_t>(cnt)));
+		st->store.nodes.push_back(
+			detail::node_array(static_cast<std::uint32_t>(child_start), static_cast<std::uint32_t>(cnt)));
 		std::size_t const node_idx = st->store.nodes.size() - 1;
 		switch (frame_.parent.kind) {
 		case ParentSlot::Kind::set_root:
@@ -3020,8 +3054,8 @@ struct JsonCodec<std::optional<T>> {
 						.code = JsonIssueCode::wrong_kind,
 						.expected_kind = JsonKind::null,
 						.actual_kind = JsonKind::null,
-						.message =
-							"explicit JSON null is not accepted for std::optional<T>; use Nullable<T> for nullable fields"});
+						.message = "explicit JSON null is not accepted for std::optional<T>; use Nullable<T> for "
+								   "nullable fields"});
 			}
 		}
 		auto v = ::decode<T>(n);
@@ -3353,6 +3387,7 @@ struct JsonCodec<std::unordered_map<std::string, T>> {
 			return unexpected(move(obj).error());
 		}
 		std::unordered_map<std::string, T> result;
+		result.reserve(obj->size());
 		for (auto const &[name, val]: obj->members()) {
 			auto v = ::decode<T>(val);
 			if (!v) {
@@ -4102,7 +4137,7 @@ expected<void, JsonError> ObjectBuilder::insert(
 		return ok;
 	}
 	// Spec: duplicate-name rejection happens before dispatching to JsonCodec<T>::encode.
-	if (frame_.dup_check.contains(std::string{name})) {
+	if (frame_.dup_check.contains(name)) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
@@ -4354,7 +4389,8 @@ expected<void, JsonError> write_writable(
 		if constexpr (sizeof(U) < sizeof(std::int64_t)) {
 			return obj.insert_i64(name, static_cast<std::int64_t>(value));
 		} else {
-			if (value < static_cast<U>(std::numeric_limits<std::int64_t>::min()) || value > static_cast<U>(std::numeric_limits<std::int64_t>::max())) {
+			if (value < static_cast<U>(std::numeric_limits<std::int64_t>::min())
+				|| value > static_cast<U>(std::numeric_limits<std::int64_t>::max())) {
 				return unexpected(
 					JsonError{
 						.stage = JsonStage::build,
@@ -4397,7 +4433,8 @@ expected<void, JsonError> write_writable_arr(
 		if constexpr (sizeof(U) < sizeof(std::int64_t)) {
 			return arr.append_i64(static_cast<std::int64_t>(value));
 		} else {
-			if (value < static_cast<U>(std::numeric_limits<std::int64_t>::min()) || value > static_cast<U>(std::numeric_limits<std::int64_t>::max())) {
+			if (value < static_cast<U>(std::numeric_limits<std::int64_t>::min())
+				|| value > static_cast<U>(std::numeric_limits<std::int64_t>::max())) {
 				return unexpected(
 					JsonError{
 						.stage = JsonStage::build,

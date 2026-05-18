@@ -112,7 +112,6 @@ TEST_CASE(
 	CHECK(url->str() == "http://example.com/search?old=1&a%20b=x%2Fy%3Fz&plus%2Bkey=one%20two");
 }
 
-
 TEST_CASE(
 	"http core: fallible request builders report URL errors without throwing",
 	"[http.core]") {
@@ -133,6 +132,16 @@ TEST_CASE(
 	CHECK(move(mutable_builder).build().url().host == "example.org");
 }
 
+TEST_CASE(
+	"http core: server request aliases expose first-contact namespace names",
+	"[http.core]") {
+	static_assert(std::same_as<chttp::RunStatus, RunStatus>);
+	static_assert(std::same_as<chttp::ServerMetrics, HttpServerMetrics>);
+	static_assert(std::same_as<chttp::RequestView, HttpRequestView>);
+	static_assert(std::same_as<chttp::Request, HttpRequestView>);
+	static_assert(std::same_as<chttp::OwnedRequest, HttpRequest>);
+	static_assert(std::same_as<chttp::UploadedFile, UploadedFile>);
+}
 
 TEST_CASE(
 	"http core: typed server request field extractors parse common values",
@@ -228,10 +237,8 @@ TEST_CASE(
 	form.emplace_back("a b", "c+d");
 	form.emplace_back("slash", "/=");
 
-	auto req = chttp::ClientRequest::post("https://example.com/submit")
-				   .basic("testuser", "testpass")
-				   .body_form(form)
-				   .build();
+	auto req =
+		chttp::ClientRequest::post("https://example.com/submit").basic("testuser", "testpass").body_form(form).build();
 
 	CHECK(req.method() == "POST");
 	CHECK(req.headers()["authorization"] == "Basic dGVzdHVzZXI6dGVzdHBhc3M=");
@@ -278,15 +285,12 @@ TEST_CASE(
 	"http core: ClientRequest builder formats conditional dates in HTTP-date form",
 	"[http.core]") {
 	auto epoch = std::chrono::system_clock::time_point{};
-	auto req = chttp::ClientRequest::get("http://example.com/")
-				   .if_modified_since(epoch)
-				   .if_unmodified_since(epoch)
-				   .build();
+	auto req =
+		chttp::ClientRequest::get("http://example.com/").if_modified_since(epoch).if_unmodified_since(epoch).build();
 
 	CHECK(req.headers()["if-modified-since"] == "Thu, 01 Jan 1970 00:00:00 GMT");
 	CHECK(req.headers()["if-unmodified-since"] == "Thu, 01 Jan 1970 00:00:00 GMT");
 }
-
 
 TEST_CASE(
 	"http core: ClientRequest builder debug-asserts on double body setters",

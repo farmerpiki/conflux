@@ -56,7 +56,7 @@ int main() {
     });
 
     auto const status = move(app).run({.host = "127.0.0.1", .port = 8080});
-    return status == RunStatus::stopped_normally ? 0 : 1;
+    return status == http::RunStatus::stopped_normally ? 0 : 1;
 }
 ```
 

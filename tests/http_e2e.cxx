@@ -53,6 +53,16 @@ TEST_CASE(
 	REQUIRE(server.has_value());
 }
 
+TEST_CASE(
+	"http app: facade forwards websocket and static route registration",
+	"[http][app]") {
+	auto app = chttp::App::default_server();
+	auto &ws_app = app.ws("/ws", [](HttpRequestView const &, WsConn &) {});
+	CHECK(&ws_app == &app);
+	auto &static_app = app.serve_static("/assets", std::filesystem::temp_directory_path().string());
+	CHECK(&static_app == &app);
+}
+
 void ensure_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
@@ -221,30 +231,27 @@ void ensure_redirect_follow_servers() {
 
 		Router target;
 		target.get("/echo-headers", [](HttpRequest const &req) {
-			return HttpResponse::text(
-				format(
-					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
-					std::string{req.headers["authorization"]},
-					std::string{req.headers["cookie"]},
-					std::string{req.headers["proxy-authorization"]},
-					std::string{req.headers["host"]}));
+			return HttpResponse::text(format(
+				"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
+				std::string{req.headers["authorization"]},
+				std::string{req.headers["cookie"]},
+				std::string{req.headers["proxy-authorization"]},
+				std::string{req.headers["host"]}));
 		});
 		g_redirect_follow_target_port = test_servers().start(cfg, move(target));
 
 		Router source;
 		source.get("/echo-headers", [](HttpRequest const &req) {
-			return HttpResponse::text(
-				format(
-					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
-					std::string{req.headers["authorization"]},
-					std::string{req.headers["cookie"]},
-					std::string{req.headers["proxy-authorization"]},
-					std::string{req.headers["host"]}));
+			return HttpResponse::text(format(
+				"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
+				std::string{req.headers["authorization"]},
+				std::string{req.headers["cookie"]},
+				std::string{req.headers["proxy-authorization"]},
+				std::string{req.headers["host"]}));
 		});
 		source.get("/same", [](HttpRequest const &) { return HttpResponse::redirect("/echo-headers"); });
 		source.get("/cross", [](HttpRequest const &) {
-			return HttpResponse::redirect(
-				format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
+			return HttpResponse::redirect(format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
 		});
 		source.get("/loop", [](HttpRequest const &) { return HttpResponse::redirect("/loop"); });
 		source.get("/async-start", [](HttpRequest const &) { return HttpResponse::redirect("/async-final"); });
@@ -256,20 +263,23 @@ void ensure_redirect_follow_servers() {
 			.upstream_host = "127.0.0.1",
 			.upstream_port = g_redirect_follow_source_port,
 		};
-		front.get_context("/async-follow", [popts](HttpRequest const &, RequestContext const &ctx)
-								-> conflux::work::root::Task<HttpResponse> {
-			HttpClient client{};
-			auto result = co_await async_send(
-				client,
-				ctx.ring,
-				chttp::ClientRequest::get(
-					format("http://127.0.0.1:{}/async-start", popts.upstream_port)).follow_redirects(2));
-			if (!result) {
-				co_return HttpResponse::bad_gateway(
-					format("redirect follow failed: {} ({})", result.error().message, static_cast<int>(result.error().kind)));
-			}
-			co_return HttpResponse::text(move(result->body));
-		});
+		front.get_context(
+			"/async-follow",
+			[popts](HttpRequest const &, RequestContext const &ctx) -> conflux::work::root::Task<HttpResponse> {
+				HttpClient client{};
+				auto result = co_await async_send(
+					client,
+					ctx.ring,
+					chttp::ClientRequest::get(format("http://127.0.0.1:{}/async-start", popts.upstream_port))
+						.follow_redirects(2));
+				if (!result) {
+					co_return HttpResponse::bad_gateway(format(
+						"redirect follow failed: {} ({})",
+						result.error().message,
+						static_cast<int>(result.error().kind)));
+				}
+				co_return HttpResponse::text(move(result->body));
+			});
 		g_redirect_follow_async_port = test_servers().start(cfg, move(front));
 	});
 }
@@ -487,7 +497,8 @@ void ensure_auth_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(basic_auth_middleware([](std::string_view u, std::string_view p) { return u == "testuser" && p == "testpass"; }));
+		router.use(basic_auth_middleware(
+			[](std::string_view u, std::string_view p) { return u == "testuser" && p == "testpass"; }));
 		router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
 		g_auth_port = start_mw_server(mw_config(), move(router));
 	});
@@ -586,7 +597,9 @@ void ensure_rid_server() {
 		Router router;
 		router.use(request_id_middleware());
 		// Echo the request ID header back in the body so tests can inspect it.
-		router.get("/", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.headers["x-request-id"]}); });
+		router.get("/", [](HttpRequest const &req) {
+			return HttpResponse::text(std::string{req.headers["x-request-id"]});
+		});
 		g_rid_port = start_mw_server(mw_config(), move(router));
 	});
 }
@@ -944,7 +957,9 @@ void ensure_trace_server() {
 		Router router;
 		router.use(tracing_middleware({.propagate_in_response = true}));
 		// Echo the injected traceparent header so tests can verify it.
-		router.get("/", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.headers["traceparent"]}); });
+		router.get("/", [](HttpRequest const &req) {
+			return HttpResponse::text(std::string{req.headers["traceparent"]});
+		});
 		g_trace_port = start_mw_server(mw_config(), move(router));
 	});
 }
@@ -1055,7 +1070,9 @@ TEST_CASE(
 TEST_CASE(
 	"router dispatch preserves generic route priority before literal index hits") {
 	Router router;
-	router.get("/{id}", [](HttpRequestView const &req) { return HttpResponse::text(std::string{"generic:"} + std::string{req.params["id"]}); });
+	router.get("/{id}", [](HttpRequestView const &req) {
+		return HttpResponse::text(std::string{"generic:"} + std::string{req.params["id"]});
+	});
 	router.get("/health", [](HttpRequestView const &) { return HttpResponse::text("literal"); });
 
 	HttpRequest req;
@@ -1119,7 +1136,8 @@ TEST_CASE(
 	"http client: GET /api/ping returns parsed response (send_blocking)") {
 	ensure_server();
 	HttpClient client{};
-	auto response = client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+	auto response =
+		client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
@@ -1203,7 +1221,8 @@ TEST_CASE(
 	ensure_server();
 	HttpClient client{};
 
-	auto response = client.blocking_send(chttp::ClientRequest::head(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+	auto response =
+		client.blocking_send(chttp::ClientRequest::head(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(std::string{response->head.headers["content-type"]} == "application/json");
@@ -1213,7 +1232,8 @@ TEST_CASE(
 	"http client: blocking_send works without pool") {
 	ensure_server();
 	HttpClient client{};
-	auto response = client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+	auto response =
+		client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body == R"({"status":"ok"})");
@@ -1270,8 +1290,9 @@ TEST_CASE(
 	"http client: follow_redirects reports redirect limit exhaustion") {
 	ensure_redirect_follow_servers();
 	HttpClient client{};
-	auto response =
-		client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/loop", g_redirect_follow_source_port)).follow_redirects(1));
+	auto response = client.blocking_send(
+		chttp::ClientRequest::get(format("http://127.0.0.1:{}/loop", g_redirect_follow_source_port))
+			.follow_redirects(1));
 	REQUIRE_FALSE(response);
 	CHECK(response.error().kind == HttpErrorKind::redirect_limit);
 }
@@ -1492,7 +1513,8 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	REQUIRE(::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0);
-	std::string_view const req = "POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nExpect: 100-continue\r\n\r\n";
+	std::string_view const req =
+		"POST /upload HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nExpect: 100-continue\r\n\r\n";
 	::send(fd, req.data(), req.size(), 0);
 	auto interim = read_one_response(fd);
 	REQUIRE(interim.starts_with("HTTP/1.1 100 Continue"));
@@ -1844,7 +1866,8 @@ TEST_CASE(
 	ScopedTestServer srv{cfg, move(router)};
 
 	LocalTcpClient client{srv.port()};
-	std::string_view const req = "GET http://ignored.test/path?q=1 HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
+	std::string_view const req =
+		"GET http://ignored.test/path?q=1 HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n";
 	(void)client.send(req);
 	auto resp = client.read_until_close();
 	REQUIRE(resp.starts_with("HTTP/1.1 308 Permanent Redirect"));
@@ -2001,7 +2024,9 @@ TEST_CASE(
 
 	router.get("/ping", [](HttpRequest const &) { return HttpResponse::text("pong"); });
 	router.get("/protected", [](HttpRequest const &) { return HttpResponse::text("secret"); });
-	router.get("/injected", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.headers["x-injected"]}); });
+	router.get("/injected", [](HttpRequest const &req) {
+		return HttpResponse::text(std::string{req.headers["x-injected"]});
+	});
 
 	ScopedTestServer srv{cfg, move(router)};
 	std::uint16_t const mw_port = srv.port();
@@ -2338,7 +2363,9 @@ TEST_CASE(
 	"throwing middleware returns per-request 500") {
 	Config cfg = Config::test();
 	Router router;
-	router.use([](HttpRequest const &, Router::Handler const &) -> HttpResponse { throw std::runtime_error{"middleware crash"}; });
+	router.use([](HttpRequest const &, Router::Handler const &) -> HttpResponse {
+		throw std::runtime_error{"middleware crash"};
+	});
 	router.get("/ok", [](HttpRequest const &) { return HttpResponse::text("ok"); });
 	ScopedTestServer srv{cfg, move(router)};
 
@@ -3139,7 +3166,8 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	std::string_view const req = "GET /f/data.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=2-5\r\nConnection: close\r\n\r\n";
+	std::string_view const req =
+		"GET /f/data.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=2-5\r\nConnection: close\r\n\r\n";
 	::send(s, req.data(), req.size(), 0);
 	auto resp = read_one_response(s);
 	::close(s);
@@ -3183,7 +3211,8 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	std::string_view const req = "GET /f/tiny.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=100-200\r\nConnection: close\r\n\r\n";
+	std::string_view const req =
+		"GET /f/tiny.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=100-200\r\nConnection: close\r\n\r\n";
 	::send(s, req.data(), req.size(), 0);
 	auto resp = read_one_response(s);
 	::close(s);
@@ -3230,7 +3259,8 @@ TEST_CASE(
 	addr.sin_port = htons(srv.port());
 	::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 	::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-	std::string_view const req = "GET /f/data.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=-5\r\nConnection: close\r\n\r\n";
+	std::string_view const req =
+		"GET /f/data.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=-5\r\nConnection: close\r\n\r\n";
 	::send(s, req.data(), req.size(), 0);
 	auto resp = read_one_response(s);
 	::close(s);
@@ -3314,7 +3344,8 @@ TEST_CASE(
 
 	auto const started = std::chrono::steady_clock::now();
 	auto resp = http_get_on(port, "/slow");
-	auto const elapsed_ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
+	auto const elapsed_ms =
+		std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - started).count();
 
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	REQUIRE(extract_body(resp) == "slow-ok");
@@ -3371,7 +3402,9 @@ TEST_CASE(
 	srv.stop();
 
 	std::scoped_lock lk{lines_mtx};
-	auto has = [&](std::string_view sub) { return ranges::any_of(lines, [&](std::string const &l) { return l.find(sub) != std::string::npos; }); };
+	auto has = [&](std::string_view sub) {
+		return ranges::any_of(lines, [&](std::string const &l) { return l.find(sub) != std::string::npos; });
+	};
 	REQUIRE(has("GET /ping 200"));
 	REQUIRE(has("GET /missing 404"));
 	REQUIRE(has("[20"));
@@ -4504,7 +4537,9 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Router router;
 		router.use(request_id_middleware({.trust_incoming = false}));
-		router.get("/", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.headers["x-request-id"]}); });
+		router.get("/", [](HttpRequest const &req) {
+			return HttpResponse::text(std::string{req.headers["x-request-id"]});
+		});
 		port = start_mw_server(mw_config(), move(router));
 	});
 	// Client sends a specific ID; middleware must ignore it and generate its own.
@@ -4523,7 +4558,9 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		Router router;
 		router.use(request_id_middleware({.header = "X-Trace-ID"}));
-		router.get("/", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.headers["x-trace-id"]}); });
+		router.get("/", [](HttpRequest const &req) {
+			return HttpResponse::text(std::string{req.headers["x-trace-id"]});
+		});
 		port = start_mw_server(mw_config(), move(router));
 	});
 	auto resp = http_get_on(port, "/");
@@ -4765,7 +4802,8 @@ std::string make_jwt_with_header(
 TEST_CASE(
 	"jwt: valid token returns 200 and injects sub claim") {
 	ensure_jwt_server();
-	auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	auto now =
+		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 	auto token = make_jwt(format(R"({{"sub":"user42","exp":{}}})", now + 3600));
 	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
@@ -4921,7 +4959,8 @@ TEST_CASE(
 }
 TEST_CASE(
 	"jwt_decode: exp equal to now is expired") {
-	auto now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	auto now =
+		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3)};
 	auto token = jwt_sign(format(R"({{"sub":"x","exp":{}}})", now), "sec");
 	auto result = jwt_decode(token, opts);
@@ -4931,7 +4970,8 @@ TEST_CASE(
 TEST_CASE(
 	"jwt_decode: nbf in future returns not-yet-valid error") {
 	auto far_future =
-		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count() + 9999;
+		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count()
+		+ 9999;
 	JwtOptions const opts{.secrets = single_secret_rotation("sec", 3), .verify_exp = false, .verify_nbf = true};
 	auto token = jwt_sign(format(R"({{"sub":"x","nbf":{}}})", far_future), "sec");
 	auto result = jwt_decode(token, opts);
@@ -5386,7 +5426,9 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		auto cfg = mw_config();
 		Router upstream;
-		upstream.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.headers["host"]}); });
+		upstream.get("/echo", [](HttpRequest const &req) {
+			return HttpResponse::text(std::string{req.headers["host"]});
+		});
 		s_upstream = make_shared<ScopedTestServer>(cfg, move(upstream));
 		Router front;
 		auto popts = ProxyOptions{
@@ -5414,7 +5456,9 @@ TEST_CASE(
 	std::call_once(flag, [] {
 		auto cfg = mw_config();
 		Router upstream;
-		upstream.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.headers["host"]}); });
+		upstream.get("/echo", [](HttpRequest const &req) {
+			return HttpResponse::text(std::string{req.headers["host"]});
+		});
 		s_upstream = make_shared<ScopedTestServer>(cfg, move(upstream));
 		Router front;
 		auto popts = ProxyOptions{
@@ -5507,7 +5551,9 @@ TEST_CASE(
 }
 TEST_CASE(
 	"cookie_signing_middleware: short secret throws std::invalid_argument") {
-	REQUIRE_THROWS_AS(cookie_signing_middleware({.secrets = single_secret_rotation("tooshort")}), std::invalid_argument);
+	REQUIRE_THROWS_AS(
+		cookie_signing_middleware({.secrets = single_secret_rotation("tooshort")}),
+		std::invalid_argument);
 }
 // ---------------------------------------------------------------------------
 // cookie_signing middleware
@@ -5522,8 +5568,11 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(cookie_signing_middleware({.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret})}));
-		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.cookies["session"]}); });
+		router.use(
+			cookie_signing_middleware({.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret})}));
+		router.get("/echo", [](HttpRequest const &req) {
+			return HttpResponse::text(std::string{req.cookies["session"]});
+		});
 		port = start_mw_server(mw_config(), move(router));
 	});
 	auto signed_val = sign_cookie("user42", kCookieMiddlewareSecret);
@@ -5537,8 +5586,11 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(cookie_signing_middleware({.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret}), .strip_invalid = true}));
-		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.cookies["session"]}); });
+		router.use(cookie_signing_middleware(
+			{.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret}), .strip_invalid = true}));
+		router.get("/echo", [](HttpRequest const &req) {
+			return HttpResponse::text(std::string{req.cookies["session"]});
+		});
 		port = start_mw_server(mw_config(), move(router));
 	});
 	// Forge a signed value with the wrong secret.
@@ -5554,8 +5606,11 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(cookie_signing_middleware({.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret})}));
-		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.cookies["plain"]}); });
+		router.use(
+			cookie_signing_middleware({.secrets = single_secret_rotation(std::string{kCookieMiddlewareSecret})}));
+		router.get("/echo", [](HttpRequest const &req) {
+			return HttpResponse::text(std::string{req.cookies["plain"]});
+		});
 		port = start_mw_server(mw_config(), move(router));
 	});
 	auto resp = http_get_on(port, "/echo", "Cookie: plain=nodot\r\n");
@@ -5568,8 +5623,11 @@ TEST_CASE(
 	static std::once_flag flag;
 	std::call_once(flag, [] {
 		Router router;
-		router.use(cookie_signing_middleware({.secrets = single_secret_rotation("srv-secret-key-1234"), .strip_invalid = false}));
-		router.get("/echo", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.cookies["session"]}); });
+		router.use(cookie_signing_middleware(
+			{.secrets = single_secret_rotation("srv-secret-key-1234"), .strip_invalid = false}));
+		router.get("/echo", [](HttpRequest const &req) {
+			return HttpResponse::text(std::string{req.cookies["session"]});
+		});
 		port = start_mw_server(mw_config(), move(router));
 	});
 	// Cookie with bad signature — handler receives the raw signed value unchanged.
@@ -6020,7 +6078,8 @@ TEST_CASE(
 	// total_bytes_ decrement, leaving a phantom byte count that blocked new puts).
 	std::atomic<int> hits{0};
 	Router router;
-	router.use(response_cache_middleware({.max_entries = 10, .max_bytes = 16, .default_ttl = std::chrono::seconds{60}}));
+	router.use(
+		response_cache_middleware({.max_entries = 10, .max_bytes = 16, .default_ttl = std::chrono::seconds{60}}));
 	router.get("/a", [&hits](HttpRequest const &) {
 		++hits;
 		HttpResponse r = HttpResponse::text("aaaaaaaa"); // 8 bytes
@@ -6260,7 +6319,9 @@ TEST_CASE(
 			.propagate_in_response = false,
 		}));
 		// Echo the injected span id from the request.
-		router.get("/", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.headers["x-injected-span"]}); });
+		router.get("/", [](HttpRequest const &req) {
+			return HttpResponse::text(std::string{req.headers["x-injected-span"]});
+		});
 		port = start_mw_server(mw_config(), move(router));
 	});
 	auto resp = http_get_on(port, "/");
@@ -6570,7 +6631,8 @@ TEST_CASE(
 }
 TEST_CASE(
 	"parser: header with no space after colon is accepted") {
-	std::string req = "GET /api/echo-header HTTP/1.1\r\nHost: localhost\r\nX-Test-Header:no-space\r\nConnection: close\r\n\r\n";
+	std::string req =
+		"GET /api/echo-header HTTP/1.1\r\nHost: localhost\r\nX-Test-Header:no-space\r\nConnection: close\r\n\r\n";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 200"));
 	REQUIRE(resp.find("no-space") != std::string::npos);
@@ -6588,7 +6650,8 @@ TEST_CASE(
 }
 TEST_CASE(
 	"parser: malformed Content-Length returns 400") {
-	std::string req = "POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5abc\r\nConnection: close\r\n\r\nhello";
+	std::string req =
+		"POST /api/echo-body HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5abc\r\nConnection: close\r\n\r\nhello";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 400"));
 }
@@ -6608,7 +6671,8 @@ TEST_CASE(
 }
 TEST_CASE(
 	"parser: duplicate Host in HTTP/1.1 returns 400") {
-	std::string req = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\nHost: attacker.example\r\nConnection: close\r\n\r\n";
+	std::string req =
+		"GET /api/ping HTTP/1.1\r\nHost: localhost\r\nHost: attacker.example\r\nConnection: close\r\n\r\n";
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 400"));
 }
@@ -6832,7 +6896,8 @@ CloseFrame read_close(
 	if (b1 < 2) {
 		return {.code = 0, .reason = {}, .received = true};
 	}
-	auto const code = static_cast<std::uint16_t>((static_cast<std::uint32_t>(payload[0]) << 8U) | static_cast<std::uint32_t>(payload[1]));
+	auto const code = static_cast<std::uint16_t>(
+		(static_cast<std::uint32_t>(payload[0]) << 8U) | static_cast<std::uint32_t>(payload[1]));
 	std::string reason;
 	if (b1 > 2) {
 		reason.assign(reinterpret_cast<char const *>(payload.data()) + 2, static_cast<std::size_t>(b1) - 2);
@@ -7527,7 +7592,9 @@ TEST_CASE(
 TEST_CASE(
 	"router: wildcard {*path} captures entire tail") {
 	Router router;
-	router.get("/files/{*path}", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.params["path"]}); });
+	router.get("/files/{*path}", [](HttpRequest const &req) {
+		return HttpResponse::text(std::string{req.params["path"]});
+	});
 	HttpRequest req;
 	req.method = "GET";
 	req.path = "/files/docs/readme.txt";
@@ -7538,7 +7605,9 @@ TEST_CASE(
 TEST_CASE(
 	"router: wildcard {*path} captures empty tail when path ends at prefix") {
 	Router router;
-	router.get("/files/{*path}", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.params["path"]}); });
+	router.get("/files/{*path}", [](HttpRequest const &req) {
+		return HttpResponse::text(std::string{req.params["path"]});
+	});
 	HttpRequest req;
 	req.method = "GET";
 	req.path = "/files/";
@@ -7562,7 +7631,9 @@ TEST_CASE(
 TEST_CASE(
 	"router: non-matching path returns 404") {
 	Router router;
-	router.get("/files/{*path}", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.params["path"]}); });
+	router.get("/files/{*path}", [](HttpRequest const &req) {
+		return HttpResponse::text(std::string{req.params["path"]});
+	});
 	HttpRequest req;
 	req.method = "GET";
 	req.path = "/other/stuff";
@@ -7572,7 +7643,9 @@ TEST_CASE(
 TEST_CASE(
 	"router: percent-encoded path param is URL-decoded") {
 	Router router;
-	router.get("/hello/{name}", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.params["name"]}); });
+	router.get("/hello/{name}", [](HttpRequest const &req) {
+		return HttpResponse::text(std::string{req.params["name"]});
+	});
 	HttpRequest req;
 	req.method = "GET";
 	req.path = "/hello/hello%20world";
@@ -7594,7 +7667,9 @@ TEST_CASE(
 TEST_CASE(
 	"router: wildcard tail with percent-encoded segment is URL-decoded") {
 	Router router;
-	router.get("/files/{*path}", [](HttpRequest const &req) { return HttpResponse::text(std::string{req.params["path"]}); });
+	router.get("/files/{*path}", [](HttpRequest const &req) {
+		return HttpResponse::text(std::string{req.params["path"]});
+	});
 	HttpRequest req;
 	req.method = "GET";
 	req.path = "/files/dir/my%20file.txt";
