@@ -1,6 +1,6 @@
 // Response caching middleware: in-memory LRU cache with TTL.
 // Only caches GET requests with 200 responses and no Set-Cookie headers.
-// Cache key is the full request path (including query S).
+// Cache key is the full request path (including query string).
 // TTL is taken from the response Cache-Control max-age if present; otherwise
 // falls back to ResponseCacheOptions::default_ttl.
 module;
@@ -14,9 +14,9 @@ import conflux.net.http.types;
 import conflux.net.router;
 export struct ResponseCacheOptions {
 	// Maximum number of entries in the LRU cache.
-	SZ max_entries{256};
+	std::size_t max_entries{256};
 	// Maximum total bytes of cached response bodies (0 = unlimited).
-	SZ max_bytes{64ULL * 1024 * 1024};
+	std::size_t max_bytes{64ULL * 1024 * 1024};
 	// Default TTL when the response has no Cache-Control max-age.
 	chrono::seconds default_ttl{60};
 	// When true, Vary: * responses are not cached.
@@ -31,13 +31,13 @@ struct RespCacheEntry {
 class RespLruCache {
 public:
 	explicit RespLruCache(
-		SZ max,
-		SZ max_bytes)
+		std::size_t max,
+		std::size_t max_bytes)
 		: max_(max)
 		, max_bytes_(max_bytes) {}
 	// Returns pointer to cached entry (nullptr if absent or expired).
 	RespCacheEntry const *get(
-		S const &key) {
+		std::string const &key) {
 		auto it = map_.find(key);
 		if (it == map_.end()) {
 			return nullptr;
@@ -56,9 +56,9 @@ public:
 		return &it->second;
 	}
 	void put(
-		S const &key,
+		std::string const &key,
 		RespCacheEntry entry) {
-		SZ const entry_bytes = entry.resp.text_body().size();
+		std::size_t const entry_bytes = entry.resp.text_body().size();
 		if (max_bytes_ > 0 && entry_bytes > max_bytes_) {
 			return;
 		}
@@ -74,7 +74,7 @@ public:
 			if (order_.empty()) {
 				return;
 			}
-			S const &lru = order_.back();
+		auto const &lru = order_.back();
 			total_bytes_ -= map_.at(lru).resp.text_body().size();
 			map_.erase(lru);
 			iters_.erase(lru);
@@ -85,40 +85,40 @@ public:
 		iters_.emplace(key, order_.begin());
 		map_.emplace(key, move(entry));
 	}
-	[[nodiscard]] V<S> const *vary_for(
-		S const &path) const {
+	[[nodiscard]] std::vector<std::string> const *vary_for(
+		std::string const &path) const {
 		auto it = path_vary_.find(path);
 		return it == path_vary_.end() ? nullptr : &it->second;
 	}
 	void set_vary(
-		S const &path,
-		V<S> headers) {
+		std::string const &path,
+		std::vector<std::string> headers) {
 		path_vary_[path] = move(headers);
 	}
 
 private:
-	SZ max_;
-	SZ max_bytes_;
-	SZ total_bytes_{0};
-	std::list<S> order_;
-	UM<S, std::list<S>::iterator> iters_;
-	UM<S, RespCacheEntry> map_;
-	UM<S, V<S>> path_vary_;
+	std::size_t max_;
+	std::size_t max_bytes_;
+	std::size_t total_bytes_{0};
+	std::list<std::string> order_;
+	std::unordered_map<std::string, std::list<std::string>::iterator> iters_;
+	std::unordered_map<std::string, RespCacheEntry> map_;
+	std::unordered_map<std::string, std::vector<std::string>> path_vary_;
 };
 namespace response_cache_detail {
 
 bool cache_control_directive_contains(
-	SV cc,
-	SV directive) {
+	std::string_view cc,
+	std::string_view directive) {
 	while (!cc.empty()) {
 		auto comma = cc.find(',');
-		auto part = trim((comma == SV::npos) ? cc : cc.substr(0, comma));
+		auto part = trim((comma == std::string_view::npos) ? cc : cc.substr(0, comma));
 		auto eq = part.find('=');
-		auto name = trim((eq == SV::npos) ? part : part.substr(0, eq));
+		auto name = trim((eq == std::string_view::npos) ? part : part.substr(0, eq));
 		if (conflux::http::ascii_iequals(name, directive)) {
 			return true;
 		}
-		if (comma == SV::npos) {
+		if (comma == std::string_view::npos) {
 			return false;
 		}
 		cc.remove_prefix(comma + 1);
@@ -127,12 +127,12 @@ bool cache_control_directive_contains(
 }
 // Parse max-age from a Cache-Control header value. Returns 0 if not found.
 chrono::seconds parse_max_age(
-	SV cc) {
+	std::string_view cc) {
 	while (!cc.empty()) {
 		auto comma = cc.find(',');
-		auto part = trim((comma == SV::npos) ? cc : cc.substr(0, comma));
+		auto part = trim((comma == std::string_view::npos) ? cc : cc.substr(0, comma));
 		auto eq = part.find('=');
-		if (eq != SV::npos) {
+		if (eq != std::string_view::npos) {
 			auto name = trim(part.substr(0, eq));
 			if (conflux::http::ascii_iequals(name, "max-age")) {
 				auto val = trim(part.substr(eq + 1));
@@ -144,7 +144,7 @@ chrono::seconds parse_max_age(
 				return chrono::seconds{v};
 			}
 		}
-		if (comma == SV::npos) {
+		if (comma == std::string_view::npos) {
 			return chrono::seconds{0};
 		}
 		cc.remove_prefix(comma + 1);
@@ -152,16 +152,16 @@ chrono::seconds parse_max_age(
 	return chrono::seconds{0};
 }
 // Parse a Vary header value into a sorted, lowercased, deduped list of header names.
-// Returns empty V for empty input or "*".
-V<S> parse_vary(
-	SV vary) {
-	V<S> out;
-	SZ i = 0;
+// Returns empty vector for empty input or "*".
+std::vector<std::string> parse_vary(
+	std::string_view vary) {
+	std::vector<std::string> out;
+	std::size_t i = 0;
 	while (i < vary.size()) {
 		while (i < vary.size() && (vary[i] == ' ' || vary[i] == '\t' || vary[i] == ',')) {
 			++i;
 		}
-		SZ const start = i;
+		std::size_t const start = i;
 		while (i < vary.size() && vary[i] != ',') {
 			++i;
 		}
@@ -179,12 +179,12 @@ V<S> parse_vary(
 	out.erase(dup.begin(), dup.end());
 	return out;
 }
-S build_cache_key(
-	SV path,
+std::string build_cache_key(
+	std::string_view path,
 	HttpFieldsView const &query,
-	V<S> const &vary,
+	std::vector<std::string> const &vary,
 	HttpFieldsView const &req_headers) {
-	S key{path};
+	std::string key{path};
 	if (!query.empty()) {
 		key += "|q:";
 		for (auto const &[name, value]: query) {
@@ -218,13 +218,13 @@ export Router::Middleware response_cache_middleware(
 			return next(req);
 		}
 
-		S const path{req.path};
+		std::string const path{req.path};
 
 		{
-			SL const lk{*mtx};
+			std::scoped_lock const lk{*mtx};
 			auto const *vary = cache->vary_for(path);
-			auto lookup_key =
-				response_cache_detail::build_cache_key(path, req.query, vary ? *vary : V<S>{}, req.headers);
+			auto const lookup_key =
+				response_cache_detail::build_cache_key(path, req.query, vary ? *vary : std::vector<std::string>{}, req.headers);
 			auto const *entry = cache->get(lookup_key);
 			if (entry != nullptr) {
 				auto resp = entry->resp;
@@ -260,7 +260,7 @@ export Router::Middleware response_cache_middleware(
 			return resp;
 		}
 		auto vary_hdr = std::as_const(resp.headers)["Vary"];
-		if (opts.respect_vary && vary_hdr.find('*') != SV::npos) {
+		if (opts.respect_vary && vary_hdr.find('*') != std::string_view::npos) {
 			return resp;
 		}
 		auto vary_list = response_cache_detail::parse_vary(vary_hdr);
@@ -274,7 +274,7 @@ export Router::Middleware response_cache_middleware(
 		}
 
 		{
-			SL const lk{*mtx};
+			std::scoped_lock const lk{*mtx};
 			if (!vary_list.empty()) {
 				cache->set_vary(path, vary_list);
 			}

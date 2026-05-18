@@ -25,8 +25,24 @@ correctness, or naming patches.
 
 ## Release-polish / API ergonomics
 
-- [ ] Public API alias cleanup: remove exported shorthand aliases from public
-  signatures and docs after the rest of the public surface settles.
+- [ ] Public API alias cleanup (NEXT serious quality branch): remove exported
+  shorthand aliases from public signatures and docs after the rest of the
+  public surface settles.
+  - Severity: highest remaining v1 ergonomics issue; public namespace leakage
+    makes first-contact API discovery inconsistent (`Document`, `JsonError`,
+    `Router`, `HttpResponse`, `HttpServer`, `Pool`, `Result`, `Params`, etc.
+    appear globally and under `conflux::*`).
+  - Branch intent: canonicalize public entry points under `conflux::*` and
+    stop exporting duplicate global spellings for user-facing types.
+  - Suggested rollout:
+    1. JSON surface (`Document`, `JsonError`, friends)
+    2. HTTP surface (`Router`, `HttpResponse`, `HttpServer`, helpers)
+    3. DB surface (`Pool`, `Result`, `Params`, connection/query types)
+    4. Final pass across examples/docs/package snippets
+  - Guardrails:
+    - no compatibility aliases in public pre-release surface
+    - update examples/docs in the same patch as signature cleanup
+    - add/adjust tests only for rename coverage unless behavior changes
   - Progress: crypto, utils, process, file sync/map, async file I/O, socket I/O,
     net config, selected HTTP helper surfaces, VHost, OpenAPI,
     cookie/JWT/WebSocket/static helpers now use spelled-out standard vocabulary

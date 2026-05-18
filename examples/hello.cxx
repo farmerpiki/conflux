@@ -16,8 +16,8 @@ int main() {
 	namespace http = conflux::http;
 	auto app = http::App::default_server();
 
-	app.get("/", [](http::Request const &) {
-		return http::Response::html(
+	app.get("/", [](HttpRequest const &) {
+		return HttpResponse::html(
 			"<html><body>"
 			"<h1>conflux example</h1>"
 			"<ul>"
@@ -27,24 +27,24 @@ int main() {
 			"</body></html>");
 	});
 
-	app.get("/hello/{name}", [](http::Request const &req) {
-		return http::Response::html(format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
+	app.get("/hello/{name}", [](HttpRequest const &req) {
+		return HttpResponse::html(format("<html><body><h1>Hello, {}!</h1></body></html>", req.params["name"]));
 	});
 
-	app.get("/api/ping", [](http::Request const &) {
-		return http::Response::json(R"({"status":"ok","server":"conflux"})");
+	app.get("/api/ping", [](HttpRequest const &) {
+		return HttpResponse::json(R"({"status":"ok","server":"conflux"})");
 	});
 
-	app.get("/api/async-ping", [](HttpRequest const &) -> conflux::work::root::Task<http::Response> {
-		auto [task, source] = conflux::work::root::make_task_source<http::Response>();
+	app.get("/api/async-ping", [](HttpRequest const &) -> conflux::work::root::Task<HttpResponse> {
+		auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
 		auto _ = source.try_set_value(
-			conflux::work::root::Success<http::Response>{http::Response::json(R"({"status":"ok","mode":"async"})")});
+			conflux::work::root::Success<HttpResponse>{HttpResponse::json(R"({"status":"ok","mode":"async"})")});
 		return move(task);
 	});
 
-	app.get("/api/defer-ping", [](http::Request const &) {
+	app.get("/api/defer-ping", [](HttpRequest const &) {
 		static auto pool = make_shared<WorkPool>(WorkPoolOptions{.threads = 1, .max_inject_queue = 16});
-		return http::defer(pool, [] { return http::Response::json(R"({"status":"ok","mode":"defer"})"); });
+		return http::defer(pool, [] { return HttpResponse::json(R"({"status":"ok","mode":"defer"})"); });
 	});
 
 	auto const status = move(app).run({.port = 9090});

@@ -7,21 +7,21 @@ import std;
 import conflux.types;
 
 export struct StaticRequest {
-	S file_param;
-	S method;
-	S accept_encoding;
-	S if_none_match;
-	S if_modified_since;
-	S range;
+	std::string file_param;
+	std::string method;
+	std::string accept_encoding;
+	std::string if_none_match;
+	std::string if_modified_since;
+	std::string range;
 	bool tls{};
 };
 
 export struct StaticCacheEntry {
-	S body;
-	S mime;
-	S etag;
-	S last_modified;
-	S content_encoding;
+	std::string body;
+	std::string mime;
+	std::string etag;
+	std::string last_modified;
+	std::string content_encoding;
 	off_t size{};
 	time_t mtime{};
 	dev_t dev{};
@@ -30,25 +30,25 @@ export struct StaticCacheEntry {
 };
 
 export struct StaticCacheKey {
-	S path;
-	S content_encoding;
+	std::string path;
+	std::string content_encoding;
 };
 
 export struct StaticCacheKeyView {
-	SV path;
-	SV content_encoding;
+	std::string_view path;
+	std::string_view content_encoding;
 };
 
 export struct StaticCacheKeyHash {
 	using is_transparent = void;
-	[[nodiscard]] SZ operator()(
+	[[nodiscard]] std::size_t operator()(
 		StaticCacheKey const &key) const noexcept {
 		return (*this)(StaticCacheKeyView{key.path, key.content_encoding});
 	}
-	[[nodiscard]] SZ operator()(
+	[[nodiscard]] std::size_t operator()(
 		StaticCacheKeyView key) const noexcept {
-		auto const h1 = hash<SV>{}(key.path);
-		auto const h2 = hash<SV>{}(key.content_encoding);
+		auto const h1 = hash<std::string_view>{}(key.path);
+		auto const h2 = hash<std::string_view>{}(key.content_encoding);
 		return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6U) + (h1 >> 2U));
 	}
 };
@@ -75,11 +75,11 @@ export struct StaticCacheKeyEqual {
 export struct StaticCacheStore {
 	mutex mtx;
 	std::unordered_map<StaticCacheKey, StaticCacheEntry, StaticCacheKeyHash, StaticCacheKeyEqual> entries;
-	SZ total_bytes{};
+	std::size_t total_bytes{};
 	u64 tick{};
-	[[nodiscard]] Opt<StaticCacheEntry> get(
-		SV path,
-		SV content_encoding,
+	[[nodiscard]] std::optional<StaticCacheEntry> get(
+		std::string_view path,
+		std::string_view content_encoding,
 		struct ::stat const &st) {
 		SL const lk{mtx};
 		auto it = entries.find(StaticCacheKeyView{path, content_encoding});
@@ -96,10 +96,10 @@ export struct StaticCacheStore {
 		return e;
 	}
 	void put(
-		S path,
-		S content_encoding,
+		std::string path,
+		std::string content_encoding,
 		StaticCacheEntry entry,
-		SZ max_total_bytes) {
+		std::size_t max_total_bytes) {
 		SL const lk{mtx};
 		if (entry.body.size() > max_total_bytes) {
 			return;
@@ -118,8 +118,8 @@ export struct StaticCacheStore {
 		entries.emplace(StaticCacheKey{move(path), move(content_encoding)}, move(entry));
 	}
 	void evict(
-		SV path,
-		SV content_encoding) {
+		std::string_view path,
+		std::string_view content_encoding) {
 		SL const lk{mtx};
 		if (auto it = entries.find(StaticCacheKeyView{path, content_encoding}); it != entries.end()) {
 			total_bytes -= it->second.body.size();
@@ -127,22 +127,22 @@ export struct StaticCacheStore {
 		}
 	}
 	void evict_all_encodings(
-		S const &path) {
+		std::string const &path) {
 		evict(path, {});
 		evict(path, "br");
 		evict(path, "gzip");
 	}
 };
 
-export [[nodiscard]] Opt<std::string> normalize_static_path(
-	SV raw) {
-	S result;
+export [[nodiscard]] std::optional<std::string> normalize_static_path(
+	std::string_view raw) {
+	std::string result;
 	result.reserve(raw.size() + 1);
-	SZ pos = 0;
+	std::size_t pos = 0;
 	while (pos < raw.size()) {
 		auto const next = raw.find('/', pos);
-		SV const seg = next == SV::npos ? raw.substr(pos) : raw.substr(pos, next - pos);
-		if (seg.find('\0') != SV::npos) {
+		std::string_view const seg = next == std::string_view::npos ? raw.substr(pos) : raw.substr(pos, next - pos);
+		if (seg.find('\0') != std::string_view::npos) {
 			return nullopt;
 		}
 		if (seg == "..") {
@@ -159,7 +159,7 @@ export [[nodiscard]] Opt<std::string> normalize_static_path(
 			result.push_back('/');
 			result += seg;
 		}
-		if (next == SV::npos) {
+		if (next == std::string_view::npos) {
 			break;
 		}
 		pos = next + 1;

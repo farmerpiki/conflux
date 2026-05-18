@@ -6,14 +6,14 @@ using namespace conflux::json;
 using namespace std::literals;
 using std::println, std::pair;
 struct ApiResponse {
-	S model;
+	std::string model;
 	i64 tokens{};
-	Opt<S> error;
+	std::optional<std::string> error;
 };
 template<>
 struct JsonMembers<ApiResponse> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("model", &ApiResponse::model),
 			json_member("tokens", &ApiResponse::tokens),
 			json_member("error", &ApiResponse::error),
@@ -37,7 +37,7 @@ static void example_make_object() {
 }
 static void example_json5() {
 	std::println("\n--- JSON5 ---");
-	SV input =
+	std::string_view input =
 		"{\n"
 		"  // server config\n"
 		"  host: 'localhost',\n"
@@ -62,9 +62,9 @@ static void example_json5() {
 }
 static void example_pull_parser() {
 	std::println("\n--- JsonReader (pull parser) ---");
-	SV input = R"([{"id":1,"name":"alice"},{"id":2,"name":"bob"}])";
+	std::string_view input = R"([{"id":1,"name":"alice"},{"id":2,"name":"bob"}])";
 	JsonReader reader{input};
-	SZ count{};
+	std::size_t count{};
 	while (auto ev = reader.next()) {
 		if (!*ev) {
 			break;
@@ -76,22 +76,22 @@ static void example_pull_parser() {
 	std::println("found {} string values", count);
 }
 struct CountHandler : JsonDefaultHandler {
-	SZ keys{};
-	SZ strings{};
+	std::size_t keys{};
+	std::size_t strings{};
 	expected<void, JsonError> on_key(
-		SV) {
+		std::string_view) {
 		++keys;
 		return {};
 	}
 	expected<void, JsonError> on_string(
-		SV) {
+		std::string_view) {
 		++strings;
 		return {};
 	}
 };
 static void example_sax() {
 	std::println("\n--- parse_sax ---");
-	SV input = R"({"a":"hello","b":"world","c":42})";
+	std::string_view input = R"({"a":"hello","b":"world","c":42})";
 	CountHandler h;
 	auto sax = parse_sax(input, h);
 	if (!sax) {
@@ -102,9 +102,9 @@ static void example_sax() {
 }
 static void example_ndjson() {
 	std::println("\n--- NdjsonRange ---");
-	SV input = "{\"line\":1}\n{\"line\":2}\n{\"line\":3}\n";
+	std::string_view input = "{\"line\":1}\n{\"line\":2}\n{\"line\":3}\n";
 	NdjsonRange range{input};
-	SZ count{};
+	std::size_t count{};
 	for (auto const &result: range) {
 		if (result.has_value()) {
 			++count;

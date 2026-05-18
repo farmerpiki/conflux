@@ -194,14 +194,14 @@ private:
 	};
 	struct PendingQuery {
 		PendingKind kind{PendingKind::query};
-		SP<root::TaskSource<Result>> dst;
+		std::shared_ptr<root::TaskSource<Result>> dst;
 		string sql;
 		Params params;
 		shared_ptr<StatementCache::Entry const> stmt{};
 	};
 	struct WireResult {
 		WireResultKind kind{WireResultKind::query};
-		SP<root::TaskSource<Result>> dst;
+		std::shared_ptr<root::TaskSource<Result>> dst;
 		string label;
 		string prepared_name;
 	};
@@ -277,13 +277,13 @@ private:
 	void enqueue_job_(function<void()> job);
 	void start_next_();
 
-	void run_query_(string const &sql, Params const &params, SP<root::TaskSource<Result>> const &dst);
+	void run_query_(string const &sql, Params const &params, std::shared_ptr<root::TaskSource<Result>> const &dst);
 	void run_prepare_(
 		string const &name,
 		string const &sql,
 		vector<Oid> oids,
 		shared_ptr<root::TaskSource<void>> const &dst);
-	void run_exec_prepared_(string const &name, Params const &params, SP<root::TaskSource<Result>> const &dst);
+	void run_exec_prepared_(string const &name, Params const &params, std::shared_ptr<root::TaskSource<Result>> const &dst);
 
 	template<class T>
 	void after_send_drive_flush_(shared_ptr<root::TaskSource<T>> dst, shared_ptr<Result> partial, string const &label);
@@ -410,8 +410,8 @@ struct ConnectState : enable_shared_from_this<ConnectState> {
 				// P11b: pin client_encoding to UTF-8 before publishing.
 				auto outer = dst;
 				auto conn_sp = c;
-				[](SP<root::TaskSource<SP<Connection>>> outer,
-				   SP<Connection> conn_sp,
+				[](std::shared_ptr<root::TaskSource<std::shared_ptr<Connection>>> outer,
+				   std::shared_ptr<Connection> conn_sp,
 				   root::Task<Result> q_task) mutable -> root::Task<void> {
 					try {
 						co_await move(q_task);
@@ -586,7 +586,7 @@ root::Task<Result> Connection::query(
 void Connection::run_query_(
 	string const &sql,
 	Params const &params,
-	SP<root::TaskSource<Result>> const &dst) {
+	std::shared_ptr<root::TaskSource<Result>> const &dst) {
 	int const n = params.count();
 	int const send = ::PQsendQueryParams(
 		conn_.get(),
@@ -708,7 +708,7 @@ root::Task<Result> Connection::exec_prepared(
 void Connection::run_exec_prepared_(
 	string const &name,
 	Params const &params,
-	SP<root::TaskSource<Result>> const &dst) {
+	std::shared_ptr<root::TaskSource<Result>> const &dst) {
 	int const n = params.count();
 	int const send = ::PQsendQueryPrepared(
 		conn_.get(),
@@ -753,10 +753,10 @@ root::Task<Result> Connection::exec_cached(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
 	auto self = shared_from_this();
-	[](SP<Connection> self,
+	[](std::shared_ptr<Connection> self,
 	   shared_ptr<StatementCache::Entry const> stmt,
 	   Params params,
-	   SP<root::TaskSource<Result>> shared_src,
+	   std::shared_ptr<root::TaskSource<Result>> shared_src,
 	   root::Task<void> prep_task) mutable -> root::Task<void> {
 		try {
 			co_await move(prep_task);
@@ -932,7 +932,7 @@ root::Task<Result> Connection::query(
 	auto [task, raw_src] = root::make_task_source<Result>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<Result>>(move(raw_src));
 	auto self = shared_from_this();
-	[](SP<root::TaskSource<Result>> src, root::Task<Result> qt) -> root::Task<void> {
+	[](std::shared_ptr<root::TaskSource<Result>> src, root::Task<Result> qt) -> root::Task<void> {
 		try {
 			auto r = co_await move(qt);
 			auto _ = src->try_set_value(root::Success<Result>{move(r)});
@@ -942,11 +942,11 @@ root::Task<Result> Connection::query(
 	}(shared_src, query(sql, move(params)))
 																	   .detach();
 	auto const deadline = *opts.deadline;
-	[](SP<Connection> s, SP<root::TaskSource<Result>> src, root::Task<void> tt) -> root::Task<void> {
+	[](std::shared_ptr<Connection> s, std::shared_ptr<root::TaskSource<Result>> src, root::Task<void> tt) -> root::Task<void> {
 		try {
 			co_await move(tt);
 			if (src->try_set_exception(make_exception_ptr(PgError{"conflux.db: query deadline exceeded", "57014"}))) {
-				[](SP<Connection> s2) -> root::Task<void> {
+				[](std::shared_ptr<Connection> s2) -> root::Task<void> {
 					try {
 						co_await s2->cancel_inflight();
 					} catch (...) {}
@@ -1089,7 +1089,7 @@ void Pipeline::sync_next_(
 	auto item = move(st->batch.front());
 	st->batch.pop_front();
 	auto shared_src = item.dst;
-	[](SP<SyncState> st, SP<root::TaskSource<Result>> shared_src, root::Task<Result> qt) -> root::Task<void> {
+	[](std::shared_ptr<SyncState> st, std::shared_ptr<root::TaskSource<Result>> shared_src, root::Task<Result> qt) -> root::Task<void> {
 		try {
 			auto r = co_await move(qt);
 			auto _ = shared_src->try_set_value(root::Success<Result>{move(r)});
@@ -1470,7 +1470,7 @@ root::Task<shared_ptr<string const>> QueryCache::load_async(
 	auto name_owned = string{name};
 	auto path = (root_ / (name_owned + ".psql")).string();
 	[](FileReader *reader,
-	   SP<root::TaskSource<shared_ptr<string const>>> shared_src,
+	   std::shared_ptr<root::TaskSource<shared_ptr<string const>>> shared_src,
 	   string name_owned,
 	   QueryCache *self,
 	   root::Task<FileHandle> open_task) mutable -> root::Task<void> {

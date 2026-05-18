@@ -15,18 +15,18 @@ import conflux.net.config;
 // ---------------------------------------------------------------------------
 
 export struct JwtClaims {
-	S sub{};
-	S iss{};
-	S jti{};
+	std::string sub{};
+	std::string iss{};
+	std::string jti{};
 	i64 exp{};
 	i64 nbf{};
 	i64 iat{};
-	S raw{}; // full decoded payload JSON (for custom claims)
+	std::string raw{}; // full decoded payload JSON (for custom claims)
 };
 export struct JwtOptions {
 	ResolvedSecretRotation secrets{}; // active HMAC-SHA256 secret plus previous rotation secrets
-	S issuer{}; // expected iss claim; "" = skip check
-	S audience{}; // expected aud claim; "" = skip check
+	std::string issuer{}; // expected iss claim; "" = skip check
+	std::string audience{}; // expected aud claim; "" = skip check
 	bool verify_exp{true}; // reject expired tokens when an exp claim is present
 	bool verify_nbf{true}; // reject not-yet-valid tokens when an nbf claim is present
 	bool require_exp{false}; // reject tokens without an exp claim
@@ -34,7 +34,7 @@ export struct JwtOptions {
 	bool require_jti{false}; // reject tokens without a jti claim
 	chrono::seconds clock_skew{}; // tolerance for exp/nbf comparisons
 	chrono::seconds max_token_lifetime{}; // 0 = disabled; otherwise requires exp+iat and caps exp-iat
-	std::function<bool(SV)> revoked_jti{}; // optional revocation lookup; true = reject token
+	std::function<bool(std::string_view)> revoked_jti{}; // optional revocation lookup; true = reject token
 };
 // ---------------------------------------------------------------------------
 // Internal helpers
@@ -46,23 +46,23 @@ bool is_json_ws(
 	char c) noexcept {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r';
 }
-SZ skip_json_ws(
-	SV json,
-	SZ pos) {
+std::size_t skip_json_ws(
+	std::string_view json,
+	std::size_t pos) {
 	auto rest = json.substr(pos);
 	auto it = ranges::find_if_not(rest, is_json_ws);
-	return pos + static_cast<SZ>(ranges::distance(rest.begin(), it));
+	return pos + static_cast<std::size_t>(ranges::distance(rest.begin(), it));
 }
 // Locate the position of the value after `"key":` in a JSON object, skipping
-// whitespace after the colon. Returns SV::npos on miss.
-SZ json_value_pos(
-	SV json,
-	SV key) {
-	SZ pos = 0;
+// whitespace after the colon. Returns std::string_view::npos on miss.
+std::size_t json_value_pos(
+	std::string_view json,
+	std::string_view key) {
+	std::size_t pos = 0;
 	while (true) {
 		pos = json.find('"', pos);
-		if (pos == SV::npos) {
-			return SV::npos;
+		if (pos == std::string_view::npos) {
+			return std::string_view::npos;
 		}
 		auto const key_begin = pos + 1;
 		auto const key_end = key_begin + key.size();
@@ -74,16 +74,16 @@ SZ json_value_pos(
 	}
 	pos = skip_json_ws(json, pos);
 	if (pos >= json.size() || json[pos] != ':') {
-		return SV::npos;
+		return std::string_view::npos;
 	}
 	++pos;
 	return skip_json_ws(json, pos);
 }
-// Minimal JSON S extractor: find the S value of `"key"` in a JSON object.
+// Minimal JSON std::string extractor: find the std::string value of `"key"` in a JSON object.
 // Handles basic escaping but not full Unicode escapes — sufficient for JWT claims.
-SV json_string(
-	SV json,
-	SV key) {
+std::string_view json_string(
+	std::string_view json,
+	std::string_view key) {
 	auto pos = json_value_pos(json, key);
 	if (pos >= json.size() || json[pos] != '"') {
 		return {};
@@ -105,9 +105,9 @@ SV json_string(
 	return {};
 }
 // Minimal JSON number extractor: find i64 value of `"key"`.
-Opt<i64> json_int_at(
-	SV json,
-	SZ pos) {
+std::optional<i64> json_int_at(
+	std::string_view json,
+	std::size_t pos) {
 	if (pos >= json.size()) {
 		return nullopt;
 	}
@@ -121,9 +121,9 @@ Opt<i64> json_int_at(
 	return val;
 }
 bool json_array_contains_string(
-	SV json,
-	SV key,
-	SV value) {
+	std::string_view json,
+	std::string_view key,
+	std::string_view value) {
 	auto pos = json_value_pos(json, key);
 	if (pos >= json.size() || json[pos] != '[') {
 		return false;
@@ -206,9 +206,9 @@ bool ct_equal(
 } // namespace
 namespace jwt_detail {
 
-Opt<SV> bearer_token(
-	SV auth) noexcept {
-	static constexpr SV kScheme = "Bearer";
+std::optional<std::string_view> bearer_token(
+	std::string_view auth) noexcept {
+	static constexpr std::string_view kScheme = "Bearer";
 	if (auth.size() <= kScheme.size() || auth[kScheme.size()] != ' ') {
 		return nullopt;
 	}
@@ -219,20 +219,20 @@ Opt<SV> bearer_token(
 }
 
 
-[[nodiscard]] expected<void, S> validate_jwt_secrets(
+[[nodiscard]] expected<void, std::string> validate_jwt_secrets(
 	ResolvedSecretRotation const &secrets) {
 	return validate_secret_bytes(secrets.active, "jwt", secrets.min_secret_bytes);
 }
 
-[[nodiscard]] A<unsigned char, 32> jwt_signature(
-	SV secret,
-	SV signing_input) {
+[[nodiscard]] std::array<unsigned char, 32> jwt_signature(
+	std::string_view secret,
+	std::string_view signing_input) {
 	return hmac_sha256(to_unsigned_span(secret), to_unsigned_span(signing_input));
 }
 
 [[nodiscard]] bool signature_matches(
-	SV signing_input,
-	S const &sig_claimed,
+	std::string_view signing_input,
+	std::string const &sig_claimed,
 	ResolvedSecretRotation const &secrets) {
 	auto expected = jwt_signature(secrets.active, signing_input);
 	if (ct_equal(to_unsigned_span(sig_claimed), span{expected.data(), expected.size()})) {
@@ -253,15 +253,15 @@ Opt<SV> bearer_token(
 // ---------------------------------------------------------------------------
 
 export std::string jwt_sign(
-	SV payload_json,
-	SV secret);
+	std::string_view payload_json,
+	std::string_view secret);
 export std::string jwt_sign(
-	SV header_json,
-	SV payload_json,
-	SV secret);
+	std::string_view header_json,
+	std::string_view payload_json,
+	std::string_view secret);
 
 
-export [[nodiscard]] expected<JwtOptions, S> jwt_options_from_config(
+export [[nodiscard]] expected<JwtOptions, std::string> jwt_options_from_config(
 	AuthSecretsConfig const &cfg,
 	JwtOptions base = {},
 	bool required = true) {
@@ -273,7 +273,7 @@ export [[nodiscard]] expected<JwtOptions, S> jwt_options_from_config(
 	return base;
 }
 
-export [[nodiscard]] expected<JwtOptions, S> jwt_options_from_config(
+export [[nodiscard]] expected<JwtOptions, std::string> jwt_options_from_config(
 	Config const &cfg,
 	JwtOptions base = {},
 	bool required = true) {
@@ -282,18 +282,18 @@ export [[nodiscard]] expected<JwtOptions, S> jwt_options_from_config(
 
 // Decode and verify a JWT.  Returns JwtClaims on success, error string on failure.
 export expected<JwtClaims, std::string> jwt_decode(
-	SV token,
+	std::string_view token,
 	JwtOptions const &opts) {
 	if (auto valid = jwt_detail::validate_jwt_secrets(opts.secrets); !valid) {
 		return unexpected{valid.error()};
 	}
 	// Split header.payload.signature
 	auto dot1 = token.find('.');
-	if (dot1 == SV::npos) {
+	if (dot1 == std::string_view::npos) {
 		return unexpected{"malformed token: missing first dot"};
 	}
 	auto dot2 = token.find('.', dot1 + 1);
-	if (dot2 == SV::npos) {
+	if (dot2 == std::string_view::npos) {
 		return unexpected{"malformed token: missing second dot"};
 	}
 
@@ -323,7 +323,7 @@ export expected<JwtClaims, std::string> jwt_decode(
 	}
 
 	// Recompute expected signature over "header_b64.payload_b64".
-	SV const signing_input = token.substr(0, static_cast<SZ>(dot2));
+	std::string_view const signing_input = token.substr(0, static_cast<std::size_t>(dot2));
 	if (!jwt_detail::signature_matches(signing_input, sig_claimed, opts.secrets)) {
 		return unexpected{"signature verification failed"};
 	}
@@ -331,22 +331,22 @@ export expected<JwtClaims, std::string> jwt_decode(
 	// Extract standard claims.
 	JwtClaims claims{};
 	claims.raw = payload;
-	claims.sub = S{json_string(payload, "sub")};
-	claims.iss = S{json_string(payload, "iss")};
-	claims.jti = S{json_string(payload, "jti")};
+	claims.sub = std::string{json_string(payload, "sub")};
+	claims.iss = std::string{json_string(payload, "iss")};
+	claims.jti = std::string{json_string(payload, "jti")};
 	auto const exp_pos = json_value_pos(payload, "exp");
 	auto const nbf_pos = json_value_pos(payload, "nbf");
 	auto const iat_pos = json_value_pos(payload, "iat");
 	auto exp = json_int_at(payload, exp_pos);
 	auto nbf = json_int_at(payload, nbf_pos);
 	auto iat = json_int_at(payload, iat_pos);
-	if (exp_pos != SV::npos && (!exp || *exp < 0)) {
+	if (exp_pos != std::string_view::npos && (!exp || *exp < 0)) {
 		return unexpected{"invalid exp claim"};
 	}
-	if (nbf_pos != SV::npos && (!nbf || *nbf < 0)) {
+	if (nbf_pos != std::string_view::npos && (!nbf || *nbf < 0)) {
 		return unexpected{"invalid nbf claim"};
 	}
-	if (iat_pos != SV::npos && (!iat || *iat < 0)) {
+	if (iat_pos != std::string_view::npos && (!iat || *iat < 0)) {
 		return unexpected{"invalid iat claim"};
 	}
 	claims.exp = exp.value_or(0);
@@ -406,10 +406,10 @@ export expected<JwtClaims, std::string> jwt_decode(
 
 	return claims;
 }
-// Sign a payload JSON S and return a complete JWT.
-// payload_json must be a valid JSON object S, e.g. R"({"sub":"user1","exp":9999999999})".
-export expected<std::string, S> jwt_sign(
-	SV payload_json,
+// Sign a payload JSON std::string and return a complete JWT.
+// payload_json must be a valid JSON object std::string, e.g. R"({"sub":"user1","exp":9999999999})".
+export expected<std::string, std::string> jwt_sign(
+	std::string_view payload_json,
 	JwtOptions const &opts) {
 	if (auto valid = jwt_detail::validate_jwt_secrets(opts.secrets); !valid) {
 		return unexpected{valid.error()};
@@ -417,22 +417,22 @@ export expected<std::string, S> jwt_sign(
 	return jwt_sign(payload_json, opts.secrets.active);
 }
 export std::string jwt_sign(
-	SV payload_json,
-	SV secret) {
+	std::string_view payload_json,
+	std::string_view secret) {
 	// Header: {"alg":"HS256","typ":"JWT"}
-	static constexpr SV kHeader = R"({"alg":"HS256","typ":"JWT"})";
+	static constexpr std::string_view kHeader = R"({"alg":"HS256","typ":"JWT"})";
 	auto header_b64 = base64url_encode(to_unsigned_span(kHeader));
 	auto payload_b64 = base64url_encode(to_unsigned_span(payload_json));
 
-	S const signing_input = header_b64 + '.' + payload_b64;
+	std::string const signing_input = header_b64 + '.' + payload_b64;
 	auto sig = hmac_sha256(to_unsigned_span(secret), to_unsigned_span(signing_input));
 	auto sig_b64 = base64url_encode(span{sig.data(), sig.size()});
 
 	return signing_input + '.' + sig_b64;
 }
-export expected<std::string, S> jwt_sign(
-	SV header_json,
-	SV payload_json,
+export expected<std::string, std::string> jwt_sign(
+	std::string_view header_json,
+	std::string_view payload_json,
 	JwtOptions const &opts) {
 	if (auto valid = jwt_detail::validate_jwt_secrets(opts.secrets); !valid) {
 		return unexpected{valid.error()};
@@ -440,13 +440,13 @@ export expected<std::string, S> jwt_sign(
 	return jwt_sign(header_json, payload_json, opts.secrets.active);
 }
 export std::string jwt_sign(
-	SV header_json,
-	SV payload_json,
-	SV secret) {
+	std::string_view header_json,
+	std::string_view payload_json,
+	std::string_view secret) {
 	auto header_b64 = base64url_encode(to_unsigned_span(header_json));
 	auto payload_b64 = base64url_encode(to_unsigned_span(payload_json));
 
-	S const signing_input = header_b64 + '.' + payload_b64;
+	std::string const signing_input = header_b64 + '.' + payload_b64;
 	auto sig = hmac_sha256(to_unsigned_span(secret), to_unsigned_span(signing_input));
 	auto sig_b64 = base64url_encode(span{sig.data(), sig.size()});
 
@@ -458,13 +458,13 @@ export std::string jwt_sign(
 export Router::Middleware jwt_middleware(
 	JwtOptions opts) {
 	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
-		auto unauthorized = [](SV www_auth) {
+		auto unauthorized = [](std::string_view www_auth) {
 			HttpResponse r;
 			r.status = kHttpUnauthorized;
 			r.status_text = "Unauthorized";
 			r.content_type = "text/plain; charset=utf-8";
 			r.set_text_body("Unauthorized");
-			r.headers["WWW-Authenticate"] = S{www_auth};
+			r.headers["WWW-Authenticate"] = std::string{www_auth};
 			return r;
 		};
 

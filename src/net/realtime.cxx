@@ -40,22 +40,22 @@ export class SseChannel {
 private:
 	int efd_{};
 	mutex mtx_{};
-	std::queue<S> pending_{};
+	std::queue<std::string> pending_{};
 	atomic_flag closed_{};
-	SZ queued_bytes_{0};
-	SZ max_queue_bytes_{};
+	std::size_t queued_bytes_{0};
+	std::size_t max_queue_bytes_{};
 	SseOverflowPolicy overflow_{SseOverflowPolicy::DropNewest};
-	Atom<SZ> dropped_{0};
+	Atom<std::size_t> dropped_{0};
 
 public:
-	static constexpr SZ kDefaultMaxQueueBytes = SZ{4} * 1024 * 1024;
+	static constexpr std::size_t kDefaultMaxQueueBytes = std::size_t{4} * 1024 * 1024;
 
 	SseChannel(SseChannel const &) = delete;
 	SseChannel &operator =(SseChannel const &) = delete;
 	SseChannel(SseChannel &&) = delete;
 	SseChannel &operator =(SseChannel &&) = delete;
 	explicit SseChannel(
-		SZ max_queue_bytes = kDefaultMaxQueueBytes,
+		std::size_t max_queue_bytes = kDefaultMaxQueueBytes,
 		SseOverflowPolicy overflow = SseOverflowPolicy::DropNewest)
 		: efd_(::eventfd(0, EFD_CLOEXEC))
 		, max_queue_bytes_(max_queue_bytes)
@@ -74,7 +74,7 @@ public:
 	// Also returns false if the channel is closed, regardless of policy.
 	// Channel takes ownership of frame.
 	[[nodiscard]] bool send(
-		S frame) {
+		std::string frame) {
 		bool enqueued = false;
 		bool wake = false;
 		{
@@ -82,8 +82,8 @@ public:
 			if (closed_.test()) {
 				return false;
 			}
-			SZ const frame_bytes = frame.size();
-			SZ const would_be = queued_bytes_ + frame_bytes;
+			std::size_t const frame_bytes = frame.size();
+			std::size_t const would_be = queued_bytes_ + frame_bytes;
 			if (would_be > max_queue_bytes_ && max_queue_bytes_ != 0) {
 				switch (overflow_) {
 				case SseOverflowPolicy::DropNewest: dropped_.fetch_add(1, memory_order_relaxed); return false;
@@ -118,18 +118,18 @@ public:
 	}
 	// Zero-copy intent: caller owns the backing buffer and is responsible for
 	// keeping it alive until the frame is flushed to the socket. Currently
-	// copies into the queue; when the queue migrates to SV storage this
+	// copies into the queue; when the queue migrates to std::string_view storage this
 	// contract becomes a hard lifetime requirement.
 	[[nodiscard]] bool send_view(
-		SV frame) {
-		return send(S{frame});
+		std::string_view frame) {
+		return send(std::string{frame});
 	}
 	[[nodiscard]] bool send_event(
-		SV type,
-		SV data) {
+		std::string_view type,
+		std::string_view data) {
 		// Reject newlines in type and data: they would break SSE framing and
 		// allow injection of arbitrary events.
-		auto has_nl = [](SV s) { return s.find('\n') != SV::npos || s.find('\r') != SV::npos; };
+		auto has_nl = [](std::string_view s) { return s.find('\n') != std::string_view::npos || s.find('\r') != std::string_view::npos; };
 		if (has_nl(type) || has_nl(data)) {
 			throw std::invalid_argument{"SseChannel::send_event: type and data must not contain newlines"};
 		}
@@ -144,9 +144,9 @@ public:
 			eprintln(format("SseChannel::close: eventfd write: {}", strerror(errno)));
 		} // wake the io_uring poll
 	}
-	[[nodiscard]] S drain() {
+	[[nodiscard]] std::string drain() {
 		SL const lk{mtx_};
-		S result;
+		std::string result;
 		while (!pending_.empty()) {
 			result += pending_.front();
 			pending_.pop();
@@ -156,8 +156,8 @@ public:
 	}
 	[[nodiscard]] bool is_closed() const noexcept { return closed_.test(); }
 	[[nodiscard]] int eventfd_fd() const noexcept { return efd_; }
-	[[nodiscard]] SZ dropped_count() const noexcept { return dropped_.load(memory_order_relaxed); }
-	[[nodiscard]] SZ max_queue_bytes() const noexcept { return max_queue_bytes_; }
+	[[nodiscard]] std::size_t dropped_count() const noexcept { return dropped_.load(memory_order_relaxed); }
+	[[nodiscard]] std::size_t max_queue_bytes() const noexcept { return max_queue_bytes_; }
 };
 
 // ---------------------------------------------------------------------------
@@ -175,7 +175,7 @@ public:
 	SseBroadcaster(SseBroadcaster &&) = delete;
 	SseBroadcaster &operator =(SseBroadcaster &&) = delete;
 	// Register a new subscriber.  Returns the SP to pass to HttpResponse::sse().
-	SP<SseChannel> subscribe() {
+	std::shared_ptr<SseChannel> subscribe() {
 		auto ch = make_shared<SseChannel>();
 		SL const lk{mtx_};
 		channels_.emplace_back(ch);
@@ -183,27 +183,27 @@ public:
 	}
 	// Broadcast an SSE event to all active subscribers.
 	void broadcast(
-		SV event,
-		SV data) {
+		std::string_view event,
+		std::string_view data) {
 		auto frame = format("event: {}\ndata: {}\n\n", event, data);
 		broadcast_raw(frame);
 	}
 	// Broadcast a data-only SSE message to all active subscribers.
 	void broadcast_data(
-		SV data) {
+		std::string_view data) {
 		auto frame = format("data: {}\n\n", data);
 		broadcast_raw(frame);
 	}
 	// Number of currently-active subscribers (approximate; may include ones
 	// that have just disconnected).
-	[[nodiscard]] SZ subscriber_count() const {
+	[[nodiscard]] std::size_t subscriber_count() const {
 		SL const lk{mtx_};
 		return channels_.size();
 	}
 
 private:
 	void broadcast_raw(
-		S const &frame) {
+		std::string const &frame) {
 		SL const lk{mtx_};
 		// Erase stale weak_ptrs while delivering to live ones.
 		std::erase_if(channels_, [&](weak_ptr<SseChannel> const &wch) {
@@ -216,7 +216,7 @@ private:
 		});
 	}
 	mutable mutex mtx_;
-	V<weak_ptr<SseChannel>> channels_;
+	std::vector<weak_ptr<SseChannel>> channels_;
 };
 
 // WebSocket support
@@ -226,15 +226,15 @@ namespace ws_detail {
 
 // Compute Sec-WebSocket-Accept from Sec-WebSocket-Key.
 export std::string ws_accept_key(
-	SV client_key) {
-	static constexpr SV kMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-	S input{client_key};
+	std::string_view client_key) {
+	static constexpr std::string_view kMagic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+	std::string input{client_key};
 	input += kMagic;
 	auto digest = sha1(to_unsigned_span(input));
 	return base64_encode(span{digest.data(), digest.size()});
 }
 bool is_valid_client_key(
-	SV key) {
+	std::string_view key) {
 	if (key.size() != 24) {
 		return false;
 	}
@@ -250,13 +250,13 @@ export bool is_valid_handshake(
 }
 // Build a complete WebSocket frame (server→client, unmasked) in one buffer so
 // the transport call below emits header+payload as a single TCP segment / TLS record.
-S ws_build_frame(
+std::string ws_build_frame(
 	u8 opcode,
 	span<byte const> payload) {
-	A<u8, 10> hdr{};
-	SZ hdr_len = 0;
+	std::array<u8, 10> hdr{};
+	std::size_t hdr_len = 0;
 	hdr[hdr_len++] = 0x80U | opcode; // FIN + opcode
-	SZ const len = payload.size();
+	std::size_t const len = payload.size();
 	if (len < 126) {
 		hdr[hdr_len++] = static_cast<u8>(len);
 	} else if (len <= 0xFFFF) {
@@ -269,7 +269,7 @@ S ws_build_frame(
 			hdr[hdr_len++] = static_cast<u8>((len >> s) & 0xFF);
 		}
 	}
-	S frame;
+	std::string frame;
 	frame.reserve(hdr_len + len);
 	frame.append(reinterpret_cast<char const *>(hdr.data()), hdr_len);
 	frame.append(reinterpret_cast<char const *>(payload.data()), len);
@@ -280,7 +280,7 @@ bool ws_send_frame(
 	u8 opcode,
 	span<byte const> payload) {
 	auto frame = ws_detail::ws_build_frame(opcode, payload);
-	SZ sent = 0;
+	std::size_t sent = 0;
 	while (sent < frame.size()) {
 		auto n = ::send(fd, frame.data() + sent, frame.size() - sent, MSG_NOSIGNAL);
 		if (n < 0 && errno == EINTR) {
@@ -289,7 +289,7 @@ bool ws_send_frame(
 		if (n <= 0) {
 			return false;
 		}
-		sent += static_cast<SZ>(n);
+		sent += static_cast<std::size_t>(n);
 	}
 	return true;
 }
@@ -299,12 +299,12 @@ bool ws_tls_send_frame(
 	u8 opcode,
 	span<byte const> payload) {
 	auto frame = ws_detail::ws_build_frame(opcode, payload);
-	SZ sent = 0;
+	std::size_t sent = 0;
 	while (sent < frame.size()) {
-		auto const chunk = min<SZ>(frame.size() - sent, static_cast<SZ>(NL<int>::max()));
+		auto const chunk = min<std::size_t>(frame.size() - sent, static_cast<std::size_t>(NL<int>::max()));
 		int const n = SSL_write(ssl, frame.data() + sent, static_cast<int>(chunk));
 		if (n > 0) {
-			sent += static_cast<SZ>(n);
+			sent += static_cast<std::size_t>(n);
 			continue;
 		}
 		int const err = SSL_get_error(ssl, n);
@@ -336,11 +336,11 @@ bool ws_tls_send_frame(
 	return false;
 }
 CONFLUX_FUZZ_EXPORT bool utf8_is_valid(
-	SV s) {
-	SZ i = 0;
+	std::string_view s) {
+	std::size_t i = 0;
 	while (i < s.size()) {
 		auto const b = static_cast<u8>(s[i]);
-		SZ extra{};
+		std::size_t extra{};
 		u32 min_cp{};
 		u32 cp{};
 		if (b < 0x80U) {
@@ -365,7 +365,7 @@ CONFLUX_FUZZ_EXPORT bool utf8_is_valid(
 		if (i + extra >= s.size()) {
 			return false;
 		}
-		for (SZ k = 1; k <= extra; ++k) {
+		for (std::size_t k = 1; k <= extra; ++k) {
 			auto const c = static_cast<u8>(s[i + k]);
 			if ((c & 0xC0U) != 0x80U) {
 				return false;
@@ -390,8 +390,8 @@ CONFLUX_FUZZ_EXPORT struct FrameHeader {
 	bool fin{};
 	bool masked{};
 	u64 payload_len{};
-	A<u8, 4> mask{};
-	SZ header_size{};
+	std::array<u8, 4> mask{};
+	std::size_t header_size{};
 };
 
 CONFLUX_FUZZ_EXPORT enum class FrameParseStatus : u8 {
@@ -427,7 +427,7 @@ CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 		return FrameParseStatus::ProtocolError;
 	}
 
-	SZ off = 2;
+	std::size_t off = 2;
 	if (plen == 126) {
 		if (buf.size() < off + 2) {
 			return FrameParseStatus::Incomplete;
@@ -442,7 +442,7 @@ CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 			return FrameParseStatus::Incomplete;
 		}
 		plen = 0;
-		for (SZ i = 0; i < 8; ++i) {
+		for (std::size_t i = 0; i < 8; ++i) {
 			plen = (plen << 8U) | to_integer<u8>(buf[off + i]);
 		}
 		if (plen <= 0xFFFF) {
@@ -478,7 +478,7 @@ public:
 	};
 	struct Frame {
 		Opcode opcode{};
-		S payload;
+		std::string payload;
 	};
 	WsConn(WsConn const &) = delete;
 	WsConn &operator =(WsConn const &) = delete;
@@ -486,7 +486,7 @@ public:
 	WsConn &operator =(WsConn &&) = delete;
 	explicit WsConn(
 		int fd,
-		S initial_buf = {})
+		std::string initial_buf = {})
 		: fd_(fd)
 		, buf_(move(initial_buf)) {}
 #if CONFLUX_HAS_TLS
@@ -496,7 +496,7 @@ public:
 	explicit WsConn(
 		int fd,
 		SSL *ssl,
-		S initial_buf)
+		std::string initial_buf)
 		: fd_(fd)
 		, ssl_(ssl)
 		, buf_(move(initial_buf)) {}
@@ -507,7 +507,7 @@ public:
 			::shutdown(fd_, SHUT_WR);
 		}
 	}
-	Opt<Frame> recv() {
+	std::optional<Frame> recv() {
 		while (true) {
 			if (!fill(2)) {
 				return nullopt;
@@ -538,7 +538,7 @@ public:
 			// pre is Ok (no extended length) or Incomplete (need extended length + mask).
 			auto const b1 = static_cast<u8>(buf_[1]);
 			u64 const len7 = b1 & 0x7FU;
-			SZ const header_needed = 2 + (len7 == 126 ? 2 : len7 == 127 ? 8 : 0) + 4;
+			std::size_t const header_needed = 2 + (len7 == 126 ? 2 : len7 == 127 ? 8 : 0) + 4;
 			if (!fill(header_needed)) {
 				return nullopt;
 			}
@@ -557,7 +557,7 @@ public:
 			u8 const opcode_raw = hdr.opcode;
 			u64 const plen = hdr.payload_len;
 			bool const is_control = (opcode_raw & 0x08U) != 0;
-			A<u8, 4> const mask_key = hdr.mask;
+			std::array<u8, 4> const mask_key = hdr.mask;
 
 			if (plen > kMaxMessageSize) {
 				close(1009, "message too big");
@@ -567,18 +567,18 @@ public:
 				close(1009, "message too big");
 				return nullopt;
 			}
-			if (!fill(static_cast<SZ>(plen))) {
+			if (!fill(static_cast<std::size_t>(plen))) {
 				return nullopt;
 			}
-			S payload(buf_.data(), static_cast<SZ>(plen));
-			consume(static_cast<SZ>(plen));
+			std::string payload(buf_.data(), static_cast<std::size_t>(plen));
+			consume(static_cast<std::size_t>(plen));
 #if defined(CONFLUX_STDSIMD)
 			conflux_ws_unmask_stdsimd(
 				reinterpret_cast<unsigned char *>(payload.data()),
 				payload.size(),
 				mask_key.data());
 #else
-			for (SZ i = 0; i < payload.size(); ++i) {
+			for (std::size_t i = 0; i < payload.size(); ++i) {
 				payload[i] = static_cast<char>(
 					static_cast<unsigned char>(payload[i])
 					^ mask_key[i & 3]); // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
@@ -606,7 +606,7 @@ public:
 						close(1002, "invalid close code");
 						return nullopt;
 					}
-					if (payload.size() > 2 && !ws_detail::utf8_is_valid(SV{payload}.substr(2))) {
+					if (payload.size() > 2 && !ws_detail::utf8_is_valid(std::string_view{payload}.substr(2))) {
 						close(1007, "invalid utf-8");
 						return nullopt;
 					}
@@ -625,7 +625,7 @@ public:
 					continue;
 				}
 				auto const final_op = *frag_opcode_;
-				S final_payload = move(frag_payload_);
+				std::string final_payload = move(frag_payload_);
 				frag_opcode_.reset();
 				frag_payload_.clear();
 				if (final_op == Opcode::Text && !ws_detail::utf8_is_valid(final_payload)) {
@@ -657,7 +657,7 @@ public:
 		}
 	}
 	[[nodiscard]] bool send_text(
-		SV data) {
+		std::string_view data) {
 		SL const lk{send_mtx_};
 		return do_send_frame(1, as_bytes(span{data}));
 	}
@@ -667,7 +667,7 @@ public:
 		return do_send_frame(2, data);
 	}
 	[[nodiscard]] bool send_ping(
-		SV data = {}) {
+		std::string_view data = {}) {
 		if (data.size() > 125) {
 			throw std::invalid_argument{"WsConn::send_ping: payload exceeds 125-byte control frame limit"};
 		}
@@ -676,7 +676,7 @@ public:
 	}
 	void close(
 		u16 code = 1000,
-		SV reason = {}) {
+		std::string_view reason = {}) {
 		if (!ws_detail::is_valid_close_code(code)) {
 			throw std::invalid_argument{"WsConn::close: invalid close code"};
 		}
@@ -690,8 +690,8 @@ public:
 			return;
 		}
 		stop_keepalive();
-		A<char, 2> code_bytes{static_cast<char>(code >> 8), static_cast<char>(code & 0xFF)};
-		S payload{code_bytes.data(), 2};
+		std::array<char, 2> code_bytes{static_cast<char>(code >> 8), static_cast<char>(code & 0xFF)};
+		std::string payload{code_bytes.data(), 2};
 		payload += reason;
 		{
 			SL const lk{send_mtx_};
@@ -750,20 +750,20 @@ private:
 	mutex keepalive_mtx_;
 	std::condition_variable_any keepalive_cv_;
 	jthread keepalive_thread_{};
-	S buf_;
-	Opt<Opcode> frag_opcode_{};
-	S frag_payload_{};
+	std::string buf_;
+	std::optional<Opcode> frag_opcode_{};
+	std::string frag_payload_{};
 	bool fill(
-		SZ n) {
+		std::size_t n) {
 		while (buf_.size() < n) {
-			A<char, 4096> tmp{};
+			std::array<char, 4096> tmp{};
 #if CONFLUX_HAS_TLS
 			if (ssl_) {
 				auto rc = SSL_read(ssl_.get(), tmp.data(), static_cast<int>(tmp.size()));
 				if (rc <= 0) {
 					return false;
 				}
-				buf_.append(tmp.data(), static_cast<SZ>(rc));
+				buf_.append(tmp.data(), static_cast<std::size_t>(rc));
 				continue;
 			}
 #endif
@@ -771,12 +771,12 @@ private:
 			if (rc <= 0) {
 				return false;
 			}
-			buf_.append(tmp.data(), static_cast<SZ>(rc));
+			buf_.append(tmp.data(), static_cast<std::size_t>(rc));
 		}
 		return true;
 	}
 	void consume(
-		SZ n) {
+		std::size_t n) {
 		buf_.erase(0, n);
 	}
 	// Send a WebSocket frame over either TLS or plain socket.
@@ -793,6 +793,6 @@ private:
 };
 // Token carried in HttpResponse.ws_upgrade to signal a 101 WebSocket upgrade.
 export struct WsUpgrade {
-	S accept_key;
+	std::string accept_key;
 	CloneableFunction<void(HttpRequestView const &, WsConn &)> handler;
 };

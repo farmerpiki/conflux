@@ -9,7 +9,7 @@ import std;
 using std::println;
 
 static void print_result(
-	SV label,
+	std::string_view label,
 	expected<RunResult, EC> const &result) {
 	if (!result) {
 		std::println("{}: spawn failed: {}", label, result.error().message());
@@ -28,12 +28,12 @@ static void print_result(
 int main() {
 	SpawnOptions opts;
 	opts.working_dir = "/tmp";
-	opts.extra_env = V<S>{"CONFLUX_PROCESS_EXAMPLE=from-extra-env"};
+	opts.extra_env = std::vector<std::string>{"CONFLUX_PROCESS_EXAMPLE=from-extra-env"};
 	opts.clear_env = false;
 
 	auto ok = run(
 		fs::path{"/bin/sh"},
-		V<SV>{
+		std::vector<std::string_view>{
 			"-c",
 			"printf 'cwd=%s\\n' \"$PWD\"; "
 			"printf 'env=%s\\n' \"$CONFLUX_PROCESS_EXAMPLE\"; "
@@ -43,10 +43,10 @@ int main() {
 	print_result("successful child", ok);
 
 	// Non-zero exit is part of RunResult, not a spawn error.
-	auto non_zero = run(fs::path{"/bin/sh"}, V<SV>{"-c", "printf 'no crash, just status\\n'; exit 7"});
+	auto non_zero = run(fs::path{"/bin/sh"}, std::vector<std::string_view>{"-c", "printf 'no crash, just status\\n'; exit 7"});
 	print_result("non-zero child", non_zero);
 
 	// Missing executable is a spawn/exec boundary error.
-	auto missing = run(fs::path{"/definitely/not/a/conflux/example/binary"}, V<SV>{});
+	auto missing = run(fs::path{"/definitely/not/a/conflux/example/binary"}, std::vector<std::string_view>{});
 	print_result("missing executable", missing);
 }

@@ -41,7 +41,7 @@ export struct PasswordHashOptions {
 };
 
 export struct PasswordHashSecrets {
-	S verifier_secret{};
+	std::string verifier_secret{};
 };
 
 export struct PasswordHashResourceLimits {
@@ -101,7 +101,7 @@ struct PasswordHashGate {
 	u32 active{};
 	u32 waiting{};
 
-	[[nodiscard]] expected<HashPermit, S> acquire() {
+	[[nodiscard]] expected<HashPermit, std::string> acquire() {
 		std::unique_lock lock{mtx};
 		if (active < max_concurrent) {
 			++active;
@@ -127,7 +127,7 @@ struct PasswordHashGate {
 		cv.notify_one();
 	}
 
-	[[nodiscard]] expected<void, S> configure(
+	[[nodiscard]] expected<void, std::string> configure(
 		PasswordHashResourceLimits limits) {
 		u32 const concurrency = limits.max_concurrent_hashes == 0U ? default_hash_concurrency() : limits.max_concurrent_hashes;
 		if (concurrency == 0U || concurrency > kMaxHashConcurrency) {
@@ -181,8 +181,8 @@ struct ParsedHash {
 	u32 parallelism{};
 	u32 hash_bytes{};
 	bool uses_verifier_secret{false};
-	S salt{};
-	S hash{};
+	std::string salt{};
+	std::string hash{};
 };
 
 using Argon2idHashRawFn = int (*)(
@@ -190,11 +190,11 @@ using Argon2idHashRawFn = int (*)(
 	u32 m_cost,
 	u32 parallelism,
 	void const *pwd,
-	SZ pwdlen,
+	std::size_t pwdlen,
 	void const *salt,
-	SZ saltlen,
+	std::size_t saltlen,
 	void *hash,
-	SZ hashlen);
+	std::size_t hashlen);
 using Argon2ErrorMessageFn = char const *(*)(int error_code);
 
 struct Argon2Api {
@@ -207,7 +207,7 @@ struct Argon2Api {
 #if defined(CONFLUX_PASSWORD_HASH_ARGON2_LINKED)
 	return Argon2Api{nullptr, &::argon2id_hash_raw, &::argon2_error_message};
 #elif defined(CONFLUX_PASSWORD_HASH_ARGON2_RUNTIME)
-	static constexpr A<char const *, 2> kNames{"libargon2.so.1", "libargon2.so"};
+	static constexpr std::array<char const *, 2> kNames{"libargon2.so.1", "libargon2.so"};
 	for (char const *name: kNames) {
 		void *handle = ::dlopen(name, RTLD_LAZY | RTLD_LOCAL);
 		if (handle == nullptr) {
@@ -232,7 +232,7 @@ struct Argon2Api {
 }
 
 [[nodiscard]] bool parse_u32(
-	SV text,
+	std::string_view text,
 	u32 &out) noexcept {
 	if (text.empty()) {
 		return false;
@@ -248,18 +248,18 @@ struct Argon2Api {
 	return true;
 }
 
-[[nodiscard]] Opt<SV> param_value(
-	SV params,
-	SV key) noexcept {
-	SZ pos = 0;
+[[nodiscard]] std::optional<std::string_view> param_value(
+	std::string_view params,
+	std::string_view key) noexcept {
+	std::size_t pos = 0;
 	while (pos <= params.size()) {
-		SZ const comma = params.find(',', pos);
-		SV const part = comma == SV::npos ? params.substr(pos) : params.substr(pos, comma - pos);
-		SZ const eq = part.find('=');
-		if (eq != SV::npos && part.substr(0, eq) == key) {
+		std::size_t const comma = params.find(',', pos);
+		std::string_view const part = comma == std::string_view::npos ? params.substr(pos) : params.substr(pos, comma - pos);
+		std::size_t const eq = part.find('=');
+		if (eq != std::string_view::npos && part.substr(0, eq) == key) {
 			return part.substr(eq + 1);
 		}
-		if (comma == SV::npos) {
+		if (comma == std::string_view::npos) {
 			break;
 		}
 		pos = comma + 1;
@@ -267,8 +267,8 @@ struct Argon2Api {
 	return nullopt;
 }
 
-[[nodiscard]] expected<bool, S> parse_verifier_secret_flag(
-	SV params) {
+[[nodiscard]] expected<bool, std::string> parse_verifier_secret_flag(
+	std::string_view params) {
 	auto keyed = param_value(params, "k");
 	if (!keyed) {
 		return false;
@@ -280,30 +280,30 @@ struct Argon2Api {
 	return value == 1U;
 }
 
-[[nodiscard]] expected<S, S> decode_required_b64url(
-	SV encoded,
-	SV field) {
+[[nodiscard]] expected<std::string, std::string> decode_required_b64url(
+	std::string_view encoded,
+	std::string_view field) {
 	if (encoded.empty()) {
 		return unexpected{format("password hash: {} is empty", field)};
 	}
-	S decoded = base64url_decode(encoded);
+	std::string decoded = base64url_decode(encoded);
 	if (decoded.empty()) {
 		return unexpected{format("password hash: {} is not valid base64url", field)};
 	}
 	return decoded;
 }
 
-[[nodiscard]] expected<ParsedHash, S> parse_hash(
-	SV encoded) {
+[[nodiscard]] expected<ParsedHash, std::string> parse_hash(
+	std::string_view encoded) {
 	if (!encoded.starts_with('$')) {
 		return unexpected{"password hash: expected modular crypt format"};
 	}
-	V<SV> parts;
-	SZ pos = 1;
+	std::vector<std::string_view> parts;
+	std::size_t pos = 1;
 	while (true) {
-		SZ const next = encoded.find('$', pos);
-		parts.push_back(next == SV::npos ? encoded.substr(pos) : encoded.substr(pos, next - pos));
-		if (next == SV::npos) {
+		std::size_t const next = encoded.find('$', pos);
+		parts.push_back(next == std::string_view::npos ? encoded.substr(pos) : encoded.substr(pos, next - pos));
+		if (next == std::string_view::npos) {
 			break;
 		}
 		pos = next + 1;
@@ -378,7 +378,7 @@ struct Argon2Api {
 	return parsed;
 }
 
-[[nodiscard]] expected<void, S> validate_options(
+[[nodiscard]] expected<void, std::string> validate_options(
 	PasswordHashOptions const &opts) {
 	if (opts.salt_bytes == 0U || opts.salt_bytes > kMaxSaltBytes) {
 		return unexpected{"password hash: invalid salt byte count"};
@@ -407,20 +407,20 @@ struct Argon2Api {
 }
 
 [[nodiscard]] span<unsigned char const> bytes_view(
-	SV s) noexcept {
+	std::string_view s) noexcept {
 	return {reinterpret_cast<unsigned char const *>(s.data()), s.size()};
 }
 
-[[nodiscard]] S encode_b64url(
+[[nodiscard]] std::string encode_b64url(
 	span<unsigned char const> bytes) {
 	return base64url_encode(bytes);
 }
 
 struct Sha256State {
-	A<u32, 8> h{};
-	A<unsigned char, 64> pending{};
+	std::array<u32, 8> h{};
+	std::array<unsigned char, 64> pending{};
 	u64 bytes{};
-	SZ pending_size{};
+	std::size_t pending_size{};
 };
 
 [[nodiscard]] u32 rotr32(
@@ -430,9 +430,9 @@ struct Sha256State {
 }
 
 void sha256_compress(
-	A<u32, 8> &h,
+	std::array<u32, 8> &h,
 	unsigned char const *block) noexcept {
-	static constexpr A<u32, 64> K{
+	static constexpr std::array<u32, 64> K{
 		0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U, 0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
 		0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U, 0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U,
 		0xe49b69c1U, 0xefbe4786U, 0x0fc19dc6U, 0x240ca1ccU, 0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
@@ -443,22 +443,22 @@ void sha256_compress(
 		0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U, 0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U,
 	};
 
-	A<u32, 64> w{};
-	for (SZ i = 0; i < 16; ++i) {
-		SZ const off = i * 4U;
+	std::array<u32, 64> w{};
+	for (std::size_t i = 0; i < 16; ++i) {
+		std::size_t const off = i * 4U;
 		w[i] = (static_cast<u32>(block[off]) << 24U)
 			 | (static_cast<u32>(block[off + 1U]) << 16U)
 			 | (static_cast<u32>(block[off + 2U]) << 8U)
 			 | static_cast<u32>(block[off + 3U]);
 	}
-	for (SZ i = 16; i < 64; ++i) {
+	for (std::size_t i = 16; i < 64; ++i) {
 		u32 const s0 = rotr32(w[i - 15U], 7U) ^ rotr32(w[i - 15U], 18U) ^ (w[i - 15U] >> 3U);
 		u32 const s1 = rotr32(w[i - 2U], 17U) ^ rotr32(w[i - 2U], 19U) ^ (w[i - 2U] >> 10U);
 		w[i] = w[i - 16U] + s0 + w[i - 7U] + s1;
 	}
 
 	auto [a, b, c, d, e, f, g, hh] = h;
-	for (SZ i = 0; i < 64; ++i) {
+	for (std::size_t i = 0; i < 64; ++i) {
 		u32 const ch = (e & f) ^ (~e & g);
 		u32 const maj = (a & b) ^ (a & c) ^ (b & c);
 		u32 const s1 = rotr32(e, 6U) ^ rotr32(e, 11U) ^ rotr32(e, 25U);
@@ -484,7 +484,7 @@ void sha256_compress(
 void sha256_update(Sha256State &state, span<unsigned char const> msg) noexcept {
 	state.bytes += static_cast<u64>(msg.size());
 	if (state.pending_size != 0U) {
-		SZ const n = min(msg.size(), state.pending.size() - state.pending_size);
+		std::size_t const n = min(msg.size(), state.pending.size() - state.pending_size);
 		ranges::copy(msg.first(n), state.pending.begin() + static_cast<std::ptrdiff_t>(state.pending_size));
 		state.pending_size += n;
 		msg = msg.subspan(n);
@@ -494,64 +494,64 @@ void sha256_update(Sha256State &state, span<unsigned char const> msg) noexcept {
 	if (!msg.empty()) { ranges::copy(msg, state.pending.begin()); state.pending_size = msg.size(); }
 }
 
-[[nodiscard]] A<unsigned char, 32> sha256_final(Sha256State state) noexcept {
+[[nodiscard]] std::array<unsigned char, 32> sha256_final(Sha256State state) noexcept {
 	u64 const bit_len = state.bytes * 8ULL;
 	state.pending[state.pending_size++] = 0x80U;
 	if (state.pending_size > 56U) {
-		for (SZ i = state.pending_size; i < 64U; ++i) { state.pending[i] = 0U; }
+		for (std::size_t i = state.pending_size; i < 64U; ++i) { state.pending[i] = 0U; }
 		sha256_compress(state.h, state.pending.data());
 		state.pending_size = 0U;
 	}
-	for (SZ i = state.pending_size; i < 56U; ++i) { state.pending[i] = 0U; }
-	for (SZ i = 0; i < 8U; ++i) { state.pending[56U + i] = static_cast<unsigned char>((bit_len >> (56U - (i * 8U))) & 0xFFU); }
+	for (std::size_t i = state.pending_size; i < 56U; ++i) { state.pending[i] = 0U; }
+	for (std::size_t i = 0; i < 8U; ++i) { state.pending[56U + i] = static_cast<unsigned char>((bit_len >> (56U - (i * 8U))) & 0xFFU); }
 	sha256_compress(state.h, state.pending.data());
-	A<unsigned char, 32> out{};
-	for (SZ i = 0; i < 32U; ++i) { out[i] = static_cast<unsigned char>((state.h[i / 4U] >> (24U - ((i % 4U) * 8U))) & 0xFFU); }
+	std::array<unsigned char, 32> out{};
+	for (std::size_t i = 0; i < 32U; ++i) { out[i] = static_cast<unsigned char>((state.h[i / 4U] >> (24U - ((i % 4U) * 8U))) & 0xFFU); }
 	return out;
 }
 
-[[nodiscard]] A<unsigned char, 32> sha256_noalloc(span<unsigned char const> msg) noexcept {
+[[nodiscard]] std::array<unsigned char, 32> sha256_noalloc(span<unsigned char const> msg) noexcept {
 	auto state = sha256_init(); sha256_update(state, msg); return sha256_final(state);
 }
 
-struct HmacSha256Key { A<unsigned char, 64> inner{}; A<unsigned char, 64> outer{}; };
+struct HmacSha256Key { std::array<unsigned char, 64> inner{}; std::array<unsigned char, 64> outer{}; };
 
 [[nodiscard]] HmacSha256Key hmac_sha256_key(span<unsigned char const> key) noexcept {
-	A<unsigned char, 64> kpad{};
+	std::array<unsigned char, 64> kpad{};
 	if (key.size() > 64U) { auto hashed = sha256_noalloc(key); ranges::copy(hashed, kpad.begin()); } else { ranges::copy(key, kpad.begin()); }
 	HmacSha256Key out{};
-	for (SZ i = 0; i < kpad.size(); ++i) { out.inner[i] = static_cast<unsigned char>(kpad[i] ^ 0x36U); out.outer[i] = static_cast<unsigned char>(kpad[i] ^ 0x5CU); }
+	for (std::size_t i = 0; i < kpad.size(); ++i) { out.inner[i] = static_cast<unsigned char>(kpad[i] ^ 0x36U); out.outer[i] = static_cast<unsigned char>(kpad[i] ^ 0x5CU); }
 	return out;
 }
 
-[[nodiscard]] A<unsigned char, 32> hmac_sha256_noalloc(HmacSha256Key const &key, span<unsigned char const> a, span<unsigned char const> b = {}) noexcept {
+[[nodiscard]] std::array<unsigned char, 32> hmac_sha256_noalloc(HmacSha256Key const &key, span<unsigned char const> a, span<unsigned char const> b = {}) noexcept {
 	auto inner = sha256_init(); sha256_update(inner, key.inner); sha256_update(inner, a); sha256_update(inner, b); auto inner_digest = sha256_final(inner);
 	auto outer = sha256_init(); sha256_update(outer, key.outer); sha256_update(outer, inner_digest); return sha256_final(outer);
 }
 
-[[nodiscard]] A<unsigned char, 32> pbkdf2_block(
+[[nodiscard]] std::array<unsigned char, 32> pbkdf2_block(
 	HmacSha256Key const &password_key,
 	span<unsigned char const> salt,
 	u32 iterations,
 	u32 block_index) noexcept {
-	A<unsigned char, 4> block_suffix{
+	std::array<unsigned char, 4> block_suffix{
 		static_cast<unsigned char>((block_index >> 24U) & 0xFFU),
 		static_cast<unsigned char>((block_index >> 16U) & 0xFFU),
 		static_cast<unsigned char>((block_index >> 8U) & 0xFFU),
 		static_cast<unsigned char>(block_index & 0xFFU),
 	};
 	auto u = hmac_sha256_noalloc(password_key, salt, block_suffix);
-	A<unsigned char, 32> out = u;
+	std::array<unsigned char, 32> out = u;
 	for (u32 i = 1; i < iterations; ++i) {
 		u = hmac_sha256_noalloc(password_key, u);
-		for (SZ j = 0; j < out.size(); ++j) { out[j] = static_cast<unsigned char>(out[j] ^ u[j]); }
+		for (std::size_t j = 0; j < out.size(); ++j) { out[j] = static_cast<unsigned char>(out[j] ^ u[j]); }
 	}
 	return out;
 }
 
-[[nodiscard]] expected<S, S> pbkdf2_sha256(
-	SV password,
-	SV salt,
+[[nodiscard]] expected<std::string, std::string> pbkdf2_sha256(
+	std::string_view password,
+	std::string_view salt,
 	u32 iterations,
 	u32 hash_bytes) {
 	if (iterations == 0U || iterations > kMaxPbkdf2Iterations) {
@@ -560,50 +560,50 @@ struct HmacSha256Key { A<unsigned char, 64> inner{}; A<unsigned char, 64> outer{
 	if (hash_bytes == 0U || hash_bytes > kMaxHashBytes) {
 		return unexpected{"password hash: invalid pbkdf2-sha256 hash byte count"};
 	}
-	V<unsigned char> out(hash_bytes);
+	std::vector<unsigned char> out(hash_bytes);
 	span<unsigned char const> salt_bytes = bytes_view(salt);
 	auto password_key = hmac_sha256_key(bytes_view(password));
 	u32 block_index = 1U;
-	SZ filled = 0;
+	std::size_t filled = 0;
 	while (filled < out.size()) {
 		auto block = pbkdf2_block(password_key, salt_bytes, iterations, block_index++);
-		SZ const n = min(block.size(), out.size() - filled);
+		std::size_t const n = min(block.size(), out.size() - filled);
 		ranges::copy(span{block}.first(n), out.begin() + static_cast<std::ptrdiff_t>(filled));
 		filled += n;
 	}
-	return S{reinterpret_cast<char const *>(out.data()), out.size()};
+	return std::string{reinterpret_cast<char const *>(out.data()), out.size()};
 }
 
-[[nodiscard]] expected<S, S> apply_verifier_secret(
-	S &&raw,
-	SV verifier_secret,
+[[nodiscard]] expected<std::string, std::string> apply_verifier_secret(
+	std::string &&raw,
+	std::string_view verifier_secret,
 	u32 hash_bytes) {
 	if (verifier_secret.empty()) { return move(raw); }
 	if (hash_bytes == 0U || hash_bytes > kMaxHashBytes) { return unexpected{"password hash: invalid verifier-secret output byte count"}; }
 	auto key = hmac_sha256_key(bytes_view(verifier_secret));
 	span<unsigned char const> raw_bytes = bytes_view(raw);
-	V<unsigned char> out(hash_bytes);
+	std::vector<unsigned char> out(hash_bytes);
 	u32 block_index = 1U;
-	SZ filled = 0;
+	std::size_t filled = 0;
 	while (filled < out.size()) {
-		A<unsigned char, 4> suffix{
+		std::array<unsigned char, 4> suffix{
 			static_cast<unsigned char>((block_index >> 24U) & 0xFFU),
 			static_cast<unsigned char>((block_index >> 16U) & 0xFFU),
 			static_cast<unsigned char>((block_index >> 8U) & 0xFFU),
 			static_cast<unsigned char>(block_index & 0xFFU),
 		};
 		auto block = hmac_sha256_noalloc(key, raw_bytes, suffix);
-		SZ const n = min(block.size(), out.size() - filled);
+		std::size_t const n = min(block.size(), out.size() - filled);
 		ranges::copy(span{block}.first(n), out.begin() + static_cast<std::ptrdiff_t>(filled));
 		filled += n;
 		++block_index;
 	}
-	return S{reinterpret_cast<char const *>(out.data()), out.size()};
+	return std::string{reinterpret_cast<char const *>(out.data()), out.size()};
 }
 
-[[nodiscard]] expected<S, S> argon2id_raw(
-	SV password,
-	SV salt,
+[[nodiscard]] expected<std::string, std::string> argon2id_raw(
+	std::string_view password,
+	std::string_view salt,
 	u32 memory_kib,
 	u32 iterations,
 	u32 parallelism,
@@ -615,7 +615,7 @@ struct HmacSha256Key { A<unsigned char, 64> inner{}; A<unsigned char, 64> outer{
 	if (password.size() > kMaxPasswordBytes) {
 		return unexpected{"password hash: password too large"};
 	}
-	V<unsigned char> out(hash_bytes);
+	std::vector<unsigned char> out(hash_bytes);
 	int const rc = api.hash_raw(
 		iterations,
 		memory_kib,
@@ -627,18 +627,18 @@ struct HmacSha256Key { A<unsigned char, 64> inner{}; A<unsigned char, 64> outer{
 		out.data(),
 		out.size());
 	if (rc != 0) {
-		SV msg = "argon2id failed";
+		std::string_view msg = "argon2id failed";
 		if (api.error_message != nullptr) {
 			msg = api.error_message(rc);
 		}
 		return unexpected{format("password hash: {}", msg)};
 	}
-	return S{reinterpret_cast<char const *>(out.data()), out.size()};
+	return std::string{reinterpret_cast<char const *>(out.data()), out.size()};
 }
 
-[[nodiscard]] expected<S, S> derive_hash(
-	SV password,
-	SV salt,
+[[nodiscard]] expected<std::string, std::string> derive_hash(
+	std::string_view password,
+	std::string_view salt,
 	PasswordHashOptions const &opts,
 	PasswordHashSecrets const &secrets) {
 	if (auto valid = validate_options(opts); !valid) {
@@ -647,7 +647,7 @@ struct HmacSha256Key { A<unsigned char, 64> inner{}; A<unsigned char, 64> outer{
 	if (password.size() > kMaxPasswordBytes) {
 		return unexpected{"password hash: password too large"};
 	}
-	expected<S, S> raw = unexpected{"password hash: unknown algorithm"};
+	expected<std::string, std::string> raw = unexpected{"password hash: unknown algorithm"};
 	if (opts.algorithm == PasswordHashAlgorithm::argon2id) {
 		raw = argon2id_raw(password, salt, opts.memory_kib, opts.iterations, opts.parallelism, opts.hash_bytes);
 	} else {
@@ -662,8 +662,8 @@ struct HmacSha256Key { A<unsigned char, 64> inner{}; A<unsigned char, 64> outer{
 	return apply_verifier_secret(move(*raw), secrets.verifier_secret, opts.hash_bytes);
 }
 
-[[nodiscard]] expected<S, S> derive_hash(
-	SV password,
+[[nodiscard]] expected<std::string, std::string> derive_hash(
+	std::string_view password,
 	ParsedHash const &parsed,
 	PasswordHashSecrets const &secrets) {
 	if (parsed.uses_verifier_secret && secrets.verifier_secret.empty()) {
@@ -703,7 +703,7 @@ export [[nodiscard]] bool password_hash_argon2id_available() noexcept {
 	return password_hash_detail::argon2_api().hash_raw != nullptr;
 }
 
-export [[nodiscard]] expected<void, S> password_hash_configure_resource_limits(
+export [[nodiscard]] expected<void, std::string> password_hash_configure_resource_limits(
 	PasswordHashResourceLimits limits) {
 	return password_hash_detail::password_hash_gate().configure(limits);
 }
@@ -725,7 +725,7 @@ export [[nodiscard]] PasswordHashOptions pbkdf2_sha256_password_hash_options(
 }
 
 
-export [[nodiscard]] expected<PasswordHashSecrets, S> password_hash_secrets_from_config(
+export [[nodiscard]] expected<PasswordHashSecrets, std::string> password_hash_secrets_from_config(
 	AuthSecretsConfig const &cfg,
 	bool required = true) {
 	auto secret = resolve_secret_source(cfg.password_verifier_secret, "password_verifier_secret", required);
@@ -745,15 +745,15 @@ export [[nodiscard]] expected<PasswordHashSecrets, S> password_hash_secrets_from
 	return out;
 }
 
-export [[nodiscard]] expected<PasswordHashSecrets, S> password_hash_secrets_from_config(
+export [[nodiscard]] expected<PasswordHashSecrets, std::string> password_hash_secrets_from_config(
 	Config const &cfg,
 	bool required = true) {
 	return password_hash_secrets_from_config(cfg.auth_secrets, required);
 }
 
-export [[nodiscard]] expected<S, S> password_hash_with_salt(
-	SV password,
-	SV salt,
+export [[nodiscard]] expected<std::string, std::string> password_hash_with_salt(
+	std::string_view password,
+	std::string_view salt,
 	PasswordHashOptions const &opts = {},
 	PasswordHashSecrets const &secrets = {}) {
 	if (auto valid = password_hash_detail::validate_options(opts); !valid) {
@@ -772,7 +772,7 @@ export [[nodiscard]] expected<S, S> password_hash_with_salt(
 	}
 	auto salt_b64 = password_hash_detail::encode_b64url(password_hash_detail::bytes_view(salt));
 	auto hash_b64 = password_hash_detail::encode_b64url(password_hash_detail::bytes_view(*raw));
-	SV const key_flag = secrets.verifier_secret.empty() ? SV{} : SV{",k=1"};
+	std::string_view const key_flag = secrets.verifier_secret.empty() ? std::string_view{} : std::string_view{",k=1"};
 	if (opts.algorithm == PasswordHashAlgorithm::argon2id) {
 		return format(
 			"$argon2id$v={}$m={},t={},p={}{}${}${}",
@@ -793,22 +793,22 @@ export [[nodiscard]] expected<S, S> password_hash_with_salt(
 		hash_b64);
 }
 
-export [[nodiscard]] expected<S, S> password_hash(
-	SV password,
+export [[nodiscard]] expected<std::string, std::string> password_hash(
+	std::string_view password,
 	PasswordHashOptions const &opts = {},
 	PasswordHashSecrets const &secrets = {}) {
 	if (auto valid = password_hash_detail::validate_options(opts); !valid) {
 		return unexpected{valid.error()};
 	}
-	V<unsigned char> salt(opts.salt_bytes);
+	std::vector<unsigned char> salt(opts.salt_bytes);
 	crypto_random_bytes(salt);
-	SV const salt_view{reinterpret_cast<char const *>(salt.data()), salt.size()};
+	std::string_view const salt_view{reinterpret_cast<char const *>(salt.data()), salt.size()};
 	return password_hash_with_salt(password, salt_view, opts, secrets);
 }
 
-export [[nodiscard]] expected<PasswordVerifyResult, S> password_verify(
-	SV password,
-	SV encoded,
+export [[nodiscard]] expected<PasswordVerifyResult, std::string> password_verify(
+	std::string_view password,
+	std::string_view encoded,
 	PasswordHashOptions const &current = {},
 	PasswordHashSecrets const &secrets = {}) {
 	auto parsed = password_hash_detail::parse_hash(encoded);
@@ -839,8 +839,8 @@ export [[nodiscard]] expected<PasswordVerifyResult, S> password_verify(
 	return result;
 }
 
-export [[nodiscard]] expected<bool, S> password_needs_rehash(
-	SV encoded,
+export [[nodiscard]] expected<bool, std::string> password_needs_rehash(
+	std::string_view encoded,
 	PasswordHashOptions const &current = {},
 	PasswordHashSecrets const &secrets = {}) {
 	auto parsed = password_hash_detail::parse_hash(encoded);

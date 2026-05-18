@@ -9,7 +9,7 @@ import std.compat;
 import conflux.types;
 
 // HTTP/2 ALPN protocol identifier.
-export inline SV const kH2Alpn = "h2";
+export inline std::string_view const kH2Alpn = "h2";
 // Configure an SSL_CTX to advertise HTTP/2 via ALPN.
 // Call this after creating the SSL_CTX in HttpServer when HTTP/2 is desired.
 export void http2_configure_alpn(

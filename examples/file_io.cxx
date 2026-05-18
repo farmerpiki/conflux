@@ -20,13 +20,13 @@ constexpr u64 pack_ud(
 
 } // namespace
 int main() {
-	S path = "/tmp/conflux_file_io_example.txt";
+	std::string path = "/tmp/conflux_file_io_example.txt";
 	int const seed = ::open(path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 	if (seed < 0) {
 		std::println(std::cerr, "open seed file failed");
 		return 1;
 	}
-	SV text = "hello from conflux.file_io\n";
+	std::string_view text = "hello from conflux.file_io\n";
 	if (::write(seed, text.data(), text.size()) != static_cast<ssize_t>(text.size())) {
 		std::println(std::cerr, "seed write failed");
 		::close(seed);
@@ -51,9 +51,9 @@ int main() {
 			return 1;
 		}
 
-		A<byte, 128> buf{};
+		std::array<std::byte, 128> buf{};
 		auto got = block_on(files, files.read_into(handle, 0, span<byte>{buf.data(), buf.size()}));
-		std::println("read {} bytes: {}", got, SV{reinterpret_cast<char const *>(buf.data()), got});
+		std::println("read {} bytes: {}", got, std::string_view{reinterpret_cast<char const *>(buf.data()), got});
 	} catch (exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);

@@ -11,15 +11,15 @@ import conflux.net.config;
 export using StaticRouteHandler = CloneableFunction<HttpResponse(HttpRequestView const &)>;
 
 export struct StaticRouteRegistration {
-	S pattern{};
+	std::string pattern{};
 	StaticRouteHandler get{};
-	Opt<StaticRouteHandler> put{};
-	Opt<StaticRouteHandler> del{};
+	std::optional<StaticRouteHandler> put{};
+	std::optional<StaticRouteHandler> del{};
 };
 
 export [[nodiscard]] StaticRouteRegistration make_static_route_registration(
-	SV url_prefix,
-	S root_dir,
+	std::string_view url_prefix,
+	std::string root_dir,
 	StaticOptions const &sopts,
 	StaticFileCacheConfig const &static_file_cache,
 	StaticCacheStore &static_cache);

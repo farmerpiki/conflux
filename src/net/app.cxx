@@ -11,49 +11,31 @@ import conflux.net.router;
 import conflux.net.http_server;
 import conflux.work;
 export namespace conflux::http {
-
-using ServerRequestView = ::HttpRequestView;
-using ServerRequest = ::HttpRequest;
-using ServerResponse = ::HttpResponse;
-using HttpFieldError = ::HttpFieldError;
-using FieldError = ::HttpFieldError;
-using FieldErrorKind = ::HttpFieldErrorKind;
-using FieldSource = ::HttpFieldSource;
-using ::http_field_as;
-using ::http_field_optional_as;
-using ::http_field_source_name;
-using ::parse_http_field_value;
-using RequestView = ServerRequestView;
-using OwnedRequest = ServerRequest;
-// First-contact alias stays view-backed for sync handlers. Coroutine handlers
-// that may suspend should accept OwnedRequest/ServerRequest instead.
-using Request = RequestView;
-using Response = ServerResponse;
 template<typename Fn>
-	requires(std::invocable<Fn &> && same_as<std::invoke_result_t<Fn &>, Response>)
-[[nodiscard]] Response defer(
-	SP<WorkPool> const &pool,
+	requires(std::invocable<Fn &> && same_as<std::invoke_result_t<Fn &>, HttpResponse>)
+[[nodiscard]] HttpResponse defer(
+	std::shared_ptr<WorkPool> const &pool,
 	Fn &&fn,
 	chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
 	if (!pool) {
-		return Response::internal_error("defer: null pool");
+		return HttpResponse::internal_error("defer: null pool");
 	}
 	auto deferred = make_shared<DeferredResponse>(timeout);
 	bool const enqueued = pool->enqueue([deferred, work = std::decay_t<Fn>(forward<Fn>(fn))]() mutable {
 		try {
 			deferred->complete(work());
-		} catch (exception const &ex) { deferred->complete(Response::internal_error(ex.what())); } catch (...) {
-			deferred->complete(Response::internal_error());
+		} catch (exception const &ex) { deferred->complete(HttpResponse::internal_error(ex.what())); } catch (...) {
+			deferred->complete(HttpResponse::internal_error());
 		}
 	});
 	if (!enqueued) {
-		return Response::internal_error("offload queue full");
+		return HttpResponse::internal_error("offload queue full");
 	}
-	return Response::deferred(move(deferred));
+	return HttpResponse::deferred(move(deferred));
 }
 template<typename Fn>
-	requires(std::invocable<Fn &> && same_as<std::invoke_result_t<Fn &>, Response>)
-[[nodiscard]] Response defer(
+	requires(std::invocable<Fn &> && same_as<std::invoke_result_t<Fn &>, HttpResponse>)
+[[nodiscard]] HttpResponse defer(
 	WorkPool &pool,
 	Fn &&fn,
 	chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
@@ -61,14 +43,14 @@ template<typename Fn>
 	bool const enqueued = pool.enqueue([deferred, work = std::decay_t<Fn>(forward<Fn>(fn))]() mutable {
 		try {
 			deferred->complete(work());
-		} catch (exception const &ex) { deferred->complete(Response::internal_error(ex.what())); } catch (...) {
-			deferred->complete(Response::internal_error());
+		} catch (exception const &ex) { deferred->complete(HttpResponse::internal_error(ex.what())); } catch (...) {
+			deferred->complete(HttpResponse::internal_error());
 		}
 	});
 	if (!enqueued) {
-		return Response::internal_error("offload queue full");
+		return HttpResponse::internal_error("offload queue full");
 	}
-	return Response::deferred(move(deferred));
+	return HttpResponse::deferred(move(deferred));
 }
 struct AppRunOptions {
 	u16 port = kConfigDefaultPort;
@@ -82,42 +64,42 @@ public:
 		, router_(cfg_) {}
 	template<typename F>
 	App &get(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.get(path, forward<F>(handler));
 		return *this;
 	}
 	template<typename F>
 	App &post(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.post(path, forward<F>(handler));
 		return *this;
 	}
 	template<typename F>
 	App &put(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.put(path, forward<F>(handler));
 		return *this;
 	}
 	template<typename F>
 	App &patch(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.patch(path, forward<F>(handler));
 		return *this;
 	}
 	template<typename F>
 	App &del(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.del(path, forward<F>(handler));
 		return *this;
 	}
 	template<typename F>
 	App &options(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.options(path, forward<F>(handler));
 		return *this;
@@ -125,7 +107,7 @@ public:
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	App &get_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.get_context(path, forward<F>(handler));
 		return *this;
@@ -133,7 +115,7 @@ public:
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	App &post_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.post_context(path, forward<F>(handler));
 		return *this;
@@ -141,7 +123,7 @@ public:
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	App &put_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.put_context(path, forward<F>(handler));
 		return *this;
@@ -149,7 +131,7 @@ public:
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	App &patch_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.patch_context(path, forward<F>(handler));
 		return *this;
@@ -157,7 +139,7 @@ public:
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	App &del_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.del_context(path, forward<F>(handler));
 		return *this;
@@ -165,7 +147,7 @@ public:
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	App &options_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.options_context(path, forward<F>(handler));
 		return *this;
@@ -178,7 +160,7 @@ public:
 	}
 	template<typename F>
 	App &sse(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		router_.sse(path, forward<F>(handler));
 		return *this;
@@ -197,7 +179,7 @@ public:
 	}
 	template<typename F>
 	App &group(
-		SV prefix,
+		std::string_view prefix,
 		F &&fn) {
 		router_.group(prefix, forward<F>(fn));
 		return *this;
@@ -206,12 +188,12 @@ public:
 	[[nodiscard]] Config const &config() const { return cfg_; }
 	[[nodiscard]] Router &router() { return router_; }
 	[[nodiscard]] Router const &router() const { return router_; }
-	[[nodiscard]] expected<UP<HttpServer>, S> try_server(
+	[[nodiscard]] expected<std::unique_ptr<HttpServer>, std::string> try_server(
 		AppRunOptions opts = {}) && {
 		cfg_.port = opts.port;
 		return HttpServer::try_create(cfg_, move(router_));
 	}
-	[[nodiscard]] expected<RunStatus, S> try_run(
+	[[nodiscard]] expected<RunStatus, std::string> try_run(
 		AppRunOptions opts = {}) && {
 		auto srv = move(*this).try_server(opts);
 		if (!srv) {

@@ -36,10 +36,10 @@ int main() {
 
 	auto &router = app.router();
 
-	router.get("/", [](http::Request const &) { return http::Response::redirect("/assets/"); });
+	router.get("/", [](HttpRequest const &) { return HttpResponse::redirect("/assets/"); });
 
-	router.get("/api/info", [asset_dir = asset_dir.string()](http::Request const &) {
-		return http::Response::json(
+	router.get("/api/info", [asset_dir = asset_dir.string()](HttpRequest const &) {
+		return HttpResponse::json(
 			format(R"({{"status":"ok","assets":"{}","routes":["/","/api/info","/assets/{{*file}}"]}})", asset_dir));
 	});
 

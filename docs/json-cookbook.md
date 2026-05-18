@@ -12,7 +12,7 @@ using namespace conflux::json;
 
 ## 1. Null vs Missing
 
-`find_member` returns `Opt<NodeRef>` — `nullopt` when the key is absent,
+`find_member` returns `std::optional<NodeRef>` — `nullopt` when the key is absent,
 `NodeRef` (possibly null-kind) when the key exists.
 
 ```cpp
@@ -20,16 +20,16 @@ auto doc = *parse_view(R"({"a": null, "b": 1})");
 auto obj = *doc.root().as_object();
 
 // absent key
-Opt<NodeRef> c = obj.find_member("c");   // nullopt
+std::optional<NodeRef> c = obj.find_member("c");   // nullopt
 bool missing = !c;                        // true
 
 // explicit null
-Opt<NodeRef> a = obj.find_member("a");
+std::optional<NodeRef> a = obj.find_member("a");
 bool present = a.has_value();             // true
 bool is_null = a && a->is_null();         // true
 
 // present non-null
-Opt<NodeRef> b = obj.find_member("b");
+std::optional<NodeRef> b = obj.find_member("b");
 bool is_null2 = b && b->is_null();        // false
 ```
 
@@ -37,7 +37,7 @@ The helper accessors reflect the same rule: `optional_*` returns `nullopt` for
 both absent **and** explicit-null; `require_*` returns an error for absent.
 
 ```cpp
-auto val = optional_int(obj, "count");  // Opt<i64>: nullopt if absent or null
+auto val = optional_int(obj, "count");  // std::optional<i64>: nullopt if absent or null
 auto req = require_int(obj, "id");      // expected<i64, JsonError>: error if absent
 ```
 

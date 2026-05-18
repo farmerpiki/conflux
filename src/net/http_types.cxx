@@ -8,8 +8,8 @@ import conflux.types;
 	unsigned char c) noexcept {
 	return c >= 'A' && c <= 'Z' ? static_cast<unsigned char>(c + ('a' - 'A')) : c;
 }
-[[nodiscard]] static SV http_trim(
-	SV s) noexcept {
+[[nodiscard]] static std::string_view http_trim(
+	std::string_view s) noexcept {
 	while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r' || s.front() == '\n')) {
 		s.remove_prefix(1);
 	}
@@ -21,9 +21,9 @@ import conflux.types;
 export struct FieldHash {
 	using is_transparent = void;
 	bool ci{false};
-	[[nodiscard]] SZ operator ()(
-		SV s) const noexcept {
-		SZ h = 14695981039346656037ULL;
+	[[nodiscard]] std::size_t operator ()(
+		std::string_view s) const noexcept {
+		std::size_t h = 14695981039346656037ULL;
 		for (char const ch: s) {
 			auto const c = static_cast<unsigned char>(ch);
 			unsigned char const k = ci ? ascii_ci_fold(c) : c;
@@ -32,17 +32,17 @@ export struct FieldHash {
 		}
 		return h;
 	}
-	[[nodiscard]] SZ operator ()(
-		S const &s) const noexcept {
-		return operator ()(SV{s});
+	[[nodiscard]] std::size_t operator ()(
+		std::string const &s) const noexcept {
+		return operator ()(std::string_view{s});
 	}
 };
 export struct FieldEq {
 	using is_transparent = void;
 	bool ci{false};
 	[[nodiscard]] bool operator ()(
-		SV a,
-		SV b) const noexcept {
+		std::string_view a,
+		std::string_view b) const noexcept {
 		if (a.size() != b.size()) {
 			return false;
 		}
@@ -54,28 +54,28 @@ export struct FieldEq {
 		});
 	}
 	[[nodiscard]] bool operator ()(
-		S const &a,
-		SV b) const noexcept {
-		return operator ()(SV{a}, b);
+		std::string const &a,
+		std::string_view b) const noexcept {
+		return operator ()(std::string_view{a}, b);
 	}
 	[[nodiscard]] bool operator ()(
-		SV a,
-		S const &b) const noexcept {
-		return operator ()(a, SV{b});
+		std::string_view a,
+		std::string const &b) const noexcept {
+		return operator ()(a, std::string_view{b});
 	}
 	[[nodiscard]] bool operator ()(
-		S const &a,
-		S const &b) const noexcept {
-		return operator ()(SV{a}, SV{b});
+		std::string const &a,
+		std::string const &b) const noexcept {
+		return operator ()(std::string_view{a}, std::string_view{b});
 	}
 };
 // Vector-backed string map. Linear scan — sufficient for HTTP header counts (<100).
 export class HttpFields {
-	V<P<S, S>> data_;
+	std::vector<std::pair<std::string, std::string>> data_;
 	bool case_insensitive_{false};
 	[[nodiscard]] bool key_eq(
-		SV a,
-		SV b) const noexcept {
+		std::string_view a,
+		std::string_view b) const noexcept {
 		if (a.size() != b.size()) {
 			return false;
 		}
@@ -92,36 +92,36 @@ public:
 		bool case_insensitive = false)
 		: case_insensitive_(case_insensitive) {}
 	HttpFields(
-		std::initializer_list<P<S, S>> init)
+		std::initializer_list<std::pair<std::string, std::string>> init)
 		: data_(init) {}
 	// NOLINTNEXTLINE(fuchsia-overloaded-operator)
-	SV operator [](
-		SV key) const noexcept {
-		return get(key).value_or(SV{});
+	std::string_view operator [](
+		std::string_view key) const noexcept {
+		return get(key).value_or(std::string_view{});
 	}
 	// NOLINTNEXTLINE(fuchsia-overloaded-operator)
-	S &operator [](
-		SV key) {
+	std::string &operator [](
+		std::string_view key) {
 		for (auto &[k, v]: data_) {
 			if (key_eq(k, key)) {
 				return v;
 			}
 		}
-		data_.emplace_back(S{key}, S{});
+		data_.emplace_back(std::string{key}, std::string{});
 		return data_.back().second;
 	}
-	[[nodiscard]] Opt<SV> get(
-		SV key) const noexcept {
+	[[nodiscard]] std::optional<std::string_view> get(
+		std::string_view key) const noexcept {
 		for (auto const &[k, v]: data_) {
 			if (key_eq(k, key)) {
-				return SV{v};
+				return std::string_view{v};
 			}
 		}
 		return nullopt;
 	}
-	[[nodiscard]] SZ count(
-		SV key) const noexcept {
-		SZ n = 0;
+	[[nodiscard]] std::size_t count(
+		std::string_view key) const noexcept {
+		std::size_t n = 0;
 		for (auto const &[k, v]: data_) {
 			(void)v;
 			if (key_eq(k, key)) {
@@ -130,9 +130,9 @@ public:
 		}
 		return n;
 	}
-	[[nodiscard]] V<SV> values(
-		SV key) const {
-		V<SV> out;
+	[[nodiscard]] std::vector<std::string_view> values(
+		std::string_view key) const {
+		std::vector<std::string_view> out;
 		for (auto const &[k, v]: data_) {
 			if (key_eq(k, key)) {
 				out.push_back(v);
@@ -141,7 +141,7 @@ public:
 		return out;
 	}
 	[[nodiscard]] bool contains(
-		SV key) const noexcept {
+		std::string_view key) const noexcept {
 		for (auto const &[k, v]: data_) {
 			if (key_eq(k, key)) {
 				return true;
@@ -149,27 +149,27 @@ public:
 		}
 		return false;
 	}
-	[[nodiscard]] SV value_or(
-		SV key,
-		SV def = {}) const noexcept {
+	[[nodiscard]] std::string_view value_or(
+		std::string_view key,
+		std::string_view def = {}) const noexcept {
 		return get(key).value_or(def);
 	}
 	void emplace_back(
-		S k,
-		S v) {
+		std::string k,
+		std::string v) {
 		data_.emplace_back(move(k), move(v));
 	}
 	void append(
-		S k,
-		S v) {
+		std::string k,
+		std::string v) {
 		emplace_back(move(k), move(v));
 	}
 	void set(
-		S key,
-		S field_value) {
+		std::string key,
+		std::string field_value) {
 		bool found = false;
-		SZ write = 0;
-		for (SZ read = 0; read < data_.size(); ++read) {
+		std::size_t write = 0;
+		for (std::size_t read = 0; read < data_.size(); ++read) {
 			auto &field = data_[read];
 			if (key_eq(field.first, key)) {
 				if (found) {
@@ -189,21 +189,21 @@ public:
 		}
 		data_.resize(write);
 	}
-	SZ erase(
-		SV key) {
-		SZ cursor = 0;
+	std::size_t erase(
+		std::string_view key) {
+		std::size_t cursor = 0;
 		return erase_if(data_, [&](auto const &pair) {
 			++cursor;
-			return key_eq(SV{pair.first}, key);
+			return key_eq(std::string_view{pair.first}, key);
 		});
 	}
 	void clear() noexcept { data_.clear(); }
 	void reserve(
-		SZ n) {
+		std::size_t n) {
 		data_.reserve(n);
 	}
 	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
-	[[nodiscard]] SZ size() const noexcept { return data_.size(); }
+	[[nodiscard]] std::size_t size() const noexcept { return data_.size(); }
 	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
 	auto begin() { return data_.begin(); }
 	auto end() { return data_.end(); }
@@ -212,10 +212,10 @@ public:
 };
 export class HttpFieldsView {
 	struct OwnedStorage {
-		Atom<SZ> refs{1};
-		deque<S> values;
+		std::atomic<std::size_t> refs{1};
+		deque<std::string> values;
 	};
-	V<P<SV, SV>> data_;
+	std::vector<std::pair<std::string_view, std::string_view>> data_;
 	OwnedStorage *owned_storage_{};
 	bool case_insensitive_{false};
 	static void retain(
@@ -231,8 +231,8 @@ export class HttpFieldsView {
 		}
 	}
 	[[nodiscard]] bool key_eq(
-		SV a,
-		SV b) const noexcept {
+		std::string_view a,
+		std::string_view b) const noexcept {
 		if (a.size() != b.size()) {
 			return false;
 		}
@@ -243,8 +243,8 @@ export class HttpFieldsView {
 			return ascii_ci_fold(x) == ascii_ci_fold(y);
 		});
 	}
-	[[nodiscard]] SV store_owned(
-		S owned_value) {
+	[[nodiscard]] std::string_view store_owned(
+		std::string owned_value) {
 		if (owned_storage_ == nullptr) {
 			owned_storage_ = new OwnedStorage;
 		}
@@ -301,12 +301,12 @@ public:
 		return *this;
 	}
 	[[nodiscard]] bool case_insensitive() const noexcept { return case_insensitive_; }
-	SV operator [](
-		SV key) const noexcept {
-		return get(key).value_or(SV{});
+	std::string_view operator [](
+		std::string_view key) const noexcept {
+		return get(key).value_or(std::string_view{});
 	}
-	[[nodiscard]] Opt<SV> get(
-		SV key) const noexcept {
+	[[nodiscard]] std::optional<std::string_view> get(
+		std::string_view key) const noexcept {
 		for (auto const &[k, v]: data_) {
 			if (key_eq(k, key)) {
 				return v;
@@ -314,9 +314,9 @@ public:
 		}
 		return nullopt;
 	}
-	[[nodiscard]] SZ count(
-		SV key) const noexcept {
-		SZ n = 0;
+	[[nodiscard]] std::size_t count(
+		std::string_view key) const noexcept {
+		std::size_t n = 0;
 		for (auto const &[k, v]: data_) {
 			(void)v;
 			if (key_eq(k, key)) {
@@ -325,9 +325,9 @@ public:
 		}
 		return n;
 	}
-	[[nodiscard]] V<SV> values(
-		SV key) const {
-		V<SV> out;
+	[[nodiscard]] std::vector<std::string_view> values(
+		std::string_view key) const {
+		std::vector<std::string_view> out;
 		for (auto const &[k, v]: data_) {
 			if (key_eq(k, key)) {
 				out.push_back(v);
@@ -336,7 +336,7 @@ public:
 		return out;
 	}
 	[[nodiscard]] bool contains(
-		SV key) const noexcept {
+		std::string_view key) const noexcept {
 		for (auto const &[k, v]: data_) {
 			if (key_eq(k, key)) {
 				return true;
@@ -344,24 +344,24 @@ public:
 		}
 		return false;
 	}
-	[[nodiscard]] SV value_or(
-		SV key,
-		SV def = {}) const noexcept {
+	[[nodiscard]] std::string_view value_or(
+		std::string_view key,
+		std::string_view def = {}) const noexcept {
 		return get(key).value_or(def);
 	}
 	void emplace_back(
-		SV k,
-		SV v) {
+		std::string_view k,
+		std::string_view v) {
 		data_.emplace_back(k, v);
 	}
 	void emplace_back_owned(
-		S k,
-		S v) {
+		std::string k,
+		std::string v) {
 		data_.emplace_back(store_owned(move(k)), store_owned(move(v)));
 	}
 	void emplace_back_owned_value(
-		SV k,
-		S v) {
+		std::string_view k,
+		std::string v) {
 		data_.emplace_back(k, store_owned(move(v)));
 	}
 	void clear() noexcept {
@@ -370,16 +370,16 @@ public:
 		owned_storage_ = nullptr;
 	}
 	void reserve(
-		SZ n) {
+		std::size_t n) {
 		data_.reserve(n);
 	}
 	[[nodiscard]] bool empty() const noexcept { return data_.empty(); }
-	[[nodiscard]] SZ size() const noexcept { return data_.size(); }
+	[[nodiscard]] std::size_t size() const noexcept { return data_.size(); }
 	[[nodiscard]] HttpFields to_owned() const {
 		HttpFields out{case_insensitive_};
 		out.reserve(data_.size());
 		for (auto const &[k, v]: data_) {
-			out.emplace_back(S{k}, S{v});
+			out.emplace_back(std::string{k}, std::string{v});
 		}
 		return out;
 	}
@@ -419,8 +419,8 @@ struct HttpError {
 	HttpPhase phase{};
 	int os_errno{0};
 	int tls_alert{0};
-	S verify_reason{};
-	S message{};
+	std::string verify_reason{};
+	std::string message{};
 };
 // ─── timeouts ────────────────────────────────────────────────────────────────
 
@@ -440,16 +440,16 @@ struct HttpTelemetry {
 	chrono::nanoseconds tls{};
 	chrono::nanoseconds ttfb{};
 	chrono::nanoseconds body{};
-	Opt<chrono::nanoseconds> pool_wait{};
+	std::optional<chrono::nanoseconds> pool_wait{};
 	u64 bytes_sent{0};
 	u64 bytes_received{0};
 	bool reused_connection{false};
-	S negotiated_protocol{};
-	S tls_cipher{};
-	S tls_version{};
+	std::string negotiated_protocol{};
+	std::string tls_cipher{};
+	std::string tls_version{};
 	bool tls_verified{false};
-	S peer_addr{};
-	Opt<S> decoded_encoding{};
+	std::string peer_addr{};
+	std::optional<std::string> decoded_encoding{};
 };
 
 // ─── URL ─────────────────────────────────────────────────────────────────────
@@ -464,18 +464,18 @@ enum class UrlErrorKind : u8 {
 };
 struct UrlError {
 	UrlErrorKind kind{UrlErrorKind::empty};
-	S message{};
+	std::string message{};
 };
 struct Url {
-	S scheme{};
-	S host{};
+	std::string scheme{};
+	std::string host{};
 	u16 port{80};
-	S path{"/"};
-	S query{}; // raw, without leading '?'
+	std::string path{"/"};
+	std::string query{}; // raw, without leading '?'
 
-	[[nodiscard]] static expected<Url, UrlError> parse(SV input);
-	[[nodiscard]] S str() const {
-		S out;
+	[[nodiscard]] static expected<Url, UrlError> parse(std::string_view input);
+	[[nodiscard]] std::string str() const {
+		std::string out;
 		out.reserve(scheme.size() + 3 + host.size() + 7 + path.size() + query.size() + 1);
 		out += scheme;
 		out += "://";
@@ -496,12 +496,12 @@ struct Url {
 		return out;
 	}
 	void set_query_param(
-		SV name,
-		SV value) {
-		auto encode = [](SV s) {
-			static constexpr A<char, 16> kHex = {'0', '1', '2', '3', '4', '5', '6', '7',
+		std::string_view name,
+		std::string_view value) {
+		auto encode = [](std::string_view s) {
+			static constexpr std::array<char, 16> kHex = {'0', '1', '2', '3', '4', '5', '6', '7',
 				'8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
-			S out;
+			std::string out;
 			out.reserve(s.size());
 			for (auto const raw_c: s) {
 				unsigned char const c = static_cast<unsigned char>(raw_c);
@@ -530,23 +530,23 @@ struct Url {
 	}
 };
 expected<Url, UrlError> Url::parse(
-	SV input) {
+	std::string_view input) {
 	if (input.empty()) {
 		return unexpected(UrlError{UrlErrorKind::empty, "empty URL"});
 	}
-	constexpr SZ kMaxUrl = 8192;
+	constexpr std::size_t kMaxUrl = 8192;
 	if (input.size() > kMaxUrl) {
 		return unexpected(UrlError{UrlErrorKind::too_long, "URL exceeds 8192 bytes"});
 	}
 
 	auto const scheme_end = input.find("://");
-	if (scheme_end == SV::npos) {
+	if (scheme_end == std::string_view::npos) {
 		return unexpected(UrlError{UrlErrorKind::missing_scheme, "missing '://'"});
 	}
 
 	Url url;
 	url.scheme.resize(scheme_end);
-	for (SZ i = 0; i < scheme_end; ++i) {
+	for (std::size_t i = 0; i < scheme_end; ++i) {
 		url.scheme[i] = static_cast<char>(tolower(static_cast<unsigned char>(input[i])));
 	}
 
@@ -561,7 +561,7 @@ expected<Url, UrlError> Url::parse(
 	}
 
 	auto const authority_end = rest.find_first_of("/?");
-	auto const authority = (authority_end == SV::npos) ? rest : rest.substr(0, authority_end);
+	auto const authority = (authority_end == std::string_view::npos) ? rest : rest.substr(0, authority_end);
 
 	if (authority.empty()) {
 		return unexpected(UrlError{UrlErrorKind::missing_host, "missing host"});
@@ -569,10 +569,10 @@ expected<Url, UrlError> Url::parse(
 
 	if (authority.starts_with('[')) {
 		auto const bracket_end = authority.find(']');
-		if (bracket_end == SV::npos) {
+		if (bracket_end == std::string_view::npos) {
 			return unexpected(UrlError{UrlErrorKind::missing_host, "unterminated IPv6 literal"});
 		}
-		url.host = S{authority.substr(0, bracket_end + 1)};
+		url.host = std::string{authority.substr(0, bracket_end + 1)};
 		auto const after = authority.substr(bracket_end + 1);
 		if (!after.empty()) {
 			if (after[0] != ':') {
@@ -588,10 +588,10 @@ expected<Url, UrlError> Url::parse(
 		}
 	} else {
 		auto const colon = authority.rfind(':');
-		if (colon == SV::npos) {
-			url.host = S{authority};
+		if (colon == std::string_view::npos) {
+			url.host = std::string{authority};
 		} else {
-			url.host = S{authority.substr(0, colon)};
+			url.host = std::string{authority.substr(0, colon)};
 			auto const port_sv = authority.substr(colon + 1);
 			u16 p = 0;
 			auto const [ptr, ec] = from_chars(port_sv.data(), port_sv.data() + port_sv.size(), p);
@@ -606,30 +606,30 @@ expected<Url, UrlError> Url::parse(
 		return unexpected(UrlError{UrlErrorKind::missing_host, "empty host"});
 	}
 
-	if (authority_end == SV::npos) {
+	if (authority_end == std::string_view::npos) {
 		url.path = "/";
 	} else {
 		auto const path_and_query = rest.substr(authority_end);
 		auto const qmark = path_and_query.find('?');
-		if (qmark == SV::npos) {
-			url.path = S{path_and_query};
+		if (qmark == std::string_view::npos) {
+			url.path = std::string{path_and_query};
 			if (url.path.empty()) {
 				url.path = "/";
 			}
 		} else {
-			url.path = S{path_and_query.substr(0, qmark)};
+			url.path = std::string{path_and_query.substr(0, qmark)};
 			if (url.path.empty()) {
 				url.path = "/";
 			}
-			url.query = S{path_and_query.substr(qmark + 1)};
+			url.query = std::string{path_and_query.substr(qmark + 1)};
 		}
 	}
 
 	return url;
 }
 [[nodiscard]] bool ascii_iequals(
-	SV lhs,
-	SV rhs) noexcept {
+	std::string_view lhs,
+	std::string_view rhs) noexcept {
 	if (lhs.size() != rhs.size()) {
 		return false;
 	}
@@ -637,7 +637,7 @@ expected<Url, UrlError> Url::parse(
 		return ascii_ci_fold(x) == ascii_ci_fold(y);
 	});
 }
-constexpr A<SV, 8> kHopByHopHeaders{
+constexpr std::array<std::string_view, 8> kHopByHopHeaders{
 	"connection",
 	"keep-alive",
 	"proxy-authenticate",
@@ -648,21 +648,21 @@ constexpr A<SV, 8> kHopByHopHeaders{
 	"upgrade",
 };
 [[nodiscard]] bool is_hop_by_hop_header(
-	SV name) noexcept {
-	return ranges::any_of(kHopByHopHeaders, [&](SV candidate) {
+	std::string_view name) noexcept {
+	return ranges::any_of(kHopByHopHeaders, [&](std::string_view candidate) {
 		return ascii_iequals(name, candidate);
 	});
 }
 [[nodiscard]] bool header_token_contains(
-	SV header,
-	SV token) noexcept {
+	std::string_view header,
+	std::string_view token) noexcept {
 	while (!header.empty()) {
 		auto const comma = header.find(',');
-		auto const part = http_trim((comma == SV::npos) ? header : header.substr(0, comma));
+		auto const part = http_trim((comma == std::string_view::npos) ? header : header.substr(0, comma));
 		if (ascii_iequals(part, token)) {
 			return true;
 		}
-		if (comma == SV::npos) {
+		if (comma == std::string_view::npos) {
 			return false;
 		}
 		header.remove_prefix(comma + 1);

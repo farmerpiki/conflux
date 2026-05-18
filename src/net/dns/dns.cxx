@@ -32,7 +32,7 @@ export struct Endpoint {
 	AddressFamily family{};
 };
 export struct ResolveResult {
-	V<Endpoint> endpoints;
+	std::vector<Endpoint> endpoints;
 	chrono::nanoseconds elapsed{};
 	chrono::seconds suggested_ttl{0};
 	bool from_cache{false};
@@ -62,16 +62,16 @@ export enum class DnsErrorKind : u8 {
 export struct DnsError final : RE {
 	DnsError(
 		DnsErrorKind k,
-		S const &msg,
+		std::string const &msg,
 		int err = 0,
-		Opt<u8> r = {})
+		std::optional<u8> r = {})
 		: RE{msg}
 		, kind{k}
 		, os_errno{err}
 		, rcode{r} {}
 	DnsErrorKind kind;
 	int os_errno{0};
-	Opt<u8> rcode{};
+	std::optional<u8> rcode{};
 };
 // ─── nameserver endpoint ────────────────────────────────────────────────────
 
@@ -84,17 +84,17 @@ export struct NameserverEndpoint {
 // AF_INET or AF_INET6 set in addr. On failure returns the unsupported
 // literal so callers can surface a useful diagnostic.
 export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
-	SV literal) {
+	std::string_view literal) {
 	if (literal.empty()) {
 		return unexpected{std::string{"empty nameserver literal"}};
 	}
 
-	S host;
+	std::string host;
 	u16 port = 53;
 
 	if (literal.front() == '[') {
 		auto const close = literal.find(']');
-		if (close == SV::npos) {
+		if (close == std::string_view::npos) {
 			return unexpected{std::string{"unterminated '[' in nameserver literal"}};
 		}
 		host.assign(literal.substr(1, close - 1));
@@ -124,7 +124,7 @@ export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
 		// Distinguish: bare IPv6 contains ':', but so does "ipv4:port".
 		// IPv6 always has ≥ 2 colons or contains "::"; IPv4 has at most 1.
 		auto const colons = ranges::count(literal, ':');
-		bool const is_ipv6 = colons >= 2 || literal.find("::") != SV::npos;
+		bool const is_ipv6 = colons >= 2 || literal.find("::") != std::string_view::npos;
 		if (!is_ipv6 && colons == 1) {
 			auto const colon = literal.find(':');
 			host.assign(literal.substr(0, colon));
@@ -175,12 +175,12 @@ export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
 // dot-only / empty labels. Total length ≤ 253 bytes (excluding final '.'),
 // per-label ≤ 63 bytes.
 export [[nodiscard]] bool is_valid_hostname(
-	SV name) noexcept {
+	std::string_view name) noexcept {
 	if (name.empty()) {
 		return false;
 	}
 	// Strip optional trailing root dot for length accounting.
-	SV trimmed = name;
+	std::string_view trimmed = name;
 	if (trimmed.back() == '.') {
 		trimmed.remove_suffix(1);
 	}
@@ -210,11 +210,11 @@ export [[nodiscard]] bool is_valid_hostname(
 
 // Returns an Endpoint if `host` is an IPv4 or IPv6 literal, else nullopt.
 // `port` is written into the sockaddr in network order.
-export [[nodiscard]] Opt<Endpoint> try_parse_ip_literal(
-	SV host,
+export [[nodiscard]] std::optional<Endpoint> try_parse_ip_literal(
+	std::string_view host,
 	u16 port) noexcept {
 	// inet_pton needs a NUL-terminated string. Stack-buffer common case.
-	A<char, 64> buf{};
+	std::array<char, 64> buf{};
 	if (host.size() >= buf.size()) {
 		return nullopt;
 	}
@@ -296,24 +296,24 @@ export struct Header {
 	[[nodiscard]] RCode rcode() const noexcept { return static_cast<RCode>(flags & kRCodeMask); }
 };
 export struct Question {
-	S name; // canonical lowercase, no trailing root, dot-separated
+	std::string name; // canonical lowercase, no trailing root, dot-separated
 	QType qtype{QType::a};
 	QClass qclass{QClass::in};
 };
 export struct ResourceRecord {
-	S name;
+	std::string name;
 	QType type{QType::a};
 	QClass rclass{QClass::in};
 	u32 ttl{0};
-	V<u8> rdata; // raw RDATA (uncompressed for OPT; for compressed names,
+	std::vector<u8> rdata; // raw RDATA (uncompressed for OPT; for compressed names,
 	// callers parse via decode helpers below)
 };
 export struct Message {
 	Header header{};
-	V<Question> questions;
-	V<ResourceRecord> answers;
-	V<ResourceRecord> authority;
-	V<ResourceRecord> additional;
+	std::vector<Question> questions;
+	std::vector<ResourceRecord> answers;
+	std::vector<ResourceRecord> authority;
+	std::vector<ResourceRecord> additional;
 };
 // EDNS0 OPT pseudo-RR.
 export struct Edns0Options {
@@ -324,12 +324,12 @@ export struct Edns0Options {
 };
 // Encode a query (header + single question + optional EDNS0 OPT in additional).
 // Returns the wire bytes. RD=1 set unconditionally.
-export [[nodiscard]] V<u8> encode_query(
+export [[nodiscard]] std::vector<u8> encode_query(
 	u16 id,
-	SV qname,
+	std::string_view qname,
 	QType qtype,
-	Opt<Edns0Options> edns = Edns0Options{}) {
-	V<u8> out;
+	std::optional<Edns0Options> edns = Edns0Options{}) {
+	std::vector<u8> out;
 	out.reserve(64);
 
 	auto write_u16 = [&](u16 v) {
@@ -357,7 +357,7 @@ export [[nodiscard]] V<u8> encode_query(
 		size_t pos = 0;
 		while (pos < qname.size()) {
 			auto const dot = qname.find('.', pos);
-			auto const len = (dot == SV::npos ? qname.size() : dot) - pos;
+			auto const len = (dot == std::string_view::npos ? qname.size() : dot) - pos;
 			if (len == 0) {
 				// empty label (consecutive dots) — caller should have validated
 				break;
@@ -372,7 +372,7 @@ export [[nodiscard]] V<u8> encode_query(
 				out.end(),
 				qname.begin() + static_cast<std::ptrdiff_t>(pos),
 				qname.begin() + static_cast<std::ptrdiff_t>(pos + len));
-			pos += len + (dot == SV::npos ? 0 : 1);
+			pos += len + (dot == std::string_view::npos ? 0 : 1);
 		}
 		out.push_back(0); // root
 	}
@@ -407,7 +407,7 @@ export [[nodiscard]] V<u8> encode_query(
 export [[nodiscard]] size_t decode_name(
 	span<u8 const> wire,
 	size_t offset,
-	S &out) {
+	std::string &out) {
 	out.clear();
 	constexpr size_t kMaxDepth = 16;
 	size_t depth = 0;
@@ -551,7 +551,7 @@ export [[nodiscard]] Message decode_message(
 	return m;
 }
 // Convert an A or AAAA RR into an Endpoint. Returns nullopt for other types.
-export [[nodiscard]] Opt<Endpoint> rdata_to_endpoint(
+export [[nodiscard]] std::optional<Endpoint> rdata_to_endpoint(
 	ResourceRecord const &rr,
 	u16 port) {
 	Endpoint ep{};
@@ -576,7 +576,7 @@ export [[nodiscard]] Opt<Endpoint> rdata_to_endpoint(
 	return nullopt;
 }
 // Map RCODE → DnsErrorKind. RCODE 0 = noerror returns nullopt.
-export [[nodiscard]] Opt<DnsErrorKind> rcode_to_error(
+export [[nodiscard]] std::optional<DnsErrorKind> rcode_to_error(
 	RCode r) noexcept {
 	switch (r) {
 	case RCode::noerror : return nullopt;
@@ -604,7 +604,7 @@ export struct ResolveOptions {
 	chrono::milliseconds query_timeout{2000};
 	chrono::milliseconds total_timeout{5000};
 	bool bypass_cache{false};
-	V<NameserverEndpoint> override_nameservers{};
+	std::vector<NameserverEndpoint> override_nameservers{};
 };
 export struct ResolverOptions {
 	size_t cache_capacity{1024};
@@ -615,7 +615,7 @@ export struct ResolverOptions {
 	bool enable_etc_hosts{true};
 	u16 edns0_udp_size{4096};
 	size_t max_in_flight_queries{4096};
-	V<NameserverEndpoint> override_nameservers{};
+	std::vector<NameserverEndpoint> override_nameservers{};
 };
 // ─── Resolver ───────────────────────────────────────────────────────────────
 
@@ -632,16 +632,16 @@ public:
 	Resolver &operator =(Resolver &&) = delete;
 
 	[[nodiscard]] conflux::work::root::Task<ResolveResult>
-	resolve(SV host, u16 port, ResolveOptions const &opts = {});
+	resolve(std::string_view host, u16 port, ResolveOptions const &opts = {});
 
 	// ring must outlive the returned Task and any coalesced waiters sharing that ring
 	[[nodiscard]] conflux::work::root::Task<ResolveResult>
-	resolve(SocketTaskRing &ring, SV host, u16 port, ResolveOptions const &opts = {});
+	resolve(SocketTaskRing &ring, std::string_view host, u16 port, ResolveOptions const &opts = {});
 
 	[[nodiscard]] expected<ResolveResult, DnsError>
-	resolve_blocking(SV host, u16 port, ResolveOptions const &opts = {});
+	resolve_blocking(std::string_view host, u16 port, ResolveOptions const &opts = {});
 
-	void invalidate(SV host);
+	void invalidate(std::string_view host);
 	void clear_cache();
 	void reload();
 
@@ -652,10 +652,10 @@ public:
 
 private:
 	[[nodiscard]] root::Task<ResolveResult>
-	resolve_flow(SocketTaskRing *external_ring, SV host, u16 port, ResolveOptions const &opts = {});
+	resolve_flow(SocketTaskRing *external_ring, std::string_view host, u16 port, ResolveOptions const &opts = {});
 
 	struct Impl;
-	SP<Impl> impl_;
+	std::shared_ptr<Impl> impl_;
 };
 // ─── thread-local current resolver ──────────────────────────────────────────
 

@@ -18,89 +18,89 @@ using JsonProvider = conflux::json::boundary::NativeJsonProvider;
 
 struct Todo {
 	i64 id{};
-	S title;
+	std::string title;
 	bool done{};
 };
 
 template<>
 struct JsonMembers<Todo> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("id", &Todo::id),
 			json_member("title", &Todo::title),
 			json_member("done", &Todo::done),
 		};
 	}
-	static constexpr SV type_name() { return "Todo"; }
+	static constexpr std::string_view type_name() { return "Todo"; }
 };
 
 struct TodoList {
-	V<Todo> items;
+	std::vector<Todo> items;
 };
 
 template<>
 struct JsonMembers<TodoList> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("items", &TodoList::items),
 		};
 	}
-	static constexpr SV type_name() { return "TodoList"; }
+	static constexpr std::string_view type_name() { return "TodoList"; }
 };
 
 struct CreateTodo {
-	S title;
+	std::string title;
 };
 
 template<>
 struct JsonMembers<CreateTodo> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("title", &CreateTodo::title),
 		};
 	}
-	static constexpr SV type_name() { return "CreateTodo"; }
+	static constexpr std::string_view type_name() { return "CreateTodo"; }
 };
 
 struct CreateTodoResult {
 	bool ok{};
 	Todo todo{};
-	S error{};
+	std::string error{};
 };
 
 template<>
 struct JsonMembers<CreateTodoResult> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("ok", &CreateTodoResult::ok),
 			json_member("todo", &CreateTodoResult::todo),
 			json_member("error", &CreateTodoResult::error),
 		};
 	}
-	static constexpr SV type_name() { return "CreateTodoResult"; }
+	static constexpr std::string_view type_name() { return "CreateTodoResult"; }
 };
 
 struct StatusReply {
-	S status;
-	S component;
+	std::string status;
+	std::string component;
 };
 
 template<>
 struct JsonMembers<StatusReply> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("status", &StatusReply::status),
 			json_member("component", &StatusReply::component),
 		};
 	}
-	static constexpr SV type_name() { return "StatusReply"; }
+	static constexpr std::string_view type_name() { return "StatusReply"; }
 };
 
 int main() {
 	auto app = http::App::default_server();
 	auto api = http::json::routes<JsonProvider>(app);
 
-	V<Todo> todos{
+	std::vector<Todo> todos{
 		Todo{.id = 1, .title = "ship v1 preview", .done = false},
 		Todo{.id = 2, .title = "write typed JSON examples", .done = true},
 	};
@@ -118,7 +118,7 @@ int main() {
 
 	api.post_body<CreateTodo>("/api/todos", [&todos, &todos_mu, &next_id](CreateTodo const &body) {
 		if (body.title.empty()) {
-			return CreateTodoResult{.ok = false, .error = S{"title is required"}};
+			return CreateTodoResult{.ok = false, .error = std::string{"title is required"}};
 		}
 
 		lock_guard lock{todos_mu};

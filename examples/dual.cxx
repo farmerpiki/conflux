@@ -18,27 +18,27 @@
 import conflux.net.http;
 import std;
 import conflux.types;
-// Write a PEM S to a temp file and return the path.
+// Write a PEM std::string to a temp file and return the path.
 // Caller must ::unlink() when done.
-static S write_tmp_pem(
-	SV tag) {
-	S tmpl = format("/tmp/conflux_dual_{}_XXXXXX.pem", tag);
+static std::string write_tmp_pem(
+	std::string_view tag) {
+	std::string tmpl = format("/tmp/conflux_dual_{}_XXXXXX.pem", tag);
 	// mkstemps needs a mutable char buffer.
-	V<char> buf(tmpl.begin(), tmpl.end());
+	std::vector<char> buf(tmpl.begin(), tmpl.end());
 	buf.push_back('\0');
 	int const fd = ::mkstemps(buf.data(), 4);
 	if (fd < 0) {
 		throw RE{format("mkstemps failed for {}", tag)};
 	}
 	::close(fd);
-	return S{buf.data()};
+	return std::string{buf.data()};
 }
 int main() {
 	// Generate a self-signed cert + key P.
-	S cert_path = write_tmp_pem("cert");
-	S key_path = write_tmp_pem("key");
+	std::string cert_path = write_tmp_pem("cert");
+	std::string key_path = write_tmp_pem("key");
 
-	S const gen_cmd = format(
+	std::string const gen_cmd = format(
 		"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 		"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 		key_path,

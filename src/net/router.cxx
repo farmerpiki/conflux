@@ -20,9 +20,9 @@ export import conflux.net.http.response;
 
 // Metadata for a single registered route, exposed by Router::route_infos().
 export struct RouteInfo {
-	S method;
-	S path_pattern; // OpenAPI-style path e.g. /users/{id}
-	V<S> path_params; // captured parameter names in order
+	std::string method;
+	std::string path_pattern; // OpenAPI-style path e.g. /users/{id}
+	std::vector<std::string> path_params; // captured parameter names in order
 };
 export struct RequestContext {
 	SocketTaskRing &ring;
@@ -72,7 +72,7 @@ public:
 		CloneableFunction<conflux::work::root::Task<HttpResponse>(HttpRequest const &, RequestContext const &)>;
 	using ContextMiddleware = CloneableFunction<
 		conflux::work::root::Task<HttpResponse>(HttpRequest const &, RequestContext const &, ContextHandler const &)>;
-	using SseHandler = CloneableFunction<void(HttpRequestView const &, SP<SseChannel>)>;
+	using SseHandler = CloneableFunction<void(HttpRequestView const &, std::shared_ptr<SseChannel>)>;
 	// next is the downstream handler (or next middleware); call it to continue the chain.
 	using Middleware = MiddlewareFunction;
 	using WsHandler = CloneableFunction<void(HttpRequestView const &, WsConn &)>;
@@ -87,8 +87,8 @@ public:
 	// NOLINTBEGIN(clang-analyzer-cplusplus.NewDeleteLeaks): false positive on CloneableFunction ownership.
 	template<typename F>
 	Router &add(
-		SV method,
-		SV path,
+		std::string_view method,
+		std::string_view path,
 		F &&handler) {
 		add_prepared(method, path, make_handler(forward<F>(handler)));
 		return *this;
@@ -96,8 +96,8 @@ public:
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	Router &add_context(
-		SV method,
-		SV path,
+		std::string_view method,
+		std::string_view path,
 		F &&handler) {
 		add_context_prepared(method, path, ContextHandler{forward<F>(handler)});
 		return *this;
@@ -105,42 +105,42 @@ public:
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	Router &get_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add_context("GET", path, forward<F>(handler));
 	}
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	Router &post_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add_context("POST", path, forward<F>(handler));
 	}
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	Router &put_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add_context("PUT", path, forward<F>(handler));
 	}
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	Router &patch_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add_context("PATCH", path, forward<F>(handler));
 	}
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	Router &del_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add_context("DELETE", path, forward<F>(handler));
 	}
 	template<typename F>
 	requires ContextHandlerFunction<F>
 	Router &options_context(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add_context("OPTIONS", path, forward<F>(handler));
 	}
@@ -148,37 +148,37 @@ public:
 	[[nodiscard]] bool has_context_routes() const noexcept;
 	template<typename F>
 	Router &get(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add("GET", path, forward<F>(handler));
 	}
 	template<typename F>
 	Router &post(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add("POST", path, forward<F>(handler));
 	}
 	template<typename F>
 	Router &put(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add("PUT", path, forward<F>(handler));
 	}
 	template<typename F>
 	Router &patch(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add("PATCH", path, forward<F>(handler));
 	}
 	template<typename F>
 	Router &del(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add("DELETE", path, forward<F>(handler));
 	}
 	template<typename F>
 	Router &options(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return add("OPTIONS", path, forward<F>(handler));
 	}
@@ -201,22 +201,22 @@ public:
 		return *this;
 	}
 	// Return metadata for all registered routes (regular routes only).
-	[[nodiscard]] V<RouteInfo> route_infos() const;
+	[[nodiscard]] std::vector<RouteInfo> route_infos() const;
 	template<typename F>
 	Router &sse(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		sse_prepared(path, make_sse_handler(forward<F>(handler)));
 		return *this;
 	}
-	Router &set_work_pool(SP<WorkPool> pool);
-	[[nodiscard]] SP<WorkPool> work_pool() const;
+	Router &set_work_pool(std::shared_ptr<WorkPool> pool);
+	[[nodiscard]] std::shared_ptr<WorkPool> work_pool() const;
 	Router &set_static_file_cache(StaticFileCacheConfig cfg);
 	// Register a WebSocket upgrade handler. GET requests with a valid Upgrade: websocket
 	// handshake are upgraded to WebSocket; the handler runs on the router's work pool.
 	template<typename F>
 	Router &ws(
-		SV path,
+		std::string_view path,
 		F &&handler) {
 		return ws_prepared(path, make_ws_handler(forward<F>(handler)));
 	}
@@ -233,45 +233,45 @@ public:
 		}
 		template<typename F>
 		Group &add(
-			SV method,
-			SV path,
+			std::string_view method,
+			std::string_view path,
 			F &&handler) {
-			router_.add(method, prefix_ + S{path}, wrap(Router::make_handler(forward<F>(handler))));
+			router_.add(method, prefix_ + std::string{path}, wrap(Router::make_handler(forward<F>(handler))));
 			return *this;
 		}
 		template<typename F>
 		Group &get(
-			SV path,
+			std::string_view path,
 			F &&handler) {
 			return add("GET", path, forward<F>(handler));
 		}
 		template<typename F>
 		Group &post(
-			SV path,
+			std::string_view path,
 			F &&handler) {
 			return add("POST", path, forward<F>(handler));
 		}
 		template<typename F>
 		Group &put(
-			SV path,
+			std::string_view path,
 			F &&handler) {
 			return add("PUT", path, forward<F>(handler));
 		}
 		template<typename F>
 		Group &patch(
-			SV path,
+			std::string_view path,
 			F &&handler) {
 			return add("PATCH", path, forward<F>(handler));
 		}
 		template<typename F>
 		Group &del(
-			SV path,
+			std::string_view path,
 			F &&handler) {
 			return add("DELETE", path, forward<F>(handler));
 		}
 		template<typename F>
 		Group &options(
-			SV path,
+			std::string_view path,
 			F &&handler) {
 			return add("OPTIONS", path, forward<F>(handler));
 		}
@@ -280,7 +280,7 @@ public:
 		friend class Router;
 		Group(
 			Router &router,
-			S prefix)
+			std::string prefix)
 			: router_(router)
 			, prefix_(move(prefix))
 			, middlewares_{} {}
@@ -290,20 +290,20 @@ public:
 		[[nodiscard]] Handler wrap(
 			Handler h) const {
 			for (int i = static_cast<int>(middlewares_.size()) - 1; i >= 0; --i) {
-				auto mw = middlewares_[static_cast<SZ>(i)]; // copy: Group is destroyed after group() returns
+				auto mw = middlewares_[static_cast<std::size_t>(i)]; // copy: Group is destroyed after group() returns
 				h = [mw = move(mw), n = move(h)](HttpRequestView const &r) { return mw(r, n); };
 			}
 			return h;
 		}
 		Router &router_;
-		S prefix_;
-		V<Middleware> middlewares_;
+		std::string prefix_;
+		std::vector<Middleware> middlewares_;
 	};
 	template<typename F>
 	Router &group(
-		SV prefix,
+		std::string_view prefix,
 		F &&fn) {
-		Group g{*this, S{prefix}};
+		Group g{*this, std::string{prefix}};
 		forward<F>(fn)(g);
 		return *this;
 	}
@@ -318,25 +318,25 @@ public:
 		StaticOptions const &sopts = {});
 	[[nodiscard]] HttpResponse dispatch(HttpRequest const &req) const;
 	[[nodiscard]] HttpResponse dispatch(HttpRequestView const &req) const;
-	[[nodiscard]] Opt<HttpResponse> dispatch_context(
+	[[nodiscard]] std::optional<HttpResponse> dispatch_context(
 		HttpRequest const &req,
 		RequestContext const &ctx) const;
 
 private:
 	struct Impl;
-	UP<Impl> impl_;
-	void add_prepared(SV method, SV path, Handler handler);
-	void add_context_prepared(SV method, SV path, ContextHandler handler);
+	std::unique_ptr<Impl> impl_;
+	void add_prepared(std::string_view method, std::string_view path, Handler handler);
+	void add_context_prepared(std::string_view method, std::string_view path, ContextHandler handler);
 	void use_prepared(Middleware mw);
 	void set_not_found_handler(Handler handler);
 	void set_error_handler(ErrorHandler handler);
-	void sse_prepared(SV path, SseHandler handler);
-	Router &ws_prepared(SV path, WsHandler handler);
+	void sse_prepared(std::string_view path, SseHandler handler);
+	Router &ws_prepared(std::string_view path, WsHandler handler);
 	static void launch_sse_handler(
-		SP<WorkPool> const &pool,
+		std::shared_ptr<WorkPool> const &pool,
 		SseHandler handler,
 		HttpRequest matched,
-		SP<SseChannel> const &channel);
+		std::shared_ptr<SseChannel> const &channel);
 	[[nodiscard]] static HttpResponse defer_http_task(
 		conflux::work::root::Task<HttpResponse> task);
 	[[nodiscard]] HttpResponse run_middlewares(HttpRequestView const &req, Handler const &inner) const;
@@ -404,10 +404,10 @@ private:
 	static SseHandler make_sse_handler(
 		F &&fn) {
 		using Fn = std::decay_t<F>;
-		if constexpr (std::invocable<Fn &, HttpRequestView const &, SP<SseChannel>>) {
+		if constexpr (std::invocable<Fn &, HttpRequestView const &, std::shared_ptr<SseChannel>>) {
 			return SseHandler{forward<F>(fn)};
-		} else if constexpr (std::invocable<Fn &, HttpRequest const &, SP<SseChannel>>) {
-			return SseHandler{[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req, SP<SseChannel> ch) mutable {
+		} else if constexpr (std::invocable<Fn &, HttpRequest const &, std::shared_ptr<SseChannel>>) {
+			return SseHandler{[wrapped = Fn(forward<F>(fn))](HttpRequestView const &req, std::shared_ptr<SseChannel> ch) mutable {
 				auto owned = req.to_owned();
 				invoke(wrapped, owned, move(ch));
 			}};
@@ -457,7 +457,7 @@ private:
 // and passes the formatted line to `sink`. Thread-safety of `sink` is
 // the caller's responsibility.
 export Router::Middleware make_access_log_middleware(
-	Fn<void(S const &)> sink) {
+	std::function<void(std::string const &)> sink) {
 	return [sink = move(sink)](HttpRequestView const &req, Router::Handler const &next) {
 		auto const t0 = chrono::steady_clock::now();
 		auto resp = next(req);
@@ -465,9 +465,9 @@ export Router::Middleware make_access_log_middleware(
 
 		auto const now = chrono::system_clock::now();
 		auto const tt = chrono::system_clock::to_time_t(now);
-		A<char, 32> ts_buf{};
-		SV ts{};
-		if (strftime(ts_buf.data(), ts_buf.size(), "%Y-%m-%dT%H:%M:%SZ", gmtime(&tt)) > 0) {
+		std::array<char, 32> ts_buf{};
+		std::string_view ts{};
+		if (strftime(ts_buf.data(), ts_buf.size(), "%Y-%m-%dT%H:%M:%S", gmtime(&tt)) > 0) {
 			ts = ts_buf.data();
 		}
 

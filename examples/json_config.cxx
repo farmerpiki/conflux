@@ -7,7 +7,7 @@ using std::println;
 
 struct RateLimitConfig {
 	i64 requests_per_minute{};
-	Opt<i64> burst{};
+	std::optional<i64> burst{};
 };
 
 template<>
@@ -18,15 +18,15 @@ struct JsonMembers<RateLimitConfig> {
 			json_member("burst", &RateLimitConfig::burst),
 		};
 	}
-	static constexpr SV type_name() { return "RateLimitConfig"; }
+	static constexpr std::string_view type_name() { return "RateLimitConfig"; }
 };
 
 struct ServiceConfig {
-	S host;
+	std::string host;
 	i64 port{};
 	bool tls{};
 	RateLimitConfig rate_limit{};
-	Opt<S> log_level{};
+	std::optional<std::string> log_level{};
 };
 
 template<>
@@ -40,24 +40,24 @@ struct JsonMembers<ServiceConfig> {
 			json_member("log_level", &ServiceConfig::log_level),
 		};
 	}
-	static constexpr SV type_name() { return "ServiceConfig"; }
+	static constexpr std::string_view type_name() { return "ServiceConfig"; }
 };
 
-static S display_path(
+static std::string display_path(
 	JsonError const &e) {
 	if (!e.path.empty()) {
 		return e.path.to_pointer();
 	}
 	if (e.member_name) {
-		return S{"/"} + *e.member_name;
+		return std::string{"/"} + *e.member_name;
 	}
 	return "(root)";
 }
 
 static void print_json_error(
-	SV context,
+	std::string_view context,
 	JsonError const &e) {
-	S const path = display_path(e);
+	std::string const path = display_path(e);
 	if (e.source) {
 		std::println(
 			"{}: {} at {} (line {}, column {}, byte {})",
@@ -73,7 +73,7 @@ static void print_json_error(
 }
 
 static expected<ServiceConfig, JsonError> load_config(
-	SV input) {
+	std::string_view input) {
 	JsonParseOptions parse_opts{
 		.duplicate_key = DuplicateKeyPolicy::reject,
 		.warm_threshold = 16u,
@@ -103,7 +103,7 @@ static expected<ServiceConfig, JsonError> load_config(
 
 static void example_valid_config() {
 	std::println("--- JSON config boundary ---");
-	constexpr SV input = R"({
+	constexpr std::string_view input = R"({
 		// JSON5 subset: comments, unquoted keys, single quotes, trailing comma.
 		host: '127.0.0.1',
 		port: 8080,
@@ -133,7 +133,7 @@ static void example_valid_config() {
 
 static void example_invalid_config() {
 	std::println("\n--- config error path ---");
-	constexpr SV input = R"({
+	constexpr std::string_view input = R"({
 		host: '127.0.0.1',
 		port: '8080',
 		tls: false,

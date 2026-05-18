@@ -9,7 +9,7 @@ int main() {
 	auto app = http::App::default_server();
 
 	// Raw frames, 200 ms apart.
-	app.sse("/events", [](http::Request const &, SP<SseChannel> const &ch) {
+	app.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 		for (int i = 1; i <= 5; ++i) {
 			auto _ = ch->send(format("data: event{}\n\n", i));
 			std::this_thread::sleep_for(chrono::milliseconds(200));
@@ -18,7 +18,7 @@ int main() {
 	});
 
 	// Named events via send_event(), with path param capture.
-	app.sse("/events/{name}", [](http::Request const &req, SP<SseChannel> const &ch) {
+	app.sse("/events/{name}", [](HttpRequest const &req, std::shared_ptr<SseChannel> const &ch) {
 		auto name = req.params["name"];
 		for (int i = 1; i <= 3; ++i) {
 			auto _ = ch->send_event("greet", format("hello {}, message {}", name, i));

@@ -97,7 +97,7 @@ static u64 hash_rounds(
 	return h;
 }
 
-static http::Response json_error(
+static HttpResponse json_error(
 	SV message,
 	int status,
 	SV status_text) {
@@ -121,7 +121,7 @@ int main() {
 		return StatusReply{.status = "ok", .placement = "ring-thread"};
 	});
 
-	app.post("/api/hash", [&pool](http::Request const &req) -> http::Response {
+	app.post("/api/hash", [&pool](HttpRequest const &req) -> HttpResponse {
 		auto decoded = json::boundary::decode_native<HashRequest>(req.body);
 		if (!decoded) {
 			return http::json::decode_error_response();

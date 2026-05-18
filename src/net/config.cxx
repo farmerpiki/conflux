@@ -13,27 +13,27 @@ import conflux.utils;
 
 export constexpr u16 kConfigDefaultPort = 9090;
 export constexpr unsigned kConfigDefaultRingEntries = 1024;
-export constexpr SZ kConfigDefaultMaxBodySize = SZ{1024} * 1024;
+export constexpr std::size_t kConfigDefaultMaxBodySize = std::size_t{1024} * 1024;
 export constexpr u32 kConfigDefaultRequestTimeoutMs = 30000;
 export constexpr u32 kConfigDefaultTlsSniffTimeoutMs = 10000;
-export constexpr SZ kConfigDefaultMaxRequestLineSize = SZ{8} * 1024;
-export constexpr SZ kConfigDefaultMaxHeaderLineSize = SZ{8} * 1024;
-export constexpr SZ kConfigDefaultMaxHeaders = 100;
-export constexpr SZ kConfigDefaultMaxHeaderBlockSize = SZ{64} * 1024;
-export constexpr SZ kConfigDefaultMaxChunks = 100000;
+export constexpr std::size_t kConfigDefaultMaxRequestLineSize = std::size_t{8} * 1024;
+export constexpr std::size_t kConfigDefaultMaxHeaderLineSize = std::size_t{8} * 1024;
+export constexpr std::size_t kConfigDefaultMaxHeaders = 100;
+export constexpr std::size_t kConfigDefaultMaxHeaderBlockSize = std::size_t{64} * 1024;
+export constexpr std::size_t kConfigDefaultMaxChunks = 100000;
 export struct ParserLimits {
-	SZ max_request_line_size = kConfigDefaultMaxRequestLineSize;
-	SZ max_header_line_size = kConfigDefaultMaxHeaderLineSize;
-	SZ max_headers = kConfigDefaultMaxHeaders;
-	SZ max_header_block_size = kConfigDefaultMaxHeaderBlockSize;
-	SZ max_chunks = kConfigDefaultMaxChunks;
+	std::size_t max_request_line_size = kConfigDefaultMaxRequestLineSize;
+	std::size_t max_header_line_size = kConfigDefaultMaxHeaderLineSize;
+	std::size_t max_headers = kConfigDefaultMaxHeaders;
+	std::size_t max_header_block_size = kConfigDefaultMaxHeaderBlockSize;
+	std::size_t max_chunks = kConfigDefaultMaxChunks;
 };
 export struct Http3Config {
 	bool enabled = false;
 	u32 idle_timeout_ms = 30000;
-	SZ max_streams_bidi = 100;
-	SZ max_stream_data = SZ{1} * 1024 * 1024;
-	SZ max_conn_data = SZ{10} * 1024 * 1024;
+	std::size_t max_streams_bidi = 100;
+	std::size_t max_stream_data = std::size_t{1} * 1024 * 1024;
+	std::size_t max_conn_data = std::size_t{10} * 1024 * 1024;
 	// Alt-Svc max-age advertised on h1/h2 responses when h3 is enabled.
 	u32 alt_svc_max_age_sec = 86400;
 	// Per-request body cap; matches H1 max_body_size semantics.
@@ -42,8 +42,8 @@ export struct Http3Config {
 };
 export struct StaticFileCacheConfig {
 	bool enabled = false;
-	SZ small_file_max_bytes = SZ{64} * 1024;
-	SZ max_total_bytes = SZ{16} * 1024 * 1024;
+	std::size_t small_file_max_bytes = std::size_t{64} * 1024;
+	std::size_t max_total_bytes = std::size_t{16} * 1024 * 1024;
 };
 
 export enum class SecretSourceKind {
@@ -54,24 +54,24 @@ export enum class SecretSourceKind {
 };
 export struct SecretSource {
 	SecretSourceKind kind{SecretSourceKind::unset};
-	S value{};
+	std::string value{};
 };
 export struct SecretRotationConfig {
 	SecretSource active{};
-	V<SecretSource> previous{};
-	SZ min_secret_bytes{16};
+	std::vector<SecretSource> previous{};
+	std::size_t min_secret_bytes{16};
 };
 export struct AuthSecretsConfig {
 	SecretSource password_verifier_secret{};
-	SZ password_verifier_min_secret_bytes{16};
+	std::size_t password_verifier_min_secret_bytes{16};
 	SecretRotationConfig jwt{};
 	SecretRotationConfig cookie{};
 	SecretRotationConfig session{};
 };
 export struct ResolvedSecretRotation {
-	S active{};
-	V<S> previous{};
-	SZ min_secret_bytes{16};
+	std::string active{};
+	std::vector<std::string> previous{};
+	std::size_t min_secret_bytes{16};
 };
 // Per-hostname TLS credentials for SNI virtual hosting.
 // When the client's TLS ClientHello SNI matches VirtualHost::hostname case-insensitively, the
@@ -102,7 +102,7 @@ export struct Config {
 	u16 port = kConfigDefaultPort;
 	unsigned rings = 0; // 0 = hardware_concurrency
 	unsigned ring_entries = kConfigDefaultRingEntries; // SQ/CQ depth per ring
-	SZ max_body_size = kConfigDefaultMaxBodySize; // max Content-Length before 413
+	std::size_t max_body_size = kConfigDefaultMaxBodySize; // max Content-Length before 413
 	u32 request_timeout_ms = kConfigDefaultRequestTimeoutMs; // 0 = disabled
 	u32 tls_sniff_timeout_ms = kConfigDefaultTlsSniffTimeoutMs; // 0 = disabled
 	// Emit a warning when a synchronous handler blocks on the ring thread past
@@ -126,7 +126,7 @@ export struct Config {
 	std::vector<std::string> https_redirect_hosts{};
 	// SNI virtual hosting: each entry provides an alternate cert/key for a hostname.
 	// Matched by case-insensitive SNI hostname; the primary cert_file/key_file is the default.
-	V<VirtualHost> virtual_hosts{};
+	std::vector<VirtualHost> virtual_hosts{};
 	// TLS 1.2 cipher list (OpenSSL SSL_CTX_set_cipher_list format); empty = built-in default.
 	std::string tls_cipher_list{};
 	// TLS 1.3 ciphersuites (OpenSSL SSL_CTX_set_ciphersuites format); empty = built-in default.
@@ -147,11 +147,11 @@ export struct Config {
 	// and callers fall back to non-zero-copy paths. Defaults kept small so the
 	// common RLIMIT_MEMLOCK (8 MiB on many distros) survives several rings;
 	// deployments with raised memlock can bump these for higher throughput.
-	SZ fixed_buffer_slabs = 16; // IORING_OP_READ_FIXED slab count
-	SZ fixed_buffer_bytes = SZ{16} * 1024; // bytes per slab
-	SZ splice_pipe_pairs = 4; // pipe2(O_DIRECT) pairs for splice chains
-	SZ send_buffer_slabs = 64; // registered send-buffer slab count
-	SZ send_buffer_bytes = SZ{4} * 1024; // bytes per send slab
+	std::size_t fixed_buffer_slabs = 16; // IORING_OP_READ_FIXED slab count
+	std::size_t fixed_buffer_bytes = std::size_t{16} * 1024; // bytes per slab
+	std::size_t splice_pipe_pairs = 4; // pipe2(O_DIRECT) pairs for splice chains
+	std::size_t send_buffer_slabs = 64; // registered send-buffer slab count
+	std::size_t send_buffer_bytes = std::size_t{4} * 1024; // bytes per send slab
 	bool send_fixed_buffers = false; // enable registered send buffers
 
 	// io_uring setup flags
@@ -202,15 +202,15 @@ export struct Config {
 	// off = never; auto = use if caps.send_zc, disable on repeated copies;
 	// on = require at startup, fail if unsupported.
 	std::string send_zc{"auto"};
-	SZ send_zc_threshold = 16384;
+	std::size_t send_zc_threshold = 16384;
 	bool send_zc_report_usage = true;
 };
 
 
 export [[nodiscard]] ResolvedSecretRotation single_secret_rotation(
-	SV active,
-	SZ min_secret_bytes = 16) {
-	return {.active = S{active}, .previous = {}, .min_secret_bytes = min_secret_bytes};
+	std::string_view active,
+	std::size_t min_secret_bytes = 16) {
+	return {.active = std::string{active}, .previous = {}, .min_secret_bytes = min_secret_bytes};
 }
 
 export [[nodiscard]] bool secret_source_configured(
@@ -220,21 +220,21 @@ export [[nodiscard]] bool secret_source_configured(
 
 namespace {
 
-expected<S, int> read_text_file_local(
-	SV path,
-	SZ max_bytes = SZ{16} * 1024 * 1024);
+expected<std::string, int> read_text_file_local(
+	std::string_view path,
+	std::size_t max_bytes = std::size_t{16} * 1024 * 1024);
 
 } // namespace
 
-export [[nodiscard]] expected<S, S> resolve_secret_source(
+export [[nodiscard]] expected<std::string, std::string> resolve_secret_source(
 	SecretSource const &src,
-	SV name,
+	std::string_view name,
 	bool required = true) {
 	if (src.kind == SecretSourceKind::unset) {
 		if (required) {
 			return unexpected{format("auth secret '{}': missing required source", name)};
 		}
-		return S{};
+		return std::string{};
 	}
 	if (src.value.empty()) {
 		return unexpected{format("auth secret '{}': empty source value", name)};
@@ -247,14 +247,14 @@ export [[nodiscard]] expected<S, S> resolve_secret_source(
 		if (value == nullptr || value[0] == '\0') {
 			return unexpected{format("auth secret '{}': environment variable '{}' is unset or empty", name, src.value)};
 		}
-		return S{value};
+		return std::string{value};
 	}
 	if (src.kind == SecretSourceKind::file) {
-		auto bytes = read_text_file_local(src.value, SZ{1024} * 1024);
+		auto bytes = read_text_file_local(src.value, std::size_t{1024} * 1024);
 		if (!bytes) {
 			return unexpected{format("auth secret '{}': cannot open secret file '{}'", name, src.value)};
 		}
-		S value{move(*bytes)};
+		std::string value{move(*bytes)};
 		while (!value.empty() && (value.back() == '\n' || value.back() == '\r')) {
 			value.pop_back();
 		}
@@ -266,10 +266,10 @@ export [[nodiscard]] expected<S, S> resolve_secret_source(
 	return unexpected{format("auth secret '{}': unsupported source kind", name)};
 }
 
-export [[nodiscard]] expected<void, S> validate_secret_bytes(
-	SV secret,
-	SV name,
-	SZ min_bytes) {
+export [[nodiscard]] expected<void, std::string> validate_secret_bytes(
+	std::string_view secret,
+	std::string_view name,
+	std::size_t min_bytes) {
 	if (secret.empty()) {
 		return unexpected{format("auth secret '{}': resolved secret is empty", name)};
 	}
@@ -279,9 +279,9 @@ export [[nodiscard]] expected<void, S> validate_secret_bytes(
 	return {};
 }
 
-export [[nodiscard]] expected<ResolvedSecretRotation, S> resolve_secret_rotation(
+export [[nodiscard]] expected<ResolvedSecretRotation, std::string> resolve_secret_rotation(
 	SecretRotationConfig const &cfg,
-	SV name,
+	std::string_view name,
 	bool required = true) {
 	ResolvedSecretRotation out{.min_secret_bytes = cfg.min_secret_bytes};
 	auto active = resolve_secret_source(cfg.active, name, required);
@@ -294,7 +294,7 @@ export [[nodiscard]] expected<ResolvedSecretRotation, S> resolve_secret_rotation
 			return unexpected{valid.error()};
 		}
 	}
-	for (SZ i = 0; i < cfg.previous.size(); ++i) {
+	for (std::size_t i = 0; i < cfg.previous.size(); ++i) {
 		auto previous = resolve_secret_source(cfg.previous[i], format("{}.previous[{}]", name, i), true);
 		if (!previous) {
 			return unexpected{previous.error()};
@@ -325,16 +325,16 @@ struct LocalFd {
 		}
 	}
 };
-expected<S, int> read_text_file_local(
-	SV path,
-	SZ max_bytes) {
-	S native{path};
+expected<std::string, int> read_text_file_local(
+	std::string_view path,
+	std::size_t max_bytes) {
+	std::string native{path};
 	LocalFd file{::open(native.c_str(), O_RDONLY | O_CLOEXEC)};
 	if (file.fd < 0) {
 		return unexpected{errno};
 	}
-	S out;
-	A<char, 16 * 1024> buf{};
+	std::string out;
+	std::array<char, 16 * 1024> buf{};
 	for (;;) {
 		auto const n = ::read(file.fd, buf.data(), buf.size());
 		if (n == 0) {
@@ -346,7 +346,7 @@ expected<S, int> read_text_file_local(
 			}
 			return unexpected{errno};
 		}
-		auto const count = static_cast<SZ>(n);
+		auto const count = static_cast<std::size_t>(n);
 		if (count > max_bytes - out.size()) {
 			return unexpected{EFBIG};
 		}
@@ -354,9 +354,9 @@ expected<S, int> read_text_file_local(
 	}
 }
 
-SV strip_inline_comment(
-	SV s) {
-	for (SZ i = 1; i < s.size(); ++i) {
+std::string_view strip_inline_comment(
+	std::string_view s) {
+	for (std::size_t i = 1; i < s.size(); ++i) {
 		if ((s[i] == '#' || s[i] == ';') && (s[i - 1] == ' ' || s[i - 1] == '\t')) {
 			return trim(s.substr(0, i));
 		}
@@ -364,8 +364,8 @@ SV strip_inline_comment(
 	return s;
 }
 bool parse_bool(
-	SV v,
-	SV key) {
+	std::string_view v,
+	std::string_view key) {
 	if (v == "true" || v == "1" || v == "yes") {
 		return true;
 	}
@@ -376,8 +376,8 @@ bool parse_bool(
 }
 template<typename T>
 T parse_uint(
-	SV v,
-	SV key) {
+	std::string_view v,
+	std::string_view key) {
 	T result{};
 	auto const *end = ranges::next(v.data(), ssize(v));
 	auto [ptr, ec] = from_chars(v.data(), end, result);
@@ -387,8 +387,8 @@ T parse_uint(
 	return result;
 }
 int parse_int(
-	SV v,
-	SV key) {
+	std::string_view v,
+	std::string_view key) {
 	int result{};
 	auto const *end = ranges::next(v.data(), ssize(v));
 	auto [ptr, ec] = from_chars(v.data(), end, result);
@@ -399,9 +399,9 @@ int parse_int(
 }
 void apply_server_key(
 	Config &cfg,
-	SV key,
-	SV val) {
-	static constexpr A<P<SV, unsigned Config::*>, 2> kUnsignedKeys{
+	std::string_view key,
+	std::string_view val) {
+	static constexpr std::array<std::pair<std::string_view, unsigned Config::*>, 2> kUnsignedKeys{
 		{
          {"rings", &Config::rings},
          {"ring_entries", &Config::ring_entries},
@@ -413,7 +413,7 @@ void apply_server_key(
 			return;
 		}
 	}
-	static constexpr A<P<SV, std::string Config::*>, 2> kStringKeys{
+	static constexpr std::array<std::pair<std::string_view, std::string Config::*>, 2> kStringKeys{
 		{
          {"cert_file", &Config::cert_file},
          {"key_file", &Config::key_file},
@@ -428,35 +428,35 @@ void apply_server_key(
 	if (key == "port") {
 		cfg.port = parse_uint<u16>(val, key);
 	} else if (key == "max_body_size") {
-		cfg.max_body_size = parse_uint<SZ>(val, key);
+		cfg.max_body_size = parse_uint<std::size_t>(val, key);
 	} else if (key == "request_timeout_ms") {
 		cfg.request_timeout_ms = parse_uint<u32>(val, key);
 	} else if (key == "tls_sniff_timeout_ms") {
 		cfg.tls_sniff_timeout_ms = parse_uint<u32>(val, key);
 	} else if (key == "max_request_line_size") {
-		cfg.parser_limits.max_request_line_size = parse_uint<SZ>(val, key);
+		cfg.parser_limits.max_request_line_size = parse_uint<std::size_t>(val, key);
 	} else if (key == "max_header_line_size") {
-		cfg.parser_limits.max_header_line_size = parse_uint<SZ>(val, key);
+		cfg.parser_limits.max_header_line_size = parse_uint<std::size_t>(val, key);
 	} else if (key == "max_headers") {
-		cfg.parser_limits.max_headers = parse_uint<SZ>(val, key);
+		cfg.parser_limits.max_headers = parse_uint<std::size_t>(val, key);
 	} else if (key == "max_header_block_size") {
-		cfg.parser_limits.max_header_block_size = parse_uint<SZ>(val, key);
+		cfg.parser_limits.max_header_block_size = parse_uint<std::size_t>(val, key);
 	} else if (key == "max_chunks") {
-		cfg.parser_limits.max_chunks = parse_uint<SZ>(val, key);
+		cfg.parser_limits.max_chunks = parse_uint<std::size_t>(val, key);
 	} else if (key == "slow_handler_diagnostics") {
 		cfg.slow_handler_diagnostics = parse_bool(val, key);
 	} else if (key == "slow_handler_warn_ms") {
 		cfg.slow_handler_warn_ms = parse_uint<u32>(val, key);
 	} else if (key == "fixed_buffer_slabs") {
-		cfg.fixed_buffer_slabs = parse_uint<SZ>(val, key);
+		cfg.fixed_buffer_slabs = parse_uint<std::size_t>(val, key);
 	} else if (key == "fixed_buffer_bytes") {
-		cfg.fixed_buffer_bytes = parse_uint<SZ>(val, key);
+		cfg.fixed_buffer_bytes = parse_uint<std::size_t>(val, key);
 	} else if (key == "splice_pipe_pairs") {
-		cfg.splice_pipe_pairs = parse_uint<SZ>(val, key);
+		cfg.splice_pipe_pairs = parse_uint<std::size_t>(val, key);
 	} else if (key == "send_buffer_slabs") {
-		cfg.send_buffer_slabs = parse_uint<SZ>(val, key);
+		cfg.send_buffer_slabs = parse_uint<std::size_t>(val, key);
 	} else if (key == "send_buffer_bytes") {
-		cfg.send_buffer_bytes = parse_uint<SZ>(val, key);
+		cfg.send_buffer_bytes = parse_uint<std::size_t>(val, key);
 	} else if (key == "send_fixed_buffers") {
 		cfg.send_fixed_buffers = parse_bool(val, key);
 	} else if (key == "busy_poll_us") {
@@ -473,55 +473,55 @@ void apply_server_key(
 }
 void apply_http3_key(
 	Config &cfg,
-	SV key,
-	SV val) {
+	std::string_view key,
+	std::string_view val) {
 	if (key == "enabled") {
 		cfg.http3.enabled = parse_bool(val, key);
 	} else if (key == "idle_timeout_ms") {
 		cfg.http3.idle_timeout_ms = parse_uint<u32>(val, key);
 	} else if (key == "max_streams_bidi") {
-		cfg.http3.max_streams_bidi = parse_uint<SZ>(val, key);
+		cfg.http3.max_streams_bidi = parse_uint<std::size_t>(val, key);
 	} else if (key == "max_stream_data") {
-		cfg.http3.max_stream_data = parse_uint<SZ>(val, key);
+		cfg.http3.max_stream_data = parse_uint<std::size_t>(val, key);
 	} else if (key == "max_conn_data") {
-		cfg.http3.max_conn_data = parse_uint<SZ>(val, key);
+		cfg.http3.max_conn_data = parse_uint<std::size_t>(val, key);
 	} else if (key == "alt_svc_max_age_sec") {
 		cfg.http3.alt_svc_max_age_sec = parse_uint<u32>(val, key);
 	} else if (key == "max_body_size") {
-		cfg.http3.max_body_size = parse_uint<SZ>(val, key);
+		cfg.http3.max_body_size = parse_uint<std::size_t>(val, key);
 	}
 }
 void apply_static_cache_key(
 	Config &cfg,
-	SV key,
-	SV val) {
+	std::string_view key,
+	std::string_view val) {
 	if (key == "enabled") {
 		cfg.static_file_cache.enabled = parse_bool(val, key);
 	} else if (key == "small_file_max_bytes") {
-		cfg.static_file_cache.small_file_max_bytes = parse_uint<SZ>(val, key);
+		cfg.static_file_cache.small_file_max_bytes = parse_uint<std::size_t>(val, key);
 	} else if (key == "max_total_bytes") {
-		cfg.static_file_cache.max_total_bytes = parse_uint<SZ>(val, key);
+		cfg.static_file_cache.max_total_bytes = parse_uint<std::size_t>(val, key);
 	}
 }
 
 [[nodiscard]] SecretSource literal_secret_source(
-	SV val) {
-	return {.kind = SecretSourceKind::literal, .value = S{val}};
+	std::string_view val) {
+	return {.kind = SecretSourceKind::literal, .value = std::string{val}};
 }
 [[nodiscard]] SecretSource env_secret_source(
-	SV val) {
-	return {.kind = SecretSourceKind::environment, .value = S{val}};
+	std::string_view val) {
+	return {.kind = SecretSourceKind::environment, .value = std::string{val}};
 }
 [[nodiscard]] SecretSource file_secret_source(
-	SV val) {
-	return {.kind = SecretSourceKind::file, .value = S{val}};
+	std::string_view val) {
+	return {.kind = SecretSourceKind::file, .value = std::string{val}};
 }
 void apply_secret_rotation_key(
 	SecretRotationConfig &cfg,
-	SV prefix,
-	SV key,
-	SV val) {
-	auto matches = [&](SV suffix) noexcept {
+	std::string_view prefix,
+	std::string_view key,
+	std::string_view val) {
+	auto matches = [&](std::string_view suffix) noexcept {
 		return key.size() == prefix.size() + suffix.size()
 			&& key.substr(0, prefix.size()) == prefix
 			&& key.substr(prefix.size()) == suffix;
@@ -539,13 +539,13 @@ void apply_secret_rotation_key(
 	} else if (matches("_previous_secret_file")) {
 		cfg.previous.push_back(file_secret_source(val));
 	} else if (matches("_min_secret_bytes")) {
-		cfg.min_secret_bytes = parse_uint<SZ>(val, key);
+		cfg.min_secret_bytes = parse_uint<std::size_t>(val, key);
 	}
 }
 void apply_auth_key(
 	Config &cfg,
-	SV key,
-	SV val) {
+	std::string_view key,
+	std::string_view val) {
 	if (key == "password_verifier_secret") {
 		cfg.auth_secrets.password_verifier_secret = literal_secret_source(val);
 	} else if (key == "password_verifier_secret_env") {
@@ -553,7 +553,7 @@ void apply_auth_key(
 	} else if (key == "password_verifier_secret_file") {
 		cfg.auth_secrets.password_verifier_secret = file_secret_source(val);
 	} else if (key == "password_verifier_min_secret_bytes") {
-		cfg.auth_secrets.password_verifier_min_secret_bytes = parse_uint<SZ>(val, key);
+		cfg.auth_secrets.password_verifier_min_secret_bytes = parse_uint<std::size_t>(val, key);
 	} else {
 		apply_secret_rotation_key(cfg.auth_secrets.jwt, "jwt", key, val);
 		apply_secret_rotation_key(cfg.auth_secrets.cookie, "cookie", key, val);
@@ -562,9 +562,9 @@ void apply_auth_key(
 }
 void apply_tls_key(
 	Config &cfg,
-	SV key,
-	SV val) {
-	static constexpr A<P<SV, std::string Config::*>, 2> kStringKeys{
+	std::string_view key,
+	std::string_view val) {
+	static constexpr std::array<std::pair<std::string_view, std::string Config::*>, 2> kStringKeys{
 		{
          {"cipher_list", &Config::tls_cipher_list},
          {"ciphersuites", &Config::tls_ciphersuites},
@@ -579,9 +579,9 @@ void apply_tls_key(
 }
 void apply_iouring_key(
 	Config &cfg,
-	SV key,
-	SV val) {
-	static constexpr A<P<SV, bool Config::*>, 17> kBoolKeys{
+	std::string_view key,
+	std::string_view val) {
+	static constexpr std::array<std::pair<std::string_view, bool Config::*>, 17> kBoolKeys{
 		{
          {"single_issuer", &Config::single_issuer},
          {"defer_taskrun", &Config::defer_taskrun},
@@ -615,7 +615,7 @@ void apply_iouring_key(
 		return;
 	}
 	if (key == "send_zc_threshold") {
-		cfg.send_zc_threshold = parse_uint<SZ>(val, key);
+		cfg.send_zc_threshold = parse_uint<std::size_t>(val, key);
 		return;
 	}
 	if (key == "send_zc_report_usage") {
@@ -625,11 +625,11 @@ void apply_iouring_key(
 }
 
 Config parse_ini_contents(
-	SV contents) {
+	std::string_view contents) {
 	Config cfg{};
-	S section;
+	std::string section;
 
-	SZ line_no = 0;
+	std::size_t line_no = 0;
 	for (auto const line: LineRange{contents}) {
 		++line_no;
 		auto s = trim(line.text);
@@ -639,14 +639,14 @@ Config parse_ini_contents(
 
 		if (s[0] == '[') {
 			auto close = s.find(']', 1);
-			if (close != SV::npos) {
-				section = S{trim(s.substr(1, close - 1))};
+			if (close != std::string_view::npos) {
+				section = std::string{trim(s.substr(1, close - 1))};
 			}
 			continue;
 		}
 
 		auto eq = s.find('=');
-		if (eq == SV::npos) {
+		if (eq == std::string_view::npos) {
 			continue;
 		}
 
@@ -678,18 +678,18 @@ Config parse_ini_contents(
 
 } // namespace
 
-export [[nodiscard]] expected<Config, S> config_from_ini_checked(
+export [[nodiscard]] expected<Config, std::string> config_from_ini_checked(
 	char const *path) {
-	auto contents = read_text_file_local(SV{path});
+	auto contents = read_text_file_local(std::string_view{path});
 	if (!contents) {
 		return unexpected{format("cannot open config: {}", path)};
 	}
 	try {
 		return parse_ini_contents(*contents);
 	} catch (exception const &ex) {
-		return unexpected{S{ex.what()}};
+		return unexpected{std::string{ex.what()}};
 	} catch (...) {
-		return unexpected{S{"unknown config parse error"}};
+		return unexpected{std::string{"unknown config parse error"}};
 	}
 }
 

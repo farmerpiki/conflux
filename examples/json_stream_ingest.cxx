@@ -7,9 +7,9 @@ using std::println;
 
 struct ApiEvent {
 	i64 id{};
-	S type;
+	std::string type;
 	i64 tokens{};
-	Opt<S> error{};
+	std::optional<std::string> error{};
 };
 
 template<>
@@ -22,30 +22,30 @@ struct JsonMembers<ApiEvent> {
 			json_member("error", &ApiEvent::error),
 		};
 	}
-	static constexpr SV type_name() { return "ApiEvent"; }
+	static constexpr std::string_view type_name() { return "ApiEvent"; }
 };
 
 struct IngestStats {
-	SZ rows{};
+	std::size_t rows{};
 	i64 token_total{};
-	SZ errors{};
+	std::size_t errors{};
 };
 
-static S display_path(
+static std::string display_path(
 	JsonError const &e) {
 	if (!e.path.empty()) {
 		return e.path.to_pointer();
 	}
 	if (e.member_name) {
-		return S{"/"} + *e.member_name;
+		return std::string{"/"} + *e.member_name;
 	}
 	return "(root)";
 }
 
 static void print_json_error(
-	SV context,
+	std::string_view context,
 	JsonError const &e) {
-	S const path = display_path(e);
+	std::string const path = display_path(e);
 	if (e.source) {
 		std::println(
 			"{}: {} at {} (line {}, column {}, byte {})",
@@ -61,7 +61,7 @@ static void print_json_error(
 }
 
 static expected<IngestStats, JsonError> ingest_ndjson(
-	SV input) {
+	std::string_view input) {
 	JsonParseOptions parse_opts{
 		.duplicate_key = DuplicateKeyPolicy::reject,
 		.warm_threshold = 8u,
@@ -92,7 +92,7 @@ static expected<IngestStats, JsonError> ingest_ndjson(
 
 static void example_ndjson_ingest() {
 	std::println("--- NDJSON ingest ---");
-	constexpr SV input =
+	constexpr std::string_view input =
 		R"({"id":1,"type":"completion","tokens":312})"
 		"\n"
 		R"({"id":2,"type":"completion","tokens":128,"error":"rate_limited","ignored":true})"

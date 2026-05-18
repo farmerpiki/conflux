@@ -7,7 +7,7 @@ import conflux.net.router;
 import conflux.utils;
 
 export struct BasicAuthOptions {
-	S realm{"Restricted"};
+	std::string realm{"Restricted"};
 
 	// Failed Basic-auth attempts allowed per remote address during the window.
 	// 0 disables this guard for deployments that enforce login throttling elsewhere.
@@ -15,7 +15,7 @@ export struct BasicAuthOptions {
 	chrono::seconds failed_window{chrono::minutes{5}};
 
 	// Maximum remote addresses tracked by the failure limiter.
-	SZ max_failed_clients{65536};
+	std::size_t max_failed_clients{65536};
 };
 
 namespace auth_detail {
@@ -29,11 +29,11 @@ struct FailedAuthBucket {
 
 struct FailedAuthStore {
 	explicit FailedAuthStore(
-		SZ max)
+		std::size_t max)
 		: max_(max) {}
 
 	[[nodiscard]] FailedAuthBucket *find(
-		SV key) noexcept {
+		std::string_view key) noexcept {
 		auto it = map_.find(key);
 		if (it == map_.end()) {
 			return nullptr;
@@ -43,7 +43,7 @@ struct FailedAuthStore {
 	}
 
 	[[nodiscard]] FailedAuthBucket &touch(
-		SV key,
+		std::string_view key,
 		Clock::time_point now) {
 		if (auto *bucket = find(key); bucket != nullptr) {
 			return *bucket;
@@ -52,7 +52,7 @@ struct FailedAuthStore {
 			map_.erase(order_.front());
 			order_.pop_front();
 		}
-		auto owned = S{key};
+		auto owned = std::string{key};
 		order_.push_back(owned);
 		auto [it, _] = map_.emplace(
 			move(owned),
@@ -64,7 +64,7 @@ struct FailedAuthStore {
 	}
 
 	void erase(
-		SV key) noexcept {
+		std::string_view key) noexcept {
 		auto it = map_.find(key);
 		if (it == map_.end()) {
 			return;
@@ -76,23 +76,23 @@ struct FailedAuthStore {
 private:
 	struct TransparentHash {
 		using is_transparent = void;
-		SZ operator ()(
-			SV s) const noexcept {
-			return hash<SV>{}(s);
+		std::size_t operator ()(
+			std::string_view s) const noexcept {
+			return hash<std::string_view>{}(s);
 		}
-		SZ operator ()(
-			S const &s) const noexcept {
-			return hash<SV>{}(s);
+		std::size_t operator ()(
+			std::string const &s) const noexcept {
+			return hash<std::string_view>{}(s);
 		}
 	};
 	struct Entry {
 		FailedAuthBucket bucket{};
-		std::list<S>::iterator order_it;
+		std::list<std::string>::iterator order_it;
 	};
 
-	SZ max_;
-	std::list<S> order_;
-	std::unordered_map<S, Entry, TransparentHash, std::equal_to<>> map_;
+	std::size_t max_;
+	std::list<std::string> order_;
+	std::unordered_map<std::string, Entry, TransparentHash, std::equal_to<>> map_;
 };
 
 struct FailedAuthState {
@@ -100,13 +100,13 @@ struct FailedAuthState {
 	FailedAuthStore store;
 
 	explicit FailedAuthState(
-		SZ max)
-		: store(std::max<SZ>(max, 1)) {}
+		std::size_t max)
+		: store(std::max<std::size_t>(max, 1)) {}
 };
 
-Opt<SV> credentials_for_scheme(
-	SV auth,
-	SV scheme) noexcept {
+std::optional<std::string_view> credentials_for_scheme(
+	std::string_view auth,
+	std::string_view scheme) noexcept {
 	if (auth.size() <= scheme.size() || auth[scheme.size()] != ' ') {
 		return nullopt;
 	}
@@ -116,22 +116,22 @@ Opt<SV> credentials_for_scheme(
 	return auth.substr(scheme.size() + 1);
 }
 
-[[nodiscard]] S failed_auth_key(
+[[nodiscard]] std::string failed_auth_key(
 	HttpRequestView const &req) {
 	if (req.remote_addr.empty()) {
 		return "unknown";
 	}
-	return S{req.remote_addr};
+	return std::string{req.remote_addr};
 }
 
 HttpResponse unauthorized(
-	SV www_auth) {
+	std::string_view www_auth) {
 	HttpResponse r;
 	r.status = kHttpUnauthorized;
 	r.status_text = "Unauthorized";
 	r.content_type = "text/plain; charset=utf-8";
 	r.set_text_body("Unauthorized");
-	r.headers["WWW-Authenticate"] = S{www_auth};
+	r.headers["WWW-Authenticate"] = std::string{www_auth};
 	return r;
 }
 
@@ -153,10 +153,10 @@ HttpResponse too_many_auth_attempts(
 	return opts.failed_attempts != 0U && opts.failed_window.count() > 0;
 }
 
-[[nodiscard]] Opt<chrono::seconds> basic_auth_retry_after(
+[[nodiscard]] std::optional<chrono::seconds> basic_auth_retry_after(
 	FailedAuthState &state,
 	BasicAuthOptions const &opts,
-	SV key,
+	std::string_view key,
 	Clock::time_point now) {
 	if (!basic_auth_limiter_enabled(opts)) {
 		return nullopt;
@@ -180,7 +180,7 @@ HttpResponse too_many_auth_attempts(
 void record_basic_auth_failure(
 	FailedAuthState &state,
 	BasicAuthOptions const &opts,
-	SV key,
+	std::string_view key,
 	Clock::time_point now) {
 	if (!basic_auth_limiter_enabled(opts)) {
 		return;
@@ -200,7 +200,7 @@ void record_basic_auth_failure(
 void clear_basic_auth_failures(
 	FailedAuthState &state,
 	BasicAuthOptions const &opts,
-	SV key) {
+	std::string_view key) {
 	if (!basic_auth_limiter_enabled(opts)) {
 		return;
 	}
@@ -223,7 +223,7 @@ export struct AuthThrottleOptions {
 	// window expires instead of starting a separate lockout period.
 	chrono::seconds lockout{chrono::minutes{5}};
 	// Maximum distinct subjects tracked simultaneously. Clamped to at least one.
-	SZ max_subjects{65536};
+	std::size_t max_subjects{65536};
 };
 
 export struct AuthThrottleOutcome {
@@ -239,7 +239,7 @@ export struct AuthThrottleMetrics {
 	u64 failures_recorded{};
 	u64 successes_recorded{};
 	u64 subjects_evicted{};
-	SZ tracked_subjects{};
+	std::size_t tracked_subjects{};
 };
 
 export class AuthFailureLimiter {
@@ -248,25 +248,25 @@ public:
 	explicit AuthFailureLimiter(AuthThrottleOptions opts);
 
 	[[nodiscard]] AuthThrottleOutcome before_attempt(
-		SV subject,
+		std::string_view subject,
 		AuthThrottleClock::time_point now = AuthThrottleClock::now());
 	[[nodiscard]] AuthThrottleOutcome record_failure(
-		SV subject,
+		std::string_view subject,
 		AuthThrottleClock::time_point now = AuthThrottleClock::now());
 	void record_success(
-		SV subject);
+		std::string_view subject);
 	void clear(
-		SV subject);
+		std::string_view subject);
 	[[nodiscard]] AuthThrottleMetrics snapshot() const;
 	[[nodiscard]] AuthThrottleOptions options() const noexcept { return opts_; }
 
 private:
-	SP<void> state_{};
+	std::shared_ptr<void> state_{};
 	AuthThrottleOptions opts_{};
 };
 
 export struct AuthThrottleMiddlewareOptions {
-	V<unsigned> failure_statuses{401, 403};
+	std::vector<unsigned> failure_statuses{401, 403};
 	bool clear_on_success{true};
 	unsigned success_status_min{200};
 	unsigned success_status_max{399};
@@ -283,32 +283,32 @@ struct AuthThrottleBucket {
 struct AuthThrottleState {
 	struct TransparentHash {
 		using is_transparent = void;
-		SZ operator ()(
-			SV s) const noexcept {
-			return hash<SV>{}(s);
+		std::size_t operator ()(
+			std::string_view s) const noexcept {
+			return hash<std::string_view>{}(s);
 		}
-		SZ operator ()(
-			S const &s) const noexcept {
-			return hash<SV>{}(s);
+		std::size_t operator ()(
+			std::string const &s) const noexcept {
+			return hash<std::string_view>{}(s);
 		}
 	};
 	struct Entry {
 		AuthThrottleBucket bucket{};
-		std::list<S>::iterator order_it;
+		std::list<std::string>::iterator order_it;
 	};
 
 	mutex mtx;
-	SZ max_subjects{1};
-	std::list<S> order;
-	std::unordered_map<S, Entry, TransparentHash, std::equal_to<>> buckets;
+	std::size_t max_subjects{1};
+	std::list<std::string> order;
+	std::unordered_map<std::string, Entry, TransparentHash, std::equal_to<>> buckets;
 	AuthThrottleMetrics metrics{};
 
 	explicit AuthThrottleState(
-		SZ max)
-		: max_subjects(std::max<SZ>(max, 1)) {}
+		std::size_t max)
+		: max_subjects(std::max<std::size_t>(max, 1)) {}
 
 	[[nodiscard]] AuthThrottleBucket *find(
-		SV subject) noexcept {
+		std::string_view subject) noexcept {
 		auto it = buckets.find(subject);
 		if (it == buckets.end()) {
 			return nullptr;
@@ -318,7 +318,7 @@ struct AuthThrottleState {
 	}
 
 	[[nodiscard]] AuthThrottleBucket &touch(
-		SV subject,
+		std::string_view subject,
 		AuthThrottleClock::time_point now) {
 		if (auto *bucket = find(subject); bucket != nullptr) {
 			return *bucket;
@@ -328,7 +328,7 @@ struct AuthThrottleState {
 			order.pop_front();
 			++metrics.subjects_evicted;
 		}
-		auto owned = S{subject};
+		auto owned = std::string{subject};
 		order.push_back(owned);
 		auto [it, _] = buckets.emplace(
 			move(owned),
@@ -340,7 +340,7 @@ struct AuthThrottleState {
 	}
 
 	void erase(
-		SV subject) noexcept {
+		std::string_view subject) noexcept {
 		auto it = buckets.find(subject);
 		if (it == buckets.end()) {
 			return;
@@ -366,7 +366,7 @@ struct AuthThrottleState {
 }
 
 [[nodiscard]] AuthThrottleState &auth_throttle_state(
-	SP<void> const &state) noexcept {
+	std::shared_ptr<void> const &state) noexcept {
 	return *std::static_pointer_cast<AuthThrottleState>(state);
 }
 
@@ -416,26 +416,26 @@ void refresh_auth_bucket_window(
 }
 
 template<typename Key>
-[[nodiscard]] Opt<S> normalize_auth_throttle_key(
+[[nodiscard]] std::optional<std::string> normalize_auth_throttle_key(
 	Key &&key) {
 	using K = std::remove_cvref_t<Key>;
-	if constexpr (same_as<K, Opt<S>>) {
+	if constexpr (same_as<K, std::optional<std::string>>) {
 		return forward<Key>(key);
-	} else if constexpr (same_as<K, S>) {
+	} else if constexpr (same_as<K, std::string>) {
 		if (key.empty()) {
 			return nullopt;
 		}
-		return S{forward<Key>(key)};
-	} else if constexpr (same_as<K, SV>) {
+		return std::string{forward<Key>(key)};
+	} else if constexpr (same_as<K, std::string_view>) {
 		if (key.empty()) {
 			return nullopt;
 		}
-		return S{key};
+		return std::string{key};
 	} else {
 		if (!key || key->empty()) {
 			return nullopt;
 		}
-		return S{*key};
+		return std::string{*key};
 	}
 }
 
@@ -458,11 +458,11 @@ AuthFailureLimiter::AuthFailureLimiter()
 
 AuthFailureLimiter::AuthFailureLimiter(
 	AuthThrottleOptions opts)
-	: state_(make_shared<auth_detail::AuthThrottleState>(std::max<SZ>(opts.max_subjects, 1)))
+	: state_(make_shared<auth_detail::AuthThrottleState>(std::max<std::size_t>(opts.max_subjects, 1)))
 	, opts_(opts) {}
 
 AuthThrottleOutcome AuthFailureLimiter::before_attempt(
-	SV subject,
+	std::string_view subject,
 	AuthThrottleClock::time_point now) {
 	if (subject.empty() || !auth_detail::auth_throttle_enabled(opts_)) {
 		return {.allowed = true};
@@ -485,7 +485,7 @@ AuthThrottleOutcome AuthFailureLimiter::before_attempt(
 }
 
 AuthThrottleOutcome AuthFailureLimiter::record_failure(
-	SV subject,
+	std::string_view subject,
 	AuthThrottleClock::time_point now) {
 	if (subject.empty() || !auth_detail::auth_throttle_enabled(opts_)) {
 		return {.allowed = true};
@@ -505,7 +505,7 @@ AuthThrottleOutcome AuthFailureLimiter::record_failure(
 }
 
 void AuthFailureLimiter::record_success(
-	SV subject) {
+	std::string_view subject) {
 	if (subject.empty()) {
 		return;
 	}
@@ -516,7 +516,7 @@ void AuthFailureLimiter::record_success(
 }
 
 void AuthFailureLimiter::clear(
-	SV subject) {
+	std::string_view subject) {
 	if (subject.empty()) {
 		return;
 	}
@@ -533,24 +533,24 @@ AuthThrottleMetrics AuthFailureLimiter::snapshot() const {
 	return out;
 }
 
-export [[nodiscard]] S auth_throttle_key(
-	SV scope,
-	SV subject) {
+export [[nodiscard]] std::string auth_throttle_key(
+	std::string_view scope,
+	std::string_view subject) {
 	return format("{}:{}", scope, subject);
 }
 
-export [[nodiscard]] S auth_throttle_remote_key(
+export [[nodiscard]] std::string auth_throttle_remote_key(
 	HttpRequestView const &req,
-	SV scope = "remote") {
-	auto subject = req.remote_addr.empty() ? S{"unknown"} :
-					   parse_ip(req.remote_addr).transform(ip_to_string).value_or(S{req.remote_addr});
+	std::string_view scope = "remote") {
+	auto subject = req.remote_addr.empty() ? std::string{"unknown"} :
+					   parse_ip(req.remote_addr).transform(ip_to_string).value_or(std::string{req.remote_addr});
 	return auth_throttle_key(scope, subject);
 }
 
-export [[nodiscard]] Opt<S> auth_throttle_form_key(
+export [[nodiscard]] std::optional<std::string> auth_throttle_form_key(
 	HttpRequestView const &req,
-	SV field,
-	SV scope = "account") {
+	std::string_view field,
+	std::string_view scope = "account") {
 	auto value = req.form[field];
 	if (value.empty()) {
 		return nullopt;
@@ -558,10 +558,10 @@ export [[nodiscard]] Opt<S> auth_throttle_form_key(
 	return auth_throttle_key(scope, value);
 }
 
-export [[nodiscard]] Opt<S> auth_throttle_query_key(
+export [[nodiscard]] std::optional<std::string> auth_throttle_query_key(
 	HttpRequestView const &req,
-	SV field,
-	SV scope = "account") {
+	std::string_view field,
+	std::string_view scope = "account") {
 	auto value = req.query[field];
 	if (value.empty()) {
 		return nullopt;
@@ -569,9 +569,9 @@ export [[nodiscard]] Opt<S> auth_throttle_query_key(
 	return auth_throttle_key(scope, value);
 }
 
-export [[nodiscard]] Opt<S> auth_throttle_bearer_key(
+export [[nodiscard]] std::optional<std::string> auth_throttle_bearer_key(
 	HttpRequestView const &req,
-	SV scope = "api-token") {
+	std::string_view scope = "api-token") {
 	auto credentials = auth_detail::credentials_for_scheme(req.headers["authorization"], "Bearer");
 	if (!credentials) {
 		return nullopt;
@@ -617,11 +617,11 @@ export template<typename Validator>
 Router::Middleware basic_auth_middleware(
 	Validator &&validator,
 	BasicAuthOptions opts) {
-	auto state = make_shared<auth_detail::FailedAuthState>(max<SZ>(opts.max_failed_clients, 1));
+	auto state = make_shared<auth_detail::FailedAuthState>(max<std::size_t>(opts.max_failed_clients, 1));
 	return [v = std::decay_t<Validator>(forward<Validator>(validator)),
 			opts = move(opts),
 			state](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
-		S const limiter_key = auth_detail::failed_auth_key(req);
+		std::string const limiter_key = auth_detail::failed_auth_key(req);
 		auto const now = auth_detail::Clock::now();
 		if (auto retry_after = auth_detail::basic_auth_retry_after(*state, opts, limiter_key, now)) {
 			return auth_detail::too_many_auth_attempts(*retry_after);
@@ -635,13 +635,13 @@ Router::Middleware basic_auth_middleware(
 		}
 		auto decoded = base64_decode(*credentials);
 		auto colon = decoded.find(':');
-		if (colon == S::npos) {
+		if (colon == std::string::npos) {
 			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
 			return auth_detail::unauthorized(format("Basic realm=\"{}\"", opts.realm));
 		}
-		SV const sv{decoded};
-		SV const user = sv.substr(0, colon);
-		SV const pass = sv.substr(colon + 1);
+		std::string_view const sv{decoded};
+		std::string_view const user = sv.substr(0, colon);
+		std::string_view const pass = sv.substr(colon + 1);
 		if (!v(user, pass)) {
 			auth_detail::record_basic_auth_failure(*state, opts, limiter_key, now);
 			return auth_detail::unauthorized(format("Basic realm=\"{}\"", opts.realm));
@@ -654,7 +654,7 @@ Router::Middleware basic_auth_middleware(
 export template<typename Validator>
 Router::Middleware basic_auth_middleware(
 	Validator &&validator,
-	S realm = "Restricted") {
+	std::string realm = "Restricted") {
 	return basic_auth_middleware(
 		forward<Validator>(validator),
 		BasicAuthOptions{.realm = move(realm)});

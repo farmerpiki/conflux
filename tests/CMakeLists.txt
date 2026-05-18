@@ -15,6 +15,7 @@ function(conflux_discover_tests target)
         list(APPEND extra_args --rng-seed ${CONFLUX_CATCH_RNG_SEED})
     endif()
     catch_discover_tests(${target}
+        ${ARGN}
         EXTRA_ARGS ${extra_args}
         PROPERTIES RUN_SERIAL TRUE
         TIMEOUT 10
@@ -27,6 +28,7 @@ function(conflux_discover_stress_tests target)
         list(APPEND extra_args --rng-seed ${CONFLUX_CATCH_RNG_SEED})
     endif()
     catch_discover_tests(${target}
+        ${ARGN}
         EXTRA_ARGS ${extra_args}
         PROPERTIES RUN_SERIAL TRUE LABELS stress TIMEOUT 120
     )
@@ -576,7 +578,12 @@ if(TARGET conflux_json_file_tests)
     conflux_discover_tests(conflux_json_file_tests)
 endif()
 conflux_discover_tests(conflux_process_tests)
-conflux_discover_tests(conflux_work_tests)
+if(CONFLUX_ENABLE_TSAN)
+    conflux_discover_tests(conflux_work_tests TEST_SPEC "~[stress]")
+    conflux_discover_stress_tests(conflux_work_tests TEST_SPEC "[stress]")
+else()
+    conflux_discover_tests(conflux_work_tests)
+endif()
 conflux_discover_tests(conflux_work_root_tests)
 conflux_discover_tests(conflux_work_carrier_tests)
 conflux_discover_tests(conflux_work_carrier_phase2_tests)

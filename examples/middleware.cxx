@@ -16,8 +16,8 @@ int main() {
 	app.use(request_id_middleware());
 	app.use(tracing_middleware({.propagate_in_response = true}));
 
-	app.get("/", [](http::Request const &) {
-		return http::Response::html(
+	app.get("/", [](HttpRequest const &) {
+		return HttpResponse::html(
 			"<html><body>"
 			"<h1>conflux middleware example</h1>"
 			"<ul>"
@@ -29,8 +29,8 @@ int main() {
 	});
 
 	app.group("/public", [](Router::Group &g) {
-		g.get("/ping", [](http::Request const &req) {
-			return http::Response::json(format(
+		g.get("/ping", [](HttpRequest const &req) {
+			return HttpResponse::json(format(
 				R"({{"status":"ok","request_id":"{}","traceparent":"{}"}})",
 				req.headers["x-request-id"],
 				req.headers["traceparent"]));
@@ -40,8 +40,8 @@ int main() {
 	app.group("/private", [](Router::Group &g) {
 		g.use(basic_auth_middleware([](SV user, SV pass) { return user == "demo" && pass == "demo"; }));
 
-		g.get("/profile", [](http::Request const &req) {
-			return http::Response::json(format(
+		g.get("/profile", [](HttpRequest const &req) {
+			return HttpResponse::json(format(
 				R"({{"user":"demo","request_id":"{}","remote_addr":"{}"}})",
 				req.headers["x-request-id"],
 				req.remote_addr));
@@ -51,8 +51,8 @@ int main() {
 	app.group("/private", [](Router::Group &g) {
 		g.use(bearer_auth_middleware([](SV token) { return token == "valid-token"; }));
 
-		g.get("/token", [](http::Request const &req) {
-			return http::Response::json(
+		g.get("/token", [](HttpRequest const &req) {
+			return HttpResponse::json(
 				format(R"({{"token":"accepted","request_id":"{}"}})", req.headers["x-request-id"]));
 		});
 	});

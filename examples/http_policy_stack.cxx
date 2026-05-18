@@ -125,8 +125,8 @@ int main() {
 		return HttpResponse::text(format("accepted value={}\n", req.form["value"]));
 	});
 
-	V<Router::Middleware> openapi_auth;
-	openapi_auth.push_back(bearer_auth_middleware([](SV token) { return token == "docs-token"; }));
+	std::vector<Router::Middleware> openapi_auth;
+	openapi_auth.push_back(bearer_auth_middleware([](std::string_view token) { return token == "docs-token"; }));
 	app.router().get("/openapi.json", openapi_handler_protected(
 		app.router(),
 		"conflux policy stack example",

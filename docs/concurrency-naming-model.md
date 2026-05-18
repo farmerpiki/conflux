@@ -39,9 +39,9 @@ Supported handler shapes:
 
 `HttpRequestView` is borrowed from the active request buffer. Handlers that may
 suspend must use an owning `HttpRequest` so views cannot dangle across coroutine
-suspension. At the first-contact `conflux::http` API, `http::Request` is a
-view alias for synchronous handlers and `http::OwnedRequest` is the owning alias
-for coroutine handlers or escaped request data.
+suspension. At the first-contact `conflux::http` API, use `HttpRequestView` for
+synchronous handlers and `HttpRequest` for coroutine handlers or escaped request
+data.
 
 Synchronous ring-thread handlers may parse headers, inspect already-buffered body
 data, build responses, update small in-memory state, enqueue explicit async work,

@@ -8,20 +8,20 @@ import std;
 
 using std::println;
 
-template<SZ N>
+template<std::size_t N>
 static span<unsigned char const> bytes(
-	A<unsigned char, N> const &value) noexcept {
+	std::array<unsigned char, N> const &value) noexcept {
 	return {value.data(), value.size()};
 }
 
 static span<unsigned char const> bytes(
-	V<unsigned char> const &value) noexcept {
+	std::vector<unsigned char> const &value) noexcept {
 	return {value.data(), value.size()};
 }
 
-static S hex(
+static std::string hex(
 	span<unsigned char const> in) {
-	S out;
+	std::string out;
 	out.reserve(in.size() * 2);
 	for (auto b: in) {
 		out += format("{:02x}", static_cast<unsigned>(b));
@@ -29,27 +29,27 @@ static S hex(
 	return out;
 }
 
-static A<unsigned char, 32> fixed_key() {
-	A<unsigned char, 32> key{};
-	constexpr SV seed = "0123456789abcdef0123456789abcdef";
-	for (SZ i = 0; i < key.size(); ++i) {
+static std::array<unsigned char, 32> fixed_key() {
+	std::array<unsigned char, 32> key{};
+	constexpr std::string_view seed = "0123456789abcdef0123456789abcdef";
+	for (std::size_t i = 0; i < key.size(); ++i) {
 		key[i] = static_cast<unsigned char>(seed[i]);
 	}
 	return key;
 }
 
-static A<unsigned char, 12> fixed_iv() {
-	A<unsigned char, 12> iv{};
-	constexpr SV seed = "conflux-iv12";
-	for (SZ i = 0; i < iv.size(); ++i) {
+static std::array<unsigned char, 12> fixed_iv() {
+	std::array<unsigned char, 12> iv{};
+	constexpr std::string_view seed = "conflux-iv12";
+	for (std::size_t i = 0; i < iv.size(); ++i) {
 		iv[i] = static_cast<unsigned char>(seed[i]);
 	}
 	return iv;
 }
 
 int main() {
-	constexpr SV payload = "conflux crypto example payload";
-	constexpr SV aad = "route=/internal/seal;v=1";
+	constexpr std::string_view payload = "conflux crypto example payload";
+	constexpr std::string_view aad = "route=/internal/seal;v=1";
 
 	auto digest = sha256(to_unsigned_span(payload));
 	auto mac = hmac_sha256(to_unsigned_span("example signing key"), to_unsigned_span(payload));
@@ -73,7 +73,7 @@ int main() {
 		std::println(std::cerr, "open failed: {}", opened.error());
 		return 1;
 	}
-	std::println("opened: {}", SV{reinterpret_cast<char const *>(opened->data()), opened->size()});
+	std::println("opened: {}", std::string_view{reinterpret_cast<char const *>(opened->data()), opened->size()});
 
 	auto tampered = *sealed;
 	tampered[0] = static_cast<unsigned char>(tampered[0] ^ 0x01U);

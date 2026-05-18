@@ -137,21 +137,8 @@ HTTP/3 has a separate `[http3].max_body_size` knob; it defaults to the same
 `HttpRequest` is the owned variant used when request data may cross coroutine
 suspension or escape the ring-thread handler call.
 
-The `conflux::http` first-contact aliases are:
-
-```cpp
-using ServerRequestView = ::HttpRequestView;
-using ServerRequest     = ::HttpRequest;
-using ServerResponse    = ::HttpResponse;
-using RequestView       = ServerRequestView;
-using OwnedRequest      = ServerRequest;
-using Request           = RequestView;  // sync-handler default; borrowed view
-using Response          = ServerResponse;
-```
-
-Use `http::Request` / `http::ServerRequestView` / `HttpRequestView` for short synchronous handlers, and
-`http::OwnedRequest` / `http::ServerRequest` / `HttpRequest` for coroutine handlers or escaped request
-data.
+Use `HttpRequestView` for synchronous handlers and `HttpRequest` for coroutine
+handlers or escaped request data.
 
 ```cpp
 struct HttpRequest {
@@ -213,7 +200,7 @@ auto page = req.query["page"];
 ```
 
 For parsed scalar access, use the typed helpers on `HttpRequestView` or
-`HttpRequest`. They return `std::expected<T, HttpFieldError>` (`http::FieldError` alias) and allocate error
+`HttpRequest`. They return `std::expected<T, HttpFieldError>` and allocate error
 strings only on failure; successful numeric/bool parsing stays borrowed and
 `std::from_chars`-based.
 
@@ -247,7 +234,7 @@ req.cookie_as<T>(name);            req.optional_cookie_as<T>(name);
 
 Supported targets are `std::string_view`, `std::string`, `bool`, integral types,
 and floating-point types. Missing required fields produce
-`HttpFieldErrorKind::missing` / `http::FieldErrorKind::missing`; malformed values produce `invalid`, `empty`, or
+`HttpFieldErrorKind::missing`; malformed values produce `invalid`, `empty`, or
 `out_of_range` with `source`, `name`, `value`, and `message` populated.
 
 ---

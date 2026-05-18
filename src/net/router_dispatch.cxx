@@ -16,7 +16,7 @@ void router_launch_sse_handler(
 	Pool const &pool,
 	Handler handler,
 	HttpRequest matched,
-	SP<SseChannel> const &channel) {
+	std::shared_ptr<SseChannel> const &channel) {
 	if (!pool->enqueue([h = move(handler), matched = move(matched), channel]() mutable {
 			HttpRequestView const matched_view{matched};
 			h(matched_view, channel);
@@ -56,7 +56,7 @@ export HttpResponse router_run_async_http_task(
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
 [[nodiscard]] HttpResponse dispatch_immediate_routes(
 	HttpRequestView const &req,
-	SV path_sv,
+	std::string_view path_sv,
 	bool is_head,
 	RouteRange const &routes,
 	SseRange const &sse_routes,
@@ -80,7 +80,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					}
 				}
 				// HEAD matched to a GET route: present as GET so handlers are HEAD-transparent.
-				SV const effective_method = (is_head && route.method == "GET") ? SV{"GET"} : req.method;
+		std::string_view const effective_method = (is_head && route.method == "GET") ? std::string_view{"GET"} : req.method;
 				HttpRequestView const matched_view{
 					effective_method,
 					req.path,
@@ -118,7 +118,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					auto channel = make_shared<SseChannel>();
 					HttpRequest matched = req.to_owned();
 					for (auto &[k, v]: matched_params) {
-						matched.params.emplace_back(S{k}, S{v});
+						matched.params.emplace_back(std::string{k}, std::string{v});
 					}
 					router_launch_sse_handler(work_pool, route.handler, move(matched), channel);
 					return HttpResponse::sse(move(channel));
@@ -137,7 +137,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
 [[nodiscard]] HttpResponse dispatch_sync_routes(
 	HttpRequestView const &req,
-	SV path_sv,
+	std::string_view path_sv,
 	bool is_head,
 	RouteRange const &routes,
 	SseRange const &sse_routes,
@@ -156,10 +156,10 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 }
 
 export template<typename ContextRouteRange, typename Ctx>
-[[nodiscard]] Opt<HttpResponse> dispatch_context_routes(
+[[nodiscard]] std::optional<HttpResponse> dispatch_context_routes(
 	HttpRequest const &req,
 	Ctx const &ctx,
-	SV path_sv,
+	std::string_view path_sv,
 	bool is_head,
 	ContextRouteRange const &context_routes) {
 	if (context_routes.empty()) {
@@ -175,7 +175,7 @@ export template<typename ContextRouteRange, typename Ctx>
 			HttpRequest call_req = req;
 			for (auto const &[k, v]: matched_params) {
 				if (!call_req.params.get(k)) {
-					call_req.params.emplace_back(S{k}, S{v});
+					call_req.params.emplace_back(std::string{k}, std::string{v});
 				}
 			}
 			return router_defer_http_task(route.handler(call_req, ctx));

@@ -13,30 +13,30 @@ import conflux.net.router;
 import conflux.utils;
 namespace {
 
-S mac_b64(
-	SV value,
-	SV secret) {
+std::string mac_b64(
+	std::string_view value,
+	std::string_view secret) {
 	auto key = to_unsigned_span(secret);
 	auto msg = to_unsigned_span(value);
 	return base64url_encode(hmac_sha256(key, msg));
 }
 
 [[nodiscard]] bool signed_value_matches(
-	SV value,
-	SV sig,
-	SV secret) {
+	std::string_view value,
+	std::string_view sig,
+	std::string_view secret) {
 	return constant_time_eq(sig, mac_b64(value, secret));
 }
 
 } // namespace
 // Sign a cookie value. Returns "value.BASE64URL(HMAC-SHA256(secret, value))".
 export std::string sign_cookie(
-	SV value,
-	SV secret) {
-	return S{value} + '.' + mac_b64(value, secret);
+	std::string_view value,
+	std::string_view secret) {
+	return std::string{value} + '.' + mac_b64(value, secret);
 }
-export expected<std::string, S> sign_cookie(
-	SV value,
+export expected<std::string, std::string> sign_cookie(
+	std::string_view value,
 	ResolvedSecretRotation const &secrets) {
 	if (auto valid = validate_secret_bytes(secrets.active, "cookie", secrets.min_secret_bytes); !valid) {
 		return unexpected{valid.error()};
@@ -44,11 +44,11 @@ export expected<std::string, S> sign_cookie(
 	return sign_cookie(value, secrets.active);
 }
 // Verify a signed cookie. Returns the original value on success, std::nullopt on failure.
-export Opt<std::string> verify_cookie(
-	SV signed_value,
-	SV secret) {
+export std::optional<std::string> verify_cookie(
+	std::string_view signed_value,
+	std::string_view secret) {
 	auto dot = signed_value.rfind('.');
-	if (dot == SV::npos) {
+	if (dot == std::string_view::npos) {
 		return nullopt;
 	}
 	auto value = signed_value.substr(0, dot);
@@ -58,11 +58,11 @@ export Opt<std::string> verify_cookie(
 	}
 	return std::string{value};
 }
-export Opt<std::string> verify_cookie(
-	SV signed_value,
+export std::optional<std::string> verify_cookie(
+	std::string_view signed_value,
 	ResolvedSecretRotation const &secrets) {
 	auto dot = signed_value.rfind('.');
-	if (dot == SV::npos) {
+	if (dot == std::string_view::npos) {
 		return nullopt;
 	}
 	auto value = signed_value.substr(0, dot);
@@ -83,7 +83,7 @@ export struct CookieSigningOptions {
 	bool strip_invalid{true};
 };
 
-export [[nodiscard]] expected<CookieSigningOptions, S> cookie_signing_options_from_config(
+export [[nodiscard]] expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
 	AuthSecretsConfig const &cfg,
 	CookieSigningOptions base = {},
 	bool required = true) {
@@ -95,7 +95,7 @@ export [[nodiscard]] expected<CookieSigningOptions, S> cookie_signing_options_fr
 	return base;
 }
 
-export [[nodiscard]] expected<CookieSigningOptions, S> cookie_signing_options_from_config(
+export [[nodiscard]] expected<CookieSigningOptions, std::string> cookie_signing_options_from_config(
 	Config const &cfg,
 	CookieSigningOptions base = {},
 	bool required = true) {
@@ -114,7 +114,7 @@ export Router::Middleware cookie_signing_middleware(
 	return [opts = move(opts)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto modified = req.to_owned();
 		for (auto &[name, value]: modified.cookies) {
-			if (value.find('.') == S::npos) {
+			if (value.find('.') == std::string::npos) {
 				continue;
 			} // unsigned cookie
 			auto plain = verify_cookie(value, opts.secrets);

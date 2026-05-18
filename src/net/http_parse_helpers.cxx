@@ -8,18 +8,18 @@ export import conflux.net.http.types;
 import std;
 import conflux.utils;
 
-export constexpr SZ kMaxChunkHexDigits = 16;
-export constexpr SZ kMaxChunkSizeLineBytes = 256;
-export constexpr SZ kMaxChunkTrailerLines = 64;
-export constexpr SZ kMaxChunkTrailerBytes = 8192;
+export constexpr std::size_t kMaxChunkHexDigits = 16;
+export constexpr std::size_t kMaxChunkSizeLineBytes = 256;
+export constexpr std::size_t kMaxChunkTrailerLines = 64;
+export constexpr std::size_t kMaxChunkTrailerBytes = 8192;
 
-[[gnu::pure]] [[nodiscard]] static bool needs_url_decode(SV s) noexcept {
-	return s.find('%') != SV::npos || s.find('+') != SV::npos;
+[[gnu::pure]] [[nodiscard]] static bool needs_url_decode(std::string_view s) noexcept {
+	return s.find('%') != std::string_view::npos || s.find('+') != std::string_view::npos;
 }
 
-export void parse_urlencoded(SV data, HttpFieldsView &out) {
+export void parse_urlencoded(std::string_view data, HttpFieldsView &out) {
 	if (!data.empty()) {
-		SZ fields = 1;
+		std::size_t fields = 1;
 		for (auto const c: data) {
 			if (c == '&') {
 				++fields;
@@ -27,11 +27,11 @@ export void parse_urlencoded(SV data, HttpFieldsView &out) {
 		}
 		out.reserve(out.size() + fields);
 	}
-	SZ pos = 0;
+	std::size_t pos = 0;
 	while (pos <= data.size()) {
 		auto amp = data.find('&', pos);
-		auto P = (amp == SV::npos) ? data.substr(pos) : data.substr(pos, amp - pos);
-		if (auto eq = P.find('='); eq != SV::npos) {
+		auto P = (amp == std::string_view::npos) ? data.substr(pos) : data.substr(pos, amp - pos);
+		if (auto eq = P.find('='); eq != std::string_view::npos) {
 			auto key = P.substr(0, eq);
 			auto field_value = P.substr(eq + 1);
 			if (!needs_url_decode(key) && !needs_url_decode(field_value)) {
@@ -43,26 +43,26 @@ export void parse_urlencoded(SV data, HttpFieldsView &out) {
 			if (!needs_url_decode(P)) {
 				out.emplace_back(P, {});
 			} else {
-				out.emplace_back_owned(url_decode(P), S{});
+				out.emplace_back_owned(url_decode(P), std::string{});
 			}
 		}
-		if (amp == SV::npos) {
+		if (amp == std::string_view::npos) {
 			break;
 		}
 		pos = amp + 1;
 	}
 }
 
-export std::int64_t decode_chunked(SV data, SZ max_body_size, SZ max_chunks, S &body) {
+export std::int64_t decode_chunked(std::string_view data, std::size_t max_body_size, std::size_t max_chunks, std::string &body) {
 	body.clear();
-	SZ pos = 0;
-	SZ chunks_seen = 0;
+	std::size_t pos = 0;
+	std::size_t chunks_seen = 0;
 	while (true) {
 		if (++chunks_seen > max_chunks) {
 			return -1;
 		}
 		auto crlf = data.find("\r\n", pos);
-		if (crlf == SV::npos) {
+		if (crlf == std::string_view::npos) {
 			return 0;
 		}
 
@@ -71,7 +71,7 @@ export std::int64_t decode_chunked(SV data, SZ max_body_size, SZ max_chunks, S &
 			return -1;
 		}
 		auto size_digits = size_line_raw;
-		if (auto semi = size_digits.find(';'); semi != SV::npos) {
+		if (auto semi = size_digits.find(';'); semi != std::string_view::npos) {
 			size_digits = size_digits.substr(0, semi);
 		}
 		if (size_digits.empty()) {
@@ -81,15 +81,15 @@ export std::int64_t decode_chunked(SV data, SZ max_body_size, SZ max_chunks, S &
 		if (size_digits.size() > kMaxChunkHexDigits) {
 			return -1;
 		}
-		SZ chunk_size = 0;
+		std::size_t chunk_size = 0;
 		for (char const c: size_digits) {
 			int const d = hex_char_to_int(c);
 			if (d < 0) {
 				return -1;
 			}
-			auto const digit = static_cast<SZ>(d);
-			SZ shifted = 0;
-			if (__builtin_mul_overflow(chunk_size, SZ{16}, &shifted)) {
+			auto const digit = static_cast<std::size_t>(d);
+			std::size_t shifted = 0;
+			if (__builtin_mul_overflow(chunk_size, std::size_t{16}, &shifted)) {
 				return -1;
 			}
 			if (__builtin_add_overflow(shifted, digit, &chunk_size)) {
@@ -99,11 +99,11 @@ export std::int64_t decode_chunked(SV data, SZ max_body_size, SZ max_chunks, S &
 		pos = crlf + 2;
 
 		if (chunk_size == 0) {
-			SZ trailer_lines = 0;
-			SZ trailer_bytes = 0;
+			std::size_t trailer_lines = 0;
+			std::size_t trailer_bytes = 0;
 			while (true) {
 				auto next = data.find("\r\n", pos);
-				if (next == SV::npos) {
+				if (next == std::string_view::npos) {
 					return 0;
 				}
 				if (next == pos) {
@@ -146,15 +146,15 @@ export enum class ChunkedDecodePhase : u8 {
 
 export struct ChunkedDecodeState {
 	bool active{};
-	SZ body_start{};
-	SZ pos{};
-	SZ chunks_seen{};
-	SZ current_chunk_size{};
-	SZ remaining{};
-	SZ trailer_lines{};
-	SZ trailer_bytes{};
+	std::size_t body_start{};
+	std::size_t pos{};
+	std::size_t chunks_seen{};
+	std::size_t current_chunk_size{};
+	std::size_t remaining{};
+	std::size_t trailer_lines{};
+	std::size_t trailer_bytes{};
 	ChunkedDecodePhase phase{ChunkedDecodePhase::SizeLine};
-	S body{};
+	std::string body{};
 	void reset() {
 		active = false;
 		body_start = 0;
@@ -170,10 +170,10 @@ export struct ChunkedDecodeState {
 };
 
 export [[nodiscard]] std::int64_t decode_chunked_incremental(
-	SV raw,
-	SZ body_start,
-	SZ max_body_size,
-	SZ max_chunks,
+	std::string_view raw,
+	std::size_t body_start,
+	std::size_t max_body_size,
+	std::size_t max_chunks,
 	ChunkedDecodeState &st) {
 	if (!st.active || st.body_start != body_start) {
 		st.reset();
@@ -187,7 +187,7 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 		case ChunkedDecodePhase::SizeLine:
 			{
 				auto const crlf = raw.find("\r\n", st.pos);
-				if (crlf == SV::npos) {
+				if (crlf == std::string_view::npos) {
 					return 0;
 				}
 				if (++st.chunks_seen > max_chunks) {
@@ -199,7 +199,7 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 					return -1;
 				}
 				auto size_digits = size_line_raw;
-				if (auto semi = size_digits.find(';'); semi != SV::npos) {
+				if (auto semi = size_digits.find(';'); semi != std::string_view::npos) {
 					size_digits = size_digits.substr(0, semi);
 				}
 				if (size_digits.empty()) {
@@ -209,15 +209,15 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 				if (size_digits.size() > kMaxChunkHexDigits) {
 					return -1;
 				}
-				SZ chunk_size = 0;
+				std::size_t chunk_size = 0;
 				for (char const c: size_digits) {
 					int const d = hex_char_to_int(c);
 					if (d < 0) {
 						return -1;
 					}
-					auto const digit = static_cast<SZ>(d);
-					SZ shifted = 0;
-					if (__builtin_mul_overflow(chunk_size, SZ{16}, &shifted)) {
+					auto const digit = static_cast<std::size_t>(d);
+					std::size_t shifted = 0;
+					if (__builtin_mul_overflow(chunk_size, std::size_t{16}, &shifted)) {
 						return -1;
 					}
 					if (__builtin_add_overflow(shifted, digit, &chunk_size)) {
@@ -268,7 +268,7 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 		case ChunkedDecodePhase::Trailers:
 			{
 				auto const next = raw.find("\r\n", st.pos);
-				if (next == SV::npos) {
+				if (next == std::string_view::npos) {
 					return 0;
 				}
 				if (next == st.pos) {

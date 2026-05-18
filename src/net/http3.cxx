@@ -26,7 +26,7 @@ import conflux.net.config;
 import conflux.net.http.types;
 import conflux.net.router;
 
-export inline SV const kH3Alpn = "h3";
+export inline std::string_view const kH3Alpn = "h3";
 export std::string http3_alt_svc_value(
 	u16 port,
 	u32 max_age_sec) {
@@ -66,27 +66,27 @@ export void http3_configure_alpn(
 }
 namespace http3_detail {
 
-constexpr SZ kMaxUdpPayload = 1500;
-constexpr SZ kCidLen = 16;
+constexpr std::size_t kMaxUdpPayload = 1500;
+constexpr std::size_t kCidLen = 16;
 u64 now_ns() {
 	auto const t = chrono::steady_clock::now().time_since_epoch();
 	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t).count());
 }
 struct Http3Stream {
 	i64 stream_id{};
-	S method;
-	S path;
-	S authority;
-	S scheme;
-	V<P<S, S>> headers;
-	S body;
+	std::string method;
+	std::string path;
+	std::string authority;
+	std::string scheme;
+	std::vector<std::pair<std::string, std::string>> headers;
+	std::string body;
 	bool request_complete{false};
 	bool response_submitted{false};
 	HttpResponse response{};
-	S response_body_buf;
-	S status_str;
-	S content_length_str;
-	SZ response_body_offset{};
+	std::string response_body_buf;
+	std::string status_str;
+	std::string content_length_str;
+	std::size_t response_body_offset{};
 	bool response_eof{false};
 };
 struct Ngtcp2ConnDeleter {
@@ -132,26 +132,26 @@ struct Http3Conn {
 	socklen_t remote_addrlen{};
 	sockaddr_storage local_addr{};
 	socklen_t local_addrlen{};
-	A<u8, kCidLen> scid_key{};
-	V<A<u8, kCidLen>> cid_keys{};
-	UM<i64, UP<Http3Stream>> streams{};
+	std::array<u8, kCidLen> scid_key{};
+	std::vector<std::array<u8, kCidLen>> cid_keys{};
+	std::unordered_map<i64, std::unique_ptr<Http3Stream>> streams{};
 	Router const *router{nullptr};
 	void *listener{nullptr};
 	bool closing{false};
 	bool closed{false};
 	bool handshake_done{false};
-	A<u8, 16> ip_key{};
-	SZ max_body_size{0};
+	std::array<u8, 16> ip_key{};
+	std::size_t max_body_size{0};
 };
-void register_cid_on_listener(Http3Conn *c, A<u8, kCidLen> const &key);
-void unregister_cid_on_listener(Http3Conn *c, A<u8, kCidLen> const &key);
+void register_cid_on_listener(Http3Conn *c, std::array<u8, kCidLen> const &key);
+void unregister_cid_on_listener(Http3Conn *c, std::array<u8, kCidLen> const &key);
 ngtcp2_conn *crypto_conn_ref_get_conn(
 	ngtcp2_crypto_conn_ref *ref) {
 	return static_cast<Http3Conn *>(ref->user_data)->conn.get();
 }
 void rand_cb(
 	u8 *dest,
-	SZ destlen,
+	std::size_t destlen,
 	ngtcp2_rand_ctx const * /*rand_ctx*/) {
 	RAND_bytes(dest, static_cast<int>(destlen));
 }
@@ -159,7 +159,7 @@ int get_new_connection_id_cb(
 	ngtcp2_conn * /*conn*/,
 	ngtcp2_cid *cid,
 	u8 *token,
-	SZ cidlen,
+	std::size_t cidlen,
 	void *user_data) {
 	auto *c = static_cast<Http3Conn *>(user_data);
 	if (RAND_bytes(cid->data, static_cast<int>(cidlen)) != 1) {
@@ -169,7 +169,7 @@ int get_new_connection_id_cb(
 	if (RAND_bytes(token, NGTCP2_STATELESS_RESET_TOKENLEN) != 1) {
 		return NGTCP2_ERR_CALLBACK_FAILURE;
 	}
-	A<u8, kCidLen> k{};
+	std::array<u8, kCidLen> k{};
 	memcpy(k.data(), cid->data, min(cidlen, k.size()));
 	c->cid_keys.push_back(k);
 	register_cid_on_listener(c, k);
@@ -180,8 +180,8 @@ int remove_connection_id_cb(
 	ngtcp2_cid const *cid,
 	void *user_data) {
 	auto *c = static_cast<Http3Conn *>(user_data);
-	A<u8, kCidLen> k{};
-	memcpy(k.data(), cid->data, min<SZ>(cid->datalen, k.size()));
+	std::array<u8, kCidLen> k{};
+	memcpy(k.data(), cid->data, min<std::size_t>(cid->datalen, k.size()));
 	unregister_cid_on_listener(c, k);
 	return 0;
 }
@@ -240,7 +240,7 @@ int h3_recv_data_cb(
 	nghttp3_conn * /*conn*/,
 	i64 stream_id,
 	u8 const *data,
-	SZ datalen,
+	std::size_t datalen,
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
@@ -272,19 +272,19 @@ int h3_recv_header_cb(
 	}
 	nghttp3_vec const nv = nghttp3_rcbuf_get_buf(name);
 	nghttp3_vec const vv = nghttp3_rcbuf_get_buf(value);
-	SV const n{reinterpret_cast<char const *>(nv.base), nv.len};
-	SV const v{reinterpret_cast<char const *>(vv.base), vv.len};
+	std::string_view const n{reinterpret_cast<char const *>(nv.base), nv.len};
+	std::string_view const v{reinterpret_cast<char const *>(vv.base), vv.len};
 	auto &s = *it->second;
 	if (n == ":method") {
-		s.method = S{v};
+		s.method = std::string{v};
 	} else if (n == ":path") {
-		s.path = S{v};
+		s.path = std::string{v};
 	} else if (n == ":authority") {
-		s.authority = S{v};
+		s.authority = std::string{v};
 	} else if (n == ":scheme") {
-		s.scheme = S{v};
+		s.scheme = std::string{v};
 	} else {
-		s.headers.emplace_back(S{n}, S{v});
+		s.headers.emplace_back(std::string{n}, std::string{v});
 	}
 	return 0;
 }
@@ -365,7 +365,7 @@ nghttp3_ssize h3_read_response_body_cb(
 	nghttp3_conn * /*conn*/,
 	i64 stream_id,
 	nghttp3_vec *vec,
-	SZ veccnt,
+	std::size_t veccnt,
 	u32 *pflags,
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
@@ -379,7 +379,7 @@ nghttp3_ssize h3_read_response_body_cb(
 	if (veccnt == 0) {
 		return 0;
 	}
-	SZ const remaining = s.response_body_buf.size() - s.response_body_offset;
+	std::size_t const remaining = s.response_body_buf.size() - s.response_body_offset;
 	if (remaining == 0) {
 		*pflags |= NGHTTP3_DATA_FLAG_EOF;
 		s.response_eof = true;
@@ -398,7 +398,7 @@ int recv_stream_data_cb(
 	i64 stream_id,
 	u64 /*offset*/,
 	u8 const *data,
-	SZ datalen,
+	std::size_t datalen,
 	void *user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(user_data);
@@ -494,7 +494,7 @@ void fill_callbacks(
 	cb.stream_reset = stream_reset_cb;
 	cb.stream_stop_sending = stream_stop_sending_cb;
 }
-S addr_to_string(
+std::string addr_to_string(
 	sockaddr const *sa) {
 	if (sa->sa_family == AF_INET) {
 		auto const *in = reinterpret_cast<sockaddr_in const *>(sa);
@@ -521,7 +521,7 @@ void dispatch_stream(
 	for (auto const &[k, v]: s.headers) {
 		hdrs_view.emplace_back(k, v);
 	}
-	S const remote = addr_to_string(reinterpret_cast<sockaddr const *>(&c->remote_addr));
+	std::string const remote = addr_to_string(reinterpret_cast<sockaddr const *>(&c->remote_addr));
 	HttpRequestView const req{s.method, s.path, "HTTP/3", remote, true, {}, move(hdrs_view), {}, {}, {}, {}, s.body};
 	if (c->router == nullptr) {
 		s.response = HttpResponse::internal_error("no router");
@@ -545,7 +545,7 @@ void dispatch_stream(
 		s.response.status_text = "Not Implemented";
 		s.response_body_buf = "HTTP/3 does not support this response kind yet\n";
 	}
-	V<nghttp3_nv> nva;
+	std::vector<nghttp3_nv> nva;
 	s.status_str = to_string(s.response.status);
 	nva.push_back(
 		{reinterpret_cast<u8 const *>(":status"),
@@ -553,7 +553,7 @@ void dispatch_stream(
 		 7,
 		 s.status_str.size(),
 		 NGHTTP3_NV_FLAG_NO_COPY_NAME});
-	static constexpr SV kCT = "content-type";
+	static constexpr std::string_view kCT = "content-type";
 	nva.push_back(
 		{reinterpret_cast<u8 const *>(kCT.data()),
 		 reinterpret_cast<u8 const *>(s.response.content_type.c_str()),
@@ -561,7 +561,7 @@ void dispatch_stream(
 		 s.response.content_type.size(),
 		 NGHTTP3_NV_FLAG_NO_COPY_NAME});
 	s.content_length_str = to_string(s.response_body_buf.size());
-	static constexpr SV kCL = "content-length";
+	static constexpr std::string_view kCL = "content-length";
 	nva.push_back(
 		{reinterpret_cast<u8 const *>(kCL.data()),
 		 reinterpret_cast<u8 const *>(s.content_length_str.c_str()),
@@ -573,7 +573,7 @@ void dispatch_stream(
 			{reinterpret_cast<u8 const *>(k.c_str()), reinterpret_cast<u8 const *>(v.c_str()), k.size(), v.size(), 0});
 	}
 	for (auto const &sc: s.response.set_cookies) {
-		static constexpr SV kSC = "set-cookie";
+		static constexpr std::string_view kSC = "set-cookie";
 		nva.push_back(
 			{reinterpret_cast<u8 const *>(kSC.data()),
 			 reinterpret_cast<u8 const *>(sc.c_str()),
@@ -586,9 +586,9 @@ void dispatch_stream(
 	auto _ = nghttp3_conn_submit_response(c->h3conn.get(), s.stream_id, nva.data(), nva.size(), &dr);
 }
 struct CidHash {
-	SZ operator ()(
-		A<u8, kCidLen> const &k) const noexcept {
-		SZ h = 0xcbf29ce484222325ULL;
+	std::size_t operator ()(
+		std::array<u8, kCidLen> const &k) const noexcept {
+		std::size_t h = 0xcbf29ce484222325ULL;
 		for (auto b: k) {
 			h ^= b;
 			h *= 0x100000001b3ULL;
@@ -596,11 +596,11 @@ struct CidHash {
 		return h;
 	}
 };
-A<u8, kCidLen> cid_to_key(
+std::array<u8, kCidLen> cid_to_key(
 	u8 const *data,
-	SZ datalen) {
-	A<u8, kCidLen> k{};
-	SZ const copy = min(datalen, k.size());
+	std::size_t datalen) {
+	std::array<u8, kCidLen> k{};
+	std::size_t const copy = min(datalen, k.size());
 	memcpy(k.data(), data, copy);
 	return k;
 }
@@ -724,9 +724,9 @@ private:
 		}
 		drain_close_all();
 	}
-	static A<u8, 16> remote_ip_key(
+	static std::array<u8, 16> remote_ip_key(
 		sockaddr_storage const &ss) {
-		A<u8, 16> key{};
+		std::array<u8, 16> key{};
 		if (ss.ss_family == AF_INET6) {
 			memcpy(key.data(), &reinterpret_cast<sockaddr_in6 const &>(ss).sin6_addr, 16);
 		} else if (ss.ss_family == AF_INET) {
@@ -798,12 +798,12 @@ private:
 		dirty_conns_.clear();
 	}
 	void drain_udp() {
-		static constexpr SZ kBatch = 32;
-		A<u8[kMaxUdpPayload], kBatch> bufs;
-		A<sockaddr_storage, kBatch> addrs;
-		A<iovec, kBatch> iovs;
-		A<mmsghdr, kBatch> msgs;
-		for (SZ i = 0; i < kBatch; ++i) {
+		static constexpr std::size_t kBatch = 32;
+		std::array<u8[kMaxUdpPayload], kBatch> bufs;
+		std::array<sockaddr_storage, kBatch> addrs;
+		std::array<iovec, kBatch> iovs;
+		std::array<mmsghdr, kBatch> msgs;
+		for (std::size_t i = 0; i < kBatch; ++i) {
 			iovs[i].iov_base = bufs[i];
 			iovs[i].iov_len = kMaxUdpPayload;
 			msgs[i].msg_hdr.msg_iov = &iovs[i];
@@ -812,7 +812,7 @@ private:
 			msgs[i].msg_hdr.msg_controllen = 0;
 		}
 		for (;;) {
-			for (SZ i = 0; i < kBatch; ++i) {
+			for (std::size_t i = 0; i < kBatch; ++i) {
 				msgs[i].msg_hdr.msg_name = &addrs[i];
 				msgs[i].msg_hdr.msg_namelen = sizeof(addrs[i]);
 				msgs[i].msg_hdr.msg_flags = 0;
@@ -821,7 +821,7 @@ private:
 			if (n <= 0) {
 				return;
 			}
-			for (SZ i = 0; i < static_cast<SZ>(n); ++i) {
+			for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i) {
 				if (msgs[i].msg_len == 0) {
 					continue;
 				}
@@ -835,7 +835,7 @@ private:
 	}
 	void handle_packet(
 		u8 const *pkt,
-		SZ pktlen,
+		std::size_t pktlen,
 		sockaddr_storage const &remote,
 		socklen_t remote_len) {
 		ngtcp2_version_cid vcid{};
@@ -843,7 +843,7 @@ private:
 		if (rv != 0 && rv != NGTCP2_ERR_VERSION_NEGOTIATION) {
 			return;
 		}
-		A<u8, kCidLen> const key = cid_to_key(vcid.dcid, vcid.dcidlen);
+		std::array<u8, kCidLen> const key = cid_to_key(vcid.dcid, vcid.dcidlen);
 		Http3Conn *c = nullptr;
 		if (auto it = cid_index_.find(key); it != cid_index_.end()) {
 			c = it->second;
@@ -917,12 +917,12 @@ private:
 					&retry_scid,
 					&odcid,
 					token,
-					static_cast<SZ>(tokenlen));
+					static_cast<std::size_t>(tokenlen));
 				if (wlen > 0) {
 					::sendto(
 						udp_fd_,
 						retry_buf,
-						static_cast<SZ>(wlen),
+						static_cast<std::size_t>(wlen),
 						0,
 						reinterpret_cast<sockaddr const *>(&remote),
 						remote_len);
@@ -935,7 +935,7 @@ private:
 	}
 	Http3Conn *accept_new_conn(
 		u8 const *pkt,
-		SZ pktlen,
+		std::size_t pktlen,
 		sockaddr_storage const &remote,
 		socklen_t remote_len) {
 		if (conns_.size() >= 65536U) {
@@ -1073,12 +1073,12 @@ private:
 				flags,
 				stream_id,
 				reinterpret_cast<ngtcp2_vec *>(vec),
-				static_cast<SZ>(sveccnt),
+				static_cast<std::size_t>(sveccnt),
 				now_ns());
 			if (nwrite < 0) {
 				if (nwrite == NGTCP2_ERR_WRITE_MORE) {
 					if (c->h3conn.get() != nullptr && ndatalen >= 0) {
-						auto _ = nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<SZ>(ndatalen));
+						auto _ = nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<std::size_t>(ndatalen));
 					}
 					continue;
 				}
@@ -1091,17 +1091,17 @@ private:
 			}
 			if (nwrite == 0) {
 				if (ndatalen >= 0 && c->h3conn.get() != nullptr) {
-					auto _ = nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<SZ>(ndatalen));
+					auto _ = nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<std::size_t>(ndatalen));
 				}
 				return;
 			}
 			if (ndatalen >= 0 && c->h3conn.get() != nullptr) {
-				auto _ = nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<SZ>(ndatalen));
+				auto _ = nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<std::size_t>(ndatalen));
 			}
 			auto _ = ::sendto(
 				udp_fd_,
 				buf,
-				static_cast<SZ>(nwrite),
+				static_cast<std::size_t>(nwrite),
 				0,
 				reinterpret_cast<sockaddr const *>(&c->remote_addr),
 				c->remote_addrlen);
@@ -1124,7 +1124,7 @@ private:
 			auto _ = ::sendto(
 				udp_fd_,
 				buf,
-				static_cast<SZ>(n),
+				static_cast<std::size_t>(n),
 				0,
 				reinterpret_cast<sockaddr const *>(&c->remote_addr),
 				c->remote_addrlen);
@@ -1170,11 +1170,11 @@ private:
 public:
 	void register_cid(
 		Http3Conn *c,
-		A<u8, kCidLen> const &key) {
+		std::array<u8, kCidLen> const &key) {
 		cid_index_.insert_or_assign(key, c);
 	}
 	void unregister_cid(
-		A<u8, kCidLen> const &key) {
+		std::array<u8, kCidLen> const &key) {
 		cid_index_.erase(key);
 	}
 
@@ -1189,24 +1189,24 @@ private:
 	atomic_flag stopping_{};
 	thread thread_;
 	mutex stop_mu_;
-	A<u8, 32> retry_secret_{};
-	std::unordered_map<A<u8, 16>, int, CidHash> ip_conn_count_;
-	std::unordered_map<A<u8, kCidLen>, UP<Http3Conn>, CidHash> conns_;
-	std::unordered_set<A<u8, kCidLen>, CidHash> dirty_conns_;
-	std::unordered_map<A<u8, kCidLen>, Http3Conn *, CidHash> cid_index_;
+	std::array<u8, 32> retry_secret_{};
+	std::unordered_map<std::array<u8, 16>, int, CidHash> ip_conn_count_;
+	std::unordered_map<std::array<u8, kCidLen>, std::unique_ptr<Http3Conn>, CidHash> conns_;
+	std::unordered_set<std::array<u8, kCidLen>, CidHash> dirty_conns_;
+	std::unordered_map<std::array<u8, kCidLen>, Http3Conn *, CidHash> cid_index_;
 };
 namespace http3_detail {
 
 inline void register_cid_on_listener(
 	Http3Conn *c,
-	A<u8, kCidLen> const &key) {
+	std::array<u8, kCidLen> const &key) {
 	if (c->listener != nullptr) {
 		static_cast<Http3Listener *>(c->listener)->register_cid(c, key);
 	}
 }
 inline void unregister_cid_on_listener(
 	Http3Conn *c,
-	A<u8, kCidLen> const &key) {
+	std::array<u8, kCidLen> const &key) {
 	if (c->listener != nullptr) {
 		static_cast<Http3Listener *>(c->listener)->unregister_cid(key);
 	}

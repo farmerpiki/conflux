@@ -13,13 +13,13 @@ import conflux.net.router;
 // Returns a JSON string (not pretty-printed).
 export std::string openapi_spec(
 	Router const &router,
-	SV title = "API",
-	SV version = "1.0.0") {
+	std::string_view title = "API",
+	std::string_view version = "1.0.0") {
 	auto infos = router.route_infos();
 
 	// Group infos by path pattern (preserve insertion order).
-	V<S> path_order;
-	UM<S, V<RouteInfo>> by_path;
+	std::vector<std::string> path_order;
+	std::unordered_map<std::string, std::vector<RouteInfo>> by_path;
 
 	for (auto const &info: infos) {
 		auto [it, inserted] = by_path.try_emplace(info.path_pattern);
@@ -29,8 +29,8 @@ export std::string openapi_spec(
 		it->second.push_back(info);
 	}
 
-	// Build JSON S manually (no deps).
-	auto json_str = [](SV s) -> std::string {
+	// Build JSON std::string manually (no deps).
+	auto json_str = [](std::string_view s) -> std::string {
 		std::string out = "\"";
 		for (auto const byte: s) {
 			auto const c = static_cast<unsigned char>(byte);
@@ -84,7 +84,7 @@ export std::string openapi_spec(
 			first_method = false;
 
 			// method key must be lowercase.
-			S method_lower = ascii_lower(info.method);
+			std::string method_lower = ascii_lower(info.method);
 
 			out += json_str(method_lower);
 			out += R"(:{"parameters":[)";
@@ -97,7 +97,7 @@ export std::string openapi_spec(
 				first_param = false;
 				out += R"({"name":)";
 				out += json_str(param);
-				out += R"(,"in":"path","required":true,"schema":{"type":"S"}})";
+				out += R"(,"in":"path","required":true,"schema":{"type":"string"}})";
 			}
 			out += R"(],"responses":{"200":{"description":"OK"}}})";
 		}
@@ -114,8 +114,8 @@ export std::string openapi_spec(
 // prefer openapi_handler_protected or a network-level ACL.
 export Router::Handler openapi_handler(
 	Router const &router,
-	SV title = "API",
-	SV version = "1.0.0") {
+	std::string_view title = "API",
+	std::string_view version = "1.0.0") {
 	auto spec = openapi_spec(router, title, version);
 	return [spec = move(spec)](HttpRequestView const &) -> HttpResponse {
 		HttpResponse r;
@@ -130,9 +130,9 @@ export Router::Handler openapi_handler(
 // Each middleware is applied in order: chain[0] runs first, chain.back() last.
 export Router::Handler openapi_handler_protected(
 	Router const &router,
-	SV title,
-	SV version,
-	V<Router::Middleware> chain) {
+	std::string_view title,
+	std::string_view version,
+	std::vector<Router::Middleware> chain) {
 	Router::Handler current = openapi_handler(router, title, version);
 	for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
 		Router::Middleware mw = move(*it);

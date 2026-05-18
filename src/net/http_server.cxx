@@ -1,6 +1,7 @@
 export module conflux.net.http_server;
 
 import conflux.types;
+import std;
 export import conflux.net.http.server_types;
 import conflux.net.router;
 import conflux.net.vhost;
@@ -16,8 +17,8 @@ public:
 	explicit HttpServer(Config const &cfg, VHostRouter &&vhost_router);
 	~HttpServer();
 
-	[[nodiscard]] static expected<UP<HttpServer>, S> try_create(Config const &cfg, Router &&router);
-	[[nodiscard]] static expected<UP<HttpServer>, S> try_create(Config const &cfg, VHostRouter &&vhost_router);
+	[[nodiscard]] static expected<std::unique_ptr<HttpServer>, std::string> try_create(Config const &cfg, Router &&router);
+	[[nodiscard]] static expected<std::unique_ptr<HttpServer>, std::string> try_create(Config const &cfg, VHostRouter &&vhost_router);
 
 	// Thread-safe and async-signal-safe. Wakes every ring via its shutdown eventfd.
 	void request_shutdown() noexcept;

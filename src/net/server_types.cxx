@@ -64,13 +64,13 @@ export struct SendZcCqeInput {
 	bool more{};
 	bool copied{};
 	bool enomem_error{};
-	SZ written_before{};
-	SZ response_total{};
+	std::size_t written_before{};
+	std::size_t response_total{};
 };
 
 export struct SendZcCqeOutcome {
 	SendZcCqeAction action{SendZcCqeAction::none};
-	SZ bytes_sent{};
+	std::size_t bytes_sent{};
 	bool adaptive_disabled{};
 };
 
@@ -86,7 +86,7 @@ export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 			++metrics.copied_notifications;
 			if (send_zc_enabled
 				&& metrics.attempts >= 1024
-				&& metrics.bytes_requested >= SZ{16} * 1024 * 1024
+				&& metrics.bytes_requested >= std::size_t{16} * 1024 * 1024
 				&& metrics.copied_notifications * 10 > metrics.notifications * 9) {
 				send_zc_enabled = false;
 				++metrics.adaptive_disable_count;
@@ -126,7 +126,7 @@ export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 			state.after_notification = SendZcPendingAction::close_after_error;
 			return out;
 		}
-		out.bytes_sent = static_cast<SZ>(input.result);
+		out.bytes_sent = static_cast<std::size_t>(input.result);
 		metrics.bytes_sent += out.bytes_sent;
 		state.after_notification = input.written_before + out.bytes_sent >= input.response_total
 			? SendZcPendingAction::complete_response
@@ -140,7 +140,7 @@ export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 		out.action = SendZcCqeAction::close_after_error;
 		return out;
 	}
-	out.bytes_sent = static_cast<SZ>(input.result);
+	out.bytes_sent = static_cast<std::size_t>(input.result);
 	metrics.bytes_sent += out.bytes_sent;
 	out.action = input.written_before + out.bytes_sent < input.response_total
 		? SendZcCqeAction::resubmit_response
@@ -162,39 +162,39 @@ export struct HttpServerMetrics {
 };
 
 export struct UploadedFile {
-	SV name;
-	SV filename;
-	SV content_type;
-	SV data;
-	S owned_name;
-	S owned_filename;
-	S owned_content_type;
-	S owned_data;
+	std::string_view name;
+	std::string_view filename;
+	std::string_view content_type;
+	std::string_view data;
+	std::string owned_name;
+	std::string owned_filename;
+	std::string owned_content_type;
+	std::string owned_data;
 	bool owns_metadata = false;
 	bool owns_data = false;
 
 	UploadedFile() = default;
 	UploadedFile(
-		SV name_,
-		SV filename_,
-		SV content_type_,
-		SV data_)
+		std::string_view name_,
+		std::string_view filename_,
+		std::string_view content_type_,
+		std::string_view data_)
 		: name(name_)
 		, filename(filename_)
 		, content_type(content_type_)
 		, data(data_) {}
 	UploadedFile(
 		UploadedFile const &other)
-		: owned_name(other.owns_metadata ? other.owned_name : S{})
-		, owned_filename(other.owns_metadata ? other.owned_filename : S{})
-		, owned_content_type(other.owns_metadata ? other.owned_content_type : S{})
-		, owned_data(other.owns_data ? other.owned_data : S{})
+		: owned_name(other.owns_metadata ? other.owned_name : std::string{})
+		, owned_filename(other.owns_metadata ? other.owned_filename : std::string{})
+		, owned_content_type(other.owns_metadata ? other.owned_content_type : std::string{})
+		, owned_data(other.owns_data ? other.owned_data : std::string{})
 		, owns_metadata(other.owns_metadata)
 		, owns_data(other.owns_data) {
-		name = owns_metadata ? SV{owned_name} : other.name;
-		filename = owns_metadata ? SV{owned_filename} : other.filename;
-		content_type = owns_metadata ? SV{owned_content_type} : other.content_type;
-		data = owns_data ? SV{owned_data} : other.data;
+		name = owns_metadata ? std::string_view{owned_name} : other.name;
+		filename = owns_metadata ? std::string_view{owned_filename} : other.filename;
+		content_type = owns_metadata ? std::string_view{owned_content_type} : other.content_type;
+		data = owns_data ? std::string_view{owned_data} : other.data;
 	}
 	UploadedFile(
 		UploadedFile &&other) noexcept
@@ -222,16 +222,16 @@ export struct UploadedFile {
 		if (this == &other) {
 			return *this;
 		}
-		owned_name = other.owns_metadata ? other.owned_name : S{};
-		owned_filename = other.owns_metadata ? other.owned_filename : S{};
-		owned_content_type = other.owns_metadata ? other.owned_content_type : S{};
-		owned_data = other.owns_data ? other.owned_data : S{};
+		owned_name = other.owns_metadata ? other.owned_name : std::string{};
+		owned_filename = other.owns_metadata ? other.owned_filename : std::string{};
+		owned_content_type = other.owns_metadata ? other.owned_content_type : std::string{};
+		owned_data = other.owns_data ? other.owned_data : std::string{};
 		owns_metadata = other.owns_metadata;
 		owns_data = other.owns_data;
-		name = owns_metadata ? SV{owned_name} : other.name;
-		filename = owns_metadata ? SV{owned_filename} : other.filename;
-		content_type = owns_metadata ? SV{owned_content_type} : other.content_type;
-		data = owns_data ? SV{owned_data} : other.data;
+		name = owns_metadata ? std::string_view{owned_name} : other.name;
+		filename = owns_metadata ? std::string_view{owned_filename} : other.filename;
+		content_type = owns_metadata ? std::string_view{owned_content_type} : other.content_type;
+		data = owns_data ? std::string_view{owned_data} : other.data;
 		return *this;
 	}
 	UploadedFile &operator =(
@@ -260,18 +260,18 @@ export struct UploadedFile {
 		return *this;
 	}
 	[[nodiscard]] static UploadedFile borrowed(
-		SV name_,
-		SV filename_,
-		SV content_type_,
-		SV data_) {
+		std::string_view name_,
+		std::string_view filename_,
+		std::string_view content_type_,
+		std::string_view data_) {
 		return UploadedFile{name_, filename_, content_type_, data_};
 	}
 	[[nodiscard]] static UploadedFile owned(
-		S name_,
-		S filename_,
-		S content_type_,
-		S data_) {
-		UploadedFile file{SV{}, SV{}, SV{}, SV{}};
+		std::string name_,
+		std::string filename_,
+		std::string content_type_,
+		std::string data_) {
+		UploadedFile file{std::string_view{}, std::string_view{}, std::string_view{}, std::string_view{}};
 		file.owned_name = move(name_);
 		file.owned_filename = move(filename_);
 		file.owned_content_type = move(content_type_);
@@ -288,7 +288,7 @@ export struct UploadedFile {
 		if (owns_metadata && owns_data) {
 			return *this;
 		}
-		return UploadedFile::owned(S{name}, S{filename}, S{content_type}, S{data});
+		return UploadedFile::owned(std::string{name}, std::string{filename}, std::string{content_type}, std::string{data});
 	}
 };
 
@@ -310,12 +310,12 @@ export enum class HttpFieldErrorKind : u8 {
 export struct HttpFieldError {
 	HttpFieldErrorKind kind{HttpFieldErrorKind::invalid};
 	HttpFieldSource source{HttpFieldSource::query};
-	S name{};
-	S value{};
-	S message{};
+	std::string name{};
+	std::string value{};
+	std::string message{};
 };
 
-export [[nodiscard]] SV http_field_source_name(
+export [[nodiscard]] std::string_view http_field_source_name(
 	HttpFieldSource source) noexcept {
 	switch (source) {
 	case HttpFieldSource::params: return "params";
@@ -328,8 +328,8 @@ export [[nodiscard]] SV http_field_source_name(
 }
 
 [[nodiscard]] inline bool http_field_token_eq_ci(
-	SV a,
-	SV b) noexcept {
+	std::string_view a,
+	std::string_view b) noexcept {
 	if (a.size() != b.size()) {
 		return false;
 	}
@@ -344,14 +344,14 @@ export [[nodiscard]] SV http_field_source_name(
 [[nodiscard]] inline HttpFieldError http_field_error(
 	HttpFieldErrorKind kind,
 	HttpFieldSource source,
-	SV name,
-	SV value,
-	SV reason) {
+	std::string_view name,
+	std::string_view value,
+	std::string_view reason) {
 	return HttpFieldError{
 		.kind = kind,
 		.source = source,
-		.name = S{name},
-		.value = S{value},
+		.name = std::string{name},
+		.value = std::string{value},
 		.message = format("{} field '{}' {}", http_field_source_name(source), name, reason),
 	};
 }
@@ -361,14 +361,14 @@ inline constexpr bool kHttpFieldDependentFalse = false;
 
 export template<typename T>
 [[nodiscard]] expected<T, HttpFieldError> parse_http_field_value(
-	SV value,
+	std::string_view value,
 	HttpFieldSource source,
-	SV name) {
+	std::string_view name) {
 	using U = std::remove_cvref_t<T>;
-	if constexpr (same_as<U, SV>) {
+	if constexpr (same_as<U, std::string_view>) {
 		return value;
-	} else if constexpr (same_as<U, S>) {
-		return S{value};
+	} else if constexpr (same_as<U, std::string>) {
+		return std::string{value};
 	} else if constexpr (same_as<U, bool>) {
 		if (value.empty()) {
 			return unexpected{http_field_error(HttpFieldErrorKind::empty, source, name, value, "is empty")};
@@ -421,7 +421,7 @@ template<typename Fields, typename T>
 [[nodiscard]] expected<T, HttpFieldError> http_field_as_impl(
 	Fields const &fields,
 	HttpFieldSource source,
-	SV name) {
+	std::string_view name) {
 	auto value = fields.get(name);
 	if (!value) {
 		return unexpected{http_field_error(HttpFieldErrorKind::missing, source, name, {}, "is missing")};
@@ -430,26 +430,26 @@ template<typename Fields, typename T>
 }
 
 template<typename Fields, typename T>
-[[nodiscard]] expected<Opt<T>, HttpFieldError> http_field_optional_as_impl(
+[[nodiscard]] expected<std::optional<T>, HttpFieldError> http_field_optional_as_impl(
 	Fields const &fields,
 	HttpFieldSource source,
-	SV name) {
+	std::string_view name) {
 	auto value = fields.get(name);
 	if (!value) {
-		return Opt<T>{};
+		return std::optional<T>{};
 	}
 	auto parsed = parse_http_field_value<T>(*value, source, name);
 	if (!parsed) {
 		return unexpected{move(parsed.error())};
 	}
-	return Opt<T>{move(*parsed)};
+	return std::optional<T>{move(*parsed)};
 }
 
 export template<typename T>
 [[nodiscard]] expected<T, HttpFieldError> http_field_as(
 	HttpFields const &fields,
 	HttpFieldSource source,
-	SV name) {
+	std::string_view name) {
 	return http_field_as_impl<HttpFields, T>(fields, source, name);
 }
 
@@ -457,96 +457,96 @@ export template<typename T>
 [[nodiscard]] expected<T, HttpFieldError> http_field_as(
 	HttpFieldsView const &fields,
 	HttpFieldSource source,
-	SV name) {
+	std::string_view name) {
 	return http_field_as_impl<HttpFieldsView, T>(fields, source, name);
 }
 
 export template<typename T>
-[[nodiscard]] expected<Opt<T>, HttpFieldError> http_field_optional_as(
+[[nodiscard]] expected<std::optional<T>, HttpFieldError> http_field_optional_as(
 	HttpFields const &fields,
 	HttpFieldSource source,
-	SV name) {
+	std::string_view name) {
 	return http_field_optional_as_impl<HttpFields, T>(fields, source, name);
 }
 
 export template<typename T>
-[[nodiscard]] expected<Opt<T>, HttpFieldError> http_field_optional_as(
+[[nodiscard]] expected<std::optional<T>, HttpFieldError> http_field_optional_as(
 	HttpFieldsView const &fields,
 	HttpFieldSource source,
-	SV name) {
+	std::string_view name) {
 	return http_field_optional_as_impl<HttpFieldsView, T>(fields, source, name);
 }
 
 export struct HttpRequest {
-	S method;
-	S path; // path only, no query S
-	S version;
-	S remote_addr; // peer IP address (best-effort with multishot accept)
+	std::string method;
+	std::string path; // path only, no query std::string
+	std::string version;
+	std::string remote_addr; // peer IP address (best-effort with multishot accept)
 	bool is_tls = false; // true when request arrived over a TLS connection
 	HttpFields params; // {name} captures
 	HttpFields headers = HttpFields(true); // case-insensitive lookup
 	HttpFields query; // parsed from URL ?k=v&...
 	HttpFields form; // parsed from application/x-www-form-urlencoded body or multipart text fields
 	HttpFields cookies; // parsed from Cookie: header
-	V<UploadedFile> files; // parsed from multipart/form-data body
-	S body;
+	std::vector<UploadedFile> files; // parsed from multipart/form-data body
+	std::string body;
 	template<typename T>
 	[[nodiscard]] expected<T, HttpFieldError> param_as(
-		SV name) const {
+		std::string_view name) const {
 		return http_field_as<T>(params, HttpFieldSource::params, name);
 	}
 	template<typename T>
 	[[nodiscard]] expected<T, HttpFieldError> header_as(
-		SV name) const {
+		std::string_view name) const {
 		return http_field_as<T>(headers, HttpFieldSource::headers, name);
 	}
 	template<typename T>
 	[[nodiscard]] expected<T, HttpFieldError> query_as(
-		SV name) const {
+		std::string_view name) const {
 		return http_field_as<T>(query, HttpFieldSource::query, name);
 	}
 	template<typename T>
 	[[nodiscard]] expected<T, HttpFieldError> form_as(
-		SV name) const {
+		std::string_view name) const {
 		return http_field_as<T>(form, HttpFieldSource::form, name);
 	}
 	template<typename T>
 	[[nodiscard]] expected<T, HttpFieldError> cookie_as(
-		SV name) const {
+		std::string_view name) const {
 		return http_field_as<T>(cookies, HttpFieldSource::cookies, name);
 	}
 	template<typename T>
-	[[nodiscard]] expected<Opt<T>, HttpFieldError> optional_param_as(
-		SV name) const {
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_param_as(
+		std::string_view name) const {
 		return http_field_optional_as<T>(params, HttpFieldSource::params, name);
 	}
 	template<typename T>
-	[[nodiscard]] expected<Opt<T>, HttpFieldError> optional_header_as(
-		SV name) const {
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_header_as(
+		std::string_view name) const {
 		return http_field_optional_as<T>(headers, HttpFieldSource::headers, name);
 	}
 	template<typename T>
-	[[nodiscard]] expected<Opt<T>, HttpFieldError> optional_query_as(
-		SV name) const {
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_query_as(
+		std::string_view name) const {
 		return http_field_optional_as<T>(query, HttpFieldSource::query, name);
 	}
 	template<typename T>
-	[[nodiscard]] expected<Opt<T>, HttpFieldError> optional_form_as(
-		SV name) const {
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_form_as(
+		std::string_view name) const {
 		return http_field_optional_as<T>(form, HttpFieldSource::form, name);
 	}
 	template<typename T>
-	[[nodiscard]] expected<Opt<T>, HttpFieldError> optional_cookie_as(
-		SV name) const {
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_cookie_as(
+		std::string_view name) const {
 		return http_field_optional_as<T>(cookies, HttpFieldSource::cookies, name);
 	}
 	[[nodiscard]] HttpRequest to_owned() const { return *this; }
 };
 export struct HttpRequestView {
-	SV method;
-	SV path;
-	SV version;
-	SV remote_addr;
+	std::string_view method;
+	std::string_view path;
+	std::string_view version;
+	std::string_view remote_addr;
 	bool is_tls = false;
 	HttpFieldsView params;
 	HttpFieldsView headers;
@@ -554,62 +554,62 @@ export struct HttpRequestView {
 	HttpFieldsView form;
 	HttpFieldsView cookies;
 	span<UploadedFile const> files;
-	SV body;
+	std::string_view body;
 	template<typename T>
 	[[nodiscard]] expected<T, HttpFieldError> param_as(
-		SV name) const {
+		std::string_view name) const {
 		return http_field_as<T>(params, HttpFieldSource::params, name);
 	}
 	template<typename T>
 	[[nodiscard]] expected<T, HttpFieldError> header_as(
-		SV name) const {
+		std::string_view name) const {
 		return http_field_as<T>(headers, HttpFieldSource::headers, name);
 	}
 	template<typename T>
 	[[nodiscard]] expected<T, HttpFieldError> query_as(
-		SV name) const {
+		std::string_view name) const {
 		return http_field_as<T>(query, HttpFieldSource::query, name);
 	}
 	template<typename T>
 	[[nodiscard]] expected<T, HttpFieldError> form_as(
-		SV name) const {
+		std::string_view name) const {
 		return http_field_as<T>(form, HttpFieldSource::form, name);
 	}
 	template<typename T>
 	[[nodiscard]] expected<T, HttpFieldError> cookie_as(
-		SV name) const {
+		std::string_view name) const {
 		return http_field_as<T>(cookies, HttpFieldSource::cookies, name);
 	}
 	template<typename T>
-	[[nodiscard]] expected<Opt<T>, HttpFieldError> optional_param_as(
-		SV name) const {
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_param_as(
+		std::string_view name) const {
 		return http_field_optional_as<T>(params, HttpFieldSource::params, name);
 	}
 	template<typename T>
-	[[nodiscard]] expected<Opt<T>, HttpFieldError> optional_header_as(
-		SV name) const {
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_header_as(
+		std::string_view name) const {
 		return http_field_optional_as<T>(headers, HttpFieldSource::headers, name);
 	}
 	template<typename T>
-	[[nodiscard]] expected<Opt<T>, HttpFieldError> optional_query_as(
-		SV name) const {
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_query_as(
+		std::string_view name) const {
 		return http_field_optional_as<T>(query, HttpFieldSource::query, name);
 	}
 	template<typename T>
-	[[nodiscard]] expected<Opt<T>, HttpFieldError> optional_form_as(
-		SV name) const {
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_form_as(
+		std::string_view name) const {
 		return http_field_optional_as<T>(form, HttpFieldSource::form, name);
 	}
 	template<typename T>
-	[[nodiscard]] expected<Opt<T>, HttpFieldError> optional_cookie_as(
-		SV name) const {
+	[[nodiscard]] expected<std::optional<T>, HttpFieldError> optional_cookie_as(
+		std::string_view name) const {
 		return http_field_optional_as<T>(cookies, HttpFieldSource::cookies, name);
 	}
 	HttpRequestView(
-		SV method_,
-		SV path_,
-		SV version_,
-		SV remote_addr_,
+		std::string_view method_,
+		std::string_view path_,
+		std::string_view version_,
+		std::string_view remote_addr_,
 		bool is_tls_,
 		HttpFieldsView params_,
 		HttpFieldsView headers_,
@@ -617,7 +617,7 @@ export struct HttpRequestView {
 		HttpFieldsView form_,
 		HttpFieldsView cookies_,
 		span<UploadedFile const> files_,
-		SV body_)
+		std::string_view body_)
 		: method(method_)
 		, path(path_)
 		, version(version_)
@@ -646,10 +646,10 @@ export struct HttpRequestView {
 		, body(req.body) {}
 	[[nodiscard]] HttpRequest to_owned() const {
 		HttpRequest owned;
-		owned.method = S{method};
-		owned.path = S{path};
-		owned.version = S{version};
-		owned.remote_addr = S{remote_addr};
+		owned.method = std::string{method};
+		owned.path = std::string{path};
+		owned.version = std::string{version};
+		owned.remote_addr = std::string{remote_addr};
 		owned.is_tls = is_tls;
 		owned.params = params.to_owned();
 		owned.headers = headers.to_owned();
@@ -660,7 +660,7 @@ export struct HttpRequestView {
 		for (auto const &file: files) {
 			owned.files.push_back(file.to_owned());
 		}
-		owned.body = S{body};
+		owned.body = std::string{body};
 		return owned;
 	}
 };
@@ -672,7 +672,7 @@ class CloneableFunction<R(Args...)> {
 	struct Concept {
 		virtual ~Concept() = default;
 		virtual R invoke(Args... args) = 0;
-		[[nodiscard]] virtual UP<Concept> clone() const = 0;
+		[[nodiscard]] virtual std::unique_ptr<Concept> clone() const = 0;
 	};
 	template<typename F>
 	struct Model final : Concept {
@@ -684,9 +684,9 @@ class CloneableFunction<R(Args...)> {
 			Args... args) override {
 			return std::invoke(fn, forward<Args>(args)...);
 		}
-		[[nodiscard]] UP<Concept> clone() const override { return make_unique<Model>(fn); }
+		[[nodiscard]] std::unique_ptr<Concept> clone() const override { return make_unique<Model>(fn); }
 	};
-	UP<Concept> fn_{};
+	std::unique_ptr<Concept> fn_{};
 
 public:
 	CloneableFunction() = default;
