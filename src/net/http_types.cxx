@@ -465,7 +465,11 @@ struct Url {
 		bool const default_port = (scheme == "http" && port == 80) || (scheme == "https" && port == 443);
 		if (!default_port) {
 			out += ':';
-			out += to_string(port);
+			std::array<char, 5> port_buf{};
+			auto const [ptr, ec] = to_chars(port_buf.data(), port_buf.data() + port_buf.size(), port);
+			if (ec == errc{}) {
+				out.append(port_buf.data(), static_cast<std::size_t>(ptr - port_buf.data()));
+			}
 		}
 		if (path.empty() || path[0] != '/') {
 			out += '/';
@@ -480,35 +484,48 @@ struct Url {
 	void set_query_param(
 		std::string_view name,
 		std::string_view value) {
-		auto encode = [](std::string_view s) {
-			static constexpr std::array<char, 16> kHex =
-				{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
-			std::string out;
-			out.reserve(s.size());
+		auto is_query_unreserved = [](unsigned char c) noexcept {
+			return (c >= 'A' && c <= 'Z')
+				|| (c >= 'a' && c <= 'z')
+				|| (c >= '0' && c <= '9')
+				|| c == '-'
+				|| c == '_'
+				|| c == '.'
+				|| c == '~';
+		};
+		auto encoded_size = [&](std::string_view s) noexcept {
+			std::size_t out = 0;
 			for (auto const raw_c: s) {
-				unsigned char const c = static_cast<unsigned char>(raw_c);
-				if ((c >= 'A' && c <= 'Z')
-					|| (c >= 'a' && c <= 'z')
-					|| (c >= '0' && c <= '9')
-					|| c == '-'
-					|| c == '_'
-					|| c == '.'
-					|| c == '~') {
-					out += static_cast<char>(c);
-				} else {
-					out += '%';
-					out += kHex[c >> 4U];
-					out += kHex[c & 0x0FU];
-				}
+				out += is_query_unreserved(static_cast<unsigned char>(raw_c)) ? std::size_t{1} : std::size_t{3};
 			}
 			return out;
 		};
+		auto append_encoded = [&](std::string_view s) {
+			static constexpr std::array<char, 16> kHex =
+				{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+			for (auto const raw_c: s) {
+				unsigned char const c = static_cast<unsigned char>(raw_c);
+				if (is_query_unreserved(c)) {
+					query += static_cast<char>(c);
+				} else {
+					query += '%';
+					query += kHex[c >> 4U];
+					query += kHex[c & 0x0FU];
+				}
+			}
+		};
+		query.reserve(
+			query.size()
+			+ (query.empty() ? std::size_t{0} : std::size_t{1})
+			+ encoded_size(name)
+			+ 1
+			+ encoded_size(value));
 		if (!query.empty()) {
 			query += '&';
 		}
-		query += encode(name);
+		append_encoded(name);
 		query += '=';
-		query += encode(value);
+		append_encoded(value);
 	}
 };
 expected<Url, UrlError> Url::parse(

@@ -129,7 +129,12 @@ struct TlsStreamRef {
 		return nullopt;
 	}
 	if (loc.starts_with("//")) {
-		auto abs = Url::parse(format("{}:{}", base.scheme, loc));
+		std::string abs_url;
+		abs_url.reserve(base.scheme.size() + 1 + loc.size());
+		abs_url += base.scheme;
+		abs_url += ':';
+		abs_url += loc;
+		auto abs = Url::parse(abs_url);
 		return abs ? std::optional<Url>{move(*abs)} : nullopt;
 	}
 	if (auto abs = Url::parse(loc); abs) {
@@ -150,12 +155,19 @@ struct TlsStreamRef {
 		next.path = move(loc);
 		return next;
 	}
-	std::string base_path = next.path.empty() ? std::string{"/"} : next.path;
+	std::string_view const base_path = next.path.empty() ? std::string_view{"/"} : std::string_view{next.path};
 	auto const slash = base_path.rfind('/');
-	if (slash == std::string::npos) {
-		next.path = std::string{"/"} + loc;
+	if (slash == std::string_view::npos) {
+		next.path.clear();
+		next.path.reserve(1 + loc.size());
+		next.path.push_back('/');
+		next.path += loc;
 	} else {
-		next.path = std::string{base_path.substr(0, slash + 1)} + loc;
+		std::string new_path;
+		new_path.reserve(slash + 1 + loc.size());
+		new_path.append(base_path.data(), slash + 1);
+		new_path += loc;
+		next.path = move(new_path);
 	}
 	return next;
 }

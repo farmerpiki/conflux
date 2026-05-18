@@ -244,7 +244,11 @@ public:
 			std::string_view method,
 			std::string_view path,
 			F &&handler) {
-			router_.add(method, prefix_ + std::string{path}, wrap(Router::make_handler(forward<F>(handler))));
+			std::string full_path;
+			full_path.reserve(prefix_.size() + path.size());
+			full_path += prefix_;
+			full_path.append(path.data(), path.size());
+			router_.add(method, full_path, wrap(Router::make_handler(forward<F>(handler))));
 			return *this;
 		}
 

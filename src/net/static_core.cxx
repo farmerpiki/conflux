@@ -7,6 +7,16 @@ import std;
 import conflux.types;
 
 export struct StaticRequest {
+	std::string_view file_param;
+	std::string_view method;
+	std::string_view accept_encoding;
+	std::string_view if_none_match;
+	std::string_view if_modified_since;
+	std::string_view range;
+	bool tls{};
+};
+
+export struct StaticRequestStorage {
 	std::string file_param;
 	std::string method;
 	std::string accept_encoding;
@@ -14,6 +24,31 @@ export struct StaticRequest {
 	std::string if_modified_since;
 	std::string range;
 	bool tls{};
+
+	[[nodiscard]] static StaticRequestStorage from(
+		StaticRequest const &request) {
+		return StaticRequestStorage{
+			.file_param = std::string{request.file_param},
+			.method = std::string{request.method},
+			.accept_encoding = std::string{request.accept_encoding},
+			.if_none_match = std::string{request.if_none_match},
+			.if_modified_since = std::string{request.if_modified_since},
+			.range = std::string{request.range},
+			.tls = request.tls,
+		};
+	}
+
+	[[nodiscard]] StaticRequest view() const noexcept {
+		return StaticRequest{
+			.file_param = file_param,
+			.method = method,
+			.accept_encoding = accept_encoding,
+			.if_none_match = if_none_match,
+			.if_modified_since = if_modified_since,
+			.range = range,
+			.tls = tls,
+		};
+	}
 };
 
 export struct StaticCacheEntry {

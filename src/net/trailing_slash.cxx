@@ -21,10 +21,18 @@ inline bool is_unreserved(
 	}
 	return c == '-' || c == '.' || c == '_' || c == '~';
 }
-inline std::string percent_encode(
+inline std::size_t percent_encoded_size(
+	std::string_view in) noexcept {
+	std::size_t out = 0;
+	for (char const ch: in) {
+		auto const c = static_cast<unsigned char>(ch);
+		out += is_unreserved(c) ? std::size_t{1} : std::size_t{3};
+	}
+	return out;
+}
+inline void append_percent_encoded(
+	std::string &out,
 	std::string_view in) {
-	std::string out;
-	out.reserve(in.size());
 	static constexpr char kHex[] = "0123456789ABCDEF";
 	for (char const ch: in) {
 		auto const c = static_cast<unsigned char>(ch);
@@ -36,20 +44,25 @@ inline std::string percent_encode(
 			out.push_back(kHex[c & 0x0FU]);
 		}
 	}
-	return out;
 }
 inline std::string build_query(
 	HttpFieldsView const &query) {
+	std::size_t size = query.empty() ? 0 : query.size() - 1;
+	for (auto const &[k, v]: query) {
+		size += percent_encoded_size(k) + 1 + percent_encoded_size(v);
+	}
+
 	std::string out;
+	out.reserve(size);
 	bool first = true;
 	for (auto const &[k, v]: query) {
 		if (!first) {
 			out.push_back('&');
 		}
 		first = false;
-		out += percent_encode(k);
+		append_percent_encoded(out, k);
 		out.push_back('=');
-		out += percent_encode(v);
+		append_percent_encoded(out, v);
 	}
 	return out;
 }
@@ -95,7 +108,9 @@ export Router::Middleware trailing_slash_middleware(
 			return make_redirect(std::string{path.substr(0, path.size() - 1)});
 		}
 		if (opts.mode == TrailingSlashMode::add && !has_slash) {
-			return make_redirect(std::string{path} + '/');
+			std::string new_path{path};
+			new_path.push_back('/');
+			return make_redirect(move(new_path));
 		}
 
 		return next(req);

@@ -33,7 +33,13 @@ std::string mac_b64(
 export std::string sign_cookie(
 	std::string_view value,
 	std::string_view secret) {
-	return std::string{value} + '.' + mac_b64(value, secret);
+	auto mac = mac_b64(value, secret);
+	std::string out;
+	out.reserve(value.size() + 1 + mac.size());
+	out.append(value.data(), value.size());
+	out.push_back('.');
+	out += mac;
+	return out;
 }
 export expected<std::string, std::string> sign_cookie(
 	std::string_view value,

@@ -23,7 +23,10 @@ import conflux.net.config;
 		root_dir.pop_back();
 	}
 
-	auto pattern = std::string{url_prefix} + "/{*file}";
+	std::string pattern;
+	pattern.reserve(url_prefix.size() + sizeof("/{*file}") - 1);
+	pattern.append(url_prefix.data(), url_prefix.size());
+	pattern += "/{*file}";
 	auto effective_sopts = sopts;
 	if (!effective_sopts.file_cache.enabled) {
 		effective_sopts.file_cache = static_file_cache;

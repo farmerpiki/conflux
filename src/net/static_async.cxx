@@ -242,23 +242,25 @@ HttpResponse handle_static_get_request(
 			return HttpResponse::html("<html><body><h1>403 Forbidden</h1></body></html>", kHttpForbidden, "Forbidden");
 		}
 
-		StaticRequest sreq{
-			.file_param = move(*norm),
-			.method = std::string{req.method},
-			.accept_encoding = std::string{req.headers["accept-encoding"]},
-			.if_none_match = std::string{std::as_const(req.headers)["if-none-match"]},
-			.if_modified_since = std::string{std::as_const(req.headers)["if-modified-since"]},
-			.range = std::string{req.headers["range"]},
+		StaticRequest const sreq{
+			.file_param = *norm,
+			.method = req.method,
+			.accept_encoding = req.headers["accept-encoding"],
+			.if_none_match = std::as_const(req.headers)["if-none-match"],
+			.if_modified_since = std::as_const(req.headers)["if-modified-since"],
+			.range = req.headers["range"],
 			.tls = req.is_tls,
 		};
 
 		if (sopts.offload_pool) {
+			auto owned_sreq = StaticRequestStorage::from(sreq);
 			auto dr = make_shared<DeferredResponse>();
-			auto ok = sopts.offload_pool->enqueue([rd, root_fd, sopts, sreq = move(sreq), &static_cache, dr]() mutable {
-				try {
-					dr->complete(handle_static_get(rd, root_fd, sopts, sreq, static_cache));
-				} catch (...) { dr->complete(HttpResponse::internal_error()); }
-			});
+			auto ok = sopts.offload_pool->enqueue(
+				[rd, root_fd, sopts, sreq = move(owned_sreq), &static_cache, dr]() mutable {
+					try {
+						dr->complete(handle_static_get(rd, root_fd, sopts, sreq.view(), static_cache));
+					} catch (...) { dr->complete(HttpResponse::internal_error()); }
+				});
 			if (!ok) {
 				return HttpResponse::internal_error("offload queue full");
 			}
@@ -403,7 +405,7 @@ HttpResponse handle_static_get(
 	StaticRequest const &r,
 	StaticCacheStore &static_cache) {
 	try {
-		std::string file_param = r.file_param;
+		std::string file_param{r.file_param};
 		auto full_path = rd + file_param;
 		std::string_view rel_path = std::string_view{file_param};
 		if (rel_path.starts_with('/')) {
@@ -554,9 +556,11 @@ HttpResponse handle_static_get(
 			resp.set_text_body({});
 			return resp;
 		}
-		if (auto const &ims = r.if_modified_since; !ims.empty()) {
+		if (auto const ims = r.if_modified_since; !ims.empty() && ims.size() < 64) {
+			std::array<char, 64> ims_buf{};
+			ranges::copy(ims, ims_buf.data());
 			tm req_tm{};
-			if (::strptime(ims.c_str(), "%a, %d %b %Y %H:%M:%S GMT", &req_tm)) {
+			if (::strptime(ims_buf.data(), "%a, %d %b %Y %H:%M:%S GMT", &req_tm)) {
 				req_tm.tm_isdst = 0;
 				if (st.st_mtime <= ::timegm(&req_tm)) {
 					HttpResponse resp;
