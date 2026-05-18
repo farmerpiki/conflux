@@ -1763,20 +1763,12 @@ struct IoUringCaps {
 	c.registered_buffer_clone = c.feat_reg_buf_clone;
 	io_uring_probe *probe = io_uring_get_probe_ring(ring.raw());
 	if (probe != nullptr) {
-#ifdef IORING_OP_SOCKET
 		c.op_socket = io_uring_opcode_supported(probe, IORING_OP_SOCKET) != 0;
 		c.accept_direct_supported = c.op_socket;
-#endif
-#ifdef IORING_OP_URING_CMD
 		c.op_uring_cmd = io_uring_opcode_supported(probe, IORING_OP_URING_CMD) != 0;
 		c.cmd_sock_setsockopt = c.op_uring_cmd;
-#endif
-#ifdef IORING_OP_SEND_ZC
 		c.send_zc = io_uring_opcode_supported(probe, IORING_OP_SEND_ZC) != 0;
-#endif
-#ifdef IORING_OP_RECV_ZC
 		c.recv_zc = io_uring_opcode_supported(probe, IORING_OP_RECV_ZC) != 0;
-#endif
 		io_uring_free_probe(probe);
 	}
 	c.zc_rx = c.recv_zc;

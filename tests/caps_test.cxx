@@ -32,20 +32,12 @@ TEST_CASE(
 	if (!probe) {
 		SKIP("kernel/liburing probe unavailable");
 	}
-#ifdef IORING_OP_SOCKET
 	CHECK(caps.op_socket == (io_uring_opcode_supported(probe, IORING_OP_SOCKET) != 0));
 	CHECK(caps.accept_direct_supported == caps.op_socket);
-#endif
-#ifdef IORING_OP_URING_CMD
 	CHECK(caps.op_uring_cmd == (io_uring_opcode_supported(probe, IORING_OP_URING_CMD) != 0));
 	CHECK(caps.cmd_sock_setsockopt == caps.op_uring_cmd);
-#endif
-#ifdef IORING_OP_SEND_ZC
 	CHECK(caps.send_zc == (io_uring_opcode_supported(probe, IORING_OP_SEND_ZC) != 0));
-#endif
-#ifdef IORING_OP_RECV_ZC
 	CHECK(caps.recv_zc == (io_uring_opcode_supported(probe, IORING_OP_RECV_ZC) != 0));
-#endif
 	io_uring_free_probe(probe);
 }
 TEST_CASE(
