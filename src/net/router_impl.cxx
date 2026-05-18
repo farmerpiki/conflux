@@ -61,15 +61,21 @@ struct Router::Impl {
 		struct Route {
 			std::string method{};
 			std::vector<Segment> pattern{};
+			std::string exact_path{};
+			bool has_exact_path{};
 			Handler handler{};
 		};
 		struct SseRoute {
 			std::vector<Segment> pattern{};
+			std::string exact_path{};
+			bool has_exact_path{};
 			SseHandler handler{};
 		};
 		struct ContextRoute {
 			std::string method{};
 			std::vector<Segment> pattern{};
+			std::string exact_path{};
+			bool has_exact_path{};
 			ContextHandler handler{};
 		};
 		std::vector<Route> routes{};
@@ -118,6 +124,13 @@ namespace {
 	std::size_t pos = (path.front() == '/') ? std::size_t{1} : std::size_t{0};
 	auto const next = path.find('/', pos);
 	return (next == std::string_view::npos) ? path.substr(pos) : path.substr(pos, next - pos);
+}
+
+[[nodiscard]] bool is_exact_literal_pattern(
+	std::vector<Segment> const &pattern) noexcept {
+	return ranges::none_of(pattern, [](Segment const &segment) {
+		return segment.is_param || segment.is_wildcard;
+	});
 }
 
 void index_route_pattern(
@@ -293,7 +306,7 @@ template<typename ImplT>
 	auto routes = indexed_route_range(
 		impl.context_routes,
 		select_method_routes(impl.context_route_indexes, route_method, path_sv));
-	return dispatch_context_routes(req, ctx, path_sv, is_head, routes);
+	return dispatch_context_routes(req, ctx, path_sv, routes);
 }
 
 } // namespace
@@ -335,8 +348,15 @@ void Router::add_prepared(
 	Handler handler) {
 	auto pattern = parse_pattern(path);
 	auto const route_index = impl_->routes.size();
+	auto const has_exact_path = is_exact_literal_pattern(pattern);
 	index_route_pattern(find_or_add_method_index(impl_->route_indexes, method).routes, pattern, route_index);
-	impl_->routes.push_back({std::string{method}, move(pattern), move(handler)});
+	impl_->routes.push_back({
+		.method = std::string{method},
+		.pattern = move(pattern),
+		.exact_path = has_exact_path ? std::string{path} : std::string{},
+		.has_exact_path = has_exact_path,
+		.handler = move(handler),
+	});
 }
 
 void Router::add_context_prepared(
@@ -345,8 +365,15 @@ void Router::add_context_prepared(
 	ContextHandler handler) {
 	auto pattern = parse_pattern(path);
 	auto const route_index = impl_->context_routes.size();
+	auto const has_exact_path = is_exact_literal_pattern(pattern);
 	index_route_pattern(find_or_add_method_index(impl_->context_route_indexes, method).routes, pattern, route_index);
-	impl_->context_routes.push_back({std::string{method}, move(pattern), move(handler)});
+	impl_->context_routes.push_back({
+		.method = std::string{method},
+		.pattern = move(pattern),
+		.exact_path = has_exact_path ? std::string{path} : std::string{},
+		.has_exact_path = has_exact_path,
+		.handler = move(handler),
+	});
 }
 
 void Router::use_prepared(Middleware mw) {
@@ -366,8 +393,14 @@ void Router::sse_prepared(
 	SseHandler handler) {
 	auto pattern = parse_pattern(path);
 	auto const route_index = impl_->sse_routes.size();
+	auto const has_exact_path = is_exact_literal_pattern(pattern);
 	index_route_pattern(impl_->sse_index, pattern, route_index);
-	impl_->sse_routes.push_back({move(pattern), move(handler)});
+	impl_->sse_routes.push_back({
+		.pattern = move(pattern),
+		.exact_path = has_exact_path ? std::string{path} : std::string{},
+		.has_exact_path = has_exact_path,
+		.handler = move(handler),
+	});
 }
 
 [[nodiscard]] bool Router::has_context_routes() const noexcept {

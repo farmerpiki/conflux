@@ -66,13 +66,13 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 	try {
 		HttpFieldsView matched_params;
 
-		// Regular routes first.
+		// Regular routes first. Candidate selection has already filtered by method.
 		for (auto const &route: routes) {
-			if (route.method != req.method && !(is_head && route.method == "GET")) {
-				continue;
-			}
 			matched_params.clear();
-			if (match_segments(route.pattern, path_sv, matched_params)) {
+			bool const matched = route.has_exact_path
+				? (route.exact_path == path_sv)
+				: match_segments(route.pattern, path_sv, matched_params);
+			if (matched) {
 				auto all_params = req.params;
 				for (auto const &[k, v]: matched_params) {
 					if (!all_params.get(k)) {
@@ -80,7 +80,8 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					}
 				}
 				// HEAD matched to a GET route: present as GET so handlers are HEAD-transparent.
-		std::string_view const effective_method = (is_head && route.method == "GET") ? std::string_view{"GET"} : req.method;
+				std::string_view const effective_method =
+					(is_head && route.method == "GET") ? std::string_view{"GET"} : req.method;
 				HttpRequestView const matched_view{
 					effective_method,
 					req.path,
@@ -114,7 +115,10 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 		if (req.method == "GET") {
 			for (auto const &route: sse_routes) {
 				matched_params.clear();
-				if (match_segments(route.pattern, path_sv, matched_params)) {
+				bool const matched = route.has_exact_path
+					? (route.exact_path == path_sv)
+					: match_segments(route.pattern, path_sv, matched_params);
+				if (matched) {
 					auto channel = make_shared<SseChannel>();
 					HttpRequest matched = req.to_owned();
 					for (auto &[k, v]: matched_params) {
@@ -160,18 +164,17 @@ export template<typename ContextRouteRange, typename Ctx>
 	HttpRequest const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
-	bool is_head,
 	ContextRouteRange const &context_routes) {
 	if (context_routes.empty()) {
 		return nullopt;
 	}
 	HttpFieldsView matched_params;
 	for (auto const &route: context_routes) {
-		if (route.method != req.method && !(is_head && route.method == "GET")) {
-			continue;
-		}
 		matched_params.clear();
-		if (match_segments(route.pattern, path_sv, matched_params)) {
+		bool const matched = route.has_exact_path
+			? (route.exact_path == path_sv)
+			: match_segments(route.pattern, path_sv, matched_params);
+		if (matched) {
 			HttpRequest call_req = req;
 			for (auto const &[k, v]: matched_params) {
 				if (!call_req.params.get(k)) {

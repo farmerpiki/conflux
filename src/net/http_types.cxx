@@ -8,6 +8,13 @@ import conflux.types;
 	unsigned char c) noexcept {
 	return c >= 'A' && c <= 'Z' ? static_cast<unsigned char>(c + ('a' - 'A')) : c;
 }
+[[nodiscard]] constexpr bool ascii_ci_equal(
+	std::string_view lhs,
+	std::string_view rhs) noexcept {
+	return lhs.size() == rhs.size() && ranges::equal(lhs, rhs, [](unsigned char x, unsigned char y) {
+		return ascii_ci_fold(x) == ascii_ci_fold(y);
+	});
+}
 [[nodiscard]] static std::string_view http_trim(
 	std::string_view s) noexcept {
 	while (!s.empty() && (s.front() == ' ' || s.front() == '\t' || s.front() == '\r' || s.front() == '\n')) {
@@ -43,15 +50,7 @@ export struct FieldEq {
 	[[nodiscard]] bool operator ()(
 		std::string_view a,
 		std::string_view b) const noexcept {
-		if (a.size() != b.size()) {
-			return false;
-		}
-		if (!ci) {
-			return a == b;
-		}
-		return ranges::equal(a, b, [](unsigned char x, unsigned char y) {
-			return ascii_ci_fold(x) == ascii_ci_fold(y);
-		});
+		return ci ? ascii_ci_equal(a, b) : a == b;
 	}
 	[[nodiscard]] bool operator ()(
 		std::string const &a,
@@ -76,15 +75,7 @@ protected:
 		this Self const &self,
 		std::string_view a,
 		std::string_view b) noexcept {
-		if (a.size() != b.size()) {
-			return false;
-		}
-		if (!self.case_insensitive_) {
-			return a == b;
-		}
-		return ranges::equal(a, b, [](unsigned char x, unsigned char y) {
-			return ascii_ci_fold(x) == ascii_ci_fold(y);
-		});
+		return self.case_insensitive_ ? ascii_ci_equal(a, b) : a == b;
 	}
 
 public:
@@ -629,12 +620,7 @@ expected<Url, UrlError> Url::parse(
 [[nodiscard]] bool ascii_iequals(
 	std::string_view lhs,
 	std::string_view rhs) noexcept {
-	if (lhs.size() != rhs.size()) {
-		return false;
-	}
-	return ranges::equal(lhs, rhs, [](unsigned char x, unsigned char y) {
-		return ascii_ci_fold(x) == ascii_ci_fold(y);
-	});
+	return ascii_ci_equal(lhs, rhs);
 }
 constexpr std::array<std::string_view, 8> kHopByHopHeaders{
 	"connection",
