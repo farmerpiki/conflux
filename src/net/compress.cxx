@@ -111,7 +111,11 @@ std::vector<GzipBackend> available_gzip_backends() {
 	return backends;
 }
 bool gzip_supported() noexcept {
-	return !available_gzip_backends().empty();
+#if CONFLUX_HAS_COMPRESS
+	return true;
+#else
+	return false;
+#endif
 }
 bool zstd_supported() noexcept {
 #if CONFLUX_HAS_ZSTD
@@ -128,23 +132,26 @@ bool is_compressible(
 		|| content_type.starts_with("application/javascript")
 		|| content_type.starts_with("image/svg+xml");
 }
-float header_q_value(
-	std::string_view hdr,
-	std::string_view codec_name) {
+struct DynamicEncodingQs {
+	float gzip{-1.0F};
+	float zstd{-1.0F};
+};
+DynamicEncodingQs header_encoding_q_values(
+	std::string_view hdr) {
 	float q_star = -1.0F;
-	float q_codec = -1.0F;
+	DynamicEncodingQs qs{};
 
 	for (std::size_t pos = 0; pos <= hdr.size();) {
 		auto comma = hdr.find(',', pos);
 		auto token = (comma == std::string_view::npos) ? hdr.substr(pos) : hdr.substr(pos, comma - pos);
 		auto semi = token.find(';');
-		auto name = ascii_lower(trim(token.substr(0, semi)));
+		auto name = trim(token.substr(0, semi));
 
 		float q = 1.0F;
 		if (semi != std::string_view::npos) {
 			if (auto eq = token.find('=', semi); eq != std::string_view::npos) {
-				auto key = ascii_lower(trim(token.substr(semi + 1, eq - semi - 1)));
-				if (key == "q") {
+				auto key = trim(token.substr(semi + 1, eq - semi - 1));
+				if (ascii_iequals(key, "q")) {
 					auto val = trim(token.substr(eq + 1));
 					from_chars(val.data(), val.data() + val.size(), q);
 				}
@@ -153,8 +160,10 @@ float header_q_value(
 
 		if (name == "*") {
 			q_star = max(q_star, q);
-		} else if (name == codec_name) {
-			q_codec = max(q_codec, q);
+		} else if (ascii_iequals(name, "gzip")) {
+			qs.gzip = max(qs.gzip, q);
+		} else if (ascii_iequals(name, "zstd")) {
+			qs.zstd = max(qs.zstd, q);
 		}
 
 		if (comma == std::string_view::npos) {
@@ -163,7 +172,13 @@ float header_q_value(
 		pos = comma + 1;
 	}
 
-	return (q_codec < 0.0F) ? q_star : q_codec;
+	if (qs.gzip < 0.0F) {
+		qs.gzip = q_star;
+	}
+	if (qs.zstd < 0.0F) {
+		qs.zstd = q_star;
+	}
+	return qs;
 }
 std::string gzip_compress_with_backend(
 	GzipBackend backend,
@@ -330,8 +345,9 @@ DynamicEncodingPreference resolve_dynamic_encoding_preference() {
 // out of this path and should be reserved for cached/static responses.
 std::string pick_encoding(
 	std::string_view hdr) {
-	float const q_gzip = gzip_supported() ? header_q_value(hdr, "gzip") : -1.0F;
-	float const q_zstd = zstd_supported() ? header_q_value(hdr, "zstd") : -1.0F;
+	auto const qs = header_encoding_q_values(hdr);
+	float const q_gzip = gzip_supported() ? qs.gzip : -1.0F;
+	float const q_zstd = zstd_supported() ? qs.zstd : -1.0F;
 
 	if (q_gzip <= 0.0F && q_zstd <= 0.0F) {
 		return {};

@@ -386,6 +386,7 @@ wroot::Task<bool> async_recv_chunked(
 	bool &too_large) {
 	too_large = false;
 	decoded.clear();
+	decoded.reserve(min(encoded.size(), cap));
 	std::size_t consumed = 0;
 	std::array<std::uint8_t, 4096> tmp{};
 	for (;;) {
@@ -806,7 +807,10 @@ wroot::Task<ClientResult> do_async_request(
 				.kind = HttpErrorKind::body_too_large,
 				.message = format("Content-Length {} exceeds limit {}", content_length, max_body_sz)});
 	}
-	response.body = raw.substr(header_end + 4);
+	std::size_t const body_offset = header_end + 4;
+	std::size_t const initial_body_bytes = raw.size() - body_offset;
+	raw.erase(0, body_offset);
+	response.body = move(raw);
 	auto do_body = [&]() -> wroot::Task<std::optional<HttpError>> {
 #if CONFLUX_HAS_TLS
 		if (tls_stream) {
@@ -855,7 +859,7 @@ wroot::Task<ClientResult> do_async_request(
 						.os_errno = e.code().value(),
 						.message = "timed out receiving body"};
 				}
-				tel.bytes_received += content_length - (raw.size() - (header_end + 4));
+				tel.bytes_received += content_length - initial_body_bytes;
 			} else if (!has_content_length && !chunked) {
 				bool too_large = false;
 				try {
@@ -922,7 +926,7 @@ wroot::Task<ClientResult> do_async_request(
 						.os_errno = e.code().value(),
 						.message = "timed out receiving body"};
 				}
-				tel.bytes_received += content_length - (raw.size() - (header_end + 4));
+				tel.bytes_received += content_length - initial_body_bytes;
 			} else if (!has_content_length && !chunked) {
 				bool too_large = false;
 				try {

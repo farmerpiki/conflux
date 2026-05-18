@@ -450,6 +450,7 @@ bool recv_chunked(
 	bool &too_large) {
 	too_large = false;
 	decoded.clear();
+	decoded.reserve(min(encoded.size(), cap));
 	std::size_t consumed = 0;
 	for (;;) {
 		switch (decode_chunked_prefix(encoded, decoded, consumed)) {
@@ -892,8 +893,11 @@ ClientResult do_blocking_request(
 	}
 
 	// Receive body.
-	response.body = raw.substr(header_end + 4);
+	std::size_t const body_offset = header_end + 4;
+	std::size_t const initial_body_bytes = raw.size() - body_offset;
 	tel.bytes_received += raw.size();
+	raw.erase(0, body_offset);
+	response.body = move(raw);
 
 	auto t_body = std::chrono::steady_clock::now();
 	if (req.method() == "HEAD") {
@@ -934,7 +938,7 @@ ClientResult do_blocking_request(
 					.os_errno = errno,
 					.message = "failed to receive body"});
 		}
-		tel.bytes_received += content_length - (raw.size() - (header_end + 4));
+		tel.bytes_received += content_length - initial_body_bytes;
 	} else if (!has_content_length && !chunked) {
 		bool too_large = false;
 		recv_to_eof(conn, response.body, between_sec, max_body, too_large);
