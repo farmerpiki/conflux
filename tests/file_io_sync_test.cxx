@@ -291,15 +291,15 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	SV text = "legacy sync aliases";
-	auto tmp = open_tmpfile_sync(dir.fd, TempFileOptions{.prefer_otmpfile = false});
+	auto tmp = blocking_open_tmpfile(dir.fd, TempFileOptions{.prefer_otmpfile = false});
 	REQUIRE(tmp.has_value());
 
 	auto wr = write_all_fd(tmp->fd(), as_bytes(span{text.data(), text.size()}));
 	REQUIRE(wr.has_value());
-	auto pub = publish_tmpfile_sync(move(*tmp), dir.fd, SV{"legacy.txt"});
+	auto pub = blocking_publish_tmpfile(move(*tmp), dir.fd, SV{"legacy.txt"});
 	REQUIRE(pub.has_value());
 
-	auto file = openat_contained_sync(dir.fd, "legacy.txt", O_RDONLY);
+	auto file = blocking_openat_contained(dir.fd, "legacy.txt", O_RDONLY);
 	REQUIRE(file.has_value());
 	auto bytes = read_all_fd(file->fd());
 	REQUIRE(bytes.has_value());

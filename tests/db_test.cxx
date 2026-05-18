@@ -262,11 +262,11 @@ TEST_CASE(
 	"[db][unit]") {
 	Pipeline pipeline;
 	auto query = pipeline.query("SELECT 1::int8");
-	auto out = root::join(move(query));
+	auto out = root::blocking_join(move(query));
 	REQUIRE(out.is_failure());
 
 	auto sync = pipeline.sync();
-	auto sync_out = root::join(move(sync));
+	auto sync_out = root::blocking_join(move(sync));
 	REQUIRE(sync_out.is_failure());
 }
 TEST_CASE(

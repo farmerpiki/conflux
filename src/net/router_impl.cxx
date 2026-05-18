@@ -293,7 +293,7 @@ template<typename ImplT>
 	auto routes = indexed_route_range(
 		impl.context_routes,
 		select_method_routes(impl.context_route_indexes, route_method, path_sv));
-	return dispatch_async_routes(req, ctx, path_sv, is_head, routes);
+	return dispatch_context_routes(req, ctx, path_sv, is_head, routes);
 }
 
 } // namespace
@@ -530,9 +530,3 @@ Router &Router::serve_static(
 		}
 		return dispatch_router_async(*impl_, req, ctx, path_sv, is_head);
 	}
-
-[[nodiscard]] Opt<HttpResponse> Router::dispatch_async(
-	HttpRequest const &req,
-	RequestContext const &ctx) const {
-	return dispatch_context(req, ctx);
-}

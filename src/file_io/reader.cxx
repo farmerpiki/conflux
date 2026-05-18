@@ -110,17 +110,6 @@ struct AsyncAtomicPathParts {
 // immediately with ENOSPC.
 // ---------------------------------------------------------------------------
 
-#define CONFLUX_FILE_READER_ASYNC_ALIAS(NewName, OldName) \
-	template<typename... Args> \
-	[[nodiscard]] decltype(auto) NewName(Args &&...args) { \
-		return OldName(forward<Args>(args)...); \
-	}
-#define CONFLUX_FILE_READER_DEPRECATED_ASYNC_ALIAS(NewName, OldName, Message) \
-	template<typename... Args> \
-	[[deprecated(Message)]] [[nodiscard]] decltype(auto) NewName(Args &&...args) { \
-		return OldName(forward<Args>(args)...); \
-	}
-
 export class FileReader {
 	io_uring *ring_;
 	CompletionTable *completions_;
@@ -265,7 +254,7 @@ public:
 	// Pass AT_FDCWD for absolute paths / cwd-relative.
 	// `path` must be a null-terminated std::string owned by the caller until the
 	// CQE fires; if unsure, pass a std::string and we copy.
-	[[nodiscard]] root::Task<FileHandle> open_async(
+	[[nodiscard]] root::Task<FileHandle> async_open(
 		int dir_fd,
 		std::string path,
 		int flags,
@@ -294,7 +283,7 @@ public:
 	}
 	// Open a path directly into the ring's fixed-file table. The owner must
 	// have registered a sparse file table first.
-	[[nodiscard]] root::Task<FileHandle> open_direct_async(
+	[[nodiscard]] root::Task<FileHandle> async_open_direct(
 		int dir_fd,
 		std::string path,
 		int flags,
@@ -331,7 +320,7 @@ public:
 		return move(task);
 	}
 	// statx on a path. `mask` follows statx(2) — STATX_BASIC_STATS by default.
-	[[nodiscard]] root::Task<FileStat> statx_async(
+	[[nodiscard]] root::Task<FileStat> async_statx(
 		int dir_fd,
 		std::string path,
 		int flags = 0,
@@ -372,12 +361,12 @@ public:
 		return move(task);
 	}
 	// fstat-equivalent via statx with AT_EMPTY_PATH — avoids a path lookup.
-	[[nodiscard]] root::Task<FileStat> stat_async(
+	[[nodiscard]] root::Task<FileStat> async_stat(
 		FileHandle const &fh) {
 		if (fh.is_direct()) {
-			return statx_async(fh.direct_slot(), std::string{}, AT_EMPTY_PATH, STATX_BASIC_STATS, true);
+			return async_statx(fh.direct_slot(), std::string{}, AT_EMPTY_PATH, STATX_BASIC_STATS, true);
 		}
-		return statx_async(fh.raw_fd(), std::string{}, AT_EMPTY_PATH);
+		return async_statx(fh.raw_fd(), std::string{}, AT_EMPTY_PATH);
 	}
 	// Read into a caller-owned span. The caller must keep `dst` alive until the
 	// Flow resolves.
@@ -707,7 +696,7 @@ public:
 		return move(task);
 	}
 	// No-op SQE — useful for latency measurement, wakeup, or pipeline flushing.
-	[[nodiscard]] root::Task<void> nop_async() {
+	[[nodiscard]] root::Task<void> async_nop() {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
@@ -720,7 +709,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> fsync_async(
+	[[nodiscard]] root::Task<void> async_fsync(
 		FileHandle const &fh,
 		bool data_only = false) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
@@ -735,7 +724,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> fallocate_async(
+	[[nodiscard]] root::Task<void> async_fallocate(
 		FileHandle const &fh,
 		int mode,
 		std::uint64_t offset,
@@ -753,7 +742,7 @@ public:
 		return move(task);
 	}
 	// Consumes the handle; the ring closes the fd via io_uring.
-	[[nodiscard]] root::Task<void> fadvise_async(
+	[[nodiscard]] root::Task<void> async_fadvise(
 		FileHandle const &fh,
 		std::uint64_t offset,
 		std::uint32_t len,
@@ -774,7 +763,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> madvise_async(
+	[[nodiscard]] root::Task<void> async_madvise(
 		void *addr,
 		std::uint32_t length,
 		int advice) {
@@ -790,7 +779,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> unlink_async(
+	[[nodiscard]] root::Task<void> async_unlink(
 		int dir_fd,
 		std::string path,
 		int flags = 0) {
@@ -807,7 +796,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> rename_async(
+	[[nodiscard]] root::Task<void> async_rename(
 		int old_dir_fd,
 		std::string old_path,
 		int new_dir_fd,
@@ -826,7 +815,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> mkdirat_async(
+	[[nodiscard]] root::Task<void> async_mkdirat(
 		int dir_fd,
 		std::string path,
 		mode_t mode = 0755) {
@@ -843,7 +832,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> symlinkat_async(
+	[[nodiscard]] root::Task<void> async_symlinkat(
 		std::string target,
 		int new_dir_fd,
 		std::string link_path) {
@@ -860,7 +849,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> ftruncate_async(
+	[[nodiscard]] root::Task<void> async_ftruncate(
 		FileHandle const &fh,
 		std::uint64_t length) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
@@ -879,7 +868,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> linkat_async(
+	[[nodiscard]] root::Task<void> async_linkat(
 		int old_dir_fd,
 		std::string old_path,
 		int new_dir_fd,
@@ -898,7 +887,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> sync_file_range_async(
+	[[nodiscard]] root::Task<void> async_sync_file_range(
 		FileHandle const &fh,
 		std::uint64_t offset,
 		unsigned len,
@@ -920,7 +909,7 @@ public:
 		return move(task);
 	}
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]] [[nodiscard]] root::Task<FileHandle>
-	socket_async(
+	async_socket(
 		int domain,
 		int type,
 		int protocol) {
@@ -939,7 +928,7 @@ public:
 	}
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]] [[deprecated(
 		"use socket_io::tcp_connect/tcp_accept paths instead")]] [[nodiscard]] root::Task<FileHandle>
-	socket_direct_async(
+	async_socket_direct(
 		int domain,
 		int type,
 		int protocol,
@@ -960,7 +949,7 @@ public:
 	}
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]]
 	// Create a pipe asynchronously. Returns (read_fd, write_fd) on success.
-	[[nodiscard]] root::Task<std::pair<int, int>> pipe_async(
+	[[nodiscard]] root::Task<std::pair<int, int>> async_pipe(
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
 		auto [task, raw_src] = root::make_task_source<std::pair<int, int>>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = make_shared<root::TaskSource<std::pair<int, int>>>(move(raw_src));
@@ -984,7 +973,7 @@ public:
 		return move(task);
 	}
 	// Async bind. `addr` is copied and kept alive until CQE.
-	[[nodiscard]] root::Task<void> bind_async(
+	[[nodiscard]] root::Task<void> async_bind(
 		FileHandle const &fh,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
@@ -1006,7 +995,7 @@ public:
 		return move(task);
 	}
 	// Async listen.
-	[[nodiscard]] root::Task<void> listen_async(
+	[[nodiscard]] root::Task<void> async_listen(
 		FileHandle const &fh,
 		int backlog = SOMAXCONN) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
@@ -1025,7 +1014,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> shutdown_async(
+	[[nodiscard]] root::Task<void> async_shutdown(
 		FileHandle const &fh,
 		int how) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
@@ -1044,7 +1033,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<std::size_t> tee_async(
+	[[nodiscard]] root::Task<std::size_t> async_tee(
 		int fd_in,
 		int fd_out,
 		std::size_t len,
@@ -1064,7 +1053,7 @@ public:
 	// Installs a direct-slot fd into the process fd table. Returns a raw-fd
 	// FileHandle wrapping the installed fd. Caller must hold a registered-files
 	// table (io_uring_register_files) on this ring.
-	[[nodiscard]] root::Task<FileHandle> fixed_fd_install_async(
+	[[nodiscard]] root::Task<FileHandle> async_fixed_fd_install(
 		FileHandle const &fh,
 		unsigned flags = 0) {
 		auto [task, raw_src] = root::make_task_source<FileHandle>(root::SubmitOptions{.enable_cancellation = false});
@@ -1088,7 +1077,7 @@ public:
 	// Get extended attribute. `name` is moved and kept alive until CQE.
 	// `value` span must remain valid until the returned Flow resolves.
 	// Returns the actual attribute size (may exceed value.size() — ERANGE).
-	[[nodiscard]] root::Task<std::size_t> fgetxattr_async(
+	[[nodiscard]] root::Task<std::size_t> async_fgetxattr(
 		FileHandle const &fh,
 		std::string name,
 		std::span<char> buf) {
@@ -1113,7 +1102,7 @@ public:
 		return move(task);
 	}
 	// Set extended attribute. Both `name` and `data` are moved/kept alive until CQE.
-	[[nodiscard]] root::Task<void> fsetxattr_async(
+	[[nodiscard]] root::Task<void> async_fsetxattr(
 		FileHandle const &fh,
 		std::string name,
 		std::string data,
@@ -1143,7 +1132,7 @@ public:
 	}
 	// Path-based get extended attribute. `name`, `path`, and `buf` must
 	// remain valid until the Flow resolves.
-	[[nodiscard]] root::Task<std::size_t> getxattr_async(
+	[[nodiscard]] root::Task<std::size_t> async_getxattr(
 		std::string path,
 		std::string name,
 		std::span<char> buf) {
@@ -1170,7 +1159,7 @@ public:
 	}
 	// Path-based set extended attribute. `name`, `data`, and `path` are moved
 	// and kept alive until CQE.
-	[[nodiscard]] root::Task<void> setxattr_async(
+	[[nodiscard]] root::Task<void> async_setxattr(
 		std::string path,
 		std::string name,
 		std::string data,
@@ -1201,7 +1190,7 @@ public:
 	}
 	// Wait for process state change (IORING_OP_WAITID). `infop` must stay valid
 	// until the Flow resolves; on success it is filled with signal info.
-	[[nodiscard]] root::Task<void> waitid_async(
+	[[nodiscard]] root::Task<void> async_waitid(
 		idtype_t idtype,
 		id_t id,
 		siginfo_t *infop,
@@ -1221,7 +1210,7 @@ public:
 	}
 	// Futex wait — waits until *futex != val. The futex pointer must remain
 	// valid until the Flow resolves. Returns void on wakeup.
-	[[nodiscard]] root::Task<void> futex_wait_async(
+	[[nodiscard]] root::Task<void> async_futex_wait(
 		std::uint32_t *futex,
 		std::uint64_t val,
 		std::uint64_t mask = FUTEX_BITSET_MATCH_ANY,
@@ -1240,7 +1229,7 @@ public:
 		return move(task);
 	}
 	// Futex wake — wakes up to `val` waiters. Returns the number woken.
-	[[nodiscard]] root::Task<std::uint32_t> futex_wake_async(
+	[[nodiscard]] root::Task<std::uint32_t> async_futex_wake(
 		std::uint32_t *futex,
 		std::uint64_t val,
 		std::uint64_t mask = FUTEX_BITSET_MATCH_ANY,
@@ -1260,7 +1249,7 @@ public:
 	}
 	// Send a synthetic CQE to `target_ring_fd` (the target ring's ring_fd).
 	// The CQE on the target will have res=len, user_data=data.
-	[[nodiscard]] root::Task<void> msg_ring_async(
+	[[nodiscard]] root::Task<void> async_msg_ring(
 		int target_ring_fd,
 		unsigned len,
 		std::uint64_t data,
@@ -1280,7 +1269,7 @@ public:
 	// Arm a one-shot timeout. Resolves (with -ETIME mapped to void) when ms
 	// elapses. If count > 0, fires after count CQE completions OR ms, whichever
 	// is first (IORING_TIMEOUT_BOOTTIME etc. can be passed in flags).
-	[[nodiscard]] root::Task<void> timeout_async(
+	[[nodiscard]] root::Task<void> async_timeout(
 		std::chrono::milliseconds ms,
 		unsigned count = 0,
 		unsigned flags = 0) {
@@ -1293,10 +1282,10 @@ public:
 			flags);
 	}
 	// Cancel a running timeout by its user_data tag. -ENOENT → already fired.
-	[[nodiscard]] root::Task<void> timeout_remove_async(
+	[[nodiscard]] root::Task<void> async_timeout_remove(
 		std::uint64_t user_data,
 		unsigned flags = 0) {
-		return conflux::uring::timeout_remove_async(
+		return conflux::uring::async_timeout_remove(
 			ring_,
 			*completions_,
 			[this](std::uint32_t slot, std::uint32_t gen) noexcept { return encode_ud_(slot, gen); },
@@ -1305,7 +1294,7 @@ public:
 	}
 	// Update an armed timeout. New deadline `ms` replaces the existing one.
 	// `user_data` identifies the timeout SQE to update (its encoded user_data).
-	[[nodiscard]] root::Task<void> timeout_update_async(
+	[[nodiscard]] root::Task<void> async_timeout_update(
 		std::uint64_t user_data,
 		std::chrono::milliseconds ms,
 		unsigned flags = 0) {
@@ -1338,7 +1327,7 @@ public:
 	// Register a one-shot poll on `fd` for `events` (POLLIN, POLLOUT, …).
 	// Resolves with the triggered poll mask when any event fires.
 	// -ENOENT on poll_remove before the event: treated as ECANCELED by caller.
-	[[nodiscard]] root::Task<std::uint32_t> poll_add_async(
+	[[nodiscard]] root::Task<std::uint32_t> async_poll_add(
 		int fd,
 		std::uint32_t events) {
 		auto [task, raw_src] = root::make_task_source<std::uint32_t>(root::SubmitOptions{.enable_cancellation = false});
@@ -1355,7 +1344,7 @@ public:
 	}
 	// Cancel a pending poll_add identified by `user_data`.
 	// -ENOENT means the poll already fired — treated as success.
-	[[nodiscard]] root::Task<void> poll_remove_async(
+	[[nodiscard]] root::Task<void> async_poll_remove(
 		std::uint64_t user_data) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
@@ -1380,7 +1369,7 @@ public:
 	}
 	// Update an armed multishot poll's event mask in-place.
 	// `user_data` is the encoded user_data of the original poll SQE.
-	[[nodiscard]] root::Task<void> poll_update_async(
+	[[nodiscard]] root::Task<void> async_poll_update(
 		std::uint64_t user_data,
 		std::uint32_t new_events,
 		unsigned flags = 0) {
@@ -1398,7 +1387,7 @@ public:
 	}
 	// Accept one connection on a listening socket. Returns the accepted fd.
 	// `addr`/`addrlen` are Opt out-params for the peer address.
-	[[nodiscard]] root::Task<FileHandle> accept_async(
+	[[nodiscard]] root::Task<FileHandle> async_accept(
 		FileHandle const &fh,
 		sockaddr *addr = nullptr,
 		socklen_t *addrlen = nullptr,
@@ -1422,7 +1411,7 @@ public:
 	}
 	// Accept one connection into a registered direct slot.
 	// `addr`/`addrlen` are Opt out-params for the peer address.
-	[[nodiscard]] root::Task<FileHandle> accept_direct_async(
+	[[nodiscard]] root::Task<FileHandle> async_accept_direct(
 		FileHandle const &fh,
 		unsigned file_index,
 		sockaddr *addr = nullptr,
@@ -1449,7 +1438,7 @@ public:
 	// Send an fd to another ring's registered file table. `source_fd` is
 	// installed at `target_fd` slot in the target ring's file table.
 	// Pass IORING_FILE_INDEX_ALLOC for `target_fd` to auto-allocate.
-	[[nodiscard]] root::Task<void> msg_ring_fd_async(
+	[[nodiscard]] root::Task<void> async_msg_ring_fd(
 		int target_ring_fd,
 		int source_fd,
 		int target_fd,
@@ -1469,7 +1458,7 @@ public:
 	}
 	// Wait on multiple futexes simultaneously. Resolves when any waiter
 	// condition is met. `waiters` is moved and kept alive until CQE.
-	[[nodiscard]] root::Task<void> futex_waitv_async(
+	[[nodiscard]] root::Task<void> async_futex_waitv(
 		std::vector<futex_waitv> waiters,
 		unsigned flags = 0) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
@@ -1488,7 +1477,7 @@ public:
 	// Cancel a pending op by its user_data tag. Resolves when the cancel
 	// was submitted; the target op's CQE will still arrive (with -ECANCELED).
 	// -ENOENT means the target already completed — treated as success here.
-	[[nodiscard]] root::Task<void> cancel_async(
+	[[nodiscard]] root::Task<void> async_cancel(
 		std::uint64_t user_data,
 		int flags = 0) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
@@ -1512,7 +1501,7 @@ public:
 		return move(task);
 	}
 	// Cancel all pending ops for `fd`. -ENOENT treated as success.
-	[[nodiscard]] root::Task<void> cancel_fd_async(
+	[[nodiscard]] root::Task<void> async_cancel_fd(
 		int fd,
 		unsigned flags = 0) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
@@ -1537,7 +1526,7 @@ public:
 		return move(task);
 	}
 	// Async connect. `addr` is copied into a shared buffer kept alive until CQE.
-	[[nodiscard]] root::Task<void> connect_async(
+	[[nodiscard]] root::Task<void> async_connect(
 		FileHandle const &fh,
 		sockaddr_storage addr,
 		socklen_t addrlen) {
@@ -1558,7 +1547,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<void> close_async(
+	[[nodiscard]] root::Task<void> async_close(
 		FileHandle fh) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
@@ -1623,7 +1612,7 @@ public:
 		return move(task);
 	}
 	// Send `len` bytes from `buf` on `fh`. Returns bytes sent.
-	[[nodiscard]] root::Task<std::size_t> send_async(
+	[[nodiscard]] root::Task<std::size_t> async_send(
 		FileHandle const &fh,
 		void const *buf,
 		std::size_t len,
@@ -1645,7 +1634,7 @@ public:
 		return move(task);
 	}
 	// Receive up to `len` bytes into `buf` from `fh`. Returns bytes received.
-	[[nodiscard]] root::Task<std::size_t> recv_async(
+	[[nodiscard]] root::Task<std::size_t> async_recv(
 		FileHandle const &fh,
 		void *buf,
 		std::size_t len,
@@ -1667,7 +1656,7 @@ public:
 		return move(task);
 	}
 	// Vectored send via sendmsg(2). `msg` must remain valid until the Flow resolves.
-	[[nodiscard]] root::Task<std::size_t> sendmsg_async(
+	[[nodiscard]] root::Task<std::size_t> async_sendmsg(
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
@@ -1688,7 +1677,7 @@ public:
 		return move(task);
 	}
 	// Vectored recv via recvmsg(2). `msg` must remain valid until the Flow resolves.
-	[[nodiscard]] root::Task<std::size_t> recvmsg_async(
+	[[nodiscard]] root::Task<std::size_t> async_recvmsg(
 		FileHandle const &fh,
 		msghdr *msg,
 		unsigned flags = 0) {
@@ -1710,7 +1699,7 @@ public:
 	}
 	// Register `nr` buffers of `len` bytes starting at `addr` into buffer group `bgid`.
 	// Kernel increments `bid` automatically for subsequent provides in the same group.
-	[[nodiscard]] root::Task<void> provide_buffers_async(
+	[[nodiscard]] root::Task<void> async_provide_buffers(
 		void *addr,
 		int len,
 		int nr,
@@ -1729,7 +1718,7 @@ public:
 		return move(task);
 	}
 	// Remove `nr` buffers from buffer group `bgid`.
-	[[nodiscard]] root::Task<void> remove_buffers_async(
+	[[nodiscard]] root::Task<void> async_remove_buffers(
 		int nr,
 		int bgid) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
@@ -1747,7 +1736,7 @@ public:
 	// Update the registered file table. `fds` is a span of `nr_fds` fds starting
 	// at `offset` in the kernel's registered file A. -1 entries remove a slot.
 	// `fds` must remain valid until the Flow resolves.
-	[[nodiscard]] root::Task<void> files_update_async(
+	[[nodiscard]] root::Task<void> async_files_update(
 		int *fds,
 		unsigned nr_fds,
 		int offset = 0) {
@@ -1764,7 +1753,7 @@ public:
 		return move(task);
 	}
 	// Modify an epoll interest list entry. `ev` may be null for EPOLL_CTL_DEL.
-	[[nodiscard]] root::Task<void> epoll_ctl_async(
+	[[nodiscard]] root::Task<void> async_epoll_ctl(
 		int epfd,
 		int fd,
 		int op,
@@ -1783,7 +1772,7 @@ public:
 	}
 	// Wait for epoll events. Resolves with the number of events returned.
 	// `events` must remain valid until the Flow resolves.
-	[[nodiscard]] root::Task<int> epoll_wait_async(
+	[[nodiscard]] root::Task<int> async_epoll_wait(
 		int epfd,
 		epoll_event *events,
 		int maxevents,
@@ -1804,7 +1793,7 @@ public:
 	// The preceding SQE must have been submitted with IOSQE_IO_LINK.
 	// Resolves when the link fires (either the linked op completed or the
 	// timeout expired — -ETIME in the latter case is treated as success).
-	[[nodiscard]] root::Task<void> link_timeout_async(
+	[[nodiscard]] root::Task<void> async_link_timeout(
 		std::chrono::milliseconds ms,
 		unsigned flags = 0) {
 		return conflux::uring::async_link_timeout(
@@ -1816,7 +1805,7 @@ public:
 	}
 	// Open a file with full openat2(2) semantics (`open_how` struct).
 	// `how` is copied internally so the caller need not keep it alive.
-	[[nodiscard]] root::Task<FileHandle> openat2_async(
+	[[nodiscard]] root::Task<FileHandle> async_openat2(
 		int dir_fd,
 		std::string path,
 		open_how how) {
@@ -1838,7 +1827,7 @@ public:
 	}
 	// Send with destination address — for SOCK_DGRAM sockets.
 	// `addr` is copied internally; `buf` must remain valid until the Flow resolves.
-	[[nodiscard]] root::Task<std::size_t> sendto_async(
+	[[nodiscard]] root::Task<std::size_t> async_sendto(
 		FileHandle const &fh,
 		void const *buf,
 		std::size_t len,
@@ -1867,7 +1856,7 @@ public:
 	}
 	// hack: resolves on first send CQE only; this API does not expose buffer-release notification.
 	// Caller must guarantee the buffer remains live by other means.
-	[[nodiscard]] root::Task<std::size_t> unsafe_send_zc_sent_async(
+	[[nodiscard]] root::Task<std::size_t> async_unsafe_send_zc_sent(
 		FileHandle const &fh,
 		void const *buf,
 		std::size_t len,
@@ -1892,7 +1881,7 @@ public:
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return move(task);
 	}
-	[[nodiscard]] root::Task<std::size_t> send_zc_async(
+	[[nodiscard]] root::Task<std::size_t> async_send_zc(
 		FileHandle const &fh,
 		void const *buf,
 		std::size_t len,
@@ -1919,7 +1908,7 @@ public:
 	}
 	// Write using a pre-registered fixed buffer (IORING_OP_WRITE_FIXED).
 	// `buf` pointer and `buf_index` must refer to the registered buffer in the pool.
-	[[nodiscard]] root::Task<std::size_t> write_fixed_async(
+	[[nodiscard]] root::Task<std::size_t> async_write_fixed(
 		FileHandle const &fh,
 		std::uint64_t offset,
 		void const *buf,
@@ -1943,7 +1932,7 @@ public:
 	}
 	// Remove a file by name relative to `dir_fd`.
 	// `flags` = 0 for file; AT_REMOVEDIR for directory.
-	[[nodiscard]] root::Task<void> unlinkat_async(
+	[[nodiscard]] root::Task<void> async_unlinkat(
 		int dir_fd,
 		std::string path,
 		int flags = 0) {
@@ -1961,7 +1950,7 @@ public:
 		return move(task);
 	}
 	// Rename with full dirfd control.
-	[[nodiscard]] root::Task<void> renameat_async(
+	[[nodiscard]] root::Task<void> async_renameat(
 		int old_dir_fd,
 		std::string old_path,
 		int new_dir_fd,
@@ -1981,7 +1970,7 @@ public:
 		return move(task);
 	}
 	// Create a directory at `path` (relative to AT_FDCWD).
-	[[nodiscard]] root::Task<void> mkdir_async(
+	[[nodiscard]] root::Task<void> async_mkdir(
 		std::string path,
 		mode_t mode = 0755) {
 		auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
@@ -1999,7 +1988,7 @@ public:
 	}
 	// Open directly into the registered file table with full openat2 semantics.
 	// IORING_FILE_INDEX_ALLOC for `file_index` auto-allocates.
-	[[nodiscard]] root::Task<FileHandle> openat2_direct_async(
+	[[nodiscard]] root::Task<FileHandle> async_openat2_direct(
 		int dir_fd,
 		std::string path,
 		open_how how,
@@ -2023,7 +2012,7 @@ public:
 	// Create a socket directly into the registered file table, with the kernel
 	// choosing the slot (IORING_FILE_INDEX_ALLOC). Returns the allocated slot.
 	[[deprecated("use socket_io::tcp_connect/tcp_accept paths instead")]] [[nodiscard]] root::Task<FileHandle>
-	socket_direct_alloc_async(
+	async_socket_direct_alloc(
 		int domain,
 		int type,
 		int protocol,
@@ -2043,7 +2032,7 @@ public:
 	}
 	// Open a file directly into the fixed file table (openat semantics).
 	// Use IORING_FILE_INDEX_ALLOC for `file_index` to let the kernel pick a slot.
-	[[nodiscard]] root::Task<FileHandle> openat_direct_async(
+	[[nodiscard]] root::Task<FileHandle> async_openat_direct(
 		int dir_fd,
 		std::string path,
 		int flags,
@@ -2069,7 +2058,7 @@ public:
 	}
 	// Send a source fd to another ring, letting the kernel auto-allocate the slot.
 	// Returns the allocated slot index via the target ring's CQE.
-	[[nodiscard]] root::Task<void> msg_ring_fd_alloc_async(
+	[[nodiscard]] root::Task<void> async_msg_ring_fd_alloc(
 		int target_ring_fd,
 		int source_fd,
 		std::uint64_t data = 0,
@@ -2089,7 +2078,7 @@ public:
 	// Create a pipe P directly into fixed file table slots.
 	// Use IORING_FILE_INDEX_ALLOC for `file_index` to let the kernel choose.
 	// The two slots are allocated consecutively.
-	[[nodiscard]] root::Task<std::pair<int, int>> pipe_direct_async(
+	[[nodiscard]] root::Task<std::pair<int, int>> async_pipe_direct(
 		unsigned file_index = IORING_FILE_INDEX_ALLOC,
 		int pipe_flags = O_CLOEXEC | O_NONBLOCK) {
 		auto [task, raw_src] = root::make_task_source<std::pair<int, int>>(root::SubmitOptions{.enable_cancellation = false});
@@ -2116,7 +2105,7 @@ public:
 	}
 	// Post a message to another ring, forwarding specific CQE flags in the payload.
 	// Useful for waking up a consumer ring with custom CQE flags set.
-	[[nodiscard]] root::Task<void> msg_ring_cqe_flags_async(
+	[[nodiscard]] root::Task<void> async_msg_ring_cqe_flags(
 		int target_ring_fd,
 		unsigned len,
 		std::uint64_t data,
@@ -2136,7 +2125,7 @@ public:
 	}
 	// hack: resolves on first send CQE only; this API does not expose buffer-release notification.
 	// Caller must guarantee msg, iovec array, and all pointed buffers remain live by other means.
-	[[nodiscard]] root::Task<std::size_t> unsafe_sendmsg_zc_sent_async(
+	[[nodiscard]] root::Task<std::size_t> async_unsafe_sendmsg_zc_sent(
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
@@ -2157,7 +2146,7 @@ public:
 		return move(task);
 	}
 	// msg, iovec array, and all pointed buffers must remain live until co_return.
-	[[nodiscard]] root::Task<std::size_t> sendmsg_zc_async(
+	[[nodiscard]] root::Task<std::size_t> async_sendmsg_zc(
 		FileHandle const &fh,
 		msghdr const *msg,
 		unsigned flags = 0) {
@@ -2179,15 +2168,15 @@ public:
 	}
 
 private:
-	[[nodiscard]] root::Task<FileHandle> open_atomic_parent_dir_async(
+	[[nodiscard]] root::Task<FileHandle> async_open_atomic_parent_dir(
 		int root_dir_fd,
 		std::string parent_dir) {
 		open_how how{};
 		how.flags = O_RDONLY | O_DIRECTORY | O_CLOEXEC;
 		how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
-		co_return co_await openat2_async(root_dir_fd, move(parent_dir), how);
+		co_return co_await async_openat2(root_dir_fd, move(parent_dir), how);
 	}
-	[[nodiscard]] root::Task<FileHandle> open_atomic_payload_async(
+	[[nodiscard]] root::Task<FileHandle> async_open_atomic_payload(
 		int parent_dir_fd,
 		std::string staging_name,
 		mode_t mode,
@@ -2198,7 +2187,7 @@ private:
 		how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
 
 		try {
-			co_return co_await openat2_async(parent_dir_fd, std::string{"."}, how);
+			co_return co_await async_openat2(parent_dir_fd, std::string{"."}, how);
 		} catch (FileIoError const &e) {
 			if (!is_otmpfile_unsupported_errno_async(e.code().value())) {
 				throw;
@@ -2209,16 +2198,16 @@ private:
 		fallback.flags = O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC;
 		fallback.mode = static_cast<__u64>(mode);
 		fallback.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
-		auto fh = co_await openat2_async(parent_dir_fd, move(staging_name), fallback);
+		auto fh = co_await async_openat2(parent_dir_fd, move(staging_name), fallback);
 		staging_entry_exists = true;
 		co_return fh;
 	}
-	[[nodiscard]] root::Task<void> link_atomic_payload_async(
+	[[nodiscard]] root::Task<void> async_link_atomic_payload(
 		FileHandle const &fh,
 		int parent_dir_fd,
 		std::string staging_name) {
 		try {
-			co_await linkat_async(fh.raw_fd(), std::string{}, parent_dir_fd, std::string{staging_name}, AT_EMPTY_PATH);
+			co_await async_linkat(fh.raw_fd(), std::string{}, parent_dir_fd, std::string{staging_name}, AT_EMPTY_PATH);
 			co_return;
 		} catch (FileIoError const &e) {
 			int const code = e.code().value();
@@ -2226,7 +2215,7 @@ private:
 				throw;
 			}
 		}
-		co_await linkat_async(
+		co_await async_linkat(
 			AT_FDCWD,
 			format("/proc/self/fd/{}", fh.raw_fd()),
 			parent_dir_fd,
@@ -2290,7 +2279,7 @@ private:
 	}
 
 public:
-	[[nodiscard]] root::Task<void> atomic_write_async(
+	[[nodiscard]] root::Task<void> async_atomic_write(
 		int dir_fd,
 		std::string rel_path,
 		std::span<std::byte const> data,
@@ -2302,14 +2291,14 @@ public:
 			throw parts.error();
 		}
 
-		auto parent_fh = co_await open_atomic_parent_dir_async(dir_fd, move(parts->parent_dir));
+		auto parent_fh = co_await async_open_atomic_parent_dir(dir_fd, move(parts->parent_dir));
 		int const parent_fd = parent_fh.raw_fd();
 		std::string staging = make_staging_name_async();
 		bool staging_entry_exists = false;
 
 		std::exception_ptr cleanup_error;
 		try {
-			auto fh = co_await open_atomic_payload_async(parent_fd, std::string{staging}, mode, staging_entry_exists);
+			auto fh = co_await async_open_atomic_payload(parent_fd, std::string{staging}, mode, staging_entry_exists);
 
 			std::size_t off = 0;
 			while (off < data.size()) {
@@ -2321,28 +2310,28 @@ public:
 			}
 
 			if (durability >= TempDurability::file) {
-				co_await fsync_async(fh, true);
+				co_await async_fsync(fh, true);
 			}
 
 			if (!staging_entry_exists) {
-				co_await link_atomic_payload_async(fh, parent_fd, std::string{staging});
+				co_await async_link_atomic_payload(fh, parent_fd, std::string{staging});
 				staging_entry_exists = true;
 			}
 
 			if (pub_mode == TempPublishMode::replace_existing) {
-				co_await renameat_async(parent_fd, std::string{staging}, parent_fd, move(parts->basename));
+				co_await async_renameat(parent_fd, std::string{staging}, parent_fd, move(parts->basename));
 			} else {
-				co_await renameat_async(parent_fd, std::string{staging}, parent_fd, move(parts->basename), RENAME_NOREPLACE);
+				co_await async_renameat(parent_fd, std::string{staging}, parent_fd, move(parts->basename), RENAME_NOREPLACE);
 			}
 			staging_entry_exists = false;
 
 			if (durability >= TempDurability::file_and_directory) {
-				co_await fsync_async(parent_fh);
+				co_await async_fsync(parent_fh);
 			}
 		} catch (...) { cleanup_error = current_exception(); }
 		if (staging_entry_exists) {
 			try {
-				co_await unlinkat_async(parent_fd, std::string{staging});
+				co_await async_unlinkat(parent_fd, std::string{staging});
 			} catch (...) {} // NOLINT(bugprone-empty-catch)
 		}
 		if (cleanup_error) {
@@ -2350,91 +2339,4 @@ public:
 		}
 	}
 
-	// Preferred async_* aliases. The original *_async spellings remain exported
-	// as compatibility aliases until the final release cleanup.
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_open, open_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_open_direct, open_direct_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_statx, statx_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_stat, stat_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_nop, nop_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fsync, fsync_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fallocate, fallocate_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fadvise, fadvise_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_madvise, madvise_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_unlink, unlink_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_rename, rename_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_mkdirat, mkdirat_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_symlinkat, symlinkat_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_ftruncate, ftruncate_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_linkat, linkat_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_sync_file_range, sync_file_range_async)
-	CONFLUX_FILE_READER_DEPRECATED_ASYNC_ALIAS(
-		async_socket, socket_async, "use socket_io::async_tcp_connect/async_tcp_accept paths instead")
-	CONFLUX_FILE_READER_DEPRECATED_ASYNC_ALIAS(
-		async_socket_direct, socket_direct_async, "use socket_io::async_tcp_connect/async_tcp_accept paths instead")
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_pipe, pipe_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_bind, bind_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_listen, listen_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_shutdown, shutdown_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_tee, tee_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fixed_fd_install, fixed_fd_install_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fgetxattr, fgetxattr_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_fsetxattr, fsetxattr_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_getxattr, getxattr_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_setxattr, setxattr_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_waitid, waitid_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_futex_wait, futex_wait_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_futex_wake, futex_wake_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_msg_ring, msg_ring_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_timeout, timeout_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_timeout_remove, timeout_remove_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_timeout_update, timeout_update_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_poll_add, poll_add_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_poll_remove, poll_remove_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_poll_update, poll_update_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_accept, accept_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_accept_direct, accept_direct_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_msg_ring_fd, msg_ring_fd_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_futex_waitv, futex_waitv_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_cancel, cancel_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_cancel_fd, cancel_fd_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_connect, connect_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_close, close_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_send, send_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_recv, recv_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_sendmsg, sendmsg_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_recvmsg, recvmsg_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_provide_buffers, provide_buffers_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_remove_buffers, remove_buffers_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_files_update, files_update_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_epoll_ctl, epoll_ctl_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_epoll_wait, epoll_wait_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_link_timeout, link_timeout_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_openat2, openat2_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_sendto, sendto_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_unsafe_send_zc_sent, unsafe_send_zc_sent_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_send_zc, send_zc_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_write_fixed, write_fixed_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_unlinkat, unlinkat_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_renameat, renameat_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_mkdir, mkdir_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_openat2_direct, openat2_direct_async)
-	CONFLUX_FILE_READER_DEPRECATED_ASYNC_ALIAS(
-		async_socket_direct_alloc,
-		socket_direct_alloc_async,
-		"use socket_io::async_tcp_connect/async_tcp_accept paths instead")
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_openat_direct, openat_direct_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_msg_ring_fd_alloc, msg_ring_fd_alloc_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_pipe_direct, pipe_direct_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_msg_ring_cqe_flags, msg_ring_cqe_flags_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_unsafe_sendmsg_zc_sent, unsafe_sendmsg_zc_sent_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_sendmsg_zc, sendmsg_zc_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_open_atomic_parent_dir, open_atomic_parent_dir_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_open_atomic_payload, open_atomic_payload_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_link_atomic_payload, link_atomic_payload_async)
-	CONFLUX_FILE_READER_ASYNC_ALIAS(async_atomic_write, atomic_write_async)
-
 };
-
-#undef CONFLUX_FILE_READER_DEPRECATED_ASYNC_ALIAS
-#undef CONFLUX_FILE_READER_ASYNC_ALIAS

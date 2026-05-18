@@ -33,8 +33,7 @@ All carrier types live in `conflux::work::carrier`.
 Do not invent new patterns outside this table. Naming divergence is a review
 blocker. The carrier layer is eager: `from_*`, `Scope::admit`, and
 `DroppableSlot::wait` are blocking surfaces and route through
-`root::blocking_join(...)` internally. Keep legacy public names until the final
-release alias-removal pass; do not reintroduce `root::join(...)` in carrier
+`root::blocking_join(...)` internally. Keep final public names; do not reintroduce `root::join(...)` in carrier
 implementation code.
 
 ---

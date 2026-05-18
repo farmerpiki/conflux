@@ -1391,7 +1391,7 @@ void run_batch_recv_send_16(
 		.run =
 			[&] {
 				for (SZ i = 0; i < 16; ++i) {
-					submit_recv_borrowed(
+					submit_async_recv_borrowed(
 						raw,
 						SocketHandle::from_os(srv),
 						recv_bufs[i].data(),

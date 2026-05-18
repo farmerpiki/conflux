@@ -63,7 +63,7 @@ namespace {
 
 export namespace conflux::json {
 
-[[nodiscard]] std::expected<Document, JsonFileError> parse_file_at_sync(
+[[nodiscard]] std::expected<Document, JsonFileError> blocking_parse_file_at(
 	int root_fd,
 	std::string_view contained_relative_path,
 	JsonParseOptions const &opts = {}) {
@@ -79,26 +79,10 @@ export namespace conflux::json {
 	return std::move(*doc);
 }
 
-[[nodiscard]] std::expected<Document, JsonFileError> parse_file_sync(
+[[nodiscard]] std::expected<Document, JsonFileError> blocking_parse_file(
 	std::string_view contained_relative_path,
 	JsonParseOptions const &opts = {}) {
-	return parse_file_at_sync(AT_FDCWD, contained_relative_path, opts);
-}
-
-// blocking_* aliases — this component performs direct caller-thread file I/O
-// before parsing. Keep *_sync names as pre-release compatibility aliases until
-// the release cleanup pass removes legacy spellings project-wide.
-[[nodiscard]] inline std::expected<Document, JsonFileError> blocking_parse_file_at(
-	int root_fd,
-	std::string_view contained_relative_path,
-	JsonParseOptions const &opts = {}) {
-	return parse_file_at_sync(root_fd, contained_relative_path, opts);
-}
-
-[[nodiscard]] inline std::expected<Document, JsonFileError> blocking_parse_file(
-	std::string_view contained_relative_path,
-	JsonParseOptions const &opts = {}) {
-	return parse_file_sync(contained_relative_path, opts);
+	return blocking_parse_file_at(AT_FDCWD, contained_relative_path, opts);
 }
 
 } // namespace conflux::json

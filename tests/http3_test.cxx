@@ -85,7 +85,7 @@ TEST_CASE(
 	conflux::http::HttpClientOptions opts1{};
 	opts1.verify_peer = false;
 	conflux::http::HttpClient client1{move(opts1)};
-	auto response = client1.send_blocking(
+	auto response = client1.blocking_send(
 		conflux::http::ClientRequest::get(format("https://127.0.0.1:{}/ping", srv.port()))
 			.server_name("localhost")
 			.build());
@@ -106,7 +106,7 @@ TEST_CASE(
 	conflux::http::HttpClientOptions opts2{};
 	opts2.verify_peer = false;
 	conflux::http::HttpClient client2{move(opts2)};
-	auto response2 = client2.send_blocking(
+	auto response2 = client2.blocking_send(
 		conflux::http::ClientRequest::get(format("https://127.0.0.1:{}/ping", port)).server_name("localhost").build());
 	REQUIRE(response2);
 	CHECK(response2->head.status == 200);

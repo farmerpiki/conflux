@@ -323,7 +323,7 @@ T block_on_iopoll(
 	auto jh = make_shared<TaskJoinHandle<T>>(into_join_handle(move(task)));
 	jh->control().set_on_ready_or_run([slot, jh]() noexcept {
 		try {
-			auto outcome = join(move(*jh));
+			auto outcome = blocking_join(move(*jh));
 			if (outcome.is_failure()) {
 				slot->err = move(outcome).failure().error;
 			} else if (outcome.is_cancelled()) {

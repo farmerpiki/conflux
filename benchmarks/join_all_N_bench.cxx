@@ -33,7 +33,7 @@ void run_once(
 	}
 	sources.clear();
 	for (auto &task: tasks) {
-		auto _ = root::join(move(task));
+		auto _ = root::blocking_join(move(task));
 	}
 }
 

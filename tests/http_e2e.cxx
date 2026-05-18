@@ -1119,7 +1119,7 @@ TEST_CASE(
 	"http client: GET /api/ping returns parsed response (send_blocking)") {
 	ensure_server();
 	HttpClient client{};
-	auto response = client.send_blocking(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+	auto response = client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(S{response->head.headers["content-type"]} == "application/json");
@@ -1132,14 +1132,14 @@ TEST_CASE(
 	HttpFields headers{true};
 	headers["X-Test-Header"] = "client-header";
 
-	auto response = client.send_blocking(
+	auto response = client.blocking_send(
 		chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/echo-header", g_test_port)).headers(headers));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body == "client-header");
 
 	auto with_headers =
-		client.send_blocking(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/with-header", g_test_port)));
+		client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/with-header", g_test_port)));
 	REQUIRE(with_headers);
 	CHECK(with_headers->head.headers["x-custom"] == "hello");
 	CHECK(with_headers->head.headers["x-another"] == "world");
@@ -1149,7 +1149,7 @@ TEST_CASE(
 	ensure_server();
 	HttpClient client{};
 
-	auto response = client.send_blocking(
+	auto response = client.blocking_send(
 		chttp::ClientRequest::post(format("http://127.0.0.1:{}/api/echo-json", g_test_port))
 			.content_type("application/json")
 			.body(R"({"from":"client"})"));
@@ -1163,7 +1163,7 @@ TEST_CASE(
 	ensure_server();
 	HttpClient client{};
 
-	auto response = client.send_blocking(
+	auto response = client.blocking_send(
 		chttp::ClientRequest::put(format("http://127.0.0.1:{}/api/resource/42", g_test_port))
 			.content_type("application/json")
 			.body(R"({"x":1})"));
@@ -1177,7 +1177,7 @@ TEST_CASE(
 	ensure_server();
 	HttpClient client{};
 
-	auto response = client.send_blocking(
+	auto response = client.blocking_send(
 		chttp::ClientRequest::patch(format("http://127.0.0.1:{}/api/resource/7", g_test_port))
 			.content_type("application/json")
 			.body(R"({"delta":1})"));
@@ -1192,7 +1192,7 @@ TEST_CASE(
 	HttpClient client{};
 
 	auto response =
-		client.send_blocking(chttp::ClientRequest::del(format("http://127.0.0.1:{}/api/resource/99", g_test_port)));
+		client.blocking_send(chttp::ClientRequest::del(format("http://127.0.0.1:{}/api/resource/99", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body.find("DELETE") != S::npos);
@@ -1203,7 +1203,7 @@ TEST_CASE(
 	ensure_server();
 	HttpClient client{};
 
-	auto response = client.send_blocking(chttp::ClientRequest::head(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+	auto response = client.blocking_send(chttp::ClientRequest::head(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(S{response->head.headers["content-type"]} == "application/json");
@@ -1225,7 +1225,7 @@ TEST_CASE(
 	HttpClientOptions opts{};
 	opts.default_timeouts = timeouts;
 	HttpClient client{opts};
-	auto response = client.send_blocking(chttp::ClientRequest::get("http://127.0.0.1:9/"));
+	auto response = client.blocking_send(chttp::ClientRequest::get("http://127.0.0.1:9/"));
 	REQUIRE_FALSE(response);
 	CHECK(response.error().kind == HttpErrorKind::connect);
 }
@@ -1233,7 +1233,7 @@ TEST_CASE(
 	"http client: follow_redirects follows same-origin relative redirects") {
 	ensure_redirect_follow_servers();
 	HttpClient client{};
-	auto response = client.send_blocking(
+	auto response = client.blocking_send(
 		chttp::ClientRequest::get(format("http://127.0.0.1:{}/same", g_redirect_follow_source_port))
 			.header("Authorization", "Bearer secret")
 			.header("Cookie", "session=abc")
@@ -1250,7 +1250,7 @@ TEST_CASE(
 	"http client: follow_redirects strips sensitive headers across host changes") {
 	ensure_redirect_follow_servers();
 	HttpClient client{};
-	auto response = client.send_blocking(
+	auto response = client.blocking_send(
 		chttp::ClientRequest::get(format("http://127.0.0.1:{}/cross", g_redirect_follow_source_port))
 			.header("Authorization", "Bearer secret")
 			.header("Cookie", "session=abc")
@@ -1271,7 +1271,7 @@ TEST_CASE(
 	ensure_redirect_follow_servers();
 	HttpClient client{};
 	auto response =
-		client.send_blocking(chttp::ClientRequest::get(format("http://127.0.0.1:{}/loop", g_redirect_follow_source_port)).follow_redirects(1));
+		client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/loop", g_redirect_follow_source_port)).follow_redirects(1));
 	REQUIRE_FALSE(response);
 	CHECK(response.error().kind == HttpErrorKind::redirect_limit);
 }
@@ -4086,7 +4086,7 @@ TEST_CASE(
 	HttpClientOptions tls_opts{};
 	tls_opts.verify_peer = false;
 	HttpClient tls_client{move(tls_opts)};
-	auto response = tls_client.send_blocking(
+	auto response = tls_client.blocking_send(
 		chttp::ClientRequest::get(format("https://127.0.0.1:{}/ping", g_tls_port)).server_name("localhost").build());
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
@@ -5354,7 +5354,7 @@ TEST_CASE(
 		::close(c);
 	});
 
-	auto result = HttpClient{}.send_blocking(chttp::ClientRequest::get(format("http://127.0.0.1:{}/", port)));
+	auto result = HttpClient{}.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/", port)));
 
 	srv.join();
 	::close(lfd);

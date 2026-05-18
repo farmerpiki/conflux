@@ -33,7 +33,7 @@ void run_once(
 	auto chain = carrier::from_task(move(task));
 	chain = apply_steps(move(chain), steps);
 	auto result_task = carrier::into_ready_task(move(chain));
-	[[maybe_unused]] auto outcome = root::join(move(result_task));
+	[[maybe_unused]] auto outcome = root::blocking_join(move(result_task));
 }
 
 } // namespace

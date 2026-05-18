@@ -102,12 +102,6 @@ public:
 		return nullopt;
 	}
 
-	[[nodiscard]] std::optional<HttpResponse> dispatch_async(
-		HttpRequest const &req,
-		RequestContext const &ctx) const {
-		return dispatch_context(req, ctx);
-	}
-
 private:
 	UM<S, Router> vhosts_;
 	UP<Router> default_;

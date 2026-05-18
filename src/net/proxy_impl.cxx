@@ -128,22 +128,9 @@ HttpResponse blocking_proxy(
 	return proxy_detail::perform_proxy_request(req, opts);
 }
 
-HttpResponse proxy_sync(
-	HttpRequestView const &req,
-	ProxyOptions const &opts) {
-	return blocking_proxy(req, opts);
-}
-
 wroot::Task<HttpResponse> async_proxy(
 	HttpRequest const &req,
 	ProxyOptions const &opts,
 	SocketTaskRing &ring) {
 	co_return co_await proxy_detail::perform_proxy_request_async(req, opts, ring);
-}
-
-wroot::Task<HttpResponse> proxy_async(
-	HttpRequest const &req,
-	ProxyOptions const &opts,
-	SocketTaskRing &ring) {
-	co_return co_await async_proxy(req, opts, ring);
 }

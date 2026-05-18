@@ -566,7 +566,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{42}));
 	auto t = carrier::from_task(move(task)).into_task();
-	auto out = root::join(move(t));
+	auto out = root::blocking_join(move(t));
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 42);
 }
@@ -576,7 +576,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_exception(make_exception_ptr(RE{"bad"})));
 	auto t = carrier::from_task(move(task)).into_task();
-	auto out = root::join(move(t));
+	auto out = root::blocking_join(move(t));
 	CHECK(out.is_failure());
 }
 TEST_CASE(
@@ -585,7 +585,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 	auto t = carrier::from_task(move(task)).into_task();
-	auto out = root::join(move(t));
+	auto out = root::blocking_join(move(t));
 	CHECK(out.is_cancelled());
 }
 TEST_CASE(
@@ -594,7 +594,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{11}));
 	auto t = carrier::from_task(move(task)).into_task();
-	auto out = root::join(move(t));
+	auto out = root::blocking_join(move(t));
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 11);
 }

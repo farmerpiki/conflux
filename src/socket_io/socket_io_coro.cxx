@@ -80,11 +80,8 @@ public:
 
 	[[nodiscard]] wroot::Task<std::size_t> async_recv_borrowed(std::span<std::uint8_t> dst);
 	[[nodiscard]] wroot::Task<std::size_t> async_recv_borrowed(std::span<std::uint8_t> dst, std::chrono::milliseconds timeout);
-	[[nodiscard]] wroot::Task<std::size_t> recv_borrowed(std::span<std::uint8_t> dst);
-	[[nodiscard]] wroot::Task<std::size_t> recv_borrowed(std::span<std::uint8_t> dst, std::chrono::milliseconds timeout);
-	[[deprecated("use recv_borrowed")]] [[nodiscard]] wroot::Task<std::size_t> read_borrowed(std::span<std::uint8_t> dst);
+	[[deprecated("use async_recv_borrowed")]] [[nodiscard]] wroot::Task<std::size_t> read_borrowed(std::span<std::uint8_t> dst);
 	[[nodiscard]] wroot::Task<std::vector<std::uint8_t>> async_recv_owned(std::size_t max_bytes);
-	[[nodiscard]] wroot::Task<std::vector<std::uint8_t>> recv_owned(std::size_t max_bytes);
 
 	[[nodiscard]] wroot::Task<std::size_t> async_write_borrowed(std::span<std::uint8_t const> src);
 	[[nodiscard]] wroot::Task<std::size_t> async_write_borrowed(std::span<std::uint8_t const> src, std::chrono::milliseconds timeout);
@@ -98,29 +95,9 @@ public:
 	[[nodiscard]] wroot::Task<void> async_write_all_owned(std::string data);
 	[[nodiscard]] wroot::Task<void> async_shutdown(int how = SHUT_WR);
 	[[nodiscard]] wroot::Task<void> async_close();
-
-	[[nodiscard]] wroot::Task<std::size_t> write_borrowed(std::span<std::uint8_t const> src);
-	[[nodiscard]] wroot::Task<std::size_t> write_borrowed(std::span<std::uint8_t const> src, std::chrono::milliseconds timeout);
-	[[nodiscard]] wroot::Task<void> write_all_borrowed(std::span<std::uint8_t const> src, std::chrono::milliseconds timeout);
-	[[nodiscard]] wroot::Task<std::size_t> write_copy(std::span<std::uint8_t const> src);
-	[[nodiscard]] wroot::Task<std::size_t> write_owned(std::vector<std::uint8_t> data);
-	[[nodiscard]] wroot::Task<std::size_t> write_owned(std::string data);
-	[[nodiscard]] wroot::Task<void> write_all_borrowed(std::span<std::uint8_t const> src);
-	[[nodiscard]] wroot::Task<void> write_all_copy(std::span<std::uint8_t const> src);
-	[[nodiscard]] wroot::Task<void> write_all_owned(std::vector<std::uint8_t> data);
-	[[nodiscard]] wroot::Task<void> write_all_owned(std::string data);
-	[[nodiscard]] wroot::Task<void> shutdown(int how = SHUT_WR);
-	[[nodiscard]] wroot::Task<void> close();
 };
 
 export [[nodiscard]] wroot::Task<TcpStream> async_tcp_connect(
-	SocketTaskRing &ring,
-	int family,
-	sockaddr_storage addr,
-	socklen_t len,
-	ConnectOptions opts = {});
-
-export [[nodiscard]] wroot::Task<TcpStream> tcp_connect(
 	SocketTaskRing &ring,
 	int family,
 	sockaddr_storage addr,
@@ -132,18 +109,7 @@ export [[nodiscard]] wroot::Task<TcpStream> async_tcp_accept(
 	SocketTaskRing &ring,
 	AcceptOptions opts = {});
 
-export [[nodiscard]] wroot::Task<TcpStream> tcp_accept(
-	TcpListener &listener,
-	SocketTaskRing &ring,
-	AcceptOptions opts = {});
-
 export [[nodiscard]] wroot::Task<void> async_tcp_accept_multishot(
-	TcpListener &listener,
-	SocketTaskRing &ring,
-	AcceptOptions opts,
-	std::function<wroot::Task<void>(TcpStream)> handler);
-
-export [[nodiscard]] wroot::Task<void> tcp_accept_multishot(
 	TcpListener &listener,
 	SocketTaskRing &ring,
 	AcceptOptions opts,
@@ -186,4 +152,3 @@ public:
 };
 
 export [[nodiscard]] wroot::Task<void> async_sleep_for(SocketTaskRing &ring, std::chrono::milliseconds dur);
-export [[nodiscard]] wroot::Task<void> sleep_for(SocketTaskRing &ring, std::chrono::milliseconds dur);

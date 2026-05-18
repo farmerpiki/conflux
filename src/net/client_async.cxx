@@ -12,9 +12,4 @@ export namespace conflux::http {
 	SocketTaskRing &ring,
 	ClientRequest const &req);
 
-[[nodiscard]] conflux::work::root::Task<ClientResult> send_async(
-	HttpClient const &client,
-	SocketTaskRing &ring,
-	ClientRequest const &req);
-
 } // namespace conflux::http

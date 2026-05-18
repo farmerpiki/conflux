@@ -154,7 +154,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	CHECK_THROWS_AS(root::join_ready(move(task)), root::JoinError);
 	REQUIRE(src.try_set_value(root::Success<int>{6}));
-	auto out = root::join(move(task));
+	auto out = root::blocking_join(move(task));
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 6);
 }
@@ -166,7 +166,7 @@ TEST_CASE(
 		auto src_holder = std::make_optional(move(src));
 		src_holder.reset();
 	}
-	auto out = root::join(move(task));
+	auto out = root::blocking_join(move(task));
 	REQUIRE(out.is_cancelled());
 	CHECK(out.cancelled().reason == root::CancelReason::abandoned);
 }
@@ -381,7 +381,7 @@ TEST_CASE(
 	OwnerCap other{};
 	auto [posted, src] = root::make_posted_source<int>(owner);
 	REQUIRE(src.try_set_value(root::Success<int>{7}));
-	CHECK_THROWS_AS(root::join(other, move(posted)), root::JoinError);
+	CHECK_THROWS_AS(root::blocking_join(other, move(posted)), root::JoinError);
 }
 TEST_CASE(
 	"work.root: operation join uses driver capability",
@@ -409,7 +409,7 @@ TEST_CASE(
 	auto [posted, src] = root::make_posted_source<int>(owner);
 	auto h = root::into_join_handle(move(posted));
 	REQUIRE(src.try_set_value(root::Success<int>{5}));
-	CHECK_THROWS_AS(root::join(other, move(h)), root::JoinError);
+	CHECK_THROWS_AS(root::blocking_join(other, move(h)), root::JoinError);
 }
 TEST_CASE(
 	"work.root: abandon_to dispatches failure sink",
@@ -595,7 +595,7 @@ TEST_CASE(
 	REQUIRE(bool(moved));
 
 	REQUIRE(src.try_set_value(root::Success<int>{7}));
-	auto out = root::join(move(moved));
+	auto out = root::blocking_join(move(moved));
 	CHECK(out.is_success());
 }
 TEST_CASE(
@@ -619,7 +619,7 @@ TEST_CASE(
 
 	REQUIRE(src.try_set_value(root::Success<int>{42}));
 	CHECK(fired.load());
-	auto out = root::join(move(handle));
+	auto out = root::blocking_join(move(handle));
 	REQUIRE(out.is_success());
 	CHECK(out.value() == 42);
 }
@@ -639,7 +639,7 @@ TEST_CASE(
 	result.rejected_fn();
 	CHECK(fired.load());
 
-	auto out = root::join(move(handle));
+	auto out = root::blocking_join(move(handle));
 	CHECK(out.is_success());
 }
 TEST_CASE(
@@ -672,7 +672,7 @@ TEST_CASE(
 	REQUIRE(r.status == root::ReadyRegistration::installed);
 
 	auto outer = await_task_value(move(task));
-	auto out = root::join(move(outer));
+	auto out = root::blocking_join(move(outer));
 	REQUIRE(out.is_failure());
 	try {
 		rethrow_exception(out.failure().error);
@@ -700,7 +700,7 @@ TEST_CASE(
 	REQUIRE(src.try_set_value(root::Success<int>{3}));
 	CHECK(!fired.load());
 
-	auto out = root::join(move(handle));
+	auto out = root::blocking_join(move(handle));
 	CHECK(out.is_success());
 }
 TEST_CASE(
@@ -713,7 +713,7 @@ TEST_CASE(
 
 	auto cs = ctrl.clear_on_ready();
 	CHECK(cs == root::ClearOnReadyStatus::already_terminal);
-	(void)root::join(move(handle));
+	(void)root::blocking_join(move(handle));
 }
 TEST_CASE(
 	"work.root: R7 clear_on_ready without armed hook returns not_armed",
@@ -738,7 +738,7 @@ TEST_CASE(
 	Atom<bool> ran{false};
 	ctrl.set_on_ready_or_run([&ran]() noexcept { ran.store(true); });
 	CHECK(ran.load());
-	(void)root::join(move(handle));
+	(void)root::blocking_join(move(handle));
 }
 TEST_CASE(
 	"work.root: try_abandon_to installed returns installed status",

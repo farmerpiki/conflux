@@ -42,19 +42,19 @@ mainly suffix order and a few unprefixed helpers.
 | `conflux.file_io_sync` | `src/file_io/file_io_sync.cxx` | keep target for now; later consider `conflux.file_io.blocking` | Module/target rename is broad CMake/docs churn; defer until function aliases exist. |
 | `TemporaryFileSync` | `conflux.file_io_sync` | `BlockingTemporaryFile` or `TemporaryFile` in a blocking module | Type suffix mirrors module suffix; rename with file helper batch only. |
 | `FileIoSyncError` | `conflux.file_io_sync` | `FileIoError` in a blocking module | `FileIoError` already aliases the same error in async file I/O; avoid ambiguity before target split settles. |
-| `open_tmpfile_sync` | `conflux.file_io_sync` | `blocking_open_tmpfile` | Raw `open`/`openat`-style helper. |
-| `publish_tmpfile_sync` | `conflux.file_io_sync` | `blocking_publish_tmpfile` | Raw link/rename/fsync-style helper. |
+| `blocking_open_tmpfile` | `conflux.file_io_sync` | `blocking_open_tmpfile` | Raw `open`/`openat`-style helper. |
+| `blocking_publish_tmpfile` | `conflux.file_io_sync` | `blocking_publish_tmpfile` | Raw link/rename/fsync-style helper. |
 | `write_all_fd` | `conflux.file_io_sync` | `blocking_write_all_fd` | Currently unprefixed despite direct `write` loop. |
 | `read_all_fd` | `conflux.file_io_sync` | `blocking_read_all_fd` | Currently unprefixed despite direct `read` loop. |
-| `write_file_atomic_at_sync` | `conflux.file_io_sync` | `blocking_write_file_atomic_at` | File-backed convenience around raw blocking helpers. |
-| `write_text_file_atomic_at_sync` | `conflux.file_io_sync` | `blocking_write_text_file_atomic_at` | Same batch as binary atomic write. |
-| `fstat_sync` | `conflux.file_io_sync` | `blocking_fstat` | Thin statx/fstat-style helper. |
-| `stat_at_sync` | `conflux.file_io_sync` | `blocking_stat_at` | Thin statx/openat-style helper. |
-| `read_file_at_sync` | `conflux.file_io_sync` | `blocking_read_file_at` | File-backed convenience around raw blocking helpers. |
-| `map_fd_readonly_sync` | `conflux.file_map` | `blocking_map_fd_readonly` | May fault later through mmap access; still caller-thread blocking setup. |
-| `map_file_readonly_sync` | `conflux.file_map` | `blocking_map_file_readonly` | Uses blocking file open/stat/map helpers. |
-| `parse_file_at_sync` | `conflux.json.file` | `blocking_parse_file_at` | Keep separate from pure `json::parse*`; this one performs blocking file I/O. |
-| `parse_file_sync` | `conflux.json.file` | `blocking_parse_file` | Same batch as `parse_file_at_sync`. |
+| `blocking_write_file_atomic_at` | `conflux.file_io_sync` | `blocking_write_file_atomic_at` | File-backed convenience around raw blocking helpers. |
+| `blocking_write_text_file_atomic_at` | `conflux.file_io_sync` | `blocking_write_text_file_atomic_at` | Same batch as binary atomic write. |
+| `blocking_fstat` | `conflux.file_io_sync` | `blocking_fstat` | Thin statx/fstat-style helper. |
+| `blocking_stat_at` | `conflux.file_io_sync` | `blocking_stat_at` | Thin statx/openat-style helper. |
+| `blocking_read_file_at` | `conflux.file_io_sync` | `blocking_read_file_at` | File-backed convenience around raw blocking helpers. |
+| `blocking_map_fd_readonly` | `conflux.file_map` | `blocking_map_fd_readonly` | May fault later through mmap access; still caller-thread blocking setup. |
+| `blocking_map_file_readonly` | `conflux.file_map` | `blocking_map_file_readonly` | Uses blocking file open/stat/map helpers. |
+| `blocking_parse_file_at` | `conflux.json.file` | `blocking_parse_file_at` | Keep separate from pure `json::parse*`; this one performs blocking file I/O. |
+| `blocking_parse_file` | `conflux.json.file` | `blocking_parse_file` | Same batch as `blocking_parse_file_at`. |
 
 Status: `file/blocking-name-aliases` adds these `blocking_*` function aliases
 for `conflux.file_io_sync`, `conflux.file_map`, and the file-backed
@@ -72,14 +72,14 @@ coroutine behavior obvious.
 
 | Current family/name | Current location | Final-shape candidate | Notes |
 |---|---|---|---|
-| `FileReader::*_async` | `src/file_io/file_io.cxx` | `FileReader::async_*` | Preferred aliases landed for the full exported `FileReader` suffix family; old names remain compatibility aliases until release cleanup. |
-| `conflux.uring.timeout::{timeout_async, timeout_remove_async, link_timeout_async}` | `src/uring/uring_timeout.cxx` and forwarding methods in `FileReader` | `async_timeout`, `async_timeout_remove`, `async_link_timeout` | Preferred aliases landed; `FileReader::async_timeout_update` covers the update SQE wrapper. |
-| `conflux::http::send_async` | `conflux.net.async_client` | `async_send` | `async_send` alias landed; keep `send_async` as compatibility until release alias cleanup. |
+| `FileReader::*_async` | `src/file_io/file_io.cxx` | `FileReader::async_*` | Removed for public preview cleanup. |
+| `conflux.uring.timeout::{async_timeout, async_timeout_remove, async_link_timeout}` | `src/uring/uring_timeout.cxx` and forwarding methods in `FileReader` | `async_timeout`, `async_timeout_remove`, `async_link_timeout` | Preferred aliases landed; `FileReader::async_timeout_update` covers the update SQE wrapper. |
+| `conflux::http::send_async` | `conflux.net.async_client` | `async_send` | Removed for public preview cleanup. |
 | `conflux.net.async_client` | module name | maybe `conflux.net.http.client_async` or keep | Module names do not have to follow function-prefix order; only rename if HTTP client modules are reorganized. |
-| `proxy_async` | `conflux.net.proxy` | `async_proxy` | `async_proxy` alias landed; keep `proxy_async` as compatibility until release alias cleanup. |
+| `proxy_async` | `conflux.net.proxy` | `async_proxy` | Removed for public preview cleanup. |
 | `spawn_async_in`, `run_async_in`, `wait_async_in` | `conflux.process` | `async_spawn_in`, `async_run_in`, `async_wait_in` | Preferred names landed; old names remain compatibility aliases until examples/tests finish migrating. |
-| `tcp_connect`, `tcp_accept`, `tcp_accept_multishot`, `sleep_for` | `conflux.socket_io.coro` | `async_tcp_connect`, `async_tcp_accept`, `async_tcp_accept_multishot`, `async_sleep_for` | Preferred names landed; old names remain compatibility aliases until release alias cleanup. |
-| `TcpStream::{recv_borrowed, recv_owned, write_borrowed, write_copy, write_owned, write_all_* , shutdown, close}` | `conflux.socket_io.coro` | `async_recv_borrowed`, `async_recv_owned`, `async_write_*`, `async_shutdown`, `async_close` | Preferred names landed; old names remain compatibility aliases until release alias cleanup. |
+| `tcp_connect`, `tcp_accept`, `tcp_accept_multishot`, `sleep_for` | `conflux.socket_io.coro` | `async_tcp_connect`, `async_tcp_accept`, `async_tcp_accept_multishot`, `async_sleep_for` | Removed for public preview cleanup. |
+| `TcpStream::{recv_borrowed, recv_owned, write_borrowed, write_copy, write_owned, write_all_* , shutdown, close}` | `conflux.socket_io.coro` | `async_recv_borrowed`, `async_recv_owned`, `async_write_*`, `async_shutdown`, `async_close` | Removed for public preview cleanup. |
 | `UdpSocket::{send_to_borrowed, send_to_copy, recv_from}` | `conflux.socket_io.coro` | `async_send_to_*`, `async_recv_from` | Preferred names landed; old names remain compatibility aliases until release alias cleanup. |
 
 Keep final removal of legacy `FileReader::*_async` names in the release alias-cleanup branch; the preferred aliases are now available and call sites have been migrated.
@@ -94,7 +94,7 @@ Conflux task/executor machinery.
 | Current name | Current location | Final-shape candidate | Notes |
 |---|---|---|---|
 | `sync_wait` | `conflux.work` | keep | Already prefix-style and matches familiar async ecosystem terminology. |
-| `run_on_task` | `conflux.work` | `async_run_on` | Preferred name landed; old name remains as a compatibility alias. It returns `Task<T>`, so new call sites should use the coroutine/task spelling. |
+| `run_on_task` | `conflux.work` | `async_run_on` | Removed for public preview cleanup. |
 | `block_on_socket_task` | `conflux.socket_io.blocking` | `sync_wait_socket_task` | Preferred name landed; old name remains as a compatibility alias. |
 | `dispatch_sync_routes` | `conflux.net.router_dispatch` | `dispatch_immediate_routes` | Preferred name landed; old helper remains as a compatibility alias. Internal exported helper; not executor-owned sync API, just immediate route dispatch on current ring thread. |
 | `Router::dispatch` | `conflux.net.router` | keep | Immediate in-process dispatch; ordinary method name is clear. |
@@ -107,10 +107,10 @@ class, context dispatch, or deferred response creation instead of async executio
 
 | Current name | Current location | Final-shape candidate | Notes |
 |---|---|---|---|
-| `Router::dispatch_async` | `conflux.net.router` | `dispatch_context` | Preferred name landed; old name remains as a compatibility alias. |
-| `VHostRouter::dispatch_async` | `conflux.net.vhost` | `dispatch_context` | Preferred name landed; old name remains as a compatibility alias. |
+| `Router::dispatch_async` | `conflux.net.router` | `dispatch_context` | Removed for public preview cleanup. |
+| `VHostRouter::dispatch_async` | `conflux.net.vhost` | `dispatch_context` | Removed for public preview cleanup. |
 | `try_dispatch_async` | `src/net/http_server_impl.cxx` | `try_dispatch_context` | Internal helper renamed. |
-| `dispatch_async_routes` | `conflux.net.router_dispatch` | `dispatch_context_routes` | Preferred name landed; old name remains as a compatibility alias. |
+| `dispatch_async_routes` | `conflux.net.router_dispatch` | `dispatch_context_routes` | Removed for public preview cleanup. |
 | `router_run_async_http_task` / `Router::run_async_http_task` | router dispatch internals | `router_defer_http_task` / `Router::defer_http_task` | Preferred names landed; old names remain compatibility aliases. |
 | `conflux.net.http.static_async` | static-file module | decide later | The module contains async/static helpers and blocking write fallbacks. Split route registration/static I/O first, then rename. |
 
@@ -124,9 +124,9 @@ raw-syscall `blocking_*` definition. Do not rename them blindly.
 
 | Current name | Current location | Options | Notes |
 |---|---|---|---|
-| `HttpClient::send_blocking` | `conflux.net.client` | `blocking_send` | Preferred name landed; old method remains as a compatibility alias. Current implementation uses blocking socket/poll/TLS code directly, so `sync_send` would be wrong unless implementation changes. |
+| `HttpClient::send_blocking` | `conflux.net.client` | `blocking_send` | Removed for public preview cleanup. Current implementation uses blocking socket/poll/TLS code directly, so `sync_send` would be wrong unless implementation changes. |
 | `client_detail::do_blocking_request` | `src/net/client.cxx` | internal `blocking_request` or keep internal | Internal helper; rename only if public method changes. |
-| `proxy_sync` | `conflux.net.proxy` | `blocking_proxy` | Preferred name landed; old function remains as a compatibility alias. It calls `HttpClient::blocking_send`, so avoid using it on HTTP ring threads unless explicitly offloaded. Prefer `async_proxy` in context routes. |
+| `proxy_sync` | `conflux.net.proxy` | `blocking_proxy` | Removed for public preview cleanup. It calls `HttpClient::blocking_send`, so avoid using it on HTTP ring threads unless explicitly offloaded. Prefer `async_proxy` in context routes. |
 
 The archived `docs/archive/final-syntax-before-release.md` text allowed broad
 high-level `blocking_*` convenience APIs. Current policy is narrower. Treat the

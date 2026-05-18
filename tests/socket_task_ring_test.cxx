@@ -39,7 +39,7 @@ T block_on_ring(
 	auto jh = make_shared<TaskJoinHandle<T>>(into_join_handle(move(task)));
 	jh->control().set_on_ready_or_run([slot, jh]() noexcept {
 		try {
-			auto outcome = join(move(*jh));
+			auto outcome = blocking_join(move(*jh));
 			if (outcome.is_failure()) {
 				slot->err = move(outcome).failure().error;
 			} else if (outcome.is_cancelled()) {
@@ -344,9 +344,9 @@ TEST_CASE(
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	CHECK(stream.valid());
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 TEST_CASE(
 	"tcp_connect: throws IoError on connection refused",
@@ -369,7 +369,7 @@ TEST_CASE(
 	int err_code = 0;
 	bool got = false;
 	try {
-		fx->run(tcp_connect(
+		fx->run(async_tcp_connect(
 			fx->task_ring,
 			AF_INET,
 			addr,
@@ -381,18 +381,18 @@ TEST_CASE(
 	CHECK(err_code == ECONNREFUSED);
 }
 // ---------------------------------------------------------------------------
-// TcpStream — write_all_borrowed + recv_borrowed echo
+// TcpStream — async_write_all_borrowed + async_recv_borrowed echo
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: write_all_borrowed + recv_borrowed echo round-trip",
+	"tcp: async_write_all_borrowed + async_recv_borrowed echo round-trip",
 	"[tcp][uring]") {
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 
 	A<uint8_t, 13> msg{};
@@ -400,25 +400,25 @@ TEST_CASE(
 		msg[i] = i;
 	}
 
-	fx->run(stream.write_all_borrowed(span<uint8_t const>{msg.data(), msg.size()}));
+	fx->run(stream.async_write_all_borrowed(span<uint8_t const>{msg.data(), msg.size()}));
 
 	A<uint8_t, 13> rx{};
 	SZ received = 0;
 	while (received < msg.size()) {
-		SZ const n = fx->run(stream.recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
+		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
 	CHECK(received == msg.size());
 	CHECK(memcmp(msg.data(), rx.data(), msg.size()) == 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
 // TcpStream — EOF on closed connection
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: recv_borrowed returns 0 after server closes",
+	"tcp: async_recv_borrowed returns 0 after server closes",
 	"[tcp][uring]") {
 	// Server that accepts and immediately closes.
 	int listen_fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -444,7 +444,7 @@ TEST_CASE(
 
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(port);
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 
 	closer.join();
@@ -452,9 +452,9 @@ TEST_CASE(
 
 	// read should return 0 (EOF)
 	A<uint8_t, 64> buf{};
-	SZ const n = fx->run(stream.recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
+	SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
 	CHECK(n == 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
 // TcpStream — connect with timeout (SQ-size guard)
@@ -467,39 +467,39 @@ TEST_CASE(
 	REQUIRE(server.ok());
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto fx = require_ring_fixture();
-	auto stream = fx->run(tcp_connect(
+	auto stream = fx->run(async_tcp_connect(
 		fx->task_ring,
 		AF_INET,
 		addr,
 		static_cast<socklen_t>(sizeof(sockaddr_in)),
 		ConnectOptions{.timeout = chrono::milliseconds{500}}));
 	CHECK(stream.valid());
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
-// TcpStream — write_copy round-trip
+// TcpStream — async_write_copy round-trip
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: write_copy round-trip",
+	"tcp: async_write_copy round-trip",
 	"[tcp][uring]") {
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	A<uint8_t, 8> msg{1, 2, 3, 4, 5, 6, 7, 8};
-	fx->run(stream.write_all_copy(span<uint8_t const>{msg.data(), msg.size()}));
+	fx->run(stream.async_write_all_copy(span<uint8_t const>{msg.data(), msg.size()}));
 	A<uint8_t, 8> rx{};
 	SZ received = 0;
 	while (received < msg.size()) {
-		SZ const n = fx->run(stream.recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
+		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
 	CHECK(memcmp(msg.data(), rx.data(), msg.size()) == 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
 // TcpStream — close() makes valid() false
@@ -512,9 +512,9 @@ TEST_CASE(
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 	CHECK_FALSE(stream.valid());
 }
 // ---------------------------------------------------------------------------
@@ -538,7 +538,7 @@ TEST_CASE(
 	int err_code = 0;
 	bool got = false;
 	try {
-		fx->run(tcp_connect(direct_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+		fx->run(async_tcp_connect(direct_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 		got = true;
 	} catch (IoError const &e) { err_code = e.code().value(); }
 	CHECK_FALSE(got);
@@ -562,9 +562,9 @@ TEST_CASE(
 		fx->completions,
 		[](uint32_t s, uint32_t g) noexcept -> uint64_t { return pack_ud(s, g); },
 		ropts};
-	auto stream = fx->run(tcp_connect(direct_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(direct_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	CHECK(stream.valid());
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
 // tcp_connect — negative timeout
@@ -577,7 +577,7 @@ TEST_CASE(
 	sockaddr_storage addr = loopback_addr(12345);
 	int err_code = 0;
 	try {
-		fx->run(tcp_connect(
+		fx->run(async_tcp_connect(
 			fx->task_ring,
 			AF_INET,
 			addr,
@@ -591,19 +591,19 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: recv_borrowed after close() throws EBADF",
+	"tcp: async_recv_borrowed after close() throws EBADF",
 	"[tcp][uring]") {
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 	int err = 0;
 	array<uint8_t, 16> buf{};
 	try {
-		fx->run(stream.recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
+		fx->run(stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
 	} catch (IoError const &e) { err = e.code().value(); }
 	CHECK(err == EBADF);
 }
@@ -618,12 +618,12 @@ TEST_CASE(
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	// echo server only sends when we send; no data pending → read will block
 	array<uint8_t, 64> buf{};
 	// coroutine starts eagerly — SQE added to ring immediately
-	auto read_task = stream.recv_borrowed(span<uint8_t>{buf.data(), buf.size()});
+	auto read_task = stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()});
 	// cancel from ring owner thread (inline path): fires cancel hook →
 	// submits read+cancel SQEs together via ring.raw().submit()
 	read_task.cancel();
@@ -636,7 +636,7 @@ TEST_CASE(
 	}
 	bool const cancelled = got_cancel || err == ECANCELED;
 	CHECK(cancelled);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
 // Cancellation — submit_on_ring_owner false → try_set_cancelled
@@ -663,10 +663,10 @@ TEST_CASE(
 		[](uint32_t s, uint32_t g) noexcept -> uint64_t { return pack_ud(s, g); },
 		opts};
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(ring2, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(ring2, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	array<uint8_t, 64> buf{};
-	auto read_task = stream.recv_borrowed(span<uint8_t>{buf.data(), buf.size()});
+	auto read_task = stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()});
 	// cancel → cancel hook → submit_on_owner → lambda returns false
 	// with fix: try_set_cancelled() fires immediately
 	read_task.cancel();
@@ -677,7 +677,7 @@ TEST_CASE(
 	CHECK(owner_called);
 	CHECK(got_cancel);
 	// close drains the unsubmitted read SQE
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
 // tcp_connect — linked timeout fires ETIMEDOUT
@@ -697,7 +697,7 @@ TEST_CASE(
 	int err = 0;
 	try {
 		fx->run(
-			tcp_connect(
+			async_tcp_connect(
 				fx->task_ring,
 				AF_INET,
 				addr,
@@ -710,37 +710,37 @@ TEST_CASE(
 	CHECK(timed_out);
 }
 // ---------------------------------------------------------------------------
-// TcpStream — write_copy safe after source span is destroyed
+// TcpStream — async_write_copy safe after source span is destroyed
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: write_copy safe after source span destroyed",
+	"tcp: async_write_copy safe after source span destroyed",
 	"[tcp][uring]") {
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	conflux::work::root::Task<void> copy_task{};
 	{
 		// source lives in this inner scope only
 		array<uint8_t, 8> msg{1, 2, 3, 4, 5, 6, 7, 8};
-		// write_all_copy copies into an internal holder immediately
-		copy_task = stream.write_all_copy(span<uint8_t const>{msg.data(), msg.size()});
+		// async_write_all_copy copies into an internal holder immediately
+		copy_task = stream.async_write_all_copy(span<uint8_t const>{msg.data(), msg.size()});
 		// msg destroyed here
 	}
 	fx->run(move(copy_task)); // must not UB — holder owns the data
 	array<uint8_t, 8> rx{};
 	SZ received = 0;
 	while (received < 8) {
-		SZ const n = fx->run(stream.recv_borrowed(span<uint8_t>{rx.data() + received, 8u - received}));
+		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 8u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
 	array<uint8_t, 8> expected{1, 2, 3, 4, 5, 6, 7, 8};
 	CHECK(memcmp(rx.data(), expected.data(), 8) == 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
 // TcpStream — TCP_NODELAY set by default
@@ -753,14 +753,14 @@ TEST_CASE(
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	int nodelay = 0;
 	socklen_t optlen = sizeof(nodelay);
 	int const rc = ::getsockopt(stream.raw_fd(), IPPROTO_TCP, TCP_NODELAY, &nodelay, &optlen);
 	CHECK(rc == 0);
 	CHECK(nodelay != 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
 // tcp_connect — cancel during socket_pending (before socket CQE)
@@ -789,7 +789,7 @@ TEST_CASE(
 
 	int const fd_before = count_proc_fds();
 
-	auto task = tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in)));
+	auto task = async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in)));
 	// cancel before any CQE pumped — fires cancel hook inline (single-thread ring)
 	task.cancel();
 	bool got_cancel = false;
@@ -821,7 +821,7 @@ TEST_CASE(
 	sin->sin_addr.s_addr = htonl(0xC0000201U);
 	sin->sin_port = htons(1);
 
-	auto task = tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in)));
+	auto task = async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in)));
 
 	// Pump exactly one CQE (socket creation) so ConnectOp enters connect_pending.
 	// SINGLE_ISSUER ring on ring-owner thread — safe to peek/submit here.
@@ -875,7 +875,7 @@ TEST_CASE(
 		[](uint32_t s, uint32_t g) noexcept -> uint64_t { return pack_ud(s, g); },
 		opts};
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto task = tcp_connect(ring2, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in)));
+	auto task = async_tcp_connect(ring2, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in)));
 	// cancel → hook → submit_on_owner returns false → complete_cancelled
 	task.cancel();
 	bool got_cancel = false;
@@ -906,7 +906,7 @@ TEST_CASE(
 	sin->sin_addr.s_addr = htonl(0xC0000201U); // 192.0.2.1 — blackhole
 	sin->sin_port = htons(1);
 
-	auto task = tcp_connect(
+	auto task = async_tcp_connect(
 		fx->task_ring,
 		AF_INET,
 		addr,
@@ -934,116 +934,116 @@ TEST_CASE(
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	// after SHUT_WR the server sees EOF, closes its side → our read returns 0
-	fx->run(stream.shutdown(SHUT_WR));
+	fx->run(stream.async_shutdown(SHUT_WR));
 	array<uint8_t, 64> buf{};
-	SZ const n = fx->run(stream.recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
+	SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
 	CHECK(n == 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
-// TcpStream — write_all_copy copies once; safe after source mutated
+// TcpStream — async_write_all_copy copies once; safe after source mutated
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: write_all_copy safe after source mutated before run",
+	"tcp: async_write_all_copy safe after source mutated before run",
 	"[tcp][lifetime][uring]") {
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	array<uint8_t, 8> src{1, 2, 3, 4, 5, 6, 7, 8};
-	auto task = stream.write_all_copy(span<uint8_t const>{src.data(), src.size()});
+	auto task = stream.async_write_all_copy(span<uint8_t const>{src.data(), src.size()});
 	// mutate source — task must have copied it already
 	src.fill(0xCC);
 	fx->run(move(task));
 	array<uint8_t, 8> rx{};
 	SZ received = 0;
 	while (received < 8) {
-		SZ const n = fx->run(stream.recv_borrowed(span<uint8_t>{rx.data() + received, 8u - received}));
+		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 8u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
 	array<uint8_t, 8> const expected{1, 2, 3, 4, 5, 6, 7, 8};
 	CHECK(memcmp(rx.data(), expected.data(), 8) == 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
-// TcpStream — write_all_owned(V<u8>) round-trip
+// TcpStream — async_write_all_owned(V<u8>) round-trip
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: write_all_owned vector round-trip",
+	"tcp: async_write_all_owned vector round-trip",
 	"[tcp][lifetime][uring]") {
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	V<uint8_t> payload{10, 20, 30, 40, 50, 60};
-	fx->run(stream.write_all_owned(move(payload)));
+	fx->run(stream.async_write_all_owned(move(payload)));
 	array<uint8_t, 6> rx{};
 	SZ received = 0;
 	while (received < 6) {
-		SZ const n = fx->run(stream.recv_borrowed(span<uint8_t>{rx.data() + received, 6u - received}));
+		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 6u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
 	array<uint8_t, 6> const expected{10, 20, 30, 40, 50, 60};
 	CHECK(memcmp(rx.data(), expected.data(), 6) == 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
-// TcpStream — write_all_owned(S) round-trip
+// TcpStream — async_write_all_owned(S) round-trip
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: write_all_owned string round-trip",
+	"tcp: async_write_all_owned string round-trip",
 	"[tcp][lifetime][uring]") {
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	S msg = "hello";
-	fx->run(stream.write_all_owned(move(msg)));
+	fx->run(stream.async_write_all_owned(move(msg)));
 	array<uint8_t, 5> rx{};
 	SZ received = 0;
 	while (received < 5) {
-		SZ const n = fx->run(stream.recv_borrowed(span<uint8_t>{rx.data() + received, 5u - received}));
+		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 5u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
 	CHECK(memcmp(rx.data(), "hello", 5) == 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
-// TcpStream — recv_owned round-trip
+// TcpStream — async_recv_owned round-trip
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: recv_owned returns owned buffer shrunk to actual bytes",
+	"tcp: async_recv_owned returns owned buffer shrunk to actual bytes",
 	"[tcp][lifetime][uring]") {
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	array<uint8_t, 4> msg{0xDE, 0xAD, 0xBE, 0xEF};
-	fx->run(stream.write_all_borrowed(span<uint8_t const>{msg.data(), msg.size()}));
-	// recv_owned with a generous max — result should be exactly what echo returned
-	auto buf = fx->run(stream.recv_owned(256));
+	fx->run(stream.async_write_all_borrowed(span<uint8_t const>{msg.data(), msg.size()}));
+	// async_recv_owned with a generous max — result should be exactly what echo returned
+	auto buf = fx->run(stream.async_recv_owned(256));
 	REQUIRE(!buf.empty());
 	CHECK(buf.size() == msg.size()); // must shrink to actual bytes, not max_bytes
 	CHECK(memcmp(buf.data(), msg.data(), msg.size()) == 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
 // UdpSocket — send_to_copy safe after source mutated before run
@@ -1090,57 +1090,57 @@ TEST_CASE(
 	::close(srv);
 }
 // ---------------------------------------------------------------------------
-// TcpStream — write_owned(V<u8>) single-shot round-trip
+// TcpStream — async_write_owned(V<u8>) single-shot round-trip
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: write_owned vector single-shot round-trip",
+	"tcp: async_write_owned vector single-shot round-trip",
 	"[tcp][lifetime][uring]") {
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	V<uint8_t> payload{0xAA, 0xBB, 0xCC};
-	SZ const sent = fx->run(stream.write_owned(move(payload)));
+	SZ const sent = fx->run(stream.async_write_owned(move(payload)));
 	CHECK(sent == 3);
 	array<uint8_t, 3> rx{};
 	SZ received = 0;
 	while (received < 3) {
-		SZ const n = fx->run(stream.recv_borrowed(span<uint8_t>{rx.data() + received, 3u - received}));
+		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 3u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
 	array<uint8_t, 3> const expected{0xAA, 0xBB, 0xCC};
 	CHECK(memcmp(rx.data(), expected.data(), 3) == 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
-// TcpStream — write_owned(S) single-shot round-trip
+// TcpStream — async_write_owned(S) single-shot round-trip
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: write_owned string single-shot round-trip",
+	"tcp: async_write_owned string single-shot round-trip",
 	"[tcp][lifetime][uring]") {
 	TcpEchoServer server;
 	REQUIRE(server.ok());
 	auto fx = require_ring_fixture();
 	sockaddr_storage addr = loopback_addr(server.port());
-	auto stream = fx->run(tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
+	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	S msg = "XY";
-	SZ const sent = fx->run(stream.write_owned(move(msg)));
+	SZ const sent = fx->run(stream.async_write_owned(move(msg)));
 	CHECK(sent == 2);
 	array<uint8_t, 2> rx{};
 	SZ received = 0;
 	while (received < 2) {
-		SZ const n = fx->run(stream.recv_borrowed(span<uint8_t>{rx.data() + received, 2u - received}));
+		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 2u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
 	CHECK(memcmp(rx.data(), "XY", 2) == 0);
-	fx->run(stream.close());
+	fx->run(stream.async_close());
 }
 // ─────────────────────────────────────────────────────────────────────────────
 // Acceptance criteria — tcp_accept / tcp_accept_multishot
@@ -1177,7 +1177,7 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
-	auto task = tcp_accept(l, fx->task_ring);
+	auto task = async_tcp_accept(l, fx->task_ring);
 	// cancel before any client connects — fires inline on ring owner
 	task.cancel();
 	bool got_cancel = false;
@@ -1210,7 +1210,7 @@ TEST_CASE(
 		ropts};
 	int err_code = 0;
 	try {
-		fx->run(tcp_accept(l, dr), chrono::seconds{5});
+		fx->run(async_tcp_accept(l, dr), chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); }
 	CHECK(err_code == ENOTSUP);
 }
@@ -1227,7 +1227,7 @@ TEST_CASE(
 	SZ const pending_before = fx->completions.pending();
 	for (int i = 0; i < 100; ++i) {
 		// start accept task (no connect yet — accept SQE in SQ, not submitted)
-		auto task = tcp_accept(l, fx->task_ring);
+		auto task = async_tcp_accept(l, fx->task_ring);
 		// connect from a jthread so ring pump can run concurrently
 		jthread t{[&l] {
 			int fd = connect_v4_blocking(l.port());
@@ -1237,7 +1237,7 @@ TEST_CASE(
 		}};
 		TcpStream s = fx->run(move(task), chrono::seconds{5});
 		CHECK(s.valid());
-		fx->run(s.close(), chrono::seconds{5});
+		fx->run(s.async_close(), chrono::seconds{5});
 		t.join();
 	}
 	CHECK(fx->completions.pending() == pending_before);
@@ -1259,9 +1259,9 @@ TEST_CASE(
 	using Task_v = conflux::work::root::Task<void>;
 	Fn<Task_v(TcpStream)> handler = [counter](TcpStream s) -> Task_v {
 		counter->fetch_add(1, memory_order_relaxed);
-		co_await s.close();
+		co_await s.async_close();
 	};
-	auto task = tcp_accept_multishot(l, fx->task_ring, {}, move(handler));
+	auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, move(handler));
 	// connect 100 clients then cancel — all backlogged before pump runs
 	jthread t{[&l] {
 		for (int i = 0; i < 100; ++i) {
@@ -1293,8 +1293,8 @@ TEST_CASE(
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
 	using Task_v2 = conflux::work::root::Task<void>;
-	Fn<Task_v2(TcpStream)> handler2 = [](TcpStream s) -> Task_v2 { co_await s.close(); };
-	auto task = tcp_accept_multishot(l, fx->task_ring, {}, move(handler2));
+	Fn<Task_v2(TcpStream)> handler2 = [](TcpStream s) -> Task_v2 { co_await s.async_close(); };
+	auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, move(handler2));
 	// 3 connections then cancel
 	for (int i = 0; i < 3; ++i) {
 		int fd = connect_v4_blocking(l.port());
@@ -1326,8 +1326,8 @@ TEST_CASE(
 	{
 		TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 		using Task_v3 = conflux::work::root::Task<void>;
-		Fn<Task_v3(TcpStream)> handler3 = [](TcpStream s) -> Task_v3 { co_await s.close(); };
-		auto task = tcp_accept_multishot(l, fx->task_ring, {}, move(handler3));
+		Fn<Task_v3(TcpStream)> handler3 = [](TcpStream s) -> Task_v3 { co_await s.async_close(); };
+		auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, move(handler3));
 		int fd = connect_v4_blocking(l.port());
 		if (fd >= 0) {
 			::close(fd);
@@ -1353,7 +1353,7 @@ TEST_CASE(
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
 	SZ const pending_before = fx->completions.pending();
-	auto task = tcp_accept(l, fx->task_ring);
+	auto task = async_tcp_accept(l, fx->task_ring);
 	// fill remaining 15 SQ slots with nops (sentinel user_data — out of range → ignored on CQE)
 	int nops_added = 0;
 	for (int i = 0; i < 15; ++i) {
@@ -1403,7 +1403,7 @@ TEST_CASE(
 		opts};
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
-	auto task = tcp_accept(l, ring2);
+	auto task = async_tcp_accept(l, ring2);
 	// cancel: submit_on_owner returns false → cancel_requested=true, no cancel SQE submitted
 	task.cancel();
 	CHECK(owner_called);
@@ -1447,8 +1447,8 @@ TEST_CASE(
 	auto l = make_unique<TcpListener>(TcpListenerOptions{.bind = TcpBindAddress::loopback_v4});
 	int const fd_before = count_proc_fds();
 	using Task_v4 = conflux::work::root::Task<void>;
-	Fn<Task_v4(TcpStream)> handler4 = [](TcpStream s) -> Task_v4 { co_await s.close(); };
-	auto task = tcp_accept_multishot(*l, ring2, {}, move(handler4));
+	Fn<Task_v4(TcpStream)> handler4 = [](TcpStream s) -> Task_v4 { co_await s.async_close(); };
+	auto task = async_tcp_accept_multishot(*l, ring2, {}, move(handler4));
 	task.cancel();
 	CHECK(owner_called);
 	// destroy listener — kernel delivers terminal error CQE for the multishot op

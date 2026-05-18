@@ -321,9 +321,6 @@ public:
 	[[nodiscard]] Opt<HttpResponse> dispatch_context(
 		HttpRequest const &req,
 		RequestContext const &ctx) const;
-	[[nodiscard]] Opt<HttpResponse> dispatch_async(
-		HttpRequest const &req,
-		RequestContext const &ctx) const;
 
 private:
 	struct Impl;

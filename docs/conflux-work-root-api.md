@@ -392,7 +392,7 @@ Strict join and dropped-outcome helpers:
 
 Contract behavior:
 
-- `blocking_join(...)`, legacy `join(...)`, `try_join_ready(...)`, and `join_ready(...)` on a
+- `blocking_join(...)`, `try_join_ready(...)`, and `join_ready(...)` on a
   moved-from/non-live object throw `JoinError`
 - posted/operation joins validate capability identity and throw
   `JoinError` on mismatch before readiness checks

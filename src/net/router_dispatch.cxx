@@ -34,7 +34,7 @@ export HttpResponse router_defer_http_task(
 	deferred->attach_cancel(jh->control());
 	jh->control().set_on_ready_or_run([deferred, jh]() noexcept {
 		try {
-			auto outcome = conflux::work::root::join(move(*jh));
+			auto outcome = conflux::work::root::blocking_join(move(*jh));
 			if (outcome.is_success()) {
 				deferred->complete(move(outcome).success().value);
 			} else {
@@ -182,14 +182,4 @@ export template<typename ContextRouteRange, typename Ctx>
 		}
 	}
 	return nullopt;
-}
-
-export template<typename ContextRouteRange, typename Ctx>
-[[nodiscard]] Opt<HttpResponse> dispatch_async_routes(
-	HttpRequest const &req,
-	Ctx const &ctx,
-	SV path_sv,
-	bool is_head,
-	ContextRouteRange const &context_routes) {
-	return dispatch_context_routes(req, ctx, path_sv, is_head, context_routes);
 }

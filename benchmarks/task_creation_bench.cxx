@@ -22,7 +22,7 @@ void run_warmup(
 	for (SZ i = 0; i < warmup; ++i) {
 		auto [task, source] = root::make_task_source<int>();
 		(void)source.try_set_value(root::Success<int>{42});
-		(void)root::join(move(task));
+		(void)root::blocking_join(move(task));
 	}
 }
 BenchStats bench_task_creation(
@@ -31,7 +31,7 @@ BenchStats bench_task_creation(
 	for (SZ i = 0; i < iters; ++i) {
 		auto [task, source] = root::make_task_source<int>();
 		(void)source.try_set_value(root::Success<int>{static_cast<int>(i)});
-		[[maybe_unused]] auto outcome = root::join(move(task));
+		[[maybe_unused]] auto outcome = root::blocking_join(move(task));
 	}
 	u64 const elapsed = bench_now_ns() - t0;
 	return {{}, "task_creation"sv, iters, elapsed, static_cast<double>(elapsed) / static_cast<double>(iters)};
@@ -43,7 +43,7 @@ BenchStats bench_task_drop_joinable(
 	for (SZ i = 0; i < iters; ++i) {
 		auto [task, source] = root::make_task_source<int>();
 		(void)source.try_set_value(root::Success<int>{static_cast<int>(i)});
-		(void)root::join(move(task)); // remove after E1.x auto-detach
+		(void)root::blocking_join(move(task)); // remove after E1.x auto-detach
 	}
 	u64 const elapsed = bench_now_ns() - t0;
 	return {{}, variant_name, iters, elapsed, static_cast<double>(elapsed) / static_cast<double>(iters)};

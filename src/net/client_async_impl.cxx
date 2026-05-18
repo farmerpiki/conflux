@@ -1007,11 +1007,4 @@ namespace conflux::http {
 	return move(out);
 }
 
-[[nodiscard]] conflux::work::root::Task<ClientResult> send_async(
-	HttpClient const &client,
-	SocketTaskRing &ring,
-	ClientRequest const &req) {
-	return async_send(client, ring, req);
-}
-
 } // namespace conflux::http

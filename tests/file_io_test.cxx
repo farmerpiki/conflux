@@ -762,7 +762,7 @@ TEST_CASE(
 	CHECK(pool.available() == 1);
 }
 TEST_CASE(
-	"file_io: unlink_async removes a file",
+	"file_io: async_unlink removes a file",
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
@@ -783,7 +783,7 @@ TEST_CASE(
 	CHECK(::stat(path.c_str(), &st) != 0);
 }
 TEST_CASE(
-	"file_io: rename_async renames a file",
+	"file_io: async_rename renames a file",
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
@@ -805,7 +805,7 @@ TEST_CASE(
 	::unlink(dst_path.c_str());
 }
 TEST_CASE(
-	"file_io: fadvise_async succeeds on a regular file",
+	"file_io: async_fadvise succeeds on a regular file",
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
@@ -824,7 +824,7 @@ TEST_CASE(
 	CHECK(passed); // EBADF acceptable on some kernel versions for fadvise via io_uring
 }
 TEST_CASE(
-	"file_io: madvise_async on mapped memory succeeds",
+	"file_io: async_madvise on mapped memory succeeds",
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
@@ -850,7 +850,7 @@ TEST_CASE(
 	CHECK(passed); // EINVAL acceptable if kernel constrains anonymous madvise
 }
 TEST_CASE(
-	"file_io: mkdirat_async creates a directory",
+	"file_io: async_mkdirat creates a directory",
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
@@ -876,7 +876,7 @@ TEST_CASE(
 	::rmdir(dir_path.c_str());
 }
 TEST_CASE(
-	"file_io: symlinkat_async creates a symlink",
+	"file_io: async_symlinkat creates a symlink",
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
@@ -899,7 +899,7 @@ TEST_CASE(
 	::unlink(link_path.c_str());
 }
 TEST_CASE(
-	"file_io: ftruncate_async truncates a file",
+	"file_io: async_ftruncate truncates a file",
 	"[file_io][async]") {
 	auto fx = require_ring_fixture();
 
@@ -921,7 +921,7 @@ TEST_CASE(
 	CHECK(st.st_size == 1024);
 }
 TEST_CASE(
-	"file_io: fsetxattr_async + fgetxattr_async round-trips an xattr",
+	"file_io: async_fsetxattr + async_fgetxattr round-trips an xattr",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -964,7 +964,7 @@ TEST_CASE(
 	CHECK(SV{buf.data(), got} == xattr_val);
 }
 TEST_CASE(
-	"file_io: fixed_fd_install_async rejects non-direct handle",
+	"file_io: async_fixed_fd_install rejects non-direct handle",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -983,7 +983,7 @@ TEST_CASE(
 	CHECK(err == EINVAL);
 }
 TEST_CASE(
-	"file_io: socket_async creates a socket",
+	"file_io: async_socket creates a socket",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1010,7 +1010,7 @@ TEST_CASE(
 	}
 }
 TEST_CASE(
-	"file_io: shutdown_async half-closes a socket",
+	"file_io: async_shutdown half-closes a socket",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1035,7 +1035,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: tee_async copies data between pipes",
+	"file_io: async_tee copies data between pipes",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1085,7 +1085,7 @@ TEST_CASE(
 	}
 }
 TEST_CASE(
-	"file_io: linkat_async creates a hard link",
+	"file_io: async_linkat creates a hard link",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1116,7 +1116,7 @@ TEST_CASE(
 	::unlink(dst_path.c_str());
 }
 TEST_CASE(
-	"file_io: sync_file_range_async flushes a file region",
+	"file_io: async_sync_file_range flushes a file region",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1141,7 +1141,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: cancel_async on non-existent user_data succeeds (ENOENT → ok)",
+	"file_io: async_cancel on non-existent user_data succeeds (ENOENT → ok)",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1161,7 +1161,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: cancel_fd_async on idle fd resolves",
+	"file_io: async_cancel_fd on idle fd resolves",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1182,7 +1182,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: connect_async returns ECONNREFUSED on closed port",
+	"file_io: async_connect returns ECONNREFUSED on closed port",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1211,7 +1211,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: futex_wake_async wakes zero waiters on uncontested futex",
+	"file_io: async_futex_wake wakes zero waiters on uncontested futex",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1230,7 +1230,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: futex_wait_async resolves immediately when word already changed",
+	"file_io: async_futex_wait resolves immediately when word already changed",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1251,7 +1251,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: msg_ring_async delivers synthetic CQE to self ring",
+	"file_io: async_msg_ring delivers synthetic CQE to self ring",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1270,7 +1270,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: setxattr_async + getxattr_async round-trips path-based xattr",
+	"file_io: async_setxattr + async_getxattr round-trips path-based xattr",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1311,7 +1311,7 @@ TEST_CASE(
 	CHECK(SV{buf.data(), got} == xattr_val);
 }
 TEST_CASE(
-	"file_io: waitid_async on non-existent pid returns ECHILD",
+	"file_io: async_waitid on non-existent pid returns ECHILD",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1329,7 +1329,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: pipe_async creates a functional pipe",
+	"file_io: async_pipe creates a functional pipe",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1362,7 +1362,7 @@ TEST_CASE(
 	}
 }
 TEST_CASE(
-	"file_io: bind_async + listen_async on loopback",
+	"file_io: async_bind + async_listen on loopback",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1409,7 +1409,7 @@ TEST_CASE(
 	CHECK(listen_passed);
 }
 TEST_CASE(
-	"file_io: nop_async completes successfully",
+	"file_io: async_nop completes successfully",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1510,7 +1510,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: futex_waitv_async resolves immediately on already-changed word",
+	"file_io: async_futex_waitv resolves immediately on already-changed word",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1538,7 +1538,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: msg_ring_fd_async sends fd to same ring",
+	"file_io: async_msg_ring_fd sends fd to same ring",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1562,7 +1562,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: timeout_remove_async on non-existent tag resolves",
+	"file_io: async_timeout_remove on non-existent tag resolves",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1582,7 +1582,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"file_io: timeout_update_async on non-existent tag resolves",
+	"file_io: async_timeout_update on non-existent tag resolves",
 	"[file_io][async]") {
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1601,7 +1601,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"poll_add_async fires on readable pipe") {
+	"async_poll_add fires on readable pipe") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1628,7 +1628,7 @@ TEST_CASE(
 	::close(pfd[1]);
 }
 TEST_CASE(
-	"poll_remove_async cancels pending poll") {
+	"async_poll_remove cancels pending poll") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1647,7 +1647,7 @@ TEST_CASE(
 	// Now cancel it: we need the user_data of the poll SQE.
 	// Our fixture encodes ud as pack_ud(slot, gen). We know the poll_add
 	// reserved slot 0 gen 1 (first reservation after construction).
-	// Use cancel_fd_async instead — simpler to test.
+	// Use async_cancel_fd instead — simpler to test.
 	try {
 		block_on(fx->reader, fx->reader.async_cancel_fd(sv[0], 0), chrono::seconds{5});
 		remove_ok = true;
@@ -1661,7 +1661,7 @@ TEST_CASE(
 	::close(sv[1]);
 }
 TEST_CASE(
-	"accept_async returns new fd from socketpair-like listen") {
+	"async_accept returns new fd from socketpair-like listen") {
 	// Create a listening TCP socket, connect from another thread, accept via uring.
 	auto fx = RingFixture::make();
 	if (!fx) {
@@ -1734,7 +1734,7 @@ TEST_CASE(
 	CHECK(SV{buf.data(), recvd} == payload);
 }
 TEST_CASE(
-	"sendmsg_async + recvmsg_async round-trip over socketpair") {
+	"async_sendmsg + async_recvmsg round-trip over socketpair") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1765,7 +1765,7 @@ TEST_CASE(
 	CHECK(SV{buf.data(), recvd} == payload);
 }
 TEST_CASE(
-	"epoll_ctl_async + epoll_wait_async detect fd readability") {
+	"async_epoll_ctl + async_epoll_wait detect fd readability") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1810,7 +1810,7 @@ TEST_CASE(
 	::close(epfd);
 }
 TEST_CASE(
-	"provide_buffers_async + remove_buffers_async smoke") {
+	"async_provide_buffers + async_remove_buffers smoke") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1844,7 +1844,7 @@ TEST_CASE(
 	}
 }
 TEST_CASE(
-	"openat2_async opens file with basic open_how") {
+	"async_openat2 opens file with basic open_how") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1902,7 +1902,7 @@ TEST_CASE(
 	CHECK(SV{buf.data(), recvd} == payload);
 }
 TEST_CASE(
-	"unsafe_send_zc_sent_async sends data (or gracefully unsupported)") {
+	"async_unsafe_send_zc_sent sends data (or gracefully unsupported)") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1929,7 +1929,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"send_zc_async completes after notification and data received") {
+	"async_send_zc completes after notification and data received") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1960,7 +1960,7 @@ TEST_CASE(
 	}
 }
 TEST_CASE(
-	"unlinkat_async removes file relative to dirfd") {
+	"async_unlinkat removes file relative to dirfd") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -1980,7 +1980,7 @@ TEST_CASE(
 	CHECK(::access(path.c_str(), F_OK) != 0);
 }
 TEST_CASE(
-	"renameat_async renames file across directories") {
+	"async_renameat renames file across directories") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -2050,7 +2050,7 @@ TEST_CASE(
 	CHECK_FALSE(dir.has_staging_files());
 }
 TEST_CASE(
-	"mkdir_async creates a directory") {
+	"async_mkdir creates a directory") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -2077,7 +2077,7 @@ TEST_CASE(
 	}
 }
 TEST_CASE(
-	"write_fixed_async + read_fixed round-trip") {
+	"async_write_fixed + read_fixed round-trip") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -2185,7 +2185,7 @@ TEST_CASE(
 	::io_uring_unregister_files(&fx->ring);
 }
 TEST_CASE(
-	"msg_ring_cqe_flags_async posts message to self ring") {
+	"async_msg_ring_cqe_flags posts message to self ring") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -2204,7 +2204,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"unsafe_sendmsg_zc_sent_async sends data (or gracefully unsupported)") {
+	"async_unsafe_sendmsg_zc_sent sends data (or gracefully unsupported)") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");
@@ -2233,7 +2233,7 @@ TEST_CASE(
 	CHECK(passed);
 }
 TEST_CASE(
-	"sendmsg_zc_async completes after notification and data received") {
+	"async_sendmsg_zc completes after notification and data received") {
 	auto fx = RingFixture::make();
 	if (!fx) {
 		SKIP("io_uring_queue_init failed");

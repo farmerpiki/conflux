@@ -247,7 +247,7 @@ Case make_root_task_cancelled_case() {
 		.run = [] {
 			auto [task, src] = root::make_task_source<int>();
 			(void)src.try_set_cancelled(root::work_errc::cancelled_requested);
-			auto out = root::join(move(task));
+			auto out = root::blocking_join(move(task));
 			return static_cast<SZ>(out.is_cancelled() ? 1 : 0);
 		}};
 }
@@ -388,9 +388,9 @@ Case make_pool_single_case() {
 	auto pool = make_shared<WorkPool>(bench_pool_opts());
 	return Case{
 		.name = "work/pool_single",
-		.description = "run_on_task(pool, fn) + root::value(task) — single dispatch roundtrip",
+		.description = "async_run_on(pool, fn) + root::value(task) — single dispatch roundtrip",
 		.default_iterations = 25000,
-		.run = [pool] { return static_cast<SZ>(root::value(run_on_task(*pool, [] { return 42; }))); }};
+		.run = [pool] { return static_cast<SZ>(root::value(async_run_on(*pool, [] { return 42; }))); }};
 }
 Case make_pool_join_all_3_case() {
 	auto pool = make_shared<WorkPool>(bench_pool_opts());
@@ -400,9 +400,9 @@ Case make_pool_join_all_3_case() {
 		.default_iterations = 30000,
 		.run = [pool] {
 			auto [a, b, c] = root::value(join_all(
-				run_on_task(*pool, [] { return 1; }),
-				run_on_task(*pool, [] { return 2; }),
-				run_on_task(*pool, [] { return 3; })));
+				async_run_on(*pool, [] { return 1; }),
+				async_run_on(*pool, [] { return 2; }),
+				async_run_on(*pool, [] { return 3; })));
 			return static_cast<SZ>(a + b + c);
 		}};
 }
@@ -416,14 +416,14 @@ Case make_pool_bursty_case() {
 			// Historical benchmark behavior: short spin gap, not OS sleep.
 			for (volatile int i = 0; i < 200; ++i) {}
 			// Burst 8 tasks
-			auto t0 = run_on_task(*pool, [] { return 1; });
-			auto t1 = run_on_task(*pool, [] { return 2; });
-			auto t2 = run_on_task(*pool, [] { return 3; });
-			auto t3 = run_on_task(*pool, [] { return 4; });
-			auto t4 = run_on_task(*pool, [] { return 5; });
-			auto t5 = run_on_task(*pool, [] { return 6; });
-			auto t6 = run_on_task(*pool, [] { return 7; });
-			auto t7 = run_on_task(*pool, [] { return 8; });
+			auto t0 = async_run_on(*pool, [] { return 1; });
+			auto t1 = async_run_on(*pool, [] { return 2; });
+			auto t2 = async_run_on(*pool, [] { return 3; });
+			auto t3 = async_run_on(*pool, [] { return 4; });
+			auto t4 = async_run_on(*pool, [] { return 5; });
+			auto t5 = async_run_on(*pool, [] { return 6; });
+			auto t6 = async_run_on(*pool, [] { return 7; });
+			auto t7 = async_run_on(*pool, [] { return 8; });
 			auto [a, b, c, d, e, f, g, h] =
 				root::value(join_all(move(t0), move(t1), move(t2), move(t3), move(t4), move(t5), move(t6), move(t7)));
 			return static_cast<SZ>(a + b + c + d + e + f + g + h);

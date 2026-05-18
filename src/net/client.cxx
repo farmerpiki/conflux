@@ -989,10 +989,6 @@ public:
 			current = move(**next);
 		}
 	}
-	[[nodiscard]] ClientResult send_blocking(
-		ClientRequest const &req) const {
-		return blocking_send(req);
-	}
 };
 
 } // namespace conflux::http

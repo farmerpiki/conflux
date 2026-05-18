@@ -3123,46 +3123,6 @@ template<progress_capability Driver, work_value T>
 		loc);
 }
 template<work_value T>
-[[nodiscard]] Outcome<T> join(
-	Task<T> &&task,
-	std::source_location loc = std::source_location::current()) {
-	return blocking_join(move(task), loc);
-}
-template<progress_capability Owner, work_value T>
-[[nodiscard]] Outcome<T> join(
-	Owner &owner,
-	Posted<T> &&posted,
-	std::source_location loc = std::source_location::current()) {
-	return blocking_join(owner, move(posted), loc);
-}
-template<progress_capability Driver, work_value T>
-[[nodiscard]] Outcome<T> join(
-	Driver &driver,
-	Operation<T> &&op,
-	std::source_location loc = std::source_location::current()) {
-	return blocking_join(driver, move(op), loc);
-}
-template<work_value T>
-[[nodiscard]] Outcome<T> join(
-	TaskJoinHandle<T> &&h,
-	std::source_location loc = std::source_location::current()) {
-	return blocking_join(move(h), loc);
-}
-template<progress_capability Owner, work_value T>
-[[nodiscard]] Outcome<T> join(
-	Owner &owner,
-	PostedJoinHandle<T> &&h,
-	std::source_location loc = std::source_location::current()) {
-	return blocking_join(owner, move(h), loc);
-}
-template<progress_capability Driver, work_value T>
-[[nodiscard]] Outcome<T> join(
-	Driver &driver,
-	OperationJoinHandle<T> &&h,
-	std::source_location loc = std::source_location::current()) {
-	return blocking_join(driver, move(h), loc);
-}
-template<work_value T>
 [[nodiscard]] T value(
 	Task<T> &&task) {
 	return root::value(blocking_join(move(task)));

@@ -177,72 +177,6 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 }
 
 [[nodiscard]] wroot::Task<std::size_t> TcpStream::async_recv_borrowed(std::span<std::uint8_t> dst) {
-	return recv_borrowed(dst);
-}
-
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_recv_borrowed(
-	std::span<std::uint8_t> dst,
-	std::chrono::milliseconds timeout) {
-	return recv_borrowed(dst, timeout);
-}
-
-[[nodiscard]] wroot::Task<std::vector<std::uint8_t>> TcpStream::async_recv_owned(std::size_t max_bytes) {
-	return recv_owned(max_bytes);
-}
-
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_borrowed(std::span<std::uint8_t const> src) {
-	return write_borrowed(src);
-}
-
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_borrowed(
-	std::span<std::uint8_t const> src,
-	std::chrono::milliseconds timeout) {
-	return write_borrowed(src, timeout);
-}
-
-[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(
-	std::span<std::uint8_t const> src,
-	std::chrono::milliseconds timeout) {
-	return write_all_borrowed(src, timeout);
-}
-
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_copy(std::span<std::uint8_t const> src) {
-	return write_copy(src);
-}
-
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_owned(std::vector<std::uint8_t> data) {
-	return write_owned(move(data));
-}
-
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_owned(std::string data) {
-	return write_owned(move(data));
-}
-
-[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(std::span<std::uint8_t const> src) {
-	return write_all_borrowed(src);
-}
-
-[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_copy(std::span<std::uint8_t const> src) {
-	return write_all_copy(src);
-}
-
-[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_owned(std::vector<std::uint8_t> data) {
-	return write_all_owned(move(data));
-}
-
-[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_owned(std::string data) {
-	return write_all_owned(move(data));
-}
-
-[[nodiscard]] wroot::Task<void> TcpStream::async_shutdown(int how) {
-	return shutdown(how);
-}
-
-[[nodiscard]] wroot::Task<void> TcpStream::async_close() {
-	return close();
-}
-
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::recv_borrowed(std::span<std::uint8_t> dst) {
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(memory_order_relaxed)) {
 		auto [t, s] = wroot::make_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
@@ -264,7 +198,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 		} catch (...) { auto _ = shared_src->try_set_exception(current_exception()); }
 	});
 	std::uint64_t const ud = st.ring->encode(slot, gen);
-	if (!submit_recv_borrowed(st.ring->raw(), h, dst.data(), dst.size(), ud)) {
+	if (!submit_async_recv_borrowed(st.ring->raw(), h, dst.data(), dst.size(), ud)) {
 		st.ring->completions().dispatch(slot, gen, -ENOSPC, 0);
 		return task;
 	}
@@ -293,21 +227,21 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 }
 
 [[nodiscard]] wroot::Task<std::size_t> TcpStream::read_borrowed(std::span<std::uint8_t> dst) {
-	return recv_borrowed(dst);
+	return async_recv_borrowed(dst);
 }
 
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::write_borrowed(std::span<std::uint8_t const> src) {
+[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_borrowed(std::span<std::uint8_t const> src) {
 	return do_send(src.data(), src.size(), {});
 }
 
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::write_copy(std::span<std::uint8_t const> src) {
+[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_copy(std::span<std::uint8_t const> src) {
 	auto holder = make_shared<std::vector<std::uint8_t>>(src.begin(), src.end());
 	std::uint8_t *data = holder->data();
 	std::size_t const len = holder->size();
 	return do_send(data, len, holder);
 }
 
-[[nodiscard]] wroot::Task<void> TcpStream::shutdown(int how) {
+[[nodiscard]] wroot::Task<void> TcpStream::async_shutdown(int how) {
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid()) {
 		co_await []() -> wroot::Task<void> { throw IoError{EBADF, "tcp: stream closed"}; }();
@@ -332,7 +266,7 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	co_await move(task);
 }
 
-[[nodiscard]] wroot::Task<void> TcpStream::close() {
+[[nodiscard]] wroot::Task<void> TcpStream::async_close() {
 	auto &st = tcp_state(state_);
 	bool expected = false;
 	if (!st.closing.compare_exchange_strong(expected, true, memory_order_acq_rel)) {
@@ -379,22 +313,22 @@ template<class T>
 	auto _ = ss->try_set_exception(make_exception_ptr(move(e)));
 	return move(t);
 }
-[[nodiscard]] wroot::Task<void> TcpStream::write_all_borrowed(
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(
 	std::span<std::uint8_t const> src) {
 	std::size_t sent = 0;
 	while (sent < src.size()) {
-		std::size_t const n = co_await write_borrowed({src.data() + sent, src.size() - sent});
+		std::size_t const n = co_await async_write_borrowed({src.data() + sent, src.size() - sent});
 		if (n == 0) {
 			throw IoError{ECONNRESET, "tcp: connection closed"};
 		}
 		sent += n;
 	}
 }
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::write_borrowed(
+[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_borrowed(
 	std::span<std::uint8_t const> src,
 	std::chrono::milliseconds timeout) {
 	if (timeout.count() == 0) {
-		return write_borrowed(src);
+		return async_write_borrowed(src);
 	}
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(memory_order_relaxed)) {
@@ -464,19 +398,19 @@ template<class T>
 	});
 	return task;
 }
-[[nodiscard]] wroot::Task<void> TcpStream::write_all_borrowed(
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_borrowed(
 	std::span<std::uint8_t const> src,
 	std::chrono::milliseconds timeout) {
 	std::size_t sent = 0;
 	while (sent < src.size()) {
-		std::size_t const n = co_await write_borrowed({src.data() + sent, src.size() - sent}, timeout);
+		std::size_t const n = co_await async_write_borrowed({src.data() + sent, src.size() - sent}, timeout);
 		if (n == 0) {
 			throw IoError{ECONNRESET, "tcp: connection closed"};
 		}
 		sent += n;
 	}
 }
-[[nodiscard]] wroot::Task<void> TcpStream::write_all_copy(
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_copy(
 	std::span<std::uint8_t const> src) {
 	auto holder = make_shared<std::vector<std::uint8_t>>(src.begin(), src.end());
 	std::size_t sent = 0;
@@ -488,31 +422,31 @@ template<class T>
 		sent += n;
 	}
 }
-[[nodiscard]] wroot::Task<std::vector<std::uint8_t>> TcpStream::recv_owned(
+[[nodiscard]] wroot::Task<std::vector<std::uint8_t>> TcpStream::async_recv_owned(
 	std::size_t max_bytes) {
 	std::vector<std::uint8_t> out(max_bytes);
 	if (max_bytes == 0) {
 		co_return out;
 	}
-	std::size_t const n = co_await recv_borrowed(std::span<std::uint8_t>{out.data(), out.size()});
+	std::size_t const n = co_await async_recv_borrowed(std::span<std::uint8_t>{out.data(), out.size()});
 	out.resize(n);
 	co_return out;
 }
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::write_owned(
+[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_owned(
 	std::vector<std::uint8_t> data) {
 	auto holder = make_shared<std::vector<std::uint8_t>>(move(data));
 	std::uint8_t const *ptr = holder->data();
 	std::size_t const len = holder->size();
 	return do_send(ptr, len, holder);
 }
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::write_owned(
+[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_owned(
 	std::string data) {
 	auto holder = make_shared<std::string>(move(data));
 	auto const *ptr = reinterpret_cast<std::uint8_t const *>(holder->data());
 	std::size_t const len = holder->size();
 	return do_send(ptr, len, holder);
 }
-[[nodiscard]] wroot::Task<void> TcpStream::write_all_owned(
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_owned(
 	std::vector<std::uint8_t> data) {
 	auto holder = make_shared<std::vector<std::uint8_t>>(move(data));
 	std::size_t sent = 0;
@@ -524,7 +458,7 @@ template<class T>
 		sent += n;
 	}
 }
-[[nodiscard]] wroot::Task<void> TcpStream::write_all_owned(
+[[nodiscard]] wroot::Task<void> TcpStream::async_write_all_owned(
 	std::string data) {
 	auto holder = make_shared<std::string>(move(data));
 	std::size_t sent = 0;
@@ -537,11 +471,11 @@ template<class T>
 		sent += n;
 	}
 }
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::recv_borrowed(
+[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_recv_borrowed(
 	std::span<std::uint8_t> dst,
 	std::chrono::milliseconds timeout) {
 	if (timeout.count() == 0) {
-		return recv_borrowed(dst);
+		return async_recv_borrowed(dst);
 	}
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(memory_order_relaxed)) {
@@ -795,18 +729,7 @@ struct ConnectOp {
 		}
 	}
 };
-// ─── tcp_connect ─────────────────────────────────────────────────────────────
-
 [[nodiscard]] wroot::Task<TcpStream> async_tcp_connect(
-	SocketTaskRing &ring,
-	int family,
-	sockaddr_storage addr,
-	socklen_t len,
-	ConnectOptions opts) {
-	return tcp_connect(ring, family, addr, len, opts);
-}
-
-[[nodiscard]] wroot::Task<TcpStream> tcp_connect(
 	SocketTaskRing &ring,
 	int family,
 	sockaddr_storage addr,
@@ -941,13 +864,6 @@ struct AcceptOp {
 // completion or cancellation has fully drained.
 
 [[nodiscard]] wroot::Task<TcpStream> async_tcp_accept(
-	TcpListener &listener,
-	SocketTaskRing &ring,
-	AcceptOptions opts) {
-	return tcp_accept(listener, ring, opts);
-}
-
-[[nodiscard]] wroot::Task<TcpStream> tcp_accept(
 	TcpListener &listener,
 	SocketTaskRing &ring,
 	AcceptOptions opts) {
@@ -1121,14 +1037,6 @@ struct MultishotAcceptOp {
 //     cancel_on_owner uses IORING_ASYNC_CANCEL_FD which cancels all ops on the fd.
 
 [[nodiscard]] wroot::Task<void> async_tcp_accept_multishot(
-	TcpListener &listener,
-	SocketTaskRing &ring,
-	AcceptOptions opts,
-	std::function<wroot::Task<void>(TcpStream)> handler) {
-	return tcp_accept_multishot(listener, ring, opts, move(handler));
-}
-
-[[nodiscard]] wroot::Task<void> tcp_accept_multishot(
 	TcpListener &listener,
 	SocketTaskRing &ring,
 	AcceptOptions opts,
@@ -1442,12 +1350,6 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	return task;
 }
 [[nodiscard]] wroot::Task<void> async_sleep_for(
-	SocketTaskRing &ring,
-	std::chrono::milliseconds dur) {
-	return sleep_for(ring, dur);
-}
-
-[[nodiscard]] wroot::Task<void> sleep_for(
 	SocketTaskRing &ring,
 	std::chrono::milliseconds dur) {
 	if (dur.count() <= 0) {

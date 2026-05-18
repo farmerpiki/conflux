@@ -982,14 +982,6 @@ export template<typename Target, typename Fn>
 	}
 	return move(task);
 }
-// Compatibility alias: run_on_task returns a root::Task<T>, so new code should
-// use the async_* spelling until the final release alias-removal pass.
-export template<typename Target, typename Fn>
-[[nodiscard]] auto run_on_task(
-	Target &target,
-	Fn &&fn) {
-	return async_run_on(target, forward<Fn>(fn));
-}
 // Synchronous blocking wait for a root::Task<T> — no FileReader required.
 // Useful when the task completes on a thread pool (not io_uring).
 export template<typename T>
@@ -1023,7 +1015,6 @@ using Outcome = root::Outcome<T>;
 using CancelReason = root::CancelReason;
 
 using root::blocking_join; // NOLINT(misc-unused-using-decls) — re-export for module consumers
-using root::join; // NOLINT(misc-unused-using-decls) — compatibility re-export for module consumers
 using root::join_ready; // NOLINT(misc-unused-using-decls) — re-export for module consumers
 using root::make_task_source; // NOLINT(misc-unused-using-decls)
 using root::try_join_ready; // NOLINT(misc-unused-using-decls) — re-export for module consumers

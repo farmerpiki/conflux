@@ -550,11 +550,11 @@ conflux::work::root::Task<void> decode_socket_once(
 	SocketTaskRing &ring,
 	u16 port) {
 	auto ss = loopback_addr(port);
-	auto stream = co_await tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in));
+	auto stream = co_await async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in));
 	JsonAccumulator acc;
 	A<u8, 8192> buf{};
 	for (;;) {
-		auto got = co_await stream.recv_borrowed(span<u8>{buf.data(), buf.size()});
+		auto got = co_await stream.async_recv_borrowed(span<u8>{buf.data(), buf.size()});
 		if (got == 0) {
 			break;
 		}

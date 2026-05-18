@@ -322,7 +322,7 @@ struct StrLineReader {
 				return SV{reinterpret_cast<char const *>(buf.data()), end};
 			}
 			SZ const got =
-				sync_wait_socket_task(ring, stream.recv_borrowed(span<u8>{buf.data() + held, buf.size() - held}));
+				sync_wait_socket_task(ring, stream.async_recv_borrowed(span<u8>{buf.data() + held, buf.size() - held}));
 			if (got == 0) {
 				throw RE{"eof"};
 			}
@@ -347,7 +347,7 @@ u64 run_str_callback(
 		SZ const len = encode_line(out, n);
 		sync_wait_socket_task(
 			ring,
-			stream.write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const *>(out.data()), len}));
+			stream.async_write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const *>(out.data()), len}));
 		auto line = reader.read_line();
 		u64 const got = decode_line(line);
 		reader.consume_line(line.size());
@@ -369,7 +369,7 @@ conflux::work::root::Task<u64> str_coro_loop(
 	u64 n = start;
 	for (SZ i = 0; i < iters; ++i) {
 		SZ const len = encode_line(out, n);
-		co_await stream.write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const *>(out.data()), len});
+		co_await stream.async_write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const *>(out.data()), len});
 		for (;;) {
 			auto view = span{rbuf}.first(held);
 			auto it = ranges::find(view, u8('\n'));
@@ -384,7 +384,7 @@ conflux::work::root::Task<u64> str_coro_loop(
 				n = got;
 				break;
 			}
-			SZ const r = co_await stream.recv_borrowed(span<u8>{rbuf.data() + held, rbuf.size() - held});
+			SZ const r = co_await stream.async_recv_borrowed(span<u8>{rbuf.data() + held, rbuf.size() - held});
 			if (r == 0) {
 				throw RE{"eof"};
 			}
@@ -409,7 +409,7 @@ conflux::work::root::Task<void> serve_one_async(
 	A<u8, 128> rbuf{};
 	SZ held = 0;
 	for (;;) {
-		SZ const got = co_await stream.recv_borrowed(span<u8>{rbuf.data() + held, rbuf.size() - held});
+		SZ const got = co_await stream.async_recv_borrowed(span<u8>{rbuf.data() + held, rbuf.size() - held});
 		if (got == 0) {
 			co_return;
 		}
@@ -439,7 +439,7 @@ conflux::work::root::Task<void> serve_one_async(
 			}
 			*conv.ptr = '\n';
 			SZ const out_len = static_cast<SZ>(conv.ptr - out.data()) + 1;
-			co_await stream.write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const *>(out.data()), out_len});
+			co_await stream.async_write_all_borrowed(span<u8 const>{reinterpret_cast<u8 const *>(out.data()), out_len});
 			scan = msg_end + 1;
 		}
 		if (scan > 0) {
@@ -465,7 +465,7 @@ void run_async_server(
 	}
 	CompletionTable ct;
 	SocketTaskRing ring{SocketRawRing{&raw}, ct, [](u32 s, u32 g) noexcept -> u64 { return pack_ud(s, g); }};
-	tcp_accept_multishot(listener, ring, {}, [](TcpStream s) -> conflux::work::root::Task<void> {
+	async_tcp_accept_multishot(listener, ring, {}, [](TcpStream s) -> conflux::work::root::Task<void> {
 		return serve_one_async(move(s));
 	}).detach();
 	auto drain = [&]() noexcept {
@@ -515,10 +515,10 @@ conflux::work::root::Task<void> str_parallel_inner(
 	u64 start) {
 	auto ss = loopback_addr(port);
 	auto [s1, s2, s3, s4] = co_await join_all(
-		tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
-		tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
-		tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
-		tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)));
+		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
+		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
+		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)),
+		async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in)));
 	co_await join_all(
 		str_coro_loop(s1, iters, start),
 		str_coro_loop(s2, iters, start),
@@ -621,7 +621,7 @@ int main(
 										 }};
 				auto ss = loopback_addr(port);
 				TcpStream stream =
-					sync_wait_socket_task(task_ring, tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
+					sync_wait_socket_task(task_ring, async_tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
 				(void)run_str_callback(task_ring, stream, cfg.warmup, 0);
 				u64 const ns = (which == 2) ? run_str_callback(task_ring, stream, cfg.iterations, cfg.warmup) :
 											  run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);
@@ -646,7 +646,7 @@ int main(
 										 }};
 				auto ss = loopback_addr(port);
 				TcpStream stream =
-					sync_wait_socket_task(task_ring, tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
+					sync_wait_socket_task(task_ring, async_tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
 				(void)run_str_callback(task_ring, stream, cfg.warmup, 0);
 				u64 const ns = (which == 4) ? run_str_callback(task_ring, stream, cfg.iterations, cfg.warmup) :
 											  run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);

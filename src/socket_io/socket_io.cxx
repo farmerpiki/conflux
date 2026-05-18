@@ -1788,7 +1788,7 @@ export bool submit_connect_borrowed(
 }
 // ─── raw submission: recv (single-shot, into caller buffer) ──────────────────
 
-export bool submit_recv_borrowed(
+export bool submit_async_recv_borrowed(
 	SocketRawRing &ring,
 	SocketHandle handle,
 	void *buf,

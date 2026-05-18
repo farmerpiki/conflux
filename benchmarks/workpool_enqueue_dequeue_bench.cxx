@@ -174,7 +174,7 @@ WorkPoolBenchStats bench_single_thread(
 		for (SZ i = 0; i < n; ++i) {
 			auto [task, source] = root::make_task_source<int>();
 			auto _ = pool.enqueue([s = move(source)]() mutable { auto _ = s.try_set_value(root::Success<int>{0}); });
-			[[maybe_unused]] auto outcome = root::join(move(task));
+			[[maybe_unused]] auto outcome = root::blocking_join(move(task));
 		}
 	};
 	do_iters(warmup);
@@ -206,7 +206,7 @@ WorkPoolBenchStats bench_contended(
 					auto [task, source] = root::make_task_source<int>();
 					auto _ =
 						pool.enqueue([s = move(source)]() mutable { auto _ = s.try_set_value(root::Success<int>{0}); });
-					auto _ = root::join(move(task));
+					auto _ = root::blocking_join(move(task));
 				}
 			});
 		}
@@ -318,7 +318,7 @@ WorkPoolBenchStats bench_local_fanout(
 		if (!queued) {
 			return;
 		}
-		auto _ = root::join(move(task));
+		auto _ = root::blocking_join(move(task));
 		wait_for_count(done, n);
 	};
 	do_wave(warmup + 1);

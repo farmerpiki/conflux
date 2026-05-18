@@ -12,7 +12,7 @@ TEST_CASE(
 	"work: run_on_task executes callable on pool",
 	"[work]") {
 	WorkPool pool;
-	auto result = sync_wait(run_on_task(pool, [] { return 42; }));
+	auto result = sync_wait(async_run_on(pool, [] { return 42; }));
 	CHECK(result == 42);
 }
 TEST_CASE(

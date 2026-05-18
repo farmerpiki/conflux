@@ -103,7 +103,7 @@ TEST_CASE(
 	"phase6b: into_ready_task success branch produces equivalent Task",
 	"[phase6b]") {
 	auto task = carrier::into_ready_task(make_success(99));
-	auto out = root::join(move(task));
+	auto out = root::blocking_join(move(task));
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 99);
 }
@@ -111,7 +111,7 @@ TEST_CASE(
 	"phase6b: into_ready_task failure branch produces equivalent Task",
 	"[phase6b]") {
 	auto task = carrier::into_ready_task(make_failure("oops"));
-	auto out = root::join(move(task));
+	auto out = root::blocking_join(move(task));
 	REQUIRE(out.is_failure());
 	CHECK_THROWS_AS(rethrow_exception(out.failure().error), RE);
 }
@@ -119,7 +119,7 @@ TEST_CASE(
 	"phase6b: into_ready_task cancelled branch produces equivalent Task",
 	"[phase6b]") {
 	auto task = carrier::into_ready_task(make_cancelled());
-	auto out = root::join(move(task));
+	auto out = root::blocking_join(move(task));
 	REQUIRE(out.is_cancelled());
 	CHECK(out.cancelled().reason == root::CancelReason::requested);
 }
@@ -131,7 +131,7 @@ TEST_CASE(
 	REQUIRE(chain.bound_capability().address != nullptr);
 
 	auto task = carrier::into_ready_task(move(chain));
-	auto out = root::join(move(task));
+	auto out = root::blocking_join(move(task));
 	CHECK(out.is_success());
 }
 // ---------------------------------------------------------------------------

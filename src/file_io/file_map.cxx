@@ -66,7 +66,7 @@ export struct MappedBody {
 	}
 };
 using FileMapError = IoError;
-export std::expected<MappedFileLease, FileMapError> map_fd_readonly_sync(
+export std::expected<MappedFileLease, FileMapError> blocking_map_fd_readonly(
 	int fd,
 	FileStat const &st) noexcept {
 	if (st.size == 0) {
@@ -80,7 +80,7 @@ export std::expected<MappedFileLease, FileMapError> map_fd_readonly_sync(
 	}
 	return MappedFileLease{make_shared<MappedRegionEntry>(ptr, st.size, st.size)};
 }
-export std::expected<MappedFileLease, FileMapError> map_file_readonly_sync(
+export std::expected<MappedFileLease, FileMapError> blocking_map_file_readonly(
 	int dir_fd,
 	std::string_view relative,
 	std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) noexcept {
@@ -96,7 +96,7 @@ export std::expected<MappedFileLease, FileMapError> map_file_readonly_sync(
 	}
 	UniqueFd guard{fd};
 
-	auto st = fstat_sync(fd);
+	auto st = blocking_fstat(fd);
 	if (!st) {
 		return unexpected{
 			FileMapError{st.error().code().value(), "file_map: fstat"}
@@ -107,24 +107,5 @@ export std::expected<MappedFileLease, FileMapError> map_file_readonly_sync(
 			FileMapError{EFBIG, "file_map: file exceeds max_bytes"}
         };
 	}
-	return map_fd_readonly_sync(fd, *st);
-}
-
-// ───────────────────────────────────────────────────────────────────────
-// blocking_* aliases — final naming model for direct caller-thread mmap setup.
-// Keep *_sync names as pre-release compatibility aliases until the release
-// cleanup pass removes legacy spellings project-wide.
-// ───────────────────────────────────────────────────────────────────────
-
-export inline std::expected<MappedFileLease, FileMapError> blocking_map_fd_readonly(
-	int fd,
-	FileStat const &st) noexcept {
-	return map_fd_readonly_sync(fd, st);
-}
-
-export inline std::expected<MappedFileLease, FileMapError> blocking_map_file_readonly(
-	int dir_fd,
-	std::string_view relative,
-	std::size_t max_bytes = std::numeric_limits<std::size_t>::max()) noexcept {
-	return map_file_readonly_sync(dir_fd, relative, max_bytes);
+	return blocking_map_fd_readonly(fd, *st);
 }
