@@ -556,7 +556,7 @@ HttpResponse handle_static_get(
 					tm tm_val{};
 					::gmtime_r(&st.st_mtime, &tm_val);
 					std::array<char, 64> buf{};
-					if (strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%std::string GMT", &tm_val) > 0) {
+					if (strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &tm_val) > 0) {
 						last_modified = buf.data();
 						last_modified_cached = last_modified;
 						last_mtime_cached = st.st_mtime;
@@ -574,7 +574,7 @@ HttpResponse handle_static_get(
 				}
 				if (auto const &ims = r.if_modified_since; !ims.empty()) {
 					tm req_tm{};
-					if (::strptime(ims.c_str(), "%a, %d %b %Y %H:%M:%std::string GMT", &req_tm)) {
+					if (::strptime(ims.c_str(), "%a, %d %b %Y %H:%M:%S GMT", &req_tm)) {
 						req_tm.tm_isdst = 0;
 						if (st.st_mtime <= ::timegm(&req_tm)) {
 							HttpResponse resp;

@@ -209,7 +209,7 @@ public:
 		tm gmt{};
 		gmtime_r(&tt, &gmt);
 		std::array<char, 32> buf{};
-		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%std::string GMT", &gmt);
+		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
 		return header("If-Modified-Since", buf.data());
 	}
 	Builder &if_unmodified_since(
@@ -218,7 +218,7 @@ public:
 		tm gmt{};
 		gmtime_r(&tt, &gmt);
 		std::array<char, 32> buf{};
-		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%std::string GMT", &gmt);
+		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
 		return header("If-Unmodified-Since", buf.data());
 	}
 	Builder &&header(
