@@ -1162,7 +1162,7 @@ TEST_CASE(
 	CHECK(response->body == R"({"status":"ok"})");
 }
 TEST_CASE(
-	"http client: GET /api/ping returns parsed response (send_blocking)") {
+	"http client: GET /api/ping returns parsed response (blocking_send)") {
 	ensure_server();
 	HttpClient client{};
 	auto response =

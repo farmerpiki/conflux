@@ -87,7 +87,7 @@ Parse contract:
 
 ### `HttpFields`
 
-Case-insensitive (when constructed with `true`) ordered field map. Used for both request headers and response headers. Multimap-backed — `set()` collapses duplicates, `append()` keeps them, `values(name)` returns all.
+Case-insensitive (when constructed with `true`) ordered field map. Used for both request headers and response headers. Vector-backed with linear lookup — `set()` collapses duplicates, `append()` keeps them, `values(name)` returns all.
 
 ```cpp
 HttpFields h{true};

@@ -186,12 +186,12 @@ enum class DuplicateKeyPolicy : u8 {
 };
 
 struct JsonParseOptions {
-    LimitOption        max_depth;        // default 128
-    LimitOption        max_input_size;   // default 128 MiB
-    LimitOption        max_string_size;  // default 64 MiB
-    ParseMode          mode{ParseMode::strict};
-    DuplicateKeyPolicy duplicate_key{DuplicateKeyPolicy::reject};
-    std::optional<u32> warm_threshold{}; // auto-warm object index when member count >= threshold
+    LimitOption                 max_depth;        // default 128
+    LimitOption                 max_input_size;   // default 128 MiB
+    LimitOption                 max_string_size;  // default 64 MiB
+    DuplicateKeyPolicy          duplicate_key{DuplicateKeyPolicy::reject};
+    std::optional<std::uint32_t> warm_threshold{}; // auto-warm object index when member count >= threshold
+    ParseMode                   mode{ParseMode::strict};
 };
 ```
 
@@ -233,10 +233,12 @@ object in the document up to the supplied limits.
 
 ```cpp
 struct JsonDumpOptions {
-    bool     pretty{false};
-    unsigned indent{2};
-    bool     sort_object_keys{false};
-    bool     ascii_only{false};
+    bool                       pretty{false};
+    unsigned                   indent{2};
+    bool                       sort_object_keys{false};
+    bool                       ascii_only{false};
+    char                       indent_char{' '};
+    std::optional<std::size_t> truncate_depth{};
 };
 ```
 
@@ -731,7 +733,8 @@ struct NodeIdentityEqual { bool   operator()(NodeRef, NodeRef) const noexcept; }
 
 ```cpp
 struct JsonArenaOptions {
-    size_t initial_slab; // pre-allocated slab size
+    std::size_t               initial_slab{64 * 1024}; // pre-allocated slab size
+    std::pmr::memory_resource *hash_index_resource{nullptr};
 };
 
 class JsonArena {
@@ -740,7 +743,7 @@ public:
 
     expected<ArenaDocument, JsonError> parse_into      (string_view,  JsonParseOptions const& = {});
     expected<ArenaDocument, JsonError> parse_borrowed_into(string_view, JsonParseOptions const& = {});
-    expected<ArenaDocument, JsonError> parse_moved_into(string&&,     JsonParseOptions const& = {});
+    expected<ArenaDocument, JsonError> parse_moved_into(std::string,  JsonParseOptions const& = {});
 
     void   reset();           // invalidates all ArenaDocuments; reuses memory
     size_t slab_capacity() const;

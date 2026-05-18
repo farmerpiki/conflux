@@ -261,7 +261,9 @@ the work completed before the cancel took effect). This is by design —
 `request_cancel` is a hint, not a preemption. Callers must not assume that a
 fired cancel hook means the source cannot set success.
 
-Hook installed after terminal state fires immediately on the calling thread.
+Hook installation after terminal completion returns `false` and does not run the
+hook. Hook installation after a cancel request but before terminal completion runs
+the hook synchronously on the calling thread, unless a hook was already installed.
 
 **`on_ready` callback and abandon:** when the producer side abandons the control
 block without calling a terminal `try_set_*` (e.g., `~TaskSource` without a set),
@@ -300,7 +302,7 @@ Cancel hooks must be noexcept. They fire synchronously on the
 - `state() -> WorkState`
 - `can_join_with(CapabilityId) -> bool`
 - `static constexpr category() -> ControlCategory`
-- `try_set_on_ready(MoveOnlyFunction<void()>) -> ReadyRegistrationResult`
+- `try_set_on_ready(move-only void() callback) -> result with status/rejected_fn`
 - `clear_on_ready() -> ClearOnReadyStatus`
 - `set_on_ready_or_run(F&&) noexcept` (convenience: installs or runs immediately)
 
@@ -316,12 +318,13 @@ Cancel hook semantics:
 ### Ready Callback APIs
 
 `try_set_on_ready` installs a one-shot `void()` callback that fires when the
-control block reaches a terminal state. Returns `ReadyRegistrationResult`:
+control block reaches a terminal state. Returns an implementation-defined result
+with this shape:
 
 ```cpp
-struct ReadyRegistrationResult {
+struct /* implementation-defined */ {
     ReadyRegistration status;
-    MoveOnlyFunction<void()> rejected_fn; // non-null if not installed
+    /* move-only void() callback */ rejected_fn; // non-null if not installed
 };
 
 enum class ReadyRegistration : std::uint8_t {
@@ -406,13 +409,25 @@ Capability identity types:
 
 - `CapabilityId { void const* address; void const* type_tag; }`
 - `capability_id` CPO (`tag_invoke` customization)
-- helper mixin: `capability_id_from_address<Derived>`
+- opt-in trait: `template<class T> inline constexpr bool enable_address_capability_v = false`
 
 `progress_capability` requires `capability_id(cap)` to be available and
 `noexcept`, returning `CapabilityId`.
 
-`capability_id_from_address<Derived>` includes per-type static tag plus address
-so first-base subobject aliasing does not collapse distinct capability types.
+Specialize `enable_address_capability_v<CapabilityType> = true` to opt into
+address identity with a per-type static tag, or provide a custom
+`tag_invoke(capability_id_t, cap)` overload for another identity scheme. The
+per-type tag prevents first-base subobject aliasing from collapsing distinct
+capability types.
+
+```cpp
+struct OwnerCap {};
+
+namespace conflux::work::root {
+template<>
+inline constexpr bool enable_address_capability_v<OwnerCap> = true;
+}
+```
 
 ## Abandonment APIs
 
@@ -547,11 +562,12 @@ does not cancel children.
 
 ## Implementation Notes
 
-### `MoveOnlyFunction` Inline Buffer
+### Callback Inline Buffer
 
-`MoveOnlyFunction<Sig>` uses a **32-byte inline buffer** (default `InlineBytes`
-template parameter, aligned to `std::max_align_t`). Callables that fit within
-32 bytes are stored inline with no heap allocation. Larger callables heap-allocate.
+Control callbacks use an internal small move-only callable wrapper with a
+**32-byte inline buffer** aligned to `std::max_align_t`. Callables that fit
+within 32 bytes are stored inline with no heap allocation. Larger callables
+heap-allocate.
 
 Cancel hooks and `on_ready` callbacks that capture multiple values (e.g.,
 `(fd, ring_handle, context_ptr)`) may exceed the 32-byte limit and heap-allocate.
@@ -559,8 +575,7 @@ Callers on hot paths who want to avoid this allocation should measure with the
 `callable_erasure_*` benchmarks and restructure captures to fit the buffer.
 
 No public size-hint knob is exposed. If profiling reveals a consistent overflow
-pattern, a `MoveOnlyFunction<Sig, InlineCap>` template parameter may be added
-as a follow-up.
+pattern, a public size configuration can be added as a follow-up.
 
 ## Non-Goals of This Layer
 
