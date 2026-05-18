@@ -63,6 +63,35 @@ TEST_CASE(
 	CHECK(&static_app == &app);
 }
 
+TEST_CASE(
+	"http app: generic route registration and introspection stay on facade",
+	"[http][app]") {
+	auto app = chttp::App::default_server();
+	auto &added = app.add("REPORT", "/reports/{id}", [](HttpRequest const &req) {
+		return HttpResponse::text(std::string{req.params["id"]});
+	});
+	CHECK(&added == &app);
+
+	auto &ctx_added = app.add_context(
+		"POST",
+		"/jobs/{id}",
+		[](HttpRequest const &, RequestContext const &) -> conflux::work::root::Task<HttpResponse> {
+			auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
+			(void)source.try_set_value(
+				conflux::work::root::Success<HttpResponse>{HttpResponse::text("queued")});
+			return move(task);
+		});
+	CHECK(&ctx_added == &app);
+	CHECK(app.router().has_context_routes());
+
+	auto infos = app.route_infos();
+	REQUIRE(infos.size() == 1);
+	CHECK(infos[0].method == "REPORT");
+	CHECK(infos[0].path_pattern == "/reports/{id}");
+	REQUIRE(infos[0].path_params.size() == 1);
+	CHECK(infos[0].path_params[0] == "id");
+}
+
 void ensure_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {

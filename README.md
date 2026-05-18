@@ -59,7 +59,7 @@ int main() {
         return http::Response::text("hello from conflux\n");
     });
 
-    auto const status = move(app).run({.host = "127.0.0.1", .port = 8080});
+    auto const status = move(app).run({.port = 8080});
     return status == http::RunStatus::stopped_normally ? 0 : 1;
 }
 ```

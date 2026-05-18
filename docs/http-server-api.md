@@ -56,6 +56,18 @@ return static_cast<int>(*status);
 
 `try_config_from_ini(path)` provides the same value-returning style for config load/parse errors. `config_from_ini_checked(path)` remains as the older expected-returning spelling, and `config_from_ini(path)` throws `std::runtime_error` on failure.
 
+### App facade passthroughs
+
+`http::App` mirrors the router APIs commonly needed before handing ownership to `try_server()` or `run()`. Use `app.add(method, path, handler)` for custom HTTP methods without dropping to `app.router()`, `app.add_context(...)` for context routes, and `app.route_infos()` for OpenAPI route metadata.
+
+```cpp
+app.add("REPORT", "/reports/{id}", [](http::Request const& req) {
+    return http::Response::text(std::string{req.params["id"]});
+});
+
+auto infos = app.route_infos();
+```
+
 ---
 
 ## Server Metrics
@@ -568,6 +580,7 @@ struct RouteInfo {
 };
 
 auto infos = router.route_infos();
+// App facade users can call app.route_infos() before std::move(app).run(...).
 // Use with conflux.net.openapi to generate an OpenAPI spec document
 ```
 

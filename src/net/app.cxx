@@ -64,45 +64,56 @@ public:
 		: cfg_(move(cfg))
 		, router_(cfg_) {}
 	template<typename F>
+	App &add(
+		std::string_view method,
+		std::string_view path,
+		F &&handler) {
+		router_.add(method, path, forward<F>(handler));
+		return *this;
+	}
+	template<typename F>
 	App &get(
 		std::string_view path,
 		F &&handler) {
-		router_.get(path, forward<F>(handler));
-		return *this;
+		return add("GET", path, forward<F>(handler));
 	}
 	template<typename F>
 	App &post(
 		std::string_view path,
 		F &&handler) {
-		router_.post(path, forward<F>(handler));
-		return *this;
+		return add("POST", path, forward<F>(handler));
 	}
 	template<typename F>
 	App &put(
 		std::string_view path,
 		F &&handler) {
-		router_.put(path, forward<F>(handler));
-		return *this;
+		return add("PUT", path, forward<F>(handler));
 	}
 	template<typename F>
 	App &patch(
 		std::string_view path,
 		F &&handler) {
-		router_.patch(path, forward<F>(handler));
-		return *this;
+		return add("PATCH", path, forward<F>(handler));
 	}
 	template<typename F>
 	App &del(
 		std::string_view path,
 		F &&handler) {
-		router_.del(path, forward<F>(handler));
-		return *this;
+		return add("DELETE", path, forward<F>(handler));
 	}
 	template<typename F>
 	App &options(
 		std::string_view path,
 		F &&handler) {
-		router_.options(path, forward<F>(handler));
+		return add("OPTIONS", path, forward<F>(handler));
+	}
+	template<typename F>
+		requires ContextHandlerFunction<F>
+	App &add_context(
+		std::string_view method,
+		std::string_view path,
+		F &&handler) {
+		router_.add_context(method, path, forward<F>(handler));
 		return *this;
 	}
 	template<typename F>
@@ -110,48 +121,42 @@ public:
 	App &get_context(
 		std::string_view path,
 		F &&handler) {
-		router_.get_context(path, forward<F>(handler));
-		return *this;
+		return add_context("GET", path, forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &post_context(
 		std::string_view path,
 		F &&handler) {
-		router_.post_context(path, forward<F>(handler));
-		return *this;
+		return add_context("POST", path, forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &put_context(
 		std::string_view path,
 		F &&handler) {
-		router_.put_context(path, forward<F>(handler));
-		return *this;
+		return add_context("PUT", path, forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &patch_context(
 		std::string_view path,
 		F &&handler) {
-		router_.patch_context(path, forward<F>(handler));
-		return *this;
+		return add_context("PATCH", path, forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &del_context(
 		std::string_view path,
 		F &&handler) {
-		router_.del_context(path, forward<F>(handler));
-		return *this;
+		return add_context("DELETE", path, forward<F>(handler));
 	}
 	template<typename F>
 		requires ContextHandlerFunction<F>
 	App &options_context(
 		std::string_view path,
 		F &&handler) {
-		router_.options_context(path, forward<F>(handler));
-		return *this;
+		return add_context("OPTIONS", path, forward<F>(handler));
 	}
 	template<typename F>
 	App &use(
@@ -203,6 +208,7 @@ public:
 	[[nodiscard]] Config const &config() const { return cfg_; }
 	[[nodiscard]] Router &router() { return router_; }
 	[[nodiscard]] Router const &router() const { return router_; }
+	[[nodiscard]] std::vector<RouteInfo> route_infos() const { return router_.route_infos(); }
 	[[nodiscard]] expected<std::unique_ptr<HttpServer>, std::string> try_server(
 		AppRunOptions opts = {}) && {
 		cfg_.port = opts.port;
