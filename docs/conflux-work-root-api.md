@@ -18,7 +18,7 @@ import conflux.work.root;
 
 `conflux.work` re-exports `conflux.work.root` and adds the executor layer:
 
-- `WorkPool` — thread-pool executor with a lock-free MPMC inject queue, plus an opt-in non-stealing fast queue mode
+- `WorkPool` — thread-pool executor with direct stealing queues, direct inject/no_stealing rings, and selectable stealing/no_stealing queue modes
 - `RingLane` — io_uring-coupled single-threaded executor
 - `async_run_on(pool, fn) -> Task<T>` — submit a callable to a pool
 - `run_on_task(pool, fn) -> Task<T>` — compatibility alias for `async_run_on`
@@ -170,7 +170,7 @@ the one that allocated the frame. Sanitizer builds disable the mmap bucket path
 and keep the safe PMR fallback.
 
 The CMake option `CONFLUX_WORK_QUEUE_STATS` enables relaxed `WorkPool` queue,
-steal, park, and wake counters for contention profiling. It defaults to `OFF` so
+steal, park, wake, and queue counters for contention profiling. It defaults to `OFF` so
 normal builds keep the existing hot path. The API is always present:
 
 ```cpp
@@ -204,6 +204,16 @@ struct WorkPoolQueueStats {
     uint64_t park_attempts;
     uint64_t park_recheck_skips;
     uint64_t futex_waits;
+    uint64_t job_slot_allocations;
+    uint64_t job_slab_allocations;
+    uint64_t job_slab_id_reuses;
+    uint64_t job_slab_releases;
+    uint64_t job_allocation_failures;
+    uint64_t queue_full_token_discards;
+    uint64_t remote_free_pushes;
+    uint64_t remote_free_fallbacks;
+    uint64_t remote_free_drained;
+    uint64_t token_take_failures;
 };
 
 WorkPoolQueueStats WorkPool::queue_stats() const noexcept;
@@ -470,15 +480,18 @@ commit thread; a throwing sink terminates the process.
 
 ```cpp
 enum class WorkPoolQueueMode {
-    work_stealing, // mutex-protected per-worker deque + victim stealing
-    fast,          // atomics-only local/inject rings, no stealing
+    stealing,    // per-worker job deque + victim stealing
+    no_stealing,   // atomics-only direct job rings, no stealing
 };
 
 struct WorkPoolOptions {
     size_t threads = 0;                // 0 => hardware_concurrency, at least 1
-    size_t max_inject_queue = 4096;    // external producer queue bound
+    size_t max_inject_queue = 4096;    // total external producer queue target
+    size_t inject_queue_shards = 0;    // 0 => one inject ring per worker
     size_t local_queue_capacity = 1024;// per-worker local queue/ring bound
-    WorkPoolQueueMode queue_mode = WorkPoolQueueMode::work_stealing;
+    size_t initial_job_slab_slots = 256;// reserved for slab-backed queue experiments
+    size_t max_job_slab_slots = 4096;  // reserved for slab-backed queue experiments
+    WorkPoolQueueMode queue_mode = WorkPoolQueueMode::stealing;
     uint32_t spin_before_park = 256;
     int numa_node = -1;
     bool pin_workers = false;
@@ -489,10 +502,12 @@ struct WorkPoolOptions {
 
 `enqueue(job)` returns `false` if the pool is stopped or the relevant queue is
 full. Jobs submitted from a worker in the same pool first use that worker's
-bounded local queue; other producers use the bounded inject queue.
+bounded local queue; other producers use sharded bounded direct-job inject rings.
+`max_inject_queue` is divided across inject shards; `inject_queue_shards == 0`
+picks one inject ring per worker.
 
-Default `work_stealing` mode keeps the existing mutex-protected local deque and
-victim stealing behavior. `fast` mode uses bounded atomics-based rings for both
+Default `stealing` mode keeps the mutex-protected local job deque and victim
+stealing behavior. `no_stealing` mode uses bounded atomics-based direct job rings for
 local worker submissions and external injection, removes victim stealing, and
 uses an atomic admission gate instead of the admission mutex for stop/drain
 coordination.

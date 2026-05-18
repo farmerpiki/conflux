@@ -166,16 +166,16 @@ For worker queue contention profiling, configure the perf preset with
 `-DCONFLUX_WORK_QUEUE_STATS=ON` before recording the queue benchmarks. The
 benchmarks emit the standard `config`/`variant`/`iterations`/`total_ns`/
 `ns_per_iter` fields, and append a `queue` object in raw NDJSON with enqueue,
-local/inject queue, admission/local/steal lock-contention, steal, park, and
-futex wake counters. `scripts/bench_record.sh` preserves optional standard-parser
+local/inject queue, admission/local/steal lock-contention, steal, park, futex wake,
+and queue discard counters. `scripts/bench_record.sh` preserves optional standard-parser
 fields in `results.extra`, so these counters are queryable as `extra->'queue'`
 for non-summary rows while remaining available verbatim in raw artifacts.
 `workpool_enqueue_dequeue` keeps its historical variant names for baseline
 comparisons. `workpool_queue_mode_compare` is the separate mode-comparison
 benchmark; it emits every queue-profile variant for both WorkPool queue modes,
 using variant names like `stealing/external_burst` and
-`no_stealing/external_burst`, so the mutex/deque/stealing path and the atomic
-ring/no-steal fast path can be compared within the same thread config. Normal
+`no_stealing/external_burst`, so the mutex/job-deque/stealing path and the atomic
+ring/no_stealing path can be compared within the same thread config. Normal
 perf presets leave this option off so instrumentation does not contaminate
 default history.
 

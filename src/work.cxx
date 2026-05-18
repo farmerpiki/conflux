@@ -50,6 +50,16 @@ export struct WorkPoolQueueStats {
 	u64 park_attempts = 0;
 	u64 park_recheck_skips = 0;
 	u64 futex_waits = 0;
+	u64 job_slot_allocations = 0;
+	u64 job_slab_allocations = 0;
+	u64 job_slab_id_reuses = 0;
+	u64 job_slab_releases = 0;
+	u64 job_allocation_failures = 0;
+	u64 queue_full_token_discards = 0;
+	u64 remote_free_pushes = 0;
+	u64 remote_free_fallbacks = 0;
+	u64 remote_free_drained = 0;
+	u64 token_take_failures = 0;
 };
 namespace work_detail {
 
@@ -74,12 +84,13 @@ public:
 	virtual bool enqueue(conflux::work::root::detail::small_move_only_function<void()> job) = 0;
 };
 // Vyukov-style MPMC bounded ring buffer, lock-free. Capacity rounded up to
-// next power-of-2 at construction. try_push/try_pop are noexcept because Fn
-// move-assign is noexcept.
+// next power-of-2 at construction. try_push/try_pop are noexcept because item
+// move-assign is noexcept for all WorkPool queue payloads.
+template<typename T>
 class MpmcRing {
 	struct Slot {
 		Atom<SZ> seq{0};
-		Fn item{};
+		T item{};
 	};
 	UP<Slot[]> slots_;
 	SZ capacity_{};
@@ -90,6 +101,9 @@ class MpmcRing {
 public:
 	explicit MpmcRing(
 		SZ capacity) {
+		if (capacity == 0) {
+			return;
+		}
 		SZ cap = 1;
 		while (cap < capacity) {
 			cap <<= 1;
@@ -106,7 +120,10 @@ public:
 	MpmcRing(MpmcRing &&) = delete;
 	MpmcRing &operator =(MpmcRing &&) = delete;
 	[[nodiscard]] bool try_push(
-		Fn fn) noexcept {
+		T item) noexcept {
+		if (capacity_ == 0) {
+			return false;
+		}
 		SZ pos = head_.load(memory_order_relaxed);
 		for (;;) {
 			Slot &slot = slots_[pos & mask_];
@@ -114,7 +131,7 @@ public:
 			auto const diff = static_cast<std::intptr_t>(seq) - static_cast<std::intptr_t>(pos);
 			if (diff == 0) {
 				if (head_.compare_exchange_weak(pos, pos + 1, memory_order_relaxed)) {
-					slot.item = move(fn);
+					slot.item = move(item);
 					slot.seq.store(pos + 1, memory_order_release);
 					return true;
 				}
@@ -126,7 +143,10 @@ public:
 			}
 		}
 	}
-	[[nodiscard]] Opt<Fn> try_pop() noexcept {
+	[[nodiscard]] Opt<T> try_pop() noexcept {
+		if (capacity_ == 0) {
+			return nullopt;
+		}
 		SZ pos = tail_.load(memory_order_relaxed);
 		for (;;) {
 			Slot &slot = slots_[pos & mask_];
@@ -134,9 +154,9 @@ public:
 			auto const diff = static_cast<std::intptr_t>(seq) - static_cast<std::intptr_t>(pos + 1);
 			if (diff == 0) {
 				if (tail_.compare_exchange_weak(pos, pos + 1, memory_order_relaxed)) {
-					Fn job = move(slot.item);
+					T item = move(slot.item);
 					slot.seq.store(pos + capacity_, memory_order_release);
-					return Opt<Fn>{move(job)};
+					return Opt<T>{move(item)};
 				}
 			} else if (diff < 0) {
 				return nullopt;
@@ -179,6 +199,7 @@ class WorkPoolQueueCounters {
 	Atom<u64> park_attempts_{0};
 	Atom<u64> park_recheck_skips_{0};
 	Atom<u64> futex_waits_{0};
+	Atom<u64> queue_full_token_discards_{0};
 
 	static void add(
 		Atom<u64> &counter) noexcept {
@@ -223,6 +244,7 @@ public:
 	void note_park_attempt() noexcept { add(park_attempts_); }
 	void note_park_recheck_skip() noexcept { add(park_recheck_skips_); }
 	void note_futex_wait() noexcept { add(futex_waits_); }
+	void note_queue_full_token_discard() noexcept { add(queue_full_token_discards_); }
 	[[nodiscard]] std::unique_lock<std::mutex> lock_admission(
 		std::mutex &mtx) {
 		if (mtx.try_lock()) {
@@ -287,6 +309,7 @@ public:
 			.park_attempts = get(park_attempts_),
 			.park_recheck_skips = get(park_recheck_skips_),
 			.futex_waits = get(futex_waits_),
+			.queue_full_token_discards = get(queue_full_token_discards_),
 		};
 	}
 	void reset() noexcept {
@@ -319,6 +342,7 @@ public:
 		clear(park_attempts_);
 		clear(park_recheck_skips_);
 		clear(futex_waits_);
+		clear(queue_full_token_discards_);
 	}
 #else
 public:
@@ -351,6 +375,7 @@ public:
 	void note_park_attempt() noexcept {}
 	void note_park_recheck_skip() noexcept {}
 	void note_futex_wait() noexcept {}
+	void note_queue_full_token_discard() noexcept {}
 	[[nodiscard]] std::unique_lock<std::mutex> lock_admission(
 		std::mutex &mtx) {
 		return std::unique_lock<std::mutex>{mtx};
@@ -370,14 +395,17 @@ public:
 
 } // namespace work_detail
 export enum class WorkPoolQueueMode : u8 {
-	work_stealing,
-	fast,
+	stealing,
+	no_stealing,
 };
 export struct WorkPoolOptions {
 	SZ threads = 0;
 	SZ max_inject_queue = 4096;
+	SZ inject_queue_shards = 0;
 	SZ local_queue_capacity = 1024;
-	WorkPoolQueueMode queue_mode = WorkPoolQueueMode::work_stealing;
+	SZ initial_job_slab_slots = 256;
+	SZ max_job_slab_slots = 4096;
+	WorkPoolQueueMode queue_mode = WorkPoolQueueMode::stealing;
 	u32 spin_before_park = 256;
 	int numa_node = -1;
 	bool pin_workers = false;
@@ -404,61 +432,65 @@ export class WorkPool final : public work_detail::QueueTarget {
 		64) Worker {
 		explicit Worker(
 			SZ local_capacity)
-			: fast_local{local_capacity} {}
+			: no_stealing_local{local_capacity} {}
 
 		mutex mtx;
 		deque<work_detail::Fn> local{};
-		work_detail::MpmcRing fast_local;
+		work_detail::MpmcRing<work_detail::Fn> no_stealing_local;
 		jthread thread{};
 	};
 	WorkPoolOptions options_{};
 	V<UP<Worker>> workers_{};
-	work_detail::MpmcRing inject_ring_;
+	V<UP<work_detail::MpmcRing<work_detail::Fn>>> inject_rings_{};
+	Atom<u64> inject_enqueue_cursor_{0};
 	Atom<u32> wake_epoch_{0};
 	// parked_ on a separate cache line: producer loads it after every push;
 	// isolating prevents wake_epoch_ stores from invalidating this line and
-	// adding a cache miss to the no-parked-workers fast path.
+	// adding a cache miss to the no-parked-workers path.
 	alignas(64) Atom<int> parked_{0};
 	Atom<SZ> pending_{0};
 	atomic_flag accepting_stopped_{};
 	atomic_flag stopping_{};
 	mutex admission_mtx_{};
-	Atom<u64> fast_admission_{0};
+	Atom<u64> no_stealing_admission_{0};
 	work_detail::WorkPoolQueueCounters queue_counters_{};
 
-	static constexpr u64 kFastAdmissionClosed = u64{1} << 63;
-	static constexpr u64 kFastAdmissionCountMask = ~kFastAdmissionClosed;
+	static constexpr u64 kNoStealingAdmissionClosed = u64{1} << 63;
+	static constexpr u64 kNoStealingAdmissionCountMask = ~kNoStealingAdmissionClosed;
 
 	inline static thread_local WorkPool *tls_pool_ = nullptr;
 	inline static thread_local SZ tls_worker_ = work_detail::kNoWorker;
 	[[nodiscard]] bool is_local_worker() const noexcept {
 		return tls_pool_ == this && tls_worker_ != work_detail::kNoWorker;
 	}
-	[[nodiscard]] bool fast_mode() const noexcept { return options_.queue_mode == WorkPoolQueueMode::fast; }
-	[[nodiscard]] bool begin_fast_admission() noexcept {
-		auto state = fast_admission_.load(memory_order_acquire);
+	[[nodiscard]] bool no_stealing_mode() const noexcept {
+		return options_.queue_mode == WorkPoolQueueMode::no_stealing;
+	}
+	[[nodiscard]] SZ inject_shard_count() const noexcept { return inject_rings_.size(); }
+	[[nodiscard]] bool begin_no_stealing_admission() noexcept {
+		auto state = no_stealing_admission_.load(memory_order_acquire);
 		for (;;) {
-			if ((state & kFastAdmissionClosed) != 0 || accepting_stopped_.test(memory_order_acquire)
+			if ((state & kNoStealingAdmissionClosed) != 0
+				|| accepting_stopped_.test(memory_order_acquire)
 				|| stopping_.test(memory_order_acquire)) {
 				return false;
 			}
-			if (fast_admission_.compare_exchange_weak(
-					state,
-					state + 1,
-					memory_order_acq_rel,
-					memory_order_acquire)) {
+			if (no_stealing_admission_
+					.compare_exchange_weak(state, state + 1, memory_order_acq_rel, memory_order_acquire)) {
 				if (accepting_stopped_.test(memory_order_acquire) || stopping_.test(memory_order_acquire)) {
-					end_fast_admission();
+					end_no_stealing_admission();
 					return false;
 				}
 				return true;
 			}
 		}
 	}
-	void end_fast_admission() noexcept { fast_admission_.fetch_sub(1, memory_order_release); }
-	void close_fast_admission() noexcept { fast_admission_.fetch_or(kFastAdmissionClosed, memory_order_acq_rel); }
-	void wait_fast_admission_idle() const noexcept {
-		while ((fast_admission_.load(memory_order_acquire) & kFastAdmissionCountMask) != 0) {
+	void end_no_stealing_admission() noexcept { no_stealing_admission_.fetch_sub(1, memory_order_release); }
+	void close_no_stealing_admission() noexcept {
+		no_stealing_admission_.fetch_or(kNoStealingAdmissionClosed, memory_order_acq_rel);
+	}
+	void wait_no_stealing_admission_idle() const noexcept {
+		while ((no_stealing_admission_.load(memory_order_acquire) & kNoStealingAdmissionCountMask) != 0) {
 			conflux::work::root::detail::cpu_pause();
 		}
 	}
@@ -487,40 +519,52 @@ export class WorkPool final : public work_detail::QueueTarget {
 	[[nodiscard]] bool push_local(
 		work_detail::Fn job) {
 		auto &worker = *workers_[tls_worker_];
-		auto lk = queue_counters_.lock_local(worker.mtx);
-		if (worker.local.size() >= options_.local_queue_capacity) {
+		try {
+			auto lk = queue_counters_.lock_local(worker.mtx);
+			if (worker.local.size() >= options_.local_queue_capacity) {
+				queue_counters_.note_local_push_full();
+				return false;
+			}
+			worker.local.push_back(move(job));
+		} catch (std::bad_alloc const &) {
 			queue_counters_.note_local_push_full();
 			return false;
 		}
-		queue_counters_.note_local_push();
-		worker.local.push_back(move(job));
 		pending_.fetch_add(1, memory_order_release);
+		queue_counters_.note_local_push();
 		return true;
 	}
-	[[nodiscard]] bool push_fast_local(
+	[[nodiscard]] bool push_no_stealing_local(
 		work_detail::Fn job) noexcept {
 		if (options_.local_queue_capacity == 0) {
 			queue_counters_.note_local_push_full();
 			return false;
 		}
 		auto &worker = *workers_[tls_worker_];
-		if (!worker.fast_local.try_push(move(job))) {
+		if (!worker.no_stealing_local.try_push(move(job))) {
 			queue_counters_.note_local_push_full();
 			return false;
 		}
-		queue_counters_.note_local_push();
 		pending_.fetch_add(1, memory_order_release);
+		queue_counters_.note_local_push();
 		return true;
 	}
 	[[nodiscard]] bool push_inject(
 		work_detail::Fn job) noexcept {
-		if (!inject_ring_.try_push(move(job))) {
+		SZ const shards = inject_shard_count();
+		if (shards == 0 || options_.max_inject_queue == 0) {
 			queue_counters_.note_inject_push_full();
 			return false;
 		}
-		queue_counters_.note_inject_push();
-		pending_.fetch_add(1, memory_order_release);
-		return true;
+		SZ const start =
+			shards == 1 ? SZ{0} : static_cast<SZ>(inject_enqueue_cursor_.fetch_add(1, memory_order_relaxed) % shards);
+		if (inject_rings_[start]->try_push(move(job))) {
+			pending_.fetch_add(1, memory_order_release);
+			queue_counters_.note_inject_push();
+			return true;
+		}
+		queue_counters_.note_inject_push_full();
+		return false;
 	}
 	[[nodiscard]] Opt<work_detail::Fn> pop_local(
 		SZ index) {
@@ -530,27 +574,39 @@ export class WorkPool final : public work_detail::QueueTarget {
 		if (worker.local.empty()) {
 			return nullopt;
 		}
-		queue_counters_.note_local_pop_hit();
 		auto job = move(worker.local.back());
 		worker.local.pop_back();
+		queue_counters_.note_local_pop_hit();
 		return job;
 	}
-	[[nodiscard]] Opt<work_detail::Fn> pop_fast_local(
+	[[nodiscard]] Opt<work_detail::Fn> pop_no_stealing_local(
 		SZ index) noexcept {
 		queue_counters_.note_local_pop_attempt();
-		auto job = workers_[index]->fast_local.try_pop();
-		if (job) {
-			queue_counters_.note_local_pop_hit();
+		auto job = workers_[index]->no_stealing_local.try_pop();
+		if (!job) {
+			return nullopt;
 		}
+		queue_counters_.note_local_pop_hit();
 		return job;
 	}
-	[[nodiscard]] Opt<work_detail::Fn> pop_inject() noexcept {
+	[[nodiscard]] Opt<work_detail::Fn> pop_inject(
+		SZ worker_index) noexcept {
 		queue_counters_.note_inject_pop_attempt();
-		auto job = inject_ring_.try_pop();
-		if (job) {
-			queue_counters_.note_inject_pop_hit();
+		SZ const shards = inject_shard_count();
+		if (shards == 0) {
+			return nullopt;
 		}
-		return job;
+		SZ const start = worker_index % shards;
+		for (SZ offset = 0; offset < shards; ++offset) {
+			SZ const shard = (start + offset) % shards;
+			auto job = inject_rings_[shard]->try_pop();
+			if (!job) {
+				continue;
+			}
+			queue_counters_.note_inject_pop_hit();
+			return job;
+		}
+		return nullopt;
 	}
 	[[nodiscard]] Opt<work_detail::Fn> steal_work(
 		SZ thief) {
@@ -601,11 +657,11 @@ export class WorkPool final : public work_detail::QueueTarget {
 		maybe_set_name(options_.worker_name_prefix, index);
 		maybe_pin_worker(index);
 		while (!st.stop_requested() && !stopping_.test(memory_order_acquire)) {
-			auto job = fast_mode() ? pop_fast_local(index) : pop_local(index);
+			auto job = no_stealing_mode() ? pop_no_stealing_local(index) : pop_local(index);
 			if (!job) {
-				job = pop_inject();
+				job = pop_inject(index);
 			}
-			if (!job && !fast_mode()) {
+			if (!job && !no_stealing_mode()) {
 				job = steal_work(index);
 			}
 			if (job) {
@@ -655,7 +711,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		tls_pool_ = nullptr;
 		tls_worker_ = work_detail::kNoWorker;
 	}
-	[[nodiscard]] bool enqueue_work_stealing(
+	[[nodiscard]] bool enqueue_stealing(
 		work_detail::Fn job) {
 		auto admission = queue_counters_.lock_admission(admission_mtx_);
 		if (accepting_stopped_.test(memory_order_acquire) || stopping_.test(memory_order_acquire)) {
@@ -671,14 +727,14 @@ export class WorkPool final : public work_detail::QueueTarget {
 		wake_one();
 		return true;
 	}
-	[[nodiscard]] bool enqueue_fast(
+	[[nodiscard]] bool enqueue_no_stealing(
 		work_detail::Fn job) noexcept {
-		if (!begin_fast_admission()) {
+		if (!begin_no_stealing_admission()) {
 			queue_counters_.note_enqueue_stopped_rejection();
 			return false;
 		}
-		bool const queued = is_local_worker() ? push_fast_local(move(job)) : push_inject(move(job));
-		end_fast_admission();
+		bool const queued = is_local_worker() ? push_no_stealing_local(move(job)) : push_inject(move(job));
+		end_no_stealing_admission();
 		if (!queued) {
 			queue_counters_.note_enqueue_full_rejection();
 			return false;
@@ -686,10 +742,10 @@ export class WorkPool final : public work_detail::QueueTarget {
 		wake_one();
 		return true;
 	}
-	void stop_fast() noexcept {
+	void stop_no_stealing() noexcept {
 		accepting_stopped_.test_and_set(memory_order_acq_rel);
-		close_fast_admission();
-		wait_fast_admission_idle();
+		close_no_stealing_admission();
+		wait_no_stealing_admission_idle();
 		if (!stopping_.test_and_set(memory_order_acq_rel)) {
 			for (auto &worker: workers_) {
 				worker->thread.request_stop();
@@ -697,26 +753,40 @@ export class WorkPool final : public work_detail::QueueTarget {
 			wake_all();
 		}
 	}
-	void drain_and_stop_fast() noexcept {
+	void drain_and_stop_no_stealing() noexcept {
 		accepting_stopped_.test_and_set(memory_order_acq_rel);
-		close_fast_admission();
-		wait_fast_admission_idle();
+		close_no_stealing_admission();
+		wait_no_stealing_admission_idle();
 		while (pending_.load(memory_order_acquire) > 0) {
 			wake_all();
 			std::this_thread::yield();
 		}
-		stop_fast();
+		stop_no_stealing();
 		wait();
 	}
+		void discard_queued_jobs() noexcept {
+			pending_.store(0, memory_order_release);
+		}
 
 public:
 	explicit WorkPool(
 		WorkPoolOptions options = {})
-		: options_{move(options)}
-		, inject_ring_{options_.max_inject_queue} {
+		: options_{move(options)} {
 		if (options_.threads == 0) {
 			options_.threads = max(1U, thread::hardware_concurrency());
 		}
+			SZ inject_shards = options_.inject_queue_shards;
+			if (inject_shards == 0) {
+				inject_shards = options_.max_inject_queue == 0 ? SZ{1} : max(SZ{1}, min(options_.threads, options_.max_inject_queue));
+			}
+			options_.inject_queue_shards = inject_shards;
+			SZ const inject_capacity_per_shard = options_.max_inject_queue == 0
+				? SZ{0}
+				: (options_.max_inject_queue + inject_shards - 1) / inject_shards;
+			inject_rings_.reserve(inject_shards);
+			for (SZ shard = 0; shard < inject_shards; ++shard) {
+				inject_rings_.push_back(make_unique<work_detail::MpmcRing<work_detail::Fn>>(inject_capacity_per_shard));
+			}
 		workers_.reserve(options_.threads);
 		for (SZ i = 0; i < options_.threads; ++i) {
 			workers_.push_back(make_unique<Worker>(options_.local_queue_capacity));
@@ -725,6 +795,7 @@ public:
 			workers_[i]->thread = jthread([this, i](std::stop_token const &st) { worker_loop(st, i); });
 		}
 	}
+
 	~WorkPool() override {
 		stop();
 		wait();
@@ -736,14 +807,14 @@ public:
 	[[nodiscard]] bool enqueue(
 		work_detail::Fn job) override {
 		queue_counters_.note_enqueue_attempt();
-		if (fast_mode()) {
-			return enqueue_fast(move(job));
+		if (no_stealing_mode()) {
+			return enqueue_no_stealing(move(job));
 		}
-		return enqueue_work_stealing(move(job));
+		return enqueue_stealing(move(job));
 	}
 	void stop() noexcept {
-		if (fast_mode()) {
-			stop_fast();
+		if (no_stealing_mode()) {
+			stop_no_stealing();
 			return;
 		}
 		auto admission = queue_counters_.lock_admission(admission_mtx_);
@@ -756,8 +827,8 @@ public:
 		}
 	}
 	void drain_and_stop() noexcept {
-		if (fast_mode()) {
-			drain_and_stop_fast();
+		if (no_stealing_mode()) {
+			drain_and_stop_no_stealing();
 			return;
 		}
 		{
@@ -777,10 +848,15 @@ public:
 				worker->thread.join();
 			}
 		}
+		discard_queued_jobs();
 	}
 	[[nodiscard]] bool stopped() const noexcept { return accepting_stopped_.test(memory_order_acquire); }
-	[[nodiscard]] WorkPoolQueueStats queue_stats() const noexcept { return queue_counters_.snapshot(); }
-	void reset_queue_stats() noexcept { queue_counters_.reset(); }
+		[[nodiscard]] WorkPoolQueueStats queue_stats() const noexcept {
+			return queue_counters_.snapshot();
+		}
+		void reset_queue_stats() noexcept {
+			queue_counters_.reset();
+		}
 };
 // io_uring-coupled executor: requires a live ring (ring_fd from RingLaneOptions).
 // Each non-inline enqueue into an empty queue issues exactly one

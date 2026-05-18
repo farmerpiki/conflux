@@ -146,18 +146,18 @@ TEST_CASE(
 	CHECK(pool.stopped());
 }
 TEST_CASE(
-	"work: WorkPool fast queue executes async work",
+	"work: WorkPool no_stealing queue executes async work",
 	"[work]") {
-	WorkPool pool{WorkPoolOptions{.threads = 2, .queue_mode = WorkPoolQueueMode::fast}};
+	WorkPool pool{WorkPoolOptions{.threads = 2, .queue_mode = WorkPoolQueueMode::no_stealing}};
 	auto result = sync_wait(async_run_on(pool, [] { return 42; }));
 	CHECK(result == 42);
 }
 TEST_CASE(
-	"work: WorkPool fast queue drain_and_stop accounts for concurrent enqueue",
+	"work: WorkPool no_stealing queue drain_and_stop accounts for concurrent enqueue",
 	"[work][stress]") {
 	for (int round = 0; round < 100; ++round) {
 		WorkPool pool{
-			WorkPoolOptions{.threads = 2, .max_inject_queue = 4096, .queue_mode = WorkPoolQueueMode::fast}
+			WorkPoolOptions{.threads = 2, .max_inject_queue = 4096, .queue_mode = WorkPoolQueueMode::no_stealing}
 		};
 		Atom<bool> start{false};
 		Atom<int> accepted{0};
