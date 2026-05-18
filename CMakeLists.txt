@@ -16,6 +16,19 @@ project(conflux VERSION 0.1.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 26)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+if(NOT 26 IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
+    set(_conflux_import_std_levels "${CMAKE_CXX_COMPILER_IMPORT_STD}")
+    if(_conflux_import_std_levels STREQUAL "")
+        set(_conflux_import_std_levels "<none>")
+    endif()
+    message(FATAL_ERROR
+        "conflux requires CMake-discoverable C++26 import std support. "
+        "Supported import std standard levels for this toolchain: ${_conflux_import_std_levels}. "
+        "Use a compiler/stdlib pair supported by CMake's CxxImportStd feature, "
+        "or configure a header-based/non-import-std build once that mode exists.")
+endif()
+
 set(CMAKE_CXX_MODULE_STD ON)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -1049,6 +1062,7 @@ target_sources(conflux_direct_slot_pool
         src/net/direct_slot_pool.cxx
 )
 target_link_libraries(conflux_direct_slot_pool
+    PRIVATE conflux_options
     PRIVATE conflux_types
     PRIVATE conflux_utils)
 

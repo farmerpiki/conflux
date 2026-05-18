@@ -13,7 +13,8 @@ PRESETS=(
 PASS=()
 FAIL=()
 
-ln -svf /tmp/$(basename $PWD)/debug-clang-libcxx $PWD/build
+PRESET_ROOT="/tmp/$(basename "${PWD}")"
+ln -svf "${PRESET_ROOT}/debug-clang-libcxx" "${PWD}/build"
 
 for preset in "${PRESETS[@]}"; do
     echo "━━━ $preset ━━━"

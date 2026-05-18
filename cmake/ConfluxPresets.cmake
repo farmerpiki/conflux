@@ -41,7 +41,6 @@ set(CONFLUX_BUILD_CRYPTO        "AUTO" CACHE STRING "Build AES/hashing/base64")
 
 set(CONFLUX_BUILD_JSON          "AUTO" CACHE STRING "Build JSON parser/DOM/SAX/NDJSON")
 set(CONFLUX_BUILD_JSON_FILE     "OFF"  CACHE STRING "Build sync JSON file convenience helpers")
-set(CONFLUX_BUILD_JSON_REFLECT  "OFF"  CACHE STRING "Build P2996 reflection codec")
 
 set(CONFLUX_BUILD_TEMPLATES     "AUTO" CACHE STRING "Build template engine")
 set(CONFLUX_BUILD_TEMPLATES_WATCH "AUTO" CACHE STRING "Build template hot-reload")

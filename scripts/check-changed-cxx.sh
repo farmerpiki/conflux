@@ -3,6 +3,8 @@
 set -u -o pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+PRESET_ROOT="/tmp/$(basename "${ROOT_DIR}")"
+CLANG_TIDY_BUILD_DIR="${PRESET_ROOT}/debug-clang-libcxx"
 REPORT_ROOT="${ROOT_DIR}/build/hygiene"
 TIMESTAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 RUN_DIR="${REPORT_ROOT}/${TIMESTAMP}"
@@ -170,7 +172,7 @@ else
 fi
 
 if ((${#TIDY_CXX[@]} > 0)); then
-	if run_logged clang-tidy-fix clang-tidy -p "${ROOT_DIR}/build/debug-clang-libcxx" --fix --format-style=file "${TIDY_CXX[@]}"; then
+	if run_logged clang-tidy-fix clang-tidy -p "${CLANG_TIDY_BUILD_DIR}" --fix --format-style=file "${TIDY_CXX[@]}"; then
 		status_line "clang-tidy --fix" "ok"
 	else
 		status_line "clang-tidy --fix" "failed"
@@ -184,7 +186,7 @@ if ((${#TIDY_CXX[@]} > 0)); then
 		FAILED=1
 	fi
 
-	if run_logged clang-tidy clang-tidy -p "${ROOT_DIR}/build/debug-clang-libcxx" "${TIDY_CXX[@]}"; then
+	if run_logged clang-tidy clang-tidy -p "${CLANG_TIDY_BUILD_DIR}" "${TIDY_CXX[@]}"; then
 		status_line "clang-tidy" "ok"
 	else
 		status_line "clang-tidy" "failed"
