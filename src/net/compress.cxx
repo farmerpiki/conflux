@@ -151,7 +151,7 @@ DynamicEncodingQs header_encoding_q_values(
 		if (semi != std::string_view::npos) {
 			if (auto eq = token.find('=', semi); eq != std::string_view::npos) {
 				auto key = trim(token.substr(semi + 1, eq - semi - 1));
-				if (ascii_iequals(key, "q")) {
+				if (conflux::http::ascii_iequals(key, "q")) {
 					auto val = trim(token.substr(eq + 1));
 					from_chars(val.data(), val.data() + val.size(), q);
 				}
@@ -160,9 +160,9 @@ DynamicEncodingQs header_encoding_q_values(
 
 		if (name == "*") {
 			q_star = max(q_star, q);
-		} else if (ascii_iequals(name, "gzip")) {
+		} else if (conflux::http::ascii_iequals(name, "gzip")) {
 			qs.gzip = max(qs.gzip, q);
-		} else if (ascii_iequals(name, "zstd")) {
+		} else if (conflux::http::ascii_iequals(name, "zstd")) {
 			qs.zstd = max(qs.zstd, q);
 		}
 
