@@ -745,7 +745,23 @@ HttpResponse handle_static_get(
 				resp.set_text_body(entry.body);
 				return resp;
 			};
-			if (auto cached = static_cache.with_cached(full_path, content_encoding, st, make_cached_response)) {
+			if (auto cached = static_cache.with_cached(full_path, content_encoding, st, [&](StaticCacheEntry const &entry) {
+					if (!is_range_request) {
+						auto resp = HttpResponse{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
+						resp.headers["ETag"] = entry.etag;
+						resp.headers["Last-Modified"] = entry.last_modified;
+						resp.headers["Accept-Ranges"] = "bytes";
+						if (!entry.content_encoding.empty()) {
+							resp.headers["Content-Encoding"] = entry.content_encoding;
+						}
+						if (!static_options.cache_control.empty()) {
+							resp.headers["Cache-Control"] = static_options.cache_control;
+						}
+						resp.set_text_body(entry.body);
+						return resp;
+					}
+					return make_cached_response(entry);
+				})) {
 				return move(*cached);
 			}
 			int const fd = contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC);

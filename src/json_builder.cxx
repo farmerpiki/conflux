@@ -534,7 +534,8 @@ expected<ObjectBuilder, JsonError> ObjectBuilder::insert_object(
 		return unexpected(move(ok).error());
 	}
 	// Duplicate check before any work (O(1) amortized via hash).
-	if (frame_.dup_check.contains(name)) {
+	auto const inserted = frame_.dup_check.try_emplace(std::string{name}, 0).second;
+	if (!inserted) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
@@ -546,7 +547,6 @@ expected<ObjectBuilder, JsonError> ObjectBuilder::insert_object(
 	// Store name in arena; the member entry will be pushed when child commits.
 	std::size_t const name_off = st->built_input.size();
 	st->built_input.append(name.data(), name.size());
-	frame_.dup_check.emplace(std::string{name}, 0);
 	std::size_t const child_depth = frame_.depth + 1;
 	st->active_depth = child_depth;
 	ParentSlot const parent{
@@ -565,7 +565,8 @@ expected<ArrayBuilder, JsonError> ObjectBuilder::insert_array(
 		return unexpected(move(ok).error());
 	}
 	// Duplicate check before any work (O(1) amortized via hash).
-	if (frame_.dup_check.contains(name)) {
+	auto const inserted = frame_.dup_check.try_emplace(std::string{name}, 0).second;
+	if (!inserted) {
 		return unexpected(
 			JsonError{
 				.stage = JsonStage::build,
@@ -577,7 +578,6 @@ expected<ArrayBuilder, JsonError> ObjectBuilder::insert_array(
 	// Store name in arena; the member entry will be pushed when child commits.
 	std::size_t const name_off = st->built_input.size();
 	st->built_input.append(name.data(), name.size());
-	frame_.dup_check.emplace(std::string{name}, 0);
 	std::size_t const child_depth = frame_.depth + 1;
 	st->active_depth = child_depth;
 	ParentSlot const parent{

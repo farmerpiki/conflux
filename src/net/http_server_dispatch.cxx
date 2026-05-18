@@ -134,10 +134,10 @@ void dispatch_request(
 			auto c = h.rfind(':');
 			return c != std::string_view::npos ? h.substr(0, c) : h;
 		};
-		auto const host_bare = ascii_lower(std::string{strip_host_port(host)});
+		auto const host_bare = strip_host_port(host);
 		std::string_view canonical_host;
 		for (auto const &h: https_redirect_hosts) {
-			if (ascii_lower(h) == host_bare) {
+			if (conflux::http::ascii_iequals(h, host_bare)) {
 				canonical_host = h;
 				break;
 			}
