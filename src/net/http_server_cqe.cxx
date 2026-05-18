@@ -209,7 +209,10 @@ void Ring::handle_conn_close(
 		HTTP_TRACE(format("conn_close fd={} res={} gen={} direct={}", fd, res, gen, accepted_sockets_direct));
 		if (direct_slots_ && accepted_sockets_direct) {
 			auto const slot = static_cast<std::uint32_t>(fd);
-			if (res >= 0) {
+			if (res >= 0 || res == -EBADF) {
+				if (res == -EBADF) {
+					HTTP_TRACE(format("conn_close_direct_empty slot={} gen={}", slot, gen));
+				}
 				if (!direct_slots_->release_closed(slot)) {
 					eprintln(format("handle_conn_close: release_closed failed slot={}", slot));
 				}
@@ -228,7 +231,10 @@ void Ring::handle_direct_slot_close(
 			return;
 		}
 		auto const slot = static_cast<std::uint32_t>(fd);
-		if (res >= 0) {
+		if (res >= 0 || res == -EBADF) {
+			if (res == -EBADF) {
+				HTTP_TRACE(format("direct_slot_close_empty slot={}", slot));
+			}
 			if (!direct_slots_->release_closed(slot)) {
 				eprintln(format("handle_direct_slot_close: release_closed failed slot={}", slot));
 			}
