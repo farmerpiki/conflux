@@ -11,8 +11,8 @@ ergonomy collapse (Phase 1, E1.0–E1.4).
 |---|---|---|
 | examples | [examples.md](examples.md) | done — no legacy usage |
 | tests | [tests.md](tests.md) | done E1.2 — model_b section removed |
-| net | [net.md](net.md) | done E1.3 — comment updated; UniqueFn pending E2a |
-| file_io | [file_io.md](file_io.md) | done E1.3 — comment updated |
+| net | [net.md](net.md) | done — comment and UniqueFn cleanup complete |
+| file_io | [file_io.md](file_io.md) | done — comment cleanup complete |
 | db | [db.md](db.md) | done — no legacy usage |
 
 ---

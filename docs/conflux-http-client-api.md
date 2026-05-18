@@ -417,11 +417,11 @@ import conflux.net.http.server;
 import conflux.net.async_client;
 
 using ContextHandler =
-    CloneableFunction<root::Task<http::HttpResponse>(http::HttpRequest const&, RequestContext const&)>;
+    CloneableFunction<root::Task<HttpResponse>(HttpRequest const&, RequestContext const&)>;
 
 Router& Router::get_context(std::string_view path, F&& handler);
-std::optional<http::HttpResponse>
-Router::dispatch_context(http::HttpRequest const&, RequestContext const&);
+std::optional<HttpResponse>
+Router::dispatch_context(HttpRequest const&, RequestContext const&);
 ```
 
 Use `dispatch_context(...)` because the function returns an optional response immediately and

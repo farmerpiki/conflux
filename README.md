@@ -14,7 +14,7 @@ compatibility clutter or fixes an incorrect contract.
   to the current user/container.
 - `pkg-config`; `liburing` development headers and library are required only
   when building runtime-facing components.
-- CMake 4.2 or newer and Ninja.
+- CMake 3.30 or newer and Ninja.
 - A C++26-capable compiler matching one of the provided CMake presets.
 
 Optional protocol, storage, and runtime-facing features are enabled when their

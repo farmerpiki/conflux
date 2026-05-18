@@ -1,25 +1,14 @@
 # Migration Guide — net/
 
-Tracks callsite migration for `src/net/` as part of E1.2.
+Tracks completed callsite migration for `src/net/` as part of E1.2/E1.3/E2a.
 
 ## Inventory
 
-### `src/net/http_server.cxx` — `work_detail::UniqueFn` (2 occurrences)
+No pending `src/net/` migration inventory remains. Historical cleanup completed:
 
-| Line | Before | After |
-|------|--------|-------|
-| 730 | `deque<work_detail::UniqueFn<void()>> pending_ops{};` | `deque<std::move_only_function<void()>> pending_ops{};` |
-| 1478 | `work_detail::UniqueFn<void()> op)` | `std::move_only_function<void()> op)` |
-
-Lands in E2a PR for the `net` group.
-
-### `src/net/dns/dns.cxx` — comment (1 occurrence)
-
-| Line | Before | After |
-|------|--------|-------|
-| 1785 | Comment mentioning `FlowSource` | Update wording to `TaskSource` |
-
-Lands in E1.3 comment-cleanup pass.
+- `src/net/http_server.cxx` no longer uses `work_detail::UniqueFn`; the remaining
+  move-only callbacks use the standard move-only function surface.
+- `src/net/dns/dns.cxx` no longer carries the old `FlowSource` wording.
 
 ## Before / After pairs
 

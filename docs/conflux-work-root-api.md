@@ -234,39 +234,38 @@ sections or changing scheduling semantics in default builds.
 
 `BasicSource<T, Category>` / `BasicSource<void, Category>` APIs:
 
-- `commit_success(...)`
-- `commit_failure(std::exception_ptr)`
-- `commit_cancelled(CancelReason)`
+- `try_set_value(Success<T>)` / `try_set_value(Success<void> = {})`
+- `try_set_exception(std::exception_ptr)`
+- `try_set_error(std::error_code)` / `try_set_error(std::error_code, std::string_view)`
+- `try_set_cancelled(work_errc = work_errc::cancelled_requested)`
 - `install_cancel_hook(fn)`
 - `stop_token()`
 
 Rules:
 
-- exactly one terminal commit wins
-- explicit `commit_cancelled(CancelReason::abandoned)` is a contract violation
-  (implementation terminates)
-- source destruction without terminal commit performs fallback abandoned cancel
+- exactly one terminal `try_set_*` call wins
+- source destruction without a terminal `try_set_*` performs fallback abandoned cancel
 - source destruction does **not** fire the installed cancel hook; it fires the
   `on_ready` callback only — if cleanup must run on all teardown paths, call
   `request_cancel()` before releasing the source, or include the cleanup in the
   `on_ready` callback
 
-### Commit/Cancel-Hook Race Guarantee
+### Set/Cancel-Hook Race Guarantee
 
-`install_cancel_hook` followed by `commit_*` on a different thread is safe.
-The cancel hook is **advisory and independent of terminal commit.** A call to
+`install_cancel_hook` followed by `try_set_*` on a different thread is safe.
+The cancel hook is **advisory and independent of terminal state.** A call to
 `request_cancel()` fires the hook at most once but does NOT prevent a
-subsequent `commit_success` from winning the terminal commit. Both can happen:
-hook fires (cancel requested) and the terminal is committed as success (because
+subsequent `try_set_value` from winning the terminal state. Both can happen:
+hook fires (cancel requested) and the terminal state is success (because
 the work completed before the cancel took effect). This is by design —
 `request_cancel` is a hint, not a preemption. Callers must not assume that a
-fired cancel hook means the source cannot commit success.
+fired cancel hook means the source cannot set success.
 
-Hook installed after terminal commit fires immediately on the calling thread.
+Hook installed after terminal state fires immediately on the calling thread.
 
 **`on_ready` callback and abandon:** when the producer side abandons the control
-block without calling `commit_*` (e.g., `~TaskSource` without commit), the
-abandon path transitions the control block to a terminal cancelled state and
+block without calling a terminal `try_set_*` (e.g., `~TaskSource` without a set),
+the abandon path transitions the control block to a terminal cancelled state and
 fires any installed `on_ready` callback, clearing the cycle. Consumers using
 `DroppableSlot` rely on this — a drain lambda that owns the join handle will be
 invoked and freed by the abandon path, preventing a permanent cycle between the

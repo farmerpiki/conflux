@@ -57,7 +57,7 @@ Default easy HTTP examples:
 Advanced runtime/feature examples:
 
 - `examples/file_io.cxx`
-- `examples/coroutines.cxx` (legacy `Flow<T>` coroutine style)
+- `examples/coroutines.cxx` (`root::Task<T>` coroutine file-I/O style)
 - `examples/dual.cxx`
 - `examples/h3_server.cxx`
 - `examples/h3_probe.cxx`
@@ -97,7 +97,7 @@ int main() {
 
 	app.get("/task", [](HttpRequest const &) -> conflux::work::root::Task<HttpResponse> {
 		auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
-		(void)source.commit_success(conflux::work::root::Success<HttpResponse>{HttpResponse::text("task-ok")});
+		(void)source.try_set_value(conflux::work::root::Success<HttpResponse>{HttpResponse::text("task-ok")});
 		return std::move(task);
 	});
 
