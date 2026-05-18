@@ -7,6 +7,9 @@
 //   external_burst  — N producers enqueue a synchronized burst without per-job joins
 //   local_fanout    — one worker enqueues a local-deque fanout batch
 //
+// When compiled with CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE, this emits a separate
+// benchmark that compares both queue modes with mode-prefixed variant names.
+//
 // NDJSON output (--json): standard timing fields plus optional queue counters.
 
 import std;
@@ -20,6 +23,50 @@ using namespace std::string_view_literals;
 namespace root = conflux::work::root;
 namespace {
 
+enum class BenchQueueMode : u8 {
+	stealing,
+	no_stealing,
+};
+[[nodiscard]] WorkPoolQueueMode pool_queue_mode(
+	BenchQueueMode mode) noexcept {
+	return mode == BenchQueueMode::no_stealing ? WorkPoolQueueMode::fast : WorkPoolQueueMode::work_stealing;
+}
+[[nodiscard]] SV single_thread_variant(
+	BenchQueueMode mode) noexcept {
+#ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
+	return mode == BenchQueueMode::no_stealing ? "no_stealing/single_thread"sv : "stealing/single_thread"sv;
+#else
+	(void)mode;
+	return "single_thread"sv;
+#endif
+}
+[[nodiscard]] SV contended_variant(
+	BenchQueueMode mode) noexcept {
+#ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
+	return mode == BenchQueueMode::no_stealing ? "no_stealing/contended"sv : "stealing/contended"sv;
+#else
+	(void)mode;
+	return "contended"sv;
+#endif
+}
+[[nodiscard]] SV external_burst_variant(
+	BenchQueueMode mode) noexcept {
+#ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
+	return mode == BenchQueueMode::no_stealing ? "no_stealing/external_burst"sv : "stealing/external_burst"sv;
+#else
+	(void)mode;
+	return "external_burst"sv;
+#endif
+}
+[[nodiscard]] SV local_fanout_variant(
+	BenchQueueMode mode) noexcept {
+#ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
+	return mode == BenchQueueMode::no_stealing ? "no_stealing/local_fanout"sv : "stealing/local_fanout"sv;
+#else
+	(void)mode;
+	return "local_fanout"sv;
+#endif
+}
 struct WorkPoolBenchStats {
 	BenchStats timing;
 	WorkPoolQueueStats queue;
@@ -99,9 +146,10 @@ void print_workpool_stats(
 
 WorkPoolBenchStats bench_single_thread(
 	SV cfg_name,
+	BenchQueueMode mode,
 	SZ iters,
 	SZ warmup) {
-	WorkPool pool{WorkPoolOptions{.threads = 1}};
+	WorkPool pool{WorkPoolOptions{.threads = 1, .queue_mode = pool_queue_mode(mode)}};
 	auto do_iters = [&](SZ n) {
 		for (SZ i = 0; i < n; ++i) {
 			auto [task, source] = root::make_task_source<int>();
@@ -116,17 +164,18 @@ WorkPoolBenchStats bench_single_thread(
 	u64 const elapsed = bench_now_ns() - t0;
 	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(iters);
 	return {
-		{cfg_name, "single_thread"sv, iters, elapsed, ns_pi, 1e9 / ns_pi},
+		{cfg_name, single_thread_variant(mode), iters, elapsed, ns_pi, 1e9 / ns_pi},
 		pool.queue_stats()
     };
 }
 WorkPoolBenchStats bench_contended(
 	SV cfg_name,
+	BenchQueueMode mode,
 	SZ threads,
 	SZ iters,
 	SZ warmup) {
 	SZ const worker_count = max(SZ{1}, threads);
-	WorkPool pool{WorkPoolOptions{.threads = worker_count}};
+	WorkPool pool{WorkPoolOptions{.threads = worker_count, .queue_mode = pool_queue_mode(mode)}};
 	SZ const per_thread = iters / threads;
 	auto do_wave = [&](SZ n_per) {
 		V<thread> producers;
@@ -153,7 +202,7 @@ WorkPoolBenchStats bench_contended(
 	SZ const total_iters = per_thread * threads;
 	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(total_iters);
 	return {
-		{cfg_name, "contended"sv, total_iters, elapsed, ns_pi, 1e9 / ns_pi},
+		{cfg_name, contended_variant(mode), total_iters, elapsed, ns_pi, 1e9 / ns_pi},
 		pool.queue_stats()
     };
 }
@@ -173,12 +222,17 @@ void enqueue_counted_job(
 }
 WorkPoolBenchStats bench_external_burst(
 	SV cfg_name,
+	BenchQueueMode mode,
 	SZ threads,
 	SZ iters,
 	SZ warmup) {
 	SZ const worker_count = max(SZ{1}, threads);
 	WorkPool pool{
-		WorkPoolOptions{.threads = worker_count, .max_inject_queue = max(SZ{4096}, iters + threads + 1)}
+		WorkPoolOptions{
+			.threads = worker_count,
+			.max_inject_queue = max(SZ{4096}, iters + threads + 1),
+			.queue_mode = pool_queue_mode(mode),
+		}
     };
 	SZ const per_thread = iters / threads;
 	auto do_wave = [&](SZ n_per) {
@@ -213,22 +267,24 @@ WorkPoolBenchStats bench_external_burst(
 	SZ const total_iters = per_thread * threads;
 	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(total_iters);
 	return {
-		{cfg_name, "external_burst"sv, total_iters, elapsed, ns_pi, 1e9 / ns_pi},
+		{cfg_name, external_burst_variant(mode), total_iters, elapsed, ns_pi, 1e9 / ns_pi},
 		pool.queue_stats()
     };
 }
 WorkPoolBenchStats bench_local_fanout(
 	SV cfg_name,
+	BenchQueueMode mode,
 	SZ threads,
 	SZ iters,
 	SZ warmup) {
 	SZ const worker_count = max(SZ{1}, threads);
 	WorkPool pool{
 		WorkPoolOptions{
-						.threads = worker_count,
-						.max_inject_queue = max(SZ{4096}, threads + 1),
-						.local_queue_capacity = max(SZ{1024}, iters + 1),
-						}
+			.threads = worker_count,
+			.max_inject_queue = max(SZ{4096}, threads + 1),
+			.local_queue_capacity = max(max(SZ{1024}, iters + 1), warmup + 2),
+			.queue_mode = pool_queue_mode(mode),
+		}
     };
 	auto do_wave = [&](SZ n) {
 		Atom<SZ> done{0};
@@ -252,7 +308,7 @@ WorkPoolBenchStats bench_local_fanout(
 	u64 const elapsed = bench_now_ns() - t0;
 	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(iters);
 	return {
-		{cfg_name, "local_fanout"sv, iters, elapsed, ns_pi, 1e9 / ns_pi},
+		{cfg_name, local_fanout_variant(mode), iters, elapsed, ns_pi, 1e9 / ns_pi},
 		pool.queue_stats()
     };
 }
@@ -274,11 +330,22 @@ int main(
 				cfgs += ',';
 			}
 			cfgs += format(
-				"{{\"name\":\"threads_{0}\",\"extra\":{{\"threads\":{0}}},\"args\":[\"--threads\",\"{0}\","
+				"{{\"name\":\"threads_{0}\",\"extra\":{{\"threads\":{0}"
+#ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
+				",\"queue_modes\":[\"stealing\",\"no_stealing\"]"
+#endif
+				"}},\"args\":[\"--threads\",\"{0}\","
 				"\"--config-name\",\"threads_{0}\",\"--iterations\",\"5000\",\"--warmup\",\"500\"]}}",
 				ts[i]);
 		}
-		std::println("{{\"name\":\"workpool_enqueue_dequeue\",\"parser\":\"standard\",\"configs\":[{}]}}", cfgs);
+		std::println(
+			"{{\"name\":\"{}\",\"parser\":\"standard\",\"configs\":[{}]}}",
+#ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
+			"workpool_queue_mode_compare",
+#else
+			"workpool_enqueue_dequeue",
+#endif
+			cfgs);
 		return 0;
 	}
 
@@ -295,12 +362,25 @@ int main(
 	}
 
 	threads = max(SZ{1}, threads);
+#ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
 	WorkPoolBenchStats stats[] = {
-		bench_single_thread(cfg.config_name, cfg.iterations, cfg.warmup),
-		bench_contended(cfg.config_name, threads, cfg.iterations, cfg.warmup),
-		bench_external_burst(cfg.config_name, threads, cfg.iterations, cfg.warmup),
-		bench_local_fanout(cfg.config_name, threads, cfg.iterations, cfg.warmup),
+		bench_single_thread(cfg.config_name, BenchQueueMode::stealing, cfg.iterations, cfg.warmup),
+		bench_single_thread(cfg.config_name, BenchQueueMode::no_stealing, cfg.iterations, cfg.warmup),
+		bench_contended(cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup),
+		bench_contended(cfg.config_name, BenchQueueMode::no_stealing, threads, cfg.iterations, cfg.warmup),
+		bench_external_burst(cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup),
+		bench_external_burst(cfg.config_name, BenchQueueMode::no_stealing, threads, cfg.iterations, cfg.warmup),
+		bench_local_fanout(cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup),
+		bench_local_fanout(cfg.config_name, BenchQueueMode::no_stealing, threads, cfg.iterations, cfg.warmup),
 	};
+#else
+	WorkPoolBenchStats stats[] = {
+		bench_single_thread(cfg.config_name, BenchQueueMode::stealing, cfg.iterations, cfg.warmup),
+		bench_contended(cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup),
+		bench_external_burst(cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup),
+		bench_local_fanout(cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup),
+	};
+#endif
 	for (SZ i = 0; i < std::size(stats); ++i) {
 		print_workpool_stats(stats[i], cfg.json_out, i == 0);
 	}

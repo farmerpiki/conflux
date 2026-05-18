@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Summarize workpool_enqueue_dequeue queue-contention NDJSON."""
+"""Summarize workpool_queue_mode_compare queue-contention NDJSON."""
 
 from __future__ import annotations
 
@@ -12,7 +12,18 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any
 
-REQUIRED_VARIANTS = ("single_thread", "contended", "external_burst", "local_fanout")
+REQUIRED_VARIANTS = (
+    "stealing/single_thread",
+    "no_stealing/single_thread",
+    "stealing/contended",
+    "no_stealing/contended",
+    "stealing/external_burst",
+    "no_stealing/external_burst",
+    "stealing/local_fanout",
+    "no_stealing/local_fanout",
+)
+PROFILE_VARIANTS = ("single_thread", "contended", "external_burst", "local_fanout")
+
 REQUIRED_QUEUE_KEYS = (
     "enqueue_attempts",
     "admission_lock_acquisitions",
@@ -111,9 +122,11 @@ def summarize(rows: list[dict[str, Any]], raw_path: Path, required_variants: set
         fail("missing required config/variant rows: " + ", ".join(missing))
 
     variants: list[dict[str, Any]] = []
+    variant_timing: dict[tuple[str, str], list[float]] = {}
     total_queue: defaultdict[str, int] = defaultdict(int)
     for (config, variant), bucket in sorted(by_config_variant.items()):
         timing = [float(row["ns_per_iter"]) for row in bucket]
+        variant_timing[(config, variant)] = timing
         queue_sums: defaultdict[str, int] = defaultdict(int)
         for row in bucket:
             for key, value in row["queue"].items():
@@ -139,6 +152,28 @@ def summarize(rows: list[dict[str, Any]], raw_path: Path, required_variants: set
             }
         )
 
+    mode_comparisons: list[dict[str, Any]] = []
+    for config in configs:
+        for profile in PROFILE_VARIANTS:
+            stealing_timing = variant_timing.get((config, f"stealing/{profile}"))
+            no_stealing_timing = variant_timing.get((config, f"no_stealing/{profile}"))
+            if not stealing_timing or not no_stealing_timing:
+                continue
+            stealing_med = median(stealing_timing)
+            no_stealing_med = median(no_stealing_timing)
+            mode_comparisons.append(
+                {
+                    "config": config,
+                    "profile": profile,
+                    "stealing_median_ns_per_iter": stealing_med,
+                    "no_stealing_median_ns_per_iter": no_stealing_med,
+                    "no_stealing_pct_change": round(((no_stealing_med - stealing_med) * 100.0) / stealing_med, 6)
+                    if stealing_med > 0
+                    else 0.0,
+                    "no_stealing_speedup": round(stealing_med / no_stealing_med, 6) if no_stealing_med > 0 else 0.0,
+                }
+            )
+
     jobs_run = total_queue["jobs_run"]
     enqueue_attempts = total_queue["enqueue_attempts"]
     if jobs_run == 0 and enqueue_attempts == 0:
@@ -150,6 +185,7 @@ def summarize(rows: list[dict[str, Any]], raw_path: Path, required_variants: set
         "rows": len(rows),
         "configs": configs,
         "required_variants": sorted(required_variants),
+        "mode_comparisons": mode_comparisons,
         "observed": {
             "admission_lock_contention": total_queue["admission_lock_contentions"] > 0,
             "local_lock_contention": total_queue["local_lock_contentions"] > 0,
@@ -169,7 +205,7 @@ def summarize(rows: list[dict[str, Any]], raw_path: Path, required_variants: set
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("raw_ndjson", type=Path, help="workpool_enqueue_dequeue --json NDJSON")
+    parser.add_argument("raw_ndjson", type=Path, help="workpool_queue_mode_compare --json NDJSON")
     parser.add_argument("--output", type=Path, help="write summary JSON to this path")
     parser.add_argument(
         "--required-variant",

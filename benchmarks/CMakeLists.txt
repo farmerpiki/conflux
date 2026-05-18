@@ -81,6 +81,10 @@ target_link_libraries(conflux_task_cancellation_bench PRIVATE bench_common confl
 add_executable(conflux_workpool_enqueue_dequeue_bench workpool_enqueue_dequeue_bench.cxx)
 target_link_libraries(conflux_workpool_enqueue_dequeue_bench PRIVATE bench_common conflux_work conflux_options)
 
+add_executable(conflux_workpool_queue_mode_compare_bench workpool_enqueue_dequeue_bench.cxx)
+target_compile_definitions(conflux_workpool_queue_mode_compare_bench PRIVATE CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE=1)
+target_link_libraries(conflux_workpool_queue_mode_compare_bench PRIVATE bench_common conflux_work conflux_options)
+
 add_executable(conflux_join_all_N_bench join_all_N_bench.cxx)
 target_link_libraries(conflux_join_all_N_bench PRIVATE bench_common conflux_work conflux_options)
 
@@ -121,6 +125,7 @@ set(_record_targets
     conflux_task_chain_composition_bench
     conflux_task_cancellation_bench
     conflux_workpool_enqueue_dequeue_bench
+    conflux_workpool_queue_mode_compare_bench
     conflux_join_all_N_bench
     conflux_socket_raw_bench
     conflux_http_server_bench

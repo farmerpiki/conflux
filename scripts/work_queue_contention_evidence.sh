@@ -16,7 +16,7 @@ usage: scripts/work_queue_contention_evidence.sh
 
 Runs:
   1. configure with -DCONFLUX_WORK_QUEUE_STATS=ON
-  2. build conflux_workpool_enqueue_dequeue_bench
+  2. build conflux_workpool_queue_mode_compare_bench
   3. run repeated --json benchmark reps into NDJSON
   4. summarize queue contention counters into JSON
 USAGE
@@ -75,8 +75,8 @@ require_positive_int WORK_QUEUE_REPS "$REPS"
 mkdir -p "$ARTIFACT_DIR"
 configure_log="$ARTIFACT_DIR/configure.log"
 build_log="$ARTIFACT_DIR/build.log"
-raw_ndjson="$ARTIFACT_DIR/workpool_enqueue_dequeue.raw.ndjson"
-summary_json="$ARTIFACT_DIR/workpool_enqueue_dequeue.summary.json"
+raw_ndjson="$ARTIFACT_DIR/workpool_queue_mode_compare.raw.ndjson"
+summary_json="$ARTIFACT_DIR/workpool_queue_mode_compare.summary.json"
 manifest_json="$ARTIFACT_DIR/manifest.json"
 config_name="threads_${THREADS}"
 
@@ -89,18 +89,18 @@ if [[ -z "$BUILD_DIR" || ! -d "$BUILD_DIR" ]]; then
 	exit 2
 fi
 
-printf 'building workpool queue benchmark\n'
-if ! cmake --build "$BUILD_DIR" --target conflux_workpool_enqueue_dequeue_bench -- -j"$(nproc)" \
+printf 'building workpool queue mode comparison benchmark\n'
+if ! cmake --build "$BUILD_DIR" --target conflux_workpool_queue_mode_compare_bench -- -j"$(nproc)" \
 	> "$build_log" 2>&1; then
 	printf 'build failed; log=%s\n' "$build_log" >&2
 	tail -40 "$build_log" >&2
 	exit 2
 fi
 
-bench_bin="$BUILD_DIR/benchmarks/conflux_workpool_enqueue_dequeue_bench"
+bench_bin="$BUILD_DIR/benchmarks/conflux_workpool_queue_mode_compare_bench"
 : > "$raw_ndjson"
 for rep in $(seq 1 "$REPS"); do
-	printf 'running workpool queue bench rep %s/%s\n' "$rep" "$REPS"
+	printf 'running workpool queue mode comparison bench rep %s/%s\n' "$rep" "$REPS"
 	"$bench_bin" \
 		--threads "$THREADS" \
 		--iterations "$ITERATIONS" \

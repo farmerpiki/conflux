@@ -1748,11 +1748,7 @@ public:
 template<work_value T, bool EnableCancellation>
 [[nodiscard]] SP<ControlBlockInterface<T>> make_control_block_shared() {
 	using model_t = ControlBlockModel<T, EnableCancellation>;
-	// Process-lifetime pool: control blocks can be released from any thread,
-	// and the pool is intentionally leaked to avoid static-destruction ordering.
-	static auto *resource = new std::pmr::synchronized_pool_resource{};
-	std::pmr::polymorphic_allocator<model_t> alloc{resource};
-	return std::allocate_shared<model_t>(alloc);
+	return make_shared<model_t>();
 }
 [[nodiscard]] inline std::pmr::memory_resource &task_coroutine_frame_resource() noexcept {
 	// Process-lifetime fallback pool: coroutine frames can be destroyed from any

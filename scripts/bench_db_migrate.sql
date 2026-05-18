@@ -226,7 +226,8 @@ VALUES
     ('template', '*', '*', 5.0, 5, 12.0, 'CPU-bound template rendering'),
     ('tls_tcp_increment_coro', '*', '*', 20.0, 5, 30.0, 'TLS local TCP coroutine path'),
     ('work', '*', '*', 10.0, 5, 20.0, 'worker scheduler benchmark'),
-    ('workpool_enqueue_dequeue', '*', '*', 12.0, 5, 25.0, 'worker queue benchmark')
+    ('workpool_enqueue_dequeue', '*', '*', 12.0, 5, 25.0, 'worker queue benchmark'),
+    ('workpool_queue_mode_compare', '*', '*', 12.0, 5, 25.0, 'worker queue mode comparison benchmark')
 ON CONFLICT (benchmark, config_name, variant) DO NOTHING;
 
 CREATE OR REPLACE VIEW bench_budget_eval AS

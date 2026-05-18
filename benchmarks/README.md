@@ -163,22 +163,28 @@ telemetry when emitted by the benchmark. See
 `benchmarks/notes/send_zc_threshold_evidence.md` for the decision shape.
 
 For worker queue contention profiling, configure the perf preset with
-`-DCONFLUX_WORK_QUEUE_STATS=ON` before recording `workpool_enqueue_dequeue`. The
-benchmark still emits the standard `config`/`variant`/`iterations`/`total_ns`/
-`ns_per_iter` fields, and appends a `queue` object in raw NDJSON with enqueue,
+`-DCONFLUX_WORK_QUEUE_STATS=ON` before recording the queue benchmarks. The
+benchmarks emit the standard `config`/`variant`/`iterations`/`total_ns`/
+`ns_per_iter` fields, and append a `queue` object in raw NDJSON with enqueue,
 local/inject queue, admission/local/steal lock-contention, steal, park, and
 futex wake counters. `scripts/bench_record.sh` preserves optional standard-parser
 fields in `results.extra`, so these counters are queryable as `extra->'queue'`
-for non-summary rows while remaining available verbatim in raw artifacts. The
-benchmark includes the original per-task-join variants plus `external_burst` for
-admission/inject pressure and `local_fanout` for local-deque/steal pressure.
-Normal perf presets leave this option off so instrumentation does not
-contaminate default history.
+for non-summary rows while remaining available verbatim in raw artifacts.
+`workpool_enqueue_dequeue` keeps its historical variant names for baseline
+comparisons. `workpool_queue_mode_compare` is the separate mode-comparison
+benchmark; it emits every queue-profile variant for both WorkPool queue modes,
+using variant names like `stealing/external_burst` and
+`no_stealing/external_burst`, so the mutex/deque/stealing path and the atomic
+ring/no-steal fast path can be compared within the same thread config. Normal
+perf presets leave this option off so instrumentation does not contaminate
+default history.
 
 For a DB-independent evidence artifact, use the wrapper below. It enables queue
-stats for the selected build preset, runs repeated `workpool_enqueue_dequeue`
-JSON reps, validates that each config has all four queue-profile variants, and
-writes a summary JSON with aggregate contention and futex-wait rates per 1k jobs.
+stats for the selected build preset, runs repeated `workpool_queue_mode_compare`
+JSON reps, validates that each config has both queue modes for all four
+queue-profile variants, and writes a summary JSON with no-stealing-vs-stealing
+median deltas plus aggregate contention and futex-wait rates per 1k jobs for
+each mode-prefixed variant.
 
 ```sh
 WORK_QUEUE_PRESET=perf-clang-libcxx \
@@ -191,8 +197,8 @@ To summarize an existing raw artifact without rebuilding, run:
 
 ```sh
 python3 scripts/work_queue_contention_summary.py \
-  /tmp/conflux/work-queue-evidence/<stamp>/workpool_enqueue_dequeue.raw.ndjson \
-  --output /tmp/conflux/work-queue-evidence/<stamp>/workpool_enqueue_dequeue.summary.json
+  /tmp/conflux/work-queue-evidence/<stamp>/workpool_queue_mode_compare.raw.ndjson \
+  --output /tmp/conflux/work-queue-evidence/<stamp>/workpool_queue_mode_compare.summary.json
 ```
 
 ## Comparing runs
