@@ -201,6 +201,15 @@ Recommended next HTTP branch: host-run `http/send-threshold-bench` evidence; cod
 
 Recommended next uring branch: defer `uring/recv-zc` until target kernel support is stable; use `http/send-threshold-bench` for adjacent measured send-path work.
 
+### Template lane
+
+| Priority | Branch | Scope | Parallel safety | Acceptance |
+|---|---|---|---|---|
+| P2 | `template/compiled-cache-reload` | Add immutable compiled template values, structured diagnostics, eager directory compile/publish, optional render-check preflight, explicit reload/invalidation, parsed-context render overloads, and opt-in watcher adapter semantics. | Independent of DB/SEND_ZC evidence and JSON impl-unit split, but touches `src/template.cxx`, template tests, benchmarks, CMake component mapping, and possibly file I/O async imports. | Warm render does not rescan/split template expression/filter/macro strings; reload-all builds a full temporary cache, reports parse/compile/link diagnostics, can run caller-provided render checks, and atomically swaps only on success; failed compile/link/render-check keeps old output; watcher support is separate/opt-in and defaults to coalesced full reload; `render_string(...)` remains uncached/cold. |
+| P3 | `template/watch-split-cleanup` | Split watcher integration into a dedicated adapter module/target after the compiled reload primitive exists. | Can follow the compiled-cache branch; avoid preserving current per-file mutation semantics as the default. | `conflux.templates` has no `conflux.file_watch` import or watcher member; `conflux::template_watch` exports a template-specific adapter instead of only mapping to raw file-watch. |
+
+Recommended next template branch: `template/compiled-cache-reload` after the current P1 DB/SEND_ZC evidence branches, or earlier if web ergonomics becomes the active focus.
+
 ### JSON / serde / app boundary lane
 
 | Priority | Branch | Scope | Parallel safety | Acceptance |
