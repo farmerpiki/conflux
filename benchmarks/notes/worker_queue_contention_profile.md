@@ -22,7 +22,7 @@ plain blocking mutex acquisition and avoid the profiling `try_lock()` probe.
 
 ## Benchmark variants
 
-`workpool_enqueue_dequeue` now reports four variants per config:
+`workpool_queue_mode_compare` reports four queue-profile variants per config and per queue mode:
 
 - `single_thread` — one external producer, one worker, one blocking join per job
 - `contended` — N external producers, N workers, one blocking join per job
@@ -52,8 +52,8 @@ Artifacts are written under:
 Expected files:
 
 - `configure.log` and `build.log` — queue-stats build evidence.
-- `workpool_enqueue_dequeue.raw.ndjson` — repeated raw benchmark rows.
-- `workpool_enqueue_dequeue.summary.json` — per-config/variant timing medians,
+- `workpool_queue_mode_compare.raw.ndjson` — repeated raw benchmark rows.
+- `workpool_queue_mode_compare.summary.json` — per-config/variant timing medians,
   aggregate queue counters, and admission/local/steal/futex rates per 1k jobs.
 - `manifest.json` — build dir, preset, thread/rep counts, commit/branch where
   available.
@@ -62,15 +62,15 @@ Manual equivalent:
 
 ```sh
 cmake --preset perf-clang-libcxx -DCONFLUX_WORK_QUEUE_STATS=ON
-cmake --build --preset perf-clang-libcxx --target conflux_workpool_enqueue_dequeue_bench -j1
-/tmp/conflux/perf-clang-libcxx/benchmarks/conflux_workpool_enqueue_dequeue_bench \
+cmake --build --preset perf-clang-libcxx --target conflux_workpool_queue_mode_compare_bench -j1
+/tmp/conflux/perf-clang-libcxx/benchmarks/conflux_workpool_queue_mode_compare_bench \
   --threads 16 --iterations 5000 --warmup 500 --json
 ```
 
 For recorded runs:
 
 ```sh
-ONLY_BENCH=workpool_enqueue_dequeue BENCH_PRESET=perf-clang-libcxx \
+ONLY_BENCH=workpool_queue_mode_compare BENCH_PRESET=perf-clang-libcxx \
   scripts/bench_record.sh workpool-queue-profile
 ```
 
@@ -87,7 +87,7 @@ SELECT variant,
        sum((extra->'queue'->>'futex_waits')::bigint) AS futex_waits
 FROM results
 WHERE run_id = :run_id
-  AND benchmark = 'workpool_enqueue_dequeue'
+  AND benchmark = 'workpool_queue_mode_compare'
   AND COALESCE(extra->>'kind', '') <> 'summary'
 GROUP BY variant
 ORDER BY variant;
@@ -101,10 +101,24 @@ default `stealing` semantics but gates victim scans behind a global count of
 worker-local queued jobs. External-only workloads avoid the steal-lock path;
 local-fanout workloads still expose their backlog to victim workers.
 
-No default queue-mode change is made. `no_stealing` remains an opt-in executor
-mode for bounded independent offload work. It won the contended and
-external-burst profiles, but lost the local-fanout profile where cross-worker
-redistribution is useful.
+A post-gate rerun on `perf-clang-libcxx`, 8 workers, 5 reps, 5000 measured
+iterations showed `no_stealing` ahead on every current microprofile:
+
+| profile | stealing median ns/op | no_stealing median ns/op | no_stealing speedup |
+| --- | ---: | ---: | ---: |
+| `single_thread` | 9618.71 | 5435.55 | 1.77x |
+| `contended` | 788.76 | 403.85 | 1.95x |
+| `external_burst` | 670.42 | 347.92 | 1.93x |
+| `local_fanout` | 1419.90 | 693.22 | 2.05x |
+
+No default queue-mode change is made from this evidence alone. The current
+`local_fanout` profile measures cheap queued-job throughput after one worker
+produces a local batch; it does not measure latency/fairness under expensive
+fanout, blocked workers, or uneven producer workers where victim stealing is the
+work-conserving mechanism. Treat `no_stealing` as the throughput-preferred mode
+for bounded independent offload work, and keep default `stealing` for general
+executor semantics until those redistribution profiles exist and support a
+default flip.
 
 `admission_mtx_` remains the correctness gate for default stealing mode: it
 prevents `drain_and_stop()` from observing `pending_ == 0` while a racing enqueue
