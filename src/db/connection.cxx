@@ -1035,6 +1035,11 @@ root::Task<Result> Pipeline::exec_cached(
 		auto _ = shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: exec_cached off owner thread"}));
 		return move(task);
 	}
+	if (st->syncing) {
+		auto _ = shared_src->try_set_exception(
+			make_exception_ptr(PgError{"conflux.db: exec_cached while sync in progress"}));
+		return move(task);
+	}
 	st->pending.push_back(
 		PendingQuery{
 			.kind = PendingKind::exec_cached,

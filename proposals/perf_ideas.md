@@ -17,7 +17,7 @@ Based on three independent ecosystem reviews of C++26 + io_uring best practices,
 | `IORING_RECVSEND_BUNDLE` | Done (config-gated) |
 | Multishot accept + recv | Done |
 | Splice for file serving | Done |
-| Zero-copy send (`SEND_ZC`) | Done for HTTP plain and mapped-file send paths (`queue_send` / `queue_send_mapped` → `submit_send_zc_borrowed` above threshold, `IORING_CQE_F_NOTIF` handling, send-zc counters); mapped headers are sent normally before ZC body send; TLS cannot use SEND_ZC directly |
+| Zero-copy send (`SEND_ZC`) | Experimental. Implementation exists for HTTP plain and mapped-file send paths (`queue_send` / `queue_send_mapped` → `submit_send_zc_borrowed` above threshold, `IORING_CQE_F_NOTIF` handling, send-zc counters); mapped headers are sent normally before ZC body send; TLS cannot use SEND_ZC directly. Performance status remains pending non-loopback, ZC-capable NIC evidence. |
 | Zero-copy recv (`RECV_ZC`) | Missing |
 | `SO_BUSY_POLL` / `SO_PREFER_BUSY_POLL` | Done — `busy_poll_us` / `prefer_busy_poll` config fields; applied per accepted socket (`http_server.cxx:2397-2400`) |
 | `TCP_QUICKACK` | Done — set unconditionally per accepted socket (`http_server.cxx:2396`) |
@@ -39,8 +39,8 @@ Based on three independent ecosystem reviews of C++26 + io_uring best practices,
 
 ### Tier 1 — Structural (weeks; 2×+ potential)
 
-**T1-A: Zero-copy network send via `IORING_OP_SEND_ZC`** — **Mostly done**
-Core path landed for plain and mapped responses: `queue_send` / `queue_send_mapped` use `submit_send_zc_borrowed` above configured threshold, with `IORING_CQE_F_NOTIF` handling, send-zc counters, normal-header/mapped-body sequencing, and fallback regular sends. TLS path intentionally cannot use SEND_ZC directly.
+**T1-A: Zero-copy network send via `IORING_OP_SEND_ZC`** — **Implemented, experimental**
+Core path landed for plain and mapped responses: `queue_send` / `queue_send_mapped` use `submit_send_zc_borrowed` above configured threshold, with `IORING_CQE_F_NOTIF` handling, send-zc counters, normal-header/mapped-body sequencing, and fallback regular sends. TLS path intentionally cannot use SEND_ZC directly. Treat threshold and throughput conclusions as experimental until evidence comes from non-loopback traffic over ZC-capable NICs and shows non-copied notifications.
 
 **T1-B: Zero-copy recv via `IORING_OP_RECV_ZC`**
 Provided buffer rings already remove the copy on the ring side; `RECV_ZC` goes further — DMA directly into user buffers. Kernel 6.20/7.0 improves large-buffer support. Hold off until 6.20 is stable; design the recv buffer abstraction now so it's swappable.
@@ -109,7 +109,7 @@ All original Tier 3 quick wins are implemented. Remaining open items:
 | ~~T3-G~~ | ~~`io_uring_get_probe()` capability log~~ | ~~Done~~ (`detect_caps` + `caps_to_log_string` + requested/active/stripped setup-flag log) | — |
 | ~~T2-F~~ | ~~`alignas(64)` on `Conn` + `Worker`~~ | ~~Done~~; `Ring` hot/cold layout remains | — |
 | ~~T2-G~~ | ~~Registered buffers for network send~~ | ~~Done~~ (`FixedBufferPool` send buffers) | — |
-| ~~T1-A~~ | ~~Zero-copy HTTP response send (`SEND_ZC`)~~ | ~~Done for plain + mapped responses~~; TLS remains intentionally excluded | — |
+| T1-A | Zero-copy HTTP response send (`SEND_ZC`) | Implementation done for plain + mapped responses; TLS remains intentionally excluded; perf/threshold status experimental until non-loopback ZC-capable NIC evidence exists | evidence-gated |
 | ~~T1-D~~ | ~~Lock-free global injection~~ | ~~Done~~ (MPMC ring); local queues/stealing/admission_mtx_ still mutex-based | — |
 | ~~T3-E~~ | ~~Coroutine frame pool for `TaskPromise<T>`~~ | ~~Done~~ (`work/root.cxx`) | — |
 | ~~T2-C~~ | ~~`IORING_SETUP_IOPOLL` for storage rings~~ | ~~Done~~ (`IopollStorageRing` / `IopollFileReader`); HTTP adoption still needs benchmark evidence | — |

@@ -37,6 +37,7 @@ struct WorkPoolState {
 	atomic_flag stopping{};
 	mutex admission_mtx{};
 	std::atomic<std::uint64_t> no_stealing_admission{0};
+	alignas(64) std::atomic<std::size_t> stealable_local_jobs{0};
 	work_detail::WorkPoolQueueCounters queue_counters{};
 
 	explicit WorkPoolState(WorkPoolOptions opts)
@@ -137,6 +138,7 @@ struct WorkPoolState {
 			queue_counters.note_local_push_full();
 			return false;
 		}
+		stealable_local_jobs.fetch_add(1, memory_order_release);
 		pending.fetch_add(1, memory_order_release);
 		queue_counters.note_local_push();
 		return true;
@@ -179,6 +181,7 @@ struct WorkPoolState {
 		}
 		auto job = move(worker.local.back());
 		worker.local.pop_back();
+		stealable_local_jobs.fetch_sub(1, memory_order_acq_rel);
 		queue_counters.note_local_pop_hit();
 		return job;
 	}
@@ -210,6 +213,9 @@ struct WorkPoolState {
 		return nullopt;
 	}
 	[[nodiscard]] std::optional<work_detail::Fn> steal_work(std::size_t thief) {
+		if (workers.size() < 2 || stealable_local_jobs.load(memory_order_acquire) == 0) {
+			return nullopt;
+		}
 		queue_counters.note_steal_round();
 		for (std::size_t offset = 1; offset < workers.size(); ++offset) {
 			std::size_t const victim_index = (thief + offset) % workers.size();
@@ -222,6 +228,7 @@ struct WorkPoolState {
 			queue_counters.note_steal_hit();
 			auto job = move(victim.local.front());
 			victim.local.pop_front();
+			stealable_local_jobs.fetch_sub(1, memory_order_acq_rel);
 			return job;
 		}
 		return nullopt;

@@ -271,6 +271,32 @@ TEST_CASE(
 	CHECK(r1[0].as<std::int64_t>(0) == 42);
 	CHECK(r2[0].as<std::int64_t>(0) == 123);
 }
+
+TEST_CASE(
+	"db: pipeline rejects exec_cached while sync in progress",
+	"[db][integration]") {
+	auto ci = conninfo();
+	if (!ci) {
+		SKIP("PG_TEST_CONNINFO not set");
+	}
+	auto fx = require_ring_fixture();
+	CurrentFileReaderScope const scope{&fx->reader};
+
+	auto conn = connect_or_skip(*fx, *ci);
+	StatementCache sc;
+	auto stmt = sc.get("SELECT 44::int8");
+	auto pipeline = block_on(fx->reader, conn->pipeline(), std::chrono::seconds{30});
+
+	auto slow = pipeline.query("SELECT pg_sleep(0.2)");
+	auto sync = pipeline.sync();
+	auto rejected = pipeline.exec_cached(stmt);
+
+	CHECK_THROWS_AS(block_on(fx->reader, move(rejected), std::chrono::seconds{30}), PgError);
+	block_on(fx->reader, move(sync), std::chrono::seconds{30});
+	auto r = block_on(fx->reader, move(slow), std::chrono::seconds{30});
+	REQUIRE(r.ok());
+}
+
 TEST_CASE(
 	"db: pipeline owns connection until teardown",
 	"[db][integration]") {

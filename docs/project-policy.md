@@ -95,7 +95,9 @@ Required baseline behavior:
 Optional fast paths such as direct descriptors, registered buffers, SEND_ZC,
 provided buffer rings, `NO_SQARRAY`, `CQE_MIXED`, `SQPOLL`, busy poll, and
 future IOPOLL file rings are opportunistic. They must stay capability-gated and
-must not become silent hard requirements.
+must not become silent hard requirements. SEND_ZC throughput or threshold claims
+require non-loopback evidence on ZC-capable NICs; loopback-only runs are
+experimental correctness/sanity evidence.
 
 ## Release gates
 

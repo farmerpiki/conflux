@@ -520,10 +520,17 @@ bounded local queue; other producers use sharded bounded direct-job inject rings
 picks one inject ring per worker.
 
 Default `stealing` mode keeps the mutex-protected local job deque and victim
-stealing behavior. `no_stealing` mode uses bounded atomics-based direct job rings for
-local worker submissions and external injection, removes victim stealing, and
-uses an atomic admission gate instead of the admission mutex for stop/drain
-coordination.
+stealing behavior. It skips victim scans while no worker-local jobs are queued,
+so external-producer workloads do not pay the steal-lock path when stealing
+cannot produce work. `no_stealing` mode uses bounded atomics-based direct job
+rings for local worker submissions and external injection, removes victim
+stealing, and uses an atomic admission gate instead of the admission mutex for
+stop/drain coordination.
+
+Use `no_stealing` for bounded external offload pools where tasks are independent
+and load is already spread through inject rings. Keep default `stealing` for
+recursive fanout or uneven worker-local production, where victim stealing is the
+mechanism that redistributes local backlog.
 
 `stop()` is a hard stop: it rejects new work, requests worker shutdown, and may
 abandon queued jobs that have not started. This is also the destructor behavior.

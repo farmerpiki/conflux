@@ -185,7 +185,7 @@ root::Task<Pipeline> Connection::pipeline();
 
 Contracts:
 - Owner-thread only (same lane/thread as `Connection`); one active pipeline per connection.
-- `query()` is rejected while `sync()` is in progress.
+- `query()` and `exec_cached()` are rejected while `sync()` is in progress.
 - `sync()` enters libpq pipeline mode, sends queued work without per-query round trips, then drains results until `PGRES_PIPELINE_SYNC`.
 - `exec_cached()` sends a `PQsendPrepare` message before the first pipelined `PQsendQueryPrepared` for a statement name that is not yet prepared on the connection.
 - Results are resolved/rejected in wire order; a server-side pipeline abort rejects the affected query tasks.

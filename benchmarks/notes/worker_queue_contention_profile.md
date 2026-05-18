@@ -93,16 +93,21 @@ GROUP BY variant
 ORDER BY variant;
 ```
 
-## No-change decision for locks in these slices
+## Follow-up decision
 
-No lock removal is included here. `admission_mtx_` is still the correctness gate
-that prevents `drain_and_stop()` from observing `pending_ == 0` while a racing
-enqueue has passed the stopped check but has not yet incremented `pending_`.
-Removing it safely needs either an admission-state protocol or a producer epoch,
-and should be justified by measured contention first.
+The first contention evidence showed that external-producer profiles paid
+steal-victim scans even when no local jobs existed to steal. The follow-up keeps
+default `stealing` semantics but gates victim scans behind a global count of
+worker-local queued jobs. External-only workloads avoid the steal-lock path;
+local-fanout workloads still expose their backlog to victim workers.
 
-The local deque mutexes also remain unchanged. They are required for local push,
-owner pop, and cross-worker steal. The follow-up counters distinguish actual
-mutex contention from ordinary queue activity, so later patches can decide
-between batching, steal-policy changes, per-worker queue layout changes, or no
-scheduler change at all.
+No default queue-mode change is made. `no_stealing` remains an opt-in executor
+mode for bounded independent offload work. It won the contended and
+external-burst profiles, but lost the local-fanout profile where cross-worker
+redistribution is useful.
+
+`admission_mtx_` remains the correctness gate for default stealing mode: it
+prevents `drain_and_stop()` from observing `pending_ == 0` while a racing enqueue
+has passed the stopped check but has not yet incremented `pending_`. Removing it
+safely still needs either an admission-state protocol or a producer epoch, and
+should be justified by measured contention first.
