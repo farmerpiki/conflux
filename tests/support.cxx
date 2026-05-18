@@ -12,6 +12,37 @@ import conflux.types;
 import conflux.net.http;
 export namespace conflux::tests {
 
+std::string read_one_response(
+	int fd) {
+	std::string response;
+	std::array<char, 4096> buf{};
+	for (;;) {
+		auto const n = ::recv(fd, buf.data(), buf.size(), 0);
+		if (n <= 0) {
+			break;
+		}
+		response.append(buf.data(), static_cast<std::size_t>(n));
+
+		auto const hdr_end = response.find("\r\n\r\n");
+		if (hdr_end == std::string::npos) {
+			continue;
+		}
+
+		auto cl_pos = response.find("Content-Length: ");
+		if (cl_pos == std::string::npos || cl_pos > hdr_end) {
+			break;
+		}
+		cl_pos += 16;
+		auto const cl_end = response.find("\r\n", cl_pos);
+		std::size_t body_len = 0;
+		from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
+		if (response.size() >= hdr_end + 4 + body_len) {
+			break;
+		}
+	}
+	return response;
+}
+
 class LocalTcpClient {
 	int fd_ = -1;
 
@@ -83,33 +114,7 @@ public:
 		return response;
 	}
 	[[nodiscard]] std::string read_one_response() const {
-		std::string response;
-		std::array<char, 4096> buf{};
-		for (;;) {
-			auto const n = recv(buf.data(), buf.size());
-			if (n <= 0) {
-				break;
-			}
-			response.append(buf.data(), static_cast<std::size_t>(n));
-
-			auto const hdr_end = response.find("\r\n\r\n");
-			if (hdr_end == std::string::npos) {
-				continue;
-			}
-
-			auto cl_pos = response.find("Content-Length: ");
-			if (cl_pos == std::string::npos || cl_pos > hdr_end) {
-				break;
-			}
-			cl_pos += 16;
-			auto const cl_end = response.find("\r\n", cl_pos);
-			std::size_t body_len = 0;
-			from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
-			if (response.size() >= hdr_end + 4 + body_len) {
-				break;
-			}
-		}
-		return response;
+		return ::conflux::tests::read_one_response(fd_);
 	}
 	[[nodiscard]] std::string read_headers() const {
 		std::string response;
@@ -127,36 +132,6 @@ public:
 		return response;
 	}
 };
-std::string read_one_response(
-	int fd) {
-	std::string response;
-	std::array<char, 4096> buf{};
-	for (;;) {
-		auto const n = ::recv(fd, buf.data(), buf.size(), 0);
-		if (n <= 0) {
-			break;
-		}
-		response.append(buf.data(), static_cast<std::size_t>(n));
-
-		auto const hdr_end = response.find("\r\n\r\n");
-		if (hdr_end == std::string::npos) {
-			continue;
-		}
-
-		auto cl_pos = response.find("Content-Length: ");
-		if (cl_pos == std::string::npos || cl_pos > hdr_end) {
-			break;
-		}
-		cl_pos += 16;
-		auto const cl_end = response.find("\r\n", cl_pos);
-		std::size_t body_len = 0;
-		from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
-		if (response.size() >= hdr_end + 4 + body_len) {
-			break;
-		}
-	}
-	return response;
-}
 std::string http_request_on(
 	std::uint16_t port,
 	std::string_view method,

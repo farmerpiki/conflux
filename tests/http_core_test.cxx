@@ -1,8 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
-#include <sys/wait.h>
-#include <unistd.h>
 
 import std;
+import conflux.tests.assert_probe_support;
 import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.request;
@@ -13,29 +12,6 @@ namespace chttp = conflux::http;
 #ifndef ASSERT_PROBE_BIN
 	#error "ASSERT_PROBE_BIN must be defined by CMake"
 #endif
-
-namespace {
-
-int run_probe(
-	char const *probe) noexcept {
-	pid_t const pid = ::fork();
-	if (pid < 0) {
-		return -1;
-	}
-	if (pid == 0) {
-		char *args[] = {const_cast<char *>(ASSERT_PROBE_BIN), const_cast<char *>(probe), nullptr};
-		::execv(ASSERT_PROBE_BIN, args);
-		::_exit(3);
-	}
-	int status{};
-	::waitpid(pid, &status, 0);
-	if (WIFEXITED(status)) {
-		return WEXITSTATUS(status);
-	}
-	return -1;
-}
-
-} // namespace
 
 TEST_CASE(
 	"http core: Url::parse normalizes scheme and preserves authority/path/query",
@@ -303,9 +279,9 @@ TEST_CASE(
 #ifdef NDEBUG
 	SKIP("assert inactive in release build");
 #else
-	REQUIRE(run_probe("body_after_body") == 42);
-	REQUIRE(run_probe("json_after_body") == 42);
-	REQUIRE(run_probe("form_after_body") == 42);
+	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "body_after_body") == 42);
+	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "json_after_body") == 42);
+	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "form_after_body") == 42);
 #endif
 }
 

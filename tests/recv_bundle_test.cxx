@@ -1,10 +1,9 @@
 // Plain TU — not a module unit.
 #include <catch2/catch_test_macros.hpp>
 #include <liburing.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
 import std;
+import conflux.tests.assert_probe_support;
 import conflux.types;
 import conflux.uring;
 import conflux.socket_io;
@@ -13,31 +12,6 @@ import conflux.socket_io;
 #ifndef ASSERT_PROBE_BIN
 	#error "ASSERT_PROBE_BIN must be defined by CMake"
 #endif
-namespace {
-
-// Fork the assert probe binary.
-// Returns 42 if the named assert fired (probe installs SIGABRT→_exit(42)),
-// 0 if the probe exited normally (NDEBUG build), negative on fork/exec failure.
-[[maybe_unused]] int run_probe(
-	char const *probe) noexcept {
-	pid_t const pid = ::fork();
-	if (pid < 0) {
-		return -1;
-	}
-	if (pid == 0) {
-		char *args[] = {const_cast<char *>(ASSERT_PROBE_BIN), const_cast<char *>(probe), nullptr};
-		::execv(ASSERT_PROBE_BIN, args);
-		::_exit(3); // execv failed
-	}
-	int status{};
-	::waitpid(pid, &status, 0);
-	if (WIFEXITED(status)) {
-		return WEXITSTATUS(status);
-	}
-	return -1;
-}
-
-} // namespace
 namespace {
 
 std::uint32_t recv_flags_for(
@@ -59,13 +33,6 @@ struct Rig {
 }()},
 ring{uring.ref(),BufferRingOptions{.count=count,.buf_size=buf_size,.group_id=gid,.huge_pages=false,.mode=mode},conflux::uring::detect_caps(uring.ref())}{}
 };
-template<typename F>
-struct ScopeExit {
-	F fn;
-	~ScopeExit() noexcept { fn(); }
-};
-template<typename F>
-ScopeExit(F) -> ScopeExit<F>;
 
 } // namespace
 // Test 1: classic path advances head_pos by 1 per CQE; slice ID matches ring_order
@@ -387,7 +354,7 @@ TEST_CASE(
 		REQUIRE(slices.count() == 2u);
 		REQUIRE(rig.ring.debug_head_pos() == 2u);
 		// Guard owns both recycle_all() and rc_flags=0 — mirrors append_recv_buf_to.
-		ScopeExit guard{[&]() noexcept {
+		conflux::tests::ScopeExit guard{[&]() noexcept {
 			slices.recycle_all();
 			rc_flags = 0;
 			scope_exit_ran = true;
@@ -442,7 +409,7 @@ TEST_CASE(
 	SKIP("assert inactive in release build");
 #else
 	// ring_id_at(head_pos=0)==0, but probe passes buf_id=5 → mismatch.
-	REQUIRE(run_probe("desync") == 42);
+	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "desync") == 42);
 #endif
 }
 // Test 12: assert fires when res<0 but IORING_CQE_F_BUFFER is set (kernel invariant).
@@ -452,6 +419,6 @@ TEST_CASE(
 #ifdef NDEBUG
 	SKIP("assert inactive in release build");
 #else
-	REQUIRE(run_probe("neg_res_buf_flag") == 42);
+	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "neg_res_buf_flag") == 42);
 #endif
 }

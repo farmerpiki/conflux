@@ -1,10 +1,9 @@
 // Plain TU — not a module unit.
 #include <catch2/catch_test_macros.hpp>
 #include <liburing.h>
-#include <sys/wait.h>
-#include <unistd.h>
 
 import std;
+import conflux.tests.assert_probe_support;
 import conflux.types;
 import conflux.uring;
 import conflux.socket_io;
@@ -12,28 +11,6 @@ import conflux.socket_io;
 #ifndef ASSERT_PROBE_BIN
 	#error "ASSERT_PROBE_BIN must be defined by CMake"
 #endif
-namespace {
-
-[[maybe_unused]] int run_probe(
-	char const *probe) noexcept {
-	pid_t const pid = ::fork();
-	if (pid < 0) {
-		return -1;
-	}
-	if (pid == 0) {
-		char *args[] = {const_cast<char *>(ASSERT_PROBE_BIN), const_cast<char *>(probe), nullptr};
-		::execv(ASSERT_PROBE_BIN, args);
-		::_exit(3);
-	}
-	int status{};
-	::waitpid(pid, &status, 0);
-	if (WIFEXITED(status)) {
-		return WEXITSTATUS(status);
-	}
-	return -1;
-}
-
-} // namespace
 namespace {
 
 std::uint32_t inc_flags(
@@ -45,13 +22,6 @@ std::uint32_t inc_flags(
 	}
 	return f;
 }
-template<typename F>
-struct ScopeExit {
-	F fn;
-	~ScopeExit() noexcept { fn(); }
-};
-template<typename F>
-ScopeExit(F) -> ScopeExit<F>;
 struct Rig {
 	conflux::uring::Ring uring;
 	conflux::uring::IoUringCaps caps;
@@ -215,7 +185,7 @@ TEST_CASE(
 	try {
 		auto slice = buffer_slice_from_incremental_cqe(rig.ring, 32, rc_flags);
 		REQUIRE(!slice.more());
-		ScopeExit guard{[&]() noexcept {
+		conflux::tests::ScopeExit guard{[&]() noexcept {
 			slice.recycle_if_final();
 			if (!slice.more()) {
 				rc_flags = 0;
@@ -258,7 +228,7 @@ TEST_CASE(
 			SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
 		}
 	}
-	REQUIRE(run_probe("inc_neg_res") == 42);
+	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "inc_neg_res") == 42);
 #endif
 }
 // Assert probe: res>0 but IORING_CQE_F_BUFFER absent → assert(cqe_has_buffer) fires.
@@ -275,7 +245,7 @@ TEST_CASE(
 			SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
 		}
 	}
-	REQUIRE(run_probe("inc_no_buf_flag") == 42);
+	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "inc_no_buf_flag") == 42);
 #endif
 }
 // Assert probe: classic ring + incremental flags → assert(mode==incremental) fires.
@@ -285,7 +255,7 @@ TEST_CASE(
 #ifdef NDEBUG
 	SKIP("assert inactive in release build");
 #else
-	REQUIRE(run_probe("inc_wrong_mode") == 42);
+	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "inc_wrong_mode") == 42);
 #endif
 }
 // Assert probe: buf_id >= count → assert(id < ring.count()) fires.
@@ -302,7 +272,7 @@ TEST_CASE(
 			SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
 		}
 	}
-	REQUIRE(run_probe("inc_bad_id") == 42);
+	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "inc_bad_id") == 42);
 #endif
 }
 // Assert probe: res > buf_size → assert(res <= buf_size - off) fires.
@@ -319,7 +289,7 @@ TEST_CASE(
 			SKIP("kernel lacks IORING_FEAT_PBUF_RING_INC");
 		}
 	}
-	REQUIRE(run_probe("inc_len_overflow") == 42);
+	REQUIRE(conflux::tests::run_assert_probe(ASSERT_PROBE_BIN, "inc_len_overflow") == 42);
 #endif
 }
 // ─── New tests (proposal §Tests required) ────────────────────────────────────
