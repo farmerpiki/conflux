@@ -7,7 +7,7 @@
 //   curl http://localhost:9094/public/ping
 //   curl -u demo:demo http://localhost:9094/private/profile
 //   curl -H 'Authorization: Bearer valid-token' http://localhost:9094/private/token
-import conflux.net.http;
+import conflux.net.http.server;
 import std;
 int main() {
 	namespace http = conflux::http;

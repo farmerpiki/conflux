@@ -624,19 +624,14 @@ void apply_iouring_key(
 	}
 }
 
-} // namespace
-// Throws RE on parse / IO failure.
-export Config config_from_ini(
-	char const *path) {
-	auto contents = read_text_file_local(SV{path});
-	if (!contents) {
-		throw RE{format("cannot open config: {}", path)};
-	}
-
+Config parse_ini_contents(
+	SV contents) {
 	Config cfg{};
 	S section;
 
-	for (auto const line: LineRange{*contents}) {
+	SZ line_no = 0;
+	for (auto const line: LineRange{contents}) {
+		++line_no;
 		auto s = trim(line.text);
 		if (s.empty() || s[0] == '#' || s[0] == ';') {
 			continue;
@@ -658,21 +653,52 @@ export Config config_from_ini(
 		auto key = trim(s.substr(0, eq));
 		auto val = trim(strip_inline_comment(trim(s.substr(eq + 1))));
 
-		if (section == "server") {
-			apply_server_key(cfg, key, val);
-		} else if (section == "io_uring") {
-			apply_iouring_key(cfg, key, val);
-		} else if (section == "tls") {
-			apply_tls_key(cfg, key, val);
-		} else if (section == "http3") {
-			apply_http3_key(cfg, key, val);
-		} else if (section == "static_cache") {
-			apply_static_cache_key(cfg, key, val);
-		} else if (section == "auth") {
-			apply_auth_key(cfg, key, val);
+		try {
+			if (section == "server") {
+				apply_server_key(cfg, key, val);
+			} else if (section == "io_uring") {
+				apply_iouring_key(cfg, key, val);
+			} else if (section == "tls") {
+				apply_tls_key(cfg, key, val);
+			} else if (section == "http3") {
+				apply_http3_key(cfg, key, val);
+			} else if (section == "static_cache") {
+				apply_static_cache_key(cfg, key, val);
+			} else if (section == "auth") {
+				apply_auth_key(cfg, key, val);
+			}
+		} catch (exception const &ex) {
+			throw RE{format("config line {} [{}].{}: {}", line_no, section, key, ex.what())};
 		}
 		// unknown sections/keys silently ignored — forward-compatible
 	}
 
 	return cfg;
+}
+
+} // namespace
+
+export [[nodiscard]] expected<Config, S> config_from_ini_checked(
+	char const *path) {
+	auto contents = read_text_file_local(SV{path});
+	if (!contents) {
+		return unexpected{format("cannot open config: {}", path)};
+	}
+	try {
+		return parse_ini_contents(*contents);
+	} catch (exception const &ex) {
+		return unexpected{S{ex.what()}};
+	} catch (...) {
+		return unexpected{S{"unknown config parse error"}};
+	}
+}
+
+// Throws RE on parse / IO failure.
+export Config config_from_ini(
+	char const *path) {
+	auto cfg = config_from_ini_checked(path);
+	if (!cfg) {
+		throw RE{cfg.error()};
+	}
+	return move(*cfg);
 }

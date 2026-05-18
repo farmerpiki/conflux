@@ -8,6 +8,9 @@ export import conflux.file_watch;
 #if CONFLUX_HAS_TEMPLATES
 export import conflux.templates;
 #endif
+#if CONFLUX_HAS_TEMPLATES_WATCH
+export import conflux.templates.watch;
+#endif
 export import conflux.json.boundary;
 #if CONFLUX_HAS_JSON
 export import conflux.json;

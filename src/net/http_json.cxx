@@ -9,8 +9,8 @@ export import conflux.json.boundary;
 export namespace conflux::http::json {
 
 template<class Provider, class T>
-inline HttpRequest::Builder &set_body_with(
-	HttpRequest::Builder &b,
+inline ClientRequest::Builder &set_body_with(
+	ClientRequest::Builder &b,
 	T const &value,
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonDumpProvider<Provider, T>
@@ -23,8 +23,8 @@ inline HttpRequest::Builder &set_body_with(
 }
 
 template<class Provider, class T>
-inline HttpRequest::Builder &&set_body_with(
-	HttpRequest::Builder &&b,
+inline ClientRequest::Builder &&set_body_with(
+	ClientRequest::Builder &&b,
 	T const &value,
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonDumpProvider<Provider, T>
@@ -34,7 +34,7 @@ inline HttpRequest::Builder &&set_body_with(
 
 template<class Provider, class T>
 [[nodiscard]] expected<std::remove_cvref_t<T>, conflux::json::boundary::Error> decode_body_with(
-	HttpRequest const &req,
+	ClientRequest const &req,
 	conflux::json::boundary::DecodeOptions const &opts = {})
 	requires conflux::json::boundary::JsonDecodeProvider<Provider, std::remove_cvref_t<T>>
 {

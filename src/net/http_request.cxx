@@ -8,9 +8,9 @@ import conflux.types;
 import conflux.net.http.types;
 export namespace conflux::http {
 
-// ─── HttpRequest ──────────────────────────────────────────────────────────────
+// ─── ClientRequest ──────────────────────────────────────────────────────────────
 
-class HttpRequest {
+class ClientRequest {
 public:
 	class Builder;
 
@@ -42,12 +42,12 @@ private:
 	S server_name_{};
 	int max_redirects_{0};
 
-	explicit HttpRequest() = default;
+	explicit ClientRequest() = default;
 };
-// ─── HttpRequest::Builder ─────────────────────────────────────────────────────
+// ─── ClientRequest::Builder ─────────────────────────────────────────────────────
 
-class HttpRequest::Builder {
-	HttpRequest req_;
+class ClientRequest::Builder {
+	ClientRequest req_;
 	bool body_set_{false};
 	static Url parse_or_throw(
 		SV raw) {
@@ -71,9 +71,15 @@ public:
 		req_.method_ = S{method_str};
 		req_.url_ = parse_or_throw(url_raw);
 	}
-	// Implicit conversion: Builder&& → HttpRequest (no-copy).
-	operator HttpRequest() && { return move(req_); } // NOLINT(google-explicit-constructor)
-	[[nodiscard]] HttpRequest build() && { return move(req_); }
+	explicit Builder(
+		SV method_str,
+		Url url) {
+		req_.method_ = S{method_str};
+		req_.url_ = move(url);
+	}
+	// Implicit conversion: Builder&& → ClientRequest (no-copy).
+	operator ClientRequest() && { return move(req_); } // NOLINT(google-explicit-constructor)
+	[[nodiscard]] ClientRequest build() && { return move(req_); }
 	// ── verbs / URL ──────────────────────────────────────────────────────────
 
 	Builder &method(
@@ -85,6 +91,15 @@ public:
 		SV raw) & {
 		req_.url_ = parse_or_throw(raw);
 		return *this;
+	}
+	[[nodiscard]] expected<void, UrlError> try_url(
+		SV raw) & {
+		auto parsed = Url::parse(raw);
+		if (!parsed) {
+			return unexpected{move(parsed.error())};
+		}
+		req_.url_ = move(*parsed);
+		return {};
 	}
 	Builder &url(
 		Url u) & {
@@ -385,34 +400,76 @@ public:
 };
 // ─── Static factory implementations ──────────────────────────────────────────
 
-HttpRequest::Builder HttpRequest::get(
+ClientRequest::Builder ClientRequest::get(
 	SV url) {
 	return Builder{"GET", url};
 }
-HttpRequest::Builder HttpRequest::post(
+ClientRequest::Builder ClientRequest::post(
 	SV url) {
 	return Builder{"POST", url};
 }
-HttpRequest::Builder HttpRequest::put(
+ClientRequest::Builder ClientRequest::put(
 	SV url) {
 	return Builder{"PUT", url};
 }
-HttpRequest::Builder HttpRequest::patch(
+ClientRequest::Builder ClientRequest::patch(
 	SV url) {
 	return Builder{"PATCH", url};
 }
-HttpRequest::Builder HttpRequest::del(
+ClientRequest::Builder ClientRequest::del(
 	SV url) {
 	return Builder{"DELETE", url};
 }
-HttpRequest::Builder HttpRequest::head(
+ClientRequest::Builder ClientRequest::head(
 	SV url) {
 	return Builder{"HEAD", url};
 }
-HttpRequest::Builder HttpRequest::method(
+ClientRequest::Builder ClientRequest::method(
 	SV m,
 	SV url) {
 	return Builder{m, url};
+}
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_client_request_builder(
+	SV method,
+	SV url) {
+	auto parsed = Url::parse(url);
+	if (!parsed) {
+		return unexpected{move(parsed.error())};
+	}
+	return ClientRequest::Builder{method, move(*parsed)};
+}
+[[nodiscard]] expected<ClientRequest, UrlError> try_client_request(
+	SV method,
+	SV url) {
+	auto builder = try_client_request_builder(method, url);
+	if (!builder) {
+		return unexpected{move(builder.error())};
+	}
+	return move(*builder).build();
+}
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_get_client_request(
+	SV url) {
+	return try_client_request_builder("GET", url);
+}
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_post_client_request(
+	SV url) {
+	return try_client_request_builder("POST", url);
+}
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_put_client_request(
+	SV url) {
+	return try_client_request_builder("PUT", url);
+}
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_patch_client_request(
+	SV url) {
+	return try_client_request_builder("PATCH", url);
+}
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_del_client_request(
+	SV url) {
+	return try_client_request_builder("DELETE", url);
+}
+[[nodiscard]] expected<ClientRequest::Builder, UrlError> try_head_client_request(
+	SV url) {
+	return try_client_request_builder("HEAD", url);
 }
 
 } // namespace conflux::http

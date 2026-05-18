@@ -203,6 +203,30 @@ HttpServer::~HttpServer() {
 	}
 }
 
+expected<UP<HttpServer>, S> HttpServer::try_create(
+	Config const &cfg,
+	Router &&router) {
+	try {
+		return make_unique<HttpServer>(cfg, move(router));
+	} catch (exception const &ex) {
+		return unexpected{S{ex.what()}};
+	} catch (...) {
+		return unexpected{S{"unknown HttpServer construction error"}};
+	}
+}
+
+expected<UP<HttpServer>, S> HttpServer::try_create(
+	Config const &cfg,
+	VHostRouter &&vhost_router) {
+	try {
+		return make_unique<HttpServer>(cfg, move(vhost_router));
+	} catch (exception const &ex) {
+		return unexpected{S{ex.what()}};
+	} catch (...) {
+		return unexpected{S{"unknown HttpServer construction error"}};
+	}
+}
+
 void HttpServer::request_shutdown() noexcept {
 	u64 const v = 1;
 	for (int const efd: impl_->shutdown_efds) {

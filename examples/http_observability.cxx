@@ -5,7 +5,7 @@
 //   curl -i http://localhost:9095/health
 //   curl -i http://localhost:9095/slow
 //   curl -H 'Authorization: Bearer metrics-token' http://localhost:9095/metrics
-import conflux.net.http;
+import conflux.net.http.server;
 import conflux.types;
 import std;
 

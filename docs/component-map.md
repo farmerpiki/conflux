@@ -81,8 +81,9 @@ scripts/run-package-config-smoke.sh \
 | `file_io_sync` | `conflux::file_io_sync` | `conflux.file_io_sync` | `examples/file_io.cxx`, `tests/file_io_sync_test.cxx` |
 | `file_map` | `conflux::file_map` | `conflux.file_map` | `tests/file_io_sync_test.cxx` |
 | `file_io` | `conflux::file_io` | `conflux.file_io` umbrella plus `conflux.file_io.buffers`, `.pipe_pool`, `.reader`, `.iopoll`, `.driver` leaf modules | `examples/file_io.cxx`, `tests/file_io_test.cxx` |
+| `file_watch` | `conflux::file_watch` | `conflux.file_watch` | `src/file_watch.cxx` |
 | `template` | `conflux::template` | `conflux.templates` | `examples/template_pages.cxx`, `tests/template_test.cxx` |
-| `template_watch` | `conflux::template_watch` | `conflux.file_watch` | `examples/template_pages.cxx` |
+| `template_watch` | `conflux::template_watch` | `conflux.templates.watch` | `examples/template_pages.cxx` |
 | `socket_io` | `conflux::socket_io` | `conflux.socket_io`, `conflux.socket_io.coro`, `conflux.socket_io.blocking` | `tests/socket_task_ring_test.cxx`, `tests/tcp_listener_test.cxx` |
 | `dns` | `conflux::dns` | `conflux.net.dns` | `tests/dns_codec_test.cxx`, `tests/dns_resolver_test.cxx` |
 | `process` | `conflux::process` | `conflux.process` | `examples/process_run.cxx`, `tests/process_test.cxx` |
@@ -96,7 +97,7 @@ scripts/run-package-config-smoke.sh \
 | Component | CMake target | Primary imports | Contract docs / examples |
 |---|---|---|---|
 | `http_parse_helpers` | `conflux::http_parse_helpers` | `conflux.net.http.parse_helpers` | `tests/http_server_helpers_test.cxx` |
-| `http_core` | `conflux::http_core` | `conflux.net.http.types`, `conflux.net.http.request`, `conflux.net.http.server_types` | `docs/http-server-api.md` |
+| `http_core` | `conflux::http_core` | `conflux.net.http.types`, `conflux.net.http.request` (`ClientRequest`), `conflux.net.http.server_types` (`HttpRequest`/`HttpRequestView`) | `docs/http-server-api.md` |
 | `http_response` | `conflux::http_response` | `conflux.net.http.response` | `tests/http_response_test.cxx` |
 | `http_json` | `conflux::http_json` | `conflux.net.http.json` | `docs/json-boundary-guide.md`, `tests/http_json_test.cxx` |
 | `http_response_json` | `conflux::http_response_json` | `conflux.net.http.response_json` | `docs/json-boundary-guide.md` |
@@ -110,7 +111,8 @@ scripts/run-package-config-smoke.sh \
 | `http_server_config` | `conflux::http_server_config` | `conflux.net.http_server_config` | `docs/http-server-api.md`, `tests/config_test.cxx` |
 | `http_server` | `conflux::http_server` | `conflux.net.http_server` | `docs/http-server-api.md`, `examples/hello.cxx` |
 | `http_app` | `conflux::http_app` | `conflux.net.app` | `docs/http-server-api.md` |
-| `http` | `conflux::http` | `conflux.net.http` umbrella | `docs/http-server-api.md`, `docs/conflux-http-client-api.md` |
+| `http_client` | `conflux::http_client` | `conflux.net.http.client`, `conflux.net.client` | `docs/conflux-http-client-api.md`, `examples/http_client.cxx` |
+| `http` | `conflux::http` | `conflux.net.http` umbrella plus first-contact `conflux.net.http.server` | `docs/http-server-api.md`, `docs/conflux-http-client-api.md` |
 | `http_static_core` | `conflux::http_static_core` | `conflux.net.http.static_core` | `examples/static.cxx`, `tests/file_io_http_e2e.cxx` |
 | `http_static` | `conflux::http_static` | `conflux.net.http.static_files` | `examples/static.cxx` |
 | `http_static_async` | `conflux::http_static_async` | `conflux.net.http.static_async` | `examples/static.cxx` |
@@ -121,7 +123,6 @@ scripts/run-package-config-smoke.sh \
 | `http_compression` | `conflux::http_compression` | `conflux.net.compress` and enabled backend modules | `examples/gzip.cxx` |
 | `http_openapi` | `conflux::http_openapi` | `conflux.net.openapi` | `examples/vhost_openapi.cxx` |
 | `http_vhost` | `conflux::http_vhost` | `conflux.net.vhost` | `examples/vhost_openapi.cxx` |
-| `http_client` | `conflux::http_client` | `conflux.net.client` | `docs/conflux-http-client-api.md`, `examples/http_client.cxx` |
 | `http_async_client` | `conflux::http_async_client` | `conflux.net.async_client` | `docs/conflux-http-client-api.md`, `examples/http_client_builder.cxx` |
 | `http_proxy` | `conflux::http_proxy` | `conflux.net.proxy` | `tests/http_e2e.cxx` |
 | `http1` | `conflux::http1` | `conflux.net.http1_parser` | `docs/http-security-corpus.md`, `fuzz/fuzz_http1_parser.cxx` |

@@ -1,6 +1,7 @@
 import std;
 import conflux.types;
 import conflux.templates;
+import conflux.json;
 namespace {
 
 struct Stats {
@@ -131,6 +132,34 @@ constexpr SV kMacroTmpl = R"(
 )";
 constexpr SV kMacroCtx = R"({})";
 
+constexpr SV kExprHeavyTmpl = R"(
+{%-for p in products-%}
+{{ (prefix ~ p.name) | replace(" ", "_") | lower }}:{{ p.category.lower() }}:{{ p.name[0:3] }}:{%-if p.sale and p.category in sale_categories-%}Y{%-else-%}N{%-endif-%};
+{%-endfor-%}
+)";
+constexpr SV kExprHeavyCtx = R"({
+"prefix":"sku-",
+"sale_categories":["TOOLS","ELECTRONICS"],
+"products":[
+{"name":"Widget Alpha","category":"TOOLS","sale":true},
+{"name":"Gadget Beta","category":"ELECTRONICS","sale":false},
+{"name":"Doohickey Gamma","category":"TOOLS","sale":true},
+{"name":"Thing Delta","category":"MISC","sale":true},
+{"name":"Whatsit Epsilon","category":"ELECTRONICS","sale":true}
+]
+})";
+
+std::filesystem::path make_template_dir(
+	SV name,
+	SV source) {
+	auto dir = std::filesystem::temp_directory_path()
+		/ format("conflux_template_bench_{}", chrono::steady_clock::now().time_since_epoch().count());
+	std::filesystem::create_directories(dir);
+	std::ofstream out{dir / S{name}};
+	out << source;
+	return dir;
+}
+
 } // namespace
 // NOLINTNEXTLINE(bugprone-exception-escape)
 int main(
@@ -167,7 +196,7 @@ int main(
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment const env{"."};
+				conflux::templates::Environment const env{"."};
 				S const out = env.render_string(S(kSimpleTmpl), S(kSimpleCtx));
 				(void)out;
 			},
@@ -178,7 +207,7 @@ int main(
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment const env{"."};
+				conflux::templates::Environment const env{"."};
 				S const out = env.render_string(S(kLoopTmpl), S(kLoopCtx10));
 				(void)out;
 			},
@@ -190,7 +219,7 @@ int main(
 		S ctx100 = make_loop_ctx_100();
 		auto s = measure(
 			[&ctx100] {
-				tmpl::Environment const env{"."};
+				conflux::templates::Environment const env{"."};
 				S const out = env.render_string(S(kLoopTmpl), ctx100);
 				(void)out;
 			},
@@ -201,7 +230,7 @@ int main(
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment const env{"."};
+				conflux::templates::Environment const env{"."};
 				S const out = env.render_string(S(kCondTmpl), S(kCondCtxTrue));
 				(void)out;
 			},
@@ -212,7 +241,7 @@ int main(
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment const env{"."};
+				conflux::templates::Environment const env{"."};
 				S const out = env.render_string(S(kFilterTmpl), S(kFilterCtx));
 				(void)out;
 			},
@@ -223,7 +252,7 @@ int main(
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment const env{"."};
+				conflux::templates::Environment const env{"."};
 				S const out = env.render_string(S(kPageTmpl), S(kPageCtx));
 				(void)out;
 			},
@@ -234,13 +263,24 @@ int main(
 	{
 		auto s = measure(
 			[] {
-				tmpl::Environment const env{"."};
+				conflux::templates::Environment const env{"."};
 				S const out = env.render_string(S(kMacroTmpl), S(kMacroCtx));
 				(void)out;
 			},
 			20,
 			500);
 		report("parse+render: macro define+call x3", s);
+	}
+	{
+		auto s = measure(
+			[] {
+				conflux::templates::Environment const env{"."};
+				S const out = env.render_string(S(kExprHeavyTmpl), S(kExprHeavyCtx));
+				(void)out;
+			},
+			20,
+			500);
+		report("parse+render: expression-heavy page", s);
 	}
 
 	if (!g_csv && !g_json) {
@@ -249,7 +289,7 @@ int main(
 
 	// --- render-only (hot path: template pre-parsed, context varies) ---
 	{
-		tmpl::Environment const env{"."};
+		conflux::templates::Environment const env{"."};
 		// warm parse
 		(void)env.render_string(S(kSimpleTmpl), S(kSimpleCtx));
 		// NOTE: render_string re-parses every call; use a file-loaded env for
@@ -261,7 +301,7 @@ int main(
 	// render() with a loaded template file via load_all(). Instead, show
 	// context-parse + render cost by varying only the context JSON.
 	{
-		tmpl::Environment env{"."};
+		conflux::templates::Environment env{"."};
 		// Pre-parse by doing one call (render_string re-parses each call, so
 		// we can't eliminate it — measure as-is and label accurately).
 		S ctx100 = make_loop_ctx_100();
@@ -275,16 +315,69 @@ int main(
 		report("render_string: loop 100 (shared env, re-parse)", s);
 	}
 	{
-		S const ctx100 = make_loop_ctx_100();
 		auto s = measure(
 			[&] {
-				tmpl::Environment const env{"."};
+				conflux::templates::Environment const env{"."};
 				S const out = env.render_string(S(kPageTmpl), S(kPageCtx));
 				(void)out;
 			},
 			50,
 			2000);
 		report("render_string: page fragment (2000 iters)", s);
+	}
+	{
+		auto parsed = conflux::json::parse(SV{kPageCtx});
+		if (!parsed) {
+			std::println("failed to parse benchmark context");
+			return 1;
+		}
+		conflux::templates::Environment env{"."};
+		auto s = measure(
+			[&] {
+				S const out = env.render_string(S(kPageTmpl), parsed->root());
+				(void)out;
+			},
+			50,
+			2000);
+		report("render_string: page fragment (parsed ctx)", s);
+	}
+	{
+		auto parsed = conflux::json::parse(SV{kPageCtx});
+		if (!parsed) {
+			std::println("failed to parse benchmark context");
+			return 1;
+		}
+		auto dir = make_template_dir("page.html", kPageTmpl);
+		conflux::templates::Environment env{dir.string()};
+		env.blocking_load_all();
+		auto s = measure(
+			[&] {
+				S const out = env.render("page.html", parsed->root());
+				(void)out;
+			},
+			50,
+			5000);
+		std::filesystem::remove_all(dir);
+		report("render cached: page fragment (parsed ctx)", s);
+	}
+	{
+		auto parsed = conflux::json::parse(SV{kExprHeavyCtx});
+		if (!parsed) {
+			std::println("failed to parse benchmark context");
+			return 1;
+		}
+		auto dir = make_template_dir("expr.html", kExprHeavyTmpl);
+		conflux::templates::Environment env{dir.string()};
+		env.blocking_load_all();
+		auto s = measure(
+			[&] {
+				S const out = env.render("expr.html", parsed->root());
+				(void)out;
+			},
+			50,
+			5000);
+		std::filesystem::remove_all(dir);
+		report("render cached: expression-heavy page (parsed ctx)", s);
 	}
 
 	if (!g_csv && !g_json) {

@@ -1,3 +1,6 @@
+module;
+#include <cassert>
+
 module conflux.json;
 
 import std;
@@ -175,4 +178,148 @@ ObjectMemberRange ObjectView::members() const noexcept {
 }
 ArrayElementRange ArrayView::elements() const noexcept {
 	return {storage_, child_start_, child_count_};
+}
+
+// ---------------------------------------------------------------------------
+// Document / arena cold lookup helpers
+// ---------------------------------------------------------------------------
+
+[[nodiscard]] expected<void, JsonError> warm_member_index_impl(
+	DocumentStorage *storage,
+	NodeRef node) {
+	auto obj_or = node.as_object();
+	if (!obj_or) {
+		return unexpected(move(obj_or).error());
+	}
+	auto const &ov = *obj_or;
+	if (ov.mem_count_ < kHashThreshold) {
+		return {};
+	}
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
+	auto &slot = storage->nodes[ov.node_idx_].hash_idx_raw;
+	auto ref = std::atomic_ref<ObjHashTable *>{slot};
+	auto *prior = ref.load(memory_order_acquire);
+	if (prior != nullptr && prior != kHashBuildFailedSentinel) {
+		return {}; // already built
+	}
+	if (prior == kHashBuildFailedSentinel) {
+		// Cached prior failure — surface the same error.
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::resource_exhausted,
+				.message = "object hash index unavailable (cached failure)"});
+	}
+	ObjHashTable *owned = nullptr;
+	auto stash_failure_sentinel = [&] {
+		ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
+		auto _ = ref.compare_exchange_strong(
+			expected_null,
+			kHashBuildFailedSentinel,
+			memory_order_release,
+			memory_order_acquire);
+	};
+	try {
+		u32 const cap = detail::clamped_capacity(static_cast<u32>(ov.mem_count_));
+		if (cap == 0) {
+			stash_failure_sentinel();
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::resource_exhausted,
+					.message = "object exceeds hash-index byte budget"});
+		}
+		owned = ObjHashTable::create(cap, static_cast<u32>(ov.mem_count_), storage->hash_mr_);
+		if (owned == nullptr) {
+			stash_failure_sentinel();
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::resource_exhausted,
+					.message = "OOM building object hash index"});
+		}
+		if (!detail::build_table(*owned, storage, ov.mem_start_, ov.mem_count_)) {
+			ObjHashTable::destroy(owned);
+			stash_failure_sentinel();
+			return unexpected(
+				JsonError{
+					.stage = JsonStage::lookup,
+					.code = JsonIssueCode::resource_exhausted,
+					.message = "object hash build exceeded probe-chain cap"});
+		}
+		ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
+		if (!ref.compare_exchange_strong(expected_null, owned, memory_order_release, memory_order_acquire)) {
+			ObjHashTable::destroy(owned); // lost race — other thread published first
+		}
+		return {};
+	} catch (std::bad_alloc const &) {
+		ObjHashTable::destroy(owned);
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::resource_exhausted,
+				.message = "OOM building object hash index"});
+	} catch (...) {
+		ObjHashTable::destroy(owned);
+		assert(false && "warm_member_index: unexpected exception from no-user-code build path");
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::lookup,
+				.code = JsonIssueCode::constraint_violation,
+				.message = "unexpected exception building object hash index"});
+	}
+}
+
+expected<void, JsonError> Document::warm_member_index(
+	NodeRef node) const {
+	return warm_member_index_impl(storage_.get(), node);
+}
+
+expected<void, JsonError> Document::warm_member_indices(
+	WarmIndexOptions const &opts) const {
+	SZ objects_warmed = 0;
+	SZ bytes_allocated = 0;
+	for (SZ i = 0; i < storage_->nodes.size(); ++i) {
+		auto &n = storage_->nodes[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+		if (n.kind != NodeKind::object) {
+			continue;
+		}
+		auto const mem_count = n.len;
+		if (mem_count < kHashThreshold) {
+			continue;
+		}
+		if (std::atomic_ref<ObjHashTable *>{n.hash_idx_raw}.load(memory_order_acquire) != nullptr) {
+			continue; // already indexed or failed
+		}
+		u32 const cap = detail::clamped_capacity(static_cast<u32>(mem_count));
+		SZ const est_bytes = cap > 0 ? sizeof(ObjHashTable) + static_cast<SZ>(cap) * sizeof(ObjHashSlot) : 0;
+		if (objects_warmed >= opts.max_objects) {
+			break;
+		}
+		if (est_bytes > 0
+			&& opts.max_extra_bytes != std::numeric_limits<SZ>::max()
+			&& bytes_allocated + est_bytes > opts.max_extra_bytes) {
+			break;
+		}
+		auto res = warm_member_index(NodeRef{storage_.get(), i});
+		if (!res) {
+			return res;
+		}
+		++objects_warmed;
+		bytes_allocated += est_bytes;
+	}
+	return {};
+}
+
+Document make_document(
+	UP<DocumentStorage> s) noexcept {
+	return Document{move(s)};
+}
+
+expected<void, JsonError> ArenaDocument::warm_member_index(
+	NodeRef node) const {
+	check_live();
+	// Arena documents own their storage; this forwards to the same hash-index
+	// builder used by Document without transferring ownership.
+	return warm_member_index_impl(const_cast<DocumentStorage *>(storage_), node);
 }

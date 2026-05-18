@@ -16,6 +16,9 @@ public:
 	explicit HttpServer(Config const &cfg, VHostRouter &&vhost_router);
 	~HttpServer();
 
+	[[nodiscard]] static expected<UP<HttpServer>, S> try_create(Config const &cfg, Router &&router);
+	[[nodiscard]] static expected<UP<HttpServer>, S> try_create(Config const &cfg, VHostRouter &&vhost_router);
+
 	// Thread-safe and async-signal-safe. Wakes every ring via its shutdown eventfd.
 	void request_shutdown() noexcept;
 	// Thread-safe normal shutdown. Wakes rings, stops HTTP/3 listener if present,

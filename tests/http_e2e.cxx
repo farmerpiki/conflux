@@ -40,6 +40,19 @@ u16 g_test_port = 0;
 u16 g_redirect_follow_source_port = 0;
 u16 g_redirect_follow_target_port = 0;
 u16 g_redirect_follow_async_port = 0;
+
+TEST_CASE(
+	"http app: try_server constructs server without throwing",
+	"[http][app]") {
+	auto app = chttp::App::default_server();
+	app.config().rings = 1;
+	app.config().ring_entries = 64;
+	app.config().startup_banner = false;
+	app.get("/", [](HttpRequest const &) { return HttpResponse::text("ok"); });
+	auto server = move(app).try_server({.port = 0});
+	REQUIRE(server.has_value());
+}
+
 void ensure_server() {
 	static std::once_flag flag;
 	std::call_once(flag, [] {
@@ -243,13 +256,13 @@ void ensure_redirect_follow_servers() {
 			.upstream_host = "127.0.0.1",
 			.upstream_port = g_redirect_follow_source_port,
 		};
-		front.add_context("GET", "/async-follow", [popts](HttpRequest const &, RequestContext const &ctx)
+		front.get_context("/async-follow", [popts](HttpRequest const &, RequestContext const &ctx)
 								-> conflux::work::root::Task<HttpResponse> {
 			HttpClient client{};
 			auto result = co_await async_send(
 				client,
 				ctx.ring,
-				chttp::HttpRequest::get(
+				chttp::ClientRequest::get(
 					format("http://127.0.0.1:{}/async-start", popts.upstream_port)).follow_redirects(2));
 			if (!result) {
 				co_return HttpResponse::bad_gateway(
@@ -1096,7 +1109,7 @@ TEST_CASE(
 	"http client: GET /api/ping returns parsed response") {
 	ensure_server();
 	auto response =
-		HttpClient{}.blocking_send(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+		HttpClient{}.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(S{response->head.headers["content-type"]} == "application/json");
@@ -1106,7 +1119,7 @@ TEST_CASE(
 	"http client: GET /api/ping returns parsed response (send_blocking)") {
 	ensure_server();
 	HttpClient client{};
-	auto response = client.send_blocking(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+	auto response = client.send_blocking(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(S{response->head.headers["content-type"]} == "application/json");
@@ -1120,13 +1133,13 @@ TEST_CASE(
 	headers["X-Test-Header"] = "client-header";
 
 	auto response = client.send_blocking(
-		chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/echo-header", g_test_port)).headers(headers));
+		chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/echo-header", g_test_port)).headers(headers));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body == "client-header");
 
 	auto with_headers =
-		client.send_blocking(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/with-header", g_test_port)));
+		client.send_blocking(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/with-header", g_test_port)));
 	REQUIRE(with_headers);
 	CHECK(with_headers->head.headers["x-custom"] == "hello");
 	CHECK(with_headers->head.headers["x-another"] == "world");
@@ -1137,7 +1150,7 @@ TEST_CASE(
 	HttpClient client{};
 
 	auto response = client.send_blocking(
-		chttp::HttpRequest::post(format("http://127.0.0.1:{}/api/echo-json", g_test_port))
+		chttp::ClientRequest::post(format("http://127.0.0.1:{}/api/echo-json", g_test_port))
 			.content_type("application/json")
 			.body(R"({"from":"client"})"));
 	REQUIRE(response);
@@ -1151,7 +1164,7 @@ TEST_CASE(
 	HttpClient client{};
 
 	auto response = client.send_blocking(
-		chttp::HttpRequest::put(format("http://127.0.0.1:{}/api/resource/42", g_test_port))
+		chttp::ClientRequest::put(format("http://127.0.0.1:{}/api/resource/42", g_test_port))
 			.content_type("application/json")
 			.body(R"({"x":1})"));
 	REQUIRE(response);
@@ -1165,7 +1178,7 @@ TEST_CASE(
 	HttpClient client{};
 
 	auto response = client.send_blocking(
-		chttp::HttpRequest::patch(format("http://127.0.0.1:{}/api/resource/7", g_test_port))
+		chttp::ClientRequest::patch(format("http://127.0.0.1:{}/api/resource/7", g_test_port))
 			.content_type("application/json")
 			.body(R"({"delta":1})"));
 	REQUIRE(response);
@@ -1179,7 +1192,7 @@ TEST_CASE(
 	HttpClient client{};
 
 	auto response =
-		client.send_blocking(chttp::HttpRequest::del(format("http://127.0.0.1:{}/api/resource/99", g_test_port)));
+		client.send_blocking(chttp::ClientRequest::del(format("http://127.0.0.1:{}/api/resource/99", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body.find("DELETE") != S::npos);
@@ -1190,7 +1203,7 @@ TEST_CASE(
 	ensure_server();
 	HttpClient client{};
 
-	auto response = client.send_blocking(chttp::HttpRequest::head(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+	auto response = client.send_blocking(chttp::ClientRequest::head(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(S{response->head.headers["content-type"]} == "application/json");
@@ -1200,7 +1213,7 @@ TEST_CASE(
 	"http client: blocking_send works without pool") {
 	ensure_server();
 	HttpClient client{};
-	auto response = client.blocking_send(chttp::HttpRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
+	auto response = client.blocking_send(chttp::ClientRequest::get(format("http://127.0.0.1:{}/api/ping", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body == R"({"status":"ok"})");
@@ -1212,7 +1225,7 @@ TEST_CASE(
 	HttpClientOptions opts{};
 	opts.default_timeouts = timeouts;
 	HttpClient client{opts};
-	auto response = client.send_blocking(chttp::HttpRequest::get("http://127.0.0.1:9/"));
+	auto response = client.send_blocking(chttp::ClientRequest::get("http://127.0.0.1:9/"));
 	REQUIRE_FALSE(response);
 	CHECK(response.error().kind == HttpErrorKind::connect);
 }
@@ -1221,7 +1234,7 @@ TEST_CASE(
 	ensure_redirect_follow_servers();
 	HttpClient client{};
 	auto response = client.send_blocking(
-		chttp::HttpRequest::get(format("http://127.0.0.1:{}/same", g_redirect_follow_source_port))
+		chttp::ClientRequest::get(format("http://127.0.0.1:{}/same", g_redirect_follow_source_port))
 			.header("Authorization", "Bearer secret")
 			.header("Cookie", "session=abc")
 			.header("Proxy-Authorization", "Basic proxy")
@@ -1238,7 +1251,7 @@ TEST_CASE(
 	ensure_redirect_follow_servers();
 	HttpClient client{};
 	auto response = client.send_blocking(
-		chttp::HttpRequest::get(format("http://127.0.0.1:{}/cross", g_redirect_follow_source_port))
+		chttp::ClientRequest::get(format("http://127.0.0.1:{}/cross", g_redirect_follow_source_port))
 			.header("Authorization", "Bearer secret")
 			.header("Cookie", "session=abc")
 			.header("Proxy-Authorization", "Basic proxy")
@@ -1258,7 +1271,7 @@ TEST_CASE(
 	ensure_redirect_follow_servers();
 	HttpClient client{};
 	auto response =
-		client.send_blocking(chttp::HttpRequest::get(format("http://127.0.0.1:{}/loop", g_redirect_follow_source_port)).follow_redirects(1));
+		client.send_blocking(chttp::ClientRequest::get(format("http://127.0.0.1:{}/loop", g_redirect_follow_source_port)).follow_redirects(1));
 	REQUIRE_FALSE(response);
 	CHECK(response.error().kind == HttpErrorKind::redirect_limit);
 }
@@ -4074,7 +4087,7 @@ TEST_CASE(
 	tls_opts.verify_peer = false;
 	HttpClient tls_client{move(tls_opts)};
 	auto response = tls_client.send_blocking(
-		chttp::HttpRequest::get(format("https://127.0.0.1:{}/ping", g_tls_port)).server_name("localhost").build());
+		chttp::ClientRequest::get(format("https://127.0.0.1:{}/ping", g_tls_port)).server_name("localhost").build());
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(S{response->head.headers["content-type"]}.find("application/json") != S::npos);
@@ -5341,7 +5354,7 @@ TEST_CASE(
 		::close(c);
 	});
 
-	auto result = HttpClient{}.send_blocking(chttp::HttpRequest::get(format("http://127.0.0.1:{}/", port)));
+	auto result = HttpClient{}.send_blocking(chttp::ClientRequest::get(format("http://127.0.0.1:{}/", port)));
 
 	srv.join();
 	::close(lfd);

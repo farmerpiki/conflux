@@ -175,6 +175,25 @@ Case make_httpfields_lookup_case() {
 				 + headers->operator []("missing").size();
 		}};
 }
+Case make_typed_field_extract_case() {
+	auto req = make_shared<HttpRequest>();
+	req->headers.set("X-Limit", "128");
+	req->query.emplace_back("page", "42");
+	req->query.emplace_back("enabled", "true");
+	req->cookies.emplace_back("sid", "abc-123");
+	return Case{
+		.name = "micro/typed_field_extract",
+		.description = "Typed request field extraction from cached request fields",
+		.default_iterations = 2000000,
+		.run = [req] {
+			auto page = req->query_as<u32>("page");
+			auto limit = req->header_as<u32>("x-limit");
+			auto enabled = req->query_as<bool>("enabled");
+			auto sid = req->cookie_as<SV>("sid");
+			return static_cast<SZ>(page.value_or(0)) + static_cast<SZ>(limit.value_or(0))
+				 + static_cast<SZ>(enabled.value_or(false)) + sid.value_or(SV{}).size();
+		}};
+}
 Case make_router_exact_case() {
 	struct State {
 		Router router;
@@ -488,6 +507,7 @@ Case make_flow_not_found_case() {
 V<Case> build_cases() {
 	V<Case> cases;
 	cases.push_back(make_httpfields_lookup_case());
+	cases.push_back(make_typed_field_extract_case());
 	cases.push_back(make_router_exact_case());
 	cases.push_back(make_router_params_case());
 	cases.push_back(make_compress_case());

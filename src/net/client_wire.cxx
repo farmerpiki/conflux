@@ -163,7 +163,7 @@ void append_header_line(
 }
 
 [[nodiscard]] SZ estimate_request_wire_size(
-	HttpRequest const &req,
+	ClientRequest const &req,
 	HttpFields const &default_headers,
 	SV caller_host) noexcept {
 	auto const &url = req.url();
@@ -192,7 +192,7 @@ void append_header_line(
 export namespace conflux::http::client_wire {
 
 [[nodiscard]] S build_http1_request_wire(
-	HttpRequest const &req,
+	ClientRequest const &req,
 	HttpFields const &default_headers) {
 	using namespace client_wire_detail;
 	auto const &url = req.url();

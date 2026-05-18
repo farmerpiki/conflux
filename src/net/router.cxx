@@ -102,6 +102,48 @@ public:
 		add_context_prepared(method, path, ContextHandler{forward<F>(handler)});
 		return *this;
 	}
+	template<typename F>
+	requires ContextHandlerFunction<F>
+	Router &get_context(
+		SV path,
+		F &&handler) {
+		return add_context("GET", path, forward<F>(handler));
+	}
+	template<typename F>
+	requires ContextHandlerFunction<F>
+	Router &post_context(
+		SV path,
+		F &&handler) {
+		return add_context("POST", path, forward<F>(handler));
+	}
+	template<typename F>
+	requires ContextHandlerFunction<F>
+	Router &put_context(
+		SV path,
+		F &&handler) {
+		return add_context("PUT", path, forward<F>(handler));
+	}
+	template<typename F>
+	requires ContextHandlerFunction<F>
+	Router &patch_context(
+		SV path,
+		F &&handler) {
+		return add_context("PATCH", path, forward<F>(handler));
+	}
+	template<typename F>
+	requires ContextHandlerFunction<F>
+	Router &del_context(
+		SV path,
+		F &&handler) {
+		return add_context("DELETE", path, forward<F>(handler));
+	}
+	template<typename F>
+	requires ContextHandlerFunction<F>
+	Router &options_context(
+		SV path,
+		F &&handler) {
+		return add_context("OPTIONS", path, forward<F>(handler));
+	}
 	// NOLINTEND(clang-analyzer-cplusplus.NewDeleteLeaks)
 	[[nodiscard]] bool has_context_routes() const noexcept;
 	template<typename F>

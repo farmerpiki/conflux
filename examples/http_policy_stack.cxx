@@ -9,7 +9,7 @@
 //   curl -i -H 'Origin: https://app.example' http://localhost:9100/v2/users
 //   curl -i -H 'Authorization: Bearer docs-token' http://localhost:9100/openapi.json
 //   curl -i http://localhost:9100/form
-import conflux.net.http;
+import conflux.net.http.server;
 import conflux.types;
 import std;
 

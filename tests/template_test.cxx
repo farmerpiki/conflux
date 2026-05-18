@@ -7,8 +7,10 @@
 import std;
 import conflux.types;
 import conflux.templates;
+import conflux.json;
 
-using namespace tmpl;
+namespace templates = conflux::templates;
+using namespace templates;
 static Environment make_env() {
 	return Environment{"/nonexistent"};
 }
@@ -227,6 +229,29 @@ TEST_CASE(
 	auto result = env.render_string("{% macro greet(name='Guest') %}Hi, {{ name }}{% endmacro %}{{ greet() }}", "{}");
 	CHECK(result == "Hi, Guest");
 }
+TEST_CASE(
+	"template: macro keyword args and default filters",
+	"[template]") {
+	auto env = make_env();
+	auto result = env.render_string(
+		"{% macro badge(label='new'|upper, cls='tag') %}"
+		"<{{ cls }}>{{ label }}</{{ cls }}>"
+		"{% endmacro %}{{ badge(cls='pill') }}",
+		"{}");
+	CHECK(result == "<pill>NEW</pill>");
+}
+TEST_CASE(
+	"template: compiled expression tree covers operators paths and filter args",
+	"[template]") {
+	auto env = make_env();
+	auto result = env.render_string(
+		"{{ missing | default(prefix ~ user.name|lower) }}:"
+		"{{ items[1].title() }}:"
+		"{{ user.name[1:4] }}:"
+		"{% if user.active and 2 in nums %}yes{% endif %}",
+		R"({"prefix":"hi-","user":{"name":"ALICE","active":true},"items":["zero","two"],"nums":[1,2,3]})");
+	CHECK(result == "hi-alice:Two:LIC:yes");
+}
 // ---------------------------------------------------------------------------
 // Expressions: arithmetic and comparisons
 // ---------------------------------------------------------------------------
@@ -367,14 +392,52 @@ TEST_CASE(
 	dir.rm("main.html");
 }
 TEST_CASE(
-	"template: missing include throws",
+	"template: missing include fails checked load before publication",
 	"[template]") {
 	TmplDir dir;
 	dir.write("main.html", "{% include 'missing.html' %}");
 
 	auto env = dir.make();
-	env.load_all();
+	auto report = env.blocking_load_all_checked();
+	REQUIRE_FALSE(report);
+	REQUIRE_FALSE(report.error().diagnostics.empty());
+	CHECK(report.error().diagnostics.front().phase == TemplateDiagnosticPhase::link);
+	CHECK(report.error().diagnostics.front().code == "include_not_found");
 	CHECK_THROWS_AS(env.render("main.html", "{}"), RE);
+
+	dir.rm("main.html");
+}
+TEST_CASE(
+	"template: failed reload keeps old cache",
+	"[template]") {
+	TmplDir dir;
+	dir.write("part.html", "world");
+	dir.write("main.html", "hello {% include 'part.html' %}");
+
+	auto env = dir.make();
+	env.blocking_load_all();
+	CHECK(env.render("main.html", "{}") == "hello world");
+
+	dir.rm("part.html");
+	auto report = env.blocking_reload_all_checked();
+	REQUIRE_FALSE(report);
+	CHECK(report.error().diagnostics.front().code == "include_not_found");
+	CHECK(env.render("main.html", "{}") == "hello world");
+
+	dir.rm("main.html");
+}
+TEST_CASE(
+	"template: render accepts parsed json context",
+	"[template]") {
+	TmplDir dir;
+	dir.write("main.html", "Hello, {{ user.name }}!");
+
+	auto env = dir.make();
+	env.blocking_load_all();
+	auto doc = conflux::json::parse(R"({"user":{"name":"Alice"}})");
+	REQUIRE(doc);
+	CHECK(env.render("main.html", doc->root()) == "Hello, Alice!");
+	CHECK(env.render_string("{{ user.name }}", doc->root()) == "Alice");
 
 	dir.rm("main.html");
 }

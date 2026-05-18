@@ -42,8 +42,8 @@ namespace proxy_detail {
 	return co;
 }
 
-[[nodiscard]] static http::HttpRequest::Builder apply_headers(
-	http::HttpRequest::Builder builder,
+[[nodiscard]] static http::ClientRequest::Builder apply_headers(
+	http::ClientRequest::Builder builder,
 	HttpRequestView const &req,
 	ProxyOptions const &opts) {
 	for (auto const &[name, value]: req.headers) {
@@ -71,7 +71,7 @@ namespace proxy_detail {
 }
 
 [[nodiscard]] static HttpResponse build_response(
-	http::HttpResponse &&r) {
+	http::ClientResponse &&r) {
 	HttpResponse out;
 	out.status = r.head.status;
 	out.status_text = move(r.head.status_text);
@@ -90,7 +90,7 @@ namespace proxy_detail {
 	auto co = make_client_opts(opts);
 	co.default_timeouts.write = co.default_timeouts.connect;
 	HttpClient client{move(co)};
-	auto builder = apply_headers(http::HttpRequest::method(req.method, build_upstream_url(req.path, opts)), req, opts);
+	auto builder = apply_headers(http::ClientRequest::method(req.method, build_upstream_url(req.path, opts)), req, opts);
 	builder.timeouts(client.options().default_timeouts);
 	auto result = client.blocking_send(move(builder).build());
 	if (!result) {
@@ -108,7 +108,7 @@ namespace proxy_detail {
 	co.default_timeouts.write = co.default_timeouts.connect;
 	HttpClient client{move(co)};
 	auto builder = apply_headers(
-		http::HttpRequest::method(req.method, build_upstream_url(req.path, opts)),
+		http::ClientRequest::method(req.method, build_upstream_url(req.path, opts)),
 		HttpRequestView{req},
 		opts);
 	builder.timeouts(client.options().default_timeouts);

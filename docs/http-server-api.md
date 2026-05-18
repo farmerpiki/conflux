@@ -1,6 +1,6 @@
 # conflux HTTP Server API Reference
 
-**Module:** `conflux.net.http` (umbrella)  
+**Module:** `conflux.net.http.server` (first-contact server surface; `conflux.net.http` remains the full umbrella)
 **Namespace:** `conflux::http`
 
 ---
@@ -8,7 +8,7 @@
 ## Quick start
 
 ```cpp
-import conflux.net.http;
+import conflux.net.http.server;
 
 using namespace conflux;
 using namespace conflux::http;
@@ -23,6 +23,34 @@ cfg.bind = "0.0.0.0:8080";
 auto server = HttpServer{cfg, std::move(router)};
 server.run();
 ```
+
+---
+
+## Fallible setup factories
+
+`HttpServer` construction can allocate eventfds and initialize TLS contexts before `run()`. Use `try_create` when setup errors should be reported as values rather than exceptions.
+
+```cpp
+auto server = HttpServer::try_create(cfg, std::move(router));
+if (!server) {
+    std::println(stderr, "server setup failed: {}", server.error());
+    return 1;
+}
+return static_cast<int>((*server)->run());
+```
+
+The `App` facade mirrors this with `try_server()` and `try_run()`.
+
+```cpp
+auto status = std::move(app).try_run({.port = 8080});
+if (!status) {
+    std::println(stderr, "server setup failed: {}", status.error());
+    return 1;
+}
+return static_cast<int>(*status);
+```
+
+`config_from_ini_checked(path)` provides the same value-returning style for config load/parse errors. The existing `config_from_ini(path)` API remains available and throws `std::runtime_error` on failure.
 
 ---
 
@@ -112,14 +140,17 @@ suspension or escape the ring-thread handler call.
 The `conflux::http` first-contact aliases are:
 
 ```cpp
-using RequestView  = ::HttpRequestView;
-using OwnedRequest = ::HttpRequest;
-using Request      = RequestView;  // sync-handler default; borrowed view
-using Response     = ::HttpResponse;
+using ServerRequestView = ::HttpRequestView;
+using ServerRequest     = ::HttpRequest;
+using ServerResponse    = ::HttpResponse;
+using RequestView       = ServerRequestView;
+using OwnedRequest      = ServerRequest;
+using Request           = RequestView;  // sync-handler default; borrowed view
+using Response          = ServerResponse;
 ```
 
-Use `http::Request` / `HttpRequestView` for short synchronous handlers, and
-`http::OwnedRequest` / `HttpRequest` for coroutine handlers or escaped request
+Use `http::Request` / `http::ServerRequestView` / `HttpRequestView` for short synchronous handlers, and
+`http::OwnedRequest` / `http::ServerRequest` / `HttpRequest` for coroutine handlers or escaped request
 data.
 
 ```cpp
@@ -180,6 +211,44 @@ Parsed query parameters live in `req.query`. Matched path captures live in
 auto name = req.params["name"];
 auto page = req.query["page"];
 ```
+
+For parsed scalar access, use the typed helpers on `HttpRequestView` or
+`HttpRequest`. They return `std::expected<T, HttpFieldError>` (`http::FieldError` alias) and allocate error
+strings only on failure; successful numeric/bool parsing stays borrowed and
+`std::from_chars`-based.
+
+```cpp
+router.get("/items/{id}", [](HttpRequestView const& req) -> HttpResponse {
+    auto id = req.param_as<std::uint64_t>("id");
+    if (!id) return HttpResponse::text("bad id", 400, "Bad Request");
+
+    auto page = req.optional_query_as<std::uint32_t>("page");
+    if (!page) return HttpResponse::text(page.error().message, 400, "Bad Request");
+
+    auto debug = req.optional_header_as<bool>("x-debug");
+    if (!debug) return HttpResponse::text(debug.error().message, 400, "Bad Request");
+
+    return HttpResponse::text(std::format("id={} page={} debug={}",
+        *id,
+        page->value_or(1),
+        debug->value_or(false)));
+});
+```
+
+Available request helpers:
+
+```cpp
+req.param_as<T>(name);             req.optional_param_as<T>(name);
+req.header_as<T>(name);            req.optional_header_as<T>(name);
+req.query_as<T>(name);             req.optional_query_as<T>(name);
+req.form_as<T>(name);              req.optional_form_as<T>(name);
+req.cookie_as<T>(name);            req.optional_cookie_as<T>(name);
+```
+
+Supported targets are `std::string_view`, `std::string`, `bool`, integral types,
+and floating-point types. Missing required fields produce
+`HttpFieldErrorKind::missing` / `http::FieldErrorKind::missing`; malformed values produce `invalid`, `empty`, or
+`out_of_range` with `source`, `name`, `value`, and `message` populated.
 
 ---
 
@@ -244,6 +313,12 @@ public:
     // Context/coroutine routes with access to the ring context.
     template<ContextHandlerFunction F>
     Router& add_context(std::string_view method, std::string_view path, F&& handler);
+    template<ContextHandlerFunction F> Router& get_context    (std::string_view path, F&&);
+    template<ContextHandlerFunction F> Router& post_context   (std::string_view path, F&&);
+    template<ContextHandlerFunction F> Router& put_context    (std::string_view path, F&&);
+    template<ContextHandlerFunction F> Router& patch_context  (std::string_view path, F&&);
+    template<ContextHandlerFunction F> Router& del_context    (std::string_view path, F&&);
+    template<ContextHandlerFunction F> Router& options_context(std::string_view path, F&&);
 
     // WebSocket upgrade and SSE.
     template<typename F> Router& ws (std::string_view path, F&& handler);

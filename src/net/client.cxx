@@ -31,20 +31,20 @@ import conflux.net.tls;
 
 export namespace conflux::http {
 
-struct HttpResponseHead {
+struct ClientResponseHead {
 	int status{502};
 	S status_text{"Bad Gateway"};
 	HttpFields headers = HttpFields(true);
 	V<S> set_cookies{};
 };
-struct HttpResponse {
-	HttpResponseHead head{};
+struct ClientResponse {
+	ClientResponseHead head{};
 	S body{};
 	HttpTelemetry telemetry{};
 
 	// Phase 2: json() / json_borrowed() accessors.
 };
-using HttpResult = expected<HttpResponse, HttpError>;
+using ClientResult = expected<ClientResponse, HttpError>;
 struct HttpClientOptions {
 	HttpTimeouts default_timeouts{};
 	bool verify_peer{true};
@@ -521,9 +521,9 @@ bool recv_chunked(
 	}
 	return next;
 }
-[[nodiscard]] expected<Opt<HttpRequest>, HttpError> follow_redirect(
-	HttpRequest const &req,
-	HttpResponse const &resp) {
+[[nodiscard]] expected<Opt<ClientRequest>, HttpError> follow_redirect(
+	ClientRequest const &req,
+	ClientResponse const &resp) {
 	if (!is_redirect_status(resp.head.status)) {
 		return nullopt;
 	}
@@ -556,7 +556,7 @@ bool recv_chunked(
 		}
 		next_headers.set(k, v);
 	}
-	auto builder = HttpRequest::method(req.method(), next_url->str())
+	auto builder = ClientRequest::method(req.method(), next_url->str())
 					   .headers(next_headers)
 					   .timeouts(req.timeouts())
 					   .verify_peer(req.verify_peer());
@@ -600,9 +600,9 @@ void accumulate_telemetry(
 		total.decoded_encoding = hop.decoded_encoding;
 	}
 }
-// Core blocking transport — returns HttpResult.
-HttpResult do_blocking_request(
-	conflux::http::HttpRequest const &req,
+// Core blocking transport — returns ClientResult.
+ClientResult do_blocking_request(
+	conflux::http::ClientRequest const &req,
 	HttpClientOptions const &opts) {
 	auto const &url = req.url();
 	bool const use_tls = (url.scheme == "https");
@@ -831,7 +831,7 @@ HttpResult do_blocking_request(
 
 	// Parse status line + headers.
 	auto const headers_str = SV{raw}.substr(0, header_end);
-	HttpResponse response;
+	ClientResponse response;
 	auto const nl = headers_str.find("\r\n");
 	auto const status_line = (nl != SV::npos) ? headers_str.substr(0, nl) : headers_str;
 	auto const sp1 = status_line.find(' ');
@@ -967,10 +967,10 @@ public:
 		HttpClientOptions opts = {})
 		: opts_{move(opts)} {}
 	[[nodiscard]] HttpClientOptions const &options() const noexcept { return opts_; }
-	[[nodiscard]] HttpResult blocking_send(
-		HttpRequest const &req) const {
+	[[nodiscard]] ClientResult blocking_send(
+		ClientRequest const &req) const {
 		auto effective_opts = opts_;
-		HttpRequest current = req;
+		ClientRequest current = req;
 		HttpTelemetry total_tel{};
 		for (;;) {
 			auto result = client_detail::do_blocking_request(current, effective_opts);
@@ -989,8 +989,8 @@ public:
 			current = move(**next);
 		}
 	}
-	[[nodiscard]] HttpResult send_blocking(
-		HttpRequest const &req) const {
+	[[nodiscard]] ClientResult send_blocking(
+		ClientRequest const &req) const {
 		return blocking_send(req);
 	}
 };

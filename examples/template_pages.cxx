@@ -4,7 +4,7 @@
 // Try:
 //   curl http://localhost:9102/
 //   curl http://localhost:9102/users
-import conflux.net.http;
+import conflux.net.http.server;
 import conflux.templates;
 import conflux.types;
 import std;
@@ -37,8 +37,8 @@ int main() {
 		"{% endfor %}"
 		"</ul>{% endblock %}");
 
-	auto env = make_shared<tmpl::Environment>(dir.string());
-	env->load_all();
+	auto env = make_shared<conflux::templates::Environment>(dir.string());
+	env->blocking_load_all();
 
 	namespace http = conflux::http;
 	auto app = http::App::default_server();

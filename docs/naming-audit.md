@@ -139,7 +139,7 @@ These names do not need execution prefixes merely because they perform work:
 
 - pure JSON value APIs such as `parse`, `parse_view`, `parse_copy`, `write`,
   `stringify`, and provider-boundary helpers;
-- pure HTTP value builders such as `Response::json`, `HttpRequest::Builder`, URL
+- pure HTTP value builders such as `Response::json`, `ClientRequest::Builder`, URL
   parsing, header manipulation, cookie formatting, ETag/cache-control helpers;
 - low-level SQE submission helpers named `submit_*`, because they prepare work on
   a ring and report immediate submission success/failure rather than blocking or

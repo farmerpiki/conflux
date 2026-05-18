@@ -12,12 +12,23 @@ import conflux.net.http_server;
 import conflux.work;
 export namespace conflux::http {
 
-using RequestView = ::HttpRequestView;
-using OwnedRequest = ::HttpRequest;
+using ServerRequestView = ::HttpRequestView;
+using ServerRequest = ::HttpRequest;
+using ServerResponse = ::HttpResponse;
+using HttpFieldError = ::HttpFieldError;
+using FieldError = ::HttpFieldError;
+using FieldErrorKind = ::HttpFieldErrorKind;
+using FieldSource = ::HttpFieldSource;
+using ::http_field_as;
+using ::http_field_optional_as;
+using ::http_field_source_name;
+using ::parse_http_field_value;
+using RequestView = ServerRequestView;
+using OwnedRequest = ServerRequest;
 // First-contact alias stays view-backed for sync handlers. Coroutine handlers
-// that may suspend should accept OwnedRequest/HttpRequest instead.
+// that may suspend should accept OwnedRequest/ServerRequest instead.
 using Request = RequestView;
-using Response = ::HttpResponse;
+using Response = ServerResponse;
 template<typename Fn>
 	requires(std::invocable<Fn &> && same_as<std::invoke_result_t<Fn &>, Response>)
 [[nodiscard]] Response defer(
@@ -112,6 +123,54 @@ public:
 		return *this;
 	}
 	template<typename F>
+	requires ContextHandlerFunction<F>
+	App &get_context(
+		SV path,
+		F &&handler) {
+		router_.get_context(path, forward<F>(handler));
+		return *this;
+	}
+	template<typename F>
+	requires ContextHandlerFunction<F>
+	App &post_context(
+		SV path,
+		F &&handler) {
+		router_.post_context(path, forward<F>(handler));
+		return *this;
+	}
+	template<typename F>
+	requires ContextHandlerFunction<F>
+	App &put_context(
+		SV path,
+		F &&handler) {
+		router_.put_context(path, forward<F>(handler));
+		return *this;
+	}
+	template<typename F>
+	requires ContextHandlerFunction<F>
+	App &patch_context(
+		SV path,
+		F &&handler) {
+		router_.patch_context(path, forward<F>(handler));
+		return *this;
+	}
+	template<typename F>
+	requires ContextHandlerFunction<F>
+	App &del_context(
+		SV path,
+		F &&handler) {
+		router_.del_context(path, forward<F>(handler));
+		return *this;
+	}
+	template<typename F>
+	requires ContextHandlerFunction<F>
+	App &options_context(
+		SV path,
+		F &&handler) {
+		router_.options_context(path, forward<F>(handler));
+		return *this;
+	}
+	template<typename F>
 	App &use(
 		F &&middleware) {
 		router_.use(forward<F>(middleware));
@@ -147,6 +206,19 @@ public:
 	[[nodiscard]] Config const &config() const { return cfg_; }
 	[[nodiscard]] Router &router() { return router_; }
 	[[nodiscard]] Router const &router() const { return router_; }
+	[[nodiscard]] expected<UP<HttpServer>, S> try_server(
+		AppRunOptions opts = {}) && {
+		cfg_.port = opts.port;
+		return HttpServer::try_create(cfg_, move(router_));
+	}
+	[[nodiscard]] expected<RunStatus, S> try_run(
+		AppRunOptions opts = {}) && {
+		auto srv = move(*this).try_server(opts);
+		if (!srv) {
+			return unexpected{move(srv.error())};
+		}
+		return (*srv)->run();
+	}
 	[[nodiscard]] RunStatus run(
 		AppRunOptions opts = {}) && {
 		cfg_.port = opts.port;

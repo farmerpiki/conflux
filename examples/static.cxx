@@ -9,7 +9,7 @@
 #include <filesystem>
 #include <fstream>
 
-import conflux.net.http;
+import conflux.net.http.server;
 import std;
 static void write_file(
 	fs::path const &path,

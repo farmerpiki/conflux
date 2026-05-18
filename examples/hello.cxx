@@ -8,7 +8,7 @@
 //       curl http://localhost:9090/hello/World
 //       curl http://localhost:9090/api/ping
 //       curl http://localhost:9090/api/defer-ping
-import conflux.net.http;
+import conflux.net.http.server;
 import conflux.work;
 import conflux.work.root;
 import std;

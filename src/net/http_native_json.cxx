@@ -10,8 +10,8 @@ export namespace conflux::http::json {
 using DefaultJsonProvider = conflux::json::boundary::NativeJsonProvider;
 
 template<class T>
-inline HttpRequest::Builder &set_body(
-	HttpRequest::Builder &b,
+inline ClientRequest::Builder &set_body(
+	ClientRequest::Builder &b,
 	T const &value,
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonDumpProvider<DefaultJsonProvider, T>
@@ -20,8 +20,8 @@ inline HttpRequest::Builder &set_body(
 }
 
 template<class T>
-inline HttpRequest::Builder &&set_body(
-	HttpRequest::Builder &&b,
+inline ClientRequest::Builder &&set_body(
+	ClientRequest::Builder &&b,
 	T const &value,
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonDumpProvider<DefaultJsonProvider, T>
@@ -31,7 +31,7 @@ inline HttpRequest::Builder &&set_body(
 
 template<class T>
 [[nodiscard]] expected<std::remove_cvref_t<T>, conflux::json::boundary::Error> decode_body(
-	HttpRequest const &req,
+	ClientRequest const &req,
 	conflux::json::boundary::DecodeOptions const &opts = {})
 	requires conflux::json::boundary::JsonDecodeProvider<DefaultJsonProvider, std::remove_cvref_t<T>>
 {

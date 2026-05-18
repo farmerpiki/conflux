@@ -112,14 +112,123 @@ TEST_CASE(
 	CHECK(url->str() == "http://example.com/search?old=1&a%20b=x%2Fy%3Fz&plus%2Bkey=one%20two");
 }
 
+
 TEST_CASE(
-	"http core: HttpRequest builder encodes auth and form bodies",
+	"http core: fallible request builders report URL errors without throwing",
+	"[http.core]") {
+	auto bad = chttp::try_get_client_request("example.com/path");
+	REQUIRE_FALSE(bad.has_value());
+	CHECK(bad.error().kind == chttp::UrlErrorKind::missing_scheme);
+
+	auto builder = chttp::try_post_client_request("https://example.com/submit");
+	REQUIRE(builder.has_value());
+	auto req = move(*builder).body_view("payload").build();
+	CHECK(req.method() == "POST");
+	CHECK(req.url().host == "example.com");
+	CHECK(req.body() == "payload");
+
+	auto mutable_builder = chttp::ClientRequest::get("https://example.com/");
+	auto changed = mutable_builder.try_url("http://example.org/next");
+	REQUIRE(changed.has_value());
+	CHECK(move(mutable_builder).build().url().host == "example.org");
+}
+
+
+TEST_CASE(
+	"http core: typed server request field extractors parse common values",
+	"[http.core]") {
+	HttpFieldsView params;
+	params.emplace_back("id", "42");
+	HttpFieldsView headers{true};
+	headers.emplace_back("X-Limit", "128");
+	HttpFieldsView query;
+	query.emplace_back("page", "3");
+	query.emplace_back("enabled", "yes");
+	query.emplace_back("bad", "12x");
+	HttpFieldsView form;
+	form.emplace_back("price", "19.5");
+	HttpFieldsView cookies;
+	cookies.emplace_back("sid", "abc-123");
+
+	HttpRequestView req{
+		"GET",
+		"/items/42",
+		"HTTP/1.1",
+		"127.0.0.1",
+		false,
+		params,
+		headers,
+		query,
+		form,
+		cookies,
+		span<UploadedFile const>{},
+		{}};
+
+	auto id = req.param_as<u32>("id");
+	REQUIRE(id.has_value());
+	CHECK(*id == 42);
+
+	auto limit = req.header_as<u32>("x-limit");
+	REQUIRE(limit.has_value());
+	CHECK(*limit == 128);
+
+	auto enabled = req.query_as<bool>("enabled");
+	REQUIRE(enabled.has_value());
+	CHECK(*enabled);
+
+	auto price = req.form_as<double>("price");
+	REQUIRE(price.has_value());
+	CHECK(*price == 19.5);
+
+	auto sid = req.cookie_as<SV>("sid");
+	REQUIRE(sid.has_value());
+	CHECK(*sid == "abc-123");
+
+	auto missing = req.optional_query_as<i32>("missing");
+	REQUIRE(missing.has_value());
+	CHECK_FALSE(missing->has_value());
+
+	auto bad = req.query_as<i32>("bad");
+	REQUIRE_FALSE(bad.has_value());
+	CHECK(bad.error().kind == HttpFieldErrorKind::invalid);
+	CHECK(bad.error().source == HttpFieldSource::query);
+	CHECK(bad.error().name == "bad");
+}
+
+TEST_CASE(
+	"http core: typed owned request field extractors preserve owned lifetimes",
+	"[http.core]") {
+	HttpRequest req;
+	req.headers.set("Content-Length", "512");
+	req.query.emplace_back("debug", "off");
+	req.cookies.emplace_back("theme", "dark");
+
+	auto len = req.header_as<u64>("content-length");
+	REQUIRE(len.has_value());
+	CHECK(*len == 512);
+
+	auto debug = req.query_as<bool>("debug");
+	REQUIRE(debug.has_value());
+	CHECK_FALSE(*debug);
+
+	auto theme = req.cookie_as<S>("theme");
+	REQUIRE(theme.has_value());
+	CHECK(*theme == "dark");
+
+	auto missing = req.param_as<u32>("id");
+	REQUIRE_FALSE(missing.has_value());
+	CHECK(missing.error().kind == HttpFieldErrorKind::missing);
+	CHECK(missing.error().source == HttpFieldSource::params);
+}
+
+TEST_CASE(
+	"http core: ClientRequest builder encodes auth and form bodies",
 	"[http.core]") {
 	HttpFields form{true};
 	form.emplace_back("a b", "c+d");
 	form.emplace_back("slash", "/=");
 
-	auto req = chttp::HttpRequest::post("https://example.com/submit")
+	auto req = chttp::ClientRequest::post("https://example.com/submit")
 				   .basic("testuser", "testpass")
 				   .body_form(form)
 				   .build();
@@ -131,13 +240,13 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http core: HttpRequest builder exposes policy knobs and clear_body reset",
+	"http core: ClientRequest builder exposes policy knobs and clear_body reset",
 	"[http.core]") {
 	chttp::HttpTimeouts timeouts{};
 	timeouts.connect = std::chrono::milliseconds{1234};
 	timeouts.first_byte = std::chrono::milliseconds{5678};
 
-	auto req = chttp::HttpRequest::method("PROPFIND", "http://example.com/root")
+	auto req = chttp::ClientRequest::method("PROPFIND", "http://example.com/root")
 				   .query("name", "a b")
 				   .bearer("token-123")
 				   .accept_json()
@@ -166,10 +275,10 @@ TEST_CASE(
 }
 
 TEST_CASE(
-	"http core: HttpRequest builder formats conditional dates in HTTP-date form",
+	"http core: ClientRequest builder formats conditional dates in HTTP-date form",
 	"[http.core]") {
 	auto epoch = std::chrono::system_clock::time_point{};
-	auto req = chttp::HttpRequest::get("http://example.com/")
+	auto req = chttp::ClientRequest::get("http://example.com/")
 				   .if_modified_since(epoch)
 				   .if_unmodified_since(epoch)
 				   .build();
@@ -180,7 +289,7 @@ TEST_CASE(
 
 
 TEST_CASE(
-	"http core: HttpRequest builder debug-asserts on double body setters",
+	"http core: ClientRequest builder debug-asserts on double body setters",
 	"[http.core][death]") {
 #ifdef NDEBUG
 	SKIP("assert inactive in release build");

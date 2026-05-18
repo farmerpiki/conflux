@@ -159,9 +159,9 @@ struct TlsStreamRef {
 	}
 	return next;
 }
-[[nodiscard]] expected<Opt<HttpRequest>, HttpError> follow_redirect(
-	HttpRequest const &req,
-	HttpResponse const &resp) {
+[[nodiscard]] expected<Opt<ClientRequest>, HttpError> follow_redirect(
+	ClientRequest const &req,
+	ClientResponse const &resp) {
 	if (!is_redirect_status(resp.head.status)) {
 		return nullopt;
 	}
@@ -194,7 +194,7 @@ struct TlsStreamRef {
 		}
 		next_headers.set(k, v);
 	}
-	auto builder = HttpRequest::method(req.method(), next_url->str())
+	auto builder = ClientRequest::method(req.method(), next_url->str())
 					   .headers(next_headers)
 					   .timeouts(req.timeouts())
 					   .verify_peer(req.verify_peer());
@@ -515,9 +515,9 @@ wroot::Task<TcpStream> staggered_parallel_connect(
 	}
 	co_return co_await move(task);
 }
-wroot::Task<HttpResult> do_async_request(
+wroot::Task<ClientResult> do_async_request(
 	SocketTaskRing &ring,
-	HttpRequest const &req,
+	ClientRequest const &req,
 	HttpClientOptions const &opts,
 	SP<ActiveTaskCancelRelay> cancel) {
 	auto const &url = req.url();
@@ -753,7 +753,7 @@ wroot::Task<HttpResult> do_async_request(
 	}
 	tel.bytes_received += raw.size();
 	auto const headers_str = SV{raw}.substr(0, header_end);
-	HttpResponse response;
+	ClientResponse response;
 	auto const nl = headers_str.find("\r\n");
 	auto const status_line = (nl != SV::npos) ? headers_str.substr(0, nl) : headers_str;
 	auto const sp1 = status_line.find(' ');
@@ -959,28 +959,28 @@ wroot::Task<HttpResult> do_async_request(
 }
 wroot::Task<void> run_async_request_driver(
 	SocketTaskRing &ring,
-	HttpRequest const &req,
+	ClientRequest const &req,
 	HttpClientOptions const &opts,
-	SP<wroot::TaskSource<HttpResult>> src,
+	SP<wroot::TaskSource<ClientResult>> src,
 	SP<ActiveTaskCancelRelay> cancel) {
 	try {
-		HttpRequest current = req;
+		ClientRequest current = req;
 		HttpTelemetry total_tel{};
 		for (;;) {
 			auto result = co_await do_async_request(ring, current, opts, cancel);
 			if (!result) {
-				auto _ = src->try_set_value(wroot::Success<HttpResult>{move(result)});
+				auto _ = src->try_set_value(wroot::Success<ClientResult>{move(result)});
 				break;
 			}
 			accumulate_telemetry(total_tel, result->telemetry);
 			auto next = follow_redirect(current, *result);
 			if (!next) {
-				auto _ = src->try_set_value(wroot::Success<HttpResult>{unexpected(next.error())});
+				auto _ = src->try_set_value(wroot::Success<ClientResult>{unexpected(next.error())});
 				break;
 			}
 			if (!next->has_value()) {
 				result->telemetry = move(total_tel);
-				auto _ = src->try_set_value(wroot::Success<HttpResult>{move(result)});
+				auto _ = src->try_set_value(wroot::Success<ClientResult>{move(result)});
 				break;
 			}
 			current = move(**next);
@@ -993,13 +993,13 @@ wroot::Task<void> run_async_request_driver(
 } // namespace async_detail
 namespace conflux::http {
 
-[[nodiscard]] conflux::work::root::Task<HttpResult> async_send(
+[[nodiscard]] conflux::work::root::Task<ClientResult> async_send(
 	HttpClient const &client,
 	SocketTaskRing &ring,
-	HttpRequest const &req) {
+	ClientRequest const &req) {
 	namespace wroot = conflux::work::root;
-	auto [out, raw_src] = wroot::make_task_source<HttpResult>(wroot::SubmitOptions{.enable_cancellation = true});
-	auto src = make_shared<wroot::TaskSource<HttpResult>>(move(raw_src));
+	auto [out, raw_src] = wroot::make_task_source<ClientResult>(wroot::SubmitOptions{.enable_cancellation = true});
+	auto src = make_shared<wroot::TaskSource<ClientResult>>(move(raw_src));
 	auto cancel = make_shared<ActiveTaskCancelRelay>();
 	auto _ = src->install_cancel_hook([cancel](wroot::CancelReason) noexcept { cancel->cancel(); });
 	auto driver = async_detail::run_async_request_driver(ring, req, client.options(), src, cancel);
@@ -1007,10 +1007,10 @@ namespace conflux::http {
 	return move(out);
 }
 
-[[nodiscard]] conflux::work::root::Task<HttpResult> send_async(
+[[nodiscard]] conflux::work::root::Task<ClientResult> send_async(
 	HttpClient const &client,
 	SocketTaskRing &ring,
-	HttpRequest const &req) {
+	ClientRequest const &req) {
 	return async_send(client, ring, req);
 }
 

@@ -1,7 +1,7 @@
 // HTTP client construction example: fallible URL parsing, query encoding,
 // case-insensitive fields, request-builder ergonomics, timeouts, and chunked
 // body decoding without performing network I/O.
-import conflux.net.http;
+import conflux.net.http.client;
 import conflux.net.http_server_helpers;
 import conflux.types;
 import std;
@@ -35,7 +35,7 @@ int main() {
 	form.set("name", "Ada Lovelace");
 	form.set("role", "admin/operator");
 
-	auto req = http::HttpRequest::post(url.str())
+	auto req = http::ClientRequest::post(url.str())
 		.headers(defaults)
 		.query("trace", "local demo")
 		.bearer("example-token")

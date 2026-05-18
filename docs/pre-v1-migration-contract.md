@@ -80,7 +80,7 @@ contract from `docs/execution-model.md` and the review checklist in
 Example:
 
 ```cpp
-import conflux.net.http;
+import conflux.net.http.server;
 import conflux.work;
 
 namespace http = conflux::http;
@@ -139,7 +139,7 @@ threshold emit a warning to `stderr` with method, path, and elapsed ms.
 Example:
 
 ```cpp
-import conflux.net.http;
+import conflux.net.http.server;
 
 namespace http = conflux::http;
 

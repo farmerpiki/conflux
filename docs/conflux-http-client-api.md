@@ -9,12 +9,12 @@ Status: **Blocking and async transports stable.** New connection per request (no
 ## Module imports
 
 ```cpp
-import conflux.net.http;          // umbrella — exports everything below
+import conflux.net.http.client;   // first-contact client surface
 // or, granular:
 import conflux.net.http.types;    // HttpError, HttpTimeouts, HttpTelemetry, Url
-import conflux.net.http.request;  // HttpRequest, HttpRequest::Builder
-import conflux.net.client;        // HttpClient, HttpClientOptions, HttpResponse, HttpResult
-import conflux.net.async_client;  // async_send/send_async — NOT re-exported from conflux.net.http
+import conflux.net.http.request;  // ClientRequest, ClientRequest::Builder
+import conflux.net.client;        // HttpClient, HttpClientOptions, ClientResponse, ClientResult
+import conflux.net.async_client;  // async_send/send_async
 ```
 
 All public types live in namespace `conflux::http`.
@@ -26,7 +26,7 @@ using namespace conflux::http;
 
 HttpClient client{};
 auto result = client.blocking_send(
-    HttpRequest::get("https://api.example.com/v1/ping")
+    ClientRequest::get("https://api.example.com/v1/ping")
         .accept_json()
         .bearer("eyJhbGc...")
         .timeouts({.first_byte = std::chrono::seconds{2}})
@@ -42,7 +42,23 @@ std::println("ct={}", resp.head.headers["content-type"]);
 std::println("body bytes={}", resp.body.size());
 ```
 
-The `.build()` is optional — `Builder &&` converts implicitly to `HttpRequest`.
+The `.build()` is optional — `Builder &&` converts implicitly to `ClientRequest`.
+
+### Fallible request setup
+
+Use the free `try_*_client_request` helpers when URLs come from config or user input and setup should not throw. They parse the URL once, return the same fluent builder on success, and expose `UrlError` directly on failure.
+
+```cpp
+auto req_builder = try_get_client_request(configured_url);
+if (!req_builder) {
+    std::println(stderr, "bad URL: {}", req_builder.error().message);
+    return 1;
+}
+
+auto req = std::move(*req_builder).accept_json().build();
+```
+
+For method strings computed at runtime, use `try_client_request_builder(method, url)` or `try_client_request(method, url)`. Existing `ClientRequest::get/post/...` factories keep the throwing behavior for literal URLs and compact examples.
 
 ## Public types
 
@@ -138,23 +154,23 @@ struct HttpTelemetry {
 
 Always populated on success. On failure the partial telemetry is **not** returned — only `HttpError`.
 
-### `HttpResponse`
+### `ClientResponse`
 
 ```cpp
-struct HttpResponseHead {
+struct ClientResponseHead {
     int                       status{502};
     std::string               status_text{"Bad Gateway"};
     HttpFields                headers{true};         // case-insensitive
     std::vector<std::string>  set_cookies;            // raw Set-Cookie values, in order
 };
 
-struct HttpResponse {
-    HttpResponseHead head;
+struct ClientResponse {
+    ClientResponseHead head;
     std::string      body;           // already de-chunked / fully assembled
     HttpTelemetry    telemetry;
 };
 
-using HttpResult = std::expected<HttpResponse, HttpError>;
+using ClientResult = std::expected<ClientResponse, HttpError>;
 ```
 
 Header rules on the response:
@@ -165,12 +181,12 @@ Header rules on the response:
 
 Body for `HEAD` is always empty even if the server sends one.
 
-## `HttpRequest`
+## `ClientRequest`
 
-Immutable value object. Construct via `HttpRequest::<verb>(url)` factories that return a `Builder`.
+Immutable value object. Construct via `ClientRequest::<verb>(url)` factories that return a `Builder`.
 
 ```cpp
-class HttpRequest {
+class ClientRequest {
 public:
     static Builder get   (std::string_view url);
     static Builder post  (std::string_view url);
@@ -193,9 +209,9 @@ public:
 
 The factories **throw `std::invalid_argument`** if the URL fails to parse. If you want fallible construction, parse `Url::parse` yourself first and pass the `Url` via `.url(Url)`.
 
-### `HttpRequest::Builder`
+### `ClientRequest::Builder`
 
-Chained, supports both lvalue (`Builder &`) and rvalue (`Builder &&`) overloads — chaining off a temporary works without dangling. Implicitly convertible to `HttpRequest` on rvalue, or call `.build() &&`.
+Chained, supports both lvalue (`Builder &`) and rvalue (`Builder &&`) overloads — chaining off a temporary works without dangling. Implicitly convertible to `ClientRequest` on rvalue, or call `.build() &&`.
 
 URL / verb:
 ```cpp
@@ -226,7 +242,7 @@ Body (debug builds assert that body is set at most once unless `clear_body()` is
 ```
 
 JSON request-body serialization lives in optional HTTP JSON modules instead of
-`HttpRequest::Builder`, so `conflux.net.http.request` stays free of a JSON
+`ClientRequest::Builder`, so `conflux.net.http.request` stays free of a JSON
 module dependency. Reusable/framework code should use the provider-explicit
 `conflux.net.http.json` helpers; app code can import the native convenience edge
 when it intentionally chooses the current `conflux.json` adapter:
@@ -234,7 +250,7 @@ when it intentionally chooses the current `conflux.json` adapter:
 ```cpp
 import conflux.net.http.json;
 
-auto b = HttpRequest::post("https://example.test/submit");
+auto b = ClientRequest::post("https://example.test/submit");
 conflux::http::json::set_body_with<CustomProvider>(b, value);
 auto req = std::move(b).build();
 ```
@@ -242,7 +258,7 @@ auto req = std::move(b).build();
 ```cpp
 import conflux.net.http.native_json;
 
-auto b = HttpRequest::post("https://example.test/submit");
+auto b = ClientRequest::post("https://example.test/submit");
 conflux::http::json::set_body(b, doc);
 auto req = std::move(b).build();
 ```
@@ -273,8 +289,8 @@ class HttpClient {
 public:
     explicit HttpClient(HttpClientOptions opts = {});
     HttpClientOptions const &options() const noexcept;
-    HttpResult blocking_send(HttpRequest req) const;
-    HttpResult send_blocking(HttpRequest req) const; // compatibility alias
+    ClientResult blocking_send(ClientRequest req) const;
+    ClientResult send_blocking(ClientRequest req) const; // compatibility alias
 };
 ```
 
@@ -357,11 +373,11 @@ Anything that depends on Phase 2:
 ```cpp
 import conflux.net.async_client;
 
-[[nodiscard]] conflux::work::root::Task<HttpResult>
+[[nodiscard]] conflux::work::root::Task<ClientResult>
 conflux::http::async_send(
     HttpClient const& client,
     SocketTaskRing&   ring,
-    HttpRequest const& req);
+    ClientRequest const& req);
 ```
 
 Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all outlive the coroutine — do not destroy them while the task is suspended. `send_async(...)` is still exported as a compatibility alias.
@@ -386,32 +402,30 @@ Runs on the caller's `SocketTaskRing`. The `client`, `ring`, and `req` must all 
 | Write timeout | Yes | Yes (linked SQE) |
 | Cancellation | N/A | Via `SocketTaskRing` cancel |
 
-Error kinds, `HttpResult`, and `HttpResponse` shapes are identical to `blocking_send`.
+Error kinds, `ClientResult`, and `ClientResponse` shapes are identical to `blocking_send`.
 
-### Router context-route dispatch (`ContextHandlerFunction`)
+### Server context-route dispatch and client calls
 
-**Module:** `conflux.net.http` (umbrella)
+Context routes are server-side. They use `http::ServerRequest` / `http::ServerResponse`
+(or the legacy global `HttpRequest` / `HttpResponse`) and live on the server import
+surface. Use this shape when a route needs the ring context to call `async_send`
+without blocking the HTTP ring thread.
 
 ```cpp
-struct RequestContext {
-    SocketTaskRing& ring;
-};
+import conflux.net.http.server;
+import conflux.net.async_client;
 
 using ContextHandler =
-    CloneableFunction<root::Task<HttpResponse>(HttpRequest const&, RequestContext const&)>;
-using ContextMiddleware =
-    CloneableFunction<root::Task<HttpResponse>(HttpRequest const&, RequestContext const&, ContextHandler const&)>;
+    CloneableFunction<root::Task<http::ServerResponse>(http::ServerRequest const&, RequestContext const&)>;
 
-template<ContextHandlerFunction F>
-Router& Router::add_context(std::string_view method, std::string_view path, F&& handler);
-bool    Router::has_context_routes() const;
-std::optional<HttpResponse> Router::dispatch_context(HttpRequest const&, RequestContext const&);
-std::optional<HttpResponse> Router::dispatch_async(HttpRequest const&, RequestContext const&); // compatibility alias
+Router& Router::get_context(std::string_view path, F&& handler);
+std::optional<http::ServerResponse>
+Router::dispatch_context(http::ServerRequest const&, RequestContext const&);
 ```
 
-Context routes are probed from the server's ring loop. They receive an owning `HttpRequest` plus the ring thread's `SocketTaskRing`, so coroutine suspension cannot dangle request views and `async_send` can be used without blocking. `proxy_context_handler()` in `proxy.cxx` uses this path. Prefer this surface when a route needs the ring context directly; ordinary coroutine route handlers can accept owning `HttpRequest` and return `root::Task<HttpResponse>` without a `RequestContext`.
-
-`dispatch_async(...)` remains exported as a compatibility alias, but new code should call `dispatch_context(...)` because the function returns an optional response immediately and represents context/deferred route probing, not an awaitable async operation.
+`dispatch_async(...)` remains exported as a compatibility alias, but new code should call
+`dispatch_context(...)` because the function returns an optional response immediately and
+represents context/deferred route probing, not an awaitable async operation.
 
 ## Stability
 
@@ -420,6 +434,6 @@ Blocking and async surfaces stable. Both support HTTP and HTTPS.
 Still not in any transport:
 - pooled connections / keep-alive (`pool_wait` / `reused_connection` always false)
 - content-coding decode (gzip/br/zstd bodies arrive raw)
-- JSON document request-body helpers are free functions in `conflux.net.http.json`; there is intentionally no `body_json(NodeRef)` member on `HttpRequest::Builder`. The helpers are provider-boundary based, so framework-facing code should not call `Document::dump()` directly.
+- JSON document request-body helpers are free functions in `conflux.net.http.json`; there is intentionally no `body_json(NodeRef)` member on `ClientRequest::Builder`. The helpers are provider-boundary based, so framework-facing code should not call `Document::dump()` directly.
 
 Builder/Request/Response/Telemetry/Error shapes are not expected to change.

@@ -280,6 +280,11 @@ if(CONFLUX_WANT_TEMPLATES)
 else()
     set(CONFLUX_HAS_TEMPLATES "false")
 endif()
+if(CONFLUX_WANT_TEMPLATES_WATCH)
+    set(CONFLUX_HAS_TEMPLATES_WATCH "true")
+else()
+    set(CONFLUX_HAS_TEMPLATES_WATCH "false")
+endif()
 if(CONFLUX_WANT_JSON)
     set(CONFLUX_HAS_JSON "true")
 else()
@@ -401,6 +406,7 @@ target_sources(conflux_json
         src/json_number.cxx
         src/json_reader.cxx
         src/json_dom.cxx
+        src/json_lookup.cxx
         src/json_dump.cxx
         src/json_parse.cxx
         src/json_builder.cxx
@@ -772,19 +778,28 @@ target_sources(conflux_template
         FILES
         src/template.cxx
 )
-target_compile_definitions(conflux_template
-    PUBLIC CONFLUX_HAS_FILE_WATCH=$<BOOL:${CONFLUX_WANT_TEMPLATES_WATCH}>
-)
 target_link_libraries(conflux_template
     PRIVATE conflux_options
     PUBLIC  conflux_json
     PUBLIC  conflux_utils
     PUBLIC  conflux_file_io_sync
 )
-if(CONFLUX_WANT_TEMPLATES_WATCH)
-    target_link_libraries(conflux_template PUBLIC conflux_file_watch)
-endif()
 endif() # CONFLUX_WANT_TEMPLATES
+
+if(CONFLUX_WANT_TEMPLATES_WATCH)
+add_library(conflux_template_watch STATIC)
+target_sources(conflux_template_watch
+    PUBLIC FILE_SET CXX_MODULES
+        BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
+        FILES
+        src/template_watch.cxx
+)
+target_link_libraries(conflux_template_watch
+    PRIVATE conflux_options
+    PUBLIC  conflux_template
+    PUBLIC  conflux_file_watch
+)
+endif() # CONFLUX_WANT_TEMPLATES_WATCH
 
 if(CONFLUX_WANT_SOCKET_IO)
 add_library(conflux_socket_io STATIC)
@@ -1376,6 +1391,7 @@ target_sources(conflux_net_client
         FILES
             src/net/client_wire.cxx
             src/net/client.cxx
+            src/net/http_client.cxx
 )
 target_link_libraries(conflux_net_client
     PRIVATE conflux_options
@@ -1728,7 +1744,9 @@ add_library(conflux_net_http STATIC)
 target_sources(conflux_net_http
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
-        FILES src/net/http.cxx
+        FILES
+            src/net/http_server_umbrella.cxx
+            src/net/http.cxx
 )
 target_link_libraries(conflux_net_http
     PRIVATE conflux_options
@@ -1836,7 +1854,9 @@ endif()
 if(TARGET conflux_template)
     target_link_libraries(conflux PUBLIC conflux_template)
 endif()
-if(TARGET conflux_file_watch)
+if(TARGET conflux_template_watch)
+    target_link_libraries(conflux PUBLIC conflux_template_watch)
+elseif(TARGET conflux_file_watch)
     target_link_libraries(conflux PUBLIC conflux_file_watch)
 endif()
 if(TARGET conflux_json_boundary)
@@ -1902,6 +1922,7 @@ target_compile_definitions(conflux
         CONFLUX_HAS_JSON=$<BOOL:${CONFLUX_WANT_JSON}>
         CONFLUX_HAS_JSON_FILE=$<BOOL:${CONFLUX_WANT_JSON_FILE}>
         CONFLUX_HAS_TEMPLATES=$<BOOL:${CONFLUX_WANT_TEMPLATES}>
+        CONFLUX_HAS_TEMPLATES_WATCH=$<BOOL:${CONFLUX_WANT_TEMPLATES_WATCH}>
         CONFLUX_HAS_FILE_WATCH=$<BOOL:${CONFLUX_WANT_FILE_WATCH}>
 )
 
@@ -2070,7 +2091,8 @@ conflux_public_component(conflux_json_file json_file)
 conflux_public_component(conflux_json_reflect json_reflect)
 conflux_public_component(conflux_json_reflect_provider json_reflect_provider)
 conflux_public_component(conflux_template template)
-conflux_public_component(conflux_file_watch template_watch)
+conflux_public_component(conflux_file_watch file_watch)
+conflux_public_component(conflux_template_watch template_watch)
 conflux_public_component(conflux_http_parse_helpers http_parse_helpers)
 conflux_public_component(conflux_http_core http_core)
 conflux_public_component(conflux_http_router http_router)
@@ -2155,6 +2177,7 @@ foreach(_target IN ITEMS
         conflux_json_reflect
         conflux_json_reflect_provider
         conflux_template
+        conflux_template_watch
         conflux_file_watch
         conflux_http_parse_helpers
         conflux_http_core

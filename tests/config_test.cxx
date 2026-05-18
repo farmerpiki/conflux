@@ -101,6 +101,29 @@ max_body_size = 8192
 	CHECK(cfg.http3.max_body_size == 8192);
 }
 
+
+TEST_CASE(
+	"net.config: checked ini loader returns expected errors",
+	"[net.config]") {
+	TempIni ok{R"ini(
+[server]
+port = 8088
+startup_banner = false
+)ini"};
+	auto cfg = config_from_ini_checked(ok.c_str());
+	REQUIRE(cfg.has_value());
+	CHECK(cfg->port == 8088);
+	CHECK_FALSE(cfg->startup_banner);
+
+	TempIni bad{R"ini(
+[server]
+port = nope
+)ini"};
+	auto invalid = config_from_ini_checked(bad.c_str());
+	REQUIRE_FALSE(invalid.has_value());
+	CHECK(invalid.error().find("invalid integer") != std::string::npos);
+}
+
 TEST_CASE(
 	"net.config: ini rejects invalid new unsigned knobs",
 	"[net.config]") {

@@ -4,6 +4,92 @@ import std;
 import std.compat;
 import conflux.types;
 
+// ---------------------------------------------------------------------------
+// ValueBuilder root writer
+// ---------------------------------------------------------------------------
+
+ValueBuilder::ValueBuilder(
+	BuilderState *borrowed) noexcept
+	: state_{borrowed} {}
+
+expected<void, JsonError> ValueBuilder::check_can_set() const {
+	if (state_ == nullptr) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::constraint_violation,
+				.message = "ValueBuilder has been discarded"});
+	}
+	if (state_->root_set) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::constraint_violation,
+				.message = "root value already fixed; use reset() to start over"});
+	}
+	if (state_->child_active) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::constraint_violation,
+				.message = "child builder is active"});
+	}
+	return {};
+}
+
+expected<void, JsonError> ValueBuilder::set_node(
+	Node n) {
+	auto ok = check_can_set();
+	if (!ok) {
+		return ok;
+	}
+	state_->store.nodes.push_back(n);
+	state_->root_node = state_->store.nodes.size() - 1;
+	state_->root_set = true;
+	return {};
+}
+
+ValueBuilder::ValueBuilder()
+	: owned_{make_unique<BuilderState>()}
+	, state_{owned_.get()} {}
+
+ValueBuilder::ValueBuilder(
+	ValueBuilder &&o) noexcept
+	: owned_{move(o.owned_)}
+	, state_{owned_ ? owned_.get() : o.state_} {
+	o.state_ = nullptr;
+}
+
+ValueBuilder &ValueBuilder::operator =(
+	ValueBuilder &&o) noexcept {
+	if (this != &o) {
+		owned_ = move(o.owned_);
+		state_ = owned_ ? owned_.get() : o.state_;
+		o.state_ = nullptr;
+	}
+	return *this;
+}
+
+expected<void, JsonError> ValueBuilder::set_null() {
+	return set_node(detail::make_null());
+}
+
+expected<void, JsonError> ValueBuilder::set_bool(
+	bool v) {
+	return set_node(detail::make_bool(v));
+}
+
+expected<void, JsonError> ValueBuilder::set_string(
+	SV sv) {
+	auto ok = check_can_set();
+	if (!ok) {
+		return ok;
+	}
+	SZ const off = state_->built_input.size();
+	state_->built_input.append(sv.data(), sv.size());
+	return set_node(detail::make_string(static_cast<u32>(off), static_cast<u32>(sv.size()), kStorageInputView));
+}
+
 expected<void, JsonError> ValueBuilder::set_number(
 	SV lexeme) {
 	if (!validate_number_lexeme(lexeme)) {
@@ -29,6 +115,165 @@ expected<void, JsonError> ValueBuilder::set_number(
 	}
 	return set_node(*node);
 }
+
+expected<void, JsonError> ValueBuilder::set_i64(
+	i64 v) {
+	auto ok = check_can_set();
+	if (!ok) {
+		return ok;
+	}
+	SZ const off = state_->built_input.size();
+	A<char, 22> buf{};
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	state_->built_input.append(buf.data(), static_cast<SZ>(p - buf.data()));
+	SZ const len = state_->built_input.size() - off;
+	return set_node(
+		detail::make_number_int(
+			static_cast<u32>(off),
+			static_cast<u32>(len),
+			kStorageInputView | kRawJsonSlice,
+			v));
+}
+
+expected<void, JsonError> ValueBuilder::set_u64(
+	u64 v) {
+	auto ok = check_can_set();
+	if (!ok) {
+		return ok;
+	}
+	SZ const off = state_->built_input.size();
+	A<char, 22> buf{};
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	state_->built_input.append(buf.data(), static_cast<SZ>(p - buf.data()));
+	SZ const len = state_->built_input.size() - off;
+	if (v <= static_cast<u64>(NL<i64>::max())) {
+		return set_node(
+			detail::make_number_int(
+				static_cast<u32>(off),
+				static_cast<u32>(len),
+				kStorageInputView | kRawJsonSlice,
+				static_cast<i64>(v)));
+	}
+	return set_node(
+		detail::make_number_uint(
+			static_cast<u32>(off),
+			static_cast<u32>(len),
+			kStorageInputView | kRawJsonSlice,
+			v));
+}
+
+expected<void, JsonError> ValueBuilder::set_f64(
+	double v) {
+	if (!isfinite(v)) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::number_out_of_range,
+				.message = "set_f64 requires finite value"});
+	}
+	auto ok = check_can_set();
+	if (!ok) {
+		return ok;
+	}
+	SZ const off = state_->built_input.size();
+	A<char, 32> buf{};
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+	auto [p, ec] = to_chars(buf.data(), buf.data() + buf.size(), v);
+	state_->built_input.append(buf.data(), static_cast<SZ>(p - buf.data()));
+	SZ const len = state_->built_input.size() - off;
+	SV const lex = SV{state_->built_input.data() + off, len};
+	bool const is_int = lex.find_first_of(".eE") == SV::npos;
+	return set_node(
+		detail::make_number_f64(
+			static_cast<u32>(off),
+			static_cast<u32>(len),
+			kStorageInputView | kRawJsonSlice,
+			v,
+			is_int));
+}
+
+expected<ObjectBuilder, JsonError> ValueBuilder::begin_object() {
+	auto ok = check_can_set();
+	if (!ok) {
+		return unexpected(move(ok).error());
+	}
+	bool const prev_root_set = state_->root_set;
+	state_->child_active = true;
+	state_->root_set = true;
+	state_->active_depth = 1;
+	ParentSlot const parent{
+		.kind = ParentSlot::Kind::set_root,
+		.arena_start = state_->built_input.size(),
+		.saved_root_set = prev_root_set};
+	ObjectBuilder child{state_, parent};
+	child.frame_.depth = 1;
+	return child;
+}
+
+expected<ArrayBuilder, JsonError> ValueBuilder::begin_array() {
+	auto ok = check_can_set();
+	if (!ok) {
+		return unexpected(move(ok).error());
+	}
+	bool const prev_root_set = state_->root_set;
+	state_->child_active = true;
+	state_->root_set = true;
+	state_->active_depth = 1;
+	ParentSlot const parent{
+		.kind = ParentSlot::Kind::set_root,
+		.arena_start = state_->built_input.size(),
+		.saved_root_set = prev_root_set};
+	ArrayBuilder child{state_, parent};
+	child.frame_.depth = 1;
+	return child;
+}
+
+void ValueBuilder::reset() noexcept {
+	state_->store = DocumentStorage{};
+	state_->built_input.clear();
+	state_->root_set = false;
+	state_->root_node = 0;
+	state_->child_active = false;
+	state_->active_depth = 0;
+}
+
+void ValueBuilder::discard() && noexcept {
+	owned_.reset();
+	state_ = nullptr;
+}
+
+expected<Document, JsonError> ValueBuilder::finish() && {
+	if ((state_ == nullptr) || !state_->root_set || state_->child_active) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::constraint_violation,
+				.message = (state_ != nullptr) && state_->child_active ? "child builder still active" :
+														 "root value was never set"});
+	}
+	// Phase 1.5: transfer built_input → owned_input; node off/len with
+	// kStorageInputView point into the heap-stable buffer body. The
+	// 4 GiB ceiling on built_input is enforced incrementally at each
+	// insert site (Correction S); this is the final guard.
+	constexpr SZ kU32Ceiling = (SZ{1} << 32) - 1;
+	if (state_->built_input.size() >= kU32Ceiling) {
+		return unexpected(
+			JsonError{
+				.stage = JsonStage::build,
+				.code = JsonIssueCode::input_too_large,
+				.message = "Builder input buffer exceeds 4 GiB hard ceiling"});
+	}
+	auto storage = make_unique<DocumentStorage>(move(state_->store));
+	storage->root_node = static_cast<u32>(state_->root_node);
+	storage->owned_input = make_unique<S>(move(state_->built_input));
+	storage->input_view = *storage->owned_input;
+	owned_.reset();
+	state_ = nullptr;
+	return ::make_document(move(storage));
+}
+
 // ---------------------------------------------------------------------------
 // ObjectBuilder member insert helpers
 // ---------------------------------------------------------------------------

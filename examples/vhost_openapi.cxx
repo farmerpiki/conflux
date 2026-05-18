@@ -7,7 +7,7 @@
 //   curl -H 'Host: web.local.test' http://localhost:9101/status
 //   curl -H 'Host: unknown.local.test' http://localhost:9101/status
 //   curl -H 'Host: api.local.test' http://localhost:9101/openapi.json
-import conflux.net.http;
+import conflux.net.http.server;
 import conflux.types;
 import std;
 
