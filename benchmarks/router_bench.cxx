@@ -4,32 +4,32 @@ import conflux.types;
 import conflux.net.http;
 namespace benchmark_detail {
 
-inline Atom<SZ> sink{};
+inline std::atomic<std::size_t> sink{};
 struct Config {
 	bool list_only = false;
-	S filter;
-	Opt<SZ> iterations_override;
-	enum class Format : u8 {
+	std::string filter;
+	std::optional<std::size_t> iterations_override;
+	enum class Format : std::uint8_t {
 		table,
 		json,
 	};
 	Format format = Format::table;
 };
 struct Stats {
-	SV name;
-	SZ iterations{};
-	u64 total_ns{};
+	std::string_view name;
+	std::size_t iterations{};
+	std::uint64_t total_ns{};
 	double ns_per_iter{};
 };
-using BenchFn = Fn<SZ()>;
+using BenchFn = std::function<std::size_t()>;
 struct Case {
-	SV name;
-	SV description;
-	SZ default_iterations;
+	std::string_view name;
+	std::string_view description;
+	std::size_t default_iterations;
 	BenchFn run;
 };
-[[gnu::const]] SZ iterations_for_payload(
-	SZ payload_size) {
+[[gnu::const]] std::size_t iterations_for_payload(
+	std::size_t payload_size) {
 	if (payload_size <= 512) {
 		return 50000;
 	}
@@ -52,8 +52,8 @@ void print_usage() {
 Config parse_args(
 	span<char *> args) {
 	Config cfg;
-	for (SZ i = 1; i < args.size(); ++i) {
-		SV arg = args[i];
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		std::string_view arg = args[i];
 		if (arg == "--list") {
 			cfg.list_only = true;
 			continue;
@@ -73,8 +73,8 @@ Config parse_args(
 			if (i + 1 >= args.size()) {
 				throw std::invalid_argument{"--iterations requires a value"};
 			}
-			SZ iters = 0;
-			auto const value = SV{args[++i]};
+			std::size_t iters = 0;
+			auto const value = std::string_view{args[++i]};
 			auto const [ptr, ec] = from_chars(value.data(), value.data() + value.size(), iters);
 			if (ec != errc{} || ptr != value.data() + value.size() || iters == 0) {
 				throw std::invalid_argument{"--iterations must be a positive integer"};
@@ -86,7 +86,7 @@ Config parse_args(
 			if (i + 1 >= args.size()) {
 				throw std::invalid_argument{"--format requires a value"};
 			}
-			auto const value = SV{args[++i]};
+			auto const value = std::string_view{args[++i]};
 			if (value == "table") {
 				cfg.format = Config::Format::table;
 			} else if (value == "json") {
@@ -106,26 +106,26 @@ Config parse_args(
 }
 [[gnu::pure]] bool matches_filter(
 	Case const &bench,
-	SV filter) {
+	std::string_view filter) {
 	return filter.empty() || bench.name.contains(filter) || bench.description.contains(filter);
 }
-[[gnu::const]] SZ warmup_iterations(
-	SZ iterations) {
-	return std::clamp(iterations / 10, SZ{1}, SZ{1000});
+[[gnu::const]] std::size_t warmup_iterations(
+	std::size_t iterations) {
+	return std::clamp(iterations / 10, std::size_t{1}, std::size_t{1000});
 }
 Stats measure_case(
 	Case const &bench,
-	SZ iterations) {
-	for (SZ i = 0; i < warmup_iterations(iterations); ++i) {
+	std::size_t iterations) {
+	for (std::size_t i = 0; i < warmup_iterations(iterations); ++i) {
 		sink.fetch_add(bench.run(), memory_order_relaxed);
 	}
 
-	auto const start = chrono::steady_clock::now();
-	for (SZ i = 0; i < iterations; ++i) {
+	auto const start = std::chrono::steady_clock::now();
+	for (std::size_t i = 0; i < iterations; ++i) {
 		sink.fetch_add(bench.run(), memory_order_relaxed);
 	}
-	auto const elapsed = chrono::steady_clock::now() - start;
-	auto const total_ns = static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(elapsed).count());
+	auto const elapsed = std::chrono::steady_clock::now() - start;
+	auto const total_ns = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
 	return Stats{
 		.name = bench.name,
 		.iterations = iterations,
@@ -133,7 +133,7 @@ Stats measure_case(
 		.ns_per_iter = static_cast<double>(total_ns) / static_cast<double>(iterations)};
 }
 void print_list(
-	V<Case> const &cases) {
+	std::vector<Case> const &cases) {
 	for (auto const &bench: cases) {
 		std::println("{:32} {}", bench.name, bench.description);
 	}
@@ -186,12 +186,12 @@ Case make_typed_field_extract_case() {
 		.description = "Typed request field extraction from cached request fields",
 		.default_iterations = 2000000,
 		.run = [req] {
-			auto page = req->query_as<u32>("page");
-			auto limit = req->header_as<u32>("x-limit");
+			auto page = req->query_as<std::uint32_t>("page");
+			auto limit = req->header_as<std::uint32_t>("x-limit");
 			auto enabled = req->query_as<bool>("enabled");
-			auto sid = req->cookie_as<SV>("sid");
-			return static_cast<SZ>(page.value_or(0)) + static_cast<SZ>(limit.value_or(0))
-				 + static_cast<SZ>(enabled.value_or(false)) + sid.value_or(SV{}).size();
+			auto sid = req->cookie_as<std::string_view>("sid");
+			return static_cast<std::size_t>(page.value_or(0)) + static_cast<std::size_t>(limit.value_or(0))
+				 + static_cast<std::size_t>(enabled.value_or(false)) + sid.value_or(std::string_view{}).size();
 		}};
 }
 Case make_router_exact_case() {
@@ -234,7 +234,7 @@ Case make_compress_case() {
 	struct State {
 		Router router;
 		HttpRequest req;
-		SP<S> payload{make_shared<S>()};
+		std::shared_ptr<std::string> payload{make_shared<std::string>()};
 	};
 	auto state = make_shared<State>();
 	state->payload->assign(4096, 'x');
@@ -260,7 +260,7 @@ Case make_compress_negotiation_miss_case() {
 	struct State {
 		Router router;
 		HttpRequest req;
-		SP<S> payload{make_shared<S>()};
+		std::shared_ptr<std::string> payload{make_shared<std::string>()};
 	};
 	auto state = make_shared<State>();
 	state->payload->assign(4096, 'x');
@@ -286,7 +286,7 @@ Case make_compress_below_threshold_case() {
 	struct State {
 		Router router;
 		HttpRequest req;
-		SP<S> payload{make_shared<S>()};
+		std::shared_ptr<std::string> payload{make_shared<std::string>()};
 	};
 	auto state = make_shared<State>();
 	state->payload->assign(128, 'x');
@@ -309,14 +309,14 @@ Case make_compress_below_threshold_case() {
 		}};
 }
 Case make_codec_payload_case_owned(
-	S codec_name,
-	SZ payload_size) {
+	std::string codec_name,
+	std::size_t payload_size) {
 	struct State {
-		S name;
-		S description;
+		std::string name;
+		std::string description;
 		Router router;
 		HttpRequest req;
-		SP<S> payload{make_shared<S>()};
+		std::shared_ptr<std::string> payload{make_shared<std::string>()};
 	};
 	auto state = make_shared<State>();
 	state->name = format("codec/{}/{}B", codec_name, payload_size);
@@ -342,13 +342,13 @@ Case make_codec_payload_case_owned(
 }
 Case make_gzip_backend_payload_case(
 	GzipBackend backend,
-	SZ payload_size) {
+	std::size_t payload_size) {
 	struct State {
-		S name;
-		S description;
+		std::string name;
+		std::string description;
 		Router router;
 		HttpRequest req;
-		SP<S> payload{make_shared<S>()};
+		std::shared_ptr<std::string> payload{make_shared<std::string>()};
 		GzipBackend backend;
 		bool configured = false;
 	};
@@ -373,7 +373,7 @@ Case make_gzip_backend_payload_case(
 		.run = [state] {
 			bool const ok = state->configured || force_gzip_backend(state->backend);
 			if (!ok) {
-				return SZ{0};
+				return std::size_t{0};
 			}
 			state->configured = true;
 			auto resp = state->router.dispatch(state->req);
@@ -501,11 +501,11 @@ Case make_flow_not_found_case() {
 		.default_iterations = 200000,
 		.run = [state] {
 			auto resp = state->router.dispatch(state->req);
-			return static_cast<SZ>(resp.status) + resp.text_body().size();
+			return static_cast<std::size_t>(resp.status) + resp.text_body().size();
 		}};
 }
-V<Case> build_cases() {
-	V<Case> cases;
+std::vector<Case> build_cases() {
+	std::vector<Case> cases;
 	cases.push_back(make_httpfields_lookup_case());
 	cases.push_back(make_typed_field_extract_case());
 	cases.push_back(make_router_exact_case());
@@ -567,17 +567,17 @@ V<Case> build_cases() {
 int main(
 	int argc,
 	char **argv) {
-	if (argc >= 2 && SV{argv[1]} == "--bench-info") {
+	if (argc >= 2 && std::string_view{argv[1]} == "--bench-info") {
 		std::print(
 			"{}\n",
 			R"({"name":"router","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
 		return 0;
 	}
 	try {
-		auto const cfg = benchmark_detail::parse_args({argv, static_cast<SZ>(argc)});
+		auto const cfg = benchmark_detail::parse_args({argv, static_cast<std::size_t>(argc)});
 		auto cases = benchmark_detail::build_cases();
 
-		V<benchmark_detail::Case const *> selected;
+		std::vector<benchmark_detail::Case const *> selected;
 		selected.reserve(cases.size());
 		for (auto const &bench: cases) {
 			if (benchmark_detail::matches_filter(bench, cfg.filter)) {
@@ -590,7 +590,7 @@ int main(
 			return 0;
 		}
 		if (selected.empty()) {
-			throw RE{"no benchmark cases matched the current filter"};
+			throw std::runtime_error{"no benchmark cases matched the current filter"};
 		}
 
 		benchmark_detail::print_header(cfg.format);

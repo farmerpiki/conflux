@@ -11,11 +11,11 @@ import conflux.file_map;
 namespace {
 
 struct TempDir {
-	S path{};
+	std::string path{};
 	int fd{-1};
 	TempDir() = default;
 	TempDir(
-		S p,
+		std::string p,
 		int f) noexcept
 		: path{move(p)}
 		, fd{f} {}
@@ -36,15 +36,15 @@ struct TempDir {
 		}
 	}
 	static TempDir create() {
-		S p = "/tmp/conflux_fio_sync_XXXXXX";
+		std::string p = "/tmp/conflux_fio_sync_XXXXXX";
 		auto *r = ::mkdtemp(p.data());
 		REQUIRE(r != nullptr);
 		int f = ::open(p.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
 		REQUIRE(f >= 0);
 		return TempDir{move(p), f};
 	}
-	S read_file(
-		SV name) const {
+	std::string read_file(
+		std::string_view name) const {
 		auto full = format("{}/{}", path, name);
 		int f = ::open(full.c_str(), O_RDONLY);
 		if (f < 0) {
@@ -56,17 +56,17 @@ struct TempDir {
 		if (n < 0) {
 			return {};
 		}
-		return S{buf, static_cast<SZ>(n)};
+		return std::string{buf, static_cast<std::size_t>(n)};
 	}
 	bool file_exists(
-		SV name) const {
+		std::string_view name) const {
 		auto full = format("{}/{}", path, name);
 		struct stat st{};
 		return ::stat(full.c_str(), &st) == 0;
 	}
 	void write_file(
-		SV name,
-		SV content) const {
+		std::string_view name,
+		std::string_view content) const {
 		auto full = format("{}/{}", path, name);
 		int f = ::open(full.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(f >= 0);
@@ -74,7 +74,7 @@ struct TempDir {
 		::close(f);
 	}
 	void mkdir_sub(
-		SV name) const {
+		std::string_view name) const {
 		auto full = format("{}/{}", path, name);
 		auto _ = ::mkdir(full.c_str(), 0755);
 	}
@@ -94,8 +94,8 @@ TEST_CASE(
 	"file_io_sync: blocking_write_file_atomic_at creates new file",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	SV text = "hello atomic world";
-	auto r = blocking_write_text_file_atomic_at(dir.fd, SV{"newfile.txt"}, text);
+	std::string_view text = "hello atomic world";
+	auto r = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"newfile.txt"}, text);
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("newfile.txt") == text);
 }
@@ -104,7 +104,7 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("target.txt", "old content");
-	auto r = blocking_write_text_file_atomic_at(dir.fd, SV{"target.txt"}, SV{"new content"});
+	auto r = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"target.txt"}, std::string_view{"new content"});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("target.txt") == "new content");
 }
@@ -115,8 +115,8 @@ TEST_CASE(
 	dir.write_file("keep.txt", "original");
 	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
-		SV{"keep.txt"},
-		SV{"overwrite"},
+		std::string_view{"keep.txt"},
+		std::string_view{"overwrite"},
 		TempFileOptions{},
 		TempPublishMode::create_new);
 	CHECK(!r.has_value());
@@ -127,7 +127,7 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.mkdir_sub("sub");
-	auto r = blocking_write_text_file_atomic_at(dir.fd, SV{"sub/nested.txt"}, SV{"deep"});
+	auto r = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"sub/nested.txt"}, std::string_view{"deep"});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("sub/nested.txt") == "deep");
 }
@@ -135,7 +135,7 @@ TEST_CASE(
 	"file_io_sync: absolute path rejected",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = blocking_write_text_file_atomic_at(dir.fd, SV{"/etc/passwd"}, SV{"nope"});
+	auto r = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"/etc/passwd"}, std::string_view{"nope"});
 	CHECK(!r.has_value());
 	CHECK(r.error().code().value() == EINVAL);
 }
@@ -143,7 +143,7 @@ TEST_CASE(
 	"file_io_sync: .. path rejected",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto r = blocking_write_text_file_atomic_at(dir.fd, SV{"../escape.txt"}, SV{"nope"});
+	auto r = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"../escape.txt"}, std::string_view{"nope"});
 	CHECK(!r.has_value());
 	CHECK(r.error().code().value() == EINVAL);
 }
@@ -153,8 +153,8 @@ TEST_CASE(
 	auto dir = TempDir::create();
 	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
-		SV{"fallback.txt"},
-		SV{"via named"},
+		std::string_view{"fallback.txt"},
+		std::string_view{"via named"},
 		TempFileOptions{.prefer_otmpfile = false});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("fallback.txt") == "via named");
@@ -165,8 +165,8 @@ TEST_CASE(
 	auto dir = TempDir::create();
 	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
-		SV{"durable.txt"},
-		SV{"synced"},
+		std::string_view{"durable.txt"},
+		std::string_view{"synced"},
 		TempFileOptions{.durability = TempDurability::file_and_directory});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("durable.txt") == "synced");
@@ -178,8 +178,8 @@ TEST_CASE(
 	dir.write_file("exists.txt", "present");
 	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
-		SV{"exists.txt"},
-		SV{"replace"},
+		std::string_view{"exists.txt"},
+		std::string_view{"replace"},
 		TempFileOptions{},
 		TempPublishMode::create_new);
 	CHECK(!r.has_value());
@@ -192,8 +192,8 @@ TEST_CASE(
 	auto dir = TempDir::create();
 	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
-		SV{"brand_new.txt"},
-		SV{"fresh"},
+		std::string_view{"brand_new.txt"},
+		std::string_view{"fresh"},
 		TempFileOptions{},
 		TempPublishMode::create_new);
 	REQUIRE(r.has_value());
@@ -205,8 +205,8 @@ TEST_CASE(
 	auto dir = TempDir::create();
 	auto r = blocking_write_text_file_atomic_at(
 		dir.fd,
-		SV{"fast.txt"},
-		SV{"no sync"},
+		std::string_view{"fast.txt"},
+		std::string_view{"no sync"},
 		TempFileOptions{.durability = TempDurability::none});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("fast.txt") == "no sync");
@@ -215,23 +215,23 @@ TEST_CASE(
 	"file_io_sync: empty and dot paths rejected",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	CHECK(!blocking_write_text_file_atomic_at(dir.fd, SV{""}, SV{"data"}).has_value());
-	CHECK(!blocking_write_text_file_atomic_at(dir.fd, SV{"."}, SV{"data"}).has_value());
-	CHECK(!blocking_write_text_file_atomic_at(dir.fd, SV{".."}, SV{"data"}).has_value());
+	CHECK(!blocking_write_text_file_atomic_at(dir.fd, std::string_view{""}, std::string_view{"data"}).has_value());
+	CHECK(!blocking_write_text_file_atomic_at(dir.fd, std::string_view{"."}, std::string_view{"data"}).has_value());
+	CHECK(!blocking_write_text_file_atomic_at(dir.fd, std::string_view{".."}, std::string_view{"data"}).has_value());
 }
 TEST_CASE(
 	"file_io_sync: binary blocking_write_file_atomic_at round-trips bytes",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	A<byte, 4> bytes{byte{0xDE}, byte{0xAD}, byte{0xBE}, byte{0xEF}};
-	auto r = blocking_write_file_atomic_at(dir.fd, SV{"binary.bin"}, span{bytes});
+	std::array<byte, 4> bytes{byte{0xDE}, byte{0xAD}, byte{0xBE}, byte{0xEF}};
+	auto r = blocking_write_file_atomic_at(dir.fd, std::string_view{"binary.bin"}, span{bytes});
 	REQUIRE(r.has_value());
 	auto content = dir.read_file("binary.bin");
 	REQUIRE(content.size() == 4);
-	CHECK(static_cast<u8>(content[0]) == 0xDE);
-	CHECK(static_cast<u8>(content[1]) == 0xAD);
-	CHECK(static_cast<u8>(content[2]) == 0xBE);
-	CHECK(static_cast<u8>(content[3]) == 0xEF);
+	CHECK(static_cast<std::uint8_t>(content[0]) == 0xDE);
+	CHECK(static_cast<std::uint8_t>(content[1]) == 0xAD);
+	CHECK(static_cast<std::uint8_t>(content[2]) == 0xBE);
+	CHECK(static_cast<std::uint8_t>(content[3]) == 0xEF);
 }
 
 TEST_CASE(
@@ -290,13 +290,13 @@ TEST_CASE(
 	"file_io_sync: legacy sync spellings remain available",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	SV text = "legacy sync aliases";
+	std::string_view text = "legacy sync aliases";
 	auto tmp = blocking_open_tmpfile(dir.fd, TempFileOptions{.prefer_otmpfile = false});
 	REQUIRE(tmp.has_value());
 
 	auto wr = write_all_fd(tmp->fd(), as_bytes(span{text.data(), text.size()}));
 	REQUIRE(wr.has_value());
-	auto pub = blocking_publish_tmpfile(move(*tmp), dir.fd, SV{"legacy.txt"});
+	auto pub = blocking_publish_tmpfile(move(*tmp), dir.fd, std::string_view{"legacy.txt"});
 	REQUIRE(pub.has_value());
 
 	auto file = blocking_openat_contained(dir.fd, "legacy.txt", O_RDONLY);
@@ -310,16 +310,16 @@ TEST_CASE(
 	"file_io_sync: blocking low-level aliases round-trip through contained file",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	SV text = "blocking aliases";
+	std::string_view text = "blocking aliases";
 	auto tmp = blocking_open_tmpfile(dir.fd, TempFileOptions{.prefer_otmpfile = false});
 	REQUIRE(tmp.has_value());
 
 	auto wr = blocking_write_all_fd(tmp->fd(), as_bytes(span{text.data(), text.size()}));
 	REQUIRE(wr.has_value());
-	auto pub = blocking_publish_tmpfile(move(*tmp), dir.fd, SV{"alias.txt"});
+	auto pub = blocking_publish_tmpfile(move(*tmp), dir.fd, std::string_view{"alias.txt"});
 	REQUIRE(pub.has_value());
 
-	auto stat = blocking_stat_at(dir.fd, SV{"alias.txt"});
+	auto stat = blocking_stat_at(dir.fd, std::string_view{"alias.txt"});
 	REQUIRE(stat.has_value());
 	CHECK(stat->size == text.size());
 
@@ -336,25 +336,25 @@ TEST_CASE(
 	REQUIRE(fd_content.has_value());
 	CHECK(*fd_content == text);
 
-	auto by_path = blocking_map_file_readonly(dir.fd, SV{"alias.txt"});
+	auto by_path = blocking_map_file_readonly(dir.fd, std::string_view{"alias.txt"});
 	REQUIRE(by_path.has_value());
-	CHECK(SV{reinterpret_cast<char const *>(by_path->bytes().data()), by_path->bytes().size()} == text);
+	CHECK(std::string_view{reinterpret_cast<char const *>(by_path->bytes().data()), by_path->bytes().size()} == text);
 
 	auto by_fd = blocking_map_fd_readonly(fd.fd(), *fd_stat);
 	REQUIRE(by_fd.has_value());
-	CHECK(SV{reinterpret_cast<char const *>(by_fd->bytes().data()), by_fd->bytes().size()} == text);
+	CHECK(std::string_view{reinterpret_cast<char const *>(by_fd->bytes().data()), by_fd->bytes().size()} == text);
 }
 
 TEST_CASE(
 	"file_io_sync: blocking atomic write aliases round-trip text and bytes",
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
-	auto text = blocking_write_text_file_atomic_at(dir.fd, SV{"text.txt"}, SV{"new name"});
+	auto text = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"text.txt"}, std::string_view{"new name"});
 	REQUIRE(text.has_value());
 	CHECK(dir.read_file("text.txt") == "new name");
 
-	A<byte, 3> bytes{byte{0x41}, byte{0x42}, byte{0x43}};
-	auto binary = blocking_write_file_atomic_at(dir.fd, SV{"bytes.bin"}, span{bytes});
+	std::array<byte, 3> bytes{byte{0x41}, byte{0x42}, byte{0x43}};
+	auto binary = blocking_write_file_atomic_at(dir.fd, std::string_view{"bytes.bin"}, span{bytes});
 	REQUIRE(binary.has_value());
 	CHECK(dir.read_file("bytes.bin") == "ABC");
 }

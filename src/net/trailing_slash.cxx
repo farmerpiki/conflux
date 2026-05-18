@@ -21,9 +21,9 @@ inline bool is_unreserved(
 	}
 	return c == '-' || c == '.' || c == '_' || c == '~';
 }
-inline S percent_encode(
-	SV in) {
-	S out;
+inline std::string percent_encode(
+	std::string_view in) {
+	std::string out;
 	out.reserve(in.size());
 	static constexpr char kHex[] = "0123456789ABCDEF";
 	for (char const ch: in) {
@@ -38,9 +38,9 @@ inline S percent_encode(
 	}
 	return out;
 }
-inline S build_query(
+inline std::string build_query(
 	HttpFieldsView const &query) {
-	S out;
+	std::string out;
 	bool first = true;
 	for (auto const &[k, v]: query) {
 		if (!first) {
@@ -57,7 +57,7 @@ inline S build_query(
 } // namespace trailing_slash_detail
 // Middleware factory: redirect requests with a trailing slash mismatch.
 // The root path "/" is never redirected regardless of mode.
-// Query S is re-serialized from parsed fields (percent-encoded per RFC 3986
+// Query std::string is re-serialized from parsed fields (percent-encoded per RFC 3986
 // unreserved set) and appended to the Location header.
 export Router::Middleware trailing_slash_middleware(
 	TrailingSlashOptions opts = {}) {
@@ -71,7 +71,7 @@ export Router::Middleware trailing_slash_middleware(
 
 		bool const has_slash = path.back() == '/';
 
-		auto make_redirect = [&](S new_path) {
+		auto make_redirect = [&](std::string new_path) {
 			if (!req.query.empty()) {
 				new_path.push_back('?');
 				new_path += trailing_slash_detail::build_query(req.query);
@@ -92,10 +92,10 @@ export Router::Middleware trailing_slash_middleware(
 		};
 
 		if (opts.mode == TrailingSlashMode::remove && has_slash) {
-			return make_redirect(S{path.substr(0, path.size() - 1)});
+			return make_redirect(std::string{path.substr(0, path.size() - 1)});
 		}
 		if (opts.mode == TrailingSlashMode::add && !has_slash) {
-			return make_redirect(S{path} + '/');
+			return make_redirect(std::string{path} + '/');
 		}
 
 		return next(req);

@@ -13,7 +13,7 @@ import conflux.net.http.server;
 import std;
 static void write_file(
 	fs::path const &path,
-	SV contents) {
+	std::string_view contents) {
 	std::ofstream out(path, std::ios::binary);
 	out << contents;
 }

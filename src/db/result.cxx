@@ -110,10 +110,10 @@ inline string_view Row::as<string_view>(
 	return get(c);
 }
 template<>
-inline i64 Row::as<i64>(
+inline std::int64_t Row::as<std::int64_t>(
 	int c) const {
 	auto sv = get(c);
-	i64 v = 0;
+	std::int64_t v = 0;
 	auto const *first = sv.data();
 	auto const *last = first + sv.size();
 	auto [p, ec] = from_chars(first, last, v);
@@ -123,10 +123,10 @@ inline i64 Row::as<i64>(
 	return v;
 }
 template<>
-inline i32 Row::as<i32>(
+inline std::int32_t Row::as<std::int32_t>(
 	int c) const {
 	auto sv = get(c);
-	i32 v = 0;
+	std::int32_t v = 0;
 	auto const *first = sv.data();
 	auto const *last = first + sv.size();
 	auto [p, ec] = from_chars(first, last, v);

@@ -9,22 +9,22 @@ import conflux.types;
 // ---------------------------------------------------------------------------
 
 // NOLINTBEGIN(readability-magic-numbers)
-// Fast-path dump for bytes already known to be a raw JSON S body
+// Fast-path dump for bytes already known to be a raw JSON std::string body
 // (kRawJsonSlice set on parse-side unescaped strings/numbers): no scan,
 // just bracket the slice with quotes. Caller must guarantee `flags &
 // kRawJsonSlice` and !ascii_only (the latter would still need a
 // byte-by-byte non-ASCII rewrite).
 inline void dump_str_raw(
-	SV sv,
-	S &out) {
+	std::string_view sv,
+	std::string &out) {
 	out += '"';
 	out.append(sv.data(), sv.size());
 	out += '"';
 }
 inline void append_u_escape(
-	S &out,
-	u32 cp) {
-	static constexpr A<char, 16> kHex = {'0', '1', '2', '3', '4', '5', '6', '7',
+	std::string &out,
+	std::uint32_t cp) {
+	static constexpr std::array<char, 16> kHex = {'0', '1', '2', '3', '4', '5', '6', '7',
 		'8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
 	out += "\\u";
 	out += kHex[(cp >> 12U) & 0x0FU];
@@ -35,11 +35,11 @@ inline void append_u_escape(
 // R3 — find the next byte in [p, n) that needs escaping in a JSON string body.
 // ascii_only=false: stops at '"', '\\', or ctrl chars [0x00,0x1F].
 // ascii_only=true:  also stops at high-bit bytes [0x80,0xFF].
-[[nodiscard]] inline SZ scan_dump_safe_run(
+[[nodiscard]] inline std::size_t scan_dump_safe_run(
 	char const *p,
-	SZ n,
+	std::size_t n,
 	bool ascii_only) noexcept {
-	SZ i = 0;
+	std::size_t i = 0;
 #if defined(CONFLUX_JSON_HAS_STDSIMD)
 	return conflux_json_scan_dump_safe_run_stdsimd(p, n, ascii_only ? 1 : 0);
 #elif defined(CONFLUX_JSON_HAS_AVX2)
@@ -59,7 +59,7 @@ inline void append_u_escape(
 		}
 		auto const mask = static_cast<unsigned>(_mm256_movemask_epi8(mix));
 		if (mask != 0U) {
-			return i + static_cast<SZ>(__builtin_ctz(mask));
+			return i + static_cast<std::size_t>(__builtin_ctz(mask));
 		}
 		i += 32;
 	}
@@ -75,7 +75,7 @@ inline void append_u_escape(
 		}
 		auto const mask16 = static_cast<unsigned>(_mm_movemask_epi8(mix16));
 		if (mask16 != 0U) {
-			return i + static_cast<SZ>(__builtin_ctz(mask16));
+			return i + static_cast<std::size_t>(__builtin_ctz(mask16));
 		}
 		i += 16;
 	}
@@ -96,7 +96,7 @@ inline void append_u_escape(
 		}
 		auto const mask = static_cast<unsigned>(_mm_movemask_epi8(mix));
 		if (mask != 0U) {
-			return i + static_cast<SZ>(__builtin_ctz(mask));
+			return i + static_cast<std::size_t>(__builtin_ctz(mask));
 		}
 		i += 16;
 	}
@@ -113,11 +113,11 @@ inline void append_u_escape(
 	return n;
 }
 void dump_str(
-	SV sv,
-	S &out,
+	std::string_view sv,
+	std::string &out,
 	bool ascii_only) {
 	out += '"';
-	SZ i = 0;
+	std::size_t i = 0;
 	while (i < sv.size()) {
 		auto const c = static_cast<unsigned char>(sv[i]);
 		// Scalar pre-check: when the very next byte already needs escaping,
@@ -126,7 +126,7 @@ void dump_str(
 		bool const needs_escape = (c == '"' || c == '\\' || c < 0x20U || (ascii_only && c >= 0x80U));
 		if (!needs_escape) {
 			// R3 — fast-forward over the safe-ASCII run.
-			SZ const run = scan_dump_safe_run(sv.data() + i, sv.size() - i, ascii_only);
+			std::size_t const run = scan_dump_safe_run(sv.data() + i, sv.size() - i, ascii_only);
 			out.append(sv.data() + i, run);
 			i += run;
 			if (i >= sv.size()) {
@@ -169,8 +169,8 @@ void dump_str(
 				++i;
 			} else if (ascii_only && cc >= 0x80U) {
 				// Decode UTF-8 to get code point, then emit \uXXXX or surrogate P.
-				u32 cp = 0;
-				SZ seq = 0;
+				std::uint32_t cp = 0;
+				std::size_t seq = 0;
 				if (cc < 0xE0U) {
 					cp = cc & 0x1FU;
 					seq = 2;
@@ -181,7 +181,7 @@ void dump_str(
 					cp = cc & 0x07U;
 					seq = 4;
 				}
-				for (SZ k = 1; k < seq && i + k < sv.size(); ++k) {
+				for (std::size_t k = 1; k < seq && i + k < sv.size(); ++k) {
 					cp = (cp << 6U) | (static_cast<unsigned char>(sv[i + k]) & 0x3FU);
 				}
 				i += seq;
@@ -205,11 +205,11 @@ void dump_str(
 // NOLINTNEXTLINE(misc-no-recursion)
 void dump_node(
 	DocumentStorage const &store,
-	SZ node_idx,
+	std::size_t node_idx,
 	JsonDumpOptions const &opts,
 	unsigned depth,
-	S &out) {
-	if (opts.truncate_depth.has_value() && static_cast<SZ>(depth) > *opts.truncate_depth) {
+	std::string &out) {
+	if (opts.truncate_depth.has_value() && static_cast<std::size_t>(depth) > *opts.truncate_depth) {
 		out += "null";
 		return;
 	}
@@ -220,7 +220,7 @@ void dump_node(
 			return;
 		}
 		out += '\n';
-		out.append(static_cast<SZ>(d) * opts.indent, opts.indent_char);
+		out.append(static_cast<std::size_t>(d) * opts.indent, opts.indent_char);
 	};
 
 	switch (n.kind) {
@@ -241,7 +241,7 @@ void dump_node(
 		{
 			out += '[';
 			if (n.len > 0) {
-				for (SZ i = 0; i < n.len; ++i) {
+				for (std::size_t i = 0; i < n.len; ++i) {
 					if (i > 0) {
 						out += ',';
 					}
@@ -261,16 +261,16 @@ void dump_node(
 				// R3 — only allocate the order V when sorting; the
 				// unsorted path iterates members in source order directly.
 				if (opts.sort_object_keys) {
-					V<SZ> order(n.len);
+					std::vector<std::size_t> order(n.len);
 					iota(order.begin(), order.end(), 0);
-					sort(order.begin(), order.end(), [&](SZ x, SZ y) {
+					sort(order.begin(), order.end(), [&](std::size_t x, std::size_t y) {
 						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 						auto const &mx = store.object_members[n.off + x];
 						// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
 						auto const &my = store.object_members[n.off + y];
 						return store.member_name(mx) < store.member_name(my);
 					});
-					for (SZ i = 0; i < n.len; ++i) {
+					for (std::size_t i = 0; i < n.len; ++i) {
 						if (i > 0) {
 							out += ',';
 						}
@@ -286,7 +286,7 @@ void dump_node(
 						dump_node(store, m.val_node, opts, depth + 1, out);
 					}
 				} else {
-					for (SZ i = 0; i < n.len; ++i) {
+					for (std::size_t i = 0; i < n.len; ++i) {
 						if (i > 0) {
 							out += ',';
 						}
@@ -311,9 +311,9 @@ void dump_node(
 }
 
 
-expected<S, JsonError> Document::dump(
+expected<std::string, JsonError> Document::dump(
 	JsonDumpOptions const &opts) const {
-	S out;
+	std::string out;
 	// R3 — skip the small-buffer doubling cycle. Empirically dump output
 	// is roughly 1.05–1.2x the input size for compact corpora and within
 	// 3x for pretty-printed; reserve from string_arena + nodes count.
@@ -321,10 +321,10 @@ expected<S, JsonError> Document::dump(
 	dump_node(*storage_, storage_->root_node, opts, 0, out);
 	return out;
 }
-expected<S, JsonError> ArenaDocument::dump(
+expected<std::string, JsonError> ArenaDocument::dump(
 	JsonDumpOptions const &opts) const {
 	check_live();
-	S out;
+	std::string out;
 	out.reserve(storage_->input_view.size() + storage_->string_arena.size() + 32);
 	dump_node(*storage_, storage_->root_node, opts, 0, out);
 	return out;

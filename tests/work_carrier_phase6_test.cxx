@@ -21,9 +21,9 @@ carrier::Chain<int> make_success(
 	return carrier::from_task(move(task));
 }
 carrier::Chain<int> make_failure(
-	SV msg = "fail") {
+	std::string_view msg = "fail") {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.try_set_exception(make_exception_ptr(RE{S{msg}}));
+	(void)src.try_set_exception(make_exception_ptr(std::runtime_error{std::string{msg}}));
 	return carrier::from_task(move(task));
 }
 carrier::Chain<int> make_cancelled() {
@@ -113,7 +113,7 @@ TEST_CASE(
 	auto task = carrier::into_ready_task(make_failure("oops"));
 	auto out = root::blocking_join(move(task));
 	REQUIRE(out.is_failure());
-	CHECK_THROWS_AS(rethrow_exception(out.failure().error), RE);
+	CHECK_THROWS_AS(rethrow_exception(out.failure().error), std::runtime_error);
 }
 TEST_CASE(
 	"phase6b: into_ready_task cancelled branch produces equivalent Task",
@@ -185,7 +185,7 @@ TEST_CASE(
 		rethrow_exception(out.failure().error);
 	} catch (carrier::AggregateError const &) {
 		FAIL("single failure must not produce AggregateError");
-	} catch (RE const &) { CHECK(true); }
+	} catch (std::runtime_error const &) { CHECK(true); }
 }
 TEST_CASE(
 	"phase6c: when_all single B failure returns original cause unwrapped",
@@ -197,7 +197,7 @@ TEST_CASE(
 		rethrow_exception(out.failure().error);
 	} catch (carrier::AggregateError const &) {
 		FAIL("single failure must not produce AggregateError");
-	} catch (RE const &) { CHECK(true); }
+	} catch (std::runtime_error const &) { CHECK(true); }
 }
 TEST_CASE(
 	"phase6c: when_all A failure B cancelled returns A failure",

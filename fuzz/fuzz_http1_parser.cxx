@@ -11,8 +11,8 @@ import conflux.net.config;
 
 using namespace std;
 extern "C" int LLVMFuzzerTestOneInput(
-	u8 const *data,
-	SZ size) {
+	std::uint8_t const *data,
+	std::size_t size) {
 	if (size < 1) {
 		return 0;
 	}
@@ -23,7 +23,7 @@ extern "C" int LLVMFuzzerTestOneInput(
 	limits.max_headers = 64;
 	limits.max_header_block_size = 16U * 1024U;
 
-	SV input{reinterpret_cast<char const *>(data + 1), size - 1};
+	std::string_view input{reinterpret_cast<char const *>(data + 1), size - 1};
 
 	conflux::http1::ParsedRequest out;
 	auto const st = conflux::http1::parse_request(input, limits, out);
@@ -33,7 +33,7 @@ extern "C" int LLVMFuzzerTestOneInput(
 
 	auto const *base = input.data();
 	auto const *end = base + input.size();
-	auto within = [&](SV sv) {
+	auto within = [&](std::string_view sv) {
 		if (sv.empty()) {
 			return true;
 		}

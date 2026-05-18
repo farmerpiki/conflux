@@ -10,29 +10,29 @@ using namespace conflux::http;
 
 [[nodiscard]] bool default_header_key_eq(
 	HttpFields const &defaults,
-	SV lhs,
-	SV rhs) noexcept {
+	std::string_view lhs,
+	std::string_view rhs) noexcept {
 	return defaults.case_insensitive() ? ascii_iequals(lhs, rhs) : lhs == rhs;
 }
 
 [[nodiscard]] bool serializable_request_header(
-	SV name) noexcept {
+	std::string_view name) noexcept {
 	return !ascii_iequals(name, "host") && !is_hop_by_hop_header(name);
 }
 
 void append_decimal(
-	S &out,
-	SZ value) {
-	A<char, 32> buf{};
+	std::string &out,
+	std::size_t value) {
+	std::array<char, 32> buf{};
 	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value);
 	if (ec == errc{}) {
-		out.append(buf.data(), static_cast<SZ>(ptr - buf.data()));
+		out.append(buf.data(), static_cast<std::size_t>(ptr - buf.data()));
 	}
 }
 
-[[nodiscard]] SZ decimal_size(
-	SZ value) noexcept {
-	SZ n = 1;
+[[nodiscard]] std::size_t decimal_size(
+	std::size_t value) noexcept {
+	std::size_t n = 1;
 	while (value >= 10) {
 		value /= 10;
 		++n;
@@ -45,9 +45,9 @@ void append_decimal(
 	return (url.scheme == "http" && url.port == 80) || (url.scheme == "https" && url.port == 443);
 }
 
-[[nodiscard]] SZ host_header_value_size(
+[[nodiscard]] std::size_t host_header_value_size(
 	Url const &url,
-	SV caller_host) noexcept {
+	std::string_view caller_host) noexcept {
 	if (!caller_host.empty()) {
 		return caller_host.size();
 	}
@@ -58,9 +58,9 @@ void append_decimal(
 }
 
 void append_host_header_value(
-	S &out,
+	std::string &out,
 	Url const &url,
-	SV caller_host) {
+	std::string_view caller_host) {
 	if (!caller_host.empty()) {
 		out += caller_host;
 		return;
@@ -72,9 +72,9 @@ void append_host_header_value(
 	}
 }
 
-[[nodiscard]] SZ request_target_size(
+[[nodiscard]] std::size_t request_target_size(
 	Url const &url) noexcept {
-	SZ n = url.path.empty() ? 1 : url.path.size();
+	std::size_t n = url.path.empty() ? 1 : url.path.size();
 	if (!url.query.empty()) {
 		n += 1 + url.query.size();
 	}
@@ -82,7 +82,7 @@ void append_host_header_value(
 }
 
 void append_request_target(
-	S &out,
+	std::string &out,
 	Url const &url) {
 	if (url.path.empty()) {
 		out += '/';
@@ -96,23 +96,23 @@ void append_request_target(
 }
 
 void append_header_line(
-	S &out,
-	SV name,
-	SV value) {
+	std::string &out,
+	std::string_view name,
+	std::string_view value) {
 	out += name;
 	out += ": ";
 	out += value;
 	out += "\r\n";
 }
 
-[[nodiscard]] Opt<SV> find_request_override(
+[[nodiscard]] std::optional<std::string_view> find_request_override(
 	HttpFields const &defaults,
 	HttpFields const &headers,
-	SV default_name) noexcept {
-	Opt<SV> found{};
+	std::string_view default_name) noexcept {
+	std::optional<std::string_view> found{};
 	for (auto const &[k, v]: headers) {
 		if (serializable_request_header(k) && default_header_key_eq(defaults, k, default_name)) {
-			found = SV{v};
+			found = std::string_view{v};
 		}
 	}
 	return found;
@@ -120,10 +120,10 @@ void append_header_line(
 
 [[nodiscard]] bool default_has_prior_key(
 	HttpFields const &defaults,
-	SZ index) noexcept {
-	SV current_name;
+	std::size_t index) noexcept {
+	std::string_view current_name;
 	bool current_found = false;
-	SZ i = 0;
+	std::size_t i = 0;
 	for (auto const &[k, v]: defaults) {
 		(void)v;
 		if (i == index) {
@@ -152,7 +152,7 @@ void append_header_line(
 
 [[nodiscard]] bool request_matches_default(
 	HttpFields const &defaults,
-	SV request_name) noexcept {
+	std::string_view request_name) noexcept {
 	for (auto const &[k, v]: defaults) {
 		(void)v;
 		if (serializable_request_header(k) && default_header_key_eq(defaults, k, request_name)) {
@@ -162,12 +162,12 @@ void append_header_line(
 	return false;
 }
 
-[[nodiscard]] SZ estimate_request_wire_size(
+[[nodiscard]] std::size_t estimate_request_wire_size(
 	ClientRequest const &req,
 	HttpFields const &default_headers,
-	SV caller_host) noexcept {
+	std::string_view caller_host) noexcept {
 	auto const &url = req.url();
-	SZ n = req.method().size() + 1 + request_target_size(url) + sizeof(" HTTP/1.1\r\nHost: ") - 1
+	std::size_t n = req.method().size() + 1 + request_target_size(url) + sizeof(" HTTP/1.1\r\nHost: ") - 1
 		   + host_header_value_size(url, caller_host) + 2;
 	for (auto const &[k, v]: default_headers) {
 		if (serializable_request_header(k)) {
@@ -191,13 +191,13 @@ void append_header_line(
 
 export namespace conflux::http::client_wire {
 
-[[nodiscard]] S build_http1_request_wire(
+[[nodiscard]] std::string build_http1_request_wire(
 	ClientRequest const &req,
 	HttpFields const &default_headers) {
 	using namespace client_wire_detail;
 	auto const &url = req.url();
 	auto const caller_host = req.headers()["host"];
-	S wire;
+	std::string wire;
 	wire.reserve(estimate_request_wire_size(req, default_headers, caller_host));
 	wire += req.method();
 	wire += ' ';
@@ -206,7 +206,7 @@ export namespace conflux::http::client_wire {
 	append_host_header_value(wire, url, caller_host);
 	wire += "\r\n";
 
-	SZ default_index = 0;
+	std::size_t default_index = 0;
 	for (auto const &[k, v]: default_headers) {
 		if (!serializable_request_header(k)) {
 			++default_index;

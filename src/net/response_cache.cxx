@@ -18,14 +18,14 @@ export struct ResponseCacheOptions {
 	// Maximum total bytes of cached response bodies (0 = unlimited).
 	std::size_t max_bytes{64ULL * 1024 * 1024};
 	// Default TTL when the response has no Cache-Control max-age.
-	chrono::seconds default_ttl{60};
+	std::chrono::seconds default_ttl{60};
 	// When true, Vary: * responses are not cached.
 	bool respect_vary{true};
 };
 // Internal cache entry type (not exported; module-scope to avoid GCC TU-local error).
 struct RespCacheEntry {
 	HttpResponse resp;
-	chrono::steady_clock::time_point expires;
+	std::chrono::steady_clock::time_point expires;
 };
 // LRU cache: module-scope (not exported, not anonymous-namespace).
 class RespLruCache {
@@ -42,7 +42,7 @@ public:
 		if (it == map_.end()) {
 			return nullptr;
 		}
-		if (chrono::steady_clock::now() >= it->second.expires) {
+		if (std::chrono::steady_clock::now() >= it->second.expires) {
 			total_bytes_ -= it->second.resp.text_body().size();
 			order_.erase(iters_.at(key));
 			iters_.erase(key);
@@ -126,7 +126,7 @@ bool cache_control_directive_contains(
 	return false;
 }
 // Parse max-age from a Cache-Control header value. Returns 0 if not found.
-chrono::seconds parse_max_age(
+std::chrono::seconds parse_max_age(
 	std::string_view cc) {
 	while (!cc.empty()) {
 		auto comma = cc.find(',');
@@ -139,17 +139,17 @@ chrono::seconds parse_max_age(
 				long v = 0;
 				auto [ptr, ec] = from_chars(val.data(), val.data() + val.size(), v);
 				if (ec != errc{} || ptr != val.data() + val.size()) {
-					return chrono::seconds{0};
+					return std::chrono::seconds{0};
 				}
-				return chrono::seconds{v};
+				return std::chrono::seconds{v};
 			}
 		}
 		if (comma == std::string_view::npos) {
-			return chrono::seconds{0};
+			return std::chrono::seconds{0};
 		}
 		cc.remove_prefix(comma + 1);
 	}
-	return chrono::seconds{0};
+	return std::chrono::seconds{0};
 }
 // Parse a Vary header value into a sorted, lowercased, deduped list of header names.
 // Returns empty vector for empty input or "*".
@@ -279,7 +279,7 @@ export Router::Middleware response_cache_middleware(
 				cache->set_vary(path, vary_list);
 			}
 			auto store_key = response_cache_detail::build_cache_key(path, req.query, vary_list, req.headers);
-			cache->put(store_key, {.resp = resp, .expires = chrono::steady_clock::now() + ttl});
+			cache->put(store_key, {.resp = resp, .expires = std::chrono::steady_clock::now() + ttl});
 		}
 		return resp;
 	};

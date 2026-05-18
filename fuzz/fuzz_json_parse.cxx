@@ -11,13 +11,13 @@ import conflux.json;
 using namespace std;
 using namespace conflux::json;
 extern "C" int LLVMFuzzerTestOneInput(
-	u8 const *data,
-	SZ size) {
+	std::uint8_t const *data,
+	std::size_t size) {
 	if (size == 0) {
 		return 0;
 	}
 
-	SV input{reinterpret_cast<char const *>(data), size};
+	std::string_view input{reinterpret_cast<char const *>(data), size};
 
 	JsonParseOptions opts;
 	opts.max_depth = LimitOption::bound(256); // prevent stack overflow on deep nesting

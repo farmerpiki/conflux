@@ -5,7 +5,7 @@ import std.compat;
 import conflux.types;
 
 void JsonStreamReader::refresh_reader_input() noexcept {
-	reader_.replace_input(SV{buf_.data(), buf_.size()});
+	reader_.replace_input(std::string_view{buf_.data(), buf_.size()});
 }
 
 void JsonStreamReader::set_error(
@@ -14,9 +14,9 @@ void JsonStreamReader::set_error(
 	last_error_ = move(e);
 }
 
-SZ JsonStreamReader::configured_cap() const noexcept {
-	constexpr SZ kU32Ceiling = (SZ{1} << 32) - 1;
-	SZ const hard_cap = kU32Ceiling - 1;
+std::size_t JsonStreamReader::configured_cap() const noexcept {
+	constexpr std::size_t kU32Ceiling = (std::size_t{1} << 32) - 1;
+	std::size_t const hard_cap = kU32Ceiling - 1;
 	if (opts_.max_input_size.is_unlimited()) {
 		return hard_cap;
 	}
@@ -25,7 +25,7 @@ SZ JsonStreamReader::configured_cap() const noexcept {
 
 JsonError JsonStreamReader::make_stream_error(
 	JsonIssueCode code,
-	S message) const {
+	std::string message) const {
 	return JsonError{
 		.stage = JsonStage::parse,
 		.code = code,
@@ -35,11 +35,11 @@ JsonError JsonStreamReader::make_stream_error(
 }
 
 bool JsonStreamReader::tail_is_prefix_of_literal(
-	SZ start) const noexcept {
-	SV const tail{buf_.data() + start, buf_.size() - start};
-	return (tail.size() < SV{"true"}.size() && SV{"true"}.starts_with(tail))
-		|| (tail.size() < SV{"false"}.size() && SV{"false"}.starts_with(tail))
-		|| (tail.size() < SV{"null"}.size() && SV{"null"}.starts_with(tail));
+	std::size_t start) const noexcept {
+	std::string_view const tail{buf_.data() + start, buf_.size() - start};
+	return (tail.size() < std::string_view{"true"}.size() && std::string_view{"true"}.starts_with(tail))
+		|| (tail.size() < std::string_view{"false"}.size() && std::string_view{"false"}.starts_with(tail))
+		|| (tail.size() < std::string_view{"null"}.size() && std::string_view{"null"}.starts_with(tail));
 }
 
 bool JsonStreamReader::trailing_utf8_prefix_needs_more() const noexcept {
@@ -47,12 +47,12 @@ bool JsonStreamReader::trailing_utf8_prefix_needs_more() const noexcept {
 		return false;
 	}
 	auto const c = static_cast<unsigned char>(buf_[reader_.pos_]);
-	SZ const seq = utf8_seq_len(c);
+	std::size_t const seq = utf8_seq_len(c);
 	return seq != 0 && reader_.pos_ + seq > buf_.size();
 }
 
 bool JsonStreamReader::recoverable_need_more(
-	SZ checkpoint_pos,
+	std::size_t checkpoint_pos,
 	JsonError const &error) const noexcept {
 	if (closed_) {
 		return false;
@@ -90,10 +90,10 @@ bool JsonStreamReader::event_needs_more_before_emit(
 JsonStreamReader::JsonStreamReader(
 	JsonParseOptions const &opts)
 	: opts_{opts}
-	, reader_{SV{buf_.data(), buf_.size()}, opts} {}
+	, reader_{std::string_view{buf_.data(), buf_.size()}, opts} {}
 
 expected<void, JsonError> JsonStreamReader::feed(
-	SV chunk) {
+	std::string_view chunk) {
 	return feed(span<byte const>{reinterpret_cast<byte const *>(chunk.data()), chunk.size()});
 }
 
@@ -105,7 +105,7 @@ expected<void, JsonError> JsonStreamReader::feed(
 	if (closed_) {
 		return unexpected(make_stream_error(JsonIssueCode::invalid_value, "cannot feed after close"));
 	}
-	SZ const cap = configured_cap();
+	std::size_t const cap = configured_cap();
 	if (buf_.size() > cap || chunk.size() > cap - buf_.size()) {
 		return unexpected(
 			JsonError{
@@ -127,7 +127,7 @@ expected<void, JsonError> JsonStreamReader::close() {
 	return {};
 }
 
-expected<Opt<JsonStreamReader::Event>, JsonError> JsonStreamReader::next() {
+expected<std::optional<JsonStreamReader::Event>, JsonError> JsonStreamReader::next() {
 	if (has_error_) {
 		return unexpected(last_error_);
 	}
@@ -138,14 +138,14 @@ expected<Opt<JsonStreamReader::Event>, JsonError> JsonStreamReader::next() {
 		auto error = move(ev).error();
 		if (recoverable_need_more(checkpoint.pos, error)) {
 			reader_.restore(move(checkpoint));
-			return Opt<Event>{};
+			return std::optional<Event>{};
 		}
 		set_error(move(error));
 		return unexpected(last_error_);
 	}
 	if (*ev && event_needs_more_before_emit(**ev)) {
 		reader_.restore(move(checkpoint));
-		return Opt<Event>{};
+		return std::optional<Event>{};
 	}
 	return ev;
 }
@@ -166,11 +166,11 @@ bool JsonStreamReader::bool_val() const noexcept {
 	return reader_.bool_val();
 }
 
-SV JsonStreamReader::input() const noexcept {
-	return SV{buf_.data(), buf_.size()};
+std::string_view JsonStreamReader::input() const noexcept {
+	return std::string_view{buf_.data(), buf_.size()};
 }
 
-SZ JsonStreamReader::depth() const noexcept {
+std::size_t JsonStreamReader::depth() const noexcept {
 	return reader_.depth();
 }
 
@@ -182,15 +182,15 @@ bool JsonStreamReader::closed() const noexcept {
 	return closed_;
 }
 
-SZ JsonStreamReader::pos() const noexcept {
+std::size_t JsonStreamReader::pos() const noexcept {
 	return reader_.pos();
 }
 
-SZ JsonStreamReader::value_start_pos() const noexcept {
+std::size_t JsonStreamReader::value_start_pos() const noexcept {
 	return reader_.value_start_pos();
 }
 
-SZ JsonStreamReader::buffered_bytes() const noexcept {
+std::size_t JsonStreamReader::buffered_bytes() const noexcept {
 	return buf_.size();
 }
 
@@ -204,7 +204,7 @@ void JsonStreamReader::reset() noexcept {
 }
 
 NdjsonRange::NdjsonRange(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts) noexcept
 	: input_{input}
 	, opts_{opts} {}
@@ -213,8 +213,8 @@ void NdjsonRange::Iterator::advance_one() noexcept {
 	cache_.reset();
 	while (!remaining_.empty()) {
 		auto pos = remaining_.find('\n');
-		SV line;
-		if (pos == SV::npos) {
+		std::string_view line;
+		if (pos == std::string_view::npos) {
 			line = remaining_;
 			remaining_ = {};
 		} else {
@@ -234,7 +234,7 @@ void NdjsonRange::Iterator::advance_one() noexcept {
 }
 
 NdjsonRange::Iterator::Iterator(
-	SV remaining,
+	std::string_view remaining,
 	JsonParseOptions const &opts) noexcept
 	: remaining_{remaining}
 	, opts_{opts} {
@@ -277,15 +277,15 @@ JsonAccumulator::JsonAccumulator(
 	: opts_{opts} {}
 
 expected<void, JsonError> JsonAccumulator::feed(
-	SV chunk) {
+	std::string_view chunk) {
 	return feed(span<byte const>{reinterpret_cast<byte const *>(chunk.data()), chunk.size()});
 }
 
 expected<void, JsonError> JsonAccumulator::feed(
 	span<byte const> chunk) {
-	constexpr SZ kU32Ceiling = (SZ{1} << 32) - 1;
-	SZ const hard_cap = kU32Ceiling - 1;
-	SZ const configured_cap = opts_.max_input_size.is_unlimited() ?
+	constexpr std::size_t kU32Ceiling = (std::size_t{1} << 32) - 1;
+	std::size_t const hard_cap = kU32Ceiling - 1;
+	std::size_t const configured_cap = opts_.max_input_size.is_unlimited() ?
 								  hard_cap :
 								  min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput), hard_cap);
 	if (buf_.size() > configured_cap || chunk.size() > configured_cap - buf_.size()) {
@@ -307,6 +307,6 @@ void JsonAccumulator::reset() noexcept {
 	buf_.clear();
 }
 
-SZ JsonAccumulator::buffered_bytes() const noexcept {
+std::size_t JsonAccumulator::buffered_bytes() const noexcept {
 	return buf_.size();
 }

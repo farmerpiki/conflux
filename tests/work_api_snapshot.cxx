@@ -59,21 +59,21 @@ using _RingLane = ::RingLane;
 using _RingLaneOptions = ::RingLaneOptions;
 
 static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().queue_mode), ::WorkPoolQueueMode>);
-static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().inject_queue_shards), SZ>);
-static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().initial_job_slab_slots), SZ>);
-static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().max_job_slab_slots), SZ>);
+static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().inject_queue_shards), std::size_t>);
+static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().initial_job_slab_slots), std::size_t>);
+static_assert(same_as<decltype(std::declval<::WorkPoolOptions>().max_job_slab_slots), std::size_t>);
 static_assert(::WorkPoolQueueMode::stealing != ::WorkPoolQueueMode::no_stealing);
 static_assert(same_as<decltype(std::declval<::WorkPool &>().queue_stats()), ::WorkPoolQueueStats>);
 static_assert(same_as<decltype(std::declval<::WorkPool &>().reset_queue_stats()), void>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().enqueue_attempts), u64>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().admission_lock_contentions), u64>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().local_lock_contentions), u64>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().steal_lock_contentions), u64>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().futex_waits), u64>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().job_slot_allocations), u64>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().job_slab_allocations), u64>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().queue_full_token_discards), u64>);
-static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().remote_free_pushes), u64>);
+static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().enqueue_attempts), std::uint64_t>);
+static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().admission_lock_contentions), std::uint64_t>);
+static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().local_lock_contentions), std::uint64_t>);
+static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().steal_lock_contentions), std::uint64_t>);
+static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().futex_waits), std::uint64_t>);
+static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().job_slot_allocations), std::uint64_t>);
+static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().job_slab_allocations), std::uint64_t>);
+static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().queue_full_token_discards), std::uint64_t>);
+static_assert(same_as<decltype(std::declval<::WorkPoolQueueStats>().remote_free_pushes), std::uint64_t>);
 
 } // namespace snapshot_work_pool_api
 // ---------------------------------------------------------------------------
@@ -104,12 +104,12 @@ using _small_move_only_fn_int = root::detail::small_move_only_function<int(int),
 // E4: Source setter API (try_set_value / try_set_exception / try_set_cancelled / try_set_error)
 static_assert(
 	std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_value(root::Success<int>{})), bool>);
-static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_exception(EP{})), bool>);
+static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_exception(std::exception_ptr{})), bool>);
 static_assert(std::is_same_v<
 			  decltype(std::declval<root::TaskSource<int>>().try_set_cancelled(root::work_errc::cancelled_requested)),
 			  bool>);
-static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_error(EC{})), bool>);
-static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_error(EC{}, SV{})), bool>);
+static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_error(std::error_code{})), bool>);
+static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_error(std::error_code{}, std::string_view{})), bool>);
 
 // E4: concept work_handle — satisfied by Task, Posted, Operation, *JoinHandle
 static_assert(root::work_handle<root::Task<int>>);
@@ -123,7 +123,7 @@ static_assert(root::work_handle<root::OperationJoinHandle<int>>);
 using _work_errc = root::work_errc;
 static_assert(root::work_errc::cancelled_requested == root::work_errc{1});
 static_assert(std::is_same_v<decltype(root::work_category()), std::error_category const &>);
-static_assert(std::is_same_v<decltype(root::make_error_code(root::work_errc{})), EC>);
+static_assert(std::is_same_v<decltype(root::make_error_code(root::work_errc{})), std::error_code>);
 static_assert(std::is_same_v<decltype(root::cancel_reason_errc(root::CancelReason::requested)), root::work_errc>);
 
 // Exception / error types
@@ -221,7 +221,7 @@ void _e1x_api_check_() {
 }
 // E1.x — set_dropped_outcome_sink
 void _e1x_sink_check_() {
-	root::set_dropped_outcome_sink([](std::source_location, root::OutcomeKind, EP) {});
+	root::set_dropped_outcome_sink([](std::source_location, root::OutcomeKind, std::exception_ptr) {});
 }
 // ---------------------------------------------------------------------------
 // E1.y — value-category, co_await, .outcome(), .consume(), JoinError
@@ -242,8 +242,8 @@ static_assert(
 static_assert(root::JoinError::reason::lifetime_violation == root::JoinError::reason::lifetime_violation);
 // Accessors
 static_assert(same_as<decltype(std::declval<root::JoinError const &>().reason_code()), root::JoinError::reason>);
-static_assert(same_as<decltype(std::declval<root::JoinError const &>().expected()), Opt<root::CapabilityId>>);
-static_assert(same_as<decltype(std::declval<root::JoinError const &>().actual()), Opt<root::CapabilityId>>);
+static_assert(same_as<decltype(std::declval<root::JoinError const &>().expected()), std::optional<root::CapabilityId>>);
+static_assert(same_as<decltype(std::declval<root::JoinError const &>().actual()), std::optional<root::CapabilityId>>);
 static_assert(same_as<decltype(std::declval<root::JoinError const &>().origin()), std::source_location>);
 // consume() lvalue/rvalue overloads
 void _e1y_consume_check_() {
@@ -390,7 +390,7 @@ void _e1z_catch_error_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = carrier::from_task(move(task));
-	auto recovered = move(chain).catch_error([](EP) { return 0; });
+	auto recovered = move(chain).catch_error([](std::exception_ptr) { return 0; });
 	static_assert(same_as<decltype(recovered), carrier::Chain<int>>);
 	(void)recovered;
 }
@@ -461,7 +461,7 @@ void _e1z_into_task_check_() {
 namespace snapshot_net_io_buffer {
 
 using _IoBuffer = ::IoBuffer;
-static_assert(std::is_constructible_v<::IoBuffer, SP<byte const[]>, SZ>);
+static_assert(std::is_constructible_v<::IoBuffer, std::shared_ptr<byte const[]>, std::size_t>);
 using _BufferList = ::BufferList;
 using _IoPlan = ::IoPlan;
 

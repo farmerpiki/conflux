@@ -20,7 +20,7 @@ int main(
 		return 1;
 	}
 
-	SV probe{argv[1]};
+	std::string_view probe{argv[1]};
 	if (probe == "body_after_body") {
 		auto builder = conflux::http::ClientRequest::post("http://example.test/submit");
 		builder.body("one").body_view("two");
@@ -28,7 +28,7 @@ int main(
 	}
 	if (probe == "json_after_body") {
 		auto builder = conflux::http::ClientRequest::post("http://example.test/submit");
-		builder.body("one").body_json_raw(S{"{\"two\":true}"});
+		builder.body("one").body_json_raw(std::string{"{\"two\":true}"});
 		return 0;
 	}
 	if (probe == "form_after_body") {

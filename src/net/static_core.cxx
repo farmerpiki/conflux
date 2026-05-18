@@ -26,7 +26,7 @@ export struct StaticCacheEntry {
 	time_t mtime{};
 	dev_t dev{};
 	ino_t ino{};
-	u64 tick{};
+	std::uint64_t tick{};
 };
 
 export struct StaticCacheKey {
@@ -76,12 +76,12 @@ export struct StaticCacheStore {
 	mutex mtx;
 	std::unordered_map<StaticCacheKey, StaticCacheEntry, StaticCacheKeyHash, StaticCacheKeyEqual> entries;
 	std::size_t total_bytes{};
-	u64 tick{};
+	std::uint64_t tick{};
 	[[nodiscard]] std::optional<StaticCacheEntry> get(
 		std::string_view path,
 		std::string_view content_encoding,
 		struct ::stat const &st) {
-		SL const lk{mtx};
+		std::scoped_lock const lk{mtx};
 		auto it = entries.find(StaticCacheKeyView{path, content_encoding});
 		if (it == entries.end()) {
 			return nullopt;
@@ -100,7 +100,7 @@ export struct StaticCacheStore {
 		std::string content_encoding,
 		StaticCacheEntry entry,
 		std::size_t max_total_bytes) {
-		SL const lk{mtx};
+		std::scoped_lock const lk{mtx};
 		if (entry.body.size() > max_total_bytes) {
 			return;
 		}
@@ -120,7 +120,7 @@ export struct StaticCacheStore {
 	void evict(
 		std::string_view path,
 		std::string_view content_encoding) {
-		SL const lk{mtx};
+		std::scoped_lock const lk{mtx};
 		if (auto it = entries.find(StaticCacheKeyView{path, content_encoding}); it != entries.end()) {
 			total_bytes -= it->second.body.size();
 			entries.erase(it);

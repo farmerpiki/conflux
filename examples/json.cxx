@@ -7,7 +7,7 @@ using namespace std::literals;
 using std::println, std::pair;
 struct ApiResponse {
 	std::string model;
-	i64 tokens{};
+	std::int64_t tokens{};
 	std::optional<std::string> error;
 };
 template<>

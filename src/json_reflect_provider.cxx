@@ -16,12 +16,12 @@ struct NativeReflectJsonProvider {
 	using document_type = NativeJsonProvider::document_type;
 
 	[[nodiscard]] static expected<document_type, Error> parse_json_document(
-		SV input,
+		std::string_view input,
 		DecodeOptions const &opts = {}) {
 		return NativeJsonProvider::parse_json_document(input, opts);
 	}
 
-	[[nodiscard]] static expected<S, Error> dump_json(
+	[[nodiscard]] static expected<std::string, Error> dump_json(
 		document_type const &doc,
 		DumpOptions const &opts = {}) {
 		return NativeJsonProvider::dump_json(doc, opts);
@@ -29,7 +29,7 @@ struct NativeReflectJsonProvider {
 
 	template<class T>
 		requires JsonDumpProvider<NativeJsonProvider, std::remove_cvref_t<T>>
-	[[nodiscard]] static expected<S, Error> dump_json(
+	[[nodiscard]] static expected<std::string, Error> dump_json(
 		T const &value,
 		DumpOptions const &opts = {}) {
 		return NativeJsonProvider::dump_json(value, opts);
@@ -38,7 +38,7 @@ struct NativeReflectJsonProvider {
 	template<class T>
 		requires JsonDecodeProvider<NativeJsonProvider, std::remove_cvref_t<T>>
 	[[nodiscard]] static expected<std::remove_cvref_t<T>, Error> decode_json(
-		SV input,
+		std::string_view input,
 		DecodeOptions const &opts = {}) {
 		return NativeJsonProvider::template decode_json<std::remove_cvref_t<T>>(input, opts);
 	}
@@ -54,7 +54,7 @@ template<class T>
 concept NativeReflectJsonDecodable = JsonDecodeProvider<NativeReflectJsonProvider, T>;
 
 template<class T>
-[[nodiscard]] expected<S, Error> dump_native_reflect(
+[[nodiscard]] expected<std::string, Error> dump_native_reflect(
 	T const &value,
 	DumpOptions const &opts = {})
 	requires NativeReflectJsonSerializable<std::remove_cvref_t<T>>
@@ -64,7 +64,7 @@ template<class T>
 
 template<class T>
 [[nodiscard]] expected<std::remove_cvref_t<T>, Error> decode_native_reflect(
-	SV input,
+	std::string_view input,
 	DecodeOptions const &opts = {})
 	requires NativeReflectJsonDecodable<std::remove_cvref_t<T>>
 {

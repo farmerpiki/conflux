@@ -6,25 +6,25 @@ namespace {
 
 struct Stats {
 	double median_ns;
-	SZ iters;
+	std::size_t iters;
 	double total_ns;
 };
 template<typename F>
 Stats measure(
 	F &&fn,
-	SZ warmup,
-	SZ iters) {
-	for (SZ i = 0; i < warmup; ++i) {
+	std::size_t warmup,
+	std::size_t iters) {
+	for (std::size_t i = 0; i < warmup; ++i) {
 		fn();
 	}
-	V<double> samples;
+	std::vector<double> samples;
 	samples.reserve(iters);
 	double total_ns = 0.0;
-	for (SZ i = 0; i < iters; ++i) {
-		auto t0 = chrono::steady_clock::now();
+	for (std::size_t i = 0; i < iters; ++i) {
+		auto t0 = std::chrono::steady_clock::now();
 		fn();
-		auto t1 = chrono::steady_clock::now();
-		auto const dur = static_cast<double>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+		auto t1 = std::chrono::steady_clock::now();
+		auto const dur = static_cast<double>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 		total_ns += dur;
 		samples.push_back(dur);
 	}
@@ -34,7 +34,7 @@ Stats measure(
 bool g_csv = false;
 bool g_json = false;
 void report(
-	SV name,
+	std::string_view name,
 	Stats const &s) {
 	if (g_json) {
 		auto const ns_per_iter = s.total_ns / static_cast<double>(s.iters);
@@ -42,10 +42,10 @@ void report(
 			R"({{"config":"default","variant":"{}","iterations":{},"total_ns":{},"ns_per_iter":{:.2f}}})",
 			name,
 			s.iters,
-			static_cast<u64>(s.total_ns),
+			static_cast<std::uint64_t>(s.total_ns),
 			ns_per_iter);
 	} else if (g_csv) {
-		std::println("{},{},{},{:.2f}", name, s.iters, static_cast<u64>(s.total_ns), s.median_ns);
+		std::println("{},{},{},{:.2f}", name, s.iters, static_cast<std::uint64_t>(s.total_ns), s.median_ns);
 	} else {
 		std::println("[tmpl-bench] {:<50} {:>10.1f} ns", name, s.median_ns);
 	}
@@ -55,16 +55,16 @@ void report(
 // ---------------------------------------------------------------------------
 
 // Simple variable substitution: {{ name }}
-constexpr SV kSimpleTmpl = "Hello, {{ name }}! You have {{ count }} messages.";
-constexpr SV kSimpleCtx = R"({"name":"Alice","count":42})";
+constexpr std::string_view kSimpleTmpl = "Hello, {{ name }}! You have {{ count }} messages.";
+constexpr std::string_view kSimpleCtx = R"({"name":"Alice","count":42})";
 
 // Loop over 10 items
-constexpr SV kLoopTmpl = R"(
+constexpr std::string_view kLoopTmpl = R"(
 {%-for item in items-%}
 {{loop.index}}.{{item.title}}({{item.score}})
 {%-endfor-%}
 )";
-constexpr SV kLoopCtx10 = R"({
+constexpr std::string_view kLoopCtx10 = R"({
 "items":[
 {"title":"Alpha","score":95},{"title":"Beta","score":87},
 {"title":"Gamma","score":76},{"title":"Delta","score":91},
@@ -74,8 +74,8 @@ constexpr SV kLoopCtx10 = R"({
 ]
 })";
 // Loop over 100 items
-S make_loop_ctx_100() {
-	S out = R"({"items":[)";
+std::string make_loop_ctx_100() {
+	std::string out = R"({"items":[)";
 	for (int i = 0; i < 100; ++i) {
 		if (i > 0) {
 			out += ',';
@@ -86,7 +86,7 @@ S make_loop_ctx_100() {
 	return out;
 }
 // Nested conditionals
-constexpr SV kCondTmpl = R"(
+constexpr std::string_view kCondTmpl = R"(
 {%-if user.admin-%}
 Admin:{{user.name}}
 {%-elif user.active-%}
@@ -95,14 +95,14 @@ User:{{user.name}}({{user.role}})
 Guest
 {%-endif-%}
 )";
-constexpr SV kCondCtxTrue = R"({"user":{"admin":false,"active":true,"name":"Bob","role":"editor"}})";
+constexpr std::string_view kCondCtxTrue = R"({"user":{"admin":false,"active":true,"name":"Bob","role":"editor"}})";
 
 // Filter chain: value | upper | replace(",", "") | default("n/a")
-constexpr SV kFilterTmpl = R"({{ tags | join(",") | upper }})";
-constexpr SV kFilterCtx = R"({"tags":["rust","cpp","python","go","zig"]})";
+constexpr std::string_view kFilterTmpl = R"({{ tags | join(",") | upper }})";
+constexpr std::string_view kFilterCtx = R"({"tags":["rust","cpp","python","go","zig"]})";
 
 // HTML-like template with blocks, loops and filters (realistic web page fragment)
-constexpr SV kPageTmpl = R"(
+constexpr std::string_view kPageTmpl = R"(
 <ul>
 {%-for p in products-%}
 <li class="{{ p.category | lower }}">
@@ -113,9 +113,9 @@ constexpr SV kPageTmpl = R"(
 </ul>
 <p>Total:{{products|length}}items</p>
 )";
-constexpr SV kPageCtx = R"({
+constexpr std::string_view kPageCtx = R"({
 "products":[
-{"name":"Widget <A>","category":"TOOLS","price":"9.99","sale":true},
+{"name":"Widget <std::array>","category":"TOOLS","price":"9.99","sale":true},
 {"name":"Gadget B","category":"ELECTRONICS","price":"49.99","sale":false},
 {"name":"Doohickey C","category":"TOOLS","price":"4.99","sale":true},
 {"name":"Thingamajig D","category":"MISC","price":"14.99","sale":false},
@@ -124,20 +124,20 @@ constexpr SV kPageCtx = R"({
 })";
 
 // Macro definition and call
-constexpr SV kMacroTmpl = R"(
+constexpr std::string_view kMacroTmpl = R"(
 {%-macro badge(label,cls)-%}
 <span class="{{ cls }}">{{label}}</span>
 {%-endmacro-%}
 {{badge("New","tag-new")}}{{badge("Hot","tag-hot")}}{{badge("Sale","tag-sale")}}
 )";
-constexpr SV kMacroCtx = R"({})";
+constexpr std::string_view kMacroCtx = R"({})";
 
-constexpr SV kExprHeavyTmpl = R"(
+constexpr std::string_view kExprHeavyTmpl = R"(
 {%-for p in products-%}
 {{ (prefix ~ p.name) | replace(" ", "_") | lower }}:{{ p.category.lower() }}:{{ p.name[0:3] }}:{%-if p.sale and p.category in sale_categories-%}Y{%-else-%}N{%-endif-%};
 {%-endfor-%}
 )";
-constexpr SV kExprHeavyCtx = R"({
+constexpr std::string_view kExprHeavyCtx = R"({
 "prefix":"sku-",
 "sale_categories":["TOOLS","ELECTRONICS"],
 "products":[
@@ -150,12 +150,12 @@ constexpr SV kExprHeavyCtx = R"({
 })";
 
 std::filesystem::path make_template_dir(
-	SV name,
-	SV source) {
+	std::string_view name,
+	std::string_view source) {
 	auto dir = std::filesystem::temp_directory_path()
-		/ format("conflux_template_bench_{}", chrono::steady_clock::now().time_since_epoch().count());
+		/ format("conflux_template_bench_{}", std::chrono::steady_clock::now().time_since_epoch().count());
 	std::filesystem::create_directories(dir);
-	std::ofstream out{dir / S{name}};
+	std::ofstream out{dir / std::string{name}};
 	out << source;
 	return dir;
 }
@@ -166,7 +166,7 @@ int main(
 	int argc,
 	char **argv) {
 	for (int i = 1; i < argc; ++i) {
-		SV const a{argv[i]};
+		std::string_view const a{argv[i]};
 		if (a == "--bench-info") {
 			std::print(
 				"{}\n",
@@ -186,7 +186,7 @@ int main(
 		std::println("variant,iterations,total_ns,ns_per_iter");
 	} else {
 		std::println("[tmpl-bench] Template engine benchmarks");
-		std::println("[tmpl-bench] {}", S(60, '-'));
+		std::println("[tmpl-bench] {}", std::string(60, '-'));
 	}
 
 	// Each sub-bench creates its own Environment to also measure cold-path
@@ -197,7 +197,7 @@ int main(
 		auto s = measure(
 			[] {
 				conflux::templates::Environment const env{"."};
-				S const out = env.render_string(S(kSimpleTmpl), S(kSimpleCtx));
+				std::string const out = env.render_string(std::string(kSimpleTmpl), std::string(kSimpleCtx));
 				(void)out;
 			},
 			20,
@@ -208,7 +208,7 @@ int main(
 		auto s = measure(
 			[] {
 				conflux::templates::Environment const env{"."};
-				S const out = env.render_string(S(kLoopTmpl), S(kLoopCtx10));
+				std::string const out = env.render_string(std::string(kLoopTmpl), std::string(kLoopCtx10));
 				(void)out;
 			},
 			20,
@@ -216,11 +216,11 @@ int main(
 		report("parse+render: loop 10 items", s);
 	}
 	{
-		S ctx100 = make_loop_ctx_100();
+		std::string ctx100 = make_loop_ctx_100();
 		auto s = measure(
 			[&ctx100] {
 				conflux::templates::Environment const env{"."};
-				S const out = env.render_string(S(kLoopTmpl), ctx100);
+				std::string const out = env.render_string(std::string(kLoopTmpl), ctx100);
 				(void)out;
 			},
 			20,
@@ -231,7 +231,7 @@ int main(
 		auto s = measure(
 			[] {
 				conflux::templates::Environment const env{"."};
-				S const out = env.render_string(S(kCondTmpl), S(kCondCtxTrue));
+				std::string const out = env.render_string(std::string(kCondTmpl), std::string(kCondCtxTrue));
 				(void)out;
 			},
 			20,
@@ -242,7 +242,7 @@ int main(
 		auto s = measure(
 			[] {
 				conflux::templates::Environment const env{"."};
-				S const out = env.render_string(S(kFilterTmpl), S(kFilterCtx));
+				std::string const out = env.render_string(std::string(kFilterTmpl), std::string(kFilterCtx));
 				(void)out;
 			},
 			20,
@@ -253,7 +253,7 @@ int main(
 		auto s = measure(
 			[] {
 				conflux::templates::Environment const env{"."};
-				S const out = env.render_string(S(kPageTmpl), S(kPageCtx));
+				std::string const out = env.render_string(std::string(kPageTmpl), std::string(kPageCtx));
 				(void)out;
 			},
 			20,
@@ -264,7 +264,7 @@ int main(
 		auto s = measure(
 			[] {
 				conflux::templates::Environment const env{"."};
-				S const out = env.render_string(S(kMacroTmpl), S(kMacroCtx));
+				std::string const out = env.render_string(std::string(kMacroTmpl), std::string(kMacroCtx));
 				(void)out;
 			},
 			20,
@@ -275,7 +275,7 @@ int main(
 		auto s = measure(
 			[] {
 				conflux::templates::Environment const env{"."};
-				S const out = env.render_string(S(kExprHeavyTmpl), S(kExprHeavyCtx));
+				std::string const out = env.render_string(std::string(kExprHeavyTmpl), std::string(kExprHeavyCtx));
 				(void)out;
 			},
 			20,
@@ -284,14 +284,14 @@ int main(
 	}
 
 	if (!g_csv && !g_json) {
-		std::println("[tmpl-bench] {}", S(60, '-'));
+		std::println("[tmpl-bench] {}", std::string(60, '-'));
 	}
 
 	// --- render-only (hot path: template pre-parsed, context varies) ---
 	{
 		conflux::templates::Environment const env{"."};
 		// warm parse
-		(void)env.render_string(S(kSimpleTmpl), S(kSimpleCtx));
+		(void)env.render_string(std::string(kSimpleTmpl), std::string(kSimpleCtx));
 		// NOTE: render_string re-parses every call; use a file-loaded env for
 		// true render-only. We measure render_string to keep it self-contained.
 		// Still useful: shows parse overhead relative to render.
@@ -304,10 +304,10 @@ int main(
 		conflux::templates::Environment env{"."};
 		// Pre-parse by doing one call (render_string re-parses each call, so
 		// we can't eliminate it — measure as-is and label accurately).
-		S ctx100 = make_loop_ctx_100();
+		std::string ctx100 = make_loop_ctx_100();
 		auto s = measure(
 			[&] {
-				S const out = env.render_string(S(kLoopTmpl), ctx100);
+				std::string const out = env.render_string(std::string(kLoopTmpl), ctx100);
 				(void)out;
 			},
 			50,
@@ -318,7 +318,7 @@ int main(
 		auto s = measure(
 			[&] {
 				conflux::templates::Environment const env{"."};
-				S const out = env.render_string(S(kPageTmpl), S(kPageCtx));
+				std::string const out = env.render_string(std::string(kPageTmpl), std::string(kPageCtx));
 				(void)out;
 			},
 			50,
@@ -326,7 +326,7 @@ int main(
 		report("render_string: page fragment (2000 iters)", s);
 	}
 	{
-		auto parsed = conflux::json::parse(SV{kPageCtx});
+		auto parsed = conflux::json::parse(std::string_view{kPageCtx});
 		if (!parsed) {
 			std::println("failed to parse benchmark context");
 			return 1;
@@ -334,7 +334,7 @@ int main(
 		conflux::templates::Environment env{"."};
 		auto s = measure(
 			[&] {
-				S const out = env.render_string(S(kPageTmpl), parsed->root());
+				std::string const out = env.render_string(std::string(kPageTmpl), parsed->root());
 				(void)out;
 			},
 			50,
@@ -342,7 +342,7 @@ int main(
 		report("render_string: page fragment (parsed ctx)", s);
 	}
 	{
-		auto parsed = conflux::json::parse(SV{kPageCtx});
+		auto parsed = conflux::json::parse(std::string_view{kPageCtx});
 		if (!parsed) {
 			std::println("failed to parse benchmark context");
 			return 1;
@@ -352,7 +352,7 @@ int main(
 		env.blocking_load_all();
 		auto s = measure(
 			[&] {
-				S const out = env.render("page.html", parsed->root());
+				std::string const out = env.render("page.html", parsed->root());
 				(void)out;
 			},
 			50,
@@ -361,7 +361,7 @@ int main(
 		report("render cached: page fragment (parsed ctx)", s);
 	}
 	{
-		auto parsed = conflux::json::parse(SV{kExprHeavyCtx});
+		auto parsed = conflux::json::parse(std::string_view{kExprHeavyCtx});
 		if (!parsed) {
 			std::println("failed to parse benchmark context");
 			return 1;
@@ -371,7 +371,7 @@ int main(
 		env.blocking_load_all();
 		auto s = measure(
 			[&] {
-				S const out = env.render("expr.html", parsed->root());
+				std::string const out = env.render("expr.html", parsed->root());
 				(void)out;
 			},
 			50,
@@ -381,7 +381,7 @@ int main(
 	}
 
 	if (!g_csv && !g_json) {
-		std::println("[tmpl-bench] {}", S(60, '-'));
+		std::println("[tmpl-bench] {}", std::string(60, '-'));
 		std::println("[tmpl-bench] Done.");
 	}
 }

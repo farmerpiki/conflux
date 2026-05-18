@@ -208,21 +208,21 @@ public:
 		, group_id_{opts.group_id}
 		, mode_{opts.mode} {
 		if (opts.mode == BufferRingMode::incremental && !caps.feat_pbuf_ring_inc) {
-			throw RE{"BufferRingMode::incremental requires IORING_FEAT_PBUF_RING_INC (kernel 6.12+)"};
+			throw std::runtime_error{"BufferRingMode::incremental requires IORING_FEAT_PBUF_RING_INC (kernel 6.12+)"};
 		}
 		if (count_ == 0
 			|| count_ > 32768U
 			|| (count_ & (count_ - 1)) != 0
 			|| buf_size_ == 0
-			|| buf_size_ > static_cast<std::size_t>(NL<std::uint16_t>::max())
-			|| count_ > NL<std::size_t>::max() / buf_size_) {
-			throw RE{"BufferRing invalid options"};
+			|| buf_size_ > static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max())
+			|| count_ > std::numeric_limits<std::size_t>::max() / buf_size_) {
+			throw std::runtime_error{"BufferRing invalid options"};
 		}
 		static_assert(conflux::uring::buf_ring_flags::has_inc, "IOU_PBUF_RING_INC required");
 		slab_sz_ = static_cast<std::size_t>(count_) * buf_size_;
 		std::size_t const aligned_sz = (slab_sz_ + 4095) & ~std::size_t{4095};
 		if (aligned_sz < slab_sz_) {
-			throw RE{"BufferRing allocation overflow"};
+			throw std::runtime_error{"BufferRing allocation overflow"};
 		}
 		auto *raw = static_cast<std::byte *>(::aligned_alloc(4096, aligned_sz));
 		if (raw == nullptr) {
@@ -242,9 +242,9 @@ public:
 		if (!built) {
 			slab_.reset();
 			if (built.error() == EINVAL && mode_ == BufferRingMode::incremental) {
-				throw RE{"io_uring_setup_buf_ring: incremental mode requires kernel 6.12+ (IORING_FEAT_PBUF_RING_INC)"};
+				throw std::runtime_error{"io_uring_setup_buf_ring: incremental mode requires kernel 6.12+ (IORING_FEAT_PBUF_RING_INC)"};
 			}
-			throw RE{format("io_uring_setup_buf_ring failed: {}", built.error())};
+			throw std::runtime_error{format("io_uring_setup_buf_ring failed: {}", built.error())};
 		}
 		ring_ = move(*built);
 		for (std::uint32_t i = 0; i < count_; ++i) {
@@ -1988,32 +1988,32 @@ public:
 		int const domain = is_v6 ? AF_INET6 : AF_INET;
 		int const raw = ::socket(domain, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
 		if (raw < 0) {
-			throw SE(errno, system_category(), "socket");
+			throw std::system_error(errno, system_category(), "socket");
 		}
 		FdGuard guard{raw};
 		int const on = 1;
 		if (opts.reuse_addr) {
 			if (::setsockopt(raw, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0) {
-				throw SE(errno, system_category(), "SO_REUSEADDR");
+				throw std::system_error(errno, system_category(), "SO_REUSEADDR");
 			}
 		}
 		if (opts.reuse_port) {
 			if (::setsockopt(raw, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on)) < 0) {
-				throw SE(errno, std::system_category(), "SO_REUSEPORT");
+				throw std::system_error(errno, std::system_category(), "SO_REUSEPORT");
 			}
 		}
 		if (is_v6) {
 			int const v6only =
 				(opts.bind == TcpBindAddress::loopback_v6 || opts.bind == TcpBindAddress::any_v6_only) ? 1 : 0;
 			if (::setsockopt(raw, IPPROTO_IPV6, IPV6_V6ONLY, &v6only, sizeof(v6only)) < 0) {
-				throw SE(errno, std::system_category(), "IPV6_V6ONLY");
+				throw std::system_error(errno, std::system_category(), "IPV6_V6ONLY");
 			}
 			sockaddr_in6 addr{};
 			addr.sin6_family = AF_INET6;
 			addr.sin6_port = htons(opts.port);
 			addr.sin6_addr = (opts.bind == TcpBindAddress::loopback_v6) ? in6addr_loopback : in6addr_any;
 			if (::bind(raw, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
-				throw SE(errno, std::system_category(), "bind");
+				throw std::system_error(errno, std::system_category(), "bind");
 			}
 		} else {
 			sockaddr_in addr{};
@@ -2022,16 +2022,16 @@ public:
 			addr.sin_addr.s_addr =
 				(opts.bind == TcpBindAddress::loopback_v4) ? htonl(INADDR_LOOPBACK) : htonl(INADDR_ANY);
 			if (::bind(raw, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
-				throw SE(errno, std::system_category(), "bind");
+				throw std::system_error(errno, std::system_category(), "bind");
 			}
 		}
 		if (::listen(raw, opts.backlog) < 0) {
-			throw SE(errno, system_category(), "listen");
+			throw std::system_error(errno, system_category(), "listen");
 		}
 		sockaddr_storage ss{};
 		socklen_t sslen = sizeof(ss);
 		if (::getsockname(raw, reinterpret_cast<sockaddr *>(&ss), &sslen) < 0) {
-			throw SE(errno, system_category(), "getsockname");
+			throw std::system_error(errno, system_category(), "getsockname");
 		}
 		port_ = (ss.ss_family == AF_INET6) ? ntohs(reinterpret_cast<sockaddr_in6 const *>(&ss)->sin6_port) :
 											 ntohs(reinterpret_cast<sockaddr_in const *>(&ss)->sin_port);

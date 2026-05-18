@@ -12,23 +12,23 @@ using namespace conflux::uring;
 namespace {
 
 io_uring_cqe make_cqe(
-	u64 user_data,
-	i32 res,
-	u32 flags = 0) {
+	std::uint64_t user_data,
+	std::int32_t res,
+	std::uint32_t flags = 0) {
 	return io_uring_cqe{.user_data = user_data, .res = res, .flags = flags};
 }
 // Build a CQE that matches what the runtime encodes for a given flow slot.
 io_uring_cqe make_flow_cqe(
-	u32 flow_idx,
-	u32 gen,
-	u8 op_index,
+	std::uint32_t flow_idx,
+	std::uint32_t gen,
+	std::uint8_t op_index,
 	uf::FlowOpKind kind,
-	i32 res) {
+	std::int32_t res) {
 	return make_cqe(uf::encode_tag(flow_idx, gen, op_index, kind), res);
 }
 struct TestRig {
 	Ring ring;
-	V<uf::FlowResult> results;
+	std::vector<uf::FlowResult> results;
 	uf::FlowRuntime rt;
 	explicit TestRig(
 		unsigned sq_size = 16)
@@ -109,7 +109,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	// max_initial_ops=8: open is op[0], so 7 body ops are the limit
 	for (int i = 0; i < 7; ++i) {
-		f.then_read(buf, 1, u64(i));
+		f.then_read(buf, 1, std::uint64_t(i));
 	}
 	CHECK(f.valid());
 	f.then_read(buf, 1, 7); // 8th body → exceeds max
@@ -126,7 +126,7 @@ TEST_CASE(
 	char buf[4] = {};
 	auto b = rig.rt.flow();
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDONLY);
-	SZ big = static_cast<SZ>(NL<i32>::max()) + 1;
+	std::size_t big = static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()) + 1;
 	f.then_read(buf, big, 0);
 	CHECK_FALSE(f.valid());
 	CHECK(f.last_error() == -EOVERFLOW);
@@ -156,7 +156,7 @@ TEST_CASE(
 	(void)b.submit();
 	REQUIRE(b.rejected_flows().empty());
 	// First slab allocation: flow_index=0, generation=1
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -199,7 +199,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, -EACCES);
 		rig.rt.on_cqe(&cqe);
@@ -232,7 +232,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -266,7 +266,7 @@ TEST_CASE(
 	f.then_read(buf, 4, 0).hard_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
 	// mode B: expected_cqes = 4 (open+read+write+close in chain)
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, -ENOENT);
 		rig.rt.on_cqe(&cqe);
@@ -304,7 +304,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).hard_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	// Deliver close CQE first (out of kernel order)
 	{
 		auto cqe = make_flow_cqe(idx, gen, 3, uf::FlowOpKind::close_direct, 0);
@@ -400,7 +400,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -472,7 +472,7 @@ TEST_CASE(
 	(void)b.submit();
 	CHECK(b.rejected_flows().empty());
 	// mode B: expected_cqes == 3 (open+read+close)
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -502,7 +502,7 @@ TEST_CASE(
 	(void)b.submit();
 	CHECK(b.rejected_flows().empty());
 	// mode B: expected_cqes == 5 (open+read+write+read2+close)
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -539,7 +539,7 @@ TEST_CASE(
 	(void)b.submit();
 	CHECK(b.rejected_flows().empty());
 	// mode A: expected_cqes == 4 (open+read+write+read2), standalone close after chain
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -576,7 +576,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -613,7 +613,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -646,7 +646,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -678,7 +678,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -718,7 +718,7 @@ TEST_CASE(
 	f.then_read(buf, 4, 0).hard_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
 	// mode B: 4 CQEs (open+read+write+close)
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -754,7 +754,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).hard_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -786,7 +786,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0); // no close_if_opened()
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -811,7 +811,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0); // no close_if_opened()
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, -ENOENT);
 		rig.rt.on_cqe(&cqe);
@@ -835,7 +835,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -870,7 +870,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -905,7 +905,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0); // no close_if_opened()
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -943,7 +943,7 @@ TEST_CASE(
 	char buf[4] = {};
 	auto b = rig.rt.flow();
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
-	f.then_read(buf, static_cast<SZ>(NL<i32>::max()), 0);
+	f.then_read(buf, static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()), 0);
 	CHECK(f.valid());
 	CHECK(f.last_error() == 0);
 }
@@ -1054,7 +1054,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).close_if_opened(); // initial_op_count=2
 	(void)b.submit();
-	u32 idx = 0, gen = 1;
+	std::uint32_t idx = 0, gen = 1;
 	// Body CQE with op_index=2 but initial_op_count==2 (must be in [0,2)) → rejected
 	{
 		auto cqe = make_flow_cqe(idx, gen, 2, uf::FlowOpKind::read, 4);
@@ -1092,7 +1092,7 @@ TEST_CASE(
 	(void)b.submit(); // SQ now full (3/3)
 	REQUIRE(b.rejected_flows().empty());
 
-	u32 const idx = 0, gen = 1;
+	std::uint32_t const idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -1140,7 +1140,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened(); // mode A
 	(void)b.submit(); // SQ full (3/3)
-	u32 const idx = 0, gen = 1;
+	std::uint32_t const idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -1182,7 +1182,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDONLY);
 	f.then_read(buf, 4, 0).close_if_opened(); // mode B: 1 then_ body → close in chain
 	(void)b.submit();
-	u32 const idx = 0, gen = 1;
+	std::uint32_t const idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -1217,7 +1217,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 const idx = 0, gen = 1;
+	std::uint32_t const idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -1259,9 +1259,9 @@ TEST_CASE(
 	char buf[4] = {};
 
 	// Fill all 64 builder slots with invalid flows.
-	constexpr u32 kMaxBatch = 64; // matches flow.cxx internal constant
+	constexpr std::uint32_t kMaxBatch = 64; // matches flow.cxx internal constant
 	auto b = rig.rt.flow();
-	for (u32 i = 0; i < kMaxBatch; ++i) {
+	for (std::uint32_t i = 0; i < kMaxBatch; ++i) {
 		auto f = b.open_direct(DirectSlot{i}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDONLY);
 		f.hard_read(buf, 1, 0); // force invalid so no SQ slots needed
 	}
@@ -1298,7 +1298,7 @@ TEST_CASE(
 	f.then_read(buf, 4, 0).hard_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
 	// mode B: expected_cqes==4 (open+read+write+close)
-	u32 const idx = 0, gen = 1;
+	std::uint32_t const idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -1341,7 +1341,7 @@ TEST_CASE(
 		auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 		f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 		(void)b.submit();
-		u32 const idx = 0, gen = 1;
+		std::uint32_t const idx = 0, gen = 1;
 		{
 			auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, -ENOENT);
 			rig.rt.on_cqe(&cqe);
@@ -1371,7 +1371,7 @@ TEST_CASE(
 		auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 		f.then_read(buf, 4, 0).hard_write(buf, 4, 0).close_if_opened();
 		(void)b.submit();
-		u32 const idx = 0, gen = 1;
+		std::uint32_t const idx = 0, gen = 1;
 		{
 			auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, -ENOENT);
 			rig.rt.on_cqe(&cqe);
@@ -1412,7 +1412,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).close_if_opened(); // initial_op_count=2, mode B: expected_cqes=3
 	(void)b.submit();
-	u32 const idx = 0, gen = 1;
+	std::uint32_t const idx = 0, gen = 1;
 	// Interior: op_index=5 is in [initial_op_count=2, max_initial_ops=8) → rejected
 	{
 		auto cqe = make_flow_cqe(idx, gen, 5, uf::FlowOpKind::read, 4);
@@ -1449,7 +1449,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).then_write(buf, 4, 0).close_if_opened();
 	(void)b.submit();
-	u32 const idx = 0, gen = 1;
+	std::uint32_t const idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -1484,7 +1484,7 @@ TEST_CASE(
 	char buf[4] = {};
 	auto b = rig.rt.flow();
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDONLY);
-	SZ big = static_cast<SZ>(NL<i32>::max()) + 1;
+	std::size_t big = static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max()) + 1;
 	f.then_read(buf, big, 0);
 	CHECK(f.last_error() == -EOVERFLOW);
 	(void)b.submit();
@@ -1518,7 +1518,7 @@ TEST_CASE(
 	}
 	CHECK(found_eagain);
 	// Flow A still completes normally
-	u32 const idx = 0, gen = 1;
+	std::uint32_t const idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -1556,7 +1556,7 @@ TEST_CASE(
 	});
 	(void)b.submit();
 	CHECK(b.rejected_flows().empty());
-	u32 const idx = 0, gen = 1;
+	std::uint32_t const idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -1728,7 +1728,7 @@ TEST_CASE(
 	auto f = b.open_direct(DirectSlot{0}, AT_FDCWD, uf::BorrowedPath{"/dev/null"}, O_RDWR);
 	f.then_read(buf, 4, 0).close_if_opened(); // initial_op_count=2, mode B: expected_cqes=3
 	(void)b.submit();
-	u32 const idx = 0, gen = 1;
+	std::uint32_t const idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 255, uf::FlowOpKind::read, 4);
 		rig.rt.on_cqe(&cqe);
@@ -1763,7 +1763,7 @@ TEST_CASE(
 	(void)b.submit(); // SQ now full (4/4); mode A → 4 body SQEs, close submitted separately
 	REQUIRE(b.rejected_flows().empty());
 
-	u32 const idx = 0, gen = 1;
+	std::uint32_t const idx = 0, gen = 1;
 	{
 		auto cqe = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 		rig.rt.on_cqe(&cqe);
@@ -1786,11 +1786,11 @@ TEST_CASE(
 	REQUIRE(rig.rt.has_deferred_closes());
 	// Abandon without submitting — models fatal-exit path.
 	struct Captured {
-		u32 count = 0;
+		std::uint32_t count = 0;
 		uf::FlowRuntime::AbandonedDeferredClose last{};
 	};
 	Captured cap;
-	u32 const n = rig.rt.abandon_deferred_closes([&](auto e) noexcept {
+	std::uint32_t const n = rig.rt.abandon_deferred_closes([&](auto e) noexcept {
 		++cap.count;
 		cap.last = e;
 	});

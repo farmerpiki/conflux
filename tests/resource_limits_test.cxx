@@ -20,7 +20,7 @@ struct RingGuard {
 	explicit RingGuard(
 		unsigned entries) {
 		if (io_uring_queue_init(entries, &ring, 0) < 0) {
-			throw RE{"io_uring_queue_init"};
+			throw std::runtime_error{"io_uring_queue_init"};
 		}
 	}
 	~RingGuard() { io_uring_queue_exit(&ring); }
@@ -140,7 +140,7 @@ TEST_CASE(
 	sockaddr_in addr{};
 	socklen_t len = sizeof(addr);
 	REQUIRE(::getsockname(ls_fd, reinterpret_cast<sockaddr *>(&addr), &len) == 0);
-	u16 const port = ntohs(addr.sin_port);
+	std::uint16_t const port = ntohs(addr.sin_port);
 
 	RingGuard rg{256};
 	SocketRawRing raw{rg.get()};
@@ -162,7 +162,7 @@ TEST_CASE(
 
 	constexpr int kIters = 1000;
 	for (int i = 0; i < kIters; ++i) {
-		submit_fixed_fd_install(raw, 0, static_cast<u64>(i));
+		submit_fixed_fd_install(raw, 0, static_cast<std::uint64_t>(i));
 		REQUIRE(raw.submit() >= 0);
 		io_uring_cqe *cqe{};
 		REQUIRE(::io_uring_wait_cqe(rg.get(), &cqe) == 0);

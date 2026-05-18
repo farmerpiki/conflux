@@ -50,7 +50,7 @@ struct ThrowOnCopy {
 		ThrowOnCopy const &other)
 		: v{other.v} {
 		if (throw_now) {
-			throw RE{"copy boom"};
+			throw std::runtime_error{"copy boom"};
 		}
 	}
 	ThrowOnCopy &operator =(ThrowOnCopy const &) = default;
@@ -110,7 +110,7 @@ TEST_CASE(
 	root::Outcome<ThrowOnCopy> dst{root::Success<ThrowOnCopy>{ThrowOnCopy{7}}};
 
 	ThrowOnCopy::throw_now = true;
-	CHECK_THROWS_AS(dst = src, RE);
+	CHECK_THROWS_AS(dst = src, std::runtime_error);
 	ThrowOnCopy::throw_now = false;
 
 	REQUIRE(dst.is_success());
@@ -121,10 +121,10 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: Failure and FailureError normalize null EP",
 	"[work.root]") {
-	root::Failure f{EP{}};
+	root::Failure f{std::exception_ptr{}};
 	REQUIRE(f.error != nullptr);
 
-	root::FailureError const err{EP{}};
+	root::FailureError const err{std::exception_ptr{}};
 	REQUIRE(err.cause() != nullptr);
 	CHECK_THROWS(err.rethrow_cause());
 }
@@ -239,7 +239,7 @@ TEST_CASE(
 	"work.root: no-cancellation still runs installed cancel hook",
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>(root::SubmitOptions{.enable_cancellation = false});
-	Atom<bool> ran{false};
+	std::atomic<bool> ran{false};
 	REQUIRE(src.install_cancel_hook([&ran](root::CancelReason reason) noexcept {
 		if (reason == root::CancelReason::requested) {
 			ran.store(true, memory_order_release);
@@ -276,7 +276,7 @@ TEST_CASE(
 	DriverCap driver{};
 	auto [posted, posted_src] = root::make_posted_source<int>(owner, root::PostOptions{.enable_cancellation = false});
 	auto [op, op_src] = root::make_operation_source<int>(driver, root::OperationOptions{.enable_cancellation = false});
-	Atom<int> ran{0};
+	std::atomic<int> ran{0};
 	REQUIRE(posted_src.install_cancel_hook([&ran](root::CancelReason reason) noexcept {
 		if (reason == root::CancelReason::requested) {
 			ran.fetch_add(1, memory_order_acq_rel);
@@ -301,7 +301,7 @@ TEST_CASE(
 	"work.root: no-cancellation control source still runs installed cancel hook",
 	"[work.root]") {
 	auto [control, src] = root::make_task_control_source<int>(root::SubmitOptions{.enable_cancellation = false});
-	Atom<bool> ran{false};
+	std::atomic<bool> ran{false};
 	REQUIRE(src.install_cancel_hook([&ran](root::CancelReason reason) noexcept {
 		if (reason == root::CancelReason::requested) {
 			ran.store(true, memory_order_release);
@@ -318,7 +318,7 @@ TEST_CASE(
 		root::make_posted_control_source<int>(root::PostOptions{.enable_cancellation = false});
 	auto [operation_control, operation_src] =
 		root::make_operation_control_source<int>(root::OperationOptions{.enable_cancellation = false});
-	Atom<int> ran{0};
+	std::atomic<int> ran{0};
 	REQUIRE(posted_src.install_cancel_hook([&ran](root::CancelReason reason) noexcept {
 		if (reason == root::CancelReason::requested) {
 			ran.fetch_add(1, memory_order_acq_rel);
@@ -415,9 +415,9 @@ TEST_CASE(
 	"work.root: abandon_to dispatches failure sink",
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
-	Atom<bool> saw_failure{false};
+	std::atomic<bool> saw_failure{false};
 	struct Sink {
-		Atom<bool> *flag{};
+		std::atomic<bool> *flag{};
 		void operator ()(
 			root::Failure const &) const noexcept {
 			flag->store(true, memory_order_release);
@@ -426,14 +426,14 @@ TEST_CASE(
 			root::Cancelled const &) const noexcept {}
 	};
 	root::abandon_to(move(task), Sink{&saw_failure});
-	REQUIRE(src.try_set_exception(make_exception_ptr(RE{"boom"})));
+	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"boom"})));
 	CHECK(saw_failure.load(memory_order_acquire));
 }
 TEST_CASE(
 	"work.root: late abandon_to runs sink on caller thread",
 	"[work.root]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.try_set_exception(make_exception_ptr(RE{"late"})));
+	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"late"})));
 
 	thread::id seen{};
 	struct Sink {
@@ -456,11 +456,11 @@ TEST_CASE(
 
 	mutex seen_mtx{};
 	thread::id seen{};
-	Atom<bool> done{false};
+	std::atomic<bool> done{false};
 	struct Sink {
 		mutex *seen_mtx{};
 		thread::id *seen{};
-		Atom<bool> *done{};
+		std::atomic<bool> *done{};
 		void operator ()(
 			root::Failure const &) const noexcept {
 			{
@@ -477,11 +477,11 @@ TEST_CASE(
 	root::abandon_to(move(task), Sink{&seen_mtx, &seen, &done});
 
 	jthread const worker{
-		[source = move(src)]() mutable { (void)source.try_set_exception(make_exception_ptr(RE{"armed"})); }};
+		[source = move(src)]() mutable { (void)source.try_set_exception(make_exception_ptr(std::runtime_error{"armed"})); }};
 	auto worker_tid = worker.get_id();
 
 	for (int i = 0; i < 100 && !done.load(memory_order_acquire); ++i) {
-		std::this_thread::sleep_for(chrono::milliseconds{1});
+		std::this_thread::sleep_for(std::chrono::milliseconds{1});
 	}
 	REQUIRE(done.load(memory_order_acquire));
 	std::scoped_lock const lk{seen_mtx};
@@ -493,9 +493,9 @@ TEST_CASE(
 	root::Outcome<int> ok{root::Success<int>{77}};
 	CHECK(ok.value() == 77);
 
-	auto ep = make_exception_ptr(RE{"boom"});
+	auto ep = make_exception_ptr(std::runtime_error{"boom"});
 	root::Outcome<int> bad{root::Failure{ep}};
-	CHECK_THROWS_AS(bad.value(), RE);
+	CHECK_THROWS_AS(bad.value(), std::runtime_error);
 
 	root::Outcome<int> cancelled{root::Cancelled{root::CancelReason::deadline}};
 	CHECK_THROWS_AS(cancelled.value(), root::CancelledError);
@@ -503,7 +503,7 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: Outcome<T>::value() && supports move-only payload",
 	"[work.root][r3]") {
-	root::Outcome<UP<int>> ok{root::Success<UP<int>>{make_unique<int>(13)}};
+	root::Outcome<std::unique_ptr<int>> ok{root::Success<std::unique_ptr<int>>{make_unique<int>(13)}};
 	auto p = move(ok).value();
 	REQUIRE(p);
 	CHECK(*p == 13);
@@ -514,8 +514,8 @@ TEST_CASE(
 	root::Outcome<void> const ok{root::Success<void>{}};
 	CHECK_NOTHROW(ok.value());
 
-	root::Outcome<void> const bad{root::Failure{make_exception_ptr(RE{"x"})}};
-	CHECK_THROWS_AS(bad.value(), RE);
+	root::Outcome<void> const bad{root::Failure{make_exception_ptr(std::runtime_error{"x"})}};
+	CHECK_THROWS_AS(bad.value(), std::runtime_error);
 
 	root::Outcome<void> const cancelled{root::Cancelled{root::CancelReason::shutdown}};
 	CHECK_THROWS_AS(cancelled.value(), root::CancelledError);
@@ -530,7 +530,7 @@ TEST_CASE(
 		[](root::Cancelled const &) { return -2; });
 	CHECK(r1 == 6);
 
-	root::Outcome<int> const bad{root::Failure{make_exception_ptr(RE{"y"})}};
+	root::Outcome<int> const bad{root::Failure{make_exception_ptr(std::runtime_error{"y"})}};
 	auto r2 = bad.match(
 		[](int const &v) { return v; },
 		[](root::Failure const &) { return -1; },
@@ -557,9 +557,9 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: Outcome<T>::match() && moves into success branch",
 	"[work.root][r3]") {
-	root::Outcome<UP<int>> ok{root::Success<UP<int>>{make_unique<int>(99)}};
+	root::Outcome<std::unique_ptr<int>> ok{root::Success<std::unique_ptr<int>>{make_unique<int>(99)}};
 	auto out = move(ok).match(
-		[](UP<int> &&p) { return *p; },
+		[](std::unique_ptr<int> &&p) { return *p; },
 		[](root::Failure const &) { return -1; },
 		[](root::Cancelled const &) { return -2; });
 	CHECK(out == 99);
@@ -611,7 +611,7 @@ TEST_CASE(
 	auto handle = root::into_join_handle(move(task));
 	auto ctrl = handle.control();
 
-	Atom<bool> fired{false};
+	std::atomic<bool> fired{false};
 	auto result = ctrl.try_set_on_ready([&fired]() noexcept { fired.store(true); });
 	REQUIRE(result.status == root::ReadyRegistration::installed);
 	CHECK(!result.rejected_fn);
@@ -631,7 +631,7 @@ TEST_CASE(
 	REQUIRE(src.try_set_value(root::Success<int>{7}));
 
 	auto ctrl = handle.control();
-	Atom<bool> fired{false};
+	std::atomic<bool> fired{false};
 	auto result = ctrl.try_set_on_ready([&fired]() noexcept { fired.store(true); });
 	REQUIRE(result.status == root::ReadyRegistration::already_ready);
 	REQUIRE(bool(result.rejected_fn));
@@ -649,7 +649,7 @@ TEST_CASE(
 	auto handle = root::into_join_handle(move(task));
 	auto ctrl = handle.control();
 
-	Atom<int> count{0};
+	std::atomic<int> count{0};
 	auto r1 = ctrl.try_set_on_ready([&count]() noexcept { count.fetch_add(1); });
 	REQUIRE(r1.status == root::ReadyRegistration::installed);
 
@@ -690,7 +690,7 @@ TEST_CASE(
 	auto handle = root::into_join_handle(move(task));
 	auto ctrl = handle.control();
 
-	Atom<bool> fired{false};
+	std::atomic<bool> fired{false};
 	auto r = ctrl.try_set_on_ready([&fired]() noexcept { fired.store(true); });
 	REQUIRE(r.status == root::ReadyRegistration::installed);
 
@@ -735,7 +735,7 @@ TEST_CASE(
 	auto handle = root::into_join_handle(move(task));
 	auto ctrl = handle.control();
 
-	Atom<bool> ran{false};
+	std::atomic<bool> ran{false};
 	ctrl.set_on_ready_or_run([&ran]() noexcept { ran.store(true); });
 	CHECK(ran.load());
 	(void)root::blocking_join(move(handle));
@@ -843,7 +843,7 @@ TEST_CASE(
 TEST_CASE(
 	"work.root: work_category name is 'conflux.work'",
 	"[work.root][e2b1]") {
-	CHECK(SV{root::work_category().name()} == "conflux.work");
+	CHECK(std::string_view{root::work_category().name()} == "conflux.work");
 }
 TEST_CASE(
 	"work.root: work_category is a singleton",

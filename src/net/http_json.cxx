@@ -38,7 +38,7 @@ template<class Provider, class T>
 	conflux::json::boundary::DecodeOptions const &opts = {})
 	requires conflux::json::boundary::JsonDecodeProvider<Provider, std::remove_cvref_t<T>>
 {
-	return conflux::json::boundary::decode_with<Provider, std::remove_cvref_t<T>>(SV{req.body()}, opts);
+	return conflux::json::boundary::decode_with<Provider, std::remove_cvref_t<T>>(std::string_view{req.body()}, opts);
 }
 
 } // namespace conflux::http::json

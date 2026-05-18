@@ -26,11 +26,11 @@ namespace {
 
 struct H2Response {
 	int status = 0;
-	S body;
+	std::string body;
 	bool closed = false;
-	u32 error_code = 0;
+	std::uint32_t error_code = 0;
 	bool connection_error = false;
-	V<P<S, S>> trailers;
+	std::vector<std::pair<std::string, std::string>> trailers;
 };
 // Minimal synchronous nghttp2 client over a blocking TLS socket.
 // Call get()/post() for serial requests; for concurrent streams use
@@ -38,15 +38,15 @@ struct H2Response {
 struct H2Client {
 	// Internal body state for nghttp2 data provider.
 	struct ReqBody {
-		S data;
-		SZ off{0};
+		std::string data;
+		std::size_t off{0};
 	};
 	// --- public API ---
 
 	H2Client(H2Client const &) = delete;
 	H2Client &operator =(H2Client const &) = delete;
 	explicit H2Client(
-		u16 port)
+		std::uint16_t port)
 		: ctx_(SSL_CTX_new(TLS_client_method()))
 		, fd_(::socket(AF_INET, SOCK_STREAM, 0)) {
 		SSL_CTX_set_verify(ctx_.get(), SSL_VERIFY_NONE, nullptr);
@@ -62,7 +62,7 @@ struct H2Client {
 		addr.sin_port = htons(port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		if (::connect(fd_, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) != 0) {
-			throw RE{"H2Client: connect failed"};
+			throw std::runtime_error{"H2Client: connect failed"};
 		}
 
 		ssl_.reset(SSL_new(ctx_.get()));
@@ -73,7 +73,7 @@ struct H2Client {
 			TLSEXT_NAMETYPE_host_name,
 			const_cast<void *>(static_cast<void const *>("localhost")));
 		if (SSL_connect(ssl_.get()) != 1) {
-			throw RE{"H2Client: TLS handshake failed"};
+			throw std::runtime_error{"H2Client: TLS handshake failed"};
 		}
 
 		// Verify ALPN negotiated "h2".
@@ -81,7 +81,7 @@ struct H2Client {
 		unsigned int proto_len = 0;
 		SSL_get0_alpn_selected(ssl_.get(), &proto, &proto_len);
 		if (proto_len != 2 || proto[0] != 'h' || proto[1] != '2') {
-			throw RE{"H2Client: server did not negotiate h2"};
+			throw std::runtime_error{"H2Client: server did not negotiate h2"};
 		}
 
 		nghttp2_session_callbacks *cbs = nullptr;
@@ -117,35 +117,35 @@ struct H2Client {
 	}
 	// Submit a GET and block until response received.
 	H2Response get(
-		SV path) {
-		i32 const sid = submit_request("GET", path, nullptr);
+		std::string_view path) {
+		std::int32_t const sid = submit_request("GET", path, nullptr);
 		pump_until_closed(sid);
 		return responses_[sid];
 	}
 	H2Response get_with_headers(
-		SV path,
-		V<P<S, S>> extra_headers) {
-		i32 const sid = submit_request("GET", path, nullptr, move(extra_headers));
+		std::string_view path,
+		std::vector<std::pair<std::string, std::string>> extra_headers) {
+		std::int32_t const sid = submit_request("GET", path, nullptr, move(extra_headers));
 		pump_until_closed(sid);
 		return responses_[sid];
 	}
 	H2Response raw_request(
-		V<P<S, S>> headers) {
-		i32 const sid = submit_raw_headers(move(headers));
+		std::vector<std::pair<std::string, std::string>> headers) {
+		std::int32_t const sid = submit_raw_headers(move(headers));
 		pump_until_closed(sid);
 		return responses_[sid];
 	}
 	// Submit a POST with body and block until response received.
 	// ReqBody must outlive the pump — kept in req_bodies_ for stability.
 	H2Response post(
-		SV path,
-		SV body_data) {
+		std::string_view path,
+		std::string_view body_data) {
 		return post_with_headers(path, body_data, {});
 	}
 	H2Response post_with_content_length(
-		SV path,
-		SV body_data,
-		SZ content_length) {
+		std::string_view path,
+		std::string_view body_data,
+		std::size_t content_length) {
 		return post_with_headers(
 			path,
 			body_data,
@@ -154,52 +154,52 @@ struct H2Client {
         });
 	}
 	H2Response post_with_headers(
-		SV path,
-		SV body_data,
-		V<P<S, S>> extra_headers) {
-		auto rb = make_unique<ReqBody>(ReqBody{.data = S{body_data}, .off = 0});
+		std::string_view path,
+		std::string_view body_data,
+		std::vector<std::pair<std::string, std::string>> extra_headers) {
+		auto rb = make_unique<ReqBody>(ReqBody{.data = std::string{body_data}, .off = 0});
 		ReqBody *rb_ptr = rb.get();
 		nghttp2_data_provider prd{};
 		prd.read_callback = read_cb;
 		prd.source.ptr = rb_ptr;
 
-		i32 const sid = submit_request("POST", path, &prd, move(extra_headers));
+		std::int32_t const sid = submit_request("POST", path, &prd, move(extra_headers));
 		req_bodies_.emplace(sid, move(rb)); // pointer still valid after move
 		pump_until_closed(sid);
 		return responses_[sid];
 	}
 	// Submit a GET without pumping (for concurrent-stream tests).
-	i32 submit_get(
-		SV path) {
+	std::int32_t submit_get(
+		std::string_view path) {
 		return submit_request("GET", path, nullptr);
 	}
 	// Pump until all listed streams are closed (or timeout).
 	void pump_all(
-		span<i32 const> sids) {
-		auto deadline = chrono::steady_clock::now() + chrono::seconds{5};
-		auto all_done = [&] { return ranges::all_of(sids, [&](i32 s) { return responses_[s].closed; }); };
-		while (!all_done() && chrono::steady_clock::now() < deadline) {
+		span<std::int32_t const> sids) {
+		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+		auto all_done = [&] { return ranges::all_of(sids, [&](std::int32_t s) { return responses_[s].closed; }); };
+		while (!all_done() && std::chrono::steady_clock::now() < deadline) {
 			pump_once();
 		}
 	}
-	M<i32, H2Response> responses_;
+	std::map<std::int32_t, H2Response> responses_;
 
 private:
 	UniqueSslCtx ctx_;
 	UniqueSsl ssl_;
 	int fd_ = -1;
 	nghttp2_session *session_ = nullptr;
-	M<i32, UP<ReqBody>> req_bodies_;
+	std::map<std::int32_t, std::unique_ptr<ReqBody>> req_bodies_;
 	bool goaway_received_ = false;
-	u32 goaway_error_code_ = 0;
-	i32 submit_request(
-		SV method,
-		SV path,
+	std::uint32_t goaway_error_code_ = 0;
+	std::int32_t submit_request(
+		std::string_view method,
+		std::string_view path,
 		nghttp2_data_provider const *prd,
-		V<P<S, S>> extra_headers = {}) {
-		S ms{method};
-		S ps{path};
-		V<P<S, S>> nv_store;
+		std::vector<std::pair<std::string, std::string>> extra_headers = {}) {
+		std::string ms{method};
+		std::string ps{path};
+		std::vector<std::pair<std::string, std::string>> nv_store;
 		nv_store.emplace_back(":method", ms);
 		nv_store.emplace_back(":path", ps);
 		nv_store.emplace_back(":scheme", "https");
@@ -208,75 +208,75 @@ private:
 			nv_store.push_back(move(h));
 		}
 
-		V<nghttp2_nv> nva;
+		std::vector<nghttp2_nv> nva;
 		nva.reserve(nv_store.size());
 		for (auto &[n, v]: nv_store) {
 			nva.push_back(
-				{reinterpret_cast<u8 *>(n.data()),
-				 reinterpret_cast<u8 *>(v.data()),
+				{reinterpret_cast<std::uint8_t *>(n.data()),
+				 reinterpret_cast<std::uint8_t *>(v.data()),
 				 n.size(),
 				 v.size(),
 				 NGHTTP2_NV_FLAG_NONE});
 		}
 
-		i32 const sid = nghttp2_submit_request(session_, nullptr, nva.data(), nva.size(), prd, nullptr);
+		std::int32_t const sid = nghttp2_submit_request(session_, nullptr, nva.data(), nva.size(), prd, nullptr);
 		if (sid < 0) {
-			throw RE{"nghttp2_submit_request failed"};
+			throw std::runtime_error{"nghttp2_submit_request failed"};
 		}
 		return sid;
 	}
-	i32 submit_raw_request(
-		V<P<S, S>> headers,
+	std::int32_t submit_raw_request(
+		std::vector<std::pair<std::string, std::string>> headers,
 		nghttp2_data_provider const *prd) {
-		V<nghttp2_nv> nva;
+		std::vector<nghttp2_nv> nva;
 		nva.reserve(headers.size());
 		for (auto &[n, v]: headers) {
 			nva.push_back(
-				{reinterpret_cast<u8 *>(n.data()),
-				 reinterpret_cast<u8 *>(v.data()),
+				{reinterpret_cast<std::uint8_t *>(n.data()),
+				 reinterpret_cast<std::uint8_t *>(v.data()),
 				 n.size(),
 				 v.size(),
 				 NGHTTP2_NV_FLAG_NONE});
 		}
-		i32 const sid = nghttp2_submit_request(session_, nullptr, nva.data(), nva.size(), prd, nullptr);
+		std::int32_t const sid = nghttp2_submit_request(session_, nullptr, nva.data(), nva.size(), prd, nullptr);
 		if (sid < 0) {
-			throw RE{"nghttp2_submit_request failed"};
+			throw std::runtime_error{"nghttp2_submit_request failed"};
 		}
 		return sid;
 	}
-	i32 submit_raw_headers(
-		V<P<S, S>> headers) {
-		V<nghttp2_nv> nva;
+	std::int32_t submit_raw_headers(
+		std::vector<std::pair<std::string, std::string>> headers) {
+		std::vector<nghttp2_nv> nva;
 		nva.reserve(headers.size());
 		for (auto &[n, v]: headers) {
 			nva.push_back(
-				{reinterpret_cast<u8 *>(n.data()),
-				 reinterpret_cast<u8 *>(v.data()),
+				{reinterpret_cast<std::uint8_t *>(n.data()),
+				 reinterpret_cast<std::uint8_t *>(v.data()),
 				 n.size(),
 				 v.size(),
 				 NGHTTP2_NV_FLAG_NONE});
 		}
-		i32 const sid =
+		std::int32_t const sid =
 			nghttp2_submit_headers(session_, NGHTTP2_FLAG_END_STREAM, -1, nullptr, nva.data(), nva.size(), nullptr);
 		if (sid < 0) {
-			throw RE{"nghttp2_submit_headers failed"};
+			throw std::runtime_error{"nghttp2_submit_headers failed"};
 		}
 		return sid;
 	}
 	void pump_once() {
 		nghttp2_session_send(session_);
 
-		A<char, 16384> buf{};
+		std::array<char, 16384> buf{};
 		int const n = SSL_read(ssl_.get(), buf.data(), static_cast<int>(buf.size()));
 		if (n > 0) {
-			nghttp2_session_mem_recv(session_, reinterpret_cast<u8 const *>(buf.data()), static_cast<SZ>(n));
+			nghttp2_session_mem_recv(session_, reinterpret_cast<std::uint8_t const *>(buf.data()), static_cast<std::size_t>(n));
 		}
 		// n <= 0: timeout or close — caller checks stream state
 	}
 	void pump_until_closed(
-		i32 sid) {
-		auto deadline = chrono::steady_clock::now() + chrono::seconds{5};
-		while (!responses_[sid].closed && !goaway_received_ && chrono::steady_clock::now() < deadline) {
+		std::int32_t sid) {
+		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
+		while (!responses_[sid].closed && !goaway_received_ && std::chrono::steady_clock::now() < deadline) {
 			pump_once();
 		}
 		if (goaway_received_ && !responses_[sid].closed) {
@@ -289,8 +289,8 @@ private:
 
 	static ssize_t send_cb(
 		nghttp2_session * /*unused*/,
-		u8 const *data,
-		SZ length,
+		std::uint8_t const *data,
+		std::size_t length,
 		int /*unused*/,
 		void *ud) {
 		auto *c = static_cast<H2Client *>(ud);
@@ -300,18 +300,18 @@ private:
 	static int on_header_cb(
 		nghttp2_session * /*unused*/,
 		nghttp2_frame const *frame,
-		u8 const *name,
-		SZ namelen,
-		u8 const *value,
-		SZ valuelen,
-		u8 /*unused*/,
+		std::uint8_t const *name,
+		std::size_t namelen,
+		std::uint8_t const *value,
+		std::size_t valuelen,
+		std::uint8_t /*unused*/,
 		void *ud) {
 		auto *c = static_cast<H2Client *>(ud);
-		SV const n{reinterpret_cast<char const *>(name), namelen};
-		SV const v{reinterpret_cast<char const *>(value), valuelen};
+		std::string_view const n{reinterpret_cast<char const *>(name), namelen};
+		std::string_view const v{reinterpret_cast<char const *>(value), valuelen};
 		if (frame->headers.cat == NGHTTP2_HCAT_HEADERS) {
 			// Trailer HEADERS frame (follows DATA frames) — capture all fields.
-			c->responses_[frame->hd.stream_id].trailers.emplace_back(S{n}, S{v});
+			c->responses_[frame->hd.stream_id].trailers.emplace_back(std::string{n}, std::string{v});
 		} else if (n == ":status") {
 			int st = 0;
 			from_chars(v.data(), v.data() + v.size(), st);
@@ -321,10 +321,10 @@ private:
 	}
 	static int on_data_chunk_cb(
 		nghttp2_session * /*unused*/,
-		u8 /*unused*/,
-		i32 stream_id,
-		u8 const *data,
-		SZ len,
+		std::uint8_t /*unused*/,
+		std::int32_t stream_id,
+		std::uint8_t const *data,
+		std::size_t len,
 		void *ud) {
 		auto *c = static_cast<H2Client *>(ud);
 		c->responses_[stream_id].body.append(reinterpret_cast<char const *>(data), len);
@@ -332,8 +332,8 @@ private:
 	}
 	static int on_stream_close_cb(
 		nghttp2_session * /*unused*/,
-		i32 stream_id,
-		u32 error_code,
+		std::int32_t stream_id,
+		std::uint32_t error_code,
 		void *ud) {
 		auto *c = static_cast<H2Client *>(ud);
 		c->responses_[stream_id].closed = true;
@@ -353,10 +353,10 @@ private:
 	}
 	static ssize_t read_cb(
 		nghttp2_session * /*unused*/,
-		i32 /*unused*/,
-		u8 *buf,
-		SZ length,
-		u32 *data_flags,
+		std::int32_t /*unused*/,
+		std::uint8_t *buf,
+		std::size_t length,
+		std::uint32_t *data_flags,
 		nghttp2_data_source *source,
 		void * /*unused*/) {
 		auto &rb = *static_cast<ReqBody *>(source->ptr);
@@ -443,7 +443,7 @@ TEST_CASE(
 	H2Client client{fx.port()};
 	auto ok = client.get("/ping");
 	REQUIRE(ok.status == 200);
-	V<P<S, S>> headers;
+	std::vector<std::pair<std::string, std::string>> headers;
 	for (int i = 0; i < 20; ++i) {
 		headers.emplace_back(format("x-extra-{}", i), "1");
 	}
@@ -463,7 +463,7 @@ TEST_CASE(
 	auto resp = client.get_with_headers(
 		"/ping",
 		{
-			{"x-large", S(256, 'x')}
+			{"x-large", std::string(256, 'x')}
     });
 	REQUIRE(resp.closed);
 	CHECK(resp.status == 0);
@@ -558,7 +558,7 @@ TEST_CASE(
 	H2Client client{fx.port()};
 
 	// Submit three requests without pumping between them.
-	A<i32, 3> sids{
+	std::array<std::int32_t, 3> sids{
 		client.submit_get("/ping"),
 		client.submit_get("/hello/world"),
 		client.submit_get("/ping"),
@@ -599,7 +599,7 @@ TEST_CASE(
 	"h2: SSE delivers all events over HTTP/2 before channel close") {
 	Router r;
 	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-	r.sse("/events", [](HttpRequest const &, SP<SseChannel> const &ch) {
+	r.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
 		auto _ = ch->send("data: beta\n\n");
 		auto _ = ch->send("data: gamma\n\n");
@@ -609,16 +609,16 @@ TEST_CASE(
 	H2Client client{fx.port()};
 	auto resp = client.get("/events");
 	REQUIRE(resp.status == 200);
-	REQUIRE(resp.body.find("data: alpha\n\n") != S::npos);
-	REQUIRE(resp.body.find("data: beta\n\n") != S::npos);
-	REQUIRE(resp.body.find("data: gamma\n\n") != S::npos);
+	REQUIRE(resp.body.find("data: alpha\n\n") != std::string::npos);
+	REQUIRE(resp.body.find("data: beta\n\n") != std::string::npos);
+	REQUIRE(resp.body.find("data: gamma\n\n") != std::string::npos);
 	REQUIRE(resp.closed);
 }
 TEST_CASE(
 	"h2: SSE send_event delivers typed event") {
 	Router r;
 	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
-	r.sse("/typed", [](HttpRequest const &, SP<SseChannel> const &ch) {
+	r.sse("/typed", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 		auto _ = ch->send_event("update", "payload42");
 		ch->close();
 	});
@@ -626,8 +626,8 @@ TEST_CASE(
 	H2Client client{fx.port()};
 	auto resp = client.get("/typed");
 	REQUIRE(resp.status == 200);
-	REQUIRE(resp.body.find("event: update\n") != S::npos);
-	REQUIRE(resp.body.find("data: payload42\n") != S::npos);
+	REQUIRE(resp.body.find("event: update\n") != std::string::npos);
+	REQUIRE(resp.body.find("data: payload42\n") != std::string::npos);
 	REQUIRE(resp.closed);
 }
 TEST_CASE(
@@ -651,7 +651,7 @@ TEST_CASE(
 	auto resp = client.get("/with-trailers");
 	REQUIRE(resp.status == 200);
 	REQUIRE(resp.body == "hello trailers");
-	auto has_trailer = [&](SV key, SV val) {
+	auto has_trailer = [&](std::string_view key, std::string_view val) {
 		return ranges::any_of(resp.trailers, [&](auto const &kv) { return kv.first == key && kv.second == val; });
 	};
 	REQUIRE(has_trailer("x-checksum", "crc32:deadbeef"));
@@ -661,8 +661,8 @@ TEST_CASE(
 	"h2: large body (>65535 bytes) is fully received via flow control") {
 	// Default H2 initial window is 65535 bytes.  A 128 KiB response forces the
 	// server to pause and the client to send WINDOW_UPDATE before delivery completes.
-	static constexpr SZ kBodySize = 128 * 1024;
-	S large_body(kBodySize, 'X');
+	static constexpr std::size_t kBodySize = 128 * 1024;
+	std::string large_body(kBodySize, 'X');
 	Router r;
 	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
 	r.get("/big", [&large_body](HttpRequest const &) { return HttpResponse::text(large_body); });

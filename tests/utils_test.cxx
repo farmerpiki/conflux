@@ -86,7 +86,7 @@ TEST_CASE(
 TEST_CASE(
 	"utils: ascii_lower_inplace modifies in-place",
 	"[utils]") {
-	S s{"FOO"};
+	std::string s{"FOO"};
 	ascii_lower_inplace(s);
 	CHECK(s == "foo");
 }
@@ -123,10 +123,10 @@ TEST_CASE(
 	CHECK(kv->second == "beta");
 	CHECK_FALSE(split_once("alpha", '=').has_value());
 
-	V<S> lines;
-	V<SZ> line_nos;
+	std::vector<std::string> lines;
+	std::vector<std::size_t> line_nos;
 	for (auto const line: LineRange{"one\r\ntwo\nthree"}) {
-		lines.push_back(S{line.text});
+		lines.push_back(std::string{line.text});
 		line_nos.push_back(line.line_no);
 	}
 	REQUIRE(lines.size() == 3);
@@ -264,7 +264,7 @@ TEST_CASE(
 TEST_CASE(
 	"utils: random_bytes fills buffer",
 	"[utils]") {
-	A<unsigned char, 16> buf{};
+	std::array<unsigned char, 16> buf{};
 	random_bytes(buf);
 	bool all_zero = true;
 	for (auto b: buf) {
@@ -278,8 +278,8 @@ TEST_CASE(
 TEST_CASE(
 	"utils: random_bytes two calls differ",
 	"[utils]") {
-	A<unsigned char, 16> a{};
-	A<unsigned char, 16> b{};
+	std::array<unsigned char, 16> a{};
+	std::array<unsigned char, 16> b{};
 	random_bytes(a);
 	random_bytes(b);
 	CHECK(a != b);
@@ -287,7 +287,7 @@ TEST_CASE(
 TEST_CASE(
 	"utils: random_bytes partial fill",
 	"[utils]") {
-	A<unsigned char, 3> buf{};
+	std::array<unsigned char, 3> buf{};
 	random_bytes(buf);
 	// Just verifying it doesn't crash; partial size exercises the tail branch.
 }
@@ -331,7 +331,7 @@ TEST_CASE(
 TEST_CASE(
 	"utils: hex_encode known values",
 	"[utils]") {
-	A<unsigned char, 3> data{0xDE, 0xAD, 0x01};
+	std::array<unsigned char, 3> data{0xDE, 0xAD, 0x01};
 	CHECK(hex_encode(data) == "dead01");
 }
 TEST_CASE(
@@ -374,7 +374,7 @@ TEST_CASE(
 TEST_CASE(
 	"utils: hex_encode/decode round-trip",
 	"[utils]") {
-	A<unsigned char, 5> data{0x00, 0xFF, 0x7F, 0x80, 0x42};
+	std::array<unsigned char, 5> data{0x00, 0xFF, 0x7F, 0x80, 0x42};
 	auto enc = hex_encode(data);
 	auto dec = hex_decode(enc);
 	REQUIRE(dec.has_value());

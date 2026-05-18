@@ -60,20 +60,20 @@ import :state;
 #endif
 
 #if CONFLUX_HAS_HTTP2
-static constexpr SZ kH2PendingSendCap = SZ{64} * 1024;
+static constexpr std::size_t kH2PendingSendCap = std::size_t{64} * 1024;
 // ---------------------------------------------------------------------------
 void Ring::h2_reject_stream(
 	nghttp2_session *session,
 	H2Stream &stream,
-	i32 stream_id,
-	u32 error_code) {
+	std::int32_t stream_id,
+	std::uint32_t error_code) {
 		stream.rejected = true;
 		nghttp2_submit_rst_stream(session, NGHTTP2_FLAG_NONE, stream_id, error_code);
 	}
 
 
 [[nodiscard]] bool Ring::h2_valid_regular_header_name(
-	SV name) noexcept {
+	std::string_view name) noexcept {
 		if (!is_valid_header_name(name)) {
 			return false;
 		}
@@ -87,7 +87,7 @@ void Ring::h2_reject_stream(
 
 
 [[nodiscard]] bool Ring::h2_forbidden_connection_header(
-	SV name) noexcept {
+	std::string_view name) noexcept {
 		return name == "connection"
 			|| name == "keep-alive"
 			|| name == "proxy-connection"
@@ -98,8 +98,8 @@ void Ring::h2_reject_stream(
 
 ssize_t Ring::h2_send_cb(
 	nghttp2_session * /*unused*/,
-	u8 const *data,
-	SZ length,
+	std::uint8_t const *data,
+	std::size_t length,
 	int /*unused*/,
 	void *user_data) {
 		auto *ctx = static_cast<H2ConnCtx *>(user_data);
@@ -132,11 +132,11 @@ int Ring::h2_on_begin_headers_cb(
 int Ring::h2_on_header_cb(
 	nghttp2_session *session,
 	nghttp2_frame const *frame,
-	u8 const *name,
-	SZ namelen,
-	u8 const *header_value,
-	SZ valuelen,
-	u8 /*unused*/,
+	std::uint8_t const *name,
+	std::size_t namelen,
+	std::uint8_t const *header_value,
+	std::size_t valuelen,
+	std::uint8_t /*unused*/,
 	void *user_data) {
 		auto *ctx = static_cast<H2ConnCtx *>(user_data);
 		auto &conn = ctx->ring->conn_for(ctx->fd);
@@ -148,11 +148,11 @@ int Ring::h2_on_header_cb(
 		if (stream.rejected) {
 			return 0;
 		}
-		SV const n{reinterpret_cast<char const *>(name), namelen};
-		SV const v{reinterpret_cast<char const *>(header_value), valuelen};
-		if (stream.header_count == NL<SZ>::max()
-			|| namelen > NL<SZ>::max() - valuelen
-			|| stream.header_list_size > NL<SZ>::max() - namelen - valuelen) {
+		std::string_view const n{reinterpret_cast<char const *>(name), namelen};
+		std::string_view const v{reinterpret_cast<char const *>(header_value), valuelen};
+		if (stream.header_count == std::numeric_limits<std::size_t>::max()
+			|| namelen > std::numeric_limits<std::size_t>::max() - valuelen
+			|| stream.header_list_size > std::numeric_limits<std::size_t>::max() - namelen - valuelen) {
 			h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_ENHANCE_YOUR_CALM);
 			return 0;
 		}
@@ -174,28 +174,28 @@ int Ring::h2_on_header_cb(
 					return 0;
 				}
 				stream.seen_method = true;
-				stream.method = S{v};
+				stream.method = std::string{v};
 			} else if (n == ":path") {
 				if (stream.seen_path) {
 					h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_PROTOCOL_ERROR);
 					return 0;
 				}
 				stream.seen_path = true;
-				stream.path = S{v};
+				stream.path = std::string{v};
 			} else if (n == ":scheme") {
 				if (stream.seen_scheme) {
 					h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_PROTOCOL_ERROR);
 					return 0;
 				}
 				stream.seen_scheme = true;
-				stream.scheme = S{v};
+				stream.scheme = std::string{v};
 			} else if (n == ":authority") {
 				if (stream.seen_authority) {
 					h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_PROTOCOL_ERROR);
 					return 0;
 				}
 				stream.seen_authority = true;
-				stream.authority = S{v};
+				stream.authority = std::string{v};
 			} else {
 				h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_PROTOCOL_ERROR);
 				return 0;
@@ -215,7 +215,7 @@ int Ring::h2_on_header_cb(
 					h2_reject_stream(session, stream, frame->hd.stream_id, NGHTTP2_PROTOCOL_ERROR);
 					return 0;
 				}
-				SZ content_length{};
+				std::size_t content_length{};
 				auto const *cl_end = ranges::next(v.data(), ssize(v));
 				auto [ptr, ec] = from_chars(v.data(), cl_end, content_length);
 				if (ec == errc{} && ptr == cl_end && content_length <= ctx->ring->max_body_size) {
@@ -226,7 +226,7 @@ int Ring::h2_on_header_cb(
 				}
 				stream.seen_content_length = true;
 			}
-			stream.headers.emplace_back(S{n}, S{v});
+			stream.headers.emplace_back(std::string{n}, std::string{v});
 		}
 		return 0;
 	}
@@ -235,10 +235,10 @@ int Ring::h2_on_header_cb(
 // Accumulate DATA frame body bytes into stream.body.
 int Ring::h2_on_data_chunk_cb(
 	nghttp2_session *session,
-	u8 /*unused*/,
-	i32 stream_id,
-	u8 const *data,
-	SZ len,
+	std::uint8_t /*unused*/,
+	std::int32_t stream_id,
+	std::uint8_t const *data,
+	std::size_t len,
 	void *user_data) {
 		auto *ctx = static_cast<H2ConnCtx *>(user_data);
 		auto &conn = ctx->ring->conn_for(ctx->fd);
@@ -270,10 +270,10 @@ int Ring::h2_on_data_chunk_cb(
 // Handles both static responses and SSE streaming.
 ssize_t Ring::h2_read_cb(
 	nghttp2_session *session,
-	i32 stream_id,
-	u8 *buf,
-	SZ length,
-	u32 *data_flags,
+	std::int32_t stream_id,
+	std::uint8_t *buf,
+	std::size_t length,
+	std::uint32_t *data_flags,
 	nghttp2_data_source *source,
 	void * /*user_data*/) {
 		auto &stream = *static_cast<H2Stream *>(source->ptr);
@@ -309,12 +309,12 @@ ssize_t Ring::h2_read_cb(
 			if (!stream.response_trailers.empty()) {
 				*data_flags |= NGHTTP2_DATA_FLAG_NO_END_STREAM;
 				*data_flags |= NGHTTP2_DATA_FLAG_EOF;
-				V<nghttp2_nv> nva;
+				std::vector<nghttp2_nv> nva;
 				nva.reserve(stream.response_trailers.size());
 				for (auto const &[n, v]: stream.response_trailers) {
 					nva.push_back(
-						{reinterpret_cast<u8 *>(const_cast<char *>(n.data())),
-						 reinterpret_cast<u8 *>(const_cast<char *>(v.data())),
+						{reinterpret_cast<std::uint8_t *>(const_cast<char *>(n.data())),
+						 reinterpret_cast<std::uint8_t *>(const_cast<char *>(v.data())),
 						 n.size(),
 						 v.size(),
 						 NGHTTP2_NV_FLAG_NONE});
@@ -331,7 +331,7 @@ ssize_t Ring::h2_read_cb(
 
 void Ring::h2_submit_response(
 	Conn &conn,
-	i32 stream_id,
+	std::int32_t stream_id,
 	HttpResponse resp) {
 		auto it = conn.h2_streams.find(stream_id);
 		if (it == conn.h2_streams.end()) {
@@ -350,9 +350,9 @@ void Ring::h2_submit_response(
 		}
 
 		bool const is_sse_resp = resp.is_sse();
-		S const status_str = to_string(resp.status);
-		S const clen_str = to_string(resp.content_length());
-		V<P<S, S>> nv_storage;
+		std::string const status_str = to_string(resp.status);
+		std::string const clen_str = to_string(resp.content_length());
+		std::vector<std::pair<std::string, std::string>> nv_storage;
 		nv_storage.reserve(3 + resp.headers.size() + resp.set_cookies.size());
 		nv_storage.emplace_back(":status", status_str);
 		nv_storage.emplace_back("content-type", resp.content_type);
@@ -369,12 +369,12 @@ void Ring::h2_submit_response(
 			nv_storage.emplace_back("alt-svc", conn.h2_ctx->ring->alt_svc_header);
 		}
 
-		V<nghttp2_nv> nva;
+		std::vector<nghttp2_nv> nva;
 		nva.reserve(nv_storage.size());
 		for (auto &[n, v]: nv_storage) {
 			nva.push_back(
-				{reinterpret_cast<u8 *>(n.data()),
-				 reinterpret_cast<u8 *>(v.data()),
+				{reinterpret_cast<std::uint8_t *>(n.data()),
+				 reinterpret_cast<std::uint8_t *>(v.data()),
 				 n.size(),
 				 v.size(),
 				 NGHTTP2_NV_FLAG_NONE});
@@ -447,16 +447,16 @@ int Ring::h2_on_frame_recv_cb(
 			return 0;
 		}
 
-		SV const method = stream.method;
-		SV path = stream.path;
-		SV const version = "HTTP/2";
-		SV const body = stream.body;
+		std::string_view const method = stream.method;
+		std::string_view path = stream.path;
+		std::string_view const version = "HTTP/2";
+		std::string_view const body = stream.body;
 		HttpFieldsView const params;
 		HttpFieldsView query;
 		HttpFieldsView form;
 		HttpFieldsView cookies;
-		V<UploadedFile> files;
-		if (auto q = path.find('?'); q != SV::npos) {
+		std::vector<UploadedFile> files;
+		if (auto q = path.find('?'); q != std::string_view::npos) {
 			parse_urlencoded(path.substr(q + 1), query);
 			path = path.substr(0, q);
 		}
@@ -509,8 +509,8 @@ int Ring::h2_on_frame_recv_cb(
 // Stream fully closed — release its state.
 int Ring::h2_on_stream_close_cb(
 	nghttp2_session * /*unused*/,
-	i32 stream_id,
-	u32 /*EC*/,
+	std::int32_t stream_id,
+	std::uint32_t /*EC*/,
 	void *user_data) {
 		auto *ctx = static_cast<H2ConnCtx *>(user_data);
 		auto &conn = ctx->ring->conn_for(ctx->fd);
@@ -607,12 +607,12 @@ void Ring::h2_setup_conn(
 			return;
 		}
 
-		constexpr u32 kH2MaxConcurrentStreams = 100;
-		constexpr u32 kH2InitialWindowSize = 1U << 24;
-		constexpr u32 kH2MaxFrameSize = 1U << 17;
-		u32 const h2_max_header_list_size =
-			static_cast<u32>(min<SZ>(parser_limits.max_header_block_size, static_cast<SZ>(NL<u32>::max())));
-		A<nghttp2_settings_entry, 4> const iv{
+		constexpr std::uint32_t kH2MaxConcurrentStreams = 100;
+		constexpr std::uint32_t kH2InitialWindowSize = 1U << 24;
+		constexpr std::uint32_t kH2MaxFrameSize = 1U << 17;
+		std::uint32_t const h2_max_header_list_size =
+			static_cast<std::uint32_t>(min<std::size_t>(parser_limits.max_header_block_size, static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())));
+		std::array<nghttp2_settings_entry, 4> const iv{
 			{
              {.settings_id = NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS, .value = kH2MaxConcurrentStreams},
              {.settings_id = NGHTTP2_SETTINGS_INITIAL_WINDOW_SIZE, .value = kH2InitialWindowSize},

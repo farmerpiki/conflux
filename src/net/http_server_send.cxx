@@ -66,15 +66,15 @@ import :state;
 void Ring::queue_send_mapped(
 	int fd) {
 		auto &conn = conn_for(fd);
-		SZ skip = conn.written;
-		SZ ni{};
+		std::size_t skip = conn.written;
+		std::size_t ni{};
 
 		// iov[0]: remaining header bytes
 		if (skip < conn.own_response.size()) {
 			span<char> const hdr_span{conn.own_response};
 			if (send_zc_enabled_ && conn.mapped_file && conn.mapped_file->size >= send_zc_threshold_) {
 				auto handle =
-					accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(fd)) : SocketHandle::from_os(fd);
+					accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
 				if (!submit_send_borrowed(
 						raw_,
 						handle,
@@ -106,7 +106,7 @@ void Ring::queue_send_mapped(
 			return;
 		}
 		auto handle =
-			accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(fd)) : SocketHandle::from_os(fd);
+			accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
 		if (send_zc_enabled_ && ni == 1 && conn.written >= conn.own_response.size()) {
 			auto const body_len = conn.writev_iov[0].iov_len;
 			if (body_len >= send_zc_threshold_) {
@@ -155,7 +155,7 @@ void Ring::queue_send_streamed(
 		}
 		auto const hdr_view = span{conn.own_response}.subspan(conn.written);
 		auto handle =
-			accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(fd)) : SocketHandle::from_os(fd);
+			accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
 		if (!submit_send_borrowed(raw_, handle, hdr_view.data(), hdr_view.size(), pack(Op::Send, conn.gen, fd))) {
 			defer_op([this, fd] { queue_send_streamed(fd); });
 		}
@@ -188,7 +188,7 @@ void Ring::start_streamed_body(
 			files->splice_to_fd(
 				*conn.streamed_file->handle,
 				off,
-				static_cast<SZ>(remaining),
+				static_cast<std::size_t>(remaining),
 				fd,
 				move(*pipe),
 				accepted_sockets_direct))
@@ -215,7 +215,7 @@ void Ring::start_streamed_tls_chunk(
 		}
 		auto const remaining = conn.streamed_file->send_size - conn.streamed_delivered;
 		auto const off = conn.streamed_file->send_offset + conn.streamed_delivered;
-		auto const want = static_cast<SZ>(min<u64>(remaining, buf->size()));
+		auto const want = static_cast<std::size_t>(min<std::uint64_t>(remaining, buf->size()));
 		FixedBuffer b = move(*buf);
 		auto const conn_gen = conn.gen;
 		conn.streamed_splice_in_flight = true;
@@ -226,11 +226,11 @@ void Ring::start_streamed_tls_chunk(
 
 void Ring::on_streamed_tls_chunk_done(
 	int fd,
-	u32 conn_gen,
+	std::uint32_t conn_gen,
 	FixedBuffer buf,
-	SZ bytes,
-	EP const &err) {
-		auto const ufd = static_cast<SZ>(fd);
+	std::size_t bytes,
+	std::exception_ptr const &err) {
+		auto const ufd = static_cast<std::size_t>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != conn_gen) {
 			return;
 		}
@@ -255,7 +255,7 @@ void Ring::on_streamed_tls_chunk_done(
 			queue_close(fd);
 			return;
 		}
-		conn.streamed_delivered += static_cast<u64>(w);
+		conn.streamed_delivered += static_cast<std::uint64_t>(w);
 		tls_flush_wbio(conn);
 		conn.tls_sending_response = true;
 		tls_queue_send(conn);
@@ -275,8 +275,8 @@ void Ring::write_mapped_tls_chunk(
 		if (remaining == 0) {
 			return;
 		}
-		static constexpr u64 kMappedTlsChunk{64UL * 1024U};
-		auto const want = static_cast<SZ>(min<u64>(remaining, kMappedTlsChunk));
+		static constexpr std::uint64_t kMappedTlsChunk{64UL * 1024U};
+		auto const want = static_cast<std::size_t>(min<std::uint64_t>(remaining, kMappedTlsChunk));
 		auto const *data = reinterpret_cast<char const *>(win.data()) + conn.mapped_delivered;
 		auto const w = SSL_write(conn.ssl.get(), data, static_cast<int>(want));
 		if (w <= 0) {
@@ -284,7 +284,7 @@ void Ring::write_mapped_tls_chunk(
 			queue_close(fd);
 			return;
 		}
-		conn.mapped_delivered += static_cast<u64>(w);
+		conn.mapped_delivered += static_cast<std::uint64_t>(w);
 		tls_flush_wbio(conn);
 		conn.tls_sending_response = true;
 		tls_queue_send(conn);
@@ -294,10 +294,10 @@ void Ring::write_mapped_tls_chunk(
 #endif
 void Ring::on_streamed_splice_done(
 	int fd,
-	u32 conn_gen,
-	SZ delivered,
-	EP const &err) {
-		auto const ufd = static_cast<SZ>(fd);
+	std::uint32_t conn_gen,
+	std::size_t delivered,
+	std::exception_ptr const &err) {
+		auto const ufd = static_cast<std::size_t>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != conn_gen) {
 			return;
 		}
@@ -336,7 +336,7 @@ void Ring::on_streamed_splice_done(
 [[nodiscard]] bool Ring::tls_write_plaintext(
 	int fd,
 	Conn &conn,
-	SV bytes) {
+	std::string_view bytes) {
 		char const *data = bytes.data();
 		auto remaining = static_cast<int>(bytes.size());
 		while (remaining > 0) {
@@ -361,11 +361,11 @@ void Ring::note_send_zc_tls_bypass_if_candidate(
 		if (!send_zc_enabled_ || conn.zc_tls_bypass_counted) {
 			return;
 		}
-		SZ candidate_bytes{};
+		std::size_t candidate_bytes{};
 		if (conn.mapped_file) {
-			candidate_bytes = static_cast<SZ>(conn.mapped_file->size);
+			candidate_bytes = static_cast<std::size_t>(conn.mapped_file->size);
 		} else if (conn.streamed_file) {
-			candidate_bytes = static_cast<SZ>(conn.streamed_file->send_size);
+			candidate_bytes = static_cast<std::size_t>(conn.streamed_file->send_size);
 		} else if (conn.has_response && conn.own_response.size() >= conn.written) {
 			candidate_bytes = conn.own_response.size() - conn.written;
 		}
@@ -389,7 +389,7 @@ void Ring::queue_send(
 			// file_io only after the encrypted header batch is actually drained.
 			if (conn.streamed_file) {
 				if (!conn.streamed_headers_sent) {
-					auto const hdr = SV{conn.own_response}.substr(conn.written);
+					auto const hdr = std::string_view{conn.own_response}.substr(conn.written);
 					if (hdr.empty()) {
 						conn.streamed_headers_sent = true;
 						if (conn.ktls_send && splice_pipes) {
@@ -409,7 +409,7 @@ void Ring::queue_send(
 			}
 			if (conn.mapped_file && !conn.has_response) {
 				if (conn.written < conn.own_response.size()) {
-					auto const hdr = SV{conn.own_response}.substr(conn.written);
+					auto const hdr = std::string_view{conn.own_response}.substr(conn.written);
 					if (!tls_write_plaintext(fd, conn, hdr)) {
 						return;
 					}
@@ -442,9 +442,9 @@ void Ring::queue_send(
 		}
 		auto const gen = conn.gen;
 		auto const &resp = conn.own_response;
-		SZ const len = resp.size() - conn.written;
+		std::size_t const len = resp.size() - conn.written;
 		auto handle =
-			accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(fd)) : SocketHandle::from_os(fd);
+			accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
 		if (conn.send_buf.valid()) {
 			assert(conn.written >= conn.send_buf_base_written);
 			auto const local_off = conn.written - conn.send_buf_base_written;
@@ -458,7 +458,7 @@ void Ring::queue_send(
 					remaining.size(),
 					pack(Op::Send, gen, fd))) {
 				defer_op([this, fd, gen] {
-					auto const ufd = static_cast<SZ>(fd);
+					auto const ufd = static_cast<std::size_t>(fd);
 					if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
 						queue_send(fd);
 					}
@@ -482,7 +482,7 @@ void Ring::queue_send(
 			}
 			++zc_counters_.fallback_regular_send;
 			defer_op([this, fd, gen] {
-				auto const ufd = static_cast<SZ>(fd);
+				auto const ufd = static_cast<std::size_t>(fd);
 				if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
 					queue_send(fd);
 				}
@@ -507,7 +507,7 @@ void Ring::queue_send(
 					return;
 				}
 				defer_op([this, fd, gen] {
-					auto const ufd = static_cast<SZ>(fd);
+					auto const ufd = static_cast<std::size_t>(fd);
 					if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
 						queue_send(fd);
 					}
@@ -517,7 +517,7 @@ void Ring::queue_send(
 		}
 		if (!submit_send_borrowed(raw_, handle, resp_view.data(), resp_view.size(), pack(Op::Send, gen, fd))) {
 			defer_op([this, fd, gen] {
-				auto const ufd = static_cast<SZ>(fd);
+				auto const ufd = static_cast<std::size_t>(fd);
 				if (ufd < fd_table.size() && fd_table[ufd].gen == gen) {
 					queue_send(fd);
 				}
@@ -594,7 +594,7 @@ void Ring::handle_http_response_send_complete(
 		if (conn.partial.empty()) {
 			conn.request_in_progress = false;
 		} else {
-			conn.request_started = chrono::steady_clock::now();
+			conn.request_started = std::chrono::steady_clock::now();
 		}
 		if (!conn.partial.empty()) {
 			dispatch_request(
@@ -681,8 +681,8 @@ void Ring::fail_send(
 void Ring::handle_send(
 	int fd,
 	int res,
-	u32 gen) {
-		auto const ufd = static_cast<SZ>(fd);
+	std::uint32_t gen) {
+		auto const ufd = static_cast<std::size_t>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 			return;
 		}
@@ -696,7 +696,7 @@ void Ring::handle_send(
 				return;
 			}
 
-			conn.tls_send_off += static_cast<SZ>(res);
+			conn.tls_send_off += static_cast<std::size_t>(res);
 
 			if (conn.tls_send_off < conn.tls_send_inflight.size()) {
 				conn.send_queued = false;
@@ -717,7 +717,7 @@ void Ring::handle_send(
 				fail_send(fd, conn);
 				return;
 			}
-			conn.written += static_cast<SZ>(res);
+			conn.written += static_cast<std::size_t>(res);
 			if (conn.written < conn.mapped_total) {
 				queue_send_mapped(fd);
 				return;
@@ -731,7 +731,7 @@ void Ring::handle_send(
 				fail_send(fd, conn);
 				return;
 			}
-			conn.written += static_cast<SZ>(res);
+			conn.written += static_cast<std::size_t>(res);
 			if (conn.written < conn.own_response.size()) {
 				queue_send_streamed(fd); // headers: resubmit remainder
 				return;
@@ -761,7 +761,7 @@ void Ring::handle_send(
 				}
 				return;
 			}
-			conn.written += static_cast<SZ>(res);
+			conn.written += static_cast<std::size_t>(res);
 			if (conn.written < conn.own_response.size()) {
 				queue_send(fd);
 				return;
@@ -779,9 +779,9 @@ void Ring::handle_send(
 void Ring::handle_send_zc(
 	int fd,
 	int res,
-	u32 flags,
-	u32 gen) {
-		auto const ufd = static_cast<SZ>(fd);
+	std::uint32_t flags,
+	std::uint32_t gen) {
+		auto const ufd = static_cast<std::size_t>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 			return;
 		}
@@ -795,7 +795,7 @@ void Ring::handle_send_zc(
 				.result = res,
 				.notification = (flags & IORING_CQE_F_NOTIF) != 0,
 				.more = (flags & IORING_CQE_F_MORE) != 0,
-				.copied = (static_cast<u32>(res) & IORING_NOTIF_USAGE_ZC_COPIED) != 0,
+				.copied = (static_cast<std::uint32_t>(res) & IORING_NOTIF_USAGE_ZC_COPIED) != 0,
 				.enomem_error = res == -ENOMEM,
 				.written_before = conn.written,
 				.response_total = total,
@@ -832,20 +832,20 @@ void Ring::handle_send_zc(
 conflux::work::root::Task<void> do_streamed_splice(
 	Ring *ring,
 	int fd,
-	u32 conn_gen,
-	conflux::work::root::Task<SZ> splice_task) {
+	std::uint32_t conn_gen,
+	conflux::work::root::Task<std::size_t> splice_task) {
 	try {
 		auto const delivered = co_await move(splice_task);
 		ring->on_streamed_splice_done(fd, conn_gen, delivered, {});
-	} catch (...) { ring->on_streamed_splice_done(fd, conn_gen, SZ{0}, current_exception()); }
+	} catch (...) { ring->on_streamed_splice_done(fd, conn_gen, std::size_t{0}, current_exception()); }
 }
 
 #if CONFLUX_HAS_TLS
 conflux::work::root::Task<void> do_streamed_tls_chunk(
 	Ring *ring,
 	int fd,
-	u32 conn_gen,
-	SZ want,
+	std::uint32_t conn_gen,
+	std::size_t want,
 	conflux::work::root::Task<FileReader::ReadFixedResult> read_task) {
 	try {
 		auto result = co_await move(read_task);

@@ -16,8 +16,8 @@ namespace {
 template<class T>
 struct SyncTask {
 	struct promise_type {
-		Opt<T> value_;
-		Opt<EP> error_;
+		std::optional<T> value_;
+		std::optional<std::exception_ptr> error_;
 		SyncTask get_return_object() { return SyncTask{std::coroutine_handle<promise_type>::from_promise(*this)}; }
 		std::suspend_never initial_suspend() noexcept { return {}; }
 		std::suspend_always final_suspend() noexcept { return {}; }
@@ -141,7 +141,7 @@ TEST_CASE(
 		carrier::DroppableSlot<int> slot{move(jh)};
 		slot.on_drop([&](root::Outcome<int> const &out) noexcept { drop_saw_failure = out.is_failure(); });
 	}
-	(void)src.try_set_exception(make_exception_ptr(RE{"fail"}));
+	(void)src.try_set_exception(make_exception_ptr(std::runtime_error{"fail"}));
 	CHECK(drop_saw_failure);
 }
 TEST_CASE(
@@ -320,7 +320,7 @@ TEST_CASE(
 	"phase8g: CoalescingSlot concurrent commit + take",
 	"[phase8g]") {
 	carrier::CoalescingSlot<int> slot{};
-	Atom<int> last_seen{-1};
+	std::atomic<int> last_seen{-1};
 	constexpr int kIterations = 10000;
 
 	thread producer{[&] {

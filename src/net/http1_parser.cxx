@@ -7,7 +7,7 @@ import conflux.types;
 import conflux.net.config;
 export namespace conflux::http1 {
 
-enum class ParseStatus : u8 {
+enum class ParseStatus : std::uint8_t {
 	Ok,
 	Incomplete,
 	BadRequest,
@@ -15,11 +15,11 @@ enum class ParseStatus : u8 {
 	HeaderFieldsTooLarge,
 };
 struct ParsedRequest {
-	SV method;
-	SV target;
-	SV version;
-	V<P<SV, SV>> headers;
-	SZ header_end_offset = 0;
+	std::string_view method;
+	std::string_view target;
+	std::string_view version;
+	std::vector<std::pair<std::string_view, std::string_view>> headers;
+	std::size_t header_end_offset = 0;
 };
 
 } // namespace conflux::http1
@@ -55,13 +55,13 @@ constexpr bool is_tchar(
 export namespace conflux::http1 {
 
 ParseStatus parse_request(
-	SV raw,
+	std::string_view raw,
 	ParserLimits const &limits,
 	ParsedRequest &out) {
 	out.headers.clear();
 
 	auto eol = raw.find("\r\n");
-	if (eol == SV::npos) {
+	if (eol == std::string_view::npos) {
 		if (raw.size() > limits.max_request_line_size) {
 			return ParseStatus::UriTooLong;
 		}
@@ -75,20 +75,20 @@ ParseStatus parse_request(
 
 	auto const post_req_line = eol + 2;
 	auto header_end = raw.find("\r\n\r\n", eol);
-	if (header_end == SV::npos) {
+	if (header_end == std::string_view::npos) {
 		if (raw.size() > post_req_line && raw.size() - post_req_line > limits.max_header_block_size) {
 			return ParseStatus::HeaderFieldsTooLarge;
 		}
 
-		SZ header_count = 0;
-		SZ pos = post_req_line;
+		std::size_t header_count = 0;
+		std::size_t pos = post_req_line;
 		while (pos < raw.size()) {
 			auto const line_end = raw.find("\r\n", pos);
-			auto const line_size = line_end == SV::npos ? raw.size() - pos : line_end - pos;
+			auto const line_size = line_end == std::string_view::npos ? raw.size() - pos : line_end - pos;
 			if (line_size > limits.max_header_line_size) {
 				return ParseStatus::HeaderFieldsTooLarge;
 			}
-			if (line_end == SV::npos) {
+			if (line_end == std::string_view::npos) {
 				return ParseStatus::Incomplete;
 			}
 			if (++header_count > limits.max_headers) {
@@ -99,14 +99,14 @@ ParseStatus parse_request(
 		return ParseStatus::Incomplete;
 	}
 
-	auto const header_block_size = (header_end > post_req_line) ? header_end - post_req_line : SZ{0};
+	auto const header_block_size = (header_end > post_req_line) ? header_end - post_req_line : std::size_t{0};
 	if (header_block_size > limits.max_header_block_size) {
 		return ParseStatus::HeaderFieldsTooLarge;
 	}
-	out.headers.reserve(std::min(limits.max_headers, SZ{16}));
+	out.headers.reserve(std::min(limits.max_headers, std::size_t{16}));
 
 	auto sp1 = req_line.find(' ');
-	if (sp1 == SV::npos) {
+	if (sp1 == std::string_view::npos) {
 		return ParseStatus::BadRequest;
 	}
 
@@ -119,20 +119,20 @@ ParseStatus parse_request(
 	}
 	auto rest = req_line.substr(sp1 + 1);
 	auto sp2 = rest.find(' ');
-	out.target = sp2 != SV::npos ? rest.substr(0, sp2) : rest;
+	out.target = sp2 != std::string_view::npos ? rest.substr(0, sp2) : rest;
 	if (out.target.empty()) {
 		return ParseStatus::BadRequest;
 	}
-	out.version = sp2 != SV::npos ? rest.substr(sp2 + 1) : SV{};
+	out.version = sp2 != std::string_view::npos ? rest.substr(sp2 + 1) : std::string_view{};
 	if (out.version != "HTTP/1.0" && out.version != "HTTP/1.1") {
 		return ParseStatus::BadRequest;
 	}
 
-	SZ header_count = 0;
+	std::size_t header_count = 0;
 	auto pos = eol + 2;
 	while (pos < header_end) {
 		auto line_end = raw.find("\r\n", pos);
-		if (line_end == SV::npos || line_end > header_end) {
+		if (line_end == std::string_view::npos || line_end > header_end) {
 			return ParseStatus::BadRequest;
 		}
 		auto line = raw.substr(pos, line_end - pos);
@@ -145,11 +145,11 @@ ParseStatus parse_request(
 		if (line.empty() || line.front() == ' ' || line.front() == '\t') {
 			return ParseStatus::BadRequest;
 		}
-		if (line.find('\0') != SV::npos || line.find('\r') != SV::npos) {
+		if (line.find('\0') != std::string_view::npos || line.find('\r') != std::string_view::npos) {
 			return ParseStatus::BadRequest;
 		}
 		auto colon = line.find(':');
-		if (colon == SV::npos || colon == 0) {
+		if (colon == std::string_view::npos || colon == 0) {
 			return ParseStatus::BadRequest;
 		}
 		auto name = line.substr(0, colon);

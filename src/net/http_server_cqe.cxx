@@ -62,15 +62,15 @@ import :state;
 void Ring::handle_sse_poll(
 	int fd,
 	int res,
-	u32 gen) {
+	std::uint32_t gen) {
 		in_flight_read_bufs.erase(pack(Op::SsePoll, gen, fd));
-		auto const ufd = static_cast<SZ>(fd);
+		auto const ufd = static_cast<std::size_t>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 			return;
 		}
 		auto &conn = fd_table[ufd];
 
-		// res == sizeof(u64) == 8 → io_uring read the eventfd counter;
+		// res == sizeof(std::uint64_t) == 8 → io_uring read the eventfd counter;
 		// res < 0 → error (fd closed, cancelled, etc.) → tear down.
 		if (res <= 0) {
 			queue_close(fd);
@@ -119,7 +119,7 @@ void Ring::handle_sse_poll(
 void Ring::handle_deferred_poll(
 	int deferred_efd,
 	int res,
-	u32 gen) {
+	std::uint32_t gen) {
 		in_flight_read_bufs.erase(pack(Op::DeferredPoll, gen, deferred_efd));
 		auto it = deferred_waits.find(deferred_efd);
 		if (it == deferred_waits.end()) {
@@ -128,7 +128,7 @@ void Ring::handle_deferred_poll(
 
 		auto const fd = it->second.conn_fd;
 		auto const stream_id = it->second.stream_id;
-		auto const ufd = static_cast<SZ>(fd);
+		auto const ufd = static_cast<std::size_t>(fd);
 		if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 			deferred_waits.erase(it);
 			return;
@@ -147,7 +147,7 @@ void Ring::handle_deferred_poll(
 		}
 
 		deferred_waits.erase(it);
-		conn.last_activity = chrono::steady_clock::now();
+		conn.last_activity = std::chrono::steady_clock::now();
 		if (stream_id >= 0) {
 #if CONFLUX_HAS_HTTP2
 			auto stream_it = conn.h2_streams.find(stream_id);
@@ -205,10 +205,10 @@ void Ring::handle_deferred_poll(
 void Ring::handle_conn_close(
 	int fd,
 	int res,
-	u32 gen) {
+	std::uint32_t gen) {
 		HTTP_TRACE(format("conn_close fd={} res={} gen={} direct={}", fd, res, gen, accepted_sockets_direct));
 		if (direct_slots_ && accepted_sockets_direct) {
-			auto const slot = static_cast<u32>(fd);
+			auto const slot = static_cast<std::uint32_t>(fd);
 			if (res >= 0) {
 				if (!direct_slots_->release_closed(slot)) {
 					eprintln(format("handle_conn_close: release_closed failed slot={}", slot));
@@ -227,7 +227,7 @@ void Ring::handle_direct_slot_close(
 		if (!direct_slots_) {
 			return;
 		}
-		auto const slot = static_cast<u32>(fd);
+		auto const slot = static_cast<std::uint32_t>(fd);
 		if (res >= 0) {
 			if (!direct_slots_->release_closed(slot)) {
 				eprintln(format("handle_direct_slot_close: release_closed failed slot={}", slot));
@@ -242,8 +242,8 @@ void Ring::dispatch_cqe(
 	Op op,
 	int fd,
 	int res,
-	u32 flg,
-	u32 gen) {
+	std::uint32_t flg,
+	std::uint32_t gen) {
 		switch (op) {
 		case Op::Accept      : handle_accept(res, flg); break;
 		case Op::Recv        : handle_recv_cqe(fd, res, flg, gen); break;
@@ -256,10 +256,10 @@ void Ring::dispatch_cqe(
 		case Op::Timer       : handle_timer(); break;
 		case Op::FileIo:
 			if (file_completions) {
-				file_completions->dispatch(static_cast<u32>(fd), gen, res, flg);
+				file_completions->dispatch(static_cast<std::uint32_t>(fd), gen, res, flg);
 			}
 			break;
-		case Op::ClientRing     : client_ct_.dispatch(static_cast<u32>(fd), gen, res, flg); break;
+		case Op::ClientRing     : client_ct_.dispatch(static_cast<std::uint32_t>(fd), gen, res, flg); break;
 		case Op::WsCancel       : handle_ws_cancel(fd); break;
 		case Op::FixedFdInstall : handle_fixed_fd_install(fd, res); break;
 		case Op::DirectSlotClose: handle_direct_slot_close(fd, res); break;

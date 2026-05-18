@@ -17,14 +17,14 @@ export class VHostRouter {
 		std::string_view host_header) {
 		if (host_header.starts_with('[')) {
 			auto bracket = host_header.find(']');
-			if (bracket == SV::npos) {
+			if (bracket == std::string_view::npos) {
 				return host_header;
 			}
 			auto colon = host_header.find(':', bracket + 1);
-			return colon != SV::npos ? host_header.substr(0, colon) : host_header;
+			return colon != std::string_view::npos ? host_header.substr(0, colon) : host_header;
 		}
 		auto colon = host_header.rfind(':');
-		return colon != SV::npos ? host_header.substr(0, colon) : host_header;
+		return colon != std::string_view::npos ? host_header.substr(0, colon) : host_header;
 	}
 
 public:
@@ -58,7 +58,7 @@ public:
 	[[nodiscard]] std::shared_ptr<WorkPool> resolved_work_pool(
 		std::string_view host_header) const {
 		auto host = ascii_lower(normalized_host(host_header));
-		auto it = vhosts_.find(S{host});
+		auto it = vhosts_.find(std::string{host});
 		if (it != vhosts_.end()) {
 			return it->second.work_pool();
 		}
@@ -67,7 +67,7 @@ public:
 	[[nodiscard]] HttpResponse dispatch(
 		HttpRequestView const &req) const {
 		auto host = ascii_lower(normalized_host(req.headers["host"]));
-		auto it = vhosts_.find(S{host});
+		auto it = vhosts_.find(std::string{host});
 		if (it != vhosts_.end()) {
 			return it->second.dispatch(req);
 		}
@@ -92,7 +92,7 @@ public:
 		HttpRequest const &req,
 		RequestContext const &ctx) const {
 		auto host = ascii_lower(normalized_host(req.headers["host"]));
-		auto it = vhosts_.find(S{host});
+		auto it = vhosts_.find(std::string{host});
 		if (it != vhosts_.end()) {
 			return it->second.dispatch_context(req, ctx);
 		}
@@ -103,7 +103,7 @@ public:
 	}
 
 private:
-	UM<S, Router> vhosts_;
-	UP<Router> default_;
-	SP<WorkPool> work_pool_{make_shared<WorkPool>()};
+	std::unordered_map<std::string, Router> vhosts_;
+	std::unique_ptr<Router> default_;
+	std::shared_ptr<WorkPool> work_pool_{make_shared<WorkPool>()};
 };

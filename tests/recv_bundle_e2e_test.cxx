@@ -41,7 +41,7 @@ Config small_ring_cfg_non_direct_accept() {
 // Does NOT wait for a response — goal is to force the server to handle an
 // abrupt RST while a recv buffer may still be pinned.
 void send_and_abort(
-	u16 port) {
+	std::uint16_t port) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	if (fd < 0) {
 		return;
@@ -71,7 +71,7 @@ TEST_CASE(
 	Router router;
 	router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
 	ScopedTestServer srv{small_ring_cfg(), move(router)};
-	u16 const port = srv.port();
+	std::uint16_t const port = srv.port();
 
 	// Flood: 80 connections each send a partial request and close abruptly.
 	// The kernel RSTs the connection; the server must recycle the recv buffer.
@@ -80,13 +80,13 @@ TEST_CASE(
 	}
 
 	// Drain — give the server time to process the RSTs and recycle all buffers.
-	std::this_thread::sleep_for(chrono::milliseconds(200));
+	std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
 	// Ring must still be operational: 4 full round-trips succeed.
 	for (int i = 0; i < 4; ++i) {
-		S const resp = http_get_on(port, "/api/ping");
-		CHECK(resp.find("200 OK") != S::npos);
-		CHECK(resp.find("\"status\":\"ok\"") != S::npos);
+		std::string const resp = http_get_on(port, "/api/ping");
+		CHECK(resp.find("200 OK") != std::string::npos);
+		CHECK(resp.find("\"status\":\"ok\"") != std::string::npos);
 	}
 }
 TEST_CASE(
@@ -95,17 +95,17 @@ TEST_CASE(
 	Router router;
 	router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
 	ScopedTestServer srv{small_ring_cfg_non_direct_accept(), move(router)};
-	u16 const port = srv.port();
+	std::uint16_t const port = srv.port();
 
 	for (int i = 0; i < 80; ++i) {
 		send_and_abort(port);
 	}
 
-	std::this_thread::sleep_for(chrono::milliseconds(200));
+	std::this_thread::sleep_for(std::chrono::milliseconds(200));
 
 	for (int i = 0; i < 4; ++i) {
-		S const resp = http_get_on(port, "/api/ping");
-		CHECK(resp.find("200 OK") != S::npos);
-		CHECK(resp.find("\"status\":\"ok\"") != S::npos);
+		std::string const resp = http_get_on(port, "/api/ping");
+		CHECK(resp.find("200 OK") != std::string::npos);
+		CHECK(resp.find("\"status\":\"ok\"") != std::string::npos);
 	}
 }

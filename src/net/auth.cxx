@@ -12,7 +12,7 @@ export struct BasicAuthOptions {
 	// Failed Basic-auth attempts allowed per remote address during the window.
 	// 0 disables this guard for deployments that enforce login throttling elsewhere.
 	unsigned failed_attempts{10};
-	chrono::seconds failed_window{chrono::minutes{5}};
+	std::chrono::seconds failed_window{std::chrono::minutes{5}};
 
 	// Maximum remote addresses tracked by the failure limiter.
 	std::size_t max_failed_clients{65536};
@@ -20,7 +20,7 @@ export struct BasicAuthOptions {
 
 namespace auth_detail {
 
-using Clock = chrono::steady_clock;
+using Clock = std::chrono::steady_clock;
 
 struct FailedAuthBucket {
 	unsigned failures{};
@@ -136,7 +136,7 @@ HttpResponse unauthorized(
 }
 
 HttpResponse too_many_auth_attempts(
-	chrono::seconds retry_after) {
+	std::chrono::seconds retry_after) {
 	HttpResponse r;
 	r.status = 429;
 	r.status_text = "Too Many Requests";
@@ -144,7 +144,7 @@ HttpResponse too_many_auth_attempts(
 	r.set_text_body("Too Many Requests");
 	r.headers["Retry-After"] = format(
 		"{}",
-		std::max<chrono::seconds::rep>(chrono::seconds::rep{1}, retry_after.count()));
+		std::max<std::chrono::seconds::rep>(std::chrono::seconds::rep{1}, retry_after.count()));
 	return r;
 }
 
@@ -153,7 +153,7 @@ HttpResponse too_many_auth_attempts(
 	return opts.failed_attempts != 0U && opts.failed_window.count() > 0;
 }
 
-[[nodiscard]] std::optional<chrono::seconds> basic_auth_retry_after(
+[[nodiscard]] std::optional<std::chrono::seconds> basic_auth_retry_after(
 	FailedAuthState &state,
 	BasicAuthOptions const &opts,
 	std::string_view key,
@@ -161,12 +161,12 @@ HttpResponse too_many_auth_attempts(
 	if (!basic_auth_limiter_enabled(opts)) {
 		return nullopt;
 	}
-	SL const lock{state.mtx};
+	std::scoped_lock const lock{state.mtx};
 	auto *bucket = state.store.find(key);
 	if (bucket == nullptr) {
 		return nullopt;
 	}
-	auto elapsed = chrono::duration_cast<chrono::seconds>(now - bucket->window_start);
+	auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - bucket->window_start);
 	if (elapsed >= opts.failed_window) {
 		state.store.erase(key);
 		return nullopt;
@@ -174,7 +174,7 @@ HttpResponse too_many_auth_attempts(
 	if (bucket->failures < opts.failed_attempts) {
 		return nullopt;
 	}
-	return max(chrono::seconds{1}, opts.failed_window - elapsed);
+	return max(std::chrono::seconds{1}, opts.failed_window - elapsed);
 }
 
 void record_basic_auth_failure(
@@ -185,9 +185,9 @@ void record_basic_auth_failure(
 	if (!basic_auth_limiter_enabled(opts)) {
 		return;
 	}
-	SL const lock{state.mtx};
+	std::scoped_lock const lock{state.mtx};
 	auto &bucket = state.store.touch(key, now);
-	auto elapsed = chrono::duration_cast<chrono::seconds>(now - bucket.window_start);
+	auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - bucket.window_start);
 	if (elapsed >= opts.failed_window) {
 		bucket.failures = 0;
 		bucket.window_start = now;
@@ -204,7 +204,7 @@ void clear_basic_auth_failures(
 	if (!basic_auth_limiter_enabled(opts)) {
 		return;
 	}
-	SL const lock{state.mtx};
+	std::scoped_lock const lock{state.mtx};
 	state.store.erase(key);
 }
 
@@ -213,32 +213,32 @@ void clear_basic_auth_failures(
 // Middleware factory: HTTP Basic Authentication guard.
 // validator(username, password) → true = allow, false = 401.
 
-export using AuthThrottleClock = chrono::steady_clock;
+export using AuthThrottleClock = std::chrono::steady_clock;
 
 export struct AuthThrottleOptions {
 	// Failed attempts allowed per subject during the window. 0 disables throttling.
 	unsigned max_failures{5};
-	chrono::seconds window{chrono::minutes{5}};
+	std::chrono::seconds window{std::chrono::minutes{5}};
 	// Additional lockout after the threshold is reached. 0 blocks until the current
 	// window expires instead of starting a separate lockout period.
-	chrono::seconds lockout{chrono::minutes{5}};
+	std::chrono::seconds lockout{std::chrono::minutes{5}};
 	// Maximum distinct subjects tracked simultaneously. Clamped to at least one.
 	std::size_t max_subjects{65536};
 };
 
 export struct AuthThrottleOutcome {
 	bool allowed{true};
-	chrono::seconds retry_after{0};
+	std::chrono::seconds retry_after{0};
 	unsigned failures{0};
 	bool locked{false};
 };
 
 export struct AuthThrottleMetrics {
-	u64 allowed_attempts{};
-	u64 blocked_attempts{};
-	u64 failures_recorded{};
-	u64 successes_recorded{};
-	u64 subjects_evicted{};
+	std::uint64_t allowed_attempts{};
+	std::uint64_t blocked_attempts{};
+	std::uint64_t failures_recorded{};
+	std::uint64_t successes_recorded{};
+	std::uint64_t subjects_evicted{};
 	std::size_t tracked_subjects{};
 };
 
@@ -355,14 +355,14 @@ struct AuthThrottleState {
 	return opts.max_failures != 0U && opts.window.count() > 0;
 }
 
-[[nodiscard]] chrono::seconds retry_after_until(
+[[nodiscard]] std::chrono::seconds retry_after_until(
 	AuthThrottleClock::time_point deadline,
 	AuthThrottleClock::time_point now) {
 	if (deadline <= now) {
-		return chrono::seconds{1};
+		return std::chrono::seconds{1};
 	}
-	auto const remaining = chrono::ceil<chrono::seconds>(deadline - now);
-	return std::max(chrono::seconds{1}, remaining);
+	auto const remaining = std::chrono::ceil<std::chrono::seconds>(deadline - now);
+	return std::max(std::chrono::seconds{1}, remaining);
 }
 
 [[nodiscard]] AuthThrottleState &auth_throttle_state(
@@ -380,7 +380,7 @@ void refresh_auth_bucket_window(
 		bucket.locked_until = {};
 		return;
 	}
-	auto const elapsed = chrono::duration_cast<chrono::seconds>(now - bucket.window_start);
+	auto const elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - bucket.window_start);
 	if (elapsed >= opts.window) {
 		bucket.failures = 0;
 		bucket.window_start = now;
@@ -468,7 +468,7 @@ AuthThrottleOutcome AuthFailureLimiter::before_attempt(
 		return {.allowed = true};
 	}
 	auto &state = auth_detail::auth_throttle_state(state_);
-	SL const lock{state.mtx};
+	std::scoped_lock const lock{state.mtx};
 	auto *bucket = state.find(subject);
 	if (bucket == nullptr) {
 		++state.metrics.allowed_attempts;
@@ -491,7 +491,7 @@ AuthThrottleOutcome AuthFailureLimiter::record_failure(
 		return {.allowed = true};
 	}
 	auto &state = auth_detail::auth_throttle_state(state_);
-	SL const lock{state.mtx};
+	std::scoped_lock const lock{state.mtx};
 	auto &bucket = state.touch(subject, now);
 	auth_detail::refresh_auth_bucket_window(bucket, opts_, now);
 	if (bucket.failures < std::numeric_limits<unsigned>::max()) {
@@ -510,7 +510,7 @@ void AuthFailureLimiter::record_success(
 		return;
 	}
 	auto &state = auth_detail::auth_throttle_state(state_);
-	SL const lock{state.mtx};
+	std::scoped_lock const lock{state.mtx};
 	state.erase(subject);
 	++state.metrics.successes_recorded;
 }
@@ -521,13 +521,13 @@ void AuthFailureLimiter::clear(
 		return;
 	}
 	auto &state = auth_detail::auth_throttle_state(state_);
-	SL const lock{state.mtx};
+	std::scoped_lock const lock{state.mtx};
 	state.erase(subject);
 }
 
 AuthThrottleMetrics AuthFailureLimiter::snapshot() const {
 	auto &state = auth_detail::auth_throttle_state(state_);
-	SL const lock{state.mtx};
+	std::scoped_lock const lock{state.mtx};
 	auto out = state.metrics;
 	out.tracked_subjects = state.buckets.size();
 	return out;

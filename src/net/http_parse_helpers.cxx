@@ -107,7 +107,7 @@ export std::int64_t decode_chunked(std::string_view data, std::size_t max_body_s
 					return 0;
 				}
 				if (next == pos) {
-					return static_cast<i64>(pos + 2);
+					return static_cast<std::int64_t>(pos + 2);
 				}
 				if (++trailer_lines > kMaxChunkTrailerLines) {
 					return -1;
@@ -136,7 +136,7 @@ export std::int64_t decode_chunked(std::string_view data, std::size_t max_body_s
 	}
 }
 
-export enum class ChunkedDecodePhase : u8 {
+export enum class ChunkedDecodePhase : std::uint8_t {
 	SizeLine,
 	Data,
 	DataCrlf,
@@ -274,7 +274,7 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 				if (next == st.pos) {
 					st.pos += 2;
 					st.phase = ChunkedDecodePhase::Complete;
-					return static_cast<i64>(st.pos - body_start);
+					return static_cast<std::int64_t>(st.pos - body_start);
 				}
 				if (++st.trailer_lines > kMaxChunkTrailerLines) {
 					return -1;
@@ -287,7 +287,7 @@ export [[nodiscard]] std::int64_t decode_chunked_incremental(
 				st.pos = next + 2;
 				break;
 			}
-		case ChunkedDecodePhase::Complete: return static_cast<i64>(st.pos - body_start);
+		case ChunkedDecodePhase::Complete: return static_cast<std::int64_t>(st.pos - body_start);
 		}
 	}
 }

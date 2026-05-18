@@ -29,13 +29,13 @@ TEST_CASE(
 TEST_CASE(
 	"carrier.deadline: initial state is not cancelled",
 	"[carrier.deadline]") {
-	carrier::DeadlineScope scope{chrono::seconds{60}};
+	carrier::DeadlineScope scope{std::chrono::seconds{60}};
 	CHECK(!scope.is_cancelled());
 }
 TEST_CASE(
 	"carrier.deadline: cancel(requested) before deadline fires with requested reason",
 	"[carrier.deadline]") {
-	carrier::DeadlineScope scope{chrono::seconds{60}};
+	carrier::DeadlineScope scope{std::chrono::seconds{60}};
 	scope.cancel(root::CancelReason::requested);
 	CHECK(scope.is_cancelled());
 	CHECK(scope.cancel_reason() == root::CancelReason::requested);
@@ -43,7 +43,7 @@ TEST_CASE(
 TEST_CASE(
 	"carrier.deadline: past deadline fires immediately with deadline reason",
 	"[carrier.deadline]") {
-	auto const past = chrono::steady_clock::now() - chrono::seconds{1};
+	auto const past = std::chrono::steady_clock::now() - std::chrono::seconds{1};
 	carrier::DeadlineScope scope{past};
 	// Timer fires nearly immediately; spin until cancel propagates.
 	for (int i = 0; i < 10000 && !scope.is_cancelled(); ++i) {
@@ -55,7 +55,7 @@ TEST_CASE(
 TEST_CASE(
 	"carrier.deadline: deadline fires with deadline reason after duration",
 	"[carrier.deadline]") {
-	carrier::DeadlineScope scope{chrono::milliseconds{5}};
+	carrier::DeadlineScope scope{std::chrono::milliseconds{5}};
 	for (int i = 0; i < 100000 && !scope.is_cancelled(); ++i) {
 		std::this_thread::yield();
 	}
@@ -65,12 +65,12 @@ TEST_CASE(
 TEST_CASE(
 	"carrier.deadline: cancel(requested) wins over pending deadline (idempotent)",
 	"[carrier.deadline]") {
-	carrier::DeadlineScope scope{chrono::milliseconds{50}};
+	carrier::DeadlineScope scope{std::chrono::milliseconds{50}};
 	scope.cancel(root::CancelReason::requested);
 	// Deadline would fire ~50ms later; first cancel wins.
 	CHECK(scope.cancel_reason() == root::CancelReason::requested);
 	// Wait long enough that the timer would have fired if not stopped.
-	std::this_thread::sleep_for(chrono::milliseconds{80});
+	std::this_thread::sleep_for(std::chrono::milliseconds{80});
 	CHECK(scope.cancel_reason() == root::CancelReason::requested);
 }
 // ---------------------------------------------------------------------------
@@ -84,7 +84,7 @@ TEST_CASE(
 	(void)src.try_set_value(root::Success<int>{99});
 	auto jh = root::into_join_handle(move(task));
 
-	carrier::DeadlineScope scope{chrono::seconds{60}};
+	carrier::DeadlineScope scope{std::chrono::seconds{60}};
 	auto chain = scope.admit(move(jh));
 	auto out = move(chain).release_outcome();
 	REQUIRE(out.is_success());
@@ -98,7 +98,7 @@ TEST_CASE(
 	(void)src.try_set_cancelled(root::work_errc::cancelled_shutdown);
 	auto jh = root::into_join_handle(move(task));
 
-	carrier::DeadlineScope scope{chrono::seconds{60}};
+	carrier::DeadlineScope scope{std::chrono::seconds{60}};
 	auto chain = scope.admit(move(jh));
 	auto out = move(chain).release_outcome();
 	CHECK(out.is_cancelled());
@@ -110,7 +110,7 @@ TEST_CASE(
 	auto stop_token = src.stop_token();
 	auto jh = root::into_join_handle(move(task));
 
-	carrier::DeadlineScope scope{chrono::milliseconds{5}};
+	carrier::DeadlineScope scope{std::chrono::milliseconds{5}};
 
 	auto worker_src = move(src);
 	auto worker_token = stop_token;
@@ -134,7 +134,7 @@ TEST_CASE(
 	"[carrier.deadline]") {
 	bool cancelled = false;
 	{
-		carrier::DeadlineScope scope{chrono::seconds{60}};
+		carrier::DeadlineScope scope{std::chrono::seconds{60}};
 		// Destroy scope immediately — timer thread should join cleanly.
 	}
 	// If this test reaches here without crash or cancel, destruction is clean.

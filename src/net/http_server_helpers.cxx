@@ -58,7 +58,7 @@ export std::string_view http_date_now() {
 			return cached;
 		}
 		std::array<char, 32> buf{};
-		std::size_t const n = ::strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
+		std::size_t const n = ::strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%std::string GMT", &gmt);
 		cached = n != 0 ? std::string{buf.data(), n} : std::string{"Thu, 01 Jan 1970 00:00:00 GMT"};
 	}
 	return cached;
@@ -330,7 +330,7 @@ export [[nodiscard]] bool has_connection_token(HttpFieldsView const &headers, st
 	return false;
 }
 
-export enum class ExpectState : u8 {
+export enum class ExpectState : std::uint8_t {
 	none,
 	continue_100,
 	unsupported,

@@ -88,7 +88,7 @@ void Ring::launch_plain_ws_handler(
 	WorkPool &pool,
 	Ring::WsHandoffState state,
 	int fd,
-	S initial_buf) {
+	std::string initial_buf) {
 		if (!pool.enqueue([state = move(state), fd, ibuf = move(initial_buf)]() mutable {
 				WsConn ws{fd, move(ibuf)};
 				state.upgrade->handler(state.request, ws);
@@ -120,19 +120,19 @@ void Ring::handoff_plain_ws(
 	int fd) {
 		conn.partial.consume(conn.request_bytes);
 		conn.request_bytes = 0;
-		S initial_buf = conn.partial.take();
+		std::string initial_buf = conn.partial.take();
 		bool const cancel_recv = conn.recv_armed;
 		retire_incremental_partial(fd, conn.gen, conn);
 		auto state = begin_ws_handoff(conn);
 		if (!state.pool) {
 			if (accepted_sockets_direct) {
-				if (direct_slots_ && !direct_slots_->mark_closing(static_cast<u32>(fd))) {
+				if (direct_slots_ && !direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
 					eprintln(format("handoff_plain_ws: mark_closing failed slot={}", fd));
 				}
 				auto const ud = pack(Op::DirectSlotClose, 0, fd);
-				if (!submit_close(raw_, SocketHandle::from_direct(static_cast<u32>(fd)), ud)) {
+				if (!submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
 					defer_op(
-						[this, fd, ud] { submit_close(raw_, SocketHandle::from_direct(static_cast<u32>(fd)), ud); });
+						[this, fd, ud] { submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(fd)), ud); });
 				}
 			} else {
 				::close(fd);
@@ -161,7 +161,7 @@ void Ring::launch_tls_ws_handler(
 	Ring::WsHandoffState state,
 	int fd,
 	SSL *ssl,
-	S initial_buf) {
+	std::string initial_buf) {
 		UniqueSsl owned{ssl};
 		if (!pool.enqueue([state = move(state), fd, ssl_owned = move(owned), ibuf = move(initial_buf)]() mutable {
 				WsConn ws{fd, ssl_owned.release(), move(ibuf)};
@@ -181,7 +181,7 @@ void Ring::handoff_tls_ws(
 		conn.partial.consume(conn.request_bytes);
 		conn.request_bytes = 0;
 
-		S initial_buf = conn.partial.take();
+		std::string initial_buf = conn.partial.take();
 		auto orig_ssl = move(conn.ssl); // transfer ownership to the thread
 		bool const cancel_recv = conn.recv_armed;
 		retire_incremental_partial(fd, conn.gen, conn);
@@ -189,13 +189,13 @@ void Ring::handoff_tls_ws(
 		if (!state.pool) {
 			orig_ssl.reset();
 			if (accepted_sockets_direct) {
-				if (direct_slots_ && !direct_slots_->mark_closing(static_cast<u32>(fd))) {
+				if (direct_slots_ && !direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
 					eprintln(format("handoff_tls_ws: mark_closing failed slot={}", fd));
 				}
 				auto const ud = pack(Op::DirectSlotClose, 0, fd);
-				if (!submit_close(raw_, SocketHandle::from_direct(static_cast<u32>(fd)), ud)) {
+				if (!submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(fd)), ud)) {
 					defer_op(
-						[this, fd, ud] { submit_close(raw_, SocketHandle::from_direct(static_cast<u32>(fd)), ud); });
+						[this, fd, ud] { submit_close(raw_, SocketHandle::from_direct(static_cast<std::uint32_t>(fd)), ud); });
 				}
 			} else {
 				::close(fd);
@@ -222,7 +222,7 @@ void Ring::queue_ws_cancel(
 		}
 		ws_cancel_handoffs.emplace(fd, move(entry));
 		auto handle =
-			accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(fd)) : SocketHandle::from_os(fd);
+			accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) : SocketHandle::from_os(fd);
 		io_uring_prep_cancel_fd(sqe, handle.as_fd(), handle.fixed ? IORING_ASYNC_CANCEL_FD_FIXED : 0);
 		io_uring_sqe_set_data64(sqe, pack(Op::WsCancel, 0, fd));
 	}
@@ -264,7 +264,7 @@ void Ring::handle_ws_cancel(
 void Ring::queue_ws_fixed_install(
 	int slot_fd,
 	Ring::WsHandoffState state,
-	S initial_buf
+	std::string initial_buf
 #if CONFLUX_HAS_TLS
 	,
 	SSL *ssl
@@ -280,7 +280,7 @@ void Ring::queue_ws_fixed_install(
 				UniqueSsl{ssl}
 #endif
 			});
-		if (!submit_fixed_fd_install(raw_, static_cast<u32>(slot_fd), pack(Op::FixedFdInstall, 0, slot_fd))) {
+		if (!submit_fixed_fd_install(raw_, static_cast<std::uint32_t>(slot_fd), pack(Op::FixedFdInstall, 0, slot_fd))) {
 			auto entry = move(ws_installs.at(slot_fd));
 			ws_installs.erase(slot_fd);
 			defer_op([this,
@@ -320,17 +320,17 @@ void Ring::handle_fixed_fd_install(
 		ws_installs.erase(it);
 
 		auto free_slot = [this, slot_fd] {
-			if (direct_slots_ && !direct_slots_->mark_closing(static_cast<u32>(slot_fd))) {
+			if (direct_slots_ && !direct_slots_->mark_closing(static_cast<std::uint32_t>(slot_fd))) {
 				eprintln(format("free_slot: mark_closing failed slot={}", slot_fd));
 			}
 			if (!submit_close(
 					raw_,
-					SocketHandle::from_direct(static_cast<u32>(slot_fd)),
+					SocketHandle::from_direct(static_cast<std::uint32_t>(slot_fd)),
 					pack(Op::DirectSlotClose, 0, slot_fd))) {
 				defer_op([this, slot_fd] {
 					submit_close(
 						raw_,
-						SocketHandle::from_direct(static_cast<u32>(slot_fd)),
+						SocketHandle::from_direct(static_cast<std::uint32_t>(slot_fd)),
 						pack(Op::DirectSlotClose, 0, slot_fd));
 				});
 			}

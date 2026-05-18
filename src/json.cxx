@@ -114,7 +114,7 @@ export struct JsonSourceLocation {
 };
 
 // NOLINTNEXTLINE(performance-enum-size)
-export enum class DuplicateKeyPolicy : u8 {
+export enum class DuplicateKeyPolicy : std::uint8_t {
 	reject, // RFC 8259 recommended; current default
 	last_wins, // keep last value; first occurrence's name position preserved
 	first_wins, // keep first value; duplicate parsed for syntax, then discarded
@@ -256,7 +256,7 @@ export struct JsonError {
 export struct NoLimit {};
 export inline constexpr NoLimit no_limit{};
 export class LimitOption {
-	enum class Tag : u8 {
+	enum class Tag : std::uint8_t {
 		default_,
 		unlimited,
 		bound,
@@ -299,7 +299,7 @@ public:
 	}
 };
 
-export enum class ParseMode : u8 {
+export enum class ParseMode : std::uint8_t {
 	strict,
 	json5,
 };
@@ -308,12 +308,12 @@ export struct JsonParseOptions {
 	LimitOption max_input_size;
 	LimitOption max_string_size;
 	DuplicateKeyPolicy duplicate_key{DuplicateKeyPolicy::reject};
-	std::optional<u32> warm_threshold{};
+	std::optional<std::uint32_t> warm_threshold{};
 	ParseMode mode{ParseMode::strict};
 };
 
 // NOLINTNEXTLINE(performance-enum-size)
-export enum class UnknownMemberPolicy : u8 {
+export enum class UnknownMemberPolicy : std::uint8_t {
 	reject,
 	ignore,
 };
@@ -327,35 +327,35 @@ export struct JsonDecodeOptions {
 // view documents, PMR-backed owned/caller-resource documents, and reusable arena
 // documents. Future tokenizer/DOM work should keep these policy names stable and
 // replace implementations behind them.
-export enum class JsonDomInputOwnership : u8 {
+export enum class JsonDomInputOwnership : std::uint8_t {
 	borrowed_view,
 	owned_copy,
 	owned_move,
 };
 
-export enum class JsonDomStorageModel : u8 {
+export enum class JsonDomStorageModel : std::uint8_t {
 	standalone_document,
 	caller_pmr_document,
 	reusable_arena,
 };
 
-export enum class JsonDomStringModel : u8 {
+export enum class JsonDomStringModel : std::uint8_t {
 	view_unescaped_copy_decoded,
 };
 
-export enum class JsonDomNumberModel : u8 {
+export enum class JsonDomNumberModel : std::uint8_t {
 	preserve_lexeme_parse_on_access,
 };
 
-export enum class JsonDomUtf8Model : u8 {
+export enum class JsonDomUtf8Model : std::uint8_t {
 	strict_validate_on_parse,
 };
 
-export enum class JsonDomErrorModel : u8 {
+export enum class JsonDomErrorModel : std::uint8_t {
 	expected_json_error,
 };
 
-export enum class JsonDomObjectIndexModel : u8 {
+export enum class JsonDomObjectIndexModel : std::uint8_t {
 	preserve_order_warm_hash_on_demand,
 };
 
@@ -419,7 +419,7 @@ export struct JsonByteRange {
 // Internal storage
 // ---------------------------------------------------------------------------
 
-enum class NodeKind : u8 {
+enum class NodeKind : std::uint8_t {
 	null_,
 	boolean,
 	number,
@@ -435,26 +435,26 @@ enum class NodeKind : u8 {
 // numbers/strings still live in string_arena and these flags are clear).
 // ---------------------------------------------------------------------------
 
-constexpr u8 kStorageInputView = 0x01; // off,len index into input_view
-constexpr u8 kRawJsonSlice = 0x02; // bytes are raw JSON content (dump-safe memcpy)
-constexpr u8 kValueExternalView = 0x80; // off indexes external_ptrs_, value is caller-owned (string nodes only)
+constexpr std::uint8_t kStorageInputView = 0x01; // off,len index into input_view
+constexpr std::uint8_t kRawJsonSlice = 0x02; // bytes are raw JSON content (dump-safe memcpy)
+constexpr std::uint8_t kValueExternalView = 0x80; // off indexes external_ptrs_, value is caller-owned (string nodes only)
 
 // Number value-kind flags (at most one of kValKind* set on a number node).
-constexpr u8 kLexIntForm = 0x08; // lexeme matches -?(0|[1-9][0-9]*)
-constexpr u8 kValKindInt = 0x10; // ival valid
-constexpr u8 kValKindUint = 0x20; // uval valid
-constexpr u8 kValKindF64 = 0x40; // dval valid
-constexpr u8 kValKindDeferred = 0x04; // range-error f64 ≤ 4 KiB; from_chars deferred to to_f64()
+constexpr std::uint8_t kLexIntForm = 0x08; // lexeme matches -?(0|[1-9][0-9]*)
+constexpr std::uint8_t kValKindInt = 0x10; // ival valid
+constexpr std::uint8_t kValKindUint = 0x20; // uval valid
+constexpr std::uint8_t kValKindF64 = 0x40; // dval valid
+constexpr std::uint8_t kValKindDeferred = 0x04; // range-error f64 ≤ 4 KiB; from_chars deferred to to_f64()
 
 // All three kValKind* clear on a number node = f64-overflow (lexeme preserved).
 
 // kMemberExternalView: name is caller-owned. name_off indexes DocumentStorage::external_ptrs_.
-constexpr u32 kMemberExternalView = 0x04u;
+constexpr std::uint32_t kMemberExternalView = 0x04u;
 struct MemberEntry {
-	u32 name_off; // arena offset; or external_ptrs_ index when kMemberExternalView
-	u32 name_len;
-	u32 val_node;
-	u32 name_flags; // 0=arena; kStorageInputView=0x01; kMemberExternalView=0x04
+	std::uint32_t name_off; // arena offset; or external_ptrs_ index when kMemberExternalView
+	std::uint32_t name_len;
+	std::uint32_t val_node;
+	std::uint32_t name_flags; // 0=arena; kStorageInputView=0x01; kMemberExternalView=0x04
 };
 static_assert(sizeof(MemberEntry) == 16);
 static_assert(std::is_trivially_copyable_v<MemberEntry>);
@@ -463,15 +463,15 @@ static_assert(std::is_trivially_copyable_v<MemberEntry>);
 // Phase 6 — ObjHashTable (v14 HHH–JJJ, v15 RRR–SSS)
 // ---------------------------------------------------------------------------
 
-constexpr u32 kEmptySlot = ~u32{};
+constexpr std::uint32_t kEmptySlot = ~std::uint32_t{};
 struct ObjHashSlot {
-	u32 member_index{kEmptySlot};
-	u32 name_hash{0};
+	std::uint32_t member_index{kEmptySlot};
+	std::uint32_t name_hash{0};
 };
 static_assert(sizeof(ObjHashSlot) == 8);
 struct ObjHashTable {
-	u32 capacity;
-	u32 member_count;
+	std::uint32_t capacity;
+	std::uint32_t member_count;
 	std::pmr::memory_resource *mr;
 	[[nodiscard]] ObjHashSlot *slots_data() noexcept {
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
@@ -492,14 +492,14 @@ struct ObjHashTable {
 		return reinterpret_cast<char const *const *>(slots_data() + capacity);
 	}
 	static ObjHashTable *create(
-		u32 capacity,
-		u32 member_count,
+		std::uint32_t capacity,
+		std::uint32_t member_count,
 		std::pmr::memory_resource *mr = std::pmr::new_delete_resource()) noexcept;
 	static void destroy(ObjHashTable *t) noexcept;
 };
-constexpr u32 kHashThreshold = 32;
-constexpr u32 kProbeChainMax = 64;
-constexpr u32 kMaxHashTableCapacity = 1u << 30;
+constexpr std::uint32_t kHashThreshold = 32;
+constexpr std::uint32_t kProbeChainMax = 64;
+constexpr std::uint32_t kMaxHashTableCapacity = 1u << 30;
 // FI-7 — practical byte budget on the per-object hash index to bound
 // DoS payloads. 256 MiB / 8 B per slot = 32 Mi slots; well above any
 // realistic object size.
@@ -512,7 +512,7 @@ constexpr std::size_t kMaxHashIndexBytes = 256ULL * 1024 * 1024;
 // "no table" (i.e. neither dereference nor delete it).
 inline ObjHashTable *const kHashBuildFailedSentinel = reinterpret_cast<ObjHashTable *>(static_cast<uintptr_t>(1));
 // ---------------------------------------------------------------------------
-// Phase 0 (v11) — Node, 24 B, u32 offsets, union payload.
+// Phase 0 (v11) — Node, 24 B, std::uint32_t offsets, union payload.
 //
 // The 8-byte union's active member is determined by (kind, flags):
 //   kind == null_                          → none (zero-init via _raw)
@@ -530,18 +530,18 @@ inline ObjHashTable *const kHashBuildFailedSentinel = reinterpret_cast<ObjHashTa
 
 struct Node {
 	NodeKind kind;
-	u8 flags;
-	u16 _pad0;
-	u32 off;
-	u32 len;
-	u32 _pad1;
+	std::uint8_t flags;
+	std::uint16_t _pad0;
+	std::uint32_t off;
+	std::uint32_t len;
+	std::uint32_t _pad1;
 	union {
 		bool bool_val;
-		i64 ival;
-		u64 uval;
+		std::int64_t ival;
+		std::uint64_t uval;
 		double dval;
 		ObjHashTable *hash_idx_raw;
-		u64 _raw;
+		std::uint64_t _raw;
 	};
 };
 static_assert(sizeof(Node) == 24);
@@ -561,19 +561,19 @@ namespace detail {
 	return Node{.kind = NodeKind::boolean, .flags = 0, ._pad0 = 0, .off = 0, .len = 0, ._pad1 = 0, .bool_val = v};
 }
 [[nodiscard]] inline Node make_string(
-	u32 off,
-	u32 len,
-	u8 flags) noexcept {
+	std::uint32_t off,
+	std::uint32_t len,
+	std::uint8_t flags) noexcept {
 	return Node{.kind = NodeKind::string_, .flags = flags, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, ._raw = 0};
 }
 [[nodiscard]] inline Node node_array(
-	u32 off,
-	u32 len) noexcept {
+	std::uint32_t off,
+	std::uint32_t len) noexcept {
 	return Node{.kind = NodeKind::array_, .flags = 0, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, ._raw = 0};
 }
 [[nodiscard]] inline Node node_object(
-	u32 off,
-	u32 len) noexcept {
+	std::uint32_t off,
+	std::uint32_t len) noexcept {
 	return Node{
 		.kind = NodeKind::object,
 		.flags = 0,
@@ -584,13 +584,13 @@ namespace detail {
 		.hash_idx_raw = nullptr};
 }
 [[nodiscard]] inline Node make_number_int(
-	u32 off,
-	u32 len,
-	u8 storage_flags,
-	i64 v) noexcept {
+	std::uint32_t off,
+	std::uint32_t len,
+	std::uint8_t storage_flags,
+	std::int64_t v) noexcept {
 	return Node{
 		.kind = NodeKind::number,
-		.flags = static_cast<u8>(storage_flags | kLexIntForm | kValKindInt),
+		.flags = static_cast<std::uint8_t>(storage_flags | kLexIntForm | kValKindInt),
 		._pad0 = 0,
 		.off = off,
 		.len = len,
@@ -598,13 +598,13 @@ namespace detail {
 		.ival = v};
 }
 [[nodiscard]] inline Node make_number_uint(
-	u32 off,
-	u32 len,
-	u8 storage_flags,
-	u64 v) noexcept {
+	std::uint32_t off,
+	std::uint32_t len,
+	std::uint8_t storage_flags,
+	std::uint64_t v) noexcept {
 	return Node{
 		.kind = NodeKind::number,
-		.flags = static_cast<u8>(storage_flags | kLexIntForm | kValKindUint),
+		.flags = static_cast<std::uint8_t>(storage_flags | kLexIntForm | kValKindUint),
 		._pad0 = 0,
 		.off = off,
 		.len = len,
@@ -612,37 +612,37 @@ namespace detail {
 		.uval = v};
 }
 [[nodiscard]] inline Node make_number_f64(
-	u32 off,
-	u32 len,
-	u8 storage_flags,
+	std::uint32_t off,
+	std::uint32_t len,
+	std::uint8_t storage_flags,
 	double v,
 	bool int_form) noexcept {
-	u8 const flags = static_cast<u8>(storage_flags | (int_form ? kLexIntForm : 0) | kValKindF64);
+	std::uint8_t const flags = static_cast<std::uint8_t>(storage_flags | (int_form ? kLexIntForm : 0) | kValKindF64);
 	return Node{.kind = NodeKind::number, .flags = flags, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, .dval = v};
 }
 [[nodiscard]] inline Node make_number_overflow(
-	u32 off,
-	u32 len,
-	u8 storage_flags,
+	std::uint32_t off,
+	std::uint32_t len,
+	std::uint8_t storage_flags,
 	bool int_form) noexcept {
-	u8 const flags = static_cast<u8>(storage_flags | (int_form ? kLexIntForm : 0));
+	std::uint8_t const flags = static_cast<std::uint8_t>(storage_flags | (int_form ? kLexIntForm : 0));
 	return Node{.kind = NodeKind::number, .flags = flags, ._pad0 = 0, .off = off, .len = len, ._pad1 = 0, ._raw = 0};
 }
 [[nodiscard]] inline Node make_number_deferred(
-	u32 off,
-	u32 len,
-	u8 storage_flags) noexcept {
+	std::uint32_t off,
+	std::uint32_t len,
+	std::uint8_t storage_flags) noexcept {
 	return Node{
 		.kind = NodeKind::number,
-		.flags = static_cast<u8>(storage_flags | kValKindDeferred),
+		.flags = static_cast<std::uint8_t>(storage_flags | kValKindDeferred),
 		._pad0 = 0,
 		.off = off,
 		.len = len,
 		._pad1 = 0,
 		._raw = 0};
 }
-[[nodiscard]] inline u64 make_hash_seed() noexcept {
-	u64 seed{};
+[[nodiscard]] inline std::uint64_t make_hash_seed() noexcept {
+	std::uint64_t seed{};
 	if (::getrandom(&seed, sizeof(seed), 0) != static_cast<long>(sizeof(seed))) {
 		seed = reinterpret_cast<uintptr_t>(&seed) ^ UINT64_C(0x517cc1b727220a95);
 	}
@@ -653,14 +653,14 @@ namespace detail {
 struct DocumentStorage {
 	std::pmr::vector<Node> nodes;
 	std::pmr::string string_arena;
-	std::pmr::vector<u32> array_children;
+	std::pmr::vector<std::uint32_t> array_children;
 	std::pmr::vector<MemberEntry> object_members;
 	std::vector<char const *> external_ptrs_; // indexed by MemberEntry::name_off when kMemberExternalView
 	std::unique_ptr<std::string> owned_input;
 	std::string_view input_view;
-	u32 root_node{0};
-	u32 bom_prefix_bytes{0};
-	u64 hash_seed_{detail::make_hash_seed()};
+	std::uint32_t root_node{0};
+	std::uint32_t bom_prefix_bytes{0};
+	std::uint64_t hash_seed_{detail::make_hash_seed()};
 	std::pmr::memory_resource *hash_mr_{std::pmr::new_delete_resource()};
 	DocumentStorage()
 		: nodes(std::pmr::new_delete_resource())
@@ -694,14 +694,14 @@ struct DocumentStorage {
 		}
 	}
 	[[nodiscard]] std::string_view str_at(
-		u32 off,
-		u32 len) const noexcept {
+		std::uint32_t off,
+		std::uint32_t len) const noexcept {
 		return {string_arena.data() + off, len};
 	}
 	[[nodiscard]] std::string_view bytes_at(
-		u32 off,
-		u32 len,
-		u8 flags) const noexcept {
+		std::uint32_t off,
+		std::uint32_t len,
+		std::uint8_t flags) const noexcept {
 		if ((flags & kValueExternalView) != 0) {
 			return {external_ptrs_[off], len};
 		}
@@ -715,7 +715,7 @@ struct DocumentStorage {
 		if ((m.name_flags & kMemberExternalView) != 0) {
 			return {external_ptrs_[m.name_off], m.name_len};
 		}
-		return bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags));
+		return bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags));
 	}
 };
 // ---------------------------------------------------------------------------
@@ -749,7 +749,7 @@ struct CLocaleHolder {
 	return h;
 }
 struct ClassifiedDouble {
-	enum class Kind : u8 {
+	enum class Kind : std::uint8_t {
 		underflow_finite,
 		overflow_infinite,
 	} kind;
@@ -830,12 +830,12 @@ struct ClassifiedDouble {
 }
 // Pre-parsed number factory: takes a syntactically valid JSON number lexeme
 // (caller validates) plus its arena offset/length, runs the two-stage parse
-// (i64 → u64 → f64 with from_chars fallback for range-error f64), and returns
+// (std::int64_t → std::uint64_t → f64 with from_chars fallback for range-error f64), and returns
 // the appropriate Node.
 [[nodiscard]] inline expected<Node, JsonError> build_number_node_from_lexeme(
-	u32 off,
-	u32 len,
-	u8 storage_flags,
+	std::uint32_t off,
+	std::uint32_t len,
+	std::uint8_t storage_flags,
 	std::string_view lex) noexcept {
 	bool const int_form = lex.find_first_of(".eE") == std::string_view::npos;
 	bool const neg = !lex.empty() && lex.front() == '-';
@@ -844,12 +844,12 @@ struct ClassifiedDouble {
 	auto const *e = lex.data() + lex.size();
 
 	if (int_form) {
-		i64 iv{};
+		std::int64_t iv{};
 		if (auto [p, ec] = from_chars(b, e, iv); ec == errc{} && p == e) {
 			return make_number_int(off, len, storage_flags, iv);
 		}
 		if (!neg) {
-			u64 uv{};
+			std::uint64_t uv{};
 			if (auto [p2, ec2] = from_chars(b, e, uv); ec2 == errc{} && p2 == e) {
 				return make_number_uint(off, len, storage_flags, uv);
 			}
@@ -890,16 +890,16 @@ export enum class JsonNumberForm {
 };
 export class JsonNumberView {
 	std::string_view lexeme_;
-	u64 raw_payload_; // bit-cast<i64/u64/double> selected by flags_
-	u8 flags_; // kLexIntForm | kValKindInt|Uint|F64
+	std::uint64_t raw_payload_; // bit-cast<i64/u64/double> selected by flags_
+	std::uint8_t flags_; // kLexIntForm | kValKindInt|Uint|F64
 
 	friend class NodeRef;
 	friend class JsonReader;
 	bool friend is_value_equal(NodeRef, NodeRef);
 	JsonNumberView(
 		std::string_view lex,
-		u8 flags,
-		u64 raw) noexcept
+		std::uint8_t flags,
+		std::uint64_t raw) noexcept
 		: lexeme_{lex}
 		, raw_payload_{raw}
 		, flags_{flags} {}
@@ -909,8 +909,8 @@ public:
 	[[nodiscard]] JsonNumberForm form() const noexcept {
 		return (flags_ & kLexIntForm) != 0 ? JsonNumberForm::integer : JsonNumberForm::non_integer;
 	}
-	[[nodiscard]] expected<i64, JsonError> to_i64() const;
-	[[nodiscard]] expected<u64, JsonError> to_u64() const;
+	[[nodiscard]] expected<std::int64_t, JsonError> to_i64() const;
+	[[nodiscard]] expected<std::uint64_t, JsonError> to_u64() const;
 	[[nodiscard]] expected<double, JsonError> to_f64() const;
 	template<class T>
 		requires((std::integral<T> && !same_as<T, bool>) || std::floating_point<T>)
@@ -922,8 +922,8 @@ public:
 			if (!v) {
 				return unexpected(move(v).error());
 			}
-			if constexpr (sizeof(T) < sizeof(i64)) {
-				if (*v < static_cast<i64>(NL<T>::min()) || *v > static_cast<i64>(NL<T>::max())) {
+			if constexpr (sizeof(T) < sizeof(std::int64_t)) {
+				if (*v < static_cast<std::int64_t>(std::numeric_limits<T>::min()) || *v > static_cast<std::int64_t>(std::numeric_limits<T>::max())) {
 					return unexpected(
 						JsonError{
 							.stage = JsonStage::lookup,
@@ -937,8 +937,8 @@ public:
 			if (!v) {
 				return unexpected(move(v).error());
 			}
-			if constexpr (sizeof(T) < sizeof(u64)) {
-				if (*v > static_cast<u64>(NL<T>::max())) {
+			if constexpr (sizeof(T) < sizeof(std::uint64_t)) {
+				if (*v > static_cast<std::uint64_t>(std::numeric_limits<T>::max())) {
 					return unexpected(
 						JsonError{
 							.stage = JsonStage::lookup,
@@ -966,20 +966,20 @@ namespace detail::simd {
 
 namespace detail {
 
-[[nodiscard]] inline std::optional<u32> hex4_from_sv(
+[[nodiscard]] inline std::optional<std::uint32_t> hex4_from_sv(
 	std::string_view body,
 	std::size_t pos) noexcept {
-	u32 out = 0;
+	std::uint32_t out = 0;
 	for (std::size_t i = 0; i < 4; ++i) {
 		char const c = body[pos + i];
-		u32 d;
-		constexpr u32 kA = 10;
+		std::uint32_t d;
+		constexpr std::uint32_t kA = 10;
 		if (c >= '0' && c <= '9') {
-			d = static_cast<u32>(c - '0');
+			d = static_cast<std::uint32_t>(c - '0');
 		} else if (c >= 'a' && c <= 'f') {
-			d = static_cast<u32>(c - 'a') + kA;
+			d = static_cast<std::uint32_t>(c - 'a') + kA;
 		} else if (c >= 'A' && c <= 'F') {
-			d = static_cast<u32>(c - 'A') + kA;
+			d = static_cast<std::uint32_t>(c - 'A') + kA;
 		} else {
 			return nullopt;
 		}
@@ -989,7 +989,7 @@ namespace detail {
 	return out;
 }
 inline void append_utf8_to_sv(
-	u32 cp,
+	std::uint32_t cp,
 	auto &&writer) {
 	// NOLINTBEGIN(readability-magic-numbers,hicpp-signed-bitwise)
 	char buf[4];
@@ -1080,7 +1080,7 @@ template<class Writer>
 							.code = JsonIssueCode::invalid_unicode_escape,
 							.message = "invalid hex digit in \\uXXXX"});
 				}
-				u32 cp = *cp_opt;
+				std::uint32_t cp = *cp_opt;
 				i += 4;
 				// NOLINTBEGIN(readability-magic-numbers)
 				if (cp >= 0xD800U && cp <= 0xDBFFU) {
@@ -1100,7 +1100,7 @@ template<class Writer>
 								.code = JsonIssueCode::invalid_unicode_escape,
 								.message = "invalid hex digit in \\uXXXX"});
 					}
-					u32 const lo = *lo_opt;
+					std::uint32_t const lo = *lo_opt;
 					i += 4;
 					if (lo < 0xDC00U || lo > 0xDFFFU) {
 						return unexpected(
@@ -1242,7 +1242,7 @@ public:
 
 export class JsonReader {
 public:
-	enum class Event : u8 {
+	enum class Event : std::uint8_t {
 		begin_object,
 		end_object,
 		begin_array,
@@ -1257,7 +1257,7 @@ public:
 private:
 	friend class JsonStreamReader;
 	struct StateFrame {
-		enum class Kind : u8 {
+		enum class Kind : std::uint8_t {
 			object,
 			array,
 		} kind;
@@ -1445,10 +1445,10 @@ public:
 		}
 		return JsonNumberView{storage_->bytes_at(rec().off, rec().len, rec().flags), rec().flags, rec()._raw};
 	}
-	[[nodiscard]] expected<i64, JsonError> as_i64() const {
+	[[nodiscard]] expected<std::int64_t, JsonError> as_i64() const {
 		return as_number().and_then([](JsonNumberView n) { return n.to_i64(); });
 	}
-	[[nodiscard]] expected<u64, JsonError> as_u64() const {
+	[[nodiscard]] expected<std::uint64_t, JsonError> as_u64() const {
 		return as_number().and_then([](JsonNumberView n) { return n.to_u64(); });
 	}
 	[[nodiscard]] expected<double, JsonError> as_double() const {
@@ -1471,20 +1471,20 @@ export struct ObjectMember {
 
 namespace detail {
 
-[[nodiscard]] inline u32 hash_name(
+[[nodiscard]] inline std::uint32_t hash_name(
 	std::string_view name,
-	u64 seed) noexcept {
-	return static_cast<u32>(XXH3_64bits_withSeed(name.data(), name.size(), seed));
+	std::uint64_t seed) noexcept {
+	return static_cast<std::uint32_t>(XXH3_64bits_withSeed(name.data(), name.size(), seed));
 }
 // Smallest power-of-two >= 2*count, capped at kMaxHashTableCapacity AND
 // at kMaxHashIndexBytes / sizeof(ObjHashSlot) (FI-7 — byte-budget cap).
 // Returns 0 on overflow so the caller can fall back to linear scan.
-[[nodiscard]] inline u32 clamped_capacity(
-	u32 count) noexcept {
-	constexpr u32 kSlotMax = static_cast<u32>(kMaxHashIndexBytes / sizeof(ObjHashSlot));
-	constexpr u32 kEffectiveMax = kMaxHashTableCapacity < kSlotMax ? kMaxHashTableCapacity : kSlotMax;
-	u32 const target = count <= kEffectiveMax / 2U ? count * 2U : kEffectiveMax;
-	u32 cap = 1;
+[[nodiscard]] inline std::uint32_t clamped_capacity(
+	std::uint32_t count) noexcept {
+	constexpr std::uint32_t kSlotMax = static_cast<std::uint32_t>(kMaxHashIndexBytes / sizeof(ObjHashSlot));
+	constexpr std::uint32_t kEffectiveMax = kMaxHashTableCapacity < kSlotMax ? kMaxHashTableCapacity : kSlotMax;
+	std::uint32_t const target = count <= kEffectiveMax / 2U ? count * 2U : kEffectiveMax;
+	std::uint32_t cap = 1;
 	while (cap < target && cap < kEffectiveMax) {
 		cap <<= 1;
 	}
@@ -1515,11 +1515,11 @@ namespace detail {
 	std::size_t mem_count,
 	std::string_view name) noexcept {
 	auto const h = hash_name(name, storage->hash_seed_);
-	u32 const mask = ht.capacity - 1;
-	u32 slot = h & mask;
+	std::uint32_t const mask = ht.capacity - 1;
+	std::uint32_t slot = h & mask;
 	auto const *slots = ht.slots_data();
 	auto const *const *ptr_cache = ht.ptr_cache_data();
-	for (u32 probe = 0; probe < kProbeChainMax; ++probe) {
+	for (std::uint32_t probe = 0; probe < kProbeChainMax; ++probe) {
 		auto const &s = slots[slot]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		if (s.member_index == kEmptySlot) {
 			return nullopt;
@@ -1543,18 +1543,18 @@ namespace detail {
 	DocumentStorage const *storage,
 	std::size_t mem_start,
 	std::size_t mem_count) noexcept {
-	u32 const mask = ht.capacity - 1;
+	std::uint32_t const mask = ht.capacity - 1;
 	auto *slots = ht.slots_data();
 	auto **ptr_cache = ht.ptr_cache_data();
-	for (u32 i = 0; i < static_cast<u32>(mem_count); ++i) {
+	for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(mem_count); ++i) {
 		auto const &m = storage->object_members[mem_start + i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 		auto const sv = storage->member_name(m);
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		ptr_cache[i] = sv.data(); // Item C: cache pointer in ptr_cache (arena stable post-parse)
 		auto const h = hash_name(sv, storage->hash_seed_);
-		u32 slot = h & mask;
+		std::uint32_t slot = h & mask;
 		bool inserted = false;
-		for (u32 probe = 0; probe < kProbeChainMax; ++probe) {
+		for (std::uint32_t probe = 0; probe < kProbeChainMax; ++probe) {
 			auto &s = slots[slot]; // NOLINT(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 			if (s.member_index == kEmptySlot) {
 				s = ObjHashSlot{i, h};
@@ -1621,11 +1621,11 @@ public:
 			return to_ref(detail::lookup_linear(storage_, mem_start_, mem_count_, name));
 		}
 		if (ht == nullptr) {
-			u32 const cap = detail::clamped_capacity(static_cast<u32>(mem_count_));
+			std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(mem_count_));
 			bool build_ok = false;
 			ObjHashTable *owned = nullptr;
 			if (cap > 0) {
-				owned = ObjHashTable::create(cap, static_cast<u32>(mem_count_), storage_->hash_mr_);
+				owned = ObjHashTable::create(cap, static_cast<std::uint32_t>(mem_count_), storage_->hash_mr_);
 				if (owned != nullptr) {
 					if (detail::build_table(*owned, storage_, mem_start_, mem_count_)) {
 						ObjHashTable *expected_null = nullptr; // NOLINT(misc-const-correctness)
@@ -2023,14 +2023,14 @@ export struct JsonArenaOptions {
 };
 export class ArenaDocument {
 	DocumentStorage const *storage_{};
-	u32 generation_{};
-	u32 const *arena_gen_{};
+	std::uint32_t generation_{};
+	std::uint32_t const *arena_gen_{};
 
 	friend class JsonArena;
 	ArenaDocument(
 		DocumentStorage const *s,
-		u32 gen,
-		u32 const *ag) noexcept
+		std::uint32_t gen,
+		std::uint32_t const *ag) noexcept
 		: storage_{s}
 		, generation_{gen}
 		, arena_gen_{ag} {}
@@ -2049,7 +2049,7 @@ export class JsonArena {
 	std::size_t initial_slab_;
 	std::pmr::monotonic_buffer_resource mbr_;
 	std::unique_ptr<DocumentStorage> storage_;
-	u32 generation_{0};
+	std::uint32_t generation_{0};
 
 public:
 	explicit JsonArena(
@@ -2077,13 +2077,13 @@ public:
 // ---------------------------------------------------------------------------
 
 export [[nodiscard]] expected<std::string, JsonError> require_string(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<i64, JsonError> require_int(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<u64, JsonError> require_uint(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] expected<std::int64_t, JsonError> require_int(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] expected<std::uint64_t, JsonError> require_uint(ObjectView const &obj, std::string_view name);
 export [[nodiscard]] expected<double, JsonError> require_double(ObjectView const &obj, std::string_view name);
 export [[nodiscard]] expected<bool, JsonError> require_bool(ObjectView const &obj, std::string_view name);
 export [[nodiscard]] expected<std::optional<std::string>, JsonError> optional_string(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<i64>, JsonError> optional_int(ObjectView const &obj, std::string_view name);
-export [[nodiscard]] expected<std::optional<u64>, JsonError> optional_uint(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] expected<std::optional<std::int64_t>, JsonError> optional_int(ObjectView const &obj, std::string_view name);
+export [[nodiscard]] expected<std::optional<std::uint64_t>, JsonError> optional_uint(ObjectView const &obj, std::string_view name);
 export [[nodiscard]] expected<std::optional<double>, JsonError> optional_double(ObjectView const &obj, std::string_view name);
 export [[nodiscard]] expected<std::optional<bool>, JsonError> optional_bool(ObjectView const &obj, std::string_view name);
 // ---------------------------------------------------------------------------
@@ -2318,7 +2318,7 @@ struct is_unordered_map_type<std::unordered_map<K, Vt>> : std::true_type {};
 template<class T>
 constexpr bool is_unordered_map_type_v = is_unordered_map_type<T>::value;
 struct PathFrame {
-	enum class Kind : u8 {
+	enum class Kind : std::uint8_t {
 		member,
 		index,
 	} kind;
@@ -2366,7 +2366,7 @@ struct BuilderState {
 // Describes where a committed child node gets placed in the parent.
 struct ParentSlot {
 	// NOLINTNEXTLINE(performance-enum-size)
-	enum class Kind : u8 {
+	enum class Kind : std::uint8_t {
 		set_root, // top-level: store in BuilderState::root_node
 		insert_member, // nested in ObjectBuilder: push to object_members
 		append_child, // nested in ArrayBuilder: push parent's local_children
@@ -2382,7 +2382,7 @@ struct ParentSlot {
 // Holds the active object/A being built:
 struct ChildFrame {
 	// NOLINTNEXTLINE(performance-enum-size)
-	enum class Kind : u8 {
+	enum class Kind : std::uint8_t {
 		object,
 		A,
 	};
@@ -2474,8 +2474,8 @@ public:
 	expected<void, JsonError> insert_string_borrowed_name(std::string_view name, std::string_view value);
 	expected<void, JsonError> insert_string_borrowed(std::string_view name, std::string_view value);
 	expected<void, JsonError> insert_number(std::string_view name, std::string_view lexeme);
-	expected<void, JsonError> insert_i64(std::string_view name, i64 v);
-	expected<void, JsonError> insert_u64(std::string_view name, u64 v);
+	expected<void, JsonError> insert_i64(std::string_view name, std::int64_t v);
+	expected<void, JsonError> insert_u64(std::string_view name, std::uint64_t v);
 	expected<void, JsonError> insert_f64(std::string_view name, double v);
 
 	expected<ObjectBuilder, JsonError> insert_object(std::string_view name);
@@ -2495,13 +2495,13 @@ public:
 			if ((m.name_flags & kMemberExternalView) != 0) {
 				// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 				char const *ptr = frame_.local_external_ptrs_[m.name_off];
-				m.name_off = static_cast<u32>(st->store.external_ptrs_.size());
+				m.name_off = static_cast<std::uint32_t>(st->store.external_ptrs_.size());
 				st->store.external_ptrs_.push_back(ptr);
 			}
 			st->store.object_members.push_back(m);
 		}
 		std::size_t const cnt = frame_.local_members.size();
-		st->store.nodes.push_back(detail::node_object(static_cast<u32>(mem_start), static_cast<u32>(cnt)));
+		st->store.nodes.push_back(detail::node_object(static_cast<std::uint32_t>(mem_start), static_cast<std::uint32_t>(cnt)));
 		std::size_t const node_idx = st->store.nodes.size() - 1;
 		switch (frame_.parent.kind) {
 		case ParentSlot::Kind::set_root:
@@ -2510,9 +2510,9 @@ public:
 			break;
 		case ParentSlot::Kind::insert_member:
 			frame_.parent.parent_local_members->push_back(
-				{static_cast<u32>(frame_.parent.name_off),
-				 static_cast<u32>(frame_.parent.name_len),
-				 static_cast<u32>(node_idx),
+				{static_cast<std::uint32_t>(frame_.parent.name_off),
+				 static_cast<std::uint32_t>(frame_.parent.name_len),
+				 static_cast<std::uint32_t>(node_idx),
 				 kStorageInputView});
 			break;
 		case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
@@ -2583,8 +2583,8 @@ public:
 	expected<void, JsonError> append_string_checked(std::string_view value);
 	expected<void, JsonError> append_string_borrowed(std::string_view value);
 	expected<void, JsonError> append_number(std::string_view lexeme);
-	expected<void, JsonError> append_i64(i64 v);
-	expected<void, JsonError> append_u64(u64 v);
+	expected<void, JsonError> append_i64(std::int64_t v);
+	expected<void, JsonError> append_u64(std::uint64_t v);
 	expected<void, JsonError> append_f64(double v);
 
 	expected<ObjectBuilder, JsonError> append_object();
@@ -2601,21 +2601,21 @@ public:
 		auto *st = frame_.state;
 		std::size_t const child_start = st->store.array_children.size();
 		for (std::size_t const idx: frame_.local_children) {
-			st->store.array_children.push_back(static_cast<u32>(idx));
+			st->store.array_children.push_back(static_cast<std::uint32_t>(idx));
 		}
 		std::size_t const cnt = frame_.local_children.size();
-		st->store.nodes.push_back(detail::node_array(static_cast<u32>(child_start), static_cast<u32>(cnt)));
+		st->store.nodes.push_back(detail::node_array(static_cast<std::uint32_t>(child_start), static_cast<std::uint32_t>(cnt)));
 		std::size_t const node_idx = st->store.nodes.size() - 1;
 		switch (frame_.parent.kind) {
 		case ParentSlot::Kind::set_root:
-			st->root_node = static_cast<u32>(node_idx);
+			st->root_node = static_cast<std::uint32_t>(node_idx);
 			st->child_active = false;
 			break;
 		case ParentSlot::Kind::insert_member:
 			frame_.parent.parent_local_members->push_back(
-				{static_cast<u32>(frame_.parent.name_off),
-				 static_cast<u32>(frame_.parent.name_len),
-				 static_cast<u32>(node_idx),
+				{static_cast<std::uint32_t>(frame_.parent.name_off),
+				 static_cast<std::uint32_t>(frame_.parent.name_len),
+				 static_cast<std::uint32_t>(node_idx),
 				 kStorageInputView});
 			break;
 		case ParentSlot::Kind::append_child: frame_.parent.parent_local_children->push_back(node_idx); break;
@@ -2660,8 +2660,8 @@ public:
 	expected<void, JsonError> set_bool(bool v);
 	expected<void, JsonError> set_string(std::string_view sv);
 	expected<void, JsonError> set_number(std::string_view lexeme);
-	expected<void, JsonError> set_i64(i64 v);
-	expected<void, JsonError> set_u64(u64 v);
+	expected<void, JsonError> set_i64(std::int64_t v);
+	expected<void, JsonError> set_u64(std::uint64_t v);
 	expected<void, JsonError> set_f64(double v);
 	[[nodiscard]] expected<ObjectBuilder, JsonError> begin_object();
 	[[nodiscard]] expected<ArrayBuilder, JsonError> begin_array();
@@ -2862,9 +2862,9 @@ template<class T, class M>
 template<>
 struct JsonCodec<bool>;
 template<>
-struct JsonCodec<i64>;
+struct JsonCodec<std::int64_t>;
 template<>
-struct JsonCodec<u64>;
+struct JsonCodec<std::uint64_t>;
 template<>
 struct JsonCodec<double>;
 template<>
@@ -2922,8 +2922,8 @@ struct JsonCodec<bool> {
 	static constexpr std::string_view type_name() { return "bool"; }
 };
 template<>
-struct JsonCodec<i64> {
-	static expected<i64, JsonError> decode(
+struct JsonCodec<std::int64_t> {
+	static expected<std::int64_t, JsonError> decode(
 		NodeRef n) {
 		auto num = n.as_number();
 		if (!num) {
@@ -2933,14 +2933,14 @@ struct JsonCodec<i64> {
 	}
 	static expected<void, JsonError> encode(
 		ValueBuilder &b,
-		i64 v) {
+		std::int64_t v) {
 		return b.set_i64(v);
 	}
 	static constexpr std::string_view type_name() { return "i64"; }
 };
 template<>
-struct JsonCodec<u64> {
-	static expected<u64, JsonError> decode(
+struct JsonCodec<std::uint64_t> {
+	static expected<std::uint64_t, JsonError> decode(
 		NodeRef n) {
 		auto num = n.as_number();
 		if (!num) {
@@ -2950,7 +2950,7 @@ struct JsonCodec<u64> {
 	}
 	static expected<void, JsonError> encode(
 		ValueBuilder &b,
-		u64 v) {
+		std::uint64_t v) {
 		return b.set_u64(v);
 	}
 	static constexpr std::string_view type_name() { return "u64"; }
@@ -3449,13 +3449,13 @@ expected<T, JsonError> decode_from_event(
 				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected bool"});
 		}
 		return r.bool_val();
-	} else if constexpr (same_as<T, i64>) {
+	} else if constexpr (same_as<T, std::int64_t>) {
 		if (ev != Ev::number_value) {
 			return unexpected(
 				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected number"});
 		}
 		return r.number_val().to_i64();
-	} else if constexpr (same_as<T, u64>) {
+	} else if constexpr (same_as<T, std::uint64_t>) {
 		if (ev != Ev::number_value) {
 			return unexpected(
 				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "expected number"});
@@ -4183,14 +4183,14 @@ constexpr std::string_view json_type_name() noexcept {
 	if constexpr (same_as<Raw, bool>) {
 		return "boolean";
 	} else if constexpr (
-		same_as<Raw, i64>
-		|| same_as<Raw, u64>
-		|| same_as<Raw, i32>
-		|| same_as<Raw, u32>
-		|| same_as<Raw, i16>
-		|| same_as<Raw, u16>
-		|| same_as<Raw, i8>
-		|| same_as<Raw, u8>) {
+		same_as<Raw, std::int64_t>
+		|| same_as<Raw, std::uint64_t>
+		|| same_as<Raw, std::int32_t>
+		|| same_as<Raw, std::uint32_t>
+		|| same_as<Raw, std::int16_t>
+		|| same_as<Raw, std::uint16_t>
+		|| same_as<Raw, std::int8_t>
+		|| same_as<Raw, std::uint8_t>) {
 		return "integer";
 	} else if constexpr (same_as<Raw, double> || same_as<Raw, float>) {
 		return "number";
@@ -4351,21 +4351,21 @@ expected<void, JsonError> write_writable(
 		}
 		return obj.insert_string(name, sv);
 	} else if constexpr (std::is_signed_v<U>) {
-		if constexpr (sizeof(U) < sizeof(i64)) {
-			return obj.insert_i64(name, static_cast<i64>(value));
+		if constexpr (sizeof(U) < sizeof(std::int64_t)) {
+			return obj.insert_i64(name, static_cast<std::int64_t>(value));
 		} else {
-			if (value < static_cast<U>(NL<i64>::min()) || value > static_cast<U>(NL<i64>::max())) {
+			if (value < static_cast<U>(std::numeric_limits<std::int64_t>::min()) || value > static_cast<U>(std::numeric_limits<std::int64_t>::max())) {
 				return unexpected(
 					JsonError{
 						.stage = JsonStage::build,
 						.code = JsonIssueCode::number_out_of_range,
 						.member_name = std::string{name},
-						.message = format("value out of i64 range for member '{}'", name)});
+						.message = format("value out of std::int64_t range for member '{}'", name)});
 			}
-			return obj.insert_i64(name, static_cast<i64>(value));
+			return obj.insert_i64(name, static_cast<std::int64_t>(value));
 		}
 	} else if constexpr (std::is_unsigned_v<U>) {
-		return obj.insert_u64(name, static_cast<u64>(value));
+		return obj.insert_u64(name, static_cast<std::uint64_t>(value));
 	} else {
 		return obj.insert_f64(name, static_cast<double>(value));
 	}
@@ -4394,20 +4394,20 @@ expected<void, JsonError> write_writable_arr(
 		}
 		return arr.append_string(sv);
 	} else if constexpr (std::is_signed_v<U>) {
-		if constexpr (sizeof(U) < sizeof(i64)) {
-			return arr.append_i64(static_cast<i64>(value));
+		if constexpr (sizeof(U) < sizeof(std::int64_t)) {
+			return arr.append_i64(static_cast<std::int64_t>(value));
 		} else {
-			if (value < static_cast<U>(NL<i64>::min()) || value > static_cast<U>(NL<i64>::max())) {
+			if (value < static_cast<U>(std::numeric_limits<std::int64_t>::min()) || value > static_cast<U>(std::numeric_limits<std::int64_t>::max())) {
 				return unexpected(
 					JsonError{
 						.stage = JsonStage::build,
 						.code = JsonIssueCode::number_out_of_range,
-						.message = "value out of i64 range"});
+						.message = "value out of std::int64_t range"});
 			}
-			return arr.append_i64(static_cast<i64>(value));
+			return arr.append_i64(static_cast<std::int64_t>(value));
 		}
 	} else if constexpr (std::is_unsigned_v<U>) {
-		return arr.append_u64(static_cast<u64>(value));
+		return arr.append_u64(static_cast<std::uint64_t>(value));
 	} else {
 		return arr.append_f64(static_cast<double>(value));
 	}
@@ -4522,7 +4522,7 @@ export template<class R>
 concept HandlerReturn = same_as<R, void> || std::convertible_to<R, expected<void, JsonError>>;
 
 export template<class H>
-concept JsonHandler = requires(H &h, std::string_view sv, i64 i, u64 u, double d, bool b) {
+concept JsonHandler = requires(H &h, std::string_view sv, std::int64_t i, std::uint64_t u, double d, bool b) {
 	requires HandlerReturn<decltype(h.on_null())>;
 	requires HandlerReturn<decltype(h.on_bool(b))>;
 	requires HandlerReturn<decltype(h.on_string(sv))>;
@@ -4546,11 +4546,11 @@ export struct JsonDefaultHandler {
 		return {};
 	}
 	expected<void, JsonError> on_i64(
-		i64) {
+		std::int64_t) {
 		return {};
 	}
 	expected<void, JsonError> on_u64(
-		u64) {
+		std::uint64_t) {
 		return {};
 	}
 	expected<void, JsonError> on_double(
@@ -4603,7 +4603,7 @@ template<JsonHandler H>
 			}
 			return invoke_handler([&] { return h.on_double(*d); });
 		}
-		// Integer form: try i64 → u64 → f64 (huge integer).
+		// Integer form: try std::int64_t → std::uint64_t → f64 (huge integer).
 		auto iv = nv.to_i64();
 		if (iv) {
 			return invoke_handler([&] { return h.on_i64(*iv); });

@@ -17,18 +17,18 @@ import conflux.net.http.types;
 import conflux.net.router;
 export struct StructuredLogOptions {
 	// Path to the log file. Empty = write to stderr.
-	S log_file;
+	std::string log_file;
 	// Rotate to a new file each UTC day. Only meaningful when log_file is set.
 	// The suffix ".YYYY-MM-DD" is appended to log_file before opening.
 	bool daily_rotate{false};
 	// Optional application name added as "app" field to every line.
-	S app_name;
+	std::string app_name;
 };
 namespace structured_log_detail {
 
-S json_escape(
-	SV s) {
-	S out;
+std::string json_escape(
+	std::string_view s) {
+	std::string out;
 	out.reserve(s.size() + 4);
 	for (char const raw: s) {
 		auto c = static_cast<unsigned char>(raw);
@@ -56,7 +56,7 @@ S json_escape(
 class LogSink {
 public:
 	explicit LogSink(
-		S path,
+		std::string path,
 		bool daily_rotate)
 		: path_(move(path))
 		, daily_rotate_(daily_rotate) {
@@ -72,14 +72,14 @@ public:
 	LogSink(LogSink const &) = delete;
 	LogSink &operator =(LogSink const &) = delete;
 	void write(
-		S const &line) {
-		SL const lk{mtx_};
+		std::string const &line) {
+		std::scoped_lock const lk{mtx_};
 		maybe_rotate();
 		if (fd_ < 0) {
 			return;
 		}
-		S l = line + '\n';
-		SZ written = 0;
+		std::string l = line + '\n';
+		std::size_t written = 0;
 		while (written < l.size()) {
 			ssize_t const n = ::write(fd_, l.data() + written, l.size() - written);
 			if (n < 0) {
@@ -88,7 +88,7 @@ public:
 				}
 				break;
 			}
-			written += static_cast<SZ>(n);
+			written += static_cast<std::size_t>(n);
 		}
 	}
 
@@ -97,8 +97,8 @@ private:
 		if (path_.empty()) {
 			return;
 		}
-		auto now = chrono::system_clock::now();
-		auto tt = chrono::system_clock::to_time_t(now);
+		auto now = std::chrono::system_clock::now();
+		auto tt = std::chrono::system_clock::to_time_t(now);
 		tm tm_val{};
 		::gmtime_r(&tt, &tm_val);
 		int const today = ((tm_val.tm_year + 1900) * 10000) + ((tm_val.tm_mon + 1) * 100) + tm_val.tm_mday;
@@ -111,7 +111,7 @@ private:
 			fd_ = -1;
 		}
 
-		S fpath = path_;
+		std::string fpath = path_;
 		if (daily_rotate_) {
 			fpath += format(".{:04d}-{:02d}-{:02d}", tm_val.tm_year + 1900, tm_val.tm_mon + 1, tm_val.tm_mday);
 		}
@@ -125,7 +125,7 @@ private:
 		}
 		current_day_ = today;
 	}
-	S path_;
+	std::string path_;
 	bool daily_rotate_;
 	mutex mtx_;
 	int fd_{-1};
@@ -133,16 +133,16 @@ private:
 };
 export Router::Middleware structured_log_middleware(
 	StructuredLogOptions opts = {}) {
-	S app_name = move(opts.app_name);
+	std::string app_name = move(opts.app_name);
 	auto sink = make_shared<LogSink>(move(opts.log_file), opts.daily_rotate);
 
 	return [sink, app_name = move(app_name)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
-		auto t0 = chrono::steady_clock::now();
+		auto t0 = std::chrono::steady_clock::now();
 		auto resp = next(req);
-		auto ms = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - t0).count();
+		auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
 
-		auto now = chrono::system_clock::now();
-		auto tt = chrono::system_clock::to_time_t(now);
+		auto now = std::chrono::system_clock::now();
+		auto tt = std::chrono::system_clock::to_time_t(now);
 		tm tm_val{};
 		::gmtime_r(&tt, &tm_val);
 		auto ts = format(
@@ -163,7 +163,7 @@ export Router::Middleware structured_log_middleware(
 			resp.content_length(),
 			ms,
 			structured_log_detail::json_escape(req.remote_addr),
-			app_name.empty() ? S{} : format(R"(,"app":"{}")", structured_log_detail::json_escape(app_name)));
+			app_name.empty() ? std::string{} : format(R"(,"app":"{}")", structured_log_detail::json_escape(app_name)));
 		sink->write(line);
 		return resp;
 	};

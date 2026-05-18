@@ -36,10 +36,10 @@ namespace {
 } // namespace
 namespace {
 
-u32 inc_flags(
-	u16 buf_id,
+std::uint32_t inc_flags(
+	std::uint16_t buf_id,
 	bool buf_more) noexcept {
-	u32 f = IORING_CQE_F_BUFFER | (static_cast<u32>(buf_id) << IORING_CQE_BUFFER_SHIFT);
+	std::uint32_t f = IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(buf_id) << IORING_CQE_BUFFER_SHIFT);
 	if (buf_more) {
 		f |= IORING_CQE_F_BUF_MORE;
 	}
@@ -57,9 +57,9 @@ struct Rig {
 	conflux::uring::IoUringCaps caps;
 	BufferRing ring;
 	Rig(
-		u32 count,
-		SZ buf_size,
-		u16 gid = 0)
+		std::uint32_t count,
+		std::size_t buf_size,
+		std::uint16_t gid = 0)
 		: uring{[] {
 			auto r = conflux::uring::Ring::init(32, {});
 			REQUIRE(r);
@@ -91,13 +91,13 @@ TEST_CASE(
 	"incremental: BUF_MORE leaves head unchanged",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	auto slice = buffer_slice_from_incremental_cqe(rig.ring, 4, inc_flags(0, true));
 	CHECK(rig.ring.debug_head_pos() == h0); // head must NOT advance on BUF_MORE
 	CHECK(slice.more());
 	CHECK(slice.id() == 0u);
-	CHECK(slice.offset() == SZ{0});
-	CHECK(slice.size() == SZ{4});
+	CHECK(slice.offset() == std::size_t{0});
+	CHECK(slice.size() == std::size_t{4});
 	CHECK(slice.bytes().size() == 4u);
 	// No recycle yet — more still set.
 	slice.recycle_if_final(); // must be a no-op
@@ -108,7 +108,7 @@ TEST_CASE(
 	"recv_payload.incremental: exposes final-vs-partial ownership",
 	"[recv_payload][incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	{
 		auto partial = try_recv_payload_from_cqe(rig.ring, 7, inc_flags(0, true), false);
 		REQUIRE(partial);
@@ -135,24 +135,24 @@ TEST_CASE(
 	"incremental: final CQE advances head by 1, offsets accumulate",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	auto s0 = buffer_slice_from_incremental_cqe(rig.ring, 4, inc_flags(0, true));
 	CHECK(rig.ring.debug_head_pos() == h0);
-	CHECK(s0.offset() == SZ{0});
-	CHECK(s0.size() == SZ{4});
+	CHECK(s0.offset() == std::size_t{0});
+	CHECK(s0.size() == std::size_t{4});
 	auto s1 = buffer_slice_from_incremental_cqe(rig.ring, 8, inc_flags(0, true));
 	CHECK(rig.ring.debug_head_pos() == h0);
-	CHECK(s1.offset() == SZ{4});
-	CHECK(s1.size() == SZ{8});
+	CHECK(s1.offset() == std::size_t{4});
+	CHECK(s1.size() == std::size_t{8});
 	auto s2 = buffer_slice_from_incremental_cqe(rig.ring, 20, inc_flags(0, false));
 	CHECK(rig.ring.debug_head_pos() == h0 + 1u); // head advances on final CQE
-	CHECK(s2.offset() == SZ{12});
-	CHECK(s2.size() == SZ{20});
+	CHECK(s2.offset() == std::size_t{12});
+	CHECK(s2.size() == std::size_t{20});
 	CHECK(!s2.more());
 	s2.recycle_if_final(); // recycles buffer back to pool
 	// Next CQE for ID 0 starts at offset 0 again (new buffer acquisition).
 	auto s3 = buffer_slice_from_incremental_cqe(rig.ring, 4, inc_flags(0, true));
-	CHECK(s3.offset() == SZ{0});
+	CHECK(s3.offset() == std::size_t{0});
 	CHECK(rig.ring.debug_head_pos() == h0 + 1u); // still BUF_MORE — no advance
 }
 // Different buffer IDs track their offsets independently.
@@ -160,21 +160,21 @@ TEST_CASE(
 	"incremental: independent per-ID offset tracking",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	// Start both IDs with BUF_MORE.
 	auto s0a = buffer_slice_from_incremental_cqe(rig.ring, 10, inc_flags(0, true));
 	auto s1a = buffer_slice_from_incremental_cqe(rig.ring, 20, inc_flags(1, true));
 	CHECK(rig.ring.debug_head_pos() == h0);
-	CHECK(s0a.offset() == SZ{0});
-	CHECK(s1a.offset() == SZ{0});
+	CHECK(s0a.offset() == std::size_t{0});
+	CHECK(s1a.offset() == std::size_t{0});
 	// Finalize ID 1 first.
 	auto s1b = buffer_slice_from_incremental_cqe(rig.ring, 15, inc_flags(1, false));
-	CHECK(s1b.offset() == SZ{20});
+	CHECK(s1b.offset() == std::size_t{20});
 	CHECK(rig.ring.debug_head_pos() == h0 + 1u);
 	s1b.recycle_if_final();
 	// ID 0 continues independently.
 	auto s0b = buffer_slice_from_incremental_cqe(rig.ring, 10, inc_flags(0, false));
-	CHECK(s0b.offset() == SZ{10});
+	CHECK(s0b.offset() == std::size_t{10});
 	CHECK(rig.ring.debug_head_pos() == h0 + 2u);
 	s0b.recycle_if_final();
 }
@@ -183,7 +183,7 @@ TEST_CASE(
 	"incremental: recycle_if_final no-op when more=true",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	auto slice = buffer_slice_from_incremental_cqe(rig.ring, 4, inc_flags(0, true));
 	CHECK(slice.more());
 	CHECK(slice.valid());
@@ -197,7 +197,7 @@ TEST_CASE(
 	"incremental: recycle_if_final idempotent on final CQE",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	auto slice = buffer_slice_from_incremental_cqe(rig.ring, 32, inc_flags(0, false));
 	CHECK(!slice.more());
 	CHECK(rig.ring.debug_head_pos() == h0 + 1u);
@@ -210,7 +210,7 @@ TEST_CASE(
 	"incremental: ScopeExit recycles on exception",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 rc_flags = inc_flags(0, false);
+	std::uint32_t rc_flags = inc_flags(0, false);
 	bool scope_ran = false;
 	try {
 		auto slice = buffer_slice_from_incremental_cqe(rig.ring, 32, rc_flags);
@@ -222,8 +222,8 @@ TEST_CASE(
 			}
 			scope_ran = true;
 		}};
-		throw RE{"simulated failure"};
-	} catch (RE const &) {}
+		throw std::runtime_error{"simulated failure"};
+	} catch (std::runtime_error const &) {}
 	CHECK(scope_ran);
 	CHECK(rc_flags == 0u);
 	// Ring still operational: next CQE works.
@@ -329,12 +329,12 @@ TEST_CASE(
 	"incremental: phase3 safety-net: cleared flags → bad_cqe, offset unchanged",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	// First decode: BUF_MORE CQE, offset advances 0→4.
 	auto r1 = try_buffer_slice_from_incremental_cqe(rig.ring, 4, inc_flags(0, true));
 	REQUIRE(r1.has_value());
-	CHECK(r1->offset() == SZ{0});
-	CHECK(r1->size() == SZ{4});
+	CHECK(r1->offset() == std::size_t{0});
+	CHECK(r1->size() == std::size_t{4});
 	CHECK(rig.ring.debug_head_pos() == h0); // BUF_MORE: head not advanced
 	// Simulate rc.flags=0 (cleared by append_recv_buf_to): phase3 re-decode blocked.
 	auto r2 = try_buffer_slice_from_incremental_cqe(rig.ring, 4, 0u);
@@ -344,7 +344,7 @@ TEST_CASE(
 	// Verify by decoding next valid BUF_MORE: should see offset=4, not 8.
 	auto r3 = try_buffer_slice_from_incremental_cqe(rig.ring, 6, inc_flags(0, true));
 	REQUIRE(r3.has_value());
-	CHECK(r3->offset() == SZ{4});
+	CHECK(r3->offset() == std::size_t{4});
 	CHECK(rig.ring.debug_head_pos() == h0);
 }
 // T2: Append clears rc.flags for BUF_MORE — second decode with original flags double-advances,
@@ -353,10 +353,10 @@ TEST_CASE(
 	"incremental: append clears rc.flags for BUF_MORE: bad_cqe on re-call with flags=0",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	auto r1 = try_buffer_slice_from_incremental_cqe(rig.ring, 10, inc_flags(0, true));
 	REQUIRE(r1.has_value());
-	CHECK(r1->offset() == SZ{0});
+	CHECK(r1->offset() == std::size_t{0});
 	// Cleared-flags re-call: decoder rejects (no BUFFER bit), offset unchanged.
 	auto r2 = try_buffer_slice_from_incremental_cqe(rig.ring, 10, 0u);
 	CHECK(!r2.has_value());
@@ -364,7 +364,7 @@ TEST_CASE(
 	// Confirm offset still at 10 (only advanced once).
 	auto r3 = try_buffer_slice_from_incremental_cqe(rig.ring, 5, inc_flags(0, false));
 	REQUIRE(r3.has_value());
-	CHECK(r3->offset() == SZ{10});
+	CHECK(r3->offset() == std::size_t{10});
 	CHECK(rig.ring.debug_head_pos() == h0 + 1u);
 }
 // T3: Append final — head+1 after final CQE; destructor recycles once; second
@@ -373,7 +373,7 @@ TEST_CASE(
 	"incremental: append final: head+1, RAII destructor recycles once",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	{
 		auto r = try_buffer_slice_from_incremental_cqe(rig.ring, 20, inc_flags(0, false));
 		REQUIRE(r.has_value());
@@ -386,7 +386,7 @@ TEST_CASE(
 	// Next acquisition on same ID starts at offset 0.
 	auto r2 = try_buffer_slice_from_incremental_cqe(rig.ring, 5, inc_flags(0, true));
 	REQUIRE(r2.has_value());
-	CHECK(r2->offset() == SZ{0});
+	CHECK(r2->offset() == std::size_t{0});
 	CHECK(rig.ring.debug_head_pos() == h0 + 1u); // BUF_MORE: still no advance
 }
 // T4: Close after partial — BUF_MORE CQE then reclaim_incremental_partial:
@@ -395,11 +395,11 @@ TEST_CASE(
 	"incremental: close after partial: reclaim_incremental_partial resets offset and recycles",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	// Partial fill: BUF_MORE CQE.
 	auto r = try_buffer_slice_from_incremental_cqe(rig.ring, 12, inc_flags(0, true));
 	REQUIRE(r.has_value());
-	CHECK(r->offset() == SZ{0});
+	CHECK(r->offset() == std::size_t{0});
 	CHECK(rig.ring.debug_head_pos() == h0);
 	// Connection closed: reclaim partial buffer.
 	bool const ok = rig.ring.reclaim_incremental_partial(0);
@@ -408,7 +408,7 @@ TEST_CASE(
 	// Next CQE on same ID starts fresh at offset 0.
 	auto r2 = try_buffer_slice_from_incremental_cqe(rig.ring, 5, inc_flags(0, false));
 	REQUIRE(r2.has_value());
-	CHECK(r2->offset() == SZ{0});
+	CHECK(r2->offset() == std::size_t{0});
 }
 // T5: No false recycle after final — offset is 0 after final CQE;
 //     reclaim_incremental_partial must return false and not recycle.
@@ -416,7 +416,7 @@ TEST_CASE(
 	"incremental: no false recycle after final: reclaim_incremental_partial returns false when offset=0",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	// Final CQE: offset reset to 0, head+1 inside decoder.
 	{
 		auto r = try_buffer_slice_from_incremental_cqe(rig.ring, 20, inc_flags(0, false));
@@ -450,7 +450,7 @@ TEST_CASE(
 			fake
         };
 	};
-	REQUIRE_THROWS_AS(make_bad(), RE);
+	REQUIRE_THROWS_AS(make_bad(), std::runtime_error);
 }
 // T7: Skip when kernel lacks IORING_FEAT_PBUF_RING_INC — Rig SKIP fires, this test
 //     also verifies the basic ring mode is reported correctly when supported.
@@ -475,16 +475,16 @@ TEST_CASE(
 	"incremental: partial-fill: two BUF_MORE CQEs accumulate offsets",
 	"[incremental]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	auto r1 = try_buffer_slice_from_incremental_cqe(rig.ring, 7, inc_flags(3, true));
 	REQUIRE(r1.has_value());
-	CHECK(r1->offset() == SZ{0});
-	CHECK(r1->size() == SZ{7});
+	CHECK(r1->offset() == std::size_t{0});
+	CHECK(r1->size() == std::size_t{7});
 	CHECK(r1->bytes().size() == 7u);
 	auto r2 = try_buffer_slice_from_incremental_cqe(rig.ring, 11, inc_flags(3, true));
 	REQUIRE(r2.has_value());
-	CHECK(r2->offset() == SZ{7});
-	CHECK(r2->size() == SZ{11});
+	CHECK(r2->offset() == std::size_t{7});
+	CHECK(r2->size() == std::size_t{11});
 	CHECK(r2->bytes().size() == 11u);
 	// Spans must be adjacent.
 	CHECK(r2->bytes().data() == r1->bytes().data() + 7u);
@@ -496,21 +496,21 @@ TEST_CASE(
 	"incremental: full-fill then next buffer: consume + offset reset",
 	"[incremental]") {
 	Rig rig{8, 16}; // small buf_size for easier arithmetic
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	// Two CQEs filling all 16 bytes.
 	auto r1 = try_buffer_slice_from_incremental_cqe(rig.ring, 8, inc_flags(0, true));
 	REQUIRE(r1.has_value());
-	CHECK(r1->offset() == SZ{0});
+	CHECK(r1->offset() == std::size_t{0});
 	auto r2 = try_buffer_slice_from_incremental_cqe(rig.ring, 8, inc_flags(0, false));
 	REQUIRE(r2.has_value());
-	CHECK(r2->offset() == SZ{8});
-	CHECK(r2->size() == SZ{8});
+	CHECK(r2->offset() == std::size_t{8});
+	CHECK(r2->size() == std::size_t{8});
 	CHECK(rig.ring.debug_head_pos() == h0 + 1u); // final CQE: head advanced
 	// Destructor recycles r2 (final). Next request for same ID gets fresh offset=0.
 	r2 = IncrementalRecvSlice{}; // trigger dtor via move-assign from default
 	auto r3 = try_buffer_slice_from_incremental_cqe(rig.ring, 4, inc_flags(0, true));
 	REQUIRE(r3.has_value());
-	CHECK(r3->offset() == SZ{0}); // new buffer acquisition, offset reset
+	CHECK(r3->offset() == std::size_t{0}); // new buffer acquisition, offset reset
 	CHECK(r3->bytes().size() == 4u);
 }
 // T11: Classic vs incremental — same total bytes, different CQE count.
@@ -533,7 +533,7 @@ TEST_CASE(
 		any_caps
     };
 	// Classic: 1 CQE → 15 bytes.
-	SZ classic_total = 0;
+	std::size_t classic_total = 0;
 	{
 		auto slices = buffer_slices_from_cqe(classic_ring, 15, inc_flags(0, false), false);
 		for (auto s: slices) {
@@ -542,7 +542,7 @@ TEST_CASE(
 		slices.recycle_all();
 	}
 	// Incremental: 3 CQEs → 5+5+5 = 15 bytes.
-	SZ incremental_total = 0;
+	std::size_t incremental_total = 0;
 	{
 		auto s1 = try_buffer_slice_from_incremental_cqe(rig.ring, 5, inc_flags(0, true));
 		REQUIRE(s1);
@@ -569,11 +569,11 @@ TEST_CASE(
 	"incremental: invalid CQE bounds → bad_bounds, no offset/head mutation",
 	"[incremental]") {
 	Rig rig{8, 16}; // buf_size=16
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	// Advance offset to 12 via a legitimate BUF_MORE.
 	auto r1 = try_buffer_slice_from_incremental_cqe(rig.ring, 12, inc_flags(0, true));
 	REQUIRE(r1.has_value());
-	CHECK(r1->offset() == SZ{0});
+	CHECK(r1->offset() == std::size_t{0});
 	// Now try res=8: 12+8=20 > 16=buf_size → bad_bounds.
 	auto r2 = try_buffer_slice_from_incremental_cqe(rig.ring, 8, inc_flags(0, false));
 	REQUIRE(!r2.has_value());
@@ -584,7 +584,7 @@ TEST_CASE(
 	// A valid continuation CQE at res=4 (12+4=16=buf_size) must still work.
 	auto r3 = try_buffer_slice_from_incremental_cqe(rig.ring, 4, inc_flags(0, false));
 	REQUIRE(r3.has_value());
-	CHECK(r3->offset() == SZ{12});
+	CHECK(r3->offset() == std::size_t{12});
 	CHECK(rig.ring.debug_head_pos() == h0 + 1u);
 }
 // T14: Stale positive final CQE after tombstone [e2e required].

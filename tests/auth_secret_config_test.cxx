@@ -15,7 +15,7 @@ class TempIni {
 
 public:
 	explicit TempIni(
-		SV body) {
+		std::string_view body) {
 		auto const name = format(
 			"conflux-auth-secret-config-test-{}-{}.ini",
 			std::chrono::steady_clock::now().time_since_epoch().count(),
@@ -23,7 +23,7 @@ public:
 		path_ = std::filesystem::temp_directory_path() / name;
 		std::ofstream out{path_};
 		if (!out) {
-			throw RE{"failed to create temp ini"};
+			throw std::runtime_error{"failed to create temp ini"};
 		}
 		out << body;
 	}

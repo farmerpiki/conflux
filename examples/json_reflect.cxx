@@ -45,7 +45,7 @@ static void example_encode() {
 }
 static void example_decode() {
 	std::println("\n--- reflect decode ---");
-	constexpr SV input = R"({
+	constexpr std::string_view input = R"({
 "id":"sphere_07",
 "position":{"x":0,"y":10,"z":0},
 "material":{"name":"glass","roughness":0.05},
@@ -88,7 +88,7 @@ static void example_roundtrip() {
 }
 static void example_reader_path() {
 	std::println("\n--- reflect decode from JsonReader ---");
-	SV input = R"({"x": 1.5, "y": -2.0, "z": 0.0})";
+	std::string_view input = R"({"x": 1.5, "y": -2.0, "z": 0.0})";
 	JsonReader reader{input};
 	auto v = decode<Vec3>(reader);
 	if (!v) {

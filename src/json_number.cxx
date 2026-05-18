@@ -4,7 +4,7 @@ import std;
 import std.compat;
 import conflux.types;
 
-expected<i64, JsonError> JsonNumberView::to_i64() const {
+expected<std::int64_t, JsonError> JsonNumberView::to_i64() const {
 	if ((flags_ & kLexIntForm) == 0) {
 		return unexpected(
 			JsonError{
@@ -13,18 +13,18 @@ expected<i64, JsonError> JsonNumberView::to_i64() const {
 				.message = "to_i64 requires integer-form number"});
 	}
 	if ((flags_ & kValKindInt) != 0) {
-		return std::bit_cast<i64>(raw_payload_);
+		return std::bit_cast<std::int64_t>(raw_payload_);
 	}
 	// kValKindUint, kValKindF64, or no kValKind* (overflow): integer-form
-	// lexeme outside i64 range → number_out_of_range (Correction K).
+	// lexeme outside std::int64_t range → number_out_of_range (Correction K).
 	return unexpected(
 		JsonError{
 			.stage = JsonStage::lookup,
 			.code = JsonIssueCode::number_out_of_range,
-			.message = format("value out of i64 range: {}", lexeme_)});
+			.message = format("value out of std::int64_t range: {}", lexeme_)});
 }
 
-expected<u64, JsonError> JsonNumberView::to_u64() const {
+expected<std::uint64_t, JsonError> JsonNumberView::to_u64() const {
 	if ((flags_ & kLexIntForm) == 0) {
 		return unexpected(
 			JsonError{
@@ -43,16 +43,16 @@ expected<u64, JsonError> JsonNumberView::to_u64() const {
 		return raw_payload_;
 	}
 	if ((flags_ & kValKindInt) != 0) {
-		auto const v = std::bit_cast<i64>(raw_payload_);
+		auto const v = std::bit_cast<std::int64_t>(raw_payload_);
 		if (v >= 0) {
-			return static_cast<u64>(v);
+			return static_cast<std::uint64_t>(v);
 		}
 	}
 	return unexpected(
 		JsonError{
 			.stage = JsonStage::lookup,
 			.code = JsonIssueCode::number_out_of_range,
-			.message = format("value out of u64 range: {}", lexeme_)});
+			.message = format("value out of std::uint64_t range: {}", lexeme_)});
 }
 
 expected<double, JsonError> JsonNumberView::to_f64() const {
@@ -60,7 +60,7 @@ expected<double, JsonError> JsonNumberView::to_f64() const {
 		return std::bit_cast<double>(raw_payload_);
 	}
 	if ((flags_ & kValKindInt) != 0) {
-		return static_cast<double>(std::bit_cast<i64>(raw_payload_));
+		return static_cast<double>(std::bit_cast<std::int64_t>(raw_payload_));
 	}
 	if ((flags_ & kValKindUint) != 0) {
 		return static_cast<double>(raw_payload_);
@@ -90,11 +90,11 @@ expected<double, JsonError> JsonNumberView::to_f64() const {
 }
 
 bool validate_number_lexeme(
-	SV lex) noexcept {
+	std::string_view lex) noexcept {
 	if (lex.empty()) {
 		return false;
 	}
-	SZ i = 0;
+	std::size_t i = 0;
 	if (lex[i] == '-') {
 		++i;
 		if (i >= lex.size()) {

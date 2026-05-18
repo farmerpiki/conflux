@@ -28,8 +28,8 @@ import conflux.net.router;
 
 export inline std::string_view const kH3Alpn = "h3";
 export std::string http3_alt_svc_value(
-	u16 port,
-	u32 max_age_sec) {
+	std::uint16_t port,
+	std::uint32_t max_age_sec) {
 	return format(R"(h3=":{}"; ma={})", port, max_age_sec);
 }
 export bool http3_negotiated(
@@ -68,12 +68,12 @@ namespace http3_detail {
 
 constexpr std::size_t kMaxUdpPayload = 1500;
 constexpr std::size_t kCidLen = 16;
-u64 now_ns() {
-	auto const t = chrono::steady_clock::now().time_since_epoch();
-	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t).count());
+std::uint64_t now_ns() {
+	auto const t = std::chrono::steady_clock::now().time_since_epoch();
+	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t).count());
 }
 struct Http3Stream {
-	i64 stream_id{};
+	std::int64_t stream_id{};
 	std::string method;
 	std::string path;
 	std::string authority;
@@ -132,25 +132,25 @@ struct Http3Conn {
 	socklen_t remote_addrlen{};
 	sockaddr_storage local_addr{};
 	socklen_t local_addrlen{};
-	std::array<u8, kCidLen> scid_key{};
-	std::vector<std::array<u8, kCidLen>> cid_keys{};
-	std::unordered_map<i64, std::unique_ptr<Http3Stream>> streams{};
+	std::array<std::uint8_t, kCidLen> scid_key{};
+	std::vector<std::array<std::uint8_t, kCidLen>> cid_keys{};
+	std::unordered_map<std::int64_t, std::unique_ptr<Http3Stream>> streams{};
 	Router const *router{nullptr};
 	void *listener{nullptr};
 	bool closing{false};
 	bool closed{false};
 	bool handshake_done{false};
-	std::array<u8, 16> ip_key{};
+	std::array<std::uint8_t, 16> ip_key{};
 	std::size_t max_body_size{0};
 };
-void register_cid_on_listener(Http3Conn *c, std::array<u8, kCidLen> const &key);
-void unregister_cid_on_listener(Http3Conn *c, std::array<u8, kCidLen> const &key);
+void register_cid_on_listener(Http3Conn *c, std::array<std::uint8_t, kCidLen> const &key);
+void unregister_cid_on_listener(Http3Conn *c, std::array<std::uint8_t, kCidLen> const &key);
 ngtcp2_conn *crypto_conn_ref_get_conn(
 	ngtcp2_crypto_conn_ref *ref) {
 	return static_cast<Http3Conn *>(ref->user_data)->conn.get();
 }
 void rand_cb(
-	u8 *dest,
+	std::uint8_t *dest,
 	std::size_t destlen,
 	ngtcp2_rand_ctx const * /*rand_ctx*/) {
 	RAND_bytes(dest, static_cast<int>(destlen));
@@ -158,7 +158,7 @@ void rand_cb(
 int get_new_connection_id_cb(
 	ngtcp2_conn * /*conn*/,
 	ngtcp2_cid *cid,
-	u8 *token,
+	std::uint8_t *token,
 	std::size_t cidlen,
 	void *user_data) {
 	auto *c = static_cast<Http3Conn *>(user_data);
@@ -169,7 +169,7 @@ int get_new_connection_id_cb(
 	if (RAND_bytes(token, NGTCP2_STATELESS_RESET_TOKENLEN) != 1) {
 		return NGTCP2_ERR_CALLBACK_FAILURE;
 	}
-	std::array<u8, kCidLen> k{};
+	std::array<std::uint8_t, kCidLen> k{};
 	memcpy(k.data(), cid->data, min(cidlen, k.size()));
 	c->cid_keys.push_back(k);
 	register_cid_on_listener(c, k);
@@ -180,22 +180,22 @@ int remove_connection_id_cb(
 	ngtcp2_cid const *cid,
 	void *user_data) {
 	auto *c = static_cast<Http3Conn *>(user_data);
-	std::array<u8, kCidLen> k{};
+	std::array<std::uint8_t, kCidLen> k{};
 	memcpy(k.data(), cid->data, min<std::size_t>(cid->datalen, k.size()));
 	unregister_cid_on_listener(c, k);
 	return 0;
 }
 int stream_open_cb(
 	ngtcp2_conn * /*conn*/,
-	i64 /*stream_id*/,
+	std::int64_t /*stream_id*/,
 	void * /*user_data*/) {
 	return 0;
 }
 int acked_stream_data_offset_cb(
 	ngtcp2_conn * /*conn*/,
-	i64 stream_id,
-	u64 /*offset*/,
-	u64 datalen,
+	std::int64_t stream_id,
+	std::uint64_t /*offset*/,
+	std::uint64_t datalen,
 	void *user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(user_data);
@@ -206,15 +206,15 @@ int acked_stream_data_offset_cb(
 }
 int extend_max_local_streams_bidi_cb(
 	ngtcp2_conn * /*conn*/,
-	u64 /*max_streams*/,
+	std::uint64_t /*max_streams*/,
 	void * /*user_data*/) {
 	return 0;
 }
 int stream_reset_cb(
 	ngtcp2_conn * /*conn*/,
-	i64 stream_id,
-	u64 /*final_size*/,
-	u64 /*app_error_code*/,
+	std::int64_t stream_id,
+	std::uint64_t /*final_size*/,
+	std::uint64_t /*app_error_code*/,
 	void *user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(user_data);
@@ -225,8 +225,8 @@ int stream_reset_cb(
 }
 int stream_stop_sending_cb(
 	ngtcp2_conn * /*conn*/,
-	i64 stream_id,
-	u64 /*app_error_code*/,
+	std::int64_t stream_id,
+	std::uint64_t /*app_error_code*/,
 	void *user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(user_data);
@@ -238,8 +238,8 @@ int stream_stop_sending_cb(
 void dispatch_stream(Http3Conn *c, Http3Stream &s);
 int h3_recv_data_cb(
 	nghttp3_conn * /*conn*/,
-	i64 stream_id,
-	u8 const *data,
+	std::int64_t stream_id,
+	std::uint8_t const *data,
 	std::size_t datalen,
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
@@ -258,11 +258,11 @@ int h3_recv_data_cb(
 }
 int h3_recv_header_cb(
 	nghttp3_conn * /*conn*/,
-	i64 stream_id,
-	i32 /*token*/,
+	std::int64_t stream_id,
+	std::int32_t /*token*/,
 	nghttp3_rcbuf *name,
 	nghttp3_rcbuf *value,
-	u8 /*flags*/,
+	std::uint8_t /*flags*/,
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
@@ -290,7 +290,7 @@ int h3_recv_header_cb(
 }
 int h3_begin_headers_cb(
 	nghttp3_conn * /*conn*/,
-	i64 stream_id,
+	std::int64_t stream_id,
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
@@ -303,7 +303,7 @@ int h3_begin_headers_cb(
 }
 int h3_end_headers_cb(
 	nghttp3_conn * /*conn*/,
-	i64 /*stream_id*/,
+	std::int64_t /*stream_id*/,
 	int /*fin*/,
 	void * /*conn_user_data*/,
 	void * /*stream_user_data*/) {
@@ -311,7 +311,7 @@ int h3_end_headers_cb(
 }
 int h3_end_stream_cb(
 	nghttp3_conn * /*conn*/,
-	i64 stream_id,
+	std::int64_t stream_id,
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
@@ -325,8 +325,8 @@ int h3_end_stream_cb(
 }
 int h3_stream_close_cb(
 	nghttp3_conn * /*conn*/,
-	i64 stream_id,
-	u64 /*app_error_code*/,
+	std::int64_t stream_id,
+	std::uint64_t /*app_error_code*/,
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
@@ -335,16 +335,16 @@ int h3_stream_close_cb(
 }
 int h3_acked_stream_data_cb(
 	nghttp3_conn * /*conn*/,
-	i64 /*stream_id*/,
-	u64 /*datalen*/,
+	std::int64_t /*stream_id*/,
+	std::uint64_t /*datalen*/,
 	void * /*conn_user_data*/,
 	void * /*stream_user_data*/) {
 	return 0;
 }
 int h3_stop_sending_cb(
 	nghttp3_conn * /*conn*/,
-	i64 stream_id,
-	u64 app_error_code,
+	std::int64_t stream_id,
+	std::uint64_t app_error_code,
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
@@ -353,8 +353,8 @@ int h3_stop_sending_cb(
 }
 int h3_reset_stream_cb(
 	nghttp3_conn * /*conn*/,
-	i64 stream_id,
-	u64 app_error_code,
+	std::int64_t stream_id,
+	std::uint64_t app_error_code,
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
@@ -363,10 +363,10 @@ int h3_reset_stream_cb(
 }
 nghttp3_ssize h3_read_response_body_cb(
 	nghttp3_conn * /*conn*/,
-	i64 stream_id,
+	std::int64_t stream_id,
 	nghttp3_vec *vec,
 	std::size_t veccnt,
-	u32 *pflags,
+	std::uint32_t *pflags,
 	void *conn_user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(conn_user_data);
@@ -385,7 +385,7 @@ nghttp3_ssize h3_read_response_body_cb(
 		s.response_eof = true;
 		return 0;
 	}
-	vec[0].base = reinterpret_cast<u8 *>(s.response_body_buf.data() + s.response_body_offset);
+	vec[0].base = reinterpret_cast<std::uint8_t *>(s.response_body_buf.data() + s.response_body_offset);
 	vec[0].len = remaining;
 	s.response_body_offset += remaining;
 	*pflags |= NGHTTP3_DATA_FLAG_EOF;
@@ -394,10 +394,10 @@ nghttp3_ssize h3_read_response_body_cb(
 }
 int recv_stream_data_cb(
 	ngtcp2_conn * /*conn*/,
-	u32 flags,
-	i64 stream_id,
-	u64 /*offset*/,
-	u8 const *data,
+	std::uint32_t flags,
+	std::int64_t stream_id,
+	std::uint64_t /*offset*/,
+	std::uint8_t const *data,
 	std::size_t datalen,
 	void *user_data,
 	void * /*stream_user_data*/) {
@@ -410,20 +410,20 @@ int recv_stream_data_cb(
 	if (n < 0) {
 		return NGTCP2_ERR_CALLBACK_FAILURE;
 	}
-	ngtcp2_conn_extend_max_stream_offset(c->conn.get(), stream_id, static_cast<u64>(n));
-	ngtcp2_conn_extend_max_offset(c->conn.get(), static_cast<u64>(n));
+	ngtcp2_conn_extend_max_stream_offset(c->conn.get(), stream_id, static_cast<std::uint64_t>(n));
+	ngtcp2_conn_extend_max_offset(c->conn.get(), static_cast<std::uint64_t>(n));
 	return 0;
 }
 int stream_close_cb(
 	ngtcp2_conn * /*conn*/,
-	u32 flags,
-	i64 stream_id,
-	u64 app_error_code,
+	std::uint32_t flags,
+	std::int64_t stream_id,
+	std::uint64_t app_error_code,
 	void *user_data,
 	void * /*stream_user_data*/) {
 	auto *c = static_cast<Http3Conn *>(user_data);
 	if (c->h3conn.get() != nullptr) {
-		u64 code = app_error_code;
+		std::uint64_t code = app_error_code;
 		if ((flags & NGTCP2_STREAM_CLOSE_FLAG_APP_ERROR_CODE_SET) == 0) {
 			code = NGHTTP3_H3_NO_ERROR;
 		}
@@ -456,9 +456,9 @@ int handshake_completed_cb(
 		}
 		c->h3conn.reset(raw);
 	}
-	i64 ctrl_id{};
-	i64 qenc_id{};
-	i64 qdec_id{};
+	std::int64_t ctrl_id{};
+	std::int64_t qenc_id{};
+	std::int64_t qdec_id{};
 	if (ngtcp2_conn_open_uni_stream(c->conn.get(), &ctrl_id, nullptr) != 0
 		|| ngtcp2_conn_open_uni_stream(c->conn.get(), &qenc_id, nullptr) != 0
 		|| ngtcp2_conn_open_uni_stream(c->conn.get(), &qdec_id, nullptr) != 0) {
@@ -548,35 +548,35 @@ void dispatch_stream(
 	std::vector<nghttp3_nv> nva;
 	s.status_str = to_string(s.response.status);
 	nva.push_back(
-		{reinterpret_cast<u8 const *>(":status"),
-		 reinterpret_cast<u8 const *>(s.status_str.c_str()),
+		{reinterpret_cast<std::uint8_t const *>(":status"),
+		 reinterpret_cast<std::uint8_t const *>(s.status_str.c_str()),
 		 7,
 		 s.status_str.size(),
 		 NGHTTP3_NV_FLAG_NO_COPY_NAME});
 	static constexpr std::string_view kCT = "content-type";
 	nva.push_back(
-		{reinterpret_cast<u8 const *>(kCT.data()),
-		 reinterpret_cast<u8 const *>(s.response.content_type.c_str()),
+		{reinterpret_cast<std::uint8_t const *>(kCT.data()),
+		 reinterpret_cast<std::uint8_t const *>(s.response.content_type.c_str()),
 		 kCT.size(),
 		 s.response.content_type.size(),
 		 NGHTTP3_NV_FLAG_NO_COPY_NAME});
 	s.content_length_str = to_string(s.response_body_buf.size());
 	static constexpr std::string_view kCL = "content-length";
 	nva.push_back(
-		{reinterpret_cast<u8 const *>(kCL.data()),
-		 reinterpret_cast<u8 const *>(s.content_length_str.c_str()),
+		{reinterpret_cast<std::uint8_t const *>(kCL.data()),
+		 reinterpret_cast<std::uint8_t const *>(s.content_length_str.c_str()),
 		 kCL.size(),
 		 s.content_length_str.size(),
 		 NGHTTP3_NV_FLAG_NO_COPY_NAME});
 	for (auto const &[k, v]: s.response.headers) {
 		nva.push_back(
-			{reinterpret_cast<u8 const *>(k.c_str()), reinterpret_cast<u8 const *>(v.c_str()), k.size(), v.size(), 0});
+			{reinterpret_cast<std::uint8_t const *>(k.c_str()), reinterpret_cast<std::uint8_t const *>(v.c_str()), k.size(), v.size(), 0});
 	}
 	for (auto const &sc: s.response.set_cookies) {
 		static constexpr std::string_view kSC = "set-cookie";
 		nva.push_back(
-			{reinterpret_cast<u8 const *>(kSC.data()),
-			 reinterpret_cast<u8 const *>(sc.c_str()),
+			{reinterpret_cast<std::uint8_t const *>(kSC.data()),
+			 reinterpret_cast<std::uint8_t const *>(sc.c_str()),
 			 kSC.size(),
 			 sc.size(),
 			 NGHTTP3_NV_FLAG_NO_COPY_NAME});
@@ -587,7 +587,7 @@ void dispatch_stream(
 }
 struct CidHash {
 	std::size_t operator ()(
-		std::array<u8, kCidLen> const &k) const noexcept {
+		std::array<std::uint8_t, kCidLen> const &k) const noexcept {
 		std::size_t h = 0xcbf29ce484222325ULL;
 		for (auto b: k) {
 			h ^= b;
@@ -596,10 +596,10 @@ struct CidHash {
 		return h;
 	}
 };
-std::array<u8, kCidLen> cid_to_key(
-	u8 const *data,
+std::array<std::uint8_t, kCidLen> cid_to_key(
+	std::uint8_t const *data,
 	std::size_t datalen) {
-	std::array<u8, kCidLen> k{};
+	std::array<std::uint8_t, kCidLen> k{};
 	std::size_t const copy = min(datalen, k.size());
 	memcpy(k.data(), data, copy);
 	return k;
@@ -612,7 +612,7 @@ public:
 	Http3Listener(
 		Router const *router,
 		Http3Config const &cfg,
-		u16 port,
+		std::uint16_t port,
 		SSL_CTX *ssl_ctx)
 		: router_(router)
 		, cfg_(cfg)
@@ -624,22 +624,22 @@ public:
 	Http3Listener(Http3Listener &&) = delete;
 	Http3Listener &operator =(Http3Listener &&) = delete;
 	void start() {
-		SL const lk{stop_mu_};
+		std::scoped_lock const lk{stop_mu_};
 		if (ngtcp2_crypto_ossl_init() != 0) {
-			throw RE{"ngtcp2_crypto_ossl_init failed"};
+			throw std::runtime_error{"ngtcp2_crypto_ossl_init failed"};
 		}
 		if (RAND_bytes(retry_secret_.data(), static_cast<int>(retry_secret_.size())) != 1) {
-			throw RE{"RAND_bytes(retry_secret) failed"};
+			throw std::runtime_error{"RAND_bytes(retry_secret) failed"};
 		}
 		shutdown_efd_ = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);
 		if (shutdown_efd_ < 0) {
-			throw RE{"eventfd(h3 shutdown) failed"};
+			throw std::runtime_error{"eventfd(h3 shutdown) failed"};
 		}
 		timer_fd_ = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
 		if (timer_fd_ < 0) {
 			::close(shutdown_efd_);
 			shutdown_efd_ = -1;
-			throw RE{"timerfd_create(h3) failed"};
+			throw std::runtime_error{"timerfd_create(h3) failed"};
 		}
 		udp_fd_ = ::socket(AF_INET6, SOCK_DGRAM | SOCK_NONBLOCK | SOCK_CLOEXEC, IPPROTO_UDP);
 		if (udp_fd_ < 0) {
@@ -647,7 +647,7 @@ public:
 			::close(shutdown_efd_);
 			timer_fd_ = -1;
 			shutdown_efd_ = -1;
-			throw RE{"socket(AF_INET6 UDP) failed"};
+			throw std::runtime_error{"socket(AF_INET6 UDP) failed"};
 		}
 		int on = 1;
 		auto _ = setsockopt(udp_fd_, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
@@ -664,15 +664,15 @@ public:
 			::close(timer_fd_);
 			::close(shutdown_efd_);
 			udp_fd_ = timer_fd_ = shutdown_efd_ = -1;
-			throw RE{format("bind(h3 UDP :{}) failed: {}", port_, strerror(e))};
+			throw std::runtime_error{format("bind(h3 UDP :{}) failed: {}", port_, strerror(e))};
 		}
 		stopping_.clear(memory_order_release);
 		thread_ = thread{[this] { run_loop(); }};
 	}
 	void stop() {
-		SL const lk{stop_mu_};
+		std::scoped_lock const lk{stop_mu_};
 		if (shutdown_efd_ >= 0 && !stopping_.test_and_set()) {
-			u64 v = 1;
+			std::uint64_t v = 1;
 			auto _ = ::write(shutdown_efd_, &v, sizeof(v));
 		}
 		if (thread_.joinable()) {
@@ -711,7 +711,7 @@ private:
 				break;
 			}
 			if ((pfds[2].revents & POLLIN) != 0) {
-				u64 expirations{};
+				std::uint64_t expirations{};
 				auto _ = ::read(timer_fd_, &expirations, sizeof(expirations));
 			}
 			if ((pfds[0].revents & POLLIN) != 0) {
@@ -724,9 +724,9 @@ private:
 		}
 		drain_close_all();
 	}
-	static std::array<u8, 16> remote_ip_key(
+	static std::array<std::uint8_t, 16> remote_ip_key(
 		sockaddr_storage const &ss) {
-		std::array<u8, 16> key{};
+		std::array<std::uint8_t, 16> key{};
 		if (ss.ss_family == AF_INET6) {
 			memcpy(key.data(), &reinterpret_cast<sockaddr_in6 const &>(ss).sin6_addr, 16);
 		} else if (ss.ss_family == AF_INET) {
@@ -737,10 +737,10 @@ private:
 		return key;
 	}
 	[[nodiscard]] int compute_poll_timeout_ms() const {
-		u64 const now = now_ns();
-		u64 earliest = UINT64_MAX;
+		std::uint64_t const now = now_ns();
+		std::uint64_t earliest = UINT64_MAX;
 		for (auto const &[k, c]: conns_) {
-			u64 const exp = ngtcp2_conn_get_expiry(c->conn.get());
+			std::uint64_t const exp = ngtcp2_conn_get_expiry(c->conn.get());
 			if (exp < earliest) {
 				earliest = exp;
 			}
@@ -751,14 +751,14 @@ private:
 		if (earliest <= now) {
 			return 0;
 		}
-		u64 const delta = earliest - now;
-		u64 const ms = delta / 1000000ULL;
-		return static_cast<int>(min<u64>(ms, 1000ULL));
+		std::uint64_t const delta = earliest - now;
+		std::uint64_t const ms = delta / 1000000ULL;
+		return static_cast<int>(min<std::uint64_t>(ms, 1000ULL));
 	}
 	void arm_earliest_timer() {
-		u64 earliest = UINT64_MAX;
+		std::uint64_t earliest = UINT64_MAX;
 		for (auto const &[k, c]: conns_) {
-			u64 const exp = ngtcp2_conn_get_expiry(c->conn.get());
+			std::uint64_t const exp = ngtcp2_conn_get_expiry(c->conn.get());
 			if (exp < earliest) {
 				earliest = exp;
 			}
@@ -768,14 +768,14 @@ private:
 			auto _ = timerfd_settime(timer_fd_, 0, &ts, nullptr);
 			return;
 		}
-		u64 const now = now_ns();
-		u64 const delta = earliest > now ? earliest - now : 1;
+		std::uint64_t const now = now_ns();
+		std::uint64_t const delta = earliest > now ? earliest - now : 1;
 		ts.it_value.tv_sec = static_cast<time_t>(delta / 1000000000ULL);
 		ts.it_value.tv_nsec = static_cast<long>(delta % 1000000000ULL);
 		auto _ = timerfd_settime(timer_fd_, 0, &ts, nullptr);
 	}
 	void process_expirations() {
-		u64 const now = now_ns();
+		std::uint64_t const now = now_ns();
 		for (auto &[k, c]: conns_) {
 			if (c->closed || c->closing) {
 				continue;
@@ -799,7 +799,7 @@ private:
 	}
 	void drain_udp() {
 		static constexpr std::size_t kBatch = 32;
-		std::array<u8[kMaxUdpPayload], kBatch> bufs;
+		std::array<std::uint8_t[kMaxUdpPayload], kBatch> bufs;
 		std::array<sockaddr_storage, kBatch> addrs;
 		std::array<iovec, kBatch> iovs;
 		std::array<mmsghdr, kBatch> msgs;
@@ -826,7 +826,7 @@ private:
 					continue;
 				}
 				handle_packet(
-					static_cast<u8 const *>(iovs[i].iov_base),
+					static_cast<std::uint8_t const *>(iovs[i].iov_base),
 					msgs[i].msg_len,
 					addrs[i],
 					msgs[i].msg_hdr.msg_namelen);
@@ -834,7 +834,7 @@ private:
 		}
 	}
 	void handle_packet(
-		u8 const *pkt,
+		std::uint8_t const *pkt,
 		std::size_t pktlen,
 		sockaddr_storage const &remote,
 		socklen_t remote_len) {
@@ -843,7 +843,7 @@ private:
 		if (rv != 0 && rv != NGTCP2_ERR_VERSION_NEGOTIATION) {
 			return;
 		}
-		std::array<u8, kCidLen> const key = cid_to_key(vcid.dcid, vcid.dcidlen);
+		std::array<std::uint8_t, kCidLen> const key = cid_to_key(vcid.dcid, vcid.dcidlen);
 		Http3Conn *c = nullptr;
 		if (auto it = cid_index_.find(key); it != cid_index_.end()) {
 			c = it->second;
@@ -885,7 +885,7 @@ private:
 				free_quic_state(c);
 				conns_.erase(scid_key);
 				// Generate Retry token.
-				u8 token[NGTCP2_CRYPTO_MAX_RETRY_TOKENLEN];
+				std::uint8_t token[NGTCP2_CRYPTO_MAX_RETRY_TOKENLEN];
 				ngtcp2_cid odcid{};
 				odcid.datalen = vcid.dcidlen;
 				memcpy(odcid.data, vcid.dcid, vcid.dcidlen);
@@ -908,7 +908,7 @@ private:
 				if (tokenlen < 0) {
 					return;
 				}
-				u8 retry_buf[NGTCP2_MAX_UDP_PAYLOAD_SIZE];
+				std::uint8_t retry_buf[NGTCP2_MAX_UDP_PAYLOAD_SIZE];
 				ngtcp2_ssize const wlen = ngtcp2_crypto_write_retry(
 					retry_buf,
 					sizeof(retry_buf),
@@ -934,7 +934,7 @@ private:
 		send_stream_data(c);
 	}
 	Http3Conn *accept_new_conn(
-		u8 const *pkt,
+		std::uint8_t const *pkt,
 		std::size_t pktlen,
 		sockaddr_storage const &remote,
 		socklen_t remote_len) {
@@ -1044,12 +1044,12 @@ private:
 		if (c->closed || c->closing) {
 			return;
 		}
-		u8 buf[kMaxUdpPayload];
+		std::uint8_t buf[kMaxUdpPayload];
 		ngtcp2_path_storage ps;
 		ngtcp2_path_storage_zero(&ps);
 		ngtcp2_pkt_info pi{};
 		for (;;) {
-			i64 stream_id = -1;
+			std::int64_t stream_id = -1;
 			int fin = 0;
 			nghttp3_vec vec[16];
 			nghttp3_ssize sveccnt = 0;
@@ -1061,7 +1061,7 @@ private:
 				}
 			}
 			ngtcp2_ssize ndatalen{};
-			u32 const flags = (sveccnt > 0 ? NGTCP2_WRITE_STREAM_FLAG_MORE : NGTCP2_WRITE_STREAM_FLAG_NONE)
+			std::uint32_t const flags = (sveccnt > 0 ? NGTCP2_WRITE_STREAM_FLAG_MORE : NGTCP2_WRITE_STREAM_FLAG_NONE)
 							| (fin != 0 ? NGTCP2_WRITE_STREAM_FLAG_FIN : 0u);
 			ngtcp2_ssize const nwrite = ngtcp2_conn_writev_stream(
 				c->conn.get(),
@@ -1112,7 +1112,7 @@ private:
 		if (c->conn.get() == nullptr || c->closed) {
 			return;
 		}
-		u8 buf[kMaxUdpPayload];
+		std::uint8_t buf[kMaxUdpPayload];
 		ngtcp2_path_storage ps;
 		ngtcp2_path_storage_zero(&ps);
 		ngtcp2_ccerr ccerr;
@@ -1170,18 +1170,18 @@ private:
 public:
 	void register_cid(
 		Http3Conn *c,
-		std::array<u8, kCidLen> const &key) {
+		std::array<std::uint8_t, kCidLen> const &key) {
 		cid_index_.insert_or_assign(key, c);
 	}
 	void unregister_cid(
-		std::array<u8, kCidLen> const &key) {
+		std::array<std::uint8_t, kCidLen> const &key) {
 		cid_index_.erase(key);
 	}
 
 private:
 	Router const *router_;
 	Http3Config cfg_;
-	u16 port_;
+	std::uint16_t port_;
 	SSL_CTX *ssl_ctx_;
 	int udp_fd_{-1};
 	int shutdown_efd_{-1};
@@ -1189,24 +1189,24 @@ private:
 	atomic_flag stopping_{};
 	thread thread_;
 	mutex stop_mu_;
-	std::array<u8, 32> retry_secret_{};
-	std::unordered_map<std::array<u8, 16>, int, CidHash> ip_conn_count_;
-	std::unordered_map<std::array<u8, kCidLen>, std::unique_ptr<Http3Conn>, CidHash> conns_;
-	std::unordered_set<std::array<u8, kCidLen>, CidHash> dirty_conns_;
-	std::unordered_map<std::array<u8, kCidLen>, Http3Conn *, CidHash> cid_index_;
+	std::array<std::uint8_t, 32> retry_secret_{};
+	std::unordered_map<std::array<std::uint8_t, 16>, int, CidHash> ip_conn_count_;
+	std::unordered_map<std::array<std::uint8_t, kCidLen>, std::unique_ptr<Http3Conn>, CidHash> conns_;
+	std::unordered_set<std::array<std::uint8_t, kCidLen>, CidHash> dirty_conns_;
+	std::unordered_map<std::array<std::uint8_t, kCidLen>, Http3Conn *, CidHash> cid_index_;
 };
 namespace http3_detail {
 
 inline void register_cid_on_listener(
 	Http3Conn *c,
-	std::array<u8, kCidLen> const &key) {
+	std::array<std::uint8_t, kCidLen> const &key) {
 	if (c->listener != nullptr) {
 		static_cast<Http3Listener *>(c->listener)->register_cid(c, key);
 	}
 }
 inline void unregister_cid_on_listener(
 	Http3Conn *c,
-	std::array<u8, kCidLen> const &key) {
+	std::array<std::uint8_t, kCidLen> const &key) {
 	if (c->listener != nullptr) {
 		static_cast<Http3Listener *>(c->listener)->unregister_cid(key);
 	}

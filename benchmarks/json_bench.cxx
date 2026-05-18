@@ -24,22 +24,22 @@ namespace {
 template<typename F>
 BenchStats measure(
 	F &&fn,
-	SZ warmup,
-	SZ iters,
-	SZ batch = 1,
-	SZ bytes = 0) {
-	for (SZ i = 0; i < warmup * batch; ++i) {
+	std::size_t warmup,
+	std::size_t iters,
+	std::size_t batch = 1,
+	std::size_t bytes = 0) {
+	for (std::size_t i = 0; i < warmup * batch; ++i) {
 		fn();
 	}
-	V<u64> samples;
+	std::vector<std::uint64_t> samples;
 	samples.reserve(iters);
-	u64 total = 0;
-	for (SZ i = 0; i < iters; ++i) {
-		u64 const t0 = bench_now_ns();
-		for (SZ j = 0; j < batch; ++j) {
+	std::uint64_t total = 0;
+	for (std::size_t i = 0; i < iters; ++i) {
+		std::uint64_t const t0 = bench_now_ns();
+		for (std::size_t j = 0; j < batch; ++j) {
 			fn();
 		}
-		u64 const elapsed = bench_now_ns() - t0;
+		std::uint64_t const elapsed = bench_now_ns() - t0;
 		total += elapsed;
 		samples.push_back(elapsed);
 	}
@@ -56,7 +56,7 @@ BenchStats measure(
 bool g_csv = false;
 bool g_first_row = true;
 void print_row(
-	SV name,
+	std::string_view name,
 	BenchStats s) {
 	s.variant = name;
 	if (g_csv) {
@@ -73,8 +73,8 @@ void print_row(
 // ---------------------------------------------------------------------------
 
 // Typical config corpus: ~4 KB flat object with S/number/bool values.
-S make_config_corpus() {
-	S out;
+std::string make_config_corpus() {
+	std::string out;
 	out.reserve(4096);
 	out += '{';
 	for (int i = 0; i < 64; ++i) {
@@ -92,8 +92,8 @@ S make_config_corpus() {
 	return out;
 }
 // Struct-decode corpus: A of objects with SV-compatible fields.
-S make_decode_corpus() {
-	S out;
+std::string make_decode_corpus() {
+	std::string out;
 	out.reserve(8192);
 	out += '[';
 	for (int i = 0; i < 200; ++i) {
@@ -106,8 +106,8 @@ S make_decode_corpus() {
 	return out;
 }
 // Lookup corpus: object with 1024 members.
-S make_lookup_corpus() {
-	S out;
+std::string make_lookup_corpus() {
+	std::string out;
 	out.reserve(32768);
 	out += '{';
 	for (int i = 0; i < 1024; ++i) {
@@ -121,8 +121,8 @@ S make_lookup_corpus() {
 	return out;
 }
 // Array traversal corpus: A of 10000 numbers.
-S make_array_corpus() {
-	S out;
+std::string make_array_corpus() {
+	std::string out;
 	out.reserve(65536);
 	out += '[';
 	for (int i = 0; i < 10000; ++i) {
@@ -135,8 +135,8 @@ S make_array_corpus() {
 	return out;
 }
 // Large corpus for parse throughput gate: ~1 MB nested structure.
-S make_large_corpus() {
-	S out;
+std::string make_large_corpus() {
+	std::string out;
 	out.reserve(1024UZ * 1024UZ);
 	out += '[';
 	for (int i = 0; i < 2000; ++i) {
@@ -154,10 +154,10 @@ S make_large_corpus() {
 	return out;
 }
 // R0 — long-S-heavy corpus: 32 elements of 32 KiB ASCII payload, no
-// escapes. Exercises memcpy-free zero-copy S slice + the SIMD scan_str
+// escapes. Exercises memcpy-free zero-copy std::string slice + the SIMD scan_str
 // fast path on long unescaped runs.
-S make_long_strings_corpus() {
-	S out;
+std::string make_long_strings_corpus() {
+	std::string out;
 	out.reserve(1024UZ * 1024UZ + 4096);
 	out += '[';
 	constexpr int kElems = 32;
@@ -177,8 +177,8 @@ S make_long_strings_corpus() {
 }
 // R0 — pretty-printed corpus: ~1 MB flat object, 2-space indent + newlines.
 // Exposes skip_ws cost; today's compact corpora hide it.
-S make_pretty_ws_corpus() {
-	S out;
+std::string make_pretty_ws_corpus() {
+	std::string out;
 	out.reserve(1024UZ * 1024UZ + 4096);
 	out += "{\n";
 	constexpr int kMembers = 16000;
@@ -195,12 +195,12 @@ S make_pretty_ws_corpus() {
 	out += "}\n";
 	return out;
 }
-// R0 — escape-heavy corpus: a single 256 KiB S with backslash escapes
+// R0 — escape-heavy corpus: a single 256 KiB std::string with backslash escapes
 // at high density. Stresses the parse-side slow path (parse_str_decode_tail)
 // and the dump-side escape scan.
-S make_escape_heavy_corpus() {
-	S out;
-	constexpr SZ kTarget = 256UZ * 1024UZ;
+std::string make_escape_heavy_corpus() {
+	std::string out;
+	constexpr std::size_t kTarget = 256UZ * 1024UZ;
 	out.reserve(kTarget + 16);
 	out += '"';
 	while (out.size() + 8 < kTarget) {
@@ -212,8 +212,8 @@ S make_escape_heavy_corpus() {
 // R0 — deeply-nested A: 256 levels of [[…]] with a single 0 at center.
 // Tests recursion / iterative parse depth handling without tripping the
 // 512-frame default max_depth.
-S make_deep_nest_corpus() {
-	S out;
+std::string make_deep_nest_corpus() {
+	std::string out;
 	constexpr int kDepth = 256;
 	out.reserve(kDepth * 2 + 4);
 	out.append(kDepth, '[');
@@ -223,13 +223,13 @@ S make_deep_nest_corpus() {
 }
 // R0 — mixed-number corpus: ~1 MB A of integers, scientific,
 // long fractions, signed values. Stresses number-lexeme parse paths.
-S make_mixed_numbers_corpus() {
-	S out;
+std::string make_mixed_numbers_corpus() {
+	std::string out;
 	out.reserve(1024UZ * 1024UZ + 4096);
 	out += '[';
 	bool first = true;
 	int i = 0;
-	constexpr SZ kTarget = 1024UZ * 1024UZ - 16;
+	constexpr std::size_t kTarget = 1024UZ * 1024UZ - 16;
 	while (out.size() < kTarget) {
 		if (!first) {
 			out += ',';
@@ -252,22 +252,22 @@ S make_mixed_numbers_corpus() {
 // ---------------------------------------------------------------------------
 
 void bench_parse_small(
-	S const &corpus) {
+	std::string const &corpus) {
 	auto s = measure([&] { (void)parse(corpus); }, 50, 500, 1, corpus.size());
 	print_row("parse/small (~4KB config)", s);
 }
 void bench_parse_large(
-	S const &corpus) {
+	std::string const &corpus) {
 	auto s = measure([&] { (void)parse(corpus); }, 5, 20, 1, corpus.size());
 	print_row("parse/large (~1MB nested)", s);
 }
 void bench_decode(
-	S const &corpus) {
+	std::string const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
 	}
-	// Measure: parse + extract name field as SV from each object
+	// Measure: parse + extract name field as std::string_view from each object
 	auto s = measure(
 		[&] {
 			auto res = parse(corpus);
@@ -296,7 +296,7 @@ void bench_decode(
 	print_row("decode/struct-like (sv fields)", s);
 }
 void bench_find_member(
-	S const &corpus) {
+	std::string const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -320,7 +320,7 @@ void bench_find_member(
 	print_row("find_member/1024-member object (per lookup)", s);
 }
 void bench_array_traversal(
-	S const &corpus) {
+	std::string const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -331,7 +331,7 @@ void bench_array_traversal(
 	}
 	auto s = measure(
 		[&] {
-			i64 sum = 0;
+			std::int64_t sum = 0;
 			for (NodeRef const elem: arr->elements()) {
 				auto n = elem.as_number();
 				if (n) {
@@ -366,7 +366,7 @@ void bench_builder() {
 	print_row("builder/64-member object", s);
 }
 void bench_dump_plain(
-	S const &corpus) {
+	std::string const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -379,7 +379,7 @@ void bench_dump_plain(
 	print_row("dump/plain (no sort / no ascii_only)", s);
 }
 void bench_dump_sorted(
-	S const &corpus) {
+	std::string const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -394,28 +394,28 @@ void bench_dump_sorted(
 	print_row("dump/sort_object_keys", s);
 }
 void bench_accumulate_chunked(
-	SV name,
-	S const &corpus,
-	SZ chunk_size) {
+	std::string_view name,
+	std::string const &corpus,
+	std::size_t chunk_size) {
 	auto s = measure(
 		[&] {
 			JsonAccumulator acc;
 			auto const *ptr = corpus.data();
-			SZ remaining = corpus.size();
+			std::size_t remaining = corpus.size();
 			while (remaining > 0) {
-				SZ const n = std::min(chunk_size, remaining);
+				std::size_t const n = std::min(chunk_size, remaining);
 				auto feed = acc.feed(span<byte const>{
 					reinterpret_cast<byte const *>(ptr),
 					n});
 				if (!feed) {
-					throw RE{"json accumulator feed failed"};
+					throw std::runtime_error{"json accumulator feed failed"};
 				}
 				ptr += n;
 				remaining -= n;
 			}
 			auto doc = acc.finish();
 			if (!doc) {
-				throw RE{"json accumulator finish failed"};
+				throw std::runtime_error{"json accumulator finish failed"};
 			}
 			(void)doc->root();
 		},
@@ -426,10 +426,10 @@ void bench_accumulate_chunked(
 	print_row(name, s);
 }
 [[nodiscard]] int start_listener(
-	u16 &port_out) {
+	std::uint16_t &port_out) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
-		throw RE{"socket"};
+		throw std::runtime_error{"socket"};
 	}
 	int one = 1;
 	::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
@@ -439,22 +439,22 @@ void bench_accumulate_chunked(
 	addr.sin_port = 0;
 	if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 		::close(fd);
-		throw RE{"bind"};
+		throw std::runtime_error{"bind"};
 	}
 	socklen_t slen = sizeof(addr);
 	if (::getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &slen) < 0) {
 		::close(fd);
-		throw RE{"getsockname"};
+		throw std::runtime_error{"getsockname"};
 	}
 	port_out = ::ntohs(addr.sin_port);
 	if (::listen(fd, 16) < 0) {
 		::close(fd);
-		throw RE{"listen"};
+		throw std::runtime_error{"listen"};
 	}
 	return fd;
 }
 [[nodiscard]] sockaddr_storage loopback_addr(
-	u16 port) noexcept {
+	std::uint16_t port) noexcept {
 	sockaddr_storage ss{};
 	auto *sin = reinterpret_cast<sockaddr_in *>(&ss);
 	sin->sin_family = AF_INET;
@@ -464,25 +464,25 @@ void bench_accumulate_chunked(
 }
 void send_all(
 	int fd,
-	SV data) {
+	std::string_view data) {
 	auto const *ptr = data.data();
-	SZ remaining = data.size();
+	std::size_t remaining = data.size();
 	while (remaining > 0) {
 		ssize_t const n = ::send(fd, ptr, remaining, MSG_NOSIGNAL);
 		if (n < 0) {
 			if (errno == EINTR) {
 				continue;
 			}
-			throw RE{"send"};
+			throw std::runtime_error{"send"};
 		}
-		ptr += static_cast<SZ>(n);
-		remaining -= static_cast<SZ>(n);
+		ptr += static_cast<std::size_t>(n);
+		remaining -= static_cast<std::size_t>(n);
 	}
 }
 void serve_json_corpus(
 	int listener_fd,
 	std::atomic_flag &stop,
-	SV corpus) {
+	std::string_view corpus) {
 	timeval tv{.tv_sec = 0, .tv_usec = 100000};
 	(void)::setsockopt(listener_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	while (!stop.test(std::memory_order_acquire)) {
@@ -506,15 +506,15 @@ void serve_json_corpus(
 }
 struct TempCorpusFile {
 	std::filesystem::path path;
-	explicit TempCorpusFile(SV corpus) {
+	explicit TempCorpusFile(std::string_view corpus) {
 		path = std::filesystem::temp_directory_path() / "conflux_json_bench_e2e.json";
 		std::ofstream out{path, std::ios::binary | std::ios::trunc};
 		if (!out) {
-			throw RE{format("cannot open {}", path.string())};
+			throw std::runtime_error{format("cannot open {}", path.string())};
 		}
 		out.write(corpus.data(), static_cast<std::streamsize>(corpus.size()));
 		if (!out) {
-			throw RE{format("cannot write {}", path.string())};
+			throw std::runtime_error{format("cannot write {}", path.string())};
 		}
 	}
 	~TempCorpusFile() {
@@ -524,11 +524,11 @@ struct TempCorpusFile {
 };
 conflux::work::root::Task<void> decode_file_once(
 	FileReader &files,
-	S path) {
+	std::string path) {
 	auto handle = co_await files.async_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
 	JsonAccumulator acc;
-	A<u8, 8192> buf{};
-	u64 off = 0;
+	std::array<std::uint8_t, 8192> buf{};
+	std::uint64_t off = 0;
 	for (;;) {
 		auto got = co_await files.read_into(handle, off, as_writable_bytes(span{buf}));
 		if (got == 0) {
@@ -537,50 +537,50 @@ conflux::work::root::Task<void> decode_file_once(
 		off += got;
 		auto feed = acc.feed(span<byte const>{reinterpret_cast<byte const *>(buf.data()), got});
 		if (!feed) {
-			throw RE{"json accumulator feed failed"};
+			throw std::runtime_error{"json accumulator feed failed"};
 		}
 	}
 	auto doc = acc.finish();
 	if (!doc) {
-		throw RE{"json accumulator finish failed"};
+		throw std::runtime_error{"json accumulator finish failed"};
 	}
 	(void)doc->root();
 }
 conflux::work::root::Task<void> decode_socket_once(
 	SocketTaskRing &ring,
-	u16 port) {
+	std::uint16_t port) {
 	auto ss = loopback_addr(port);
 	auto stream = co_await async_tcp_connect(ring, AF_INET, ss, sizeof(sockaddr_in));
 	JsonAccumulator acc;
-	A<u8, 8192> buf{};
+	std::array<std::uint8_t, 8192> buf{};
 	for (;;) {
-		auto got = co_await stream.async_recv_borrowed(span<u8>{buf.data(), buf.size()});
+		auto got = co_await stream.async_recv_borrowed(span<std::uint8_t>{buf.data(), buf.size()});
 		if (got == 0) {
 			break;
 		}
 		auto feed = acc.feed(span<byte const>{reinterpret_cast<byte const *>(buf.data()), got});
 		if (!feed) {
-			throw RE{"json accumulator feed failed"};
+			throw std::runtime_error{"json accumulator feed failed"};
 		}
 	}
 	auto doc = acc.finish();
 	if (!doc) {
-		throw RE{"json accumulator finish failed"};
+		throw std::runtime_error{"json accumulator finish failed"};
 	}
 	(void)doc->root();
 }
 void bench_e2e_decode(
-	SV name,
-	S const &corpus) {
+	std::string_view name,
+	std::string const &corpus) {
 	TempCorpusFile const temp{corpus};
-	S const file_path = temp.path.string();
+	std::string const file_path = temp.path.string();
 	::io_uring raw{};
 	if (::io_uring_queue_init(64, &raw, 0) < 0) {
-		throw RE{"io_uring_queue_init"};
+		throw std::runtime_error{"io_uring_queue_init"};
 	}
 	CompletionTable ct;
-	auto const pack_ud = [](u32 s, u32 g) noexcept -> u64 {
-		return (static_cast<u64>(g) << 32U) | s;
+	auto const pack_ud = [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
+		return (static_cast<std::uint64_t>(g) << 32U) | s;
 	};
 	FileReader files{&raw, &ct, pack_ud};
 	SocketTaskRing ring{SocketRawRing{&raw}, ct, pack_ud};
@@ -593,7 +593,7 @@ void bench_e2e_decode(
 			corpus.size());
 		print_row(format("{}/file_reader", name), file_stats);
 		{
-			u16 port = 0;
+			std::uint16_t port = 0;
 			int listener_fd = start_listener(port);
 			std::atomic_flag stop{};
 			std::thread server{[&] { serve_json_corpus(listener_fd, stop, corpus); }};
@@ -628,10 +628,10 @@ void bench_e2e_decode(
 // Item C — 1024-member object where every key has a \u escape → arena storage.
 // Decoded names are identical to make_lookup_corpus() ("member_N"), so the
 // same lookup keys can be used for apples-to-apples comparison.
-S make_lookup_escaped_corpus() {
+std::string make_lookup_escaped_corpus() {
 	// Keys: "member_N" (JSON) → decoded "member_N".
 	// All MemberEntry flags = 0 (arena); kStorageInputView never set.
-	S out;
+	std::string out;
 	out.reserve(65536);
 	out += '{';
 	for (int i = 0; i < 1024; ++i) {
@@ -647,8 +647,8 @@ S make_lookup_escaped_corpus() {
 // Even indices: plain ("member_N", kStorageInputView).
 // Odd indices:  "member_N" decoded to "member_N" (arena storage).
 // Half-half pattern is worst-case for branch prediction in member_name() dispatch.
-S make_lookup_mixed_corpus() {
-	S out;
+std::string make_lookup_mixed_corpus() {
+	std::string out;
 	out.reserve(65536);
 	out += '{';
 	for (int i = 0; i < 1024; ++i) {
@@ -666,8 +666,8 @@ S make_lookup_mixed_corpus() {
 }
 // FI-1 — small object (below kHashThreshold=32): find_member always does linear
 // scan. Proxy for per-lookup cost after the sentinel caches a build failure.
-S make_below_threshold_corpus() {
-	S out = "{";
+std::string make_below_threshold_corpus() {
+	std::string out = "{";
 	for (int i = 0; i < 7; ++i) {
 		if (i > 0) {
 			out += ',';
@@ -679,8 +679,8 @@ S make_below_threshold_corpus() {
 }
 // 5.5-B gate: 31-member object — always linear (just below kHashThreshold=32).
 // Isolates cache-line packing benefit of 16-byte vs 24-byte MemberEntry.
-S make_linear31_corpus() {
-	S out = "{";
+std::string make_linear31_corpus() {
+	std::string out = "{";
 	for (int i = 0; i < 31; ++i) {
 		if (i > 0) {
 			out += ',';
@@ -692,7 +692,7 @@ S make_linear31_corpus() {
 	return out;
 }
 void bench_find_member_linear31(
-	S const &corpus) {
+	std::string const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -716,7 +716,7 @@ void bench_find_member_linear31(
 // Item C — probe throughput on arena-storage names (baseline: bench_find_member
 // uses kStorageInputView names). Delta isolates member_name() dispatch overhead.
 void bench_find_member_escaped(
-	S const &corpus) {
+	std::string const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -740,7 +740,7 @@ void bench_find_member_escaped(
 }
 // Item C — worst-case dispatch: alternating kStorageInputView/arena per probe.
 void bench_find_member_mixed(
-	S const &corpus) {
+	std::string const &corpus) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -767,23 +767,23 @@ void bench_find_member_mixed(
 // If flat, overhead is in tree structure — name-copy optimisation is not justified.
 void bench_builder_name_length() {
 	constexpr int kMembers = 256;
-	auto gen_keys = [](SZ n, SZ total_len) {
-		V<S> keys;
+	auto gen_keys = [](std::size_t n, std::size_t total_len) {
+		std::vector<std::string> keys;
 		keys.reserve(n);
-		for (SZ i = 0; i < n; ++i) {
-			S const suffix = to_string(i);
-			SZ const pad = total_len > suffix.size() ? total_len - suffix.size() : 0;
-			S k(pad, 'k');
+		for (std::size_t i = 0; i < n; ++i) {
+			std::string const suffix = to_string(i);
+			std::size_t const pad = total_len > suffix.size() ? total_len - suffix.size() : 0;
+			std::string k(pad, 'k');
 			k += suffix;
 			keys.push_back(move(k));
 		}
 		return keys;
 	};
-	V<S> const k5 = gen_keys(static_cast<SZ>(kMembers), 5);
-	V<S> const k32 = gen_keys(static_cast<SZ>(kMembers), 32);
-	V<S> const k128 = gen_keys(static_cast<SZ>(kMembers), 128);
+	std::vector<std::string> const k5 = gen_keys(static_cast<std::size_t>(kMembers), 5);
+	std::vector<std::string> const k32 = gen_keys(static_cast<std::size_t>(kMembers), 32);
+	std::vector<std::string> const k128 = gen_keys(static_cast<std::size_t>(kMembers), 128);
 
-	auto run = [&](V<S> const &keys, SV label) {
+	auto run = [&](std::vector<std::string> const &keys, std::string_view label) {
 		auto s = measure(
 			[&] {
 				auto b = value_builder();
@@ -792,7 +792,7 @@ void bench_builder_name_length() {
 					return;
 				}
 				for (int i = 0; i < kMembers; ++i) {
-					(void)obj->insert_string(keys[static_cast<SZ>(i)], "v");
+					(void)obj->insert_string(keys[static_cast<std::size_t>(i)], "v");
 				}
 				move(*obj).commit();
 				(void)move(b).finish();
@@ -807,7 +807,7 @@ void bench_builder_name_length() {
 	run(k32, "builder/insert_string  32-char keys (per insert)");
 	run(k128, "builder/insert_string 128-char keys (per insert)");
 
-	auto run_view = [&](V<S> const &keys, SV label) {
+	auto run_view = [&](std::vector<std::string> const &keys, std::string_view label) {
 		auto s = measure(
 			[&] {
 				auto b = value_builder();
@@ -815,7 +815,7 @@ void bench_builder_name_length() {
 				if (!obj) {
 					return;
 				}
-				for (SZ i = 0; i < static_cast<SZ>(kMembers); ++i) {
+				for (std::size_t i = 0; i < static_cast<std::size_t>(kMembers); ++i) {
 					(void)obj->insert_string_borrowed_name(keys[i], "v");
 				}
 				move(*obj).commit();
@@ -833,18 +833,18 @@ void bench_builder_name_length() {
 }
 // R0 — generic parse/dump drivers used for the new corpora.
 void bench_parse_named(
-	SV name,
-	S const &corpus,
-	SZ warmup = 5,
-	SZ iters = 50) {
+	std::string_view name,
+	std::string const &corpus,
+	std::size_t warmup = 5,
+	std::size_t iters = 50) {
 	auto s = measure([&] { (void)parse(corpus); }, warmup, iters, 1, corpus.size());
 	print_row(name, s);
 }
 void bench_dump_named(
-	SV name,
-	S const &corpus,
-	SZ warmup = 5,
-	SZ iters = 50) {
+	std::string_view name,
+	std::string const &corpus,
+	std::size_t warmup = 5,
+	std::size_t iters = 50) {
 	auto doc = parse(corpus);
 	if (!doc) {
 		return;
@@ -858,36 +858,36 @@ void bench_dump_named(
 }
 
 struct CorpusFileSpec {
-	SV label;
-	SV file;
-	SZ warmup{5};
-	SZ iters{50};
+	std::string_view label;
+	std::string_view file;
+	std::size_t warmup{5};
+	std::size_t iters{50};
 	bool dump{true};
 };
 
 [[nodiscard]] std::filesystem::path corpus_root() {
 	return std::filesystem::path{__FILE__}.parent_path() / "corpus";
 }
-[[nodiscard]] std::optional<S> load_corpus_file(
-	SV filename) {
-	std::filesystem::path const p = corpus_root() / std::filesystem::path{S{filename}};
+[[nodiscard]] std::optional<std::string> load_corpus_file(
+	std::string_view filename) {
+	std::filesystem::path const p = corpus_root() / std::filesystem::path{std::string{filename}};
 	std::ifstream f{p, std::ios::binary};
 	if (!f) {
 		return std::nullopt;
 	}
-	return S{std::istreambuf_iterator<char>{f}, {}};
+	return std::string{std::istreambuf_iterator<char>{f}, {}};
 }
 void bench_parse_required_named(
-	SV name,
-	S const &corpus,
-	SZ warmup = 5,
-	SZ iters = 50,
+	std::string_view name,
+	std::string const &corpus,
+	std::size_t warmup = 5,
+	std::size_t iters = 50,
 	JsonParseOptions const &opts = {}) {
 	auto s = measure(
 		[&] {
 			auto doc = parse(corpus, opts);
 			if (!doc) {
-				throw RE{"json benchmark fixture parse failed"};
+				throw std::runtime_error{"json benchmark fixture parse failed"};
 			}
 		},
 		warmup,
@@ -897,15 +897,15 @@ void bench_parse_required_named(
 	print_row(name, s);
 }
 void bench_parse_reject_named(
-	SV name,
-	S const &corpus,
-	SZ warmup = 10,
-	SZ iters = 100) {
+	std::string_view name,
+	std::string const &corpus,
+	std::size_t warmup = 10,
+	std::size_t iters = 100) {
 	auto s = measure(
 		[&] {
 			auto doc = parse(corpus);
 			if (doc) {
-				throw RE{"malformed JSON benchmark fixture parsed successfully"};
+				throw std::runtime_error{"malformed JSON benchmark fixture parsed successfully"};
 			}
 		},
 		warmup,
@@ -915,7 +915,7 @@ void bench_parse_reject_named(
 	print_row(name, s);
 }
 void bench_file_corpora(
-	SV title,
+	std::string_view title,
 	span<CorpusFileSpec const> specs) {
 	bool printed_header = false;
 	for (CorpusFileSpec const &spec: specs) {
@@ -935,7 +935,7 @@ void bench_file_corpora(
 	}
 }
 void bench_reject_file_corpora(
-	SV title,
+	std::string_view title,
 	span<CorpusFileSpec const> specs) {
 	bool printed_header = false;
 	for (CorpusFileSpec const &spec: specs) {
@@ -952,7 +952,7 @@ void bench_reject_file_corpora(
 	}
 }
 void bench_duplicate_policy_fixture(
-	S const &corpus) {
+	std::string const &corpus) {
 	JsonParseOptions opts;
 	opts.duplicate_key = DuplicateKeyPolicy::last_wins;
 	bench_parse_required_named("parse/edge/duplicate_keys last_wins", corpus, 20, 200, opts);
@@ -970,8 +970,8 @@ void bench_duplicate_policy_fixture(
 //       hash_idx_raw stays nullptr and each call retries alloc + build + free.
 //       With the sentinel (FI-1), (B) is paid exactly once.
 void bench_fi1_sentinel(
-	S const &small_corpus,
-	S const &lookup_corpus) {
+	std::string const &small_corpus,
+	std::string const &lookup_corpus) {
 	{
 		auto doc = parse(small_corpus);
 		if (!doc) {
@@ -1022,16 +1022,16 @@ void bench_fi1_sentinel(
 // ---------------------------------------------------------------------------
 
 struct BenchModel5 {
-	i64 id{};
-	S name{};
+	std::int64_t id{};
+	std::string name{};
 	double score{};
 	bool active{};
-	S tag{};
+	std::string tag{};
 };
 template<>
 struct JsonMembers<BenchModel5> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("id", &BenchModel5::id),
 			json_member("name", &BenchModel5::name),
 			json_member("score", &BenchModel5::score),
@@ -1039,24 +1039,24 @@ struct JsonMembers<BenchModel5> {
 			json_member("tag", &BenchModel5::tag),
 		};
 	}
-	static constexpr SV type_name() { return "BenchModel5"; }
+	static constexpr std::string_view type_name() { return "BenchModel5"; }
 };
 namespace {
 
-S make_reject_corpus(
-	SZ extra_members) {
-	S out;
+std::string make_reject_corpus(
+	std::size_t extra_members) {
+	std::string out;
 	out.reserve(extra_members * 30 + 128);
 	out += R"({"id":42,"name":"bench","score":3.14,"active":true,"tag":"x")";
-	for (SZ i = 0; i < extra_members; ++i) {
+	for (std::size_t i = 0; i < extra_members; ++i) {
 		out += format(R"(,"extra_field_{}":{})", i, i);
 	}
 	out += '}';
 	return out;
 }
 void bench_reject_policy() {
-	for (SZ extra: A<SZ, 5>{0, 10, 50, 100, 200}) {
-		S const corpus = make_reject_corpus(extra);
+	for (std::size_t extra: std::array<std::size_t, 5>{0, 10, 50, 100, 200}) {
+		std::string const corpus = make_reject_corpus(extra);
 		auto doc_res = parse(corpus);
 		if (!doc_res) {
 			return;
@@ -1105,25 +1105,25 @@ int main(
 		argc,
 		argv,
 		R"({"name":"json","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
-	auto const cfg = bench_parse_args(span{argv, static_cast<SZ>(argc)});
+	auto const cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
 	g_csv = cfg.json_out;
 	if (!g_csv) {
 		std::println("[json-bench] building corpora…");
 	}
-	S const config_corpus = make_config_corpus();
-	S const decode_corpus = make_decode_corpus();
-	S const lookup_corpus = make_lookup_corpus();
-	S const array_corpus = make_array_corpus();
-	S const large_corpus = make_large_corpus();
-	S const long_strings_corpus = make_long_strings_corpus();
-	S const pretty_ws_corpus = make_pretty_ws_corpus();
-	S const escape_heavy_corpus = make_escape_heavy_corpus();
-	S const deep_nest_corpus = make_deep_nest_corpus();
-	S const mixed_numbers_corpus = make_mixed_numbers_corpus();
-	S const lookup_escaped_corpus = make_lookup_escaped_corpus();
-	S const lookup_mixed_corpus = make_lookup_mixed_corpus();
-	S const below_threshold_corpus = make_below_threshold_corpus();
-	S const linear31_corpus = make_linear31_corpus();
+	std::string const config_corpus = make_config_corpus();
+	std::string const decode_corpus = make_decode_corpus();
+	std::string const lookup_corpus = make_lookup_corpus();
+	std::string const array_corpus = make_array_corpus();
+	std::string const large_corpus = make_large_corpus();
+	std::string const long_strings_corpus = make_long_strings_corpus();
+	std::string const pretty_ws_corpus = make_pretty_ws_corpus();
+	std::string const escape_heavy_corpus = make_escape_heavy_corpus();
+	std::string const deep_nest_corpus = make_deep_nest_corpus();
+	std::string const mixed_numbers_corpus = make_mixed_numbers_corpus();
+	std::string const lookup_escaped_corpus = make_lookup_escaped_corpus();
+	std::string const lookup_mixed_corpus = make_lookup_mixed_corpus();
+	std::string const below_threshold_corpus = make_below_threshold_corpus();
+	std::string const linear31_corpus = make_linear31_corpus();
 
 	if (!g_csv) {
 		std::println(
@@ -1143,7 +1143,7 @@ int main(
 			mixed_numbers_corpus.size());
 		std::println("[json-bench]");
 		std::println("[json-bench] {:<40} {:>10}     {:>10}", "benchmark", "median", "throughput");
-		std::println("[json-bench] {}", S(60, '-'));
+		std::println("[json-bench] {}", std::string(60, '-'));
 	}
 
 	bench_parse_small(config_corpus);
@@ -1209,7 +1209,7 @@ int main(
 	}
 
 	{
-		A<CorpusFileSpec, 5> const real_world{{
+		std::array<CorpusFileSpec, 5> const real_world{{
 			{          "file/canada geo",        "canada.json"},
 			{"file/citm_catalog catalog",  "citm_catalog.json"},
 			{      "file/twitter social",       "twitter.json"},
@@ -1219,7 +1219,7 @@ int main(
 		bench_file_corpora("real-world corpora", real_world);
 	}
 	{
-		A<CorpusFileSpec, 4> const route_payloads{{
+		std::array<CorpusFileSpec, 4> const route_payloads{{
 			{"route/persona_create_request", "route_payloads/persona_create_request.json", 20, 200},
 			{"route/content_generation_response", "route_payloads/content_generation_response.json", 20, 200},
 			{"route/scheduled_publish_batch", "route_payloads/scheduled_publish_batch.json", 20, 200},
@@ -1228,7 +1228,7 @@ int main(
 		bench_file_corpora("route payload fixtures", route_payloads);
 	}
 	{
-		A<CorpusFileSpec, 3> const edge_cases{{
+		std::array<CorpusFileSpec, 3> const edge_cases{{
 			{"edge/large_numbers", "edge/large_numbers.json", 20, 200},
 			{"edge/escaped_unicode", "edge/escaped_unicode.json", 20, 200},
 			{"edge/out_of_order_keys", "edge/out_of_order_keys.json", 20, 200},
@@ -1243,7 +1243,7 @@ int main(
 		}
 	}
 	{
-		A<CorpusFileSpec, 5> const malformed{{
+		std::array<CorpusFileSpec, 5> const malformed{{
 			{"malformed/trailing_comma", "malformed/trailing_comma.json", 20, 200, false},
 			{"malformed/bad_string_escape", "malformed/bad_string_escape.json", 20, 200, false},
 			{"malformed/leading_zero", "malformed/leading_zero.json", 20, 200, false},

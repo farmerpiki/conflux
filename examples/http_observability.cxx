@@ -22,7 +22,7 @@ int main() {
 		.csp = "default-src 'none'; frame-ancestors 'none'",
 	}));
 	app.use(cache_control_middleware({.default_directive = "no-store"}));
-	app.use(rate_limit_middleware({.requests = 60, .window = chrono::seconds{60}, .burst = 10}));
+	app.use(rate_limit_middleware({.requests = 60, .window = std::chrono::seconds{60}, .burst = 10}));
 
 	app.get("/", [](HttpRequest const &) {
 		return HttpResponse::html(
@@ -44,7 +44,7 @@ int main() {
 	});
 
 	app.get("/slow", [](HttpRequest const &req) {
-		std::this_thread::sleep_for(chrono::milliseconds{50});
+		std::this_thread::sleep_for(std::chrono::milliseconds{50});
 		return HttpResponse::text(format("slow path completed\nrequest_id={}\n", req.headers["x-request-id"]));
 	});
 

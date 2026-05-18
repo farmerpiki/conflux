@@ -20,7 +20,7 @@ carrier::Chain<int> make_success(
 }
 carrier::Chain<int> make_failure() {
 	auto [task, src] = root::make_task_source<int>();
-	(void)src.try_set_exception(make_exception_ptr(RE{"fail"}));
+	(void)src.try_set_exception(make_exception_ptr(std::runtime_error{"fail"}));
 	return carrier::from_task(move(task));
 }
 carrier::Chain<int> make_cancelled() {
@@ -228,12 +228,12 @@ TEST_CASE(
 	auto worker_src = move(src);
 	thread worker{[&mu, &cv, &cancel_seen, ws = move(worker_src)]() mutable {
 		std::unique_lock lock{mu};
-		bool const observed = cv.wait_for(lock, chrono::seconds{1}, [&] { return cancel_seen; });
+		bool const observed = cv.wait_for(lock, std::chrono::seconds{1}, [&] { return cancel_seen; });
 		lock.unlock();
 		if (observed) {
 			(void)ws.try_set_cancelled(root::work_errc::cancelled_requested);
 		} else {
-			(void)ws.try_set_exception(make_exception_ptr(RE{"scope admit did not signal cancellation"}));
+			(void)ws.try_set_exception(make_exception_ptr(std::runtime_error{"scope admit did not signal cancellation"}));
 		}
 	}};
 
@@ -256,7 +256,7 @@ TEST_CASE(
 	auto canceller_token = stop_token;
 	// Cancels scope after a brief delay, then commits cancelled
 	thread canceller{[&scope, cs = move(canceller_src), ct = move(canceller_token)]() mutable {
-		std::this_thread::sleep_for(chrono::milliseconds{5});
+		std::this_thread::sleep_for(std::chrono::milliseconds{5});
 		scope.cancel(root::CancelReason::requested);
 		while (!ct.stop_requested()) {
 			std::this_thread::yield();

@@ -11,17 +11,17 @@ export namespace conflux::http::json {
 
 struct ResponseOptions {
 	int status{kHttpOk};
-	SV status_text{"OK"};
+	std::string_view status_text{"OK"};
 	conflux::json::boundary::DumpOptions dump{};
 };
 
 namespace detail {
 
 struct ResponseBodySink {
-	S *body{};
+	std::string *body{};
 
 	void operator()(
-		SV chunk) const {
+		std::string_view chunk) const {
 		body->append(chunk);
 	}
 };
@@ -37,20 +37,20 @@ template<class Provider, class T>
 		std::remove_cvref_t<T>,
 		detail::ResponseBodySink &>
 {
-	S body;
+	std::string body;
 	auto sink = detail::ResponseBodySink{.body = &body};
 	auto written = conflux::json::boundary::write_with<Provider>(value, sink, opts.dump);
 	if (!written) {
 		return unexpected(written.error());
 	}
-	return HttpResponse::json(move(body), opts.status, S{opts.status_text});
+	return HttpResponse::json(move(body), opts.status, std::string{opts.status_text});
 }
 
 template<class Provider, class T>
 [[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response_with(
 	T const &value,
 	int status,
-	SV status_text,
+	std::string_view status_text,
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonWritableProvider<
 		Provider,
@@ -86,7 +86,7 @@ template<class Provider, class T>
 [[nodiscard]] HttpResponse response_or_internal_error_with(
 	T const &value,
 	int status,
-	SV status_text,
+	std::string_view status_text,
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonWritableProvider<
 		Provider,
@@ -116,7 +116,7 @@ template<class Provider, class T>
 [[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response(
 	T const &value,
 	int status,
-	SV status_text,
+	std::string_view status_text,
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonWritableProvider<
 		Provider,
@@ -142,7 +142,7 @@ template<class Provider, class T>
 [[nodiscard]] HttpResponse response_or_internal_error(
 	T const &value,
 	int status,
-	SV status_text,
+	std::string_view status_text,
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonWritableProvider<
 		Provider,

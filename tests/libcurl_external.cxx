@@ -17,7 +17,7 @@ struct CurlGlobal {
 	CurlGlobal() {
 		CURLcode const rc = curl_global_init(CURL_GLOBAL_DEFAULT);
 		if (rc != CURLE_OK) {
-			throw RE{format("curl_global_init failed: {}", curl_easy_strerror(rc))};
+			throw std::runtime_error{format("curl_global_init failed: {}", curl_easy_strerror(rc))};
 		}
 	}
 	~CurlGlobal() { curl_global_cleanup(); }
@@ -41,31 +41,31 @@ struct CurlSlist {
 	CurlSlist &operator =(CurlSlist const &) = delete;
 	CurlSlist() = default;
 	void append(
-		S const &value) {
+		std::string const &value) {
 		curl_slist *next = curl_slist_append(ptr, value.c_str());
 		if (next == nullptr) {
-			throw RE{"curl_slist_append failed"};
+			throw std::runtime_error{"curl_slist_append failed"};
 		}
 		ptr = next;
 	}
 };
 
 struct CurlRequest {
-	S url;
-	S method{"GET"};
-	S body;
+	std::string url;
+	std::string method{"GET"};
+	std::string body;
 	long http_version = CURL_HTTP_VERSION_NONE;
 	long ssl_version = CURL_SSLVERSION_DEFAULT;
 	bool insecure_tls = true;
 	bool fresh_connect = false;
 	bool forbid_reuse = false;
-	Opt<S> resolve;
+	std::optional<std::string> resolve;
 };
 
 struct CurlResponse {
 	CURLcode code = CURLE_FAILED_INIT;
 	long status = 0;
-	S body;
+	std::string body;
 	long http_version = 0;
 	long ssl_verify_result = 0;
 	long num_connects = 0;
@@ -77,13 +77,13 @@ struct CurlResponse {
 	size_t size,
 	size_t nmemb,
 	void *userdata) {
-	auto *body = static_cast<S *>(userdata);
-	SZ const n = size * nmemb;
+	auto *body = static_cast<std::string *>(userdata);
+	std::size_t const n = size * nmemb;
 	body->append(data, n);
 	return n;
 }
 
-[[nodiscard]] S curl_error(
+[[nodiscard]] std::string curl_error(
 	CURLcode code) {
 	return curl_easy_strerror(code);
 }
@@ -94,7 +94,7 @@ void setopt(
 	long value) {
 	CURLcode const rc = curl_easy_setopt(easy, option, value);
 	if (rc != CURLE_OK) {
-		throw RE{format("curl_easy_setopt failed: {}", curl_error(rc))};
+		throw std::runtime_error{format("curl_easy_setopt failed: {}", curl_error(rc))};
 	}
 }
 
@@ -104,7 +104,7 @@ void setopt(
 	char const *value) {
 	CURLcode const rc = curl_easy_setopt(easy, option, value);
 	if (rc != CURLE_OK) {
-		throw RE{format("curl_easy_setopt failed: {}", curl_error(rc))};
+		throw std::runtime_error{format("curl_easy_setopt failed: {}", curl_error(rc))};
 	}
 }
 
@@ -114,7 +114,7 @@ void setopt_off(
 	curl_off_t value) {
 	CURLcode const rc = curl_easy_setopt(easy, option, value);
 	if (rc != CURLE_OK) {
-		throw RE{format("curl_easy_setopt failed: {}", curl_error(rc))};
+		throw std::runtime_error{format("curl_easy_setopt failed: {}", curl_error(rc))};
 	}
 }
 
@@ -122,16 +122,16 @@ void setopt_write_cb(
 	CURL *easy) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, curl_write_cb);
 	if (rc != CURLE_OK) {
-		throw RE{format("curl_easy_setopt write callback failed: {}", curl_error(rc))};
+		throw std::runtime_error{format("curl_easy_setopt write callback failed: {}", curl_error(rc))};
 	}
 }
 
 void setopt_write_data(
 	CURL *easy,
-	S *body) {
+	std::string *body) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_WRITEDATA, body);
 	if (rc != CURLE_OK) {
-		throw RE{format("curl_easy_setopt write data failed: {}", curl_error(rc))};
+		throw std::runtime_error{format("curl_easy_setopt write data failed: {}", curl_error(rc))};
 	}
 }
 
@@ -140,7 +140,7 @@ void setopt_resolve(
 	curl_slist *resolve) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_RESOLVE, resolve);
 	if (rc != CURLE_OK) {
-		throw RE{format("curl_easy_setopt resolve failed: {}", curl_error(rc))};
+		throw std::runtime_error{format("curl_easy_setopt resolve failed: {}", curl_error(rc))};
 	}
 }
 
@@ -149,7 +149,7 @@ void setopt_resolve(
 	void *value) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_PRIVATE, value);
 	if (rc != CURLE_OK) {
-		throw RE{format("curl_easy_setopt private failed: {}", curl_error(rc))};
+		throw std::runtime_error{format("curl_easy_setopt private failed: {}", curl_error(rc))};
 	}
 }
 
@@ -161,7 +161,7 @@ public:
 		(void)curl_global();
 		easy_ = curl_easy_init();
 		if (easy_ == nullptr) {
-			throw RE{"curl_easy_init failed"};
+			throw std::runtime_error{"curl_easy_init failed"};
 		}
 	}
 	~CurlEasy() {
@@ -221,7 +221,7 @@ public:
 		(void)curl_global();
 		multi_ = curl_multi_init();
 		if (multi_ == nullptr) {
-			throw RE{"curl_multi_init failed"};
+			throw std::runtime_error{"curl_multi_init failed"};
 		}
 	}
 	~CurlMulti() {
@@ -256,33 +256,33 @@ public:
 #endif
 }
 
-[[nodiscard]] S http_url(
-	u16 port,
-	SV path) {
+[[nodiscard]] std::string http_url(
+	std::uint16_t port,
+	std::string_view path) {
 	return format("http://127.0.0.1:{}{}", port, path);
 }
 
-[[nodiscard]] S https_url(
-	u16 port,
-	SV path) {
+[[nodiscard]] std::string https_url(
+	std::uint16_t port,
+	std::string_view path) {
 	return format("https://127.0.0.1:{}{}", port, path);
 }
 
-[[nodiscard]] S h3_url(
-	u16 port,
-	SV path) {
+[[nodiscard]] std::string h3_url(
+	std::uint16_t port,
+	std::string_view path) {
 	return format("https://localhost:{}{}", port, path);
 }
 
-[[nodiscard]] S localhost_resolve(
-	u16 port) {
+[[nodiscard]] std::string localhost_resolve(
+	std::uint16_t port) {
 	return format("localhost:{}:127.0.0.1", port);
 }
 
 void require_ok(
 	CurlResponse const &resp,
 	long status,
-	SV body) {
+	std::string_view body) {
 	INFO(format(
 		"curl={} {} status={} http_version={} verify={} connects={} time={} body_size={} body={}",
 		static_cast<int>(resp.code),
@@ -302,7 +302,7 @@ void require_ok(
 [[maybe_unused]] void require_contains(
 	CurlResponse const &resp,
 	long status,
-	SV needle) {
+	std::string_view needle) {
 	INFO(format(
 		"curl={} {} status={} http_version={} body_size={} body={}",
 		static_cast<int>(resp.code),
@@ -313,7 +313,7 @@ void require_ok(
 		resp.body));
 	REQUIRE(resp.code == CURLE_OK);
 	REQUIRE(resp.status == status);
-	REQUIRE(resp.body.find(needle) != S::npos);
+	REQUIRE(resp.body.find(needle) != std::string::npos);
 }
 
 [[maybe_unused]] void require_forced_http_version(
@@ -325,7 +325,7 @@ void require_ok(
 
 [[nodiscard]] Router make_matrix_router() {
 	Router r = conflux::tests::make_external_test_router();
-	r.sse("/events", [](HttpRequest const &, SP<SseChannel> const &ch) {
+	r.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
 		auto _ = ch->send("data: beta\n\n");
 		ch->close();
@@ -335,10 +335,10 @@ void require_ok(
 
 [[maybe_unused]] void run_basic_case_matrix(
 	CurlEasy &curl,
-	u16 port,
+	std::uint16_t port,
 	long http_version,
 	bool tls) {
-	auto url = [&](SV path) { return tls ? https_url(port, path) : http_url(port, path); };
+	auto url = [&](std::string_view path) { return tls ? https_url(port, path) : http_url(port, path); };
 	CurlRequest req;
 	req.http_version = http_version;
 	req.url = url("/ping");
@@ -484,7 +484,7 @@ TEST_CASE(
 	auto resp =
 		curl.perform(CurlRequest{.url = https_url(fx.port(), "/events"), .http_version = CURL_HTTP_VERSION_1_1});
 	require_contains(resp, 200, "data: alpha\n\n");
-	REQUIRE(resp.body.find("data: beta\n\n") != S::npos);
+	REQUIRE(resp.body.find("data: beta\n\n") != std::string::npos);
 }
 
 TEST_CASE(
@@ -492,8 +492,8 @@ TEST_CASE(
 	char dir_template[] = "/tmp/conflux_libcurl_static_XXXXXX";
 	char *const dir_ptr = ::mkdtemp(dir_template);
 	REQUIRE(dir_ptr != nullptr);
-	S const dir{dir_ptr};
-	S const body(256UL * 1024, 'L');
+	std::string const dir{dir_ptr};
+	std::string const body(256UL * 1024, 'L');
 	{
 		std::ofstream out{dir + "/large.bin", std::ios::binary};
 		out << body;
@@ -541,12 +541,12 @@ enum class TortureVersion {
 	if (raw == nullptr || *raw == '\0') {
 		return fallback;
 	}
-	return SV{raw} == "1" || SV{raw} == "true" || SV{raw} == "on";
+	return std::string_view{raw} == "1" || std::string_view{raw} == "true" || std::string_view{raw} == "on";
 }
 
 [[nodiscard]] TortureVersion env_version() {
 	char const *raw = std::getenv("CONFLUX_CURL_TORTURE_HTTP_VERSION");
-	SV const value = raw == nullptr ? SV{"default"} : SV{raw};
+	std::string_view const value = raw == nullptr ? std::string_view{"default"} : std::string_view{raw};
 	if (value == "1.1") {
 		return TortureVersion::Http11;
 	}
@@ -564,7 +564,7 @@ enum class TortureVersion {
 
 [[nodiscard]] Router make_stress_router() {
 	Router r = make_matrix_router();
-	auto large = make_shared<S>(128UL * 1024, 'S');
+	auto large = make_shared<std::string>(128UL * 1024, 'S');
 	r.get("/static/large.bin", [large](HttpRequest const &) { return HttpResponse::text(*large); });
 	return r;
 }
@@ -572,8 +572,8 @@ enum class TortureVersion {
 struct ExpectedCurlRequest {
 	CurlRequest request;
 	long status = 200;
-	S expected_body;
-	Opt<S> expected_contains;
+	std::string expected_body;
+	std::optional<std::string> expected_contains;
 };
 
 [[nodiscard]] long picked_http_version(
@@ -597,7 +597,7 @@ struct ExpectedCurlRequest {
 }
 
 [[nodiscard]] ExpectedCurlRequest make_expected_request(
-	u16 port,
+	std::uint16_t port,
 	unsigned i,
 	TortureVersion version,
 	bool fresh) {
@@ -636,7 +636,7 @@ struct ExpectedCurlRequest {
 		break;
 	case 3:
 		out.request.url = https_url(port, "/static/large.bin");
-		out.expected_body = S(128UL * 1024, 'S');
+		out.expected_body = std::string(128UL * 1024, 'S');
 		break;
 	default:
 		out.request.url = https_url(port, "/events");
@@ -665,15 +665,15 @@ void require_expected(
 	REQUIRE(resp.code == CURLE_OK);
 	REQUIRE(resp.status == expected.status);
 	if (expected.expected_contains.has_value()) {
-		REQUIRE(resp.body.find(*expected.expected_contains) != S::npos);
+		REQUIRE(resp.body.find(*expected.expected_contains) != std::string::npos);
 	} else {
 		REQUIRE(resp.body == expected.expected_body);
 	}
 }
 
 struct AbortAfter {
-	SZ limit = 0;
-	SZ seen = 0;
+	std::size_t limit = 0;
+	std::size_t seen = 0;
 };
 
 [[nodiscard]] size_t abort_after_cb(
@@ -682,7 +682,7 @@ struct AbortAfter {
 	size_t nmemb,
 	void *userdata) {
 	auto *state = static_cast<AbortAfter *>(userdata);
-	SZ const n = size * nmemb;
+	std::size_t const n = size * nmemb;
 	if (state->seen + n > state->limit) {
 		return 0;
 	}
@@ -694,7 +694,7 @@ void setopt_abort_cb(
 	CURL *easy) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_WRITEFUNCTION, abort_after_cb);
 	if (rc != CURLE_OK) {
-		throw RE{format("curl_easy_setopt abort callback failed: {}", curl_error(rc))};
+		throw std::runtime_error{format("curl_easy_setopt abort callback failed: {}", curl_error(rc))};
 	}
 }
 
@@ -703,7 +703,7 @@ void setopt_abort_data(
 	AbortAfter *state) {
 	CURLcode const rc = curl_easy_setopt(easy, CURLOPT_WRITEDATA, state);
 	if (rc != CURLE_OK) {
-		throw RE{format("curl_easy_setopt abort data failed: {}", curl_error(rc))};
+		throw std::runtime_error{format("curl_easy_setopt abort data failed: {}", curl_error(rc))};
 	}
 }
 
@@ -781,8 +781,8 @@ TEST_CASE(
 		CURLM *multi = nullptr;
 		CURL *easy = nullptr;
 		bool added = false;
-		UP<ExpectedCurlRequest> expected;
-		S body;
+		std::unique_ptr<ExpectedCurlRequest> expected;
+		std::string body;
 
 		~Active() {
 			if (easy == nullptr) {
@@ -797,7 +797,7 @@ TEST_CASE(
 		Active(Active const &) = delete;
 		Active &operator =(Active const &) = delete;
 	};
-	V<UP<Active>> owned;
+	std::vector<std::unique_ptr<Active>> owned;
 	owned.reserve(concurrency);
 	auto add_one = [&](unsigned index) {
 		auto active = make_unique<Active>();
@@ -865,7 +865,7 @@ TEST_CASE(
 			curl_easy_cleanup(msg->easy_handle);
 			active->easy = nullptr;
 			auto const found =
-				ranges::find_if(owned, [&](UP<Active> const &candidate) { return candidate.get() == active; });
+				ranges::find_if(owned, [&](std::unique_ptr<Active> const &candidate) { return candidate.get() == active; });
 			REQUIRE(found != owned.end());
 			owned.erase(found);
 			++completed;
@@ -892,7 +892,7 @@ TEST_CASE(
 	CURL *easy = abort_curl.get();
 	curl_easy_reset(easy);
 	AbortAfter abort{.limit = 64, .seen = 0};
-	S const url = https_url(fx.port(), "/static/large.bin");
+	std::string const url = https_url(fx.port(), "/static/large.bin");
 	setopt(easy, CURLOPT_URL, url.c_str());
 	setopt(easy, CURLOPT_NOSIGNAL, 1L);
 	setopt(easy, CURLOPT_TIMEOUT_MS, 5000L);

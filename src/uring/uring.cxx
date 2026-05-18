@@ -78,10 +78,10 @@ struct SpliceFlagsTag {};
 struct MsgRingFlagsTag {};
 struct InstallFdFlagsTag {};
 struct NopFlagsTag {};
-using SqeFlags = Flags<SqeFlagsTag, u8>;
+using SqeFlags = Flags<SqeFlagsTag, std::uint8_t>;
 using SetupFlags = Flags<SetupFlagsTag>;
 using CqeFlags = Flags<CqeFlagsTag>;
-using IoPrioFlags = Flags<IoPrioFlagsTag, u16>;
+using IoPrioFlags = Flags<IoPrioFlagsTag, std::uint16_t>;
 using CancelFlags = Flags<CancelFlagsTag>;
 using TimeoutFlags = Flags<TimeoutFlagsTag>;
 using FsyncFlags = Flags<FsyncFlagsTag>;
@@ -99,31 +99,31 @@ struct Fd {
 	int v{-1};
 };
 struct DirectSlot {
-	u32 value{};
+	std::uint32_t value{};
 };
 struct BufGroupId {
-	u16 v{};
+	std::uint16_t v{};
 };
 struct BufId {
-	u16 v{};
+	std::uint16_t v{};
 };
 struct UserData {
-	u64 v{};
+	std::uint64_t v{};
 };
 struct FixedBufIdx {
-	i32 v{-1};
+	std::int32_t v{-1};
 };
 // ── SQE flag constants ────────────────────────────────────────────────────────
 
 namespace sqe_flags {
 
-inline constexpr SqeFlags fixed_file{static_cast<u8>(IOSQE_FIXED_FILE)};
-inline constexpr SqeFlags io_drain{static_cast<u8>(IOSQE_IO_DRAIN)};
-inline constexpr SqeFlags io_link{static_cast<u8>(IOSQE_IO_LINK)};
-inline constexpr SqeFlags io_hardlink{static_cast<u8>(IOSQE_IO_HARDLINK)};
-inline constexpr SqeFlags async_{static_cast<u8>(IOSQE_ASYNC)};
-inline constexpr SqeFlags buffer_select{static_cast<u8>(IOSQE_BUFFER_SELECT)};
-inline constexpr SqeFlags cqe_skip_success{static_cast<u8>(IOSQE_CQE_SKIP_SUCCESS)};
+inline constexpr SqeFlags fixed_file{static_cast<std::uint8_t>(IOSQE_FIXED_FILE)};
+inline constexpr SqeFlags io_drain{static_cast<std::uint8_t>(IOSQE_IO_DRAIN)};
+inline constexpr SqeFlags io_link{static_cast<std::uint8_t>(IOSQE_IO_LINK)};
+inline constexpr SqeFlags io_hardlink{static_cast<std::uint8_t>(IOSQE_IO_HARDLINK)};
+inline constexpr SqeFlags async_{static_cast<std::uint8_t>(IOSQE_ASYNC)};
+inline constexpr SqeFlags buffer_select{static_cast<std::uint8_t>(IOSQE_BUFFER_SELECT)};
+inline constexpr SqeFlags cqe_skip_success{static_cast<std::uint8_t>(IOSQE_CQE_SKIP_SUCCESS)};
 
 } // namespace sqe_flags
 // ── Setup flag constants ──────────────────────────────────────────────────────
@@ -276,7 +276,7 @@ inline constexpr CqeFlags skip{IORING_CQE_F_SKIP};
 inline constexpr CqeFlags f32{IORING_CQE_F_32};
 [[nodiscard]] constexpr BufId buf_id(
 	CqeFlags f) noexcept {
-	return BufId{static_cast<u16>(f.raw() >> IORING_CQE_BUFFER_SHIFT)};
+	return BufId{static_cast<std::uint16_t>(f.raw() >> IORING_CQE_BUFFER_SHIFT)};
 }
 
 } // namespace cqe_flags
@@ -286,15 +286,15 @@ inline constexpr CqeFlags f32{IORING_CQE_F_32};
 
 namespace ioprio_flags {
 
-inline constexpr IoPrioFlags recvsend_poll_first{static_cast<u16>(IORING_RECVSEND_POLL_FIRST)};
-inline constexpr IoPrioFlags recv_multishot{static_cast<u16>(IORING_RECV_MULTISHOT)};
-inline constexpr IoPrioFlags recvsend_fixed_buf{static_cast<u16>(IORING_RECVSEND_FIXED_BUF)};
-inline constexpr IoPrioFlags send_zc_report_usage{static_cast<u16>(IORING_SEND_ZC_REPORT_USAGE)};
-inline constexpr IoPrioFlags recvsend_bundle{static_cast<u16>(IORING_RECVSEND_BUNDLE)};
-inline constexpr IoPrioFlags send_vectorized{static_cast<u16>(IORING_SEND_VECTORIZED)};
-inline constexpr IoPrioFlags accept_multishot{static_cast<u16>(IORING_ACCEPT_MULTISHOT)};
-inline constexpr IoPrioFlags accept_dontwait{static_cast<u16>(IORING_ACCEPT_DONTWAIT)};
-inline constexpr IoPrioFlags accept_poll_first{static_cast<u16>(IORING_ACCEPT_POLL_FIRST)};
+inline constexpr IoPrioFlags recvsend_poll_first{static_cast<std::uint16_t>(IORING_RECVSEND_POLL_FIRST)};
+inline constexpr IoPrioFlags recv_multishot{static_cast<std::uint16_t>(IORING_RECV_MULTISHOT)};
+inline constexpr IoPrioFlags recvsend_fixed_buf{static_cast<std::uint16_t>(IORING_RECVSEND_FIXED_BUF)};
+inline constexpr IoPrioFlags send_zc_report_usage{static_cast<std::uint16_t>(IORING_SEND_ZC_REPORT_USAGE)};
+inline constexpr IoPrioFlags recvsend_bundle{static_cast<std::uint16_t>(IORING_RECVSEND_BUNDLE)};
+inline constexpr IoPrioFlags send_vectorized{static_cast<std::uint16_t>(IORING_SEND_VECTORIZED)};
+inline constexpr IoPrioFlags accept_multishot{static_cast<std::uint16_t>(IORING_ACCEPT_MULTISHOT)};
+inline constexpr IoPrioFlags accept_dontwait{static_cast<std::uint16_t>(IORING_ACCEPT_DONTWAIT)};
+inline constexpr IoPrioFlags accept_poll_first{static_cast<std::uint16_t>(IORING_ACCEPT_POLL_FIRST)};
 
 } // namespace ioprio_flags
 // ── Cancel flag constants ─────────────────────────────────────────────────────
@@ -383,7 +383,7 @@ inline constexpr int setsockopt{SOCKET_URING_OP_SETSOCKOPT};
 // ── Cqe ──────────────────────────────────────────────────────────────────────
 
 struct Cqe {
-	i32 res{};
+	std::int32_t res{};
 	CqeFlags flags;
 	UserData user_data;
 	[[nodiscard]] bool has_more() const noexcept { return flags.any(cqe_flags::more); }
@@ -451,7 +451,7 @@ public:
 		return *this;
 	}
 	inline Sqe &personality(
-		u16 p) noexcept {
+		std::uint16_t p) noexcept {
 		p_->personality = p;
 		return *this;
 	}
@@ -462,29 +462,29 @@ public:
 		return *this;
 	}
 	// ── Read ────────────────────────────────────────────────────────────────
-	// Offsets are u64 matching io_uring's __u64; use UINT64_MAX for "current pos"
+	// Offsets are std::uint64_t matching io_uring's __u64; use UINT64_MAX for "current pos"
 
 	inline Sqe &prep_read(
 		Fd fd,
 		void *buf,
-		u32 len,
-		u64 off) noexcept {
+		std::uint32_t len,
+		std::uint64_t off) noexcept {
 		io_uring_prep_read(p_, fd.v, buf, len, static_cast<__u64>(off));
 		return *this;
 	}
 	inline Sqe &read(
 		DirectSlot slot,
 		void *buf,
-		u32 len,
-		u64 off) noexcept {
+		std::uint32_t len,
+		std::uint64_t off) noexcept {
 		io_uring_prep_read(p_, static_cast<int>(slot.value), buf, len, static_cast<__u64>(off));
 		io_uring_sqe_set_flags(p_, sqe_flags::fixed_file.raw());
 		return *this;
 	}
 	inline Sqe &prep_read_multishot(
 		Fd fd,
-		u32 len,
-		u64 off,
+		std::uint32_t len,
+		std::uint64_t off,
 		BufGroupId grp) noexcept {
 		io_uring_prep_read_multishot(p_, fd.v, len, static_cast<__u64>(off), grp.v);
 		return *this;
@@ -493,7 +493,7 @@ public:
 		Fd fd,
 		iovec const *iov,
 		unsigned nr,
-		u64 off) noexcept {
+		std::uint64_t off) noexcept {
 		io_uring_prep_readv(p_, fd.v, iov, nr, static_cast<__u64>(off));
 		return *this;
 	}
@@ -501,7 +501,7 @@ public:
 		Fd fd,
 		iovec const *iov,
 		unsigned nr,
-		u64 off,
+		std::uint64_t off,
 		int flags) noexcept {
 		io_uring_prep_readv2(p_, fd.v, iov, nr, static_cast<__u64>(off), flags);
 		return *this;
@@ -509,8 +509,8 @@ public:
 	inline Sqe &prep_read_fixed(
 		Fd fd,
 		void *buf,
-		u32 len,
-		u64 off,
+		std::uint32_t len,
+		std::uint64_t off,
 		FixedBufIdx idx) noexcept {
 		io_uring_prep_read_fixed(p_, fd.v, buf, len, static_cast<__u64>(off), idx.v);
 		return *this;
@@ -519,7 +519,7 @@ public:
 		Fd fd,
 		iovec const *iov,
 		unsigned nr,
-		u64 off,
+		std::uint64_t off,
 		int rw_flags,
 		FixedBufIdx idx) noexcept {
 		io_uring_prep_readv_fixed(p_, fd.v, iov, nr, static_cast<__u64>(off), rw_flags, idx.v);
@@ -530,16 +530,16 @@ public:
 	inline Sqe &prep_write(
 		Fd fd,
 		void const *buf,
-		u32 len,
-		u64 off) noexcept {
+		std::uint32_t len,
+		std::uint64_t off) noexcept {
 		io_uring_prep_write(p_, fd.v, buf, len, static_cast<__u64>(off));
 		return *this;
 	}
 	inline Sqe &write(
 		DirectSlot slot,
 		void const *buf,
-		u32 len,
-		u64 off) noexcept {
+		std::uint32_t len,
+		std::uint64_t off) noexcept {
 		io_uring_prep_write(p_, static_cast<int>(slot.value), buf, len, static_cast<__u64>(off));
 		io_uring_sqe_set_flags(p_, sqe_flags::fixed_file.raw());
 		return *this;
@@ -548,7 +548,7 @@ public:
 		Fd fd,
 		iovec const *iov,
 		unsigned nr,
-		u64 off) noexcept {
+		std::uint64_t off) noexcept {
 		io_uring_prep_writev(p_, fd.v, iov, nr, static_cast<__u64>(off));
 		return *this;
 	}
@@ -556,7 +556,7 @@ public:
 		Fd fd,
 		iovec const *iov,
 		unsigned nr,
-		u64 off,
+		std::uint64_t off,
 		int flags) noexcept {
 		io_uring_prep_writev2(p_, fd.v, iov, nr, static_cast<__u64>(off), flags);
 		return *this;
@@ -564,8 +564,8 @@ public:
 	inline Sqe &prep_write_fixed(
 		Fd fd,
 		void const *buf,
-		u32 len,
-		u64 off,
+		std::uint32_t len,
+		std::uint64_t off,
 		FixedBufIdx idx) noexcept {
 		io_uring_prep_write_fixed(p_, fd.v, buf, len, static_cast<__u64>(off), idx.v);
 		return *this;
@@ -574,7 +574,7 @@ public:
 		Fd fd,
 		iovec const *iov,
 		unsigned nr,
-		u64 off,
+		std::uint64_t off,
 		int rw_flags,
 		FixedBufIdx idx) noexcept {
 		io_uring_prep_writev_fixed(p_, fd.v, iov, nr, static_cast<__u64>(off), rw_flags, idx.v);
@@ -586,14 +586,14 @@ public:
 	inline Sqe &prep_send(
 		Fd fd,
 		void const *buf,
-		SZ len,
+		std::size_t len,
 		MsgFlags flags) noexcept {
 		io_uring_prep_send(p_, fd.v, buf, len, static_cast<int>(flags.raw()));
 		return *this;
 	}
 	inline Sqe &prep_send_bundle(
 		Fd fd,
-		SZ len,
+		std::size_t len,
 		MsgFlags flags) noexcept {
 		io_uring_prep_send_bundle(p_, fd.v, len, static_cast<int>(flags.raw()));
 		return *this;
@@ -601,7 +601,7 @@ public:
 	inline Sqe &prep_sendto(
 		Fd fd,
 		void const *buf,
-		SZ len,
+		std::size_t len,
 		MsgFlags flags,
 		sockaddr const *addr,
 		socklen_t addrlen) noexcept {
@@ -610,7 +610,7 @@ public:
 	}
 	inline Sqe &set_send_addr(
 		sockaddr const *addr,
-		u16 addrlen) noexcept {
+		std::uint16_t addrlen) noexcept {
 		io_uring_prep_send_set_addr(p_, addr, addrlen);
 		return *this;
 	}
@@ -624,7 +624,7 @@ public:
 	inline Sqe &prep_send_zc(
 		Fd fd,
 		void const *buf,
-		SZ len,
+		std::size_t len,
 		MsgFlags flags,
 		unsigned zc_flags) noexcept {
 		io_uring_prep_send_zc(p_, fd.v, buf, len, static_cast<int>(flags.raw()), zc_flags);
@@ -633,7 +633,7 @@ public:
 	inline Sqe &prep_send_zc_fixed(
 		Fd fd,
 		void const *buf,
-		SZ len,
+		std::size_t len,
 		MsgFlags flags,
 		unsigned zc_flags,
 		FixedBufIdx idx) noexcept {
@@ -644,7 +644,7 @@ public:
 			len,
 			static_cast<int>(flags.raw()),
 			zc_flags,
-			static_cast<u16>(idx.v));
+			static_cast<std::uint16_t>(idx.v));
 		return *this;
 	}
 	inline Sqe &prep_sendmsg_zc(
@@ -667,7 +667,7 @@ public:
 	inline Sqe &prep_recv(
 		Fd fd,
 		void *buf,
-		SZ len,
+		std::size_t len,
 		MsgFlags flags) noexcept {
 		io_uring_prep_recv(p_, fd.v, buf, len, static_cast<int>(flags.raw()));
 		return *this;
@@ -675,7 +675,7 @@ public:
 	inline Sqe &prep_recv_multishot(
 		Fd fd,
 		void *buf,
-		SZ len,
+		std::size_t len,
 		MsgFlags flags) noexcept {
 		io_uring_prep_recv_multishot(p_, fd.v, buf, len, static_cast<int>(flags.raw()));
 		return *this;
@@ -865,25 +865,25 @@ public:
 	}
 	inline Sqe &prep_fallocate(
 		Fd fd,
-		u32 mode,
-		u64 offset,
-		u64 len) noexcept {
+		std::uint32_t mode,
+		std::uint64_t offset,
+		std::uint64_t len) noexcept {
 		io_uring_prep_fallocate(p_, fd.v, static_cast<int>(mode), static_cast<__u64>(offset), static_cast<__u64>(len));
 		return *this;
 	}
 	inline Sqe &prep_fadvise(
 		Fd fd,
-		u64 offset,
-		u32 len,
-		u32 advice) noexcept {
+		std::uint64_t offset,
+		std::uint32_t len,
+		std::uint32_t advice) noexcept {
 		io_uring_prep_fadvise(p_, fd.v, static_cast<__u64>(offset), len, static_cast<int>(advice));
 		return *this;
 	}
 	inline Sqe &prep_fadvise64(
 		Fd fd,
-		u64 offset,
-		u64 len,
-		u32 advice) noexcept {
+		std::uint64_t offset,
+		std::uint64_t len,
+		std::uint32_t advice) noexcept {
 		io_uring_prep_fadvise64(
 			p_,
 			fd.v,
@@ -894,29 +894,29 @@ public:
 	}
 	inline Sqe &prep_madvise(
 		void *addr,
-		u32 len,
-		u32 advice) noexcept {
+		std::uint32_t len,
+		std::uint32_t advice) noexcept {
 		io_uring_prep_madvise(p_, addr, len, static_cast<int>(advice));
 		return *this;
 	}
 	inline Sqe &prep_madvise64(
 		void *addr,
-		u64 len,
-		u32 advice) noexcept {
+		std::uint64_t len,
+		std::uint32_t advice) noexcept {
 		io_uring_prep_madvise64(p_, addr, static_cast<off_t>(len), static_cast<int>(advice));
 		return *this;
 	}
 	inline Sqe &prep_sync_file_range(
 		Fd fd,
-		u32 len,
-		u64 offset,
+		std::uint32_t len,
+		std::uint64_t offset,
 		int flags) noexcept {
 		io_uring_prep_sync_file_range(p_, fd.v, len, static_cast<__u64>(offset), flags);
 		return *this;
 	}
 	inline Sqe &prep_ftruncate(
 		Fd fd,
-		i64 len) noexcept {
+		std::int64_t len) noexcept {
 		io_uring_prep_ftruncate(p_, fd.v, len);
 		return *this;
 	}
@@ -964,7 +964,7 @@ public:
 		char const *name,
 		char const *val,
 		int flags,
-		u32 len) noexcept {
+		std::uint32_t len) noexcept {
 		io_uring_prep_fsetxattr(p_, fd.v, name, val, flags, len);
 		return *this;
 	}
@@ -973,7 +973,7 @@ public:
 		char const *name,
 		char const *val,
 		int flags,
-		u32 len) noexcept {
+		std::uint32_t len) noexcept {
 		io_uring_prep_setxattr(p_, path, name, val, flags, len);
 		return *this;
 	}
@@ -981,7 +981,7 @@ public:
 		Fd fd,
 		char const *name,
 		char *val,
-		u32 len) noexcept {
+		std::uint32_t len) noexcept {
 		io_uring_prep_fgetxattr(p_, fd.v, name, val, len);
 		return *this;
 	}
@@ -990,7 +990,7 @@ public:
 		char const *name,
 		char *val,
 		char const *path,
-		u32 len) noexcept {
+		std::uint32_t len) noexcept {
 		io_uring_prep_getxattr(p_, name, val, path, len);
 		return *this;
 	}
@@ -1006,7 +1006,7 @@ public:
 	}
 	inline Sqe &prep_timeout(
 		__kernel_timespec *ts,
-		u32 count,
+		std::uint32_t count,
 		TimeoutFlags flags) noexcept {
 		io_uring_prep_timeout(p_, ts, count, flags.raw());
 		return *this;
@@ -1081,8 +1081,8 @@ public:
 	inline Sqe &prep_epoll_wait(
 		Fd epfd,
 		epoll_event *events,
-		u32 maxevents,
-		u32 flags) noexcept {
+		std::uint32_t maxevents,
+		std::uint32_t flags) noexcept {
 		io_uring_prep_epoll_wait(p_, epfd.v, events, static_cast<int>(maxevents), flags);
 		return *this;
 	}
@@ -1090,10 +1090,10 @@ public:
 
 	inline Sqe &prep_splice(
 		Fd fd_in,
-		i64 off_in,
+		std::int64_t off_in,
 		Fd fd_out,
-		i64 off_out,
-		u32 len,
+		std::int64_t off_out,
+		std::uint32_t len,
 		SpliceFlags flags) noexcept {
 		io_uring_prep_splice(p_, fd_in.v, off_in, fd_out.v, off_out, len, flags.raw());
 		return *this;
@@ -1101,7 +1101,7 @@ public:
 	inline Sqe &prep_tee(
 		Fd fd_in,
 		Fd fd_out,
-		u32 len,
+		std::uint32_t len,
 		SpliceFlags flags) noexcept {
 		io_uring_prep_tee(p_, fd_in.v, fd_out.v, len, flags.raw());
 		return *this;
@@ -1124,7 +1124,7 @@ public:
 
 	inline Sqe &prep_msg_ring(
 		Fd ring_fd,
-		u32 len,
+		std::uint32_t len,
 		UserData data,
 		MsgRingFlags flags) noexcept {
 		io_uring_prep_msg_ring(p_, ring_fd.v, len, data.v, flags.raw());
@@ -1132,10 +1132,10 @@ public:
 	}
 	inline Sqe &prep_msg_ring_cqe_flags(
 		Fd ring_fd,
-		u32 len,
+		std::uint32_t len,
 		UserData data,
 		MsgRingFlags flags,
-		u32 cqe_flags) noexcept {
+		std::uint32_t cqe_flags) noexcept {
 		io_uring_prep_msg_ring_cqe_flags(p_, ring_fd.v, len, data.v, flags.raw(), cqe_flags);
 		return *this;
 	}
@@ -1143,8 +1143,8 @@ public:
 
 	inline Sqe &prep_files_update(
 		int *fds,
-		u32 nr,
-		i32 offset) noexcept {
+		std::uint32_t nr,
+		std::int32_t offset) noexcept {
 		io_uring_prep_files_update(p_, fds, nr, offset);
 		return *this;
 	}
@@ -1152,15 +1152,15 @@ public:
 
 	inline Sqe &prep_provide_buffers(
 		void *addr,
-		i32 len,
-		i32 nr,
+		std::int32_t len,
+		std::int32_t nr,
 		BufGroupId bgid,
-		i32 bid) noexcept {
+		std::int32_t bid) noexcept {
 		io_uring_prep_provide_buffers(p_, addr, len, nr, bgid.v, bid);
 		return *this;
 	}
 	inline Sqe &prep_remove_buffers(
-		i32 nr,
+		std::int32_t nr,
 		BufGroupId bgid) noexcept {
 		io_uring_prep_remove_buffers(p_, nr, bgid.v);
 		return *this;
@@ -1177,26 +1177,26 @@ public:
 		return *this;
 	}
 	inline Sqe &prep_futex_wait(
-		u32 *futex,
-		u64 val,
-		u64 mask,
-		u32 futex_flags,
+		std::uint32_t *futex,
+		std::uint64_t val,
+		std::uint64_t mask,
+		std::uint32_t futex_flags,
 		unsigned flags) noexcept {
 		io_uring_prep_futex_wait(p_, futex, val, mask, futex_flags, flags);
 		return *this;
 	}
 	inline Sqe &prep_futex_wake(
-		u32 *futex,
-		u64 val,
-		u64 mask,
-		u32 futex_flags,
+		std::uint32_t *futex,
+		std::uint64_t val,
+		std::uint64_t mask,
+		std::uint32_t futex_flags,
 		unsigned flags) noexcept {
 		io_uring_prep_futex_wake(p_, futex, val, mask, futex_flags, flags);
 		return *this;
 	}
 	inline Sqe &prep_futex_waitv(
 		futex_waitv const *waiters,
-		u32 nr,
+		std::uint32_t nr,
 		unsigned flags) noexcept {
 		io_uring_prep_futex_waitv(p_, waiters, nr, flags);
 		return *this;
@@ -1224,8 +1224,8 @@ public:
 // ── RingSize / build cap ──────────────────────────────────────────────────────
 
 struct RingSize {
-	u32 sq_entries{};
-	u32 cq_entries{};
+	std::uint32_t sq_entries{};
+	std::uint32_t cq_entries{};
 };
 inline constexpr bool build_has_io_uring_resize_rings =
 #if defined(CONFLUX_HAVE_IO_URING_RESIZE_RINGS) && CONFLUX_HAVE_IO_URING_RESIZE_RINGS
@@ -1282,11 +1282,11 @@ public:
 		return static_cast<int>(io_uring_cq_has_overflow(ring_)) != 0;
 	}
 	[[nodiscard]] bool has_feature(
-		u32 feature) const noexcept {
+		std::uint32_t feature) const noexcept {
 		assert(ring_ != nullptr);
 		return (ring_->features & feature) != 0u;
 	}
-	[[nodiscard]] u32 cq_overflow_count() const noexcept {
+	[[nodiscard]] std::uint32_t cq_overflow_count() const noexcept {
 		assert(ring_ != nullptr);
 		auto *p = ring_->cq.koverflow;
 		return p != nullptr ? *p : 0u;
@@ -1295,11 +1295,11 @@ public:
 		assert(ring_ != nullptr);
 		return (ring_->flags & IORING_SETUP_SQPOLL) != 0u;
 	}
-	[[nodiscard]] u32 sq_entries() const noexcept {
+	[[nodiscard]] std::uint32_t sq_entries() const noexcept {
 		assert(ring_ != nullptr);
 		return ring_->sq.ring_entries;
 	}
-	[[nodiscard]] u32 cq_entries() const noexcept {
+	[[nodiscard]] std::uint32_t cq_entries() const noexcept {
 		assert(ring_ != nullptr);
 		return ring_->cq.ring_entries;
 	}
@@ -1338,12 +1338,12 @@ public:
 #endif
 	}
 	[[nodiscard]] expected<void, int> grow_cq_to(
-		u32 entries) const noexcept {
+		std::uint32_t entries) const noexcept {
 		if (!valid()) {
 			return unexpected{-EINVAL};
 		}
-		u32 const cur_sq = ring_->sq.ring_entries;
-		u32 const cur_cq = ring_->cq.ring_entries;
+		std::uint32_t const cur_sq = ring_->sq.ring_entries;
+		std::uint32_t const cur_cq = ring_->cq.ring_entries;
 		if (entries <= cur_cq) {
 			return {};
 		}
@@ -1409,7 +1409,7 @@ public:
 		unsigned entries,
 		io_uring_params &p,
 		void *buf,
-		SZ buf_sz) noexcept {
+		std::size_t buf_sz) noexcept {
 		Ring r;
 		if (int const rc = io_uring_queue_init_mem(entries, &r.ring_, &p, buf, buf_sz); rc < 0) {
 			return unexpected{rc};
@@ -1434,14 +1434,14 @@ public:
 	}
 	[[nodiscard]] unsigned sq_space_left() const noexcept { return io_uring_sq_space_left(&ring_); }
 	[[nodiscard]] bool has_feature(
-		u32 feat) const noexcept {
+		std::uint32_t feat) const noexcept {
 		return (ring_.features & feat) != 0u;
 	}
 	[[nodiscard]] bool is_sqpoll() const noexcept { return (ring_.flags & IORING_SETUP_SQPOLL) != 0u; }
 	[[nodiscard]] bool cq_has_overflow() const noexcept {
 		return static_cast<int>(io_uring_cq_has_overflow(&ring_)) != 0;
 	}
-	[[nodiscard]] u32 cq_overflow_count() const noexcept {
+	[[nodiscard]] std::uint32_t cq_overflow_count() const noexcept {
 		auto *p = ring_.cq.koverflow;
 		return p != nullptr ? *p : 0u;
 	}
@@ -1450,7 +1450,7 @@ public:
 		return ref().resize(sz);
 	}
 	[[nodiscard]] expected<void, int> grow_cq_to(
-		u32 entries) noexcept {
+		std::uint32_t entries) noexcept {
 		return ref().grow_cq_to(entries);
 	}
 	// ── Submit ──────────────────────────────────────────────────────────────
@@ -1522,7 +1522,7 @@ public:
 	int register_buffers_update_tag(
 		unsigned off,
 		span<iovec const> iovs,
-		u64 const *tags) noexcept {
+		std::uint64_t const *tags) noexcept {
 		return io_uring_register_buffers_update_tag(
 			&ring_,
 			off,
@@ -1567,7 +1567,7 @@ class BufRing {
 	io_uring *ring_{nullptr};
 	unsigned count_{};
 	BufGroupId group_{};
-	u32 mask_{};
+	std::uint32_t mask_{};
 
 public:
 	BufRing() noexcept = default;
@@ -1617,7 +1617,7 @@ public:
 		br.ring_ = ring.raw();
 		br.count_ = count;
 		br.group_ = group;
-		br.mask_ = static_cast<u32>(io_uring_buf_ring_mask(count));
+		br.mask_ = static_cast<std::uint32_t>(io_uring_buf_ring_mask(count));
 		return br;
 	}
 	[[nodiscard]] static expected<BufRing, int> setup(
@@ -1635,16 +1635,16 @@ public:
 		br.ring_ = ring.raw();
 		br.count_ = count;
 		br.group_ = group;
-		br.mask_ = static_cast<u32>(io_uring_buf_ring_mask(count));
+		br.mask_ = static_cast<std::uint32_t>(io_uring_buf_ring_mask(count));
 		return br;
 	}
 	[[nodiscard]] bool valid() const noexcept { return p_ != nullptr; }
 	[[nodiscard]] BufGroupId group() const noexcept { return group_; }
-	[[nodiscard]] u32 mask() const noexcept { return mask_; }
+	[[nodiscard]] std::uint32_t mask() const noexcept { return mask_; }
 	[[nodiscard]] io_uring_buf_ring *raw() noexcept { return p_; }
 	void add(
 		void *addr,
-		u32 len,
+		std::uint32_t len,
 		BufId bid,
 		int offset) noexcept {
 		io_uring_buf_ring_add(p_, addr, static_cast<unsigned short>(len), bid.v, static_cast<int>(mask_), offset);
@@ -1709,9 +1709,9 @@ inline constexpr unsigned inc{static_cast<unsigned>(IOU_PBUF_RING_INC)};
 namespace feat_bits {
 
 #ifdef IORING_FEAT_PBUF_RING_INC
-inline constexpr u32 pbuf_ring_inc{IORING_FEAT_PBUF_RING_INC};
+inline constexpr std::uint32_t pbuf_ring_inc{IORING_FEAT_PBUF_RING_INC};
 #else
-inline constexpr u32 pbuf_ring_inc{0u};
+inline constexpr std::uint32_t pbuf_ring_inc{0u};
 #endif
 
 } // namespace feat_bits
@@ -1787,9 +1787,9 @@ struct IoUringCaps {
 	Ring &ring) noexcept {
 	return detect_caps(ring.ref());
 }
-[[nodiscard]] S caps_to_log_string(
+[[nodiscard]] std::string caps_to_log_string(
 	IoUringCaps const &c) {
-	S s;
+	std::string s;
 	auto app = [&](char const *name, bool v) {
 		if (!v) {
 			return;

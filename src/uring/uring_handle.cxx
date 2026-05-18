@@ -8,15 +8,15 @@ import std;
 import conflux.types;
 import conflux.uring;
 export struct RingFd {
-	u32 id{NL<u32>::max()}; // max = invalid sentinel; avoids aliasing fd 0
+	std::uint32_t id{std::numeric_limits<std::uint32_t>::max()}; // max = invalid sentinel; avoids aliasing fd 0
 	bool fixed{false};
-	[[nodiscard]] constexpr bool valid() const noexcept { return id != NL<u32>::max(); }
+	[[nodiscard]] constexpr bool valid() const noexcept { return id != std::numeric_limits<std::uint32_t>::max(); }
 	[[nodiscard]] static constexpr RingFd from_os(
 		int fd) noexcept {
-		return {.id = static_cast<u32>(fd), .fixed = false};
+		return {.id = static_cast<std::uint32_t>(fd), .fixed = false};
 	}
 	[[nodiscard]] static constexpr RingFd from_direct(
-		u32 slot) noexcept {
+		std::uint32_t slot) noexcept {
 		return {.id = slot, .fixed = true};
 	}
 	[[nodiscard]] constexpr bool is_direct() const noexcept { return fixed && valid(); }
@@ -72,7 +72,7 @@ public:
 	[[nodiscard]] static IoHandle from_direct_slot(
 		int slot) noexcept {
 		IoHandle h;
-		h.h_ = RingFd::from_direct(static_cast<u32>(slot));
+		h.h_ = RingFd::from_direct(static_cast<std::uint32_t>(slot));
 		return h;
 	}
 	[[nodiscard]] RingFd get() const noexcept { return h_; }

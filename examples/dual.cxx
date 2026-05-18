@@ -28,7 +28,7 @@ static std::string write_tmp_pem(
 	buf.push_back('\0');
 	int const fd = ::mkstemps(buf.data(), 4);
 	if (fd < 0) {
-		throw RE{format("mkstemps failed for {}", tag)};
+		throw std::runtime_error{format("mkstemps failed for {}", tag)};
 	}
 	::close(fd);
 	return std::string{buf.data()};

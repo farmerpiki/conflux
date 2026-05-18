@@ -6,45 +6,45 @@ using namespace conflux::json;
 using std::println;
 
 struct RouteSample {
-	S route;
-	i64 latency_us{};
+	std::string route;
+	std::int64_t latency_us{};
 	bool ok{};
 };
 
 template<>
 struct JsonMembers<RouteSample> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("route", &RouteSample::route),
 			json_member("latency_us", &RouteSample::latency_us),
 			json_member("ok", &RouteSample::ok),
 		};
 	}
-	static constexpr SV type_name() { return "RouteSample"; }
+	static constexpr std::string_view type_name() { return "RouteSample"; }
 };
 
 struct RouteStats {
-	i64 count{};
-	i64 failures{};
-	i64 total_latency_us{};
-	i64 max_latency_us{};
+	std::int64_t count{};
+	std::int64_t failures{};
+	std::int64_t total_latency_us{};
+	std::int64_t max_latency_us{};
 };
 
-static S display_path(
+static std::string display_path(
 	JsonError const &e) {
 	if (!e.path.empty()) {
 		return e.path.to_pointer();
 	}
 	if (e.member_name) {
-		return S{"/"} + *e.member_name;
+		return std::string{"/"} + *e.member_name;
 	}
 	return "(root)";
 }
 
 static void print_json_error(
-	SV context,
+	std::string_view context,
 	JsonError const &e) {
-	S const path = display_path(e);
+	std::string const path = display_path(e);
 	if (e.source) {
 		std::println(
 			"{}: {} at {} (line {}, column {}, byte {})",
@@ -59,9 +59,9 @@ static void print_json_error(
 	std::println("{}: {} at {}", context, e.message, path);
 }
 
-static expected<std::map<S, RouteStats>, JsonError> aggregate_routes(
-	SV ndjson) {
-	std::map<S, RouteStats> routes;
+static expected<std::map<std::string, RouteStats>, JsonError> aggregate_routes(
+	std::string_view ndjson) {
+	std::map<std::string, RouteStats> routes;
 	JsonDecodeOptions decode_opts{.unknown_members = UnknownMemberPolicy::ignore};
 
 	for (auto const &row: NdjsonRange{ndjson}) {
@@ -84,15 +84,15 @@ static expected<std::map<S, RouteStats>, JsonError> aggregate_routes(
 }
 
 static expected<Document, JsonError> build_summary(
-	std::map<S, RouteStats> const &routes) {
+	std::map<std::string, RouteStats> const &routes) {
 	ValueBuilder builder;
 	auto root = builder.begin_object();
 	if (!root) {
 		return unexpected(move(root).error());
 	}
 
-	i64 total_samples{};
-	i64 total_failures{};
+	std::int64_t total_samples{};
+	std::int64_t total_failures{};
 	for (auto const &[route, stats]: routes) {
 		total_samples += stats.count;
 		total_failures += stats.failures;
@@ -149,7 +149,7 @@ static expected<Document, JsonError> build_summary(
 
 static void example_transform() {
 	std::println("--- NDJSON aggregate + builder output ---");
-	constexpr SV input =
+	constexpr std::string_view input =
 		R"({"route":"/v1/chat","latency_us":7100,"ok":true})"
 		"\n"
 		R"({"route":"/v1/chat","latency_us":12100,"ok":false})"

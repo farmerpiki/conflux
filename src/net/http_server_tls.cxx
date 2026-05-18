@@ -62,10 +62,10 @@ import :state;
 #if CONFLUX_HAS_TLS
 void Ring::tls_flush_wbio(
 	Conn &conn) {
-		A<char, 4096> buf{};
+		std::array<char, 4096> buf{};
 		int n{};
 		while ((n = BIO_read(SSL_get_wbio(conn.ssl.get()), buf.data(), static_cast<int>(buf.size()))) > 0) {
-			conn.tls_send_pending.append(buf.data(), static_cast<SZ>(n));
+			conn.tls_send_pending.append(buf.data(), static_cast<std::size_t>(n));
 		}
 	}
 
@@ -79,17 +79,17 @@ bool Ring::tls_feed_rbio(
 		if (rbio == nullptr) {
 			return false;
 		}
-		S in = move(conn.tls_rx_cipher);
+		std::string in = move(conn.tls_rx_cipher);
 		conn.tls_rx_cipher.clear();
-		SZ off{};
+		std::size_t off{};
 		while (off < in.size()) {
-			auto const want = static_cast<int>(min<SZ>(in.size() - off, static_cast<SZ>(NL<int>::max())));
+			auto const want = static_cast<int>(min<std::size_t>(in.size() - off, static_cast<std::size_t>(std::numeric_limits<int>::max())));
 			int const written = BIO_write(rbio, in.data() + off, want);
 			if (written <= 0) {
 				conn.tls_rx_cipher.append(in.data() + off, in.size() - off);
 				return false;
 			}
-			off += static_cast<SZ>(written);
+			off += static_cast<std::size_t>(written);
 		}
 		return true;
 	}
@@ -112,7 +112,7 @@ void Ring::tls_queue_send(
 		}
 
 		auto const view = span{conn.tls_send_inflight}.subspan(conn.tls_send_off);
-		auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<u32>(conn.fd)) :
+		auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(conn.fd)) :
 												SocketHandle::from_os(conn.fd);
 		auto const fd = conn.fd;
 		auto const gen = conn.gen;
@@ -121,7 +121,7 @@ void Ring::tls_queue_send(
 		if (!submit_send_borrowed(raw_, handle, view.data(), view.size(), pack(Op::Send, gen, fd))) {
 			conn.send_queued = false;
 			defer_op([this, fd, gen] {
-				auto const ufd = static_cast<SZ>(fd);
+				auto const ufd = static_cast<std::size_t>(fd);
 				if (ufd < fd_table.size() && fd_table[ufd].gen == gen && fd_table[ufd].fd >= 0) {
 					tls_queue_send(fd_table[ufd]);
 				}
@@ -323,10 +323,10 @@ void Ring::phase1b_tls_one(
 		}
 
 		// Handshake done — decrypt application data into partial.
-		A<char, BUF_SIZE> plain{};
+		std::array<char, BUF_SIZE> plain{};
 		int n{};
 		while ((n = SSL_read(conn.ssl.get(), plain.data(), static_cast<int>(plain.size()))) > 0) {
-			conn.partial.append(plain.data(), static_cast<SZ>(n));
+			conn.partial.append(plain.data(), static_cast<std::size_t>(n));
 		}
 		int const ssl_err = SSL_get_error(conn.ssl.get(), n);
 		if (ssl_err == SSL_ERROR_ZERO_RETURN
@@ -342,7 +342,7 @@ void Ring::phase1b_tls_one(
 	#else
 		if (!conn.partial.empty() && !conn.request_in_progress) {
 	#endif
-			conn.request_started = chrono::steady_clock::now();
+			conn.request_started = std::chrono::steady_clock::now();
 			conn.request_in_progress = true;
 		}
 
@@ -362,7 +362,7 @@ void Ring::phase1b_process() {
 			if (rc.res <= 0) {
 				continue;
 			}
-			auto const ufd = static_cast<SZ>(rc.fd);
+			auto const ufd = static_cast<std::size_t>(rc.fd);
 			if (ufd >= fd_table.size() || fd_table[ufd].gen != rc.gen) {
 				continue;
 			}

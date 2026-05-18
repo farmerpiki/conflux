@@ -33,11 +33,11 @@ export enum class PasswordHashAlgorithm {
 
 export struct PasswordHashOptions {
 	PasswordHashAlgorithm algorithm{PasswordHashAlgorithm::argon2id};
-	u32 memory_kib{64U * 1024U};
-	u32 iterations{3U};
-	u32 parallelism{1U};
-	u32 salt_bytes{16U};
-	u32 hash_bytes{32U};
+	std::uint32_t memory_kib{64U * 1024U};
+	std::uint32_t iterations{3U};
+	std::uint32_t parallelism{1U};
+	std::uint32_t salt_bytes{16U};
+	std::uint32_t hash_bytes{32U};
 };
 
 export struct PasswordHashSecrets {
@@ -46,9 +46,9 @@ export struct PasswordHashSecrets {
 
 export struct PasswordHashResourceLimits {
 	// 0 means use the library default: min(max(hardware_concurrency / 2, 1), 4).
-	u32 max_concurrent_hashes{0U};
+	std::uint32_t max_concurrent_hashes{0U};
 	// Requests beyond active hashes wait up to this many queued callers; 0 means fail fast.
-	u32 max_waiting_hashes{64U};
+	std::uint32_t max_waiting_hashes{64U};
 };
 
 export struct PasswordVerifyResult {
@@ -58,21 +58,21 @@ export struct PasswordVerifyResult {
 
 namespace password_hash_detail {
 
-constexpr u32 kArgon2Version = 0x13U;
-constexpr u32 kPbkdf2DefaultIterations = 600'000U;
-constexpr u32 kMaxPasswordBytes = static_cast<u32>(1U << 30U);
-constexpr u32 kMaxSaltBytes = 1024U;
-constexpr u32 kMaxHashBytes = 1024U;
-constexpr u32 kMaxVerifierSecretBytes = 4096U;
-constexpr u32 kMaxPbkdf2Iterations = 100'000'000U;
-constexpr u32 kMaxArgon2Iterations = 1024U;
-constexpr u32 kMaxArgon2MemoryKiB = 16U * 1024U * 1024U;
-constexpr u32 kMaxArgon2Parallelism = 1024U;
-constexpr u32 kMaxHashConcurrency = 1024U;
-constexpr u32 kMaxHashWaiters = 1U << 20U;
+constexpr std::uint32_t kArgon2Version = 0x13U;
+constexpr std::uint32_t kPbkdf2DefaultIterations = 600'000U;
+constexpr std::uint32_t kMaxPasswordBytes = static_cast<std::uint32_t>(1U << 30U);
+constexpr std::uint32_t kMaxSaltBytes = 1024U;
+constexpr std::uint32_t kMaxHashBytes = 1024U;
+constexpr std::uint32_t kMaxVerifierSecretBytes = 4096U;
+constexpr std::uint32_t kMaxPbkdf2Iterations = 100'000'000U;
+constexpr std::uint32_t kMaxArgon2Iterations = 1024U;
+constexpr std::uint32_t kMaxArgon2MemoryKiB = 16U * 1024U * 1024U;
+constexpr std::uint32_t kMaxArgon2Parallelism = 1024U;
+constexpr std::uint32_t kMaxHashConcurrency = 1024U;
+constexpr std::uint32_t kMaxHashWaiters = 1U << 20U;
 
-[[nodiscard]] u32 default_hash_concurrency() noexcept {
-	u32 const hw = max(1U, std::thread::hardware_concurrency());
+[[nodiscard]] std::uint32_t default_hash_concurrency() noexcept {
+	std::uint32_t const hw = max(1U, std::thread::hardware_concurrency());
 	return min(4U, max(1U, hw / 2U));
 }
 
@@ -96,10 +96,10 @@ struct HashPermit {
 struct PasswordHashGate {
 	mutex mtx;
 	std::condition_variable cv;
-	u32 max_concurrent{default_hash_concurrency()};
-	u32 max_waiting{64U};
-	u32 active{};
-	u32 waiting{};
+	std::uint32_t max_concurrent{default_hash_concurrency()};
+	std::uint32_t max_waiting{64U};
+	std::uint32_t active{};
+	std::uint32_t waiting{};
 
 	[[nodiscard]] expected<HashPermit, std::string> acquire() {
 		std::unique_lock lock{mtx};
@@ -129,7 +129,7 @@ struct PasswordHashGate {
 
 	[[nodiscard]] expected<void, std::string> configure(
 		PasswordHashResourceLimits limits) {
-		u32 const concurrency = limits.max_concurrent_hashes == 0U ? default_hash_concurrency() : limits.max_concurrent_hashes;
+		std::uint32_t const concurrency = limits.max_concurrent_hashes == 0U ? default_hash_concurrency() : limits.max_concurrent_hashes;
 		if (concurrency == 0U || concurrency > kMaxHashConcurrency) {
 			return unexpected{"password hash: invalid max_concurrent_hashes"};
 		}
@@ -175,20 +175,20 @@ HashPermit::~HashPermit() {
 
 struct ParsedHash {
 	PasswordHashAlgorithm algorithm{};
-	u32 version{};
-	u32 memory_kib{};
-	u32 iterations{};
-	u32 parallelism{};
-	u32 hash_bytes{};
+	std::uint32_t version{};
+	std::uint32_t memory_kib{};
+	std::uint32_t iterations{};
+	std::uint32_t parallelism{};
+	std::uint32_t hash_bytes{};
 	bool uses_verifier_secret{false};
 	std::string salt{};
 	std::string hash{};
 };
 
 using Argon2idHashRawFn = int (*)(
-	u32 t_cost,
-	u32 m_cost,
-	u32 parallelism,
+	std::uint32_t t_cost,
+	std::uint32_t m_cost,
+	std::uint32_t parallelism,
 	void const *pwd,
 	std::size_t pwdlen,
 	void const *salt,
@@ -233,11 +233,11 @@ struct Argon2Api {
 
 [[nodiscard]] bool parse_u32(
 	std::string_view text,
-	u32 &out) noexcept {
+	std::uint32_t &out) noexcept {
 	if (text.empty()) {
 		return false;
 	}
-	u32 value{};
+	std::uint32_t value{};
 	auto const *begin = text.data();
 	auto const *end = text.data() + text.size();
 	auto [ptr, ec] = from_chars(begin, end, value);
@@ -273,7 +273,7 @@ struct Argon2Api {
 	if (!keyed) {
 		return false;
 	}
-	u32 value{};
+	std::uint32_t value{};
 	if (!parse_u32(*keyed, value) || value > 1U) {
 		return unexpected{"password hash: malformed verifier-secret parameter"};
 	}
@@ -370,7 +370,7 @@ struct Argon2Api {
 	parsed.salt = move(*salt);
 	parsed.hash = move(*hash);
 	if (parsed.hash_bytes == 0U) {
-		parsed.hash_bytes = static_cast<u32>(parsed.hash.size());
+		parsed.hash_bytes = static_cast<std::uint32_t>(parsed.hash.size());
 	}
 	if (parsed.hash_bytes != parsed.hash.size()) {
 		return unexpected{"password hash: encoded hash length does not match parameters"};
@@ -417,22 +417,22 @@ struct Argon2Api {
 }
 
 struct Sha256State {
-	std::array<u32, 8> h{};
+	std::array<std::uint32_t, 8> h{};
 	std::array<unsigned char, 64> pending{};
-	u64 bytes{};
+	std::uint64_t bytes{};
 	std::size_t pending_size{};
 };
 
-[[nodiscard]] u32 rotr32(
-	u32 v,
-	u32 n) noexcept {
+[[nodiscard]] std::uint32_t rotr32(
+	std::uint32_t v,
+	std::uint32_t n) noexcept {
 	return (v >> n) | (v << (32U - n));
 }
 
 void sha256_compress(
-	std::array<u32, 8> &h,
+	std::array<std::uint32_t, 8> &h,
 	unsigned char const *block) noexcept {
-	static constexpr std::array<u32, 64> K{
+	static constexpr std::array<std::uint32_t, 64> K{
 		0x428a2f98U, 0x71374491U, 0xb5c0fbcfU, 0xe9b5dba5U, 0x3956c25bU, 0x59f111f1U, 0x923f82a4U, 0xab1c5ed5U,
 		0xd807aa98U, 0x12835b01U, 0x243185beU, 0x550c7dc3U, 0x72be5d74U, 0x80deb1feU, 0x9bdc06a7U, 0xc19bf174U,
 		0xe49b69c1U, 0xefbe4786U, 0x0fc19dc6U, 0x240ca1ccU, 0x2de92c6fU, 0x4a7484aaU, 0x5cb0a9dcU, 0x76f988daU,
@@ -443,28 +443,28 @@ void sha256_compress(
 		0x748f82eeU, 0x78a5636fU, 0x84c87814U, 0x8cc70208U, 0x90befffaU, 0xa4506cebU, 0xbef9a3f7U, 0xc67178f2U,
 	};
 
-	std::array<u32, 64> w{};
+	std::array<std::uint32_t, 64> w{};
 	for (std::size_t i = 0; i < 16; ++i) {
 		std::size_t const off = i * 4U;
-		w[i] = (static_cast<u32>(block[off]) << 24U)
-			 | (static_cast<u32>(block[off + 1U]) << 16U)
-			 | (static_cast<u32>(block[off + 2U]) << 8U)
-			 | static_cast<u32>(block[off + 3U]);
+		w[i] = (static_cast<std::uint32_t>(block[off]) << 24U)
+			 | (static_cast<std::uint32_t>(block[off + 1U]) << 16U)
+			 | (static_cast<std::uint32_t>(block[off + 2U]) << 8U)
+			 | static_cast<std::uint32_t>(block[off + 3U]);
 	}
 	for (std::size_t i = 16; i < 64; ++i) {
-		u32 const s0 = rotr32(w[i - 15U], 7U) ^ rotr32(w[i - 15U], 18U) ^ (w[i - 15U] >> 3U);
-		u32 const s1 = rotr32(w[i - 2U], 17U) ^ rotr32(w[i - 2U], 19U) ^ (w[i - 2U] >> 10U);
+		std::uint32_t const s0 = rotr32(w[i - 15U], 7U) ^ rotr32(w[i - 15U], 18U) ^ (w[i - 15U] >> 3U);
+		std::uint32_t const s1 = rotr32(w[i - 2U], 17U) ^ rotr32(w[i - 2U], 19U) ^ (w[i - 2U] >> 10U);
 		w[i] = w[i - 16U] + s0 + w[i - 7U] + s1;
 	}
 
 	auto [a, b, c, d, e, f, g, hh] = h;
 	for (std::size_t i = 0; i < 64; ++i) {
-		u32 const ch = (e & f) ^ (~e & g);
-		u32 const maj = (a & b) ^ (a & c) ^ (b & c);
-		u32 const s1 = rotr32(e, 6U) ^ rotr32(e, 11U) ^ rotr32(e, 25U);
-		u32 const s0 = rotr32(a, 2U) ^ rotr32(a, 13U) ^ rotr32(a, 22U);
-		u32 const t1 = hh + s1 + ch + K[i] + w[i];
-		u32 const t2 = s0 + maj;
+		std::uint32_t const ch = (e & f) ^ (~e & g);
+		std::uint32_t const maj = (a & b) ^ (a & c) ^ (b & c);
+		std::uint32_t const s1 = rotr32(e, 6U) ^ rotr32(e, 11U) ^ rotr32(e, 25U);
+		std::uint32_t const s0 = rotr32(a, 2U) ^ rotr32(a, 13U) ^ rotr32(a, 22U);
+		std::uint32_t const t1 = hh + s1 + ch + K[i] + w[i];
+		std::uint32_t const t2 = s0 + maj;
 		hh = g;
 		g = f;
 		f = e;
@@ -482,7 +482,7 @@ void sha256_compress(
 }
 
 void sha256_update(Sha256State &state, span<unsigned char const> msg) noexcept {
-	state.bytes += static_cast<u64>(msg.size());
+	state.bytes += static_cast<std::uint64_t>(msg.size());
 	if (state.pending_size != 0U) {
 		std::size_t const n = min(msg.size(), state.pending.size() - state.pending_size);
 		ranges::copy(msg.first(n), state.pending.begin() + static_cast<std::ptrdiff_t>(state.pending_size));
@@ -495,7 +495,7 @@ void sha256_update(Sha256State &state, span<unsigned char const> msg) noexcept {
 }
 
 [[nodiscard]] std::array<unsigned char, 32> sha256_final(Sha256State state) noexcept {
-	u64 const bit_len = state.bytes * 8ULL;
+	std::uint64_t const bit_len = state.bytes * 8ULL;
 	state.pending[state.pending_size++] = 0x80U;
 	if (state.pending_size > 56U) {
 		for (std::size_t i = state.pending_size; i < 64U; ++i) { state.pending[i] = 0U; }
@@ -532,8 +532,8 @@ struct HmacSha256Key { std::array<unsigned char, 64> inner{}; std::array<unsigne
 [[nodiscard]] std::array<unsigned char, 32> pbkdf2_block(
 	HmacSha256Key const &password_key,
 	span<unsigned char const> salt,
-	u32 iterations,
-	u32 block_index) noexcept {
+	std::uint32_t iterations,
+	std::uint32_t block_index) noexcept {
 	std::array<unsigned char, 4> block_suffix{
 		static_cast<unsigned char>((block_index >> 24U) & 0xFFU),
 		static_cast<unsigned char>((block_index >> 16U) & 0xFFU),
@@ -542,7 +542,7 @@ struct HmacSha256Key { std::array<unsigned char, 64> inner{}; std::array<unsigne
 	};
 	auto u = hmac_sha256_noalloc(password_key, salt, block_suffix);
 	std::array<unsigned char, 32> out = u;
-	for (u32 i = 1; i < iterations; ++i) {
+	for (std::uint32_t i = 1; i < iterations; ++i) {
 		u = hmac_sha256_noalloc(password_key, u);
 		for (std::size_t j = 0; j < out.size(); ++j) { out[j] = static_cast<unsigned char>(out[j] ^ u[j]); }
 	}
@@ -552,8 +552,8 @@ struct HmacSha256Key { std::array<unsigned char, 64> inner{}; std::array<unsigne
 [[nodiscard]] expected<std::string, std::string> pbkdf2_sha256(
 	std::string_view password,
 	std::string_view salt,
-	u32 iterations,
-	u32 hash_bytes) {
+	std::uint32_t iterations,
+	std::uint32_t hash_bytes) {
 	if (iterations == 0U || iterations > kMaxPbkdf2Iterations) {
 		return unexpected{"password hash: invalid pbkdf2-sha256 iteration count"};
 	}
@@ -563,7 +563,7 @@ struct HmacSha256Key { std::array<unsigned char, 64> inner{}; std::array<unsigne
 	std::vector<unsigned char> out(hash_bytes);
 	span<unsigned char const> salt_bytes = bytes_view(salt);
 	auto password_key = hmac_sha256_key(bytes_view(password));
-	u32 block_index = 1U;
+	std::uint32_t block_index = 1U;
 	std::size_t filled = 0;
 	while (filled < out.size()) {
 		auto block = pbkdf2_block(password_key, salt_bytes, iterations, block_index++);
@@ -577,13 +577,13 @@ struct HmacSha256Key { std::array<unsigned char, 64> inner{}; std::array<unsigne
 [[nodiscard]] expected<std::string, std::string> apply_verifier_secret(
 	std::string &&raw,
 	std::string_view verifier_secret,
-	u32 hash_bytes) {
+	std::uint32_t hash_bytes) {
 	if (verifier_secret.empty()) { return move(raw); }
 	if (hash_bytes == 0U || hash_bytes > kMaxHashBytes) { return unexpected{"password hash: invalid verifier-secret output byte count"}; }
 	auto key = hmac_sha256_key(bytes_view(verifier_secret));
 	span<unsigned char const> raw_bytes = bytes_view(raw);
 	std::vector<unsigned char> out(hash_bytes);
-	u32 block_index = 1U;
+	std::uint32_t block_index = 1U;
 	std::size_t filled = 0;
 	while (filled < out.size()) {
 		std::array<unsigned char, 4> suffix{
@@ -604,10 +604,10 @@ struct HmacSha256Key { std::array<unsigned char, 64> inner{}; std::array<unsigne
 [[nodiscard]] expected<std::string, std::string> argon2id_raw(
 	std::string_view password,
 	std::string_view salt,
-	u32 memory_kib,
-	u32 iterations,
-	u32 parallelism,
-	u32 hash_bytes) {
+	std::uint32_t memory_kib,
+	std::uint32_t iterations,
+	std::uint32_t parallelism,
+	std::uint32_t hash_bytes) {
 	Argon2Api const &api = argon2_api();
 	if (api.hash_raw == nullptr) {
 		return unexpected{"password hash: Argon2id unavailable (backend not configured or libargon2 unavailable)"};
@@ -674,8 +674,8 @@ struct HmacSha256Key { std::array<unsigned char, 64> inner{}; std::array<unsigne
 	opts.memory_kib = parsed.memory_kib;
 	opts.iterations = parsed.iterations;
 	opts.parallelism = parsed.parallelism;
-	opts.salt_bytes = static_cast<u32>(parsed.salt.size());
-	opts.hash_bytes = static_cast<u32>(parsed.hash.size());
+	opts.salt_bytes = static_cast<std::uint32_t>(parsed.salt.size());
+	opts.hash_bytes = static_cast<std::uint32_t>(parsed.hash.size());
 	return derive_hash(password, parsed.salt, opts, secrets);
 }
 
@@ -713,7 +713,7 @@ export [[nodiscard]] PasswordHashResourceLimits password_hash_resource_limits() 
 }
 
 export [[nodiscard]] PasswordHashOptions pbkdf2_sha256_password_hash_options(
-	u32 iterations = password_hash_detail::kPbkdf2DefaultIterations) noexcept {
+	std::uint32_t iterations = password_hash_detail::kPbkdf2DefaultIterations) noexcept {
 	PasswordHashOptions opts;
 	opts.algorithm = PasswordHashAlgorithm::pbkdf2_sha256;
 	opts.memory_kib = 0U;

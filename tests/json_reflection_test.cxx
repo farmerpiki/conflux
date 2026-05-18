@@ -42,8 +42,8 @@ int g_failures = 0;
 int g_checks = 0;
 void check_impl(
 	bool cond,
-	SV test,
-	SV msg) {
+	std::string_view test,
+	std::string_view msg) {
 	++g_checks;
 	if (!cond) {
 		++g_failures;
@@ -230,7 +230,7 @@ void test_has_json_codec_concept() {
 // ---------------------------------------------------------------------------
 
 void test_reader_path_decode() {
-	SV input = R"({"x": 5, "y": -3})";
+	std::string_view input = R"({"x": 5, "y": -3})";
 	JsonReader reader{input};
 	auto p = decode<Point>(reader);
 	REQUIRE(p.has_value());
@@ -245,7 +245,7 @@ export int run_tests() {
 	using fn_t = void (*)();
 	struct {
 		fn_t fn;
-		SV name;
+		std::string_view name;
 	} tests[] = {
 		{			test_decode_plain_aggregate,             "decode plain aggregate"},
 		{       test_decode_with_name_annotation,        "decode with name annotation"},

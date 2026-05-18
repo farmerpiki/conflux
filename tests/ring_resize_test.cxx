@@ -32,7 +32,7 @@ void submit_nops_no_drain(
 				break;
 			}
 			io_uring_prep_nop(sqe.raw());
-			io_uring_sqe_set_data64(sqe.raw(), static_cast<u64>(done + i));
+			io_uring_sqe_set_data64(sqe.raw(), static_cast<std::uint64_t>(done + i));
 		}
 		ring.submit();
 		done += b;
@@ -78,7 +78,7 @@ TEST_CASE(
 		SKIP("kernel lacks IORING_FEAT_RESIZE_RINGS");
 	}
 
-	u32 const before = r->ref().cq_entries();
+	std::uint32_t const before = r->ref().cq_entries();
 	auto rc = r->grow_cq_to(32);
 	REQUIRE(rc);
 	CHECK(r->ref().cq_entries() >= 32u);
@@ -98,8 +98,8 @@ TEST_CASE(
 		SKIP("kernel lacks IORING_FEAT_RESIZE_RINGS");
 	}
 
-	u32 const sq = r->ref().sq_entries();
-	u32 const cq = r->ref().cq_entries();
+	std::uint32_t const sq = r->ref().sq_entries();
+	std::uint32_t const cq = r->ref().cq_entries();
 	auto rc = r->resize({.sq_entries = sq, .cq_entries = cq});
 	REQUIRE(rc);
 	CHECK(r->ref().sq_entries() == sq);
@@ -119,7 +119,7 @@ TEST_CASE(
 		SKIP("kernel lacks IORING_FEAT_RESIZE_RINGS");
 	}
 
-	u32 const cq = r->ref().cq_entries();
+	std::uint32_t const cq = r->ref().cq_entries();
 	auto rc = r->grow_cq_to(cq); // entries <= current_cq → early return
 	REQUIRE(rc);
 	CHECK(r->ref().cq_entries() == cq);
@@ -138,7 +138,7 @@ TEST_CASE(
 		SKIP("kernel lacks IORING_FEAT_RESIZE_RINGS");
 	}
 
-	u32 const cq = r->ref().cq_entries();
+	std::uint32_t const cq = r->ref().cq_entries();
 	REQUIRE(cq > 4u);
 	auto rc = r->grow_cq_to(4u); // smaller → no-op
 	REQUIRE(rc);
@@ -190,8 +190,8 @@ TEST_CASE(
 	// so this test does not need the runtime caps.resize_rings flag.
 	auto r = Ring::init(8, {});
 	REQUIRE(r);
-	u32 const sq = r->ref().sq_entries();
-	u32 const cq = r->ref().cq_entries();
+	std::uint32_t const sq = r->ref().sq_entries();
+	std::uint32_t const cq = r->ref().cq_entries();
 	auto rc = r->resize({.sq_entries = sq, .cq_entries = cq * 2u});
 	REQUIRE(!rc);
 	CHECK(rc.error() == -EINVAL);
@@ -216,12 +216,12 @@ TEST_CASE(
 			free(ptr);
 		}
 	};
-	UPD<void, Free> buf{aligned_alloc(4096, static_cast<SZ>(needed))};
+	std::unique_ptr<void, Free> buf{aligned_alloc(4096, static_cast<std::size_t>(needed))};
 	if (!buf) {
 		SKIP("aligned_alloc failed — skipping");
 	}
 
-	auto r = Ring::init_mem(sq_sz, p, buf.get(), static_cast<SZ>(needed));
+	auto r = Ring::init_mem(sq_sz, p, buf.get(), static_cast<std::size_t>(needed));
 	if (!r) {
 		SKIP("NO_MMAP ring init failed — skipping");
 	}

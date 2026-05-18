@@ -19,90 +19,90 @@ namespace json = conflux::json;
 using JsonProvider = conflux::json::boundary::NativeJsonProvider;
 
 struct StatusReply {
-	S status;
-	S placement;
+	std::string status;
+	std::string placement;
 };
 
 template<>
 struct JsonMembers<StatusReply> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("status", &StatusReply::status),
 			json_member("placement", &StatusReply::placement),
 		};
 	}
-	static constexpr SV type_name() { return "StatusReply"; }
+	static constexpr std::string_view type_name() { return "StatusReply"; }
 };
 
 struct HashRequest {
-	S input;
-	i64 rounds{1};
+	std::string input;
+	std::int64_t rounds{1};
 };
 
 template<>
 struct JsonMembers<HashRequest> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("input", &HashRequest::input),
 			json_member("rounds", &HashRequest::rounds),
 		};
 	}
-	static constexpr SV type_name() { return "HashRequest"; }
+	static constexpr std::string_view type_name() { return "HashRequest"; }
 };
 
 struct HashReply {
-	S algorithm;
-	i64 rounds{};
-	u64 hash{};
+	std::string algorithm;
+	std::int64_t rounds{};
+	std::uint64_t hash{};
 };
 
 template<>
 struct JsonMembers<HashReply> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("algorithm", &HashReply::algorithm),
 			json_member("rounds", &HashReply::rounds),
 			json_member("hash", &HashReply::hash),
 		};
 	}
-	static constexpr SV type_name() { return "HashReply"; }
+	static constexpr std::string_view type_name() { return "HashReply"; }
 };
 
 struct ApiError {
-	S error;
+	std::string error;
 };
 
 template<>
 struct JsonMembers<ApiError> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("error", &ApiError::error),
 		};
 	}
-	static constexpr SV type_name() { return "ApiError"; }
+	static constexpr std::string_view type_name() { return "ApiError"; }
 };
 
-static u64 hash_rounds(
-	SV input,
-	i64 rounds) {
-	u64 h = 1469598103934665603ull;
-	for (i64 round = 0; round < rounds; ++round) {
+static std::uint64_t hash_rounds(
+	std::string_view input,
+	std::int64_t rounds) {
+	std::uint64_t h = 1469598103934665603ull;
+	for (std::int64_t round = 0; round < rounds; ++round) {
 		for (unsigned char const c: input) {
 			h ^= c;
 			h *= 1099511628211ull;
 		}
-		h ^= static_cast<u64>(round);
+		h ^= static_cast<std::uint64_t>(round);
 		h *= 1099511628211ull;
 	}
 	return h;
 }
 
 static HttpResponse json_error(
-	SV message,
+	std::string_view message,
 	int status,
-	SV status_text) {
+	std::string_view status_text) {
 	return http::json::response_or_internal_error(
-		ApiError{.error = S{message}},
+		ApiError{.error = std::string{message}},
 		http::json::ResponseOptions{.status = status, .status_text = status_text});
 }
 

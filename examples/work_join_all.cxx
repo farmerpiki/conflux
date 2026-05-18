@@ -4,11 +4,11 @@ import conflux.work;
 import conflux.types;
 import std;
 
-static bool is_prime(i64 n) {
+static bool is_prime(std::int64_t n) {
 	if (n < 2) {
 		return false;
 	}
-	for (i64 d = 2; d * d <= n; ++d) {
+	for (std::int64_t d = 2; d * d <= n; ++d) {
 		if (n % d == 0) {
 			return false;
 		}
@@ -16,9 +16,9 @@ static bool is_prime(i64 n) {
 	return true;
 }
 
-static i64 count_primes(i64 first, i64 last) {
-	i64 count = 0;
-	for (i64 n = first; n < last; ++n) {
+static std::int64_t count_primes(std::int64_t first, std::int64_t last) {
+	std::int64_t count = 0;
+	for (std::int64_t n = first; n < last; ++n) {
 		count += is_prime(n) ? 1 : 0;
 	}
 	return count;
@@ -37,7 +37,7 @@ int main() {
 	std::println("primes below 100000: {}", a + b + c + d);
 
 	try {
-		(void)sync_wait(async_run_on(pool, []() -> i64 { throw RE{"worker-side failure"}; }));
+		(void)sync_wait(async_run_on(pool, []() -> std::int64_t { throw std::runtime_error{"worker-side failure"}; }));
 	} catch (exception const &e) {
 		std::println("failure propagated through task outcome: {}", e.what());
 	}

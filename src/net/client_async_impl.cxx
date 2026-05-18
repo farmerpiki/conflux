@@ -33,14 +33,14 @@ namespace async_detail {
 
 using namespace conflux::http;
 namespace wroot = conflux::work::root;
-using TP = chrono::steady_clock::time_point;
+using TP = std::chrono::steady_clock::time_point;
 
 #if CONFLUX_HAS_TLS
-[[nodiscard]] S tls_error_string() {
-	S out;
+[[nodiscard]] std::string tls_error_string() {
+	std::string out;
 	unsigned long e;
 	while ((e = ERR_get_error()) != 0) {
-		A<char, 256> buf{};
+		std::array<char, 256> buf{};
 		ERR_error_string_n(e, buf.data(), buf.size());
 		if (!out.empty()) {
 			out += "; ";
@@ -49,35 +49,35 @@ using TP = chrono::steady_clock::time_point;
 	}
 	return out.empty() ? "TLS error" : out;
 }
-[[nodiscard]] S tls_error_string(
+[[nodiscard]] std::string tls_error_string(
 	TlsError const &e) {
 	auto q = tls_error_string();
-	return q.empty() || q == "TLS error" ? S{e.what()} : q;
+	return q.empty() || q == "TLS error" ? std::string{e.what()} : q;
 }
 #endif
 struct PlainStreamRef {
 	TcpStream &s;
-	SP<ActiveTaskCancelRelay> cancel;
-	chrono::milliseconds per_recv;
-	chrono::milliseconds per_write;
-	[[nodiscard]] wroot::Task<SZ> recv(
-		span<u8> buf) {
+	std::shared_ptr<ActiveTaskCancelRelay> cancel;
+	std::chrono::milliseconds per_recv;
+	std::chrono::milliseconds per_write;
+	[[nodiscard]] wroot::Task<std::size_t> recv(
+		span<std::uint8_t> buf) {
 		auto child = per_recv.count() <= 0 ? s.async_recv_borrowed(buf) : s.async_recv_borrowed(buf, per_recv);
 		return cancel->await_child(move(child));
 	}
-	[[nodiscard]] wroot::Task<SZ> recv(
-		span<u8> buf,
-		chrono::milliseconds t) {
+	[[nodiscard]] wroot::Task<std::size_t> recv(
+		span<std::uint8_t> buf,
+		std::chrono::milliseconds t) {
 		auto child = t.count() <= 0 ? s.async_recv_borrowed(buf) : s.async_recv_borrowed(buf, t);
 		return cancel->await_child(move(child));
 	}
 	[[nodiscard]] wroot::Task<void> write(
-		span<u8 const> buf) {
-		SZ sent = 0;
+		span<std::uint8_t const> buf) {
+		std::size_t sent = 0;
 		while (sent < buf.size()) {
 			cancel->throw_if_cancelled();
-			auto child = s.async_write_borrowed(span<u8 const>{buf.data() + sent, buf.size() - sent}, per_write);
-			SZ const n = co_await cancel->await_child(move(child));
+			auto child = s.async_write_borrowed(span<std::uint8_t const>{buf.data() + sent, buf.size() - sent}, per_write);
+			std::size_t const n = co_await cancel->await_child(move(child));
 			if (n == 0) {
 				throw IoError{ECONNRESET, "tcp: connection closed"};
 			}
@@ -88,19 +88,19 @@ struct PlainStreamRef {
 #if CONFLUX_HAS_TLS
 struct TlsStreamRef {
 	TcpTlsStream &s;
-	chrono::milliseconds per_recv;
-	chrono::milliseconds per_write;
-	[[nodiscard]] wroot::Task<SZ> recv(
-		span<u8> buf) {
+	std::chrono::milliseconds per_recv;
+	std::chrono::milliseconds per_write;
+	[[nodiscard]] wroot::Task<std::size_t> recv(
+		span<std::uint8_t> buf) {
 		return s.read_some(buf, per_recv);
 	}
-	[[nodiscard]] wroot::Task<SZ> recv(
-		span<u8> buf,
-		chrono::milliseconds t) {
+	[[nodiscard]] wroot::Task<std::size_t> recv(
+		span<std::uint8_t> buf,
+		std::chrono::milliseconds t) {
 		return s.read_some(buf, t);
 	}
 	[[nodiscard]] wroot::Task<void> write(
-		span<u8 const> buf) {
+		span<std::uint8_t const> buf) {
 		return s.write_all(buf, per_write);
 	}
 };
@@ -114,15 +114,15 @@ struct TlsStreamRef {
 	Url const &b) noexcept {
 	return a.scheme == b.scheme && a.host == b.host && a.port == b.port;
 }
-[[nodiscard]] Opt<Url> resolve_redirect_target(
+[[nodiscard]] std::optional<Url> resolve_redirect_target(
 	Url const &base,
-	SV location) {
-	if (location.empty() || location.find_first_of("\r\n") != SV::npos) {
+	std::string_view location) {
+	if (location.empty() || location.find_first_of("\r\n") != std::string_view::npos) {
 		return nullopt;
 	}
-	S loc{location};
+	std::string loc{location};
 	auto const frag = loc.find('#');
-	if (frag != S::npos) {
+	if (frag != std::string::npos) {
 		loc.erase(frag);
 	}
 	if (loc.empty()) {
@@ -130,14 +130,14 @@ struct TlsStreamRef {
 	}
 	if (loc.starts_with("//")) {
 		auto abs = Url::parse(format("{}:{}", base.scheme, loc));
-		return abs ? Opt<Url>{move(*abs)} : nullopt;
+		return abs ? std::optional<Url>{move(*abs)} : nullopt;
 	}
 	if (auto abs = Url::parse(loc); abs) {
 		return move(*abs);
 	}
 	Url next = base;
 	auto const q = loc.find('?');
-	if (q != S::npos) {
+	if (q != std::string::npos) {
 		next.query = loc.substr(q + 1);
 		loc.erase(q);
 		if (loc.empty()) {
@@ -150,16 +150,16 @@ struct TlsStreamRef {
 		next.path = move(loc);
 		return next;
 	}
-	S base_path = next.path.empty() ? S{"/"} : next.path;
+	std::string base_path = next.path.empty() ? std::string{"/"} : next.path;
 	auto const slash = base_path.rfind('/');
-	if (slash == S::npos) {
-		next.path = S{"/"} + loc;
+	if (slash == std::string::npos) {
+		next.path = std::string{"/"} + loc;
 	} else {
-		next.path = S{base_path.substr(0, slash + 1)} + loc;
+		next.path = std::string{base_path.substr(0, slash + 1)} + loc;
 	}
 	return next;
 }
-[[nodiscard]] expected<Opt<ClientRequest>, HttpError> follow_redirect(
+[[nodiscard]] expected<std::optional<ClientRequest>, HttpError> follow_redirect(
 	ClientRequest const &req,
 	ClientResponse const &resp) {
 	if (!is_redirect_status(resp.head.status)) {
@@ -239,28 +239,28 @@ void accumulate_telemetry(
 	}
 }
 
-enum class ChunkedDecodeStatus : u8 {
+enum class ChunkedDecodeStatus : std::uint8_t {
 	complete,
 	incomplete,
 	invalid,
 };
 ChunkedDecodeStatus decode_chunked_prefix(
-	SV encoded,
-	S &decoded,
-	SZ &consumed) {
+	std::string_view encoded,
+	std::string &decoded,
+	std::size_t &consumed) {
 	for (;;) {
 		auto const line_end = encoded.find("\r\n", consumed);
-		if (line_end == SV::npos) {
+		if (line_end == std::string_view::npos) {
 			return ChunkedDecodeStatus::incomplete;
 		}
 		auto size_str = trim(encoded.substr(consumed, line_end - consumed));
-		if (auto const semi = size_str.find(';'); semi != SV::npos) {
+		if (auto const semi = size_str.find(';'); semi != std::string_view::npos) {
 			size_str = trim(size_str.substr(0, semi));
 		}
 		if (size_str.empty()) {
 			return ChunkedDecodeStatus::invalid;
 		}
-		SZ chunk_size = 0;
+		std::size_t chunk_size = 0;
 		auto const parsed = from_chars(size_str.data(), size_str.data() + size_str.size(), chunk_size, 16);
 		if (parsed.ec != errc{} || parsed.ptr != size_str.data() + size_str.size()) {
 			return ChunkedDecodeStatus::invalid;
@@ -269,7 +269,7 @@ ChunkedDecodeStatus decode_chunked_prefix(
 		if (chunk_size == 0) {
 			for (;;) {
 				auto const eol = encoded.find("\r\n", consumed);
-				if (eol == SV::npos) {
+				if (eol == std::string_view::npos) {
 					return ChunkedDecodeStatus::incomplete;
 				}
 				bool const empty = (eol == consumed);
@@ -291,27 +291,27 @@ ChunkedDecodeStatus decode_chunked_prefix(
 	}
 }
 template<typename T>
-wroot::Task<S> async_recv_until(
+wroot::Task<std::string> async_recv_until(
 	T &t,
-	SV delim,
-	SZ max,
+	std::string_view delim,
+	std::size_t max,
 	TP deadline) {
-	S buf;
-	buf.reserve(min<SZ>(4096, max));
-	A<u8, 4096> tmp{};
+	std::string buf;
+	buf.reserve(min<std::size_t>(4096, max));
+	std::array<std::uint8_t, 4096> tmp{};
 	while (buf.size() < max) {
-		SZ n;
+		std::size_t n;
 		try {
 			if (deadline == TP::max()) {
-				n = co_await t.recv(span<u8>{tmp.data(), tmp.size()}, chrono::milliseconds{0});
+				n = co_await t.recv(span<std::uint8_t>{tmp.data(), tmp.size()}, std::chrono::milliseconds{0});
 			} else {
-				auto const now = chrono::steady_clock::now();
+				auto const now = std::chrono::steady_clock::now();
 				if (now >= deadline) {
 					throw IoError{ETIMEDOUT, "tcp: recv timed out"};
 				}
 				n = co_await t.recv(
-					span<u8>{tmp.data(), tmp.size()},
-					chrono::ceil<chrono::milliseconds>(deadline - now));
+					span<std::uint8_t>{tmp.data(), tmp.size()},
+					std::chrono::ceil<std::chrono::milliseconds>(deadline - now));
 			}
 		} catch (IoError const &) { throw; } catch (...) {
 			throw;
@@ -320,7 +320,7 @@ wroot::Task<S> async_recv_until(
 			break;
 		}
 		buf.append(reinterpret_cast<char const *>(tmp.data()), n);
-		if (buf.find(delim) != S::npos) {
+		if (buf.find(delim) != std::string::npos) {
 			break;
 		}
 	}
@@ -329,18 +329,18 @@ wroot::Task<S> async_recv_until(
 template<typename T>
 wroot::Task<bool> async_recv_exact(
 	T &t,
-	S &out,
-	SZ target,
-	SZ cap) {
-	A<u8, 4096> tmp{};
+	std::string &out,
+	std::size_t target,
+	std::size_t cap) {
+	std::array<std::uint8_t, 4096> tmp{};
 	while (out.size() < target) {
 		if (out.size() >= cap) {
 			co_return false;
 		}
 		auto const want = min(tmp.size(), target - out.size());
-		SZ n;
+		std::size_t n;
 		try {
-			n = co_await t.recv(span<u8>{tmp.data(), want});
+			n = co_await t.recv(span<std::uint8_t>{tmp.data(), want});
 		} catch (IoError const &) { throw; } catch (...) {
 			throw;
 		}
@@ -354,15 +354,15 @@ wroot::Task<bool> async_recv_exact(
 template<typename T>
 wroot::Task<void> async_recv_to_eof(
 	T &t,
-	S &out,
-	SZ cap,
+	std::string &out,
+	std::size_t cap,
 	bool &too_large) {
 	too_large = false;
-	A<u8, 4096> tmp{};
+	std::array<std::uint8_t, 4096> tmp{};
 	for (;;) {
-		SZ n;
+		std::size_t n;
 		try {
-			n = co_await t.recv(span<u8>{tmp.data(), tmp.size()});
+			n = co_await t.recv(span<std::uint8_t>{tmp.data(), tmp.size()});
 		} catch (IoError const &) { throw; } catch (...) {
 			throw;
 		}
@@ -379,15 +379,15 @@ wroot::Task<void> async_recv_to_eof(
 template<typename T>
 wroot::Task<bool> async_recv_chunked(
 	T &t,
-	S &encoded,
-	S &decoded,
-	SZ cap,
-	SZ buf_cap,
+	std::string &encoded,
+	std::string &decoded,
+	std::size_t cap,
+	std::size_t buf_cap,
 	bool &too_large) {
 	too_large = false;
 	decoded.clear();
-	SZ consumed = 0;
-	A<u8, 4096> tmp{};
+	std::size_t consumed = 0;
+	std::array<std::uint8_t, 4096> tmp{};
 	for (;;) {
 		auto const st = decode_chunked_prefix(encoded, decoded, consumed);
 		if (st == ChunkedDecodeStatus::complete) {
@@ -400,9 +400,9 @@ wroot::Task<bool> async_recv_chunked(
 			too_large = true;
 			co_return false;
 		}
-		SZ n;
+		std::size_t n;
 		try {
-			n = co_await t.recv(span<u8>{tmp.data(), tmp.size()});
+			n = co_await t.recv(span<std::uint8_t>{tmp.data(), tmp.size()});
 		} catch (IoError const &) { throw; } catch (...) {
 			throw;
 		}
@@ -413,15 +413,15 @@ wroot::Task<bool> async_recv_chunked(
 	}
 }
 struct HappyConnectState {
-	Atom<bool> won{false};
-	Atom<bool> fast_fail{false};
-	Atom<bool> cancelled{false};
-	Atom<int> pending{0};
+	std::atomic<bool> won{false};
+	std::atomic<bool> fast_fail{false};
+	std::atomic<bool> cancelled{false};
+	std::atomic<int> pending{0};
 	mutex m;
-	V<wroot::TaskControl> attempts;
+	std::vector<wroot::TaskControl> attempts;
 	void register_attempt(
 		wroot::TaskControl c) {
-		Opt<wroot::TaskControl> cancel_now;
+		std::optional<wroot::TaskControl> cancel_now;
 		{
 			lock_guard lk{m};
 			if (cancelled.load(memory_order_acquire)) {
@@ -435,7 +435,7 @@ struct HappyConnectState {
 		}
 	}
 	void cancel_all() noexcept {
-		V<wroot::TaskControl> copy;
+		std::vector<wroot::TaskControl> copy;
 		{
 			lock_guard lk{m};
 			cancelled.store(true, memory_order_release);
@@ -452,8 +452,8 @@ wroot::Task<void> happy_attempt(
 	sockaddr_storage ss,
 	socklen_t addr_len,
 	ConnectOptions copts,
-	SP<HappyConnectState> hs,
-	SP<wroot::TaskSource<TcpStream>> winner_src) {
+	std::shared_ptr<HappyConnectState> hs,
+	std::shared_ptr<wroot::TaskSource<TcpStream>> winner_src) {
 	try {
 		auto connect_task = async_tcp_connect(ring, fam, ss, addr_len, copts);
 		hs->register_attempt(connect_task.control());
@@ -472,9 +472,9 @@ wroot::Task<void> happy_attempt(
 }
 wroot::Task<TcpStream> staggered_parallel_connect(
 	SocketTaskRing &ring,
-	V<client_dns_bridge::Endpoint> const &endpoints,
+	std::vector<client_dns_bridge::Endpoint> const &endpoints,
 	ConnectOptions copts) {
-	constexpr chrono::milliseconds kStagger{250};
+	constexpr std::chrono::milliseconds kStagger{250};
 	auto hs = make_shared<HappyConnectState>();
 	hs->pending.store(static_cast<int>(endpoints.size()), memory_order_relaxed);
 	auto [task, raw_src] = wroot::make_task_source<TcpStream>(wroot::SubmitOptions{.enable_cancellation = true});
@@ -486,7 +486,7 @@ wroot::Task<TcpStream> staggered_parallel_connect(
 			auto _ = src->try_set_cancelled();
 		}
 	});
-	for (SZ i = 0; i < endpoints.size(); ++i) {
+	for (std::size_t i = 0; i < endpoints.size(); ++i) {
 		if (hs->cancelled.load(memory_order_acquire)) {
 			break;
 		}
@@ -497,16 +497,16 @@ wroot::Task<TcpStream> staggered_parallel_connect(
 		happy_attempt(ring, fam, ss, static_cast<socklen_t>(ep.addr_len), copts, hs, winner_src).detach();
 		if (i + 1 < endpoints.size()) {
 			hs->fast_fail.store(false, memory_order_relaxed);
-			auto const t_stagger = chrono::steady_clock::now() + kStagger;
+			auto const t_stagger = std::chrono::steady_clock::now() + kStagger;
 			while (!hs->fast_fail.load(memory_order_acquire)
 				   && !hs->won.load(memory_order_acquire)
 				   && !hs->cancelled.load(memory_order_acquire)) {
-				auto const now = chrono::steady_clock::now();
+				auto const now = std::chrono::steady_clock::now();
 				if (now >= t_stagger) {
 					break;
 				}
-				auto const rem = chrono::ceil<chrono::milliseconds>(t_stagger - now);
-				co_await async_sleep_for(ring, min(chrono::milliseconds{10}, rem));
+				auto const rem = std::chrono::ceil<std::chrono::milliseconds>(t_stagger - now);
+				co_await async_sleep_for(ring, min(std::chrono::milliseconds{10}, rem));
 			}
 			if (hs->won.load(memory_order_acquire) || hs->cancelled.load(memory_order_acquire)) {
 				break;
@@ -519,7 +519,7 @@ wroot::Task<ClientResult> do_async_request(
 	SocketTaskRing &ring,
 	ClientRequest const &req,
 	HttpClientOptions const &opts,
-	SP<ActiveTaskCancelRelay> cancel) {
+	std::shared_ptr<ActiveTaskCancelRelay> cancel) {
 	auto const &url = req.url();
 	constexpr HttpTimeouts kDef{};
 	auto const &rt = req.timeouts();
@@ -533,29 +533,29 @@ wroot::Task<ClientResult> do_async_request(
 		.between_bytes = rt.between_bytes != kDef.between_bytes ? rt.between_bytes : cd.between_bytes,
 	};
 	HttpTelemetry tel{};
-	V<client_dns_bridge::Endpoint> endpoints;
-	auto const t0 = chrono::steady_clock::now();
+	std::vector<client_dns_bridge::Endpoint> endpoints;
+	auto const t0 = std::chrono::steady_clock::now();
 	cancel->throw_if_cancelled();
 	if (opts.resolver) {
-		A<char, 256> errbuf{};
+		std::array<char, 256> errbuf{};
 		auto *ctx = &endpoints;
 		client_dns_bridge::resolve(
 			opts.resolver,
 			url.host.data(),
 			url.host.size(),
-			static_cast<u16>(url.port),
+			static_cast<std::uint16_t>(url.port),
 			timeouts.resolve.count() > 0 ? timeouts.resolve.count() : 30000LL,
 			ctx,
 			[](void *c, client_dns_bridge::Endpoint const &ep) noexcept {
-				static_cast<V<client_dns_bridge::Endpoint> *>(c)->push_back(ep);
+				static_cast<std::vector<client_dns_bridge::Endpoint> *>(c)->push_back(ep);
 				return true;
 			},
 			errbuf.data(),
 			errbuf.size());
 	}
 	if (endpoints.empty()) {
-		S const host_str{url.host};
-		S const port_str = to_string(url.port);
+		std::string const host_str{url.host};
+		std::string const port_str = to_string(url.port);
 		addrinfo hints{};
 		hints.ai_family = AF_UNSPEC;
 		hints.ai_socktype = SOCK_STREAM;
@@ -565,7 +565,7 @@ wroot::Task<ClientResult> do_async_request(
 		if (::getaddrinfo(host_str.c_str(), port_str.c_str(), &hints, &res_raw) == 0) {
 			for (auto const *ai = res_raw; ai; ai = ai->ai_next) {
 				client_dns_bridge::Endpoint ep{};
-				memcpy(ep.addr, ai->ai_addr, min(sizeof(ep.addr), static_cast<SZ>(ai->ai_addrlen)));
+				memcpy(ep.addr, ai->ai_addr, min(sizeof(ep.addr), static_cast<std::size_t>(ai->ai_addrlen)));
 				ep.addr_len = static_cast<unsigned>(ai->ai_addrlen);
 				ep.family = (ai->ai_family == AF_INET6) ? 6 : 4;
 				endpoints.push_back(ep);
@@ -573,7 +573,7 @@ wroot::Task<ClientResult> do_async_request(
 			::freeaddrinfo(res_raw);
 		}
 	}
-	tel.dns = chrono::steady_clock::now() - t0;
+	tel.dns = std::chrono::steady_clock::now() - t0;
 	cancel->throw_if_cancelled();
 	if (endpoints.empty()) {
 		co_return unexpected(
@@ -585,7 +585,7 @@ wroot::Task<ClientResult> do_async_request(
 	ConnectOptions copts{};
 	copts.timeout = timeouts.connect;
 	cancel->throw_if_cancelled();
-	auto const t1 = chrono::steady_clock::now();
+	auto const t1 = std::chrono::steady_clock::now();
 	TcpStream stream;
 	try {
 		auto connect_task = staggered_parallel_connect(ring, endpoints, copts);
@@ -613,13 +613,13 @@ wroot::Task<ClientResult> do_async_request(
 				.message = format("connect to '{}:{}' failed", url.host, url.port)});
 	}
 	cancel->throw_if_cancelled();
-	tel.connect = chrono::steady_clock::now() - t1;
+	tel.connect = std::chrono::steady_clock::now() - t1;
 	bool const is_tls = (url.scheme == "https");
 #if CONFLUX_HAS_TLS
-	Opt<TcpTlsStream> tls_stream;
+	std::optional<TcpTlsStream> tls_stream;
 	if (is_tls) {
 		bool const verify = req.verify_peer() && opts.verify_peer;
-		auto const sni_sv = req.server_name().empty() ? SV{url.host} : req.server_name();
+		auto const sni_sv = req.server_name().empty() ? std::string_view{url.host} : req.server_name();
 		TlsContext tls_ctx;
 		tls_ctx.set_verify_peer(verify);
 		if (verify) {
@@ -641,7 +641,7 @@ wroot::Task<ClientResult> do_async_request(
 					.phase = HttpPhase::tls,
 					.message = "TLS SNI/hostname setup failed"});
 		}
-		auto const t_tls = chrono::steady_clock::now();
+		auto const t_tls = std::chrono::steady_clock::now();
 		TP const tls_dl = timeouts.tls.count() > 0 ? t_tls + timeouts.tls : TP::max();
 		try {
 			co_await tls_stream->handshake_connect(tls_dl);
@@ -666,7 +666,7 @@ wroot::Task<ClientResult> do_async_request(
 						.message = X509_verify_cert_error_string(vr)});
 			}
 		}
-		tel.tls = chrono::steady_clock::now() - t_tls;
+		tel.tls = std::chrono::steady_clock::now() - t_tls;
 		tel.tls_verified = verify;
 		tel.negotiated_protocol = "https/1.1";
 		if (auto const *cipher = SSL_get_current_cipher(tls_stream->native_handle())) {
@@ -680,23 +680,23 @@ wroot::Task<ClientResult> do_async_request(
 			HttpError{.kind = HttpErrorKind::tls, .phase = HttpPhase::tls, .message = "TLS not compiled in"});
 	}
 #endif
-	S const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
+	std::string const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
 	cancel->throw_if_cancelled();
 	try {
 #if CONFLUX_HAS_TLS
 		if (tls_stream) {
 			TlsStreamRef tr{*tls_stream, timeouts.between_bytes, timeouts.write};
-			co_await tr.write(span<u8 const>{reinterpret_cast<u8 const *>(wire.data()), wire.size()});
+			co_await tr.write(span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(wire.data()), wire.size()});
 			if (!req.body().empty()) {
-				co_await tr.write(span<u8 const>{reinterpret_cast<u8 const *>(req.body().data()), req.body().size()});
+				co_await tr.write(span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(req.body().data()), req.body().size()});
 			}
 		} else
 #endif
 		{
 			PlainStreamRef pr{stream, cancel, timeouts.between_bytes, timeouts.write};
-			co_await pr.write(span<u8 const>{reinterpret_cast<u8 const *>(wire.data()), wire.size()});
+			co_await pr.write(span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(wire.data()), wire.size()});
 			if (!req.body().empty()) {
-				co_await pr.write(span<u8 const>{reinterpret_cast<u8 const *>(req.body().data()), req.body().size()});
+				co_await pr.write(span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(req.body().data()), req.body().size()});
 			}
 		}
 	} catch (wroot::CancelledError const &) { throw; } catch (IoError const &e) {
@@ -708,13 +708,13 @@ wroot::Task<ClientResult> do_async_request(
 				.message = "failed to send request"});
 	}
 	tel.bytes_sent += wire.size() + req.body().size();
-	SZ const max_hdr = opts.max_header_bytes;
-	SZ const max_body_sz = opts.max_body_bytes;
-	SZ const max_buf = opts.max_buffered_bytes;
-	auto const t2 = chrono::steady_clock::now();
+	std::size_t const max_hdr = opts.max_header_bytes;
+	std::size_t const max_body_sz = opts.max_body_bytes;
+	std::size_t const max_buf = opts.max_buffered_bytes;
+	auto const t2 = std::chrono::steady_clock::now();
 	TP const first_byte_dl = timeouts.first_byte.count() > 0 ? t2 + timeouts.first_byte : TP::max();
 	cancel->throw_if_cancelled();
-	S raw;
+	std::string raw;
 	try {
 #if CONFLUX_HAS_TLS
 		if (tls_stream) {
@@ -735,7 +735,7 @@ wroot::Task<ClientResult> do_async_request(
 				.message = "timed out waiting for response headers"});
 	}
 	auto const header_end = raw.find("\r\n\r\n");
-	if (header_end == S::npos) {
+	if (header_end == std::string::npos) {
 		if (raw.size() >= max_hdr) {
 			co_return unexpected(
 				HttpError{
@@ -752,17 +752,17 @@ wroot::Task<ClientResult> do_async_request(
 				.message = format("response headers exceed {} bytes", max_hdr)});
 	}
 	tel.bytes_received += raw.size();
-	auto const headers_str = SV{raw}.substr(0, header_end);
+	auto const headers_str = std::string_view{raw}.substr(0, header_end);
 	ClientResponse response;
 	auto const nl = headers_str.find("\r\n");
-	auto const status_line = (nl != SV::npos) ? headers_str.substr(0, nl) : headers_str;
+	auto const status_line = (nl != std::string_view::npos) ? headers_str.substr(0, nl) : headers_str;
 	auto const sp1 = status_line.find(' ');
-	if (sp1 == SV::npos) {
+	if (sp1 == std::string_view::npos) {
 		co_return unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "malformed status line"});
 	}
 	auto const rest = status_line.substr(sp1 + 1);
 	auto const sp2 = rest.find(' ');
-	auto const code_sv = (sp2 != SV::npos) ? rest.substr(0, sp2) : rest;
+	auto const code_sv = (sp2 != std::string_view::npos) ? rest.substr(0, sp2) : rest;
 	int status = 0;
 	auto const [ptr, ec] = from_chars(code_sv.data(), code_sv.data() + code_sv.size(), status);
 	if (ec != errc{} || status < 100 || status > 999) {
@@ -770,18 +770,18 @@ wroot::Task<ClientResult> do_async_request(
 			HttpError{.kind = HttpErrorKind::protocol, .message = format("invalid status code '{}'", code_sv)});
 	}
 	response.head.status = status;
-	if (sp2 != SV::npos) {
-		response.head.status_text = S{rest.substr(sp2 + 1)};
+	if (sp2 != std::string_view::npos) {
+		response.head.status_text = std::string{rest.substr(sp2 + 1)};
 	}
-	SZ content_length = 0;
+	std::size_t content_length = 0;
 	bool has_content_length = false;
 	bool chunked = false;
-	SZ pos = (nl != SV::npos) ? nl + 2 : headers_str.size();
+	std::size_t pos = (nl != std::string_view::npos) ? nl + 2 : headers_str.size();
 	while (pos < headers_str.size()) {
 		auto const end = headers_str.find("\r\n", pos);
-		auto const hdr = (end != SV::npos) ? headers_str.substr(pos, end - pos) : headers_str.substr(pos);
+		auto const hdr = (end != std::string_view::npos) ? headers_str.substr(pos, end - pos) : headers_str.substr(pos);
 		auto const colon = hdr.find(':');
-		if (colon != SV::npos) {
+		if (colon != std::string_view::npos) {
 			auto k = hdr.substr(0, colon);
 			auto v = hdr.substr(colon + 1);
 			while (!v.empty() && (v[0] == ' ' || v[0] == '\t')) {
@@ -793,12 +793,12 @@ wroot::Task<ClientResult> do_async_request(
 			} else if (ascii_iequals(k, "transfer-encoding") && header_token_contains(v, "chunked")) {
 				chunked = true;
 			} else if (ascii_iequals(k, "set-cookie")) {
-				response.head.set_cookies.push_back(S{v});
+				response.head.set_cookies.push_back(std::string{v});
 			} else if (!conflux::http::is_hop_by_hop_header(k)) {
-				response.head.headers.set(S{k}, S{v});
+				response.head.headers.set(std::string{k}, std::string{v});
 			}
 		}
-		pos = (end != SV::npos) ? end + 2 : headers_str.size();
+		pos = (end != std::string_view::npos) ? end + 2 : headers_str.size();
 	}
 	if (has_content_length && content_length > max_body_sz) {
 		co_return unexpected(
@@ -807,14 +807,14 @@ wroot::Task<ClientResult> do_async_request(
 				.message = format("Content-Length {} exceeds limit {}", content_length, max_body_sz)});
 	}
 	response.body = raw.substr(header_end + 4);
-	auto do_body = [&]() -> wroot::Task<Opt<HttpError>> {
+	auto do_body = [&]() -> wroot::Task<std::optional<HttpError>> {
 #if CONFLUX_HAS_TLS
 		if (tls_stream) {
 			TlsStreamRef tr{*tls_stream, timeouts.between_bytes, timeouts.write};
 			if (req.method() == "HEAD") {
 				response.body.clear();
 			} else if (chunked) {
-				S decoded;
+				std::string decoded;
 				bool too_large = false;
 				try {
 					if (!co_await async_recv_chunked(tr, response.body, decoded, max_body_sz, max_buf, too_large)) {
@@ -881,7 +881,7 @@ wroot::Task<ClientResult> do_async_request(
 			if (req.method() == "HEAD") {
 				response.body.clear();
 			} else if (chunked) {
-				S decoded;
+				std::string decoded;
 				bool too_large = false;
 				try {
 					if (!co_await async_recv_chunked(pr, response.body, decoded, max_body_sz, max_buf, too_large)) {
@@ -961,8 +961,8 @@ wroot::Task<void> run_async_request_driver(
 	SocketTaskRing &ring,
 	ClientRequest const &req,
 	HttpClientOptions const &opts,
-	SP<wroot::TaskSource<ClientResult>> src,
-	SP<ActiveTaskCancelRelay> cancel) {
+	std::shared_ptr<wroot::TaskSource<ClientResult>> src,
+	std::shared_ptr<ActiveTaskCancelRelay> cancel) {
 	try {
 		ClientRequest current = req;
 		HttpTelemetry total_tel{};

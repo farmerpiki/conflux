@@ -18,35 +18,35 @@ using namespace conflux::net::dns;
 using namespace conflux::net::dns::codec;
 namespace {
 
-constexpr u64 pack_ud(
-	u32 slot,
-	u32 gen) noexcept {
-	return (static_cast<u64>(gen) << 32U) | slot;
+constexpr std::uint64_t pack_ud(
+	std::uint32_t slot,
+	std::uint32_t gen) noexcept {
+	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 }
 class TempTextFile {
 public:
 	TempTextFile(
-		SV stem,
-		SV contents)
+		std::string_view stem,
+		std::string_view contents)
 		: path_{
 			  fs::temp_directory_path()
 			  / format(
 				  "conflux-dns-{}-{}-{}",
 				  stem,
 				  ::getpid(),
-				  chrono::steady_clock::now().time_since_epoch().count())} {
+				  std::chrono::steady_clock::now().time_since_epoch().count())} {
 		std::ofstream out{path_};
 		out << contents;
 	}
 	~TempTextFile() {
-		EC ec;
+		std::error_code ec;
 		fs::remove(path_, ec);
 	}
 	TempTextFile(TempTextFile const &) = delete;
 	TempTextFile &operator =(TempTextFile const &) = delete;
 	[[nodiscard]] fs::path const &path() const noexcept { return path_; }
 	void write(
-		SV contents) const {
+		std::string_view contents) const {
 		std::ofstream out{path_};
 		out << contents;
 	}
@@ -60,7 +60,7 @@ private:
 
 class DnsMockServer {
 public:
-	enum class RespKind : u8 {
+	enum class RespKind : std::uint8_t {
 		noerror,
 		nxdomain,
 		servfail,
@@ -69,25 +69,25 @@ public:
 		no_response,
 	};
 	struct MockRR {
-		V<u8> rdata; // 4 bytes = A, 16 bytes = AAAA
-		u32 ttl{60};
+		std::vector<std::uint8_t> rdata; // 4 bytes = A, 16 bytes = AAAA
+		std::uint32_t ttl{60};
 	};
 	struct Response {
 		RespKind kind{RespKind::nxdomain}; // default: NXDOMAIN
-		V<MockRR> records;
-		u16 id_delta{0};
+		std::vector<MockRR> records;
+		std::uint16_t id_delta{0};
 		bool wrong_question{false};
 		bool truncated{false};
 	};
 	struct ReceivedQuery {
-		S name;
-		u16 qtype{};
-		chrono::steady_clock::time_point at{};
+		std::string name;
+		std::uint16_t qtype{};
+		std::chrono::steady_clock::time_point at{};
 	};
 	DnsMockServer() {
 		fd_ = ::socket(AF_INET, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 		if (fd_ < 0) {
-			throw RE{"DnsMockServer: socket failed"};
+			throw std::runtime_error{"DnsMockServer: socket failed"};
 		}
 		::sockaddr_in sa{};
 		sa.sin_family = AF_INET;
@@ -95,7 +95,7 @@ public:
 		sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 		if (::bind(fd_, reinterpret_cast<::sockaddr const *>(&sa), sizeof(sa)) < 0) {
 			::close(fd_);
-			throw RE{"DnsMockServer: bind failed"};
+			throw std::runtime_error{"DnsMockServer: bind failed"};
 		}
 		::sockaddr_in bound{};
 		socklen_t len = sizeof(bound);
@@ -115,7 +115,7 @@ public:
 	}
 	DnsMockServer(DnsMockServer const &) = delete;
 	DnsMockServer &operator =(DnsMockServer const &) = delete;
-	[[nodiscard]] u16 port() const noexcept { return port_; }
+	[[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 	[[nodiscard]] NameserverEndpoint endpoint() const noexcept {
 		NameserverEndpoint ns{};
 		auto *sin = reinterpret_cast<::sockaddr_in *>(&ns.addr);
@@ -127,25 +127,25 @@ public:
 		return ns;
 	}
 	void set_response(
-		S const &name,
-		u16 qtype,
+		std::string const &name,
+		std::uint16_t qtype,
 		Response resp) {
-		SL const lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		responses_[name + ':' + to_string(qtype)] = move(resp);
 	}
-	[[nodiscard]] V<ReceivedQuery> queries() const {
-		SL const lk{mtx_};
+	[[nodiscard]] std::vector<ReceivedQuery> queries() const {
+		std::scoped_lock const lk{mtx_};
 		return received_;
 	}
 	void clear_queries() {
-		SL const lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		received_.clear();
 	}
-	[[nodiscard]] SZ query_count(
-		SV name,
-		u16 qtype) const {
-		SL const lk{mtx_};
-		SZ n = 0;
+	[[nodiscard]] std::size_t query_count(
+		std::string_view name,
+		std::uint16_t qtype) const {
+		std::scoped_lock const lk{mtx_};
+		std::size_t n = 0;
 		for (auto const &q: received_) {
 			if (q.name == name && q.qtype == qtype) {
 				++n;
@@ -156,7 +156,7 @@ public:
 
 private:
 	void run() {
-		A<u8, 512> buf{};
+		std::array<std::uint8_t, 512> buf{};
 		::sockaddr_storage src{};
 		socklen_t src_len{};
 
@@ -167,18 +167,18 @@ private:
 			if (n <= 12) {
 				continue; // timeout or malformed
 			}
-			auto const wire = span<u8 const>{buf.data(), static_cast<SZ>(n)};
+			auto const wire = span<std::uint8_t const>{buf.data(), static_cast<std::size_t>(n)};
 			auto const name = get_qname(wire);
 			auto const qtype = get_qtype(wire);
 
 			{
-				SL const lk{mtx_};
-				received_.push_back({name, qtype, chrono::steady_clock::now()});
+				std::scoped_lock const lk{mtx_};
+				received_.push_back({name, qtype, std::chrono::steady_clock::now()});
 			}
 
 			Response resp;
 			{
-				SL const lk{mtx_};
+				std::scoped_lock const lk{mtx_};
 				auto const key = name + ':' + to_string(qtype);
 				if (auto it = responses_.find(key); it != responses_.end()) {
 					resp = it->second;
@@ -192,16 +192,16 @@ private:
 			::sendto(fd_, reply.data(), reply.size(), 0, reinterpret_cast<::sockaddr const *>(&src), src_len);
 		}
 	}
-	static S get_qname(
-		span<u8 const> wire) {
-		S name;
-		SZ i = 12;
+	static std::string get_qname(
+		span<std::uint8_t const> wire) {
+		std::string name;
+		std::size_t i = 12;
 		while (i < wire.size() && wire[i] != 0) {
-			u8 const len = wire[i++];
+			std::uint8_t const len = wire[i++];
 			if (!name.empty()) {
 				name += '.';
 			}
-			for (u8 j = 0; j < len && i < wire.size(); ++j) {
+			for (std::uint8_t j = 0; j < len && i < wire.size(); ++j) {
 				char c = static_cast<char>(wire[i++]);
 				if (c >= 'A' && c <= 'Z') {
 					c = static_cast<char>(c + ('a' - 'A'));
@@ -211,9 +211,9 @@ private:
 		}
 		return name;
 	}
-	static u16 get_qtype(
-		span<u8 const> wire) {
-		SZ i = 12;
+	static std::uint16_t get_qtype(
+		span<std::uint8_t const> wire) {
+		std::size_t i = 12;
 		while (i < wire.size() && wire[i] != 0) {
 			i += 1U + wire[i];
 		}
@@ -221,17 +221,17 @@ private:
 		if (i + 2 > wire.size()) {
 			return 0;
 		}
-		return static_cast<u16>((static_cast<u16>(wire[i]) << 8U) | wire[i + 1]);
+		return static_cast<std::uint16_t>((static_cast<std::uint16_t>(wire[i]) << 8U) | wire[i + 1]);
 	}
-	static SZ find_question_end(
-		span<u8 const> wire) {
-		SZ i = 12;
+	static std::size_t find_question_end(
+		span<std::uint8_t const> wire) {
+		std::size_t i = 12;
 		while (i < wire.size() && wire[i] != 0) {
 			i += 1U + wire[i];
 		}
 		return i + 1 + 4; // null + QTYPE(2) + QCLASS(2)
 	}
-	static u8 rcode_for(
+	static std::uint8_t rcode_for(
 		RespKind k) noexcept {
 		switch (k) {
 		case RespKind::noerror : return 0;
@@ -242,33 +242,33 @@ private:
 		default                : return 0;
 		}
 	}
-	static V<u8> build_response(
-		span<u8 const> query,
+	static std::vector<std::uint8_t> build_response(
+		span<std::uint8_t const> query,
 		Response const &resp) {
-		V<u8> out;
+		std::vector<std::uint8_t> out;
 		out.reserve(64);
 
 		for (int k = 0; k < 12; ++k) {
-			out.push_back(query[static_cast<SZ>(k)]);
+			out.push_back(query[static_cast<std::size_t>(k)]);
 		}
 		if (resp.id_delta != 0) {
-			u16 const id = static_cast<u16>((static_cast<u16>(out[0]) << 8U) | out[1]);
-			u16 const mutated = static_cast<u16>(id + resp.id_delta);
-			out[0] = static_cast<u8>(mutated >> 8U);
-			out[1] = static_cast<u8>(mutated & 0xFFU);
+			std::uint16_t const id = static_cast<std::uint16_t>((static_cast<std::uint16_t>(out[0]) << 8U) | out[1]);
+			std::uint16_t const mutated = static_cast<std::uint16_t>(id + resp.id_delta);
+			out[0] = static_cast<std::uint8_t>(mutated >> 8U);
+			out[1] = static_cast<std::uint8_t>(mutated & 0xFFU);
 		}
-		out[2] = static_cast<u8>((out[2] & 0x01U) | 0x80U); // QR=1, keep RD
-		out[3] = static_cast<u8>(0x80U | rcode_for(resp.kind)); // RA=1, RCODE
+		out[2] = static_cast<std::uint8_t>((out[2] & 0x01U) | 0x80U); // QR=1, keep RD
+		out[3] = static_cast<std::uint8_t>(0x80U | rcode_for(resp.kind)); // RA=1, RCODE
 		if (resp.truncated) {
-			out[2] = static_cast<u8>(out[2] | 0x02U); // TC=1
+			out[2] = static_cast<std::uint8_t>(out[2] | 0x02U); // TC=1
 		}
-		u16 const ancount = (resp.kind == RespKind::noerror) ? static_cast<u16>(resp.records.size()) : u16{0};
-		out[6] = static_cast<u8>(ancount >> 8U);
-		out[7] = static_cast<u8>(ancount & 0xFFU);
+		std::uint16_t const ancount = (resp.kind == RespKind::noerror) ? static_cast<std::uint16_t>(resp.records.size()) : std::uint16_t{0};
+		out[6] = static_cast<std::uint8_t>(ancount >> 8U);
+		out[7] = static_cast<std::uint8_t>(ancount & 0xFFU);
 		out[8] = out[9] = out[10] = out[11] = 0;
 
-		SZ const qend = find_question_end(query);
-		for (SZ k = 12; k < qend && k < query.size(); ++k) {
+		std::size_t const qend = find_question_end(query);
+		for (std::size_t k = 12; k < qend && k < query.size(); ++k) {
 			out.push_back(query[k]);
 		}
 		if (resp.wrong_question && out.size() >= qend) {
@@ -281,18 +281,18 @@ private:
 			for (auto const &rr: resp.records) {
 				out.push_back(0xC0);
 				out.push_back(0x0C); // pointer to question QNAME
-				u16 const rtype = (rr.rdata.size() == 4) ? u16{1} : u16{28};
-				out.push_back(static_cast<u8>(rtype >> 8U));
-				out.push_back(static_cast<u8>(rtype & 0xFFU));
+				std::uint16_t const rtype = (rr.rdata.size() == 4) ? std::uint16_t{1} : std::uint16_t{28};
+				out.push_back(static_cast<std::uint8_t>(rtype >> 8U));
+				out.push_back(static_cast<std::uint8_t>(rtype & 0xFFU));
 				out.push_back(0x00);
 				out.push_back(0x01); // CLASS IN
-				out.push_back(static_cast<u8>((rr.ttl >> 24U) & 0xFFU));
-				out.push_back(static_cast<u8>((rr.ttl >> 16U) & 0xFFU));
-				out.push_back(static_cast<u8>((rr.ttl >> 8U) & 0xFFU));
-				out.push_back(static_cast<u8>(rr.ttl & 0xFFU));
-				auto const rdlen = static_cast<u16>(rr.rdata.size());
-				out.push_back(static_cast<u8>(rdlen >> 8U));
-				out.push_back(static_cast<u8>(rdlen & 0xFFU));
+				out.push_back(static_cast<std::uint8_t>((rr.ttl >> 24U) & 0xFFU));
+				out.push_back(static_cast<std::uint8_t>((rr.ttl >> 16U) & 0xFFU));
+				out.push_back(static_cast<std::uint8_t>((rr.ttl >> 8U) & 0xFFU));
+				out.push_back(static_cast<std::uint8_t>(rr.ttl & 0xFFU));
+				auto const rdlen = static_cast<std::uint16_t>(rr.rdata.size());
+				out.push_back(static_cast<std::uint8_t>(rdlen >> 8U));
+				out.push_back(static_cast<std::uint8_t>(rdlen & 0xFFU));
 				for (auto b: rr.rdata) {
 					out.push_back(b);
 				}
@@ -301,12 +301,12 @@ private:
 		return out;
 	}
 	int fd_{-1};
-	u16 port_{};
+	std::uint16_t port_{};
 	thread thread_;
-	Atom<bool> running_{true};
+	std::atomic<bool> running_{true};
 	mutable mutex mtx_;
-	UM<S, Response> responses_;
-	V<ReceivedQuery> received_;
+	std::unordered_map<std::string, Response> responses_;
+	std::vector<ReceivedQuery> received_;
 };
 ResolveOptions mock_opts(
 	DnsMockServer const &mock) {
@@ -329,7 +329,7 @@ struct RingGuard {
 	RingGuard &operator =(RingGuard const &) = delete;
 	RingGuard(RingGuard &&) = delete;
 	RingGuard &operator =(RingGuard &&) = delete;
-	static UP<RingGuard> make(
+	static std::unique_ptr<RingGuard> make(
 		unsigned entries = 32) {
 		auto g = make_unique<RingGuard>();
 		g->ok = (::io_uring_queue_init(entries, &g->ring, 0) == 0);
@@ -343,7 +343,7 @@ struct StrRingGuard {
 	SocketTaskRing str;
 	bool ring_ok{false};
 	StrRingGuard()
-		: str{SocketRawRing{&ring}, ct, [](u32 s, u32 g) noexcept -> u64 { return pack_ud(s, g); }} {}
+		: str{SocketRawRing{&ring}, ct, [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); }} {}
 	~StrRingGuard() {
 		if (ring_ok) {
 			::io_uring_queue_exit(&ring);
@@ -351,7 +351,7 @@ struct StrRingGuard {
 	}
 	StrRingGuard(StrRingGuard const &) = delete;
 	StrRingGuard &operator =(StrRingGuard const &) = delete;
-	static UP<StrRingGuard> make(
+	static std::unique_ptr<StrRingGuard> make(
 		unsigned entries = 64) {
 		auto g = make_unique<StrRingGuard>();
 		if (::io_uring_queue_init(entries, &g->ring, 0) < 0) {
@@ -365,12 +365,12 @@ template<typename T>
 T block_on_str(
 	StrRingGuard &g,
 	conflux::work::root::Task<T> task,
-	chrono::milliseconds budget = chrono::milliseconds{5000}) {
+	std::chrono::milliseconds budget = std::chrono::milliseconds{5000}) {
 	using namespace conflux::work::root;
 	struct Slot {
 		atomic_flag done{};
-		EP err{};
-		[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, Opt<T>> value{};
+		std::exception_ptr err{};
+		[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, std::optional<T>> value{};
 	};
 	auto slot = make_shared<Slot>();
 	auto jh = make_shared<TaskJoinHandle<T>>(into_join_handle(move(task)));
@@ -380,7 +380,7 @@ T block_on_str(
 			if (outcome.is_failure()) {
 				slot->err = move(outcome).failure().error;
 			} else if (outcome.is_cancelled()) {
-				slot->err = make_exception_ptr(RE{"task cancelled"});
+				slot->err = make_exception_ptr(std::runtime_error{"task cancelled"});
 			} else if constexpr (!std::is_void_v<T>) {
 				slot->value.emplace(move(outcome).success().value);
 			}
@@ -389,14 +389,14 @@ T block_on_str(
 	});
 	auto *raw = &g.ring;
 	auto *ct = &g.ct;
-	auto const deadline = chrono::steady_clock::now() + budget;
+	auto const deadline = std::chrono::steady_clock::now() + budget;
 	while (!slot->done.test(memory_order_acquire)) {
 		::io_uring_cqe *cqe = nullptr;
 		__kernel_timespec ts{.tv_sec = 1, .tv_nsec = 0};
 		int const rc = ::io_uring_submit_and_wait_timeout(raw, &cqe, 1, &ts, nullptr);
 		if (rc == -ETIME) {
-			if (chrono::steady_clock::now() > deadline) {
-				throw RE{"block_on_str: budget exhausted"};
+			if (std::chrono::steady_clock::now() > deadline) {
+				throw std::runtime_error{"block_on_str: budget exhausted"};
 			}
 			continue;
 		}
@@ -406,16 +406,16 @@ T block_on_str(
 		if (rc >= 0 && cqe == nullptr) {
 			continue;
 		}
-		A<::io_uring_cqe *, 32> batch{};
+		std::array<::io_uring_cqe *, 32> batch{};
 		for (;;) {
 			unsigned const n = ::io_uring_peek_batch_cqe(raw, batch.data(), static_cast<unsigned>(batch.size()));
 			if (n == 0) {
 				break;
 			}
 			for (unsigned i = 0; i < n; ++i) {
-				auto const *c = batch[static_cast<SZ>(i)];
+				auto const *c = batch[static_cast<std::size_t>(i)];
 				auto const ud = c->user_data;
-				ct->dispatch(static_cast<u32>(ud & 0xFFFFFFFFU), static_cast<u32>(ud >> 32U), c->res, c->flags);
+				ct->dispatch(static_cast<std::uint32_t>(ud & 0xFFFFFFFFU), static_cast<std::uint32_t>(ud >> 32U), c->res, c->flags);
 			}
 			::io_uring_cq_advance(raw, n);
 			if (slot->done.test(memory_order_acquire)) {
@@ -547,7 +547,7 @@ TEST_CASE(
 
 	ResolveOptions opts;
 	opts.allow_v6 = false;
-	opts.query_timeout = chrono::milliseconds{50};
+	opts.query_timeout = std::chrono::milliseconds{50};
 	auto result = r.resolve_blocking("www", 80, opts);
 
 	REQUIRE(result.has_value());
@@ -582,7 +582,7 @@ TEST_CASE(
 
 	ResolveOptions opts;
 	opts.allow_v6 = false;
-	opts.query_timeout = chrono::milliseconds{50};
+	opts.query_timeout = std::chrono::milliseconds{50};
 	auto result = r.resolve_blocking("attempts.test", 80, opts);
 
 	REQUIRE(result.has_value());
@@ -778,7 +778,7 @@ TEST_CASE(
 	auto r1 = r.resolve_blocking("cached.test", 80, opts);
 	REQUIRE(r1.has_value());
 	CHECK_FALSE(r1->from_cache);
-	SZ const after_first = mock.queries().size();
+	std::size_t const after_first = mock.queries().size();
 
 	auto r2 = r.resolve_blocking("cached.test", 80, opts);
 	REQUIRE(r2.has_value());
@@ -805,7 +805,7 @@ TEST_CASE(
 
 	auto r1 = r.resolve_blocking("ttl.test", 80, mock_opts(mock));
 	REQUIRE(r1.has_value());
-	CHECK(r1->suggested_ttl == chrono::seconds{42});
+	CHECK(r1->suggested_ttl == std::chrono::seconds{42});
 }
 TEST_CASE(
 	"dns: deadlock detection — resolve_blocking on owned ring",
@@ -858,7 +858,7 @@ TEST_CASE(
 
 	auto opts = mock_opts(mock);
 	opts.allow_v6 = false;
-	opts.query_timeout = chrono::milliseconds{50};
+	opts.query_timeout = std::chrono::milliseconds{50};
 	auto result = r.resolve_blocking("tcp-fallback.test", 80, opts);
 	REQUIRE_FALSE(result.has_value());
 	CHECK(result.error().kind == DnsErrorKind::truncated);
@@ -882,7 +882,7 @@ TEST_CASE(
 
 	auto opts = mock_opts(mock);
 	opts.allow_v6 = false;
-	opts.query_timeout = chrono::milliseconds{50};
+	opts.query_timeout = std::chrono::milliseconds{50};
 
 	auto result = r.resolve_blocking("bad-id.test", 80, opts);
 	REQUIRE(result.has_value());
@@ -908,7 +908,7 @@ TEST_CASE(
 
 	auto opts = mock_opts(mock);
 	opts.allow_v6 = false;
-	opts.query_timeout = chrono::milliseconds{50};
+	opts.query_timeout = std::chrono::milliseconds{50};
 
 	auto result = r.resolve_blocking("bad-question.test", 80, opts);
 	REQUIRE(result.has_value());
@@ -933,16 +933,16 @@ TEST_CASE(
 
 	auto opts = mock_opts(mock);
 	opts.allow_v6 = false;
-	opts.query_timeout = chrono::milliseconds{1000};
-	opts.total_timeout = chrono::milliseconds{50};
+	opts.query_timeout = std::chrono::milliseconds{1000};
+	opts.total_timeout = std::chrono::milliseconds{50};
 
-	auto const start = chrono::steady_clock::now();
+	auto const start = std::chrono::steady_clock::now();
 	auto result = r.resolve_blocking("silent.test", 80, opts);
-	auto const elapsed = chrono::steady_clock::now() - start;
+	auto const elapsed = std::chrono::steady_clock::now() - start;
 
 	REQUIRE(result.has_value());
 	CHECK(result->endpoints.empty());
-	CHECK(elapsed < chrono::milliseconds{500});
+	CHECK(elapsed < std::chrono::milliseconds{500});
 }
 TEST_CASE(
 	"dns: native resolver tries next nameserver after empty response",
@@ -971,7 +971,7 @@ TEST_CASE(
 	ResolveOptions opts;
 	opts.override_nameservers = {silent.endpoint(), good.endpoint()};
 	opts.allow_v6 = false;
-	opts.query_timeout = chrono::milliseconds{50};
+	opts.query_timeout = std::chrono::milliseconds{50};
 
 	auto result = r.resolve_blocking("fallback.test", 80, opts);
 	REQUIRE(result.has_value());
@@ -982,9 +982,9 @@ TEST_CASE(
 }
 // decode for block_on — matches pack_ud: gen in upper 32, slot in lower 32.
 struct PackUdDecode {
-	P<u32, u32> operator ()(
-		u64 ud) const noexcept {
-		return {static_cast<u32>(ud & 0xFFFFFFFFU), static_cast<u32>(ud >> 32U)};
+	std::pair<std::uint32_t, std::uint32_t> operator ()(
+		std::uint64_t ud) const noexcept {
+		return {static_cast<std::uint32_t>(ud & 0xFFFFFFFFU), static_cast<std::uint32_t>(ud >> 32U)};
 	}
 };
 TEST_CASE(
@@ -1017,10 +1017,10 @@ TEST_CASE(
 	using RR = ResolveResult;
 	auto first = r.resolve("coalesce.test", 80, opts);
 	auto second = r.resolve("coalesce.test", 80, opts);
-	auto [res1, res2] = block_on<Tup<RR, RR>>(
+	auto [res1, res2] = block_on<std::tuple<RR, RR>>(
 		*r.file_reader(),
 		join_all(move(first), move(second)),
-		std::make_optional(chrono::milliseconds{5000}),
+		std::make_optional(std::chrono::milliseconds{5000}),
 		PackUdDecode{});
 
 	CHECK_FALSE(res1.endpoints.empty());
@@ -1062,11 +1062,11 @@ TEST_CASE(
 
 	ResolveOptions opts;
 	opts.allow_v6 = false;
-	opts.query_timeout = chrono::milliseconds{100};
+	opts.query_timeout = std::chrono::milliseconds{100};
 	auto result = block_on<ResolveResult>(
 		*r.file_reader(),
 		r.resolve("www", 80, opts),
-		std::make_optional(chrono::milliseconds{5000}),
+		std::make_optional(std::chrono::milliseconds{5000}),
 		PackUdDecode{});
 
 	REQUIRE(result.endpoints.size() == 1);
@@ -1083,7 +1083,7 @@ TEST_CASE(
 		&g->ring,
 		&g->ct,
 		pack_ud,
-		ResolverOptions{.cache_capacity = 16, .cache_negative_ttl = chrono::seconds{30}}
+		ResolverOptions{.cache_capacity = 16, .cache_negative_ttl = std::chrono::seconds{30}}
     };
 
 	DnsMockServer const mock; // default: NXDOMAIN for everything
@@ -1094,7 +1094,7 @@ TEST_CASE(
 	REQUIRE_FALSE(r1.has_value());
 	CHECK(r1.error().kind == DnsErrorKind::nxdomain);
 
-	SZ const queries_after_first = mock.queries().size();
+	std::size_t const queries_after_first = mock.queries().size();
 
 	// Second call must hit the negative cache — no new queries sent.
 	auto r2 = r.resolve_blocking("negcache.test", 80, opts);
@@ -1138,7 +1138,7 @@ TEST_CASE(
 	REQUIRE(r2.has_value());
 	CHECK_FALSE(r2->from_cache);
 
-	SZ const queries_before = mock.queries().size();
+	std::size_t const queries_before = mock.queries().size();
 
 	// lru1 must be re-queried (evicted), not served from cache.
 	auto r1b = r.resolve_blocking("lru1.test", 80, opts);
@@ -1174,7 +1174,7 @@ TEST_CASE(
 	ResolveOptions opts = mock_opts(mock);
 	opts.allow_v6 = false;
 	auto result =
-		block_on_str<ResolveResult>(*gb, r.resolve(gb->str, "ext-ring.test", 80, opts), chrono::milliseconds{5000});
+		block_on_str<ResolveResult>(*gb, r.resolve(gb->str, "ext-ring.test", 80, opts), std::chrono::milliseconds{5000});
 
 	REQUIRE_FALSE(result.endpoints.empty());
 	CHECK(result.endpoints[0].family == AddressFamily::v4);
@@ -1210,7 +1210,7 @@ TEST_CASE(
 	auto second = block_on_str<ResolveResult>(
 		*gb,
 		r.resolve(gb->str, "anti-coalesce.test", 80, opts),
-		chrono::milliseconds{5000});
+		std::chrono::milliseconds{5000});
 
 	REQUIRE_FALSE(second.endpoints.empty());
 	CHECK_FALSE(second.from_coalesced);
@@ -1219,7 +1219,7 @@ TEST_CASE(
 	auto first_result = block_on<ResolveResult>(
 		*r.file_reader(),
 		move(first),
-		std::make_optional(chrono::milliseconds{5000}),
+		std::make_optional(std::chrono::milliseconds{5000}),
 		PackUdDecode{});
 	REQUIRE_FALSE(first_result.endpoints.empty());
 	CHECK_FALSE(first_result.from_coalesced);
@@ -1255,7 +1255,7 @@ TEST_CASE(
 	using RR = ResolveResult;
 	auto first = r.resolve(gb->str, "coalesce-b.test", 80, opts);
 	auto second = r.resolve(gb->str, "coalesce-b.test", 80, opts);
-	auto [res1, res2] = block_on_str<Tup<RR, RR>>(*gb, join_all(move(first), move(second)), chrono::milliseconds{5000});
+	auto [res1, res2] = block_on_str<std::tuple<RR, RR>>(*gb, join_all(move(first), move(second)), std::chrono::milliseconds{5000});
 
 	CHECK_FALSE(res1.endpoints.empty());
 	CHECK_FALSE(res2.endpoints.empty());
@@ -1282,19 +1282,19 @@ TEST_CASE(
 	REQUIRE(gb->ring_ok);
 
 	// IP literal always succeeds regardless of backend.
-	auto lit = block_on_str<ResolveResult>(*gb, r.resolve(gb->str, "192.168.0.1", 80), chrono::milliseconds{1000});
+	auto lit = block_on_str<ResolveResult>(*gb, r.resolve(gb->str, "192.168.0.1", 80), std::chrono::milliseconds{1000});
 	REQUIRE(lit.endpoints.size() == 1);
 	CHECK(lit.endpoints[0].family == AddressFamily::v4);
 
 	// /etc/hosts hit succeeds without hitting the backend.
 	auto hosts_hit =
-		block_on_str<ResolveResult>(*gb, r.resolve(gb->str, "hosts-hit.test", 80), chrono::milliseconds{1000});
+		block_on_str<ResolveResult>(*gb, r.resolve(gb->str, "hosts-hit.test", 80), std::chrono::milliseconds{1000});
 	REQUIRE_FALSE(hosts_hit.endpoints.empty());
 	CHECK(hosts_hit.from_hosts_file);
 
 	// Non-literal, non-cached host must return not_implemented.
 	try {
-		block_on_str<ResolveResult>(*gb, r.resolve(gb->str, "example.test", 80), chrono::milliseconds{1000});
+		block_on_str<ResolveResult>(*gb, r.resolve(gb->str, "example.test", 80), std::chrono::milliseconds{1000});
 		FAIL("expected DnsError");
 	} catch (DnsError const &e) { CHECK(e.kind == DnsErrorKind::not_implemented); }
 }

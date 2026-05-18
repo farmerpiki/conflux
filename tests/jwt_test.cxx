@@ -13,8 +13,8 @@ import conflux.net.config;
 TEST_CASE(
 	"jwt: sign and decode round-trip",
 	"[jwt]") {
-	S const secret = "test-secret-key-32bytes";
-	S const payload = R"({"sub":"user1","iss":"test"})";
+	std::string const secret = "test-secret-key-32bytes";
+	std::string const payload = R"({"sub":"user1","iss":"test"})";
 	auto token = jwt_sign(payload, secret);
 
 	JwtOptions opts;
@@ -33,9 +33,9 @@ TEST_CASE(
 TEST_CASE(
 	"jwt: sign with custom header round-trip",
 	"[jwt]") {
-	S const secret = "my-secret-key-32bytes";
-	S const header = R"({"alg":"HS256","typ":"JWT","kid":"key-42"})";
-	S const payload = R"({"sub":"admin","iss":"ghost"})";
+	std::string const secret = "my-secret-key-32bytes";
+	std::string const header = R"({"alg":"HS256","typ":"JWT","kid":"key-42"})";
+	std::string const payload = R"({"sub":"admin","iss":"ghost"})";
 	auto token = jwt_sign(header, payload, secret);
 
 	JwtOptions opts;
@@ -50,21 +50,21 @@ TEST_CASE(
 TEST_CASE(
 	"jwt: custom header preserves kid in base64url-decoded header",
 	"[jwt]") {
-	S const secret = "secret-key-32bytes";
-	S const header = R"({"alg":"HS256","typ":"JWT","kid":"key-99"})";
-	S const payload = R"({"sub":"x"})";
+	std::string const secret = "secret-key-32bytes";
+	std::string const header = R"({"alg":"HS256","typ":"JWT","kid":"key-99"})";
+	std::string const payload = R"({"sub":"x"})";
 	auto token = jwt_sign(header, payload, secret);
 
 	auto dot1 = token.find('.');
-	REQUIRE(dot1 != S::npos);
-	auto header_b64 = SV{token}.substr(0, dot1);
+	REQUIRE(dot1 != std::string::npos);
+	auto header_b64 = std::string_view{token}.substr(0, dot1);
 	auto decoded_header = base64url_decode(header_b64);
-	CHECK(decoded_header.find("key-99") != S::npos);
+	CHECK(decoded_header.find("key-99") != std::string::npos);
 }
 TEST_CASE(
 	"jwt: wrong secret fails verification",
 	"[jwt]") {
-	S const payload = R"({"sub":"u"})";
+	std::string const payload = R"({"sub":"u"})";
 	auto token = jwt_sign(payload, "correct-secret-32bytes");
 
 	JwtOptions opts;
@@ -76,8 +76,8 @@ TEST_CASE(
 
 namespace {
 
-i64 jwt_test_now() {
-	return chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
+std::int64_t jwt_test_now() {
+	return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
 } // namespace
@@ -85,7 +85,7 @@ i64 jwt_test_now() {
 TEST_CASE(
 	"jwt: strict session policy requires lifetime claims and supports revocation",
 	"[jwt][auth]") {
-	S const secret = "session-jwt-secret-32bytes";
+	std::string const secret = "session-jwt-secret-32bytes";
 	auto const now = jwt_test_now();
 
 	JwtOptions opts;
@@ -93,7 +93,7 @@ TEST_CASE(
 	opts.require_exp = true;
 	opts.require_iat = true;
 	opts.require_jti = true;
-	opts.max_token_lifetime = chrono::minutes{5};
+	opts.max_token_lifetime = std::chrono::minutes{5};
 
 	auto missing_claims = jwt_decode(jwt_sign(R"({"sub":"u"})", secret), opts);
 	REQUIRE_FALSE(missing_claims.has_value());
@@ -111,7 +111,7 @@ TEST_CASE(
 	REQUIRE_FALSE(too_long.has_value());
 	CHECK(too_long.error() == "token lifetime too long");
 
-	opts.revoked_jti = [](SV jti) { return jti == "revoked"; };
+	opts.revoked_jti = [](std::string_view jti) { return jti == "revoked"; };
 	auto revoked = jwt_decode(
 		jwt_sign(format(R"({{"sub":"u","jti":"revoked","iat":{},"exp":{}}})", now, now + 120), secret),
 		opts);
@@ -122,7 +122,7 @@ TEST_CASE(
 TEST_CASE(
 	"jwt: clock skew applies to exp and nbf boundaries",
 	"[jwt][auth]") {
-	S const secret = "session-jwt-secret-32bytes";
+	std::string const secret = "session-jwt-secret-32bytes";
 	auto const now = jwt_test_now();
 	auto token = jwt_sign(format(R"({{"sub":"u","iat":{},"exp":{},"nbf":{}}})", now - 60, now - 5, now + 5), secret);
 
@@ -135,7 +135,7 @@ TEST_CASE(
 	CHECK(rejected.error() == "token expired");
 
 	JwtOptions skewed = strict;
-	skewed.clock_skew = chrono::seconds{60};
+	skewed.clock_skew = std::chrono::seconds{60};
 	auto accepted = jwt_decode(token, skewed);
 	REQUIRE(accepted.has_value());
 	CHECK(accepted->sub == "u");
@@ -144,7 +144,7 @@ TEST_CASE(
 TEST_CASE(
 	"jwt: negative registered time claims are rejected",
 	"[jwt][auth]") {
-	S const secret = "session-jwt-secret-32bytes";
+	std::string const secret = "session-jwt-secret-32bytes";
 	JwtOptions opts;
 	opts.secrets = single_secret_rotation(secret);
 	opts.verify_exp = false;

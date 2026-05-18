@@ -14,8 +14,8 @@ import conflux.net.http.static_async;
 import conflux.net.config;
 
 [[nodiscard]] StaticRouteRegistration make_static_route_registration(
-	SV url_prefix,
-	S root_dir,
+	std::string_view url_prefix,
+	std::string root_dir,
 	StaticOptions const &sopts,
 	StaticFileCacheConfig const &static_file_cache,
 	StaticCacheStore &static_cache) {
@@ -23,12 +23,12 @@ import conflux.net.config;
 		root_dir.pop_back();
 	}
 
-	auto pattern = S{url_prefix} + "/{*file}";
+	auto pattern = std::string{url_prefix} + "/{*file}";
 	auto effective_sopts = sopts;
 	if (!effective_sopts.file_cache.enabled) {
 		effective_sopts.file_cache = static_file_cache;
 	}
-	auto root_dir_fd = SP<int>{
+	auto root_dir_fd = std::shared_ptr<int>{
 		new int(::open(root_dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)),
 		[](int *fd) {
 			if (fd != nullptr) {

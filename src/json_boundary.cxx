@@ -5,7 +5,7 @@ import conflux.types;
 
 export namespace conflux::json::boundary {
 
-inline constexpr SV kContentType = "application/json";
+inline constexpr std::string_view kContentType = "application/json";
 
 // Provider-independent dump options. Native conflux JSON maps these directly to
 // JsonDumpOptions; alternate providers can ignore fields they do not support.
@@ -19,7 +19,7 @@ struct DumpOptions {
 // Provider-independent handling for object members not present in the
 // destination type. Providers that cannot stream-skip unknown values may still
 // materialize a temporary document, but should preserve the semantics.
-enum class UnknownMemberPolicy : u8 {
+enum class UnknownMemberPolicy : std::uint8_t {
 	reject,
 	ignore,
 };
@@ -34,7 +34,7 @@ struct DecodeOptions {
 // Keep the boundary error small and provider-neutral. Provider-specific error
 // details may be summarized in message; direct provider errors stay behind the
 // provider module.
-enum class ErrorStage : u8 {
+enum class ErrorStage : std::uint8_t {
 	parse,
 	lookup,
 	decode,
@@ -43,7 +43,7 @@ enum class ErrorStage : u8 {
 	provider,
 };
 
-enum class ErrorCode : u8 {
+enum class ErrorCode : std::uint8_t {
 	provider_failure,
 	syntax_error,
 	unexpected_eof,
@@ -68,31 +68,31 @@ enum class ErrorCode : u8 {
 };
 
 struct SourceLocation {
-	SZ offset{};
-	SZ line{1};
-	SZ column{1};
+	std::size_t offset{};
+	std::size_t line{1};
+	std::size_t column{1};
 };
 
 struct Error {
 	ErrorStage stage{ErrorStage::provider};
 	ErrorCode code{ErrorCode::provider_failure};
-	S message{};
-	Opt<SourceLocation> source{};
-	Opt<S> member_name{};
+	std::string message{};
+	std::optional<SourceLocation> source{};
+	std::optional<std::string> member_name{};
 };
 
 template<class Provider, class T>
 concept JsonDumpProvider = requires(T const &value, DumpOptions const &opts) {
-	{ Provider::dump_json(value, opts) } -> same_as<expected<S, Error>>;
+	{ Provider::dump_json(value, opts) } -> same_as<expected<std::string, Error>>;
 };
 
 template<class Provider, class T>
-concept JsonDecodeProvider = requires(SV input, DecodeOptions const &opts) {
+concept JsonDecodeProvider = requires(std::string_view input, DecodeOptions const &opts) {
 	{ Provider::template decode_json<T>(input, opts) } -> same_as<expected<T, Error>>;
 };
 
 template<class Sink>
-concept JsonChunkSink = requires(Sink &&sink, SV chunk) {
+concept JsonChunkSink = requires(Sink &&sink, std::string_view chunk) {
 	{ std::invoke(std::forward<Sink>(sink), chunk) } -> same_as<void>;
 };
 
@@ -106,15 +106,15 @@ concept JsonWritableProvider =
 	JsonDirectWriteProvider<Provider, T, Sink> || (JsonDumpProvider<Provider, T> && JsonChunkSink<Sink>);
 
 template<class Provider>
-concept JsonDocumentProvider = requires(SV input, DecodeOptions const &decode_opts, DumpOptions const &dump_opts) {
+concept JsonDocumentProvider = requires(std::string_view input, DecodeOptions const &decode_opts, DumpOptions const &dump_opts) {
 	typename Provider::document_type;
 	{ Provider::parse_json_document(input, decode_opts) } -> same_as<expected<typename Provider::document_type, Error>>;
-	{ Provider::dump_json(std::declval<typename Provider::document_type const &>(), dump_opts) } -> same_as<expected<S, Error>>;
+	{ Provider::dump_json(std::declval<typename Provider::document_type const &>(), dump_opts) } -> same_as<expected<std::string, Error>>;
 };
 
 template<class Provider, class T>
 struct SerdeTraits {
-	static expected<S, Error> dump(
+	static expected<std::string, Error> dump(
 		T const &value,
 		DumpOptions const &opts = {})
 		requires JsonDumpProvider<Provider, T>
@@ -123,7 +123,7 @@ struct SerdeTraits {
 	}
 
 	static expected<T, Error> decode(
-		SV input,
+		std::string_view input,
 		DecodeOptions const &opts = {})
 		requires JsonDecodeProvider<Provider, T>
 	{
@@ -144,14 +144,14 @@ struct SerdeTraits {
 			if (!dumped) {
 				return unexpected(dumped.error());
 			}
-			std::invoke(std::forward<Sink>(sink), SV{*dumped});
+			std::invoke(std::forward<Sink>(sink), std::string_view{*dumped});
 			return {};
 		}
 	}
 };
 
 template<class Provider, class T>
-[[nodiscard]] expected<S, Error> dump_with(
+[[nodiscard]] expected<std::string, Error> dump_with(
 	T const &value,
 	DumpOptions const &opts = {})
 	requires JsonDumpProvider<Provider, T>
@@ -161,7 +161,7 @@ template<class Provider, class T>
 
 template<class Provider, class T>
 [[nodiscard]] expected<std::remove_cvref_t<T>, Error> decode_with(
-	SV input,
+	std::string_view input,
 	DecodeOptions const &opts = {})
 	requires JsonDecodeProvider<Provider, std::remove_cvref_t<T>>
 {

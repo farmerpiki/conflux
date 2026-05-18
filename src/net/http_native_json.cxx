@@ -54,7 +54,7 @@ template<class T>
 [[nodiscard]] expected<HttpResponse, conflux::json::boundary::Error> try_response(
 	T const &value,
 	int status,
-	SV status_text,
+	std::string_view status_text,
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonWritableProvider<
 		DefaultJsonProvider,
@@ -80,7 +80,7 @@ template<class T>
 [[nodiscard]] HttpResponse response_or_internal_error(
 	T const &value,
 	int status,
-	SV status_text,
+	std::string_view status_text,
 	conflux::json::boundary::DumpOptions const &opts = {})
 	requires conflux::json::boundary::JsonWritableProvider<
 		DefaultJsonProvider,

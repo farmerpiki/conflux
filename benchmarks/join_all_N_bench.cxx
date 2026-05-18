@@ -18,17 +18,17 @@ namespace root = conflux::work::root;
 namespace {
 
 void run_once(
-	SZ n) {
-	V<root::Task<int>> tasks;
+	std::size_t n) {
+	std::vector<root::Task<int>> tasks;
 	tasks.reserve(n);
-	V<root::TaskSource<int>> sources;
+	std::vector<root::TaskSource<int>> sources;
 	sources.reserve(n);
-	for (SZ i = 0; i < n; ++i) {
+	for (std::size_t i = 0; i < n; ++i) {
 		auto [task, source] = root::make_task_source<int>();
 		tasks.push_back(move(task));
 		sources.push_back(move(source));
 	}
-	for (SZ i = 0; i < n; ++i) {
+	for (std::size_t i = 0; i < n; ++i) {
 		(void)sources[i].try_set_value(root::Success<int>{static_cast<int>(i)});
 	}
 	sources.clear();
@@ -46,11 +46,11 @@ int main(
 		argv,
 		R"({"name":"join_all_N","parser":"standard","configs":[{"name":"n_2","extra":{"n":2},"args":["--n","2","--config-name","n_2","--iterations","100000","--warmup","5000"]},{"name":"n_10","extra":{"n":10},"args":["--n","10","--config-name","n_10","--iterations","100000","--warmup","5000"]},{"name":"n_100","extra":{"n":100},"args":["--n","100","--config-name","n_100","--iterations","100000","--warmup","5000"]}]})");
 
-	auto cfg = bench_parse_args(span{argv, static_cast<SZ>(argc)});
-	SZ n = 10;
-	for (SZ i = 1; i < static_cast<SZ>(argc); ++i) {
-		SV a = argv[i];
-		if (a == "--n" && i + 1 < static_cast<SZ>(argc)) {
+	auto cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	std::size_t n = 10;
+	for (std::size_t i = 1; i < static_cast<std::size_t>(argc); ++i) {
+		std::string_view a = argv[i];
+		if (a == "--n" && i + 1 < static_cast<std::size_t>(argc)) {
 			n = bench_parse_sz(argv[++i]);
 			if (cfg.config_name.empty()) {
 				cfg.config_name = format("n_{}", n);
@@ -58,15 +58,15 @@ int main(
 		}
 	}
 
-	for (SZ i = 0; i < cfg.warmup; ++i) {
+	for (std::size_t i = 0; i < cfg.warmup; ++i) {
 		run_once(n);
 	}
 
-	u64 const t0 = bench_now_ns();
-	for (SZ i = 0; i < cfg.iterations; ++i) {
+	std::uint64_t const t0 = bench_now_ns();
+	for (std::size_t i = 0; i < cfg.iterations; ++i) {
 		run_once(n);
 	}
-	u64 const elapsed = bench_now_ns() - t0;
+	std::uint64_t const elapsed = bench_now_ns() - t0;
 
 	BenchStats s{
 		cfg.config_name,

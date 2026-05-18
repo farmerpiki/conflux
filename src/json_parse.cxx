@@ -9,20 +9,20 @@ import conflux.types;
 // builds Nodes. Splitting them keeps the byte-level scan layer reusable
 // (SIMD prerequisite) without changing semantics.
 struct Tokenizer {
-	SV src;
-	SZ pos{};
-	SZ line{1};
-	SZ col{1};
+	std::string_view src;
+	std::size_t pos{};
+	std::size_t line{1};
+	std::size_t col{1};
 	DocumentStorage &store;
-	u32 bom_prefix_bytes;
+	std::uint32_t bom_prefix_bytes;
 	ParseMode mode{};
 	bool unterminated_block_comment{};
-	SZ unterminated_block_comment_pos{};
-	SZ unterminated_block_comment_line{1};
-	SZ unterminated_block_comment_col{1};
+	std::size_t unterminated_block_comment_pos{};
+	std::size_t unterminated_block_comment_line{1};
+	std::size_t unterminated_block_comment_col{1};
 	[[nodiscard]] JsonError mk_err(
 		JsonIssueCode code,
-		S msg) const {
+		std::string msg) const {
 		// Source offsets are reported in raw input bytes including any
 		// stripped BOM (Correction Q): bom_prefix_bytes is added here so
 		// every error site sees v7-compatible coordinates.
@@ -76,9 +76,9 @@ struct Tokenizer {
 				continue;
 			}
 			if (src[pos + 1] == '*') {
-				SZ const comment_pos = pos;
-				SZ const comment_line = line;
-				SZ const comment_col = col;
+				std::size_t const comment_pos = pos;
+				std::size_t const comment_line = line;
+				std::size_t const comment_col = col;
 				pos += 2;
 				col += 2;
 				while (pos + 1 < src.size()) {
@@ -108,13 +108,13 @@ next_ws:;
 		}
 	}
 	void adv(
-		SZ n = 1) noexcept {
+		std::size_t n = 1) noexcept {
 		pos += n;
 		col += n;
 	}
 	template<class Str>
 	static void append_utf8(
-		u32 cp,
+		std::uint32_t cp,
 		Str &out) {
 		// NOLINTBEGIN(readability-magic-numbers,hicpp-signed-bitwise)
 		if (cp < 0x80U) {
@@ -135,21 +135,21 @@ next_ws:;
 		// NOLINTEND(readability-magic-numbers,hicpp-signed-bitwise)
 	}
 	[[nodiscard]] bool hex4(
-		u32 &out) noexcept {
+		std::uint32_t &out) noexcept {
 		if (pos + 4 > src.size()) {
 			return false;
 		}
 		out = 0;
-		for (SZ i = 0; i < 4; ++i) {
+		for (std::size_t i = 0; i < 4; ++i) {
 			char const c = src[pos + i];
-			u32 d = 0;
-			constexpr u32 kA = 10;
+			std::uint32_t d = 0;
+			constexpr std::uint32_t kA = 10;
 			if (c >= '0' && c <= '9') {
-				d = static_cast<u32>(c - '0');
+				d = static_cast<std::uint32_t>(c - '0');
 			} else if (c >= 'a' && c <= 'f') {
-				d = static_cast<u32>(c - 'a') + kA;
+				d = static_cast<std::uint32_t>(c - 'a') + kA;
 			} else if (c >= 'A' && c <= 'F') {
-				d = static_cast<u32>(c - 'A') + kA;
+				d = static_cast<std::uint32_t>(c - 'A') + kA;
 			} else {
 				return false;
 			}
@@ -161,9 +161,9 @@ next_ws:;
 		return true;
 	}
 	struct ParsedStr {
-		u32 off;
-		u32 len;
-		u8 flags; // kStorageInputView | kRawJsonSlice for zero-copy, 0 for escaped
+		std::uint32_t off;
+		std::uint32_t len;
+		std::uint8_t flags; // kStorageInputView | kRawJsonSlice for zero-copy, 0 for escaped
 	};
 	// Phase 2: fast path scans for `"` or `\` without copying. On `\`, copies
 	// the prefix to escape_arena and continues with the escape-decoding loop;
@@ -173,10 +173,10 @@ next_ws:;
 	// boundary byte (terminator / escape / control / UTF-8 lead).
 	[[nodiscard]] expected<ParsedStr, JsonError> parse_str_body() {
 		constexpr unsigned char kCtrlEnd = 0x20U;
-		auto const start_pos = static_cast<u32>(pos);
+		auto const start_pos = static_cast<std::uint32_t>(pos);
 		while (pos < src.size()) {
-			SZ const remaining = src.size() - pos;
-			SZ const skip = detail::simd::scan_str_until_special(src.data() + pos, remaining);
+			std::size_t const remaining = src.size() - pos;
+			std::size_t const skip = detail::simd::scan_str_until_special(src.data() + pos, remaining);
 			pos += skip;
 			col += skip;
 			if (pos >= src.size()) {
@@ -184,27 +184,27 @@ next_ws:;
 			}
 			auto const c = static_cast<unsigned char>(src[pos]);
 			if (c == '"') {
-				auto const len = static_cast<u32>(pos) - start_pos;
+				auto const len = static_cast<std::uint32_t>(pos) - start_pos;
 				adv();
-				return ParsedStr{start_pos, len, static_cast<u8>(kStorageInputView | kRawJsonSlice)};
+				return ParsedStr{start_pos, len, static_cast<std::uint8_t>(kStorageInputView | kRawJsonSlice)};
 			}
 			if (c < kCtrlEnd) {
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
 			}
 			if (c == '\\') {
 				// Slow path: copy bytes seen so far to escape_arena, then keep decoding.
-				SZ const arena_off = store.string_arena.size();
+				std::size_t const arena_off = store.string_arena.size();
 				store.string_arena.append(src.data() + start_pos, pos - start_pos);
 				return parse_str_decode_tail(arena_off);
 			}
-			SZ const seq = utf8_seq_len(c);
+			std::size_t const seq = utf8_seq_len(c);
 			if (seq == 0) {
 				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
 			}
 			if (pos + seq > src.size()) {
 				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
 			}
-			for (SZ k = 1; k < seq; ++k) {
+			for (std::size_t k = 1; k < seq; ++k) {
 				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) {
 					return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
 				}
@@ -215,14 +215,14 @@ next_ws:;
 		return unexpected(mk_err(JsonIssueCode::unexpected_eof, "EOF in string"));
 	}
 	[[nodiscard]] expected<ParsedStr, JsonError> parse_str_decode_tail(
-		SZ arena_off) {
+		std::size_t arena_off) {
 		constexpr unsigned char kCtrlEnd = 0x20U;
 		while (pos < src.size()) {
 			auto const c = static_cast<unsigned char>(src[pos]);
 			if (c == '"') {
 				adv();
-				SZ const len = store.string_arena.size() - arena_off;
-				return ParsedStr{static_cast<u32>(arena_off), static_cast<u32>(len), 0};
+				std::size_t const len = store.string_arena.size() - arena_off;
+				return ParsedStr{static_cast<std::uint32_t>(arena_off), static_cast<std::uint32_t>(len), 0};
 			}
 			if (c < kCtrlEnd) {
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
@@ -268,7 +268,7 @@ next_ws:;
 				case 'u':
 					{
 						adv();
-						u32 cp = 0;
+						std::uint32_t cp = 0;
 						if (!hex4(cp)) {
 							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
 						}
@@ -279,7 +279,7 @@ next_ws:;
 									mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
 							}
 							adv(2);
-							u32 lo = 0;
+							std::uint32_t lo = 0;
 							if (!hex4(lo) || lo < 0xDC00U || lo > 0xDFFFU) {
 								return unexpected(
 									mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
@@ -296,14 +296,14 @@ next_ws:;
 				}
 				continue;
 			}
-			SZ const seq = utf8_seq_len(c);
+			std::size_t const seq = utf8_seq_len(c);
 			if (seq == 0) {
 				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
 			}
 			if (pos + seq > src.size()) {
 				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
 			}
-			for (SZ k = 1; k < seq; ++k) {
+			for (std::size_t k = 1; k < seq; ++k) {
 				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) {
 					return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
 				}
@@ -318,13 +318,13 @@ next_ws:;
 	// NOLINTNEXTLINE(readability-function-cognitive-complexity)
 	[[nodiscard]] expected<ParsedStr, JsonError> parse_str_body_sq() {
 		constexpr unsigned char kCtrlEnd = 0x20U;
-		SZ const arena_off = store.string_arena.size();
+		std::size_t const arena_off = store.string_arena.size();
 		while (pos < src.size()) {
 			auto const c = static_cast<unsigned char>(src[pos]);
 			if (c == '\'') {
 				adv();
-				SZ const len = store.string_arena.size() - arena_off;
-				return ParsedStr{static_cast<u32>(arena_off), static_cast<u32>(len), 0};
+				std::size_t const len = store.string_arena.size() - arena_off;
+				return ParsedStr{static_cast<std::uint32_t>(arena_off), static_cast<std::uint32_t>(len), 0};
 			}
 			if (c < kCtrlEnd) {
 				return unexpected(mk_err(JsonIssueCode::syntax_error, "unescaped control character"));
@@ -374,7 +374,7 @@ next_ws:;
 				case 'u':
 					{
 						adv();
-						u32 cp = 0;
+						std::uint32_t cp = 0;
 						if (!hex4(cp)) {
 							return unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "invalid \\uXXXX"));
 						}
@@ -385,7 +385,7 @@ next_ws:;
 									mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
 							}
 							adv(2);
-							u32 lo = 0;
+							std::uint32_t lo = 0;
 							if (!hex4(lo) || lo < 0xDC00U || lo > 0xDFFFU) {
 								return unexpected(
 									mk_err(JsonIssueCode::invalid_unicode_escape, "invalid low surrogate"));
@@ -402,14 +402,14 @@ next_ws:;
 				}
 				continue;
 			}
-			SZ const seq = utf8_seq_len(c);
+			std::size_t const seq = utf8_seq_len(c);
 			if (seq == 0) {
 				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 byte"));
 			}
 			if (pos + seq > src.size()) {
 				return unexpected(mk_err(JsonIssueCode::invalid_utf8, "truncated UTF-8"));
 			}
-			for (SZ k = 1; k < seq; ++k) {
+			for (std::size_t k = 1; k < seq; ++k) {
 				if (!is_cont(static_cast<unsigned char>(src[pos + k]))) {
 					return unexpected(mk_err(JsonIssueCode::invalid_utf8, "invalid UTF-8 continuation"));
 				}
@@ -422,7 +422,7 @@ next_ws:;
 	}
 	// JSON5: unquoted key — [A-Za-z_$][A-Za-z0-9_$]*
 	[[nodiscard]] expected<ParsedStr, JsonError> parse_unquoted_key() {
-		SZ const start = pos;
+		std::size_t const start = pos;
 		char const first = src[pos];
 		if (!((first >= 'A' && first <= 'Z') || (first >= 'a' && first <= 'z') || first == '_' || first == '$')) {
 			return unexpected(mk_err(JsonIssueCode::syntax_error, "expected string key or identifier"));
@@ -440,15 +440,15 @@ next_ws:;
 				break;
 			}
 		}
-		auto const len = static_cast<u32>(pos - start);
-		return ParsedStr{static_cast<u32>(start), len, static_cast<u8>(kStorageInputView | kRawJsonSlice)};
+		auto const len = static_cast<std::uint32_t>(pos - start);
+		return ParsedStr{static_cast<std::uint32_t>(start), len, static_cast<std::uint8_t>(kStorageInputView | kRawJsonSlice)};
 	}
 	// Scans a number lexeme per RFC 8259 grammar and returns the slice of `src`
 	// covering it. Caller (TreeBuilder) classifies the value and stores the
 	// node; the lexeme references input_view directly (Phase 1: zero-copy).
 	// NOLINTNEXTLINE(readability-function-cognitive-complexity)
-	[[nodiscard]] expected<SV, JsonError> parse_number_lexeme() {
-		SZ const start = pos;
+	[[nodiscard]] expected<std::string_view, JsonError> parse_number_lexeme() {
+		std::size_t const start = pos;
 		bool const neg = src[pos] == '-';
 		if (neg) {
 			adv();
@@ -502,11 +502,11 @@ struct TreeBuilder {
 	// the slice is moved to store.array_children / store.object_members and
 	// the staging buffer truncated back. This eliminates per-frame heap
 	// allocation that the v7-style local vectors paid for each container.
-	V<u32> staging;
-	V<MemberEntry> staging_members;
+	std::vector<std::uint32_t> staging;
+	std::vector<MemberEntry> staging_members;
 	[[nodiscard]] JsonError mk_err(
 		JsonIssueCode code,
-		S msg) const {
+		std::string msg) const {
 		return tok.mk_err(code, move(msg));
 	}
 	[[nodiscard]] expected<void, JsonError> skip_ws_checked() {
@@ -517,8 +517,8 @@ struct TreeBuilder {
 		return {};
 	}
 	// NOLINTNEXTLINE(misc-no-recursion)
-	[[nodiscard]] expected<SZ, JsonError> parse_value(
-		SZ depth) {
+	[[nodiscard]] expected<std::size_t, JsonError> parse_value(
+		std::size_t depth) {
 		if (auto ok = skip_ws_checked(); !ok) {
 			return unexpected(move(ok).error());
 		}
@@ -573,50 +573,50 @@ struct TreeBuilder {
 		}
 		return unexpected(mk_err(JsonIssueCode::syntax_error, format("unexpected character '{}'", c)));
 	}
-	[[nodiscard]] expected<SZ, JsonError> parse_str_node() {
+	[[nodiscard]] expected<std::size_t, JsonError> parse_str_node() {
 		auto parsed = tok.parse_str_body();
 		if (!parsed) {
 			return unexpected(move(parsed).error());
 		}
 		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
-			return unexpected(mk_err(JsonIssueCode::string_too_large, "S exceeds max_string_size"));
+			return unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
 		}
 		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
 		return store.nodes.size() - 1;
 	}
-	[[nodiscard]] expected<SZ, JsonError> parse_str_node_sq() {
+	[[nodiscard]] expected<std::size_t, JsonError> parse_str_node_sq() {
 		auto parsed = tok.parse_str_body_sq();
 		if (!parsed) {
 			return unexpected(move(parsed).error());
 		}
 		if (opts.max_string_size.exceeds(parsed->len, kDefaultMaxString)) {
-			return unexpected(mk_err(JsonIssueCode::string_too_large, "S exceeds max_string_size"));
+			return unexpected(mk_err(JsonIssueCode::string_too_large, "std::string exceeds max_string_size"));
 		}
 		store.nodes.push_back(detail::make_string(parsed->off, parsed->len, parsed->flags));
 		return store.nodes.size() - 1;
 	}
 	// NOLINTNEXTLINE(misc-no-recursion)
-	[[nodiscard]] expected<SZ, JsonError> parse_array(
-		SZ depth) {
+	[[nodiscard]] expected<std::size_t, JsonError> parse_array(
+		std::size_t depth) {
 		tok.adv(); // '['
 		if (auto ok = skip_ws_checked(); !ok) {
 			return unexpected(move(ok).error());
 		}
 		if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
 			tok.adv();
-			SZ const cs = store.array_children.size();
-			store.nodes.push_back(detail::node_array(static_cast<u32>(cs), static_cast<u32>(0)));
+			std::size_t const cs = store.array_children.size();
+			store.nodes.push_back(detail::node_array(static_cast<std::uint32_t>(cs), static_cast<std::uint32_t>(0)));
 			return store.nodes.size() - 1;
 		}
 		// Phase 4: append child indices to shared staging[children_start..],
 		// flush to array_children at close, then truncate staging.
-		SZ const children_start = staging.size();
+		std::size_t const children_start = staging.size();
 		while (true) {
 			auto child = parse_value(depth + 1);
 			if (!child) {
 				return unexpected(move(child).error());
 			}
-			staging.push_back(static_cast<u32>(*child));
+			staging.push_back(static_cast<std::uint32_t>(*child));
 			if (auto ok = skip_ws_checked(); !ok) {
 				return unexpected(move(ok).error());
 			}
@@ -625,14 +625,14 @@ struct TreeBuilder {
 			}
 			if (tok.src[tok.pos] == ']') {
 				tok.adv();
-				SZ const len = staging.size() - children_start;
-				SZ const cs = store.array_children.size();
+				std::size_t const len = staging.size() - children_start;
+				std::size_t const cs = store.array_children.size();
 				store.array_children.insert(
 					store.array_children.end(),
 					staging.begin() + static_cast<std::ptrdiff_t>(children_start),
 					staging.end());
 				staging.resize(children_start);
-				store.nodes.push_back(detail::node_array(static_cast<u32>(cs), static_cast<u32>(len)));
+				store.nodes.push_back(detail::node_array(static_cast<std::uint32_t>(cs), static_cast<std::uint32_t>(len)));
 				return store.nodes.size() - 1;
 			}
 			if (tok.src[tok.pos] != ',') {
@@ -646,14 +646,14 @@ struct TreeBuilder {
 				}
 				if (tok.pos < tok.src.size() && tok.src[tok.pos] == ']') {
 					tok.adv();
-					SZ const len = staging.size() - children_start;
-					SZ const cs = store.array_children.size();
+					std::size_t const len = staging.size() - children_start;
+					std::size_t const cs = store.array_children.size();
 					store.array_children.insert(
 						store.array_children.end(),
 						staging.begin() + static_cast<std::ptrdiff_t>(children_start),
 						staging.end());
 					staging.resize(children_start);
-					store.nodes.push_back(detail::node_array(static_cast<u32>(cs), static_cast<u32>(len)));
+					store.nodes.push_back(detail::node_array(static_cast<std::uint32_t>(cs), static_cast<std::uint32_t>(len)));
 					return store.nodes.size() - 1;
 				}
 			}
@@ -663,17 +663,17 @@ struct TreeBuilder {
 	// promotion above the threshold. The set is constructed only when the
 	// object actually exceeds the linear-scan window — typical configs
 	// (small flat objects) pay zero hash-table cost.
-	static constexpr SZ kDedupLinearMax = 8;
+	static constexpr std::size_t kDedupLinearMax = 8;
 	[[nodiscard]] bool dedup_member_present(
-		SZ members_start,
-		SV name,
-		Opt<US<SV>> const &seen_hash) const {
+		std::size_t members_start,
+		std::string_view name,
+		std::optional<std::unordered_set<std::string_view>> const &seen_hash) const {
 		if (seen_hash.has_value()) {
 			return seen_hash->contains(name);
 		}
-		for (SZ i = members_start; i < staging_members.size(); ++i) {
+		for (std::size_t i = members_start; i < staging_members.size(); ++i) {
 			auto const &m = staging_members[i];
-			if (store.bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags)) == name) {
+			if (store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)) == name) {
 				return true;
 			}
 		}
@@ -681,8 +681,8 @@ struct TreeBuilder {
 	}
 	// Destroy hash tables in store.nodes[from..store.nodes.size()) before resize.
 	void destroy_nodes_range(
-		SZ from) noexcept {
-		for (SZ i = from; i < store.nodes.size(); ++i) {
+		std::size_t from) noexcept {
+		for (std::size_t i = from; i < store.nodes.size(); ++i) {
 			auto const &n = store.nodes[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 			if (n.kind == NodeKind::object && n.hash_idx_raw != nullptr && n.hash_idx_raw != kHashBuildFailedSentinel) {
 				ObjHashTable::destroy(n.hash_idx_raw);
@@ -690,13 +690,13 @@ struct TreeBuilder {
 		}
 	}
 	// NOLINTNEXTLINE(misc-no-recursion,readability-function-cognitive-complexity)
-	[[nodiscard]] expected<SZ, JsonError> parse_object(
-		SZ depth) {
+	[[nodiscard]] expected<std::size_t, JsonError> parse_object(
+		std::size_t depth) {
 		struct StorageMark {
-			SZ nodes;
-			SZ string_arena;
-			SZ array_children;
-			SZ object_members;
+			std::size_t nodes;
+			std::size_t string_arena;
+			std::size_t array_children;
+			std::size_t object_members;
 		};
 		tok.adv(); // '{'
 		if (auto ok = skip_ws_checked(); !ok) {
@@ -704,16 +704,16 @@ struct TreeBuilder {
 		}
 		if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
 			tok.adv();
-			SZ const ms = store.object_members.size();
-			store.nodes.push_back(detail::node_object(static_cast<u32>(ms), static_cast<u32>(0)));
+			std::size_t const ms = store.object_members.size();
+			store.nodes.push_back(detail::node_object(static_cast<std::uint32_t>(ms), static_cast<std::uint32_t>(0)));
 			return store.nodes.size() - 1;
 		}
 		// Phase 4: members go to shared staging_members[members_start..],
 		// flushed to object_members at close.
-		SZ const members_start = staging_members.size();
+		std::size_t const members_start = staging_members.size();
 		// Phase 5: dedup is linear until size > kDedupLinearMax, then a
 		// hash set is built once and reused for the remainder of this object.
-		Opt<US<SV>> seen_hash;
+		std::optional<std::unordered_set<std::string_view>> seen_hash;
 		auto const dup_policy = opts.duplicate_key;
 		while (true) {
 			if (auto ok = skip_ws_checked(); !ok) {
@@ -740,7 +740,7 @@ struct TreeBuilder {
 				staging_members.resize(members_start);
 				return unexpected(move(parsed_name).error());
 			}
-			SV const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
+			std::string_view const name_sv = store.bytes_at(parsed_name->off, parsed_name->len, parsed_name->flags);
 			bool const is_dup = dedup_member_present(members_start, name_sv, seen_hash);
 			if (is_dup && dup_policy == DuplicateKeyPolicy::reject) {
 				staging_members.resize(members_start);
@@ -786,30 +786,30 @@ struct TreeBuilder {
 					store.object_members.resize(mark.object_members);
 				} else {
 					// last_wins: update the first occurrence's val_node.
-					for (SZ i = members_start; i < staging_members.size(); ++i) {
+					for (std::size_t i = members_start; i < staging_members.size(); ++i) {
 						auto &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-						if (store.bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags)) == name_sv) {
-							m.val_node = static_cast<u32>(*val);
+						if (store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)) == name_sv) {
+							m.val_node = static_cast<std::uint32_t>(*val);
 							break;
 						}
 					}
 				}
 			} else {
 				staging_members.push_back(
-					{parsed_name->off, parsed_name->len, static_cast<u32>(*val), parsed_name->flags});
+					{parsed_name->off, parsed_name->len, static_cast<std::uint32_t>(*val), parsed_name->flags});
 
 				// Promote linear → hash once we cross the threshold.
-				SZ const cur_count = staging_members.size() - members_start;
+				std::size_t const cur_count = staging_members.size() - members_start;
 				if (!seen_hash.has_value() && cur_count > kDedupLinearMax) {
 					seen_hash.emplace();
-					SZ reserve_count = cur_count;
-					if (cur_count <= NL<SZ>::max() - cur_count) {
+					std::size_t reserve_count = cur_count;
+					if (cur_count <= std::numeric_limits<std::size_t>::max() - cur_count) {
 						reserve_count += cur_count;
 					}
 					seen_hash->reserve(reserve_count);
-					for (SZ i = members_start; i < staging_members.size(); ++i) {
+					for (std::size_t i = members_start; i < staging_members.size(); ++i) {
 						auto const &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-						seen_hash->insert(store.bytes_at(m.name_off, m.name_len, static_cast<u8>(m.name_flags)));
+						seen_hash->insert(store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)));
 					}
 				}
 			}
@@ -824,22 +824,22 @@ struct TreeBuilder {
 			}
 			if (tok.src[tok.pos] == '}') {
 				tok.adv();
-				SZ const len = staging_members.size() - members_start;
-				SZ const ms = store.object_members.size();
+				std::size_t const len = staging_members.size() - members_start;
+				std::size_t const ms = store.object_members.size();
 				store.object_members.insert(
 					store.object_members.end(),
 					staging_members.begin() + static_cast<std::ptrdiff_t>(members_start),
 					staging_members.end());
 				staging_members.resize(members_start);
-				store.nodes.push_back(detail::node_object(static_cast<u32>(ms), static_cast<u32>(len)));
-				SZ const obj_node_idx = store.nodes.size() - 1;
+				store.nodes.push_back(detail::node_object(static_cast<std::uint32_t>(ms), static_cast<std::uint32_t>(len)));
+				std::size_t const obj_node_idx = store.nodes.size() - 1;
 				// Auto-warm if warm_threshold is set and object is large enough.
 				if (opts.warm_threshold.has_value()
-					&& len >= static_cast<SZ>(*opts.warm_threshold)
+					&& len >= static_cast<std::size_t>(*opts.warm_threshold)
 					&& len >= kHashThreshold) {
-					u32 const cap = detail::clamped_capacity(static_cast<u32>(len));
+					std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(len));
 					if (cap > 0) {
-						ObjHashTable *ht = ObjHashTable::create(cap, static_cast<u32>(len), store.hash_mr_);
+						ObjHashTable *ht = ObjHashTable::create(cap, static_cast<std::uint32_t>(len), store.hash_mr_);
 						if (ht != nullptr) {
 							if (detail::build_table(*ht, &store, ms, len)) {
 								store.nodes[obj_node_idx].hash_idx_raw =
@@ -866,21 +866,21 @@ struct TreeBuilder {
 				}
 				if (tok.pos < tok.src.size() && tok.src[tok.pos] == '}') {
 					tok.adv();
-					SZ const len2 = staging_members.size() - members_start;
-					SZ const ms2 = store.object_members.size();
+					std::size_t const len2 = staging_members.size() - members_start;
+					std::size_t const ms2 = store.object_members.size();
 					store.object_members.insert(
 						store.object_members.end(),
 						staging_members.begin() + static_cast<std::ptrdiff_t>(members_start),
 						staging_members.end());
 					staging_members.resize(members_start);
-					store.nodes.push_back(detail::node_object(static_cast<u32>(ms2), static_cast<u32>(len2)));
-					SZ const obj2 = store.nodes.size() - 1;
+					store.nodes.push_back(detail::node_object(static_cast<std::uint32_t>(ms2), static_cast<std::uint32_t>(len2)));
+					std::size_t const obj2 = store.nodes.size() - 1;
 					if (opts.warm_threshold.has_value()
-						&& len2 >= static_cast<SZ>(*opts.warm_threshold)
+						&& len2 >= static_cast<std::size_t>(*opts.warm_threshold)
 						&& len2 >= kHashThreshold) {
-						u32 const cap2 = detail::clamped_capacity(static_cast<u32>(len2));
+						std::uint32_t const cap2 = detail::clamped_capacity(static_cast<std::uint32_t>(len2));
 						if (cap2 > 0) {
-							ObjHashTable *ht2 = ObjHashTable::create(cap2, static_cast<u32>(len2), store.hash_mr_);
+							ObjHashTable *ht2 = ObjHashTable::create(cap2, static_cast<std::uint32_t>(len2), store.hash_mr_);
 							if (ht2 != nullptr) {
 								if (detail::build_table(*ht2, &store, ms2, len2)) {
 									store.nodes[obj2].hash_idx_raw =
@@ -898,18 +898,18 @@ struct TreeBuilder {
 			}
 		}
 	}
-	[[nodiscard]] expected<SZ, JsonError> parse_number() {
-		SZ const start = tok.pos;
+	[[nodiscard]] expected<std::size_t, JsonError> parse_number() {
+		std::size_t const start = tok.pos;
 		auto lex_result = tok.parse_number_lexeme();
 		if (!lex_result) {
 			return unexpected(move(lex_result).error());
 		}
-		SV const lex = *lex_result;
+		std::string_view const lex = *lex_result;
 		// Phase 1: number lexemes reference input_view directly — zero-copy.
 		auto node = detail::build_number_node_from_lexeme(
-			static_cast<u32>(start),
-			static_cast<u32>(lex.size()),
-			static_cast<u8>(kStorageInputView | kRawJsonSlice),
+			static_cast<std::uint32_t>(start),
+			static_cast<std::uint32_t>(lex.size()),
+			static_cast<std::uint8_t>(kStorageInputView | kRawJsonSlice),
 			lex);
 		if (!node) {
 			return unexpected(move(node).error());
@@ -923,12 +923,12 @@ struct TreeBuilder {
 // ---------------------------------------------------------------------------
 
 [[nodiscard]] inline expected<void, JsonError> check_input_limits(
-	SZ input_size,
+	std::size_t input_size,
 	JsonParseOptions const &opts) noexcept {
 	// 4 GiB hard ceiling — Fix F / Correction P. Unbypassable by
 	// max_input_size = no_limit because Node::off / Node::len /
 	// array_children entries are all u32.
-	constexpr SZ kU32Ceiling = (SZ{1} << 32) - 1;
+	constexpr std::size_t kU32Ceiling = (std::size_t{1} << 32) - 1;
 	if (input_size >= kU32Ceiling) {
 		return unexpected(
 			JsonError{
@@ -948,7 +948,7 @@ struct TreeBuilder {
 [[nodiscard]] inline expected<void, JsonError> parse_inplace(
 	DocumentStorage &store,
 	JsonParseOptions const &opts) {
-	SZ const reserve_n = max<SZ>(64, store.input_view.size() / 16 + 16);
+	std::size_t const reserve_n = max<std::size_t>(64, store.input_view.size() / 16 + 16);
 	store.nodes.reserve(reserve_n);
 	store.array_children.reserve(reserve_n);
 	store.object_members.reserve(reserve_n);
@@ -977,7 +977,7 @@ struct TreeBuilder {
 	if (!root) {
 		return unexpected(move(root).error());
 	}
-	store.root_node = static_cast<u32>(*root);
+	store.root_node = static_cast<std::uint32_t>(*root);
 	if (auto ok = tb.skip_ws_checked(); !ok) {
 		return unexpected(move(ok).error());
 	}
@@ -998,16 +998,16 @@ struct TreeBuilder {
 }
 [[nodiscard]] inline expected<Document, JsonError> parse_with_storage(
 	DocumentStorage &storage_ref,
-	UP<DocumentStorage> storage,
+	std::unique_ptr<DocumentStorage> storage,
 	JsonParseOptions const &opts) {
 	// R1 / Polish AA — pre-size the three growth vectors. JSON has roughly
 	// one node per 8–16 bytes of input on typical payloads; reserving ahead
 	// of the parse skips the geometric realloc cycle on >100 KB inputs.
 	// Floor at 64 preserves the tiny-input baseline. A precise structural
-	// prescan was tried and rejected — the branchful in-S scan
+	// prescan was tried and rejected — the branchful in-std::string scan
 	// (~1 GB/s) cost more than the realloc copies it saved on the
 	// 4 KB / 200 KB corpora in this bench.
-	SZ const reserve_n = max<SZ>(64, storage_ref.input_view.size() / 16 + 16);
+	std::size_t const reserve_n = max<std::size_t>(64, storage_ref.input_view.size() / 16 + 16);
 	storage->nodes.reserve(reserve_n);
 	storage->array_children.reserve(reserve_n);
 	storage->object_members.reserve(reserve_n);
@@ -1042,7 +1042,7 @@ struct TreeBuilder {
 	if (!root) {
 		return unexpected(move(root).error());
 	}
-	storage->root_node = static_cast<u32>(*root);
+	storage->root_node = static_cast<std::uint32_t>(*root);
 
 	if (auto ok = tb.skip_ws_checked(); !ok) {
 		return unexpected(move(ok).error());
@@ -1064,7 +1064,7 @@ struct TreeBuilder {
 	return make_document(move(storage));
 }
 expected<ArenaDocument, JsonError> JsonArena::parse_into(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
 		return unexpected(move(ok).error());
@@ -1084,12 +1084,12 @@ expected<ArenaDocument, JsonError> JsonArena::parse_into(
 	storage_->root_node = 0;
 	storage_->bom_prefix_bytes = 0;
 
-	storage_->owned_input = make_unique<S>(input);
-	SV src = *storage_->owned_input;
-	constexpr SV kBOM = "\xEF\xBB\xBF";
+	storage_->owned_input = make_unique<std::string>(input);
+	std::string_view src = *storage_->owned_input;
+	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
-		storage_->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+		storage_->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
 	}
 	storage_->input_view = src;
 
@@ -1100,7 +1100,7 @@ expected<ArenaDocument, JsonError> JsonArena::parse_into(
 	return ArenaDocument{storage_.get(), generation_, &generation_};
 }
 expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
 		return unexpected(move(ok).error());
@@ -1119,11 +1119,11 @@ expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
 	storage_->root_node = 0;
 	storage_->bom_prefix_bytes = 0;
 
-	SV src = input;
-	constexpr SV kBOM = "\xEF\xBB\xBF";
+	std::string_view src = input;
+	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
-		storage_->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+		storage_->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
 	}
 	storage_->input_view = src;
 
@@ -1134,7 +1134,7 @@ expected<ArenaDocument, JsonError> JsonArena::parse_borrowed_into(
 	return ArenaDocument{storage_.get(), generation_, &generation_};
 }
 expected<ArenaDocument, JsonError> JsonArena::parse_moved_into(
-	S input,
+	std::string input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
 		return unexpected(move(ok).error());
@@ -1153,12 +1153,12 @@ expected<ArenaDocument, JsonError> JsonArena::parse_moved_into(
 	storage_->root_node = 0;
 	storage_->bom_prefix_bytes = 0;
 
-	storage_->owned_input = make_unique<S>(move(input));
-	SV src = *storage_->owned_input;
-	constexpr SV kBOM = "\xEF\xBB\xBF";
+	storage_->owned_input = make_unique<std::string>(move(input));
+	std::string_view src = *storage_->owned_input;
+	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
-		storage_->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+		storage_->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
 	}
 	storage_->input_view = src;
 
@@ -1185,19 +1185,19 @@ namespace conflux::json {
 // Explicit owning parse: copies input into the Document's owned buffer.
 // Number lexemes index directly into that buffer (zero-copy on read paths).
 expected<Document, JsonError> parse_copy(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
 		return unexpected(move(ok).error());
 	}
 
 	auto storage = make_unique<DocumentStorage>();
-	storage->owned_input = make_unique<S>(input);
-	SV src = *storage->owned_input;
-	constexpr SV kBOM = "\xEF\xBB\xBF";
+	storage->owned_input = make_unique<std::string>(input);
+	std::string_view src = *storage->owned_input;
+	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
-		storage->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+		storage->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
 	}
 	storage->input_view = src;
 
@@ -1208,19 +1208,19 @@ expected<Document, JsonError> parse_copy(
 // std::string rvalue overload so unrelated string-like temporaries continue to
 // select parse_copy(string_view) instead of trying to become owned storage.
 expected<Document, JsonError> parse_copy(
-	S &&input,
+	std::string &&input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
 		return unexpected(move(ok).error());
 	}
 
 	auto storage = make_unique<DocumentStorage>();
-	storage->owned_input = make_unique<S>(move(input));
-	SV src = *storage->owned_input;
-	constexpr SV kBOM = "\xEF\xBB\xBF";
+	storage->owned_input = make_unique<std::string>(move(input));
+	std::string_view src = *storage->owned_input;
+	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
-		storage->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+		storage->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
 	}
 	storage->input_view = src;
 
@@ -1230,18 +1230,18 @@ expected<Document, JsonError> parse_copy(
 // Borrow-only overload: caller guarantees the bytes outlive the Document.
 // Rvalue overload is deleted to prevent obvious lifetime mistakes.
 expected<Document, JsonError> parse_borrowed(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
 		return unexpected(move(ok).error());
 	}
 
 	auto storage = make_unique<DocumentStorage>();
-	SV src = input;
-	constexpr SV kBOM = "\xEF\xBB\xBF";
+	std::string_view src = input;
+	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
-		storage->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+		storage->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
 	}
 	storage->input_view = src;
 
@@ -1249,19 +1249,19 @@ expected<Document, JsonError> parse_borrowed(
 	return parse_with_storage(storage_ref, move(storage), opts);
 }
 expected<Document, JsonError> parse_borrowed_unsafe(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts) {
 	return parse_borrowed(input, opts);
 }
 expected<Document, JsonError> parse_view(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts) {
 	return parse_borrowed(input, opts);
 }
 // Performance-default parse: borrows/view-parses from stable caller-owned
 // storage. Use parse_copy(...) when the returned Document must own the bytes.
 expected<Document, JsonError> parse(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts) {
 	return parse_borrowed(input, opts);
 }
@@ -1269,56 +1269,56 @@ expected<Document, JsonError> parse(
 // pmr-injecting overloads — caller supplies the memory resource.
 // The resource must outlive every Document (and NodeRef) derived from it.
 expected<Document, JsonError> parse_copy(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
 		return unexpected(move(ok).error());
 	}
 	auto storage = make_unique<DocumentStorage>(resource);
-	storage->owned_input = make_unique<S>(input);
-	SV src = *storage->owned_input;
-	constexpr SV kBOM = "\xEF\xBB\xBF";
+	storage->owned_input = make_unique<std::string>(input);
+	std::string_view src = *storage->owned_input;
+	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
-		storage->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+		storage->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
 	}
 	storage->input_view = src;
 	auto &storage_ref = *storage;
 	return parse_with_storage(storage_ref, move(storage), opts);
 }
 expected<Document, JsonError> parse_borrowed(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
 	if (auto ok = check_input_limits(input.size(), opts); !ok) {
 		return unexpected(move(ok).error());
 	}
 	auto storage = make_unique<DocumentStorage>(resource);
-	SV src = input;
-	constexpr SV kBOM = "\xEF\xBB\xBF";
+	std::string_view src = input;
+	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
 		src.remove_prefix(kBOM.size());
-		storage->bom_prefix_bytes = static_cast<u32>(kBOM.size());
+		storage->bom_prefix_bytes = static_cast<std::uint32_t>(kBOM.size());
 	}
 	storage->input_view = src;
 	auto &storage_ref = *storage;
 	return parse_with_storage(storage_ref, move(storage), opts);
 }
 expected<Document, JsonError> parse_borrowed_unsafe(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
 	return parse_borrowed(input, opts, resource);
 }
 expected<Document, JsonError> parse_view(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
 	return parse_borrowed(input, opts, resource);
 }
 expected<Document, JsonError> parse(
-	SV input,
+	std::string_view input,
 	JsonParseOptions const &opts,
 	std::pmr::memory_resource *resource) {
 	return parse_borrowed(input, opts, resource);
@@ -1331,14 +1331,14 @@ expected<Document, JsonError> parse(
 namespace conflux::json::detail {
 
 [[nodiscard]] JsonError dom_policy_error(
-	SV message) {
-	return JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::constraint_violation, .message = S{message}};
+	std::string_view message) {
+	return JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::constraint_violation, .message = std::string{message}};
 }
 
 [[nodiscard]] expected<void, JsonError> require_dom_storage(
 	JsonDomPolicy const &policy,
 	JsonDomStorageModel expected,
-	SV api_name) {
+	std::string_view api_name) {
 	if (policy.storage == expected) {
 		return {};
 	}
@@ -1350,7 +1350,7 @@ namespace conflux::json::detail {
 namespace conflux::json {
 
 [[nodiscard]] expected<Document, JsonError> parse_dom(
-	SV input,
+	std::string_view input,
 	JsonDomPolicy const &policy) {
 	if (policy.storage == JsonDomStorageModel::caller_pmr_document) {
 		return unexpected(
@@ -1372,7 +1372,7 @@ namespace conflux::json {
 }
 
 [[nodiscard]] expected<Document, JsonError> parse_dom(
-	S &&input,
+	std::string &&input,
 	JsonDomPolicy const &policy) {
 	if (policy.storage == JsonDomStorageModel::caller_pmr_document) {
 		return unexpected(
@@ -1391,7 +1391,7 @@ namespace conflux::json {
 }
 
 [[nodiscard]] expected<Document, JsonError> parse_dom(
-	SV input,
+	std::string_view input,
 	std::pmr::memory_resource *resource,
 	JsonDomPolicy const &policy) {
 	if (resource == nullptr) {
@@ -1417,7 +1417,7 @@ namespace conflux::json {
 
 [[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
 	JsonArena &arena,
-	SV input,
+	std::string_view input,
 	JsonDomPolicy const &policy) {
 	if (auto ok = detail::require_dom_storage(
 			policy,
@@ -1437,7 +1437,7 @@ namespace conflux::json {
 
 [[nodiscard]] expected<ArenaDocument, JsonError> parse_dom(
 	JsonArena &arena,
-	S &&input,
+	std::string &&input,
 	JsonDomPolicy const &policy) {
 	if (auto ok = detail::require_dom_storage(
 			policy,

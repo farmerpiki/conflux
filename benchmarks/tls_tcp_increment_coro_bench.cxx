@@ -25,22 +25,22 @@ import bench_common;
 using conflux::work::root::Task;
 namespace {
 
-constexpr u64 pack_ud(
-	u32 slot,
-	u32 gen) noexcept {
-	return (static_cast<u64>(gen) << 32U) | slot;
+constexpr std::uint64_t pack_ud(
+	std::uint32_t slot,
+	std::uint32_t gen) noexcept {
+	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 }
 struct Config {
-	SZ iterations = 50000;
-	SZ warmup = 2000;
+	std::size_t iterations = 50000;
+	std::size_t warmup = 2000;
 	bool json_out = false;
 };
 namespace {
 
-u64 parse_u64(
+std::uint64_t parse_u64(
 	char const *s) noexcept {
-	SV sv{s};
-	u64 v{};
+	std::string_view sv{s};
+	std::uint64_t v{};
 	from_chars(sv.data(), sv.data() + sv.size(), v);
 	return v;
 }
@@ -49,8 +49,8 @@ u64 parse_u64(
 Config parse_args(
 	span<char *> args) {
 	Config cfg;
-	for (SZ i = 1; i < args.size(); ++i) {
-		SV a = args[i];
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		std::string_view a = args[i];
 		if (a == "--iterations" && i + 1 < args.size()) {
 			cfg.iterations = parse_u64(args[++i]);
 		} else if (a == "--warmup" && i + 1 < args.size()) {
@@ -80,25 +80,25 @@ KeyCert make_self_signed() {
 	KeyCert kc;
 	EVP_PKEY_CTX *pctx = EVP_PKEY_CTX_new_from_name(nullptr, "RSA", nullptr);
 	if (pctx == nullptr) {
-		throw RE{"EVP_PKEY_CTX_new"};
+		throw std::runtime_error{"EVP_PKEY_CTX_new"};
 	}
 	if (EVP_PKEY_keygen_init(pctx) <= 0) {
 		EVP_PKEY_CTX_free(pctx);
-		throw RE{"keygen_init"};
+		throw std::runtime_error{"keygen_init"};
 	}
 	if (EVP_PKEY_CTX_set_rsa_keygen_bits(pctx, 2048) <= 0) {
 		EVP_PKEY_CTX_free(pctx);
-		throw RE{"rsa_bits"};
+		throw std::runtime_error{"rsa_bits"};
 	}
 	if (EVP_PKEY_keygen(pctx, &kc.pkey) <= 0) {
 		EVP_PKEY_CTX_free(pctx);
-		throw RE{"keygen"};
+		throw std::runtime_error{"keygen"};
 	}
 	EVP_PKEY_CTX_free(pctx);
 
 	kc.cert = X509_new();
 	if (kc.cert == nullptr) {
-		throw RE{"X509_new"};
+		throw std::runtime_error{"X509_new"};
 	}
 	X509_set_version(kc.cert, 2);
 	ASN1_INTEGER_set(X509_get_serialNumber(kc.cert), 1);
@@ -116,7 +116,7 @@ KeyCert make_self_signed() {
 		0);
 	X509_set_issuer_name(kc.cert, name);
 	if (X509_sign(kc.cert, kc.pkey, EVP_sha256()) == 0) {
-		throw RE{"X509_sign"};
+		throw std::runtime_error{"X509_sign"};
 	}
 	return kc;
 }
@@ -144,47 +144,47 @@ void run_server(
 		return;
 	}
 
-	A<char, 128> buf{};
-	SZ held = 0;
+	std::array<char, 128> buf{};
+	std::size_t held = 0;
 	while (!stop.test(memory_order_acquire)) {
 		int got = SSL_read(ssl.get(), buf.data() + held, static_cast<int>(buf.size() - held));
 		if (got <= 0) {
 			break;
 		}
-		held += static_cast<SZ>(got);
-		SZ scan = 0;
+		held += static_cast<std::size_t>(got);
+		std::size_t scan = 0;
 		while (scan < held) {
 			auto view = span{buf}.subspan(scan, held - scan);
 			auto it = ranges::find(view, '\n');
 			if (it == view.end()) {
 				break;
 			}
-			SZ const msg_end = scan + static_cast<SZ>(it - view.begin());
-			u64 n = 0;
+			std::size_t const msg_end = scan + static_cast<std::size_t>(it - view.begin());
+			std::uint64_t n = 0;
 			auto const parsed = from_chars(buf.data() + scan, buf.data() + msg_end, n);
 			if (parsed.ec != errc{}) {
 				goto done;
 			}
 			++n;
-			A<char, 24> out{};
+			std::array<char, 24> out{};
 			auto const conv = to_chars(out.data(), out.data() + out.size() - 1, n);
 			if (conv.ec != errc{}) {
 				goto done;
 			}
 			*conv.ptr = '\n';
-			SZ const out_len = static_cast<SZ>(conv.ptr - out.data()) + 1;
-			SZ sent = 0;
+			std::size_t const out_len = static_cast<std::size_t>(conv.ptr - out.data()) + 1;
+			std::size_t sent = 0;
 			while (sent < out_len) {
 				int const w = SSL_write(ssl.get(), out.data() + sent, static_cast<int>(out_len - sent));
 				if (w <= 0) {
 					goto done;
 				}
-				sent += static_cast<SZ>(w);
+				sent += static_cast<std::size_t>(w);
 			}
 			scan = msg_end + 1;
 		}
 		if (scan > 0) {
-			SZ const remain = held - scan;
+			std::size_t const remain = held - scan;
 			memmove(buf.data(), buf.data() + scan, remain);
 			held = remain;
 		}
@@ -197,10 +197,10 @@ done:
 	::close(cfd);
 }
 int start_listener(
-	u16 &port_out) {
+	std::uint16_t &port_out) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
-		throw RE{"socket"};
+		throw std::runtime_error{"socket"};
 	}
 	int one = 1;
 	::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
@@ -210,25 +210,25 @@ int start_listener(
 	addr.sin_port = 0;
 	if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 		::close(fd);
-		throw RE{"bind"};
+		throw std::runtime_error{"bind"};
 	}
 	socklen_t slen = sizeof(addr);
 	if (::getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &slen) < 0) {
 		::close(fd);
-		throw RE{"getsockname"};
+		throw std::runtime_error{"getsockname"};
 	}
 	port_out = ::ntohs(addr.sin_port);
 	if (::listen(fd, 16) < 0) {
 		::close(fd);
-		throw RE{"listen"};
+		throw std::runtime_error{"listen"};
 	}
 	return fd;
 }
 int connect_to(
-	u16 port) {
+	std::uint16_t port) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
-		throw RE{"socket"};
+		throw std::runtime_error{"socket"};
 	}
 	int one = 1;
 	::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
@@ -238,51 +238,51 @@ int connect_to(
 	addr.sin_port = ::htons(port);
 	if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 		::close(fd);
-		throw RE{"connect"};
+		throw std::runtime_error{"connect"};
 	}
 	return fd;
 }
-SZ encode_line(
+std::size_t encode_line(
 	span<char> out,
-	u64 n) {
+	std::uint64_t n) {
 	auto const r = to_chars(out.data(), out.data() + out.size() - 1, n);
 	if (r.ec != errc{}) {
-		throw RE{"to_chars"};
+		throw std::runtime_error{"to_chars"};
 	}
 	*r.ptr = '\n';
-	return static_cast<SZ>(r.ptr - out.data()) + 1;
+	return static_cast<std::size_t>(r.ptr - out.data()) + 1;
 }
-u64 decode_line(
-	SV line) {
-	u64 n = 0;
+std::uint64_t decode_line(
+	std::string_view line) {
+	std::uint64_t n = 0;
 	auto const r = from_chars(line.data(), line.data() + line.size(), n);
 	if (r.ec != errc{}) {
-		throw RE{"from_chars"};
+		throw std::runtime_error{"from_chars"};
 	}
 	return n;
 }
 struct AsyncTlsLineReader {
 	TlsAsyncStream &tls;
-	A<byte, 256> buf{};
-	SZ held = 0;
-	Task<SV> read_line() {
+	std::array<byte, 256> buf{};
+	std::size_t held = 0;
+	Task<std::string_view> read_line() {
 		for (;;) {
 			auto view = span{buf}.first(held);
 			auto it = ranges::find(view, static_cast<byte>('\n'));
 			if (it != view.end()) {
-				auto const end = static_cast<SZ>(it - view.begin());
-				co_return SV{reinterpret_cast<char const *>(buf.data()), end};
+				auto const end = static_cast<std::size_t>(it - view.begin());
+				co_return std::string_view{reinterpret_cast<char const *>(buf.data()), end};
 			}
 			auto got = co_await tls.read_some(span{buf.data() + held, buf.size() - held});
 			if (got == 0) {
-				throw RE{"tls eof"};
+				throw std::runtime_error{"tls eof"};
 			}
 			held += got;
 		}
 	}
 	void consume_line(
-		SZ line_len) {
-		SZ const drop = line_len + 1;
+		std::size_t line_len) {
+		std::size_t const drop = line_len + 1;
 		if (drop >= held) {
 			held = 0;
 		} else {
@@ -291,58 +291,58 @@ struct AsyncTlsLineReader {
 		}
 	}
 };
-u64 run_callback(
+std::uint64_t run_callback(
 	FileReader &files,
 	TlsAsyncStream &tls,
-	SZ iters,
-	u64 start) {
+	std::size_t iters,
+	std::uint64_t start) {
 	AsyncTlsLineReader reader{.tls = tls};
-	A<char, 24> out{};
-	u64 n = start;
-	auto const t0 = chrono::steady_clock::now();
-	for (SZ i = 0; i < iters; ++i) {
-		SZ const len = encode_line(out, n);
+	std::array<char, 24> out{};
+	std::uint64_t n = start;
+	auto const t0 = std::chrono::steady_clock::now();
+	for (std::size_t i = 0; i < iters; ++i) {
+		std::size_t const len = encode_line(out, n);
 		block_on(files, tls.write_all(as_bytes(span{out.data(), len})));
 		auto line = block_on(files, reader.read_line());
-		u64 const got = decode_line(line);
+		std::uint64_t const got = decode_line(line);
 		reader.consume_line(line.size());
 		if (got != n + 1) {
-			throw RE{format("expected {} got {}", n + 1, got)};
+			throw std::runtime_error{format("expected {} got {}", n + 1, got)};
 		}
 		n = got;
 	}
-	auto const t1 = chrono::steady_clock::now();
-	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+	auto const t1 = std::chrono::steady_clock::now();
+	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
-Task<u64> coro_loop(
+Task<std::uint64_t> coro_loop(
 	TlsAsyncStream &tls,
-	SZ iters,
-	u64 start) {
+	std::size_t iters,
+	std::uint64_t start) {
 	AsyncTlsLineReader reader{.tls = tls};
-	A<char, 24> out{};
-	u64 n = start;
-	for (SZ i = 0; i < iters; ++i) {
-		SZ const len = encode_line(out, n);
+	std::array<char, 24> out{};
+	std::uint64_t n = start;
+	for (std::size_t i = 0; i < iters; ++i) {
+		std::size_t const len = encode_line(out, n);
 		co_await tls.write_all(as_bytes(span{out.data(), len}));
 		auto line = co_await reader.read_line();
-		u64 const got = decode_line(line);
+		std::uint64_t const got = decode_line(line);
 		reader.consume_line(line.size());
 		if (got != n + 1) {
-			throw RE{format("expected {} got {}", n + 1, got)};
+			throw std::runtime_error{format("expected {} got {}", n + 1, got)};
 		}
 		n = got;
 	}
 	co_return n;
 }
-u64 run_coroutine(
+std::uint64_t run_coroutine(
 	FileReader &files,
 	TlsAsyncStream &tls,
-	SZ iters,
-	u64 start) {
-	auto const t0 = chrono::steady_clock::now();
+	std::size_t iters,
+	std::uint64_t start) {
+	auto const t0 = std::chrono::steady_clock::now();
 	(void)block_on(files, coro_loop(tls, iters, start));
-	auto const t1 = chrono::steady_clock::now();
-	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+	auto const t1 = std::chrono::steady_clock::now();
+	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 
 } // namespace
@@ -353,7 +353,7 @@ int main(
 		argc,
 		argv,
 		R"({"name":"tls_tcp_increment_coro","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","10000","--warmup","500"]}]})");
-	auto cfg = parse_args(span{argv, static_cast<SZ>(argc)});
+	auto cfg = parse_args(span{argv, static_cast<std::size_t>(argc)});
 
 	auto kc = make_self_signed();
 
@@ -366,7 +366,7 @@ int main(
 	SSL_CTX_use_PrivateKey(sctx.get(), kc.pkey);
 
 	for (int which = 0; which < 2; ++which) {
-		u16 port = 0;
+		std::uint16_t port = 0;
 		int const lfd = start_listener(port);
 		atomic_flag server_stop{};
 		thread server{[lfd, sctx_raw = sctx.get(), &server_stop] { run_server(lfd, sctx_raw, server_stop); }};
@@ -394,10 +394,10 @@ int main(
 			block_on(files, tls.handshake_connect());
 
 			(void)run_callback(files, tls, cfg.warmup, 0);
-			u64 const ns = (which == 0) ? run_callback(files, tls, cfg.iterations, cfg.warmup) :
+			std::uint64_t const ns = (which == 0) ? run_callback(files, tls, cfg.iterations, cfg.warmup) :
 										  run_coroutine(files, tls, cfg.iterations, cfg.warmup);
 			double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
-			SV const label = (which == 0) ? "callback" : "coroutine";
+			std::string_view const label = (which == 0) ? "callback" : "coroutine";
 			if (cfg.json_out) {
 				std::println(
 					"{{\"config\":\"default\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:."

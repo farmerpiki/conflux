@@ -13,10 +13,10 @@ import conflux.pg;
 using namespace conflux::pg;
 namespace {
 
-constexpr u64 pack_ud(
-	u32 slot,
-	u32 gen) noexcept {
-	return (static_cast<u64>(gen) << 32U) | slot;
+constexpr std::uint64_t pack_ud(
+	std::uint32_t slot,
+	std::uint32_t gen) noexcept {
+	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 }
 
 } // namespace
@@ -33,7 +33,7 @@ int main() {
 		return 1;
 	}
 	CompletionTable ct;
-	FileReader reader{&ring, &ct, [](u32 s, u32 g) noexcept { return pack_ud(s, g); }};
+	FileReader reader{&ring, &ct, [](std::uint32_t s, std::uint32_t g) noexcept { return pack_ud(s, g); }};
 	CurrentFileReaderScope const scope{&reader};
 
 	try {
@@ -41,12 +41,12 @@ int main() {
 		std::println("connected — backend pid {}, server {}", conn->backend_pid(), conn->server_version());
 
 		Params p;
-		p.add(i64{3});
+		p.add(std::int64_t{3});
 		auto rs =
 			block_on(reader, conn->query("SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i", move(p)));
 		std::println("rows: {} cols: {}", rs.rows(), rs.cols());
 		for (auto row: rs) {
-			std::println("  {} = {}", row.as<i64>(0), row.as<SV>(1));
+			std::println("  {} = {}", row.as<std::int64_t>(0), row.as<std::string_view>(1));
 		}
 		conn->close();
 	} catch (exception const &e) {

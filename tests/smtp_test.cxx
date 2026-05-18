@@ -12,11 +12,11 @@ import conflux.net.smtp;
 namespace {
 
 struct ScriptStep {
-	S expect_starts_with;
-	V<S> send_lines;
+	std::string expect_starts_with;
+	std::vector<std::string> send_lines;
 };
 int make_listener(
-	u16 &port) {
+	std::uint16_t &port) {
 	int const s = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	REQUIRE(s >= 0);
 	int yes = 1;
@@ -32,9 +32,9 @@ int make_listener(
 	REQUIRE(::listen(s, 1) == 0);
 	return s;
 }
-S recv_line(
+std::string recv_line(
 	int fd) {
-	S line;
+	std::string line;
 	for (;;) {
 		char c = 0;
 		auto const n = ::recv(fd, &c, 1, 0);
@@ -47,10 +47,10 @@ S recv_line(
 		}
 	}
 }
-S recv_until_dot(
+std::string recv_until_dot(
 	int fd) {
-	S body;
-	S line;
+	std::string body;
+	std::string line;
 	for (;;) {
 		line = recv_line(fd);
 		if (line.empty()) {
@@ -64,14 +64,14 @@ S recv_until_dot(
 }
 void send_all(
 	int fd,
-	SV s) {
-	SZ off = 0;
+	std::string_view s) {
+	std::size_t off = 0;
 	while (off < s.size()) {
 		auto const n = ::send(fd, s.data() + off, s.size() - off, MSG_NOSIGNAL);
 		if (n <= 0) {
 			return;
 		}
-		off += static_cast<SZ>(n);
+		off += static_cast<std::size_t>(n);
 	}
 }
 
@@ -79,13 +79,13 @@ void send_all(
 TEST_CASE(
 	"SMTP envelope round-trip AUTH PLAIN",
 	"[smtp]") {
-	u16 port = 0;
+	std::uint16_t port = 0;
 	int const listen_fd = make_listener(port);
 
-	S received_auth;
-	S received_body;
-	S received_from;
-	S received_rcpt;
+	std::string received_auth;
+	std::string received_body;
+	std::string received_from;
+	std::string received_rcpt;
 
 	auto srv = thread([&] {
 		int const c = ::accept(listen_fd, nullptr, nullptr);
@@ -148,17 +148,17 @@ TEST_CASE(
 	REQUIRE(received_rcpt == "RCPT TO:<bob@example.com>\r\n");
 
 	// Dot-stuffing: leading "." on a line must be doubled on the wire.
-	REQUIRE(received_body.find("..leading dot\r\n") != S::npos);
+	REQUIRE(received_body.find("..leading dot\r\n") != std::string::npos);
 	REQUIRE(received_body.ends_with(".\r\n"));
 }
 TEST_CASE(
 	"SMTP AUTH LOGIN base64 challenge/response",
 	"[smtp]") {
-	u16 port = 0;
+	std::uint16_t port = 0;
 	int const listen_fd = make_listener(port);
 
-	S got_user;
-	S got_pass;
+	std::string got_user;
+	std::string got_pass;
 
 	auto srv = thread([&] {
 		int const c = ::accept(listen_fd, nullptr, nullptr);
@@ -198,7 +198,7 @@ TEST_CASE(
 TEST_CASE(
 	"SMTP multi-line 250 reply is parsed",
 	"[smtp]") {
-	u16 port = 0;
+	std::uint16_t port = 0;
 	int const listen_fd = make_listener(port);
 
 	auto srv = thread([&] {
@@ -220,9 +220,9 @@ TEST_CASE(
 	auto reply = cli.ehlo("localhost");
 	REQUIRE(reply.has_value());
 	REQUIRE(reply->code == 250);
-	REQUIRE(reply->text.find("SIZE 10240000") != S::npos);
-	REQUIRE(reply->text.find("8BITMIME") != S::npos);
-	REQUIRE(reply->text.find("PIPELINING") != S::npos);
+	REQUIRE(reply->text.find("SIZE 10240000") != std::string::npos);
+	REQUIRE(reply->text.find("8BITMIME") != std::string::npos);
+	REQUIRE(reply->text.find("PIPELINING") != std::string::npos);
 	REQUIRE(cli.quit());
 
 	srv.join();
@@ -231,7 +231,7 @@ TEST_CASE(
 TEST_CASE(
 	"SMTP move constructor preserves ehlo_caps (STARTTLS check)",
 	"[smtp]") {
-	u16 port = 0;
+	std::uint16_t port = 0;
 	int const listen_fd = make_listener(port);
 
 	bool starttls_received = false;

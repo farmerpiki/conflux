@@ -48,7 +48,7 @@ T sync_wait_socket_task(
 	using namespace conflux::work::root;
 	struct Slot {
 		atomic_flag done{};
-		EP err{};
+		std::exception_ptr err{};
 		[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, std::optional<T>> value{};
 	};
 	auto slot = make_shared<Slot>();
@@ -94,7 +94,7 @@ T sync_wait_socket_task(
 			continue;
 		}
 		if (rc < 0 || cqe == nullptr) {
-			throw RE{format("conflux.socket_io: sync_wait_socket_task rc={}", rc)};
+			throw std::runtime_error{format("conflux.socket_io: sync_wait_socket_task rc={}", rc)};
 		}
 		std::array<::io_uring_cqe *, 32> batch{};
 		for (;;) {

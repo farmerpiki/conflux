@@ -17,26 +17,26 @@ using http::HttpTimeouts;
 
 namespace proxy_detail {
 
-[[nodiscard]] static S build_upstream_url(
-	SV path,
+[[nodiscard]] static std::string build_upstream_url(
+	std::string_view path,
 	ProxyOptions const &opts) {
-	S up_path{path};
+	std::string up_path{path};
 	if (!opts.path_prefix.empty() && up_path.starts_with(opts.path_prefix)) {
 		up_path.erase(0, opts.path_prefix.size());
 	}
 	if (up_path.empty()) {
 		up_path = "/";
 	}
-	SV const scheme = opts.upstream_tls ? "https" : "http";
+	std::string_view const scheme = opts.upstream_tls ? "https" : "http";
 	return format("{}://{}:{}{}", scheme, opts.upstream_host, opts.upstream_port, up_path);
 }
 
 [[nodiscard]] static HttpClientOptions make_client_opts(
 	ProxyOptions const &opts) {
 	HttpTimeouts t{};
-	t.connect = chrono::milliseconds{opts.timeout_sec * 1000};
-	t.first_byte = chrono::milliseconds{opts.timeout_sec * 1000};
-	t.between_bytes = chrono::milliseconds{opts.timeout_sec * 1000};
+	t.connect = std::chrono::milliseconds{opts.timeout_sec * 1000};
+	t.first_byte = std::chrono::milliseconds{opts.timeout_sec * 1000};
+	t.between_bytes = std::chrono::milliseconds{opts.timeout_sec * 1000};
 	HttpClientOptions co{};
 	co.default_timeouts = t;
 	return co;
@@ -55,7 +55,7 @@ namespace proxy_detail {
 		}
 		builder.header(name, value);
 	}
-	auto xff = S{req.headers["x-forwarded-for"]};
+	auto xff = std::string{req.headers["x-forwarded-for"]};
 	if (xff.empty()) {
 		builder.header("X-Forwarded-For", req.remote_addr);
 	} else {
@@ -78,7 +78,7 @@ namespace proxy_detail {
 	out.headers = move(r.head.headers);
 	out.set_cookies = move(r.head.set_cookies);
 	if (auto const ct = out.headers["content-type"]; !ct.empty()) {
-		out.content_type = S{ct};
+		out.content_type = std::string{ct};
 	}
 	out.set_text_body(move(r.body));
 	return out;

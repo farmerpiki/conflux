@@ -30,7 +30,7 @@ void check_cmd_setsockopt_sqe(
 	int direct_slot,
 	int level,
 	int optname,
-	u64 user_data,
+	std::uint64_t user_data,
 	bool expect_skip_cqe) {
 	CHECK(sqe.opcode == IORING_OP_URING_CMD);
 	CHECK(sqe.cmd_op == static_cast<unsigned>(conflux::uring::uring_cmd_op::setsockopt));
@@ -76,7 +76,7 @@ TEST_CASE(
 	unsigned const tail_before = ring_raw->sq.sqe_tail;
 	REQUIRE(submit_direct_tcp_accept_setup_recv_to_group(
 		raw,
-		SocketHandle::from_direct(static_cast<u32>(direct_slot)),
+		SocketHandle::from_direct(static_cast<std::uint32_t>(direct_slot)),
 		target,
 		0x11u,
 		0x22u,

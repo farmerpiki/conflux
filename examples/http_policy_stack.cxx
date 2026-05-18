@@ -57,7 +57,7 @@ int main() {
 	app.use(response_cache_middleware({
 		.max_entries = 64,
 		.max_bytes = 512 * 1024,
-		.default_ttl = chrono::seconds{15},
+		.default_ttl = std::chrono::seconds{15},
 	}));
 	app.use(cache_control_middleware({
 		.rules = {

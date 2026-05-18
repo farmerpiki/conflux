@@ -14,9 +14,9 @@ template<root::work_value T>
 class DroppableSlot {
 	struct DrainState {
 		root::TaskJoinHandle<T> handle;
-		Fn<void(root::Outcome<T>)> on_drop_fn;
+		std::function<void(root::Outcome<T>)> on_drop_fn;
 	};
-	UP<DrainState> state_;
+	std::unique_ptr<DrainState> state_;
 	bool consumed_ = false;
 
 	friend class DroppableSlotAwaiter<T>;
@@ -75,7 +75,7 @@ public:
 		}
 	}
 	[[nodiscard]] bool ready() const noexcept { return state_ && state_->handle.control().ready(); }
-	[[nodiscard]] Opt<root::Outcome<T>> try_get() && {
+	[[nodiscard]] std::optional<root::Outcome<T>> try_get() && {
 		if (!state_) {
 			return nullopt;
 		}
@@ -97,14 +97,14 @@ template<root::work_value T>
 class DroppableSlotAwaiter {
 	using DrainState = typename DroppableSlot<T>::DrainState;
 
-	UP<DrainState> state_;
+	std::unique_ptr<DrainState> state_;
 	root::BasicControl<root::ControlCategory::task> control_;
 	bool consumed_ = false;
 	bool callback_installed_ = false;
 
 public:
 	explicit DroppableSlotAwaiter(
-		UP<DrainState> s) noexcept
+		std::unique_ptr<DrainState> s) noexcept
 		: state_{move(s)}
 		, control_{state_->handle.control()} {}
 	~DroppableSlotAwaiter() noexcept {
@@ -178,7 +178,7 @@ template<root::work_value T>
 	requires(!same_as<T, void>)
 class CoalescingSlot {
 	mutable mutex mu_;
-	Opt<T> slot_;
+	std::optional<T> slot_;
 
 public:
 	CoalescingSlot() noexcept = default;
@@ -193,7 +193,7 @@ public:
 		lock_guard const lock{mu_};
 		slot_ = move(value);
 	}
-	[[nodiscard]] Opt<T> take() noexcept {
+	[[nodiscard]] std::optional<T> take() noexcept {
 		lock_guard const lock{mu_};
 		return exchange(slot_, nullopt);
 	}

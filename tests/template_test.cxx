@@ -302,7 +302,7 @@ TEST_CASE(
 	"template: render unknown named template throws",
 	"[template]") {
 	auto env = make_env();
-	CHECK_THROWS_AS(env.render("no_such.html", "{}"), RE);
+	CHECK_THROWS_AS(env.render("no_such.html", "{}"), std::runtime_error);
 }
 // ---------------------------------------------------------------------------
 // Template file loading: extends / block / include
@@ -318,20 +318,20 @@ struct TmplDir {
 	}
 	~TmplDir() { ::rmdir(path); }
 	void write(
-		SV name,
-		SV content) const {
-		auto full = S{path} + "/" + S{name};
+		std::string_view name,
+		std::string_view content) const {
+		auto full = std::string{path} + "/" + std::string{name};
 		int const fd = ::open(full.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
 		REQUIRE(fd >= 0);
 		[[maybe_unused]] auto n = ::write(fd, content.data(), content.size());
 		::close(fd);
 	}
 	void rm(
-		SV name) const {
-		auto full = S{path} + "/" + S{name};
+		std::string_view name) const {
+		auto full = std::string{path} + "/" + std::string{name};
 		::unlink(full.c_str());
 	}
-	[[nodiscard]] Environment make() const { return Environment{S{path}}; }
+	[[nodiscard]] Environment make() const { return Environment{std::string{path}}; }
 };
 
 } // namespace
@@ -403,7 +403,7 @@ TEST_CASE(
 	REQUIRE_FALSE(report.error().diagnostics.empty());
 	CHECK(report.error().diagnostics.front().phase == TemplateDiagnosticPhase::link);
 	CHECK(report.error().diagnostics.front().code == "include_not_found");
-	CHECK_THROWS_AS(env.render("main.html", "{}"), RE);
+	CHECK_THROWS_AS(env.render("main.html", "{}"), std::runtime_error);
 
 	dir.rm("main.html");
 }

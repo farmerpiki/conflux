@@ -60,16 +60,16 @@ TEST_CASE(
 	c.feat_nodrop = true;
 	c.recvsend_bundle = true;
 	auto s = caps_to_log_string(c);
-	CHECK(s.find("feat_nodrop") != S::npos);
-	CHECK(s.find("recvsend_bundle") != S::npos);
-	CHECK(s.find("feat_submit_stable") == S::npos);
+	CHECK(s.find("feat_nodrop") != std::string::npos);
+	CHECK(s.find("recvsend_bundle") != std::string::npos);
+	CHECK(s.find("feat_submit_stable") == std::string::npos);
 }
 TEST_CASE(
 	"IoUringCaps.recv_poll_first: false on default-constructed",
 	"[caps]") {
 	IoUringCaps c{};
 	CHECK(!c.recv_poll_first);
-	CHECK(caps_to_log_string(c).find("recv_poll_first") == S::npos);
+	CHECK(caps_to_log_string(c).find("recv_poll_first") == std::string::npos);
 }
 TEST_CASE(
 	"IoUringCaps.recv_poll_first: appears in log string when set",
@@ -77,7 +77,7 @@ TEST_CASE(
 	IoUringCaps c{};
 	c.recv_poll_first = true;
 	auto s = caps_to_log_string(c);
-	CHECK(s.find("recv_poll_first") != S::npos);
+	CHECK(s.find("recv_poll_first") != std::string::npos);
 }
 TEST_CASE(
 	"IoUringCaps.detect_caps: recv_poll_first is true",

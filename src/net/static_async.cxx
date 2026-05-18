@@ -38,8 +38,8 @@ int contained_static_open(
 }
 
 void append_static_html_escape(
-	S &out,
-	SV s) {
+	std::string &out,
+	std::string_view s) {
 	for (char const c: s) {
 		switch (c) {
 		case '&' : out += "&amp;"; break;
@@ -53,8 +53,8 @@ void append_static_html_escape(
 }
 
 void append_static_path_percent_encode(
-	S &out,
-	SV s) {
+	std::string &out,
+	std::string_view s) {
 	static constexpr char kHex[] = "0123456789ABCDEF";
 	for (char const ch: s) {
 		auto const c = static_cast<unsigned char>(ch);
@@ -78,10 +78,10 @@ void append_static_path_percent_encode(
 
 template<typename T>
 void append_static_hex(
-	S &out,
+	std::string &out,
 	T value) {
 	using U = std::make_unsigned_t<T>;
-	A<char, sizeof(U) * 2> buf{};
+	std::array<char, sizeof(U) * 2> buf{};
 	auto const v = static_cast<U>(value);
 	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), v, 16);
 	if (ec == errc{}) {
@@ -90,9 +90,9 @@ void append_static_hex(
 }
 
 void append_static_decimal(
-	S &out,
-	SZ value) {
-	A<char, 32> buf{};
+	std::string &out,
+	std::size_t value) {
+	std::array<char, 32> buf{};
 	auto const [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value);
 	if (ec == errc{}) {
 		out.append(buf.data(), ptr);
@@ -101,12 +101,12 @@ void append_static_decimal(
 
 
 [[nodiscard]] bool static_ascii_iequals(
-	SV a,
-	SV b) {
+	std::string_view a,
+	std::string_view b) {
 	if (a.size() != b.size()) {
 		return false;
 	}
-	for (SZ i = 0; i < a.size(); ++i) {
+	for (std::size_t i = 0; i < a.size(); ++i) {
 		auto const ca = static_cast<unsigned char>(a[i]);
 		auto const cb = static_cast<unsigned char>(b[i]);
 		if ((ca | 0x20U) != (cb | 0x20U)) {
@@ -117,22 +117,22 @@ void append_static_decimal(
 }
 
 [[nodiscard]] bool static_accept_encoding_q_allows(
-	SV entry,
-	SZ semi) {
-	if (semi == SV::npos) {
+	std::string_view entry,
+	std::size_t semi) {
+	if (semi == std::string_view::npos) {
 		return true;
 	}
 	auto params = entry.substr(semi + 1);
 	auto q_pos = params.find("q=");
-	if (q_pos == SV::npos) {
+	if (q_pos == std::string_view::npos) {
 		q_pos = params.find("Q=");
 	}
-	if (q_pos == SV::npos) {
+	if (q_pos == std::string_view::npos) {
 		return true;
 	}
 	auto qval = params.substr(q_pos + 2);
 	auto qend = qval.find_first_of(", ;");
-	if (qend != SV::npos) {
+	if (qend != std::string_view::npos) {
 		qval = qval.substr(0, qend);
 	}
 	return qval != "0" && qval != "0." && qval != "0.0" && qval != "0.00" && qval != "0.000";
@@ -144,15 +144,15 @@ struct StaticAcceptedEncodings {
 };
 
 [[nodiscard]] StaticAcceptedEncodings parse_static_accept_encoding(
-	SV ae) {
+	std::string_view ae) {
 	StaticAcceptedEncodings out{};
 	bool seen_br = false;
 	bool seen_gzip = false;
-	SZ pos = 0;
+	std::size_t pos = 0;
 	while (pos < ae.size()) {
 		auto comma = ae.find(',', pos);
-		SV entry = ae.substr(pos, comma == SV::npos ? SV::npos : comma - pos);
-		pos = comma == SV::npos ? ae.size() : comma + 1;
+		std::string_view entry = ae.substr(pos, comma == std::string_view::npos ? std::string_view::npos : comma - pos);
+		pos = comma == std::string_view::npos ? ae.size() : comma + 1;
 		while (!entry.empty() && entry.front() == ' ') {
 			entry.remove_prefix(1);
 		}
@@ -160,7 +160,7 @@ struct StaticAcceptedEncodings {
 			entry.remove_suffix(1);
 		}
 		auto const semi = entry.find(';');
-		SV coding = entry.substr(0, semi);
+		std::string_view coding = entry.substr(0, semi);
 		while (!coding.empty() && coding.back() == ' ') {
 			coding.remove_suffix(1);
 		}
@@ -178,10 +178,10 @@ struct StaticAcceptedEncodings {
 	return out;
 }
 
-[[nodiscard]] S static_file_etag(
+[[nodiscard]] std::string static_file_etag(
 	off_t size,
 	time_t mtime) {
-	S out;
+	std::string out;
 	out.reserve(2 + sizeof(off_t) * 2 + 1 + sizeof(time_t) * 2);
 	out.push_back('"');
 	append_static_hex(out, size);
@@ -191,11 +191,11 @@ struct StaticAcceptedEncodings {
 	return out;
 }
 
-[[nodiscard]] S static_content_range(
-	SZ first,
-	SZ last,
-	SZ total) {
-	S out;
+[[nodiscard]] std::string static_content_range(
+	std::size_t first,
+	std::size_t last,
+	std::size_t total) {
+	std::string out;
 	out.reserve(32 + 3 * 20);
 	out += "bytes ";
 	append_static_decimal(out, first);
@@ -206,9 +206,9 @@ struct StaticAcceptedEncodings {
 	return out;
 }
 
-[[nodiscard]] S static_unsatisfied_content_range(
-	SZ total) {
-	S out;
+[[nodiscard]] std::string static_unsatisfied_content_range(
+	std::size_t total) {
+	std::string out;
 	out.reserve(16 + 20);
 	out += "bytes */";
 	append_static_decimal(out, total);
@@ -219,21 +219,21 @@ struct StaticAcceptedEncodings {
 
 conflux::work::root::Task<void> do_save_static_file(
 	FileReader *fr,
-	SP<S> body_owned,
-	SP<S> fp,
+	std::shared_ptr<std::string> body_owned,
+	std::shared_ptr<std::string> fp,
 	bool existed,
 	StaticCacheStore &static_cache,
-	SP<DeferredResponse> dr,
+	std::shared_ptr<DeferredResponse> dr,
 	int dir_fd,
-	S rel_path);
+	std::string rel_path);
 conflux::work::root::Task<void> do_delete_static_file(
-	SP<DeferredResponse> dr,
-	SP<S> fp,
+	std::shared_ptr<DeferredResponse> dr,
+	std::shared_ptr<std::string> fp,
 	StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task);
 
 HttpResponse handle_static_get_request(
-	S const &rd,
+	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
 	HttpRequestView const &req,
@@ -249,11 +249,11 @@ HttpResponse handle_static_get_request(
 
 		StaticRequest sreq{
 			.file_param = move(*norm),
-			.method = S{req.method},
-			.accept_encoding = S{req.headers["accept-encoding"]},
-			.if_none_match = S{std::as_const(req.headers)["if-none-match"]},
-			.if_modified_since = S{std::as_const(req.headers)["if-modified-since"]},
-			.range = S{req.headers["range"]},
+			.method = std::string{req.method},
+			.accept_encoding = std::string{req.headers["accept-encoding"]},
+			.if_none_match = std::string{std::as_const(req.headers)["if-none-match"]},
+			.if_modified_since = std::string{std::as_const(req.headers)["if-modified-since"]},
+			.range = std::string{req.headers["range"]},
 			.tls = req.is_tls,
 		};
 
@@ -276,7 +276,7 @@ HttpResponse handle_static_get_request(
 }
 
 HttpResponse handle_static_put(
-	S const &rd,
+	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
 	HttpRequestView const &req,
@@ -290,11 +290,11 @@ HttpResponse handle_static_put(
 				"Forbidden");
 		}
 		auto full_path = rd + *norm;
-		SV rel_sv = SV{*norm};
+		std::string_view rel_sv = std::string_view{*norm};
 		if (rel_sv.starts_with('/')) {
 			rel_sv.remove_prefix(1);
 		}
-		S rel{rel_sv};
+		std::string rel{rel_sv};
 
 		int const probe = contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC);
 		bool const existed = probe >= 0;
@@ -303,16 +303,16 @@ HttpResponse handle_static_put(
 		}
 
 		if (auto *fr = current_file_reader(); fr != nullptr) {
-			auto body_owned = make_shared<S>(req.body);
+			auto body_owned = make_shared<std::string>(req.body);
 			auto dr = make_shared<DeferredResponse>();
-			auto fp = make_shared<S>(full_path);
-			do_save_static_file(fr, body_owned, fp, existed, static_cache, dr, root_fd, S{rel}).detach();
+			auto fp = make_shared<std::string>(full_path);
+			do_save_static_file(fr, body_owned, fp, existed, static_cache, dr, root_fd, std::string{rel}).detach();
 			return HttpResponse::deferred(move(dr));
 		}
 
 		if (sopts.offload_pool) {
 			auto dr = make_shared<DeferredResponse>();
-			auto body_owned = make_shared<S>(req.body);
+			auto body_owned = make_shared<std::string>(req.body);
 			auto rfd = root_fd;
 			auto ok = sopts.offload_pool->enqueue([full_path = move(full_path),
 											   rel = move(rel),
@@ -321,7 +321,7 @@ HttpResponse handle_static_put(
 											   existed,
 											   &static_cache,
 											   dr]() mutable {
-				auto r = blocking_write_text_file_atomic_at(rfd, SV{rel}, SV{*body_owned});
+				auto r = blocking_write_text_file_atomic_at(rfd, std::string_view{rel}, std::string_view{*body_owned});
 				if (!r) {
 					dr->complete(HttpResponse::internal_error());
 					return;
@@ -338,7 +338,7 @@ HttpResponse handle_static_put(
 			return HttpResponse::deferred(move(dr));
 		}
 
-		if (!blocking_write_text_file_atomic_at(root_fd, SV{rel}, SV{req.body})) {
+		if (!blocking_write_text_file_atomic_at(root_fd, std::string_view{rel}, std::string_view{req.body})) {
 			return HttpResponse::internal_error();
 		}
 		static_cache.evict_all_encodings(full_path);
@@ -350,7 +350,7 @@ HttpResponse handle_static_put(
 }
 
 HttpResponse handle_static_delete(
-	S const &rd,
+	std::string const &rd,
 	int root_fd,
 	StaticOptions const &sopts,
 	HttpRequestView const &req,
@@ -364,11 +364,11 @@ HttpResponse handle_static_delete(
 				"Forbidden");
 		}
 		auto full_path = rd + *norm;
-		SV rel_sv = SV{*norm};
+		std::string_view rel_sv = std::string_view{*norm};
 		if (rel_sv.starts_with('/')) {
 			rel_sv.remove_prefix(1);
 		}
-		S rel{rel_sv};
+		std::string rel{rel_sv};
 
 		int const probe = contained_static_open(root_fd, rel.c_str(), O_PATH | O_CLOEXEC);
 		if (probe < 0) {
@@ -378,7 +378,7 @@ HttpResponse handle_static_delete(
 
 		if (auto *fr = current_file_reader(); fr != nullptr) {
 			auto dr = make_shared<DeferredResponse>();
-			auto fp = make_shared<S>(full_path);
+			auto fp = make_shared<std::string>(full_path);
 			do_delete_static_file(dr, fp, static_cache, fr->async_unlink(root_fd, rel)).detach();
 			return HttpResponse::deferred(move(dr));
 		}
@@ -413,20 +413,20 @@ HttpResponse handle_static_delete(
 }
 
 HttpResponse handle_static_get(
-	S const &rd,
+	std::string const &rd,
 	int root_fd,
 	StaticOptions const &static_options,
 	StaticRequest const &r,
 	StaticCacheStore &static_cache)
 {
 			try {
-				S file_param = r.file_param;
+				std::string file_param = r.file_param;
 				auto full_path = rd + file_param;
-				SV rel_path = SV{file_param};
+				std::string_view rel_path = std::string_view{file_param};
 				if (rel_path.starts_with('/')) {
 					rel_path.remove_prefix(1);
 				}
-				S rel_str{rel_path};
+				std::string rel_str{rel_path};
 
 				struct ::stat st{};
 				int const probe_fd = rel_str.empty() ? contained_static_open(root_fd, ".", O_PATH | O_CLOEXEC | O_DIRECTORY) :
@@ -441,7 +441,7 @@ HttpResponse handle_static_get(
 				::close(probe_fd);
 
 				if (S_ISDIR(st.st_mode)) {
-					auto index_rel = rel_str.empty() ? S{"index.html"} : rel_str + "/index.html";
+					auto index_rel = rel_str.empty() ? std::string{"index.html"} : rel_str + "/index.html";
 					int const idx_fd = contained_static_open(root_fd, index_rel.c_str(), O_PATH | O_CLOEXEC);
 					if (idx_fd >= 0) {
 						::fstat(idx_fd, &st);
@@ -468,7 +468,7 @@ HttpResponse handle_static_get(
 								kHttpForbidden,
 								"Forbidden");
 						}
-						S html;
+						std::string html;
 						html.reserve(128 + file_param.size() * 2);
 						html += "<html><head><title>Index of ";
 						append_static_html_escape(html, file_param);
@@ -479,10 +479,10 @@ HttpResponse handle_static_get(
 							html += "<li><a href=\"../\">..</a></li>";
 						}
 						struct ::dirent *ent{};
-						V<S> names;
+						std::vector<std::string> names;
 						while ((ent = ::readdir(dir)) != nullptr) {
 							// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
-							SV const n{ent->d_name};
+							std::string_view const n{ent->d_name};
 							if (n == "." || n == "..") {
 								continue;
 							}
@@ -508,7 +508,7 @@ HttpResponse handle_static_get(
 				}
 
 				// Pre-compressed sidecar: try .br then .gz.
-				S content_encoding;
+				std::string content_encoding;
 				if (static_options.precompressed) {
 					auto const accepted = parse_static_accept_encoding(r.accept_encoding);
 					if (accepted.br) {
@@ -548,15 +548,15 @@ HttpResponse handle_static_get(
 				// directory typically serves many files sharing a handful of mtimes,
 				// so strftime runs once per mtime value per thread.
 				thread_local time_t last_mtime_cached = 0;
-				thread_local S last_modified_cached;
-				S last_modified;
+				thread_local std::string last_modified_cached;
+				std::string last_modified;
 				if (st.st_mtime == last_mtime_cached && !last_modified_cached.empty()) {
 					last_modified = last_modified_cached;
 				} else {
 					tm tm_val{};
 					::gmtime_r(&st.st_mtime, &tm_val);
-					A<char, 64> buf{};
-					if (strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &tm_val) > 0) {
+					std::array<char, 64> buf{};
+					if (strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%std::string GMT", &tm_val) > 0) {
 						last_modified = buf.data();
 						last_modified_cached = last_modified;
 						last_mtime_cached = st.st_mtime;
@@ -574,7 +574,7 @@ HttpResponse handle_static_get(
 				}
 				if (auto const &ims = r.if_modified_since; !ims.empty()) {
 					tm req_tm{};
-					if (::strptime(ims.c_str(), "%a, %d %b %Y %H:%M:%S GMT", &req_tm)) {
+					if (::strptime(ims.c_str(), "%a, %d %b %Y %H:%M:%std::string GMT", &req_tm)) {
 						req_tm.tm_isdst = 0;
 						if (st.st_mtime <= ::timegm(&req_tm)) {
 							HttpResponse resp;
@@ -589,9 +589,9 @@ HttpResponse handle_static_get(
 
 				// MIME type from extension (use original file_param, not .gz/.br path).
 				auto ext_pos = file_param.rfind('.');
-				SV mime = "application/octet-stream";
-				if (ext_pos != S::npos) {
-					auto ext = SV{file_param}.substr(ext_pos);
+				std::string_view mime = "application/octet-stream";
+				if (ext_pos != std::string::npos) {
+					auto ext = std::string_view{file_param}.substr(ext_pos);
 					if (ext == ".html" || ext == ".htm") {
 						mime = "text/html; charset=utf-8";
 					} else if (ext == ".css") {
@@ -635,10 +635,10 @@ HttpResponse handle_static_get(
 					}
 				}
 
-				auto file_size = static_cast<SZ>(st.st_size);
+				auto file_size = static_cast<std::size_t>(st.st_size);
 
-				auto base_response = [&](int status, SV status_text) {
-					HttpResponse resp{.status = status, .status_text = S{status_text}, .content_type = S{mime}};
+				auto base_response = [&](int status, std::string_view status_text) {
+					HttpResponse resp{.status = status, .status_text = std::string{status_text}, .content_type = std::string{mime}};
 					resp.headers["ETag"] = etag;
 					resp.headers["Last-Modified"] = last_modified;
 					resp.headers["Accept-Ranges"] = "bytes";
@@ -665,22 +665,22 @@ HttpResponse handle_static_get(
 				}
 
 				// Parse Range header for partial content (only supported when no precompression applied).
-				SZ range_start = 0;
-				SZ range_end = file_size - 1;
+				std::size_t range_start = 0;
+				std::size_t range_end = file_size - 1;
 				bool is_range_request = false;
 				if (content_encoding.empty()) {
 					auto const &range_hdr = r.range;
 					if (!range_hdr.empty() && range_hdr.starts_with("bytes=")) {
-						auto spec = SV{range_hdr}.substr(6);
+						auto spec = std::string_view{range_hdr}.substr(6);
 						auto dash = spec.find('-');
-						if (dash != SV::npos) {
+						if (dash != std::string_view::npos) {
 							auto start_sv = spec.substr(0, dash);
 							auto end_sv = spec.substr(dash + 1);
-							SZ rs = 0;
-							SZ re = file_size - 1;
+							std::size_t rs = 0;
+							std::size_t re = file_size - 1;
 							bool ok = true;
 							bool satisfiable = false;
-							auto parse_size = [](SV s, SZ &out) {
+							auto parse_size = [](std::string_view s, std::size_t &out) {
 								if (s.empty()) {
 									return false;
 								}
@@ -691,7 +691,7 @@ HttpResponse handle_static_get(
 							};
 
 							if (start_sv.empty()) {
-								SZ suffix_len = 0;
+								std::size_t suffix_len = 0;
 								ok = parse_size(end_sv, suffix_len);
 								if (ok && suffix_len > 0) {
 									rs = suffix_len >= file_size ? 0 : file_size - suffix_len;
@@ -767,8 +767,8 @@ HttpResponse handle_static_get(
 					if (fd < 0) {
 						return HttpResponse::not_found(file_param);
 					}
-					S body(file_size, '\0');
-					SZ off = 0;
+					std::string body(file_size, '\0');
+					std::size_t off = 0;
 					while (off < body.size()) {
 						ssize_t const n = ::read(fd, body.data() + off, body.size() - off);
 						if (n < 0) {
@@ -781,7 +781,7 @@ HttpResponse handle_static_get(
 						if (n == 0) {
 							break;
 						}
-						off += static_cast<SZ>(n);
+						off += static_cast<std::size_t>(n);
 					}
 					::close(fd);
 					if (off != body.size()) {
@@ -789,7 +789,7 @@ HttpResponse handle_static_get(
 					}
 					StaticCacheEntry entry{
 						.body = move(body),
-						.mime = S{mime},
+						.mime = std::string{mime},
 						.etag = etag,
 						.last_modified = last_modified,
 						.content_encoding = content_encoding,
@@ -799,8 +799,8 @@ HttpResponse handle_static_get(
 						.ino = st.st_ino};
 					auto resp = make_cached_response(entry);
 					static_cache.put(
-						S{full_path},
-						S{content_encoding},
+						std::string{full_path},
+						std::string{content_encoding},
 						move(entry),
 						static_options.file_cache.max_total_bytes);
 					return resp;
@@ -819,7 +819,7 @@ HttpResponse handle_static_get(
 					if (is_range_request) {
 						base.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
 					}
-					auto const send_off = is_range_request ? range_start : SZ{0};
+					auto const send_off = is_range_request ? range_start : std::size_t{0};
 					auto const send_sz = is_range_request ? (range_end - range_start + 1) : file_size;
 					do_serve_static_file(
 						dr,
@@ -829,7 +829,7 @@ HttpResponse handle_static_get(
 						file_size,
 						fr->async_openat2(
 							root_fd,
-							S{rel_str},
+							std::string{rel_str},
 							open_how{
 								.flags = static_cast<__u64>(O_RDONLY | O_CLOEXEC),
 								.mode = 0,
@@ -838,7 +838,7 @@ HttpResponse handle_static_get(
 					return HttpResponse::deferred(move(dr));
 				}
 
-				auto lease = blocking_map_file_readonly(root_fd, SV{rel_str});
+				auto lease = blocking_map_file_readonly(root_fd, std::string_view{rel_str});
 				if (!lease) {
 					return HttpResponse::internal_error();
 				}
@@ -861,11 +861,11 @@ HttpResponse handle_static_get(
 		}
 
 conflux::work::root::Task<void> do_serve_static_file(
-	SP<DeferredResponse> dr,
+	std::shared_ptr<DeferredResponse> dr,
 	HttpResponse base,
-	SZ send_off,
-	SZ send_sz,
-	SZ total_size,
+	std::size_t send_off,
+	std::size_t send_sz,
+	std::size_t total_size,
 	conflux::work::root::Task<FileHandle> open_task) {
 	try {
 		auto fh = co_await move(open_task);
@@ -880,13 +880,13 @@ conflux::work::root::Task<void> do_serve_static_file(
 }
 conflux::work::root::Task<void> do_save_static_file(
 	FileReader *fr,
-	SP<S> body_owned,
-	SP<S> fp,
+	std::shared_ptr<std::string> body_owned,
+	std::shared_ptr<std::string> fp,
 	bool existed,
 	StaticCacheStore &static_cache,
-	SP<DeferredResponse> dr,
+	std::shared_ptr<DeferredResponse> dr,
 	int dir_fd,
-	S rel_path) {
+	std::string rel_path) {
 	try {
 		co_await fr->async_atomic_write(dir_fd, move(rel_path), as_bytes(span{*body_owned}));
 		static_cache.evict_all_encodings(*fp);
@@ -897,8 +897,8 @@ conflux::work::root::Task<void> do_save_static_file(
 	} catch (...) { dr->complete(HttpResponse::internal_error()); }
 }
 conflux::work::root::Task<void> do_delete_static_file(
-	SP<DeferredResponse> dr,
-	SP<S> fp,
+	std::shared_ptr<DeferredResponse> dr,
+	std::shared_ptr<std::string> fp,
 	StaticCacheStore &static_cache,
 	conflux::work::root::Task<void> unlink_task) {
 	try {

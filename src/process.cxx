@@ -192,10 +192,10 @@ export struct RunResult {
 namespace {
 
 // Build envp from environ (unless clear_env) + extra_env overrides.
-V<S> build_env(
-	V<S> const &extra_env,
+std::vector<std::string> build_env(
+	std::vector<std::string> const &extra_env,
 	bool clear_env) {
-	V<S> env_strs;
+	std::vector<std::string> env_strs;
 	if (!clear_env) {
 		// NOLINTBEGIN(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		for (char *const *e = environ; *e != nullptr; ++e) {
@@ -206,12 +206,12 @@ V<S> build_env(
 	for (auto const &entry: extra_env) {
 		// Strip any existing entry with the same KEY= prefix.
 		auto const eq_pos = entry.find('=');
-		if (eq_pos == S::npos) {
+		if (eq_pos == std::string::npos) {
 			continue;
 		}
-		SV key{entry.data(), eq_pos + 1}; // includes '='
+		std::string_view key{entry.data(), eq_pos + 1}; // includes '='
 		auto it =
-			remove_if(env_strs.begin(), env_strs.end(), [&](S const &s) { return SV{s}.substr(0, key.size()) == key; });
+			remove_if(env_strs.begin(), env_strs.end(), [&](std::string const &s) { return std::string_view{s}.substr(0, key.size()) == key; });
 		env_strs.erase(it, env_strs.end());
 		env_strs.push_back(entry);
 	}
@@ -293,8 +293,8 @@ export std::expected<Process, std::error_code> spawn_clone(
 	std::vector<std::string_view> const &args,
 	SpawnOptions const &opts,
 	std::uint64_t clone_flags) {
-	// Copy SV args → V<S> before fork (views may be into caller's stack).
-	V<S> arg_strs;
+	// Copy std::string_view args → std::vector<std::string> before fork (views may be into caller's stack).
+	std::vector<std::string> arg_strs;
 	arg_strs.reserve(args.size() + 1);
 	arg_strs.emplace_back(exe.string());
 	for (auto const &a: args) {
@@ -302,7 +302,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 	}
 
 	// Build argv and envp now (no alloc after fork in child).
-	V<char *> argv_ptrs;
+	std::vector<char *> argv_ptrs;
 	argv_ptrs.reserve(arg_strs.size() + 1);
 	for (auto &s: arg_strs) {
 		argv_ptrs.push_back(s.data());
@@ -310,7 +310,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 	argv_ptrs.push_back(nullptr);
 
 	auto env_strs = build_env(opts.extra_env, opts.clear_env);
-	V<char *> envp_ptrs;
+	std::vector<char *> envp_ptrs;
 	envp_ptrs.reserve(env_strs.size() + 1);
 	for (auto &s: env_strs) {
 		envp_ptrs.push_back(s.data());
@@ -346,7 +346,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 	if (child_in == -3 || child_out == -3 || child_err == -3) {
 		close_stdio_pipes();
 		return unexpected{
-			EC{errno, system_category()}
+			std::error_code{errno, system_category()}
         };
 	}
 
@@ -356,7 +356,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 	if (::pipe2(exec_err_pipe, O_CLOEXEC) < 0) {
 		close_stdio_pipes();
 		return unexpected{
-			EC{errno, system_category()}
+			std::error_code{errno, system_category()}
         };
 	}
 
@@ -371,7 +371,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 		::close(exec_err_pipe[0]);
 		::close(exec_err_pipe[1]);
 		return unexpected{
-			EC{err, system_category()}
+			std::error_code{err, system_category()}
         };
 	}
 
@@ -482,7 +482,7 @@ export std::expected<Process, std::error_code> spawn_clone(
 			::close(parent_err);
 		}
 		return unexpected{
-			EC{child_errno, system_category()}
+			std::error_code{child_errno, system_category()}
         };
 	}
 
@@ -505,7 +505,7 @@ export template<typename Target>
 	std::vector<std::string> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<Process, std::error_code>> {
 	return async_run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
-		V<SV> views;
+		std::vector<std::string_view> views;
 		views.reserve(args.size());
 		for (auto const &a: args) {
 			views.push_back(a);
@@ -544,17 +544,17 @@ export std::expected<RunResult, std::error_code> run(
 	RunResult result;
 
 	// Poll loop: drain stdout and stderr concurrently to prevent deadlock.
-	A<pollfd, 2> pfds{};
+	std::array<pollfd, 2> pfds{};
 	pfds[0] = {.fd = out_fd, .events = POLLIN, .revents = 0};
 	pfds[1] = {.fd = err_fd, .events = POLLIN, .revents = 0};
 
 	while (pfds[0].fd >= 0 || pfds[1].fd >= 0) {
 		// Build active pollfd A (skip closed fds).
-		A<pollfd, 2> active{};
+		std::array<pollfd, 2> active{};
 		int n_active = 0; // NOLINT(misc-const-correctness) — incremented in loop
 		for (auto const &pfd: pfds) {
 			if (pfd.fd >= 0) {
-				active[static_cast<SZ>(n_active++)] = pfd; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+				active[static_cast<std::size_t>(n_active++)] = pfd; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 			}
 		}
 
@@ -573,7 +573,7 @@ export std::expected<RunResult, std::error_code> run(
 				pfds[1].fd = -1;
 			}
 			return unexpected{
-				EC{poll_err, system_category()}
+				std::error_code{poll_err, system_category()}
             };
 		}
 
@@ -581,7 +581,7 @@ export std::expected<RunResult, std::error_code> run(
 			if (a.revents == 0) {
 				continue;
 			}
-			S &buf = (a.fd == out_fd) ? result.stdout_out : result.stderr_out;
+			std::string &buf = (a.fd == out_fd) ? result.stdout_out : result.stderr_out;
 			if ((a.revents & POLLIN) != 0) {
 				char tmp[4096]; // NOLINT(modernize-avoid-c-arrays,readability-magic-numbers)
 				ssize_t nr = 0;
@@ -591,7 +591,7 @@ export std::expected<RunResult, std::error_code> run(
 				} while (nr < 0 && errno == EINTR);
 				if (nr > 0) {
 					// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-A-to-pointer-decay,hicpp-no-A-decay)
-					buf.append(tmp, static_cast<SZ>(nr));
+					buf.append(tmp, static_cast<std::size_t>(nr));
 				}
 			}
 			if ((a.revents & (POLLHUP | POLLERR)) != 0) {
@@ -617,7 +617,7 @@ export template<typename Target>
 	std::vector<std::string> args,
 	SpawnOptions opts = {}) -> conflux::work::root::Task<std::expected<RunResult, std::error_code>> {
 	return async_run_on(target, [exe = move(exe), args = move(args), opts = move(opts)]() mutable {
-		V<SV> views;
+		std::vector<std::string_view> views;
 		views.reserve(args.size());
 		for (auto const &a: args) {
 			views.push_back(a);

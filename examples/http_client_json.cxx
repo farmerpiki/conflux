@@ -9,39 +9,39 @@ namespace http = conflux::http;
 namespace json = conflux::json;
 
 struct CreateItem {
-	S name;
-	i64 quantity{};
+	std::string name;
+	std::int64_t quantity{};
 };
 
 template<>
 struct JsonMembers<CreateItem> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("name", &CreateItem::name),
 			json_member("quantity", &CreateItem::quantity),
 		};
 	}
-	static constexpr SV type_name() { return "CreateItem"; }
+	static constexpr std::string_view type_name() { return "CreateItem"; }
 };
 
 struct Item {
-	i64 id{};
-	S name;
-	i64 quantity{};
+	std::int64_t id{};
+	std::string name;
+	std::int64_t quantity{};
 	bool accepted{};
 };
 
 template<>
 struct JsonMembers<Item> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("id", &Item::id),
 			json_member("name", &Item::name),
 			json_member("quantity", &Item::quantity),
 			json_member("accepted", &Item::accepted),
 		};
 	}
-	static constexpr SV type_name() { return "Item"; }
+	static constexpr std::string_view type_name() { return "Item"; }
 };
 
 static void print_bad_url() {

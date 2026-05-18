@@ -30,9 +30,9 @@ Config tiny_ring_config() {
 	return cfg;
 }
 
-static S http_get_on_timeout(
-	u16 port,
-	SV path) {
+static std::string http_get_on_timeout(
+	std::uint16_t port,
+	std::string_view path) {
 	LocalTcpClient const client{port};
 
 	timeval tv{.tv_sec = 0, .tv_usec = 50000};
@@ -60,20 +60,20 @@ TEST_CASE(
 	auto cfg = tiny_ring_config();
 	auto server = make_shared<HttpServer>(cfg, move(router));
 	RunStatus result = RunStatus::stopped_normally;
-	Atom<bool> srv_exited{false};
+	std::atomic<bool> srv_exited{false};
 	jthread srv_thread([&] {
 		result = server->run();
 		srv_exited.store(true, memory_order_release);
 	});
 
-	u16 const port = server->port();
+	std::uint16_t const port = server->port();
 	wait_for_server(port);
 
 	// Fire concurrent requests; keep going until the server stops or 3 s elapse.
-	Atom<bool> stop_flag{false};
+	std::atomic<bool> stop_flag{false};
 	static constexpr int kWorkers = 2;
 	static constexpr int kIterations = 20;
-	V<jthread> workers;
+	std::vector<jthread> workers;
 	workers.reserve(kWorkers);
 	for (int w = 0; w < kWorkers; ++w) {
 		workers.emplace_back([port, &stop_flag] {
@@ -94,7 +94,7 @@ TEST_CASE(
 			server_stopped = true;
 			break;
 		}
-		std::this_thread::sleep_for(chrono::milliseconds(kPollMs));
+		std::this_thread::sleep_for(std::chrono::milliseconds(kPollMs));
 	}
 
 	stop_flag.store(true, memory_order_relaxed);

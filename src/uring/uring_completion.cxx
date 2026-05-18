@@ -7,32 +7,32 @@ export module conflux.uring.completion;
 import std;
 import conflux.types;
 
-export using UserDataFn = Fn<u64(u32 slot, u32 gen)>;
+export using UserDataFn = std::function<std::uint64_t(std::uint32_t slot, std::uint32_t gen)>;
 export struct IoResult {
-	i32 res{};
-	u32 flags{};
+	std::int32_t res{};
+	std::uint32_t flags{};
 };
-export using CompletionFn = Fn<void(IoResult)>;
+export using CompletionFn = std::function<void(IoResult)>;
 export class CompletionTable {
-	enum class SlotMode : u8 {
+	enum class SlotMode : std::uint8_t {
 		single,
 		multishot,
 		zc_send,
 	};
 	struct Slot {
-		u32 gen{0};
+		std::uint32_t gen{0};
 		bool in_use{false};
 		SlotMode mode{SlotMode::single};
-		i32 zc_bytes{0};
+		std::int32_t zc_bytes{0};
 		bool zc_seen_send{false};
 		CompletionFn fn{};
 	};
-	V<Slot> slots_{};
-	V<u32> free_{};
+	std::vector<Slot> slots_{};
+	std::vector<std::uint32_t> free_{};
 
 public:
 	explicit CompletionTable(
-		SZ initial_capacity = 64) {
+		std::size_t initial_capacity = 64) {
 		slots_.reserve(initial_capacity);
 	}
 	CompletionTable(CompletionTable const &) = delete;
@@ -40,14 +40,14 @@ public:
 	CompletionTable(CompletionTable &&) = delete;
 	CompletionTable &operator =(CompletionTable &&) = delete;
 	~CompletionTable() {} // NOLINT(modernize-use-equals-default) — GCC module bug
-	[[nodiscard]] P<u32, u32> reserve(
+	[[nodiscard]] std::pair<std::uint32_t, std::uint32_t> reserve(
 		CompletionFn fn) {
-		u32 slot = 0;
+		std::uint32_t slot = 0;
 		if (!free_.empty()) {
 			slot = free_.back();
 			free_.pop_back();
 		} else {
-			slot = static_cast<u32>(slots_.size());
+			slot = static_cast<std::uint32_t>(slots_.size());
 			slots_.emplace_back();
 		}
 		auto &s = slots_[slot];
@@ -58,13 +58,13 @@ public:
 		s.fn = move(fn);
 		return {slot, s.gen};
 	}
-	[[nodiscard]] P<u32, u32> reserve_multishot(
+	[[nodiscard]] std::pair<std::uint32_t, std::uint32_t> reserve_multishot(
 		CompletionFn fn) {
 		auto [slot, gen] = reserve(move(fn));
 		slots_[slot].mode = SlotMode::multishot;
 		return {slot, gen};
 	}
-	[[nodiscard]] P<u32, u32> reserve_zc(
+	[[nodiscard]] std::pair<std::uint32_t, std::uint32_t> reserve_zc(
 		CompletionFn fn) {
 		auto [slot, gen] = reserve(move(fn));
 		slots_[slot].mode = SlotMode::zc_send;
@@ -72,10 +72,10 @@ public:
 	}
 	void dispatch(
 		// NOLINT(bugprone-exception-escape) — callbacks are noexcept by contract
-		u32 slot,
-		u32 gen,
+		std::uint32_t slot,
+		std::uint32_t gen,
 		int res,
-		u32 flags) noexcept {
+		std::uint32_t flags) noexcept {
 		if (slot >= slots_.size()) {
 			return;
 		}
@@ -126,8 +126,8 @@ public:
 		if (has_pending_zc_notifications()) {
 			return false;
 		}
-		u32 const n = static_cast<u32>(slots_.size()); // cache before callbacks can grow slots_
-		for (u32 slot = 0; slot < n; ++slot) {
+		std::uint32_t const n = static_cast<std::uint32_t>(slots_.size()); // cache before callbacks can grow slots_
+		for (std::uint32_t slot = 0; slot < n; ++slot) {
 			auto &s = slots_[slot];
 			if (!s.in_use) {
 				continue;
@@ -146,5 +146,5 @@ public:
 		}
 		return true;
 	}
-	[[nodiscard]] SZ pending() const noexcept { return slots_.size() - free_.size(); }
+	[[nodiscard]] std::size_t pending() const noexcept { return slots_.size() - free_.size(); }
 };

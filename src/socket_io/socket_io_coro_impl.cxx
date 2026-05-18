@@ -74,7 +74,7 @@ enum class StopCause : std::uint8_t {
 	timeout,
 };
 struct IoTimeoutState {
-	Atom<StopCause> stop_cause{StopCause::none};
+	std::atomic<StopCause> stop_cause{StopCause::none};
 	void mark_stop(
 		StopCause cause) noexcept {
 		StopCause expected = StopCause::none;

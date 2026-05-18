@@ -27,9 +27,9 @@ std::string format_flag_list(
 
 } // namespace
 
-export [[gnu::pure]] u32 build_uring_flags(
+export [[gnu::pure]] std::uint32_t build_uring_flags(
 	Config const &c) {
-	u32 f = 0;
+	std::uint32_t f = 0;
 	if (c.single_issuer) {
 		f |= IORING_SETUP_SINGLE_ISSUER;
 	}
@@ -57,8 +57,8 @@ export [[gnu::pure]] u32 build_uring_flags(
 	return f;
 }
 
-export [[nodiscard]] std::optional<u32> next_uring_setup_flag_to_strip(
-	u32 flags) {
+export [[nodiscard]] std::optional<std::uint32_t> next_uring_setup_flag_to_strip(
+	std::uint32_t flags) {
 	auto const stripped = conflux::uring::next_setup_flag_to_strip(conflux::uring::SetupFlags{flags});
 	if (!stripped) {
 		return std::nullopt;
@@ -66,17 +66,17 @@ export [[nodiscard]] std::optional<u32> next_uring_setup_flag_to_strip(
 	return stripped->raw();
 }
 
-export [[nodiscard]] u32 wq_fd_for_ring(
+export [[nodiscard]] std::uint32_t wq_fd_for_ring(
 	Config const &c,
 	unsigned i,
 	int parent_ring_fd) {
 	if (!c.attach_wq || i == 0 || parent_ring_fd < 0) {
 		return 0;
 	}
-	return static_cast<u32>(parent_ring_fd);
+	return static_cast<std::uint32_t>(parent_ring_fd);
 }
 
-export [[nodiscard]] std::string setup_flags_str(u32 flags) {
+export [[nodiscard]] std::string setup_flags_str(std::uint32_t flags) {
 	return conflux::uring::setup_flags_str(conflux::uring::SetupFlags{flags});
 }
 

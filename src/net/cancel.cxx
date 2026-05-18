@@ -1,5 +1,7 @@
 export module conflux.net.cancel;
 
+import std;
+
 import conflux.types;
 import conflux.work;
 
@@ -21,6 +23,6 @@ export struct ActiveTaskCancelRelay {
 	[[nodiscard]] bool is_cancelled() const noexcept;
 	void throw_if_cancelled() const;
 
-	[[nodiscard]] wroot::Task<SZ> await_child(wroot::Task<SZ> child);
+	[[nodiscard]] wroot::Task<std::size_t> await_child(wroot::Task<std::size_t> child);
 	[[nodiscard]] wroot::Task<void> await_child(wroot::Task<void> child);
 };

@@ -12,7 +12,7 @@ using Clock = AuthThrottleClock;
 
 [[nodiscard]] Clock::time_point at(
 	int seconds) {
-	return Clock::time_point{chrono::seconds{seconds}};
+	return Clock::time_point{std::chrono::seconds{seconds}};
 }
 
 [[nodiscard]] HttpRequestView make_auth_request() {
@@ -35,8 +35,8 @@ TEST_CASE(
 	"[auth][rate-limit]") {
 	AuthFailureLimiter limiter{AuthThrottleOptions{
 		.max_failures = 2,
-		.window = chrono::seconds{60},
-		.lockout = chrono::seconds{30},
+		.window = std::chrono::seconds{60},
+		.lockout = std::chrono::seconds{30},
 		.max_subjects = 16,
 	}};
 
@@ -50,11 +50,11 @@ TEST_CASE(
 	CHECK_FALSE(second.allowed);
 	CHECK(second.locked);
 	CHECK(second.failures == 2);
-	CHECK(second.retry_after == chrono::seconds{30});
+	CHECK(second.retry_after == std::chrono::seconds{30});
 
 	auto blocked = limiter.before_attempt("account:alice", at(110));
 	CHECK_FALSE(blocked.allowed);
-	CHECK(blocked.retry_after == chrono::seconds{23});
+	CHECK(blocked.retry_after == std::chrono::seconds{23});
 
 	CHECK(limiter.before_attempt("account:alice", at(133)).allowed);
 
@@ -70,8 +70,8 @@ TEST_CASE(
 	"[auth][rate-limit]") {
 	AuthFailureLimiter limiter{AuthThrottleOptions{
 		.max_failures = 1,
-		.window = chrono::seconds{10},
-		.lockout = chrono::seconds{0},
+		.window = std::chrono::seconds{10},
+		.lockout = std::chrono::seconds{0},
 		.max_subjects = 4,
 	}};
 
@@ -85,8 +85,8 @@ TEST_CASE(
 	"[auth][rate-limit]") {
 	AuthFailureLimiter limiter{AuthThrottleOptions{
 		.max_failures = 2,
-		.window = chrono::seconds{60},
-		.lockout = chrono::seconds{60},
+		.window = std::chrono::seconds{60},
+		.lockout = std::chrono::seconds{60},
 		.max_subjects = 4,
 	}};
 
@@ -104,8 +104,8 @@ TEST_CASE(
 	"[auth][rate-limit]") {
 	AuthFailureLimiter limiter{AuthThrottleOptions{
 		.max_failures = 3,
-		.window = chrono::seconds{60},
-		.lockout = chrono::seconds{60},
+		.window = std::chrono::seconds{60},
+		.lockout = std::chrono::seconds{60},
 		.max_subjects = 2,
 	}};
 
@@ -140,8 +140,8 @@ TEST_CASE(
 	"[auth][rate-limit]") {
 	AuthFailureLimiter limiter{AuthThrottleOptions{
 		.max_failures = 1,
-		.window = chrono::seconds{60},
-		.lockout = chrono::seconds{60},
+		.window = std::chrono::seconds{60},
+		.lockout = std::chrono::seconds{60},
 		.max_subjects = 4,
 	}};
 	auto middleware = auth_throttle_middleware(

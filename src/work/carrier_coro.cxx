@@ -39,11 +39,11 @@ import conflux.work.carrier;
 namespace conflux::work::carrier::pool {
 
 inline void write_stderr(
-	SV message) noexcept {
+	std::string_view message) noexcept {
 	while (!message.empty()) {
 		auto const n = ::write(STDERR_FILENO, message.data(), message.size());
 		if (n > 0) {
-			message.remove_prefix(static_cast<SZ>(n));
+			message.remove_prefix(static_cast<std::size_t>(n));
 			continue;
 		}
 		if (n < 0 && errno == EINTR) {
@@ -54,15 +54,15 @@ inline void write_stderr(
 }
 
 struct FrameArena {
-	static constexpr SZ kCap = 8u * 1024u * 1024u;
-	static constexpr SZ kAlign = __STDCPP_DEFAULT_NEW_ALIGNMENT__;
-	static constexpr SZ kHeaderSize = kAlign;
+	static constexpr std::size_t kCap = 8u * 1024u * 1024u;
+	static constexpr std::size_t kAlign = __STDCPP_DEFAULT_NEW_ALIGNMENT__;
+	static constexpr std::size_t kHeaderSize = kAlign;
 
 	char *base_ = nullptr;
-	SZ top_ = 0;
-	SZ pool_alloc_count_ = 0;
-	SZ fallback_count_ = 0;
-	SZ largest_frame_ = 0;
+	std::size_t top_ = 0;
+	std::size_t pool_alloc_count_ = 0;
+	std::size_t fallback_count_ = 0;
+	std::size_t largest_frame_ = 0;
 	FrameArena() noexcept {
 		void *p = mmap(nullptr, kCap, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 		if (p != MAP_FAILED) {
@@ -90,14 +90,14 @@ struct FrameArena {
 	}
 	FrameArena(FrameArena const &) = delete;
 	FrameArena &operator =(FrameArena const &) = delete;
-	static constexpr SZ align_up(
-		SZ n,
-		SZ a) noexcept {
+	static constexpr std::size_t align_up(
+		std::size_t n,
+		std::size_t a) noexcept {
 		return (n + a - 1u) & ~(a - 1u);
 	}
 	[[nodiscard]] void *alloc(
-		SZ sz) {
-		SZ need = align_up(sz + kHeaderSize, kAlign);
+		std::size_t sz) {
+		std::size_t need = align_up(sz + kHeaderSize, kAlign);
 		if (base_ && top_ + need <= kCap) {
 			char *hdr = base_ + top_;
 			hdr[0] = 1;
@@ -118,13 +118,13 @@ struct FrameArena {
 	}
 	void dealloc(
 		void *ptr,
-		SZ sz) noexcept {
+		std::size_t sz) noexcept {
 		char *hdr = static_cast<char *>(ptr) - kHeaderSize;
 		if (hdr[0] == 0) {
 			::operator delete(static_cast<void *>(hdr), sz + kHeaderSize, std::align_val_t{kAlign});
 			return;
 		}
-		SZ need = align_up(sz + kHeaderSize, kAlign);
+		std::size_t need = align_up(sz + kHeaderSize, kAlign);
 		if (hdr == base_ + top_ - need) {
 			top_ -= need;
 		}
@@ -147,7 +147,7 @@ namespace conflux::work::carrier {
 
 template<root::work_value T>
 struct EagerChainPromise {
-	Opt<root::Outcome<T>> slot_{};
+	std::optional<root::Outcome<T>> slot_{};
 
 	EagerChain<T> get_return_object() noexcept;
 	std::suspend_never initial_suspend() noexcept { return {}; }
@@ -170,19 +170,19 @@ struct EagerChainPromise {
 
 #if CONFLUX_WORK_CFP_ACTIVE
 	[[nodiscard]] static void *operator new(
-		SZ sz) {
+		std::size_t sz) {
 		return pool::frame_arena().alloc(sz);
 	}
 	static void operator delete(
 		void *ptr,
-		SZ sz) noexcept {
+		std::size_t sz) noexcept {
 		pool::frame_arena().dealloc(ptr, sz);
 	}
 #endif
 };
 template<>
 struct EagerChainPromise<void> {
-	Opt<root::Outcome<void>> slot_{};
+	std::optional<root::Outcome<void>> slot_{};
 
 	EagerChain<void> get_return_object() noexcept;
 	std::suspend_never initial_suspend() noexcept { return {}; }
@@ -202,12 +202,12 @@ struct EagerChainPromise<void> {
 
 #if CONFLUX_WORK_CFP_ACTIVE
 	[[nodiscard]] static void *operator new(
-		SZ sz) {
+		std::size_t sz) {
 		return pool::frame_arena().alloc(sz);
 	}
 	static void operator delete(
 		void *ptr,
-		SZ sz) noexcept {
+		std::size_t sz) noexcept {
 		pool::frame_arena().dealloc(ptr, sz);
 	}
 #endif
@@ -292,7 +292,7 @@ template<root::work_value T>
 class TaskHandleAwaiter {
 	root::TaskJoinHandle<T> handle_;
 	root::BasicControl<root::ControlCategory::task> control_;
-	enum class AwaiterError : u8 {
+	enum class AwaiterError : std::uint8_t {
 		none,
 		already_installed,
 		empty,
@@ -368,7 +368,7 @@ template<root::work_value T>
 class TaskHandleChainAwaiter {
 	root::TaskJoinHandle<T> handle_;
 	root::BasicControl<root::ControlCategory::task> control_;
-	enum class AwaiterError : u8 {
+	enum class AwaiterError : std::uint8_t {
 		none,
 		already_installed,
 		empty,

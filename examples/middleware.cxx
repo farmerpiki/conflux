@@ -38,7 +38,7 @@ int main() {
 	});
 
 	app.group("/private", [](Router::Group &g) {
-		g.use(basic_auth_middleware([](SV user, SV pass) { return user == "demo" && pass == "demo"; }));
+		g.use(basic_auth_middleware([](std::string_view user, std::string_view pass) { return user == "demo" && pass == "demo"; }));
 
 		g.get("/profile", [](HttpRequest const &req) {
 			return HttpResponse::json(format(
@@ -49,7 +49,7 @@ int main() {
 	});
 
 	app.group("/private", [](Router::Group &g) {
-		g.use(bearer_auth_middleware([](SV token) { return token == "valid-token"; }));
+		g.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token"; }));
 
 		g.get("/token", [](HttpRequest const &req) {
 			return HttpResponse::json(

@@ -13,9 +13,9 @@ TEST_CASE(
 	"[json][boundary]") {
 	static_assert(jb::JsonDocumentProvider<jb::NativeJsonProvider>);
 	static_assert(jb::JsonDumpProvider<jb::NativeJsonProvider, ::Document>);
-	static_assert(jb::JsonDecodeProvider<jb::NativeJsonProvider, i64>);
+	static_assert(jb::JsonDecodeProvider<jb::NativeJsonProvider, std::int64_t>);
 
-	auto doc = cj::parse_copy(SV{R"({"ok":true,"n":42})"});
+	auto doc = cj::parse_copy(std::string_view{R"({"ok":true,"n":42})"});
 	REQUIRE(doc.has_value());
 
 	auto body = jb::dump_with<jb::NativeJsonProvider>(*doc);
@@ -26,11 +26,11 @@ TEST_CASE(
 TEST_CASE(
 	"json boundary: native provider decodes through provider-neutral errors",
 	"[json][boundary]") {
-	auto value = jb::decode_with<jb::NativeJsonProvider, i64>("42", {.copy_input = false});
+	auto value = jb::decode_with<jb::NativeJsonProvider, std::int64_t>("42", {.copy_input = false});
 	REQUIRE(value.has_value());
 	CHECK(*value == 42);
 
-	auto failed = jb::decode_with<jb::NativeJsonProvider, i64>(R"("not an int")");
+	auto failed = jb::decode_with<jb::NativeJsonProvider, std::int64_t>(R"("not an int")");
 	REQUIRE_FALSE(failed.has_value());
 	CHECK(failed.error().stage == jb::ErrorStage::lookup);
 	CHECK(failed.error().code == jb::ErrorCode::wrong_kind);
@@ -39,7 +39,7 @@ TEST_CASE(
 TEST_CASE(
 	"json boundary: native provider can encode codec-backed values",
 	"[json][boundary]") {
-	auto body = jb::dump_native<i64>(42);
+	auto body = jb::dump_native<std::int64_t>(42);
 	REQUIRE(body.has_value());
 	CHECK(*body == "42");
 }

@@ -28,7 +28,7 @@ T block_on_ring(
 	::io_uring *ring,
 	CompletionTable &completions,
 	conflux::work::root::Task<T> task,
-	chrono::milliseconds budget = chrono::seconds{5}) {
+	std::chrono::milliseconds budget = std::chrono::seconds{5}) {
 	using namespace conflux::work::root;
 	struct Slot {
 		atomic_flag done{};
@@ -50,13 +50,13 @@ T block_on_ring(
 		} catch (...) { slot->err = current_exception(); }
 		slot->done.test_and_set(memory_order_release);
 	});
-	auto const deadline = chrono::steady_clock::now() + budget;
+	auto const deadline = std::chrono::steady_clock::now() + budget;
 	while (!slot->done.test(memory_order_acquire)) {
 		::io_uring_cqe *cqe = nullptr;
 		__kernel_timespec ts{.tv_sec = 1, .tv_nsec = 0};
 		int const rc = ::io_uring_submit_and_wait_timeout(ring, &cqe, 1, &ts, nullptr);
 		if (rc == -ETIME) {
-			if (chrono::steady_clock::now() > deadline) {
+			if (std::chrono::steady_clock::now() > deadline) {
 				throw runtime_error{"block_on_ring: budget exhausted"};
 			}
 			continue;
@@ -125,7 +125,7 @@ struct RingFixture {
 	template<typename T>
 	T run(
 		conflux::work::root::Task<T> task,
-		chrono::milliseconds budget = chrono::seconds{5}) {
+		std::chrono::milliseconds budget = std::chrono::seconds{5}) {
 		return block_on_ring(&ring, completions, move(task), budget);
 	}
 };
@@ -186,7 +186,7 @@ public:
 				if (client < 0) {
 					continue;
 				}
-				A<char, 4096> buf{};
+				std::array<char, 4096> buf{};
 				for (;;) {
 					ssize_t const n = ::recv(client, buf.data(), buf.size(), 0);
 					if (n <= 0) {
@@ -195,7 +195,7 @@ public:
 					ssize_t off = 0;
 					while (off < n) {
 						ssize_t const w =
-							::send(client, buf.data() + off, static_cast<SZ>(n) - static_cast<SZ>(off), MSG_NOSIGNAL);
+							::send(client, buf.data() + off, static_cast<std::size_t>(n) - static_cast<std::size_t>(off), MSG_NOSIGNAL);
 						if (w <= 0) {
 							goto done;
 						}
@@ -374,7 +374,7 @@ TEST_CASE(
 			AF_INET,
 			addr,
 			static_cast<socklen_t>(sizeof(sockaddr_in)),
-			ConnectOptions{.timeout = chrono::seconds{5}}));
+			ConnectOptions{.timeout = std::chrono::seconds{5}}));
 		got = true;
 	} catch (IoError const &e) { err_code = e.code().value(); }
 	CHECK_FALSE(got);
@@ -395,17 +395,17 @@ TEST_CASE(
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 
-	A<uint8_t, 13> msg{};
+	std::array<uint8_t, 13> msg{};
 	for (uint8_t i = 0; i < 13; ++i) {
 		msg[i] = i;
 	}
 
 	fx->run(stream.async_write_all_borrowed(span<uint8_t const>{msg.data(), msg.size()}));
 
-	A<uint8_t, 13> rx{};
-	SZ received = 0;
+	std::array<uint8_t, 13> rx{};
+	std::size_t received = 0;
 	while (received < msg.size()) {
-		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -451,8 +451,8 @@ TEST_CASE(
 	::close(listen_fd);
 
 	// read should return 0 (EOF)
-	A<uint8_t, 64> buf{};
-	SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
+	std::array<uint8_t, 64> buf{};
+	std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
 	CHECK(n == 0);
 	fx->run(stream.async_close());
 }
@@ -472,7 +472,7 @@ TEST_CASE(
 		AF_INET,
 		addr,
 		static_cast<socklen_t>(sizeof(sockaddr_in)),
-		ConnectOptions{.timeout = chrono::milliseconds{500}}));
+		ConnectOptions{.timeout = std::chrono::milliseconds{500}}));
 	CHECK(stream.valid());
 	fx->run(stream.async_close());
 }
@@ -489,12 +489,12 @@ TEST_CASE(
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	A<uint8_t, 8> msg{1, 2, 3, 4, 5, 6, 7, 8};
+	std::array<uint8_t, 8> msg{1, 2, 3, 4, 5, 6, 7, 8};
 	fx->run(stream.async_write_all_copy(span<uint8_t const>{msg.data(), msg.size()}));
-	A<uint8_t, 8> rx{};
-	SZ received = 0;
+	std::array<uint8_t, 8> rx{};
+	std::size_t received = 0;
 	while (received < msg.size()) {
-		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -582,7 +582,7 @@ TEST_CASE(
 			AF_INET,
 			addr,
 			static_cast<socklen_t>(sizeof(sockaddr_in)),
-			ConnectOptions{.timeout = chrono::milliseconds{-1}}));
+			ConnectOptions{.timeout = std::chrono::milliseconds{-1}}));
 	} catch (IoError const &e) { err_code = e.code().value(); }
 	CHECK(err_code == EINVAL);
 }
@@ -702,8 +702,8 @@ TEST_CASE(
 				AF_INET,
 				addr,
 				static_cast<socklen_t>(sizeof(sockaddr_in)),
-				ConnectOptions{.timeout = chrono::milliseconds{300}}),
-			chrono::seconds{10});
+				ConnectOptions{.timeout = std::chrono::milliseconds{300}}),
+			std::chrono::seconds{10});
 	} catch (IoError const &e) { err = e.code().value(); }
 	// ETIMEDOUT when linked timeout fires; EHOSTUNREACH/ENETUNREACH if unroutable
 	bool const timed_out = err == ETIMEDOUT || err == EHOSTUNREACH || err == ENETUNREACH;
@@ -732,9 +732,9 @@ TEST_CASE(
 	}
 	fx->run(move(copy_task)); // must not UB — holder owns the data
 	array<uint8_t, 8> rx{};
-	SZ received = 0;
+	std::size_t received = 0;
 	while (received < 8) {
-		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 8u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 8u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -795,7 +795,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), chrono::seconds{5});
+		fx->run(move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -846,7 +846,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), chrono::seconds{5});
+		fx->run(move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -911,12 +911,12 @@ TEST_CASE(
 		AF_INET,
 		addr,
 		static_cast<socklen_t>(sizeof(sockaddr_in)),
-		ConnectOptions{.timeout = chrono::seconds{5}});
+		ConnectOptions{.timeout = std::chrono::seconds{5}});
 	task.cancel(); // fires inline on ring-owner; sets cancel_requested before any CQE
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), chrono::seconds{10});
+		fx->run(move(task), std::chrono::seconds{10});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -939,7 +939,7 @@ TEST_CASE(
 	// after SHUT_WR the server sees EOF, closes its side → our read returns 0
 	fx->run(stream.async_shutdown(SHUT_WR));
 	array<uint8_t, 64> buf{};
-	SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
+	std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
 	CHECK(n == 0);
 	fx->run(stream.async_close());
 }
@@ -962,9 +962,9 @@ TEST_CASE(
 	src.fill(0xCC);
 	fx->run(move(task));
 	array<uint8_t, 8> rx{};
-	SZ received = 0;
+	std::size_t received = 0;
 	while (received < 8) {
-		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 8u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 8u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -973,7 +973,7 @@ TEST_CASE(
 	fx->run(stream.async_close());
 }
 // ---------------------------------------------------------------------------
-// TcpStream — async_write_all_owned(V<u8>) round-trip
+// TcpStream — async_write_all_owned(std::vector<std::uint8_t>) round-trip
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -985,12 +985,12 @@ TEST_CASE(
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	V<uint8_t> payload{10, 20, 30, 40, 50, 60};
+	std::vector<uint8_t> payload{10, 20, 30, 40, 50, 60};
 	fx->run(stream.async_write_all_owned(move(payload)));
 	array<uint8_t, 6> rx{};
-	SZ received = 0;
+	std::size_t received = 0;
 	while (received < 6) {
-		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 6u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 6u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -1011,12 +1011,12 @@ TEST_CASE(
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	S msg = "hello";
+	std::string msg = "hello";
 	fx->run(stream.async_write_all_owned(move(msg)));
 	array<uint8_t, 5> rx{};
-	SZ received = 0;
+	std::size_t received = 0;
 	while (received < 5) {
-		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 5u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 5u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -1079,7 +1079,7 @@ TEST_CASE(
 		static_cast<socklen_t>(sizeof(sockaddr_in)));
 	// mutate source — send_to_copy must have copied
 	payload.fill(0xCC);
-	SZ const sent = fx->run(move(task));
+	std::size_t const sent = fx->run(move(task));
 	CHECK(sent == 4);
 	// verify server received the original bytes, not the mutated 0xCC
 	array<uint8_t, 16> rbuf{};
@@ -1090,7 +1090,7 @@ TEST_CASE(
 	::close(srv);
 }
 // ---------------------------------------------------------------------------
-// TcpStream — async_write_owned(V<u8>) single-shot round-trip
+// TcpStream — async_write_owned(std::vector<std::uint8_t>) single-shot round-trip
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
@@ -1102,13 +1102,13 @@ TEST_CASE(
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	V<uint8_t> payload{0xAA, 0xBB, 0xCC};
-	SZ const sent = fx->run(stream.async_write_owned(move(payload)));
+	std::vector<uint8_t> payload{0xAA, 0xBB, 0xCC};
+	std::size_t const sent = fx->run(stream.async_write_owned(move(payload)));
 	CHECK(sent == 3);
 	array<uint8_t, 3> rx{};
-	SZ received = 0;
+	std::size_t received = 0;
 	while (received < 3) {
-		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 3u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 3u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -1129,13 +1129,13 @@ TEST_CASE(
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	S msg = "XY";
-	SZ const sent = fx->run(stream.async_write_owned(move(msg)));
+	std::string msg = "XY";
+	std::size_t const sent = fx->run(stream.async_write_owned(move(msg)));
 	CHECK(sent == 2);
 	array<uint8_t, 2> rx{};
-	SZ received = 0;
+	std::size_t received = 0;
 	while (received < 2) {
-		SZ const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 2u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 2u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -1183,7 +1183,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), chrono::seconds{5});
+		fx->run(move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -1210,7 +1210,7 @@ TEST_CASE(
 		ropts};
 	int err_code = 0;
 	try {
-		fx->run(async_tcp_accept(l, dr), chrono::seconds{5});
+		fx->run(async_tcp_accept(l, dr), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); }
 	CHECK(err_code == ENOTSUP);
 }
@@ -1224,7 +1224,7 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
-	SZ const pending_before = fx->completions.pending();
+	std::size_t const pending_before = fx->completions.pending();
 	for (int i = 0; i < 100; ++i) {
 		// start accept task (no connect yet — accept SQE in SQ, not submitted)
 		auto task = async_tcp_accept(l, fx->task_ring);
@@ -1235,9 +1235,9 @@ TEST_CASE(
 				::close(fd);
 			}
 		}};
-		TcpStream s = fx->run(move(task), chrono::seconds{5});
+		TcpStream s = fx->run(move(task), std::chrono::seconds{5});
 		CHECK(s.valid());
-		fx->run(s.async_close(), chrono::seconds{5});
+		fx->run(s.async_close(), std::chrono::seconds{5});
 		t.join();
 	}
 	CHECK(fx->completions.pending() == pending_before);
@@ -1254,10 +1254,10 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
-	SZ const pending_before = fx->completions.pending();
+	std::size_t const pending_before = fx->completions.pending();
 	auto counter = make_shared<atomic<int>>(0);
 	using Task_v = conflux::work::root::Task<void>;
-	Fn<Task_v(TcpStream)> handler = [counter](TcpStream s) -> Task_v {
+	std::function<Task_v(TcpStream)> handler = [counter](TcpStream s) -> Task_v {
 		counter->fetch_add(1, memory_order_relaxed);
 		co_await s.async_close();
 	};
@@ -1276,7 +1276,7 @@ TEST_CASE(
 	task.cancel();
 	// task resolves (cancelled or error) — not hung; if it hangs, timeout throws
 	try {
-		fx->run(move(task), chrono::seconds{30});
+		fx->run(move(task), std::chrono::seconds{30});
 	} catch (...) {};
 	CHECK(fx->completions.pending() == pending_before);
 	int const fd_after = count_proc_fds();
@@ -1293,7 +1293,7 @@ TEST_CASE(
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
 	using Task_v2 = conflux::work::root::Task<void>;
-	Fn<Task_v2(TcpStream)> handler2 = [](TcpStream s) -> Task_v2 { co_await s.async_close(); };
+	std::function<Task_v2(TcpStream)> handler2 = [](TcpStream s) -> Task_v2 { co_await s.async_close(); };
 	auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, move(handler2));
 	// 3 connections then cancel
 	for (int i = 0; i < 3; ++i) {
@@ -1306,7 +1306,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), chrono::seconds{10});
+		fx->run(move(task), std::chrono::seconds{10});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -1326,7 +1326,7 @@ TEST_CASE(
 	{
 		TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 		using Task_v3 = conflux::work::root::Task<void>;
-		Fn<Task_v3(TcpStream)> handler3 = [](TcpStream s) -> Task_v3 { co_await s.async_close(); };
+		std::function<Task_v3(TcpStream)> handler3 = [](TcpStream s) -> Task_v3 { co_await s.async_close(); };
 		auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, move(handler3));
 		int fd = connect_v4_blocking(l.port());
 		if (fd >= 0) {
@@ -1334,7 +1334,7 @@ TEST_CASE(
 		}
 		task.cancel();
 		try {
-			fx->run(move(task), chrono::seconds{10});
+			fx->run(move(task), std::chrono::seconds{10});
 		} catch (...) {}
 		// l destroyed at end of scope — task already resolved, no UAF
 	}
@@ -1352,7 +1352,7 @@ TEST_CASE(
 	auto fx = require_ring_fixture(16);
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
-	SZ const pending_before = fx->completions.pending();
+	std::size_t const pending_before = fx->completions.pending();
 	auto task = async_tcp_accept(l, fx->task_ring);
 	// fill remaining 15 SQ slots with nops (sentinel user_data — out of range → ignored on CQE)
 	int nops_added = 0;
@@ -1371,7 +1371,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), chrono::seconds{5});
+		fx->run(move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -1413,7 +1413,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), chrono::seconds{5});
+		fx->run(move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -1447,7 +1447,7 @@ TEST_CASE(
 	auto l = make_unique<TcpListener>(TcpListenerOptions{.bind = TcpBindAddress::loopback_v4});
 	int const fd_before = count_proc_fds();
 	using Task_v4 = conflux::work::root::Task<void>;
-	Fn<Task_v4(TcpStream)> handler4 = [](TcpStream s) -> Task_v4 { co_await s.async_close(); };
+	std::function<Task_v4(TcpStream)> handler4 = [](TcpStream s) -> Task_v4 { co_await s.async_close(); };
 	auto task = async_tcp_accept_multishot(*l, ring2, {}, move(handler4));
 	task.cancel();
 	CHECK(owner_called);
@@ -1456,7 +1456,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), chrono::seconds{5});
+		fx->run(move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}

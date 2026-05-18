@@ -9,7 +9,7 @@ export struct ForwardedOptions {
 	// If empty and strict_mode is true (the default): trust nobody. Forwarding
 	// headers are stripped for every request. If empty and strict_mode is false:
 	// legacy behaviour — all peers are trusted.
-	V<S> trusted_proxies;
+	std::vector<std::string> trusted_proxies;
 
 	// Header to read the real client IP from (checked in order).
 	// X-Forwarded-For may contain a comma-separated chain; first entry is used.
@@ -23,10 +23,10 @@ export struct ForwardedOptions {
 namespace forwarded_detail {
 
 // Extract the first (leftmost) IP from a comma-separated X-Forwarded-For value.
-SV xff_first(
-	SV value) noexcept {
+std::string_view xff_first(
+	std::string_view value) noexcept {
 	auto comma = value.find(',');
-	return trim((comma == SV::npos) ? value : SV{value.data(), comma});
+	return trim((comma == std::string_view::npos) ? value : std::string_view{value.data(), comma});
 }
 
 } // namespace forwarded_detail
@@ -56,17 +56,17 @@ export Router::Middleware forwarded_middleware(
 			return next(sanitized);
 		}
 
-		S real_ip;
+		std::string real_ip;
 		if (opts.use_x_forwarded_for) {
 			auto xff = req.headers["x-forwarded-for"];
 			if (!xff.empty()) {
-				real_ip = S{forwarded_detail::xff_first(xff)};
+				real_ip = std::string{forwarded_detail::xff_first(xff)};
 			}
 		}
 		if (real_ip.empty() && opts.use_x_real_ip) {
 			auto xri = req.headers["x-real-ip"];
 			if (!xri.empty()) {
-				real_ip = S{trim(xri)};
+				real_ip = std::string{trim(xri)};
 			}
 		}
 
@@ -75,7 +75,7 @@ export Router::Middleware forwarded_middleware(
 		}
 
 		// Normalize to canonical form so downstream modules (rate limiter,
-		// ip_filter) key on the same S regardless of proxy notation.
+		// ip_filter) key on the same std::string regardless of proxy notation.
 		if (auto parsed = parse_ip(real_ip)) {
 			real_ip = ip_to_string(*parsed);
 		}

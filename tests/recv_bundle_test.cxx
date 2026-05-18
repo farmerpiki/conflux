@@ -40,18 +40,18 @@ namespace {
 } // namespace
 namespace {
 
-u32 recv_flags_for(
-	u16 buf_id) noexcept {
-	return IORING_CQE_F_BUFFER | (static_cast<u32>(buf_id) << IORING_CQE_BUFFER_SHIFT);
+std::uint32_t recv_flags_for(
+	std::uint16_t buf_id) noexcept {
+	return IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(buf_id) << IORING_CQE_BUFFER_SHIFT);
 }
-u32 head_flags(
+std::uint32_t head_flags(
 	BufferRing &ring) noexcept {
 	return recv_flags_for(ring.ring_id_at(ring.debug_head_pos()));
 }
 struct Rig {
 	conflux::uring::Ring uring;
 	BufferRing ring;
-	Rig(u32 count,SZ buf_size,u16 gid=0,BufferRingMode mode=BufferRingMode::classic_one_cqe_per_buffer)
+	Rig(std::uint32_t count,std::size_t buf_size,std::uint16_t gid=0,BufferRingMode mode=BufferRingMode::classic_one_cqe_per_buffer)
 :uring{[]{
 				  auto r = conflux::uring::Ring::init(32, {});
 				  REQUIRE(r);
@@ -73,9 +73,9 @@ TEST_CASE(
 	"recv_bundle.classic: head advances by 1 per CQE",
 	"[recv_bundle]") {
 	Rig rig{8, 64};
-	for (u32 i = 0; i < 8; ++i) {
-		u16 const expected_id = rig.ring.ring_id_at(i);
-		u32 const f = head_flags(rig.ring);
+	for (std::uint32_t i = 0; i < 8; ++i) {
+		std::uint16_t const expected_id = rig.ring.ring_id_at(i);
+		std::uint32_t const f = head_flags(rig.ring);
 		auto slices = buffer_slices_from_cqe(rig.ring, 64, f, false);
 		REQUIRE(slices.valid());
 		REQUIRE(rig.ring.debug_head_pos() == i + 1);
@@ -88,7 +88,7 @@ TEST_CASE(
 	"recv_payload.classic: RAII recycles provided buffers",
 	"[recv_payload]") {
 	Rig rig{4, 64};
-	for (u32 i = 0; i < 5; ++i) {
+	for (std::uint32_t i = 0; i < 5; ++i) {
 		auto payload = try_recv_payload_from_cqe(rig.ring, 8, head_flags(rig.ring), false);
 		REQUIRE(payload);
 		CHECK(payload->storage() == RecvPayloadStorage::provided_buffer_ring);
@@ -111,7 +111,7 @@ TEST_CASE(
 	CHECK(payload->multi_buffer());
 	CHECK(payload->chunk_count() == 3u);
 	CHECK(payload->total_size() == 2 * 64 + 7u);
-	SZ seen{};
+	std::size_t seen{};
 	for (auto const &chunk: *payload) {
 		seen += chunk.bytes.size();
 	}
@@ -154,8 +154,8 @@ TEST_CASE(
 	REQUIRE(slices.valid());
 	REQUIRE(slices.count() == 3u);
 	REQUIRE(rig.ring.debug_head_pos() == 3u);
-	u32 idx = 0;
-	SZ total = 0;
+	std::uint32_t idx = 0;
+	std::size_t total = 0;
 	for (auto const &s: slices) {
 		if (idx < 2) {
 			CHECK(s.bytes.size() == 64u);
@@ -165,7 +165,7 @@ TEST_CASE(
 		total += s.bytes.size();
 		++idx;
 	}
-	REQUIRE(total == static_cast<SZ>(res));
+	REQUIRE(total == static_cast<std::size_t>(res));
 	slices.recycle_all();
 }
 // Test 5: bundle spanning the ring boundary (position count-1 into position 0)
@@ -176,14 +176,14 @@ TEST_CASE(
 
 	// Drain and recycle positions 0,1,2 so the next two-buffer bundle starts
 	// at logical position 3 and wraps to logical position 4 / ring index 0.
-	for (u32 i = 0; i < 3; ++i) {
+	for (std::uint32_t i = 0; i < 3; ++i) {
 		auto s = buffer_slices_from_cqe(rig.ring, 64, head_flags(rig.ring), false);
 		REQUIRE(s.valid());
 		s.recycle_all();
 	}
 
-	u16 const id_at3 = rig.ring.ring_id_at(3);
-	u16 const id_at4 = rig.ring.ring_id_at(4);
+	std::uint16_t const id_at3 = rig.ring.ring_id_at(3);
+	std::uint16_t const id_at4 = rig.ring.ring_id_at(4);
 	REQUIRE(id_at3 == 3u);
 	REQUIRE(id_at4 == 0u);
 
@@ -204,8 +204,8 @@ TEST_CASE(
 	"[recv_bundle]") {
 	Rig rig{4, 64};
 	// Record the IDs at positions 0,1 before consuming.
-	u16 const expected_id0 = rig.ring.ring_id_at(0); // ==0
-	u16 const expected_id1 = rig.ring.ring_id_at(1); // ==1
+	std::uint16_t const expected_id0 = rig.ring.ring_id_at(0); // ==0
+	std::uint16_t const expected_id1 = rig.ring.ring_id_at(1); // ==1
 	// Consume positions 0,1 as a 2-buffer bundle.
 	auto slices = buffer_slices_from_cqe(rig.ring, 2 * 64, head_flags(rig.ring), true);
 	REQUIRE(slices.count() == 2u);
@@ -237,7 +237,7 @@ TEST_CASE(
 
 	// Decode a later bundled CQE first. The bytes must still be read from
 	// positions 2,3, but the software head cannot pass the unresolved gap 0,1.
-	u16 const late_id = rig.ring.ring_id_at(2);
+	std::uint16_t const late_id = rig.ring.ring_id_at(2);
 	auto late = buffer_slices_from_cqe(rig.ring, 2 * 64, recv_flags_for(late_id), true);
 	REQUIRE(late.valid());
 	REQUIRE(late.count() == 2u);
@@ -312,7 +312,7 @@ TEST_CASE(
 	REQUIRE(rig.ring.recycle_selected_buffer(0));
 	CHECK(rig.ring.debug_head_pos() == 1u);
 
-	for (u16 id = 1; id < 4; ++id) {
+	for (std::uint16_t id = 1; id < 4; ++id) {
 		auto slices = buffer_slices_from_cqe(rig.ring, 64, recv_flags_for(id), true);
 		REQUIRE(slices.valid());
 		CHECK((*slices.begin()).id == id);
@@ -331,7 +331,7 @@ TEST_CASE(
 	"[recv_bundle]") {
 	Rig rig{8, 64};
 	int const res = 2 * 64 + 10; // 138 bytes → cnt=3
-	u32 const before = rig.ring.debug_head_pos();
+	std::uint32_t const before = rig.ring.debug_head_pos();
 	auto slices = buffer_slices_from_cqe(rig.ring, res, head_flags(rig.ring), true);
 	REQUIRE(slices.count() == 3u);
 	REQUIRE(rig.ring.debug_head_pos() == before + 3u);
@@ -344,7 +344,7 @@ TEST_CASE(
 	"recv_bundle.mixed: non-recv CQEs leave head unchanged",
 	"[recv_bundle]") {
 	Rig rig{8, 64};
-	u32 const h0 = rig.ring.debug_head_pos();
+	std::uint32_t const h0 = rig.ring.debug_head_pos();
 	auto recv = [&] {
 		auto s = buffer_slices_from_cqe(rig.ring, 64, head_flags(rig.ring), false);
 		REQUIRE(s.valid());
@@ -369,7 +369,7 @@ TEST_CASE(
 	"recv_bundle.no_buffer: positive res without buffer flag",
 	"[recv_bundle]") {
 	Rig rig{8, 64};
-	u32 const before = rig.ring.debug_head_pos();
+	std::uint32_t const before = rig.ring.debug_head_pos();
 	auto slices = buffer_slices_from_cqe(rig.ring, 100, 0u, false);
 	CHECK(!slices.valid());
 	CHECK(slices.count() == 0u);
@@ -380,7 +380,7 @@ TEST_CASE(
 	"recv_bundle.scope_exit: recycles on exception",
 	"[recv_bundle]") {
 	Rig rig{4, 64};
-	u32 rc_flags = head_flags(rig.ring);
+	std::uint32_t rc_flags = head_flags(rig.ring);
 	bool scope_exit_ran = false;
 	try {
 		auto slices = buffer_slices_from_cqe(rig.ring, 2 * 64, rc_flags, true);
@@ -392,8 +392,8 @@ TEST_CASE(
 			rc_flags = 0;
 			scope_exit_ran = true;
 		}};
-		throw RE{"simulated append failure"};
-	} catch (RE const &) {}
+		throw std::runtime_error{"simulated append failure"};
+	} catch (std::runtime_error const &) {}
 	// Stack unwinding ran the guard before catch.
 	CHECK(scope_exit_ran);
 	CHECK(rc_flags == 0u);

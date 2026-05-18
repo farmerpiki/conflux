@@ -53,8 +53,8 @@ TEST_CASE(
 	char dir_template[] = "/tmp/conflux_tls_static_XXXXXX";
 	char *const dir_ptr = ::mkdtemp(dir_template);
 	REQUIRE(dir_ptr != nullptr);
-	S const dir{dir_ptr};
-	S const body(256UL * 1024, 'M');
+	std::string const dir{dir_ptr};
+	std::string const body(256UL * 1024, 'M');
 	{
 		std::ofstream out{dir + "/large.bin", std::ios::binary};
 		out << body;
@@ -103,9 +103,9 @@ TEST_CASE(
 	"ext/openssl: s_client GET /ping returns 200 OK") {
 	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
 	auto resp = fx.sclient_get("/ping");
-	REQUIRE(resp.find("HTTP/1.") != S::npos);
-	REQUIRE(resp.find("200") != S::npos);
-	REQUIRE(resp.find(R"({"ok":true})") != S::npos);
+	REQUIRE(resp.find("HTTP/1.") != std::string::npos);
+	REQUIRE(resp.find("200") != std::string::npos);
+	REQUIRE(resp.find(R"({"ok":true})") != std::string::npos);
 }
 TEST_CASE(
 	"ext/openssl: s_client negotiates TLS and server does not crash") {
@@ -120,15 +120,15 @@ TEST_CASE(
 	"ext/openssl: s_client GET path param echoes correctly") {
 	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
 	auto resp = fx.sclient_get("/hello/tls");
-	REQUIRE(resp.find("200") != S::npos);
-	REQUIRE(resp.find("hello tls") != S::npos);
+	REQUIRE(resp.find("200") != std::string::npos);
+	REQUIRE(resp.find("hello tls") != std::string::npos);
 }
 TEST_CASE(
 	"ext/openssl: multiple sequential s_client connections all succeed") {
 	conflux::tests::HttpsServerFixture const fx{conflux::tests::make_external_test_router()};
 	for (int i = 0; i < 5; ++i) {
 		auto resp = fx.sclient_get("/ping");
-		REQUIRE(resp.find(R"({"ok":true})") != S::npos);
+		REQUIRE(resp.find(R"({"ok":true})") != std::string::npos);
 	}
 }
 TEST_CASE(
@@ -138,12 +138,12 @@ TEST_CASE(
 		format("curl -sk --tls-max 1.1 --tlsv1.1 --max-time 5 https://127.0.0.1:{}/ping 2>&1", fx.port()));
 	// curl exits non-zero on handshake failure; body may be empty or an error message.
 	REQUIRE(code != 0);
-	REQUIRE(body.find(R"({"ok":true})") == S::npos);
+	REQUIRE(body.find(R"({"ok":true})") == std::string::npos);
 }
 TEST_CASE(
 	"ext/curl: SSE streams all events and closes") {
 	Router r;
-	r.sse("/events", [](HttpRequest const &, SP<SseChannel> const &ch) {
+	r.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
 		auto _ = ch->send("data: beta\n\n");
 		ch->close();
@@ -153,13 +153,13 @@ TEST_CASE(
 		format("curl -sk --http1.1 -N --max-time 5 https://127.0.0.1:{}/events", fx.port()));
 	INFO(format("code: {}, body: {}", code, body));
 	REQUIRE(code == 0);
-	REQUIRE(body.find("data: alpha\n\n") != S::npos);
-	REQUIRE(body.find("data: beta\n\n") != S::npos);
+	REQUIRE(body.find("data: alpha\n\n") != std::string::npos);
+	REQUIRE(body.find("data: beta\n\n") != std::string::npos);
 }
 TEST_CASE(
 	"ext/curl: SSE send_event delivers typed event") {
 	Router r;
-	r.sse("/typed", [](HttpRequest const &, SP<SseChannel> const &ch) {
+	r.sse("/typed", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 		auto _ = ch->send_event("update", "payload42");
 		ch->close();
 	});
@@ -168,6 +168,6 @@ TEST_CASE(
 		format("curl -sk --http1.1 -N --max-time 5 https://127.0.0.1:{}/typed", fx.port()));
 	INFO(format("code: {}, body: {}", code, body));
 	REQUIRE(code == 0);
-	REQUIRE(body.find("event: update\n") != S::npos);
-	REQUIRE(body.find("data: payload42\n") != S::npos);
+	REQUIRE(body.find("event: update\n") != std::string::npos);
+	REQUIRE(body.find("data: payload42\n") != std::string::npos);
 }

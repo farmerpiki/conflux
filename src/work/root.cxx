@@ -36,14 +36,14 @@ import conflux.types;
 
 export namespace conflux::work::root {
 
-enum class CancelReason : u8 {
+enum class CancelReason : std::uint8_t {
 	requested,
 	abandoned,
 	shutdown,
 	deadline,
 };
 
-enum class WorkState : u8 {
+enum class WorkState : std::uint8_t {
 	pending,
 	cancel_requested,
 	ready_success,
@@ -51,35 +51,35 @@ enum class WorkState : u8 {
 	ready_cancelled,
 };
 
-enum class OutcomeKind : u8 {
+enum class OutcomeKind : std::uint8_t {
 	success,
 	failure,
 	cancelled,
 };
 
-enum class join_state : u8 {
+enum class join_state : std::uint8_t {
 	empty, // moved-from / default-constructed
 	joinable, // owns control block, not yet awaited or detached
 	joined, // co_await consumed it (E1.y)
 	detached, // detach()/abandon_to()/dtor-auto-detach
 };
-class WorkError : public RE {
+class WorkError : public std::runtime_error {
 public:
 	using std::runtime_error::runtime_error;
 };
 struct TaskAllocationStats {
-	u64 control_block_allocations = 0;
-	u64 control_block_deallocations = 0;
-	u64 coroutine_frame_allocations = 0;
-	u64 coroutine_frame_deallocations = 0;
+	std::uint64_t control_block_allocations = 0;
+	std::uint64_t control_block_deallocations = 0;
+	std::uint64_t coroutine_frame_allocations = 0;
+	std::uint64_t coroutine_frame_deallocations = 0;
 };
 namespace detail {
 
 #if CONFLUX_WORK_ALLOC_STATS
-inline Atom<u64> g_control_block_allocations{0};
-inline Atom<u64> g_control_block_deallocations{0};
-inline Atom<u64> g_coroutine_frame_allocations{0};
-inline Atom<u64> g_coroutine_frame_deallocations{0};
+inline std::atomic<std::uint64_t> g_control_block_allocations{0};
+inline std::atomic<std::uint64_t> g_control_block_deallocations{0};
+inline std::atomic<std::uint64_t> g_coroutine_frame_allocations{0};
+inline std::atomic<std::uint64_t> g_coroutine_frame_deallocations{0};
 inline void note_control_block_allocation() noexcept {
 	g_control_block_allocations.fetch_add(1, memory_order_relaxed);
 }
@@ -115,12 +115,12 @@ inline void note_coroutine_frame_deallocation() noexcept {}
 inline void reset_task_allocation_stats_impl() noexcept {}
 #endif
 
-[[nodiscard]] inline EP normalize_failure_ptr(
-	EP const &ep) {
+[[nodiscard]] inline std::exception_ptr normalize_failure_ptr(
+	std::exception_ptr const &ep) {
 	if (ep) {
 		return ep;
 	}
-	return std::make_exception_ptr(RE{"conflux.work.root: normalized null EP"});
+	return std::make_exception_ptr(std::runtime_error{"conflux.work.root: normalized null EP"});
 }
 
 } // namespace detail
@@ -131,11 +131,11 @@ inline void reset_task_allocation_stats() noexcept {
 	detail::reset_task_allocation_stats_impl();
 }
 struct Failure {
-	EP error{};
+	std::exception_ptr error{};
 
 	Failure() = delete;
 	explicit Failure(
-		EP const &ep)
+		std::exception_ptr const &ep)
 		: error{detail::normalize_failure_ptr(ep)} {}
 };
 struct Cancelled {
@@ -148,14 +148,14 @@ struct Success {
 template<>
 struct Success<void> {};
 class FailureError final : public WorkError {
-	EP cause_{};
+	std::exception_ptr cause_{};
 
 public:
 	explicit FailureError(
-		EP const &cause)
+		std::exception_ptr const &cause)
 		: WorkError{"work failed"}
 		, cause_{detail::normalize_failure_ptr(cause)} {}
-	[[nodiscard]] EP cause() const noexcept { return cause_; }
+	[[nodiscard]] std::exception_ptr cause() const noexcept { return cause_; }
 	[[noreturn]] void rethrow_cause() const { std::rethrow_exception(cause_); }
 };
 class CancelledError final : public WorkError {
@@ -181,7 +181,7 @@ enum class work_errc : int { // NOLINT(performance-enum-size): int required for 
 };
 
 [[nodiscard]] std::error_category const &work_category() noexcept;
-[[nodiscard]] inline EC make_error_code(
+[[nodiscard]] inline std::error_code make_error_code(
 	work_errc e) noexcept {
 	return {static_cast<int>(e), work_category()};
 }
@@ -210,7 +210,7 @@ enum class work_errc : int { // NOLINT(performance-enum-size): int required for 
 std::error_category const &work_category() noexcept {
 	struct impl final : std::error_category {
 		[[nodiscard]] char const *name() const noexcept override { return "conflux.work"; }
-		[[nodiscard]] S message(
+		[[nodiscard]] std::string message(
 			int ev) const override {
 			using enum work_errc;
 			switch (static_cast<work_errc>(ev)) {
@@ -284,7 +284,7 @@ public:
 		return Outcome{std::move(success)};
 	}
 	[[nodiscard]] static Outcome make_failure(
-		EP const &error) {
+		std::exception_ptr const &error) {
 		return Outcome{Failure{error}};
 	}
 	[[nodiscard]] static Outcome make_cancelled(
@@ -474,7 +474,7 @@ public:
 	}
 	[[nodiscard]] static Outcome make_success() noexcept { return Outcome{success_t{}}; }
 	[[nodiscard]] static Outcome make_failure(
-		EP const &error) {
+		std::exception_ptr const &error) {
 		return Outcome{Failure{error}};
 	}
 	[[nodiscard]] static Outcome make_cancelled(
@@ -614,7 +614,7 @@ inline void value(
 	});
 }
 
-enum class ControlCategory : u8 {
+enum class ControlCategory : std::uint8_t {
 	task,
 	posted,
 	operation,
@@ -657,9 +657,9 @@ template<class C>
 concept progress_capability = requires(C const &c) {
 	{ capability_id(c) } noexcept -> same_as<CapabilityId>;
 };
-class JoinError : public LE {
+class JoinError : public std::logic_error {
 public:
-	enum class reason : u8 {
+	enum class reason : std::uint8_t {
 		consumed_handle,
 		capability_mismatch,
 		thread_precondition,
@@ -672,30 +672,30 @@ public:
 	explicit JoinError(
 		reason r,
 		std::source_location loc = std::source_location::current())
-		: LE{make_msg(r)}
+		: std::logic_error{make_msg(r)}
 		, reason_{r}
 		, origin_{loc} {}
 	explicit JoinError(
 		reason r,
-		Opt<CapabilityId> expected,
+		std::optional<CapabilityId> expected,
 		CapabilityId actual,
 		std::source_location loc = std::source_location::current())
-		: LE{make_msg(r)}
+		: std::logic_error{make_msg(r)}
 		, reason_{r}
 		, expected_{expected}
 		, actual_{actual}
 		, origin_{loc} {}
 	[[nodiscard]] reason reason_code() const noexcept { return reason_; }
-	[[nodiscard]] Opt<CapabilityId> expected() const noexcept { return expected_; }
-	[[nodiscard]] Opt<CapabilityId> actual() const noexcept { return actual_; }
+	[[nodiscard]] std::optional<CapabilityId> expected() const noexcept { return expected_; }
+	[[nodiscard]] std::optional<CapabilityId> actual() const noexcept { return actual_; }
 	[[nodiscard]] std::source_location origin() const noexcept { return origin_; }
 
 private:
 	reason reason_{};
-	Opt<CapabilityId> expected_{};
-	Opt<CapabilityId> actual_{};
+	std::optional<CapabilityId> expected_{};
+	std::optional<CapabilityId> actual_{};
 	std::source_location origin_{};
-	static S make_msg(
+	static std::string make_msg(
 		reason r) {
 		using enum reason;
 		switch (r) {
@@ -725,21 +725,21 @@ struct SubmitOptions;
 struct PostOptions;
 struct OperationOptions;
 
-enum class ReadyRegistration : u8 {
+enum class ReadyRegistration : std::uint8_t {
 	installed,
 	already_ready,
 	already_installed,
 	empty,
 };
 
-enum class ClearOnReadyStatus : u8 {
+enum class ClearOnReadyStatus : std::uint8_t {
 	cleared,
 	in_flight,
 	already_terminal,
 	not_armed,
 };
 
-enum class AbandonStatus : u8 {
+enum class AbandonStatus : std::uint8_t {
 	installed,
 	already_abandoned,
 	empty,
@@ -750,9 +750,9 @@ namespace detail {
 // (`root/callable_erasure_custom` plus compile-gated std comparator). Keep
 // the lower-overhead option as toolchain support matures. Do not regress to
 // Fn.
-template<typename Signature, SZ InlineBytes = 32>
+template<typename Signature, std::size_t InlineBytes = 32>
 class small_move_only_function;
-template<typename R, typename... Args, SZ InlineBytes>
+template<typename R, typename... Args, std::size_t InlineBytes>
 class small_move_only_function<R(Args...), InlineBytes> {
 	struct storage_t {
 		alignas(std::max_align_t) byte bytes[InlineBytes];
@@ -893,14 +893,14 @@ struct ReadyRegistrationResult {
 	small_move_only_function<void()> rejected_fn;
 };
 
-enum class TerminalState : u8 {
+enum class TerminalState : std::uint8_t {
 	none,
 	success,
 	failure,
 	cancelled,
 };
 
-enum class ReadyHookState : u8 {
+enum class ReadyHookState : std::uint8_t {
 	open,
 	armed,
 	committing,
@@ -911,8 +911,8 @@ enum class ReadyHookState : u8 {
 // skip the mutex on the hot path.
 struct DroppedOutcomeSinkStore {
 	mutex mtx;
-	small_move_only_function<void(std::source_location, OutcomeKind, EP)> fn;
-	Atom<bool> installed{false};
+	small_move_only_function<void(std::source_location, OutcomeKind, std::exception_ptr)> fn;
+	std::atomic<bool> installed{false};
 };
 inline DroppedOutcomeSinkStore &dropped_outcome_sink_store() noexcept {
 	static DroppedOutcomeSinkStore s;
@@ -921,7 +921,7 @@ inline DroppedOutcomeSinkStore &dropped_outcome_sink_store() noexcept {
 inline void invoke_dropped_outcome_sink(
 	std::source_location loc,
 	OutcomeKind kind,
-	EP const &cause) noexcept {
+	std::exception_ptr const &cause) noexcept {
 	auto &s = dropped_outcome_sink_store();
 	if (!s.installed.load(memory_order_acquire)) {
 		return;
@@ -942,7 +942,7 @@ struct detach_outcome_sink {
 	}
 	void operator ()(
 		Cancelled const & /*c*/) const noexcept {
-		static EP const null{};
+		static std::exception_ptr const null{};
 		invoke_dropped_outcome_sink(loc, OutcomeKind::cancelled, null);
 	}
 };
@@ -972,7 +972,7 @@ public:
 	[[nodiscard]] virtual bool ready() const noexcept = 0;
 	[[nodiscard]] virtual WorkState state() const noexcept = 0;
 	[[nodiscard]] virtual bool can_join_with(CapabilityId id) const noexcept = 0;
-	[[nodiscard]] virtual Opt<CapabilityId> required_capability() const noexcept = 0;
+	[[nodiscard]] virtual std::optional<CapabilityId> required_capability() const noexcept = 0;
 	virtual bool install_cancel_hook(small_move_only_function<void(CancelReason)> fn) noexcept = 0;
 	[[nodiscard]] virtual ReadyRegistrationResult try_set_on_ready(small_move_only_function<void()> fn) noexcept = 0;
 	[[nodiscard]] virtual ClearOnReadyStatus clear_on_ready() noexcept = 0;
@@ -982,44 +982,44 @@ class ControlBlockInterface : public ControlBlockBase {
 public:
 	virtual void set_required_capability(CapabilityId id) noexcept = 0;
 	[[nodiscard]] virtual bool try_set_value(Success<T> success) = 0;
-	[[nodiscard]] virtual bool try_set_exception(EP error) = 0;
+	[[nodiscard]] virtual bool try_set_exception(std::exception_ptr error) = 0;
 	[[nodiscard]] virtual bool try_set_error(
-		EC ec) {
-		return try_set_exception(make_exception_ptr(SE(ec)));
+		std::error_code ec) {
+		return try_set_exception(make_exception_ptr(std::system_error(ec)));
 	}
 	[[nodiscard]] virtual bool try_set_error(
-		EC ec,
-		SV msg) noexcept {
+		std::error_code ec,
+		std::string_view msg) noexcept {
 		try {
-			return try_set_exception(make_exception_ptr(SE(ec, S{msg})));
+			return try_set_exception(make_exception_ptr(std::system_error(ec, std::string{msg})));
 		} catch (...) { return try_set_error(ec); }
 	}
 	[[nodiscard]] virtual bool try_set_cancelled(CancelReason reason, bool allow_abandoned) noexcept = 0;
 	[[nodiscard]] virtual Outcome<T> compatibility_blocking_take_outcome() = 0;
-	[[nodiscard]] virtual Opt<Outcome<T>> try_take_ready_outcome() = 0;
+	[[nodiscard]] virtual std::optional<Outcome<T>> try_take_ready_outcome() = 0;
 	virtual void install_abandon_sink(small_move_only_function<void(Outcome<T> const &)> sink) noexcept = 0;
 	[[nodiscard]] virtual AbandonStatus
 	try_install_abandon_sink(small_move_only_function<void(Outcome<T> const &)> sink) noexcept = 0;
 };
 template<work_value T, bool EnableCancellation>
 class ControlBlockModel final : public ControlBlockInterface<T> {
-	Atom<TerminalState> terminal_state_{TerminalState::none};
-	Atom<ReadyHookState> ready_hook_state_{ReadyHookState::open};
-	Atom<bool> cancel_requested_{false};
-	Atom<bool> terminal_claimed_{false};
+	std::atomic<TerminalState> terminal_state_{TerminalState::none};
+	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
+	std::atomic<bool> cancel_requested_{false};
+	std::atomic<bool> terminal_claimed_{false};
 	// P2b false-sharing fix: hot atomics above land on one cache line;
 	// alignas(64) on mtx_ starts cold lock/cv on a fresh line.
 	alignas(64) mutable mutex mtx_{};
 	std::condition_variable cv_{};
-	Opt<Outcome<T>> outcome_{};
+	std::optional<Outcome<T>> outcome_{};
 	small_move_only_function<void()> on_ready_fn_{};
 	small_move_only_function<void(CancelReason)> hook_fn_{};
 	small_move_only_function<void(Outcome<T> const &)> abandon_sink_{};
 	bool hook_installed_ = false, hook_claimed_ = false, abandoned_ = false;
 	[[no_unique_address]] std::conditional_t<EnableCancellation, std::stop_source, std::monostate> stop_source_{};
-	Atom<bool> requires_capability_{false};
-	Atom<void const *> required_capability_address_{nullptr};
-	Atom<void const *> required_capability_type_tag_{nullptr};
+	std::atomic<bool> requires_capability_{false};
+	std::atomic<void const *> required_capability_address_{nullptr};
+	std::atomic<void const *> required_capability_type_tag_{nullptr};
 	[[nodiscard]] small_move_only_function<void(CancelReason)> claim_requested_hook_if_present() noexcept {
 		std::scoped_lock const lk{mtx_};
 		if (!hook_installed_ || hook_claimed_) {
@@ -1084,7 +1084,7 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 	}
 	void run_abandon_path_if_present() noexcept {
 		small_move_only_function<void(Outcome<T> const &)> sink{};
-		Opt<Outcome<T>> local{};
+		std::optional<Outcome<T>> local{};
 		{
 			std::unique_lock lk{mtx_};
 			if (!abandoned_ || !abandon_sink_ || !outcome_) {
@@ -1118,7 +1118,7 @@ public:
 		};
 		return expected == id;
 	}
-	[[nodiscard]] Opt<CapabilityId> required_capability() const noexcept override {
+	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept override {
 		if (!requires_capability_.load(memory_order_acquire)) {
 			return nullopt;
 		}
@@ -1212,7 +1212,7 @@ public:
 		return true;
 	}
 	[[nodiscard]] bool try_set_exception(
-		EP error) override {
+		std::exception_ptr error) override {
 		if (!try_claim_terminal()) {
 			return false;
 		}
@@ -1320,13 +1320,13 @@ public:
 			cv_.wait(lk, terminal);
 		}
 		if (!outcome_) {
-			throw LE{"conflux.work.root: missing terminal outcome"};
+			throw std::logic_error{"conflux.work.root: missing terminal outcome"};
 		}
 		Outcome<T> out = move(*outcome_);
 		outcome_.reset();
 		return out;
 	}
-	[[nodiscard]] Opt<Outcome<T>> try_take_ready_outcome() override {
+	[[nodiscard]] std::optional<Outcome<T>> try_take_ready_outcome() override {
 		if (terminal_state_.load(memory_order_acquire) == TerminalState::none) {
 			return nullopt;
 		}
@@ -1335,11 +1335,11 @@ public:
 			return nullopt;
 		}
 		if (!outcome_) {
-			throw LE{"conflux.work.root: missing terminal outcome"};
+			throw std::logic_error{"conflux.work.root: missing terminal outcome"};
 		}
 		Outcome<T> out = move(*outcome_);
 		outcome_.reset();
-		return Opt<Outcome<T>>{move(out)};
+		return std::optional<Outcome<T>>{move(out)};
 	}
 	void install_abandon_sink(
 		small_move_only_function<void(Outcome<T> const &)> sink) noexcept override {
@@ -1375,23 +1375,23 @@ public:
 };
 template<bool EnableCancellation>
 class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInterface<void> {
-	Atom<TerminalState> terminal_state_{TerminalState::none};
-	Atom<ReadyHookState> ready_hook_state_{ReadyHookState::open};
-	Atom<bool> cancel_requested_{false};
-	Atom<bool> terminal_claimed_{false};
+	std::atomic<TerminalState> terminal_state_{TerminalState::none};
+	std::atomic<ReadyHookState> ready_hook_state_{ReadyHookState::open};
+	std::atomic<bool> cancel_requested_{false};
+	std::atomic<bool> terminal_claimed_{false};
 	// P2b false-sharing fix: hot atomics above land on one cache line;
 	// alignas(64) on mtx_ starts cold lock/cv on a fresh line.
 	alignas(64) mutable mutex mtx_{};
 	std::condition_variable cv_{};
-	Opt<Outcome<void>> outcome_{};
+	std::optional<Outcome<void>> outcome_{};
 	small_move_only_function<void()> on_ready_fn_{};
 	small_move_only_function<void(CancelReason)> hook_fn_{};
 	small_move_only_function<void(Outcome<void> const &)> abandon_sink_{};
 	bool hook_installed_ = false, hook_claimed_ = false, abandoned_ = false;
 	[[no_unique_address]] std::conditional_t<EnableCancellation, std::stop_source, std::monostate> stop_source_{};
-	Atom<bool> requires_capability_{false};
-	Atom<void const *> required_capability_address_{nullptr};
-	Atom<void const *> required_capability_type_tag_{nullptr};
+	std::atomic<bool> requires_capability_{false};
+	std::atomic<void const *> required_capability_address_{nullptr};
+	std::atomic<void const *> required_capability_type_tag_{nullptr};
 	[[nodiscard]] small_move_only_function<void(CancelReason)> claim_requested_hook_if_present() noexcept {
 		std::scoped_lock const lk{mtx_};
 		if (!hook_installed_ || hook_claimed_) {
@@ -1456,7 +1456,7 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 	}
 	void run_abandon_path_if_present() noexcept {
 		small_move_only_function<void(Outcome<void> const &)> sink{};
-		Opt<Outcome<void>> local{};
+		std::optional<Outcome<void>> local{};
 		{
 			std::unique_lock lk{mtx_};
 			if (!abandoned_ || !abandon_sink_ || !outcome_) {
@@ -1490,7 +1490,7 @@ public:
 		};
 		return expected == id;
 	}
-	[[nodiscard]] Opt<CapabilityId> required_capability() const noexcept override {
+	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept override {
 		if (!requires_capability_.load(memory_order_acquire)) {
 			return nullopt;
 		}
@@ -1584,7 +1584,7 @@ public:
 		return true;
 	}
 	[[nodiscard]] bool try_set_exception(
-		EP error) override {
+		std::exception_ptr error) override {
 		if (!try_claim_terminal()) {
 			return false;
 		}
@@ -1692,13 +1692,13 @@ public:
 			cv_.wait(lk, terminal);
 		}
 		if (!outcome_) {
-			throw LE{"conflux.work.root: missing terminal outcome"};
+			throw std::logic_error{"conflux.work.root: missing terminal outcome"};
 		}
 		Outcome<void> out = move(*outcome_);
 		outcome_.reset();
 		return out;
 	}
-	[[nodiscard]] Opt<Outcome<void>> try_take_ready_outcome() override {
+	[[nodiscard]] std::optional<Outcome<void>> try_take_ready_outcome() override {
 		if (terminal_state_.load(memory_order_acquire) == TerminalState::none) {
 			return nullopt;
 		}
@@ -1707,11 +1707,11 @@ public:
 			return nullopt;
 		}
 		if (!outcome_) {
-			throw LE{"conflux.work.root: missing terminal outcome"};
+			throw std::logic_error{"conflux.work.root: missing terminal outcome"};
 		}
 		Outcome<void> out = move(*outcome_);
 		outcome_.reset();
-		return Opt<Outcome<void>>{move(out)};
+		return std::optional<Outcome<void>>{move(out)};
 	}
 	void install_abandon_sink(
 		small_move_only_function<void(Outcome<void> const &)> sink) noexcept override {
@@ -1746,7 +1746,7 @@ public:
 	}
 };
 template<work_value T, bool EnableCancellation>
-[[nodiscard]] SP<ControlBlockInterface<T>> make_control_block_shared() {
+[[nodiscard]] std::shared_ptr<ControlBlockInterface<T>> make_control_block_shared() {
 	using model_t = ControlBlockModel<T, EnableCancellation>;
 	return make_shared<model_t>();
 }
@@ -1760,7 +1760,7 @@ template<work_value T, bool EnableCancellation>
 }
 struct TaskFrameBucket;
 struct alignas(std::max_align_t) TaskFrameHeader {
-	SZ size = 0;
+	std::size_t size = 0;
 	TaskFrameBucket *bucket = nullptr;
 };
 
@@ -1769,17 +1769,17 @@ struct TaskFrameFreeNode {
 	TaskFrameFreeNode *next = nullptr;
 };
 struct TaskFrameBucket {
-	SZ payload_size = 0;
+	std::size_t payload_size = 0;
 	mutex mtx{};
 	TaskFrameFreeNode *free = nullptr;
 };
-[[nodiscard]] constexpr SZ align_frame_bytes(
-	SZ n) noexcept {
-	constexpr SZ align = alignof(std::max_align_t);
+[[nodiscard]] constexpr std::size_t align_frame_bytes(
+	std::size_t n) noexcept {
+	constexpr std::size_t align = alignof(std::max_align_t);
 	return (n + align - 1u) & ~(align - 1u);
 }
 [[nodiscard]] inline TaskFrameBucket *task_frame_bucket_for(
-	SZ size) noexcept {
+	std::size_t size) noexcept {
 	static TaskFrameBucket buckets[] = {
 		{.payload_size = 256},
 		{.payload_size = 512},
@@ -1797,16 +1797,16 @@ struct TaskFrameBucket {
 }
 [[nodiscard]] inline bool refill_task_frame_bucket_locked(
 	TaskFrameBucket &bucket) noexcept {
-	constexpr SZ slab_bytes = 1024u * 1024u;
-	SZ const block_bytes = align_frame_bytes(sizeof(TaskFrameHeader) + bucket.payload_size);
-	SZ const allocation_bytes = max(slab_bytes, block_bytes);
+	constexpr std::size_t slab_bytes = 1024u * 1024u;
+	std::size_t const block_bytes = align_frame_bytes(sizeof(TaskFrameHeader) + bucket.payload_size);
+	std::size_t const allocation_bytes = max(slab_bytes, block_bytes);
 	void *raw = mmap(nullptr, allocation_bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 	if (raw == MAP_FAILED) {
 		return false;
 	}
 	auto *cursor = static_cast<std::byte *>(raw);
-	SZ const count = allocation_bytes / block_bytes;
-	for (SZ i = 0; i < count; ++i) {
+	std::size_t const count = allocation_bytes / block_bytes;
+	for (std::size_t i = 0; i < count; ++i) {
 		auto *node = reinterpret_cast<TaskFrameFreeNode *>(cursor + i * block_bytes);
 		node->next = bucket.free;
 		bucket.free = node;
@@ -1814,12 +1814,12 @@ struct TaskFrameBucket {
 	return true;
 }
 [[nodiscard]] inline TaskFrameHeader *try_allocate_pooled_task_frame(
-	SZ size) noexcept {
+	std::size_t size) noexcept {
 	auto *bucket = task_frame_bucket_for(size);
 	if (!bucket) {
 		return nullptr;
 	}
-	SL const lk{bucket->mtx};
+	std::scoped_lock const lk{bucket->mtx};
 	if (!bucket->free && !refill_task_frame_bucket_locked(*bucket)) {
 		return nullptr;
 	}
@@ -1834,13 +1834,13 @@ inline void deallocate_pooled_task_frame(
 	auto *bucket = hdr->bucket;
 	hdr->~TaskFrameHeader();
 	auto *node = reinterpret_cast<TaskFrameFreeNode *>(hdr);
-	SL const lk{bucket->mtx};
+	std::scoped_lock const lk{bucket->mtx};
 	node->next = bucket->free;
 	bucket->free = node;
 }
 #endif
 [[nodiscard]] inline TaskFrameHeader *allocate_task_coroutine_frame(
-	SZ size) {
+	std::size_t size) {
 #if CONFLUX_WORK_TASK_FRAME_POOL_ACTIVE
 	if (auto *hdr = try_allocate_pooled_task_frame(size)) {
 		return hdr;
@@ -1858,7 +1858,7 @@ inline void deallocate_task_coroutine_frame(
 		return;
 	}
 #endif
-	SZ const size = hdr->size;
+	std::size_t const size = hdr->size;
 	hdr->~TaskFrameHeader();
 	task_coroutine_frame_resource().deallocate(
 		hdr, size + sizeof(TaskFrameHeader), alignof(std::max_align_t));
@@ -1871,11 +1871,11 @@ static_assert(
 	"P2b padding regressed vs P2a baseline beyond one cache line — "
 	"define CONFLUX_WORK_RELAX_CONTROL_BLOCK_SIZE_GUARD to bypass");
 	#if defined(_LIBCPP_VERSION)
-inline constexpr SZ kControlBlockSizeBudget = 512;
+inline constexpr std::size_t kControlBlockSizeBudget = 512;
 	#elif defined(__GLIBCXX__)
-inline constexpr SZ kControlBlockSizeBudget = 544;
+inline constexpr std::size_t kControlBlockSizeBudget = 544;
 	#else
-inline constexpr SZ kControlBlockSizeBudget = 576;
+inline constexpr std::size_t kControlBlockSizeBudget = 576;
 	#endif
 static_assert(
 	sizeof(ControlBlockModel<std::monostate, false>) <= kControlBlockSizeBudget,
@@ -1884,23 +1884,23 @@ static_assert(
 #endif
 template<ControlCategory Category>
 class BasicControl {
-	SP<ControlBlockBase> core_{};
+	std::shared_ptr<ControlBlockBase> core_{};
 
 	template<work_value, ControlCategory>
 	friend class BasicSource;
 	template<work_value U>
-	P<BasicControl<ControlCategory::task>, BasicSource<U, ControlCategory::task>> friend make_task_control_source();
+	std::pair<BasicControl<ControlCategory::task>, BasicSource<U, ControlCategory::task>> friend make_task_control_source();
 	template<work_value U>
-	P<BasicControl<ControlCategory::posted>,
+	std::pair<BasicControl<ControlCategory::posted>,
 	  BasicSource<U, ControlCategory::posted>> friend make_posted_control_source();
 	template<work_value U>
-	P<BasicControl<ControlCategory::operation>,
+	std::pair<BasicControl<ControlCategory::operation>,
 	  BasicSource<U, ControlCategory::operation>> friend make_operation_control_source();
 
 public:
 	BasicControl() = default;
 	explicit BasicControl(
-		SP<ControlBlockBase> core) noexcept
+		std::shared_ptr<ControlBlockBase> core) noexcept
 		: core_{move(core)} {}
 	[[nodiscard]] bool request_cancel() noexcept { return core_ ? core_->request_cancel() : false; }
 	[[nodiscard]] std::stop_token stop_token() const noexcept {
@@ -1913,7 +1913,7 @@ public:
 		CapabilityId id) const noexcept {
 		return core_ && core_->can_join_with(id);
 	}
-	[[nodiscard]] Opt<CapabilityId> required_capability() const noexcept {
+	[[nodiscard]] std::optional<CapabilityId> required_capability() const noexcept {
 		return core_ ? core_->required_capability() : nullopt;
 	}
 	[[nodiscard]] static constexpr ControlCategory category() noexcept { return Category; }
@@ -1958,27 +1958,27 @@ using PostedControl = BasicControl<ControlCategory::posted>;
 using OperationControl = BasicControl<ControlCategory::operation>;
 template<work_value T, ControlCategory Category>
 class BasicSource {
-	SP<detail::ControlBlockInterface<T>> state_{};
+	std::shared_ptr<detail::ControlBlockInterface<T>> state_{};
 	explicit BasicSource(
-		SP<detail::ControlBlockInterface<T>> state) noexcept
+		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept
 		: state_{move(state)} {}
 	template<work_value U>
-	P<TaskControl, BasicSource<U, ControlCategory::task>> friend make_task_control_source();
+	std::pair<TaskControl, BasicSource<U, ControlCategory::task>> friend make_task_control_source();
 	template<work_value U>
-	P<PostedControl, BasicSource<U, ControlCategory::posted>> friend make_posted_control_source();
+	std::pair<PostedControl, BasicSource<U, ControlCategory::posted>> friend make_posted_control_source();
 	template<work_value U>
-	P<OperationControl, BasicSource<U, ControlCategory::operation>> friend make_operation_control_source();
+	std::pair<OperationControl, BasicSource<U, ControlCategory::operation>> friend make_operation_control_source();
 	template<work_value U>
-	P<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>> friend make_task_source(
+	std::pair<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>> friend make_task_source(
 		struct SubmitOptions,
 		std::source_location);
 	template<work_value U, progress_capability Owner>
-	P<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>> friend make_posted_source(
+	std::pair<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>> friend make_posted_source(
 		Owner &,
 		struct PostOptions,
 		std::source_location);
 	template<work_value U, progress_capability Driver>
-	P<class BasicResult<U, ControlCategory::operation>,
+	std::pair<class BasicResult<U, ControlCategory::operation>,
 	  BasicSource<
 		  U,
 		  ControlCategory::
@@ -1991,7 +1991,7 @@ public:
 	BasicSource(BasicSource const &) = delete;
 	BasicSource &operator =(BasicSource const &) = delete;
 	[[nodiscard]] static BasicSource from_state(
-		SP<detail::ControlBlockInterface<T>> state) noexcept {
+		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept {
 		return BasicSource{std::move(state)};
 	}
 	~BasicSource() noexcept {
@@ -2004,7 +2004,7 @@ public:
 		return state_ ? state_->try_set_value(move(value)) : false;
 	}
 	[[nodiscard]] bool try_set_exception(
-		EP error) {
+		std::exception_ptr error) {
 		return state_ ? state_->try_set_exception(error) : false;
 	}
 	[[nodiscard]] bool try_set_cancelled(
@@ -2012,12 +2012,12 @@ public:
 		return state_ ? state_->try_set_cancelled(errc_cancel_reason(errc), false) : false;
 	}
 	[[nodiscard]] bool try_set_error(
-		EC ec) {
+		std::error_code ec) {
 		return state_ ? state_->try_set_error(ec) : false;
 	}
 	[[nodiscard]] bool try_set_error(
-		EC ec,
-		SV msg) noexcept {
+		std::error_code ec,
+		std::string_view msg) noexcept {
 		return state_ ? state_->try_set_error(ec, msg) : false;
 	}
 	[[nodiscard]] bool install_cancel_hook(
@@ -2030,27 +2030,27 @@ public:
 };
 template<ControlCategory Category>
 class BasicSource<void, Category> {
-	SP<detail::ControlBlockInterface<void>> state_{};
+	std::shared_ptr<detail::ControlBlockInterface<void>> state_{};
 	explicit BasicSource(
-		SP<detail::ControlBlockInterface<void>> state) noexcept
+		std::shared_ptr<detail::ControlBlockInterface<void>> state) noexcept
 		: state_{move(state)} {}
 	template<work_value U>
-	P<TaskControl, BasicSource<U, ControlCategory::task>> friend make_task_control_source();
+	std::pair<TaskControl, BasicSource<U, ControlCategory::task>> friend make_task_control_source();
 	template<work_value U>
-	P<PostedControl, BasicSource<U, ControlCategory::posted>> friend make_posted_control_source();
+	std::pair<PostedControl, BasicSource<U, ControlCategory::posted>> friend make_posted_control_source();
 	template<work_value U>
-	P<OperationControl, BasicSource<U, ControlCategory::operation>> friend make_operation_control_source();
+	std::pair<OperationControl, BasicSource<U, ControlCategory::operation>> friend make_operation_control_source();
 	template<work_value U>
-	P<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>> friend make_task_source(
+	std::pair<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>> friend make_task_source(
 		struct SubmitOptions,
 		std::source_location);
 	template<work_value U, progress_capability Owner>
-	P<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>> friend make_posted_source(
+	std::pair<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>> friend make_posted_source(
 		Owner &,
 		struct PostOptions,
 		std::source_location);
 	template<work_value U, progress_capability Driver>
-	P<class BasicResult<U, ControlCategory::operation>,
+	std::pair<class BasicResult<U, ControlCategory::operation>,
 	  BasicSource<
 		  U,
 		  ControlCategory::
@@ -2063,7 +2063,7 @@ public:
 	BasicSource(BasicSource const &) = delete;
 	BasicSource &operator =(BasicSource const &) = delete;
 	[[nodiscard]] static BasicSource from_state(
-		SP<detail::ControlBlockInterface<void>> state) noexcept {
+		std::shared_ptr<detail::ControlBlockInterface<void>> state) noexcept {
 		return BasicSource{std::move(state)};
 	}
 	~BasicSource() noexcept {
@@ -2076,7 +2076,7 @@ public:
 		return state_ ? state_->try_set_value(value) : false;
 	}
 	[[nodiscard]] bool try_set_exception(
-		EP const &error) {
+		std::exception_ptr const &error) {
 		return state_ ? state_->try_set_exception(error) : false;
 	}
 	[[nodiscard]] bool try_set_cancelled(
@@ -2084,12 +2084,12 @@ public:
 		return state_ ? state_->try_set_cancelled(errc_cancel_reason(errc), false) : false;
 	}
 	[[nodiscard]] bool try_set_error(
-		EC ec) {
+		std::error_code ec) {
 		return state_ ? state_->try_set_error(ec) : false;
 	}
 	[[nodiscard]] bool try_set_error(
-		EC ec,
-		SV msg) noexcept {
+		std::error_code ec,
+		std::string_view msg) noexcept {
 		return state_ ? state_->try_set_error(ec, msg) : false;
 	}
 	[[nodiscard]] bool install_cancel_hook(
@@ -2158,7 +2158,7 @@ struct drop_on_abandon {
 	throw JoinError{JoinError::reason::consumed_handle, loc};
 }
 [[noreturn]] [[gnu::cold]] [[gnu::noinline]] void raise_join_capability_mismatch(
-	Opt<CapabilityId> expected,
+	std::optional<CapabilityId> expected,
 	CapabilityId actual,
 	std::source_location loc) {
 	throw JoinError{JoinError::reason::capability_mismatch, expected, actual, loc};
@@ -2170,14 +2170,14 @@ struct drop_on_abandon {
 namespace detail {
 
 template<work_value T, bool EnableCancellation>
-[[nodiscard]] SP<ControlBlockInterface<T>> make_control_block_shared();
+[[nodiscard]] std::shared_ptr<ControlBlockInterface<T>> make_control_block_shared();
 
 // Coroutine-backed Tasks use EnableCancellation=false: cancellation is cooperative
 // only (check stop_token in coroutine body). External request_cancel() requires
 // make_task_source(SubmitOptions{.enable_cancellation=true}).
 template<work_value T>
 struct TaskPromiseReturn {
-	SP<ControlBlockInterface<T>> state_{make_control_block_shared<T, false>()};
+	std::shared_ptr<ControlBlockInterface<T>> state_{make_control_block_shared<T, false>()};
 	void return_value(
 		T v) {
 		auto _ = state_->try_set_value(Success<T>{std::move(v)});
@@ -2185,12 +2185,12 @@ struct TaskPromiseReturn {
 };
 template<>
 struct TaskPromiseReturn<void> {
-	SP<ControlBlockInterface<void>> state_{make_control_block_shared<void, false>()};
+	std::shared_ptr<ControlBlockInterface<void>> state_{make_control_block_shared<void, false>()};
 	void return_void() { auto _ = state_->try_set_value(Success<void>{}); }
 };
 template<work_value T>
 struct TaskAwaiter {
-	SP<ControlBlockInterface<T>> state_;
+	std::shared_ptr<ControlBlockInterface<T>> state_;
 	std::source_location loc_{};
 	bool ready_callback_already_installed_{false};
 	[[nodiscard]] bool await_ready() const noexcept { return !state_ || state_->ready(); }
@@ -2234,7 +2234,7 @@ struct TaskAwaiter {
 };
 template<work_value T>
 struct OutcomeAwaiter {
-	SP<ControlBlockInterface<T>> state_;
+	std::shared_ptr<ControlBlockInterface<T>> state_;
 	std::source_location loc_{};
 	bool ready_callback_already_installed_{false};
 	[[nodiscard]] bool await_ready() const noexcept { return !state_ || state_->ready(); }
@@ -2277,13 +2277,13 @@ concept awaits_outcome = awaitable<A> && same_as<await_resume_t<A>, Outcome<T>>;
 } // namespace detail
 template<work_value T, ControlCategory Category>
 class BasicResult {
-	SP<detail::ControlBlockInterface<T>> state_{};
+	std::shared_ptr<detail::ControlBlockInterface<T>> state_{};
 	join_state state_js_ = join_state::empty;
 	explicit BasicResult(
-		SP<detail::ControlBlockInterface<T>> state) noexcept
+		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept
 		: state_{move(state)}
 		, state_js_{state_ ? join_state::joinable : join_state::empty} {}
-	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume(
+	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume(
 		join_state target) noexcept {
 		if (state_js_ != join_state::joinable) {
 			return {};
@@ -2296,16 +2296,16 @@ class BasicResult {
 		abandon_impl(std::move(*this), detail::detach_outcome_sink<T>{loc});
 	}
 	template<work_value U>
-	P<BasicResult<U, ControlCategory::task>, TaskSource<U>> friend make_task_source(
+	std::pair<BasicResult<U, ControlCategory::task>, TaskSource<U>> friend make_task_source(
 		SubmitOptions,
 		std::source_location);
 	template<work_value U, progress_capability Owner>
-	P<BasicResult<U, ControlCategory::posted>, PostedSource<U>> friend make_posted_source(
+	std::pair<BasicResult<U, ControlCategory::posted>, PostedSource<U>> friend make_posted_source(
 		Owner &,
 		PostOptions,
 		std::source_location);
 	template<work_value U, progress_capability Driver>
-	P<BasicResult<U, ControlCategory::operation>, OperationSource<U>> friend make_operation_source(
+	std::pair<BasicResult<U, ControlCategory::operation>, OperationSource<U>> friend make_operation_source(
 		Driver &,
 		OperationOptions,
 		std::source_location);
@@ -2318,7 +2318,7 @@ public:
 
 	BasicResult() = default;
 	[[nodiscard]] static BasicResult from_state(
-		SP<detail::ControlBlockInterface<T>> state,
+		std::shared_ptr<detail::ControlBlockInterface<T>> state,
 		std::source_location loc = std::source_location::current()) noexcept {
 		if (state) {
 			state->set_spawn_location(loc);
@@ -2355,10 +2355,10 @@ public:
 	// namespace-scope decl as two distinct ADL candidates. Public-method indirection
 	// keeps abandon_impl/join as plain non-friend free functions, eliminating the
 	// duplicate. These are detail-level entry points, not part of the user API.
-	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume_for_join() noexcept {
+	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume_for_join() noexcept {
 		return consume(join_state::joined);
 	}
-	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume_for_abandon() noexcept {
+	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume_for_abandon() noexcept {
 		return consume(join_state::detached);
 	}
 	[[nodiscard]] typename control_handle_for<Category>::type control() const noexcept {
@@ -2393,7 +2393,7 @@ public:
 		static_assert(Category == ControlCategory::task, "promise_type only available on Task<T>");
 
 		static void *operator new(
-			SZ size) {
+			std::size_t size) {
 			auto *hdr = detail::allocate_task_coroutine_frame(size);
 			detail::note_coroutine_frame_allocation();
 			return hdr + 1;
@@ -2405,7 +2405,7 @@ public:
 		}
 		static void operator delete(
 			void *p,
-			SZ) noexcept {
+			std::size_t) noexcept {
 			detail::note_coroutine_frame_deallocation();
 			detail::deallocate_task_coroutine_frame(static_cast<detail::TaskFrameHeader *>(p) - 1);
 		}
@@ -2523,13 +2523,13 @@ template<class Fn>
 //         relationship.
 template<work_value T, ControlCategory Category>
 class BasicJoinHandle {
-	SP<detail::ControlBlockInterface<T>> state_{};
+	std::shared_ptr<detail::ControlBlockInterface<T>> state_{};
 	bool live_ = false;
 	explicit BasicJoinHandle(
-		SP<detail::ControlBlockInterface<T>> state) noexcept
+		std::shared_ptr<detail::ControlBlockInterface<T>> state) noexcept
 		: state_{move(state)}
 		, live_{static_cast<bool>(state_)} {}
-	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume() noexcept {
+	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume() noexcept {
 		if (!live_) {
 			return {};
 		}
@@ -2581,8 +2581,8 @@ public:
 	}
 	[[nodiscard]] explicit operator bool() const noexcept { return live_; }
 	// HACK: see matching note in BasicResult::consume_for_join.
-	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume_for_join() noexcept { return consume(); }
-	[[nodiscard]] SP<detail::ControlBlockInterface<T>> consume_for_abandon() noexcept { return consume(); }
+	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume_for_join() noexcept { return consume(); }
+	[[nodiscard]] std::shared_ptr<detail::ControlBlockInterface<T>> consume_for_abandon() noexcept { return consume(); }
 	[[nodiscard]] auto outcome() && noexcept -> detail::OutcomeAwaiter<T> {
 		return detail::OutcomeAwaiter<T>{consume()};
 	}
@@ -2746,18 +2746,18 @@ inline void emit_carrier_diagnostic(
 	}
 }
 template<class Fn>
-	requires std::is_invocable_v<Fn &, std::source_location, OutcomeKind, EP>
+	requires std::is_invocable_v<Fn &, std::source_location, OutcomeKind, std::exception_ptr>
 inline void set_dropped_outcome_sink(
 	Fn &&fn) {
 	auto &s = detail::dropped_outcome_sink_store();
 	lock_guard const lk{s.mtx};
-	s.fn = detail::small_move_only_function<void(std::source_location, OutcomeKind, EP)>{forward<Fn>(fn)};
+	s.fn = detail::small_move_only_function<void(std::source_location, OutcomeKind, std::exception_ptr)>{forward<Fn>(fn)};
 	s.installed.store(true, memory_order_release);
 }
 template<class R, class Sink = drop_on_abandon>
 class scoped_abandon {
-	Opt<R> value_{};
-	Opt<Sink> sink_{};
+	std::optional<R> value_{};
+	std::optional<Sink> sink_{};
 	bool armed_ = false;
 
 public:
@@ -2795,10 +2795,10 @@ template<class R>
 	return scoped_abandon<result_t, drop_on_abandon>{forward<R>(value), drop_on_abandon{}};
 }
 template<work_value T>
-[[nodiscard]] P<Task<T>, TaskSource<T>> make_task_source(
+[[nodiscard]] std::pair<Task<T>, TaskSource<T>> make_task_source(
 	SubmitOptions opts = {},
 	std::source_location loc = std::source_location::current()) {
-	SP<detail::ControlBlockInterface<T>> state{};
+	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = detail::make_control_block_shared<T, true>();
 	} else {
@@ -2807,11 +2807,11 @@ template<work_value T>
 	return {Task<T>::from_state(state, loc), TaskSource<T>::from_state(std::move(state))};
 }
 template<work_value T, progress_capability Owner>
-[[nodiscard]] P<Posted<T>, PostedSource<T>> make_posted_source(
+[[nodiscard]] std::pair<Posted<T>, PostedSource<T>> make_posted_source(
 	Owner &owner,
 	PostOptions opts = {},
 	std::source_location loc = std::source_location::current()) {
-	SP<detail::ControlBlockInterface<T>> state{};
+	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = detail::make_control_block_shared<T, true>();
 	} else {
@@ -2821,11 +2821,11 @@ template<work_value T, progress_capability Owner>
 	return {Posted<T>::from_state(state, loc), PostedSource<T>::from_state(move(state))};
 }
 template<work_value T, progress_capability Driver>
-[[nodiscard]] P<Operation<T>, OperationSource<T>> make_operation_source(
+[[nodiscard]] std::pair<Operation<T>, OperationSource<T>> make_operation_source(
 	Driver &driver,
 	OperationOptions opts = {},
 	std::source_location loc = std::source_location::current()) {
-	SP<detail::ControlBlockInterface<T>> state{};
+	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = detail::make_control_block_shared<T, true>();
 	} else {
@@ -2866,7 +2866,7 @@ template<progress_capability Cap, work_value T>
 namespace detail {
 template<work_value T>
 [[nodiscard]] Outcome<T> take_ready_outcome_or_throw(
-	SP<ControlBlockInterface<T>> state,
+	std::shared_ptr<ControlBlockInterface<T>> state,
 	std::source_location loc) {
 	auto outcome = state->try_take_ready_outcome();
 	if (!outcome) [[unlikely]] {
@@ -2876,8 +2876,8 @@ template<work_value T>
 }
 template<work_value T>
 [[nodiscard]] Outcome<T> blocking_join_compatibility_adapter(
-	SP<ControlBlockInterface<T>> state,
-	Opt<CapabilityId> actual,
+	std::shared_ptr<ControlBlockInterface<T>> state,
+	std::optional<CapabilityId> actual,
 	std::source_location loc) {
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
@@ -2890,7 +2890,7 @@ template<work_value T>
 } // namespace detail
 
 template<work_value T>
-[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+[[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	Task<T> &&task,
 	std::source_location loc = std::source_location::current()) {
 	if (task.state() != join_state::joinable) [[unlikely]] {
@@ -2903,10 +2903,10 @@ template<work_value T>
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
 }
 template<progress_capability Owner, work_value T>
-[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+[[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	Owner &owner,
 	Posted<T> &&posted,
 	std::source_location loc = std::source_location::current()) {
@@ -2924,10 +2924,10 @@ template<progress_capability Owner, work_value T>
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
 }
 template<progress_capability Driver, work_value T>
-[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+[[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	Driver &driver,
 	Operation<T> &&op,
 	std::source_location loc = std::source_location::current()) {
@@ -2945,10 +2945,10 @@ template<progress_capability Driver, work_value T>
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
 }
 template<work_value T>
-[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+[[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	TaskJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
 	if (!h) [[unlikely]] {
@@ -2961,10 +2961,10 @@ template<work_value T>
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
 }
 template<progress_capability Owner, work_value T>
-[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+[[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	Owner &owner,
 	PostedJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
@@ -2982,10 +2982,10 @@ template<progress_capability Owner, work_value T>
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
 }
 template<progress_capability Driver, work_value T>
-[[nodiscard]] Opt<Outcome<T>> try_join_ready(
+[[nodiscard]] std::optional<Outcome<T>> try_join_ready(
 	Driver &driver,
 	OperationJoinHandle<T> &&h,
 	std::source_location loc = std::source_location::current()) {
@@ -3003,7 +3003,7 @@ template<progress_capability Driver, work_value T>
 	if (!state) [[unlikely]] {
 		raise_join_lifetime_violation(loc);
 	}
-	return Opt<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
+	return std::optional<Outcome<T>>{detail::take_ready_outcome_or_throw(move(state), loc)};
 }
 template<work_value T>
 [[nodiscard]] Outcome<T> join_ready(
@@ -3083,7 +3083,7 @@ template<progress_capability Owner, work_value T>
 	std::source_location loc = std::source_location::current()) {
 	return detail::blocking_join_compatibility_adapter(
 		posted.consume_for_join(),
-		Opt<CapabilityId>{capability_id(owner)},
+		std::optional<CapabilityId>{capability_id(owner)},
 		loc);
 }
 template<progress_capability Driver, work_value T>
@@ -3093,7 +3093,7 @@ template<progress_capability Driver, work_value T>
 	std::source_location loc = std::source_location::current()) {
 	return detail::blocking_join_compatibility_adapter(
 		op.consume_for_join(),
-		Opt<CapabilityId>{capability_id(driver)},
+		std::optional<CapabilityId>{capability_id(driver)},
 		loc);
 }
 template<work_value T>
@@ -3109,7 +3109,7 @@ template<progress_capability Owner, work_value T>
 	std::source_location loc = std::source_location::current()) {
 	return detail::blocking_join_compatibility_adapter(
 		h.consume_for_join(),
-		Opt<CapabilityId>{capability_id(owner)},
+		std::optional<CapabilityId>{capability_id(owner)},
 		loc);
 }
 template<progress_capability Driver, work_value T>
@@ -3119,7 +3119,7 @@ template<progress_capability Driver, work_value T>
 	std::source_location loc = std::source_location::current()) {
 	return detail::blocking_join_compatibility_adapter(
 		h.consume_for_join(),
-		Opt<CapabilityId>{capability_id(driver)},
+		std::optional<CapabilityId>{capability_id(driver)},
 		loc);
 }
 template<work_value T>
@@ -3189,14 +3189,14 @@ inline void value(
 	root::value(blocking_join(driver, move(h)));
 }
 template<work_value T>
-[[nodiscard]] P<TaskControl, TaskSource<T>> make_task_control_source() {
+[[nodiscard]] std::pair<TaskControl, TaskSource<T>> make_task_control_source() {
 	auto state = detail::make_control_block_shared<T, true>();
 	return {TaskControl{state}, TaskSource<T>::from_state(std::move(state))};
 }
 template<work_value T>
-[[nodiscard]] P<TaskControl, TaskSource<T>> make_task_control_source(
+[[nodiscard]] std::pair<TaskControl, TaskSource<T>> make_task_control_source(
 	SubmitOptions opts) {
-	SP<detail::ControlBlockInterface<T>> state{};
+	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = detail::make_control_block_shared<T, true>();
 	} else {
@@ -3205,14 +3205,14 @@ template<work_value T>
 	return {TaskControl{state}, TaskSource<T>::from_state(std::move(state))};
 }
 template<work_value T>
-[[nodiscard]] P<PostedControl, PostedSource<T>> make_posted_control_source() {
+[[nodiscard]] std::pair<PostedControl, PostedSource<T>> make_posted_control_source() {
 	auto state = detail::make_control_block_shared<T, true>();
 	return {PostedControl{state}, PostedSource<T>::from_state(std::move(state))};
 }
 template<work_value T>
-[[nodiscard]] P<PostedControl, PostedSource<T>> make_posted_control_source(
+[[nodiscard]] std::pair<PostedControl, PostedSource<T>> make_posted_control_source(
 	PostOptions opts) {
-	SP<detail::ControlBlockInterface<T>> state{};
+	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = detail::make_control_block_shared<T, true>();
 	} else {
@@ -3221,14 +3221,14 @@ template<work_value T>
 	return {PostedControl{state}, PostedSource<T>::from_state(std::move(state))};
 }
 template<work_value T>
-[[nodiscard]] P<OperationControl, OperationSource<T>> make_operation_control_source() {
+[[nodiscard]] std::pair<OperationControl, OperationSource<T>> make_operation_control_source() {
 	auto state = detail::make_control_block_shared<T, true>();
 	return {OperationControl{state}, OperationSource<T>::from_state(std::move(state))};
 }
 template<work_value T>
-[[nodiscard]] P<OperationControl, OperationSource<T>> make_operation_control_source(
+[[nodiscard]] std::pair<OperationControl, OperationSource<T>> make_operation_control_source(
 	OperationOptions opts) {
-	SP<detail::ControlBlockInterface<T>> state{};
+	std::shared_ptr<detail::ControlBlockInterface<T>> state{};
 	if (opts.enable_cancellation) {
 		state = detail::make_control_block_shared<T, true>();
 	} else {

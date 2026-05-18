@@ -12,7 +12,7 @@ int main() {
 	app.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 		for (int i = 1; i <= 5; ++i) {
 			auto _ = ch->send(format("data: event{}\n\n", i));
-			std::this_thread::sleep_for(chrono::milliseconds(200));
+			std::this_thread::sleep_for(std::chrono::milliseconds(200));
 		}
 		ch->close();
 	});
@@ -22,7 +22,7 @@ int main() {
 		auto name = req.params["name"];
 		for (int i = 1; i <= 3; ++i) {
 			auto _ = ch->send_event("greet", format("hello {}, message {}", name, i));
-			std::this_thread::sleep_for(chrono::milliseconds(300));
+			std::this_thread::sleep_for(std::chrono::milliseconds(300));
 		}
 		ch->close();
 	});

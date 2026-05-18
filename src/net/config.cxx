@@ -11,11 +11,11 @@ import conflux.types;
 import std.compat;
 import conflux.utils;
 
-export constexpr u16 kConfigDefaultPort = 9090;
+export constexpr std::uint16_t kConfigDefaultPort = 9090;
 export constexpr unsigned kConfigDefaultRingEntries = 1024;
 export constexpr std::size_t kConfigDefaultMaxBodySize = std::size_t{1024} * 1024;
-export constexpr u32 kConfigDefaultRequestTimeoutMs = 30000;
-export constexpr u32 kConfigDefaultTlsSniffTimeoutMs = 10000;
+export constexpr std::uint32_t kConfigDefaultRequestTimeoutMs = 30000;
+export constexpr std::uint32_t kConfigDefaultTlsSniffTimeoutMs = 10000;
 export constexpr std::size_t kConfigDefaultMaxRequestLineSize = std::size_t{8} * 1024;
 export constexpr std::size_t kConfigDefaultMaxHeaderLineSize = std::size_t{8} * 1024;
 export constexpr std::size_t kConfigDefaultMaxHeaders = 100;
@@ -30,12 +30,12 @@ export struct ParserLimits {
 };
 export struct Http3Config {
 	bool enabled = false;
-	u32 idle_timeout_ms = 30000;
+	std::uint32_t idle_timeout_ms = 30000;
 	std::size_t max_streams_bidi = 100;
 	std::size_t max_stream_data = std::size_t{1} * 1024 * 1024;
 	std::size_t max_conn_data = std::size_t{10} * 1024 * 1024;
 	// Alt-Svc max-age advertised on h1/h2 responses when h3 is enabled.
-	u32 alt_svc_max_age_sec = 86400;
+	std::uint32_t alt_svc_max_age_sec = 86400;
 	// Per-request body cap; matches H1 max_body_size semantics.
 	// Streams whose DATA exceeds this are reset with H3_REQUEST_REJECTED.
 	size_t max_body_size = kConfigDefaultMaxBodySize;
@@ -99,16 +99,16 @@ export struct Config {
 		cfg.startup_banner = false;
 		return cfg;
 	}
-	u16 port = kConfigDefaultPort;
+	std::uint16_t port = kConfigDefaultPort;
 	unsigned rings = 0; // 0 = hardware_concurrency
 	unsigned ring_entries = kConfigDefaultRingEntries; // SQ/CQ depth per ring
 	std::size_t max_body_size = kConfigDefaultMaxBodySize; // max Content-Length before 413
-	u32 request_timeout_ms = kConfigDefaultRequestTimeoutMs; // 0 = disabled
-	u32 tls_sniff_timeout_ms = kConfigDefaultTlsSniffTimeoutMs; // 0 = disabled
+	std::uint32_t request_timeout_ms = kConfigDefaultRequestTimeoutMs; // 0 = disabled
+	std::uint32_t tls_sniff_timeout_ms = kConfigDefaultTlsSniffTimeoutMs; // 0 = disabled
 	// Emit a warning when a synchronous handler blocks on the ring thread past
 	// slow_handler_warn_ms. Disabled by default to keep baseline overhead minimal.
 	bool slow_handler_diagnostics = false;
-	u32 slow_handler_warn_ms = 25;
+	std::uint32_t slow_handler_warn_ms = 25;
 	ParserLimits parser_limits{};
 	bool startup_banner = true;
 
@@ -190,7 +190,7 @@ export struct Config {
 	// Requires CONFIG_TLS=y in the running kernel.
 	bool ktls = false;
 	// Busy-poll per accepted socket. 0 = disabled. Both require kernel 4.5+.
-	u32 busy_poll_us = 0; // SO_BUSY_POLL microseconds per socket
+	std::uint32_t busy_poll_us = 0; // SO_BUSY_POLL microseconds per socket
 	bool prefer_busy_poll = false; // SO_PREFER_BUSY_POLL
 	// Thread / io-wq core pinning. -1 = disabled (default).
 	// ring_core: base CPU for sched_setaffinity on ring threads (ring i → ring_core+i).
@@ -372,7 +372,7 @@ bool parse_bool(
 	if (v == "false" || v == "0" || v == "no") {
 		return false;
 	}
-	throw RE{format("invalid boolean for '{}': '{}'", key, v)};
+	throw std::runtime_error{format("invalid boolean for '{}': '{}'", key, v)};
 }
 template<typename T>
 T parse_uint(
@@ -382,7 +382,7 @@ T parse_uint(
 	auto const *end = ranges::next(v.data(), ssize(v));
 	auto [ptr, ec] = from_chars(v.data(), end, result);
 	if (ec != errc{} || ptr != end) {
-		throw RE{format("invalid integer for '{}': '{}'", key, v)};
+		throw std::runtime_error{format("invalid integer for '{}': '{}'", key, v)};
 	}
 	return result;
 }
@@ -393,7 +393,7 @@ int parse_int(
 	auto const *end = ranges::next(v.data(), ssize(v));
 	auto [ptr, ec] = from_chars(v.data(), end, result);
 	if (ec != errc{} || ptr != end) {
-		throw RE{format("invalid integer for '{}': '{}'", key, v)};
+		throw std::runtime_error{format("invalid integer for '{}': '{}'", key, v)};
 	}
 	return result;
 }
@@ -426,13 +426,13 @@ void apply_server_key(
 		}
 	}
 	if (key == "port") {
-		cfg.port = parse_uint<u16>(val, key);
+		cfg.port = parse_uint<std::uint16_t>(val, key);
 	} else if (key == "max_body_size") {
 		cfg.max_body_size = parse_uint<std::size_t>(val, key);
 	} else if (key == "request_timeout_ms") {
-		cfg.request_timeout_ms = parse_uint<u32>(val, key);
+		cfg.request_timeout_ms = parse_uint<std::uint32_t>(val, key);
 	} else if (key == "tls_sniff_timeout_ms") {
-		cfg.tls_sniff_timeout_ms = parse_uint<u32>(val, key);
+		cfg.tls_sniff_timeout_ms = parse_uint<std::uint32_t>(val, key);
 	} else if (key == "max_request_line_size") {
 		cfg.parser_limits.max_request_line_size = parse_uint<std::size_t>(val, key);
 	} else if (key == "max_header_line_size") {
@@ -446,7 +446,7 @@ void apply_server_key(
 	} else if (key == "slow_handler_diagnostics") {
 		cfg.slow_handler_diagnostics = parse_bool(val, key);
 	} else if (key == "slow_handler_warn_ms") {
-		cfg.slow_handler_warn_ms = parse_uint<u32>(val, key);
+		cfg.slow_handler_warn_ms = parse_uint<std::uint32_t>(val, key);
 	} else if (key == "fixed_buffer_slabs") {
 		cfg.fixed_buffer_slabs = parse_uint<std::size_t>(val, key);
 	} else if (key == "fixed_buffer_bytes") {
@@ -460,7 +460,7 @@ void apply_server_key(
 	} else if (key == "send_fixed_buffers") {
 		cfg.send_fixed_buffers = parse_bool(val, key);
 	} else if (key == "busy_poll_us") {
-		cfg.busy_poll_us = parse_uint<u32>(val, key);
+		cfg.busy_poll_us = parse_uint<std::uint32_t>(val, key);
 	} else if (key == "ring_core") {
 		cfg.ring_core = parse_int(val, key);
 	} else if (key == "worker_core_base") {
@@ -478,7 +478,7 @@ void apply_http3_key(
 	if (key == "enabled") {
 		cfg.http3.enabled = parse_bool(val, key);
 	} else if (key == "idle_timeout_ms") {
-		cfg.http3.idle_timeout_ms = parse_uint<u32>(val, key);
+		cfg.http3.idle_timeout_ms = parse_uint<std::uint32_t>(val, key);
 	} else if (key == "max_streams_bidi") {
 		cfg.http3.max_streams_bidi = parse_uint<std::size_t>(val, key);
 	} else if (key == "max_stream_data") {
@@ -486,7 +486,7 @@ void apply_http3_key(
 	} else if (key == "max_conn_data") {
 		cfg.http3.max_conn_data = parse_uint<std::size_t>(val, key);
 	} else if (key == "alt_svc_max_age_sec") {
-		cfg.http3.alt_svc_max_age_sec = parse_uint<u32>(val, key);
+		cfg.http3.alt_svc_max_age_sec = parse_uint<std::uint32_t>(val, key);
 	} else if (key == "max_body_size") {
 		cfg.http3.max_body_size = parse_uint<std::size_t>(val, key);
 	}
@@ -668,7 +668,7 @@ Config parse_ini_contents(
 				apply_auth_key(cfg, key, val);
 			}
 		} catch (exception const &ex) {
-			throw RE{format("config line {} [{}].{}: {}", line_no, section, key, ex.what())};
+			throw std::runtime_error{format("config line {} [{}].{}: {}", line_no, section, key, ex.what())};
 		}
 		// unknown sections/keys silently ignored — forward-compatible
 	}
@@ -693,12 +693,12 @@ export [[nodiscard]] expected<Config, std::string> config_from_ini_checked(
 	}
 }
 
-// Throws RE on parse / IO failure.
+// Throws std::runtime_error on parse / IO failure.
 export Config config_from_ini(
 	char const *path) {
 	auto cfg = config_from_ini_checked(path);
 	if (!cfg) {
-		throw RE{cfg.error()};
+		throw std::runtime_error{cfg.error()};
 	}
 	return move(*cfg);
 }

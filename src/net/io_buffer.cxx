@@ -8,20 +8,20 @@ import conflux.types;
 import conflux.work.root;
 export struct IoBuffer {
 	span<byte const> bytes{};
-	SP<void const> owner{};
+	std::shared_ptr<void const> owner{};
 
 	IoBuffer() = default;
 	explicit IoBuffer(
 		span<byte const> view)
 		: bytes{view} {}
 	IoBuffer(
-		SP<byte const[]> owned_bytes,
-		SZ size)
+		std::shared_ptr<byte const[]> owned_bytes,
+		std::size_t size)
 		: bytes{owned_bytes.get(), size}
 		, owner{owned_bytes, static_cast<void const *>(owned_bytes.get())} {}
 	[[nodiscard]] static IoBuffer from_string(
-		S value) {
-		auto owned = make_shared<S const>(move(value));
+		std::string value) {
+		auto owned = make_shared<std::string const>(move(value));
 		auto view = span{
 			reinterpret_cast<byte const *>(owned->data()),
 			owned->size()}; // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
@@ -31,15 +31,15 @@ export struct IoBuffer {
 private:
 	IoBuffer(
 		span<byte const> view,
-		SP<void const> keep_alive)
+		std::shared_ptr<void const> keep_alive)
 		: bytes{view}
 		, owner{move(keep_alive)} {}
 };
 export struct BufferList {
-	V<span<byte const>> segments{};
+	std::vector<span<byte const>> segments{};
 };
 export struct IoPlan {
-	enum class Kind : u8 {
+	enum class Kind : std::uint8_t {
 		callback,
 	};
 

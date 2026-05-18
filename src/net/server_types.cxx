@@ -12,7 +12,7 @@ import conflux.net.http.types;
 // ---------------------------------------------------------------------------
 
 // NOLINTNEXTLINE(performance-enum-size)
-export enum class RunStatus : u8 {
+export enum class RunStatus : std::uint8_t {
 	stopped_normally,
 	fatal_cq_overflow,
 	fatal_cq_overflow_no_nodrop,
@@ -21,30 +21,30 @@ export enum class RunStatus : u8 {
 };
 
 export struct SendZcMetrics {
-	u64 attempts{};
-	u64 plain_attempts{};
-	u64 mapped_attempts{};
-	u64 bytes_requested{};
-	u64 bytes_sent{};
-	u64 notifications{};
-	u64 copied_notifications{};
-	u64 sends_without_notification{};
-	u64 errors_enomem{};
-	u64 errors_other{};
-	u64 fallback_regular_send{};
-	u64 tls_bypass{};
-	u64 tls_bypass_bytes{};
-	u64 adaptive_disable_count{};
+	std::uint64_t attempts{};
+	std::uint64_t plain_attempts{};
+	std::uint64_t mapped_attempts{};
+	std::uint64_t bytes_requested{};
+	std::uint64_t bytes_sent{};
+	std::uint64_t notifications{};
+	std::uint64_t copied_notifications{};
+	std::uint64_t sends_without_notification{};
+	std::uint64_t errors_enomem{};
+	std::uint64_t errors_other{};
+	std::uint64_t fallback_regular_send{};
+	std::uint64_t tls_bypass{};
+	std::uint64_t tls_bypass_bytes{};
+	std::uint64_t adaptive_disable_count{};
 };
 
-export enum class SendZcPendingAction : u8 {
+export enum class SendZcPendingAction : std::uint8_t {
 	none,
 	complete_response,
 	resubmit_response,
 	close_after_error,
 };
 
-export enum class SendZcCqeAction : u8 {
+export enum class SendZcCqeAction : std::uint8_t {
 	none,
 	complete_response,
 	resubmit_response,
@@ -149,15 +149,15 @@ export [[nodiscard]] SendZcCqeOutcome observe_send_zc_cqe(
 }
 
 export struct HttpServerMetrics {
-	u64 sq_dropped{};
-	u64 cq_overflow{};
-	u64 accepted_direct_failures{};
-	u64 zc_notifications_pending{};
-	u64 zc_capable_rings{};
-	u64 zc_enabled_rings{};
-	u64 recv_bundle_cqes{};
-	u64 recv_bundle_slices{};
-	u64 recv_bundle_bytes{};
+	std::uint64_t sq_dropped{};
+	std::uint64_t cq_overflow{};
+	std::uint64_t accepted_direct_failures{};
+	std::uint64_t zc_notifications_pending{};
+	std::uint64_t zc_capable_rings{};
+	std::uint64_t zc_enabled_rings{};
+	std::uint64_t recv_bundle_cqes{};
+	std::uint64_t recv_bundle_slices{};
+	std::uint64_t recv_bundle_bytes{};
 	SendZcMetrics send_zc{};
 };
 
@@ -292,7 +292,7 @@ export struct UploadedFile {
 	}
 };
 
-export enum class HttpFieldSource : u8 {
+export enum class HttpFieldSource : std::uint8_t {
 	params,
 	headers,
 	query,
@@ -300,7 +300,7 @@ export enum class HttpFieldSource : u8 {
 	cookies,
 };
 
-export enum class HttpFieldErrorKind : u8 {
+export enum class HttpFieldErrorKind : std::uint8_t {
 	missing,
 	empty,
 	invalid,

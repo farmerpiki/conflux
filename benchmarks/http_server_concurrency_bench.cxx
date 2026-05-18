@@ -31,10 +31,10 @@ void pin_thread(
 struct BenchClient {
 	int fd = -1;
 	explicit BenchClient(
-		u16 port) {
+		std::uint16_t port) {
 		fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 		if (fd < 0) {
-			throw RE{"socket failed"};
+			throw std::runtime_error{"socket failed"};
 		}
 		static constexpr int one = 1;
 		::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
@@ -45,7 +45,7 @@ struct BenchClient {
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 			::close(fd);
-			throw RE{"connect failed"};
+			throw std::runtime_error{"connect failed"};
 		}
 	}
 	~BenchClient() { close(); }
@@ -69,40 +69,40 @@ struct BenchClient {
 		}
 	}
 	void send_all(
-		SV data) const {
+		std::string_view data) const {
 		auto const *p = data.data();
 		auto remaining = data.size();
 		while (remaining > 0) {
 			auto n = ::send(fd, p, remaining, MSG_NOSIGNAL);
 			if (n <= 0) {
-				throw RE{"send failed"};
+				throw std::runtime_error{"send failed"};
 			}
 			p += n;
-			remaining -= static_cast<SZ>(n);
+			remaining -= static_cast<std::size_t>(n);
 		}
 	}
-	[[nodiscard]] SZ recv_response(
+	[[nodiscard]] std::size_t recv_response(
 		span<char> buf) const {
-		SZ total = 0;
-		SZ hdr_end_pos = SV::npos;
-		SZ body_len = 0;
+		std::size_t total = 0;
+		std::size_t hdr_end_pos = std::string_view::npos;
+		std::size_t body_len = 0;
 		bool have_cl = false;
 		for (;;) {
 			auto n = ::recv(fd, buf.data() + total, buf.size() - total, 0);
 			if (n <= 0) {
 				break;
 			}
-			total += static_cast<SZ>(n);
-			if (hdr_end_pos == SV::npos) {
-				SV const sofar{buf.data(), total};
+			total += static_cast<std::size_t>(n);
+			if (hdr_end_pos == std::string_view::npos) {
+				std::string_view const sofar{buf.data(), total};
 				hdr_end_pos = sofar.find("\r\n\r\n");
-				if (hdr_end_pos == SV::npos) {
+				if (hdr_end_pos == std::string_view::npos) {
 					continue;
 				}
 				hdr_end_pos += 4;
-				SV const hdrs{buf.data(), hdr_end_pos};
+				std::string_view const hdrs{buf.data(), hdr_end_pos};
 				auto cl = hdrs.find("Content-Length: ");
-				if (cl != SV::npos) {
+				if (cl != std::string_view::npos) {
 					cl += 16;
 					auto const end = hdrs.find("\r\n", cl);
 					from_chars(buf.data() + cl, buf.data() + end, body_len);
@@ -115,18 +115,18 @@ struct BenchClient {
 			if (have_cl && total >= hdr_end_pos + body_len) {
 				return total;
 			}
-			if (!have_cl && hdr_end_pos != SV::npos) {
+			if (!have_cl && hdr_end_pos != std::string_view::npos) {
 				return total;
 			}
 		}
 		return total;
 	}
 	void reconnect(
-		u16 port) {
+		std::uint16_t port) {
 		close();
 		fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 		if (fd < 0) {
-			throw RE{"socket failed"};
+			throw std::runtime_error{"socket failed"};
 		}
 		static constexpr int one = 1;
 		::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
@@ -138,14 +138,14 @@ struct BenchClient {
 		if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 			::close(fd);
 			fd = -1;
-			throw RE{"reconnect failed"};
+			throw std::runtime_error{"reconnect failed"};
 		}
 	}
 };
 // ── Server helpers ─────────────────────────────────────────────────────────
 
 void wait_for_server(
-	u16 port) {
+	std::uint16_t port) {
 	for (int i = 0; i < 200; ++i) {
 		int const fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 		sockaddr_in addr{};
@@ -157,14 +157,14 @@ void wait_for_server(
 		if (up) {
 			return;
 		}
-		std::this_thread::sleep_for(chrono::milliseconds(10));
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
-	throw RE{"server did not start in time"};
+	throw std::runtime_error{"server did not start in time"};
 }
 struct ServerHandle {
-	SP<HttpServer> server;
+	std::shared_ptr<HttpServer> server;
 	thread thr;
-	u16 port{};
+	std::uint16_t port{};
 };
 ServerHandle start_server(
 	Config cfg,
@@ -200,21 +200,21 @@ Config bench_config(
 // ── Percentile computation ─────────────────────────────────────────────────
 
 struct LatencyStats {
-	u64 p50{};
-	u64 p90{};
-	u64 p99{};
-	u64 p999{};
-	u64 max{};
+	std::uint64_t p50{};
+	std::uint64_t p90{};
+	std::uint64_t p99{};
+	std::uint64_t p999{};
+	std::uint64_t max{};
 };
 [[nodiscard]] LatencyStats compute_percentiles(
-	V<u64> &latencies) {
+	std::vector<std::uint64_t> &latencies) {
 	if (latencies.empty()) {
 		return {};
 	}
 	ranges::sort(latencies);
 	auto const n = latencies.size();
-	auto pct = [&](double p) -> u64 {
-		auto idx = static_cast<SZ>(static_cast<double>(n - 1) * p);
+	auto pct = [&](double p) -> std::uint64_t {
+		auto idx = static_cast<std::size_t>(static_cast<double>(n - 1) * p);
 		return latencies[idx];
 	};
 	return {
@@ -248,10 +248,10 @@ struct LatencyStats {
 
 static auto const kGetPing = "GET /api/ping HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
 static auto const kGetBody64k = "GET /body/64k HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
-S make_post_request(
-	SV path,
-	SZ body_size) {
-	S body(body_size, 'X');
+std::string make_post_request(
+	std::string_view path,
+	std::size_t body_size) {
+	std::string body(body_size, 'X');
 	return format(
 		"POST {} HTTP/1.1\r\nHost: localhost\r\nContent-Type: text/plain\r\nContent-Length: {}\r\n\r\n{}",
 		path,
@@ -266,11 +266,11 @@ enum class Mode {
 	ConnectClose,
 };
 struct ConcVariant {
-	SV name;
+	std::string_view name;
 	int connections{};
-	chrono::seconds duration{5};
+	std::chrono::seconds duration{5};
 	Mode mode{Mode::Keepalive};
-	SV request{kGetPing};
+	std::string_view request{kGetPing};
 	bool mixed{false};
 	bool is_stress{false};
 	bool is_idle{false};
@@ -278,40 +278,40 @@ struct ConcVariant {
 // ── Client worker ──────────────────────────────────────────────────────────
 
 struct WorkerResult {
-	V<u64> latencies;
-	u64 errors{};
+	std::vector<std::uint64_t> latencies;
+	std::uint64_t errors{};
 };
 WorkerResult run_worker(
-	u16 port,
+	std::uint16_t port,
 	ConcVariant const &v,
 	int conn_count,
-	Atom<bool> const &stop,
+	std::atomic<bool> const &stop,
 	span<char> buf,
-	SV post_req) {
+	std::string_view post_req) {
 	WorkerResult result;
-	result.latencies.reserve(static_cast<SZ>(conn_count) * 1000);
+	result.latencies.reserve(static_cast<std::size_t>(conn_count) * 1000);
 
-	V<BenchClient> clients;
-	clients.reserve(static_cast<SZ>(conn_count));
+	std::vector<BenchClient> clients;
+	clients.reserve(static_cast<std::size_t>(conn_count));
 	for (int i = 0; i < conn_count; ++i) {
 		clients.emplace_back(port);
 	}
 
 	if (v.is_idle) {
 		while (!stop.load(memory_order_relaxed)) {
-			std::this_thread::sleep_for(chrono::milliseconds{100});
+			std::this_thread::sleep_for(std::chrono::milliseconds{100});
 		}
 		return result;
 	}
 
-	Atom<u64> mixed_seq{0};
+	std::atomic<std::uint64_t> mixed_seq{0};
 	while (!stop.load(memory_order_relaxed)) {
 		for (auto &c: clients) {
 			try {
-				SV req = v.request;
+				std::string_view req = v.request;
 				if (v.mixed) {
 					auto seq = mixed_seq.fetch_add(1, memory_order_relaxed);
-					req = (seq % 10 < 7) ? kGetPing : SV{post_req};
+					req = (seq % 10 < 7) ? kGetPing : std::string_view{post_req};
 				}
 
 				auto const t0 = bench_now_ns();
@@ -338,14 +338,14 @@ WorkerResult run_worker(
 // ── JSON output ────────────────────────────────────────────────────────────
 
 void emit_result(
-	SV config,
-	SV variant,
-	SZ total_requests,
-	u64 total_ns,
+	std::string_view config,
+	std::string_view variant,
+	std::size_t total_requests,
+	std::uint64_t total_ns,
 	int connections,
 	int duration_s,
 	LatencyStats const &lat,
-	u64 errors,
+	std::uint64_t errors,
 	bool pinned,
 	bool json,
 	int fd_start = -1,
@@ -357,7 +357,7 @@ void emit_result(
 		total_requests > 0 ? static_cast<double>(total_ns) / static_cast<double>(total_requests) : 0.0;
 
 	if (json) {
-		S line = format(
+		std::string line = format(
 			"{{\"config\":\"{}\",\"variant\":\"{}\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{:.2f}"
 			",\"connections\":{},\"duration_s\":{},\"total_requests\":{},\"requests_per_sec\":{:.1f}"
 			",\"p50_ns\":{},\"p90_ns\":{},\"p99_ns\":{},\"p999_ns\":{},\"max_ns\":{}"
@@ -413,13 +413,13 @@ int main(
 		argv,
 		R"({"name":"http_server_concurrency","parser":"standard","configs":[{"name":"default","extra":{},"args":["--duration","5"]}]})");
 
-	auto const args = bench_parse_args(span{argv, static_cast<SZ>(argc)});
+	auto const args = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
 	auto const json = args.json_out;
-	auto const config_name = args.config_name.empty() ? "default"sv : SV{args.config_name};
+	auto const config_name = args.config_name.empty() ? "default"sv : std::string_view{args.config_name};
 
 	int duration_s = 5;
 	for (int i = 1; i < argc; ++i) {
-		if (SV{argv[i]} == "--duration" && i + 1 < argc) {
+		if (std::string_view{argv[i]} == "--duration" && i + 1 < argc) {
 			from_chars(argv[i + 1], argv[i + 1] + std::strlen(argv[i + 1]), duration_s);
 		}
 	}
@@ -430,7 +430,7 @@ int main(
 
 	// ── Servers ────────────────────────────────────────────────────────
 
-	auto const body_64k = S(65536, 'C');
+	auto const body_64k = std::string(65536, 'C');
 	auto const post_4k = make_post_request("/api/echo-body", 4096);
 
 	auto make_router = [&] {
@@ -446,47 +446,47 @@ int main(
 
 	// ── Variants ───────────────────────────────────────────────────────
 
-	V<ConcVariant> variants{
-		{.name = "parallel_keepalive_32"sv, .connections = 32, .duration = chrono::seconds{duration_s}},
-		{.name = "parallel_keepalive_256"sv, .connections = 256, .duration = chrono::seconds{duration_s}},
-		{.name = "parallel_keepalive_1k"sv, .connections = 1024, .duration = chrono::seconds{duration_s}},
+	std::vector<ConcVariant> variants{
+		{.name = "parallel_keepalive_32"sv, .connections = 32, .duration = std::chrono::seconds{duration_s}},
+		{.name = "parallel_keepalive_256"sv, .connections = 256, .duration = std::chrono::seconds{duration_s}},
+		{.name = "parallel_keepalive_1k"sv, .connections = 1024, .duration = std::chrono::seconds{duration_s}},
 		{.name = "parallel_connect_close_256"sv,
 		 .connections = 256,
-		 .duration = chrono::seconds{duration_s},
+		 .duration = std::chrono::seconds{duration_s},
 		 .mode = Mode::ConnectClose},
 		{.name = "parallel_connect_close_1k"sv,
 		 .connections = 1024,
-		 .duration = chrono::seconds{duration_s},
+		 .duration = std::chrono::seconds{duration_s},
 		 .mode = Mode::ConnectClose},
 		{.name = "parallel_post_4k_256"sv,
 		 .connections = 256,
-		 .duration = chrono::seconds{duration_s},
-		 .request = SV{post_4k}},
-		{.name = "parallel_mixed_256"sv, .connections = 256, .duration = chrono::seconds{duration_s}, .mixed = true},
+		 .duration = std::chrono::seconds{duration_s},
+		 .request = std::string_view{post_4k}},
+		{.name = "parallel_mixed_256"sv, .connections = 256, .duration = std::chrono::seconds{duration_s}, .mixed = true},
 		{.name = "parallel_large_body_64"sv,
 		 .connections = 64,
-		 .duration = chrono::seconds{duration_s},
+		 .duration = std::chrono::seconds{duration_s},
 		 .request = kGetBody64k},
-		{.name = "idle_keepalive_1k"sv, .connections = 1024, .duration = chrono::seconds{duration_s}, .is_idle = true},
+		{.name = "idle_keepalive_1k"sv, .connections = 1024, .duration = std::chrono::seconds{duration_s}, .is_idle = true},
 	};
 
 	if (duration_s >= 30) {
 		variants.push_back(
-			{.name = "stress_keepalive_256"sv, .connections = 256, .duration = chrono::seconds{60}, .is_stress = true});
+			{.name = "stress_keepalive_256"sv, .connections = 256, .duration = std::chrono::seconds{60}, .is_stress = true});
 		variants.push_back(
 			{.name = "stress_connect_close_256"sv,
 			 .connections = 256,
-			 .duration = chrono::seconds{60},
+			 .duration = std::chrono::seconds{60},
 			 .mode = Mode::ConnectClose,
 			 .is_stress = true});
 	}
 	// ── Run ────────────────────────────────────────────────────────────
 
 	struct ServerConfig {
-		SV suffix;
-		u16 port;
+		std::string_view suffix;
+		std::uint16_t port;
 	};
-	A<ServerConfig, 2> configs{
+	std::array<ServerConfig, 2> configs{
 		{{.suffix = "_r1"sv, .port = r1.port}, {.suffix = "_rN"sv, .port = rn.port}}
     };
 
@@ -510,9 +510,9 @@ int main(
 				rss_start = rss_kb();
 			}
 
-			Atom<bool> stop{false};
-			V<thread> workers;
-			V<WorkerResult> results(static_cast<SZ>(num_threads));
+			std::atomic<bool> stop{false};
+			std::vector<thread> workers;
+			std::vector<WorkerResult> results(static_cast<std::size_t>(num_threads));
 
 			auto const run_start = bench_now_ns();
 
@@ -522,8 +522,8 @@ int main(
 					if (can_pin) {
 						pin_thread(half + static_cast<unsigned>(t) % half);
 					}
-					V<char> buf(v.request == kGetBody64k ? 131072 : 8192);
-					results[static_cast<SZ>(t)] = run_worker(port, v, my_conns, stop, span{buf}, post_4k);
+					std::vector<char> buf(v.request == kGetBody64k ? 131072 : 8192);
+					results[static_cast<std::size_t>(t)] = run_worker(port, v, my_conns, stop, span{buf}, post_4k);
 				});
 			}
 
@@ -537,8 +537,8 @@ int main(
 			auto const run_end = bench_now_ns();
 			auto const total_ns = run_end - run_start;
 
-			V<u64> all_latencies;
-			u64 total_errors = 0;
+			std::vector<std::uint64_t> all_latencies;
+			std::uint64_t total_errors = 0;
 			for (auto &r: results) {
 				all_latencies.insert(all_latencies.end(), r.latencies.begin(), r.latencies.end());
 				total_errors += r.errors;

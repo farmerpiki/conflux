@@ -118,13 +118,13 @@ void Ring::try_grow_cq_after_overflow() noexcept {
 			return;
 		}
 		auto const rr = raw_.ring();
-		u32 const cur = rr.cq_entries();
+		std::uint32_t const cur = rr.cq_entries();
 		if (cur == 0 || cur >= (1u << 20)) {
 			cq_resize_unsupported_ = true;
 			saw_overflow_since_last_resize_ = false;
 			return;
 		}
-		u32 const target = min<u32>(cur * 2u, 1u << 20);
+		std::uint32_t const target = min<std::uint32_t>(cur * 2u, 1u << 20);
 		auto resized = rr.grow_cq_to(target);
 		if (resized) {
 			saw_overflow_since_last_resize_ = false;
@@ -233,7 +233,7 @@ void Ring::dispatch_cqe_fatal(
 					auto _ = std::fprintf(
 						stderr,
 						"dispatch_cqe_fatal: unknown op=%u ud=0x%llx\n",
-						static_cast<unsigned>(static_cast<u8>(op)),
+						static_cast<unsigned>(static_cast<std::uint8_t>(op)),
 						static_cast<unsigned long long>(cqe->user_data));
 					break;
 				}
@@ -248,7 +248,7 @@ void Ring::emit_ring_diagnostics() noexcept {
 		try {
 			auto const features_str = caps_to_log_string(caps);
 			eprintln(format("ring_features={}", features_str.empty() ? "none" : features_str));
-			u32 const overflow_now = raw_.ring().cq_overflow_count();
+			std::uint32_t const overflow_now = raw_.ring().cq_overflow_count();
 			eprintln(format("ring_cq_overflow={}", overflow_now));
 			if (fatal_cq_overflow_count_ > 0) {
 				eprintln(format(
@@ -257,18 +257,18 @@ void Ring::emit_ring_diagnostics() noexcept {
 			}
 			eprintln(format("ring_sq_busy={}", io_uring_sq_ready(&ring)));
 			{
-				u32 const v = ring.sq.kdropped != nullptr ? *ring.sq.kdropped : 0u;
+				std::uint32_t const v = ring.sq.kdropped != nullptr ? *ring.sq.kdropped : 0u;
 				eprintln(format("ring_sq_dropped={}", v));
 			}
 			// Parse fdinfo for CqOverflowList (overflow list depth, Linux 6.x+)
 			int const rfd = ring.ring_fd;
 			if (rfd >= 0) {
 				auto const path = format("/proc/self/fdinfo/{}", rfd);
-				if (auto fdinfo = blocking_read_text_file_nothrow(path, SZ{64} * 1024)) {
+				if (auto fdinfo = blocking_read_text_file_nothrow(path, std::size_t{64} * 1024)) {
 					for (auto const line: LineRange{*fdinfo}) {
 						if (line.text.starts_with("CqOverflowList:")) {
 							auto pos = line.text.find(':');
-							if (pos != SV::npos) {
+							if (pos != std::string_view::npos) {
 								eprintln(format("ring_cq_overflow_list={}", line.text.substr(pos + 1)));
 							}
 						}
@@ -276,7 +276,7 @@ void Ring::emit_ring_diagnostics() noexcept {
 				}
 			}
 			if (fatal_reason_ != ServerFatalReason::none) {
-				SV reason_str;
+				std::string_view reason_str;
 				switch (fatal_reason_) {
 				case ServerFatalReason::cq_overflow          : reason_str = "cq_overflow"; break;
 				case ServerFatalReason::cq_overflow_no_nodrop: reason_str = "cq_overflow_no_nodrop"; break;
@@ -300,7 +300,7 @@ void Ring::flush_overflow_cqes_until_clear_or_limit() noexcept {
 		static constexpr unsigned BATCH = 256;
 		for (unsigned i = 0; i < max_iters && ring_integrity_suspect(); ++i) {
 			io_uring_get_events(&ring);
-			A<io_uring_cqe *, BATCH> cqes{};
+			std::array<io_uring_cqe *, BATCH> cqes{};
 			unsigned const n = io_uring_peek_batch_cqe(&ring, cqes.data(), BATCH);
 			if (n == 0) {
 				break;

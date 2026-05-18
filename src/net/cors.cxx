@@ -6,26 +6,26 @@ import conflux.net.router;
 
 export constexpr unsigned kCorsDefaultMaxAge = 86400U; // 24 hours
 export struct CorsOptions {
-	V<S> allowed_origins{"*"};
-	V<S> allowed_methods{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"};
-	V<S> allowed_headers{"Content-Type", "Authorization", "Accept"};
-	V<S> expose_headers{};
+	std::vector<std::string> allowed_origins{"*"};
+	std::vector<std::string> allowed_methods{"GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"};
+	std::vector<std::string> allowed_headers{"Content-Type", "Authorization", "Accept"};
+	std::vector<std::string> expose_headers{};
 	unsigned max_age{kCorsDefaultMaxAge};
 	bool allow_credentials{false};
 };
 namespace cors_detail {
 
 // Join a V of strings with ", ".
-S join(
-	V<S> const &v) {
-	SZ total = 0;
+std::string join(
+	std::vector<std::string> const &v) {
+	std::size_t total = 0;
 	for (auto const &e: v) {
 		total += e.size();
 	}
 	if (v.size() > 1) {
 		total += (v.size() - 1) * 2;
 	}
-	S s;
+	std::string s;
 	s.reserve(total);
 	for (auto const &e: v) {
 		if (!s.empty()) {
@@ -35,21 +35,21 @@ S join(
 	}
 	return s;
 }
-[[nodiscard]] S decimal_string(
+[[nodiscard]] std::string decimal_string(
 	unsigned value) {
-	A<char, 16> buf{};
+	std::array<char, 16> buf{};
 	auto [ptr, ec] = to_chars(buf.data(), buf.data() + buf.size(), value);
 	if (ec != errc{}) {
 		return {};
 	}
-	return S{buf.data(), static_cast<SZ>(ptr - buf.data())};
+	return std::string{buf.data(), static_cast<std::size_t>(ptr - buf.data())};
 }
 struct PreparedCorsOptions {
 	CorsOptions opts;
-	S allowed_methods;
-	S allowed_headers;
-	S expose_headers;
-	S max_age;
+	std::string allowed_methods;
+	std::string allowed_headers;
+	std::string expose_headers;
+	std::string max_age;
 	bool wildcard_origin{false};
 
 	explicit PreparedCorsOptions(
@@ -63,18 +63,18 @@ struct PreparedCorsOptions {
 };
 // Resolve the Access-Control-Allow-Origin value for this request.
 // Returns the matching origin, or empty if the request origin is not allowed.
-SV resolve_origin(
+std::string_view resolve_origin(
 	PreparedCorsOptions const &policy,
-	SV request_origin) {
+	std::string_view request_origin) {
 	if (policy.wildcard_origin) {
 		// Wildcard: reflect origin when credentials are used, else return "*".
-		return policy.opts.allow_credentials ? request_origin : SV{"*"};
+		return policy.opts.allow_credentials ? request_origin : std::string_view{"*"};
 	}
-	return ranges::contains(policy.opts.allowed_origins, request_origin) ? request_origin : SV{};
+	return ranges::contains(policy.opts.allowed_origins, request_origin) ? request_origin : std::string_view{};
 }
 void inject_cors_headers(
 	PreparedCorsOptions const &policy,
-	SV request_origin,
+	std::string_view request_origin,
 	HttpResponse &resp) {
 	auto origin = resolve_origin(policy, request_origin);
 	if (origin.empty()) {

@@ -170,7 +170,7 @@ TEST_CASE(
 	auto [ta, sa] = root::make_task_source<int>();
 	auto [tb, sb] = root::make_task_source<int>();
 	REQUIRE(sa.try_set_value(root::Success<int>{10}));
-	REQUIRE(sb.try_set_exception(make_exception_ptr(RE{"lose"})));
+	REQUIRE(sb.try_set_exception(make_exception_ptr(std::runtime_error{"lose"})));
 
 	auto ca = carrier::hop_to_posted(owner, carrier::from_task(move(ta)));
 	auto cb = carrier::from_task(move(tb));
@@ -184,7 +184,7 @@ TEST_CASE(
 	OwnerCap owner{};
 	auto [ta, sa] = root::make_task_source<int>();
 	auto [tb, sb] = root::make_task_source<int>();
-	REQUIRE(sa.try_set_exception(make_exception_ptr(RE{"lose"})));
+	REQUIRE(sa.try_set_exception(make_exception_ptr(std::runtime_error{"lose"})));
 	REQUIRE(sb.try_set_value(root::Success<int>{20}));
 
 	auto ca = carrier::hop_to_posted(owner, carrier::from_task(move(ta)));

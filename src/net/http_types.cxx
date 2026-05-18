@@ -392,7 +392,7 @@ export namespace conflux::http {
 
 // ─── errors ──────────────────────────────────────────────────────────────────
 
-enum class HttpErrorKind : u8 {
+enum class HttpErrorKind : std::uint8_t {
 	dns,
 	connect,
 	tls,
@@ -406,7 +406,7 @@ enum class HttpErrorKind : u8 {
 	redirect_limit,
 };
 
-enum class HttpPhase : u8 {
+enum class HttpPhase : std::uint8_t {
 	resolve,
 	connect,
 	tls,
@@ -425,24 +425,24 @@ struct HttpError {
 // ─── timeouts ────────────────────────────────────────────────────────────────
 
 struct HttpTimeouts {
-	chrono::milliseconds resolve{5000};
-	chrono::milliseconds connect{5000};
-	chrono::milliseconds tls{5000};
-	chrono::milliseconds write{30000};
-	chrono::milliseconds first_byte{30000};
-	chrono::milliseconds between_bytes{30000};
+	std::chrono::milliseconds resolve{5000};
+	std::chrono::milliseconds connect{5000};
+	std::chrono::milliseconds tls{5000};
+	std::chrono::milliseconds write{30000};
+	std::chrono::milliseconds first_byte{30000};
+	std::chrono::milliseconds between_bytes{30000};
 };
 // ─── telemetry ───────────────────────────────────────────────────────────────
 
 struct HttpTelemetry {
-	chrono::nanoseconds dns{};
-	chrono::nanoseconds connect{};
-	chrono::nanoseconds tls{};
-	chrono::nanoseconds ttfb{};
-	chrono::nanoseconds body{};
-	std::optional<chrono::nanoseconds> pool_wait{};
-	u64 bytes_sent{0};
-	u64 bytes_received{0};
+	std::chrono::nanoseconds dns{};
+	std::chrono::nanoseconds connect{};
+	std::chrono::nanoseconds tls{};
+	std::chrono::nanoseconds ttfb{};
+	std::chrono::nanoseconds body{};
+	std::optional<std::chrono::nanoseconds> pool_wait{};
+	std::uint64_t bytes_sent{0};
+	std::uint64_t bytes_received{0};
 	bool reused_connection{false};
 	std::string negotiated_protocol{};
 	std::string tls_cipher{};
@@ -454,7 +454,7 @@ struct HttpTelemetry {
 
 // ─── URL ─────────────────────────────────────────────────────────────────────
 
-enum class UrlErrorKind : u8 {
+enum class UrlErrorKind : std::uint8_t {
 	empty,
 	missing_scheme,
 	unsupported_scheme,
@@ -469,7 +469,7 @@ struct UrlError {
 struct Url {
 	std::string scheme{};
 	std::string host{};
-	u16 port{80};
+	std::uint16_t port{80};
 	std::string path{"/"};
 	std::string query{}; // raw, without leading '?'
 
@@ -553,7 +553,7 @@ expected<Url, UrlError> Url::parse(
 	if (url.scheme != "http" && url.scheme != "https") {
 		return unexpected(UrlError{UrlErrorKind::unsupported_scheme, format("unsupported scheme '{}'", url.scheme)});
 	}
-	url.port = (url.scheme == "https") ? u16{443} : u16{80};
+	url.port = (url.scheme == "https") ? std::uint16_t{443} : std::uint16_t{80};
 
 	auto rest = input.substr(scheme_end + 3);
 	if (rest.empty()) {
@@ -579,7 +579,7 @@ expected<Url, UrlError> Url::parse(
 				return unexpected(UrlError{UrlErrorKind::invalid_port, "unexpected character after ']'"});
 			}
 			auto const port_sv = after.substr(1);
-			u16 p = 0;
+			std::uint16_t p = 0;
 			auto const [ptr, ec] = from_chars(port_sv.data(), port_sv.data() + port_sv.size(), p);
 			if (ec != errc{} || ptr != port_sv.data() + port_sv.size() || p == 0) {
 				return unexpected(UrlError{UrlErrorKind::invalid_port, format("invalid port '{}'", port_sv)});
@@ -593,7 +593,7 @@ expected<Url, UrlError> Url::parse(
 		} else {
 			url.host = std::string{authority.substr(0, colon)};
 			auto const port_sv = authority.substr(colon + 1);
-			u16 p = 0;
+			std::uint16_t p = 0;
 			auto const [ptr, ec] = from_chars(port_sv.data(), port_sv.data() + port_sv.size(), p);
 			if (ec != errc{} || ptr != port_sv.data() + port_sv.size() || p == 0) {
 				return unexpected(UrlError{UrlErrorKind::invalid_port, format("invalid port '{}'", port_sv)});

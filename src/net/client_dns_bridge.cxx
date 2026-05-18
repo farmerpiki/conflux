@@ -13,12 +13,12 @@ namespace dns = conflux::net::dns;
 
 void set_error(
 	char *dst,
-	SZ dst_size,
-	SV message) noexcept {
+	std::size_t dst_size,
+	std::string_view message) noexcept {
 	if (dst_size == 0) {
 		return;
 	}
-	SZ const n = min(dst_size - 1, message.size());
+	std::size_t const n = min(dst_size - 1, message.size());
 	::memcpy(dst, message.data(), n);
 	dst[n] = '\0';
 }
@@ -36,21 +36,21 @@ using EndpointSink = bool (*)(void *, Endpoint const &) noexcept;
 bool resolve(
 	void *resolver_ptr,
 	char const *host_data,
-	SZ host_size,
-	u16 port,
+	std::size_t host_size,
+	std::uint16_t port,
 	long long timeout_ms,
 	void *sink_ctx,
 	EndpointSink sink,
 	char *error_data,
-	SZ error_size) noexcept {
+	std::size_t error_size) noexcept {
 	try {
 		auto *resolver = static_cast<dns::Resolver *>(resolver_ptr);
 		if (resolver == nullptr || sink == nullptr) {
 			set_error(error_data, error_size, "missing resolver");
 			return false;
 		}
-		SV const host{host_data, host_size};
-		auto result = resolver->resolve_blocking(host, port, {.total_timeout = chrono::milliseconds{timeout_ms}});
+		std::string_view const host{host_data, host_size};
+		auto result = resolver->resolve_blocking(host, port, {.total_timeout = std::chrono::milliseconds{timeout_ms}});
 		if (!result) {
 			set_error(error_data, error_size, result.error().what());
 			return false;

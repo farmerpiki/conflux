@@ -17,21 +17,21 @@ TEST_CASE(
 	CHECK_FALSE(is_valid_header_name(""));
 	CHECK_FALSE(is_valid_header_name("Bad Header"));
 	CHECK_FALSE(is_valid_header_name("Bad:Header"));
-	CHECK_FALSE(is_valid_header_name(SV{"\xC3\xA9", 2}));
+	CHECK_FALSE(is_valid_header_name(std::string_view{"\xC3\xA9", 2}));
 }
 
 TEST_CASE(
 	"http_server_helpers: format_response filters invalid/framing headers and cookies",
 	"[http_server_helpers]") {
 	HttpResponse resp = HttpResponse::text("hello");
-	resp.status_text = S{"OK\r\nInjected: bad"};
+	resp.status_text = std::string{"OK\r\nInjected: bad"};
 	resp.headers["X-Good"] = "yes";
 	resp.headers["Bad Header"] = "dropped";
-	resp.headers["X-Bad-Value"] = S{"bad\x7F"};
+	resp.headers["X-Bad-Value"] = std::string{"bad\x7F"};
 	resp.headers["Content-Length"] = "999";
 	resp.headers["Connection"] = "upgrade";
 	resp.set_cookies.push_back("sid=1; Path=/");
-	resp.set_cookies.push_back(S{"bad=1\x7F"});
+	resp.set_cookies.push_back(std::string{"bad=1\x7F"});
 
 	auto wire = format_response(resp, "h3=\":443\"", true);
 	CHECK(wire.find("HTTP/1.1 200 \r\n") == 0);
@@ -102,7 +102,7 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: header parameter extraction handles quoted and token values",
 	"[http_server_helpers]") {
-	SV header = R"(form-data; name="upload"; filename="a b.txt")";
+	std::string_view header = R"(form-data; name="upload"; filename="a b.txt")";
 	CHECK(extract_param(header, "name") == "upload");
 	CHECK(extract_param(header, "filename") == "a b.txt");
 	CHECK(extract_param("attachment; filename=plain.txt; size=3", "filename") == "plain.txt");
@@ -182,7 +182,7 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: multipart parser captures text fields and uploaded files",
 	"[http_server_helpers]") {
-	static constexpr SV body =
+	static constexpr std::string_view body =
 		"--AaB03x\r\n"
 		"Content-Disposition: form-data; name=\"title\"\r\n"
 		"\r\n"
@@ -195,7 +195,7 @@ TEST_CASE(
 		"--AaB03x--\r\n";
 
 	HttpFieldsView form;
-	V<UploadedFile> files;
+	std::vector<UploadedFile> files;
 	parse_multipart(body, "AaB03x", form, files);
 
 	REQUIRE(form.size() == 1);
@@ -210,13 +210,13 @@ TEST_CASE(
 TEST_CASE(
 	"http_server_helpers: complete and incremental chunked decoders agree",
 	"[http_server_helpers]") {
-	S body;
+	std::string body;
 	auto consumed = decode_chunked("4;ext=1\r\nWiki\r\n5\r\npedia\r\n0\r\nTrailer: ok\r\n\r\nextra", 64, 8, body);
 	REQUIRE(consumed > 0);
 	CHECK(body == "Wikipedia");
 
-	S raw = "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n";
-	SZ const start = raw.find("4\r\n");
+	std::string raw = "POST / HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n";
+	std::size_t const start = raw.find("4\r\n");
 	REQUIRE(start != std::string::npos);
 	ChunkedDecodeState st;
 	CHECK(decode_chunked_incremental(raw, start, 64, 8, st) == 0);
@@ -225,13 +225,13 @@ TEST_CASE(
 	auto inc_consumed = decode_chunked_incremental(raw, start, 64, 8, st);
 	REQUIRE(inc_consumed > 0);
 	CHECK(st.body == "Wikipedia");
-	CHECK(static_cast<SZ>(inc_consumed) == raw.size() - start);
+	CHECK(static_cast<std::size_t>(inc_consumed) == raw.size() - start);
 }
 
 TEST_CASE(
 	"http_server_helpers: chunked decoder reports incomplete, malformed, and too-large bodies",
 	"[http_server_helpers]") {
-	S body;
+	std::string body;
 	CHECK(decode_chunked("4\r\nWi", 64, 8, body) == 0);
 	CHECK(decode_chunked("x\r\nnope\r\n", 64, 8, body) == -1);
 	CHECK(decode_chunked("5\r\nhello\r\n0\r\n\r\n", 4, 8, body) == -2);

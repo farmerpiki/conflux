@@ -13,7 +13,7 @@ import conflux.uring;
 
 export namespace conflux::uring::flow {
 
-enum class FlowOpKind : u8 {
+enum class FlowOpKind : std::uint8_t {
 	open_direct,
 	read,
 	write,
@@ -24,15 +24,15 @@ struct BorrowedPath {
 };
 struct OwnedInlinePath {
 	// hack: cap = NAME_MAX (255). Not PATH_MAX. from_sv() rejects longer inputs with -ENAMETOOLONG.
-	static constexpr SZ cap = 255;
-	A<char, cap + 1> buf{};
-	SZ len{};
+	static constexpr std::size_t cap = 255;
+	std::array<char, cap + 1> buf{};
+	std::size_t len{};
 	[[nodiscard]] static expected<OwnedInlinePath, int> from_sv(
-		SV sv) noexcept {
+		std::string_view sv) noexcept {
 		if (sv.size() > cap) {
 			return unexpected{-ENAMETOOLONG};
 		}
-		if (sv.find('\0') != SV::npos) {
+		if (sv.find('\0') != std::string_view::npos) {
 			return unexpected{-EINVAL};
 		}
 		OwnedInlinePath p{};
@@ -44,16 +44,16 @@ struct OwnedInlinePath {
 	[[nodiscard]] char const *c_str() const noexcept { return buf.data(); }
 };
 struct OpResult {
-	i32 res = 0;
-	u32 requested = 0;
+	std::int32_t res = 0;
+	std::uint32_t requested = 0;
 	FlowOpKind kind = FlowOpKind::open_direct;
 	[[nodiscard]] bool ok() const noexcept { return res >= 0; }
 	[[nodiscard]] bool is_io() const noexcept { return kind == FlowOpKind::read || kind == FlowOpKind::write; }
-	[[nodiscard]] bool short_io() const noexcept { return is_io() && res >= 0 && u32(res) < requested; }
-	[[nodiscard]] bool full_io() const noexcept { return is_io() && res >= 0 && u32(res) == requested; }
+	[[nodiscard]] bool short_io() const noexcept { return is_io() && res >= 0 && std::uint32_t(res) < requested; }
+	[[nodiscard]] bool full_io() const noexcept { return is_io() && res >= 0 && std::uint32_t(res) == requested; }
 };
 struct FlowRejection {
-	u32 flow_local_index;
+	std::uint32_t flow_local_index;
 	int err;
 };
 struct FlowResult {
@@ -61,30 +61,30 @@ struct FlowResult {
 	bool close_needed;
 	bool close_in_chain;
 	bool close_cqe_seen;
-	i32 close_raw_res;
+	std::int32_t close_raw_res;
 	[[nodiscard]] bool open_ok() const noexcept { return !ops.empty() && ops[0].res >= 0; }
-	[[nodiscard]] Opt<i32> cleanup_result() const noexcept {
+	[[nodiscard]] std::optional<std::int32_t> cleanup_result() const noexcept {
 		if (!close_needed || !close_cqe_seen) {
 			return nullopt;
 		}
 		return close_raw_res;
 	}
-	[[nodiscard]] Opt<i32> raw_close_result() const noexcept {
-		return close_cqe_seen ? Opt<i32>{close_raw_res} : nullopt;
+	[[nodiscard]] std::optional<std::int32_t> raw_close_result() const noexcept {
+		return close_cqe_seen ? std::optional<std::int32_t>{close_raw_res} : nullopt;
 	}
 };
 // encode_tag / encode_tag_raw — exported so tests can craft CQEs without
 // duplicating the bitfield layout.
-[[nodiscard]] inline u64 encode_tag_raw(
-	u32 idx,
-	u32 gen,
-	u8 op_idx,
-	u8 raw_kind) noexcept {
+[[nodiscard]] inline std::uint64_t encode_tag_raw(
+	std::uint32_t idx,
+	std::uint32_t gen,
+	std::uint8_t op_idx,
+	std::uint8_t raw_kind) noexcept {
 	struct Tag {
-		u64 flow_index :24;
-		u64 generation :24;
-		u64 op_index   :8;
-		u64 op_kind    :8;
+		std::uint64_t flow_index :24;
+		std::uint64_t generation :24;
+		std::uint64_t op_index   :8;
+		std::uint64_t op_kind    :8;
 	};
 	static_assert(sizeof(Tag) == 8);
 	Tag d{};
@@ -92,14 +92,14 @@ struct FlowResult {
 	d.generation = gen & 0xFFFFFFu;
 	d.op_index = op_idx;
 	d.op_kind = raw_kind;
-	u64 v{};
+	std::uint64_t v{};
 	std::memcpy(&v, &d, 8);
 	return v;
 }
-[[nodiscard]] inline u64 encode_tag(
-	u32 idx,
-	u32 gen,
-	u8 op_idx,
+[[nodiscard]] inline std::uint64_t encode_tag(
+	std::uint32_t idx,
+	std::uint32_t gen,
+	std::uint8_t op_idx,
 	FlowOpKind kind) noexcept {
 	return encode_tag_raw(idx, gen, op_idx, std::to_underlying(kind));
 }
@@ -109,17 +109,17 @@ struct FlowResult {
 
 namespace conflux::uring::flow {
 
-inline constexpr u8 max_initial_ops = 8;
-inline constexpr u8 max_chain_cqes = max_initial_ops + 1;
-inline constexpr u32 kMaxFlows = 4096;
-inline constexpr u32 kMaxBatch = 64;
+inline constexpr std::uint8_t max_initial_ops = 8;
+inline constexpr std::uint8_t max_chain_cqes = max_initial_ops + 1;
+inline constexpr std::uint32_t kMaxFlows = 4096;
+inline constexpr std::uint32_t kMaxBatch = 64;
 
-enum class LinkVariant : u8 {
+enum class LinkVariant : std::uint8_t {
 	then_,
 	hard_,
 };
 [[nodiscard]] constexpr bool is_valid_flow_op_kind(
-	u8 v) noexcept {
+	std::uint8_t v) noexcept {
 	switch (static_cast<FlowOpKind>(v)) {
 	case FlowOpKind::open_direct:
 	case FlowOpKind::read:
@@ -129,18 +129,18 @@ enum class LinkVariant : u8 {
 	return false;
 }
 [[nodiscard]] constexpr bool direct_open_succeeded(
-	i32 res) noexcept {
+	std::int32_t res) noexcept {
 	return res >= 0;
 }
 struct PendingRead {
 	void *buf;
-	u32 len;
-	u64 offset;
+	std::uint32_t len;
+	std::uint64_t offset;
 };
 struct PendingWrite {
 	void const *buf;
-	u32 len;
-	u64 offset;
+	std::uint32_t len;
+	std::uint64_t offset;
 };
 struct PendingOpenDirect {
 	DirectSlot slot;
@@ -159,35 +159,35 @@ struct PendingOp {
 	};
 };
 struct FlowUserData {
-	u64 flow_index :24;
-	u64 generation :24;
-	u64 op_index   :8;
-	u64 op_kind    :8;
+	std::uint64_t flow_index :24;
+	std::uint64_t generation :24;
+	std::uint64_t op_index   :8;
+	std::uint64_t op_kind    :8;
 };
 static_assert(sizeof(FlowUserData) == 8);
 [[nodiscard]] inline FlowUserData decode_tag(
-	u64 v) noexcept {
+	std::uint64_t v) noexcept {
 	FlowUserData d{};
 	std::memcpy(&d, &v, 8);
 	return d;
 }
 struct DirectFileFlowState {
-	u32 flow_index;
-	u32 generation;
+	std::uint32_t flow_index;
+	std::uint32_t generation;
 	DirectSlot slot;
-	u8 initial_op_count = 0;
-	u8 expected_cqes = 0;
-	u8 seen_cqes = 0;
+	std::uint8_t initial_op_count = 0;
+	std::uint8_t expected_cqes = 0;
+	std::uint8_t seen_cqes = 0;
 	bool open_seen = false;
 	bool open_ok = false;
-	i32 open_res = 0;
+	std::int32_t open_res = 0;
 	bool close_requested = false;
 	bool close_in_chain = false;
 	bool close_submitted = false;
 	bool close_pending = false;
 	bool close_seen = false;
-	i32 close_res = 0;
-	A<OpResult, max_initial_ops> results{};
+	std::int32_t close_res = 0;
+	std::array<OpResult, max_initial_ops> results{};
 };
 [[nodiscard]] inline bool close_needed_pred(
 	DirectFileFlowState const &st) noexcept {
@@ -195,8 +195,8 @@ struct DirectFileFlowState {
 }
 struct DirectFileBuilder {
 	DirectSlot slot;
-	A<PendingOp, max_initial_ops> ops{};
-	u8 op_count = 0;
+	std::array<PendingOp, max_initial_ops> ops{};
+	std::uint8_t op_count = 0;
 	bool close_requested = false;
 	bool owns_path = false;
 	OwnedInlinePath owned_path_buf{};
@@ -206,12 +206,12 @@ struct DirectFileBuilder {
 // generation==0 is the never-allocated sentinel; release() leaves it intact.
 
 class FlowSlab {
-	A<DirectFileFlowState, kMaxFlows> cells_{};
-	A<u32, kMaxFlows> free_{};
-	u32 free_top_ = 0; // index into free_ (stack grows up)
+	std::array<DirectFileFlowState, kMaxFlows> cells_{};
+	std::array<std::uint32_t, kMaxFlows> free_{};
+	std::uint32_t free_top_ = 0; // index into free_ (stack grows up)
 public:
 	FlowSlab() noexcept {
-		for (u32 i = 0; i < kMaxFlows; ++i) {
+		for (std::uint32_t i = 0; i < kMaxFlows; ++i) {
 			cells_[i].flow_index = i;
 			cells_[i].generation = 0;
 			free_[i] = kMaxFlows - 1 - i; // reverse so first pop gives index 0
@@ -222,9 +222,9 @@ public:
 		if (free_top_ == 0) {
 			return nullptr;
 		}
-		u32 const i = free_[--free_top_];
+		std::uint32_t const i = free_[--free_top_];
 		auto &cell = cells_[i];
-		u32 g = (cell.generation + 1) & 0xFFFFFFu;
+		std::uint32_t g = (cell.generation + 1) & 0xFFFFFFu;
 		if (g == 0) {
 			g = 1;
 		}
@@ -239,8 +239,8 @@ public:
 		free_[free_top_++] = st.flow_index;
 	}
 	[[nodiscard]] DirectFileFlowState *try_get(
-		u32 flow_idx,
-		u32 gen) noexcept {
+		std::uint32_t flow_idx,
+		std::uint32_t gen) noexcept {
 		if (flow_idx >= kMaxFlows) {
 			return nullptr;
 		}
@@ -256,8 +256,8 @@ public:
 // hack: test-only slab manipulation
 #ifdef CONFLUX_TESTING
 	void test_hack_generation(
-		u32 idx,
-		u32 gen) noexcept {
+		std::uint32_t idx,
+		std::uint32_t gen) noexcept {
 		if (idx < kMaxFlows) {
 			cells_[idx].generation = gen;
 		}
@@ -270,7 +270,7 @@ public:
 // if the callable is larger.
 
 class FlowCb {
-	static constexpr SZ kBufSize = 64;
+	static constexpr std::size_t kBufSize = 64;
 	alignas(std::max_align_t) char buf_[kBufSize]{};
 	void (*call_)(char *, FlowResult) noexcept = nullptr;
 	void (*dtor_)(char *) noexcept = nullptr;
@@ -312,8 +312,8 @@ public:
 }
 constexpr unsigned link_mask = IOSQE_IO_LINK | IOSQE_IO_HARDLINK;
 [[nodiscard]] unsigned link_flag_for_boundary(
-	u8 /*from*/,
-	u8 to,
+	std::uint8_t /*from*/,
+	std::uint8_t to,
 	DirectFileBuilder const &b,
 	bool mode_b) noexcept {
 	if (mode_b && to == b.op_count) {
@@ -334,7 +334,7 @@ constexpr unsigned link_mask = IOSQE_IO_LINK | IOSQE_IO_HARDLINK;
 	if (b.ops[1].variant != LinkVariant::then_) {
 		return false;
 	}
-	for (u8 i = 2; i < b.op_count; ++i) {
+	for (std::uint8_t i = 2; i < b.op_count; ++i) {
 		if (b.ops[i].variant != LinkVariant::hard_) {
 			return false;
 		}
@@ -345,7 +345,7 @@ constexpr unsigned link_mask = IOSQE_IO_LINK | IOSQE_IO_HARDLINK;
 
 void prep_op(
 	io_uring_sqe *sqe,
-	u8 i,
+	std::uint8_t i,
 	DirectFileBuilder const &b,
 	bool is_close,
 	char const *open_path_override = nullptr) noexcept {
@@ -373,7 +373,7 @@ void prep_op(
 	case FlowOpKind::close_direct: break;
 	}
 }
-[[nodiscard]] inline u32 byte_count_of(
+[[nodiscard]] inline std::uint32_t byte_count_of(
 	PendingOp const &op) noexcept {
 	switch (op.kind) {
 	case FlowOpKind::read : return op.read.len;
@@ -396,26 +396,26 @@ public:
 		: b_{b} {}
 	DirectFileFlow &then_read(
 		void *buf,
-		SZ len,
-		u64 offset) noexcept {
+		std::size_t len,
+		std::uint64_t offset) noexcept {
 		return append_read(LinkVariant::then_, buf, len, offset);
 	}
 	DirectFileFlow &hard_read(
 		void *buf,
-		SZ len,
-		u64 offset) noexcept {
+		std::size_t len,
+		std::uint64_t offset) noexcept {
 		return append_read(LinkVariant::hard_, buf, len, offset);
 	}
 	DirectFileFlow &then_write(
 		void const *buf,
-		SZ len,
-		u64 offset) noexcept {
+		std::size_t len,
+		std::uint64_t offset) noexcept {
 		return append_write(LinkVariant::then_, buf, len, offset);
 	}
 	DirectFileFlow &hard_write(
 		void const *buf,
-		SZ len,
-		u64 offset) noexcept {
+		std::size_t len,
+		std::uint64_t offset) noexcept {
 		return append_write(LinkVariant::hard_, buf, len, offset);
 	}
 	void close_if_opened() noexcept {
@@ -430,7 +430,7 @@ public:
 private:
 	[[nodiscard]] bool check_append(
 		LinkVariant var,
-		SZ len) noexcept {
+		std::size_t len) noexcept {
 		if (b_ == nullptr || b_->err != 0) {
 			return false;
 		}
@@ -442,7 +442,7 @@ private:
 			b_->err = -ENOBUFS;
 			return false;
 		}
-		if (len > static_cast<SZ>(NL<i32>::max())) {
+		if (len > static_cast<std::size_t>(std::numeric_limits<std::int32_t>::max())) {
 			b_->err = -EOVERFLOW;
 			return false;
 		}
@@ -451,29 +451,29 @@ private:
 	DirectFileFlow &append_read(
 		LinkVariant var,
 		void *buf,
-		SZ len,
-		u64 off) noexcept {
+		std::size_t len,
+		std::uint64_t off) noexcept {
 		if (!check_append(var, len)) {
 			return *this;
 		}
 		auto &op = b_->ops[b_->op_count++];
 		op.kind = FlowOpKind::read;
 		op.variant = var;
-		op.read = PendingRead{buf, static_cast<u32>(len), off};
+		op.read = PendingRead{buf, static_cast<std::uint32_t>(len), off};
 		return *this;
 	}
 	DirectFileFlow &append_write(
 		LinkVariant var,
 		void const *buf,
-		SZ len,
-		u64 off) noexcept {
+		std::size_t len,
+		std::uint64_t off) noexcept {
 		if (!check_append(var, len)) {
 			return *this;
 		}
 		auto &op = b_->ops[b_->op_count++];
 		op.kind = FlowOpKind::write;
 		op.variant = var;
-		op.write = PendingWrite{buf, static_cast<u32>(len), off};
+		op.write = PendingWrite{buf, static_cast<std::uint32_t>(len), off};
 		return *this;
 	}
 };
@@ -505,7 +505,7 @@ public:
 	[[nodiscard]] DirectFileFlow
 	open_direct_owned(DirectSlot slot, int dfd, OwnedInlinePath path, int open_flags, mode_t mode = 0) noexcept;
 	[[nodiscard]] DirectFileFlow
-	open_direct_owned(DirectSlot slot, int dfd, SV path, int open_flags, mode_t mode = 0) noexcept;
+	open_direct_owned(DirectSlot slot, int dfd, std::string_view path, int open_flags, mode_t mode = 0) noexcept;
 	template<class Fn>
 	void with_direct_file(
 		DirectSlot slot,
@@ -530,7 +530,7 @@ public:
 		forward<Fn>(build_ops)(f);
 		f.close_if_opened();
 	}
-	[[nodiscard]] u32 submit() noexcept;
+	[[nodiscard]] std::uint32_t submit() noexcept;
 
 	[[nodiscard]] span<FlowRejection const> rejected_flows() const noexcept;
 };
@@ -548,18 +548,18 @@ class FlowRuntime {
 	FlowSlab slab_;
 	FlowCb cb_;
 
-	A<DirectFileBuilder, kMaxBatch> builders_{};
-	A<FlowRejection, kMaxBatch> rejections_{};
-	A<OwnedInlinePath, kMaxFlows> owned_paths_{};
-	u32 builder_count_ = 0;
-	u32 rejection_count_ = 0;
-	u32 invalid_cqe_count_ = 0;
+	std::array<DirectFileBuilder, kMaxBatch> builders_{};
+	std::array<FlowRejection, kMaxBatch> rejections_{};
+	std::array<OwnedInlinePath, kMaxFlows> owned_paths_{};
+	std::uint32_t builder_count_ = 0;
+	std::uint32_t rejection_count_ = 0;
+	std::uint32_t invalid_cqe_count_ = 0;
 	struct DeferredClose {
-		u32 flow_index;
-		u32 generation;
+		std::uint32_t flow_index;
+		std::uint32_t generation;
 	};
-	A<DeferredClose, kMaxFlows> deferred_{};
-	u32 deferred_count_ = 0;
+	std::array<DeferredClose, kMaxFlows> deferred_{};
+	std::uint32_t deferred_count_ = 0;
 
 public:
 	template<class Cb>
@@ -576,7 +576,7 @@ public:
 			deferred_count_ == 0
 			&& "FlowRuntime destroyed with pending deferred closes; call abandon_deferred_closes() first");
 	}
-	[[nodiscard]] u32 invalid_cqe_count() const noexcept { return invalid_cqe_count_; }
+	[[nodiscard]] std::uint32_t invalid_cqe_count() const noexcept { return invalid_cqe_count_; }
 	void on_cqe(
 		io_uring_cqe *cqe) noexcept {
 		// hack: user_data=0 sentinel for NOPs from the unreachable single-issuer fallback path
@@ -584,13 +584,13 @@ public:
 			return;
 		}
 		auto tag = decode_tag(cqe->user_data);
-		auto *st = slab_.try_get(static_cast<u32>(tag.flow_index), static_cast<u32>(tag.generation));
+		auto *st = slab_.try_get(static_cast<std::uint32_t>(tag.flow_index), static_cast<std::uint32_t>(tag.generation));
 		if (st == nullptr) {
 			handle_invalid(cqe);
 			return;
 		}
 
-		if (!is_valid_flow_op_kind(static_cast<u8>(tag.op_kind))) {
+		if (!is_valid_flow_op_kind(static_cast<std::uint8_t>(tag.op_kind))) {
 			handle_invalid(cqe);
 			return;
 		}
@@ -602,7 +602,7 @@ public:
 				handle_invalid(cqe);
 				return;
 			}
-			if (static_cast<u8>(tag.op_index) != st->initial_op_count) {
+			if (static_cast<std::uint8_t>(tag.op_index) != st->initial_op_count) {
 				handle_invalid(cqe);
 				return;
 			}
@@ -623,7 +623,7 @@ public:
 				handle_invalid(cqe);
 				return;
 			}
-			if (static_cast<u8>(tag.op_index) >= st->initial_op_count) {
+			if (static_cast<std::uint8_t>(tag.op_index) >= st->initial_op_count) {
 				handle_invalid(cqe);
 				return;
 			}
@@ -647,8 +647,8 @@ public:
 	}
 	// resume_deferred_close — spec's framework hook; idempotent if close already submitted.
 	void resume_deferred_close(
-		u32 flow_idx,
-		u32 gen) noexcept {
+		std::uint32_t flow_idx,
+		std::uint32_t gen) noexcept {
 		auto *st = slab_.try_get(flow_idx, gen);
 		if (st == nullptr || !st->close_pending) {
 			return;
@@ -658,7 +658,7 @@ public:
 			return;
 		}
 		submit_close_sqe(sqe.raw(), *st);
-		for (u32 i = 0; i < deferred_count_; ++i) {
+		for (std::uint32_t i = 0; i < deferred_count_; ++i) {
 			if (deferred_[i].flow_index == flow_idx && deferred_[i].generation == gen) {
 				deferred_[i] = deferred_[--deferred_count_];
 				break;
@@ -669,29 +669,29 @@ public:
 	// end-to-front so resume_deferred_close's swap-with-last removal never shifts
 	// an unvisited entry past the current cursor.
 	void drain_deferred_closes() noexcept {
-		u32 r = deferred_count_;
+		std::uint32_t r = deferred_count_;
 		while (r-- > 0) {
 			resume_deferred_close(deferred_[r].flow_index, deferred_[r].generation);
 		}
 	}
-	[[nodiscard]] u32 deferred_close_count() const noexcept { return deferred_count_; }
+	[[nodiscard]] std::uint32_t deferred_close_count() const noexcept { return deferred_count_; }
 	[[nodiscard]] bool has_deferred_closes() const noexcept { return deferred_count_ != 0; }
 	struct AbandonedDeferredClose {
 		DirectSlot slot;
-		u32 flow_index;
-		u32 generation;
+		std::uint32_t flow_index;
+		std::uint32_t generation;
 	};
 	// Abandons all pending deferred closes without submitting SQEs and without
 	// invoking the normal FlowResult callback. Only for shutdown/fatal-exit cleanup.
 	// Caller owns DirectSlotPool and must poison returned slots via on_abandon.
 	template<class Fn>
-	u32 abandon_deferred_closes(
+	std::uint32_t abandon_deferred_closes(
 		Fn &&on_abandon) noexcept {
 		static_assert(
 			std::is_nothrow_invocable_v<Fn &, AbandonedDeferredClose>,
 			"FlowRuntime::abandon_deferred_closes callback must be noexcept");
-		u32 n = 0;
-		for (u32 i = 0; i < deferred_count_; ++i) {
+		std::uint32_t n = 0;
+		for (std::uint32_t i = 0; i < deferred_count_; ++i) {
 			auto const e = deferred_[i];
 			auto *st = slab_.try_get(e.flow_index, e.generation);
 			if (st == nullptr || !st->close_pending) {
@@ -719,13 +719,13 @@ public:
 // hack: test-only slab manipulation forwarded from FlowSlab
 #ifdef CONFLUX_TESTING
 	void test_hack_slab_generation(
-		u32 idx,
-		u32 gen) noexcept {
+		std::uint32_t idx,
+		std::uint32_t gen) noexcept {
 		slab_.test_hack_generation(idx, gen);
 	}
 	void test_hack_drain_slab_freelist() noexcept { slab_.test_hack_drain_freelist(); }
 	[[nodiscard]] char const *test_owned_path_ptr(
-		u32 flow_index) const noexcept {
+		std::uint32_t flow_index) const noexcept {
 		if (flow_index >= kMaxFlows) {
 			return nullptr;
 		}
@@ -781,7 +781,7 @@ private:
 		io_uring_prep_close_direct(sqe, st.slot.value);
 		// io_uring_prep_close_direct calls io_uring_initialize_sqe which zeroes flags;
 		// explicitly clear link bits anyway — defensive against future prep changes.
-		sqe->flags &= static_cast<u8>(~link_mask);
+		sqe->flags &= static_cast<std::uint8_t>(~link_mask);
 		sqe->user_data = encode_tag(st.flow_index, st.generation, st.initial_op_count, FlowOpKind::close_direct);
 		st.close_submitted = true;
 		st.close_pending = false;
@@ -838,7 +838,7 @@ DirectFileFlow FlowBuilder::open_direct_owned(
 DirectFileFlow FlowBuilder::open_direct_owned(
 	DirectSlot slot,
 	int dfd,
-	SV path,
+	std::string_view path,
 	int open_flags,
 	mode_t mode) noexcept {
 	if (rt_.builder_count_ >= kMaxBatch) {
@@ -859,10 +859,10 @@ DirectFileFlow FlowBuilder::open_direct_owned(
 span<FlowRejection const> FlowBuilder::rejected_flows() const noexcept {
 	return {rt_.rejections_.data(), rt_.rejection_count_};
 }
-u32 FlowBuilder::submit() noexcept {
-	u32 accepted = 0;
+std::uint32_t FlowBuilder::submit() noexcept {
+	std::uint32_t accepted = 0;
 
-	for (u32 local_idx = 0; local_idx < rt_.builder_count_; ++local_idx) {
+	for (std::uint32_t local_idx = 0; local_idx < rt_.builder_count_; ++local_idx) {
 		auto &b = rt_.builders_[local_idx];
 		// Preserve earlier builder errors such as -EINVAL, -ENOBUFS,
 		// -EOVERFLOW, -ENAMETOOLONG. Only apply path-lifetime rejection
@@ -872,7 +872,7 @@ u32 FlowBuilder::submit() noexcept {
 		}
 	}
 
-	for (u32 local_idx = 0; local_idx < rt_.builder_count_; ++local_idx) {
+	for (std::uint32_t local_idx = 0; local_idx < rt_.builder_count_; ++local_idx) {
 		auto &b = rt_.builders_[local_idx];
 
 		auto reject = [&](int err) {
@@ -887,7 +887,7 @@ u32 FlowBuilder::submit() noexcept {
 		}
 
 		bool const mode_b = b.close_requested && mode_b_eligible(b);
-		u8 const emitted = static_cast<u8>(b.op_count + (mode_b ? 1u : 0u));
+		std::uint8_t const emitted = static_cast<std::uint8_t>(b.op_count + (mode_b ? 1u : 0u));
 
 		auto *state_ptr = rt_.slab_.try_allocate();
 		if (state_ptr == nullptr) {
@@ -904,16 +904,16 @@ u32 FlowBuilder::submit() noexcept {
 		// Acquire all SQEs upfront so state is only initialized after full reservation.
 		// Under single-issuer serialization the sq_space_left check above guarantees
 		// these succeed.
-		A<io_uring_sqe *, max_chain_cqes> sqes{};
+		std::array<io_uring_sqe *, max_chain_cqes> sqes{};
 		{
 			bool sq_ok = true;
-			for (u8 n = 0; n < emitted; ++n) {
+			for (std::uint8_t n = 0; n < emitted; ++n) {
 				auto s = ring_.get_sqe();
 				if (!s) {
 					// hack: emit NOPs for already-acquired slots; cannot un-get SQEs.
 					// This path is unreachable under correct single-issuer usage.
 					assert(false);
-					for (u8 j = 0; j < n; ++j) {
+					for (std::uint8_t j = 0; j < n; ++j) {
 						io_uring_prep_nop(sqes[j]);
 						sqes[j]->user_data = 0; // io_uring_prep_nop does not zero user_data; must be explicit
 					}
@@ -950,7 +950,7 @@ u32 FlowBuilder::submit() noexcept {
 			open_path_override = rt_.owned_paths_[state.flow_index].c_str();
 		}
 
-		for (u8 i = 0; i < emitted; ++i) {
+		for (std::uint8_t i = 0; i < emitted; ++i) {
 			bool const is_close = mode_b && (i == b.op_count);
 			FlowOpKind const kind = is_close ? FlowOpKind::close_direct : b.ops[i].kind;
 			io_uring_sqe *sqe = sqes[i];
@@ -962,9 +962,9 @@ u32 FlowBuilder::submit() noexcept {
 				sqe->flags |= IOSQE_FIXED_FILE;
 			}
 
-			sqe->flags &= static_cast<u8>(~link_mask);
+			sqe->flags &= static_cast<std::uint8_t>(~link_mask);
 			if (i + 1 < emitted) {
-				sqe->flags |= static_cast<u8>(link_flag_for_boundary(i, u8(i + 1), b, mode_b));
+				sqe->flags |= static_cast<std::uint8_t>(link_flag_for_boundary(i, std::uint8_t(i + 1), b, mode_b));
 			}
 
 			sqe->user_data = encode_tag(state.flow_index, state.generation, i, kind);

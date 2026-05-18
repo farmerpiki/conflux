@@ -19,8 +19,8 @@ TEST_CASE(
 	"work: async_run_on high-iteration roundtrip remains live",
 	"[work]") {
 	WorkPool pool;
-	constexpr SZ kIters = 50001;
-	for (SZ i = 0; i < kIters; ++i) {
+	constexpr std::size_t kIters = 50001;
+	for (std::size_t i = 0; i < kIters; ++i) {
 		auto const v = root::value(async_run_on(pool, [] { return 7; }));
 		REQUIRE(v == 7);
 	}
@@ -31,8 +31,8 @@ TEST_CASE(
 	WorkPool pool;
 	bool caught = false;
 	try {
-		sync_wait(async_run_on(pool, []() -> int { throw RE{"boom"}; }));
-	} catch (RE const &e) { caught = SV{e.what()} == "boom"; }
+		sync_wait(async_run_on(pool, []() -> int { throw std::runtime_error{"boom"}; }));
+	} catch (std::runtime_error const &e) { caught = std::string_view{e.what()} == "boom"; }
 	CHECK(caught);
 }
 TEST_CASE(
@@ -52,20 +52,20 @@ TEST_CASE(
 	mutex mtx;
 	std::condition_variable cv;
 	bool seen = false;
-	S message;
+	std::string message;
 	WorkPool pool{
 		WorkPoolOptions{
 						.threads = 1,
 						.raw_exception_sink =
-				[&](EP ep) {
-					S local;
+				[&](std::exception_ptr ep) {
+					std::string local;
 					try {
 						rethrow_exception(ep);
-					} catch (RE const &e) { local = e.what(); } catch (...) {
+					} catch (std::runtime_error const &e) { local = e.what(); } catch (...) {
 						local = "unexpected";
 					}
 					{
-						SL const lk{mtx};
+						std::scoped_lock const lk{mtx};
 						message = move(local);
 						seen = true;
 					}
@@ -73,9 +73,9 @@ TEST_CASE(
 				}, }
     };
 
-	REQUIRE(pool.enqueue([] { throw RE{"raw boom"}; }));
+	REQUIRE(pool.enqueue([] { throw std::runtime_error{"raw boom"}; }));
 	std::unique_lock lk{mtx};
-	REQUIRE(cv.wait_for(lk, chrono::seconds{5}, [&] { return seen; }));
+	REQUIRE(cv.wait_for(lk, std::chrono::seconds{5}, [&] { return seen; }));
 	CHECK(message == "raw boom");
 }
 TEST_CASE(
@@ -95,12 +95,12 @@ TEST_CASE(
 	}));
 	{
 		std::unique_lock lk{mtx};
-		REQUIRE(cv.wait_for(lk, chrono::seconds{5}, [&] { return first_started; }));
+		REQUIRE(cv.wait_for(lk, std::chrono::seconds{5}, [&] { return first_started; }));
 	}
 	REQUIRE(pool.enqueue([&] { second_ran = true; }));
 	pool.stop();
 	{
-		SL const lk{mtx};
+		std::scoped_lock const lk{mtx};
 		release_first = true;
 	}
 	cv.notify_all();
@@ -125,22 +125,22 @@ TEST_CASE(
 	}));
 	{
 		std::unique_lock lk{mtx};
-		REQUIRE(cv.wait_for(lk, chrono::seconds{5}, [&] { return first_started; }));
+		REQUIRE(cv.wait_for(lk, std::chrono::seconds{5}, [&] { return first_started; }));
 	}
 	REQUIRE(pool.enqueue([&] {
-		SL const lk{mtx};
+		std::scoped_lock const lk{mtx};
 		second_ran = true;
 		cv.notify_all();
 	}));
 	jthread stopper{[&] { pool.drain_and_stop(); }};
 	{
-		SL const lk{mtx};
+		std::scoped_lock const lk{mtx};
 		release_first = true;
 	}
 	cv.notify_all();
 	{
 		std::unique_lock lk{mtx};
-		REQUIRE(cv.wait_for(lk, chrono::seconds{5}, [&] { return second_ran; }));
+		REQUIRE(cv.wait_for(lk, std::chrono::seconds{5}, [&] { return second_ran; }));
 	}
 	stopper.join();
 	CHECK(pool.stopped());
@@ -159,10 +159,10 @@ TEST_CASE(
 		WorkPool pool{
 			WorkPoolOptions{.threads = 2, .max_inject_queue = 4096, .queue_mode = WorkPoolQueueMode::no_stealing}
 		};
-		Atom<bool> start{false};
-		Atom<int> accepted{0};
-		Atom<int> ran{0};
-		V<jthread> producers;
+		std::atomic<bool> start{false};
+		std::atomic<int> accepted{0};
+		std::atomic<int> ran{0};
+		std::vector<jthread> producers;
 		for (int i = 0; i < 16; ++i) {
 			producers.emplace_back([&] {
 				while (!start.load(memory_order_acquire)) {
@@ -190,10 +190,10 @@ TEST_CASE(
 		WorkPool pool{
 			WorkPoolOptions{.threads = 2, .max_inject_queue = 4096}
         };
-		Atom<bool> start{false};
-		Atom<int> accepted{0};
-		Atom<int> ran{0};
-		V<jthread> producers;
+		std::atomic<bool> start{false};
+		std::atomic<int> accepted{0};
+		std::atomic<int> ran{0};
+		std::vector<jthread> producers;
 		for (int i = 0; i < 16; ++i) {
 			producers.emplace_back([&] {
 				while (!start.load(memory_order_acquire)) {
@@ -273,7 +273,7 @@ TEST_CASE(
     };
 	lane.adopt_current_thread();
 
-	Atom<int> observed{0};
+	std::atomic<int> observed{0};
 	jthread producer([&] { CHECK(lane.enqueue([&] { observed.store(42, memory_order_release); })); });
 	producer.join();
 
@@ -299,7 +299,7 @@ TEST_CASE(
     };
 	lane.adopt_current_thread();
 
-	Atom<int> observed{0};
+	std::atomic<int> observed{0};
 	bool queued = true;
 	jthread producer([&] { queued = lane.enqueue([&] { observed.store(42, memory_order_release); }); });
 	producer.join();
@@ -312,9 +312,9 @@ TEST_CASE(
 	"work: co_spawn fires and forgets",
 	"[work]") {
 	WorkPool pool;
-	Atom<int> counter{0};
+	std::atomic<int> counter{0};
 	auto gate = make_shared<barrier<>>(2);
-	[](SP<barrier<>>, auto t) -> root::Task<void> {
+	[](std::shared_ptr<barrier<>>, auto t) -> root::Task<void> {
 		co_await move(t);
 	}(gate, async_run_on(pool, [gate, &counter] {
 									 counter.fetch_add(1, memory_order_release);
@@ -324,7 +324,7 @@ TEST_CASE(
 	CHECK(counter.load(memory_order_acquire) == 1);
 }
 TEST_CASE(
-	"work: IoBuffer from_string keeps S alive",
+	"work: IoBuffer from_string keeps std::string alive",
 	"[work]") {
 	IoBuffer const buf = IoBuffer::from_string("hello");
 	CHECK(buf.bytes.size() == 5);

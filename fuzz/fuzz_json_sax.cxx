@@ -5,7 +5,7 @@ import conflux.json;
 using namespace std;
 using namespace conflux::json;
 struct FuzzHandler {
-	SZ depth{};
+	std::size_t depth{};
 	expected<void, JsonError> on_begin_object() {
 		++depth;
 		return {};
@@ -49,13 +49,13 @@ struct FuzzHandler {
 	expected<void, JsonError> on_null() { return {}; }
 };
 extern "C" int LLVMFuzzerTestOneInput(
-	u8 const *data,
-	SZ size) {
+	std::uint8_t const *data,
+	std::size_t size) {
 	if (size == 0) {
 		return 0;
 	}
 
-	SV input{reinterpret_cast<char const *>(data), size};
+	std::string_view input{reinterpret_cast<char const *>(data), size};
 
 	JsonParseOptions opts{.max_depth = LimitOption::bound(256)};
 	FuzzHandler handler;

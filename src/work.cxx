@@ -16,66 +16,66 @@ export module conflux.work;
 import std;
 import conflux.types;
 export import conflux.work.root;
-export struct Cancelled final : RE {
+export struct Cancelled final : std::runtime_error {
 	Cancelled()
-		: RE{"work cancelled"} {}
+		: std::runtime_error{"work cancelled"} {}
 };
 export struct WorkPoolQueueStats {
-	u64 enqueue_attempts = 0;
-	u64 enqueue_stopped_rejections = 0;
-	u64 enqueue_full_rejections = 0;
-	u64 admission_lock_acquisitions = 0;
-	u64 admission_lock_contentions = 0;
-	u64 local_lock_acquisitions = 0;
-	u64 local_lock_contentions = 0;
-	u64 steal_lock_acquisitions = 0;
-	u64 steal_lock_contentions = 0;
-	u64 local_pushes = 0;
-	u64 local_push_full = 0;
-	u64 inject_pushes = 0;
-	u64 inject_push_full = 0;
-	u64 local_pop_attempts = 0;
-	u64 local_pop_hits = 0;
-	u64 inject_pop_attempts = 0;
-	u64 inject_pop_hits = 0;
-	u64 steal_rounds = 0;
-	u64 steal_victim_checks = 0;
-	u64 steal_hits = 0;
-	u64 jobs_run = 0;
-	u64 wake_one_calls = 0;
-	u64 wake_one_futex_wakes = 0;
-	u64 wake_one_elided_no_parked = 0;
-	u64 wake_all_calls = 0;
-	u64 wake_all_futex_wakes = 0;
-	u64 park_attempts = 0;
-	u64 park_recheck_skips = 0;
-	u64 futex_waits = 0;
-	u64 job_slot_allocations = 0;
-	u64 job_slab_allocations = 0;
-	u64 job_slab_id_reuses = 0;
-	u64 job_slab_releases = 0;
-	u64 job_allocation_failures = 0;
-	u64 queue_full_token_discards = 0;
-	u64 remote_free_pushes = 0;
-	u64 remote_free_fallbacks = 0;
-	u64 remote_free_drained = 0;
-	u64 token_take_failures = 0;
+	std::uint64_t enqueue_attempts = 0;
+	std::uint64_t enqueue_stopped_rejections = 0;
+	std::uint64_t enqueue_full_rejections = 0;
+	std::uint64_t admission_lock_acquisitions = 0;
+	std::uint64_t admission_lock_contentions = 0;
+	std::uint64_t local_lock_acquisitions = 0;
+	std::uint64_t local_lock_contentions = 0;
+	std::uint64_t steal_lock_acquisitions = 0;
+	std::uint64_t steal_lock_contentions = 0;
+	std::uint64_t local_pushes = 0;
+	std::uint64_t local_push_full = 0;
+	std::uint64_t inject_pushes = 0;
+	std::uint64_t inject_push_full = 0;
+	std::uint64_t local_pop_attempts = 0;
+	std::uint64_t local_pop_hits = 0;
+	std::uint64_t inject_pop_attempts = 0;
+	std::uint64_t inject_pop_hits = 0;
+	std::uint64_t steal_rounds = 0;
+	std::uint64_t steal_victim_checks = 0;
+	std::uint64_t steal_hits = 0;
+	std::uint64_t jobs_run = 0;
+	std::uint64_t wake_one_calls = 0;
+	std::uint64_t wake_one_futex_wakes = 0;
+	std::uint64_t wake_one_elided_no_parked = 0;
+	std::uint64_t wake_all_calls = 0;
+	std::uint64_t wake_all_futex_wakes = 0;
+	std::uint64_t park_attempts = 0;
+	std::uint64_t park_recheck_skips = 0;
+	std::uint64_t futex_waits = 0;
+	std::uint64_t job_slot_allocations = 0;
+	std::uint64_t job_slab_allocations = 0;
+	std::uint64_t job_slab_id_reuses = 0;
+	std::uint64_t job_slab_releases = 0;
+	std::uint64_t job_allocation_failures = 0;
+	std::uint64_t queue_full_token_discards = 0;
+	std::uint64_t remote_free_pushes = 0;
+	std::uint64_t remote_free_fallbacks = 0;
+	std::uint64_t remote_free_drained = 0;
+	std::uint64_t token_take_failures = 0;
 };
 namespace work_detail {
 
-constexpr SZ kNoWorker = NL<SZ>::max();
+constexpr std::size_t kNoWorker = std::numeric_limits<std::size_t>::max();
 
 using Fn = conflux::work::root::detail::small_move_only_function<void()>;
 inline int futex_wait_private(
-	Atom<u32> &word,
-	u32 expected) noexcept {
-	auto *addr = reinterpret_cast<u32 *>(&word); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+	std::atomic<std::uint32_t> &word,
+	std::uint32_t expected) noexcept {
+	auto *addr = reinterpret_cast<std::uint32_t *>(&word); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 	return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAIT_PRIVATE, expected, nullptr, nullptr, 0));
 }
 inline int futex_wake_private(
-	Atom<u32> &word,
+	std::atomic<std::uint32_t> &word,
 	int count) noexcept {
-	auto *addr = reinterpret_cast<u32 *>(&word); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
+	auto *addr = reinterpret_cast<std::uint32_t *>(&word); // NOLINT(cppcoreguidelines-pro-type-reinterpret-cast)
 	return static_cast<int>(::syscall(SYS_futex, addr, FUTEX_WAKE_PRIVATE, count, nullptr, nullptr, 0));
 }
 class QueueTarget {
@@ -89,29 +89,29 @@ public:
 template<typename T>
 class MpmcRing {
 	struct Slot {
-		Atom<SZ> seq{0};
+		std::atomic<std::size_t> seq{0};
 		T item{};
 	};
-	UP<Slot[]> slots_;
-	SZ capacity_{};
-	SZ mask_{};
-	alignas(64) Atom<SZ> head_{0};
-	alignas(64) Atom<SZ> tail_{0};
+	std::unique_ptr<Slot[]> slots_;
+	std::size_t capacity_{};
+	std::size_t mask_{};
+	alignas(64) std::atomic<std::size_t> head_{0};
+	alignas(64) std::atomic<std::size_t> tail_{0};
 
 public:
 	explicit MpmcRing(
-		SZ capacity) {
+		std::size_t capacity) {
 		if (capacity == 0) {
 			return;
 		}
-		SZ cap = 1;
+		std::size_t cap = 1;
 		while (cap < capacity) {
 			cap <<= 1;
 		}
 		capacity_ = cap;
 		mask_ = cap - 1;
 		slots_ = make_unique<Slot[]>(cap);
-		for (SZ i = 0; i < cap; ++i) {
+		for (std::size_t i = 0; i < cap; ++i) {
 			slots_[i].seq.store(i, memory_order_relaxed);
 		}
 	}
@@ -124,10 +124,10 @@ public:
 		if (capacity_ == 0) {
 			return false;
 		}
-		SZ pos = head_.load(memory_order_relaxed);
+		std::size_t pos = head_.load(memory_order_relaxed);
 		for (;;) {
 			Slot &slot = slots_[pos & mask_];
-			SZ const seq = slot.seq.load(memory_order_acquire);
+			std::size_t const seq = slot.seq.load(memory_order_acquire);
 			auto const diff = static_cast<std::intptr_t>(seq) - static_cast<std::intptr_t>(pos);
 			if (diff == 0) {
 				if (head_.compare_exchange_weak(pos, pos + 1, memory_order_relaxed)) {
@@ -143,20 +143,20 @@ public:
 			}
 		}
 	}
-	[[nodiscard]] Opt<T> try_pop() noexcept {
+	[[nodiscard]] std::optional<T> try_pop() noexcept {
 		if (capacity_ == 0) {
 			return nullopt;
 		}
-		SZ pos = tail_.load(memory_order_relaxed);
+		std::size_t pos = tail_.load(memory_order_relaxed);
 		for (;;) {
 			Slot &slot = slots_[pos & mask_];
-			SZ const seq = slot.seq.load(memory_order_acquire);
+			std::size_t const seq = slot.seq.load(memory_order_acquire);
 			auto const diff = static_cast<std::intptr_t>(seq) - static_cast<std::intptr_t>(pos + 1);
 			if (diff == 0) {
 				if (tail_.compare_exchange_weak(pos, pos + 1, memory_order_relaxed)) {
 					T item = move(slot.item);
 					slot.seq.store(pos + capacity_, memory_order_release);
-					return Opt<T>{move(item)};
+					return std::optional<T>{move(item)};
 				}
 			} else if (diff < 0) {
 				return nullopt;
@@ -170,47 +170,47 @@ public:
 
 class WorkPoolQueueCounters {
 #if CONFLUX_WORK_QUEUE_STATS
-	Atom<u64> enqueue_attempts_{0};
-	Atom<u64> enqueue_stopped_rejections_{0};
-	Atom<u64> enqueue_full_rejections_{0};
-	Atom<u64> admission_lock_acquisitions_{0};
-	Atom<u64> admission_lock_contentions_{0};
-	Atom<u64> local_lock_acquisitions_{0};
-	Atom<u64> local_lock_contentions_{0};
-	Atom<u64> steal_lock_acquisitions_{0};
-	Atom<u64> steal_lock_contentions_{0};
-	Atom<u64> local_pushes_{0};
-	Atom<u64> local_push_full_{0};
-	Atom<u64> inject_pushes_{0};
-	Atom<u64> inject_push_full_{0};
-	Atom<u64> local_pop_attempts_{0};
-	Atom<u64> local_pop_hits_{0};
-	Atom<u64> inject_pop_attempts_{0};
-	Atom<u64> inject_pop_hits_{0};
-	Atom<u64> steal_rounds_{0};
-	Atom<u64> steal_victim_checks_{0};
-	Atom<u64> steal_hits_{0};
-	Atom<u64> jobs_run_{0};
-	Atom<u64> wake_one_calls_{0};
-	Atom<u64> wake_one_futex_wakes_{0};
-	Atom<u64> wake_one_elided_no_parked_{0};
-	Atom<u64> wake_all_calls_{0};
-	Atom<u64> wake_all_futex_wakes_{0};
-	Atom<u64> park_attempts_{0};
-	Atom<u64> park_recheck_skips_{0};
-	Atom<u64> futex_waits_{0};
-	Atom<u64> queue_full_token_discards_{0};
+	std::atomic<std::uint64_t> enqueue_attempts_{0};
+	std::atomic<std::uint64_t> enqueue_stopped_rejections_{0};
+	std::atomic<std::uint64_t> enqueue_full_rejections_{0};
+	std::atomic<std::uint64_t> admission_lock_acquisitions_{0};
+	std::atomic<std::uint64_t> admission_lock_contentions_{0};
+	std::atomic<std::uint64_t> local_lock_acquisitions_{0};
+	std::atomic<std::uint64_t> local_lock_contentions_{0};
+	std::atomic<std::uint64_t> steal_lock_acquisitions_{0};
+	std::atomic<std::uint64_t> steal_lock_contentions_{0};
+	std::atomic<std::uint64_t> local_pushes_{0};
+	std::atomic<std::uint64_t> local_push_full_{0};
+	std::atomic<std::uint64_t> inject_pushes_{0};
+	std::atomic<std::uint64_t> inject_push_full_{0};
+	std::atomic<std::uint64_t> local_pop_attempts_{0};
+	std::atomic<std::uint64_t> local_pop_hits_{0};
+	std::atomic<std::uint64_t> inject_pop_attempts_{0};
+	std::atomic<std::uint64_t> inject_pop_hits_{0};
+	std::atomic<std::uint64_t> steal_rounds_{0};
+	std::atomic<std::uint64_t> steal_victim_checks_{0};
+	std::atomic<std::uint64_t> steal_hits_{0};
+	std::atomic<std::uint64_t> jobs_run_{0};
+	std::atomic<std::uint64_t> wake_one_calls_{0};
+	std::atomic<std::uint64_t> wake_one_futex_wakes_{0};
+	std::atomic<std::uint64_t> wake_one_elided_no_parked_{0};
+	std::atomic<std::uint64_t> wake_all_calls_{0};
+	std::atomic<std::uint64_t> wake_all_futex_wakes_{0};
+	std::atomic<std::uint64_t> park_attempts_{0};
+	std::atomic<std::uint64_t> park_recheck_skips_{0};
+	std::atomic<std::uint64_t> futex_waits_{0};
+	std::atomic<std::uint64_t> queue_full_token_discards_{0};
 
 	static void add(
-		Atom<u64> &counter) noexcept {
+		std::atomic<std::uint64_t> &counter) noexcept {
 		counter.fetch_add(1, memory_order_relaxed);
 	}
 	static void clear(
-		Atom<u64> &counter) noexcept {
+		std::atomic<std::uint64_t> &counter) noexcept {
 		counter.store(0, memory_order_relaxed);
 	}
-	[[nodiscard]] static u64 get(
-		Atom<u64> const &counter) noexcept {
+	[[nodiscard]] static std::uint64_t get(
+		std::atomic<std::uint64_t> const &counter) noexcept {
 		return counter.load(memory_order_relaxed);
 	}
 
@@ -394,32 +394,32 @@ public:
 };
 
 } // namespace work_detail
-export enum class WorkPoolQueueMode : u8 {
+export enum class WorkPoolQueueMode : std::uint8_t {
 	stealing,
 	no_stealing,
 };
 export struct WorkPoolOptions {
-	SZ threads = 0;
-	SZ max_inject_queue = 4096;
-	SZ inject_queue_shards = 0;
-	SZ local_queue_capacity = 1024;
-	SZ initial_job_slab_slots = 256;
-	SZ max_job_slab_slots = 4096;
+	std::size_t threads = 0;
+	std::size_t max_inject_queue = 4096;
+	std::size_t inject_queue_shards = 0;
+	std::size_t local_queue_capacity = 1024;
+	std::size_t initial_job_slab_slots = 256;
+	std::size_t max_job_slab_slots = 4096;
 	WorkPoolQueueMode queue_mode = WorkPoolQueueMode::stealing;
-	u32 spin_before_park = 256;
+	std::uint32_t spin_before_park = 256;
 	int numa_node = -1;
 	bool pin_workers = false;
-	S worker_name_prefix = "conflux-work";
-	Fn<void(EP)> raw_exception_sink{};
+	std::string worker_name_prefix = "conflux-work";
+	std::function<void(std::exception_ptr)> raw_exception_sink{};
 };
 export struct RingLaneOptions {
 	int ring_fd = -1;
-	u64 wake_user_data = 0x434F4E464C5558ULL; // "CONFLUX"
-	SZ drain_budget = 0;
+	std::uint64_t wake_user_data = 0x434F4E464C5558ULL; // "CONFLUX"
+	std::size_t drain_budget = 0;
 	bool allow_inline_on_owner = true;
 };
 
-export enum class WorkError : u8 {
+export enum class WorkError : std::uint8_t {
 	stopped,
 	queue_full,
 	wake_failed,
@@ -431,7 +431,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 	struct alignas(
 		64) Worker {
 		explicit Worker(
-			SZ local_capacity)
+			std::size_t local_capacity)
 			: no_stealing_local{local_capacity} {}
 
 		mutex mtx;
@@ -440,33 +440,33 @@ export class WorkPool final : public work_detail::QueueTarget {
 		jthread thread{};
 	};
 	WorkPoolOptions options_{};
-	V<UP<Worker>> workers_{};
-	V<UP<work_detail::MpmcRing<work_detail::Fn>>> inject_rings_{};
-	Atom<u64> inject_enqueue_cursor_{0};
-	Atom<u32> wake_epoch_{0};
+	std::vector<std::unique_ptr<Worker>> workers_{};
+	std::vector<std::unique_ptr<work_detail::MpmcRing<work_detail::Fn>>> inject_rings_{};
+	std::atomic<std::uint64_t> inject_enqueue_cursor_{0};
+	std::atomic<std::uint32_t> wake_epoch_{0};
 	// parked_ on a separate cache line: producer loads it after every push;
 	// isolating prevents wake_epoch_ stores from invalidating this line and
 	// adding a cache miss to the no-parked-workers path.
-	alignas(64) Atom<int> parked_{0};
-	Atom<SZ> pending_{0};
+	alignas(64) std::atomic<int> parked_{0};
+	std::atomic<std::size_t> pending_{0};
 	atomic_flag accepting_stopped_{};
 	atomic_flag stopping_{};
 	mutex admission_mtx_{};
-	Atom<u64> no_stealing_admission_{0};
+	std::atomic<std::uint64_t> no_stealing_admission_{0};
 	work_detail::WorkPoolQueueCounters queue_counters_{};
 
-	static constexpr u64 kNoStealingAdmissionClosed = u64{1} << 63;
-	static constexpr u64 kNoStealingAdmissionCountMask = ~kNoStealingAdmissionClosed;
+	static constexpr std::uint64_t kNoStealingAdmissionClosed = std::uint64_t{1} << 63;
+	static constexpr std::uint64_t kNoStealingAdmissionCountMask = ~kNoStealingAdmissionClosed;
 
 	inline static thread_local WorkPool *tls_pool_ = nullptr;
-	inline static thread_local SZ tls_worker_ = work_detail::kNoWorker;
+	inline static thread_local std::size_t tls_worker_ = work_detail::kNoWorker;
 	[[nodiscard]] bool is_local_worker() const noexcept {
 		return tls_pool_ == this && tls_worker_ != work_detail::kNoWorker;
 	}
 	[[nodiscard]] bool no_stealing_mode() const noexcept {
 		return options_.queue_mode == WorkPoolQueueMode::no_stealing;
 	}
-	[[nodiscard]] SZ inject_shard_count() const noexcept { return inject_rings_.size(); }
+	[[nodiscard]] std::size_t inject_shard_count() const noexcept { return inject_rings_.size(); }
 	[[nodiscard]] bool begin_no_stealing_admission() noexcept {
 		auto state = no_stealing_admission_.load(memory_order_acquire);
 		for (;;) {
@@ -551,13 +551,13 @@ export class WorkPool final : public work_detail::QueueTarget {
 	}
 	[[nodiscard]] bool push_inject(
 		work_detail::Fn job) noexcept {
-		SZ const shards = inject_shard_count();
+		std::size_t const shards = inject_shard_count();
 		if (shards == 0 || options_.max_inject_queue == 0) {
 			queue_counters_.note_inject_push_full();
 			return false;
 		}
-		SZ const start =
-			shards == 1 ? SZ{0} : static_cast<SZ>(inject_enqueue_cursor_.fetch_add(1, memory_order_relaxed) % shards);
+		std::size_t const start =
+			shards == 1 ? std::size_t{0} : static_cast<std::size_t>(inject_enqueue_cursor_.fetch_add(1, memory_order_relaxed) % shards);
 		if (inject_rings_[start]->try_push(move(job))) {
 			pending_.fetch_add(1, memory_order_release);
 			queue_counters_.note_inject_push();
@@ -566,8 +566,8 @@ export class WorkPool final : public work_detail::QueueTarget {
 		queue_counters_.note_inject_push_full();
 		return false;
 	}
-	[[nodiscard]] Opt<work_detail::Fn> pop_local(
-		SZ index) {
+	[[nodiscard]] std::optional<work_detail::Fn> pop_local(
+		std::size_t index) {
 		queue_counters_.note_local_pop_attempt();
 		auto &worker = *workers_[index];
 		auto lk = queue_counters_.lock_local(worker.mtx);
@@ -579,8 +579,8 @@ export class WorkPool final : public work_detail::QueueTarget {
 		queue_counters_.note_local_pop_hit();
 		return job;
 	}
-	[[nodiscard]] Opt<work_detail::Fn> pop_no_stealing_local(
-		SZ index) noexcept {
+	[[nodiscard]] std::optional<work_detail::Fn> pop_no_stealing_local(
+		std::size_t index) noexcept {
 		queue_counters_.note_local_pop_attempt();
 		auto job = workers_[index]->no_stealing_local.try_pop();
 		if (!job) {
@@ -589,16 +589,16 @@ export class WorkPool final : public work_detail::QueueTarget {
 		queue_counters_.note_local_pop_hit();
 		return job;
 	}
-	[[nodiscard]] Opt<work_detail::Fn> pop_inject(
-		SZ worker_index) noexcept {
+	[[nodiscard]] std::optional<work_detail::Fn> pop_inject(
+		std::size_t worker_index) noexcept {
 		queue_counters_.note_inject_pop_attempt();
-		SZ const shards = inject_shard_count();
+		std::size_t const shards = inject_shard_count();
 		if (shards == 0) {
 			return nullopt;
 		}
-		SZ const start = worker_index % shards;
-		for (SZ offset = 0; offset < shards; ++offset) {
-			SZ const shard = (start + offset) % shards;
+		std::size_t const start = worker_index % shards;
+		for (std::size_t offset = 0; offset < shards; ++offset) {
+			std::size_t const shard = (start + offset) % shards;
 			auto job = inject_rings_[shard]->try_pop();
 			if (!job) {
 				continue;
@@ -608,11 +608,11 @@ export class WorkPool final : public work_detail::QueueTarget {
 		}
 		return nullopt;
 	}
-	[[nodiscard]] Opt<work_detail::Fn> steal_work(
-		SZ thief) {
+	[[nodiscard]] std::optional<work_detail::Fn> steal_work(
+		std::size_t thief) {
 		queue_counters_.note_steal_round();
-		for (SZ offset = 1; offset < workers_.size(); ++offset) {
-			SZ const victim_index = (thief + offset) % workers_.size();
+		for (std::size_t offset = 1; offset < workers_.size(); ++offset) {
+			std::size_t const victim_index = (thief + offset) % workers_.size();
 			auto &victim = *workers_[victim_index];
 			queue_counters_.note_steal_victim_check();
 			auto lk = queue_counters_.lock_steal_victim(victim.mtx);
@@ -627,8 +627,8 @@ export class WorkPool final : public work_detail::QueueTarget {
 		return nullopt;
 	}
 	static void maybe_set_name(
-		S const &prefix,
-		SZ index) noexcept {
+		std::string const &prefix,
+		std::size_t index) noexcept {
 		if (prefix.empty()) {
 			return;
 		}
@@ -639,7 +639,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 		::pthread_setname_np(::pthread_self(), name.c_str());
 	}
 	void maybe_pin_worker(
-		SZ index) noexcept {
+		std::size_t index) noexcept {
 		if (!options_.pin_workers) {
 			return;
 		}
@@ -651,7 +651,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 	}
 	void worker_loop(
 		std::stop_token const &st,
-		SZ index) {
+		std::size_t index) {
 		tls_pool_ = this;
 		tls_worker_ = index;
 		maybe_set_name(options_.worker_name_prefix, index);
@@ -680,7 +680,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 			}
 			auto const has_pending = [&] { return pending_.load(memory_order_relaxed) > 0; };
 			bool spun = false;
-			for (u32 s = 0; s < options_.spin_before_park && !spun; ++s) {
+			for (std::uint32_t s = 0; s < options_.spin_before_park && !spun; ++s) {
 				conflux::work::root::detail::cpu_pause();
 				spun = has_pending();
 			}
@@ -701,7 +701,7 @@ export class WorkPool final : public work_detail::QueueTarget {
 					queue_counters_.note_park_recheck_skip();
 					parked_.fetch_sub(1, memory_order_acq_rel);
 				} else {
-					u32 const epoch = wake_epoch_.load(memory_order_acquire);
+					std::uint32_t const epoch = wake_epoch_.load(memory_order_acquire);
 					queue_counters_.note_futex_wait();
 					work_detail::futex_wait_private(wake_epoch_, epoch);
 					parked_.fetch_sub(1, memory_order_acq_rel);
@@ -775,23 +775,23 @@ public:
 		if (options_.threads == 0) {
 			options_.threads = max(1U, thread::hardware_concurrency());
 		}
-			SZ inject_shards = options_.inject_queue_shards;
+			std::size_t inject_shards = options_.inject_queue_shards;
 			if (inject_shards == 0) {
-				inject_shards = options_.max_inject_queue == 0 ? SZ{1} : max(SZ{1}, min(options_.threads, options_.max_inject_queue));
+				inject_shards = options_.max_inject_queue == 0 ? std::size_t{1} : max(std::size_t{1}, min(options_.threads, options_.max_inject_queue));
 			}
 			options_.inject_queue_shards = inject_shards;
-			SZ const inject_capacity_per_shard = options_.max_inject_queue == 0
-				? SZ{0}
+			std::size_t const inject_capacity_per_shard = options_.max_inject_queue == 0
+				? std::size_t{0}
 				: (options_.max_inject_queue + inject_shards - 1) / inject_shards;
 			inject_rings_.reserve(inject_shards);
-			for (SZ shard = 0; shard < inject_shards; ++shard) {
+			for (std::size_t shard = 0; shard < inject_shards; ++shard) {
 				inject_rings_.push_back(make_unique<work_detail::MpmcRing<work_detail::Fn>>(inject_capacity_per_shard));
 			}
 		workers_.reserve(options_.threads);
-		for (SZ i = 0; i < options_.threads; ++i) {
+		for (std::size_t i = 0; i < options_.threads; ++i) {
 			workers_.push_back(make_unique<Worker>(options_.local_queue_capacity));
 		}
-		for (SZ i = 0; i < workers_.size(); ++i) {
+		for (std::size_t i = 0; i < workers_.size(); ++i) {
 			workers_[i]->thread = jthread([this, i](std::stop_token const &st) { worker_loop(st, i); });
 		}
 	}
@@ -900,7 +900,7 @@ public:
 		}
 		bool need_wake = false;
 		{
-			SL const lk{mtx_};
+			std::scoped_lock const lk{mtx_};
 			need_wake = queue_.empty();
 			queue_.push_back(move(job));
 			if (need_wake && !wake_pending_.test_and_set(memory_order_acq_rel)) {
@@ -914,16 +914,16 @@ public:
 		return true;
 	}
 	void adopt_current_thread() noexcept { owner_ = std::this_thread::get_id(); }
-	[[nodiscard]] SZ drain() {
+	[[nodiscard]] std::size_t drain() {
 		if (!is_owner_thread()) {
 			throw conflux::work::root::JoinError{conflux::work::root::JoinError::reason::thread_precondition};
 		}
-		SZ ran = 0;
-		SZ const budget = options_.drain_budget == 0 ? NL<SZ>::max() : options_.drain_budget;
+		std::size_t ran = 0;
+		std::size_t const budget = options_.drain_budget == 0 ? std::numeric_limits<std::size_t>::max() : options_.drain_budget;
 		while (ran < budget) {
 			conflux::work::root::detail::small_move_only_function<void()> job;
 			{
-				SL const lk{mtx_};
+				std::scoped_lock const lk{mtx_};
 				if (queue_.empty()) {
 					wake_pending_.clear(memory_order_release);
 					break;
@@ -938,7 +938,7 @@ public:
 			++ran;
 		}
 		if (ran == budget) {
-			SL const lk{mtx_};
+			std::scoped_lock const lk{mtx_};
 			if (!queue_.empty() && !wake_pending_.test_and_set(memory_order_acq_rel)) {
 				auto _ = wake_ring();
 			}
@@ -1035,26 +1035,26 @@ namespace join_all_detail {
 template<class T>
 using JoinResultT = std::conditional_t<std::is_void_v<T>, std::monostate, T>;
 class AggregateError : public exception {
-	V<EP> causes_;
+	std::vector<std::exception_ptr> causes_;
 
 public:
 	explicit AggregateError(
-		V<EP> causes) noexcept
+		std::vector<std::exception_ptr> causes) noexcept
 		: causes_{move(causes)} {}
 	char const *what() const noexcept override { return "join_all: multiple task failures"; }
-	[[nodiscard]] span<EP const> causes_view() const noexcept { return causes_; }
+	[[nodiscard]] span<std::exception_ptr const> causes_view() const noexcept { return causes_; }
 };
 template<typename... Ts>
 struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 	using Result = std::tuple<JoinResultT<Ts>...>;
 	using Slots = std::tuple<std::optional<JoinResultT<Ts>>...>;
 
-	Atom<SZ> remaining{sizeof...(Ts)};
+	std::atomic<std::size_t> remaining{sizeof...(Ts)};
 	mutex mtx;
-	V<EP> errors;
+	std::vector<std::exception_ptr> errors;
 	bool any_cancelled = false;
 	Slots slots;
-	Tup<conflux::work::root::TaskJoinHandle<Ts>...> handles;
+	std::tuple<conflux::work::root::TaskJoinHandle<Ts>...> handles;
 	conflux::work::root::TaskSource<Result> src;
 	JoinState(
 		conflux::work::root::TaskSource<Result> s,
@@ -1087,7 +1087,7 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 			auto _ = src.try_set_value(conflux::work::root::Success<Result>{move(result)});
 		} catch (...) { auto _ = src.try_set_exception(current_exception()); }
 	}
-	template<SZ I>
+	template<std::size_t I>
 	void on_ready() noexcept {
 		using namespace conflux::work::root;
 		using T = std::tuple_element_t<I, std::tuple<Ts...>>;
@@ -1100,10 +1100,10 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 				std::get<I>(slots) = move(outcome).success().value;
 			}
 		} else if (outcome.is_failure()) {
-			SL lk{mtx};
+			std::scoped_lock lk{mtx};
 			errors.push_back(move(outcome).failure().error);
 		} else {
-			SL lk{mtx};
+			std::scoped_lock lk{mtx};
 			if (!any_cancelled) {
 				any_cancelled = true;
 				should_cancel = true;
@@ -1122,7 +1122,7 @@ struct JoinState : std::enable_shared_from_this<JoinState<Ts...>> {
 export template<typename... Ts>
 [[nodiscard]] auto join_all(
 	conflux::work::root::Task<Ts>... tasks)
-	-> conflux::work::root::Task<Tup<std::conditional_t<std::is_void_v<Ts>, std::monostate, Ts>...>> {
+	-> conflux::work::root::Task<std::tuple<std::conditional_t<std::is_void_v<Ts>, std::monostate, Ts>...>> {
 	using namespace conflux::work::root;
 	using Result = std::tuple<std::conditional_t<std::is_void_v<Ts>, std::monostate, Ts>...>;
 
@@ -1135,8 +1135,8 @@ export template<typename... Ts>
 	auto [root_task, src] = make_task_source<Result>(SubmitOptions{.enable_cancellation = false});
 	auto state = make_shared<join_all_detail::JoinState<Ts...>>(move(src), into_join_handle(move(tasks))...);
 
-	[&state]<SZ... Is>(std::index_sequence<Is...>) {
-		auto attach = [&state]<SZ I>() noexcept {
+	[&state]<std::size_t... Is>(std::index_sequence<Is...>) {
+		auto attach = [&state]<std::size_t I>() noexcept {
 			std::get<I>(state->handles).control().set_on_ready_or_run([s = state]() noexcept {
 				s->template on_ready<I>();
 			});

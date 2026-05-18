@@ -90,7 +90,7 @@ export struct TempFileOptions {
 export class TemporaryFileSync {
 	UniqueFd fd_{};
 	bool unnamed_{false};
-	S staging_name_{};
+	std::string staging_name_{};
 	int parent_fd_{-1};
 
 public:
@@ -131,11 +131,11 @@ export using FileIoSyncError = IoError;
 
 namespace {
 
-Atom<u64> g_staging_counter{0};
-inline S make_staging_name() noexcept {
-	auto const pid = static_cast<u32>(::getpid());
+std::atomic<std::uint64_t> g_staging_counter{0};
+inline std::string make_staging_name() noexcept {
+	auto const pid = static_cast<std::uint32_t>(::getpid());
 	auto const seq = g_staging_counter.fetch_add(1, memory_order_relaxed);
-	u32 rnd{};
+	std::uint32_t rnd{};
 	auto _ = ::getrandom(&rnd, sizeof(rnd), 0);
 	return format(".conflux.tmp.{}.{}.{:08x}", pid, seq, rnd);
 }
@@ -174,7 +174,7 @@ constexpr bool is_otmpfile_unsupported_errno(
 inline expected<void, FileIoSyncError> link_unnamed_fd(
 	int tmp_fd,
 	int parent_fd,
-	SV staging_name) noexcept {
+	std::string_view staging_name) noexcept {
 	// AT_EMPTY_PATH — requires CAP_DAC_READ_SEARCH on most kernels
 	int rc = static_cast<int>(::syscall(SYS_linkat, tmp_fd, "", parent_fd, staging_name.data(), AT_EMPTY_PATH));
 	if (rc == 0) {
@@ -200,9 +200,9 @@ inline expected<void, FileIoSyncError> link_unnamed_fd(
 inline int openat2_sync(
 	int dir_fd,
 	char const *path,
-	u64 flags,
-	u64 mode,
-	u64 resolve) noexcept {
+	std::uint64_t flags,
+	std::uint64_t mode,
+	std::uint64_t resolve) noexcept {
 	open_how how{};
 	how.flags = flags;
 	how.mode = mode;
@@ -211,7 +211,7 @@ inline int openat2_sync(
 }
 inline expected<UniqueFd, FileIoSyncError> open_parent_dir_contained(
 	int root_fd,
-	SV relative_dir) noexcept {
+	std::string_view relative_dir) noexcept {
 	if (relative_dir.empty() || relative_dir == ".") {
 		int fd = openat2_sync(
 			root_fd,
@@ -226,7 +226,7 @@ inline expected<UniqueFd, FileIoSyncError> open_parent_dir_contained(
 		}
 		return UniqueFd{fd};
 	}
-	S dir_str{relative_dir};
+	std::string dir_str{relative_dir};
 	int fd = openat2_sync(
 		root_fd,
 		dir_str.c_str(),
@@ -243,11 +243,11 @@ inline expected<UniqueFd, FileIoSyncError> open_parent_dir_contained(
 
 } // namespace
 struct PathParts {
-	SV parent_dir;
-	SV basename;
+	std::string_view parent_dir;
+	std::string_view basename;
 };
 inline expected<PathParts, FileIoSyncError> split_contained_path(
-	SV path) noexcept {
+	std::string_view path) noexcept {
 	if (path.empty()) {
 		return unexpected{
 			FileIoSyncError{EINVAL, "file_io_sync: empty path"}
@@ -272,7 +272,7 @@ inline expected<PathParts, FileIoSyncError> split_contained_path(
 	}
 
 	// reject path components that are ..
-	SV remaining = path;
+	std::string_view remaining = path;
 	while (!remaining.empty()) {
 		auto const slash = remaining.find('/');
 		auto const component = remaining.substr(0, slash);
@@ -283,14 +283,14 @@ inline expected<PathParts, FileIoSyncError> split_contained_path(
                 };
 			}
 		}
-		if (slash == SV::npos) {
+		if (slash == std::string_view::npos) {
 			break;
 		}
 		remaining = remaining.substr(slash + 1);
 	}
 
 	auto const last_slash = path.rfind('/');
-	if (last_slash == SV::npos) {
+	if (last_slash == std::string_view::npos) {
 		return PathParts{.parent_dir = ".", .basename = path};
 	}
 	return PathParts{.parent_dir = path.substr(0, last_slash), .basename = path.substr(last_slash + 1)};
@@ -308,11 +308,11 @@ export std::expected<UniqueFd, FileIoSyncError> blocking_openat_contained(
 	if (!parts) {
 		return unexpected{parts.error()};
 	}
-	S path{contained_relative_path};
+	std::string path{contained_relative_path};
 	int const fd = openat2_sync(
 		root_fd,
 		path.c_str(),
-		static_cast<u64>(flags | O_CLOEXEC),
+		static_cast<std::uint64_t>(flags | O_CLOEXEC),
 		mode,
 		RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS);
 	if (fd < 0) {
@@ -357,7 +357,7 @@ export std::expected<TemporaryFileSync, FileIoSyncError> blocking_open_tmpfile(
 export std::expected<void, FileIoSyncError> write_all_fd(
 	int fd,
 	std::span<std::byte const> bytes) noexcept {
-	SZ off = 0;
+	std::size_t off = 0;
 	while (off < bytes.size()) {
 		auto const n = ::write(fd, bytes.data() + off, bytes.size() - off);
 		if (n < 0) {
@@ -368,7 +368,7 @@ export std::expected<void, FileIoSyncError> write_all_fd(
 				FileIoSyncError{errno, "file_io_sync: write"}
             };
 		}
-		off += static_cast<SZ>(n);
+		off += static_cast<std::size_t>(n);
 	}
 	return {};
 }
@@ -386,7 +386,7 @@ export std::expected<void, FileIoSyncError> blocking_publish_tmpfile(
 		return r;
 	}
 
-	auto staging = S{tmp.staging_name()};
+	auto staging = std::string{tmp.staging_name()};
 	bool need_unlink_staging = false;
 
 	if (tmp.unnamed()) {
@@ -403,7 +403,7 @@ export std::expected<void, FileIoSyncError> blocking_publish_tmpfile(
 		tmp.disarm_staging();
 	}
 
-	S final_str{final_name};
+	std::string final_str{final_name};
 	if (mode == TempPublishMode::replace_existing) {
 		int const rc = ::renameat(parent_dir_fd, staging.c_str(), parent_dir_fd, final_str.c_str());
 		if (rc < 0) {
@@ -508,9 +508,9 @@ export std::expected<FileStat, FileIoSyncError> blocking_fstat(
 	}
 	return FileStat{
 		.size = stx.stx_size,
-		.mtime_ns = static_cast<u64>(stx.stx_mtime.tv_sec) * 1000000000ULL + stx.stx_mtime.tv_nsec,
-		.ctime_ns = static_cast<u64>(stx.stx_ctime.tv_sec) * 1000000000ULL + stx.stx_ctime.tv_nsec,
-		.dev = static_cast<u64>(stx.stx_dev_major) << 32U | stx.stx_dev_minor,
+		.mtime_ns = static_cast<std::uint64_t>(stx.stx_mtime.tv_sec) * 1000000000ULL + stx.stx_mtime.tv_nsec,
+		.ctime_ns = static_cast<std::uint64_t>(stx.stx_ctime.tv_sec) * 1000000000ULL + stx.stx_ctime.tv_nsec,
+		.dev = static_cast<std::uint64_t>(stx.stx_dev_major) << 32U | stx.stx_dev_minor,
 		.ino = stx.stx_ino,
 		.mode = stx.stx_mode};
 }
@@ -519,7 +519,7 @@ export std::expected<FileStat, FileIoSyncError> blocking_stat_at(
 	std::string_view path,
 	int flags = 0,
 	unsigned mask = STATX_BASIC_STATS | STATX_MTIME | STATX_CTIME) noexcept {
-	S p{path};
+	std::string p{path};
 	struct statx stx{};
 	int const rc = ::statx(dir_fd, p.c_str(), flags, mask, &stx);
 	if (rc < 0) {
@@ -529,9 +529,9 @@ export std::expected<FileStat, FileIoSyncError> blocking_stat_at(
 	}
 	return FileStat{
 		.size = stx.stx_size,
-		.mtime_ns = static_cast<u64>(stx.stx_mtime.tv_sec) * 1000000000ULL + stx.stx_mtime.tv_nsec,
-		.ctime_ns = static_cast<u64>(stx.stx_ctime.tv_sec) * 1000000000ULL + stx.stx_ctime.tv_nsec,
-		.dev = static_cast<u64>(stx.stx_dev_major) << 32U | stx.stx_dev_minor,
+		.mtime_ns = static_cast<std::uint64_t>(stx.stx_mtime.tv_sec) * 1000000000ULL + stx.stx_mtime.tv_nsec,
+		.ctime_ns = static_cast<std::uint64_t>(stx.stx_ctime.tv_sec) * 1000000000ULL + stx.stx_ctime.tv_nsec,
+		.dev = static_cast<std::uint64_t>(stx.stx_dev_major) << 32U | stx.stx_dev_minor,
 		.ino = stx.stx_ino,
 		.mode = stx.stx_mode};
 }
@@ -587,7 +587,7 @@ export std::expected<std::string, FileIoSyncError> read_all_fd(
 export std::expected<std::string, FileIoSyncError> blocking_read_text_file(
 	std::string_view path,
 	std::size_t max_bytes = std::size_t{16} * 1024 * 1024) {
-	S native{path};
+	std::string native{path};
 	int const fd = ::open(native.c_str(), O_RDONLY | O_CLOEXEC);
 	if (fd < 0) {
 		return unexpected{
@@ -599,7 +599,7 @@ export std::expected<std::string, FileIoSyncError> blocking_read_text_file(
 	if (!bytes) {
 		return unexpected{bytes.error()};
 	}
-	return S{move(*bytes)};
+	return std::string{move(*bytes)};
 }
 export std::optional<std::string> read_text_file_nothrow(
 	std::string_view path,
@@ -609,7 +609,7 @@ export std::optional<std::string> read_text_file_nothrow(
 		if (!bytes) {
 			return nullopt;
 		}
-		return S{move(*bytes)};
+		return std::string{move(*bytes)};
 	} catch (...) { return nullopt; }
 }
 

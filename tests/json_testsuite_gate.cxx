@@ -19,14 +19,14 @@ static constexpr JsonParseOptions conformance_opts{
 	.duplicate_key = DuplicateKeyPolicy::last_wins,
 };
 static auto test_files(
-	SV prefix) -> V<fs::path> {
-	V<fs::path> out;
+	std::string_view prefix) -> std::vector<fs::path> {
+	std::vector<fs::path> out;
 	fs::path dir{JSONTESTSUITE_DIR};
 	if (!fs::is_directory(dir)) {
 		return out;
 	}
 	for (auto const &entry: fs::directory_iterator{dir}) {
-		S name = entry.path().filename().generic_string();
+		std::string name = entry.path().filename().generic_string();
 		if (name.starts_with(prefix) && name.ends_with(".json")) {
 			out.push_back(entry.path());
 		}
@@ -35,9 +35,9 @@ static auto test_files(
 	return out;
 }
 static auto read_file(
-	fs::path const &p) -> S {
+	fs::path const &p) -> std::string {
 	std::ifstream f{p, std::ios::binary};
-	return S{std::istreambuf_iterator<char>{f}, {}};
+	return std::string{std::istreambuf_iterator<char>{f}, {}};
 }
 TEST_CASE(
 	"JSONTestSuite: y_* must accept",
@@ -70,8 +70,8 @@ TEST_CASE(
 	"[jsontestsuite][i][!mayfail]") {
 	auto files = test_files("i_");
 	REQUIRE(!files.empty());
-	SZ accepted{};
-	SZ rejected{};
+	std::size_t accepted{};
+	std::size_t rejected{};
 	for (auto const &p: files) {
 		auto content = read_file(p);
 		auto result = parse(content);

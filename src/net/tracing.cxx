@@ -16,7 +16,7 @@ class TraceCallback<R(Args...)> {
 	struct Concept {
 		virtual ~Concept() = default;
 		virtual R invoke(Args... args) = 0;
-		[[nodiscard]] virtual UP<Concept> clone() const = 0;
+		[[nodiscard]] virtual std::unique_ptr<Concept> clone() const = 0;
 	};
 	template<typename F>
 	struct Model final : Concept {
@@ -32,9 +32,9 @@ class TraceCallback<R(Args...)> {
 				return fn(forward<Args>(args)...);
 			}
 		}
-		[[nodiscard]] UP<Concept> clone() const override { return make_unique<Model>(fn); }
+		[[nodiscard]] std::unique_ptr<Concept> clone() const override { return make_unique<Model>(fn); }
 	};
-	UP<Concept> impl_{};
+	std::unique_ptr<Concept> impl_{};
 
 public:
 	TraceCallback() = default;
@@ -63,10 +63,10 @@ public:
 	}
 };
 export struct TraceContext {
-	S trace_id; // 32 hex chars
-	S span_id; // 16 hex chars (this hop)
-	S parent_id; // 16 hex chars (caller's span), may be empty
-	S traceparent; // full W3C header value: "00-trace-span-01"
+	std::string trace_id; // 32 hex chars
+	std::string span_id; // 16 hex chars (this hop)
+	std::string parent_id; // 16 hex chars (caller's span), may be empty
+	std::string traceparent; // full W3C header value: "00-trace-span-01"
 };
 export struct TracingOptions {
 	// Called before the downstream handler. May modify the request (e.g. inject trace headers).
@@ -78,12 +78,12 @@ export struct TracingOptions {
 };
 namespace tracing_detail {
 
-S gen_hex(
-	SZ nbytes) {
-	V<unsigned char> buf(nbytes);
+std::string gen_hex(
+	std::size_t nbytes) {
+	std::vector<unsigned char> buf(nbytes);
 	random_bytes(buf);
-	static constexpr SV kHex = "0123456789abcdef";
-	S out;
+	static constexpr std::string_view kHex = "0123456789abcdef";
+	std::string out;
 	out.reserve(nbytes * 2);
 	for (auto b: buf) {
 		out += kHex[b >> 4];
@@ -93,13 +93,13 @@ S gen_hex(
 }
 // Parse W3C traceparent: "00-<trace_id>-<parent_id>-<flags>".
 // Returns {trace_id, parent_id} or empty strings on parse failure.
-P<S, S> parse_traceparent(
-	SV tp) {
+std::pair<std::string, std::string> parse_traceparent(
+	std::string_view tp) {
 	// version(2)-trace_id(32)-parent_id(16)-flags(2) separated by '-'
 	if (tp.size() < 55 || tp[2] != '-' || tp[35] != '-' || tp[52] != '-') {
 		return {};
 	}
-	auto is_hex = [](SV s) {
+	auto is_hex = [](std::string_view s) {
 		return ranges::all_of(s, [](unsigned char c) {
 			return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 		});
@@ -109,7 +109,7 @@ P<S, S> parse_traceparent(
 	if (!is_hex(trace_id) || !is_hex(parent_id)) {
 		return {};
 	}
-	return {S{trace_id}, S{parent_id}};
+	return {std::string{trace_id}, std::string{parent_id}};
 }
 
 } // namespace tracing_detail

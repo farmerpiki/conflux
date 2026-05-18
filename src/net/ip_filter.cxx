@@ -11,7 +11,7 @@ export enum class IpFilterMode {
 };
 export struct IpFilterOptions {
 	IpFilterMode mode{IpFilterMode::allowlist};
-	V<S> cidrs;
+	std::vector<std::string> cidrs;
 };
 namespace ip_filter_detail {
 

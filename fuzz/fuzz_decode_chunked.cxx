@@ -10,8 +10,8 @@ import conflux.net.http.parse_helpers;
 
 using namespace std;
 extern "C" int LLVMFuzzerTestOneInput(
-	u8 const *data,
-	SZ size) {
+	std::uint8_t const *data,
+	std::size_t size) {
 	if (size < 2) {
 		return 0;
 	}
@@ -20,15 +20,15 @@ extern "C" int LLVMFuzzerTestOneInput(
 	// so the fuzzer explores boundary behaviour without OOMing.
 	auto const mb_choice = data[0];
 	auto const mc_choice = data[1];
-	SZ const max_body = 1U << (mb_choice % 20U); // 1..1M
-	SZ const max_chunks = 1U << (mc_choice % 14U); // 1..8192
+	std::size_t const max_body = 1U << (mb_choice % 20U); // 1..1M
+	std::size_t const max_chunks = 1U << (mc_choice % 14U); // 1..8192
 
-	SV input{reinterpret_cast<char const *>(data + 2), size - 2};
-	S body;
+	std::string_view input{reinterpret_cast<char const *>(data + 2), size - 2};
+	std::string body;
 	auto const rc = decode_chunked(input, max_body, max_chunks, body);
 
 	if (rc > 0) {
-		if (static_cast<SZ>(rc) > input.size()) {
+		if (static_cast<std::size_t>(rc) > input.size()) {
 			__builtin_trap();
 		}
 		if (body.size() > max_body) {

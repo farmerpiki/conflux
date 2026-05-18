@@ -15,7 +15,7 @@ import :state;
 
 namespace {
 
-enum class ParseError : u8 {
+enum class ParseError : std::uint8_t {
 	None,
 	BadRequest,
 	UriTooLong,
@@ -24,9 +24,9 @@ enum class ParseError : u8 {
 };
 void emit_parse_error(
 	Conn &conn,
-	SV raw,
+	std::string_view raw,
 	ParseError err,
-	SV alt_svc) {
+	std::string_view alt_svc) {
 	HttpResponse r;
 	switch (err) {
 	case ParseError::UriTooLong          : r = HttpResponse::uri_too_long(); break;
@@ -43,11 +43,11 @@ void emit_parse_error(
 } // namespace
 void dispatch_request(
 	Conn &conn,
-	SV raw,
+	std::string_view raw,
 	Ring const &ring,
-	SZ max_body_size,
+	std::size_t max_body_size,
 	bool http_redirect_to_https,
-	V<S> const &https_redirect_hosts,
+	std::vector<std::string> const &https_redirect_hosts,
 	ParserLimits const &limits) {
 	conn.has_response = false;
 	conn.written = 0;
@@ -74,19 +74,19 @@ void dispatch_request(
 	}
 	auto const header_end = parsed.header_end_offset;
 
-	SV const method = parsed.method;
-	SV path = parsed.target;
-	SV redirect_query;
-	SV const version = parsed.version;
+	std::string_view const method = parsed.method;
+	std::string_view path = parsed.target;
+	std::string_view redirect_query;
+	std::string_view const version = parsed.version;
 	HttpFieldsView const params;
 	HttpFieldsView headers{true};
 	HttpFieldsView query;
 	HttpFieldsView form;
 	HttpFieldsView cookies;
-	V<UploadedFile> files;
-	SV body;
+	std::vector<UploadedFile> files;
+	std::string_view body;
 
-	if (auto q = path.find('?'); q != SV::npos) {
+	if (auto q = path.find('?'); q != std::string_view::npos) {
 		redirect_query = path.substr(q);
 		parse_urlencoded(path.substr(q + 1), query);
 		path = path.substr(0, q);
@@ -99,12 +99,12 @@ void dispatch_request(
 
 	if (path.starts_with("https://")) {
 		auto slash = path.find('/', 8);
-		path = (slash != SV::npos) ? path.substr(slash) : SV{"/"};
+		path = (slash != std::string_view::npos) ? path.substr(slash) : std::string_view{"/"};
 	} else if (path.starts_with("http://")) {
 		auto slash = path.find('/', 7);
-		path = (slash != SV::npos) ? path.substr(slash) : SV{"/"};
+		path = (slash != std::string_view::npos) ? path.substr(slash) : std::string_view{"/"};
 	}
-	S redirect_target{path.empty() ? SV{"/"} : path};
+	std::string redirect_target{path.empty() ? std::string_view{"/"} : path};
 	redirect_target += redirect_query;
 
 	if (version == "HTTP/1.1") {
@@ -116,13 +116,13 @@ void dispatch_request(
 
 	if (http_redirect_to_https && !conn.is_tls) {
 		auto host = headers["host"];
-		auto strip_host_port = [](SV h) -> SV {
+		auto strip_host_port = [](std::string_view h) -> std::string_view {
 			if (h.starts_with('[')) {
 				auto b = h.find(']');
-				if (b != SV::npos) {
+				if (b != std::string_view::npos) {
 					auto c = h.find(':', b + 1);
 					// strip port if present, then strip surrounding brackets
-					SV inner = c != SV::npos ? h.substr(0, c) : h;
+					std::string_view inner = c != std::string_view::npos ? h.substr(0, c) : h;
 					if (inner.starts_with('[') && inner.ends_with(']')) {
 						inner.remove_prefix(1);
 						inner.remove_suffix(1);
@@ -132,10 +132,10 @@ void dispatch_request(
 				return h;
 			}
 			auto c = h.rfind(':');
-			return c != SV::npos ? h.substr(0, c) : h;
+			return c != std::string_view::npos ? h.substr(0, c) : h;
 		};
-		auto const host_bare = ascii_lower(S{strip_host_port(host)});
-		SV canonical_host;
+		auto const host_bare = ascii_lower(std::string{strip_host_port(host)});
+		std::string_view canonical_host;
 		for (auto const &h: https_redirect_hosts) {
 			if (ascii_lower(h) == host_bare) {
 				canonical_host = h;
@@ -165,7 +165,7 @@ void dispatch_request(
 	}
 
 	auto body_start = header_end + 4;
-	SZ body_stream_bytes = 0;
+	std::size_t body_stream_bytes = 0;
 
 	auto const content_length_count = headers.count("content-length");
 	auto const transfer_encoding_count = headers.count("transfer-encoding");
@@ -204,8 +204,8 @@ void dispatch_request(
 	};
 
 	if (content_length_count != 0) {
-		auto cl = headers.get("content-length").value_or(SV{});
-		SZ content_length{};
+		auto cl = headers.get("content-length").value_or(std::string_view{});
+		std::size_t content_length{};
 		auto const *cl_end = ranges::next(cl.data(), ssize(cl));
 		auto [ptr, ec] = from_chars(cl.data(), cl_end, content_length);
 		if (ec != errc{} || ptr != cl_end) {
@@ -253,7 +253,7 @@ void dispatch_request(
 			return;
 		}
 		body = conn.chunked_decode.body;
-		body_stream_bytes = static_cast<SZ>(rc);
+		body_stream_bytes = static_cast<std::size_t>(rc);
 	}
 
 	conn.expect_continue_sent = false;
@@ -288,7 +288,7 @@ void dispatch_request(
 
 	HttpRequestView const
 		req{method, path, version, conn.remote_addr, conn.is_tls, params, headers, query, form, cookies, files, body};
-	auto const handler_started = chrono::steady_clock::now();
+	auto const handler_started = std::chrono::steady_clock::now();
 	HttpResponse resp;
 	try {
 		if (auto async = ring.try_dispatch_context(req)) {
@@ -301,8 +301,8 @@ void dispatch_request(
 	}
 	if (ring.slow_handler_diagnostics) {
 		auto const elapsed_ms =
-			chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - handler_started).count();
-		if (elapsed_ms >= static_cast<i64>(ring.slow_handler_warn_ms)) {
+			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - handler_started).count();
+		if (elapsed_ms >= static_cast<std::int64_t>(ring.slow_handler_warn_ms)) {
 			eprintln(format(
 				"warning: slow handler on ring thread (method={}, path={}, elapsed_ms={})",
 				method,
@@ -339,7 +339,7 @@ void dispatch_request(
 		conn.is_sse = true;
 		conn.sse_efd = resp.sse_channel_ptr()->eventfd_fd();
 		conn.sse_channel = resp.take_sse_channel();
-		conn.own_response = S{format_sse_headers(conn.close_after_send)};
+		conn.own_response = std::string{format_sse_headers(conn.close_after_send)};
 		conn.has_response = true;
 	} else if (resp.is_mapped_file()) {
 		conn.own_response = format_response(resp, ring.alt_svc_header, conn.close_after_send);

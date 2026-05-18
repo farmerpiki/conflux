@@ -61,7 +61,7 @@ import :state;
 
 void Ring::discard_recv_bufs(
 	int res,
-	u32 flags) noexcept {
+	std::uint32_t flags) noexcept {
 		HTTP_TRACE(format(
 			"discard_recv_bufs res={} flags=0x{:x} has_buf={} mode={}",
 			res,
@@ -95,7 +95,7 @@ void Ring::discard_recv_bufs(
 
 void Ring::retire_incremental_partial(
 	int fd,
-	u32 gen,
+	std::uint32_t gen,
 	Conn &conn) noexcept {
 		if (!conn.have_incremental_buf_id) {
 			return;
@@ -109,7 +109,7 @@ void Ring::retire_incremental_partial(
 
 void Ring::reclaim_retired_incremental_recv(
 	int fd,
-	u32 gen) noexcept {
+	std::uint32_t gen) noexcept {
 		if (buf_ring_->mode() != BufferRingMode::incremental) {
 			return;
 		}
@@ -124,8 +124,8 @@ void Ring::reclaim_retired_incremental_recv(
 
 void Ring::clear_retired_incremental_if_final(
 	int fd,
-	u32 gen,
-	u32 flags) noexcept {
+	std::uint32_t gen,
+	std::uint32_t flags) noexcept {
 		if (buf_ring_->mode() != BufferRingMode::incremental) {
 			return;
 		}
@@ -137,7 +137,7 @@ void Ring::clear_retired_incremental_if_final(
 		if (it == retired_incremental_recv.end()) {
 			return;
 		}
-		u16 const id = cqe_buffer_id(flags);
+		std::uint16_t const id = cqe_buffer_id(flags);
 		if (it->second.id != id) [[unlikely]] {
 			return;
 		}
@@ -148,8 +148,8 @@ void Ring::clear_retired_incremental_if_final(
 void Ring::handle_recv_cqe(
 	int fd,
 	int res,
-	u32 flg,
-	u32 gen) {
+	std::uint32_t flg,
+	std::uint32_t gen) {
 		HTTP_TRACE(format(
 			"recv_cqe fd={} res={} flg=0x{:x} gen={} mode={} direct={}",
 			fd,
@@ -158,7 +158,7 @@ void Ring::handle_recv_cqe(
 			gen,
 			buffer_ring_mode_name(buf_ring_->mode()),
 			accepted_sockets_direct));
-		auto const ufd = static_cast<SZ>(fd);
+		auto const ufd = static_cast<std::size_t>(fd);
 		if (ufd >= fd_table.size()) {
 			discard_recv_bufs(res, flg);
 			return;
@@ -221,7 +221,7 @@ bool Ring::append_recv_buf_to(
 
 void Ring::phase1_copy_recv_bufs() {
 		for (auto &rc: recvs) {
-			auto const ufd = static_cast<SZ>(rc.fd);
+			auto const ufd = static_cast<std::size_t>(rc.fd);
 			auto ws_it = ws_cancel_handoffs.find(rc.fd);
 			bool const ws_pending = ws_it != ws_cancel_handoffs.end()
 #if CONFLUX_HAS_TLS
@@ -231,7 +231,7 @@ void Ring::phase1_copy_recv_bufs() {
 			if (rc.res <= 0
 				|| ufd >= fd_table.size()
 				|| (!ws_pending && (fd_table[ufd].gen != rc.gen || fd_table[ufd].fd < 0))) {
-				u32 const orig_flags = rc.flags;
+				std::uint32_t const orig_flags = rc.flags;
 				discard_recv_bufs(rc);
 				if (rc.res <= 0 && !cqe_has_buffer(orig_flags)) {
 					reclaim_retired_incremental_recv(rc.fd, rc.gen);
@@ -241,7 +241,7 @@ void Ring::phase1_copy_recv_bufs() {
 				continue;
 			}
 			if (ws_pending && (fd_table[ufd].gen != rc.gen || fd_table[ufd].fd < 0)) {
-				u32 const orig_flags = rc.flags;
+				std::uint32_t const orig_flags = rc.flags;
 				if (!append_recv_buf_to(ws_it->second.initial_buf, rc)) {
 					continue;
 				}
@@ -250,7 +250,7 @@ void Ring::phase1_copy_recv_bufs() {
 			}
 			auto &conn = fd_table[ufd];
 			if (conn.close_after_send) [[unlikely]] {
-				u32 const orig_flags = rc.flags;
+				std::uint32_t const orig_flags = rc.flags;
 				discard_recv_bufs(rc);
 				if (rc.res <= 0 && !cqe_has_buffer(orig_flags)) {
 					reclaim_retired_incremental_recv(rc.fd, rc.gen);
@@ -259,9 +259,9 @@ void Ring::phase1_copy_recv_bufs() {
 				}
 				continue;
 			}
-			u32 const orig_flags = rc.flags;
+			std::uint32_t const orig_flags = rc.flags;
 			bool appended = false;
-			SZ recv_buffered = 0;
+			std::size_t recv_buffered = 0;
 #if CONFLUX_HAS_TLS
 			if (conn.ssl != nullptr) {
 				appended = append_recv_buf_to(conn.tls_rx_cipher, rc);
@@ -290,7 +290,7 @@ void Ring::phase1_copy_recv_bufs() {
 					conn.have_incremental_buf_id = false;
 				}
 			}
-			conn.last_activity = chrono::steady_clock::now();
+			conn.last_activity = std::chrono::steady_clock::now();
 			if (!conn.is_tls && !conn.partial.empty() && !conn.request_in_progress) {
 				conn.request_started = conn.last_activity;
 				conn.request_in_progress = true;
@@ -298,19 +298,19 @@ void Ring::phase1_copy_recv_bufs() {
 			if (conn.send_queued) {
 				continue;
 			}
-			auto bounded_add = [](SZ a, SZ b) noexcept {
-				if (a > NL<SZ>::max() - b) {
-					return NL<SZ>::max();
+			auto bounded_add = [](std::size_t a, std::size_t b) noexcept {
+				if (a > std::numeric_limits<std::size_t>::max() - b) {
+					return std::numeric_limits<std::size_t>::max();
 				}
 				return a + b;
 			};
-			auto bounded_mul = [](SZ a, SZ b) noexcept {
-				if (a != 0 && b > NL<SZ>::max() / a) {
-					return NL<SZ>::max();
+			auto bounded_mul = [](std::size_t a, std::size_t b) noexcept {
+				if (a != 0 && b > std::numeric_limits<std::size_t>::max() / a) {
+					return std::numeric_limits<std::size_t>::max();
 				}
 				return a * b;
 			};
-			SZ raw_receive_cap = max_body_size;
+			std::size_t raw_receive_cap = max_body_size;
 			raw_receive_cap = bounded_add(raw_receive_cap, parser_limits.max_header_block_size);
 			raw_receive_cap = bounded_add(raw_receive_cap, parser_limits.max_request_line_size);
 			raw_receive_cap =
@@ -395,7 +395,7 @@ void Ring::phase2_build_responses() {
 			if (rc.res <= 0) {
 				continue;
 			}
-			auto const ufd = static_cast<SZ>(rc.fd);
+			auto const ufd = static_cast<std::size_t>(rc.fd);
 			if (ufd >= fd_table.size() || fd_table[ufd].gen != rc.gen || fd_table[ufd].fd < 0) {
 				continue;
 			}
@@ -413,7 +413,7 @@ void Ring::phase2_build_responses() {
 				if (!conn.partial.empty()) {
 					auto n = nghttp2_session_mem_recv(
 						conn.h2_session,
-						reinterpret_cast<u8 const *>(conn.partial.data()),
+						reinterpret_cast<std::uint8_t const *>(conn.partial.data()),
 						conn.partial.size());
 					conn.partial.clear();
 					if (n < 0) {
@@ -452,7 +452,7 @@ void Ring::phase3_dispatch() {
 				discard_recv_bufs(rc);
 			}
 
-			auto const ufd = static_cast<SZ>(rc.fd);
+			auto const ufd = static_cast<std::size_t>(rc.fd);
 			if (ufd >= fd_table.size() || fd_table[ufd].gen != rc.gen) {
 				continue;
 			}

@@ -19,7 +19,7 @@ conflux::uring::Ring make_ring() {
 }
 // Blocking IPv4 connect to loopback:port. Returns connected fd. Caller owns it.
 int connect_v4(
-	u16 port) {
+	std::uint16_t port) {
 	int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
 	sockaddr_in addr{};
@@ -31,7 +31,7 @@ int connect_v4(
 }
 // Blocking IPv6 connect to ::1:port. Returns connected fd. Caller owns it.
 int connect_v6(
-	u16 port) {
+	std::uint16_t port) {
 	int const fd = ::socket(AF_INET6, SOCK_STREAM, 0);
 	REQUIRE(fd >= 0);
 	sockaddr_in6 addr{};
@@ -81,7 +81,7 @@ TEST_CASE(
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v6}};
 	sockaddr_storage peer{};
 	socklen_t peerlen = sizeof(peer);
-	constexpr u64 UD = 0xACC3;
+	constexpr std::uint64_t UD = 0xACC3;
 	REQUIRE(l.arm_accept_multishot_borrowed(srr, reinterpret_cast<sockaddr *>(&peer), &peerlen, UD, caps));
 	ring.submit();
 	int const client = connect_v6(l.port());
@@ -116,7 +116,7 @@ TEST_CASE(
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	sockaddr_storage peer{};
 	socklen_t peerlen = sizeof(peer);
-	constexpr u64 UD = 0xACC1;
+	constexpr std::uint64_t UD = 0xACC1;
 	REQUIRE(l.arm_accept_multishot_borrowed(srr, reinterpret_cast<sockaddr *>(&peer), &peerlen, UD, caps));
 	ring.submit();
 	int const client = connect_v4(l.port());
@@ -138,7 +138,7 @@ TEST_CASE(
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	sockaddr_storage peer{};
 	socklen_t peerlen = sizeof(peer);
-	constexpr u64 UD = 0xACC4;
+	constexpr std::uint64_t UD = 0xACC4;
 	REQUIRE(l.arm_accept_multishot_borrowed(srr, reinterpret_cast<sockaddr *>(&peer), &peerlen, UD, caps));
 	ring.submit();
 	int const client = connect_v4(l.port());
@@ -163,9 +163,9 @@ TEST_CASE(
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	sockaddr_storage peer{};
 	socklen_t peerlen = sizeof(peer);
-	constexpr u64 UD1 = 0xACC1;
-	constexpr u64 UD2 = 0xACC2;
-	constexpr u64 UD_CANCEL = 0xCA11;
+	constexpr std::uint64_t UD1 = 0xACC1;
+	constexpr std::uint64_t UD2 = 0xACC2;
+	constexpr std::uint64_t UD_CANCEL = 0xCA11;
 	// arm + connect client 1
 	REQUIRE(l.arm_accept_multishot_borrowed(srr, reinterpret_cast<sockaddr *>(&peer), &peerlen, UD1, caps));
 	ring.submit();

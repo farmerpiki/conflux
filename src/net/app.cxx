@@ -16,7 +16,7 @@ template<typename Fn>
 [[nodiscard]] HttpResponse defer(
 	std::shared_ptr<WorkPool> const &pool,
 	Fn &&fn,
-	chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
+	std::chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
 	if (!pool) {
 		return HttpResponse::internal_error("defer: null pool");
 	}
@@ -38,7 +38,7 @@ template<typename Fn>
 [[nodiscard]] HttpResponse defer(
 	WorkPool &pool,
 	Fn &&fn,
-	chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
+	std::chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
 	auto deferred = make_shared<DeferredResponse>(timeout);
 	bool const enqueued = pool.enqueue([deferred, work = std::decay_t<Fn>(forward<Fn>(fn))]() mutable {
 		try {
@@ -53,7 +53,7 @@ template<typename Fn>
 	return HttpResponse::deferred(move(deferred));
 }
 struct AppRunOptions {
-	u16 port = kConfigDefaultPort;
+	std::uint16_t port = kConfigDefaultPort;
 };
 class App {
 public:

@@ -30,7 +30,7 @@ void submit_nops_no_drain(
 				break;
 			}
 			io_uring_prep_nop(sqe.raw());
-			io_uring_sqe_set_data64(sqe.raw(), static_cast<u64>(submitted + j));
+			io_uring_sqe_set_data64(sqe.raw(), static_cast<std::uint64_t>(submitted + j));
 		}
 		ring.submit();
 		submitted += batch;
@@ -91,7 +91,7 @@ TEST_CASE(
 		auto sqe = ring.get_sqe();
 		REQUIRE(sqe);
 		io_uring_prep_nop(sqe.raw());
-		io_uring_sqe_set_data64(sqe.raw(), static_cast<u64>(i));
+		io_uring_sqe_set_data64(sqe.raw(), static_cast<std::uint64_t>(i));
 	}
 	ring.submit();
 	for (unsigned d = 0; d < n_ops;) {
@@ -185,14 +185,14 @@ TEST_CASE(
 	// First overflow round.
 	submit_nops_no_drain(ring, 12, 4);
 	REQUIRE(ring.cq_has_overflow());
-	u32 const first = ring.cq_overflow_count();
+	std::uint32_t const first = ring.cq_overflow_count();
 	CHECK(first > 0u);
 	drain_cq(ring);
 
 	// Second overflow round.
 	submit_nops_no_drain(ring, 12, 4);
 	REQUIRE(ring.cq_has_overflow());
-	u32 const second = ring.cq_overflow_count();
+	std::uint32_t const second = ring.cq_overflow_count();
 	CHECK(second >= first);
 	drain_cq(ring);
 }

@@ -18,7 +18,7 @@ struct MappedRegionEntry {
 	std::uint64_t file_size{};
 	~MappedRegionEntry() noexcept {
 		if (ptr != nullptr) {
-			::munmap(const_cast<void *>(ptr), static_cast<SZ>(mmap_size));
+			::munmap(const_cast<void *>(ptr), static_cast<std::size_t>(mmap_size));
 		}
 	}
 	MappedRegionEntry() noexcept = default;
@@ -87,7 +87,7 @@ export std::expected<MappedFileLease, FileMapError> blocking_map_file_readonly(
 	open_how how{};
 	how.flags = O_RDONLY | O_CLOEXEC;
 	how.resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS;
-	S rel{relative};
+	std::string rel{relative};
 	int const fd = static_cast<int>(::syscall(SYS_openat2, dir_fd, rel.c_str(), &how, sizeof(how)));
 	if (fd < 0) {
 		return unexpected{

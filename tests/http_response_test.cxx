@@ -15,9 +15,9 @@ import conflux.net.http.response;
 
 namespace {
 
-[[nodiscard]] u64 read_eventfd_value(
+[[nodiscard]] std::uint64_t read_eventfd_value(
 	int fd) {
-	u64 value{};
+	std::uint64_t value{};
 	auto const n = ::read(fd, &value, sizeof(value));
 	REQUIRE(n == static_cast<ssize_t>(sizeof(value)));
 	return value;
@@ -32,7 +32,7 @@ void make_eventfd_nonblocking(
 
 [[nodiscard]] bool eventfd_would_block(
 	int fd) {
-	u64 value{};
+	std::uint64_t value{};
 	auto const n = ::read(fd, &value, sizeof(value));
 	return n < 0 && errno == EAGAIN;
 }
@@ -44,15 +44,15 @@ TEST_CASE(
 	"[http.response]") {
 	auto not_found = HttpResponse::not_found("/x?<bad>&\"'");
 	CHECK(not_found.status == kHttpNotFound);
-	CHECK(not_found.text_body().find("&lt;bad&gt;&amp;&quot;&#39;") != SV::npos);
+	CHECK(not_found.text_body().find("&lt;bad&gt;&amp;&quot;&#39;") != std::string_view::npos);
 
 	auto bad = HttpResponse::bad_request("<bad>&\"'");
 	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.text_body().find("&lt;bad&gt;&amp;&quot;&#39;") != SV::npos);
+	CHECK(bad.text_body().find("&lt;bad&gt;&amp;&quot;&#39;") != std::string_view::npos);
 
 	auto internal = HttpResponse::internal_error("<boom>");
 	CHECK(internal.status == kHttpInternalServerError);
-	CHECK(internal.text_body().find("&lt;boom&gt;") != SV::npos);
+	CHECK(internal.text_body().find("&lt;boom&gt;") != std::string_view::npos);
 }
 
 TEST_CASE(
@@ -129,13 +129,13 @@ TEST_CASE(
 		auto resp = HttpResponse::forbidden("<no>");
 		CHECK(resp.status == kHttpForbidden);
 		CHECK(resp.status_text == "Forbidden");
-		CHECK(resp.text_body().find("&lt;no&gt;") != SV::npos);
+		CHECK(resp.text_body().find("&lt;no&gt;") != std::string_view::npos);
 	}
 	{
 		auto resp = HttpResponse::unprocessable_entity("bad field");
 		CHECK(resp.status == kHttpUnprocessableEntity);
 		CHECK(resp.status_text == "Unprocessable Entity");
-		CHECK(resp.text_body().find("bad field") != SV::npos);
+		CHECK(resp.text_body().find("bad field") != std::string_view::npos);
 	}
 	{
 		auto resp = HttpResponse::uri_too_long();
@@ -171,7 +171,7 @@ TEST_CASE(
 		CHECK(resp.sse_channel_ptr() == ch);
 	}
 	{
-		auto deferred = make_shared<DeferredResponse>(chrono::milliseconds{10000});
+		auto deferred = make_shared<DeferredResponse>(std::chrono::milliseconds{10000});
 		auto resp = HttpResponse::deferred(deferred);
 		CHECK(resp.is_deferred());
 		CHECK(resp.deferred_response_ptr() == deferred);
@@ -224,7 +224,7 @@ TEST_CASE(
 	CHECK(resp.take_streamed_file() == streamed);
 	CHECK_FALSE(resp.streamed_file_ptr());
 
-	auto deferred = make_shared<DeferredResponse>(chrono::milliseconds{10000});
+	auto deferred = make_shared<DeferredResponse>(std::chrono::milliseconds{10000});
 	resp.set_deferred_response(deferred);
 	CHECK(resp.is_deferred());
 	CHECK(resp.deferred_response_ptr() == deferred);
@@ -239,7 +239,7 @@ TEST_CASE(
 TEST_CASE(
 	"http response: DeferredResponse complete wakes eventfd once and stores first response",
 	"[http.response]") {
-	DeferredResponse deferred{chrono::milliseconds{10000}};
+	DeferredResponse deferred{std::chrono::milliseconds{10000}};
 	make_eventfd_nonblocking(deferred.eventfd_fd());
 
 	deferred.complete(HttpResponse::text("first"));
@@ -259,15 +259,15 @@ TEST_CASE(
 TEST_CASE(
 	"http response: DeferredResponse deadline expiry wakes eventfd and materializes gateway timeout",
 	"[http.response]") {
-	DeferredResponse deferred{chrono::milliseconds{10000}};
+	DeferredResponse deferred{std::chrono::milliseconds{10000}};
 	make_eventfd_nonblocking(deferred.eventfd_fd());
 
-	auto const now = chrono::steady_clock::now();
-	deferred.set_deadline(now + chrono::seconds{1});
+	auto const now = std::chrono::steady_clock::now();
+	deferred.set_deadline(now + std::chrono::seconds{1});
 	CHECK_FALSE(deferred.expire_if_past_deadline(now));
 	CHECK(eventfd_would_block(deferred.eventfd_fd()));
 
-	deferred.set_deadline(now - chrono::milliseconds{1});
+	deferred.set_deadline(now - std::chrono::milliseconds{1});
 	CHECK(deferred.expire_if_past_deadline(now));
 	CHECK(read_eventfd_value(deferred.eventfd_fd()) == 1);
 	CHECK(eventfd_would_block(deferred.eventfd_fd()));

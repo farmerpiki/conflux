@@ -106,7 +106,7 @@ void ActiveTaskCancelRelay::throw_if_cancelled() const {
 	}
 }
 
-[[nodiscard]] wroot::Task<SZ> ActiveTaskCancelRelay::await_child(wroot::Task<SZ> child) {
+[[nodiscard]] wroot::Task<std::size_t> ActiveTaskCancelRelay::await_child(wroot::Task<std::size_t> child) {
 	set_active(child.control());
 	try {
 		auto out = co_await move(child);

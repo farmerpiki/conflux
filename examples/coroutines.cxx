@@ -11,17 +11,17 @@ import conflux.types;
 namespace root = conflux::work::root;
 namespace {
 
-constexpr u64 pack_ud(
-	u32 slot,
-	u32 gen) noexcept {
-	return (static_cast<u64>(gen) << 32U) | slot;
+constexpr std::uint64_t pack_ud(
+	std::uint32_t slot,
+	std::uint32_t gen) noexcept {
+	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 }
 root::Task<std::string> read_file(
 	FileReader &files,
 	std::string path) {
 	auto handle = co_await files.async_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC);
 	if (!handle.valid()) {
-		throw RE{format("open {} failed", path)};
+		throw std::runtime_error{format("open {} failed", path)};
 	}
 	std::array<std::byte, 256> buf{};
 	auto got = co_await files.read_into(handle, 0, span<byte>{buf.data(), buf.size()});

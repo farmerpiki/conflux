@@ -110,10 +110,10 @@ inline uint64_t fnv1a64(
 } // namespace detail
 export struct ConnectParams {
 	string conninfo{};
-	chrono::milliseconds connect_deadline{chrono::seconds{15}};
+	std::chrono::milliseconds connect_deadline{std::chrono::seconds{15}};
 };
 export struct QueryOptions {
-	optional<chrono::milliseconds> deadline{};
+	optional<std::chrono::milliseconds> deadline{};
 };
 export class StatementCache {
 public:
@@ -378,14 +378,14 @@ struct ConnectState : enable_shared_from_this<ConnectState> {
 	PGConnPtr conn{};
 	FileReader *reader{nullptr};
 	shared_ptr<root::TaskSource<shared_ptr<Connection>>> dst{};
-	chrono::steady_clock::time_point deadline{};
+	std::chrono::steady_clock::time_point deadline{};
 	void start() {
 		install_sigpipe_ignore();
 		drive(/*initial=*/true);
 	}
 	void drive(
 		bool initial) {
-		if (chrono::steady_clock::now() > deadline) {
+		if (std::chrono::steady_clock::now() > deadline) {
 			auto _ =
 				dst->try_set_exception(make_exception_ptr(PgError{"conflux.db: connect deadline exceeded", "08001"}));
 			return;
@@ -500,7 +500,7 @@ root::Task<shared_ptr<Connection>> Connection::connect(
 	st->conn = move(conn);
 	st->reader = reader;
 	st->dst = shared_src;
-	st->deadline = chrono::steady_clock::now() + params.connect_deadline;
+	st->deadline = std::chrono::steady_clock::now() + params.connect_deadline;
 	st->start();
 	return move(task);
 }
@@ -959,7 +959,7 @@ root::Task<Result> Connection::query(
 	  conflux::uring::async_timeout(
 		  reader->ring(),
 		  *reader->completions(),
-		  [reader](u32 slot, u32 gen) noexcept { return reader->encode_ud(slot, gen); },
+		  [reader](std::uint32_t slot, std::uint32_t gen) noexcept { return reader->encode_ud(slot, gen); },
 		  deadline))
 																					   .detach();
 	return move(task);

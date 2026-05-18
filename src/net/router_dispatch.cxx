@@ -104,7 +104,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					return error_handler ? error_handler(matched_view, ex) :
 										  HttpResponse::internal_error(ex.what());
 				} catch (...) {
-					return error_handler ? error_handler(matched_view, RE{"unknown exception"}) :
+					return error_handler ? error_handler(matched_view, std::runtime_error{"unknown exception"}) :
 										  HttpResponse::internal_error();
 				}
 			}

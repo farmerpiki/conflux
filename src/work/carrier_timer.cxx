@@ -19,10 +19,10 @@ class TimerService {
 public:
 	explicit TimerService(
 		io_uring *ring,
-		u64 cqe_tag) {
+		std::uint64_t cqe_tag) {
 		tfd_ = ::timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK | TFD_CLOEXEC);
 		if (tfd_ < 0) {
-			throw SE{errno, system_category(), "timerfd_create"};
+			throw std::system_error{errno, system_category(), "timerfd_create"};
 		}
 		ring_ = ring;
 		cqe_tag_ = cqe_tag;
@@ -61,28 +61,28 @@ private:
 	template<class Clock>
 	friend class LaneTimerScope;
 	struct Entry {
-		chrono::steady_clock::time_point deadline;
-		u64 expected_gen;
-		SP<u64> gen;
-		Fn<void()> fn;
+		std::chrono::steady_clock::time_point deadline;
+		std::uint64_t expected_gen;
+		std::shared_ptr<std::uint64_t> gen;
+		std::function<void()> fn;
 		bool operator >(
 			Entry const &o) const noexcept {
 			return deadline > o.deadline;
 		}
 	};
 	io_uring *ring_ = nullptr;
-	u64 cqe_tag_{};
+	std::uint64_t cqe_tag_{};
 	thread::id owner_{};
 	int tfd_ = -1;
-	u64 read_buf_{};
-	std::priority_queue<Entry, V<Entry>, std::greater<Entry>> heap_;
-	u64 tombstone_count_ = 0;
-	u64 cancel_count_ = 0;
-	[[nodiscard]] SP<u64> insert_(
-		chrono::steady_clock::time_point deadline,
-		Fn<void()> fn) {
+	std::uint64_t read_buf_{};
+	std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> heap_;
+	std::uint64_t tombstone_count_ = 0;
+	std::uint64_t cancel_count_ = 0;
+	[[nodiscard]] std::shared_ptr<std::uint64_t> insert_(
+		std::chrono::steady_clock::time_point deadline,
+		std::function<void()> fn) {
 		check_thread_();
-		auto gen = make_shared<u64>(0);
+		auto gen = make_shared<std::uint64_t>(0);
 		bool const was_empty = heap_.empty();
 		bool const is_new_min = !was_empty && deadline < heap_.top().deadline;
 		heap_.push(Entry{deadline, 0, gen, move(fn)});
@@ -93,7 +93,7 @@ private:
 		return gen;
 	}
 	void cancel_(
-		SP<u64> const &gen) noexcept {
+		std::shared_ptr<std::uint64_t> const &gen) noexcept {
 		check_thread_();
 		if (!gen) {
 			return;
@@ -108,13 +108,13 @@ private:
 			return;
 		}
 		auto const &top = heap_.top();
-		auto const now = chrono::steady_clock::now();
+		auto const now = std::chrono::steady_clock::now();
 		auto delta = top.deadline - now;
-		if (delta < chrono::nanoseconds{0}) {
-			delta = chrono::nanoseconds{0};
+		if (delta < std::chrono::nanoseconds{0}) {
+			delta = std::chrono::nanoseconds{0};
 		}
-		auto const sec = chrono::duration_cast<chrono::seconds>(delta);
-		auto const nsec = chrono::duration_cast<chrono::nanoseconds>(delta - sec);
+		auto const sec = std::chrono::duration_cast<std::chrono::seconds>(delta);
+		auto const nsec = std::chrono::duration_cast<std::chrono::nanoseconds>(delta - sec);
 		itimerspec its{};
 		its.it_value.tv_sec = sec.count();
 		its.it_value.tv_nsec = nsec.count();
@@ -124,7 +124,7 @@ private:
 		::timerfd_settime(tfd_, 0, &its, nullptr);
 	}
 	void fire_expired_() noexcept {
-		auto const now = chrono::steady_clock::now();
+		auto const now = std::chrono::steady_clock::now();
 		while (!heap_.empty()) {
 			auto &top = const_cast<Entry &>(heap_.top());
 			if (top.deadline > now) {
@@ -156,7 +156,7 @@ private:
 		} catch (...) { root::emit_carrier_diagnostic("TimerService: compaction failed — heap not compacted"); }
 	}
 	void compact_() {
-		V<Entry> survivors;
+		std::vector<Entry> survivors;
 		while (!heap_.empty()) {
 			auto e = move(const_cast<Entry &>(heap_.top()));
 			heap_.pop();
@@ -190,20 +190,20 @@ private:
 #endif
 	}
 };
-template<class Clock = chrono::steady_clock>
+template<class Clock = std::chrono::steady_clock>
 class LaneTimerScope {
 public:
 	LaneTimerScope(
 		TimerService &svc,
 		typename Clock::time_point deadline,
-		Fn<void()> cancel_fn)
+		std::function<void()> cancel_fn)
 		: svc_{&svc} {
 		auto const steady_deadline = [&] {
-			if constexpr (same_as<Clock, chrono::steady_clock>) {
+			if constexpr (same_as<Clock, std::chrono::steady_clock>) {
 				return deadline;
 			} else {
 				auto const delta = deadline - Clock::now();
-				return chrono::steady_clock::now() + delta;
+				return std::chrono::steady_clock::now() + delta;
 			}
 		}();
 		gen_ = svc.insert_(steady_deadline, move(cancel_fn));
@@ -233,7 +233,7 @@ private:
 		}
 	}
 	TimerService *svc_ = nullptr;
-	SP<u64> gen_;
+	std::shared_ptr<std::uint64_t> gen_;
 };
 
 } // namespace conflux::work::carrier

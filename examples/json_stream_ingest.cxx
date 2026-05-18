@@ -6,16 +6,16 @@ using namespace conflux::json;
 using std::println;
 
 struct ApiEvent {
-	i64 id{};
+	std::int64_t id{};
 	std::string type;
-	i64 tokens{};
+	std::int64_t tokens{};
 	std::optional<std::string> error{};
 };
 
 template<>
 struct JsonMembers<ApiEvent> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("id", &ApiEvent::id),
 			json_member("type", &ApiEvent::type),
 			json_member("tokens", &ApiEvent::tokens),
@@ -27,7 +27,7 @@ struct JsonMembers<ApiEvent> {
 
 struct IngestStats {
 	std::size_t rows{};
-	i64 token_total{};
+	std::int64_t token_total{};
 	std::size_t errors{};
 };
 

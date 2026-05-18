@@ -7,7 +7,7 @@ import conflux.types;
 import conflux.uring;
 import conflux.socket_io;
 
-static constexpr u32 kSockNonempty = IORING_CQE_F_SOCK_NONEMPTY;
+static constexpr std::uint32_t kSockNonempty = IORING_CQE_F_SOCK_NONEMPTY;
 TEST_CASE(
 	"resolve_recv_arm_policy: no prior flags → default_",
 	"[poll_first_auto]") {

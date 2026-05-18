@@ -15,7 +15,7 @@ class TempIni {
 
 public:
 	explicit TempIni(
-		SV body) {
+		std::string_view body) {
 		auto const name = format(
 			"conflux-config-test-{}-{}.ini",
 			std::chrono::steady_clock::now().time_since_epoch().count(),
@@ -23,7 +23,7 @@ public:
 		path_ = std::filesystem::temp_directory_path() / name;
 		std::ofstream out{path_};
 		if (!out) {
-			throw RE{"failed to create temp ini"};
+			throw std::runtime_error{"failed to create temp ini"};
 		}
 		out << body;
 	}
@@ -132,7 +132,7 @@ TEST_CASE(
 busy_poll_us = -1
 )ini"};
 
-	REQUIRE_THROWS_AS((void)config_from_ini(ini.c_str()), RE);
+	REQUIRE_THROWS_AS((void)config_from_ini(ini.c_str()), std::runtime_error);
 }
 
 TEST_CASE(
@@ -169,19 +169,19 @@ TEST_CASE(
 TEST_CASE(
 	"net.http_server_config: EINVAL fallback strips setup flags in proposal order",
 	"[net.config]") {
-	u32 flags = IORING_SETUP_CQE_MIXED
+	std::uint32_t flags = IORING_SETUP_CQE_MIXED
 		| IORING_SETUP_NO_SQARRAY
 		| IORING_SETUP_SUBMIT_ALL
 		| IORING_SETUP_TASKRUN_FLAG
 		| IORING_SETUP_DEFER_TASKRUN
 		| IORING_SETUP_SINGLE_ISSUER;
-	V<u32> stripped;
+	std::vector<std::uint32_t> stripped;
 	while (auto const bit = next_uring_setup_flag_to_strip(flags)) {
 		stripped.push_back(*bit);
 		flags &= ~*bit;
 	}
 	CHECK(flags == 0U);
-	CHECK(stripped == V<u32>{
+	CHECK(stripped == std::vector<std::uint32_t>{
 		IORING_SETUP_CQE_MIXED,
 		IORING_SETUP_NO_SQARRAY,
 		IORING_SETUP_SUBMIT_ALL,
@@ -201,13 +201,13 @@ TEST_CASE(
 		| conflux::uring::setup_flags::taskrun_flag
 		| conflux::uring::setup_flags::defer_taskrun
 		| conflux::uring::setup_flags::single_issuer;
-	V<u32> stripped;
+	std::vector<std::uint32_t> stripped;
 	while (auto const bit = conflux::uring::next_setup_flag_to_strip(flags)) {
 		stripped.push_back(bit->raw());
 		flags &= ~*bit;
 	}
 	CHECK(flags.raw() == 0U);
-	CHECK(stripped == V<u32>{
+	CHECK(stripped == std::vector<std::uint32_t>{
 		IORING_SETUP_CQE_MIXED,
 		IORING_SETUP_NO_SQARRAY,
 		IORING_SETUP_SUBMIT_ALL,

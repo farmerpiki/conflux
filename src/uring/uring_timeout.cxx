@@ -12,8 +12,8 @@ import conflux.uring.completion;
 namespace conflux::uring {
 namespace root = conflux::work::root;
 
-export struct UringTimeoutError final : RE {
-	using RE::runtime_error;
+export struct UringTimeoutError final : std::runtime_error {
+	using std::runtime_error::runtime_error;
 };
 
 namespace detail {
@@ -21,8 +21,8 @@ namespace detail {
 [[nodiscard]] root::Task<void> submit_timeout_(
 	io_uring *ring,
 	CompletionTable &completions,
-	Fn<u64(u32, u32)> encode_ud,
-	chrono::milliseconds ms,
+	std::function<std::uint64_t(std::uint32_t, std::uint32_t)> encode_ud,
+	std::chrono::milliseconds ms,
 	unsigned count,
 	unsigned flags,
 	bool link_only) {
@@ -34,7 +34,7 @@ namespace detail {
 		return move(task);
 	}
 	auto ts = make_shared<__kernel_timespec>();
-	auto const sec = chrono::duration_cast<chrono::seconds>(ms);
+	auto const sec = std::chrono::duration_cast<std::chrono::seconds>(ms);
 	ts->tv_sec = sec.count();
 	ts->tv_nsec = (ms - sec).count() * 1000000LL;
 	if (link_only) {
@@ -70,8 +70,8 @@ namespace detail {
 export [[nodiscard]] root::Task<void> async_timeout(
 	io_uring *ring,
 	CompletionTable &completions,
-	Fn<u64(u32, u32)> encode_ud,
-	chrono::milliseconds ms,
+	std::function<std::uint64_t(std::uint32_t, std::uint32_t)> encode_ud,
+	std::chrono::milliseconds ms,
 	unsigned count = 0,
 	unsigned flags = 0) {
 	return detail::submit_timeout_(ring, completions, move(encode_ud), ms, count, flags, false);
@@ -80,8 +80,8 @@ export [[nodiscard]] root::Task<void> async_timeout(
 export [[nodiscard]] root::Task<void> timeout_async(
 	io_uring *ring,
 	CompletionTable &completions,
-	Fn<u64(u32, u32)> encode_ud,
-	chrono::milliseconds ms,
+	std::function<std::uint64_t(std::uint32_t, std::uint32_t)> encode_ud,
+	std::chrono::milliseconds ms,
 	unsigned count = 0,
 	unsigned flags = 0) {
 	return async_timeout(ring, completions, move(encode_ud), ms, count, flags);
@@ -90,8 +90,8 @@ export [[nodiscard]] root::Task<void> timeout_async(
 export [[nodiscard]] root::Task<void> async_timeout_remove(
 	io_uring *ring,
 	CompletionTable &completions,
-	Fn<u64(u32, u32)> encode_ud,
-	u64 user_data,
+	std::function<std::uint64_t(std::uint32_t, std::uint32_t)> encode_ud,
+	std::uint64_t user_data,
 	unsigned flags = 0) {
 	auto [task, raw_src] = root::make_task_source<void>(root::SubmitOptions{.enable_cancellation = false});
 	auto shared_src = make_shared<root::TaskSource<void>>(move(raw_src));
@@ -119,8 +119,8 @@ export [[nodiscard]] root::Task<void> async_timeout_remove(
 export [[nodiscard]] root::Task<void> timeout_remove_async(
 	io_uring *ring,
 	CompletionTable &completions,
-	Fn<u64(u32, u32)> encode_ud,
-	u64 user_data,
+	std::function<std::uint64_t(std::uint32_t, std::uint32_t)> encode_ud,
+	std::uint64_t user_data,
 	unsigned flags = 0) {
 	return async_timeout_remove(ring, completions, move(encode_ud), user_data, flags);
 }
@@ -128,8 +128,8 @@ export [[nodiscard]] root::Task<void> timeout_remove_async(
 export [[nodiscard]] root::Task<void> async_link_timeout(
 	io_uring *ring,
 	CompletionTable &completions,
-	Fn<u64(u32, u32)> encode_ud,
-	chrono::milliseconds ms,
+	std::function<std::uint64_t(std::uint32_t, std::uint32_t)> encode_ud,
+	std::chrono::milliseconds ms,
 	unsigned flags = 0) {
 	return detail::submit_timeout_(ring, completions, move(encode_ud), ms, 0, flags, true);
 }
@@ -137,8 +137,8 @@ export [[nodiscard]] root::Task<void> async_link_timeout(
 export [[nodiscard]] root::Task<void> link_timeout_async(
 	io_uring *ring,
 	CompletionTable &completions,
-	Fn<u64(u32, u32)> encode_ud,
-	chrono::milliseconds ms,
+	std::function<std::uint64_t(std::uint32_t, std::uint32_t)> encode_ud,
+	std::chrono::milliseconds ms,
 	unsigned flags = 0) {
 	return async_link_timeout(ring, completions, move(encode_ud), ms, flags);
 }

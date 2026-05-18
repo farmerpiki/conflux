@@ -18,9 +18,9 @@ export struct JwtClaims {
 	std::string sub{};
 	std::string iss{};
 	std::string jti{};
-	i64 exp{};
-	i64 nbf{};
-	i64 iat{};
+	std::int64_t exp{};
+	std::int64_t nbf{};
+	std::int64_t iat{};
 	std::string raw{}; // full decoded payload JSON (for custom claims)
 };
 export struct JwtOptions {
@@ -32,8 +32,8 @@ export struct JwtOptions {
 	bool require_exp{false}; // reject tokens without an exp claim
 	bool require_iat{false}; // reject tokens without an iat claim
 	bool require_jti{false}; // reject tokens without a jti claim
-	chrono::seconds clock_skew{}; // tolerance for exp/nbf comparisons
-	chrono::seconds max_token_lifetime{}; // 0 = disabled; otherwise requires exp+iat and caps exp-iat
+	std::chrono::seconds clock_skew{}; // tolerance for exp/nbf comparisons
+	std::chrono::seconds max_token_lifetime{}; // 0 = disabled; otherwise requires exp+iat and caps exp-iat
 	std::function<bool(std::string_view)> revoked_jti{}; // optional revocation lookup; true = reject token
 };
 // ---------------------------------------------------------------------------
@@ -104,14 +104,14 @@ std::string_view json_string(
 	}
 	return {};
 }
-// Minimal JSON number extractor: find i64 value of `"key"`.
-std::optional<i64> json_int_at(
+// Minimal JSON number extractor: find std::int64_t value of `"key"`.
+std::optional<std::int64_t> json_int_at(
 	std::string_view json,
 	std::size_t pos) {
 	if (pos >= json.size()) {
 		return nullopt;
 	}
-	i64 val{};
+	std::int64_t val{};
 	auto const *jend = ranges::next(json.data(), ssize(json));
 	auto const *jpos = json.data() + pos;
 	auto [ptr, ec] = from_chars(jpos, jend, val);
@@ -185,19 +185,19 @@ bool ct_equal(
 	return diff == 0;
 }
 [[nodiscard]] bool token_expired(
-	i64 exp,
-	i64 now,
-	i64 skew) noexcept {
+	std::int64_t exp,
+	std::int64_t now,
+	std::int64_t skew) noexcept {
 	if (skew >= now) {
 		return false;
 	}
 	return exp <= now - skew;
 }
 [[nodiscard]] bool token_not_yet_valid(
-	i64 nbf,
-	i64 now,
-	i64 skew) noexcept {
-	if (skew > std::numeric_limits<i64>::max() - now) {
+	std::int64_t nbf,
+	std::int64_t now,
+	std::int64_t skew) noexcept {
+	if (skew > std::numeric_limits<std::int64_t>::max() - now) {
 		return false;
 	}
 	return nbf > now + skew;
@@ -354,9 +354,9 @@ export expected<JwtClaims, std::string> jwt_decode(
 	claims.iat = iat.value_or(0);
 
 	// Validate claims.
-	auto const now = chrono::duration_cast<chrono::seconds>(chrono::system_clock::now().time_since_epoch()).count();
-	auto const skew = max<i64>(0, chrono::duration_cast<chrono::seconds>(opts.clock_skew).count());
-	auto const max_lifetime = chrono::duration_cast<chrono::seconds>(opts.max_token_lifetime).count();
+	auto const now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	auto const skew = max<std::int64_t>(0, std::chrono::duration_cast<std::chrono::seconds>(opts.clock_skew).count());
+	auto const max_lifetime = std::chrono::duration_cast<std::chrono::seconds>(opts.max_token_lifetime).count();
 
 	if (opts.require_exp && claims.exp == 0) {
 		return unexpected{"missing exp claim"};

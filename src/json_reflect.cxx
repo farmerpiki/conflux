@@ -11,10 +11,10 @@ export namespace conflux::json {
 
 struct name_t {
 	char const *p;
-	SZ n;
+	std::size_t n;
 };
 consteval name_t name(
-	SV sv) {
+	std::string_view sv) {
 	return {std::define_static_string(sv), sv.size()};
 }
 struct skip {};
@@ -46,10 +46,10 @@ consteval conflux::json::name_t reflect_get_name_ann() {
 		std::meta::annotations_of_with_type(Mem, ^^conflux::json::name_t)[0]);
 }
 template<class T>
-consteval SZ reflect_member_count() {
+consteval std::size_t reflect_member_count() {
 	return std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unchecked()).size();
 }
-template<class T, SZ I>
+template<class T, std::size_t I>
 consteval std::meta::info reflect_member_at() {
 	return std::meta::nonstatic_data_members_of(^^T, std::meta::access_context::unchecked())[I];
 }
@@ -65,68 +65,68 @@ consteval conflux::json::name_t reflect_field_name() {
 template<class T>
 struct is_opt_refl : std::false_type {};
 template<class T>
-struct is_opt_refl<Opt<T>> : std::true_type {};
+struct is_opt_refl<std::optional<T>> : std::true_type {};
 // Decode a NodeRef into M, handling non-codec integral/float types.
 template<class M>
-[[nodiscard]] expected<M, JsonError> decode_reflect_member(
+[[nodiscard]] expected<std::map, JsonError> decode_reflect_member(
 	NodeRef node,
 	JsonDecodeOptions const &opts) {
-	if constexpr (has_json_codec<M>) {
-		return ::decode<M>(node, opts);
-	} else if constexpr (std::is_signed_v<M> && std::integral<M>) {
-		auto r = JsonCodec<i64>::decode(node);
+	if constexpr (has_json_codec<std::map>) {
+		return ::decode<std::map>(node, opts);
+	} else if constexpr (std::is_signed_v<std::map> && std::integral<std::map>) {
+		auto r = JsonCodec<std::int64_t>::decode(node);
 		if (!r) {
 			return unexpected(move(r).error());
 		}
-		if (*r < static_cast<i64>(NL<M>::min()) || *r > static_cast<i64>(NL<M>::max())) {
+		if (*r < static_cast<std::int64_t>(std::numeric_limits<std::map>::min()) || *r > static_cast<std::int64_t>(std::numeric_limits<std::map>::max())) {
 			return unexpected(
 				JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::number_out_of_range,
-					.message = format("value out of i64 range for {}", std::meta::display_string_of(^^M))});
+					.message = format("value out of std::int64_t range for {}", std::meta::display_string_of(^^M))});
 		}
-		return static_cast<M>(*r);
-	} else if constexpr (std::is_unsigned_v<M> && std::integral<M>) {
-		auto r = JsonCodec<u64>::decode(node);
+		return static_cast<std::map>(*r);
+	} else if constexpr (std::is_unsigned_v<std::map> && std::integral<std::map>) {
+		auto r = JsonCodec<std::uint64_t>::decode(node);
 		if (!r) {
 			return unexpected(move(r).error());
 		}
-		if (*r > static_cast<u64>(NL<M>::max())) {
+		if (*r > static_cast<std::uint64_t>(std::numeric_limits<std::map>::max())) {
 			return unexpected(
 				JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::number_out_of_range,
-					.message = format("value out of u64 range for {}", std::meta::display_string_of(^^M))});
+					.message = format("value out of std::uint64_t range for {}", std::meta::display_string_of(^^M))});
 		}
-		return static_cast<M>(*r);
-	} else if constexpr (std::floating_point<M>) {
+		return static_cast<std::map>(*r);
+	} else if constexpr (std::floating_point<std::map>) {
 		auto r = JsonCodec<double>::decode(node);
 		if (!r) {
 			return unexpected(move(r).error());
 		}
-		return static_cast<M>(*r);
+		return static_cast<std::map>(*r);
 	} else {
-		static_assert(!std::same_as<M, M>, "no decode support for reflected member type");
+		static_assert(!std::same_as<std::map, M>, "no decode support for reflected member type");
 	}
 }
 // Encode M into ObjectBuilder, handling non-codec integral/float types.
 template<class M>
 [[nodiscard]] expected<void, JsonError> encode_reflect_member(
 	ObjectBuilder &obj,
-	SV name,
+	std::string_view name,
 	M const &value) {
-	if constexpr (requires { JsonCodec<M>::encode(std::declval<ValueBuilder &>(), std::declval<M const &>()); }) {
-		return obj.template insert<M>(name, value);
-	} else if constexpr (std::is_signed_v<M> && std::integral<M>) {
-		return obj.insert_i64(name, static_cast<i64>(value));
-	} else if constexpr (std::is_unsigned_v<M> && std::integral<M>) {
-		return obj.insert_u64(name, static_cast<u64>(value));
-	} else if constexpr (std::floating_point<M>) {
+	if constexpr (requires { JsonCodec<std::map>::encode(std::declval<ValueBuilder &>(), std::declval<M const &>()); }) {
+		return obj.template insert<std::map>(name, value);
+	} else if constexpr (std::is_signed_v<std::map> && std::integral<std::map>) {
+		return obj.insert_i64(name, static_cast<std::int64_t>(value));
+	} else if constexpr (std::is_unsigned_v<std::map> && std::integral<std::map>) {
+		return obj.insert_u64(name, static_cast<std::uint64_t>(value));
+	} else if constexpr (std::floating_point<std::map>) {
 		return obj.insert_f64(name, static_cast<double>(value));
-	} else if constexpr (std::convertible_to<M, SV>) {
-		return obj.insert_string(name, static_cast<SV>(value));
+	} else if constexpr (std::convertible_to<std::map, std::string_view>) {
+		return obj.insert_string(name, static_cast<std::string_view>(value));
 	} else {
-		static_assert(!std::same_as<M, M>, "no encode support for reflected member type");
+		static_assert(!std::same_as<std::map, M>, "no encode support for reflected member type");
 	}
 }
 
@@ -160,7 +160,7 @@ struct JsonCodec<T> {
 
 		[&]<SZ... Is>(std::index_sequence<Is...>) {
 			(
-				[&]<SZ I>() {
+				[&]<std::size_t I>() {
 					if (!ok) {
 						return;
 					}
@@ -170,22 +170,22 @@ struct JsonCodec<T> {
 					}
 
 					constexpr auto name_info = detail::reflect_field_name<mem>();
-					SV const field_name{name_info.p, name_info.n};
+					std::string_view const field_name{name_info.p, name_info.n};
 
 					using M = std::remove_cvref_t<decltype(result.[:mem:])>;
 					auto node = obj.find_member(field_name);
 					if (!node) {
-						if constexpr (!detail::is_opt_refl<M>::value) {
+						if constexpr (!detail::is_opt_refl<std::map>::value) {
 							ok = false;
 							first_err = JsonError{
 								.stage = JsonStage::decode,
 								.code = JsonIssueCode::missing_member,
-								.member_name = S{field_name},
+								.member_name = std::string{field_name},
 								.message = format("missing member: {}", field_name)};
 						}
 						return;
 					}
-					auto decoded = detail::decode_reflect_member<M>(*node, opts);
+					auto decoded = detail::decode_reflect_member<std::map>(*node, opts);
 					if (!decoded) {
 						ok = false;
 						first_err = move(decoded).error();
@@ -210,7 +210,7 @@ struct JsonCodec<T> {
 				bool found = false;
 				[&]<SZ... Is>(std::index_sequence<Is...>) {
 					(
-						[&]<SZ I>() {
+						[&]<std::size_t I>() {
 							if (found) {
 								return;
 							}
@@ -219,7 +219,7 @@ struct JsonCodec<T> {
 								return;
 							}
 							constexpr auto ni = detail::reflect_field_name<mem>();
-							if (SV{ni.p, ni.n} == m.name) {
+							if (std::string_view{ni.p, ni.n} == m.name) {
 								found = true;
 							}
 						}.template operator ()<Is>(),
@@ -230,7 +230,7 @@ struct JsonCodec<T> {
 					first_err = JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::invalid_value,
-						.member_name = S{m.name},
+						.member_name = std::string{m.name},
 						.message = format("unknown member: {}", m.name)};
 				}
 			}
@@ -256,7 +256,7 @@ struct JsonCodec<T> {
 		constexpr auto N = detail::reflect_member_count<T>();
 		[&]<SZ... Is>(std::index_sequence<Is...>) {
 			(
-				[&]<SZ I>() {
+				[&]<std::size_t I>() {
 					if (!ok) {
 						return;
 					}
@@ -266,10 +266,10 @@ struct JsonCodec<T> {
 					}
 
 					constexpr auto name_info = detail::reflect_field_name<mem>();
-					SV const field_name{name_info.p, name_info.n};
+					std::string_view const field_name{name_info.p, name_info.n};
 
 					using M = std::remove_cvref_t<decltype(value.[:mem:])>;
-					auto res = detail::encode_reflect_member<M>(obj, field_name, value.[:mem:]);
+					auto res = detail::encode_reflect_member<std::map>(obj, field_name, value.[:mem:]);
 					if (!res) {
 						ok = false;
 						first_err = move(res).error();
@@ -284,5 +284,5 @@ struct JsonCodec<T> {
 		move(obj).commit();
 		return {};
 	}
-	static constexpr SV type_name() { return std::meta::display_string_of(^^T); }
+	static constexpr std::string_view type_name() { return std::meta::display_string_of(^^T); }
 };

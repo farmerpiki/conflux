@@ -18,34 +18,34 @@ namespace root = conflux::work::root;
 namespace {
 
 void run_warmup(
-	SZ warmup) {
-	for (SZ i = 0; i < warmup; ++i) {
+	std::size_t warmup) {
+	for (std::size_t i = 0; i < warmup; ++i) {
 		auto [task, source] = root::make_task_source<int>();
 		(void)source.try_set_value(root::Success<int>{42});
 		(void)root::blocking_join(move(task));
 	}
 }
 BenchStats bench_task_creation(
-	SZ iters) {
-	u64 const t0 = bench_now_ns();
-	for (SZ i = 0; i < iters; ++i) {
+	std::size_t iters) {
+	std::uint64_t const t0 = bench_now_ns();
+	for (std::size_t i = 0; i < iters; ++i) {
 		auto [task, source] = root::make_task_source<int>();
 		(void)source.try_set_value(root::Success<int>{static_cast<int>(i)});
 		[[maybe_unused]] auto outcome = root::blocking_join(move(task));
 	}
-	u64 const elapsed = bench_now_ns() - t0;
+	std::uint64_t const elapsed = bench_now_ns() - t0;
 	return {{}, "task_creation"sv, iters, elapsed, static_cast<double>(elapsed) / static_cast<double>(iters)};
 }
 BenchStats bench_task_drop_joinable(
-	SV variant_name,
-	SZ iters) {
-	u64 const t0 = bench_now_ns();
-	for (SZ i = 0; i < iters; ++i) {
+	std::string_view variant_name,
+	std::size_t iters) {
+	std::uint64_t const t0 = bench_now_ns();
+	for (std::size_t i = 0; i < iters; ++i) {
 		auto [task, source] = root::make_task_source<int>();
 		(void)source.try_set_value(root::Success<int>{static_cast<int>(i)});
 		(void)root::blocking_join(move(task)); // remove after E1.x auto-detach
 	}
-	u64 const elapsed = bench_now_ns() - t0;
+	std::uint64_t const elapsed = bench_now_ns() - t0;
 	return {{}, variant_name, iters, elapsed, static_cast<double>(elapsed) / static_cast<double>(iters)};
 }
 
@@ -58,7 +58,7 @@ int main(
 		argv,
 		R"({"name":"task_creation","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","1000000","--warmup","50000"]}]})");
 
-	auto const cfg = bench_parse_args(span{argv, static_cast<SZ>(argc)});
+	auto const cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
 	run_warmup(cfg.warmup);
 
 	BenchStats stats[] = {
@@ -66,7 +66,7 @@ int main(
 		bench_task_drop_joinable("task_drop_joinable_release"sv, cfg.iterations),
 		bench_task_drop_joinable("task_drop_joinable_debug"sv, cfg.iterations),
 	};
-	for (SZ i = 0; i < std::size(stats); ++i) {
+	for (std::size_t i = 0; i < std::size(stats); ++i) {
 		bench_print(stats[i], cfg.json_out, i == 0);
 	}
 }

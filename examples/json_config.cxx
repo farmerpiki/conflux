@@ -6,14 +6,14 @@ using namespace conflux::json;
 using std::println;
 
 struct RateLimitConfig {
-	i64 requests_per_minute{};
-	std::optional<i64> burst{};
+	std::int64_t requests_per_minute{};
+	std::optional<std::int64_t> burst{};
 };
 
 template<>
 struct JsonMembers<RateLimitConfig> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("requests_per_minute", &RateLimitConfig::requests_per_minute),
 			json_member("burst", &RateLimitConfig::burst),
 		};
@@ -23,7 +23,7 @@ struct JsonMembers<RateLimitConfig> {
 
 struct ServiceConfig {
 	std::string host;
-	i64 port{};
+	std::int64_t port{};
 	bool tls{};
 	RateLimitConfig rate_limit{};
 	std::optional<std::string> log_level{};
@@ -32,7 +32,7 @@ struct ServiceConfig {
 template<>
 struct JsonMembers<ServiceConfig> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("host", &ServiceConfig::host),
 			json_member("port", &ServiceConfig::port),
 			json_member("tls", &ServiceConfig::tls),

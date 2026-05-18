@@ -47,7 +47,7 @@ export namespace conflux::work::carrier {
 template<root::work_value T>
 struct ChainAwaiter;
 
-enum class CarrierKind : u8 {
+enum class CarrierKind : std::uint8_t {
 	task,
 	posted,
 	operation,
@@ -58,15 +58,15 @@ public:
 		: JoinError{root::JoinError::reason::hop_capability_mismatch} {}
 };
 class AggregateError : public root::WorkError {
-	V<EP> causes_;
+	std::vector<std::exception_ptr> causes_;
 
 public:
 	explicit AggregateError(
-		V<EP> causes)
+		std::vector<std::exception_ptr> causes)
 		: WorkError{"carrier: multiple failures"}
 		, causes_{move(causes)} {}
-	[[nodiscard]] V<EP> causes_owned() const { return causes_; }
-	[[nodiscard("span lifetime bound to *this — moves invalidate")]] span<EP const> causes_view() const noexcept {
+	[[nodiscard]] std::vector<std::exception_ptr> causes_owned() const { return causes_; }
+	[[nodiscard("span lifetime bound to *this — moves invalidate")]] span<std::exception_ptr const> causes_view() const noexcept {
 		return causes_;
 	}
 };
@@ -174,9 +174,9 @@ public:
 	}
 	// failure → f(exception_ptr) → T or Chain<T>; success/cancel pass through
 	template<class Fn>
-		requires std::invocable<Fn &, EP>
-			  && (same_as<std::remove_cvref_t<std::invoke_result_t<Fn &, EP>>, T>
-				  || same_as<std::remove_cvref_t<std::invoke_result_t<Fn &, EP>>, Chain<T>>)
+		requires std::invocable<Fn &, std::exception_ptr>
+			  && (same_as<std::remove_cvref_t<std::invoke_result_t<Fn &, std::exception_ptr>>, T>
+				  || same_as<std::remove_cvref_t<std::invoke_result_t<Fn &, std::exception_ptr>>, Chain<T>>)
 	[[nodiscard]] Chain<T> catch_error(
 		Fn &&fn) && {
 		using R = std::remove_cvref_t<std::invoke_result_t<Fn &, std::exception_ptr>>;
@@ -415,8 +415,8 @@ template<root::work_value A, root::work_value B>
 	requires(!same_as<A, void> && !same_as<B, void>)
 [[nodiscard]] auto when_all(
 	Chain<A> &&a,
-	Chain<B> &&b) noexcept -> Chain<Tup<A, B>> {
-	using T = Tup<A, B>;
+	Chain<B> &&b) noexcept -> Chain<std::tuple<A, B>> {
+	using T = std::tuple<A, B>;
 	auto out_a = move(a).release_outcome();
 	auto out_b = move(b).release_outcome();
 
@@ -448,7 +448,7 @@ template<root::work_value A, root::work_value B>
 	requires(!same_as<A, void> && !same_as<B, void>)
 [[nodiscard]] auto when_all_fast_fail(
 	Chain<A> &&a,
-	Chain<B> &&b) noexcept -> Chain<Tup<A, B>> {
+	Chain<B> &&b) noexcept -> Chain<std::tuple<A, B>> {
 	// TODO(phase-6): wire cancel-sibling hook once 5c async path lands;
 	// currently identical to when_all
 	return when_all(move(a), move(b));

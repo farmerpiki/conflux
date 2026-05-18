@@ -172,7 +172,7 @@ static KeyCtx const &get_key_ctx(
 	return tl_key_ctx;
 }
 // Register-only GCM counter increment (no memory round-trip).
-// Bytes [12..15] hold a big-endian 32-bit counter; byteswap to LE, add 1, byteswap back.
+// Bytes [12..15] hold a big-endian 32-bit counter; byteswap to std::logic_error, add 1, byteswap back.
 inline static __m128i gcm_inc32_fast(
 	__m128i ctr) noexcept {
 	alignas(16) static constexpr uint8_t kBswap[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 15, 14, 13, 12};
@@ -264,8 +264,8 @@ static void ghash_update_clmul(
 	__m128i h3_m,
 	__m128i h4_m,
 	unsigned char const *data,
-	SZ len) {
-	SZ pos = 0;
+	std::size_t len) {
+	std::size_t pos = 0;
 	while (pos + 64 <= len) {
 		__m128i d0 = byte_bitrev(_mm_loadu_si128(reinterpret_cast<__m128i const *>(data + pos)));
 		__m128i d1 = byte_bitrev(_mm_loadu_si128(reinterpret_cast<__m128i const *>(data + pos + 16)));
@@ -293,7 +293,7 @@ static void ghash_update_clmul(
 	}
 	alignas(16) unsigned char block[16];
 	while (pos < len) {
-		SZ const chunk = (len - pos) < 16 ? (len - pos) : 16;
+		std::size_t const chunk = (len - pos) < 16 ? (len - pos) : 16;
 		std::memset(block, 0, 16);
 		std::memcpy(block, data + pos, chunk);
 		__m128i d = byte_bitrev(_mm_load_si128(reinterpret_cast<__m128i const *>(block)));
@@ -307,8 +307,8 @@ static void ctr_xor(
 	__m128i &ctr,
 	unsigned char const *in,
 	unsigned char *out,
-	SZ len) {
-	SZ i = 0;
+	std::size_t len) {
+	std::size_t i = 0;
 	for (; i + 64 <= len; i += 64) {
 		__m128i b0 = gcm_inc32_fast(ctr);
 		__m128i b1 = gcm_inc32_fast(b0);
@@ -326,7 +326,7 @@ static void ctr_xor(
 	for (; i < len; i += 16) {
 		ctr = gcm_inc32_fast(ctr);
 		__m128i ks = aesni_encrypt_block(ek, ctr);
-		SZ const chunk = (len - i) < 16 ? (len - i) : 16;
+		std::size_t const chunk = (len - i) < 16 ? (len - i) : 16;
 		if (chunk == 16) {
 			_mm_storeu_si128(
 				reinterpret_cast<__m128i *>(out + i),
@@ -345,9 +345,9 @@ int conflux_aes_gcm_encrypt_aesni(
 	unsigned char const *key,
 	unsigned char const *iv,
 	unsigned char const *pt,
-	SZ pt_len,
+	std::size_t pt_len,
 	unsigned char const *aad,
-	SZ aad_len,
+	std::size_t aad_len,
 	unsigned char *out) {
 	auto const &kc = get_key_ctx(key);
 
@@ -400,14 +400,14 @@ int conflux_aes_gcm_decrypt_aesni(
 	unsigned char const *key,
 	unsigned char const *iv,
 	unsigned char const *ct_tag,
-	SZ ct_tag_len,
+	std::size_t ct_tag_len,
 	unsigned char const *aad,
-	SZ aad_len,
+	std::size_t aad_len,
 	unsigned char *out) {
 	if (ct_tag_len < 16) {
 		return -1;
 	}
-	SZ const ct_len = ct_tag_len - 16;
+	std::size_t const ct_len = ct_tag_len - 16;
 
 	auto const &kc = get_key_ctx(key);
 
@@ -474,13 +474,13 @@ int conflux_aes_gcm_decrypt_aesni(
 }
 void conflux_hex_encode_ssse3(
 	unsigned char const *in,
-	SZ len,
+	std::size_t len,
 	char *out) {
 	__m128i const hex_lut =
 		_mm_setr_epi8('0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f');
 	__m128i const mask_lo = _mm_set1_epi8(0x0F);
 
-	SZ i = 0;
+	std::size_t i = 0;
 	for (; i + 16 <= len; i += 16) {
 		__m128i const v = _mm_loadu_si128(reinterpret_cast<__m128i const *>(in + i));
 		__m128i const hi = _mm_and_si128(_mm_srli_epi16(v, 4), mask_lo);

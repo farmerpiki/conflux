@@ -37,14 +37,14 @@ export class DeferredResponse; // defined after HttpResponse
 // issues a close_async on the owning ring when the stream finishes.
 export struct StreamedFile {
 	std::shared_ptr<FileHandle> handle;
-	u64 send_offset{};
-	u64 send_size{};
+	std::uint64_t send_offset{};
+	std::uint64_t send_size{};
 	// total file size — needed for Content-Range and range-validation paths.
-	u64 total_size{};
+	std::uint64_t total_size{};
 };
 
 export struct HttpResponse {
-	enum class BodyKind : u8 {
+	enum class BodyKind : std::uint8_t {
 		text,
 		sse,
 		ws_upgrade,
@@ -468,13 +468,13 @@ export class DeferredResponse {
 	int efd_{-1};
 	mutable mutex mtx_{};
 	std::unique_ptr<HttpResponse> ready_{};
-	chrono::steady_clock::time_point deadline_{};
+	std::chrono::steady_clock::time_point deadline_{};
 	conflux::work::root::TaskControl cancel_ctl_{};
 
 public:
-	static constexpr chrono::milliseconds kDefaultTimeout{30000};
+	static constexpr std::chrono::milliseconds kDefaultTimeout{30000};
 
-	explicit DeferredResponse(chrono::milliseconds timeout = kDefaultTimeout);
+	explicit DeferredResponse(std::chrono::milliseconds timeout = kDefaultTimeout);
 	~DeferredResponse() noexcept;
 	DeferredResponse(DeferredResponse const &) = delete;
 	DeferredResponse &operator =(DeferredResponse const &) = delete;
@@ -485,20 +485,20 @@ public:
 	void complete(HttpResponse response);
 	[[nodiscard]] bool is_ready() const;
 		[[nodiscard]] std::optional<HttpResponse> take_ready();
-	[[nodiscard]] chrono::steady_clock::time_point deadline() const;
-	void set_deadline(chrono::steady_clock::time_point deadline);
+	[[nodiscard]] std::chrono::steady_clock::time_point deadline() const;
+	void set_deadline(std::chrono::steady_clock::time_point deadline);
 	void attach_cancel(conflux::work::root::TaskControl ctl) noexcept;
 	// Force-complete with 504 if the deadline has passed and no response is ready.
 	// Returns true if this call expired the response (i.e. the caller should expect
 	// the ready signal to fire).
-	bool expire_if_past_deadline(chrono::steady_clock::time_point now);
+	bool expire_if_past_deadline(std::chrono::steady_clock::time_point now);
 };
 DeferredResponse::DeferredResponse(
-	chrono::milliseconds timeout)
+	std::chrono::milliseconds timeout)
 	: efd_{::eventfd(0, EFD_CLOEXEC)}
-	, deadline_{chrono::steady_clock::now() + timeout} {
+	, deadline_{std::chrono::steady_clock::now() + timeout} {
 	if (efd_ < 0) {
-		throw SE{errno, system_category(), "eventfd"};
+		throw std::system_error{errno, system_category(), "eventfd"};
 	}
 }
 DeferredResponse::~DeferredResponse() noexcept {
@@ -512,23 +512,23 @@ int DeferredResponse::eventfd_fd() const noexcept {
 void DeferredResponse::complete(
 	HttpResponse response) {
 	{
-		SL const lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		if (ready_) {
 			return;
 		}
 		ready_ = make_unique<HttpResponse>(move(response));
 	}
-	u64 wake = 1;
+	std::uint64_t wake = 1;
 	if (::write(efd_, &wake, sizeof(wake)) < 0 && errno != EAGAIN) {
 		eprintln(format("DeferredResponse::complete: eventfd write: {}", strerror(errno)));
 	}
 }
 bool DeferredResponse::is_ready() const {
-	SL const lk{mtx_};
+	std::scoped_lock const lk{mtx_};
 	return ready_ != nullptr;
 }
 std::optional<HttpResponse> DeferredResponse::take_ready() {
-	SL const lk{mtx_};
+	std::scoped_lock const lk{mtx_};
 	if (!ready_) {
 		return nullopt;
 	}
@@ -536,25 +536,25 @@ std::optional<HttpResponse> DeferredResponse::take_ready() {
 	ready_.reset();
 	return response;
 }
-chrono::steady_clock::time_point DeferredResponse::deadline() const {
-	SL const lk{mtx_};
+std::chrono::steady_clock::time_point DeferredResponse::deadline() const {
+	std::scoped_lock const lk{mtx_};
 	return deadline_;
 }
 void DeferredResponse::set_deadline(
-	chrono::steady_clock::time_point deadline) {
-	SL const lk{mtx_};
+	std::chrono::steady_clock::time_point deadline) {
+	std::scoped_lock const lk{mtx_};
 	deadline_ = deadline;
 }
 void DeferredResponse::attach_cancel(
 	conflux::work::root::TaskControl ctl) noexcept {
-	SL const lk{mtx_};
+	std::scoped_lock const lk{mtx_};
 	cancel_ctl_ = move(ctl);
 }
 bool DeferredResponse::expire_if_past_deadline(
-	chrono::steady_clock::time_point now) {
+	std::chrono::steady_clock::time_point now) {
 	conflux::work::root::TaskControl to_cancel;
 	{
-		SL const lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		if (ready_) {
 			return false;
 		}
@@ -565,7 +565,7 @@ bool DeferredResponse::expire_if_past_deadline(
 		to_cancel = move(cancel_ctl_);
 	}
 	auto _ = to_cancel.request_cancel();
-	u64 wake = 1;
+	std::uint64_t wake = 1;
 	if (::write(efd_, &wake, sizeof(wake)) < 0 && errno != EAGAIN) {
 		eprintln(format("DeferredResponse::expire_if_past_deadline: eventfd write: {}", strerror(errno)));
 	}

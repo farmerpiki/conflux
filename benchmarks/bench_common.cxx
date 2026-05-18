@@ -5,24 +5,24 @@ import std;
 import conflux.types;
 // ── timing ───────────────────────────────────────────────────────────────────
 
-export [[nodiscard]] inline u64 bench_now_ns() noexcept {
+export [[nodiscard]] inline std::uint64_t bench_now_ns() noexcept {
 	struct timespec ts{};
 	clock_gettime(CLOCK_MONOTONIC_RAW, &ts);
-	return static_cast<u64>(ts.tv_sec) * 1000000000ULL + static_cast<u64>(ts.tv_nsec);
+	return static_cast<std::uint64_t>(ts.tv_sec) * 1000000000ULL + static_cast<std::uint64_t>(ts.tv_nsec);
 }
 // ── arg parsing ──────────────────────────────────────────────────────────────
 
-export [[nodiscard]] inline SZ bench_parse_sz(
+export [[nodiscard]] inline std::size_t bench_parse_sz(
 	char const *s) noexcept {
-	SZ v{};
+	std::size_t v{};
 	from_chars(s, s + std::strlen(s), v);
 	return v;
 }
 export struct BenchArgs {
-	SZ iterations = 1000000;
-	SZ warmup = 50000;
+	std::size_t iterations = 1000000;
+	std::size_t warmup = 50000;
 	bool json_out = false;
-	S config_name;
+	std::string config_name;
 };
 // Parses --json, --iterations, --warmup, --config-name.
 // Unknown flags are silently ignored so each bench can do a second pass for
@@ -30,8 +30,8 @@ export struct BenchArgs {
 export [[nodiscard]] BenchArgs bench_parse_args(
 	span<char *> args) {
 	BenchArgs a;
-	for (SZ i = 1; i < args.size(); ++i) {
-		SV arg = args[i];
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		std::string_view arg = args[i];
 		if (arg == "--json") {
 			a.json_out = true;
 		} else if (arg == "--iterations" && i + 1 < args.size()) {
@@ -50,10 +50,10 @@ export [[nodiscard]] BenchArgs bench_parse_args(
 // config     — bench config name, emitted as "config" field in NDJSON.
 // throughput — optional ops/s for human-readable display only.
 export struct BenchStats {
-	SV config;
-	SV variant;
-	SZ iterations{};
-	u64 total_ns{};
+	std::string_view config;
+	std::string_view variant;
+	std::size_t iterations{};
+	std::uint64_t total_ns{};
 	double ns_per_iter{};
 	double throughput{};
 };
@@ -95,8 +95,8 @@ export void bench_print(
 export void bench_info_if_requested(
 	int argc,
 	char **argv,
-	SV json) {
-	if (argc >= 2 && SV{argv[1]} == "--bench-info") {
+	std::string_view json) {
+	if (argc >= 2 && std::string_view{argv[1]} == "--bench-info") {
 		std::println("{}", json);
 		std::exit(0);
 	}

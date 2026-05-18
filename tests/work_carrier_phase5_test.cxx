@@ -13,8 +13,8 @@ namespace {
 template<class T>
 struct SyncTask {
 	struct promise_type {
-		Opt<T> value_;
-		Opt<EP> error_;
+		std::optional<T> value_;
+		std::optional<std::exception_ptr> error_;
 		SyncTask get_return_object() { return SyncTask{std::coroutine_handle<promise_type>::from_promise(*this)}; }
 		std::suspend_never initial_suspend() noexcept { return {}; }
 		std::suspend_always final_suspend() noexcept { return {}; }
@@ -50,7 +50,7 @@ struct SyncTask {
 template<>
 struct SyncTask<void> {
 	struct promise_type {
-		Opt<EP> error_;
+		std::optional<std::exception_ptr> error_;
 		SyncTask get_return_object() { return SyncTask{std::coroutine_handle<promise_type>::from_promise(*this)}; }
 		std::suspend_never initial_suspend() noexcept { return {}; }
 		std::suspend_always final_suspend() noexcept { return {}; }
@@ -103,12 +103,12 @@ TEST_CASE(
 	"phase5a: co_await Chain<int> rethrows on failure",
 	"[phase5a]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto ex = make_exception_ptr(RE{"fail"});
+	auto ex = make_exception_ptr(std::runtime_error{"fail"});
 	REQUIRE(src.try_set_exception(ex));
 	auto chain = carrier::from_task(move(task));
 
 	auto awaiter = move(chain).operator co_await();
-	CHECK_THROWS_AS(awaiter.await_resume(), RE);
+	CHECK_THROWS_AS(awaiter.await_resume(), std::runtime_error);
 }
 TEST_CASE(
 	"phase5a: co_await Chain<int> throws CancelledError on cancellation",
@@ -152,7 +152,7 @@ TEST_CASE(
 	"phase5b: EagerChain propagates failure through co_await Chain",
 	"[phase5b]") {
 	auto [task, src] = root::make_task_source<int>();
-	auto ex = make_exception_ptr(RE{"boom"});
+	auto ex = make_exception_ptr(std::runtime_error{"boom"});
 	REQUIRE(src.try_set_exception(ex));
 	auto chain = carrier::from_task(move(task));
 
@@ -253,9 +253,9 @@ TEST_CASE(
 	"[phase5c]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(move(task));
-	auto ex = make_exception_ptr(RE{"task failed"});
+	auto ex = make_exception_ptr(std::runtime_error{"task failed"});
 	REQUIRE(src.try_set_exception(ex));
-	CHECK_THROWS_AS(coro_await_task_handle_failure(move(jh)).get(), RE);
+	CHECK_THROWS_AS(coro_await_task_handle_failure(move(jh)).get(), std::runtime_error);
 }
 SyncTask<void> coro_await_task_handle_cancel(
 	root::TaskJoinHandle<int> jh) {
@@ -332,7 +332,7 @@ TEST_CASE(
 	"[phase5c]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(move(task));
-	auto ex = make_exception_ptr(RE{"chain fail"});
+	auto ex = make_exception_ptr(std::runtime_error{"chain fail"});
 	REQUIRE(src.try_set_exception(ex));
 	auto chain = coro_await_chain_failure(move(jh)).get();
 	auto out = move(chain).release_outcome();

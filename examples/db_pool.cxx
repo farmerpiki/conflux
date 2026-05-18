@@ -12,10 +12,10 @@ import conflux.pg;
 using namespace conflux::pg;
 namespace {
 
-constexpr u64 pack_ud(
-	u32 slot,
-	u32 gen) noexcept {
-	return (static_cast<u64>(gen) << 32U) | slot;
+constexpr std::uint64_t pack_ud(
+	std::uint32_t slot,
+	std::uint32_t gen) noexcept {
+	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 }
 
 } // namespace
@@ -32,7 +32,7 @@ int main() {
 		return 1;
 	}
 	CompletionTable ct;
-	FileReader reader{&ring, &ct, [](u32 s, u32 g) noexcept { return pack_ud(s, g); }};
+	FileReader reader{&ring, &ct, [](std::uint32_t s, std::uint32_t g) noexcept { return pack_ud(s, g); }};
 	CurrentFileReaderScope const scope{&reader};
 
 	auto pool = Pool::create({
@@ -46,14 +46,14 @@ int main() {
 		auto b = block_on(reader, pool->acquire());
 
 		Params pa;
-		pa.add(SV{"alpha"});
+		pa.add(std::string_view{"alpha"});
 		auto ra = block_on(reader, a->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pa)));
-		std::println("a: {}", ra[0].as<SV>(0));
+		std::println("a: {}", ra[0].as<std::string_view>(0));
 
 		Params pb;
-		pb.add(SV{"beta"});
+		pb.add(std::string_view{"beta"});
 		auto rb = block_on(reader, b->query("SELECT $1::text || ' from pid ' || pg_backend_pid()", move(pb)));
-		std::println("b: {}", rb[0].as<SV>(0));
+		std::println("b: {}", rb[0].as<std::string_view>(0));
 	} catch (exception const &e) { std::println(std::cerr, "error: {}", e.what()); }
 
 	pool->close();

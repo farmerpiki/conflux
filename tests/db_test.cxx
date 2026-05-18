@@ -23,11 +23,11 @@ struct TempDir {
 	fs::path path;
 	TempDir() {
 		path = fs::temp_directory_path()
-			 / format("conflux_db_test_{}", chrono::steady_clock::now().time_since_epoch().count());
+			 / format("conflux_db_test_{}", std::chrono::steady_clock::now().time_since_epoch().count());
 		fs::create_directories(path);
 	}
 	~TempDir() {
-		EC ec;
+		std::error_code ec;
 		fs::remove_all(path, ec);
 	}
 	TempDir(TempDir const &) = delete;
@@ -35,16 +35,16 @@ struct TempDir {
 	TempDir(TempDir &&) = delete;
 	TempDir &operator =(TempDir &&) = delete;
 	void write(
-		SV name,
-		SV content) const {
+		std::string_view name,
+		std::string_view content) const {
 		std::ofstream out{path / name};
 		out << content;
 	}
 };
 PGresult *make_text_result(
-	V<V<Opt<S>>> const &rows,
-	V<S> const &cols) {
-	V<char const *> field_names;
+	std::vector<std::vector<std::optional<std::string>>> const &rows,
+	std::vector<std::string> const &cols) {
+	std::vector<char const *> field_names;
 	field_names.reserve(cols.size());
 	for (auto const &c: cols) {
 		field_names.push_back(c.c_str());
@@ -53,8 +53,8 @@ PGresult *make_text_result(
 	REQUIRE(res != nullptr);
 	auto const ncols = static_cast<int>(cols.size());
 
-	V<PGresAttDesc> attrs(cols.size());
-	for (SZ i = 0; i < cols.size(); ++i) {
+	std::vector<PGresAttDesc> attrs(cols.size());
+	for (std::size_t i = 0; i < cols.size(); ++i) {
 		attrs[i] = PGresAttDesc{
 			.name = const_cast<char *>(field_names[i]),
 			.tableid = 0,
@@ -67,9 +67,9 @@ PGresult *make_text_result(
 	}
 	REQUIRE(::PQsetResultAttrs(res, ncols, attrs.data()) == 1);
 
-	for (SZ r = 0; r < rows.size(); ++r) {
+	for (std::size_t r = 0; r < rows.size(); ++r) {
 		auto const &row = rows[r];
-		for (SZ c = 0; c < row.size(); ++c) {
+		for (std::size_t c = 0; c < row.size(); ++c) {
 			if (row[c]) {
 				REQUIRE(
 					::PQsetvalue(
@@ -98,15 +98,15 @@ TEST_CASE(
 	CHECK(p.formats() == nullptr);
 	CHECK(p.types() == nullptr);
 
-	p.add("hello").add_null().add(i64{42}).add(true);
+	p.add("hello").add_null().add(std::int64_t{42}).add(true);
 	CHECK(p.count() == 4);
 
 	auto const *vals = p.values();
 	REQUIRE(vals != nullptr);
-	CHECK(SV{vals[0]} == "hello");
+	CHECK(std::string_view{vals[0]} == "hello");
 	CHECK(vals[1] == nullptr);
-	CHECK(SV{vals[2]} == "42");
-	CHECK(SV{vals[3]} == "t");
+	CHECK(std::string_view{vals[2]} == "42");
+	CHECK(std::string_view{vals[3]} == "t");
 
 	auto const *lens = p.lengths();
 	REQUIRE(lens != nullptr);
@@ -125,9 +125,9 @@ TEST_CASE(
 	p.add(false).add(2.5).add_json(R"({"k":1})");
 	auto const *vals = p.values();
 	REQUIRE(vals != nullptr);
-	CHECK(SV{vals[0]} == "f");
-	CHECK(SV{vals[1]} == "2.5");
-	CHECK(SV{vals[2]} == R"({"k":1})");
+	CHECK(std::string_view{vals[0]} == "f");
+	CHECK(std::string_view{vals[1]} == "2.5");
+	CHECK(std::string_view{vals[2]} == R"({"k":1})");
 }
 TEST_CASE(
 	"db: Params values() pointer table refreshes after rebuild",
@@ -136,34 +136,34 @@ TEST_CASE(
 	p.add("first");
 	auto const *v1 = p.values();
 	REQUIRE(v1 != nullptr);
-	CHECK(SV{v1[0]} == "first");
+	CHECK(std::string_view{v1[0]} == "first");
 	p.add("second");
 	auto const *v2 = p.values();
 	REQUIRE(v2 != nullptr);
-	CHECK(SV{v2[0]} == "first");
-	CHECK(SV{v2[1]} == "second");
+	CHECK(std::string_view{v2[0]} == "first");
+	CHECK(std::string_view{v2[1]} == "second");
 }
 TEST_CASE(
 	"db: Params overflow path (>kInline params)",
 	"[db][unit]") {
 	Params p;
 	for (int i = 0; i < 12; ++i) {
-		p.add(static_cast<i64>(i));
+		p.add(static_cast<std::int64_t>(i));
 	}
 	CHECK(p.count() == 12);
 	auto const *vals = p.values();
 	REQUIRE(vals != nullptr);
-	CHECK(SV{vals[0]} == "0");
-	CHECK(SV{vals[7]} == "7");
-	CHECK(SV{vals[11]} == "11");
+	CHECK(std::string_view{vals[0]} == "0");
+	CHECK(std::string_view{vals[7]} == "7");
+	CHECK(std::string_view{vals[11]} == "11");
 }
 TEST_CASE(
 	"db: Params binary bind",
 	"[db][unit]") {
 	using namespace oids;
 	Params p;
-	p.add_binary(i64{0x0102030405060708LL});
-	p.add_binary(i32{0x01020304});
+	p.add_binary(std::int64_t{0x0102030405060708LL});
+	p.add_binary(std::int32_t{0x01020304});
 	p.add_binary(3.14);
 
 	CHECK(p.count() == 3);
@@ -189,7 +189,7 @@ TEST_CASE(
 	// Verify big-endian wire encoding for int64
 	auto const *vals = p.values();
 	REQUIRE(vals != nullptr);
-	A<u8, 8> wire{};
+	std::array<std::uint8_t, 8> wire{};
 	memcpy(wire.data(), vals[0], 8);
 	CHECK(wire[0] == 0x01);
 	CHECK(wire[1] == 0x02);
@@ -207,13 +207,13 @@ TEST_CASE(
 	"db: Params copy semantics",
 	"[db][unit]") {
 	Params orig;
-	orig.add("hello").add(i64{42});
+	orig.add("hello").add(std::int64_t{42});
 	Params const copy{orig};
 	CHECK(copy.count() == 2);
 	auto const *vals = copy.values();
 	REQUIRE(vals != nullptr);
-	CHECK(SV{vals[0]} == "hello");
-	CHECK(SV{vals[1]} == "42");
+	CHECK(std::string_view{vals[0]} == "hello");
+	CHECK(std::string_view{vals[1]} == "42");
 	// Mutating orig does not affect copy
 	orig.add("extra");
 	CHECK(orig.count() == 3);
@@ -290,7 +290,7 @@ TEST_CASE(
 
 	auto u = qc.load_or_throw("upsert_user");
 	REQUIRE(u);
-	CHECK(u->find("ON CONFLICT") != S::npos);
+	CHECK(u->find("ON CONFLICT") != std::string::npos);
 
 	qc.clear();
 	auto c = qc.load_or_throw("select_one");
@@ -308,8 +308,8 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{S{"42"},   S{"3.5"}, S{"t"}, nullopt,    S{},         S{"abc"}},
-			{S{"-7"}, S{"-0.25"}, S{"f"}, S{"hi"}, S{"x"}, S{"99999999999"}}
+			{std::string{"42"},   std::string{"3.5"}, std::string{"t"}, nullopt,    std::string{},         std::string{"abc"}},
+			{std::string{"-7"}, std::string{"-0.25"}, std::string{"f"}, std::string{"hi"}, std::string{"x"}, std::string{"99999999999"}}
     },
 		{"i", "d", "b", "nul", "empty", "txt"});
 	REQUIRE(raw != nullptr);
@@ -319,23 +319,23 @@ TEST_CASE(
 	REQUIRE(r.cols() == 6);
 
 	auto row0 = r[0];
-	CHECK(row0.as<i64>(0) == 42);
+	CHECK(row0.as<std::int64_t>(0) == 42);
 	CHECK(row0.as<double>(1) == 3.5);
 	CHECK(row0.as<bool>(2));
 	CHECK(row0.is_null(3));
 	CHECK(row0.get(4).empty());
-	CHECK(row0.as<S>(5) == "abc");
-	CHECK(row0.as<SV>(5) == "abc");
+	CHECK(row0.as<std::string>(5) == "abc");
+	CHECK(row0.as<std::string_view>(5) == "abc");
 
 	auto row1 = r[1];
-	CHECK(row1.as<i64>(0) == -7);
+	CHECK(row1.as<std::int64_t>(0) == -7);
 	CHECK(row1.as<double>(1) == -0.25);
 	CHECK_FALSE(row1.as<bool>(2));
-	CHECK(row1.as<S>(3) == "hi");
+	CHECK(row1.as<std::string>(3) == "hi");
 
-	CHECK_THROWS_AS(row0.as<i64>(5), PgError); // "abc"
+	CHECK_THROWS_AS(row0.as<std::int64_t>(5), PgError); // "abc"
 	CHECK_THROWS_AS(row1.as<double>(4), PgError); // "x"
-	CHECK_THROWS_AS(row0.as<i64>(4), PgError); // empty
+	CHECK_THROWS_AS(row0.as<std::int64_t>(4), PgError); // empty
 
 	CHECK(r.column_index("d") == 1);
 	CHECK(r.column_index("missing") < 0);
@@ -346,34 +346,34 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{S{"42x"}, S{"3.5ms"}, S{"maybe"}}
+			{std::string{"42x"}, std::string{"3.5ms"}, std::string{"maybe"}}
     },
 		{"i", "d", "b"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	auto row = r[0];
 
-	CHECK_THROWS_AS(row.as<i64>(0), PgError);
-	CHECK_THROWS_AS(row.as<i32>(0), PgError);
+	CHECK_THROWS_AS(row.as<std::int64_t>(0), PgError);
+	CHECK_THROWS_AS(row.as<std::int32_t>(0), PgError);
 	CHECK_THROWS_AS(row.as<double>(1), PgError);
 	CHECK_THROWS_AS(row.as<bool>(2), PgError);
 }
 TEST_CASE(
 	"db: Result iteration",
 	"[db][unit]") {
-	auto *raw = make_text_result({{S{"1"}}, {S{"2"}}, {S{"3"}}}, {"v"});
+	auto *raw = make_text_result({{std::string{"1"}}, {std::string{"2"}}, {std::string{"3"}}}, {"v"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	int sum = 0;
 	for (auto row: r) {
-		sum += static_cast<int>(row.as<i64>(0));
+		sum += static_cast<int>(row.as<std::int64_t>(0));
 	}
 	CHECK(sum == 6);
 }
 TEST_CASE(
 	"db: Row::get(col) throws on missing column",
 	"[db][unit]") {
-	auto *raw = make_text_result({{S{"x"}}}, {"only"});
+	auto *raw = make_text_result({{std::string{"x"}}}, {"only"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	auto row = r[0];
@@ -385,28 +385,28 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{S{"42"}, nullopt, S{"7"}}
+			{std::string{"42"}, nullopt, std::string{"7"}}
     },
 		{"a", "b", "c"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	auto row = r[0];
-	CHECK(row.as_opt<i64>(0) == Opt<i64>{42});
-	CHECK(row.as_opt<i64>(1) == nullopt);
-	CHECK(row.as_opt<i64>(2) == Opt<i64>{7});
+	CHECK(row.as_opt<std::int64_t>(0) == std::optional<std::int64_t>{42});
+	CHECK(row.as_opt<std::int64_t>(1) == nullopt);
+	CHECK(row.as_opt<std::int64_t>(2) == std::optional<std::int64_t>{7});
 }
 TEST_CASE(
 	"db: Row::as_tuple sequential unpack",
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{S{"1"}, S{"hello"}, S{"t"}}
+			{std::string{"1"}, std::string{"hello"}, std::string{"t"}}
     },
 		{"id", "name", "flag"});
 	REQUIRE(raw != nullptr);
 	Result const r{PGResultPtr{raw}};
 	auto row = r[0];
-	auto [id, name, flag] = row.as_tuple<i64, S, bool>();
+	auto [id, name, flag] = row.as_tuple<std::int64_t, std::string, bool>();
 	CHECK(id == 1);
 	CHECK(name == "hello");
 	CHECK(flag);
@@ -416,7 +416,7 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{S{"99"}, S{"world"}}
+			{std::string{"99"}, std::string{"world"}}
     },
 		{"num", "str"});
 	REQUIRE(raw != nullptr);
@@ -431,11 +431,11 @@ TEST_CASE(
 	CHECK_FALSE(static_cast<bool>(c_bad));
 
 	auto row = r[0];
-	CHECK(row.as<i64>(c_num) == 99);
-	CHECK(row.as<S>(c_str) == "world");
+	CHECK(row.as<std::int64_t>(c_num) == 99);
+	CHECK(row.as<std::string>(c_str) == "world");
 	CHECK(row.get(c_num) == "99");
 	CHECK_FALSE(row.is_null(c_num));
-	CHECK(row.as_opt<S>(c_str) == Opt<S>{"world"});
+	CHECK(row.as_opt<std::string>(c_str) == std::optional<std::string>{"world"});
 }
 TEST_CASE(
 	"db: StatementCache stable_name deterministic + length",

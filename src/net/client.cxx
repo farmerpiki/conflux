@@ -33,13 +33,13 @@ export namespace conflux::http {
 
 struct ClientResponseHead {
 	int status{502};
-	S status_text{"Bad Gateway"};
+	std::string status_text{"Bad Gateway"};
 	HttpFields headers = HttpFields(true);
-	V<S> set_cookies{};
+	std::vector<std::string> set_cookies{};
 };
 struct ClientResponse {
 	ClientResponseHead head{};
-	S body{};
+	std::string body{};
 	HttpTelemetry telemetry{};
 
 	// Phase 2: json() / json_borrowed() accessors.
@@ -48,10 +48,10 @@ using ClientResult = expected<ClientResponse, HttpError>;
 struct HttpClientOptions {
 	HttpTimeouts default_timeouts{};
 	bool verify_peer{true};
-	S ca_bundle_path{}; // empty = system default
-	SZ max_header_bytes{64 * 1024};
-	SZ max_body_bytes{16 * 1024 * 1024};
-	SZ max_buffered_bytes{4 * 1024 * 1024};
+	std::string ca_bundle_path{}; // empty = system default
+	std::size_t max_header_bytes{64 * 1024};
+	std::size_t max_body_bytes{16 * 1024 * 1024};
+	std::size_t max_buffered_bytes{4 * 1024 * 1024};
 	HttpFields default_headers{};
 	void *resolver{nullptr}; // conflux::net::dns::Resolver*; void* avoids exporting dns types
 };
@@ -66,13 +66,13 @@ struct Connection {
 	int fd{-1};
 	bool use_tls{false};
 #if CONFLUX_HAS_TLS
-	Opt<TlsContext> tls_ctx;
-	Opt<TlsStream> tls_stream;
+	std::optional<TlsContext> tls_ctx;
+	std::optional<TlsStream> tls_stream;
 #endif
 };
-// Convert chrono::milliseconds to seconds for wait_fd (ceiling, ≥1 if ms>0).
+// Convert std::chrono::milliseconds to seconds for wait_fd (ceiling, ≥1 if ms>0).
 [[nodiscard]] int to_sec(
-	chrono::milliseconds ms) noexcept {
+	std::chrono::milliseconds ms) noexcept {
 	if (ms.count() <= 0) {
 		return -1; // indefinite
 	}
@@ -137,11 +137,11 @@ enum class ConnectFailure {
 };
 [[nodiscard]] int try_connect_endpoints(
 	span<client_dns_bridge::Endpoint const> endpoints,
-	u16 port,
+	std::uint16_t port,
 	int timeout_sec,
 	HttpTelemetry &tel) {
-	constexpr auto kConnectAttemptDelay = chrono::milliseconds{250};
-	auto const t1 = chrono::steady_clock::now();
+	constexpr auto kConnectAttemptDelay = std::chrono::milliseconds{250};
+	auto const t1 = std::chrono::steady_clock::now();
 	int fd = -1;
 	int prev_family = -1;
 	for (auto const &ep: endpoints) {
@@ -180,11 +180,11 @@ enum class ConnectFailure {
 		::close(fd);
 		fd = -1;
 	}
-	tel.connect = chrono::steady_clock::now() - t1;
+	tel.connect = std::chrono::steady_clock::now() - t1;
 	return fd;
 }
 struct EndpointCollector {
-	V<client_dns_bridge::Endpoint> endpoints;
+	std::vector<client_dns_bridge::Endpoint> endpoints;
 };
 bool collect_endpoint(
 	void *ctx,
@@ -195,19 +195,19 @@ bool collect_endpoint(
 	} catch (...) { return false; }
 }
 [[nodiscard]] int resolve_and_connect(
-	SV host,
-	u16 port,
+	std::string_view host,
+	std::uint16_t port,
 	int timeout_sec,
-	chrono::milliseconds resolve_timeout,
+	std::chrono::milliseconds resolve_timeout,
 	HttpTelemetry &tel,
 	ConnectFailure &failure,
-	S &failure_message,
+	std::string &failure_message,
 	int &failure_errno,
 	void *resolver_ptr = nullptr) {
 	if (resolver_ptr) {
 		EndpointCollector collector;
-		A<char, 256> error_buf{};
-		auto const t0 = chrono::steady_clock::now();
+		std::array<char, 256> error_buf{};
+		auto const t0 = std::chrono::steady_clock::now();
 		bool const resolved = client_dns_bridge::resolve(
 			resolver_ptr,
 			host.data(),
@@ -218,7 +218,7 @@ bool collect_endpoint(
 			collect_endpoint,
 			error_buf.data(),
 			error_buf.size());
-		tel.dns = chrono::steady_clock::now() - t0;
+		tel.dns = std::chrono::steady_clock::now() - t0;
 		if (!resolved) {
 			failure = ConnectFailure::dns;
 			failure_errno = 0;
@@ -233,17 +233,17 @@ bool collect_endpoint(
 		}
 		return fd;
 	}
-	S const host_str{host};
-	S const port_str = to_string(port);
+	std::string const host_str{host};
+	std::string const port_str = to_string(port);
 	addrinfo hints{};
 	hints.ai_family = AF_UNSPEC;
 	hints.ai_socktype = SOCK_STREAM;
 	hints.ai_protocol = IPPROTO_TCP;
 	hints.ai_flags = AI_ADDRCONFIG;
-	auto const t0 = chrono::steady_clock::now();
+	auto const t0 = std::chrono::steady_clock::now();
 	addrinfo *res_raw = nullptr;
 	int const gai_err = ::getaddrinfo(host_str.c_str(), port_str.c_str(), &hints, &res_raw);
-	tel.dns = chrono::steady_clock::now() - t0;
+	tel.dns = std::chrono::steady_clock::now() - t0;
 	if (gai_err != 0) {
 		failure = ConnectFailure::dns;
 		failure_errno = 0;
@@ -256,8 +256,8 @@ bool collect_endpoint(
 			::freeaddrinfo(p);
 		}
 	};
-	UPD<addrinfo, AddrInfoDeleter> const res{res_raw};
-	auto const t1 = chrono::steady_clock::now();
+	std::unique_ptr<addrinfo, AddrInfoDeleter> const res{res_raw};
+	auto const t1 = std::chrono::steady_clock::now();
 	int fd = -1;
 	int prev_family = -1;
 	for (addrinfo const *ai = res.get(); ai != nullptr; ai = ai->ai_next) {
@@ -266,7 +266,7 @@ bool collect_endpoint(
 			fd = -1;
 		}
 		if (prev_family != -1 && ai->ai_family != prev_family) {
-			std::this_thread::sleep_for(chrono::milliseconds{250});
+			std::this_thread::sleep_for(std::chrono::milliseconds{250});
 		}
 		prev_family = ai->ai_family;
 		fd = ::socket(ai->ai_family, SOCK_STREAM | SOCK_CLOEXEC, IPPROTO_TCP);
@@ -289,7 +289,7 @@ bool collect_endpoint(
 		::close(fd);
 		fd = -1;
 	}
-	tel.connect = chrono::steady_clock::now() - t1;
+	tel.connect = std::chrono::steady_clock::now() - t1;
 	if (fd < 0) {
 		failure = ConnectFailure::connect;
 		failure_errno = errno;
@@ -299,14 +299,14 @@ bool collect_endpoint(
 }
 bool send_all(
 	Connection &conn,
-	SV data,
+	std::string_view data,
 	int timeout_sec) {
 #if CONFLUX_HAS_TLS
 	if (conn.use_tls) {
 		return conn.tls_stream->write_all(data, timeout_sec);
 	}
 #endif
-	SZ sent = 0;
+	std::size_t sent = 0;
 	while (sent < data.size()) {
 		if (!wait_fd(conn.fd, POLLOUT, timeout_sec)) {
 			return false;
@@ -315,20 +315,20 @@ bool send_all(
 		if (n <= 0) {
 			return false;
 		}
-		sent += static_cast<SZ>(n);
+		sent += static_cast<std::size_t>(n);
 	}
 	return true;
 }
 bool recv_some(
 	Connection &conn,
-	S &out,
+	std::string &out,
 	int timeout_sec) {
 #if CONFLUX_HAS_TLS
 	if (conn.use_tls) {
 		return conn.tls_stream->read_some(out, timeout_sec);
 	}
 #endif
-	A<char, 4096> tmp{};
+	std::array<char, 4096> tmp{};
 	if (!wait_fd(conn.fd, POLLIN, timeout_sec)) {
 		return false;
 	}
@@ -336,23 +336,23 @@ bool recv_some(
 	if (n <= 0) {
 		return false;
 	}
-	out.append(tmp.data(), static_cast<SZ>(n));
+	out.append(tmp.data(), static_cast<std::size_t>(n));
 	return true;
 }
 // Receive until delimiter or max bytes. Returns accumulated bytes (may contain
 // data past the delimiter if overread from the socket).
-S recv_until(
+std::string recv_until(
 	Connection &conn,
-	SV delim,
+	std::string_view delim,
 	int timeout_sec,
-	SZ max) {
-	S buf;
-	buf.reserve(min<SZ>(4096, max));
+	std::size_t max) {
+	std::string buf;
+	buf.reserve(min<std::size_t>(4096, max));
 	while (buf.size() < max) {
 		if (!recv_some(conn, buf, timeout_sec)) {
 			break;
 		}
-		if (buf.find(delim) != S::npos) {
+		if (buf.find(delim) != std::string::npos) {
 			break;
 		}
 	}
@@ -360,10 +360,10 @@ S recv_until(
 }
 bool recv_exact(
 	Connection &conn,
-	S &out,
+	std::string &out,
 	int timeout_sec,
-	SZ target,
-	SZ cap) {
+	std::size_t target,
+	std::size_t cap) {
 	while (out.size() < target) {
 		if (out.size() >= cap) {
 			return false; // body_too_large
@@ -376,9 +376,9 @@ bool recv_exact(
 }
 void recv_to_eof(
 	Connection &conn,
-	S &out,
+	std::string &out,
 	int timeout_sec,
-	SZ cap,
+	std::size_t cap,
 	bool &too_large) {
 	too_large = false;
 	while (recv_some(conn, out, timeout_sec)) {
@@ -389,28 +389,28 @@ void recv_to_eof(
 	}
 }
 
-enum class ChunkedDecodeStatus : u8 {
+enum class ChunkedDecodeStatus : std::uint8_t {
 	complete,
 	incomplete,
 	invalid,
 };
 ChunkedDecodeStatus decode_chunked_prefix(
-	SV encoded,
-	S &decoded,
-	SZ &consumed) {
+	std::string_view encoded,
+	std::string &decoded,
+	std::size_t &consumed) {
 	for (;;) {
 		auto const line_end = encoded.find("\r\n", consumed);
-		if (line_end == SV::npos) {
+		if (line_end == std::string_view::npos) {
 			return ChunkedDecodeStatus::incomplete;
 		}
 		auto size_str = trim(encoded.substr(consumed, line_end - consumed));
-		if (auto const semi = size_str.find(';'); semi != SV::npos) {
+		if (auto const semi = size_str.find(';'); semi != std::string_view::npos) {
 			size_str = trim(size_str.substr(0, semi));
 		}
 		if (size_str.empty()) {
 			return ChunkedDecodeStatus::invalid;
 		}
-		SZ chunk_size = 0;
+		std::size_t chunk_size = 0;
 		auto const parsed = from_chars(size_str.data(), size_str.data() + size_str.size(), chunk_size, 16);
 		if (parsed.ec != errc{} || parsed.ptr != size_str.data() + size_str.size()) {
 			return ChunkedDecodeStatus::invalid;
@@ -419,7 +419,7 @@ ChunkedDecodeStatus decode_chunked_prefix(
 		if (chunk_size == 0) {
 			for (;;) {
 				auto const eol = encoded.find("\r\n", consumed);
-				if (eol == SV::npos) {
+				if (eol == std::string_view::npos) {
 					return ChunkedDecodeStatus::incomplete;
 				}
 				bool const empty = (eol == consumed);
@@ -442,15 +442,15 @@ ChunkedDecodeStatus decode_chunked_prefix(
 }
 bool recv_chunked(
 	Connection &conn,
-	S &encoded,
-	S &decoded,
+	std::string &encoded,
+	std::string &decoded,
 	int timeout_sec,
-	SZ cap,
-	SZ buf_cap,
+	std::size_t cap,
+	std::size_t buf_cap,
 	bool &too_large) {
 	too_large = false;
 	decoded.clear();
-	SZ consumed = 0;
+	std::size_t consumed = 0;
 	for (;;) {
 		switch (decode_chunked_prefix(encoded, decoded, consumed)) {
 		case ChunkedDecodeStatus::complete: return true;
@@ -476,15 +476,15 @@ bool recv_chunked(
 	Url const &b) noexcept {
 	return a.scheme == b.scheme && a.host == b.host && a.port == b.port;
 }
-[[nodiscard]] Opt<Url> resolve_redirect_target(
+[[nodiscard]] std::optional<Url> resolve_redirect_target(
 	Url const &base,
-	SV location) {
-	if (location.empty() || location.find_first_of("\r\n") != SV::npos) {
+	std::string_view location) {
+	if (location.empty() || location.find_first_of("\r\n") != std::string_view::npos) {
 		return nullopt;
 	}
-	S loc{location};
+	std::string loc{location};
 	auto const frag = loc.find('#');
-	if (frag != S::npos) {
+	if (frag != std::string::npos) {
 		loc.erase(frag);
 	}
 	if (loc.empty()) {
@@ -492,14 +492,14 @@ bool recv_chunked(
 	}
 	if (loc.starts_with("//")) {
 		auto abs = Url::parse(format("{}:{}", base.scheme, loc));
-		return abs ? Opt<Url>{move(*abs)} : nullopt;
+		return abs ? std::optional<Url>{move(*abs)} : nullopt;
 	}
 	if (auto abs = Url::parse(loc); abs) {
 		return move(*abs);
 	}
 	Url next = base;
 	auto const q = loc.find('?');
-	if (q != S::npos) {
+	if (q != std::string::npos) {
 		next.query = loc.substr(q + 1);
 		loc.erase(q);
 		if (loc.empty()) {
@@ -512,16 +512,16 @@ bool recv_chunked(
 		next.path = move(loc);
 		return next;
 	}
-	S base_path = next.path.empty() ? S{"/"} : next.path;
+	std::string base_path = next.path.empty() ? std::string{"/"} : next.path;
 	auto const slash = base_path.rfind('/');
-	if (slash == S::npos) {
-		next.path = S{"/"} + loc;
+	if (slash == std::string::npos) {
+		next.path = std::string{"/"} + loc;
 	} else {
-		next.path = S{base_path.substr(0, slash + 1)} + loc;
+		next.path = std::string{base_path.substr(0, slash + 1)} + loc;
 	}
 	return next;
 }
-[[nodiscard]] expected<Opt<ClientRequest>, HttpError> follow_redirect(
+[[nodiscard]] expected<std::optional<ClientRequest>, HttpError> follow_redirect(
 	ClientRequest const &req,
 	ClientResponse const &resp) {
 	if (!is_redirect_status(resp.head.status)) {
@@ -622,7 +622,7 @@ ClientResult do_blocking_request(
 	// DNS + connect.
 	int const connect_sec = to_sec(timeouts.connect);
 	ConnectFailure conn_fail{};
-	S conn_fail_message{};
+	std::string conn_fail_message{};
 	int conn_fail_errno{0};
 	int const fd = resolve_and_connect(
 		url.host,
@@ -648,14 +648,14 @@ ClientResult do_blocking_request(
 	}
 
 #if CONFLUX_HAS_TLS
-	Opt<TlsContext> tls_ctx;
-	Opt<TlsStream> tls_stream;
+	std::optional<TlsContext> tls_ctx;
+	std::optional<TlsStream> tls_stream;
 #endif
 
 	if (use_tls) {
 #if CONFLUX_HAS_TLS
 		bool const verify = req.verify_peer() && opts.verify_peer;
-		auto const sni_sv = req.server_name().empty() ? SV{url.host} : req.server_name();
+		auto const sni_sv = req.server_name().empty() ? std::string_view{url.host} : req.server_name();
 		int const tls_sec = to_sec(timeouts.tls);
 
 		try {
@@ -717,12 +717,12 @@ ClientResult do_blocking_request(
 					.message = "hostname verification setup failed"});
 		}
 
-		auto t_tls = chrono::steady_clock::now();
+		auto t_tls = std::chrono::steady_clock::now();
 		if (!tls_stream->handshake_connect(tls_sec)) {
 			// Capture TLS error details.
 			long const vr = SSL_get_verify_result(tls_stream->native_handle());
 			int const alert = ERR_GET_REASON(ERR_get_error());
-			S verify_reason;
+			std::string verify_reason;
 			if (verify && vr != X509_V_OK) {
 				if (auto const *s = X509_verify_cert_error_string(vr); s != nullptr) {
 					verify_reason = s;
@@ -739,7 +739,7 @@ ClientResult do_blocking_request(
 					.message = "TLS handshake failed",
 				});
 		}
-		tel.tls = chrono::steady_clock::now() - t_tls;
+		tel.tls = std::chrono::steady_clock::now() - t_tls;
 		tel.tls_verified = verify;
 		tel.negotiated_protocol = "https/1.1"; // Phase 2: ALPN negotiation
 
@@ -770,7 +770,7 @@ ClientResult do_blocking_request(
 #endif
 
 	// Build request line + headers.
-	S const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
+	std::string const wire = conflux::http::client_wire::build_http1_request_wire(req, opts.default_headers);
 
 	// Send headers.
 	int const write_sec = to_sec(timeouts.write);
@@ -802,15 +802,15 @@ ClientResult do_blocking_request(
 	// Receive response headers.
 	int const first_byte_sec = to_sec(timeouts.first_byte);
 	int const between_sec = to_sec(timeouts.between_bytes);
-	SZ const max_hdr = opts.max_header_bytes;
-	SZ const max_body = opts.max_body_bytes;
-	SZ const max_buf = opts.max_buffered_bytes;
+	std::size_t const max_hdr = opts.max_header_bytes;
+	std::size_t const max_body = opts.max_body_bytes;
+	std::size_t const max_buf = opts.max_buffered_bytes;
 
-	auto t_ttfb = chrono::steady_clock::now();
+	auto t_ttfb = std::chrono::steady_clock::now();
 	auto raw = recv_until(conn, "\r\n\r\n", first_byte_sec, max_hdr + 4096);
 	auto const header_end = raw.find("\r\n\r\n");
 
-	if (header_end == S::npos) {
+	if (header_end == std::string::npos) {
 		close_conn(conn);
 		if (raw.size() >= max_hdr) {
 			return unexpected(
@@ -827,21 +827,21 @@ ClientResult do_blocking_request(
 				.kind = HttpErrorKind::header_too_large,
 				.message = format("response headers exceed {} bytes", max_hdr)});
 	}
-	tel.ttfb = chrono::steady_clock::now() - t_ttfb;
+	tel.ttfb = std::chrono::steady_clock::now() - t_ttfb;
 
 	// Parse status line + headers.
-	auto const headers_str = SV{raw}.substr(0, header_end);
+	auto const headers_str = std::string_view{raw}.substr(0, header_end);
 	ClientResponse response;
 	auto const nl = headers_str.find("\r\n");
-	auto const status_line = (nl != SV::npos) ? headers_str.substr(0, nl) : headers_str;
+	auto const status_line = (nl != std::string_view::npos) ? headers_str.substr(0, nl) : headers_str;
 	auto const sp1 = status_line.find(' ');
-	if (sp1 == SV::npos) {
+	if (sp1 == std::string_view::npos) {
 		close_conn(conn);
 		return unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "malformed status line"});
 	}
 	auto const rest = status_line.substr(sp1 + 1);
 	auto const sp2 = rest.find(' ');
-	auto const code_sv = (sp2 != SV::npos) ? rest.substr(0, sp2) : rest;
+	auto const code_sv = (sp2 != std::string_view::npos) ? rest.substr(0, sp2) : rest;
 	int status = 0;
 	auto const [ptr, ec] = from_chars(code_sv.data(), code_sv.data() + code_sv.size(), status);
 	if (ec != errc{} || status < 100 || status > 999) {
@@ -850,19 +850,19 @@ ClientResult do_blocking_request(
 			HttpError{.kind = HttpErrorKind::protocol, .message = format("invalid status code '{}'", code_sv)});
 	}
 	response.head.status = status;
-	if (sp2 != SV::npos) {
-		response.head.status_text = S{rest.substr(sp2 + 1)};
+	if (sp2 != std::string_view::npos) {
+		response.head.status_text = std::string{rest.substr(sp2 + 1)};
 	}
 
-	SZ content_length = 0;
+	std::size_t content_length = 0;
 	bool has_content_length = false;
 	bool chunked = false;
-	SZ pos = (nl != SV::npos) ? nl + 2 : headers_str.size();
+	std::size_t pos = (nl != std::string_view::npos) ? nl + 2 : headers_str.size();
 	while (pos < headers_str.size()) {
 		auto const end = headers_str.find("\r\n", pos);
-		auto const hdr = (end != SV::npos) ? headers_str.substr(pos, end - pos) : headers_str.substr(pos);
+		auto const hdr = (end != std::string_view::npos) ? headers_str.substr(pos, end - pos) : headers_str.substr(pos);
 		auto const colon = hdr.find(':');
-		if (colon != SV::npos) {
+		if (colon != std::string_view::npos) {
 			auto k = hdr.substr(0, colon);
 			auto v = hdr.substr(colon + 1);
 			while (!v.empty() && (v[0] == ' ' || v[0] == '\t')) {
@@ -874,12 +874,12 @@ ClientResult do_blocking_request(
 			} else if (ascii_iequals(k, "transfer-encoding") && header_token_contains(v, "chunked")) {
 				chunked = true;
 			} else if (ascii_iequals(k, "set-cookie")) {
-				response.head.set_cookies.push_back(S{v});
+				response.head.set_cookies.push_back(std::string{v});
 			} else if (!conflux::http::is_hop_by_hop_header(k)) {
-				response.head.headers.set(S{k}, S{v});
+				response.head.headers.set(std::string{k}, std::string{v});
 			}
 		}
-		pos = (end != SV::npos) ? end + 2 : headers_str.size();
+		pos = (end != std::string_view::npos) ? end + 2 : headers_str.size();
 	}
 
 	// Validate content-length against cap.
@@ -895,11 +895,11 @@ ClientResult do_blocking_request(
 	response.body = raw.substr(header_end + 4);
 	tel.bytes_received += raw.size();
 
-	auto t_body = chrono::steady_clock::now();
+	auto t_body = std::chrono::steady_clock::now();
 	if (req.method() == "HEAD") {
 		response.body.clear();
 	} else if (chunked) {
-		S decoded;
+		std::string decoded;
 		bool too_large = false;
 		if (!recv_chunked(conn, response.body, decoded, between_sec, max_body, max_buf, too_large)) {
 			close_conn(conn);
@@ -947,7 +947,7 @@ ClientResult do_blocking_request(
 		}
 		tel.bytes_received += response.body.size();
 	}
-	tel.body = chrono::steady_clock::now() - t_body;
+	tel.body = std::chrono::steady_clock::now() - t_body;
 
 	close_conn(conn);
 	response.telemetry = tel;

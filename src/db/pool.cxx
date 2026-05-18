@@ -53,11 +53,11 @@ inline string begin_sql(
 	}
 	return s;
 }
-inline chrono::milliseconds retry_backoff(
+inline std::chrono::milliseconds retry_backoff(
 	int attempt) noexcept {
 	constexpr int base_ms = 100;
 	constexpr int cap_ms = 2000;
-	return chrono::milliseconds{min(base_ms << min(attempt, 4), cap_ms)};
+	return std::chrono::milliseconds{min(base_ms << min(attempt, 4), cap_ms)};
 }
 
 } // namespace detail
@@ -65,7 +65,7 @@ export struct PoolConfig {
 	ConnectParams conn{};
 	size_t min_connections{1};
 	size_t max_connections{8};
-	chrono::milliseconds acquire_timeout{chrono::seconds{5}};
+	std::chrono::milliseconds acquire_timeout{std::chrono::seconds{5}};
 	function<root::Task<void>(Connection &)> on_acquire{};
 };
 export class Pool : public enable_shared_from_this<Pool> {
@@ -141,7 +141,7 @@ auto with_transaction(
 				co_await conflux::uring::async_timeout(
 					reader->ring(),
 					*reader->completions(),
-					[reader](u32 slot, u32 gen) noexcept { return reader->encode_ud(slot, gen); },
+					[reader](std::uint32_t slot, std::uint32_t gen) noexcept { return reader->encode_ud(slot, gen); },
 					detail::retry_backoff(attempt - 1));
 			}
 		}
@@ -275,7 +275,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 			  conflux::uring::async_timeout(
 				  reader->ring(),
 				  *reader->completions(),
-				  [reader](u32 slot, u32 gen) noexcept { return reader->encode_ud(slot, gen); },
+				  [reader](std::uint32_t slot, std::uint32_t gen) noexcept { return reader->encode_ud(slot, gen); },
 				  cfg_.acquire_timeout))
 																						.detach();
 		}

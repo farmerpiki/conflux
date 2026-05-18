@@ -19,8 +19,8 @@ import conflux.tests.support;
 namespace {
 
 struct TempCert {
-	S cert_path;
-	S key_path;
+	std::string cert_path;
+	std::string key_path;
 	TempCert() {
 		char cert_tmp[] = "/tmp/conflux_http3_test_cert_XXXXXX.pem";
 		char key_tmp[] = "/tmp/conflux_http3_test_key_XXXXXX.pem";
@@ -70,7 +70,7 @@ TEST_CASE(
 	REQUIRE(ctx);
 	Http3Listener listener(&router, cfg, 0, ctx.get());
 	listener.start();
-	std::this_thread::sleep_for(chrono::milliseconds(20));
+	std::this_thread::sleep_for(std::chrono::milliseconds(20));
 	listener.stop();
 }
 TEST_CASE(

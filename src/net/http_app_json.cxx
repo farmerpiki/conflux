@@ -17,7 +17,7 @@ namespace detail {
 
 struct StoredResponseOptions {
 	int status{kHttpOk};
-	S status_text{"OK"};
+	std::string status_text{"OK"};
 	conflux::json::boundary::DumpOptions dump{};
 
 	[[nodiscard]] ResponseOptions view() const noexcept {
@@ -27,7 +27,7 @@ struct StoredResponseOptions {
 
 [[nodiscard]] inline StoredResponseOptions store_response_options(
 	ResponseOptions opts) {
-	return StoredResponseOptions{.status = opts.status, .status_text = S{opts.status_text}, .dump = opts.dump};
+	return StoredResponseOptions{.status = opts.status, .status_text = std::string{opts.status_text}, .dump = opts.dump};
 }
 
 } // namespace detail
@@ -116,8 +116,8 @@ public:
 
 	template<class F>
 	Router &add(
-		SV method,
-		SV path,
+		std::string_view method,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
@@ -127,8 +127,8 @@ public:
 
 	template<class Body, class F>
 	Router &add_body(
-		SV method,
-		SV path,
+		std::string_view method,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
 		conflux::json::boundary::DecodeOptions decode_opts = {})
@@ -139,7 +139,7 @@ public:
 
 	template<class F>
 	Router &get(
-		SV path,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
@@ -149,7 +149,7 @@ public:
 
 	template<class F>
 	Router &post(
-		SV path,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
@@ -159,7 +159,7 @@ public:
 
 	template<class Body, class F>
 	Router &post_body(
-		SV path,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
 		conflux::json::boundary::DecodeOptions decode_opts = {})
@@ -170,7 +170,7 @@ public:
 
 	template<class Body, class F>
 	Router &put_body(
-		SV path,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
 		conflux::json::boundary::DecodeOptions decode_opts = {})
@@ -181,7 +181,7 @@ public:
 
 	template<class Body, class F>
 	Router &patch_body(
-		SV path,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
 		conflux::json::boundary::DecodeOptions decode_opts = {})
@@ -203,8 +203,8 @@ public:
 
 	template<class F>
 	App &add(
-		SV method,
-		SV path,
+		std::string_view method,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
@@ -215,8 +215,8 @@ public:
 
 	template<class Body, class F>
 	App &add_body(
-		SV method,
-		SV path,
+		std::string_view method,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
 		conflux::json::boundary::DecodeOptions decode_opts = {})
@@ -228,7 +228,7 @@ public:
 
 	template<class F>
 	App &get(
-		SV path,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
@@ -238,7 +238,7 @@ public:
 
 	template<class F>
 	App &post(
-		SV path,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {})
 		requires JsonRouteHandler<Provider, F>
@@ -248,7 +248,7 @@ public:
 
 	template<class Body, class F>
 	App &post_body(
-		SV path,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
 		conflux::json::boundary::DecodeOptions decode_opts = {})
@@ -259,7 +259,7 @@ public:
 
 	template<class Body, class F>
 	App &put_body(
-		SV path,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
 		conflux::json::boundary::DecodeOptions decode_opts = {})
@@ -270,7 +270,7 @@ public:
 
 	template<class Body, class F>
 	App &patch_body(
-		SV path,
+		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
 		conflux::json::boundary::DecodeOptions decode_opts = {})

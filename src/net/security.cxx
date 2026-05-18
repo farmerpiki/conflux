@@ -9,23 +9,23 @@ export struct SecurityOptions {
 	bool hsts_include_subdomains{true};
 
 	// X-Frame-Options: "DENY", "SAMEORIGIN", or "" to disable.
-	S frame_options{"DENY"};
+	std::string frame_options{"DENY"};
 
 	// X-Content-Type-Options: nosniff (true = send header).
 	bool nosniff{true};
 
 	// X-XSS-Protection value; empty disables. OWASP recommends "0" — the legacy
 	// filter (1; mode=block) introduced XSS vectors in older browsers.
-	S xss_protection{"0"};
+	std::string xss_protection{"0"};
 
-	// Referrer-Policy value; empty S disables the header.
-	S referrer_policy{"strict-origin-when-cross-origin"};
+	// Referrer-Policy value; empty std::string disables the header.
+	std::string referrer_policy{"strict-origin-when-cross-origin"};
 
-	// Permissions-Policy value; empty S disables the header.
-	S permissions_policy{"geolocation=(), microphone=(), camera=()"};
+	// Permissions-Policy value; empty std::string disables the header.
+	std::string permissions_policy{"geolocation=(), microphone=(), camera=()"};
 
-	// Content-Security-Policy value; empty S disables the header.
-	S csp;
+	// Content-Security-Policy value; empty std::string disables the header.
+	std::string csp;
 
 	// When true, Strict-Transport-Security is only emitted on TLS connections.
 	// Set to false only in tests that run plain-HTTP servers.

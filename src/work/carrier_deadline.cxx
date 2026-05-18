@@ -13,7 +13,7 @@ class DeadlineScope : public Scope {
 
 public:
 	explicit DeadlineScope(
-		chrono::steady_clock::time_point deadline) {
+		std::chrono::steady_clock::time_point deadline) {
 		timer_ = jthread{[this, deadline](std::stop_token const &st) {
 			mutex mu;
 			std::condition_variable_any cv;
@@ -27,8 +27,8 @@ public:
 	}
 	template<class Rep, class Period>
 	explicit DeadlineScope(
-		chrono::duration<Rep, Period> timeout)
-		: DeadlineScope(chrono::steady_clock::now() + chrono::duration_cast<chrono::steady_clock::duration>(timeout)) {}
+		std::chrono::duration<Rep, Period> timeout)
+		: DeadlineScope(std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(timeout)) {}
 	~DeadlineScope() = default;
 
 	DeadlineScope(DeadlineScope &&) = delete;

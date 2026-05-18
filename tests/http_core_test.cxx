@@ -94,7 +94,7 @@ TEST_CASE(
 	REQUIRE_FALSE(bad_port.has_value());
 	CHECK(bad_port.error().kind == chttp::UrlErrorKind::invalid_port);
 
-	S too_long(8193, 'x');
+	std::string too_long(8193, 'x');
 	too_long.replace(0, 7, "http://");
 	auto long_url = chttp::Url::parse(too_long);
 	REQUIRE_FALSE(long_url.has_value());
@@ -164,11 +164,11 @@ TEST_CASE(
 		span<UploadedFile const>{},
 		{}};
 
-	auto id = req.param_as<u32>("id");
+	auto id = req.param_as<std::uint32_t>("id");
 	REQUIRE(id.has_value());
 	CHECK(*id == 42);
 
-	auto limit = req.header_as<u32>("x-limit");
+	auto limit = req.header_as<std::uint32_t>("x-limit");
 	REQUIRE(limit.has_value());
 	CHECK(*limit == 128);
 
@@ -180,15 +180,15 @@ TEST_CASE(
 	REQUIRE(price.has_value());
 	CHECK(*price == 19.5);
 
-	auto sid = req.cookie_as<SV>("sid");
+	auto sid = req.cookie_as<std::string_view>("sid");
 	REQUIRE(sid.has_value());
 	CHECK(*sid == "abc-123");
 
-	auto missing = req.optional_query_as<i32>("missing");
+	auto missing = req.optional_query_as<std::int32_t>("missing");
 	REQUIRE(missing.has_value());
 	CHECK_FALSE(missing->has_value());
 
-	auto bad = req.query_as<i32>("bad");
+	auto bad = req.query_as<std::int32_t>("bad");
 	REQUIRE_FALSE(bad.has_value());
 	CHECK(bad.error().kind == HttpFieldErrorKind::invalid);
 	CHECK(bad.error().source == HttpFieldSource::query);
@@ -203,7 +203,7 @@ TEST_CASE(
 	req.query.emplace_back("debug", "off");
 	req.cookies.emplace_back("theme", "dark");
 
-	auto len = req.header_as<u64>("content-length");
+	auto len = req.header_as<std::uint64_t>("content-length");
 	REQUIRE(len.has_value());
 	CHECK(*len == 512);
 
@@ -211,11 +211,11 @@ TEST_CASE(
 	REQUIRE(debug.has_value());
 	CHECK_FALSE(*debug);
 
-	auto theme = req.cookie_as<S>("theme");
+	auto theme = req.cookie_as<std::string>("theme");
 	REQUIRE(theme.has_value());
 	CHECK(*theme == "dark");
 
-	auto missing = req.param_as<u32>("id");
+	auto missing = req.param_as<std::uint32_t>("id");
 	REQUIRE_FALSE(missing.has_value());
 	CHECK(missing.error().kind == HttpFieldErrorKind::missing);
 	CHECK(missing.error().source == HttpFieldSource::params);

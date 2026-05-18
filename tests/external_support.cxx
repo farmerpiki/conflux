@@ -13,14 +13,14 @@ import conflux.types;
 import conflux.net.http;
 export namespace conflux::tests {
 
-[[nodiscard]] P<int, S> run_cmd(
-	S const &cmd) {
+[[nodiscard]] std::pair<int, std::string> run_cmd(
+	std::string const &cmd) {
 	FILE *fp = ::popen(cmd.c_str(), "r");
 	if (fp == nullptr) {
 		return {-1, {}};
 	}
-	S out;
-	A<char, 4096> buf{};
+	std::string out;
+	std::array<char, 4096> buf{};
 	while (::fgets(buf.data(), static_cast<int>(buf.size()), fp) != nullptr) {
 		out += buf.data();
 	}
@@ -31,8 +31,8 @@ export namespace conflux::tests {
 // Generate a self-signed localhost cert once per process, returning (cert_pem,
 // key_pem) bytes. Subsequent fixtures reuse the cached strings, avoiding the
 // per-suite cost of spawning openssl.
-P<S, S> const &cached_test_cert() {
-	static P<S, S> const bytes = [] {
+std::pair<std::string, std::string> const &cached_test_cert() {
+	static std::pair<std::string, std::string> const bytes = [] {
 		char cert_tmp[] = "/tmp/conflux_cached_cert_XXXXXX.pem";
 		char key_tmp[] = "/tmp/conflux_cached_key_XXXXXX.pem";
 		{
@@ -43,13 +43,13 @@ P<S, S> const &cached_test_cert() {
 			int const f = ::mkstemps(key_tmp, 4);
 			::close(f);
 		}
-		S const cmd = format(
+		std::string const cmd = format(
 			"openssl req -x509 -newkey rsa:2048 -keyout {} -out {} "
 			"-days 1 -nodes -subj '/CN=localhost' 2>/dev/null",
 			key_tmp,
 			cert_tmp);
 		if (::system(cmd.c_str()) != 0) {
-			throw RE{"openssl req failed"};
+			throw std::runtime_error{"openssl req failed"};
 		}
 		auto slurp = [](char const *path) {
 			std::ifstream in{path, std::ios::binary};
@@ -57,7 +57,7 @@ P<S, S> const &cached_test_cert() {
 			ss << in.rdbuf();
 			return ss.str();
 		};
-		P<S, S> out{slurp(cert_tmp), slurp(key_tmp)};
+		std::pair<std::string, std::string> out{slurp(cert_tmp), slurp(key_tmp)};
 		::unlink(cert_tmp);
 		::unlink(key_tmp);
 		return out;
@@ -66,44 +66,44 @@ P<S, S> const &cached_test_cert() {
 }
 // Materialize the cached cert bytes into a unique file P. HttpServer needs
 // paths on disk; we unlink after the server starts.
-P<S, S> write_cached_cert_files() {
+std::pair<std::string, std::string> write_cached_cert_files() {
 	auto const &[cert_pem, key_pem] = cached_test_cert();
 	char cert_tmp[] = "/tmp/conflux_ext_cert_XXXXXX.pem";
 	char key_tmp[] = "/tmp/conflux_ext_key_XXXXXX.pem";
 	{
 		int const f = ::mkstemps(cert_tmp, 4);
 		if (f < 0) {
-			throw RE{"mkstemps failed"};
+			throw std::runtime_error{"mkstemps failed"};
 		}
 		if (::write(f, cert_pem.data(), cert_pem.size()) != static_cast<ssize_t>(cert_pem.size())) {
 			::close(f);
-			throw RE{"cert write failed"};
+			throw std::runtime_error{"cert write failed"};
 		}
 		::close(f);
 	}
 	{
 		int const f = ::mkstemps(key_tmp, 4);
 		if (f < 0) {
-			throw RE{"mkstemps failed"};
+			throw std::runtime_error{"mkstemps failed"};
 		}
 		if (::write(f, key_pem.data(), key_pem.size()) != static_cast<ssize_t>(key_pem.size())) {
 			::close(f);
-			throw RE{"key write failed"};
+			throw std::runtime_error{"key write failed"};
 		}
 		::close(f);
 	}
 	return {cert_tmp, key_tmp};
 }
-[[nodiscard]] P<int, S> run_cmd_retry(
-	S const &cmd,
+[[nodiscard]] std::pair<int, std::string> run_cmd_retry(
+	std::string const &cmd,
 	int attempts = 3) {
-	P<int, S> result{-1, {}};
+	std::pair<int, std::string> result{-1, {}};
 	for (int i = 0; i < attempts; ++i) {
 		result = run_cmd(cmd);
 		if (result.first == 0) {
 			return result;
 		}
-		std::this_thread::sleep_for(chrono::milliseconds(25));
+		std::this_thread::sleep_for(std::chrono::milliseconds(25));
 	}
 	return result;
 }
@@ -114,7 +114,7 @@ P<S, S> write_cached_cert_files() {
 	if (raw == nullptr || *raw == '\0') {
 		return fallback;
 	}
-	SV const value{raw};
+	std::string_view const value{raw};
 	if (value == "0" || value == "false" || value == "off" || value == "no") {
 		return false;
 	}
@@ -127,7 +127,7 @@ void apply_external_server_env(
 	cfg.cmd_sock_setsockopt = env_bool("CONFLUX_TEST_CMD_SOCK_SOCKOPTS", cfg.cmd_sock_setsockopt);
 }
 void wait_for_port(
-	u16 port) {
+	std::uint16_t port) {
 	for (int i = 0; i < 100; ++i) {
 		int const fd = ::socket(AF_INET, SOCK_STREAM, 0);
 		sockaddr_in addr{};
@@ -139,28 +139,28 @@ void wait_for_port(
 		if (up) {
 			return;
 		}
-		std::this_thread::sleep_for(chrono::milliseconds(10));
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
-	throw RE{"server did not start in time"};
+	throw std::runtime_error{"server did not start in time"};
 }
 void wait_for_https(
-	u16 port) {
+	std::uint16_t port) {
 	for (int i = 0; i < 50; ++i) {
 		auto [code, out] = run_cmd(format("curl -sk --http1.1 -o /dev/null --max-time 1 https://127.0.0.1:{}/", port));
 		(void)out;
 		if (code == 0) {
 			return;
 		}
-		std::this_thread::sleep_for(chrono::milliseconds(20));
+		std::this_thread::sleep_for(std::chrono::milliseconds(20));
 	}
-	throw RE{"https server did not become ready in time"};
+	throw std::runtime_error{"https server did not become ready in time"};
 }
 class HttpsServerFixture {
-	S cert_path_;
-	S key_path_;
-	SP<HttpServer> server_;
+	std::string cert_path_;
+	std::string key_path_;
+	std::shared_ptr<HttpServer> server_;
 	thread srv_thread_;
-	u16 port_{};
+	std::uint16_t port_{};
 	void generate_cert() {
 		auto [cert, key] = write_cached_cert_files();
 		cert_path_ = move(cert);
@@ -202,31 +202,31 @@ public:
 			srv_thread_.join();
 		}
 	}
-	[[gnu::pure]] [[nodiscard]] u16 port() const noexcept { return port_; }
-	[[nodiscard]] P<int, S> curl_https(
-		SV path) const {
+	[[gnu::pure]] [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
+	[[nodiscard]] std::pair<int, std::string> curl_https(
+		std::string_view path) const {
 		return run_cmd_retry(format("curl -sk --http1.1 --max-time 5 https://127.0.0.1:{}{}", port_, path));
 	}
-	[[nodiscard]] P<int, S> curl_http(
-		SV path) const {
+	[[nodiscard]] std::pair<int, std::string> curl_http(
+		std::string_view path) const {
 		return run_cmd_retry(format("curl -s --max-time 5 http://127.0.0.1:{}{}", port_, path));
 	}
-	[[nodiscard]] P<int, S> curl_https_status(
-		SV path) const {
+	[[nodiscard]] std::pair<int, std::string> curl_https_status(
+		std::string_view path) const {
 		return run_cmd_retry(format(
 			"curl -sk --http1.1 -o /dev/null -w '%{{http_code}}' --max-time 5 "
 			"https://127.0.0.1:{}{}",
 			port_,
 			path));
 	}
-	[[nodiscard]] S sclient_get(
-		SV path) const {
+	[[nodiscard]] std::string sclient_get(
+		std::string_view path) const {
 		auto const cmd = format(
 			"printf 'GET {} HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' | "
 			"openssl s_client -connect 127.0.0.1:{} -quiet -ign_eof 2>/dev/null",
 			path,
 			port_);
-		S out;
+		std::string out;
 		for (int i = 0; i < 3; ++i) {
 			auto [code, attempt] = run_cmd(cmd);
 			(void)code;
@@ -234,17 +234,17 @@ public:
 			if (!out.empty()) {
 				break;
 			}
-			std::this_thread::sleep_for(chrono::milliseconds(25));
+			std::this_thread::sleep_for(std::chrono::milliseconds(25));
 		}
 		return out;
 	}
 };
 class Http3ServerFixture {
-	S cert_path_;
-	S key_path_;
-	SP<HttpServer> server_;
+	std::string cert_path_;
+	std::string key_path_;
+	std::shared_ptr<HttpServer> server_;
 	thread srv_thread_;
-	u16 port_{};
+	std::uint16_t port_{};
 	void generate_cert() {
 		auto [cert, key] = write_cached_cert_files();
 		cert_path_ = move(cert);
@@ -277,7 +277,7 @@ public:
 		port_ = server_->port();
 		wait_for_port(port_);
 		wait_for_https(port_);
-		std::this_thread::sleep_for(chrono::milliseconds(50));
+		std::this_thread::sleep_for(std::chrono::milliseconds(50));
 
 		::unlink(cert_path_.c_str());
 		::unlink(key_path_.c_str());
@@ -290,9 +290,9 @@ public:
 			srv_thread_.join();
 		}
 	}
-	[[gnu::pure]] [[nodiscard]] u16 port() const noexcept { return port_; }
-	[[nodiscard]] P<int, S> curl_h3(
-		SV path) const {
+	[[gnu::pure]] [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
+	[[nodiscard]] std::pair<int, std::string> curl_h3(
+		std::string_view path) const {
 		return run_cmd_retry(format(
 			"curl -sk --http3-only --max-time 5 "
 			"--resolve localhost:{}:127.0.0.1 https://localhost:{}{}",
@@ -300,8 +300,8 @@ public:
 			port_,
 			path));
 	}
-	[[nodiscard]] P<int, S> curl_h3_status(
-		SV path) const {
+	[[nodiscard]] std::pair<int, std::string> curl_h3_status(
+		std::string_view path) const {
 		return run_cmd_retry(format(
 			"curl -sk --http3-only -o /dev/null -w '%{{http_code}}' --max-time 5 "
 			"--resolve localhost:{}:127.0.0.1 https://localhost:{}{}",

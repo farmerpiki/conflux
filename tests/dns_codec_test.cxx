@@ -166,7 +166,7 @@ TEST_CASE(
 	"[dns][codec]") {
 	auto wire = encode_query(0x1234, "example.com", QType::a, nullopt);
 
-	// Header: id(2) + flags(2) + 4×u16 counts = 12.
+	// Header: id(2) + flags(2) + 4×std::uint16_t counts = 12.
 	REQUIRE(wire.size() >= 12);
 	CHECK(wire[0] == 0x12);
 	CHECK(wire[1] == 0x34);
@@ -208,7 +208,7 @@ TEST_CASE(
 	CHECK(wire[11] == 0x01); // arcount=1 (OPT)
 
 	// Round-trip via decode_message.
-	auto msg = decode_message(span<u8 const>{wire.data(), wire.size()});
+	auto msg = decode_message(span<std::uint8_t const>{wire.data(), wire.size()});
 	CHECK(msg.header.id == 0xBEEF);
 	CHECK(msg.header.qdcount == 1);
 	CHECK(msg.header.arcount == 1);
@@ -217,7 +217,7 @@ TEST_CASE(
 	CHECK(msg.questions[0].qtype == QType::aaaa);
 	REQUIRE(msg.additional.size() == 1);
 	CHECK(msg.additional[0].type == QType::opt);
-	CHECK(static_cast<u16>(msg.additional[0].rclass) == 4096); // udp_size in CLASS slot
+	CHECK(static_cast<std::uint16_t>(msg.additional[0].rclass) == 4096); // udp_size in CLASS slot
 	CHECK(msg.additional[0].rdata.empty());
 }
 TEST_CASE(
@@ -226,7 +226,7 @@ TEST_CASE(
 	// Encoder copies bytes as-is. Tests doc this contract; the resolver
 	// lowercases before encoding.
 	auto wire = encode_query(1, "Example.COM", QType::a, nullopt);
-	auto msg = decode_message(span<u8 const>{wire.data(), wire.size()});
+	auto msg = decode_message(span<std::uint8_t const>{wire.data(), wire.size()});
 	REQUIRE(msg.questions.size() == 1);
 	// decode_name() lowercases as it reads.
 	CHECK(msg.questions[0].name == "example.com");
@@ -241,7 +241,7 @@ TEST_CASE(
 	"dns: encode_query underscored labels accepted",
 	"[dns][codec]") {
 	auto wire = encode_query(7, "_dmarc.example.com", QType::txt, nullopt);
-	auto msg = decode_message(span<u8 const>{wire.data(), wire.size()});
+	auto msg = decode_message(span<std::uint8_t const>{wire.data(), wire.size()});
 	REQUIRE(msg.questions.size() == 1);
 	CHECK(msg.questions[0].name == "_dmarc.example.com");
 }
@@ -255,7 +255,7 @@ TEST_CASE(
 	// Hand-craft a NOERROR response: id=1, QR|RD|RA, qdcount=1, ancount=1.
 	// Question: example.com IN A
 	// Answer:   pointer-to-question-name, type A, class IN, ttl 300, rdlen 4, 93.184.216.34
-	vector<u8> wire = {
+	vector<std::uint8_t> wire = {
 		// header
 		0x00,
 		0x01, // id
@@ -333,7 +333,7 @@ TEST_CASE(
 TEST_CASE(
 	"dns: decode AAAA response",
 	"[dns][codec]") {
-	vector<u8> wire = {
+	vector<std::uint8_t> wire = {
 		0x00, 0x02, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 2,    'v',  '6',  1,    'x',
 		0, // v6.x — labels: "v6" then "x"
 		0x00, 0x1C, 0x00,
@@ -361,7 +361,7 @@ TEST_CASE(
 	"dns: decode rejects forward pointer",
 	"[dns][codec][safety]") {
 	// Pointer at offset 12 points to offset 14 (forward) — must be rejected.
-	vector<u8> wire = {
+	vector<std::uint8_t> wire = {
 		0x00,
 		0x01,
 		0x81,
@@ -389,7 +389,7 @@ TEST_CASE(
 	// Two-pointer cycle: at offset 12 a pointer to 14, at offset 14 a pointer to 12.
 	// The "no forward refs" rule (target < cursor) catches this; first pointer
 	// targets offset 14 from cursor 12 → invalid.
-	vector<u8> wire(12 + 2 + 2);
+	vector<std::uint8_t> wire(12 + 2 + 2);
 	wire[0] = 0x00;
 	wire[1] = 0x01;
 	wire[2] = 0x81;
@@ -405,7 +405,7 @@ TEST_CASE(
 TEST_CASE(
 	"dns: decode rejects RDLENGTH overrun",
 	"[dns][codec][safety]") {
-	vector<u8> wire = {
+	vector<std::uint8_t> wire = {
 		0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 1,    'a',  0,
 		0x00, 0x01, 0x00, 0x01, 0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C, 0xFF,
 		0xFF, // RDLENGTH 65535 —
@@ -418,7 +418,7 @@ TEST_CASE(
 	"[dns][codec][safety]") {
 	// Length byte 0x40 = 64 (b01000000) — collides with reserved flag bits;
 	// codec must reject.
-	vector<u8> wire(12);
+	vector<std::uint8_t> wire(12);
 	wire[0] = 0x00;
 	wire[1] = 0x01;
 	wire[2] = 0x81;
@@ -432,7 +432,7 @@ TEST_CASE(
 TEST_CASE(
 	"dns: decode tolerates 63-byte label",
 	"[dns][codec]") {
-	vector<u8> wire(12);
+	vector<std::uint8_t> wire(12);
 	wire[0] = 0x00;
 	wire[1] = 0x01;
 	wire[2] = 0x81;

@@ -15,12 +15,12 @@ using namespace conflux::json;
 namespace {
 
 struct TempDir {
-	S path{};
+	std::string path{};
 	int fd{-1};
 
 	TempDir() = default;
 	TempDir(
-		S p,
+		std::string p,
 		int f) noexcept
 		: path{move(p)}
 		, fd{f} {}
@@ -42,7 +42,7 @@ struct TempDir {
 	}
 
 	static TempDir create() {
-		S p = "/tmp/conflux_json_file_XXXXXX";
+		std::string p = "/tmp/conflux_json_file_XXXXXX";
 		auto *r = ::mkdtemp(p.data());
 		REQUIRE(r != nullptr);
 		int f = ::open(p.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);

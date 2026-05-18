@@ -9,8 +9,8 @@ import conflux.net.http.realtime;
 
 using namespace std;
 extern "C" int LLVMFuzzerTestOneInput(
-	u8 const *data,
-	SZ size) {
+	std::uint8_t const *data,
+	std::size_t size) {
 	ws_detail::FrameHeader hdr{};
 	auto const st = ws_detail::parse_frame_header(as_bytes(span{data, size}), hdr);
 	if (st == ws_detail::FrameParseStatus::Ok) {

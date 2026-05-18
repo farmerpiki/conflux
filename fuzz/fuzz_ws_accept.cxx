@@ -8,12 +8,12 @@ import conflux.net.http.realtime;
 
 using namespace std;
 extern "C" int LLVMFuzzerTestOneInput(
-	u8 const *data,
-	SZ size) {
+	std::uint8_t const *data,
+	std::size_t size) {
 	if (size > 4096) {
 		return 0;
 	}
-	SV in{reinterpret_cast<char const *>(data), size};
+	std::string_view in{reinterpret_cast<char const *>(data), size};
 	auto const out = ws_detail::ws_accept_key(in);
 	if (out.size() != 28) {
 		__builtin_trap();

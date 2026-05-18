@@ -5,21 +5,21 @@ import conflux.json;
 using namespace conflux::json;
 using std::println;
 
-static S display_path(
+static std::string display_path(
 	JsonError const &e) {
 	if (!e.path.empty()) {
 		return e.path.to_pointer();
 	}
 	if (e.member_name) {
-		return S{"/"} + *e.member_name;
+		return std::string{"/"} + *e.member_name;
 	}
 	return "(root)";
 }
 
 static void print_json_error(
-	SV context,
+	std::string_view context,
 	JsonError const &e) {
-	S const path = display_path(e);
+	std::string const path = display_path(e);
 	if (e.source) {
 		std::println(
 			"{}: {} at {} (line {}, column {}, byte {})",
@@ -34,8 +34,8 @@ static void print_json_error(
 	std::println("{}: {} at {}", context, e.message, path);
 }
 
-static expected<S, JsonError> first_role_for_second_user(
-	SV input) {
+static expected<std::string, JsonError> first_role_for_second_user(
+	std::string_view input) {
 	JsonParseOptions opts{
 		.duplicate_key = DuplicateKeyPolicy::reject,
 		.warm_threshold = 4u,
@@ -58,12 +58,12 @@ static expected<S, JsonError> first_role_for_second_user(
 	}
 
 	// The source document is local to this helper, so detach the returned view.
-	return S{*role};
+	return std::string{*role};
 }
 
 static void example_pointer_lookup() {
 	std::println("--- JSON Pointer boundary lookup ---");
-	constexpr SV input = R"({
+	constexpr std::string_view input = R"({
 		"users": [
 			{"id": 1, "roles": ["admin", "ops"]},
 			{"id": 2, "roles": ["editor", "reviewer"]}
@@ -80,7 +80,7 @@ static void example_pointer_lookup() {
 
 static void example_duplicate_policy() {
 	std::println("\n--- duplicate key policy ---");
-	constexpr SV input = R"({"id":1,"id":2})";
+	constexpr std::string_view input = R"({"id":1,"id":2})";
 
 	if (auto strict = parse_view(input); !strict) {
 		print_json_error("strict duplicate check", strict.error());

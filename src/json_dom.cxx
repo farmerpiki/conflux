@@ -12,7 +12,7 @@ import conflux.types;
 // ---------------------------------------------------------------------------
 
 expected<JsonPath, JsonError> JsonPath::from_pointer(
-	SV sv) {
+	std::string_view sv) {
 	if (sv.empty()) {
 		return JsonPath{};
 	}
@@ -24,15 +24,15 @@ expected<JsonPath, JsonError> JsonPath::from_pointer(
 				.message = "JSON Pointer must start with '/' or be empty"});
 	}
 	JsonPath result;
-	SZ pos = 1;
+	std::size_t pos = 1;
 	while (pos <= sv.size()) {
-		SZ slash = sv.find('/', pos);
-		if (slash == SV::npos) {
+		std::size_t slash = sv.find('/', pos);
+		if (slash == std::string_view::npos) {
 			slash = sv.size();
 		}
-		S name;
+		std::string name;
 		name.reserve(slash - pos);
-		for (SZ i = pos; i < slash; ++i) {
+		for (std::size_t i = pos; i < slash; ++i) {
 			if (sv[i] == '~') {
 				if (i + 1 >= slash) {
 					return unexpected(
@@ -100,7 +100,7 @@ void push_seg(
 	}
 }
 expected<NodeRef, JsonError> NodeRef::at_pointer(
-	SV pointer) const {
+	std::string_view pointer) const {
 	auto path = JsonPath::from_pointer(pointer);
 	if (!path) {
 		return unexpected(move(path).error());
@@ -110,11 +110,11 @@ expected<NodeRef, JsonError> NodeRef::at_pointer(
 expected<NodeRef, JsonError> NodeRef::at(
 	JsonPath const &path) const {
 	NodeRef cur = *this;
-	for (SZ i = 0; i < path.size(); ++i) {
+	for (std::size_t i = 0; i < path.size(); ++i) {
 		auto const &seg = path.segment(i);
 		auto set_path = [&](JsonError err) {
 			err.path = JsonPath{};
-			for (SZ j = 0; j <= i; ++j) {
+			for (std::size_t j = 0; j <= i; ++j) {
 				push_seg(err.path, path.segment(j));
 			}
 			return unexpected(move(err));
@@ -123,7 +123,7 @@ expected<NodeRef, JsonError> NodeRef::at(
 			auto const &name = get<JsonPathMember>(seg).name;
 			if (cur.kind() == JsonKind::array) {
 				bool all_digits = !name.empty() && (name.size() == 1 || name[0] != '0');
-				for (SZ k = 0; all_digits && k < name.size(); ++k) {
+				for (std::size_t k = 0; all_digits && k < name.size(); ++k) {
 					all_digits = name[k] >= '0' && name[k] <= '9';
 				}
 				if (!all_digits) {
@@ -135,9 +135,9 @@ expected<NodeRef, JsonError> NodeRef::at(
 							.actual_kind = JsonKind::array,
 							.message = "non-numeric JSON Pointer segment on array"});
 				}
-				SZ idx = 0;
+				std::size_t idx = 0;
 				for (char const ch: name) {
-					idx = idx * 10 + static_cast<SZ>(ch - '0');
+					idx = idx * 10 + static_cast<std::size_t>(ch - '0');
 				}
 				auto arr = cur.as_array();
 				if (!arr) {
@@ -220,7 +220,7 @@ ArrayElementRange ArrayView::elements() const noexcept {
 			memory_order_acquire);
 	};
 	try {
-		u32 const cap = detail::clamped_capacity(static_cast<u32>(ov.mem_count_));
+		std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(ov.mem_count_));
 		if (cap == 0) {
 			stash_failure_sentinel();
 			return unexpected(
@@ -229,7 +229,7 @@ ArrayElementRange ArrayView::elements() const noexcept {
 					.code = JsonIssueCode::resource_exhausted,
 					.message = "object exceeds hash-index byte budget"});
 		}
-		owned = ObjHashTable::create(cap, static_cast<u32>(ov.mem_count_), storage->hash_mr_);
+		owned = ObjHashTable::create(cap, static_cast<std::uint32_t>(ov.mem_count_), storage->hash_mr_);
 		if (owned == nullptr) {
 			stash_failure_sentinel();
 			return unexpected(
@@ -277,9 +277,9 @@ expected<void, JsonError> Document::warm_member_index(
 
 expected<void, JsonError> Document::warm_member_indices(
 	WarmIndexOptions const &opts) const {
-	SZ objects_warmed = 0;
-	SZ bytes_allocated = 0;
-	for (SZ i = 0; i < storage_->nodes.size(); ++i) {
+	std::size_t objects_warmed = 0;
+	std::size_t bytes_allocated = 0;
+	for (std::size_t i = 0; i < storage_->nodes.size(); ++i) {
 		auto &n = storage_->nodes[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 		if (n.kind != NodeKind::object) {
 			continue;
@@ -291,13 +291,13 @@ expected<void, JsonError> Document::warm_member_indices(
 		if (std::atomic_ref<ObjHashTable *>{n.hash_idx_raw}.load(memory_order_acquire) != nullptr) {
 			continue; // already indexed or failed
 		}
-		u32 const cap = detail::clamped_capacity(static_cast<u32>(mem_count));
-		SZ const est_bytes = cap > 0 ? sizeof(ObjHashTable) + static_cast<SZ>(cap) * sizeof(ObjHashSlot) : 0;
+		std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(mem_count));
+		std::size_t const est_bytes = cap > 0 ? sizeof(ObjHashTable) + static_cast<std::size_t>(cap) * sizeof(ObjHashSlot) : 0;
 		if (objects_warmed >= opts.max_objects) {
 			break;
 		}
 		if (est_bytes > 0
-			&& opts.max_extra_bytes != std::numeric_limits<SZ>::max()
+			&& opts.max_extra_bytes != std::numeric_limits<std::size_t>::max()
 			&& bytes_allocated + est_bytes > opts.max_extra_bytes) {
 			break;
 		}
@@ -312,7 +312,7 @@ expected<void, JsonError> Document::warm_member_indices(
 }
 
 Document make_document(
-	UP<DocumentStorage> s) noexcept {
+	std::unique_ptr<DocumentStorage> s) noexcept {
 	return Document{move(s)};
 }
 

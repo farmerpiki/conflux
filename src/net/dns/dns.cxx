@@ -22,7 +22,7 @@ namespace root = conflux::work::root;
 
 // ─── address family / endpoint ──────────────────────────────────────────────
 
-export enum class AddressFamily : u8 {
+export enum class AddressFamily : std::uint8_t {
 	v4,
 	v6,
 };
@@ -33,8 +33,8 @@ export struct Endpoint {
 };
 export struct ResolveResult {
 	std::vector<Endpoint> endpoints;
-	chrono::nanoseconds elapsed{};
-	chrono::seconds suggested_ttl{0};
+	std::chrono::nanoseconds elapsed{};
+	std::chrono::seconds suggested_ttl{0};
 	bool from_cache{false};
 	bool from_hosts_file{false};
 	bool from_coalesced{false};
@@ -43,7 +43,7 @@ export struct ResolveResult {
 
 // ─── errors ─────────────────────────────────────────────────────────────────
 
-export enum class DnsErrorKind : u8 {
+export enum class DnsErrorKind : std::uint8_t {
 	timeout,
 	nxdomain,
 	servfail,
@@ -59,26 +59,26 @@ export enum class DnsErrorKind : u8 {
 	cannot_block_on_owned_ring,
 	not_implemented,
 };
-export struct DnsError final : RE {
+export struct DnsError final : std::runtime_error {
 	DnsError(
 		DnsErrorKind k,
 		std::string const &msg,
 		int err = 0,
-		std::optional<u8> r = {})
-		: RE{msg}
+		std::optional<std::uint8_t> r = {})
+		: std::runtime_error{msg}
 		, kind{k}
 		, os_errno{err}
 		, rcode{r} {}
 	DnsErrorKind kind;
 	int os_errno{0};
-	std::optional<u8> rcode{};
+	std::optional<std::uint8_t> rcode{};
 };
 // ─── nameserver endpoint ────────────────────────────────────────────────────
 
 export struct NameserverEndpoint {
 	::sockaddr_storage addr{};
 	::socklen_t addr_len{};
-	u16 port{53};
+	std::uint16_t port{53};
 };
 // Parse "ip", "ip:port", "[ipv6]:port", "[ipv6]". Returns endpoint with
 // AF_INET or AF_INET6 set in addr. On failure returns the unsupported
@@ -90,7 +90,7 @@ export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
 	}
 
 	std::string host;
-	u16 port = 53;
+	std::uint16_t port = 53;
 
 	if (literal.front() == '[') {
 		auto const close = literal.find(']');
@@ -107,17 +107,17 @@ export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
 			if (rest.empty()) {
 				return unexpected{std::string{"missing port after ':' in nameserver literal"}};
 			}
-			u32 parsed = 0;
+			std::uint32_t parsed = 0;
 			for (char const c: rest) {
 				if (c < '0' || c > '9') {
 					return unexpected{format("invalid port '{}' in nameserver literal", rest)};
 				}
-				parsed = parsed * 10 + static_cast<u32>(c - '0');
+				parsed = parsed * 10 + static_cast<std::uint32_t>(c - '0');
 				if (parsed > 0xFFFFU) {
 					return unexpected{format("port out of range '{}' in nameserver literal", rest)};
 				}
 			}
-			port = static_cast<u16>(parsed);
+			port = static_cast<std::uint16_t>(parsed);
 		}
 	} else {
 		// Either bare IPv4 ("1.2.3.4"), bare IPv6 ("::1"), or "ipv4:port".
@@ -132,17 +132,17 @@ export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
 			if (rest.empty()) {
 				return unexpected{std::string{"missing port after ':' in nameserver literal"}};
 			}
-			u32 parsed = 0;
+			std::uint32_t parsed = 0;
 			for (char const c: rest) {
 				if (c < '0' || c > '9') {
 					return unexpected{format("invalid port '{}' in nameserver literal", rest)};
 				}
-				parsed = parsed * 10 + static_cast<u32>(c - '0');
+				parsed = parsed * 10 + static_cast<std::uint32_t>(c - '0');
 				if (parsed > 0xFFFFU) {
 					return unexpected{format("port out of range '{}' in nameserver literal", rest)};
 				}
 			}
-			port = static_cast<u16>(parsed);
+			port = static_cast<std::uint16_t>(parsed);
 		} else {
 			host.assign(literal);
 		}
@@ -212,7 +212,7 @@ export [[nodiscard]] bool is_valid_hostname(
 // `port` is written into the sockaddr in network order.
 export [[nodiscard]] std::optional<Endpoint> try_parse_ip_literal(
 	std::string_view host,
-	u16 port) noexcept {
+	std::uint16_t port) noexcept {
 	// inet_pton needs a NUL-terminated string. Stack-buffer common case.
 	std::array<char, 64> buf{};
 	if (host.size() >= buf.size()) {
@@ -248,7 +248,7 @@ export [[nodiscard]] std::optional<Endpoint> try_parse_ip_literal(
 
 namespace codec {
 
-export enum class QType : u16 { // NOLINT(performance-enum-size) — DNS wire values need u16
+export enum class QType : std::uint16_t { // NOLINT(performance-enum-size) — DNS wire values need u16
 	a = 1,
 	ns = 2,
 	cname = 5,
@@ -261,11 +261,11 @@ export enum class QType : u16 { // NOLINT(performance-enum-size) — DNS wire va
 	opt = 41,
 };
 
-export enum class QClass : u16 { // NOLINT(performance-enum-size) — DNS wire values need u16
+export enum class QClass : std::uint16_t { // NOLINT(performance-enum-size) — DNS wire values need u16
 	in = 1,
 };
 
-export enum class RCode : u8 {
+export enum class RCode : std::uint8_t {
 	noerror = 0,
 	formerr = 1,
 	servfail = 2,
@@ -276,19 +276,19 @@ export enum class RCode : u8 {
 
 // Header flags layout (16-bit field after id, big-endian).
 //   QR | OPCODE(4) | AA | TC | RD || RA | Z(3) | RCODE(4)
-constexpr u16 kFlagQR = 0x8000U;
-constexpr u16 kFlagAA = 0x0400U;
-constexpr u16 kFlagTC = 0x0200U;
-constexpr u16 kFlagRD = 0x0100U;
-constexpr u16 kFlagRA = 0x0080U;
-constexpr u16 kRCodeMask = 0x000FU;
+constexpr std::uint16_t kFlagQR = 0x8000U;
+constexpr std::uint16_t kFlagAA = 0x0400U;
+constexpr std::uint16_t kFlagTC = 0x0200U;
+constexpr std::uint16_t kFlagRD = 0x0100U;
+constexpr std::uint16_t kFlagRA = 0x0080U;
+constexpr std::uint16_t kRCodeMask = 0x000FU;
 export struct Header {
-	u16 id{};
-	u16 flags{};
-	u16 qdcount{};
-	u16 ancount{};
-	u16 nscount{};
-	u16 arcount{};
+	std::uint16_t id{};
+	std::uint16_t flags{};
+	std::uint16_t qdcount{};
+	std::uint16_t ancount{};
+	std::uint16_t nscount{};
+	std::uint16_t arcount{};
 	[[nodiscard]] bool qr() const noexcept { return (flags & kFlagQR) != 0; }
 	[[nodiscard]] bool tc() const noexcept { return (flags & kFlagTC) != 0; }
 	[[nodiscard]] bool rd() const noexcept { return (flags & kFlagRD) != 0; }
@@ -304,8 +304,8 @@ export struct ResourceRecord {
 	std::string name;
 	QType type{QType::a};
 	QClass rclass{QClass::in};
-	u32 ttl{0};
-	std::vector<u8> rdata; // raw RDATA (uncompressed for OPT; for compressed names,
+	std::uint32_t ttl{0};
+	std::vector<std::uint8_t> rdata; // raw RDATA (uncompressed for OPT; for compressed names,
 	// callers parse via decode helpers below)
 };
 export struct Message {
@@ -317,34 +317,34 @@ export struct Message {
 };
 // EDNS0 OPT pseudo-RR.
 export struct Edns0Options {
-	u16 udp_size{4096};
-	u8 ext_rcode{0};
-	u8 version{0};
-	u16 flags{0}; // DO bit etc; 0 for v1
+	std::uint16_t udp_size{4096};
+	std::uint8_t ext_rcode{0};
+	std::uint8_t version{0};
+	std::uint16_t flags{0}; // DO bit etc; 0 for v1
 };
 // Encode a query (header + single question + optional EDNS0 OPT in additional).
 // Returns the wire bytes. RD=1 set unconditionally.
-export [[nodiscard]] std::vector<u8> encode_query(
-	u16 id,
+export [[nodiscard]] std::vector<std::uint8_t> encode_query(
+	std::uint16_t id,
 	std::string_view qname,
 	QType qtype,
 	std::optional<Edns0Options> edns = Edns0Options{}) {
-	std::vector<u8> out;
+	std::vector<std::uint8_t> out;
 	out.reserve(64);
 
-	auto write_u16 = [&](u16 v) {
-		out.push_back(static_cast<u8>(v >> 8));
-		out.push_back(static_cast<u8>(v & 0xFFU));
+	auto write_u16 = [&](std::uint16_t v) {
+		out.push_back(static_cast<std::uint8_t>(v >> 8));
+		out.push_back(static_cast<std::uint8_t>(v & 0xFFU));
 	};
-	auto write_u32 = [&](u32 v) {
-		out.push_back(static_cast<u8>(v >> 24));
-		out.push_back(static_cast<u8>((v >> 16) & 0xFFU));
-		out.push_back(static_cast<u8>((v >> 8) & 0xFFU));
-		out.push_back(static_cast<u8>(v & 0xFFU));
+	auto write_u32 = [&](std::uint32_t v) {
+		out.push_back(static_cast<std::uint8_t>(v >> 24));
+		out.push_back(static_cast<std::uint8_t>((v >> 16) & 0xFFU));
+		out.push_back(static_cast<std::uint8_t>((v >> 8) & 0xFFU));
+		out.push_back(static_cast<std::uint8_t>(v & 0xFFU));
 	};
 
 	// Header
-	u16 const arcount = edns.has_value() ? 1U : 0U;
+	std::uint16_t const arcount = edns.has_value() ? 1U : 0U;
 	write_u16(id);
 	write_u16(kFlagRD);
 	write_u16(1); // qdcount
@@ -367,7 +367,7 @@ export [[nodiscard]] std::vector<u8> encode_query(
 				// no — refuse via assert-like exception. Use throw for codec contract.
 				throw DnsError{DnsErrorKind::invalid_hostname, format("encode_query: label > 63 bytes in '{}'", qname)};
 			}
-			out.push_back(static_cast<u8>(len));
+			out.push_back(static_cast<std::uint8_t>(len));
 			out.insert(
 				out.end(),
 				qname.begin() + static_cast<std::ptrdiff_t>(pos),
@@ -378,19 +378,19 @@ export [[nodiscard]] std::vector<u8> encode_query(
 	}
 
 	// QTYPE / QCLASS
-	write_u16(static_cast<u16>(qtype));
-	write_u16(static_cast<u16>(QClass::in));
+	write_u16(static_cast<std::uint16_t>(qtype));
+	write_u16(static_cast<std::uint16_t>(QClass::in));
 
 	// EDNS0 OPT — root name, type=41, class=udp_size, ttl=(extrcode<<24|ver<<16|flags),
 	// rdlength=0.
 	if (edns.has_value()) {
 		out.push_back(0); // root name
-		write_u16(static_cast<u16>(QType::opt));
+		write_u16(static_cast<std::uint16_t>(QType::opt));
 		write_u16(edns->udp_size);
 		write_u32(
-			(static_cast<u32>(edns->ext_rcode) << 24)
-			| (static_cast<u32>(edns->version) << 16)
-			| static_cast<u32>(edns->flags));
+			(static_cast<std::uint32_t>(edns->ext_rcode) << 24)
+			| (static_cast<std::uint32_t>(edns->version) << 16)
+			| static_cast<std::uint32_t>(edns->flags));
 		write_u16(0); // rdlength
 	}
 
@@ -405,7 +405,7 @@ export [[nodiscard]] std::vector<u8> encode_query(
 // number of bytes consumed at the original offset (NOT following the
 // pointer chain to its end).
 export [[nodiscard]] size_t decode_name(
-	span<u8 const> wire,
+	span<std::uint8_t const> wire,
 	size_t offset,
 	std::string &out) {
 	out.clear();
@@ -419,7 +419,7 @@ export [[nodiscard]] size_t decode_name(
 		if (cursor >= wire.size()) {
 			throw DnsError{DnsErrorKind::malformed, "decode_name: cursor out of range"};
 		}
-		u8 const len = wire[cursor];
+		std::uint8_t const len = wire[cursor];
 		if (len == 0) {
 			++cursor;
 			if (!followed_pointer) {
@@ -466,30 +466,30 @@ export [[nodiscard]] size_t decode_name(
 	}
 	return consumed;
 }
-[[nodiscard]] u16 read_u16(
-	span<u8 const> wire,
+[[nodiscard]] std::uint16_t read_u16(
+	span<std::uint8_t const> wire,
 	size_t offset) {
 	if (offset + 2 > wire.size()) {
 		throw DnsError{DnsErrorKind::malformed, "read_u16: short read"};
 	}
-	return static_cast<u16>((static_cast<u16>(wire[offset]) << 8) | wire[offset + 1]);
+	return static_cast<std::uint16_t>((static_cast<std::uint16_t>(wire[offset]) << 8) | wire[offset + 1]);
 }
-[[nodiscard]] u32 read_u32(
-	span<u8 const> wire,
+[[nodiscard]] std::uint32_t read_u32(
+	span<std::uint8_t const> wire,
 	size_t offset) {
 	if (offset + 4 > wire.size()) {
 		throw DnsError{DnsErrorKind::malformed, "read_u32: short read"};
 	}
-	return (static_cast<u32>(wire[offset]) << 24)
-		 | (static_cast<u32>(wire[offset + 1]) << 16)
-		 | (static_cast<u32>(wire[offset + 2]) << 8)
-		 | static_cast<u32>(wire[offset + 3]);
+	return (static_cast<std::uint32_t>(wire[offset]) << 24)
+		 | (static_cast<std::uint32_t>(wire[offset + 1]) << 16)
+		 | (static_cast<std::uint32_t>(wire[offset + 2]) << 8)
+		 | static_cast<std::uint32_t>(wire[offset + 3]);
 }
 // Parse a full message (header + sections). Throws DnsError on malformed input.
 // RDATA is captured as raw bytes — callers project A/AAAA from it via the
 // rdata_to_endpoint helpers below.
 export [[nodiscard]] Message decode_message(
-	span<u8 const> wire) {
+	span<std::uint8_t const> wire) {
 	if (wire.size() < 12) {
 		throw DnsError{DnsErrorKind::malformed, "decode_message: header < 12 bytes"};
 	}
@@ -520,7 +520,7 @@ export [[nodiscard]] Message decode_message(
 		rr.type = static_cast<QType>(read_u16(wire, pos));
 		rr.rclass = static_cast<QClass>(read_u16(wire, pos + 2));
 		rr.ttl = read_u32(wire, pos + 4);
-		u16 const rdlen = read_u16(wire, pos + 8);
+		std::uint16_t const rdlen = read_u16(wire, pos + 8);
 		pos += 10;
 		if (pos + rdlen > wire.size()) {
 			throw DnsError{DnsErrorKind::malformed, format("decode_message: RDLENGTH {} overruns wire", rdlen)};
@@ -533,19 +533,19 @@ export [[nodiscard]] Message decode_message(
 	};
 
 	m.questions.reserve(m.header.qdcount);
-	for (u16 i = 0; i < m.header.qdcount; ++i) {
+	for (std::uint16_t i = 0; i < m.header.qdcount; ++i) {
 		m.questions.push_back(read_question());
 	}
 	m.answers.reserve(m.header.ancount);
-	for (u16 i = 0; i < m.header.ancount; ++i) {
+	for (std::uint16_t i = 0; i < m.header.ancount; ++i) {
 		m.answers.push_back(read_rr());
 	}
 	m.authority.reserve(m.header.nscount);
-	for (u16 i = 0; i < m.header.nscount; ++i) {
+	for (std::uint16_t i = 0; i < m.header.nscount; ++i) {
 		m.authority.push_back(read_rr());
 	}
 	m.additional.reserve(m.header.arcount);
-	for (u16 i = 0; i < m.header.arcount; ++i) {
+	for (std::uint16_t i = 0; i < m.header.arcount; ++i) {
 		m.additional.push_back(read_rr());
 	}
 	return m;
@@ -553,7 +553,7 @@ export [[nodiscard]] Message decode_message(
 // Convert an A or AAAA RR into an Endpoint. Returns nullopt for other types.
 export [[nodiscard]] std::optional<Endpoint> rdata_to_endpoint(
 	ResourceRecord const &rr,
-	u16 port) {
+	std::uint16_t port) {
 	Endpoint ep{};
 	if (rr.type == QType::a && rr.rdata.size() == 4) {
 		auto *sin = reinterpret_cast<::sockaddr_in *>(&ep.addr);
@@ -593,7 +593,7 @@ export [[nodiscard]] std::optional<DnsErrorKind> rcode_to_error(
 
 // ─── options ────────────────────────────────────────────────────────────────
 
-export enum class ResolverBackend : u8 {
+export enum class ResolverBackend : std::uint8_t {
 	native_udp,
 	nss_thread,
 };
@@ -601,19 +601,19 @@ export struct ResolveOptions {
 	AddressFamily prefer{AddressFamily::v6};
 	bool allow_v4{true};
 	bool allow_v6{true};
-	chrono::milliseconds query_timeout{2000};
-	chrono::milliseconds total_timeout{5000};
+	std::chrono::milliseconds query_timeout{2000};
+	std::chrono::milliseconds total_timeout{5000};
 	bool bypass_cache{false};
 	std::vector<NameserverEndpoint> override_nameservers{};
 };
 export struct ResolverOptions {
 	size_t cache_capacity{1024};
-	chrono::seconds cache_max_ttl{300};
-	chrono::seconds cache_negative_ttl{30};
+	std::chrono::seconds cache_max_ttl{300};
+	std::chrono::seconds cache_negative_ttl{30};
 	fs::path resolv_conf{"/etc/resolv.conf"};
 	fs::path hosts_file{"/etc/hosts"};
 	bool enable_etc_hosts{true};
-	u16 edns0_udp_size{4096};
+	std::uint16_t edns0_udp_size{4096};
 	size_t max_in_flight_queries{4096};
 	std::vector<NameserverEndpoint> override_nameservers{};
 };
@@ -632,14 +632,14 @@ public:
 	Resolver &operator =(Resolver &&) = delete;
 
 	[[nodiscard]] conflux::work::root::Task<ResolveResult>
-	resolve(std::string_view host, u16 port, ResolveOptions const &opts = {});
+	resolve(std::string_view host, std::uint16_t port, ResolveOptions const &opts = {});
 
 	// ring must outlive the returned Task and any coalesced waiters sharing that ring
 	[[nodiscard]] conflux::work::root::Task<ResolveResult>
-	resolve(SocketTaskRing &ring, std::string_view host, u16 port, ResolveOptions const &opts = {});
+	resolve(SocketTaskRing &ring, std::string_view host, std::uint16_t port, ResolveOptions const &opts = {});
 
 	[[nodiscard]] expected<ResolveResult, DnsError>
-	resolve_blocking(std::string_view host, u16 port, ResolveOptions const &opts = {});
+	resolve_blocking(std::string_view host, std::uint16_t port, ResolveOptions const &opts = {});
 
 	void invalidate(std::string_view host);
 	void clear_cache();
@@ -652,7 +652,7 @@ public:
 
 private:
 	[[nodiscard]] root::Task<ResolveResult>
-	resolve_flow(SocketTaskRing *external_ring, std::string_view host, u16 port, ResolveOptions const &opts = {});
+	resolve_flow(SocketTaskRing *external_ring, std::string_view host, std::uint16_t port, ResolveOptions const &opts = {});
 
 	struct Impl;
 	std::shared_ptr<Impl> impl_;

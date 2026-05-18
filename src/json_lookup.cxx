@@ -11,7 +11,7 @@ import conflux.types;
 namespace detail {
 
 [[nodiscard]] inline JsonError missing_err(
-	SV name) {
+	std::string_view name) {
 	return JsonError{
 		.stage = JsonStage::lookup,
 		.code = JsonIssueCode::missing_member,
@@ -21,11 +21,11 @@ namespace detail {
 				p.push_member(name);
 				return p;
 			}(),
-		.member_name = S{name},
+		.member_name = std::string{name},
 		.message = format("missing member: {}", name)};
 }
 [[nodiscard]] inline JsonError type_err(
-	SV name,
+	std::string_view name,
 	JsonKind expected,
 	JsonKind actual) {
 	return JsonError{
@@ -39,14 +39,14 @@ namespace detail {
 			}(),
 		.expected_kind = expected,
 		.actual_kind = actual,
-		.member_name = S{name},
+		.member_name = std::string{name},
 		.message = format("member '{}' has wrong type", name)};
 }
 
 } // namespace detail
-[[nodiscard]] expected<S, JsonError> require_string(
+[[nodiscard]] expected<std::string, JsonError> require_string(
 	ObjectView const &obj,
-	SV name) {
+	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node) {
 		return unexpected(detail::missing_err(name));
@@ -55,11 +55,11 @@ namespace detail {
 	if (!sv) {
 		return unexpected(detail::type_err(name, JsonKind::string, node->kind()));
 	}
-	return S{*sv};
+	return std::string{*sv};
 }
-[[nodiscard]] expected<i64, JsonError> require_int(
+[[nodiscard]] expected<std::int64_t, JsonError> require_int(
 	ObjectView const &obj,
-	SV name) {
+	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node) {
 		return unexpected(detail::missing_err(name));
@@ -68,14 +68,14 @@ namespace detail {
 	if (!v) {
 		auto e = move(v).error();
 		e.path.push_member(name);
-		e.member_name = S{name};
+		e.member_name = std::string{name};
 		return unexpected(move(e));
 	}
 	return *v;
 }
-[[nodiscard]] expected<u64, JsonError> require_uint(
+[[nodiscard]] expected<std::uint64_t, JsonError> require_uint(
 	ObjectView const &obj,
-	SV name) {
+	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node) {
 		return unexpected(detail::missing_err(name));
@@ -84,14 +84,14 @@ namespace detail {
 	if (!v) {
 		auto e = move(v).error();
 		e.path.push_member(name);
-		e.member_name = S{name};
+		e.member_name = std::string{name};
 		return unexpected(move(e));
 	}
 	return *v;
 }
 [[nodiscard]] expected<double, JsonError> require_double(
 	ObjectView const &obj,
-	SV name) {
+	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node) {
 		return unexpected(detail::missing_err(name));
@@ -100,14 +100,14 @@ namespace detail {
 	if (!v) {
 		auto e = move(v).error();
 		e.path.push_member(name);
-		e.member_name = S{name};
+		e.member_name = std::string{name};
 		return unexpected(move(e));
 	}
 	return *v;
 }
 [[nodiscard]] expected<bool, JsonError> require_bool(
 	ObjectView const &obj,
-	SV name) {
+	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node) {
 		return unexpected(detail::missing_err(name));
@@ -116,87 +116,87 @@ namespace detail {
 	if (!v) {
 		auto e = move(v).error();
 		e.path.push_member(name);
-		e.member_name = S{name};
+		e.member_name = std::string{name};
 		return unexpected(move(e));
 	}
 	return *v;
 }
-[[nodiscard]] expected<Opt<S>, JsonError> optional_string(
+[[nodiscard]] expected<std::optional<std::string>, JsonError> optional_string(
 	ObjectView const &obj,
-	SV name) {
+	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node || node->is_null()) {
-		return Opt<S>{};
+		return std::optional<std::string>{};
 	}
 	auto sv = node->as_string();
 	if (!sv) {
 		return unexpected(detail::type_err(name, JsonKind::string, node->kind()));
 	}
-	return Opt<S>{S{*sv}};
+	return std::optional<std::string>{std::string{*sv}};
 }
-[[nodiscard]] expected<Opt<i64>, JsonError> optional_int(
+[[nodiscard]] expected<std::optional<std::int64_t>, JsonError> optional_int(
 	ObjectView const &obj,
-	SV name) {
+	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node || node->is_null()) {
-		return Opt<i64>{};
+		return std::optional<std::int64_t>{};
 	}
 	auto v = node->as_i64();
 	if (!v) {
 		auto e = move(v).error();
 		e.path.push_member(name);
-		e.member_name = S{name};
+		e.member_name = std::string{name};
 		return unexpected(move(e));
 	}
-	return Opt<i64>{*v};
+	return std::optional<std::int64_t>{*v};
 }
-[[nodiscard]] expected<Opt<u64>, JsonError> optional_uint(
+[[nodiscard]] expected<std::optional<std::uint64_t>, JsonError> optional_uint(
 	ObjectView const &obj,
-	SV name) {
+	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node || node->is_null()) {
-		return Opt<u64>{};
+		return std::optional<std::uint64_t>{};
 	}
 	auto v = node->as_u64();
 	if (!v) {
 		auto e = move(v).error();
 		e.path.push_member(name);
-		e.member_name = S{name};
+		e.member_name = std::string{name};
 		return unexpected(move(e));
 	}
-	return Opt<u64>{*v};
+	return std::optional<std::uint64_t>{*v};
 }
-[[nodiscard]] expected<Opt<double>, JsonError> optional_double(
+[[nodiscard]] expected<std::optional<double>, JsonError> optional_double(
 	ObjectView const &obj,
-	SV name) {
+	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node || node->is_null()) {
-		return Opt<double>{};
+		return std::optional<double>{};
 	}
 	auto v = node->as_double();
 	if (!v) {
 		auto e = move(v).error();
 		e.path.push_member(name);
-		e.member_name = S{name};
+		e.member_name = std::string{name};
 		return unexpected(move(e));
 	}
-	return Opt<double>{*v};
+	return std::optional<double>{*v};
 }
-[[nodiscard]] expected<Opt<bool>, JsonError> optional_bool(
+[[nodiscard]] expected<std::optional<bool>, JsonError> optional_bool(
 	ObjectView const &obj,
-	SV name) {
+	std::string_view name) {
 	auto node = obj.find_member(name);
 	if (!node || node->is_null()) {
-		return Opt<bool>{};
+		return std::optional<bool>{};
 	}
 	auto v = node->as_bool();
 	if (!v) {
 		auto e = move(v).error();
 		e.path.push_member(name);
-		e.member_name = S{name};
+		e.member_name = std::string{name};
 		return unexpected(move(e));
 	}
-	return Opt<bool>{*v};
+	return std::optional<bool>{*v};
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +218,7 @@ namespace detail {
 	if (!type_sv) {
 		return {};
 	}
-	SV const expected_type = *type_sv;
+	std::string_view const expected_type = *type_sv;
 
 	auto kind_matches = [&]() -> bool {
 		if (expected_type == "object") {
@@ -281,7 +281,7 @@ namespace detail {
 								JsonError{
 									.stage = JsonStage::decode,
 									.code = JsonIssueCode::missing_member,
-									.member_name = S{*name},
+									.member_name = std::string{*name},
 									.message = format("missing required member: {}", *name)});
 						}
 					}
@@ -298,7 +298,7 @@ namespace detail {
 						if (!r) {
 							auto e = move(r).error();
 							if (!e.member_name.has_value()) {
-								e.member_name = S{name};
+								e.member_name = std::string{name};
 							}
 							return unexpected(move(e));
 						}

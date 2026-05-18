@@ -5,13 +5,13 @@ import conflux.json;
 using namespace std;
 using namespace conflux::json;
 extern "C" int LLVMFuzzerTestOneInput(
-	u8 const *data,
-	SZ size) {
+	std::uint8_t const *data,
+	std::size_t size) {
 	if (size == 0) {
 		return 0;
 	}
 
-	SV input{reinterpret_cast<char const *>(data), size};
+	std::string_view input{reinterpret_cast<char const *>(data), size};
 
 	JsonParseOptions opts{.max_depth = LimitOption::bound(256)};
 	JsonReader reader{input, opts};
@@ -33,7 +33,7 @@ extern "C" int LLVMFuzzerTestOneInput(
 		case Ev::key:
 		case Ev::string_value:
 			{
-				S decoded;
+				std::string decoded;
 				auto tok = (ev == Ev::key) ? reader.key_token() : reader.string_token();
 				auto _ = tok.append_decoded_to(decoded);
 				break;
@@ -74,7 +74,7 @@ extern "C" int LLVMFuzzerTestOneInput(
 			case Ev::key:
 			case Ev::string_value:
 				{
-					S decoded;
+					std::string decoded;
 					auto tok = (sev == Ev::key) ? stream.key_token() : stream.string_token();
 					auto decoded_or = tok.append_decoded_to(decoded);
 					if (!decoded_or && decoded_or.error().message.empty()) {
@@ -100,9 +100,9 @@ extern "C" int LLVMFuzzerTestOneInput(
 			}
 		}
 	};
-	SZ const stride = 1 + static_cast<SZ>(data[0] & 7U);
-	for (SZ off = 0; off < size;) {
-		SZ const n = min(stride, size - off);
+	std::size_t const stride = 1 + static_cast<std::size_t>(data[0] & 7U);
+	for (std::size_t off = 0; off < size;) {
+		std::size_t const n = min(stride, size - off);
 		auto fed = stream.feed(span<byte const>{reinterpret_cast<byte const *>(data + off), n});
 		if (!fed) {
 			if (fed.error().message.empty()) {

@@ -14,25 +14,25 @@ using namespace std::string_view_literals;
 using conflux::work::root::Task;
 namespace {
 
-constexpr u64 pack_ud(
-	u32 slot,
-	u32 gen) noexcept {
-	return (static_cast<u64>(gen) << 32U) | slot;
+constexpr std::uint64_t pack_ud(
+	std::uint32_t slot,
+	std::uint32_t gen) noexcept {
+	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 }
-inline Atom<SZ> sink{};
+inline std::atomic<std::size_t> sink{};
 
-constexpr SV kSql = "SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i";
+constexpr std::string_view kSql = "SELECT i, 'row #' || i AS label FROM generate_series(1,$1) AS i";
 void consume(
 	Result const &rs) {
-	SZ acc = 0;
+	std::size_t acc = 0;
 	for (auto row: rs) {
-		acc += static_cast<SZ>(row.as<i64>(0));
-		acc += row.as<SV>(1).size();
+		acc += static_cast<std::size_t>(row.as<std::int64_t>(0));
+		acc += row.as<std::string_view>(1).size();
 	}
 	sink.fetch_add(acc, memory_order_relaxed);
 }
 Params make_params(
-	i64 n,
+	std::int64_t n,
 	bool binary) {
 	Params p;
 	if (binary) {
@@ -42,40 +42,40 @@ Params make_params(
 	}
 	return p;
 }
-u64 run_callback(
+std::uint64_t run_callback(
 	FileReader &reader,
-	SP<Connection> const &conn,
-	SZ iters,
-	i64 rows,
+	std::shared_ptr<Connection> const &conn,
+	std::size_t iters,
+	std::int64_t rows,
 	bool binary) {
-	auto const t0 = chrono::steady_clock::now();
-	for (SZ i = 0; i < iters; ++i) {
-		auto rs = block_on(reader, conn->query(S{kSql}, make_params(rows, binary)));
+	auto const t0 = std::chrono::steady_clock::now();
+	for (std::size_t i = 0; i < iters; ++i) {
+		auto rs = block_on(reader, conn->query(std::string{kSql}, make_params(rows, binary)));
 		consume(rs);
 	}
-	auto const t1 = chrono::steady_clock::now();
-	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+	auto const t1 = std::chrono::steady_clock::now();
+	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 Task<void> coro_one(
-	SP<Connection> const &conn,
-	i64 rows,
+	std::shared_ptr<Connection> const &conn,
+	std::int64_t rows,
 	bool binary) {
-	auto rs = co_await conn->query(S{kSql}, make_params(rows, binary));
+	auto rs = co_await conn->query(std::string{kSql}, make_params(rows, binary));
 	consume(rs);
 	co_return;
 }
-u64 run_coroutine(
+std::uint64_t run_coroutine(
 	FileReader &reader,
-	SP<Connection> const &conn,
-	SZ iters,
-	i64 rows,
+	std::shared_ptr<Connection> const &conn,
+	std::size_t iters,
+	std::int64_t rows,
 	bool binary) {
-	auto const t0 = chrono::steady_clock::now();
-	for (SZ i = 0; i < iters; ++i) {
+	auto const t0 = std::chrono::steady_clock::now();
+	for (std::size_t i = 0; i < iters; ++i) {
 		block_on(reader, coro_one(conn, rows, binary));
 	}
-	auto const t1 = chrono::steady_clock::now();
-	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+	auto const t1 = std::chrono::steady_clock::now();
+	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 
 } // namespace
@@ -87,16 +87,16 @@ int main(
 		argv,
 		R"({"name":"db_coro","parser":"standard","configs":[{"name":"rows_3","extra":{"rows":3,"binary":false},"args":["--rows","3","--config-name","rows_3","--iterations","5000","--warmup","500"]},{"name":"rows_3_binary","extra":{"rows":3,"binary":true},"args":["--rows","3","--binary","--config-name","rows_3_binary","--iterations","5000","--warmup","500"]},{"name":"rows_100","extra":{"rows":100,"binary":false},"args":["--rows","100","--config-name","rows_100","--iterations","1000","--warmup","100"]},{"name":"rows_100_binary","extra":{"rows":100,"binary":true},"args":["--rows","100","--binary","--config-name","rows_100_binary","--iterations","1000","--warmup","100"]}]})");
 
-	auto cfg = bench_parse_args(span{argv, static_cast<SZ>(argc)});
-	i64 rows = 3;
+	auto cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	std::int64_t rows = 3;
 	bool binary = false;
-	for (SZ i = 1; i < static_cast<SZ>(argc); ++i) {
-		SV const a = argv[i];
-		if (a == "--rows" && i + 1 < static_cast<SZ>(argc)) {
-			u64 v{};
-			SV sv{argv[++i]};
+	for (std::size_t i = 1; i < static_cast<std::size_t>(argc); ++i) {
+		std::string_view const a = argv[i];
+		if (a == "--rows" && i + 1 < static_cast<std::size_t>(argc)) {
+			std::uint64_t v{};
+			std::string_view sv{argv[++i]};
 			from_chars(sv.data(), sv.data() + sv.size(), v);
-			rows = static_cast<i64>(v);
+			rows = static_cast<std::int64_t>(v);
 			if (cfg.config_name.empty()) {
 				cfg.config_name = format("rows_{}", rows);
 			}
@@ -127,7 +127,7 @@ int main(
 	CurrentFileReaderScope const scope{&reader};
 
 	try {
-		SP<Connection> conn{};
+		std::shared_ptr<Connection> conn{};
 		try {
 			conn = block_on(reader, Connection::connect({.conninfo = raw}));
 		} catch (PgError const &e) {
@@ -139,8 +139,8 @@ int main(
 		(void)run_callback(reader, conn, cfg.warmup, rows, binary);
 		(void)run_coroutine(reader, conn, cfg.warmup, rows, binary);
 
-		u64 const cb_ns = run_callback(reader, conn, cfg.iterations, rows, binary);
-		u64 const co_ns = run_coroutine(reader, conn, cfg.iterations, rows, binary);
+		std::uint64_t const cb_ns = run_callback(reader, conn, cfg.iterations, rows, binary);
+		std::uint64_t const co_ns = run_coroutine(reader, conn, cfg.iterations, rows, binary);
 
 		double const cb_per = static_cast<double>(cb_ns) / static_cast<double>(cfg.iterations);
 		double const co_per = static_cast<double>(co_ns) / static_cast<double>(cfg.iterations);

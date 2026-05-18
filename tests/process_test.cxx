@@ -11,17 +11,17 @@ import conflux.process;
 import conflux.work;
 namespace {
 
-S drain_stdout(
+std::string drain_stdout(
 	Process &proc) {
 	int const out = proc.take_stdout_fd();
-	S buf;
+	std::string buf;
 	char tmp[256]{};
 	for (;;) {
 		auto n = ::read(out, tmp, sizeof(tmp));
 		if (n <= 0) {
 			break;
 		}
-		buf.append(tmp, static_cast<SZ>(n));
+		buf.append(tmp, static_cast<std::size_t>(n));
 	}
 	::close(out);
 	return buf;
@@ -117,7 +117,7 @@ TEST_CASE(
 	REQUIRE(proc.has_value());
 
 	int const in_fd = proc->take_stdin_fd();
-	S const msg = "test input\n";
+	std::string const msg = "test input\n";
 	[[maybe_unused]] auto wr1 = ::write(in_fd, msg.data(), msg.size());
 	::close(in_fd);
 
@@ -131,7 +131,7 @@ TEST_CASE(
 	int pipefd[2]{};
 	REQUIRE(::pipe2(pipefd, O_CLOEXEC) == 0);
 
-	S const msg = "fd_map_test";
+	std::string const msg = "fd_map_test";
 	[[maybe_unused]] auto wr2 = ::write(pipefd[1], msg.data(), msg.size());
 	::close(pipefd[1]);
 
@@ -146,14 +146,14 @@ TEST_CASE(
 	REQUIRE(proc.has_value());
 
 	int const out_fd = proc->take_stdout_fd();
-	S out;
+	std::string out;
 	char buf[256]{};
 	for (;;) {
 		auto n = ::read(out_fd, buf, sizeof(buf));
 		if (n <= 0) {
 			break;
 		}
-		out.append(buf, static_cast<SZ>(n));
+		out.append(buf, static_cast<std::size_t>(n));
 	}
 	::close(out_fd);
 	CHECK(proc->wait() == 0);
@@ -169,7 +169,7 @@ TEST_CASE(
 	REQUIRE(child_fd >= 10);
 	::close(pipefd[0]);
 
-	S const msg = "same_fd_map_test";
+	std::string const msg = "same_fd_map_test";
 	[[maybe_unused]] auto wr = ::write(pipefd[1], msg.data(), msg.size());
 	::close(pipefd[1]);
 
@@ -184,14 +184,14 @@ TEST_CASE(
 	REQUIRE(proc.has_value());
 
 	int const out_fd = proc->take_stdout_fd();
-	S out;
+	std::string out;
 	char buf[256]{};
 	for (;;) {
 		auto n = ::read(out_fd, buf, sizeof(buf));
 		if (n <= 0) {
 			break;
 		}
-		out.append(buf, static_cast<SZ>(n));
+		out.append(buf, static_cast<std::size_t>(n));
 	}
 	::close(out_fd);
 	CHECK(proc->wait() == 0);
@@ -274,18 +274,18 @@ TEST_CASE(
 	int const in_fd = proc->take_stdin_fd();
 	int const out_fd = proc->take_stdout_fd();
 
-	S const msg = "hello from parent";
+	std::string const msg = "hello from parent";
 	[[maybe_unused]] auto wr = ::write(in_fd, msg.data(), msg.size());
 	::close(in_fd);
 
-	S out;
+	std::string out;
 	char buf[256]{};
 	for (;;) {
 		auto n = ::read(out_fd, buf, sizeof(buf));
 		if (n <= 0) {
 			break;
 		}
-		out.append(buf, static_cast<SZ>(n));
+		out.append(buf, static_cast<std::size_t>(n));
 	}
 	::close(out_fd);
 	CHECK(proc->wait() == 0);
@@ -319,7 +319,7 @@ TEST_CASE(
 	// close_other_fds defaults to true — child must not inherit high fd.
 	auto proc = spawn("/bin/sh", {"-c", format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
 	REQUIRE(proc.has_value());
-	S const out = drain_stdout(*proc);
+	std::string const out = drain_stdout(*proc);
 	::close(high);
 	CHECK(proc->wait() == 0);
 	CHECK(out == "closed\n");
@@ -338,7 +338,7 @@ TEST_CASE(
 	opts.close_other_fds = false;
 	auto proc = spawn("/bin/sh", {"-c", format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
 	REQUIRE(proc.has_value());
-	S const out = drain_stdout(*proc);
+	std::string const out = drain_stdout(*proc);
 	::close(high);
 	CHECK(proc->wait() == 0);
 	CHECK(out == "open\n");

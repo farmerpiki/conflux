@@ -29,12 +29,12 @@ namespace uf = conflux::uring::flow;
 
 struct ListenSock {
 	int fd = -1;
-	u16 port{};
+	std::uint16_t port{};
 };
 [[nodiscard]] ListenSock make_listen_socket() {
 	int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
-		throw RE{"socket"};
+		throw std::runtime_error{"socket"};
 	}
 	int one = 1;
 	(void)::setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &one, sizeof(one));
@@ -45,21 +45,21 @@ struct ListenSock {
 	addr.sin_port = 0;
 	if (::bind(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 		::close(fd);
-		throw RE{"bind"};
+		throw std::runtime_error{"bind"};
 	}
 	if (::listen(fd, 4096) < 0) {
 		::close(fd);
-		throw RE{"listen"};
+		throw std::runtime_error{"listen"};
 	}
 	socklen_t len = sizeof(addr);
 	::getsockname(fd, reinterpret_cast<sockaddr *>(&addr), &len);
 	return {.fd = fd, .port = ntohs(addr.sin_port)};
 }
 [[nodiscard]] int connect_one(
-	u16 port) {
+	std::uint16_t port) {
 	int fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (fd < 0) {
-		throw RE{"socket"};
+		throw std::runtime_error{"socket"};
 	}
 	int one = 1;
 	(void)::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
@@ -70,7 +70,7 @@ struct ListenSock {
 	addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 		::close(fd);
-		throw RE{"connect"};
+		throw std::runtime_error{"connect"};
 	}
 	return fd;
 }
@@ -78,7 +78,7 @@ struct ListenSock {
 	int listen_fd) {
 	int fd = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
 	if (fd < 0) {
-		throw RE{"accept"};
+		throw std::runtime_error{"accept"};
 	}
 	int one = 1;
 	(void)::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
@@ -89,14 +89,14 @@ void wait_cqe(
 	io_uring *ring,
 	io_uring_cqe **out) {
 	if (io_uring_wait_cqe(ring, out) != 0) {
-		throw RE{"io_uring_wait_cqe"};
+		throw std::runtime_error{"io_uring_wait_cqe"};
 	}
 }
 
 void submit_or_throw(
 	SocketRawRing const &raw) {
 	if (raw.submit() < 0) {
-		throw RE{"io_uring_submit"};
+		throw std::runtime_error{"io_uring_submit"};
 	}
 }
 struct RingGuard {
@@ -107,7 +107,7 @@ struct RingGuard {
 		io_uring_params p{};
 		p.flags = flags;
 		if (io_uring_queue_init_params(entries, &ring, &p) < 0) {
-			throw RE{"io_uring_queue_init"};
+			throw std::runtime_error{"io_uring_queue_init"};
 		}
 	}
 	~RingGuard() { io_uring_queue_exit(&ring); }
@@ -153,11 +153,11 @@ void drain_cqes(
 	}
 }
 [[nodiscard]] io_uring_cqe make_flow_cqe(
-	u32 flow_idx,
-	u32 gen,
-	u8 op_index,
+	std::uint32_t flow_idx,
+	std::uint32_t gen,
+	std::uint8_t op_index,
 	uf::FlowOpKind kind,
-	i32 res) {
+	std::int32_t res) {
 	return io_uring_cqe{
 		.user_data = uf::encode_tag(flow_idx, gen, op_index, kind),
 		.res = res,
@@ -165,28 +165,28 @@ void drain_cqes(
 }
 // ── Variant definition ─────────────────────────────────────────────────────
 
-using RunFn = Fn<void()>;
+using RunFn = std::function<void()>;
 struct Variant {
-	SV name;
+	std::string_view name;
 	RunFn run;
 	RunFn setup;
 	RunFn teardown;
 };
 BenchStats run_variant(
 	Variant const &v,
-	SZ iterations,
-	SZ warmup,
-	SV config_name) {
+	std::size_t iterations,
+	std::size_t warmup,
+	std::string_view config_name) {
 	if (v.setup) {
 		v.setup();
 	}
 
-	for (SZ i = 0; i < warmup; ++i) {
+	for (std::size_t i = 0; i < warmup; ++i) {
 		v.run();
 	}
 
 	auto const t0 = bench_now_ns();
-	for (SZ i = 0; i < iterations; ++i) {
+	for (std::size_t i = 0; i < iterations; ++i) {
 		v.run();
 	}
 	auto const t1 = bench_now_ns();
@@ -211,7 +211,7 @@ BenchStats run_variant(
 void run_accept_close(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{64};
@@ -247,7 +247,7 @@ void run_accept_close(
 void run_accept_direct_close(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{64};
@@ -271,7 +271,7 @@ void run_accept_direct_close(
 				int slot = cqe->res;
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (slot >= 0) {
-					submit_close(raw, SocketHandle::from_direct(static_cast<u32>(slot)), 2);
+					submit_close(raw, SocketHandle::from_direct(static_cast<std::uint32_t>(slot)), 2);
 					submit_or_throw(raw);
 					wait_cqe(rg.get(), &cqe);
 					io_uring_cqe_seen(rg.get(), cqe);
@@ -289,7 +289,7 @@ void run_accept_direct_close(
 void run_accept_direct_reuse_cycle(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{64};
@@ -316,7 +316,7 @@ void run_accept_direct_reuse_cycle(
 					int slot = cqe->res;
 					io_uring_cqe_seen(rg.get(), cqe);
 					if (slot >= 0) {
-						submit_close(raw, SocketHandle::from_direct(static_cast<u32>(slot)), 2);
+						submit_close(raw, SocketHandle::from_direct(static_cast<std::uint32_t>(slot)), 2);
 						submit_or_throw(raw);
 						wait_cqe(rg.get(), &cqe);
 						io_uring_cqe_seen(rg.get(), cqe);
@@ -333,7 +333,7 @@ void run_accept_direct_reuse_cycle(
 void run_shutdown_close(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{64};
@@ -367,7 +367,7 @@ void run_shutdown_close(
 void run_multishot_recv_1conn(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
@@ -385,7 +385,7 @@ void run_multishot_recv_1conn(
 
 	static constexpr auto kPayload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"sv;
 
-	Atom<bool> stop{false};
+	std::atomic<bool> stop{false};
 	thread sender{[&] {
 		while (!stop.load(memory_order_relaxed)) {
 			if (::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL) <= 0) {
@@ -401,8 +401,8 @@ void run_multishot_recv_1conn(
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
 				bool const more = (cqe->flags & IORING_CQE_F_MORE) != 0;
-				if (cqe->res > 0 && cqe_has_buffer(static_cast<u32>(cqe->flags))) {
-					bufs.recycle(cqe_buffer_id(static_cast<u32>(cqe->flags)));
+				if (cqe->res > 0 && cqe_has_buffer(static_cast<std::uint32_t>(cqe->flags))) {
+					bufs.recycle(cqe_buffer_id(static_cast<std::uint32_t>(cqe->flags)));
 				}
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more) {
@@ -436,8 +436,8 @@ void run_multishot_recv_1conn(
 void run_multishot_recv_Nconn(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
-	auto const kConns = static_cast<SZ>(min(thread::hardware_concurrency(), 8u));
+	std::string_view config_name) {
+	auto const kConns = static_cast<std::size_t>(min(thread::hardware_concurrency(), 8u));
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{1024};
@@ -448,11 +448,11 @@ void run_multishot_recv_Nconn(
 		rg.caps()
     };
 
-	V<FdGuard> clients;
-	V<FdGuard> servers;
+	std::vector<FdGuard> clients;
+	std::vector<FdGuard> servers;
 	clients.reserve(kConns);
 	servers.reserve(kConns);
-	for (SZ i = 0; i < kConns; ++i) {
+	for (std::size_t i = 0; i < kConns; ++i) {
 		int c = connect_one(ls.port);
 		int s = accept_one(ls.fd);
 		clients.emplace_back(c);
@@ -461,10 +461,10 @@ void run_multishot_recv_Nconn(
 
 	static constexpr auto kPayload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"sv;
 
-	Atom<bool> stop{false};
-	V<thread> senders;
+	std::atomic<bool> stop{false};
+	std::vector<thread> senders;
 	senders.reserve(kConns);
-	for (SZ i = 0; i < kConns; ++i) {
+	for (std::size_t i = 0; i < kConns; ++i) {
 		senders.emplace_back([&, fd = clients[i].fd] {
 			while (!stop.load(memory_order_relaxed)) {
 				if (::send(fd, kPayload.data(), kPayload.size(), MSG_NOSIGNAL) <= 0) {
@@ -481,27 +481,27 @@ void run_multishot_recv_Nconn(
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
 				bool const more = (cqe->flags & IORING_CQE_F_MORE) != 0;
-				u64 const ud = io_uring_cqe_get_data64(cqe);
-				if (cqe->res > 0 && cqe_has_buffer(static_cast<u32>(cqe->flags))) {
-					bufs.recycle(cqe_buffer_id(static_cast<u32>(cqe->flags)));
+				std::uint64_t const ud = io_uring_cqe_get_data64(cqe);
+				if (cqe->res > 0 && cqe_has_buffer(static_cast<std::uint32_t>(cqe->flags))) {
+					bufs.recycle(cqe_buffer_id(static_cast<std::uint32_t>(cqe->flags)));
 				}
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more && ud >= 100 && ud < 100 + kConns) {
-					SZ const idx = ud - 100;
+					std::size_t const idx = ud - 100;
 					submit_recv_multishot(raw, SocketHandle::from_os(servers[idx].fd), bufs, ud);
 					submit_or_throw(raw);
 				}
 			},
 		.setup =
 			[&] {
-				for (SZ i = 0; i < kConns; ++i) {
+				for (std::size_t i = 0; i < kConns; ++i) {
 					submit_recv_multishot(raw, SocketHandle::from_os(servers[i].fd), bufs, 100 + i);
 				}
 				submit_or_throw(raw);
 			},
 		.teardown =
 			[&] {
-				for (SZ i = 0; i < kConns; ++i) {
+				for (std::size_t i = 0; i < kConns; ++i) {
 					submit_cancel_fd(raw, SocketHandle::from_os(servers[i].fd), 200 + i);
 				}
 				submit_or_throw(raw);
@@ -509,8 +509,8 @@ void run_multishot_recv_Nconn(
 			},
 	};
 
-	auto iters = min(args.iterations, SZ{50000});
-	auto warmup = std::min(args.warmup, SZ{5000});
+	auto iters = min(args.iterations, std::size_t{50000});
+	auto warmup = std::min(args.warmup, std::size_t{5000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
 	stop.store(true, memory_order_relaxed);
@@ -525,7 +525,7 @@ void run_multishot_recv_Nconn(
 void run_recv_fixed_fd(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
@@ -549,7 +549,7 @@ void run_recv_fixed_fd(
 
 	static constexpr auto kPayload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"sv;
 
-	Atom<bool> stop{false};
+	std::atomic<bool> stop{false};
 	thread sender{[&] {
 		while (!stop.load(memory_order_relaxed)) {
 			if (::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL) <= 0) {
@@ -565,8 +565,8 @@ void run_recv_fixed_fd(
 				io_uring_cqe *cqe{};
 				wait_cqe(rg.get(), &cqe);
 				bool const more = (cqe->flags & IORING_CQE_F_MORE) != 0;
-				if (cqe->res > 0 && cqe_has_buffer(static_cast<u32>(cqe->flags))) {
-					bufs.recycle(cqe_buffer_id(static_cast<u32>(cqe->flags)));
+				if (cqe->res > 0 && cqe_has_buffer(static_cast<std::uint32_t>(cqe->flags))) {
+					bufs.recycle(cqe_buffer_id(static_cast<std::uint32_t>(cqe->flags)));
 				}
 				io_uring_cqe_seen(rg.get(), cqe);
 				if (!more) {
@@ -601,9 +601,9 @@ void run_recv_fixed_fd(
 void run_send_variant(
 	BenchArgs const &args,
 	bool json,
-	SV config_name,
-	SV variant_name,
-	SV payload) {
+	std::string_view config_name,
+	std::string_view variant_name,
+	std::string_view payload) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
@@ -614,9 +614,9 @@ void run_send_variant(
 	int srv = accept_one(ls.fd);
 	FdGuard sg{srv};
 
-	Atom<bool> stop{false};
+	std::atomic<bool> stop{false};
 	thread reader{[&] {
-		A<char, 65536> buf{};
+		std::array<char, 65536> buf{};
 		while (!stop.load(memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
 				break;
@@ -642,13 +642,13 @@ void run_send_variant(
 	::shutdown(srv, SHUT_RDWR);
 	reader.join();
 }
-static auto const kSend64 = S(64, 'X');
-static auto const kSend4k = S(4096, 'Y');
+static auto const kSend64 = std::string(64, 'X');
+static auto const kSend4k = std::string(4096, 'Y');
 // raw_send_fixed_fd: send 64B on direct fd slot
 void run_send_fixed_fd(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
@@ -665,9 +665,9 @@ void run_send_fixed_fd(
 
 	(void)dft.install(0, srv);
 
-	Atom<bool> stop{false};
+	std::atomic<bool> stop{false};
 	thread reader{[&] {
-		A<char, 65536> buf{};
+		std::array<char, 65536> buf{};
 		while (!stop.load(memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
 				break;
@@ -697,8 +697,8 @@ void run_send_fixed_fd(
 void run_writev_variant(
 	BenchArgs const &args,
 	bool json,
-	SV config_name,
-	SV variant_name,
+	std::string_view config_name,
+	std::string_view variant_name,
 	span<iovec const> iov) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
@@ -710,9 +710,9 @@ void run_writev_variant(
 	int srv = accept_one(ls.fd);
 	FdGuard sg{srv};
 
-	Atom<bool> stop{false};
+	std::atomic<bool> stop{false};
 	thread reader{[&] {
-		A<char, 65536> buf{};
+		std::array<char, 65536> buf{};
 		while (!stop.load(memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
 				break;
@@ -743,14 +743,14 @@ void run_writev_variant(
 	::shutdown(srv, SHUT_RDWR);
 	reader.join();
 }
-static auto const kWritevSeg = S(512, 'W');
+static auto const kWritevSeg = std::string(512, 'W');
 // ── direct fd management variants ──────────────────────────────────────────
 
 // raw_direct_fd_install: install OS fd into direct table
 void run_direct_fd_install(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
@@ -789,7 +789,7 @@ void run_direct_fd_install(
 void run_direct_fd_alloc_free(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	RingGuard rg{64};
 
 	auto v = Variant{
@@ -804,16 +804,16 @@ void run_direct_fd_alloc_free(
 void run_direct_fd_slot_exhaustion(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 
-	constexpr u32 kSlots = 32;
-	V<FdGuard> clients;
-	V<FdGuard> servers;
+	constexpr std::uint32_t kSlots = 32;
+	std::vector<FdGuard> clients;
+	std::vector<FdGuard> servers;
 	clients.reserve(kSlots);
 	servers.reserve(kSlots);
-	for (u32 i = 0; i < kSlots; ++i) {
+	for (std::uint32_t i = 0; i < kSlots; ++i) {
 		int c = connect_one(ls.port);
 		int s = accept_one(ls.fd);
 		clients.emplace_back(c);
@@ -830,7 +830,7 @@ void run_direct_fd_slot_exhaustion(
 				if (!dft.registered()) {
 					return;
 				}
-				for (u32 i = 0; i < kSlots; ++i) {
+				for (std::uint32_t i = 0; i < kSlots; ++i) {
 					(void)dft.install(i, servers[i].fd);
 				}
 				// table destroyed → unregisters
@@ -844,7 +844,7 @@ void run_direct_fd_slot_exhaustion(
 void run_stale_cqe_after_reuse(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	RingGuard rg{64};
 	GenerationTable gen{64};
 
@@ -852,14 +852,14 @@ void run_stale_cqe_after_reuse(
 		.name = "raw_stale_cqe_after_reuse",
 		.run =
 			[&] {
-				u32 slot = 0;
+				std::uint32_t slot = 0;
 				auto g1 = gen.current(slot);
 				auto g2 = gen.advance(slot);
 				if (gen.alive(slot, g1)) {
-					throw RE{"stale gen accepted"};
+					throw std::runtime_error{"stale gen accepted"};
 				}
 				if (!gen.alive(slot, g2)) {
-					throw RE{"current gen rejected"};
+					throw std::runtime_error{"current gen rejected"};
 				}
 			},
 	};
@@ -873,7 +873,7 @@ void run_stale_cqe_after_reuse(
 void run_cancel_recv(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
@@ -915,7 +915,7 @@ void run_cancel_recv(
 void run_cancel_by_user_data(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
@@ -956,7 +956,7 @@ void run_cancel_by_user_data(
 void run_link_timeout(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
@@ -967,7 +967,7 @@ void run_link_timeout(
 	int srv = accept_one(ls.fd);
 	FdGuard sg{srv};
 
-	A<char, 64> recv_buf{};
+	std::array<char, 64> recv_buf{};
 	__kernel_timespec ts{.tv_sec = 0, .tv_nsec = 1000000}; // 1ms
 
 	auto v = Variant{
@@ -990,8 +990,8 @@ void run_link_timeout(
 			},
 	};
 
-	auto iters = min(args.iterations, SZ{10000});
-	auto warmup = std::min(args.warmup, SZ{1000});
+	auto iters = min(args.iterations, std::size_t{10000});
+	auto warmup = std::min(args.warmup, std::size_t{1000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
 }
@@ -1000,8 +1000,8 @@ void run_link_timeout(
 void run_setsockopt_variant(
 	BenchArgs const &args,
 	bool json,
-	SV config_name,
-	SV variant_name,
+	std::string_view config_name,
+	std::string_view variant_name,
 	int level,
 	int optname) {
 	auto ls = make_listen_socket();
@@ -1049,7 +1049,7 @@ void run_setsockopt_variant(
 void run_buf_ring_alloc_recycle(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	RingGuard rg{64};
 	BufferRing bufs{
 		rg.get(),
@@ -1057,14 +1057,14 @@ void run_buf_ring_alloc_recycle(
 		rg.caps()
     };
 
-	u16 id = 0;
+	std::uint16_t id = 0;
 	auto v = Variant{
 		.name = "buf_ring_alloc_recycle",
 		.run =
 			[&] {
 				auto rb = bufs.lease(id, 64);
 				// rb destructor recycles
-				id = static_cast<u16>((id + 1) % 256);
+				id = static_cast<std::uint16_t>((id + 1) % 256);
 			},
 	};
 
@@ -1075,7 +1075,7 @@ void run_buf_ring_alloc_recycle(
 void run_buf_ring_batch_recycle_16(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	RingGuard rg{64};
 	BufferRing bufs{
 		rg.get(),
@@ -1083,8 +1083,8 @@ void run_buf_ring_batch_recycle_16(
 		rg.caps()
     };
 
-	A<u16, 16> ids{};
-	for (u16 i = 0; i < 16; ++i) {
+	std::array<std::uint16_t, 16> ids{};
+	for (std::uint16_t i = 0; i < 16; ++i) {
 		ids[i] = i;
 	}
 
@@ -1100,12 +1100,12 @@ void run_buf_ring_batch_recycle_16(
 void run_buf_ring_exhaustion_recover(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
 	SocketRawRing raw{rg.get()};
-	constexpr u32 kBufCount = 64;
+	constexpr std::uint32_t kBufCount = 64;
 	BufferRing bufs{
 		rg.get(),
 		{.count = kBufCount, .buf_size = 4096, .group_id = 0, .huge_pages = false},
@@ -1126,14 +1126,14 @@ void run_buf_ring_exhaustion_recover(
 				// drain kBufCount buffers
 				submit_recv_multishot(raw, SocketHandle::from_os(srv), bufs, 10);
 				submit_or_throw(raw);
-				V<u16> drained;
+				std::vector<std::uint16_t> drained;
 				drained.reserve(kBufCount);
-				for (u32 i = 0; i < kBufCount; ++i) {
+				for (std::uint32_t i = 0; i < kBufCount; ++i) {
 					(void)::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL);
 					io_uring_cqe *cqe{};
 					wait_cqe(rg.get(), &cqe);
-					if (cqe->res > 0 && cqe_has_buffer(static_cast<u32>(cqe->flags))) {
-						drained.push_back(cqe_buffer_id(static_cast<u32>(cqe->flags)));
+					if (cqe->res > 0 && cqe_has_buffer(static_cast<std::uint32_t>(cqe->flags))) {
+						drained.push_back(cqe_buffer_id(static_cast<std::uint32_t>(cqe->flags)));
 					}
 					io_uring_cqe_seen(rg.get(), cqe);
 				}
@@ -1149,8 +1149,8 @@ void run_buf_ring_exhaustion_recover(
 			},
 	};
 
-	auto iters = min(args.iterations, SZ{5000});
-	auto warmup = std::min(args.warmup, SZ{500});
+	auto iters = min(args.iterations, std::size_t{5000});
+	auto warmup = std::min(args.warmup, std::size_t{500});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
 }
@@ -1160,14 +1160,14 @@ void run_buf_ring_exhaustion_recover(
 void run_gen_table_check(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	GenerationTable gen{1024};
 
 	auto v = Variant{
 		.name = "gen_table_check",
 		.run =
 			[&] {
-				for (u32 i = 0; i < 1024; ++i) {
+				for (std::uint32_t i = 0; i < 1024; ++i) {
 					(void)gen.alive(i, 0);
 				}
 			},
@@ -1180,10 +1180,10 @@ void run_gen_table_check(
 void run_gen_table_bump_check(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	GenerationTable gen{1024};
 
-	u32 slot = 0;
+	std::uint32_t slot = 0;
 	auto v = Variant{
 		.name = "gen_table_bump_check",
 		.run =
@@ -1202,7 +1202,7 @@ void run_gen_table_bump_check(
 void run_flow_deferred_close_abandon(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	struct State {
 		ur::Ring ring;
 		uf::FlowRuntime rt;
@@ -1210,7 +1210,7 @@ void run_flow_deferred_close_abandon(
 			: ring{[] {
 				auto r = ur::Ring::init(4, ur::SetupFlags{});
 				if (!r) {
-					throw RE{"Ring::init failed for flow deferred-close bench"};
+					throw std::runtime_error{"Ring::init failed for flow deferred-close bench"};
 				}
 				return move(*r);
 			}()}
@@ -1228,8 +1228,8 @@ void run_flow_deferred_close_abandon(
 				f.then_read(buf, 4, 0).then_write(buf, 4, 0).then_read(buf, 4, 0).close_if_opened();
 				(void)b.submit();
 
-				u32 const idx = 0;
-				u32 const gen = 1;
+				std::uint32_t const idx = 0;
+				std::uint32_t const gen = 1;
 				auto cqe0 = make_flow_cqe(idx, gen, 0, uf::FlowOpKind::open_direct, 0);
 				auto cqe1 = make_flow_cqe(idx, gen, 1, uf::FlowOpKind::read, 4);
 				auto cqe2 = make_flow_cqe(idx, gen, 2, uf::FlowOpKind::write, 4);
@@ -1251,34 +1251,34 @@ void run_flow_deferred_close_abandon(
 void run_recv_arm_policy_resolve(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
-	static constexpr u32 kSockNonempty = IORING_CQE_F_SOCK_NONEMPTY;
-	static constexpr A<u32, 256> kIdleFlags{};
-	static constexpr A<u32, 256> kBulkFlags = [] {
-		A<u32, 256> flags{};
+	std::string_view config_name) {
+	static constexpr std::uint32_t kSockNonempty = IORING_CQE_F_SOCK_NONEMPTY;
+	static constexpr std::array<std::uint32_t, 256> kIdleFlags{};
+	static constexpr std::array<std::uint32_t, 256> kBulkFlags = [] {
+		std::array<std::uint32_t, 256> flags{};
 		flags.fill(kSockNonempty);
 		return flags;
 	}();
 
-	enum class PolicyMode : u8 {
+	enum class PolicyMode : std::uint8_t {
 		default_,
 		poll_first,
 		adaptive,
 	};
-	auto run_case = [&](SV variant_name, span<u32 const> flags, PolicyMode mode) {
-		volatile u64 sink = 0;
+	auto run_case = [&](std::string_view variant_name, span<std::uint32_t const> flags, PolicyMode mode) {
+		volatile std::uint64_t sink = 0;
 		auto v = Variant{
 			.name = variant_name,
 			.run =
 				[&] {
-					for (u32 flg: flags) {
+					for (std::uint32_t flg: flags) {
 						RecvArmPolicy arm = RecvArmPolicy::default_;
 						switch (mode) {
 							case PolicyMode::default_  : arm = RecvArmPolicy::default_; break;
 							case PolicyMode::poll_first: arm = RecvArmPolicy::poll_first; break;
 							case PolicyMode::adaptive   : arm = resolve_recv_arm_policy(true, true, true, flg); break;
 						}
-						sink += static_cast<u64>(arm);
+						sink += static_cast<std::uint64_t>(arm);
 					}
 				},
 		};
@@ -1300,7 +1300,7 @@ void run_recv_arm_policy_resolve(
 void run_batch_send_32(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
@@ -1313,9 +1313,9 @@ void run_batch_send_32(
 
 	static constexpr auto kPayload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"sv;
 
-	Atom<bool> stop{false};
+	std::atomic<bool> stop{false};
 	thread reader{[&] {
-		A<char, 65536> buf{};
+		std::array<char, 65536> buf{};
 		while (!stop.load(memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
 				break;
@@ -1333,7 +1333,7 @@ void run_batch_send_32(
 						SocketHandle::from_os(srv),
 						kPayload.data(),
 						kPayload.size(),
-						static_cast<u64>(i));
+						static_cast<std::uint64_t>(i));
 				}
 				submit_or_throw(raw);
 				io_uring_cqe *cqe{};
@@ -1355,7 +1355,7 @@ void run_batch_send_32(
 void run_batch_recv_send_16(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{256};
@@ -1367,9 +1367,9 @@ void run_batch_recv_send_16(
 	FdGuard sg{srv};
 
 	static constexpr auto kPayload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"sv;
-	A<A<char, 128>, 16> recv_bufs{};
+	std::array<std::array<char, 128>, 16> recv_bufs{};
 
-	Atom<bool> stop{false};
+	std::atomic<bool> stop{false};
 	thread sender{[&] {
 		while (!stop.load(memory_order_relaxed)) {
 			if (::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL) <= 0) {
@@ -1378,7 +1378,7 @@ void run_batch_recv_send_16(
 		}
 	}};
 	thread reader{[&] {
-		A<char, 65536> buf{};
+		std::array<char, 65536> buf{};
 		while (!stop.load(memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
 				break;
@@ -1390,15 +1390,15 @@ void run_batch_recv_send_16(
 		.name = "raw_batch_recv_send_16",
 		.run =
 			[&] {
-				for (SZ i = 0; i < 16; ++i) {
+				for (std::size_t i = 0; i < 16; ++i) {
 					submit_async_recv_borrowed(
 						raw,
 						SocketHandle::from_os(srv),
 						recv_bufs[i].data(),
 						recv_bufs[i].size(),
-						static_cast<u64>(i));
+						static_cast<std::uint64_t>(i));
 				}
-				for (SZ i = 0; i < 16; ++i) {
+				for (std::size_t i = 0; i < 16; ++i) {
 					submit_send_borrowed(raw, SocketHandle::from_os(srv), kPayload.data(), kPayload.size(), 100 + i);
 				}
 				submit_or_throw(raw);
@@ -1411,8 +1411,8 @@ void run_batch_recv_send_16(
 			},
 	};
 
-	auto iters = min(args.iterations, SZ{50000});
-	auto warmup = std::min(args.warmup, SZ{5000});
+	auto iters = min(args.iterations, std::size_t{50000});
+	auto warmup = std::min(args.warmup, std::size_t{5000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
 	stop.store(true, memory_order_relaxed);
@@ -1425,7 +1425,7 @@ void run_batch_recv_send_16(
 void run_buf_slices_from_cqe_classic(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	RingGuard rg{64};
 	BufferRing bufs{
 		rg.get(),
@@ -1437,8 +1437,8 @@ void run_buf_slices_from_cqe_classic(
 		.name = "buf_slices_from_cqe_classic",
 		.run =
 			[&] {
-				u16 const id = bufs.ring_id_at(bufs.debug_head_pos());
-				u32 const flags = IORING_CQE_F_BUFFER | (static_cast<u32>(id) << IORING_CQE_BUFFER_SHIFT);
+				std::uint16_t const id = bufs.ring_id_at(bufs.debug_head_pos());
+				std::uint32_t const flags = IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
 				auto slices = buffer_slices_from_cqe(bufs, 64, flags, false);
 				slices.recycle_all();
 			},
@@ -1453,11 +1453,11 @@ void run_buf_slices_from_cqe_classic(
 void run_buf_slices_from_cqe_bundle(
 	BenchArgs const &args,
 	bool json,
-	SV config_name,
-	SV variant_name,
+	std::string_view config_name,
+	std::string_view variant_name,
 	int res) {
 	RingGuard rg{64};
-	constexpr SZ kBufSz = 4096;
+	constexpr std::size_t kBufSz = 4096;
 	BufferRing bufs{
 		rg.get(),
 		{.count = 256, .buf_size = kBufSz, .group_id = 0, .huge_pages = false, .mode = BufferRingMode::recv_bundle},
@@ -1468,10 +1468,10 @@ void run_buf_slices_from_cqe_bundle(
 		.name = variant_name,
 		.run =
 			[&] {
-				u16 const id = bufs.ring_id_at(bufs.debug_head_pos());
-				u32 const flags = IORING_CQE_F_BUFFER | (static_cast<u32>(id) << IORING_CQE_BUFFER_SHIFT);
+				std::uint16_t const id = bufs.ring_id_at(bufs.debug_head_pos());
+				std::uint32_t const flags = IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
 				auto slices = buffer_slices_from_cqe(bufs, res, flags, true);
-				volatile SZ acc = 0;
+				volatile std::size_t acc = 0;
 				for (auto s: slices) {
 					acc += s.bytes.size();
 				}
@@ -1490,32 +1490,32 @@ void run_buf_slices_from_cqe_bundle(
 void run_buf_slice_from_incremental_cqe(
 	BenchArgs const &args,
 	bool json,
-	SV config_name,
-	SV variant_name,
+	std::string_view config_name,
+	std::string_view variant_name,
 	int n) {
 	RingGuard rg{64};
 	if (!rg.caps().feat_pbuf_ring_inc) {
 		return;
 	}
-	constexpr SZ kBufSz = 4096;
+	constexpr std::size_t kBufSz = 4096;
 	BufferRing bufs{
 		rg.get(),
 		{.count = 256, .buf_size = kBufSz, .group_id = 0, .huge_pages = false, .mode = BufferRingMode::incremental},
 		rg.caps()
     };
 
-	SZ const chunk = kBufSz / static_cast<SZ>(n);
+	std::size_t const chunk = kBufSz / static_cast<std::size_t>(n);
 
-	volatile SZ acc = 0;
+	volatile std::size_t acc = 0;
 	auto v = Variant{
 		.name = variant_name,
 		.run =
 			[&] {
-				u16 const id = bufs.ring_id_at(bufs.debug_head_pos());
+				std::uint16_t const id = bufs.ring_id_at(bufs.debug_head_pos());
 				for (int i = 0; i < n; ++i) {
 					bool const is_last = (i == n - 1);
-					SZ const res = is_last ? kBufSz - chunk * static_cast<SZ>(i) : chunk;
-					u32 flags = IORING_CQE_F_BUFFER | (static_cast<u32>(id) << IORING_CQE_BUFFER_SHIFT);
+					std::size_t const res = is_last ? kBufSz - chunk * static_cast<std::size_t>(i) : chunk;
+					std::uint32_t flags = IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
 					if (!is_last) {
 						flags |= IORING_CQE_F_BUF_MORE;
 					}
@@ -1533,7 +1533,7 @@ void run_buf_slice_from_incremental_cqe(
 void run_direct_slot_pool_acquire_release(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	DirectSlotPool pool{256};
 
 	auto v = Variant{
@@ -1554,9 +1554,9 @@ void run_direct_slot_pool_acquire_release(
 void run_direct_slot_pool_full_lifecycle(
 	BenchArgs const &args,
 	bool json,
-	SV config_name) {
+	std::string_view config_name) {
 	DirectSlotPool pool{256};
-	u32 slot = 0;
+	std::uint32_t slot = 0;
 
 	auto v = Variant{
 		.name = "direct_slot_pool_full_lifecycle",
@@ -1582,9 +1582,9 @@ int main(
 		argv,
 		R"({"name":"socket_raw","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","100000","--warmup","10000"]}]})");
 
-	auto const args = bench_parse_args(span{argv, static_cast<SZ>(argc)});
+	auto const args = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
 	auto const json = args.json_out;
-	auto const config_name = args.config_name.empty() ? "default"sv : SV{args.config_name};
+	auto const config_name = args.config_name.empty() ? "default"sv : std::string_view{args.config_name};
 
 	// ── accept / close / lifecycle ────
 	run_accept_close(args, json, config_name);
@@ -1648,7 +1648,7 @@ int main(
 
 	// ── buffer slices from cqe ────
 	run_buf_slices_from_cqe_classic(args, json, config_name);
-	constexpr SZ kBufSz = 4096;
+	constexpr std::size_t kBufSz = 4096;
 	run_buf_slices_from_cqe_bundle(
 		args,
 		json,

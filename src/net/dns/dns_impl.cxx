@@ -55,24 +55,24 @@ CurrentResolverScope::~CurrentResolverScope() {
 // ─── file-local helpers ──────────────────────────────────────────────────────
 
 struct ResolvConfig {
-	V<NameserverEndpoint> nameservers;
-	V<S> search_domains;
+	std::vector<NameserverEndpoint> nameservers;
+	std::vector<std::string> search_domains;
 	size_t ndots{1};
-	chrono::milliseconds query_timeout{0};
+	std::chrono::milliseconds query_timeout{0};
 	size_t attempts{1};
 };
-[[nodiscard]] S trim_ascii_copy(
-	SV sv) {
+[[nodiscard]] std::string trim_ascii_copy(
+	std::string_view sv) {
 	while (!sv.empty() && (sv.front() == ' ' || sv.front() == '\t' || sv.front() == '\r')) {
 		sv.remove_prefix(1);
 	}
 	while (!sv.empty() && (sv.back() == ' ' || sv.back() == '\t' || sv.back() == '\r')) {
 		sv.remove_suffix(1);
 	}
-	return S{sv};
+	return std::string{sv};
 }
-[[nodiscard]] Opt<size_t> parse_decimal_size(
-	SV sv) noexcept {
+[[nodiscard]] std::optional<size_t> parse_decimal_size(
+	std::string_view sv) noexcept {
 	if (sv.empty()) {
 		return nullopt;
 	}
@@ -86,21 +86,21 @@ struct ResolvConfig {
 	return out;
 }
 void parse_resolv_options(
-	SV rest,
+	std::string_view rest,
 	ResolvConfig &cfg) {
 	while (!rest.empty()) {
 		while (!rest.empty() && (rest.front() == ' ' || rest.front() == '\t')) {
 			rest.remove_prefix(1);
 		}
 		auto const end = rest.find_first_of(" \t");
-		SV const token = end == SV::npos ? rest : rest.substr(0, end);
-		if (end == SV::npos) {
+		std::string_view const token = end == std::string_view::npos ? rest : rest.substr(0, end);
+		if (end == std::string_view::npos) {
 			rest = {};
 		} else {
 			rest.remove_prefix(end + 1);
 		}
 
-		auto parse_after_colon = [](SV value, SV prefix) -> Opt<size_t> {
+		auto parse_after_colon = [](std::string_view value, std::string_view prefix) -> std::optional<size_t> {
 			if (!value.starts_with(prefix)) {
 				return nullopt;
 			}
@@ -108,7 +108,7 @@ void parse_resolv_options(
 		};
 
 		if (auto timeout = parse_after_colon(token, "timeout:"); timeout.has_value() && *timeout > 0) {
-			cfg.query_timeout = chrono::seconds{*timeout};
+			cfg.query_timeout = std::chrono::seconds{*timeout};
 		} else if (auto attempts = parse_after_colon(token, "attempts:"); attempts.has_value() && *attempts > 0) {
 			cfg.attempts = *attempts;
 		} else if (auto ndots = parse_after_colon(token, "ndots:"); ndots.has_value()) {
@@ -116,16 +116,16 @@ void parse_resolv_options(
 		}
 	}
 }
-[[nodiscard]] V<S> parse_search_domains(
-	SV rest) {
-	V<S> out;
+[[nodiscard]] std::vector<std::string> parse_search_domains(
+	std::string_view rest) {
+	std::vector<std::string> out;
 	while (!rest.empty()) {
 		while (!rest.empty() && (rest.front() == ' ' || rest.front() == '\t')) {
 			rest.remove_prefix(1);
 		}
 		auto const end = rest.find_first_of(" \t");
-		S token = trim_ascii_copy(end == SV::npos ? rest : rest.substr(0, end));
-		if (end == SV::npos) {
+		std::string token = trim_ascii_copy(end == std::string_view::npos ? rest : rest.substr(0, end));
+		if (end == std::string_view::npos) {
 			rest = {};
 		} else {
 			rest.remove_prefix(end + 1);
@@ -150,14 +150,14 @@ void parse_resolv_options(
 [[nodiscard]] ResolvConfig parse_resolv_conf(
 	fs::path const &path) noexcept {
 	ResolvConfig out;
-	auto const contents = blocking_read_text_file_nothrow(path.string(), SZ{4} * 1024 * 1024);
+	auto const contents = blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
 	if (!contents) {
 		return out;
 	}
 	try {
 		for (auto line_view: LineRange{*contents}) {
-			S line{line_view.text};
-			if (auto comment = line.find_first_of("#;"); comment != S::npos) {
+			std::string line{line_view.text};
+			if (auto comment = line.find_first_of("#;"); comment != std::string::npos) {
 				line.resize(comment);
 			}
 			auto trimmed = trim_ascii_copy(line);
@@ -165,10 +165,10 @@ void parse_resolv_options(
 				continue;
 			}
 			auto const split = trimmed.find_first_of(" \t");
-			SV const key{trimmed.data(), split == S::npos ? trimmed.size() : split};
-			SV rest{};
-			if (split != S::npos) {
-				rest = SV{trimmed.data() + split + 1, trimmed.size() - split - 1};
+			std::string_view const key{trimmed.data(), split == std::string::npos ? trimmed.size() : split};
+			std::string_view rest{};
+			if (split != std::string::npos) {
+				rest = std::string_view{trimmed.data() + split + 1, trimmed.size() - split - 1};
 			}
 			if (key == "nameserver") {
 				auto const sv = trim_ascii_copy(rest);
@@ -189,17 +189,17 @@ void parse_resolv_options(
 	} catch (...) {} // NOLINT(bugprone-empty-catch)
 	return out;
 }
-[[nodiscard]] UM<S, V<Endpoint>> parse_hosts_file(
+[[nodiscard]] std::unordered_map<std::string, std::vector<Endpoint>> parse_hosts_file(
 	fs::path const &path) noexcept {
-	UM<S, V<Endpoint>> out;
-	auto const contents = blocking_read_text_file_nothrow(path.string(), SZ{4} * 1024 * 1024);
+	std::unordered_map<std::string, std::vector<Endpoint>> out;
+	auto const contents = blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
 	if (!contents) {
 		return out;
 	}
 	try {
 		for (auto line_view: LineRange{*contents}) {
-			S line{line_view.text};
-			if (auto hash = line.find('#'); hash != S::npos) {
+			std::string line{line_view.text};
+			if (auto hash = line.find('#'); hash != std::string::npos) {
 				line.resize(hash);
 			}
 			size_t pos = 0;
@@ -208,7 +208,7 @@ void parse_resolv_options(
 					++pos;
 				}
 			};
-			auto next_token = [&]() -> SV {
+			auto next_token = [&]() -> std::string_view {
 				skip_ws();
 				if (pos == line.size()) {
 					return {};
@@ -228,7 +228,7 @@ void parse_resolv_options(
 			Endpoint ep{};
 			::in_addr v4{};
 			::in6_addr v6{};
-			S const ip_str{ip_sv};
+			std::string const ip_str{ip_sv};
 			if (::inet_pton(AF_INET, ip_str.c_str(), &v4) == 1) {
 				auto *sin = reinterpret_cast<::sockaddr_in *>(&ep.addr);
 				sin->sin_family = AF_INET;
@@ -252,7 +252,7 @@ void parse_resolv_options(
 				if (name_sv.empty()) {
 					break;
 				}
-				S name{name_sv};
+				std::string name{name_sv};
 				for (char &c: name) {
 					if (c >= 'A' && c <= 'Z') {
 						c += 'a' - 'A';
@@ -264,9 +264,9 @@ void parse_resolv_options(
 	} catch (...) {} // NOLINT(bugprone-empty-catch)
 	return out;
 }
-[[nodiscard]] S lowercase_ascii(
-	SV value) {
-	S out{value};
+[[nodiscard]] std::string lowercase_ascii(
+	std::string_view value) {
+	std::string out{value};
 	for (char &c: out) {
 		if (c >= 'A' && c <= 'Z') {
 			c = static_cast<char>(c + ('a' - 'A'));
@@ -305,8 +305,8 @@ void parse_resolv_options(
 }
 [[nodiscard]] bool has_expected_question(
 	codec::Message const &msg,
-	u16 expected_id,
-	SV expected_qname,
+	std::uint16_t expected_id,
+	std::string_view expected_qname,
 	codec::QType expected_qtype) noexcept {
 	if (msg.header.id != expected_id || msg.questions.empty()) {
 		return false;
@@ -322,9 +322,9 @@ void validate_accepted_response_status(
 	if (auto k = codec::rcode_to_error(msg.header.rcode()); k.has_value()) {
 		throw DnsError{
 			*k,
-			format("dns: RCODE {}", static_cast<u8>(msg.header.rcode())),
+			format("dns: RCODE {}", static_cast<std::uint8_t>(msg.header.rcode())),
 			0,
-			Opt<u8>{static_cast<u8>(msg.header.rcode())}};
+			std::optional<std::uint8_t>{static_cast<std::uint8_t>(msg.header.rcode())}};
 	}
 	if (msg.header.tc()) {
 		throw DnsError{DnsErrorKind::truncated, "dns: response TC=1"};
@@ -332,13 +332,13 @@ void validate_accepted_response_status(
 }
 struct DnsQueryState {
 	mutex m;
-	Opt<root::TaskControl> active;
-	Atom<bool> cancel_requested{false};
+	std::optional<root::TaskControl> active;
+	std::atomic<bool> cancel_requested{false};
 	void set_active(
 		root::TaskControl c) {
-		Opt<root::TaskControl> to_cancel;
+		std::optional<root::TaskControl> to_cancel;
 		{
-			SL lk{m};
+			std::scoped_lock lk{m};
 			active.emplace(move(c));
 			if (cancel_requested.load(memory_order_acquire)) {
 				to_cancel = active;
@@ -349,13 +349,13 @@ struct DnsQueryState {
 		}
 	}
 	void clear_active() {
-		SL lk{m};
+		std::scoped_lock lk{m};
 		active.reset();
 	}
 	void cancel() {
-		Opt<root::TaskControl> to_cancel;
+		std::optional<root::TaskControl> to_cancel;
 		{
-			SL lk{m};
+			std::scoped_lock lk{m};
 			cancel_requested.store(true, memory_order_release);
 			to_cancel = active;
 		}
@@ -384,14 +384,14 @@ struct ActiveTaskGuard {
 [[nodiscard]] root::Task<void> run_udp_query_driver(
 	SocketTaskRing &ring,
 	NameserverEndpoint ns,
-	V<u8> wire,
-	u16 expected_id,
-	S expected_qname,
+	std::vector<std::uint8_t> wire,
+	std::uint16_t expected_id,
+	std::string expected_qname,
 	codec::QType expected_qtype,
-	chrono::milliseconds timeout,
-	SP<root::TaskSource<codec::Message>> src,
-	SP<DnsQueryState> state) {
-	constexpr SZ kRxSize = 4096;
+	std::chrono::milliseconds timeout,
+	std::shared_ptr<root::TaskSource<codec::Message>> src,
+	std::shared_ptr<DnsQueryState> state) {
+	constexpr std::size_t kRxSize = 4096;
 	auto check_cancelled = [&] {
 		if (state->cancelled()) {
 			throw DnsError{DnsErrorKind::cancelled, "dns: query cancelled"};
@@ -400,21 +400,21 @@ struct ActiveTaskGuard {
 	try {
 		check_cancelled();
 		UdpSocket sock = UdpSocket::ephemeral(ring, static_cast<int>(ns.addr.ss_family));
-		A<u8, kRxSize> rx_buf{};
+		std::array<std::uint8_t, kRxSize> rx_buf{};
 		// P1-08: UDP send cancel not covered; cancellation detected on next recv
-		co_await sock.async_send_to_borrowed(span<u8 const>{wire.data(), wire.size()}, ns.addr, ns.addr_len);
+		co_await sock.async_send_to_borrowed(span<std::uint8_t const>{wire.data(), wire.size()}, ns.addr, ns.addr_len);
 		check_cancelled();
-		auto const deadline = chrono::steady_clock::now() + timeout;
+		auto const deadline = std::chrono::steady_clock::now() + timeout;
 		for (;;) {
-			auto const now = chrono::steady_clock::now();
+			auto const now = std::chrono::steady_clock::now();
 			if (now >= deadline) {
 				throw DnsError{DnsErrorKind::timeout, "dns: query timed out"};
 			}
-			auto const remaining = chrono::ceil<chrono::milliseconds>(deadline - now);
-			auto recv_task = sock.async_recv_from(span<u8>{rx_buf.data(), rx_buf.size()}, remaining);
+			auto const remaining = std::chrono::ceil<std::chrono::milliseconds>(deadline - now);
+			auto recv_task = sock.async_recv_from(span<std::uint8_t>{rx_buf.data(), rx_buf.size()}, remaining);
 			ActiveTaskGuard g{*state, recv_task.control()};
 			auto const result = co_await move(recv_task);
-			auto msg = codec::decode_message(span<u8 const>{rx_buf.data(), result.bytes});
+			auto msg = codec::decode_message(span<std::uint8_t const>{rx_buf.data(), result.bytes});
 			if (!same_dns_peer(result.from, result.from_len, ns)) {
 				continue;
 			}
@@ -448,11 +448,11 @@ struct ActiveTaskGuard {
 [[nodiscard]] root::Task<codec::Message> udp_single_query(
 	SocketTaskRing &ring,
 	NameserverEndpoint ns,
-	V<u8> wire,
-	u16 expected_id,
-	S expected_qname,
+	std::vector<std::uint8_t> wire,
+	std::uint16_t expected_id,
+	std::string expected_qname,
 	codec::QType expected_qtype,
-	chrono::milliseconds timeout) {
+	std::chrono::milliseconds timeout) {
 	auto [out_task, raw_src] = root::make_task_source<codec::Message>(root::SubmitOptions{.enable_cancellation = true});
 	auto src = make_shared<root::TaskSource<codec::Message>>(move(raw_src));
 	auto state = make_shared<DnsQueryState>();
@@ -477,13 +477,13 @@ struct ActiveTaskGuard {
 [[nodiscard]] root::Task<void> run_tcp_query_driver(
 	SocketTaskRing &ring,
 	NameserverEndpoint ns,
-	V<u8> wire,
-	u16 expected_id,
-	S expected_qname,
+	std::vector<std::uint8_t> wire,
+	std::uint16_t expected_id,
+	std::string expected_qname,
 	codec::QType expected_qtype,
-	chrono::milliseconds timeout,
-	SP<root::TaskSource<codec::Message>> src,
-	SP<DnsQueryState> state) {
+	std::chrono::milliseconds timeout,
+	std::shared_ptr<root::TaskSource<codec::Message>> src,
+	std::shared_ptr<DnsQueryState> state) {
 	auto check_cancelled = [&] {
 		if (state->cancelled()) {
 			throw DnsError{DnsErrorKind::cancelled, "dns: tcp query cancelled"};
@@ -496,20 +496,20 @@ struct ActiveTaskGuard {
 			co_return;
 		}
 		check_cancelled();
-		V<u8> framed;
+		std::vector<std::uint8_t> framed;
 		framed.reserve(2 + wire.size());
-		auto const wlen = static_cast<u16>(wire.size());
-		framed.push_back(static_cast<u8>(wlen >> 8U));
-		framed.push_back(static_cast<u8>(wlen & 0xFFU));
+		auto const wlen = static_cast<std::uint16_t>(wire.size());
+		framed.push_back(static_cast<std::uint8_t>(wlen >> 8U));
+		framed.push_back(static_cast<std::uint8_t>(wlen & 0xFFU));
 		framed.insert(framed.end(), wire.begin(), wire.end());
 		int const family = static_cast<int>(ns.addr.ss_family);
-		auto const deadline = chrono::steady_clock::now() + timeout;
-		auto remaining_or_throw = [&]() -> chrono::milliseconds {
-			auto const now = chrono::steady_clock::now();
+		auto const deadline = std::chrono::steady_clock::now() + timeout;
+		auto remaining_or_throw = [&]() -> std::chrono::milliseconds {
+			auto const now = std::chrono::steady_clock::now();
 			if (now >= deadline) {
 				throw DnsError{DnsErrorKind::timeout, "dns: tcp query timed out"};
 			}
-			return chrono::ceil<chrono::milliseconds>(deadline - now);
+			return std::chrono::ceil<std::chrono::milliseconds>(deadline - now);
 		};
 		ConnectOptions copts{};
 		copts.timeout = timeout;
@@ -521,11 +521,11 @@ struct ActiveTaskGuard {
 		}
 		check_cancelled();
 		{
-			SZ sent = 0;
+			std::size_t sent = 0;
 			while (sent < framed.size()) {
-				auto write_task = stream.async_write_borrowed(span<u8 const>{framed.data() + sent, framed.size() - sent});
+				auto write_task = stream.async_write_borrowed(span<std::uint8_t const>{framed.data() + sent, framed.size() - sent});
 				ActiveTaskGuard g{*state, write_task.control()};
-				SZ const n = co_await move(write_task);
+				std::size_t const n = co_await move(write_task);
 				if (n == 0) {
 					throw DnsError{DnsErrorKind::network, "dns: tcp write failed"};
 				}
@@ -533,40 +533,40 @@ struct ActiveTaskGuard {
 			}
 		}
 		check_cancelled();
-		A<u8, 2> len_buf{};
+		std::array<std::uint8_t, 2> len_buf{};
 		{
-			SZ n = 0;
+			std::size_t n = 0;
 			while (n < 2) {
-				root::Task<SZ> recv_task =
-					stream.async_recv_borrowed(span<u8>{len_buf.data() + n, 2 - n}, remaining_or_throw());
+				root::Task<std::size_t> recv_task =
+					stream.async_recv_borrowed(span<std::uint8_t>{len_buf.data() + n, 2 - n}, remaining_or_throw());
 				ActiveTaskGuard g{*state, recv_task.control()};
-				SZ const got = co_await move(recv_task);
+				std::size_t const got = co_await move(recv_task);
 				if (got == 0) {
 					throw DnsError{DnsErrorKind::network, "dns: tcp short length prefix"};
 				}
 				n += got;
 			}
 		}
-		u16 const resp_len = static_cast<u16>((static_cast<u16>(len_buf[0]) << 8U) | static_cast<u16>(len_buf[1]));
+		std::uint16_t const resp_len = static_cast<std::uint16_t>((static_cast<std::uint16_t>(len_buf[0]) << 8U) | static_cast<std::uint16_t>(len_buf[1]));
 		if (resp_len == 0) {
 			throw DnsError{DnsErrorKind::malformed, "dns: tcp zero-length response"};
 		}
-		V<u8> resp_buf(resp_len);
+		std::vector<std::uint8_t> resp_buf(resp_len);
 		{
-			SZ resp_n = 0;
-			while (resp_n < static_cast<SZ>(resp_len)) {
-				root::Task<SZ> recv_task = stream.async_recv_borrowed(
-					span<u8>{resp_buf.data() + resp_n, static_cast<SZ>(resp_len) - resp_n},
+			std::size_t resp_n = 0;
+			while (resp_n < static_cast<std::size_t>(resp_len)) {
+				root::Task<std::size_t> recv_task = stream.async_recv_borrowed(
+					span<std::uint8_t>{resp_buf.data() + resp_n, static_cast<std::size_t>(resp_len) - resp_n},
 					remaining_or_throw());
 				ActiveTaskGuard g{*state, recv_task.control()};
-				SZ const got = co_await move(recv_task);
+				std::size_t const got = co_await move(recv_task);
 				if (got == 0) {
 					throw DnsError{DnsErrorKind::network, "dns: tcp short response"};
 				}
 				resp_n += got;
 			}
 		}
-		auto msg = codec::decode_message(span<u8 const>{resp_buf.data(), static_cast<SZ>(resp_len)});
+		auto msg = codec::decode_message(span<std::uint8_t const>{resp_buf.data(), static_cast<std::size_t>(resp_len)});
 		if (!has_expected_question(msg, expected_id, expected_qname, expected_qtype)) {
 			throw DnsError{DnsErrorKind::malformed, "dns: tcp response mismatch"};
 		}
@@ -595,11 +595,11 @@ struct ActiveTaskGuard {
 [[nodiscard]] root::Task<codec::Message> tcp_single_query(
 	SocketTaskRing &ring,
 	NameserverEndpoint ns,
-	V<u8> wire,
-	u16 expected_id,
-	S expected_qname,
+	std::vector<std::uint8_t> wire,
+	std::uint16_t expected_id,
+	std::string expected_qname,
 	codec::QType expected_qtype,
-	chrono::milliseconds timeout) {
+	std::chrono::milliseconds timeout) {
 	auto [out_task, raw_src] = root::make_task_source<codec::Message>(root::SubmitOptions{.enable_cancellation = true});
 	auto src = make_shared<root::TaskSource<codec::Message>>(move(raw_src));
 	auto state = make_shared<DnsQueryState>();
@@ -622,10 +622,10 @@ struct ActiveTaskGuard {
 	return move(out_task);
 }
 // Minimum TTL across all answer RRs of the given family (UINT32_MAX if none).
-[[nodiscard]] u32 min_answer_ttl(
+[[nodiscard]] std::uint32_t min_answer_ttl(
 	codec::Message const &msg,
 	AddressFamily family) noexcept {
-	u32 min_ttl = NL<u32>::max();
+	std::uint32_t min_ttl = std::numeric_limits<std::uint32_t>::max();
 	for (auto const &rr: msg.answers) {
 		auto const is_match = (family == AddressFamily::v4 && rr.type == codec::QType::a)
 						   || (family == AddressFamily::v6 && rr.type == codec::QType::aaaa);
@@ -637,7 +637,7 @@ struct ActiveTaskGuard {
 }
 
 // Ordered by severity so max(a,b) gives the dominant failure reason.
-enum class BatchFailReason : u8 {
+enum class BatchFailReason : std::uint8_t {
 	none = 0,
 	timeout = 1,
 	network = 2,
@@ -645,8 +645,8 @@ enum class BatchFailReason : u8 {
 	truncated = 4,
 };
 struct EndpointBatch {
-	V<Endpoint> eps;
-	u32 min_ttl{NL<u32>::max()};
+	std::vector<Endpoint> eps;
+	std::uint32_t min_ttl{std::numeric_limits<std::uint32_t>::max()};
 	BatchFailReason fail_reason{BatchFailReason::none};
 	bool was_queried{false};
 };
@@ -658,15 +658,15 @@ struct EndpointBatch {
 [[nodiscard]] root::Task<EndpointBatch> build_family_flow(
 	SocketTaskRing &ring,
 	NameserverEndpoint ns,
-	SV hostname,
-	u16 port,
-	u16 qid,
+	std::string_view hostname,
+	std::uint16_t port,
+	std::uint16_t qid,
 	codec::QType qtype,
 	AddressFamily fam,
-	chrono::milliseconds timeout,
+	std::chrono::milliseconds timeout,
 	codec::Edns0Options edns) {
 	auto wire = codec::encode_query(qid, hostname, qtype, edns);
-	auto wire_ptr = make_shared<V<u8>>(wire); // copy for TCP fallback
+	auto wire_ptr = make_shared<std::vector<std::uint8_t>>(wire); // copy for TCP fallback
 	auto expected_qname = lowercase_ascii(hostname);
 	bool needs_tcp_fallback = false;
 	try {
@@ -719,16 +719,16 @@ struct EndpointBatch {
 [[nodiscard]] root::Task<ResolveResult> build_native_udp_flow(
 	SocketTaskRing &ring,
 	NameserverEndpoint ns,
-	S const &hostname,
-	u16 port,
+	std::string const &hostname,
+	std::uint16_t port,
 	bool do_v4,
 	bool do_v6,
 	AddressFamily prefer,
-	chrono::milliseconds timeout,
+	std::chrono::milliseconds timeout,
 	codec::Edns0Options edns) {
 	static thread_local std::mt19937 tl_rng{std::random_device{}()};
-	u16 const qid_a = static_cast<u16>(tl_rng() & 0xFFFFU);
-	u16 const qid_aaaa = static_cast<u16>((static_cast<u32>(qid_a) + 1U) & 0xFFFFU);
+	std::uint16_t const qid_a = static_cast<std::uint16_t>(tl_rng() & 0xFFFFU);
+	std::uint16_t const qid_aaaa = static_cast<std::uint16_t>((static_cast<std::uint32_t>(qid_a) + 1U) & 0xFFFFU);
 	auto v4_task = do_v4 ? build_family_flow(ring, ns, hostname, port, qid_a, codec::QType::a, AddressFamily::v4, timeout, edns) :
 			make_empty_batch_task();
 	auto v6_task = do_v6 ? build_family_flow(
@@ -746,7 +746,7 @@ struct EndpointBatch {
 	if (v4.eps.empty() && v6.eps.empty()) {
 		// Both families have no results. Propagate the dominant failure.
 		auto const w =
-			(static_cast<u8>(v4.fail_reason) >= static_cast<u8>(v6.fail_reason)) ? v4.fail_reason : v6.fail_reason;
+			(static_cast<std::uint8_t>(v4.fail_reason) >= static_cast<std::uint8_t>(v6.fail_reason)) ? v4.fail_reason : v6.fail_reason;
 		if (w == BatchFailReason::truncated) {
 			throw DnsError{DnsErrorKind::truncated, "dns: udp truncated and tcp fallback failed"};
 		}
@@ -754,9 +754,9 @@ struct EndpointBatch {
 			throw DnsError{DnsErrorKind::nxdomain, "dns: name not found"};
 		}
 	}
-	V<Endpoint> all;
+	std::vector<Endpoint> all;
 	all.reserve(v6.eps.size() + v4.eps.size());
-	auto append_all = [&all](V<Endpoint> const &eps) {
+	auto append_all = [&all](std::vector<Endpoint> const &eps) {
 		for (auto const &ep: eps) {
 			all.push_back(ep);
 		}
@@ -768,24 +768,24 @@ struct EndpointBatch {
 		append_all(v6.eps);
 		append_all(v4.eps);
 	}
-	u32 const min_ttl = min(v4.min_ttl, v6.min_ttl);
+	std::uint32_t const min_ttl = min(v4.min_ttl, v6.min_ttl);
 	ResolveResult r;
 	r.endpoints = move(all);
-	if (min_ttl != NL<u32>::max()) {
-		r.suggested_ttl = chrono::seconds{min_ttl};
+	if (min_ttl != std::numeric_limits<std::uint32_t>::max()) {
+		r.suggested_ttl = std::chrono::seconds{min_ttl};
 	}
 	co_return r;
 }
 [[nodiscard]] root::Task<ResolveResult> build_native_udp_flow_with_nameservers(
 	SocketTaskRing &ring,
-	V<NameserverEndpoint> nameservers,
+	std::vector<NameserverEndpoint> nameservers,
 	size_t index,
-	S hostname,
-	u16 port,
+	std::string hostname,
+	std::uint16_t port,
 	bool do_v4,
 	bool do_v6,
 	AddressFamily prefer,
-	chrono::milliseconds timeout,
+	std::chrono::milliseconds timeout,
 	codec::Edns0Options edns) {
 	if (index >= nameservers.size()) {
 		throw DnsError{DnsErrorKind::no_servers, "dns: no nameservers configured"};
@@ -812,14 +812,14 @@ struct EndpointBatch {
 }
 [[nodiscard]] root::Task<ResolveResult> build_native_udp_flow_with_candidates(
 	SocketTaskRing &ring,
-	V<NameserverEndpoint> nameservers,
-	V<S> candidates,
+	std::vector<NameserverEndpoint> nameservers,
+	std::vector<std::string> candidates,
 	size_t index,
-	u16 port,
+	std::uint16_t port,
 	bool do_v4,
 	bool do_v6,
 	AddressFamily prefer,
-	chrono::milliseconds timeout,
+	std::chrono::milliseconds timeout,
 	codec::Edns0Options edns) {
 	if (index >= candidates.size()) {
 		throw DnsError{DnsErrorKind::nxdomain, "dns: name not found"};
@@ -865,27 +865,27 @@ struct EndpointBatch {
 
 struct DnsCacheEntry {
 	ResolveResult result;
-	chrono::steady_clock::time_point expires;
+	std::chrono::steady_clock::time_point expires;
 };
 class LruDnsCache {
-	using List = std::list<std::pair<S, DnsCacheEntry>>;
+	using List = std::list<std::pair<std::string, DnsCacheEntry>>;
 	size_t capacity_;
 	List order_;
-	UM<S, List::iterator> index_;
+	std::unordered_map<std::string, List::iterator> index_;
 	mutable mutex mtx_;
 
 public:
 	explicit LruDnsCache(
 		size_t cap)
 		: capacity_{cap} {}
-	[[nodiscard]] Opt<ResolveResult> get(
-		S const &key) {
+	[[nodiscard]] std::optional<ResolveResult> get(
+		std::string const &key) {
 		std::scoped_lock const lk{mtx_};
 		auto it = index_.find(key);
 		if (it == index_.end()) {
 			return nullopt;
 		}
-		if (chrono::steady_clock::now() >= it->second->second.expires) {
+		if (std::chrono::steady_clock::now() >= it->second->second.expires) {
 			order_.erase(it->second);
 			index_.erase(it);
 			return nullopt;
@@ -894,10 +894,10 @@ public:
 		return it->second->second.result;
 	}
 	void put(
-		S const &key,
+		std::string const &key,
 		ResolveResult result,
-		chrono::seconds ttl) {
-		auto const expires = chrono::steady_clock::now() + ttl;
+		std::chrono::seconds ttl) {
+		auto const expires = std::chrono::steady_clock::now() + ttl;
 		std::scoped_lock const lk{mtx_};
 		auto it = index_.find(key);
 		if (it != index_.end()) {
@@ -917,8 +917,8 @@ public:
 		index_[key] = order_.begin();
 	}
 	void invalidate_by_host(
-		SV host) {
-		S const prefix = format("{}:", host);
+		std::string_view host) {
+		std::string const prefix = format("{}:", host);
 		std::scoped_lock const lk{mtx_};
 		for (auto it = order_.begin(); it != order_.end();) {
 			if (it->first.starts_with(prefix)) {
@@ -935,15 +935,15 @@ public:
 		index_.clear();
 	}
 };
-[[nodiscard]] S make_cache_key(
-	SV host,
-	u16 port,
+[[nodiscard]] std::string make_cache_key(
+	std::string_view host,
+	std::uint16_t port,
 	AddressFamily prefer,
 	bool v4,
 	bool v6) {
 	return format("{}:{}:{}{}{}", host, port, prefer == AddressFamily::v4 ? '4' : '6', v4 ? '4' : '-', v6 ? '6' : '-');
 }
-[[nodiscard]] chrono::milliseconds effective_native_timeout(
+[[nodiscard]] std::chrono::milliseconds effective_native_timeout(
 	ResolveOptions const &opts) noexcept {
 	if (opts.query_timeout.count() <= 0) {
 		return opts.total_timeout;
@@ -955,17 +955,17 @@ public:
 }
 [[nodiscard]] ResolveOptions apply_resolv_defaults(
 	ResolveOptions opts,
-	chrono::milliseconds resolv_query_timeout) noexcept {
+	std::chrono::milliseconds resolv_query_timeout) noexcept {
 	ResolveOptions const defaults;
 	if (opts.query_timeout == defaults.query_timeout && resolv_query_timeout.count() > 0) {
 		opts.query_timeout = resolv_query_timeout;
 	}
 	return opts;
 }
-[[nodiscard]] V<NameserverEndpoint> nameservers_with_attempts(
-	V<NameserverEndpoint> const &base,
+[[nodiscard]] std::vector<NameserverEndpoint> nameservers_with_attempts(
+	std::vector<NameserverEndpoint> const &base,
 	size_t attempts) {
-	V<NameserverEndpoint> out;
+	std::vector<NameserverEndpoint> out;
 	if (base.empty()) {
 		return out;
 	}
@@ -976,11 +976,11 @@ public:
 	}
 	return out;
 }
-[[nodiscard]] V<S> resolve_candidates(
-	SV host,
-	V<S> const &search_domains,
+[[nodiscard]] std::vector<std::string> resolve_candidates(
+	std::string_view host,
+	std::vector<std::string> const &search_domains,
 	size_t ndots) {
-	S normalized{host};
+	std::string normalized{host};
 	if (!normalized.empty() && normalized.back() == '.') {
 		normalized.pop_back();
 		return {move(normalized)};
@@ -989,7 +989,7 @@ public:
 	if (search_domains.empty() || dot_count >= ndots) {
 		return {move(normalized)};
 	}
-	V<S> out;
+	std::vector<std::string> out;
 	out.reserve(search_domains.size() + 1);
 	for (auto const &domain: search_domains) {
 		out.push_back(format("{}.{}", normalized, domain));
@@ -1000,16 +1000,16 @@ public:
 // ─── Resolver::Impl ─────────────────────────────────────────────────────────
 
 struct CoalescedBroadcast {
-	V<SP<root::TaskSource<ResolveResult>>> waiters;
+	std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
 };
 struct InFlightKey {
-	S cache_key;
+	std::string cache_key;
 	SocketTaskRing *ring{};
 };
 struct InFlightKeyHash {
 	size_t operator ()(
 		InFlightKey const &k) const noexcept {
-		size_t h1 = hash<S>{}(k.cache_key);
+		size_t h1 = hash<std::string>{}(k.cache_key);
 		size_t h2 = hash<void const *>{}(k.ring);
 		return h1 ^ (h2 + 0x9e3779b97f4a7c15ULL + (h1 << 6U) + (h1 >> 2U));
 	}
@@ -1023,17 +1023,17 @@ struct InFlightKeyEq {
 };
 struct Resolver::Impl {
 	ResolverBackend backend{};
-	UP<FileReader> reader{};
-	UP<SocketTaskRing> task_ring{};
+	std::unique_ptr<FileReader> reader{};
+	std::unique_ptr<SocketTaskRing> task_ring{};
 	WorkPool *pool{nullptr};
 	ResolverOptions opts;
-	V<NameserverEndpoint> nameservers;
-	V<S> search_domains;
+	std::vector<NameserverEndpoint> nameservers;
+	std::vector<std::string> search_domains;
 	size_t ndots{1};
-	chrono::milliseconds resolv_query_timeout{0};
+	std::chrono::milliseconds resolv_query_timeout{0};
 	size_t attempts{1};
-	UM<S, V<Endpoint>> hosts_cache;
-	SP<LruDnsCache> cache{};
+	std::unordered_map<std::string, std::vector<Endpoint>> hosts_cache;
+	std::shared_ptr<LruDnsCache> cache{};
 	std::unordered_map<InFlightKey, CoalescedBroadcast, InFlightKeyHash, InFlightKeyEq> in_flight;
 	mutex in_flight_mutex;
 };
@@ -1046,8 +1046,8 @@ Resolver::Resolver(
 	impl_->backend = ResolverBackend::native_udp;
 	auto shared_ud = make_shared<UserDataFn>(move(encode_ud));
 	impl_->reader =
-		make_unique<FileReader>(ring, completions, [shared_ud](u32 s, u32 g) -> u64 { return (*shared_ud)(s, g); });
-	impl_->task_ring = make_unique<SocketTaskRing>(SocketRawRing{ring}, *completions, [shared_ud](u32 s, u32 g) -> u64 {
+		make_unique<FileReader>(ring, completions, [shared_ud](std::uint32_t s, std::uint32_t g) -> std::uint64_t { return (*shared_ud)(s, g); });
+	impl_->task_ring = make_unique<SocketTaskRing>(SocketRawRing{ring}, *completions, [shared_ud](std::uint32_t s, std::uint32_t g) -> std::uint64_t {
 		return (*shared_ud)(s, g);
 	});
 	impl_->opts = move(opts);
@@ -1089,8 +1089,8 @@ Resolver::Resolver(
 Resolver::~Resolver() = default;
 root::Task<ResolveResult> Resolver::resolve_flow(
 	SocketTaskRing *external_ring,
-	SV host,
-	u16 port,
+	std::string_view host,
+	std::uint16_t port,
 	ResolveOptions const &per_opts) {
 	auto const effective_opts = apply_resolv_defaults(per_opts, impl_->resolv_query_timeout);
 	if (auto ep = try_parse_ip_literal(host, port); ep.has_value()) {
@@ -1110,7 +1110,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 
 	// /etc/hosts lookup
 	if (impl_->opts.enable_etc_hosts && !effective_opts.bypass_cache) {
-		S key{host};
+		std::string key{host};
 		for (char &c: key) {
 			if (c >= 'A' && c <= 'Z') {
 				c += 'a' - 'A';
@@ -1121,7 +1121,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		}
 		auto it = impl_->hosts_cache.find(key);
 		if (it != impl_->hosts_cache.end()) {
-			V<Endpoint> eps;
+			std::vector<Endpoint> eps;
 			for (auto const &ep: it->second) {
 				if (ep.family == AddressFamily::v4 && effective_opts.allow_v4) {
 					auto e = ep;
@@ -1145,9 +1145,9 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		}
 	}
 
-	S const cache_key =
+	std::string const cache_key =
 		effective_opts.bypass_cache ?
-			S{} :
+			std::string{} :
 			make_cache_key(host, port, effective_opts.prefer, effective_opts.allow_v4, effective_opts.allow_v6);
 	InFlightKey const inflight_key{cache_key, external_ring};
 
@@ -1191,7 +1191,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		auto [task, raw_src] = root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 		auto shared_src = make_shared<root::TaskSource<ResolveResult>>(move(raw_src));
 		bool const ok = impl_->pool->enqueue([shared_src, // NOLINT(bugprone-exception-escape)
-											  h = S{host},
+											  h = std::string{host},
 											  port,
 											  allow_v4 = effective_opts.allow_v4,
 											  allow_v6 = effective_opts.allow_v6,
@@ -1204,7 +1204,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				hints.ai_socktype = SOCK_STREAM;
 				hints.ai_flags = AI_ADDRCONFIG;
 				addrinfo *res_raw = nullptr;
-				S const p = to_string(port);
+				std::string const p = to_string(port);
 				int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res_raw);
 				if (gai != 0 || res_raw == nullptr) {
 					auto _ = shared_src->try_set_exception(make_exception_ptr(
@@ -1267,7 +1267,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		return move(task);
 	}
 
-	Opt<root::Task<ResolveResult>> coalesced_out;
+	std::optional<root::Task<ResolveResult>> coalesced_out;
 	bool max_inflight_exceeded = false;
 	{
 		lock_guard lock{impl_->in_flight_mutex};
@@ -1282,7 +1282,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				auto [out_task, out_raw_src] =
 					root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 				auto out_src = make_shared<root::TaskSource<ResolveResult>>(move(out_raw_src));
-				[](SP<root::TaskSource<ResolveResult>> out_src, root::Task<ResolveResult> wt) -> root::Task<void> {
+				[](std::shared_ptr<root::TaskSource<ResolveResult>> out_src, root::Task<ResolveResult> wt) -> root::Task<void> {
 					try {
 						auto r = co_await move(wt);
 						r.from_coalesced = true;
@@ -1317,7 +1317,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	auto fanout_success = // NOLINT(bugprone-exception-escape)
 		[impl = impl_, inflight_key](ResolveResult r) -> ResolveResult {
 		auto impl_keep = impl;
-		V<SP<root::TaskSource<ResolveResult>>> waiters;
+		std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
 		if (!inflight_key.cache_key.empty()) {
 			lock_guard lock{impl_keep->in_flight_mutex};
 			if (auto it = impl_keep->in_flight.find(inflight_key); it != impl_keep->in_flight.end()) {
@@ -1336,7 +1336,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	auto fanout_error = // NOLINT(bugprone-exception-escape)
 		[impl = impl_, inflight_key](std::exception_ptr const &ep) -> ResolveResult {
 		auto impl_keep = impl;
-		V<SP<root::TaskSource<ResolveResult>>> waiters;
+		std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
 		if (!inflight_key.cache_key.empty()) {
 			lock_guard lock{impl_keep->in_flight_mutex};
 			if (auto it = impl_keep->in_flight.find(inflight_key); it != impl_keep->in_flight.end()) {
@@ -1366,12 +1366,12 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	auto [out_task, out_raw_src] =
 		root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 	auto out_src = make_shared<root::TaskSource<ResolveResult>>(move(out_raw_src));
-	[](SP<root::TaskSource<ResolveResult>> out_src,
+	[](std::shared_ptr<root::TaskSource<ResolveResult>> out_src,
 	   root::Task<ResolveResult> inner,
 	   auto cache_insert,
 	   auto fanout_success,
 	   auto fanout_error,
-	   SP<Resolver::Impl> impl,
+	   std::shared_ptr<Resolver::Impl> impl,
 	   InFlightKey inflight_key) mutable -> root::Task<void> {
 		try {
 			auto out = out_src;
@@ -1382,7 +1382,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 		} catch (Cancelled const &) {
 			auto out = out_src;
 			auto key = inflight_key;
-			V<SP<root::TaskSource<ResolveResult>>> waiters;
+			std::vector<std::shared_ptr<root::TaskSource<ResolveResult>>> waiters;
 			if (!key.cache_key.empty()) {
 				lock_guard lock{impl->in_flight_mutex};
 				if (auto it = impl->in_flight.find(key); it != impl->in_flight.end()) {
@@ -1423,15 +1423,15 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 	return move(out_task);
 }
 conflux::work::root::Task<ResolveResult> Resolver::resolve(
-	SV host,
-	u16 port,
+	std::string_view host,
+	std::uint16_t port,
 	ResolveOptions const &opts) {
 	return resolve_flow(nullptr, host, port, opts);
 }
 conflux::work::root::Task<ResolveResult> Resolver::resolve(
 	SocketTaskRing &ring,
-	SV host,
-	u16 port,
+	std::string_view host,
+	std::uint16_t port,
 	ResolveOptions const &opts) {
 	return resolve_flow(&ring, host, port, opts);
 }
@@ -1451,8 +1451,8 @@ thread_local TlsRingBase tls_rb_;
 
 } // namespace
 expected<ResolveResult, DnsError> Resolver::resolve_blocking(
-	SV host,
-	u16 port,
+	std::string_view host,
+	std::uint16_t port,
 	ResolveOptions const &opts) {
 	if (current_resolver() == this && impl_->backend == ResolverBackend::native_udp) {
 		return unexpected{
@@ -1476,7 +1476,7 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 	}
 
 	if (impl_->opts.enable_etc_hosts && !effective_opts.bypass_cache) {
-		S key{host};
+		std::string key{host};
 		for (char &c: key) {
 			if (c >= 'A' && c <= 'Z') {
 				c += 'a' - 'A';
@@ -1487,7 +1487,7 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 		}
 		auto it = impl_->hosts_cache.find(key);
 		if (it != impl_->hosts_cache.end()) {
-			V<Endpoint> eps;
+			std::vector<Endpoint> eps;
 			for (auto const &ep: it->second) {
 				if (ep.family == AddressFamily::v4 && effective_opts.allow_v4) {
 					auto e = ep;
@@ -1514,11 +1514,11 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 		hints.ai_socktype = SOCK_STREAM;
 		hints.ai_flags = AI_ADDRCONFIG;
 		addrinfo *res_raw = nullptr;
-		S const h{host};
-		S const p = to_string(port);
-		auto const t0 = chrono::steady_clock::now();
+		std::string const h{host};
+		std::string const p = to_string(port);
+		auto const t0 = std::chrono::steady_clock::now();
 		int const gai = ::getaddrinfo(h.c_str(), p.c_str(), &hints, &res_raw);
-		auto const elapsed = chrono::steady_clock::now() - t0;
+		auto const elapsed = std::chrono::steady_clock::now() - t0;
 		if (gai != 0 || res_raw == nullptr) {
 			return unexpected{
 				DnsError{DnsErrorKind::nxdomain, format("getaddrinfo: {}", ::gai_strerror(gai))}
@@ -1569,19 +1569,19 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 			}
 			tls_rb_.initialized = true;
 		}
-		SocketTaskRing tmp_str{SocketRawRing{&tls_rb_.ring}, tls_rb_.ct, [](u32 slot, u32 gen) noexcept -> u64 {
-								   return (static_cast<u64>(gen) << 32U) | slot;
+		SocketTaskRing tmp_str{SocketRawRing{&tls_rb_.ring}, tls_rb_.ct, [](std::uint32_t slot, std::uint32_t gen) noexcept -> std::uint64_t {
+								   return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 							   }};
 		codec::Edns0Options const edns{.udp_size = impl_->opts.edns0_udp_size};
-		Opt<DnsError> last_nxdomain;
+		std::optional<DnsError> last_nxdomain;
 		for (auto const &candidate: resolve_candidates(host, impl_->search_domains, impl_->ndots)) {
-			S const cache_key = impl_->cache && !effective_opts.bypass_cache ? make_cache_key(
+			std::string const cache_key = impl_->cache && !effective_opts.bypass_cache ? make_cache_key(
 																						candidate,
 																						port,
 																						effective_opts.prefer,
 																						effective_opts.allow_v4,
 																						effective_opts.allow_v6) :
-																					S{};
+																					std::string{};
 			if (impl_->cache && !effective_opts.bypass_cache) {
 				if (auto hit = impl_->cache->get(cache_key); hit.has_value()) {
 					if (hit->is_negative) {
@@ -1604,7 +1604,7 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 				effective_native_timeout(effective_opts),
 				edns);
 			try {
-				auto budget = effective_native_timeout(effective_opts) + chrono::milliseconds{500};
+				auto budget = effective_native_timeout(effective_opts) + std::chrono::milliseconds{500};
 				auto result = sync_wait_socket_task(tmp_str, move(flow), budget);
 				if (result.endpoints.empty()) {
 					return result;
@@ -1644,7 +1644,7 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 	}
 }
 void Resolver::invalidate(
-	SV host) {
+	std::string_view host) {
 	if (impl_->cache) {
 		impl_->cache->invalidate_by_host(host);
 	}

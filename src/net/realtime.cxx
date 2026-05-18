@@ -31,7 +31,7 @@ import conflux.utils;
 import conflux.net.tls;
 #endif
 
-export enum class SseOverflowPolicy : u8 {
+export enum class SseOverflowPolicy : std::uint8_t {
 	DropNewest,
 	DropOldest,
 	Disconnect,
@@ -45,7 +45,7 @@ private:
 	std::size_t queued_bytes_{0};
 	std::size_t max_queue_bytes_{};
 	SseOverflowPolicy overflow_{SseOverflowPolicy::DropNewest};
-	Atom<std::size_t> dropped_{0};
+	std::atomic<std::size_t> dropped_{0};
 
 public:
 	static constexpr std::size_t kDefaultMaxQueueBytes = std::size_t{4} * 1024 * 1024;
@@ -61,7 +61,7 @@ public:
 		, max_queue_bytes_(max_queue_bytes)
 		, overflow_(overflow) {
 		if (efd_ < 0) {
-			throw SE{errno, system_category(), "eventfd"};
+			throw std::system_error{errno, system_category(), "eventfd"};
 		}
 	}
 	~SseChannel() noexcept {
@@ -78,7 +78,7 @@ public:
 		bool enqueued = false;
 		bool wake = false;
 		{
-			SL const lk{mtx_};
+			std::scoped_lock const lk{mtx_};
 			if (closed_.test()) {
 				return false;
 			}
@@ -109,7 +109,7 @@ public:
 			}
 		}
 		if (wake) {
-			u64 v = 1;
+			std::uint64_t v = 1;
 			if (::write(efd_, &v, sizeof(v)) < 0 && errno != EAGAIN) {
 				eprintln(format("SseChannel::send: eventfd write: {}", strerror(errno)));
 			}
@@ -139,13 +139,13 @@ public:
 		if (closed_.test_and_set()) {
 			return;
 		} // already closed
-		u64 v = 1;
+		std::uint64_t v = 1;
 		if (::write(efd_, &v, sizeof(v)) < 0 && errno != EAGAIN) {
 			eprintln(format("SseChannel::close: eventfd write: {}", strerror(errno)));
 		} // wake the io_uring poll
 	}
 	[[nodiscard]] std::string drain() {
-		SL const lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		std::string result;
 		while (!pending_.empty()) {
 			result += pending_.front();
@@ -177,7 +177,7 @@ public:
 	// Register a new subscriber.  Returns the SP to pass to HttpResponse::sse().
 	std::shared_ptr<SseChannel> subscribe() {
 		auto ch = make_shared<SseChannel>();
-		SL const lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		channels_.emplace_back(ch);
 		return ch;
 	}
@@ -197,14 +197,14 @@ public:
 	// Number of currently-active subscribers (approximate; may include ones
 	// that have just disconnected).
 	[[nodiscard]] std::size_t subscriber_count() const {
-		SL const lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		return channels_.size();
 	}
 
 private:
 	void broadcast_raw(
 		std::string const &frame) {
-		SL const lk{mtx_};
+		std::scoped_lock const lk{mtx_};
 		// Erase stale weak_ptrs while delivering to live ones.
 		std::erase_if(channels_, [&](weak_ptr<SseChannel> const &wch) {
 			auto ch = wch.lock();
@@ -251,22 +251,22 @@ export bool is_valid_handshake(
 // Build a complete WebSocket frame (server→client, unmasked) in one buffer so
 // the transport call below emits header+payload as a single TCP segment / TLS record.
 std::string ws_build_frame(
-	u8 opcode,
+	std::uint8_t opcode,
 	span<byte const> payload) {
-	std::array<u8, 10> hdr{};
+	std::array<std::uint8_t, 10> hdr{};
 	std::size_t hdr_len = 0;
 	hdr[hdr_len++] = 0x80U | opcode; // FIN + opcode
 	std::size_t const len = payload.size();
 	if (len < 126) {
-		hdr[hdr_len++] = static_cast<u8>(len);
+		hdr[hdr_len++] = static_cast<std::uint8_t>(len);
 	} else if (len <= 0xFFFF) {
 		hdr[hdr_len++] = 126;
-		hdr[hdr_len++] = static_cast<u8>(len >> 8);
-		hdr[hdr_len++] = static_cast<u8>(len & 0xFF);
+		hdr[hdr_len++] = static_cast<std::uint8_t>(len >> 8);
+		hdr[hdr_len++] = static_cast<std::uint8_t>(len & 0xFF);
 	} else {
 		hdr[hdr_len++] = 127;
 		for (int s = 56; s >= 0; s -= 8) {
-			hdr[hdr_len++] = static_cast<u8>((len >> s) & 0xFF);
+			hdr[hdr_len++] = static_cast<std::uint8_t>((len >> s) & 0xFF);
 		}
 	}
 	std::string frame;
@@ -277,7 +277,7 @@ std::string ws_build_frame(
 }
 bool ws_send_frame(
 	int fd,
-	u8 opcode,
+	std::uint8_t opcode,
 	span<byte const> payload) {
 	auto frame = ws_detail::ws_build_frame(opcode, payload);
 	std::size_t sent = 0;
@@ -296,12 +296,12 @@ bool ws_send_frame(
 #if CONFLUX_HAS_TLS
 bool ws_tls_send_frame(
 	SSL *ssl,
-	u8 opcode,
+	std::uint8_t opcode,
 	span<byte const> payload) {
 	auto frame = ws_detail::ws_build_frame(opcode, payload);
 	std::size_t sent = 0;
 	while (sent < frame.size()) {
-		auto const chunk = min<std::size_t>(frame.size() - sent, static_cast<std::size_t>(NL<int>::max()));
+		auto const chunk = min<std::size_t>(frame.size() - sent, static_cast<std::size_t>(std::numeric_limits<int>::max()));
 		int const n = SSL_write(ssl, frame.data() + sent, static_cast<int>(chunk));
 		if (n > 0) {
 			sent += static_cast<std::size_t>(n);
@@ -317,7 +317,7 @@ bool ws_tls_send_frame(
 }
 #endif // CONFLUX_HAS_TLS
 [[nodiscard]] bool is_valid_close_code(
-	u16 code) {
+	std::uint16_t code) {
 	if (code < 1000U) {
 		return false;
 	}
@@ -339,10 +339,10 @@ CONFLUX_FUZZ_EXPORT bool utf8_is_valid(
 	std::string_view s) {
 	std::size_t i = 0;
 	while (i < s.size()) {
-		auto const b = static_cast<u8>(s[i]);
+		auto const b = static_cast<std::uint8_t>(s[i]);
 		std::size_t extra{};
-		u32 min_cp{};
-		u32 cp{};
+		std::uint32_t min_cp{};
+		std::uint32_t cp{};
 		if (b < 0x80U) {
 			++i;
 			continue;
@@ -366,7 +366,7 @@ CONFLUX_FUZZ_EXPORT bool utf8_is_valid(
 			return false;
 		}
 		for (std::size_t k = 1; k <= extra; ++k) {
-			auto const c = static_cast<u8>(s[i + k]);
+			auto const c = static_cast<std::uint8_t>(s[i + k]);
 			if ((c & 0xC0U) != 0x80U) {
 				return false;
 			}
@@ -386,15 +386,15 @@ CONFLUX_FUZZ_EXPORT bool utf8_is_valid(
 	return true;
 }
 CONFLUX_FUZZ_EXPORT struct FrameHeader {
-	u8 opcode{};
+	std::uint8_t opcode{};
 	bool fin{};
 	bool masked{};
-	u64 payload_len{};
-	std::array<u8, 4> mask{};
+	std::uint64_t payload_len{};
+	std::array<std::uint8_t, 4> mask{};
 	std::size_t header_size{};
 };
 
-CONFLUX_FUZZ_EXPORT enum class FrameParseStatus : u8 {
+CONFLUX_FUZZ_EXPORT enum class FrameParseStatus : std::uint8_t {
 	Ok,
 	Incomplete,
 	ProtocolError,
@@ -406,12 +406,12 @@ CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 	if (buf.size() < 2) {
 		return FrameParseStatus::Incomplete;
 	}
-	auto const b0 = to_integer<u8>(buf[0]);
-	auto const b1 = to_integer<u8>(buf[1]);
+	auto const b0 = to_integer<std::uint8_t>(buf[0]);
+	auto const b1 = to_integer<std::uint8_t>(buf[1]);
 	out.fin = (b0 & 0x80U) != 0;
 	out.opcode = b0 & 0x0FU;
 	out.masked = (b1 & 0x80U) != 0;
-	u64 plen = b1 & 0x7FU;
+	std::uint64_t plen = b1 & 0x7FU;
 	bool const is_control = (out.opcode & 0x08U) != 0;
 
 	if ((b0 & 0x70U) != 0) {
@@ -432,7 +432,7 @@ CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 		if (buf.size() < off + 2) {
 			return FrameParseStatus::Incomplete;
 		}
-		plen = (static_cast<u64>(to_integer<u8>(buf[off])) << 8U) | static_cast<u64>(to_integer<u8>(buf[off + 1]));
+		plen = (static_cast<std::uint64_t>(to_integer<std::uint8_t>(buf[off])) << 8U) | static_cast<std::uint64_t>(to_integer<std::uint8_t>(buf[off + 1]));
 		if (plen < 126) {
 			return FrameParseStatus::ProtocolError;
 		}
@@ -443,7 +443,7 @@ CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 		}
 		plen = 0;
 		for (std::size_t i = 0; i < 8; ++i) {
-			plen = (plen << 8U) | to_integer<u8>(buf[off + i]);
+			plen = (plen << 8U) | to_integer<std::uint8_t>(buf[off + i]);
 		}
 		if (plen <= 0xFFFF) {
 			return FrameParseStatus::ProtocolError;
@@ -454,10 +454,10 @@ CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 		return FrameParseStatus::Incomplete;
 	}
 	out.mask = {
-		to_integer<u8>(buf[off]),
-		to_integer<u8>(buf[off + 1]),
-		to_integer<u8>(buf[off + 2]),
-		to_integer<u8>(buf[off + 3])};
+		to_integer<std::uint8_t>(buf[off]),
+		to_integer<std::uint8_t>(buf[off + 1]),
+		to_integer<std::uint8_t>(buf[off + 2]),
+		to_integer<std::uint8_t>(buf[off + 3])};
 	off += 4;
 	out.payload_len = plen;
 	out.header_size = off;
@@ -469,7 +469,7 @@ CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 // Thread-safe for concurrent send; recv is single-consumer.
 export class WsConn {
 public:
-	enum class Opcode : u8 {
+	enum class Opcode : std::uint8_t {
 		Text = 1,
 		Binary = 2,
 		Close = 8,
@@ -518,10 +518,10 @@ public:
 			// may legitimately have no mask for a rejected frame.
 			auto const pre = ws_detail::parse_frame_header(as_bytes(span{buf_.data(), 2}), hdr);
 			auto emit_protocol_close = [&]() {
-				auto const b0 = static_cast<u8>(buf_[0]);
+				auto const b0 = static_cast<std::uint8_t>(buf_[0]);
 				if ((b0 & 0x70U) != 0) {
 					close(1002, "rsv bits set");
-				} else if (u8 const op = b0 & 0x0FU; (op >= 0x3U && op <= 0x7U) || op >= 0xBU) {
+				} else if (std::uint8_t const op = b0 & 0x0FU; (op >= 0x3U && op <= 0x7U) || op >= 0xBU) {
 					close(1002, "reserved opcode");
 				} else {
 					close(1002, "unmasked frame");
@@ -536,8 +536,8 @@ public:
 				return nullopt;
 			}
 			// pre is Ok (no extended length) or Incomplete (need extended length + mask).
-			auto const b1 = static_cast<u8>(buf_[1]);
-			u64 const len7 = b1 & 0x7FU;
+			auto const b1 = static_cast<std::uint8_t>(buf_[1]);
+			std::uint64_t const len7 = b1 & 0x7FU;
 			std::size_t const header_needed = 2 + (len7 == 126 ? 2 : len7 == 127 ? 8 : 0) + 4;
 			if (!fill(header_needed)) {
 				return nullopt;
@@ -554,10 +554,10 @@ public:
 			consume(hdr.header_size);
 
 			bool const fin = hdr.fin;
-			u8 const opcode_raw = hdr.opcode;
-			u64 const plen = hdr.payload_len;
+			std::uint8_t const opcode_raw = hdr.opcode;
+			std::uint64_t const plen = hdr.payload_len;
 			bool const is_control = (opcode_raw & 0x08U) != 0;
-			std::array<u8, 4> const mask_key = hdr.mask;
+			std::array<std::uint8_t, 4> const mask_key = hdr.mask;
 
 			if (plen > kMaxMessageSize) {
 				close(1009, "message too big");
@@ -597,11 +597,11 @@ public:
 					close(1002, "invalid close payload");
 					return nullopt;
 				}
-				u16 echo_code = 1000;
+				std::uint16_t echo_code = 1000;
 				if (plen >= 2) {
-					echo_code = static_cast<u16>(
-						(static_cast<unsigned>(static_cast<u8>(payload[0])) << 8U)
-						| static_cast<unsigned>(static_cast<u8>(payload[1])));
+					echo_code = static_cast<std::uint16_t>(
+						(static_cast<unsigned>(static_cast<std::uint8_t>(payload[0])) << 8U)
+						| static_cast<unsigned>(static_cast<std::uint8_t>(payload[1])));
 					if (!ws_detail::is_valid_close_code(echo_code)) {
 						close(1002, "invalid close code");
 						return nullopt;
@@ -658,12 +658,12 @@ public:
 	}
 	[[nodiscard]] bool send_text(
 		std::string_view data) {
-		SL const lk{send_mtx_};
+		std::scoped_lock const lk{send_mtx_};
 		return do_send_frame(1, as_bytes(span{data}));
 	}
 	[[nodiscard]] bool send_binary(
 		span<byte const> data) {
-		SL const lk{send_mtx_};
+		std::scoped_lock const lk{send_mtx_};
 		return do_send_frame(2, data);
 	}
 	[[nodiscard]] bool send_ping(
@@ -671,11 +671,11 @@ public:
 		if (data.size() > 125) {
 			throw std::invalid_argument{"WsConn::send_ping: payload exceeds 125-byte control frame limit"};
 		}
-		SL const lk{send_mtx_};
+		std::scoped_lock const lk{send_mtx_};
 		return do_send_frame(9, as_bytes(span{data}));
 	}
 	void close(
-		u16 code = 1000,
+		std::uint16_t code = 1000,
 		std::string_view reason = {}) {
 		if (!ws_detail::is_valid_close_code(code)) {
 			throw std::invalid_argument{"WsConn::close: invalid close code"};
@@ -694,7 +694,7 @@ public:
 		std::string payload{code_bytes.data(), 2};
 		payload += reason;
 		{
-			SL const lk{send_mtx_};
+			std::scoped_lock const lk{send_mtx_};
 			do_send_frame(8, as_bytes(span{payload}));
 		}
 #if CONFLUX_HAS_TLS
@@ -721,7 +721,7 @@ public:
 		keepalive_thread_ = jthread([this, interval_ms](std::stop_token const &st) {
 			std::unique_lock lk{keepalive_mtx_};
 			while (is_open()) {
-				if (keepalive_cv_.wait_for(lk, st, chrono::milliseconds{interval_ms}, [this] { return !is_open(); })) {
+				if (keepalive_cv_.wait_for(lk, st, std::chrono::milliseconds{interval_ms}, [this] { return !is_open(); })) {
 					break;
 				}
 				lk.unlock();
@@ -739,7 +739,7 @@ private:
 		keepalive_thread_.request_stop();
 		keepalive_cv_.notify_all();
 	}
-	static constexpr u64 kMaxMessageSize = 16ULL * 1024 * 1024;
+	static constexpr std::uint64_t kMaxMessageSize = 16ULL * 1024 * 1024;
 
 	int fd_;
 #if CONFLUX_HAS_TLS
@@ -781,7 +781,7 @@ private:
 	}
 	// Send a WebSocket frame over either TLS or plain socket.
 	bool do_send_frame(
-		u8 opcode,
+		std::uint8_t opcode,
 		span<byte const> payload) {
 #if CONFLUX_HAS_TLS
 		if (ssl_) {

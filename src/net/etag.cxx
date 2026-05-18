@@ -19,22 +19,22 @@ export struct ETagOptions {
 };
 namespace etag_detail {
 
-SV weak_value(
-	SV tag) noexcept {
+std::string_view weak_value(
+	std::string_view tag) noexcept {
 	if (tag.starts_with("W/")) {
 		tag.remove_prefix(2);
 	}
 	return tag;
 }
 bool weak_match(
-	SV lhs,
-	SV rhs) noexcept {
+	std::string_view lhs,
+	std::string_view rhs) noexcept {
 	return weak_value(lhs) == weak_value(rhs);
 }
 HttpResponse not_modified(
-	SV etag) {
+	std::string_view etag) {
 	HttpResponse r{.status = 304, .status_text = "Not Modified"};
-	r.headers["ETag"] = S{etag};
+	r.headers["ETag"] = std::string{etag};
 	return r;
 }
 
@@ -56,9 +56,9 @@ export Router::Middleware etag_middleware(
 		}
 
 		// FNV-1a 64-bit.
-		u64 hash = 14695981039346656037ULL;
+		std::uint64_t hash = 14695981039346656037ULL;
 		for (char const ch: resp.text_body()) {
-			hash ^= static_cast<u64>(static_cast<unsigned char>(ch));
+			hash ^= static_cast<std::uint64_t>(static_cast<unsigned char>(ch));
 			hash *= 1099511628211ULL;
 		}
 
@@ -73,14 +73,14 @@ export Router::Middleware etag_middleware(
 				return etag_detail::not_modified(etag);
 			}
 			// Scan comma-separated values.
-			SZ pos = 0;
+			std::size_t pos = 0;
 			while (pos < inm.size()) {
 				// skip whitespace
 				while (pos < inm.size() && (inm[pos] == ' ' || inm[pos] == ',')) {
 					++pos;
 				}
 				auto end = inm.find(',', pos);
-				auto token = (end == SV::npos) ? inm.substr(pos) : inm.substr(pos, end - pos);
+				auto token = (end == std::string_view::npos) ? inm.substr(pos) : inm.substr(pos, end - pos);
 				// trim trailing whitespace
 				while (!token.empty() && token.back() == ' ') {
 					token.remove_suffix(1);
@@ -88,7 +88,7 @@ export Router::Middleware etag_middleware(
 				if (etag_detail::weak_match(token, etag)) {
 					return etag_detail::not_modified(etag);
 				}
-				pos = (end == SV::npos) ? inm.size() : end + 1;
+				pos = (end == std::string_view::npos) ? inm.size() : end + 1;
 			}
 		}
 		return resp;

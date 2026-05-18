@@ -177,13 +177,13 @@ public:
 		return add(string_view{v != nullptr ? v : ""});
 	}
 	Params &add(
-		i64 v) {
+		std::int64_t v) {
 		array<char, 24> buf{};
 		auto [p, _] = to_chars(buf.data(), buf.data() + buf.size(), v);
 		return add(string_view{buf.data(), static_cast<size_t>(p - buf.data())});
 	}
 	Params &add(
-		i32 v) {
+		std::int32_t v) {
 		array<char, 16> buf{};
 		auto [p, _] = to_chars(buf.data(), buf.data() + buf.size(), v);
 		return add(string_view{buf.data(), static_cast<size_t>(p - buf.data())});
@@ -205,7 +205,7 @@ public:
 	// ---- binary bind ---------------------------------------------
 
 	Params &add_binary(
-		i64 v,
+		std::int64_t v,
 		Oid oid = oids::int8) {
 		auto const nv = to_net_(static_cast<uint64_t>(v));
 		auto const off = push_bytes_(&nv, sizeof(nv));
@@ -213,7 +213,7 @@ public:
 		return *this;
 	}
 	Params &add_binary(
-		i32 v,
+		std::int32_t v,
 		Oid oid = oids::int4) {
 		auto const nv = to_net_(static_cast<uint32_t>(v));
 		auto const off = push_bytes_(&nv, sizeof(nv));

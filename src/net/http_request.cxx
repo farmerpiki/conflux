@@ -203,22 +203,22 @@ public:
 		return header("If-None-Match", etag);
 	}
 	Builder &if_modified_since(
-		chrono::system_clock::time_point tp) & {
+		std::chrono::system_clock::time_point tp) & {
 		// RFC 9110 HTTP-date format.
-		auto const tt = chrono::system_clock::to_time_t(tp);
+		auto const tt = std::chrono::system_clock::to_time_t(tp);
 		tm gmt{};
 		gmtime_r(&tt, &gmt);
 		std::array<char, 32> buf{};
-		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
+		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%std::string GMT", &gmt);
 		return header("If-Modified-Since", buf.data());
 	}
 	Builder &if_unmodified_since(
-		chrono::system_clock::time_point tp) & {
-		auto const tt = chrono::system_clock::to_time_t(tp);
+		std::chrono::system_clock::time_point tp) & {
+		auto const tt = std::chrono::system_clock::to_time_t(tp);
 		tm gmt{};
 		gmtime_r(&tt, &gmt);
 		std::array<char, 32> buf{};
-		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%S GMT", &gmt);
+		strftime(buf.data(), buf.size(), "%a, %d %b %Y %H:%M:%std::string GMT", &gmt);
 		return header("If-Unmodified-Since", buf.data());
 	}
 	Builder &&header(
@@ -261,11 +261,11 @@ public:
 		return move(if_none_match(etag));
 	}
 	Builder &&if_modified_since(
-		chrono::system_clock::time_point tp) && {
+		std::chrono::system_clock::time_point tp) && {
 		return move(if_modified_since(tp));
 	}
 	Builder &&if_unmodified_since(
-		chrono::system_clock::time_point tp) && {
+		std::chrono::system_clock::time_point tp) && {
 		return move(if_unmodified_since(tp));
 	}
 	// ── body ──────────────────────────────────────────────────────────────────

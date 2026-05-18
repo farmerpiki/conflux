@@ -23,7 +23,7 @@ using namespace std::string_view_literals;
 namespace root = conflux::work::root;
 namespace {
 
-enum class BenchQueueMode : u8 {
+enum class BenchQueueMode : std::uint8_t {
 	stealing,
 	no_stealing,
 };
@@ -31,7 +31,7 @@ enum class BenchQueueMode : u8 {
 	BenchQueueMode mode) noexcept {
 	return mode == BenchQueueMode::no_stealing ? WorkPoolQueueMode::no_stealing : WorkPoolQueueMode::stealing;
 }
-[[nodiscard]] SV single_thread_variant(
+[[nodiscard]] std::string_view single_thread_variant(
 	BenchQueueMode mode) noexcept {
 #ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
 	return mode == BenchQueueMode::no_stealing ? "no_stealing/single_thread"sv : "stealing/single_thread"sv;
@@ -40,7 +40,7 @@ enum class BenchQueueMode : u8 {
 	return "single_thread"sv;
 #endif
 }
-[[nodiscard]] SV contended_variant(
+[[nodiscard]] std::string_view contended_variant(
 	BenchQueueMode mode) noexcept {
 #ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
 	return mode == BenchQueueMode::no_stealing ? "no_stealing/contended"sv : "stealing/contended"sv;
@@ -49,7 +49,7 @@ enum class BenchQueueMode : u8 {
 	return "contended"sv;
 #endif
 }
-[[nodiscard]] SV external_burst_variant(
+[[nodiscard]] std::string_view external_burst_variant(
 	BenchQueueMode mode) noexcept {
 #ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
 	return mode == BenchQueueMode::no_stealing ? "no_stealing/external_burst"sv : "stealing/external_burst"sv;
@@ -58,7 +58,7 @@ enum class BenchQueueMode : u8 {
 	return "external_burst"sv;
 #endif
 }
-[[nodiscard]] SV local_fanout_variant(
+[[nodiscard]] std::string_view local_fanout_variant(
 	BenchQueueMode mode) noexcept {
 #ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
 	return mode == BenchQueueMode::no_stealing ? "no_stealing/local_fanout"sv : "stealing/local_fanout"sv;
@@ -165,13 +165,13 @@ void print_workpool_stats(
 }
 
 WorkPoolBenchStats bench_single_thread(
-	SV cfg_name,
+	std::string_view cfg_name,
 	BenchQueueMode mode,
-	SZ iters,
-	SZ warmup) {
+	std::size_t iters,
+	std::size_t warmup) {
 	WorkPool pool{WorkPoolOptions{.threads = 1, .queue_mode = pool_queue_mode(mode)}};
-	auto do_iters = [&](SZ n) {
-		for (SZ i = 0; i < n; ++i) {
+	auto do_iters = [&](std::size_t n) {
+		for (std::size_t i = 0; i < n; ++i) {
 			auto [task, source] = root::make_task_source<int>();
 			auto _ = pool.enqueue([s = move(source)]() mutable { auto _ = s.try_set_value(root::Success<int>{0}); });
 			[[maybe_unused]] auto outcome = root::blocking_join(move(task));
@@ -179,9 +179,9 @@ WorkPoolBenchStats bench_single_thread(
 	};
 	do_iters(warmup);
 	pool.reset_queue_stats();
-	u64 const t0 = bench_now_ns();
+	std::uint64_t const t0 = bench_now_ns();
 	do_iters(iters);
-	u64 const elapsed = bench_now_ns() - t0;
+	std::uint64_t const elapsed = bench_now_ns() - t0;
 	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(iters);
 	return {
 		{cfg_name, single_thread_variant(mode), iters, elapsed, ns_pi, 1e9 / ns_pi},
@@ -189,20 +189,20 @@ WorkPoolBenchStats bench_single_thread(
     };
 }
 WorkPoolBenchStats bench_contended(
-	SV cfg_name,
+	std::string_view cfg_name,
 	BenchQueueMode mode,
-	SZ threads,
-	SZ iters,
-	SZ warmup) {
-	SZ const worker_count = max(SZ{1}, threads);
+	std::size_t threads,
+	std::size_t iters,
+	std::size_t warmup) {
+	std::size_t const worker_count = max(std::size_t{1}, threads);
 	WorkPool pool{WorkPoolOptions{.threads = worker_count, .queue_mode = pool_queue_mode(mode)}};
-	SZ const per_thread = iters / threads;
-	auto do_wave = [&](SZ n_per) {
-		V<thread> producers;
+	std::size_t const per_thread = iters / threads;
+	auto do_wave = [&](std::size_t n_per) {
+		std::vector<thread> producers;
 		producers.reserve(threads);
-		for (SZ t = 0; t < threads; ++t) {
+		for (std::size_t t = 0; t < threads; ++t) {
 			producers.emplace_back([&pool, n_per] {
-				for (SZ i = 0; i < n_per; ++i) {
+				for (std::size_t i = 0; i < n_per; ++i) {
 					auto [task, source] = root::make_task_source<int>();
 					auto _ =
 						pool.enqueue([s = move(source)]() mutable { auto _ = s.try_set_value(root::Success<int>{0}); });
@@ -216,10 +216,10 @@ WorkPoolBenchStats bench_contended(
 	};
 	do_wave(warmup / threads + 1);
 	pool.reset_queue_stats();
-	u64 const t0 = bench_now_ns();
+	std::uint64_t const t0 = bench_now_ns();
 	do_wave(per_thread);
-	u64 const elapsed = bench_now_ns() - t0;
-	SZ const total_iters = per_thread * threads;
+	std::uint64_t const elapsed = bench_now_ns() - t0;
+	std::size_t const total_iters = per_thread * threads;
 	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(total_iters);
 	return {
 		{cfg_name, contended_variant(mode), total_iters, elapsed, ns_pi, 1e9 / ns_pi},
@@ -227,47 +227,47 @@ WorkPoolBenchStats bench_contended(
     };
 }
 void wait_for_count(
-	Atom<SZ> const &done,
-	SZ expected) {
+	std::atomic<std::size_t> const &done,
+	std::size_t expected) {
 	while (done.load(memory_order_acquire) < expected) {
 		std::this_thread::yield();
 	}
 }
 void enqueue_counted_job(
 	WorkPool &pool,
-	Atom<SZ> &done) {
+	std::atomic<std::size_t> &done) {
 	while (!pool.enqueue([&done] { done.fetch_add(1, memory_order_release); })) {
 		std::this_thread::yield();
 	}
 }
 WorkPoolBenchStats bench_external_burst(
-	SV cfg_name,
+	std::string_view cfg_name,
 	BenchQueueMode mode,
-	SZ threads,
-	SZ iters,
-	SZ warmup) {
-	SZ const worker_count = max(SZ{1}, threads);
+	std::size_t threads,
+	std::size_t iters,
+	std::size_t warmup) {
+	std::size_t const worker_count = max(std::size_t{1}, threads);
 	WorkPool pool{
 		WorkPoolOptions{
 			.threads = worker_count,
-			.max_inject_queue = max(SZ{4096}, iters + threads + 1),
+			.max_inject_queue = max(std::size_t{4096}, iters + threads + 1),
 			.queue_mode = pool_queue_mode(mode),
 		}
     };
-	SZ const per_thread = iters / threads;
-	auto do_wave = [&](SZ n_per) {
-		Atom<SZ> done{0};
-		Atom<SZ> ready{0};
-		Atom<bool> start{false};
-		V<thread> producers;
+	std::size_t const per_thread = iters / threads;
+	auto do_wave = [&](std::size_t n_per) {
+		std::atomic<std::size_t> done{0};
+		std::atomic<std::size_t> ready{0};
+		std::atomic<bool> start{false};
+		std::vector<thread> producers;
 		producers.reserve(threads);
-		for (SZ t = 0; t < threads; ++t) {
+		for (std::size_t t = 0; t < threads; ++t) {
 			producers.emplace_back([&pool, &done, &ready, &start, n_per] {
 				ready.fetch_add(1, memory_order_release);
 				while (!start.load(memory_order_acquire)) {
 					std::this_thread::yield();
 				}
-				for (SZ i = 0; i < n_per; ++i) {
+				for (std::size_t i = 0; i < n_per; ++i) {
 					enqueue_counted_job(pool, done);
 				}
 			});
@@ -281,10 +281,10 @@ WorkPoolBenchStats bench_external_burst(
 	};
 	do_wave(warmup / threads + 1);
 	pool.reset_queue_stats();
-	u64 const t0 = bench_now_ns();
+	std::uint64_t const t0 = bench_now_ns();
 	do_wave(per_thread);
-	u64 const elapsed = bench_now_ns() - t0;
-	SZ const total_iters = per_thread * threads;
+	std::uint64_t const elapsed = bench_now_ns() - t0;
+	std::size_t const total_iters = per_thread * threads;
 	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(total_iters);
 	return {
 		{cfg_name, external_burst_variant(mode), total_iters, elapsed, ns_pi, 1e9 / ns_pi},
@@ -292,25 +292,25 @@ WorkPoolBenchStats bench_external_burst(
     };
 }
 WorkPoolBenchStats bench_local_fanout(
-	SV cfg_name,
+	std::string_view cfg_name,
 	BenchQueueMode mode,
-	SZ threads,
-	SZ iters,
-	SZ warmup) {
-	SZ const worker_count = max(SZ{1}, threads);
+	std::size_t threads,
+	std::size_t iters,
+	std::size_t warmup) {
+	std::size_t const worker_count = max(std::size_t{1}, threads);
 	WorkPool pool{
 		WorkPoolOptions{
 			.threads = worker_count,
-			.max_inject_queue = max(SZ{4096}, threads + 1),
-			.local_queue_capacity = max(max(SZ{1024}, iters + 1), warmup + 2),
+			.max_inject_queue = max(std::size_t{4096}, threads + 1),
+			.local_queue_capacity = max(max(std::size_t{1024}, iters + 1), warmup + 2),
 			.queue_mode = pool_queue_mode(mode),
 		}
     };
-	auto do_wave = [&](SZ n) {
-		Atom<SZ> done{0};
+	auto do_wave = [&](std::size_t n) {
+		std::atomic<std::size_t> done{0};
 		auto [task, source] = root::make_task_source<int>();
 		auto queued = pool.enqueue([&pool, &done, n, s = move(source)]() mutable {
-			for (SZ i = 0; i < n; ++i) {
+			for (std::size_t i = 0; i < n; ++i) {
 				enqueue_counted_job(pool, done);
 			}
 			auto _ = s.try_set_value(root::Success<int>{0});
@@ -323,9 +323,9 @@ WorkPoolBenchStats bench_local_fanout(
 	};
 	do_wave(warmup + 1);
 	pool.reset_queue_stats();
-	u64 const t0 = bench_now_ns();
+	std::uint64_t const t0 = bench_now_ns();
 	do_wave(iters);
-	u64 const elapsed = bench_now_ns() - t0;
+	std::uint64_t const elapsed = bench_now_ns() - t0;
 	double const ns_pi = static_cast<double>(elapsed) / static_cast<double>(iters);
 	return {
 		{cfg_name, local_fanout_variant(mode), iters, elapsed, ns_pi, 1e9 / ns_pi},
@@ -337,15 +337,15 @@ WorkPoolBenchStats bench_local_fanout(
 int main(
 	int argc,
 	char **argv) {
-	if (argc >= 2 && SV{argv[1]} == "--bench-info") {
+	if (argc >= 2 && std::string_view{argv[1]} == "--bench-info") {
 		auto const hw = thread::hardware_concurrency();
-		V<unsigned> ts = {1u, 4u, 16u};
+		std::vector<unsigned> ts = {1u, 4u, 16u};
 		if (hw != 1u && hw != 4u && hw != 16u) {
 			ts.push_back(hw);
 		}
 		std::sort(ts.begin(), ts.end());
-		S cfgs;
-		for (SZ i = 0; i < ts.size(); ++i) {
+		std::string cfgs;
+		for (std::size_t i = 0; i < ts.size(); ++i) {
 			if (i > 0) {
 				cfgs += ',';
 			}
@@ -369,11 +369,11 @@ int main(
 		return 0;
 	}
 
-	auto cfg = bench_parse_args(span{argv, static_cast<SZ>(argc)});
-	SZ threads = 1;
-	for (SZ i = 1; i < static_cast<SZ>(argc); ++i) {
-		SV a = argv[i];
-		if (a == "--threads" && i + 1 < static_cast<SZ>(argc)) {
+	auto cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	std::size_t threads = 1;
+	for (std::size_t i = 1; i < static_cast<std::size_t>(argc); ++i) {
+		std::string_view a = argv[i];
+		if (a == "--threads" && i + 1 < static_cast<std::size_t>(argc)) {
 			threads = bench_parse_sz(argv[++i]);
 			if (cfg.config_name.empty()) {
 				cfg.config_name = format("threads_{}", threads);
@@ -381,7 +381,7 @@ int main(
 		}
 	}
 
-	threads = max(SZ{1}, threads);
+	threads = max(std::size_t{1}, threads);
 #ifdef CONFLUX_WORKPOOL_QUEUE_MODE_COMPARE
 	WorkPoolBenchStats stats[] = {
 		bench_single_thread(cfg.config_name, BenchQueueMode::stealing, cfg.iterations, cfg.warmup),
@@ -401,7 +401,7 @@ int main(
 		bench_local_fanout(cfg.config_name, BenchQueueMode::stealing, threads, cfg.iterations, cfg.warmup),
 	};
 #endif
-	for (SZ i = 0; i < std::size(stats); ++i) {
+	for (std::size_t i = 0; i < std::size(stats); ++i) {
 		print_workpool_stats(stats[i], cfg.json_out, i == 0);
 	}
 }

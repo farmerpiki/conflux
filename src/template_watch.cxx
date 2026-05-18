@@ -9,32 +9,32 @@ export namespace tmpl::watch {
 
 struct TemplateWatchOptions {
 	::WatchOptions file_watch{};
-	chrono::milliseconds debounce{50};
-	V<S> extensions{".html", ".htm", ".txt"};
+	std::chrono::milliseconds debounce{50};
+	std::vector<std::string> extensions{".html", ".htm", ".txt"};
 	bool reload_on_directory_event = true;
 	bool reload_on_overflow = true;
 };
 
 class TemplateWatcher {
 public:
-	TemplateWatcher(Environment &env, S template_dir);
-	TemplateWatcher(Environment &env, S template_dir, TemplateWatchOptions options);
+	TemplateWatcher(Environment &env, std::string template_dir);
+	TemplateWatcher(Environment &env, std::string template_dir, TemplateWatchOptions options);
 	~TemplateWatcher();
 	TemplateWatcher(TemplateWatcher const &) = delete;
 	TemplateWatcher &operator =(TemplateWatcher const &) = delete;
 	TemplateWatcher(TemplateWatcher &&) noexcept = default;
 	TemplateWatcher &operator =(TemplateWatcher &&) noexcept = default;
 
-	void on_reload(Fn<void()> cb);
-	void on_reload_failed(Fn<void(TemplateBuildReport const &)> cb);
-	void on_watch_error(Fn<void(EP)> cb);
+	void on_reload(std::function<void()> cb);
+	void on_reload_failed(std::function<void(TemplateBuildReport const &)> cb);
+	void on_watch_error(std::function<void(std::exception_ptr)> cb);
 	void start();
 	void stop() noexcept;
 	void request_reload();
 
 private:
 	struct Impl;
-	SP<Impl> impl_;
+	std::shared_ptr<Impl> impl_;
 };
 
 } // namespace tmpl::watch
@@ -43,8 +43,8 @@ namespace tmpl::watch {
 namespace fs = std::filesystem;
 
 static bool extension_allowed(
-	S const &path,
-	V<S> const &extensions) {
+	std::string const &path,
+	std::vector<std::string> const &extensions) {
 	if (extensions.empty()) {
 		return true;
 	}
@@ -54,22 +54,22 @@ static bool extension_allowed(
 
 struct TemplateWatcher::Impl {
 	Environment *env = nullptr;
-	S template_dir;
+	std::string template_dir;
 	TemplateWatchOptions options;
-	UP<FileWatcher> watcher;
+	std::unique_ptr<FileWatcher> watcher;
 	jthread worker;
 	mutex mtx;
 	std::condition_variable_any cv;
-	Fn<void()> on_reload_cb;
-	Fn<void(TemplateBuildReport const &)> on_reload_failed_cb;
-	Fn<void(EP)> on_watch_error_cb;
+	std::function<void()> on_reload_cb;
+	std::function<void(TemplateBuildReport const &)> on_reload_failed_cb;
+	std::function<void(std::exception_ptr)> on_watch_error_cb;
 	bool started = false;
 	bool stopped = false;
 	bool dirty = false;
 
 	Impl(
 		Environment &env_,
-		S template_dir_,
+		std::string template_dir_,
 		TemplateWatchOptions options_)
 		: env{&env_}
 		, template_dir{move(template_dir_)}
@@ -78,9 +78,9 @@ struct TemplateWatcher::Impl {
 	~Impl() { stop(); }
 
 	void emit_reload() {
-		Fn<void()> cb;
+		std::function<void()> cb;
 		{
-			SL const lk{mtx};
+			std::scoped_lock const lk{mtx};
 			cb = on_reload_cb;
 		}
 		if (cb) {
@@ -90,9 +90,9 @@ struct TemplateWatcher::Impl {
 
 	void emit_reload_failed(
 		TemplateBuildReport const &report) {
-		Fn<void(TemplateBuildReport const &)> cb;
+		std::function<void(TemplateBuildReport const &)> cb;
 		{
-			SL const lk{mtx};
+			std::scoped_lock const lk{mtx};
 			cb = on_reload_failed_cb;
 		}
 		if (cb) {
@@ -101,10 +101,10 @@ struct TemplateWatcher::Impl {
 	}
 
 	void emit_watch_error(
-		EP eptr) {
-		Fn<void(EP)> cb;
+		std::exception_ptr eptr) {
+		std::function<void(std::exception_ptr)> cb;
 		{
-			SL const lk{mtx};
+			std::scoped_lock const lk{mtx};
 			cb = on_watch_error_cb;
 		}
 		if (cb) {
@@ -125,7 +125,7 @@ struct TemplateWatcher::Impl {
 
 	void mark_dirty() {
 		{
-			SL const lk{mtx};
+			std::scoped_lock const lk{mtx};
 			if (stopped) {
 				return;
 			}
@@ -145,11 +145,11 @@ struct TemplateWatcher::Impl {
 			dirty = false;
 			auto const debounce = options.debounce;
 			if (debounce.count() > 0) {
-				auto deadline = chrono::steady_clock::now() + debounce;
+				auto deadline = std::chrono::steady_clock::now() + debounce;
 				while (!stop.stop_requested()
 					&& cv.wait_until(lk, stop, deadline, [this] { return dirty; })) {
 					dirty = false;
-					deadline = chrono::steady_clock::now() + debounce;
+					deadline = std::chrono::steady_clock::now() + debounce;
 				}
 			}
 			if (stop.stop_requested()) {
@@ -167,9 +167,9 @@ struct TemplateWatcher::Impl {
 	}
 
 	void start(
-		SP<Impl> const &self) {
+		std::shared_ptr<Impl> const &self) {
 		{
-			SL const lk{mtx};
+			std::scoped_lock const lk{mtx};
 			if (started) {
 				return;
 			}
@@ -181,7 +181,7 @@ struct TemplateWatcher::Impl {
 			auto fw = make_unique<FileWatcher>();
 			fw->watch_directory(template_dir, options.file_watch);
 			auto weak = weak_ptr<Impl>{self};
-			fw->on_events([weak](V<FileEvent> const &events) {
+			fw->on_events([weak](std::vector<FileEvent> const &events) {
 				auto locked = weak.lock();
 				if (!locked) {
 					return;
@@ -193,14 +193,14 @@ struct TemplateWatcher::Impl {
 					}
 				}
 			});
-			fw->on_error([weak](EP eptr) {
+			fw->on_error([weak](std::exception_ptr eptr) {
 				auto locked = weak.lock();
 				if (locked) {
 					locked->emit_watch_error(move(eptr));
 				}
 			});
 			{
-				SL const lk{mtx};
+				std::scoped_lock const lk{mtx};
 				watcher = move(fw);
 				worker = jthread{[weak](std::stop_token stop) {
 					auto locked = weak.lock();
@@ -218,7 +218,7 @@ struct TemplateWatcher::Impl {
 
 	void stop() noexcept {
 		{
-			SL const lk{mtx};
+			std::scoped_lock const lk{mtx};
 			if (stopped && !started) {
 				return;
 			}
@@ -243,32 +243,32 @@ struct TemplateWatcher::Impl {
 
 TemplateWatcher::TemplateWatcher(
 	Environment &env,
-	S template_dir)
+	std::string template_dir)
 	: TemplateWatcher{env, move(template_dir), {}} {}
 
 TemplateWatcher::TemplateWatcher(
 	Environment &env,
-	S template_dir,
+	std::string template_dir,
 	TemplateWatchOptions options)
 	: impl_{make_shared<Impl>(env, move(template_dir), move(options))} {}
 
 TemplateWatcher::~TemplateWatcher() { stop(); }
 
 void TemplateWatcher::on_reload(
-	Fn<void()> cb) {
-	SL const lk{impl_->mtx};
+	std::function<void()> cb) {
+	std::scoped_lock const lk{impl_->mtx};
 	impl_->on_reload_cb = move(cb);
 }
 
 void TemplateWatcher::on_reload_failed(
-	Fn<void(TemplateBuildReport const &)> cb) {
-	SL const lk{impl_->mtx};
+	std::function<void(TemplateBuildReport const &)> cb) {
+	std::scoped_lock const lk{impl_->mtx};
 	impl_->on_reload_failed_cb = move(cb);
 }
 
 void TemplateWatcher::on_watch_error(
-	Fn<void(EP)> cb) {
-	SL const lk{impl_->mtx};
+	std::function<void(std::exception_ptr)> cb) {
+	std::scoped_lock const lk{impl_->mtx};
 	impl_->on_watch_error_cb = move(cb);
 }
 

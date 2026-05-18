@@ -14,7 +14,7 @@ import conflux.types;
 import conflux.file_io;
 import conflux.uring.completion;
 
-export enum class FileEventKind : u8 {
+export enum class FileEventKind : std::uint8_t {
 	created,
 	modified,
 	removed,
@@ -24,19 +24,19 @@ export enum class FileEventKind : u8 {
 };
 export struct FileEvent {
 	FileEventKind kind{};
-	S path{};
-	u32 cookie{};
+	std::string path{};
+	std::uint32_t cookie{};
 	bool is_directory{};
 };
 export struct WatchOptions {
-	u32 mask = IN_CREATE | IN_MODIFY | IN_CLOSE_WRITE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO;
+	std::uint32_t mask = IN_CREATE | IN_MODIFY | IN_CLOSE_WRITE | IN_DELETE | IN_MOVED_FROM | IN_MOVED_TO;
 };
 export class FileWatcher {
 	struct Impl {
 		int fd = -1;
-		UM<int, S> watches{};
-		Fn<void(V<FileEvent>)> on_events{};
-		Fn<void(EP)> on_error{};
+		std::unordered_map<int, std::string> watches{};
+		std::function<void(std::vector<FileEvent>)> on_events{};
+		std::function<void(std::exception_ptr)> on_error{};
 		atomic_flag started{};
 		atomic_flag stopped{};
 		mutex callback_mtx{};
@@ -47,17 +47,17 @@ export class FileWatcher {
 				fd = -1;
 			}
 		}
-		[[nodiscard]] S root_for(
+		[[nodiscard]] std::string root_for(
 			int wd) {
-			SL const lk{watches_mtx};
+			std::scoped_lock const lk{watches_mtx};
 			auto it = watches.find(wd);
-			return it != watches.end() ? it->second : S{};
+			return it != watches.end() ? it->second : std::string{};
 		}
 		void emit_error(
-			EP eptr) {
-			Fn<void(EP)> cb;
+			std::exception_ptr eptr) {
+			std::function<void(std::exception_ptr)> cb;
 			{
-				SL const lk{callback_mtx};
+				std::scoped_lock const lk{callback_mtx};
 				cb = on_error;
 			}
 			if (cb) {
@@ -65,21 +65,21 @@ export class FileWatcher {
 			}
 		}
 		void emit(
-			V<FileEvent> events) {
+			std::vector<FileEvent> events) {
 			if (events.empty()) {
 				return;
 			}
-			Fn<void(V<FileEvent>)> cb;
+			std::function<void(std::vector<FileEvent>)> cb;
 			{
-				SL const lk{callback_mtx};
+				std::scoped_lock const lk{callback_mtx};
 				cb = on_events;
 			}
 			if (cb) {
 				cb(move(events));
 			}
 		}
-		static Opt<FileEventKind> kind_from_mask(
-			u32 mask) {
+		static std::optional<FileEventKind> kind_from_mask(
+			std::uint32_t mask) {
 			if ((mask & IN_Q_OVERFLOW) != 0U) {
 				return FileEventKind::overflow;
 			}
@@ -101,29 +101,29 @@ export class FileWatcher {
 			return nullopt;
 		}
 		void drain_ready() {
-			A<char, 16 * 1024> buf{};
+			std::array<char, 16 * 1024> buf{};
 			for (;;) {
 				ssize_t const n = ::read(fd, buf.data(), buf.size());
 				if (n < 0) {
 					if (errno == EAGAIN) {
 						break;
 					}
-					emit_error(make_exception_ptr(SE{errno, system_category(), "inotify read"}));
+					emit_error(make_exception_ptr(std::system_error{errno, system_category(), "inotify read"}));
 					break;
 				}
 				if (n == 0) {
 					break;
 				}
-				V<FileEvent> events;
-				SZ off = 0;
-				while (off + sizeof(inotify_event) <= static_cast<SZ>(n)) {
+				std::vector<FileEvent> events;
+				std::size_t off = 0;
+				while (off + sizeof(inotify_event) <= static_cast<std::size_t>(n)) {
 					auto const *ev = reinterpret_cast<inotify_event const *>(buf.data() + off);
-					SZ const step = sizeof(inotify_event) + ev->len;
-					if (off + step > static_cast<SZ>(n)) {
+					std::size_t const step = sizeof(inotify_event) + ev->len;
+					if (off + step > static_cast<std::size_t>(n)) {
 						break;
 					}
 					if (auto kind = kind_from_mask(ev->mask)) {
-						S path = root_for(ev->wd);
+						std::string path = root_for(ev->wd);
 						if (ev->len > 0 && ev->name[0] != '\0') {
 							if (!path.empty() && path.back() != '/') {
 								path += '/';
@@ -143,14 +143,14 @@ export class FileWatcher {
 			}
 		}
 	};
-	SP<Impl> impl_;
+	std::shared_ptr<Impl> impl_;
 
 public:
 	FileWatcher()
 		: impl_{make_shared<Impl>()} {
 		impl_->fd = ::inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
 		if (impl_->fd < 0) {
-			throw SE{errno, system_category(), "inotify_init1"};
+			throw std::system_error{errno, system_category(), "inotify_init1"};
 		}
 	}
 	~FileWatcher() { stop(); }
@@ -159,24 +159,24 @@ public:
 	FileWatcher(FileWatcher &&) noexcept = default;
 	FileWatcher &operator =(FileWatcher &&) noexcept = default;
 	void on_events(
-		Fn<void(V<FileEvent>)> cb) {
-		SL const lk{impl_->callback_mtx};
+		std::function<void(std::vector<FileEvent>)> cb) {
+		std::scoped_lock const lk{impl_->callback_mtx};
 		impl_->on_events = move(cb);
 	}
 	void on_error(
-		Fn<void(EP)> cb) {
-		SL const lk{impl_->callback_mtx};
+		std::function<void(std::exception_ptr)> cb) {
+		std::scoped_lock const lk{impl_->callback_mtx};
 		impl_->on_error = move(cb);
 	}
 	void watch_directory(
-		S path,
+		std::string path,
 		WatchOptions options = {}) {
 		int const wd = ::inotify_add_watch(impl_->fd, path.c_str(), options.mask);
 		if (wd < 0) {
-			throw SE{errno, system_category(), "inotify_add_watch"};
+			throw std::system_error{errno, system_category(), "inotify_add_watch"};
 		}
 		{
-			SL const lk{impl_->watches_mtx};
+			std::scoped_lock const lk{impl_->watches_mtx};
 			impl_->watches.emplace(wd, move(path));
 		}
 	}
@@ -187,7 +187,7 @@ public:
 		auto *reader = current_file_reader();
 		if (reader == nullptr) {
 			impl_->started.clear();
-			throw LE{"FileWatcher::start requires an active conflux.file_io ring context"};
+			throw std::logic_error{"FileWatcher::start requires an active conflux.file_io ring context"};
 		}
 		auto weak = weak_ptr<Impl>{impl_};
 		bool const ok = reader->poll_add_multi(impl_->fd, POLLIN, [weak](IoResult r) mutable {
@@ -197,7 +197,7 @@ public:
 			}
 			if (r.res < 0) {
 				if (r.res != -ECANCELED) {
-					self->emit_error(make_exception_ptr(SE{-r.res, system_category(), "inotify poll"}));
+					self->emit_error(make_exception_ptr(std::system_error{-r.res, system_category(), "inotify poll"}));
 				}
 				return;
 			}
@@ -207,7 +207,7 @@ public:
 		});
 		if (!ok) {
 			impl_->started.clear();
-			throw RE{"FileWatcher::start: io_uring SQ full"};
+			throw std::runtime_error{"FileWatcher::start: io_uring SQ full"};
 		}
 	}
 	// One-shot: start() cannot be called again after stop().

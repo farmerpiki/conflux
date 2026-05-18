@@ -12,22 +12,22 @@ namespace {
 
 struct CountingResource : std::pmr::memory_resource {
 	std::pmr::memory_resource *upstream{std::pmr::new_delete_resource()};
-	SZ alloc_count{0};
-	SZ dealloc_count{0};
-	SZ alloc_bytes{0};
+	std::size_t alloc_count{0};
+	std::size_t dealloc_count{0};
+	std::size_t alloc_bytes{0};
 
 private:
 	void *do_allocate(
-		SZ bytes,
-		SZ align) override {
+		std::size_t bytes,
+		std::size_t align) override {
 		++alloc_count;
 		alloc_bytes += bytes;
 		return upstream->allocate(bytes, align);
 	}
 	void do_deallocate(
 		void *p,
-		SZ bytes,
-		SZ align) override {
+		std::size_t bytes,
+		std::size_t align) override {
 		++dealloc_count;
 		upstream->deallocate(p, bytes, align);
 	}
@@ -101,7 +101,7 @@ TEST_CASE(
 	REQUIRE(n.has_value());
 	auto u = n->to_u64();
 	REQUIRE(u.has_value());
-	CHECK(*u == NL<u64>::max());
+	CHECK(*u == std::numeric_limits<std::uint64_t>::max());
 }
 TEST_CASE(
 	"json: parse float",
@@ -125,7 +125,7 @@ TEST_CASE(
 	CHECK(*s == "hello world");
 }
 TEST_CASE(
-	"json: parse S with escape sequences",
+	"json: parse std::string with escape sequences",
 	"[json]") {
 	auto doc = parse(R"("a\tb\nc")");
 	REQUIRE(doc.has_value());
@@ -134,7 +134,7 @@ TEST_CASE(
 	CHECK(*s == "a\tb\nc");
 }
 TEST_CASE(
-	"json: parse S with unicode escape",
+	"json: parse std::string with unicode escape",
 	"[json]") {
 	auto doc = parse(R"("ABC")");
 	REQUIRE(doc.has_value());
@@ -197,7 +197,7 @@ TEST_CASE(
 	auto doc = parse("[10, 20, 30]");
 	REQUIRE(doc.has_value());
 	auto a = *doc->root().as_array();
-	V<i64> vals;
+	std::vector<std::int64_t> vals;
 	for (NodeRef const elem: a.elements()) {
 		vals.push_back(*elem.as_number()->to_i64());
 	}
@@ -244,9 +244,9 @@ TEST_CASE(
 	auto doc = parse(R"({"x": 1, "y": 2})");
 	REQUIRE(doc.has_value());
 	auto o = *doc->root().as_object();
-	UM<S, i64> seen;
+	std::unordered_map<std::string, std::int64_t> seen;
 	for (auto [name, val]: o.members()) {
-		seen[S{name}] = *val.as_number()->to_i64();
+		seen[std::string{name}] = *val.as_number()->to_i64();
 	}
 	CHECK(seen["x"] == 1LL);
 	CHECK(seen["y"] == 2LL);
@@ -374,7 +374,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: deeply nested — within limit",
 	"[json]") {
-	S nested(100, '[');
+	std::string nested(100, '[');
 	nested += "1";
 	nested.append(100, ']');
 	CHECK(parse(nested).has_value());
@@ -386,7 +386,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: JsonPath from_pointer roundtrip",
 	"[json][path]") {
-	SV ptr = "/a/b/c";
+	std::string_view ptr = "/a/b/c";
 	auto path = JsonPath::from_pointer(ptr);
 	REQUIRE(path.has_value());
 	CHECK(path->to_pointer() == ptr);
@@ -431,14 +431,14 @@ TEST_CASE(
 	CHECK(*o.member("b")->as_bool() == true);
 }
 TEST_CASE(
-	"json: dump S escapes control chars",
+	"json: dump std::string escapes control chars",
 	"[json][dump]") {
 	auto doc = parse(R"("a\tb\nc")");
 	REQUIRE(doc.has_value());
 	auto d = doc->dump();
 	REQUIRE(d.has_value());
-	CHECK(d->find("\\t") != S::npos);
-	CHECK(d->find("\\n") != S::npos);
+	CHECK(d->find("\\t") != std::string::npos);
+	CHECK(d->find("\\n") != std::string::npos);
 }
 TEST_CASE(
 	"json: dump pretty",
@@ -449,7 +449,7 @@ TEST_CASE(
 	opts.pretty = true;
 	auto d = doc->dump(opts);
 	REQUIRE(d.has_value());
-	CHECK(d->find('\n') != S::npos);
+	CHECK(d->find('\n') != std::string::npos);
 }
 // ---------------------------------------------------------------------------
 // Document is self-contained (parse copies input)
@@ -458,7 +458,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: document is self-contained",
 	"[json]") {
-	S src{R"({"msg": "hello"})"};
+	std::string src{R"({"msg": "hello"})"};
 	auto doc = parse_copy(src);
 	REQUIRE(doc.has_value());
 	src.clear();
@@ -511,10 +511,10 @@ TEST_CASE(
 	"json: builder set_u64",
 	"[json][builder]") {
 	auto b = value_builder();
-	REQUIRE(b.set_u64(NL<u64>::max()).has_value());
+	REQUIRE(b.set_u64(std::numeric_limits<std::uint64_t>::max()).has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	CHECK(*doc->root().as_number()->to_u64() == NL<u64>::max());
+	CHECK(*doc->root().as_number()->to_u64() == std::numeric_limits<std::uint64_t>::max());
 }
 TEST_CASE(
 	"json: builder set_f64",
@@ -529,7 +529,7 @@ TEST_CASE(
 	"json: builder set_f64 rejects NaN",
 	"[json][builder]") {
 	auto b = value_builder();
-	auto res = b.set_f64(NL<double>::quiet_NaN());
+	auto res = b.set_f64(std::numeric_limits<double>::quiet_NaN());
 	CHECK_FALSE(res.has_value());
 	CHECK(res.error().code == JsonIssueCode::number_out_of_range);
 }
@@ -660,21 +660,21 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: Nullable<i64> — present value",
+	"json: Nullable<std::int64_t> — present value",
 	"[json][nullable]") {
 	auto doc = parse("42");
 	REQUIRE(doc.has_value());
-	auto res = decode<Nullable<i64>>(doc->root());
+	auto res = decode<Nullable<std::int64_t>>(doc->root());
 	REQUIRE(res.has_value());
 	CHECK(res->has_value());
 	CHECK(**res == 42LL);
 }
 TEST_CASE(
-	"json: Nullable<i64> — null input",
+	"json: Nullable<std::int64_t> — null input",
 	"[json][nullable]") {
 	auto doc = parse("null");
 	REQUIRE(doc.has_value());
-	auto res = decode<Nullable<i64>>(doc->root());
+	auto res = decode<Nullable<std::int64_t>>(doc->root());
 	REQUIRE(res.has_value());
 	CHECK(res->is_null());
 }
@@ -692,20 +692,20 @@ TEST_CASE(
 	CHECK(*r == true);
 }
 TEST_CASE(
-	"json: decode<i64>",
+	"json: decode<std::int64_t>",
 	"[json][codec]") {
 	auto doc = parse("-7");
 	REQUIRE(doc.has_value());
-	auto r = decode<i64>(doc->root());
+	auto r = decode<std::int64_t>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(*r == -7LL);
 }
 TEST_CASE(
-	"json: decode<u64>",
+	"json: decode<std::uint64_t>",
 	"[json][codec]") {
 	auto doc = parse("42");
 	REQUIRE(doc.has_value());
-	auto r = decode<u64>(doc->root());
+	auto r = decode<std::uint64_t>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(*r == 42ULL);
 }
@@ -719,20 +719,20 @@ TEST_CASE(
 	CHECK(*r == Catch::Approx(3.14));
 }
 TEST_CASE(
-	"json: decode<S>",
+	"json: decode<std::string>",
 	"[json][codec]") {
 	auto doc = parse(R"("hello")");
 	REQUIRE(doc.has_value());
-	auto r = decode<S>(doc->root());
+	auto r = decode<std::string>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(*r == "hello");
 }
 TEST_CASE(
-	"json: decode<SV>",
+	"json: decode<std::string_view>",
 	"[json][codec]") {
 	auto doc = parse(R"("world")");
 	REQUIRE(doc.has_value());
-	auto r = decode<SV>(doc->root());
+	auto r = decode<std::string_view>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(*r == "world");
 }
@@ -746,11 +746,11 @@ TEST_CASE(
 	CHECK(r.error().code == JsonIssueCode::wrong_kind);
 }
 TEST_CASE(
-	"json: decode<V<i64>>",
+	"json: decode<std::vector<std::int64_t>>",
 	"[json][codec]") {
 	auto doc = parse("[1,2,3]");
 	REQUIRE(doc.has_value());
-	auto r = decode<V<i64>>(doc->root());
+	auto r = decode<std::vector<std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 3UZ);
 	CHECK((*r)[0] == 1LL);
@@ -758,21 +758,21 @@ TEST_CASE(
 	CHECK((*r)[2] == 3LL);
 }
 TEST_CASE(
-	"json: decode<Opt<i64>> — present",
+	"json: decode<std::optional<std::int64_t>> — present",
 	"[json][codec]") {
 	auto doc = parse("99");
 	REQUIRE(doc.has_value());
-	auto r = decode<Opt<i64>>(doc->root());
+	auto r = decode<std::optional<std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->has_value());
 	CHECK(**r == 99LL);
 }
 TEST_CASE(
-	"json: decode<Opt<i64>> — null yields error",
+	"json: decode<std::optional<std::int64_t>> — null yields error",
 	"[json][codec]") {
 	auto doc = parse("null");
 	REQUIRE(doc.has_value());
-	auto r = decode<Opt<i64>>(doc->root());
+	auto r = decode<std::optional<std::int64_t>>(doc->root());
 	CHECK_FALSE(r.has_value());
 	CHECK(r.error().code == JsonIssueCode::wrong_kind);
 }
@@ -784,11 +784,11 @@ TEST_CASE(
 	"json: has_json_codec detects built-in types",
 	"[json][codec]") {
 	CHECK(has_json_codec<bool>);
-	CHECK(has_json_codec<i64>);
-	CHECK(has_json_codec<u64>);
+	CHECK(has_json_codec<std::int64_t>);
+	CHECK(has_json_codec<std::uint64_t>);
 	CHECK(has_json_codec<double>);
-	CHECK(has_json_codec<S>);
-	CHECK(has_json_codec<SV>);
+	CHECK(has_json_codec<std::string>);
+	CHECK(has_json_codec<std::string_view>);
 }
 TEST_CASE(
 	"json: has_json_codec false for non-codec types",
@@ -803,7 +803,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: number form — integer vs non_integer",
 	"[json][number]") {
-	auto check = [](SV input, JsonNumberForm expected_form) {
+	auto check = [](std::string_view input, JsonNumberForm expected_form) {
 		auto doc = parse(input);
 		REQUIRE(doc.has_value());
 		auto n = doc->root().as_number();
@@ -882,7 +882,7 @@ TEST_CASE(
 	"[json][limits]") {
 	JsonParseOptions opts;
 	opts.max_depth = LimitOption::bound(3);
-	S nested(4, '[');
+	std::string nested(4, '[');
 	nested += "1";
 	nested.append(4, ']');
 	auto res = parse(nested, opts);
@@ -894,7 +894,7 @@ TEST_CASE(
 	"[json][limits]") {
 	JsonParseOptions opts;
 	opts.max_depth = LimitOption::bound(3);
-	S nested(3, '[');
+	std::string nested(3, '[');
 	nested += "1";
 	nested.append(3, ']');
 	CHECK(parse(nested, opts).has_value());
@@ -935,7 +935,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: BOM at start is skipped",
 	"[json][input]") {
-	SV bom_json = "\xEF\xBB\xBF\"hello\"";
+	std::string_view bom_json = "\xEF\xBB\xBF\"hello\"";
 	auto res = parse(bom_json);
 	REQUIRE(res.has_value());
 	CHECK(*res->root().as_string() == "hello");
@@ -943,7 +943,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: invalid UTF-8 is rejected",
 	"[json][input]") {
-	SV bad = "\"\x80\"";
+	std::string_view bad = "\"\x80\"";
 	auto res = parse(bad);
 	REQUIRE_FALSE(res.has_value());
 	CHECK(res.error().code == JsonIssueCode::invalid_utf8);
@@ -1032,18 +1032,18 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 struct Point {
-	i64 x{};
-	i64 y{};
+	std::int64_t x{};
+	std::int64_t y{};
 };
 template<>
 struct JsonMembers<Point> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("x", &Point::x),
 			json_member("y", &Point::y),
 		};
 	}
-	static constexpr SV type_name() { return "Point"; }
+	static constexpr std::string_view type_name() { return "Point"; }
 };
 TEST_CASE(
 	"json: JsonMembers decode plain struct",
@@ -1123,7 +1123,7 @@ struct JsonCodec<Color> {
 			JsonError{
 				.stage = JsonStage::decode,
 				.code = JsonIssueCode::invalid_value,
-				.target_type = S{type_name()},
+				.target_type = std::string{type_name()},
 				.message = format("unknown Color spelling: {}", *s)});
 	}
 	static expected<void, JsonError> encode(
@@ -1138,10 +1138,10 @@ struct JsonCodec<Color> {
 			JsonError{
 				.stage = JsonStage::build,
 				.code = JsonIssueCode::invalid_value,
-				.target_type = S{type_name()},
+				.target_type = std::string{type_name()},
 				.message = "Color enum value outside declared range"});
 	}
-	static constexpr SV type_name() { return "Color"; }
+	static constexpr std::string_view type_name() { return "Color"; }
 };
 TEST_CASE(
 	"json: JsonCodec custom enum decode",
@@ -1167,22 +1167,22 @@ TEST_CASE(
 	CHECK(has_json_codec<Color>);
 }
 // ---------------------------------------------------------------------------
-// Phase 2: Opt<T> member in JsonMembers struct
+// Phase 2: std::optional<T> member in JsonMembers struct
 // ---------------------------------------------------------------------------
 
 struct Config {
-	i64 required_field{};
-	Opt<i64> optional_field{};
+	std::int64_t required_field{};
+	std::optional<std::int64_t> optional_field{};
 };
 template<>
 struct JsonMembers<Config> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("required_field", &Config::required_field),
 			json_member("optional_field", &Config::optional_field),
 		};
 	}
-	static constexpr SV type_name() { return "Config"; }
+	static constexpr std::string_view type_name() { return "Config"; }
 };
 TEST_CASE(
 	"json: Opt member present decodes value",
@@ -1206,86 +1206,86 @@ TEST_CASE(
 	CHECK_FALSE(r->optional_field.has_value());
 }
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — A<T,N>
+// Phase 2: built-in targets — std::array<T,N>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: decode<A<i64,3>>",
+	"json: decode<std::array<std::int64_t,3>>",
 	"[json][codec][A]") {
 	auto doc = parse("[10,20,30]");
 	REQUIRE(doc.has_value());
-	auto r = decode<A<i64, 3>>(doc->root());
+	auto r = decode<std::array<std::int64_t, 3>>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK((*r)[0] == 10LL);
 	CHECK((*r)[1] == 20LL);
 	CHECK((*r)[2] == 30LL);
 }
 TEST_CASE(
-	"json: decode<A<i64,3>> wrong length yields invalid_value",
+	"json: decode<std::array<std::int64_t,3>> wrong length yields invalid_value",
 	"[json][codec][A]") {
 	auto doc = parse("[1,2]");
 	REQUIRE(doc.has_value());
-	auto r = decode<A<i64, 3>>(doc->root());
+	auto r = decode<std::array<std::int64_t, 3>>(doc->root());
 	CHECK_FALSE(r.has_value());
 	CHECK(r.error().code == JsonIssueCode::invalid_value);
 }
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — P<A,B>
+// Phase 2: built-in targets — std::pair<std::array,B>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: decode<P<S,i64>>",
+	"json: decode<std::pair<std::string,i64>>",
 	"[json][codec][P]") {
 	auto doc = parse(R"(["hello",42])");
 	REQUIRE(doc.has_value());
-	auto r = decode<P<S, i64>>(doc->root());
+	auto r = decode<std::pair<std::string, std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(r->first == "hello");
 	CHECK(r->second == 42LL);
 }
 TEST_CASE(
-	"json: decode<P<S,i64>> wrong length yields invalid_value",
+	"json: decode<std::pair<std::string,i64>> wrong length yields invalid_value",
 	"[json][codec][P]") {
 	auto doc = parse("[1]");
 	REQUIRE(doc.has_value());
-	auto r = decode<P<S, i64>>(doc->root());
+	auto r = decode<std::pair<std::string, std::int64_t>>(doc->root());
 	CHECK_FALSE(r.has_value());
 	CHECK(r.error().code == JsonIssueCode::invalid_value);
 }
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — Tup<Ts...>
+// Phase 2: built-in targets — std::tuple<Ts...>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: decode<Tup<bool,i64,S>>",
+	"json: decode<std::tuple<bool,std::int64_t,S>>",
 	"[json][codec][Tup]") {
 	auto doc = parse(R"([true,99,"hi"])");
 	REQUIRE(doc.has_value());
-	auto r = decode<Tup<bool, i64, S>>(doc->root());
+	auto r = decode<std::tuple<bool, std::int64_t, std::string>>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(get<0>(*r) == true);
 	CHECK(get<1>(*r) == 99LL);
 	CHECK(get<2>(*r) == "hi");
 }
 TEST_CASE(
-	"json: decode<Tup<i64,i64>> wrong length yields invalid_value",
+	"json: decode<std::tuple<std::int64_t,i64>> wrong length yields invalid_value",
 	"[json][codec][Tup]") {
 	auto doc = parse("[1,2,3]");
 	REQUIRE(doc.has_value());
-	auto r = decode<Tup<i64, i64>>(doc->root());
+	auto r = decode<std::tuple<std::int64_t, std::int64_t>>(doc->root());
 	CHECK_FALSE(r.has_value());
 	CHECK(r.error().code == JsonIssueCode::invalid_value);
 }
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — M<S, T>
+// Phase 2: built-in targets — std::map<std::string, T>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: decode<M<S,i64>>",
+	"json: decode<std::map<std::string,i64>>",
 	"[json][codec][map]") {
 	auto doc = parse(R"({"a":1,"b":2,"c":3})");
 	REQUIRE(doc.has_value());
-	auto r = decode<M<S, i64>>(doc->root());
+	auto r = decode<std::map<std::string, std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 3UZ);
 	CHECK((*r)["a"] == 1LL);
@@ -1293,24 +1293,24 @@ TEST_CASE(
 	CHECK((*r)["c"] == 3LL);
 }
 TEST_CASE(
-	"json: decode<M<S,i64>> wrong kind yields wrong_kind",
+	"json: decode<std::map<std::string,i64>> wrong kind yields wrong_kind",
 	"[json][codec][map]") {
 	auto doc = parse("[1,2,3]");
 	REQUIRE(doc.has_value());
-	auto r = decode<M<S, i64>>(doc->root());
+	auto r = decode<std::map<std::string, std::int64_t>>(doc->root());
 	CHECK_FALSE(r.has_value());
 	CHECK(r.error().code == JsonIssueCode::wrong_kind);
 }
 // ---------------------------------------------------------------------------
-// Phase 2: built-in targets — UM<S, T>
+// Phase 2: built-in targets — std::unordered_map<std::string, T>
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"json: decode<UM<S,i64>>",
+	"json: decode<std::unordered_map<std::string,i64>>",
 	"[json][codec][map]") {
 	auto doc = parse(R"({"x":10,"y":20})");
 	REQUIRE(doc.has_value());
-	auto r = decode<UM<S, i64>>(doc->root());
+	auto r = decode<std::unordered_map<std::string, std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 2UZ);
 	CHECK((*r)["x"] == 10LL);
@@ -1323,7 +1323,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: Nullable<T> default-constructs to null",
 	"[json][nullable]") {
-	Nullable<i64> n;
+	Nullable<std::int64_t> n;
 	CHECK(n.is_null());
 	CHECK_FALSE(n.has_value());
 	CHECK_FALSE(static_cast<bool>(n));
@@ -1331,7 +1331,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: Nullable<T> value state",
 	"[json][nullable]") {
-	Nullable<i64> n{42LL};
+	Nullable<std::int64_t> n{42LL};
 	CHECK_FALSE(n.is_null());
 	CHECK(n.has_value());
 	CHECK(static_cast<bool>(n));
@@ -1341,18 +1341,18 @@ TEST_CASE(
 TEST_CASE(
 	"json: Nullable<T> value_or",
 	"[json][nullable]") {
-	Nullable<i64> n_null;
-	Nullable<i64> n_val{7LL};
+	Nullable<std::int64_t> n_null;
+	Nullable<std::int64_t> n_val{7LL};
 	CHECK(n_null.value_or(99LL) == 99LL);
 	CHECK(n_val.value_or(99LL) == 7LL);
 }
 TEST_CASE(
 	"json: Nullable<T> equality",
 	"[json][nullable]") {
-	Nullable<i64> a{1LL};
-	Nullable<i64> b{1LL};
-	Nullable<i64> c{2LL};
-	Nullable<i64> n;
+	Nullable<std::int64_t> a{1LL};
+	Nullable<std::int64_t> b{1LL};
+	Nullable<std::int64_t> c{2LL};
+	Nullable<std::int64_t> n;
 	CHECK(a == b);
 	CHECK_FALSE(a == c);
 	CHECK_FALSE(a == n);
@@ -1360,15 +1360,15 @@ TEST_CASE(
 TEST_CASE(
 	"json: Nullable<T> operator->",
 	"[json][nullable]") {
-	Nullable<S> n{"hello"};
+	Nullable<std::string> n{"hello"};
 	CHECK(n->size() == 5UZ);
 }
 TEST_CASE(
-	"json: decode<Nullable<S>> — non-null",
+	"json: decode<Nullable<std::string>> — non-null",
 	"[json][nullable][codec]") {
 	auto doc = parse(R"("world")");
 	REQUIRE(doc.has_value());
-	auto r = decode<Nullable<S>>(doc->root());
+	auto r = decode<Nullable<std::string>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->has_value());
 	CHECK(**r == "world");
@@ -1411,24 +1411,24 @@ TEST_CASE(
 	"json: ValueBuilder::set<T> encodes via codec",
 	"[json][builder][codec]") {
 	auto b = value_builder();
-	auto ok = b.set<i64>(42LL);
+	auto ok = b.set<std::int64_t>(42LL);
 	REQUIRE(ok.has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<i64>(doc->root());
+	auto r = decode<std::int64_t>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(*r == 42LL);
 }
 TEST_CASE(
-	"json: encode V<i64> via set<T>",
+	"json: encode std::vector<std::int64_t> via set<T>",
 	"[json][builder][codec]") {
 	auto b = value_builder();
-	V<i64> const v{1LL, 2LL, 3LL};
-	auto ok = b.set<V<i64>>(v);
+	std::vector<std::int64_t> const v{1LL, 2LL, 3LL};
+	auto ok = b.set<std::vector<std::int64_t>>(v);
 	REQUIRE(ok.has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<V<i64>>(doc->root());
+	auto r = decode<std::vector<std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 3UZ);
 	CHECK((*r)[0] == 1LL);
@@ -1436,44 +1436,44 @@ TEST_CASE(
 	CHECK((*r)[2] == 3LL);
 }
 TEST_CASE(
-	"json: encode P<S,i64> via set<T>",
+	"json: encode std::pair<std::string,i64> via set<T>",
 	"[json][builder][codec]") {
 	auto b = value_builder();
-	auto ok = b.set<P<S, i64>>({"hello", 7LL});
+	auto ok = b.set<std::pair<std::string, std::int64_t>>({"hello", 7LL});
 	REQUIRE(ok.has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<P<S, i64>>(doc->root());
+	auto r = decode<std::pair<std::string, std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(r->first == "hello");
 	CHECK(r->second == 7LL);
 }
 TEST_CASE(
-	"json: encode Tup<bool,i64> via set<T>",
+	"json: encode std::tuple<bool,i64> via set<T>",
 	"[json][builder][codec]") {
 	auto b = value_builder();
-	auto ok = b.set<Tup<bool, i64>>(Tup{true, 99LL});
+	auto ok = b.set<std::tuple<bool, std::int64_t>>(std::tuple{true, 99LL});
 	REQUIRE(ok.has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<Tup<bool, i64>>(doc->root());
+	auto r = decode<std::tuple<bool, std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
 	CHECK(get<0>(*r) == true);
 	CHECK(get<1>(*r) == 99LL);
 }
 TEST_CASE(
-	"json: encode M<S,i64> via set<T>",
+	"json: encode std::map<std::string,i64> via set<T>",
 	"[json][builder][codec]") {
 	auto b = value_builder();
-	M<S, i64> const m{
+	std::map<std::string, std::int64_t> const m{
 		{"a", 1LL},
 		{"b", 2LL}
     };
-	auto ok = b.set<M<S, i64>>(m);
+	auto ok = b.set<std::map<std::string, std::int64_t>>(m);
 	REQUIRE(ok.has_value());
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<M<S, i64>>(doc->root());
+	auto r = decode<std::map<std::string, std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 2UZ);
 	CHECK((*r)["a"] == 1LL);
@@ -1506,12 +1506,12 @@ TEST_CASE(
 	auto arr_res = b.begin_array();
 	REQUIRE(arr_res.has_value());
 	auto &arr = *arr_res;
-	REQUIRE(arr.append<i64>(10LL).has_value());
-	REQUIRE(arr.append<i64>(20LL).has_value());
+	REQUIRE(arr.append<std::int64_t>(10LL).has_value());
+	REQUIRE(arr.append<std::int64_t>(20LL).has_value());
 	move(arr).commit();
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<V<i64>>(doc->root());
+	auto r = decode<std::vector<std::int64_t>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 2UZ);
 	CHECK((*r)[0] == 10LL);
@@ -1777,7 +1777,7 @@ TEST_CASE(
 
 	REQUIRE(root.insert_i64("key", 1LL).has_value());
 	// Insert<T> duplicate check must fire before encode dispatch.
-	auto dup = root.insert<i64>("key", 2LL);
+	auto dup = root.insert<std::int64_t>("key", 2LL);
 	REQUIRE(!dup.has_value());
 	CHECK(dup.error().code == JsonIssueCode::duplicate_member);
 }
@@ -1938,7 +1938,7 @@ TEST_CASE(
 	move(arr).commit();
 	auto doc = move(b).finish();
 	REQUIRE(doc.has_value());
-	auto r = decode<V<Point>>(doc->root());
+	auto r = decode<std::vector<Point>>(doc->root());
 	REQUIRE(r.has_value());
 	REQUIRE(r->size() == 2UZ);
 	CHECK((*r)[0].x == 10LL);
@@ -2025,7 +2025,7 @@ TEST_CASE(
 	opts.ascii_only = true;
 	auto d = doc->dump(opts);
 	REQUIRE(d.has_value());
-	CHECK(d->find("\\u") != S::npos);
+	CHECK(d->find("\\u") != std::string::npos);
 	auto reparsed = parse(*d);
 	REQUIRE(reparsed.has_value());
 	CHECK(*reparsed->root().as_string() == "café");
@@ -2039,7 +2039,7 @@ TEST_CASE(
 	opts.ascii_only = true;
 	auto d = doc->dump(opts);
 	REQUIRE(d.has_value());
-	CHECK(d->find("\\ud83d") != S::npos);
+	CHECK(d->find("\\ud83d") != std::string::npos);
 	auto reparsed = parse(*d);
 	REQUIRE(reparsed.has_value());
 	CHECK(*reparsed->root().as_string() == "\xF0\x9F\x98\x80");
@@ -2054,7 +2054,7 @@ TEST_CASE(
 	opts.indent = 4;
 	auto d = doc->dump(opts);
 	REQUIRE(d.has_value());
-	CHECK(d->find("    \"k\"") != S::npos);
+	CHECK(d->find("    \"k\"") != std::string::npos);
 }
 // ---------------------------------------------------------------------------
 // Phase 4 examples: generic vs typed view access
@@ -2088,7 +2088,7 @@ TEST_CASE(
 	CHECK(active_node->kind() == JsonKind::boolean);
 	CHECK(*active_node->as_bool() == true);
 
-	auto decoded = decode<M<S, i64>>(*score_node);
+	auto decoded = decode<std::map<std::string, std::int64_t>>(*score_node);
 	CHECK_FALSE(decoded.has_value());
 	CHECK(decoded.error().code == JsonIssueCode::wrong_kind);
 }
@@ -2161,21 +2161,21 @@ TEST_CASE(
 	{
 		auto doc = parse("\"hello\"");
 		REQUIRE(doc.has_value());
-		auto r = decode<i64>(doc->root());
+		auto r = decode<std::int64_t>(doc->root());
 		CHECK_FALSE(r.has_value());
 		CHECK(r.error().code == JsonIssueCode::wrong_kind);
 	}
 	{
 		auto doc = parse("1.5");
 		REQUIRE(doc.has_value());
-		auto r = decode<i64>(doc->root());
+		auto r = decode<std::int64_t>(doc->root());
 		CHECK_FALSE(r.has_value());
 		CHECK(r.error().code == JsonIssueCode::invalid_number);
 	}
 	{
 		auto doc = parse("-1");
 		REQUIRE(doc.has_value());
-		auto r = decode<u64>(doc->root());
+		auto r = decode<std::uint64_t>(doc->root());
 		CHECK_FALSE(r.has_value());
 		CHECK(r.error().code == JsonIssueCode::sign_mismatch);
 	}
@@ -2192,22 +2192,22 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 struct ThreeFieldModel {
-	i64 required_val{};
-	Opt<i64> optional_val{};
-	Nullable<i64> nullable_val{};
-	Opt<Nullable<i64>> opt_nullable_val{};
+	std::int64_t required_val{};
+	std::optional<std::int64_t> optional_val{};
+	Nullable<std::int64_t> nullable_val{};
+	std::optional<Nullable<std::int64_t>> opt_nullable_val{};
 };
 template<>
 struct JsonMembers<ThreeFieldModel> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("required_val", &ThreeFieldModel::required_val),
 			json_member("optional_val", &ThreeFieldModel::optional_val),
 			json_member("nullable_val", &ThreeFieldModel::nullable_val),
 			json_member("opt_nullable_val", &ThreeFieldModel::opt_nullable_val),
 		};
 	}
-	static constexpr SV type_name() { return "ThreeFieldModel"; }
+	static constexpr std::string_view type_name() { return "ThreeFieldModel"; }
 };
 TEST_CASE(
 	"json: example — missing vs null vs Opt field modeling",
@@ -2518,16 +2518,16 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 struct InnerData {
-	i64 value{};
+	std::int64_t value{};
 };
 template<>
 struct JsonMembers<InnerData> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("value", &InnerData::value),
 		};
 	}
-	static constexpr SV type_name() { return "InnerData"; }
+	static constexpr std::string_view type_name() { return "InnerData"; }
 };
 struct OuterWithPrefix {
 	InnerData inner{};
@@ -2571,7 +2571,7 @@ struct JsonCodec<OuterWithPrefix> {
 		move(obj).commit();
 		return {};
 	}
-	static constexpr SV type_name() { return "OuterWithPrefix"; }
+	static constexpr std::string_view type_name() { return "OuterWithPrefix"; }
 };
 TEST_CASE(
 	"json: example — nested-codec error propagation via with_prefix",
@@ -2645,11 +2645,11 @@ TEST_CASE(
 	{
 		JsonParseOptions opts;
 		opts.max_depth = LimitOption::bound(3);
-		S at_boundary(3, '[');
+		std::string at_boundary(3, '[');
 		at_boundary += "1";
 		at_boundary.append(3, ']');
 		CHECK(parse(at_boundary, opts).has_value());
-		S over_boundary(4, '[');
+		std::string over_boundary(4, '[');
 		over_boundary += "1";
 		over_boundary.append(4, ']');
 		CHECK_FALSE(parse(over_boundary, opts).has_value());
@@ -2658,7 +2658,7 @@ TEST_CASE(
 	{
 		JsonParseOptions opts;
 		opts.max_depth = no_limit;
-		S deep(200, '[');
+		std::string deep(200, '[');
 		deep += "1";
 		deep.append(200, ']');
 		CHECK(parse(deep, opts).has_value());
@@ -2686,7 +2686,7 @@ TEST_CASE(
 	}
 	// boundary: exactly N bytes passes, N+1 fails
 	{
-		S const s = R"("hello")"; // 7 bytes
+		std::string const s = R"("hello")"; // 7 bytes
 		JsonParseOptions opts;
 		opts.max_input_size = LimitOption::bound(s.size());
 		CHECK(parse(s, opts).has_value());
@@ -2697,7 +2697,7 @@ TEST_CASE(
 	{
 		JsonParseOptions opts;
 		opts.max_input_size = no_limit;
-		S big = "[";
+		std::string big = "[";
 		for (int i = 0; i < 1000; ++i) {
 			if (i > 0) {
 				big += ',';
@@ -2711,7 +2711,7 @@ TEST_CASE(
 TEST_CASE(
 	"json: limits — max_string_size matrix",
 	"[json][limits][pathological]") {
-	// size-0: any non-empty S fails
+	// size-0: any non-empty std::string fails
 	{
 		JsonParseOptions opts;
 		opts.max_string_size = LimitOption::bound(0);
@@ -2719,7 +2719,7 @@ TEST_CASE(
 		REQUIRE_FALSE(res.has_value());
 		CHECK(res.error().code == JsonIssueCode::string_too_large);
 	}
-	// size-0 empty S passes
+	// size-0 empty std::string passes
 	{
 		JsonParseOptions opts;
 		opts.max_string_size = LimitOption::bound(0);
@@ -2734,11 +2734,11 @@ TEST_CASE(
 		REQUIRE_FALSE(res.has_value());
 		CHECK(res.error().code == JsonIssueCode::string_too_large);
 	}
-	// no_limit: large S passes
+	// no_limit: large std::string passes
 	{
 		JsonParseOptions opts;
 		opts.max_string_size = no_limit;
-		S big_str = "\"";
+		std::string big_str = "\"";
 		big_str.append(100000, 'x');
 		big_str += '"';
 		CHECK(parse(big_str, opts).has_value());
@@ -2780,13 +2780,13 @@ TEST_CASE(
 	"[json][limits][pathological]") {
 	// 1024-char number lexeme: exactly at limit, must parse
 	{
-		S at_limit = "0.";
+		std::string at_limit = "0.";
 		at_limit.append(1022, '1');
 		CHECK(parse(at_limit).has_value());
 	}
 	// 1025-char number lexeme: one over limit, must fail with invalid_number
 	{
-		S over_limit = "0.";
+		std::string over_limit = "0.";
 		over_limit.append(1023, '1');
 		auto res = parse(over_limit);
 		REQUIRE_FALSE(res.has_value());
@@ -2817,7 +2817,7 @@ TEST_CASE(
 	REQUIRE(doc.has_value());
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
-	SV const key{"a\0b", 3};
+	std::string_view const key{"a\0b", 3};
 	auto m = obj->find_member(key);
 	REQUIRE(m.has_value());
 	auto n = m->as_number();
@@ -2850,7 +2850,7 @@ TEST_CASE(
 	"[json][escape][hash]") {
 	// Build an object > kHashThreshold (8) with one escaped-name member,
 	// warm the index, and confirm escaped lookup hits the hash path.
-	S js = "{";
+	std::string js = "{";
 	for (int i = 0; i < 16; ++i) {
 		if (i > 0) {
 			js += ',';
@@ -2874,16 +2874,16 @@ TEST_CASE(
 TEST_CASE(
 	"json: build_probe_cap_adversarial_hash",
 	"[json][hash][adversarial]") {
-	// Synthesize keys whose 32-bit-truncated std::hash<SV> all share
+	// Synthesize keys whose 32-bit-truncated std::hash<std::string_view> all share
 	// the same low-8-bit bucket — formerly a probe-cap attack V. With
 	// seeded xxHash3 (v16 Item B) the same keys are randomised per document, so
 	// warm_member_index now succeeds and find_member uses the hash path.
-	constexpr SZ kTargetCount = 80;
-	V<S> formerly_colliding_keys;
+	constexpr std::size_t kTargetCount = 80;
+	std::vector<std::string> formerly_colliding_keys;
 	formerly_colliding_keys.reserve(kTargetCount);
-	for (SZ i = 0; formerly_colliding_keys.size() < kTargetCount && i < 1000000UZ; ++i) {
-		S s = format("k_{}", i);
-		auto const h = static_cast<u32>(hash<SV>{}(SV{s}));
+	for (std::size_t i = 0; formerly_colliding_keys.size() < kTargetCount && i < 1000000UZ; ++i) {
+		std::string s = format("k_{}", i);
+		auto const h = static_cast<std::uint32_t>(hash<std::string_view>{}(std::string_view{s}));
 		if ((h & 0xFFu) == 0u) {
 			formerly_colliding_keys.push_back(move(s));
 		}
@@ -2892,8 +2892,8 @@ TEST_CASE(
 		WARN("could not synthesize enough formerly-colliding keys; skipping");
 		return;
 	}
-	S js = "{";
-	for (SZ i = 0; i < formerly_colliding_keys.size(); ++i) {
+	std::string js = "{";
+	for (std::size_t i = 0; i < formerly_colliding_keys.size(); ++i) {
 		if (i > 0) {
 			js += ',';
 		}
@@ -2919,7 +2919,7 @@ TEST_CASE(
 	"[json][hash]") {
 	JsonParseOptions opts;
 	opts.duplicate_key = DuplicateKeyPolicy::reject;
-	S js = "{";
+	std::string js = "{";
 	for (int i = 0; i < 10; ++i) {
 		if (i > 0) {
 			js += ',';
@@ -2960,16 +2960,16 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 struct Rect {
-	i64 width{};
-	i64 height{};
+	std::int64_t width{};
+	std::int64_t height{};
 };
 template<>
 struct JsonMembers<Rect> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			make_tuple(
 				json_member("width", &Rect::width),
-				static_cast<JsonConstraintFn<i64>>([](i64 const &v) -> expected<void, JsonError> {
+				static_cast<JsonConstraintFn<std::int64_t>>([](std::int64_t const &v) -> expected<void, JsonError> {
 					if (v <= 0) {
 						return unexpected(
 							JsonError{
@@ -3008,18 +3008,18 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 struct Inner {
-	i64 val{};
+	std::int64_t val{};
 };
 template<>
 struct JsonMembers<Inner> {
-	static constexpr auto members() { return Tup{json_member("val", &Inner::val)}; }
+	static constexpr auto members() { return std::tuple{json_member("val", &Inner::val)}; }
 };
 struct Outer {
 	Inner inner{};
 };
 template<>
 struct JsonMembers<Outer> {
-	static constexpr auto members() { return Tup{json_member("inner", &Outer::inner)}; }
+	static constexpr auto members() { return std::tuple{json_member("inner", &Outer::inner)}; }
 };
 TEST_CASE(
 	"json: nested struct wrong type propagates full path",
@@ -3054,26 +3054,26 @@ TEST_CASE(
 // Types for phase4 tests.
 
 struct P4Person {
-	S name{};
-	i64 age{};
+	std::string name{};
+	std::int64_t age{};
 };
 template<>
 struct JsonMembers<P4Person> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("name", &P4Person::name),
 			json_member("age", &P4Person::age),
 		};
 	}
 };
 struct P4Address {
-	S street{};
-	Opt<S> city{};
+	std::string street{};
+	std::optional<std::string> city{};
 };
 template<>
 struct JsonMembers<P4Address> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("street", &P4Address::street),
 			json_member("city", &P4Address::city),
 		};
@@ -3081,12 +3081,12 @@ struct JsonMembers<P4Address> {
 };
 struct P4Nested {
 	P4Person person{};
-	i64 score{};
+	std::int64_t score{};
 };
 template<>
 struct JsonMembers<P4Nested> {
 	static constexpr auto members() {
-		return Tup{
+		return std::tuple{
 			json_member("person", &P4Nested::person),
 			json_member("score", &P4Nested::score),
 		};
@@ -3224,7 +3224,7 @@ TEST_CASE(
 	REQUIRE(e0->has_value());
 	CHECK(**e0 == JsonReader::Event::begin_array);
 
-	for (i64 expected = 1; expected <= 3; ++expected) {
+	for (std::int64_t expected = 1; expected <= 3; ++expected) {
 		auto en = r.next();
 		REQUIRE(en.has_value());
 		REQUIRE(en->has_value());
@@ -3367,7 +3367,7 @@ TEST_CASE(
 	CHECK(**ev == JsonReader::Event::string_value);
 	CHECK(r.string_token().has_escapes() == true);
 	CHECK(!r.string_token().unescaped_borrow().has_value());
-	S out;
+	std::string out;
 	auto res = r.string_token().append_decoded_to(out);
 	REQUIRE(res.has_value());
 	CHECK(out == "hello\nworld");
@@ -3380,7 +3380,7 @@ TEST_CASE(
 	REQUIRE(ev.has_value());
 	REQUIRE(ev->has_value());
 	CHECK(**ev == JsonReader::Event::string_value);
-	V<char> buf(r.string_token().max_decoded_size());
+	std::vector<char> buf(r.string_token().max_decoded_size());
 	auto sv_res = r.string_token().decode_into(buf);
 	REQUIRE(sv_res.has_value());
 	CHECK(*sv_res == "a\tb");
@@ -3418,11 +3418,11 @@ TEST_CASE(
 TEST_CASE(
 	"phase4: decode_full<string_view> requires a single complete input",
 	"[phase4]") {
-	auto v = decode_full<i64>("42 43");
+	auto v = decode_full<std::int64_t>("42 43");
 	CHECK_FALSE(v.has_value());
 	CHECK(v.error().code == JsonIssueCode::trailing_garbage);
 
-	auto ok = decode_full<i64>("42");
+	auto ok = decode_full<std::int64_t>("42");
 	REQUIRE(ok.has_value());
 	CHECK(*ok == 42LL);
 }
@@ -3440,7 +3440,7 @@ TEST_CASE(
 TEST_CASE(
 	"phase4: decode<P4Person>(JsonReader&) unknown_members=ignore validates skipped value",
 	"[phase4]") {
-	S input = R"({"name":"Bob","age":25,"extra":"bad)";
+	std::string input = R"({"name":"Bob","age":25,"extra":"bad)";
 	input.push_back('\x01');
 	input += R"("})";
 	JsonReader r{input};
@@ -3469,10 +3469,10 @@ TEST_CASE(
 	CHECK(n->score == 99LL);
 }
 TEST_CASE(
-	"phase4: decode<V<P4Person>>(JsonReader&) array of structs",
+	"phase4: decode<std::vector<P4Person>>(JsonReader&) array of structs",
 	"[phase4]") {
 	JsonReader r{R"([{"name":"A","age":1},{"name":"B","age":2}])"};
-	auto v = decode<V<P4Person>>(r);
+	auto v = decode<std::vector<P4Person>>(r);
 	REQUIRE(v.has_value());
 	REQUIRE(v->size() == 2UZ);
 	CHECK((*v)[0].name == "A");
@@ -3481,27 +3481,27 @@ TEST_CASE(
 	CHECK((*v)[1].age == 2LL);
 }
 TEST_CASE(
-	"phase4: decode<Opt<i64>>(JsonReader&) with null",
+	"phase4: decode<std::optional<std::int64_t>>(JsonReader&) with null",
 	"[phase4]") {
 	{
 		JsonReader r{"null"};
-		auto v = decode<Opt<i64>>(r);
+		auto v = decode<std::optional<std::int64_t>>(r);
 		REQUIRE(v.has_value());
 		CHECK(!v->has_value());
 	}
 	{
 		JsonReader r{"42"};
-		auto v = decode<Opt<i64>>(r);
+		auto v = decode<std::optional<std::int64_t>>(r);
 		REQUIRE(v.has_value());
 		REQUIRE(v->has_value());
 		CHECK(**v == 42LL);
 	}
 }
 TEST_CASE(
-	"phase4: decode<M<S,i64>>(JsonReader&) map",
+	"phase4: decode<std::map<std::string,i64>>(JsonReader&) map",
 	"[phase4]") {
 	JsonReader r{R"({"a":1,"b":2})"};
-	auto m = decode<M<S, i64>>(r);
+	auto m = decode<std::map<std::string, std::int64_t>>(r);
 	REQUIRE(m.has_value());
 	CHECK(m->size() == 2UZ);
 	CHECK((*m)["a"] == 1LL);
@@ -3559,15 +3559,15 @@ TEST_CASE(
 	CHECK(*v == Catch::Approx(3.14));
 }
 TEST_CASE(
-	"phase4: decode<V<i64>>(JsonReader&)",
+	"phase4: decode<std::vector<std::int64_t>>(JsonReader&)",
 	"[phase4]") {
 	JsonReader r{"[1,2,3,4,5]"};
-	auto v = decode<V<i64>>(r);
+	auto v = decode<std::vector<std::int64_t>>(r);
 	REQUIRE(v.has_value());
 	REQUIRE(v->size() == 5UZ);
-	for (SZ i = 0; i < 5; ++i) {
+	for (std::size_t i = 0; i < 5; ++i) {
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-		CHECK((*v)[i] == static_cast<i64>(i + 1));
+		CHECK((*v)[i] == static_cast<std::int64_t>(i + 1));
 	}
 }
 TEST_CASE(
@@ -3597,29 +3597,29 @@ TEST_CASE(
 	CHECK(**e1 == JsonReader::Event::end_array);
 }
 TEST_CASE(
-	"phase4: decode<P<S,i64>>(JsonReader&) pair",
+	"phase4: decode<std::pair<std::string,i64>>(JsonReader&) pair",
 	"[phase4]") {
 	JsonReader r{R"(["hello",42])"};
-	auto v = decode<P<S, i64>>(r);
+	auto v = decode<std::pair<std::string, std::int64_t>>(r);
 	REQUIRE(v.has_value());
 	CHECK(v->first == "hello");
 	CHECK(v->second == 42LL);
 }
 TEST_CASE(
-	"phase4: decode<A<i64,3>>(JsonReader&) fixed array",
+	"phase4: decode<std::array<std::int64_t,3>>(JsonReader&) fixed array",
 	"[phase4]") {
 	JsonReader r{"[10,20,30]"};
-	auto v = decode<A<i64, 3>>(r);
+	auto v = decode<std::array<std::int64_t, 3>>(r);
 	REQUIRE(v.has_value());
 	CHECK((*v)[0] == 10LL);
 	CHECK((*v)[1] == 20LL);
 	CHECK((*v)[2] == 30LL);
 }
 TEST_CASE(
-	"phase4: decode<Tup<S,i64,bool>>(JsonReader&) tuple",
+	"phase4: decode<std::tuple<std::string,std::int64_t,bool>>(JsonReader&) tuple",
 	"[phase4]") {
 	JsonReader r{R"(["hello",42,true])"};
-	auto v = decode<Tup<S, i64, bool>>(r);
+	auto v = decode<std::tuple<std::string, std::int64_t, bool>>(r);
 	REQUIRE(v.has_value());
 	CHECK(get<0>(*v) == "hello");
 	CHECK(get<1>(*v) == 42LL);
@@ -3633,16 +3633,16 @@ TEST_CASE(
 	REQUIRE(ev.has_value());
 	REQUIRE(ev->has_value());
 	CHECK(**ev == JsonReader::Event::string_value);
-	S out;
+	std::string out;
 	auto res = r.string_token().append_decoded_to(out);
 	REQUIRE(res.has_value());
 	CHECK(out == "Hello");
 }
 TEST_CASE(
-	"phase4: decode<UM<S,i64>>(JsonReader&) unordered map",
+	"phase4: decode<std::unordered_map<std::string,i64>>(JsonReader&) unordered map",
 	"[phase4]") {
 	JsonReader r{R"({"x":10,"y":20})"};
-	auto m = decode<UM<S, i64>>(r);
+	auto m = decode<std::unordered_map<std::string, std::int64_t>>(r);
 	REQUIRE(m.has_value());
 	CHECK(m->size() == 2UZ);
 	CHECK((*m)["x"] == 10LL);
@@ -3688,7 +3688,7 @@ TEST_CASE(
 	"phase3: parse_sax bool true/false",
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
-		V<bool> vals;
+		std::vector<bool> vals;
 		expected<void, JsonError> on_bool(
 			bool b) {
 			vals.push_back(b);
@@ -3705,9 +3705,9 @@ TEST_CASE(
 	"phase3: parse_sax string value decoded",
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
-		S got;
+		std::string got;
 		expected<void, JsonError> on_string(
-			SV sv) {
+			std::string_view sv) {
 			got = sv;
 			return {};
 		}
@@ -3720,9 +3720,9 @@ TEST_CASE(
 	"phase3: parse_sax string with escapes",
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
-		S got;
+		std::string got;
 		expected<void, JsonError> on_string(
-			SV sv) {
+			std::string_view sv) {
 			got = sv;
 			return {};
 		}
@@ -3757,7 +3757,7 @@ TEST_CASE(
 			return {};
 		}
 	} h;
-	// large positive beyond i64 max
+	// large positive beyond std::int64_t max
 	auto r = parse_sax("18446744073709551615", h);
 	REQUIRE(r.has_value());
 	CHECK(h.val == 18446744073709551615ULL);
@@ -3781,9 +3781,9 @@ TEST_CASE(
 	"phase3: parse_sax on_number_raw opt-in",
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
-		S raw;
+		std::string raw;
 		expected<void, JsonError> on_number_raw(
-			SV sv) {
+			std::string_view sv) {
 			raw = sv;
 			return {};
 		}
@@ -3797,8 +3797,8 @@ TEST_CASE(
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
 		int begin_obj{}, end_obj{};
-		V<S> keys;
-		V<S> strings;
+		std::vector<std::string> keys;
+		std::vector<std::string> strings;
 		expected<void, JsonError> on_begin_object() {
 			++begin_obj;
 			return {};
@@ -3808,12 +3808,12 @@ TEST_CASE(
 			return {};
 		}
 		expected<void, JsonError> on_key(
-			SV k) {
+			std::string_view k) {
 			keys.emplace_back(k);
 			return {};
 		}
 		expected<void, JsonError> on_string(
-			SV v) {
+			std::string_view v) {
 			strings.emplace_back(v);
 			return {};
 		}
@@ -3833,7 +3833,7 @@ TEST_CASE(
 	"[phase3]") {
 	struct H : JsonDefaultHandler {
 		int begin_arr{}, end_arr{};
-		V<int64_t> nums;
+		std::vector<int64_t> nums;
 		expected<void, JsonError> on_begin_array() {
 			++begin_arr;
 			return {};
@@ -3929,7 +3929,7 @@ TEST_CASE(
 TEST_CASE(
 	"phase5: parse_borrowed with pmr resource",
 	"[phase5]") {
-	S input = R"({"x":1})";
+	std::string input = R"({"x":1})";
 	std::pmr::monotonic_buffer_resource mbr{4096};
 	auto doc = parse_borrowed(input, {}, &mbr);
 	REQUIRE(doc.has_value());
@@ -3940,10 +3940,10 @@ TEST_CASE(
 TEST_CASE(
 	"phase5: explicit borrowed parse aliases",
 	"[phase5]") {
-	S input = R"({"name":"ada"})";
+	std::string input = R"({"name":"ada"})";
 	auto doc = parse_borrowed_unsafe(input);
 	REQUIRE(doc.has_value());
-	auto view_doc = parse_view(SV{input});
+	auto view_doc = parse_view(std::string_view{input});
 	REQUIRE(view_doc.has_value());
 	auto obj = doc->root().as_object();
 	REQUIRE(obj.has_value());
@@ -3952,7 +3952,7 @@ TEST_CASE(
 TEST_CASE(
 	"phase5: pmr parse_copy returns same result as default parse",
 	"[phase5]") {
-	SV input = R"([1,2,3,"hello"])";
+	std::string_view input = R"([1,2,3,"hello"])";
 	std::pmr::monotonic_buffer_resource mbr{4096};
 	auto d1 = parse(input);
 	auto d2 = parse_copy(input, {}, &mbr);
@@ -4053,7 +4053,7 @@ TEST_CASE(
 	"phase5: JsonArena parse_borrowed_into preserves borrowed string views",
 	"[phase5]") {
 	JsonArena arena;
-	S input = R"({"name":"Alice","age":30})";
+	std::string input = R"({"name":"Alice","age":30})";
 	auto doc = arena.parse_borrowed_into(input);
 	REQUIRE(doc.has_value());
 
@@ -4066,7 +4066,7 @@ TEST_CASE(
 	CHECK(*before == "Alice");
 
 	auto const pos = input.find("Alice");
-	REQUIRE(pos != S::npos);
+	REQUIRE(pos != std::string::npos);
 	input.replace(pos, 5, "Marta");
 
 	auto after = name->as_string();
@@ -4079,7 +4079,7 @@ TEST_CASE(
 	"[phase5]") {
 	JsonArena arena;
 	auto doc = [&] {
-		S input = S{"\xEF\xBB\xBF"} + R"({"name":"Bob","age":41})";
+		std::string input = std::string{"\xEF\xBB\xBF"} + R"({"name":"Bob","age":41})";
 		return arena.parse_moved_into(move(input));
 	}();
 	REQUIRE(doc.has_value());
@@ -4115,10 +4115,10 @@ TEST_CASE(
 TEST_CASE(
 	"phase7: NdjsonRange basic two-line NDJSON",
 	"[phase7]") {
-	SV ndjson = R"({"a":1}
+	std::string_view ndjson = R"({"a":1}
 {"b":2})";
 	NdjsonRange range{ndjson};
-	V<S> results;
+	std::vector<std::string> results;
 	for (auto const &d: range) {
 		REQUIRE(d.has_value());
 		auto dumped = d->dump();
@@ -4132,7 +4132,7 @@ TEST_CASE(
 TEST_CASE(
 	"phase7: NdjsonRange skips blank lines",
 	"[phase7]") {
-	SV ndjson = "1\n\n2\n\n3";
+	std::string_view ndjson = "1\n\n2\n\n3";
 	NdjsonRange range{ndjson};
 	int count = 0;
 	for (auto const &d: range) {
@@ -4144,9 +4144,9 @@ TEST_CASE(
 TEST_CASE(
 	"phase7: NdjsonRange strips CRLF",
 	"[phase7]") {
-	SV ndjson = "\"hello\"\r\n\"world\"\r\n";
+	std::string_view ndjson = "\"hello\"\r\n\"world\"\r\n";
 	NdjsonRange range{ndjson};
-	V<S> results;
+	std::vector<std::string> results;
 	for (auto const &d: range) {
 		REQUIRE(d.has_value());
 		results.push_back(*d->dump());
@@ -4158,7 +4158,7 @@ TEST_CASE(
 TEST_CASE(
 	"phase7: NdjsonRange propagates parse error per line",
 	"[phase7]") {
-	SV ndjson = "1\nbad json\n3";
+	std::string_view ndjson = "1\nbad json\n3";
 	NdjsonRange range{ndjson};
 	auto it = range.begin();
 
@@ -4406,7 +4406,7 @@ TEST_CASE(
 	REQUIRE(ev->has_value());
 	CHECK(**ev == Ev::string_value);
 
-	S decoded;
+	std::string decoded;
 	REQUIRE(r.string_token().append_decoded_to(decoded).has_value());
 	CHECK(decoded == "xa");
 }
@@ -4442,7 +4442,7 @@ TEST_CASE(
 	"[phase7]") {
 	JsonParseOptions opts;
 	opts.max_input_size = LimitOption::bound(5);
-	SV ndjson = "1\n\"toolongstring\"\n2";
+	std::string_view ndjson = "1\n\"toolongstring\"\n2";
 	NdjsonRange range{ndjson, opts};
 	auto it = range.begin();
 	REQUIRE(it != std::default_sentinel);
@@ -4680,13 +4680,13 @@ TEST_CASE(
 	auto e2 = r.next();
 	REQUIRE(e2.has_value());
 	CHECK(**e2 == Ev::key);
-	S key_str;
+	std::string key_str;
 	REQUIRE(r.key_token().append_decoded_to(key_str).has_value());
 	CHECK(key_str == "foo");
 	auto e3 = r.next();
 	REQUIRE(e3.has_value());
 	CHECK(**e3 == Ev::string_value);
-	S val_str;
+	std::string val_str;
 	REQUIRE(r.string_token().append_decoded_to(val_str).has_value());
 	CHECK(val_str == "bar");
 	auto e4 = r.next();
@@ -4902,16 +4902,16 @@ TEST_CASE(
 TEST_CASE(
 	"json dom prototype: standalone parse facade preserves view and copy choices",
 	"[json][dom]") {
-	S stable = R"({"name":"view","n":7})";
-	auto view_doc = parse_dom(SV{stable}, JsonDomPolicy::view_first());
+	std::string stable = R"({"name":"view","n":7})";
+	auto view_doc = parse_dom(std::string_view{stable}, JsonDomPolicy::view_first());
 	REQUIRE(view_doc.has_value());
 	CHECK(*view_doc->root().as_object()->member("name")->as_string() == "view");
 
-	auto copy_doc = parse_dom(SV{stable}, JsonDomPolicy::owning_document());
+	auto copy_doc = parse_dom(std::string_view{stable}, JsonDomPolicy::owning_document());
 	REQUIRE(copy_doc.has_value());
 	CHECK(*copy_doc->root().as_object()->member("n")->as_number()->to_i64() == 7LL);
 
-	auto moved_doc = parse_dom(S{R"({"name":"moved"})"});
+	auto moved_doc = parse_dom(std::string{R"({"name":"moved"})"});
 	REQUIRE(moved_doc.has_value());
 	CHECK(*moved_doc->root().as_object()->member("name")->as_string() == "moved");
 }
@@ -4920,12 +4920,12 @@ TEST_CASE(
 	"json dom prototype: arena facade names reusable storage path",
 	"[json][dom]") {
 	JsonArena arena;
-	auto doc = parse_dom(arena, SV{R"({"ok":true})"}, JsonDomPolicy::arena_reuse());
+	auto doc = parse_dom(arena, std::string_view{R"({"ok":true})"}, JsonDomPolicy::arena_reuse());
 	REQUIRE(doc.has_value());
 	CHECK(*doc->root().as_object()->member("ok")->as_bool());
 
 	arena.reset();
-	auto borrowed = parse_dom(arena, SV{R"([1,2,3])"}, JsonDomPolicy::arena_borrowed());
+	auto borrowed = parse_dom(arena, std::string_view{R"([1,2,3])"}, JsonDomPolicy::arena_borrowed());
 	REQUIRE(borrowed.has_value());
 	CHECK(borrowed->root().as_array()->size() == 3UZ);
 }
@@ -4933,12 +4933,12 @@ TEST_CASE(
 TEST_CASE(
 	"json dom prototype: policy mismatches fail through JsonError",
 	"[json][dom]") {
-	auto wrong_storage = parse_dom(SV{"{}"}, JsonDomPolicy::arena_reuse());
+	auto wrong_storage = parse_dom(std::string_view{"{}"}, JsonDomPolicy::arena_reuse());
 	REQUIRE_FALSE(wrong_storage.has_value());
 	CHECK(wrong_storage.error().stage == JsonStage::parse);
 	CHECK(wrong_storage.error().code == JsonIssueCode::constraint_violation);
 
-	auto unsafe_borrow = parse_dom(S{"{}"}, JsonDomPolicy::view_first());
+	auto unsafe_borrow = parse_dom(std::string{"{}"}, JsonDomPolicy::view_first());
 	REQUIRE_FALSE(unsafe_borrow.has_value());
 	CHECK(unsafe_borrow.error().code == JsonIssueCode::constraint_violation);
 }

@@ -7,7 +7,7 @@ import conflux.types;
 import conflux.net.direct_slot_pool;
 namespace {
 
-constexpr u32 kCap = 8;
+constexpr std::uint32_t kCap = 8;
 DirectSlotPool make_pool() {
 	return DirectSlotPool{kCap};
 }
@@ -89,7 +89,7 @@ TEST_CASE(
 	"[direct_slot_pool]") {
 	auto p = make_pool();
 	REQUIRE(p.adopt_kernel_allocated(7));
-	u32 const before = p.free_count();
+	std::uint32_t const before = p.free_count();
 	auto r = p.adopt_kernel_allocated(7);
 	REQUIRE(!r);
 	CHECK(p.free_count() == before);
@@ -104,7 +104,7 @@ TEST_CASE(
 	REQUIRE(p.adopt_kernel_allocated(2));
 	REQUIRE(p.mark_closing(2));
 	p.poison(2, -9);
-	u32 const in_use = 2; // slots 0 and 1: populated; slot 2: poisoned (not in free)
+	std::uint32_t const in_use = 2; // slots 0 and 1: populated; slot 2: poisoned (not in free)
 	CHECK(p.free_count() == p.capacity() - in_use - p.poisoned_count());
 }
 TEST_CASE(
@@ -112,7 +112,7 @@ TEST_CASE(
 	"[direct_slot_pool]") {
 	auto p = make_pool();
 	REQUIRE(p.install_os_fd(0, 3));
-	for (u32 i = 1; i < kCap; ++i) {
+	for (std::uint32_t i = 1; i < kCap; ++i) {
 		REQUIRE(p.adopt_kernel_allocated(i));
 	}
 	CHECK(p.free_count() == 0);

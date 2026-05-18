@@ -16,9 +16,9 @@ import conflux.uring;
 import conflux.socket_io;
 namespace {
 
-u32 recv_flags_for(
-	u16 buf_id) noexcept {
-	return IORING_CQE_F_BUFFER | (static_cast<u32>(buf_id) << IORING_CQE_BUFFER_SHIFT);
+std::uint32_t recv_flags_for(
+	std::uint16_t buf_id) noexcept {
+	return IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(buf_id) << IORING_CQE_BUFFER_SHIFT);
 }
 struct Rig {
 	conflux::uring::Ring uring;
@@ -44,7 +44,7 @@ int main(
 	if (argc < 2) {
 		return 1;
 	}
-	SV probe{argv[1]};
+	std::string_view probe{argv[1]};
 
 	if (probe == "desync") {
 		// ring_id_at(head_pos=0)==0, but we pass buf_id=5 → ID-match assert fires.

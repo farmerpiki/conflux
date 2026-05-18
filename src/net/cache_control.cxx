@@ -5,20 +5,20 @@ import conflux.net.http.types;
 import conflux.net.router;
 export struct CacheRule {
 	// MIME prefix to match (e.g. "image/", "text/css", "application/json").
-	// Empty S matches everything — useful as a fallback rule.
-	S mime_prefix;
+	// Empty std::string matches everything — useful as a fallback rule.
+	std::string mime_prefix;
 
 	// Value for the Cache-Control header (e.g. "max-age=3600, public").
 	// Set to "no-store" to explicitly disable caching.
-	S directive;
+	std::string directive;
 };
 export struct CacheControlOptions {
 	// Rules are evaluated in order; first match wins.
-	V<CacheRule> rules;
+	std::vector<CacheRule> rules;
 
 	// Default directive when no rule matches.
-	// Empty S → no Cache-Control header added.
-	S default_directive;
+	// Empty std::string → no Cache-Control header added.
+	std::string default_directive;
 };
 // Middleware factory: set Cache-Control header on responses.
 // Rules are matched against the response Content-Type (MIME prefix).
@@ -33,10 +33,10 @@ export Router::Middleware cache_control_middleware(
 			return resp;
 		}
 
-		SV const ct = resp.content_type;
+		std::string_view const ct = resp.content_type;
 		// Strip parameters (e.g. "; charset=utf-8") for matching.
 		auto semi = ct.find(';');
-		auto mime = (semi == SV::npos) ? ct : ct.substr(0, semi);
+		auto mime = (semi == std::string_view::npos) ? ct : ct.substr(0, semi);
 		// Trim trailing whitespace.
 		while (!mime.empty() && mime.back() == ' ') {
 			mime.remove_suffix(1);

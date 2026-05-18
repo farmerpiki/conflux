@@ -11,21 +11,21 @@ using namespace conflux::db;
 using namespace std::string_view_literals;
 namespace {
 
-constexpr u64 pack_ud(
-	u32 slot,
-	u32 gen) noexcept {
-	return (static_cast<u64>(gen) << 32U) | slot;
+constexpr std::uint64_t pack_ud(
+	std::uint32_t slot,
+	std::uint32_t gen) noexcept {
+	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 }
 struct PipeConfig {
-	SZ batches = 200;
-	SZ batch_n = 100;
-	SZ warmup_batches = 20;
+	std::size_t batches = 200;
+	std::size_t batch_n = 100;
+	std::size_t warmup_batches = 20;
 };
 PipeConfig parse_pipe_args(
 	span<char *> args) {
 	PipeConfig cfg;
-	for (SZ i = 1; i < args.size(); ++i) {
-		SV a = args[i];
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		std::string_view a = args[i];
 		if (a == "--batches" && i + 1 < args.size()) {
 			cfg.batches = bench_parse_sz(args[++i]);
 		} else if (a == "--batch-n" && i + 1 < args.size()) {
@@ -38,56 +38,56 @@ PipeConfig parse_pipe_args(
 }
 void setup_table(
 	FileReader &reader,
-	SP<Connection> const &conn) {
-	(void)block_on(reader, conn->query("DROP TABLE IF EXISTS conflux_pipeline_bench"), chrono::seconds{30});
+	std::shared_ptr<Connection> const &conn) {
+	(void)block_on(reader, conn->query("DROP TABLE IF EXISTS conflux_pipeline_bench"), std::chrono::seconds{30});
 	(void)block_on(
 		reader,
 		conn->query("CREATE TEMP TABLE conflux_pipeline_bench (id int8 PRIMARY KEY, payload text)"),
-		chrono::seconds{30});
+		std::chrono::seconds{30});
 }
-u64 run_plain(
+std::uint64_t run_plain(
 	FileReader &reader,
-	SP<Connection> const &conn,
-	SZ batches,
-	SZ batch_n) {
-	auto const t0 = chrono::steady_clock::now();
-	i64 id = 0;
-	for (SZ b = 0; b < batches; ++b) {
-		for (SZ i = 0; i < batch_n; ++i) {
+	std::shared_ptr<Connection> const &conn,
+	std::size_t batches,
+	std::size_t batch_n) {
+	auto const t0 = std::chrono::steady_clock::now();
+	std::int64_t id = 0;
+	for (std::size_t b = 0; b < batches; ++b) {
+		for (std::size_t i = 0; i < batch_n; ++i) {
 			Params p;
 			p.add(id++).add("x");
 			(void)block_on(
 				reader,
 				conn->query("INSERT INTO conflux_pipeline_bench (id, payload) VALUES ($1, $2)", move(p)),
-				chrono::seconds{30});
+				std::chrono::seconds{30});
 		}
 	}
-	auto const t1 = chrono::steady_clock::now();
-	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+	auto const t1 = std::chrono::steady_clock::now();
+	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
-u64 run_pipeline(
+std::uint64_t run_pipeline(
 	FileReader &reader,
-	SP<Connection> const &conn,
-	SZ batches,
-	SZ batch_n) {
-	auto const t0 = chrono::steady_clock::now();
-	i64 id = 0;
-	for (SZ b = 0; b < batches; ++b) {
-		auto pipe = block_on(reader, conn->pipeline(), chrono::seconds{30});
-		V<conflux::work::root::Task<Result>> pending;
+	std::shared_ptr<Connection> const &conn,
+	std::size_t batches,
+	std::size_t batch_n) {
+	auto const t0 = std::chrono::steady_clock::now();
+	std::int64_t id = 0;
+	for (std::size_t b = 0; b < batches; ++b) {
+		auto pipe = block_on(reader, conn->pipeline(), std::chrono::seconds{30});
+		std::vector<conflux::work::root::Task<Result>> pending;
 		pending.reserve(batch_n);
-		for (SZ i = 0; i < batch_n; ++i) {
+		for (std::size_t i = 0; i < batch_n; ++i) {
 			Params p;
 			p.add(id++).add("x");
 			pending.push_back(pipe.query("INSERT INTO conflux_pipeline_bench (id, payload) VALUES ($1, $2)", move(p)));
 		}
-		block_on(reader, pipe.sync(), chrono::seconds{30});
+		block_on(reader, pipe.sync(), std::chrono::seconds{30});
 		for (auto &f: pending) {
-			(void)block_on(reader, move(f), chrono::seconds{30});
+			(void)block_on(reader, move(f), std::chrono::seconds{30});
 		}
 	}
-	auto const t1 = chrono::steady_clock::now();
-	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+	auto const t1 = std::chrono::steady_clock::now();
+	return static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(t1 - t0).count());
 }
 
 } // namespace
@@ -99,8 +99,8 @@ int main(
 		argv,
 		R"({"name":"db_pipeline","parser":"standard","configs":[{"name":"b60_n100","extra":{"batches":60,"batch_n":100},"args":["--batches","60","--batch-n","100","--config-name","b60_n100"]}]})");
 
-	auto cfg = bench_parse_args(span{argv, static_cast<SZ>(argc)});
-	auto pipe_cfg = parse_pipe_args(span{argv, static_cast<SZ>(argc)});
+	auto cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto pipe_cfg = parse_pipe_args(span{argv, static_cast<std::size_t>(argc)});
 	if (cfg.config_name.empty()) {
 		cfg.config_name = format("b{}_n{}", pipe_cfg.batches, pipe_cfg.batch_n);
 	}
@@ -121,18 +121,18 @@ int main(
 	CurrentFileReaderScope const scope{&reader};
 
 	try {
-		auto conn = block_on(reader, Connection::connect({.conninfo = raw}), chrono::seconds{30});
+		auto conn = block_on(reader, Connection::connect({.conninfo = raw}), std::chrono::seconds{30});
 		setup_table(reader, conn);
 		(void)run_plain(reader, conn, pipe_cfg.warmup_batches, pipe_cfg.batch_n);
 		setup_table(reader, conn);
 		(void)run_pipeline(reader, conn, pipe_cfg.warmup_batches, pipe_cfg.batch_n);
 
 		setup_table(reader, conn);
-		u64 const plain_ns = run_plain(reader, conn, pipe_cfg.batches, pipe_cfg.batch_n);
+		std::uint64_t const plain_ns = run_plain(reader, conn, pipe_cfg.batches, pipe_cfg.batch_n);
 		setup_table(reader, conn);
-		u64 const pipe_ns = run_pipeline(reader, conn, pipe_cfg.batches, pipe_cfg.batch_n);
+		std::uint64_t const pipe_ns = run_pipeline(reader, conn, pipe_cfg.batches, pipe_cfg.batch_n);
 
-		SZ const total_ops = pipe_cfg.batches * pipe_cfg.batch_n;
+		std::size_t const total_ops = pipe_cfg.batches * pipe_cfg.batch_n;
 		double const ns_per_plain = static_cast<double>(plain_ns) / static_cast<double>(total_ops);
 		double const ns_per_pipe = static_cast<double>(pipe_ns) / static_cast<double>(total_ops);
 

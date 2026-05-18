@@ -27,7 +27,7 @@ T block_on_ring(
 	::io_uring *ring,
 	CompletionTable &completions,
 	conflux::work::root::Task<T> task,
-	chrono::milliseconds budget = chrono::seconds{5}) {
+	std::chrono::milliseconds budget = std::chrono::seconds{5}) {
 	using namespace conflux::work::root;
 	struct Slot {
 		atomic_flag done{};
@@ -49,13 +49,13 @@ T block_on_ring(
 		} catch (...) { slot->err = current_exception(); }
 		slot->done.test_and_set(memory_order_release);
 	});
-	auto const deadline = chrono::steady_clock::now() + budget;
+	auto const deadline = std::chrono::steady_clock::now() + budget;
 	while (!slot->done.test(memory_order_acquire)) {
 		::io_uring_cqe *cqe = nullptr;
 		__kernel_timespec ts{.tv_sec = 1, .tv_nsec = 0};
 		int const rc = ::io_uring_submit_and_wait_timeout(ring, &cqe, 1, &ts, nullptr);
 		if (rc == -ETIME) {
-			if (chrono::steady_clock::now() > deadline) {
+			if (std::chrono::steady_clock::now() > deadline) {
 				throw runtime_error{"block_on_ring: budget exhausted"};
 			}
 			continue;
@@ -124,7 +124,7 @@ struct RingFixture {
 	template<typename T>
 	T run(
 		conflux::work::root::Task<T> task,
-		chrono::milliseconds budget = chrono::seconds{5}) {
+		std::chrono::milliseconds budget = std::chrono::seconds{5}) {
 		return block_on_ring(&ring, completions, move(task), budget);
 	}
 };
@@ -205,7 +205,7 @@ TEST_CASE(
 	uint16_t const recv_port = get_local_port(recv_sock.raw_fd());
 	REQUIRE(recv_port > 0);
 
-	A<uint8_t, 5> payload{'h', 'e', 'l', 'l', 'o'};
+	std::array<uint8_t, 5> payload{'h', 'e', 'l', 'l', 'o'};
 	sockaddr_in dest{};
 	dest.sin_family = AF_INET;
 	dest.sin_port = htons(recv_port);
@@ -216,7 +216,7 @@ TEST_CASE(
 		send_sock.send_to_borrowed(span<uint8_t const>{payload.data(), payload.size()}, to_storage(dest), dest_len));
 	CHECK(bytes_sent == payload.size());
 
-	A<uint8_t, 256> rx_buf{};
+	std::array<uint8_t, 256> rx_buf{};
 	auto const rx = fx->run(recv_sock.recv_from(span<uint8_t>{rx_buf.data(), rx_buf.size()}));
 
 	REQUIRE(rx.bytes == payload.size());
@@ -238,13 +238,13 @@ TEST_CASE(
 
 	auto sock = UdpSocket::ephemeral(fx->task_ring, AF_INET);
 
-	A<uint8_t, 256> rx_buf{};
+	std::array<uint8_t, 256> rx_buf{};
 	int err_code = 0;
 	bool got_value = false;
 	try {
 		fx->run(
-			sock.recv_from(span<uint8_t>{rx_buf.data(), rx_buf.size()}, chrono::milliseconds{50}),
-			chrono::seconds{2});
+			sock.recv_from(span<uint8_t>{rx_buf.data(), rx_buf.size()}, std::chrono::milliseconds{50}),
+			std::chrono::seconds{2});
 		got_value = true;
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (...) {
 	}
@@ -266,7 +266,7 @@ TEST_CASE(
 
 	uint16_t const recv_port = get_local_port(recv_sock.raw_fd());
 
-	A<uint8_t, 4> payload{0xDE, 0xAD, 0xBE, 0xEF};
+	std::array<uint8_t, 4> payload{0xDE, 0xAD, 0xBE, 0xEF};
 	sockaddr_in dest{};
 	dest.sin_family = AF_INET;
 	dest.sin_port = htons(recv_port);
@@ -276,10 +276,10 @@ TEST_CASE(
 	fx->run(
 		send_sock.send_to_borrowed(span<uint8_t const>{payload.data(), payload.size()}, to_storage(dest), dest_len));
 
-	A<uint8_t, 256> rx_buf{};
+	std::array<uint8_t, 256> rx_buf{};
 	auto const rx = fx->run(
-		recv_sock.recv_from(span<uint8_t>{rx_buf.data(), rx_buf.size()}, chrono::milliseconds{2000}),
-		chrono::seconds{3});
+		recv_sock.recv_from(span<uint8_t>{rx_buf.data(), rx_buf.size()}, std::chrono::milliseconds{2000}),
+		std::chrono::seconds{3});
 
 	REQUIRE(rx.bytes == payload.size());
 	CHECK(memcmp(rx_buf.data(), payload.data(), rx.bytes) == 0);
@@ -305,7 +305,7 @@ TEST_CASE(
 	::getsockname(recv_sock.raw_fd(), reinterpret_cast<sockaddr *>(&ss), &len);
 	uint16_t const recv_port = ntohs(reinterpret_cast<sockaddr_in6 const *>(&ss)->sin6_port);
 	REQUIRE(recv_port > 0);
-	A<uint8_t, 4> payload{0x01, 0x02, 0x03, 0x04};
+	std::array<uint8_t, 4> payload{0x01, 0x02, 0x03, 0x04};
 	sockaddr_in6 dest{};
 	dest.sin6_family = AF_INET6;
 	dest.sin6_port = htons(recv_port);
@@ -313,7 +313,7 @@ TEST_CASE(
 	sockaddr_storage dest_ss{};
 	memcpy(&dest_ss, &dest, sizeof(dest));
 	fx->run(send_sock.send_to_borrowed(span<uint8_t const>{payload.data(), payload.size()}, dest_ss, sizeof(dest)));
-	A<uint8_t, 256> rx_buf{};
+	std::array<uint8_t, 256> rx_buf{};
 	auto const rx = fx->run(recv_sock.recv_from(span<uint8_t>{rx_buf.data(), rx_buf.size()}));
 	REQUIRE(rx.bytes == payload.size());
 	CHECK(memcmp(rx_buf.data(), payload.data(), rx.bytes) == 0);
@@ -327,10 +327,10 @@ TEST_CASE(
 	"[udp]") {
 	auto fx = require_ring_fixture();
 	auto sock = UdpSocket::ephemeral(fx->task_ring, AF_INET);
-	A<uint8_t, 256> rx_buf{};
+	std::array<uint8_t, 256> rx_buf{};
 	int err_code = 0;
 	try {
-		fx->run(sock.recv_from(span<uint8_t>{rx_buf.data(), rx_buf.size()}, chrono::milliseconds{-1}));
+		fx->run(sock.recv_from(span<uint8_t>{rx_buf.data(), rx_buf.size()}, std::chrono::milliseconds{-1}));
 	} catch (IoError const &e) { err_code = e.code().value(); }
 	CHECK(err_code == EINVAL);
 }

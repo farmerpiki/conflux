@@ -8,24 +8,24 @@ namespace {
 template<typename F>
 BenchStats measure(
 	F &&fn,
-	SZ warmup,
-	SZ iters,
-	SZ batch = 1,
-	SZ bytes = 0) {
-	iters = max(iters, SZ{1});
-	batch = max(batch, SZ{1});
-	for (SZ i = 0; i < warmup * batch; ++i) {
+	std::size_t warmup,
+	std::size_t iters,
+	std::size_t batch = 1,
+	std::size_t bytes = 0) {
+	iters = max(iters, std::size_t{1});
+	batch = max(batch, std::size_t{1});
+	for (std::size_t i = 0; i < warmup * batch; ++i) {
 		fn();
 	}
-	V<u64> samples;
+	std::vector<std::uint64_t> samples;
 	samples.reserve(iters);
-	u64 total = 0;
-	for (SZ i = 0; i < iters; ++i) {
-		u64 const t0 = bench_now_ns();
-		for (SZ j = 0; j < batch; ++j) {
+	std::uint64_t total = 0;
+	for (std::size_t i = 0; i < iters; ++i) {
+		std::uint64_t const t0 = bench_now_ns();
+		for (std::size_t j = 0; j < batch; ++j) {
 			fn();
 		}
-		u64 const elapsed = bench_now_ns() - t0;
+		std::uint64_t const elapsed = bench_now_ns() - t0;
 		total += elapsed;
 		samples.push_back(elapsed);
 	}
@@ -42,7 +42,7 @@ BenchStats measure(
 bool g_json = false;
 bool g_first = true;
 void emit(
-	SV name,
+	std::string_view name,
 	BenchStats s) {
 	s.variant = name;
 	if (g_json) {
@@ -63,18 +63,18 @@ int main(
 		argc,
 		argv,
 		R"({"name":"crypto","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
-	auto const cfg = bench_parse_args(span{argv, static_cast<SZ>(argc)});
+	auto const cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
 	g_json = cfg.json_out;
 
-	A<unsigned char, 32> key{};
-	A<unsigned char, 12> iv{};
-	A<unsigned char, 16> aad{};
+	std::array<unsigned char, 32> key{};
+	std::array<unsigned char, 12> iv{};
+	std::array<unsigned char, 16> aad{};
 	crypto_random_bytes(key);
 	crypto_random_bytes(iv);
 	crypto_random_bytes(aad);
 
-	for (SZ sz: {64UZ, 256UZ, 1024UZ, 4096UZ, 16384UZ, 65536UZ}) {
-		V<unsigned char> pt(sz);
+	for (std::size_t sz: {64UZ, 256UZ, 1024UZ, 4096UZ, 16384UZ, 65536UZ}) {
+		std::vector<unsigned char> pt(sz);
 		crypto_random_bytes(pt);
 
 		auto enc_name = format("gcm_encrypt/{}", sz);
@@ -105,8 +105,8 @@ int main(
 				sz));
 	}
 
-	for (SZ sz: {16UZ, 64UZ, 256UZ, 1024UZ, 4096UZ}) {
-		V<unsigned char> data(sz);
+	for (std::size_t sz: {16UZ, 64UZ, 256UZ, 1024UZ, 4096UZ}) {
+		std::vector<unsigned char> data(sz);
 		crypto_random_bytes(data);
 
 		auto name = format("hex_encode/{}", sz);
@@ -123,8 +123,8 @@ int main(
 				sz));
 	}
 
-	for (SZ sz: {32UZ, 64UZ, 256UZ}) {
-		V<unsigned char> msg(sz);
+	for (std::size_t sz: {32UZ, 64UZ, 256UZ}) {
+		std::vector<unsigned char> msg(sz);
 		crypto_random_bytes(msg);
 
 		auto name = format("sha256/{}", sz);
@@ -150,8 +150,8 @@ int main(
 				cfg.iterations / 10));
 	}
 
-	SV a = "this is a constant time comparison test string!";
-	SV b = "this is a constant time comparison test string!";
+	std::string_view a = "this is a constant time comparison test string!";
+	std::string_view b = "this is a constant time comparison test string!";
 	emit(
 		"constant_time_eq/48",
 		measure(
@@ -163,8 +163,8 @@ int main(
 			cfg.iterations,
 			100));
 
-	for (SZ sz: {32UZ, 128UZ, 512UZ, 4096UZ}) {
-		V<char> buf(sz, 'X');
+	for (std::size_t sz: {32UZ, 128UZ, 512UZ, 4096UZ}) {
+		std::vector<char> buf(sz, 'X');
 		auto lower_name = format("ascii_lower/{}", sz);
 		emit(
 			lower_name,
@@ -183,7 +183,7 @@ int main(
 				sz));
 	}
 
-	S const url_plain = "https://example.com/api/v1/users/12345/profile?format=json&lang=en";
+	std::string const url_plain = "https://example.com/api/v1/users/12345/profile?format=json&lang=en";
 	emit(
 		"url_decode/plain_65",
 		measure(
@@ -195,7 +195,7 @@ int main(
 			cfg.iterations,
 			10));
 
-	S const url_encoded = "key1%3Dval1%26key2%3Dval2%26key3%3Dval3%26key4%3Dval4%26key5%3Dval5";
+	std::string const url_encoded = "key1%3Dval1%26key2%3Dval2%26key3%3Dval3%26key4%3Dval4%26key5%3Dval5";
 	emit(
 		"url_decode/encoded_67",
 		measure(

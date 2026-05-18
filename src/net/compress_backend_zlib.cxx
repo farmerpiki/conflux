@@ -6,8 +6,8 @@ import std;
 import conflux.types;
 export namespace conflux::compress_backends {
 
-S zlib_gzip_compress(
-	SV input) {
+std::string zlib_gzip_compress(
+	std::string_view input) {
 	z_stream zs{};
 	if (deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 | 16, 8, Z_DEFAULT_STRATEGY) != Z_OK) {
 		return {};
@@ -15,7 +15,7 @@ S zlib_gzip_compress(
 	zs.next_in = reinterpret_cast<Bytef *>(const_cast<char *>(input.data()));
 	zs.avail_in = static_cast<uInt>(input.size());
 
-	S out;
+	std::string out;
 	out.resize(deflateBound(&zs, input.size()));
 	zs.next_out = reinterpret_cast<Bytef *>(out.data());
 	zs.avail_out = static_cast<uInt>(out.size());

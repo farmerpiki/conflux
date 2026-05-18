@@ -29,7 +29,7 @@ export struct CompressOptions {
 	std::size_t min_body_size{256};
 };
 
-export enum class GzipBackend : u8 {
+export enum class GzipBackend : std::uint8_t {
 	auto_select,
 	zlib,
 	libdeflate,
@@ -48,12 +48,12 @@ export [[nodiscard]] std::string_view gzip_backend_name(
 	return "unknown";
 }
 
-export enum class CompressionCalibration : u8 {
+export enum class CompressionCalibration : std::uint8_t {
 	disabled,
 	startup,
 };
 
-export enum class DynamicEncodingPreference : u8 {
+export enum class DynamicEncodingPreference : std::uint8_t {
 	gzip_first,
 	zstd_first,
 };
@@ -199,16 +199,16 @@ GzipBackend benchmark_fastest_gzip_backend() {
 
 	std::string const sample(4096, 'x');
 	GzipBackend winner = backends.front();
-	auto best = chrono::steady_clock::duration::max();
+	auto best = std::chrono::steady_clock::duration::max();
 	for (auto const backend: backends) {
-		auto const start = chrono::steady_clock::now();
+		auto const start = std::chrono::steady_clock::now();
 		for (int i = 0; i < 32; ++i) {
 			auto compressed = gzip_compress_with_backend(backend, sample);
 			if (compressed.empty()) {
 				continue;
 			}
 		}
-		auto const elapsed = chrono::steady_clock::now() - start;
+		auto const elapsed = std::chrono::steady_clock::now() - start;
 		if (elapsed < best) {
 			best = elapsed;
 			winner = backend;
@@ -229,7 +229,7 @@ GzipBackend default_gzip_backend() {
 		return backends.front();
 	}
 
-	A preferred{
+	std::array preferred{
 		GzipBackend::isa_l,
 		GzipBackend::zlib_ng,
 		GzipBackend::libdeflate,
@@ -269,24 +269,24 @@ DynamicEncodingPreference benchmark_dynamic_encoding_preference() {
 	std::string const sample(4096, 'x');
 	auto const gzip_backend = resolve_gzip_backend();
 
-	auto const gzip_start = chrono::steady_clock::now();
+	auto const gzip_start = std::chrono::steady_clock::now();
 	for (int i = 0; i < 32; ++i) {
 		auto compressed = gzip_compress_with_backend(gzip_backend, sample);
 		if (compressed.empty()) {
 			break;
 		}
 	}
-	auto const gzip_elapsed = chrono::steady_clock::now() - gzip_start;
+	auto const gzip_elapsed = std::chrono::steady_clock::now() - gzip_start;
 
 #if CONFLUX_HAS_ZSTD
-	auto const zstd_start = chrono::steady_clock::now();
+	auto const zstd_start = std::chrono::steady_clock::now();
 	for (int i = 0; i < 32; ++i) {
 		auto compressed = zstd_compress(sample);
 		if (compressed.empty()) {
 			break;
 		}
 	}
-	auto const zstd_elapsed = chrono::steady_clock::now() - zstd_start;
+	auto const zstd_elapsed = std::chrono::steady_clock::now() - zstd_start;
 	return (gzip_elapsed <= zstd_elapsed) ? DynamicEncodingPreference::gzip_first :
 											DynamicEncodingPreference::zstd_first;
 #else
@@ -375,9 +375,9 @@ std::string brotli_compress(
 			BROTLI_DEFAULT_WINDOW,
 			BROTLI_MODE_TEXT,
 			input.size(),
-			reinterpret_cast<u8 const *>(input.data()),
+			reinterpret_cast<std::uint8_t const *>(input.data()),
 			&out_size,
-			reinterpret_cast<u8 *>(out.data()))
+			reinterpret_cast<std::uint8_t *>(out.data()))
 		== 0) {
 		return {};
 	}

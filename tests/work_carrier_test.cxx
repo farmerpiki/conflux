@@ -43,7 +43,7 @@ TEST_CASE(
 	"carrier.model_a: from_task preserves failure outcome",
 	"[carrier.model_a]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.try_set_exception(make_exception_ptr(RE{"fail"})));
+	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"fail"})));
 
 	auto chain = carrier::from_task(move(task));
 	auto out = move(chain).release_outcome();
@@ -106,7 +106,7 @@ TEST_CASE(
 	"carrier.model_a: map passes through failure without calling fn",
 	"[carrier.model_a]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.try_set_exception(make_exception_ptr(RE{"boom"})));
+	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"boom"})));
 
 	bool fn_called = false;
 	auto chain = carrier::from_task(move(task));
@@ -144,11 +144,11 @@ TEST_CASE(
 	REQUIRE(src.try_set_value(root::Success<int>{1}));
 
 	auto chain = carrier::from_task(move(task));
-	auto mapped = carrier::map(move(chain), [](int) -> int { throw RE{"fn threw"}; });
+	auto mapped = carrier::map(move(chain), [](int) -> int { throw std::runtime_error{"fn threw"}; });
 
 	auto out = move(mapped).release_outcome();
 	REQUIRE(out.is_failure());
-	CHECK_THROWS_AS(rethrow_exception(out.failure().error), RE);
+	CHECK_THROWS_AS(rethrow_exception(out.failure().error), std::runtime_error);
 }
 TEST_CASE(
 	"carrier.model_a: then delegates to map",
@@ -201,7 +201,7 @@ TEST_CASE(
 	"[carrier.model_a]") {
 	auto [task_a, src_a] = root::make_task_source<int>();
 	auto [task_b, src_b] = root::make_task_source<int>();
-	REQUIRE(src_a.try_set_exception(make_exception_ptr(RE{"a"})));
+	REQUIRE(src_a.try_set_exception(make_exception_ptr(std::runtime_error{"a"})));
 	REQUIRE(src_b.try_set_value(root::Success<int>{1}));
 
 	auto ca = carrier::from_task(move(task_a));
@@ -217,7 +217,7 @@ TEST_CASE(
 	auto [task_a, src_a] = root::make_task_source<int>();
 	auto [task_b, src_b] = root::make_task_source<int>();
 	REQUIRE(src_a.try_set_value(root::Success<int>{1}));
-	REQUIRE(src_b.try_set_exception(make_exception_ptr(RE{"b"})));
+	REQUIRE(src_b.try_set_exception(make_exception_ptr(std::runtime_error{"b"})));
 
 	auto ca = carrier::from_task(move(task_a));
 	auto cb = carrier::from_task(move(task_b));
@@ -306,7 +306,7 @@ TEST_CASE(
 	"chain.then: passes through failure without calling fn",
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.try_set_exception(make_exception_ptr(RE{"e"})));
+	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"e"})));
 	bool called = false;
 	auto out = move(carrier::from_task(move(task)).then([&](int x) {
 				   called = true;
@@ -333,7 +333,7 @@ TEST_CASE(
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{1}));
-	auto out = move(carrier::from_task(move(task)).then([](int) -> int { throw RE{"bad"}; })).release_outcome();
+	auto out = move(carrier::from_task(move(task)).then([](int) -> int { throw std::runtime_error{"bad"}; })).release_outcome();
 	CHECK(out.is_failure());
 }
 TEST_CASE(
@@ -356,7 +356,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{7}));
 	bool called = false;
-	auto out = move(carrier::from_task(move(task)).catch_error([&](EP) {
+	auto out = move(carrier::from_task(move(task)).catch_error([&](std::exception_ptr) {
 				   called = true;
 				   return -1;
 			   })).release_outcome();
@@ -368,8 +368,8 @@ TEST_CASE(
 	"chain.catch_error: failure handled returning T",
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.try_set_exception(make_exception_ptr(RE{"e"})));
-	auto out = move(carrier::from_task(move(task)).catch_error([](EP) { return 99; })).release_outcome();
+	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"e"})));
+	auto out = move(carrier::from_task(move(task)).catch_error([](std::exception_ptr) { return 99; })).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 99);
 }
@@ -377,8 +377,8 @@ TEST_CASE(
 	"chain.catch_error: failure handled returning Chain<T>",
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.try_set_exception(make_exception_ptr(RE{"e"})));
-	auto out = move(carrier::from_task(move(task)).catch_error([](EP) -> carrier::Chain<int> {
+	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"e"})));
+	auto out = move(carrier::from_task(move(task)).catch_error([](std::exception_ptr) -> carrier::Chain<int> {
 				   auto [t2, s2] = root::make_task_source<int>();
 				   (void)s2.try_set_value(root::Success<int>{55});
 				   return carrier::from_task(move(t2));
@@ -392,7 +392,7 @@ TEST_CASE(
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
 	bool called = false;
-	auto out = move(carrier::from_task(move(task)).catch_error([&](EP) {
+	auto out = move(carrier::from_task(move(task)).catch_error([&](std::exception_ptr) {
 				   called = true;
 				   return -1;
 			   })).release_outcome();
@@ -425,7 +425,7 @@ TEST_CASE(
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
-	auto out = move(carrier::from_task(move(task)).on_cancel([] { throw RE{"x"}; })).release_outcome();
+	auto out = move(carrier::from_task(move(task)).on_cancel([] { throw std::runtime_error{"x"}; })).release_outcome();
 	CHECK(out.is_cancelled());
 }
 TEST_CASE(
@@ -455,7 +455,7 @@ TEST_CASE(
 	"chain.recover_cancel: failure passes through",
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.try_set_exception(make_exception_ptr(RE{"e"})));
+	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"e"})));
 	bool called = false;
 	auto out = move(carrier::from_task(move(task)).recover_cancel([&] {
 				   called = true;
@@ -468,7 +468,7 @@ TEST_CASE(
 	"chain.recover: failure recovered",
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.try_set_exception(make_exception_ptr(RE{"e"})));
+	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"e"})));
 	auto out = move(carrier::from_task(move(task)).recover([](root::Outcome<int>) { return 77; })).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 77);
@@ -512,11 +512,11 @@ TEST_CASE(
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{10}));
-	auto out = move(carrier::from_task(move(task)).transform_outcome([](root::Outcome<int> o) -> root::Outcome<S> {
+	auto out = move(carrier::from_task(move(task)).transform_outcome([](root::Outcome<int> o) -> root::Outcome<std::string> {
 				   if (o.is_success()) {
-					   return root::Outcome<S>{root::Success<S>{to_string(o.success().value)}};
+					   return root::Outcome<std::string>{root::Success<std::string>{to_string(o.success().value)}};
 				   }
-				   return root::Outcome<S>{move(o).failure()};
+				   return root::Outcome<std::string>{move(o).failure()};
 			   })).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == "10");
@@ -574,7 +574,7 @@ TEST_CASE(
 	"chain.into_task: failure outcome becomes Task with failure",
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
-	REQUIRE(src.try_set_exception(make_exception_ptr(RE{"bad"})));
+	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"bad"})));
 	auto t = carrier::from_task(move(task)).into_task();
 	auto out = root::blocking_join(move(t));
 	CHECK(out.is_failure());

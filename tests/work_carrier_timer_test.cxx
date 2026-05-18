@@ -8,13 +8,13 @@ import conflux.types;
 import conflux.work.carrier.timer;
 namespace {
 
-constexpr u64 TIMER_TAG = 0xCAFEDEADBEEF0001ULL;
+constexpr std::uint64_t TIMER_TAG = 0xCAFEDEADBEEF0001ULL;
 struct Ring {
 	io_uring ring{};
 	explicit Ring(
 		unsigned entries = 32) {
 		if (io_uring_queue_init(entries, &ring, 0) < 0) {
-			throw RE{"io_uring_queue_init failed"};
+			throw std::runtime_error{"io_uring_queue_init failed"};
 		}
 	}
 	~Ring() noexcept { io_uring_queue_exit(&ring); }
@@ -24,10 +24,10 @@ struct Ring {
 void run_until(
 	Ring &r,
 	conflux::work::carrier::TimerService &svc,
-	Fn<bool()> const &done,
+	std::function<bool()> const &done,
 	int timeout_ms = 500) {
-	auto const wall_deadline = chrono::steady_clock::now() + chrono::milliseconds{timeout_ms};
-	while (!done() && chrono::steady_clock::now() < wall_deadline) {
+	auto const wall_deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{timeout_ms};
+	while (!done() && std::chrono::steady_clock::now() < wall_deadline) {
 		__kernel_timespec ts{0, 5000000};
 		io_uring_cqe *cqe = nullptr;
 		int const ret = io_uring_wait_cqe_timeout(&r.ring, &cqe, &ts);
@@ -58,7 +58,7 @@ TEST_CASE(
 	conflux::work::carrier::TimerService svc{&r.ring, TIMER_TAG};
 
 	bool fired = false;
-	auto deadline = chrono::steady_clock::now() + chrono::milliseconds{20};
+	auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{20};
 	conflux::work::carrier::LaneTimerScope<> const scope{svc, deadline, [&fired] { fired = true; }};
 
 	run_until(r, svc, [&fired] { return fired; });
@@ -73,7 +73,7 @@ TEST_CASE(
 
 	bool fired = false;
 	{
-		auto deadline = chrono::steady_clock::now() + chrono::milliseconds{200};
+		auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{200};
 		conflux::work::carrier::LaneTimerScope<> const scope{svc, deadline, [&fired] { fired = true; }};
 	}
 
@@ -87,16 +87,16 @@ TEST_CASE(
 	Ring r;
 	conflux::work::carrier::TimerService svc{&r.ring, TIMER_TAG};
 
-	V<int> order;
-	auto now = chrono::steady_clock::now();
+	std::vector<int> order;
+	auto now = std::chrono::steady_clock::now();
 
-	conflux::work::carrier::LaneTimerScope<> const s1{svc, now + chrono::milliseconds{60}, [&order] {
+	conflux::work::carrier::LaneTimerScope<> const s1{svc, now + std::chrono::milliseconds{60}, [&order] {
 														  order.push_back(1);
 													  }};
-	conflux::work::carrier::LaneTimerScope<> const s2{svc, now + chrono::milliseconds{20}, [&order] {
+	conflux::work::carrier::LaneTimerScope<> const s2{svc, now + std::chrono::milliseconds{20}, [&order] {
 														  order.push_back(2);
 													  }};
-	conflux::work::carrier::LaneTimerScope<> const s3{svc, now + chrono::milliseconds{40}, [&order] {
+	conflux::work::carrier::LaneTimerScope<> const s3{svc, now + std::chrono::milliseconds{40}, [&order] {
 														  order.push_back(3);
 													  }};
 
@@ -115,13 +115,13 @@ TEST_CASE(
 
 	bool late_fired = false;
 	bool early_fired = false;
-	auto now = chrono::steady_clock::now();
+	auto now = std::chrono::steady_clock::now();
 
 	// Insert late first, then early — early should trigger rearm
-	conflux::work::carrier::LaneTimerScope<> const late{svc, now + chrono::milliseconds{200}, [&late_fired] {
+	conflux::work::carrier::LaneTimerScope<> const late{svc, now + std::chrono::milliseconds{200}, [&late_fired] {
 															late_fired = true;
 														}};
-	conflux::work::carrier::LaneTimerScope<> const early{svc, now + chrono::milliseconds{20}, [&early_fired] {
+	conflux::work::carrier::LaneTimerScope<> const early{svc, now + std::chrono::milliseconds{20}, [&early_fired] {
 															 early_fired = true;
 														 }};
 
@@ -138,13 +138,13 @@ TEST_CASE(
 
 	bool early_fired = false;
 	bool late_fired = false;
-	auto now = chrono::steady_clock::now();
+	auto now = std::chrono::steady_clock::now();
 
-	conflux::work::carrier::LaneTimerScope<> const late{svc, now + chrono::milliseconds{80}, [&late_fired] {
+	conflux::work::carrier::LaneTimerScope<> const late{svc, now + std::chrono::milliseconds{80}, [&late_fired] {
 															late_fired = true;
 														}};
 	{
-		conflux::work::carrier::LaneTimerScope<> const early{svc, now + chrono::milliseconds{10}, [&early_fired] {
+		conflux::work::carrier::LaneTimerScope<> const early{svc, now + std::chrono::milliseconds{10}, [&early_fired] {
 																 early_fired = true;
 															 }};
 	}
@@ -161,7 +161,7 @@ TEST_CASE(
 	conflux::work::carrier::TimerService svc{&r.ring, TIMER_TAG};
 
 	bool fired = false;
-	auto deadline = chrono::steady_clock::now() + chrono::milliseconds{200};
+	auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds{200};
 
 	{
 		conflux::work::carrier::LaneTimerScope<> s1{svc, deadline, [&fired] { fired = true; }};
@@ -179,14 +179,14 @@ TEST_CASE(
 	Ring r;
 	conflux::work::carrier::TimerService svc{&r.ring, TIMER_TAG};
 
-	auto const deadline = chrono::steady_clock::now() + chrono::hours{1};
+	auto const deadline = std::chrono::steady_clock::now() + std::chrono::hours{1};
 	auto const n = 10000u;
 
-	auto const start = chrono::steady_clock::now();
+	auto const start = std::chrono::steady_clock::now();
 	for (auto i = 0u; i < n; ++i) {
 		conflux::work::carrier::LaneTimerScope<> const scope{svc, deadline, [] {}};
 	}
-	auto const ms = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - start).count();
+	auto const ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 
 	REQUIRE(ms < 1000);
 }

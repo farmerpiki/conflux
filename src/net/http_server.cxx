@@ -31,7 +31,7 @@ public:
 	[[nodiscard]] HttpServerMetrics metrics() const noexcept;
 	// Blocks until ring 0 has bound and called listen(); returns the actual port.
 	// Safe to call from any thread after run() has been dispatched.
-	[[nodiscard]] u16 port() const;
+	[[nodiscard]] std::uint16_t port() const;
 
 	HttpServer(HttpServer const &) = delete;
 	HttpServer &operator =(HttpServer const &) = delete;

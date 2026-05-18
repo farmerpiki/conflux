@@ -17,7 +17,7 @@ namespace json = conflux::json;
 using JsonProvider = conflux::json::boundary::NativeJsonProvider;
 
 struct Todo {
-	i64 id{};
+	std::int64_t id{};
 	std::string title;
 	bool done{};
 };
@@ -105,7 +105,7 @@ int main() {
 		Todo{.id = 2, .title = "write typed JSON examples", .done = true},
 	};
 	mutex todos_mu;
-	i64 next_id = 3;
+	std::int64_t next_id = 3;
 
 	api.get("/api/status", [] {
 		return StatusReply{.status = "ok", .component = "typed-json-api"};

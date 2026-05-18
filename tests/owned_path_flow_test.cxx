@@ -13,7 +13,7 @@ namespace {
 
 struct TestRig {
 	Ring ring;
-	V<uf::FlowResult> results;
+	std::vector<uf::FlowResult> results;
 	uf::FlowRuntime rt;
 	explicit TestRig(
 		bool force_unstable = false)
@@ -43,13 +43,13 @@ TEST_CASE(
 	"[owned_path]") {
 	auto p = uf::OwnedInlinePath::from_sv("/dev/null");
 	REQUIRE(p);
-	CHECK(SV{p->c_str()} == "/dev/null");
+	CHECK(std::string_view{p->c_str()} == "/dev/null");
 	CHECK(p->len == 9);
 }
 TEST_CASE(
 	"owned_inline_path: exactly 255 bytes accepted",
 	"[owned_path]") {
-	S s(255, 'a');
+	std::string s(255, 'a');
 	auto p = uf::OwnedInlinePath::from_sv(s);
 	REQUIRE(p);
 	CHECK(p->len == 255);
@@ -58,7 +58,7 @@ TEST_CASE(
 TEST_CASE(
 	"owned_inline_path: 256 bytes rejected with -ENAMETOOLONG",
 	"[owned_path]") {
-	S s(256, 'a');
+	std::string s(256, 'a');
 	auto p = uf::OwnedInlinePath::from_sv(s);
 	CHECK_FALSE(p);
 	CHECK(p.error() == -ENAMETOOLONG);
@@ -66,7 +66,7 @@ TEST_CASE(
 TEST_CASE(
 	"owned_inline_path: embedded NUL rejected with -EINVAL",
 	"[owned_path]") {
-	auto p = uf::OwnedInlinePath::from_sv(SV{"abc\0def", 7});
+	auto p = uf::OwnedInlinePath::from_sv(std::string_view{"abc\0def", 7});
 	CHECK_FALSE(p);
 	CHECK(p.error() == -EINVAL);
 }
@@ -99,7 +99,7 @@ TEST_CASE(
 	"owned_path: early builder error not overwritten by unstable-path pre-pass",
 	"[owned_path][submit]") {
 	TestRig rig{true};
-	S too_long(256, 'x');
+	std::string too_long(256, 'x');
 	auto b = rig.rt.flow();
 	auto f = b.open_direct_owned(DirectSlot{0}, AT_FDCWD, too_long, O_RDONLY);
 	CHECK_FALSE(f.valid());
@@ -141,7 +141,7 @@ TEST_CASE(
 	// Flow index 0 was allocated. Capture the runtime path pointer before any reuse.
 	char const *stored = rig.rt.test_owned_path_ptr(0);
 	REQUIRE(stored != nullptr);
-	CHECK(SV{stored} == "/dev/null");
+	CHECK(std::string_view{stored} == "/dev/null");
 
 	// Submit a second flow — reuses builder slot 0 in the builders_ array.
 	{
@@ -153,8 +153,8 @@ TEST_CASE(
 	// FlowSlab freelist is initialized in reverse (flow.cxx: free_[i]=kMaxFlows-1-i),
 	// so first try_allocate yields index 0 and second yields index 1 on a fresh slab.
 	// CQEs are never delivered in this test, so slab slots are never released.
-	CHECK(SV{rig.rt.test_owned_path_ptr(0)} == "/dev/null");
-	CHECK(SV{rig.rt.test_owned_path_ptr(1)} == "/tmp");
+	CHECK(std::string_view{rig.rt.test_owned_path_ptr(0)} == "/dev/null");
+	CHECK(std::string_view{rig.rt.test_owned_path_ptr(1)} == "/tmp");
 }
 // ── OwnedInlinePath overload called directly ─────────────────────────────────
 
@@ -201,7 +201,7 @@ TEST_CASE(
 	}()};
 	REQUIRE(ring.register_files_sparse(4) == 0);
 	auto caps = detect_caps(ring.ref());
-	V<uf::FlowResult> results;
+	std::vector<uf::FlowResult> results;
 	results.reserve(4);
 	uf::FlowRuntime rt{ring, caps, [&](uf::FlowResult fr) noexcept { results.push_back(fr); }};
 

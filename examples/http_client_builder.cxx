@@ -8,7 +8,7 @@ import std;
 
 namespace http = conflux::http;
 
-static void print_url_parse(SV raw) {
+static void print_url_parse(std::string_view raw) {
 	auto parsed = http::Url::parse(raw);
 	if (!parsed) {
 		std::println("url parse failed for '{}': {}", raw, parsed.error().message);
@@ -41,12 +41,12 @@ int main() {
 		.bearer("example-token")
 		.if_none_match(R"("cached-etag")")
 		.timeouts({
-			.resolve = chrono::milliseconds{750},
-			.connect = chrono::milliseconds{750},
-			.tls = chrono::milliseconds{1000},
-			.write = chrono::milliseconds{1500},
-			.first_byte = chrono::milliseconds{2000},
-			.between_bytes = chrono::milliseconds{2000},
+			.resolve = std::chrono::milliseconds{750},
+			.connect = std::chrono::milliseconds{750},
+			.tls = std::chrono::milliseconds{1000},
+			.write = std::chrono::milliseconds{1500},
+			.first_byte = std::chrono::milliseconds{2000},
+			.between_bytes = std::chrono::milliseconds{2000},
 		})
 		.follow_redirects(3)
 		.body_form(form)
@@ -58,7 +58,7 @@ int main() {
 	std::println("body: {}", req.body());
 	std::println("redirect limit: {} verify_peer={}", req.max_redirects(), req.verify_peer());
 
-	S body;
+	std::string body;
 	auto consumed = decode_chunked("4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n", 64, 8, body);
 	std::println("chunked decode: {}", consumed > 0 ? body : "<invalid>");
 }

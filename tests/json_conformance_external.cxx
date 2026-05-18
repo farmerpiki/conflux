@@ -17,12 +17,12 @@ namespace json = conflux::json;
 // Helpers
 // ---------------------------------------------------------------------------
 static void check_valid(
-	SV s) {
+	std::string_view s) {
 	INFO("Expected valid: " << s);
 	CHECK(json::parse(s).has_value());
 }
 static void check_invalid(
-	SV s) {
+	std::string_view s) {
 	INFO("Expected invalid: " << s);
 	CHECK(!json::parse(s).has_value());
 }
@@ -284,7 +284,7 @@ TEST_CASE(
 	check_invalid("[01]");
 }
 TEST_CASE(
-	"RFC 8259 §7: S unicode escapes",
+	"RFC 8259 §7: std::string unicode escapes",
 	"[conformance][rfc8259][pass]") {
 	check_valid("\"\"");
 	check_valid("\"hello\"");
@@ -295,7 +295,7 @@ TEST_CASE(
 	check_valid("[\"\\u4E2D\\u6587\"]"); // Chinese characters
 }
 TEST_CASE(
-	"RFC 8259 §7: invalid S escapes",
+	"RFC 8259 §7: invalid std::string escapes",
 	"[conformance][rfc8259][fail]") {
 	// Incomplete unicode escape
 	check_invalid("[\"\\u123\"]");
@@ -362,7 +362,7 @@ TEST_CASE(
 	check_valid("{\"a\":{\"b\":{\"c\":{\"d\":{}}}}}");
 }
 TEST_CASE(
-	"edge cases: special S content",
+	"edge cases: special std::string content",
 	"[conformance][edge][pass]") {
 	// Solidus (/) may be unescaped
 	check_valid("[\"http:\\/\\/example.com\"]");
@@ -416,7 +416,7 @@ TEST_CASE(
 	auto doc = json::parse(R"({"a\nb": 1})");
 	REQUIRE(doc.has_value());
 	auto o = *doc->root().as_object();
-	S const key{"a\nb"};
+	std::string const key{"a\nb"};
 	auto node = o.find_member(key);
 	REQUIRE(node.has_value());
 	CHECK(*node->as_number()->to_i64() == 1LL);
@@ -428,8 +428,8 @@ TEST_CASE(
 	auto doc = json::parse(R"({"a\u0000b": 42})");
 	REQUIRE(doc.has_value());
 	auto o = *doc->root().as_object();
-	// C++ S literal with embedded null: 'a', '\0' (0x00), 'b'
-	SV const key{"a\0b", 3};
+	// C++ std::string literal with embedded null: 'a', '\0' (0x00), 'b'
+	std::string_view const key{"a\0b", 3};
 	auto node = o.find_member(key);
 	REQUIRE(node.has_value());
 	CHECK(*node->as_number()->to_i64() == 42LL);
@@ -478,25 +478,25 @@ TEST_CASE(
 TEST_CASE(
 	"UUU: build_probe_cap_adversarial_hash -- 65 colliding-hash members",
 	"[conformance][escaped-key][phase6]") {
-	// Keys that formerly collided under std::hash<SV> (low-8-bit bucket
+	// Keys that formerly collided under std::hash<std::string_view> (low-8-bit bucket
 	// 0x37). With seeded xxHash3 (v16 Item B) the seed is random per document,
 	// so these keys no longer collide and warm_member_index succeeds.
-	constexpr u32 target_low = 0x37;
-	V<S> keys;
+	constexpr std::uint32_t target_low = 0x37;
+	std::vector<std::string> keys;
 	keys.reserve(65);
-	for (u64 i = 0; keys.size() < 65 && i < (1ULL << 24); ++i) {
-		S candidate = "k_" + to_string(i);
-		auto const h = static_cast<u32>(hash<SV>{}(SV{candidate}));
+	for (std::uint64_t i = 0; keys.size() < 65 && i < (1ULL << 24); ++i) {
+		std::string candidate = "k_" + to_string(i);
+		auto const h = static_cast<std::uint32_t>(hash<std::string_view>{}(std::string_view{candidate}));
 		if ((h & 0xFFu) == target_low) {
 			keys.push_back(move(candidate));
 		}
 	}
 	REQUIRE(keys.size() == 65);
 
-	S body;
+	std::string body;
 	body.reserve(64 * keys.size());
 	body += '{';
-	for (SZ i = 0; i < keys.size(); ++i) {
+	for (std::size_t i = 0; i < keys.size(); ++i) {
 		if (i != 0) {
 			body += ',';
 		}
@@ -661,7 +661,7 @@ TEST_CASE(
 TEST_CASE(
 	"phase0: huge integer lexeme parses, to_i64/u64/f64 follow Correction K",
 	"[conformance][phase0][numbers]") {
-	// 30-digit integer — outside i64 and u64; f64 conversion produces a
+	// 30-digit integer — outside std::int64_t and u64; f64 conversion produces a
 	// finite (rounded) value.
 	auto doc = json::parse("123456789012345678901234567890");
 	REQUIRE(doc.has_value());
@@ -698,7 +698,7 @@ TEST_CASE(
 	// UTF-8 BOM (EF BB BF) followed by an ill-formed token at byte index 4
 	// (relative to raw input including BOM): the error source.offset must
 	// be reported in raw input coordinates.
-	S input;
+	std::string input;
 	input += '\xEF';
 	input += '\xBB';
 	input += '\xBF';
@@ -716,7 +716,7 @@ TEST_CASE(
 TEST_CASE(
 	"phase1: parse_copy(SV) copies input — original buffer can be freed",
 	"[conformance][phase1][input]") {
-	S transient = "[1, 2.5, 3]";
+	std::string transient = "[1, 2.5, 3]";
 	auto doc = json::parse_copy(transient);
 	REQUIRE(doc.has_value());
 	transient.clear();
@@ -732,9 +732,9 @@ TEST_CASE(
 TEST_CASE(
 	"phase1: parse_copy(S&&) moves input",
 	"[conformance][phase1][input]") {
-	// Long S forces heap allocation, ensuring move actually transfers
+	// Long std::string forces heap allocation, ensuring move actually transfers
 	// rather than relying on SSO.
-	S s(256, 'x');
+	std::string s(256, 'x');
 	for (auto &c: s) {
 		c = '1';
 	}
@@ -749,7 +749,7 @@ TEST_CASE(
 	"[conformance][phase1][input]") {
 	// Verify number lexeme bytes point into the caller's buffer (no copy
 	// into string_arena for numbers).
-	S buf = "12345";
+	std::string buf = "12345";
 	auto doc = json::parse_borrowed(buf);
 	REQUIRE(doc.has_value());
 	auto num = *doc->root().as_number();
@@ -759,7 +759,7 @@ TEST_CASE(
 TEST_CASE(
 	"phase1: parse_borrowed BOM is stripped from input_view but not from caller buffer",
 	"[conformance][phase1][input]") {
-	S buf =
+	std::string buf =
 		"\xEF\xBB\xBF"
 		"42";
 	auto doc = json::parse_borrowed(buf);
@@ -770,50 +770,50 @@ TEST_CASE(
 	CHECK(num.lexeme() == "42");
 }
 
-// parse_borrowed must reject an S rvalue at compile time.
+// parse_borrowed must reject an std::string rvalue at compile time.
 template<class T, class = void>
 constexpr bool kCanCallParseBorrowedRvalue = false;
 template<class T>
 constexpr bool kCanCallParseBorrowedRvalue<T, std::void_t<decltype(json::parse_borrowed(std::declval<T>()))>> = true;
-static_assert(kCanCallParseBorrowedRvalue<SV>);
-static_assert(kCanCallParseBorrowedRvalue<S &>);
-static_assert(!kCanCallParseBorrowedRvalue<S>);
+static_assert(kCanCallParseBorrowedRvalue<std::string_view>);
+static_assert(kCanCallParseBorrowedRvalue<std::string &>);
+static_assert(!kCanCallParseBorrowedRvalue<std::string>);
 
-// parse is now also a borrowing/view API; use parse_copy for S rvalues.
+// parse is now also a borrowing/view API; use parse_copy for std::string rvalues.
 template<class T, class = void>
 constexpr bool kCanCallParseRvalue = false;
 template<class T>
 constexpr bool kCanCallParseRvalue<T, std::void_t<decltype(json::parse(std::declval<T>()))>> = true;
-static_assert(kCanCallParseRvalue<SV>);
-static_assert(kCanCallParseRvalue<S &>);
-static_assert(!kCanCallParseRvalue<S>);
+static_assert(kCanCallParseRvalue<std::string_view>);
+static_assert(kCanCallParseRvalue<std::string &>);
+static_assert(!kCanCallParseRvalue<std::string>);
 
 template<class T, class = void>
 constexpr bool kCanCallParseCopyRvalue = false;
 template<class T>
 constexpr bool kCanCallParseCopyRvalue<T, std::void_t<decltype(json::parse_copy(std::declval<T>()))>> = true;
-static_assert(kCanCallParseCopyRvalue<SV>);
-static_assert(kCanCallParseCopyRvalue<S &>);
-static_assert(kCanCallParseCopyRvalue<S>);
+static_assert(kCanCallParseCopyRvalue<std::string_view>);
+static_assert(kCanCallParseCopyRvalue<std::string &>);
+static_assert(kCanCallParseCopyRvalue<std::string>);
 // ---------------------------------------------------------------------------
 // v11 Phase 2 — zero-copy strings on parse side.
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"phase2: parse_borrowed unescaped S is zero-copy",
+	"phase2: parse_borrowed unescaped std::string is zero-copy",
 	"[conformance][phase2][input]") {
-	S buf = R"("hello world")";
+	std::string buf = R"("hello world")";
 	auto doc = json::parse_borrowed(buf);
 	REQUIRE(doc.has_value());
 	auto s = *doc->root().as_string();
 	CHECK(s == "hello world");
-	// The S body lives between the quotes — offset 1, length 11.
+	// The std::string body lives between the quotes — offset 1, length 11.
 	CHECK(s.data() == buf.data() + 1);
 }
 TEST_CASE(
-	"phase2: parse_borrowed escaped S decoded into escape_arena",
+	"phase2: parse_borrowed escaped std::string decoded into escape_arena",
 	"[conformance][phase2][input]") {
-	S buf = R"("hel\nlo")";
+	std::string buf = R"("hel\nlo")";
 	auto doc = json::parse_borrowed(buf);
 	REQUIRE(doc.has_value());
 	auto s = *doc->root().as_string();
@@ -825,7 +825,7 @@ TEST_CASE(
 TEST_CASE(
 	"phase2: parse_borrowed object key zero-copy when unescaped",
 	"[conformance][phase2][input]") {
-	S buf = R"({"name": 1})";
+	std::string buf = R"({"name": 1})";
 	auto doc = json::parse_borrowed(buf);
 	REQUIRE(doc.has_value());
 	auto o = *doc->root().as_object();
@@ -838,12 +838,12 @@ TEST_CASE(
 TEST_CASE(
 	"phase2: parse_borrowed escaped key decoded into escape_arena",
 	"[conformance][phase2][input]") {
-	S buf = R"({"a\nb": 1})";
+	std::string buf = R"({"a\nb": 1})";
 	auto doc = json::parse_borrowed(buf);
 	REQUIRE(doc.has_value());
 	auto o = *doc->root().as_object();
 	for (auto const &m: o.members()) {
-		CHECK(m.name == S{"a\nb"});
+		CHECK(m.name == std::string{"a\nb"});
 		CHECK(m.name.data() != buf.data() + 2);
 	}
 }
@@ -854,7 +854,7 @@ TEST_CASE(
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"phase7: parse-side unescaped S dumps verbatim via fast path",
+	"phase7: parse-side unescaped std::string dumps verbatim via fast path",
 	"[conformance][phase7][dump]") {
 	auto doc = json::parse(R"({"a": "plain text", "n": 42})");
 	REQUIRE(doc.has_value());
@@ -863,7 +863,7 @@ TEST_CASE(
 	CHECK(*out == R"({"a":"plain text","n":42})");
 }
 TEST_CASE(
-	"phase7: parse-side escaped S dumps with re-escaping (slow path)",
+	"phase7: parse-side escaped std::string dumps with re-escaping (slow path)",
 	"[conformance][phase7][dump]") {
 	auto doc = json::parse(R"({"a": "line\nbreak"})");
 	REQUIRE(doc.has_value());
@@ -883,8 +883,8 @@ TEST_CASE(
 	opts.ascii_only = true;
 	auto out = doc->dump(opts);
 	REQUIRE(out.has_value());
-	CHECK(out->find("\\u00e9") != S::npos);
-	CHECK(out->find("é") == S::npos);
+	CHECK(out->find("\\u00e9") != std::string::npos);
+	CHECK(out->find("é") == std::string::npos);
 }
 // ---------------------------------------------------------------------------
 // v11 Phase 1.5 — Builder buffer migration.
@@ -936,7 +936,7 @@ TEST_CASE(
 TEST_CASE(
 	"builder: parsed document dump/reparse preserves structure",
 	"[conformance][builder]") {
-	constexpr SV src = R"({
+	constexpr std::string_view src = R"({
 "name":"conformance",
 "count":42,
 "ratio":-3.14,
@@ -1036,7 +1036,7 @@ TEST_CASE(
 	TEST_CASE(
 		"builder: parsed document is self-contained after input corruption",
 		"[conformance][builder]") {
-	S src{R"(["alpha","beta","gamma"])"};
+	std::string src{R"(["alpha","beta","gamma"])"};
 	auto doc = json::parse_copy(src);
 	REQUIRE(doc.has_value());
 	src.assign(src.size(), 'X');

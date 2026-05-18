@@ -29,10 +29,10 @@ return move(*r);
 }()},
 ring{uring.ref(),BufferRingOptions{.count=8,.buf_size=64,.group_id=1,.huge_pages=false,.mode=BufferRingMode::incremental},conflux::uring::detect_caps(uring.ref())}{}
 };
-u32 inc_flags(
-	u16 buf_id,
+std::uint32_t inc_flags(
+	std::uint16_t buf_id,
 	bool buf_more) noexcept {
-	u32 f = IORING_CQE_F_BUFFER | (static_cast<u32>(buf_id) << IORING_CQE_BUFFER_SHIFT);
+	std::uint32_t f = IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(buf_id) << IORING_CQE_BUFFER_SHIFT);
 	if (buf_more) {
 		f |= IORING_CQE_F_BUF_MORE;
 	}
@@ -47,7 +47,7 @@ int main(
 	if (argc < 2) {
 		return 1;
 	}
-	SV probe{argv[1]};
+	std::string_view probe{argv[1]};
 	// inc_wrong_mode: classic ring — no incremental cap required.
 	if (probe == "inc_wrong_mode") {
 		auto r = conflux::uring::Ring::init(32, {});

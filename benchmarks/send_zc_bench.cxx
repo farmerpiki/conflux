@@ -25,7 +25,7 @@ namespace {
 struct BenchClient {
 	int fd = -1;
 	explicit BenchClient(
-		u16 port) {
+		std::uint16_t port) {
 		connect_to(port);
 	}
 	~BenchClient() {
@@ -46,10 +46,10 @@ struct BenchClient {
 		return *this;
 	}
 	void connect_to(
-		u16 port) {
+		std::uint16_t port) {
 		fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 		if (fd < 0) {
-			throw RE{"socket failed"};
+			throw std::runtime_error{"socket failed"};
 		}
 		static constexpr int one = 1;
 		::setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof one);
@@ -61,7 +61,7 @@ struct BenchClient {
 		if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 			::close(fd);
 			fd = -1;
-			throw RE{"connect failed"};
+			throw std::runtime_error{"connect failed"};
 		}
 	}
 	void close() noexcept {
@@ -71,45 +71,45 @@ struct BenchClient {
 		}
 	}
 	void reconnect(
-		u16 port) {
+		std::uint16_t port) {
 		close();
 		connect_to(port);
 	}
 	void send_all(
-		SV data) const {
+		std::string_view data) const {
 		auto const *p = data.data();
 		auto remaining = data.size();
 		while (remaining > 0) {
 			auto n = ::send(fd, p, remaining, MSG_NOSIGNAL);
 			if (n <= 0) {
-				throw RE{"send failed"};
+				throw std::runtime_error{"send failed"};
 			}
 			p += n;
-			remaining -= static_cast<SZ>(n);
+			remaining -= static_cast<std::size_t>(n);
 		}
 	}
-	SZ recv_response(
+	std::size_t recv_response(
 		span<char> buf) const {
-		SZ total = 0;
-		SZ hdr_end_pos = SV::npos;
-		SZ body_len = 0;
+		std::size_t total = 0;
+		std::size_t hdr_end_pos = std::string_view::npos;
+		std::size_t body_len = 0;
 		bool have_cl = false;
 		for (;;) {
 			auto n = ::recv(fd, buf.data() + total, buf.size() - total, 0);
 			if (n <= 0) {
 				break;
 			}
-			total += static_cast<SZ>(n);
-			if (hdr_end_pos == SV::npos) {
-				SV sofar{buf.data(), total};
+			total += static_cast<std::size_t>(n);
+			if (hdr_end_pos == std::string_view::npos) {
+				std::string_view sofar{buf.data(), total};
 				hdr_end_pos = sofar.find("\r\n\r\n");
-				if (hdr_end_pos == SV::npos) {
+				if (hdr_end_pos == std::string_view::npos) {
 					continue;
 				}
 				hdr_end_pos += 4;
-				SV hdrs{buf.data(), hdr_end_pos};
+				std::string_view hdrs{buf.data(), hdr_end_pos};
 				auto cl = hdrs.find("Content-Length: ");
-				if (cl != SV::npos) {
+				if (cl != std::string_view::npos) {
 					cl += 16;
 					auto end = hdrs.find("\r\n", cl);
 					from_chars(buf.data() + cl, buf.data() + end, body_len);
@@ -122,7 +122,7 @@ struct BenchClient {
 			if (have_cl && total >= hdr_end_pos + body_len) {
 				return total;
 			}
-			if (!have_cl && hdr_end_pos != SV::npos) {
+			if (!have_cl && hdr_end_pos != std::string_view::npos) {
 				return total;
 			}
 		}
@@ -131,7 +131,7 @@ struct BenchClient {
 };
 
 void wait_for_server(
-	u16 port) {
+	std::uint16_t port) {
 	for (int i = 0; i < 200; ++i) {
 		int const s = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 		if (s < 0) {
@@ -146,14 +146,14 @@ void wait_for_server(
 		if (up) {
 			return;
 		}
-		std::this_thread::sleep_for(chrono::milliseconds(10));
+		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
-	throw RE{"server did not start in time"};
+	throw std::runtime_error{"server did not start in time"};
 }
 struct ServerHandle {
-	SP<HttpServer> server;
+	std::shared_ptr<HttpServer> server;
 	thread thr;
-	u16 port{};
+	std::uint16_t port{};
 };
 ServerHandle start_server(
 	Config cfg,
@@ -182,8 +182,8 @@ HttpServerMetrics stop_server(
 	return h.server->metrics();
 }
 Config bench_config_zc(
-	SV mode,
-	SZ threshold) {
+	std::string_view mode,
+	std::size_t threshold) {
 	Config cfg{};
 	cfg.port = 0;
 	cfg.rings = 1;
@@ -195,16 +195,16 @@ Config bench_config_zc(
 	cfg.startup_banner = false;
 	cfg.fixed_buffer_slabs = 0;
 	cfg.splice_pipe_pairs = 0;
-	cfg.send_zc = S{mode};
+	cfg.send_zc = std::string{mode};
 	cfg.send_zc_threshold = threshold;
 	cfg.send_zc_report_usage = true;
 	return cfg;
 }
-SZ parse_send_zc_threshold(
+std::size_t parse_send_zc_threshold(
 	span<char *> args) {
-	SZ threshold = 16384;
-	for (SZ i = 1; i < args.size(); ++i) {
-		SV const arg = args[i];
+	std::size_t threshold = 16384;
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		std::string_view const arg = args[i];
 		if ((arg == "--send-zc-threshold" || arg == "--zc-threshold") && i + 1 < args.size()) {
 			threshold = bench_parse_sz(args[++i]);
 		}
@@ -213,66 +213,66 @@ SZ parse_send_zc_threshold(
 }
 bool has_flag(
 	span<char *> args,
-	SV flag) {
-	for (SZ i = 1; i < args.size(); ++i) {
-		if (SV{args[i]} == flag) {
+	std::string_view flag) {
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		if (std::string_view{args[i]} == flag) {
 			return true;
 		}
 	}
 	return false;
 }
-SZ parse_sz_arg(
+std::size_t parse_sz_arg(
 	span<char *> args,
-	SV name,
-	SZ fallback) {
-	for (SZ i = 1; i < args.size(); ++i) {
-		if (SV{args[i]} == name && i + 1 < args.size()) {
+	std::string_view name,
+	std::size_t fallback) {
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		if (std::string_view{args[i]} == name && i + 1 < args.size()) {
 			return bench_parse_sz(args[++i]);
 		}
 	}
 	return fallback;
 }
-using RunFn = Fn<void()>;
+using RunFn = std::function<void()>;
 struct Variant {
-	S name;
+	std::string name;
 	RunFn setup;
 	RunFn run;
 	RunFn teardown;
-	Fn<HttpServerMetrics()> metrics;
-	SZ ops_per_iter = 1;
-	SZ iters_override = 0;
+	std::function<HttpServerMetrics()> metrics;
+	std::size_t ops_per_iter = 1;
+	std::size_t iters_override = 0;
 };
 struct BenchStats {
-	S config;
-	S variant;
-	SZ iterations{};
-	u64 total_ns{};
+	std::string config;
+	std::string variant;
+	std::size_t iterations{};
+	std::uint64_t total_ns{};
 	double ns_per_iter{};
 	HttpServerMetrics metrics{};
-	SZ connections{};
-	SZ duration_s{};
+	std::size_t connections{};
+	std::size_t duration_s{};
 	double requests_per_sec{};
-	u64 errors{};
+	std::uint64_t errors{};
 };
 BenchStats run_variant(
 	Variant const &v,
-	SZ iterations,
-	SZ warmup,
-	SV config_name) {
+	std::size_t iterations,
+	std::size_t warmup,
+	std::string_view config_name) {
 	if (v.iters_override) {
 		iterations = v.iters_override;
-		warmup = max(SZ{2}, v.iters_override / 10);
+		warmup = max(std::size_t{2}, v.iters_override / 10);
 	}
 	if (v.setup && warmup > 0) {
 		v.setup();
-		for (SZ i = 0; i < warmup; ++i) {
+		for (std::size_t i = 0; i < warmup; ++i) {
 			v.run();
 		}
 		if (v.teardown) {
 			v.teardown();
 		}
 	} else {
-		for (SZ i = 0; i < warmup; ++i) {
+		for (std::size_t i = 0; i < warmup; ++i) {
 			v.run();
 		}
 	}
@@ -280,7 +280,7 @@ BenchStats run_variant(
 		v.setup();
 	}
 	auto const t0 = bench_now_ns();
-	for (SZ i = 0; i < iterations; ++i) {
+	for (std::size_t i = 0; i < iterations; ++i) {
 		v.run();
 	}
 	auto const t1 = bench_now_ns();
@@ -290,7 +290,7 @@ BenchStats run_variant(
 	auto const total = t1 - t0;
 	auto const ns_pi = static_cast<double>(total) / static_cast<double>(iterations);
 	return BenchStats{
-		.config = S{config_name},
+		.config = std::string{config_name},
 		.variant = v.name,
 		.iterations = iterations,
 		.total_ns = total,
@@ -301,12 +301,12 @@ BenchStats run_variant(
 void print_variant(
 	BenchStats const &s,
 	bool json,
-	SZ ops_per_iter) {
+	std::size_t ops_per_iter) {
 	auto const &zc = s.metrics.send_zc;
 	if (json) {
 		auto const total_ops = s.iterations * ops_per_iter;
 		auto const ns_per_op = s.ns_per_iter / static_cast<double>(ops_per_iter);
-		S extra;
+		std::string extra;
 		if (s.connections != 0) {
 			extra = format(
 				",\"connections\":{},\"duration_s\":{},\"requests_per_sec\":{:.1f},\"errors\":{}",
@@ -387,20 +387,20 @@ void print_variant(
 	}
 }
 struct ConcurrentWorkerResult {
-	u64 requests{};
-	u64 errors{};
+	std::uint64_t requests{};
+	std::uint64_t errors{};
 };
 ConcurrentWorkerResult run_concurrent_worker(
-	u16 port,
-	SV request,
-	SZ response_bytes,
+	std::uint16_t port,
+	std::string_view request,
+	std::size_t response_bytes,
 	int connection_count,
-	Atom<bool> const &start,
-	Atom<bool> const &stop,
-	Atom<int> &ready) {
+	std::atomic<bool> const &start,
+	std::atomic<bool> const &stop,
+	std::atomic<int> &ready) {
 	ConcurrentWorkerResult result;
-	V<BenchClient> clients;
-	clients.reserve(static_cast<SZ>(connection_count));
+	std::vector<BenchClient> clients;
+	clients.reserve(static_cast<std::size_t>(connection_count));
 	for (int i = 0; i < connection_count; ++i) {
 		clients.emplace_back(port);
 	}
@@ -408,7 +408,7 @@ ConcurrentWorkerResult run_concurrent_worker(
 	while (!start.load(memory_order_acquire)) {
 		std::this_thread::yield();
 	}
-	V<char> recv_buf(max<SZ>(response_bytes + 4096, 8192));
+	std::vector<char> recv_buf(max<std::size_t>(response_bytes + 4096, 8192));
 	auto rb = span<char>{recv_buf};
 	while (!stop.load(memory_order_relaxed)) {
 		for (auto &client: clients) {
@@ -430,35 +430,35 @@ ConcurrentWorkerResult run_concurrent_worker(
 	return result;
 }
 BenchStats run_concurrent_variant(
-	SV config_name,
-	S name,
-	SV mode,
-	Fn<Router()> router_factory,
-	S request,
-	SZ response_bytes,
-	SZ send_zc_threshold,
-	SZ connections,
-	SZ duration_s) {
+	std::string_view config_name,
+	std::string name,
+	std::string_view mode,
+	std::function<Router()> router_factory,
+	std::string request,
+	std::size_t response_bytes,
+	std::size_t send_zc_threshold,
+	std::size_t connections,
+	std::size_t duration_s) {
 	struct State {
 		ServerHandle server;
 		HttpServerMetrics metrics{};
 	};
 	State st{.server = start_server(bench_config_zc(mode, send_zc_threshold), router_factory())};
 	auto const hw = max(1u, thread::hardware_concurrency());
-	auto const thread_count = static_cast<int>(min<SZ>(connections, static_cast<SZ>(hw)));
-	auto const base = static_cast<int>(connections / static_cast<SZ>(thread_count));
-	auto const rem = static_cast<int>(connections % static_cast<SZ>(thread_count));
-	Atom<bool> start{false};
-	Atom<bool> stop{false};
-	Atom<int> ready{0};
-	V<thread> workers;
-	V<ConcurrentWorkerResult> results(static_cast<SZ>(thread_count));
+	auto const thread_count = static_cast<int>(min<std::size_t>(connections, static_cast<std::size_t>(hw)));
+	auto const base = static_cast<int>(connections / static_cast<std::size_t>(thread_count));
+	auto const rem = static_cast<int>(connections % static_cast<std::size_t>(thread_count));
+	std::atomic<bool> start{false};
+	std::atomic<bool> stop{false};
+	std::atomic<int> ready{0};
+	std::vector<thread> workers;
+	std::vector<ConcurrentWorkerResult> results(static_cast<std::size_t>(thread_count));
 	for (int i = 0; i < thread_count; ++i) {
 		auto const worker_connections = base + (i < rem ? 1 : 0);
 		workers.emplace_back([&, i, worker_connections] {
-			results[static_cast<SZ>(i)] = run_concurrent_worker(
+			results[static_cast<std::size_t>(i)] = run_concurrent_worker(
 				st.server.port,
-				SV{request},
+				std::string_view{request},
 				response_bytes,
 				worker_connections,
 				start,
@@ -467,19 +467,19 @@ BenchStats run_concurrent_variant(
 		});
 	}
 	while (ready.load(memory_order_acquire) != thread_count) {
-		std::this_thread::sleep_for(chrono::milliseconds{1});
+		std::this_thread::sleep_for(std::chrono::milliseconds{1});
 	}
 	auto const t0 = bench_now_ns();
 	start.store(true, memory_order_release);
-	std::this_thread::sleep_for(chrono::seconds{static_cast<int>(duration_s)});
+	std::this_thread::sleep_for(std::chrono::seconds{static_cast<int>(duration_s)});
 	stop.store(true, memory_order_release);
 	for (auto &worker: workers) {
 		worker.join();
 	}
 	auto const t1 = bench_now_ns();
 	st.metrics = stop_server(st.server);
-	u64 requests = 0;
-	u64 errors = 0;
+	std::uint64_t requests = 0;
+	std::uint64_t errors = 0;
 	for (auto const &r: results) {
 		requests += r.requests;
 		errors += r.errors;
@@ -488,9 +488,9 @@ BenchStats run_concurrent_variant(
 	auto const ns_per_iter = requests == 0 ? 0.0 : static_cast<double>(total_ns) / static_cast<double>(requests);
 	auto const rps = static_cast<double>(requests) / (static_cast<double>(total_ns) / 1e9);
 	return BenchStats{
-		.config = S{config_name},
+		.config = std::string{config_name},
 		.variant = move(name),
-		.iterations = static_cast<SZ>(requests),
+		.iterations = static_cast<std::size_t>(requests),
 		.total_ns = total_ns,
 		.ns_per_iter = ns_per_iter,
 		.metrics = st.metrics,
@@ -520,20 +520,20 @@ struct SslDeleter {
 		}
 	}
 };
-P<S, S> make_self_signed_cert() {
+std::pair<std::string, std::string> make_self_signed_cert() {
 	char cert_tmp[] = "/tmp/conflux_send_zc_cert_XXXXXX.pem";
 	char key_tmp[] = "/tmp/conflux_send_zc_key_XXXXXX.pem";
 	{
 		int f = ::mkstemps(cert_tmp, 4);
 		if (f < 0) {
-			throw RE{"mkstemps cert failed"};
+			throw std::runtime_error{"mkstemps cert failed"};
 		}
 		::close(f);
 	}
 	{
 		int f = ::mkstemps(key_tmp, 4);
 		if (f < 0) {
-			throw RE{"mkstemps key failed"};
+			throw std::runtime_error{"mkstemps key failed"};
 		}
 		::close(f);
 	}
@@ -542,47 +542,47 @@ P<S, S> make_self_signed_cert() {
 		key_tmp,
 		cert_tmp);
 	if (::system(cmd.c_str()) != 0) {
-		throw RE{"openssl req failed — TLS send_zc bench requires openssl CLI"};
+		throw std::runtime_error{"openssl req failed — TLS send_zc bench requires openssl CLI"};
 	}
-	return {S{cert_tmp}, S{key_tmp}};
+	return {std::string{cert_tmp}, std::string{key_tmp}};
 }
 void ssl_write_all(
 	SSL *ssl,
-	SV data) {
+	std::string_view data) {
 	auto const *p = data.data();
 	auto remaining = data.size();
 	while (remaining > 0) {
-		auto const n = SSL_write(ssl, p, static_cast<int>(min<SZ>(remaining, 16 * 1024)));
+		auto const n = SSL_write(ssl, p, static_cast<int>(min<std::size_t>(remaining, 16 * 1024)));
 		if (n <= 0) {
-			throw RE{"SSL_write failed"};
+			throw std::runtime_error{"SSL_write failed"};
 		}
 		p += n;
-		remaining -= static_cast<SZ>(n);
+		remaining -= static_cast<std::size_t>(n);
 	}
 }
-SZ ssl_recv_response(
+std::size_t ssl_recv_response(
 	SSL *ssl,
 	span<char> buf) {
-	SZ total = 0;
-	SZ hdr_end_pos = SV::npos;
-	SZ body_len = 0;
+	std::size_t total = 0;
+	std::size_t hdr_end_pos = std::string_view::npos;
+	std::size_t body_len = 0;
 	bool have_cl = false;
 	for (;;) {
 		auto n = SSL_read(ssl, buf.data() + total, static_cast<int>(buf.size() - total));
 		if (n <= 0) {
 			break;
 		}
-		total += static_cast<SZ>(n);
-		if (hdr_end_pos == SV::npos) {
-			SV sofar{buf.data(), total};
+		total += static_cast<std::size_t>(n);
+		if (hdr_end_pos == std::string_view::npos) {
+			std::string_view sofar{buf.data(), total};
 			hdr_end_pos = sofar.find("\r\n\r\n");
-			if (hdr_end_pos == SV::npos) {
+			if (hdr_end_pos == std::string_view::npos) {
 				continue;
 			}
 			hdr_end_pos += 4;
-			SV hdrs{buf.data(), hdr_end_pos};
+			std::string_view hdrs{buf.data(), hdr_end_pos};
 			auto cl = hdrs.find("Content-Length: ");
-			if (cl != SV::npos) {
+			if (cl != std::string_view::npos) {
 				cl += 16;
 				auto end = hdrs.find("\r\n", cl);
 				from_chars(buf.data() + cl, buf.data() + end, body_len);
@@ -592,7 +592,7 @@ SZ ssl_recv_response(
 		if (have_cl && total >= hdr_end_pos + body_len) {
 			return total;
 		}
-		if (!have_cl && hdr_end_pos != SV::npos) {
+		if (!have_cl && hdr_end_pos != std::string_view::npos) {
 			return total;
 		}
 	}
@@ -609,28 +609,28 @@ int main(
 		argv,
 		R"({"name":"send_zc","parser":"standard","configs":[{"name":"threshold_4k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096},"args":["--send-zc-threshold","4096","--config-name","threshold_4k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_16k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384},"args":["--send-zc-threshold","16384","--config-name","threshold_16k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_64k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536},"args":["--send-zc-threshold","65536","--config-name","threshold_64k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_4k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","4096","--config-name","threshold_4k_load"],"reps":1},{"name":"threshold_16k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","16384","--config-name","threshold_16k_load"],"reps":1},{"name":"threshold_64k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","65536","--config-name","threshold_64k_load"],"reps":1}]})");
 
-	auto const args = bench_parse_args(span{argv, static_cast<SZ>(argc)});
+	auto const args = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
 	auto const iters = args.iterations;
 	auto const warmup = args.warmup;
 	auto const json_out = args.json_out;
-	auto const raw_args = span{argv, static_cast<SZ>(argc)};
+	auto const raw_args = span{argv, static_cast<std::size_t>(argc)};
 	bool const concurrent = has_flag(raw_args, "--concurrent"sv);
-	SZ const concurrent_connections = max<SZ>(1, parse_sz_arg(raw_args, "--connections"sv, 64));
-	SZ const concurrent_duration_s = max<SZ>(1, parse_sz_arg(raw_args, "--duration"sv, 2));
-	SZ const send_zc_threshold = parse_send_zc_threshold(raw_args);
-	S const inferred_config_name = format("threshold_{}", send_zc_threshold);
-	SV const config_name = args.config_name.empty() ? SV{inferred_config_name} : SV{args.config_name};
+	std::size_t const concurrent_connections = max<std::size_t>(1, parse_sz_arg(raw_args, "--connections"sv, 64));
+	std::size_t const concurrent_duration_s = max<std::size_t>(1, parse_sz_arg(raw_args, "--duration"sv, 2));
+	std::size_t const send_zc_threshold = parse_send_zc_threshold(raw_args);
+	std::string const inferred_config_name = format("threshold_{}", send_zc_threshold);
+	std::string_view const config_name = args.config_name.empty() ? std::string_view{inferred_config_name} : std::string_view{args.config_name};
 	struct BodySpec {
-		SV label;
-		SZ size;
+		std::string_view label;
+		std::size_t size;
 	};
-	static constexpr A<BodySpec, 7> kBodies{
+	static constexpr std::array<BodySpec, 7> kBodies{
 		{{"512B", 512}, {"1K", 1024}, {"4K", 4096}, {"16K", 16384}, {"64K", 65536}, {"256K", 262144}, {"1M", 1048576}}
 	};
 
-	M<S, S> body_map;
+	std::map<std::string, std::string> body_map;
 	for (auto const &[label, size]: kBodies) {
-		body_map.emplace(S{label}, S(size, 'X'));
+		body_map.emplace(std::string{label}, std::string(size, 'X'));
 	}
 
 	auto make_body_router = [&] {
@@ -647,31 +647,31 @@ int main(
 	for (auto const &[label, size]: kBodies) {
 		auto path = static_dir / format("{}.bin", label);
 		std::ofstream out{path, std::ios::binary};
-		S data(size, 'Y');
+		std::string data(size, 'Y');
 		out.write(data.data(), static_cast<std::streamsize>(data.size()));
 	}
 	auto make_static_router = [&] {
 		Router r;
-		r.serve_static("/", S{static_dir.string()});
+		r.serve_static("/", std::string{static_dir.string()});
 		return r;
 	};
 
-	V<char> recv_buf(1200000);
+	std::vector<char> recv_buf(1200000);
 	auto rb = span<char>{recv_buf};
-	V<Variant> variants;
+	std::vector<Variant> variants;
 
-	auto make_http_variant = [&](S name, SV mode, Fn<Router()> router_factory, S request, SZ iters_override = 0) {
+	auto make_http_variant = [&](std::string name, std::string_view mode, std::function<Router()> router_factory, std::string request, std::size_t iters_override = 0) {
 		struct State {
-			UP<ServerHandle> server;
-			UP<BenchClient> client;
+			std::unique_ptr<ServerHandle> server;
+			std::unique_ptr<BenchClient> client;
 			HttpServerMetrics metrics{};
 		};
 		auto st = make_shared<State>();
 		return Variant{
 			.name = move(name),
-			.setup = [st, mode = S{mode}, router_factory = move(router_factory), send_zc_threshold] {
+			.setup = [st, mode = std::string{mode}, router_factory = move(router_factory), send_zc_threshold] {
 				st->metrics = {};
-				st->server = make_unique<ServerHandle>(start_server(bench_config_zc(SV{mode}, send_zc_threshold), router_factory()));
+				st->server = make_unique<ServerHandle>(start_server(bench_config_zc(std::string_view{mode}, send_zc_threshold), router_factory()));
 				st->client = make_unique<BenchClient>(st->server->port);
 			},
 			.run = [st, request = move(request), rb] {
@@ -703,9 +703,9 @@ int main(
 			if (size != 65536 && size != 1048576) {
 				continue;
 			}
-			auto const label_s = S{label};
-			auto const body_req = S{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
-			auto const mapped_req = S{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+			auto const label_s = std::string{label};
+			auto const body_req = std::string{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+			auto const mapped_req = std::string{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
 			auto plain_off = run_concurrent_variant(
 				config_name,
 				format("load/plain/{}/off", label_s),
@@ -756,15 +756,15 @@ int main(
 	}
 
 	for (auto const &[label, size]: kBodies) {
-		auto const req = S{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
-		auto label_s = S{label};
+		auto const req = std::string{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+		auto label_s = std::string{label};
 		variants.push_back(make_http_variant(format("plain/{}/off", label_s), "off", make_body_router, req));
 		variants.push_back(make_http_variant(format("plain/{}/zc_auto", label_s), "auto", make_body_router, req));
 	}
 
 	for (auto const &[label, size]: kBodies) {
-		auto const req = S{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
-		auto label_s = S{label};
+		auto const req = std::string{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+		auto label_s = std::string{label};
 		variants.push_back(make_http_variant(format("mapped/{}/off", label_s), "off", make_static_router, req));
 		variants.push_back(make_http_variant(format("mapped/{}/zc_auto", label_s), "auto", make_static_router, req));
 	}
@@ -774,38 +774,38 @@ int main(
 	std::unique_ptr<SSL_CTX, SslCtxDeleter> ssl_ctx{[] {
 		SSL_CTX *c = SSL_CTX_new(TLS_client_method());
 		if (c == nullptr) {
-			throw RE{"SSL_CTX_new failed"};
+			throw std::runtime_error{"SSL_CTX_new failed"};
 		}
 		SSL_CTX_set_verify(c, SSL_VERIFY_NONE, nullptr);
 		SSL_CTX_set_session_cache_mode(c, SSL_SESS_CACHE_OFF);
 		return c;
 	}()};
 
-	auto make_tls_variant = [&](S name, SV mode, Fn<Router()> router_factory, S request, SZ iters_override = 200) {
+	auto make_tls_variant = [&](std::string name, std::string_view mode, std::function<Router()> router_factory, std::string request, std::size_t iters_override = 200) {
 		struct State {
-			UP<ServerHandle> server;
-			UP<BenchClient> client;
+			std::unique_ptr<ServerHandle> server;
+			std::unique_ptr<BenchClient> client;
 			std::unique_ptr<SSL, SslDeleter> ssl;
 			HttpServerMetrics metrics{};
 		};
 		auto st = make_shared<State>();
 		return Variant{
 			.name = move(name),
-			.setup = [&, st, mode = S{mode}, router_factory = move(router_factory), send_zc_threshold] {
+			.setup = [&, st, mode = std::string{mode}, router_factory = move(router_factory), send_zc_threshold] {
 				st->metrics = {};
-				auto cfg = bench_config_zc(SV{mode}, send_zc_threshold);
+				auto cfg = bench_config_zc(std::string_view{mode}, send_zc_threshold);
 				cfg.cert_file = tls_cert_path;
 				cfg.key_file = tls_key_path;
 				st->server = make_unique<ServerHandle>(start_server(cfg, router_factory()));
 				st->client = make_unique<BenchClient>(st->server->port);
 				SSL *ssl = SSL_new(ssl_ctx.get());
 				if (ssl == nullptr) {
-					throw RE{"SSL_new failed"};
+					throw std::runtime_error{"SSL_new failed"};
 				}
 				SSL_set_fd(ssl, st->client->fd);
 				if (SSL_connect(ssl) != 1) {
 					SSL_free(ssl);
-					throw RE{"SSL_connect failed"};
+					throw std::runtime_error{"SSL_connect failed"};
 				}
 				st->ssl.reset(ssl);
 			},
@@ -831,10 +831,10 @@ int main(
 		if (size < 65536) {
 			continue;
 		}
-		auto label_s = S{label};
-		auto const body_req = S{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
-		auto const mapped_req = S{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
-		SZ const tls_iters = size >= 1048576 ? 50 : 200;
+		auto label_s = std::string{label};
+		auto const body_req = std::string{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+		auto const mapped_req = std::string{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+		std::size_t const tls_iters = size >= 1048576 ? 50 : 200;
 		variants.push_back(
 			make_tls_variant(format("tls/plain/{}/off", label_s), "off", make_body_router, body_req, tls_iters));
 		variants.push_back(

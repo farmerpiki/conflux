@@ -20,7 +20,7 @@ static bool openssl_encrypt(
 	span<unsigned char const> iv,
 	span<unsigned char const> pt,
 	span<unsigned char const> aad,
-	V<unsigned char> &out) {
+	std::vector<unsigned char> &out) {
 	EVP_CIPHER_CTX *ctx = EVP_CIPHER_CTX_new();
 	if (!ctx) {
 		return false;
@@ -39,7 +39,7 @@ static bool openssl_encrypt(
 	ct_len += len;
 
 	EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_GET_TAG, 16, out.data() + ct_len);
-	out.resize(static_cast<SZ>(ct_len) + 16);
+	out.resize(static_cast<std::size_t>(ct_len) + 16);
 	EVP_CIPHER_CTX_free(ctx);
 	return true;
 }
@@ -48,11 +48,11 @@ static bool openssl_decrypt(
 	span<unsigned char const> iv,
 	span<unsigned char const> ct_and_tag,
 	span<unsigned char const> aad,
-	V<unsigned char> &out) {
+	std::vector<unsigned char> &out) {
 	if (ct_and_tag.size() < 16) {
 		return false;
 	}
-	SZ ct_len = ct_and_tag.size() - 16;
+	std::size_t ct_len = ct_and_tag.size() - 16;
 	auto ct = ct_and_tag.subspan(0, ct_len);
 	auto tag = ct_and_tag.subspan(ct_len, 16);
 
@@ -74,32 +74,32 @@ static bool openssl_decrypt(
 	EVP_CIPHER_CTX_ctrl(ctx, EVP_CTRL_GCM_SET_TAG, 16, const_cast<unsigned char *>(tag.data()));
 	int ok = EVP_DecryptFinal_ex(ctx, out.data() + pt_len, &len);
 	pt_len += len;
-	out.resize(static_cast<SZ>(pt_len));
+	out.resize(static_cast<std::size_t>(pt_len));
 	EVP_CIPHER_CTX_free(ctx);
 	return ok == 1;
 }
 int main() {
 	using namespace std::chrono;
 
-	A<unsigned char, 32> key{};
-	A<unsigned char, 12> iv{};
+	std::array<unsigned char, 32> key{};
+	std::array<unsigned char, 12> iv{};
 	getrandom(key.data(), key.size(), 0);
 	getrandom(iv.data(), iv.size(), 0);
 
 	// Test correctness: compare outputs for various sizes
 	std::printf("=== Correctness comparison ===\n");
 	bool all_ok = true;
-	for (SZ sz: A<SZ, 10>{0, 1, 15, 16, 17, 64, 256, 1024, 4096, 65536}) {
-		V<unsigned char> pt(sz);
+	for (std::size_t sz: std::array<std::size_t, 10>{0, 1, 15, 16, 17, 64, 256, 1024, 4096, 65536}) {
+		std::vector<unsigned char> pt(sz);
 		getrandom(pt.data(), pt.size(), 0);
 
-		V<unsigned char> aad(sz > 64 ? 32 : 0);
+		std::vector<unsigned char> aad(sz > 64 ? 32 : 0);
 		if (!aad.empty()) {
 			getrandom(aad.data(), aad.size(), 0);
 		}
 
 		// Encrypt with both
-		V<unsigned char> ossl_ct;
+		std::vector<unsigned char> ossl_ct;
 		openssl_encrypt(key, iv, pt, aad, ossl_ct);
 
 		auto conflux_ct = aes_gcm_encrypt(key, iv, pt, aad);
@@ -121,7 +121,7 @@ int main() {
 		}
 
 		// Decrypt with both (cross-verify)
-		V<unsigned char> ossl_pt;
+		std::vector<unsigned char> ossl_pt;
 		bool ossl_ok = openssl_decrypt(key, iv, ossl_ct, aad, ossl_pt);
 
 		auto conflux_pt = aes_gcm_decrypt(key, iv, *conflux_ct, aad);
@@ -148,9 +148,9 @@ int main() {
 
 	// Speed comparison
 	std::printf("=== Speed comparison (encrypt 4096 bytes, 10000 iterations) ===\n");
-	constexpr SZ kBenchSize = 4096;
+	constexpr std::size_t kBenchSize = 4096;
 	constexpr int kIters = 10000;
-	V<unsigned char> bench_pt(kBenchSize);
+	std::vector<unsigned char> bench_pt(kBenchSize);
 	getrandom(bench_pt.data(), bench_pt.size(), 0);
 
 	// Warmup
@@ -168,7 +168,7 @@ int main() {
 	double conflux_ns = static_cast<double>(duration_cast<nanoseconds>(t1 - t0).count());
 
 	// OpenSSL warmup
-	V<unsigned char> ossl_out;
+	std::vector<unsigned char> ossl_out;
 	for (int i = 0; i < 100; ++i) {
 		openssl_encrypt(key, iv, bench_pt, {}, ossl_out);
 	}

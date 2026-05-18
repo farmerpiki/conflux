@@ -105,7 +105,7 @@ struct NativeJsonProvider {
 	using document_type = Document;
 
 	[[nodiscard]] static expected<Document, Error> parse_json_document(
-		SV input,
+		std::string_view input,
 		DecodeOptions const &opts = {}) {
 		auto doc = parse_dom(input, detail::map_dom_policy(opts));
 		if (!doc) {
@@ -114,7 +114,7 @@ struct NativeJsonProvider {
 		return move(*doc);
 	}
 
-	[[nodiscard]] static expected<S, Error> dump_json(
+	[[nodiscard]] static expected<std::string, Error> dump_json(
 		Document const &doc,
 		DumpOptions const &opts = {}) {
 		auto body = doc.dump(detail::map_dump_options(opts));
@@ -126,7 +126,7 @@ struct NativeJsonProvider {
 
 	template<class T>
 		requires has_json_codec<std::remove_cvref_t<T>>
-	[[nodiscard]] static expected<S, Error> dump_json(
+	[[nodiscard]] static expected<std::string, Error> dump_json(
 		T const &value,
 		DumpOptions const &opts = {}) {
 		ValueBuilder builder;
@@ -143,7 +143,7 @@ struct NativeJsonProvider {
 	template<class T>
 		requires has_json_codec<std::remove_cvref_t<T>>
 	[[nodiscard]] static expected<std::remove_cvref_t<T>, Error> decode_json(
-		SV input,
+		std::string_view input,
 		DecodeOptions const &opts = {}) {
 		auto const decode_opts = detail::map_decode_options(opts);
 		if (opts.copy_input) {
@@ -176,7 +176,7 @@ template<class T>
 concept NativeJsonDecodable = JsonDecodeProvider<NativeJsonProvider, T>;
 
 template<class T>
-[[nodiscard]] expected<S, Error> dump_native(
+[[nodiscard]] expected<std::string, Error> dump_native(
 	T const &value,
 	DumpOptions const &opts = {})
 	requires NativeJsonSerializable<T>
@@ -186,7 +186,7 @@ template<class T>
 
 template<class T>
 [[nodiscard]] expected<std::remove_cvref_t<T>, Error> decode_native(
-	SV input,
+	std::string_view input,
 	DecodeOptions const &opts = {})
 	requires NativeJsonDecodable<std::remove_cvref_t<T>>
 {

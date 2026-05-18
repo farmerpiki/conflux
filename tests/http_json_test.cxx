@@ -22,10 +22,10 @@ struct StreamingOnlyProvider {
 		StreamingPayload const &payload,
 		jb::DumpOptions const &,
 		auto &&sink) {
-		sink(SV{R"({"value":)"});
+		sink(std::string_view{R"({"value":)"});
 		auto encoded = std::to_string(payload.value);
-		sink(SV{encoded});
-		sink(SV{"}"});
+		sink(std::string_view{encoded});
+		sink(std::string_view{"}"});
 		return {};
 	}
 };
@@ -38,7 +38,7 @@ struct BoundaryRouteProvider {
 	template<class T>
 		requires same_as<T, InputPayload>
 	static expected<T, jb::Error> decode_json(
-		SV input,
+		std::string_view input,
 		jb::DecodeOptions const &) {
 		int value{};
 		auto const *first = input.data();
@@ -82,7 +82,7 @@ struct FailingProvider {
 TEST_CASE(
 	"http json: route response helper serializes native provider values",
 	"[http.json]") {
-	auto resp = hj::try_response(static_cast<i64>(42), {.status = kHttpCreated, .status_text = "Created"});
+	auto resp = hj::try_response(static_cast<std::int64_t>(42), {.status = kHttpCreated, .status_text = "Created"});
 	REQUIRE(resp.has_value());
 	CHECK(resp->status == kHttpCreated);
 	CHECK(resp->status_text == "Created");
@@ -119,12 +119,12 @@ TEST_CASE(
 	"http json: native convenience can encode and decode request bodies",
 	"[http.json]") {
 	auto req = conflux::http::ClientRequest::post("https://example.test/api");
-	hj::set_body(req, static_cast<i64>(99));
+	hj::set_body(req, static_cast<std::int64_t>(99));
 	auto built = move(req).build();
 	CHECK(built.headers().value_or("Content-Type") == jb::kContentType);
 	CHECK(built.body() == "99");
 
-	auto decoded = hj::decode_body<i64>(built, {.copy_input = false});
+	auto decoded = hj::decode_body<std::int64_t>(built, {.copy_input = false});
 	REQUIRE(decoded.has_value());
 	CHECK(*decoded == 99);
 }

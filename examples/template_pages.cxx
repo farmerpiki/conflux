@@ -9,7 +9,7 @@ import conflux.templates;
 import conflux.types;
 import std;
 
-static void write_template(fs::path const &path, SV body) {
+static void write_template(fs::path const &path, std::string_view body) {
 	std::ofstream out(path, std::ios::binary);
 	out << body;
 }

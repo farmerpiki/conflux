@@ -49,7 +49,7 @@ TEST_CASE(
 	SendZcCqeState state{};
 	SendZcMetrics metrics{};
 	metrics.attempts = 1024;
-	metrics.bytes_requested = SZ{16} * 1024 * 1024;
+	metrics.bytes_requested = std::size_t{16} * 1024 * 1024;
 	metrics.notifications = 1023;
 	metrics.copied_notifications = 921;
 	bool enabled = true;
