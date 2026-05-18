@@ -1,5 +1,7 @@
-// Benchmark: large file copy two ways — block_on per chunk (callback style)
-// vs single block_on driving a Task<void> that co_awaits read/write in a loop.
+// Benchmark: large file copy paths:
+// - block_on per read/write chunk (callback style)
+// - single block_on driving a Task<void> that co_awaits read/write in a loop
+// - existing compiled splice chain (file → pipe → fd)
 #include <fcntl.h>
 #include <liburing.h>
 #include <sys/stat.h>
@@ -146,6 +148,32 @@ u64 run_coroutine(
 	auto const t1 = chrono::steady_clock::now();
 	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
 }
+u64 run_splice_chain(
+	FileReader &files,
+	Config const &cfg,
+	SZ bytes) {
+	drop_caches();
+	::unlink(cfg.dst_path.c_str());
+	auto const t0 = chrono::steady_clock::now();
+
+	PipePool pipes{1};
+	auto pipe = pipes.try_acquire();
+	if (!pipe.has_value()) {
+		throw RE{"splice pipe unavailable"};
+	}
+	auto src = block_on(files, files.async_open(AT_FDCWD, cfg.src_path, O_RDONLY | O_CLOEXEC));
+	auto dst =
+		block_on(files, files.async_open(AT_FDCWD, cfg.dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644));
+
+	SZ const delivered = block_on(files, files.splice_to_fd(src, 0, bytes, dst.raw_fd(), move(*pipe)));
+	if (delivered != bytes) {
+		throw RE{format("splice short copy: {} of {} bytes", delivered, bytes)};
+	}
+	block_on(files, files.async_fsync(dst));
+
+	auto const t1 = chrono::steady_clock::now();
+	return static_cast<u64>(chrono::duration_cast<chrono::nanoseconds>(t1 - t0).count());
+}
 double mib_per_sec(
 	SZ bytes,
 	u64 ns) {
@@ -184,9 +212,11 @@ int main(
 		// warmup: one of each, excluded from stats.
 		(void)run_callback(files, cfg);
 		(void)run_coroutine(files, cfg);
+		(void)run_splice_chain(files, cfg, bytes);
 
 		Agg cb;
 		Agg co;
+		Agg sp;
 		for (SZ i = 0; i < cfg.runs; ++i) {
 			u64 const t_cb = run_callback(files, cfg);
 			cb.total_ns += t_cb;
@@ -194,11 +224,16 @@ int main(
 			u64 const t_co = run_coroutine(files, cfg);
 			co.total_ns += t_co;
 			co.best_ns = min(co.best_ns, t_co);
+			u64 const t_sp = run_splice_chain(files, cfg, bytes);
+			sp.total_ns += t_sp;
+			sp.best_ns = min(sp.best_ns, t_sp);
 		}
 
 		double const cb_avg = static_cast<double>(cb.total_ns) / static_cast<double>(cfg.runs);
 		double const co_avg = static_cast<double>(co.total_ns) / static_cast<double>(cfg.runs);
-		double const delta = 100.0 * (co_avg - cb_avg) / cb_avg;
+		double const sp_avg = static_cast<double>(sp.total_ns) / static_cast<double>(cfg.runs);
+		double const delta_coro = 100.0 * (co_avg - cb_avg) / cb_avg;
+		double const delta_splice = 100.0 * (sp_avg - cb_avg) / cb_avg;
 
 		if (cfg.json_out) {
 			std::println(
@@ -219,21 +254,37 @@ int main(
 				mib_per_sec(bytes, static_cast<u64>(co_avg)),
 				mib_per_sec(bytes, co.best_ns),
 				co.best_ns);
+			std::println(
+				"{{\"config\":\"default\",\"variant\":\"splice_chain\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{"
+				":.2f},\"avg_mib_per_s\":{:.1f},\"best_mib_per_s\":{:.1f},\"best_ns\":{}}}",
+				cfg.runs,
+				sp.total_ns,
+				sp_avg,
+				mib_per_sec(bytes, static_cast<u64>(sp_avg)),
+				mib_per_sec(bytes, sp.best_ns),
+				sp.best_ns);
 		} else {
 			std::println("size: {} MiB, chunk: {} KiB, runs: {} (+1 warmup each)", cfg.size_mib, cfg.chunk_kib, cfg.runs);
 			std::println(
-				"  callback   avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
+				"  callback     avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
 				cb_avg / 1e6,
 				static_cast<double>(cb.best_ns) / 1e6,
 				mib_per_sec(bytes, static_cast<u64>(cb_avg)),
 				mib_per_sec(bytes, cb.best_ns));
 			std::println(
-				"  coroutine  avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
+				"  coroutine    avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
 				co_avg / 1e6,
 				static_cast<double>(co.best_ns) / 1e6,
 				mib_per_sec(bytes, static_cast<u64>(co_avg)),
 				mib_per_sec(bytes, co.best_ns));
-			std::println("  delta      {:+.2f}% avg (coro vs callback)", delta);
+			std::println(
+				"  splice_chain avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
+				sp_avg / 1e6,
+				static_cast<double>(sp.best_ns) / 1e6,
+				mib_per_sec(bytes, static_cast<u64>(sp_avg)),
+				mib_per_sec(bytes, sp.best_ns));
+			std::println("  delta        {:+.2f}% avg (coro vs callback)", delta_coro);
+			std::println("  delta        {:+.2f}% avg (splice_chain vs callback)", delta_splice);
 		}
 	} catch (exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());
