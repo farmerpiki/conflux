@@ -25,8 +25,12 @@ namespace {
 struct BenchClient {
 	int fd = -1;
 	explicit BenchClient(
+		std::uint16_t port)
+		: BenchClient("127.0.0.1"sv, port) {}
+	explicit BenchClient(
+		std::string_view host,
 		std::uint16_t port) {
-		connect_to(port);
+		connect_to(host, port);
 	}
 	~BenchClient() {
 		close();
@@ -46,6 +50,7 @@ struct BenchClient {
 		return *this;
 	}
 	void connect_to(
+		std::string_view host,
 		std::uint16_t port) {
 		fd = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
 		if (fd < 0) {
@@ -57,7 +62,12 @@ struct BenchClient {
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(port);
-		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+		auto host_s = std::string{host};
+		if (::inet_pton(AF_INET, host_s.c_str(), &addr.sin_addr) != 1) {
+			::close(fd);
+			fd = -1;
+			throw std::runtime_error{format("invalid IPv4 host: {}", host)};
+		}
 		if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 			::close(fd);
 			fd = -1;
@@ -72,8 +82,13 @@ struct BenchClient {
 	}
 	void reconnect(
 		std::uint16_t port) {
+		reconnect("127.0.0.1"sv, port);
+	}
+	void reconnect(
+		std::string_view host,
+		std::uint16_t port) {
 		close();
-		connect_to(port);
+		connect_to(host, port);
 	}
 	void send_all(
 		std::string_view data) const {
@@ -131,6 +146,7 @@ struct BenchClient {
 };
 
 void wait_for_server(
+	std::string_view host,
 	std::uint16_t port) {
 	for (int i = 0; i < 200; ++i) {
 		int const s = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);
@@ -140,7 +156,11 @@ void wait_for_server(
 		sockaddr_in addr{};
 		addr.sin_family = AF_INET;
 		addr.sin_port = htons(port);
-		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+		auto host_s = std::string{host};
+		if (::inet_pton(AF_INET, host_s.c_str(), &addr.sin_addr) != 1) {
+			::close(s);
+			throw std::runtime_error{format("invalid IPv4 host: {}", host)};
+		}
 		bool const up = ::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0;
 		::close(s);
 		if (up) {
@@ -149,6 +169,10 @@ void wait_for_server(
 		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
 	throw std::runtime_error{"server did not start in time"};
+}
+void wait_for_server(
+	std::uint16_t port) {
+	wait_for_server("127.0.0.1"sv, port);
 }
 struct ServerHandle {
 	std::shared_ptr<HttpServer> server;
@@ -232,6 +256,17 @@ std::size_t parse_sz_arg(
 	}
 	return fallback;
 }
+std::string parse_string_arg(
+	span<char *> args,
+	std::string_view name,
+	std::string fallback) {
+	for (std::size_t i = 1; i < args.size(); ++i) {
+		if (std::string_view{args[i]} == name && i + 1 < args.size()) {
+			return std::string{args[++i]};
+		}
+	}
+	return fallback;
+}
 using RunFn = std::function<void()>;
 struct Variant {
 	std::string name;
@@ -242,7 +277,7 @@ struct Variant {
 	std::size_t ops_per_iter = 1;
 	std::size_t iters_override = 0;
 };
-struct BenchStats {
+struct SendZcBenchStats {
 	std::string config;
 	std::string variant;
 	std::size_t iterations{};
@@ -254,7 +289,7 @@ struct BenchStats {
 	double requests_per_sec{};
 	std::uint64_t errors{};
 };
-BenchStats run_variant(
+SendZcBenchStats run_variant(
 	Variant const &v,
 	std::size_t iterations,
 	std::size_t warmup,
@@ -289,7 +324,7 @@ BenchStats run_variant(
 	}
 	auto const total = t1 - t0;
 	auto const ns_pi = static_cast<double>(total) / static_cast<double>(iterations);
-	return BenchStats{
+	return SendZcBenchStats{
 		.config = std::string{config_name},
 		.variant = v.name,
 		.iterations = iterations,
@@ -299,7 +334,7 @@ BenchStats run_variant(
 	};
 }
 void print_variant(
-	BenchStats const &s,
+	SendZcBenchStats const &s,
 	bool json,
 	std::size_t ops_per_iter) {
 	auto const &zc = s.metrics.send_zc;
@@ -391,6 +426,7 @@ struct ConcurrentWorkerResult {
 	std::uint64_t errors{};
 };
 ConcurrentWorkerResult run_concurrent_worker(
+	std::string_view host,
 	std::uint16_t port,
 	std::string_view request,
 	std::size_t response_bytes,
@@ -402,7 +438,7 @@ ConcurrentWorkerResult run_concurrent_worker(
 	std::vector<BenchClient> clients;
 	clients.reserve(static_cast<std::size_t>(connection_count));
 	for (int i = 0; i < connection_count; ++i) {
-		clients.emplace_back(port);
+		clients.emplace_back(host, port);
 	}
 	ready.fetch_add(1, memory_order_release);
 	while (!start.load(memory_order_acquire)) {
@@ -422,14 +458,14 @@ ConcurrentWorkerResult run_concurrent_worker(
 			} catch (...) {
 				++result.errors;
 				try {
-					client.reconnect(port);
+					client.reconnect(host, port);
 				} catch (...) {}
 			}
 		}
 	}
 	return result;
 }
-BenchStats run_concurrent_variant(
+SendZcBenchStats run_concurrent_variant(
 	std::string_view config_name,
 	std::string name,
 	std::string_view mode,
@@ -457,6 +493,7 @@ BenchStats run_concurrent_variant(
 		auto const worker_connections = base + (i < rem ? 1 : 0);
 		workers.emplace_back([&, i, worker_connections] {
 			results[static_cast<std::size_t>(i)] = run_concurrent_worker(
+				"127.0.0.1"sv,
 				st.server.port,
 				std::string_view{request},
 				response_bytes,
@@ -487,13 +524,78 @@ BenchStats run_concurrent_variant(
 	auto const total_ns = t1 - t0;
 	auto const ns_per_iter = requests == 0 ? 0.0 : static_cast<double>(total_ns) / static_cast<double>(requests);
 	auto const rps = static_cast<double>(requests) / (static_cast<double>(total_ns) / 1e9);
-	return BenchStats{
+	return SendZcBenchStats{
 		.config = std::string{config_name},
 		.variant = move(name),
 		.iterations = static_cast<std::size_t>(requests),
 		.total_ns = total_ns,
 		.ns_per_iter = ns_per_iter,
 		.metrics = st.metrics,
+		.connections = connections,
+		.duration_s = duration_s,
+		.requests_per_sec = rps,
+		.errors = errors,
+	};
+}
+
+SendZcBenchStats run_remote_concurrent_variant(
+	std::string_view config_name,
+	std::string name,
+	std::string_view host,
+	std::uint16_t port,
+	std::string request,
+	std::size_t response_bytes,
+	std::size_t connections,
+	std::size_t duration_s) {
+	auto const hw = max(1u, thread::hardware_concurrency());
+	auto const thread_count = static_cast<int>(min<std::size_t>(connections, static_cast<std::size_t>(hw)));
+	auto const base = static_cast<int>(connections / static_cast<std::size_t>(thread_count));
+	auto const rem = static_cast<int>(connections % static_cast<std::size_t>(thread_count));
+	std::atomic<bool> start{false};
+	std::atomic<bool> stop{false};
+	std::atomic<int> ready{0};
+	std::vector<thread> workers;
+	std::vector<ConcurrentWorkerResult> results(static_cast<std::size_t>(thread_count));
+	for (int i = 0; i < thread_count; ++i) {
+		auto const worker_connections = base + (i < rem ? 1 : 0);
+		workers.emplace_back([&, i, worker_connections] {
+			results[static_cast<std::size_t>(i)] = run_concurrent_worker(
+				host,
+				port,
+				std::string_view{request},
+				response_bytes,
+				worker_connections,
+				start,
+				stop,
+				ready);
+		});
+	}
+	while (ready.load(memory_order_acquire) != thread_count) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{1});
+	}
+	auto const t0 = bench_now_ns();
+	start.store(true, memory_order_release);
+	std::this_thread::sleep_for(std::chrono::seconds{static_cast<int>(duration_s)});
+	stop.store(true, memory_order_release);
+	for (auto &worker: workers) {
+		worker.join();
+	}
+	auto const t1 = bench_now_ns();
+	std::uint64_t requests = 0;
+	std::uint64_t errors = 0;
+	for (auto const &r: results) {
+		requests += r.requests;
+		errors += r.errors;
+	}
+	auto const total_ns = t1 - t0;
+	auto const ns_per_iter = requests == 0 ? 0.0 : static_cast<double>(total_ns) / static_cast<double>(requests);
+	auto const rps = static_cast<double>(requests) / (static_cast<double>(total_ns) / 1e9);
+	return SendZcBenchStats{
+		.config = std::string{config_name},
+		.variant = move(name),
+		.iterations = static_cast<std::size_t>(requests),
+		.total_ns = total_ns,
+		.ns_per_iter = ns_per_iter,
 		.connections = connections,
 		.duration_s = duration_s,
 		.requests_per_sec = rps,
@@ -615,9 +717,17 @@ int main(
 	auto const json_out = args.json_out;
 	auto const raw_args = span{argv, static_cast<std::size_t>(argc)};
 	bool const concurrent = has_flag(raw_args, "--concurrent"sv);
+	bool const server_only = has_flag(raw_args, "--server-only"sv);
+	bool const client_only = has_flag(raw_args, "--client-only"sv);
 	std::size_t const concurrent_connections = max<std::size_t>(1, parse_sz_arg(raw_args, "--connections"sv, 64));
 	std::size_t const concurrent_duration_s = max<std::size_t>(1, parse_sz_arg(raw_args, "--duration"sv, 2));
 	std::size_t const send_zc_threshold = parse_send_zc_threshold(raw_args);
+	std::uint16_t const remote_port = static_cast<std::uint16_t>(parse_sz_arg(raw_args, "--port"sv, 9095));
+	std::string const remote_host = parse_string_arg(raw_args, "--host"sv, "127.0.0.1");
+	std::string const remote_path = parse_string_arg(raw_args, "--path"sv, "/body/1M");
+	std::string const remote_mode = parse_string_arg(raw_args, "--send-zc-mode"sv, "auto");
+	std::size_t const remote_response_bytes = parse_sz_arg(raw_args, "--response-bytes"sv, 1048576);
+	std::string const remote_variant = parse_string_arg(raw_args, "--variant"sv, format("remote/plain/1M/{}", remote_mode));
 	std::string const inferred_config_name = format("threshold_{}", send_zc_threshold);
 	std::string_view const config_name = args.config_name.empty() ? std::string_view{inferred_config_name} : std::string_view{args.config_name};
 	struct BodySpec {
@@ -655,6 +765,53 @@ int main(
 		r.serve_static("/", std::string{static_dir.string()});
 		return r;
 	};
+	auto make_remote_router = [&] {
+		Router r;
+		for (auto const &[label, body]: body_map) {
+			auto const *body_ptr = &body;
+			r.get(format("/body/{}", label), [body_ptr](HttpRequest const &) { return HttpResponse::text(*body_ptr); });
+		}
+		r.serve_static("/", std::string{static_dir.string()});
+		return r;
+	};
+
+	if (server_only && client_only) {
+		throw std::runtime_error{"--server-only and --client-only are mutually exclusive"};
+	}
+	if (server_only) {
+		auto cfg = bench_config_zc(std::string_view{remote_mode}, send_zc_threshold);
+		cfg.port = remote_port;
+		auto server = start_server(cfg, make_remote_router());
+		if (!json_out) {
+			std::println("send_zc_bench server: port={}, mode={}, threshold={}, duration={}s", server.port, remote_mode, send_zc_threshold, concurrent_duration_s);
+		}
+		std::this_thread::sleep_for(std::chrono::seconds{static_cast<int>(concurrent_duration_s)});
+		auto metrics = stop_server(server);
+		SendZcBenchStats s{
+			.config = std::string{config_name},
+			.variant = remote_variant,
+			.metrics = metrics,
+			.duration_s = concurrent_duration_s,
+		};
+		print_variant(s, json_out, 1);
+		fs::remove_all(static_dir);
+		return 0;
+	}
+	if (client_only) {
+		auto request = format("GET {} HTTP/1.1\r\nHost: {}\r\n\r\n", remote_path, remote_host);
+		auto s = run_remote_concurrent_variant(
+			config_name,
+			remote_variant,
+			remote_host,
+			remote_port,
+			move(request),
+			remote_response_bytes,
+			concurrent_connections,
+			concurrent_duration_s);
+		print_variant(s, json_out, 1);
+		fs::remove_all(static_dir);
+		return 0;
+	}
 
 	std::vector<char> recv_buf(1200000);
 	auto rb = span<char>{recv_buf};
