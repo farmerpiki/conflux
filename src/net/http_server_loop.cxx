@@ -590,7 +590,19 @@ void Ring::submit_conn_close_or_defer(
 		}
 		auto handle = accepted_sockets_direct ? SocketHandle::from_direct(static_cast<std::uint32_t>(fd)) :
 												SocketHandle::from_os(fd);
-		if (!submit_close(raw_, handle, pack(Op::Close, gen, fd))) {
+		bool const submitted = accepted_sockets_direct
+			? submit_close_fast(
+				raw_,
+				handle,
+				pack(Op::Nop, 0, 0),
+				pack(Op::Close, gen, fd),
+				SocketCloseOptions{
+					.shutdown_write = true,
+					.skip_shutdown_success_cqe = true,
+					.allow_async_shutdown_for_os_fd = false,
+				})
+			: submit_close(raw_, handle, pack(Op::Close, gen, fd));
+		if (!submitted) {
 			HTTP_TRACE(format("conn_close_defer fd={} gen={} direct={}", fd, gen, accepted_sockets_direct));
 			defer_op([this, fd, gen] { submit_conn_close_or_defer(fd, gen); });
 			return;
@@ -677,12 +689,7 @@ void Ring::queue_close(
 				}
 				fd_table[ufd].closing = true;
 			}
-			if (direct_slots_) {
-				if (!direct_slots_->mark_closing(static_cast<std::uint32_t>(fd))) {
-					eprintln(format("queue_close: mark_closing failed slot={}", fd));
-				}
-			}
-			submit_fd_shutdown_or_defer(fd, direct_gen);
+			submit_conn_close_or_defer(fd, direct_gen);
 			return;
 		}
 
