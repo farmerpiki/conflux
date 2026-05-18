@@ -31,9 +31,11 @@ valid_root_example() {
 			conflux_h3_server|conflux_hello|conflux_http_client|conflux_http_client_builder_example|\
 			conflux_http_observability_example|conflux_http_policy_stack_example|\
 			conflux_json_config_example|conflux_json_diagnostics_example|conflux_json_example|\
+			conflux_http_client_json_example|conflux_http_explicit_offload_example|\
 			conflux_json_stream_ingest_example|conflux_json_transform_example|\
 			conflux_middleware|conflux_process_run_example|conflux_sse|conflux_static|\
-			conflux_template_pages_example|conflux_vhost_openapi_example|conflux_work_join_all_example)
+			conflux_template_pages_example|conflux_vhost_openapi_example|conflux_work_join_all_example|\
+			conflux_api_typed_json_example)
 			return 0
 			;;
 		*)
