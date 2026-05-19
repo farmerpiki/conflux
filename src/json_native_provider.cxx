@@ -129,6 +129,15 @@ struct NativeJsonProvider {
 	[[nodiscard]] static std::expected<std::string, Error> dump_json(
 		T const &value,
 		DumpOptions const &opts = {}) {
+		if constexpr (JsonDirectWritable<std::remove_cvref_t<T>>) {
+			auto body = dump_direct<std::remove_cvref_t<T>>(value, detail::map_dump_options(opts));
+			if (body) {
+				return std::move(*body);
+			}
+			if (!opts.sort_object_keys) {
+				return std::unexpected(detail::map_error(body.error()));
+			}
+		}
 		ValueBuilder builder;
 		if (auto ok = builder.template set<std::remove_cvref_t<T>>(value); !ok) {
 			return std::unexpected(detail::map_error(ok.error()));

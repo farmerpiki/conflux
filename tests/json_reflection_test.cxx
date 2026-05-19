@@ -236,6 +236,32 @@ void test_reader_path_decode() {
 	CHECK(p->x == 5);
 	CHECK(p->y == -3);
 }
+void test_reader_path_decode_escaped_key() {
+	std::string_view input = R"({"host\u005fname": "localhost", "port": 8080, "tls": true})";
+	JsonReader reader{input};
+	auto cfg = decode<Config>(reader);
+	REQUIRE(cfg.has_value());
+	CHECK(cfg->host == "localhost");
+	CHECK(cfg->port == 8080);
+	CHECK(cfg->tls == true);
+	CHECK(!cfg->label.has_value());
+}
+void test_reader_path_decode_ignore_unknown_nested() {
+	std::string_view input = R"({"x": 5, "ignored": {"nested": [1, 2, 3]}, "y": -3})";
+	JsonReader reader{input};
+	auto p = decode<Point>(reader, JsonDecodeOptions{.unknown_members = UnknownMemberPolicy::ignore});
+	REQUIRE(p.has_value());
+	CHECK(p->x == 5);
+	CHECK(p->y == -3);
+}
+void test_reader_path_decode_unknown_rejected() {
+	std::string_view input = R"({"x": 5, "ignored": {"nested": [1, 2, 3]}, "y": -3})";
+	JsonReader reader{input};
+	auto p = decode<Point>(reader);
+	REQUIRE(!p.has_value());
+	CHECK(p.error().code == JsonIssueCode::invalid_value);
+	CHECK(p.error().member_name == "ignored");
+}
 
 } // namespace
 // ---------------------------------------------------------------------------
@@ -264,6 +290,9 @@ export int run_tests() {
 		{							   test_roundtrip_config,                               "round-trip Config"},
 		{						 test_has_json_codec_concept,                          "has_json_codec concept"},
 		{							 test_reader_path_decode,                              "reader path decode"},
+		{				 test_reader_path_decode_escaped_key,                  "reader path decode escaped key"},
+		{       test_reader_path_decode_ignore_unknown_nested,        "reader path decode ignore unknown nested"},
+		{			test_reader_path_decode_unknown_rejected,             "reader path decode unknown rejected"},
 	};
 	int saved = g_failures;
 	for (auto const &t: tests) {

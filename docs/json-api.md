@@ -577,6 +577,12 @@ template<has_json_codec T> expected<T, JsonError> decode(Document const& d); // 
 template<class T> expected<T, JsonError> decode(JsonReader& r);              // full document
 template<class T> expected<T, JsonError> decode_full(JsonReader& r);
 template<class T> expected<T, JsonError> decode_full(string_view input);
+template<class T> expected<T, JsonError> decode_direct(JsonReader& r, JsonDecodeOptions const& opts = {},
+                                                       JsonDecodeScratch* scratch = nullptr);
+template<class T> expected<T, JsonError> decode_borrowed(string_view input, JsonParseOptions const& parse = {},
+                                                         JsonDecodeOptions const& decode = {});
+template<class T> expected<T, JsonError> decode_owned(string_view input, JsonParseOptions const& parse = {},
+                                                      JsonDecodeOptions const& decode = {});
 template<class T> expected<T, JsonError> decode_next(JsonReader& r);          // streaming
 ```
 
@@ -584,6 +590,14 @@ template<class T> expected<T, JsonError> decode_next(JsonReader& r);          //
 value and return `trailing_garbage` if another top-level value remains.
 `decode_next(...)` is the explicit streaming form for NDJSON-like loops or other
 multi-value inputs.
+`decode_direct(...)` exposes the reader/scratch path used by typed providers.
+`decode_borrowed(...)` names the view-backed input lifetime explicitly;
+`decode_owned(...)` rejects `string_view` targets at compile time.
+
+For direct output, `write_json_direct(out, value, opts)` appends compact JSON to
+an existing string and `dump_direct(value, opts)` returns a new string. The
+native provider uses this path for eligible compact `JsonMembers<T>` values and
+falls back to the DOM writer for sorted or unsupported output.
 
 `JsonReader::skip_next_value()` validates the skipped value by consuming normal
 reader events and returns the byte range it consumed.

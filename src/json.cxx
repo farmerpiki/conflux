@@ -307,6 +307,23 @@ export struct JsonDecodeOptions {
 	UnknownMemberPolicy unknown_members{UnknownMemberPolicy::reject};
 };
 
+export struct JsonDecodeScratch {
+	std::pmr::memory_resource *resource{std::pmr::get_default_resource()};
+	std::array<char, 256> key_inline{};
+	std::pmr::vector<char> key_overflow{resource};
+	std::array<char, 256> string_inline{};
+	std::pmr::vector<char> string_overflow{resource};
+	std::pmr::vector<std::uint64_t> found_bits{resource};
+
+	void reset_resource(
+		std::pmr::memory_resource *mr = std::pmr::get_default_resource()) {
+		resource = mr;
+		key_overflow = std::pmr::vector<char>{resource};
+		string_overflow = std::pmr::vector<char>{resource};
+		found_bits = std::pmr::vector<std::uint64_t>{resource};
+	}
+};
+
 // The parser/DOM prototype policy makes the intended replacement architecture
 // explicit without starting a broad parser rewrite. The current implementation
 // below already provides the three storage routes we want to preserve: borrowed
@@ -2331,6 +2348,38 @@ concept has_json_codec = detail::has_codec_spec<T>::value || detail::has_members
 
 export template<class T>
 inline constexpr bool has_json_codec_v = has_json_codec<T>;
+namespace detail {
+
+template<class T>
+struct direct_writable : std::false_type {};
+template<>
+struct direct_writable<bool> : std::true_type {};
+template<>
+struct direct_writable<std::int64_t> : std::true_type {};
+template<>
+struct direct_writable<std::uint64_t> : std::true_type {};
+template<>
+struct direct_writable<double> : std::true_type {};
+template<>
+struct direct_writable<std::string> : std::true_type {};
+template<>
+struct direct_writable<std::string_view> : std::true_type {};
+template<class T>
+struct direct_writable<std::optional<T>> : direct_writable<std::remove_cvref_t<T>> {};
+template<class T>
+struct direct_writable<Nullable<T>> : direct_writable<std::remove_cvref_t<T>> {};
+template<class T>
+struct direct_writable<std::vector<T>> : direct_writable<std::remove_cvref_t<T>> {};
+template<class T, std::size_t N>
+struct direct_writable<std::array<T, N>> : direct_writable<std::remove_cvref_t<T>> {};
+template<class T>
+	requires has_members_spec<T>::value
+struct direct_writable<T> : std::true_type {};
+
+} // namespace detail
+
+export template<class T>
+concept JsonDirectWritable = detail::direct_writable<std::remove_cvref_t<T>>::value;
 // ---------------------------------------------------------------------------
 // Builder
 // ---------------------------------------------------------------------------
@@ -2835,6 +2884,12 @@ concept codec_decodes_node_with_options = requires(NodeRef root, JsonDecodeOptio
 };
 
 template<class T>
+concept codec_decodes_reader_event_with_options =
+	requires(JsonReader &reader, JsonReader::Event event, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch) {
+		{ JsonCodec<T>::decode(reader, event, opts, scratch) } -> std::same_as<std::expected<T, JsonError>>;
+	};
+
+template<class T>
 concept codec_encodes_value = requires(ValueBuilder &builder, T const &value) {
 	{ JsonCodec<T>::encode(builder, value) } -> std::same_as<std::expected<void, JsonError>>;
 };
@@ -2917,12 +2972,19 @@ std::expected<T, JsonError> decode(NodeRef root, JsonDecodeOptions const &opts =
 export template<class T>
 std::expected<T, JsonError> decode(JsonReader &reader, JsonDecodeOptions const &opts = {});
 export template<class T>
+std::expected<T, JsonError>
+decode_direct(JsonReader &reader, JsonDecodeOptions const &opts = {}, JsonDecodeScratch *scratch = nullptr);
+export template<class T>
 std::expected<T, JsonError> decode_next(JsonReader &reader, JsonDecodeOptions const &opts = {});
 export template<class T>
 std::expected<T, JsonError> decode_full(JsonReader &reader, JsonDecodeOptions const &opts = {});
 export template<class T>
 std::expected<T, JsonError>
 decode_full(std::string_view input, JsonParseOptions const &parse_opts = {}, JsonDecodeOptions const &decode_opts = {});
+export template<class T>
+std::expected<void, JsonError> write_json_direct(std::string &out, T const &value, JsonDumpOptions const &opts = {});
+export template<class T>
+std::expected<std::string, JsonError> dump_direct(T const &value, JsonDumpOptions const &opts = {});
 export template<class T>
 std::expected<T, JsonError> decode(
 	Document const &d,
@@ -3442,11 +3504,66 @@ namespace detail {
 }
 
 template<class T>
-std::expected<T, JsonError> decode_from_event(JsonReader &r, JsonReader::Event ev, JsonDecodeOptions const &opts);
+std::expected<T, JsonError>
+decode_from_event(JsonReader &r, JsonReader::Event ev, JsonDecodeOptions const &opts, JsonDecodeScratch *scratch);
+template<class T>
+std::expected<T, JsonError> decode_from_event(
+	JsonReader &r,
+	JsonReader::Event ev,
+	JsonDecodeOptions const &opts) {
+	JsonDecodeScratch scratch;
+	return decode_from_event<T>(r, ev, opts, &scratch);
+}
+
+[[nodiscard]] inline std::expected<std::string_view, JsonError> key_view_from_token(
+	JsonStringToken const &token,
+	JsonDecodeScratch &scratch) {
+	if (auto borrowed = token.unescaped_borrow()) {
+		return *borrowed;
+	}
+	auto const needed = token.max_decoded_size();
+	if (needed <= scratch.key_inline.size()) {
+		return token.decode_into(std::span<char>{scratch.key_inline.data(), scratch.key_inline.size()});
+	}
+	scratch.key_overflow.resize(needed);
+	return token.decode_into(std::span<char>{scratch.key_overflow.data(), scratch.key_overflow.size()});
+}
+
+[[nodiscard]] inline bool found_bit_is_set(
+	std::uint64_t inline_bits,
+	std::span<std::uint64_t const> overflow_bits,
+	std::size_t idx) noexcept {
+	if (idx < 64) {
+		return (inline_bits & (std::uint64_t{1} << idx)) != 0;
+	}
+	auto const word = idx / 64;
+	auto const bit = idx % 64;
+	return word < overflow_bits.size() && (overflow_bits[word] & (std::uint64_t{1} << bit)) != 0;
+}
+
+inline void set_found_bit(
+	std::uint64_t &inline_bits,
+	std::pmr::vector<std::uint64_t> &overflow_bits,
+	std::size_t member_count,
+	std::size_t idx) {
+	if (member_count <= 64) {
+		inline_bits |= std::uint64_t{1} << idx;
+		return;
+	}
+	auto const words = (member_count + 63) / 64;
+	if (overflow_bits.size() < words) {
+		overflow_bits.assign(words, 0);
+	}
+	auto const word = idx / 64;
+	auto const bit = idx % 64;
+	overflow_bits[word] |= std::uint64_t{1} << bit;
+}
+
 template<class T>
 std::expected<T, JsonError> decode_with_reader(
 	JsonReader &r,
-	JsonDecodeOptions const &opts) {
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch = nullptr) {
 	auto ne = r.next();
 	if (!ne) {
 		return std::unexpected(std::move(ne).error());
@@ -3458,13 +3575,15 @@ std::expected<T, JsonError> decode_with_reader(
 				.code = JsonIssueCode::unexpected_eof,
 				.message = "std::unexpected end of input"});
 	}
-	return decode_from_event<T>(r, **ne, opts);
+	JsonDecodeScratch local_scratch;
+	return decode_from_event<T>(r, **ne, opts, scratch != nullptr ? scratch : &local_scratch);
 }
 template<class T>
 std::expected<T, JsonError> decode_from_event(
 	JsonReader &r,
 	JsonReader::Event ev,
-	JsonDecodeOptions const &opts) {
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
 	using Ev = JsonReader::Event;
 
 	if constexpr (std::same_as<T, bool>) {
@@ -3818,10 +3937,16 @@ std::expected<T, JsonError> decode_from_event(
 		}
 		T result{};
 		auto const members = JsonMembers<T>::members();
+		using MembersTuple = std::remove_cvref_t<decltype(members)>;
+		constexpr std::size_t member_count = std::tuple_size_v<MembersTuple>;
 		bool ok = true;
 		JsonError first_err;
-		std::size_t const member_count = std::apply([](auto const &...ms) { return sizeof...(ms); }, members);
-		std::vector<bool> found(member_count, false);
+		JsonDecodeScratch local_scratch;
+		JsonDecodeScratch &decode_scratch = scratch != nullptr ? *scratch : local_scratch;
+		std::uint64_t found_inline = 0;
+		if constexpr (member_count > 64) {
+			decode_scratch.found_bits.assign((member_count + 63) / 64, 0);
+		}
 
 		while (ok) {
 			auto ne = r.next();
@@ -3849,12 +3974,13 @@ std::expected<T, JsonError> decode_from_event(
 					.message = "std::expected key"};
 				break;
 			}
-			std::string key_name;
-			if (auto kr = r.key_token().append_decoded_to(key_name); !kr) {
+			auto key_view_res = key_view_from_token(r.key_token(), decode_scratch);
+			if (!key_view_res) {
 				ok = false;
-				first_err = std::move(kr).error();
+				first_err = std::move(key_view_res).error();
 				break;
 			}
+			std::string_view const key_name = *key_view_res;
 
 			bool matched = false;
 			apply(
@@ -3866,10 +3992,9 @@ std::expected<T, JsonError> decode_from_event(
 							 return;
 						 }
 						 auto const &m = jm_member(entry);
-						 if (std::string_view{key_name} == m.name) {
+						 if (key_name == m.name) {
 							 matched = true;
-							 // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-							 found[idx] = true;
+							 set_found_bit(found_inline, decode_scratch.found_bits, member_count, idx);
 							 using M = std::remove_reference_t<decltype(result.*m.pointer)>;
 							 auto vne = r.next();
 							 if (!vne || !*vne) {
@@ -3882,7 +4007,7 @@ std::expected<T, JsonError> decode_from_event(
 								 ++idx;
 								 return;
 							 }
-							 auto decoded = decode_from_event<M>(r, **vne, opts);
+							 auto decoded = decode_from_event<M>(r, **vne, opts, &decode_scratch);
 							 if (!decoded) {
 								 ok = false;
 								 first_err = std::move(decoded).error();
@@ -3911,7 +4036,7 @@ std::expected<T, JsonError> decode_from_event(
 					first_err = JsonError{
 						.stage = JsonStage::decode,
 						.code = JsonIssueCode::invalid_value,
-						.member_name = key_name,
+						.member_name = std::string{key_name},
 						.message = std::format("unknown member: {}", key_name)};
 				} else {
 					auto vne = r.next();
@@ -3946,8 +4071,14 @@ std::expected<T, JsonError> decode_from_event(
 					 }
 					 auto const &m = jm_member(entry);
 					 using M = std::remove_reference_t<decltype(result.*m.pointer)>;
-					 // NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-constant-A-index)
-					 if (!found[idx] && !is_optional<M>::value) {
+					 bool const found = [&] {
+						 if constexpr (member_count <= 64) {
+							 return found_bit_is_set(found_inline, {}, idx);
+						 } else {
+							 return found_bit_is_set(found_inline, decode_scratch.found_bits, idx);
+						 }
+					 }();
+					 if (!found && !is_optional<M>::value) {
 						 ok = false;
 						 first_err = JsonError{
 							 .stage = JsonStage::decode,
@@ -3965,6 +4096,8 @@ std::expected<T, JsonError> decode_from_event(
 			return std::unexpected(std::move(first_err));
 		}
 		return result;
+	} else if constexpr (codec_decodes_reader_event_with_options<T>) {
+		return JsonCodec<T>::decode(r, ev, opts, scratch);
 	} else if constexpr (has_codec_spec<T>::value) {
 		// Generic fallback: re-parse as DOM and delegate to JsonCodec<T>::decode.
 		// Used by any type with a custom JsonCodec that has no dedicated streaming branch.
@@ -3989,6 +4122,13 @@ std::expected<T, JsonError> decode(
 	JsonReader &reader,
 	JsonDecodeOptions const &opts) {
 	return decode_full<T>(reader, opts);
+}
+export template<class T>
+std::expected<T, JsonError> decode_direct(
+	JsonReader &reader,
+	JsonDecodeOptions const &opts,
+	JsonDecodeScratch *scratch) {
+	return detail::decode_with_reader<T>(reader, opts, scratch);
 }
 export template<class T>
 std::expected<T, JsonError> decode_next(
@@ -4025,6 +4165,27 @@ std::expected<T, JsonError> decode_full(
 	JsonDecodeOptions const &decode_opts) {
 	JsonReader reader{input, parse_opts};
 	return decode_full<T>(reader, decode_opts);
+}
+export template<class T>
+std::expected<T, JsonError> decode_borrowed(
+	std::string_view input,
+	JsonParseOptions const &parse_opts = {},
+	JsonDecodeOptions const &decode_opts = {}) {
+	JsonReader reader{input, parse_opts};
+	return decode_full<T>(reader, decode_opts);
+}
+export template<class T>
+std::expected<T, JsonError> decode_owned(
+	std::string_view input,
+	JsonParseOptions const &parse_opts = {},
+	JsonDecodeOptions const &decode_opts = {}) {
+	if constexpr (std::same_as<std::remove_cvref_t<T>, std::string_view>) {
+		static_assert(
+			!std::same_as<std::remove_cvref_t<T>, std::string_view>,
+			"decode_owned<string_view> is not lifetime-safe");
+	} else {
+		return decode_borrowed<T>(input, parse_opts, decode_opts);
+	}
 }
 namespace detail {
 
@@ -4229,6 +4390,270 @@ std::expected<void, JsonError> ValueBuilder::set(
 		return ok;
 	}
 	return detail::encode_dispatch<T>(*this, value);
+}
+
+namespace detail {
+
+inline void direct_append_u_escape(
+	std::string &out,
+	std::uint32_t cp) {
+	static constexpr std::array<char, 16> kHex =
+		{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+	out += "\\u";
+	out += kHex[(cp >> 12U) & 0x0FU];
+	out += kHex[(cp >> 8U) & 0x0FU];
+	out += kHex[(cp >> 4U) & 0x0FU];
+	out += kHex[cp & 0x0FU];
+}
+
+inline void direct_dump_string(
+	std::string &out,
+	std::string_view sv,
+	bool ascii_only) {
+	out += '"';
+	for (std::size_t i = 0; i < sv.size();) {
+		auto const c = static_cast<unsigned char>(sv[i]);
+		switch (c) {
+		case '"':
+			out += "\\\"";
+			++i;
+			break;
+		case '\\':
+			out += "\\\\";
+			++i;
+			break;
+		case '\b':
+			out += "\\b";
+			++i;
+			break;
+		case '\f':
+			out += "\\f";
+			++i;
+			break;
+		case '\n':
+			out += "\\n";
+			++i;
+			break;
+		case '\r':
+			out += "\\r";
+			++i;
+			break;
+		case '\t':
+			out += "\\t";
+			++i;
+			break;
+		default:
+			if (c < 0x20U) {
+				direct_append_u_escape(out, c);
+				++i;
+			} else if (ascii_only && c >= 0x80U) {
+				std::uint32_t cp = 0;
+				std::size_t seq = 0;
+				if (c < 0xE0U) {
+					cp = c & 0x1FU;
+					seq = 2;
+				} else if (c < 0xF0U) {
+					cp = c & 0x0FU;
+					seq = 3;
+				} else {
+					cp = c & 0x07U;
+					seq = 4;
+				}
+				for (std::size_t k = 1; k < seq && i + k < sv.size(); ++k) {
+					cp = (cp << 6U) | (static_cast<unsigned char>(sv[i + k]) & 0x3FU);
+				}
+				i += std::min(seq, sv.size() - i);
+				if (cp < 0x10000U) {
+					direct_append_u_escape(out, cp);
+				} else {
+					cp -= 0x10000U;
+					direct_append_u_escape(out, 0xD800U | (cp >> 10U));
+					direct_append_u_escape(out, 0xDC00U | (cp & 0x3FFU));
+				}
+			} else {
+				out += static_cast<char>(c);
+				++i;
+			}
+		}
+	}
+	out += '"';
+}
+
+inline void direct_indent(
+	std::string &out,
+	JsonDumpOptions const &opts,
+	unsigned depth) {
+	if (!opts.pretty) {
+		return;
+	}
+	out += '\n';
+	out.append(static_cast<std::size_t>(depth) * opts.indent, opts.indent_char);
+}
+
+template<class T>
+std::expected<void, JsonError>
+direct_write_value(std::string &out, T const &value, JsonDumpOptions const &opts, unsigned depth);
+
+template<class T>
+std::expected<void, JsonError> direct_write_array_like(
+	std::string &out,
+	T const &value,
+	JsonDumpOptions const &opts,
+	unsigned depth) {
+	out += '[';
+	bool first = true;
+	for (auto const &elem: value) {
+		if (!first) {
+			out += ',';
+		}
+		if (opts.pretty) {
+			direct_indent(out, opts, depth + 1);
+		}
+		if (auto ok = direct_write_value(out, elem, opts, depth + 1); !ok) {
+			return ok;
+		}
+		first = false;
+	}
+	if (opts.pretty && !first) {
+		direct_indent(out, opts, depth);
+	}
+	out += ']';
+	return {};
+}
+
+template<class T>
+std::expected<void, JsonError> direct_write_members(
+	std::string &out,
+	T const &value,
+	JsonDumpOptions const &opts,
+	unsigned depth) {
+	if (opts.sort_object_keys) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::dump,
+				.code = JsonIssueCode::invalid_value,
+				.message = "direct writer does not support sort_object_keys"});
+	}
+	out += '{';
+	auto const members = JsonMembers<T>::members();
+	bool ok = true;
+	bool first = true;
+	JsonError first_err;
+	apply(
+		[&](auto const &...entries) {
+			(([&](auto const &entry) {
+				 if (!ok) {
+					 return;
+				 }
+				 auto const &m = jm_member(entry);
+				 if (!first) {
+					 out += ',';
+				 }
+				 if (opts.pretty) {
+					 direct_indent(out, opts, depth + 1);
+				 }
+				 direct_dump_string(out, m.name, opts.ascii_only);
+				 out += opts.pretty ? ": " : ":";
+				 if (auto res = direct_write_value(out, value.*m.pointer, opts, depth + 1); !res) {
+					 ok = false;
+					 first_err = std::move(res).error();
+					 first_err.member_name = std::string{m.name};
+					 return;
+				 }
+				 first = false;
+			 })(entries),
+			 ...);
+		},
+		members);
+	if (!ok) {
+		return std::unexpected(std::move(first_err));
+	}
+	if (opts.pretty && !first) {
+		direct_indent(out, opts, depth);
+	}
+	out += '}';
+	return {};
+}
+
+template<class T>
+std::expected<void, JsonError> direct_write_value(
+	std::string &out,
+	T const &value,
+	JsonDumpOptions const &opts,
+	unsigned depth) {
+	using Raw = std::remove_cvref_t<T>;
+	if constexpr (std::same_as<Raw, bool>) {
+		out += value ? "true" : "false";
+		return {};
+	} else if constexpr (std::same_as<Raw, std::string>) {
+		direct_dump_string(out, value, opts.ascii_only);
+		return {};
+	} else if constexpr (std::same_as<Raw, std::string_view>) {
+		direct_dump_string(out, value, opts.ascii_only);
+		return {};
+	} else if constexpr ((std::integral<Raw> && !std::same_as<Raw, bool>) || std::floating_point<Raw>) {
+		std::array<char, 64> buf{};
+		auto *first = buf.data();
+		auto *last = buf.data() + buf.size();
+		auto [ptr, ec] = std::to_chars(first, last, value);
+		if (ec != std::errc{}) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::dump,
+					.code = JsonIssueCode::invalid_number,
+					.message = "number formatting failed"});
+		}
+		out.append(first, static_cast<std::size_t>(ptr - first));
+		return {};
+	} else if constexpr (is_optional<Raw>::value) {
+		if (!value) {
+			out += "null";
+			return {};
+		}
+		return direct_write_value(out, *value, opts, depth);
+	} else if constexpr (is_nullable_type<Raw>::value) {
+		if (!value.has_value()) {
+			out += "null";
+			return {};
+		}
+		return direct_write_value(out, value.value(), opts, depth);
+	} else if constexpr (is_vector_of_v<Raw> || is_std_array_v<Raw>) {
+		return direct_write_array_like(out, value, opts, depth);
+	} else if constexpr (has_members_spec<Raw>::value) {
+		return direct_write_members(out, value, opts, depth);
+	} else {
+		static_assert(!std::same_as<Raw, Raw>, "No direct JSON writer support for type");
+	}
+}
+
+} // namespace detail
+
+export template<class T>
+std::expected<void, JsonError> write_json_direct(
+	std::string &out,
+	T const &value,
+	JsonDumpOptions const &opts) {
+	using Raw = std::remove_cvref_t<T>;
+	if constexpr (JsonDirectWritable<Raw>) {
+		return detail::direct_write_value(out, value, opts, 0);
+	} else {
+		static_assert(!std::same_as<Raw, Raw>, "No direct JSON writer support for type");
+	}
+}
+
+export template<class T>
+std::expected<std::string, JsonError> dump_direct(
+	T const &value,
+	JsonDumpOptions const &opts) {
+	std::string out;
+	if constexpr (detail::has_members_spec<std::remove_cvref_t<T>>::value) {
+		out.reserve(
+			std::tuple_size_v<std::remove_cvref_t<decltype(JsonMembers<std::remove_cvref_t<T>>::members())>> * 16);
+	}
+	if (auto ok = write_json_direct(out, value, opts); !ok) {
+		return std::unexpected(std::move(ok).error());
+	}
+	return out;
 }
 // ---------------------------------------------------------------------------
 // Phase 8.3 — schema_for / validate

@@ -6,6 +6,7 @@
 import std;
 import conflux.types;
 import conflux.json;
+import conflux.json.native_provider;
 
 using namespace conflux::json;
 
@@ -3438,6 +3439,46 @@ TEST_CASE(
 	REQUIRE(p.has_value());
 	CHECK(p->name == "Bob");
 	CHECK(p->age == 25LL);
+}
+TEST_CASE(
+	"phase4: decode_direct<JsonMembers> uses caller scratch for key decode",
+	"[phase4][direct]") {
+	CountingResource resource;
+	JsonDecodeScratch scratch;
+	scratch.reset_resource(&resource);
+	JsonReader r{R"({"x":3,"y":7})"};
+	auto p = decode_direct<Point>(r, {}, &scratch);
+	REQUIRE(p.has_value());
+	CHECK(p->x == 3LL);
+	CHECK(p->y == 7LL);
+	CHECK(resource.alloc_count == 0UZ);
+}
+TEST_CASE(
+	"phase4: decode_direct<JsonMembers> handles escaped keys through scratch",
+	"[phase4][direct]") {
+	CountingResource resource;
+	JsonDecodeScratch scratch;
+	scratch.reset_resource(&resource);
+	JsonReader r{R"({"\u0078":3,"y":7})"};
+	auto p = decode_direct<Point>(r, {}, &scratch);
+	REQUIRE(p.has_value());
+	CHECK(p->x == 3LL);
+	CHECK(p->y == 7LL);
+	CHECK(resource.alloc_count == 0UZ);
+}
+TEST_CASE(
+	"json: dump_direct writes JsonMembers compact object",
+	"[json][direct]") {
+	auto dumped = dump_direct(Point{.x = 3, .y = 7});
+	REQUIRE(dumped.has_value());
+	CHECK(*dumped == R"({"x":3,"y":7})");
+}
+TEST_CASE(
+	"json: NativeJsonProvider dumps JsonMembers through direct compact writer",
+	"[json][direct]") {
+	auto dumped = boundary::NativeJsonProvider::dump_json(Point{.x = 3, .y = 7});
+	REQUIRE(dumped.has_value());
+	CHECK(*dumped == R"({"x":3,"y":7})");
 }
 TEST_CASE(
 	"phase4: decode<P4Person>(JsonReader&) unknown_members=ignore validates skipped value",

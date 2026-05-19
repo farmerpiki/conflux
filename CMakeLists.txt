@@ -14,7 +14,13 @@ endif()
 
 project(conflux VERSION 0.1.0 LANGUAGES CXX)
 
-set(CMAKE_CXX_STANDARD 23)
+option(CONFLUX_JSON_REFLECT   "Enable P2996 reflection codec (GCC 16+ only)" OFF)
+
+if(CONFLUX_JSON_REFLECT)
+    set(CMAKE_CXX_STANDARD 26)
+else()
+    set(CMAKE_CXX_STANDARD 23)
+endif()
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 if(NOT ${CMAKE_CXX_STANDARD} IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
@@ -41,7 +47,6 @@ option(CONFLUX_ENABLE_TSAN    "Build with ThreadSanitizer"                   OFF
 option(CONFLUX_ENABLE_LTO     "Enable link-time optimisation"                OFF)
 set(CONFLUX_LTO_MODE "AUTO" CACHE STRING "LTO mode when CONFLUX_ENABLE_LTO=ON: AUTO, THIN, or FULL")
 set_property(CACHE CONFLUX_LTO_MODE PROPERTY STRINGS AUTO THIN FULL)
-option(CONFLUX_JSON_REFLECT   "Enable P2996 reflection codec (GCC 16+ only)" OFF)
 if(CONFLUX_JSON_REFLECT AND NOT 26 IN_LIST CMAKE_CXX_COMPILER_IMPORT_STD)
     set(_conflux_import_std_levels "${CMAKE_CXX_COMPILER_IMPORT_STD}")
     if(_conflux_import_std_levels STREQUAL "")
@@ -1319,6 +1324,7 @@ if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
         PUBLIC  conflux_json conflux_types
         PRIVATE conflux_options
     )
+    target_compile_options(conflux_json_reflect PUBLIC -freflection)
 
     add_library(conflux_json_reflect_provider STATIC)
     target_sources(conflux_json_reflect_provider
@@ -1330,6 +1336,7 @@ if(CONFLUX_JSON_REFLECT AND TARGET conflux_json)
         PUBLIC  conflux_json_reflect conflux_json_native_provider conflux_json_boundary
         PRIVATE conflux_options
     )
+    target_compile_options(conflux_json_reflect_provider PUBLIC -freflection)
     message(STATUS "conflux: JSON P2996 reflection codec enabled (requires GCC 16+ -freflection)")
 endif()
 

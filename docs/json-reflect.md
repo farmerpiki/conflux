@@ -21,8 +21,10 @@ find_package(conflux REQUIRED COMPONENTS json_reflect_provider)
 target_link_libraries(mytarget PRIVATE conflux::json_reflect_provider)
 ```
 
-The `debug-p2996-gcc` preset adds `-freflection`. The feature gate
-`CONFLUX_JSON_REFLECT` controls whether the reflection modules are built.
+The `debug-p2996-gcc` preset selects C++26 and enables `CONFLUX_JSON_REFLECT`.
+The reflection targets add `-freflection`; the rest of the graph is kept on the
+normal module path because GCC 16's reflected `std` BMI is still fragile for
+non-reflection consumers.
 
 ---
 
