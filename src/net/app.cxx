@@ -1356,6 +1356,15 @@ public:
 						.source_file = route.source_file,
 						.source_line = route.source_line});
 			}
+			if (route.uses_body && !route_has_body_limit(route)) {
+				report.issues.push_back(
+					ValidationIssue{
+						.message = "body extractor used without body limit",
+						.method = route.method,
+						.path = route.path,
+						.source_file = route.source_file,
+						.source_line = route.source_line});
+			}
 		}
 		for (auto const &mount: static_mounts_) {
 			std::error_code ec;
@@ -1381,6 +1390,18 @@ public:
 			}
 		}
 		return report;
+	}
+
+	[[nodiscard]] bool route_has_body_limit(
+		AppRouteMetadata const &route) const noexcept {
+		if (*route.max_body_size != 0 || cfg_.max_body_size != 0) {
+			return true;
+		}
+#if CONFLUX_HAS_JSON
+		return json_options_ && json_options_->max_body_size != 0;
+#else
+		return false;
+#endif
 	}
 
 	void validate_tls_config(

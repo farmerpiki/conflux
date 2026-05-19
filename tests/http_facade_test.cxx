@@ -156,6 +156,32 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: validate reports body extractors without body limits",
+	"[http.facade]") {
+	auto cfg = http::Config::public_server();
+	cfg.max_body_size = 0;
+	auto app = http::app(std::move(cfg));
+	app.post("/body", [](http::BodyText body) { return http::text(body.get()); });
+
+	auto report = app.validate();
+	REQUIRE_FALSE(report.ok());
+	REQUIRE(report.issues.size() == 1);
+	CHECK(report.issues[0].message == "body extractor used without body limit");
+	CHECK(report.summary() == "POST /body: body extractor used without body limit");
+}
+
+TEST_CASE(
+	"http facade: validate accepts route-local body limits",
+	"[http.facade]") {
+	auto cfg = http::Config::public_server();
+	cfg.max_body_size = 0;
+	auto app = http::app(std::move(cfg));
+	app.post("/body", [](http::BodyText body) { return http::text(body.get()); }).max_body_size(1024);
+
+	CHECK(app.validate().ok());
+}
+
+TEST_CASE(
 	"http facade: validate reports missing static roots",
 	"[http.facade]") {
 	auto app = http::app();
