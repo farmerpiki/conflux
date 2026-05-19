@@ -725,6 +725,7 @@ struct AppRunOptions {
 #if CONFLUX_HAS_JSON
 struct AppJsonOptions {
 	conflux::json::boundary::DecodeOptions decode{};
+	conflux::json::boundary::DumpOptions dump{};
 	std::size_t max_body_size{};
 };
 #endif
@@ -888,18 +889,32 @@ public:
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;
+#if CONFLUX_HAS_JSON
+			auto json_options = json_options_;
+#endif
 			router_.add(
 				method,
 				path,
-				[auth_policy, rate_limit, timeout, fn = std::decay_t<F>(std::forward<F>(handler))](
-					RequestView const &req) mutable {
+				[auth_policy,
+				 rate_limit,
+				 timeout,
+#if CONFLUX_HAS_JSON
+				 json_options,
+#endif
+				 fn = std::decay_t<F>(std::forward<F>(handler))](RequestView const &req) mutable {
 					if (auto denied = route_auth_failure(*auth_policy, req)) {
 						return *std::move(denied);
 					}
 					if (auto limited = route_rate_limit_failure(*rate_limit, req)) {
 						return *std::move(limited);
 					}
-					return apply_route_timeout(into_response(fn()), *timeout);
+					return apply_route_timeout(
+#if CONFLUX_HAS_JSON
+						into_app_response(fn(), *json_options),
+#else
+						into_app_response(fn()),
+#endif
+						*timeout);
 				});
 		} else if constexpr (requires(Fn &fn, RequestView const &req) {
 								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
@@ -909,17 +924,32 @@ public:
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;
+#if CONFLUX_HAS_JSON
+			auto json_options = json_options_;
+#endif
 			router_.add(
 				method,
 				path,
-				[auth_policy, rate_limit, timeout, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+				[auth_policy,
+				 rate_limit,
+				 timeout,
+#if CONFLUX_HAS_JSON
+				 json_options,
+#endif
+				 fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
 					if (auto denied = route_auth_failure(*auth_policy, req)) {
 						return *std::move(denied);
 					}
 					if (auto limited = route_rate_limit_failure(*rate_limit, req)) {
 						return *std::move(limited);
 					}
-					return apply_route_timeout(into_response(fn(req)), *timeout);
+					return apply_route_timeout(
+#if CONFLUX_HAS_JSON
+						into_app_response(fn(req), *json_options),
+#else
+						into_app_response(fn(req)),
+#endif
+						*timeout);
 				});
 		} else if constexpr (requires(Fn &fn, Request const &req) {
 								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
@@ -929,10 +959,19 @@ public:
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
 			auto timeout = route_metadata_.back().timeout;
+#if CONFLUX_HAS_JSON
+			auto json_options = json_options_;
+#endif
 			router_.add(
 				method,
 				path,
-				[auth_policy, rate_limit, timeout, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+				[auth_policy,
+				 rate_limit,
+				 timeout,
+#if CONFLUX_HAS_JSON
+				 json_options,
+#endif
+				 fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
 					if (auto denied = route_auth_failure(*auth_policy, req)) {
 						return *std::move(denied);
 					}
@@ -940,7 +979,13 @@ public:
 						return *std::move(limited);
 					}
 					auto owned = req.to_owned();
-					return apply_route_timeout(into_response(fn(owned)), *timeout);
+					return apply_route_timeout(
+#if CONFLUX_HAS_JSON
+						into_app_response(fn(owned), *json_options),
+#else
+						into_app_response(fn(owned)),
+#endif
+						*timeout);
 				});
 		} else {
 			router_.add(method, path, std::forward<F>(handler));
@@ -1828,6 +1873,41 @@ public:
 		return trim_ascii(auth.substr(scheme.size() + 1));
 	}
 
+#if CONFLUX_HAS_JSON
+	template<class T>
+	[[nodiscard]] static HttpResponse into_app_response(
+		T &&result,
+		AppJsonOptions const &json_options) {
+		using Clean = std::remove_cvref_t<T>;
+		if constexpr (ExpectedHttpProblem<Clean>) {
+			if (result) {
+				return into_app_response(*std::forward<T>(result), json_options);
+			}
+			return into_response(std::forward<T>(result).error());
+		} else if constexpr (detail::JsonArg<Clean>) {
+			using Body = typename detail::JsonType<Clean>::type;
+			if constexpr (requires(Body const &value, json::ResponseOptions const &opts) {
+							  { json::response_or_internal_error(value, opts) } -> std::same_as<HttpResponse>;
+						  }) {
+				return json::response_or_internal_error(result.value, json::ResponseOptions{.dump = json_options.dump});
+			} else {
+				static_assert(
+					kDependentFalse<Body>,
+					"http::Json<T> responses require T to be serializable; add JsonCodec<T>, JsonMembers<T>, or "
+					"reflection JSON support for T");
+			}
+		} else {
+			return into_response(std::forward<T>(result));
+		}
+	}
+#else
+	template<class T>
+	[[nodiscard]] static HttpResponse into_app_response(
+		T &&result) {
+		return into_response(std::forward<T>(result));
+	}
+#endif
+
 	[[nodiscard]] static std::optional<HttpResponse> route_auth_failure(
 		std::string_view policy,
 		RequestView const &req) {
@@ -2583,7 +2663,7 @@ public:
 #endif
 	) {
 		try {
-			return into_response(
+			return into_app_response(
 				fn(make_handler_arg<std::tuple_element_t<Is, Args>>(
 					states,
 					req
@@ -2592,7 +2672,12 @@ public:
 					json_options,
 					max_body_size
 #endif
-					)...));
+					)...)
+#if CONFLUX_HAS_JSON
+					,
+				json_options
+#endif
+			);
 		} catch (ExtractorFailure &failure) { return std::move(failure).response(); }
 	}
 
@@ -2686,9 +2771,12 @@ public:
 		Fn &fn,
 		RequestView const &req,
 		Json<Body> const &body,
-		std::index_sequence<Is...>) {
+		std::index_sequence<Is...>,
+		AppJsonOptions const &json_options) {
 		try {
-			return into_response(fn(make_json_handler_arg<std::tuple_element_t<Is, Args>>(states, req, body)...));
+			return into_app_response(
+				fn(make_json_handler_arg<std::tuple_element_t<Is, Args>>(states, req, body)...),
+				json_options);
 		} catch (ExtractorFailure &failure) { return std::move(failure).response(); }
 	}
 
@@ -2754,7 +2842,8 @@ public:
 						fn,
 						req,
 						body,
-						std::make_index_sequence<std::tuple_size_v<Args>>{}),
+						std::make_index_sequence<std::tuple_size_v<Args>>{},
+						*json_options),
 					*timeout);
 			});
 		return RouteRef{*this, route_metadata_.size() - 1};

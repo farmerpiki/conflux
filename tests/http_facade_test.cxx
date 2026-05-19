@@ -1198,6 +1198,7 @@ TEST_CASE(
 	app.json_options(
 		http::AppJsonOptions{
 			.decode = {.unknown_members = conflux::json::boundary::UnknownMemberPolicy::ignore},
+			.dump = {.pretty = true},
 			.max_body_size = 64});
 	app.post_body<FacadeAnswer>("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
 
@@ -1209,7 +1210,8 @@ TEST_CASE(
 
 	auto ok = app.router().dispatch(req);
 	CHECK(ok.status == kHttpOk);
-	CHECK(ok.text_body() == R"({"value":"ok"})");
+	CHECK(ok.text_body().find('\n') != std::string_view::npos);
+	CHECK(ok.text_body().find(R"("value": "ok")") != std::string_view::npos);
 
 	req.body = R"({"value":"this body is deliberately longer than the configured route default limit"})";
 	auto too_large = app.router().dispatch(req);
