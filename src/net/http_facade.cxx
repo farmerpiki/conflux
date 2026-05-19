@@ -58,6 +58,18 @@ using Next = Router::Handler;
 	return Response::redirect(location, status);
 }
 
+[[nodiscard]] Response file(
+	std::filesystem::path const &path,
+	std::string content_type = "application/octet-stream") {
+	std::ifstream input{path, std::ios::binary};
+	if (!input) {
+		return Response::not_found(path.string());
+	}
+	std::ostringstream body;
+	body << input.rdbuf();
+	return Response::with_body(std::move(body).str(), std::move(content_type));
+}
+
 [[nodiscard]] Response created(
 	std::string_view body,
 	std::string_view content_type = "text/plain; charset=utf-8") {

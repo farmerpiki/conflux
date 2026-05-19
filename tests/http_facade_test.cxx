@@ -725,6 +725,23 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: file helper reads small files",
+	"[http.facade]") {
+	auto path = std::filesystem::temp_directory_path() / "conflux_http_facade_file_helper.txt";
+	{
+		std::ofstream out{path, std::ios::binary};
+		out << "file-body";
+	}
+
+	auto response = http::file(path, "text/plain");
+	CHECK(response.status == kHttpOk);
+	CHECK(response.content_type == "text/plain");
+	CHECK(response.text_body() == "file-body");
+
+	std::filesystem::remove(path);
+}
+
+TEST_CASE(
 	"http facade: problem helpers carry code/detail metadata",
 	"[http.facade]") {
 	auto problem = http::problem::bad_request("invalid_todo", "title is required");
