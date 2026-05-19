@@ -1132,6 +1132,15 @@ public:
 		out += "}}";
 		return out;
 	}
+	[[nodiscard]] Router::Handler openapi_handler(
+		std::string_view title = "API",
+		std::string_view version = "1.0.0") const {
+		auto spec = openapi_spec(title, version);
+		return [spec = std::move(spec)](RequestView const &) -> HttpResponse {
+			auto response = HttpResponse::json(spec);
+			return response;
+		};
+	}
 	[[nodiscard]] ValidationReport validate() const {
 		ValidationReport report;
 		for (auto const &issue: state_issues_) {

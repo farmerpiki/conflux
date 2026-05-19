@@ -280,6 +280,24 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app openapi handler serves metadata spec",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/health", [] { return http::text("ok"); }).name("health.check");
+	app.get("/openapi.json", app.openapi_handler("Facade API", "1.2.3"));
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/openapi.json";
+
+	auto response = app.router().dispatch(req);
+	CHECK(response.status == kHttpOk);
+	CHECK(response.content_type == "application/json");
+	CHECK(response.text_body().find(R"("title":"Facade API")") != std::string_view::npos);
+	CHECK(response.text_body().find(R"("operationId":"health.check")") != std::string_view::npos);
+}
+
+TEST_CASE(
 	"http facade: try_server rejects invalid app metadata",
 	"[http.facade]") {
 	auto app = http::app();
