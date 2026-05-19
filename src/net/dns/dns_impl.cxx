@@ -44,7 +44,8 @@ thread_local Resolver *tls_current_resolver{nullptr};
 	return tls_current_resolver;
 }
 
-CurrentResolverScope::CurrentResolverScope(Resolver *next) noexcept
+CurrentResolverScope::CurrentResolverScope(
+	Resolver *next) noexcept
 	: prev_{tls_current_resolver} {
 	tls_current_resolver = next;
 }
@@ -148,7 +149,7 @@ void parse_resolv_options(
 	return out;
 }
 [[nodiscard]] ResolvConfig parse_resolv_conf(
-	fs::path const &path) noexcept {
+	std::filesystem::path const &path) noexcept {
 	ResolvConfig out;
 	auto const contents = blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
 	if (!contents) {
@@ -190,7 +191,7 @@ void parse_resolv_options(
 	return out;
 }
 [[nodiscard]] std::unordered_map<std::string, std::vector<Endpoint>> parse_hosts_file(
-	fs::path const &path) noexcept {
+	std::filesystem::path const &path) noexcept {
 	std::unordered_map<std::string, std::vector<Endpoint>> out;
 	auto const contents = blocking_read_text_file_nothrow(path.string(), std::size_t{4} * 1024 * 1024);
 	if (!contents) {
@@ -523,7 +524,8 @@ struct ActiveTaskGuard {
 		{
 			std::size_t sent = 0;
 			while (sent < framed.size()) {
-				auto write_task = stream.async_write_borrowed(span<std::uint8_t const>{framed.data() + sent, framed.size() - sent});
+				auto write_task =
+					stream.async_write_borrowed(span<std::uint8_t const>{framed.data() + sent, framed.size() - sent});
 				ActiveTaskGuard g{*state, write_task.control()};
 				std::size_t const n = co_await move(write_task);
 				if (n == 0) {
@@ -547,7 +549,8 @@ struct ActiveTaskGuard {
 				n += got;
 			}
 		}
-		std::uint16_t const resp_len = static_cast<std::uint16_t>((static_cast<std::uint16_t>(len_buf[0]) << 8U) | static_cast<std::uint16_t>(len_buf[1]));
+		std::uint16_t const resp_len = static_cast<std::uint16_t>(
+			(static_cast<std::uint16_t>(len_buf[0]) << 8U) | static_cast<std::uint16_t>(len_buf[1]));
 		if (resp_len == 0) {
 			throw DnsError{DnsErrorKind::malformed, "dns: tcp zero-length response"};
 		}
@@ -729,24 +732,26 @@ struct EndpointBatch {
 	static thread_local std::mt19937 tl_rng{std::random_device{}()};
 	std::uint16_t const qid_a = static_cast<std::uint16_t>(tl_rng() & 0xFFFFU);
 	std::uint16_t const qid_aaaa = static_cast<std::uint16_t>((static_cast<std::uint32_t>(qid_a) + 1U) & 0xFFFFU);
-	auto v4_task = do_v4 ? build_family_flow(ring, ns, hostname, port, qid_a, codec::QType::a, AddressFamily::v4, timeout, edns) :
-			make_empty_batch_task();
+	auto v4_task =
+		do_v4 ? build_family_flow(ring, ns, hostname, port, qid_a, codec::QType::a, AddressFamily::v4, timeout, edns) :
+				make_empty_batch_task();
 	auto v6_task = do_v6 ? build_family_flow(
-				ring,
-				ns,
-				hostname,
-				port,
-				qid_aaaa,
-				codec::QType::aaaa,
-				AddressFamily::v6,
-				timeout,
-				edns) :
-			make_empty_batch_task();
+							   ring,
+							   ns,
+							   hostname,
+							   port,
+							   qid_aaaa,
+							   codec::QType::aaaa,
+							   AddressFamily::v6,
+							   timeout,
+							   edns) :
+						   make_empty_batch_task();
 	auto [v4, v6] = co_await join_all(move(v4_task), move(v6_task));
 	if (v4.eps.empty() && v6.eps.empty()) {
 		// Both families have no results. Propagate the dominant failure.
-		auto const w =
-			(static_cast<std::uint8_t>(v4.fail_reason) >= static_cast<std::uint8_t>(v6.fail_reason)) ? v4.fail_reason : v6.fail_reason;
+		auto const w = (static_cast<std::uint8_t>(v4.fail_reason) >= static_cast<std::uint8_t>(v6.fail_reason)) ?
+						   v4.fail_reason :
+						   v6.fail_reason;
 		if (w == BatchFailReason::truncated) {
 			throw DnsError{DnsErrorKind::truncated, "dns: udp truncated and tcp fallback failed"};
 		}
@@ -985,7 +990,7 @@ public:
 		normalized.pop_back();
 		return {move(normalized)};
 	}
-	auto const dot_count = static_cast<size_t>(ranges::count(normalized, '.'));
+	auto const dot_count = static_cast<size_t>(std::ranges::count(normalized, '.'));
 	if (search_domains.empty() || dot_count >= ndots) {
 		return {move(normalized)};
 	}
@@ -1046,10 +1051,13 @@ Resolver::Resolver(
 	impl_->backend = ResolverBackend::native_udp;
 	auto shared_ud = make_shared<UserDataFn>(move(encode_ud));
 	impl_->reader =
-		make_unique<FileReader>(ring, completions, [shared_ud](std::uint32_t s, std::uint32_t g) -> std::uint64_t { return (*shared_ud)(s, g); });
-	impl_->task_ring = make_unique<SocketTaskRing>(SocketRawRing{ring}, *completions, [shared_ud](std::uint32_t s, std::uint32_t g) -> std::uint64_t {
-		return (*shared_ud)(s, g);
-	});
+		make_unique<FileReader>(ring, completions, [shared_ud](std::uint32_t s, std::uint32_t g) -> std::uint64_t {
+			return (*shared_ud)(s, g);
+		});
+	impl_->task_ring = make_unique<SocketTaskRing>(
+		SocketRawRing{ring},
+		*completions,
+		[shared_ud](std::uint32_t s, std::uint32_t g) -> std::uint64_t { return (*shared_ud)(s, g); });
 	impl_->opts = move(opts);
 	auto const resolv = parse_resolv_conf(impl_->opts.resolv_conf);
 	impl_->nameservers =
@@ -1282,7 +1290,8 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 				auto [out_task, out_raw_src] =
 					root::make_task_source<ResolveResult>(root::SubmitOptions{.enable_cancellation = false});
 				auto out_src = make_shared<root::TaskSource<ResolveResult>>(move(out_raw_src));
-				[](std::shared_ptr<root::TaskSource<ResolveResult>> out_src, root::Task<ResolveResult> wt) -> root::Task<void> {
+				[](std::shared_ptr<root::TaskSource<ResolveResult>> out_src,
+				   root::Task<ResolveResult> wt) -> root::Task<void> {
 					try {
 						auto r = co_await move(wt);
 						r.from_coalesced = true;
@@ -1292,7 +1301,7 @@ root::Task<ResolveResult> Resolver::resolve_flow(
 							make_exception_ptr(DnsError{DnsErrorKind::cancelled, "dns: query cancelled"}));
 					} catch (...) { auto _ = out_src->try_set_exception(current_exception()); }
 				}(out_src, move(wtask))
-																									 .detach();
+														.detach();
 				coalesced_out = move(out_task);
 			} else {
 				impl_->in_flight.emplace(inflight_key, CoalescedBroadcast{});
@@ -1569,19 +1578,22 @@ expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 			}
 			tls_rb_.initialized = true;
 		}
-		SocketTaskRing tmp_str{SocketRawRing{&tls_rb_.ring}, tls_rb_.ct, [](std::uint32_t slot, std::uint32_t gen) noexcept -> std::uint64_t {
-								   return (static_cast<std::uint64_t>(gen) << 32U) | slot;
-							   }};
+		SocketTaskRing tmp_str{
+			SocketRawRing{&tls_rb_.ring},
+			tls_rb_.ct,
+			[](std::uint32_t slot, std::uint32_t gen) noexcept -> std::uint64_t {
+				return (static_cast<std::uint64_t>(gen) << 32U) | slot;
+			}};
 		codec::Edns0Options const edns{.udp_size = impl_->opts.edns0_udp_size};
 		std::optional<DnsError> last_nxdomain;
 		for (auto const &candidate: resolve_candidates(host, impl_->search_domains, impl_->ndots)) {
 			std::string const cache_key = impl_->cache && !effective_opts.bypass_cache ? make_cache_key(
-																						candidate,
-																						port,
-																						effective_opts.prefer,
-																						effective_opts.allow_v4,
-																						effective_opts.allow_v6) :
-																					std::string{};
+																							 candidate,
+																							 port,
+																							 effective_opts.prefer,
+																							 effective_opts.allow_v4,
+																							 effective_opts.allow_v6) :
+																						 std::string{};
 			if (impl_->cache && !effective_opts.bypass_cache) {
 				if (auto hit = impl_->cache->get(cache_key); hit.has_value()) {
 					if (hit->is_negative) {

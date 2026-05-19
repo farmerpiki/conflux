@@ -114,7 +114,7 @@ ParseStatus parse_request(
 		return ParseStatus::BadRequest;
 	}
 	out.method = req_line.substr(0, sp1);
-	if (!ranges::all_of(out.method, is_tchar)) {
+	if (!std::ranges::all_of(out.method, is_tchar)) {
 		return ParseStatus::BadRequest;
 	}
 	auto rest = req_line.substr(sp1 + 1);
@@ -153,7 +153,7 @@ ParseStatus parse_request(
 			return ParseStatus::BadRequest;
 		}
 		auto name = line.substr(0, colon);
-		if (!ranges::all_of(name, is_tchar)) {
+		if (!std::ranges::all_of(name, is_tchar)) {
 			return ParseStatus::BadRequest;
 		}
 		auto field_value = line.substr(colon + 1);

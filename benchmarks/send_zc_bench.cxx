@@ -6,11 +6,11 @@
 #include <unistd.h>
 
 #ifndef CONFLUX_BENCH_HAS_TLS
-#define CONFLUX_BENCH_HAS_TLS 0
+	#define CONFLUX_BENCH_HAS_TLS 0
 #endif
 
 #if CONFLUX_BENCH_HAS_TLS
-#include <openssl/ssl.h>
+	#include <openssl/ssl.h>
 #endif
 
 import std;
@@ -32,12 +32,9 @@ struct BenchClient {
 		std::uint16_t port) {
 		connect_to(host, port);
 	}
-	~BenchClient() {
-		close();
-	}
+	~BenchClient() { close(); }
 	BenchClient(BenchClient const &) = delete;
-	BenchClient &operator =(
-		BenchClient const &) = delete;
+	BenchClient &operator =(BenchClient const &) = delete;
 	BenchClient(
 		BenchClient &&o) noexcept
 		: fd(exchange(o.fd, -1)) {}
@@ -603,7 +600,6 @@ SendZcBenchStats run_remote_concurrent_variant(
 	};
 }
 
-
 #if CONFLUX_BENCH_HAS_TLS
 struct SslCtxDeleter {
 	void operator ()(
@@ -706,10 +702,7 @@ std::size_t ssl_recv_response(
 int main(
 	int argc,
 	char **argv) {
-	bench_info_if_requested(
-		argc,
-		argv,
-		R"({"name":"send_zc","parser":"standard","configs":[{"name":"threshold_4k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096},"args":["--send-zc-threshold","4096","--config-name","threshold_4k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_16k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384},"args":["--send-zc-threshold","16384","--config-name","threshold_16k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_64k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536},"args":["--send-zc-threshold","65536","--config-name","threshold_64k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_4k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","4096","--config-name","threshold_4k_load"],"reps":1},{"name":"threshold_16k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","16384","--config-name","threshold_16k_load"],"reps":1},{"name":"threshold_64k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","65536","--config-name","threshold_64k_load"],"reps":1}]})");
+	bench_info_if_requested(argc, argv, R"({"name":"send_zc","parser":"standard","configs":[{"name":"threshold_4k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096},"args":["--send-zc-threshold","4096","--config-name","threshold_4k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_16k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384},"args":["--send-zc-threshold","16384","--config-name","threshold_16k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_64k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536},"args":["--send-zc-threshold","65536","--config-name","threshold_64k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_4k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","4096","--config-name","threshold_4k_load"],"reps":1},{"name":"threshold_16k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","16384","--config-name","threshold_16k_load"],"reps":1},{"name":"threshold_64k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","65536","--config-name","threshold_64k_load"],"reps":1}]})");
 
 	auto const args = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
 	auto const iters = args.iterations;
@@ -727,16 +720,18 @@ int main(
 	std::string const remote_path = parse_string_arg(raw_args, "--path"sv, "/body/1M");
 	std::string const remote_mode = parse_string_arg(raw_args, "--send-zc-mode"sv, "auto");
 	std::size_t const remote_response_bytes = parse_sz_arg(raw_args, "--response-bytes"sv, 1048576);
-	std::string const remote_variant = parse_string_arg(raw_args, "--variant"sv, format("remote/plain/1M/{}", remote_mode));
+	std::string const remote_variant =
+		parse_string_arg(raw_args, "--variant"sv, format("remote/plain/1M/{}", remote_mode));
 	std::string const inferred_config_name = format("threshold_{}", send_zc_threshold);
-	std::string_view const config_name = args.config_name.empty() ? std::string_view{inferred_config_name} : std::string_view{args.config_name};
+	std::string_view const config_name =
+		args.config_name.empty() ? std::string_view{inferred_config_name} : std::string_view{args.config_name};
 	struct BodySpec {
 		std::string_view label;
 		std::size_t size;
 	};
 	static constexpr std::array<BodySpec, 7> kBodies{
 		{{"512B", 512}, {"1K", 1024}, {"4K", 4096}, {"16K", 16384}, {"64K", 65536}, {"256K", 262144}, {"1M", 1048576}}
-	};
+    };
 
 	std::map<std::string, std::string> body_map;
 	for (auto const &[label, size]: kBodies) {
@@ -752,8 +747,9 @@ int main(
 		return r;
 	};
 
-	auto const static_dir = fs::temp_directory_path() / format("conflux_send_zc_bench_static_{}", ::getpid());
-	fs::create_directories(static_dir);
+	auto const static_dir =
+		std::filesystem::temp_directory_path() / format("conflux_send_zc_bench_static_{}", ::getpid());
+	std::filesystem::create_directories(static_dir);
 	for (auto const &[label, size]: kBodies) {
 		auto path = static_dir / format("{}.bin", label);
 		std::ofstream out{path, std::ios::binary};
@@ -783,7 +779,12 @@ int main(
 		cfg.port = remote_port;
 		auto server = start_server(cfg, make_remote_router());
 		if (!json_out) {
-			std::println("send_zc_bench server: port={}, mode={}, threshold={}, duration={}s", server.port, remote_mode, send_zc_threshold, concurrent_duration_s);
+			std::println(
+				"send_zc_bench server: port={}, mode={}, threshold={}, duration={}s",
+				server.port,
+				remote_mode,
+				send_zc_threshold,
+				concurrent_duration_s);
 		}
 		std::this_thread::sleep_for(std::chrono::seconds{static_cast<int>(concurrent_duration_s)});
 		auto metrics = stop_server(server);
@@ -794,7 +795,7 @@ int main(
 			.duration_s = concurrent_duration_s,
 		};
 		print_variant(s, json_out, 1);
-		fs::remove_all(static_dir);
+		std::filesystem::remove_all(static_dir);
 		return 0;
 	}
 	if (client_only) {
@@ -809,7 +810,7 @@ int main(
 			concurrent_connections,
 			concurrent_duration_s);
 		print_variant(s, json_out, 1);
-		fs::remove_all(static_dir);
+		std::filesystem::remove_all(static_dir);
 		return 0;
 	}
 
@@ -817,7 +818,11 @@ int main(
 	auto rb = span<char>{recv_buf};
 	std::vector<Variant> variants;
 
-	auto make_http_variant = [&](std::string name, std::string_view mode, std::function<Router()> router_factory, std::string request, std::size_t iters_override = 0) {
+	auto make_http_variant = [&](std::string name,
+								 std::string_view mode,
+								 std::function<Router()> router_factory,
+								 std::string request,
+								 std::size_t iters_override = 0) {
 		struct State {
 			std::unique_ptr<ServerHandle> server;
 			std::unique_ptr<BenchClient> client;
@@ -826,22 +831,26 @@ int main(
 		auto st = make_shared<State>();
 		return Variant{
 			.name = move(name),
-			.setup = [st, mode = std::string{mode}, router_factory = move(router_factory), send_zc_threshold] {
-				st->metrics = {};
-				st->server = make_unique<ServerHandle>(start_server(bench_config_zc(std::string_view{mode}, send_zc_threshold), router_factory()));
-				st->client = make_unique<BenchClient>(st->server->port);
-			},
-			.run = [st, request = move(request), rb] {
-				st->client->send_all(request);
-				(void)st->client->recv_response(rb);
-			},
-			.teardown = [st] {
-				st->client.reset();
-				if (st->server) {
-					st->metrics = stop_server(*st->server);
-					st->server.reset();
-				}
-			},
+			.setup =
+				[st, mode = std::string{mode}, router_factory = move(router_factory), send_zc_threshold] {
+					st->metrics = {};
+					st->server = make_unique<ServerHandle>(
+						start_server(bench_config_zc(std::string_view{mode}, send_zc_threshold), router_factory()));
+					st->client = make_unique<BenchClient>(st->server->port);
+				},
+			.run =
+				[st, request = move(request), rb] {
+					st->client->send_all(request);
+					(void)st->client->recv_response(rb);
+				},
+			.teardown =
+				[st] {
+					st->client.reset();
+					if (st->server) {
+						st->metrics = stop_server(*st->server);
+						st->server.reset();
+					}
+				},
 			.metrics = [st] { return st->metrics; },
 			.ops_per_iter = 1,
 			.iters_override = iters_override,
@@ -908,7 +917,7 @@ int main(
 				concurrent_duration_s);
 			print_variant(mapped_zc, json_out, 1);
 		}
-		fs::remove_all(static_dir);
+		std::filesystem::remove_all(static_dir);
 		return 0;
 	}
 
@@ -938,7 +947,11 @@ int main(
 		return c;
 	}()};
 
-	auto make_tls_variant = [&](std::string name, std::string_view mode, std::function<Router()> router_factory, std::string request, std::size_t iters_override = 200) {
+	auto make_tls_variant = [&](std::string name,
+								std::string_view mode,
+								std::function<Router()> router_factory,
+								std::string request,
+								std::size_t iters_override = 200) {
 		struct State {
 			std::unique_ptr<ServerHandle> server;
 			std::unique_ptr<BenchClient> client;
@@ -948,36 +961,39 @@ int main(
 		auto st = make_shared<State>();
 		return Variant{
 			.name = move(name),
-			.setup = [&, st, mode = std::string{mode}, router_factory = move(router_factory), send_zc_threshold] {
-				st->metrics = {};
-				auto cfg = bench_config_zc(std::string_view{mode}, send_zc_threshold);
-				cfg.cert_file = tls_cert_path;
-				cfg.key_file = tls_key_path;
-				st->server = make_unique<ServerHandle>(start_server(cfg, router_factory()));
-				st->client = make_unique<BenchClient>(st->server->port);
-				SSL *ssl = SSL_new(ssl_ctx.get());
-				if (ssl == nullptr) {
-					throw std::runtime_error{"SSL_new failed"};
-				}
-				SSL_set_fd(ssl, st->client->fd);
-				if (SSL_connect(ssl) != 1) {
-					SSL_free(ssl);
-					throw std::runtime_error{"SSL_connect failed"};
-				}
-				st->ssl.reset(ssl);
-			},
-			.run = [st, request = move(request), rb] {
-				ssl_write_all(st->ssl.get(), request);
-				(void)ssl_recv_response(st->ssl.get(), rb);
-			},
-			.teardown = [st] {
-				st->ssl.reset();
-				st->client.reset();
-				if (st->server) {
-					st->metrics = stop_server(*st->server);
-					st->server.reset();
-				}
-			},
+			.setup =
+				[&, st, mode = std::string{mode}, router_factory = move(router_factory), send_zc_threshold] {
+					st->metrics = {};
+					auto cfg = bench_config_zc(std::string_view{mode}, send_zc_threshold);
+					cfg.cert_file = tls_cert_path;
+					cfg.key_file = tls_key_path;
+					st->server = make_unique<ServerHandle>(start_server(cfg, router_factory()));
+					st->client = make_unique<BenchClient>(st->server->port);
+					SSL *ssl = SSL_new(ssl_ctx.get());
+					if (ssl == nullptr) {
+						throw std::runtime_error{"SSL_new failed"};
+					}
+					SSL_set_fd(ssl, st->client->fd);
+					if (SSL_connect(ssl) != 1) {
+						SSL_free(ssl);
+						throw std::runtime_error{"SSL_connect failed"};
+					}
+					st->ssl.reset(ssl);
+				},
+			.run =
+				[st, request = move(request), rb] {
+					ssl_write_all(st->ssl.get(), request);
+					(void)ssl_recv_response(st->ssl.get(), rb);
+				},
+			.teardown =
+				[st] {
+					st->ssl.reset();
+					st->client.reset();
+					if (st->server) {
+						st->metrics = stop_server(*st->server);
+						st->server.reset();
+					}
+				},
 			.metrics = [st] { return st->metrics; },
 			.ops_per_iter = 1,
 			.iters_override = iters_override,
@@ -998,8 +1014,12 @@ int main(
 			make_tls_variant(format("tls/plain/{}/zc_auto", label_s), "auto", make_body_router, body_req, tls_iters));
 		variants.push_back(
 			make_tls_variant(format("tls/mapped/{}/off", label_s), "off", make_static_router, mapped_req, tls_iters));
-		variants.push_back(
-			make_tls_variant(format("tls/mapped/{}/zc_auto", label_s), "auto", make_static_router, mapped_req, tls_iters));
+		variants.push_back(make_tls_variant(
+			format("tls/mapped/{}/zc_auto", label_s),
+			"auto",
+			make_static_router,
+			mapped_req,
+			tls_iters));
 	}
 #endif
 
@@ -1012,7 +1032,7 @@ int main(
 		print_variant(s, json_out, v.ops_per_iter);
 	}
 
-	fs::remove_all(static_dir);
+	std::filesystem::remove_all(static_dir);
 #if CONFLUX_BENCH_HAS_TLS
 	::unlink(tls_cert_path.c_str());
 	::unlink(tls_key_path.c_str());

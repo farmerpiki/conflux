@@ -46,7 +46,9 @@ struct RingFixture {
 	FileReader reader;
 	bool ring_ok{false};
 	RingFixture()
-		: reader{&ring, &completions, [](std::uint32_t slot, std::uint32_t gen) noexcept { return pack_ud(slot, gen); }} {}
+		: reader{&ring, &completions, [](std::uint32_t slot, std::uint32_t gen) noexcept {
+					 return pack_ud(slot, gen);
+				 }} {}
 	static std::unique_ptr<RingFixture> make(
 		unsigned entries = 64) {
 		auto fx = make_unique<RingFixture>();
@@ -125,7 +127,7 @@ struct TempDir {
 		}
 		if (!path.empty()) {
 			std::error_code ec;
-			fs::remove_all(path, ec);
+			std::filesystem::remove_all(path, ec);
 		}
 	}
 	TempDir() = default;
@@ -165,11 +167,11 @@ struct TempDir {
 	}
 	[[nodiscard]] bool has_staging_files(
 		std::string_view subdir = {}) const {
-		fs::path p{path};
+		std::filesystem::path p{path};
 		if (!subdir.empty()) {
 			p /= std::string{subdir};
 		}
-		for (auto const &entry : fs::directory_iterator{p}) {
+		for (auto const &entry: std::filesystem::directory_iterator{p}) {
 			auto const name = entry.path().filename().string();
 			if (name.starts_with(".conflux.tmp.")) {
 				return true;
@@ -320,8 +322,10 @@ TEST_CASE(
 	CHECK(st.size == std::string_view{"hello file_io"}.size());
 
 	std::array<byte, 32> buf{};
-	std::size_t const got =
-		block_on(fx->reader, fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}), std::chrono::seconds{5});
+	std::size_t const got = block_on(
+		fx->reader,
+		fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}),
+		std::chrono::seconds{5});
 	REQUIRE(got == std::string_view{"hello file_io"}.size());
 	CHECK(memcmp(buf.data(), "hello file_io", got) == 0);
 }
@@ -427,8 +431,10 @@ TEST_CASE(
 	CHECK(handle.direct_slot() == 2);
 
 	std::array<byte, 32> buf{};
-	std::size_t const got =
-		block_on(fx->reader, fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}), std::chrono::seconds{5});
+	std::size_t const got = block_on(
+		fx->reader,
+		fx->reader.read_into(handle, 0, span<byte>{buf.data(), buf.size()}),
+		std::chrono::seconds{5});
 	REQUIRE(got == std::string_view{"direct file"}.size());
 	CHECK(memcmp(buf.data(), "direct file", got) == 0);
 
@@ -620,7 +626,8 @@ TEST_CASE(
 		iovec{.iov_base = const_cast<char *>(seg_b.data()), .iov_len = seg_b.size()},
 	};
 
-	std::size_t const written = block_on(fx->reader, fx->reader.writev_into(handle, 0, move(iovs)), std::chrono::seconds{5});
+	std::size_t const written =
+		block_on(fx->reader, fx->reader.writev_into(handle, 0, move(iovs)), std::chrono::seconds{5});
 	REQUIRE(written == seg_a.size() + seg_b.size());
 
 	std::string verify(seg_a.size() + seg_b.size(), '\0');
@@ -1073,7 +1080,10 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		got = block_on(fx->reader, fx->reader.async_tee(src_pipe[0], dst_pipe[1], payload.size()), std::chrono::seconds{5});
+		got = block_on(
+			fx->reader,
+			fx->reader.async_tee(src_pipe[0], dst_pipe[1], payload.size()),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -1287,7 +1297,10 @@ TEST_CASE(
 	int set_err = 0;
 	std::string const xattr_val = "path_xattr_val";
 	try {
-		block_on(fx->reader, fx->reader.async_setxattr(tmp.path, "user.path_test_key", xattr_val), std::chrono::seconds{5});
+		block_on(
+			fx->reader,
+			fx->reader.async_setxattr(tmp.path, "user.path_test_key", xattr_val),
+			std::chrono::seconds{5});
 		set_ok = true;
 	} catch (std::system_error const &se) { set_err = se.code().value(); } catch (...) {
 	}
@@ -1325,7 +1338,10 @@ TEST_CASE(
 	siginfo_t info{};
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_waitid(P_PID, static_cast<id_t>(99999999), &info), std::chrono::seconds{5});
+		block_on(
+			fx->reader,
+			fx->reader.async_waitid(P_PID, static_cast<id_t>(99999999), &info),
+			std::chrono::seconds{5});
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
 
@@ -1556,7 +1572,10 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_msg_ring_fd(fx->ring.ring_fd, dup_fd, -1, 0xABCDULL), std::chrono::seconds{5});
+		block_on(
+			fx->reader,
+			fx->reader.async_msg_ring_fd(fx->ring.ring_fd, dup_fd, -1, 0xABCDULL),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1596,7 +1615,10 @@ TEST_CASE(
 	bool ok = false;
 	int err = 0;
 	try {
-		block_on(fx->reader, fx->reader.async_timeout_update(0xBEEFULL, std::chrono::milliseconds{100}), std::chrono::seconds{5});
+		block_on(
+			fx->reader,
+			fx->reader.async_timeout_update(0xBEEFULL, std::chrono::milliseconds{100}),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1733,7 +1755,8 @@ TEST_CASE(
 	REQUIRE(sent == payload.size());
 
 	std::array<char, 64> buf{};
-	std::size_t const recvd = block_on(fx->reader, fx->reader.async_recv(recver, buf.data(), buf.size()), std::chrono::seconds{5});
+	std::size_t const recvd =
+		block_on(fx->reader, fx->reader.async_recv(recver, buf.data(), buf.size()), std::chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(std::string_view{buf.data(), recvd} == payload);
 }
@@ -1764,7 +1787,8 @@ TEST_CASE(
 	recv_hdr.msg_iov = &recv_iov;
 	recv_hdr.msg_iovlen = 1;
 
-	std::size_t const recvd = block_on(fx->reader, fx->reader.async_recvmsg(recver, &recv_hdr), std::chrono::seconds{5});
+	std::size_t const recvd =
+		block_on(fx->reader, fx->reader.async_recvmsg(recver, &recv_hdr), std::chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(std::string_view{buf.data(), recvd} == payload);
 }
@@ -1829,7 +1853,10 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		block_on(fx->reader, fx->reader.async_provide_buffers(region->data(), kBufLen, kNr, kBgid), std::chrono::seconds{5});
+		block_on(
+			fx->reader,
+			fx->reader.async_provide_buffers(region->data(), kBufLen, kNr, kBgid),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -1901,7 +1928,8 @@ TEST_CASE(
 
 	FileHandle const recver = FileHandle::from_fd(recv_fd);
 	std::array<char, 64> buf{};
-	std::size_t const recvd = block_on(fx->reader, fx->reader.async_recv(recver, buf.data(), buf.size()), std::chrono::seconds{5});
+	std::size_t const recvd =
+		block_on(fx->reader, fx->reader.async_recv(recver, buf.data(), buf.size()), std::chrono::seconds{5});
 	REQUIRE(recvd == payload.size());
 	CHECK(std::string_view{buf.data(), recvd} == payload);
 }
@@ -1955,8 +1983,10 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		std::size_t const n =
-			block_on(fx->reader, fx->reader.async_send_zc(sender, payload.data(), payload.size()), std::chrono::seconds{5});
+		std::size_t const n = block_on(
+			fx->reader,
+			fx->reader.async_send_zc(sender, payload.data(), payload.size()),
+			std::chrono::seconds{5});
 		ok = (n == payload.size());
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -2003,7 +2033,10 @@ TEST_CASE(
 
 	bool ok{false};
 	try {
-		block_on(fx->reader, fx->reader.async_renameat(AT_FDCWD, src_path, AT_FDCWD, dst_path), std::chrono::seconds{5});
+		block_on(
+			fx->reader,
+			fx->reader.async_renameat(AT_FDCWD, src_path, AT_FDCWD, dst_path),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (...) { // NOLINT(bugprone-empty-catch)
 	}
@@ -2053,9 +2086,7 @@ TEST_CASE(
 				0644,
 				TempPublishMode::create_new),
 			std::chrono::seconds{5});
-	} catch (std::system_error const &se) {
-		err = se.code().value();
-	}
+	} catch (std::system_error const &se) { err = se.code().value(); }
 
 	CHECK(err == EEXIST);
 	CHECK(dir.read_file("target.txt") == "original");
@@ -2207,7 +2238,10 @@ TEST_CASE(
 	int err{0};
 	int const ring_fd = fx->ring.ring_fd;
 	try {
-		block_on(fx->reader, fx->reader.async_msg_ring_cqe_flags(ring_fd, 42, 0xBEEFULL, 0, 0), std::chrono::seconds{5});
+		block_on(
+			fx->reader,
+			fx->reader.async_msg_ring_cqe_flags(ring_fd, 42, 0xBEEFULL, 0, 0),
+			std::chrono::seconds{5});
 		ok = true;
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -2236,7 +2270,8 @@ TEST_CASE(
 	bool ok{false};
 	int err{0};
 	try {
-		std::size_t const n = block_on(fx->reader, fx->reader.async_unsafe_sendmsg_zc_sent(sender, &hdr), std::chrono::seconds{5});
+		std::size_t const n =
+			block_on(fx->reader, fx->reader.async_unsafe_sendmsg_zc_sent(sender, &hdr), std::chrono::seconds{5});
 		ok = (n == payload.size());
 	} catch (std::system_error const &se) { err = se.code().value(); } catch (...) {
 	}
@@ -2274,7 +2309,8 @@ TEST_CASE(
 	REQUIRE(passed);
 	if (ok) {
 		std::array<char, 64> buf{};
-		std::size_t const recvd = static_cast<std::size_t>(::recvfrom(sv[1], buf.data(), buf.size(), MSG_DONTWAIT, nullptr, nullptr));
+		std::size_t const recvd =
+			static_cast<std::size_t>(::recvfrom(sv[1], buf.data(), buf.size(), MSG_DONTWAIT, nullptr, nullptr));
 		CHECK(recvd == payload.size());
 		CHECK(std::string_view{buf.data(), recvd} == payload);
 	}

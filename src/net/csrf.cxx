@@ -46,7 +46,8 @@ export Router::Middleware csrf_middleware(
 			lower_cookie = move(lower_cookie),
 			lower_header = move(lower_header),
 			lower_field = move(lower_field)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
-		auto is_protected = ranges::any_of(opts.protected_methods, [&](std::string const &m) { return m == req.method; });
+		auto is_protected =
+			std::ranges::any_of(opts.protected_methods, [&](std::string const &m) { return m == req.method; });
 
 		if (is_protected) {
 			// Read cookie token.

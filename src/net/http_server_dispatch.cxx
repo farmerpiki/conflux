@@ -206,7 +206,7 @@ void dispatch_request(
 	if (content_length_count != 0) {
 		auto cl = headers.get("content-length").value_or(std::string_view{});
 		std::size_t content_length{};
-		auto const *cl_end = ranges::next(cl.data(), ssize(cl));
+		auto const *cl_end = std::ranges::next(cl.data(), ssize(cl));
 		auto [ptr, ec] = from_chars(cl.data(), cl_end, content_length);
 		if (ec != errc{} || ptr != cl_end) {
 			conn.own_response = format_response(HttpResponse::bad_request(), ring.alt_svc_header, true);
@@ -301,7 +301,8 @@ void dispatch_request(
 	}
 	if (ring.slow_handler_diagnostics) {
 		auto const elapsed_ms =
-			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - handler_started).count();
+			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - handler_started)
+				.count();
 		if (elapsed_ms >= static_cast<std::int64_t>(ring.slow_handler_warn_ms)) {
 			eprintln(format(
 				"warning: slow handler on ring thread (method={}, path={}, elapsed_ms={})",

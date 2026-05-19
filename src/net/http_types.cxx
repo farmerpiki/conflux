@@ -11,9 +11,9 @@ import conflux.types;
 [[nodiscard]] constexpr bool ascii_ci_equal(
 	std::string_view lhs,
 	std::string_view rhs) noexcept {
-	return lhs.size() == rhs.size() && ranges::equal(lhs, rhs, [](unsigned char x, unsigned char y) {
-		return ascii_ci_fold(x) == ascii_ci_fold(y);
-	});
+	return lhs.size() == rhs.size() && std::ranges::equal(lhs, rhs, [](unsigned char x, unsigned char y) {
+			   return ascii_ci_fold(x) == ascii_ci_fold(y);
+		   });
 }
 [[nodiscard]] static std::string_view http_trim(
 	std::string_view s) noexcept {
@@ -634,7 +634,9 @@ constexpr std::array<std::string_view, 8> kHopByHopHeaders{
 };
 [[nodiscard]] bool is_hop_by_hop_header(
 	std::string_view name) noexcept {
-	return ranges::any_of(kHopByHopHeaders, [&](std::string_view candidate) { return ascii_iequals(name, candidate); });
+	return std::ranges::any_of(kHopByHopHeaders, [&](std::string_view candidate) {
+		return ascii_iequals(name, candidate);
+	});
 }
 [[nodiscard]] bool header_token_contains(
 	std::string_view header,

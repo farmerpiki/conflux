@@ -161,9 +161,9 @@ export std::array<unsigned char, 20> sha1(
 		for (int i = 0; i < 16; ++i) {
 			auto b = span{padded}.subspan(blk + (static_cast<std::size_t>(i) * 4), 4);
 			w[static_cast<std::size_t>(i)] = (static_cast<std::uint32_t>(b[0]) << 24)
-								  | (static_cast<std::uint32_t>(b[1]) << 16)
-								  | (static_cast<std::uint32_t>(b[2]) << 8)
-								  | static_cast<std::uint32_t>(b[3]);
+										   | (static_cast<std::uint32_t>(b[1]) << 16)
+										   | (static_cast<std::uint32_t>(b[2]) << 8)
+										   | static_cast<std::uint32_t>(b[3]);
 		}
 		for (std::size_t i = 16; i < 80; ++i) {
 			w[i] = rot32(w[i - 3] ^ w[i - 8] ^ w[i - 14] ^ w[i - 16], 1);
@@ -218,23 +218,23 @@ export std::array<unsigned char, 20> hmac_sha1(
 	std::array<unsigned char, 64> k_pad{};
 	if (key.size() > 64) {
 		auto kh = sha1(key);
-		ranges::copy(kh, k_pad.begin());
+		std::ranges::copy(kh, k_pad.begin());
 	} else {
-		ranges::copy(key, k_pad.begin());
+		std::ranges::copy(key, k_pad.begin());
 	}
 
 	std::vector<unsigned char> inner_buf(64 + msg.size());
 	for (std::size_t i = 0; i < 64; ++i) {
 		inner_buf[i] = static_cast<unsigned char>(k_pad[i] ^ 0x36U);
 	}
-	ranges::copy(msg, inner_buf.begin() + 64);
+	std::ranges::copy(msg, inner_buf.begin() + 64);
 	auto inner = sha1(inner_buf);
 
 	std::array<unsigned char, 84> outer_buf{};
 	for (std::size_t i = 0; i < 64; ++i) {
 		outer_buf[i] = static_cast<unsigned char>(k_pad[i] ^ 0x5CU);
 	}
-	ranges::copy(inner, outer_buf.begin() + 64);
+	std::ranges::copy(inner, outer_buf.begin() + 64);
 	return sha1(span{outer_buf.data(), 84});
 }
 // ---------------------------------------------------------------------------
@@ -326,9 +326,9 @@ export std::array<unsigned char, 32> hmac_sha256(
 	std::array<unsigned char, 64> k_pad{};
 	if (key.size() > 64) {
 		auto kh = sha256(key);
-		ranges::copy(kh, k_pad.begin());
+		std::ranges::copy(kh, k_pad.begin());
 	} else {
-		ranges::copy(key, k_pad.begin());
+		std::ranges::copy(key, k_pad.begin());
 	}
 
 	auto xor_pad = [&](unsigned char mask) {
@@ -336,7 +336,7 @@ export std::array<unsigned char, 32> hmac_sha256(
 		for (std::size_t i = 0; i < 64; ++i) {
 			buf[i] = static_cast<unsigned char>(k_pad[i] ^ mask);
 		}
-		ranges::copy(msg, buf.begin() + 64);
+		std::ranges::copy(msg, buf.begin() + 64);
 		return buf;
 	};
 
@@ -345,7 +345,7 @@ export std::array<unsigned char, 32> hmac_sha256(
 	for (std::size_t i = 0; i < 64; ++i) {
 		outer_input[i] = static_cast<unsigned char>(k_pad[i] ^ 0x5CU);
 	}
-	ranges::copy(inner, outer_input.begin() + 64);
+	std::ranges::copy(inner, outer_input.begin() + 64);
 	return sha256(outer_input);
 }
 export bool constant_time_eq(
@@ -373,6 +373,7 @@ export bool constant_time_eq(
 // ---------------------------------------------------------------------------
 
 namespace {
+
 #if !defined(CONFLUX_CRYPTO_USE_AESNI)
 
 constexpr std::array<unsigned char, 256> kAesSbox{
@@ -398,7 +399,10 @@ constexpr std::uint32_t aes_word(
 	unsigned char b,
 	unsigned char c,
 	unsigned char d) {
-	return (static_cast<std::uint32_t>(a) << 24) | (static_cast<std::uint32_t>(b) << 16) | (static_cast<std::uint32_t>(c) << 8) | d;
+	return (static_cast<std::uint32_t>(a) << 24)
+		 | (static_cast<std::uint32_t>(b) << 16)
+		 | (static_cast<std::uint32_t>(c) << 8)
+		 | d;
 }
 constexpr std::uint32_t aes_sub_word(
 	std::uint32_t w) {
@@ -412,7 +416,7 @@ constexpr std::uint32_t aes_rot_word(
 	std::uint32_t w) {
 	return (w << 8) | (w >> 24);
 }
-#if !defined(CONFLUX_CRYPTO_USE_AESNI)
+	#if !defined(CONFLUX_CRYPTO_USE_AESNI)
 struct AesKey256 {
 	std::array<std::uint32_t, 60> rk{};
 };
@@ -470,15 +474,16 @@ void aes256_encrypt_block(
 				s[col * 4 + 3] = static_cast<unsigned char>(x0 ^ a0 ^ a1 ^ a2 ^ x3);
 			}
 		} else {
-			ranges::copy(sr, s.begin());
+			std::ranges::copy(sr, s.begin());
 		}
 		// AddRoundKey
 		for (std::size_t i = 0; i < 16; ++i) {
 			s[i] = static_cast<unsigned char>(
-				s[i] ^ static_cast<unsigned char>(ek.rk[static_cast<std::size_t>(round) * 4 + i / 4] >> (24 - (i % 4) * 8)));
+				s[i]
+				^ static_cast<unsigned char>(ek.rk[static_cast<std::size_t>(round) * 4 + i / 4] >> (24 - (i % 4) * 8)));
 		}
 	}
-	ranges::copy(s, out);
+	std::ranges::copy(s, out);
 }
 // GCM: GF(2^128) multiplication (bit-by-bit, constant-time for equal-length inputs)
 void ghash_mult(
@@ -486,7 +491,7 @@ void ghash_mult(
 	unsigned char const h[16],
 	unsigned char const x[16]) {
 	std::array<unsigned char, 16> v{};
-	ranges::copy(span{h, 16}, v.begin());
+	std::ranges::copy(span{h, 16}, v.begin());
 	std::array<unsigned char, 16> z{};
 
 	for (int i = 0; i < 128; ++i) {
@@ -497,15 +502,15 @@ void ghash_mult(
 		}
 		unsigned char const carry = v[15] & 1;
 		for (int j = 15; j > 0; --j) {
-			v[static_cast<std::size_t>(j)] =
-				static_cast<unsigned char>((v[static_cast<std::size_t>(j)] >> 1) | (v[static_cast<std::size_t>(j) - 1] << 7));
+			v[static_cast<std::size_t>(j)] = static_cast<unsigned char>(
+				(v[static_cast<std::size_t>(j)] >> 1) | (v[static_cast<std::size_t>(j) - 1] << 7));
 		}
 		v[0] >>= 1;
 		if (carry != 0u) {
 			v[0] = static_cast<unsigned char>(v[0] ^ 0xe1);
 		}
 	}
-	ranges::copy(z, result);
+	std::ranges::copy(z, result);
 }
 void ghash_update(
 	unsigned char state[16],
@@ -516,7 +521,7 @@ void ghash_update(
 	while (pos < data.size()) {
 		std::size_t const chunk = min(std::size_t{16}, data.size() - pos);
 		block.fill(0);
-		ranges::copy(data.subspan(pos, chunk), block.begin());
+		std::ranges::copy(data.subspan(pos, chunk), block.begin());
 		for (std::size_t i = 0; i < 16; ++i) {
 			state[i] = static_cast<unsigned char>(state[i] ^ block[i]);
 		}
@@ -532,9 +537,10 @@ void gcm_inc32(
 		}
 	}
 }
-#endif
+	#endif
 
 #endif
+
 } // namespace
 export std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
 	std::span<unsigned char const> key,
@@ -567,11 +573,11 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_encrypt(
 	aes256_encrypt_block(ek, h_in.data(), h.data());
 
 	std::array<unsigned char, 16> j0{};
-	ranges::copy(iv, j0.begin());
+	std::ranges::copy(iv, j0.begin());
 	j0[15] = 1;
 
 	std::array<unsigned char, 16> ctr{};
-	ranges::copy(j0, ctr.begin());
+	std::ranges::copy(j0, ctr.begin());
 
 	std::vector<unsigned char> ct(plaintext.size());
 	std::array<unsigned char, 16> keystream{};
@@ -657,7 +663,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 	aes256_encrypt_block(ek, h_in.data(), h.data());
 
 	std::array<unsigned char, 16> j0{};
-	ranges::copy(iv, j0.begin());
+	std::ranges::copy(iv, j0.begin());
 	j0[15] = 1;
 
 	// Verify tag before decrypting (authenticate-then-decrypt)
@@ -696,7 +702,7 @@ export std::expected<std::vector<unsigned char>, std::string> aes_gcm_decrypt(
 
 	// Decrypt CTR
 	std::array<unsigned char, 16> ctr{};
-	ranges::copy(j0, ctr.begin());
+	std::ranges::copy(j0, ctr.begin());
 
 	std::vector<unsigned char> pt(ct_len);
 	std::array<unsigned char, 16> keystream{};

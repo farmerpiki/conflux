@@ -7,8 +7,7 @@ import std;
 import conflux.types;
 
 using namespace std;
-namespace conflux::db {
-export namespace oids {
+export namespace conflux::db::oids {
 
 inline constexpr Oid bool_ = 16;
 inline constexpr Oid bytea = 17;
@@ -17,8 +16,11 @@ inline constexpr Oid int4 = 23;
 inline constexpr Oid text = 25;
 inline constexpr Oid float8 = 701;
 
-} // namespace oids
-export class Params {
+} // namespace conflux::db::oids
+
+export namespace conflux::db {
+
+class Params {
 	static constexpr size_t kInline = 8;
 
 	// SoA inline metadata for ≤ kInline params
@@ -206,7 +208,7 @@ public:
 
 	Params &add_binary(
 		std::int64_t v,
-		Oid oid = oids::int8) {
+		Oid oid = conflux::db::oids::int8) {
 		auto const nv = to_net_(static_cast<uint64_t>(v));
 		auto const off = push_bytes_(&nv, sizeof(nv));
 		push_(off, static_cast<int>(sizeof(nv)), 1, oid);
@@ -214,7 +216,7 @@ public:
 	}
 	Params &add_binary(
 		std::int32_t v,
-		Oid oid = oids::int4) {
+		Oid oid = conflux::db::oids::int4) {
 		auto const nv = to_net_(static_cast<uint32_t>(v));
 		auto const off = push_bytes_(&nv, sizeof(nv));
 		push_(off, static_cast<int>(sizeof(nv)), 1, oid);
@@ -222,7 +224,7 @@ public:
 	}
 	Params &add_binary(
 		double v,
-		Oid oid = oids::float8) {
+		Oid oid = conflux::db::oids::float8) {
 		auto const nv = to_net_(bit_cast<uint64_t>(v));
 		auto const off = push_bytes_(&nv, sizeof(nv));
 		push_(off, static_cast<int>(sizeof(nv)), 1, oid);
@@ -230,7 +232,7 @@ public:
 	}
 	Params &add_binary(
 		span<byte const> bytes,
-		Oid oid = oids::bytea) {
+		Oid oid = conflux::db::oids::bytea) {
 		auto const off = push_bytes_(bytes.data(), bytes.size());
 		push_(off, static_cast<int>(bytes.size()), 1, oid);
 		return *this;

@@ -339,7 +339,7 @@ export [[nodiscard]] std::string_view http_field_source_name(
 	auto fold = [](unsigned char c) noexcept {
 		return c >= 'A' && c <= 'Z' ? static_cast<unsigned char>(c + ('a' - 'A')) : c;
 	};
-	return ranges::equal(a, b, [fold](unsigned char x, unsigned char y) { return fold(x) == fold(y); });
+	return std::ranges::equal(a, b, [fold](unsigned char x, unsigned char y) { return fold(x) == fold(y); });
 }
 
 [[nodiscard]] inline HttpFieldError http_field_error(

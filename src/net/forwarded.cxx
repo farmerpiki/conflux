@@ -46,7 +46,7 @@ export Router::Middleware forwarded_middleware(
 		bool const trust_empty = opts.trusted_proxies.empty() && !opts.strict_mode;
 		bool const trusted = trust_empty || [&] {
 			auto const peer_ip = parse_ip(req.remote_addr).value_or(IpAddr{});
-			return ranges::any_of(cidrs, [&](IpCidr const &c) { return cidr_match(c, peer_ip); });
+			return std::ranges::any_of(cidrs, [&](IpCidr const &c) { return cidr_match(c, peer_ip); });
 		}();
 
 		if (!trusted) {

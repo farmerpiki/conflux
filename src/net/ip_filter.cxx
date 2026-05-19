@@ -35,7 +35,7 @@ export Router::Middleware ip_filter_middleware(
 	return [opts = move(opts),
 			parsed = move(parsed)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto const ip = parse_ip(req.remote_addr).value_or(IpAddr{});
-		bool const matched = ranges::any_of(parsed, [&ip](IpCidr const &c) { return cidr_match(c, ip); });
+		bool const matched = std::ranges::any_of(parsed, [&ip](IpCidr const &c) { return cidr_match(c, ip); });
 
 		if (opts.mode == IpFilterMode::allowlist) {
 			return matched ? next(req) : ip_filter_detail::forbidden();

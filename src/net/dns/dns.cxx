@@ -123,7 +123,7 @@ export [[nodiscard]] expected<NameserverEndpoint, std::string> parse_nameserver(
 		// Either bare IPv4 ("1.2.3.4"), bare IPv6 ("::1"), or "ipv4:port".
 		// Distinguish: bare IPv6 contains ':', but so does "ipv4:port".
 		// IPv6 always has ≥ 2 colons or contains "::"; IPv4 has at most 1.
-		auto const colons = ranges::count(literal, ':');
+		auto const colons = std::ranges::count(literal, ':');
 		bool const is_ipv6 = colons >= 2 || literal.find("::") != std::string_view::npos;
 		if (!is_ipv6 && colons == 1) {
 			auto const colon = literal.find(':');
@@ -218,7 +218,7 @@ export [[nodiscard]] std::optional<Endpoint> try_parse_ip_literal(
 	if (host.size() >= buf.size()) {
 		return nullopt;
 	}
-	ranges::copy(host, buf.begin());
+	std::ranges::copy(host, buf.begin());
 	buf[host.size()] = '\0';
 
 	Endpoint ep{};
@@ -610,8 +610,8 @@ export struct ResolverOptions {
 	size_t cache_capacity{1024};
 	std::chrono::seconds cache_max_ttl{300};
 	std::chrono::seconds cache_negative_ttl{30};
-	fs::path resolv_conf{"/etc/resolv.conf"};
-	fs::path hosts_file{"/etc/hosts"};
+	std::filesystem::path resolv_conf{"/etc/resolv.conf"};
+	std::filesystem::path hosts_file{"/etc/hosts"};
 	bool enable_etc_hosts{true};
 	std::uint16_t edns0_udp_size{4096};
 	size_t max_in_flight_queries{4096};
@@ -651,8 +651,11 @@ public:
 	[[nodiscard]] FileReader *file_reader() const noexcept;
 
 private:
-	[[nodiscard]] root::Task<ResolveResult>
-	resolve_flow(SocketTaskRing *external_ring, std::string_view host, std::uint16_t port, ResolveOptions const &opts = {});
+	[[nodiscard]] root::Task<ResolveResult> resolve_flow(
+		SocketTaskRing *external_ring,
+		std::string_view host,
+		std::uint16_t port,
+		ResolveOptions const &opts = {});
 
 	struct Impl;
 	std::shared_ptr<Impl> impl_;
@@ -672,4 +675,5 @@ public:
 	CurrentResolverScope(CurrentResolverScope &&) = delete;
 	CurrentResolverScope &operator =(CurrentResolverScope &&) = delete;
 };
-}
+
+} // namespace conflux::net::dns

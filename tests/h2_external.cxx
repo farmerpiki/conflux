@@ -177,7 +177,7 @@ struct H2Client {
 	void pump_all(
 		span<std::int32_t const> sids) {
 		auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds{5};
-		auto all_done = [&] { return ranges::all_of(sids, [&](std::int32_t s) { return responses_[s].closed; }); };
+		auto all_done = [&] { return std::ranges::all_of(sids, [&](std::int32_t s) { return responses_[s].closed; }); };
 		while (!all_done() && std::chrono::steady_clock::now() < deadline) {
 			pump_once();
 		}
@@ -269,7 +269,10 @@ private:
 		std::array<char, 16384> buf{};
 		int const n = SSL_read(ssl_.get(), buf.data(), static_cast<int>(buf.size()));
 		if (n > 0) {
-			nghttp2_session_mem_recv(session_, reinterpret_cast<std::uint8_t const *>(buf.data()), static_cast<std::size_t>(n));
+			nghttp2_session_mem_recv(
+				session_,
+				reinterpret_cast<std::uint8_t const *>(buf.data()),
+				static_cast<std::size_t>(n));
 		}
 		// n <= 0: timeout or close — caller checks stream state
 	}
@@ -652,7 +655,7 @@ TEST_CASE(
 	REQUIRE(resp.status == 200);
 	REQUIRE(resp.body == "hello trailers");
 	auto has_trailer = [&](std::string_view key, std::string_view val) {
-		return ranges::any_of(resp.trailers, [&](auto const &kv) { return kv.first == key && kv.second == val; });
+		return std::ranges::any_of(resp.trailers, [&](auto const &kv) { return kv.first == key && kv.second == val; });
 	};
 	REQUIRE(has_trailer("x-checksum", "crc32:deadbeef"));
 	REQUIRE(has_trailer("x-server", "conflux"));

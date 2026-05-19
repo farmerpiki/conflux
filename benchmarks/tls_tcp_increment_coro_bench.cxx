@@ -155,7 +155,7 @@ void run_server(
 		std::size_t scan = 0;
 		while (scan < held) {
 			auto view = span{buf}.subspan(scan, held - scan);
-			auto it = ranges::find(view, '\n');
+			auto it = std::ranges::find(view, '\n');
 			if (it == view.end()) {
 				break;
 			}
@@ -268,7 +268,7 @@ struct AsyncTlsLineReader {
 	Task<std::string_view> read_line() {
 		for (;;) {
 			auto view = span{buf}.first(held);
-			auto it = ranges::find(view, static_cast<byte>('\n'));
+			auto it = std::ranges::find(view, static_cast<byte>('\n'));
 			if (it != view.end()) {
 				auto const end = static_cast<std::size_t>(it - view.begin());
 				co_return std::string_view{reinterpret_cast<char const *>(buf.data()), end};
@@ -395,7 +395,7 @@ int main(
 
 			(void)run_callback(files, tls, cfg.warmup, 0);
 			std::uint64_t const ns = (which == 0) ? run_callback(files, tls, cfg.iterations, cfg.warmup) :
-										  run_coroutine(files, tls, cfg.iterations, cfg.warmup);
+													run_coroutine(files, tls, cfg.iterations, cfg.warmup);
 			double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 			std::string_view const label = (which == 0) ? "callback" : "coroutine";
 			if (cfg.json_out) {

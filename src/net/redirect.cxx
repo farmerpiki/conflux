@@ -8,7 +8,7 @@ import conflux.net.router;
 	if (s.starts_with("//") || s.starts_with("/\\")) {
 		return false;
 	}
-	return ranges::none_of(s, [](char c) { return c == '@' || c == '\\' || c == '\r' || c == '\n'; });
+	return std::ranges::none_of(s, [](char c) { return c == '@' || c == '\\' || c == '\r' || c == '\n'; });
 }
 export struct RedirectRule {
 	// Path to match. When prefix_match is false, exact match only.

@@ -77,11 +77,11 @@ struct StaticDir {
 		REQUIRE(::mkdtemp(path.data()) != nullptr);
 	}
 	~StaticDir() {
-		for (auto &ent: fs::directory_iterator{path}) {
+		for (auto &ent: std::filesystem::directory_iterator{path}) {
 			(void)ent;
 		}
 		std::error_code ec;
-		fs::remove_all(path, ec);
+		std::filesystem::remove_all(path, ec);
 	}
 	StaticDir(StaticDir const &) = delete;
 	StaticDir &operator =(StaticDir const &) = delete;

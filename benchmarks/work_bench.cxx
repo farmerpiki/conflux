@@ -131,11 +131,12 @@ Stats measure_case(
 		for (std::size_t i = 0; i < iterations; ++i) {
 			sink.fetch_add(bench.run(), memory_order_relaxed);
 		}
-		auto const dt = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
+		auto const dt =
+			std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - t0).count();
 		times.push_back(static_cast<double>(dt) / static_cast<double>(iterations));
 	}
 
-	ranges::sort(times);
+	std::ranges::sort(times);
 	std::size_t const n = times.size();
 
 	auto const min_ns = times[0];
@@ -148,7 +149,7 @@ Stats measure_case(
 	for (auto t: times) {
 		devs.push_back(std::abs(t - med_ns));
 	}
-	ranges::sort(devs);
+	std::ranges::sort(devs);
 	double const mad_ns = (n % 2 == 0) ? (devs[n / 2 - 1] + devs[n / 2]) / 2.0 : devs[n / 2];
 
 	auto const total_ns = static_cast<std::uint64_t>(med_ns * static_cast<double>(iterations));

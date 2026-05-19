@@ -7,7 +7,7 @@ import std.compat;
 import conflux.json;
 import conflux.utils;
 import conflux.file_io_sync;
-export namespace tmpl {
+export namespace conflux::templates {
 
 struct CompiledExpr;
 using CompiledExprPtr = std::shared_ptr<CompiledExpr>;
@@ -237,9 +237,8 @@ private:
 	std::unique_ptr<Impl> impl_;
 };
 
-} // namespace tmpl
-namespace tmpl {
-namespace fs = std::filesystem;
+} // namespace conflux::templates
+namespace conflux::templates {
 // ---------------------------------------------------------------------------
 // Diagnostics
 // ---------------------------------------------------------------------------
@@ -766,12 +765,12 @@ static std::optional<CompiledLiteral> compile_literal(
 			} else {
 				auto value = std::stoll(b, &parsed);
 				if (parsed == b.size()) {
-					return CompiledLiteral{.kind = CompiledLiteralKind::integer, .integer = static_cast<std::int64_t>(value)};
+					return CompiledLiteral{
+						.kind = CompiledLiteralKind::integer,
+						.integer = static_cast<std::int64_t>(value)};
 				}
 			}
-		} catch (exception const &) {
-			return nullopt;
-		}
+		} catch (exception const &) { return nullopt; }
 	}
 	return nullopt;
 }
@@ -825,10 +824,11 @@ static std::optional<CompiledBaseExpr> compile_path_base(
 				}
 				out.path.push_back(move(seg));
 			} else {
-				out.path.push_back(CompiledPathSegment{
-					.kind = CompiledPathSegmentKind::index,
-					.expr = compile_expr_ptr(idx),
-				});
+				out.path.push_back(
+					CompiledPathSegment{
+						.kind = CompiledPathSegmentKind::index,
+						.expr = compile_expr_ptr(idx),
+					});
 			}
 			remaining.remove_prefix(close + 1);
 			if (!remaining.empty() && remaining.front() == '.') {
@@ -1001,7 +1001,8 @@ static std::optional<CompiledMacroCall> compile_macro_call(
 		}
 		if (eq > 0 && eq < arg.size() && arg[eq] == '=' && (eq + 1 >= arg.size() || arg[eq + 1] != '=')) {
 			auto expr_part = trim(arg.substr(eq + 1));
-			call.args.push_back(CompiledMacroArg{trim(arg.substr(0, eq)), expr_part, compile_expr_ptr(expr_part), true});
+			call.args.push_back(
+				CompiledMacroArg{trim(arg.substr(0, eq)), expr_part, compile_expr_ptr(expr_part), true});
 		} else {
 			auto expr_part = trim(arg);
 			call.args.push_back(CompiledMacroArg{{}, expr_part, compile_expr_ptr(expr_part), false});
@@ -1255,7 +1256,11 @@ struct Environment::Impl {
 	TmplValue eval_expr(CompiledExpr const &expr, TmplValue const &context) const;
 	TmplValue eval_base(CompiledBaseExpr const &base, TmplValue const &context) const;
 	TmplValue eval_path(std::vector<CompiledPathSegment> const &path, TmplValue const &context) const;
-	TmplValue apply_method(std::string const &name, TmplValue const &val, std::vector<CompiledExprPtr> const &args, TmplValue const &context) const;
+	TmplValue apply_method(
+		std::string const &name,
+		TmplValue const &val,
+		std::vector<CompiledExprPtr> const &args,
+		TmplValue const &context) const;
 	TmplValue apply_filter(CompiledFilter const &filter, TmplValue const &val, TmplValue const &context) const;
 	static std::string value_to_string(TmplValue const &v);
 	static bool is_truthy(TmplValue const &v);
@@ -1276,7 +1281,7 @@ struct Environment::Impl {
 	void validate_links(std::unordered_map<std::string, Template> const &candidate, TemplateBuildReport &report) const;
 	void reload_path(std::string const &path);
 	void remove_path(std::string const &path);
-	bool extension_allowed(fs::path const &path) const;
+	bool extension_allowed(std::filesystem::path const &path) const;
 };
 // ---------------------------------------------------------------------------
 // Parser
@@ -1305,7 +1310,8 @@ Template Environment::Impl::parse(
 		NodeList nodes;
 		auto const fail_missing_end = [&] {
 			if (!end_tags.empty()) {
-				throw std::runtime_error{format("template parse error: missing end tag (expected one of '{}')", end_tags.front())};
+				throw std::runtime_error{
+					format("template parse error: missing end tag (expected one of '{}')", end_tags.front())};
 			}
 		};
 		while (!state.done()) {
@@ -1321,7 +1327,10 @@ Template Environment::Impl::parse(
 				continue;
 			}
 			if (tok.type == TokenType::Expr) {
-				nodes.push_back(make_shared<Node>(Node{ExprNode{tok.content, compile_expr(tok.content)}}));
+				nodes.push_back(
+					make_shared<Node>(Node{
+						ExprNode{tok.content, compile_expr(tok.content)}
+					}));
 				state.advance();
 				continue;
 			}
@@ -1688,14 +1697,15 @@ TmplValue Environment::Impl::eval_path(
 				}
 				start = std::clamp<std::int64_t>(start, 0, static_cast<std::int64_t>(str.size()));
 				end = std::clamp<std::int64_t>(end, 0, static_cast<std::int64_t>(str.size()));
-				set_owned(TmplValue{str.substr(static_cast<std::size_t>(start), static_cast<std::size_t>(max<std::int64_t>(0, end - start)))});
+				set_owned(
+					TmplValue{str.substr(
+						static_cast<std::size_t>(start),
+						static_cast<std::size_t>(max<std::int64_t>(0, end - start)))});
 			} else {
 				return {};
 			}
 			break;
-		case CompiledPathSegmentKind::method:
-			set_owned(apply_method(seg.name, *cur, seg.args, context));
-			break;
+		case CompiledPathSegmentKind::method: set_owned(apply_method(seg.name, *cur, seg.args, context)); break;
 		}
 	}
 	return use_owned ? owned : *cur;
@@ -1732,13 +1742,14 @@ TmplValue Environment::Impl::eval_base(
 		}
 	case CompiledBaseKind::group:
 		return !base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
-	case CompiledBaseKind::path:
-		return eval_path(base.path, context);
+	case CompiledBaseKind::path: return eval_path(base.path, context);
 	case CompiledBaseKind::unary_not:
-		return TmplValue{!(base.operands.empty() || !base.operands[0] ? false : is_truthy(eval_expr(*base.operands[0], context)))};
+		return TmplValue{
+			!(base.operands.empty() || !base.operands[0] ? false : is_truthy(eval_expr(*base.operands[0], context)))};
 	case CompiledBaseKind::binary_or:
 		{
-			auto left = !base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
+			auto left =
+				!base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
 			if (is_truthy(left)) {
 				return left;
 			}
@@ -1746,7 +1757,8 @@ TmplValue Environment::Impl::eval_base(
 		}
 	case CompiledBaseKind::binary_and:
 		{
-			auto left = !base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
+			auto left =
+				!base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
 			if (!is_truthy(left)) {
 				return left;
 			}
@@ -1754,8 +1766,10 @@ TmplValue Environment::Impl::eval_base(
 		}
 	case CompiledBaseKind::compare:
 		{
-			auto left = !base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
-			auto right = base.operands.size() > 1 && base.operands[1] ? eval_expr(*base.operands[1], context) : TmplValue{};
+			auto left =
+				!base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
+			auto right =
+				base.operands.size() > 1 && base.operands[1] ? eval_expr(*base.operands[1], context) : TmplValue{};
 			switch (base.compare_op) {
 			case CompiledCompareOp::eq: return TmplValue{left == right};
 			case CompiledCompareOp::ne: return TmplValue{left != right};
@@ -1765,13 +1779,13 @@ TmplValue Environment::Impl::eval_base(
 			case CompiledCompareOp::gt:
 				{
 					double const lv = left.is_int()   ? static_cast<double>(left.as<std::int64_t>()) :
-								  left.is_uint()  ? static_cast<double>(left.as<std::uint64_t>()) :
-								  left.is_float() ? left.as<double>() :
-												0.0;
+									  left.is_uint()  ? static_cast<double>(left.as<std::uint64_t>()) :
+									  left.is_float() ? left.as<double>() :
+														0.0;
 					double const rv = right.is_int()   ? static_cast<double>(right.as<std::int64_t>()) :
-								  right.is_uint()  ? static_cast<double>(right.as<std::uint64_t>()) :
-								  right.is_float() ? right.as<double>() :
-												 0.0;
+									  right.is_uint()  ? static_cast<double>(right.as<std::uint64_t>()) :
+									  right.is_float() ? right.as<double>() :
+														 0.0;
 					if (base.compare_op == CompiledCompareOp::le) {
 						return TmplValue{lv <= rv};
 					}
@@ -1793,7 +1807,8 @@ TmplValue Environment::Impl::eval_base(
 					return TmplValue{false};
 				}
 				if (right.is_string() && left.is_string()) {
-					return TmplValue{right.as<std::string_view>().find(left.as<std::string_view>()) != std::string_view::npos};
+					return TmplValue{
+						right.as<std::string_view>().find(left.as<std::string_view>()) != std::string_view::npos};
 				}
 				return TmplValue{false};
 			}
@@ -1801,8 +1816,10 @@ TmplValue Environment::Impl::eval_base(
 		}
 	case CompiledBaseKind::concat:
 		{
-			auto left = !base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
-			auto right = base.operands.size() > 1 && base.operands[1] ? eval_expr(*base.operands[1], context) : TmplValue{};
+			auto left =
+				!base.operands.empty() && base.operands[0] ? eval_expr(*base.operands[0], context) : TmplValue{};
+			auto right =
+				base.operands.size() > 1 && base.operands[1] ? eval_expr(*base.operands[1], context) : TmplValue{};
 			return TmplValue{value_to_string(left) + value_to_string(right)};
 		}
 	}
@@ -2056,7 +2073,9 @@ TmplValue Environment::Impl::eval_expr(
 								return TmplValue{false};
 							}
 							if (right.is_string() && left.is_string()) {
-								return TmplValue{right.as<std::string_view>().find(left.as<std::string_view>()) != std::string_view::npos};
+								return TmplValue{
+									right.as<std::string_view>().find(left.as<std::string_view>())
+									!= std::string_view::npos};
 							}
 							return TmplValue{false};
 						}
@@ -2151,7 +2170,9 @@ TmplValue Environment::Impl::eval_expr(
 							start = std::clamp<std::int64_t>(start, 0, static_cast<std::int64_t>(s.size()));
 							end = std::clamp<std::int64_t>(end, 0, static_cast<std::int64_t>(s.size()));
 							set_owned(
-								TmplValue{s.substr(static_cast<std::size_t>(start), static_cast<std::size_t>(max<std::int64_t>(0, end - start)))});
+								TmplValue{s.substr(
+									static_cast<std::size_t>(start),
+									static_cast<std::size_t>(max<std::int64_t>(0, end - start)))});
 						} else {
 							return {};
 						}
@@ -2742,7 +2763,8 @@ std::string Environment::Impl::render_nodes(
 					if (iter_val.is_array()) {
 						auto saved = save_scope(context, n.vars);
 						auto const *prev_loop = obj_find(context, "loop");
-						std::optional<TmplValue> saved_loop = prev_loop ? std::optional<TmplValue>{*prev_loop} : nullopt;
+						std::optional<TmplValue> saved_loop =
+							prev_loop ? std::optional<TmplValue>{*prev_loop} : nullopt;
 						auto const &arr = iter_val.as_array();
 						for (std::size_t i = 0; i < arr.size(); ++i) {
 							if (n.vars.size() == 1) {
@@ -2806,7 +2828,8 @@ std::string Environment::Impl::render_nodes(
 							sub->data);
 					}
 					if (!found) {
-						throw std::runtime_error{format("template error: macro '{}' not found in '{}'", n.name, n.file)};
+						throw std::runtime_error{
+							format("template error: macro '{}' not found in '{}'", n.name, n.file)};
 					}
 				}
 			},
@@ -2874,14 +2897,15 @@ static void add_template_diag(
 	std::string code,
 	std::string message,
 	std::vector<TemplateSourceLocation> stack = {}) {
-	report.diagnostics.push_back(TemplateDiagnostic{
-		.severity = TemplateDiagnosticSeverity::error,
-		.phase = phase,
-		.location = move(location),
-		.stack = move(stack),
-		.code = move(code),
-		.message = move(message),
-	});
+	report.diagnostics.push_back(
+		TemplateDiagnostic{
+			.severity = TemplateDiagnosticSeverity::error,
+			.phase = phase,
+			.location = move(location),
+			.stack = move(stack),
+			.code = move(code),
+			.message = move(message),
+		});
 }
 static bool node_list_has_top_level_macro(
 	NodeList const &nodes,
@@ -2938,7 +2962,7 @@ static std::vector<std::string> collect_direct_template_deps(
 	return deps;
 }
 bool Environment::Impl::extension_allowed(
-	fs::path const &path) const {
+	std::filesystem::path const &path) const {
 	auto ext = path.extension().string();
 	for (auto const &allowed: options.extensions) {
 		if (ext == allowed) {
@@ -3057,12 +3081,13 @@ void Environment::Impl::validate_links(
 		dfs(name);
 	}
 }
-expected<std::unordered_map<std::string, Template>, TemplateBuildReport> Environment::Impl::build_cache_from_directory() const {
+expected<std::unordered_map<std::string, Template>, TemplateBuildReport>
+Environment::Impl::build_cache_from_directory() const {
 	TemplateBuildReport report;
 	std::unordered_map<std::string, Template> parsed;
-	fs::path const dir{template_dir};
+	std::filesystem::path const dir{template_dir};
 	std::error_code ec;
-	if (!fs::exists(dir, ec)) {
+	if (!std::filesystem::exists(dir, ec)) {
 		add_template_diag(
 			report,
 			TemplateDiagnosticPhase::io,
@@ -3071,7 +3096,7 @@ expected<std::unordered_map<std::string, Template>, TemplateBuildReport> Environ
 			format("template directory '{}' does not exist", dir.string()));
 		return unexpected{move(report)};
 	}
-	if (!fs::is_directory(dir, ec)) {
+	if (!std::filesystem::is_directory(dir, ec)) {
 		add_template_diag(
 			report,
 			TemplateDiagnosticPhase::io,
@@ -3080,9 +3105,9 @@ expected<std::unordered_map<std::string, Template>, TemplateBuildReport> Environ
 			format("template path '{}' is not a directory", dir.string()));
 		return unexpected{move(report)};
 	}
-	std::vector<fs::path> files;
+	std::vector<std::filesystem::path> files;
 	try {
-		for (auto const &entry: fs::directory_iterator(dir)) {
+		for (auto const &entry: std::filesystem::directory_iterator(dir)) {
 			if (!entry.is_regular_file()) {
 				continue;
 			}
@@ -3100,7 +3125,7 @@ expected<std::unordered_map<std::string, Template>, TemplateBuildReport> Environ
 			format("failed to scan template directory '{}': {}", dir.string(), e.what()));
 		return unexpected{move(report)};
 	}
-	std::sort(files.begin(), files.end(), [](fs::path const &a, fs::path const &b) {
+	std::sort(files.begin(), files.end(), [](std::filesystem::path const &a, std::filesystem::path const &b) {
 		return a.string() < b.string();
 	});
 	report.templates_seen = files.size();
@@ -3150,7 +3175,7 @@ expected<void, TemplateBuildReport> Environment::Impl::reload_all_checked() {
 }
 void Environment::Impl::reload_path(
 	std::string const &path) {
-	fs::path const p{path};
+	std::filesystem::path const p{path};
 	if (!extension_allowed(p)) {
 		return;
 	}
@@ -3158,7 +3183,7 @@ void Environment::Impl::reload_path(
 }
 void Environment::Impl::remove_path(
 	std::string const &path) {
-	fs::path const p{path};
+	std::filesystem::path const p{path};
 	if (!extension_allowed(p)) {
 		return;
 	}
@@ -3242,34 +3267,4 @@ std::string Environment::render_string(
 	return render_string(source, node_to_tmpl(ctx));
 }
 
-} // namespace tmpl
-
-export namespace conflux::templates {
-using ::tmpl::BlockNode;
-using ::tmpl::CompiledExpr;
-using ::tmpl::CompiledFilter;
-using ::tmpl::CompiledMacroArg;
-using ::tmpl::CompiledMacroCall;
-using ::tmpl::Environment;
-using ::tmpl::EnvironmentOptions;
-using ::tmpl::ExprNode;
-using ::tmpl::ExtendsNode;
-using ::tmpl::ForNode;
-using ::tmpl::FromImportNode;
-using ::tmpl::IfNode;
-using ::tmpl::IncludeNode;
-using ::tmpl::MacroNode;
-using ::tmpl::Node;
-using ::tmpl::NodeList;
-using ::tmpl::NodePtr;
-using ::tmpl::SetNode;
-using ::tmpl::Template;
-using ::tmpl::TemplateBuildError;
-using ::tmpl::TemplateBuildReport;
-using ::tmpl::TemplateDiagnostic;
-using ::tmpl::TemplateDiagnosticPhase;
-using ::tmpl::TemplateDiagnosticSeverity;
-using ::tmpl::TemplateSourceLocation;
-using ::tmpl::TextNode;
-using ::tmpl::TmplValue;
-}
+} // namespace conflux::templates

@@ -70,7 +70,7 @@ std::string_view resolve_origin(
 		// Wildcard: reflect origin when credentials are used, else return "*".
 		return policy.opts.allow_credentials ? request_origin : std::string_view{"*"};
 	}
-	return ranges::contains(policy.opts.allowed_origins, request_origin) ? request_origin : std::string_view{};
+	return std::ranges::contains(policy.opts.allowed_origins, request_origin) ? request_origin : std::string_view{};
 }
 void inject_cors_headers(
 	PreparedCorsOptions const &policy,

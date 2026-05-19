@@ -31,22 +31,25 @@ int main() {
 	opts.extra_env = std::vector<std::string>{"CONFLUX_PROCESS_EXAMPLE=from-extra-env"};
 	opts.clear_env = false;
 
-	auto ok = run(
-		fs::path{"/bin/sh"},
-		std::vector<std::string_view>{
-			"-c",
-			"printf 'cwd=%s\\n' \"$PWD\"; "
-			"printf 'env=%s\\n' \"$CONFLUX_PROCESS_EXAMPLE\"; "
-			"printf 'diagnostic on stderr\\n' >&2",
-		},
-		opts);
+	auto ok =
+		run(std::filesystem::path{"/bin/sh"},
+			std::vector<std::string_view>{
+				"-c",
+				"printf 'cwd=%s\\n' \"$PWD\"; "
+				"printf 'env=%s\\n' \"$CONFLUX_PROCESS_EXAMPLE\"; "
+				"printf 'diagnostic on stderr\\n' >&2",
+			},
+			opts);
 	print_result("successful child", ok);
 
 	// Non-zero exit is part of RunResult, not a spawn error.
-	auto non_zero = run(fs::path{"/bin/sh"}, std::vector<std::string_view>{"-c", "printf 'no crash, just status\\n'; exit 7"});
+	auto non_zero =
+		run(std::filesystem::path{"/bin/sh"},
+			std::vector<std::string_view>{"-c", "printf 'no crash, just status\\n'; exit 7"});
 	print_result("non-zero child", non_zero);
 
 	// Missing executable is a spawn/exec boundary error.
-	auto missing = run(fs::path{"/definitely/not/a/conflux/example/binary"}, std::vector<std::string_view>{});
+	auto missing =
+		run(std::filesystem::path{"/definitely/not/a/conflux/example/binary"}, std::vector<std::string_view>{});
 	print_result("missing executable", missing);
 }

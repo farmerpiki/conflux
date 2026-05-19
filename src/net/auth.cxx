@@ -59,7 +59,7 @@ struct FailedAuthStore {
 			Entry{
 				.bucket = FailedAuthBucket{.failures = 0, .window_start = now},
 				.order_it = std::prev(order_.end()),
-			});
+        });
 		return it->second.bucket;
 	}
 
@@ -142,9 +142,8 @@ HttpResponse too_many_auth_attempts(
 	r.status_text = "Too Many Requests";
 	r.content_type = "text/plain; charset=utf-8";
 	r.set_text_body("Too Many Requests");
-	r.headers["Retry-After"] = format(
-		"{}",
-		std::max<std::chrono::seconds::rep>(std::chrono::seconds::rep{1}, retry_after.count()));
+	r.headers["Retry-After"] =
+		format("{}", std::max<std::chrono::seconds::rep>(std::chrono::seconds::rep{1}, retry_after.count()));
 	return r;
 }
 
@@ -247,16 +246,12 @@ public:
 	AuthFailureLimiter();
 	explicit AuthFailureLimiter(AuthThrottleOptions opts);
 
-	[[nodiscard]] AuthThrottleOutcome before_attempt(
-		std::string_view subject,
-		AuthThrottleClock::time_point now = AuthThrottleClock::now());
-	[[nodiscard]] AuthThrottleOutcome record_failure(
-		std::string_view subject,
-		AuthThrottleClock::time_point now = AuthThrottleClock::now());
-	void record_success(
-		std::string_view subject);
-	void clear(
-		std::string_view subject);
+	[[nodiscard]] AuthThrottleOutcome
+	before_attempt(std::string_view subject, AuthThrottleClock::time_point now = AuthThrottleClock::now());
+	[[nodiscard]] AuthThrottleOutcome
+	record_failure(std::string_view subject, AuthThrottleClock::time_point now = AuthThrottleClock::now());
+	void record_success(std::string_view subject);
+	void clear(std::string_view subject);
 	[[nodiscard]] AuthThrottleMetrics snapshot() const;
 	[[nodiscard]] AuthThrottleOptions options() const noexcept { return opts_; }
 
@@ -335,7 +330,7 @@ struct AuthThrottleState {
 			Entry{
 				.bucket = AuthThrottleBucket{.failures = 0, .window_start = now},
 				.order_it = std::prev(order.end()),
-			});
+        });
 		return it->second.bucket;
 	}
 
@@ -442,7 +437,7 @@ template<typename Key>
 [[nodiscard]] bool auth_response_is_failure(
 	HttpResponse const &response,
 	AuthThrottleMiddlewareOptions const &opts) {
-	return ranges::find(opts.failure_statuses, response.status) != opts.failure_statuses.end();
+	return std::ranges::find(opts.failure_statuses, response.status) != opts.failure_statuses.end();
 }
 
 [[nodiscard]] bool auth_response_is_success(
@@ -542,7 +537,8 @@ export [[nodiscard]] std::string auth_throttle_key(
 export [[nodiscard]] std::string auth_throttle_remote_key(
 	HttpRequestView const &req,
 	std::string_view scope = "remote") {
-	auto subject = req.remote_addr.empty() ? std::string{"unknown"} :
+	auto subject = req.remote_addr.empty() ?
+					   std::string{"unknown"} :
 					   parse_ip(req.remote_addr).transform(ip_to_string).value_or(std::string{req.remote_addr});
 	return auth_throttle_key(scope, subject);
 }
@@ -655,9 +651,7 @@ export template<typename Validator>
 Router::Middleware basic_auth_middleware(
 	Validator &&validator,
 	std::string realm = "Restricted") {
-	return basic_auth_middleware(
-		forward<Validator>(validator),
-		BasicAuthOptions{.realm = move(realm)});
+	return basic_auth_middleware(forward<Validator>(validator), BasicAuthOptions{.realm = move(realm)});
 }
 
 // Middleware factory: Bearer token Authentication guard.

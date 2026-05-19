@@ -26,7 +26,9 @@ struct RingFixture {
 	FileReader reader;
 	bool ring_ok{false};
 	RingFixture()
-		: reader{&ring, &completions, [](std::uint32_t slot, std::uint32_t gen) noexcept { return pack_ud(slot, gen); }} {}
+		: reader{&ring, &completions, [](std::uint32_t slot, std::uint32_t gen) noexcept {
+					 return pack_ud(slot, gen);
+				 }} {}
 	static std::unique_ptr<RingFixture> make(
 		unsigned entries = 128) {
 		auto fx = make_unique<RingFixture>();
@@ -141,8 +143,10 @@ TEST_CASE(
 	{
 		Params p;
 		p.add(std::int64_t{1});
-		auto r =
-			block_on(fx->reader, conn->query("SELECT name, note FROM t WHERE id = $1", move(p)), std::chrono::seconds{30});
+		auto r = block_on(
+			fx->reader,
+			conn->query("SELECT name, note FROM t WHERE id = $1", move(p)),
+			std::chrono::seconds{30});
 		REQUIRE(r.ok());
 		REQUIRE(r.rows() == 1);
 		CHECK(r[0].as<std::string>(0) == "alpha");
@@ -375,7 +379,10 @@ TEST_CASE(
 	auto conn = connect_or_skip(*fx, *ci);
 
 	try {
-		(void)block_on(fx->reader, conn->query("SELECT pg_terminate_backend(pg_backend_pid())"), std::chrono::seconds{30});
+		(void)block_on(
+			fx->reader,
+			conn->query("SELECT pg_terminate_backend(pg_backend_pid())"),
+			std::chrono::seconds{30});
 		FAIL("expected backend termination to surface as PgError");
 	} catch (PgError const &e) {
 		// PG ends the session abruptly: SQLSTATE 57P01 (admin shutdown)
@@ -404,7 +411,7 @@ TEST_CASE(
 		} catch (...) { *err = current_exception(); }
 		done->test_and_set(memory_order_release);
 	}(&sleep_done, &sleep_err, conn->query("SELECT pg_sleep(10)"))
-																		.detach();
+																						.detach();
 
 	WorkPool cancel_pool{WorkPoolOptions{.threads = 1}};
 	std::this_thread::sleep_for(std::chrono::milliseconds{100});
@@ -503,7 +510,8 @@ TEST_CASE(
 		FAIL("expected exception");
 	} catch (std::runtime_error const &e) { CHECK(std::string_view{e.what()} == "deliberate"); }
 	{
-		auto r = block_on(fx->reader, conn->query("SELECT count(*) FROM tx_test WHERE id = 2"), std::chrono::seconds{30});
+		auto r =
+			block_on(fx->reader, conn->query("SELECT count(*) FROM tx_test WHERE id = 2"), std::chrono::seconds{30});
 		REQUIRE(r.rows() == 1);
 		CHECK(r[0].as<std::int64_t>(0) == 0);
 	}
@@ -518,9 +526,9 @@ TEST_CASE(
 	auto fx = require_ring_fixture();
 	CurrentFileReaderScope const scope{&fx->reader};
 
-	auto root = fs::temp_directory_path()
+	auto root = std::filesystem::temp_directory_path()
 			  / format("conflux_db_qc_int_{}", std::chrono::steady_clock::now().time_since_epoch().count());
-	fs::create_directories(root);
+	std::filesystem::create_directories(root);
 	{
 		std::ofstream out{root / "select_two.psql"};
 		out << "SELECT 2::int8";
@@ -536,7 +544,7 @@ TEST_CASE(
 	CHECK(r[0].as<std::int64_t>(0) == 2);
 
 	std::error_code ec;
-	fs::remove_all(root, ec);
+	std::filesystem::remove_all(root, ec);
 }
 TEST_CASE(
 	"db: cancel_inflight zero-arg uses process-wide cancel pool",
@@ -558,7 +566,7 @@ TEST_CASE(
 		} catch (...) { *e = current_exception(); }
 		d->test_and_set(memory_order_release);
 	}(&done, &err, conn->query("SELECT pg_sleep(10)"))
-																   .detach();
+																				   .detach();
 
 	std::this_thread::sleep_for(std::chrono::milliseconds{100});
 	block_on(fx->reader, conn->cancel_inflight(), std::chrono::seconds{30});

@@ -17,7 +17,7 @@ int main() {
 	namespace http = conflux::http;
 
 	auto app = http::App::default_server();
-	auto log_path = (fs::temp_directory_path() / "conflux_policy_stack_access.jsonl").string();
+	auto log_path = (std::filesystem::temp_directory_path() / "conflux_policy_stack_access.jsonl").string();
 
 	// Register broad request boundary policy first: first-registered middleware is
 	// the outer wrapper, so CORS preflight can short-circuit before auth/CSRF.
@@ -45,10 +45,11 @@ int main() {
 		.hsts_only_on_tls = false,
 	}));
 	app.use(redirect_middleware({
-		.rules = {
-			{.from = "/old-dashboard", .to = "/dashboard", .status = 308},
-			{.from = "/v1/", .to = "/v2/", .status = 307, .prefix_match = true},
-		},
+		.rules =
+			{
+					{.from = "/old-dashboard", .to = "/dashboard", .status = 308},
+					{.from = "/v1/", .to = "/v2/", .status = 307, .prefix_match = true},
+					},
 	}));
 	app.use(trailing_slash_middleware({.mode = TrailingSlashMode::remove, .redirect_status = 308}));
 	app.use(cookie_signing_middleware({.secrets = single_secret_rotation("0123456789abcdef")}));
@@ -60,10 +61,11 @@ int main() {
 		.default_ttl = std::chrono::seconds{15},
 	}));
 	app.use(cache_control_middleware({
-		.rules = {
-			{.mime_prefix = "application/json", .directive = "no-store"},
-			{.mime_prefix = "text/html", .directive = "no-cache"},
-		},
+		.rules =
+			{
+					{.mime_prefix = "application/json", .directive = "no-store"},
+					{.mime_prefix = "text/html", .directive = "no-cache"},
+					},
 		.default_directive = "max-age=60, public",
 	}));
 	app.use(structured_log_middleware({.log_file = log_path, .app_name = "policy-example"}));
@@ -81,10 +83,8 @@ int main() {
 	});
 
 	app.get("/dashboard", [](HttpRequest const &req) {
-		return HttpResponse::text(format(
-			"dashboard request_id={} trace={}\n",
-			req.headers["x-request-id"],
-			req.headers["traceparent"]));
+		return HttpResponse::text(
+			format("dashboard request_id={} trace={}\n", req.headers["x-request-id"], req.headers["traceparent"]));
 	});
 
 	app.get("/v2/users", [](HttpRequest const &req) {
@@ -107,18 +107,14 @@ int main() {
 
 	app.get("/login", [](HttpRequest const &) {
 		auto resp = HttpResponse::text("signed session cookie set; try /me\n");
-		resp.set_cookie(
-			"session",
-			sign_cookie("demo-user", "0123456789abcdef"),
-			"Path=/; HttpOnly; SameSite=Lax");
+		resp.set_cookie("session", sign_cookie("demo-user", "0123456789abcdef"), "Path=/; HttpOnly; SameSite=Lax");
 		return resp;
 	});
 
 	app.get("/me", [](HttpRequest const &req) {
 		auto user = req.cookies["session"];
-		return user.empty()
-			? HttpResponse::unauthorized("Session")
-			: HttpResponse::text(format("session user={}\n", user));
+		return user.empty() ? HttpResponse::unauthorized("Session") :
+							  HttpResponse::text(format("session user={}\n", user));
 	});
 
 	app.post("/submit", [](HttpRequest const &req) {
@@ -127,11 +123,9 @@ int main() {
 
 	std::vector<Router::Middleware> openapi_auth;
 	openapi_auth.push_back(bearer_auth_middleware([](std::string_view token) { return token == "docs-token"; }));
-	app.router().get("/openapi.json", openapi_handler_protected(
-		app.router(),
-		"conflux policy stack example",
-		"0.1.0",
-		move(openapi_auth)));
+	app.router().get(
+		"/openapi.json",
+		openapi_handler_protected(app.router(), "conflux policy stack example", "0.1.0", move(openapi_auth)));
 
 	std::println("policy stack listening on http://localhost:9100/");
 	std::println("structured logs: {}", log_path);

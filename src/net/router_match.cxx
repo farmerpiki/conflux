@@ -16,7 +16,7 @@ export struct Segment {
 export std::vector<Segment> parse_pattern(
 	std::string_view pattern) {
 	std::vector<Segment> segs;
-	segs.reserve(ranges::count(pattern, '/') + 1);
+	segs.reserve(std::ranges::count(pattern, '/') + 1);
 	std::size_t pos = 0;
 	while (true) {
 		auto next = pattern.find('/', pos);

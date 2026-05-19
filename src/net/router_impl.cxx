@@ -14,15 +14,16 @@ import conflux.work;
 import conflux.net.config;
 import conflux.socket_io;
 
-
 struct TransparentSvHash {
 	using is_transparent = void;
 
-	[[nodiscard]] std::size_t operator ()(std::string_view value) const noexcept {
+	[[nodiscard]] std::size_t operator ()(
+		std::string_view value) const noexcept {
 		return hash<std::string_view>{}(value);
 	}
 
-	[[nodiscard]] std::size_t operator ()(std::string const &value) const noexcept {
+	[[nodiscard]] std::size_t operator ()(
+		std::string const &value) const noexcept {
 		return hash<std::string_view>{}(value);
 	}
 };
@@ -30,19 +31,27 @@ struct TransparentSvHash {
 struct TransparentSvEqual {
 	using is_transparent = void;
 
-	[[nodiscard]] bool operator ()(std::string_view lhs, std::string_view rhs) const noexcept {
+	[[nodiscard]] bool operator ()(
+		std::string_view lhs,
+		std::string_view rhs) const noexcept {
 		return lhs == rhs;
 	}
 
-	[[nodiscard]] bool operator ()(std::string const &lhs, std::string_view rhs) const noexcept {
+	[[nodiscard]] bool operator ()(
+		std::string const &lhs,
+		std::string_view rhs) const noexcept {
 		return std::string_view{lhs} == rhs;
 	}
 
-	[[nodiscard]] bool operator ()(std::string_view lhs, std::string const &rhs) const noexcept {
+	[[nodiscard]] bool operator ()(
+		std::string_view lhs,
+		std::string const &rhs) const noexcept {
 		return lhs == std::string_view{rhs};
 	}
 
-	[[nodiscard]] bool operator ()(std::string const &lhs, std::string const &rhs) const noexcept {
+	[[nodiscard]] bool operator ()(
+		std::string const &lhs,
+		std::string const &rhs) const noexcept {
 		return lhs == rhs;
 	}
 };
@@ -58,40 +67,39 @@ struct MethodRouteLookupIndex {
 };
 
 struct Router::Impl {
-		struct Route {
-			std::string method{};
-			std::vector<Segment> pattern{};
-			std::string exact_path{};
-			bool has_exact_path{};
-			Handler handler{};
-		};
-		struct SseRoute {
-			std::vector<Segment> pattern{};
-			std::string exact_path{};
-			bool has_exact_path{};
-			SseHandler handler{};
-		};
-		struct ContextRoute {
-			std::string method{};
-			std::vector<Segment> pattern{};
-			std::string exact_path{};
-			bool has_exact_path{};
-			ContextHandler handler{};
-		};
-		std::vector<Route> routes{};
-		std::vector<SseRoute> sse_routes{};
-		std::vector<ContextRoute> context_routes{};
-		std::vector<MethodRouteLookupIndex> route_indexes{};
-		RouteLookupIndex sse_index{};
-		std::vector<MethodRouteLookupIndex> context_route_indexes{};
-		std::vector<Middleware> middlewares{};
-		Handler not_found_handler{};
-		ErrorHandler error_handler{};
-		std::shared_ptr<WorkPool> work_pool{make_shared<WorkPool>()};
-		StaticCacheStore static_cache{};
-		StaticFileCacheConfig static_file_cache{};
+	struct Route {
+		std::string method{};
+		std::vector<Segment> pattern{};
+		std::string exact_path{};
+		bool has_exact_path{};
+		Handler handler{};
 	};
-
+	struct SseRoute {
+		std::vector<Segment> pattern{};
+		std::string exact_path{};
+		bool has_exact_path{};
+		SseHandler handler{};
+	};
+	struct ContextRoute {
+		std::string method{};
+		std::vector<Segment> pattern{};
+		std::string exact_path{};
+		bool has_exact_path{};
+		ContextHandler handler{};
+	};
+	std::vector<Route> routes{};
+	std::vector<SseRoute> sse_routes{};
+	std::vector<ContextRoute> context_routes{};
+	std::vector<MethodRouteLookupIndex> route_indexes{};
+	RouteLookupIndex sse_index{};
+	std::vector<MethodRouteLookupIndex> context_route_indexes{};
+	std::vector<Middleware> middlewares{};
+	Handler not_found_handler{};
+	ErrorHandler error_handler{};
+	std::shared_ptr<WorkPool> work_pool{make_shared<WorkPool>()};
+	StaticCacheStore static_cache{};
+	StaticFileCacheConfig static_file_cache{};
+};
 
 namespace {
 
@@ -128,7 +136,7 @@ namespace {
 
 [[nodiscard]] bool is_exact_literal_pattern(
 	std::vector<Segment> const &pattern) noexcept {
-	return ranges::none_of(pattern, [](Segment const &segment) {
+	return std::ranges::none_of(pattern, [](Segment const &segment) {
 		return segment.is_param || segment.is_wildcard;
 	});
 }
@@ -214,9 +222,7 @@ struct IndexedRouteRange {
 			return min((*literal_indices)[literal_pos], (*generic_indices)[generic_pos]);
 		}
 
-		[[nodiscard]] RouteT const &operator *() const noexcept {
-			return (*routes)[current_index()];
-		}
+		[[nodiscard]] RouteT const &operator *() const noexcept { return (*routes)[current_index()]; }
 
 		Iterator &operator ++() noexcept {
 			auto const current = current_index();
@@ -229,14 +235,13 @@ struct IndexedRouteRange {
 			return *this;
 		}
 
-		[[nodiscard]] bool operator !=(std::default_sentinel_t) const noexcept {
+		[[nodiscard]] bool operator !=(
+			std::default_sentinel_t) const noexcept {
 			return !done();
 		}
 	};
 
-	[[nodiscard]] bool empty() const noexcept {
-		return literal_indices->empty() && generic_indices->empty();
-	}
+	[[nodiscard]] bool empty() const noexcept { return literal_indices->empty() && generic_indices->empty(); }
 
 	[[nodiscard]] Iterator begin() const noexcept {
 		return Iterator{
@@ -246,9 +251,7 @@ struct IndexedRouteRange {
 		};
 	}
 
-	[[nodiscard]] std::default_sentinel_t end() const noexcept {
-		return {};
-	}
+	[[nodiscard]] std::default_sentinel_t end() const noexcept { return {}; }
 };
 
 template<typename RouteT>
@@ -322,22 +325,23 @@ template<typename ImplT>
 	return s;
 }
 
-
-
 Router::Router()
 	: impl_(make_unique<Impl>()) {}
 
-Router::Router(Config const &cfg)
+Router::Router(
+	Config const &cfg)
 	: impl_(make_unique<Impl>()) {
 	impl_->static_file_cache = cfg.static_file_cache;
 }
 
 Router::~Router() {}
 
-Router::Router(Router &&o) noexcept
+Router::Router(
+	Router &&o) noexcept
 	: impl_(move(o.impl_)) {}
 
-Router &Router::operator =(Router &&o) noexcept {
+Router &Router::operator =(
+	Router &&o) noexcept {
 	impl_ = move(o.impl_);
 	return *this;
 }
@@ -376,15 +380,18 @@ void Router::add_context_prepared(
 	});
 }
 
-void Router::use_prepared(Middleware mw) {
+void Router::use_prepared(
+	Middleware mw) {
 	impl_->middlewares.push_back(move(mw));
 }
 
-void Router::set_not_found_handler(Handler handler) {
+void Router::set_not_found_handler(
+	Handler handler) {
 	impl_->not_found_handler = move(handler);
 }
 
-void Router::set_error_handler(ErrorHandler handler) {
+void Router::set_error_handler(
+	ErrorHandler handler) {
 	impl_->error_handler = move(handler);
 }
 
@@ -407,7 +414,8 @@ void Router::sse_prepared(
 	return !impl_->context_routes.empty();
 }
 
-Router &Router::set_work_pool(std::shared_ptr<WorkPool> pool) {
+Router &Router::set_work_pool(
+	std::shared_ptr<WorkPool> pool) {
 	impl_->work_pool = move(pool);
 	return *this;
 }
@@ -416,7 +424,8 @@ Router &Router::set_work_pool(std::shared_ptr<WorkPool> pool) {
 	return impl_->work_pool;
 }
 
-Router &Router::set_static_file_cache(StaticFileCacheConfig cfg) {
+Router &Router::set_static_file_cache(
+	StaticFileCacheConfig cfg) {
 	impl_->static_file_cache = cfg;
 	return *this;
 }
@@ -425,37 +434,36 @@ Router &Router::ws_prepared(
 	std::string_view path,
 	WsHandler handler) {
 	add_prepared("GET", path, Handler{[h = move(handler)](HttpRequestView const &req) mutable -> HttpResponse {
-		if (!ws_detail::is_valid_handshake(req)) {
-			return HttpResponse::bad_request();
-		}
-		auto key = trim_ascii_ws(req.headers["sec-websocket-key"]);
-		auto up = make_shared<WsUpgrade>();
-		up->accept_key = ws_detail::ws_accept_key(key);
-		up->handler = h;
-		HttpResponse r{.status = 101, .status_text = "Switching Protocols"};
-		r.set_ws_upgrade(move(up));
-		return r;
-	}});
+					 if (!ws_detail::is_valid_handshake(req)) {
+						 return HttpResponse::bad_request();
+					 }
+					 auto key = trim_ascii_ws(req.headers["sec-websocket-key"]);
+					 auto up = make_shared<WsUpgrade>();
+					 up->accept_key = ws_detail::ws_accept_key(key);
+					 up->handler = h;
+					 HttpResponse r{.status = 101, .status_text = "Switching Protocols"};
+					 r.set_ws_upgrade(move(up));
+					 return r;
+				 }});
 	return *this;
 }
 
-
 [[nodiscard]] std::vector<RouteInfo> Router::route_infos() const {
-		std::vector<RouteInfo> result;
-		result.reserve(impl_->routes.size());
-		for (auto const &route: impl_->routes) {
-			RouteInfo info;
-			info.method = route.method;
-			info.path_pattern = segments_to_pattern(route.pattern);
-			for (auto const &seg: route.pattern) {
-				if (seg.is_param || seg.is_wildcard) {
-					info.path_params.push_back(seg.value);
-				}
+	std::vector<RouteInfo> result;
+	result.reserve(impl_->routes.size());
+	for (auto const &route: impl_->routes) {
+		RouteInfo info;
+		info.method = route.method;
+		info.path_pattern = segments_to_pattern(route.pattern);
+		for (auto const &seg: route.pattern) {
+			if (seg.is_param || seg.is_wildcard) {
+				info.path_params.push_back(seg.value);
 			}
-			result.push_back(move(info));
 		}
-		return result;
+		result.push_back(move(info));
 	}
+	return result;
+}
 
 [[nodiscard]] HttpResponse Router::defer_http_task(
 	conflux::work::root::Task<HttpResponse> task) {
@@ -478,31 +486,31 @@ void Router::launch_sse_handler(
 [[nodiscard]] HttpResponse Router::run_middlewares(
 	HttpRequestView const &req,
 	Handler const &inner) const {
-		struct Step {
-			Router::Impl const *impl_;
-			Handler const *inner_;
-			std::size_t idx_{0};
-			Handler next_;
+	struct Step {
+		Router::Impl const *impl_;
+		Handler const *inner_;
+		std::size_t idx_{0};
+		Handler next_;
 
-			Step(
-				Router::Impl const *impl,
-				Handler const *inner)
-				: impl_(impl)
-				, inner_(inner)
-				, next_([this](HttpRequestView const &r) -> HttpResponse { return call(r); }) {}
+		Step(
+			Router::Impl const *impl,
+			Handler const *inner)
+			: impl_(impl)
+			, inner_(inner)
+			, next_([this](HttpRequestView const &r) -> HttpResponse { return call(r); }) {}
 
-			HttpResponse call(
-				HttpRequestView const &r) {
-				if (idx_ == impl_->middlewares.size()) {
-					return (*inner_)(r);
-				}
-				auto const &mw = impl_->middlewares[idx_++];
-				return mw(r, next_);
+		HttpResponse call(
+			HttpRequestView const &r) {
+			if (idx_ == impl_->middlewares.size()) {
+				return (*inner_)(r);
 			}
-		};
-		Step s{impl_.get(), &inner};
-		return s.call(req);
-	}
+			auto const &mw = impl_->middlewares[idx_++];
+			return mw(r, next_);
+		}
+	};
+	Step s{impl_.get(), &inner};
+	return s.call(req);
+}
 
 Router &Router::serve_static(
 	std::string_view url_prefix,
@@ -526,40 +534,40 @@ Router &Router::serve_static(
 
 [[nodiscard]] HttpResponse Router::dispatch(
 	HttpRequest const &req) const {
-		HttpRequestView const req_view{req};
-		return dispatch(req_view);
-	}
+	HttpRequestView const req_view{req};
+	return dispatch(req_view);
+}
 
 [[nodiscard]] HttpResponse Router::dispatch(
 	HttpRequestView const &req) const {
-		// HEAD is dispatched as GET; response body is suppressed before sending.
-		bool const is_head = (req.method == "HEAD");
+	// HEAD is dispatched as GET; response body is suppressed before sending.
+	bool const is_head = (req.method == "HEAD");
 
-		// Strip query std::string before matching.
-		auto path_sv = std::string_view{req.path};
-		if (auto q = path_sv.find('?'); q != std::string_view::npos) {
-			path_sv = path_sv.substr(0, q);
-		}
-
-		if (impl_->middlewares.empty()) {
-			return dispatch_router_sync(*impl_, req, path_sv, is_head);
-		}
-
-		// Inner handler: performs route matching + 404. Middleware wraps this whole thing.
-		Handler inner = [this, path_sv, is_head](HttpRequestView const &r) -> HttpResponse {
-			return dispatch_router_sync(*impl_, r, path_sv, is_head);
-		};
-
-		return run_middlewares(req, inner);
+	// Strip query std::string before matching.
+	auto path_sv = std::string_view{req.path};
+	if (auto q = path_sv.find('?'); q != std::string_view::npos) {
+		path_sv = path_sv.substr(0, q);
 	}
+
+	if (impl_->middlewares.empty()) {
+		return dispatch_router_sync(*impl_, req, path_sv, is_head);
+	}
+
+	// Inner handler: performs route matching + 404. Middleware wraps this whole thing.
+	Handler inner = [this, path_sv, is_head](HttpRequestView const &r) -> HttpResponse {
+		return dispatch_router_sync(*impl_, r, path_sv, is_head);
+	};
+
+	return run_middlewares(req, inner);
+}
 
 [[nodiscard]] std::optional<HttpResponse> Router::dispatch_context(
 	HttpRequest const &req,
 	RequestContext const &ctx) const {
-		bool const is_head = (req.method == "HEAD");
-		std::string_view path_sv{req.path};
-		if (auto q = path_sv.find('?'); q != std::string_view::npos) {
-			path_sv = path_sv.substr(0, q);
-		}
-		return dispatch_router_async(*impl_, req, ctx, path_sv, is_head);
+	bool const is_head = (req.method == "HEAD");
+	std::string_view path_sv{req.path};
+	if (auto q = path_sv.find('?'); q != std::string_view::npos) {
+		path_sv = path_sv.substr(0, q);
 	}
+	return dispatch_router_async(*impl_, req, ctx, path_sv, is_head);
+}

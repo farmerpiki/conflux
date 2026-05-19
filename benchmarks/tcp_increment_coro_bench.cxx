@@ -4,11 +4,11 @@
 #include <arpa/inet.h>
 #include <charconv>
 #include <liburing.h>
+#include <memory>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <memory>
 
 import std;
 import conflux.types;
@@ -74,7 +74,8 @@ Config parse_args(
 		} else if (a == "--json") {
 			cfg.json_out = true;
 		} else if (a == "--help" || a == "-h") {
-			std::println("Usage: conflux_tcp_increment_coro_bench [--iterations N] [--warmup N] [--clients N] [--json]");
+			std::println(
+				"Usage: conflux_tcp_increment_coro_bench [--iterations N] [--warmup N] [--clients N] [--json]");
 			std::exit(0);
 		}
 	}
@@ -97,7 +98,7 @@ void serve_one(
 		std::size_t scan = 0;
 		while (scan < held) {
 			auto view = span{buf}.subspan(scan, held - scan);
-			auto it = ranges::find(view, '\n');
+			auto it = std::ranges::find(view, '\n');
 			if (it == view.end()) {
 				break;
 			}
@@ -236,7 +237,7 @@ struct FrLineReader {
 	conflux::work::root::Task<std::string_view> read_line() {
 		for (;;) {
 			auto view = span{buf}.first(held);
-			auto it = ranges::find(view, static_cast<byte>('\n'));
+			auto it = std::ranges::find(view, static_cast<byte>('\n'));
 			if (it != view.end()) {
 				auto const end = static_cast<std::size_t>(it - view.begin());
 				co_return std::string_view{reinterpret_cast<char const *>(buf.data()), end};
@@ -316,13 +317,14 @@ struct StrLineReader {
 	std::string_view read_line() {
 		for (;;) {
 			auto view = span{buf}.first(held);
-			auto it = ranges::find(view, std::uint8_t('\n'));
+			auto it = std::ranges::find(view, std::uint8_t('\n'));
 			if (it != view.end()) {
 				std::size_t const end = static_cast<std::size_t>(it - view.begin());
 				return std::string_view{reinterpret_cast<char const *>(buf.data()), end};
 			}
-			std::size_t const got =
-				sync_wait_socket_task(ring, stream.async_recv_borrowed(span<std::uint8_t>{buf.data() + held, buf.size() - held}));
+			std::size_t const got = sync_wait_socket_task(
+				ring,
+				stream.async_recv_borrowed(span<std::uint8_t>{buf.data() + held, buf.size() - held}));
 			if (got == 0) {
 				throw std::runtime_error{"eof"};
 			}
@@ -347,7 +349,8 @@ std::uint64_t run_str_callback(
 		std::size_t const len = encode_line(out, n);
 		sync_wait_socket_task(
 			ring,
-			stream.async_write_all_borrowed(span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), len}));
+			stream.async_write_all_borrowed(
+				span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), len}));
 		auto line = reader.read_line();
 		std::uint64_t const got = decode_line(line);
 		reader.consume_line(line.size());
@@ -369,10 +372,11 @@ conflux::work::root::Task<std::uint64_t> str_coro_loop(
 	std::uint64_t n = start;
 	for (std::size_t i = 0; i < iters; ++i) {
 		std::size_t const len = encode_line(out, n);
-		co_await stream.async_write_all_borrowed(span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), len});
+		co_await stream.async_write_all_borrowed(
+			span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), len});
 		for (;;) {
 			auto view = span{rbuf}.first(held);
-			auto it = ranges::find(view, std::uint8_t('\n'));
+			auto it = std::ranges::find(view, std::uint8_t('\n'));
 			if (it != view.end()) {
 				std::size_t const end = static_cast<std::size_t>(it - view.begin());
 				std::string_view const line{reinterpret_cast<char const *>(rbuf.data()), end};
@@ -384,7 +388,8 @@ conflux::work::root::Task<std::uint64_t> str_coro_loop(
 				n = got;
 				break;
 			}
-			std::size_t const r = co_await stream.async_recv_borrowed(span<std::uint8_t>{rbuf.data() + held, rbuf.size() - held});
+			std::size_t const r =
+				co_await stream.async_recv_borrowed(span<std::uint8_t>{rbuf.data() + held, rbuf.size() - held});
 			if (r == 0) {
 				throw std::runtime_error{"eof"};
 			}
@@ -409,7 +414,8 @@ conflux::work::root::Task<void> serve_one_async(
 	std::array<std::uint8_t, 128> rbuf{};
 	std::size_t held = 0;
 	for (;;) {
-		std::size_t const got = co_await stream.async_recv_borrowed(span<std::uint8_t>{rbuf.data() + held, rbuf.size() - held});
+		std::size_t const got =
+			co_await stream.async_recv_borrowed(span<std::uint8_t>{rbuf.data() + held, rbuf.size() - held});
 		if (got == 0) {
 			co_return;
 		}
@@ -417,7 +423,7 @@ conflux::work::root::Task<void> serve_one_async(
 		std::size_t scan = 0;
 		while (scan < held) {
 			auto view = span<std::uint8_t>{rbuf.data() + scan, held - scan};
-			auto it = ranges::find(view, std::uint8_t('\n'));
+			auto it = std::ranges::find(view, std::uint8_t('\n'));
 			if (it == view.end()) {
 				break;
 			}
@@ -439,7 +445,8 @@ conflux::work::root::Task<void> serve_one_async(
 			}
 			*conv.ptr = '\n';
 			std::size_t const out_len = static_cast<std::size_t>(conv.ptr - out.data()) + 1;
-			co_await stream.async_write_all_borrowed(span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), out_len});
+			co_await stream.async_write_all_borrowed(
+				span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), out_len});
 			scan = msg_end + 1;
 		}
 		if (scan > 0) {
@@ -464,7 +471,9 @@ void run_async_server(
 		return;
 	}
 	CompletionTable ct;
-	SocketTaskRing ring{SocketRawRing{&raw}, ct, [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); }};
+	SocketTaskRing ring{SocketRawRing{&raw}, ct, [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
+							return pack_ud(s, g);
+						}};
 	async_tcp_accept_multishot(listener, ring, {}, [](TcpStream s) -> conflux::work::root::Task<void> {
 		return serve_one_async(move(s));
 	}).detach();
@@ -594,7 +603,7 @@ int main(
 				FileHandle sock = FileHandle::from_fd(csock);
 				(void)run_fr_callback(files, sock, cfg.warmup, 0);
 				std::uint64_t const ns = (which == 0) ? run_fr_callback(files, sock, cfg.iterations, cfg.warmup) :
-											  run_fr_coroutine(files, sock, cfg.iterations, cfg.warmup);
+														run_fr_coroutine(files, sock, cfg.iterations, cfg.warmup);
 				double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 				if (cfg.json_out) {
 					std::println(
@@ -616,15 +625,17 @@ int main(
 				(void)sock.release_fd();
 				::close(csock);
 			} else if (which < 4) {
-				SocketTaskRing task_ring{SocketRawRing{&raw}, ct, [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
-											 return pack_ud(s, g);
-										 }};
+				SocketTaskRing task_ring{
+					SocketRawRing{&raw},
+					ct,
+					[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); }};
 				auto ss = loopback_addr(port);
 				TcpStream stream =
 					sync_wait_socket_task(task_ring, async_tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
 				(void)run_str_callback(task_ring, stream, cfg.warmup, 0);
-				std::uint64_t const ns = (which == 2) ? run_str_callback(task_ring, stream, cfg.iterations, cfg.warmup) :
-											  run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);
+				std::uint64_t const ns = (which == 2) ?
+											 run_str_callback(task_ring, stream, cfg.iterations, cfg.warmup) :
+											 run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);
 				double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 				if (cfg.json_out) {
 					std::println(
@@ -641,15 +652,17 @@ int main(
 				server_stop.test_and_set(memory_order_release);
 				// stream dtor closes fd → unblocks server's ::read → server sees stop flag
 			} else if (which < 6) {
-				SocketTaskRing task_ring{SocketRawRing{&raw}, ct, [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
-											 return pack_ud(s, g);
-										 }};
+				SocketTaskRing task_ring{
+					SocketRawRing{&raw},
+					ct,
+					[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); }};
 				auto ss = loopback_addr(port);
 				TcpStream stream =
 					sync_wait_socket_task(task_ring, async_tcp_connect(task_ring, AF_INET, ss, sizeof(sockaddr_in)));
 				(void)run_str_callback(task_ring, stream, cfg.warmup, 0);
-				std::uint64_t const ns = (which == 4) ? run_str_callback(task_ring, stream, cfg.iterations, cfg.warmup) :
-											  run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);
+				std::uint64_t const ns = (which == 4) ?
+											 run_str_callback(task_ring, stream, cfg.iterations, cfg.warmup) :
+											 run_str_coroutine(task_ring, stream, cfg.iterations, cfg.warmup);
 				double const per = static_cast<double>(ns) / static_cast<double>(cfg.iterations);
 				if (cfg.json_out) {
 					std::println(
@@ -665,9 +678,10 @@ int main(
 				}
 				server_stop.test_and_set(memory_order_release);
 			} else {
-				SocketTaskRing task_ring{SocketRawRing{&raw}, ct, [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
-											 return pack_ud(s, g);
-										 }};
+				SocketTaskRing task_ring{
+					SocketRawRing{&raw},
+					ct,
+					[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); }};
 				(void)run_str_parallel(task_ring, port, cfg.warmup, 0);
 				std::uint64_t const ns = run_str_parallel(task_ring, port, cfg.iterations, cfg.warmup);
 				std::size_t const total_iters = cfg.iterations * cfg.clients;

@@ -505,7 +505,7 @@ TEST_CASE(
 	CurlEasy curl;
 	auto resp = curl.perform(
 		CurlRequest{.url = https_url(fx.port(), "/static/large.bin"), .http_version = CURL_HTTP_VERSION_1_1});
-	fs::remove_all(dir);
+	std::filesystem::remove_all(dir);
 	require_ok(resp, 200, body);
 }
 
@@ -864,8 +864,9 @@ TEST_CASE(
 			active->added = false;
 			curl_easy_cleanup(msg->easy_handle);
 			active->easy = nullptr;
-			auto const found =
-				ranges::find_if(owned, [&](std::unique_ptr<Active> const &candidate) { return candidate.get() == active; });
+			auto const found = std::ranges::find_if(owned, [&](std::unique_ptr<Active> const &candidate) {
+				return candidate.get() == active;
+			});
 			REQUIRE(found != owned.end());
 			owned.erase(found);
 			++completed;

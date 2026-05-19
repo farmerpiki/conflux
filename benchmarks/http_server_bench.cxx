@@ -635,8 +635,8 @@ int main(
 	auto plain_rn = start_server(bench_config(thread::hardware_concurrency()), move(rn_router));
 
 	// static file serving
-	auto const static_dir = fs::temp_directory_path() / "conflux_bench_static";
-	fs::create_directories(static_dir);
+	auto const static_dir = std::filesystem::temp_directory_path() / "conflux_bench_static";
+	std::filesystem::create_directories(static_dir);
 	{
 		auto write_file = [&](std::string_view name, std::size_t size, char fill) {
 			auto path = static_dir / name;
@@ -1165,7 +1165,8 @@ int main(
 
 	// ── Malformed pipelined ────────────────────────────────────────────
 
-	auto const pipe_good_bad_good = std::string{kGetJson} + "GET@X / HTTP/1.1\r\nHost: localhost\r\n\r\n" + std::string{kGetJson};
+	auto const pipe_good_bad_good =
+		std::string{kGetJson} + "GET@X / HTTP/1.1\r\nHost: localhost\r\n\r\n" + std::string{kGetJson};
 	auto const pipe_bad_after_good = std::string{kGetJson} + "GET@X / HTTP/1.1\r\nHost: localhost\r\n\r\n";
 	auto const pipe_oversized_header = std::string{kGetJson} + header_too_large;
 
@@ -1810,5 +1811,5 @@ int main(
 
 	defer_pool->drain_and_stop();
 	defer_pool->wait();
-	fs::remove_all(static_dir);
+	std::filesystem::remove_all(static_dir);
 }

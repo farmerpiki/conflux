@@ -12,7 +12,7 @@
 import conflux.net.http.server;
 import std;
 static void write_file(
-	fs::path const &path,
+	std::filesystem::path const &path,
 	std::string_view contents) {
 	std::ofstream out(path, std::ios::binary);
 	out << contents;
@@ -23,8 +23,8 @@ int main() {
 	app.config().fixed_buffer_slabs = 8;
 	app.config().splice_pipe_pairs = 2;
 
-	auto asset_dir = fs::temp_directory_path() / "conflux_static_example";
-	fs::create_directories(asset_dir);
+	auto asset_dir = std::filesystem::temp_directory_path() / "conflux_static_example";
+	std::filesystem::create_directories(asset_dir);
 	write_file(asset_dir / "hello.txt", "hello from conflux static files\n");
 	write_file(asset_dir / "app.css", "body{font-family:monospace;background:#f6f6f1;color:#222;}");
 	write_file(

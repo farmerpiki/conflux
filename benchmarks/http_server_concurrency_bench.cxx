@@ -211,7 +211,7 @@ struct LatencyStats {
 	if (latencies.empty()) {
 		return {};
 	}
-	ranges::sort(latencies);
+	std::ranges::sort(latencies);
 	auto const n = latencies.size();
 	auto pct = [&](double p) -> std::uint64_t {
 		auto idx = static_cast<std::size_t>(static_cast<double>(n - 1) * p);
@@ -229,8 +229,8 @@ struct LatencyStats {
 
 [[nodiscard]] int count_fds() {
 	int count = 0;
-	auto const dir = fs::path{"/proc/self/fd"};
-	for (auto const &entry: fs::directory_iterator{dir}) {
+	auto const dir = std::filesystem::path{"/proc/self/fd"};
+	for (auto const &entry: std::filesystem::directory_iterator{dir}) {
 		if (entry.is_symlink() || entry.exists()) {
 			++count;
 		}
@@ -462,17 +462,26 @@ int main(
 		 .connections = 256,
 		 .duration = std::chrono::seconds{duration_s},
 		 .request = std::string_view{post_4k}},
-		{.name = "parallel_mixed_256"sv, .connections = 256, .duration = std::chrono::seconds{duration_s}, .mixed = true},
+		{.name = "parallel_mixed_256"sv,
+		 .connections = 256,
+		 .duration = std::chrono::seconds{duration_s},
+		 .mixed = true},
 		{.name = "parallel_large_body_64"sv,
 		 .connections = 64,
 		 .duration = std::chrono::seconds{duration_s},
 		 .request = kGetBody64k},
-		{.name = "idle_keepalive_1k"sv, .connections = 1024, .duration = std::chrono::seconds{duration_s}, .is_idle = true},
+		{.name = "idle_keepalive_1k"sv,
+		 .connections = 1024,
+		 .duration = std::chrono::seconds{duration_s},
+		 .is_idle = true},
 	};
 
 	if (duration_s >= 30) {
 		variants.push_back(
-			{.name = "stress_keepalive_256"sv, .connections = 256, .duration = std::chrono::seconds{60}, .is_stress = true});
+			{.name = "stress_keepalive_256"sv,
+			 .connections = 256,
+			 .duration = std::chrono::seconds{60},
+			 .is_stress = true});
 		variants.push_back(
 			{.name = "stress_connect_close_256"sv,
 			 .connections = 256,

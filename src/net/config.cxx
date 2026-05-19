@@ -380,7 +380,7 @@ T parse_uint(
 	std::string_view v,
 	std::string_view key) {
 	T result{};
-	auto const *end = ranges::next(v.data(), ssize(v));
+	auto const *end = std::ranges::next(v.data(), ssize(v));
 	auto [ptr, ec] = from_chars(v.data(), end, result);
 	if (ec != errc{} || ptr != end) {
 		throw std::runtime_error{format("invalid integer for '{}': '{}'", key, v)};
@@ -391,7 +391,7 @@ int parse_int(
 	std::string_view v,
 	std::string_view key) {
 	int result{};
-	auto const *end = ranges::next(v.data(), ssize(v));
+	auto const *end = std::ranges::next(v.data(), ssize(v));
 	auto [ptr, ec] = from_chars(v.data(), end, result);
 	if (ec != errc{} || ptr != end) {
 		throw std::runtime_error{format("invalid integer for '{}': '{}'", key, v)};

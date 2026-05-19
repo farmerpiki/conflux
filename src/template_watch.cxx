@@ -5,7 +5,7 @@ import conflux.types;
 import conflux.templates;
 import conflux.file_watch;
 
-export namespace tmpl::watch {
+export namespace conflux::templates::watch {
 
 struct TemplateWatchOptions {
 	::WatchOptions file_watch{};
@@ -37,10 +37,9 @@ private:
 	std::shared_ptr<Impl> impl_;
 };
 
-} // namespace tmpl::watch
+} // namespace conflux::templates::watch
 
-namespace tmpl::watch {
-namespace fs = std::filesystem;
+namespace conflux::templates::watch {
 
 static bool extension_allowed(
 	std::string const &path,
@@ -48,7 +47,7 @@ static bool extension_allowed(
 	if (extensions.empty()) {
 		return true;
 	}
-	auto const ext = fs::path{path}.extension().string();
+	auto const ext = std::filesystem::path{path}.extension().string();
 	return std::find(extensions.begin(), extensions.end(), ext) != extensions.end();
 }
 
@@ -146,8 +145,7 @@ struct TemplateWatcher::Impl {
 			auto const debounce = options.debounce;
 			if (debounce.count() > 0) {
 				auto deadline = std::chrono::steady_clock::now() + debounce;
-				while (!stop.stop_requested()
-					&& cv.wait_until(lk, stop, deadline, [this] { return dirty; })) {
+				while (!stop.stop_requested() && cv.wait_until(lk, stop, deadline, [this] { return dirty; })) {
 					dirty = false;
 					deadline = std::chrono::steady_clock::now() + debounce;
 				}
@@ -252,7 +250,9 @@ TemplateWatcher::TemplateWatcher(
 	TemplateWatchOptions options)
 	: impl_{make_shared<Impl>(env, move(template_dir), move(options))} {}
 
-TemplateWatcher::~TemplateWatcher() { stop(); }
+TemplateWatcher::~TemplateWatcher() {
+	stop();
+}
 
 void TemplateWatcher::on_reload(
 	std::function<void()> cb) {
@@ -286,9 +286,4 @@ void TemplateWatcher::request_reload() {
 	impl_->mark_dirty();
 }
 
-} // namespace tmpl::watch
-
-export namespace conflux::templates::watch {
-using ::tmpl::watch::TemplateWatcher;
-using ::tmpl::watch::TemplateWatchOptions;
-}
+} // namespace conflux::templates::watch

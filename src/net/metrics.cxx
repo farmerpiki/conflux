@@ -50,7 +50,7 @@ public:
 		double seconds) noexcept {
 		sum_.fetch_add(seconds, memory_order_relaxed);
 		count_.fetch_add(1, memory_order_relaxed);
-		for (auto [bound, cnt]: views::zip(kBuckets, buckets_)) {
+		for (auto [bound, cnt]: std::views::zip(kBuckets, buckets_)) {
 			if (seconds <= bound) {
 				cnt.fetch_add(1, memory_order_relaxed);
 			}
@@ -78,10 +78,11 @@ namespace {
 constexpr std::size_t N_METHODS = 8;
 constexpr std::size_t N_STATUS = 6; // 1xx 2xx 3xx 4xx 5xx other
 
-constexpr std::array<std::string_view, N_METHODS> kMethodNames = {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "OTHER"};
+constexpr std::array<std::string_view, N_METHODS> kMethodNames =
+	{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "OTHER"};
 std::size_t method_idx(
 	std::string_view m) {
-	auto it = ranges::find(kMethodNames, m);
+	auto it = std::ranges::find(kMethodNames, m);
 	return it != kMethodNames.end() ? static_cast<std::size_t>(it - kMethodNames.begin()) : N_METHODS - 1;
 }
 std::size_t status_idx(

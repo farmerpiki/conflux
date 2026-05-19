@@ -50,8 +50,8 @@ std::size_t skip_json_ws(
 	std::string_view json,
 	std::size_t pos) {
 	auto rest = json.substr(pos);
-	auto it = ranges::find_if_not(rest, is_json_ws);
-	return pos + static_cast<std::size_t>(ranges::distance(rest.begin(), it));
+	auto it = std::ranges::find_if_not(rest, is_json_ws);
+	return pos + static_cast<std::size_t>(std::ranges::distance(rest.begin(), it));
 }
 // Locate the position of the value after `"key":` in a JSON object, skipping
 // whitespace after the colon. Returns std::string_view::npos on miss.
@@ -112,7 +112,7 @@ std::optional<std::int64_t> json_int_at(
 		return nullopt;
 	}
 	std::int64_t val{};
-	auto const *jend = ranges::next(json.data(), ssize(json));
+	auto const *jend = std::ranges::next(json.data(), ssize(json));
 	auto const *jpos = json.data() + pos;
 	auto [ptr, ec] = from_chars(jpos, jend, val);
 	if (ec != errc{} || ptr == jpos) {
@@ -179,7 +179,7 @@ bool ct_equal(
 		return false;
 	}
 	unsigned char diff = 0;
-	for (auto [x, y]: views::zip(a, b)) {
+	for (auto [x, y]: std::views::zip(a, b)) {
 		diff = static_cast<unsigned char>(diff | (x ^ y));
 	}
 	return diff == 0;
@@ -218,7 +218,6 @@ std::optional<std::string_view> bearer_token(
 	return auth.substr(kScheme.size() + 1);
 }
 
-
 [[nodiscard]] expected<void, std::string> validate_jwt_secrets(
 	ResolvedSecretRotation const &secrets) {
 	return validate_secret_bytes(secrets.active, "jwt", secrets.min_secret_bytes);
@@ -252,14 +251,8 @@ std::optional<std::string_view> bearer_token(
 // Public API
 // ---------------------------------------------------------------------------
 
-export std::string jwt_sign(
-	std::string_view payload_json,
-	std::string_view secret);
-export std::string jwt_sign(
-	std::string_view header_json,
-	std::string_view payload_json,
-	std::string_view secret);
-
+export std::string jwt_sign(std::string_view payload_json, std::string_view secret);
+export std::string jwt_sign(std::string_view header_json, std::string_view payload_json, std::string_view secret);
 
 export [[nodiscard]] expected<JwtOptions, std::string> jwt_options_from_config(
 	AuthSecretsConfig const &cfg,
@@ -354,7 +347,8 @@ export expected<JwtClaims, std::string> jwt_decode(
 	claims.iat = iat.value_or(0);
 
 	// Validate claims.
-	auto const now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	auto const now =
+		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 	auto const skew = max<std::int64_t>(0, std::chrono::duration_cast<std::chrono::seconds>(opts.clock_skew).count());
 	auto const max_lifetime = std::chrono::duration_cast<std::chrono::seconds>(opts.max_token_lifetime).count();
 

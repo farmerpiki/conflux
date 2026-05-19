@@ -378,7 +378,7 @@ TEST_CASE(
 	auto enc = hex_encode(data);
 	auto dec = hex_decode(enc);
 	REQUIRE(dec.has_value());
-	CHECK(ranges::equal(*dec, data));
+	CHECK(std::ranges::equal(*dec, data));
 }
 // ---------------------------------------------------------------------------
 // wait_fd

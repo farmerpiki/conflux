@@ -20,15 +20,15 @@ static_assert(std::same_as<conflux::pg::PgError, conflux::db::PgError>);
 namespace {
 
 struct TempDir {
-	fs::path path;
+	std::filesystem::path path;
 	TempDir() {
-		path = fs::temp_directory_path()
+		path = std::filesystem::temp_directory_path()
 			 / format("conflux_db_test_{}", std::chrono::steady_clock::now().time_since_epoch().count());
-		fs::create_directories(path);
+		std::filesystem::create_directories(path);
 	}
 	~TempDir() {
 		std::error_code ec;
-		fs::remove_all(path, ec);
+		std::filesystem::remove_all(path, ec);
 	}
 	TempDir(TempDir const &) = delete;
 	TempDir &operator =(TempDir const &) = delete;
@@ -160,7 +160,7 @@ TEST_CASE(
 TEST_CASE(
 	"db: Params binary bind",
 	"[db][unit]") {
-	using namespace oids;
+	using namespace conflux::db::oids;
 	Params p;
 	p.add_binary(std::int64_t{0x0102030405060708LL});
 	p.add_binary(std::int32_t{0x01020304});
@@ -298,7 +298,7 @@ TEST_CASE(
 	CHECK(*c == "SELECT 1");
 	CHECK(c.get() != a.get()); // new buffer post-clear
 
-	CHECK_THROWS_AS(qc.load_or_throw("does_not_exist"), fs::filesystem_error);
+	CHECK_THROWS_AS(qc.load_or_throw("does_not_exist"), std::filesystem::filesystem_error);
 	CHECK_THROWS_AS(qc.load_or_throw("../outside"), std::invalid_argument);
 	CHECK_THROWS_AS(qc.load_or_throw("nested/query"), std::invalid_argument);
 	CHECK_THROWS_AS(qc.load_or_throw(""), std::invalid_argument);
@@ -308,8 +308,13 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{std::string{"42"},   std::string{"3.5"}, std::string{"t"}, nullopt,    std::string{},         std::string{"abc"}},
-			{std::string{"-7"}, std::string{"-0.25"}, std::string{"f"}, std::string{"hi"}, std::string{"x"}, std::string{"99999999999"}}
+			{std::string{"42"},std::string{"3.5"},std::string{"t"},nullopt,std::string{},std::string{"abc"}                 },
+			{std::string{"-7"},
+			 std::string{"-0.25"},
+			 std::string{"f"},
+			 std::string{"hi"},
+			 std::string{"x"},
+			 std::string{"99999999999"}}
     },
 		{"i", "d", "b", "nul", "empty", "txt"});
 	REQUIRE(raw != nullptr);

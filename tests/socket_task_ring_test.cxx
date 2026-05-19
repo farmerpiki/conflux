@@ -194,8 +194,11 @@ public:
 					}
 					ssize_t off = 0;
 					while (off < n) {
-						ssize_t const w =
-							::send(client, buf.data() + off, static_cast<std::size_t>(n) - static_cast<std::size_t>(off), MSG_NOSIGNAL);
+						ssize_t const w = ::send(
+							client,
+							buf.data() + off,
+							static_cast<std::size_t>(n) - static_cast<std::size_t>(off),
+							MSG_NOSIGNAL);
 						if (w <= 0) {
 							goto done;
 						}
@@ -405,7 +408,8 @@ TEST_CASE(
 	std::array<uint8_t, 13> rx{};
 	std::size_t received = 0;
 	while (received < msg.size()) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
+		std::size_t const n =
+			fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -494,7 +498,8 @@ TEST_CASE(
 	std::array<uint8_t, 8> rx{};
 	std::size_t received = 0;
 	while (received < msg.size()) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
+		std::size_t const n =
+			fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -768,9 +773,8 @@ TEST_CASE(
 
 static int count_proc_fds() noexcept {
 	int n = 0;
-	namespace fs = std::filesystem;
 	try {
-		for ([[maybe_unused]] auto const &_: fs::directory_iterator{"/proc/self/fd"}) {
+		for ([[maybe_unused]] auto const &_: std::filesystem::directory_iterator{"/proc/self/fd"}) {
 			++n;
 		}
 	} catch (...) {}

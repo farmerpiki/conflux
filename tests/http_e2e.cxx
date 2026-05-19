@@ -77,8 +77,7 @@ TEST_CASE(
 		"/jobs/{id}",
 		[](HttpRequest const &, RequestContext const &) -> conflux::work::root::Task<HttpResponse> {
 			auto [task, source] = conflux::work::root::make_task_source<HttpResponse>();
-			(void)source.try_set_value(
-				conflux::work::root::Success<HttpResponse>{HttpResponse::text("queued")});
+			(void)source.try_set_value(conflux::work::root::Success<HttpResponse>{HttpResponse::text("queued")});
 			return move(task);
 		});
 	CHECK(&ctx_added == &app);
@@ -3432,7 +3431,7 @@ TEST_CASE(
 
 	std::scoped_lock lk{lines_mtx};
 	auto has = [&](std::string_view sub) {
-		return ranges::any_of(lines, [&](std::string const &l) { return l.find(sub) != std::string::npos; });
+		return std::ranges::any_of(lines, [&](std::string const &l) { return l.find(sub) != std::string::npos; });
 	};
 	REQUIRE(has("GET /ping 200"));
 	REQUIRE(has("GET /missing 404"));
@@ -7527,9 +7526,9 @@ TEST_CASE(
 	auto vals = f.values("cookie");
 	REQUIRE(vals.size() == 3);
 	using sv = std::string_view;
-	REQUIRE(ranges::contains(vals, sv{"a=1"}));
-	REQUIRE(ranges::contains(vals, sv{"b=2"}));
-	REQUIRE(ranges::contains(vals, sv{"c=3"}));
+	REQUIRE(std::ranges::contains(vals, sv{"a=1"}));
+	REQUIRE(std::ranges::contains(vals, sv{"b=2"}));
+	REQUIRE(std::ranges::contains(vals, sv{"c=3"}));
 }
 TEST_CASE(
 	"HttpFields::value_or returns default when key absent") {

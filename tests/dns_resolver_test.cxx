@@ -29,7 +29,7 @@ public:
 		std::string_view stem,
 		std::string_view contents)
 		: path_{
-			  fs::temp_directory_path()
+			  std::filesystem::temp_directory_path()
 			  / format(
 				  "conflux-dns-{}-{}-{}",
 				  stem,
@@ -40,11 +40,11 @@ public:
 	}
 	~TempTextFile() {
 		std::error_code ec;
-		fs::remove(path_, ec);
+		std::filesystem::remove(path_, ec);
 	}
 	TempTextFile(TempTextFile const &) = delete;
 	TempTextFile &operator =(TempTextFile const &) = delete;
-	[[nodiscard]] fs::path const &path() const noexcept { return path_; }
+	[[nodiscard]] std::filesystem::path const &path() const noexcept { return path_; }
 	void write(
 		std::string_view contents) const {
 		std::ofstream out{path_};
@@ -52,7 +52,7 @@ public:
 	}
 
 private:
-	fs::path path_;
+	std::filesystem::path path_;
 };
 // ---------------------------------------------------------------------------
 // DnsMockServer — thread-based UDP listener on 127.0.0.1:0
@@ -262,7 +262,8 @@ private:
 		if (resp.truncated) {
 			out[2] = static_cast<std::uint8_t>(out[2] | 0x02U); // TC=1
 		}
-		std::uint16_t const ancount = (resp.kind == RespKind::noerror) ? static_cast<std::uint16_t>(resp.records.size()) : std::uint16_t{0};
+		std::uint16_t const ancount =
+			(resp.kind == RespKind::noerror) ? static_cast<std::uint16_t>(resp.records.size()) : std::uint16_t{0};
 		out[6] = static_cast<std::uint8_t>(ancount >> 8U);
 		out[7] = static_cast<std::uint8_t>(ancount & 0xFFU);
 		out[8] = out[9] = out[10] = out[11] = 0;
@@ -343,7 +344,9 @@ struct StrRingGuard {
 	SocketTaskRing str;
 	bool ring_ok{false};
 	StrRingGuard()
-		: str{SocketRawRing{&ring}, ct, [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); }} {}
+		: str{SocketRawRing{&ring}, ct, [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
+				  return pack_ud(s, g);
+			  }} {}
 	~StrRingGuard() {
 		if (ring_ok) {
 			::io_uring_queue_exit(&ring);
@@ -415,7 +418,11 @@ T block_on_str(
 			for (unsigned i = 0; i < n; ++i) {
 				auto const *c = batch[static_cast<std::size_t>(i)];
 				auto const ud = c->user_data;
-				ct->dispatch(static_cast<std::uint32_t>(ud & 0xFFFFFFFFU), static_cast<std::uint32_t>(ud >> 32U), c->res, c->flags);
+				ct->dispatch(
+					static_cast<std::uint32_t>(ud & 0xFFFFFFFFU),
+					static_cast<std::uint32_t>(ud >> 32U),
+					c->res,
+					c->flags);
 			}
 			::io_uring_cq_advance(raw, n);
 			if (slot->done.test(memory_order_acquire)) {
@@ -1173,8 +1180,10 @@ TEST_CASE(
 
 	ResolveOptions opts = mock_opts(mock);
 	opts.allow_v6 = false;
-	auto result =
-		block_on_str<ResolveResult>(*gb, r.resolve(gb->str, "ext-ring.test", 80, opts), std::chrono::milliseconds{5000});
+	auto result = block_on_str<ResolveResult>(
+		*gb,
+		r.resolve(gb->str, "ext-ring.test", 80, opts),
+		std::chrono::milliseconds{5000});
 
 	REQUIRE_FALSE(result.endpoints.empty());
 	CHECK(result.endpoints[0].family == AddressFamily::v4);
@@ -1255,7 +1264,8 @@ TEST_CASE(
 	using RR = ResolveResult;
 	auto first = r.resolve(gb->str, "coalesce-b.test", 80, opts);
 	auto second = r.resolve(gb->str, "coalesce-b.test", 80, opts);
-	auto [res1, res2] = block_on_str<std::tuple<RR, RR>>(*gb, join_all(move(first), move(second)), std::chrono::milliseconds{5000});
+	auto [res1, res2] =
+		block_on_str<std::tuple<RR, RR>>(*gb, join_all(move(first), move(second)), std::chrono::milliseconds{5000});
 
 	CHECK_FALSE(res1.endpoints.empty());
 	CHECK_FALSE(res2.endpoints.empty());

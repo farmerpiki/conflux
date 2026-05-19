@@ -1216,7 +1216,7 @@ public:
 	[[nodiscard]] expected<std::string_view, JsonError> decode_into(
 		span<char> buf) const {
 		if (unquoted_) {
-			ranges::copy(raw_lexeme_, buf.data());
+			std::ranges::copy(raw_lexeme_, buf.data());
 			return std::string_view{buf.data(), raw_lexeme_.size()};
 		}
 		if (raw_lexeme_.size() < 2) {
@@ -1224,14 +1224,14 @@ public:
 		}
 		std::string_view body = raw_lexeme_.substr(1, raw_lexeme_.size() - 2);
 		if (!has_escapes_) {
-			ranges::copy(body, buf.data());
+			std::ranges::copy(body, buf.data());
 			return std::string_view{buf.data(), body.size()};
 		}
 		std::size_t written = 0;
 		auto res = detail::decode_str_body(
 			body,
 			[&](std::string_view chunk) {
-				ranges::copy(chunk, buf.data() + written);
+				std::ranges::copy(chunk, buf.data() + written);
 				written += chunk.size();
 			},
 			max_string_size_);

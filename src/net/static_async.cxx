@@ -255,8 +255,8 @@ HttpResponse handle_static_get_request(
 		if (sopts.offload_pool) {
 			auto owned_sreq = StaticRequestStorage::from(sreq);
 			auto dr = make_shared<DeferredResponse>();
-			auto ok = sopts.offload_pool->enqueue(
-				[rd, root_fd, sopts, sreq = move(owned_sreq), &static_cache, dr]() mutable {
+			auto ok =
+				sopts.offload_pool->enqueue([rd, root_fd, sopts, sreq = move(owned_sreq), &static_cache, dr]() mutable {
 					try {
 						dr->complete(handle_static_get(rd, root_fd, sopts, sreq.view(), static_cache));
 					} catch (...) { dr->complete(HttpResponse::internal_error()); }
@@ -473,7 +473,7 @@ HttpResponse handle_static_get(
 					names.emplace_back(n);
 				}
 				::closedir(dir);
-				ranges::sort(names);
+				std::ranges::sort(names);
 				for (auto const &name: names) {
 					html += "<li><a href=\"";
 					append_static_path_percent_encode(html, name);
@@ -558,7 +558,7 @@ HttpResponse handle_static_get(
 		}
 		if (auto const ims = r.if_modified_since; !ims.empty() && ims.size() < 64) {
 			std::array<char, 64> ims_buf{};
-			ranges::copy(ims, ims_buf.data());
+			std::ranges::copy(ims, ims_buf.data());
 			tm req_tm{};
 			if (::strptime(ims_buf.data(), "%a, %d %b %Y %H:%M:%S GMT", &req_tm)) {
 				req_tm.tm_isdst = 0;
@@ -674,7 +674,7 @@ HttpResponse handle_static_get(
 							return false;
 						}
 						auto const *first = s.data();
-						auto const *last = ranges::next(s.data(), ssize(s));
+						auto const *last = std::ranges::next(s.data(), ssize(s));
 						auto [p, ec] = from_chars(first, last, out);
 						return ec == errc{} && p == last;
 					};
@@ -749,23 +749,25 @@ HttpResponse handle_static_get(
 				resp.set_text_body(entry.body);
 				return resp;
 			};
-			if (auto cached = static_cache.with_cached(full_path, content_encoding, st, [&](StaticCacheEntry const &entry) {
-					if (!is_range_request) {
-						auto resp = HttpResponse{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
-						resp.headers["ETag"] = entry.etag;
-						resp.headers["Last-Modified"] = entry.last_modified;
-						resp.headers["Accept-Ranges"] = "bytes";
-						if (!entry.content_encoding.empty()) {
-							resp.headers["Content-Encoding"] = entry.content_encoding;
+			if (auto cached =
+					static_cache.with_cached(full_path, content_encoding, st, [&](StaticCacheEntry const &entry) {
+						if (!is_range_request) {
+							auto resp =
+								HttpResponse{.status = kHttpOk, .status_text = "OK", .content_type = entry.mime};
+							resp.headers["ETag"] = entry.etag;
+							resp.headers["Last-Modified"] = entry.last_modified;
+							resp.headers["Accept-Ranges"] = "bytes";
+							if (!entry.content_encoding.empty()) {
+								resp.headers["Content-Encoding"] = entry.content_encoding;
+							}
+							if (!static_options.cache_control.empty()) {
+								resp.headers["Cache-Control"] = static_options.cache_control;
+							}
+							resp.set_text_body(entry.body);
+							return resp;
 						}
-						if (!static_options.cache_control.empty()) {
-							resp.headers["Cache-Control"] = static_options.cache_control;
-						}
-						resp.set_text_body(entry.body);
-						return resp;
-					}
-					return make_cached_response(entry);
-				})) {
+						return make_cached_response(entry);
+					})) {
 				return move(*cached);
 			}
 			int const fd = contained_static_open(root_fd, rel_str.c_str(), O_RDONLY | O_CLOEXEC);

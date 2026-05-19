@@ -100,7 +100,7 @@ std::pair<std::string, std::string> parse_traceparent(
 		return {};
 	}
 	auto is_hex = [](std::string_view s) {
-		return ranges::all_of(s, [](unsigned char c) {
+		return std::ranges::all_of(s, [](unsigned char c) {
 			return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
 		});
 	};

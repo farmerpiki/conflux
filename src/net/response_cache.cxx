@@ -210,8 +210,8 @@ std::vector<std::string> parse_vary(
 		}
 		out.push_back(ascii_lower(token));
 	}
-	ranges::sort(out);
-	auto dup = ranges::unique(out);
+	std::ranges::sort(out);
+	auto dup = std::ranges::unique(out);
 	out.erase(dup.begin(), dup.end());
 	return out;
 }

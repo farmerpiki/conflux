@@ -69,7 +69,7 @@ TEST_CASE(
 	conflux::tests::HttpsServerFixture const fx{cfg, move(router)};
 	auto [code, got] = conflux::tests::run_cmd_retry(
 		format("curl -sk --http1.1 --max-time 5 https://127.0.0.1:{}/static/large.bin", fx.port()));
-	fs::remove_all(dir);
+	std::filesystem::remove_all(dir);
 
 	REQUIRE(code == 0);
 	REQUIRE(got == body);

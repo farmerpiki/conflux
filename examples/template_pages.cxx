@@ -9,14 +9,16 @@ import conflux.templates;
 import conflux.types;
 import std;
 
-static void write_template(fs::path const &path, std::string_view body) {
+static void write_template(
+	std::filesystem::path const &path,
+	std::string_view body) {
 	std::ofstream out(path, std::ios::binary);
 	out << body;
 }
 
 int main() {
-	auto dir = fs::temp_directory_path() / "conflux_template_pages";
-	fs::create_directories(dir);
+	auto dir = std::filesystem::temp_directory_path() / "conflux_template_pages";
+	std::filesystem::create_directories(dir);
 
 	write_template(
 		dir / "layout.html",
@@ -43,9 +45,8 @@ int main() {
 	namespace http = conflux::http;
 	auto app = http::App::default_server();
 	app.get("/", [env](HttpRequest const &) {
-		return HttpResponse::html(env->render(
-			"home.html",
-			R"({"title":"conflux templates","message":"Rendered from a JSON context."})"));
+		return HttpResponse::html(
+			env->render("home.html", R"({"title":"conflux templates","message":"Rendered from a JSON context."})"));
 	});
 	app.get("/users", [env](HttpRequest const &) {
 		return HttpResponse::html(env->render(

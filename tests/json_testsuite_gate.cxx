@@ -13,29 +13,28 @@ import conflux.json;
 #endif
 
 using namespace conflux::json;
-namespace fs = std::filesystem;
 
 static constexpr JsonParseOptions conformance_opts{
 	.duplicate_key = DuplicateKeyPolicy::last_wins,
 };
 static auto test_files(
-	std::string_view prefix) -> std::vector<fs::path> {
-	std::vector<fs::path> out;
-	fs::path dir{JSONTESTSUITE_DIR};
-	if (!fs::is_directory(dir)) {
+	std::string_view prefix) -> std::vector<std::filesystem::path> {
+	std::vector<std::filesystem::path> out;
+	std::filesystem::path dir{JSONTESTSUITE_DIR};
+	if (!std::filesystem::is_directory(dir)) {
 		return out;
 	}
-	for (auto const &entry: fs::directory_iterator{dir}) {
+	for (auto const &entry: std::filesystem::directory_iterator{dir}) {
 		std::string name = entry.path().filename().generic_string();
 		if (name.starts_with(prefix) && name.ends_with(".json")) {
 			out.push_back(entry.path());
 		}
 	}
-	ranges::sort(out);
+	std::ranges::sort(out);
 	return out;
 }
 static auto read_file(
-	fs::path const &p) -> std::string {
+	std::filesystem::path const &p) -> std::string {
 	std::ifstream f{p, std::ios::binary};
 	return std::string{std::istreambuf_iterator<char>{f}, {}};
 }

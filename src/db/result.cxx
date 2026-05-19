@@ -22,7 +22,7 @@ inline int fnumber_sv_(
 		return -1;
 	}
 	array<char, kStackBuf> buf{};
-	ranges::copy(col, buf.begin());
+	std::ranges::copy(col, buf.begin());
 	buf[col.size()] = '\0';
 	return ::PQfnumber(res, buf.data());
 }
