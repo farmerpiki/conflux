@@ -570,6 +570,26 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: route auth policy requires bearer credentials",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/private", [] { return http::text("secret"); }).auth_policy("user");
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/private";
+
+	auto unauthorized = app.router().dispatch(req);
+	CHECK(unauthorized.status == kHttpUnauthorized);
+	CHECK(unauthorized.headers["WWW-Authenticate"] == "Bearer");
+
+	req.headers["authorization"] = "Bearer token";
+	auto ok = app.router().dispatch(req);
+	CHECK(ok.status == kHttpOk);
+	CHECK(ok.text_body() == "secret");
+}
+
+TEST_CASE(
 	"http facade: app openapi spec includes route-local policy metadata",
 	"[http.facade]") {
 	auto app = http::app();

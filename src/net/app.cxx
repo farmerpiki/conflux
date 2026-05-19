@@ -755,7 +755,7 @@ class App {
 		std::chrono::milliseconds timeout{};
 		std::size_t middleware_count{};
 		std::string rate_limit;
-		std::string auth_policy;
+		std::shared_ptr<std::string> auth_policy = std::make_shared<std::string>();
 		std::string openapi_summary;
 		bool uses_body{};
 		bool allow_get_body{};
@@ -808,7 +808,7 @@ public:
 
 		RouteRef &auth_policy(
 			std::string_view value) {
-			metadata().auth_policy = std::string{value};
+			*metadata().auth_policy = std::string{value};
 			return *this;
 		}
 
@@ -857,15 +857,26 @@ public:
 							 }) {
 			record_route_metadata<std::tuple<>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &>>();
-			router_.add(method, path, [fn = std::decay_t<F>(std::forward<F>(handler))](RequestView const &) mutable {
-				return into_response(fn());
-			});
+			auto auth_policy = route_metadata_.back().auth_policy;
+			router_.add(
+				method,
+				path,
+				[auth_policy, fn = std::decay_t<F>(std::forward<F>(handler))](RequestView const &req) mutable {
+					if (auto denied = route_auth_failure(*auth_policy, req)) {
+						return *std::move(denied);
+					}
+					return into_response(fn());
+				});
 		} else if constexpr (requires(Fn &fn, RequestView const &req) {
 								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
 							 }) {
 			record_route_metadata<std::tuple<RequestView>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &, RequestView const &>>();
-			router_.add(method, path, [fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+			auto auth_policy = route_metadata_.back().auth_policy;
+			router_.add(method, path, [auth_policy, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+				if (auto denied = route_auth_failure(*auth_policy, req)) {
+					return *std::move(denied);
+				}
 				return into_response(fn(req));
 			});
 		} else if constexpr (requires(Fn &fn, Request const &req) {
@@ -873,7 +884,11 @@ public:
 							 }) {
 			record_route_metadata<std::tuple<Request>>(method, path, "app", loc);
 			record_return_metadata<std::invoke_result_t<Fn &, Request const &>>();
-			router_.add(method, path, [fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+			auto auth_policy = route_metadata_.back().auth_policy;
+			router_.add(method, path, [auth_policy, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+				if (auto denied = route_auth_failure(*auth_policy, req)) {
+					return *std::move(denied);
+				}
 				auto owned = req.to_owned();
 				return into_response(fn(owned));
 			});
@@ -1213,7 +1228,7 @@ public:
 					.timeout = route.timeout,
 					.middleware_count = route.middleware_count,
 					.rate_limit = route.rate_limit,
-					.auth_policy = route.auth_policy,
+					.auth_policy = *route.auth_policy,
 					.openapi_summary = route.openapi_summary,
 					.allow_get_body = route.allow_get_body});
 		}
@@ -1314,7 +1329,7 @@ public:
 		out += R"(})";
 		bool has_auth_policy = false;
 		for (auto const &route: route_metadata_) {
-			if (!route.auth_policy.empty()) {
+			if (!route.auth_policy->empty()) {
 				has_auth_policy = true;
 				break;
 			}
@@ -1357,9 +1372,9 @@ public:
 					out += json_str(route.openapi_summary);
 					out += ',';
 				}
-				if (!route.auth_policy.empty()) {
+				if (!route.auth_policy->empty()) {
 					out += R"("security":[{"bearerAuth":[]}],"x-auth-policy":)";
-					out += json_str(route.auth_policy);
+					out += json_str(*route.auth_policy);
 					out += ',';
 				}
 				if (route.timeout.count() != 0) {
@@ -1761,6 +1776,19 @@ public:
 			return std::nullopt;
 		}
 		return trim_ascii(auth.substr(scheme.size() + 1));
+	}
+
+	[[nodiscard]] static std::optional<HttpResponse> route_auth_failure(
+		std::string_view policy,
+		RequestView const &req) {
+		if (policy.empty()) {
+			return std::nullopt;
+		}
+		auto token = credentials_for_scheme(req.header("authorization"), "Bearer");
+		if (!token || token->empty()) {
+			return HttpResponse::unauthorized("Bearer");
+		}
+		return std::nullopt;
 	}
 
 	[[nodiscard]] static std::string route_shape(
@@ -2477,10 +2505,12 @@ public:
 		auto max_body_size = route_metadata_.back().max_body_size;
 		auto json_options = json_options_;
 #endif
+		auto auth_policy = route_metadata_.back().auth_policy;
 		router_.add(
 			method,
 			path,
 			[states = states_,
+			 auth_policy,
 			 fn = Fn(std::forward<F>(handler))
 #if CONFLUX_HAS_JSON
 				 ,
@@ -2488,6 +2518,9 @@ public:
 			 json_options
 #endif
 		](RequestView const &req) mutable {
+				if (auto denied = route_auth_failure(*auth_policy, req)) {
+					return *std::move(denied);
+				}
 				return invoke_extracted<Args>(
 					*states,
 					fn,
@@ -2547,14 +2580,19 @@ public:
 		route_metadata_.back().request_body_schema = schema_json_or_object<BodyValue>();
 		auto max_body_size = route_metadata_.back().max_body_size;
 		auto json_options = json_options_;
+		auto auth_policy = route_metadata_.back().auth_policy;
 		router_.add(
 			method,
 			path,
 			[states = states_,
+			 auth_policy,
 			 fn = Fn(std::forward<F>(handler)),
 			 decode_opts = std::move(decode_opts),
 			 max_body_size,
 			 json_options](RequestView const &req) mutable -> HttpResponse {
+				if (auto denied = route_auth_failure(*auth_policy, req)) {
+					return *std::move(denied);
+				}
 				auto content_type = req.header("content-type");
 				if (!content_type.starts_with("application/json")
 					&& !content_type.starts_with("application/problem+json")) {
