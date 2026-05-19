@@ -2326,7 +2326,7 @@ if(CONFLUX_BUILD_EXAMPLES)
     add_executable(conflux_http_policy_stack_example examples/http_policy_stack.cxx)
     target_link_libraries(conflux_http_policy_stack_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_vhost_openapi_example examples/vhost_openapi.cxx)
+    add_executable(conflux_vhost_openapi_example examples/advanced/vhost_openapi.cxx)
     target_link_libraries(conflux_vhost_openapi_example PRIVATE conflux conflux_options)
 
     add_executable(conflux_http_client_builder_example examples/http_client_builder.cxx)
@@ -2337,7 +2337,7 @@ if(CONFLUX_BUILD_EXAMPLES)
         target_link_libraries(conflux_api_typed_json_example
             PRIVATE conflux conflux_options)
 
-        add_executable(conflux_http_explicit_offload_example examples/http_explicit_offload.cxx)
+        add_executable(conflux_http_explicit_offload_example examples/advanced/explicit_offload.cxx)
         target_link_libraries(conflux_http_explicit_offload_example
             PRIVATE conflux_http_app_json conflux_http_native_json conflux_json conflux_work conflux_options)
     endif()
