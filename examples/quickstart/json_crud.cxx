@@ -54,7 +54,7 @@ int main() {
 
 	app.get("/todos", [](http::State<TodoStore> store) {
 		std::lock_guard lock{store->mu};
-		return http::Json{TodoList{.items = store->todos}};
+		return http::ok(TodoList{.items = store->todos});
 	});
 
 	app.get<"/todos/{id:i64}">(
@@ -65,7 +65,7 @@ int main() {
 			if (it == store->todos.end()) {
 				return std::unexpected{http::problem::not_found("todo_not_found", "todo not found")};
 			}
-			return http::Json{*it};
+			return http::ok(*it);
 		});
 
 	app.post(

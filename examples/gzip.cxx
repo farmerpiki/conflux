@@ -43,13 +43,12 @@ int main() {
 	});
 
 	app.get("/api/data", [](http::RequestView const &) {
-		return http::Json{
+		return http::ok(
 			DataReply{
-					  .message = "JSON is also compressed when the client accepts gzip",
-					  .first = "1",
-					  .second = "2",
-					  .third = "3"}
-        };
+				.message = "JSON is also compressed when the client accepts gzip",
+				.first = "1",
+				.second = "2",
+				.third = "3"});
 	});
 
 	auto const status = http::run(std::move(app), {.port = 9093});

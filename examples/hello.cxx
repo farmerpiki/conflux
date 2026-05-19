@@ -41,11 +41,7 @@ int main() {
 		return http::html(std::format("<html><body><h1>Hello, {}!</h1></body></html>", name.get()));
 	});
 
-	app.get("/api/ping", [] {
-		return http::Json{
-			StatusReply{.status = "ok", .server = "conflux"}
-        };
-	});
+	app.get("/api/ping", [] { return http::ok(StatusReply{.status = "ok", .server = "conflux"}); });
 
 	auto const status = http::run(std::move(app), {.port = 9090});
 	return status == http::RunStatus::stopped_normally ? 0 : 1;

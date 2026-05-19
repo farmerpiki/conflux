@@ -79,12 +79,11 @@ int main() {
 	});
 
 	app.get("/public/ping", [](http::RequestId request_id, http::TraceContext trace) {
-		return http::Json{
+		return http::ok(
 			PingReply{
-					  .status = "ok",
-					  .request_id = std::string{request_id.get()},
-					  .traceparent = std::string{trace.traceparent}}
-        };
+				.status = "ok",
+				.request_id = std::string{request_id.get()},
+				.traceparent = std::string{trace.traceparent}});
 	});
 
 	app.group("/private", [](http::Router::Group &g) {
@@ -93,12 +92,11 @@ int main() {
 
 		g.get("/profile", [](http::Request const &req) {
 			return http::into_response(
-				http::Json{
+				http::ok(
 					ProfileReply{
-								 .user = "demo",
-								 .request_id = std::string{req.header("x-request-id")},
-								 .remote_addr = req.remote_addr}
-            });
+						.user = "demo",
+						.request_id = std::string{req.header("x-request-id")},
+						.remote_addr = req.remote_addr}));
 		});
 	});
 
@@ -107,9 +105,7 @@ int main() {
 
 		g.get("/token", [](http::Request const &req) {
 			return http::into_response(
-				http::Json{
-					TokenReply{.token = "accepted", .request_id = std::string{req.header("x-request-id")}}
-            });
+				http::ok(TokenReply{.token = "accepted", .request_id = std::string{req.header("x-request-id")}}));
 		});
 	});
 
