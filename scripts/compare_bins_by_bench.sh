@@ -4,22 +4,25 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/compare_bins_by_bench.sh [--yes] [--baseline-run-id ID] [--reps N] [--pguri URI] BENCH
-  scripts/compare_bins_by_bench.sh [--yes] [--baseline-run-id ID] [--reps N] [--pguri URI] all
+  scripts/compare_bins_by_bench.sh [--yes] [--baseline-run-id ID] [--reps N] [--pguri URI] [--dir LABEL:DIR ...] BENCH
+  scripts/compare_bins_by_bench.sh [--yes] [--baseline-run-id ID] [--reps N] [--pguri URI] [--dir LABEL:DIR ...] all
 
-The launcher scans /tmp for runnable binaries matching conflux_<bench>_bench,
-prompts before running, and calls scripts/bench_record.sh --compare-bins.
-Pass --yes for unattended batch runs.
+When --dir is provided, DIR may be a build root or its benchmarks directory.
+The launcher finds matching --bench-info binaries in each labeled directory,
+prompts once per benchmark unless --yes is passed, and calls
+scripts/bench_record.sh --compare-bins. Without --dir, it preserves the old
+/tmp auto-discovery behavior. Pass --yes for unattended batch runs.
 EOF
 }
 
 AUTO_YES=0
 BASELINE_RUN_ID="${BENCH_ITERATIONS_FROM_RUN_ID:-}"
-REPS="${BENCH_REPS:-1}"
+REPS="${BENCH_REPS:-5}"
 PGURI="${PGURI:-postgres://postgres@localhost/conflux_bench}"
 RECORD_SCRIPT="${RECORD_SCRIPT:-./scripts/bench_record.sh}"
 BENCH_NAME=""
 START_FROM=""
+DIR_SPECS=()
 
 while (($#)); do
   case "$1" in
@@ -45,6 +48,12 @@ while (($#)); do
       shift
       [[ $# -gt 0 ]] || { echo "--record-script needs a value" >&2; exit 2; }
       RECORD_SCRIPT="$1"
+      ;;
+    --dir)
+      shift
+      [[ $# -gt 0 ]] || { echo "--dir needs LABEL:DIR" >&2; exit 2; }
+      [[ "$1" == *:* ]] || { echo "--dir needs LABEL:DIR (got $1)" >&2; exit 2; }
+      DIR_SPECS+=("$1")
       ;;
     --start-from)
       shift
@@ -93,7 +102,49 @@ normalize_preset() {
   esac
 }
 
-discover_candidates() {
+dir_label() {
+  local spec="$1"
+  printf '%s\n' "${spec%%:*}"
+}
+
+dir_path() {
+  local spec="$1"
+  printf '%s\n' "${spec#*:}"
+}
+
+bench_dir_for_spec() {
+  local path="$1"
+  if [[ -d "$path/benchmarks" ]]; then
+    printf '%s\n' "$path/benchmarks"
+  else
+    printf '%s\n' "$path"
+  fi
+}
+
+discover_from_dir_specs() {
+  local wanted="${1:-}"
+  local -a out=()
+  local spec label root bench_dir
+  for spec in "${DIR_SPECS[@]}"; do
+    label=$(dir_label "$spec")
+    root=$(dir_path "$spec")
+    bench_dir=$(bench_dir_for_spec "$root")
+    if [[ ! -d "$bench_dir" ]]; then
+      echo "benchmark directory not found for $label: $bench_dir" >&2
+      continue
+    fi
+    while IFS= read -r -d '' bin; do
+      local info name
+      info=$("$bin" --bench-info 2>/dev/null) || continue
+      name=$(jq -r '.name // empty' <<< "$info")
+      [[ -n "$wanted" && "$name" != "$wanted" ]] && continue
+      out+=("$name"$'\t'"$label:$bin")
+    done < <(find "$bench_dir" -maxdepth 1 -type f -executable -name 'conflux_*bench*' -print0 | sort -z)
+  done
+  printf '%s\n' "${out[@]}"
+}
+
+discover_candidates_auto() {
   local bench="$1"
   local -a out=()
   while IFS= read -r -d '' bin; do
@@ -114,6 +165,32 @@ discover_candidates() {
   printf '%s\n' "${out[@]}"
 }
 
+discover_candidates() {
+  local bench="$1"
+  if (( ${#DIR_SPECS[@]} > 0 )); then
+    discover_from_dir_specs "$bench" | awk -F '\t' '{print $2}'
+  else
+    discover_candidates_auto "$bench"
+  fi
+}
+
+discover_benches() {
+  if (( ${#DIR_SPECS[@]} > 0 )); then
+    discover_from_dir_specs "" | awk -F '\t' '{print $1}' | sort -u
+  else
+    find /tmp \
+      \( -path '*/release-*/benchmarks/conflux_*bench*' \
+         -o -path '*/perf-*/benchmarks/conflux_*bench*' \) \
+      -type f -executable -print0 2>/dev/null \
+      | while IFS= read -r -d '' bin; do
+          info=$("$bin" --bench-info 2>/dev/null) || continue
+          jq -r '.name // empty' <<< "$info"
+        done \
+      | sed '/^$/d' \
+      | sort -u
+  fi
+}
+
 run_one() {
   local bench="$1"
   if [[ -n "$START_FROM" ]]; then
@@ -128,6 +205,10 @@ run_one() {
   if (( ${#candidates[@]} == 0 )); then
     echo "no runnable binaries found for $bench under /tmp" >&2
     return 1
+  fi
+  if (( ${#candidates[@]} < 2 )); then
+    echo "skipping $bench: need at least 2 candidate binaries, found ${#candidates[@]}"
+    return 0
   fi
 
   echo "benchmark: $bench"
@@ -165,15 +246,7 @@ run_one() {
 }
 
 if [[ "$BENCH_NAME" == "all" ]]; then
-  mapfile -t benches < <(
-    find /tmp \
-      \( -path '*/release-*/benchmarks/conflux_*_bench*' \
-         -o -path '*/perf-*/benchmarks/conflux_*_bench*' \) \
-      -type f -executable -print0 2>/dev/null \
-      | xargs -0 -n1 basename \
-      | sed -n 's/^conflux_\(.*\)_bench$/\1/p' \
-      | sort -u
-  )
+  mapfile -t benches < <(discover_benches)
   if (( ${#benches[@]} == 0 )); then
     echo "no benchmark binaries found under /tmp" >&2
     exit 1
