@@ -2718,6 +2718,14 @@ install(FILES
     src/simd_backend.hxx
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/modules/src
 )
+install(FILES
+    src/conflux/http.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux
+)
+install(FILES
+    src/conflux/detail/discard.hxx
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/conflux/detail
+)
 install(EXPORT confluxTargets
     NAMESPACE conflux::
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/conflux
