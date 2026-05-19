@@ -2026,6 +2026,7 @@ target_sources(conflux_http_app
         FILES
             src/net/app_json_helpers.cxx
             src/net/app_policies.cxx
+            src/net/app_response.cxx
             src/net/app_route_helpers.cxx
             src/net/app_types.cxx
             src/net/app.cxx

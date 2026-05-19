@@ -6,6 +6,7 @@ export module conflux.net.app;
 
 import :json_helpers;
 export import :policies;
+export import :response;
 import :route_helpers;
 export import :types;
 import std;
@@ -21,100 +22,6 @@ import conflux.net.http.native_json;
 #endif
 import conflux.work;
 export namespace conflux::http {
-
-template<class T>
-concept ExpectedHttpProblem = requires(T value) {
-	typename T::value_type;
-	typename T::error_type;
-	requires std::same_as<typename T::error_type, Problem>;
-	{ static_cast<bool>(value) } -> std::same_as<bool>;
-	{ *value };
-	{ value.error() } -> std::same_as<Problem &>;
-};
-
-template<class>
-inline constexpr bool kDependentFalse = false;
-
-[[nodiscard]] inline HttpResponse into_response(
-	HttpResponse response) {
-	return response;
-}
-
-[[nodiscard]] inline HttpResponse into_response(
-	Problem problem) {
-	return std::move(problem.response);
-}
-
-[[nodiscard]] inline HttpResponse into_response(
-	Created created) {
-	return std::move(created.response);
-}
-
-template<class T>
-[[nodiscard]] HttpResponse into_response(
-	Json<T> const &body) {
-#if CONFLUX_HAS_JSON
-	if constexpr (requires(T const &value) {
-					  { json::response_or_internal_error(value) } -> std::same_as<HttpResponse>;
-				  }) {
-		return json::response_or_internal_error(body.value);
-	} else {
-		static_assert(
-			kDependentFalse<T>,
-			"http::Json<T> responses require T to be serializable; add JsonCodec<T>, JsonMembers<T>, or reflection "
-			"JSON support for T");
-	}
-#else
-	(void)body;
-	return HttpResponse::internal_error("JSON support is not enabled");
-#endif
-}
-
-template<class T>
-[[nodiscard]] HttpResponse into_response(
-	Json<T> &&body) {
-#if CONFLUX_HAS_JSON
-	if constexpr (requires(T const &value) {
-					  { json::response_or_internal_error(value) } -> std::same_as<HttpResponse>;
-				  }) {
-		return json::response_or_internal_error(body.value);
-	} else {
-		static_assert(
-			kDependentFalse<T>,
-			"http::Json<T> responses require T to be serializable; add JsonCodec<T>, JsonMembers<T>, or reflection "
-			"JSON support for T");
-	}
-#else
-	(void)body;
-	return HttpResponse::internal_error("JSON support is not enabled");
-#endif
-}
-
-template<class T>
-[[nodiscard]] HttpResponse into_response(
-	T &&result)
-	requires ExpectedHttpProblem<std::remove_cvref_t<T>>
-{
-	if (result) {
-		return into_response(*std::forward<T>(result));
-	}
-	return into_response(std::forward<T>(result).error());
-}
-
-template<class T>
-concept IntoResponse = requires(T &&value) {
-	{ into_response(std::forward<T>(value)) } -> std::same_as<HttpResponse>;
-};
-
-template<class T>
-concept RawStringResponse = std::same_as<std::remove_cvref_t<T>, std::string>
-						 || std::same_as<std::remove_cvref_t<T>, std::string_view>
-						 || std::same_as<std::remove_cvref_t<T>, char const *>;
-
-template<class F>
-concept NullaryRawStringHandler = requires(F &fn) {
-	{ fn() } -> RawStringResponse;
-};
 
 class ExtractorFailure final : public std::exception {
 public:
