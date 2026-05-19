@@ -639,6 +639,14 @@ public:
 		std::string_view path,
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
+		return add_route_ref(method, path, std::forward<F>(handler), loc);
+	}
+	template<typename F>
+	[[nodiscard]] RouteRef add_route_ref(
+		std::string_view method,
+		std::string_view path,
+		F &&handler,
+		std::source_location loc = std::source_location::current()) {
 		auto const before = route_metadata_.size();
 		add(method, path, std::forward<F>(handler), loc);
 		if (route_metadata_.size() == before) {
@@ -647,27 +655,27 @@ public:
 		return RouteRef{*this, route_metadata_.size() - 1};
 	}
 	template<typename F>
-	App &get(
+	RouteRef get(
 		std::string_view path,
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return add("GET", path, std::forward<F>(handler), loc);
+		return add_route_ref("GET", path, std::forward<F>(handler), loc);
 	}
 	template<FixedString Path, typename F>
-	App &get(
+	RouteRef get(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
 		return get(Path.view(), std::forward<F>(handler), loc);
 	}
 	template<typename F>
-	App &post(
+	RouteRef post(
 		std::string_view path,
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return add("POST", path, std::forward<F>(handler), loc);
+		return add_route_ref("POST", path, std::forward<F>(handler), loc);
 	}
 	template<FixedString Path, typename F>
-	App &post(
+	RouteRef post(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
 		return post(Path.view(), std::forward<F>(handler), loc);
@@ -696,14 +704,14 @@ public:
 	}
 #endif
 	template<typename F>
-	App &put(
+	RouteRef put(
 		std::string_view path,
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return add("PUT", path, std::forward<F>(handler), loc);
+		return add_route_ref("PUT", path, std::forward<F>(handler), loc);
 	}
 	template<FixedString Path, typename F>
-	App &put(
+	RouteRef put(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
 		return put(Path.view(), std::forward<F>(handler), loc);
@@ -726,14 +734,14 @@ public:
 	}
 #endif
 	template<typename F>
-	App &patch(
+	RouteRef patch(
 		std::string_view path,
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return add("PATCH", path, std::forward<F>(handler), loc);
+		return add_route_ref("PATCH", path, std::forward<F>(handler), loc);
 	}
 	template<FixedString Path, typename F>
-	App &patch(
+	RouteRef patch(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
 		return patch(Path.view(), std::forward<F>(handler), loc);
@@ -756,27 +764,27 @@ public:
 	}
 #endif
 	template<typename F>
-	App &del(
+	RouteRef del(
 		std::string_view path,
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return add("DELETE", path, std::forward<F>(handler), loc);
+		return add_route_ref("DELETE", path, std::forward<F>(handler), loc);
 	}
 	template<FixedString Path, typename F>
-	App &del(
+	RouteRef del(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
 		return del(Path.view(), std::forward<F>(handler), loc);
 	}
 	template<typename F>
-	App &options(
+	RouteRef options(
 		std::string_view path,
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
-		return add("OPTIONS", path, std::forward<F>(handler), loc);
+		return add_route_ref("OPTIONS", path, std::forward<F>(handler), loc);
 	}
 	template<FixedString Path, typename F>
-	App &options(
+	RouteRef options(
 		F &&handler,
 		std::source_location loc = std::source_location::current()) {
 		return options(Path.view(), std::forward<F>(handler), loc);

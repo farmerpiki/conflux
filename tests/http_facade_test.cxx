@@ -193,6 +193,20 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: verb helpers return route metadata handles",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/health", [] { return http::text("ok"); }).name("health.check").openapi_summary("Health check");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].method == "GET");
+	CHECK(routes[0].name == "health.check");
+	CHECK(routes[0].openapi_summary == "Health check");
+	CHECK(app.route_table() == "GET /health [app] name=health.check");
+}
+
+TEST_CASE(
 	"http facade: app openapi spec uses route metadata",
 	"[http.facade]") {
 	auto app = http::app();
