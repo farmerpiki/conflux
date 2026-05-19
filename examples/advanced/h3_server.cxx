@@ -1,7 +1,7 @@
 // Advanced runtime example: explicit HTTPS + HTTP/3 server config.
 //
 // Run:
-//   build/debug-gcc-stdcxx/conflux_h3_server
+//   build/release-clang-libcxx/conflux_h3_server
 //
 // Try:
 //   curl -k https://localhost:9443/ping

@@ -1,6 +1,6 @@
 // Explicit HTTP offload example: keep ring-thread handlers small, decode once,
 // then move CPU work to a caller-owned WorkPool.
-// Build and run: build/debug-gcc-stdcxx/conflux_http_explicit_offload_example
+// Build and run: build/release-clang-libcxx/conflux_http_explicit_offload_example
 // Try:
 //   curl http://localhost:9111/api/status
 //   curl -X POST http://localhost:9111/api/hash \

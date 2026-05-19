@@ -56,13 +56,13 @@ Default easy HTTP examples:
 
 Advanced runtime/feature examples:
 
-- `examples/file_io.cxx`
-- `examples/coroutines.cxx` (`root::Task<T>` coroutine file-I/O style)
-- `examples/dual.cxx`
-- `examples/h3_server.cxx`
-- `examples/h3_probe.cxx`
-- `examples/db_basic.cxx`
-- `examples/db_pool.cxx`
+- `examples/advanced/file_io.cxx`
+- `examples/advanced/coroutines.cxx` (`root::Task<T>` coroutine file-I/O style)
+- `examples/advanced/dual.cxx`
+- `examples/advanced/h3_server.cxx`
+- `examples/advanced/h3_probe.cxx`
+- `examples/advanced/db_basic.cxx`
+- `examples/advanced/db_pool.cxx`
 
 ## Default vs Advanced Handler Shapes
 

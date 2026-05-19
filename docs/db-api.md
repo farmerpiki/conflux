@@ -6,7 +6,7 @@
 - **Configure/build gates:** `CONFLUX_ENABLE_DB` and `CONFLUX_BUILD_DB_POSTGRES`
 - **Compiled feature macro:** `CONFLUX_HAS_DB`
 
-See also: `examples/db_basic.cxx`, `examples/db_pool.cxx`.
+See also: `examples/advanced/db_basic.cxx`, `examples/advanced/db_pool.cxx`.
 
 ---
 

@@ -7,7 +7,7 @@
 //   anything else → plain HTTP
 //
 // Build: cmake --build build -t conflux_dual
-// Run:   build/debug-gcc-stdcxx/conflux_dual
+// Run:   build/release-clang-libcxx/conflux_dual
 // Test:
 //   curl    http://localhost:9090/api/ping
 //   curl -k https://localhost:9090/api/ping

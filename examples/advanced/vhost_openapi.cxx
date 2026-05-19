@@ -1,7 +1,7 @@
 // Virtual-host example: dispatch by Host header, with per-host routers and
 // generated OpenAPI specs on each API surface.
 //
-// Build and run: build/debug-gcc-stdcxx/conflux_vhost_openapi_example
+// Build and run: build/release-clang-libcxx/conflux_vhost_openapi_example
 // Try:
 //   curl -H 'Host: api.local.test' http://localhost:9101/status
 //   curl -H 'Host: web.local.test' http://localhost:9101/status

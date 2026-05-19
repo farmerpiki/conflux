@@ -1,6 +1,6 @@
 // Template engine + HTTP example: render strings and files from JSON context.
 //
-// Build and run: build/debug-gcc-stdcxx/conflux_template_pages_example
+// Build and run: build/release-clang-libcxx/conflux_template_pages_example
 // Try:
 //   curl http://localhost:9102/
 //   curl http://localhost:9102/users

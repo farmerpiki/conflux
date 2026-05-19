@@ -1,6 +1,6 @@
 // HTTP observability example: metrics + request IDs + security headers.
 //
-// Build and run: build/debug-clang-libcxx/conflux_http_observability_example
+// Build and run: build/release-clang-libcxx/conflux_http_observability_example
 // Try:
 //   curl -i http://localhost:9095/health
 //   curl -i http://localhost:9095/slow

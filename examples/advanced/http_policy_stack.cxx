@@ -2,7 +2,7 @@
 // request IDs, tracing, security headers, cache policy, response cache, ETag,
 // structured logs, CSRF protection, and protected OpenAPI.
 //
-// Build and run: build/debug-gcc-stdcxx/conflux_http_policy_stack_example
+// Build and run: build/release-clang-libcxx/conflux_http_policy_stack_example
 // Try:
 //   curl -i http://localhost:9100/
 //   curl -i http://localhost:9100/old-dashboard

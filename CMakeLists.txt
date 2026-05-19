@@ -2311,25 +2311,25 @@ if(CONFLUX_BUILD_EXAMPLES)
     add_executable(conflux_http_client examples/http_client.cxx)
     target_link_libraries(conflux_http_client PRIVATE conflux conflux_options)
 
-    add_executable(conflux_dual examples/dual.cxx)
+    add_executable(conflux_dual examples/advanced/dual.cxx)
     target_link_libraries(conflux_dual PRIVATE conflux conflux_options)
 
-    add_executable(conflux_process_run_example examples/process_run.cxx)
+    add_executable(conflux_process_run_example examples/advanced/process_run.cxx)
     target_link_libraries(conflux_process_run_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_crypto_sealing_example examples/crypto_sealing.cxx)
+    add_executable(conflux_crypto_sealing_example examples/advanced/crypto_sealing.cxx)
     target_link_libraries(conflux_crypto_sealing_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_http_observability_example examples/http_observability.cxx)
+    add_executable(conflux_http_observability_example examples/advanced/http_observability.cxx)
     target_link_libraries(conflux_http_observability_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_http_policy_stack_example examples/http_policy_stack.cxx)
+    add_executable(conflux_http_policy_stack_example examples/advanced/http_policy_stack.cxx)
     target_link_libraries(conflux_http_policy_stack_example PRIVATE conflux conflux_options)
 
     add_executable(conflux_vhost_openapi_example examples/advanced/vhost_openapi.cxx)
     target_link_libraries(conflux_vhost_openapi_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_http_client_builder_example examples/http_client_builder.cxx)
+    add_executable(conflux_http_client_builder_example examples/advanced/http_client_builder.cxx)
     target_link_libraries(conflux_http_client_builder_example PRIVATE conflux conflux_options)
 
     if(TARGET conflux_http_app_json AND TARGET conflux_http_native_json AND TARGET conflux_json)
@@ -2348,11 +2348,11 @@ if(CONFLUX_BUILD_EXAMPLES)
             PRIVATE conflux_http_native_json conflux_json conflux_options)
     endif()
 
-    add_executable(conflux_work_join_all_example examples/work_join_all.cxx)
+    add_executable(conflux_work_join_all_example examples/advanced/work_join_all.cxx)
     target_link_libraries(conflux_work_join_all_example PRIVATE conflux conflux_options)
 
     if(CONFLUX_WANT_TEMPLATES AND TARGET conflux_template)
-        add_executable(conflux_template_pages_example examples/template_pages.cxx)
+        add_executable(conflux_template_pages_example examples/advanced/template_pages.cxx)
         target_link_libraries(conflux_template_pages_example PRIVATE conflux conflux_template conflux_options)
     endif()
 
@@ -2374,10 +2374,10 @@ if(CONFLUX_BUILD_EXAMPLES)
     endif()
 
     # JSON examples (use monolith for convenience)
-    add_executable(conflux_json_example examples/json.cxx)
+    add_executable(conflux_json_example examples/advanced/json.cxx)
     target_link_libraries(conflux_json_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_json_config_example examples/json_config.cxx)
+    add_executable(conflux_json_config_example examples/advanced/json_config.cxx)
     target_link_libraries(conflux_json_config_example PRIVATE conflux conflux_options)
 
     add_executable(conflux_json_stream_ingest_example examples/advanced/json_stream_ingest.cxx)
