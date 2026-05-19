@@ -1174,7 +1174,7 @@ TEST_CASE(
 	req.query["page"] = "bad";
 	auto bad = app.router().dispatch(req);
 	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.content_type == "application/json");
+	CHECK(bad.content_type == "application/problem+json");
 	CHECK(bad.text_body().find(R"("extractor":"Query")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
@@ -1198,7 +1198,7 @@ TEST_CASE(
 	req.form["age"] = "bad";
 	auto bad = app.router().dispatch(req);
 	CHECK(bad.status == kHttpBadRequest);
-	CHECK(bad.content_type == "application/json");
+	CHECK(bad.content_type == "application/problem+json");
 	CHECK(bad.text_body().find(R"("extractor":"Form")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("name":"age")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("kind":"invalid")") != std::string_view::npos);
@@ -1222,6 +1222,7 @@ TEST_CASE(
 	req.query["page"] = "bad";
 	auto bad = app.router().dispatch(req);
 	CHECK(bad.status == kHttpBadRequest);
+	CHECK(bad.content_type == "application/problem+json");
 	CHECK(bad.text_body().find(R"("extractor":"QueryParams")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
 
@@ -1248,6 +1249,7 @@ TEST_CASE(
 	req.form["page"] = "bad";
 	auto bad = app.router().dispatch(req);
 	CHECK(bad.status == kHttpBadRequest);
+	CHECK(bad.content_type == "application/problem+json");
 	CHECK(bad.text_body().find(R"("extractor":"FormParams")") != std::string_view::npos);
 	CHECK(bad.text_body().find(R"("name":"page")") != std::string_view::npos);
 

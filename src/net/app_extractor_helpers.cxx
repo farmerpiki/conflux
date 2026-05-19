@@ -31,7 +31,9 @@ template<class Arg>
 		err.name,
 		kind,
 		err.message);
-	return HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
+	auto response = HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
+	response.content_type = "application/problem+json";
+	return response;
 }
 
 template<class T>
