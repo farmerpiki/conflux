@@ -187,12 +187,10 @@ private:
 	enum class PendingKind : std::uint8_t {
 		query,
 		exec_cached,
-		,
 	};
 	enum class WireResultKind : std::uint8_t {
 		prepare,
 		query,
-		,
 	};
 	struct PendingQuery {
 		PendingKind kind{PendingKind::query};

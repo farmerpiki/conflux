@@ -2,7 +2,7 @@
 #include <simd>
 #include <span>
 
-using vec_t = std::simd::basic_vec<signed char>;
+using vec_t = std::simd::vec<signed char>;
 static constexpr std::size_t W = vec_t::size;
 
 extern "C" {

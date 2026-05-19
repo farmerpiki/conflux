@@ -104,8 +104,15 @@ if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
     endif()
 endif()
 option(CONFLUX_GCC_SUGGEST_ATTRIBUTES "Enable noisy GCC -Wsuggest-attribute=pure/const optimization hints" OFF)
-set(CONFLUX_JSON_USE_STDSIMD "AUTO" CACHE STRING "Use SIMD for JSON scan paths (AUTO|STD26|STDX|ON|OFF)")
-set_property(CACHE CONFLUX_JSON_USE_STDSIMD PROPERTY STRINGS AUTO STD26 STDX ON OFF)
+set(CONFLUX_USE_STDSIMD "AUTO" CACHE STRING
+    "Use standard/experimental SIMD for library scan paths (AUTO|STD26|STDX|ON|OFF)")
+set_property(CACHE CONFLUX_USE_STDSIMD PROPERTY STRINGS AUTO STD26 STDX ON OFF)
+if(DEFINED CONFLUX_JSON_USE_STDSIMD)
+    set(CONFLUX_USE_STDSIMD "${CONFLUX_JSON_USE_STDSIMD}" CACHE STRING
+        "Use standard/experimental SIMD for library scan paths (AUTO|STD26|STDX|ON|OFF)" FORCE)
+    message(DEPRECATION
+        "conflux: CONFLUX_JSON_USE_STDSIMD is deprecated; use CONFLUX_USE_STDSIMD")
+endif()
 
 set(CONFLUX_EXPERIMENTAL_RECV_INCREMENTAL_BUF OFF)
 set(CONFLUX_EXPERIMENTAL_SEND_ZC OFF)
@@ -1090,82 +1097,104 @@ if(CONFLUX_HAS_DB STREQUAL "true" AND CONFLUX_WANT_DB_POSTGRES)
 endif()
 
 # ---------------------------------------------------------------------------
-# JSON SIMD detection (before monolith, needed by conflux_json too)
+# SIMD detection (before monolith, needed by conflux_json too)
 # ---------------------------------------------------------------------------
 
-if(NOT CONFLUX_JSON_USE_STDSIMD MATCHES "^(AUTO|STD26|STDX|ON|OFF)$")
+if(NOT CONFLUX_USE_STDSIMD MATCHES "^(AUTO|STD26|STDX|ON|OFF)$")
     message(FATAL_ERROR
-        "conflux: CONFLUX_JSON_USE_STDSIMD must be AUTO, STD26, STDX, ON, or OFF "
-        "(got '${CONFLUX_JSON_USE_STDSIMD}')")
+        "conflux: CONFLUX_USE_STDSIMD must be AUTO, STD26, STDX, ON, or OFF "
+        "(got '${CONFLUX_USE_STDSIMD}')")
 endif()
 
-set(_conflux_json_simd_backend OFF)
-if(CONFLUX_JSON_USE_STDSIMD STREQUAL "AUTO" OR CONFLUX_JSON_USE_STDSIMD STREQUAL "STD26")
+set(_conflux_simd_backend OFF)
+if(CONFLUX_USE_STDSIMD STREQUAL "AUTO" OR CONFLUX_USE_STDSIMD STREQUAL "STD26")
     include(CheckCXXSourceCompiles)
     set(_STDSIMD_STD26_TEST_CODE "
 #include <simd>
 #include <cstddef>
 #include <span>
-using vec_t = std::simd::basic_vec<signed char>;
+using vec_t = std::simd::vec<signed char>;
+using uvec_t = std::simd::vec<unsigned char>;
 int main() {
     vec_t a{};
     vec_t b{};
     auto mask = (a == b) | (a < b);
     if (std::simd::any_of(mask))
         return static_cast<int>(std::simd::reduce_min_index(mask));
+    unsigned char bytes[uvec_t::size] = {};
+    auto u = std::simd::unchecked_load<uvec_t>(std::span<unsigned char>(bytes, uvec_t::size));
+    u = std::simd::select(u == uvec_t{}, u | uvec_t(static_cast<unsigned char>(1)), u);
+    std::simd::unchecked_store(u, std::span<unsigned char>(bytes, uvec_t::size));
     return static_cast<int>(vec_t::size);
 }")
     set(_conflux_saved_cxx_standard "${CMAKE_CXX_STANDARD}")
     set(CMAKE_CXX_STANDARD 26)
     set(CMAKE_REQUIRED_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
-    check_cxx_source_compiles("${_STDSIMD_STD26_TEST_CODE}" CONFLUX_HAS_JSON_SIMD_STD26)
+    check_cxx_source_compiles("${_STDSIMD_STD26_TEST_CODE}" CONFLUX_HAS_SIMD_STD26)
     set(CMAKE_CXX_STANDARD "${_conflux_saved_cxx_standard}")
     unset(_conflux_saved_cxx_standard)
     unset(CMAKE_REQUIRED_FLAGS)
-    if(CONFLUX_HAS_JSON_SIMD_STD26)
-        set(_conflux_json_simd_backend STD26)
-    elseif(CONFLUX_JSON_USE_STDSIMD STREQUAL "STD26")
-        message(FATAL_ERROR "conflux: CONFLUX_JSON_USE_STDSIMD=STD26 requires C++26 <simd> support")
+    if(CONFLUX_HAS_SIMD_STD26)
+        set(_conflux_simd_backend STD26)
+    elseif(CONFLUX_USE_STDSIMD STREQUAL "STD26")
+        message(FATAL_ERROR "conflux: CONFLUX_USE_STDSIMD=STD26 requires C++26 <simd> support")
     endif()
 endif()
 
-if((_conflux_json_simd_backend STREQUAL "OFF")
-        AND (CONFLUX_JSON_USE_STDSIMD STREQUAL "AUTO"
-            OR CONFLUX_JSON_USE_STDSIMD STREQUAL "STDX"
-            OR CONFLUX_JSON_USE_STDSIMD STREQUAL "ON"))
+if((_conflux_simd_backend STREQUAL "OFF")
+        AND (CONFLUX_USE_STDSIMD STREQUAL "AUTO"
+            OR CONFLUX_USE_STDSIMD STREQUAL "STDX"
+            OR CONFLUX_USE_STDSIMD STREQUAL "ON"))
     include(CheckCXXSourceCompiles)
     set(_STDSIMD_STDX_TEST_CODE "
 #include <experimental/simd>
 #include <cstddef>
 namespace stdx = std::experimental::parallelism_v2;
 using vec_t = stdx::native_simd<signed char>;
+using uvec_t = stdx::native_simd<unsigned char>;
 int main() {
     vec_t a{};
     vec_t b{};
     auto mask = (a == b) | (a < b);
     if (stdx::any_of(mask))
         return static_cast<int>(stdx::find_first_set(mask));
+    unsigned char bytes[uvec_t::size()] = {};
+    uvec_t u(bytes, stdx::element_aligned);
+    stdx::where(u == uvec_t{}, u) = u | uvec_t(static_cast<unsigned char>(1));
+    u.copy_to(bytes, stdx::element_aligned);
     return static_cast<int>(vec_t::size());
 }")
     set(CMAKE_REQUIRED_FLAGS "${CMAKE_CXX_FLAGS} -mavx2")
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
-        set(CMAKE_REQUIRED_FLAGS "${CMAKE_REQUIRED_FLAGS} -fexperimental-library")
-    endif()
-    check_cxx_source_compiles("${_STDSIMD_STDX_TEST_CODE}" CONFLUX_HAS_JSON_SIMD_STDX)
+    check_cxx_source_compiles("${_STDSIMD_STDX_TEST_CODE}" CONFLUX_HAS_SIMD_STDX)
     unset(CMAKE_REQUIRED_FLAGS)
-    if(CONFLUX_HAS_JSON_SIMD_STDX)
-        set(_conflux_json_simd_backend STDX)
-    elseif(CONFLUX_JSON_USE_STDSIMD STREQUAL "STDX" OR CONFLUX_JSON_USE_STDSIMD STREQUAL "ON")
-        message(FATAL_ERROR "conflux: CONFLUX_JSON_USE_STDSIMD=${CONFLUX_JSON_USE_STDSIMD} requires <experimental/simd> support")
+    if(CONFLUX_HAS_SIMD_STDX)
+        set(_conflux_simd_backend STDX)
+    elseif(CONFLUX_USE_STDSIMD STREQUAL "STDX" OR CONFLUX_USE_STDSIMD STREQUAL "ON")
+        message(FATAL_ERROR "conflux: CONFLUX_USE_STDSIMD=${CONFLUX_USE_STDSIMD} requires <experimental/simd> support")
     endif()
 endif()
 
-if(_conflux_json_simd_backend STREQUAL "STD26")
+if(_conflux_simd_backend STREQUAL "STD26")
+    add_library(conflux_simd_std26 OBJECT src/simd_std26.cxx)
+    target_compile_features(conflux_simd_std26 PRIVATE cxx_std_26)
+    target_link_libraries(conflux_simd_std26 PRIVATE conflux_options)
+    set(_conflux_simd_std26_options "-mavx2")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
+        list(APPEND _conflux_simd_std26_options "-fno-lto")
+    endif()
+    set_source_files_properties(src/simd_std26.cxx PROPERTIES
+        COMPILE_OPTIONS "${_conflux_simd_std26_options}"
+    )
+    unset(_conflux_simd_std26_options)
     add_library(conflux_json_simd_std26 OBJECT src/json_simd_std26.cxx)
     target_compile_features(conflux_json_simd_std26 PRIVATE cxx_std_26)
     target_link_libraries(conflux_json_simd_std26 PRIVATE conflux_options)
     set(_conflux_json_simd_std26_options "-mavx2")
-    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU"
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_GREATER_EQUAL 16
+            AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 17)
         list(APPEND _conflux_json_simd_std26_options "-fno-lto")
     endif()
     set_source_files_properties(src/json_simd_std26.cxx PROPERTIES
@@ -1174,7 +1203,13 @@ if(_conflux_json_simd_backend STREQUAL "STD26")
     unset(_conflux_json_simd_std26_options)
 endif()
 
-if(_conflux_json_simd_backend STREQUAL "STDX")
+if(_conflux_simd_backend STREQUAL "STDX")
+    add_library(conflux_simd_stdx OBJECT src/simd_stdx.cxx)
+    target_compile_features(conflux_simd_stdx PRIVATE cxx_std_23)
+    target_link_libraries(conflux_simd_stdx PRIVATE conflux_options conflux_types)
+    set_source_files_properties(src/simd_stdx.cxx PROPERTIES
+        COMPILE_OPTIONS "-mavx2"
+    )
     add_library(conflux_json_simd_stdx OBJECT src/json_simd_stdx.cxx)
     target_compile_features(conflux_json_simd_stdx PRIVATE cxx_std_23)
     target_link_libraries(conflux_json_simd_stdx PRIVATE conflux_options conflux_types)
@@ -1183,10 +1218,10 @@ if(_conflux_json_simd_backend STREQUAL "STDX")
     )
 endif()
 
-if(NOT _conflux_json_simd_backend STREQUAL "OFF" AND TARGET conflux_json)
-    message(STATUS "conflux: JSON ${_conflux_json_simd_backend} SIMD path enabled (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
+if(NOT _conflux_simd_backend STREQUAL "OFF" AND TARGET conflux_json)
+    message(STATUS "conflux: ${_conflux_simd_backend} SIMD path enabled (${CMAKE_CXX_COMPILER_ID} ${CMAKE_CXX_COMPILER_VERSION})")
     target_compile_definitions(conflux_json PRIVATE CONFLUX_JSON_USE_STDSIMD=1)
-    string(TOLOWER "${_conflux_json_simd_backend}" _conflux_json_simd_target_suffix)
+    string(TOLOWER "${_conflux_simd_backend}" _conflux_json_simd_target_suffix)
     target_sources(conflux_json PRIVATE $<TARGET_OBJECTS:conflux_json_simd_${_conflux_json_simd_target_suffix}>)
 endif()
 
@@ -1200,12 +1235,10 @@ target_link_libraries(conflux_utils
     PRIVATE conflux_options
     PUBLIC  conflux_types
 )
-if(_conflux_json_simd_backend STREQUAL "STDX")
+if(NOT _conflux_simd_backend STREQUAL "OFF")
     target_compile_definitions(conflux_utils PRIVATE CONFLUX_STDSIMD=1)
-    target_sources(conflux_utils PRIVATE src/simd_stdx.cxx)
-    set_source_files_properties(src/simd_stdx.cxx PROPERTIES
-        COMPILE_OPTIONS "-mavx2"
-    )
+    string(TOLOWER "${_conflux_simd_backend}" _conflux_simd_target_suffix)
+    target_sources(conflux_utils PRIVATE $<TARGET_OBJECTS:conflux_simd_${_conflux_simd_target_suffix}>)
 endif()
 
 add_library(conflux_net_config STATIC)
@@ -1322,7 +1355,7 @@ if(TARGET conflux_net_tls)
 else()
     target_compile_definitions(conflux_http_realtime PUBLIC CONFLUX_HAS_TLS=0)
 endif()
-if(_conflux_json_simd_backend STREQUAL "STDX")
+if(NOT _conflux_simd_backend STREQUAL "OFF")
     target_compile_definitions(conflux_http_realtime PRIVATE CONFLUX_STDSIMD=1)
 endif()
 if(CONFLUX_BUILD_FUZZ)

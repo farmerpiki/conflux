@@ -102,6 +102,11 @@ A compiler is not considered supported merely because it accepts the language
 mode. It must configure through one of the presets, build the relevant target
 set, and pass the matching tests for that lane.
 
+Build and benchmark comparisons use each compiler's best working release
+configuration. If one source file or optional feature breaks that configuration,
+disable the conflicting flag only for that compiler and source file/feature; do
+not downgrade the rest of the target or library.
+
 ## Supported kernel/runtime matrix
 
 Conflux is Linux-only and `io_uring`-first. Runtime-facing feature sets require:
