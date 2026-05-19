@@ -333,6 +333,22 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app openapi spec maps typed path parameters",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/users/{id:u64}">(
+		[](http::Path<"id", std::uint64_t> id) { return http::text(std::format("{}", id.get())); });
+	app.get<"/teams/{slug}">([](http::Path<"slug"> slug) { return http::text(slug.get()); });
+
+	auto spec = app.openapi_spec();
+	CHECK(
+		spec.find(
+			R"("name":"id","in":"path","required":true,"schema":{"type":"integer","format":"uint64","minimum":0})")
+		!= std::string::npos);
+	CHECK(spec.find(R"("name":"slug","in":"path","required":true,"schema":{"type":"string"})") != std::string::npos);
+}
+
+TEST_CASE(
 	"http facade: app openapi spec includes JSON request bodies",
 	"[http.facade]") {
 	auto app = http::app();

@@ -1113,6 +1113,21 @@ public:
 			}
 			return out;
 		};
+		auto schema_for_path_type = [](std::string_view type) {
+			if (type == "u64") {
+				return std::string{R"({"type":"integer","format":"uint64","minimum":0})"};
+			}
+			if (type == "i64") {
+				return std::string{R"({"type":"integer","format":"int64"})"};
+			}
+			if (type == "u32") {
+				return std::string{R"({"type":"integer","format":"uint32","minimum":0})"};
+			}
+			if (type == "i32") {
+				return std::string{R"({"type":"integer","format":"int32"})"};
+			}
+			return std::string{R"({"type":"string"})"};
+		};
 
 		std::string out;
 		out += R"({"openapi":"3.0.0","info":{"title":)";
@@ -1177,7 +1192,14 @@ public:
 					}
 					out += R"({"name":)";
 					out += json_str(route.path_params[i]);
-					out += R"(,"in":"path","required":true,"schema":{"type":"string"}})";
+					out += R"(,"in":"path","required":true,"schema":)";
+					if (auto type = route.path_param_types.find(route.path_params[i]);
+						type != route.path_param_types.end()) {
+						out += schema_for_path_type(type->second);
+					} else {
+						out += schema_for_path_type({});
+					}
+					out += "}";
 				}
 				out += ']';
 				if (!route.consumes.empty()) {
