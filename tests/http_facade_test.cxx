@@ -611,6 +611,26 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: route timeout updates deferred response deadline",
+	"[http.facade]") {
+	auto deferred = std::make_shared<DeferredResponse>(std::chrono::hours{1});
+	auto app = http::app();
+	app.get("/deferred", [deferred] { return HttpResponse::deferred(deferred); })
+		.timeout(std::chrono::milliseconds{25});
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/deferred";
+
+	auto const before = std::chrono::steady_clock::now();
+	auto response = app.router().dispatch(req);
+	REQUIRE(response.is_deferred());
+	auto const deadline = response.deferred_response_ptr()->deadline();
+	CHECK(deadline >= before);
+	CHECK(deadline <= before + std::chrono::seconds{1});
+}
+
+TEST_CASE(
 	"http facade: app openapi spec includes route-local policy metadata",
 	"[http.facade]") {
 	auto app = http::app();

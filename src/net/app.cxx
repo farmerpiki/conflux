@@ -772,7 +772,7 @@ class App {
 		bool problem_response{};
 		std::shared_ptr<std::size_t> max_body_size = std::make_shared<std::size_t>(0);
 		std::shared_ptr<AppRouteRateLimit> rate_limit = std::make_shared<AppRouteRateLimit>();
-		std::chrono::milliseconds timeout{};
+		std::shared_ptr<std::chrono::milliseconds> timeout = std::make_shared<std::chrono::milliseconds>();
 		std::size_t middleware_count{};
 		std::shared_ptr<std::string> auth_policy = std::make_shared<std::string>();
 		std::string openapi_summary;
@@ -815,7 +815,7 @@ public:
 
 		RouteRef &timeout(
 			std::chrono::milliseconds value) {
-			metadata().timeout = value;
+			*metadata().timeout = value;
 			return *this;
 		}
 
@@ -887,10 +887,11 @@ public:
 			record_return_metadata<std::invoke_result_t<Fn &>>();
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
+			auto timeout = route_metadata_.back().timeout;
 			router_.add(
 				method,
 				path,
-				[auth_policy, rate_limit, fn = std::decay_t<F>(std::forward<F>(handler))](
+				[auth_policy, rate_limit, timeout, fn = std::decay_t<F>(std::forward<F>(handler))](
 					RequestView const &req) mutable {
 					if (auto denied = route_auth_failure(*auth_policy, req)) {
 						return *std::move(denied);
@@ -898,7 +899,7 @@ public:
 					if (auto limited = route_rate_limit_failure(*rate_limit, req)) {
 						return *std::move(limited);
 					}
-					return into_response(fn());
+					return apply_route_timeout(into_response(fn()), *timeout);
 				});
 		} else if constexpr (requires(Fn &fn, RequestView const &req) {
 								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
@@ -907,17 +908,18 @@ public:
 			record_return_metadata<std::invoke_result_t<Fn &, RequestView const &>>();
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
+			auto timeout = route_metadata_.back().timeout;
 			router_.add(
 				method,
 				path,
-				[auth_policy, rate_limit, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+				[auth_policy, rate_limit, timeout, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
 					if (auto denied = route_auth_failure(*auth_policy, req)) {
 						return *std::move(denied);
 					}
 					if (auto limited = route_rate_limit_failure(*rate_limit, req)) {
 						return *std::move(limited);
 					}
-					return into_response(fn(req));
+					return apply_route_timeout(into_response(fn(req)), *timeout);
 				});
 		} else if constexpr (requires(Fn &fn, Request const &req) {
 								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
@@ -926,10 +928,11 @@ public:
 			record_return_metadata<std::invoke_result_t<Fn &, Request const &>>();
 			auto auth_policy = route_metadata_.back().auth_policy;
 			auto rate_limit = route_metadata_.back().rate_limit;
+			auto timeout = route_metadata_.back().timeout;
 			router_.add(
 				method,
 				path,
-				[auth_policy, rate_limit, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
+				[auth_policy, rate_limit, timeout, fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
 					if (auto denied = route_auth_failure(*auth_policy, req)) {
 						return *std::move(denied);
 					}
@@ -937,7 +940,7 @@ public:
 						return *std::move(limited);
 					}
 					auto owned = req.to_owned();
-					return into_response(fn(owned));
+					return apply_route_timeout(into_response(fn(owned)), *timeout);
 				});
 		} else {
 			router_.add(method, path, std::forward<F>(handler));
@@ -1272,7 +1275,7 @@ public:
 					.success_status = route.success_status,
 					.problem_response = route.problem_response,
 					.max_body_size = *route.max_body_size,
-					.timeout = route.timeout,
+					.timeout = *route.timeout,
 					.middleware_count = route.middleware_count,
 					.rate_limit = route.rate_limit->name,
 					.auth_policy = *route.auth_policy,
@@ -1424,9 +1427,9 @@ public:
 					out += json_str(*route.auth_policy);
 					out += ',';
 				}
-				if (route.timeout.count() != 0) {
+				if (route.timeout->count() != 0) {
 					out += R"("x-timeout-ms":)";
-					out += std::to_string(route.timeout.count());
+					out += std::to_string(route.timeout->count());
 					out += ',';
 				}
 				if (!route.rate_limit->name.empty()) {
@@ -1893,6 +1896,17 @@ public:
 		response.content_type = "text/plain; charset=utf-8";
 		response.set_text_body("Too Many Requests");
 		response.headers["Retry-After"] = std::format("{}", retry_after);
+		return response;
+	}
+
+	[[nodiscard]] static HttpResponse apply_route_timeout(
+		HttpResponse response,
+		std::chrono::milliseconds timeout) {
+		if (timeout.count() > 0 && response.is_deferred()) {
+			if (auto const &deferred = response.deferred_response_ptr()) {
+				deferred->set_deadline(std::chrono::steady_clock::now() + timeout);
+			}
+		}
 		return response;
 	}
 
@@ -2612,12 +2626,14 @@ public:
 #endif
 		auto auth_policy = route_metadata_.back().auth_policy;
 		auto rate_limit = route_metadata_.back().rate_limit;
+		auto timeout = route_metadata_.back().timeout;
 		router_.add(
 			method,
 			path,
 			[states = states_,
 			 auth_policy,
 			 rate_limit,
+			 timeout,
 			 fn = Fn(std::forward<F>(handler))
 #if CONFLUX_HAS_JSON
 				 ,
@@ -2631,17 +2647,19 @@ public:
 				if (auto limited = route_rate_limit_failure(*rate_limit, req)) {
 					return *std::move(limited);
 				}
-				return invoke_extracted<Args>(
-					*states,
-					fn,
-					req,
-					std::make_index_sequence<std::tuple_size_v<Args>>{}
+				return apply_route_timeout(
+					invoke_extracted<Args>(
+						*states,
+						fn,
+						req,
+						std::make_index_sequence<std::tuple_size_v<Args>>{}
 #if CONFLUX_HAS_JSON
-					,
-					*json_options,
-					*max_body_size
+						,
+						*json_options,
+						*max_body_size
 #endif
-				);
+						),
+					*timeout);
 			});
 		return *this;
 	}
@@ -2692,12 +2710,14 @@ public:
 		auto json_options = json_options_;
 		auto auth_policy = route_metadata_.back().auth_policy;
 		auto rate_limit = route_metadata_.back().rate_limit;
+		auto timeout = route_metadata_.back().timeout;
 		router_.add(
 			method,
 			path,
 			[states = states_,
 			 auth_policy,
 			 rate_limit,
+			 timeout,
 			 fn = Fn(std::forward<F>(handler)),
 			 decode_opts = std::move(decode_opts),
 			 max_body_size,
@@ -2728,12 +2748,14 @@ public:
 					return json_decode_problem(decoded.error());
 				}
 				auto body = Json<BodyValue>{std::move(*decoded)};
-				return invoke_json_extracted<Args>(
-					*states,
-					fn,
-					req,
-					body,
-					std::make_index_sequence<std::tuple_size_v<Args>>{});
+				return apply_route_timeout(
+					invoke_json_extracted<Args>(
+						*states,
+						fn,
+						req,
+						body,
+						std::make_index_sequence<std::tuple_size_v<Args>>{}),
+					*timeout);
 			});
 		return RouteRef{*this, route_metadata_.size() - 1};
 	}
