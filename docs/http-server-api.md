@@ -458,6 +458,7 @@ public:
     bool send(std::string frame);
     bool send_view(std::string_view frame);
     bool send_event(std::string_view type, std::string_view data);
+    void on_close(std::function<void()> callback);
     void close();
 };
 
@@ -466,6 +467,21 @@ public:
     std::shared_ptr<SseChannel> subscribe();
     void broadcast(std::string frame);
 };
+```
+
+`on_close` callbacks run once when the SSE channel closes. Middleware can attach
+them to an SSE response returned through the facade path:
+
+```cpp
+app.use([](http::RequestView const& req, http::Next const& next) {
+    auto response = next(req);
+    if (response.is_sse()) {
+        response.sse_channel_ptr()->on_close([] {
+            record_stream_closed();
+        });
+    }
+    return response;
+});
 ```
 
 ---
