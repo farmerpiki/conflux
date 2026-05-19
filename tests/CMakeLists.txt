@@ -236,6 +236,11 @@ if(TARGET conflux_net_http)
     target_link_libraries(conflux_http_facade_compile_fail_request_view_task
         PRIVATE conflux_net_http conflux_options)
 
+    add_library(conflux_http_facade_compile_fail_raw_string EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_raw_string.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_raw_string
+        PRIVATE conflux_net_http conflux_options)
+
     add_test(NAME http-facade/compile-fail-request-view-task
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
@@ -243,6 +248,17 @@ if(TARGET conflux_net_http)
                 "Async handlers must take HttpRequest const&, not HttpRequestView const&"
                 "the view can dangle after coroutine suspension")
     set_tests_properties(http-facade/compile-fail-request-view-task PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
+
+    add_test(NAME http-facade/compile-fail-raw-string
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_raw_string
+                "HTTP app handlers must not return raw strings"
+                "use http::text(...)"
+                "http::html(...)")
+    set_tests_properties(http-facade/compile-fail-raw-string PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)
 endif()

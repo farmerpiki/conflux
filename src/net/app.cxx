@@ -375,6 +375,16 @@ concept IntoResponse = requires(T &&value) {
 	{ into_response(std::forward<T>(value)) } -> std::same_as<HttpResponse>;
 };
 
+template<class T>
+concept RawStringResponse = std::same_as<std::remove_cvref_t<T>, std::string>
+						 || std::same_as<std::remove_cvref_t<T>, std::string_view>
+						 || std::same_as<std::remove_cvref_t<T>, char const *>;
+
+template<class F>
+concept NullaryRawStringHandler = requires(F &fn) {
+	{ fn() } -> RawStringResponse;
+};
+
 template<class>
 inline constexpr bool kDependentFalse = false;
 
@@ -812,6 +822,11 @@ public:
 						  typename detail::CallableArgs<Fn>::type;
 					  } && detail::has_state_arg<typename detail::CallableArgs<Fn>::type>()) {
 			add_extracted(method, path, std::forward<F>(handler), loc);
+		} else if constexpr (NullaryRawStringHandler<Fn>) {
+			static_assert(
+				kDependentFalse<Fn>,
+				"HTTP app handlers must not return raw strings; use http::text(...), http::html(...), or "
+				"http::Json{...}");
 		} else if constexpr (requires(Fn &fn) {
 								 { into_response(fn()) } -> std::same_as<HttpResponse>;
 							 }) {
