@@ -1,6 +1,6 @@
 // Static files + JSON API example.
 //
-// Build and run: build/debug-gcc-stdcxx/conflux_static
+// Build and run: build/debug-clang-libcxx/conflux_static
 // Then open:     http://localhost:9095/
 // Try:
 //   curl http://localhost:9095/api/info
@@ -9,7 +9,7 @@
 #include <filesystem>
 #include <fstream>
 
-import conflux.net.http.server;
+import conflux.http;
 import std;
 static void write_file(
 	std::filesystem::path const &path,
@@ -19,7 +19,7 @@ static void write_file(
 }
 int main() {
 	namespace http = conflux::http;
-	auto app = http::App::default_server();
+	auto app = http::app();
 	app.config().fixed_buffer_slabs = 8;
 	app.config().splice_pipe_pairs = 2;
 
@@ -37,12 +37,14 @@ int main() {
 	app.get("/", [](http::Request const &) { return http::Response::redirect("/assets/"); });
 
 	app.get("/api/info", [asset_dir = asset_dir.string()](http::Request const &) {
-		return http::Response::json(
-			format(R"({{"status":"ok","assets":"{}","routes":["/","/api/info","/assets/{{*file}}"]}})", asset_dir));
+		return http::json_response(
+			std::format(
+				R"({{"status":"ok","assets":"{}","routes":["/","/api/info","/assets/{{*file}}"]}})",
+				asset_dir));
 	});
 
 	app.serve_static("/assets", asset_dir.string(), {.directory_listing = true});
 
-	auto const status = std::move(app).run({.port = 9095});
+	auto const status = http::run(std::move(app), {.port = 9095});
 	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }

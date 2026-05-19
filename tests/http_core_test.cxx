@@ -119,7 +119,7 @@ TEST_CASE(
 	static_assert(std::same_as<chttp::RunStatus, RunStatus>);
 	static_assert(std::same_as<chttp::ServerMetrics, HttpServerMetrics>);
 	static_assert(std::same_as<chttp::RequestView, HttpRequestView>);
-	static_assert(std::same_as<chttp::Request, HttpRequestView>);
+	static_assert(std::same_as<chttp::Request, HttpRequest>);
 	static_assert(std::same_as<chttp::OwnedRequest, HttpRequest>);
 	static_assert(std::same_as<chttp::UploadedFile, UploadedFile>);
 }

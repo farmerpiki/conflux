@@ -83,6 +83,13 @@ export struct VirtualHost {
 	StaticFileCacheConfig static_file_cache{}; // Opt per-host router default
 };
 export struct Config {
+	[[nodiscard]] static Config public_server() { return Config{}; }
+	[[nodiscard]] static Config development() {
+		Config cfg = public_server();
+		cfg.slow_handler_diagnostics = true;
+		cfg.startup_banner = true;
+		return cfg;
+	}
 	[[nodiscard]] static Config low_latency() {
 		Config cfg{};
 		cfg.rings = 4;
@@ -91,6 +98,22 @@ export struct Config {
 		cfg.defer_taskrun = true;
 		cfg.coop_taskrun = true;
 		cfg.taskrun_flag = true;
+		return cfg;
+	}
+	[[nodiscard]] static Config benchmark() {
+		auto cfg = low_latency();
+		cfg.startup_banner = false;
+		cfg.request_timeout_ms = 0;
+		cfg.tls_sniff_timeout_ms = 0;
+		return cfg;
+	}
+	[[nodiscard]] static Config unsafe_max_speed() {
+		auto cfg = benchmark();
+		cfg.parser_limits.max_headers = 1000;
+		cfg.parser_limits.max_header_block_size = std::size_t{256} * 1024;
+		cfg.max_body_size = std::size_t{16} * 1024 * 1024;
+		cfg.send_fixed_buffers = true;
+		cfg.send_zc = "on";
 		return cfg;
 	}
 	[[nodiscard]] static Config test() {

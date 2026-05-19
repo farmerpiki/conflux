@@ -39,6 +39,31 @@ public:
 } // namespace
 
 TEST_CASE(
+	"net.config: HTTP presets expose safe and explicit speed profiles",
+	"[net.config]") {
+	auto public_cfg = Config::public_server();
+	CHECK(public_cfg.max_body_size == kConfigDefaultMaxBodySize);
+	CHECK(public_cfg.request_timeout_ms == kConfigDefaultRequestTimeoutMs);
+	CHECK(public_cfg.tls_sniff_timeout_ms == kConfigDefaultTlsSniffTimeoutMs);
+	CHECK(public_cfg.parser_limits.max_headers == kConfigDefaultMaxHeaders);
+
+	auto dev = Config::development();
+	CHECK(dev.slow_handler_diagnostics);
+	CHECK(dev.startup_banner);
+
+	auto bench = Config::benchmark();
+	CHECK_FALSE(bench.startup_banner);
+	CHECK(bench.request_timeout_ms == 0);
+	CHECK(bench.tls_sniff_timeout_ms == 0);
+
+	auto unsafe = Config::unsafe_max_speed();
+	CHECK(unsafe.max_body_size > public_cfg.max_body_size);
+	CHECK(unsafe.parser_limits.max_headers > public_cfg.parser_limits.max_headers);
+	CHECK(unsafe.send_fixed_buffers);
+	CHECK(unsafe.send_zc == "on");
+}
+
+TEST_CASE(
 	"net.config: ini parses perf/isolation knobs",
 	"[net.config]") {
 	TempIni ini{R"ini(

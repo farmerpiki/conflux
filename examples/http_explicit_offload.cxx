@@ -87,8 +87,8 @@ static std::uint64_t hash_rounds(
 	std::int64_t rounds) {
 	std::uint64_t h = 1469598103934665603ull;
 	for (std::int64_t round = 0; round < rounds; ++round) {
-		for (unsigned char const c: input) {
-			h ^= c;
+		for (char const c: input) {
+			h ^= static_cast<unsigned char>(c);
 			h *= 1099511628211ull;
 		}
 		h ^= static_cast<std::uint64_t>(round);

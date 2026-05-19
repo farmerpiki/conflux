@@ -1,20 +1,15 @@
-// Typed JSON API example: App + json::routes + NativeJsonProvider.
-// Build and run: build/debug-gcc-stdcxx/conflux_api_typed_json_example
+// Typed JSON API example: App with default native JSON request/response handling.
+// Build and run: build/release-clang-libcxx/conflux_api_typed_json_example
 // Try:
 //   curl http://localhost:9110/api/todos
 //   curl -i -X POST http://localhost:9110/api/todos \
 //        -H 'Content-Type: application/json' -d '{"title":"write docs"}'
-import conflux.net.app;
-import conflux.types;
+import conflux.http;
 import conflux.json;
-import conflux.net.http.app_json;
-import conflux.net.http.native_json;
-import conflux.net.http.server_types;
 import std;
 
 namespace http = conflux::http;
 namespace json = conflux::json;
-using JsonProvider = conflux::json::boundary::NativeJsonProvider;
 
 struct Todo {
 	std::int64_t id{};
@@ -96,35 +91,47 @@ struct JsonMembers<StatusReply> {
 	static constexpr std::string_view type_name() { return "StatusReply"; }
 };
 
-int main() {
-	auto app = http::App::default_server();
-	auto api = http::json::routes<JsonProvider>(app);
-
+struct TodoStore {
+	std::mutex mu;
 	std::vector<Todo> todos{
 		Todo{.id = 1,           .title = "ship v1 preview", .done = false},
 		Todo{.id = 2, .title = "write typed JSON examples",  .done = true},
 	};
-	std::mutex todos_mu;
 	std::int64_t next_id = 3;
+};
 
-	api.get("/api/status", [] { return StatusReply{.status = "ok", .component = "typed-json-api"}; });
+int main() {
+	auto app = http::app();
+	auto store = std::make_shared<TodoStore>();
+	app.state(store);
 
-	api.get("/api/todos", [&todos, &todos_mu] {
-		std::lock_guard lock{todos_mu};
-		return TodoList{.items = todos};
+	app.get("/api/status", [] {
+		return http::Json{
+			StatusReply{.status = "ok", .component = "typed-json-api"}
+        };
 	});
 
-	api.post_body<CreateTodo>("/api/todos", [&todos, &todos_mu, &next_id](CreateTodo const &body) {
-		if (body.title.empty()) {
-			return CreateTodoResult{.ok = false, .error = std::string{"title is required"}};
-		}
-
-		std::lock_guard lock{todos_mu};
-		auto todo = Todo{.id = next_id++, .title = body.title, .done = false};
-		todos.push_back(todo);
-		return CreateTodoResult{.ok = true, .todo = std::move(todo)};
+	app.get("/api/todos", [](http::State<TodoStore> store) {
+		std::lock_guard lock{store->mu};
+		return http::Json{TodoList{.items = store->todos}};
 	});
 
-	auto const status = std::move(app).run({.port = 9110});
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	app.post_body<CreateTodo>(
+		"/api/todos",
+		[](http::Json<CreateTodo> const &body,
+		   http::State<TodoStore> store) -> std::expected<http::Json<CreateTodoResult>, http::Problem> {
+			if (body->title.empty()) {
+				return std::unexpected{http::problem::bad_request("invalid_todo", "title is required")};
+			}
+
+			std::lock_guard lock{store->mu};
+			auto todo = Todo{.id = store->next_id++, .title = body->title, .done = false};
+			store->todos.push_back(todo);
+			return http::Json{
+				CreateTodoResult{.ok = true, .todo = std::move(todo)}
+            };
+		});
+
+	auto const status = http::run(std::move(app), {.port = 9110});
+	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }

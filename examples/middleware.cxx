@@ -1,23 +1,23 @@
 // Middleware-focused example.
-// Shows request IDs, tracing, auth, and request-view handlers.
+// Shows request IDs, tracing, auth, and request handlers.
 //
-// Build and run: build/debug-gcc-stdcxx/conflux_middleware
+// Build and run: build/debug-clang-libcxx/conflux_middleware
 // Try:
 //   curl http://localhost:9094/
 //   curl http://localhost:9094/public/ping
 //   curl -u demo:demo http://localhost:9094/private/profile
 //   curl -H 'Authorization: Bearer valid-token' http://localhost:9094/private/token
-import conflux.net.http.server;
+import conflux.http;
 import std;
 int main() {
 	namespace http = conflux::http;
-	auto app = http::App::default_server();
+	auto app = http::app();
 
 	app.use(request_id_middleware());
 	app.use(tracing_middleware({.propagate_in_response = true}));
 
-	app.get("/", [](HttpRequest const &) {
-		return HttpResponse::html(
+	app.get("/", [](http::Request const &) {
+		return http::html(
 			"<html><body>"
 			"<h1>conflux middleware example</h1>"
 			"<ul>"
@@ -28,38 +28,38 @@ int main() {
 			"</body></html>");
 	});
 
-	app.group("/public", [](Router::Group &g) {
-		g.get("/ping", [](HttpRequest const &req) {
-			return HttpResponse::json(
+	app.group("/public", [](http::Router::Group &g) {
+		g.get("/ping", [](http::Request const &req) {
+			return http::json_response(
 				std::format(
 					R"({{"status":"ok","request_id":"{}","traceparent":"{}"}})",
-					req.headers["x-request-id"],
-					req.headers["traceparent"]));
+					req.header("x-request-id"),
+					req.header("traceparent")));
 		});
 	});
 
-	app.group("/private", [](Router::Group &g) {
+	app.group("/private", [](http::Router::Group &g) {
 		g.use(basic_auth_middleware(
 			[](std::string_view user, std::string_view pass) { return user == "demo" && pass == "demo"; }));
 
-		g.get("/profile", [](HttpRequest const &req) {
-			return HttpResponse::json(
+		g.get("/profile", [](http::Request const &req) {
+			return http::json_response(
 				std::format(
 					R"({{"user":"demo","request_id":"{}","remote_addr":"{}"}})",
-					req.headers["x-request-id"],
+					req.header("x-request-id"),
 					req.remote_addr));
 		});
 	});
 
-	app.group("/private", [](Router::Group &g) {
+	app.group("/private", [](http::Router::Group &g) {
 		g.use(bearer_auth_middleware([](std::string_view token) { return token == "valid-token"; }));
 
-		g.get("/token", [](HttpRequest const &req) {
-			return HttpResponse::json(
-				format(R"({{"token":"accepted","request_id":"{}"}})", req.headers["x-request-id"]));
+		g.get("/token", [](http::Request const &req) {
+			return http::json_response(
+				std::format(R"({{"token":"accepted","request_id":"{}"}})", req.header("x-request-id")));
 		});
 	});
 
-	auto const status = std::move(app).run({.port = 9094});
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	auto const status = http::run(std::move(app), {.port = 9094});
+	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }

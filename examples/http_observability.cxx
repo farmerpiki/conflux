@@ -1,19 +1,18 @@
 // HTTP observability example: metrics + request IDs + security headers.
 //
-// Build and run: build/debug-gcc-stdcxx/conflux_http_observability_example
+// Build and run: build/debug-clang-libcxx/conflux_http_observability_example
 // Try:
 //   curl -i http://localhost:9095/health
 //   curl -i http://localhost:9095/slow
 //   curl -H 'Authorization: Bearer metrics-token' http://localhost:9095/metrics
-import conflux.net.http.server;
-import conflux.types;
+import conflux.http;
 import std;
 
 int main() {
 	namespace http = conflux::http;
 
 	MetricsRegistry metrics;
-	auto app = http::App::default_server();
+	auto app = http::app();
 
 	app.use(request_id_middleware());
 	app.use(metrics_middleware(metrics));
@@ -24,8 +23,8 @@ int main() {
 	app.use(cache_control_middleware({.default_directive = "no-store"}));
 	app.use(rate_limit_middleware({.requests = 60, .window = std::chrono::seconds{60}, .burst = 10}));
 
-	app.get("/", [](HttpRequest const &) {
-		return HttpResponse::html(
+	app.get("/", [](http::Request const &) {
+		return http::html(
 			"<html><body>"
 			"<h1>conflux observability example</h1>"
 			"<ul>"
@@ -36,20 +35,19 @@ int main() {
 			"</body></html>");
 	});
 
-	app.get("/health", [](HttpRequest const &req) {
-		return HttpResponse::text(
-			std::format("ok\nrequest_id={}\nremote={}\n", req.headers["x-request-id"], req.remote_addr));
+	app.get("/health", [](http::Request const &req) {
+		return http::text(std::format("ok\nrequest_id={}\nremote={}\n", req.header("x-request-id"), req.remote_addr));
 	});
 
-	app.get("/slow", [](HttpRequest const &req) {
+	app.get("/slow", [](http::Request const &req) {
 		std::this_thread::sleep_for(std::chrono::milliseconds{50});
-		return HttpResponse::text(std::format("slow path completed\nrequest_id={}\n", req.headers["x-request-id"]));
+		return http::text(std::format("slow path completed\nrequest_id={}\n", req.header("x-request-id")));
 	});
 
-	std::vector<Router::Middleware> metrics_auth;
+	std::vector<http::Router::Middleware> metrics_auth;
 	metrics_auth.push_back(bearer_auth_middleware([](std::string_view token) { return token == "metrics-token"; }));
 	app.get("/metrics", metrics_handler_protected(metrics, std::move(metrics_auth)));
 
-	auto const status = std::move(app).run({.port = 9095});
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	auto const status = http::run(std::move(app), {.port = 9095});
+	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }

@@ -487,6 +487,36 @@ export template<typename T>
 }
 
 struct HttpRequestFieldAccessors {
+	template<typename Self>
+	[[nodiscard]] std::string_view param(
+		this Self const &self,
+		std::string_view name) noexcept {
+		return self.params[name];
+	}
+	template<typename Self>
+	[[nodiscard]] std::string_view header(
+		this Self const &self,
+		std::string_view name) noexcept {
+		return self.headers[name];
+	}
+	template<typename Self>
+	[[nodiscard]] std::string_view query_value(
+		this Self const &self,
+		std::string_view name) noexcept {
+		return self.query[name];
+	}
+	template<typename Self>
+	[[nodiscard]] std::string_view form_value(
+		this Self const &self,
+		std::string_view name) noexcept {
+		return self.form[name];
+	}
+	template<typename Self>
+	[[nodiscard]] std::string_view cookie(
+		this Self const &self,
+		std::string_view name) noexcept {
+		return self.cookies[name];
+	}
 	template<typename T, typename Self>
 	[[nodiscard]] std::expected<T, HttpFieldError> param_as(
 		this Self const &self,
@@ -643,8 +673,8 @@ using RunStatus = ::RunStatus;
 using SendZcMetrics = ::SendZcMetrics;
 using ServerMetrics = ::HttpServerMetrics;
 using RequestView = ::HttpRequestView;
-using Request = RequestView;
 using OwnedRequest = ::HttpRequest;
+using Request = OwnedRequest;
 using UploadedFile = ::UploadedFile;
 using FieldSource = ::HttpFieldSource;
 using FieldErrorKind = ::HttpFieldErrorKind;

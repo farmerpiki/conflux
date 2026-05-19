@@ -2034,6 +2034,12 @@ target_link_libraries(conflux_http_app
     PUBLIC  conflux_http_server
     PUBLIC  conflux_work
 )
+if(TARGET conflux_http_native_json)
+    target_link_libraries(conflux_http_app PUBLIC conflux_http_native_json)
+    target_compile_definitions(conflux_http_app PUBLIC CONFLUX_HAS_JSON=1)
+else()
+    target_compile_definitions(conflux_http_app PUBLIC CONFLUX_HAS_JSON=0)
+endif()
 endif() # CONFLUX_WANT_HTTP_SERVER (app facade)
 
 if(TARGET conflux_http_response_json AND TARGET conflux_http_app AND TARGET conflux_http_router)
@@ -2057,6 +2063,7 @@ target_sources(conflux_net_http
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES
+            src/net/http_facade.cxx
             src/net/http_server_umbrella.cxx
             src/net/http.cxx
 )
@@ -2080,6 +2087,12 @@ target_link_libraries(conflux_net_http
     PUBLIC  conflux_http_openapi
     PUBLIC  conflux_http_vhost
 )
+if(TARGET conflux_http_native_json)
+    target_link_libraries(conflux_net_http PUBLIC conflux_http_native_json)
+endif()
+if(TARGET conflux_json)
+    target_link_libraries(conflux_net_http PUBLIC conflux_json)
+endif()
 if(CONFLUX_HAS_TLS STREQUAL "true")
     target_compile_definitions(conflux_net_http PUBLIC CONFLUX_HAS_TLS=1)
 else()
@@ -2252,6 +2265,26 @@ if(CONFLUX_BUILD_FUZZ)
 endif()
 
 if(CONFLUX_BUILD_EXAMPLES)
+    add_executable(conflux_quickstart_hello examples/quickstart/hello.cxx)
+    target_link_libraries(conflux_quickstart_hello PRIVATE conflux conflux_options)
+
+    add_executable(conflux_quickstart_middleware examples/quickstart/middleware.cxx)
+    target_link_libraries(conflux_quickstart_middleware PRIVATE conflux conflux_options)
+
+    add_executable(conflux_quickstart_sse examples/quickstart/sse.cxx)
+    target_link_libraries(conflux_quickstart_sse PRIVATE conflux conflux_options)
+
+    add_executable(conflux_quickstart_static_files examples/quickstart/static_files.cxx)
+    target_link_libraries(conflux_quickstart_static_files PRIVATE conflux conflux_options)
+
+    add_executable(conflux_quickstart_websocket examples/quickstart/websocket.cxx)
+    target_link_libraries(conflux_quickstart_websocket PRIVATE conflux conflux_options)
+
+    if(TARGET conflux_http_native_json AND TARGET conflux_json)
+        add_executable(conflux_quickstart_json_crud examples/quickstart/json_crud.cxx)
+        target_link_libraries(conflux_quickstart_json_crud PRIVATE conflux conflux_options)
+    endif()
+
     # Easy HTTP examples (first-contact / v1-facing)
     add_executable(conflux_hello examples/hello.cxx)
     target_link_libraries(conflux_hello PRIVATE conflux conflux_options)
@@ -2299,7 +2332,7 @@ if(CONFLUX_BUILD_EXAMPLES)
     if(TARGET conflux_http_app_json AND TARGET conflux_http_native_json AND TARGET conflux_json)
         add_executable(conflux_api_typed_json_example examples/api_typed_json.cxx)
         target_link_libraries(conflux_api_typed_json_example
-            PRIVATE conflux_http_app_json conflux_http_native_json conflux_json conflux_options)
+            PRIVATE conflux conflux_options)
 
         add_executable(conflux_http_explicit_offload_example examples/http_explicit_offload.cxx)
         target_link_libraries(conflux_http_explicit_offload_example
@@ -2759,6 +2792,12 @@ endif()
 
 if(CONFLUX_BUILD_EXAMPLES)
     set(CONFLUX_EXAMPLE_TARGETS
+        conflux_quickstart_hello
+        conflux_quickstart_json_crud
+        conflux_quickstart_middleware
+        conflux_quickstart_sse
+        conflux_quickstart_static_files
+        conflux_quickstart_websocket
         conflux_hello
         conflux_middleware
         conflux_sse
@@ -2809,6 +2848,14 @@ if(CONFLUX_BUILD_EXAMPLES)
     endif()
 
     if(CONFLUX_BUILD_TESTS)
+        add_test(NAME examples/quickstart-policy
+            COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-quickstart-examples.sh"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/examples/quickstart"
+        )
+        set_tests_properties(examples/quickstart-policy PROPERTIES
+            LABELS "examples;lint"
+        )
+
         add_test(NAME examples/compile
             COMMAND "${CMAKE_COMMAND}" --build "${CMAKE_BINARY_DIR}"
                     --target conflux_examples --config "$<CONFIG>"

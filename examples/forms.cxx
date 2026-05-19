@@ -1,27 +1,18 @@
 // Forms example: query params (GET) and urlencoded form bodies (POST).
-// Build and run: build/debug-gcc-stdcxx/conflux_forms
+// Build and run: build/debug-clang-libcxx/conflux_forms
 // Then open:    http://localhost:9092/
 // Or curl:
 //   curl "http://localhost:9092/search?q=hello+world&lang=en"
 //   curl -X POST http://localhost:9092/submit -d "name=Alice&age=30"
-import conflux.net.http.server;
+import conflux.http;
 import std;
-import conflux.types;
 int main() {
-	Config cfg{};
-	cfg.port = 9092;
-	cfg.rings = 1;
-	cfg.ring_entries = 256;
-	cfg.single_issuer = true;
-	cfg.defer_taskrun = true;
-	cfg.coop_taskrun = true;
-	cfg.taskrun_flag = true;
-
-	Router router;
+	namespace http = conflux::http;
+	auto app = http::app();
 
 	// Home page with two forms: one GET (query params), one POST (urlencoded body).
-	router.get("/", [](HttpRequestView const &) {
-		return HttpResponse::html(
+	app.get("/", [](http::RequestView const &) {
+		return http::html(
 			"<html><body>"
 			"<h1>conflux forms example</h1>"
 			"<h2>Search — GET with query params</h2>"
@@ -41,10 +32,8 @@ int main() {
 	});
 
 	// GET /search?q=...&lang=...
-	router.get("/search", [](HttpRequestView const &req) {
-		auto q = req.query["q"];
-		auto lang = req.query["lang"];
-		return HttpResponse::html(
+	app.get("/search", [](http::Query<"q"> q, http::Query<"lang"> lang) {
+		return http::html(
 			std::format(
 				"<html><body>"
 				"<h1>Search results</h1>"
@@ -52,15 +41,13 @@ int main() {
 				"<p>Language filter: <strong>{}</strong></p>"
 				"<p><a href='/'>back</a></p>"
 				"</body></html>",
-				q.empty() ? "(none)" : q,
-				lang.empty() ? "any" : lang));
+				q.get().empty() ? "(none)" : q.get(),
+				lang.get().empty() ? "any" : lang.get()));
 	});
 
 	// POST /submit  body: name=...&age=...
-	router.post("/submit", [](HttpRequestView const &req) {
-		auto name = req.form["name"];
-		auto age = req.form["age"];
-		return HttpResponse::html(
+	app.post("/submit", [](http::Form<"name"> name, http::Form<"age", std::uint32_t> age) {
+		return http::html(
 			std::format(
 				"<html><body>"
 				"<h1>Submitted</h1>"
@@ -68,11 +55,10 @@ int main() {
 				"<p>Age: <strong>{}</strong></p>"
 				"<p><a href='/'>back</a></p>"
 				"</body></html>",
-				name.empty() ? "(none)" : name,
-				age.empty() ? "(none)" : age));
+				name.get().empty() ? "(none)" : name.get(),
+				age.get()));
 	});
 
-	HttpServer srv{cfg, std::move(router)};
-	auto const status = srv.run();
-	return status == RunStatus::stopped_normally ? 0 : 1;
+	auto const status = http::run(std::move(app), {.port = 9092});
+	return status == http::RunStatus::stopped_normally ? 0 : 1;
 }
