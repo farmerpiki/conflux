@@ -9,6 +9,20 @@ struct Todo {
 	bool done{};
 };
 
+struct TodoList {
+	std::vector<Todo> items;
+};
+
+struct CreateTodo {
+	std::string title;
+};
+
+struct TodoStore {
+	std::mutex mu;
+	std::vector<Todo> todos;
+	std::int64_t next_id{1};
+};
+
 template<>
 struct JsonMembers<Todo> {
 	static constexpr auto members() {
@@ -21,30 +35,16 @@ struct JsonMembers<Todo> {
 	static constexpr std::string_view type_name() { return "Todo"; }
 };
 
-struct TodoList {
-	std::vector<Todo> items;
-};
-
 template<>
 struct JsonMembers<TodoList> {
 	static constexpr auto members() { return std::tuple{json_member("items", &TodoList::items)}; }
 	static constexpr std::string_view type_name() { return "TodoList"; }
 };
 
-struct CreateTodo {
-	std::string title;
-};
-
 template<>
 struct JsonMembers<CreateTodo> {
 	static constexpr auto members() { return std::tuple{json_member("title", &CreateTodo::title)}; }
 	static constexpr std::string_view type_name() { return "CreateTodo"; }
-};
-
-struct TodoStore {
-	std::mutex mu;
-	std::vector<Todo> todos;
-	std::int64_t next_id{1};
 };
 
 int main() {
