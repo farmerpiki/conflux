@@ -566,6 +566,19 @@ struct JsonCodec<Color> {
 };
 ```
 
+Custom codecs can opt into direct reader decode by adding this overload:
+
+```cpp
+static expected<Color, JsonError> decode(JsonReader& r,
+                                         JsonReader::Event event,
+                                         JsonDecodeOptions const& opts,
+                                         JsonDecodeScratch* scratch);
+```
+
+The overload receives the already-read event for the value. It should consume
+only the remaining events belonging to that value. Types without this overload
+still work through the DOM-shaped `decode(NodeRef)` fallback.
+
 `has_json_codec<T>` (concept) and `has_json_codec_v<T>` (variable template)
 are true when either `JsonMembers<T>` or `JsonCodec<T>` is specialised.
 

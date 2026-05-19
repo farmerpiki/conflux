@@ -129,8 +129,14 @@ The reflection codec requires:
 - aggregate type
 - default-initializable type
 - no manual `JsonMembers<T>` specialization
-- all member types must be supported by `JsonCodec<T>` or by reflected primitive
-  fallback handling
+- member types must be supported by `JsonCodec<T>`, reflected aggregate decode,
+  reflected primitive/string fallback handling, `std::optional<T>`,
+  `std::vector<T>`, or fixed `std::array<T, N>`
+
+For `copy_input = false`, the reflected reader path decodes supported members
+directly from `JsonReader`, including nested reflected aggregates and vector or
+fixed-array members. For `copy_input = true`, the provider keeps the owning DOM
+fallback available.
 
 Non-aggregate types or types with invariants should use a manual `JsonCodec<T>`
 or `JsonMembers<T>` specialization (`json-api.md`, Codec System section).

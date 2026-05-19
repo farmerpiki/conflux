@@ -28,6 +28,13 @@ cmake --build --preset perf-gcc-stdcxx --target conflux_record_benches
 
 Focused debug builds are still available when you need instrumentation or a
 debugger, but do not use sanitizer/debug presets for performance conclusions.
+P2996 reflection benchmarks use the dedicated release lane:
+
+```sh
+cmake --preset release-p2996-gcc
+cmake --build --preset release-p2996-gcc --target conflux_json_reflect_bench
+```
+
 Build all perf-lane benchmark binaries with:
 
 ```sh
@@ -53,6 +60,9 @@ All recordable `conflux_*bench*` binaries implement a standard interface:
   `scripts/bench_record.sh` for auto-discovery.
 - `--json` — outputs NDJSON in the standard shape:
   `{"config":"","variant":"","iterations":N,"total_ns":N,"ns_per_iter":X}`.
+  Benchmarks may add extra fields. JSON serde benchmarks emit
+  `allocations_per_iter` and `allocated_bytes_per_iter` for allocation-aware
+  DOM/direct comparisons.
 
 `--bench-info` JSON shape:
 
@@ -294,6 +304,10 @@ BENCH_REPS=7 scripts/compare_bins_by_bench.sh --yes \
 contains valid adversarial inputs; and `malformed/` contains strict-JSON
 rejection inputs. Keep these fixtures deterministic so benchmark history remains
 comparable.
+
+`conflux_json_bench` includes manual `JsonMembers<T>` DOM/direct decode and
+write rows. `conflux_json_reflect_bench` is built only with
+`CONFLUX_JSON_REFLECT=ON` and reports the matching P2996 reflected rows.
 
 ## Benchmark groups
 
