@@ -2758,6 +2758,13 @@ if(CONFLUX_BUILD_TESTS)
     set_tests_properties(build/package-config PROPERTIES
         LABELS "build;package"
     )
+
+    add_test(NAME build/install-headers
+        COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/check-install-headers.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}")
+    set_tests_properties(build/install-headers PROPERTIES
+        LABELS "build;package;install"
+    )
 endif()
 
 set(CONFLUX_PACKAGE_SMOKE_COMPONENTS "core" CACHE STRING
