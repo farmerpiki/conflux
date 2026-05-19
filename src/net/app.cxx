@@ -1207,6 +1207,16 @@ public:
 					out += json_str(route.auth_policy);
 					out += ',';
 				}
+				if (route.timeout.count() != 0) {
+					out += R"("x-timeout-ms":)";
+					out += std::to_string(route.timeout.count());
+					out += ',';
+				}
+				if (!route.rate_limit.empty()) {
+					out += R"("x-rate-limit":)";
+					out += json_str(route.rate_limit);
+					out += ',';
+				}
 				out += R"("parameters":[)";
 				for (std::size_t i = 0; i < route.path_params.size(); ++i) {
 					if (i != 0) {

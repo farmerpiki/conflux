@@ -435,6 +435,19 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app openapi spec includes route-local policy metadata",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post("/upload", [](http::BodyText) { return http::no_content(); })
+		.timeout(std::chrono::seconds{5})
+		.rate_limit("uploads");
+
+	auto spec = app.openapi_spec();
+	CHECK(spec.find(R"("x-timeout-ms":5000)") != std::string::npos);
+	CHECK(spec.find(R"("x-rate-limit":"uploads")") != std::string::npos);
+}
+
+TEST_CASE(
 	"http facade: app openapi handler serves metadata spec",
 	"[http.facade]") {
 	auto app = http::app();
