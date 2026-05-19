@@ -2345,7 +2345,7 @@ if(CONFLUX_BUILD_EXAMPLES)
 
         add_executable(conflux_http_explicit_offload_example examples/advanced/explicit_offload.cxx)
         target_link_libraries(conflux_http_explicit_offload_example
-            PRIVATE conflux_http_app_json conflux_http_native_json conflux_json conflux_work conflux_options)
+            PRIVATE conflux conflux_work conflux_options)
     endif()
 
     if(TARGET conflux_http_native_json AND TARGET conflux_json)

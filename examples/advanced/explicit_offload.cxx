@@ -5,18 +5,13 @@
 //   curl http://localhost:9111/api/status
 //   curl -X POST http://localhost:9111/api/hash \
 //        -H 'Content-Type: application/json' -d '{"input":"conflux","rounds":200}'
-import conflux.net.app;
-import conflux.types;
+import conflux.http;
 import conflux.json;
-import conflux.net.http.app_json;
-import conflux.net.http.native_json;
-import conflux.net.http.server_types;
 import conflux.work;
 import std;
 
 namespace http = conflux::http;
 namespace json = conflux::json;
-using JsonProvider = conflux::json::boundary::NativeJsonProvider;
 
 struct StatusReply {
 	std::string status;
@@ -68,20 +63,6 @@ struct JsonMembers<HashReply> {
 	static constexpr std::string_view type_name() { return "HashReply"; }
 };
 
-struct ApiError {
-	std::string error;
-};
-
-template<>
-struct JsonMembers<ApiError> {
-	static constexpr auto members() {
-		return std::tuple{
-			json_member("error", &ApiError::error),
-		};
-	}
-	static constexpr std::string_view type_name() { return "ApiError"; }
-};
-
 static std::uint64_t hash_rounds(
 	std::string_view input,
 	std::int64_t rounds) {
@@ -97,18 +78,8 @@ static std::uint64_t hash_rounds(
 	return h;
 }
 
-static HttpResponse json_error(
-	std::string_view message,
-	int status,
-	std::string_view status_text) {
-	return http::json::response_or_internal_error(
-		ApiError{.error = std::string{message}},
-		http::json::ResponseOptions{.status = status, .status_text = status_text});
-}
-
 int main() {
 	auto app = http::App::default_server();
-	auto api = http::json::routes<JsonProvider>(app);
 
 	WorkPool pool{
 		WorkPoolOptions{
@@ -119,27 +90,28 @@ int main() {
 						}
     };
 
-	api.get("/api/status", [] { return StatusReply{.status = "ok", .placement = "ring-thread"}; });
+	app.get("/api/status", [] {
+		return http::Json{
+			StatusReply{.status = "ok", .placement = "ring-thread"}
+        };
+	});
 
-	app.post("/api/hash", [&pool](HttpRequest const &req) -> HttpResponse {
-		auto decoded = json::boundary::decode_native<HashRequest>(req.body);
-		if (!decoded) {
-			return http::json::decode_error_response();
+	app.post("/api/hash", [&pool](http::Json<HashRequest> const &body) -> std::expected<http::Response, http::Problem> {
+		if (body->input.empty()) {
+			return std::unexpected{http::problem::bad_request("invalid_hash_request", "input is required")};
 		}
-		if (decoded->input.empty()) {
-			return json_error("input is required", 422, "Unprocessable Entity");
-		}
-		if (decoded->rounds < 1 || decoded->rounds > 1000) {
-			return json_error("rounds must be between 1 and 1000", 422, "Unprocessable Entity");
+		if (body->rounds < 1 || body->rounds > 1000) {
+			return std::unexpected{
+				http::problem::bad_request("invalid_hash_request", "rounds must be between 1 and 1000")};
 		}
 
-		HashRequest body = std::move(*decoded);
-		return http::defer(pool, [body = std::move(body)] {
+		HashRequest request = *body;
+		return http::offload(pool, [request = std::move(request)] {
 			return http::json::response_or_internal_error(
 				HashReply{
 					.algorithm = "fnv1a64",
-					.rounds = body.rounds,
-					.hash = hash_rounds(body.input, body.rounds),
+					.rounds = request.rounds,
+					.hash = hash_rounds(request.input, request.rounds),
 				});
 		});
 	});
