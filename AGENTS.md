@@ -1,6 +1,7 @@
 communication:clear+precise+succint
 bench run->release
 bench/examples/tests->!sandbox
+build artifacts: use `./scripts/run-build-artifact.sh <artifact>` outside sandbox, prepend `timeout 2s ` when running examples
 sanitizer build/tests->!sandbox (Catch2 discovery executes test bins during build)
 builds: never pass jobs/-j/--parallel; let Ninja/CMake auto-detect jobs; never run independent builds concurrently
 format: run clang-format only on touched C++ source/header files; user may request all C++ source/header files
