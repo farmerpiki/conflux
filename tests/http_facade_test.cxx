@@ -1482,6 +1482,12 @@ TEST_CASE(
 	CHECK(problem.code == "invalid_todo");
 	CHECK(problem.detail == "title is required");
 	CHECK(problem.response.status == kHttpBadRequest);
-	CHECK(problem.response.content_type == "application/json");
+	CHECK(problem.response.content_type == "application/problem+json");
 	CHECK(problem.response.text_body() == R"({"code":"invalid_todo","detail":"title is required"})");
+
+	CHECK(http::problem::not_found("missing", "not found").response.status == kHttpNotFound);
+	CHECK(http::problem::unauthorized("login_required", "sign in").response.status == kHttpUnauthorized);
+	CHECK(http::problem::forbidden("forbidden", "no access").response.status == kHttpForbidden);
+	CHECK(http::problem::unprocessable_entity("invalid_entity", "invalid").response.status == kHttpUnprocessableEntity);
+	CHECK(http::problem::internal_error("internal", "failed").response.status == kHttpInternalServerError);
 }

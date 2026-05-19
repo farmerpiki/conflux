@@ -29,10 +29,9 @@ export namespace conflux::http::problem {
 	std::string_view code,
 	std::string_view detail) {
 	auto body = std::format(R"({{"code":"{}","detail":"{}"}})", json_escape(code), json_escape(detail));
-	return Problem{
-		.response = Response::json(std::move(body), status, std::string{status_text}),
-		.code = std::string{code},
-		.detail = std::string{detail}};
+	auto response = Response::json(std::move(body), status, std::string{status_text});
+	response.content_type = "application/problem+json";
+	return Problem{.response = std::move(response), .code = std::string{code}, .detail = std::string{detail}};
 }
 
 [[nodiscard]] Problem bad_request(
@@ -57,6 +56,30 @@ export namespace conflux::http::problem {
 	std::string_view code,
 	std::string_view detail) {
 	return make(kHttpNotFound, "Not Found", code, detail);
+}
+
+[[nodiscard]] Problem unauthorized(
+	std::string_view code,
+	std::string_view detail) {
+	return make(kHttpUnauthorized, "Unauthorized", code, detail);
+}
+
+[[nodiscard]] Problem forbidden(
+	std::string_view code,
+	std::string_view detail) {
+	return make(kHttpForbidden, "Forbidden", code, detail);
+}
+
+[[nodiscard]] Problem unprocessable_entity(
+	std::string_view code,
+	std::string_view detail) {
+	return make(kHttpUnprocessableEntity, "Unprocessable Entity", code, detail);
+}
+
+[[nodiscard]] Problem internal_error(
+	std::string_view code,
+	std::string_view detail) {
+	return make(kHttpInternalServerError, "Internal Server Error", code, detail);
 }
 
 } // namespace conflux::http::problem
