@@ -12,28 +12,10 @@ import conflux.work;
 import conflux.uring.timeout;
 import conflux.file_io;
 
-using std::exception_ptr;
-using std::function;
-using std::invoke_result_t;
-using std::make_exception_ptr;
-using std::make_shared;
-using std::min;
-using std::move;
-using std::optional;
-using std::rethrow_exception;
-using std::same_as;
-using std::shared_ptr;
-using std::size_t;
-using std::string;
-using std::this_thread;
-using std::uint8_t;
-using std::uint32_t;
-using std::vector;
-using std::deque;
 namespace conflux::db {
 namespace root = conflux::work::root;
 export struct TxOptions {
-	enum class Iso : uint8_t {
+	enum class Iso : std::uint8_t {
 		ReadCommitted,
 		RepeatableRead,
 		Serializable,
@@ -54,9 +36,9 @@ struct awaitable_value<root::Task<T>> {
 
 template<class T>
 using awaitable_value_t = typename awaitable_value<T>::type;
-inline string begin_sql(
+inline std::string begin_sql(
 	TxOptions const &opt) {
-	string s = "BEGIN";
+	std::string s = "BEGIN";
 	switch (opt.iso) {
 	case TxOptions::Iso::RepeatableRead: s += " ISOLATION LEVEL REPEATABLE READ"; break;
 	case TxOptions::Iso::Serializable  : s += " ISOLATION LEVEL SERIALIZABLE"; break;
@@ -74,18 +56,18 @@ inline std::chrono::milliseconds retry_backoff(
 	int attempt) noexcept {
 	constexpr int base_ms = 100;
 	constexpr int cap_ms = 2000;
-	return std::chrono::milliseconds{min(base_ms << min(attempt, 4), cap_ms)};
+	return std::chrono::milliseconds{std::min(base_ms << std::min(attempt, 4), cap_ms)};
 }
 
 } // namespace detail
 export struct PoolConfig {
 	ConnectParams conn{};
-	size_t min_connections{1};
-	size_t max_connections{8};
+	std::size_t min_connections{1};
+	std::size_t max_connections{8};
 	std::chrono::milliseconds acquire_timeout{std::chrono::seconds{5}};
-	function<root::Task<void>(Connection &)> on_acquire{};
+	std::function<root::Task<void>(Connection &)> on_acquire{};
 };
-export class Pool : public enable_shared_from_this<Pool> {
+export class Pool : public std::enable_shared_from_this<Pool> {
 public:
 	class Lease {
 		std::shared_ptr<Pool> pool_{};
@@ -95,8 +77,8 @@ public:
 		Lease(
 			std::shared_ptr<Pool> p,
 			std::shared_ptr<Connection> c) noexcept
-			: pool_{move(p)}
-			, conn_{move(c)} {}
+			: pool_{std::move(p)}
+			, conn_{std::move(c)} {}
 
 	public:
 		Lease() = default;
@@ -106,7 +88,7 @@ public:
 		Lease &operator =(Lease &&) noexcept = default;
 		~Lease() {
 			if (pool_ && conn_) {
-				pool_->return_(move(conn_));
+				pool_->return_(std::move(conn_));
 			}
 		}
 		[[nodiscard]] Connection &operator *() const noexcept { return *conn_; }
@@ -122,14 +104,14 @@ public:
 
 	root::Task<Lease> acquire();
 	void close() noexcept;
-	[[nodiscard]] size_t total() const noexcept { return total_; }
-	[[nodiscard]] size_t idle() const noexcept { return idle_.size(); }
+	[[nodiscard]] std::size_t total() const noexcept { return total_; }
+	[[nodiscard]] std::size_t idle() const noexcept { return idle_.size(); }
 
 private:
 	explicit Pool(
 		PoolConfig cfg) noexcept
-		: cfg_{move(cfg)}
-		, owner_{this_thread::get_id()} {}
+		: cfg_{std::move(cfg)}
+		, owner_{std::this_thread::get_id()} {}
 	void return_(std::shared_ptr<Connection> conn) noexcept;
 	void try_dispatch_waiters_();
 	void grow_if_needed_();
@@ -137,21 +119,21 @@ private:
 
 	PoolConfig cfg_{};
 	thread::id owner_{};
-	vector<std::shared_ptr<Connection>> idle_{};
-	deque<std::shared_ptr<root::TaskSource<Lease>>> waiters_{};
-	size_t total_{0};
+	std::vector<std::shared_ptr<Connection>> idle_{};
+	std::deque<std::shared_ptr<root::TaskSource<Lease>>> waiters_{};
+	std::size_t total_{0};
 	bool closed_{false};
 };
 export template<class Body>
 	requires requires(Body &&b, Connection &c) {
-		typename detail::awaitable_value<invoke_result_t<Body, Connection &>>::type;
+		typename detail::awaitable_value<std::invoke_result_t<Body, Connection &>>::type;
 	}
 auto with_transaction(
 	Connection &c,
 	TxOptions opt,
-	Body &&body) -> root::Task<detail::awaitable_value_t<invoke_result_t<Body, Connection &>>> {
-	using R = detail::awaitable_value_t<invoke_result_t<Body, Connection &>>;
-	string const begin_stmt = detail::begin_sql(opt);
+	Body &&body) -> root::Task<detail::awaitable_value_t<std::invoke_result_t<Body, Connection &>>> {
+	using R = detail::awaitable_value_t<std::invoke_result_t<Body, Connection &>>;
+	std::string const begin_stmt = detail::begin_sql(opt);
 	for (int attempt = 0;; ++attempt) {
 		if (attempt > 0) {
 			if (auto *reader = current_file_reader(); reader != nullptr) {
@@ -163,8 +145,8 @@ auto with_transaction(
 			}
 		}
 		co_await c.query(begin_stmt);
-		exception_ptr err{};
-		if constexpr (same_as<R, void>) {
+		std::exception_ptr err{};
+		if constexpr (std::same_as<R, void>) {
 			try {
 				co_await body(c);
 			} catch (...) { err = current_exception(); }
@@ -173,13 +155,13 @@ auto with_transaction(
 				co_return;
 			}
 		} else {
-			optional<R> result{};
+			std::optional<R> result{};
 			try {
 				result.emplace(co_await body(c));
 			} catch (...) { err = current_exception(); }
 			if (!err) {
 				co_await c.query("COMMIT");
-				co_return move(*result);
+				co_return std::move(*result);
 			}
 		}
 		try {
@@ -188,7 +170,7 @@ auto with_transaction(
 		} catch (...) {}
 		bool const retryable = [&] {
 			try {
-				rethrow_exception(err);
+				std::rethrow_exception(err);
 			} catch (PgError const &e) {
 				return (e.is_serialization() || e.is_deadlock()) && attempt < opt.max_retries;
 			}
@@ -197,21 +179,21 @@ auto with_transaction(
 			return false;
 		}();
 		if (!retryable) {
-			rethrow_exception(err);
+			std::rethrow_exception(err);
 		}
 	}
 }
 export template<class Body>
 	requires requires(Body &&b, Connection &c) {
-		typename detail::awaitable_value<invoke_result_t<Body, Connection &>>::type;
+		typename detail::awaitable_value<std::invoke_result_t<Body, Connection &>>::type;
 	}
 auto with_transaction(
 	Pool &p,
 	TxOptions opt,
-	Body &&body) -> root::Task<detail::awaitable_value_t<invoke_result_t<Body, Connection &>>> {
-	using R = detail::awaitable_value_t<invoke_result_t<Body, Connection &>>;
+	Body &&body) -> root::Task<detail::awaitable_value_t<std::invoke_result_t<Body, Connection &>>> {
+	using R = detail::awaitable_value_t<std::invoke_result_t<Body, Connection &>>;
 	auto lease = co_await p.acquire();
-	if constexpr (same_as<R, void>) {
+	if constexpr (std::same_as<R, void>) {
 		co_await with_transaction(*lease, opt, forward<Body>(body));
 	} else {
 		co_return co_await with_transaction(*lease, opt, forward<Body>(body));
@@ -223,7 +205,7 @@ auto with_transaction(
 
 std::shared_ptr<Pool> Pool::create(
 	PoolConfig cfg) {
-	auto p = std::shared_ptr<Pool>(new Pool{move(cfg)});
+	auto p = std::shared_ptr<Pool>(new Pool{std::move(cfg)});
 	p->grow_if_needed_();
 	return p;
 }
@@ -241,21 +223,21 @@ void Pool::close() noexcept {
 }
 root::Task<Pool::Lease> Pool::acquire() {
 	auto [task, raw_src] = root::make_task_source<Lease>(root::SubmitOptions{.enable_cancellation = false});
-	auto shared_src = make_shared<root::TaskSource<Lease>>(move(raw_src));
+	auto shared_src = std::make_shared<root::TaskSource<Lease>>(std::move(raw_src));
 	if (closed_) {
-		auto _ = shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pool closed"}));
-		return move(task);
+		auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pool closed"}));
+		return std::move(task);
 	}
-	if (this_thread::get_id() != owner_) {
+	if (std::this_thread::get_id() != owner_) {
 		auto _ =
-			shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: pool acquire off owner thread"}));
-		return move(task);
+			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: pool acquire off owner thread"}));
+		return std::move(task);
 	}
 	if (!idle_.empty()) {
-		auto conn = move(idle_.back());
+		auto conn = std::move(idle_.back());
 		idle_.pop_back();
-		dispatch_lease_(shared_src, move(conn));
-		return move(task);
+		dispatch_lease_(shared_src, std::move(conn));
+		return std::move(task);
 	}
 	if (total_ < cfg_.max_connections) {
 		++total_;
@@ -264,20 +246,20 @@ root::Task<Pool::Lease> Pool::acquire() {
 		   std::shared_ptr<root::TaskSource<Lease>> shared_src,
 		   root::Task<std::shared_ptr<Connection>> conn_task) -> root::Task<void> {
 			try {
-				auto conn = co_await move(conn_task);
+				auto conn = co_await std::move(conn_task);
 				if (self->closed_) {
 					--self->total_;
 					auto _ = shared_src->try_set_cancelled(root::work_errc::cancelled_requested);
 					co_return;
 				}
-				self->dispatch_lease_(shared_src, move(conn));
+				self->dispatch_lease_(shared_src, std::move(conn));
 			} catch (...) {
 				--self->total_;
 				auto _ = shared_src->try_set_exception(current_exception());
 			}
 		}(self, shared_src, Connection::connect(cfg_.conn))
 														.detach();
-		return move(task);
+		return std::move(task);
 	}
 	waiters_.push_back(shared_src);
 	if (cfg_.acquire_timeout.count() > 0) {
@@ -285,8 +267,8 @@ root::Task<Pool::Lease> Pool::acquire() {
 			auto self = shared_from_this();
 			[](std::shared_ptr<root::TaskSource<Lease>> shared_src, root::Task<void> to_task) -> root::Task<void> {
 				try {
-					co_await move(to_task);
-					auto _ = shared_src->try_set_exception(make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
+					co_await std::move(to_task);
+					auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.db: acquire timeout"}));
 				} catch (...) {}
 			}(shared_src,
 			  conflux::uring::async_timeout(
@@ -297,7 +279,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 																						.detach();
 		}
 	}
-	return move(task);
+	return std::move(task);
 }
 // NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.
 void Pool::return_(
@@ -310,7 +292,7 @@ void Pool::return_(
 			--total_;
 		}
 	} else {
-		idle_.push_back(move(conn));
+		idle_.push_back(std::move(conn));
 	}
 	try {
 		try_dispatch_waiters_();
@@ -322,11 +304,11 @@ void Pool::return_(
 // stack cycle in steady state.
 void Pool::try_dispatch_waiters_() {
 	while (!waiters_.empty() && !idle_.empty()) {
-		auto src = move(waiters_.front());
+		auto src = std::move(waiters_.front());
 		waiters_.pop_front();
-		auto conn = move(idle_.back());
+		auto conn = std::move(idle_.back());
 		idle_.pop_back();
-		dispatch_lease_(src, move(conn));
+		dispatch_lease_(src, std::move(conn));
 	}
 }
 void Pool::grow_if_needed_() {
@@ -335,12 +317,12 @@ void Pool::grow_if_needed_() {
 		auto self = shared_from_this();
 		[](std::shared_ptr<Pool> self, root::Task<std::shared_ptr<Connection>> conn_task) -> root::Task<void> {
 			try {
-				auto conn = co_await move(conn_task);
+				auto conn = co_await std::move(conn_task);
 				if (self->closed_) {
 					--self->total_;
 					co_return;
 				}
-				self->idle_.push_back(move(conn));
+				self->idle_.push_back(std::move(conn));
 				self->try_dispatch_waiters_();
 			} catch (...) { --self->total_; }
 		}(self, Connection::connect(cfg_.conn))
@@ -355,7 +337,7 @@ void Pool::dispatch_lease_(
 		// If commit fails (waiter timed out), ~Lease fires → return_ → try_dispatch_waiters_.
 		auto _ = src->try_set_value(
 			root::Success<Lease>{
-				Lease{shared_from_this(), move(conn)}
+				Lease{shared_from_this(), std::move(conn)}
         });
 		return;
 	}
@@ -366,7 +348,7 @@ void Pool::dispatch_lease_(
 		   std::shared_ptr<Connection> conn,
 		   root::Task<void> on_acq_task) -> root::Task<void> {
 			try {
-				co_await move(on_acq_task);
+				co_await std::move(on_acq_task);
 				if (self->closed_) {
 					conn->close();
 					--self->total_;
@@ -375,7 +357,7 @@ void Pool::dispatch_lease_(
 				}
 				auto _ = src->try_set_value(
 					root::Success<Lease>{
-						Lease{self, move(conn)}
+						Lease{self, std::move(conn)}
                 });
 			} catch (Cancelled const &) {
 				conn->close();

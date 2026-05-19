@@ -6,18 +6,6 @@ export module conflux.db.params;
 import std;
 import conflux.types;
 
-using std::array;
-using std::bit_cast;
-using std::copy_n;
-using std::int32_t;
-using std::int64_t;
-using std::ptrdiff_t;
-using std::size_t;
-using std::string_view;
-using std::to_chars;
-using std::uint32_t;
-using std::uint64_t;
-using std::vector;
 export namespace conflux::db::oids {
 
 inline constexpr Oid bool_ = 16;
@@ -32,45 +20,45 @@ inline constexpr Oid float8 = 701;
 export namespace conflux::db {
 
 class Params {
-	static constexpr size_t kInline = 8;
+	static constexpr std::size_t kInline = 8;
 
 	// SoA inline metadata for ≤ kInline params
-	array<ptrdiff_t, kInline> ioff_{};
-	array<int, kInline> ilen_{};
-	array<int, kInline> ifmt_{};
-	array<Oid, kInline> ioid_{};
+	std::array<std::ptrdiff_t, kInline> ioff_{};
+	std::array<int, kInline> ilen_{};
+	std::array<int, kInline> ifmt_{};
+	std::array<Oid, kInline> ioid_{};
 
 	// Overflow metadata (populated from 0..N-1 when count_ > kInline)
-	vector<ptrdiff_t> voff_{};
-	vector<int> vlen_{};
-	vector<int> vfmt_{};
-	vector<Oid> void_{};
+	std::vector<std::ptrdiff_t> voff_{};
+	std::vector<int> vlen_{};
+	std::vector<int> vfmt_{};
+	std::vector<Oid> void_{};
 
 	// Contiguous data arena: text bytes (with NUL) + binary values
-	vector<char> arena_{};
+	std::vector<char> arena_{};
 
 	// Pointer table (rebuilt from arena offsets at values() time)
-	mutable array<char const *, kInline> pvi_{};
-	mutable vector<char const *> pvv_{};
+	mutable std::array<char const *, kInline> pvi_{};
+	mutable std::vector<char const *> pvv_{};
 	mutable bool dirty_{true};
 
-	size_t count_{0};
+	std::size_t count_{0};
 	int result_fmt_{0};
 	// ---- internal helpers ----------------------------------------
 
-	ptrdiff_t push_text_(
-		string_view v) {
-		auto const off = static_cast<ptrdiff_t>(arena_.size());
+	std::ptrdiff_t push_text_(
+		std::string_view v) {
+		auto const off = static_cast<std::ptrdiff_t>(arena_.size());
 		arena_.resize(arena_.size() + v.size() + 1);
 		std::copy_n(v.data(), v.size(), arena_.data() + off);
-		arena_[static_cast<size_t>(off) + v.size()] = '\0';
+		arena_[static_cast<std::size_t>(off) + v.size()] = '\0';
 		dirty_ = true;
 		return off;
 	}
-	ptrdiff_t push_bytes_(
+	std::ptrdiff_t push_bytes_(
 		void const *data,
-		size_t n) {
-		auto const off = static_cast<ptrdiff_t>(arena_.size());
+		std::size_t n) {
+		auto const off = static_cast<std::ptrdiff_t>(arena_.size());
 		arena_.resize(arena_.size() + n);
 		std::copy_n(static_cast<char const *>(data), n, arena_.data() + off);
 		dirty_ = true;
@@ -81,7 +69,7 @@ class Params {
 		vlen_.reserve(kInline + 1);
 		vfmt_.reserve(kInline + 1);
 		void_.reserve(kInline + 1);
-		for (size_t i = 0; i < kInline; ++i) {
+		for (std::size_t i = 0; i < kInline; ++i) {
 			voff_.push_back(ioff_[i]);
 			vlen_.push_back(ilen_[i]);
 			vfmt_.push_back(ifmt_[i]);
@@ -89,7 +77,7 @@ class Params {
 		}
 	}
 	void push_(
-		ptrdiff_t off,
+		std::ptrdiff_t off,
 		int len,
 		int fmt,
 		Oid oid) {
@@ -113,25 +101,25 @@ class Params {
 	template<class T>
 	static T to_net_(
 		T v) noexcept {
-		if constexpr (endian::native == endian::little) {
-			return byteswap(v);
+		if constexpr (std::endian::native == std::endian::little) {
+			return std::byteswap(v);
 		}
 		return v;
 	}
-	// NOLINTNEXTLINE(bugprone-exception-escape) — vector ops; libpq accessors documented as noexcept-equivalent.
+	// NOLINTNEXTLINE(bugprone-exception-escape) — std::vector ops; libpq accessors documented as noexcept-equivalent.
 	void rebuild_() const noexcept {
 		if (!dirty_) {
 			return;
 		}
 		auto const *base = arena_.data();
-		auto resolve = [base](ptrdiff_t off) noexcept -> char const * { return off < 0 ? nullptr : base + off; };
+		auto resolve = [base](std::ptrdiff_t off) noexcept -> char const * { return off < 0 ? nullptr : base + off; };
 		if (count_ <= kInline) {
-			for (size_t i = 0; i < count_; ++i) {
+			for (std::size_t i = 0; i < count_; ++i) {
 				pvi_[i] = resolve(ioff_[i]);
 			}
 		} else {
 			pvv_.resize(count_);
-			for (size_t i = 0; i < count_; ++i) {
+			for (std::size_t i = 0; i < count_; ++i) {
 				pvv_[i] = resolve(voff_[i]);
 			}
 		}
@@ -180,39 +168,39 @@ public:
 		return *this;
 	}
 	Params &add(
-		string_view v) {
+		std::string_view v) {
 		auto const off = push_text_(v);
 		push_(off, static_cast<int>(v.size()), 0, 0);
 		return *this;
 	}
 	Params &add(
 		char const *v) {
-		return add(string_view{v != nullptr ? v : ""});
+		return add(std::string_view{v != nullptr ? v : ""});
 	}
 	Params &add(
 		std::int64_t v) {
-		array<char, 24> buf{};
-		auto [p, _] = to_chars(buf.data(), buf.data() + buf.size(), v);
-		return add(string_view{buf.data(), static_cast<size_t>(p - buf.data())});
+		std::array<char, 24> buf{};
+		auto [p, _] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
+		return add(std::string_view{buf.data(), static_cast<std::size_t>(p - buf.data())});
 	}
 	Params &add(
 		std::int32_t v) {
-		array<char, 16> buf{};
-		auto [p, _] = to_chars(buf.data(), buf.data() + buf.size(), v);
-		return add(string_view{buf.data(), static_cast<size_t>(p - buf.data())});
+		std::array<char, 16> buf{};
+		auto [p, _] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
+		return add(std::string_view{buf.data(), static_cast<std::size_t>(p - buf.data())});
 	}
 	Params &add(
 		double v) {
-		array<char, 32> buf{};
-		auto [p, _] = to_chars(buf.data(), buf.data() + buf.size(), v);
-		return add(string_view{buf.data(), static_cast<size_t>(p - buf.data())});
+		std::array<char, 32> buf{};
+		auto [p, _] = std::to_chars(buf.data(), buf.data() + buf.size(), v);
+		return add(std::string_view{buf.data(), static_cast<std::size_t>(p - buf.data())});
 	}
 	Params &add(
 		bool v) {
-		return add(v ? string_view{"t"} : string_view{"f"});
+		return add(v ? std::string_view{"t"} : std::string_view{"f"});
 	}
 	Params &add_json(
-		string_view j) {
+		std::string_view j) {
 		return add(j);
 	}
 	// ---- binary bind ---------------------------------------------
@@ -220,7 +208,7 @@ public:
 	Params &add_binary(
 		std::int64_t v,
 		Oid oid = conflux::db::oids::int8) {
-		auto const nv = to_net_(static_cast<uint64_t>(v));
+		auto const nv = to_net_(static_cast<std::uint64_t>(v));
 		auto const off = push_bytes_(&nv, sizeof(nv));
 		push_(off, static_cast<int>(sizeof(nv)), 1, oid);
 		return *this;
@@ -228,7 +216,7 @@ public:
 	Params &add_binary(
 		std::int32_t v,
 		Oid oid = conflux::db::oids::int4) {
-		auto const nv = to_net_(static_cast<uint32_t>(v));
+		auto const nv = to_net_(static_cast<std::uint32_t>(v));
 		auto const off = push_bytes_(&nv, sizeof(nv));
 		push_(off, static_cast<int>(sizeof(nv)), 1, oid);
 		return *this;
@@ -236,13 +224,13 @@ public:
 	Params &add_binary(
 		double v,
 		Oid oid = conflux::db::oids::float8) {
-		auto const nv = to_net_(bit_cast<uint64_t>(v));
+		auto const nv = to_net_(std::bit_cast<std::uint64_t>(v));
 		auto const off = push_bytes_(&nv, sizeof(nv));
 		push_(off, static_cast<int>(sizeof(nv)), 1, oid);
 		return *this;
 	}
 	Params &add_binary(
-		span<byte const> bytes,
+		span<std::byte const> bytes,
 		Oid oid = conflux::db::oids::bytea) {
 		auto const off = push_bytes_(bytes.data(), bytes.size());
 		push_(off, static_cast<int>(bytes.size()), 1, oid);

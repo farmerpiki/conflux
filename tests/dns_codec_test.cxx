@@ -10,12 +10,6 @@ import conflux.types;
 import conflux.work;
 import conflux.net.dns;
 
-using std::nullopt;
-using std::string;
-using std::string_view;
-using std::uint16_t;
-using std::uint8_t;
-using std::vector;
 using namespace conflux::net::dns;
 using namespace conflux::net::dns::codec;
 // ---------------------------------------------------------------------------
@@ -52,8 +46,8 @@ TEST_CASE(
 TEST_CASE(
 	"dns: hostname enforces 63-byte label cap",
 	"[dns][validator]") {
-	string const ok63(63, 'a');
-	string const bad64(64, 'a');
+	std::string const ok63(63, 'a');
+	std::string const bad64(64, 'a');
 	CHECK(is_valid_hostname(ok63 + ".com"));
 	CHECK_FALSE(is_valid_hostname(bad64 + ".com"));
 }
@@ -61,20 +55,20 @@ TEST_CASE(
 	"dns: hostname enforces 253-byte total cap",
 	"[dns][validator]") {
 	// 4 × 63-char labels + 3 dots = 255 chars — too long.
-	string const lab(63, 'a');
+	std::string const lab(63, 'a');
 	auto const long_name = lab + "." + lab + "." + lab + "." + lab;
 	CHECK(long_name.size() == 255);
 	CHECK_FALSE(is_valid_hostname(long_name));
 
 	// 3 × 63 + 3 dots + 59-char label = 251 chars — OK.
-	auto const ok_name = lab + "." + lab + "." + lab + "." + string(59, 'a');
+	auto const ok_name = lab + "." + lab + "." + lab + "." + std::string(59, 'a');
 	CHECK(ok_name.size() == 251);
 	CHECK(is_valid_hostname(ok_name));
 }
 TEST_CASE(
 	"dns: hostname rejects NUL byte",
 	"[dns][validator]") {
-	string nul = "abc";
+	std::string nul = "abc";
 	nul.push_back('\0');
 	nul += "xyz.com";
 	CHECK_FALSE(is_valid_hostname(nul));
@@ -157,7 +151,7 @@ TEST_CASE(
 	CHECK(ntohs(sin6.sin6_port) == 443);
 }
 TEST_CASE(
-	"dns: ip literal returns nullopt for hostnames",
+	"dns: ip literal returns std::nullopt for hostnames",
 	"[dns][literal]") {
 	CHECK_FALSE(try_parse_ip_literal("example.com", 80).has_value());
 	CHECK_FALSE(try_parse_ip_literal("", 80).has_value());
@@ -169,7 +163,7 @@ TEST_CASE(
 TEST_CASE(
 	"dns: encode_query basic A record without EDNS0",
 	"[dns][codec]") {
-	auto wire = encode_query(0x1234, "example.com", QType::a, nullopt);
+	auto wire = encode_query(0x1234, "example.com", QType::a, std::nullopt);
 
 	// Header: id(2) + flags(2) + 4×std::uint16_t counts = 12.
 	REQUIRE(wire.size() >= 12);
@@ -189,9 +183,9 @@ TEST_CASE(
 	// QNAME: 7 example 3 com 0 → 13 bytes.
 	REQUIRE(wire.size() == 12 + 13 + 4);
 	CHECK(wire[12] == 7);
-	CHECK(string_view(reinterpret_cast<char const *>(&wire[13]), 7) == "example");
+	CHECK(std::string_view(reinterpret_cast<char const *>(&wire[13]), 7) == "example");
 	CHECK(wire[20] == 3);
-	CHECK(string_view(reinterpret_cast<char const *>(&wire[21]), 3) == "com");
+	CHECK(std::string_view(reinterpret_cast<char const *>(&wire[21]), 3) == "com");
 	CHECK(wire[24] == 0);
 
 	// QTYPE/QCLASS
@@ -213,7 +207,7 @@ TEST_CASE(
 	CHECK(wire[11] == 0x01); // arcount=1 (OPT)
 
 	// Round-trip via decode_message.
-	auto msg = decode_message(span<std::uint8_t const>{wire.data(), wire.size()});
+	auto msg = decode_message(std::span<std::uint8_t const>{wire.data(), wire.size()});
 	CHECK(msg.header.id == 0xBEEF);
 	CHECK(msg.header.qdcount == 1);
 	CHECK(msg.header.arcount == 1);
@@ -230,8 +224,8 @@ TEST_CASE(
 	"[dns][codec]") {
 	// Encoder copies bytes as-is. Tests doc this contract; the resolver
 	// lowercases before encoding.
-	auto wire = encode_query(1, "Example.COM", QType::a, nullopt);
-	auto msg = decode_message(span<std::uint8_t const>{wire.data(), wire.size()});
+	auto wire = encode_query(1, "Example.COM", QType::a, std::nullopt);
+	auto msg = decode_message(std::span<std::uint8_t const>{wire.data(), wire.size()});
 	REQUIRE(msg.questions.size() == 1);
 	// decode_name() lowercases as it reads.
 	CHECK(msg.questions[0].name == "example.com");
@@ -239,14 +233,14 @@ TEST_CASE(
 TEST_CASE(
 	"dns: encode_query rejects oversize label",
 	"[dns][codec]") {
-	string const bad = string(64, 'a') + ".com";
-	CHECK_THROWS_AS(encode_query(1, bad, QType::a, nullopt), DnsError);
+	std::string const bad = std::string(64, 'a') + ".com";
+	CHECK_THROWS_AS(encode_query(1, bad, QType::a, std::nullopt), DnsError);
 }
 TEST_CASE(
 	"dns: encode_query underscored labels accepted",
 	"[dns][codec]") {
-	auto wire = encode_query(7, "_dmarc.example.com", QType::txt, nullopt);
-	auto msg = decode_message(span<std::uint8_t const>{wire.data(), wire.size()});
+	auto wire = encode_query(7, "_dmarc.example.com", QType::txt, std::nullopt);
+	auto msg = decode_message(std::span<std::uint8_t const>{wire.data(), wire.size()});
 	REQUIRE(msg.questions.size() == 1);
 	CHECK(msg.questions[0].name == "_dmarc.example.com");
 }
@@ -260,7 +254,7 @@ TEST_CASE(
 	// Hand-craft a NOERROR response: id=1, QR|RD|RA, qdcount=1, ancount=1.
 	// Question: example.com IN A
 	// Answer:   pointer-to-question-name, type A, class IN, ttl 300, rdlen 4, 93.184.216.34
-	vector<std::uint8_t> wire = {
+	std::vector<std::uint8_t> wire = {
 		// header
 		0x00,
 		0x01, // id
@@ -338,7 +332,7 @@ TEST_CASE(
 TEST_CASE(
 	"dns: decode AAAA response",
 	"[dns][codec]") {
-	vector<std::uint8_t> wire = {
+	std::vector<std::uint8_t> wire = {
 		0x00, 0x02, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 2,    'v',  '6',  1,    'x',
 		0, // v6.x — labels: "v6" then "x"
 		0x00, 0x1C, 0x00,
@@ -366,7 +360,7 @@ TEST_CASE(
 	"dns: decode rejects forward pointer",
 	"[dns][codec][safety]") {
 	// Pointer at offset 12 points to offset 14 (forward) — must be rejected.
-	vector<std::uint8_t> wire = {
+	std::vector<std::uint8_t> wire = {
 		0x00,
 		0x01,
 		0x81,
@@ -394,7 +388,7 @@ TEST_CASE(
 	// Two-pointer cycle: at offset 12 a pointer to 14, at offset 14 a pointer to 12.
 	// The "no forward refs" rule (target < cursor) catches this; first pointer
 	// targets offset 14 from cursor 12 → invalid.
-	vector<std::uint8_t> wire(12 + 2 + 2);
+	std::vector<std::uint8_t> wire(12 + 2 + 2);
 	wire[0] = 0x00;
 	wire[1] = 0x01;
 	wire[2] = 0x81;
@@ -410,7 +404,7 @@ TEST_CASE(
 TEST_CASE(
 	"dns: decode rejects RDLENGTH overrun",
 	"[dns][codec][safety]") {
-	vector<std::uint8_t> wire = {
+	std::vector<std::uint8_t> wire = {
 		0x00, 0x01, 0x81, 0x80, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 1,    'a',  0,
 		0x00, 0x01, 0x00, 0x01, 0xC0, 0x0C, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00, 0x3C, 0xFF,
 		0xFF, // RDLENGTH 65535 —
@@ -423,7 +417,7 @@ TEST_CASE(
 	"[dns][codec][safety]") {
 	// Length byte 0x40 = 64 (b01000000) — collides with reserved flag bits;
 	// codec must reject.
-	vector<std::uint8_t> wire(12);
+	std::vector<std::uint8_t> wire(12);
 	wire[0] = 0x00;
 	wire[1] = 0x01;
 	wire[2] = 0x81;
@@ -437,7 +431,7 @@ TEST_CASE(
 TEST_CASE(
 	"dns: decode tolerates 63-byte label",
 	"[dns][codec]") {
-	vector<std::uint8_t> wire(12);
+	std::vector<std::uint8_t> wire(12);
 	wire[0] = 0x00;
 	wire[1] = 0x01;
 	wire[2] = 0x81;
@@ -453,7 +447,7 @@ TEST_CASE(
 	wire.push_back(0x01); // QCLASS IN
 	auto msg = decode_message(wire);
 	REQUIRE(msg.questions.size() == 1);
-	CHECK(msg.questions[0].name == string(63, 'a'));
+	CHECK(msg.questions[0].name == std::string(63, 'a'));
 }
 // ---------------------------------------------------------------------------
 // rcode_to_error — RCODE → DnsErrorKind mapping

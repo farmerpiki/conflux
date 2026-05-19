@@ -15,28 +15,12 @@ import conflux.work;
 import conflux.socket_io;
 import conflux.socket_io.coro;
 
-using std::array;
-using std::atomic;
-using std::atomic_flag;
-using std::conditional_t;
-using std::exception_ptr;
-using std::is_void_v;
-using std::make_shared;
-using std::monostate;
-using std::optional;
-using std::runtime_error;
-using std::size_t;
-using std::span;
-using std::unique_ptr;
-using std::uint32_t;
-using std::uint64_t;
-using std::uint8_t;
 namespace {
 
-constexpr uint64_t pack_ud(
-	uint32_t slot,
-	uint32_t gen) noexcept {
-	return (static_cast<uint64_t>(gen) << 32U) | slot;
+constexpr std::uint64_t pack_ud(
+	std::uint32_t slot,
+	std::uint32_t gen) noexcept {
+	return (static_cast<std::uint64_t>(gen) << 32U) | slot;
 }
 template<typename T>
 T block_on_ring(
@@ -46,33 +30,33 @@ T block_on_ring(
 	std::chrono::milliseconds budget = std::chrono::seconds{5}) {
 	using namespace conflux::work::root;
 	struct Slot {
-		atomic_flag done{};
-		exception_ptr err{};
-		[[no_unique_address]] conditional_t<is_void_v<T>, monostate, optional<T>> value{};
+		std::atomic_flag done{};
+		std::exception_ptr err{};
+		[[no_unique_address]] std::conditional_t<std::is_void_v<T>, std::monostate, std::optional<T>> value{};
 	};
-	auto slot = make_shared<Slot>();
-	auto jh = make_shared<TaskJoinHandle<T>>(into_join_handle(move(task)));
+	auto slot = std::make_shared<Slot>();
+	auto jh = std::make_shared<TaskJoinHandle<T>>(into_join_handle(std::move(task)));
 	jh->control().set_on_ready_or_run([slot, jh]() noexcept {
 		try {
-			auto outcome = blocking_join(move(*jh));
+			auto outcome = blocking_join(std::move(*jh));
 			if (outcome.is_failure()) {
-				slot->err = move(outcome).failure().error;
+				slot->err = std::move(outcome).failure().error;
 			} else if (outcome.is_cancelled()) {
-				slot->err = make_exception_ptr(runtime_error{"task cancelled"});
-			} else if constexpr (!is_void_v<T>) {
-				slot->value.emplace(move(outcome).success().value);
+				slot->err = make_exception_ptr(std::runtime_error{"task cancelled"});
+			} else if constexpr (!std::is_void_v<T>) {
+				slot->value.emplace(std::move(outcome).success().value);
 			}
 		} catch (...) { slot->err = current_exception(); }
-		slot->done.test_and_set(memory_order_release);
+		slot->done.test_and_set(std::memory_order_release);
 	});
 	auto const deadline = std::chrono::steady_clock::now() + budget;
-	while (!slot->done.test(memory_order_acquire)) {
+	while (!slot->done.test(std::memory_order_acquire)) {
 		::io_uring_cqe *cqe = nullptr;
 		__kernel_timespec ts{.tv_sec = 1, .tv_nsec = 0};
 		int const rc = ::io_uring_submit_and_wait_timeout(ring, &cqe, 1, &ts, nullptr);
 		if (rc == -ETIME) {
 			if (std::chrono::steady_clock::now() > deadline) {
-				throw runtime_error{"block_on_ring: budget exhausted"};
+				throw std::runtime_error{"block_on_ring: budget exhausted"};
 			}
 			continue;
 		}
@@ -82,23 +66,23 @@ T block_on_ring(
 		if (rc >= 0 && cqe == nullptr) {
 			continue;
 		}
-		array<::io_uring_cqe *, 32> batch{};
+		std::array<::io_uring_cqe *, 32> batch{};
 		for (;;) {
 			unsigned const n = ::io_uring_peek_batch_cqe(ring, batch.data(), 32u);
 			if (n == 0) {
 				break;
 			}
 			for (unsigned i = 0; i < n; ++i) {
-				auto const *c = batch[static_cast<size_t>(i)];
+				auto const *c = batch[static_cast<std::size_t>(i)];
 				auto ud = c->user_data;
 				completions.dispatch(
-					static_cast<uint32_t>(ud & 0xFFFFFFFFU),
-					static_cast<uint32_t>(ud >> 32U),
+					static_cast<std::uint32_t>(ud & 0xFFFFFFFFU),
+					static_cast<std::uint32_t>(ud >> 32U),
 					c->res,
 					c->flags);
 			}
 			::io_uring_cq_advance(ring, n);
-			if (slot->done.test(memory_order_acquire)) {
+			if (slot->done.test(std::memory_order_acquire)) {
 				break;
 			}
 		}
@@ -106,8 +90,8 @@ T block_on_ring(
 	if (slot->err) {
 		rethrow_exception(slot->err);
 	}
-	if constexpr (!is_void_v<T>) {
-		return move(*slot->value);
+	if constexpr (!std::is_void_v<T>) {
+		return std::move(*slot->value);
 	}
 }
 struct RingFixture {
@@ -116,10 +100,10 @@ struct RingFixture {
 	SocketTaskRing task_ring;
 	bool ring_ok{false};
 	RingFixture()
-		: task_ring{SocketRawRing{&ring}, completions, [](uint32_t s, uint32_t g) noexcept -> uint64_t {
+		: task_ring{SocketRawRing{&ring}, completions, [](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
 						return pack_ud(s, g);
 					}} {}
-	static unique_ptr<RingFixture> make(
+	static std::unique_ptr<RingFixture> make(
 		unsigned entries = 64) {
 		auto fx = make_unique<RingFixture>();
 		if (::io_uring_queue_init(entries, &fx->ring, 0) < 0) {
@@ -141,10 +125,10 @@ struct RingFixture {
 	T run(
 		conflux::work::root::Task<T> task,
 		std::chrono::milliseconds budget = std::chrono::seconds{5}) {
-		return block_on_ring(&ring, completions, move(task), budget);
+		return block_on_ring(&ring, completions, std::move(task), budget);
 	}
 };
-unique_ptr<RingFixture> require_ring_fixture(
+std::unique_ptr<RingFixture> require_ring_fixture(
 	unsigned entries = 64) {
 	auto fx = RingFixture::make(entries);
 	INFO("conflux requires a host that permits io_uring_queue_init");
@@ -160,12 +144,12 @@ sockaddr_storage loopback_addr(
 	sin->sin_port = htons(port);
 	return ss;
 }
-// Minimal TCP echo server running in a jthread.
+// Minimal TCP echo server running in a std::jthread.
 // accept → read → write (echo) in a loop until client closes.
 class TcpEchoServer {
 	int listen_fd_{-1};
 	uint16_t port_{0};
-	jthread thread_;
+	std::jthread thread_;
 
 public:
 	TcpEchoServer() {
@@ -193,7 +177,7 @@ public:
 		socklen_t len = sizeof(bound);
 		::getsockname(listen_fd_, reinterpret_cast<sockaddr *>(&bound), &len);
 		port_ = ntohs(bound.sin_port);
-		thread_ = jthread{[this](stop_token st) {
+		thread_ = std::jthread{[this](std::stop_token st) {
 			while (!st.stop_requested()) {
 				struct timeval tv{0, 20000}; // 20ms poll
 				::setsockopt(listen_fd_, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
@@ -348,8 +332,8 @@ TEST_CASE(
 	"[socket_task_ring]") {
 	auto fx = require_ring_fixture();
 	// encode(slot=5, gen=7) should produce (7<<32)|5
-	uint64_t const encoded = fx->task_ring.encode(5, 7);
-	CHECK(encoded == ((static_cast<uint64_t>(7) << 32U) | 5U));
+	std::uint64_t const encoded = fx->task_ring.encode(5, 7);
+	CHECK(encoded == ((static_cast<std::uint64_t>(7) << 32U) | 5U));
 }
 // ---------------------------------------------------------------------------
 // TcpStream — tcp_connect
@@ -413,18 +397,18 @@ TEST_CASE(
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 
-	std::array<uint8_t, 13> msg{};
-	for (uint8_t i = 0; i < 13; ++i) {
+	std::array<std::uint8_t, 13> msg{};
+	for (std::uint8_t i = 0; i < 13; ++i) {
 		msg[i] = i;
 	}
 
-	fx->run(stream.async_write_all_borrowed(span<uint8_t const>{msg.data(), msg.size()}));
+	fx->run(stream.async_write_all_borrowed(std::span<std::uint8_t const>{msg.data(), msg.size()}));
 
-	std::array<uint8_t, 13> rx{};
+	std::array<std::uint8_t, 13> rx{};
 	std::size_t received = 0;
 	while (received < msg.size()) {
 		std::size_t const n =
-			fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
+			fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, msg.size() - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -454,7 +438,7 @@ TEST_CASE(
 	::getsockname(listen_fd, reinterpret_cast<sockaddr *>(&sa), &len);
 	uint16_t const port = ntohs(sa.sin_port);
 
-	jthread closer{[listen_fd] {
+	std::jthread closer{[listen_fd] {
 		int const c = ::accept(listen_fd, nullptr, nullptr);
 		if (c >= 0) {
 			::close(c); // immediately close
@@ -470,8 +454,8 @@ TEST_CASE(
 	::close(listen_fd);
 
 	// read should return 0 (EOF)
-	std::array<uint8_t, 64> buf{};
-	std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
+	std::array<std::uint8_t, 64> buf{};
+	std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{buf.data(), buf.size()}));
 	CHECK(n == 0);
 	fx->run(stream.async_close());
 }
@@ -508,13 +492,13 @@ TEST_CASE(
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	std::array<uint8_t, 8> msg{1, 2, 3, 4, 5, 6, 7, 8};
-	fx->run(stream.async_write_all_copy(span<uint8_t const>{msg.data(), msg.size()}));
-	std::array<uint8_t, 8> rx{};
+	std::array<std::uint8_t, 8> msg{1, 2, 3, 4, 5, 6, 7, 8};
+	fx->run(stream.async_write_all_copy(std::span<std::uint8_t const>{msg.data(), msg.size()}));
+	std::array<std::uint8_t, 8> rx{};
 	std::size_t received = 0;
 	while (received < msg.size()) {
 		std::size_t const n =
-			fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, msg.size() - received}));
+			fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, msg.size() - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -553,7 +537,7 @@ TEST_CASE(
 	SocketTaskRing direct_ring{
 		SocketRawRing{&fx->ring},
 		fx->completions,
-		[](uint32_t s, uint32_t g) noexcept -> uint64_t { return pack_ud(s, g); },
+		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); },
 		ropts};
 	int err_code = 0;
 	bool got = false;
@@ -580,7 +564,7 @@ TEST_CASE(
 	SocketTaskRing direct_ring{
 		SocketRawRing{&fx->ring},
 		fx->completions,
-		[](uint32_t s, uint32_t g) noexcept -> uint64_t { return pack_ud(s, g); },
+		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); },
 		ropts};
 	auto stream = fx->run(async_tcp_connect(direct_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	CHECK(stream.valid());
@@ -621,9 +605,9 @@ TEST_CASE(
 	REQUIRE(stream.valid());
 	fx->run(stream.async_close());
 	int err = 0;
-	array<uint8_t, 16> buf{};
+	std::array<std::uint8_t, 16> buf{};
 	try {
-		fx->run(stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
+		fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{buf.data(), buf.size()}));
 	} catch (IoError const &e) { err = e.code().value(); }
 	CHECK(err == EBADF);
 }
@@ -641,16 +625,16 @@ TEST_CASE(
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	// echo server only sends when we send; no data pending → read will block
-	array<uint8_t, 64> buf{};
+	std::array<std::uint8_t, 64> buf{};
 	// coroutine starts eagerly — SQE added to ring immediately
-	auto read_task = stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()});
+	auto read_task = stream.async_recv_borrowed(std::span<std::uint8_t>{buf.data(), buf.size()});
 	// cancel from ring owner thread (inline path): fires cancel hook →
 	// submits read+cancel SQEs together via ring.raw().submit()
 	read_task.cancel();
 	bool got_cancel = false;
 	int err = 0;
 	try {
-		fx->run(move(read_task));
+		fx->run(std::move(read_task));
 	} catch (IoError const &e) { err = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -680,19 +664,19 @@ TEST_CASE(
 	SocketTaskRing ring2{
 		SocketRawRing{&fx->ring},
 		fx->completions,
-		[](uint32_t s, uint32_t g) noexcept -> uint64_t { return pack_ud(s, g); },
+		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); },
 		opts};
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto stream = fx->run(async_tcp_connect(ring2, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	array<uint8_t, 64> buf{};
-	auto read_task = stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()});
+	std::array<std::uint8_t, 64> buf{};
+	auto read_task = stream.async_recv_borrowed(std::span<std::uint8_t>{buf.data(), buf.size()});
 	// cancel → cancel hook → submit_on_owner → lambda returns false
 	// with fix: try_set_cancelled() fires immediately
 	read_task.cancel();
 	bool got_cancel = false;
 	try {
-		fx->run(move(read_task));
+		fx->run(std::move(read_task));
 	} catch (exception const &) { got_cancel = true; }
 	CHECK(owner_called);
 	CHECK(got_cancel);
@@ -730,11 +714,11 @@ TEST_CASE(
 	CHECK(timed_out);
 }
 // ---------------------------------------------------------------------------
-// TcpStream — async_write_copy safe after source span is destroyed
+// TcpStream — async_write_copy safe after source std::span is destroyed
 // ---------------------------------------------------------------------------
 
 TEST_CASE(
-	"tcp: async_write_copy safe after source span destroyed",
+	"tcp: async_write_copy safe after source std::span destroyed",
 	"[tcp][uring]") {
 	TcpEchoServer server;
 	REQUIRE(server.ok());
@@ -745,20 +729,20 @@ TEST_CASE(
 	conflux::work::root::Task<void> copy_task{};
 	{
 		// source lives in this inner scope only
-		array<uint8_t, 8> msg{1, 2, 3, 4, 5, 6, 7, 8};
+		std::array<std::uint8_t, 8> msg{1, 2, 3, 4, 5, 6, 7, 8};
 		// async_write_all_copy copies into an internal holder immediately
-		copy_task = stream.async_write_all_copy(span<uint8_t const>{msg.data(), msg.size()});
+		copy_task = stream.async_write_all_copy(std::span<std::uint8_t const>{msg.data(), msg.size()});
 		// msg destroyed here
 	}
-	fx->run(move(copy_task)); // must not UB — holder owns the data
-	array<uint8_t, 8> rx{};
+	fx->run(std::move(copy_task)); // must not UB — holder owns the data
+	std::array<std::uint8_t, 8> rx{};
 	std::size_t received = 0;
 	while (received < 8) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 8u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 8u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
-	array<uint8_t, 8> expected{1, 2, 3, 4, 5, 6, 7, 8};
+	std::array<std::uint8_t, 8> expected{1, 2, 3, 4, 5, 6, 7, 8};
 	CHECK(memcmp(rx.data(), expected.data(), 8) == 0);
 	fx->run(stream.async_close());
 }
@@ -814,7 +798,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), std::chrono::seconds{5});
+		fx->run(std::move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -848,13 +832,13 @@ TEST_CASE(
 		::io_uring_cqe *cqe = nullptr;
 		__kernel_timespec ts{.tv_sec = 5, .tv_nsec = 0};
 		::io_uring_submit_and_wait_timeout(&fx->ring, &cqe, 1, &ts, nullptr);
-		array<::io_uring_cqe *, 1> batch{};
+		std::array<::io_uring_cqe *, 1> batch{};
 		unsigned const n = ::io_uring_peek_batch_cqe(&fx->ring, batch.data(), 1u);
 		if (n > 0) {
 			auto const *c = batch[0];
 			fx->completions.dispatch(
-				static_cast<uint32_t>(c->user_data & 0xFFFFFFFFU),
-				static_cast<uint32_t>(c->user_data >> 32U),
+				static_cast<std::uint32_t>(c->user_data & 0xFFFFFFFFU),
+				static_cast<std::uint32_t>(c->user_data >> 32U),
 				c->res,
 				c->flags);
 			::io_uring_cq_advance(&fx->ring, 1);
@@ -865,7 +849,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), std::chrono::seconds{5});
+		fx->run(std::move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -891,7 +875,7 @@ TEST_CASE(
 	SocketTaskRing ring2{
 		SocketRawRing{&fx->ring},
 		fx->completions,
-		[](uint32_t s, uint32_t g) noexcept -> uint64_t { return pack_ud(s, g); },
+		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return pack_ud(s, g); },
 		opts};
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto task = async_tcp_connect(ring2, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in)));
@@ -900,7 +884,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task));
+		fx->run(std::move(task));
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -935,7 +919,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), std::chrono::seconds{10});
+		fx->run(std::move(task), std::chrono::seconds{10});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -957,8 +941,8 @@ TEST_CASE(
 	REQUIRE(stream.valid());
 	// after SHUT_WR the server sees EOF, closes its side → our read returns 0
 	fx->run(stream.async_shutdown(SHUT_WR));
-	array<uint8_t, 64> buf{};
-	std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{buf.data(), buf.size()}));
+	std::array<std::uint8_t, 64> buf{};
+	std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{buf.data(), buf.size()}));
 	CHECK(n == 0);
 	fx->run(stream.async_close());
 }
@@ -975,19 +959,19 @@ TEST_CASE(
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	array<uint8_t, 8> src{1, 2, 3, 4, 5, 6, 7, 8};
-	auto task = stream.async_write_all_copy(span<uint8_t const>{src.data(), src.size()});
+	std::array<std::uint8_t, 8> src{1, 2, 3, 4, 5, 6, 7, 8};
+	auto task = stream.async_write_all_copy(std::span<std::uint8_t const>{src.data(), src.size()});
 	// mutate source — task must have copied it already
 	src.fill(0xCC);
-	fx->run(move(task));
-	array<uint8_t, 8> rx{};
+	fx->run(std::move(task));
+	std::array<std::uint8_t, 8> rx{};
 	std::size_t received = 0;
 	while (received < 8) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 8u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 8u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
-	array<uint8_t, 8> const expected{1, 2, 3, 4, 5, 6, 7, 8};
+	std::array<std::uint8_t, 8> const expected{1, 2, 3, 4, 5, 6, 7, 8};
 	CHECK(memcmp(rx.data(), expected.data(), 8) == 0);
 	fx->run(stream.async_close());
 }
@@ -1004,16 +988,16 @@ TEST_CASE(
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	std::vector<uint8_t> payload{10, 20, 30, 40, 50, 60};
-	fx->run(stream.async_write_all_owned(move(payload)));
-	array<uint8_t, 6> rx{};
+	std::vector<std::uint8_t> payload{10, 20, 30, 40, 50, 60};
+	fx->run(stream.async_write_all_owned(std::move(payload)));
+	std::array<std::uint8_t, 6> rx{};
 	std::size_t received = 0;
 	while (received < 6) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 6u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 6u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
-	array<uint8_t, 6> const expected{10, 20, 30, 40, 50, 60};
+	std::array<std::uint8_t, 6> const expected{10, 20, 30, 40, 50, 60};
 	CHECK(memcmp(rx.data(), expected.data(), 6) == 0);
 	fx->run(stream.async_close());
 }
@@ -1031,11 +1015,11 @@ TEST_CASE(
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	std::string msg = "hello";
-	fx->run(stream.async_write_all_owned(move(msg)));
-	array<uint8_t, 5> rx{};
+	fx->run(stream.async_write_all_owned(std::move(msg)));
+	std::array<std::uint8_t, 5> rx{};
 	std::size_t received = 0;
 	while (received < 5) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 5u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 5u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -1055,8 +1039,8 @@ TEST_CASE(
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	array<uint8_t, 4> msg{0xDE, 0xAD, 0xBE, 0xEF};
-	fx->run(stream.async_write_all_borrowed(span<uint8_t const>{msg.data(), msg.size()}));
+	std::array<std::uint8_t, 4> msg{0xDE, 0xAD, 0xBE, 0xEF};
+	fx->run(stream.async_write_all_borrowed(std::span<std::uint8_t const>{msg.data(), msg.size()}));
 	// async_recv_owned with a generous max — result should be exactly what echo returned
 	auto buf = fx->run(stream.async_recv_owned(256));
 	REQUIRE(!buf.empty());
@@ -1091,20 +1075,20 @@ TEST_CASE(
 	dsin->sin_port = htons(srv_port);
 
 	UdpSocket sock = UdpSocket::ephemeral(fx->task_ring, AF_INET);
-	array<uint8_t, 4> payload{1, 2, 3, 4};
+	std::array<std::uint8_t, 4> payload{1, 2, 3, 4};
 	auto task = sock.send_to_copy(
-		span<uint8_t const>{payload.data(), payload.size()},
+		std::span<std::uint8_t const>{payload.data(), payload.size()},
 		dst,
 		static_cast<socklen_t>(sizeof(sockaddr_in)));
 	// mutate source — send_to_copy must have copied
 	payload.fill(0xCC);
-	std::size_t const sent = fx->run(move(task));
+	std::size_t const sent = fx->run(std::move(task));
 	CHECK(sent == 4);
 	// verify server received the original bytes, not the mutated 0xCC
-	array<uint8_t, 16> rbuf{};
+	std::array<std::uint8_t, 16> rbuf{};
 	ssize_t const got = ::recv(srv, rbuf.data(), rbuf.size(), 0);
 	REQUIRE(got == 4);
-	array<uint8_t, 4> const orig{1, 2, 3, 4};
+	std::array<std::uint8_t, 4> const orig{1, 2, 3, 4};
 	CHECK(memcmp(rbuf.data(), orig.data(), 4) == 0);
 	::close(srv);
 }
@@ -1121,17 +1105,17 @@ TEST_CASE(
 	sockaddr_storage addr = loopback_addr(server.port());
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
-	std::vector<uint8_t> payload{0xAA, 0xBB, 0xCC};
-	std::size_t const sent = fx->run(stream.async_write_owned(move(payload)));
+	std::vector<std::uint8_t> payload{0xAA, 0xBB, 0xCC};
+	std::size_t const sent = fx->run(stream.async_write_owned(std::move(payload)));
 	CHECK(sent == 3);
-	array<uint8_t, 3> rx{};
+	std::array<std::uint8_t, 3> rx{};
 	std::size_t received = 0;
 	while (received < 3) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 3u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 3u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
-	array<uint8_t, 3> const expected{0xAA, 0xBB, 0xCC};
+	std::array<std::uint8_t, 3> const expected{0xAA, 0xBB, 0xCC};
 	CHECK(memcmp(rx.data(), expected.data(), 3) == 0);
 	fx->run(stream.async_close());
 }
@@ -1149,12 +1133,12 @@ TEST_CASE(
 	auto stream = fx->run(async_tcp_connect(fx->task_ring, AF_INET, addr, static_cast<socklen_t>(sizeof(sockaddr_in))));
 	REQUIRE(stream.valid());
 	std::string msg = "XY";
-	std::size_t const sent = fx->run(stream.async_write_owned(move(msg)));
+	std::size_t const sent = fx->run(stream.async_write_owned(std::move(msg)));
 	CHECK(sent == 2);
-	array<uint8_t, 2> rx{};
+	std::array<std::uint8_t, 2> rx{};
 	std::size_t received = 0;
 	while (received < 2) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(span<uint8_t>{rx.data() + received, 2u - received}));
+		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 2u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -1202,7 +1186,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), std::chrono::seconds{5});
+		fx->run(std::move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -1225,7 +1209,7 @@ TEST_CASE(
 	SocketTaskRing dr{
 		SocketRawRing{&fx->ring},
 		fx->completions,
-		[](uint32_t s, uint32_t g) noexcept -> uint64_t { return (static_cast<uint64_t>(g) << 32U) | s; },
+		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return (static_cast<std::uint64_t>(g) << 32U) | s; },
 		ropts};
 	int err_code = 0;
 	try {
@@ -1247,14 +1231,14 @@ TEST_CASE(
 	for (int i = 0; i < 100; ++i) {
 		// start accept task (no connect yet — accept SQE in SQ, not submitted)
 		auto task = async_tcp_accept(l, fx->task_ring);
-		// connect from a jthread so ring pump can run concurrently
-		jthread t{[&l] {
+		// connect from a std::jthread so ring pump can run concurrently
+		std::jthread t{[&l] {
 			int fd = connect_v4_blocking(l.port());
 			if (fd >= 0) {
 				::close(fd);
 			}
 		}};
-		TcpStream s = fx->run(move(task), std::chrono::seconds{5});
+		TcpStream s = fx->run(std::move(task), std::chrono::seconds{5});
 		CHECK(s.valid());
 		fx->run(s.async_close(), std::chrono::seconds{5});
 		t.join();
@@ -1274,15 +1258,15 @@ TEST_CASE(
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
 	std::size_t const pending_before = fx->completions.pending();
-	auto counter = make_shared<atomic<int>>(0);
+	auto counter = std::make_shared<std::atomic<int>>(0);
 	using Task_v = conflux::work::root::Task<void>;
 	std::function<Task_v(TcpStream)> handler = [counter](TcpStream s) -> Task_v {
 		counter->fetch_add(1, memory_order_relaxed);
 		co_await s.async_close();
 	};
-	auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, move(handler));
+	auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, std::move(handler));
 	// connect 100 clients then cancel — all backlogged before pump runs
-	jthread t{[&l] {
+	std::jthread t{[&l] {
 		for (int i = 0; i < 100; ++i) {
 			int fd = connect_v4_blocking(l.port());
 			if (fd >= 0) {
@@ -1295,7 +1279,7 @@ TEST_CASE(
 	task.cancel();
 	// task resolves (cancelled or error) — not hung; if it hangs, timeout throws
 	try {
-		fx->run(move(task), std::chrono::seconds{30});
+		fx->run(std::move(task), std::chrono::seconds{30});
 	} catch (...) {};
 	CHECK(fx->completions.pending() == pending_before);
 	int const fd_after = count_proc_fds();
@@ -1313,7 +1297,7 @@ TEST_CASE(
 	int const fd_before = count_proc_fds();
 	using Task_v2 = conflux::work::root::Task<void>;
 	std::function<Task_v2(TcpStream)> handler2 = [](TcpStream s) -> Task_v2 { co_await s.async_close(); };
-	auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, move(handler2));
+	auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, std::move(handler2));
 	// 3 connections then cancel
 	for (int i = 0; i < 3; ++i) {
 		int fd = connect_v4_blocking(l.port());
@@ -1325,7 +1309,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), std::chrono::seconds{10});
+		fx->run(std::move(task), std::chrono::seconds{10});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -1346,14 +1330,14 @@ TEST_CASE(
 		TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 		using Task_v3 = conflux::work::root::Task<void>;
 		std::function<Task_v3(TcpStream)> handler3 = [](TcpStream s) -> Task_v3 { co_await s.async_close(); };
-		auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, move(handler3));
+		auto task = async_tcp_accept_multishot(l, fx->task_ring, {}, std::move(handler3));
 		int fd = connect_v4_blocking(l.port());
 		if (fd >= 0) {
 			::close(fd);
 		}
 		task.cancel();
 		try {
-			fx->run(move(task), std::chrono::seconds{10});
+			fx->run(std::move(task), std::chrono::seconds{10});
 		} catch (...) {}
 		// l destroyed at end of scope — task already resolved, no UAF
 	}
@@ -1390,7 +1374,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), std::chrono::seconds{5});
+		fx->run(std::move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -1418,7 +1402,7 @@ TEST_CASE(
 	SocketTaskRing ring2{
 		SocketRawRing{&fx->ring},
 		fx->completions,
-		[](uint32_t s, uint32_t g) noexcept -> uint64_t { return (static_cast<uint64_t>(g) << 32U) | s; },
+		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return (static_cast<std::uint64_t>(g) << 32U) | s; },
 		opts};
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
@@ -1432,7 +1416,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), std::chrono::seconds{5});
+		fx->run(std::move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}
@@ -1461,13 +1445,13 @@ TEST_CASE(
 	SocketTaskRing ring2{
 		SocketRawRing{&fx->ring},
 		fx->completions,
-		[](uint32_t s, uint32_t g) noexcept -> uint64_t { return (static_cast<uint64_t>(g) << 32U) | s; },
+		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return (static_cast<std::uint64_t>(g) << 32U) | s; },
 		opts};
 	auto l = make_unique<TcpListener>(TcpListenerOptions{.bind = TcpBindAddress::loopback_v4});
 	int const fd_before = count_proc_fds();
 	using Task_v4 = conflux::work::root::Task<void>;
 	std::function<Task_v4(TcpStream)> handler4 = [](TcpStream s) -> Task_v4 { co_await s.async_close(); };
-	auto task = async_tcp_accept_multishot(*l, ring2, {}, move(handler4));
+	auto task = async_tcp_accept_multishot(*l, ring2, {}, std::move(handler4));
 	task.cancel();
 	CHECK(owner_called);
 	// destroy listener — kernel delivers terminal error CQE for the multishot op
@@ -1475,7 +1459,7 @@ TEST_CASE(
 	bool got_cancel = false;
 	int err_code = 0;
 	try {
-		fx->run(move(task), std::chrono::seconds{5});
+		fx->run(std::move(task), std::chrono::seconds{5});
 	} catch (IoError const &e) { err_code = e.code().value(); } catch (exception const &) {
 		got_cancel = true;
 	}

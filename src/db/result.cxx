@@ -7,33 +7,20 @@ import std;
 import conflux.types;
 import conflux.db.types;
 
-using std::array;
-using std::errc;
-using std::from_chars;
-using std::forward_iterator_tag;
-using std::index_sequence;
-using std::make_index_sequence;
-using std::nullopt;
-using std::optional;
-using std::ptrdiff_t;
-using std::size_t;
-using std::string;
-using std::string_view;
-using std::tuple;
 namespace conflux::db {
 namespace detail {
 
-// PQfnumber needs a NUL-terminated C string. Postgres NAMEDATALEN is 64,
+// PQfnumber needs a NUL-terminated C std::string. Postgres NAMEDATALEN is 64,
 // so a 128-byte stack buffer covers any real column name without heap alloc.
 // Names longer than that cannot exist in a real result, so report not-found.
 inline int fnumber_sv_(
 	PGresult const *res,
-	string_view col) noexcept {
-	constexpr size_t kStackBuf = 128;
+	std::string_view col) noexcept {
+	constexpr std::size_t kStackBuf = 128;
 	if (col.size() >= kStackBuf) {
 		return -1;
 	}
-	array<char, kStackBuf> buf{};
+	std::array<char, kStackBuf> buf{};
 	std::ranges::copy(col, buf.begin());
 	buf[col.size()] = '\0';
 	return ::PQfnumber(res, buf.data());
@@ -60,13 +47,13 @@ public:
 		Column c) const noexcept {
 		return is_null(c.idx);
 	}
-	[[nodiscard]] string_view get(
+	[[nodiscard]] std::string_view get(
 		int c) const noexcept {
 		char const *p = ::PQgetvalue(res_, row_, c);
-		auto const n = static_cast<size_t>(::PQgetlength(res_, row_, c));
+		auto const n = static_cast<std::size_t>(::PQgetlength(res_, row_, c));
 		return {p != nullptr ? p : "", n};
 	}
-	[[nodiscard]] string_view get(
+	[[nodiscard]] std::string_view get(
 		Column c) const noexcept {
 		return get(c.idx);
 	}
@@ -74,11 +61,11 @@ public:
 		int c) const noexcept {
 		return ::PQgetlength(res_, row_, c);
 	}
-	[[nodiscard]] string_view get(
-		string_view col) const {
+	[[nodiscard]] std::string_view get(
+		std::string_view col) const {
 		int const idx = detail::fnumber_sv_(res_, col);
 		if (idx < 0) {
-			throw PgError{format("column not found: {}", col)};
+			throw PgError{std::format("column not found: {}", col)};
 		}
 		return get(idx);
 	}
@@ -91,33 +78,33 @@ public:
 		return as<T>(c.idx);
 	}
 	template<class T>
-	[[nodiscard]] optional<T> as_opt(
+	[[nodiscard]] std::optional<T> as_opt(
 		int c) const {
 		if (is_null(c)) {
-			return nullopt;
+			return std::nullopt;
 		}
 		return as<T>(c);
 	}
 	template<class T>
-	[[nodiscard]] optional<T> as_opt(
+	[[nodiscard]] std::optional<T> as_opt(
 		Column c) const {
 		return as_opt<T>(c.idx);
 	}
 	template<class... Ts>
-	[[nodiscard]] tuple<Ts...> as_tuple(
+	[[nodiscard]] std::tuple<Ts...> as_tuple(
 		int start = 0) const {
-		return [&]<size_t... Is>(index_sequence<Is...>) {
-			return tuple<Ts...>{as<Ts>(start + static_cast<int>(Is))...};
-		}(make_index_sequence<sizeof...(Ts)>{});
+		return [&]<std::size_t... Is>(std::index_sequence<Is...>) {
+			return std::tuple<Ts...>{as<Ts>(start + static_cast<int>(Is))...};
+		}(std::make_index_sequence<sizeof...(Ts)>{});
 	}
 };
 template<>
-inline string Row::as<string>(
+inline std::string Row::as<std::string>(
 	int c) const {
-	return string{get(c)};
+	return std::string{get(c)};
 }
 template<>
-inline string_view Row::as<string_view>(
+inline std::string_view Row::as<std::string_view>(
 	int c) const {
 	return get(c);
 }
@@ -128,9 +115,9 @@ inline std::int64_t Row::as<std::int64_t>(
 	std::int64_t v = 0;
 	auto const *first = sv.data();
 	auto const *last = first + sv.size();
-	auto [p, ec] = from_chars(first, last, v);
-	if (ec != errc{} || p != last) {
-		throw PgError{format("int64 parse failed: {}", sv)};
+	auto [p, ec] = std::from_chars(first, last, v);
+	if (ec != std::errc{} || p != last) {
+		throw PgError{std::format("int64 parse failed: {}", sv)};
 	}
 	return v;
 }
@@ -141,9 +128,9 @@ inline std::int32_t Row::as<std::int32_t>(
 	std::int32_t v = 0;
 	auto const *first = sv.data();
 	auto const *last = first + sv.size();
-	auto [p, ec] = from_chars(first, last, v);
-	if (ec != errc{} || p != last) {
-		throw PgError{format("int32 parse failed: {}", sv)};
+	auto [p, ec] = std::from_chars(first, last, v);
+	if (ec != std::errc{} || p != last) {
+		throw PgError{std::format("int32 parse failed: {}", sv)};
 	}
 	return v;
 }
@@ -154,9 +141,9 @@ inline double Row::as<double>(
 	double v = 0;
 	auto const *first = sv.data();
 	auto const *last = first + sv.size();
-	auto [p, ec] = from_chars(first, last, v);
-	if (ec != errc{} || p != last) {
-		throw PgError{format("double parse failed: {}", sv)};
+	auto [p, ec] = std::from_chars(first, last, v);
+	if (ec != std::errc{} || p != last) {
+		throw PgError{std::format("double parse failed: {}", sv)};
 	}
 	return v;
 }
@@ -170,7 +157,7 @@ inline bool Row::as<bool>(
 	if (sv == "f" || sv == "false" || sv == "0") {
 		return false;
 	}
-	throw PgError{format("bool parse failed: {}", sv)};
+	throw PgError{std::format("bool parse failed: {}", sv)};
 }
 export class Result {
 	PGResultPtr res_{};
@@ -196,25 +183,25 @@ public:
 	}
 	[[nodiscard]] int rows() const noexcept { return res_ ? ::PQntuples(res_.get()) : 0; }
 	[[nodiscard]] int cols() const noexcept { return res_ ? ::PQnfields(res_.get()) : 0; }
-	[[nodiscard]] string_view column_name(
+	[[nodiscard]] std::string_view column_name(
 		int c) const noexcept {
 		char const *p = res_ ? ::PQfname(res_.get(), c) : nullptr;
-		return p != nullptr ? string_view{p} : string_view{};
+		return p != nullptr ? std::string_view{p} : std::string_view{};
 	}
 	[[nodiscard]] int column_index(
-		string_view name) const noexcept {
+		std::string_view name) const noexcept {
 		if (!res_) {
 			return -1;
 		}
 		return detail::fnumber_sv_(res_.get(), name);
 	}
 	[[nodiscard]] Column column(
-		string_view name) const noexcept {
+		std::string_view name) const noexcept {
 		return Column{column_index(name)};
 	}
-	[[nodiscard]] string_view command_tag() const noexcept {
+	[[nodiscard]] std::string_view command_tag() const noexcept {
 		char const *p = res_ ? ::PQcmdTuples(res_.get()) : nullptr;
-		return p != nullptr ? string_view{p} : string_view{};
+		return p != nullptr ? std::string_view{p} : std::string_view{};
 	}
 	[[nodiscard]] Row operator [](
 		int r) const noexcept {
@@ -225,9 +212,9 @@ public:
 		int row_{0};
 
 	public:
-		using iterator_category = forward_iterator_tag;
+		using iterator_category = std::forward_iterator_tag;
 		using value_type = Row;
-		using difference_type = ptrdiff_t;
+		using difference_type = std::ptrdiff_t;
 		using pointer = void;
 		using reference = Row;
 

@@ -5,10 +5,6 @@ export module conflux.db.types;
 
 import std;
 
-using std::move;
-using std::runtime_error;
-using std::string;
-using std::unique_ptr;
 namespace conflux::db {
 
 export struct PGConnDeleter {
@@ -27,20 +23,20 @@ export struct PGResultDeleter {
 		}
 	}
 };
-export using PGConnPtr = unique_ptr<PGconn, PGConnDeleter>;
-export using PGResultPtr = unique_ptr<PGresult, PGResultDeleter>;
-export struct PgError final : runtime_error {
-	string sqlstate{};
-	string detail{};
-	string hint{};
-	string where{};
+export using PGConnPtr = std::unique_ptr<PGconn, PGConnDeleter>;
+export using PGResultPtr = std::unique_ptr<PGresult, PGResultDeleter>;
+export struct PgError final : std::runtime_error {
+	std::string sqlstate{};
+	std::string detail{};
+	std::string hint{};
+	std::string where{};
 	ExecStatusType status{PGRES_FATAL_ERROR};
 	explicit PgError(
-		string const &msg,
-		string state = {},
+		std::string const &msg,
+		std::string state = {},
 		ExecStatusType st = PGRES_FATAL_ERROR)
-		: runtime_error{msg}
-		, sqlstate{move(state)}
+		: std::runtime_error{msg}
+		, sqlstate{std::move(state)}
 		, status{st} {}
 	[[nodiscard]] bool is_unique_violation() const noexcept { return sqlstate == "23505"; }
 	[[nodiscard]] bool is_serialization() const noexcept { return sqlstate == "40001"; }
