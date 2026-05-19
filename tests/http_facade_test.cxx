@@ -234,6 +234,18 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app openapi spec includes JSON request bodies",
+	"[http.facade]") {
+	auto app = http::app();
+	app.post_body<FacadeAnswer>("/answers", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
+
+	auto spec = app.openapi_spec();
+	CHECK(spec.find(R"("requestBody")") != std::string::npos);
+	CHECK(spec.find(R"("application/json")") != std::string::npos);
+	CHECK(spec.find(R"("application/problem+json")") != std::string::npos);
+}
+
+TEST_CASE(
 	"http facade: app openapi spec groups methods by path",
 	"[http.facade]") {
 	auto app = http::app();
@@ -556,6 +568,11 @@ TEST_CASE(
 	auto ok = app.router().dispatch(req);
 	CHECK(ok.status == kHttpOk);
 	CHECK(ok.text_body() == R"({"value":"ok"})");
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].consumes == std::vector<std::string>{"application/json", "application/problem+json"});
+	CHECK(routes[0].produces == std::vector<std::string>{"application/json"});
 }
 
 TEST_CASE(

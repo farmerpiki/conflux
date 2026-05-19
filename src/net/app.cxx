@@ -250,6 +250,8 @@ struct AppRouteInfo {
 	std::vector<std::string> extractors;
 	std::vector<std::string> path_params;
 	std::size_t required_state_count{};
+	std::vector<std::string> consumes;
+	std::vector<std::string> produces;
 	std::size_t max_body_size{};
 	std::chrono::milliseconds timeout{};
 	std::string rate_limit;
@@ -583,6 +585,8 @@ class App {
 		std::vector<std::string> path_params;
 		std::map<std::string, std::string> path_param_types;
 		std::vector<std::type_index> required_states;
+		std::vector<std::string> consumes;
+		std::vector<std::string> produces;
 		std::shared_ptr<std::size_t> max_body_size = std::make_shared<std::size_t>(0);
 		std::chrono::milliseconds timeout{};
 		std::string rate_limit;
@@ -985,6 +989,8 @@ public:
 					.extractors = route.extractors,
 					.path_params = route.path_params,
 					.required_state_count = route.required_states.size(),
+					.consumes = route.consumes,
+					.produces = route.produces,
 					.max_body_size = *route.max_body_size,
 					.timeout = route.timeout,
 					.rate_limit = route.rate_limit,
@@ -1099,7 +1105,19 @@ public:
 					out += json_str(route.path_params[i]);
 					out += R"(,"in":"path","required":true,"schema":{"type":"string"}})";
 				}
-				out += R"(],"responses":{"200":{"description":"OK"}}})";
+				out += ']';
+				if (!route.consumes.empty()) {
+					out += R"(,"requestBody":{"content":{)";
+					for (std::size_t i = 0; i < route.consumes.size(); ++i) {
+						if (i != 0) {
+							out += ',';
+						}
+						out += json_str(route.consumes[i]);
+						out += R"(:{"schema":{"type":"object"}})";
+					}
+					out += "}}";
+				}
+				out += R"(,"responses":{"200":{"description":"OK"}}})";
 			}
 			out += "}";
 		}
@@ -1707,6 +1725,8 @@ public:
 		using Fn = std::decay_t<F>;
 		using Args = typename detail::CallableArgs<Fn>::type;
 		record_route_metadata<Args>(method, path, "json_body", loc);
+		route_metadata_.back().consumes = {"application/json", "application/problem+json"};
+		route_metadata_.back().produces = {"application/json"};
 		auto max_body_size = route_metadata_.back().max_body_size;
 		auto json_options = json_options_;
 		router_.add(
