@@ -2333,7 +2333,7 @@ if(CONFLUX_BUILD_EXAMPLES)
     target_link_libraries(conflux_http_client_builder_example PRIVATE conflux conflux_options)
 
     if(TARGET conflux_http_app_json AND TARGET conflux_http_native_json AND TARGET conflux_json)
-        add_executable(conflux_api_typed_json_example examples/api_typed_json.cxx)
+        add_executable(conflux_api_typed_json_example examples/advanced/manual_json_members.cxx)
         target_link_libraries(conflux_api_typed_json_example
             PRIVATE conflux conflux_options)
 
@@ -2343,7 +2343,7 @@ if(CONFLUX_BUILD_EXAMPLES)
     endif()
 
     if(TARGET conflux_http_native_json AND TARGET conflux_json)
-        add_executable(conflux_http_client_json_example examples/http_client_json.cxx)
+        add_executable(conflux_http_client_json_example examples/advanced/http_client_json.cxx)
         target_link_libraries(conflux_http_client_json_example
             PRIVATE conflux_http_native_json conflux_json conflux_options)
     endif()
@@ -2380,13 +2380,13 @@ if(CONFLUX_BUILD_EXAMPLES)
     add_executable(conflux_json_config_example examples/json_config.cxx)
     target_link_libraries(conflux_json_config_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_json_stream_ingest_example examples/json_stream_ingest.cxx)
+    add_executable(conflux_json_stream_ingest_example examples/advanced/json_stream_ingest.cxx)
     target_link_libraries(conflux_json_stream_ingest_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_json_diagnostics_example examples/json_diagnostics.cxx)
+    add_executable(conflux_json_diagnostics_example examples/advanced/json_diagnostics.cxx)
     target_link_libraries(conflux_json_diagnostics_example PRIVATE conflux conflux_options)
 
-    add_executable(conflux_json_transform_example examples/json_transform.cxx)
+    add_executable(conflux_json_transform_example examples/advanced/json_transform.cxx)
     target_link_libraries(conflux_json_transform_example PRIVATE conflux conflux_options)
 endif() # CONFLUX_BUILD_EXAMPLES
 
@@ -2788,7 +2788,7 @@ if(CONFLUX_BUILD_EXAMPLES AND CONFLUX_WANT_FILE_IO)
 endif()
 
 if(CONFLUX_BUILD_EXAMPLES AND CONFLUX_JSON_REFLECT AND TARGET conflux_json_reflect)
-    add_executable(conflux_json_reflect_example examples/json_reflect.cxx)
+    add_executable(conflux_json_reflect_example examples/advanced/json_reflect.cxx)
     target_link_libraries(conflux_json_reflect_example
         PRIVATE conflux_json_reflect_provider conflux_json_reflect conflux_json conflux_types conflux_options)
 endif()
