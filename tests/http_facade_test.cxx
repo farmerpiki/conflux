@@ -387,6 +387,23 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app route metadata records JSON responses",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get("/answer", [] { return http::Json{FacadeAnswer{.value = "ok"}}; });
+	app.get("/expected", []() -> std::expected<http::Json<FacadeAnswer>, http::Problem> {
+		return http::Json{FacadeAnswer{.value = "ok"}};
+	});
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 2);
+	CHECK(routes[0].produces == std::vector<std::string>{"application/json"});
+	CHECK(routes[1].produces == std::vector<std::string>{"application/json"});
+	auto spec = app.openapi_spec();
+	CHECK(spec.find(R"("application/json")") != std::string::npos);
+}
+
+TEST_CASE(
 	"http facade: app openapi spec groups methods by path",
 	"[http.facade]") {
 	auto app = http::app();

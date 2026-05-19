@@ -513,6 +513,25 @@ concept BasicAuthArg = std::same_as<std::remove_cvref_t<Arg>, BasicAuth>;
 template<class Arg, class Body>
 concept RawJsonBodyArg = std::same_as<std::remove_cvref_t<Arg>, std::remove_cvref_t<Body>>;
 
+template<class T>
+struct ExpectedValueType {};
+
+template<class T, class E>
+struct ExpectedValueType<std::expected<T, E>> {
+	using type = T;
+};
+
+template<class T>
+struct ResponseMetadataType {
+	using type = std::remove_cvref_t<T>;
+};
+
+template<class T>
+	requires requires { typename ExpectedValueType<std::remove_cvref_t<T>>::type; }
+struct ResponseMetadataType<T> {
+	using type = typename ExpectedValueType<std::remove_cvref_t<T>>::type;
+};
+
 template<class Args, std::size_t... Is>
 consteval bool has_state_arg_impl(
 	std::index_sequence<Is...>) {
@@ -707,6 +726,7 @@ public:
 								 { into_response(fn()) } -> std::same_as<HttpResponse>;
 							 }) {
 			record_route_metadata<std::tuple<>>(method, path, "app", loc);
+			record_return_metadata<std::invoke_result_t<Fn &>>();
 			router_.add(method, path, [fn = std::decay_t<F>(std::forward<F>(handler))](RequestView const &) mutable {
 				return into_response(fn());
 			});
@@ -714,6 +734,7 @@ public:
 								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
 							 }) {
 			record_route_metadata<std::tuple<RequestView>>(method, path, "app", loc);
+			record_return_metadata<std::invoke_result_t<Fn &, RequestView const &>>();
 			router_.add(method, path, [fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
 				return into_response(fn(req));
 			});
@@ -721,6 +742,7 @@ public:
 								 { into_response(fn(req)) } -> std::same_as<HttpResponse>;
 							 }) {
 			record_route_metadata<std::tuple<Request>>(method, path, "app", loc);
+			record_return_metadata<std::invoke_result_t<Fn &, Request const &>>();
 			router_.add(method, path, [fn = Fn(std::forward<F>(handler))](RequestView const &req) mutable {
 				auto owned = req.to_owned();
 				return into_response(fn(owned));
@@ -1213,7 +1235,19 @@ public:
 					}
 					out += "}}";
 				}
-				out += R"(,"responses":{"200":{"description":"OK"}}})";
+				out += R"(,"responses":{"200":{"description":"OK")";
+				if (!route.produces.empty()) {
+					out += R"(","content":{)";
+					for (std::size_t i = 0; i < route.produces.size(); ++i) {
+						if (i != 0) {
+							out += ',';
+						}
+						out += json_str(route.produces[i]);
+						out += R"(:{"schema":{"type":"object"}})";
+					}
+					out += "}";
+				}
+				out += R"(}}})";
 			}
 			out += "}";
 		}
@@ -1768,6 +1802,20 @@ public:
 		route_metadata_.push_back(std::move(meta));
 	}
 
+	template<class Return>
+	static void apply_return_metadata(
+		AppRouteMetadata &meta) {
+		using Clean = typename detail::ResponseMetadataType<Return>::type;
+		if constexpr (detail::JsonArg<Clean>) {
+			meta.produces = {"application/json"};
+		}
+	}
+
+	template<class Return>
+	void record_return_metadata() {
+		apply_return_metadata<Return>(route_metadata_.back());
+	}
+
 	template<class Arg>
 	[[nodiscard]] static auto field_problem(
 		std::string_view extractor,
@@ -2041,6 +2089,12 @@ public:
 		} catch (ExtractorFailure &failure) { return std::move(failure).response(); }
 	}
 
+	template<class Fn, class Args, std::size_t... Is>
+	void record_extracted_return_metadata(
+		std::index_sequence<Is...>) {
+		record_return_metadata<std::invoke_result_t<Fn &, std::tuple_element_t<Is, Args>...>>();
+	}
+
 	template<typename F>
 	App &add_extracted(
 		std::string_view method,
@@ -2050,6 +2104,7 @@ public:
 		using Fn = std::decay_t<F>;
 		using Args = typename detail::CallableArgs<Fn>::type;
 		record_route_metadata<Args>(method, path, "app", loc);
+		record_extracted_return_metadata<Fn, Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
 		router_.add(
 			method,
 			path,
