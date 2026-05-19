@@ -145,6 +145,9 @@ TEST_CASE(
 	CHECK(report.issues[0].source_line > 0);
 	CHECK(report.issues[0].related_source_file.ends_with("http_facade_test.cxx"));
 	CHECK(report.issues[0].related_source_line > 0);
+	auto detailed = report.detailed_summary();
+	CHECK(detailed.find("GET /same: duplicate route at ") != std::string::npos);
+	CHECK(detailed.find(" related ") != std::string::npos);
 }
 
 TEST_CASE(

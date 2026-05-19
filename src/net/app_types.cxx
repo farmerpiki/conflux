@@ -308,6 +308,25 @@ struct ValidationReport {
 		}
 		return out;
 	}
+	[[nodiscard]] std::string detailed_summary() const {
+		if (issues.empty()) {
+			return {};
+		}
+		std::string out;
+		for (auto const &issue: issues) {
+			if (!out.empty()) {
+				out += '\n';
+			}
+			out += std::format("{} {}: {}", issue.method, issue.path, issue.message);
+			if (!issue.source_file.empty()) {
+				out += std::format(" at {}:{}", issue.source_file, issue.source_line);
+			}
+			if (!issue.related_source_file.empty()) {
+				out += std::format(" related {}:{}", issue.related_source_file, issue.related_source_line);
+			}
+		}
+		return out;
+	}
 };
 
 struct AppRouteInfo {
