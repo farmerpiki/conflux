@@ -230,6 +230,21 @@ if(TARGET conflux_net_http)
     add_library(conflux_http_facade_api_snapshot OBJECT http_facade_api_snapshot.cxx)
     target_link_libraries(conflux_http_facade_api_snapshot
         PRIVATE conflux_net_http conflux_options)
+
+    add_library(conflux_http_facade_compile_fail_request_view_task EXCLUDE_FROM_ALL
+        OBJECT http_facade_compile_fail_request_view_task.cxx)
+    target_link_libraries(conflux_http_facade_compile_fail_request_view_task
+        PRIVATE conflux_net_http conflux_options)
+
+    add_test(NAME http-facade/compile-fail-request-view-task
+        COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
+                "${CMAKE_BINARY_DIR}"
+                conflux_http_facade_compile_fail_request_view_task
+                "Async handlers must take HttpRequest const&, not HttpRequestView const&"
+                "the view can dangle after coroutine suspension")
+    set_tests_properties(http-facade/compile-fail-request-view-task PROPERTIES
+        LABELS "http;compile-fail"
+        RUN_SERIAL TRUE)
 endif()
 
 if(TARGET conflux_http_response)
