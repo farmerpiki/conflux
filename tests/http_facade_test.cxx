@@ -300,7 +300,9 @@ TEST_CASE(
 	CHECK(routes[0].rate_limit == "uploads");
 	CHECK(routes[0].auth_policy == "user");
 	CHECK(routes[0].openapi_summary == "Upload a small body");
-	CHECK(app.route_table() == "POST /upload [app] name=upload.create BodyText");
+	CHECK(
+		app.route_table()
+		== "POST /upload [app] name=upload.create max_body=1048576 timeout=5000ms rate_limit=uploads auth=user BodyText");
 }
 
 TEST_CASE(

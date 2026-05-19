@@ -1089,6 +1089,21 @@ public:
 			if (!route.name.empty()) {
 				out += std::format(" name={}", route.name);
 			}
+			if (route.middleware_count != 0) {
+				out += std::format(" middleware={}", route.middleware_count);
+			}
+			if (route.max_body_size != 0) {
+				out += std::format(" max_body={}", route.max_body_size);
+			}
+			if (route.timeout.count() != 0) {
+				out += std::format(" timeout={}ms", route.timeout.count());
+			}
+			if (!route.rate_limit.empty()) {
+				out += std::format(" rate_limit={}", route.rate_limit);
+			}
+			if (!route.auth_policy.empty()) {
+				out += std::format(" auth={}", route.auth_policy);
+			}
 			if (!route.extractors.empty()) {
 				out += " ";
 				for (std::size_t i = 0; i < route.extractors.size(); ++i) {
