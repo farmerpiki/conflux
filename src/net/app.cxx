@@ -4,6 +4,8 @@ module;
 
 export module conflux.net.app;
 
+export import :defer;
+import :extractor_helpers;
 import :json_helpers;
 import :metadata_helpers;
 import :openapi;
@@ -26,70 +28,6 @@ import conflux.net.http.native_json;
 import conflux.work;
 export namespace conflux::http {
 
-class ExtractorFailure final : public std::exception {
-public:
-	explicit ExtractorFailure(
-		HttpResponse response)
-		: response_(std::move(response)) {}
-
-	[[nodiscard]] char const *what() const noexcept override { return "HTTP extractor failure"; }
-	[[nodiscard]] HttpResponse response() && { return std::move(response_); }
-
-private:
-	HttpResponse response_;
-};
-
-template<typename Fn>
-	requires(std::invocable<Fn &> && std::same_as<std::invoke_result_t<Fn &>, HttpResponse>)
-[[nodiscard]] HttpResponse defer(
-	std::shared_ptr<WorkPool> const &pool,
-	Fn &&fn,
-	std::chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
-	if (!pool) {
-		return HttpResponse::internal_error("defer: null pool");
-	}
-	auto deferred = std::make_shared<DeferredResponse>(timeout);
-	bool const enqueued = pool->enqueue([deferred, work = std::decay_t<Fn>(std::forward<Fn>(fn))]() mutable {
-		try {
-			deferred->complete(work());
-		} catch (std::exception const &ex) {
-			deferred->complete(HttpResponse::internal_error(ex.what()));
-		} catch (...) { deferred->complete(HttpResponse::internal_error()); }
-	});
-	if (!enqueued) {
-		return HttpResponse::internal_error("offload queue full");
-	}
-	return HttpResponse::deferred(std::move(deferred));
-}
-template<typename Fn>
-	requires(std::invocable<Fn &> && std::same_as<std::invoke_result_t<Fn &>, HttpResponse>)
-[[nodiscard]] HttpResponse defer(
-	WorkPool &pool,
-	Fn &&fn,
-	std::chrono::milliseconds timeout = DeferredResponse::kDefaultTimeout) {
-	auto deferred = std::make_shared<DeferredResponse>(timeout);
-	bool const enqueued = pool.enqueue([deferred, work = std::decay_t<Fn>(std::forward<Fn>(fn))]() mutable {
-		try {
-			deferred->complete(work());
-		} catch (std::exception const &ex) {
-			deferred->complete(HttpResponse::internal_error(ex.what()));
-		} catch (...) { deferred->complete(HttpResponse::internal_error()); }
-	});
-	if (!enqueued) {
-		return HttpResponse::internal_error("offload queue full");
-	}
-	return HttpResponse::deferred(std::move(deferred));
-}
-struct AppRunOptions {
-	std::uint16_t port = kConfigDefaultPort;
-};
-#if CONFLUX_HAS_JSON
-struct AppJsonOptions {
-	conflux::json::boundary::DecodeOptions decode{};
-	conflux::json::boundary::DumpOptions dump{};
-	std::size_t max_body_size{};
-};
-#endif
 class App {
 	using StateMap = std::unordered_map<std::type_index, std::shared_ptr<void>>;
 
@@ -1117,124 +1055,6 @@ public:
 	}
 
 	template<class Arg>
-	[[nodiscard]] static auto field_problem(
-		std::string_view extractor,
-		HttpFieldError const &err) {
-		auto kind = [err] {
-			switch (err.kind) {
-			case HttpFieldErrorKind::missing     : return "missing";
-			case HttpFieldErrorKind::empty       : return "empty";
-			case HttpFieldErrorKind::invalid     : return "invalid";
-			case HttpFieldErrorKind::out_of_range: return "out_of_range";
-			}
-			return "invalid";
-		}();
-		auto body = std::format(
-			R"({{"code":"invalid_field","extractor":"{}","source":"{}","name":"{}","kind":"{}","detail":"{}"}})",
-			extractor,
-			http_field_source_name(err.source),
-			err.name,
-			kind,
-			err.message);
-		return HttpResponse::json(std::move(body), kHttpBadRequest, "Bad Request");
-	}
-
-	template<class T>
-	[[nodiscard]] static T extract_or_throw(
-		std::expected<T, HttpFieldError> value,
-		std::string_view extractor) {
-		if (!value) {
-			throw ExtractorFailure{field_problem<T>(extractor, value.error())};
-		}
-		return std::move(*value);
-	}
-
-	[[nodiscard]] static std::optional<std::pair<std::string_view, std::string_view>> path_param_at(
-		RequestView const &req,
-		std::size_t index) noexcept {
-		std::size_t i = 0;
-		for (auto const &[name, value]: req.params) {
-			if (i == index) {
-				return std::pair<std::string_view, std::string_view>{name, value};
-			}
-			++i;
-		}
-		return std::nullopt;
-	}
-
-	template<class T>
-	[[nodiscard]] static std::expected<T, HttpFieldError> path_param_as_at(
-		RequestView const &req,
-		std::size_t index) {
-		auto param = path_param_at(req, index);
-		auto name = std::format("#{}", index);
-		if (!param) {
-			auto err = HttpFieldError{
-				.kind = HttpFieldErrorKind::missing,
-				.source = HttpFieldSource::params,
-				.name = std::move(name),
-				.message = std::format("params field '#{}' is missing", index)};
-			return std::unexpected{std::move(err)};
-		}
-		return parse_http_field_value<T>(param->second, HttpFieldSource::params, param->first);
-	}
-
-#if CONFLUX_HAS_JSON
-	template<class T, class Members, std::size_t... Is>
-	[[nodiscard]] static T extract_query_params_impl(
-		RequestView const &req,
-		Members const &members,
-		std::index_sequence<Is...>) {
-		T out{};
-		(
-			[&] {
-				auto const &member = std::get<Is>(members);
-				using MemberValue = std::remove_cvref_t<decltype(out.*(member.pointer))>;
-				out.*(member.pointer) =
-					extract_or_throw(req.template query_as<MemberValue>(member.name), "QueryParams");
-			}(),
-			...);
-		return out;
-	}
-
-	template<class T>
-	[[nodiscard]] static T extract_query_params(
-		RequestView const &req) {
-		auto const members = JsonMembers<T>::members();
-		return extract_query_params_impl<T>(
-			req,
-			members,
-			std::make_index_sequence<std::tuple_size_v<std::remove_cvref_t<decltype(members)>>>{});
-	}
-
-	template<class T, class Members, std::size_t... Is>
-	[[nodiscard]] static T extract_form_params_impl(
-		RequestView const &req,
-		Members const &members,
-		std::index_sequence<Is...>) {
-		T out{};
-		(
-			[&] {
-				auto const &member = std::get<Is>(members);
-				using MemberValue = std::remove_cvref_t<decltype(out.*(member.pointer))>;
-				out.*(member.pointer) = extract_or_throw(req.template form_as<MemberValue>(member.name), "FormParams");
-			}(),
-			...);
-		return out;
-	}
-
-	template<class T>
-	[[nodiscard]] static T extract_form_params(
-		RequestView const &req) {
-		auto const members = JsonMembers<T>::members();
-		return extract_form_params_impl<T>(
-			req,
-			members,
-			std::make_index_sequence<std::tuple_size_v<std::remove_cvref_t<decltype(members)>>>{});
-	}
-#endif
-
-	template<class Arg>
 	[[nodiscard]] static auto make_handler_arg(
 		StateMap const &states,
 		RequestView const &req
@@ -1262,19 +1082,20 @@ public:
 				return Clean{.value = req.param(detail::PathType<Clean>::name.view())};
 			} else {
 				return Clean{
-					.value = extract_or_throw(
+					.value = detail::extract_or_throw(
 						req.template param_as<PathValue>(detail::PathType<Clean>::name.view()),
 						"Path")};
 			}
 		} else if constexpr (detail::PathAtArg<Clean>) {
 			using PathValue = typename detail::PathAtType<Clean>::type;
 			if constexpr (std::same_as<PathValue, std::string_view>) {
-				auto param = path_param_at(req, detail::PathAtType<Clean>::index);
+				auto param = detail::path_param_at(req, detail::PathAtType<Clean>::index);
 				return Clean{.value = param ? param->second : std::string_view{}};
 			} else {
 				return Clean{
-					.value =
-						extract_or_throw(path_param_as_at<PathValue>(req, detail::PathAtType<Clean>::index), "PathAt")};
+					.value = detail::extract_or_throw(
+						detail::path_param_as_at<PathValue>(req, detail::PathAtType<Clean>::index),
+						"PathAt")};
 			}
 		} else if constexpr (detail::QueryArg<Clean>) {
 			using QueryValue = typename detail::QueryType<Clean>::type;
@@ -1282,7 +1103,7 @@ public:
 				return Clean{.value = req.query_value(detail::QueryType<Clean>::name.view())};
 			} else {
 				return Clean{
-					.value = extract_or_throw(
+					.value = detail::extract_or_throw(
 						req.template query_as<QueryValue>(detail::QueryType<Clean>::name.view()),
 						"Query")};
 			}
@@ -1292,7 +1113,7 @@ public:
 				return Clean{.value = req.header(detail::HeaderType<Clean>::name.view())};
 			} else {
 				return Clean{
-					.value = extract_or_throw(
+					.value = detail::extract_or_throw(
 						req.template header_as<HeaderValue>(detail::HeaderType<Clean>::name.view()),
 						"Header")};
 			}
@@ -1302,7 +1123,7 @@ public:
 				return Clean{.value = req.cookie(detail::CookieType<Clean>::name.view())};
 			} else {
 				return Clean{
-					.value = extract_or_throw(
+					.value = detail::extract_or_throw(
 						req.template cookie_as<CookieValue>(detail::CookieType<Clean>::name.view()),
 						"Cookie")};
 			}
@@ -1312,17 +1133,17 @@ public:
 				return Clean{.value = req.form_value(detail::FormType<Clean>::name.view())};
 			} else {
 				return Clean{
-					.value = extract_or_throw(
+					.value = detail::extract_or_throw(
 						req.template form_as<FormValue>(detail::FormType<Clean>::name.view()),
 						"Form")};
 			}
 #if CONFLUX_HAS_JSON
 		} else if constexpr (detail::QueryParamsArg<Clean>) {
 			using QueryValue = typename detail::QueryParamsType<Clean>::type;
-			return Clean{.value = extract_query_params<QueryValue>(req)};
+			return Clean{.value = detail::extract_query_params<QueryValue>(req)};
 		} else if constexpr (detail::FormParamsArg<Clean>) {
 			using FormValue = typename detail::FormParamsType<Clean>::type;
-			return Clean{.value = extract_form_params<FormValue>(req)};
+			return Clean{.value = detail::extract_form_params<FormValue>(req)};
 #endif
 		} else if constexpr (detail::BodyTextArg<Clean>) {
 			return BodyText{.value = req.body};

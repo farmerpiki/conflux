@@ -4,14 +4,41 @@ module;
 export module conflux.net.app:types;
 
 import std;
+import conflux.net.config;
 import conflux.net.http.types;
 import conflux.net.http.response;
 import conflux.net.http.server_types;
 #if CONFLUX_HAS_JSON
 import conflux.json;
+import conflux.json.boundary;
 #endif
 
 export namespace conflux::http {
+
+class ExtractorFailure final : public std::exception {
+public:
+	explicit ExtractorFailure(
+		HttpResponse response)
+		: response_(std::move(response)) {}
+
+	[[nodiscard]] char const *what() const noexcept override { return "HTTP extractor failure"; }
+	[[nodiscard]] HttpResponse response() && { return std::move(response_); }
+
+private:
+	HttpResponse response_;
+};
+
+struct AppRunOptions {
+	std::uint16_t port = kConfigDefaultPort;
+};
+
+#if CONFLUX_HAS_JSON
+struct AppJsonOptions {
+	conflux::json::boundary::DecodeOptions decode{};
+	conflux::json::boundary::DumpOptions dump{};
+	std::size_t max_body_size{};
+};
+#endif
 
 struct Problem {
 	HttpResponse response;

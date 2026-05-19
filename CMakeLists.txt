@@ -2024,6 +2024,8 @@ target_sources(conflux_http_app
     PUBLIC FILE_SET CXX_MODULES
         BASE_DIRS "${CMAKE_CURRENT_SOURCE_DIR}"
         FILES
+            src/net/app_defer.cxx
+            src/net/app_extractor_helpers.cxx
             src/net/app_json_helpers.cxx
             src/net/app_metadata_helpers.cxx
             src/net/app_openapi.cxx
