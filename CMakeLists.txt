@@ -2280,6 +2280,9 @@ if(CONFLUX_BUILD_EXAMPLES)
     add_executable(conflux_quickstart_websocket examples/quickstart/websocket.cxx)
     target_link_libraries(conflux_quickstart_websocket PRIVATE conflux conflux_options)
 
+    add_executable(conflux_quickstart_openapi examples/quickstart/openapi.cxx)
+    target_link_libraries(conflux_quickstart_openapi PRIVATE conflux conflux_options)
+
     if(TARGET conflux_http_native_json AND TARGET conflux_json)
         add_executable(conflux_quickstart_json_crud examples/quickstart/json_crud.cxx)
         target_link_libraries(conflux_quickstart_json_crud PRIVATE conflux conflux_options)
@@ -2795,6 +2798,7 @@ if(CONFLUX_BUILD_EXAMPLES)
         conflux_quickstart_hello
         conflux_quickstart_json_crud
         conflux_quickstart_middleware
+        conflux_quickstart_openapi
         conflux_quickstart_sse
         conflux_quickstart_static_files
         conflux_quickstart_websocket
