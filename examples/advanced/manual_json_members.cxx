@@ -116,7 +116,7 @@ int main() {
 		return http::Json{TodoList{.items = store->todos}};
 	});
 
-	app.post_body<CreateTodo>(
+	app.post(
 		"/api/todos",
 		[](http::Json<CreateTodo> const &body,
 		   http::State<TodoStore> store) -> std::expected<http::Json<CreateTodoResult>, http::Problem> {

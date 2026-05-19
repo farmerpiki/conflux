@@ -68,7 +68,7 @@ int main() {
 			return http::Json{*it};
 		});
 
-	app.post_body<CreateTodo>(
+	app.post(
 		"/todos",
 		[](http::Json<CreateTodo> const &body,
 		   http::State<TodoStore> store) -> std::expected<http::Created, http::Problem> {

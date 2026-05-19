@@ -656,6 +656,7 @@ consteval bool has_state_arg_impl(
 #if CONFLUX_HAS_JSON
 			|| QueryParamsArg<std::tuple_element_t<Is, Args>>
 			|| FormParamsArg<std::tuple_element_t<Is, Args>>
+			|| JsonArg<std::tuple_element_t<Is, Args>>
 #endif
 			|| BodyTextArg<std::tuple_element_t<Is, Args>>
 			|| BodyBytesArg<std::tuple_element_t<Is, Args>>
@@ -2176,6 +2177,25 @@ public:
 		return has_body_extractor_impl<Args>(std::make_index_sequence<std::tuple_size_v<Args>>{});
 	}
 
+#if CONFLUX_HAS_JSON
+	template<class Args, std::size_t... Is>
+	static void apply_json_body_metadata(
+		AppRouteMetadata &meta,
+		std::index_sequence<Is...>) {
+		(
+			[&] {
+				using Arg = std::tuple_element_t<Is, Args>;
+				using Clean = std::remove_cvref_t<Arg>;
+				if constexpr (detail::JsonArg<Clean>) {
+					using JsonValue = typename detail::JsonType<Clean>::type;
+					meta.consumes = {"application/json", "application/problem+json"};
+					meta.request_body_schema = schema_json_or_object<JsonValue>();
+				}
+			}(),
+			...);
+	}
+#endif
+
 	[[nodiscard]] static std::vector<std::string> collect_path_params(
 		std::string_view path) {
 		std::vector<std::string> out;
@@ -2259,6 +2279,9 @@ public:
 			if (std::ranges::contains(meta.extractors, "JsonDocument")) {
 				meta.consumes = {"application/json", "application/problem+json"};
 			}
+#if CONFLUX_HAS_JSON
+			apply_json_body_metadata<Args>(meta, std::make_index_sequence<std::tuple_size_v<Args>>{});
+#endif
 		}
 		route_metadata_.push_back(std::move(meta));
 	}
@@ -2624,6 +2647,24 @@ public:
 				throw ExtractorFailure{json_decode_problem(parsed.error())};
 			}
 			return JsonDocument{.value = std::move(*parsed)};
+		} else if constexpr (detail::JsonArg<Clean>) {
+			using BodyValue = typename detail::JsonType<Clean>::type;
+			auto content_type = req.header("content-type");
+			if (!content_type.starts_with("application/json")
+				&& !content_type.starts_with("application/problem+json")) {
+				throw ExtractorFailure{unsupported_json_content_type_problem()};
+			}
+			auto const limit = max_body_size != 0 ? max_body_size : json_options.max_body_size;
+			if (limit != 0 && req.body.size() > limit) {
+				throw ExtractorFailure{HttpResponse::content_too_large()};
+			}
+			auto decoded = conflux::json::boundary::decode_with<json::DefaultJsonProvider, BodyValue>(
+				req.body,
+				json_options.decode);
+			if (!decoded) {
+				throw ExtractorFailure{json_decode_problem(decoded.error())};
+			}
+			return Json<BodyValue>{std::move(*decoded)};
 #endif
 		} else if constexpr (detail::MultipartArg<Clean>) {
 			return Multipart{.form = req.form, .files = req.files};

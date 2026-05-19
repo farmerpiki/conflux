@@ -381,7 +381,7 @@ TEST_CASE(
 			}
 			return http::Json{*it};
 		});
-	app.post_body<FacadeCreateTodo>(
+	app.post(
 		"/todos",
 		[](http::Json<FacadeCreateTodo> const &body,
 		   http::State<FacadeTodoStore> todos) -> std::expected<http::Created, http::Problem> {
@@ -398,7 +398,7 @@ TEST_CASE(
 		app.route_table()
 		== "GET /todos [app] State\n"
 		   "GET /todos/{id:i64} [app] Path<id>,State\n"
-		   "POST /todos [json_body] Json,State");
+		   "POST /todos [app] Json,State");
 }
 
 TEST_CASE(
@@ -503,7 +503,7 @@ TEST_CASE(
 	"http facade: app openapi spec includes JSON request bodies",
 	"[http.facade]") {
 	auto app = http::app();
-	app.post_body<FacadeAnswer>("/answers", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
+	app.post("/answers", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
 
 	auto spec = app.openapi_spec();
 	CHECK(spec.find(R"("requestBody")") != std::string::npos);
@@ -1131,7 +1131,7 @@ TEST_CASE(
 	"http facade: JSON body routes validate content type",
 	"[http.facade]") {
 	auto app = http::app();
-	app.post_body<FacadeAnswer>("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
+	app.post("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
 
 	HttpRequest req;
 	req.method = "POST";
@@ -1218,8 +1218,7 @@ TEST_CASE(
 	"http facade: JSON body routes enforce route-local body limits",
 	"[http.facade]") {
 	auto app = http::app();
-	app.post_body<FacadeAnswer>("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; })
-		.max_body_size(8);
+	app.post("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; }).max_body_size(8);
 
 	auto routes = app.routes();
 	REQUIRE(routes.size() == 1);
@@ -1245,7 +1244,7 @@ TEST_CASE(
 			.decode = {.unknown_members = conflux::json::boundary::UnknownMemberPolicy::ignore},
 			.dump = {.pretty = true},
 			.max_body_size = 64});
-	app.post_body<FacadeAnswer>("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
+	app.post("/json", [](http::Json<FacadeAnswer> const &body) { return http::Json{*body}; });
 
 	HttpRequest req;
 	req.method = "POST";
