@@ -155,7 +155,7 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 }
 
 export template<typename ContextRouteRange, typename Ctx>
-[[nodiscard]] std::optional<HttpResponse> dispatch_context_routes(
+[[nodiscard]] std::optional<conflux::work::root::Task<HttpResponse>> dispatch_context_route_tasks(
 	HttpRequest const &req,
 	Ctx const &ctx,
 	std::string_view path_sv,
@@ -175,8 +175,21 @@ export template<typename ContextRouteRange, typename Ctx>
 					call_req.params.emplace_back(std::string{k}, std::string{v});
 				}
 			}
-			return router_defer_http_task(route.handler(call_req, ctx));
+			return route.handler(call_req, ctx);
 		}
 	}
 	return std::nullopt;
+}
+
+export template<typename ContextRouteRange, typename Ctx>
+[[nodiscard]] std::optional<HttpResponse> dispatch_context_routes(
+	HttpRequest const &req,
+	Ctx const &ctx,
+	std::string_view path_sv,
+	ContextRouteRange const &context_routes) {
+	auto task = dispatch_context_route_tasks(req, ctx, path_sv, context_routes);
+	if (!task) {
+		return std::nullopt;
+	}
+	return router_defer_http_task(std::move(*task));
 }

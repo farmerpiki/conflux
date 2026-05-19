@@ -302,8 +302,8 @@ if(TARGET conflux_net_http)
         COMMAND "${CMAKE_SOURCE_DIR}/scripts/check-compile-fail-target.sh"
                 "${CMAKE_BINARY_DIR}"
                 conflux_http_facade_compile_fail_async_middleware
-                "Async middleware is not normalized yet"
-                "middleware must return HttpResponse")
+                "Async middleware must take http::Request const&"
+                "RequestView const&")
     set_tests_properties(http-facade/compile-fail-async-middleware PROPERTIES
         LABELS "http;compile-fail"
         RUN_SERIAL TRUE)

@@ -449,6 +449,26 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: async middleware uses owned requests",
+	"[http.facade]") {
+	auto app = http::app();
+	app.use_async(
+		[](http::Request const &req,
+		   RequestContext const &ctx,
+		   http::AsyncNext const &next) -> http::Task<http::Response> {
+			auto response = co_await next(req, ctx);
+			response.headers.set("x-async-middleware", "1");
+			co_return response;
+		});
+	app.get("/after-async", [] { return http::no_content(); });
+
+	auto routes = app.routes();
+	REQUIRE(routes.size() == 1);
+	CHECK(routes[0].middleware_count == 1);
+	CHECK(app.router().has_context_routes());
+}
+
+TEST_CASE(
 	"http facade: verb helpers return route metadata handles",
 	"[http.facade]") {
 	auto app = http::app();

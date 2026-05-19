@@ -94,6 +94,7 @@ struct Router::Impl {
 	RouteLookupIndex sse_index{};
 	std::vector<MethodRouteLookupIndex> context_route_indexes{};
 	std::vector<Middleware> middlewares{};
+	std::vector<ContextMiddleware> context_middlewares{};
 	Handler not_found_handler{};
 	ErrorHandler error_handler{};
 	std::shared_ptr<WorkPool> work_pool{std::make_shared<WorkPool>()};
@@ -385,6 +386,11 @@ void Router::use_prepared(
 	impl_->middlewares.push_back(std::move(mw));
 }
 
+void Router::use_context_prepared(
+	ContextMiddleware mw) {
+	impl_->context_middlewares.push_back(std::move(mw));
+}
+
 void Router::set_not_found_handler(
 	Handler handler) {
 	impl_->not_found_handler = std::move(handler);
@@ -411,7 +417,7 @@ void Router::sse_prepared(
 }
 
 [[nodiscard]] bool Router::has_context_routes() const noexcept {
-	return !impl_->context_routes.empty();
+	return !impl_->context_routes.empty() || !impl_->context_middlewares.empty();
 }
 
 Router &Router::set_work_pool(
@@ -512,6 +518,46 @@ void Router::launch_sse_handler(
 	return s.call(req);
 }
 
+[[nodiscard]] std::optional<HttpResponse> Router::run_context_middlewares(
+	HttpRequest const &req,
+	RequestContext const &ctx,
+	ContextHandler const &inner) const {
+	if (impl_->context_middlewares.empty()) {
+		return std::nullopt;
+	}
+	struct Step {
+		Router::Impl const *impl_;
+		ContextHandler inner_;
+		std::size_t idx_{0};
+		ContextHandler next_;
+
+		Step(
+			Router::Impl const *impl,
+			ContextHandler const *inner)
+			: impl_(impl)
+			, inner_(*inner) {}
+
+		void bind_next(
+			std::shared_ptr<Step> self) {
+			next_ = [self = std::move(self)](HttpRequest const &r, RequestContext const &c)
+				-> conflux::work::root::Task<HttpResponse> { return self->call(r, c); };
+		}
+
+		conflux::work::root::Task<HttpResponse> call(
+			HttpRequest const &r,
+			RequestContext const &c) {
+			if (idx_ == impl_->context_middlewares.size()) {
+				return inner_(r, c);
+			}
+			auto const &mw = impl_->context_middlewares[idx_++];
+			return mw(r, c, next_);
+		}
+	};
+	auto step = std::make_shared<Step>(impl_.get(), &inner);
+	step->bind_next(step);
+	return defer_http_task(step->call(req, ctx));
+}
+
 Router &Router::serve_static(
 	std::string_view url_prefix,
 	std::string root_dir,
@@ -568,6 +614,22 @@ Router &Router::serve_static(
 	std::string_view path_sv{req.path};
 	if (auto q = path_sv.find('?'); q != std::string_view::npos) {
 		path_sv = path_sv.substr(0, q);
+	}
+	if (!impl_->context_middlewares.empty()) {
+		ContextHandler inner = [this, path_sv, is_head](
+								   HttpRequest const &r,
+								   RequestContext const &c) -> conflux::work::root::Task<HttpResponse> {
+			if (auto task = dispatch_context_route_tasks(r, c, path_sv, impl_->context_routes)) {
+				auto resp = co_await std::move(*task);
+				if (is_head) {
+					resp.head_only = true;
+				}
+				co_return resp;
+			}
+			HttpRequestView const view{r};
+			co_return dispatch_router_sync(*impl_, view, path_sv, is_head);
+		};
+		return run_context_middlewares(req, ctx, inner);
 	}
 	return dispatch_router_async(*impl_, req, ctx, path_sv, is_head);
 }

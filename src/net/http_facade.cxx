@@ -35,6 +35,7 @@ using WsConn = ::WsConn;
 template<class T>
 using Task = conflux::work::Task<T>;
 using Next = Router::Handler;
+using AsyncNext = Router::AsyncNext;
 
 template<typename F>
 	requires(std::invocable<F &> && std::same_as<std::invoke_result_t<F &>, Response>)

@@ -1,4 +1,4 @@
-// Intentionally invalid: async middleware is not normalized yet.
+// Intentionally invalid: async middleware must not borrow a request view across suspension.
 #include <coroutine>
 
 import conflux.http;
@@ -8,6 +8,8 @@ namespace http = conflux::http;
 
 void invalid_async_middleware() {
 	auto app = http::app();
-	app.use(
-		[](http::Request const &, http::Next const &) -> http::Task<http::Response> { co_return http::text("bad"); });
+	app.use_async(
+		[](http::RequestView const &, RequestContext const &, http::AsyncNext const &) -> http::Task<http::Response> {
+			co_return http::text("bad");
+		});
 }
