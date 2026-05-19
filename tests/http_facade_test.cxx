@@ -402,6 +402,8 @@ TEST_CASE(
 	CHECK(spec.find(R"("requestBody")") != std::string::npos);
 	CHECK(spec.find(R"("application/json")") != std::string::npos);
 	CHECK(spec.find(R"("application/problem+json")") != std::string::npos);
+	CHECK(spec.find(R"("properties":{"value":{"type":"string"}})") != std::string::npos);
+	CHECK(spec.find(R"("required":["value"])") != std::string::npos);
 }
 
 TEST_CASE(
@@ -421,6 +423,7 @@ TEST_CASE(
 	CHECK(routes[1].problem_response);
 	auto spec = app.openapi_spec();
 	CHECK(spec.find(R"("application/json")") != std::string::npos);
+	CHECK(spec.find(R"("properties":{"value":{"type":"string"}})") != std::string::npos);
 	CHECK(spec.find(R"("400":{"description":"Problem")") != std::string::npos);
 	CHECK(spec.find(R"("application/problem+json")") != std::string::npos);
 }

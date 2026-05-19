@@ -300,6 +300,8 @@ struct AppRouteInfo {
 	std::size_t required_state_count{};
 	std::vector<std::string> consumes;
 	std::vector<std::string> produces;
+	std::string request_body_schema;
+	std::string response_schema;
 	bool problem_response{};
 	std::size_t max_body_size{};
 	std::chrono::milliseconds timeout{};
@@ -715,6 +717,8 @@ class App {
 		std::vector<std::type_index> required_states;
 		std::vector<std::string> consumes;
 		std::vector<std::string> produces;
+		std::string request_body_schema;
+		std::string response_schema;
 		bool problem_response{};
 		std::shared_ptr<std::size_t> max_body_size = std::make_shared<std::size_t>(0);
 		std::chrono::milliseconds timeout{};
@@ -1159,6 +1163,8 @@ public:
 					.required_state_count = route.required_states.size(),
 					.consumes = route.consumes,
 					.produces = route.produces,
+					.request_body_schema = route.request_body_schema,
+					.response_schema = route.response_schema,
 					.problem_response = route.problem_response,
 					.max_body_size = *route.max_body_size,
 					.timeout = route.timeout,
@@ -1346,7 +1352,9 @@ public:
 							out += ',';
 						}
 						out += json_str(route.consumes[i]);
-						out += R"(:{"schema":{"type":"object"}})";
+						out += R"(:{"schema":)";
+						out += route.request_body_schema.empty() ? R"({"type":"object"})" : route.request_body_schema;
+						out += "}";
 					}
 					out += "}}";
 				}
@@ -1358,7 +1366,9 @@ public:
 							out += ',';
 						}
 						out += json_str(route.produces[i]);
-						out += R"(:{"schema":{"type":"object"}})";
+						out += R"(:{"schema":)";
+						out += route.response_schema.empty() ? R"({"type":"object"})" : route.response_schema;
+						out += "}";
 					}
 					out += "}";
 				}
@@ -1976,6 +1986,10 @@ public:
 		using Clean = typename detail::ResponseMetadataType<Return>::type;
 		if constexpr (detail::JsonArg<Clean>) {
 			meta.produces = {"application/json"};
+#if CONFLUX_HAS_JSON
+			using JsonValue = typename detail::JsonType<Clean>::type;
+			meta.response_schema = schema_json_or_object<JsonValue>();
+#endif
 		}
 		if constexpr (detail::ReturnsProblemResponse<std::remove_cvref_t<Return>>::value) {
 			meta.problem_response = true;
@@ -2011,6 +2025,23 @@ public:
 	}
 
 #if CONFLUX_HAS_JSON
+	template<class T>
+	[[nodiscard]] static std::string schema_json_or_object() {
+		if constexpr (requires { schema_for<std::remove_cvref_t<T>>(); }) {
+			auto schema = schema_for<std::remove_cvref_t<T>>();
+			if (!schema) {
+				return R"({"type":"object"})";
+			}
+			auto dumped = schema->dump();
+			if (!dumped) {
+				return R"({"type":"object"})";
+			}
+			return std::move(*dumped);
+		} else {
+			return R"({"type":"object"})";
+		}
+	}
+
 	[[nodiscard]] static std::string json_escape(
 		std::string_view value) {
 		std::string out;
@@ -2455,6 +2486,7 @@ public:
 		record_route_metadata<Args>(method, path, "json_body", loc);
 		route_metadata_.back().consumes = {"application/json", "application/problem+json"};
 		route_metadata_.back().produces = {"application/json"};
+		route_metadata_.back().request_body_schema = schema_json_or_object<BodyValue>();
 		auto max_body_size = route_metadata_.back().max_body_size;
 		auto json_options = json_options_;
 		router_.add(
