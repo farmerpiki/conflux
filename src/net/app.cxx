@@ -1517,7 +1517,7 @@ public:
 				out += R"(:{"description":)";
 				out += json_str(route.success_status == kHttpCreated ? "Created" : "OK");
 				if (!route.produces.empty()) {
-					out += R"(","content":{)";
+					out += R"(,"content":{)";
 					for (std::size_t i = 0; i < route.produces.size(); ++i) {
 						if (i != 0) {
 							out += ',';
@@ -1529,7 +1529,7 @@ public:
 					}
 					out += "}";
 				}
-				out += "}}";
+				out += "}";
 				if (route.problem_response) {
 					out +=
 						R"(,"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}})";

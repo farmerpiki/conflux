@@ -556,6 +556,25 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: app openapi snapshot covers typed route policies",
+	"[http.facade]") {
+	auto app = http::app();
+	app.get<"/widgets/{id:u64}">(
+		   [](http::Path<"id", std::uint64_t>) -> std::expected<http::Json<FacadeAnswer>, http::Problem> {
+			   return http::Json{FacadeAnswer{.value = "ok"}};
+		   })
+		.name("widgets.show")
+		.openapi_summary("Show widget")
+		.auth_policy("user")
+		.rate_limit("widgets")
+		.timeout(std::chrono::seconds{5});
+
+	CHECK(
+		app.openapi_spec("Snapshot API", "1.0.0")
+		== R"({"openapi":"3.0.0","info":{"title":"Snapshot API","version":"1.0.0"},"components":{"securitySchemes":{"bearerAuth":{"type":"http","scheme":"bearer"}}},"paths":{"/widgets/{id:u64}":{"get":{"operationId":"widgets.show","summary":"Show widget","security":[{"bearerAuth":[]}],"x-auth-policy":"user","x-timeout-ms":5000,"x-rate-limit":"widgets","parameters":[{"name":"id","in":"path","required":true,"schema":{"type":"integer","format":"uint64","minimum":0}}],"responses":{"200":{"description":"OK","content":{"application/json":{"schema":{"type":"object","properties":{"value":{"type":"string"}},"required":["value"]}}}},"400":{"description":"Problem","content":{"application/problem+json":{"schema":{"type":"object"}}}},"401":{"description":"Unauthorized"},"429":{"description":"Too Many Requests"},"504":{"description":"Gateway Timeout"}}}}})");
+}
+
+TEST_CASE(
 	"http facade: app openapi spec includes auth policies",
 	"[http.facade]") {
 	auto app = http::app();
