@@ -53,7 +53,7 @@ std::uint64_t parse_u64(
 	char const *s) noexcept {
 	std::string_view const sv{s};
 	std::uint64_t v{};
-	from_chars(sv.data(), sv.data() + sv.size(), v);
+	std::from_chars(sv.data(), sv.data() + sv.size(), v);
 	return v;
 }
 
@@ -84,7 +84,7 @@ Config parse_args(
 // ── server ────────────────────────────────────────────────────────────────────
 void serve_one(
 	int cfd,
-	atomic_flag &stop) {
+	std::atomic_flag &stop) {
 	int one = 1;
 	::setsockopt(cfd, IPPROTO_TCP, TCP_NODELAY, &one, sizeof(one));
 	std::array<char, 64> buf{};
@@ -97,21 +97,21 @@ void serve_one(
 		held += static_cast<std::size_t>(got);
 		std::size_t scan = 0;
 		while (scan < held) {
-			auto view = span{buf}.subspan(scan, held - scan);
+			auto view = std::span{buf}.subspan(scan, held - scan);
 			auto it = std::ranges::find(view, '\n');
 			if (it == view.end()) {
 				break;
 			}
 			std::size_t const msg_end = scan + static_cast<std::size_t>(it - view.begin());
 			std::uint64_t n = 0;
-			if (from_chars(buf.data() + scan, buf.data() + msg_end, n).ec != errc{}) {
+			if (std::from_chars(buf.data() + scan, buf.data() + msg_end, n).ec != std::errc{}) {
 				::close(cfd);
 				return;
 			}
 			++n;
 			std::array<char, 24> out{};
-			auto const conv = to_chars(out.data(), out.data() + out.size() - 1, n);
-			if (conv.ec != errc{}) {
+			auto const conv = std::to_chars(out.data(), out.data() + out.size() - 1, n);
+			if (conv.ec != std::errc{}) {
 				::close(cfd);
 				return;
 			}
@@ -140,7 +140,7 @@ void serve_one(
 }
 void run_server(
 	int listen_fd,
-	atomic_flag &stop) {
+	std::atomic_flag &stop) {
 	timeval tv{.tv_sec = 0, .tv_usec = 100000};
 	::setsockopt(listen_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 	while (!stop.test(std::memory_order_acquire)) {
@@ -213,8 +213,8 @@ sockaddr_storage loopback_addr(
 std::size_t encode_line(
 	std::span<char> out,
 	std::uint64_t n) {
-	auto const r = to_chars(out.data(), out.data() + out.size() - 1, n);
-	if (r.ec != errc{}) {
+	auto const r = std::to_chars(out.data(), out.data() + out.size() - 1, n);
+	if (r.ec != std::errc{}) {
 		throw std::runtime_error{"to_chars"};
 	}
 	*r.ptr = '\n';
@@ -223,7 +223,7 @@ std::size_t encode_line(
 std::uint64_t decode_line(
 	std::string_view line) {
 	std::uint64_t n = 0;
-	if (from_chars(line.data(), line.data() + line.size(), n).ec != errc{}) {
+	if (std::from_chars(line.data(), line.data() + line.size(), n).ec != std::errc{}) {
 		throw std::runtime_error{"from_chars"};
 	}
 	return n;
@@ -232,17 +232,17 @@ std::uint64_t decode_line(
 struct FrLineReader {
 	FileReader &files;
 	FileHandle const &handle;
-	std::array<byte, 128> buf{};
+	std::array<std::byte, 128> buf{};
 	std::size_t held = 0;
 	conflux::work::root::Task<std::string_view> read_line() {
 		for (;;) {
-			auto view = span{buf}.first(held);
-			auto it = std::ranges::find(view, static_cast<byte>('\n'));
+			auto view = std::span{buf}.first(held);
+			auto it = std::ranges::find(view, static_cast<std::byte>('\n'));
 			if (it != view.end()) {
 				auto const end = static_cast<std::size_t>(it - view.begin());
 				co_return std::string_view{reinterpret_cast<char const *>(buf.data()), end};
 			}
-			auto got = co_await files.read_into(handle, 0, span{buf.data() + held, buf.size() - held});
+			auto got = co_await files.read_into(handle, 0, std::span{buf.data() + held, buf.size() - held});
 			if (got == 0) {
 				throw std::runtime_error{"eof"};
 			}
@@ -265,12 +265,12 @@ std::uint64_t run_fr_callback(
 	auto const t0 = std::chrono::steady_clock::now();
 	for (std::size_t i = 0; i < iters; ++i) {
 		std::size_t const len = encode_line(out, n);
-		block_on(files, files.write_into(sock, 0, as_bytes(span{out.data(), len})));
+		block_on(files, files.write_into(sock, 0, std::as_bytes(std::span{out.data(), len})));
 		auto line = block_on(files, reader.read_line());
 		std::uint64_t const got = decode_line(line);
 		reader.consume_line(line.size());
 		if (got != n + 1) {
-			throw std::runtime_error{format("expected {} got {}", n + 1, got)};
+			throw std::runtime_error{std::format("expected {} got {}", n + 1, got)};
 		}
 		n = got;
 	}
@@ -287,12 +287,12 @@ conflux::work::root::Task<std::uint64_t> fr_coro_loop(
 	std::uint64_t n = start;
 	for (std::size_t i = 0; i < iters; ++i) {
 		std::size_t const len = encode_line(out, n);
-		co_await files.write_into(sock, 0, as_bytes(span{out.data(), len}));
+		co_await files.write_into(sock, 0, std::as_bytes(std::span{out.data(), len}));
 		auto line = co_await reader.read_line();
 		std::uint64_t const got = decode_line(line);
 		reader.consume_line(line.size());
 		if (got != n + 1) {
-			throw std::runtime_error{format("expected {} got {}", n + 1, got)};
+			throw std::runtime_error{std::format("expected {} got {}", n + 1, got)};
 		}
 		n = got;
 	}
@@ -316,7 +316,7 @@ struct StrLineReader {
 	std::size_t held = 0;
 	std::string_view read_line() {
 		for (;;) {
-			auto view = span{buf}.first(held);
+			auto view = std::span{buf}.first(held);
 			auto it = std::ranges::find(view, std::uint8_t('\n'));
 			if (it != view.end()) {
 				std::size_t const end = static_cast<std::size_t>(it - view.begin());
@@ -355,7 +355,7 @@ std::uint64_t run_str_callback(
 		std::uint64_t const got = decode_line(line);
 		reader.consume_line(line.size());
 		if (got != n + 1) {
-			throw std::runtime_error{format("expected {} got {}", n + 1, got)};
+			throw std::runtime_error{std::format("expected {} got {}", n + 1, got)};
 		}
 		n = got;
 	}
@@ -375,7 +375,7 @@ conflux::work::root::Task<std::uint64_t> str_coro_loop(
 		co_await stream.async_write_all_borrowed(
 			std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(out.data()), len});
 		for (;;) {
-			auto view = span{rbuf}.first(held);
+			auto view = std::span{rbuf}.first(held);
 			auto it = std::ranges::find(view, std::uint8_t('\n'));
 			if (it != view.end()) {
 				std::size_t const end = static_cast<std::size_t>(it - view.begin());
@@ -383,7 +383,7 @@ conflux::work::root::Task<std::uint64_t> str_coro_loop(
 				std::uint64_t const got = decode_line(line);
 				consume_prefix(rbuf, held, end + 1);
 				if (got != n + 1) {
-					throw std::runtime_error{format("expected {} got {}", n + 1, got)};
+					throw std::runtime_error{std::format("expected {} got {}", n + 1, got)};
 				}
 				n = got;
 				break;
@@ -429,18 +429,18 @@ conflux::work::root::Task<void> serve_one_async(
 			}
 			std::size_t const msg_end = scan + static_cast<std::size_t>(it - view.begin());
 			std::uint64_t n = 0;
-			if (from_chars(
+			if (std::from_chars(
 					reinterpret_cast<char const *>(rbuf.data() + scan),
 					reinterpret_cast<char const *>(rbuf.data() + msg_end),
 					n)
 					.ec
-				!= errc{}) {
+				!= std::errc{}) {
 				co_return;
 			}
 			++n;
 			std::array<char, 24> out{};
-			auto const conv = to_chars(out.data(), out.data() + out.size() - 1, n);
-			if (conv.ec != errc{}) {
+			auto const conv = std::to_chars(out.data(), out.data() + out.size() - 1, n);
+			if (conv.ec != std::errc{}) {
 				co_return;
 			}
 			*conv.ptr = '\n';
@@ -459,13 +459,13 @@ conflux::work::root::Task<void> serve_one_async(
 }
 void run_async_server(
 	std::atomic<std::uint16_t> &port_out,
-	atomic_flag &port_ready,
-	atomic_flag &stop) {
+	std::atomic_flag &port_ready,
+	std::atomic_flag &stop) {
 	TcpListener listener{
 		TcpListenerOptions{.port = 0, .bind = TcpBindAddress::loopback_v4, .reuse_addr = true}
     };
 	port_out.store(listener.port(), std::memory_order_release);
-	port_ready.test_and_set(memory_order_release);
+	port_ready.test_and_set(std::memory_order_release);
 	::io_uring raw{};
 	if (::io_uring_queue_init(64, &raw, 0) < 0) {
 		return;
@@ -555,7 +555,7 @@ int main(
 			R"({"name":"tcp_increment","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","200","--warmup","50","--config","default"]},{"name":"parallel_4","extra":{},"args":["--iterations","200","--warmup","50","--clients","4","--config","parallel_4"]}]})");
 		return 0;
 	}
-	auto cfg = parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	// 0=fr/callback 1=fr/coroutine 2=str/callback 3=str/coroutine
 	// 4=str/async_callback 5=str/async_coroutine 6=str/parallel_4
 	static constexpr std::array<std::string_view, 7> labels{
@@ -571,26 +571,26 @@ int main(
 		bool const async_srv = which >= 4;
 		std::uint16_t port = 0;
 		std::atomic<std::uint16_t> async_port{0};
-		atomic_flag port_ready{};
-		atomic_flag server_stop{};
+		std::atomic_flag port_ready{};
+		std::atomic_flag server_stop{};
 		int lfd = -1;
 		if (!async_srv) {
 			lfd = start_listener(port);
 		}
-		thread server;
+		std::thread server;
 		if (async_srv) {
-			server = thread{
+			server = std::thread{
 				[&async_port, &port_ready, &server_stop] { run_async_server(async_port, port_ready, server_stop); }};
 			while (!port_ready.test(std::memory_order_acquire)) {
 				std::this_thread::yield();
 			}
 			port = async_port.load(std::memory_order_acquire);
 		} else {
-			server = thread{[lfd, &server_stop] { run_server(lfd, server_stop); }};
+			server = std::thread{[lfd, &server_stop] { run_server(lfd, server_stop); }};
 		}
 		::io_uring raw{};
 		if (::io_uring_queue_init(64, &raw, 0) < 0) {
-			server_stop.test_and_set(memory_order_release);
+			server_stop.test_and_set(std::memory_order_release);
 			server.join();
 			std::println(std::cerr, "io_uring_queue_init failed");
 			return 1;
@@ -620,7 +620,7 @@ int main(
 					}
 					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
 				}
-				server_stop.test_and_set(memory_order_release);
+				server_stop.test_and_set(std::memory_order_release);
 				::shutdown(sock.raw_fd(), SHUT_RDWR);
 				(void)sock.release_fd();
 				::close(csock);
@@ -649,7 +649,7 @@ int main(
 				} else {
 					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
 				}
-				server_stop.test_and_set(memory_order_release);
+				server_stop.test_and_set(std::memory_order_release);
 				// stream dtor closes fd → unblocks server's ::read → server sees stop flag
 			} else if (which < 6) {
 				SocketTaskRing task_ring{
@@ -676,7 +676,7 @@ int main(
 				} else {
 					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
 				}
-				server_stop.test_and_set(memory_order_release);
+				server_stop.test_and_set(std::memory_order_release);
 			} else {
 				SocketTaskRing task_ring{
 					SocketRawRing{&raw},
@@ -698,9 +698,9 @@ int main(
 				} else {
 					std::println("  {:<18} {:>8.1f} ns/iter ({} ns total)", lbl(which), per, ns);
 				}
-				server_stop.test_and_set(memory_order_release);
+				server_stop.test_and_set(std::memory_order_release);
 			}
-		} catch (exception const &e) { std::println(std::cerr, "error: {}", e.what()); }
+		} catch (std::exception const &e) { std::println(std::cerr, "error: {}", e.what()); }
 		::io_uring_queue_exit(&raw);
 		server.join();
 	}

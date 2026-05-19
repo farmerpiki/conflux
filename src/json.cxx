@@ -2483,7 +2483,7 @@ public:
 	}
 	ObjectBuilder(ObjectBuilder const &) = delete;
 	ObjectBuilder &operator =(ObjectBuilder const &) = delete;
-	// NOLINTNEXTLINE(bugprone-std::exception-escape)
+	// NOLINTNEXTLINE(bugprone-exception-escape)
 	void abort_if_open() noexcept {
 		if ((frame_.state != nullptr) && !frame_.committed) {
 			auto *st = frame_.state;
@@ -2517,7 +2517,7 @@ public:
 	template<class T>
 		requires has_json_codec<T>
 	std::expected<void, JsonError> insert(std::string_view name, T const &value);
-	// NOLINTNEXTLINE(bugprone-std::exception-escape)
+	// NOLINTNEXTLINE(bugprone-exception-escape)
 	void commit() && noexcept {
 		if ((frame_.state == nullptr) || frame_.committed) {
 			return;
@@ -2578,7 +2578,7 @@ export class ArrayBuilder {
 			  .local_members = {},
 			  .local_external_ptrs_ = {},
 			  .dup_check = {}} {}
-	// NOLINTNEXTLINE(bugprone-std::exception-escape)
+	// NOLINTNEXTLINE(bugprone-exception-escape)
 	void abort_if_open() noexcept {
 		if ((frame_.state != nullptr) && !frame_.committed) {
 			auto *st = frame_.state;
@@ -2627,7 +2627,7 @@ public:
 	template<class T>
 		requires has_json_codec<T>
 	std::expected<void, JsonError> append(T const &value);
-	// NOLINTNEXTLINE(bugprone-std::exception-escape)
+	// NOLINTNEXTLINE(bugprone-exception-escape)
 	void commit() && noexcept {
 		if ((frame_.state == nullptr) || frame_.committed) {
 			return;

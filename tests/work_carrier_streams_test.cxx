@@ -38,7 +38,7 @@ struct SyncTask {
 	}
 	SyncTask(
 		SyncTask &&o) noexcept
-		: h_{exchange(o.h_, {})} {}
+		: h_{std::exchange(o.h_, {})} {}
 	T get() {
 		if (!h_.done()) {
 			h_.resume();

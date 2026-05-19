@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <memory>
+#include <conflux/detail/discard.hxx>
 
 import std;
 import conflux.types;
@@ -132,14 +133,14 @@ struct FdGuard {
 	FdGuard &operator =(FdGuard const &) = delete;
 	FdGuard(
 		FdGuard &&o) noexcept
-		: fd{exchange(o.fd, -1)} {}
+		: fd{std::exchange(o.fd, -1)} {}
 	FdGuard &operator =(
 		FdGuard &&o) noexcept {
 		if (this != &o) {
 			if (fd >= 0) {
 				::close(fd);
 			}
-			fd = exchange(o.fd, -1);
+			fd = std::exchange(o.fd, -1);
 		}
 		return *this;
 	}
@@ -252,7 +253,7 @@ void run_accept_direct_close(
 	FdGuard lsg{ls.fd};
 	RingGuard rg{64};
 	SocketRawRing raw{rg.get()};
-	auto dft = make_unique<DirectFdTable>(rg.get(), 64);
+	auto dft = std::make_unique<DirectFdTable>(rg.get(), 64);
 	if (!dft->registered()) {
 		return;
 	}
@@ -386,7 +387,7 @@ void run_multishot_recv_1conn(
 	static constexpr auto kPayload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"sv;
 
 	std::atomic<bool> stop{false};
-	thread sender{[&] {
+	std::thread sender{[&] {
 		while (!stop.load(std::memory_order_relaxed)) {
 			if (::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL) <= 0) {
 				break;
@@ -437,7 +438,7 @@ void run_multishot_recv_Nconn(
 	BenchArgs const &args,
 	bool json,
 	std::string_view config_name) {
-	auto const kConns = static_cast<std::size_t>(min(thread::hardware_concurrency(), 8u));
+	auto const kConns = static_cast<std::size_t>(std::min(std::thread::hardware_concurrency(), 8u));
 	auto ls = make_listen_socket();
 	FdGuard lsg{ls.fd};
 	RingGuard rg{1024};
@@ -462,7 +463,7 @@ void run_multishot_recv_Nconn(
 	static constexpr auto kPayload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"sv;
 
 	std::atomic<bool> stop{false};
-	std::vector<thread> senders;
+	std::vector<std::thread> senders;
 	senders.reserve(kConns);
 	for (std::size_t i = 0; i < kConns; ++i) {
 		senders.emplace_back([&, fd = clients[i].fd] {
@@ -509,7 +510,7 @@ void run_multishot_recv_Nconn(
 			},
 	};
 
-	auto iters = min(args.iterations, std::size_t{50000});
+	auto iters = std::min(args.iterations, std::size_t{50000});
 	auto warmup = std::min(args.warmup, std::size_t{5000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
@@ -550,7 +551,7 @@ void run_recv_fixed_fd(
 	static constexpr auto kPayload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"sv;
 
 	std::atomic<bool> stop{false};
-	thread sender{[&] {
+	std::thread sender{[&] {
 		while (!stop.load(std::memory_order_relaxed)) {
 			if (::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL) <= 0) {
 				break;
@@ -615,7 +616,7 @@ void run_send_variant(
 	FdGuard sg{srv};
 
 	std::atomic<bool> stop{false};
-	thread reader{[&] {
+	std::thread reader{[&] {
 		std::array<char, 65536> buf{};
 		while (!stop.load(std::memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
@@ -666,7 +667,7 @@ void run_send_fixed_fd(
 	(void)dft.install(0, srv);
 
 	std::atomic<bool> stop{false};
-	thread reader{[&] {
+	std::thread reader{[&] {
 		std::array<char, 65536> buf{};
 		while (!stop.load(std::memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
@@ -711,7 +712,7 @@ void run_writev_variant(
 	FdGuard sg{srv};
 
 	std::atomic<bool> stop{false};
-	thread reader{[&] {
+	std::thread reader{[&] {
 		std::array<char, 65536> buf{};
 		while (!stop.load(std::memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
@@ -990,7 +991,7 @@ void run_link_timeout(
 			},
 	};
 
-	auto iters = min(args.iterations, std::size_t{10000});
+	auto iters = std::min(args.iterations, std::size_t{10000});
 	auto warmup = std::min(args.warmup, std::size_t{1000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
@@ -1149,7 +1150,7 @@ void run_buf_ring_exhaustion_recover(
 			},
 	};
 
-	auto iters = min(args.iterations, std::size_t{5000});
+	auto iters = std::min(args.iterations, std::size_t{5000});
 	auto warmup = std::min(args.warmup, std::size_t{500});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
@@ -1314,7 +1315,7 @@ void run_batch_send_32(
 	static constexpr auto kPayload = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"sv;
 
 	std::atomic<bool> stop{false};
-	thread reader{[&] {
+	std::thread reader{[&] {
 		std::array<char, 65536> buf{};
 		while (!stop.load(std::memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
@@ -1370,14 +1371,14 @@ void run_batch_recv_send_16(
 	std::array<std::array<char, 128>, 16> recv_bufs{};
 
 	std::atomic<bool> stop{false};
-	thread sender{[&] {
+	std::thread sender{[&] {
 		while (!stop.load(std::memory_order_relaxed)) {
 			if (::send(cli, kPayload.data(), kPayload.size(), MSG_NOSIGNAL) <= 0) {
 				break;
 			}
 		}
 	}};
-	thread reader{[&] {
+	std::thread reader{[&] {
 		std::array<char, 65536> buf{};
 		while (!stop.load(std::memory_order_relaxed)) {
 			if (::recv(cli, buf.data(), buf.size(), 0) <= 0) {
@@ -1411,7 +1412,7 @@ void run_batch_recv_send_16(
 			},
 	};
 
-	auto iters = min(args.iterations, std::size_t{50000});
+	auto iters = std::min(args.iterations, std::size_t{50000});
 	auto warmup = std::min(args.warmup, std::size_t{5000});
 	auto s = run_variant(v, iters, warmup, config_name);
 	bench_print(s, json, false);
@@ -1563,8 +1564,8 @@ void run_direct_slot_pool_full_lifecycle(
 		.run =
 			[&] {
 				auto _ = pool.adopt_kernel_allocated(slot);
-				auto _ = pool.mark_closing(slot);
-				auto _ = pool.release_closed(slot);
+				CONFLUX_DISCARD(pool.mark_closing(slot));
+				CONFLUX_DISCARD(pool.release_closed(slot));
 				slot = (slot + 1) % 256;
 			},
 	};
@@ -1582,7 +1583,7 @@ int main(
 		argv,
 		R"({"name":"socket_raw","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","100000","--warmup","10000"]}]})");
 
-	auto const args = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	auto const json = args.json_out;
 	auto const config_name = args.config_name.empty() ? "default"sv : std::string_view{args.config_name};
 

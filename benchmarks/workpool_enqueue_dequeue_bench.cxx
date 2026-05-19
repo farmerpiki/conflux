@@ -16,6 +16,8 @@
 // NDJSON output (--json): standard timing fields plus queue counters and
 // fairness fields for redistribution profiles.
 
+#include <conflux/detail/discard.hxx>
+
 import std;
 import conflux.types;
 import conflux.work;
@@ -246,7 +248,7 @@ WorkPoolBenchStats bench_contended(
 	WorkPool pool{WorkPoolOptions{.threads = worker_count, .queue_mode = pool_queue_mode(mode)}};
 	std::size_t const per_thread = iters / threads;
 	auto do_wave = [&](std::size_t n_per) {
-		std::vector<thread> producers;
+		std::vector<std::thread> producers;
 		producers.reserve(threads);
 		for (std::size_t t = 0; t < threads; ++t) {
 			producers.emplace_back([&pool, n_per] {
@@ -254,7 +256,7 @@ WorkPoolBenchStats bench_contended(
 					auto [task, source] = root::make_task_source<int>();
 					auto _ =
 						pool.enqueue([s = std::move(source)]() mutable { auto _ = s.try_set_value(root::Success<int>{0}); });
-					auto _ = root::blocking_join(std::move(task));
+					CONFLUX_DISCARD(root::blocking_join(std::move(task)));
 				}
 			});
 		}
@@ -314,7 +316,7 @@ public:
 		out.max_runner_jobs = counts_.front().second;
 		for (auto const &[_, count]: counts_) {
 			out.child_jobs += count;
-			out.min_runner_jobs = min(out.min_runner_jobs, count);
+			out.min_runner_jobs = std::min(out.min_runner_jobs, count);
 			out.max_runner_jobs = std::max(out.max_runner_jobs, count);
 		}
 		if (out.child_jobs != 0) {
@@ -372,7 +374,7 @@ WorkPoolBenchStats bench_external_burst(
 		std::atomic<std::size_t> done{0};
 		std::atomic<std::size_t> ready{0};
 		std::atomic<bool> start{false};
-		std::vector<thread> producers;
+		std::vector<std::thread> producers;
 		producers.reserve(threads);
 		for (std::size_t t = 0; t < threads; ++t) {
 			producers.emplace_back([&pool, &done, &ready, &start, n_per] {
@@ -415,7 +417,7 @@ WorkPoolBenchStats bench_local_fanout(
 		WorkPoolOptions{
 			.threads = worker_count,
 			.max_inject_queue = std::max(std::size_t{4096}, threads + 1),
-			.local_queue_capacity = std::max(max(std::size_t{1024}, iters + 1), warmup + 2),
+			.local_queue_capacity = std::max(std::max(std::size_t{1024}, iters + 1), warmup + 2),
 			.queue_mode = pool_queue_mode(mode),
 		}
     };
@@ -453,7 +455,7 @@ WorkPoolBenchStats bench_local_backlog_redistribution(
 	std::size_t warmup,
 	std::size_t work_units) {
 	std::size_t const worker_count = std::max(std::size_t{2}, threads);
-	std::size_t const local_capacity = std::max(max(std::size_t{1024}, iters + 2), warmup + 2);
+	std::size_t const local_capacity = std::max(std::max(std::size_t{1024}, iters + 2), warmup + 2);
 	WorkPool pool{
 		WorkPoolOptions{
 			.threads = worker_count,
@@ -501,7 +503,7 @@ int main(
 	int argc,
 	char **argv) {
 	if (argc >= 2 && std::string_view{argv[1]} == "--bench-info") {
-		auto const hw = thread::hardware_concurrency();
+		auto const hw = std::thread::hardware_concurrency();
 		std::vector<unsigned> ts = {1u, 4u, 16u};
 		if (hw != 1u && hw != 4u && hw != 16u) {
 			ts.push_back(hw);
@@ -533,7 +535,7 @@ int main(
 		return 0;
 	}
 
-	auto cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	std::size_t threads = 1;
 	std::size_t work_units = 2048;
 	for (std::size_t i = 1; i < static_cast<std::size_t>(argc); ++i) {

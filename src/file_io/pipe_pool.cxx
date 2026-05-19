@@ -66,7 +66,7 @@ export class PipePool {
 
 	friend class PipePair;
 	void release(
-		// NOLINT(bugprone-std::exception-escape) — free_ is pre-sized; push_back never reallocates
+		// NOLINT(bugprone-exception-escape) — free_ is pre-sized; push_back never reallocates
 		std::uint32_t slot) noexcept {
 		free_.push_back(slot);
 	}

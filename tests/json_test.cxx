@@ -1,6 +1,7 @@
 // Plain TU — not a module unit.
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
+#include <conflux/detail/discard.hxx>
 
 import std;
 import conflux.types;
@@ -3257,8 +3258,8 @@ TEST_CASE(
 	CHECK(**e1 == JsonReader::Event::begin_array);
 	CHECK(r.depth() == 2UZ);
 
-	auto _ = r.next(); // 1
-	auto _ = r.next(); // 2
+	CONFLUX_DISCARD(r.next()); // 1
+	CONFLUX_DISCARD(r.next()); // 2
 	auto e_end = r.next();
 	REQUIRE(e_end.has_value());
 	REQUIRE(e_end->has_value());

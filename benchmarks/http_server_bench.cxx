@@ -45,12 +45,12 @@ struct BenchClient {
 	BenchClient &operator =(BenchClient const &) = delete;
 	BenchClient(
 		BenchClient &&o) noexcept
-		: fd(exchange(o.fd, -1)) {}
+		: fd(std::exchange(o.fd, -1)) {}
 	BenchClient &operator =(
 		BenchClient &&o) noexcept {
 		if (this != &o) {
 			close();
-			fd = exchange(o.fd, -1);
+			fd = std::exchange(o.fd, -1);
 		}
 		return *this;
 	}
@@ -97,7 +97,7 @@ struct BenchClient {
 				if (cl != std::string_view::npos) {
 					cl += 16;
 					auto end = hdrs.find("\r\n", cl);
-					from_chars(buf.data() + cl, buf.data() + end, body_len);
+					std::from_chars(buf.data() + cl, buf.data() + end, body_len);
 					have_cl = true;
 				}
 				// 304/204 → no body
@@ -158,7 +158,7 @@ struct BenchClient {
 				cl += 16;
 				auto cl_end = sofar.find("\r\n", cl);
 				std::size_t body_len = 0;
-				from_chars(buf.data() + cl, buf.data() + cl_end, body_len);
+				std::from_chars(buf.data() + cl, buf.data() + cl_end, body_len);
 				std::size_t resp_end = hdr_end + body_len;
 				if (resp_end > total) {
 					break;
@@ -168,7 +168,7 @@ struct BenchClient {
 			}
 		}
 		if (got < count) {
-			throw std::runtime_error{format("recv_n_responses expected {} responses, got {}", count, got)};
+			throw std::runtime_error{std::format("recv_n_responses expected {} responses, got {}", count, got)};
 		}
 		return total;
 	}
@@ -190,7 +190,7 @@ struct BenchClient {
 	void send_partial(
 		std::string_view data,
 		std::size_t bytes) const {
-		auto n = ::send(fd, data.data(), min(bytes, data.size()), MSG_NOSIGNAL);
+		auto n = ::send(fd, data.data(), std::min(bytes, data.size()), MSG_NOSIGNAL);
 		(void)n;
 	}
 	std::size_t recv_slow(
@@ -202,7 +202,7 @@ struct BenchClient {
 		std::size_t body_len = 0;
 		bool have_cl = false;
 		for (;;) {
-			auto to_read = min(chunk_size, buf.size() - total);
+			auto to_read = std::min(chunk_size, buf.size() - total);
 			auto n = ::recv(fd, buf.data() + total, to_read, 0);
 			if (n <= 0) {
 				break;
@@ -218,7 +218,7 @@ struct BenchClient {
 					if (cl != std::string_view::npos) {
 						cl += 16;
 						auto end = hdrs.find("\r\n", cl);
-						from_chars(buf.data() + cl, buf.data() + end, body_len);
+						std::from_chars(buf.data() + cl, buf.data() + end, body_len);
 						have_cl = true;
 					}
 				}
@@ -282,7 +282,7 @@ void wait_for_server(
 }
 struct ServerHandle {
 	std::shared_ptr<HttpServer> server;
-	thread thr;
+	std::thread thr;
 	std::uint16_t port{};
 };
 ServerHandle start_server(
@@ -291,10 +291,10 @@ ServerHandle start_server(
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
 	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
-	thread t{[srv] {
+	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
-		} catch (exception const &e) { std::println(std::cerr, "bench server: {}", e.what()); }
+		} catch (std::exception const &e) { std::println(std::cerr, "bench server: {}", e.what()); }
 	}};
 	auto p = srv->port();
 	wait_for_server(p);
@@ -366,7 +366,7 @@ std::string make_chunked_many(
 	std::string req = std::format("POST {} HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n", path);
 	std::string chunk(chunk_size, 'X');
 	for (std::size_t sent = 0; sent < total_size; sent += chunk_size) {
-		auto cs = min(chunk_size, total_size - sent);
+		auto cs = std::min(chunk_size, total_size - sent);
 		req += std::format("{:x}\r\n", cs);
 		req.append(chunk.data(), cs);
 		req += "\r\n";
@@ -418,8 +418,8 @@ BenchStats run_variant(
 	std::size_t warmup,
 	std::string_view config_name) {
 	if (v.iters_override) {
-		iterations = min(iterations, v.iters_override);
-		warmup = min(warmup, std::max(std::size_t{2}, v.iters_override / 10));
+		iterations = std::min(iterations, v.iters_override);
+		warmup = std::min(warmup, std::max(std::size_t{2}, v.iters_override / 10));
 	}
 	if (v.setup) {
 		v.setup();
@@ -509,7 +509,7 @@ int main(
 		argv,
 		R"({"name":"http_server","parser":"standard","configs":[{"name":"default","extra":{"tier":"full-suite-smoke"},"args":["--iterations","100","--warmup","30"],"reps":1}]})");
 
-	auto const args = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	auto const iters = args.iterations;
 	auto const warmup = args.warmup;
 	auto const json = args.json_out;
@@ -632,7 +632,7 @@ int main(
 	rn_router.get("/api/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"status":"ok"})"); });
 	rn_router.post("/api/echo-body", [](HttpRequest const &req) { return HttpResponse::text(req.body); });
 	rn_router.get("/body/64k", [&body_64k](HttpRequest const &) { return HttpResponse::text(body_64k); });
-	auto plain_rn = start_server(bench_config(thread::hardware_concurrency()), std::move(rn_router));
+	auto plain_rn = start_server(bench_config(std::thread::hardware_concurrency()), std::move(rn_router));
 
 	// static file serving
 	auto const static_dir = std::filesystem::temp_directory_path() / "conflux_bench_static";
@@ -745,7 +745,7 @@ int main(
 		}
 	}
 	auto const kGetEtagHit =
-		format("GET /content HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\n\r\n", etag_value);
+		std::format("GET /content HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\n\r\n", etag_value);
 
 	// ── Define variants ─────────────────────────────────────────────────
 
@@ -755,7 +755,7 @@ int main(
 	std::vector<Variant> variants;
 
 	// Core transport — plain_r1
-	auto plain_setup = [&] { client = make_unique<BenchClient>(plain.port); };
+	auto plain_setup = [&] { client = std::make_unique<BenchClient>(plain.port); };
 	auto plain_teardown = [&] { client.reset(); };
 
 	variants.push_back(
@@ -911,7 +911,7 @@ int main(
 	// Middleware — compress
 	variants.push_back(
 		{.name = "mw_compress_gzip"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(compress.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(compress.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetBigGzip);
@@ -920,7 +920,7 @@ int main(
 		 .teardown = plain_teardown});
 	variants.push_back(
 		{.name = "mw_compress_passthrough"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(compress.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(compress.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetBigNoEnc);
@@ -931,7 +931,7 @@ int main(
 	// security
 	variants.push_back(
 		{.name = "mw_security"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(security.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(security.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetSecurity);
@@ -942,7 +942,7 @@ int main(
 	// cors
 	variants.push_back(
 		{.name = "mw_cors_origin"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(cors.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(cors.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetCorsOrigin);
@@ -951,7 +951,7 @@ int main(
 		 .teardown = plain_teardown});
 	variants.push_back(
 		{.name = "mw_cors_passthrough"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(cors.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(cors.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetCorsNone);
@@ -962,7 +962,7 @@ int main(
 	// auth
 	variants.push_back(
 		{.name = "mw_auth_bearer"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(auth.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(auth.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetAuthBearer);
@@ -971,7 +971,7 @@ int main(
 		 .teardown = plain_teardown});
 	variants.push_back(
 		{.name = "mw_auth_reject"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(auth.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(auth.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetAuthMissing);
@@ -982,7 +982,7 @@ int main(
 	// etag
 	variants.push_back(
 		{.name = "mw_etag_miss"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(etag.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(etag.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetEtag);
@@ -991,7 +991,7 @@ int main(
 		 .teardown = plain_teardown});
 	variants.push_back(
 		{.name = "mw_etag_hit"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(etag.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(etag.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetEtagHit);
@@ -1002,7 +1002,7 @@ int main(
 	// cache
 	variants.push_back(
 		{.name = "mw_cache_hit"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(cache.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(cache.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetCacheHit);
@@ -1011,7 +1011,7 @@ int main(
 		 .teardown = plain_teardown});
 	variants.push_back(
 		{.name = "mw_cache_miss"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(cache.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(cache.port); },
 		 .run =
 			 [&] {
 				 auto req = std::format(
@@ -1025,7 +1025,7 @@ int main(
 	// full_stack
 	variants.push_back(
 		{.name = "mw_full_stack"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(full_stack.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(full_stack.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetFullStack);
@@ -1080,7 +1080,7 @@ int main(
 	auto const body_too_large_hdrs = make_body_too_large_headers();
 
 	auto error_setup = [&] {
-		client = make_unique<BenchClient>(plain.port);
+		client = std::make_unique<BenchClient>(plain.port);
 		client->set_recv_timeout(std::chrono::seconds{2});
 	};
 	auto error_run_reconnect = [&](std::string_view req) {
@@ -1267,12 +1267,12 @@ int main(
 				 if (auto cl = hdrs.find("Content-Length: "); cl != std::string_view::npos) {
 					 cl += 16;
 					 auto end = hdrs.find("\r\n", cl);
-					 from_chars(small_buf.data() + cl, small_buf.data() + end, body_len);
+					 std::from_chars(small_buf.data() + cl, small_buf.data() + end, body_len);
 				 }
 				 auto already = hdr_n - (hdr_end + 4);
 				 std::size_t remaining = body_len > already ? body_len - already : 0;
 				 while (remaining > 0) {
-					 auto n = ::recv(client->fd, lb.data(), min(remaining, lb.size()), 0);
+					 auto n = ::recv(client->fd, lb.data(), std::min(remaining, lb.size()), 0);
 					 if (n <= 0) {
 						 break;
 					 }
@@ -1412,7 +1412,7 @@ int main(
 	static auto const kGetStatic1m = "GET /1m.bin HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
 	static auto const kGetStaticRange = "GET /64k.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-1023\r\n\r\n"sv;
 
-	auto static_setup = [&] { client = make_unique<BenchClient>(static_srv.port); };
+	auto static_setup = [&] { client = std::make_unique<BenchClient>(static_srv.port); };
 
 	// pre-warm and get ETag for 1k.txt
 	std::string static_etag;
@@ -1429,7 +1429,7 @@ int main(
 		}
 	}
 	auto const kGetStaticEtagHit =
-		format("GET /1k.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\n\r\n", static_etag);
+		std::format("GET /1k.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\n\r\n", static_etag);
 
 	variants.push_back(
 		{.name = "static_1k"sv,
@@ -1483,7 +1483,7 @@ int main(
 
 	variants.push_back(
 		{.name = "deferred_ok"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(deferred.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(deferred.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetDefer);
@@ -1512,7 +1512,7 @@ int main(
 				 }
 				 std::array<char, 4096> rbuf{};
 				 for (auto &c: clients) {
-					 (void)c.recv_response(span{rbuf});
+					 (void)c.recv_response(std::span{rbuf});
 				 }
 			 },
 		 .teardown = {}});
@@ -1523,7 +1523,7 @@ int main(
 	auto const post_4k_rn = make_post_request("/api/echo-body", 4096);
 	static auto const kGetBody64kRN = "GET /body/64k HTTP/1.1\r\nHost: localhost\r\n\r\n"sv;
 
-	auto rn_setup = [&] { client = make_unique<BenchClient>(plain_rn.port); };
+	auto rn_setup = [&] { client = std::make_unique<BenchClient>(plain_rn.port); };
 	variants.push_back(
 		{.name = "rN_get_json"sv,
 		 .setup = rn_setup,
@@ -1603,7 +1603,7 @@ int main(
 				if (cl != std::string_view::npos) {
 					cl += 16;
 					auto end = hdrs.find("\r\n", cl);
-					from_chars(buf.data() + cl, buf.data() + end, body_len);
+					std::from_chars(buf.data() + cl, buf.data() + end, body_len);
 					have_cl = true;
 				}
 			}
@@ -1618,7 +1618,7 @@ int main(
 	};
 
 	auto tls_connect = [&](std::uint16_t port) -> std::pair<BenchClient, SSL *> {
-		auto c = make_unique<BenchClient>(port);
+		auto c = std::make_unique<BenchClient>(port);
 		SSL *ssl = SSL_new(ctx.get());
 		SSL_set_fd(ssl, c->fd);
 		if (SSL_connect(ssl) != 1) {
@@ -1639,7 +1639,7 @@ int main(
 
 	auto tls_setup = [&] {
 		auto [c, ssl] = tls_connect(tls_srv.port);
-		tls_client = make_unique<BenchClient>(std::move(c));
+		tls_client = std::make_unique<BenchClient>(std::move(c));
 		tls_ssl.reset(ssl);
 	};
 	auto tls_teardown = [&] {
@@ -1683,7 +1683,7 @@ int main(
 
 	variants.push_back(
 		{.name = "sr32_pipeline_100"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(small_ring_32.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(small_ring_32.port); },
 		 .run =
 			 [&] {
 				 for (int i = 0; i < 100; ++i) {
@@ -1695,7 +1695,7 @@ int main(
 		 .ops_per_iter = 100});
 	variants.push_back(
 		{.name = "sr32_get_body_1m"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(small_ring_32.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(small_ring_32.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetBody1m);
@@ -1719,7 +1719,7 @@ int main(
 
 	variants.push_back(
 		{.name = "br64_post_echo_64k"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(small_buf_ring_64.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(small_buf_ring_64.port); },
 		 .run =
 			 [&] {
 				 client->send_all(post_64k_br);
@@ -1728,7 +1728,7 @@ int main(
 		 .teardown = plain_teardown});
 	variants.push_back(
 		{.name = "br64_pipeline_100"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(small_buf_ring_64.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(small_buf_ring_64.port); },
 		 .run =
 			 [&] {
 				 for (int i = 0; i < 100; ++i) {
@@ -1740,7 +1740,7 @@ int main(
 		 .ops_per_iter = 100});
 	variants.push_back(
 		{.name = "br128_get_body_64k"sv,
-		 .setup = [&] { client = make_unique<BenchClient>(small_buf_ring_128.port); },
+		 .setup = [&] { client = std::make_unique<BenchClient>(small_buf_ring_128.port); },
 		 .run =
 			 [&] {
 				 client->send_all(kGetBody64k);
@@ -1758,7 +1758,7 @@ int main(
 		try {
 			auto const stats = run_variant(v, iters, warmup, config_name);
 			print_variant(stats, json, v.ops_per_iter);
-		} catch (exception const &e) {
+		} catch (std::exception const &e) {
 			if (json) {
 				std::println(std::cerr, "error in {}: {}", v.name, e.what());
 			} else {

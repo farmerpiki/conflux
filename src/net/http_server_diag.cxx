@@ -20,6 +20,7 @@ module;
 #include <sys/mman.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#include <conflux/detail/discard.hxx>
 
 module conflux.net.http_server:diag;
 
@@ -205,7 +206,9 @@ void Ring::recycle_recv_buffer_direct(
 void Ring::dispatch_cqe_fatal(
 	io_uring_cqe const *cqe) noexcept {
 		try {
-			auto const [op, _, _] = unpack(cqe->user_data);
+			auto const [op, accepted_fd, direct_slot] = unpack(cqe->user_data);
+			CONFLUX_DISCARD(accepted_fd);
+			CONFLUX_DISCARD(direct_slot);
 			switch (op) {
 			case Op::Recv: recycle_recv_buffer_direct(cqe); break;
 			case Op::Accept:

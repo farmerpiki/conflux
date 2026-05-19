@@ -510,11 +510,11 @@ struct TempCorpusFile {
 		path = std::filesystem::temp_directory_path() / "conflux_json_bench_e2e.json";
 		std::ofstream out{path, std::ios::binary | std::ios::trunc};
 		if (!out) {
-			throw std::runtime_error{format("cannot open {}", path.string())};
+			throw std::runtime_error{std::format("cannot open {}", path.string())};
 		}
 		out.write(corpus.data(), static_cast<std::streamsize>(corpus.size()));
 		if (!out) {
-			throw std::runtime_error{format("cannot write {}", path.string())};
+			throw std::runtime_error{std::format("cannot write {}", path.string())};
 		}
 	}
 	~TempCorpusFile() {
@@ -678,7 +678,7 @@ std::string make_below_threshold_corpus() {
 	return out;
 }
 // 5.5-B gate: 31-member object — always linear (just below kHashThreshold=32).
-// Isolates cache-line packing benefit of 16-byte vs 24-byte MemberEntry.
+// Isolates cache-line packing benefit of 16-std::byte vs 24-std::byte MemberEntry.
 std::string make_linear31_corpus() {
 	std::string out = "{";
 	for (int i = 0; i < 31; ++i) {

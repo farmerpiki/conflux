@@ -209,7 +209,7 @@ std::shared_ptr<Pool> Pool::create(
 	p->grow_if_needed_();
 	return p;
 }
-// NOLINTNEXTLINE(bugprone-std::exception-escape) — try-block guards the only throwing call.
+// NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.
 void Pool::close() noexcept {
 	if (closed_) {
 		return;
@@ -281,7 +281,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 	}
 	return std::move(task);
 }
-// NOLINTNEXTLINE(bugprone-std::exception-escape) — try-block guards the only throwing call.
+// NOLINTNEXTLINE(bugprone-exception-escape) — try-block guards the only throwing call.
 void Pool::return_(
 	std::shared_ptr<Connection> conn) noexcept {
 	if (closed_ || !conn || !conn->ok()) {
@@ -329,7 +329,7 @@ void Pool::grow_if_needed_() {
 																	   .detach();
 	}
 }
-// NOLINTNEXTLINE(bugprone-std::exception-escape,misc-no-recursion)
+// NOLINTNEXTLINE(bugprone-exception-escape,misc-no-recursion)
 void Pool::dispatch_lease_(
 	std::shared_ptr<root::TaskSource<Lease>> const &src,
 	std::shared_ptr<Connection> conn) noexcept {

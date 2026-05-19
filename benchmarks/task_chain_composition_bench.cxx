@@ -45,7 +45,7 @@ int main(
 		argv,
 		R"({"name":"task_chain_composition","parser":"standard","configs":[{"name":"steps_1","extra":{"chain_steps":1},"args":["--steps","1","--config-name","steps_1","--iterations","500000","--warmup","20000"]},{"name":"steps_4","extra":{"chain_steps":4},"args":["--steps","4","--config-name","steps_4","--iterations","500000","--warmup","20000"]},{"name":"steps_16","extra":{"chain_steps":16},"args":["--steps","16","--config-name","steps_16","--iterations","500000","--warmup","20000"]},{"name":"steps_64","extra":{"chain_steps":64},"args":["--steps","64","--config-name","steps_64","--iterations","500000","--warmup","20000"]}]})");
 
-	auto cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	std::size_t chain_steps = 4;
 	for (std::size_t i = 1; i < static_cast<std::size_t>(argc); ++i) {
 		std::string_view a = argv[i];

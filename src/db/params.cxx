@@ -106,7 +106,7 @@ class Params {
 		}
 		return v;
 	}
-	// NOLINTNEXTLINE(bugprone-std::exception-escape) — std::vector ops; libpq accessors documented as noexcept-equivalent.
+	// NOLINTNEXTLINE(bugprone-exception-escape) — std::vector ops; libpq accessors documented as noexcept-equivalent.
 	void rebuild_() const noexcept {
 		if (!dirty_) {
 			return;
@@ -246,7 +246,7 @@ public:
 	// ---- libpq accessors -----------------------------------------
 
 	[[nodiscard]] int count() const noexcept { return static_cast<int>(count_); }
-	// NOLINTNEXTLINE(bugprone-std::exception-escape)
+	// NOLINTNEXTLINE(bugprone-exception-escape)
 	[[nodiscard]] char const *const *values() const noexcept {
 		rebuild_();
 		if (count_ == 0) {

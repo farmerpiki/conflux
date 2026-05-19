@@ -102,7 +102,7 @@ export class FixedBufferPool {
 
 	friend class FixedBuffer;
 	void release(
-		// NOLINT(bugprone-std::exception-escape) — free_ is pre-sized; push_back never reallocates
+		// NOLINT(bugprone-exception-escape) — free_ is pre-sized; push_back never reallocates
 		unsigned local_slot) noexcept {
 		free_.push_back(local_slot);
 	}

@@ -17,7 +17,7 @@ namespace {
 // ── CPU pinning ────────────────────────────────────────────────────────────
 
 [[nodiscard]] unsigned nproc() {
-	return thread::hardware_concurrency();
+	return std::thread::hardware_concurrency();
 }
 void pin_thread(
 	unsigned cpu) {
@@ -53,12 +53,12 @@ struct BenchClient {
 	BenchClient &operator =(BenchClient const &) = delete;
 	BenchClient(
 		BenchClient &&o) noexcept
-		: fd(exchange(o.fd, -1)) {}
+		: fd(std::exchange(o.fd, -1)) {}
 	BenchClient &operator =(
 		BenchClient &&o) noexcept {
 		if (this != &o) {
 			close();
-			fd = exchange(o.fd, -1);
+			fd = std::exchange(o.fd, -1);
 		}
 		return *this;
 	}
@@ -105,7 +105,7 @@ struct BenchClient {
 				if (cl != std::string_view::npos) {
 					cl += 16;
 					auto const end = hdrs.find("\r\n", cl);
-					from_chars(buf.data() + cl, buf.data() + end, body_len);
+					std::from_chars(buf.data() + cl, buf.data() + end, body_len);
 					have_cl = true;
 				}
 				if (hdrs.starts_with("HTTP/1.1 304") || hdrs.starts_with("HTTP/1.1 204")) {
@@ -163,7 +163,7 @@ void wait_for_server(
 }
 struct ServerHandle {
 	std::shared_ptr<HttpServer> server;
-	thread thr;
+	std::thread thr;
 	std::uint16_t port{};
 };
 ServerHandle start_server(
@@ -172,10 +172,10 @@ ServerHandle start_server(
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
 	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
-	thread t{[srv] {
+	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
-		} catch (exception const &e) { std::println(std::cerr, "bench server: {}", e.what()); }
+		} catch (std::exception const &e) { std::println(std::cerr, "bench server: {}", e.what()); }
 	}};
 	auto p = srv->port();
 	wait_for_server(p);
@@ -230,7 +230,7 @@ struct LatencyStats {
 [[nodiscard]] int count_fds() {
 	int count = 0;
 	auto const dir = std::filesystem::path{"/proc/self/fd"};
-	for (auto const &entry: std::filesystem::directory_iterator{dir}) {
+	for (auto const &entry: std::ranges::subrange{std::filesystem::directory_iterator{dir}, std::default_sentinel}) {
 		if (entry.is_symlink() || entry.exists()) {
 			++count;
 		}
@@ -413,14 +413,14 @@ int main(
 		argv,
 		R"({"name":"http_server_concurrency","parser":"standard","configs":[{"name":"default","extra":{},"args":["--duration","5"]}]})");
 
-	auto const args = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	auto const json = args.json_out;
 	auto const config_name = args.config_name.empty() ? "default"sv : std::string_view{args.config_name};
 
 	int duration_s = 5;
 	for (int i = 1; i < argc; ++i) {
 		if (std::string_view{argv[i]} == "--duration" && i + 1 < argc) {
-			from_chars(argv[i + 1], argv[i + 1] + std::strlen(argv[i + 1]), duration_s);
+			std::from_chars(argv[i + 1], argv[i + 1] + std::strlen(argv[i + 1]), duration_s);
 		}
 	}
 
@@ -508,7 +508,7 @@ int main(
 			auto const variant_name = std::format("{}{}", v.name, cfg.suffix);
 			auto const dur = v.duration;
 			auto const num_threads =
-				min(static_cast<int>(v.connections), can_pin ? static_cast<int>(half) : static_cast<int>(np));
+				std::min(static_cast<int>(v.connections), can_pin ? static_cast<int>(half) : static_cast<int>(np));
 			auto const conns_per_thread = v.connections / num_threads;
 			auto const remainder = v.connections % num_threads;
 
@@ -520,7 +520,7 @@ int main(
 			}
 
 			std::atomic<bool> stop{false};
-			std::vector<thread> workers;
+			std::vector<std::thread> workers;
 			std::vector<WorkerResult> results(static_cast<std::size_t>(num_threads));
 
 			auto const run_start = bench_now_ns();
@@ -532,7 +532,7 @@ int main(
 						pin_thread(half + static_cast<unsigned>(t) % half);
 					}
 					std::vector<char> buf(v.request == kGetBody64k ? 131072 : 8192);
-					results[static_cast<std::size_t>(t)] = run_worker(port, v, my_conns, stop, span{buf}, post_4k);
+					results[static_cast<std::size_t>(t)] = run_worker(port, v, my_conns, stop, std::span{buf}, post_4k);
 				});
 			}
 

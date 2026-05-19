@@ -77,7 +77,7 @@ struct StaticDir {
 		REQUIRE(::mkdtemp(path.data()) != nullptr);
 	}
 	~StaticDir() {
-		for (auto &ent: std::filesystem::directory_iterator{path}) {
+		for (auto const &ent: std::ranges::subrange{std::filesystem::directory_iterator{path}, std::default_sentinel}) {
 			(void)ent;
 		}
 		std::error_code ec;

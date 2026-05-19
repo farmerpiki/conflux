@@ -1,5 +1,5 @@
 // TLS variant of tcp_increment_coro_bench. Client uses TlsAsyncStream (memory
-// BIOs shuttled through io_uring). Server is blocking OpenSSL on a thread
+// BIOs shuttled through io_uring). Server is blocking OpenSSL on a std::thread
 // with SSL_set_fd. Self-signed cert generated in memory at startup.
 #include <arpa/inet.h>
 #include <charconv>
@@ -41,7 +41,7 @@ std::uint64_t parse_u64(
 	char const *s) noexcept {
 	std::string_view sv{s};
 	std::uint64_t v{};
-	from_chars(sv.data(), sv.data() + sv.size(), v);
+	std::from_chars(sv.data(), sv.data() + sv.size(), v);
 	return v;
 }
 
@@ -124,7 +124,7 @@ KeyCert make_self_signed() {
 void run_server(
 	int listen_fd,
 	SSL_CTX *sctx,
-	atomic_flag &stop) {
+	std::atomic_flag &stop) {
 	int cfd = ::accept4(listen_fd, nullptr, nullptr, SOCK_CLOEXEC);
 	::close(listen_fd);
 	if (cfd < 0) {
@@ -154,21 +154,21 @@ void run_server(
 		held += static_cast<std::size_t>(got);
 		std::size_t scan = 0;
 		while (scan < held) {
-			auto view = span{buf}.subspan(scan, held - scan);
+			auto view = std::span{buf}.subspan(scan, held - scan);
 			auto it = std::ranges::find(view, '\n');
 			if (it == view.end()) {
 				break;
 			}
 			std::size_t const msg_end = scan + static_cast<std::size_t>(it - view.begin());
 			std::uint64_t n = 0;
-			auto const parsed = from_chars(buf.data() + scan, buf.data() + msg_end, n);
-			if (parsed.ec != errc{}) {
+			auto const parsed = std::from_chars(buf.data() + scan, buf.data() + msg_end, n);
+			if (parsed.ec != std::errc{}) {
 				goto done;
 			}
 			++n;
 			std::array<char, 24> out{};
-			auto const conv = to_chars(out.data(), out.data() + out.size() - 1, n);
-			if (conv.ec != errc{}) {
+			auto const conv = std::to_chars(out.data(), out.data() + out.size() - 1, n);
+			if (conv.ec != std::errc{}) {
 				goto done;
 			}
 			*conv.ptr = '\n';
@@ -185,7 +185,7 @@ void run_server(
 		}
 		if (scan > 0) {
 			std::size_t const remain = held - scan;
-			memstd::move(buf.data(), buf.data() + scan, remain);
+			memmove(buf.data(), buf.data() + scan, remain);
 			held = remain;
 		}
 		if (held == buf.size()) {
@@ -245,8 +245,8 @@ int connect_to(
 std::size_t encode_line(
 	std::span<char> out,
 	std::uint64_t n) {
-	auto const r = to_chars(out.data(), out.data() + out.size() - 1, n);
-	if (r.ec != errc{}) {
+	auto const r = std::to_chars(out.data(), out.data() + out.size() - 1, n);
+	if (r.ec != std::errc{}) {
 		throw std::runtime_error{"to_chars"};
 	}
 	*r.ptr = '\n';
@@ -255,25 +255,25 @@ std::size_t encode_line(
 std::uint64_t decode_line(
 	std::string_view line) {
 	std::uint64_t n = 0;
-	auto const r = from_chars(line.data(), line.data() + line.size(), n);
-	if (r.ec != errc{}) {
+	auto const r = std::from_chars(line.data(), line.data() + line.size(), n);
+	if (r.ec != std::errc{}) {
 		throw std::runtime_error{"from_chars"};
 	}
 	return n;
 }
 struct AsyncTlsLineReader {
 	TlsAsyncStream &tls;
-	std::array<byte, 256> buf{};
+	std::array<std::byte, 256> buf{};
 	std::size_t held = 0;
 	Task<std::string_view> read_line() {
 		for (;;) {
-			auto view = span{buf}.first(held);
-			auto it = std::ranges::find(view, static_cast<byte>('\n'));
+			auto view = std::span{buf}.first(held);
+			auto it = std::ranges::find(view, static_cast<std::byte>('\n'));
 			if (it != view.end()) {
 				auto const end = static_cast<std::size_t>(it - view.begin());
 				co_return std::string_view{reinterpret_cast<char const *>(buf.data()), end};
 			}
-			auto got = co_await tls.read_some(span{buf.data() + held, buf.size() - held});
+			auto got = co_await tls.read_some(std::span{buf.data() + held, buf.size() - held});
 			if (got == 0) {
 				throw std::runtime_error{"tls eof"};
 			}
@@ -286,7 +286,7 @@ struct AsyncTlsLineReader {
 		if (drop >= held) {
 			held = 0;
 		} else {
-			memstd::move(buf.data(), buf.data() + drop, held - drop);
+			memmove(buf.data(), buf.data() + drop, held - drop);
 			held -= drop;
 		}
 	}
@@ -302,12 +302,12 @@ std::uint64_t run_callback(
 	auto const t0 = std::chrono::steady_clock::now();
 	for (std::size_t i = 0; i < iters; ++i) {
 		std::size_t const len = encode_line(out, n);
-		block_on(files, tls.write_all(as_bytes(span{out.data(), len})));
+		block_on(files, tls.write_all(std::as_bytes(std::span{out.data(), len})));
 		auto line = block_on(files, reader.read_line());
 		std::uint64_t const got = decode_line(line);
 		reader.consume_line(line.size());
 		if (got != n + 1) {
-			throw std::runtime_error{format("expected {} got {}", n + 1, got)};
+			throw std::runtime_error{std::format("expected {} got {}", n + 1, got)};
 		}
 		n = got;
 	}
@@ -323,12 +323,12 @@ Task<std::uint64_t> coro_loop(
 	std::uint64_t n = start;
 	for (std::size_t i = 0; i < iters; ++i) {
 		std::size_t const len = encode_line(out, n);
-		co_await tls.write_all(as_bytes(span{out.data(), len}));
+		co_await tls.write_all(std::as_bytes(std::span{out.data(), len}));
 		auto line = co_await reader.read_line();
 		std::uint64_t const got = decode_line(line);
 		reader.consume_line(line.size());
 		if (got != n + 1) {
-			throw std::runtime_error{format("expected {} got {}", n + 1, got)};
+			throw std::runtime_error{std::format("expected {} got {}", n + 1, got)};
 		}
 		n = got;
 	}
@@ -353,7 +353,7 @@ int main(
 		argc,
 		argv,
 		R"({"name":"tls_tcp_increment_coro","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","10000","--warmup","500"]}]})");
-	auto cfg = parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 
 	auto kc = make_self_signed();
 
@@ -368,15 +368,15 @@ int main(
 	for (int which = 0; which < 2; ++which) {
 		std::uint16_t port = 0;
 		int const lfd = start_listener(port);
-		atomic_flag server_stop{};
-		thread server{[lfd, sctx_raw = sctx.get(), &server_stop] { run_server(lfd, sctx_raw, server_stop); }};
+		std::atomic_flag server_stop{};
+		std::thread server{[lfd, sctx_raw = sctx.get(), &server_stop] { run_server(lfd, sctx_raw, server_stop); }};
 
 		int const csock = connect_to(port);
 
 		::io_uring ring{};
 		if (::io_uring_queue_init(64, &ring, 0) < 0) {
 			::close(csock);
-			server_stop.test_and_set(memory_order_release);
+			server_stop.test_and_set(std::memory_order_release);
 			server.join();
 			std::println(std::cerr, "io_uring_queue_init failed");
 			return 1;
@@ -412,15 +412,15 @@ int main(
 				}
 				std::println("  {:<10} {:>8.1f} ns/iter ({} ns total)", label, per, ns);
 			}
-		} catch (exception const &e) { std::println(std::cerr, "error: {}", e.what()); }
+		} catch (std::exception const &e) { std::println(std::cerr, "error: {}", e.what()); }
 
 		::io_uring_queue_exit(&ring);
-		server_stop.test_and_set(memory_order_release);
+		server_stop.test_and_set(std::memory_order_release);
 		int const raw = tls.handle().raw_fd();
 		::shutdown(raw, SHUT_RDWR);
 		server.join();
 	}
-} catch (exception const &e) {
+} catch (std::exception const &e) {
 	std::println(std::cerr, "fatal: {}", e.what());
 	return 1;
 }

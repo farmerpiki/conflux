@@ -37,12 +37,12 @@ struct BenchClient {
 	BenchClient &operator =(BenchClient const &) = delete;
 	BenchClient(
 		BenchClient &&o) noexcept
-		: fd(exchange(o.fd, -1)) {}
+		: fd(std::exchange(o.fd, -1)) {}
 	BenchClient &operator =(
 		BenchClient &&o) noexcept {
 		if (this != &o) {
 			close();
-			fd = exchange(o.fd, -1);
+			fd = std::exchange(o.fd, -1);
 		}
 		return *this;
 	}
@@ -63,7 +63,7 @@ struct BenchClient {
 		if (::inet_pton(AF_INET, host_s.c_str(), &addr.sin_addr) != 1) {
 			::close(fd);
 			fd = -1;
-			throw std::runtime_error{format("invalid IPv4 host: {}", host)};
+			throw std::runtime_error{std::format("invalid IPv4 host: {}", host)};
 		}
 		if (::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) < 0) {
 			::close(fd);
@@ -124,7 +124,7 @@ struct BenchClient {
 				if (cl != std::string_view::npos) {
 					cl += 16;
 					auto end = hdrs.find("\r\n", cl);
-					from_chars(buf.data() + cl, buf.data() + end, body_len);
+					std::from_chars(buf.data() + cl, buf.data() + end, body_len);
 					have_cl = true;
 				}
 				if (hdrs.starts_with("HTTP/1.1 304") || hdrs.starts_with("HTTP/1.1 204")) {
@@ -156,7 +156,7 @@ void wait_for_server(
 		auto host_s = std::string{host};
 		if (::inet_pton(AF_INET, host_s.c_str(), &addr.sin_addr) != 1) {
 			::close(s);
-			throw std::runtime_error{format("invalid IPv4 host: {}", host)};
+			throw std::runtime_error{std::format("invalid IPv4 host: {}", host)};
 		}
 		bool const up = ::connect(s, reinterpret_cast<sockaddr *>(&addr), sizeof(addr)) == 0;
 		::close(s);
@@ -173,7 +173,7 @@ void wait_for_server(
 }
 struct ServerHandle {
 	std::shared_ptr<HttpServer> server;
-	thread thr;
+	std::thread thr;
 	std::uint16_t port{};
 };
 ServerHandle start_server(
@@ -182,10 +182,10 @@ ServerHandle start_server(
 	(void)::signal(SIGPIPE, SIG_IGN);
 	cfg.startup_banner = false;
 	auto srv = std::make_shared<HttpServer>(cfg, std::move(router));
-	thread t{[srv] {
+	std::thread t{[srv] {
 		try {
 			auto _ = srv->run();
-		} catch (exception const &e) { std::println(std::cerr, "bench server: {}", e.what()); }
+		} catch (std::exception const &e) { std::println(std::cerr, "bench server: {}", e.what()); }
 	}};
 	auto p = srv->port();
 	wait_for_server(p);
@@ -441,7 +441,7 @@ ConcurrentWorkerResult run_concurrent_worker(
 	while (!start.load(std::memory_order_acquire)) {
 		std::this_thread::yield();
 	}
-	std::vector<char> recv_buf(max<std::size_t>(response_bytes + 4096, 8192));
+	std::vector<char> recv_buf(std::max<std::size_t>(response_bytes + 4096, 8192));
 	auto rb = std::span<char>{recv_buf};
 	while (!stop.load(std::memory_order_relaxed)) {
 		for (auto &client: clients) {
@@ -477,14 +477,14 @@ SendZcBenchStats run_concurrent_variant(
 		HttpServerMetrics metrics{};
 	};
 	State st{.server = start_server(bench_config_zc(mode, send_zc_threshold), router_factory())};
-	auto const hw = std::max(1u, thread::hardware_concurrency());
-	auto const thread_count = static_cast<int>(min<std::size_t>(connections, static_cast<std::size_t>(hw)));
+	auto const hw = std::max(1u, std::thread::hardware_concurrency());
+	auto const thread_count = static_cast<int>(std::min<std::size_t>(connections, static_cast<std::size_t>(hw)));
 	auto const base = static_cast<int>(connections / static_cast<std::size_t>(thread_count));
 	auto const rem = static_cast<int>(connections % static_cast<std::size_t>(thread_count));
 	std::atomic<bool> start{false};
 	std::atomic<bool> stop{false};
 	std::atomic<int> ready{0};
-	std::vector<thread> workers;
+	std::vector<std::thread> workers;
 	std::vector<ConcurrentWorkerResult> results(static_cast<std::size_t>(thread_count));
 	for (int i = 0; i < thread_count; ++i) {
 		auto const worker_connections = base + (i < rem ? 1 : 0);
@@ -544,14 +544,14 @@ SendZcBenchStats run_remote_concurrent_variant(
 	std::size_t response_bytes,
 	std::size_t connections,
 	std::size_t duration_s) {
-	auto const hw = std::max(1u, thread::hardware_concurrency());
-	auto const thread_count = static_cast<int>(min<std::size_t>(connections, static_cast<std::size_t>(hw)));
+	auto const hw = std::max(1u, std::thread::hardware_concurrency());
+	auto const thread_count = static_cast<int>(std::min<std::size_t>(connections, static_cast<std::size_t>(hw)));
 	auto const base = static_cast<int>(connections / static_cast<std::size_t>(thread_count));
 	auto const rem = static_cast<int>(connections % static_cast<std::size_t>(thread_count));
 	std::atomic<bool> start{false};
 	std::atomic<bool> stop{false};
 	std::atomic<int> ready{0};
-	std::vector<thread> workers;
+	std::vector<std::thread> workers;
 	std::vector<ConcurrentWorkerResult> results(static_cast<std::size_t>(thread_count));
 	for (int i = 0; i < thread_count; ++i) {
 		auto const worker_connections = base + (i < rem ? 1 : 0);
@@ -650,7 +650,7 @@ void ssl_write_all(
 	auto const *p = data.data();
 	auto remaining = data.size();
 	while (remaining > 0) {
-		auto const n = SSL_write(ssl, p, static_cast<int>(min<std::size_t>(remaining, 16 * 1024)));
+		auto const n = SSL_write(ssl, p, static_cast<int>(std::min<std::size_t>(remaining, 16 * 1024)));
 		if (n <= 0) {
 			throw std::runtime_error{"SSL_write failed"};
 		}
@@ -683,7 +683,7 @@ std::size_t ssl_recv_response(
 			if (cl != std::string_view::npos) {
 				cl += 16;
 				auto end = hdrs.find("\r\n", cl);
-				from_chars(buf.data() + cl, buf.data() + end, body_len);
+				std::from_chars(buf.data() + cl, buf.data() + end, body_len);
 				have_cl = true;
 			}
 		}
@@ -704,16 +704,16 @@ int main(
 	char **argv) {
 	bench_info_if_requested(argc, argv, R"({"name":"send_zc","parser":"standard","configs":[{"name":"threshold_4k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096},"args":["--send-zc-threshold","4096","--config-name","threshold_4k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_16k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384},"args":["--send-zc-threshold","16384","--config-name","threshold_16k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_64k","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536},"args":["--send-zc-threshold","65536","--config-name","threshold_64k","--iterations","1000","--warmup","100"],"reps":1},{"name":"threshold_4k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":4096,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","4096","--config-name","threshold_4k_load"],"reps":1},{"name":"threshold_16k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":16384,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","16384","--config-name","threshold_16k_load"],"reps":1},{"name":"threshold_64k_load","extra":{"captures_send_zc_counters":true,"send_zc_threshold":65536,"load":true,"connections":64,"duration_s":2},"args":["--concurrent","--connections","64","--duration","2","--send-zc-threshold","65536","--config-name","threshold_64k_load"],"reps":1}]})");
 
-	auto const args = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto const args = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	auto const iters = args.iterations;
 	auto const warmup = args.warmup;
 	auto const json_out = args.json_out;
-	auto const raw_args = span{argv, static_cast<std::size_t>(argc)};
+	auto const raw_args = std::span{argv, static_cast<std::size_t>(argc)};
 	bool const concurrent = has_flag(raw_args, "--concurrent"sv);
 	bool const server_only = has_flag(raw_args, "--server-only"sv);
 	bool const client_only = has_flag(raw_args, "--client-only"sv);
-	std::size_t const concurrent_connections = max<std::size_t>(1, parse_sz_arg(raw_args, "--connections"sv, 64));
-	std::size_t const concurrent_duration_s = max<std::size_t>(1, parse_sz_arg(raw_args, "--duration"sv, 2));
+	std::size_t const concurrent_connections = std::max<std::size_t>(1, parse_sz_arg(raw_args, "--connections"sv, 64));
+	std::size_t const concurrent_duration_s = std::max<std::size_t>(1, parse_sz_arg(raw_args, "--duration"sv, 2));
 	std::size_t const send_zc_threshold = parse_send_zc_threshold(raw_args);
 	std::uint16_t const remote_port = static_cast<std::uint16_t>(parse_sz_arg(raw_args, "--port"sv, 9095));
 	std::string const remote_host = parse_string_arg(raw_args, "--host"sv, "127.0.0.1");
@@ -834,9 +834,9 @@ int main(
 			.setup =
 				[st, mode = std::string{mode}, router_factory = std::move(router_factory), send_zc_threshold] {
 					st->metrics = {};
-					st->server = make_unique<ServerHandle>(
+					st->server = std::make_unique<ServerHandle>(
 						start_server(bench_config_zc(std::string_view{mode}, send_zc_threshold), router_factory()));
-					st->client = make_unique<BenchClient>(st->server->port);
+					st->client = std::make_unique<BenchClient>(st->server->port);
 				},
 			.run =
 				[st, request = std::move(request), rb] {
@@ -870,11 +870,11 @@ int main(
 				continue;
 			}
 			auto const label_s = std::string{label};
-			auto const body_req = std::string{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
-			auto const mapped_req = std::string{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+			auto const body_req = std::string{std::format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+			auto const mapped_req = std::string{std::format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
 			auto plain_off = run_concurrent_variant(
 				config_name,
-				format("load/plain/{}/off", label_s),
+				std::format("load/plain/{}/off", label_s),
 				"off"sv,
 				make_body_router,
 				body_req,
@@ -885,7 +885,7 @@ int main(
 			print_variant(plain_off, json_out, 1);
 			auto plain_zc = run_concurrent_variant(
 				config_name,
-				format("load/plain/{}/zc_auto", label_s),
+				std::format("load/plain/{}/zc_auto", label_s),
 				"auto"sv,
 				make_body_router,
 				body_req,
@@ -896,7 +896,7 @@ int main(
 			print_variant(plain_zc, json_out, 1);
 			auto mapped_off = run_concurrent_variant(
 				config_name,
-				format("load/mapped/{}/off", label_s),
+				std::format("load/mapped/{}/off", label_s),
 				"off"sv,
 				make_static_router,
 				mapped_req,
@@ -907,7 +907,7 @@ int main(
 			print_variant(mapped_off, json_out, 1);
 			auto mapped_zc = run_concurrent_variant(
 				config_name,
-				format("load/mapped/{}/zc_auto", label_s),
+				std::format("load/mapped/{}/zc_auto", label_s),
 				"auto"sv,
 				make_static_router,
 				mapped_req,
@@ -922,14 +922,14 @@ int main(
 	}
 
 	for (auto const &[label, size]: kBodies) {
-		auto const req = std::string{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+		auto const req = std::string{std::format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
 		auto label_s = std::string{label};
 		variants.push_back(make_http_variant(std::format("plain/{}/off", label_s), "off", make_body_router, req));
 		variants.push_back(make_http_variant(std::format("plain/{}/zc_auto", label_s), "auto", make_body_router, req));
 	}
 
 	for (auto const &[label, size]: kBodies) {
-		auto const req = std::string{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+		auto const req = std::string{std::format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
 		auto label_s = std::string{label};
 		variants.push_back(make_http_variant(std::format("mapped/{}/off", label_s), "off", make_static_router, req));
 		variants.push_back(make_http_variant(std::format("mapped/{}/zc_auto", label_s), "auto", make_static_router, req));
@@ -967,8 +967,8 @@ int main(
 					auto cfg = bench_config_zc(std::string_view{mode}, send_zc_threshold);
 					cfg.cert_file = tls_cert_path;
 					cfg.key_file = tls_key_path;
-					st->server = make_unique<ServerHandle>(start_server(cfg, router_factory()));
-					st->client = make_unique<BenchClient>(st->server->port);
+					st->server = std::make_unique<ServerHandle>(start_server(cfg, router_factory()));
+					st->client = std::make_unique<BenchClient>(st->server->port);
 					SSL *ssl = SSL_new(ssl_ctx.get());
 					if (ssl == nullptr) {
 						throw std::runtime_error{"SSL_new failed"};
@@ -1005,8 +1005,8 @@ int main(
 			continue;
 		}
 		auto label_s = std::string{label};
-		auto const body_req = std::string{format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
-		auto const mapped_req = std::string{format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+		auto const body_req = std::string{std::format("GET /body/{} HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
+		auto const mapped_req = std::string{std::format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
 		std::size_t const tls_iters = size >= 1048576 ? 50 : 200;
 		variants.push_back(
 			make_tls_variant(std::format("tls/plain/{}/off", label_s), "off", make_body_router, body_req, tls_iters));
@@ -1015,7 +1015,7 @@ int main(
 		variants.push_back(
 			make_tls_variant(std::format("tls/mapped/{}/off", label_s), "off", make_static_router, mapped_req, tls_iters));
 		variants.push_back(make_tls_variant(
-			format("tls/mapped/{}/zc_auto", label_s),
+			std::format("tls/mapped/{}/zc_auto", label_s),
 			"auto",
 			make_static_router,
 			mapped_req,

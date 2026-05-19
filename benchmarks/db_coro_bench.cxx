@@ -87,7 +87,7 @@ int main(
 		argv,
 		R"({"name":"db_coro","parser":"standard","configs":[{"name":"rows_3","extra":{"rows":3,"binary":false},"args":["--rows","3","--config-name","rows_3","--iterations","5000","--warmup","500"]},{"name":"rows_3_binary","extra":{"rows":3,"binary":true},"args":["--rows","3","--binary","--config-name","rows_3_binary","--iterations","5000","--warmup","500"]},{"name":"rows_100","extra":{"rows":100,"binary":false},"args":["--rows","100","--config-name","rows_100","--iterations","1000","--warmup","100"]},{"name":"rows_100_binary","extra":{"rows":100,"binary":true},"args":["--rows","100","--binary","--config-name","rows_100_binary","--iterations","1000","--warmup","100"]}]})");
 
-	auto cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	std::int64_t rows = 3;
 	bool binary = false;
 	for (std::size_t i = 1; i < static_cast<std::size_t>(argc); ++i) {
@@ -95,7 +95,7 @@ int main(
 		if (a == "--rows" && i + 1 < static_cast<std::size_t>(argc)) {
 			std::uint64_t v{};
 			std::string_view sv{argv[++i]};
-			from_chars(sv.data(), sv.data() + sv.size(), v);
+			std::from_chars(sv.data(), sv.data() + sv.size(), v);
 			rows = static_cast<std::int64_t>(v);
 			if (cfg.config_name.empty()) {
 				cfg.config_name = std::format("rows_{}", rows);
@@ -156,7 +156,7 @@ int main(
 		}
 
 		conn->close();
-	} catch (exception const &e) {
+	} catch (std::exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);
 		return 1;

@@ -374,12 +374,26 @@ include(CheckCXXSourceCompiles)
 check_cxx_source_compiles("${_AESNI_TEST_CODE}" CONFLUX_HAS_AESNI)
 unset(CMAKE_REQUIRED_FLAGS)
 
+set(_CONFLUX_DISCARD_TEST_CODE "
+int f();
+int main() {
+    auto _ = f();
+    return 0;
+}")
+set(CMAKE_REQUIRED_FLAGS "-Werror -Wpedantic")
+check_cxx_source_compiles("${_CONFLUX_DISCARD_TEST_CODE}" CONFLUX_HAS_WARNING_CLEAN_AUTO_UNDERSCORE_DISCARD)
+unset(CMAKE_REQUIRED_FLAGS)
+
 # ---------------------------------------------------------------------------
 # Library
 # ---------------------------------------------------------------------------
 
 add_library(conflux_options INTERFACE)
 conflux_apply_compiler_options(conflux_options)
+target_include_directories(conflux_options INTERFACE
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>"
+    "$<INSTALL_INTERFACE:include>"
+)
 target_compile_definitions(conflux_options INTERFACE
     CONFLUX_ENABLE_EXPERIMENTAL=$<BOOL:${CONFLUX_ENABLE_EXPERIMENTAL}>
     CONFLUX_ENABLE_RECV_BUNDLE=$<BOOL:${CONFLUX_ENABLE_RECV_BUNDLE}>
@@ -387,6 +401,7 @@ target_compile_definitions(conflux_options INTERFACE
     CONFLUX_ENABLE_SEND_ZC=$<BOOL:${CONFLUX_EXPERIMENTAL_SEND_ZC}>
     CONFLUX_ENABLE_RING_GROWTH=$<BOOL:${CONFLUX_EXPERIMENTAL_RING_GROWTH}>
     CONFLUX_ENABLE_IOPOLL_STORAGE_TEST=$<BOOL:${CONFLUX_EXPERIMENTAL_IOPOLL_STORAGE_TEST}>
+    CONFLUX_HAS_WARNING_CLEAN_AUTO_UNDERSCORE_DISCARD=$<BOOL:${CONFLUX_HAS_WARNING_CLEAN_AUTO_UNDERSCORE_DISCARD}>
 )
 if(CONFLUX_ENABLE_EXPERIMENTAL)
     message(STATUS "conflux: experimental features enabled")

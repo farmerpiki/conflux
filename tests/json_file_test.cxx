@@ -29,7 +29,7 @@ struct TempDir {
 	TempDir(
 		TempDir &&o) noexcept
 		: path{std::move(o.path)}
-		, fd{exchange(o.fd, -1)} {}
+		, fd{std::exchange(o.fd, -1)} {}
 	TempDir &operator =(TempDir &&) = delete;
 	~TempDir() {
 		if (fd >= 0) {

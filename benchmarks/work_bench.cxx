@@ -1,6 +1,7 @@
 #include <liburing.h>
 
 import std;
+import conflux.small_function;
 import conflux.types;
 import conflux.work;
 import conflux.work.carrier.coro;
@@ -42,7 +43,7 @@ struct Stats {
 	double p10_ns{};
 	double mad_ns{};
 };
-using BenchFn = root::detail::small_move_only_function<std::size_t()>;
+using BenchFn = conflux::detail::small_move_only_function<std::size_t()>;
 struct Case {
 	std::string_view name;
 	std::string_view description;
@@ -79,8 +80,8 @@ Config parse_args(
 			}
 			std::size_t iters = 0;
 			auto const value = std::string_view{args[++i]};
-			auto const [ptr, ec] = from_chars(value.data(), value.data() + value.size(), iters);
-			if (ec != errc{} || ptr != value.data() + value.size() || iters == 0) {
+			auto const [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), iters);
+			if (ec != std::errc{} || ptr != value.data() + value.size() || iters == 0) {
 				throw std::invalid_argument{"--iterations must be a positive integer"};
 			}
 			cfg.iterations_override = iters;
@@ -104,7 +105,7 @@ Config parse_args(
 			cfg.format = Config::Format::json;
 			continue;
 		}
-		throw std::invalid_argument{format("unknown argument: {}", arg)};
+		throw std::invalid_argument{std::format("unknown argument: {}", arg)};
 	}
 	return cfg;
 }
@@ -164,7 +165,7 @@ Stats measure_case(
 	};
 }
 void print_header(
-	Config::Format std::format( {
+	Config::Format format) {
 	if (format == Config::Format::table) {
 		std::println(
 			"{:48} {:>12} {:>10} {:>10} {:>10} {:>10}",
@@ -178,7 +179,7 @@ void print_header(
 }
 void print_stats(
 	Stats const &stats,
-	Config::Format std::format( {
+	Config::Format format) {
 	if (format == Config::Format::table) {
 		std::println(
 			"{:48} {:>12} {:>10.1f} {:>10.1f} {:>10.1f} {:>10.1f}",
@@ -333,7 +334,7 @@ Case make_root_cancel_hook_case(
 // ---------------------------------------------------------------------------
 
 Case make_small_fn_inline_case() {
-	using Fn = root::detail::small_move_only_function<void(root::CancelReason)>;
+	using Fn = conflux::detail::small_move_only_function<void(root::CancelReason)>;
 	return Case{
 		.name = "root/small_fn_inline",
 		.description = "small_move_only_function: construct + move + invoke (inline fit)",
@@ -351,7 +352,7 @@ Case make_small_fn_inline_case() {
 		}};
 }
 Case make_small_fn_heap_case() {
-	using Fn = root::detail::small_move_only_function<void(root::CancelReason)>;
+	using Fn = conflux::detail::small_move_only_function<void(root::CancelReason)>;
 	struct BigCapture {
 		std::array<uintptr_t, 5> words{};
 	};
@@ -489,9 +490,9 @@ Case make_ring_lane_case() {
 		State() {
 			int const rc = ::io_uring_queue_init(8, &ring, 0);
 			if (rc != 0) {
-				throw std::runtime_error{format("io_uring_queue_init failed: {}", rc)};
+				throw std::runtime_error{std::format("io_uring_queue_init failed: {}", rc)};
 			}
-			lane = make_unique<RingLane>(RingLaneOptions{
+			lane = std::make_unique<RingLane>(RingLaneOptions{
 				.ring_fd = ring.ring_fd,
 				.wake_user_data = 0x57524B42U,
 				.drain_budget = 0,
@@ -504,12 +505,12 @@ Case make_ring_lane_case() {
 	auto state = std::make_shared<State>();
 	return Case{
 		.name = "work/ring_lane_roundtrip",
-		.description = "RingLane enqueue from jthread + msg-ring wake + owner drain",
+		.description = "RingLane enqueue from std::jthread + msg-ring wake + owner drain",
 		.default_iterations = 5000,
 		.reps = 1,
 		.run = [state] {
 			std::atomic<std::size_t> out{};
-			jthread producer([&] {
+			std::jthread producer([&] {
 				if (!state->lane->enqueue([&out] { out.store(77, std::memory_order_release); })) {
 					throw std::runtime_error{"ring lane enqueue failed"};
 				}
@@ -549,7 +550,7 @@ std::vector<Case> make_cases() {
 	// work: ring lane
 	try {
 		cases.push_back(make_ring_lane_case());
-	} catch (exception const &) {}
+	} catch (std::exception const &) {}
 	// work: EagerChain microbench
 	cases.push_back(make_eager_chain_flat_int_case());
 	cases.push_back(make_eager_chain_flat_void_case());
@@ -586,7 +587,7 @@ int main(
 		}
 		std::println(std::cerr, "sink={}", sink.load(std::memory_order_relaxed));
 		return 0;
-	} catch (exception const &ex) {
+	} catch (std::exception const &ex) {
 		std::println(std::cerr, "conflux_work_benchmarks: {}", ex.what());
 		return 1;
 	}

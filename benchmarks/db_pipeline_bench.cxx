@@ -99,8 +99,8 @@ int main(
 		argv,
 		R"({"name":"db_pipeline","parser":"standard","configs":[{"name":"b60_n100","extra":{"batches":60,"batch_n":100},"args":["--batches","60","--batch-n","100","--config-name","b60_n100"]}]})");
 
-	auto cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
-	auto pipe_cfg = parse_pipe_args(span{argv, static_cast<std::size_t>(argc)});
+	auto cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
+	auto pipe_cfg = parse_pipe_args(std::span{argv, static_cast<std::size_t>(argc)});
 	if (cfg.config_name.empty()) {
 		cfg.config_name = std::format("b{}_n{}", pipe_cfg.batches, pipe_cfg.batch_n);
 	}
@@ -147,7 +147,7 @@ int main(
 		}
 
 		conn->close();
-	} catch (exception const &e) {
+	} catch (std::exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);
 		return 1;

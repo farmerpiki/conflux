@@ -75,8 +75,8 @@ Config parse_args(
 			}
 			std::size_t iters = 0;
 			auto const value = std::string_view{args[++i]};
-			auto const [ptr, ec] = from_chars(value.data(), value.data() + value.size(), iters);
-			if (ec != errc{} || ptr != value.data() + value.size() || iters == 0) {
+			auto const [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), iters);
+			if (ec != std::errc{} || ptr != value.data() + value.size() || iters == 0) {
 				throw std::invalid_argument{"--iterations must be a positive integer"};
 			}
 			cfg.iterations_override = iters;
@@ -100,7 +100,7 @@ Config parse_args(
 			cfg.format = Config::Format::json;
 			continue;
 		}
-		throw std::invalid_argument{format("unknown argument: {}", arg)};
+		throw std::invalid_argument{std::format("unknown argument: {}", arg)};
 	}
 	return cfg;
 }
@@ -139,14 +139,14 @@ void print_list(
 	}
 }
 void print_header(
-	Config::Format std::format( {
+	Config::Format format) {
 	if (format == Config::Format::table) {
 		std::println("{:32} {:>12} {:>14} {:>14}", "Benchmark", "Iterations", "Total (ms)", "ns/iter");
 	}
 }
 void print_stats(
 	Stats const &stats,
-	Config::Format std::format( {
+	Config::Format format) {
 	if (format == Config::Format::table) {
 		auto const total_ms = static_cast<double>(stats.total_ns) / 1'000'000.0;
 		std::println("{:32} {:>12} {:>14.3f} {:>14.1f}", stats.name, stats.iterations, total_ms, stats.ns_per_iter);
@@ -320,7 +320,7 @@ Case make_codec_payload_case_owned(
 	};
 	auto state = std::make_shared<State>();
 	state->name = std::format("codec/{}/{}B", codec_name, payload_size);
-	state->description = std::format("Compression path pinned to {} for {} byte text payloads", codec_name, payload_size);
+	state->description = std::format("Compression path pinned to {} for {} std::byte text payloads", codec_name, payload_size);
 	state->payload->assign(payload_size, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
@@ -355,7 +355,7 @@ Case make_gzip_backend_payload_case(
 	auto state = std::make_shared<State>();
 	state->backend = backend;
 	state->name = std::format("backend/{}/{}B", gzip_backend_name(backend), payload_size);
-	state->description = std::format("Gzip backend {} on {} byte text payloads", gzip_backend_name(backend), payload_size);
+	state->description = std::format("Gzip backend {} on {} std::byte text payloads", gzip_backend_name(backend), payload_size);
 	state->payload->assign(payload_size, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
@@ -388,7 +388,7 @@ Case make_route_json_case() {
 	auto state = std::make_shared<State>();
 	state->router.get("/api/users/{user}/posts/{post}", [](HttpRequestView const &req) {
 		return HttpResponse::json(
-			format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
+			std::format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
 	});
 	state->req.method = "GET";
 	state->req.path = "/api/users/alice/posts/42";
@@ -413,7 +413,7 @@ Case make_route_json_with_header_middleware_case() {
 	});
 	state->router.get("/api/users/{user}/posts/{post}", [](HttpRequestView const &req) {
 		return HttpResponse::json(
-			format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
+			std::format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
 	});
 	state->req.method = "GET";
 	state->req.path = "/api/users/alice/posts/42";
@@ -437,7 +437,7 @@ Case make_route_json_with_compress_negotiation_case() {
 	state->router.use(compress_middleware({.min_body_size = 0}));
 	state->router.get("/api/users/{user}/posts/{post}", [](HttpRequestView const &req) {
 		return HttpResponse::json(
-			format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
+			std::format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
 	});
 	state->req.method = "GET";
 	state->req.path = "/api/users/alice/posts/42";
@@ -467,7 +467,7 @@ Case make_flow_route_case() {
 	state->router.use(compress_middleware({.min_body_size = 0}));
 	state->router.get("/api/users/{user}/posts/{post}", [](HttpRequestView const &req) {
 		return HttpResponse::json(
-			format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
+			std::format(R"({{"user":"{}","post":"{}","ok":true}})", req.params["user"], req.params["post"]));
 	});
 	state->req.method = "GET";
 	state->req.path = "/api/users/alice/posts/42";
@@ -601,7 +601,7 @@ int main(
 		}
 		std::println(std::cerr, "sink={}", benchmark_detail::sink.load(std::memory_order_relaxed));
 		return 0;
-	} catch (exception const &ex) {
+	} catch (std::exception const &ex) {
 		std::println(std::cerr, "conflux_benchmarks: {}", ex.what());
 		benchmark_detail::print_usage();
 		return 1;

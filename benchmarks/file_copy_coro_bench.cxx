@@ -34,7 +34,7 @@ std::size_t parse_sz(
 	char const *s) noexcept {
 	std::string_view const sv{s};
 	std::size_t v{};
-	from_chars(sv.data(), sv.data() + sv.size(), v);
+	std::from_chars(sv.data(), sv.data() + sv.size(), v);
 	return v;
 }
 
@@ -66,14 +66,14 @@ void seed_source(
 	if (fd < 0) {
 		throw std::runtime_error{"open src"};
 	}
-	std::vector<byte> buf(1U << 20U); // 1 MiB pattern
+	std::vector<std::byte> buf(1U << 20U); // 1 MiB pattern
 	std::mt19937_64 rng{0xC0FFEEULL};
 	for (auto &b: buf) {
-		b = static_cast<byte>(rng() & 0xFFU);
+		b = static_cast<std::byte>(rng() & 0xFFU);
 	}
 	std::size_t left = bytes;
 	while (left > 0) {
-		std::size_t const n = min(left, buf.size());
+		std::size_t const n = std::min(left, buf.size());
 		ssize_t const w = ::write(fd, buf.data(), n);
 		if (w < 0) {
 			::close(fd);
@@ -102,14 +102,14 @@ std::uint64_t run_callback(
 	auto dst =
 		block_on(files, files.async_open(AT_FDCWD, cfg.dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644));
 
-	std::vector<byte> buf(cfg.chunk_kib << 10U);
+	std::vector<std::byte> buf(cfg.chunk_kib << 10U);
 	std::uint64_t off = 0;
 	while (true) {
-		auto got = block_on(files, files.read_into(src, off, span{buf}));
+		auto got = block_on(files, files.read_into(src, off, std::span{buf}));
 		if (got == 0) {
 			break;
 		}
-		block_on(files, files.write_into(dst, off, std::span<byte const>{buf.data(), got}));
+		block_on(files, files.write_into(dst, off, std::span<std::byte const>{buf.data(), got}));
 		off += got;
 	}
 	block_on(files, files.async_fsync(dst));
@@ -125,14 +125,14 @@ Task<void> coro_copy(
 	auto src = co_await files.async_open(AT_FDCWD, src_path, O_RDONLY | O_CLOEXEC);
 	auto dst = co_await files.async_open(AT_FDCWD, dst_path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
 
-	std::vector<byte> buf(chunk);
+	std::vector<std::byte> buf(chunk);
 	std::uint64_t off = 0;
 	while (true) {
-		auto got = co_await files.read_into(src, off, span{buf});
+		auto got = co_await files.read_into(src, off, std::span{buf});
 		if (got == 0) {
 			break;
 		}
-		co_await files.write_into(dst, off, std::span<byte const>{buf.data(), got});
+		co_await files.write_into(dst, off, std::span<std::byte const>{buf.data(), got});
 		off += got;
 	}
 	co_await files.async_fsync(dst);
@@ -167,7 +167,7 @@ std::uint64_t run_splice_chain(
 
 	std::size_t const delivered = block_on(files, files.splice_to_fd(src, 0, bytes, dst.raw_fd(), std::move(*pipe)));
 	if (delivered != bytes) {
-		throw std::runtime_error{format("splice short copy: {} of {} bytes", delivered, bytes)};
+		throw std::runtime_error{std::format("splice short copy: {} of {} bytes", delivered, bytes)};
 	}
 	block_on(files, files.async_fsync(dst));
 
@@ -194,7 +194,7 @@ int main(
 			R"({"name":"file_copy_coro","parser":"file_copy","configs":[{"name":"256mib_64kib","extra":{"size_mib":256,"chunk_kib":64},"args":["--size-mib","256","--chunk-kib","64","--runs","2"]}]})");
 		return 0;
 	}
-	auto cfg = parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto cfg = parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	std::size_t const bytes = cfg.size_mib << 20U;
 
 	std::println(std::cerr, "seeding {} MiB into {}", cfg.size_mib, cfg.src_path);
@@ -220,13 +220,13 @@ int main(
 		for (std::size_t i = 0; i < cfg.runs; ++i) {
 			std::uint64_t const t_cb = run_callback(files, cfg);
 			cb.total_ns += t_cb;
-			cb.best_ns = min(cb.best_ns, t_cb);
+			cb.best_ns = std::min(cb.best_ns, t_cb);
 			std::uint64_t const t_co = run_coroutine(files, cfg);
 			co.total_ns += t_co;
-			co.best_ns = min(co.best_ns, t_co);
+			co.best_ns = std::min(co.best_ns, t_co);
 			std::uint64_t const t_sp = run_splice_chain(files, cfg, bytes);
 			sp.total_ns += t_sp;
-			sp.best_ns = min(sp.best_ns, t_sp);
+			sp.best_ns = std::min(sp.best_ns, t_sp);
 		}
 
 		double const cb_avg = static_cast<double>(cb.total_ns) / static_cast<double>(cfg.runs);
@@ -286,7 +286,7 @@ int main(
 			std::println("  delta        {:+.2f}% avg (coro vs callback)", delta_coro);
 			std::println("  delta        {:+.2f}% avg (splice_chain vs callback)", delta_splice);
 		}
-	} catch (exception const &e) {
+	} catch (std::exception const &e) {
 		std::println(std::cerr, "error: {}", e.what());
 		::io_uring_queue_exit(&ring);
 		::unlink(cfg.dst_path.c_str());

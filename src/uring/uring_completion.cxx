@@ -71,7 +71,7 @@ public:
 		return {slot, gen};
 	}
 	void dispatch(
-		// NOLINT(bugprone-std::exception-escape) — callbacks are noexcept by contract
+		// NOLINT(bugprone-exception-escape) — callbacks are noexcept by contract
 		std::uint32_t slot,
 		std::uint32_t gen,
 		int res,
@@ -122,7 +122,7 @@ public:
 	}
 	// Returns false (and cancels nothing) if ZC notification slots are pending.
 	// Caller must drain the CQ until has_pending_zc_notifications() returns false, then retry.
-	[[nodiscard]] bool cancel_all() noexcept { // NOLINT(bugprone-std::exception-escape) — callbacks are noexcept by contract
+	[[nodiscard]] bool cancel_all() noexcept { // NOLINT(bugprone-exception-escape) — callbacks are noexcept by contract
 		if (has_pending_zc_notifications()) {
 			return false;
 		}

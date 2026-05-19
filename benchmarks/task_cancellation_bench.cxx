@@ -64,7 +64,7 @@ int main(
 		argv,
 		R"({"name":"task_cancellation","parser":"standard","configs":[{"name":"default","extra":{},"args":["--iterations","1000000","--warmup","50000"]}]})");
 
-	auto const cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 
 	for (std::size_t i = 0; i < cfg.warmup; ++i) {
 		auto [ctl, source] = root::make_task_control_source<int>();

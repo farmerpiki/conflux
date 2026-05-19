@@ -17,6 +17,7 @@ module;
 #include <sys/socket.h>
 #include <sys/timerfd.h>
 #include <unistd.h>
+#include <conflux/detail/discard.hxx>
 
 export module conflux.net.http3;
 import std;
@@ -651,9 +652,9 @@ public:
 		}
 		int on = 1;
 		auto _ = setsockopt(udp_fd_, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
-		auto _ = setsockopt(udp_fd_, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on));
+		CONFLUX_DISCARD(setsockopt(udp_fd_, SOL_SOCKET, SO_REUSEPORT, &on, sizeof(on)));
 		int off = 0;
-		auto _ = setsockopt(udp_fd_, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off));
+		CONFLUX_DISCARD(setsockopt(udp_fd_, IPPROTO_IPV6, IPV6_V6ONLY, &off, sizeof(off)));
 		sockaddr_in6 bind_addr{};
 		bind_addr.sin6_family = AF_INET6;
 		bind_addr.sin6_port = htons(port_);

@@ -12,6 +12,7 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <zlib.h>
+#include <conflux/detail/discard.hxx>
 
 import std;
 import conflux.types;
@@ -237,8 +238,8 @@ void ensure_server() {
 		// SSE endpoint: streams 3 events then closes.
 		router.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 			auto _ = ch->send("data: event1\n\n");
-			auto _ = ch->send("data: event2\n\n");
-			auto _ = ch->send("data: event3\n\n");
+			CONFLUX_DISCARD(ch->send("data: event2\n\n"));
+			CONFLUX_DISCARD(ch->send("data: event3\n\n"));
 			ch->close();
 		});
 		// Named-param SSE endpoint.

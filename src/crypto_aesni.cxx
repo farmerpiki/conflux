@@ -4,7 +4,6 @@
 #include <smmintrin.h>
 #include <tmmintrin.h>
 #include <wmmintrin.h>
-import conflux.types;
 inline static __m128i aes256_key_expand_assist_1(
 	__m128i key,
 	__m128i keygen) {

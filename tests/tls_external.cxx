@@ -1,5 +1,6 @@
 // External TLS validation tests.
 #include <catch2/catch_test_macros.hpp>
+#include <conflux/detail/discard.hxx>
 #include <cstdlib>
 #include <unistd.h>
 
@@ -145,7 +146,7 @@ TEST_CASE(
 	Router r;
 	r.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
-		auto _ = ch->send("data: beta\n\n");
+		CONFLUX_DISCARD(ch->send("data: beta\n\n"));
 		ch->close();
 	});
 	conflux::tests::HttpsServerFixture const fx{std::move(r)};

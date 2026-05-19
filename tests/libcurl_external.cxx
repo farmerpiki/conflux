@@ -2,6 +2,7 @@
 // Plain TU — libcurl is C-header heavy, and test files avoid module-interface
 // TU-local leakage.  See TRICKS.md #4.
 #include <catch2/catch_test_macros.hpp>
+#include <conflux/detail/discard.hxx>
 #include <cstdlib>
 #include <curl/curl.h>
 #include <unistd.h>
@@ -327,7 +328,7 @@ void require_ok(
 	Router r = conflux::tests::make_external_test_router();
 	r.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
-		auto _ = ch->send("data: beta\n\n");
+		CONFLUX_DISCARD(ch->send("data: beta\n\n"));
 		ch->close();
 	});
 	return r;

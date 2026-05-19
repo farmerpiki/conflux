@@ -46,7 +46,7 @@ int main(
 		argv,
 		R"({"name":"join_all_N","parser":"standard","configs":[{"name":"n_2","extra":{"n":2},"args":["--n","2","--config-name","n_2","--iterations","100000","--warmup","5000"]},{"name":"n_10","extra":{"n":10},"args":["--n","10","--config-name","n_10","--iterations","100000","--warmup","5000"]},{"name":"n_100","extra":{"n":100},"args":["--n","100","--config-name","n_100","--iterations","100000","--warmup","5000"]}]})");
 
-	auto cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	std::size_t n = 10;
 	for (std::size_t i = 1; i < static_cast<std::size_t>(argc); ++i) {
 		std::string_view a = argv[i];

@@ -63,7 +63,7 @@ int main(
 		argc,
 		argv,
 		R"({"name":"crypto","parser":"standard","configs":[{"name":"default","extra":{},"args":[]}]})");
-	auto const cfg = bench_parse_args(span{argv, static_cast<std::size_t>(argc)});
+	auto const cfg = bench_parse_args(std::span{argv, static_cast<std::size_t>(argc)});
 	g_json = cfg.json_out;
 
 	std::array<unsigned char, 32> key{};
@@ -174,7 +174,7 @@ int main(
 						c = 'X';
 					}
 					asm volatile("" : "+m"(*buf.data()));
-					ascii_lower_inplace(span{buf});
+					ascii_lower_inplace(std::span{buf});
 					asm volatile("" : : "r"(buf.data()) : "memory");
 				},
 				cfg.warmup,

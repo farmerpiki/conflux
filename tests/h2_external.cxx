@@ -6,6 +6,7 @@
 // Plain-TU intentionally (not a module unit).  See TRICKS.md #4.
 #include <arpa/inet.h>
 #include <catch2/catch_test_macros.hpp>
+#include <conflux/detail/discard.hxx>
 #include <netinet/in.h>
 #include <nghttp2/nghttp2.h>
 #include <openssl/ssl.h>
@@ -604,8 +605,8 @@ TEST_CASE(
 	r.get("/ping", [](HttpRequest const &) { return HttpResponse::json(R"({"ok":true})"); });
 	r.sse("/events", [](HttpRequest const &, std::shared_ptr<SseChannel> const &ch) {
 		auto _ = ch->send("data: alpha\n\n");
-		auto _ = ch->send("data: beta\n\n");
-		auto _ = ch->send("data: gamma\n\n");
+		CONFLUX_DISCARD(ch->send("data: beta\n\n"));
+		CONFLUX_DISCARD(ch->send("data: gamma\n\n"));
 		ch->close();
 	});
 	conflux::tests::HttpsServerFixture const fx{std::move(r)};

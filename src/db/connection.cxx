@@ -6,6 +6,7 @@ module;
 #include <libpq-fe.h>
 #include <memory>
 #include <poll.h>
+#include <conflux/detail/discard.hxx>
 
 export module conflux.pg.connection;
 
@@ -800,7 +801,7 @@ void Connection::after_send_drive_flush_(
 	}
 	int const fd = ::PQsocket(conn_.get());
 	auto self = shared_from_this();
-	// NOLINTNEXTLINE(bugprone-std::exception-escape) — poll callback; any throw would terminate, treated as fatal.
+	// NOLINTNEXTLINE(bugprone-exception-escape) — poll callback; any throw would terminate, treated as fatal.
 	bool const armed = reader_->poll_add_oneshot(fd, POLLOUT, [self, dst, partial, label](IoResult r) mutable {
 		if (self->closed_) {
 			auto _ = dst->try_set_cancelled(root::work_errc::cancelled_requested);
@@ -866,7 +867,7 @@ void Connection::drive_consume_loop_(
 	}
 	int const fd = ::PQsocket(conn_.get());
 	auto self = shared_from_this();
-	// NOLINTNEXTLINE(bugprone-std::exception-escape) — poll callback; any throw would terminate, treated as fatal.
+	// NOLINTNEXTLINE(bugprone-exception-escape) — poll callback; any throw would terminate, treated as fatal.
 	bool const armed = reader_->poll_add_oneshot(fd, POLLIN, [self, dst, partial, label](IoResult r) mutable {
 		if (self->closed_) {
 			auto _ = dst->try_set_cancelled(root::work_errc::cancelled_requested);
@@ -1105,7 +1106,7 @@ void Pipeline::sync_next_(
 				st->batch.pop_front();
 				auto _ = rem.dst->try_set_cancelled(root::work_errc::cancelled_requested);
 			}
-			auto _ = st->done->try_set_cancelled(root::work_errc::cancelled_requested);
+			CONFLUX_DISCARD(st->done->try_set_cancelled(root::work_errc::cancelled_requested));
 			Pipeline::finish_sync_(st->pipe, false);
 		} catch (...) {
 			auto _ = shared_src->try_set_exception(std::current_exception());
@@ -1114,7 +1115,7 @@ void Pipeline::sync_next_(
 				st->batch.pop_front();
 				auto _ = rem.dst->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pipeline query"}));
 			}
-			auto _ = st->done->try_set_value(root::Success<void>{});
+			CONFLUX_DISCARD(st->done->try_set_value(root::Success<void>{}));
 			Pipeline::finish_sync_(st->pipe, true);
 		}
 	}(st, shared_src, pipe->conn->query(item.sql, std::move(item.params)))

@@ -1,8 +1,6 @@
 #include <cstddef>
 #include <experimental/simd>
 
-import conflux.types;
-
 namespace stdx = std::experimental::parallelism_v2;
 using vec_t = stdx::native_simd<signed char>;
 static constexpr std::size_t W = vec_t::size();
