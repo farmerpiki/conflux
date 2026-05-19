@@ -287,6 +287,7 @@ TEST_CASE(
 	CHECK(mounts[0].root_dir == "/tmp/conflux-missing-static-root-for-test");
 	CHECK(mounts[0].source_file.ends_with("http_facade_test.cxx"));
 	CHECK(mounts[0].source_line > 0);
+	CHECK(app.route_table() == "STATIC /assets root=/tmp/conflux-missing-static-root-for-test");
 }
 
 TEST_CASE(

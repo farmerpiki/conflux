@@ -665,6 +665,12 @@ public:
 				}
 			}
 		}
+		for (auto const &mount: static_mounts()) {
+			if (!out.empty()) {
+				out += '\n';
+			}
+			out += std::format("STATIC {} root={}", mount.url_prefix, mount.root_dir);
+		}
 		return out;
 	}
 	[[nodiscard]] std::string openapi_spec(
