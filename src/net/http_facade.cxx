@@ -79,6 +79,11 @@ template<typename F>
 	return Response::redirect(location, status);
 }
 
+[[nodiscard]] Response sse(
+	std::shared_ptr<SseChannel> channel) {
+	return Response::sse(std::move(channel));
+}
+
 [[nodiscard]] Response file(
 	std::filesystem::path const &path,
 	std::string content_type = "application/octet-stream") {

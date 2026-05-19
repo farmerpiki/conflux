@@ -480,6 +480,33 @@ TEST_CASE(
 }
 
 TEST_CASE(
+	"http facade: middleware can observe SSE close",
+	"[http.facade]") {
+	auto app = http::app();
+	auto close_count = std::make_shared<int>(0);
+	auto channel = std::make_shared<http::SseChannel>();
+
+	app.use([close_count](http::RequestView const &req, http::Next const &next) {
+		auto response = next(req);
+		if (response.is_sse()) {
+			response.sse_channel_ptr()->on_close([close_count] { ++*close_count; });
+		}
+		return response;
+	});
+	app.get("/events", [channel] { return http::sse(channel); });
+
+	HttpRequest req;
+	req.method = "GET";
+	req.path = "/events";
+
+	auto response = app.router().dispatch(req);
+	REQUIRE(response.is_sse());
+	response.sse_channel_ptr()->close();
+	response.sse_channel_ptr()->close();
+	CHECK(*close_count == 1);
+}
+
+TEST_CASE(
 	"http facade: ordinary verbs accept context handlers",
 	"[http.facade]") {
 	auto app = http::app();
