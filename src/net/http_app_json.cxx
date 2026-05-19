@@ -90,7 +90,7 @@ template<class Provider, class Body, class F>
 [[nodiscard]] Router::Handler make_decode_handler_with(
 	F &&fn,
 	ResponseOptions opts = {},
-	conflux::json::boundary::DecodeOptions decode_opts = {})
+	conflux::json::boundary::DecodeOptions decode_opts = {.copy_input = false})
 	requires JsonDecodedRouteHandler<Provider, Body, F>
 {
 	using Fn = std::decay_t<F>;
@@ -135,7 +135,7 @@ public:
 		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
-		conflux::json::boundary::DecodeOptions decode_opts = {})
+		conflux::json::boundary::DecodeOptions decode_opts = {.copy_input = false})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
 		return router_->add(
@@ -169,7 +169,7 @@ public:
 		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
-		conflux::json::boundary::DecodeOptions decode_opts = {})
+		conflux::json::boundary::DecodeOptions decode_opts = {.copy_input = false})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
 		return add_body<Body>("POST", path, std::forward<F>(fn), opts, decode_opts);
@@ -180,7 +180,7 @@ public:
 		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
-		conflux::json::boundary::DecodeOptions decode_opts = {})
+		conflux::json::boundary::DecodeOptions decode_opts = {.copy_input = false})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
 		return add_body<Body>("PUT", path, std::forward<F>(fn), opts, decode_opts);
@@ -191,7 +191,7 @@ public:
 		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
-		conflux::json::boundary::DecodeOptions decode_opts = {})
+		conflux::json::boundary::DecodeOptions decode_opts = {.copy_input = false})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
 		return add_body<Body>("PATCH", path, std::forward<F>(fn), opts, decode_opts);
@@ -226,7 +226,7 @@ public:
 		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
-		conflux::json::boundary::DecodeOptions decode_opts = {})
+		conflux::json::boundary::DecodeOptions decode_opts = {.copy_input = false})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
 		app_->router().add(
@@ -261,7 +261,7 @@ public:
 		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
-		conflux::json::boundary::DecodeOptions decode_opts = {})
+		conflux::json::boundary::DecodeOptions decode_opts = {.copy_input = false})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
 		return add_body<Body>("POST", path, std::forward<F>(fn), opts, decode_opts);
@@ -272,7 +272,7 @@ public:
 		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
-		conflux::json::boundary::DecodeOptions decode_opts = {})
+		conflux::json::boundary::DecodeOptions decode_opts = {.copy_input = false})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
 		return add_body<Body>("PUT", path, std::forward<F>(fn), opts, decode_opts);
@@ -283,7 +283,7 @@ public:
 		std::string_view path,
 		F &&fn,
 		ResponseOptions opts = {},
-		conflux::json::boundary::DecodeOptions decode_opts = {})
+		conflux::json::boundary::DecodeOptions decode_opts = {.copy_input = false})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
 		return add_body<Body>("PATCH", path, std::forward<F>(fn), opts, decode_opts);

@@ -64,6 +64,102 @@ struct is_opt_refl : std::false_type {};
 template<class T>
 struct is_opt_refl<std::optional<T>> : std::true_type {};
 
+inline void reflect_append_u_escape(
+	std::string &out,
+	std::uint32_t cp) {
+	static constexpr std::array<char, 16> kHex =
+		{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+	out += "\\u";
+	out += kHex[(cp >> 12U) & 0x0FU];
+	out += kHex[(cp >> 8U) & 0x0FU];
+	out += kHex[(cp >> 4U) & 0x0FU];
+	out += kHex[cp & 0x0FU];
+}
+
+inline void reflect_dump_string(
+	std::string &out,
+	std::string_view sv,
+	bool ascii_only) {
+	out += '"';
+	for (std::size_t i = 0; i < sv.size();) {
+		auto const c = static_cast<unsigned char>(sv[i]);
+		switch (c) {
+		case '"':
+			out += "\\\"";
+			++i;
+			break;
+		case '\\':
+			out += "\\\\";
+			++i;
+			break;
+		case '\b':
+			out += "\\b";
+			++i;
+			break;
+		case '\f':
+			out += "\\f";
+			++i;
+			break;
+		case '\n':
+			out += "\\n";
+			++i;
+			break;
+		case '\r':
+			out += "\\r";
+			++i;
+			break;
+		case '\t':
+			out += "\\t";
+			++i;
+			break;
+		default:
+			if (c < 0x20U) {
+				reflect_append_u_escape(out, c);
+				++i;
+			} else if (ascii_only && c >= 0x80U) {
+				std::uint32_t cp = 0;
+				std::size_t seq = 0;
+				if (c < 0xE0U) {
+					cp = c & 0x1FU;
+					seq = 2;
+				} else if (c < 0xF0U) {
+					cp = c & 0x0FU;
+					seq = 3;
+				} else {
+					cp = c & 0x07U;
+					seq = 4;
+				}
+				for (std::size_t k = 1; k < seq && i + k < sv.size(); ++k) {
+					cp = (cp << 6U) | (static_cast<unsigned char>(sv[i + k]) & 0x3FU);
+				}
+				i += std::min(seq, sv.size() - i);
+				if (cp < 0x10000U) {
+					reflect_append_u_escape(out, cp);
+				} else {
+					cp -= 0x10000U;
+					reflect_append_u_escape(out, 0xD800U | (cp >> 10U));
+					reflect_append_u_escape(out, 0xDC00U | (cp & 0x3FFU));
+				}
+			} else {
+				out += static_cast<char>(c);
+				++i;
+			}
+		}
+	}
+	out += '"';
+}
+
+inline void reflect_indent(
+	std::string &out,
+	JsonDumpOptions const &opts,
+	unsigned depth) {
+	if (!opts.pretty) {
+		return;
+	}
+	out += '\n';
+	out.append(static_cast<std::size_t>(depth) * opts.indent, opts.indent_char);
+}
+
 [[nodiscard]] inline std::expected<void, JsonError> skip_reader_event(
 	JsonReader &reader,
 	JsonReader::Event event) {
@@ -576,3 +672,166 @@ struct JsonCodec<T> {
 	}
 	static constexpr std::string_view type_name() { return std::meta::display_string_of(^^T); }
 };
+
+namespace detail {
+
+template<class T>
+std::expected<void, JsonError>
+reflect_write_value(std::string &out, T const &value, JsonDumpOptions const &opts, unsigned depth);
+
+template<class T>
+std::expected<void, JsonError> reflect_write_array_like(
+	std::string &out,
+	T const &value,
+	JsonDumpOptions const &opts,
+	unsigned depth) {
+	out += '[';
+	bool first = true;
+	for (auto const &elem: value) {
+		if (!first) {
+			out += ',';
+		}
+		if (opts.pretty) {
+			reflect_indent(out, opts, depth + 1);
+		}
+		if (auto ok = reflect_write_value(out, elem, opts, depth + 1); !ok) {
+			return ok;
+		}
+		first = false;
+	}
+	if (opts.pretty && !first) {
+		reflect_indent(out, opts, depth);
+	}
+	out += ']';
+	return {};
+}
+
+template<class T>
+std::expected<void, JsonError> reflect_write_object(
+	std::string &out,
+	T const &value,
+	JsonDumpOptions const &opts,
+	unsigned depth) {
+	if (opts.sort_object_keys) {
+		return std::unexpected(
+			JsonError{
+				.stage = JsonStage::dump,
+				.code = JsonIssueCode::invalid_value,
+				.message = "reflected direct writer does not support sort_object_keys"});
+	}
+	out += '{';
+	bool ok = true;
+	bool first = true;
+	JsonError first_err;
+	constexpr auto N = reflect_member_count<T>();
+	[&]<std::size_t... Is>(std::index_sequence<Is...>) {
+		(
+			[&]<std::size_t I>() {
+				if (!ok) {
+					return;
+				}
+				constexpr auto mem = reflect_member_at<T, I>();
+				if constexpr (reflect_has_skip<mem>()) {
+					return;
+				}
+				constexpr auto name_info = reflect_field_name<mem>();
+				std::string_view const field_name{name_info.p, name_info.n};
+				if (!first) {
+					out += ',';
+				}
+				if (opts.pretty) {
+					reflect_indent(out, opts, depth + 1);
+				}
+				reflect_dump_string(out, field_name, opts.ascii_only);
+				out += opts.pretty ? ": " : ":";
+				if (auto res = reflect_write_value(out, value.[:mem:], opts, depth + 1); !res) {
+					ok = false;
+					first_err = std::move(res).error();
+					first_err.member_name = std::string{field_name};
+					return;
+				}
+				first = false;
+			}.template operator ()<Is>(),
+			...);
+	}(std::make_index_sequence<N>{});
+	if (!ok) {
+		return std::unexpected(std::move(first_err));
+	}
+	if (opts.pretty && !first) {
+		reflect_indent(out, opts, depth);
+	}
+	out += '}';
+	return {};
+}
+
+template<class T>
+std::expected<void, JsonError> reflect_write_value(
+	std::string &out,
+	T const &value,
+	JsonDumpOptions const &opts,
+	unsigned depth) {
+	using Raw = std::remove_cvref_t<T>;
+	if constexpr (conflux::json::ReflectJsonAggregate<Raw>) {
+		return reflect_write_object(out, value, opts, depth);
+	} else if constexpr (std::same_as<Raw, bool>) {
+		out += value ? "true" : "false";
+		return {};
+	} else if constexpr (std::same_as<Raw, std::string>) {
+		reflect_dump_string(out, value, opts.ascii_only);
+		return {};
+	} else if constexpr (std::same_as<Raw, std::string_view>) {
+		reflect_dump_string(out, value, opts.ascii_only);
+		return {};
+	} else if constexpr ((std::integral<Raw> && !std::same_as<Raw, bool>) || std::floating_point<Raw>) {
+		std::array<char, 64> buf{};
+		auto *first = buf.data();
+		auto *last = buf.data() + buf.size();
+		auto [ptr, ec] = std::to_chars(first, last, value);
+		if (ec != std::errc{}) {
+			return std::unexpected(
+				JsonError{
+					.stage = JsonStage::dump,
+					.code = JsonIssueCode::invalid_number,
+					.message = "number formatting failed"});
+		}
+		out.append(first, static_cast<std::size_t>(ptr - first));
+		return {};
+	} else if constexpr (is_opt_refl<Raw>::value) {
+		if (!value) {
+			out += "null";
+			return {};
+		}
+		return reflect_write_value(out, *value, opts, depth);
+	} else if constexpr (requires { write_json_direct(out, value, opts); }) {
+		return write_json_direct(out, value, opts);
+	} else if constexpr (requires {
+							 value.begin();
+							 value.end();
+						 }) {
+		return reflect_write_array_like(out, value, opts, depth);
+	} else {
+		static_assert(!std::same_as<Raw, Raw>, "no reflected direct writer support for member type");
+	}
+}
+
+} // namespace detail
+
+export template<conflux::json::ReflectJsonAggregate T>
+std::expected<void, JsonError> write_reflect_json_direct(
+	std::string &out,
+	T const &value,
+	JsonDumpOptions const &opts = {}) {
+	return detail::reflect_write_object(out, value, opts, 0);
+}
+
+export template<conflux::json::ReflectJsonAggregate T>
+std::expected<std::string, JsonError> dump_reflect_direct(
+	T const &value,
+	JsonDumpOptions const &opts = {}) {
+	std::string out;
+	out.reserve(detail::reflect_member_count<T>() * 16);
+	if (auto ok = write_reflect_json_direct(out, value, opts); !ok) {
+		return std::unexpected(std::move(ok).error());
+	}
+	return out;
+}

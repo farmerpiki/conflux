@@ -35,11 +35,14 @@ struct InputPayload {
 };
 
 struct BoundaryRouteProvider {
+	inline static bool last_copy_input{true};
+
 	template<class T>
 		requires std::same_as<T, InputPayload>
 	static std::expected<T, jb::Error> decode_json(
 		std::string_view input,
-		jb::DecodeOptions const &) {
+		jb::DecodeOptions const &opts) {
+		last_copy_input = opts.copy_input;
 		int value{};
 		auto const *first = input.data();
 		auto const *last = input.data() + input.size();
@@ -171,6 +174,7 @@ TEST_CASE(
 	CHECK(resp.status == kHttpOk);
 	CHECK(resp.content_type == "application/json");
 	CHECK(resp.text_body() == R"({"value":42})");
+	CHECK_FALSE(BoundaryRouteProvider::last_copy_input);
 
 	req.body = "not-an-int";
 	auto bad = handler(HttpRequestView{req});

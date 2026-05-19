@@ -65,6 +65,11 @@ auto body = conflux::json::boundary::dump_with<Provider>(Point{1, 2});
 Route/app helpers should use `Provider` explicitly rather than importing the
 native parser into framework code.
 
+`NativeReflectJsonProvider::dump_json<T>` uses the reflected direct writer for
+compact reflected aggregates. Sorted output falls back to the native DOM writer.
+Callers that want the reflected writer directly can use
+`dump_reflect_direct(value)` or `write_reflect_json_direct(out, value)`.
+
 ---
 
 ## Annotations

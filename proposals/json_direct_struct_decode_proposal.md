@@ -417,8 +417,8 @@ Implementation notes:
 
 ### Phase E — direct writer
 
-Status: implemented for manual `JsonMembers<T>` compact/default provider output;
-reflected direct writer remains pending.
+Status: implemented for manual `JsonMembers<T>` and reflected compact/default
+provider output.
 
 Files likely touched:
 
@@ -447,17 +447,24 @@ Implementation notes:
 - `NativeJsonProvider::dump_json<T>` now prefers the direct writer for eligible
   manual types and falls back to the existing `ValueBuilder`/`Document` path for
   sorted output or unsupported codecs.
-- Added compact direct writer tests for manual member structs.
+- Added `write_reflect_json_direct<T>` and `dump_reflect_direct<T>` for reflected
+  aggregates, including annotations, skipped fields, optionals, nested reflected
+  aggregates, and primitive/string members.
+- `NativeReflectJsonProvider::dump_json<T>` now prefers the reflected direct
+  writer for reflected aggregates and falls back to the native DOM writer for
+  sorted output or unsupported codecs.
+- Added compact direct writer tests for manual member structs and reflected
+  structs.
 
 ### Phase F — borrowed/owned APIs and HTTP typed JSON
 
-Status: partially implemented.
+Status: implemented.
 
 Files likely touched:
 
 - `src/json_native_provider.cxx`
 - `src/json_reflect_provider.cxx`
-- HTTP JSON helper modules
+- `src/net/http_app_json.cxx`
 - `docs/json-boundary-guide.md`
 - `docs/http-server-api.md` or typed app docs
 
@@ -477,9 +484,15 @@ Implementation notes:
 - Added explicit `decode_borrowed<T>` and `decode_owned<T>` entry points in
   `conflux.json`; owned string-view decode is rejected at compile time.
 - Existing native boundary decode already maps `copy_input=false` to the direct
-  `JsonReader` path and `copy_input=true` to the owning DOM path. HTTP typed JSON
-  helpers continue to use that provider option rather than importing native JSON
-  internals.
+  `JsonReader` path and `copy_input=true` to the owning DOM path. The reflected
+  provider preserves that split and delegates the concrete read behavior to the
+  native provider.
+- Typed HTTP app/router body helpers now default to
+  `DecodeOptions{.copy_input = false}`, so typed route decode selects the direct
+  reader path by default while keeping the request body alive for the decode
+  call. Callers can still pass `copy_input=true` explicitly when they need an
+  owning DOM fallback.
+- Added HTTP route helper coverage proving the default decode option is borrowed.
 
 ## Benchmark matrix
 

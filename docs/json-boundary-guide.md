@@ -55,6 +55,13 @@ Native providers map those fields onto `JsonDomPolicy` and `JsonDecodeOptions`;
 other providers should preserve the semantics even if their internal parser shape
 differs.
 
+Typed HTTP app/router body helpers default their `DecodeOptions` to
+`copy_input = false`. The request body bytes remain alive for the decode call,
+and handlers receive the already-decoded `BodyValue`; this selects the native
+reader/direct path for normal typed structs without exposing native JSON types at
+the route boundary. Pass `DecodeOptions{.copy_input = true}` explicitly when a
+provider-specific codec requires an owning DOM fallback.
+
 ## HTTP usage
 
 Provider-neutral response code:

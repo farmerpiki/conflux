@@ -630,7 +630,11 @@ router.post("/api/items", [](HttpRequestView const &) {
 ```
 
 For typed route registration, `conflux.net.http.app_json` keeps both request-body
-decode and response serialization provider-explicit:
+decode and response serialization provider-explicit. Typed body helpers default
+to `DecodeOptions{.copy_input = false}`, so providers that support direct struct
+decode can read from the live request body without building an owning DOM. Pass
+`DecodeOptions{.copy_input = true}` when a route intentionally needs the
+provider's owning fallback.
 
 ```cpp
 import conflux.net.http.app_json;

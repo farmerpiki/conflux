@@ -131,8 +131,21 @@ void test_boundary_reflect_provider_dump() {
 	static_assert(conflux::json::boundary::JsonDumpProvider<Provider, Point>);
 	auto body = conflux::json::boundary::dump_with<Provider>(Point{9, 10});
 	REQUIRE(body.has_value());
-	CHECK(body->find(R"("x":9)") != std::string::npos);
-	CHECK(body->find(R"("y":10)") != std::string::npos);
+	CHECK(*body == R"({"x":9,"y":10})");
+}
+void test_reflect_direct_dump_with_name_annotation() {
+	auto body = dump_reflect_direct(Config{.host = "srv", .port = 9000, .tls = false});
+	REQUIRE(body.has_value());
+	CHECK(*body == R"({"host_name":"srv","port":9000,"tls":false,"label":null})");
+}
+void test_reflect_direct_dump_nested() {
+	Nested n{
+		.id = "r",
+		.origin = {5, 6}
+	};
+	auto body = dump_reflect_direct(n);
+	REQUIRE(body.has_value());
+	CHECK(*body == R"({"id":"r","origin":{"x":5,"y":6}})");
 }
 // ---------------------------------------------------------------------------
 // Encode tests
@@ -282,6 +295,8 @@ export int run_tests() {
 		{			test_decode_unknown_member_ignore_policy,             "decode unknown member ignore policy"},
 		{test_boundary_reflect_provider_decode_ignore_unknown, "boundary reflect provider decode ignore unknown"},
 		{				 test_boundary_reflect_provider_dump,                  "boundary reflect provider dump"},
+		{       test_reflect_direct_dump_with_name_annotation,        "reflect direct dump with name annotation"},
+		{					 test_reflect_direct_dump_nested,                      "reflect direct dump nested"},
 		{						 test_encode_plain_aggregate,                          "encode plain aggregate"},
 		{					test_encode_with_name_annotation,                     "encode with name annotation"},
 		{					   test_encode_skip_field_absent,                        "encode skip field absent"},
