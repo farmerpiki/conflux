@@ -333,7 +333,9 @@ TEST_CASE(
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{1}));
-	auto out = std::move(carrier::from_task(std::move(task)).then([](int) -> int { throw std::runtime_error{"bad"}; })).release_outcome();
+	auto out = std::move(carrier::from_task(std::move(task)).then([](int) -> int {
+				   throw std::runtime_error{"bad"};
+			   })).release_outcome();
 	CHECK(out.is_failure());
 }
 TEST_CASE(
@@ -369,7 +371,9 @@ TEST_CASE(
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"e"})));
-	auto out = std::move(carrier::from_task(std::move(task)).catch_error([](std::exception_ptr) { return 99; })).release_outcome();
+	auto out = std::move(carrier::from_task(std::move(task)).catch_error([](std::exception_ptr) {
+				   return 99;
+			   })).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 99);
 }
@@ -425,7 +429,9 @@ TEST_CASE(
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
-	auto out = std::move(carrier::from_task(std::move(task)).on_cancel([] { throw std::runtime_error{"x"}; })).release_outcome();
+	auto out = std::move(carrier::from_task(std::move(task)).on_cancel([] {
+				   throw std::runtime_error{"x"};
+			   })).release_outcome();
 	CHECK(out.is_cancelled());
 }
 TEST_CASE(
@@ -469,7 +475,8 @@ TEST_CASE(
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_exception(make_exception_ptr(std::runtime_error{"e"})));
-	auto out = std::move(carrier::from_task(std::move(task)).recover([](root::Outcome<int>) { return 77; })).release_outcome();
+	auto out =
+		std::move(carrier::from_task(std::move(task)).recover([](root::Outcome<int>) { return 77; })).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 77);
 }
@@ -478,7 +485,8 @@ TEST_CASE(
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_cancelled(root::work_errc::cancelled_requested));
-	auto out = std::move(carrier::from_task(std::move(task)).recover([](root::Outcome<int>) { return 33; })).release_outcome();
+	auto out =
+		std::move(carrier::from_task(std::move(task)).recover([](root::Outcome<int>) { return 33; })).release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == 33);
 }
@@ -512,12 +520,16 @@ TEST_CASE(
 	"[chain.combinators]") {
 	auto [task, src] = root::make_task_source<int>();
 	REQUIRE(src.try_set_value(root::Success<int>{10}));
-	auto out = std::move(carrier::from_task(std::move(task)).transform_outcome([](root::Outcome<int> o) -> root::Outcome<std::string> {
-				   if (o.is_success()) {
-					   return root::Outcome<std::string>{root::Success<std::string>{std::to_string(o.success().value)}};
-				   }
-				   return root::Outcome<std::string>{std::move(o).failure()};
-			   })).release_outcome();
+	auto out = std::move(
+				   carrier::from_task(std::move(task))
+					   .transform_outcome([](root::Outcome<int> o) -> root::Outcome<std::string> {
+						   if (o.is_success()) {
+							   return root::Outcome<std::string>{
+								   root::Success<std::string>{std::to_string(o.success().value)}};
+						   }
+						   return root::Outcome<std::string>{std::move(o).failure()};
+					   }))
+				   .release_outcome();
 	REQUIRE(out.is_success());
 	CHECK(out.success().value == "10");
 }

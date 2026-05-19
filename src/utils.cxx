@@ -36,7 +36,8 @@ class Xoshiro256ss {
 public:
 	Xoshiro256ss() {
 		// Seed from kernel CSPRNG. getrandom is non-blocking once initialized.
-		while (::getrandom(s_.data(), s_.size() * sizeof(std::uint64_t), 0) != static_cast<ssize_t>(s_.size() * sizeof(std::uint64_t))) {}
+		while (::getrandom(s_.data(), s_.size() * sizeof(std::uint64_t), 0)
+			   != static_cast<ssize_t>(s_.size() * sizeof(std::uint64_t))) {}
 		if ((s_[0] | s_[1] | s_[2] | s_[3]) == 0) {
 			s_[0] = 0x9E3779B97F4A7C15ULL;
 		}
@@ -559,7 +560,10 @@ public:
 			advance_();
 			return *this;
 		}
-		void operator ++(int) noexcept { advance_(); }
+		void operator ++(
+			int) noexcept {
+			advance_();
+		}
 		[[nodiscard]] bool operator ==(
 			std::default_sentinel_t) const noexcept {
 			return done_;

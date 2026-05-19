@@ -308,7 +308,7 @@ TEST_CASE(
 	"[db][unit]") {
 	auto *raw = make_text_result(
 		{
-			{std::string{"42"},std::string{"3.5"},std::string{"t"},std::nullopt,std::string{},std::string{"abc"}                 },
+			{std::string{"42"},std::string{"3.5"},std::string{"t"},std::nullopt,std::string{},std::string{"abc"}                },
 			{std::string{"-7"},
 			 std::string{"-0.25"},
 			 std::string{"f"},

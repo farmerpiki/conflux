@@ -33,12 +33,14 @@ using Clock = AuthThrottleClock;
 TEST_CASE(
 	"auth throttle: failures lock a subject and expose retry/metrics",
 	"[auth][rate-limit]") {
-	AuthFailureLimiter limiter{AuthThrottleOptions{
-		.max_failures = 2,
-		.window = std::chrono::seconds{60},
-		.lockout = std::chrono::seconds{30},
-		.max_subjects = 16,
-	}};
+	AuthFailureLimiter limiter{
+		AuthThrottleOptions{
+							.max_failures = 2,
+							.window = std::chrono::seconds{60},
+							.lockout = std::chrono::seconds{30},
+							.max_subjects = 16,
+							}
+    };
 
 	CHECK(limiter.before_attempt("account:alice", at(100)).allowed);
 	auto first = limiter.record_failure("account:alice", at(101));
@@ -68,12 +70,14 @@ TEST_CASE(
 TEST_CASE(
 	"auth throttle: zero lockout blocks until the current window expires",
 	"[auth][rate-limit]") {
-	AuthFailureLimiter limiter{AuthThrottleOptions{
-		.max_failures = 1,
-		.window = std::chrono::seconds{10},
-		.lockout = std::chrono::seconds{0},
-		.max_subjects = 4,
-	}};
+	AuthFailureLimiter limiter{
+		AuthThrottleOptions{
+							.max_failures = 1,
+							.window = std::chrono::seconds{10},
+							.lockout = std::chrono::seconds{0},
+							.max_subjects = 4,
+							}
+    };
 
 	(void)limiter.record_failure("api-token:deadbeef", at(200));
 	CHECK_FALSE(limiter.before_attempt("api-token:deadbeef", at(205)).allowed);
@@ -83,12 +87,14 @@ TEST_CASE(
 TEST_CASE(
 	"auth throttle: success clears accumulated failures",
 	"[auth][rate-limit]") {
-	AuthFailureLimiter limiter{AuthThrottleOptions{
-		.max_failures = 2,
-		.window = std::chrono::seconds{60},
-		.lockout = std::chrono::seconds{60},
-		.max_subjects = 4,
-	}};
+	AuthFailureLimiter limiter{
+		AuthThrottleOptions{
+							.max_failures = 2,
+							.window = std::chrono::seconds{60},
+							.lockout = std::chrono::seconds{60},
+							.max_subjects = 4,
+							}
+    };
 
 	(void)limiter.record_failure("account:alice", at(1));
 	limiter.record_success("account:alice");
@@ -102,12 +108,14 @@ TEST_CASE(
 TEST_CASE(
 	"auth throttle: subject store is bounded and evicts least-recently-used subjects",
 	"[auth][rate-limit]") {
-	AuthFailureLimiter limiter{AuthThrottleOptions{
-		.max_failures = 3,
-		.window = std::chrono::seconds{60},
-		.lockout = std::chrono::seconds{60},
-		.max_subjects = 2,
-	}};
+	AuthFailureLimiter limiter{
+		AuthThrottleOptions{
+							.max_failures = 3,
+							.window = std::chrono::seconds{60},
+							.lockout = std::chrono::seconds{60},
+							.max_subjects = 2,
+							}
+    };
 
 	(void)limiter.record_failure("account:a", at(1));
 	(void)limiter.record_failure("account:b", at(2));
@@ -138,15 +146,17 @@ TEST_CASE(
 TEST_CASE(
 	"auth throttle middleware: hooks record downstream auth failures",
 	"[auth][rate-limit]") {
-	AuthFailureLimiter limiter{AuthThrottleOptions{
-		.max_failures = 1,
-		.window = std::chrono::seconds{60},
-		.lockout = std::chrono::seconds{60},
-		.max_subjects = 4,
-	}};
-	auto middleware = auth_throttle_middleware(
-		limiter,
-		[](HttpRequestView const &req) { return auth_throttle_form_key(req, "username"); });
+	AuthFailureLimiter limiter{
+		AuthThrottleOptions{
+							.max_failures = 1,
+							.window = std::chrono::seconds{60},
+							.lockout = std::chrono::seconds{60},
+							.max_subjects = 4,
+							}
+    };
+	auto middleware = auth_throttle_middleware(limiter, [](HttpRequestView const &req) {
+		return auth_throttle_form_key(req, "username");
+	});
 	auto req = make_auth_request();
 	Router::Handler fail = [](HttpRequestView const &) {
 		HttpResponse r;

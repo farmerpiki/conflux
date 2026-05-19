@@ -16,7 +16,6 @@ import conflux.uring;
 import conflux.socket_io;
 namespace {
 
-
 std::uint32_t recv_flags_for(
 	std::uint16_t buf_id) noexcept {
 	return IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(buf_id) << IORING_CQE_BUFFER_SHIFT);

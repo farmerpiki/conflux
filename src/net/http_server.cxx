@@ -17,8 +17,10 @@ public:
 	explicit HttpServer(Config const &cfg, VHostRouter &&vhost_router);
 	~HttpServer();
 
-	[[nodiscard]] static std::expected<std::unique_ptr<HttpServer>, std::string> try_create(Config const &cfg, Router &&router);
-	[[nodiscard]] static std::expected<std::unique_ptr<HttpServer>, std::string> try_create(Config const &cfg, VHostRouter &&vhost_router);
+	[[nodiscard]] static std::expected<std::unique_ptr<HttpServer>, std::string>
+	try_create(Config const &cfg, Router &&router);
+	[[nodiscard]] static std::expected<std::unique_ptr<HttpServer>, std::string>
+	try_create(Config const &cfg, VHostRouter &&vhost_router);
 
 	// Thread-safe and async-signal-safe. Wakes every ring via its shutdown eventfd.
 	void request_shutdown() noexcept;

@@ -233,7 +233,8 @@ TEST_CASE(
 		if (observed) {
 			(void)ws.try_set_cancelled(root::work_errc::cancelled_requested);
 		} else {
-			(void)ws.try_set_exception(make_exception_ptr(std::runtime_error{"scope admit did not signal cancellation"}));
+			(void)ws.try_set_exception(
+				make_exception_ptr(std::runtime_error{"scope admit did not signal cancellation"}));
 		}
 	}};
 

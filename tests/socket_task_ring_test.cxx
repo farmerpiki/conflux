@@ -738,7 +738,8 @@ TEST_CASE(
 	std::array<std::uint8_t, 8> rx{};
 	std::size_t received = 0;
 	while (received < 8) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 8u - received}));
+		std::size_t const n =
+			fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 8u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -967,7 +968,8 @@ TEST_CASE(
 	std::array<std::uint8_t, 8> rx{};
 	std::size_t received = 0;
 	while (received < 8) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 8u - received}));
+		std::size_t const n =
+			fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 8u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -993,7 +995,8 @@ TEST_CASE(
 	std::array<std::uint8_t, 6> rx{};
 	std::size_t received = 0;
 	while (received < 6) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 6u - received}));
+		std::size_t const n =
+			fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 6u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -1019,7 +1022,8 @@ TEST_CASE(
 	std::array<std::uint8_t, 5> rx{};
 	std::size_t received = 0;
 	while (received < 5) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 5u - received}));
+		std::size_t const n =
+			fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 5u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -1111,7 +1115,8 @@ TEST_CASE(
 	std::array<std::uint8_t, 3> rx{};
 	std::size_t received = 0;
 	while (received < 3) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 3u - received}));
+		std::size_t const n =
+			fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 3u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -1138,7 +1143,8 @@ TEST_CASE(
 	std::array<std::uint8_t, 2> rx{};
 	std::size_t received = 0;
 	while (received < 2) {
-		std::size_t const n = fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 2u - received}));
+		std::size_t const n =
+			fx->run(stream.async_recv_borrowed(std::span<std::uint8_t>{rx.data() + received, 2u - received}));
 		REQUIRE(n > 0);
 		received += n;
 	}
@@ -1209,7 +1215,9 @@ TEST_CASE(
 	SocketTaskRing dr{
 		SocketRawRing{&fx->ring},
 		fx->completions,
-		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return (static_cast<std::uint64_t>(g) << 32U) | s; },
+		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
+			return (static_cast<std::uint64_t>(g) << 32U) | s;
+		},
 		ropts};
 	int err_code = 0;
 	try {
@@ -1402,7 +1410,9 @@ TEST_CASE(
 	SocketTaskRing ring2{
 		SocketRawRing{&fx->ring},
 		fx->completions,
-		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return (static_cast<std::uint64_t>(g) << 32U) | s; },
+		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
+			return (static_cast<std::uint64_t>(g) << 32U) | s;
+		},
 		opts};
 	TcpListener l{TcpListenerOptions{.bind = TcpBindAddress::loopback_v4}};
 	int const fd_before = count_proc_fds();
@@ -1445,7 +1455,9 @@ TEST_CASE(
 	SocketTaskRing ring2{
 		SocketRawRing{&fx->ring},
 		fx->completions,
-		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t { return (static_cast<std::uint64_t>(g) << 32U) | s; },
+		[](std::uint32_t s, std::uint32_t g) noexcept -> std::uint64_t {
+			return (static_cast<std::uint64_t>(g) << 32U) | s;
+		},
 		opts};
 	auto l = std::make_unique<TcpListener>(TcpListenerOptions{.bind = TcpBindAddress::loopback_v4});
 	int const fd_before = count_proc_fds();

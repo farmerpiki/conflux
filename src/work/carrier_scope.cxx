@@ -148,7 +148,10 @@ public:
 		Driver &driver,
 		root::OperationJoinHandle<T> &&jh) {
 		track(jh.control());
-		return Chain<T>{root::blocking_join(driver, std::move(jh)), CarrierKind::operation, root::capability_id(driver)};
+		return Chain<T>{
+			root::blocking_join(driver, std::move(jh)),
+			CarrierKind::operation,
+			root::capability_id(driver)};
 	}
 	template<root::work_value T, root::progress_capability Driver>
 	[[nodiscard]] Chain<T> admit_unbound(

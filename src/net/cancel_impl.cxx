@@ -16,10 +16,10 @@ struct ActiveTaskCancelRelayState {
 	std::atomic<bool> cancelled{false};
 };
 
-[[nodiscard]] ActiveTaskCancelRelayState *relay_state(void *p) noexcept {
+[[nodiscard]] ActiveTaskCancelRelayState *relay_state(
+	void *p) noexcept {
 	return static_cast<ActiveTaskCancelRelayState *>(p);
 }
-
 
 } // namespace
 
@@ -30,10 +30,12 @@ ActiveTaskCancelRelay::~ActiveTaskCancelRelay() {
 	delete relay_state(state_);
 }
 
-ActiveTaskCancelRelay::ActiveTaskCancelRelay(ActiveTaskCancelRelay &&other) noexcept
+ActiveTaskCancelRelay::ActiveTaskCancelRelay(
+	ActiveTaskCancelRelay &&other) noexcept
 	: state_{std::exchange(other.state_, nullptr)} {}
 
-ActiveTaskCancelRelay &ActiveTaskCancelRelay::operator =(ActiveTaskCancelRelay &&other) noexcept {
+ActiveTaskCancelRelay &ActiveTaskCancelRelay::operator =(
+	ActiveTaskCancelRelay &&other) noexcept {
 	if (this != &other) {
 		delete relay_state(state_);
 		state_ = std::exchange(other.state_, nullptr);
@@ -41,7 +43,8 @@ ActiveTaskCancelRelay &ActiveTaskCancelRelay::operator =(ActiveTaskCancelRelay &
 	return *this;
 }
 
-void ActiveTaskCancelRelay::set_active(wroot::TaskControl c) {
+void ActiveTaskCancelRelay::set_active(
+	wroot::TaskControl c) {
 	auto *st = relay_state(state_);
 	if (st == nullptr) {
 		throw wroot::CancelledError{wroot::CancelReason::requested};
@@ -83,9 +86,7 @@ void ActiveTaskCancelRelay::cancel() noexcept {
 			st->cancelled.store(true, std::memory_order_release);
 			to_cancel = st->active;
 		}
-	} catch (...) {
-		return;
-	}
+	} catch (...) { return; }
 	if (to_cancel) {
 		auto _ = to_cancel->request_cancel();
 	}
@@ -102,7 +103,8 @@ void ActiveTaskCancelRelay::throw_if_cancelled() const {
 	}
 }
 
-[[nodiscard]] wroot::Task<decltype(sizeof(0))> ActiveTaskCancelRelay::await_child(wroot::Task<decltype(sizeof(0))> child) {
+[[nodiscard]] wroot::Task<decltype(sizeof(0))> ActiveTaskCancelRelay::await_child(
+	wroot::Task<decltype(sizeof(0))> child) {
 	set_active(child.control());
 	try {
 		auto out = co_await std::move(child);
@@ -115,7 +117,8 @@ void ActiveTaskCancelRelay::throw_if_cancelled() const {
 	}
 }
 
-[[nodiscard]] wroot::Task<void> ActiveTaskCancelRelay::await_child(wroot::Task<void> child) {
+[[nodiscard]] wroot::Task<void> ActiveTaskCancelRelay::await_child(
+	wroot::Task<void> child) {
 	set_active(child.control());
 	try {
 		co_await std::move(child);

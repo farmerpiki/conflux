@@ -1,6 +1,6 @@
-#include <fcntl.h>
 #include <atomic>
 #include <cerrno>
+#include <fcntl.h>
 #include <filesystem>
 #include <fstream>
 #include <liburing.h>
@@ -404,9 +404,7 @@ void bench_accumulate_chunked(
 			std::size_t remaining = corpus.size();
 			while (remaining > 0) {
 				std::size_t const n = std::min(chunk_size, remaining);
-				auto feed = acc.feed(std::span<std::byte const>{
-					reinterpret_cast<std::byte const *>(ptr),
-					n});
+				auto feed = acc.feed(std::span<std::byte const>{reinterpret_cast<std::byte const *>(ptr), n});
 				if (!feed) {
 					throw std::runtime_error{"json accumulator feed failed"};
 				}
@@ -506,7 +504,8 @@ void serve_json_corpus(
 }
 struct TempCorpusFile {
 	std::filesystem::path path;
-	explicit TempCorpusFile(std::string_view corpus) {
+	explicit TempCorpusFile(
+		std::string_view corpus) {
 		path = std::filesystem::temp_directory_path() / "conflux_json_bench_e2e.json";
 		std::ofstream out{path, std::ios::binary | std::ios::trunc};
 		if (!out) {
@@ -585,12 +584,8 @@ void bench_e2e_decode(
 	FileReader files{&raw, &ct, pack_ud};
 	SocketTaskRing ring{SocketRawRing{&raw}, ct, pack_ud};
 	try {
-		auto file_stats = measure(
-			[&] { block_on(files, decode_file_once(files, file_path)); },
-			5,
-			20,
-			1,
-			corpus.size());
+		auto file_stats =
+			measure([&] { block_on(files, decode_file_once(files, file_path)); }, 5, 20, 1, corpus.size());
 		print_row(std::format("{}/file_reader", name), file_stats);
 		{
 			std::uint16_t port = 0;
@@ -1190,7 +1185,8 @@ int main(
 		std::println("[json-bench]");
 		std::println("[json-bench] -- FI-1: sentinel prevents repeated hash-build on failure --");
 		std::println("[json-bench]    (A) per-lookup cost after sentinel cached; (B) overhead saved per repeat call");
-		std::println("[json-bench]    adversarial cost WITHOUT sentinel: (A)+(B) per lookup; WITH: (A) after first call");
+		std::println(
+			"[json-bench]    adversarial cost WITHOUT sentinel: (A)+(B) per lookup; WITH: (A) after first call");
 	}
 	bench_fi1_sentinel(below_threshold_corpus, lookup_corpus);
 
@@ -1209,30 +1205,36 @@ int main(
 	}
 
 	{
-		std::array<CorpusFileSpec, 5> const real_world{{
-			{          "file/canada geo",        "canada.json"},
-			{"file/citm_catalog catalog",  "citm_catalog.json"},
-			{      "file/twitter social",       "twitter.json"},
-			{    "file/apache_builds CI", "apache_builds.json"},
-			{"file/github_events events", "github_events.json"},
-		}};
+		std::array<CorpusFileSpec, 5> const real_world{
+			{
+             {"file/canada geo", "canada.json"},
+             {"file/citm_catalog catalog", "citm_catalog.json"},
+             {"file/twitter social", "twitter.json"},
+             {"file/apache_builds CI", "apache_builds.json"},
+             {"file/github_events events", "github_events.json"},
+			 }
+        };
 		bench_file_corpora("real-world corpora", real_world);
 	}
 	{
-		std::array<CorpusFileSpec, 4> const route_payloads{{
-			{"route/persona_create_request", "route_payloads/persona_create_request.json", 20, 200},
-			{"route/content_generation_response", "route_payloads/content_generation_response.json", 20, 200},
-			{"route/scheduled_publish_batch", "route_payloads/scheduled_publish_batch.json", 20, 200},
-			{"route/analytics_timeseries", "route_payloads/analytics_timeseries.json", 20, 200},
-		}};
+		std::array<CorpusFileSpec, 4> const route_payloads{
+			{
+             {"route/persona_create_request", "route_payloads/persona_create_request.json", 20, 200},
+             {"route/content_generation_response", "route_payloads/content_generation_response.json", 20, 200},
+             {"route/scheduled_publish_batch", "route_payloads/scheduled_publish_batch.json", 20, 200},
+             {"route/analytics_timeseries", "route_payloads/analytics_timeseries.json", 20, 200},
+			 }
+        };
 		bench_file_corpora("route payload fixtures", route_payloads);
 	}
 	{
-		std::array<CorpusFileSpec, 3> const edge_cases{{
-			{"edge/large_numbers", "edge/large_numbers.json", 20, 200},
-			{"edge/escaped_unicode", "edge/escaped_unicode.json", 20, 200},
-			{"edge/out_of_order_keys", "edge/out_of_order_keys.json", 20, 200},
-		}};
+		std::array<CorpusFileSpec, 3> const edge_cases{
+			{
+             {"edge/large_numbers", "edge/large_numbers.json", 20, 200},
+             {"edge/escaped_unicode", "edge/escaped_unicode.json", 20, 200},
+             {"edge/out_of_order_keys", "edge/out_of_order_keys.json", 20, 200},
+			 }
+        };
 		bench_file_corpora("edge-case valid fixtures", edge_cases);
 		if (auto duplicate_keys = load_corpus_file("edge/duplicate_keys.json")) {
 			if (!g_csv) {
@@ -1243,13 +1245,15 @@ int main(
 		}
 	}
 	{
-		std::array<CorpusFileSpec, 5> const malformed{{
-			{"malformed/trailing_comma", "malformed/trailing_comma.json", 20, 200, false},
-			{"malformed/bad_string_escape", "malformed/bad_string_escape.json", 20, 200, false},
-			{"malformed/leading_zero", "malformed/leading_zero.json", 20, 200, false},
-			{"malformed/unclosed_array", "malformed/unclosed_array.json", 20, 200, false},
-			{"malformed/garbage_suffix", "malformed/garbage_suffix.json", 20, 200, false},
-		}};
+		std::array<CorpusFileSpec, 5> const malformed{
+			{
+             {"malformed/trailing_comma", "malformed/trailing_comma.json", 20, 200, false},
+             {"malformed/bad_string_escape", "malformed/bad_string_escape.json", 20, 200, false},
+             {"malformed/leading_zero", "malformed/leading_zero.json", 20, 200, false},
+             {"malformed/unclosed_array", "malformed/unclosed_array.json", 20, 200, false},
+             {"malformed/garbage_suffix", "malformed/garbage_suffix.json", 20, 200, false},
+			 }
+        };
 		bench_reject_file_corpora("malformed rejection fixtures", malformed);
 	}
 }

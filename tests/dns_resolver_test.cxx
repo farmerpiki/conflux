@@ -1264,8 +1264,10 @@ TEST_CASE(
 	using RR = ResolveResult;
 	auto first = r.resolve(gb->str, "coalesce-b.test", 80, opts);
 	auto second = r.resolve(gb->str, "coalesce-b.test", 80, opts);
-	auto [res1, res2] =
-		block_on_str<std::tuple<RR, RR>>(*gb, join_all(std::move(first), std::move(second)), std::chrono::milliseconds{5000});
+	auto [res1, res2] = block_on_str<std::tuple<RR, RR>>(
+		*gb,
+		join_all(std::move(first), std::move(second)),
+		std::chrono::milliseconds{5000});
 
 	CHECK_FALSE(res1.endpoints.empty());
 	CHECK_FALSE(res2.endpoints.empty());

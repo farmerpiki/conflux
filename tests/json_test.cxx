@@ -2970,16 +2970,17 @@ struct JsonMembers<Rect> {
 		return std::tuple{
 			make_tuple(
 				json_member("width", &Rect::width),
-				static_cast<JsonConstraintFn<std::int64_t>>([](std::int64_t const &v) -> std::expected<void, JsonError> {
-					if (v <= 0) {
-						return std::unexpected(
-							JsonError{
-								.stage = JsonStage::decode,
-								.code = JsonIssueCode::constraint_violation,
-								.message = "width must be positive"});
-					}
-					return {};
-				})),
+				static_cast<JsonConstraintFn<std::int64_t>>(
+					[](std::int64_t const &v) -> std::expected<void, JsonError> {
+						if (v <= 0) {
+							return std::unexpected(
+								JsonError{
+									.stage = JsonStage::decode,
+									.code = JsonIssueCode::constraint_violation,
+									.message = "width must be positive"});
+						}
+						return {};
+					})),
 			json_member("height", &Rect::height),
 		};
 	}
@@ -4231,7 +4232,8 @@ TEST_CASE(
 	"[phase7]") {
 	JsonAccumulator acc;
 	auto const json = std::string_view{R"({"a":[1,2,3],"b":true})"};
-	REQUIRE(acc.feed(std::span<std::byte const>{reinterpret_cast<std::byte const *>(json.data()), json.size()}).has_value());
+	REQUIRE(acc.feed(std::span<std::byte const>{reinterpret_cast<std::byte const *>(json.data()), json.size()})
+				.has_value());
 	auto doc = acc.finish();
 	REQUIRE(doc.has_value());
 	auto obj = doc->root().as_object();

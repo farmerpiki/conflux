@@ -115,7 +115,8 @@ public:
 		auto shared_src = std::make_shared<root::TaskSource<FileReader::ReadFixedResult>>(std::move(raw_src));
 		auto *sqe = io_uring_get_sqe(ring_);
 		if (sqe == nullptr) {
-			auto _ = shared_src->try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: iopoll SQ full"}));
+			auto _ =
+				shared_src->try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: iopoll SQ full"}));
 			return std::move(task);
 		}
 		unsigned const slot_idx = buf.slot();
@@ -220,9 +221,12 @@ public:
 		}
 		out->buffer_table_ = std::move(table);
 		out->buffers_ = std::move(buffers);
-		out->reader_ = std::make_unique<IopollFileReader>(&out->ring_, &out->completions_, [](std::uint32_t slot, std::uint32_t gen) noexcept {
-			return (static_cast<std::uint64_t>(gen) << 32U) | slot;
-		});
+		out->reader_ = std::make_unique<IopollFileReader>(
+			&out->ring_,
+			&out->completions_,
+			[](std::uint32_t slot, std::uint32_t gen) noexcept {
+				return (static_cast<std::uint64_t>(gen) << 32U) | slot;
+			});
 		return out;
 	}
 

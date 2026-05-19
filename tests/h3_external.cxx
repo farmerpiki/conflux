@@ -31,11 +31,12 @@ TEST_CASE(
 TEST_CASE(
 	"h3: curl --http3-only POST echoes body") {
 	conflux::tests::Http3ServerFixture const fx{make_router()};
-	auto [code, out] = conflux::tests::run_cmd(std::format(
-		"curl -sk --http3-only --max-time 5 --resolve localhost:{}:127.0.0.1 "
-		"-d 'hello h3' https://localhost:{}/echo",
-		fx.port(),
-		fx.port()));
+	auto [code, out] = conflux::tests::run_cmd(
+		std::format(
+			"curl -sk --http3-only --max-time 5 --resolve localhost:{}:127.0.0.1 "
+			"-d 'hello h3' https://localhost:{}/echo",
+			fx.port(),
+			fx.port()));
 	REQUIRE(code == 0);
 	REQUIRE(out == "hello h3");
 }

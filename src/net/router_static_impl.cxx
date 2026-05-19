@@ -31,16 +31,15 @@ import conflux.net.config;
 	if (!effective_sopts.file_cache.enabled) {
 		effective_sopts.file_cache = static_file_cache;
 	}
-	auto root_dir_fd = std::shared_ptr<int>{
-		new int(::open(root_dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)),
-		[](int *fd) {
-			if (fd != nullptr) {
-				if (*fd >= 0) {
-					::close(*fd);
-				}
-				delete fd;
-			}
-		}};
+	auto root_dir_fd =
+		std::shared_ptr<int>{new int(::open(root_dir.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC)), [](int *fd) {
+								 if (fd != nullptr) {
+									 if (*fd >= 0) {
+										 ::close(*fd);
+									 }
+									 delete fd;
+								 }
+							 }};
 	auto rd = std::move(root_dir);
 
 	StaticRouteRegistration routes{
@@ -51,15 +50,17 @@ import conflux.net.config;
 	};
 
 	if (effective_sopts.allow_put) {
-		routes.put = StaticRouteHandler{[rd, root_dir_fd, sopts = effective_sopts, &static_cache](HttpRequestView const &req) -> HttpResponse {
-			return handle_static_put(rd, *root_dir_fd, sopts, req, static_cache);
-		}};
+		routes.put = StaticRouteHandler{
+			[rd, root_dir_fd, sopts = effective_sopts, &static_cache](HttpRequestView const &req) -> HttpResponse {
+				return handle_static_put(rd, *root_dir_fd, sopts, req, static_cache);
+			}};
 	}
 
 	if (effective_sopts.allow_delete) {
-		routes.del = StaticRouteHandler{[rd, root_dir_fd, sopts = effective_sopts, &static_cache](HttpRequestView const &req) -> HttpResponse {
-			return handle_static_delete(rd, *root_dir_fd, sopts, req, static_cache);
-		}};
+		routes.del = StaticRouteHandler{
+			[rd, root_dir_fd, sopts = effective_sopts, &static_cache](HttpRequestView const &req) -> HttpResponse {
+				return handle_static_delete(rd, *root_dir_fd, sopts, req, static_cache);
+			}};
 	}
 
 	return routes;

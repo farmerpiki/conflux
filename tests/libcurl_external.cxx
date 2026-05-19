@@ -284,17 +284,18 @@ void require_ok(
 	CurlResponse const &resp,
 	long status,
 	std::string_view body) {
-	INFO(std::format(
-		"curl={} {} status={} http_version={} verify={} connects={} time={} body_size={} body={}",
-		static_cast<int>(resp.code),
-		curl_error(resp.code),
-		resp.status,
-		resp.http_version,
-		resp.ssl_verify_result,
-		resp.num_connects,
-		resp.total_time,
-		resp.body.size(),
-		resp.body));
+	INFO(
+		std::format(
+			"curl={} {} status={} http_version={} verify={} connects={} time={} body_size={} body={}",
+			static_cast<int>(resp.code),
+			curl_error(resp.code),
+			resp.status,
+			resp.http_version,
+			resp.ssl_verify_result,
+			resp.num_connects,
+			resp.total_time,
+			resp.body.size(),
+			resp.body));
 	REQUIRE(resp.code == CURLE_OK);
 	REQUIRE(resp.status == status);
 	REQUIRE(resp.body == body);
@@ -304,14 +305,15 @@ void require_ok(
 	CurlResponse const &resp,
 	long status,
 	std::string_view needle) {
-	INFO(std::format(
-		"curl={} {} status={} http_version={} body_size={} body={}",
-		static_cast<int>(resp.code),
-		curl_error(resp.code),
-		resp.status,
-		resp.http_version,
-		resp.body.size(),
-		resp.body));
+	INFO(
+		std::format(
+			"curl={} {} status={} http_version={} body_size={} body={}",
+			static_cast<int>(resp.code),
+			curl_error(resp.code),
+			resp.status,
+			resp.http_version,
+			resp.body.size(),
+			resp.body));
 	REQUIRE(resp.code == CURLE_OK);
 	REQUIRE(resp.status == status);
 	REQUIRE(resp.body.find(needle) != std::string::npos);
@@ -360,13 +362,14 @@ void require_ok(
 	req.body.clear();
 	req.url = url("/does-not-exist");
 	resp = curl.perform(req);
-	INFO(std::format(
-		"curl={} {} status={} body_size={} body={}",
-		static_cast<int>(resp.code),
-		curl_error(resp.code),
-		resp.status,
-		resp.body.size(),
-		resp.body));
+	INFO(
+		std::format(
+			"curl={} {} status={} body_size={} body={}",
+			static_cast<int>(resp.code),
+			curl_error(resp.code),
+			resp.status,
+			resp.body.size(),
+			resp.body));
 	REQUIRE(resp.code == CURLE_OK);
 	REQUIRE(resp.status == 404);
 }
@@ -654,15 +657,16 @@ struct ExpectedCurlRequest {
 void require_expected(
 	CurlResponse const &resp,
 	ExpectedCurlRequest const &expected) {
-	INFO(std::format(
-		"curl={} {} status={} expected_status={} http_version={} body_size={} url={}",
-		static_cast<int>(resp.code),
-		curl_error(resp.code),
-		resp.status,
-		expected.status,
-		resp.http_version,
-		resp.body.size(),
-		expected.request.url));
+	INFO(
+		std::format(
+			"curl={} {} status={} expected_status={} http_version={} body_size={} url={}",
+			static_cast<int>(resp.code),
+			curl_error(resp.code),
+			resp.status,
+			expected.status,
+			resp.http_version,
+			resp.body.size(),
+			expected.request.url));
 	REQUIRE(resp.code == CURLE_OK);
 	REQUIRE(resp.status == expected.status);
 	if (expected.expected_contains.has_value()) {
@@ -805,7 +809,8 @@ TEST_CASE(
 		active->multi = multi.get();
 		active->easy = curl_easy_init();
 		REQUIRE(active->easy != nullptr);
-		active->expected = std::make_unique<ExpectedCurlRequest>(make_expected_request(fx.port(), index, version, fresh));
+		active->expected =
+			std::make_unique<ExpectedCurlRequest>(make_expected_request(fx.port(), index, version, fresh));
 		CurlRequest const &req = active->expected->request;
 		setopt(active->easy, CURLOPT_URL, req.url.c_str());
 		setopt(active->easy, CURLOPT_NOSIGNAL, 1L);

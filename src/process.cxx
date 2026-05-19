@@ -210,8 +210,9 @@ std::vector<std::string> build_env(
 			continue;
 		}
 		std::string_view key{entry.data(), eq_pos + 1}; // includes '='
-		auto it =
-			remove_if(env_strs.begin(), env_strs.end(), [&](std::string const &s) { return std::string_view{s}.substr(0, key.size()) == key; });
+		auto it = remove_if(env_strs.begin(), env_strs.end(), [&](std::string const &s) {
+			return std::string_view{s}.substr(0, key.size()) == key;
+		});
 		env_strs.erase(it, env_strs.end());
 		env_strs.push_back(entry);
 	}
@@ -554,7 +555,8 @@ export std::expected<RunResult, std::error_code> run(
 		int n_active = 0; // NOLINT(misc-const-correctness) — incremented in loop
 		for (auto const &pfd: pfds) {
 			if (pfd.fd >= 0) {
-				active[static_cast<std::size_t>(n_active++)] = pfd; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
+				active[static_cast<std::size_t>(n_active++)] =
+					pfd; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
 			}
 		}
 

@@ -148,13 +148,12 @@ static std::expected<Document, JsonError> build_summary(
 
 static void example_transform() {
 	std::println("--- NDJSON aggregate + builder output ---");
-	constexpr std::string_view input =
-		R"({"route":"/v1/chat","latency_us":7100,"ok":true})"
-		"\n"
-		R"({"route":"/v1/chat","latency_us":12100,"ok":false})"
-		"\n"
-		R"({"route":"/v1/embed","latency_us":1800,"ok":true})"
-		"\n";
+	constexpr std::string_view input = R"({"route":"/v1/chat","latency_us":7100,"ok":true})"
+									   "\n"
+									   R"({"route":"/v1/chat","latency_us":12100,"ok":false})"
+									   "\n"
+									   R"({"route":"/v1/embed","latency_us":1800,"ok":true})"
+									   "\n";
 
 	auto routes = aggregate_routes(input);
 	if (!routes) {

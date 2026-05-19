@@ -9,7 +9,6 @@ import conflux.net.http.server_types;
 
 namespace chttp = conflux::http;
 
-
 #ifndef ASSERT_PROBE_BIN
 	#error "ASSERT_PROBE_BIN must be defined by CMake"
 #endif

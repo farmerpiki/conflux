@@ -79,7 +79,8 @@ std::uint64_t run_pipeline(
 		for (std::size_t i = 0; i < batch_n; ++i) {
 			Params p;
 			p.add(id++).add("x");
-			pending.push_back(pipe.query("INSERT INTO conflux_pipeline_bench (id, payload) VALUES ($1, $2)", std::move(p)));
+			pending.push_back(
+				pipe.query("INSERT INTO conflux_pipeline_bench (id, payload) VALUES ($1, $2)", std::move(p)));
 		}
 		block_on(reader, pipe.sync(), std::chrono::seconds{30});
 		for (auto &f: pending) {

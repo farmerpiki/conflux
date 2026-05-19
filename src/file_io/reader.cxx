@@ -248,7 +248,8 @@ private:
 			auto _ = path_owner; // keep-alive until CQE
 			try {
 				if (r.res < 0) {
-					auto _ = src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
+					auto _ =
+						src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
 					return;
 				}
 				int const fd = r.res;
@@ -257,8 +258,8 @@ private:
 				if (update_rc < 0) {
 					int const sparse = -1;
 					::io_uring_register_files_update(ring_, file_index, &sparse, 1);
-					auto _ =
-						src->try_set_exception(std::make_exception_ptr(FileIoError{-update_rc, "file_io: open_direct"}));
+					auto _ = src->try_set_exception(
+						std::make_exception_ptr(FileIoError{-update_rc, "file_io: open_direct"}));
 					return;
 				}
 				auto _ = src->try_set_value(
@@ -289,7 +290,8 @@ public:
 			auto _ = path_owner; // keep-alive until CQE
 			try {
 				if (r.res < 0) {
-					auto _ = shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: open"}));
+					auto _ =
+						shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: open"}));
 					return;
 				}
 				auto _ = shared_src->try_set_value({FileHandle::from_fd(r.res)});
@@ -312,24 +314,25 @@ public:
 		}
 		auto path_owner = std::make_shared<std::string>(std::move(path));
 		io_uring_prep_openat_direct(sqe, dir_fd, path_owner->c_str(), flags, mode, file_index);
-		auto [slot, gen] = completions_->reserve([this, shared_src, path_owner, dir_fd, flags, mode, file_index](
-													 IoResult r) mutable {
-			auto _ = path_owner; // keep-alive until CQE
-			try {
-				if (r.res < 0) {
-					int const err = -r.res;
-					if (err == EINVAL || err == EOPNOTSUPP || err == ENOSYS) {
-						auto _ = submit_open_direct_fallback(shared_src, path_owner, dir_fd, flags, mode, file_index);
+		auto [slot, gen] =
+			completions_->reserve([this, shared_src, path_owner, dir_fd, flags, mode, file_index](IoResult r) mutable {
+				auto _ = path_owner; // keep-alive until CQE
+				try {
+					if (r.res < 0) {
+						int const err = -r.res;
+						if (err == EINVAL || err == EOPNOTSUPP || err == ENOSYS) {
+							auto _ =
+								submit_open_direct_fallback(shared_src, path_owner, dir_fd, flags, mode, file_index);
+							return;
+						}
+						auto _ = shared_src->try_set_exception(
+							std::make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
 						return;
 					}
-					auto _ =
-						shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: open_direct"}));
-					return;
-				}
-				auto _ = shared_src->try_set_value(
-					{FileHandle::from_direct_slot(r.res == 0 ? static_cast<int>(file_index) : r.res)});
-			} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
-		});
+					auto _ = shared_src->try_set_value(
+						{FileHandle::from_direct_slot(r.res == 0 ? static_cast<int>(file_index) : r.res)});
+				} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
+			});
 		io_uring_sqe_set_data64(sqe, encode_ud_(slot, gen));
 		return std::move(task);
 	}
@@ -354,7 +357,8 @@ public:
 			auto _ = path_owner;
 			try {
 				if (r.res < 0) {
-					auto _ = shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: statx"}));
+					auto _ =
+						shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: statx"}));
 					return;
 				}
 				auto const &s = *stx_owner;
@@ -448,8 +452,8 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					auto _ =
-						shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: read_fixed"}));
+					auto _ = shared_src->try_set_exception(
+						std::make_exception_ptr(FileIoError{-r.res, "file_io: read_fixed"}));
 					return;
 				}
 				auto _ = shared_src->try_set_value({
@@ -540,8 +544,8 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, holder](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					auto _ =
-						shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: write_fixed"}));
+					auto _ = shared_src->try_set_exception(
+						std::make_exception_ptr(FileIoError{-r.res, "file_io: write_fixed"}));
 					return;
 				}
 				auto _ = shared_src->try_set_value({
@@ -857,7 +861,8 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, fds](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					auto _ = shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: pipe"}));
+					auto _ =
+						shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: pipe"}));
 					return;
 				}
 				auto _ = shared_src->try_set_value({std::make_pair((*fds)[0], (*fds)[1])});
@@ -1199,8 +1204,8 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {
-					auto _ =
-						shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: poll_remove"}));
+					auto _ = shared_src->try_set_exception(
+						std::make_exception_ptr(FileIoError{-r.res, "file_io: poll_remove"}));
 					return;
 				}
 				auto _ = shared_src->try_set_value(root::Success<void>{});
@@ -1311,7 +1316,8 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT) {
-					auto _ = shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: cancel"}));
+					auto _ =
+						shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: cancel"}));
 					return;
 				}
 				auto _ = shared_src->try_set_value(root::Success<void>{});
@@ -1332,8 +1338,8 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src](IoResult r) mutable {
 			try {
 				if (r.res < 0 && r.res != -ENOENT) {
-					auto _ =
-						shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: cancel_fd"}));
+					auto _ = shared_src->try_set_exception(
+						std::make_exception_ptr(FileIoError{-r.res, "file_io: cancel_fd"}));
 					return;
 				}
 				auto _ = shared_src->try_set_value(root::Success<void>{});
@@ -1827,8 +1833,8 @@ public:
 		auto [slot, gen] = completions_->reserve([shared_src, fds](IoResult r) mutable {
 			try {
 				if (r.res < 0) {
-					auto _ =
-						shared_src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: pipe_direct"}));
+					auto _ = shared_src->try_set_exception(
+						std::make_exception_ptr(FileIoError{-r.res, "file_io: pipe_direct"}));
 					return;
 				}
 				auto _ = shared_src->try_set_value({std::make_pair((*fds)[0], (*fds)[1])});
@@ -1956,7 +1962,8 @@ private:
 		auto *sqe_in = io_uring_get_sqe(st->ring);
 		auto *sqe_out = io_uring_get_sqe(st->ring);
 		if (sqe_in == nullptr || sqe_out == nullptr) {
-			auto _ = st->src->try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: splice SQ full"}));
+			auto _ =
+				st->src->try_set_exception(std::make_exception_ptr(FileIoError{ENOSPC, "file_io: splice SQ full"}));
 			return;
 		}
 
@@ -1989,7 +1996,8 @@ private:
 		}
 		auto [slot_out, gen_out] = st->completions->reserve([st](IoResult r) mutable {
 			if (r.res < 0) {
-				auto _ = st->src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: splice out"}));
+				auto _ =
+					st->src->try_set_exception(std::make_exception_ptr(FileIoError{-r.res, "file_io: splice out"}));
 				return;
 			}
 			auto const n = static_cast<std::size_t>(r.res);

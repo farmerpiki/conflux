@@ -40,13 +40,12 @@ export HttpResponse router_defer_http_task(
 			} else {
 				deferred->complete(HttpResponse::internal_error());
 			}
-		} catch (std::exception const &ex) { deferred->complete(HttpResponse::internal_error(ex.what())); } catch (...) {
-			deferred->complete(HttpResponse::internal_error());
-		}
+		} catch (std::exception const &ex) {
+			deferred->complete(HttpResponse::internal_error(ex.what()));
+		} catch (...) { deferred->complete(HttpResponse::internal_error()); }
 	});
 	return HttpResponse::deferred(std::move(deferred));
 }
-
 
 export HttpResponse router_run_async_http_task(
 	conflux::work::root::Task<HttpResponse> task) {
@@ -69,9 +68,8 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 		// Regular routes first. Candidate selection has already filtered by method.
 		for (auto const &route: routes) {
 			matched_params.clear();
-			bool const matched = route.has_exact_path
-				? (route.exact_path == path_sv)
-				: match_segments(route.pattern, path_sv, matched_params);
+			bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
+														match_segments(route.pattern, path_sv, matched_params);
 			if (matched) {
 				auto all_params = req.params;
 				for (auto const &[k, v]: matched_params) {
@@ -102,11 +100,10 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 					}
 					return resp;
 				} catch (std::exception const &ex) {
-					return error_handler ? error_handler(matched_view, ex) :
-										  HttpResponse::internal_error(ex.what());
+					return error_handler ? error_handler(matched_view, ex) : HttpResponse::internal_error(ex.what());
 				} catch (...) {
 					return error_handler ? error_handler(matched_view, std::runtime_error{"unknown std::exception"}) :
-										  HttpResponse::internal_error();
+										   HttpResponse::internal_error();
 				}
 			}
 		}
@@ -115,9 +112,8 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 		if (req.method == "GET") {
 			for (auto const &route: sse_routes) {
 				matched_params.clear();
-				bool const matched = route.has_exact_path
-					? (route.exact_path == path_sv)
-					: match_segments(route.pattern, path_sv, matched_params);
+				bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
+															match_segments(route.pattern, path_sv, matched_params);
 				if (matched) {
 					auto channel = std::make_shared<SseChannel>();
 					HttpRequest matched = req.to_owned();
@@ -136,7 +132,6 @@ export template<typename RouteRange, typename SseRange, typename NotFoundHandler
 		return HttpResponse::not_found(path_sv);
 	} catch (...) { return HttpResponse::internal_error(); }
 }
-
 
 export template<typename RouteRange, typename SseRange, typename NotFoundHandler, typename ErrorHandler, typename Pool>
 [[nodiscard]] HttpResponse dispatch_sync_routes(
@@ -171,9 +166,8 @@ export template<typename ContextRouteRange, typename Ctx>
 	HttpFieldsView matched_params;
 	for (auto const &route: context_routes) {
 		matched_params.clear();
-		bool const matched = route.has_exact_path
-			? (route.exact_path == path_sv)
-			: match_segments(route.pattern, path_sv, matched_params);
+		bool const matched = route.has_exact_path ? (route.exact_path == path_sv) :
+													match_segments(route.pattern, path_sv, matched_params);
 		if (matched) {
 			HttpRequest call_req = req;
 			for (auto const &[k, v]: matched_params) {

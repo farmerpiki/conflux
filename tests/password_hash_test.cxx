@@ -61,7 +61,6 @@ TEST_CASE(
 	CHECK(*needs);
 }
 
-
 TEST_CASE(
 	"password_hash: verifier secret marks new hashes and allows legacy migration",
 	"[auth][password_hash]") {
@@ -96,8 +95,7 @@ TEST_CASE(
 TEST_CASE(
 	"password_hash: resource limits are configurable",
 	"[auth][password_hash]") {
-	auto configured = password_hash_configure_resource_limits(
-		{.max_concurrent_hashes = 1, .max_waiting_hashes = 0});
+	auto configured = password_hash_configure_resource_limits({.max_concurrent_hashes = 1, .max_waiting_hashes = 0});
 	REQUIRE(configured.has_value());
 	auto current = password_hash_resource_limits();
 	CHECK(current.max_concurrent_hashes == 1);

@@ -153,7 +153,7 @@ std::filesystem::path make_template_dir(
 	std::string_view name,
 	std::string_view source) {
 	auto dir = std::filesystem::temp_directory_path()
-		/ std::format("conflux_template_bench_{}", std::chrono::steady_clock::now().time_since_epoch().count());
+			 / std::format("conflux_template_bench_{}", std::chrono::steady_clock::now().time_since_epoch().count());
 	std::filesystem::create_directories(dir);
 	std::ofstream out{dir / std::string{name}};
 	out << source;

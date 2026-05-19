@@ -106,11 +106,16 @@ concept JsonWritableProvider =
 	JsonDirectWriteProvider<Provider, T, Sink> || (JsonDumpProvider<Provider, T> && JsonChunkSink<Sink>);
 
 template<class Provider>
-concept JsonDocumentProvider = requires(std::string_view input, DecodeOptions const &decode_opts, DumpOptions const &dump_opts) {
-	typename Provider::document_type;
-	{ Provider::parse_json_document(input, decode_opts) } -> std::same_as<std::expected<typename Provider::document_type, Error>>;
-	{ Provider::dump_json(std::declval<typename Provider::document_type const &>(), dump_opts) } -> std::same_as<std::expected<std::string, Error>>;
-};
+concept JsonDocumentProvider =
+	requires(std::string_view input, DecodeOptions const &decode_opts, DumpOptions const &dump_opts) {
+		typename Provider::document_type;
+		{
+			Provider::parse_json_document(input, decode_opts)
+		} -> std::same_as<std::expected<typename Provider::document_type, Error>>;
+		{
+			Provider::dump_json(std::declval<typename Provider::document_type const &>(), dump_opts)
+		} -> std::same_as<std::expected<std::string, Error>>;
+	};
 
 template<class Provider, class T>
 struct SerdeTraits {

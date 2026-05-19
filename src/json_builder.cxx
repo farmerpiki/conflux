@@ -50,7 +50,7 @@ std::expected<void, JsonError> ValueBuilder::set_node(
 }
 
 ValueBuilder::ValueBuilder()
-        : owned_{std::make_unique<BuilderState>()}
+	: owned_{std::make_unique<BuilderState>()}
 	, state_{owned_.get()} {}
 
 ValueBuilder::ValueBuilder(
@@ -266,9 +266,9 @@ std::expected<Document, JsonError> ValueBuilder::finish() && {
 				.code = JsonIssueCode::input_too_large,
 				.message = "Builder input buffer exceeds 4 GiB hard ceiling"});
 	}
-        auto storage = std::make_unique<DocumentStorage>(std::move(state_->store));
+	auto storage = std::make_unique<DocumentStorage>(std::move(state_->store));
 	storage->root_node = static_cast<std::uint32_t>(state_->root_node);
-        storage->owned_input = std::make_unique<std::string>(std::move(state_->built_input));
+	storage->owned_input = std::make_unique<std::string>(std::move(state_->built_input));
 	storage->input_view = *storage->owned_input;
 	owned_.reset();
 	state_ = nullptr;
@@ -866,7 +866,8 @@ std::expected<void, JsonError> copy_node_into(ValueBuilder &out, NodeRef node);
 std::expected<void, JsonError> copy_node_into(ObjectBuilder &out, std::string_view name, NodeRef node);
 std::expected<void, JsonError> copy_node_into(ArrayBuilder &out, NodeRef node);
 std::expected<void, JsonError> merge_patch_into(ValueBuilder &out, NodeRef target, NodeRef patch);
-std::expected<void, JsonError> merge_patch_into(ObjectBuilder &out, std::string_view name, NodeRef target, NodeRef patch);
+std::expected<void, JsonError>
+merge_patch_into(ObjectBuilder &out, std::string_view name, NodeRef target, NodeRef patch);
 
 [[nodiscard]] JsonError merge_patch_wrong_kind(
 	JsonKind actual) {

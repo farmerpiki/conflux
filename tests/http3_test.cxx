@@ -107,7 +107,9 @@ TEST_CASE(
 	opts2.verify_peer = false;
 	conflux::http::HttpClient client2{std::move(opts2)};
 	auto response2 = client2.blocking_send(
-		conflux::http::ClientRequest::get(std::format("https://127.0.0.1:{}/ping", port)).server_name("localhost").build());
+		conflux::http::ClientRequest::get(std::format("https://127.0.0.1:{}/ping", port))
+			.server_name("localhost")
+			.build());
 	REQUIRE(response2);
 	CHECK(response2->head.status == 200);
 	CHECK_FALSE(response2->head.headers.contains("alt-svc"));

@@ -49,9 +49,7 @@ static std::expected<std::string, JsonError> first_role_for_second_user(
 		return std::unexpected(std::move(path).error());
 	}
 
-	auto role = doc->root().at(*path).and_then([](NodeRef node) {
-		return node.as_string();
-	});
+	auto role = doc->root().at(*path).and_then([](NodeRef node) { return node.as_string(); });
 	if (!role) {
 		return std::unexpected(std::move(role).error());
 	}

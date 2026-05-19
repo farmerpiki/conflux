@@ -122,7 +122,8 @@ export Router::Middleware rate_limit_middleware(
 				allowed = true;
 			} else {
 				auto remaining = opts.window - elapsed;
-				retry_after = static_cast<unsigned>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
+				retry_after =
+					static_cast<unsigned>(std::chrono::duration_cast<std::chrono::seconds>(remaining).count());
 			}
 		}
 

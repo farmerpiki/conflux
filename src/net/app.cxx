@@ -25,9 +25,9 @@ template<typename Fn>
 	bool const enqueued = pool->enqueue([deferred, work = std::decay_t<Fn>(std::forward<Fn>(fn))]() mutable {
 		try {
 			deferred->complete(work());
-		} catch (std::exception const &ex) { deferred->complete(HttpResponse::internal_error(ex.what())); } catch (...) {
-			deferred->complete(HttpResponse::internal_error());
-		}
+		} catch (std::exception const &ex) {
+			deferred->complete(HttpResponse::internal_error(ex.what()));
+		} catch (...) { deferred->complete(HttpResponse::internal_error()); }
 	});
 	if (!enqueued) {
 		return HttpResponse::internal_error("offload queue full");
@@ -44,9 +44,9 @@ template<typename Fn>
 	bool const enqueued = pool.enqueue([deferred, work = std::decay_t<Fn>(std::forward<Fn>(fn))]() mutable {
 		try {
 			deferred->complete(work());
-		} catch (std::exception const &ex) { deferred->complete(HttpResponse::internal_error(ex.what())); } catch (...) {
-			deferred->complete(HttpResponse::internal_error());
-		}
+		} catch (std::exception const &ex) {
+			deferred->complete(HttpResponse::internal_error(ex.what()));
+		} catch (...) { deferred->complete(HttpResponse::internal_error()); }
 	});
 	if (!enqueued) {
 		return HttpResponse::internal_error("offload queue full");

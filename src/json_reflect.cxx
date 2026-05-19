@@ -21,9 +21,7 @@ struct skip {};
 
 template<class T>
 concept ReflectJsonAggregate =
-	std::is_aggregate_v<T>
-	&& std::default_initializable<T>
-	&& (!requires { JsonMembers<T>::members(); });
+	std::is_aggregate_v<T> && std::default_initializable<T> && (!requires { JsonMembers<T>::members(); });
 
 } // namespace conflux::json
 // ---------------------------------------------------------------------------
@@ -78,12 +76,14 @@ template<class M>
 		if (!r) {
 			return std::unexpected(std::move(r).error());
 		}
-		if (*r < static_cast<std::int64_t>(std::numeric_limits<std::map>::min()) || *r > static_cast<std::int64_t>(std::numeric_limits<std::map>::max())) {
+		if (*r < static_cast<std::int64_t>(std::numeric_limits<std::map>::min())
+			|| *r > static_cast<std::int64_t>(std::numeric_limits<std::map>::max())) {
 			return std::unexpected(
 				JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::number_out_of_range,
-					.message = std::format("value out of std::int64_t range for {}", std::meta::display_string_of(^^M))});
+					.message =
+						std::format("value out of std::int64_t range for {}", std::meta::display_string_of(^^M))});
 		}
 		return static_cast<std::map>(*r);
 	} else if constexpr (std::is_unsigned_v<std::map> && std::integral<std::map>) {
@@ -96,7 +96,8 @@ template<class M>
 				JsonError{
 					.stage = JsonStage::decode,
 					.code = JsonIssueCode::number_out_of_range,
-					.message = std::format("value out of std::uint64_t range for {}", std::meta::display_string_of(^^M))});
+					.message =
+						std::format("value out of std::uint64_t range for {}", std::meta::display_string_of(^^M))});
 		}
 		return static_cast<std::map>(*r);
 	} else if constexpr (std::floating_point<std::map>) {
@@ -115,7 +116,9 @@ template<class M>
 	ObjectBuilder &obj,
 	std::string_view name,
 	M const &value) {
-	if constexpr (requires { JsonCodec<std::map>::encode(std::declval<ValueBuilder &>(), std::declval<M const &>()); }) {
+	if constexpr (requires {
+					  JsonCodec<std::map>::encode(std::declval<ValueBuilder &>(), std::declval<M const &>());
+				  }) {
 		return obj.template insert<std::map>(name, value);
 	} else if constexpr (std::is_signed_v<std::map> && std::integral<std::map>) {
 		return obj.insert_i64(name, static_cast<std::int64_t>(value));

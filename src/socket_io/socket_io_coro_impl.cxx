@@ -4,9 +4,9 @@ module;
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <coroutine>
 #include <cstddef>
 #include <cstdint>
-#include <coroutine>
 #include <exception>
 #include <format>
 #include <functional>
@@ -85,13 +85,14 @@ struct TcpStreamState {
 };
 // ─── TcpStream ───────────────────────────────────────────────────────────────
 
-
-[[nodiscard]] TcpStreamState &tcp_state(std::shared_ptr<void> const &state) noexcept {
+[[nodiscard]] TcpStreamState &tcp_state(
+	std::shared_ptr<void> const &state) noexcept {
 	return *static_cast<TcpStreamState *>(state.get());
 }
 
 TcpStream::TcpStream() noexcept = default;
-TcpStream::TcpStream(std::shared_ptr<void> state) noexcept
+TcpStream::TcpStream(
+	std::shared_ptr<void> state) noexcept
 	: state_{std::move(state)} {}
 TcpStream::~TcpStream() = default;
 TcpStream::TcpStream(TcpStream &&) noexcept = default;
@@ -162,7 +163,8 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	return state_ ? tcp_state(state_).handle.raw_fd() : -1;
 }
 
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_recv_borrowed(std::span<std::uint8_t> dst) {
+[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_recv_borrowed(
+	std::span<std::uint8_t> dst) {
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid() || st.closing.load(std::memory_order_relaxed)) {
 		auto [t, s] = wroot::make_task_source<std::size_t>(wroot::SubmitOptions{.enable_cancellation = false});
@@ -212,22 +214,26 @@ TcpStream &TcpStream::operator =(TcpStream &&) noexcept = default;
 	return task;
 }
 
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::read_borrowed(std::span<std::uint8_t> dst) {
+[[nodiscard]] wroot::Task<std::size_t> TcpStream::read_borrowed(
+	std::span<std::uint8_t> dst) {
 	return async_recv_borrowed(dst);
 }
 
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_borrowed(std::span<std::uint8_t const> src) {
+[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_borrowed(
+	std::span<std::uint8_t const> src) {
 	return do_send(src.data(), src.size(), {});
 }
 
-[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_copy(std::span<std::uint8_t const> src) {
+[[nodiscard]] wroot::Task<std::size_t> TcpStream::async_write_copy(
+	std::span<std::uint8_t const> src) {
 	auto holder = std::make_shared<std::vector<std::uint8_t>>(src.begin(), src.end());
 	std::uint8_t *data = holder->data();
 	std::size_t const len = holder->size();
 	return do_send(data, len, holder);
 }
 
-[[nodiscard]] wroot::Task<void> TcpStream::async_shutdown(int how) {
+[[nodiscard]] wroot::Task<void> TcpStream::async_shutdown(
+	int how) {
 	auto &st = tcp_state(state_);
 	if (!st.handle.valid()) {
 		co_await []() -> wroot::Task<void> { throw IoError{EBADF, "tcp: stream closed"}; }();
@@ -627,7 +633,11 @@ struct ConnectOp {
 			return;
 		}
 		StopCause expected = StopCause::none;
-		stop_cause.compare_exchange_strong(expected, StopCause::timeout, std::memory_order_acq_rel, std::memory_order_acquire);
+		stop_cause.compare_exchange_strong(
+			expected,
+			StopCause::timeout,
+			std::memory_order_acq_rel,
+			std::memory_order_acquire);
 	}
 	void on_connect_cqe(
 		IoResult r) noexcept {
@@ -998,8 +1008,8 @@ struct MultishotAcceptOp {
 				complete_cancelled();
 				return;
 			}
-			auto [slot, gen] = ring->completions().reserve_multishot(
-				[self](IoResult r2) noexcept { self->on_accept_cqe(r2, self); });
+			auto [slot, gen] =
+				ring->completions().reserve_multishot([self](IoResult r2) noexcept { self->on_accept_cqe(r2, self); });
 			accept_ud = ring->encode(slot, gen);
 			if (!submit_accept_multishot_borrowed(
 					ring->raw(),
@@ -1060,16 +1070,16 @@ struct MultishotAcceptOp {
 		ring.completions().dispatch(slot, gen, -ENOSPC, 0);
 	}
 
-	auto _ = src->install_cancel_hook([weak_op = std::weak_ptr<MultishotAcceptOp>{op}](wroot::CancelReason cr) noexcept {
-		if (auto sop = weak_op.lock()) {
-			sop->request_cancel(cr, sop);
-		}
-	});
+	auto _ =
+		src->install_cancel_hook([weak_op = std::weak_ptr<MultishotAcceptOp>{op}](wroot::CancelReason cr) noexcept {
+			if (auto sop = weak_op.lock()) {
+				sop->request_cancel(cr, sop);
+			}
+		});
 
 	return task;
 }
 // ─── UdpRecvResult ───────────────────────────────────────────────────────────
-
 
 struct MsgHolder {
 	msghdr msg{};
@@ -1080,7 +1090,9 @@ struct MsgHolder {
 };
 
 UdpSocket::UdpSocket() noexcept = default;
-UdpSocket::UdpSocket(SocketTaskRing &ring, OwnedSocketHandle fh) noexcept
+UdpSocket::UdpSocket(
+	SocketTaskRing &ring,
+	OwnedSocketHandle fh) noexcept
 	: ring_{&ring}
 	, handle_{std::move(fh)} {}
 UdpSocket::~UdpSocket() = default;
@@ -1095,7 +1107,9 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	return handle_.raw_fd();
 }
 
-[[nodiscard]] UdpSocket UdpSocket::ephemeral(SocketTaskRing &ring, int family) {
+[[nodiscard]] UdpSocket UdpSocket::ephemeral(
+	SocketTaskRing &ring,
+	int family) {
 	int const fd = ::socket(family, SOCK_DGRAM | SOCK_CLOEXEC, IPPROTO_UDP);
 	if (fd < 0) {
 		throw IoError{errno, "udp: socket"};
@@ -1138,7 +1152,8 @@ UdpSocket &UdpSocket::operator =(UdpSocket &&) noexcept = default;
 	return send_to_copy(data, addr, addr_len);
 }
 
-[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::async_recv_from(std::span<std::uint8_t> buf) {
+[[nodiscard]] wroot::Task<UdpRecvResult> UdpSocket::async_recv_from(
+	std::span<std::uint8_t> buf) {
 	return recv_from(buf);
 }
 

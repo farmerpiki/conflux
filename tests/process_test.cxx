@@ -317,7 +317,8 @@ TEST_CASE(
 	SpawnOptions opts;
 	opts.stdout_ = Stdio::piped();
 	// close_other_fds defaults to true — child must not inherit high fd.
-	auto proc = spawn("/bin/sh", {"-c", std::format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
+	auto proc =
+		spawn("/bin/sh", {"-c", std::format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
 	REQUIRE(proc.has_value());
 	std::string const out = drain_stdout(*proc);
 	::close(high);
@@ -336,7 +337,8 @@ TEST_CASE(
 	SpawnOptions opts;
 	opts.stdout_ = Stdio::piped();
 	opts.close_other_fds = false;
-	auto proc = spawn("/bin/sh", {"-c", std::format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
+	auto proc =
+		spawn("/bin/sh", {"-c", std::format("test -e /proc/self/fd/{} && echo open || echo closed", high)}, opts);
 	REQUIRE(proc.has_value());
 	std::string const out = drain_stdout(*proc);
 	::close(high);

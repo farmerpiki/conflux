@@ -584,7 +584,8 @@ public:
 			return;
 		}
 		auto tag = decode_tag(cqe->user_data);
-		auto *st = slab_.try_get(static_cast<std::uint32_t>(tag.flow_index), static_cast<std::uint32_t>(tag.generation));
+		auto *st =
+			slab_.try_get(static_cast<std::uint32_t>(tag.flow_index), static_cast<std::uint32_t>(tag.generation));
 		if (st == nullptr) {
 			handle_invalid(cqe);
 			return;

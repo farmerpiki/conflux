@@ -411,7 +411,7 @@ TEST_CASE(
 		} catch (...) { *err = std::current_exception(); }
 		done->test_and_set(std::memory_order_release);
 	}(&sleep_done, &sleep_err, conn->query("SELECT pg_sleep(10)"))
-																						.detach();
+																							 .detach();
 
 	WorkPool cancel_pool{WorkPoolOptions{.threads = 1}};
 	std::this_thread::sleep_for(std::chrono::milliseconds{100});
@@ -566,7 +566,7 @@ TEST_CASE(
 		} catch (...) { *e = std::current_exception(); }
 		d->test_and_set(std::memory_order_release);
 	}(&done, &err, conn->query("SELECT pg_sleep(10)"))
-																				   .detach();
+																						.detach();
 
 	std::this_thread::sleep_for(std::chrono::milliseconds{100});
 	block_on(fx->reader, conn->cancel_inflight(), std::chrono::seconds{30});

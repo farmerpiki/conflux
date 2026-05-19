@@ -27,7 +27,10 @@ public:
 		}
 		out << body;
 	}
-	~TempIni() { std::error_code ec; std::filesystem::remove(path_, ec); }
+	~TempIni() {
+		std::error_code ec;
+		std::filesystem::remove(path_, ec);
+	}
 	TempIni(TempIni const &) = delete;
 	TempIni &operator =(TempIni const &) = delete;
 	[[nodiscard]] char const *c_str() const noexcept { return path_.c_str(); }

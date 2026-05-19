@@ -12,7 +12,6 @@ import conflux.uring;
 import conflux.socket_io;
 namespace {
 
-
 conflux::uring::Ring make_ring() {
 	auto r = conflux::uring::Ring::init(32, {});
 	REQUIRE(r);

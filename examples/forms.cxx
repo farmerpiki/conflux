@@ -44,30 +44,32 @@ int main() {
 	router.get("/search", [](HttpRequestView const &req) {
 		auto q = req.query["q"];
 		auto lang = req.query["lang"];
-		return HttpResponse::html(std::format(
-			"<html><body>"
-			"<h1>Search results</h1>"
-			"<p>Query: <strong>{}</strong></p>"
-			"<p>Language filter: <strong>{}</strong></p>"
-			"<p><a href='/'>back</a></p>"
-			"</body></html>",
-			q.empty() ? "(none)" : q,
-			lang.empty() ? "any" : lang));
+		return HttpResponse::html(
+			std::format(
+				"<html><body>"
+				"<h1>Search results</h1>"
+				"<p>Query: <strong>{}</strong></p>"
+				"<p>Language filter: <strong>{}</strong></p>"
+				"<p><a href='/'>back</a></p>"
+				"</body></html>",
+				q.empty() ? "(none)" : q,
+				lang.empty() ? "any" : lang));
 	});
 
 	// POST /submit  body: name=...&age=...
 	router.post("/submit", [](HttpRequestView const &req) {
 		auto name = req.form["name"];
 		auto age = req.form["age"];
-		return HttpResponse::html(std::format(
-			"<html><body>"
-			"<h1>Submitted</h1>"
-			"<p>Name: <strong>{}</strong></p>"
-			"<p>Age: <strong>{}</strong></p>"
-			"<p><a href='/'>back</a></p>"
-			"</body></html>",
-			name.empty() ? "(none)" : name,
-			age.empty() ? "(none)" : age));
+		return HttpResponse::html(
+			std::format(
+				"<html><body>"
+				"<h1>Submitted</h1>"
+				"<p>Name: <strong>{}</strong></p>"
+				"<p>Age: <strong>{}</strong></p>"
+				"<p><a href='/'>back</a></p>"
+				"</body></html>",
+				name.empty() ? "(none)" : name,
+				age.empty() ? "(none)" : age));
 	});
 
 	HttpServer srv{cfg, std::move(router)};

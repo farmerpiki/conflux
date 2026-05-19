@@ -377,7 +377,8 @@ private:
 			return SseHandler{std::forward<F>(fn)};
 		} else if constexpr (std::invocable<Fn &, HttpRequest const &, std::shared_ptr<SseChannel>>) {
 			return SseHandler{
-				[wrapped = Fn(std::forward<F>(fn))](HttpRequestView const &req, std::shared_ptr<SseChannel> ch) mutable {
+				[wrapped =
+					 Fn(std::forward<F>(fn))](HttpRequestView const &req, std::shared_ptr<SseChannel> ch) mutable {
 					auto owned = req.to_owned();
 					std::invoke(wrapped, owned, std::move(ch));
 				}};
@@ -410,8 +411,8 @@ private:
 			return ErrorHandler{std::forward<F>(fn)};
 		} else if constexpr (std::invocable<Fn &, HttpRequest const &, std::exception const &>) {
 			return ErrorHandler{
-				[wrapped =
-					 Fn(std::forward<F>(fn))](HttpRequestView const &req, std::exception const &ex) mutable -> HttpResponse {
+				[wrapped = Fn(std::forward<F>(fn))](HttpRequestView const &req, std::exception const &ex) mutable
+					-> HttpResponse {
 					auto owned = req.to_owned();
 					return std::invoke(wrapped, owned, ex);
 				}};
@@ -442,7 +443,15 @@ export Router::Middleware make_access_log_middleware(
 			ts = ts_buf.data();
 		}
 
-		sink(std::format("[{}] {} {} {} {} {}ms", ts, req.method, req.path, resp.status, resp.text_body().size(), elapsed));
+		sink(
+			std::format(
+				"[{}] {} {} {} {} {}ms",
+				ts,
+				req.method,
+				req.path,
+				resp.status,
+				resp.text_body().size(),
+				elapsed));
 		return resp;
 	};
 }

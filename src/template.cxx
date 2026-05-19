@@ -9,7 +9,6 @@ import conflux.utils;
 import conflux.file_io_sync;
 export namespace conflux::templates {
 
-
 struct CompiledExpr;
 using CompiledExprPtr = std::shared_ptr<CompiledExpr>;
 
@@ -240,6 +239,7 @@ private:
 
 } // namespace conflux::templates
 namespace conflux::templates {
+
 // ---------------------------------------------------------------------------
 // Diagnostics
 // ---------------------------------------------------------------------------
@@ -1331,7 +1331,7 @@ Template Environment::Impl::parse(
 				nodes.push_back(
 					std::make_shared<Node>(Node{
 						ExprNode{tok.content, compile_expr(tok.content)}
-					}));
+                }));
 				state.advance();
 				continue;
 			}
@@ -2751,7 +2751,8 @@ std::string Environment::Impl::render_nodes(
 				} else if constexpr (std::is_same_v<T, IncludeNode>) {
 					auto it = cache.find(n.name);
 					if (it == cache.end()) {
-						throw std::runtime_error{std::format("template error: included template '{}' not found", n.name)};
+						throw std::runtime_error{
+							std::format("template error: included template '{}' not found", n.name)};
 					}
 					out += render_template(it->second, context, blocks, depth + 1);
 				} else if constexpr (std::is_same_v<T, SetNode>) {

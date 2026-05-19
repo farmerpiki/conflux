@@ -285,9 +285,10 @@ std::expected<void, JsonError> JsonAccumulator::feed(
 	std::span<std::byte const> chunk) {
 	constexpr std::size_t kU32Ceiling = (std::size_t{1} << 32) - 1;
 	std::size_t const hard_cap = kU32Ceiling - 1;
-	std::size_t const configured_cap = opts_.max_input_size.is_unlimited() ?
-								  hard_cap :
-								  std::min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput), hard_cap);
+	std::size_t const configured_cap =
+		opts_.max_input_size.is_unlimited() ?
+			hard_cap :
+			std::min(opts_.max_input_size.explicit_value().value_or(kDefaultMaxInput), hard_cap);
 	if (buf_.size() > configured_cap || chunk.size() > configured_cap - buf_.size()) {
 		return std::unexpected(
 			JsonError{

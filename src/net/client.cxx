@@ -545,10 +545,7 @@ bool recv_chunked(
 		return std::nullopt;
 	}
 	if (req.max_redirects() <= 0) {
-		return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::redirect_limit,
-				.message = "redirect limit exceeded"});
+		return std::unexpected(HttpError{.kind = HttpErrorKind::redirect_limit, .message = "redirect limit exceeded"});
 	}
 	auto next_url = resolve_redirect_target(req.url(), location);
 	if (!next_url) {
@@ -685,21 +682,24 @@ ClientResult do_blocking_request(
 		tls_ctx->set_verify_peer(verify);
 		if (verify) {
 			if (!opts.ca_bundle_path.empty()) {
-				if (SSL_CTX_load_verify_locations(tls_ctx->native_handle(), opts.ca_bundle_path.c_str(), nullptr) != 1) {
+				if (SSL_CTX_load_verify_locations(tls_ctx->native_handle(), opts.ca_bundle_path.c_str(), nullptr)
+					!= 1) {
 					::close(fd);
-					return std::unexpected(HttpError{
-						.kind = HttpErrorKind::tls,
-						.phase = HttpPhase::tls,
-						.message = "TLS CA bundle load failed",
-					});
+					return std::unexpected(
+						HttpError{
+							.kind = HttpErrorKind::tls,
+							.phase = HttpPhase::tls,
+							.message = "TLS CA bundle load failed",
+						});
 				}
 			} else if (!tls_ctx->set_default_verify_paths()) {
 				::close(fd);
-				return std::unexpected(HttpError{
-					.kind = HttpErrorKind::tls,
-					.phase = HttpPhase::tls,
-					.message = "TLS default verify paths load failed",
-				});
+				return std::unexpected(
+					HttpError{
+						.kind = HttpErrorKind::tls,
+						.phase = HttpPhase::tls,
+						.message = "TLS default verify paths load failed",
+					});
 			}
 		}
 
@@ -831,7 +831,8 @@ ClientResult do_blocking_request(
 					.kind = HttpErrorKind::header_too_large,
 					.message = std::format("response headers exceed {} bytes", max_hdr)});
 		}
-		return std::unexpected(HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
+		return std::unexpected(
+			HttpError{.kind = HttpErrorKind::protocol, .message = "response headers missing CRLFCRLF"});
 	}
 	if (header_end > max_hdr) {
 		close_conn(conn);

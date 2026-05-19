@@ -12,7 +12,8 @@ import conflux.net.http.server_types;
 import conflux.net.http.response;
 import conflux.utils;
 
-export [[nodiscard]] bool is_valid_header_name(std::string_view name) noexcept {
+export [[nodiscard]] bool is_valid_header_name(
+	std::string_view name) noexcept {
 	if (name.empty()) {
 		return false;
 	}
@@ -64,7 +65,8 @@ export std::string_view http_date_now() {
 	return cached;
 }
 
-[[nodiscard]] static bool is_valid_header_value(std::string_view value) noexcept {
+[[nodiscard]] static bool is_valid_header_value(
+	std::string_view value) noexcept {
 	for (auto c: value) {
 		auto const u = static_cast<unsigned char>(c);
 		if (u < 0x20 && u != '\t') {
@@ -77,7 +79,8 @@ export std::string_view http_date_now() {
 	return true;
 }
 
-[[nodiscard]] static bool is_framing_header(std::string_view name) noexcept {
+[[nodiscard]] static bool is_framing_header(
+	std::string_view name) noexcept {
 	auto lower_eq = [](std::string_view a, std::string_view b) {
 		if (a.size() != b.size()) {
 			return false;
@@ -103,11 +106,13 @@ export std::string_view http_date_now() {
 		|| lower_eq(name, "trailer");
 }
 
-[[nodiscard]] static bool must_not_have_body(int status) noexcept {
+[[nodiscard]] static bool must_not_have_body(
+	int status) noexcept {
 	return (status >= 100 && status < 200) || status == 204 || status == 304;
 }
 
-[[nodiscard]] static bool is_valid_reason_phrase(std::string_view value) noexcept {
+[[nodiscard]] static bool is_valid_reason_phrase(
+	std::string_view value) noexcept {
 	for (auto c: value) {
 		auto const u = static_cast<unsigned char>(c);
 		if (u < 0x20 && u != '\t') {
@@ -120,11 +125,15 @@ export std::string_view http_date_now() {
 	return true;
 }
 
-static void append_sv(std::string &out, std::string_view value) {
+static void append_sv(
+	std::string &out,
+	std::string_view value) {
 	out.append(value.data(), value.size());
 }
 
-static void append_dec(std::string &out, auto value) {
+static void append_dec(
+	std::string &out,
+	auto value) {
 	std::array<char, 32> buf{};
 	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value);
 	if (ec == std::errc{}) {
@@ -132,7 +141,9 @@ static void append_dec(std::string &out, auto value) {
 	}
 }
 
-static void append_hex(std::string &out, std::size_t value) {
+static void append_hex(
+	std::string &out,
+	std::size_t value) {
 	std::array<char, 2 * sizeof(std::size_t)> buf{};
 	auto const [ptr, ec] = std::to_chars(buf.data(), buf.data() + buf.size(), value, 16);
 	if (ec == std::errc{}) {
@@ -157,7 +168,10 @@ static void append_hex(std::string &out, std::size_t value) {
 	return n;
 }
 
-export std::string format_response(HttpResponse const &r, std::string_view alt_svc = {}, bool close = false) {
+export std::string format_response(
+	HttpResponse const &r,
+	std::string_view alt_svc = {},
+	bool close = false) {
 	if (r.is_ws_upgrade() && r.ws_upgrade_ptr()) {
 		auto const &accept = r.ws_upgrade_ptr()->accept_key;
 		std::string out;
@@ -166,7 +180,8 @@ export std::string format_response(HttpResponse const &r, std::string_view alt_s
 				   "Upgrade: websocket\r\n"
 				   "Connection: Upgrade\r\n"
 				   "Sec-WebSocket-Accept: ")
-			+ accept.size() + 4);
+			+ accept.size()
+			+ 4);
 		out += "HTTP/1.1 101 Switching Protocols\r\n";
 		out += "Upgrade: websocket\r\n";
 		out += "Connection: Upgrade\r\n";
@@ -237,7 +252,8 @@ export std::string format_response(HttpResponse const &r, std::string_view alt_s
 	return out;
 }
 
-export std::string format_sse_headers(bool close) {
+export std::string format_sse_headers(
+	bool close) {
 	static constexpr std::string_view kKeepAlive =
 		"HTTP/1.1 200 OK\r\n"
 		"Content-Type: text/event-stream\r\n"
@@ -255,7 +271,8 @@ export std::string format_sse_headers(bool close) {
 	return std::string{close ? kClose : kKeepAlive};
 }
 
-export [[nodiscard]] std::string format_http_chunk(std::string_view payload) {
+export [[nodiscard]] std::string format_http_chunk(
+	std::string_view payload) {
 	std::string out;
 	out.reserve(2 * sizeof(std::size_t) + 4 + payload.size());
 	append_hex(out, payload.size());
@@ -265,7 +282,9 @@ export [[nodiscard]] std::string format_http_chunk(std::string_view payload) {
 	return out;
 }
 
-export [[nodiscard]] std::string_view extract_param(std::string_view header, std::string_view param_name) {
+export [[nodiscard]] std::string_view extract_param(
+	std::string_view header,
+	std::string_view param_name) {
 	auto pos = header.find(param_name);
 	if (pos == std::string_view::npos) {
 		return {};
@@ -287,7 +306,9 @@ export [[nodiscard]] std::string_view extract_param(std::string_view header, std
 	return end == std::string_view::npos ? header.substr(pos) : header.substr(pos, end - pos);
 }
 
-export void parse_cookies(std::string_view cookie_header, HttpFieldsView &out) {
+export void parse_cookies(
+	std::string_view cookie_header,
+	HttpFieldsView &out) {
 	std::size_t pos = 0;
 	while (pos < cookie_header.size()) {
 		while (pos < cookie_header.size() && cookie_header[pos] == ' ') {
@@ -309,7 +330,9 @@ export void parse_cookies(std::string_view cookie_header, HttpFieldsView &out) {
 		pos = sep + 1;
 	}
 }
-export [[nodiscard]] bool has_connection_token(HttpFieldsView const &headers, std::string_view wanted) {
+export [[nodiscard]] bool has_connection_token(
+	HttpFieldsView const &headers,
+	std::string_view wanted) {
 	for (auto const &[name, header_value]: headers) {
 		if (!conflux::http::ascii_iequals(name, "connection")) {
 			continue;
@@ -317,7 +340,8 @@ export [[nodiscard]] bool has_connection_token(HttpFieldsView const &headers, st
 		std::size_t pos = 0;
 		while (pos <= header_value.size()) {
 			auto const comma = header_value.find(',', pos);
-			auto token = trim(comma == std::string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
+			auto token = trim(
+				comma == std::string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
 			if (!token.empty() && conflux::http::ascii_iequals(token, wanted)) {
 				return true;
 			}
@@ -336,7 +360,8 @@ export enum class ExpectState : std::uint8_t {
 	unsupported,
 };
 
-export [[nodiscard]] ExpectState parse_expect_header(HttpFieldsView const &headers) {
+export [[nodiscard]] ExpectState parse_expect_header(
+	HttpFieldsView const &headers) {
 	bool saw_continue = false;
 	for (auto const &[name, header_value]: headers) {
 		if (!conflux::http::ascii_iequals(name, "expect")) {
@@ -345,7 +370,8 @@ export [[nodiscard]] ExpectState parse_expect_header(HttpFieldsView const &heade
 		std::size_t pos = 0;
 		while (pos <= header_value.size()) {
 			auto const comma = header_value.find(',', pos);
-			auto token = trim(comma == std::string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
+			auto token = trim(
+				comma == std::string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
 			if (!token.empty()) {
 				if (!conflux::http::ascii_iequals(token, "100-continue")) {
 					return ExpectState::unsupported;
@@ -361,7 +387,8 @@ export [[nodiscard]] ExpectState parse_expect_header(HttpFieldsView const &heade
 	return saw_continue ? ExpectState::continue_100 : ExpectState::none;
 }
 
-export [[nodiscard]] bool has_valid_chunked_transfer_encoding(HttpFieldsView const &headers) {
+export [[nodiscard]] bool has_valid_chunked_transfer_encoding(
+	HttpFieldsView const &headers) {
 	std::size_t token_count = 0;
 	for (auto const &[name, header_value]: headers) {
 		if (!conflux::http::ascii_iequals(name, "transfer-encoding")) {
@@ -370,7 +397,8 @@ export [[nodiscard]] bool has_valid_chunked_transfer_encoding(HttpFieldsView con
 		std::size_t pos = 0;
 		while (pos <= header_value.size()) {
 			auto const comma = header_value.find(',', pos);
-			auto token = trim(comma == std::string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
+			auto token = trim(
+				comma == std::string_view::npos ? header_value.substr(pos) : header_value.substr(pos, comma - pos));
 			if (token.empty()) {
 				return false;
 			}
@@ -392,7 +420,10 @@ struct MultipartBoundaryMatch {
 	std::size_t content_end{};
 };
 
-[[nodiscard]] static std::optional<MultipartBoundaryMatch> find_multipart_boundary_line(std::string_view body, std::string_view delim, std::size_t from) noexcept {
+[[nodiscard]] static std::optional<MultipartBoundaryMatch> find_multipart_boundary_line(
+	std::string_view body,
+	std::string_view delim,
+	std::size_t from) noexcept {
 	std::size_t search = from;
 	while (search < body.size()) {
 		auto const pos = body.find(delim, search);
@@ -419,7 +450,11 @@ struct MultipartBoundaryMatch {
 	return std::nullopt;
 }
 
-export void parse_multipart(std::string_view body, std::string_view boundary, HttpFieldsView &form, std::vector<UploadedFile> &files) {
+export void parse_multipart(
+	std::string_view body,
+	std::string_view boundary,
+	HttpFieldsView &form,
+	std::vector<UploadedFile> &files) {
 	std::string const delim = std::format("--{}", boundary);
 	auto first = find_multipart_boundary_line(body, delim, 0);
 	if (!first) {

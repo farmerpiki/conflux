@@ -349,7 +349,8 @@ export std::expected<JwtClaims, std::string> jwt_decode(
 	// Validate claims.
 	auto const now =
 		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
-	auto const skew = std::max<std::int64_t>(0, std::chrono::duration_cast<std::chrono::seconds>(opts.clock_skew).count());
+	auto const skew =
+		std::max<std::int64_t>(0, std::chrono::duration_cast<std::chrono::seconds>(opts.clock_skew).count());
 	auto const max_lifetime = std::chrono::duration_cast<std::chrono::seconds>(opts.max_token_lifetime).count();
 
 	if (opts.require_exp && claims.exp == 0) {

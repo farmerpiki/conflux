@@ -37,10 +37,8 @@ int main() {
 	});
 
 	app.get("/health", [](HttpRequest const &req) {
-		return HttpResponse::text(std::format(
-			"ok\nrequest_id={}\nremote={}\n",
-			req.headers["x-request-id"],
-			req.remote_addr));
+		return HttpResponse::text(
+			std::format("ok\nrequest_id={}\nremote={}\n", req.headers["x-request-id"], req.remote_addr));
 	});
 
 	app.get("/slow", [](HttpRequest const &req) {

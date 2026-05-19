@@ -101,18 +101,16 @@ int main() {
 	auto api = http::json::routes<JsonProvider>(app);
 
 	std::vector<Todo> todos{
-		Todo{.id = 1, .title = "ship v1 preview", .done = false},
-		Todo{.id = 2, .title = "write typed JSON examples", .done = true},
+		Todo{.id = 1,           .title = "ship v1 preview", .done = false},
+		Todo{.id = 2, .title = "write typed JSON examples",  .done = true},
 	};
 	std::mutex todos_mu;
 	std::int64_t next_id = 3;
 
-	api.get("/api/status", [] {
-		return StatusReply{.status = "ok", .component = "typed-json-api"};
-	});
+	api.get("/api/status", [] { return StatusReply{.status = "ok", .component = "typed-json-api"}; });
 
 	api.get("/api/todos", [&todos, &todos_mu] {
-	std::lock_guard lock{todos_mu};
+		std::lock_guard lock{todos_mu};
 		return TodoList{.items = todos};
 	});
 
@@ -121,7 +119,7 @@ int main() {
 			return CreateTodoResult{.ok = false, .error = std::string{"title is required"}};
 		}
 
-	std::lock_guard lock{todos_mu};
+		std::lock_guard lock{todos_mu};
 		auto todo = Todo{.id = next_id++, .title = body.title, .done = false};
 		todos.push_back(todo);
 		return CreateTodoResult{.ok = true, .todo = std::move(todo)};

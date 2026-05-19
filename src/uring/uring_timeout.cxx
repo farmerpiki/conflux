@@ -48,19 +48,19 @@ namespace detail {
 		try {
 			if (!link_only) {
 				if (r.res < 0 && r.res != -ETIME && r.res != -ECANCELED) {
-					auto _ = shared_src->try_set_exception(std::make_exception_ptr(UringTimeoutError{"uring.timeout: timeout"}));
+					auto _ = shared_src->try_set_exception(
+						std::make_exception_ptr(UringTimeoutError{"uring.timeout: timeout"}));
 					return;
 				}
 			} else {
 				if (r.res < 0 && r.res != -ETIME && r.res != -ECANCELED && r.res != -ENOENT) {
-					auto _ = shared_src->try_set_exception(std::make_exception_ptr(UringTimeoutError{"uring.timeout: link_timeout"}));
+					auto _ = shared_src->try_set_exception(
+						std::make_exception_ptr(UringTimeoutError{"uring.timeout: link_timeout"}));
 					return;
 				}
 			}
 			auto _ = shared_src->try_set_value(root::Success<void>{});
-		} catch (...) {
-			auto _ = shared_src->try_set_exception(std::current_exception());
-		}
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 		auto _ = ts;
 	});
 	io_uring_sqe_set_data64(sqe, encode_ud(slot, gen));
@@ -106,13 +106,12 @@ export [[nodiscard]] root::Task<void> async_timeout_remove(
 	auto [slot, gen] = completions.reserve([shared_src](IoResult r) mutable {
 		try {
 			if (r.res < 0 && r.res != -ENOENT && r.res != -EALREADY) {
-				auto _ = shared_src->try_set_exception(std::make_exception_ptr(UringTimeoutError{"uring.timeout: timeout_remove"}));
+				auto _ = shared_src->try_set_exception(
+					std::make_exception_ptr(UringTimeoutError{"uring.timeout: timeout_remove"}));
 				return;
 			}
 			auto _ = shared_src->try_set_value(root::Success<void>{});
-		} catch (...) {
-			auto _ = shared_src->try_set_exception(std::current_exception());
-		}
+		} catch (...) { auto _ = shared_src->try_set_exception(std::current_exception()); }
 	});
 	io_uring_sqe_set_data64(sqe, encode_ud(slot, gen));
 	return std::move(task);

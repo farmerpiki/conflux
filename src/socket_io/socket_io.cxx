@@ -242,7 +242,8 @@ public:
 		if (!built) {
 			slab_.reset();
 			if (built.error() == EINVAL && mode_ == BufferRingMode::incremental) {
-				throw std::runtime_error{"io_uring_setup_buf_ring: incremental mode requires kernel 6.12+ (IOU_PBUF_RING_INC)"};
+				throw std::runtime_error{
+					"io_uring_setup_buf_ring: incremental mode requires kernel 6.12+ (IOU_PBUF_RING_INC)"};
 			}
 			throw std::runtime_error{std::format("io_uring_setup_buf_ring failed: {}", built.error())};
 		}
@@ -540,7 +541,7 @@ public:
 			if (bundle_saved_keys_[i] == pos) {
 				bundle_saved_used_[i] = 0;
 				for (std::uint32_t j = (i + 1) & bundle_saved_mask_; bundle_saved_used_[j] != 0;
-					j = (j + 1) & bundle_saved_mask_) {
+					 j = (j + 1) & bundle_saved_mask_) {
 					std::uint32_t const key = bundle_saved_keys_[j];
 					std::uint16_t const val = bundle_saved_ids_[j];
 					bundle_saved_used_[j] = 0;
@@ -592,9 +593,9 @@ public:
 		if (cnt == 0 || cnt > count_ || first_id >= count_) {
 			return std::nullopt;
 		}
-		std::uint32_t const pos = mode_ == BufferRingMode::recv_bundle && bundle_has_saved_pos_[first_id] != 0
-			? bundle_saved_pos_[first_id]
-			: (bundle ? id_pos_[first_id] : head_pos_);
+		std::uint32_t const pos = mode_ == BufferRingMode::recv_bundle && bundle_has_saved_pos_[first_id] != 0 ?
+									  bundle_saved_pos_[first_id] :
+									  (bundle ? id_pos_[first_id] : head_pos_);
 		if (pos + cnt < pos || pos + cnt > tail_pos_) {
 			return std::nullopt;
 		}

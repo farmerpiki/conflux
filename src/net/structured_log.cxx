@@ -136,7 +136,8 @@ export Router::Middleware structured_log_middleware(
 	std::string app_name = std::move(opts.app_name);
 	auto sink = std::make_shared<LogSink>(std::move(opts.log_file), opts.daily_rotate);
 
-	return [sink, app_name = std::move(app_name)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+	return [sink,
+			app_name = std::move(app_name)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto t0 = std::chrono::steady_clock::now();
 		auto resp = next(req);
 		auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
@@ -163,7 +164,8 @@ export Router::Middleware structured_log_middleware(
 			resp.content_length(),
 			ms,
 			structured_log_detail::json_escape(req.remote_addr),
-			app_name.empty() ? std::string{} : std::format(R"(,"app":"{}")", structured_log_detail::json_escape(app_name)));
+			app_name.empty() ? std::string{} :
+							   std::format(R"(,"app":"{}")", structured_log_detail::json_escape(app_name)));
 		sink->write(line);
 		return resp;
 	};

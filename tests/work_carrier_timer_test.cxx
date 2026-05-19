@@ -186,7 +186,8 @@ TEST_CASE(
 	for (auto i = 0u; i < n; ++i) {
 		conflux::work::carrier::LaneTimerScope<> const scope{svc, deadline, [] {}};
 	}
-	auto const ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+	auto const ms =
+		std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
 
 	REQUIRE(ms < 1000);
 }

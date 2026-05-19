@@ -84,17 +84,17 @@ static std::expected<ServiceConfig, JsonError> load_config(
 	// the caller guarantees that the input buffer outlives every borrowed value.
 	auto doc = parse_copy(input, parse_opts);
 	if (!doc) {
-			return std::unexpected(std::move(doc).error());
+		return std::unexpected(std::move(doc).error());
 	}
 
 	// schema_for<T>() is intentionally lite: useful at the API boundary before
 	// the stricter typed decode gives exact field/path errors.
 	auto schema = schema_for<ServiceConfig>();
 	if (!schema) {
-			return std::unexpected(std::move(schema).error());
+		return std::unexpected(std::move(schema).error());
 	}
 	if (auto ok = validate(doc->root(), schema->root()); !ok) {
-			return std::unexpected(std::move(ok).error());
+		return std::unexpected(std::move(ok).error());
 	}
 
 	return decode<ServiceConfig>(*doc, decode_opts);

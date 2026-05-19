@@ -77,7 +77,8 @@ TEST_CASE(
 namespace {
 
 std::int64_t jwt_test_now() {
-	return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+	return std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch())
+		.count();
 }
 
 } // namespace
@@ -124,7 +125,8 @@ TEST_CASE(
 	"[jwt][auth]") {
 	std::string const secret = "session-jwt-secret-32bytes";
 	auto const now = jwt_test_now();
-	auto token = jwt_sign(std::format(R"({{"sub":"u","iat":{},"exp":{},"nbf":{}}})", now - 60, now - 5, now + 5), secret);
+	auto token =
+		jwt_sign(std::format(R"({{"sub":"u","iat":{},"exp":{},"nbf":{}}})", now - 60, now - 5, now + 5), secret);
 
 	JwtOptions strict;
 	strict.secrets = single_secret_rotation(secret);

@@ -65,7 +65,9 @@ TEST_CASE(
 	"[phase8a]") {
 	auto [task, src] = root::make_task_source<int>();
 	auto jh = root::into_join_handle(std::move(task));
-	{ carrier::DroppableSlot<int> const slot{std::move(jh)}; } // drain installed; handle will be consumed when src commits
+	{
+		carrier::DroppableSlot<int> const slot{std::move(jh)};
+	} // drain installed; handle will be consumed when src commits
 	(void)src.try_set_value(root::Success<int>{1});
 	// Reaching here without std::terminate means the test passes.
 }

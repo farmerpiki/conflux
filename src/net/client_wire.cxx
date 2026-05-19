@@ -5,8 +5,8 @@ import conflux.types;
 import conflux.net.http.types;
 import conflux.net.http.request;
 
-
 namespace client_wire_detail {
+
 using namespace conflux::http;
 
 [[nodiscard]] bool default_header_key_eq(
@@ -168,8 +168,13 @@ void append_header_line(
 	HttpFields const &default_headers,
 	std::string_view caller_host) noexcept {
 	auto const &url = req.url();
-	std::size_t n = req.method().size() + 1 + request_target_size(url) + sizeof(" HTTP/1.1\r\nHost: ") - 1
-		   + host_header_value_size(url, caller_host) + 2;
+	std::size_t n = req.method().size()
+				  + 1
+				  + request_target_size(url)
+				  + sizeof(" HTTP/1.1\r\nHost: ")
+				  - 1
+				  + host_header_value_size(url, caller_host)
+				  + 2;
 	for (auto const &[k, v]: default_headers) {
 		if (serializable_request_header(k)) {
 			n += k.size() + 2 + v.size() + 2;

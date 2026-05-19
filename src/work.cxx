@@ -650,7 +650,8 @@ export template<typename... Ts>
 	}
 
 	auto [root_task, src] = make_task_source<Result>(SubmitOptions{.enable_cancellation = false});
-	auto state = std::make_shared<join_all_detail::JoinState<Ts...>>(std::move(src), into_join_handle(std::move(tasks))...);
+	auto state =
+		std::make_shared<join_all_detail::JoinState<Ts...>>(std::move(src), into_join_handle(std::move(tasks))...);
 
 	[&state]<std::size_t... Is>(std::index_sequence<Is...>) {
 		auto attach = [&state]<std::size_t I>() noexcept {

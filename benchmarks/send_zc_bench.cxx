@@ -742,7 +742,9 @@ int main(
 		Router r;
 		for (auto const &[label, body]: body_map) {
 			auto const *body_ptr = &body;
-			r.get(std::format("/body/{}", label), [body_ptr](HttpRequest const &) { return HttpResponse::text(*body_ptr); });
+			r.get(std::format("/body/{}", label), [body_ptr](HttpRequest const &) {
+				return HttpResponse::text(*body_ptr);
+			});
 		}
 		return r;
 	};
@@ -765,7 +767,9 @@ int main(
 		Router r;
 		for (auto const &[label, body]: body_map) {
 			auto const *body_ptr = &body;
-			r.get(std::format("/body/{}", label), [body_ptr](HttpRequest const &) { return HttpResponse::text(*body_ptr); });
+			r.get(std::format("/body/{}", label), [body_ptr](HttpRequest const &) {
+				return HttpResponse::text(*body_ptr);
+			});
 		}
 		r.serve_static("/", std::string{static_dir.string()});
 		return r;
@@ -932,7 +936,8 @@ int main(
 		auto const req = std::string{std::format("GET /{}.bin HTTP/1.1\r\nHost: localhost\r\n\r\n", label)};
 		auto label_s = std::string{label};
 		variants.push_back(make_http_variant(std::format("mapped/{}/off", label_s), "off", make_static_router, req));
-		variants.push_back(make_http_variant(std::format("mapped/{}/zc_auto", label_s), "auto", make_static_router, req));
+		variants.push_back(
+			make_http_variant(std::format("mapped/{}/zc_auto", label_s), "auto", make_static_router, req));
 	}
 
 #if CONFLUX_BENCH_HAS_TLS
@@ -1010,10 +1015,18 @@ int main(
 		std::size_t const tls_iters = size >= 1048576 ? 50 : 200;
 		variants.push_back(
 			make_tls_variant(std::format("tls/plain/{}/off", label_s), "off", make_body_router, body_req, tls_iters));
-		variants.push_back(
-			make_tls_variant(std::format("tls/plain/{}/zc_auto", label_s), "auto", make_body_router, body_req, tls_iters));
-		variants.push_back(
-			make_tls_variant(std::format("tls/mapped/{}/off", label_s), "off", make_static_router, mapped_req, tls_iters));
+		variants.push_back(make_tls_variant(
+			std::format("tls/plain/{}/zc_auto", label_s),
+			"auto",
+			make_body_router,
+			body_req,
+			tls_iters));
+		variants.push_back(make_tls_variant(
+			std::format("tls/mapped/{}/off", label_s),
+			"off",
+			make_static_router,
+			mapped_req,
+			tls_iters));
 		variants.push_back(make_tls_variant(
 			std::format("tls/mapped/{}/zc_auto", label_s),
 			"auto",

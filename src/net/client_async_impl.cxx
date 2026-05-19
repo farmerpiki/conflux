@@ -76,7 +76,8 @@ struct PlainStreamRef {
 		std::size_t sent = 0;
 		while (sent < buf.size()) {
 			cancel->throw_if_cancelled();
-			auto child = s.async_write_borrowed(std::span<std::uint8_t const>{buf.data() + sent, buf.size() - sent}, per_write);
+			auto child =
+				s.async_write_borrowed(std::span<std::uint8_t const>{buf.data() + sent, buf.size() - sent}, per_write);
 			std::size_t const n = co_await cancel->await_child(std::move(child));
 			if (n == 0) {
 				throw IoError{ECONNRESET, "tcp: connection closed"};
@@ -182,10 +183,7 @@ struct TlsStreamRef {
 		return std::nullopt;
 	}
 	if (req.max_redirects() <= 0) {
-		return std::unexpected(
-			HttpError{
-				.kind = HttpErrorKind::redirect_limit,
-				.message = "redirect limit exceeded"});
+		return std::unexpected(HttpError{.kind = HttpErrorKind::redirect_limit, .message = "redirect limit exceeded"});
 	}
 	auto next_url = resolve_redirect_target(req.url(), location);
 	if (!next_url) {
@@ -479,8 +477,8 @@ wroot::Task<void> happy_attempt(
 	} catch (...) { hs->fast_fail.store(true, std::memory_order_release); }
 	int const left = hs->pending.fetch_sub(1, std::memory_order_acq_rel) - 1;
 	if (left == 0 && !hs->won.load(std::memory_order_acquire) && !hs->cancelled.load(std::memory_order_acquire)) {
-		auto _ =
-			winner_src->try_set_exception(std::make_exception_ptr(IoError{ECONNREFUSED, "connect: all endpoints failed"}));
+		auto _ = winner_src->try_set_exception(
+			std::make_exception_ptr(IoError{ECONNREFUSED, "connect: all endpoints failed"}));
 	}
 }
 wroot::Task<TcpStream> staggered_parallel_connect(
@@ -699,17 +697,25 @@ wroot::Task<ClientResult> do_async_request(
 #if CONFLUX_HAS_TLS
 		if (tls_stream) {
 			TlsStreamRef tr{*tls_stream, timeouts.between_bytes, timeouts.write};
-			co_await tr.write(std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(wire.data()), wire.size()});
+			co_await tr.write(
+				std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(wire.data()), wire.size()});
 			if (!req.body().empty()) {
-				co_await tr.write(std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(req.body().data()), req.body().size()});
+				co_await tr.write(
+					std::span<std::uint8_t const>{
+						reinterpret_cast<std::uint8_t const *>(req.body().data()),
+						req.body().size()});
 			}
 		} else
 #endif
 		{
 			PlainStreamRef pr{stream, cancel, timeouts.between_bytes, timeouts.write};
-			co_await pr.write(std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(wire.data()), wire.size()});
+			co_await pr.write(
+				std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(wire.data()), wire.size()});
 			if (!req.body().empty()) {
-				co_await pr.write(std::span<std::uint8_t const>{reinterpret_cast<std::uint8_t const *>(req.body().data()), req.body().size()});
+				co_await pr.write(
+					std::span<std::uint8_t const>{
+						reinterpret_cast<std::uint8_t const *>(req.body().data()),
+						req.body().size()});
 			}
 		}
 	} catch (wroot::CancelledError const &) { throw; } catch (IoError const &e) {

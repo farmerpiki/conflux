@@ -129,7 +129,9 @@ public:
 		std::string_view data) {
 		// Reject newlines in type and data: they would break SSE framing and
 		// allow injection of arbitrary events.
-		auto has_nl = [](std::string_view s) { return s.find('\n') != std::string_view::npos || s.find('\r') != std::string_view::npos; };
+		auto has_nl = [](std::string_view s) {
+			return s.find('\n') != std::string_view::npos || s.find('\r') != std::string_view::npos;
+		};
 		if (has_nl(type) || has_nl(data)) {
 			throw std::invalid_argument{"SseChannel::send_event: type and data must not contain newlines"};
 		}
@@ -301,7 +303,8 @@ bool ws_tls_send_frame(
 	auto frame = ws_detail::ws_build_frame(opcode, payload);
 	std::size_t sent = 0;
 	while (sent < frame.size()) {
-		auto const chunk = std::min<std::size_t>(frame.size() - sent, static_cast<std::size_t>(std::numeric_limits<int>::max()));
+		auto const chunk =
+			std::min<std::size_t>(frame.size() - sent, static_cast<std::size_t>(std::numeric_limits<int>::max()));
 		int const n = SSL_write(ssl, frame.data() + sent, static_cast<int>(chunk));
 		if (n > 0) {
 			sent += static_cast<std::size_t>(n);
@@ -432,7 +435,8 @@ CONFLUX_FUZZ_EXPORT FrameParseStatus parse_frame_header(
 		if (buf.size() < off + 2) {
 			return FrameParseStatus::Incomplete;
 		}
-		plen = (static_cast<std::uint64_t>(to_integer<std::uint8_t>(buf[off])) << 8U) | static_cast<std::uint64_t>(to_integer<std::uint8_t>(buf[off + 1]));
+		plen = (static_cast<std::uint64_t>(to_integer<std::uint8_t>(buf[off])) << 8U)
+			 | static_cast<std::uint64_t>(to_integer<std::uint8_t>(buf[off + 1]));
 		if (plen < 126) {
 			return FrameParseStatus::ProtocolError;
 		}
@@ -542,7 +546,8 @@ public:
 			if (!fill(header_needed)) {
 				return std::nullopt;
 			}
-			auto const status = ws_detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), header_needed}), hdr);
+			auto const status =
+				ws_detail::parse_frame_header(std::as_bytes(std::span{buf_.data(), header_needed}), hdr);
 			if (status != ws_detail::FrameParseStatus::Ok) {
 				if (status == ws_detail::FrameParseStatus::ProtocolError) {
 					close(1002, "invalid frame header");
@@ -681,7 +686,8 @@ public:
 			throw std::invalid_argument{"WsConn::close: invalid close code"};
 		}
 		if (reason.size() > 123) {
-			throw std::invalid_argument{"WsConn::close: reason exceeds 123-std::byte limit (control frame payload std::max 125)"};
+			throw std::invalid_argument{
+				"WsConn::close: reason exceeds 123-std::byte limit (control frame payload std::max 125)"};
 		}
 		if (!ws_detail::utf8_is_valid(reason)) {
 			throw std::invalid_argument{"WsConn::close: reason must be valid UTF-8"};
@@ -721,7 +727,9 @@ public:
 		keepalive_thread_ = std::jthread([this, interval_ms](std::stop_token const &st) {
 			std::unique_lock lk{keepalive_mtx_};
 			while (is_open()) {
-				if (keepalive_cv_.wait_for(lk, st, std::chrono::milliseconds{interval_ms}, [this] { return !is_open(); })) {
+				if (keepalive_cv_.wait_for(lk, st, std::chrono::milliseconds{interval_ms}, [this] {
+						return !is_open();
+					})) {
 					break;
 				}
 				lk.unlock();

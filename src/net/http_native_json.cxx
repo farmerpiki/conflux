@@ -42,10 +42,8 @@ template<class T>
 [[nodiscard]] std::expected<HttpResponse, conflux::json::boundary::Error> try_response(
 	T const &value,
 	ResponseOptions const &opts = {})
-	requires conflux::json::boundary::JsonWritableProvider<
-		DefaultJsonProvider,
-		std::remove_cvref_t<T>,
-		detail::ResponseBodySink &>
+	requires conflux::json::boundary::
+		JsonWritableProvider<DefaultJsonProvider, std::remove_cvref_t<T>, detail::ResponseBodySink &>
 {
 	return try_response_with<DefaultJsonProvider>(value, opts);
 }
@@ -56,10 +54,8 @@ template<class T>
 	int status,
 	std::string_view status_text,
 	conflux::json::boundary::DumpOptions const &opts = {})
-	requires conflux::json::boundary::JsonWritableProvider<
-		DefaultJsonProvider,
-		std::remove_cvref_t<T>,
-		detail::ResponseBodySink &>
+	requires conflux::json::boundary::
+		JsonWritableProvider<DefaultJsonProvider, std::remove_cvref_t<T>, detail::ResponseBodySink &>
 {
 	return try_response_with<DefaultJsonProvider>(value, status, status_text, opts);
 }
@@ -68,10 +64,8 @@ template<class T>
 [[nodiscard]] HttpResponse response_or_internal_error(
 	T const &value,
 	ResponseOptions const &opts = {})
-	requires conflux::json::boundary::JsonWritableProvider<
-		DefaultJsonProvider,
-		std::remove_cvref_t<T>,
-		detail::ResponseBodySink &>
+	requires conflux::json::boundary::
+		JsonWritableProvider<DefaultJsonProvider, std::remove_cvref_t<T>, detail::ResponseBodySink &>
 {
 	return response_or_internal_error_with<DefaultJsonProvider>(value, opts);
 }
@@ -82,10 +76,8 @@ template<class T>
 	int status,
 	std::string_view status_text,
 	conflux::json::boundary::DumpOptions const &opts = {})
-	requires conflux::json::boundary::JsonWritableProvider<
-		DefaultJsonProvider,
-		std::remove_cvref_t<T>,
-		detail::ResponseBodySink &>
+	requires conflux::json::boundary::
+		JsonWritableProvider<DefaultJsonProvider, std::remove_cvref_t<T>, detail::ResponseBodySink &>
 {
 	return response_or_internal_error_with<DefaultJsonProvider>(value, status, status_text, opts);
 }

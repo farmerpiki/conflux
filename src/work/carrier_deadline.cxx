@@ -28,7 +28,9 @@ public:
 	template<class Rep, class Period>
 	explicit DeadlineScope(
 		std::chrono::duration<Rep, Period> timeout)
-		: DeadlineScope(std::chrono::steady_clock::now() + std::chrono::duration_cast<std::chrono::steady_clock::duration>(timeout)) {}
+		: DeadlineScope(
+			  std::chrono::steady_clock::now()
+			  + std::chrono::duration_cast<std::chrono::steady_clock::duration>(timeout)) {}
 	~DeadlineScope() = default;
 
 	DeadlineScope(DeadlineScope &&) = delete;

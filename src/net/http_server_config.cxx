@@ -76,7 +76,8 @@ export [[nodiscard]] std::uint32_t wq_fd_for_ring(
 	return static_cast<std::uint32_t>(parent_ring_fd);
 }
 
-export [[nodiscard]] std::string setup_flags_str(std::uint32_t flags) {
+export [[nodiscard]] std::string setup_flags_str(
+	std::uint32_t flags) {
 	return conflux::uring::setup_flags_str(conflux::uring::SetupFlags{flags});
 }
 

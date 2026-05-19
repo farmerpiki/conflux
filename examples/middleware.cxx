@@ -30,21 +30,24 @@ int main() {
 
 	app.group("/public", [](Router::Group &g) {
 		g.get("/ping", [](HttpRequest const &req) {
-			return HttpResponse::json(std::format(
-				R"({{"status":"ok","request_id":"{}","traceparent":"{}"}})",
-				req.headers["x-request-id"],
-				req.headers["traceparent"]));
+			return HttpResponse::json(
+				std::format(
+					R"({{"status":"ok","request_id":"{}","traceparent":"{}"}})",
+					req.headers["x-request-id"],
+					req.headers["traceparent"]));
 		});
 	});
 
 	app.group("/private", [](Router::Group &g) {
-		g.use(basic_auth_middleware([](std::string_view user, std::string_view pass) { return user == "demo" && pass == "demo"; }));
+		g.use(basic_auth_middleware(
+			[](std::string_view user, std::string_view pass) { return user == "demo" && pass == "demo"; }));
 
 		g.get("/profile", [](HttpRequest const &req) {
-			return HttpResponse::json(std::format(
-				R"({{"user":"demo","request_id":"{}","remote_addr":"{}"}})",
-				req.headers["x-request-id"],
-				req.remote_addr));
+			return HttpResponse::json(
+				std::format(
+					R"({{"user":"demo","request_id":"{}","remote_addr":"{}"}})",
+					req.headers["x-request-id"],
+					req.remote_addr));
 		});
 	});
 

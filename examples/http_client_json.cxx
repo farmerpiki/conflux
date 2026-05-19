@@ -64,11 +64,11 @@ int main() {
 	http::json::set_body(*builder, payload);
 
 	auto req = std::move(*builder)
-		.query("trace", "local-json-demo")
-		.accept_json()
-		.user_agent("conflux-json-client-example/1")
-		.bearer("example-token")
-		.build();
+				   .query("trace", "local-json-demo")
+				   .accept_json()
+				   .user_agent("conflux-json-client-example/1")
+				   .bearer("example-token")
+				   .build();
 
 	std::println("{} {}", req.method(), req.url().str());
 	std::println("content-type: {}", req.headers()["content-type"]);
@@ -80,8 +80,8 @@ int main() {
 		std::println("decoded request: {} x{}", decoded_request->name, decoded_request->quantity);
 	}
 
-	auto decoded_response = json::boundary::decode_native<Item>(
-		R"({"id":42,"name":"buffer slab","quantity":8,"accepted":true})");
+	auto decoded_response =
+		json::boundary::decode_native<Item>(R"({"id":42,"name":"buffer slab","quantity":8,"accepted":true})");
 	if (!decoded_response) {
 		std::println("response decode failed: {}", decoded_response.error().message);
 		return 1;

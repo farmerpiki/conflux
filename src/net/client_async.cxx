@@ -7,9 +7,7 @@ import conflux.net.http.request;
 
 export namespace conflux::http {
 
-[[nodiscard]] conflux::work::root::Task<ClientResult> async_send(
-	HttpClient const &client,
-	SocketTaskRing &ring,
-	ClientRequest const &req);
+[[nodiscard]] conflux::work::root::Task<ClientResult>
+async_send(HttpClient const &client, SocketTaskRing &ring, ClientRequest const &req);
 
 } // namespace conflux::http

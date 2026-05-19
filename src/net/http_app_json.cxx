@@ -27,7 +27,10 @@ struct StoredResponseOptions {
 
 [[nodiscard]] inline StoredResponseOptions store_response_options(
 	ResponseOptions opts) {
-	return StoredResponseOptions{.status = opts.status, .status_text = std::string{opts.status_text}, .dump = opts.dump};
+	return StoredResponseOptions{
+		.status = opts.status,
+		.status_text = std::string{opts.status_text},
+		.dump = opts.dump};
 }
 
 } // namespace detail
@@ -55,17 +58,14 @@ concept JsonBodyViewHandler = requires(
 };
 
 template<class Provider, class Body, class F>
-concept JsonBodyHandler = requires(
-	std::decay_t<F> &fn,
-	std::remove_cvref_t<Body> const &body,
-	ResponseOptions const &opts) {
-	{ response_or_internal_error_with<Provider>(std::invoke(fn, body), opts) } -> std::same_as<HttpResponse>;
-};
+concept JsonBodyHandler =
+	requires(std::decay_t<F> &fn, std::remove_cvref_t<Body> const &body, ResponseOptions const &opts) {
+		{ response_or_internal_error_with<Provider>(std::invoke(fn, body), opts) } -> std::same_as<HttpResponse>;
+	};
 
 template<class Provider, class Body, class F>
-concept JsonDecodedRouteHandler =
-	conflux::json::boundary::JsonDecodeProvider<Provider, std::remove_cvref_t<Body>>
-	&& (JsonBodyViewHandler<Provider, Body, F> || JsonBodyHandler<Provider, Body, F>);
+concept JsonDecodedRouteHandler = conflux::json::boundary::JsonDecodeProvider<Provider, std::remove_cvref_t<Body>>
+							   && (JsonBodyViewHandler<Provider, Body, F> || JsonBodyHandler<Provider, Body, F>);
 
 template<class Provider, class F>
 [[nodiscard]] Router::Handler make_handler_with(
@@ -75,13 +75,15 @@ template<class Provider, class F>
 {
 	using Fn = std::decay_t<F>;
 	auto stored_opts = detail::store_response_options(opts);
-	return Router::Handler{[fn = Fn(std::forward<F>(fn)), opts = std::move(stored_opts)](HttpRequestView const &req) mutable -> HttpResponse {
-		if constexpr (JsonViewHandler<Provider, Fn>) {
-			return response_or_internal_error_with<Provider>(std::invoke(fn, req), opts.view());
-		} else {
-			return response_or_internal_error_with<Provider>(std::invoke(fn), opts.view());
-		}
-	}};
+	return Router::Handler{
+		[fn = Fn(std::forward<F>(fn)),
+		 opts = std::move(stored_opts)](HttpRequestView const &req) mutable -> HttpResponse {
+			if constexpr (JsonViewHandler<Provider, Fn>) {
+				return response_or_internal_error_with<Provider>(std::invoke(fn, req), opts.view());
+			} else {
+				return response_or_internal_error_with<Provider>(std::invoke(fn), opts.view());
+			}
+		}};
 }
 
 template<class Provider, class Body, class F>
@@ -94,17 +96,19 @@ template<class Provider, class Body, class F>
 	using Fn = std::decay_t<F>;
 	using BodyValue = std::remove_cvref_t<Body>;
 	auto stored_opts = detail::store_response_options(opts);
-	return Router::Handler{[fn = Fn(std::forward<F>(fn)), opts = std::move(stored_opts), decode_opts](HttpRequestView const &req) mutable -> HttpResponse {
-		auto decoded = conflux::json::boundary::decode_with<Provider, BodyValue>(req.body, decode_opts);
-		if (!decoded) {
-			return decode_error_response();
-		}
-		if constexpr (JsonBodyViewHandler<Provider, BodyValue, Fn>) {
-			return response_or_internal_error_with<Provider>(std::invoke(fn, req, *decoded), opts.view());
-		} else {
-			return response_or_internal_error_with<Provider>(std::invoke(fn, *decoded), opts.view());
-		}
-	}};
+	return Router::Handler{
+		[fn = Fn(std::forward<F>(fn)), opts = std::move(stored_opts), decode_opts](
+			HttpRequestView const &req) mutable -> HttpResponse {
+			auto decoded = conflux::json::boundary::decode_with<Provider, BodyValue>(req.body, decode_opts);
+			if (!decoded) {
+				return decode_error_response();
+			}
+			if constexpr (JsonBodyViewHandler<Provider, BodyValue, Fn>) {
+				return response_or_internal_error_with<Provider>(std::invoke(fn, req, *decoded), opts.view());
+			} else {
+				return response_or_internal_error_with<Provider>(std::invoke(fn, *decoded), opts.view());
+			}
+		}};
 }
 
 template<class Provider>
@@ -134,7 +138,10 @@ public:
 		conflux::json::boundary::DecodeOptions decode_opts = {})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
-		return router_->add(method, path, make_decode_handler_with<Provider, Body>(std::forward<F>(fn), opts, decode_opts));
+		return router_->add(
+			method,
+			path,
+			make_decode_handler_with<Provider, Body>(std::forward<F>(fn), opts, decode_opts));
 	}
 
 	template<class F>
@@ -222,7 +229,10 @@ public:
 		conflux::json::boundary::DecodeOptions decode_opts = {})
 		requires JsonDecodedRouteHandler<Provider, Body, F>
 	{
-		app_->router().add(method, path, make_decode_handler_with<Provider, Body>(std::forward<F>(fn), opts, decode_opts));
+		app_->router().add(
+			method,
+			path,
+			make_decode_handler_with<Provider, Body>(std::forward<F>(fn), opts, decode_opts));
 		return *app_;
 	}
 

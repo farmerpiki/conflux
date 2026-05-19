@@ -24,8 +24,8 @@ inline void dump_str_raw(
 inline void append_u_escape(
 	std::string &out,
 	std::uint32_t cp) {
-	static constexpr std::array<char, 16> kHex = {'0', '1', '2', '3', '4', '5', '6', '7',
-		'8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
+	static constexpr std::array<char, 16> kHex =
+		{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};
 	out += "\\u";
 	out += kHex[(cp >> 12U) & 0x0FU];
 	out += kHex[(cp >> 8U) & 0x0FU];
@@ -309,7 +309,6 @@ void dump_node(
 		}
 	}
 }
-
 
 std::expected<std::string, JsonError> Document::dump(
 	JsonDumpOptions const &opts) const {

@@ -4,8 +4,8 @@ import conflux.work;
 import conflux.types;
 import std;
 
-
-static bool is_prime(std::int64_t n) {
+static bool is_prime(
+	std::int64_t n) {
 	if (n < 2) {
 		return false;
 	}
@@ -17,7 +17,9 @@ static bool is_prime(std::int64_t n) {
 	return true;
 }
 
-static std::int64_t count_primes(std::int64_t first, std::int64_t last) {
+static std::int64_t count_primes(
+	std::int64_t first,
+	std::int64_t last) {
 	std::int64_t count = 0;
 	for (std::int64_t n = first; n < last; ++n) {
 		count += is_prime(n) ? 1 : 0;
@@ -26,7 +28,9 @@ static std::int64_t count_primes(std::int64_t first, std::int64_t last) {
 }
 
 int main() {
-	WorkPool pool{WorkPoolOptions{.threads = 4, .max_inject_queue = 128, .worker_name_prefix = "cf-example"}};
+	WorkPool pool{
+		WorkPoolOptions{.threads = 4, .max_inject_queue = 128, .worker_name_prefix = "cf-example"}
+    };
 
 	auto counts = join_all(
 		async_run_on(pool, [] { return count_primes(2, 25'000); }),
@@ -39,9 +43,7 @@ int main() {
 
 	try {
 		(void)sync_wait(async_run_on(pool, []() -> std::int64_t { throw std::runtime_error{"worker-side failure"}; }));
-	} catch (std::exception const &e) {
-		std::println("failure propagated through task outcome: {}", e.what());
-	}
+	} catch (std::exception const &e) { std::println("failure propagated through task outcome: {}", e.what()); }
 
 	pool.drain_and_stop();
 }

@@ -45,11 +45,12 @@ struct BoundaryRouteProvider {
 		auto const *last = input.data() + input.size();
 		auto [ptr, ec] = std::from_chars(first, last, value);
 		if (ec != std::errc{} || ptr != last) {
-			return std::unexpected(jb::Error{
-				.stage = jb::ErrorStage::decode,
-				.code = jb::ErrorCode::invalid_value,
-				.message = "expected integer payload",
-			});
+			return std::unexpected(
+				jb::Error{
+					.stage = jb::ErrorStage::decode,
+					.code = jb::ErrorCode::invalid_value,
+					.message = "expected integer payload",
+				});
 		}
 		return T{.value = value};
 	}
@@ -69,11 +70,12 @@ struct FailingProvider {
 		FailingPayload const &,
 		jb::DumpOptions const &,
 		auto &&) {
-		return std::unexpected(jb::Error{
-			.stage = jb::ErrorStage::dump,
-			.code = jb::ErrorCode::provider_failure,
-			.message = "forced failure",
-		});
+		return std::unexpected(
+			jb::Error{
+				.stage = jb::ErrorStage::dump,
+				.code = jb::ErrorCode::provider_failure,
+				.message = "forced failure",
+			});
 	}
 };
 
@@ -140,18 +142,15 @@ TEST_CASE(
 	};
 	HttpRequestView view{req};
 
-	auto handler = hj::make_handler_with<StreamingOnlyProvider>([](HttpRequestView const &) {
-		return StreamingPayload{.value = 11};
-	});
+	auto handler = hj::make_handler_with<StreamingOnlyProvider>(
+		[](HttpRequestView const &) { return StreamingPayload{.value = 11}; });
 	auto resp = handler(view);
 	CHECK(resp.status == kHttpOk);
 	CHECK(resp.content_type == "application/json");
 	CHECK(resp.text_body() == R"({"value":11})");
 
 	Router router;
-	hj::routes<StreamingOnlyProvider>(router).get("/value", [] {
-		return StreamingPayload{.value = 3};
-	});
+	hj::routes<StreamingOnlyProvider>(router).get("/value", [] { return StreamingPayload{.value = 3}; });
 }
 
 TEST_CASE(
@@ -166,9 +165,8 @@ TEST_CASE(
 	};
 	HttpRequestView view{req};
 
-	auto handler = hj::make_decode_handler_with<BoundaryRouteProvider, InputPayload>([](InputPayload const &body) {
-		return StreamingPayload{.value = body.value + 1};
-	});
+	auto handler = hj::make_decode_handler_with<BoundaryRouteProvider, InputPayload>(
+		[](InputPayload const &body) { return StreamingPayload{.value = body.value + 1}; });
 	auto resp = handler(view);
 	CHECK(resp.status == kHttpOk);
 	CHECK(resp.content_type == "application/json");

@@ -104,7 +104,8 @@ TEST_CASE(
 	"[file_io_sync][unit]") {
 	auto dir = TempDir::create();
 	dir.write_file("target.txt", "old content");
-	auto r = blocking_write_text_file_atomic_at(dir.fd, std::string_view{"target.txt"}, std::string_view{"new content"});
+	auto r =
+		blocking_write_text_file_atomic_at(dir.fd, std::string_view{"target.txt"}, std::string_view{"new content"});
 	REQUIRE(r.has_value());
 	CHECK(dir.read_file("target.txt") == "new content");
 }

@@ -293,8 +293,8 @@ public:
 	Builder &body_form(
 		HttpFields const &fields) & {
 		assert_single_body();
-		static constexpr std::array<char, 16> kHex = {'0', '1', '2', '3', '4', '5', '6', '7',
-			'8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
+		static constexpr std::array<char, 16> kHex =
+			{'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
 		std::size_t reserve_n = fields.empty() ? 0 : fields.size() - 1;
 		for (auto const &[k, v]: fields) {
 			reserve_n += k.size() * 3 + 1 + v.size() * 3;

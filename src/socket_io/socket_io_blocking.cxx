@@ -96,7 +96,11 @@ T sync_wait_socket_task(
 			for (unsigned i = 0; i < n; ++i) {
 				auto const *c = batch[static_cast<std::size_t>(i)];
 				auto const ud = c->user_data;
-				ct->dispatch(static_cast<std::uint32_t>(ud & 0xFFFFFFFFU), static_cast<std::uint32_t>(ud >> 32U), c->res, c->flags);
+				ct->dispatch(
+					static_cast<std::uint32_t>(ud & 0xFFFFFFFFU),
+					static_cast<std::uint32_t>(ud >> 32U),
+					c->res,
+					c->flags);
 			}
 			::io_uring_cq_advance(raw, n);
 			if (slot->done.test(std::memory_order_acquire)) {

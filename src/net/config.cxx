@@ -243,7 +243,8 @@ export [[nodiscard]] std::expected<std::string, std::string> resolve_secret_sour
 	if (src.kind == SecretSourceKind::environment) {
 		auto const *value = std::getenv(src.value.c_str());
 		if (value == nullptr || value[0] == '\0') {
-			return std::unexpected{std::format("auth secret '{}': environment variable '{}' is unset or empty", name, src.value)};
+			return std::unexpected{
+				std::format("auth secret '{}': environment variable '{}' is unset or empty", name, src.value)};
 		}
 		return std::string{value};
 	}
@@ -272,7 +273,8 @@ export [[nodiscard]] std::expected<void, std::string> validate_secret_bytes(
 		return std::unexpected{std::format("auth secret '{}': resolved secret is empty", name)};
 	}
 	if (secret.size() < min_bytes) {
-		return std::unexpected{std::format("auth secret '{}': resolved secret must be at least {} bytes", name, min_bytes)};
+		return std::unexpected{
+			std::format("auth secret '{}': resolved secret must be at least {} bytes", name, min_bytes)};
 	}
 	return {};
 }
@@ -297,7 +299,8 @@ export [[nodiscard]] std::expected<ResolvedSecretRotation, std::string> resolve_
 		if (!previous) {
 			return std::unexpected{previous.error()};
 		}
-		if (auto valid = validate_secret_bytes(*previous, std::format("{}.previous[{}]", name, i), cfg.min_secret_bytes);
+		if (auto valid =
+				validate_secret_bytes(*previous, std::format("{}.previous[{}]", name, i), cfg.min_secret_bytes);
 			!valid) {
 			return std::unexpected{valid.error()};
 		}

@@ -109,9 +109,8 @@ static void example_ndjson_ingest() {
 
 static void example_reader_sequence() {
 	std::println("\n--- JsonReader typed sequence ---");
-	JsonReader reader{
-		R"({"id":10,"type":"completion","tokens":7})"
-		R"({"id":11,"type":"completion","tokens":9,"error":null})"};
+	JsonReader reader{R"({"id":10,"type":"completion","tokens":7})"
+					  R"({"id":11,"type":"completion","tokens":9,"error":null})"};
 
 	auto first = decode_next<ApiEvent>(reader);
 	auto second = decode_next<ApiEvent>(reader);

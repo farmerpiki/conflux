@@ -148,7 +148,9 @@ TEST_CASE(
 TEST_CASE(
 	"work: WorkPool no_stealing queue executes async work",
 	"[work]") {
-	WorkPool pool{WorkPoolOptions{.threads = 2, .queue_mode = WorkPoolQueueMode::no_stealing}};
+	WorkPool pool{
+		WorkPoolOptions{.threads = 2, .queue_mode = WorkPoolQueueMode::no_stealing}
+    };
 	auto result = sync_wait(async_run_on(pool, [] { return 42; }));
 	CHECK(result == 42);
 }
@@ -158,7 +160,7 @@ TEST_CASE(
 	for (int round = 0; round < 100; ++round) {
 		WorkPool pool{
 			WorkPoolOptions{.threads = 2, .max_inject_queue = 4096, .queue_mode = WorkPoolQueueMode::no_stealing}
-		};
+        };
 		std::atomic<bool> start{false};
 		std::atomic<int> accepted{0};
 		std::atomic<int> ran{0};
@@ -317,9 +319,9 @@ TEST_CASE(
 	[](std::shared_ptr<std::barrier<>>, auto t) -> root::Task<void> {
 		co_await std::move(t);
 	}(gate, async_run_on(pool, [gate, &counter] {
-									 counter.fetch_add(1, std::memory_order_release);
-									 gate->arrive_and_wait();
-								 })).detach();
+													   counter.fetch_add(1, std::memory_order_release);
+													   gate->arrive_and_wait();
+												   })).detach();
 	gate->arrive_and_wait();
 	CHECK(counter.load(std::memory_order_acquire) == 1);
 }

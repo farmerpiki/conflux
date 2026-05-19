@@ -4,6 +4,7 @@
 // A plain TU has no such restriction.
 #include <arpa/inet.h>
 #include <catch2/catch_test_macros.hpp>
+#include <conflux/detail/discard.hxx>
 #include <ctime>
 #include <fcntl.h>
 #include <netinet/in.h>
@@ -12,7 +13,6 @@
 #include <sys/socket.h>
 #include <unistd.h>
 #include <zlib.h>
-#include <conflux/detail/discard.hxx>
 
 import std;
 import conflux.types;
@@ -168,12 +168,13 @@ void ensure_server() {
 				return HttpResponse::not_found("file");
 			}
 			auto const &f = req.files[0];
-			return HttpResponse::json(std::format(
-				R"({{"name":"{}","filename":"{}","content_type":"{}","size":{}}})",
-				f.name,
-				f.filename,
-				f.content_type,
-				f.data.size()));
+			return HttpResponse::json(
+				std::format(
+					R"({{"name":"{}","filename":"{}","content_type":"{}","size":{}}})",
+					f.name,
+					f.filename,
+					f.content_type,
+					f.data.size()));
 		});
 		router.post("/api/multipart-counts", [](HttpRequestView const &req) {
 			return HttpResponse::json(
@@ -260,27 +261,30 @@ void ensure_redirect_follow_servers() {
 
 		Router target;
 		target.get("/echo-headers", [](HttpRequest const &req) {
-			return HttpResponse::text(std::format(
-				"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
-				std::string{req.headers["authorization"]},
-				std::string{req.headers["cookie"]},
-				std::string{req.headers["proxy-authorization"]},
-				std::string{req.headers["host"]}));
+			return HttpResponse::text(
+				std::format(
+					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
+					std::string{req.headers["authorization"]},
+					std::string{req.headers["cookie"]},
+					std::string{req.headers["proxy-authorization"]},
+					std::string{req.headers["host"]}));
 		});
 		g_redirect_follow_target_port = test_servers().start(cfg, std::move(target));
 
 		Router source;
 		source.get("/echo-headers", [](HttpRequest const &req) {
-			return HttpResponse::text(std::format(
-				"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
-				std::string{req.headers["authorization"]},
-				std::string{req.headers["cookie"]},
-				std::string{req.headers["proxy-authorization"]},
-				std::string{req.headers["host"]}));
+			return HttpResponse::text(
+				std::format(
+					"auth={}\ncookie={}\nproxy-authorization={}\nhost={}",
+					std::string{req.headers["authorization"]},
+					std::string{req.headers["cookie"]},
+					std::string{req.headers["proxy-authorization"]},
+					std::string{req.headers["host"]}));
 		});
 		source.get("/same", [](HttpRequest const &) { return HttpResponse::redirect("/echo-headers"); });
 		source.get("/cross", [](HttpRequest const &) {
-			return HttpResponse::redirect(std::format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
+			return HttpResponse::redirect(
+				std::format("http://127.0.0.1:{}/echo-headers", g_redirect_follow_target_port));
 		});
 		source.get("/loop", [](HttpRequest const &) { return HttpResponse::redirect("/loop"); });
 		source.get("/async-start", [](HttpRequest const &) { return HttpResponse::redirect("/async-final"); });
@@ -302,10 +306,11 @@ void ensure_redirect_follow_servers() {
 					chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/async-start", popts.upstream_port))
 						.follow_redirects(2));
 				if (!result) {
-					co_return HttpResponse::bad_gateway(std::format(
-						"redirect follow failed: {} ({})",
-						result.error().message,
-						static_cast<int>(result.error().kind)));
+					co_return HttpResponse::bad_gateway(
+						std::format(
+							"redirect follow failed: {} ({})",
+							result.error().message,
+							static_cast<int>(result.error().kind)));
 				}
 				co_return HttpResponse::text(std::move(result->body));
 			});
@@ -1185,8 +1190,8 @@ TEST_CASE(
 	CHECK(response->head.status == 200);
 	CHECK(response->body == "client-header");
 
-	auto with_headers =
-		client.blocking_send(chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/with-header", g_test_port)));
+	auto with_headers = client.blocking_send(
+		chttp::ClientRequest::get(std::format("http://127.0.0.1:{}/api/with-header", g_test_port)));
 	REQUIRE(with_headers);
 	CHECK(with_headers->head.headers["x-custom"] == "hello");
 	CHECK(with_headers->head.headers["x-another"] == "world");
@@ -1238,8 +1243,8 @@ TEST_CASE(
 	ensure_server();
 	HttpClient client{};
 
-	auto response =
-		client.blocking_send(chttp::ClientRequest::del(std::format("http://127.0.0.1:{}/api/resource/99", g_test_port)));
+	auto response = client.blocking_send(
+		chttp::ClientRequest::del(std::format("http://127.0.0.1:{}/api/resource/99", g_test_port)));
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(response->body.find("DELETE") != std::string::npos);
@@ -3074,8 +3079,10 @@ TEST_CASE(
 		addr.sin_port = htons(port);
 		::inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
 		::connect(fd, reinterpret_cast<sockaddr *>(&addr), sizeof(addr));
-		auto req =
-			std::format("{} {} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n", method, path);
+		auto req = std::format(
+			"{} {} HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+			method,
+			path);
 		::send(fd, req.data(), req.size(), 0);
 		auto resp = read_one_response(fd);
 		::close(fd);
@@ -4149,7 +4156,9 @@ TEST_CASE(
 	tls_opts.verify_peer = false;
 	HttpClient tls_client{std::move(tls_opts)};
 	auto response = tls_client.blocking_send(
-		chttp::ClientRequest::get(std::format("https://127.0.0.1:{}/ping", g_tls_port)).server_name("localhost").build());
+		chttp::ClientRequest::get(std::format("https://127.0.0.1:{}/ping", g_tls_port))
+			.server_name("localhost")
+			.build());
 	REQUIRE(response);
 	CHECK(response->head.status == 200);
 	CHECK(std::string{response->head.headers["content-type"]}.find("application/json") != std::string::npos);
@@ -4834,7 +4843,8 @@ TEST_CASE(
 	auto now =
 		std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 	auto token = make_jwt(std::format(R"({{"sub":"user42","exp":{}}})", now + 3600));
-	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
+	auto resp =
+		http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
 	REQUIRE(hdr_end != std::string::npos);
@@ -4850,14 +4860,16 @@ TEST_CASE(
 	"jwt: wrong secret returns 401") {
 	ensure_jwt_server();
 	auto token = jwt_sign(R"({"sub":"bad","exp":9999999999})", "wrong-secret");
-	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
+	auto resp =
+		http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
 }
 TEST_CASE(
 	"jwt: expired token returns 401") {
 	ensure_jwt_server();
 	auto token = make_jwt(R"({"sub":"x","exp":1})"); // exp = 1970
-	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
+	auto resp =
+		http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 401"));
 }
 TEST_CASE(
@@ -4870,7 +4882,8 @@ TEST_CASE(
 	"jwt: lowercase bearer scheme returns 200") {
 	ensure_jwt_server();
 	auto token = make_jwt(R"({"sub":"user42","exp":9999999999})");
-	auto resp = http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: bearer {}\r\n", token));
+	auto resp =
+		http_get_with_header_on(g_jwt_port, "/api/protected", std::format("Authorization: bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 }
 TEST_CASE(
@@ -4883,7 +4896,8 @@ TEST_CASE(
 	});
 	auto port = test_servers().start(cfg, std::move(router));
 	auto token = jwt_sign(R"({"sub":"victim"})", "sec");
-	auto resp = http_get_with_header_on(port, "/api/protected/attacker", std::format("Authorization: Bearer {}\r\n", token));
+	auto resp =
+		http_get_with_header_on(port, "/api/protected/attacker", std::format("Authorization: Bearer {}\r\n", token));
 	REQUIRE(resp.starts_with("HTTP/1.1 200 OK"));
 	auto hdr_end = resp.find("\r\n\r\n");
 	REQUIRE(hdr_end != std::string::npos);
@@ -6617,8 +6631,9 @@ TEST_CASE(
 TEST_CASE(
 	"parser: single header line exceeding 8 KiB returns 431") {
 	std::string header_value(9000, 'v');
-	auto req =
-		std::format("GET /api/ping HTTP/1.1\r\nHost: localhost\r\nX-Big: {}\r\nConnection: close\r\n\r\n", header_value);
+	auto req = std::format(
+		"GET /api/ping HTTP/1.1\r\nHost: localhost\r\nX-Big: {}\r\nConnection: close\r\n\r\n",
+		header_value);
 	auto resp = send_raw_bytes(req);
 	REQUIRE(resp.starts_with("HTTP/1.1 431"));
 }

@@ -8,7 +8,6 @@ import conflux.uring;
 import conflux.net.config;
 import conflux.net.http_server_config;
 
-
 namespace {
 
 class TempIni {

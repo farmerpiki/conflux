@@ -45,7 +45,8 @@ export Router::Middleware csrf_middleware(
 	return [opts = std::move(opts),
 			lower_cookie = std::move(lower_cookie),
 			lower_header = std::move(lower_header),
-			lower_field = std::move(lower_field)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+			lower_field =
+				std::move(lower_field)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
 		auto is_protected =
 			std::ranges::any_of(opts.protected_methods, [&](std::string const &m) { return m == req.method; });
 

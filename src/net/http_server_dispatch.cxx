@@ -304,11 +304,12 @@ void dispatch_request(
 			std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - handler_started)
 				.count();
 		if (elapsed_ms >= static_cast<std::int64_t>(ring.slow_handler_warn_ms)) {
-			eprintln(std::format(
-				"warning: slow handler on ring std::thread (method={}, path={}, elapsed_ms={})",
-				method,
-				path,
-				elapsed_ms));
+			eprintln(
+				std::format(
+					"warning: slow handler on ring std::thread (method={}, path={}, elapsed_ms={})",
+					method,
+					path,
+					elapsed_ms));
 		}
 	}
 	if (resp.is_deferred()) {

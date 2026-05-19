@@ -13,7 +13,6 @@ import conflux.types;
 import conflux.work.root;
 export namespace conflux::work::carrier {
 
-
 template<class Clock>
 class LaneTimerScope;
 class TimerService {

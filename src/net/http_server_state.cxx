@@ -4,8 +4,8 @@ module;
 #include <arpa/inet.h>
 #include <cassert>
 #include <cerrno>
-#include <cstdio>
 #include <cstdint>
+#include <cstdio>
 #include <liburing.h>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
@@ -74,9 +74,7 @@ enum class Op : std::uint8_t {
 };
 
 struct SendZcCounters : SendZcMetrics {
-	[[nodiscard]] SendZcMetrics snapshot() const noexcept {
-		return static_cast<SendZcMetrics const &>(*this);
-	}
+	[[nodiscard]] SendZcMetrics snapshot() const noexcept { return static_cast<SendZcMetrics const &>(*this); }
 };
 
 enum class ServerFatalReason : std::uint8_t {
@@ -234,7 +232,7 @@ struct alignas(
 	bool tls_shutdown_after_send = false; // true → send TLS close_notify after pending bytes drain
 	bool tls_wait_peer_shutdown = false; // true → drain peer close_notify/FIN after our close_notify is sent
 	bool ktls_send = false; // kTLS send offload active; splice_to_fd usable for TLS file body
-	#endif
+#endif
 	bool has_response = false;
 	std::string own_response{};
 	PartialBuf partial{};
@@ -272,7 +270,7 @@ struct alignas(
 	std::string h2_pending_send{};
 	std::int32_t h2_sse_stream_id{-1}; // stream_id of active H2 SSE stream (-1 = none)
 	bool h2_sse_pending_wait{}; // set by on_frame_recv_cb to trigger queue_sse_wait after h2_do_send
-	#endif
+#endif
 };
 
 #if CONFLUX_HTTP_TRACE
@@ -280,14 +278,14 @@ struct alignas(
 	BufferRingMode mode) noexcept {
 	switch (mode) {
 	case BufferRingMode::classic_one_cqe_per_buffer: return "classic";
-	case BufferRingMode::recv_bundle                      : return "recv_bundle";
-	case BufferRingMode::incremental                      : return "incremental";
+	case BufferRingMode::recv_bundle               : return "recv_bundle";
+	case BufferRingMode::incremental               : return "incremental";
 	}
 	return "unknown";
 }
-#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
+	#define HTTP_TRACE(MSG) eprintln(std::format("http_trace {}", (MSG)))
 #else
-#define HTTP_TRACE(MSG) ((void)0)
+	#define HTTP_TRACE(MSG) ((void)0)
 #endif
 
 struct Ring;
@@ -323,9 +321,7 @@ struct Ring {
 		std::uint16_t id{};
 		bool present{};
 	};
-	static std::uint64_t pack_fd_gen(
-		int fd,
-		std::uint32_t gen) noexcept;
+	static std::uint64_t pack_fd_gen(int fd, std::uint32_t gen) noexcept;
 	static constexpr std::size_t BUF_SIZE = 8192;
 	static constexpr std::uint32_t MAX_FILES = 65536;
 
@@ -441,50 +437,34 @@ struct Ring {
 	Ring &operator =(Ring const &) = delete;
 	Ring(Ring &&) = delete;
 	Ring &operator =(Ring &&) = delete;
-	[[nodiscard]] HttpResponse dispatch(
-		HttpRequestView const &req) const;
+	[[nodiscard]] HttpResponse dispatch(HttpRequestView const &req) const;
 	[[nodiscard]] bool has_context_routes() const noexcept;
-	[[nodiscard]] std::optional<HttpResponse> try_dispatch_context(
-		HttpRequestView const &req) const;
-	[[nodiscard]] std::shared_ptr<WorkPool> resolve_ws_work_pool(
-		HttpRequestView const &req) const;
-	void clear_deferred_wait(
-		int deferred_efd);
+	[[nodiscard]] std::optional<HttpResponse> try_dispatch_context(HttpRequestView const &req) const;
+	[[nodiscard]] std::shared_ptr<WorkPool> resolve_ws_work_pool(HttpRequestView const &req) const;
+	void clear_deferred_wait(int deferred_efd);
 	void queue_deferred_wait(
 		int conn_fd,
 		int deferred_efd,
 		std::shared_ptr<DeferredResponse> response,
 		std::int32_t stream_id = -1);
 #if CONFLUX_HAS_TLS
-	static void tls_flush_wbio(
-		Conn &conn);
-	static bool tls_feed_rbio(
-		Conn &conn);
+	static void tls_flush_wbio(Conn &conn);
+	static bool tls_feed_rbio(Conn &conn);
 	// Submit an io_uring send for pending/in-flight TLS bytes.
 	// Caller must NOT pre-set send_queued; this function owns the transition.
-	void tls_queue_send(
-		Conn &conn);
-	void begin_tls_peer_shutdown_wait(
-		int fd,
-		Conn &conn);
-	void queue_tls_shutdown(
-		int fd,
-		Conn &conn);
+	void tls_queue_send(Conn &conn);
+	void begin_tls_peer_shutdown_wait(int fd, Conn &conn);
+	void queue_tls_shutdown(int fd, Conn &conn);
 #endif // CONFLUX_HAS_TLS
 
 #if CONFLUX_HAS_HTTP2
 	// ---------------------------------------------------------------------------
 	// nghttp2 static callbacks (passed as C function pointers; no capture)
 	// ---------------------------------------------------------------------------
-	static void h2_reject_stream(
-		nghttp2_session *session,
-		H2Stream &stream,
-		std::int32_t stream_id,
-		std::uint32_t error_code);
-	[[nodiscard]] static bool h2_valid_regular_header_name(
-		std::string_view name) noexcept;
-	[[nodiscard]] static bool h2_forbidden_connection_header(
-		std::string_view name) noexcept;
+	static void
+	h2_reject_stream(nghttp2_session *session, H2Stream &stream, std::int32_t stream_id, std::uint32_t error_code);
+	[[nodiscard]] static bool h2_valid_regular_header_name(std::string_view name) noexcept;
+	[[nodiscard]] static bool h2_forbidden_connection_header(std::string_view name) noexcept;
 	// nghttp2 wants to write bytes to the wire; accumulate into h2_pending_send.
 	static ssize_t h2_send_cb(
 		nghttp2_session * /*unused*/,
@@ -493,10 +473,7 @@ struct Ring {
 		int /*unused*/,
 		void *user_data);
 	// A new request stream is beginning; allocate its H2Stream entry.
-	static int h2_on_begin_headers_cb(
-		nghttp2_session * /*unused*/,
-		nghttp2_frame const *frame,
-		void *user_data);
+	static int h2_on_begin_headers_cb(nghttp2_session * /*unused*/, nghttp2_frame const *frame, void *user_data);
 	// Populate H2Stream fields from pseudo-headers and regular headers.
 	static int h2_on_header_cb(
 		nghttp2_session *session,
@@ -525,22 +502,13 @@ struct Ring {
 		std::uint32_t *data_flags,
 		nghttp2_data_source *source,
 		void * /*user_data*/);
-	static void h2_submit_response(
-		Conn &conn,
-		std::int32_t stream_id,
-		HttpResponse resp);
+	static void h2_submit_response(Conn &conn, std::int32_t stream_id, HttpResponse resp);
 	// A frame is fully received.  On END_STREAM, dispatch to the router and
 	// submit the HTTP/2 response via nghttp2_submit_response.
-	static int h2_on_frame_recv_cb(
-		nghttp2_session *session,
-		nghttp2_frame const *frame,
-		void *user_data);
+	static int h2_on_frame_recv_cb(nghttp2_session *session, nghttp2_frame const *frame, void *user_data);
 	// Stream fully closed — release its state.
-	static int h2_on_stream_close_cb(
-		nghttp2_session * /*unused*/,
-		std::int32_t stream_id,
-		std::uint32_t /*EC*/,
-		void *user_data);
+	static int
+	h2_on_stream_close_cb(nghttp2_session * /*unused*/, std::int32_t stream_id, std::uint32_t /*EC*/, void *user_data);
 	// ---------------------------------------------------------------------------
 	// H2 Ring methods
 	// ---------------------------------------------------------------------------
@@ -548,17 +516,14 @@ struct Ring {
 	// SSL_write h2_pending_send into tls_send_buf, then queue a TLS send.
 	// No-op if nothing pending or a send is already in flight (data accumulates
 	// and will be flushed when handle_send_tls_complete's H2 branch runs next).
-	void h2_flush_pending(
-		Conn &conn);
+	void h2_flush_pending(Conn &conn);
 	// Drive nghttp2 output (all queued frames) and flush to io_uring.
-	void h2_do_send(
-		Conn &conn);
+	void h2_do_send(Conn &conn);
 	// Create nghttp2 server session and submit the server connection preface
 	// (SETTINGS frame).  Does NOT flush — caller must call h2_do_send() after
 	// running nghttp2_session_mem_recv() so that the SETTINGS and SETTINGS_ACK
 	// are coalesced into a single TLS record.
-	void h2_setup_conn(
-		Conn &conn);
+	void h2_setup_conn(Conn &conn);
 #endif // CONFLUX_HAS_HTTP2
 	// Must be called from the std::thread that will run run_loop() (SINGLE_ISSUER).
 	// `wq_fd`: when non-zero, sets IORING_SETUP_ATTACH_WQ so this ring shares
@@ -569,180 +534,94 @@ struct Ring {
 		std::uint32_t uring_flags,
 		std::uint32_t wq_fd = 0,
 		bool no_mmap = false);
-	Conn &conn_for(
-		int fd);
-	void conn_erase(
-		int fd,
-		std::uint32_t gen);
+	Conn &conn_for(int fd);
+	void conn_erase(int fd, std::uint32_t gen);
 	// Acquire a raw SQE without implicit submission. Returns null when the ring
 	// is exhausted or fatal; callers handle that via defer_op() to avoid stalls.
 	io_uring_sqe *get_sqe();
 	// Defer an op whose SQE allocation failed. Replayed from run_loop once
 	// the CQE reap frees ring capacity.
-	void defer_op(
-		conflux::work::root::detail::small_move_only_function<void()> op);
-	void cancel_multishot_recv_or_defer(
-		SocketHandle handle);
+	void defer_op(conflux::work::root::detail::small_move_only_function<void()> op);
+	void cancel_multishot_recv_or_defer(SocketHandle handle);
 	void drain_pending_ops();
-	void defer_queue_send_if_current(
-		int fd,
-		std::uint32_t gen);
-	void defer_handle_send_complete_if_current(
-		int fd,
-		std::uint32_t gen);
-	void defer_start_streamed_body_if_current(
-		int fd,
-		std::uint32_t gen);
+	void defer_queue_send_if_current(int fd, std::uint32_t gen);
+	void defer_handle_send_complete_if_current(int fd, std::uint32_t gen);
+	void defer_start_streamed_body_if_current(int fd, std::uint32_t gen);
 	void queue_multishot_accept();
-	[[nodiscard]] RecvArmPolicy resolve_recv_arm_policy(
-		Conn const &conn) const noexcept;
-	void queue_multishot_recv(
-		int fd);
-	void queue_direct_accept_setup(
-		int fd);
+	[[nodiscard]] RecvArmPolicy resolve_recv_arm_policy(Conn const &conn) const noexcept;
+	void queue_multishot_recv(int fd);
+	void queue_direct_accept_setup(int fd);
 	// Submit WRITEV for a mapped-file response.
 	// Adjusts iovecs to skip bytes already sent (conn.written).
 	// When the body is large enough for SEND_ZC, keep the header send separate so
 	// the body can use zero-copy after the header CQE drains.
-	void queue_send_mapped(
-		int fd);
+	void queue_send_mapped(int fd);
 	// file_io streaming path. Phase 1: send headers via prep_send. Phase 2:
 	// once headers are fully delivered, kick off splice (plain) or read_fixed+
 	// SSL_write (TLS). queue_send_streamed only handles phase 1; phase 2 is
 	// triggered from handle_send once the header bytes are acked.
-	void queue_send_streamed(
-		int fd);
+	void queue_send_streamed(int fd);
 	// Acquire a pipe P and submit the splice chain via FileReader. Completion
 	// calls back into handle_streamed_splice_done on the ring std::thread.
-	void start_streamed_body(
-		int fd);
+	void start_streamed_body(int fd);
 #if CONFLUX_HAS_TLS
 	// TLS streamed body: acquire a FixedBuffer, read_fixed a chunk of the file,
 	// SSL_write it into wbio, flush and re-queue the TLS send. Pipelining depth
 	// is effectively 1 per connection — suitable for unbuffered streaming.
-	void start_streamed_tls_chunk(
-		int fd);
+	void start_streamed_tls_chunk(int fd);
 	void on_streamed_tls_chunk_done(
 		int fd,
 		std::uint32_t conn_gen,
 		FixedBuffer buf,
 		std::size_t bytes,
 		std::exception_ptr const &err);
-	void write_mapped_tls_chunk(
-		int fd,
-		Conn &conn);
+	void write_mapped_tls_chunk(int fd, Conn &conn);
 #endif
-	void on_streamed_splice_done(
-		int fd,
-		std::uint32_t conn_gen,
-		std::size_t delivered,
-		std::exception_ptr const &err);
+	void on_streamed_splice_done(int fd, std::uint32_t conn_gen, std::size_t delivered, std::exception_ptr const &err);
 #if CONFLUX_HAS_TLS
-	[[nodiscard]] bool tls_write_plaintext(
-		int fd,
-		Conn &conn,
-		std::string_view bytes);
+	[[nodiscard]] bool tls_write_plaintext(int fd, Conn &conn, std::string_view bytes);
 #endif
-	void note_send_zc_tls_bypass_if_candidate(
-		Conn &conn) noexcept;
-	void queue_send(
-		int fd);
-	[[nodiscard]] static bool response_send_ready(
-		Conn const &conn) noexcept;
-	void start_response_send(
-		int fd,
-		Conn &conn);
+	void note_send_zc_tls_bypass_if_candidate(Conn &conn) noexcept;
+	void queue_send(int fd);
+	[[nodiscard]] static bool response_send_ready(Conn const &conn) noexcept;
+	void start_response_send(int fd, Conn &conn);
 
-	void invalidate_recv_if_armed(
-		int fd);
+	void invalidate_recv_if_armed(int fd);
 	void cancel_accept_or_defer();
-	void submit_conn_close_or_defer(
-		int fd,
-		std::uint32_t gen);
-	void submit_fd_shutdown_or_defer(
-		int fd,
-		std::uint32_t gen);
-	void handle_fd_shutdown(
-		int fd,
-		int res,
-		std::uint32_t gen);
-	void queue_close(
-		int fd);
-	void queue_sse_wait(
-		int fd);
-	void queue_deferred_wait(
-		int fd);
+	void submit_conn_close_or_defer(int fd, std::uint32_t gen);
+	void submit_fd_shutdown_or_defer(int fd, std::uint32_t gen);
+	void handle_fd_shutdown(int fd, int res, std::uint32_t gen);
+	void queue_close(int fd);
+	void queue_sse_wait(int fd);
+	void queue_deferred_wait(int fd);
 	void arm_shutdown_read();
 	// Arm a one-shot periodic timer that fires every ~1 second for connection reaping.
 	void arm_timer();
 	void handle_timer();
 	void handle_shutdown();
-	void handle_accept(
-		int res,
-		std::uint32_t flg);
-	void discard_recv_bufs(
-		int res,
-		std::uint32_t flags) noexcept;
-	void discard_recv_bufs(
-		RecvComp &rc) noexcept;
-	void retire_incremental_partial(
-		int fd,
-		std::uint32_t gen,
-		Conn &conn) noexcept;
-	void reclaim_retired_incremental_recv(
-		int fd,
-		std::uint32_t gen) noexcept;
-	void clear_retired_incremental_if_final(
-		int fd,
-		std::uint32_t gen,
-		std::uint32_t flags) noexcept;
-	void handle_recv_cqe(
-		int fd,
-		int res,
-		std::uint32_t flg,
-		std::uint32_t gen);
-	bool handle_sse_send_complete(
-		int fd,
-		Conn &conn);
-	void handle_http_response_send_complete(
-		int fd,
-		Conn &conn);
-	[[nodiscard]] static bool make_blocking_fd(
-		int fd);
-	[[nodiscard]] WsHandoffState begin_ws_handoff(
-		Conn &conn);
-	void launch_plain_ws_handler(
-		WorkPool &pool,
-		WsHandoffState state,
-		int fd,
-		std::string initial_buf);
-	void finish_plain_ws_handoff(
-		int fd,
-		WsInstallEntry entry);
-	void handoff_plain_ws(
-		Conn &conn,
-		int fd);
+	void handle_accept(int res, std::uint32_t flg);
+	void discard_recv_bufs(int res, std::uint32_t flags) noexcept;
+	void discard_recv_bufs(RecvComp &rc) noexcept;
+	void retire_incremental_partial(int fd, std::uint32_t gen, Conn &conn) noexcept;
+	void reclaim_retired_incremental_recv(int fd, std::uint32_t gen) noexcept;
+	void clear_retired_incremental_if_final(int fd, std::uint32_t gen, std::uint32_t flags) noexcept;
+	void handle_recv_cqe(int fd, int res, std::uint32_t flg, std::uint32_t gen);
+	bool handle_sse_send_complete(int fd, Conn &conn);
+	void handle_http_response_send_complete(int fd, Conn &conn);
+	[[nodiscard]] static bool make_blocking_fd(int fd);
+	[[nodiscard]] WsHandoffState begin_ws_handoff(Conn &conn);
+	void launch_plain_ws_handler(WorkPool &pool, WsHandoffState state, int fd, std::string initial_buf);
+	void finish_plain_ws_handoff(int fd, WsInstallEntry entry);
+	void handoff_plain_ws(Conn &conn, int fd);
 #if CONFLUX_HAS_TLS
-	void launch_tls_ws_handler(
-		WorkPool &pool,
-		WsHandoffState state,
-		int fd,
-		SSL *ssl,
-		std::string initial_buf);
-	void handoff_tls_ws(
-		Conn &conn,
-		int fd);
+	void launch_tls_ws_handler(WorkPool &pool, WsHandoffState state, int fd, SSL *ssl, std::string initial_buf);
+	void handoff_tls_ws(Conn &conn, int fd);
 #endif
-	void queue_ws_cancel(
-		int fd,
-		WsInstallEntry entry);
+	void queue_ws_cancel(int fd, WsInstallEntry entry);
 #if CONFLUX_HAS_TLS
-	void finish_tls_ws_handoff(
-		int fd,
-		WsInstallEntry entry);
+	void finish_tls_ws_handoff(int fd, WsInstallEntry entry);
 #endif
-	void handle_ws_cancel(
-		int fd);
+	void handle_ws_cancel(int fd);
 	void queue_ws_fixed_install(
 		int slot_fd,
 		WsHandoffState state,
@@ -752,76 +631,37 @@ struct Ring {
 		SSL *ssl = nullptr
 #endif
 	);
-	void handle_fixed_fd_install(
-		int slot_fd,
-		int real_fd);
+	void handle_fixed_fd_install(int slot_fd, int real_fd);
 #if CONFLUX_HAS_TLS
 	// Called when all bytes in tls_send_buf have been sent.  Drives the
 	// post-send state machine for TLS connections.
-	void handle_send_tls_complete(
-		int fd,
-		Conn &conn);
+	void handle_send_tls_complete(int fd, Conn &conn);
 #endif // CONFLUX_HAS_TLS
 	// Called once a response (or chunk) has been fully delivered.
 	// Drives SSE/WS/normal post-send state machine.
-	void handle_send_complete(
-		int fd,
-		Conn &conn);
-	void finish_plain_send(
-		int fd,
-		Conn &conn);
-	void finish_mapped_send(
-		int fd,
-		Conn &conn);
-	void fail_send(
-		int fd,
-		Conn &conn);
-	void handle_send(
-		int fd,
-		int res,
-		std::uint32_t gen);
-	void handle_send_zc(
-		int fd,
-		int res,
-		std::uint32_t flags,
-		std::uint32_t gen);
+	void handle_send_complete(int fd, Conn &conn);
+	void finish_plain_send(int fd, Conn &conn);
+	void finish_mapped_send(int fd, Conn &conn);
+	void fail_send(int fd, Conn &conn);
+	void handle_send(int fd, int res, std::uint32_t gen);
+	void handle_send_zc(int fd, int res, std::uint32_t flags, std::uint32_t gen);
 
-	void handle_sse_poll(
-		int fd,
-		int res,
-		std::uint32_t gen);
-	void handle_deferred_poll(
-		int deferred_efd,
-		int res,
-		std::uint32_t gen);
-	void handle_conn_close(
-		int fd,
-		int res,
-		std::uint32_t gen);
-	void handle_direct_slot_close(
-		int fd,
-		int res);
-	void dispatch_cqe(
-		Op op,
-		int fd,
-		int res,
-		std::uint32_t flg,
-		std::uint32_t gen);
+	void handle_sse_poll(int fd, int res, std::uint32_t gen);
+	void handle_deferred_poll(int deferred_efd, int res, std::uint32_t gen);
+	void handle_conn_close(int fd, int res, std::uint32_t gen);
+	void handle_direct_slot_close(int fd, int res);
+	void dispatch_cqe(Op op, int fd, int res, std::uint32_t flg, std::uint32_t gen);
 	// Phase 1: copy recv data out of provided/pinned recv buffers, return
 	// ownership immediately.  RecvPayload keeps the HTTP path independent of the
 	// concrete buffer backend so a later RECV_ZC backend can preserve this flow.
 	template<typename Buf>
-	bool append_recv_buf_to(
-		Buf &dst,
-		RecvComp &rc);
+	bool append_recv_buf_to(Buf &dst, RecvComp &rc);
 	void phase1_copy_recv_bufs();
 	void finish_ready_ws_handoffs();
 #if CONFLUX_HAS_TLS
 	// Per-connection TLS recv handler: feeds ciphertext into OpenSSL, drives the
 	// handshake, and decrypts application data back into conn.partial.
-	void phase1b_tls_one(
-		Conn &conn,
-		RecvComp &rc);
+	void phase1b_tls_one(Conn &conn, RecvComp &rc);
 #endif // CONFLUX_HAS_TLS (phase1b_tls_one)
 	// Phase 1b: run TLS recv processing.
 	// Plain connections: no-op when TLS not compiled in.
@@ -831,20 +671,15 @@ struct Ring {
 	// Phase 3: return unconsumed buffers + dispatch send/close.
 	void phase3_dispatch();
 	[[nodiscard]] bool ring_integrity_suspect() const noexcept;
-	void note_recv_bundle_slices(
-		RecvSlices const &slices) noexcept;
-	void note_recv_payload(
-		RecvPayload const &payload) noexcept;
+	void note_recv_bundle_slices(RecvSlices const &slices) noexcept;
+	void note_recv_payload(RecvPayload const &payload) noexcept;
 	void note_cq_overflow() noexcept;
 	[[nodiscard]] HttpServerMetrics metrics_snapshot() const noexcept;
 	void try_grow_cq_after_overflow() noexcept;
-	void enter_ring_fatal(
-		ServerFatalReason reason) noexcept;
+	void enter_ring_fatal(ServerFatalReason reason) noexcept;
 	void close_tracked_fds_sync() noexcept;
-	void recycle_recv_buffer_direct(
-		io_uring_cqe const *cqe) noexcept;
-	void dispatch_cqe_fatal(
-		io_uring_cqe const *cqe) noexcept;
+	void recycle_recv_buffer_direct(io_uring_cqe const *cqe) noexcept;
+	void dispatch_cqe_fatal(io_uring_cqe const *cqe) noexcept;
 	void emit_ring_diagnostics() noexcept;
 	void flush_overflow_cqes_until_clear_or_limit() noexcept;
 	RunStatus run_loop();

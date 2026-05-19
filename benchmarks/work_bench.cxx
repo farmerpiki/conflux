@@ -426,8 +426,15 @@ Case make_pool_bursty_case() {
 			auto t5 = async_run_on(*pool, [] { return 6; });
 			auto t6 = async_run_on(*pool, [] { return 7; });
 			auto t7 = async_run_on(*pool, [] { return 8; });
-			auto [a, b, c, d, e, f, g, h] =
-				root::value(join_all(std::move(t0), std::move(t1), std::move(t2), std::move(t3), std::move(t4), std::move(t5), std::move(t6), std::move(t7)));
+			auto [a, b, c, d, e, f, g, h] = root::value(join_all(
+				std::move(t0),
+				std::move(t1),
+				std::move(t2),
+				std::move(t3),
+				std::move(t4),
+				std::move(t5),
+				std::move(t6),
+				std::move(t7)));
 			return static_cast<std::size_t>(a + b + c + d + e + f + g + h);
 		}};
 }

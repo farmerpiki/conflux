@@ -84,115 +84,115 @@ void add_metrics(
 }
 
 struct HttpServer::Impl {
-		Config cfg{};
-		unsigned rings{};
-		std::uint32_t uring_flags{};
-		Router router;
-		VHostRouter vhost_router;
-		bool use_vhost = false;
-		std::vector<std::unique_ptr<Ring>> ring_vec;
-		std::vector<int> shutdown_efds;
-		std::atomic<std::uint16_t> bound_port_;
-		std::mutex startup_error_mu;
-		std::exception_ptr startup_error{};
-		std::atomic_bool startup_failed{false};
-		std::atomic<std::uint8_t> run_status_{static_cast<std::uint8_t>(RunStatus::stopped_normally)};
-		// Signalled by ring[0] after init when attach_wq=true. Ring[1..N] wait
-		// here for the wq_fd before calling io_uring_queue_init_params. -2 = unset.
-		std::atomic<int> wq_ring_fd_{-2};
+	Config cfg{};
+	unsigned rings{};
+	std::uint32_t uring_flags{};
+	Router router;
+	VHostRouter vhost_router;
+	bool use_vhost = false;
+	std::vector<std::unique_ptr<Ring>> ring_vec;
+	std::vector<int> shutdown_efds;
+	std::atomic<std::uint16_t> bound_port_;
+	std::mutex startup_error_mu;
+	std::exception_ptr startup_error{};
+	std::atomic_bool startup_failed{false};
+	std::atomic<std::uint8_t> run_status_{static_cast<std::uint8_t>(RunStatus::stopped_normally)};
+	// Signalled by ring[0] after init when attach_wq=true. Ring[1..N] wait
+	// here for the wq_fd before calling io_uring_queue_init_params. -2 = unset.
+	std::atomic<int> wq_ring_fd_{-2};
 #if CONFLUX_HAS_TLS
-		std::optional<TlsServerContext> tls_ctx; // owned; shared (read-only) across rings
+	std::optional<TlsServerContext> tls_ctx; // owned; shared (read-only) across rings
 #endif
 #if CONFLUX_HAS_HTTP3
-		std::mutex http3_mu;
-		std::unique_ptr<Http3Listener> http3_listener;
+	std::mutex http3_mu;
+	std::unique_ptr<Http3Listener> http3_listener;
 #endif
-	};
+};
 
 void HttpServer::initialize(
 	Config const &cfg) {
-		impl_->cfg = cfg;
-		impl_->rings = cfg.rings == 0 ? std::thread::hardware_concurrency() : cfg.rings;
-		impl_->uring_flags = build_uring_flags(cfg);
+	impl_->cfg = cfg;
+	impl_->rings = cfg.rings == 0 ? std::thread::hardware_concurrency() : cfg.rings;
+	impl_->uring_flags = build_uring_flags(cfg);
 
 #if CONFLUX_HAS_TLS
-		// TLS setup: create SSL_CTX if cert and key are provided.
-		if (!cfg.cert_file.empty() && !cfg.key_file.empty()) {
-			init_openssl_once();
-			TlsServerOptions const primary_opts{
-				.cert_file = cfg.cert_file,
-				.key_file = cfg.key_file,
-				.cipher_list = cfg.tls_cipher_list,
-				.ciphersuites = cfg.tls_ciphersuites,
-				.ktls = cfg.ktls,
-			};
-			impl_->tls_ctx.emplace(primary_opts);
-			SSL_CTX *const ctx = impl_->tls_ctx->native_handle();
+	// TLS setup: create SSL_CTX if cert and key are provided.
+	if (!cfg.cert_file.empty() && !cfg.key_file.empty()) {
+		init_openssl_once();
+		TlsServerOptions const primary_opts{
+			.cert_file = cfg.cert_file,
+			.key_file = cfg.key_file,
+			.cipher_list = cfg.tls_cipher_list,
+			.ciphersuites = cfg.tls_ciphersuites,
+			.ktls = cfg.ktls,
+		};
+		impl_->tls_ctx.emplace(primary_opts);
+		SSL_CTX *const ctx = impl_->tls_ctx->native_handle();
 	#if CONFLUX_HAS_HTTP3
-			if (cfg.http3.enabled) {
-				http3_configure_alpn(ctx); // prefer h3, then h2, then http/1.1
-			}
+		if (cfg.http3.enabled) {
+			http3_configure_alpn(ctx); // prefer h3, then h2, then http/1.1
+		}
 		#if CONFLUX_HAS_HTTP2
-			else {
-				http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
-			}
+		else {
+			http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
+		}
 		#endif
 	#elif CONFLUX_HAS_HTTP2
-			http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
+		http2_configure_alpn(ctx); // prefer h2, fall back to http/1.1
 	#endif
 
-			// Load per-hostname SSL_CTX for SNI virtual hosts.
-			for (auto const &vh: cfg.virtual_hosts) {
-				impl_->tls_ctx->add_vhost(
-					vh.hostname,
-					TlsServerOptions{
-						.cert_file = vh.cert_file,
-						.key_file = vh.key_file,
-						.cipher_list = cfg.tls_cipher_list,
-						.ciphersuites = cfg.tls_ciphersuites,
-						.ktls = cfg.ktls,
-					});
-			}
-			impl_->tls_ctx->install_sni();
+		// Load per-hostname SSL_CTX for SNI virtual hosts.
+		for (auto const &vh: cfg.virtual_hosts) {
+			impl_->tls_ctx->add_vhost(
+				vh.hostname,
+				TlsServerOptions{
+					.cert_file = vh.cert_file,
+					.key_file = vh.key_file,
+					.cipher_list = cfg.tls_cipher_list,
+					.ciphersuites = cfg.tls_ciphersuites,
+					.ktls = cfg.ktls,
+				});
 		}
+		impl_->tls_ctx->install_sni();
+	}
 #endif // CONFLUX_HAS_TLS
 
-		impl_->ring_vec.reserve(impl_->rings);
-		impl_->shutdown_efds.reserve(impl_->rings);
-		for (unsigned i = 0; i < impl_->rings; ++i) {
-			impl_->ring_vec.emplace_back(std::make_unique<Ring>());
-			int efd = ::eventfd(0, EFD_CLOEXEC);
-			if (efd < 0) {
-				throw std::system_error{errno, std::system_category(), "eventfd (shutdown)"};
-			}
-			if (efd <= 2) {
-				int const dup = ::fcntl(efd, F_DUPFD_CLOEXEC, 3);
-				::close(efd);
-				if (dup < 0) {
-					throw std::system_error{errno, std::system_category(), "eventfd dup above stdio"};
-				}
-				efd = dup;
-			}
-			impl_->shutdown_efds.push_back(efd);
+	impl_->ring_vec.reserve(impl_->rings);
+	impl_->shutdown_efds.reserve(impl_->rings);
+	for (unsigned i = 0; i < impl_->rings; ++i) {
+		impl_->ring_vec.emplace_back(std::make_unique<Ring>());
+		int efd = ::eventfd(0, EFD_CLOEXEC);
+		if (efd < 0) {
+			throw std::system_error{errno, std::system_category(), "eventfd (shutdown)"};
 		}
+		if (efd <= 2) {
+			int const dup = ::fcntl(efd, F_DUPFD_CLOEXEC, 3);
+			::close(efd);
+			if (dup < 0) {
+				throw std::system_error{errno, std::system_category(), "eventfd dup above stdio"};
+			}
+			efd = dup;
+		}
+		impl_->shutdown_efds.push_back(efd);
 	}
+}
 
 HttpServer::HttpServer(
-		Config const &cfg,
-		Router &&router)
-		: impl_(new Impl{}) {
-		impl_->router = std::move(router);
-		initialize(cfg);
-	}
+	Config const &cfg,
+	Router &&router)
+	: impl_(new Impl{}) {
+	impl_->router = std::move(router);
+	initialize(cfg);
+}
 
 HttpServer::HttpServer(
-		Config const &cfg,
-		VHostRouter &&vhost_router)
-		: impl_(new Impl{}) {
-		impl_->use_vhost = true;
-		impl_->vhost_router = std::move(vhost_router);
-		initialize(cfg);
-	}
+	Config const &cfg,
+	VHostRouter &&vhost_router)
+	: impl_(new Impl{}) {
+	impl_->use_vhost = true;
+	impl_->vhost_router = std::move(vhost_router);
+	initialize(cfg);
+}
 
 HttpServer::~HttpServer() {
 	if (impl_) {
@@ -208,9 +208,7 @@ std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
 	Router &&router) {
 	try {
 		return std::make_unique<HttpServer>(cfg, std::move(router));
-	} catch (std::exception const &ex) {
-		return std::unexpected{std::string{ex.what()}};
-	} catch (...) {
+	} catch (std::exception const &ex) { return std::unexpected{std::string{ex.what()}}; } catch (...) {
 		return std::unexpected{std::string{"unknown HttpServer construction error"}};
 	}
 }
@@ -220,9 +218,7 @@ std::expected<std::unique_ptr<HttpServer>, std::string> HttpServer::try_create(
 	VHostRouter &&vhost_router) {
 	try {
 		return std::make_unique<HttpServer>(cfg, std::move(vhost_router));
-	} catch (std::exception const &ex) {
-		return std::unexpected{std::string{ex.what()}};
-	} catch (...) {
+	} catch (std::exception const &ex) { return std::unexpected{std::string{ex.what()}}; } catch (...) {
 		return std::unexpected{std::string{"unknown HttpServer construction error"}};
 	}
 }
@@ -235,103 +231,107 @@ void HttpServer::request_shutdown() noexcept {
 }
 
 void HttpServer::shutdown() {
-		request_shutdown();
+	request_shutdown();
 #if CONFLUX_HAS_HTTP3
-		std::unique_ptr<Http3Listener> to_stop;
-		{
-			std::scoped_lock const lk{impl_->http3_mu};
-			to_stop = std::move(impl_->http3_listener);
-		}
-		if (to_stop) {
-			to_stop->stop();
-		}
-#endif
+	std::unique_ptr<Http3Listener> to_stop;
+	{
+		std::scoped_lock const lk{impl_->http3_mu};
+		to_stop = std::move(impl_->http3_listener);
 	}
+	if (to_stop) {
+		to_stop->stop();
+	}
+#endif
+}
 
 [[nodiscard]] RunStatus HttpServer::run() noexcept {
-		try {
-			unsigned const entries = impl_->cfg.ring_entries == 0 ? DEFAULT_RING_ENTRIES : impl_->cfg.ring_entries;
+	try {
+		unsigned const entries = impl_->cfg.ring_entries == 0 ? DEFAULT_RING_ENTRIES : impl_->cfg.ring_entries;
 
-			std::vector<std::thread> threads;
-			threads.reserve(impl_->rings);
+		std::vector<std::thread> threads;
+		threads.reserve(impl_->rings);
 
-			for (unsigned i = 0; i < impl_->rings; ++i) {
-				threads.emplace_back([this, i, entries] {
-					try {
-						auto &r = *impl_->ring_vec[i];
-						r.router = impl_->use_vhost ? nullptr : &impl_->router;
-						r.vhost_router = impl_->use_vhost ? &impl_->vhost_router : nullptr;
-						r.shutdown_efd = impl_->shutdown_efds[i];
-						r.max_body_size = impl_->cfg.max_body_size;
-						r.request_timeout_ms = impl_->cfg.request_timeout_ms;
-						r.tls_sniff_timeout_ms = impl_->cfg.tls_sniff_timeout_ms;
-						r.slow_handler_diagnostics = impl_->cfg.slow_handler_diagnostics;
-						r.slow_handler_warn_ms = impl_->cfg.slow_handler_warn_ms;
-						r.http_redirect_to_https = impl_->cfg.http_redirect_to_https;
-						r.https_redirect_hosts = impl_->cfg.https_redirect_hosts;
-						r.parser_limits = impl_->cfg.parser_limits;
-						r.file_io_slabs = impl_->cfg.fixed_buffer_slabs;
-						r.file_io_slab_bytes = impl_->cfg.fixed_buffer_bytes;
-						r.file_io_pipe_pairs = impl_->cfg.splice_pipe_pairs;
-						r.send_buffer_slabs = impl_->cfg.send_buffer_slabs;
-						r.send_buffer_bytes = impl_->cfg.send_buffer_bytes;
-						r.send_fixed_buffers_enabled = impl_->cfg.send_fixed_buffers;
-						r.direct_accept_enabled_ = impl_->cfg.direct_accept;
-						r.cmd_sock_setsockopt_enabled_ = impl_->cfg.cmd_sock_setsockopt;
-						r.startup_banner = impl_->cfg.startup_banner;
+		for (unsigned i = 0; i < impl_->rings; ++i) {
+			threads.emplace_back([this, i, entries] {
+				try {
+					auto &r = *impl_->ring_vec[i];
+					r.router = impl_->use_vhost ? nullptr : &impl_->router;
+					r.vhost_router = impl_->use_vhost ? &impl_->vhost_router : nullptr;
+					r.shutdown_efd = impl_->shutdown_efds[i];
+					r.max_body_size = impl_->cfg.max_body_size;
+					r.request_timeout_ms = impl_->cfg.request_timeout_ms;
+					r.tls_sniff_timeout_ms = impl_->cfg.tls_sniff_timeout_ms;
+					r.slow_handler_diagnostics = impl_->cfg.slow_handler_diagnostics;
+					r.slow_handler_warn_ms = impl_->cfg.slow_handler_warn_ms;
+					r.http_redirect_to_https = impl_->cfg.http_redirect_to_https;
+					r.https_redirect_hosts = impl_->cfg.https_redirect_hosts;
+					r.parser_limits = impl_->cfg.parser_limits;
+					r.file_io_slabs = impl_->cfg.fixed_buffer_slabs;
+					r.file_io_slab_bytes = impl_->cfg.fixed_buffer_bytes;
+					r.file_io_pipe_pairs = impl_->cfg.splice_pipe_pairs;
+					r.send_buffer_slabs = impl_->cfg.send_buffer_slabs;
+					r.send_buffer_bytes = impl_->cfg.send_buffer_bytes;
+					r.send_fixed_buffers_enabled = impl_->cfg.send_fixed_buffers;
+					r.direct_accept_enabled_ = impl_->cfg.direct_accept;
+					r.cmd_sock_setsockopt_enabled_ = impl_->cfg.cmd_sock_setsockopt;
+					r.startup_banner = impl_->cfg.startup_banner;
 #if CONFLUX_HAS_TLS
-						r.ssl_ctx = impl_->tls_ctx ? impl_->tls_ctx->native_handle() : nullptr;
+					r.ssl_ctx = impl_->tls_ctx ? impl_->tls_ctx->native_handle() : nullptr;
 // vhost_ctxs on Ring is informational only; SNI callback is already
 // registered on the primary SSL_CTX in the constructor.
 #endif
-						if (i == 0)
-							r.port_signal = &impl_->bound_port_;
-						int parent = -1;
-						if (impl_->cfg.attach_wq && i > 0) {
-							impl_->wq_ring_fd_.wait(-2, std::memory_order_acquire);
-							parent = impl_->wq_ring_fd_.load(std::memory_order_acquire);
-						}
-						std::uint32_t const wq_fd = wq_fd_for_ring(impl_->cfg, i, parent);
-						r.use_recv_incremental_buf = impl_->cfg.recv_incremental_buf && CONFLUX_ENABLE_RECV_INCREMENTAL_BUF;
-						r.use_recv_bundle = !r.use_recv_incremental_buf && impl_->cfg.recv_bundle && CONFLUX_ENABLE_RECV_BUNDLE;
-						r.init(impl_->cfg.port, entries, impl_->uring_flags, wq_fd, impl_->cfg.no_mmap);
-						r.auto_recv_arm_policy = impl_->cfg.auto_recv_arm_policy;
-						r.busy_poll_us_ = static_cast<int>(impl_->cfg.busy_poll_us);
-						r.prefer_busy_poll_ = impl_->cfg.prefer_busy_poll;
-						r.ring_core_ = impl_->cfg.ring_core >= 0 ? impl_->cfg.ring_core + static_cast<int>(i) : -1;
-						r.worker_core_ =
-							impl_->cfg.worker_core_base >= 0 ? impl_->cfg.worker_core_base + static_cast<int>(i) : -1;
-						r.send_zc_threshold_ = impl_->cfg.send_zc_threshold;
-						r.send_zc_report_usage_ = impl_->cfg.send_zc_report_usage;
-						if (impl_->cfg.send_zc == "on") {
+					if (i == 0)
+						r.port_signal = &impl_->bound_port_;
+					int parent = -1;
+					if (impl_->cfg.attach_wq && i > 0) {
+						impl_->wq_ring_fd_.wait(-2, std::memory_order_acquire);
+						parent = impl_->wq_ring_fd_.load(std::memory_order_acquire);
+					}
+					std::uint32_t const wq_fd = wq_fd_for_ring(impl_->cfg, i, parent);
+					r.use_recv_incremental_buf = impl_->cfg.recv_incremental_buf && CONFLUX_ENABLE_RECV_INCREMENTAL_BUF;
+					r.use_recv_bundle =
+						!r.use_recv_incremental_buf && impl_->cfg.recv_bundle && CONFLUX_ENABLE_RECV_BUNDLE;
+					r.init(impl_->cfg.port, entries, impl_->uring_flags, wq_fd, impl_->cfg.no_mmap);
+					r.auto_recv_arm_policy = impl_->cfg.auto_recv_arm_policy;
+					r.busy_poll_us_ = static_cast<int>(impl_->cfg.busy_poll_us);
+					r.prefer_busy_poll_ = impl_->cfg.prefer_busy_poll;
+					r.ring_core_ = impl_->cfg.ring_core >= 0 ? impl_->cfg.ring_core + static_cast<int>(i) : -1;
+					r.worker_core_ =
+						impl_->cfg.worker_core_base >= 0 ? impl_->cfg.worker_core_base + static_cast<int>(i) : -1;
+					r.send_zc_threshold_ = impl_->cfg.send_zc_threshold;
+					r.send_zc_report_usage_ = impl_->cfg.send_zc_report_usage;
+					if (impl_->cfg.send_zc == "on") {
 #if !CONFLUX_ENABLE_SEND_ZC
-							throw std::runtime_error{"send_zc = on but experimental SEND_ZC is disabled at build time"};
+						throw std::runtime_error{"send_zc = on but experimental SEND_ZC is disabled at build time"};
 #else
-							if (!r.caps.send_zc)
-								throw std::runtime_error{"send_zc = on but kernel does not support IORING_OP_SEND_ZC"};
-							r.send_zc_enabled_ = true;
+						if (!r.caps.send_zc)
+							throw std::runtime_error{"send_zc = on but kernel does not support IORING_OP_SEND_ZC"};
+						r.send_zc_enabled_ = true;
 #endif
-						} else if (impl_->cfg.send_zc == "auto") {
-							r.send_zc_enabled_ = CONFLUX_ENABLE_SEND_ZC && r.caps.send_zc;
-						}
-						if (impl_->cfg.attach_wq && i == 0) {
-							impl_->wq_ring_fd_.store(r.ring.ring_fd, std::memory_order_release);
-							impl_->wq_ring_fd_.notify_all();
-						}
+					} else if (impl_->cfg.send_zc == "auto") {
+						r.send_zc_enabled_ = CONFLUX_ENABLE_SEND_ZC && r.caps.send_zc;
+					}
+					if (impl_->cfg.attach_wq && i == 0) {
+						impl_->wq_ring_fd_.store(r.ring.ring_fd, std::memory_order_release);
+						impl_->wq_ring_fd_.notify_all();
+					}
 #if CONFLUX_HAS_HTTP3
-						if (impl_->cfg.http3.enabled && !impl_->use_vhost && impl_->tls_ctx)
-							r.alt_svc_header = http3_alt_svc_value(r.bound_port, impl_->cfg.http3.alt_svc_max_age_sec);
+					if (impl_->cfg.http3.enabled && !impl_->use_vhost && impl_->tls_ctx)
+						r.alt_svc_header = http3_alt_svc_value(r.bound_port, impl_->cfg.http3.alt_svc_max_age_sec);
 #endif
 
-						if (i == 0 && impl_->cfg.startup_banner) {
-							auto const feat_s = caps_to_log_string(r.caps);
-							eprintln(std::format("uring_features={}", feat_s.empty() ? "none" : feat_s));
-							eprintln(std::format("uring_setup_flags_requested={}", setup_flags_str(r.requested_setup_flags_)));
-							eprintln(std::format("uring_setup_flags_active={}", setup_flags_str(r.active_setup_flags_)));
-							eprintln(std::format("uring_setup_flags_stripped={}", setup_flags_str(r.stripped_setup_flags_)));
-						}
-						if (i == 0 && impl_->cfg.startup_banner)
-							eprintln(std::format(
+					if (i == 0 && impl_->cfg.startup_banner) {
+						auto const feat_s = caps_to_log_string(r.caps);
+						eprintln(std::format("uring_features={}", feat_s.empty() ? "none" : feat_s));
+						eprintln(
+							std::format("uring_setup_flags_requested={}", setup_flags_str(r.requested_setup_flags_)));
+						eprintln(std::format("uring_setup_flags_active={}", setup_flags_str(r.active_setup_flags_)));
+						eprintln(
+							std::format("uring_setup_flags_stripped={}", setup_flags_str(r.stripped_setup_flags_)));
+					}
+					if (i == 0 && impl_->cfg.startup_banner)
+						eprintln(
+							std::format(
 								"listening on {}://0.0.0.0:{}  "
 								"(rings={}, entries={}, flags={}, listen_fixed={}, accepted_sockets_direct={}, "
 								"buf_ring=true)",
@@ -347,100 +347,91 @@ void HttpServer::shutdown() {
 								r.listen_fixed,
 								r.accepted_sockets_direct));
 
-						auto const status = r.run_loop();
-						if (status != RunStatus::stopped_normally) {
-							std::uint8_t expected = static_cast<std::uint8_t>(RunStatus::stopped_normally);
-							impl_->run_status_.compare_exchange_strong(
-								expected,
-								static_cast<std::uint8_t>(status),
-								std::memory_order_release,
-								std::memory_order_relaxed);
-							shutdown();
-						}
-					} catch (...) {
-						{
-							std::scoped_lock const lk{impl_->startup_error_mu};
-							if (!impl_->startup_error)
-								impl_->startup_error = std::current_exception();
-						}
-						impl_->startup_failed.store(true, std::memory_order_release);
-						{
-							std::uint8_t expected = static_cast<std::uint8_t>(RunStatus::stopped_normally);
-							impl_->run_status_.compare_exchange_strong(
-								expected,
-								static_cast<std::uint8_t>(RunStatus::fatal_internal_exception),
-								std::memory_order_release,
-								std::memory_order_relaxed);
-						}
-						impl_->bound_port_.store(std::numeric_limits<std::uint16_t>::max(), std::memory_order_release);
-						impl_->bound_port_.notify_all();
-						if (impl_->cfg.attach_wq && i == 0) {
-							impl_->wq_ring_fd_.store(-1, std::memory_order_release);
-							impl_->wq_ring_fd_.notify_all();
-						}
+					auto const status = r.run_loop();
+					if (status != RunStatus::stopped_normally) {
+						std::uint8_t expected = static_cast<std::uint8_t>(RunStatus::stopped_normally);
+						impl_->run_status_.compare_exchange_strong(
+							expected,
+							static_cast<std::uint8_t>(status),
+							std::memory_order_release,
+							std::memory_order_relaxed);
 						shutdown();
 					}
-				});
-			}
-
-#if CONFLUX_HAS_HTTP3
-			if (impl_->cfg.http3.enabled && impl_->tls_ctx && !impl_->use_vhost) {
-				std::uint16_t const h3_port = port();
-				auto listener = std::make_unique<Http3Listener>(
-					impl_->use_vhost ? nullptr : &impl_->router,
-					impl_->cfg.http3,
-					h3_port,
-					impl_->tls_ctx->native_handle());
-				listener->start();
-				{
-					std::scoped_lock const lk{impl_->http3_mu};
-					impl_->http3_listener = std::move(listener);
+				} catch (...) {
+					{
+						std::scoped_lock const lk{impl_->startup_error_mu};
+						if (!impl_->startup_error)
+							impl_->startup_error = std::current_exception();
+					}
+					impl_->startup_failed.store(true, std::memory_order_release);
+					{
+						std::uint8_t expected = static_cast<std::uint8_t>(RunStatus::stopped_normally);
+						impl_->run_status_.compare_exchange_strong(
+							expected,
+							static_cast<std::uint8_t>(RunStatus::fatal_internal_exception),
+							std::memory_order_release,
+							std::memory_order_relaxed);
+					}
+					impl_->bound_port_.store(std::numeric_limits<std::uint16_t>::max(), std::memory_order_release);
+					impl_->bound_port_.notify_all();
+					if (impl_->cfg.attach_wq && i == 0) {
+						impl_->wq_ring_fd_.store(-1, std::memory_order_release);
+						impl_->wq_ring_fd_.notify_all();
+					}
+					shutdown();
 				}
-			}
-#endif
+			});
+		}
 
-			for (auto &t: threads) {
-				t.join();
-			}
 #if CONFLUX_HAS_HTTP3
-			std::unique_ptr<Http3Listener> to_reset;
+		if (impl_->cfg.http3.enabled && impl_->tls_ctx && !impl_->use_vhost) {
+			std::uint16_t const h3_port = port();
+			auto listener = std::make_unique<Http3Listener>(
+				impl_->use_vhost ? nullptr : &impl_->router,
+				impl_->cfg.http3,
+				h3_port,
+				impl_->tls_ctx->native_handle());
+			listener->start();
 			{
 				std::scoped_lock const lk{impl_->http3_mu};
-				to_reset = std::move(impl_->http3_listener);
+				impl_->http3_listener = std::move(listener);
 			}
-			if (to_reset) {
-				to_reset->stop();
-			}
+		}
 #endif
-			return static_cast<RunStatus>(impl_->run_status_.load(std::memory_order_acquire));
-		} catch (...) { return RunStatus::fatal_internal_exception; }
-	}
+
+		for (auto &t: threads) {
+			t.join();
+		}
+#if CONFLUX_HAS_HTTP3
+		std::unique_ptr<Http3Listener> to_reset;
+		{
+			std::scoped_lock const lk{impl_->http3_mu};
+			to_reset = std::move(impl_->http3_listener);
+		}
+		if (to_reset) {
+			to_reset->stop();
+		}
+#endif
+		return static_cast<RunStatus>(impl_->run_status_.load(std::memory_order_acquire));
+	} catch (...) { return RunStatus::fatal_internal_exception; }
+}
 
 [[nodiscard]] HttpServerMetrics HttpServer::metrics() const noexcept {
-		HttpServerMetrics out{};
-		if (impl_ == nullptr) {
-			return out;
-		}
-		for (auto const &ring: impl_->ring_vec) {
-			if (ring) {
-				add_metrics(out, ring->metrics_snapshot());
-			}
-		}
+	HttpServerMetrics out{};
+	if (impl_ == nullptr) {
 		return out;
 	}
+	for (auto const &ring: impl_->ring_vec) {
+		if (ring) {
+			add_metrics(out, ring->metrics_snapshot());
+		}
+	}
+	return out;
+}
 
 [[nodiscard]] std::uint16_t HttpServer::port() const {
-		std::uint16_t p = 0;
-		while ((p = impl_->bound_port_.load(std::memory_order_acquire)) == 0) {
-			if (impl_->startup_failed.load(std::memory_order_acquire)) {
-				std::scoped_lock const lk{impl_->startup_error_mu};
-				if (impl_->startup_error) {
-					std::rethrow_exception(impl_->startup_error);
-				}
-				throw std::runtime_error{"HttpServer startup failed"};
-			}
-			impl_->bound_port_.wait(0, std::memory_order_acquire);
-		}
+	std::uint16_t p = 0;
+	while ((p = impl_->bound_port_.load(std::memory_order_acquire)) == 0) {
 		if (impl_->startup_failed.load(std::memory_order_acquire)) {
 			std::scoped_lock const lk{impl_->startup_error_mu};
 			if (impl_->startup_error) {
@@ -448,5 +439,14 @@ void HttpServer::shutdown() {
 			}
 			throw std::runtime_error{"HttpServer startup failed"};
 		}
-		return p;
+		impl_->bound_port_.wait(0, std::memory_order_acquire);
 	}
+	if (impl_->startup_failed.load(std::memory_order_acquire)) {
+		std::scoped_lock const lk{impl_->startup_error_mu};
+		if (impl_->startup_error) {
+			std::rethrow_exception(impl_->startup_error);
+		}
+		throw std::runtime_error{"HttpServer startup failed"};
+	}
+	return p;
+}

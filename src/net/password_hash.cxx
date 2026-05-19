@@ -675,7 +675,8 @@ struct HmacSha256Key {
 	std::uint32_t hash_bytes) {
 	Argon2Api const &api = argon2_api();
 	if (api.hash_raw == nullptr) {
-		return std::unexpected{"password std::hash: Argon2id unavailable (backend not configured or libargon2 unavailable)"};
+		return std::unexpected{
+			"password std::hash: Argon2id unavailable (backend not configured or libargon2 unavailable)"};
 	}
 	if (password.size() > kMaxPasswordBytes) {
 		return std::unexpected{"password std::hash: password too large"};
@@ -888,7 +889,7 @@ export [[nodiscard]] std::expected<PasswordVerifyResult, std::string> password_v
 	if (!raw) {
 		return std::unexpected{raw.error()};
 	}
-		result.ok = constant_time_eq(parsed->hash, *raw);
+	result.ok = constant_time_eq(parsed->hash, *raw);
 	if (!result.ok
 		&& parsed->algorithm == PasswordHashAlgorithm::pbkdf2_sha256
 		&& !parsed->uses_verifier_secret

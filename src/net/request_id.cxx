@@ -47,26 +47,26 @@ export Router::Middleware request_id_middleware(
 	// Lowercase header name for lookup in req.headers (keys are lowercased).
 	std::string lower_header = ascii_lower(opts.header);
 
-	return
-		[opts = std::move(opts),
-		 lower_header = std::move(lower_header)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
-			std::string id;
-			if (opts.trust_incoming) {
-				auto existing = req.headers[lower_header];
-				if (!existing.empty()) {
-					id = std::string{existing};
-				}
+	return [opts = std::move(opts),
+			lower_header =
+				std::move(lower_header)](HttpRequestView const &req, Router::Handler const &next) -> HttpResponse {
+		std::string id;
+		if (opts.trust_incoming) {
+			auto existing = req.headers[lower_header];
+			if (!existing.empty()) {
+				id = std::string{existing};
 			}
-			if (id.empty()) {
-				id = request_id_detail::generate_uuid();
-			}
+		}
+		if (id.empty()) {
+			id = request_id_detail::generate_uuid();
+		}
 
-			// Inject the ID into the request so downstream handlers can read it.
-			auto enriched = req.to_owned();
-			enriched.headers[lower_header] = id;
+		// Inject the ID into the request so downstream handlers can read it.
+		auto enriched = req.to_owned();
+		enriched.headers[lower_header] = id;
 
-			auto resp = next(enriched);
-			resp.headers[opts.header] = id;
-			return resp;
-		};
+		auto resp = next(enriched);
+		resp.headers[opts.header] = id;
+		return resp;
+	};
 }

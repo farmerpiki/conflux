@@ -476,8 +476,9 @@ TEST_CASE(
 	};
 	root::abandon_to(std::move(task), Sink{&seen_mtx, &seen, &done});
 
-	std::jthread const worker{
-		[source = std::move(src)]() mutable { (void)source.try_set_exception(make_exception_ptr(std::runtime_error{"armed"})); }};
+	std::jthread const worker{[source = std::move(src)]() mutable {
+		(void)source.try_set_exception(make_exception_ptr(std::runtime_error{"armed"}));
+	}};
 	auto worker_tid = worker.get_id();
 
 	for (int i = 0; i < 100 && !done.load(std::memory_order_acquire); ++i) {

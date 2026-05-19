@@ -255,7 +255,8 @@ int main(
 				mib_per_sec(bytes, co.best_ns),
 				co.best_ns);
 			std::println(
-				"{{\"config\":\"default\",\"variant\":\"splice_chain\",\"iterations\":{},\"total_ns\":{},\"ns_per_iter\":{"
+				"{{\"config\":\"default\",\"variant\":\"splice_chain\",\"iterations\":{},\"total_ns\":{},\"ns_per_"
+				"iter\":{"
 				":.2f},\"avg_mib_per_s\":{:.1f},\"best_mib_per_s\":{:.1f},\"best_ns\":{}}}",
 				cfg.runs,
 				sp.total_ns,
@@ -264,7 +265,11 @@ int main(
 				mib_per_sec(bytes, sp.best_ns),
 				sp.best_ns);
 		} else {
-			std::println("size: {} MiB, chunk: {} KiB, runs: {} (+1 warmup each)", cfg.size_mib, cfg.chunk_kib, cfg.runs);
+			std::println(
+				"size: {} MiB, chunk: {} KiB, runs: {} (+1 warmup each)",
+				cfg.size_mib,
+				cfg.chunk_kib,
+				cfg.runs);
 			std::println(
 				"  callback     avg {:>9.1f} ms  best {:>9.1f} ms  avg {:>6.1f} MiB/s  best {:>6.1f} MiB/s",
 				cb_avg / 1e6,

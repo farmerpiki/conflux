@@ -255,8 +255,8 @@ HttpResponse handle_static_get_request(
 		if (sopts.offload_pool) {
 			auto owned_sreq = StaticRequestStorage::from(sreq);
 			auto dr = std::make_shared<DeferredResponse>();
-			auto ok =
-				sopts.offload_pool->enqueue([rd, root_fd, sopts, sreq = std::move(owned_sreq), &static_cache, dr]() mutable {
+			auto ok = sopts.offload_pool->enqueue(
+				[rd, root_fd, sopts, sreq = std::move(owned_sreq), &static_cache, dr]() mutable {
 					try {
 						dr->complete(handle_static_get(rd, root_fd, sopts, sreq.view(), static_cache));
 					} catch (...) { dr->complete(HttpResponse::internal_error()); }
@@ -307,20 +307,24 @@ HttpResponse handle_static_put(
 			auto dr = std::make_shared<DeferredResponse>();
 			auto body_owned = std::make_shared<std::string>(req.body);
 			auto rfd = root_fd;
-			auto ok = sopts.offload_pool->enqueue(
-				[full_path = std::move(full_path), rel = std::move(rel), rfd, body_owned, existed, &static_cache, dr]() mutable {
-					auto r =
-						blocking_write_text_file_atomic_at(rfd, std::string_view{rel}, std::string_view{*body_owned});
-					if (!r) {
-						dr->complete(HttpResponse::internal_error());
-						return;
-					}
-					static_cache.evict_all_encodings(full_path);
-					HttpResponse resp;
-					resp.status = existed ? kHttpNoContent : kHttpCreated;
-					resp.status_text = existed ? "No Content" : "Created";
-					dr->complete(std::move(resp));
-				});
+			auto ok = sopts.offload_pool->enqueue([full_path = std::move(full_path),
+												   rel = std::move(rel),
+												   rfd,
+												   body_owned,
+												   existed,
+												   &static_cache,
+												   dr]() mutable {
+				auto r = blocking_write_text_file_atomic_at(rfd, std::string_view{rel}, std::string_view{*body_owned});
+				if (!r) {
+					dr->complete(HttpResponse::internal_error());
+					return;
+				}
+				static_cache.evict_all_encodings(full_path);
+				HttpResponse resp;
+				resp.status = existed ? kHttpNoContent : kHttpCreated;
+				resp.status_text = existed ? "No Content" : "Created";
+				dr->complete(std::move(resp));
+			});
 			if (!ok) {
 				return HttpResponse::internal_error("offload queue full");
 			}
@@ -855,7 +859,8 @@ HttpResponse handle_static_get(
 			auto resp = base_response(kHttpPartialContent, "Partial Content");
 			resp.headers["Content-Range"] = static_content_range(range_start, range_end, file_size);
 			resp.set_mapped_file(
-				std::make_shared<MappedBody>(MappedBody{.lease = std::move(*lease), .offset = range_start, .size = send_sz}));
+				std::make_shared<MappedBody>(
+					MappedBody{.lease = std::move(*lease), .offset = range_start, .size = send_sz}));
 			return resp;
 		}
 

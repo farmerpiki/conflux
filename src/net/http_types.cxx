@@ -541,7 +541,8 @@ std::expected<Url, UrlError> Url::parse(
 	}
 
 	if (url.scheme != "http" && url.scheme != "https") {
-		return std::unexpected(UrlError{UrlErrorKind::unsupported_scheme, std::format("unsupported scheme '{}'", url.scheme)});
+		return std::unexpected(
+			UrlError{UrlErrorKind::unsupported_scheme, std::format("unsupported scheme '{}'", url.scheme)});
 	}
 	url.port = (url.scheme == "https") ? std::uint16_t{443} : std::uint16_t{80};
 

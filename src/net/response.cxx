@@ -325,10 +325,10 @@ export struct HttpResponse {
 	}
 	[[nodiscard]] static HttpResponse bad_request(
 		std::string_view detail = {}) {
-		auto body =
-			detail.empty() ?
-				std::string{"<html><body><h1>400 Bad Request</h1></body></html>"} :
-				std::format("<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>", response_html_escape(detail));
+		auto body = detail.empty() ? std::string{"<html><body><h1>400 Bad Request</h1></body></html>"} :
+									 std::format(
+										 "<html><body><h1>400 Bad Request</h1><p>{}</p></body></html>",
+										 response_html_escape(detail));
 		HttpResponse r;
 		r.status = kHttpBadRequest;
 		r.status_text = "Bad Request";

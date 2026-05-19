@@ -403,7 +403,10 @@ struct ActiveTaskGuard {
 		UdpSocket sock = UdpSocket::ephemeral(ring, static_cast<int>(ns.addr.ss_family));
 		std::array<std::uint8_t, kRxSize> rx_buf{};
 		// P1-08: UDP send cancel not covered; cancellation detected on next recv
-		co_await sock.async_send_to_borrowed(std::span<std::uint8_t const>{wire.data(), wire.size()}, ns.addr, ns.addr_len);
+		co_await sock.async_send_to_borrowed(
+			std::span<std::uint8_t const>{wire.data(), wire.size()},
+			ns.addr,
+			ns.addr_len);
 		check_cancelled();
 		auto const deadline = std::chrono::steady_clock::now() + timeout;
 		for (;;) {
@@ -524,8 +527,8 @@ struct ActiveTaskGuard {
 		{
 			std::size_t sent = 0;
 			while (sent < framed.size()) {
-				auto write_task =
-					stream.async_write_borrowed(std::span<std::uint8_t const>{framed.data() + sent, framed.size() - sent});
+				auto write_task = stream.async_write_borrowed(
+					std::span<std::uint8_t const>{framed.data() + sent, framed.size() - sent});
 				ActiveTaskGuard g{*state, write_task.control()};
 				std::size_t const n = co_await std::move(write_task);
 				if (n == 0) {
@@ -539,8 +542,9 @@ struct ActiveTaskGuard {
 		{
 			std::size_t n = 0;
 			while (n < 2) {
-				root::Task<std::size_t> recv_task =
-					stream.async_recv_borrowed(std::span<std::uint8_t>{len_buf.data() + n, 2 - n}, remaining_or_throw());
+				root::Task<std::size_t> recv_task = stream.async_recv_borrowed(
+					std::span<std::uint8_t>{len_buf.data() + n, 2 - n},
+					remaining_or_throw());
 				ActiveTaskGuard g{*state, recv_task.control()};
 				std::size_t const got = co_await std::move(recv_task);
 				if (got == 0) {
@@ -569,7 +573,8 @@ struct ActiveTaskGuard {
 				resp_n += got;
 			}
 		}
-		auto msg = codec::decode_message(std::span<std::uint8_t const>{resp_buf.data(), static_cast<std::size_t>(resp_len)});
+		auto msg =
+			codec::decode_message(std::span<std::uint8_t const>{resp_buf.data(), static_cast<std::size_t>(resp_len)});
 		if (!has_expected_question(msg, expected_id, expected_qname, expected_qtype)) {
 			throw DnsError{DnsErrorKind::malformed, "dns: tcp response mismatch"};
 		}
@@ -946,7 +951,13 @@ public:
 	AddressFamily prefer,
 	bool v4,
 	bool v6) {
-	return std::format("{}:{}:{}{}{}", host, port, prefer == AddressFamily::v4 ? '4' : '6', v4 ? '4' : '-', v6 ? '6' : '-');
+	return std::format(
+		"{}:{}:{}{}{}",
+		host,
+		port,
+		prefer == AddressFamily::v4 ? '4' : '6',
+		v4 ? '4' : '-',
+		v6 ? '6' : '-');
 }
 [[nodiscard]] std::chrono::milliseconds effective_native_timeout(
 	ResolveOptions const &opts) noexcept {
@@ -1623,7 +1634,8 @@ std::expected<ResolveResult, DnsError> Resolver::resolve_blocking(
 				}
 				if (impl_->cache && !cache_key.empty() && !result.endpoints.empty()) {
 					auto const max_ttl = impl_->opts.cache_max_ttl;
-					auto const ttl = (result.suggested_ttl.count() > 0) ? std::min(result.suggested_ttl, max_ttl) : max_ttl;
+					auto const ttl =
+						(result.suggested_ttl.count() > 0) ? std::min(result.suggested_ttl, max_ttl) : max_ttl;
 					try {
 						impl_->cache->put(cache_key, result, ttl);
 					} catch (...) {} // NOLINT(bugprone-empty-catch)

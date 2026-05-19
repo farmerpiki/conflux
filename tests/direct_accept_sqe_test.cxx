@@ -133,13 +133,8 @@ TEST_CASE(
 
 	auto *ring_raw = ring.raw();
 	unsigned const tail_before = ring_raw->sq.sqe_tail;
-	CHECK_FALSE(submit_direct_tcp_accept_setup_recv_to_group(
-		raw,
-		SocketHandle::from_os(42),
-		target,
-		0x11u,
-		0x22u,
-		opts));
+	CHECK_FALSE(
+		submit_direct_tcp_accept_setup_recv_to_group(raw, SocketHandle::from_os(42), target, 0x11u, 0x22u, opts));
 	CHECK(ring_raw->sq.sqe_tail == tail_before);
 }
 
@@ -158,13 +153,8 @@ TEST_CASE(
 
 	auto *ring_raw = ring.raw();
 	unsigned const tail_before = ring_raw->sq.sqe_tail;
-	REQUIRE(submit_direct_tcp_accept_setup_recv_to_group(
-		raw,
-		SocketHandle::from_direct(2),
-		target,
-		0x11u,
-		0x22u,
-		opts));
+	REQUIRE(
+		submit_direct_tcp_accept_setup_recv_to_group(raw, SocketHandle::from_direct(2), target, 0x11u, 0x22u, opts));
 	CHECK(ring_raw->sq.sqe_tail - tail_before == 2);
 	check_cmd_setsockopt_sqe(sqe_at(ring_raw, tail_before, 0), 2, IPPROTO_TCP, TCP_NODELAY, 0x11u, true);
 	CHECK(sqe_at(ring_raw, tail_before, 1).opcode == IORING_OP_RECV);

@@ -618,13 +618,14 @@ void Ring::handle_fd_shutdown(
 	int fd,
 	int res,
 	std::uint32_t gen) {
-	HTTP_TRACE(std::format(
-		"fd_shutdown fd={} res={} gen={} direct={} mode={}",
-		fd,
-		res,
-		gen,
-		accepted_sockets_direct,
-		buffer_ring_mode_name(buf_ring_->mode())));
+	HTTP_TRACE(
+		std::format(
+			"fd_shutdown fd={} res={} gen={} direct={} mode={}",
+			fd,
+			res,
+			gen,
+			accepted_sockets_direct,
+			buffer_ring_mode_name(buf_ring_->mode())));
 	auto const ufd = static_cast<std::size_t>(fd);
 	if (ufd >= fd_table.size() || fd_table[ufd].gen != gen) {
 		return;
@@ -637,15 +638,16 @@ void Ring::queue_close(
 	int fd) {
 	auto const ufd = static_cast<std::size_t>(fd);
 	auto const gen = (ufd < fd_table.size()) ? fd_table[ufd].gen : std::uint32_t{0};
-	HTTP_TRACE(std::format(
-		"queue_close fd={} gen={} direct={} closing={} recv_armed={} zc_waiting={} mode={}",
-		fd,
-		gen,
-		accepted_sockets_direct,
-		ufd < fd_table.size() ? fd_table[ufd].closing : false,
-		ufd < fd_table.size() ? fd_table[ufd].recv_armed : false,
-		ufd < fd_table.size() ? fd_table[ufd].zc_state.waiting_notification : false,
-		buffer_ring_mode_name(buf_ring_->mode())));
+	HTTP_TRACE(
+		std::format(
+			"queue_close fd={} gen={} direct={} closing={} recv_armed={} zc_waiting={} mode={}",
+			fd,
+			gen,
+			accepted_sockets_direct,
+			ufd < fd_table.size() ? fd_table[ufd].closing : false,
+			ufd < fd_table.size() ? fd_table[ufd].recv_armed : false,
+			ufd < fd_table.size() ? fd_table[ufd].zc_state.waiting_notification : false,
+			buffer_ring_mode_name(buf_ring_->mode())));
 	if (ufd < fd_table.size()) {
 		if (fd_table[ufd].closing) {
 			return;
@@ -818,25 +820,27 @@ void Ring::handle_accept(
 	int res,
 	std::uint32_t flg) {
 	if (res < 0) {
-		HTTP_TRACE(std::format(
-			"accept_err res={} direct={} recv_bundle={} mode={} more={}",
-			res,
-			accepted_sockets_direct,
-			use_recv_bundle,
-			buffer_ring_mode_name(buf_ring_->mode()),
-			cqe_has_more(flg)));
+		HTTP_TRACE(
+			std::format(
+				"accept_err res={} direct={} recv_bundle={} mode={} more={}",
+				res,
+				accepted_sockets_direct,
+				use_recv_bundle,
+				buffer_ring_mode_name(buf_ring_->mode()),
+				cqe_has_more(flg)));
 		if (!shutting_down) {
 			queue_multishot_accept();
 		}
 		return;
 	}
-	HTTP_TRACE(std::format(
-		"accept fd={} direct={} recv_bundle={} mode={} more={}",
-		res,
-		accepted_sockets_direct,
-		use_recv_bundle,
-		buffer_ring_mode_name(buf_ring_->mode()),
-		cqe_has_more(flg)));
+	HTTP_TRACE(
+		std::format(
+			"accept fd={} direct={} recv_bundle={} mode={} more={}",
+			res,
+			accepted_sockets_direct,
+			use_recv_bundle,
+			buffer_ring_mode_name(buf_ring_->mode()),
+			cqe_has_more(flg)));
 	if (accepted_sockets_direct && direct_slots_) {
 		if (!direct_slots_->adopt_kernel_allocated(static_cast<std::uint32_t>(res))) {
 			++accepted_direct_failures_;

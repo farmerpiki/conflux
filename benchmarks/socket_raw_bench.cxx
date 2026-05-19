@@ -1,11 +1,11 @@
 #include <arpa/inet.h>
+#include <conflux/detail/discard.hxx>
 #include <liburing.h>
+#include <memory>
 #include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include <memory>
-#include <conflux/detail/discard.hxx>
 
 import std;
 import conflux.types;
@@ -1275,9 +1275,9 @@ void run_recv_arm_policy_resolve(
 					for (std::uint32_t flg: flags) {
 						RecvArmPolicy arm = RecvArmPolicy::default_;
 						switch (mode) {
-							case PolicyMode::default_  : arm = RecvArmPolicy::default_; break;
-							case PolicyMode::poll_first: arm = RecvArmPolicy::poll_first; break;
-							case PolicyMode::adaptive   : arm = resolve_recv_arm_policy(true, true, true, flg); break;
+						case PolicyMode::default_  : arm = RecvArmPolicy::default_; break;
+						case PolicyMode::poll_first: arm = RecvArmPolicy::poll_first; break;
+						case PolicyMode::adaptive  : arm = resolve_recv_arm_policy(true, true, true, flg); break;
 						}
 						sink += static_cast<std::uint64_t>(arm);
 					}
@@ -1439,7 +1439,8 @@ void run_buf_slices_from_cqe_classic(
 		.run =
 			[&] {
 				std::uint16_t const id = bufs.ring_id_at(bufs.debug_head_pos());
-				std::uint32_t const flags = IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
+				std::uint32_t const flags =
+					IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
 				auto slices = buffer_slices_from_cqe(bufs, 64, flags, false);
 				slices.recycle_all();
 			},
@@ -1470,7 +1471,8 @@ void run_buf_slices_from_cqe_bundle(
 		.run =
 			[&] {
 				std::uint16_t const id = bufs.ring_id_at(bufs.debug_head_pos());
-				std::uint32_t const flags = IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
+				std::uint32_t const flags =
+					IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
 				auto slices = buffer_slices_from_cqe(bufs, res, flags, true);
 				volatile std::size_t acc = 0;
 				for (auto s: slices) {
@@ -1516,7 +1518,8 @@ void run_buf_slice_from_incremental_cqe(
 				for (int i = 0; i < n; ++i) {
 					bool const is_last = (i == n - 1);
 					std::size_t const res = is_last ? kBufSz - chunk * static_cast<std::size_t>(i) : chunk;
-					std::uint32_t flags = IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
+					std::uint32_t flags =
+						IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(id) << IORING_CQE_BUFFER_SHIFT);
 					if (!is_last) {
 						flags |= IORING_CQE_F_BUF_MORE;
 					}

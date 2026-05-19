@@ -49,7 +49,7 @@ JsonError JsonReader::mk_err(
 		.code = code,
 		.source = JsonSourceLocation{.offset = pos_, .line = line_, .column = col_},
 		.message = std::move(msg)
-        };
+    };
 }
 
 void JsonReader::skip_ws() {
@@ -105,10 +105,9 @@ void JsonReader::skip_ws() {
 				JsonError{
 					.stage = JsonStage::parse,
 					.code = JsonIssueCode::unexpected_eof,
-					.source =
-						JsonSourceLocation{.offset = comment_offset, .line = comment_line, .column = comment_col},
+					.source = JsonSourceLocation{.offset = comment_offset, .line = comment_line, .column = comment_col},
 					.message = "unterminated block comment"
-                });
+            });
 			return;
 		}
 		return;
@@ -179,7 +178,8 @@ std::expected<void, JsonError> JsonReader::parse_str_into_token(
 				adv(4);
 				if (cp >= 0xD800U && cp <= 0xDBFFU) {
 					if (pos_ + 6 > input_.size() || input_[pos_] != '\\' || input_[pos_ + 1] != 'u') {
-						return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
+						return std::unexpected(
+							mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
 					}
 					adv(2);
 					auto lo_opt = detail::hex4_from_sv(input_, pos_);
@@ -271,7 +271,8 @@ std::expected<void, JsonError> JsonReader::parse_str_sq_into_token(
 				// NOLINTBEGIN(readability-magic-numbers)
 				if (cp >= 0xD800U && cp <= 0xDBFFU) {
 					if (pos_ + 6 > input_.size() || input_[pos_] != '\\' || input_[pos_ + 1] != 'u') {
-						return std::unexpected(mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
+						return std::unexpected(
+							mk_err(JsonIssueCode::invalid_unicode_escape, "unpaired high surrogate"));
 					}
 					adv(2);
 					auto lo_opt = detail::hex4_from_sv(input_, pos_);
@@ -489,7 +490,6 @@ JsonReader::JsonReader(
 	: input_{reinterpret_cast<char const *>(input.data()), input.size()}
 	, opts_{opts} {}
 
-
 std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 	if (has_error_) {
 		return std::unexpected(last_error_);
@@ -593,7 +593,8 @@ std::expected<std::optional<JsonReader::Event>, JsonError> JsonReader::next() {
 		set_error(e);
 		return std::unexpected(last_error_);
 	}
-	std::expected<void, JsonError> str_res = std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
+	std::expected<void, JsonError> str_res =
+		std::unexpected(mk_err(JsonIssueCode::syntax_error, "std::expected string key"));
 	if (input_[pos_] == '"') {
 		adv();
 		str_res = parse_str_into_token(opts_.max_string_size, key_token_);

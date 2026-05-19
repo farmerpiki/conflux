@@ -292,7 +292,8 @@ std::expected<void, JsonError> Document::warm_member_indices(
 			continue; // already indexed or failed
 		}
 		std::uint32_t const cap = detail::clamped_capacity(static_cast<std::uint32_t>(mem_count));
-		std::size_t const est_bytes = cap > 0 ? sizeof(ObjHashTable) + static_cast<std::size_t>(cap) * sizeof(ObjHashSlot) : 0;
+		std::size_t const est_bytes =
+			cap > 0 ? sizeof(ObjHashTable) + static_cast<std::size_t>(cap) * sizeof(ObjHashSlot) : 0;
 		if (objects_warmed >= opts.max_objects) {
 			break;
 		}

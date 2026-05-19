@@ -110,16 +110,16 @@ int main() {
 	auto app = http::App::default_server();
 	auto api = http::json::routes<JsonProvider>(app);
 
-	WorkPool pool{WorkPoolOptions{
-		.threads = 2,
-		.max_inject_queue = 128,
-		.queue_mode = WorkPoolQueueMode::no_stealing,
-		.worker_name_prefix = "cf-hash",
-	}};
+	WorkPool pool{
+		WorkPoolOptions{
+						.threads = 2,
+						.max_inject_queue = 128,
+						.queue_mode = WorkPoolQueueMode::no_stealing,
+						.worker_name_prefix = "cf-hash",
+						}
+    };
 
-	api.get("/api/status", [] {
-		return StatusReply{.status = "ok", .placement = "ring-thread"};
-	});
+	api.get("/api/status", [] { return StatusReply{.status = "ok", .placement = "ring-thread"}; });
 
 	app.post("/api/hash", [&pool](HttpRequest const &req) -> HttpResponse {
 		auto decoded = json::boundary::decode_native<HashRequest>(req.body);
@@ -135,11 +135,12 @@ int main() {
 
 		HashRequest body = std::move(*decoded);
 		return http::defer(pool, [body = std::move(body)] {
-			return http::json::response_or_internal_error(HashReply{
-				.algorithm = "fnv1a64",
-				.rounds = body.rounds,
-				.hash = hash_rounds(body.input, body.rounds),
-			});
+			return http::json::response_or_internal_error(
+				HashReply{
+					.algorithm = "fnv1a64",
+					.rounds = body.rounds,
+					.hash = hash_rounds(body.input, body.rounds),
+				});
 		});
 	});
 

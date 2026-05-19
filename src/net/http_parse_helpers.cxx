@@ -13,11 +13,14 @@ export constexpr std::size_t kMaxChunkSizeLineBytes = 256;
 export constexpr std::size_t kMaxChunkTrailerLines = 64;
 export constexpr std::size_t kMaxChunkTrailerBytes = 8192;
 
-[[gnu::pure]] [[nodiscard]] static bool needs_url_decode(std::string_view s) noexcept {
+[[gnu::pure]] [[nodiscard]] static bool needs_url_decode(
+	std::string_view s) noexcept {
 	return s.find_first_of(std::string_view{"%+"}) != std::string_view::npos;
 }
 
-export void parse_urlencoded(std::string_view data, HttpFieldsView &out) {
+export void parse_urlencoded(
+	std::string_view data,
+	HttpFieldsView &out) {
 	if (!data.empty()) {
 		std::size_t fields = 1;
 		for (auto const c: data) {
@@ -53,7 +56,11 @@ export void parse_urlencoded(std::string_view data, HttpFieldsView &out) {
 	}
 }
 
-export std::int64_t decode_chunked(std::string_view data, std::size_t max_body_size, std::size_t max_chunks, std::string &body) {
+export std::int64_t decode_chunked(
+	std::string_view data,
+	std::size_t max_body_size,
+	std::size_t max_chunks,
+	std::string &body) {
 	body.clear();
 	std::size_t pos = 0;
 	std::size_t chunks_seen = 0;

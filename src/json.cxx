@@ -34,7 +34,6 @@ import std.compat;
 import conflux.types;
 // NOLINTEND(cppcoreguidelines-avoid-non-const-global-variables)
 
-
 // ---------------------------------------------------------------------------
 // Forward declarations (exported types)
 // ---------------------------------------------------------------------------
@@ -2060,7 +2059,8 @@ public:
 		JsonArenaOptions const &opts = {})
 		: initial_slab_{opts.initial_slab}
 		, mbr_{opts.initial_slab}
-		, storage_{std::make_unique<DocumentStorage>(&mbr_, opts.hash_index_resource ? opts.hash_index_resource : &mbr_)} {}
+		, storage_{
+			  std::make_unique<DocumentStorage>(&mbr_, opts.hash_index_resource ? opts.hash_index_resource : &mbr_)} {}
 	JsonArena(JsonArena const &) = delete;
 	JsonArena &operator =(JsonArena const &) = delete;
 	JsonArena(JsonArena &&) = delete;
@@ -3482,31 +3482,46 @@ std::expected<T, JsonError> decode_from_event(
 	if constexpr (std::same_as<T, bool>) {
 		if (ev != Ev::bool_value) {
 			return std::unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected bool"});
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected bool"});
 		}
 		return r.bool_val();
 	} else if constexpr (std::same_as<T, std::int64_t>) {
 		if (ev != Ev::number_value) {
 			return std::unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected number"});
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected number"});
 		}
 		return r.number_val().to_i64();
 	} else if constexpr (std::same_as<T, std::uint64_t>) {
 		if (ev != Ev::number_value) {
 			return std::unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected number"});
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected number"});
 		}
 		return r.number_val().to_u64();
 	} else if constexpr (std::same_as<T, double>) {
 		if (ev != Ev::number_value) {
 			return std::unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected number"});
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected number"});
 		}
 		return r.number_val().to_f64();
 	} else if constexpr (std::same_as<T, std::string>) {
 		if (ev != Ev::string_value) {
 			return std::unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected string"});
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected string"});
 		}
 		std::string out;
 		auto res = r.string_token().append_decoded_to(out);
@@ -3515,7 +3530,9 @@ std::expected<T, JsonError> decode_from_event(
 		}
 		return out;
 	} else if constexpr (std::same_as<T, std::string_view>) {
-		static_assert(!std::same_as<T, std::string_view>, "decode<string_view>(JsonReader&) is deleted; use std::string");
+		static_assert(
+			!std::same_as<T, std::string_view>,
+			"decode<string_view>(JsonReader&) is deleted; use std::string");
 	} else if constexpr (is_optional<T>::value) {
 		using Inner = typename T::value_type;
 		if (ev == Ev::null_value) {
@@ -3540,7 +3557,10 @@ std::expected<T, JsonError> decode_from_event(
 		using E = typename T::value_type;
 		if (ev != Ev::begin_array) {
 			return std::unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected array"});
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
 		}
 		T result;
 		while (true) {
@@ -3569,7 +3589,10 @@ std::expected<T, JsonError> decode_from_event(
 		constexpr std::size_t N = std::tuple_size_v<T>;
 		if (ev != Ev::begin_array) {
 			return std::unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected array"});
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
 		}
 		T result;
 		for (std::size_t i = 0; i < N; ++i) {
@@ -3615,7 +3638,10 @@ std::expected<T, JsonError> decode_from_event(
 		using FB = typename T::second_type;
 		if (ev != Ev::begin_array) {
 			return std::unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected array"});
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
 		}
 		T result;
 		{
@@ -3671,7 +3697,10 @@ std::expected<T, JsonError> decode_from_event(
 	} else if constexpr (is_tuple_of_v<T>) {
 		if (ev != Ev::begin_array) {
 			return std::unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected array"});
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected array"});
 		}
 		T result;
 		bool ok = true;
@@ -3734,7 +3763,10 @@ std::expected<T, JsonError> decode_from_event(
 		using Vt = typename T::mapped_type;
 		if (ev != Ev::begin_object) {
 			return std::unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected object"});
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected object"});
 		}
 		T result;
 		while (true) {
@@ -3791,7 +3823,10 @@ std::expected<T, JsonError> decode_from_event(
 	} else if constexpr (has_members_spec<T>::value) {
 		if (ev != Ev::begin_object) {
 			return std::unexpected(
-				JsonError{.stage = JsonStage::decode, .code = JsonIssueCode::wrong_kind, .message = "std::expected object"});
+				JsonError{
+					.stage = JsonStage::decode,
+					.code = JsonIssueCode::wrong_kind,
+					.message = "std::expected object"});
 		}
 		T result{};
 		auto const members = JsonMembers<T>::members();

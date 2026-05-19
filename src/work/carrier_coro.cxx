@@ -246,12 +246,14 @@ public:
 	}
 	EagerChain(EagerChain const &) = delete;
 	EagerChain &operator =(EagerChain const &) = delete;
-	[[nodiscard]] ChainAwaiter<T> operator co_await() && noexcept { return std::move(*this).chain().operator co_await(); }
+	[[nodiscard]] ChainAwaiter<T> operator co_await() && noexcept {
+		return std::move(*this).chain().operator co_await();
+	}
 	[[nodiscard]] Chain<T> chain() && {
 		auto &p = handle_.promise();
 		if (!p.slot_) {
-			auto ex =
-				std::make_exception_ptr(root::WorkError{"EagerChain suspended: body awaited an asynchronous awaitable"});
+			auto ex = std::make_exception_ptr(
+				root::WorkError{"EagerChain suspended: body awaited an asynchronous awaitable"});
 			handle_.destroy();
 			handle_ = {};
 			return Chain<T>{root::Outcome<T>{root::Failure{ex}}, CarrierKind::task};
@@ -418,7 +420,8 @@ public:
 		if (error_ == AwaiterError::already_installed) {
 			auto _ = root::try_abandon_to(std::move(handle_), root::drop_on_abandon{});
 			handle_consumed_ = true;
-			auto ex = std::make_exception_ptr(root::JoinError{root::JoinError::reason::ready_callback_already_installed});
+			auto ex =
+				std::make_exception_ptr(root::JoinError{root::JoinError::reason::ready_callback_already_installed});
 			return Chain<T>{root::Outcome<T>{root::Failure{ex}}, CarrierKind::task};
 		}
 		if (error_ == AwaiterError::empty) {

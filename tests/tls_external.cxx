@@ -25,10 +25,11 @@ TEST_CASE(
 TEST_CASE(
 	"ext/curl: HTTPS POST body is echoed") {
 	conflux::tests::HttpsServerFixture fx{conflux::tests::make_external_test_router()};
-	auto [code, body] = conflux::tests::run_cmd_retry(std::format(
-		"curl -sk --http1.1 --max-time 5 -X POST -d 'hello world' "
-		"https://127.0.0.1:{}/echo",
-		fx.port()));
+	auto [code, body] = conflux::tests::run_cmd_retry(
+		std::format(
+			"curl -sk --http1.1 --max-time 5 -X POST -d 'hello world' "
+			"https://127.0.0.1:{}/echo",
+			fx.port()));
 	REQUIRE(code == 0);
 	REQUIRE(body == "hello world");
 }
@@ -78,11 +79,12 @@ TEST_CASE(
 TEST_CASE(
 	"ext/curl: TLS 1.2 is accepted") {
 	conflux::tests::HttpsServerFixture fx{conflux::tests::make_external_test_router()};
-	auto [code, body] = conflux::tests::run_cmd(std::format(
-		"curl -skS --http1.1 --tlsv1.2 --tls-max 1.2 "
-		"--connect-timeout 1 --max-time 5 "
-		"https://127.0.0.1:{}/ping 2>&1",
-		fx.port()));
+	auto [code, body] = conflux::tests::run_cmd(
+		std::format(
+			"curl -skS --http1.1 --tlsv1.2 --tls-max 1.2 "
+			"--connect-timeout 1 --max-time 5 "
+			"https://127.0.0.1:{}/ping 2>&1",
+			fx.port()));
 	INFO("curl exit=" << code << " output=" << body);
 	REQUIRE(code == 0);
 	REQUIRE(body == R"({"ok":true})");
@@ -91,11 +93,12 @@ TEST_CASE(
 TEST_CASE(
 	"ext/curl: TLS 1.3 is accepted") {
 	conflux::tests::HttpsServerFixture fx{conflux::tests::make_external_test_router()};
-	auto [code, body] = conflux::tests::run_cmd(std::format(
-		"curl -skS --http1.1 --tlsv1.3 --tls-max 1.3 "
-		"--connect-timeout 1 --max-time 5 "
-		"https://127.0.0.1:{}/ping 2>&1",
-		fx.port()));
+	auto [code, body] = conflux::tests::run_cmd(
+		std::format(
+			"curl -skS --http1.1 --tlsv1.3 --tls-max 1.3 "
+			"--connect-timeout 1 --max-time 5 "
+			"https://127.0.0.1:{}/ping 2>&1",
+			fx.port()));
 	INFO("curl exit=" << code << " output=" << body);
 	REQUIRE(code == 0);
 	REQUIRE(body == R"({"ok":true})");

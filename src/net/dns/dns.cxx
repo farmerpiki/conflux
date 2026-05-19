@@ -365,7 +365,9 @@ export [[nodiscard]] std::vector<std::uint8_t> encode_query(
 			if (len > 63U) {
 				// caller didn't validate; truncate label gracefully by clamping
 				// no — refuse via assert-like std::exception. Use throw for codec contract.
-				throw DnsError{DnsErrorKind::invalid_hostname, std::format("encode_query: label > 63 bytes in '{}'", qname)};
+				throw DnsError{
+					DnsErrorKind::invalid_hostname,
+					std::format("encode_query: label > 63 bytes in '{}'", qname)};
 			}
 			out.push_back(static_cast<std::uint8_t>(len));
 			out.insert(
@@ -436,7 +438,9 @@ export [[nodiscard]] size_t decode_name(
 				consumed = cursor + 2 - offset;
 			}
 			if (next >= cursor) {
-				throw DnsError{DnsErrorKind::malformed, std::format("decode_name: forward pointer {} >= {}", next, cursor)};
+				throw DnsError{
+					DnsErrorKind::malformed,
+					std::format("decode_name: forward pointer {} >= {}", next, cursor)};
 			}
 			++depth;
 			if (depth > kMaxDepth) {

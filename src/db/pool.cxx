@@ -115,7 +115,9 @@ private:
 	void return_(std::shared_ptr<Connection> conn) noexcept;
 	void try_dispatch_waiters_();
 	void grow_if_needed_();
-	void dispatch_lease_(std::shared_ptr<root::TaskSource<Lease>> const &src, std::shared_ptr<Connection> conn) noexcept;
+	void dispatch_lease_(
+		std::shared_ptr<root::TaskSource<Lease>> const &src,
+		std::shared_ptr<Connection> conn) noexcept;
 
 	PoolConfig cfg_{};
 	std::thread::id owner_{};
@@ -229,8 +231,8 @@ root::Task<Pool::Lease> Pool::acquire() {
 		return std::move(task);
 	}
 	if (std::this_thread::get_id() != owner_) {
-		auto _ =
-			shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: pool acquire off owner std::thread"}));
+		auto _ = shared_src->try_set_exception(
+			std::make_exception_ptr(PgError{"conflux.pg: pool acquire off owner std::thread"}));
 		return std::move(task);
 	}
 	if (!idle_.empty()) {
@@ -258,7 +260,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 				auto _ = shared_src->try_set_exception(std::current_exception());
 			}
 		}(self, shared_src, Connection::connect(cfg_.conn))
-														.detach();
+																	 .detach();
 		return std::move(task);
 	}
 	waiters_.push_back(shared_src);
@@ -268,7 +270,8 @@ root::Task<Pool::Lease> Pool::acquire() {
 			[](std::shared_ptr<root::TaskSource<Lease>> shared_src, root::Task<void> to_task) -> root::Task<void> {
 				try {
 					co_await std::move(to_task);
-					auto _ = shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: acquire timeout"}));
+					auto _ =
+						shared_src->try_set_exception(std::make_exception_ptr(PgError{"conflux.pg: acquire timeout"}));
 				} catch (...) {}
 			}(shared_src,
 			  conflux::uring::async_timeout(
@@ -276,7 +279,7 @@ root::Task<Pool::Lease> Pool::acquire() {
 				  *reader->completions(),
 				  [reader](std::uint32_t slot, std::uint32_t gen) noexcept { return reader->encode_ud(slot, gen); },
 				  cfg_.acquire_timeout))
-																						.detach();
+																									 .detach();
 		}
 	}
 	return std::move(task);
@@ -326,7 +329,7 @@ void Pool::grow_if_needed_() {
 				self->try_dispatch_waiters_();
 			} catch (...) { --self->total_; }
 		}(self, Connection::connect(cfg_.conn))
-																	   .detach();
+																								 .detach();
 	}
 }
 // NOLINTNEXTLINE(bugprone-exception-escape,misc-no-recursion)

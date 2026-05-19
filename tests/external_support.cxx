@@ -146,7 +146,8 @@ void wait_for_port(
 void wait_for_https(
 	std::uint16_t port) {
 	for (int i = 0; i < 50; ++i) {
-		auto [code, out] = run_cmd(std::format("curl -sk --http1.1 -o /dev/null --max-time 1 https://127.0.0.1:{}/", port));
+		auto [code, out] =
+			run_cmd(std::format("curl -sk --http1.1 -o /dev/null --max-time 1 https://127.0.0.1:{}/", port));
 		(void)out;
 		if (code == 0) {
 			return;
@@ -159,7 +160,7 @@ class HttpsServerFixture {
 	std::string cert_path_;
 	std::string key_path_;
 	std::shared_ptr<HttpServer> server_;
-		std::thread srv_thread_;
+	std::thread srv_thread_;
 	std::uint16_t port_{};
 	void generate_cert() {
 		auto [cert, key] = write_cached_cert_files();
@@ -213,11 +214,12 @@ public:
 	}
 	[[nodiscard]] std::pair<int, std::string> curl_https_status(
 		std::string_view path) const {
-		return run_cmd_retry(std::format(
-			"curl -sk --http1.1 -o /dev/null -w '%{{http_code}}' --max-time 5 "
-			"https://127.0.0.1:{}{}",
-			port_,
-			path));
+		return run_cmd_retry(
+			std::format(
+				"curl -sk --http1.1 -o /dev/null -w '%{{http_code}}' --max-time 5 "
+				"https://127.0.0.1:{}{}",
+				port_,
+				path));
 	}
 	[[nodiscard]] std::string sclient_get(
 		std::string_view path) const {
@@ -243,7 +245,7 @@ class Http3ServerFixture {
 	std::string cert_path_;
 	std::string key_path_;
 	std::shared_ptr<HttpServer> server_;
-		std::thread srv_thread_;
+	std::thread srv_thread_;
 	std::uint16_t port_{};
 	void generate_cert() {
 		auto [cert, key] = write_cached_cert_files();
@@ -293,21 +295,23 @@ public:
 	[[gnu::pure]] [[nodiscard]] std::uint16_t port() const noexcept { return port_; }
 	[[nodiscard]] std::pair<int, std::string> curl_h3(
 		std::string_view path) const {
-		return run_cmd_retry(std::format(
-			"curl -sk --http3-only --max-time 5 "
-			"--resolve localhost:{}:127.0.0.1 https://localhost:{}{}",
-			port_,
-			port_,
-			path));
+		return run_cmd_retry(
+			std::format(
+				"curl -sk --http3-only --max-time 5 "
+				"--resolve localhost:{}:127.0.0.1 https://localhost:{}{}",
+				port_,
+				port_,
+				path));
 	}
 	[[nodiscard]] std::pair<int, std::string> curl_h3_status(
 		std::string_view path) const {
-		return run_cmd_retry(std::format(
-			"curl -sk --http3-only -o /dev/null -w '%{{http_code}}' --max-time 5 "
-			"--resolve localhost:{}:127.0.0.1 https://localhost:{}{}",
-			port_,
-			port_,
-			path));
+		return run_cmd_retry(
+			std::format(
+				"curl -sk --http3-only -o /dev/null -w '%{{http_code}}' --max-time 5 "
+				"--resolve localhost:{}:127.0.0.1 https://localhost:{}{}",
+				port_,
+				port_,
+				path));
 	}
 };
 [[nodiscard]] Router make_external_test_router() {

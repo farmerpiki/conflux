@@ -8,13 +8,20 @@ import std;
 
 namespace http = conflux::http;
 
-static void print_url_parse(std::string_view raw) {
+static void print_url_parse(
+	std::string_view raw) {
 	auto parsed = http::Url::parse(raw);
 	if (!parsed) {
 		std::println("url parse failed for '{}': {}", raw, parsed.error().message);
 		return;
 	}
-	std::println("url parsed: scheme={} host={} port={} path={} query={}", parsed->scheme, parsed->host, parsed->port, parsed->path, parsed->query);
+	std::println(
+		"url parsed: scheme={} host={} port={} path={} query={}",
+		parsed->scheme,
+		parsed->host,
+		parsed->port,
+		parsed->path,
+		parsed->query);
 }
 
 int main() {
@@ -36,21 +43,21 @@ int main() {
 	form.set("role", "admin/operator");
 
 	auto req = http::ClientRequest::post(url.str())
-		.headers(defaults)
-		.query("trace", "local demo")
-		.bearer("example-token")
-		.if_none_match(R"("cached-etag")")
-		.timeouts({
-			.resolve = std::chrono::milliseconds{750},
-			.connect = std::chrono::milliseconds{750},
-			.tls = std::chrono::milliseconds{1000},
-			.write = std::chrono::milliseconds{1500},
-			.first_byte = std::chrono::milliseconds{2000},
-			.between_bytes = std::chrono::milliseconds{2000},
-		})
-		.follow_redirects(3)
-		.body_form(form)
-		.build();
+				   .headers(defaults)
+				   .query("trace", "local demo")
+				   .bearer("example-token")
+				   .if_none_match(R"("cached-etag")")
+				   .timeouts({
+					   .resolve = std::chrono::milliseconds{750},
+					   .connect = std::chrono::milliseconds{750},
+					   .tls = std::chrono::milliseconds{1000},
+					   .write = std::chrono::milliseconds{1500},
+					   .first_byte = std::chrono::milliseconds{2000},
+					   .between_bytes = std::chrono::milliseconds{2000},
+				   })
+				   .follow_redirects(3)
+				   .body_form(form)
+				   .build();
 
 	std::println("{} {}", req.method(), req.url().str());
 	std::println("content-type: {}", req.headers()["content-type"]);

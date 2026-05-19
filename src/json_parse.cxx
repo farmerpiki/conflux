@@ -441,7 +441,10 @@ next_ws:;
 			}
 		}
 		auto const len = static_cast<std::uint32_t>(pos - start);
-		return ParsedStr{static_cast<std::uint32_t>(start), len, static_cast<std::uint8_t>(kStorageInputView | kRawJsonSlice)};
+		return ParsedStr{
+			static_cast<std::uint32_t>(start),
+			len,
+			static_cast<std::uint8_t>(kStorageInputView | kRawJsonSlice)};
 	}
 	// Scans a number lexeme per RFC 8259 grammar and returns the slice of `src`
 	// covering it. Caller (TreeBuilder) classifies the value and stores the
@@ -632,7 +635,8 @@ struct TreeBuilder {
 					staging.begin() + static_cast<std::ptrdiff_t>(children_start),
 					staging.end());
 				staging.resize(children_start);
-				store.nodes.push_back(detail::node_array(static_cast<std::uint32_t>(cs), static_cast<std::uint32_t>(len)));
+				store.nodes.push_back(
+					detail::node_array(static_cast<std::uint32_t>(cs), static_cast<std::uint32_t>(len)));
 				return store.nodes.size() - 1;
 			}
 			if (tok.src[tok.pos] != ',') {
@@ -653,7 +657,8 @@ struct TreeBuilder {
 						staging.begin() + static_cast<std::ptrdiff_t>(children_start),
 						staging.end());
 					staging.resize(children_start);
-					store.nodes.push_back(detail::node_array(static_cast<std::uint32_t>(cs), static_cast<std::uint32_t>(len)));
+					store.nodes.push_back(
+						detail::node_array(static_cast<std::uint32_t>(cs), static_cast<std::uint32_t>(len)));
 					return store.nodes.size() - 1;
 				}
 			}
@@ -744,7 +749,8 @@ struct TreeBuilder {
 			bool const is_dup = dedup_member_present(members_start, name_sv, seen_hash);
 			if (is_dup && dup_policy == DuplicateKeyPolicy::reject) {
 				staging_members.resize(members_start);
-				return std::unexpected(mk_err(JsonIssueCode::duplicate_member, std::format("duplicate member: {}", name_sv)));
+				return std::unexpected(
+					mk_err(JsonIssueCode::duplicate_member, std::format("duplicate member: {}", name_sv)));
 			}
 			if (!is_dup && seen_hash.has_value()) {
 				seen_hash->insert(name_sv);
@@ -788,7 +794,8 @@ struct TreeBuilder {
 					// last_wins: update the first occurrence's val_node.
 					for (std::size_t i = members_start; i < staging_members.size(); ++i) {
 						auto &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-						if (store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)) == name_sv) {
+						if (store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags))
+							== name_sv) {
 							m.val_node = static_cast<std::uint32_t>(*val);
 							break;
 						}
@@ -809,7 +816,8 @@ struct TreeBuilder {
 					seen_hash->reserve(reserve_count);
 					for (std::size_t i = members_start; i < staging_members.size(); ++i) {
 						auto const &m = staging_members[i]; // NOLINT(cppcoreguidelines-pro-bounds-constant-A-index)
-						seen_hash->insert(store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)));
+						seen_hash->insert(
+							store.bytes_at(m.name_off, m.name_len, static_cast<std::uint8_t>(m.name_flags)));
 					}
 				}
 			}
@@ -831,7 +839,8 @@ struct TreeBuilder {
 					staging_members.begin() + static_cast<std::ptrdiff_t>(members_start),
 					staging_members.end());
 				staging_members.resize(members_start);
-				store.nodes.push_back(detail::node_object(static_cast<std::uint32_t>(ms), static_cast<std::uint32_t>(len)));
+				store.nodes.push_back(
+					detail::node_object(static_cast<std::uint32_t>(ms), static_cast<std::uint32_t>(len)));
 				std::size_t const obj_node_idx = store.nodes.size() - 1;
 				// Auto-warm if warm_threshold is set and object is large enough.
 				if (opts.warm_threshold.has_value()
@@ -873,14 +882,16 @@ struct TreeBuilder {
 						staging_members.begin() + static_cast<std::ptrdiff_t>(members_start),
 						staging_members.end());
 					staging_members.resize(members_start);
-					store.nodes.push_back(detail::node_object(static_cast<std::uint32_t>(ms2), static_cast<std::uint32_t>(len2)));
+					store.nodes.push_back(
+						detail::node_object(static_cast<std::uint32_t>(ms2), static_cast<std::uint32_t>(len2)));
 					std::size_t const obj2 = store.nodes.size() - 1;
 					if (opts.warm_threshold.has_value()
 						&& len2 >= static_cast<std::size_t>(*opts.warm_threshold)
 						&& len2 >= kHashThreshold) {
 						std::uint32_t const cap2 = detail::clamped_capacity(static_cast<std::uint32_t>(len2));
 						if (cap2 > 0) {
-							ObjHashTable *ht2 = ObjHashTable::create(cap2, static_cast<std::uint32_t>(len2), store.hash_mr_);
+							ObjHashTable *ht2 =
+								ObjHashTable::create(cap2, static_cast<std::uint32_t>(len2), store.hash_mr_);
 							if (ht2 != nullptr) {
 								if (detail::build_table(*ht2, &store, ms2, len2)) {
 									store.nodes[obj2].hash_idx_raw =
@@ -1178,7 +1189,7 @@ void JsonArena::reset() noexcept {
 	}
 	storage_ = nullptr; // ~DocumentStorage: pmr dealloc is no-op on monotonic
 	mbr_.release(); // actually frees the slab
-        storage_ = std::make_unique<DocumentStorage>(&mbr_);
+	storage_ = std::make_unique<DocumentStorage>(&mbr_);
 }
 namespace conflux::json {
 
@@ -1192,7 +1203,7 @@ std::expected<Document, JsonError> parse_copy(
 	}
 
 	auto storage = std::make_unique<DocumentStorage>();
-        storage->owned_input = std::make_unique<std::string>(input);
+	storage->owned_input = std::make_unique<std::string>(input);
 	std::string_view src = *storage->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -1215,7 +1226,7 @@ std::expected<Document, JsonError> parse_copy(
 	}
 
 	auto storage = std::make_unique<DocumentStorage>();
-        storage->owned_input = std::make_unique<std::string>(std::move(input));
+	storage->owned_input = std::make_unique<std::string>(std::move(input));
 	std::string_view src = *storage->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -1276,7 +1287,7 @@ std::expected<Document, JsonError> parse_copy(
 		return std::unexpected(std::move(ok).error());
 	}
 	auto storage = std::make_unique<DocumentStorage>(resource);
-        storage->owned_input = std::make_unique<std::string>(input);
+	storage->owned_input = std::make_unique<std::string>(input);
 	std::string_view src = *storage->owned_input;
 	constexpr std::string_view kBOM = "\xEF\xBB\xBF";
 	if (src.starts_with(kBOM)) {
@@ -1324,15 +1335,16 @@ std::expected<Document, JsonError> parse(
 	return parse_borrowed(input, opts, resource);
 }
 
-
 } // namespace conflux::json
-
 
 namespace conflux::json::detail {
 
 [[nodiscard]] JsonError dom_policy_error(
 	std::string_view message) {
-	return JsonError{.stage = JsonStage::parse, .code = JsonIssueCode::constraint_violation, .message = std::string{message}};
+	return JsonError{
+		.stage = JsonStage::parse,
+		.code = JsonIssueCode::constraint_violation,
+		.message = std::string{message}};
 }
 
 [[nodiscard]] std::expected<void, JsonError> require_dom_storage(
@@ -1342,7 +1354,8 @@ namespace conflux::json::detail {
 	if (policy.storage == expected_storage) {
 		return {};
 	}
-	return std::unexpected(dom_policy_error(std::format("{} called with incompatible JsonDomPolicy storage model", api_name)));
+	return std::unexpected(
+		dom_policy_error(std::format("{} called with incompatible JsonDomPolicy storage model", api_name)));
 }
 
 } // namespace conflux::json::detail
@@ -1447,7 +1460,8 @@ namespace conflux::json {
 		return std::unexpected(std::move(ok).error());
 	}
 	if (policy.input == JsonDomInputOwnership::borrowed_view) {
-		return std::unexpected(detail::dom_policy_error("borrowed_view is unsafe for parse_dom(JsonArena&, std::string&&)"));
+		return std::unexpected(
+			detail::dom_policy_error("borrowed_view is unsafe for parse_dom(JsonArena&, std::string&&)"));
 	}
 	return arena.parse_moved_into(std::move(input), policy.parse);
 }

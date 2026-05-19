@@ -88,21 +88,23 @@ int main() {
 	});
 
 	app.get("/v2/users", [](HttpRequest const &req) {
-		return HttpResponse::json(std::format(
-			R"({{"users":["ada","linus"],"remote":"{}","request_id":"{}"}})",
-			req.remote_addr,
-			req.headers["x-request-id"]));
+		return HttpResponse::json(
+			std::format(
+				R"({{"users":["ada","linus"],"remote":"{}","request_id":"{}"}})",
+				req.remote_addr,
+				req.headers["x-request-id"]));
 	});
 
 	app.get("/form", [](HttpRequest const &req) {
-		return HttpResponse::html(std::format(
-			"<html><body><h1>CSRF form</h1>"
-			"<form method='post' action='/submit'>"
-			"<input type='hidden' name='csrf_token' value='{}'>"
-			"<input name='value' value='example'>"
-			"<button>Submit</button>"
-			"</form></body></html>",
-			req.cookies["csrf_token"]));
+		return HttpResponse::html(
+			std::format(
+				"<html><body><h1>CSRF form</h1>"
+				"<form method='post' action='/submit'>"
+				"<input type='hidden' name='csrf_token' value='{}'>"
+				"<input name='value' value='example'>"
+				"<button>Submit</button>"
+				"</form></body></html>",
+				req.cookies["csrf_token"]));
 	});
 
 	app.get("/login", [](HttpRequest const &) {

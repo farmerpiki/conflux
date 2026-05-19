@@ -562,8 +562,10 @@ TEST_CASE(
 	std::string const payload(512, 'W');
 	memcpy(write_buf->view().data(), payload.data(), payload.size());
 
-	FileReader::WriteFixedResult const wresult =
-		block_on(fx->reader, fx->reader.write_fixed(wh, 0, std::move(*write_buf), payload.size()), std::chrono::seconds{5});
+	FileReader::WriteFixedResult const wresult = block_on(
+		fx->reader,
+		fx->reader.write_fixed(wh, 0, std::move(*write_buf), payload.size()),
+		std::chrono::seconds{5});
 	REQUIRE(wresult.bytes == payload.size());
 
 	// Verify on-disk bytes via pread.
@@ -596,7 +598,8 @@ TEST_CASE(
 		iovec{.iov_base = buf_b.data(), .iov_len = buf_b.size()},
 	};
 
-	std::size_t const got = block_on(fx->reader, fx->reader.readv_into(handle, 0, std::move(iovs)), std::chrono::seconds{5});
+	std::size_t const got =
+		block_on(fx->reader, fx->reader.readv_into(handle, 0, std::move(iovs)), std::chrono::seconds{5});
 
 	REQUIRE(got == content.size());
 	for (std::size_t i = 0; i < buf_a.size(); ++i) {
@@ -733,7 +736,10 @@ TEST_CASE(
 	int read_err = 0;
 	// Request only 512 bytes from a 4096-byte file.
 	try {
-		got = block_on(fx->reader, fx->reader.read_nocache_fixed(handle, 0, std::move(*buf), 512), std::chrono::seconds{5});
+		got = block_on(
+			fx->reader,
+			fx->reader.read_nocache_fixed(handle, 0, std::move(*buf), 512),
+			std::chrono::seconds{5});
 	} catch (std::system_error const &se) {
 		read_err = se.code().value();
 	} catch (...) { // NOLINT(bugprone-empty-catch) — test swallows non-SE

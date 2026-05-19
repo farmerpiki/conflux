@@ -35,7 +35,7 @@ std::string read_one_response(
 		cl_pos += 16;
 		auto const cl_end = response.find("\r\n", cl_pos);
 		std::size_t body_len = 0;
-	std::from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
+		std::from_chars(response.data() + cl_pos, response.data() + cl_end, body_len);
 		if (response.size() >= hdr_end + 4 + body_len) {
 			break;
 		}
@@ -113,9 +113,7 @@ public:
 		}
 		return response;
 	}
-	[[nodiscard]] std::string read_one_response() const {
-		return ::conflux::tests::read_one_response(fd_);
-	}
+	[[nodiscard]] std::string read_one_response() const { return ::conflux::tests::read_one_response(fd_); }
 	[[nodiscard]] std::string read_headers() const {
 		std::string response;
 		std::array<char, 4096> buf{};
@@ -209,9 +207,9 @@ void wait_for_server(
 	throw std::runtime_error{"server did not start in time"};
 }
 class TestServerRegistry {
-		std::mutex mu_;
+	std::mutex mu_;
 	std::vector<std::shared_ptr<HttpServer>> servers_;
-		std::vector<std::thread> threads_;
+	std::vector<std::thread> threads_;
 
 public:
 	std::uint16_t start(
@@ -260,7 +258,7 @@ TestServerRegistry &test_servers() {
 }
 class ScopedTestServer {
 	std::shared_ptr<HttpServer> server_;
-		std::thread thread_;
+	std::thread thread_;
 
 public:
 	ScopedTestServer(

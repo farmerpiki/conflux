@@ -113,7 +113,8 @@ export struct DirectSlotPool {
 		}
 		auto const prev = slot_state(slot);
 		if (prev == DirectSlotState::free_slot) {
-			eprintln(std::format("DirectSlotPool::poison: slot={} state=free — corruption close_res={}", slot, close_res));
+			eprintln(
+				std::format("DirectSlotPool::poison: slot={} state=free — corruption close_res={}", slot, close_res));
 			return;
 		}
 		assert(free_pos_[slot] == ~std::uint32_t{});
@@ -121,11 +122,12 @@ export struct DirectSlotPool {
 			set_state(slot, DirectSlotState::poisoned);
 			++poisoned_count_;
 		}
-		eprintln(std::format(
-			"DirectSlotPool::poison: slot={} close_res={} previous_state={}",
-			slot,
-			close_res,
-			static_cast<std::uint8_t>(prev)));
+		eprintln(
+			std::format(
+				"DirectSlotPool::poison: slot={} close_res={} previous_state={}",
+				slot,
+				close_res,
+				static_cast<std::uint8_t>(prev)));
 	}
 	[[nodiscard]] std::uint32_t capacity() const noexcept { return capacity_; }
 	[[nodiscard]] std::uint32_t free_count() const noexcept { return static_cast<std::uint32_t>(free_stack_.size()); }

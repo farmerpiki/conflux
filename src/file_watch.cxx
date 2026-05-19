@@ -108,7 +108,8 @@ export class FileWatcher {
 					if (errno == EAGAIN) {
 						break;
 					}
-					emit_error(std::make_exception_ptr(std::system_error{errno, std::system_category(), "inotify read"}));
+					emit_error(
+						std::make_exception_ptr(std::system_error{errno, std::system_category(), "inotify read"}));
 					break;
 				}
 				if (n == 0) {
@@ -197,7 +198,8 @@ public:
 			}
 			if (r.res < 0) {
 				if (r.res != -ECANCELED) {
-					self->emit_error(std::make_exception_ptr(std::system_error{-r.res, std::system_category(), "inotify poll"}));
+					self->emit_error(
+						std::make_exception_ptr(std::system_error{-r.res, std::system_category(), "inotify poll"}));
 				}
 				return;
 			}

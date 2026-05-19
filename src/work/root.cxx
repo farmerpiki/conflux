@@ -2,7 +2,7 @@ module;
 #include <memory>
 
 #ifndef CONFLUX_WORK_CORO_FRAME_POOL
-#define CONFLUX_WORK_CORO_FRAME_POOL 0
+	#define CONFLUX_WORK_CORO_FRAME_POOL 0
 #endif
 
 #if CONFLUX_WORK_CORO_FRAME_POOL
@@ -31,7 +31,7 @@ import std;
 import conflux.types;
 
 #ifndef CONFLUX_WORK_ALLOC_STATS
-#define CONFLUX_WORK_ALLOC_STATS 0
+	#define CONFLUX_WORK_ALLOC_STATS 0
 #endif
 
 export namespace conflux::work::root {
@@ -65,7 +65,9 @@ enum class join_state : std::uint8_t {
 };
 class WorkError : public std::runtime_error {
 public:
-	explicit WorkError(std::string const &msg) : std::runtime_error{msg} {}
+	explicit WorkError(
+		std::string const &msg)
+		: std::runtime_error{msg} {}
 };
 struct TaskAllocationStats {
 	std::uint64_t control_block_allocations = 0;
@@ -111,7 +113,9 @@ inline void note_control_block_allocation() noexcept {}
 inline void note_control_block_deallocation() noexcept {}
 inline void note_coroutine_frame_allocation() noexcept {}
 inline void note_coroutine_frame_deallocation() noexcept {}
-[[nodiscard]] inline TaskAllocationStats task_allocation_stats_impl() noexcept { return {}; }
+[[nodiscard]] inline TaskAllocationStats task_allocation_stats_impl() noexcept {
+	return {};
+}
 inline void reset_task_allocation_stats_impl() noexcept {}
 #endif
 
@@ -337,7 +341,8 @@ public:
 			  && std::invocable<F &, Failure const &>
 			  && std::invocable<F &, Cancelled const &>
 			  && std::same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Failure const &>>
-			  && std::same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Cancelled const &>>
+			  && std::
+					 same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Cancelled const &>>
 	auto visit(
 		F &&f)
 		const & noexcept(
@@ -399,7 +404,9 @@ public:
 			  && std::invocable<OnFailure, Failure const &>
 			  && std::invocable<OnCancelled, Cancelled const &>
 			  && std::same_as<std::invoke_result_t<OnSuccess, T &&>, std::invoke_result_t<OnFailure, Failure const &>>
-			  && std::same_as<std::invoke_result_t<OnSuccess, T &&>, std::invoke_result_t<OnCancelled, Cancelled const &>>
+			  && std::same_as<
+					 std::invoke_result_t<OnSuccess, T &&>,
+					 std::invoke_result_t<OnCancelled, Cancelled const &>>
 	auto match(
 		OnSuccess &&on_success,
 		OnFailure &&on_failure,
@@ -415,7 +422,9 @@ public:
 		requires std::invocable<OnSuccess, T const &>
 			  && std::invocable<OnFailure, Failure const &>
 			  && std::invocable<OnCancelled, Cancelled const &>
-			  && std::same_as<std::invoke_result_t<OnSuccess, T const &>, std::invoke_result_t<OnFailure, Failure const &>>
+			  && std::same_as<
+					 std::invoke_result_t<OnSuccess, T const &>,
+					 std::invoke_result_t<OnFailure, Failure const &>>
 			  && std::same_as<
 					 std::invoke_result_t<OnSuccess, T const &>,
 					 std::invoke_result_t<OnCancelled, Cancelled const &>>
@@ -527,7 +536,8 @@ public:
 			  && std::invocable<F &, Failure const &>
 			  && std::invocable<F &, Cancelled const &>
 			  && std::same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Failure const &>>
-			  && std::same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Cancelled const &>>
+			  && std::
+					 same_as<std::invoke_result_t<F &, success_t const &>, std::invoke_result_t<F &, Cancelled const &>>
 	auto visit(
 		F &&f)
 		const & noexcept(
@@ -1070,7 +1080,8 @@ class ControlBlockModel final : public ControlBlockInterface<T> {
 	}
 	[[nodiscard]] bool try_claim_terminal() noexcept {
 		bool expected = false;
-		return terminal_claimed_.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
+		return terminal_claimed_
+			.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
 	}
 	[[nodiscard]] static WorkState map_terminal(
 		TerminalState s) noexcept {
@@ -1133,7 +1144,8 @@ public:
 		}
 
 		bool expected = false;
-		if (!cancel_requested_.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
+		if (!cancel_requested_
+				 .compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
 			return false;
 		}
 
@@ -1417,7 +1429,8 @@ class ControlBlockModel<void, EnableCancellation> final : public ControlBlockInt
 	}
 	[[nodiscard]] bool try_claim_terminal() noexcept {
 		bool expected = false;
-		return terminal_claimed_.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
+		return terminal_claimed_
+			.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire);
 	}
 	[[nodiscard]] static WorkState map_terminal(
 		TerminalState s) noexcept {
@@ -1505,7 +1518,8 @@ public:
 		}
 
 		bool expected = false;
-		if (!cancel_requested_.compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
+		if (!cancel_requested_
+				 .compare_exchange_strong(expected, true, std::memory_order_acq_rel, std::memory_order_acquire)) {
 			return false;
 		}
 
@@ -1759,7 +1773,8 @@ template<work_value T, bool EnableCancellation>
 	return *resource;
 }
 struct TaskFrameBucket;
-struct alignas(std::max_align_t) TaskFrameHeader {
+struct alignas(
+	std::max_align_t) TaskFrameHeader {
 	std::size_t size = 0;
 	TaskFrameBucket *bucket = nullptr;
 };
@@ -1860,8 +1875,7 @@ inline void deallocate_task_coroutine_frame(
 #endif
 	std::size_t const size = hdr->size;
 	hdr->~TaskFrameHeader();
-	task_coroutine_frame_resource().deallocate(
-		hdr, size + sizeof(TaskFrameHeader), alignof(std::max_align_t));
+	task_coroutine_frame_resource().deallocate(hdr, size + sizeof(TaskFrameHeader), alignof(std::max_align_t));
 }
 // P2b size guard: delta against P2a baseline (432B measured on clang-libcxx +
 // libstdc++ on x86_64). P2b padding must not exceed one additional cache line.
@@ -1889,13 +1903,17 @@ class BasicControl {
 	template<work_value, ControlCategory>
 	friend class BasicSource;
 	template<work_value U>
-	std::pair<BasicControl<ControlCategory::task>, BasicSource<U, ControlCategory::task>> friend make_task_control_source();
+	std::pair<
+		BasicControl<ControlCategory::task>,
+		BasicSource<U, ControlCategory::task>> friend make_task_control_source();
 	template<work_value U>
-	std::pair<BasicControl<ControlCategory::posted>,
-	  BasicSource<U, ControlCategory::posted>> friend make_posted_control_source();
+	std::pair<
+		BasicControl<ControlCategory::posted>,
+		BasicSource<U, ControlCategory::posted>> friend make_posted_control_source();
 	template<work_value U>
-	std::pair<BasicControl<ControlCategory::operation>,
-	  BasicSource<U, ControlCategory::operation>> friend make_operation_control_source();
+	std::pair<
+		BasicControl<ControlCategory::operation>,
+		BasicSource<U, ControlCategory::operation>> friend make_operation_control_source();
 
 public:
 	BasicControl() = default;
@@ -1969,20 +1987,22 @@ class BasicSource {
 	template<work_value U>
 	std::pair<OperationControl, BasicSource<U, ControlCategory::operation>> friend make_operation_control_source();
 	template<work_value U>
-	std::pair<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>> friend make_task_source(
-		struct SubmitOptions,
-		std::source_location);
+	std::pair<
+		class BasicResult<U, ControlCategory::task>,
+		BasicSource<U, ControlCategory::task>> friend make_task_source(struct SubmitOptions, std::source_location);
 	template<work_value U, progress_capability Owner>
-	std::pair<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>> friend make_posted_source(
-		Owner &,
-		struct PostOptions,
-		std::source_location);
+	std::pair<
+		class BasicResult<U, ControlCategory::posted>,
+		BasicSource<
+			U,
+			ControlCategory::posted>> friend make_posted_source(Owner &, struct PostOptions, std::source_location);
 	template<work_value U, progress_capability Driver>
-	std::pair<class BasicResult<U, ControlCategory::operation>,
-	  BasicSource<
-		  U,
-		  ControlCategory::
-			  operation>> friend make_operation_source(Driver &, struct OperationOptions, std::source_location);
+	std::pair<
+		class BasicResult<U, ControlCategory::operation>,
+		BasicSource<
+			U,
+			ControlCategory::
+				operation>> friend make_operation_source(Driver &, struct OperationOptions, std::source_location);
 
 public:
 	BasicSource() = default;
@@ -2041,20 +2061,22 @@ class BasicSource<void, Category> {
 	template<work_value U>
 	std::pair<OperationControl, BasicSource<U, ControlCategory::operation>> friend make_operation_control_source();
 	template<work_value U>
-	std::pair<class BasicResult<U, ControlCategory::task>, BasicSource<U, ControlCategory::task>> friend make_task_source(
-		struct SubmitOptions,
-		std::source_location);
+	std::pair<
+		class BasicResult<U, ControlCategory::task>,
+		BasicSource<U, ControlCategory::task>> friend make_task_source(struct SubmitOptions, std::source_location);
 	template<work_value U, progress_capability Owner>
-	std::pair<class BasicResult<U, ControlCategory::posted>, BasicSource<U, ControlCategory::posted>> friend make_posted_source(
-		Owner &,
-		struct PostOptions,
-		std::source_location);
+	std::pair<
+		class BasicResult<U, ControlCategory::posted>,
+		BasicSource<
+			U,
+			ControlCategory::posted>> friend make_posted_source(Owner &, struct PostOptions, std::source_location);
 	template<work_value U, progress_capability Driver>
-	std::pair<class BasicResult<U, ControlCategory::operation>,
-	  BasicSource<
-		  U,
-		  ControlCategory::
-			  operation>> friend make_operation_source(Driver &, struct OperationOptions, std::source_location);
+	std::pair<
+		class BasicResult<U, ControlCategory::operation>,
+		BasicSource<
+			U,
+			ControlCategory::
+				operation>> friend make_operation_source(Driver &, struct OperationOptions, std::source_location);
 
 public:
 	BasicSource() = default;
@@ -2219,17 +2241,17 @@ struct TaskAwaiter {
 			raise_join_not_ready(loc_);
 		}
 		return std::move(*outcome).visit([](auto &&arm) -> std::conditional_t<std::is_void_v<T>, void, T> {
-				using arm_t = std::remove_cvref_t<decltype(arm)>;
-				if constexpr (std::same_as<arm_t, Success<T>>) {
-					if constexpr (!std::is_void_v<T>) {
-						return std::move(arm.value);
-					}
-				} else if constexpr (std::same_as<arm_t, Failure>) {
-					std::rethrow_exception(arm.error);
-				} else {
-					throw CancelledError{arm.reason};
+			using arm_t = std::remove_cvref_t<decltype(arm)>;
+			if constexpr (std::same_as<arm_t, Success<T>>) {
+				if constexpr (!std::is_void_v<T>) {
+					return std::move(arm.value);
 				}
-			});
+			} else if constexpr (std::same_as<arm_t, Failure>) {
+				std::rethrow_exception(arm.error);
+			} else {
+				throw CancelledError{arm.reason};
+			}
+		});
 	}
 };
 template<work_value T>
@@ -2751,7 +2773,8 @@ inline void set_dropped_outcome_sink(
 	Fn &&fn) {
 	auto &s = detail::dropped_outcome_sink_store();
 	std::lock_guard const lk{s.mtx};
-	s.fn = detail::small_move_only_function<void(std::source_location, OutcomeKind, std::exception_ptr)>{std::forward<Fn>(fn)};
+	s.fn = detail::small_move_only_function<void(std::source_location, OutcomeKind, std::exception_ptr)>{
+		std::forward<Fn>(fn)};
 	s.installed.store(true, std::memory_order_release);
 }
 template<class R, class Sink = drop_on_abandon>
@@ -2864,6 +2887,7 @@ template<progress_capability Cap, work_value T>
 	return h.control().can_join_with(capability_id(cap));
 }
 namespace detail {
+
 template<work_value T>
 [[nodiscard]] Outcome<T> take_ready_outcome_or_throw(
 	std::shared_ptr<ControlBlockInterface<T>> state,
@@ -2887,6 +2911,7 @@ template<work_value T>
 	}
 	return state->compatibility_blocking_take_outcome();
 }
+
 } // namespace detail
 
 template<work_value T>

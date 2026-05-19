@@ -104,12 +104,15 @@ using _small_move_only_fn_int = root::detail::small_move_only_function<int(int),
 // E4: Source setter API (try_set_value / try_set_exception / try_set_cancelled / try_set_error)
 static_assert(
 	std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_value(root::Success<int>{})), bool>);
-static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_exception(std::exception_ptr{})), bool>);
+static_assert(
+	std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_exception(std::exception_ptr{})), bool>);
 static_assert(std::is_same_v<
 			  decltype(std::declval<root::TaskSource<int>>().try_set_cancelled(root::work_errc::cancelled_requested)),
 			  bool>);
 static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_error(std::error_code{})), bool>);
-static_assert(std::is_same_v<decltype(std::declval<root::TaskSource<int>>().try_set_error(std::error_code{}, std::string_view{})), bool>);
+static_assert(std::is_same_v<
+			  decltype(std::declval<root::TaskSource<int>>().try_set_error(std::error_code{}, std::string_view{})),
+			  bool>);
 
 // E4: concept work_handle — satisfied by Task, Posted, Operation, *JoinHandle
 static_assert(root::work_handle<root::Task<int>>);
@@ -242,8 +245,10 @@ static_assert(
 static_assert(root::JoinError::reason::lifetime_violation == root::JoinError::reason::lifetime_violation);
 // Accessors
 static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().reason_code()), root::JoinError::reason>);
-static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().expected()), std::optional<root::CapabilityId>>);
-static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().actual()), std::optional<root::CapabilityId>>);
+static_assert(
+	std::same_as<decltype(std::declval<root::JoinError const &>().expected()), std::optional<root::CapabilityId>>);
+static_assert(
+	std::same_as<decltype(std::declval<root::JoinError const &>().actual()), std::optional<root::CapabilityId>>);
 static_assert(std::same_as<decltype(std::declval<root::JoinError const &>().origin()), std::source_location>);
 // consume() lvalue/rvalue overloads
 void _e1y_consume_check_() {
@@ -422,7 +427,8 @@ void _e1z_transform_outcome_check_() {
 	auto [task, src] = root::make_task_source<int>();
 	(void)src.try_set_value(root::Success<int>{1});
 	auto chain = carrier::from_task(std::move(task));
-	auto result = std::move(chain).transform_outcome([](root::Outcome<int> out) { return root::Outcome<int>{std::move(out)}; });
+	auto result =
+		std::move(chain).transform_outcome([](root::Outcome<int> out) { return root::Outcome<int>{std::move(out)}; });
 	static_assert(std::same_as<decltype(result), carrier::Chain<int>>);
 	(void)result;
 }

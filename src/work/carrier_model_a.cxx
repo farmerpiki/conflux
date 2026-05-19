@@ -66,7 +66,8 @@ public:
 		: WorkError{"carrier: multiple failures"}
 		, causes_{std::move(causes)} {}
 	[[nodiscard]] std::vector<std::exception_ptr> causes_owned() const { return causes_; }
-	[[nodiscard("std::span lifetime bound to *this — moves invalidate")]] std::span<std::exception_ptr const> causes_view() const noexcept {
+	[[nodiscard("std::span lifetime bound to *this — moves invalidate")]] std::span<std::exception_ptr const>
+	causes_view() const noexcept {
 		return causes_;
 	}
 };
@@ -123,7 +124,10 @@ public:
 					std::invoke(std::forward<Fn>(fn));
 					return Chain<R>{root::Outcome<R>{root::Success<R>{}}, kind_, bound_cap_};
 				} else {
-					return Chain<R>{root::Outcome<R>{root::Success<R>{std::invoke(std::forward<Fn>(fn))}}, kind_, bound_cap_};
+					return Chain<R>{
+						root::Outcome<R>{root::Success<R>{std::invoke(std::forward<Fn>(fn))}},
+						kind_,
+						bound_cap_};
 				}
 			} else {
 				try {
@@ -131,7 +135,10 @@ public:
 						std::invoke(std::forward<Fn>(fn));
 						return Chain<R>{root::Outcome<R>{root::Success<R>{}}, kind_, bound_cap_};
 					} else {
-						return Chain<R>{root::Outcome<R>{root::Success<R>{std::invoke(std::forward<Fn>(fn))}}, kind_, bound_cap_};
+						return Chain<R>{
+							root::Outcome<R>{root::Success<R>{std::invoke(std::forward<Fn>(fn))}},
+							kind_,
+							bound_cap_};
 					}
 				} catch (...) {
 					return Chain<R>{root::Outcome<R>{root::Failure{std::current_exception()}}, kind_, bound_cap_};
@@ -151,7 +158,8 @@ public:
 					return Chain<R>{root::Outcome<R>{root::Success<R>{}}, kind_, bound_cap_};
 				} else {
 					return Chain<R>{
-						root::Outcome<R>{root::Success<R>{std::invoke(std::forward<Fn>(fn), std::move(outcome_).success().value)}},
+						root::Outcome<R>{
+							root::Success<R>{std::invoke(std::forward<Fn>(fn), std::move(outcome_).success().value)}},
 						kind_,
 						bound_cap_};
 				}
@@ -162,7 +170,8 @@ public:
 						return Chain<R>{root::Outcome<R>{root::Success<R>{}}, kind_, bound_cap_};
 					} else {
 						return Chain<R>{
-							root::Outcome<R>{root::Success<R>{std::invoke(std::forward<Fn>(fn), std::move(outcome_).success().value)}},
+							root::Outcome<R>{root::Success<R>{
+								std::invoke(std::forward<Fn>(fn), std::move(outcome_).success().value)}},
 							kind_,
 							bound_cap_};
 					}
@@ -191,7 +200,10 @@ public:
 				std::invoke(std::forward<Fn>(fn), ep);
 				return Chain<T>{root::Outcome<T>{root::Success<T>{}}, kind_, bound_cap_};
 			} else {
-				return Chain<T>{root::Outcome<T>{root::Success<T>{std::invoke(std::forward<Fn>(fn), ep)}}, kind_, bound_cap_};
+				return Chain<T>{
+					root::Outcome<T>{root::Success<T>{std::invoke(std::forward<Fn>(fn), ep)}},
+					kind_,
+					bound_cap_};
 			}
 		} catch (...) { return Chain<T>{root::Outcome<T>{root::Failure{std::current_exception()}}, kind_, bound_cap_}; }
 	}
@@ -226,7 +238,10 @@ public:
 				std::invoke(std::forward<Fn>(fn));
 				return Chain<T>{root::Outcome<T>{root::Success<T>{}}, kind_, bound_cap_};
 			} else {
-				return Chain<T>{root::Outcome<T>{root::Success<T>{std::invoke(std::forward<Fn>(fn))}}, kind_, bound_cap_};
+				return Chain<T>{
+					root::Outcome<T>{root::Success<T>{std::invoke(std::forward<Fn>(fn))}},
+					kind_,
+					bound_cap_};
 			}
 		} catch (...) { return Chain<T>{root::Outcome<T>{root::Failure{std::current_exception()}}, kind_, bound_cap_}; }
 	}

@@ -14,7 +14,6 @@ import conflux.socket_io;
 #endif
 namespace {
 
-
 std::uint32_t recv_flags_for(
 	std::uint16_t buf_id) noexcept {
 	return IORING_CQE_F_BUFFER | (static_cast<std::uint32_t>(buf_id) << IORING_CQE_BUFFER_SHIFT);
@@ -270,7 +269,6 @@ TEST_CASE(
 	CHECK((*second.begin()).id == 1u);
 	second.recycle_all();
 }
-
 
 TEST_CASE(
 	"recv_bundle.discard: selected zero-byte CQE advances window",

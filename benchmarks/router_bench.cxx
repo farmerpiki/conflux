@@ -125,7 +125,8 @@ Stats measure_case(
 		sink.fetch_add(bench.run(), std::memory_order_relaxed);
 	}
 	auto const elapsed = std::chrono::steady_clock::now() - start;
-	auto const total_ns = static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
+	auto const total_ns =
+		static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::nanoseconds>(elapsed).count());
 	return Stats{
 		.name = bench.name,
 		.iterations = iterations,
@@ -190,8 +191,10 @@ Case make_typed_field_extract_case() {
 			auto limit = req->header_as<std::uint32_t>("x-limit");
 			auto enabled = req->query_as<bool>("enabled");
 			auto sid = req->cookie_as<std::string_view>("sid");
-			return static_cast<std::size_t>(page.value_or(0)) + static_cast<std::size_t>(limit.value_or(0))
-				 + static_cast<std::size_t>(enabled.value_or(false)) + sid.value_or(std::string_view{}).size();
+			return static_cast<std::size_t>(page.value_or(0))
+				 + static_cast<std::size_t>(limit.value_or(0))
+				 + static_cast<std::size_t>(enabled.value_or(false))
+				 + sid.value_or(std::string_view{}).size();
 		}};
 }
 Case make_router_exact_case() {
@@ -320,7 +323,8 @@ Case make_codec_payload_case_owned(
 	};
 	auto state = std::make_shared<State>();
 	state->name = std::format("codec/{}/{}B", codec_name, payload_size);
-	state->description = std::format("Compression path pinned to {} for {} std::byte text payloads", codec_name, payload_size);
+	state->description =
+		std::format("Compression path pinned to {} for {} std::byte text payloads", codec_name, payload_size);
 	state->payload->assign(payload_size, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {
@@ -355,7 +359,8 @@ Case make_gzip_backend_payload_case(
 	auto state = std::make_shared<State>();
 	state->backend = backend;
 	state->name = std::format("backend/{}/{}B", gzip_backend_name(backend), payload_size);
-	state->description = std::format("Gzip backend {} on {} std::byte text payloads", gzip_backend_name(backend), payload_size);
+	state->description =
+		std::format("Gzip backend {} on {} std::byte text payloads", gzip_backend_name(backend), payload_size);
 	state->payload->assign(payload_size, 'x');
 	state->router.use(compress_middleware({.min_body_size = 0}));
 	state->router.get("/data", [payload = state->payload](HttpRequestView const &) {

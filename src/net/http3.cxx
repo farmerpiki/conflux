@@ -1,6 +1,7 @@
 module;
 #include <arpa/inet.h>
 #include <cerrno>
+#include <conflux/detail/discard.hxx>
 #include <cstddef> // before openssl: establishes C++ linkage for __is_constant_evaluated
 #include <cstdint>
 #include <cstring>
@@ -17,7 +18,6 @@ module;
 #include <sys/socket.h>
 #include <sys/timerfd.h>
 #include <unistd.h>
-#include <conflux/detail/discard.hxx>
 
 export module conflux.net.http3;
 import std;
@@ -523,7 +523,8 @@ void dispatch_stream(
 		hdrs_view.emplace_back(k, v);
 	}
 	std::string const remote = addr_to_string(reinterpret_cast<sockaddr const *>(&c->remote_addr));
-	HttpRequestView const req{s.method, s.path, "HTTP/3", remote, true, {}, std::move(hdrs_view), {}, {}, {}, {}, s.body};
+	HttpRequestView const
+		req{s.method, s.path, "HTTP/3", remote, true, {}, std::move(hdrs_view), {}, {}, {}, {}, s.body};
 	if (c->router == nullptr) {
 		s.response = HttpResponse::internal_error("no router");
 	} else {
@@ -571,7 +572,11 @@ void dispatch_stream(
 		 NGHTTP3_NV_FLAG_NO_COPY_NAME});
 	for (auto const &[k, v]: s.response.headers) {
 		nva.push_back(
-			{reinterpret_cast<std::uint8_t const *>(k.c_str()), reinterpret_cast<std::uint8_t const *>(v.c_str()), k.size(), v.size(), 0});
+			{reinterpret_cast<std::uint8_t const *>(k.c_str()),
+			 reinterpret_cast<std::uint8_t const *>(v.c_str()),
+			 k.size(),
+			 v.size(),
+			 0});
 	}
 	for (auto const &sc: s.response.set_cookies) {
 		static constexpr std::string_view kSC = "set-cookie";
@@ -1063,7 +1068,7 @@ private:
 			}
 			ngtcp2_ssize ndatalen{};
 			std::uint32_t const flags = (sveccnt > 0 ? NGTCP2_WRITE_STREAM_FLAG_MORE : NGTCP2_WRITE_STREAM_FLAG_NONE)
-							| (fin != 0 ? NGTCP2_WRITE_STREAM_FLAG_FIN : 0u);
+									  | (fin != 0 ? NGTCP2_WRITE_STREAM_FLAG_FIN : 0u);
 			ngtcp2_ssize const nwrite = ngtcp2_conn_writev_stream(
 				c->conn.get(),
 				&ps.path,
@@ -1079,7 +1084,10 @@ private:
 			if (nwrite < 0) {
 				if (nwrite == NGTCP2_ERR_WRITE_MORE) {
 					if (c->h3conn.get() != nullptr && ndatalen >= 0) {
-						auto _ = nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<std::size_t>(ndatalen));
+						auto _ = nghttp3_conn_add_write_offset(
+							c->h3conn.get(),
+							stream_id,
+							static_cast<std::size_t>(ndatalen));
 					}
 					continue;
 				}
@@ -1092,7 +1100,8 @@ private:
 			}
 			if (nwrite == 0) {
 				if (ndatalen >= 0 && c->h3conn.get() != nullptr) {
-					auto _ = nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<std::size_t>(ndatalen));
+					auto _ =
+						nghttp3_conn_add_write_offset(c->h3conn.get(), stream_id, static_cast<std::size_t>(ndatalen));
 				}
 				return;
 			}

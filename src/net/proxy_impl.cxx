@@ -90,7 +90,8 @@ namespace proxy_detail {
 	auto co = make_client_opts(opts);
 	co.default_timeouts.write = co.default_timeouts.connect;
 	HttpClient client{std::move(co)};
-	auto builder = apply_headers(http::ClientRequest::method(req.method, build_upstream_url(req.path, opts)), req, opts);
+	auto builder =
+		apply_headers(http::ClientRequest::method(req.method, build_upstream_url(req.path, opts)), req, opts);
 	builder.timeouts(client.options().default_timeouts);
 	auto result = client.blocking_send(std::move(builder).build());
 	if (!result) {

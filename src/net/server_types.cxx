@@ -400,7 +400,8 @@ export template<typename T>
 				http_field_error(HttpFieldErrorKind::out_of_range, source, name, value, "is out of range")};
 		}
 		if (ec != std::errc{} || ptr != last) {
-			return std::unexpected{http_field_error(HttpFieldErrorKind::invalid, source, name, value, "is not an integer")};
+			return std::unexpected{
+				http_field_error(HttpFieldErrorKind::invalid, source, name, value, "is not an integer")};
 		}
 		return parsed;
 	} else if constexpr (std::floating_point<U>) {

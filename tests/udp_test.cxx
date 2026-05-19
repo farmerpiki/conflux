@@ -99,9 +99,10 @@ struct RingFixture {
 	SocketTaskRing task_ring;
 	bool ring_ok{false};
 	RingFixture()
-		: task_ring{SocketRawRing{&ring}, completions, [](std::uint32_t slot, std::uint32_t gen) noexcept -> std::uint64_t {
-						return pack_ud(slot, gen);
-					}} {}
+		: task_ring{
+			  SocketRawRing{&ring},
+			  completions,
+			  [](std::uint32_t slot, std::uint32_t gen) noexcept -> std::uint64_t { return pack_ud(slot, gen); }} {}
 	static std::unique_ptr<RingFixture> make(
 		unsigned entries = 64) {
 		auto fx = std::make_unique<RingFixture>();
@@ -211,8 +212,10 @@ TEST_CASE(
 	dest.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	socklen_t const dest_len = sizeof(dest);
 
-	auto const bytes_sent = fx->run(
-		send_sock.send_to_borrowed(std::span<std::uint8_t const>{payload.data(), payload.size()}, to_storage(dest), dest_len));
+	auto const bytes_sent = fx->run(send_sock.send_to_borrowed(
+		std::span<std::uint8_t const>{payload.data(), payload.size()},
+		to_storage(dest),
+		dest_len));
 	CHECK(bytes_sent == payload.size());
 
 	std::array<std::uint8_t, 256> rx_buf{};
@@ -272,8 +275,10 @@ TEST_CASE(
 	dest.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	socklen_t const dest_len = sizeof(dest);
 
-	fx->run(
-		send_sock.send_to_borrowed(std::span<std::uint8_t const>{payload.data(), payload.size()}, to_storage(dest), dest_len));
+	fx->run(send_sock.send_to_borrowed(
+		std::span<std::uint8_t const>{payload.data(), payload.size()},
+		to_storage(dest),
+		dest_len));
 
 	std::array<std::uint8_t, 256> rx_buf{};
 	auto const rx = fx->run(
@@ -311,7 +316,10 @@ TEST_CASE(
 	dest.sin6_addr = in6addr_loopback;
 	sockaddr_storage dest_ss{};
 	memcpy(&dest_ss, &dest, sizeof(dest));
-	fx->run(send_sock.send_to_borrowed(std::span<std::uint8_t const>{payload.data(), payload.size()}, dest_ss, sizeof(dest)));
+	fx->run(send_sock.send_to_borrowed(
+		std::span<std::uint8_t const>{payload.data(), payload.size()},
+		dest_ss,
+		sizeof(dest)));
 	std::array<std::uint8_t, 256> rx_buf{};
 	auto const rx = fx->run(recv_sock.recv_from(std::span<std::uint8_t>{rx_buf.data(), rx_buf.size()}));
 	REQUIRE(rx.bytes == payload.size());
